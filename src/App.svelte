@@ -507,13 +507,8 @@
   } from "./lib/game/salvage";
   import {
     tick,
-    // Phase 2 (Task A3, docs/plans/phase2-tick-map.md): the shared per-span
-    // economy body. The live poll loop below now calls THIS, the exact same
-    // function tick()'s offline catch-up runs, instead of hand-mirroring the
-    // per-captain mission / passiveTrickle / loot / resolveProcesses / credits /
-    // applyFleetAdminXp math inline, which is precisely the surface that used to
-    // drift between the two paths (ship stats, bonus-roll, credits, all logged).
-    economyTick,
+    // (economyTick, the shared per-span economy body, is no longer imported here: since HOTFIX
+    // 0.13.10 the live poll reaches it through runPollEconomy in src/lib/game/loopClock.ts.)
     tickCaptainMission,
     dispatchCaptainOnMission,
     recallCaptain,
@@ -878,6 +873,9 @@
   // into a quality bucket (dev-grant handler uses quality 0). See src/lib/game/inventory.ts.
   import { itemTotal, addItemQuality, QUALITY_TIERS } from "./lib/game/inventory";
   import { summarizeOfflineProgress, type OfflineSummary } from "./lib/game/offlineSummary";
+  // HOTFIX 0.13.10: the live loop's clock (whole cycles from real time, leftover carried forward,
+  // large gaps paid by the same catch-up a reload runs). See src/lib/game/loopClock.ts.
+  import { planPoll, runPollEconomy, type LoopClock } from "./lib/game/loopClock";
   import { formatNumber, formatDuration, formatClock } from "./lib/game/format";
   import { deriveStatistics } from "./lib/game/statistics";
   import { saveToLocalStorage, loadFromLocalStorage, clearSave, downloadRawSave, downloadLiveSave, importRawSave, hasRawSave, exportRawSave } from "./lib/game/save";
@@ -1092,8 +1090,10 @@
   // A PLAIN let (never a reactive `$:`), set imperatively ONCE in onMount on the
   // successful-load + offline-advanced path. Holds the pure before/after diff of the
   // pre-tick and post-tick GameState snapshots (see offlineSummary.ts); null keeps the
-  // modal closed. It is set exactly once at load and only cleared by the Continue
-  // button, so it never re-triggers a render off `state` (no side-effecting reactive).
+  // modal closed. It is set at load and only cleared by the Continue button, so it
+  // never re-triggers a render off `state` (no side-effecting reactive). Since HOTFIX
+  // 0.13.10 it is ALSO set imperatively by the live loop's welcomeBack, when the player
+  // returns to a hidden tab or wakes a sleeping device after a long absence.
   let offlineSummary: OfflineSummary | null = null;
   // The smallest absence (in real seconds) that is worth interrupting the player with a
   // modal. Below this the welcome-back LOG line still fires, but a full modal for a few
@@ -1144,7 +1144,6 @@
   let speed = 1;
   let logEntries: string[] = [];
   let activeCaptainIndex = 0;
-  let paused = false;
 
   // Outer bottom nav (Task 1, Phase 4; split from 5 to 6 tabs in the UI
   // Redesign, Task 7, see docs/plans/2026-07-07-ui-redesign-plan.md), no
@@ -2804,7 +2803,19 @@
 
   let tickHandle: ReturnType<typeof setInterval>;
   let saveHandle: ReturnType<typeof setInterval>;
-  let lastPollTime = Date.now();
+  // The live loop's clock (HOTFIX 0.13.10): the current cycle's start with any leftover carried
+  // forward, the previous poll's time for the fleet clock, and the pause flag. Driven ONLY by
+  // planPoll (src/lib/game/loopClock.ts); replaces the old lastPollTime / paused pair.
+  let loopClock: LoopClock = { cycleStartMs: Date.now(), lastPollMs: Date.now(), paused: false };
+
+  // Return-from-away recap (HOTFIX 0.13.10, the user chose "Same as offline"): when the tab is
+  // hidden we remember the state and the time, and when it is shown again the time away is paid
+  // and, past AWAY_SUMMARY_MIN_SECONDS, the same "While you were away" summary a reload shows is
+  // raised from the pure before/after diff. Loop bookkeeping only; no markup reads it.
+  let awayFrom: { atMs: number; snapshot: GameState } | null = null;
+  // Longer than the reload floor (OFFLINE_SUMMARY_MIN_SECONDS) on purpose: flipping to another
+  // tab for a minute or two is ordinary, and a modal on every return would be noise.
+  const AWAY_SUMMARY_MIN_SECONDS = 180;
 
   // Fleet-wide tick cycle (collapsed from a per-captain-id-keyed map during
   // the UI Redesign, Task 4, see docs/plans/2026-07-07-ui-redesign-plan.md
@@ -3070,8 +3081,9 @@
     } else {
       pushLog("New save initialized.");
     }
-    lastPollTime = Date.now();
-    cycle = { barCycleStart: lastPollTime, nowTick: lastPollTime };
+    const loopStartMs = Date.now();
+    loopClock = { cycleStartMs: loopStartMs, lastPollMs: loopStartMs, paused: false };
+    cycle = { barCycleStart: loopStartMs, nowTick: loopStartMs };
 
     // Tick-bar loop, checks the ONE shared fleet-wide cycle's progress every
     // 100ms, firing tickCaptainMission (Phase 3a) for EVERY mission captain
@@ -3100,159 +3112,126 @@
     // callback can drop an intervening update (lost update). Introduce an `await` inside
     // this callback, or between a handler's `const { next } = ...` and its `state = next`,
     // and all three of those bug classes reopen at once. Verified sound 2026-07-29.
-    tickHandle = setInterval(() => {
+    //
+    // ⚠️ HOTFIX 0.13.10, WHOLE CYCLES FROM REAL TIME, NEVER DISCARDED. This poll used to grant ONE
+    // cycle per completion and then reset the cycle start to `now`, throwing the overshoot away,
+    // so every late timer cost real progress: background tabs (throttled to 1 Hz, then once a
+    // minute), sleeping laptops and frozen mobile tabs lost most of their time, and the hidden
+    // tab's autosave stamped the save as current so a reload never recovered it. planPoll
+    // (src/lib/game/loopClock.ts) now counts every whole cycle since the cycle start and carries
+    // the leftover forward. A normal poll (a cycle or two) is stepped live exactly as before; a
+    // large gap is paid by tick(), the very catch-up a reload runs, offline cap included. The
+    // pause rules and the speed rule are unchanged and live in planPoll too, where they are tested.
+    const pollGameLoop = () => {
       const now = Date.now();
       // Consume the completed frame from the PREVIOUS poll. Cleared here, at the very top and
       // before any early return, so a pause or a speed change cannot strand the bar at 100%.
       barCompletedFrame = false;
 
-      if (speed === 0) {
-        paused = true;
-        lastPollTime = now; // freeze the fleet clock too while paused
-        return;
-      }
+      const polled = planPoll(loopClock, now, state.tickDurationSeconds, speed);
+      loopClock = polled.clock;
+      const plan = polled.plan;
 
-      if (paused) {
-        // Resuming: discard the paused wall-clock gap entirely for the fleet
-        // clock AND the shared cycle, rather than letting it read as elapsed
+      // Paused (speed 0): the poll clock is frozen and nothing advances.
+      if (plan.kind === "paused") return;
+
+      if (plan.kind === "resumed") {
+        // Resuming: the paused wall-clock gap is discarded entirely for the fleet clock AND the
+        // shared cycle (planPoll restarted both at `now`), rather than letting it read as elapsed
         // time (which would fire unearned progress on resume).
-        lastPollTime = now;
-        cycle.barCycleStart = now;
-        paused = false;
+        cycle.barCycleStart = loopClock.cycleStartMs;
         return;
       }
 
-      const realElapsedSeconds = (now - lastPollTime) / 1000;
-      lastPollTime = now;
-      state = { ...state, gameTimeSeconds: state.gameTimeSeconds + realElapsedSeconds * speed };
-
-      // barSeconds/progress computed ONCE per poll now, from the fleet-wide
-      // state.tickDurationSeconds, not per-captain (there's only one cycle
-      // to check now, not a map keyed by captain id).
-      const barSeconds = Math.max(1, state.tickDurationSeconds / speed);
+      state = { ...state, gameTimeSeconds: state.gameTimeSeconds + plan.realElapsedSeconds * speed };
       cycle.nowTick = now;
-      const progress = (now - cycle.barCycleStart) / 1000 / barSeconds;
 
-      // Phase 2 (Task A3, docs/plans/phase2-tick-map.md): the live poll's economy
-      // is now a SINGLE call to the shared economyTick, the EXACT same per-span
-      // body offline catch-up (tick()) runs. This REPLACES the hand-mirrored
-      // economy that used to live inline right here: the per-captain mission loop
-      // (its 8-field `bonuses` build + ship-stat resolution + tickCaptainMission +
-      // accumulate), the passiveTrickle loop, the loot -> addToInventory fold, the
-      // mission/lifetimeStats fold, resolveProcesses, the credits award, and the
-      // final applyFleetAdminXp pass. Centralizing ALL of it in economyTick is what
-      // makes live play and offline catch-up drift-proof BY CONSTRUCTION, those
-      // were two hand-mirrored copies of the same math and historically drifted
-      // (ship stats, bonus-roll, credits, every incident logged). economyTick
-      // internally does loot-THEN-process where this loop used to do
-      // process-then-loot, but per the A1 map those are commutative (pure Decimal
-      // addition), so the economy RESULT is identical, we are NOT preserving the
-      // old internal order, we are replacing it with economyTick's.
-      if (progress >= 1) {
-        const gameSecondsThisCycle = barSeconds * speed;
-        // Same deltaSeconds -> ticksElapsed conversion tick() uses (divide by the
-        // fleet's shared tickDurationSeconds), so the live loop's mission cadence
-        // stays identical to the offline catch-up path's, the whole point of
-        // routing both through economyTick.
-        const ticksElapsed = gameSecondsThisCycle / state.tickDurationSeconds;
+      // Phase 2 (Task A3, docs/plans/phase2-tick-map.md): the live poll's economy is the shared
+      // economyTick, the EXACT same per-span body offline catch-up (tick()) runs, which is what
+      // makes live play and offline catch-up drift-proof BY CONSTRUCTION. runPollEconomy keeps
+      // the two load-bearing rules this loop always had: it STEPS per whole tick (never one big
+      // multi-tick economyTick call, which would check the storage cap and refill refine orders
+      // only once across the span), and it hands back this loop's own gameTimeSeconds (the fleet
+      // clock advanced just above off real time), discarding economyTick's bump so the fleet
+      // clock is never double counted. At production speed one poll owes exactly one cycle of
+      // one tick, so the steady case is a single economyTick(state, 1), as it always was.
+      if (plan.mode !== "none") {
+        const ticksElapsed = plan.cycles * plan.ticksPerCycle;
 
-        // ⚠️ ticksElapsed > 0 GUARD (REQUIRED): economyTick has NO internal
-        // non-positive guard, that guard lived in tick() (`if (deltaSeconds <= 0)
-        // return state;`), the function economyTick was extracted out of. Inside
-        // this `progress >= 1` block ticksElapsed is always strictly positive today
-        // (barSeconds is floored at 1, speed is non-zero here, speed === 0 returns
-        // early at the top of this callback, and tickDurationSeconds > 0), so this
-        // guard is belt-and-suspenders. It is kept as hard insurance regardless:
-        // economyTick would otherwise happily advance a zero/negative span, and any
-        // future change to the cycle gating must not be able to silently feed it one.
+        // ⚠️ ticksElapsed > 0 GUARD (REQUIRED, belt-and-suspenders): economyTick has NO internal
+        // non-positive guard, so no future change to the cycle gating may feed it an empty span.
         if (ticksElapsed > 0) {
-          // ⚠️ gameTimeSeconds PRESERVATION (load-bearing, NON-economy concern):
-          // this live loop advances gameTimeSeconds CONTINUOUSLY off real elapsed
-          // time on EVERY poll (the `gameTimeSeconds: state.gameTimeSeconds +
-          // realElapsedSeconds * speed` reassignment near the top of this callback),
-          // deliberately decoupled from the cycle cadence for a smooth fleet clock.
-          // economyTick, HOWEVER, ALSO advances gameTimeSeconds, by this cycle's
-          // deltaSeconds, because it owns that increment on the offline path. The
-          // OLD inline economy here never touched gameTimeSeconds, so letting
-          // economyTick's bump through would DOUBLE-count the fleet clock (once at
-          // the top of this poll, once inside economyTick), a regression. So we
-          // capture the live value BEFORE the call and restore it AFTER: economyTick's
-          // full economy result is kept, its gameTimeSeconds bump alone is discarded.
-          // This is a pure no-op for the economy, gameTimeSeconds is display-only
-          // bookkeeping that NOTHING in economyTick's math reads (see economyTick's
-          // own header in tick.ts).
-          const liveGameTimeSeconds = state.gameTimeSeconds;
-
-          // Fuel-runway measurement (Wave 2), READ-ONLY snapshot of the PRE-step
-          // fuel & ice, captured here while `state` is still the pre-economy value.
-          // These reads do NOT touch `state`/`stepped` or the economy; they only
-          // feed the UI-local EMA updated after the stepping completes below.
+          // Fuel-runway measurement (Wave 2), READ-ONLY snapshot of the PRE-step fuel & ice,
+          // captured while `state` is still the pre-economy value. They only feed the UI-local
+          // EMA updated below and never touch the economy.
           const preFuel = state.fuel.toNumber();
           // Quality-bucketed (Task 9a): ice total across buckets via itemTotal (absent -> 0).
           const preIce = itemTotal(state.inventory, "deuteriumIce").toNumber();
+          const beforeEconomy = state;
 
-          // ⚠️ STEP per whole tick, exactly like the offline tick() path, do NOT hand
-          // economyTick one big multi-tick span. economyTick's auto-stop cap-check and
-          // refine-order refill each run ONCE per call, so a single economyTick(state, N)
-          // for N>1 would evaluate the storage cap only once across the whole span --
-          // under-enforcing caps and under-producing refine throughput versus offline
-          // catch-up (which steps, see tick()). At production speed (1x, tickDuration 1s)
-          // ticksElapsed is always exactly 1, so this is a single-iteration no-op that
-          // matches the old one-shot call identically; it only diverges (correctly) at
-          // DEV_MODE fast-forward speeds where ticksElapsed > 1. Mirror of tick(): whole
-          // steps first, then a trailing fractional remainder. rng is omitted (defaults
-          // to Math.random), same as the old single call.
-          //
-          // ⚠️ 0.13.3 Unit 4.4b: the LIVE half of the injected completion clock. Every step
-          // of this poll is stamped with ONE Date.now() captured here, which is exact at
-          // production speed (ticksElapsed is exactly 1, so one poll IS one tick) and is a
-          // deliberate, documented simplification at DEV fast-forward speeds, where several
-          // ticks are batched into one poll and therefore share a stamp. Reading the clock
-          // HERE rather than inside economyTick is the whole point: the tick stays a pure
-          // function of its arguments, so an offline catch-up handed a reconstructed
-          // schedule produces the identical log to this loop.
+          // ⚠️ 0.13.3 Unit 4.4b: the LIVE half of the injected completion clock. Every step of a
+          // live poll is stamped with ONE Date.now() captured here (exact at production speed,
+          // where one poll IS one tick); a catch-up uses it as the END of its reconstructed
+          // schedule, exactly like the reload path. Reading the clock HERE rather than inside
+          // economyTick keeps the tick a pure function of its arguments.
           const completionClockMs = Date.now();
-          let stepped = state;
-          const wholeSteps = Math.floor(ticksElapsed);
-          for (let i = 0; i < wholeSteps; i++) {
-            stepped = economyTick(stepped, 1, Math.random, completionClockMs);
-          }
-          const frac = ticksElapsed - wholeSteps;
-          if (frac > 0) {
-            stepped = economyTick(stepped, frac, Math.random, completionClockMs);
-          }
-          // Restore the live fleet clock: economyTick bumped gameTimeSeconds on every
-          // step above, but this loop owns that clock continuously off real elapsed time
-          // (top of the poll). Discard economyTick's bumps, keep its full economy result.
-          state = { ...stepped, gameTimeSeconds: liveGameTimeSeconds };
+          state = runPollEconomy(state, plan, Math.random, completionClockMs);
 
-          // Fuel-runway EMA update (Wave 2), runs AFTER the economy is fully
-          // stepped, comparing the post-step fuel & ice (read off `stepped`) to the
-          // pre-step snapshot captured above. Per-tick instantaneous rate = total
-          // delta over this poll / ticksElapsed (so DEV fast-forward polls that
-          // batch multiple ticks still contribute a per-TICK rate, not a per-poll
-          // one). The first sample seeds the EMA directly; thereafter it blends.
-          // This is pure UI bookkeeping, it writes only these three locals and
-          // never mutates `state`/`stepped` or the economy.
-          const postIce = itemTotal(stepped.inventory, "deuteriumIce").toNumber();
-          const instDFuel = (stepped.fuel.toNumber() - preFuel) / ticksElapsed;
+          // Fuel-runway EMA update (Wave 2): per-tick instantaneous rate = total delta over this
+          // poll / ticksElapsed, so a poll that pays several ticks still contributes a per-TICK
+          // rate. The first sample seeds the EMA directly; thereafter it blends. Pure UI
+          // bookkeeping: it writes only these three locals.
+          const postIce = itemTotal(state.inventory, "deuteriumIce").toNumber();
+          const instDFuel = (state.fuel.toNumber() - preFuel) / ticksElapsed;
           const instDIce = (postIce - preIce) / ticksElapsed;
           emaDFuelPerTick =
             runwaySamples === 0 ? instDFuel : RUNWAY_EMA_ALPHA * instDFuel + (1 - RUNWAY_EMA_ALPHA) * emaDFuelPerTick;
           emaDIcePerTick =
             runwaySamples === 0 ? instDIce : RUNWAY_EMA_ALPHA * instDIce + (1 - RUNWAY_EMA_ALPHA) * emaDIcePerTick;
           runwaySamples++;
+
+          // A large gap seen while the tab is VISIBLE (a sleep the browser never reported as
+          // hidden) gets its recap here. A gap paid while hidden is recapped by the visibility
+          // handler instead, once, over the whole time away.
+          if (plan.mode === "catchUp" && awayFrom === null && !document.hidden) {
+            welcomeBack(beforeEconomy, plan.realElapsedSeconds);
+          }
         }
 
-        // Reset once for the whole fleet, not per-captain, there's only one
-        // shared cycle now. (Poll-lag overshoot past the boundary is discarded --
-        // same as always.)
-        cycle.barCycleStart = now;
-        // ⚠️ Raised in the SAME poll that resets the cycle, which is the whole point: without it
-        // the reset above is the reason the last tenth is never rendered. The next poll clears it.
+        // The cycle start carries the leftover forward (planPoll), so a late poll never costs
+        // time. Once for the whole fleet: there is one shared cycle.
+        cycle.barCycleStart = loopClock.cycleStartMs;
+        // ⚠️ Raised in the SAME poll that starts the next cycle, which is the whole point: without
+        // it the last tenth of the bar is never rendered. The next poll clears it.
         barCompletedFrame = true;
       }
-    }, 100);
+    };
+
+    // "Same as offline" recap for a return from a long absence (HOTFIX 0.13.10): the same log
+    // line pattern and the same "While you were away" modal the reload path raises, built from
+    // the same pure before/after diff. Skipped for short absences, and while paused (nothing ran).
+    const welcomeBack = (before: GameState, secondsAway: number) => {
+      if (loopClock.paused || secondsAway < AWAY_SUMMARY_MIN_SECONDS) return;
+      pushLog(`Welcome back. Advanced ${formatNumber(secondsAway)}s while away.`);
+      const summary = summarizeOfflineProgress(before, state, secondsAway);
+      if (summary.hasContent) offlineSummary = summary;
+    };
+
+    tickHandle = setInterval(pollGameLoop, 100);
+
+    // Pay what is owed the moment the tab is shown again rather than up to a throttled timer
+    // period later, and recap the whole hidden stretch once. Hiding only remembers where we were.
+    const onVisibilityChange = () => {
+      if (document.hidden) {
+        if (awayFrom === null) awayFrom = { atMs: Date.now(), snapshot: state };
+        return;
+      }
+      pollGameLoop();
+      const away = awayFrom;
+      awayFrom = null;
+      if (away !== null) welcomeBack(away.snapshot, (Date.now() - away.atMs) / 1000);
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
 
     // Autosave every 30s, tech spec §6.
     saveHandle = setInterval(doSave, 30000);
@@ -3272,7 +3251,10 @@
 
     const onUnload = () => doSave();
     window.addEventListener("beforeunload", onUnload);
-    return () => window.removeEventListener("beforeunload", onUnload);
+    return () => {
+      window.removeEventListener("beforeunload", onUnload);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+    };
   });
 
   onDestroy(() => {
