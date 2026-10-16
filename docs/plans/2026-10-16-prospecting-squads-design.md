@@ -302,3 +302,12 @@ large 0.14.0; if the release is tight, PS-3 is the slice that could wait without
     Tireless, Rockhound, Deep Vein, Plasma Cutter, Rock Breaker, Sampling Lance, Excavator Suit, Assay Scanner, Seismic
     Mapper, Ore-Sense Optic, Myo-Lift Frame, Claim, Dig, and the code's existing squad label "Prospecting Crew"
     (Recommended). (b) Rename some (tell me which).
+
+## USER ANSWERS (2026-10-16)
+
+- **Roles:** "Excavation / Drilling / Assaying (Recommended)" (Excavation +15% YIELD; Drilling +10% FIELD and +10% HAZ;
+  Assaying +10% GRADE).
+- **Stats:** "Add YIELD + GRADE (Recommended)": reuse FIELD and HAZ, add YIELD and GRADE.
+- **Fights:** "Never, retreat (Recommended)": like Survey teams; Security protects them.
+- **Team kinds:** "Type + two team kinds (Recommended)": the squad type plus two hidden team kinds (Security +
+  Prospecting; 2 Prospecting); kind names still [PROPOSAL].
