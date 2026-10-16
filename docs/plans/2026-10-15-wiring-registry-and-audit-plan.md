@@ -772,7 +772,7 @@ Commit `feat(0.14.0): headless simulated player with ablation and safe-first-run
 handlers call: dispatch, recall, patrol, launch, claim, board hire, the Quartermaster kit (requisition + install on
 the member), cheapest-first captain / secondary / Homeworld talents and facility rungs), `policies.ts` (policies as
 data), `simPlayer.ts` (the driver, the report, the outcome metrics), `ablation.ts` (the choice ablation); tests
-`simPlayer.test.ts` (7 default tests, each under 0.7 s) and `simPlayer.sweep.test.ts` (gated: `npm run test:sim`,
+`simPlayer.test.ts` (8 default tests, each under 0.7 s) and `simPlayer.sweep.test.ts` (gated: `npm run test:sim`,
 vitest mode `sim`, or `SIM_FULL=1`; `SIM_SEEDS=0,1,2` widens the ablation's seeds). Commit
 `test(0.14.0): headless simulated player and choice ablation (WR-2)`.
 
@@ -789,9 +789,23 @@ balance pass (their tuning targets are its job).
   default runs are 0.5 to 8 h, not 24 h, and the sweep plays 1 seed per choice by default, not 200 (200 x 475
   choices is days). Offline == live holds exactly: one call, 997 s chunks and 1 s ticks per look give identical
   reports (default test on 2 h, gated on both whole runs).
-- "Build the first explorer" is a shortcut: ship-1 is retyped to the Orion with its Standard Issue (the SF-0 `onHull`
-  method). A fresh save cannot build one without the crafting chain (Shipyard founding, the hull blueprint, salvaged
-  components), which is the balance pass's speedrun policy.
+- "Build the first explorer" is a shortcut: `freshState()` with ship-1 retyped to the Orion FIRST, then its own
+  Standard Issue installed (exactly the SF-0 `onHull` method; a test pins the loadout equal, one weapon on the
+  one-hardpoint hull). It skips the hull blueprint and the whole build chain (Shipyard founding, salvaged components),
+  so allAuto proves "unlosable once you own an explorer", NOT that a player can reach one; that is the balance pass's
+  speedrun policy. (WR-2 review: the first build retyped AFTER the freighter's baselines, leaving the Orion two
+  autocannons; the Sweep then ended at 574 shield left instead of 236. Fixed; every number below is re-measured.)
+- Explorers only (user rules since the WR-2 brief): the training run is the first expedition FROM AN EXPLORER, and only
+  explorers will reach expedition systems (G2's reach gate). The newcomer's freighter launch is therefore "not the
+  training run"; its pins (`simPlayer.test.ts` newcomer test, the gated first-run batch) are CURRENT BEHAVIOR that G2
+  flips to a refusal. The engine's shakedown flag means "first expedition on the account" (`expedition.ts`
+  startExpedition, `nextExpeditionId === 1`); SF must change it to "first from an explorer".
+- `exercised` counts the Shipyard context only for repair seams (`repairTicks`, `officerRepairBonus`, `turnaround`,
+  `dcRepairReduction`): the sim repairs a lost hull but never builds, buys bays or docks, so the Ship Docks rungs and
+  the build-speed and bay rungs read "context not played".
+- For the registry owner: `SUBSPACE_TELESCOPE_LEVELS` rungs 2, 4, 6 and 8 repeat the rung below's `detail` by design,
+  yet the registry emits a `detail` entry for every rung (registry.ts telescope loop); emit it only where detail
+  changes. Not a one-line `catalogs.ts` filter (the completeness test enumerates every rung's fields), so left as a note.
 - The weakest crew is the wiring fixture's pair (`withAwayTeam`: rank 1, no traits), since the recruit board never
   offers a traitless rank 1 pair; it is also what lets every member-scoped registry transform land on the sim's crew.
 - The sim's new game is `installMissingCombatBaselines(freshState())`, exactly as App.svelte starts one: a bare
@@ -806,29 +820,32 @@ balance pass (their tuning targets are its job).
   `exercised` says whether a claimed context is one the policy plays; a dead live entry in a played context is a
   `surprise`, as is a wholly pending entry that moves.
 
-**Findings (gated sweep, allAuto, seed 0, 8 h horizon, 477 runs in 134 s):** 475 player choices: 114 move an outcome,
+**Findings (gated sweep, allAuto, seed 0, 8 h horizon, 477 runs in 127 s; re-measured on the legal Orion, the same
+counts as before the fix):** 475 player choices: 114 move an outcome,
 190 move only their seam, 134 move nothing, 32 noChange, 5 skipped. Of the 134 dead: 110 pending (as expected; 104 in a
-context the sim does not play), 1 deferred, 1 held, and 22 LIVE in a played context, 17 of them a "nothing to act on in
-this save" case so far: the 7 crew amplifier modules (3 bridge, 4 quarters) with no officer or complement to amplify,
-the 8 Ship Docks rungs with one ship, the medic heal ground effect (no Medical Training), Lucky Strike II (a proc that
-never rolled in 7 deliveries); and 5 whose own seam reads the same on the sim's save (4 Telescope detail levels, the
-museum sensors stat), worth a look in WR-3's panel. Of the 178 live seamOnly, 55 are in contexts the sim does not
-play (warehouse caps, storage, berths, Shipyard rungs, research) and the rest are mostly member gear lines, traits,
+context the sim does not play), 1 deferred, 1 held, and 22 live: the 8 Ship Docks rungs (context not played: the sim
+never docks a second ship) and 14 surprises in played contexts, none a broken wire found so far: the 7 crew amplifier
+modules (3 bridge, 4 quarters) with no officer or complement to amplify, the medic heal ground effect (no Medical
+Training), Lucky Strike II (a proc that never rolled in 7 deliveries), the 4 Telescope detail rungs that repeat the
+rung below by design (the registry note above), and the museum sensors stat (its seam reads the same on the sim's
+save: worth a look in WR-3's panel). Of the 178 live seamOnly, 60 are in contexts the sim does not
+play (warehouse caps, storage, berths, Shipyard build and bay rungs, research) and the rest are mostly member gear lines, traits,
 officer facets and relics whose seam moves while the run stalls on fights first (seed 0's shakedown completes 0 of 11). The 5
 skipped are fixture limits (the captain-slot nodes need admin points; the droneHp / droneAccuracy transforms install a
 role-less pod on an Orion).
 
-**With `SIM_SEEDS=0,1,2`** (all three shakedown candidates, 1,431 runs in 873 s): 131 move, 173 seamOnly, the same
+**With `SIM_SEEDS=0,1,2`** (all three shakedown candidates, 1,431 runs in 873 s; measured before the review fix, on
+the two-gun Orion): 131 move, 173 seamOnly, the same
 134 dead (the same 22 live ones), 32 noChange, 5 skipped. The 17 that newly move are fight and fieldwork sources (6
 Security weapon or tool groundPower lines, Flora Scanner fieldwork and hazard resist, Breacher, Field Medic, Revive),
 4 relics and the 2 rare-yield Homeworld nodes, which seed 0 alone did not reach.
 
 **Safe first runs, today (characterization, pinned):** the allAuto newcomer delivers its gathering run (7 deliveries,
-first at 180 s, never a defeat) and wins its first Sweep (2 waves, 0 lost), but the first expedition (the shakedown)
+first at 180 s, never a defeat) and wins its first Sweep (2 waves, 0 lost, 340 hull and 236 shield left), but the first expedition (the shakedown)
 STALLS on all three fresh-save candidates: cand-0 0/11 done, stuck on Derelict Outpost, 3 lost fights; cand-1 4/10,
 stuck on Geothermal Chamber, 4 lost fights, 2 ship-event setbacks, 3 credits to boarders; cand-2 4/9, stuck on the
-Buried Vault, 4 lost fights, 55 hull damage, 2 setbacks. The newcomer (board hires, kit) matches it (cand-2: 80 hull
-damage, cand-1: 3 setbacks). SF-2 flips `simPlayer.test.ts`'s pin and the gated "no seed is safe" count; SF-4 owns the
+Buried Vault, 4 lost fights, 55 hull damage, 2 setbacks. The newcomer (board hires, kit, on the freighter: not the training run, G2 refuses
+it) matches it (cand-2: 80 hull damage, cand-1: 3 setbacks). SF-2 flips `simPlayer.test.ts`'s pin and the gated "no seed is safe" count; SF-4 owns the
 patrol side (`patrol` records are already in the report).
 
 ### WR-3: The Debug "Wiring" panel (`?dev` only)

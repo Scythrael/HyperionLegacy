@@ -45,9 +45,12 @@ describe.runIf(SIM_FULL)("WR-2 gated: the first-run batch (Safe First Runs, toda
       );
       for (const r of reports) {
         expect(r.gather?.defeat).toBe(false);
+        // CURRENT BEHAVIOR for the newcomer (a General Freighter), flipped by G2: only explorers will reach
+        // expedition systems, so its launch becomes a refusal and its run is "not the training run" (the training
+        // run is the first expedition FROM AN EXPLORER; SF changes the engine's "first on the account" shakedown).
         expect(r.expeditions.length).toBeGreaterThan(0);
       }
-      // TODAY: no seed's first expedition is safe for either policy (SF-2 makes every one safe).
+      // TODAY: no seed's first expedition is safe for either policy (SF-2 makes allAuto's, the explorer's, safe).
       expect(reports.filter((r) => r.firstExpedition.safe).length).toBe(0);
     }, 600_000);
   }

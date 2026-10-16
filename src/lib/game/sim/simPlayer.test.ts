@@ -17,6 +17,7 @@ import { wiringEntry } from "../wiring/registry";
 import { ADVANCE_MODES, simStartState, simulate, type SimReport } from "./simPlayer";
 import { ALL_AUTO, NEWCOMER, SIM_HOUR, scripted } from "./policies";
 import { ablateChoices } from "./ablation";
+import { onHull } from "../firstRunsGoldens.fixture";
 
 const withoutMode = (r: SimReport): Omit<SimReport, "advance"> => {
   const { advance: _mode, ...rest } = r;
@@ -68,10 +69,17 @@ describe("WR-2 choice ablation: a live choice moves, an inert one is dead", () =
 });
 
 describe("WR-2 safe first runs: the allAuto newcomer baseline, characterized today (SF-2 / SF-4 flip these)", () => {
+  it("the sim's Orion is a legal hull: exactly the SF-0 onHull loadout (its own one-hardpoint baselines)", () => {
+    const s = simStartState(ALL_AUTO).state;
+    const fitted = (x: typeof s) => x.equipment.filter((e) => e.fittedToShipId === "ship-1");
+    expect(fitted(s)).toEqual(fitted(onHull("orion")));
+    expect(fitted(s).filter((e) => e.slotType === "weapon").length).toBe(1);
+  });
+
   it("seed 0: the gathering run delivers, the first Sweep is won, the first expedition (the shakedown) stalls", () => {
     const r = simulate(ALL_AUTO, { seed: 0 });
     expect(r.gather).toEqual({ mission: "shortOreRun", refusal: null, deliveries: 7, firstDeliverySeconds: 180, defeat: false });
-    expect(r.patrol).toEqual({ patrol: "crimsonReaverSweep", refusal: null, won: true, endReason: "ordersComplete", repairSeconds: null, wavesWon: 2, wavesLost: 0, hullLeft: 340, shieldLeft: 574 });
+    expect(r.patrol).toEqual({ patrol: "crimsonReaverSweep", refusal: null, won: true, endReason: "ordersComplete", repairSeconds: null, wavesWon: 2, wavesLost: 0, hullLeft: 340, shieldLeft: 236 });
     const first = r.expeditions[0];
     expect(first.shakedown).toBe(true);
     expect(first.candidate).toBe(0);
@@ -96,6 +104,12 @@ describe("WR-2 newcomer archetype: the real new game", () => {
     expect(r.gather?.defeat).toBe(false);
     expect(r.gather?.deliveries).toBeGreaterThan(0);
     expect(r.patrol?.refusal).toBeNull();
+    // CURRENT BEHAVIOR, flipped by G2: the freighter launches an expedition today. User rules since WR-2: the
+    // training run is the first expedition FROM AN EXPLORER, and only explorers reach expedition systems (G2's reach
+    // gate), so this launch is "not the training run" and G2 makes it a refusal. The engine's shakedown flag still
+    // means "first expedition on the account" (expedition.ts startExpedition, nextExpeditionId === 1); SF must make it
+    // "first from an explorer".
     expect(r.expeditions.length).toBe(1);
+    expect(r.expeditions[0].shakedown).toBe(true);
   });
 });

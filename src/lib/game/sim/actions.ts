@@ -58,17 +58,17 @@ const done = (next: GameState): ActionResult => ({ next, ok: true });
 
 // == start-of-game setup ==
 
-// A new game exactly as the App starts one (App.svelte: `installMissingCombatBaselines(freshState())`).
-export function newGameState(): GameState {
-  return installMissingCombatBaselines(freshState());
-}
-
-// ship-1 retyped to `hull` with its combat Standard Issue installed: the Safe First Runs section 2.5 method
-// (firstRunsGoldens.fixture.ts onHull). It STANDS IN for building the hull: a fresh save cannot build an explorer
-// without the crafting chain (Shipyard founding, the hull blueprint, salvaged components), which is the balance
-// pass's speedrun policy, not this slice (WR-2 carry note).
-export function retypeStartingHull(state: GameState, hull: ShipTypeKey): GameState {
-  return installMissingCombatBaselines({ ...state, ships: state.ships.map((s) => (s.id === SIM_SHIP_ID ? { ...s, typeKey: hull } : s)) });
+// A new game exactly as the App starts one (App.svelte: `installMissingCombatBaselines(freshState())`), optionally
+// with ship-1 retyped to `hull` FIRST and its combat Standard Issue installed after (the Safe First Runs section 2.5
+// method, firstRunsGoldens.fixture.ts onHull), so the hull gets ITS OWN baselines (an Orion has one hardpoint;
+// installing the freighter's baselines first would leave it two autocannons). The retype STANDS IN for owning the
+// hull: it skips the hull blueprint and the whole build chain (Shipyard founding, salvaged components), so a run from
+// it proves "unlosable once you own an explorer", not that a player can reach one (the balance pass's speedrun
+// policy owns that; WR-2 carry note).
+export function newGameState(hull: ShipTypeKey | null = null): GameState {
+  const base = freshState();
+  if (hull === null) return installMissingCombatBaselines(base);
+  return installMissingCombatBaselines({ ...base, ships: base.ships.map((s) => (s.id === SIM_SHIP_ID ? { ...s, typeKey: hull } : s)) });
 }
 
 // The weakest crew that can launch (the D18 minimum: 1 Security + 1 Science, rank 1, no traits, no gear) slotted

@@ -3695,14 +3695,14 @@ export function addToInventory(
 // them here is the whole point. This is a MECHANICAL lift, not a math rewrite:
 // nothing in the moved arithmetic changed.
 //
-// Pure/deterministic given (state, ticksElapsed, rng): advancing by ticksElapsed
-// in ONE call equals advancing by chunks summing to ticksElapsed, because every
-// subsystem this calls (tickCaptainMission / resolveProcesses / applyFleetAdminXp)
-// is already closed-form (see tickCaptainMission's header). That closed-form
-// property is what lets the caller drive a span as a chunk loop: tick() steps
-// economyTick(state, 1, rng) once per WHOLE tick, plus one fractional-remainder
-// call, NOT once over the whole span (see tick() below). The earlier note here
-// claiming a single whole-span call was stale after that chunk-loop landed.
+// Pure/deterministic given (state, ticksElapsed, rng). It is NOT closed-form over a
+// multi-tick span: measured (WR-2, 2026-10-16), ONE economyTick over 3,600 ticks of a
+// Short Ore Run credits 60 and hauls 176 Titanium Ore, where 3,600 one-tick calls
+// credit 720 and haul 2,119 (the auto-stop cap check and the refill passes run once
+// per call, and a mission production call crosses at most one cycle boundary). The closed-form span is
+// tick() below, which steps economyTick(state, 1, rng) once per WHOLE tick plus one
+// fractional-remainder call; every caller (tick(), the live loop in App.svelte)
+// drives it that way, and so must any new one.
 //
 // Idle captains (mission === null) have no passive economy anymore, missions
 // are the only way a captain does anything. Only mission captains need advancing;

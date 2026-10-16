@@ -11,7 +11,9 @@
 //   newcomer : the SUGGESTIONS archetype "dispatches whatever is available, upgrades whatever is cheapest", on the
 //              REAL fresh save (the General Freighter): hires the board's lowest-rank Security and Science, draws
 //              the Quartermaster's Standard-Issue kit for them, buys the cheapest talents and facility rungs it can,
-//              gathers longer, patrols once, then flies expeditions.
+//              gathers longer, patrols once, then flies expeditions. CURRENT BEHAVIOR, flipped by G2: only explorers
+//              will reach expedition systems, so the freighter's launch is "not the training run" (the training run
+//              is the first expedition from an explorer) and becomes a refusal.
 //   scripted : any policy plus a list of choices applied to the start (a talent node, an officer bonus, a gear line,
 //              a module, a facility rung, a museum record). The ablation runs scripted([choice]) against allAuto.
 

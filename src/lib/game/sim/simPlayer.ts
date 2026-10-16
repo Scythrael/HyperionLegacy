@@ -38,7 +38,6 @@ import {
   launchExpedition,
   newGameState,
   recall,
-  retypeStartingHull,
   startCheapestFacilityRung,
   type ActionResult,
 } from "./actions";
@@ -169,8 +168,7 @@ export function simStartState(policy: SimPolicy): { state: GameState; log: SimLo
     log.push({ at: 0, action, ok: r.ok, ...(r.reason ? { reason: r.reason } : {}) });
     return r.next;
   };
-  let s = newGameState();
-  if (policy.start.hull !== null) s = retypeStartingHull(s, policy.start.hull);
+  let s = newGameState(policy.start.hull);
   if (policy.start.crew === "weakest") s = note("fieldWeakestCrew", fieldWeakestCrew(s));
   if (policy.start.crew === "board") {
     s = note("hire:security", hireFromBoard(s, "security", true));

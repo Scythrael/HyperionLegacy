@@ -66,7 +66,6 @@ export const SIM_EXERCISED_CONTEXTS: ReadonlySet<ContextId> = new Set<ContextId>
   "sheet",
   "mission:extraction",
   "patrol",
-  "shipyard",
   "expedition:groundOps",
   "shipEvent",
   "ground",
@@ -76,6 +75,15 @@ export const SIM_EXERCISED_CONTEXTS: ReadonlySet<ContextId> = new Set<ContextId>
   "fleet",
   "captain",
 ]);
+
+// The Shipyard context is played ONLY for repair (a lost patrol's hull): never a build, a bay or a dock. So an entry
+// whose claimed context is "shipyard" counts as exercised only when its seam is a repair reading.
+export const SIM_SHIPYARD_REPAIR_PROBES: ReadonlySet<string> = new Set(["repairTicks", "officerRepairBonus", "turnaround", "dcRepairReduction"]);
+
+function contextExercised(e: WiringEntry, c: ContextId): boolean {
+  if (c === "shipyard") return e.probe !== undefined && SIM_SHIPYARD_REPAIR_PROBES.has(e.probe);
+  return SIM_EXERCISED_CONTEXTS.has(c);
+}
 
 export function isSimChoice(e: WiringEntry): boolean {
   return SIM_CHOICE_CATALOGS.has(e.source.catalog) && e.notApplicable === undefined;
@@ -146,7 +154,7 @@ export function ablateChoices(
   const verdicts: ChoiceVerdict[] = [];
   for (const e of entries) {
     const head = { id: e.id, system: e.system, catalog: e.source.catalog, status: e.status.kind };
-    const exercised = e.contexts.some((c) => SIM_EXERCISED_CONTEXTS.has(c));
+    const exercised = e.contexts.some((c) => contextExercised(e, c));
     let offStart: GameState;
     let onStart: GameState;
     try {
