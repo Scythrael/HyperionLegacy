@@ -573,3 +573,18 @@ Follow-up answers (user, 2026-10-16):
   to go around." So: events fire and always pass on the training run; FUTURE idea (logged): transit hazards en route
   at higher tiers.
 - **SF16 recall first:** "Training carries over (Recommended)".
+
+## USER ANSWERS, group 2: tutorial hooks (2026-10-16)
+
+- **Expedite now:** "Hook only": in 0.14.0 first runs keep normal length; the tutorial patch turns expediting on.
+  (Follow-up asked: today's existing 30-minute shakedown first expedition.)
+- **Time-skip scope:** "Every timed process (Recommended)": one shared seam covering missions, patrols, expeditions,
+  ship builds and repairs, research, crafting, refining, salvage and facility upgrades; unused until the tutorial.
+- **Non-explorer first expedition (verbatim):** "The balance for expeditions make it impossible for any ships that
+  exist in-game now to be able to dispatch in one of them. Because their ships/cores don't have enough capacity and/or
+  speed to get them there without running out of fuel and dying in the cold depths of space all alone." So: only
+  explorers can reach expedition systems; non-explorer hulls fail the reach / drive gate even for Tier I. TODAY the
+  code lets every hull launch an expedition (no reach gate): G2's reach gate must enforce this, and the dispatch screen
+  must say why ("can't reach: needs an explorer's range and drive").
+- **Grant hook:** "Yes, add it now (Recommended)": one shared grant seam (items, credits, gear, a hull) with a log line,
+  tested, unused until the tutorial / quests patch.

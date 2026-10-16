@@ -464,3 +464,6 @@ names in game text (the Wolf 359 nod stays original).
 - **G10 / OC-10 Wolf 359:** "Guaranteed early (Recommended)": guaranteed in the first Tier I list after the first run;
   its nod is the user's to name later (OPEN).
 - **G9 / OC-9 banked names:** "Retire them (Recommended)": new candidates use real star names; in-flight runs keep theirs.
+- **Non-explorer hulls (2026-10-16, user):** no current non-explorer hull can reach ANY expedition system ("their
+  ships/cores don't have enough capacity and/or speed to get them there"). G2-4's reach / drive gate must refuse every
+  non-explorer hull, Tier I included, with the reason shown. (Today any hull can launch: fix in G2-4.)
