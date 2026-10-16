@@ -623,3 +623,11 @@ them honestly, or hide the tree. Raised with the user.
 
 Also verified: the salvage data-loss findings (CP-6) are branch-only (main SAVE 54 has no expeditions or crew);
 the CP-6 core fix was dispatched the same day.
+
+## USER ANSWERS (2026-10-16)
+
+- **OC-5 per-hull caps:** "REmember, the Andromeda has 1017. That's the largest." The 1,017-crew flagship (D15, a
+  later hull tier, not 0.14.0) is named the ANDROMEDA (user-named) and is the largest crew in the fleet. So Eir's
+  description ("the largest crew the fleet fields") is wrong, and every 0.14.0 hull cap stays below 1,017. Exact
+  explorer caps re-asked 2026-10-16.
+- **OC-23 soft captain cap:** "From level 30 (Recommended)": past level 30 each level needs x1.08 more experience.

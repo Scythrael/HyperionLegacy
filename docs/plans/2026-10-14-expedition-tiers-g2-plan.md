@@ -456,3 +456,8 @@ names in game text (the Wolf 359 nod stays original).
 - **G7 / OC-7 frontier sensors:** "Sensor gate per tier (Recommended)": I 0, II 10, III 20, IV 30, V 40, VI 55, VII 65.
 - **G2 / OC-2 existing saves:** "Random for everyone (Recommended)": each existing save gets its own random homeworld
   at the v70 migration (display distances only).
+- **G8 / OC-8 enemy territory (2026-10-16):** "Fixed sectors on the map" (NOT the per-system chance). Enemy territory
+  is fixed regions on each player's galaxy map, shaded on the telescope map; candidates inside a sector are enemy
+  territory. Sector layout per homeworld is [PROPOSAL] for the G2 build.
+- **G16 / OC-16 tier rewards:** "Haul x1 to x3.3 now (Recommended)": I 1, II 1.25, III 1.5, IV 1.8, V 2.2, VI 2.7,
+  VII 3.3; relic odds stay with Relics v2.
