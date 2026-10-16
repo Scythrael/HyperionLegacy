@@ -467,3 +467,9 @@ names in game text (the Wolf 359 nod stays original).
 - **Non-explorer hulls (2026-10-16, user):** no current non-explorer hull can reach ANY expedition system ("their
   ships/cores don't have enough capacity and/or speed to get them there"). G2-4's reach / drive gate must refuse every
   non-explorer hull, Tier I included, with the reason shown. (Today any hull can launch: fix in G2-4.)
+- **G1 / OC-1 homeworlds:** "Local Bubble, 10-120 ly (Recommended)".
+- **G4 / OC-4 reach:** "One reach stat (Recommended)": real light-years = today's range x drive class multiplier x
+  Engineering; mission / patrol LY displays grow, their gates do not change.
+- **G11 / OC-11 picking:** "Region, then 3 nearest (Recommended)".
+- **G12 / OC-12 recall:** "Resumable" (NOT the recommendation): a recalled system stays open for that ship to return
+  and finish (stored bodies and objectives, a skip-the-scan relaunch). Bigger build: G2-5 grows; details asked.
