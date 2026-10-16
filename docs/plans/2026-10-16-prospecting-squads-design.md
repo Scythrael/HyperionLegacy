@@ -315,3 +315,7 @@ large 0.14.0; if the release is tight, PS-3 is the slice that could wait without
 - **Shared gear:** "Hazard gear + Steady (Recommended)".
 - **Later uses (multi):** prospecting quests, expedition mineral sites, AND ship mining missions (all three).
 - **QA access:** "Tests only" (NOT a Debug toggle): no in-game way to see them until the quests patch.
+- **Recruit odds:** "Separate board slots": Prospecting recruits get their own slots on the recruit board (Security /
+  Science rolls unchanged).
+- **Unlock:** user answered "Something else" with no detail: re-asked 2026-10-16.
+- **Names:** "Keep them (Recommended)".
