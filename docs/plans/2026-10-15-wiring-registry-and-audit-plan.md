@@ -1428,3 +1428,7 @@ is the first candidate to ask the user about a 0.14.x deferral, recorded as `def
   default (Recommended)", 200 seeds in full mode. **OC-G5 + OC-J4:** "Delete frozen copies, keep safeties
   (Recommended)". => ALL wiring open calls except the 35 captain node rows (covered by OC-A1..A3 "Proposed sizes" and
   the plan's node table defaults) are now answered.
+- **WR-5a calls (2026-10-17):** "Block buying while out (Recommended)": no secondary talent buys while the captain's
+  ship is out (shipCrewLocked); "Always multiply (Recommended)": every "+X%" talent is its own x(1 + X) factor (applies
+  to WR-5b / WR-5c too); Assayer "Own ship only (Recommended)"; Trade Routes / Shrewd Negotiator "As built
+  (Recommended)" (docked pay after one delivered supply run; discount adds to profit).
