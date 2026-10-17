@@ -876,3 +876,7 @@ Reading (this reshapes FK-1, FK-4, FK-5, FK-6, FK-8, FK-9):
   (Recommended)": the target's group at 1.5x the thrower's power, 30% Concussion. **N5:** "Normal (Recommended)".
 - **Boss strength (2026-10-16):** "Soften Dangerous (Recommended)": Dangerous objectives end with an ELITE (x1.7);
   only Deadly gets the Boss (x2.5). Challenging stays Elite. (Supersedes the earlier mapping.)
+- **Weak / Strong (2026-10-16):** "Use them on the curve (Recommended)": early-curve runs (a new player's first Tier I
+  runs) use Weak enemies (the curve's low end expressed as the Weak rank, owned by SF-3); Dangerous objectives' NON-final
+  fight leads are Strong. **Rank heals:** "Yes, heal scales too (Recommended)".
+- **Build order:** "SF-2 next, then staging (Recommended)".
