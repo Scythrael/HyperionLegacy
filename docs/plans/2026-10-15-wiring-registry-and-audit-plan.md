@@ -1383,3 +1383,6 @@ is the first candidate to ask the user about a 0.14.x deferral, recorded as `def
   "Expeditions too (Recommended)". **OC-D4 module slots:** "Cap module-class slots (Recommended)".
 - **Fuel refund at v70 (2026-10-16):** "Refund as credits (Recommended)": leftover fuel converts to credits at the old
   purchase price (FUEL_CREDITS_PER_UNIT) with a one-time log note.
+- **Fuel refund scope (2026-10-16):** the user confirmed the ship fuel / range STAT stays (only the retired stockpile
+  goes); refund "Only above the free tank (Recommended)": credits at the old price for fuel beyond the free 500-unit
+  starter tank only. (Supersedes the full refund built in 32d64ff.)
