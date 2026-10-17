@@ -45,6 +45,8 @@
   // Squads SQ-7.4: the Subspace Telescope Facilities card (its words and galaxy map are telescopeCardDisplay.ts).
   import TelescopeMap from "./lib/TelescopeMap.svelte";
   import { telescopeCardView, telescopeMapView } from "./lib/telescopeCardDisplay";
+  import { PROVISIONAL_HOMEWORLD, homeworldPlacement, isWellFormedHomeworld } from "./lib/game/galaxy";
+  import { drawHomeworldSeed } from "./lib/homeworldEntropy";
   // Exploration 0.14.0 (E4c): the Research facility's Relics sub-tab + the Archive's Museum sub-tab.
   import RelicStudyPanel from "./lib/RelicStudyPanel.svelte";
   import MuseumPanel from "./lib/MuseumPanel.svelte";
@@ -1204,7 +1206,8 @@
   // "Every hull is combat-capable": seed the starting freighter's weak Standard-Issue
   // combat set so a brand-new game's hull is dispatchable (freshState alone leaves it
   // combat-bare; see the installMissingCombatBaselines import note above).
-  let state: GameState = installMissingCombatBaselines(freshState());
+  // Expedition Tiers G2-1: every new game draws its own homeworld seed (the one entropy source, homeworldEntropy.ts).
+  let state: GameState = installMissingCombatBaselines(freshState(drawHomeworldSeed()));
   let createdAt = Date.now();
   let currentTheme: ThemeName = "cyan";
   let tickBarEnabled = true;
@@ -9103,7 +9106,7 @@
     clearSave();
     // Seed the fresh starter's weak Standard-Issue combat set (see newGame rationale at
     // the initial `state` declaration): a reset game's hull is dispatchable like a new one.
-    state = installMissingCombatBaselines(freshState());
+    state = installMissingCombatBaselines(freshState(drawHomeworldSeed()));
     createdAt = Date.now();
     // A fresh state ships a SINGLE captain (index 0). If the player had captain #2+
     // selected, activeCaptainIndex/personnelRosterView still point past the new roster,
@@ -9198,7 +9201,7 @@
     clearSave();
     // Seed the fresh starter's weak Standard-Issue combat set (see newGame rationale at
     // the initial `state` declaration) so the recovered game's hull is dispatchable.
-    state = installMissingCombatBaselines(freshState());
+    state = installMissingCombatBaselines(freshState(drawHomeworldSeed()));
     createdAt = Date.now();
     // Mirror resetSave()'s index reset for hygiene: the recovered state also has a single
     // captain, so re-seat the selection at index 0 rather than trust whatever it was.
@@ -9667,9 +9670,12 @@
   // Squads SQ-7.4: the Subspace Telescope card. Its words, ladder and map come from telescopeCardDisplay.ts (pure,
   // tested); the Upgrade button is the shared canBuildFacilityUpgrade / doStartFacilityUpgrade pair like every card.
   // The map is rebuilt only when the LEVEL changes (a primitive, so a tick that leaves it alone does not redraw).
-  $: telescopeView = telescopeCardView(state, { duration: (t) => durationReadout(t, showTickCounts, state.tickDurationSeconds) });
+  // G2-1: both are measured from the save's own homeworld, derived only when its stored SEED changes (a primitive).
+  $: telescopeHomeSeed = isWellFormedHomeworld(state.homeworld) ? state.homeworld.seed : null;
+  $: telescopeHome = telescopeHomeSeed === null ? PROVISIONAL_HOMEWORLD : homeworldPlacement(telescopeHomeSeed);
+  $: telescopeView = telescopeCardView(state, { duration: (t) => durationReadout(t, showTickCounts, state.tickDurationSeconds), homeworld: telescopeHome });
   $: telescopeLevelNow = telescopeView.level;
-  $: telescopeMap = telescopeMapView(telescopeLevelNow);
+  $: telescopeMap = telescopeMapView(telescopeLevelNow, telescopeHome);
   $: telescopeUpgradeCheck = canBuildFacilityUpgrade(state, SUBSPACE_TELESCOPE_FACILITY_KEY);
   $: telescopeUpgradeInFlight = state.activeProcesses.find(
     (p) =>
@@ -14307,8 +14313,8 @@
                  telescopeCardDisplay.ts (pure, tested); the Upgrade button is the SHARED facilityUpgradeButton on
                  canBuildFacilityUpgrade / doStartFacilityUpgrade, so its disabled reasons and the in-flight swap
                  behave exactly as at the Salvage Bay. Credits and an FA gate only (design 6.1: no materials, no
-                 talent gates, so the card can show every gate). Light-years are measured from the PROVISIONAL
-                 homeworld near the Sun's position until G2 places each player's homeworld. -->
+                 talent gates, so the card can show every gate). Light-years are measured from the save's own
+                 homeworld (Expedition Tiers G2-1, galaxy.ts: 10 to 120 ly from Sol, a seed stored per save). -->
             <div class="telescope-grid">
               <Panel>
                 <div class="telescope-head">

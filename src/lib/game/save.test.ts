@@ -6644,6 +6644,8 @@ describe("migrate, v66 -> v67 ground-team slots (Ground Ops GO-1)", () => {
     seeded.facilities = { ...seeded.facilities, subspaceTelescope: { level: 1 } };
     // SF-1: and the run counters the v69 -> v70 step derives from the same history.
     seeded.runCounts = veteranRunCountsV70(seeded);
+    // G2-1: and the homeworld the v69 -> v70 step seeds (its value is homeworldMigration.test.ts's business).
+    seeded.homeworld = viaStep.homeworld;
     const noStep = migrateFrom(SAVE_VERSION, seeded);
     expect(noStep.ships[0].groundTeams).toBeUndefined();
     expect(viaStep.ships[0].groundTeams).toBeDefined();
@@ -6824,7 +6826,8 @@ describe("migrate, v67 -> v68 squad composition + the founding telescope (Squads
     const raw = v67State({ ...launched.next, expeditions: launched.next.expeditions.map((e) => withoutShipEvents(withoutEnemyRanks(e))) });
     const viaStep = migrateFrom(67, JSON.parse(JSON.stringify(raw)));
     // SF-1: the "no step" load is handed the run counters the v69 -> v70 step derives from the same history.
-    const noStep = migrateFrom(SAVE_VERSION, { ...JSON.parse(JSON.stringify(raw)), runCounts: veteranRunCountsV70(raw) });
+    // G2-1: and the homeworld the v69 -> v70 step seeds (its value is homeworldMigration.test.ts's business).
+    const noStep = migrateFrom(SAVE_VERSION, { ...JSON.parse(JSON.stringify(raw)), runCounts: veteranRunCountsV70(raw), homeworld: viaStep.homeworld });
     expect(viaStep.ships[0].groundTeams).toHaveLength(2);
     expect(noStep.ships[0].groundTeams).toHaveLength(1); // the raw v67 list, read through the normalizer
     // the step only ADDS the SQ-1 fields: take them off and the two loads are byte-identical

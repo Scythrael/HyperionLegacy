@@ -198,6 +198,42 @@ plus `expeditionTiersGoldens.fixture.ts` (the two STORED pre-G2 records, never r
   changes ONLY in distances and ly numbers (asserted field by field).
 - UI: none beyond numbers. No mockup needed.
 
+**G2-1 carry note (built 2026-10-17, on top of 7590156).** New pure `src/lib/game/galaxy.ts` (the ladder moved there,
+re-exported by telescope.ts); `src/lib/homeworldEntropy.ts` (the one entropy source, Web Crypto). For later slices:
+- Data model: `GameState.homeworld?: { version: 1, seed }` (model.ts `HomeworldState`). `homeworldPlacement(seed)`
+  derives `{ id, galactic, distanceFromSolLy, distanceFromCoreLy, regionBandsLy, enemySectors }`: a whole light-year
+  lattice point 10 to 120 ly from Sol (rejection draw on `HOMEWORLD_PLACEMENT_SALT`, no trigonometry). Bands come from
+  `regionBandsFrom(point)`: each region's far edge is `|point - anchor| + depth` (from Sol exactly the old provisional
+  bands, pinned); rungs `[1] [2] [3, 4] [5] [6] [7]`, Perseus and Sagittarius share one band (its far edge the farther
+  arm's), each near edge the rung below's far edge, Tier I from `NEAREST_STAR_LY` 4. Sol and everything within 150 ly
+  of it (Wolf 359) is Tier I from every homeworld.
+- `stateHomeworld(state)`: the stored seed's placement, or `PROVISIONAL_HOMEWORLD` (Sol, no sectors) when absent or
+  malformed. **Deviation from "a fixed default for tests"**: `freshState(seed?)` stores a homeworld ONLY when given a
+  seed (App.svelte's three new-game paths always pass `drawHomeworldSeed()`); with none (tests, the sim, the wiring
+  fixtures) the state has no `homeworld` and reads the provisional spot, so every golden captured on freshState stays
+  byte-identical without a re-pin.
+- SAVE: v70 step 3 of `MIGRATIONS[69]`, `withHomeworldV70` (frozen, idempotent: a well-formed value is the same
+  reference; hardened). `migrate(save, homeworldEntropy?)` passes a `MigrationContext` to every step;
+  `loadFromLocalStorage` passes a Web Crypto draw; absent, the entropy is an FNV mix of `save.created_at` (tests and
+  tools stay reproducible). Three "no step" save tests (save.test.ts x2, salvageCrew.test.ts) are handed the step's
+  homeworld, the SF-1 precedent.
+- Readers: `telescopeReading(state)` defaults to `stateHomeworld(state)`; `expeditionCandidates` and the blind count in
+  `startExpedition` pass it to `readSystem`; `telescopeCardView` defaults to it; App.svelte passes it to
+  `telescopeMapView` (derived only when the seed changes). The map centers on `homeworld.galactic`; badges are
+  BAND-RELATIVE (each badge's reference distance remapped into that homeworld's band; the provisional fixture gets the
+  pre-G2 spots exactly); the bounds, ring-fit, overlap, in-band and badge I tests run over 200 placements.
+- ENEMY TERRITORY (user G8) **[PROPOSAL layout]**: `homeworld.enemySectors`, one fixed sector per tier II to VII,
+  drawn from the same seed on `ENEMY_SECTOR_SALT` (Tier I's draw kept, value unused): the tier's band across bearings
+  `[startBearing, startBearing + width)` in tenths of a degree (`bearingDirection`: 0 toward the core, 900 a quarter
+  turn on), width = the tier's share of a full turn `ENEMY_SECTOR_WIDTH_PERMILLE` I 0, II 50, III 150, IV 250, V 350,
+  VI 450, VII 500 (open call 8's per-tier rates, so a uniform bearing lands in enemy territory at that rate). G2-2 HOOK:
+  give each candidate a bearing (a NEW salt) and set `enemyTerritory = inEnemySector(home, tier, bearing)`. G2-7: shade
+  the sectors on the telescope map (not drawn yet; nothing reads the sectors at G2-1).
+- Goldens: G2-0 goldens 1 to 4 unchanged. Golden 1's `restored` passes a fixed entropy (`G2_1_ENTROPY`) and asserts the
+  migration seeded the homeworld from it. New "G2-1 golden 3 with the homeworld" (seed `0x6a09e667`): candidates differ
+  from golden 3 ONLY in `telescope.distanceLy` / `telescope.rangeLy`, the launch views not at all, the card only in its
+  `rangeText` / `rangeLy` fields (asserted path by path), and pinned. Every other golden unchanged.
+
 ### G2-2: Regions for candidates; names, real stars, enemy territory (engine, display + new runs)
 
 - The console offers candidates PER TIER (user #5: "the nearest options within that region of the galaxy, within a

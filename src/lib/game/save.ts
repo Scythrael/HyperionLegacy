@@ -44,6 +44,9 @@ import { safeGetItem, safeSetItem, safeRemoveItem } from "../safeStorage";
 // way import (salvageConfirmPreference imports only game/inventory + safeStorage, never
 // save.ts), so this introduces no module cycle.
 import { loadSalvageConfirmQualities } from "../salvageConfirmPreference";
+// Expedition Tiers G2-1: the browser-boundary entropy draw loadFromLocalStorage passes to migrate (the v70 homeworld).
+// One-way import (homeworldEntropy.ts imports nothing), so no module cycle.
+import { drawHomeworldSeed } from "../homeworldEntropy";
 // Ground Operations GO-1: the v66 -> v67 step backfills each ship's ground-team slots through GO-1's
 // hire-order fill and shape guard (frozen under their v67 names since Squads SQ-1); the v67 -> v68 step
 // (SQ-1) upgrades them to the kinded shape. Both steps read ONLY frozen constants (groundTeams.ts
@@ -75,7 +78,11 @@ import {
 //      expeditions claimed = nextExpeditionId - 1 - the runs still out (any dispatch = veteran); patrols dispatched =
 //      nextPatrolSeed - 1 (at least 1 when a route was ever won; any = veteran), completed = the won routes. A save that
 //      never launched an expedition DOES get the training run (exploration is new in 0.14.0). See withRunCountsV70.
-//   (reserved, not landed yet: G2-1 the stored homeworld.)
+//   3. Expedition Tiers G2-1 (plan 2026-10-14 section 3 G2-1; user G2 "Random for everyone"): the per-save HOMEWORLD
+//      (`homeworld`, model.ts HomeworldState: { version: 1, seed }). Each existing save gets its OWN random seed from
+//      the entropy migrate is given (loadFromLocalStorage passes a Web Crypto draw, homeworldEntropy.ts); the placement
+//      is derived from it (galaxy.ts), so only the light-years the telescope and the candidates show move. An
+//      in-flight run never reads it and resolves byte-identically. See withHomeworldV70.
 export const SAVE_VERSION = 70;
 export const SAVE_KEY = "fleet_admiral_save";
 
@@ -488,7 +495,13 @@ function oldRequiredTicksForPhase_v12(phase: MissionPhase, missionKey: MissionKe
   }
 }
 
-type Migration = (state: any) => any;
+// What a migration step may read beyond the raw save (Expedition Tiers G2-1): INJECTED entropy, the only
+// nondeterministic input, drawn at the browser boundary (loadFromLocalStorage) and passed in, so a migration stays a
+// pure function of (save, context) and tests pass a fixed value. Only the v69 -> v70 homeworld step reads it.
+export interface MigrationContext {
+  homeworldEntropy: number;
+}
+type Migration = (state: any, ctx: MigrationContext) => any;
 const MIGRATIONS: Record<number, Migration> = {
   1: (state: any): GameState => ({ ...state, tickDurationSeconds: state.tickDurationSeconds ?? 10 }),
   2: (state: any): GameState => ({
@@ -2545,7 +2558,8 @@ const MIGRATIONS: Record<number, Migration> = {
   // v69 -> v70 (0.14.0, the shared bump; see SAVE_VERSION above for everything v70 contains).
   // 1. WR-4 (OC-C1): the retired fuel stockpile and any Fuel Depot refine batch still in flight.
   // 2. Safe first runs SF-1: the run counters, derived from the save's history (withRunCountsV70).
-  69: (state: any): any => withRunCountsV70(dropRetiredFuelV70(state)),
+  // 3. Expedition Tiers G2-1: the per-save homeworld seed, from the injected entropy (withHomeworldV70).
+  69: (state: any, ctx: MigrationContext): any => withHomeworldV70(withRunCountsV70(dropRetiredFuelV70(state)), ctx.homeworldEntropy),
 };
 
 // The v69 -> v70 WR-4 step: drop `fuel` and every `fuelRefineJob` process (its addFuel output names a field that no
@@ -2588,6 +2602,41 @@ export function dropRetiredFuelV70(state: any): any {
 export function withRunCountsV70(state: any): any {
   if (!state || typeof state !== "object") return state;
   return { ...state, runCounts: veteranRunCountsV70(state) };
+}
+
+// The v69 -> v70 G2-1 step: store the save's homeworld seed, { version: 1, seed: entropy as an unsigned 32-bit
+// integer } (user G2: every existing save gets its own random homeworld). A value already well formed is KEPT (the
+// same reference: idempotent, and a fixture built from a current freshState keeps its seed). FROZEN: reads only the
+// raw save and its own shape check (never galaxy.ts). Hardened: a non-object state passes through; a malformed value
+// (wrong version, a non-integer or out-of-range seed) is replaced; non-finite entropy reads 0. Plain data.
+function isWellFormedV70Homeworld(value: any): boolean {
+  return (
+    !!value &&
+    typeof value === "object" &&
+    value.version === 1 &&
+    typeof value.seed === "number" &&
+    Number.isInteger(value.seed) &&
+    value.seed >= 0 &&
+    value.seed <= 0xffffffff
+  );
+}
+export function withHomeworldV70(state: any, entropy: number): any {
+  if (!state || typeof state !== "object" || isWellFormedV70Homeworld(state.homeworld)) return state;
+  const seed = Number.isFinite(entropy) ? Math.trunc(entropy) >>> 0 : 0;
+  return { ...state, homeworld: { version: 1, seed } };
+}
+
+// The entropy migrate falls back to when its caller passes none (tests and tools that load a save directly): a
+// deterministic mix of the save's own creation time, so such a load is reproducible and two players' saves still
+// differ. The game's load path always passes a real draw (loadFromLocalStorage). Pure.
+function fallbackHomeworldEntropy(save: SaveFile): number {
+  const s = String(save.created_at);
+  let h = 0x811c9dc5;
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  return h;
 }
 
 // The v68 -> v69 step, exported so its hardening can be tested on raw shapes the full load cannot hydrate.
@@ -2640,11 +2689,15 @@ export function repairOrphanedShipRefsV69(state: any): any {
   };
 }
 
-export function migrate(save: SaveFile): GameState {
+// `homeworldEntropy` (G2-1): the entropy the v69 -> v70 step seeds the homeworld from (MigrationContext). The game
+// passes a fresh Web Crypto draw (loadFromLocalStorage); tests pass a fixed value; absent, the save's own creation
+// time is mixed (fallbackHomeworldEntropy). Unused when the save is already at v70 or holds a homeworld.
+export function migrate(save: SaveFile, homeworldEntropy?: number): GameState {
   let state = save.state;
   let version = save.version;
+  const ctx: MigrationContext = { homeworldEntropy: homeworldEntropy ?? fallbackHomeworldEntropy(save) };
   while (MIGRATIONS[version]) {
-    state = MIGRATIONS[version](state);
+    state = MIGRATIONS[version](state, ctx);
     version += 1;
   }
   // Hydrate the SHAPE first (Decimals, quality buckets), THEN reconcile any over-cap stack
@@ -2737,7 +2790,8 @@ export function loadFromLocalStorage(): { state: GameState; lastSavedAt: number;
   const save = deserialize(raw);
   if (!save) return null;
   try {
-    return { state: migrate(save), lastSavedAt: save.last_saved_at, createdAt: save.created_at };
+    // G2-1: the one entropy draw a load makes (read only if the save needs its v70 homeworld).
+    return { state: migrate(save, drawHomeworldSeed()), lastSavedAt: save.last_saved_at, createdAt: save.created_at };
   } catch {
     // A save that passes deserialize's shape guard (integer version + object state) can
     // still throw INSIDE migrate()/hydrateDecimals() when its FIELDS are the wrong type (a
