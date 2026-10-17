@@ -905,3 +905,6 @@ Reading (this reshapes FK-1, FK-4, FK-5, FK-6, FK-8, FK-9):
 - **N14 Neurotoxin:** "Challenging and up (Recommended)". **N13 prices:** "3x material value (Recommended)". **N16
   default pack:** "1 of each usable kit (Recommended)". **Call 3 recipes:** "Two research tiers (Recommended)" (tier 1
   First Aid Kit, Antitoxin, Splint, 2 per craft; tier 2 Combat Stim, Trauma Kit, Injury Kit).
+- **Calls 14 to 18 (2026-10-17):** 14 "The reserved Consumables spot (Recommended)"; 15 "Means First Aid Kit
+  (Recommended)" (the Triage preset gets explicit kit rules); 16 + 17 "Ignore quality, allow over cap (Recommended)";
+  18 "No Fracture bay time (Recommended)". => ALL Field Kits open calls are now answered.
