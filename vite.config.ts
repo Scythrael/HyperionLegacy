@@ -41,5 +41,7 @@ export default defineConfig({
     // Parallel builders work in git worktrees under .claude/worktrees; their copies of the test files must never
     // run in this tree's suite (duplicate tests and timeouts).
     exclude: [...configDefaults.exclude, '.claude/**'],
+    // Several parallel builders can load the machine; a 5 s default timeout then flakes on heavy goldens.
+    testTimeout: 20_000,
   },
 })
