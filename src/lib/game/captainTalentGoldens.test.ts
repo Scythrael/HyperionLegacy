@@ -100,7 +100,11 @@ const GOLDEN: Record<string, string[]> = {
   logistics: ["49a33682", "89a0f577", "105", "fb278ff"],
   // Re-pinned by WR-5a: the supply run (margin, discount and Trade Baron). The docked 200 s did not move: the fleet has
   // no supply route yet, so Trade Routes pays nothing. Pre-wiring b9ca771d.
-  trade: ["3fcfeb21", "e6b7c5c9"],
+  // Re-pinned again by the WR-5a review (user 2026-10-17, "Always multiply"): Market Contacts and Premium Goods are two
+  // margin factors, so under Trade Baron the margin is x 1.1 x 1.1 (was x 1.2). Previous e6b7c5c9. The extraction and
+  // logistics pins did not move with that ruling: their captain holds no other bonus on those values, so each new factor
+  // equals the old sum on these runs.
+  trade: ["3fcfeb21", "496e435c"],
   otherTrees: ["8e3d5835", "a7807fd6"],
 };
 

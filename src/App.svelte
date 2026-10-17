@@ -503,9 +503,12 @@
     canBuySecondaryTalent,
     buySecondaryTalent,
     committedBranch,
+    secondaryTalentBuyLock,
+    secondaryTalentBuyLockText,
   } from "./lib/game/captainSecondaryTree";
-  // WR-5a: each secondary node's exact player text (the same helper the wiring registry's claim reads).
-  import { describeSecondaryTalentEffect as describeSecondaryTalentEffectText } from "./lib/game/captainSecondaryEffects";
+  // WR-5a: each secondary node's exact player text (the same helper the wiring registry's claim reads), and the
+  // supply run card's captain-adjusted margin and purchase cost.
+  import { describeSecondaryTalentEffect as describeSecondaryTalentEffectText, captainSupplyRunTerms } from "./lib/game/captainSecondaryEffects";
   import {
     canRetireCaptain,
     retireBlockReason,
@@ -8819,8 +8822,9 @@
   function doBuySecondaryTalent(captainId: number, key: SecondaryTalentKey) {
     const captain = state.captains.find((c) => c.id === captainId);
     if (!captain) return;
-    if (!canBuySecondaryTalent(captain, key)) return; // illegal/unaffordable/off-branch: no-op, no save
-    const nextCaptain = buySecondaryTalent(captain, key);
+    // WR-5a: `state` adds the buy lock (the captain's ship is out); the panel shows the reason.
+    if (!canBuySecondaryTalent(captain, key, state)) return; // illegal/unaffordable/off-branch/ship out: no-op, no save
+    const nextCaptain = buySecondaryTalent(captain, key, state);
     const captains = state.captains.map((c) => (c.id === captainId ? nextCaptain : c));
     state = { ...state, captains };
     pushLog(`[${captain.label}] Prestige talent learned: ${SECONDARY_CAPTAIN_TALENTS[key].label}.`);
@@ -16446,7 +16450,8 @@
                JS mobile branch. All reads are activeCaptain-scoped; the two do* handlers own the writes.
                NOTE: keep Svelte block tokens (hash-if / colon-else / slash-if) OUT of this comment. -->
           {@const prestigeCommitted = committedBranch(activeCaptain)}
-          {@const prestigeSpendableHere = prestigeCommitted === null || prestigeCommitted === selectedSecondaryBranch}
+          {@const prestigeBuyLock = secondaryTalentBuyLock(state, activeCaptain.id)}
+          {@const prestigeSpendableHere = prestigeBuyLock === null && (prestigeCommitted === null || prestigeCommitted === selectedSecondaryBranch)}
           {@const prestigeSuccessor = seatedExecutiveOfficerFor(state, activeCaptain.id)}
           {@const prestigeLockedIn = activeCaptain.retirements >= MAX_CAPTAIN_RETIREMENTS}
           {@const prestigeCanRetire = canRetireCaptain(state, activeCaptain.id)}
@@ -16545,7 +16550,9 @@
                   />
                 </div>
 
-                {#if prestigeCommitted !== null && !prestigeSpendableHere}
+                {#if prestigeBuyLock !== null}
+                  <div class="cc-prestige-locked">{secondaryTalentBuyLockText(prestigeBuyLock)}.</div>
+                {:else if prestigeCommitted !== null && !prestigeSpendableHere}
                   <!-- Viewing an OFF-branch tree while committed: it is view-only. Passing points=0 +
                        pointsLabel="" below makes every node render locked and hides the corner readout,
                        so nothing looks buyable; this banner says why. -->
@@ -16783,7 +16790,8 @@
                   {@const loot = missionDef.lootTable}
                   <!-- Exploration 0.14.0 (E1b): a transport shows its credit economy, not loot. -->
                   {@const isTransport = missionDef.missionType === "transport"}
-                  {@const marginPct = Math.round((missionDef.rewardMargin ?? 0) * 100)}
+                  {@const supplyTerms = captainSupplyRunTerms(representativeCaptain, missionDef)}
+                  {@const marginPct = Math.round(supplyTerms.margin * 1000) / 10}
                   {#if unlocked}
                     {@const expanded = expandedMissionKey === missionKey}
                     <div class="mpane-wrap">
@@ -16853,7 +16861,7 @@
                               <div class="mission-detail-section">
                                 <div class="mission-col-label">Supply Economy</div>
                                 <div class="mission-req-line">Cost-in / reward-out supply run: no materials delivered.</div>
-                                <div class="mission-req-line">Load cost: {formatNumber(missionDef.supplyCostPerCargo ?? 0)} cr per unit of cargo (scales with the hull's hold).</div>
+                                <div class="mission-req-line">Load cost: {formatNumber(supplyTerms.costPerCargo)} cr per unit of cargo (scales with the hull's hold).</div>
                                 <div class="mission-req-line">Margin: +{marginPct}% on the load returned per cycle (net profit).</div>
                                 <div class="mission-req-line">Idles when the fleet cannot afford the load; resumes when credits recover.</div>
                               </div>

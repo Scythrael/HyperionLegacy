@@ -11742,7 +11742,7 @@ export const SECONDARY_CAPTAIN_TALENTS: Record<SecondaryTalentKey, CaptainSecond
     tree: "prospector", branch: "extraction", rung: 2,
     label: "Deep Veins", cost: 1,
     x: 75, y: 207, neighbors: ["extraction1", "extraction3"],
-    effect: { type: "statMult", stat: "findChance", mult: 0.05 }, // + mult on the mission's rare AND uncommon chance mults (the existing rolls)
+    effect: { type: "statMult", stat: "findChance", mult: 0.05 }, // its own x (1 + mult) factor on the mission's rare AND uncommon chances (the existing rolls)
     flavor: "The richest seams hide below the obvious ones. You have learned where to look.",
   },
   extraction3: {
@@ -11756,7 +11756,7 @@ export const SECONDARY_CAPTAIN_TALENTS: Record<SecondaryTalentKey, CaptainSecond
     tree: "prospector", branch: "extraction", rung: 4,
     label: "Assayer", cost: 1, // util
     x: 144, y: 395, neighbors: ["extraction3", "extraction5"],
-    effect: { type: "statMult", stat: "deliveryQuality", mult: 0.05 }, // the rollQuality bonus of the mission delivery (each climb x (1 + mult))
+    effect: { type: "statMult", stat: "deliveryQuality", mult: 0.05 }, // the rollQuality bonus of this captain's OWN deliveries (each climb x (1 + mult))
     flavor: "You grade ore by feel now, culling the dross before it ever reaches the hold.",
   },
   extraction5: {
@@ -11778,7 +11778,7 @@ export const SECONDARY_CAPTAIN_TALENTS: Record<SecondaryTalentKey, CaptainSecond
     tree: "prospector", branch: "logistics", rung: 2,
     label: "Fuel Discipline", cost: 1,
     x: 0, y: 220, neighbors: ["logistics1", "logistics3"],
-    effect: { type: "statMult", stat: "fuelEfficiency", mult: 0.05 }, // + mult on the 0-based engineEfficiency (reach and burn, one value)
+    effect: { type: "statMult", stat: "fuelEfficiency", mult: 0.05 }, // (1 + engineEfficiency) x (1 + mult): +mult reach (burn reads the same value)
     flavor: "You coax more reach out of every drop, plotting burns a lazier captain would waste.",
   },
   logistics3: {
@@ -11807,7 +11807,7 @@ export const SECONDARY_CAPTAIN_TALENTS: Record<SecondaryTalentKey, CaptainSecond
     tree: "prospector", branch: "trade", rung: 1, isHub: true,
     label: "Market Contacts", cost: 1,
     x: -41, y: 113, neighbors: ["trade2"],
-    effect: { type: "statMult", stat: "transportMargin", mult: 0.05 }, // x (1 + mult) on a supply run's rewardMargin (stacks with trade3)
+    effect: { type: "statMult", stat: "transportMargin", mult: 0.05 }, // x (1 + mult) on a supply run's rewardMargin (a factor beside trade3's)
     flavor: "A name at every dock and a favor owed at most of them.",
   },
   trade2: {
@@ -11821,7 +11821,7 @@ export const SECONDARY_CAPTAIN_TALENTS: Record<SecondaryTalentKey, CaptainSecond
     tree: "prospector", branch: "trade", rung: 3,
     label: "Premium Goods", cost: 1,
     x: -109, y: 301, neighbors: ["trade2", "trade4"],
-    effect: { type: "statMult", stat: "transportMargin", mult: 0.05 }, // x (1 + mult) on a supply run's rewardMargin (stacks with trade1)
+    effect: { type: "statMult", stat: "transportMargin", mult: 0.05 }, // x (1 + mult) on a supply run's rewardMargin (a factor beside trade1's)
     flavor: "Presentation is half the margin. Your holds sell before they open.",
   },
   trade4: {

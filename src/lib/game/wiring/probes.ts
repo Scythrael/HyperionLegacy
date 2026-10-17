@@ -138,7 +138,6 @@ import { damageControlEffect, pathfinderEffect } from "../utilityGear";
 import { installedSensorArray, sensorArrayEffect, sensorArrayRelicFindBonus } from "../sensorArrays";
 import { quartersCapacityBonus } from "../crewModules";
 import { addItemQuality, itemTotal } from "../inventory";
-import { captainMotherlodeChance } from "../captainSecondaryEffects";
 import { GROUND_CONDITIONS, conditionCureSeconds } from "../medicalBay";
 import { loadoutSlotDefsForShipType } from "../armory";
 import { gambitProgramEquals } from "../memberGambits";
@@ -498,7 +497,7 @@ function qualityClimbThreshold(bonus: number): number {
 
 // WR-5a: one delivery of captain 1's shortOreRun (the last unloading tick of a recalled cycle carrying 10 Titanium
 // Ore), every economy draw returning `draw`: the quality rung the delivered ore landed at.
-function deliveredQuality(s: GameState, draw: number): number {
+function deliveryTick(s: GameState, draw: number, over: Partial<CaptainState> = {}): { before: GameState; after: GameState } {
   const def = missionDefFor(s, "shortOreRun");
   const cargo = { commonOre: new Decimal(10), uncommonMaterial: new Decimal(0), rareMaterial: new Decimal(0) };
   const mission = {
@@ -509,8 +508,24 @@ function deliveredQuality(s: GameState, draw: number): number {
     cargo,
     recalled: true,
   } as CaptainMissionState;
-  const before = editCaptain(s, { mission } as Partial<CaptainState>);
-  const after = economyTick(before, 1, () => draw);
+  const before = editCaptain(s, { ...over, mission } as Partial<CaptainState>);
+  return { before, after: economyTick(before, 1, () => draw) };
+}
+
+// WR-5a (Motherlode): the share of MOTHERLODE_BATCH real deliveries (captain 1's lifetime Motherlode counter at 0 to
+// MOTHERLODE_BATCH - 1) whose 10 Titanium Ore landed doubled.
+const MOTHERLODE_BATCH = 1000;
+function motherlodeRate(s: GameState): number {
+  let doubled = 0;
+  for (let i = 0; i < MOTHERLODE_BATCH; i++) {
+    const { before, after } = deliveryTick(s, 0.999999, { motherlodeCycles: i });
+    if (heldOf(after, "commonOre") - heldOf(before, "commonOre") > 10) doubled++;
+  }
+  return doubled / MOTHERLODE_BATCH;
+}
+
+function deliveredQuality(s: GameState, draw: number): number {
+  const { before, after } = deliveryTick(s, draw);
   const buckets = after.inventory.commonOre ?? [];
   const was = before.inventory.commonOre ?? [];
   for (let q = buckets.length - 1; q >= 0; q -= 1) if (Number(buckets[q] ?? 0) > Number(was[q] ?? 0)) return q;
@@ -747,7 +762,7 @@ export const PROBES = {
     label: "economyTick's mission deposit: the largest constant draw whose delivered ore still climbs to quality 1 (shortOreRun)",
     read: (s) => deliveryQualityThreshold(s),
   },
-  motherlodeChance: { label: "the Motherlode chance economyTick hands tickCaptainMission (captainMotherlodeChance)", read: (s) => captainMotherlodeChance(captainOf(s)) },
+  motherlodeRate: { label: "economyTick deliveries: the share of 1,000 real shortOreRun deliveries (lifetime counter 0 to 999) whose haul landed doubled", read: (s) => motherlodeRate(s) },
   transportCycleCredits: {
     label: "one whole frontierSupplyRun cycle (economyTick): the net credits it delivered",
     read: (s) => {

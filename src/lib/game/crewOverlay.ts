@@ -552,7 +552,7 @@ export function shipStatsBeforeCaptain(state: GameState, ship: ShipInstance): Sh
 //   Prospector's Eye  -> extractionYieldMult x (1 + y)
 //   Efficient Haul    -> extractionSpeedMult x (1 + s)  (effectiveMissionDef shortens the extracting phase)
 //   Quartermaster     -> cargoCapacity x (1 + c)         (counts toward the mission cargo gates)
-//   Fuel Discipline   -> engineEfficiency + e            (the 0-based fuel-burn bonus: reach and burn, one value)
+//   Fuel Discipline   -> (1 + engineEfficiency) x (1 + e) (the reach factor; burn reads the same value)
 //   Rapid Turnaround  -> unloadSpeedMult x (1 + u)       (missions; frozen into the Ground Ops offload at dispatch)
 //   Overloaded Holds  -> cargoCapacity x (1 + o) more, with unloadCargoCapacity = the hold before the overflow,
 //                        so the overflow unloads at no extra time.
@@ -568,7 +568,7 @@ export function applyCaptainOverlay(base: ShipDerivedStats, lifts: CaptainShipLi
     ...(overflow !== 0 ? { unloadCargoCapacity: hold } : {}),
     ...(extractionYield !== 0 ? { extractionYieldMult: base.extractionYieldMult * (1 + extractionYield) } : {}),
     ...(extractionSpeed !== 0 ? { extractionSpeedMult: (base.extractionSpeedMult ?? 1) * (1 + extractionSpeed) } : {}),
-    ...(engineEfficiency !== 0 ? { engineEfficiency: base.engineEfficiency + engineEfficiency } : {}),
+    ...(engineEfficiency !== 0 ? { engineEfficiency: (1 + base.engineEfficiency) * (1 + engineEfficiency) - 1 } : {}),
     ...(unloadSpeed !== 0 ? { unloadSpeedMult: (base.unloadSpeedMult ?? 1) * (1 + unloadSpeed) } : {}),
   };
 }

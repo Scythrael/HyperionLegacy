@@ -2445,7 +2445,8 @@ const MIGRATIONS: Record<number, Migration> = {
   // written only while Command Presence is live.
   // E-CREW Task 21 (officer stat facets) adds NOTHING here either: every new field is optional and ABSENT
   // MEANS NO FACET (written only when non-zero): CaptainState.cunningCycles (the captain's lifetime Cunning
-  // counter),
+  // counter; WR-5a's CaptainState.motherlodeCycles, the lifetime Motherlode counter, follows the same rule, and
+  // ShipDerivedStats.unloadCargoCapacity is derived, never stored),
   // PatrolMissionState.freeRepairTicks, OfficerCombatMods.underFire (inside the frozen officerCombat),
   // ShipInstance.freeRepairTicks, and Expedition.ambushSoften / quickRecovery / recoveryTurnaround /
   // rampScience / rampFlightDeck, then (the per-seat rows) Expedition.rampReturn / hazardSteady / injurySteady,

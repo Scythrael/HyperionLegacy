@@ -895,9 +895,8 @@ function captainSpecEntries(): WiringEntry[] {
 // WR-5a: the Prospector tree, LIVE. Each node's seam, context(s) and curve; the magnitude is the node's catalog
 // magnitude (captainSecondaryEffects.ts secondaryTalentMagnitude), unless the entry names its own.
 const FRONTIER = MISSIONS.frontierSupplyRun;
-// The freighter's whole Frontier Supply Run load (ship-1 is the General Freighter) and its base net margin.
+// The freighter's whole Frontier Supply Run load (ship-1 is the General Freighter).
 const FRONTIER_LOAD = SHIP_TYPES.generalFreighter.cargoCapacity * (FRONTIER.supplyCostPerCargo ?? 0);
-const FRONTIER_NET = FRONTIER_LOAD * (FRONTIER.rewardMargin ?? 0);
 // A save whose fleet has delivered one supply run cycle (Trade Routes pays only on an established route).
 const withSupplyRoute = (s: GameState): GameState => ({
   ...s,
@@ -909,15 +908,17 @@ const PROSPECTOR_SEAMS: Readonly<
   Partial<Record<SecondaryTalentKey, { probe: ProbeId; contexts: ContextId[]; curve: Curve; direction?: Direction; tolerance?: number; base?: () => GameState; magnitude?: (c: Catalogs) => number; note?: string }>>
 > = {
   extraction1: { probe: "sheetYield", contexts: ["sheet"], curve: { kind: "linearRelative" } },
-  // The rare threshold the extraction roll compares against, on an ore run and a survey (the uncommon half rides the
-  // same sum: captainSecondaryEffects.test.ts).
+  // The rare threshold the extraction roll compares against, on an ore run and a survey (its own factor; the uncommon
+  // half: captainSecondaryEffects.test.ts).
   extraction2: { probe: "extractionRareThreshold", contexts: ["mission:extraction", "mission:survey"], curve: { kind: "linearRelative" }, tolerance: 1e-9 },
   extraction3: { probe: "missionExtractionTicks", contexts: ["mission:extraction"], curve: { kind: "divisor" }, direction: "down", tolerance: 1 },
   extraction4: { probe: "deliveryQualityClimb", contexts: ["mission:extraction"], curve: { kind: "linearRelative" }, tolerance: 1e-12 },
-  // The chance handed to the roll, exact; the realized double hauls over a seed batch: captainSecondaryEffects.test.ts.
-  extraction5: { probe: "motherlodeChance", contexts: ["mission:extraction"], curve: { kind: "chanceAbsolute" } },
+  // The realized double hauls over 1,000 real deliveries (lifetime counter 0 to 999): their share sits at the
+  // configured chance within the batch's sampling spread (about 3 standard deviations).
+  extraction5: { probe: "motherlodeRate", contexts: ["mission:extraction"], curve: { kind: "chanceAbsolute" }, tolerance: 0.02 },
   logistics1: { probe: "sheetCargo", contexts: ["sheet"], curve: { kind: "linearRelative" } },
-  logistics2: { probe: "sheetEngineEff", contexts: ["sheet"], curve: { kind: "linearAbsolute" } },
+  // "Always multiply" (user 2026-10-17): +5% reach, its own factor on (1 + engineEfficiency).
+  logistics2: { probe: "shipRange", contexts: ["sheet"], curve: { kind: "linearRelative" } },
   logistics3: { probe: "sheetUnload", contexts: ["sheet", "expedition:groundOps"], curve: { kind: "linearRelative" } },
   // The overflow's free unload: captainSecondaryEffects.test.ts (the unload ticks stay the hold's).
   logistics5: { probe: "sheetCargo", contexts: ["sheet"], curve: { kind: "linearRelative" } },
@@ -934,13 +935,13 @@ const PROSPECTOR_SEAMS: Readonly<
   },
   trade3: { probe: "transportCycleCredits", contexts: ["mission:transport"], curve: { kind: "linearRelative" } },
   trade4: { probe: "dockedCredits", contexts: ["fleet"], curve: { kind: "linearAbsolute" }, base: () => withSupplyRoute(wiringBase()) },
-  // Trade Baron doubles every Trade bonus: on a captain owning Trade 1 to 4, the bonus part of the net (above the plain
-  // margin) grows by (factor - 1). The doubled docked trickle: captainSecondaryEffects.test.ts.
+  // Trade Baron multiplies every Trade value by its factor: on a captain owning Trade 1 to 4 on an established route,
+  // the docked trickle x factor. Its margin and purchase cost terms: captainSecondaryEffects.test.ts.
   trade5: {
-    probe: "transportCycleCredits",
-    contexts: ["mission:transport"],
-    curve: { kind: "bonusRelative", base: FRONTIER_NET },
-    base: () => ownsNodes(wiringBase(), ["trade1", "trade2", "trade3", "trade4"]),
+    probe: "dockedCredits",
+    contexts: ["fleet"],
+    curve: { kind: "linearRelative" },
+    base: () => withSupplyRoute(ownsNodes(wiringBase(), ["trade1", "trade2", "trade3", "trade4"])),
     magnitude: (c) => {
       const e = c.SECONDARY_CAPTAIN_TALENTS.trade5.effect;
       return (e.type === "capstone" ? e.magnitude ?? 1 : 1) - 1;

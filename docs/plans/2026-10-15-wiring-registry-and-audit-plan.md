@@ -982,24 +982,40 @@ add into one (1 + sum) on rewardMargin. OC-A2: the captain who commands the ship
 live like officers, Ground Ops reads the frozen dispatch factors, patrols read the sheet per cycle. OC-A3: capstone
 `magnitude` field (optional until WR-5b / WR-5c give theirs).
 
-**Nodes:** extraction1 yield x1.05; extraction2 rare + uncommon chance mult +0.05 (rolls, bonus roll, popup);
-extraction3 extractionSpeedMult x1.08; extraction4 rollQuality bonus 0.05 on the items that captain delivered (largest
-bonus per item per tick; draw-count invariant); extraction5 5% per delivered non-transport cycle, haul x2 (private
+**Nodes:** extraction1 yield x1.05; extraction2 rare and uncommon chance x1.05 (rolls, bonus roll, popup);
+extraction3 extractionSpeedMult x1.08; extraction4 rollQuality bonus 0.05 on that captain's deliveries (its
+own deliveries only; draw-count invariant); extraction5 5% per delivered non-transport cycle, haul x2 (private
 stream on the lifetime counter, before Command Presence); logistics1 cargo x1.05 (gates read it); logistics2
-engineEfficiency +0.05 (range 100 -> 105 ly on the freighter); logistics3 unloadSpeedMult x1.08 (missions + frozen Ground
-Ops offload); logistics5 cargo x1.10 above the hold, unload scales with the hold below it; trade1 / trade3 margin x(1 +
-0.05 + 0.05); trade2 supplies paid x0.95 at the same sale value (the gate reads the paid cost); trade4 1 credit/tick
+reach x1.05 (range 100 -> 105 ly on the freighter); logistics3 unloadSpeedMult x1.08 (missions + frozen Ground
+Ops offload); logistics5 cargo x1.10 above the hold, unload scales with the hold below it; trade1 / trade3 margin x1.05
+x1.05; trade2 supplies paid x0.95 at the same sale value (the gate reads the paid cost); trade4 1 credit/tick
 docked; trade5 x2 on every Trade 1 to 4 value.
 
-**[PROVISIONAL] picks for the user:** trade4 Trade Routes reads "per delivered transport cycle, paid while docked" as: 1
+**Picks put to the user (answered 2026-10-17, below):** trade4 Trade Routes reads "per delivered transport cycle, paid while docked" as: 1
 credit/tick while the captain is docked (no mission, no expedition), only once the FLEET has delivered at least one
 supply run cycle (lifetime completions; "an established route"). Alternatives: no route gate; or a per-cycle bonus paid
 at each delivery. Also: extraction4's per-item merge (two captains delivering the same item in one tick share the larger
 bonus); trade2 adds the discount saved to the net rather than shrinking the load (a smaller load would lower the profit).
 
-**Registry:** the 14 nodes flipped to live with sensitivity checks at catalog magnitude (17 checks; new probes
-`deliveryQualityClimb`, `motherlodeChance`, `transportCycleCredits`, `dockedCredits`); logistics4 unchanged. Pending
-secondary entries left: 30 (WR-5b 15, WR-5c 15).
+**Registry:** the 14 nodes flipped to live with sensitivity checks at catalog magnitude (16 checks for the 14, 17 with
+logistics4, unchanged; new probes `deliveryQualityClimb`, `motherlodeRate`, `transportCycleCredits`, `dockedCredits`).
+Pending secondary entries left: 30 (WR-5b 15, WR-5c 15).
+
+**WR-5a review follow-up (user rulings 2026-10-17):**
+- "Block buying while out": `canBuySecondaryTalent` / `buySecondaryTalent` take the state and refuse while the
+  captain's ship is crew-locked (crewLock.ts: a mission, a patrol or an unclaimed expedition);
+  `secondaryTalentBuyLock` / `secondaryTalentBuyLockText` name why, and the Prestige panel shows it above the web.
+- "Always multiply": every "+X%" node is its own x (1 + X) factor. Fuel Discipline is +5% REACH ((1 +
+  engineEfficiency) x 1.05; registry probe `shipRange`), Deep Veins composes (1 + mult)(1 + 0.05) at both roll sites
+  (`withDeepVeins`), Market Contacts and Premium Goods are two margin factors (Trade Baron doubles each). Only the trade
+  golden moved (e6b7c5c9 -> 496e435c); the extraction and logistics pins hold (no other bonus on those values there).
+- Assayer "Own ship only": the deposit fold grades the Assayer captain's own share with its bonus and the rest without,
+  both off ONE roll's recorded draws (no draw added).
+- Trade Routes and Shrewd Negotiator stay as built (no longer provisional).
+- Minors: the Motherlode probe measures doubled hauls over 1,000 real deliveries (tolerance 0.02); the Trade Baron check
+  reads the doubled docked trickle; the Shrewd Negotiator test exercises the working-capital gate; Assayer's text says
+  "climb a quality step"; the supply run card shows the representative captain's margin and purchase cost
+  (`captainSupplyRunTerms`); save.ts names `motherlodeCycles` among the optional fields.
 
 **Goldens moved (every move explained in the file):** extraction (both runs), logistics (ore run, range, Ground Ops
 record), trade (the supply run). Unmoved: the no-node control, the other-tree nodes, the docked 200 s without a route,

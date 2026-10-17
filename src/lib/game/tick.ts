@@ -359,7 +359,7 @@ import { retirementExpMultiplier } from "./captainRetirement";
 import {
   captainDeliveryQualityBonus,
   captainDockedCreditsPerTick,
-  captainFindChanceMult,
+  withDeepVeins,
   captainMotherlodeChance,
   captainTransportTerms,
   motherlodeSeed,
@@ -553,23 +553,20 @@ export function captainUncommonYieldMult(captain: CaptainState): number {
 
 // Same additive-stacking, read-at-usage-time pattern as the yield helpers
 // above, for the uncommon-tier occurrence-chance effect type.
-// WR-5a: plus the secondary-tree Deep Veins (extraction2), added into the SAME sum of relative mults (OC-A1),
-// so every reader (the extraction roll, the bonus roll, the dispatch popup) sees it. 0 without the node.
 export function captainUncommonChanceMult(captain: CaptainState): number {
   return captain.unlockedCaptainTalents.reduce((sum, key) => {
     const effect = CAPTAIN_TALENTS[key].effect;
     return effect.type === "uncommonChanceMult" ? sum + effect.mult : sum;
-  }, 0) + captainFindChanceMult(captain);
+  }, 0);
 }
 
 // Same additive-stacking, read-at-usage-time pattern as the helpers above,
 // for the rare-tier occurrence-chance effect type.
-// WR-5a: plus Deep Veins (extraction2), exactly as captainUncommonChanceMult above.
 export function captainRareChanceMult(captain: CaptainState): number {
   return captain.unlockedCaptainTalents.reduce((sum, key) => {
     const effect = CAPTAIN_TALENTS[key].effect;
     return effect.type === "rareChanceMult" ? sum + effect.mult : sum;
-  }, 0) + captainFindChanceMult(captain);
+  }, 0);
 }
 
 // Same additive-stacking, read-at-usage-time pattern as the helpers above,
@@ -1694,9 +1691,10 @@ export function missionDropChances(state: GameState, captain: CaptainState, miss
   const def = MISSIONS[missionKey];
   const ship = state.ships.find((s) => s.assignedCaptainId === captain.id);
   const surveyRareFind = surveyRareFindFor(state, ship, missionKey);
-  const rareChanceMult = surveyRareFind === 0 ? captainRareChanceMult(captain) : captainRareChanceMult(captain) + surveyRareFind;
+  // WR-5a: Deep Veins (extraction2) is its own x (1 + v) factor on both chances (withDeepVeins), as economyTick rolls.
+  const rareChanceMult = withDeepVeins(surveyRareFind === 0 ? captainRareChanceMult(captain) : captainRareChanceMult(captain) + surveyRareFind, captain);
   return {
-    uncommon: Math.min(1, def.uncommonChance * (1 + captainUncommonChanceMult(captain))),
+    uncommon: Math.min(1, def.uncommonChance * (1 + withDeepVeins(captainUncommonChanceMult(captain), captain))),
     rare: museumRareChance(def.rareChance * (1 + rareChanceMult), museumBonuses(state).rareMaterialChance),
   };
 }
@@ -3950,10 +3948,11 @@ export function economyTick(
   // assigned to each such ship. Closed-form (a pure additive count) and per-tick safe (it changes no
   // stat mid-span; promotion is a discrete player action, never auto-applied here).
   const shipMissionCompletions = new Map<string, number>();
-  // WR-5a (Assayer, captain secondary extraction4): the rollQuality bonus of each item a mission DELIVERED this call,
-  // the largest bonus among the captains whose delivery included it (the deposit fold below rolls ONE quality per
-  // item per call). Empty without the node, so the fold rolls exactly as before.
-  const deliveryQualityBonus = new Map<string, number>();
+  // WR-5a (Assayer, captain secondary extraction4; user 2026-10-17 "Own ship only"): per item, the share of this
+  // call's delivery that came from an Assayer captain's OWN mission, with its rollQuality bonus. The deposit fold
+  // below grades that share with the bonus and the rest without it, both off the SAME recorded draws (rollQuality is
+  // draw-count invariant), so no draw is added. Empty without the node, so the fold rolls exactly as before.
+  const assayerDelivered = new Map<string, { amount: Decimal; bonus: number }>();
   // Safe first runs SF-1: the patrol routes WON this call, fleet-wide (the patrol curve, runDifficulty.ts
   // countPatrolRoutes), folded once into runCounts below. A pure additive count, so one big call and many small ones
   // accrue the identical total.
@@ -4269,9 +4268,10 @@ export function economyTick(
     const bonuses = {
       commonYieldMult: captainCommonYieldMult(captain),
       uncommonYieldMult: captainUncommonYieldMult(captain),
-      uncommonChanceMult: captainUncommonChanceMult(captain),
+      // WR-5a: Deep Veins (extraction2), its own x (1 + v) factor on both chances (withDeepVeins; identity without it).
+      uncommonChanceMult: withDeepVeins(captainUncommonChanceMult(captain), captain),
       rareYieldMult: fleetRareYield,
-      rareChanceMult: surveyRareFind === 0 ? captainRareChanceMult(captain) : captainRareChanceMult(captain) + surveyRareFind,
+      rareChanceMult: withDeepVeins(surveyRareFind === 0 ? captainRareChanceMult(captain) : captainRareChanceMult(captain) + surveyRareFind, captain),
       // E-CREW 0.14.0 (Task 20): Command Presence (the ship's mission output; 0 without the officer).
       missionOutputMult: ship ? officerMissionOutputBonus(state, ship) : 0,
       // E-CREW 0.14.0 (Task 21): the Operations / Science departments' Cunning (0 without a facet).
@@ -4338,7 +4338,10 @@ export function economyTick(
     const qualityBonus = captainDeliveryQualityBonus(captain);
     for (const key of Object.keys(delta)) {
       homePlanetDelta[key] = (homePlanetDelta[key] ?? new Decimal(0)).plus(delta[key]);
-      if (qualityBonus > 0 && delta[key].gt(0)) deliveryQualityBonus.set(key, Math.max(deliveryQualityBonus.get(key) ?? 0, qualityBonus));
+      if (qualityBonus > 0 && delta[key].gt(0)) {
+        const prev = assayerDelivered.get(key);
+        assayerDelivered.set(key, { amount: (prev?.amount ?? new Decimal(0)).plus(delta[key]), bonus: Math.max(prev?.bonus ?? 0, qualityBonus) });
+      }
     }
     fleetAdminXpDelta += captainFleetAdminXpDelta;
     creditsDelta += captainCreditsDelta;
@@ -4450,15 +4453,38 @@ export function economyTick(
     // tick, so the draw is consumed at the identical point on both paths, keeping the seeded
     // stream aligned. Re-gating this draw on the post-clamp delta would skip it only on the
     // capped path and silently desync offline loot rng from live.
-    // WR-5a: Assayer's bonus (0 for an item no Assayer captain delivered: the exact pre-WR-5a roll). rollQuality's
-    // bonus is draw-count invariant, so the shared stream never shifts.
-    const quality = amount.gt(0) ? rollQuality(rng, deliveryQualityBonus.get(key) ?? 0) : 0;
-    // Warehouse cap clamp: the deposit is bounded at this item's cap (itemCap), so a
-    // cycle completing while just-under-cap lands AT the cap instead of overshooting.
-    // Below cap this is byte-identical to the old unclamped add (min is a no-op).
-    const added = addToInventory(inventory, discovered, key, amount, itemCap(state, key), quality);
-    inventory = added.inventory;
-    discovered = added.discovered;
+    const assayer = assayerDelivered.get(key);
+    if (assayer === undefined || !amount.gt(0)) {
+      const quality = amount.gt(0) ? rollQuality(rng) : 0;
+      // Warehouse cap clamp: the deposit is bounded at this item's cap (itemCap), so a
+      // cycle completing while just-under-cap lands AT the cap instead of overshooting.
+      // Below cap this is byte-identical to the old unclamped add (min is a no-op).
+      const added = addToInventory(inventory, discovered, key, amount, itemCap(state, key), quality);
+      inventory = added.inventory;
+      discovered = added.discovered;
+      continue;
+    }
+    // WR-5a (Assayer, own deliveries only): ONE roll's draws, recorded, grade the rest of the item plainly and are
+    // REPLAYED for the Assayer captain's own share with its bonus (rollQuality draws the same count with or without a
+    // bonus, so the replay reads exactly the draws taken: no draw is added to the shared stream). The Assayer share
+    // deposits first, then the rest (the cap clamps the later deposit, as two deliveries would).
+    const draws: number[] = [];
+    const plainQuality = rollQuality(() => {
+      const r = rng();
+      draws.push(r);
+      return r;
+    });
+    let at = 0;
+    const assayerQuality = rollQuality(() => draws[at++], assayer.bonus);
+    const rest = amount.minus(assayer.amount);
+    const own = addToInventory(inventory, discovered, key, assayer.amount, itemCap(state, key), assayerQuality);
+    inventory = own.inventory;
+    discovered = own.discovered;
+    if (rest.gt(0)) {
+      const added = addToInventory(inventory, discovered, key, rest, itemCap(state, key), plainQuality);
+      inventory = added.inventory;
+      discovered = added.discovered;
+    }
   }
 
   // Phase 1, Task 9: the post-mission fleet state, missions, passiveTrickle, and

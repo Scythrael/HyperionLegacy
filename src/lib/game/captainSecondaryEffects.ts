@@ -2,14 +2,16 @@
 // USER ANSWERS OC-A1 / OC-A2 / OC-A3): the captain SECONDARY talent effect READERS and each node's player text.
 //
 // The user's rulings:
-//   OC-A1 "Multiplier": a "+X% stat" node is a relative multiplier on the named existing value, stacking with that
-//     value's other bonuses before any existing D23 curve. The five ship-stat nodes compound as their own (1 + x)
-//     factor beside the crew, museum and officer factors (none of those five stats has a D23 curve); the chance and
-//     margin nodes add into the existing sum of relative mults (rare / uncommon chance mult, the supply run margin).
+//   OC-A1 "Multiplier", then (2026-10-17) "Always multiply": EVERY "+X%" node is its own x (1 + X) factor on the
+//     value it names, compounding with that value's other bonuses (never added into another sum): the ship stats,
+//     the reach (Fuel Discipline multiplies 1 + engineEfficiency), the find chances (withDeepVeins) and the supply
+//     run margin (Market Contacts and Premium Goods are two factors).
 //   OC-A2 "own ship": a node acts on the ship that captain commands (ship.assignedCaptainId), frozen at dispatch for
 //     runs (the logistics4 precedent: a Ground Ops run reads its frozen factors) and per cycle for patrols. Missions
-//     read them live, exactly like the officer bonuses on the same ship stat sheet (a captain cannot buy a node while
-//     out: points come from retirement).
+//     read them live, exactly like the officer bonuses on the same ship stat sheet. The user (2026-10-17, "Block
+//     buying while out"): captainSecondaryTree.ts refuses a buy while the captain's ship is crew-locked, so a node
+//     never changes under a run in flight. Assayer (2026-10-17, "Own ship only") grades only that captain's own
+//     deliveries.
 //   OC-A3 "Proposed sizes": every capstone has its configured magnitude and no placeholder is left.
 //
 // The readers read each node by its KEY (never the catalog `stat` label) and every magnitude from the catalog
@@ -71,7 +73,7 @@ export interface CaptainShipLifts {
   extractionYield: number; // extraction1 Prospector's Eye: extractionYieldMult x (1 + this)
   extractionSpeed: number; // extraction3 Efficient Haul: extractionSpeedMult x (1 + this)
   cargo: number; // logistics1 Quartermaster: cargoCapacity x (1 + this)
-  engineEfficiency: number; // logistics2 Fuel Discipline: engineEfficiency + this (0-based, reach and burn)
+  engineEfficiency: number; // logistics2 Fuel Discipline: (1 + engineEfficiency) x (1 + this), the reach factor
   unloadSpeed: number; // logistics3 Rapid Turnaround: unloadSpeedMult x (1 + this)
   overflow: number; // logistics5 Overloaded Holds: cargo above the hold, unloaded at no extra time
 }
@@ -102,9 +104,16 @@ export function captainShipLifts(captain: CaptainState | undefined | null): Capt
 // Extraction: the mission rolls (tick.ts economyTick / tickCaptainMission)
 // ============================================================================
 
-// extraction2 Deep Veins: added to the captain's rare AND uncommon chance mults (the existing rolls, no new draw).
+// extraction2 Deep Veins: its own x (1 + v) factor on the rare AND uncommon chances (the existing rolls, no new draw).
 export function captainFindChanceMult(captain: CaptainState | undefined | null): number {
   return owned(captain, "extraction2");
+}
+
+// A chance's relative mult `mult` (chance x (1 + mult)) with Deep Veins composed as its own factor:
+// (1 + mult)(1 + v) - 1. The mult itself when the captain lacks the node (byte-identical). Pure.
+export function withDeepVeins(mult: number, captain: CaptainState | undefined | null): number {
+  const v = captainFindChanceMult(captain);
+  return v === 0 ? mult : (1 + mult) * (1 + v) - 1;
 }
 
 // extraction4 Assayer: the rollQuality bonus of the captain's mission deliveries (draw-count invariant).
@@ -142,17 +151,30 @@ function tradeFactor(captain: CaptainState | undefined | null): number {
 }
 
 export interface CaptainTransportTerms {
-  marginBonus: number; // trade1 + trade3 (x Trade Baron): rewardMargin x (1 + this)
+  marginBonus: number; // trade1 and trade3 (each x Trade Baron), two factors: rewardMargin x (1 + this)
   supplyDiscount: number; // trade2 (x Trade Baron): the supplies cost x (1 - this); the sale value is unchanged
 }
 
-// The captain's supply run terms (0 / 0 without a Trade node). Pure.
+// The captain's supply run terms (0 / 0 without a Trade node). "Always multiply": Market Contacts and Premium Goods
+// are each their own (1 + x) factor on the margin. Pure.
 export function captainTransportTerms(captain: CaptainState | undefined | null): CaptainTransportTerms {
   const f = tradeFactor(captain);
+  const a = owned(captain, "trade1") * f;
+  const b = owned(captain, "trade3") * f;
   return {
-    marginBonus: (owned(captain, "trade1") + owned(captain, "trade3")) * f,
+    marginBonus: a === 0 && b === 0 ? 0 : (1 + a) * (1 + b) - 1,
     supplyDiscount: owned(captain, "trade2") * f,
   };
+}
+
+// The supply run card's numbers for `captain` (App.svelte): the margin and the purchase cost per unit of cargo the
+// engine applies on that captain's runs (tickCaptainMission: margin x (1 + bonus), cost x (1 - discount)). Pure.
+export function captainSupplyRunTerms(
+  captain: CaptainState | undefined | null,
+  def: { rewardMargin?: number; supplyCostPerCargo?: number },
+): { margin: number; costPerCargo: number } {
+  const t = captainTransportTerms(captain);
+  return { margin: (def.rewardMargin ?? 0) * (1 + t.marginBonus), costPerCargo: (def.supplyCostPerCargo ?? 0) * (1 - t.supplyDiscount) };
 }
 
 // trade4 Trade Routes [PROVISIONAL]: credits per tick while the captain is DOCKED (no mission and no expedition),
@@ -193,13 +215,13 @@ function prospectorText(key: SecondaryTalentKey): string | null {
     case "extraction3":
       return `+${pct(m)} extraction speed: a shorter extracting phase, the same haul`;
     case "extraction4":
-      return `+${pct(m)} chance for each quality step of a mission delivery`;
+      return `+${pct(m)} chance for this captain's mission deliveries to climb a quality step`;
     case "extraction5":
       return `Motherlode: ${pct(m)} chance per delivered mission cycle that its haul doubles`;
     case "logistics1":
       return `+${pct(m)} cargo capacity (counts toward mission cargo requirements)`;
     case "logistics2":
-      return `+${pct(m)} engine efficiency: longer reach and less fuel per trip`;
+      return `+${pct(m)} reach (engine efficiency: farther per trip on the same fuel)`;
     case "logistics3":
       return `+${pct(m)} unload speed (missions and the Ground Ops offload)`;
     case "logistics4":

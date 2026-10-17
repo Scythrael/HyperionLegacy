@@ -5,6 +5,7 @@
 import { describe, expect, it } from "vitest";
 import Decimal from "break_infinity.js";
 import {
+  CAPTAIN_TALENTS,
   MISSIONS,
   QUALITY_STEP_CHANCE,
   SECONDARY_CAPTAIN_TALENTS,
@@ -12,6 +13,7 @@ import {
   freshState,
   missionPhaseTicks,
   type CaptainMissionState,
+  type CaptainTalentKey,
   type CaptainState,
   type GameState,
   type MissionKey,
@@ -33,6 +35,10 @@ import {
   secondaryTalentMagnitude,
 } from "./captainSecondaryEffects";
 import { itemTotal } from "./inventory";
+import { installPiece } from "./wiring/probes";
+
+// Ship-1 with an FTL drive carrying an engine efficiency line (the reach stat already raised).
+const withEngineLine = (s: GameState): GameState => installPiece(s, { slotType: "ftlDrive", implicitStats: { engineEfficiency: 20, fuelCapacity: 20 } });
 
 const PROSPECTOR = (Object.keys(SECONDARY_CAPTAIN_TALENTS) as SecondaryTalentKey[]).filter((k) => SECONDARY_CAPTAIN_TALENTS[k].tree === "prospector");
 
@@ -127,6 +133,23 @@ describe("WR-5a Extraction", () => {
     const veins = missionDropChances(s, cap1(s), "salvageWreckage");
     expect(veins.uncommon).toBeCloseTo(plain.uncommon * (1 + m("extraction2")), 12);
     expect(veins.rare).toBeCloseTo(plain.rare * (1 + m("extraction2")), 12);
+    // "Always multiply": on a captain whose primary talents already raise the odds, Deep Veins is still x (1 + 5%).
+    const primary = (Object.keys(CAPTAIN_TALENTS) as CaptainTalentKey[]).filter((k) => {
+      const t = CAPTAIN_TALENTS[k].effect.type;
+      return t === "rareChanceMult" || t === "uncommonChanceMult";
+    });
+    expect(primary.length).toBeGreaterThan(0);
+    const talented = (keys: SecondaryTalentKey[]) => {
+      const st = owning(base(), keys);
+      return { ...st, captains: st.captains.map((c) => (c.id === 1 ? { ...c, unlockedCaptainTalents: primary } : c)) };
+    };
+    const t0 = talented([]);
+    const t1 = talented(["extraction2"]);
+    const a = missionDropChances(t0, cap1(t0), "salvageWreckage");
+    const b = missionDropChances(t1, cap1(t1), "salvageWreckage");
+    expect(a.rare).toBeGreaterThan(plain.rare);
+    expect(b.rare).toBeCloseTo(a.rare * (1 + m("extraction2")), 12);
+    expect(b.uncommon).toBeCloseTo(Math.min(1, a.uncommon * (1 + m("extraction2"))), 12);
   });
 
   it("extraction3 Efficient Haul: a shorter extracting phase, the same haul per cycle", () => {
@@ -159,6 +182,29 @@ describe("WR-5a Extraction", () => {
     expect(draws(deliveringState(owning(base(), ["extraction4"]), "shortOreRun", 10))).toBe(draws(deliveringState(base(), "shortOreRun", 10)));
   });
 
+  it("extraction4 Assayer, own ship only: in a shared delivery tick only the Assayer captain's ore climbs, same draws", () => {
+    const draw = QUALITY_STEP_CHANCE[0] * (1 + m("extraction4") / 2);
+    // Captain 1 (Assayer, 10 ore) and captain 2 (no node, 7 ore) both finish a shortOreRun delivery this tick.
+    const both = (assayer: boolean): GameState => {
+      const s = deliveringState(owning(base(), assayer ? ["extraction4"] : []), "shortOreRun", 10);
+      const c1 = cap1(s);
+      const load = { commonOre: new Decimal(7), uncommonMaterial: new Decimal(0), rareMaterial: new Decimal(0) };
+      const m2 = { ...(c1.mission as CaptainMissionState), cargo: load };
+      // A second captain with no ship of its own (no Assayer), on the same delivery tick.
+      const other: CaptainState = { ...c1, id: 2, unlockedSecondaryTalents: [], mission: m2 };
+      return { ...s, captains: [...s.captains, other] };
+    };
+    const after = economyTick(both(true), 1, () => draw);
+    const buckets = (after.inventory.commonOre ?? []).map((q) => Number(q));
+    expect(buckets[1]).toBe(10); // the Assayer's own delivery climbed
+    expect(buckets[0] - Number((base().inventory.commonOre ?? [])[0] ?? 0)).toBe(7); // the other captain's did not
+    let n = 0;
+    let n0 = 0;
+    economyTick(both(true), 1, () => (n++, draw));
+    economyTick(both(false), 1, () => (n0++, draw));
+    expect(n).toBe(n0);
+  });
+
   it("extraction5 Motherlode: the seeded roll doubles a delivered haul at its configured rate, on a lifetime counter", () => {
     const chance = m("extraction5");
     const hit = (i: number) => makeRng(motherlodeSeed(1, i)).next() < chance;
@@ -186,11 +232,17 @@ describe("WR-5a Logistics", () => {
     expect(canDispatch(s, 1, "frontierSupplyRun").ok).toBe(true);
   });
 
-  it("logistics2 Fuel Discipline: +5% engine efficiency lengthens the range", () => {
-    const s = owning(base(), ["logistics2"]);
-    const before = effectiveShipStats(base(), ship1(base())).engineEfficiency;
-    expect(effectiveShipStats(s, ship1(s)).engineEfficiency).toBeCloseTo(before + m("logistics2"), 12);
-    expect(shipRangeLightYears(s, ship1(s))).toBeCloseTo((shipRangeLightYears(base(), ship1(base())) * (1 + before + m("logistics2"))) / (1 + before), 9);
+  it("logistics2 Fuel Discipline: +5% reach, its own factor on (1 + engine efficiency), also on a boosted engine", () => {
+    for (const lift of [0, 0.3]) {
+      // A hull whose engine efficiency is already raised (lift) still gains exactly x (1 + 5%) reach.
+      const boosted = (st: GameState): GameState => (lift === 0 ? st : withEngineLine(st));
+      const s0 = boosted(base());
+      const s = boosted(owning(base(), ["logistics2"]));
+      const before = effectiveShipStats(s0, ship1(s0)).engineEfficiency;
+      if (lift !== 0) expect(before).toBeGreaterThan(0);
+      expect(1 + effectiveShipStats(s, ship1(s)).engineEfficiency).toBeCloseTo((1 + before) * (1 + m("logistics2")), 12);
+      expect(shipRangeLightYears(s, ship1(s))).toBeCloseTo(shipRangeLightYears(s0, ship1(s0)) * (1 + m("logistics2")), 9);
+    }
   });
 
   it("logistics3 Rapid Turnaround: a shorter mission unload, and the Ground Ops offload frozen at dispatch", () => {
@@ -228,15 +280,21 @@ describe("WR-5a Trade", () => {
   const load = () => effectiveShipStats(base(), ship1(base())).cargoCapacity * (MISSIONS.frontierSupplyRun.supplyCostPerCargo ?? 0);
   const margin = MISSIONS.frontierSupplyRun.rewardMargin ?? 0;
 
-  it("trade1 + trade3: the supply run margin x (1 + 5% + 5%)", () => {
+  it("trade1 + trade3: the supply run margin x (1 + 5%) x (1 + 5%), two factors", () => {
     expect(cycleCredits(base())).toBeCloseTo(load() * margin, 9);
     expect(cycleCredits(owning(base(), ["trade1"]))).toBeCloseTo(load() * margin * (1 + m("trade1")), 9);
-    expect(cycleCredits(owning(base(), ["trade1", "trade3"]))).toBeCloseTo(load() * margin * (1 + m("trade1") + m("trade3")), 9);
+    expect(cycleCredits(owning(base(), ["trade1", "trade3"]))).toBeCloseTo(load() * margin * (1 + m("trade1")) * (1 + m("trade3")), 9);
   });
 
   it("trade2 Shrewd Negotiator: the supplies cost 5% less at the same sale value, and the working capital gate reads the discount", () => {
     expect(cycleCredits(owning(base(), ["trade2"]))).toBeCloseTo(load() * margin + load() * m("trade2"), 9);
     expect(captainTransportTerms(cap1(owning(base(), ["trade2"]))).supplyDiscount).toBe(m("trade2"));
+    // The gate: with exactly the DISCOUNTED cost in hand, the delivering cycle funds with the node and idles without it.
+    const paid = load() * (1 - m("trade2"));
+    const tight = (s: GameState): GameState => ({ ...deliveringState(s, "frontierSupplyRun", 0), credits: new Decimal(paid) });
+    const gain = (s: GameState) => Number(economyTick(s, 1, () => 0.999999).credits) - Number(s.credits);
+    expect(gain(tight(base()))).toBe(0);
+    expect(gain(tight(owning(base(), ["trade2"])))).toBeCloseTo(load() * margin + load() * m("trade2"), 6);
   });
 
   it("trade4 Trade Routes [PROVISIONAL]: 1 credit/tick while docked on an established route, closed-form", () => {
@@ -255,20 +313,21 @@ describe("WR-5a Trade", () => {
     expect(captainDockedCreditsPerTick(route(base()), cap1(route(base())))).toBe(0);
   });
 
-  it("trade5 Trade Baron: x2 every Trade 1 to 4 value", () => {
+  it("trade5 Trade Baron: x2 every Trade 1 to 4 value (each margin factor doubled, the discount, the trickle)", () => {
     const four = owning(base(), ["trade1", "trade2", "trade3", "trade4"]);
     const five = owning(base(), ["trade1", "trade2", "trade3", "trade4", "trade5"]);
     const f = m("trade5");
     const t4 = captainTransportTerms(cap1(four));
     const t5 = captainTransportTerms(cap1(five));
-    expect(t5.marginBonus).toBeCloseTo(t4.marginBonus * f, 12);
+    expect(t4.marginBonus).toBeCloseTo((1 + m("trade1")) * (1 + m("trade3")) - 1, 12);
+    expect(t5.marginBonus).toBeCloseTo((1 + m("trade1") * f) * (1 + m("trade3") * f) - 1, 12);
     expect(t5.supplyDiscount).toBeCloseTo(t4.supplyDiscount * f, 12);
     const routed = (s: GameState): GameState => ({
       ...s,
       lifetimeStats: { ...s.lifetimeStats, missionsCompleted: { ...s.lifetimeStats.missionsCompleted, frontierSupplyRun: new Decimal(1) } },
     });
     expect(captainDockedCreditsPerTick(routed(five), cap1(five))).toBe(m("trade4") * f);
-    expect(cycleCredits(five) - load() * margin).toBeCloseTo((cycleCredits(four) - load() * margin) * f, 9);
+    expect(cycleCredits(five)).toBeCloseTo(load() * margin * (1 + t5.marginBonus) + load() * t5.supplyDiscount, 9);
   });
 });
 

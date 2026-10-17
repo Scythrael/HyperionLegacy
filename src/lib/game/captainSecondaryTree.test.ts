@@ -22,10 +22,12 @@ import {
   committedBranch,
   canBuySecondaryTalent,
   buySecondaryTalent,
+  secondaryTalentBuyLock,
+  secondaryTalentBuyLockText,
   secondaryTalentProgress,
 } from "./captainSecondaryTree";
 import { migrate, type SaveFile } from "./save";
-import { tick } from "./tick";
+import { dispatchCaptainOnMission, tick } from "./tick";
 
 const ALL_KEYS = Object.keys(SECONDARY_CAPTAIN_TALENTS) as SecondaryTalentKey[];
 
@@ -344,5 +346,38 @@ describe("captain secondary-tree fields on IDLE captains (WR-5a: the Extraction 
     expect(Array.isArray(c.unlockedSecondaryTalents)).toBe(true);
     expect(typeof c.retirements).toBe("number");
     expect(c.xp instanceof Decimal).toBe(true); // sanity: the base game's Decimal field is unaffected
+  });
+});
+
+// ============================================================================
+// WR-5a (user 2026-10-17, "Block buying while out")
+// ============================================================================
+describe("no prestige talent can be learned while the captain's ship is out", () => {
+  const docked = () => {
+    const s = freshState();
+    return { ...s, credits: new Decimal(1_000_000), captains: s.captains.map((c) => (c.id === 1 ? { ...c, secondaryPoints: 2 } : c)) };
+  };
+  it("docked: the buy is allowed; on a mission: refused (canBuy false, buy a no-op), with the reason", () => {
+    const s = docked();
+    const c = s.captains.find((x) => x.id === 1)!;
+    expect(secondaryTalentBuyLock(s, 1)).toBeNull();
+    expect(canBuySecondaryTalent(c, "extraction1", s)).toBe(true);
+    const out = dispatchCaptainOnMission(s, 1, "shortOreRun");
+    expect(out.success).toBe(true);
+    const flying = out.next.captains.find((x) => x.id === 1)!;
+    expect(secondaryTalentBuyLock(out.next, 1)).toBe("onMission");
+    expect(canBuySecondaryTalent(flying, "extraction1", out.next)).toBe(false);
+    const after = buySecondaryTalent(flying, "extraction1", out.next);
+    expect(after.unlockedSecondaryTalents).toEqual([]);
+    expect(after.secondaryPoints).toBe(2);
+    expect(secondaryTalentBuyLockText("onMission")).toBe("Ship is out on a mission: prestige talents can be learned again once it returns");
+  });
+  it("an unclaimed expedition locks too, and a captain with no ship is never locked", () => {
+    const s = docked();
+    const onRun = { ...s, expeditions: [{ shipId: "ship-1", captainId: 1 } as unknown as (typeof s.expeditions)[number]] };
+    expect(secondaryTalentBuyLock(onRun, 1)).toBe("onExpedition");
+    expect(canBuySecondaryTalent(onRun.captains[0], "extraction1", onRun)).toBe(false);
+    const shipless = { ...s, ships: s.ships.map((sh) => ({ ...sh, assignedCaptainId: null })) };
+    expect(secondaryTalentBuyLock(shipless, 1)).toBeNull();
   });
 });
