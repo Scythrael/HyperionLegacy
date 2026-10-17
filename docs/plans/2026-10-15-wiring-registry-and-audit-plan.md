@@ -1411,3 +1411,6 @@ is the first candidate to ask the user about a 0.14.x deferral, recorded as `def
 - **OC-F13 fall-outcome hook:** "Keep as a seam (Recommended)" (owner: future Safety Interlocks).
 - **OC-G2 gas giants:** "Ship-only study (Recommended)": gas giants get the ship-side study (15b) instead of ground
   objectives; no landing, no field repair there.
+- **OC-G3 anomaly:** "Sensors + a small reward (Recommended)". **OC-G6 planet notes:** "Model Ocean only
+  (Recommended)". **OC-H1 Xeno Science team power:** "Members too (Recommended)". **OC-H2 Museum salvage yield:** "Keep
+  scope, honest text (Recommended)".
