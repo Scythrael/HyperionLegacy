@@ -4,7 +4,7 @@
 // collects the salts from the module namespaces, so a new exported salt in any listed module is checked
 // automatically. Ground Ops modules join the list as they land (groundFight.ts at GO-5, groundThreat.ts at
 // GO-6, groundOps.ts at Squads SQ-3 with its first salt, the ambush roll, and GO-7d's Auto-assign stream; riskFactors.ts at Squads SQ-4, the risk
-// profile; affixes.ts at AF-1, the objective affix stamping roll and the per-landing reinforcement roll; telescope.ts at Squads SQ-5, the display-only system distance; shipScanEvents.ts at GO-8). A salt
+// profile; affixes.ts at AF-1, the objective affix stamping roll and the per-landing reinforcement roll; telescope.ts at Squads SQ-5, the display-only system distance; shipScanEvents.ts at GO-8; fieldKits.ts at Field Kits FKR-2, the per-use field device roll). A salt
 // that is not exported is invisible here: keep engine salts exported.
 // GO-5 (GO-4 review) exported and registered the four that were not: tick.ts MISSION_OUTPUT_ROUNDING_SALT,
 // relics.ts RELIC_STUDY_SALT, salvage.ts SALVAGE_ROUNDING_SEED_SALT, seniorStaff.ts OFFICER_STAT_SEED_SALT.
@@ -20,6 +20,7 @@ import * as riskFactors from "./riskFactors";
 import * as affixes from "./affixes";
 import * as telescope from "./telescope";
 import * as shipScanEvents from "./shipScanEvents";
+import * as fieldKits from "./fieldKits";
 import * as relics from "./relics";
 import * as salvage from "./salvage";
 import * as seniorStaff from "./seniorStaff";
@@ -40,6 +41,7 @@ const MODULES: Record<string, Record<string, unknown>> = {
   "affixes.ts": affixes,
   "telescope.ts": telescope,
   "shipScanEvents.ts": shipScanEvents,
+  "fieldKits.ts": fieldKits,
   "officerStats.ts": officerStats,
   "relics.ts": relics,
   "salvage.ts": salvage,
@@ -101,6 +103,7 @@ describe("salt registry (GO-4)", () => {
       "shipScanEvents.ts PROBE_BATTLE_SALT",
       "shipScanEvents.ts PROBE_SALVAGE_SALT",
       "shipScanEvents.ts GHOST_FIND_SALT",
+      "fieldKits.ts FIELD_DEVICE_SALT",
       "relics.ts RELIC_STUDY_SALT",
       "salvage.ts SALVAGE_ROUNDING_SEED_SALT",
       "tick.ts MISSION_OUTPUT_ROUNDING_SALT",

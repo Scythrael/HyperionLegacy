@@ -270,4 +270,5 @@ export const UNREAD_CONSTANTS: Readonly<Record<string, string>> = {
   CUNNING_PENDING_SEATS: "bookkeeping: the seats with no Cunning over-delivery yet (Pilot Cunning, WR-9 OC-E4)",
   ECONOMY_FLOOR_SLOTS: "display: the Quartermaster's economy floor set, named for its readers",
   ENEMY_RANK_IDS: "bookkeeping: the enemy ranks in order, read by the wiring registry (one entry per rank, Field Kits FKR-1) and FKR-3's rank chips",
+  FIELD_KITS_CATALOG_VERSION: "seam: FKR-7 (buildExpedition stamps Expedition.fieldKits.catalog with it, flag 2)",
 };
