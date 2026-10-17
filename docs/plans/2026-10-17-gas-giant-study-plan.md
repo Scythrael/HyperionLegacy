@@ -342,3 +342,8 @@ ship leg in the Ground Ops window, parity) and GG-5 (a new lane plus the researc
 two widths). Hard dependencies: G2-2 and G2-3 for the engine slices, the OC-15 Lab rungs for special blueprints, the
 wear build for the probe wear event, the speed seam for Overtime. Biggest cuts if needed: GG-4 (nebulae) and the
 ancient entries (open call 13); nothing else can move without leaving a false Help line or a dead item.
+
+## USER ANSWERS (2026-10-17)
+
+- **Call 1 giant classes:** "By name + Sudarsky (Recommended)". **Call 2 nebulae:** "System-level sweep (Recommended)".
+  **Call 3 who studies:** "The ship, always (Recommended)". **Call 13 scope:** "Keep all in 0.14.0 (Recommended)".
