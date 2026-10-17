@@ -7,7 +7,7 @@
 //   allAuto  : the user's T2 baseline [PROPOSAL in the plan]. A fresh save whose first explorer (Orion) is already
 //              built, the weakest crew that can launch, every crew setting on auto, no gear, crew or talent changes:
 //              one gathering run to its first delivery and a little past, one Dispatch Once Sweep patrol, then
-//              expeditions on repeat (the first is the shakedown). Never presses Skip.
+//              expeditions on repeat (the first is the training run, safe first runs SF-2). Never presses Skip.
 //   newcomer : the SUGGESTIONS archetype "dispatches whatever is available, upgrades whatever is cheapest", on the
 //              REAL fresh save (the General Freighter): hires the board's lowest-rank Security and Science, draws
 //              the Quartermaster's Standard-Issue kit for them, buys the cheapest talents and facility rungs it can,

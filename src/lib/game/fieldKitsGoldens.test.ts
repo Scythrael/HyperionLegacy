@@ -42,7 +42,7 @@ import { resistedHazard } from "./relics";
 import { inspectBlank } from "./tick";
 import { applyGroundTeamLoadout, checkInGroundTeamLoadout, createGroundTeamLoadout } from "./armory";
 import { deserialize, migrate, serialize } from "./save";
-import { plainAwayMember, withSlottedAwayTeams, withoutAffixes, withoutFieldKits, withoutFieldKitsState, withoutGroundOps, withoutRisk } from "./awayTeamTestFixtures";
+import { plainAwayMember, withSlottedAwayTeams, withoutAffixes, withoutFieldKits, withoutFieldKitsState, withoutGroundOps, withoutRisk, withoutSafeFirstRuns } from "./awayTeamTestFixtures";
 // SF-1: whole states hash without the run counters (seeded by freshState, written by a claim), absent before SF-1.
 import { withoutRunCounts } from "./firstRunsGoldens.fixture";
 
@@ -105,7 +105,8 @@ function crewed(expeditionSeed: number, kinds: "gg" | "ss" = "gg", rank = 6, equ
 function dispatch(state: GameState, region?: ExpeditionRegion): { next: GameState; exp: Expedition } {
   const res = startExpedition(state, "ship-1", 1, expeditionCandidates(state, "ship-1")[0].id);
   if (!res.success || !res.expedition) throw new Error(`dispatch refused: ${res.reason}`);
-  let exp = withoutFieldKits(res.expedition);
+  // Safe first runs SF-2: the run as dispatched before SF-2 (the retired 30 minute shakedown on expedition 1).
+  let exp = withoutFieldKits(withoutSafeFirstRuns(res.expedition));
   if (region) {
     const forced = generateRiskProfile(exp.seed, region, exp.bodies);
     exp = { ...exp, risk: forced.profile, bodies: exp.bodies.map((b, i) => ({ ...b, risk: forced.bodies[i] })) };
@@ -150,7 +151,7 @@ interface HandSetup {
 function handRun(setup: HandSetup): { next: GameState; exp: Expedition } {
   const res = startExpedition(setup.state, "ship-1", 1, "cand-0");
   if (!res.success || !res.expedition) throw new Error(`dispatch refused: ${res.reason}`);
-  const d = withoutFieldKits(res.expedition);
+  const d = withoutFieldKits(withoutSafeFirstRuns(res.expedition)); // SF-2: as dispatched before SF-2 (see dispatch)
   const body: ExpeditionBody = {
     id: "body-1",
     planetType: "terrestrial",

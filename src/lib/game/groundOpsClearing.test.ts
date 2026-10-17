@@ -5,7 +5,7 @@
 
 import { describe, expect, it } from "vitest";
 import { freshState, type AwayMember, type Expedition, type GameState, type ShipGroundTeam } from "./model";
-import { advanceExpedition, claimExpedition, startExpedition, systemTaskPreview } from "./expedition";
+import { TRANSIT_SECONDS, advanceExpedition, claimExpedition, startExpedition, systemTaskPreview } from "./expedition";
 import { CLEARING_SITE_RULES, bodyRiskGrades, generateRiskProfile, isClearingSiteId, type ExpeditionRegion } from "./riskFactors";
 import { riskFightPointCount } from "./groundTasks";
 import { groundOpsLogText } from "./groundOps";
@@ -25,6 +25,9 @@ function fnv(s: string): string {
 }
 
 const T0 = 100_000;
+// The instant the bodies are scanned: the outbound transit (the regular one since safe first runs SF-2 retired the 30
+// minute shakedown) plus the 28,200 s of scanning these tests always gave.
+const SCANNED_AT = T0 + TRANSIT_SECONDS + 28_200;
 const SEC = ["member-1", "member-2", "member-3", "member-4", "member-5", "member-6"];
 const SCI = ["member-11", "member-12", "member-13", "member-14", "member-15", "member-16"];
 
@@ -171,12 +174,13 @@ describe("clearing tasks: the roll (riskFactors.ts CLEARING_SITE_RULES)", () => 
 describe("clearing tasks: stamping and planning", () => {
   const seedAt = (k: number) => (0x5eed + k * 977) >>> 0;
 
-  it("at a forced Tier IV: Security-only needs from the risk-aware fight count, rated, 2 Security squads from 4 fights", () => {
+  // 20 dispatches scanned through: slow on a loaded machine (it timed out at the 5 s default before SF-2 too).
+  it("at a forced Tier IV: Security-only needs from the risk-aware fight count, rated, 2 Security squads from 4 fights", { timeout: 30_000 }, () => {
     let seen = 0;
     let two = 0;
     for (let k = 0; k < 20; k++) {
       const d = dispatch(crewed(seedAt(k)), TIER4E);
-      const scanned = advanceExpedition(d.exp, T0 + 30_000);
+      const scanned = advanceExpedition(d.exp, SCANNED_AT);
       for (const { task, body } of clearingTasks(scanned)) {
         seen += 1;
         const fights = riskFightPointCount(task.poiId, body.hazard, body.risk!);
@@ -201,7 +205,7 @@ describe("clearing tasks: stamping and planning", () => {
       let seen = 0;
       for (let k = 0; k < 30; k++) {
         const d = dispatch(crewed((0xabc + k * 131) >>> 0), { tier, enemyTerritory: true });
-        for (const { task } of clearingTasks(advanceExpedition(d.exp, T0 + 30_000))) {
+        for (const { task } of clearingTasks(advanceExpedition(d.exp, SCANNED_AT))) {
           seen += 1;
           expect(task.needs).toEqual({ security: 1, science: 0 });
         }
@@ -213,7 +217,7 @@ describe("clearing tasks: stamping and planning", () => {
   it("a Strike team takes a clearing task ALONE; a Survey team never does", () => {
     let seen = 0;
     for (let k = 0; k < 20; k++) {
-      const scanned = advanceExpedition(dispatch(crewed(seedAt(k), "ss"), TIER4E).exp, T0 + 30_000);
+      const scanned = advanceExpedition(dispatch(crewed(seedAt(k), "ss"), TIER4E).exp, SCANNED_AT);
       const strike = scanned.groundOps!.teams.find((t) => t.kind === "strike")!;
       const survey = scanned.groundOps!.teams.find((t) => t.kind === "survey")!;
       for (const { task } of clearingTasks(scanned)) {
@@ -230,7 +234,7 @@ describe("clearing tasks: stamping and planning", () => {
       const base = crewed(seedAt(k));
       const emptyBravo: ShipGroundTeam = { kind: "ground", security: [null, null, null], science: [null, null, null], helpOthers: false };
       const one: GameState = { ...base, ships: base.ships.map((sh) => ({ ...sh, groundTeams: [sh.groundTeams![0], emptyBravo] })) };
-      const scanned = advanceExpedition(dispatch(one, TIER4E).exp, T0 + 30_000);
+      const scanned = advanceExpedition(dispatch(one, TIER4E).exp, SCANNED_AT);
       const big = clearingTasks(scanned).find(({ task }) => task.needs!.security === 2);
       if (!big) continue;
       expect(big.task.status).toBe("skipped");

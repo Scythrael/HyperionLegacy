@@ -123,6 +123,11 @@ import {
   rollReinforcements,
   type GroundCover,
 } from "./affixes";
+// Safe first runs SF-2: the training run stamp's one read (no affixes, no ambushes, the backstop).
+import { isTrainingRun } from "./enemyRanks";
+
+// Safe first runs SF-2 (user SF12): the log line of a training run's lost fight whose guards fell back (the backstop).
+export const TRAINING_FELL_BACK_TEXT = "The guards fell back. Training run: no setback.";
 
 export type { GroundOpsFactors, GroundOpsLogEntry, GroundOpsState, GroundRepairLeg, GroundShipLeg, GroundStepKind, GroundStepRecord, GroundTaskNeeds, GroundTeamRun, ShipEventProfile };
 
@@ -361,6 +366,12 @@ export function snapshotAwayRosterForTeams(
 //   ROCKY OUTCROPPINGS (AF-2): the objective's fights (point, surprise and reinforcement fights alike) and every odds
 //   read of it carry its COVER against long-range attacks (taskCover). The run stamps from its own affix CATALOG
 //   version (riskFactors.ts runAffixCatalog), so an affix-aware run dispatched before AF-2 rolls exactly as before.
+//
+// THE TRAINING RUN (safe first runs SF-2; enemyRanks.ts isTrainingRun reads the dispatch stamp): its objectives stamp
+//   no affixes (the roll is still made and dropped) and no ambush chance, and a LOST fight still clears its point
+//   (trainingFellBack: the guards fell back, nothing set back, the crew comes home as from any loss). Its guards are
+//   scaled down in groundFight.ts and its odds read Guaranteed (groundThreat.ts). A run without the stamp is exactly
+//   as before.
 //
 // DETERMINISM: two salts here, GROUND_AMBUSH_SALT (the ambush roll, keyed by the task and its ambushes) and
 // AUTO_ASSIGN_SALT (GO-7d's Auto-assign randomly, keyed by the run's edit count). A task
@@ -681,6 +692,7 @@ export function initGroundTasks(exp: Expedition, bodyIndex: number): void {
   const difficultyTier = runDifficultyTier(exp.risk);
   // AF-2: the run's affix catalog version (a run dispatched before AF-2 stamps from AF-1's, on AF-1's draw layout).
   const catalog = runAffixCatalog(exp.risk);
+  const training = isTrainingRun(exp);
   for (let k = 0; k < body.activities.length; k += 1) {
     const task = body.activities[k];
     if (isGroundTask(task)) continue;
@@ -709,14 +721,17 @@ export function initGroundTasks(exp: Expedition, bodyIndex: number): void {
           catalog,
           planetType: body.planetType,
         });
-        if (affixes.length > 0) task.affixes = affixes;
+        // Safe first runs SF-2: a training run's objectives carry no affixes (the roll is still made, on its own keyed
+        // stream, and dropped), so no Reinforcing, no alert, no cover.
+        if (affixes.length > 0 && !training) task.affixes = affixes;
       }
     } else {
       task.fightPoints = fightPointFractions(fightPointCount(task.poiId, body.hazard));
       task.needs = stampedNeeds(task, task.fightPoints.length);
       delete task.requiredTeams; // read into needs (the carry-forward); never stored twice
     }
-    const chance = groundTaskAmbushChance(task, body);
+    // Safe first runs SF-2: no ambushes on a training run.
+    const chance = training ? 0 : groundTaskAmbushChance(task, body);
     if (chance > 0) task.ambushChance = chance;
     task.progress = 0;
     task.pointsCleared = 0;
@@ -779,6 +794,9 @@ export function groundOpsLogText(exp: Pick<Expedition, "bodies">, entry: GroundO
     case "alertReset":
       // Objective affixes (AF-1): the user's words.
       return `${name}: ${ALERT_RESET_TEXT}`;
+    case "trainingFellBack":
+      // Safe first runs SF-2: the user's words (SF12).
+      return `${name}: ${TRAINING_FELL_BACK_TEXT}`;
   }
 }
 
@@ -1508,6 +1526,7 @@ function finishFight(exp: Expedition, ops: GroundOpsState, team: GroundTeamRun, 
   }
   for (const member of crew) delete member.carry;
   delete team.reinforcementsAt;
+  if (isTrainingRun(exp)) return trainingFellBack(exp, ops, team, crew, ref, t, surprise, recalled);
   // AF-1 (Reinforcing): every retreat or wipe here raises the objective's alert (affixes.ts alertAfterSetback; a
   // task whose affixes raise none is untouched). Whoever lost it (owner, helper, a recalled crew): the enemy saw
   // a crew beaten off either way.
@@ -1532,6 +1551,36 @@ function finishFight(exp: Expedition, ops: GroundOpsState, team: GroundTeamRun, 
     }
   }
   returnCrew(exp, ops, team, crew, ref, t, wipedTeams(crew), { outcome: "loss", ...surprise, ...(recalled ? { stopped: true as const } : {}) });
+}
+
+// THE TRAINING RUN'S BACKSTOP (safe first runs SF-2, plan section 3.2 item 5; user OC-1 "Finish 100%, no setbacks"):
+// on a training run (enemyRanks.ts isTrainingRun) a LOST fight still clears its fight point, so every objective
+// reaches 100% by construction even if the tuned-down guards (groundFight.ts) ever win. The guards FELL BACK: the
+// crew comes home as from any loss (the hurt to the medical bay, a wiped team on its recovery leg) and nothing is set
+// back: no alert, no loss streak, no send-back, no helper skip list; the objective is queued again with its progress
+// kept (a skipped one stays skipped). A surprise or reinforcement fight passes no point (neither can occur on a
+// training run: no ambushes, no affixes). Logged in the user's words (TRAINING_FELL_BACK_TEXT). No draw. Mutates.
+function trainingFellBack(
+  exp: Expedition,
+  ops: GroundOpsState,
+  team: GroundTeamRun,
+  crew: GroundTeamRun[],
+  ref: GroundTaskRef,
+  t: number,
+  surprise: Partial<GroundStepRecord>,
+  recalled: boolean,
+): void {
+  const task = ref.task;
+  if (!surprise.surprise && !surprise.reinforcement) task.pointsCleared = (task.pointsCleared ?? 0) + 1;
+  delete task.lossStreak;
+  task.status = task.status === "skipped" ? "skipped" : "queued";
+  pushLog(ops, { at: t, kind: "trainingFellBack", taskId: task.id });
+  returnCrew(exp, ops, team, crew, ref, t, wipedTeams(crew), {
+    outcome: "loss",
+    fellBack: true,
+    ...surprise,
+    ...(recalled ? { stopped: true as const } : {}),
+  });
 }
 
 // Every team of the crew `lead` carries heads back at `t`. The `wiped` ones wait for ONE recovery leg (a shared

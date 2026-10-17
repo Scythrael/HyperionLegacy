@@ -3,8 +3,9 @@
 // seed 0; each seed is about two minutes). Prints the reports; asserts their shape and the characterizations.
 //
 //   1. The full choice ablation: every player choice in the wiring registry, allAuto with and without it.
-//   2. The first-run batch: allAuto and newcomer over six seeds (the three fresh-save shakedown candidates twice),
-//      the Safe First Runs assertions as they stand TODAY (no seed is safe; SF-2 flips this).
+//   2. The first-run batch: allAuto and newcomer over six seeds (the three fresh-save candidates twice), the Safe
+//      First Runs assertions: since SF-2 allAuto's first expedition (an Orion's: the training run) is safe on every
+//      seed; the newcomer's (a General Freighter's) is an ordinary run.
 //   3. offline == live at full length: one tick() call, 997 s chunks and 1 s ticks per look, both policies.
 
 import { describe, expect, it } from "vitest";
@@ -34,10 +35,13 @@ describe.runIf(SIM_FULL)("WR-2 gated: the full choice ablation", () => {
   }, 3_600_000);
 });
 
-describe.runIf(SIM_FULL)("WR-2 gated: the first-run batch (Safe First Runs, today)", () => {
+// SF-2: the training run flies the regular transit (the shakedown is retired), so the horizon covers its return.
+const FIRST_RUN_HORIZON = 90_000;
+
+describe.runIf(SIM_FULL)("WR-2 gated: the first-run batch (Safe First Runs)", () => {
   for (const policy of SIM_POLICIES) {
     it(`${policy.name}: the first expedition on every seed, and gathering is never lost`, () => {
-      const reports: SimReport[] = FIRST_RUN_SEEDS.map((seed) => simulate(policy, { seed }));
+      const reports: SimReport[] = FIRST_RUN_SEEDS.map((seed) => simulate(policy, { seed, horizonSeconds: FIRST_RUN_HORIZON }));
       console.log(
         reports
           .map((r) => `${policy.name} seed ${r.seed}: ${r.firstExpedition.verdict} (${r.firstExpedition.reasons.join("; ") || "safe"}); patrol ${r.patrol?.won ? "won" : `lost (${r.patrol?.endReason})`}`)
@@ -47,11 +51,12 @@ describe.runIf(SIM_FULL)("WR-2 gated: the first-run batch (Safe First Runs, toda
         expect(r.gather?.defeat).toBe(false);
         // CURRENT BEHAVIOR for the newcomer (a General Freighter), flipped by G2: only explorers will reach
         // expedition systems, so its launch becomes a refusal and its run is "not the training run" (the training
-        // run is the first expedition FROM AN EXPLORER; SF changes the engine's "first on the account" shakedown).
+        // run is the first expedition FROM AN EXPLORER, SF-2).
         expect(r.expeditions.length).toBeGreaterThan(0);
       }
-      // TODAY: no seed's first expedition is safe for either policy (SF-2 makes allAuto's, the explorer's, safe).
-      expect(reports.filter((r) => r.firstExpedition.safe).length).toBe(0);
+      // SF-2: the explorer's first expedition is the training run, safe on every seed (before SF-2: none was). The
+      // newcomer's freighter flies an ordinary run (not an explorer), so nothing is claimed for it here.
+      if (policy === ALL_AUTO) expect(reports.map((r) => r.firstExpedition)).toEqual(reports.map(() => ({ verdict: "safe", safe: true, reasons: [] })));
     }, 600_000);
   }
 });

@@ -12,7 +12,8 @@
 //         mid-task reads its real odds;
 //       * a member downed in an earlier fight of the SAME sample sits out its later fights (the in-task rule);
 //       * a sample WINS only when every remaining fight wins, and stops at its first loss.
-//     No remaining fights: every sample wins (Guaranteed).
+//     No remaining fights: every sample wins (Guaranteed). A TRAINING RUN (safe first runs SF-2) reads Guaranteed
+//     too: its backstop clears every fight point, won or lost.
 //   - The sample's fight j (j = the fight point's index) carries the fight number a real fight there would
 //     have if every earlier remaining fight were won (fightCount + j - pointsCleared), so the squad's ids match.
 //
@@ -281,6 +282,9 @@ export function groundTaskClearOdds(
   cover?: GroundCover,
 ): { wins: number; samples: number } {
   const n = sampleCount(samples);
+  // Safe first runs SF-2: a TRAINING RUN clears every objective by construction (groundOps.ts trainingFellBack: a lost
+  // fight still clears its point), so every sample wins (Guaranteed), with no sample fought and no memo entry.
+  if (isTrainingRun(exp)) return { wins: n, samples: n };
   const key = groundThreatOddsKey(exp, teams, body, task, flatIndex, n, carried, alertLevel, cover);
   let wins = oddsMemo.get(key);
   if (wins !== undefined) {
