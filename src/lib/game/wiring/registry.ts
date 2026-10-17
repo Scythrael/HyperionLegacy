@@ -109,6 +109,7 @@ import { DC_REPAIR_SPEED_B, DC_REPAIR_SPEED_R, DC_WAVE_REGEN_B, DC_WAVE_REGEN_R,
 import { DRONE_POD_AFFIX_POOL, DRONE_POD_IMPLICIT_STAT, WEAPON_AFFIX_POOL, WEAPON_IMPLICIT_STAT } from "../itemgen";
 import { AFFIX_DEFS, ESCALATION_ENEMIES_PER_LEVEL, HEIGHTENED_SENSES_KNEE, HEIGHTENED_SENSES_PER_LEVEL } from "../affixes";
 import { ENEMY_RANKS, ENEMY_RANK_IDS } from "../enemyRanks";
+import { OVERTIME_STEP_RATE } from "../processSpeed";
 import {
   WIRING_SCIENCE_ID,
   WIRING_SECURITY_ID,
@@ -126,6 +127,8 @@ import {
   withFacilityLevel,
   withHomeworld,
   withMuseum,
+  withRunningJobs,
+  overtimeOneStep,
   WIRING_BUCKET_COUNT,
   AFFIX_ALIGNED_HOOKS,
   AFFIX_HOOK_KEYS,
@@ -162,7 +165,11 @@ export type WiringStatus =
   | { kind: "pending"; owner: string; contexts?: readonly ContextId[] }
   // The user deferred it past 0.14.0 (capture 2026-10-15 section 3 T3 and the like).
   | { kind: "deferred"; owner: string; userRef: string; contexts?: readonly ContextId[] }
-  | { kind: "held"; userRef: string }; // D14 Craft Duplicate only
+  | { kind: "held"; userRef: string } // D14 Craft Duplicate only
+  // 0.14.0: a SEAM the user asked to be built now and called by a later patch (the tutorial time skip and the grant
+  // hook: "Hook only", USER ANSWERS group 2 of the safe first runs plan). Tested in its own suite; not a placeholder
+  // effect (it moves nothing on its own) and not a release blocker. `owner` = the patch that calls it.
+  | { kind: "seam"; owner: string; userRef: string };
 
 export type Curve =
   | { kind: "linearRelative" } // value(on) = value(off) x (1 + m)
@@ -2571,6 +2578,47 @@ function auditEntries(): WiringEntry[] {
 }
 
 // ============================================================================
+// 0.14.0 SPEED SEAM (processSpeed.ts): Overtime is live; the tutorial time skip and the grant hook are seams
+// ============================================================================
+
+const TUTORIAL_HOOKS = 'safe first runs plan USER ANSWERS group 2 (2026-10-16): "Hook only"; grant hook "Yes, add it now (Recommended)"';
+
+function speedSeamEntries(): WiringEntry[] {
+  return [
+    entry({
+      id: "facility:SPEED_SEAM:overtime",
+      system: "facility",
+      source: { catalog: "SPEED_SEAM", key: "overtime" },
+      claim: "Overtime: each step bought speeds a running job by 25% of its normal rate (Shipyard builds and repairs, research, facility upgrades)",
+      probe: "overtimeTicks",
+      contexts: ["shipyard", "research", "facility"],
+      direction: "down",
+      curve: { kind: "divisor" },
+      magnitude: () => OVERTIME_STEP_RATE,
+      on: overtimeOneStep,
+      base: () => withRunningJobs(wiringBase()),
+      note: "one step from the normal rate: the time left is divided by 1 + 0.25 (the countdown then runs unchanged)",
+    }),
+    entry({
+      id: "fleetAdmiral:SPEED_SEAM:timeSkip",
+      system: "fleetAdmiral",
+      source: { catalog: "SPEED_SEAM", key: "timeSkip" },
+      claim: "Tutorial time skip: instantly finishes any timed process, mission cycle, patrol route or expedition, for free",
+      status: { kind: "seam", owner: "the tutorial patch", userRef: TUTORIAL_HOOKS },
+      note: "processSpeed.test.ts proves it per process type",
+    }),
+    entry({
+      id: "fleetAdmiral:SPEED_SEAM:grant",
+      system: "fleetAdmiral",
+      source: { catalog: "SPEED_SEAM", key: "grant" },
+      claim: "Grant hook: items, credits, gear and a hull, with a log line",
+      status: { kind: "seam", owner: "the tutorial / quests patch", userRef: TUTORIAL_HOOKS },
+      note: "processSpeed.test.ts proves it",
+    }),
+  ];
+}
+
+// ============================================================================
 // The no-dead-stats allow-list's reasons (kept verbatim from PENDING_IN_RELEASE at the WR-1 move)
 // ============================================================================
 
@@ -2753,6 +2801,7 @@ function build(): readonly WiringEntry[] {
     ...crewScalarEntries(),
     ...medicalEntries(),
     ...auditEntries(),
+    ...speedSeamEntries(),
   ].map((e) => (ALLOW_LIST_REASONS[e.id] ? { ...e, reason: ALLOW_LIST_REASONS[e.id] } : e));
 }
 

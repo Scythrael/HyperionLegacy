@@ -44,6 +44,7 @@ import {
   type GambitStatusId,
   type GambitTargetSelector,
   type GameState,
+  type TimedProcessKind,
   type MissionKey,
   type ObjectiveAffix,
   type OfficerStats,
@@ -80,9 +81,11 @@ import {
   shipRangeLightYears,
   shipRepairDurationTicks,
   shipyardBayCount,
+  startProcess,
   tierCap,
   xpPerTick,
 } from "../tick";
+import { OVERTIME_PROCESS_KINDS, buyOvertime } from "../processSpeed";
 import { combatHullTypeOf, shipToCombatant } from "../combat/bridge";
 import type { Combatant, CombatWeapon } from "../combat/types";
 import type { DroneRole, DroneSquadron } from "../combat/drones";
@@ -234,6 +237,25 @@ export function seatOfficer(
     ...(opts.stats ? { stats: { ...opts.stats } } : {}),
   };
   return { ...s, officers: [...s.officers.filter((o) => o.seat !== seat || o.assignedShipId !== WIRING_SHIP_ID), officer] };
+}
+
+// 0.14.0 SPEED SEAM: one running job per Overtime context, each RUNNING_JOB_TICKS long: a hull build (shipyard), a
+// research project (research) and a facility rung (facility). Started through the shared startProcess engine.
+export const RUNNING_JOB_TICKS = 1000;
+const RUNNING_JOB_KIND: Partial<Record<ContextId, TimedProcessKind>> = { shipyard: "shipBuild", research: "researchProject", facility: "facilityUpgrade" };
+export function withRunningJobs(s: GameState): GameState {
+  let out = startProcess(s, "shipBuild", {}, RUNNING_JOB_TICKS, { type: "addShip", typeKey: "generalFreighter" }).next;
+  out = startProcess(out, "researchProject", {}, RUNNING_JOB_TICKS, { type: "unlockBlueprint", key: "frameSegmentBp" }).next;
+  return startProcess(out, "facilityUpgrade", {}, RUNNING_JOB_TICKS, { type: "facilityLevelUp", facility: "refinery" }).next;
+}
+
+// Buy ONE Overtime step on every running job it is offered on (a job it is not, or a refusal, is left as it is).
+export function overtimeOneStep(s: GameState): GameState {
+  let out = s;
+  for (const p of s.activeProcesses) {
+    if (OVERTIME_PROCESS_KINDS.includes(p.kind)) out = buyOvertime(out, { kind: "process", id: p.id }).next;
+  }
+  return out;
 }
 
 export const WIRING_BUCKET_COUNT = 20; // a real-sized complement bucket (standard rarity, Crewman rank)
@@ -767,6 +789,10 @@ export const PROBES = {
   shipyardBays: { label: "shipyardBayCount", read: (s) => shipyardBayCount(s) },
   shipBuildTicks: { label: "shipBuildDurationTicks(destroyer)", read: (s) => shipBuildDurationTicks(s, "destroyer") },
   shipyardFounded: { label: "canBuildShip passes the founded gate (0/1)", read: (s) => buildGatePassed(s, "notFounded") },
+  overtimeTicks: {
+    label: "a running job's remaining ticks (processSpeed.ts Overtime): a hull build / a research project / a facility rung",
+    read: (s, ctx) => s.activeProcesses.find((p) => p.kind === RUNNING_JOB_KIND[ctx])?.remainingTicks ?? -1,
+  },
   dockRoom: { label: "canBuildShip passes the docks gate (0/1)", read: (s) => buildGatePassed(s, "storageFull") },
   // == facilities ==
   refineSlots: { label: "refineSlotCount", read: (s) => refineSlotCount(s) },
