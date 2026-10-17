@@ -672,4 +672,9 @@ For later slices: SF-2 stamps `difficulty` in buildExpedition via `runDifficulty
 (group 3 answer: a separate tutorial duration constant equal to the regular Tier I one; not done here, it moves the
 shakedown goldens). SF-4 adds the patrol stamp and must leave the training cycle's route out of `patrol.completed`
 (countPatrolRoutes). The shared speed / time-skip seam (group 2, Overtime) is not part of SF-1.
+
+SF-1 review (2026-10-17): startExpedition now stores `runCountsOf(state)` (the counts before the dispatch), so a
+state without stored counters (a dev save or fixture from before SF-1) is never reclassified as a veteran by its own
+first dispatch (patrol dispatch and the claim already stored them). **Flag for SF-4 (the user's pacing call):** the
+patrol curve counts WON ROUTES, so it fills after 9 of them, which a single Repeat session can fly in one sitting.
 - **Veterans (2026-10-16):** "Full strength, as today (Recommended)": existing saves play as now; only new games ramp.

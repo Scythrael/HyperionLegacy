@@ -1075,6 +1075,11 @@ export function startExpedition(
       ...state,
       expeditions: [...state.expeditions, expedition],
       nextExpeditionId: number + 1,
+      // Safe first runs SF-1 (review): the counters as they read BEFORE this dispatch. A state without stored counters
+      // (a dev save or fixture from before SF-1) derives them from its history, and that derivation would read this
+      // dispatch as pre-0.14.0 play (a veteran); storing them here keeps the save on its real counts. The stored
+      // object itself (the same reference) when present.
+      runCounts: runCountsOf(state),
       // Advance the preview seed ONLY here (a commit), so previews stay stable until a dispatch happens.
       expeditionSeed: advanceExpeditionSeed(state.expeditionSeed),
       ...(blind ? { blindLaunches: blindLaunchCount(state) + 1 } : {}),

@@ -238,6 +238,17 @@ describe("SF-1: the engine writes the counters", () => {
     expect(restWithoutCount).toEqual(rest);
   });
 
+  it("a dispatch stores the counters a state without them reads, so it never flips to veteran (SF-1 review)", () => {
+    const crewed = { ...withCrew(onHull("eir"), "rank3"), runCounts: undefined };
+    expect(isTrainingExpedition(crewed, "eir")).toBe(true);
+    const res = startExpedition(crewed, "ship-1", 1, "cand-1");
+    expect(res.success).toBe(true);
+    expect(res.next.runCounts).toEqual(freshRunCounts());
+    expect(runCountsOf(res.next).expedition.veteran).toBe(false);
+    const stored = withCrew(onHull("eir"), "rank3");
+    expect(startExpedition(stored, "ship-1", 1, "cand-1").next.runCounts).toBe(stored.runCounts);
+  });
+
   it("a refused claim writes nothing (the same reference)", () => {
     const s = freshState();
     expect(claimExpedition(s, "expedition-404").next).toBe(s);
