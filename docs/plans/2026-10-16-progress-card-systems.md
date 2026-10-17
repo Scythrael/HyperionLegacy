@@ -21,3 +21,11 @@ Designed, build queued (6): short-range missions; gas giant study; Relics v2; co
 ledger); Material Lines; universal modules (E-MOD, incl. the power budget).
 
 History: v4 (2026-10-14) 24 systems, 11 / 5 / 8 = 56%.
+
+## 2026-10-17 (v6): 30 systems, 14 done, 6 building, 10 designed = 57%
+
+Same 14 done and 6 building as v5 (the building six all advanced: wiring registry + simulated player + bug fixes, run
+counters and the training-run rule, enemy ranks). Four systems ADDED to the plan (designed): gear wear; Prospecting
+squads (built hidden); Overtime and credit sinks; tutorial hooks (time skip, grant, expedite seam). User chose to show
+the honest 57% with the note "The plan grew by four systems since the last update, so the percentage dipped even
+though a lot got built."
