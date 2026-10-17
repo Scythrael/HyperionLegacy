@@ -125,16 +125,22 @@ export function applyExpeditionInjuries(state: GameState, exp: Expedition): { ne
 // (injuredUntilSeconds = that bay end, injuredAtSeconds = that bay's start). Everyone else is ready ("anyone
 // still in the bay comes home with the remaining time"). A member no longer on the roster is skipped; a member
 // somehow already injured keeps the LATER timer. Returns the SAME state when nobody is still in the bay. Pure.
+//
+// 0.14.0 SPEED SEAM: a time-skipped run (processSpeed.ts applyTimeSkip) ran its own clock ahead of the game clock by
+// exp.speed.clockOffsetSeconds, so its bay times are on that clock. `now` is read on the run's clock (the game time
+// plus the offset) and every time written back is shifted onto the game clock (minus the offset): the member comes
+// home exactly as from the run claimed at its natural end. Without a skip the offset is 0 (byte-identical).
 export function applyGroundOpsInjuries(state: GameState, exp: Expedition): { next: GameState; injuries: MemberInjury[] } {
-  const now = state.gameTimeSeconds;
+  const offset = exp.speed?.clockOffsetSeconds ?? 0;
+  const now = state.gameTimeSeconds + offset;
   const injuries: MemberInjury[] = [];
   const startOf = new Map<string, number>();
   for (const team of exp.groundOps?.teams ?? []) {
     for (const [memberId, until] of Object.entries(team.bayEnds)) {
       if (!(until > now) || startOf.has(memberId)) continue;
       if (!state.awayMembers.some((m) => m.id === memberId)) continue;
-      injuries.push({ memberId, recoverySeconds: until - now, untilSeconds: until });
-      startOf.set(memberId, team.bayStart ?? now);
+      injuries.push({ memberId, recoverySeconds: until - now, untilSeconds: until - offset });
+      startOf.set(memberId, (team.bayStart ?? now) - offset);
     }
   }
   if (injuries.length === 0) return { next: state, injuries };
@@ -143,7 +149,7 @@ export function applyGroundOpsInjuries(state: GameState, exp: Expedition): { nex
     const injury = byId.get(m.id);
     if (!injury) return m;
     if (m.injuredUntilSeconds !== undefined && m.injuredUntilSeconds >= injury.untilSeconds) return m;
-    return { ...m, injuredUntilSeconds: injury.untilSeconds, injuredAtSeconds: startOf.get(m.id) ?? now };
+    return { ...m, injuredUntilSeconds: injury.untilSeconds, injuredAtSeconds: startOf.get(m.id) ?? state.gameTimeSeconds };
   });
   return { next: { ...state, awayMembers }, injuries };
 }

@@ -3012,6 +3012,9 @@ export interface CaptainMissionState {
   // ONLY while the bonus is non-zero, so a run without the officer never writes it (byte-identical; no
   // SAVE_VERSION bump, absent reads as 0).
   outputRoundCursor?: number;
+  // 0.14.0 SPEED SEAM (ProcessSpeed): instantComplete runs THIS cycle through to its delivery on the next tick. The
+  // next cycle is a freshly built object without it. Absent = byte-identical.
+  speed?: ProcessSpeed;
 }
 
 // --- Combat Patrol mission (Combat 0.13.0, Phase 9b.5a, design §S14) -----------
@@ -3225,6 +3228,9 @@ export interface PatrolMissionState {
   // ramp on the hours the run has flown when the leg starts), frozen when the cycle starts. The route ends
   // this many ticks early (tick.ts patrolRouteTicks). OPTIONAL, written only when > 0.
   returnCutTicks?: number;
+  // 0.14.0 SPEED SEAM (ProcessSpeed): instantComplete flies THIS route through to its end on the next tick (a
+  // limping hull crawls the rest of the way home in the same tick). A relaunched route is built without it.
+  speed?: ProcessSpeed;
 }
 
 // E-CREW 0.14.0 (Task 20): the Senior Staff officer bonuses that act on a ship's COMBATANT in a ship battle
@@ -4107,6 +4113,30 @@ export interface TimedProcess {
   // untouched. A plain string (no Decimal), so save hydration needs no change: it
   // rides the activeProcesses `...state` spread verbatim.
   lineId?: string;
+  // 0.14.0 SPEED SEAM (processSpeed.ts; design: docs/plans/2026-10-16-credit-sinks-pass.md "SPEED SEAM DESIGN"):
+  // the Overtime steps bought and the tutorial time skip. ABSENT on every process nothing sped up, which is every
+  // process in a 0.14.0 save without a purchase, so resolveProcesses and every reader are byte-identical. Plain
+  // numbers and a flag: rides hydrateDecimals's spread, no migration.
+  speed?: ProcessSpeed;
+}
+
+// 0.14.0 SPEED SEAM: the one speed record every timed thing can carry (a TimedProcess, an extraction mission, a
+// patrol, an expedition). Pure bookkeeping plus one engine read each (processSpeed.ts header):
+//   overtimeSteps    Overtime steps bought (a TimedProcess only). The purchase itself rescales remainingTicks (the
+//                    work left now runs at 1 + 0.25 x steps of the normal rate), so the countdown engine never reads
+//                    it: this is the record of what was bought (rate, price of the next step, the max-step gate).
+//   instantComplete  a tutorial time skip was applied. A TimedProcess is set to 0 ticks left (it completes on the next
+//                    resolve); a mission or patrol runs through to the end of its CURRENT cycle or route on its next
+//                    tick (tickCaptainMission / tickCaptainPatrol read it; a new cycle or route is built without it);
+//                    an expedition is advanced to completion at once and keeps this as a stamp.
+//   clockOffsetSeconds  an expedition only: how far its own clock ran ahead of the game clock at the skip (its natural
+//                    end minus the game time then). Its stored times (bay ends) are on its own clock, so the claim
+//                    reads them shifted back by this (injuries.ts applyGroundOpsInjuries), exactly as if it had
+//                    been claimed at its natural end. Absent = 0 = the game clock.
+export interface ProcessSpeed {
+  overtimeSteps?: number;
+  instantComplete?: true;
+  clockOffsetSeconds?: number;
 }
 
 // A built facility's live state. `level` 0 = not built; unlock is the level 0->1
@@ -7031,6 +7061,9 @@ export interface Expedition {
   // run's ground fights (the final fight of a Challenging objective is led by an Elite, of a Dangerous or Deadly one
   // by a Boss); a run without it fields every enemy at Normal, byte-identically. Optional, no SAVE bump.
   enemyRanks?: { version: number };
+  // 0.14.0 SPEED SEAM (ProcessSpeed): a STAMP only. processSpeed.ts applyTimeSkip advances the run to its own
+  // completion at once (its phase anchors land at its natural end) and marks it; nothing in the engine reads it.
+  speed?: ProcessSpeed;
 }
 
 // Field Kits FKR-1: a ground enemy's RANK (user-named, 2026-10-16: Weak, Normal, Strong, Elite, Boss). One multiplier

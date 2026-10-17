@@ -2211,7 +2211,14 @@ export function tickCaptainMission(
     specBonusRollChance: bonuses.specBonusRollChance ?? 0,
   };
 
-  while (remaining > 0 && mission !== null) {
+  // 0.14.0 SPEED SEAM (processSpeed.ts applyTimeSkip, the tutorial time skip): while the CURRENT cycle carries
+  // speed.instantComplete, each phase is applied whole and the call's own ticks are not spent, so the cycle runs
+  // through to its delivery inside this call (the same rolls, cargo, XP and berth claim the time would have
+  // produced) and the call's ticksElapsed then runs on in the next cycle. A new cycle is built without the flag, so
+  // the skip ends with the cycle; a berth hold breaks out as usual and the skip resumes on the next tick. Without the
+  // flag the condition and every step below are the original ones (byte-identical).
+  while (mission !== null && (remaining > 0 || mission.speed?.instantComplete === true)) {
+    const skipping = mission.speed?.instantComplete === true;
     // Fuel Economy v2 (F3): the ordersReceived phase of a cycle that AUTO-BOUGHT its fuel
     // shortfall runs REFUEL_PENALTY_TICKS longer ("refuel at a non-allied station"). The delay
     // is a per-cycle constant stamped on mission.refuelDelayTicks at the cycle boundary (below)
@@ -2227,7 +2234,7 @@ export function tickCaptainMission(
       missionPhaseTicks(mission.phase, missionDef, mission.cargo) +
       (mission.phase === "ordersReceived" ? mission.refuelDelayTicks ?? 0 : 0);
     const ticksLeftInPhase = requiredTicks - mission.phaseProgressTicks;
-    let ticksToApply = Math.min(remaining, ticksLeftInPhase);
+    let ticksToApply = skipping ? ticksLeftInPhase : Math.min(remaining, ticksLeftInPhase);
 
     // Snap to the exact phase boundary when float drift leaves the tentative
     // post-step progress within epsilon of it. Recomputing ticksToApply from
@@ -2304,7 +2311,8 @@ export function tickCaptainMission(
     }
 
     mission.phaseProgressTicks += ticksToApply;
-    remaining -= ticksToApply;
+    // 0.14.0 SPEED SEAM: a skipped phase is free time (the call's own ticks stay for the next cycle).
+    if (!skipping) remaining -= ticksToApply;
     // A phase that completes with call budget left over (spilling into the
     // next phase within this same call) can leave a sub-epsilon residue in
     // `remaining` even after the snap above (e.g. 2.58e-15), since `remaining`
@@ -3088,17 +3096,23 @@ export function tickCaptainPatrol(
   let endReason: PatrolEndReason | null = null;
 
   let remaining = ticksElapsed;
-  while (remaining > 0 && mission !== null) {
+  // 0.14.0 SPEED SEAM (processSpeed.ts applyTimeSkip, the tutorial time skip): while the CURRENT route carries
+  // speed.instantComplete, every route tick is taken whole and the call's own ticks are not spent, so the route (and
+  // a limp home) runs through to its end inside this call with the same waves, loot and damage the time would have
+  // produced. A relaunched route is built by freshPatrolMission without the flag, so the call's ticksElapsed then
+  // runs on in it at normal speed. Without the flag the condition and every step are the original ones.
+  while (mission !== null && (remaining > 0 || mission.speed?.instantComplete === true)) {
+    const skipping = mission.speed?.instantComplete === true;
     // Advance to the NEXT whole route-tick boundary (the extraction closed-form idiom).
     const nextBoundary = Math.floor(progress) + 1;
-    let step = Math.min(remaining, nextBoundary - progress);
+    let step = skipping ? nextBoundary - progress : Math.min(remaining, nextBoundary - progress);
     // Snap to the boundary when float drift leaves the tentative step within epsilon of
     // it, so the "landed on a whole tick?" test below reads the corrected value.
     if (Math.abs(progress + step - nextBoundary) < MISSION_TICK_EPSILON) {
       step = nextBoundary - progress;
     }
     progress += step;
-    remaining -= step;
+    if (!skipping) remaining -= step;
 
     // A sub-tick partial (did not reach the boundary): nothing happens except banking
     // `progress`; the loop exits next check (remaining now 0) with the residue carried.
@@ -5199,6 +5213,50 @@ function combatStandardIssueSpecFor(typeKey: string): CombatStandardIssueSpec {
     shieldRecharge: SI_EMITTER_RECHARGE,
     hullStrength: SI_PLATING_HP,
   };
+}
+
+// The fleet fields a hull mint advances (resolveProcesses threads them as accumulators).
+export interface ShipMintAccumulator {
+  ships: ShipInstance[];
+  nextShipId: number;
+  equipment: EquipmentInstance[];
+  nextEquipmentId: number;
+}
+
+// MINT ONE PARKED HULL of `typeKey`, the way a completed Shipyard build does (resolveProcesses's addShip branch) and
+// the grant hook does (processSpeed.ts grant), so the two can never drift. 0.14.0: lifted out of resolveProcesses
+// verbatim. The id comes from nextShipId as "ship-N" (the SAME scheme freshState uses) and nextShipId is bumped so
+// ids stay monotonic; assignedCaptainId is null (PARKED, the player assigns it via the Docks). The docks cap is the
+// CALLER's check (resolveProcesses holds a finished build; the grant refuses). PURE: fresh arrays, no draws.
+export function mintBuiltShip(acc: ShipMintAccumulator, typeKey: ShipTypeKey): ShipMintAccumulator & { shipId: string } {
+  const minted: ShipInstance = {
+    id: `ship-${acc.nextShipId}`,
+    typeKey,
+    assignedCaptainId: null,
+  };
+  const ships = [...acc.ships, minted];
+  const nextShipId = acc.nextShipId + 1;
+  // Equipment 0.11.0 (Task 20): a newly-built hull is born with its Standard-Issue
+  // baseline installed on every live slot, so no live slot is ever empty and the
+  // hull is dispatchable the moment it is assigned a captain, exactly like freshState's
+  // starting hull and a migrated ship. Uses the SHARED seeder threaded through the SAME
+  // equipment / nextEquipmentId accumulators resolveProcesses already advances for crafted
+  // gear (Task 19), so the ids stay monotonic across builds AND crafts in one resolve.
+  const seededHull = seedStandardIssueForShip(minted.id, acc.nextEquipmentId);
+  let equipment = [...acc.equipment, ...seededHull.pieces];
+  let nextEquipmentId = seededHull.nextId;
+  // Combat 1.0 (Unit 1.3): if the built hull is a COMBAT hull (destroyer/battleship/carrier),
+  // ALSO install its free Standard-Issue combat set (weapon + shield emitter + hull plating)
+  // so it clears the empty-required-slot dispatch blocker (canDispatchPatrol) the moment it is
+  // crewed. Threaded off the ALREADY-advanced nextEquipmentId (economy seed first, combat seed
+  // second) so every minted id stays unique + monotonic across builds and crafts in one resolve.
+  // A non-combat hull resolves to an empty loadout spec and mints nothing (clean no-op). The
+  // shared combatStandardIssueSpecFor resolves the FULL loadout + behavior-preserving per-hull
+  // magnitudes (Unit 1.4) from the SAME tables the migration + captain-grant paths use.
+  const seededCombat = seedCombatStandardIssueForShip(minted.id, combatStandardIssueSpecFor(minted.typeKey), nextEquipmentId);
+  equipment = [...equipment, ...seededCombat.pieces];
+  nextEquipmentId = seededCombat.nextId;
+  return { ships, nextShipId, equipment, nextEquipmentId, shipId: minted.id };
 }
 
 // installMissingCombatBaselines: fill every COMBAT hull in the fleet that is missing its required
@@ -10975,38 +11033,9 @@ export function resolveProcesses(
         continue; // skip mint + the XP lump at the loop tail; retry next tick
       }
       // Closed-form: fires exactly ONCE on the completion that drops the process, so one big
-      // resolve and many small ones mint the identical hull with the identical id.
-      const minted: ShipInstance = {
-        id: `ship-${nextShipId}`,
-        typeKey: process.effect.typeKey,
-        assignedCaptainId: null,
-      };
-      ships = [...ships, minted];
-      nextShipId += 1;
-      // Equipment 0.11.0 (Task 20): a newly-built hull is born fully fitted with its
-      // Standard-Issue baseline on every live slot, so no live slot is ever empty and the
-      // hull is dispatchable the moment it is assigned a captain, exactly like freshState's
-      // starting hull and a migrated ship. Uses the SHARED seeder threaded through the SAME
-      // equipment / nextEquipmentId accumulators this resolver already advances for crafted
-      // gear (Task 19), so the ids stay monotonic across builds AND crafts in one resolve.
-      const seededHull = seedStandardIssueForShip(minted.id, nextEquipmentId);
-      equipment = [...equipment, ...seededHull.pieces];
-      nextEquipmentId = seededHull.nextId;
-      // Combat 1.0 (Unit 1.3): if the built hull is a COMBAT hull (destroyer/battleship/carrier),
-      // ALSO install its free Standard-Issue combat set (weapon + shield emitter + hull plating)
-      // so it clears the empty-required-slot dispatch blocker (canDispatchPatrol) the moment it is
-      // crewed. Threaded off the ALREADY-advanced nextEquipmentId (economy seed first, combat seed
-      // second) so every minted id stays unique + monotonic across builds and crafts in one resolve.
-      // A non-combat hull resolves to an empty loadout spec and mints nothing (clean no-op). The
-      // shared combatStandardIssueSpecFor resolves the FULL loadout + behavior-preserving per-hull
-      // magnitudes (Unit 1.4) from the SAME tables the migration + captain-grant paths use.
-      const seededCombat = seedCombatStandardIssueForShip(
-        minted.id,
-        combatStandardIssueSpecFor(minted.typeKey),
-        nextEquipmentId
-      );
-      equipment = [...equipment, ...seededCombat.pieces];
-      nextEquipmentId = seededCombat.nextId;
+      // resolve and many small ones mint the identical hull with the identical id. 0.14.0: the
+      // mint lives in mintBuiltShip so the grant hook (processSpeed.ts) mints the identical hull.
+      ({ ships, nextShipId, equipment, nextEquipmentId } = mintBuiltShip({ ships, nextShipId, equipment, nextEquipmentId }, process.effect.typeKey));
     } else if (process.effect.type === "addEquipment") {
       // Equipment 0.11.0 (Task 19): a completed EQUIPMENT fabricate job MINTS a non-stacking
       // EquipmentInstance (NOT an inventory item, and no stackable output). We look up
