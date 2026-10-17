@@ -6403,6 +6403,11 @@ export interface PersonnelRoster {
   includePeople: boolean; // the checkbox: whether this roster carries Senior Staff + Complement people at all
   seatAssignments: Partial<Record<SeniorStaffSeat, string>>; // seat -> the pinned officer's id (absent seat = unpinned)
   pinnedNotableCrew: string[]; // pinned NotableCrewMember ids, in PRIORITY order (index 0 = highest priority)
+  // Ground Ops GO-17 UI (user S14 "rosters link squad loadouts one per team"): the Armory GROUND TEAM
+  // loadout (GroundTeamLoadout id, "squad-N") linked to each ground team by team INDEX (0 = Alpha), null =
+  // no link for that team. applyRoster puts each one on its team (personnelRosters.ts). ABSENT = no links;
+  // optional + absent-safe, so no SAVE_VERSION bump (the Task 12-14 precedent).
+  linkedSquadLoadoutIds?: (string | null)[];
 }
 
 // ============================================================================
