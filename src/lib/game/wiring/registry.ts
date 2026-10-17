@@ -100,6 +100,7 @@ import {
 import { BRIDGE_MODULES, QUARTERS_MODULES, moduleEffectScale } from "../crewModules";
 import { SENSOR_ARRAYS } from "../sensorArrays";
 import { RETIREMENT_EXP_PER } from "../captainRetirement";
+import { explorerTalentText } from "../captainExplorerEffects";
 import { POI_CATALOG, PLANET_TYPES } from "../expeditionContent";
 import { WEAPON_DEFS } from "../combat/weapons";
 import { ROLE_TEMPLATE } from "../combat/drones";
@@ -918,18 +919,15 @@ const SECONDARY_PROBES: Partial<Record<SecondaryTalentKey, ProbeId>> = {
   aegis1: "officerShields",
   aegis3: "repairTicks",
   aegis4: "officerEvasion",
-  surveySensors1: "sheetSensors",
-  surveySensors2: "expScanRate",
-  expeditionRelics2: "expActivityRelicFind",
-  commandCrew2: "missionCycleOutput",
 };
 
 function secondaryEntries(): WiringEntry[] {
-  return (Object.keys(SECONDARY_CAPTAIN_TALENTS) as SecondaryTalentKey[]).map((key) => {
+  return (Object.keys(SECONDARY_CAPTAIN_TALENTS) as SecondaryTalentKey[]).flatMap((key) => {
     const def = SECONDARY_CAPTAIN_TALENTS[key];
     const owner = def.tree === "prospector" ? "WR-5a" : def.tree === "tactician" ? "WR-5b" : "WR-5c";
     const on: Transform = (s) => editCaptain(s, { unlockedSecondaryTalents: [...s.captains[0].unlockedSecondaryTalents, key] });
     const common = { id: `captain:SECONDARY_CAPTAIN_TALENTS:${key}`, system: "captain" as const, source: { catalog: "SECONDARY_CAPTAIN_TALENTS", key }, claim: `${def.label}: ${def.flavor}`, on };
+    if (def.tree === "explorer") return explorerSecondaryEntries(key);
     if (key === "logistics4") {
       return entry({
         ...common,
@@ -953,6 +951,106 @@ function secondaryEntries(): WiringEntry[] {
       status: pending(`${owner} (section 5.A ${key})`, probe ? [homeContextOf(probe)] : undefined),
     });
   });
+}
+
+// WR-5c: the EXPLORER tree (Survey & Sensors, Expedition & Relics, Command & Crew), every node live (plan section 5.A,
+// OC-A1 "Always multiply", OC-A2 own ship, OC-A3 proposed sizes). Each node reads its value through the consumer it
+// claims; a node with more than one claimed value has one entry per value ("<key>:<part>"). Magnitudes come from the
+// catalog through `c`, so a retune stays green.
+function secondaryMagnitude(c: Catalogs, key: SecondaryTalentKey): number {
+  const e = c.SECONDARY_CAPTAIN_TALENTS[key].effect;
+  switch (e.type) {
+    case "statMult":
+      return e.mult;
+    case "procChance":
+      return e.chance;
+    case "capstone":
+      return e.magnitude ?? 0;
+    case "levelLift":
+      return e.levels;
+    case "none":
+      return 0;
+  }
+}
+
+function explorerSecondaryEntries(key: SecondaryTalentKey): WiringEntry[] {
+  const def = SECONDARY_CAPTAIN_TALENTS[key];
+  const on: Transform = (s) => editCaptain(s, { unlockedSecondaryTalents: [...s.captains[0].unlockedSecondaryTalents, key] });
+  const claim = `${def.label}: ${explorerTalentText(key) ?? def.flavor}`;
+  const magnitude = (c: Catalogs) => secondaryMagnitude(c, key);
+  const node = (part: string | null, e: Omit<EntryInput, "id" | "system" | "source" | "claim">): WiringEntry =>
+    entry({
+      id: `captain:SECONDARY_CAPTAIN_TALENTS:${key}${part ? `:${part}` : ""}`,
+      system: "captain",
+      source: { catalog: "SECONDARY_CAPTAIN_TALENTS", key: part ? `${key}:${part}` : key },
+      claim,
+      on,
+      magnitude,
+      ...e,
+    });
+  const rel: Curve = { kind: "linearRelative" };
+  const sensorsBase = () => installPiece(wiringBase(), { slotType: "sensor", moduleVariant: "sensorBalanced", implicitStats: { sensors: 20 } });
+  const crewBase = () => withBuckets(wiringBase(), [bucketOf("security", "sec.boarding"), bucketOf("science", "sci.rareFind"), bucketOf("operations", "ops.effectiveCargo")]);
+  const presenceBase = () => seatOfficer(wiringBase(), "executive", ["xo.commandOutput"]);
+  const weaponsBase = () => seatOfficer(combatBase(), "tactical", ["tac.weaponCommand"]);
+  const officerAboard = () => seatOfficer(wiringBase(), "science", ["sci.discovery"]);
+  const run: ContextId[] = ["expedition:groundOps"];
+  switch (key) {
+    case "surveySensors1":
+      return [node(null, { probe: "sheetSensors", contexts: ["sheet"], curve: rel, base: sensorsBase, note: "every survey, expedition, telescope and ship-event reader reads the sheet's sensors" })];
+    case "surveySensors2":
+      return [node(null, { probe: "expScanRate", contexts: run, curve: rel })];
+    case "surveySensors3":
+      return [node(null, { probe: "expDiscoveryOdds", contexts: run, curve: rel, tolerance: 0.5 })];
+    case "surveySensors4":
+      return [node(null, { probe: "candDetail", contexts: run, curve: { kind: "gate" } })];
+    case "surveySensors5":
+      return [
+        node(null, { probe: "candDetail", contexts: run, curve: { kind: "event", metric: "telescope detail levels (to the top)" } }),
+        node("sureFinds", { probe: "expDiscoveries", contexts: run, curve: { kind: "event", metric: "finds over 24 bodies" } }),
+      ];
+    case "expeditionRelics1":
+      return [
+        node(null, { probe: "expSecurityStrength", contexts: run, curve: rel, base: crewBase }),
+        node("science", { probe: "expScienceStrength", contexts: run, curve: rel, base: crewBase }),
+      ];
+    case "expeditionRelics2":
+      return [node(null, { probe: "runRelicChance", contexts: run, curve: rel, tolerance: 0.5 })];
+    case "expeditionRelics3":
+      return [
+        node(null, { probe: "runTaskSecPower", contexts: ["ground"], curve: rel }),
+        node("accuracy", { probe: "runTaskSecAccuracy", contexts: ["ground"], curve: rel }),
+      ];
+    case "expeditionRelics4":
+      return [node(null, { probe: "runRelicStudyTicks", contexts: ["research"], direction: "down", curve: { kind: "divisor" }, tolerance: 1 })];
+    case "expeditionRelics5":
+      return [node(null, { probe: "runRelicTierCeiling", contexts: run, curve: { kind: "gate" } })];
+    case "commandCrew1":
+      return [node(null, { probe: "crewMapCargo", contexts: ["sheet"], curve: rel, base: crewBase })];
+    case "commandCrew2":
+      return [
+        node(null, { probe: "missionOutputBonus", contexts: ["mission:extraction"], curve: rel, base: presenceBase }),
+        node("combat", { probe: "officerWeapons", contexts: ["patrol"], curve: rel, base: weaponsBase }),
+      ];
+    case "commandCrew3":
+      return [
+        node(null, { probe: "missionCrewHours", contexts: ["mission:extraction"], curve: rel, base: officerAboard }),
+        node("claim", { probe: "claimObjectives", contexts: run, curve: rel, base: officerAboard }),
+      ];
+    case "commandCrew4":
+      return [
+        node(null, { probe: "officerBoard", contexts: ["fleet"], curve: rel, tolerance: 1, note: "rounded up to whole candidates" }),
+        node("recruits", { probe: "recruitBoard", contexts: ["fleet"], curve: rel, tolerance: 1, note: "rounded up to whole candidates" }),
+      ];
+    case "commandCrew5":
+      return [
+        node(null, { probe: "crewMapCargo", contexts: ["sheet"], curve: rel, base: crewBase }),
+        node("officers", { probe: "missionOutputBonus", contexts: ["mission:extraction"], curve: rel, base: presenceBase }),
+        node("combat", { probe: "officerWeapons", contexts: ["patrol"], curve: rel, base: weaponsBase }),
+      ];
+    default:
+      throw new Error(`wiring: ${key} is not an explorer node`);
+  }
 }
 
 function captainProgressionEntries(): WiringEntry[] {

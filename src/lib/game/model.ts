@@ -6695,6 +6695,7 @@ export interface ExpeditionRelicToken {
   tier: EquipmentRarity; // the salvage-tier rarity this relic rolled (reuses the rarity ladder)
   quality: number; // 0..5 quality bucket from the salvage tier (reuses the 0-5 quality system)
   unidentified: true; // always true this phase: E4 owns identification/research/museum
+  studySpeed?: number; // WR-5c Preservationist: the study of this relic runs (1 + this) faster; absent = 0
 }
 
 // ============================================================================
@@ -6724,6 +6725,7 @@ export interface RelicVaultToken {
   quality: number; // 0..5 quality bucket carried from the reward roll (provenance; no effect yet)
   setId: RelicSetId; // the set this token identifies WITHIN
   poiId: string; // the PoI the finding came from (expeditionContent.ts POI_CATALOG id)
+  studySpeed?: number; // WR-5c Preservationist (carried from the token): the study runs (1 + this) faster; absent = 0
 }
 
 // The per-save relic PRNG seed. A study's identification roll is keyed off (relicSeed, a fixed salt, the
@@ -6882,6 +6884,24 @@ export interface ExpeditionScanParams {
   coverageWidth: number;
   landmarkOddsBias: number;
   undergroundPoiOddsBias: number;
+  // WR-5c (captain secondary talents, explorer tree; captainExplorerEffects.ts): the commanding captain's survey
+  // nodes, folded into the ship's sensor snapshot (expedition.ts shipSensorSnapshot) so a dispatch freezes them AND
+  // the candidate previews read them (the preview stays truthful). Each is written only when the captain owns its
+  // node, so every other snapshot is the four-field record above, byte for byte.
+  captainScanRateMult?: number; // Cartographer: the scan rate x this
+  captainDiscoveryMult?: number; // Anomaly Sense: each discovery attempt's odds x this
+  captainSureFinds?: number; // Deep Scan: this many discovery attempts of each body succeed
+}
+
+// WR-5c: the commanding captain's explorer nodes a Ground Ops run reads, frozen at dispatch (expedition.ts
+// buildExpedition; captainExplorerEffects.ts explorerCaptainRun). Absent when the captain owns none of them, and each
+// field only when its node is owned, so a run without them is the pre-WR-5c record.
+export interface ExplorerCaptainRun {
+  relicFindMult?: number; // Field Science: the relic chance x this (gambit.ts relicChancePermille)
+  squadPowerMult?: number; // Away-Team Doctrine: the Security squad's power and accuracy x this
+  relicStudySpeed?: number; // Preservationist: stamped on the run's relic tokens (their study runs 1 + this faster)
+  relicTierLift?: number; // Relic Hunter: the relic rarity tier ceiling + this
+  promotionMult?: number; // Drillmaster: the run's promotion counter increments at the claim x this
 }
 
 // One active expedition. Its `seed` is the per-expedition PRNG seed (derived at dispatch from the
@@ -7031,6 +7051,9 @@ export interface Expedition {
   // run's ground fights (the final fight of a Challenging objective is led by an Elite, of a Dangerous or Deadly one
   // by a Boss); a run without it fields every enemy at Normal, byte-identically. Optional, no SAVE bump.
   enemyRanks?: { version: number };
+  // WR-5c: the commanding captain's explorer secondary nodes, frozen at dispatch (ExplorerCaptainRun). Absent when
+  // the captain owns none of them. Optional, no SAVE bump (the tree is branch-only; no production save owns a node).
+  explorerCaptain?: ExplorerCaptainRun;
 }
 
 // Field Kits FKR-1: a ground enemy's RANK (user-named, 2026-10-16: Weak, Normal, Strong, Elite, Boss). One multiplier
@@ -11688,11 +11711,14 @@ export const SECONDARY_TALENT_BRANCHES: readonly SecondaryTalentBranch[] = [
 //   procChance - a generic chance-based effect (a find/quality/detection roll).
 //   capstone   - a rung-5 defining unlock/proc, identified by `id`; the live phase gives each a real
 //                mechanic. ALL magnitudes/chances below are FIRST-PASS TUNABLE placeholders.
+//                `magnitude` is its configured size (WR-5a / WR-5c, user OC-A3 "Proposed sizes").
+//   levelLift  - WR-5c: whole LEVELS added to a named display ladder (Foreknowledge: the telescope detail).
 export type CaptainSecondaryTalentEffect =
   | { type: "none" }
   | { type: "statMult"; stat: string; mult: number }
   | { type: "procChance"; chance: number }
-  | { type: "capstone"; id: string };
+  | { type: "capstone"; id: string; magnitude?: number }
+  | { type: "levelLift"; stat: string; levels: number };
 
 // Mirrors CaptainTalentDef's shape (branch/label/cost/neighbors/effect/flavor/x/y), plus `tree` +
 // `rung`. `cost` is always 1 secondary point. `neighbors` is bidirectional by convention (like the
@@ -11960,16 +11986,16 @@ export const SECONDARY_CAPTAIN_TALENTS: Record<SecondaryTalentKey, CaptainSecond
   },
   surveySensors4: {
     tree: "explorer", branch: "surveySensors", rung: 4,
-    label: "Foreknowledge", cost: 1, // util, gateway (exploration lands later in 0.14.0)
+    label: "Foreknowledge", cost: 1, // util (WR-5c: the candidate telescope reading)
     x: 270, y: -322, neighbors: ["surveySensors3", "surveySensors5"],
-    effect: { type: "none" }, // preview a destination's rewards/hazards; no exploration system to apply it to yet
+    effect: { type: "levelLift", stat: "telescopeDetail", levels: 1 }, // WR-5c: + this many telescope detail levels on the expedition candidates
     flavor: "You know what waits at the next star before you burn for it.",
   },
   surveySensors5: {
     tree: "explorer", branch: "surveySensors", rung: 5,
     label: "Deep Scan", cost: 1, // CAPSTONE
     x: 334, y: -398, neighbors: ["surveySensors4"],
-    effect: { type: "capstone", id: "deepScan" }, // full-system reveal + a guaranteed rare-tier discovery
+    effect: { type: "capstone", id: "deepScan", magnitude: 1 }, // WR-5c: full foreknowledge at launch + this many sure discovery attempts per body
     flavor: "One pass and the whole system gives up its secrets, including the one it was hiding.",
   },
   // --- Expedition & Relics (-> Relic Hunter) ---
@@ -12005,7 +12031,7 @@ export const SECONDARY_CAPTAIN_TALENTS: Record<SecondaryTalentKey, CaptainSecond
     tree: "explorer", branch: "expeditionRelics", rung: 5,
     label: "Relic Hunter", cost: 1, // CAPSTONE
     x: 450, y: -260, neighbors: ["expeditionRelics4"],
-    effect: { type: "capstone", id: "relicHunter" }, // guaranteed relic from an expedition / +relic rarity tier
+    effect: { type: "capstone", id: "relicHunter", magnitude: 1 }, // WR-5c: the relic rarity tier ceiling + this many tiers
     flavor: "Where there is a legend, there is a relic, and you have never come home empty.",
   },
   // --- Command & Crew (-> Legendary Captain) ---
@@ -12041,7 +12067,7 @@ export const SECONDARY_CAPTAIN_TALENTS: Record<SecondaryTalentKey, CaptainSecond
     tree: "explorer", branch: "commandCrew", rung: 5,
     label: "Legendary Captain", cost: 1, // CAPSTONE
     x: 512, y: -90, neighbors: ["commandCrew4"],
-    effect: { type: "capstone", id: "legendaryCaptain" }, // crew-wide multiplier + an officer aura
+    effect: { type: "capstone", id: "legendaryCaptain", magnitude: 0.1 }, // WR-5c: x (1 + this) on the ship's complement buffs AND officer bonuses
     flavor: "They will tell stories about serving under you long after the ship is scrap.",
   },
 };

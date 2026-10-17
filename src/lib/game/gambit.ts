@@ -55,6 +55,7 @@ import type {
   ExpeditionActivity,
   ExpeditionFinding,
   ExpeditionRelicToken,
+  ExplorerCaptainRun,
   GambitRule,
   GambitProgram,
   GambitPrograms,
@@ -80,6 +81,8 @@ import { RELIC_BEARING_POIS, isRelicBearingPoi, museumBonuses, resistedHazard } 
 import { fieldworkEffect, type FieldworkEffect } from "./fieldwork";
 // E-CREW 0.14.0 (Task 21): the Constitution ramp (a pure leaf; no cycle).
 import { constitutionRamp } from "./officerStats";
+// WR-5c: the commanding captain's explorer secondary nodes (pure; imports only model.ts, so no cycle).
+import { captainSquadStrengthMult, explorerCaptainOf } from "./captainExplorerEffects";
 
 // ============================================================================
 // FIRST-PASS TUNABLE constants
@@ -337,9 +340,12 @@ export interface GroundCombatant {
 //   fearResist : Morale Anchor. Each member's chance to shrug off Fear becomes 1 - (1 - own)(1 - this):
 //                independent chances, so it stacks with a member's own resist with diminishing returns
 //                (D23) and can never reach certainty without a hard cap.
+//   powerMult  : WR-5c, the captain's Away-Team Doctrine (Expedition.explorerCaptain.squadPowerMult): every member's
+//                power and accuracy x this (accuracy still under its cap). Absent or 1 = unchanged.
 export interface SquadOfficerCare {
   triage?: number;
   fearResist?: number;
+  powerMult?: number;
 }
 
 // ============================================================================
@@ -1348,6 +1354,14 @@ export function deriveAwayTeam(state: GameState, ship: ShipInstance): AwayTeamSn
   const sciencePower = museumBonuses(state).scienceTeamPower;
   if (sciencePower !== 0) science = science * (1 + sciencePower);
 
+  // WR-5c: the commanding captain's Expedition Lead, its own factor on BOTH strengths (applied here for the same
+  // reason as the museum's: the console preview and the dispatch snapshot are one number). 1 without the node.
+  const lead = captainSquadStrengthMult(explorerCaptainOf(state, ship));
+  if (lead !== 1) {
+    security = security * lead;
+    science = science * lead;
+  }
+
   return { securityStrength: security, scienceStrength: science, teamKit };
 }
 
@@ -1379,14 +1393,17 @@ export function buildRosterCombatants(
   // E-CREW (Task 20): the squad's officer care (see SquadOfficerCare). Negative or absent reads as 0.
   const triage = Math.max(0, care.triage ?? 0);
   const fearResist = Math.max(0, Math.min(1, care.fearResist ?? 0));
+  const doctrine = care.powerMult !== undefined && care.powerMult > 0 && Number.isFinite(care.powerMult) ? care.powerMult : 1;
   const team = members.map((m, i) => {
     const spec = SECURITY_SPEC_BASE[m.spec as SecuritySpec] ?? { hp: 0, power: 0, armor: 0, statusChance: 0 };
     const bump = (stat: string): number => m.groundStats[stat] ?? 0;
     const rf = m.rankFactor;
     const hp = Math.max(1, Math.round((SECURITY_BASE_HP + spec.hp + crewPer * STRENGTH_HP_COEFF) * rf * (1 + bump("hp"))));
-    const power = Math.max(0, (SECURITY_BASE_POWER + spec.power + crewPer * STRENGTH_POWER_COEFF) * rf * (1 + bump("power")));
+    const rawPower = Math.max(0, (SECURITY_BASE_POWER + spec.power + crewPer * STRENGTH_POWER_COEFF) * rf * (1 + bump("power")));
+    const power = doctrine === 1 ? rawPower : rawPower * doctrine;
     const armor = Math.max(0, (SECURITY_BASE_ARMOR + spec.armor) * rf * (1 + bump("armor")));
-    const accuracy = Math.max(0, Math.min(MEMBER_ACCURACY_CAP, SECURITY_BASE_ACCURACY * (1 + bump("accuracy"))));
+    const rawAccuracy = SECURITY_BASE_ACCURACY * (1 + bump("accuracy"));
+    const accuracy = Math.max(0, Math.min(MEMBER_ACCURACY_CAP, doctrine === 1 ? rawAccuracy : rawAccuracy * doctrine));
     const statusChance = Math.max(0, Math.min(MEMBER_STATUS_CHANCE_CAP, spec.statusChance + bump("statusChance")));
 
     let medicTrait = false;
@@ -1689,24 +1706,54 @@ function pickWeighted<T extends { weight: number }>(rng: Rng, items: T[]): T {
 // by (1 + findBonus), rounded to a whole permille and capped at 1000 (a certain drop, never more). It only
 // moves the threshold of the SAME single chance draw, so the draw order above is unchanged. 0 (the
 // default, an empty museum) skips the multiply entirely, so the chance is bit-identical to E4a.
+// WR-5c (captain secondary talents, explorer tree): `captain` carries the run's frozen captain nodes
+// (Expedition.explorerCaptain): Field Science's `relicFindMult` is its own factor on the chance (OC-A1 "Always
+// multiply"), Relic Hunter's `relicTierLift` raises the hazard ceiling by whole tiers (still never past the pool's
+// top), and Preservationist's `relicStudySpeed` is stamped on the token it rolls. Absent, the roll is the pre-WR-5c
+// roll bit for bit (the same draws, the same thresholds, the same token).
 export function rollRelicToken(
   seed: number,
   hazard: number,
   poiId: string,
   relicId: string,
   findBonus: number = 0,
+  captain?: ExplorerCaptainRun,
 ): ExpeditionRelicToken | null {
   if (!isRelicBearingPoi(poiId)) return null;
   const rng = makeRng(seed >>> 0);
-  const baseChance = Math.min(1000, RELIC_BASE_PERMILLE + Math.round(Math.max(0, Math.min(1, hazard)) * RELIC_HAZARD_PERMILLE));
-  const chance = findBonus > 0 ? Math.min(1000, Math.round(baseChance * (1 + findBonus))) : baseChance;
+  const chance = relicChancePermille(hazard, findBonus, captain?.relicFindMult);
   if (!rng.chance(chance, 1000)) return null;
   // REUSE the salvage tier ladder: hazard sets how far up the ordered tiers the roll can reach.
   const pool = SALVAGE_LOOT_POOLS.intactReactorCore;
-  const ceiling = Math.min(pool.length - 1, Math.max(0, Math.round(hazard * (pool.length - 1))));
+  const ceiling = relicTierCeiling(hazard, captain?.relicTierLift);
   const eligible = pool.slice(0, ceiling + 1);
   const tier = pickWeighted(rng, eligible);
-  return { id: relicId, tier: tier.tier as EquipmentRarity, quality: tier.quality, unidentified: true };
+  const studySpeed = captain?.relicStudySpeed;
+  return {
+    id: relicId,
+    tier: tier.tier as EquipmentRarity,
+    quality: tier.quality,
+    unidentified: true,
+    ...(studySpeed !== undefined && studySpeed > 0 && Number.isFinite(studySpeed) ? { studySpeed } : {}),
+  };
+}
+
+// The relic roll's chance in permille: the hazard-scaled base, x (1 + the summed find bonus), x the captain's Field
+// Science factor (its own factor), rounded to a whole permille and capped at certain. No bonus and no factor = the
+// base, untouched. Pure (rollRelicToken's threshold; the wiring probe reads it).
+export function relicChancePermille(hazard: number, findBonus: number = 0, findMult?: number): number {
+  const baseChance = Math.min(1000, RELIC_BASE_PERMILLE + Math.round(Math.max(0, Math.min(1, hazard)) * RELIC_HAZARD_PERMILLE));
+  const mult = findMult !== undefined && findMult > 0 && Number.isFinite(findMult) ? findMult : 1;
+  if (!(findBonus > 0) && mult === 1) return baseChance;
+  return Math.min(1000, Math.round(baseChance * (findBonus > 0 ? 1 + findBonus : 1) * mult));
+}
+
+// The highest tier index of the relic tier pool a roll can reach: the hazard's share of the ladder, + the captain's
+// Relic Hunter lift, never past the top. Pure (rollRelicToken's ceiling; the wiring probe reads it).
+export function relicTierCeiling(hazard: number, tierLift?: number): number {
+  const pool = SALVAGE_LOOT_POOLS.intactReactorCore;
+  const lift = tierLift !== undefined && Number.isFinite(tierLift) ? Math.max(0, Math.floor(tierLift)) : 0;
+  return Math.min(pool.length - 1, Math.max(0, Math.round(hazard * (pool.length - 1))) + lift);
 }
 
 // Roll the full material + credit haul for a task, seeded. Materials are planet-type flavored; credits

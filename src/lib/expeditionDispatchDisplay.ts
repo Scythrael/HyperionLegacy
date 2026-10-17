@@ -289,7 +289,7 @@ export function telescopeBlockView(candidate: Pick<ExpeditionCandidate, "telesco
     detail: t.detail,
     detailName: t.detailName,
     chipText: `Detail ${t.detail} · ${t.detailName}`,
-    liftText: t.shipLift ? "This ship's sensors lift the reading one level." : null,
+    liftText: liftTextOf(t),
     rangeText: null,
     enemyTerritory: t.risk.enemyTerritory === true,
     factors,
@@ -298,6 +298,16 @@ export function telescopeBlockView(candidate: Pick<ExpeditionCandidate, "telesco
     nextNote,
     wantsLaunchView: t.detail >= TELESCOPE_DETAIL.recommendation,
   };
+}
+
+// The note under the detail chip: what lifted the reading above the telescope's own detail (the ship's sensors, and
+// WR-5c the captain's Foreknowledge or Deep Scan), or null when nothing did. Pure.
+function liftTextOf(t: { shipLift: boolean; captainSight?: "foreknowledge" | "deepScan" }): string | null {
+  const parts: string[] = [];
+  if (t.shipLift) parts.push("This ship's sensors lift the reading one level.");
+  if (t.captainSight === "foreknowledge") parts.push("The captain's Foreknowledge lifts it further.");
+  if (t.captainSight === "deepScan") parts.push("The captain's Deep Scan reads the system in full.");
+  return parts.length > 0 ? parts.join(" ") : null;
 }
 
 // A planet type's display label (the content catalog's), else its id. Pure.

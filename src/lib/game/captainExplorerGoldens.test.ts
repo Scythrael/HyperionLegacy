@@ -122,10 +122,46 @@ const BASELINE: Record<string, string> = {
   boards: "10/10",
 };
 
-// Per node: the parts it moves (anything not listed equals BASELINE).
-const MOVES: Partial<Record<SecondaryTalentKey, Record<string, string>>> = {};
+// Per node: the parts it moves since WR-5c wired it (anything not listed equals BASELINE, byte for byte), and why.
+const MOVES: Partial<Record<SecondaryTalentKey, Record<string, string>>> = {
+  // Keen Sensors: sensors 20 -> 21 on the sheet, so the run freezes sensorPower 21 (a faster scan). The candidates
+  // keep their reading (21 crosses no reveal threshold and stays under the telescope lift at 40).
+  surveySensors1: { sheet: "f5a46f18", dispatch: "ffa208a1", done: "9c494328" },
+  // Cartographer: captainScanRateMult 1.08 in the frozen scan params; the scan runs faster, the same finds come home.
+  surveySensors2: { dispatch: "8dd19ed3", done: "30ea7946" },
+  // Anomaly Sense: captainDiscoveryMult 1.05 in the frozen scan params; every attempt's odds rise, the claim is unchanged.
+  surveySensors3: { dispatch: "313d4b5", done: "639b9be8" },
+  // Foreknowledge: each candidate reads one telescope detail level higher (display only; the run is untouched).
+  surveySensors4: { cands: "cb1aeb4e" },
+  // Deep Scan: the candidates read in full (top detail, every foreknowledge field), and captainSureFinds 1 rides the
+  // frozen scan params (each body's first attempt finds something).
+  surveySensors5: { cands: "e58c409c", dispatch: "791e6e4b", done: "fc8f8b2a" },
+  // Expedition Lead: the frozen Security and Science strengths x1.05; the squads fight and work harder, the haul moves.
+  expeditionRelics1: { dispatch: "c215cfaa", done: "9ecdc4fc", claim: "69e6fd30" },
+  // Field Science: explorerCaptain.relicFindMult 1.05 on the run; this seed's relic rolls land the same.
+  expeditionRelics2: { dispatch: "c7ac4326", done: "424414ed" },
+  // Away-Team Doctrine: explorerCaptain.squadPowerMult 1.05; the fights play out differently, the claim is unchanged.
+  expeditionRelics3: { dispatch: "a1789cbd", done: "6b8ef730" },
+  // Preservationist: the recovered relic carries studySpeed 0.08, so its study takes ceil(600 / 1.08) = 556 ticks.
+  expeditionRelics4: { dispatch: "8df1c515", done: "c9e72b7e", claim: "56679ba6", study: "556" },
+  // Relic Hunter: the tier ceiling + 1; the relic rolls Augmented (the study x1.5: 900 ticks).
+  expeditionRelics5: { dispatch: "cd665e05", done: "f92598ee", claim: "1a27f406", study: "900" },
+  // Inspiring Leader: the complement's buffs x1.05 (the cargo buff on the sheet, so the mission hauls more; the frozen
+  // crew rare find on the run). The destroyer patrol has no complement, so it does not move.
+  commandCrew1: { sheet: "fedf8bdf", dispatch: "8d3b7c34", done: "e499ab1d", mission: "95bf1cc" },
+  // Mentor: every officer bonus x1.05 (the sheet's yield and cargo, the run's Discovery Instinct, the mission's
+  // Command Presence, the patrol's Weapons and Shield Command).
+  commandCrew2: { sheet: "869097d4", dispatch: "1cc6be51", done: "61085ea4", mission: "9423023e", patrol: "9ecd4efc" },
+  // Drillmaster: every promotion counter increment x1.08 (the mission's and patrol's hours and cycles, the claim's
+  // objectives), and explorerCaptain.promotionMult 1.08 frozen on the run.
+  commandCrew3: { dispatch: "9b88a3dc", done: "d1053e03", claim: "85cdad0e", mission: "365aba7b", patrol: "3c5fd0b1" },
+  // Recruiter: both boards 10 x 1.08 = 10.8, rounded up to 11.
+  commandCrew4: { boards: "11/11" },
+  // Legendary Captain: the complement AND the officers x1.10 (everything Inspiring Leader and Mentor move).
+  commandCrew5: { sheet: "32c2c065", dispatch: "ba74462f", done: "877c44c6", mission: "716140ba", patrol: "f35b43d5" },
+};
 
-describe("WR-5c goldens: the explorer secondary nodes, captured before wiring", () => {
+describe("WR-5c goldens: the explorer secondary nodes (captured before wiring; each move explained above)", () => {
   it("the baseline (no node) is pinned", () => {
     expect(readVariant(null)).toEqual(BASELINE);
   });

@@ -49,6 +49,8 @@ import {
 import { museumBonuses, type MuseumStat } from "./relics";
 // E-CREW 0.14.0 (Task 21): the officer stat facets (pure; imports no crew overlay code, so no cycle).
 import { constitutionRamp, departmentFacet, departmentStrengthMultipliers, seatFacet } from "./officerStats";
+// WR-5c (0.14.0): the commanding captain's explorer secondary nodes (pure; imports only model.ts, so no cycle).
+import { captainComplementMult, captainOfficerOutputMult, captainSensorsMult, explorerCaptainOf } from "./captainExplorerEffects";
 
 // ============================================================================
 // crew.* -> ship-stat mapping (FIRST-PASS, TUNABLE)
@@ -304,12 +306,17 @@ function rawShipCrewContribution(state: GameState, ship: ShipInstance): Record<s
   // pre-Task-21 path. Every crew.* consumer reads this one map, so a division pool that goes live later
   // (Task 23) inherits the facet with no extra wiring.
   const strength = buckets.length > 0 ? departmentStrengthMultipliers(state, ship) : null;
+  // WR-5c: the commanding captain's Inspiring Leader and Legendary Captain scale every complement buff (exactly 1
+  // without them, so the fold below stays the pre-WR-5c path); its Mentor and Legendary Captain scale the officers.
+  const captain = explorerCaptainOf(state, ship);
+  const complementMult = captainComplementMult(captain);
+  const officerOutput = captainOfficerOutputMult(captain);
   if (buckets.length > 0) {
     const contrib =
-      quartersMod || strength
+      quartersMod || strength || complementMult !== 1
         ? (sig: CrewSignature): Record<string, number> => {
             const quarters = quartersMod ? quartersProfessionMultiplier(quartersMod, sig.profession) : 1;
-            const mult = strength ? quarters * strength[sig.profession] : quarters;
+            const mult = (strength ? quarters * strength[sig.profession] : quarters) * complementMult;
             const base = contributionForSignature(sig);
             if (mult === 1) return base; // no change for this division: keep the base map
             const scaled: Record<string, number> = {};
@@ -327,7 +334,8 @@ function rawShipCrewContribution(state: GameState, ship: ShipInstance): Record<s
     if (officer.assignedShipId !== ship.id) continue;
     // A BRIDGE module amplifies this officer's whole output (both bonuses + the racial). 1 with no
     // bridge module, so the multiply is a no-op and the pre-module numbers are preserved exactly.
-    const officerMult = bridgeMod ? bridgeOfficerMultiplier(bridgeMod, officer, hullSpec) : 1;
+    // WR-5c: x the captain's officer output (Mentor, Legendary Captain), exactly 1 without them.
+    const officerMult = (bridgeMod ? bridgeOfficerMultiplier(bridgeMod, officer, hullSpec) : 1) * officerOutput;
     // Each of the two rolled bonuses. ⚠️ officer.bonuses[i].magnitude is ALREADY rank-scaled: the
     // generator/promotion bake officerRankMagnitudeFactor(rank) into the stored magnitude (seniorStaff.ts
     // rollCandidate/strengthenBonus), so it is used AS-IS here. Re-multiplying by the rank factor would
@@ -362,12 +370,14 @@ function rawShipCrewContribution(state: GameState, ship: ShipInstance): Record<s
 export function officerBonusTotal(state: GameState, ship: ShipInstance, statKey: string): number {
   const bridgeMod = installedBridgeModule(state, ship);
   const hullSpec = hullSpecOf(ship);
+  // WR-5c: the commanding captain's officer output (Mentor, Legendary Captain), exactly 1 without them.
+  const officerOutput = captainOfficerOutputMult(explorerCaptainOf(state, ship));
   let total = 0;
   for (const officer of state.officers) {
     if (officer.assignedShipId !== ship.id) continue;
     for (const bonus of officer.bonuses) {
       if (getSeniorStaffBonusById(bonus.id)?.statKey !== statKey) continue;
-      const officerMult = bridgeMod ? bridgeOfficerMultiplier(bridgeMod, officer, hullSpec) : 1;
+      const officerMult = (bridgeMod ? bridgeOfficerMultiplier(bridgeMod, officer, hullSpec) : 1) * officerOutput;
       total += bonus.magnitude * officerMult;
     }
   }
@@ -411,13 +421,15 @@ export function officerCombatProfile(state: GameState, ship: ShipInstance): Offi
   const hullSpec = hullSpecOf(ship);
   const out: OfficerCombatEntry[] = [];
   const facets = new Map<SeniorStaffSeat, { integrity: number; constitution: number }>();
+  // WR-5c: the commanding captain's officer output (Mentor, Legendary Captain), exactly 1 without them.
+  const officerOutput = captainOfficerOutputMult(explorerCaptainOf(state, ship));
   for (const officer of state.officers) {
     if (officer.assignedShipId !== ship.id) continue;
     for (const bonus of officer.bonuses) {
       const statKey = getSeniorStaffBonusById(bonus.id)?.statKey;
       const kind = statKey ? OFFICER_COMBAT_KIND_OF[statKey] : undefined;
       if (!kind) continue;
-      const officerMult = bridgeMod ? bridgeOfficerMultiplier(bridgeMod, officer, hullSpec) : 1;
+      const officerMult = (bridgeMod ? bridgeOfficerMultiplier(bridgeMod, officer, hullSpec) : 1) * officerOutput;
       let f = facets.get(officer.seat);
       if (!f) {
         f = { integrity: seatFacet(state, ship, officer.seat, "integrity"), constitution: seatFacet(state, ship, officer.seat, "constitution") };
@@ -535,7 +547,14 @@ export function effectiveShipStats(state: GameState, ship: ShipInstance): ShipDe
   const base = shipDerivedStats(ship, equippedFor(state, ship.id));
   const museum = museumBonuses(state);
   const crewed = applyCrewOverlay(base, shipCrewContribution(state, ship, museum));
-  return applyOfficerFacetStats(applyMuseumOverlay(crewed, museum), state, ship);
+  // WR-5c: the commanding captain's Keen Sensors, last (a multiplier on the finished sensors).
+  return applyCaptainSensors(applyOfficerFacetStats(applyMuseumOverlay(crewed, museum), state, ship), captainSensorsMult(explorerCaptainOf(state, ship)));
+}
+
+// WR-5c (captain secondary talent surveySensors1 Keen Sensors, OC-A1 "Always multiply"): sensors x `mult`. Exactly 1
+// without the node, which returns `stats` itself (the byte-identical guarantee); 0 sensors stay 0. PURE.
+export function applyCaptainSensors(stats: ShipDerivedStats, mult: number): ShipDerivedStats {
+  return mult === 1 ? stats : { ...stats, sensors: stats.sensors * mult };
 }
 
 // E-CREW 0.14.0 (Task 21 review calls): the two officer stat facets effectiveMissionDef reads off the stats,
@@ -608,9 +627,12 @@ function transportSeedFor(state: GameState): number {
 // The cycle counts are the closed-form cyclesCompleted/routesCompleted the mission loop already sums, so
 // this counter is closed-form (one big call == many small) AND per-tick safe (it feeds nothing that
 // changes a stat mid-span; promotion is a discrete player action, never auto-applied in the tick).
+// WR-5c: `multOf` is the ship's promotion multiplier (its commanding captain's Drillmaster,
+// captainExplorerEffects.ts shipPromotionMult); every increment is x it. Absent or 1 = the plain count.
 export function foldOfficerMissionCompletions(
   officers: SeniorStaffOfficer[],
   completionsByShip: Map<string, number>,
+  multOf?: (shipId: string) => number,
 ): SeniorStaffOfficer[] {
   if (completionsByShip.size === 0) return officers;
   let changed = false;
@@ -619,7 +641,8 @@ export function foldOfficerMissionCompletions(
     const inc = completionsByShip.get(o.assignedShipId);
     if (!inc) return o;
     changed = true;
-    return { ...o, missionsCompleted: o.missionsCompleted + inc };
+    const mult = multOf ? multOf(o.assignedShipId) : 1;
+    return { ...o, missionsCompleted: o.missionsCompleted + (mult === 1 ? inc : inc * mult) };
   });
   return changed ? next : officers;
 }
@@ -628,9 +651,11 @@ export function foldOfficerMissionCompletions(
 // to the optional promotionCounters of every officer assigned to that ship. The counters start at 0 (an absent map
 // or key reads 0) and nothing is backfilled (user: "Start at 0"). PURE: a fresh officers array, or the SAME
 // reference when no increment touches an assigned officer, so a save with no officers aboard is byte-identical.
+// WR-5c: `multOf` as in foldOfficerMissionCompletions (Drillmaster x every increment; absent or 1 = unchanged).
 export function foldOfficerPromotionCounters(
   officers: SeniorStaffOfficer[],
   incByShip: ReadonlyMap<string, Partial<Record<PromotionObjectiveKind, number>>>,
+  multOf?: (shipId: string) => number,
 ): SeniorStaffOfficer[] {
   if (incByShip.size === 0) return officers;
   let changed = false;
@@ -639,10 +664,11 @@ export function foldOfficerPromotionCounters(
     const inc = incByShip.get(o.assignedShipId);
     if (!inc) return o;
     const counters: Partial<Record<PromotionObjectiveKind, number>> = { ...(o.promotionCounters ?? {}) };
+    const mult = multOf ? multOf(o.assignedShipId) : 1;
     let touched = false;
     for (const [kind, amount] of Object.entries(inc) as [PromotionObjectiveKind, number][]) {
       if (!(amount > 0)) continue;
-      counters[kind] = (counters[kind] ?? 0) + amount;
+      counters[kind] = (counters[kind] ?? 0) + (mult === 1 ? amount : amount * mult);
       touched = true;
     }
     if (!touched) return o;

@@ -136,7 +136,7 @@ function carriedStatuses(statuses: readonly GroundStatus[] | undefined): GroundS
 // clamped to [1, hpMax] (a standing member is never fielded at 0; a non-finite HP is ignored), with its
 // persisting statuses only. GO-6's threat samples build their squads here too. Pure.
 export function taskFightTeam(
-  exp: Pick<Expedition, "id" | "roster" | "securityStrength" | "squadTriage" | "squadFearResist">,
+  exp: Pick<Expedition, "id" | "roster" | "securityStrength" | "squadTriage" | "squadFearResist" | "explorerCaptain">,
   teams: readonly GroundFightTeam[],
   task: Pick<ExpeditionActivity, "id" | "fightCount">,
   carried?: Readonly<Record<string, GroundMemberCarry>>,
@@ -152,6 +152,8 @@ export function taskFightTeam(
   const team = buildRosterCombatants(members, (exp.securityStrength ?? 0) * share, `${exp.id}-${task.id}-f${fightNumber}`, out, {
     triage: exp.squadTriage,
     fearResist: exp.squadFearResist,
+    // WR-5c: the captain's Away-Team Doctrine, frozen at dispatch (absent = unchanged).
+    powerMult: exp.explorerCaptain?.squadPowerMult,
   });
   if (!carried) return team;
   for (const c of team) {
@@ -265,7 +267,7 @@ export type RankedFightTask = Pick<ExpeditionActivity, "id" | "poiId" | "fightCo
 // must widen this type first (TypeScript then flags the memo's key list until it is listed too).
 export type TaskFightExp = Pick<
   Expedition,
-  "id" | "roster" | "securityStrength" | "squadTriage" | "squadFearResist" | "hazardResist" | "teamKit" | "enemyRanks" | "difficulty"
+  "id" | "roster" | "securityStrength" | "squadTriage" | "squadFearResist" | "hazardResist" | "teamKit" | "enemyRanks" | "difficulty" | "explorerCaptain"
 >;
 
 // THE GUARD a task fight fields on a given stream seed, as fresh combatants: generateEncounter on the body's hazard

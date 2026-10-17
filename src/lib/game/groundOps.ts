@@ -1643,6 +1643,8 @@ function offloadFindings(exp: Expedition, ops: GroundOpsState, team: GroundTeamR
       task.poiId,
       `${exp.id}-relic-${task.id}`,
       riskBonus > 0 ? find + riskBonus : find,
+      // WR-5c: the captain's Field Science, Relic Hunter and Preservationist, frozen at dispatch (absent = unchanged).
+      exp.explorerCaptain,
     );
   }
   exp.findings.push(finding);

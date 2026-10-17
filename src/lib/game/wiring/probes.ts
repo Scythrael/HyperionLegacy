@@ -63,7 +63,9 @@ import {
   captainBonusRollChanceMult,
   captainSpecBonusRollChance,
   craftingItemLevelBonus,
+  dispatchCaptainOnMission,
   dispatchCaptainOnPatrol,
+  startRelicStudy,
   economyTick,
   fabricateSlotCount,
   fleetRareYieldMult,
@@ -94,10 +96,23 @@ import { generateEnemyWave } from "../combat/enemyWave";
 import type { PirateHullId } from "../combat/enemyHulls";
 import { STATUS_EFFECT_DEFS, activeStatDelta, applyEffect, tickEffects } from "../combat/statusEffects";
 import { makeRng } from "../combat/rng";
-import { advanceExpedition, expeditionCandidates, scanEncounterChance, scanRatePerSecond, startExpedition } from "../expedition";
+import {
+  advanceExpedition,
+  claimExpedition,
+  depositExpeditionFindings,
+  discoveryOddsPermille,
+  expeditionCandidates,
+  rollBodyDiscoveries,
+  scanEncounterChance,
+  scanRatePerSecond,
+  startExpedition,
+} from "../expedition";
 import {
   GAMBIT_STATUSES,
   activityRelicFindBonus,
+  relicChancePermille,
+  relicTierCeiling,
+  rollRelicToken,
   applyStatus,
   buildRosterCombatants,
   deriveAwayTeam,
@@ -115,7 +130,8 @@ import {
 } from "../gambit";
 import { fieldworkEffect, fieldworkHazardResist, fieldworkSpeedMult } from "../fieldwork";
 import { taskSecurityHazardResist } from "../groundTasks";
-import { snapshotMembers } from "../awayTeam";
+import { awayRecruitCandidates, snapshotMembers } from "../awayTeam";
+import { seniorStaffCandidates } from "../seniorStaff";
 import { applyExpeditionInjuries, injuryRecoverySeconds, shipInjuryFactors } from "../injuries";
 import { boardingRepelChance, buildShipCombatant, snapshotShipEventProfile } from "../shipScanEvents";
 import { shipsWithMemberAutoSlotted } from "../groundTeamSlots";
@@ -126,7 +142,7 @@ import { RELICS, museumBonuses, type MuseumStat } from "../relics";
 import { salvageSalvagedMaterial, salvageShip, salvageTalentBonus, salvageYieldMult } from "../salvage";
 import { alertResetSeconds, escalationAt, extraBattleChance, longRangeCover, maxExtraBattles } from "../affixes";
 import { ENEMY_RANKS_VERSION, type EnemyRank } from "../enemyRanks";
-import { taskFightGuard } from "../groundFight";
+import { taskFightGuard, taskFightTeam } from "../groundFight";
 import { sellItem } from "../quartermaster";
 import { retirementExpMultiplier } from "../captainRetirement";
 import { transitBerthCount } from "../berths";
@@ -614,6 +630,76 @@ function legacyInjurySeconds(s: GameState): number {
   return applyExpeditionInjuries(ready, legacy).injuries.find((i) => i.memberId === WIRING_SECURITY_ID)?.recoverySeconds ?? 0;
 }
 
+// == WR-5c: the explorer secondary nodes' consumers ==
+
+// The dispatched run's finds over 24 synthetic bodies (every planet type, three body indices each): the real
+// discovery roll (expedition.ts rollBodyDiscoveries). Pure.
+function discoveriesOver(run: Expedition): number {
+  let n = 0;
+  for (const p of PLANET_IDS) {
+    for (let i = 0; i < 3; i++) n += rollBodyDiscoveries(run, { ...syntheticBody(p, 0), id: `wiring-${p}-${i}` }, i).length;
+  }
+  return n;
+}
+
+// The dispatched run's Security member as a Ground Ops task fight fields it (groundFight.ts taskFightTeam: the run's
+// frozen strength share, officer care and the captain's Away-Team Doctrine).
+function runTaskMember(s: GameState, memberId: string): GroundCombatant | undefined {
+  const run = dispatchRun(readyForRun(s));
+  const ops = run.groundOps;
+  if (!ops) return undefined;
+  const teams = ops.teams.map((t, i) => ({ securityIds: t.securityIds, downedThisTask: [], securityShare: ops.factors.securityShare[i] ?? 0 }));
+  return taskFightTeam(run, teams, { id: "wiring-task", fightCount: 0 }).find((c) => c.memberId === memberId);
+}
+
+// A relic the dispatched run recovers (the first seed whose roll hits on a hazard-1 Buried Vault), brought home by the
+// claim's deposit and studied at a Research Lab: the study's duration in ticks. -1 when no seed hits (never: the
+// hazard-1 chance is 75% before any bonus).
+function runRelicStudyTicks(s: GameState): number {
+  const run = dispatchRun(readyForRun(s));
+  for (let seed = 1; seed < 64; seed++) {
+    const relic = rollRelicToken(seed, 1, "buriedVault", `wiring-relic-${seed}`, 0, run.explorerCaptain);
+    if (!relic) continue;
+    const home = depositExpeditionFindings(withFacilityLevel(s, "research", 1), [{ id: "wiring-find", source: "activity", poiId: "buriedVault", relic }]);
+    const token = (home.relicVault ?? []).find((t) => t.id === relic.id);
+    if (!token) return -1;
+    const r = startRelicStudy(home, token.id);
+    return r.started ? r.next.activeProcesses.find((p) => p.kind === "relicStudy")?.durationTicks ?? -1 : -1;
+  }
+  return -1;
+}
+
+// The first officer aboard ship-1 (the fixture seats one), after 600 economyTick seconds of a Short Ore Run: its
+// crewHours (the promotion counter every run feeds). -1 when the mission cannot dispatch or no officer sits aboard.
+function missionCrewHours(s: GameState): number {
+  const r = dispatchCaptainOnMission(s, WIRING_CAPTAIN_ID, "shortOreRun");
+  if (!r.success) return -1;
+  let after = r.next;
+  for (let t = 0; t < 600; t++) after = economyTick(after, 1, () => 0.5);
+  const o = after.officers.find((x) => x.assignedShipId === WIRING_SHIP_ID);
+  return o ? o.promotionCounters?.crewHours ?? 0 : -1;
+}
+
+// A dispatched run brought home with one objective done, then claimed: the first officer aboard's
+// personnelAchievement (the counter the claim feeds from the stored run). -1 without an officer aboard.
+function claimedObjectives(s: GameState): number {
+  const ready = readyForRun(s);
+  const cand = expeditionCandidates(ready, WIRING_SHIP_ID)[0];
+  const res = startExpedition(ready, WIRING_SHIP_ID, WIRING_CAPTAIN_ID, cand.id);
+  if (!res.success || !res.expedition) return -1;
+  const exp = res.expedition;
+  const done: Expedition = {
+    ...exp,
+    phase: "complete",
+    groundOps: undefined,
+    bodies: exp.bodies.map((b, i) => (i === 0 ? { ...b, activities: [{ id: "wiring-act", bodyId: b.id, poiId: "buriedVault", done: true }] } : b)),
+  };
+  const claim = claimExpedition({ ...res.next, expeditions: [done] }, exp.id);
+  if (!claim.success) return -1;
+  const o = claim.next.officers.find((x) => x.assignedShipId === WIRING_SHIP_ID);
+  return o ? o.promotionCounters?.personnelAchievement ?? 0 : -1;
+}
+
 // == the ground objective affixes (affixes.ts readers) ==
 
 const AFFIX_READERS: Readonly<Record<string, (list: readonly ObjectiveAffix[], alignment: AffixAlignment) => number>> = {
@@ -844,6 +930,29 @@ export const PROBES = {
   expCoverageWidth: { label: "dispatch: scanParams.coverageWidth", read: (s) => dispatchRun(s).scanParams.coverageWidth },
   expLandmarkBias: { label: "dispatch: scanParams.landmarkOddsBias", read: (s) => dispatchRun(s).scanParams.landmarkOddsBias },
   expUndergroundBias: { label: "dispatch: scanParams.undergroundPoiOddsBias", read: (s) => dispatchRun(s).scanParams.undergroundPoiOddsBias },
+  // == WR-5c: the captain's explorer secondary nodes, through their consumers ==
+  expDiscoveryOdds: {
+    label: "discoveryOddsPermille: the dispatched run's surface odds on a terrestrial world",
+    read: (s) => discoveryOddsPermille(dispatchRun(s).scanParams, "terrestrial").surface,
+  },
+  expDiscoveries: { label: "rollBodyDiscoveries: the dispatched run's finds over 24 synthetic bodies (every planet type)", read: (s) => discoveriesOver(dispatchRun(s)) },
+  candDetail: { label: "expeditionCandidates[0].telescope.detail", read: (s) => expeditionCandidates(s, WIRING_SHIP_ID)[0].telescope.detail },
+  runTaskSecPower: { label: "the dispatched run's Security member in a Ground Ops objective fight (taskFightTeam): power", read: (s) => runTaskMember(s, sec())?.power ?? 0 },
+  runTaskSecAccuracy: { label: "the dispatched run's Security member in a Ground Ops objective fight (taskFightTeam): accuracy", read: (s) => runTaskMember(s, sec())?.accuracy ?? 0 },
+  runRelicChance: {
+    label: "relicChancePermille: the dispatched run's relic chance on a hazard-0.5 objective (no fieldwork)",
+    read: (s) => {
+      const run = dispatchRun(s);
+      return relicChancePermille(0.5, activityRelicFindBonus(run, { relicFind: 0 }), run.explorerCaptain?.relicFindMult);
+    },
+  },
+  runRelicTierCeiling: { label: "relicTierCeiling: the dispatched run's tier ceiling on a hazard-0 objective", read: (s) => relicTierCeiling(0, dispatchRun(s).explorerCaptain?.relicTierLift) },
+  runRelicStudyTicks: { label: "startRelicStudy: the duration of a relic the dispatched run recovers, brought home and studied", read: (s) => runRelicStudyTicks(s) },
+  crewMapCargo: { label: "shipCrewContribution[crew.effectiveCargo]", read: (s) => shipCrewContribution(s, shipOf(s))[CREW_STAT_KEYS.effectiveCargo] ?? 0 },
+  missionCrewHours: { label: "economyTick: an officer's crewHours after 600 s of a Short Ore Run", read: (s) => missionCrewHours(s) },
+  claimObjectives: { label: "claimExpedition: an officer's personnelAchievement after a run with one objective done", read: (s) => claimedObjectives(s) },
+  officerBoard: { label: "seniorStaffCandidates (count)", read: (s) => seniorStaffCandidates(s).length },
+  recruitBoard: { label: "awayRecruitCandidates (count)", read: (s) => awayRecruitCandidates(s).length },
   arrayRelicFind: { label: "sensorArrayRelicFindBonus", read: (s) => sensorArrayRelicFindBonus(installedSensorArray(s, shipOf(s))) },
   arrayLandmarkBias: {
     label: "sensorArrayEffect.landmarkOddsBias",
