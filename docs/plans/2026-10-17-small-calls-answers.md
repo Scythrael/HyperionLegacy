@@ -8,3 +8,6 @@ Board: https://claude.ai/artifact/28FApaYfSLxUHKgMgaG8k8 (S15 answered earlier: 
   loadout check-out / check-in, roster loadout apply all use shipCrewLocked, not only the captain-mission lock).
 - **S5 difficulty pips:** "Raised, original in tooltip (Recommended)".
 - **S8 battle logs:** "0.14.x (Recommended)".
+- **S3:** "Unassigned (Recommended)". **S6:** "Keep for balance pass (Recommended)". **S7:** "Keep position
+  (Recommended)". **S12 + S13:** "'Fund development cycle', after Salvage Bay (Recommended)": rename the telescope
+  Upgrade button to "Fund development cycle"; the card stays after the Salvage Bay.
