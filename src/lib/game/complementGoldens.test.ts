@@ -43,7 +43,7 @@ import { advanceExpedition, claimExpedition, expeditionCandidates, startExpediti
 import { effectiveShipStats, officerRepairSpeedBonus, shipCrewContribution } from "./crewOverlay";
 import { equippedFor } from "./equipment";
 import { CREW_PROFESSION_BUFFS, SECOND_LEVEL_EXCLUSIVE } from "./crewBuffs";
-import { CREW_RACE_IDS } from "./crewRaces";
+import { CREW_RACE_IDS, CREW_RACES } from "./crewRaces";
 import { CREW_PROFESSIONS, commandStructureForHull, complementTotalCap, divisionCap } from "./commandStructure";
 import { totalCrew } from "./crew";
 import { TRANSPORT_BATCH_SIZE, TRANSPORT_WINDOW_SECONDS, transportBatch } from "./transports";
@@ -366,5 +366,74 @@ describe("CP-0 pre-complement goldens", () => {
   it("structure: commandStructureForHull for every hull", () => {
     const out = HULLS.map((hull) => `${hull}:${hash(commandStructureForHull(hull))}`);
     expect(out).toEqual(GOLDEN.structure);
+  });
+});
+
+// ===== CP-2: the "turn it off" proof =====
+//
+// CP-2 (ship-side complement buffs) makes six keys act (Damage Control, Mission Turnaround, Crew Output Multiplier,
+// Crew Effectiveness, and the Earth-born and Stheni racials) and splits Fast Departure / Fast Return onto their own
+// legs (OC-E5). The fixtures that carry those keys (the full sheets; the three mission ships, which take transport
+// crew mid-run) therefore move. This block switches exactly those effects OFF (each buff's and racial's catalog
+// magnitude set to 0 for the duration of one call; nothing else touched) and pins the hashes the fixtures give with
+// the switch off. These were captured on the code BEFORE the CP-2 engine edit, so equality afterwards proves that
+// the switched-off effects are the ONLY thing CP-2 moved.
+const CP2_SWITCHED_BUFFS = ["med.effectiveness", "eng.hullRepair", "excl.crewOutputMult", "excl.missionTurnaround", "flight.transitOut", "flight.transitBack"];
+const CP2_SWITCHED_RACES = ["earthBorn", "stheni"] as const;
+
+function withCp2Off<T>(run: () => T): T {
+  const defs = [...Object.values(CREW_PROFESSION_BUFFS).flat(), ...SECOND_LEVEL_EXCLUSIVE].filter((d) => CP2_SWITCHED_BUFFS.includes(d.id));
+  const races = CP2_SWITCHED_RACES.map((r) => CREW_RACES[r].racialBonus);
+  const saved = { defs: defs.map((d) => d.magnitude), races: races.map((rb) => ({ ...rb })) };
+  expect(defs.length).toBe(CP2_SWITCHED_BUFFS.length);
+  try {
+    for (const d of defs) d.magnitude = 0;
+    for (const rb of races) {
+      rb.seniorStaff = 0;
+      rb.complement = 0;
+    }
+    return run();
+  } finally {
+    defs.forEach((d, i) => (d.magnitude = saved.defs[i]));
+    races.forEach((rb, i) => Object.assign(rb, saved.races[i]));
+  }
+}
+
+// Captured before the CP-2 engine edit. The three mission captures equal GOLDEN's CP-1 pins: switching the transit
+// buffs off moves nothing there (the window's transit crew never change a whole transit tick).
+const CP2_OFF: Record<string, string | string[]> = {
+  "sheet:full": [
+    "generalFreighter:275f6a0f/c6260247",
+    "prospectorHauler:c9f46e2c/8e4dc8f5",
+    "prospectorRunner:b4331e48/8e4dc8f5",
+    "prospectorMiner:44d9b113/8e4dc8f5",
+    "destroyer:59911649/c5405a4f",
+    "battleship:89c0863c/d6bbc514",
+    "carrier:be4b06cd/d6bbc514",
+    "orion:160a1e2c/8cad2218",
+    "aurora:a3e518d3/8cad2218",
+    "eir:a1ab019a/8cad2218",
+  ],
+  "mission:shortOreRun": "eb39cb91",
+  "mission:surveyMineralAnomaly": "e84193a6",
+  "mission:frontierSupplyRun": "f4b5648c",
+};
+
+describe("CP-2 turn it off: with the CP-2 effects switched off, every moved fixture is the pre-CP-2 capture", () => {
+  it("sheet: every hull with a full complement", () => {
+    const full = withCp2Off(() => HULLS.map((hull) => `${hull}:${sheetHashes(hull, fullComplement(hull))}`));
+    expect(full).toEqual(CP2_OFF["sheet:full"]);
+  });
+
+  for (const key of ["shortOreRun", "surveyMineralAnomaly", "frontierSupplyRun"] as MissionKey[]) {
+    it(`mission ${key}`, () => {
+      expect(withCp2Off(() => hash(missionRun(key)))).toBe(CP2_OFF[`mission:${key}`]);
+    });
+  }
+
+  it("the switch restores every magnitude it touched", () => {
+    const before = JSON.stringify([CREW_PROFESSION_BUFFS, SECOND_LEVEL_EXCLUSIVE, CREW_RACES]);
+    withCp2Off(() => 0);
+    expect(JSON.stringify([CREW_PROFESSION_BUFFS, SECOND_LEVEL_EXCLUSIVE, CREW_RACES])).toBe(before);
   });
 });
