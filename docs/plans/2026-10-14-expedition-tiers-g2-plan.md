@@ -208,7 +208,8 @@ re-exported by telescope.ts); `src/lib/homeworldEntropy.ts` (the one entropy sou
   arm's), each near edge the rung below's far edge, Tier I from `NEAREST_STAR_LY` 4. Sol and everything within 150 ly
   of it (Wolf 359) is Tier I from every homeworld.
 - `stateHomeworld(state)`: the stored seed's placement, or `PROVISIONAL_HOMEWORLD` (Sol, no sectors) when absent or
-  malformed. **Deviation from "a fixed default for tests"**: `freshState(seed?)` stores a homeworld ONLY when given a
+  malformed. Review follow-up: `migrate` also runs the idempotent `withHomeworldV70` after the loop on EVERY load, so a
+  save already at v70 from a build before G2-1 gets its own homeworld too (never the shared spot). **Deviation from "a fixed default for tests"**: `freshState(seed?)` stores a homeworld ONLY when given a
   seed (App.svelte's three new-game paths always pass `drawHomeworldSeed()`); with none (tests, the sim, the wiring
   fixtures) the state has no `homeworld` and reads the provisional spot, so every golden captured on freshState stays
   byte-identical without a re-pin.
@@ -243,8 +244,13 @@ re-exported by telescope.ts); `src/lib/homeworldEntropy.ts` (the one entropy sou
   **[PROPOSAL]** `CANDIDATE_STRIDE` 16, 3 candidates per tier.
 - `expeditionRegion(seed)` is replaced by the candidate's region `{ tier, enemyTerritory }`, threaded through
   `expeditionRiskPreview`, `previewRun`, `systemTaskPreview`, `launchForecast`, `expeditionLaunchView` and
-  `startExpedition` (all already take or default a region). Enemy territory: one draw on a new
-  `ENEMY_TERRITORY_SALT`, permille by tier per open call 8; Tier I is 0, so Tier I stays identical.
+  `startExpedition` (all already take or default a region). Enemy territory (user G8, 2026-10-16: "Fixed sectors on
+  the map", NOT a per-system draw): G2-2 OWNS flagging candidates. Each candidate gets a bearing from the homeworld
+  (integer tenths of a degree, galaxy.ts `bearingDirection`, on a NEW salt), and its `enemyTerritory` is
+  `inEnemySector(stateHomeworld(state), tier, bearing)` against the fixed sectors G2-1 placed from the homeworld seed
+  (`homeworld.enemySectors`, one per tier II to VII). Tier I has no sector, so Tier I stays identical. The bearing is
+  frozen on the dispatch record with the region so a run never re-reads the homeworld. G2-7 OWNS shading the sectors
+  on the telescope map.
 - Names (user #6 "Yes indeed" to catalog codes): `regionCode-NNNN` (LB, OR, PE, SA, SC, GB, GC, the mockup's codes)
   and bodies lettered b, c, d. The FIRST `SYSTEM_SALT` draw (today's banked-name pick) is KEPT and its value unused,
   so body count, sizes and planet types draw exactly as today. A name stream on a new `SYSTEM_NAME_SALT`.
@@ -259,8 +265,9 @@ re-exported by telescope.ts); `src/lib/homeworldEntropy.ts` (the one entropy sou
   count on a new salt (mockup ranges II 1-3, III 2-3, IV and V 2-4, VI and VII 3-5).
 - Tests: per-tier candidates (count, band, nearest-first order, stable across ticks, advance only on dispatch);
   preview == run at every tier I..VII (risk, objectives, needs, hostile sites) on 16 seeds each; Tier I dispatch with
-  names restored == G2-0 golden 2; enemy territory frequency per tier within tolerance; famous systems land in the
-  right tier for 1,000 homeworld placements; salts registered.
+  names restored == G2-0 golden 2; a candidate is enemy territory exactly when its bearing lies in its tier's sector
+  (the frequency per tier within tolerance of the sector widths); famous systems land in the right tier for 1,000
+  homeworld placements; salts registered.
 - UI: the console still shows Tier I only (G2-6 adds the picker); a hidden region is reachable by tests only.
 
 ### G2-3: The voyage engine (transit by tier, distance and drive)

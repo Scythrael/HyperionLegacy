@@ -99,11 +99,10 @@ describe("G2-1: homeworld placement from the stored seed (user G1)", () => {
         const reading = telescopeReadingAtLevel(level, home);
         expect(reading.rangeLy).toBe(rangeLyForReach(reading.reachTier, home));
         for (const tier of TIERS) {
-          for (const sys of [seed ^ (tier * 0x55aa)]) {
-            const d = systemDistanceLy(sys, tier, home);
-            const inRange = reading.reachTier > 0 && d <= reading.rangeLy;
-            expect(inRange, `seed ${seed} level ${level} tier ${tier}`).toBe(tier <= reading.reachTier);
-          }
+          // One drawn system per tier (a distinct system seed per tier).
+          const d = systemDistanceLy(seed ^ (tier * 0x55aa), tier, home);
+          const inRange = reading.reachTier > 0 && d <= reading.rangeLy;
+          expect(inRange, `seed ${seed} level ${level} tier ${tier}`).toBe(tier <= reading.reachTier);
           // The band edges themselves: the far edge reads in range exactly when the tier is reached.
           const band = home.regionBandsLy[tier];
           expect(reading.reachTier > 0 && band.far <= reading.rangeLy).toBe(tier <= reading.reachTier);

@@ -82,7 +82,8 @@ import {
 //      (`homeworld`, model.ts HomeworldState: { version: 1, seed }). Each existing save gets its OWN random seed from
 //      the entropy migrate is given (loadFromLocalStorage passes a Web Crypto draw, homeworldEntropy.ts); the placement
 //      is derived from it (galaxy.ts), so only the light-years the telescope and the candidates show move. An
-//      in-flight run never reads it and resolves byte-identically. See withHomeworldV70.
+//      in-flight run never reads it and resolves byte-identically. See withHomeworldV70, which migrate ALSO runs after
+//      the loop on every load, so a save already at v70 from a build before G2-1 gets its own homeworld too.
 export const SAVE_VERSION = 70;
 export const SAVE_KEY = "fleet_admiral_save";
 
@@ -2691,7 +2692,7 @@ export function repairOrphanedShipRefsV69(state: any): any {
 
 // `homeworldEntropy` (G2-1): the entropy the v69 -> v70 step seeds the homeworld from (MigrationContext). The game
 // passes a fresh Web Crypto draw (loadFromLocalStorage); tests pass a fixed value; absent, the save's own creation
-// time is mixed (fallbackHomeworldEntropy). Unused when the save is already at v70 or holds a homeworld.
+// time is mixed (fallbackHomeworldEntropy). Unused when the save already holds a well-formed homeworld.
 export function migrate(save: SaveFile, homeworldEntropy?: number): GameState {
   let state = save.state;
   let version = save.version;
@@ -2700,6 +2701,10 @@ export function migrate(save: SaveFile, homeworldEntropy?: number): GameState {
     state = MIGRATIONS[version](state, ctx);
     version += 1;
   }
+  // G2-1 (review Important): a save ALREADY at v70 never runs MIGRATIONS[69] again, so a dev or QA save migrated by a
+  // v70 build from before G2-1 would stay on the shared near-Sol spot the user rejected ("Random for everyone").
+  // withHomeworldV70 is idempotent (a well-formed homeworld is kept, the same reference), so it runs on EVERY load.
+  state = withHomeworldV70(state, ctx.homeworldEntropy);
   // Hydrate the SHAPE first (Decimals, quality buckets), THEN reconcile any over-cap stack
   // down to its warehouse cap. clampInventoryToCaps needs the hydrated Decimal inventory +
   // the facility levels (both present after hydrateDecimals) to resolve each item's cap. It

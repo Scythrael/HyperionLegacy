@@ -73,9 +73,21 @@ describe("G2-1: SAVE v70 step 3 seeds the homeworld", () => {
     const out = migrate(raw, E1);
     expect(out.homeworld).toEqual({ version: 1, seed: E1 });
     // The same save stamped v70 (no steps run) is the reference for every other field.
-    const reference = migrate({ ...raw, version: 70 });
-    expect("homeworld" in reference).toBe(false);
+    const reference = migrate({ ...raw, version: 70 }, E2);
     expect(withoutHomeworld(out)).toEqual(withoutHomeworld(reference));
+  });
+
+  it("a save ALREADY at v70 with no homeworld (an earlier v70 build) gets one on load; one that has it keeps it", () => {
+    // Dev and QA saves migrated by a v70 build from before G2-1 never run MIGRATIONS[69] again: migrate backfills
+    // them after the loop (user G2: "Random for everyone", never the shared near-Sol spot).
+    const bare = { ...v69(freshState()), version: 70 };
+    expect(migrate(bare, E1).homeworld).toEqual({ version: 1, seed: E1 });
+    const held = { ...bare, state: { ...bare.state, homeworld: { version: 1 as const, seed: 42 } } };
+    const kept = migrate(held, E1);
+    expect(kept.homeworld).toEqual({ version: 1, seed: 42 });
+    expect(kept.homeworld).toBe(held.state.homeworld); // the same reference: the backfill is a no-op
+    // The game's load path: a real draw, never the provisional spot.
+    expect(stateHomeworld(migrate(bare, E2))).toEqual(homeworldPlacement(E2));
   });
 
   it("each existing save gets its own homeworld: different entropy, different placement", () => {

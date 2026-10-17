@@ -190,8 +190,9 @@ export function inEnemySector(homeworld: HomeworldPlacement, tier: RegionTier, b
 // ===== The provisional homeworld (the pre-G2 fixture) =====
 
 // ⚠️ The ONE shared homeworld every save read before G2-1: Sol's own position, with the tiers mockup's bands and no
-// enemy territory. Kept as the TEST FIXTURE and as what a state without a stored homeworld reads (a pre-G2 fixture, a
-// dev save at v70 from before G2-1): every real save carries its own seed from freshState or the v70 migration.
+// enemy territory. Kept as the TEST FIXTURE and as what a state without a stored homeworld reads (freshState with no
+// seed in tests and the sim, a pre-G2 fixture). Never a real save's: every new game stores its own seed, and every
+// load seeds one when missing (save.ts migrate runs withHomeworldV70 on every load, whatever the version).
 export const PROVISIONAL_HOMEWORLD: HomeworldPlacement = {
   id: "provisionalNearSol",
   galactic: SOL_GALACTIC,

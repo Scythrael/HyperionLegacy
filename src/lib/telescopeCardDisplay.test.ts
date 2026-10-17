@@ -295,18 +295,18 @@ describe("telescopeMapView: the galaxy map", () => {
 
   it("paths are finite SVG path data and everything sits inside the view box, from every homeworld", { timeout: 60_000 }, () => {
     for (const home of HOMES) {
-    const map = telescopeMapView(5, home);
-    for (const d of [map.diskPath, map.bulgePath, ...map.armPaths]) {
-      expect(d).toMatch(/^M[-\d.]+ [-\d.]+(L[-\d.]+ [-\d.]+)*Z?$/);
-      expect(d).not.toContain("NaN");
-    }
-    const [vx, vy, vw, vh] = map.viewBox.split(" ").map(Number);
-    for (const p of [map.home, map.core, ...map.badges]) {
-      expect(p.x).toBeGreaterThanOrEqual(vx);
-      expect(p.x).toBeLessThanOrEqual(vx + vw);
-      expect(p.y).toBeGreaterThanOrEqual(vy);
-      expect(p.y).toBeLessThanOrEqual(vy + vh);
-    }
+      const map = telescopeMapView(5, home);
+      for (const d of [map.diskPath, map.bulgePath, ...map.armPaths]) {
+        expect(d).toMatch(/^M[-\d.]+ [-\d.]+(L[-\d.]+ [-\d.]+)*Z?$/);
+        expect(d).not.toContain("NaN");
+      }
+      const [vx, vy, vw, vh] = map.viewBox.split(" ").map(Number);
+      for (const p of [map.home, map.core, ...map.badges]) {
+        expect(p.x).toBeGreaterThanOrEqual(vx);
+        expect(p.x).toBeLessThanOrEqual(vx + vw);
+        expect(p.y).toBeGreaterThanOrEqual(vy);
+        expect(p.y).toBeLessThanOrEqual(vy + vh);
+      }
     }
   });
 });

@@ -7819,9 +7819,9 @@ export interface GameState {
   runCounts?: RunCounts;
   // Expedition Tiers G2-1: the per-save homeworld seed (HomeworldState above; placement in galaxy.ts). freshState
   // stores the seed it is given (every new game: App.svelte passes a fresh draw); SAVE v70 seeds it on an older save
-  // (save.ts withHomeworldV70). OPTIONAL: absent (freshState with no seed, i.e. tests and the sim, or a dev save at v70
-  // from before G2-1) reads the provisional spot near Sol (galaxy.ts stateHomeworld). Display only at G2-1: nothing
-  // on the tick reads it.
+  // (save.ts withHomeworldV70, which every load also runs, so a save already at v70 from before G2-1 gets one too).
+  // OPTIONAL only for freshState with no seed (tests and the sim), which reads the provisional spot near Sol
+  // (galaxy.ts stateHomeworld); no loaded save lacks it. Display only at G2-1: nothing on the tick reads it.
   homeworld?: HomeworldState;
   // --- Exploration 0.14.0 (Phase E3a): the away-team GAMBIT program pair --------------------------------
   // The player's ACCOUNT-LEVEL Security + Science gambit programs (the EDITABLE source; the E3b UI writes
