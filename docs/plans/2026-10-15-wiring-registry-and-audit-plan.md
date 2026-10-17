@@ -1401,3 +1401,13 @@ is the first candidate to ask the user about a 0.14.x deferral, recorded as `def
 - **OC-F3 Med Kit:** "Fix the flavor (Recommended)". **OC-F6 Fall Back:** "Brace for the round (Recommended)": Shielded
   for that round. **OC-F7 Science rank:** "Rank boosts fieldwork (Recommended)". **OC-F9 Corroded:** "Some enemies
   cause it (Recommended)": certain enemy casters inflict Corroded.
+- **OC-F10 Science gambit actions (verbatim):** "Keep this in place. Because perhaps, I might eventually want tools that
+  have a chance to "proc" in battle where the science team might add a random effect to the battle party without
+  directly participating. So keep these in, but they will ultimately be disabled." So: keep shieldAlly / analyze /
+  secureObjective / takeCover, disabled (not offered), registered as `seam` (owner: a future Science battle-proc tool
+  system); logged in SUGGESTIONS.
+- **OC-F12 account gambit pair:** "Account-wide defaults (Recommended)": the account default program is given to newly
+  hired members.
+- **OC-F13 fall-outcome hook:** "Keep as a seam (Recommended)" (owner: future Safety Interlocks).
+- **OC-G2 gas giants:** "Ship-only study (Recommended)": gas giants get the ship-side study (15b) instead of ground
+  objectives; no landing, no field repair there.
