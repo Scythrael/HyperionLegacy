@@ -7458,6 +7458,16 @@ export interface ShipEventBattle {
 // PRNG mixing start (a decorrelated transform of the crew seed's golden-ratio constant). TUNABLE.
 export const EXPEDITION_DEFAULT_SEED = 0x2545f491;
 
+// Expedition Tiers G2-1: the per-save HOMEWORLD (galaxy.ts). Only the SEED is stored; the placement (the point 10 to
+// 120 ly from Sol, the region bands measured from it and the enemy territory sectors) is derived from it, never
+// stored twice. Drawn ONCE from real entropy: App.svelte's new-game path passes homeworldEntropy.ts's draw to
+// freshState, and the SAVE v70 migration seeds an existing save from the entropy migrate is given (user G2: each
+// existing save gets its own random homeworld). Plain data (no Decimals).
+export interface HomeworldState {
+  version: 1;
+  seed: number; // a whole number in [0, 2^32)
+}
+
 export interface GameState {
   captains: CaptainState[];
   tickDurationSeconds: number; // fleet-wide tick cadence, every captain advances in lockstep on this single cadence (collapsed from a per-captain field during the UI Redesign; see docs/plans/2026-07-07-ui-redesign-design.md)
@@ -7840,6 +7850,12 @@ export interface GameState {
   // dispatchCaptainOnPatrol and economyTick's patrol fold. OPTIONAL: absent (a dev save at v70 from before SF-1) reads
   // the derived counters (runDifficulty.ts runCountsOf). Plain data, so hydrateDecimals carries it through `...state`.
   runCounts?: RunCounts;
+  // Expedition Tiers G2-1: the per-save homeworld seed (HomeworldState above; placement in galaxy.ts). freshState
+  // stores the seed it is given (every new game: App.svelte passes a fresh draw); SAVE v70 seeds it on an older save
+  // (save.ts withHomeworldV70, which every load also runs, so a save already at v70 from before G2-1 gets one too).
+  // OPTIONAL only for freshState with no seed (tests and the sim), which reads the provisional spot near Sol
+  // (galaxy.ts stateHomeworld); no loaded save lacks it. Display only at G2-1: nothing on the tick reads it.
+  homeworld?: HomeworldState;
   // --- Exploration 0.14.0 (Phase E3a): the away-team GAMBIT program pair --------------------------------
   // The player's ACCOUNT-LEVEL Security + Science gambit programs (the EDITABLE source; the E3b UI writes
   // these). D19 (user, 2026-10-06): NO battle reads this pair any more (members run their own program, else
@@ -12767,7 +12783,11 @@ export function freshLifetimeStats(): GameState["lifetimeStats"] {
   };
 }
 
-export function freshState(): GameState {
+// `homeworldSeed` (Expedition Tiers G2-1): this save's homeworld seed, stored as GameState.homeworld. The game ALWAYS
+// passes one (App.svelte's new-game paths, a fresh homeworldEntropy.ts draw). Omitted (tests, the sim, the wiring
+// fixtures), the state stores no homeworld and reads the provisional spot near Sol (galaxy.ts stateHomeworld), the
+// one every save shared before G2-1, so every golden captured on freshState stays byte-identical.
+export function freshState(homeworldSeed?: number): GameState {
   // Equipment 0.11.0 Task 20: the one starting hull ("ship-1", seeded below) is born
   // fully fitted with Standard-Issue on every live slot, so no live slot is ever empty
   // (the design's "a live slot is never empty" rule). Uses the SAME shared seeder the
@@ -12990,6 +13010,8 @@ export function freshState(): GameState {
     expeditionSeed: EXPEDITION_DEFAULT_SEED,
     // Safe first runs SF-1: nothing flown yet (the first explorer run will be the training run).
     runCounts: freshRunCounts(),
+    // Expedition Tiers G2-1: this save's homeworld seed when one is given (App.svelte always passes a fresh draw).
+    ...(homeworldSeed === undefined ? {} : { homeworld: { version: 1 as const, seed: homeworldSeed >>> 0 } }),
     // Exploration 0.14.0 (Phase E3a): the account-level away-team gambit pair starts from the Balanced
     // default (DEFAULT_GAMBIT_PROGRAMS). Existing saves reach the IDENTICAL shape via the v61->v62
     // migration (save.ts), so a fresh save and a migrated save stay indistinguishable.

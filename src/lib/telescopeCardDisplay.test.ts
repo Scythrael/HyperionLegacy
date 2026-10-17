@@ -6,8 +6,16 @@ import { describe, expect, it } from "vitest";
 import Decimal from "break_infinity.js";
 import { FACILITIES, SUBSPACE_TELESCOPE_FACILITY_KEY, SUBSPACE_TELESCOPE_LEVELS, freshState, type GameState, type RegionTier } from "./game/model";
 import { startFacilityUpgrade } from "./game/tick";
-import { PROVISIONAL_HOMEWORLD, TELESCOPE_DEVELOPMENT_CYCLES, TELESCOPE_LORE, telescopeReadingAtLevel } from "./game/telescope";
+import { PROVISIONAL_HOMEWORLD, TELESCOPE_DEVELOPMENT_CYCLES, TELESCOPE_LORE, stateHomeworld, telescopeReadingAtLevel } from "./game/telescope";
 import { telescopeCardView, telescopeMapView, TELESCOPE_MAP_RADIUS } from "./telescopeCardDisplay";
+import { homeworldPlacement, type HomeworldPlacement } from "./game/galaxy";
+
+// G2-1 (the SQ-7.4 carry note): the map's bounds, ring-fit, overlap and in-band tests run over the provisional
+// fixture AND 200 per-save placements.
+const HOMES: HomeworldPlacement[] = [
+  PROVISIONAL_HOMEWORLD,
+  ...Array.from({ length: 200 }, (_, i) => homeworldPlacement((Math.imul(i + 1, 0x9e3779b1) ^ 0x2545f491) >>> 0)),
+];
 
 function atLevel(level: number, base: GameState = freshState()): GameState {
   return { ...base, facilities: { ...base.facilities, [SUBSPACE_TELESCOPE_FACILITY_KEY]: { level } } };
@@ -17,8 +25,12 @@ const TOP = SUBSPACE_TELESCOPE_LEVELS.length;
 const NO_EM_DASH = new RegExp(`${String.fromCharCode(0x2014)}|-{2}`); // an em dash, or two hyphens in a row
 
 describe("telescopeCardView: the card's headline numbers", () => {
-  it("a fresh save reads Level 1 of 8: 150 ly, Tier I, Graded detail, and the user's lore line", () => {
-    const view = telescopeCardView(freshState());
+  // G2-1: the pinned light-years below are measured from the provisional fixture (Sol's spot); a save's own homeworld
+  // moves them by up to a few hundred light-years (the next test).
+  const SOL = { homeworld: PROVISIONAL_HOMEWORLD };
+
+  it("a fresh save reads Level 1 of 8: 150 ly from Sol, Tier I, Graded detail, and the user's lore line", () => {
+    const view = telescopeCardView(freshState(), SOL);
     expect(view.level).toBe(1);
     expect(view.maxLevel).toBe(TOP);
     expect(view.maxed).toBe(false);
@@ -30,9 +42,19 @@ describe("telescopeCardView: the card's headline numbers", () => {
     expect(view.lore).toBe(TELESCOPE_LORE);
   });
 
+  it("G2-1: by default the card is measured from the save's own homeworld", () => {
+    for (const seed of [1, 99, 123_456_789]) {
+      const s = freshState(seed);
+      const home = stateHomeworld(s);
+      expect(home).not.toEqual(PROVISIONAL_HOMEWORLD);
+      expect(telescopeCardView(s)).toEqual(telescopeCardView(s, { homeworld: home }));
+      expect(telescopeCardView(s).rangeText).toBe(`${home.regionBandsLy[1].far.toLocaleString("en-US")} ly`);
+    }
+  });
+
   it("every level's numbers are the engine reading's (never re-derived)", () => {
     for (let level = 1; level <= TOP; level++) {
-      const reading = telescopeReadingAtLevel(level);
+      const reading = telescopeReadingAtLevel(level, stateHomeworld(atLevel(level)));
       const view = telescopeCardView(atLevel(level));
       expect(view.rangeText).toBe(`${reading.rangeLy.toLocaleString("en-US")} ly`);
       expect(view.detail).toBe(reading.detail);
@@ -50,7 +72,7 @@ describe("telescopeCardView: the card's headline numbers", () => {
 
 describe("telescopeCardView: the next development cycle", () => {
   it("names the next rung's credits, time and FA gate, plus the derived cycle line", () => {
-    const next = telescopeCardView(freshState()).next!;
+    const next = telescopeCardView(freshState(), { homeworld: PROVISIONAL_HOMEWORLD }).next!;
     expect(next.level).toBe(2);
     expect(next.credits).toBe(4_000);
     expect(next.durationTicks).toBe(120);
@@ -84,7 +106,7 @@ describe("telescopeCardView: the next development cycle", () => {
 
 describe("telescopeCardView: the ladder", () => {
   it("one row per level, marked reached / current / next / later, with costs in words", () => {
-    const view = telescopeCardView(atLevel(3));
+    const view = telescopeCardView(atLevel(3), { homeworld: PROVISIONAL_HOMEWORLD });
     expect(view.ladder.map((r) => r.level)).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
     expect(view.ladder.map((r) => r.status)).toEqual(["reached", "reached", "current", "next", "later", "later", "later", "later"]);
     expect(view.ladder[0].costText).toBe("Pre-granted");
@@ -146,15 +168,17 @@ describe("telescopeMapView: the galaxy map", () => {
     expect(telescopeMapView(8).legend.join(" ")).toContain("Fully upgraded");
   });
 
-  it("the Level 8 ring reaches the Galactic Core", () => {
-    const top = telescopeMapView(8);
-    const d = Math.hypot(top.core.x - top.home.x, top.core.y - top.home.y);
-    expect(Math.abs(d - top.ringR)).toBeLessThan(0.5);
+  it("the Level 8 ring reaches the Galactic Core, from every homeworld", { timeout: 60_000 }, () => {
+    for (const home of HOMES) {
+      const top = telescopeMapView(8, home);
+      const d = Math.hypot(top.core.x - top.home.x, top.core.y - top.home.y);
+      expect(Math.abs(d - top.ringR), home.id).toBeLessThan(0.5);
+    }
   });
 
-  it("every level's rings stay inside the view box on every side (never clipped)", () => {
-    for (let level = 1; level <= TOP; level++) {
-      const map = telescopeMapView(level);
+  it("every level's rings stay inside the view box on every side (never clipped), from every homeworld", { timeout: 60_000 }, () => {
+    for (const home of HOMES) for (let level = 1; level <= TOP; level++) {
+      const map = telescopeMapView(level, home);
       const [vx, vy, vw, vh] = map.viewBox.split(" ").map(Number);
       for (const r of [map.ringR, map.nextRingR ?? 0]) {
         expect(map.home.x - r, `level ${level} left`).toBeGreaterThanOrEqual(vx);
@@ -169,6 +193,7 @@ describe("telescopeMapView: the galaxy map", () => {
     const far = {
       ...PROVISIONAL_HOMEWORLD,
       id: "farOut",
+      galactic: { x: 0, y: 45_000 },
       distanceFromCoreLy: 45_000,
       regionBandsLy: { ...PROVISIONAL_HOMEWORLD.regionBandsLy, 6: { near: 13_000, far: 43_000 }, 7: { near: 43_000, far: 45_000 } },
     };
@@ -179,7 +204,7 @@ describe("telescopeMapView: the galaxy map", () => {
     expect(top.ringR).toBeLessThan(TELESCOPE_MAP_RADIUS);
   });
 
-  it("nothing overlaps: badges, the home and core dots, and the two labels", () => {
+  it("nothing overlaps: badges, the home and core dots, and the two labels, from every homeworld", { timeout: 60_000 }, () => {
     // Approximate text boxes: about 0.56 em per character, the cap height above the baseline.
     const box = (l: { x: number; y: number; text: string; size: number; anchor: "start" | "middle" | "end" }) => {
       const w = l.text.length * l.size * 0.56;
@@ -191,8 +216,8 @@ describe("telescopeMapView: the galaxy map", () => {
       const ny = Math.max(b.y0, Math.min(cy, b.y1));
       return Math.hypot(nx - cx, ny - cy) < r;
     };
-    for (let level = 1; level <= TOP; level++) {
-      const map = telescopeMapView(level);
+    for (const home of HOMES) for (let level = 1; level <= TOP; level++) {
+      const map = telescopeMapView(level, home);
       const R = map.badgeR;
       const dots = [
         { x: map.home.x, y: map.home.y, r: 4 },
@@ -210,21 +235,35 @@ describe("telescopeMapView: the galaxy map", () => {
     }
   });
 
-  it("at Level 1 badge I touches the solid ring, so in range reads true on the map", () => {
-    const map = telescopeMapView(1);
-    const one = map.badges[0];
-    expect(Math.hypot(one.x - map.home.x, one.y - map.home.y)).toBeLessThanOrEqual(map.ringR + map.badgeR + 0.5);
+  it("at Level 1 badge I touches the solid ring, so in range reads true on the map, from every homeworld", { timeout: 60_000 }, () => {
+    for (const home of HOMES) {
+      const map = telescopeMapView(1, home);
+      const one = map.badges[0];
+      expect(Math.hypot(one.x - map.home.x, one.y - map.home.y), home.id).toBeLessThanOrEqual(map.ringR + map.badgeR + 0.5);
+    }
   });
 
-  it("seven badges, I to VII, each inside its own region's band of distances from the homeworld", () => {
-    const map = telescopeMapView(1);
-    expect(map.badges.map((b) => b.numeral)).toEqual(["I", "II", "III", "IV", "V", "VI", "VII"]);
-    for (const b of map.badges) {
-      if (b.tier === 1) continue; // the Local Bubble is too small to draw: its badge sits beside the homeworld
-      const band = PROVISIONAL_HOMEWORLD.regionBandsLy[b.tier as RegionTier];
-      expect(b.distanceLy, `tier ${b.tier}`).toBeGreaterThan(band.near);
-      expect(b.distanceLy, `tier ${b.tier}`).toBeLessThanOrEqual(band.far);
+  it("seven badges, I to VII, each inside its own region's band of distances from that homeworld (band-relative)", { timeout: 60_000 }, () => {
+    for (const home of HOMES) {
+      const map = telescopeMapView(1, home);
+      expect(map.badges.map((b) => b.numeral)).toEqual(["I", "II", "III", "IV", "V", "VI", "VII"]);
+      for (const b of map.badges) {
+        if (b.tier === 1) continue; // the Local Bubble is too small to draw: its badge sits beside the homeworld
+        const band = home.regionBandsLy[b.tier as RegionTier];
+        expect(b.distanceLy, `${home.id} tier ${b.tier}`).toBeGreaterThan(band.near);
+        expect(b.distanceLy, `${home.id} tier ${b.tier}`).toBeLessThanOrEqual(band.far);
+      }
     }
+  });
+
+  it("G2-1: the map is centered on the homeworld's own position; the provisional fixture keeps the pre-G2 map", () => {
+    const home = HOMES[1];
+    const map = telescopeMapView(8, home);
+    expect(map.home).toEqual({ x: 200, y: 200 });
+    // The core dot sits in the direction of the Galactic Core as seen from this homeworld.
+    const toCore = Math.atan2(-home.galactic.y, -home.galactic.x);
+    expect(Math.atan2(map.core.y - map.home.y, map.core.x - map.home.x)).toBeCloseTo(toCore, 2);
+    expect(telescopeMapView(8)).toEqual(telescopeMapView(8, PROVISIONAL_HOMEWORLD));
   });
 
   it("a badge is reached exactly when its tier is within the telescope's reach, and says so in words", () => {
@@ -254,18 +293,20 @@ describe("telescopeMapView: the galaxy map", () => {
     expect(telescopeMapView(1).legend).toEqual(["Solid ring: your range now, 150 ly.", "Dashed ring: Level 2, 3,000 ly."]);
   });
 
-  it("paths are finite SVG path data and everything sits inside the view box", () => {
-    const map = telescopeMapView(5);
-    for (const d of [map.diskPath, map.bulgePath, ...map.armPaths]) {
-      expect(d).toMatch(/^M[-\d.]+ [-\d.]+(L[-\d.]+ [-\d.]+)*Z?$/);
-      expect(d).not.toContain("NaN");
-    }
-    const [vx, vy, vw, vh] = map.viewBox.split(" ").map(Number);
-    for (const p of [map.home, map.core, ...map.badges]) {
-      expect(p.x).toBeGreaterThanOrEqual(vx);
-      expect(p.x).toBeLessThanOrEqual(vx + vw);
-      expect(p.y).toBeGreaterThanOrEqual(vy);
-      expect(p.y).toBeLessThanOrEqual(vy + vh);
+  it("paths are finite SVG path data and everything sits inside the view box, from every homeworld", { timeout: 60_000 }, () => {
+    for (const home of HOMES) {
+      const map = telescopeMapView(5, home);
+      for (const d of [map.diskPath, map.bulgePath, ...map.armPaths]) {
+        expect(d).toMatch(/^M[-\d.]+ [-\d.]+(L[-\d.]+ [-\d.]+)*Z?$/);
+        expect(d).not.toContain("NaN");
+      }
+      const [vx, vy, vw, vh] = map.viewBox.split(" ").map(Number);
+      for (const p of [map.home, map.core, ...map.badges]) {
+        expect(p.x).toBeGreaterThanOrEqual(vx);
+        expect(p.x).toBeLessThanOrEqual(vx + vw);
+        expect(p.y).toBeGreaterThanOrEqual(vy);
+        expect(p.y).toBeLessThanOrEqual(vy + vh);
+      }
     }
   });
 });

@@ -17,8 +17,8 @@
 // makes); a run's resolution never reads the telescope (telescope.test.ts proves a run is identical at every
 // level). The system's distance is drawn on its own salt (SYSTEM_DISTANCE_SALT) and feeds nothing but the reading.
 //
-// Module graph: model (FACILITIES, types), combat/rng, riskFactors (types). Imported by expedition.ts (the
-// candidate's reading) and the UI; it imports neither.
+// Module graph: model (FACILITIES, types), combat/rng, galaxy (the ladder and the homeworld), riskFactors (types).
+// Imported by expedition.ts (the candidate's reading) and the UI; it imports neither.
 
 import {
   FACILITIES,
@@ -30,6 +30,7 @@ import {
   type RiskGrade,
 } from "./model";
 import { makeRng } from "./combat/rng";
+import { PROVISIONAL_HOMEWORLD, REGION_TIER_NAMES, stateHomeworld, type HomeworldPlacement } from "./galaxy";
 import type { RiskFactorId } from "./riskFactors";
 
 // ===== Detail levels (design 6.3; names [PROPOSAL, PROVISIONAL]) =====
@@ -61,52 +62,12 @@ export const TELESCOPE_SHIP_LIFT = 1;
 
 // ===== The regions and the homeworld =====
 
-// The approved expedition ladder (2026-10-08 gas giant design 1c; Roman numerals in game).
-export const REGION_TIER_NAMES: Readonly<Record<RegionTier, string>> = {
-  1: "Local Bubble",
-  2: "Orion Arm",
-  3: "Perseus Arm",
-  4: "Sagittarius Arm",
-  5: "Scutum-Centaurus Arm",
-  6: "Galactic Bulge",
-  7: "Galactic Core",
-};
-const NUMERALS = ["I", "II", "III", "IV", "V", "VI", "VII"];
-export function regionTierNumeral(tier: RegionTier): string {
-  return NUMERALS[tier - 1] ?? String(tier);
-}
-
-// A region's band of distances from a homeworld, in light-years (a system of that region lies in [near, far]).
-export interface RegionBandLy {
-  near: number;
-  far: number;
-}
-export interface HomeworldPlacement {
-  id: string;
-  distanceFromCoreLy: number; // the homeworld's galactic position (its distance from the Galactic Core)
-  regionBandsLy: Readonly<Record<RegionTier, RegionBandLy>>;
-}
-
-// ⚠️ PROVISIONAL HOMEWORLD POSITION (one constant until G2 builds per-player placement, user 3b.6: "every
-// homeworld system should be different for each player"). It sits near the Sun's position, about 26,500 ly from
-// the Galactic Core, and the bands are the tiers mockup's, as measured from there: the Local Bubble out to 150 ly
-// (the nearest stars sit about 4 ly out), the Orion Arm to 3,000 ly, Perseus (about 6,400 ly outward) and
-// Sagittarius (about 5,000 ly inward) sharing one band to 7,600 ly (so one rung reaches both, design 6.2),
-// Scutum-Centaurus to 13,000 ly, the Bulge to 25,000 ly and the Core to 26,500 ly. G2 replaces this with each
-// player's own placement and its measured bands; every reader takes the homeworld as a parameter.
-export const PROVISIONAL_HOMEWORLD: HomeworldPlacement = {
-  id: "provisionalNearSol",
-  distanceFromCoreLy: 26_500,
-  regionBandsLy: {
-    1: { near: 4, far: 150 },
-    2: { near: 150, far: 3_000 },
-    3: { near: 3_000, far: 7_600 },
-    4: { near: 3_000, far: 7_600 },
-    5: { near: 7_600, far: 13_000 },
-    6: { near: 13_000, far: 25_000 },
-    7: { near: 25_000, far: 26_500 },
-  },
-};
+// Expedition Tiers G2-1: the region ladder, the homeworld placement and its bands live in galaxy.ts; re-exported
+// here so every caller keeps importing them from telescope.ts. Every reader below takes the homeworld as a
+// parameter; the state readers default to the save's own (galaxy.ts stateHomeworld), the pure readers to the
+// provisional fixture near Sol (PROVISIONAL_HOMEWORLD, the pre-G2 shared spot).
+export { PROVISIONAL_HOMEWORLD, REGION_TIER_NAMES, regionTierNumeral, stateHomeworld } from "./galaxy";
+export type { HomeworldPlacement, RegionBandLy } from "./galaxy";
 
 const TIERS: readonly RegionTier[] = [1, 2, 3, 4, 5, 6, 7];
 
@@ -117,7 +78,7 @@ export function rangeLyForReach(reachTier: number, homeworld: HomeworldPlacement
   return range;
 }
 
-// A system's distance from the homeworld [PROVISIONAL: G2's map supplies real positions]: a whole number of
+// A system's distance from the homeworld (its band measured from the save's own homeworld since G2-1): a whole number of
 // light-years in (near, far] of its region's band, drawn on its own keyed stream so it shifts no other draw. The
 // band's NEAR edge is excluded (SQ-5 review Minor 1): it is the previous region's far edge, i.e. that region's
 // telescope range, so a system drawn exactly there would read in range one region early. Pure.
@@ -177,7 +138,8 @@ export function telescopeReadingAtLevel(level: number, homeworld: HomeworldPlace
   };
 }
 
-export function telescopeReading(state: GameState, homeworld: HomeworldPlacement = PROVISIONAL_HOMEWORLD): TelescopeReading {
+// G2-1: measured from the save's own homeworld unless one is passed.
+export function telescopeReading(state: GameState, homeworld: HomeworldPlacement = stateHomeworld(state)): TelescopeReading {
   return telescopeReadingAtLevel(telescopeLevel(state), homeworld);
 }
 
