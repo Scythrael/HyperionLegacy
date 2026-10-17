@@ -1417,3 +1417,6 @@ is the first candidate to ask the user about a 0.14.x deferral, recorded as `def
 - **OC-I2 factions:** "Routes when you name content (Recommended)": hidden from text until the user names content.
   **OC-J1 salvage reach past the top tier:** "Shift odds upward (Recommended)". **OC-J2 salvage narration:** "Show it
   (Recommended)". **OC-J3 dead-end loot:** "Sell now, recipes later (Recommended)".
+- **OC-D3 module lines:** "They scale the module (Recommended)" (Crew Stations also adds capacity). **OC-D5 favorsSpec:**
+  "+10% on its ship type (Recommended)". **OC-D6 statRatios:** "Unlisted = never rolls (Recommended)" (fixes B11;
+  moves crafted-roll goldens: re-capture first). **OC-D7 quarters capacity:** "Spread across divisions (Recommended)".
