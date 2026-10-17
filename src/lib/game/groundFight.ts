@@ -268,6 +268,26 @@ export type TaskFightExp = Pick<
   "id" | "roster" | "securityStrength" | "squadTriage" | "squadFearResist" | "hazardResist" | "teamKit" | "enemyRanks" | "difficulty"
 >;
 
+// THE GUARD a task fight fields on a given stream seed, as fresh combatants: generateEncounter on the body's hazard
+// after the museum resist, the flora toxins, the alert's escalation and (Field Kits FKR-1, a ranked run only) the
+// enemy ranks. resolveTaskFightOnSeed fields exactly this list; the wiring probe reads it (the ranks' HP and power on a
+// real fight). Pure.
+export function taskFightGuard(
+  exp: Pick<TaskFightExp, "hazardResist" | "enemyRanks" | "difficulty">,
+  body: Pick<ExpeditionBody, "hazard" | "risk">,
+  task: RankedFightTask,
+  seed: number,
+  alertLevel = 0,
+  kind: RankedFightKind = "point",
+): GroundCombatant[] {
+  const enemies = withEscalation(
+    withFloraToxins(generateEncounter(seed, resistedHazard(body.hazard, exp.hazardResist ?? 0), task.poiId), bodyFloraGrade(body)),
+    alertLevel,
+  );
+  if (ranksLive(exp)) withEnemyRanks(enemies, fightLeadRank(fightRankContext(exp, task, task.fightPoints?.length ?? 0, kind)));
+  return enemies;
+}
+
 // THE fight body on a given stream seed. resolveTaskFight passes the real fight's keyed seed (above); the
 // threat indicator (groundThreat.ts, GO-6) passes its OWN salted sample seeds, so its samples field the same
 // squad and the same guard rules as a real fight while never touching a real fight's stream. Engine code
@@ -293,11 +313,7 @@ export function resolveTaskFightOnSeed(
   if (team.length === 0) {
     return { pointIndex, fightNumber, outcome: "loss", rounds: 0, downedMemberIds: [], memberConditions: {}, memberEnd: {} };
   }
-  const enemies = withEscalation(
-    withFloraToxins(generateEncounter(seed, resistedHazard(body.hazard, exp.hazardResist ?? 0), task.poiId), bodyFloraGrade(body)),
-    alertLevel,
-  );
-  if (ranksLive(exp)) withEnemyRanks(enemies, fightLeadRank(fightRankContext(exp, task, task.fightPoints?.length ?? 0, kind)));
+  const enemies = taskFightGuard(exp, body, task, seed, alertLevel, kind);
   withCover(team, enemies, cover, exp.roster?.security);
   const result = resolveGroundBattle(team, enemies, exp.teamKit, makeRng(seed), logSink, seed);
 

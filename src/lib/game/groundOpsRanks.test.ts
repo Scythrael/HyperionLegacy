@@ -11,14 +11,15 @@ import { freshState, type AwayMember, type BodyRiskGrades, type Expedition, type
 import { advanceExpedition, expeditionCandidates, startExpedition } from "./expedition";
 import { groundOpsAssignIdle, groundOpsBodyScanned, initGroundTasks, taskCover } from "./groundOps";
 import { alertLevelAt } from "./affixes";
-import { resolveTaskFight, taskFightSeed, withEscalation, withFloraToxins, type GroundFightTeam } from "./groundFight";
+import { resolveTaskFight, taskFightGuard, taskFightSeed, withEscalation, withFloraToxins, type GroundFightTeam } from "./groundFight";
 import { generateEncounter, type GambitLogEvent } from "./gambit";
 import { groundTaskClearOdds, groundThreatOddsKey } from "./groundThreat";
 import { resistedHazard } from "./relics";
 import { bodyFloraGrade } from "./riskFactors";
-import { ENEMY_RANKS_VERSION, FINAL_FIGHT_LEAD, isTrainingRun, withEnemyRanks } from "./enemyRanks";
+import { EARLIER_FIGHT_LEAD, ENEMY_RANKS_VERSION, FINAL_FIGHT_LEAD, isTrainingRun, withEnemyRanks } from "./enemyRanks";
 import { plainAwayMember, withoutEnemyRanks, withoutFieldKits } from "./awayTeamTestFixtures";
 import { onHull, withCrew } from "./firstRunsGoldens.fixture";
+import { wiringEntry } from "./wiring/registry";
 
 // ===== shared helpers (the fieldKitsGoldens.test.ts fixtures, so the twins are FKR-0's runs) =====
 
@@ -169,11 +170,14 @@ function runFights(exp: Expedition, end: number): { fight: GroundFightRecord; ta
   return out;
 }
 
-// The placement rule on one stored fight: only an ordinary fight for the final point of a Challenging or harder
-// objective lists ranks, exactly one enemy at the grade's lead.
+// The lead the rule puts on a fight point of an objective of grade `grade` (null = none).
+const leadFor = (grade: number, point: number, points: number) => (point === points - 1 ? FINAL_FIGHT_LEAD : EARLIER_FIGHT_LEAD)[grade - 1];
+
+// The placement rule on one stored fight: only an ordinary fight point lists ranks (the final point of a Challenging
+// or harder objective, an earlier point of a Dangerous one), exactly one enemy at the lead.
 function expectPlaced(fight: GroundFightRecord, task: ExpeditionActivity, trainingRun = false): void {
-  const final = fight.pointIndex === (task.fightPoints?.length ?? 0) - 1;
-  const lead = !trainingRun && !fight.surprise && !fight.reinforcement && final && task.difficulty ? FINAL_FIGHT_LEAD[task.difficulty - 1] : null;
+  const points = task.fightPoints?.length ?? 0;
+  const lead = !trainingRun && !fight.surprise && !fight.reinforcement && task.difficulty ? leadFor(task.difficulty, fight.pointIndex, points) : null;
   if (lead) expect(Object.values(fight.ranks ?? {}), `${task.poiId} point ${fight.pointIndex}`).toEqual([lead]);
   else expect(fight.ranks, `${task.poiId} point ${fight.pointIndex}`).toBeUndefined();
 }
@@ -204,26 +208,29 @@ describe("FKR-1 the flag: stamped at dispatch on new runs only", () => {
 
 // ===== the stamped twin of FKR-0 (2): final fights =====
 
-describe("FKR-1 the stamped twin of FKR-0 (2): only the final fight of a Challenging or harder objective moves", () => {
+describe("FKR-1 the stamped twin of FKR-0 (2): only the placed fights move", () => {
   for (const which of ["Low", "High"] as const) {
-    it(`${which}: Simple and Standard finals and every earlier point are unchanged; Challenging an Elite, Dangerous and Deadly a Boss`, () => {
+    it(`${which}: finals Challenging and Dangerous an Elite, Deadly a Boss; Dangerous earlier points Strong; every other fight unchanged`, () => {
       const plain = gradeRun(which);
       const twin = ranked(plain);
       const teams = fightTeamsOf(plain);
+      let strong = 0;
       for (const [k, t] of tasksOf(plain).entries()) {
-        const last = t.fightPoints!.length - 1;
-        for (let p = 0; p < last; p += 1) expect(pointFight(twin, teams, k, p), `${t.poiId} point ${p}`).toEqual(pointFight(plain, teams, k, p));
-        const a = pointFight(plain, teams, k, last);
-        const b = pointFight(twin, teams, k, last);
-        expect(b.enemies).toEqual(a.enemies); // the fielded list before ranks is FKR-0's, untouched
-        const lead = FINAL_FIGHT_LEAD[t.difficulty! - 1];
-        if (lead === null) {
-          expect(b, `${t.poiId}`).toEqual(a);
-        } else {
-          expect(b.record.ranks, `${t.poiId}`).toEqual({ [leadIdOf(a.enemies)]: lead });
-          expect(b.log, `${t.poiId}: the ranked lead changes the battle`).not.toEqual(a.log);
+        const points = t.fightPoints!.length;
+        for (let p = 0; p < points; p += 1) {
+          const a = pointFight(plain, teams, k, p);
+          const b = pointFight(twin, teams, k, p);
+          expect(b.enemies).toEqual(a.enemies); // the fielded list before ranks is FKR-0's, untouched
+          const lead = leadFor(t.difficulty!, p, points);
+          if (lead === null) {
+            expect(b, `${t.poiId} point ${p}`).toEqual(a);
+          } else {
+            expect(b.record.ranks, `${t.poiId} point ${p}`).toEqual({ [leadIdOf(a.enemies)]: lead });
+            if (lead === "strong") strong += 1;
+          }
         }
       }
+      expect(strong).toBe(3); // the one Dangerous objective's three earlier points (Enemy Colony, Buried Vault: 4 points)
     });
   }
 
@@ -253,6 +260,35 @@ describe("FKR-1 the stamped twin of FKR-0 (2): only the final fight of a Challen
     const lead = leadIdOf(enemies);
     const boss = withEnemyRanks(structuredClone(enemies), "boss").find((e) => e.id === lead)!;
     expect(boss.power).toBe(enemies.find((e) => e.id === lead)!.power * 2.5);
+  });
+});
+
+// ===== the guard the wiring reads, and the Weak rank =====
+
+describe("FKR-1 the guard a fight fields, and Weak left to SF-3", () => {
+  it("taskFightGuard is FKR-0's fielded list on an unranked run and its ranked twin on a ranked one", () => {
+    const plain = gradeRun("Low");
+    for (const [k, t] of tasksOf(plain).entries()) {
+      const last = t.fightPoints!.length - 1;
+      const task = { ...t, pointsCleared: last, fightCount: last };
+      const seed = taskFightSeed(plain, k, last);
+      const fielded = fieldedEnemies(plain, task, seed, 0);
+      expect(taskFightGuard(plain, plain.bodies[0], task, seed)).toEqual(fielded);
+      const lead = FINAL_FIGHT_LEAD[t.difficulty! - 1];
+      const ranks = taskFightGuard(ranked(plain), plain.bodies[0], task, seed).filter((e) => e.rank !== "normal");
+      expect(ranks.map((e) => [e.id, e.rank])).toEqual(lead ? [[leadIdOf(fielded), lead]] : []);
+    }
+  });
+
+  it("Weak's wiring entries are pending on SF-3 (the difficulty curve places it); the other ranks are live on HP and power", () => {
+    for (const id of ["expedition:ENEMY_RANKS:weak", "expedition:ENEMY_RANKS:weak:hp"]) {
+      const e = wiringEntry(id)!;
+      expect(e.status.kind).toBe("pending");
+      expect(e.status.kind === "pending" && e.status.owner.startsWith("SF-3")).toBe(true);
+    }
+    for (const rank of ["normal", "strong", "elite", "boss"]) {
+      for (const id of [`expedition:ENEMY_RANKS:${rank}`, `expedition:ENEMY_RANKS:${rank}:hp`]) expect(wiringEntry(id)!.status.kind, id).toBe("live");
+    }
   });
 });
 

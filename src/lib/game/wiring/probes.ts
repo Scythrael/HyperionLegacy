@@ -125,7 +125,8 @@ import { departmentFacet, seatFacet } from "../officerStats";
 import { RELICS, museumBonuses, type MuseumStat } from "../relics";
 import { salvageSalvagedMaterial, salvageShip, salvageTalentBonus, salvageYieldMult } from "../salvage";
 import { alertResetSeconds, escalationAt, extraBattleChance, longRangeCover, maxExtraBattles } from "../affixes";
-import { withEnemyRanks, type EnemyRank } from "../enemyRanks";
+import { ENEMY_RANKS_VERSION, type EnemyRank } from "../enemyRanks";
+import { taskFightGuard } from "../groundFight";
 import { sellItem } from "../quartermaster";
 import { retirementExpMultiplier } from "../captainRetirement";
 import { transitBerthCount } from "../berths";
@@ -1314,21 +1315,31 @@ function readContent(id: string, s: GameState): number {
       return e[a];
     }
     case "enemyRank": {
-      // Field Kits FKR-1: a fight's guard (generateEncounter, a Derelict Outpost on a calm world) ranked through the
-      // fight's own placement step (enemyRanks.ts withEnemyRanks): the lead's power at rank `a` (on) over its power at
-      // Normal, i.e. the multiplier the fight really applies (1 off).
-      const guard = () => generateEncounter(0x5eed, 0, "derelictOutpost");
-      const normal = withEnemyRanks(guard(), "normal");
-      const ranked = withEnemyRanks(guard(), on ? (a as EnemyRank) : "normal");
-      // The lead: the strongest Normal enemy (highest power, first in list order), read on both lists by its id.
-      const leadId = normal.reduce((best, e) => (e.power > best.power ? e : best)).id;
-      const power = (list: GroundCombatant[]) => list.find((e) => e.id === leadId)!.power;
-      return power(ranked) / power(normal);
+      // Field Kits FKR-1: the guard of a REAL task fight (groundFight.ts taskFightGuard, the list resolveTaskFightOnSeed
+      // fields) at the fight point the placement leads with rank `a`: an objective of the grade and point
+      // ENEMY_RANK_PROBE_FIGHT names, on a Derelict Outpost (hazard 0.1). On = a ranked run, off = the same run without
+      // the flag (every enemy Normal). The lead's (the strongest enemy's) stat `b`: "hp" (whole numbers) or "power".
+      const at = ENEMY_RANK_PROBE_FIGHT[a as EnemyRank];
+      if (!at) throw new Error(`enemy rank ${a} has no placement to probe`);
+      const task = { id: "wiring-task", poiId: "derelictOutpost", fightCount: at.point, pointsCleared: at.point, difficulty: at.grade, fightPoints: [0.25, 0.5, 0.75] };
+      const guard = taskFightGuard({ hazardResist: 0, ...(on ? { enemyRanks: { version: ENEMY_RANKS_VERSION } } : {}) }, { hazard: 0.1 }, task, 0x5eed);
+      const lead = guard.reduce((best, e) => (e.power > best.power ? e : best));
+      return b === "hp" ? lead.hp : lead.power;
     }
     default:
       throw new Error(`unknown content probe ${id}`);
   }
 }
+
+// Field Kits FKR-1: the fight each placed rank is probed on (grade 1 Simple .. 5 Deadly, the 0-based fight point of a
+// three-point objective): Normal on a Simple final, Strong on a Dangerous earlier point, Elite on a Challenging final,
+// Boss on a Deadly final. Weak has none (SF-3 places it on the difficulty curve).
+const ENEMY_RANK_PROBE_FIGHT: Readonly<Partial<Record<EnemyRank, { grade: number; point: number }>>> = {
+  normal: { grade: 1, point: 2 },
+  strong: { grade: 4, point: 0 },
+  elite: { grade: 3, point: 2 },
+  boss: { grade: 5, point: 2 },
+};
 
 // The officer stat facets: the department facet each facet consumer reads (officerStats.ts departmentFacet; for
 // the XO's own bonuses, seatFacet). "facet:<dept>:<stat>".

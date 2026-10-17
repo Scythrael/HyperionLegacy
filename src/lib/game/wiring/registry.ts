@@ -2325,21 +2325,31 @@ function affixEntries(): WiringEntry[] {
 // expedition: enemy ranks (Field Kits FKR-1, enemyRanks.ts ENEMY_RANKS)
 // ============================================================================
 
-// Every rank's ONE multiplier (user N1: HP and power alike), read through the fight's own placement step on a real
-// guard: the lead's power at that rank over its power at Normal equals the configured multiplier.
+// Every rank's ONE multiplier (user N1: HP and power alike; heal follows), read on a REAL task fight's guard
+// (groundFight.ts taskFightGuard) at a fight point the placement leads with that rank: the lead's power and its HP on a
+// ranked run are its unranked values x the multiplier (HP within one rounding step). Weak is pending: SF-3 places it
+// on the difficulty curve (user 2026-10-16 "Use them on the curve"), so no fight fields it yet.
 function enemyRankEntries(): WiringEntry[] {
-  return ENEMY_RANK_IDS.map((rank) =>
-    entry({
-      id: `expedition:ENEMY_RANKS:${rank}`,
-      system: "expedition",
-      source: { catalog: "ENEMY_RANKS", key: rank },
-      claim: `${ENEMY_RANKS[rank].label} enemy rank: its HP and power take the rank multiplier`,
-      probe: `content:enemyRank:${rank}`,
-      contexts: ["ground"],
-      direction: "none",
-      curve: { kind: "equals" },
-      magnitude: (c) => c.ENEMY_RANKS[rank].mult,
-      on: sourceOn,
+  return ENEMY_RANK_IDS.flatMap((rank) =>
+    (["power", "hp"] as const).map((stat) => {
+      const mult = ENEMY_RANKS[rank].mult;
+      const shared = {
+        id: `expedition:ENEMY_RANKS:${rank}${stat === "hp" ? ":hp" : ""}`,
+        system: "expedition" as const,
+        source: { catalog: "ENEMY_RANKS", key: stat === "hp" ? `${rank}:hp` : rank },
+        claim: `${ENEMY_RANKS[rank].label} enemy rank: its ${stat === "hp" ? "HP" : "power"} takes the rank multiplier`,
+      };
+      if (rank === "weak") return entry({ ...shared, status: pending("SF-3 (the difficulty curve places Weak enemies)") });
+      return entry({
+        ...shared,
+        probe: `content:enemyRank:${rank}:${stat}`,
+        contexts: ["ground"],
+        direction: mult > 1 ? "up" : mult < 1 ? "down" : "none",
+        curve: { kind: "linearRelative" },
+        magnitude: (c) => c.ENEMY_RANKS[rank].mult - 1,
+        ...(stat === "hp" ? { tolerance: 0.5 } : {}),
+        on: sourceOn,
+      });
     }),
   );
 }
