@@ -69,7 +69,8 @@ function fnv(s: string): string {
 
 const hash = (v: unknown): string => fnv(JSON.stringify(v));
 // A whole state, without the retired fuel stockpile (see the header).
-const hashState = (s: GameState): string => hash({ ...s, fuel: undefined });
+// SF-1: nor the run counters (`runCounts`, seeded by freshState, written by a claim and a patrol), absent before SF-1.
+const hashState = (s: GameState): string => hash({ ...s, fuel: undefined, runCounts: undefined });
 
 function lcg(seed: number): () => number {
   let s = seed >>> 0;

@@ -61,6 +61,8 @@ import {
   taskCover,
 } from "./groundOps";
 import { forecastTasksText } from "./launchRecommendation";
+// SF-1: the claimed state hashes without the run counters (a claim writes them), absent before SF-1.
+import { withoutRunCounts } from "./firstRunsGoldens.fixture";
 
 function fnv(s: string): string {
   let h = 0x811c9dc5;
@@ -142,7 +144,7 @@ describe("AF-2 the gate: an affix-aware run without the catalog version resolves
       const done = advanceExpedition(exp, T0 + 2_000_000);
       hashes.push(done.phase);
       const claimed = done.phase === "complete" ? claimExpedition({ ...d.next, expeditions: [done] }, done.id) : null;
-      hashes.push(claimed ? fnv(JSON.stringify(claimed.next)) : "unclaimed");
+      hashes.push(claimed ? fnv(JSON.stringify(withoutRunCounts(claimed.next))) : "unclaimed");
       expect(hashes).toEqual(GOLDEN[name]);
     });
   }

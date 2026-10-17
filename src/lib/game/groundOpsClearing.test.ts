@@ -12,6 +12,8 @@ import { groundOpsLogText } from "./groundOps";
 import { CLEARING_SITE_CATALOG, POI_CATALOG, PLANET_TYPES, groundSiteLabel, poisForPlanetType } from "./expeditionContent";
 import { generateEncounter } from "./gambit";
 import { plainAwayMember, withoutAffixes, withoutShipEvents } from "./awayTeamTestFixtures";
+// SF-1: the claimed state hashes without the run counters (a claim writes them), absent before SF-1.
+import { withoutRunCounts } from "./firstRunsGoldens.fixture";
 
 function fnv(s: string): string {
   let h = 0x811c9dc5;
@@ -102,7 +104,7 @@ describe("pre-clearing runs resolve exactly as before (goldens captured BEFORE t
       const done = advanceExpedition(exp, T0 + 2_000_000);
       hashes.push(done.phase);
       const claimed = done.phase === "complete" ? claimExpedition({ ...d.next, expeditions: [done] }, done.id) : null;
-      hashes.push(claimed ? fnv(JSON.stringify(claimed.next)) : "unclaimed");
+      hashes.push(claimed ? fnv(JSON.stringify(withoutRunCounts(claimed.next))) : "unclaimed");
       expect(hashes).toEqual(GOLDEN[name]);
     });
   }

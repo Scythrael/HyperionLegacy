@@ -177,6 +177,8 @@ import type { RelicSetId, RelicVaultToken } from "./model";
 import { addToInventory, itemCap, foldLifetimeStatsDelta } from "./tick";
 import Decimal from "break_infinity.js";
 import { formatCountdown } from "./format";
+// Safe first runs SF-1: the run counters a claim updates (runDifficulty.ts imports model.ts only, so no cycle).
+import { countClaimedExpedition, runCountsOf } from "./runDifficulty";
 
 // ============================================================================
 // FIRST-PASS TUNABLE constants
@@ -2212,7 +2214,14 @@ export function claimExpedition(state: GameState, expeditionId: string): Expedit
   // WR-4 (B4, OC-E10): the run's promotion counters for the officers aboard the ship it flew: personnelAchievement
   // from the objectives its squads completed, shipsDestroyed from the ship battles it won (each a one-enemy fight,
   // shipScanEvents.ts). Counted at the claim, from the stored run (the crewHours of its time out accrue live, tick.ts).
-  const next = { ...repaired, officers: foldOfficerPromotionCounters(repaired.officers, expeditionPromotionIncrements(exp)) };
+  // Safe first runs SF-1: the run counters (runDifficulty.ts countClaimedExpedition): a completed run counts on the curve,
+  // the training run marks training done instead, a recalled run changes nothing. Read from the PRE-claim state, so a
+  // save without stored counters derives them with this run still out.
+  const next = {
+    ...repaired,
+    officers: foldOfficerPromotionCounters(repaired.officers, expeditionPromotionIncrements(exp)),
+    runCounts: countClaimedExpedition(runCountsOf(state), exp),
+  };
   return {
     next,
     success: true,

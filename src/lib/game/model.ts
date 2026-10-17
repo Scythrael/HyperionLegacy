@@ -6571,6 +6571,37 @@ export interface GroundTaskNeeds {
 export type RiskGrade = 0 | 1 | 2 | 3 | 4;
 // The expedition REGION TIERS I to VII (2026-10-08 gas giant design 1c; Roman numerals in game).
 export type RegionTier = 1 | 2 | 3 | 4 | 5 | 6 | 7;
+
+// Safe first runs SF-1 (docs/plans/2026-10-15-safe-first-runs-plan.md section 3.3 and its USER ANSWERS; the rules live
+// in runDifficulty.ts): the per-type RUN COUNTERS on GameState.runCounts. Plain numbers and booleans (no Decimals).
+// - expedition.completed: claimed runs that were not recalled, the training run excluded (the curve's input).
+// - expedition.trainingDone: the training run (the first expedition from an explorer) was claimed, not recalled.
+// - patrol.dispatched: patrol dispatches (the first is the one safe patrol); patrol.completed: won patrol routes.
+// - veteran: the save flew this type before 0.14.0 (save v70): no training run, the curve at full strength.
+// - shortRange: per G1 template (G1 is not built; its contract, plan SF-5).
+export interface RunCounts {
+  version: 1;
+  expedition: { completed: number; trainingDone: boolean; veteran: boolean };
+  patrol: { dispatched: number; completed: number; veteran: boolean };
+  shortRange: Record<string, { dispatched: number; completed: number }>;
+}
+// A new game's counters (freshState): nothing flown, not a veteran. Fresh objects.
+export function freshRunCounts(): RunCounts {
+  return {
+    version: 1,
+    expedition: { completed: 0, trainingDone: false, veteran: false },
+    patrol: { dispatched: 0, completed: 0, veteran: false },
+    shortRange: {},
+  };
+}
+// A run's difficulty, frozen at dispatch (runDifficulty.ts runDifficultyAt): the training run, else the curve position
+// `ramp` in [0, 1] (1 = nominal), at the run's tier.
+export interface RunDifficultyStamp {
+  version: 1;
+  firstRun: boolean;
+  ramp: number;
+  tier: RegionTier;
+}
 // The hostile sites a risk-aware body may hold (user words "an enemy colony", "an enemy fortification", names
 // approved for now, #12). Not discovery PoIs: they never appear in the planet-type pools.
 export type HostileSiteId = "enemyColony" | "enemyFortification";
@@ -6873,6 +6904,12 @@ export interface Expedition {
   phase: ExpeditionPhase;
   phaseAnchorSeconds: number; // gameTimeSeconds when the current phase started
   shakedown: boolean; // the inaugural per-account run (shorter transit)
+  // Safe first runs (plan 2026-10-15, SF-1 type; SF-2 writes it in buildExpedition through runDifficulty.ts
+  // runDifficultyAt): the run's DIFFICULTY, frozen at dispatch. `firstRun` = the training run (the first expedition
+  // from an explorer). Read today only by the run counters (runDifficulty.ts: a claimed training run marks training
+  // done; a stamped training run out blocks a second). Absent = today's path (every run dispatched before SF-2).
+  // Optional, no SAVE bump.
+  difficulty?: RunDifficultyStamp;
   bodies: ExpeditionBody[];
   anomalyResolved: boolean; // the mid-transit anomaly-chart roll has fired
   anomalyCharted: boolean; // the roll succeeded (adds transit time + one placeholder finding)
@@ -7752,6 +7789,11 @@ export interface GameState {
   // a blind dispatch, so a save that never launched blind carries no key. A plain number: no SAVE bump, and
   // hydrateDecimals carries it through its `...state` spread. Nothing on the tick reads it.
   blindLaunches?: number;
+  // Safe first runs SF-1: the per-type run counters (RunCounts above; rules in runDifficulty.ts). freshState seeds
+  // freshRunCounts(); save v70 derives them for an older save from its history (veterans). Written by claimExpedition,
+  // dispatchCaptainOnPatrol and economyTick's patrol fold. OPTIONAL: absent (a dev save at v70 from before SF-1) reads
+  // the derived counters (runDifficulty.ts runCountsOf). Plain data, so hydrateDecimals carries it through `...state`.
+  runCounts?: RunCounts;
   // --- Exploration 0.14.0 (Phase E3a): the away-team GAMBIT program pair --------------------------------
   // The player's ACCOUNT-LEVEL Security + Science gambit programs (the EDITABLE source; the E3b UI writes
   // these). D19 (user, 2026-10-06): NO battle reads this pair any more (members run their own program, else
@@ -12900,6 +12942,8 @@ export function freshState(): GameState {
     expeditions: [],
     nextExpeditionId: 1,
     expeditionSeed: EXPEDITION_DEFAULT_SEED,
+    // Safe first runs SF-1: nothing flown yet (the first explorer run will be the training run).
+    runCounts: freshRunCounts(),
     // Exploration 0.14.0 (Phase E3a): the account-level away-team gambit pair starts from the Balanced
     // default (DEFAULT_GAMBIT_PROGRAMS). Existing saves reach the IDENTICAL shape via the v61->v62
     // migration (save.ts), so a fresh save and a migrated save stay indistinguishable.

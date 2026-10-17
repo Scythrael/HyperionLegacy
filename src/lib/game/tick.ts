@@ -390,6 +390,8 @@ import { itemTotal, addItemQuality, removeItemLowestFirst, lowestStockedQuality 
 // touches state. See captainName.ts for the (deliberately minimal, bypassable)
 // scope; server-side moderation in 0.14.0 plugs into the same signature.
 import { validateCaptainName } from "./captainName";
+// Safe first runs SF-1: the run counters (runDifficulty.ts imports model.ts only, so no cycle).
+import { countPatrolDispatch, countPatrolRoutes, runCountsOf } from "./runDifficulty";
 
 // Must stay in sync with MissionPhase and requiredTicksForPhase's switch --
 // there's no compiler link between this array and the union type, so a 6th
@@ -3899,6 +3901,10 @@ export function economyTick(
   // assigned to each such ship. Closed-form (a pure additive count) and per-tick safe (it changes no
   // stat mid-span; promotion is a discrete player action, never auto-applied here).
   const shipMissionCompletions = new Map<string, number>();
+  // Safe first runs SF-1: the patrol routes WON this call, fleet-wide (the patrol curve, runDifficulty.ts
+  // countPatrolRoutes), folded once into runCounts below. A pure additive count, so one big call and many small ones
+  // accrue the identical total.
+  let patrolRoutesWon = 0;
   // 0.13.4 Phase 3 Unit 3.2: the shared TRANSIT-BERTH budget for this whole call, threaded
   // exactly like fuelBudgetRemaining / creditsBudgetRemaining above it: computed ONCE from the
   // incoming state, then drawn down as each captain claims, so a later captain in this same map
@@ -4067,6 +4073,8 @@ export function economyTick(
         // shared foldLifetimeStatsDelta seam the extraction arm uses (~110 lines below), so
         // combat loot/bounty/XP count toward lifetime totals exactly like extraction loot.
         lifetimeStats = foldLifetimeStatsDelta(lifetimeStats, patrolResult.lifetimeStatsDelta);
+        // Safe first runs SF-1: the same won routes count on the patrol curve (runCounts, folded below).
+        patrolRoutesWon += Object.values(patrolResult.lifetimeStatsDelta.missionsCompleted).reduce((sum, d) => sum + d.toNumber(), 0);
         // Crew 0.14.0 ("CREW GOES LIVE"): record this patrol's completed ROUTES against its ship so the
         // officers aboard get missionsCompleted credit (promotion gates). routesCompleted lives in the
         // patrol's lifetimeStatsDelta.missionsCompleted, keyed by patrolKey; sum its (single) value.
@@ -4451,6 +4459,9 @@ export function economyTick(
     // fold above uses). If no captain was on a mission this call, `lifetimeStats`
     // is still the original state.lifetimeStats reference, an exact no-op.
     lifetimeStats,
+    // Safe first runs SF-1: the won patrol routes on the patrol curve. Untouched (the same reference) when no route
+    // was won this call.
+    ...(patrolRoutesWon > 0 ? { runCounts: countPatrolRoutes(runCountsOf(state), patrolRoutesWon) } : {}),
   };
 
   // Phase 1, Task 9: resolve every in-flight timed process ONCE, fleet-wide (NOT
@@ -5496,6 +5507,8 @@ export function dispatchCaptainOnPatrol(
       ...state,
       captains,
       nextPatrolSeed: state.nextPatrolSeed + 1,
+      // Safe first runs SF-1: one more patrol dispatched (the first on the save is the one safe patrol).
+      runCounts: countPatrolDispatch(runCountsOf(state)),
     },
     success: true,
   };

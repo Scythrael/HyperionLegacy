@@ -79,9 +79,11 @@ function withoutG2Run(exp: Expedition): Expedition {
 
 // The state WITHOUT the G2 state fields (G2-1's stored `homeworld`) and with every run through withoutG2Run. A
 // no-op at G2-0; it lets golden 1's claim stay byte-identical across the v70 bump. Pure: shallow copies.
+// SF-1: also without the run counters (`runCounts`: seeded by freshState, written by a claim), absent before SF-1.
 function withoutG2State(state: GameState): GameState {
   const rest = { ...state } as Record<string, unknown>;
   delete rest.homeworld;
+  delete rest.runCounts;
   return { ...(rest as unknown as GameState), expeditions: state.expeditions.map(withoutG2Run) };
 }
 
@@ -300,7 +302,8 @@ describe("G2-0 golden 2: fresh dispatches of candidates 0, 1 and 2, full timelin
         expect(exp.risk).toBeDefined();
         const objectives = done.bodies.map((b) => b.activities);
         const fights = { history: done.groundOps!.history, shipLegs: done.groundOps!.shipLegs, repairLegs: done.groundOps!.repairLegs ?? null, log: done.groundOps!.log ?? null };
-        const out = [hash(exp), hash(tl), hash(done.findings), hash(objectives), hash(fights), hash(done), hash(claimed)];
+        // SF-1: the claim hashes through withoutG2State (without the run counters a claim writes).
+        const out = [hash(exp), hash(tl), hash(done.findings), hash(objectives), hash(fights), hash(done), hash(withoutG2State(claimed))];
         expect(out).toEqual(GOLDEN[`fresh:${label}:${cand}`]);
       });
     }

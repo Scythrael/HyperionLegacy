@@ -37,6 +37,17 @@ export function stateHash(state: GameState): string {
   return hash(rest);
 }
 
+// SF-1: a value WITHOUT the run counters (`runCounts`, runDifficulty.ts): freshState seeds them, a claim and a patrol
+// dispatch or won route write them. Every whole-state golden captured before SF-1 hashes through this, so it keeps
+// proving that nothing else moved (the stateHash precedent above). Any other value is returned as it is. Pure: a
+// shallow copy.
+export function withoutRunCounts<T>(value: T): T {
+  if (!value || typeof value !== "object" || !("runCounts" in value)) return value;
+  const rest = { ...value } as Record<string, unknown>;
+  delete rest.runCounts;
+  return rest as T;
+}
+
 // The measurement gate: the pure measurement tables (the 60-seed sweep, the 200-seed win tables, the forecast bands,
 // the readable outcome lines) run only with SF_SWEEP set or under `npm run test:sweep` (vitest in mode "sweep"); the
 // default run keeps every real pin.

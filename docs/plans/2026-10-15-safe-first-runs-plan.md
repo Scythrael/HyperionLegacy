@@ -633,3 +633,42 @@ Follow-up answers (user, 2026-10-16):
   cruiser", on the Shipyard build card and the ship header.
 - **Prospecting design (2026-10-16):** "I draft, you approve (Recommended)": a short design + mockup (roles, what each
   improves on gathering, gear, team kinds), every name a [PROPOSAL] for the user to rename. Built hidden.
+
+## SF-1 CARRY NOTE (2026-10-16, built on 576ce3a)
+
+Files: new `src/lib/game/runDifficulty.ts` (pure rules) + `runDifficulty.test.ts`; `model.ts` (`RunCounts`,
+`freshRunCounts`, `RunDifficultyStamp`, `Expedition.difficulty?`, `GameState.runCounts?`, freshState seeds it);
+`expedition.ts` (claimExpedition counts); `tick.ts` (patrol dispatch counts; economyTick folds won routes); `save.ts`
+(v70 step 2). No behavior change: nothing reads the curve, the stamp or the training rule yet.
+
+**Data model** (renamed from section 3.3 to fit the USER ANSWERS): `runCounts = { version: 1, expedition: { completed,
+trainingDone, veteran }, patrol: { dispatched, completed, veteran }, shortRange: { [template]: { dispatched, completed }
+} }`. `expedition.completed` = claimed runs that were not recalled, the training run excluded (SF5);
+`trainingDone` = the training run was claimed, not recalled (SF16: a recalled one carries over); `patrol.completed` =
+won routes (economyTick, beside `lifetimeStats.missionsCompleted`). The training run = the first expedition FROM AN
+EXPLORER (spec "explorer"), one at a time (a stamped training run out blocks a second): `isTrainingExpedition`.
+One safe patrol in total: `patrol.dispatched === 0`. G2-5's `Expedition.recall` is read by shape until it lands.
+
+**The curve** (SF4 slow start): `rampFraction(c) = (c / (N_FULL - 1)) ^ 1.5`, c = completed runs (training excluded),
+so run 2 reads 0 (enemy scale `RAMP_FLOOR` 0.35), run 6 0.54, run 9 0.80, run 11 on 1. `runRamp` is Tier I only
+(SF6); `encounterHazard` caps I 0.1 / II 0.5 (SF7); `runEnemyScale` / `runMaxEnemies` read the training constants.
+`runDifficultyAt(state, type, tier, key?)` returns the stamp SF-2 to SF-4 write (`key` = the hull for an expedition).
+
+**SAVE v70, step 2** (appended to `MIGRATIONS[69]`, no v71): `withRunCountsV70` ALWAYS derives (frozen
+`veteranRunCountsV70`): expeditions claimed = nextExpeditionId - 1 - runs out, any dispatch = veteran (training done);
+patrols dispatched = nextPatrolSeed - 1 (at least 1 with a won route), completed = won routes over the frozen
+`V70_PATROL_KEYS`, any = veteran. **A veteran reads ramp 1** (today's difficulty), so an old save plays exactly as now
+(plan 3.4 "a veteran save reads f = 1"; SF-0's `old:v69` rule). A current-version state without the field (a dev save
+from before SF-1) derives the same way at read time (`runCountsOf`).
+
+**Goldens:** every SF-0 hash unchanged (default 59 + 12 and the gated 233, through `stateHash`). Whole-state hashes
+captured before SF-1 now strip `runCounts` (no stored value changed): `withoutRunCounts` (firstRunsGoldens.fixture.ts)
+in complementGoldens, fieldKitsGoldens, groundOpsAffixes / Clearing / Outcroppings / Risk / Legacy, officerBonuses,
+officerStatFacets; wiringGoldens `hashState`; G2-0 `withoutG2State` (golden 1 unchanged; golden 2's claim through it).
+relics.test and two save.test "plays byte-identically" comparisons expect the counter (the no-step load is handed the
+derived counters).
+
+For later slices: SF-2 stamps `difficulty` in buildExpedition via `runDifficultyAt` AND retires the 30-minute shakedown
+(group 3 answer: a separate tutorial duration constant equal to the regular Tier I one; not done here, it moves the
+shakedown goldens). SF-4 adds the patrol stamp and must leave the training cycle's route out of `patrol.completed`
+(countPatrolRoutes). The shared speed / time-skip seam (group 2, Overtime) is not part of SF-1.

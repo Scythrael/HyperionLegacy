@@ -43,6 +43,8 @@ import { inspectBlank } from "./tick";
 import { applyGroundTeamLoadout, checkInGroundTeamLoadout, createGroundTeamLoadout } from "./armory";
 import { deserialize, migrate, serialize } from "./save";
 import { plainAwayMember, withSlottedAwayTeams, withoutAffixes, withoutFieldKits, withoutFieldKitsState, withoutGroundOps, withoutRisk } from "./awayTeamTestFixtures";
+// SF-1: whole states hash without the run counters (seeded by freshState, written by a claim), absent before SF-1.
+import { withoutRunCounts } from "./firstRunsGoldens.fixture";
 
 // ===== shared helpers =====
 
@@ -518,7 +520,7 @@ function wholeRunSuites(tag: string, fixtures: Record<string, Fixture>, golden: 
         if (claimed) expect(claimed.success).toBe(true);
         // FKR-0: the claim hashes through the state twin (identity today; FKR-7's team packs / top-up come off).
         if (claimed) expect(withoutFieldKitsState(claimed.next)).toEqual(claimed.next);
-        hashes.push(claimed ? fnv(JSON.stringify(withoutFieldKitsState(claimed.next))) : "unclaimed");
+        hashes.push(claimed ? fnv(JSON.stringify(withoutRunCounts(withoutFieldKitsState(claimed.next)))) : "unclaimed");
         if (rollsBoundaries(exp)) hashes.push(fnv(JSON.stringify(boundaryReads(exp))));
         expect(hashes).toEqual(golden[name]);
       });
@@ -903,7 +905,7 @@ describe("FKR-0 (5) a squad loadout round trip with `consumables` absent", () =>
     expect(file).not.toBeNull();
     const loaded = migrate(file!);
     expect(loaded.squadLoadouts).toEqual(applied.next.squadLoadouts);
-    expect(stages.map((s) => fnv(JSON.stringify(withoutFieldKitsState(s))))).toEqual(FKR0_GOLDEN.loadout);
+    expect(stages.map((s) => fnv(JSON.stringify(withoutRunCounts(withoutFieldKitsState(s)))))).toEqual(FKR0_GOLDEN.loadout);
   });
 });
 

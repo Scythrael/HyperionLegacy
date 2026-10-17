@@ -56,6 +56,8 @@ import { makeRng } from "./combat/rng";
 import { itemTotal } from "./inventory";
 // Ground Ops GO-1: whole-state goldens hash without the new, inert ground-team slots (captured before them).
 import { asLegacyDispatch, withSlottedAwayTeams, withoutGroundSquadState } from "./awayTeamTestFixtures";
+// SF-1: whole states hash without the run counters (seeded by freshState, written by a patrol), absent before SF-1.
+import { withoutRunCounts } from "./firstRunsGoldens.fixture";
 
 // Ground Ops (GO-7b): this file pins LEGACY expedition runs (goldens captured before Ground Ops): every dispatch
 // slots the members in hire order (dispatch reads the slotted ground teams) and resolves without the groundOps
@@ -192,7 +194,7 @@ describe("neutrality: no officer = byte-identical to before Task 20 (golden)", (
   it("extraction, survey and transport runs through economyTick", () => {
     for (const key of ["shortOreRun", "surveyMineralAnomaly", "frontierSupplyRun"] as MissionKey[]) {
       const s = runTicks(missionState(key), 700, lcg(0xbeef));
-      expect(fnv(JSON.stringify(withoutGroundSquadState(s))), key).toBe(GOLDEN[`mission:${key}`]);
+      expect(fnv(JSON.stringify(withoutRunCounts(withoutGroundSquadState(s)))), key).toBe(GOLDEN[`mission:${key}`]);
     }
   });
 
@@ -207,7 +209,7 @@ describe("neutrality: no officer = byte-identical to before Task 20 (golden)", (
         s = economyTick(s, 1, () => 0.5);
         if (i % 150 === 0) replays.push(fnv(JSON.stringify(replayPatrol(s, s.captains[0]))));
       }
-      expect(fnv(JSON.stringify(withoutGroundSquadState(s)))).toBe(GOLDEN[`patrol:${typeKey}:state`]);
+      expect(fnv(JSON.stringify(withoutRunCounts(withoutGroundSquadState(s))))).toBe(GOLDEN[`patrol:${typeKey}:state`]);
       expect(replays).toEqual(GOLDEN[`patrol:${typeKey}:replays`]);
     }
   });

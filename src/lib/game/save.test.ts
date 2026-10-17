@@ -2,6 +2,8 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import Decimal from "break_infinity.js";
 import LZString from "lz-string";
 import { migrate, serialize, deserialize, importRawSave, loadFromLocalStorage, SAVE_KEY, SAVE_VERSION, dropRetiredFuelV70, V70_FUEL_REFUND_CREDITS_PER_UNIT, type SaveFile } from "./save";
+// SF-1: the run counters the v69 -> v70 step derives (handed to a "no step" load so the comparisons below isolate their step).
+import { veteranRunCountsV70 } from "./runDifficulty";
 import { itemTotal } from "./inventory"; // Task 9a: read item TOTAL across quality buckets
 import { freshState, blueprintResearchable, shipDerivedStats, DEFAULT_EQUIPMENT_VARIETY, seedCombatStandardIssueForShip, SI_PLATING_HP, SI_EMITTER_CAP, SI_EMITTER_RECHARGE, type ShipTypeKey } from "./model";
 // Task 20 v27->v28: the Standard-Issue seed proves stat-neutrality by comparing a
@@ -6630,6 +6632,8 @@ describe("migrate, v66 -> v67 ground-team slots (Ground Ops GO-1)", () => {
     const viaStep = migrateFrom(66, JSON.parse(JSON.stringify(raw)));
     const seeded = JSON.parse(JSON.stringify(raw));
     seeded.facilities = { ...seeded.facilities, subspaceTelescope: { level: 1 } };
+    // SF-1: and the run counters the v69 -> v70 step derives from the same history.
+    seeded.runCounts = veteranRunCountsV70(seeded);
     const noStep = migrateFrom(SAVE_VERSION, seeded);
     expect(noStep.ships[0].groundTeams).toBeUndefined();
     expect(viaStep.ships[0].groundTeams).toBeDefined();
@@ -6808,7 +6812,8 @@ describe("migrate, v67 -> v68 squad composition + the founding telescope (Squads
     // GO-8 review's repair gate would rightly hold the NEXT dispatch below.
     const raw = v67State({ ...launched.next, expeditions: launched.next.expeditions.map(withoutShipEvents) });
     const viaStep = migrateFrom(67, JSON.parse(JSON.stringify(raw)));
-    const noStep = migrateFrom(SAVE_VERSION, JSON.parse(JSON.stringify(raw)));
+    // SF-1: the "no step" load is handed the run counters the v69 -> v70 step derives from the same history.
+    const noStep = migrateFrom(SAVE_VERSION, { ...JSON.parse(JSON.stringify(raw)), runCounts: veteranRunCountsV70(raw) });
     expect(viaStep.ships[0].groundTeams).toHaveLength(2);
     expect(noStep.ships[0].groundTeams).toHaveLength(1); // the raw v67 list, read through the normalizer
     // the step only ADDS the SQ-1 fields: take them off and the two loads are byte-identical

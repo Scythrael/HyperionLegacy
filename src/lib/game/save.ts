@@ -50,6 +50,9 @@ import { loadSalvageConfirmQualities } from "../salvageConfirmPreference";
 // FROZEN_GROUND_SQUAD_SIZES, V67_GROUND_TEAM_COUNT, V68_GROUND_TEAM_COUNT; SQ-2 froze the v68 guard and
 // upgrade too), never live hull data, so retuning a hull can never reshape an old save as it migrates. One-way import (groundTeams.ts imports
 // model.ts, groundComposition.ts and awayTeam.ts, never save.ts), so no module cycle.
+// Safe first runs SF-1: the v69 -> v70 step derives the run counters through runDifficulty.ts veteranRunCountsV70
+// (FROZEN: reads only the raw save and V70_PATROL_KEYS). One-way import (runDifficulty.ts imports model.ts only).
+import { veteranRunCountsV70 } from "./runDifficulty";
 import {
   backfillV67ShipGroundTeams,
   isWellFormedGroundTeamLoadout,
@@ -65,7 +68,13 @@ import {
 //      fills or spends it after Buy Fuel retired), and any in-flight Fuel Depot refine batch (`fuelRefineJob`,
 //      whose fuel output no longer exists), REFUNDING both as credits at the old 20 cr/unit (user, WR-4 review), and
 //      note the refund once on the optional `fuelRefundCredits` (the game logs it on load, then clears it).
-//   (reserved, not landed yet: G2-1 the stored homeworld; SF-1 the run counters.)
+//   2. Safe first runs SF-1 (plan 2026-10-15 section 3.3 and its USER ANSWERS): the per-type RUN COUNTERS
+//      (`runCounts`, model.ts RunCounts), DERIVED from the history the save already stores so a save that flew a type
+//      before 0.14.0 is a VETERAN of it (no training run; the difficulty curve at full strength, today's play):
+//      expeditions claimed = nextExpeditionId - 1 - the runs still out (any dispatch = veteran); patrols dispatched =
+//      nextPatrolSeed - 1 (at least 1 when a route was ever won; any = veteran), completed = the won routes. A save that
+//      never launched an expedition DOES get the training run (exploration is new in 0.14.0). See withRunCountsV70.
+//   (reserved, not landed yet: G2-1 the stored homeworld.)
 export const SAVE_VERSION = 70;
 export const SAVE_KEY = "fleet_admiral_save";
 
@@ -2534,7 +2543,8 @@ const MIGRATIONS: Record<number, Migration> = {
   68: (state: any): any => repairOrphanedShipRefsV69(state),
   // v69 -> v70 (0.14.0, the shared bump; see SAVE_VERSION above for everything v70 contains).
   // 1. WR-4 (OC-C1): the retired fuel stockpile and any Fuel Depot refine batch still in flight.
-  69: (state: any): any => dropRetiredFuelV70(state),
+  // 2. Safe first runs SF-1: the run counters, derived from the save's history (withRunCountsV70).
+  69: (state: any): any => withRunCountsV70(dropRetiredFuelV70(state)),
 };
 
 // The v69 -> v70 WR-4 step: drop `fuel` and every `fuelRefineJob` process (its addFuel output names a field that no
@@ -2544,6 +2554,16 @@ const MIGRATIONS: Record<number, Migration> = {
 // FROZEN: reads only the raw save and V70_FUEL_REFUND_CREDITS_PER_UNIT (never live helpers). Idempotent: its own output
 // has no fuel and no batch, so a second pass changes nothing. A save with nothing to refund only loses the fuel key.
 // Hardened: an unreadable, non-finite or negative amount refunds 0, and a non-array activeProcesses passes through untouched.
+// The v69 -> v70 SF-1 step: write `runCounts` from the save's history (runDifficulty.ts veteranRunCountsV70, FROZEN).
+// ALWAYS derived, never kept: no v69 save can hold the field, so a stray value (a fixture built from a current
+// freshState) is replaced by what the history says. Idempotent by determinism: the derivation reads only fields this
+// step leaves alone, so a second pass writes the identical counters. Plain data (no Decimals). Hardened: a
+// non-object state passes through; an unreadable field reads as none (veteranRunCountsV70).
+export function withRunCountsV70(state: any): any {
+  if (!state || typeof state !== "object") return state;
+  return { ...state, runCounts: veteranRunCountsV70(state) };
+}
+
 export const V70_FUEL_REFUND_CREDITS_PER_UNIT = 20; // FROZEN: FUEL_CREDITS_PER_UNIT when v70 shipped
 // Fuel was human-scale (a few thousand units at most), so a plain finite number reads it exactly. Pure.
 function refundableFuel(value: unknown): number {

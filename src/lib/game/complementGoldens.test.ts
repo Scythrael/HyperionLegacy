@@ -20,6 +20,8 @@
 // Each fixture also checks that it really holds what it is pinned for (the keys, the transport, the relaunch, ...).
 
 import { describe, expect, it } from "vitest";
+// SF-1: whole states hash without the run counters (withoutRunCounts).
+import { withoutRunCounts } from "./firstRunsGoldens.fixture";
 import Decimal from "break_infinity.js";
 import {
   freshState,
@@ -59,7 +61,8 @@ function fnv(s: string): string {
   return h.toString(16);
 }
 
-const hash = (v: unknown): string => fnv(JSON.stringify(v));
+// SF-1: whole states hash without the run counters (withoutRunCounts), so the pre-SF-1 captures stay byte-identical.
+const hash = (v: unknown): string => fnv(JSON.stringify(withoutRunCounts(v)));
 
 function lcg(seed: number): () => number {
   let s = seed >>> 0;

@@ -305,10 +305,11 @@ describe("CLAIM DEPOSIT: findings land in inventory / credits / the relic vault"
   it("an anomaly-only (payload-free) finding list is a same-reference no-op deposit", () => {
     const s = freshState();
     expect(depositExpeditionFindings(s, [{ id: "a", source: "anomaly" }])).toBe(s);
-    // A claim of an anomaly-only run changes ONLY the expedition list.
+    // A claim of an anomaly-only run changes ONLY the expedition list (and, SF-1, counts the completed run).
     const base = { ...s, expeditions: [completeExpedition([{ id: "a", source: "anomaly" }])] };
     const res = claimExpedition(base, "expedition-1");
-    expect(res.next).toEqual({ ...base, expeditions: [] });
+    const runCounts = { ...base.runCounts!, expedition: { ...base.runCounts!.expedition, completed: 1 } };
+    expect(res.next).toEqual({ ...base, expeditions: [], runCounts });
   });
 
   it("a real expedition run end-to-end: claimed credits + vault tokens match its findings", () => {
