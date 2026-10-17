@@ -11,3 +11,6 @@ Board: https://claude.ai/artifact/28FApaYfSLxUHKgMgaG8k8 (S15 answered earlier: 
 - **S3:** "Unassigned (Recommended)". **S6:** "Keep for balance pass (Recommended)". **S7:** "Keep position
   (Recommended)". **S12 + S13:** "'Fund development cycle', after Salvage Bay (Recommended)": rename the telescope
   Upgrade button to "Fund development cycle"; the card stays after the Salvage Bay.
+- **S9 to S11 gambit editor:** "All three as built (Recommended)". **S14 Squad Loadouts mockup:** "All as proposed
+  (Recommended)": the GO-17 UI half is APPROVED (team-card shortcut, install what fits + report the rest, empty kits
+  stay empty, rosters link squad loadouts one per team, the kit slot holds per-member kits once Field Kits ships).
