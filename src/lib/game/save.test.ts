@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import Decimal from "break_infinity.js";
 import LZString from "lz-string";
-import { migrate, serialize, deserialize, importRawSave, loadFromLocalStorage, SAVE_KEY, SAVE_VERSION, dropRetiredFuelV70, V70_FUEL_REFUND_CREDITS_PER_UNIT, type SaveFile } from "./save";
+import { migrate, serialize, deserialize, importRawSave, loadFromLocalStorage, SAVE_KEY, SAVE_VERSION, dropRetiredFuelV70, V70_FUEL_REFUND_CREDITS_PER_UNIT, V70_FREE_STARTER_TANK, type SaveFile } from "./save";
 // SF-1: the run counters the v69 -> v70 step derives (handed to a "no step" load so the comparisons below isolate their step).
 import { veteranRunCountsV70 } from "./runDifficulty";
 import { itemTotal } from "./inventory"; // Task 9a: read item TOTAL across quality buckets
@@ -81,8 +81,8 @@ const AUTO_SALVAGE_RULES_DEFAULT = {
 // THE ONE canonical SAVE_VERSION pin (E-CREW Task 34b, done as Ground Ops GO-0). A schema bump edits this
 // line and nothing else: every per-migration block below asserts the fields its step migrated, and any
 // "lands at the current version" check compares against the imported SAVE_VERSION, never a literal.
-// WR-4 review: v70 refunds any fuel in a save as credits (the v20 step seeded a full tank on pre-fuel saves), so the
-// older steps' credit pins read the credits as they were before that refund. Pure.
+// WR-4 review: v70 refunds a save's fuel beyond the free 500-unit tank as credits, so the older steps' credit pins read
+// the credits as they were before any such refund. Pure.
 function creditsBeforeFuelRefund(migrated: any): Decimal {
   return migrated.credits.minus(migrated.fuelRefundCredits ?? 0);
 }
@@ -5679,31 +5679,41 @@ describe("migrate, Salvage Bay level track (v41 -> v42): a pre-upgrade save keep
 // built from freshState(), which is now the CURRENT version (v23), so migrate() runs ZERO version
 // steps here (already-current, then hydrateDecimals) exactly as it did at v21, the fuel-v2
 // property this test locks in is unchanged by R6's/F6's additive research/fabricator seeds.
-describe("WR-4 review (user: \"Refund as credits\"): v70 refunds leftover fuel at the old purchase price", () => {
+describe("WR-4 review (user: \"Only above the free tank\"): v70 refunds only fuel beyond the free 500-unit starter tank", () => {
   const raw = (over: Record<string, unknown>): any => ({ ...JSON.parse(JSON.stringify(freshState())), ...over });
-  it("credits = (tank + in-flight batch output) x 20, the refund noted once; nothing else changes", () => {
-    const before = raw({ credits: "1000", fuel: "275.5", activeProcesses: [
-      { id: "proc-1", kind: "fuelRefineJob", remainingTicks: 5, durationTicks: 10, effect: { type: "addFuel", amount: "100" } },
-      { id: "proc-2", kind: "refineJob", remainingTicks: 5, durationTicks: 12, effect: { type: "addItem", itemId: "titaniumIngot", amount: "1" } },
-    ] });
+  const batch = { id: "proc-1", kind: "fuelRefineJob", remainingTicks: 5, durationTicks: 10, effect: { type: "addFuel", amount: "100" } };
+  const refine = { id: "proc-2", kind: "refineJob", remainingTicks: 5, durationTicks: 12, effect: { type: "addItem", itemId: "titaniumIngot", amount: "1" } };
+  it("at or below the free tank (275.5 + 100 in flight = 375.5): no credits, no note; the fuel and the batch still go", () => {
+    const before = raw({ credits: "1000", fuel: "275.5", activeProcesses: [batch, refine] });
     const after = dropRetiredFuelV70(before);
-    expect(new Decimal(after.credits).toString()).toBe(new Decimal(1000 + (275.5 + 100) * V70_FUEL_REFUND_CREDITS_PER_UNIT).toString());
-    expect(V70_FUEL_REFUND_CREDITS_PER_UNIT).toBe(20);
-    expect(after.fuelRefundCredits).toBe((275.5 + 100) * 20);
+    expect(after.credits).toBe("1000");
+    expect("fuelRefundCredits" in after).toBe(false);
     expect("fuel" in after).toBe(false);
+    expect(after.activeProcesses.map((p: any) => p.id)).toEqual(["proc-2"]);
+    const { fuel: _f, activeProcesses: _a1, ...restBefore } = before;
+    const { activeProcesses: _a2, ...restAfter } = after;
+    expect(restAfter).toEqual(restBefore);
+  });
+  it("above it (3000 + 100 in flight): (3100 - 500) x 20 credits, noted once; nothing else changes", () => {
+    expect(V70_FUEL_REFUND_CREDITS_PER_UNIT).toBe(20);
+    expect(V70_FREE_STARTER_TANK).toBe(500);
+    const before = raw({ credits: "1000", fuel: "3000", activeProcesses: [batch, refine] });
+    const after = dropRetiredFuelV70(before);
+    expect(new Decimal(after.credits).toString()).toBe(new Decimal(1000 + (3100 - 500) * 20).toString());
+    expect(after.fuelRefundCredits).toBe((3100 - 500) * 20);
     expect(after.activeProcesses.map((p: any) => p.id)).toEqual(["proc-2"]);
     const { credits: _c1, fuel: _f, activeProcesses: _a1, ...restBefore } = before;
     const { credits: _c2, fuelRefundCredits: _r, activeProcesses: _a2, ...restAfter } = after;
     expect(restAfter).toEqual(restBefore);
   });
   it("is idempotent, and a save with no fuel gets no refund and no note", () => {
-    const once = dropRetiredFuelV70(raw({ credits: "50", fuel: "10" }));
+    const once = dropRetiredFuelV70(raw({ credits: "50", fuel: "900" }));
+    expect(once.fuelRefundCredits).toBe(400 * 20);
     expect(dropRetiredFuelV70(once)).toEqual(once);
     const empty = dropRetiredFuelV70(raw({ credits: "50", fuel: "0" }));
     expect(empty.credits).toBe("50");
     expect("fuelRefundCredits" in empty).toBe(false);
-    const none = dropRetiredFuelV70(raw({ credits: "50" }));
-    expect("fuelRefundCredits" in none).toBe(false);
+    expect("fuelRefundCredits" in dropRetiredFuelV70(raw({ credits: "50" }))).toBe(false);
   });
 });
 
@@ -5729,8 +5739,8 @@ describe("WR-4 (OC-C1): a v69 save with a fuel stockpile and an in-flight Fuel D
     expect("fuel" in restored).toBe(false);
     expect(restored.activeProcesses.map((p) => p.kind)).toEqual(["refineJob"]); // the batch is gone, the refine job stays
     expect(itemTotal(restored.inventory, "deuteriumIce").toNumber()).toBe(1000);
-    expect(restored.credits.toNumber()).toBe(1000 + (275 + 100) * 20); // WR-4 review: the tank and the batch refunded at 20 cr/unit
-    expect(restored.fuelRefundCredits).toBe(7500);
+    expect(restored.credits.toNumber()).toBe(1000); // WR-4 review: 275 + 100 is within the free 500-unit tank, no refund
+    expect(restored.fuelRefundCredits).toBeUndefined();
     expect(canDispatch(restored, 1, "shortOreRun")).toEqual({ ok: true });
     // and it keeps playing
     let played = restored;

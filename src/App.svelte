@@ -3274,14 +3274,15 @@
       // in as an INPUT keeps tick() a pure function of its arguments (the same posture the
       // seeded rng has), and tick() derives the per-tick schedule from it. See tick()'s
       // header for the reconstruction and its accuracy limits.
-      // WR-4 review (user: "Refund as credits"): a save loaded from before v70 had its leftover fuel refunded as
-      // credits by the migration, which leaves a one-shot note. Say so once, then drop the note so it never repeats.
+      // WR-4 review (user: "Only above the free tank"): a save loaded from before v70 had its fuel beyond the free
+      // 500-unit starter tank refunded as credits by the migration, which leaves a one-shot note. Say so once, then
+      // drop the note so it never repeats.
       const fuelRefund = loadedSave.state.fuelRefundCredits;
       const { fuelRefundCredits: _fuelRefundNote, ...loadedState } = loadedSave.state;
       void _fuelRefundNote;
       const beforeSnapshot: GameState = loadedState;
       if (fuelRefund !== undefined && fuelRefund > 0) {
-        pushLog(`Fuel is a reach stat now, so the fuel left in your tank was refunded: +${formatNumber(fuelRefund)} credits.`);
+        pushLog(`Fuel is a reach stat now, so the fuel you held beyond the free starter tank was refunded: +${formatNumber(fuelRefund)} credits.`);
       }
       state = offlineSeconds > 5 ? tick(offlineSeconds, beforeSnapshot, Math.random, returnedAtMs) : beforeSnapshot;
       if (offlineSeconds > 5) {

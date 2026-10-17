@@ -66,8 +66,9 @@ import {
 // taking v71, while v70 has not reached staging; plan 2026-10-15 WR-4 carry note):
 //   1. WR-4 (OC-C1): drop the retired fuel STOCKPILE (`fuel`; fuel is a reach stat since 0.13.6 and nothing
 //      fills or spends it after Buy Fuel retired), and any in-flight Fuel Depot refine batch (`fuelRefineJob`,
-//      whose fuel output no longer exists), REFUNDING both as credits at the old 20 cr/unit (user, WR-4 review), and
-//      note the refund once on the optional `fuelRefundCredits` (the game logs it on load, then clears it).
+//      whose fuel output no longer exists). Fuel BEYOND the free 500-unit starter tank (tank + batch output - 500) is
+//      refunded as credits at the old 20 cr/unit (user, WR-4 review: "Only above the free tank"), noted once on the
+//      optional `fuelRefundCredits` (the game logs it on load, then clears it); at or below 500, nothing and no note.
 //   2. Safe first runs SF-1 (plan 2026-10-15 section 3.3 and its USER ANSWERS): the per-type RUN COUNTERS
 //      (`runCounts`, model.ts RunCounts), DERIVED from the history the save already stores so a save that flew a type
 //      before 0.14.0 is a VETERAN of it (no training run; the difficulty curve at full strength, today's play):
@@ -2548,23 +2549,16 @@ const MIGRATIONS: Record<number, Migration> = {
 };
 
 // The v69 -> v70 WR-4 step: drop `fuel` and every `fuelRefineJob` process (its addFuel output names a field that no
-// longer exists; none can start since 0.13.9), REFUNDING both as credits (user, WR-4 review: "Refund as credits"):
-// the tank plus every in-flight batch's output, at the old purchase price. The refund is noted ONCE on the save
-// (`fuelRefundCredits`, the credits added) so the game can tell the player on load (App.svelte) and then clear it.
-// FROZEN: reads only the raw save and V70_FUEL_REFUND_CREDITS_PER_UNIT (never live helpers). Idempotent: its own output
-// has no fuel and no batch, so a second pass changes nothing. A save with nothing to refund only loses the fuel key.
-// Hardened: an unreadable, non-finite or negative amount refunds 0, and a non-array activeProcesses passes through untouched.
-// The v69 -> v70 SF-1 step: write `runCounts` from the save's history (runDifficulty.ts veteranRunCountsV70, FROZEN).
-// ALWAYS derived, never kept: no v69 save can hold the field, so a stray value (a fixture built from a current
-// freshState) is replaced by what the history says. Idempotent by determinism: the derivation reads only fields this
-// step leaves alone, so a second pass writes the identical counters. Plain data (no Decimals). Hardened: a
-// non-object state passes through; an unreadable field reads as none (veteranRunCountsV70).
-export function withRunCountsV70(state: any): any {
-  if (!state || typeof state !== "object") return state;
-  return { ...state, runCounts: veteranRunCountsV70(state) };
-}
-
+// longer exists; none can start since 0.13.9). The user (WR-4 review, "Only above the free tank"): refund as credits,
+// at the old purchase price, ONLY the fuel beyond the free 500-unit starter tank every save was given (the tank plus
+// every in-flight batch's output, minus V70_FREE_STARTER_TANK, clamped at 0). A refund is noted ONCE on the save
+// (`fuelRefundCredits`, the credits added) so the game can tell the player on load (App.svelte) and then clear it; a
+// save at or below the free tank gets no credits and no note. The ships' fuel capacity / range stat is untouched.
+// FROZEN: reads only the raw save and the two V70_* constants (never live helpers). Idempotent: its own output has no
+// fuel and no batch, so a second pass changes nothing. Hardened: an unreadable, non-finite or negative amount counts
+// 0, and a non-array activeProcesses passes through untouched.
 export const V70_FUEL_REFUND_CREDITS_PER_UNIT = 20; // FROZEN: FUEL_CREDITS_PER_UNIT when v70 shipped
+export const V70_FREE_STARTER_TANK = 500; // FROZEN: FUEL_TANK_BASE_CAP, the free starting tank, when v70 shipped
 // Fuel was human-scale (a few thousand units at most), so a plain finite number reads it exactly. Pure.
 function refundableFuel(value: unknown): number {
   const n = typeof value === "number" ? value : typeof value === "string" ? Number(value) : NaN;
@@ -2580,9 +2574,20 @@ export function dropRetiredFuelV70(state: any): any {
     }
     rest.activeProcesses = rest.activeProcesses.filter((p: any) => !(p && p.kind === "fuelRefineJob"));
   }
-  if (!(units > 0)) return rest;
-  const refund = units * V70_FUEL_REFUND_CREDITS_PER_UNIT;
+  const beyondFreeTank = units - V70_FREE_STARTER_TANK;
+  if (!(beyondFreeTank > 0)) return rest;
+  const refund = beyondFreeTank * V70_FUEL_REFUND_CREDITS_PER_UNIT;
   return { ...rest, credits: new Decimal(rest.credits ?? 0).plus(refund).toString(), fuelRefundCredits: refund };
+}
+
+// The v69 -> v70 SF-1 step: write `runCounts` from the save's history (runDifficulty.ts veteranRunCountsV70, FROZEN).
+// ALWAYS derived, never kept: no v69 save can hold the field, so a stray value (a fixture built from a current
+// freshState) is replaced by what the history says. Idempotent by determinism: the derivation reads only fields this
+// step leaves alone, so a second pass writes the identical counters. Plain data (no Decimals). Hardened: a
+// non-object state passes through; an unreadable field reads as none (veteranRunCountsV70).
+export function withRunCountsV70(state: any): any {
+  if (!state || typeof state !== "object") return state;
+  return { ...state, runCounts: veteranRunCountsV70(state) };
 }
 
 // The v68 -> v69 step, exported so its hardening can be tested on raw shapes the full load cannot hydrate.

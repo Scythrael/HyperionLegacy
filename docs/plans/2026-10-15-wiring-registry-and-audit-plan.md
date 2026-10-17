@@ -934,11 +934,12 @@ mission fuel-budget / credit auto-buy plumbing (`FUEL_CREDITS_PER_UNIT`, `REFUEL
 unreachable since 0.13.6: S4-A02 "remove or keep" is open); the stale-comment sweep beyond the files touched.
 
 **WR-4 review follow-up (2026-10-16):**
-- **Fuel refund (user: "Refund as credits"):** `dropRetiredFuelV70` refunds the tank plus any in-flight batch's output at
-  the frozen `V70_FUEL_REFUND_CREDITS_PER_UNIT` (20, the old price) and leaves a one-shot `fuelRefundCredits` note; the
-  game logs "Fuel is a reach stat now, so the fuel left in your tank was refunded: +N credits." once on load and drops
-  the note. Note for patch notes: every pre-v70 save holds at least the starting 500-unit tank (the v20 step seeded it
-  on older saves), so every existing player gets at least 10,000 credits.
+- **Fuel refund (user: "Refund as credits", then "Only above the free tank"):** `dropRetiredFuelV70` refunds ONLY the
+  fuel beyond the free 500-unit starter tank (tank + any in-flight batch's output - `V70_FREE_STARTER_TANK`, clamped at
+  0) at the frozen `V70_FUEL_REFUND_CREDITS_PER_UNIT` (20, the old price), noted once on `fuelRefundCredits`; the game
+  logs "Fuel is a reach stat now, so the fuel you held beyond the free starter tank was refunded: +N credits." once on
+  load and drops the note. A save at or below 500 gets nothing and no note. The ships' fuel capacity / range stat is
+  untouched. SF-1's `withRunCountsV70` runs after it in `MIGRATIONS[69]`.
 - **B14 reaches beyond patrols:** every `resolveBattle` caller now puts the player first: the expedition ship events
   (`expedition-N-shipevent...` used to sort ahead of `ship-1`, so the enemy acted first in a non-ambush event;
   shipScanEvents.ts shipEventBattleWon), the patrol forecast (rating.ts) and the dev battle views. Measured over 300
