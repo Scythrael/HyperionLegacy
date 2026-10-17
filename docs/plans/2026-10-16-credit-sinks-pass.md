@@ -240,3 +240,6 @@ hard caps (prices rise on a curve instead).
   aspects themselves are designed with the user later.
 - **Cleanups (all):** retire Buy Fuel; delete the unused ShipTypeDef.cost; no crafting fees; log the Repair Station and
   crew training as future ideas.
+- **Speed seam calls (2026-10-17):** OC-S1 + OC-S2 + OC-S3 "3 steps, 10/min x tier (Recommended)" (max 3 steps,
+  1.75x; step k costs ceil(10 x job minutes x tier x k); not offered on a job's final tick); OC-S4 + OC-S5
+  "Uninspected gear, not 'earned' (Recommended)"; OC-S6 "Up to 30 days (Recommended)".

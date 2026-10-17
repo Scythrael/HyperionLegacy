@@ -908,3 +908,5 @@ Reading (this reshapes FK-1, FK-4, FK-5, FK-6, FK-8, FK-9):
 - **Calls 14 to 18 (2026-10-17):** 14 "The reserved Consumables spot (Recommended)"; 15 "Means First Aid Kit
   (Recommended)" (the Triage preset gets explicit kit rules); 16 + 17 "Ignore quality, allow over cap (Recommended)";
   18 "No Fracture bay time (Recommended)". => ALL Field Kits open calls are now answered.
+- **Stun and Fear (2026-10-17):** "Yes, both clear them (Recommended)": Stun and Fear are basic debuffs; a First Aid Kit
+  and the free Cure clear them (confirms FKR-2's provisional pick).
