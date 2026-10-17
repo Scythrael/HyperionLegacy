@@ -1420,3 +1420,6 @@ is the first candidate to ask the user about a 0.14.x deferral, recorded as `def
 - **OC-D3 module lines:** "They scale the module (Recommended)" (Crew Stations also adds capacity). **OC-D5 favorsSpec:**
   "+10% on its ship type (Recommended)". **OC-D6 statRatios:** "Unlisted = never rolls (Recommended)" (fixes B11;
   moves crafted-roll goldens: re-capture first). **OC-D7 quarters capacity:** "Spread across divisions (Recommended)".
+- **OC-D13 hull descriptions:** "Make them true as built (Recommended)". **OC-B1 Salvage Operations on hull teardown:**
+  "Apply to hull teardown (Recommended)". **OC-I1 MISSIONS.cargoCapacity:** "Delete it (Recommended)". **OC-K1 Wiring
+  panel:** "Simple table, no mockup (Recommended)".
