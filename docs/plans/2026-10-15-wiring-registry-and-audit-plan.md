@@ -1390,3 +1390,7 @@ is the first candidate to ask the user about a 0.14.x deferral, recorded as `def
 - **OC-E1 Counter-Infiltration:** "Resist enemy debuffs (Recommended)". **OC-E2 Prevent a Crew Loss:** "Shorter bay
   time (Recommended)". **OC-E3 Crew Output Multiplier:** "More mission + patrol haul (Recommended)". **OC-E4 Pilot
   Cunning:** "Quicker trips home (Recommended)": a chance per mission cycle to shorten the return leg.
+- **OC-E7 Morale Anchor attrition:** "Drop that half (Recommended)". **OC-E8 Museum crewBonuses:** "Officers too
+  (Recommended)". **OC-E12 third buff:** "Roll a third buff (Recommended)": top crew rank rolls a third buff from its
+  profession pool (moves crew-generation goldens: re-capture first). **OC-E13 Constitution cycle 1:** "Ramp cycle 1
+  too (Recommended)".
