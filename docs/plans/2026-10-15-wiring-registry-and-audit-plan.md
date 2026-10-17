@@ -1423,3 +1423,8 @@ is the first candidate to ask the user about a 0.14.x deferral, recorded as `def
 - **OC-D13 hull descriptions:** "Make them true as built (Recommended)". **OC-B1 Salvage Operations on hull teardown:**
   "Apply to hull teardown (Recommended)". **OC-I1 MISSIONS.cargoCapacity:** "Delete it (Recommended)". **OC-K1 Wiring
   panel:** "Simple table, no mockup (Recommended)".
+- **OC-C4 framework hooks:** "Keep tested hooks (Recommended)". **OC-K3 display-only rule:** "Text that claims no effect
+  (Recommended)": anything with a number and % or + must be a real tested effect. **OC-K2 sim size:** "20 seeds x 24h
+  default (Recommended)", 200 seeds in full mode. **OC-G5 + OC-J4:** "Delete frozen copies, keep safeties
+  (Recommended)". => ALL wiring open calls except the 35 captain node rows (covered by OC-A1..A3 "Proposed sizes" and
+  the plan's node table defaults) are now answered.
