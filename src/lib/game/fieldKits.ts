@@ -20,8 +20,8 @@
 //     on its own salt; Codebreaker anyone on the expedition adds 6% to the roll (FK8: 53 to 79.5%).
 //   - SABOTEUR (FK10, "Own grenades only"): +6% on the Saboteur's OWN grenade throws, never squad-wide, no stacking.
 //
-// [PROVISIONAL] values wait on an open call (plan R4) and live in ONE named constant each; [PROPOSAL] marks what the
-// user has not named. DETERMINISM: pure; the only draw is fieldDevicePercent's, on FIELD_DEVICE_SALT (registered in
+// The user confirmed N8, N9, N10, N11, N12, the basic list (Stun and Fear included) and the Injury Kit share on
+// 2026-10-17; [PROPOSAL] marks the numbers the user has not named (the free basic curve's shape). DETERMINISM: pure; the only draw is fieldDevicePercent's, on FIELD_DEVICE_SALT (registered in
 // salts.test.ts). Module graph: model (types), gambit (first aid constants), diminishing, combat/rng.
 
 import type { AwayRosterSnapshot, AwayTraitId, GambitStatusId } from "./model";
@@ -42,14 +42,14 @@ export type KitCategory = "firstAid" | "advancedMedical" | "explosives" | "field
 // The conditions Field Kits adds. FKR-4 folds them into model.ts GambitStatusId (with their GAMBIT_STATUSES rows);
 // until then this module names them itself so the catalog can say what treats what. Fracture, Hemorrhage, Neurotoxin,
 // Concussion and Blindness already have medical bay rows (medicalBay.ts GROUND_CONDITIONS); Broken Bone and Shattered
-// Bone get theirs at FKR-4 [PROVISIONAL bay times, open call N11].
+// Bone get theirs at FKR-4 (user N11: Fracture 30 minutes, Broken Bone 1 hour, Shattered Bone 2 hours).
 export type FieldKitStatusId = "fracture" | "brokenBone" | "shatteredBone" | "hemorrhage" | "neurotoxin" | "concussion" | "blindness";
 export type FieldKitConditionId = GambitStatusId | FieldKitStatusId;
 
 // ===== Condition lines and severity ranks =====
 
-// [PROVISIONAL, open call N9] Bone is the only severity line in 0.14.0 (N9 (a), Recommended); Bleed then Hemorrhage
-// and Poison then Neurotoxin stay separate conditions unless the user picks (b).
+// Bone is the only severity line in 0.14.0 (user N9, "bones only"); Bleed and Hemorrhage, Poison and Neurotoxin stay
+// separate conditions.
 export type ConditionLine = "bone";
 export const CONDITION_LINE_IDS: readonly ConditionLine[] = ["bone"];
 
@@ -59,7 +59,7 @@ export interface SeverityRankDef {
 }
 
 // Each line's ranks, lightest first (index 0 is rank 1). The bone line WORSENS in battle (FKR-4: a bone hit on a member
-// already holding a bone condition raises it one rank; [PROVISIONAL, open call N10] it always starts at Fracture).
+// already holding a bone condition raises it one rank; user N10: it always starts at Fracture).
 export const CONDITION_LINES: Readonly<Record<ConditionLine, readonly SeverityRankDef[]>> = {
   bone: [
     { id: "fracture", label: "Fracture" },
@@ -86,12 +86,12 @@ export function severityOf(status: FieldKitConditionId): Severity | undefined {
 
 // What the medic's free Cure clears on a Field Kits run (FK2, "Basic debuffs only"; FKR-4 makes it live): the user's
 // basic list (Bleed, Blindness, Weakened, Suppressed, Corroded) plus Poison, which Cure clears and a First Aid Kit
-// does not (Antitoxin's job). Stun and Fear stay on it as today [PROVISIONAL, plan FKR-2 "plus stun and fear as
-// today"]. Never a serious condition (Hemorrhage, Neurotoxin, Concussion, any bone rank) and never a buff.
+// does not (Antitoxin's job). Stun and Fear are basic debuffs too (user 2026-10-17: a First Aid Kit and Cure clear
+// them). Never a serious condition (Hemorrhage, Neurotoxin, Concussion, any bone rank) and never a buff.
 export const BASIC_DEBUFFS: readonly FieldKitConditionId[] = ["bleed", "blindness", "weakened", "suppressed", "corroded", "poison", "stun", "fear"];
 
 // A First Aid Kit clears the basic debuffs except Poison (group 5: "First Aid clears basic debuffs (Bleed, Blindness,
-// Weakened, Suppressed, Corroded)"; Antitoxin takes Poison). Stun and Fear ride with BASIC_DEBUFFS [PROVISIONAL].
+// Weakened, Suppressed, Corroded)"; Antitoxin takes Poison), Stun and Fear included (user 2026-10-17).
 const FIRST_AID_CLEARS: readonly FieldKitConditionId[] = BASIC_DEBUFFS.filter((id) => id !== "poison");
 
 // ===== Category rules =====
@@ -100,7 +100,13 @@ export interface KitCategoryRule {
   readonly requiresMedicalTraining: boolean; // a hard gate (D20): an untrained member cannot use it at all
   readonly untrained: number; // effectiveness without Medical Training (0 when gated)
   readonly trained: number; // effectiveness with Medical Training
+  readonly specialistBonus: number; // the category specialist's bonus (Saboteur on own grenades, Codebreaker on devices)
 }
+
+// FK10 "Own grenades only": +6% to the Saboteur's own throws (damage and debuff chance, FKR-5), never the squad's.
+export const SABOTEUR_GRENADE_BONUS = 0.06;
+// FK8 "+6% to the roll": anyone on the expedition with Codebreaker, x1.06 (53 to 79.5%).
+export const CODEBREAKER_DEVICE_BONUS = 0.06;
 
 // First Aid: D20 "work for anyone, at reduced effectiveness without training" (0.5) and "something like a 25% or 50%
 // boost" with it (1.25), read from gambit.ts. Advanced Medical: Medical Training required, full effect (FK-1).
@@ -108,10 +114,10 @@ export interface KitCategoryRule {
 // to the thrower's own throws (saboteurGrenadeMult). Field Devices: anyone, at the rolled 50 to 75% per use
 // (fieldDevicePercent), Codebreaker aboard adds 6% (fieldDeviceRollEffectiveness); 1 here, the roll multiplies.
 export const KIT_CATEGORY_RULES: Readonly<Record<KitCategory, KitCategoryRule>> = {
-  firstAid: { requiresMedicalTraining: false, untrained: FIRST_AID_UNTRAINED_EFFECTIVENESS, trained: FIRST_AID_TRAINED_EFFECTIVENESS },
-  advancedMedical: { requiresMedicalTraining: true, untrained: 0, trained: 1 },
-  explosives: { requiresMedicalTraining: false, untrained: 1, trained: 1 },
-  fieldDevices: { requiresMedicalTraining: false, untrained: 1, trained: 1 },
+  firstAid: { requiresMedicalTraining: false, untrained: FIRST_AID_UNTRAINED_EFFECTIVENESS, trained: FIRST_AID_TRAINED_EFFECTIVENESS, specialistBonus: 0 },
+  advancedMedical: { requiresMedicalTraining: true, untrained: 0, trained: 1, specialistBonus: 0 },
+  explosives: { requiresMedicalTraining: false, untrained: 1, trained: 1, specialistBonus: SABOTEUR_GRENADE_BONUS },
+  fieldDevices: { requiresMedicalTraining: false, untrained: 1, trained: 1, specialistBonus: CODEBREAKER_DEVICE_BONUS },
 };
 
 // ===== The kit catalog =====
@@ -139,7 +145,7 @@ export interface FieldKitDef {
 export const SPLINT_HEAL_ROUNDS = 3;
 // Group 5: "Combat Stim Inspired 2 rounds".
 export const STIM_INSPIRED_ROUNDS = 2;
-// The Injury Kit's bay share (open call 2's proposal, accepted with group 5's coverage: 0.5, bay time / 1.5 for one
+// The Injury Kit's bay share (settled: open call 2's 0.5, accepted with group 5's coverage; bay time / 1.5 for one
 // kit). Several kits add their shares in the bay divisor (concave, never zero; open call 11's proposal).
 export const INJURY_KIT_TREATMENT_SHARE = 0.5;
 
@@ -163,8 +169,14 @@ export const FIELD_KITS: Readonly<Record<FieldKitId, FieldKitDef>> = {
 // The combatant facts a kit rule reads (gambit.ts GroundCombatant carries both).
 export interface KitUser {
   readonly medic?: boolean; // Medical Training (D20)
-  readonly careMult?: number; // Fleet Triage (Task 20): multiplies first aid, as gambit.ts's Use Item does today
+  readonly careMult?: number; // Fleet Triage (Task 20): multiplies FIRST AID kits only, as gambit.ts's Use Item does today
 }
+
+// The categories Fleet Triage's careMult multiplies: First Aid only. The plan (FK-1) says "Fleet Triage multiplies first
+// aid as today"; Advanced Medical kits are a gate plus full effect, so Triage does not scale them. (Design 373 reads
+// "Fleet Triage strengthens in-battle squad healing and cures"; extending it to Advanced Medical is a [PROPOSAL] for
+// the user, not built.)
+const TRIAGE_CATEGORIES: ReadonlySet<KitCategory> = new Set<KitCategory>(["firstAid"]);
 
 // Can `actor` use `kit` at all? Advanced Medical needs Medical Training; everything else is for anyone. Pure.
 export function canUseKit(actor: KitUser, kit: FieldKitId): boolean {
@@ -172,12 +184,13 @@ export function canUseKit(actor: KitUser, kit: FieldKitId): boolean {
 }
 
 // The effectiveness `actor` uses `kit` at: the category's trained or untrained value, 0 when the gate refuses, times
-// Fleet Triage's careMult when present. Pure.
+// Fleet Triage's careMult when present on a First Aid kit. Pure.
 export function kitEffectiveness(actor: KitUser, kit: FieldKitId): number {
   if (!canUseKit(actor, kit)) return 0;
-  const rule = KIT_CATEGORY_RULES[FIELD_KITS[kit].category];
+  const category = FIELD_KITS[kit].category;
+  const rule = KIT_CATEGORY_RULES[category];
   const base = actor.medic === true ? rule.trained : rule.untrained;
-  return actor.careMult === undefined ? base : base * actor.careMult;
+  return actor.careMult === undefined || !TRIAGE_CATEGORIES.has(category) ? base : base * actor.careMult;
 }
 
 // ===== Coverage =====
@@ -198,14 +211,15 @@ export function treatsUpTo(kit: FieldKitId): Partial<Record<ConditionLine, numbe
   return out;
 }
 
-// What one use of `kit` does to `condition`: clear it, set it to heal in a few rounds (a splinted Fracture), turn it
-// into a lighter rank (a splinted Broken Bone becomes a Fracture: [PROVISIONAL, open call N8] (a), Recommended), or
-// null (the kit does not treat it, so a rule naming it does not fire). Buffs are never cleared. Pure.
+// The outcome of one kit use on one condition.
 export type KitTreatment =
   | { readonly kind: "clear" }
   | { readonly kind: "heal"; readonly rounds: number }
   | { readonly kind: "downgrade"; readonly to: FieldKitStatusId };
 
+// What one use of `kit` does to `condition`: clear it, set it to heal in a few rounds (a splinted Fracture), turn it
+// into a lighter rank (a splinted Broken Bone becomes a Fracture, user N8), or null (the kit does not treat it, so a
+// rule naming it does not fire). Buffs are never cleared. Pure.
 export function kitTreatment(kit: FieldKitId, condition: FieldKitConditionId): KitTreatment | null {
   const def = FIELD_KITS[kit];
   if (def.clears.includes(condition)) return { kind: "clear" };
@@ -220,8 +234,8 @@ export function kitTreatment(kit: FieldKitId, condition: FieldKitConditionId): K
 
 // ===== The free basic set (per member, per objective) =====
 
-// [PROVISIONAL, open call N12] (a), Recommended: 1 First Aid Kit per member plus the crew curve, refreshed each
-// objective and each reload (FKR-7 refreshes it). (c) would add 1 Antitoxin here.
+// User N12: 1 First Aid Kit per member plus the crew curve, refreshed each objective and each trip's reload (FKR-7
+// refreshes it).
 export const FREE_BASIC_FIRST_AID_PER_MEMBER = 1;
 
 export interface FreeBasicDef {
@@ -234,9 +248,9 @@ export const FREE_BASIC_SET: Readonly<Partial<Record<FieldKitId, FreeBasicDef>>>
   firstAidKit: { base: FREE_BASIC_FIRST_AID_PER_MEMBER, crewCurve: true },
 };
 
-// [PROVISIONAL, open call N12] The crew curve: support heads (Medical + Operations headcount, as gambit.ts's team kit
-// counts them) per kit at the curve's linear start, and the D23 knee in kits. diminishing(heads / 8, 4): 8 heads add
-// about 0.9 kit, 16 about 1.7, 32 about 2.9, 80 about 5.8; it keeps rising without a ceiling (D23, FK3 "the cap of 8
+// The crew curve (its use is the user's N12; its two numbers are a [PROPOSAL], the user never named them): support heads
+// (Medical + Operations headcount, as gambit.ts's team kit counts them) per kit at the curve's linear start, and the D23
+// knee in kits. diminishing(heads / 8, 4): 8 heads add about 0.9 kit, 16 about 1.7, 32 about 2.9, 80 about 5.8; it keeps rising without a ceiling (D23, FK3 "the cap of 8
 // becomes a D23 diminishing curve").
 export const FREE_BASIC_HEADS_PER_KIT = 8;
 export const FREE_BASIC_CURVE_KNEE = 4;
@@ -270,15 +284,19 @@ export function freeBasicFirstAid(supportHeads: number): number {
 export const FIELD_DEVICE_SALT = 0x3a9d5c27;
 // D20 (transcript 70901 answer 3, corrected at 70979): "a chance between 50-75%", rolled per use.
 export const FIELD_DEVICE_MIN_PERCENT = 50;
-export const FIELD_DEVICE_SPAN_PERCENT = 26; // nextInt(26): 0..25, so 50..75 inclusive
-// FK8 "+6% to the roll": anyone on the expedition with Codebreaker, x1.06 (53 to 79.5%).
-export const CODEBREAKER_DEVICE_BONUS = 0.06;
+export const FIELD_DEVICE_SPAN_PERCENT = 26; // nextInt(26): 0..25, so 50..75 inclusive (Codebreaker: CODEBREAKER_DEVICE_BONUS)
 export const CODEBREAKER_TRAIT_ID: AwayTraitId = "codebreaker";
 
-// One use's rolled percent, an integer in [50, 75]: one nextInt on makeRng((seed ^ FIELD_DEVICE_SALT ^ key) >>> 0).
-// FKR-8 keys it by the use (the boundary the device is read at). Pure.
+// The device roll's stream seed for one use: the key spread by the golden-ratio multiplier, the engine's keyed-stream
+// convention (shipScanEvents.ts, affixes.ts, groundOps.ts: Math.imul(key + 1, 0x9e3779b9)), so neighboring keys never
+// seed neighboring streams. FKR-8 keys it by the use (the boundary the device is read at). Pure.
+export function fieldDeviceSeed(seed: number, key: number): number {
+  return (seed ^ FIELD_DEVICE_SALT ^ Math.imul(key + 1, 0x9e3779b9)) >>> 0;
+}
+
+// One use's rolled percent, an integer in [50, 75]: one nextInt(26) on its own stream. Pure.
 export function fieldDevicePercent(seed: number, key: number): number {
-  return FIELD_DEVICE_MIN_PERCENT + makeRng((seed ^ FIELD_DEVICE_SALT ^ key) >>> 0).nextInt(FIELD_DEVICE_SPAN_PERCENT);
+  return FIELD_DEVICE_MIN_PERCENT + makeRng(fieldDeviceSeed(seed, key)).nextInt(FIELD_DEVICE_SPAN_PERCENT);
 }
 
 // The device's effectiveness for one use: the rolled percent as a fraction, x (1 + CODEBREAKER_DEVICE_BONUS) with a
@@ -296,8 +314,7 @@ export function codebreakerAboard(roster: AwayRosterSnapshot | undefined): boole
 
 // ===== Saboteur: the thrower's own grenades =====
 
-// FK10 "Own grenades only": +6% to the Saboteur's own throws (damage and debuff chance, FKR-5), never the squad's.
-export const SABOTEUR_GRENADE_BONUS = 0.06;
+// SABOTEUR_GRENADE_BONUS (with the category rules above) on the Saboteur's own throws only.
 export const SABOTEUR_TRAIT_ID: AwayTraitId = "saboteur";
 
 // Does this member carry Saboteur? Pure.

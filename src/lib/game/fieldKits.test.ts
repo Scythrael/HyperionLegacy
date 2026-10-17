@@ -23,6 +23,7 @@ import {
   codebreakerAboard,
   fieldDevicePercent,
   fieldDeviceRollEffectiveness,
+  fieldDeviceSeed,
   freeBasicCrewCurve,
   freeBasicFirstAid,
   freeBasicSet,
@@ -40,6 +41,9 @@ import { FIRST_AID_HEAL, FIRST_AID_TRAINED_EFFECTIVENESS, FIRST_AID_UNTRAINED_EF
 import { GROUND_CONDITIONS } from "./medicalBay";
 import { makeRng } from "./combat/rng";
 import type { AwayRosterSnapshot, SnapshotMember } from "./model";
+
+// fieldDevicePercent(424242, 0..7), captured at FKR-2's follow-up (the golden-ratio keying).
+const PINNED_ROLLS: number[] = [68, 59, 53, 62, 61, 61, 70, 51];
 
 const TRAINED = { medic: true };
 const UNTRAINED = { medic: false };
@@ -82,6 +86,13 @@ describe("category rules and gates", () => {
     expect(KIT_CATEGORY_RULES.fieldDevices.requiresMedicalTraining).toBe(false);
   });
 
+  it("the specialist bonuses ride on their categories: Saboteur on Explosives, Codebreaker on Field Devices", () => {
+    expect(KIT_CATEGORY_RULES.explosives.specialistBonus).toBe(SABOTEUR_GRENADE_BONUS);
+    expect(KIT_CATEGORY_RULES.fieldDevices.specialistBonus).toBe(CODEBREAKER_DEVICE_BONUS);
+    expect(KIT_CATEGORY_RULES.firstAid.specialistBonus).toBe(0);
+    expect(KIT_CATEGORY_RULES.advancedMedical.specialistBonus).toBe(0);
+  });
+
   it("each kit's gate: anyone uses First Aid kits, only a trained member uses Advanced Medical ones", () => {
     for (const id of ["firstAidKit", "antitoxin", "combatStim"] as const) {
       expect(canUseKit(TRAINED, id), id).toBe(true);
@@ -102,7 +113,12 @@ describe("category rules and gates", () => {
     expect(kitEffectiveness(UNTRAINED, "traumaKit")).toBe(0);
     expect(kitEffectiveness(TRAINED, "traumaKit")).toBe(1);
     expect(kitEffectiveness({ medic: true, careMult: 1.2 }, "firstAidKit")).toBeCloseTo(1.5, 12);
+    expect(kitEffectiveness({ medic: false, careMult: 1.2 }, "combatStim")).toBeCloseTo(0.6, 12);
     expect(kitEffectiveness({ medic: false, careMult: 1.2 }, "splint")).toBe(0);
+  });
+
+  it("Fleet Triage's careMult scales First Aid kits only, never an Advanced Medical kit", () => {
+    for (const id of ["splint", "traumaKit", "injuryKit"] as const) expect(kitEffectiveness({ medic: true, careMult: 1.2 }, id), id).toBe(1);
   });
 });
 
@@ -209,6 +225,13 @@ describe("the free basic set (D23 curve, no cap)", () => {
     expect(freeBasicSet(0)).toEqual({ firstAidKit: FREE_BASIC_FIRST_AID_PER_MEMBER });
   });
 
+  it("pinned: 8 heads add about 0.899 kit; 8, 16 and 32 heads give 2, 3 and 4 First Aid Kits", () => {
+    expect(freeBasicCrewCurve(8)).toBeCloseTo(0.899, 3);
+    expect(freeBasicFirstAid(8)).toBe(2);
+    expect(freeBasicFirstAid(16)).toBe(3);
+    expect(freeBasicFirstAid(32)).toBe(4);
+  });
+
   it("whole kits, never decreasing as the crew grows", () => {
     let prev = freeBasicFirstAid(0);
     for (let heads = 1; heads <= 400; heads += 1) {
@@ -252,10 +275,18 @@ describe("the field device roll (50 to 75% per use, its own salt)", () => {
     expect(FIELD_DEVICE_SPAN_PERCENT).toBe(26);
   });
 
-  it("is one integer draw nextInt(26) on (seed ^ salt ^ key)", () => {
+  it("is one integer draw nextInt(26) on (seed ^ salt ^ imul(key + 1, golden ratio)), the engine's keyed convention", () => {
     for (const [seed, key] of [[1, 0], [12345, 7], [0xdeadbeef, 991]] as const) {
-      expect(fieldDevicePercent(seed, key)).toBe(50 + makeRng((seed ^ FIELD_DEVICE_SALT ^ key) >>> 0).nextInt(26));
+      const streamSeed = (seed ^ FIELD_DEVICE_SALT ^ Math.imul(key + 1, 0x9e3779b9)) >>> 0;
+      expect(fieldDeviceSeed(seed, key)).toBe(streamSeed);
+      expect(fieldDevicePercent(seed, key)).toBe(50 + makeRng(streamSeed).nextInt(26));
     }
+    // Pinned values: a change to the keying or the draw moves these.
+    expect([0, 1, 2, 3, 4, 5, 6, 7].map((k) => fieldDevicePercent(424242, k))).toEqual(PINNED_ROLLS);
+  });
+
+  it("neighboring keys seed unrelated streams (not seed ^ key)", () => {
+    expect(fieldDeviceSeed(424242, 1) ^ fieldDeviceSeed(424242, 0)).not.toBe(1);
   });
 
   it("always an integer in [50, 75], deterministic per key, and both ends are reached", () => {

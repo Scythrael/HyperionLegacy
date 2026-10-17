@@ -110,7 +110,6 @@ import { DRONE_POD_AFFIX_POOL, DRONE_POD_IMPLICIT_STAT, WEAPON_AFFIX_POOL, WEAPO
 import { AFFIX_DEFS, ESCALATION_ENEMIES_PER_LEVEL, HEIGHTENED_SENSES_KNEE, HEIGHTENED_SENSES_PER_LEVEL } from "../affixes";
 import { ENEMY_RANKS, ENEMY_RANK_IDS } from "../enemyRanks";
 import {
-  CODEBREAKER_DEVICE_BONUS,
   CONDITION_LINES,
   CONDITION_LINE_IDS,
   FIELD_KITS,
@@ -118,7 +117,7 @@ import {
   FREE_BASIC_CURVE_KNEE,
   FREE_BASIC_SET,
   KIT_CATEGORY_RULES,
-  SABOTEUR_GRENADE_BONUS,
+  type FieldKitDef,
   type FieldKitId,
   type KitCategory,
 } from "../fieldKits";
@@ -2383,15 +2382,25 @@ const CATEGORY_OWNER: Readonly<Record<KitCategory, string>> = {
 };
 
 function fieldKitEntries(): WiringEntry[] {
+  // Each kit's measurable effect, read from the catalog: a heal (HP), a bay treatment share (the bay divisor), a buff
+  // (its rounds, read verbatim), else the conditions one use treats (what it clears plus the line ranks it reaches).
+  const conditionsTreated = (k: FieldKitDef): number => k.clears.length + Object.values(k.lines ?? {}).reduce((n, care) => n + (care?.upTo ?? 0), 0);
   const out: WiringEntry[] = FIELD_KIT_IDS.map((id) => {
     const def = FIELD_KITS[id];
+    const shape: Pick<EntryInput, "curve" | "direction" | "magnitude"> =
+      def.heal !== undefined
+        ? { curve: { kind: "linearAbsolute" }, magnitude: (c) => c.FIELD_KITS[id].heal ?? 0 }
+        : def.treatmentShare !== undefined
+          ? { curve: { kind: "divisor" }, direction: "down", magnitude: (c) => c.FIELD_KITS[id].treatmentShare ?? 0 }
+          : def.buff !== undefined
+            ? { curve: { kind: "equals" }, direction: "none", magnitude: (c) => c.FIELD_KITS[id].buff?.rounds ?? 0 }
+            : { curve: { kind: "event", metric: "conditions treated" }, magnitude: (c) => conditionsTreated(c.FIELD_KITS[id]) };
     return entry({
       id: `away:FIELD_KITS:${id}`,
       system: "away",
       source: { catalog: "FIELD_KITS", key: id },
       claim: `${def.label}: what one use treats, heals or grants`,
-      curve: def.heal !== undefined ? { kind: "linearAbsolute" } : def.treatmentShare !== undefined ? { kind: "divisor" } : { kind: "event", metric: "conditions treated" },
-      magnitude: (c) => c.FIELD_KITS[id].heal ?? c.FIELD_KITS[id].treatmentShare ?? c.FIELD_KITS[id].buff?.rounds ?? 1,
+      ...shape,
       status: pending(KIT_OWNER[id]),
     });
   });
@@ -2402,9 +2411,15 @@ function fieldKitEntries(): WiringEntry[] {
         system: "away",
         source: { catalog: "KIT_CATEGORY_RULES", key: cat },
         claim: `Kit category ${cat}: who can use it and how well`,
+        // First Aid: training's lift over the untrained use; Advanced Medical: the gate (untrained 0 to trained 1);
+        // Explosives and Field Devices: their specialist's bonus (Saboteur, Codebreaker).
         curve: cat === "advancedMedical" ? { kind: "gate" } : { kind: "linearRelative" },
-        magnitude: (c) =>
-          cat === "explosives" ? SABOTEUR_GRENADE_BONUS : cat === "fieldDevices" ? CODEBREAKER_DEVICE_BONUS : cat === "advancedMedical" ? 1 : c.KIT_CATEGORY_RULES[cat].trained - 1,
+        magnitude: (c) => {
+          const rule = c.KIT_CATEGORY_RULES[cat];
+          if (cat === "firstAid") return rule.trained / rule.untrained - 1;
+          if (cat === "advancedMedical") return rule.trained - rule.untrained;
+          return rule.specialistBonus;
+        },
         status: pending(CATEGORY_OWNER[cat]),
       }),
     );

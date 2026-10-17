@@ -244,11 +244,23 @@ local `FieldKitStatusId` union until FKR-4 folds them into `GambitStatusId`. Wir
 `KIT_CATEGORY_RULES` (4), `CONDITION_LINES` (3) and `FREE_BASIC_SET` (1) enumerated in `catalogs.ts` and added to
 `CATALOGS`, plus the audit row `away:audit:fieldKitsCure`: 15 entries, all pending (kits and the First Aid / Advanced
 Medical rules FKR-6, the Injury Kit FKR-6 + FKR-7, explosives / Saboteur FKR-5, field devices / Codebreaker FKR-8, the
-bone ranks and Cure FKR-4, the free basic set FKR-7). **[PROVISIONAL, confirm with the user]:** N8 (a) a Splint turns a
-Broken Bone into a Fracture (and sets a Fracture to heal in 3 rounds); N9 (a) bone is the only line; N12 (a) 1 First Aid
-Kit per member plus the crew curve (8 heads per kit at the start, knee 4 kits: 8 heads add 1, 16 add 2, 32 add 3, 80
-add 6); Stun and Fear stay on the basic list ("as today"); the Injury Kit share 0.5. N10, N11, N13, N14 and N16 belong
-to FKR-3 / FKR-4 / FKR-7 and are untouched here (comments point at them).
+bone ranks and Cure FKR-4, the free basic set FKR-7). **Confirmed by the user (2026-10-17):** N8 a Splint turns a
+Broken Bone into a Fracture (and sets a Fracture to heal in 3 rounds); N9 bone is the only line; N10 bones start as
+Fracture and worsen on repeat hits; N11 bay times 30 minutes / 1 hour / 2 hours (FKR-4); N12 1 First Aid Kit per member
+plus the crew curve, per objective and trip; Stun and Fear are basic debuffs (First Aid Kit and Cure clear them); the
+Injury Kit share 0.5. **[PROPOSAL]:** the crew curve's numbers (8 heads per kit at the start, knee 4 kits: 8 heads add
+1, 16 add 2, 32 add 3, 80 add 6), never named by the user. N13, N14 and N16 belong to FKR-3 / FKR-4 / FKR-7.
+
+**FKR-2 follow-up (2026-10-17, done):** review markings and minors. Settled [PROVISIONAL] marks removed from
+`fieldKits.ts`; the crew curve's 8 / 4 marked [PROPOSAL]. Pinned: `freeBasicCrewCurve(8)` about 0.899,
+`freeBasicFirstAid(8 / 16 / 32)` = 2 / 3 / 4. The device roll is keyed by the engine convention, `fieldDeviceSeed` =
+`(seed ^ FIELD_DEVICE_SALT ^ Math.imul(key + 1, 0x9e3779b9)) >>> 0` (as shipScanEvents.ts / affixes.ts / groundOps.ts),
+re-pinned (`fieldDevicePercent(424242, 0..7)` = 68 59 53 62 61 61 70 51). Fleet Triage's careMult now scales First Aid
+kits only (plan FK-1 "Fleet Triage multiplies first aid as today"; design 373 "strengthens in-battle squad healing and
+cures" could reach Advanced Medical: a [PROPOSAL] for the user, not built). `KitCategoryRule.specialistBonus` carries
+Saboteur's and Codebreaker's 0.06 so the registry reads every magnitude from the catalog; Combat Stim's entry is a
+buff (equals, its Inspired rounds), the Injury Kit's a divisor, the rest conditions treated (clears plus line ranks
+reached). `kitTreatment`'s comment sits above the function. 39 tests.
 
 #### FKR-3: Kit items, blueprints, the Fabricator group, glyphs (data)
 
