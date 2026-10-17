@@ -902,3 +902,6 @@ Reading (this reshapes FK-1, FK-4, FK-5, FK-6, FK-8, FK-9):
   **N11 bay times:** "30m / 1h / 2h (Recommended)". **N9:** "Bones only now (Recommended)". **N12 free basics:** "1
   First Aid Kit + crew curve (Recommended)", refreshed every objective and every trip. (Confirms FKR-2's provisional
   N8 / N9 / N12 picks.)
+- **N14 Neurotoxin:** "Challenging and up (Recommended)". **N13 prices:** "3x material value (Recommended)". **N16
+  default pack:** "1 of each usable kit (Recommended)". **Call 3 recipes:** "Two research tiers (Recommended)" (tier 1
+  First Aid Kit, Antitoxin, Splint, 2 per craft; tier 2 Combat Stim, Trauma Kit, Injury Kit).
