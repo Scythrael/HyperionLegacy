@@ -672,3 +672,4 @@ For later slices: SF-2 stamps `difficulty` in buildExpedition via `runDifficulty
 (group 3 answer: a separate tutorial duration constant equal to the regular Tier I one; not done here, it moves the
 shakedown goldens). SF-4 adds the patrol stamp and must leave the training cycle's route out of `patrol.completed`
 (countPatrolRoutes). The shared speed / time-skip seam (group 2, Overtime) is not part of SF-1.
+- **Veterans (2026-10-16):** "Full strength, as today (Recommended)": existing saves play as now; only new games ramp.

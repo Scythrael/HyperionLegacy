@@ -874,3 +874,5 @@ Reading (this reshapes FK-1, FK-4, FK-5, FK-6, FK-8, FK-9):
 - **N3:** "Only final fights (Recommended)". **N4:** "Grenades only (Recommended)": Impact 4, Stun 2, Toxin 2, 1 throw
   per battle, +1 carry line on grenades only; Med Kit, Shroud, Lure no charges. **N6:** "Group blast + Concussion
   (Recommended)": the target's group at 1.5x the thrower's power, 30% Concussion. **N5:** "Normal (Recommended)".
+- **Boss strength (2026-10-16):** "Soften Dangerous (Recommended)": Dangerous objectives end with an ELITE (x1.7);
+  only Deadly gets the Boss (x2.5). Challenging stays Elite. (Supersedes the earlier mapping.)
