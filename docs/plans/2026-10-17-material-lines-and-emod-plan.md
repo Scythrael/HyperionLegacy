@@ -1,0 +1,485 @@
+# Material Lines + E-MOD (universal modules and the power budget): 0.14.0 G8 PLAN
+
+> **For Claude:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development to implement this plan slice by slice
+> (fresh subagent per slice, review between slices, two-stage review at the end), after the user answers section 5.
+
+Status: PLAN DRAFT for user review (2026-10-17). Doc only; no game code changes with this file. Branch
+`feat/crew-0.14.0`. Owner list: E-CREW plan G8 ("E-MOD universal modules, ... the power grid (S4-A03), deuterium as a
+reach-crafting input (S4-A05), Material Lines"). E-CAP and the gas giant study (15b) are the other G8 items and are
+NOT in this plan.
+
+**Authority order:** the user's decisions (section 1), then the approved designs they sit in, then this plan, then code.
+**Markers:** `(user)` = the user's decision. **[PROPOSAL]** = mine; every name, number, rule and formula so marked is
+the user's to accept, change or reject, and no [PROPOSAL] entity exists until the user approves it. **[PROVISIONAL]** =
+a build default used only if a call is still open when its slice starts (respect-continue rule), flagged in the commit.
+
+Sources reconciled (all read 2026-10-17): `2026-10-02-material-lines-0.14.0-design.md` (the E-MAT draft, its 14 open
+calls, none answered in that doc); the July design's section 12 resolutions (`july.md`, branch
+`feat/material-lines-0.11.1`); `2026-10-02-crew-made-real-e-crew-plan.md` (G8, Task 22, E-MOD markers);
+`2026-09-24-exploration-0.14.0-plan.md` (E0, E4d, E-MOD, INVENTORY GAP FIXES); `2026-09-15-exploration-crew-saga-0.14.0-design.md`
+(A.3, A.4, B.3, B.4, H.1, H.2); `2026-07-31-combat-1.0-integration-design.md` (sections 3, 10; DECISION 3a, 10a);
+`2026-07-22-combat-0.13.0-design.md` (section 10); `2026-10-15-wiring-registry-and-audit-plan.md` (OC-C2, OC-C3, OC-D1,
+OC-D2, OC-D3, OC-D4, OC-D12, OC-J3, B10, the WR-4 carry note, USER ANSWERS); `2026-10-14-complement-and-acquisition-plan.md`
+(CP-11, CP-13, OC-13, OC-14, OC-15, OC-16); `2026-10-14-expedition-tiers-g2-plan.md` (G2-4 drive classes, USER ANSWERS);
+`2026-10-16-gear-wear-design.md` (4.3, 4.4, USER ANSWERS); `2026-10-16-credit-sinks-pass.md` (OC-C10); 
+`2026-10-08-gas-giant-study-design.md` (sections 1, 1b, 6); `2026-10-17-gas-giant-study-plan.md` (GG-1, open calls 5
+and 7, committed `8d15719` while this plan was written); `2026-10-16-prospecting-squads-design.md` (GRADE);
+`2026-10-17-small-calls-answers.md` (S2); the Ship Modules and Sensors mockup (scratchpad
+`ship-modules-sensors-mockup.html`, artifact GoYVwi6k13P6KvxRrzRicN); SUGGESTIONS.md (the SUS + modules entry, Mystery
+Repairable Components, Combat 1.1 future bites); and the code: `combat/power.ts`, `model.ts` (`ShipTypeDef`,
+`ShipDerivedStats`, `equipmentStatMods`, `SLOT_BASE_PHYSICALS`, `generateStandardIssue`, `REFINE_RECIPES`, `ITEMS`,
+`BLUEPRINTS`), `itemgen.ts`, `equipment.ts` (`canFitEquipment`), `crewModules.ts`, `crewOverlay.ts`, `crewBuffs.ts`,
+`crewRaces.ts`, `seniorStaffBonuses.ts`, `combat/durability.ts`, `combat/resolveBattle.ts`, `wiring/registry.ts`,
+`relics.ts`, `save.ts`.
+
+
+## 1. The user's words (verbatim)
+
+**Scope and purpose**
+- 2026-10-02 (inventory gap fixes): "roll it into 0.14.0 as a bug fix that adds in proper functionality for those gaps
+  and timing calls."
+- 2026-10-09 (scope ruling): "If something I've said here is not part of the scope (within reason), make it part of
+  the scope of 0.14.0."
+- H.1 universal modules, LOCKED 2026-09-23: modules are "always planned for 0.14.0". Accessory layer (weapons = weapons,
+  ship systems = armor, modules = accessories), UNIVERSAL on any hull's generic `moduleSlots`, explorer and science
+  hulls carry more as identity. Categories: Passive, Proc (on-hit / per-tick / on-mission-complete), Conditional,
+  Active (idle-safe AUTO-cast via a gambit-like rule; MANUAL reserved for 2.0), Set. The draw is UNIQUE options you
+  cannot get anywhere else. NO baked-in downsides (the tradeoff idea is spun off as future "chaotic gear", H.2).
+  Sourcing: BOTH craftable AND salvage-exclusive (salvage, a precursor item, repair, a chance at an exclusive module).
+- E4d resolution 2026-10-01: "Precursor Lens's special module ships WITH the module phase (E-MOD) as its first content",
+  a unique proc crafted with Precursor Circuit.
+
+**Power budget**
+- OC-D1 (2026-10-15): "Install gate + combat penalty (Recommended)": canFitByPower at the install check plus a combat
+  over-budget penalty; Reactor Overdrive, Power Discipline and the Martian racial act on it.
+- B.4 power grid, LOCKED archetypes 2026-09-16: "Every hull is defined by how it divides ONE power grid across weapons /
+  shields / drive-and-range / cargo." Explorer = power-RICH, by far the longest range.
+- OC-15 (2026-10-16): "Add tiers 3-7 now (Recommended)": Lab levels 3 to 7 (drive classes II to VII, top modules).
+- G2 OC-3 (2026-10-16): "A combination of higher tier ships and better drive blueprints/stats/etc."
+- OC-D4 (2026-10-16): "Cap module-class slots (Recommended)" (the proposal named bridge, quarters, sensor, specUtility).
+- Gear wear W3 (2026-10-16): "True condition" (gear fights at its real condition); the wear design keeps every gate,
+  the power-budget install gate included, on PRISTINE values.
+- S2 (2026-10-17): "Lock it (Recommended)": no ship gear changes while the ship is out.
+- OC-C10 (2026-10-16): no crafting fees.
+- OC-K3 (2026-10-16): "Text that claims no effect (Recommended)": anything with a number and % or + must be a real
+  tested effect. Memory "Everything wired" (2026-10-15): no placeholders, every bonus measurably acts.
+- D23 (2026-10-08): diminishing returns, never hard caps, on stacking bonuses.
+
+**Material Lines**
+- July section 12 (2026-07-18): Iridium refines into `iridiumCatalyst` for the High-Output Core; "Call 3 (compounds):
+  CONFIRMED. Keep photonicGel, biocatalyst, cobaltCoil, osmiumPlate"; "Call 5 (item count): CONFIRMED" (7 new refined
+  items); Call 4 (mission-tier alignment) DEFERRED, honest "you lack X" feedback instead.
+- OC-C3 (2026-10-15): "Add Refinery recipes (Recommended)" (Scrap Alloy into Reclaimed Alloy, Fibrous Biomass into
+  Purified Biomass). BUILT in WR-4.
+- OC-D2 (2026-10-15): "Chance to upgrade a unit (Recommended)": each delivered unit may climb one quality step.
+- OC-J3 (2026-10-16): "Sell now, recipes later (Recommended)" (Salvaged Circuitry, Precursor Circuit).
+- OC-C2 (2026-10-15): "Add a Dense Ore source (Recommended)". BUILT in WR-4 as the Lunar Mine's uncommon strike.
+
+**Deuterium**
+- Saga A.4 [PROPOSED there, carried into 0.14.0 by the G8 ruling]: "Deuterium becomes the crafting input for reach ...
+  You mine it to build range, not to top off a tank."
+- Saga A.2 (the fuel lesson): "If you build a system, and then find it feels so bad you have to gently bypass it to make
+  it feel remotely good, you have a problem with that system." Playtesters on the fuel-duty captain: "annoying that one
+  of my captains has to stay there and is a far lower level as a result."
+- Gas giant (2026-10-08): "Canisters of compressed gases. Deuterium Ice would fit this as well. Processed into a
+  canister-stored version." 1b-4: six canisters by quality band, "2 standard, 2 augmented, 1 stellar and 1 radiant".
+
+
+## 2. Reconciliation (what changed, what conflicts, what is already done)
+
+### 2.1 Material Lines: the E-MAT draft against today
+
+| E-MAT draft item | State 2026-10-17 | Effect on this plan |
+|:-|:-|:-|
+| OC 1: 7 new items + 9 recipes | July CONFIRMED the 7 items and 4 compounds. WR-4 BUILT `refineReclaimedAlloy` (Scrap 10:1) and `refinePurifiedBiomass` (Biomass 6:1) | 7 recipes and 7 items left. Re-confirm against today only (call L1) |
+| OC 2: quality mechanic | ANSWERED by OC-D2: "chance to upgrade a unit" | Built as an exact expected count plus one keyed rounding roll (call L4 picks the implementation, not the mechanic) |
+| OC 9: Deuterium sell-only | SUPERSEDED: S4-A05 is G8 scope (2026-10-09 ruling) | ML-6 builds a source and consumers (calls L8, L9) |
+| OC 10: Bio-Resonance raw organics | ANSWERED by OC-C3 build: it takes 2 Purified Biomass now | Closed |
+| OC 11: Precursor Circuit, Intact Data Core | Intact Data Core is consumed by Neural Backup (built, E-CREW Task 7). Precursor Circuit: OC-J3 "sell now, recipes later" | Precursor Circuit becomes the Precursor Lens module input (EM-8). Its sellValue (WR-10, OC-J3) stays |
+| 3c gates "Lunar" for Cobalt | OC-C2 replaced the Lunar Mine's Cobalt with Dense Ore; Cobalt now drops only on Survey Mineral Anomaly (captain level 4) | Cobalt Coil varieties gate at level 4; anchors keep the no-wall rule (call L3) |
+| 3d bridge / quarters / sensor themes | CP-11 decided "inputs are existing components only. No Material Lines dependency." | Not re-themed here unless the user says so (call L2) |
+| Gas giant canisters overlap | The 15b build plan (`8d15719`) owns all six canisters: GG-1 adds `deuteriumCanister` and the Refinery recipe Deuterium Ice x10 into one canister; its open call 7 asks where canisters are used (G2 drive classes, Helium-3 reactors, modules) | Material Lines does NOT add the canister or its recipe. ML-6 adds only an early Deuterium Ice source (call L8) and wires the consumers once, sharing ONE answer with GG call 7 (call L9) |
+| Terminology "grade" | Prospecting squads now own **GRADE** (the common/uncommon/rare tier roll) | This plan says QUALITY for the 0..5 axis: `inputGrade` becomes `inputQuality`, `materialGrade` becomes `materialPreference` |
+| OC-D2 ownership | The wiring plan lists OC-D2 under WR-7 | ML-3 builds it; WR-7 drops the row (call X1) |
+
+Code facts re-verified: `REFINE_RECIPES` has 4 recipes (model.ts ~7930); none of the 7 new items exist; `materialQualityChance`
+still drops in the `equipmentStatMods` default case; only `deuteriumIce` carries a `sellValue` (40); `localFuelRun`
+(Local Deuterium Skim) is still defined, yields only `deuteriumIce`, and is hidden from every mission list
+(App.svelte ~9518); the economy quality roll is still on the shared injected stream (standing rule: never add a draw to
+it); blanks are still `Record<string, Decimal>` (save.ts hydrate).
+
+### 2.2 E-MOD: the power budget against today
+
+- `combat/power.ts` (`powerBudget`, `canFitByPower`, `totalPowerDraw`) is pure, integer, exact-equal-allowed, and has
+  no non-test caller. `ShipDerivedStats.powerOutput` / `powerDraw` are display only (ShipSystemsPanel rows "Power Output",
+  "Power Draw", whose tooltips already promise "keep it at or under power output").
+- **Critical finding: no hull has a base power output.** `ShipTypeDef` carries no power field (only a commented
+  `reactorTier` forward hook). Standard-Issue pieces draw 0 and the Standard-Issue Reactor Core supplies 0
+  (`STANDARD_ISSUE_IMPLICIT_MAGNITUDE = 0`). Crafted pieces draw real power (cargo 2, FTL 4, reactor 1, utility 2,
+  shields 6, weapons 8 to 35 by type, drone pods 10). A literal install gate today would refuse EVERY crafted piece on a
+  ship with the Standard-Issue reactor, and crafted weapons are live on production. So a hull base output is required
+  (call P1). Maximum crafted draw per hull today: Freighter and Hauler 85, Runner and Prospector 50, Destroyer 155,
+  Battleship 225, Carrier 105, the three explorers 50.
+- A crafted Reactor Core's `powerOutput` implicit is about iLevel at Standard quality (budget = iLevel x 2 x 1.1^q x
+  1.15^r, half to the implicit), so a tier 1 core supplies about 20 to 40. Its base mass 12 drags speed and fuel
+  (`MASS_SPEED_DRAG`), so it is net negative today (B10). The gate alone fixes nothing for a ship with nothing extra to
+  power (call P3).
+- Combat already models "power starvation": `reactorDamagePercent` (Degraded 90, Offline 70) is a global weapon-damage
+  multiplier (resolveBattle.ts ~821). The over-budget penalty composes with it as one more integer percent.
+- Reactor Overdrive (`officer.powerEfficiencyMult`, 0.1), Power Discipline (`crew.powerEfficiency`, 0.002) and the
+  Martian racial (senior 0.05, complement 0.0005) all key `crew.powerEfficiency`. The registry probe already exists:
+  `sheetPowerDraw` on a ship with a powered cargo bay. They sit in `OFFICER_BONUSES_PENDING_IN_RELEASE` and the
+  registry `E_MOD` pending set; Task 22's test fails if they are still there after E-MOD lands.
+- The E-CREW design's "Engineering power facet" no longer exists: officerStats.ts gives Engineering's four facets to
+  shield recharge, a free repair tick, voyage fuel efficiency and repair speed. Nothing to wire.
+- Gear wear (approved): the install gate reads PRISTINE values (4.3). In combat the four-state model stays the authority
+  for the reactor (4.4) and W3 makes it open at true condition. So the over-budget check uses the pristine output, and
+  wear keeps acting only through `reactorDamagePercent`: no double penalty.
+- Combat 1.0 DECISION 3a recommended that power gate installs, not dispatch; this plan keeps that (no dispatch block).
+
+### 2.3 E-MOD: modules against today and against later answers
+
+- `moduleSlots` (1 to 5 per hull) is read nowhere. `EquipmentSlotType` has no module slot. Logistics shows "Modules" as
+  a "coming soon" chip (`LOGISTICS_RESERVED_GOODS`).
+- **Conflict to settle (call M1):** H.1 (LOCKED) puts universal modules on `moduleSlots`; OC-D4 (answered later, inside
+  the wiring audit, before E-MOD was planned) makes `moduleSlots` a cap on bridge, quarters, sensor and specUtility.
+  Both cannot hold at today's counts: a Freighter (1) could not carry a bridge AND quarters, let alone a module. OC-D4 is
+  not built yet (WR-7 has not started), so E-MOD can settle it before code exists.
+- **Combat 1.1 leftovers have moved (call M5):** the exploration plan said they "ride E-MOD", but OC-D12 ("Feed them
+  all") sends rapid charge, in-combat replenish and smart reflect to defense-pod lines, Overcharged Capacitors to the
+  support drone pulse and the cloak detector to sensors (deferred to 0.14.x, CP-15). What still belongs to E-MOD is the
+  ACTIVE-ABILITY ENGINE (the bounded trigger taxonomy of Combat 1.0 section 10, DECISION 10a) and the power gate.
+- Crew modules (`crewModules.ts`) are the pattern to copy: an `EquipmentInstance` with `moduleVariant` stamped to a
+  catalog id, effect scaled by `moduleEffectScale(rarity, quality)` (+12% per rarity band, +6% per quality rung). The
+  Ship Modules and Sensors mockup covers ONLY bridge, quarters and sensors; **no mockup covers universal modules or the
+  power readout**, so E-MOD UI needs a new sign-off.
+- Precursor Lens: the relic and its first-find moment exist (relics.ts `precursorLens`, rare, Precursor set); the
+  blueprint was deliberately not authored (model.ts ~9387). Adding it is a data change with `requiresRelicDiscovery`.
+  Relics v2 (G3, not designed yet) may rename relics by culture; the id stays, so EM-8 does not wait on G3.
+- The salvage-exclusive loop is the narrow form of SUGGESTIONS "Mystery Repairable Components" (S54: "E-MOD keeps
+  only 'repair, chance at an exclusive module'"). Its open questions (venue, double lottery and pity, set iLevel vs the
+  crafting ceiling) are unanswered.
+- E-SUS (the 8 SUS roles) stays blocked on the user's names and is NOT modules (H.1: SUS = function, modules =
+  personality).
+
+
+## 3. Data model and save impact
+
+### 3.1 Material Lines
+
+- `ITEMS` += 7 refined items **(July-approved names; re-confirm, call L1)**: `ferriteIngot` (Ferrite Ingot),
+  `reclaimedCircuit` (Reclaimed Circuit), `iridiumCatalyst` (Iridium Catalyst), `cobaltCoil` (Cobalt Coil), `osmiumPlate`
+  (Osmium Plate), `photonicGel` (Photonic Gel), `biocatalyst` (Biocatalyst). `category: "refined"`, tier 1, honest
+  `unlockHint` naming the recipe. (`deuteriumCanister` and its refine belong to GG-1, not here.)
+- `REFINE_RECIPES` += `refineFerriteIngot`, `refineReclaimedCircuit`, `refineIridiumCatalyst`, `synthCobaltCoil`
+  (Cobalt Ore + Titanium Ingot), `synthOsmiumPlate` (Osmium Ore + Ferrite Ingot), `synthPhotonicGel` (Polysilicate
+  Wafer + Volatile Resin), `synthBiocatalyst` (Purified Biomass + Exotic Spore Cluster). Ratios and durations [PROPOSAL], each duration a whole number of ticks that keeps the
+  speed rung's XP per tick exact (the WR-4 rule).
+- `ItemDef.reserved?: string` [PROPOSAL]: typed reserved marker replacing the hint-string test match.
+- `ShipDerivedStats.materialQuality?: number` (OPTIONAL, absent reads 0): the rig's `materialQualityChance` folded
+  through a new `PERCENT_STAT_CURVES.materialQualityChance` entry (D23 concave, no cap) into the per-unit climb chance.
+- `ProcessEffect.inputQuality?: number` (OPTIONAL) on `addItem` / `addBlank`; `CraftLine` / `QueuedOrder`
+  `materialPreference?: "lowest" | "best"` (OPTIONAL, absent = lowest, today's behavior); `removeItemHighestFirst`.
+- Blanks with quality (call L7 a): `blanks: Record<string, Decimal[]>` (quality buckets, lazy grow like inventory).
+- New salt `MATERIAL_QUALITY_SALT`, exported and listed in `salts.test.ts` MODULES.
+
+### 3.2 E-MOD power budget
+
+- `ShipTypeDef.basePowerOutput: number` **[PROPOSAL values, call P1]**, the hull's own generation (B.4 grid). Option (a)
+  values: Freighter 85, Hauler 85, Runner 50, Prospector 50, Destroyer 160, Battleship 230, Carrier 110, Orion 130,
+  Aurora 150, Eir 120 (each at or above today's maximum crafted draw; explorers well above as the power-rich identity).
+- `ShipDerivedStats.powerOutput` = base + reactor implicit + any module `powerOutput` line. `powerDraw` = the NET
+  draw after power efficiency: `ceil(grossDraw / (1 + diminishing(e, POWER_EFFICIENCY_KNEE)))`, `e` = the ship's summed
+  `crew.powerEfficiency` (call P4). New derived `reactorSurplus` = `min(reactorOutput, max(0, output - draw))` (call P3).
+- `EquipFitBlockReason` += `overPower` (reason text names the shortfall: "Needs 12 more power. Install a stronger Reactor
+  Core or remove a powered system."), `moduleSlotsFull`, `duplicateModule` (call M8).
+- One pure reader `shipPowerBudget(state, shipId, candidate?)` wrapping `power.ts`; every install path calls it.
+- FTL drive class draw (call P5): `DRIVE_CLASS_POWER_DRAW[class]` [PROPOSAL x1.6 per class above I] read by G2-4's
+  drive blueprints.
+- Combat: `CombatShip.powerSupplyPercent?: number` (absent = 100), frozen when the battle is built (bridge.ts), applied
+  beside `reactorDamagePercent` (call P6).
+
+### 3.3 E-MOD modules
+
+- `EquipmentSlotType` += `"module"`, a MULTI slot (joins `MULTI_SLOT_TYPES`), capped per call M1 (option a: by
+  `SHIP_TYPES[hull].moduleSlots`). `SLOT_BASE_PHYSICALS.module` = `{ mass: 0, powerDraw: per def, durability: 100 }`.
+- New `src/lib/game/shipModules.ts` [PROPOSAL file name]: `UNIVERSAL_MODULES: UniversalModuleDef[]` and pure readers.
+  ```ts
+  interface UniversalModuleDef {
+    id: string; label: string;                       // id == the stamped moduleVariant
+    category: "passive" | "proc" | "conditional" | "active" | "set";
+    contexts: ("patrol" | "shipEvent" | "mission" | "expedition")[];
+    trigger?: ModuleTrigger;                          // the bounded taxonomy, call M4
+    effect: { key: string; magnitude: number };      // scaled by moduleEffectScale (crewModules.ts)
+    chance?: number; cooldownTicks?: number; oncePerBattle?: boolean;
+    condition?: { kind: "hullBelow" | "shieldBelow"; value: number };
+    setId?: string;
+    powerDraw: number;
+    source: "craft" | "discovery" | "salvageExclusive";
+  }
+  ```
+- Mint: the existing `generateEquipment` path with a module slot entry in `EQUIPMENT_SLOTS` (varieties = catalog ids),
+  so rarity, quality, iLevel, salvage, Armory storage, Archive rows and `isSparePiece` all follow.
+- Combat: `CombatShip.moduleProcs?` frozen per patrol cycle like `officerCombat`; resolveBattle reads them at the trigger
+  points. Procs draw from a PRIVATE stream `makeRng(battleSeed ^ MODULE_PROC_SALT ^ shipIndex)`, never the combat
+  stream, so a ship with modules leaves every other draw unchanged.
+- Missions: an `onMissionCycle` proc keys `makeRng(seed ^ MODULE_CYCLE_SALT ^ captainKey ^ cycle)` with the Command
+  Presence per-run cycle counter as precedent (CaptainMissionState ~3009). Expeditions: frozen in the dispatch snapshot.
+- Wear: modules wear like crew modules (time underway, slowly) [PROPOSAL, call M9].
+
+### 3.4 Save impact (SAVE_VERSION 70, not yet on staging)
+
+Staging is 0.13.10 (save 54); v70 is the shared unreleased 0.14.0 bump. Any step this plan needs **appends to
+`MIGRATIONS[69]` and to the "WHAT v70 CONTAINS" list in save.ts** (after `dropRetiredFuelV70` and SF-1's
+`withRunCountsV70`, and G2-1's step if it lands first); no v71.
+
+| Change | Save effect |
+|:-|:-|
+| New items, recipes, blueprint inputs, `reserved`, `basePowerOutput`, drive class draw, module catalog | None: static data; inventory and the equipment pool are open-keyed |
+| `materialQuality`, `inputQuality`, `materialPreference`, `powerSupplyPercent`, `moduleProcs` | None: optional, absent = today |
+| Module pieces (`slotType: "module"`) | None: no old save holds one |
+| Quality blanks (call L7 a) | **Step appended to MIGRATIONS[69]**: `bucketBlanksV70` wraps each `blanks[key]` into `[count]` (quality 0); `hydrateDecimalMap` learns the array shape. FROZEN constants only |
+| Active rule choice (call M3 b only) | None: optional `moduleRule?` on the instance |
+| Salvage-exclusive loop (call M2 b only) | None: new items, a new `TimedProcessKind`, optional `modulePity?` (absent = 0) |
+| Unhiding Local Deuterium Skim (call L8 a) | None: the v51 to v52 cleanup already cleared captains; the mission def is unchanged |
+
+Production impact at 0.14.0 (patch notes): with P1 (a) no live loadout goes over budget; ships with a crafted Reactor
+Core gain the surplus speed (P3 a); Archive completion % drops by the new blueprints (the Task 10 precedent).
+
+
+## 4. Slices
+
+Standing rules apply to every slice (E-CREW plan "Standing rules"): gate = `npm run check` (0 errors; the 2 known
+RadialWeb warnings) + `npx vitest run`; additive-neutral; determinism only via `makeRng(seed ^ salt ^ index)`; never a
+new draw on the shared economy stream; one commit per slice listing closed inventory rows and registry ids; US English,
+no em dashes, "install" in player text; SVG glyphs in icons.ts + ICON_SEMANTICS.
+
+**Goldens first.** ML-0 and EM-0 capture hashes before any behavior change; every later move is explained in the
+commit (which hash, why, and the proof that zeroing the new effect reproduces the old hash).
+
+### Material Lines (ML)
+
+**ML-0 Goldens.** Whole-state hashes for: a Local Asteroid / Lunar Mine / Salvage / Forage / Survey run (stepped
+`economyTick(_,1)` and one offline `tick()`), a refine line and a fabricate line through completion, an inspect, a
+Prospecting Rig ship's deliveries; the shared-stream draw count per run (wrap the rng). Item census counts.
+
+**ML-1 Items and recipes (data).** The 7 items, 7 recipes, `reserved` marker, stale hints (Damaged Reactor Housing
+"(a coming mechanic)", Deuterium Ice "refine at the Fuel Depot"), Reclaimed Alloy retag (call L11). Tests: each recipe
+in/out; multi-input deducts all atomically and refuses when any is short; allocation reserves every input; every raw and
+salvaged item has a sink or a typed reserve (extended to every producible refined item); every refined input is
+producible. Neutral: no golden moves (new keys only). UI: Refinery list only (grouping waits for ML-7).
+
+**ML-2 Recipe rework (data).** Per call L2 (a): cargo, FTL, reactor, utility, shields, plating per E-MAT 3c and 3d with
+today's items, Sprint Drive vs Efficient Core differentiated (L11), Hauler Hold / High-Output Core Structural Assembly
+rule (L11). Tests: no-wall walker (every slot keeps a non-relic variety whose full tree bottoms out in Asteroid + Lunar
+raws), distinct input maps per slot, the "intended spread" test updated, in-flight safety (a pre-patch job completes
+off its stored effect; an active line on a reworked recipe waits, no throw, no negative bucket, resumes when stocked).
+Goldens: only fabricate goldens on reworked blueprints move. Patch note: active lines on reworked recipes may wait.
+
+**ML-3 Material quality on delivery (OC-D2).** Fold `materialQualityChance` into `materialQuality`. In economyTick's
+per-captain merge, for a ship with `materialQuality > 0`: `climb = floor(delta x p)`, plus 1 if
+`makeRng(seed ^ MATERIAL_QUALITY_SALT ^ captainKey ^ cycle)() < frac(delta x p)` (call L4 a). At the fold the existing
+roll is untouched; climbed units deposit FIRST at `min(5, q + 1)`, the rest at `q` (a cap clamp trims ordinary units).
+Determinism: shared-stream draw count identical with or without a rig (test wraps the rng); parity one offline span ==
+stepped live. Tests: delta 100 at p 0.1 = 10 climb exactly when the fraction is 0; tier 5 stays 5; Standard-Issue rig
+folds to 0; the old "materialQualityChance stays reserved" assertion is replaced. Registry: `materialQualityChance` LIVE.
+Goldens: only rig-ship states move. UI: the rig tooltip line becomes a real "+X% chance per unit to arrive one quality
+higher" (text, no mockup).
+
+**ML-4 Quality carries into crafts.** `startProcess` variant reports the unit-weighted consumed quality; effects stamp
+`inputQuality`; completion = `min(5, carried + rollQuality(rng, craftQualityBonus))` (same call, same draw count;
+call L6). `materialPreference` per order with `removeItemHighestFirst` (call L5). Tests: a best-first line on q2 stock
+lands at 2 or more; absent `inputQuality` resolves byte-identically; lowest-first default byte-identical; reservation
+stays total-based (allocation.ts untouched). UI: the toggle needs the ML-7 mockup.
+
+**ML-5 Quality blanks (call L7 a).** Blanks become quality buckets; inspect consumes the highest quality first and
+passes it to `mintCraftedPiece` (carry + climb); inspect seed derivation and draw order unchanged, so reload-before-
+inspect still re-rolls the same piece. Save: `bucketBlanksV70` appended to `MIGRATIONS[69]`. Tests: counts preserved
+into quality 0; a quality-g blank inspects to g or more; reload parity; the migration on a v69 fixture. **0.14.x
+candidate** if the user prefers (L7 b).
+
+**ML-6 Deuterium as the reach input (S4-A05).** Per calls L8 and L9: an early source (a: Local Deuterium Skim visible
+again as an ordinary Tier I mining run, no fuel role, Repeat-friendly so it never needs a dedicated captain), and the
+Deuterium Canister (GG-1's item and refine) as an input to Class III+ FTL drive blueprints (authored by G2-4) and the
+High-Output Core. Depends on GG-1 and G2-4. Tests: drive blueprints refuse without canisters; the no-wall rule still
+holds for Class I and II; the skim run delivers on Repeat. UI: the Deuterium Ice hint and the mission card text.
+
+**ML-7 Legibility UI (mockup first, new sign-off).** Refinery grouped by line (2 recipes become 12), a per-quality
+readout in Materials (hover or expand), the "Use best materials" toggle on a craft order, Help topic "Material lines and
+quality". Verify in preview desktop + 375 px.
+
+### E-MOD (EM)
+
+**EM-0 Goldens.** Ship sheet for every hull with every slot combination the census can build (the CP-0 pattern);
+every hull's maximum crafted draw (the P1 census); patrol states and replays for every combat hull and both routes; GO
+ship battles; mission runs on a ship with a crafted Reactor Core; the registry snapshot.
+
+**EM-1 Power budget engine.** `basePowerOutput`, the output and net-draw fold, power efficiency (Overdrive, Power
+Discipline, Martian) on a D23 curve, `reactorSurplus`, `shipPowerBudget`. Remove `officer.powerEfficiencyMult` from
+`OFFICER_BONUSES_PENDING_IN_RELEASE` and every `E_MOD` pending registry entry (`crew.powerEfficiency`, `martian`,
+`powerOutput`, `powerDrawReduction`, `ship:audit:slotPowerDraw`, `ship:audit:weaponPowerDraw`); Task 22's
+`PENDING_IN_RELEASE` loses its three E-MOD entries. Tests: each source moves `sheetPowerDraw`; neutrality (no officer,
+no Martian, Standard-Issue gear) byte-identical; integer exactness. Save: none.
+
+**EM-2 Install gate.** `canFitEquipment` gains `overPower` (pristine values only, never wear), checked after capacity;
+the same check on every install path: hand install, item-side install, Armory loadout check-out (whole-set budget
+including the loadout's own reactor), roster loadout apply, reactor swap (an install that leaves draw above the new
+output is refused). Uninstall is NEVER blocked and nothing is ever evicted (call P2). Tests: each path both sides of the
+boundary (exact-equal installs); a census proves no current maximum loadout is refused under P1 (a); wear never read.
+UI: refusal text through the existing reason switch (exhaustive).
+
+**EM-3 Combat over-budget penalty.** `powerSupplyPercent` frozen at battle build from pristine output vs net draw;
+multiplies weapon damage and shield recharge beside `reactorDamagePercent` (call P6). 100 when in budget, so every
+golden holds unless a ship is over budget. Runs AFTER WR-8 (shared bridge.ts and patrol goldens). Tests: replay parity;
+neutrality; the floor; stacking with a Degraded reactor is multiplicative, never below the floor product.
+
+**EM-4 Reactor surplus (B10 fix, call P3 a).** `reactorSurplus` lifts `transitSpeedMult` on a D23 curve
+[PROPOSAL knee so a Standard-quality tier 1 core nets positive on every hull after its mass]. Speed counts everywhere
+(OC-D8), so mission, patrol-leg and voyage goldens with a crafted reactor move (explained; zeroing the lift reproduces
+them). Registry: `ship:audit:reactorCoreNet` LIVE. Tests: the B10 test (crafted core vs Standard-Issue, every hull,
+strictly faster); Standard-Issue reactor = byte-identical.
+
+**EM-5 Module slot and catalog (engine).** The `module` slot, cap (call M1), `moduleSlotsFull`, `duplicateModule`
+(call M8), physicals, catalog, mint path, Passive and Conditional effects through the ship sheet and combat bridge,
+Armory / salvage / Archive / item-side install support, S2 out-of-ship lock. Hull descriptions made true (OC-D13: "most
+module slots"). Tests: cap per hull; neutrality (no module = same object); each passive moves its value; each
+conditional fires only in its state.
+
+**EM-6 Proc and Active engine (the Combat 1.1 active-ability engine).** The trigger taxonomy (call M4) at fixed points
+in the step loop; private salted streams; Actives auto-cast by their preset rule (call M3). Frozen per patrol cycle;
+mission-cycle procs keyed on the run's cycle counter; expedition procs frozen in the dispatch snapshot. Tests: replay
+parity with modules; a module-free fleet byte-identical; every trigger fires at its point; cooldown and once-per-battle.
+
+**EM-7 v1 roster and blueprints (content).** The roster the user approves (call M6), blueprints on Lab tiers 2 to 4
+[PROPOSAL] (OC-15 tiers), recipes per call M7, two-piece set bonus. Tests: each module mints and acts in its context;
+a no-dead-stats entry per module (OC-K3); Archive rows.
+
+**EM-8 Precursor Lens special module.** Discovery-gated blueprint (`requiresRelicDiscovery: "precursorLens"`), input
+Precursor Circuit, one per fleet or per ship per call M8, its unique proc per call M6. Registry: the Precursor Lens
+first-find row LIVE. Tests: masked until identified; mints; proc acts.
+
+**EM-9 Salvage-exclusive loop (call M2).** Salvage drops a damaged module precursor [PROPOSAL item], a repair process
+rolls a chance at an exclusive module with a visible pity counter, set iLevel per item type (SUGGESTIONS decision). Its
+own short design first (venue, pity, ceiling interaction). **0.14.x candidate** (recommended there).
+
+**EM-10 UI (mockup first, new sign-off).** Ship Systems: a Modules row of `moduleSlots` tiles, a power bar ("Power 84
+/ 130", headroom, over-budget chip), drive class draw on the FTL tile; Fabricator "Modules" group; Logistics "Modules"
+family replaces the coming-soon chip; module tooltip with its trigger in plain words; refusal reasons; Help topic "Power
+and modules". Verify in preview desktop + 375 px.
+
+### Order and dependencies
+
+ML-0, ML-1, ML-2, ML-3 can start now (WR-4 is done). ML-4 and ML-5 after ML-3. ML-6 after GG-1 and G2-4. ML-7 after its
+mockup. EM-0 and EM-1 can start after CP-11 (bridge, quarters, sensor blueprints exist to install). EM-2 after EM-1.
+EM-3 and EM-4 after WR-8 (bridge.ts, patrol goldens, reactor pools from the installed piece). EM-5 to EM-8 after EM-2
+and the M1 answer; EM-6 after WR-8. EM-10 after its mockup. ML and EM share only `model.ts` data tables and run as
+separate builders, not in parallel on the same file.
+
+
+## 5. OPEN CALLS (multiple-choice ready; recommended first; most important first)
+
+**Power budget**
+1. **P1 Hull base power.** (a) Every hull gets a base output at or above today's heaviest crafted loadout (values in 3.2);
+   nothing on a live save goes over budget, and the budget binds on modules and higher drive classes (Recommended).
+   (b) Base sized to a typical loadout, so heavy weapon builds need a crafted Reactor Core (moves patrol balance; live
+   over-budget ships take the penalty). (c) No hull base; the Standard-Issue Reactor Core gets a floor output instead.
+2. **P3 What a Reactor Core is worth (B10).** (a) Reactor power the ship does not use speeds the drive on a diminishing
+   curve (the B.4 grid: power not spent on weapons goes to the drive) (Recommended). (b) Cut the reactor's base mass so
+   it never slows the ship; headroom only. (c) Both.
+3. **P2 Over budget anyway** (a reactor removed, an Engineering officer leaves). (a) Never evict; a warning chip; the
+   combat penalty applies (Recommended). (b) Never evict and no penalty until the loadout changes. (c) Also block patrol
+   dispatch (not recommended: power gates installs, not dispatch).
+4. **P6 Penalty shape.** (a) Weapon damage and shield recharge x sqrt(output / draw), never below 60% (Recommended).
+   (b) Linear output / draw, never below 50%. (c) Weapons only.
+5. **P4 Power efficiency** (Overdrive, Power Discipline, Martian). (a) Cuts the ship's net draw on a diminishing curve
+   (Recommended). (b) Raises output instead.
+6. **P5 Drive classes draw power (S4-A03).** (a) FTL drive draw grows x1.6 per class above I, so deep reach competes
+   with weapons and modules (Recommended). (b) No extra draw.
+
+**Modules**
+7. **M1 Module slots (H.1 vs OC-D4).** (a) `moduleSlots` counts universal modules only; bridge, quarters, sensor and SUS
+   keep one fixed slot each, so OC-D4's cap lands on the module sockets (Recommended). (b) One shared pool capping all
+   module-class pieces, with hull counts raised [PROPOSAL 4 to 8]. (c) OC-D4 as answered on the four slots, plus a
+   separate new count for universal modules.
+8. **M2 How much of E-MOD in 0.14.0.** (a) Power budget + all five categories with a small v1 roster (about 8 modules
+   + the Precursor Lens); the salvage-exclusive loop moves to 0.14.x (Recommended). (b) Everything now, the loop too.
+   (c) Power budget + Passive and Conditional + the Precursor Lens now; Procs, Actives, Sets in 0.14.x.
+9. **M5 Uniqueness.** (a) Modules carry only effects found nowhere else (H.1 "the draw"), so none of the OC-D12 pod and
+   drone lines (Recommended). (b) Modules may also carry those lines so non-carrier hulls get them.
+10. **M3 Active auto-cast rule.** (a) Each Active ships one preset rule (its condition, once per battle or on a
+    cooldown), no editor (Recommended). (b) Two or three selectable presets per module (a small picker, mockup).
+    (c) A full ship gambit editor (largest).
+11. **M4 Trigger set.** (a) Combat: battle start, incoming ambush, after ambush, on hit, per combat tick, below a hull
+    threshold; outside combat: per mission cycle and per body scanned (Recommended). (b) Combat triggers only.
+12. **M6 v1 roster** (every name and effect [PROPOSAL]; approve, rename or replace any row):
+
+    | Category | Module [PROPOSAL] | Effect [PROPOSAL] | Context |
+    |:-|:-|:-|:-|
+    | Passive | Auxiliary Capacitor | +power output (flat) | all |
+    | Passive | Structural Bracing | +hull integrity % | combat |
+    | Proc | Arc Discharger | on hit taken, a chance to arc a small hit back | combat |
+    | Proc | Prospector's Echo | each mission cycle, a chance of a bonus haul of the cycle's common material | mission |
+    | Conditional | Last Stand Protocol | below 25% hull, +damage | combat |
+    | Active | Shield Surge | once per battle below 50% hull, restore 30% shields (Combat 1.0's own example) | combat |
+    | Set (2 pieces) | Survey Pair: Long-Baseline Array + Signal Integrator | together: +scan speed on expeditions | expedition |
+    | Special | Precursor Lens | each body scanned, a chance to uncover one extra hidden discovery ("you will see the writing that used to be there") | expedition |
+
+13. **M7 Module recipes.** (a) Material Lines themes (Reclaimed Circuit, Photonic Gel, Cobalt Coil, Osmium Plate,
+    Iridium Catalyst for the top tier) (Recommended). (b) Existing components only, like CP-11.
+14. **M8 Duplicates.** (a) One copy of a module per ship; the Precursor Lens one per ship (Recommended). (b) Duplicates
+    stack on the D23 curve. (c) The Precursor Lens one per fleet (the Neural Backup rule).
+15. **M9 Module wear.** (a) Slowly by time underway, like crew modules (Recommended). (b) Never.
+
+**Material Lines**
+16. **L1 Items.** (a) Build the 7 July-approved items and 7 remaining recipes as named (Recommended). (b) Rename some
+    (say which). (c) Simple refines only (Ferrite Ingot, Reclaimed Circuit, Iridium Catalyst), compounds later.
+17. **L8 Early Deuterium source** (the gas giant study is the deep source, GG plan). (a) Local Deuterium Skim returns as
+    an ordinary Tier I mining run (no fuel role), so a Class III drive does not wait on an expedition (Recommended).
+    (b) Gas giant study only. (c) Deuterium Ice drops on the Lunar Mine and surveys.
+18. **L9 Deuterium consumers** (answer once, for this plan and GG call 7). (a) Class III+ FTL drives (G2-4) and the
+    High-Output Core (Recommended). (b) Drives only. (c) Every Reactor Core variety too.
+19. **L2 Recipe pass scope.** (a) Cargo, FTL, reactor, utility, shields, plating now; weapons and drones stay for the
+    0.16.0 balance patch; bridge, quarters and sensors keep CP-11's components (Recommended). (b) Also weapons and drones
+    now. (c) The four economy slots only.
+20. **L4 Per-unit chance, implemented.** (a) The exact expected count plus one keyed rounding roll per delivery (no
+    shared draws) (Recommended). (b) A private per-unit roll for every unit (cost grows with haul size).
+21. **L5 Spending good stock.** (a) A per-order "Use best materials" toggle, default lowest-first (Recommended, mockup).
+    (b) Best-first by default for craft lines. (c) Lowest-first only (quality rarely flows).
+22. **L7 Crafted gear inherits quality.** (a) Yes: quality blanks, one step appended to v70 (Recommended). (b) Stackable
+    outputs only now; gear in 0.14.x.
+23. **L6 Carry formula.** (a) Unit-weighted average, floored, plus the usual climb roll (Recommended). (b) Weakest link.
+    (c) The better of the carried quality and the roll.
+24. **L3 Cobalt gate.** (a) Accept level 4 (Survey Mineral Anomaly) for the Cobalt Coil varieties; anchors stay open
+    (Recommended). (b) Add Cobalt back to the Lunar Mine as a second uncommon. (c) Swap those recipes to Ferrite Ingot.
+25. **L10 Material rarity cap.** (a) Skip; as written it nerfs every craft (Recommended). (b) A positive form later.
+    (c) Build the cap.
+26. **L11 Small data calls, one answer each.** Sprint Drive vs Efficient Core differentiation as in E-MAT 3c (approve /
+    other); Structural Assembly kept on Hauler Hold and dropped on High-Output Core (approve / same rule for both);
+    Reclaimed Alloy retagged uncommon (yes / no).
+
+**Ownership**
+27. **X1 OC-D2.** (a) ML-3 builds it; WR-7 drops the row (Recommended). (b) WR-7 builds it; ML-3 only consumes it.
+
+**Not decisions for this plan:** E-SUS names (blocked), the other five canisters and their uses (GG call 7), Relics v2
+renames.
+
+
+## 6. Size and scope (honest)
+
+| Block | Slices | Size | Notes |
+|:-|:-|:-|:-|
+| Material Lines core (ML-0 to ML-3) | 4 | M | Mostly data + one deterministic seam; low risk |
+| Quality carry + blanks (ML-4, ML-5) | 2 | M | ML-5 is the one save step; **0.14.x candidate** |
+| Deuterium (ML-6) | 1 | S | Waits on GG-1 and G2-4 |
+| Material Lines UI (ML-7) | 1 + mockup | S to M | |
+| Power budget (EM-0 to EM-4) | 5 | M to L | EM-3 and EM-4 move combat and speed goldens; after WR-8 |
+| Module foundation + engine (EM-5, EM-6) | 2 | L | The genuinely new sim architecture (Combat 1.0 called it the highest-risk part) |
+| Roster + Precursor Lens (EM-7, EM-8) | 2 | M | Content; needs the M6 names |
+| Salvage-exclusive loop (EM-9) | 1 + design | M to L | **0.14.x recommended** |
+| Modules UI (EM-10) | 1 + mockup | M | |
+
+Total: about 19 slices, two new mockups. Scope push-back (standing rule): 0.14.0 already carries CP, FK, G2, SF, WR,
+Ground Ops, Relics v2, the gas giant study and G1. This plan is the largest remaining G8 block, and E-MOD's module
+engine is the single biggest new system left in the release. The cleanest cuts that keep every promise honest are
+EM-9 (the salvage loop), ML-5 (quality blanks) and, if the user wants more room, the M2 (c) split (Procs, Actives and
+Sets in 0.14.x). The power budget itself should not move: seven registry rows and Task 22's allow-list wait on it.
