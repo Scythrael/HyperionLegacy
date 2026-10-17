@@ -1398,3 +1398,6 @@ is the first candidate to ask the user about a 0.14.x deferral, recorded as `def
   chances; Lure adds a salvage drop scale (supersedes FK-7's ship-event default; FK plan to note).
 - **OC-F2 Neural Backup:** "Revives the wearer (Recommended)". **OC-F4 Saboteur / Debuff spec:** "Also power Suppress
   (Recommended)". **OC-F5 Quick Draw:** "Beats stun and fear (Recommended)".
+- **OC-F3 Med Kit:** "Fix the flavor (Recommended)". **OC-F6 Fall Back:** "Brace for the round (Recommended)": Shielded
+  for that round. **OC-F7 Science rank:** "Rank boosts fieldwork (Recommended)". **OC-F9 Corroded:** "Some enemies
+  cause it (Recommended)": certain enemy casters inflict Corroded.
