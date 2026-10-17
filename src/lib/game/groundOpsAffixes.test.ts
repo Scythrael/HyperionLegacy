@@ -46,7 +46,7 @@ import {
 import { resolveTaskFight, withEscalation } from "./groundFight";
 import { generateEncounter } from "./gambit";
 import { groundThreatOddsKey } from "./groundThreat";
-import { plainAwayMember, withoutAffixes } from "./awayTeamTestFixtures";
+import { plainAwayMember, withoutAffixes, withoutEnemyRanks } from "./awayTeamTestFixtures";
 import { deserialize, migrate, serialize, type SaveFile } from "./save";
 
 function fnv(s: string): string {
@@ -90,7 +90,8 @@ function crewed(expeditionSeed: number, kinds: "gg" | "ss" = "gg", rank = 6): Ga
 function dispatch(state: GameState, region?: ExpeditionRegion): { next: GameState; exp: Expedition } {
   const res = startExpedition(state, "ship-1", 1, "cand-0");
   expect(res.success, String(res.reason)).toBe(true);
-  let exp = res.expedition!;
+  // Field Kits FKR-1: the run as dispatched before enemy ranks, so the seeds picked here keep their scenarios.
+  let exp = withoutEnemyRanks(res.expedition!);
   if (region) {
     const forced = generateRiskProfile(exp.seed, region, exp.bodies);
     exp = { ...exp, risk: forced.profile, bodies: exp.bodies.map((b, i) => ({ ...b, risk: forced.bodies[i] })) };

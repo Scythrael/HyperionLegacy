@@ -105,6 +105,7 @@ import {
   expeditionTeamCombatants,
   firstAidEffectiveness,
   gambitPresetPrograms,
+  generateEncounter,
   resolveGroundBattle,
   resolveTarget,
   strikeHitChance,
@@ -124,6 +125,7 @@ import { departmentFacet, seatFacet } from "../officerStats";
 import { RELICS, museumBonuses, type MuseumStat } from "../relics";
 import { salvageSalvagedMaterial, salvageShip, salvageTalentBonus, salvageYieldMult } from "../salvage";
 import { alertResetSeconds, escalationAt, extraBattleChance, longRangeCover, maxExtraBattles } from "../affixes";
+import { withEnemyRanks, type EnemyRank } from "../enemyRanks";
 import { sellItem } from "../quartermaster";
 import { retirementExpMultiplier } from "../captainRetirement";
 import { transitBerthCount } from "../berths";
@@ -1310,6 +1312,18 @@ function readContent(id: string, s: GameState): number {
       // An objective one alert level up (on) vs calm: the escalation's `a` (extraEnemies or damageMult).
       const e = escalationAt(on ? 1 : 0) as unknown as Record<string, number>;
       return e[a];
+    }
+    case "enemyRank": {
+      // Field Kits FKR-1: a fight's guard (generateEncounter, a Derelict Outpost on a calm world) ranked through the
+      // fight's own placement step (enemyRanks.ts withEnemyRanks): the lead's power at rank `a` (on) over its power at
+      // Normal, i.e. the multiplier the fight really applies (1 off).
+      const guard = () => generateEncounter(0x5eed, 0, "derelictOutpost");
+      const normal = withEnemyRanks(guard(), "normal");
+      const ranked = withEnemyRanks(guard(), on ? (a as EnemyRank) : "normal");
+      // The lead: the strongest Normal enemy (highest power, first in list order), read on both lists by its id.
+      const leadId = normal.reduce((best, e) => (e.power > best.power ? e : best)).id;
+      const power = (list: GroundCombatant[]) => list.find((e) => e.id === leadId)!.power;
+      return power(ranked) / power(normal);
     }
     default:
       throw new Error(`unknown content probe ${id}`);

@@ -269,4 +269,5 @@ export const UNREAD_CONSTANTS: Readonly<Record<string, string>> = {
   ALL_AUTO_SALVAGE_QUALITIES: "display: every quality tier for the auto-salvage picker",
   CUNNING_PENDING_SEATS: "bookkeeping: the seats with no Cunning over-delivery yet (Pilot Cunning, WR-9 OC-E4)",
   ECONOMY_FLOOR_SLOTS: "display: the Quartermaster's economy floor set, named for its readers",
+  ENEMY_RANK_IDS: "bookkeeping: the enemy ranks in order, read by the wiring registry (one entry per rank, Field Kits FKR-1) and FKR-3's rank chips",
 };

@@ -41,7 +41,7 @@ import { generateEncounter } from "./gambit";
 import { groundTaskClearOdds, groundThreatOddsKey, remainingTaskFights } from "./groundThreat";
 import { groundSiteLabel } from "./expeditionContent";
 import { FLORA_POISON_PERMILLE_PER_GRADE, riskAmbushChance, riskRewardBonus } from "./riskFactors";
-import { plainAwayMember, withSlottedAwayTeams, withoutRisk } from "./awayTeamTestFixtures";
+import { plainAwayMember, withSlottedAwayTeams, withoutEnemyRanks, withoutRisk } from "./awayTeamTestFixtures";
 
 // ===== fixtures =====
 
@@ -116,7 +116,9 @@ interface RiskSetup {
 // A dispatched run of the composition turned into a risk-aware run whose window opened at T0 with body 0 (carrying
 // `risk`) just scanned: its tasks stamped through the real path and planned by the default plan.
 function riskRun(setup: RiskSetup): Expedition {
-  const d = dispatch(compState(setup.kinds));
+  // Field Kits FKR-1: the SQ-4 run as dispatched before enemy ranks, so its scenarios hold (a Deadly site's Boss is
+  // groundOpsRanks.test.ts's business).
+  const d = withoutEnemyRanks(dispatch(compState(setup.kinds)));
   const body: ExpeditionBody = {
     id: "body-1",
     planetType: setup.planetType ?? "terrestrial",

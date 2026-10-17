@@ -7026,7 +7026,16 @@ export interface Expedition {
   // flag: written at dispatch alongside groundOps; a flagged run dispatched before SQ-4 lacks it and keeps
   // resolving exactly as stamped. Optional, no SAVE bump.
   risk?: ExpeditionRiskProfile;
+  // Field Kits FKR-1 (enemy ranks; docs/plans/2026-10-14-field-kits-plan.md REVISED SLICES): the ENEMY RANKS flag,
+  // stamped at dispatch with the rank catalog's version (enemyRanks.ts ENEMY_RANKS_VERSION). Its PRESENCE ranks the
+  // run's ground fights (the final fight of a Challenging objective is led by an Elite, of a Dangerous or Deadly one
+  // by a Boss); a run without it fields every enemy at Normal, byte-identically. Optional, no SAVE bump.
+  enemyRanks?: { version: number };
 }
+
+// Field Kits FKR-1: a ground enemy's RANK (user-named, 2026-10-16: Weak, Normal, Strong, Elite, Boss). One multiplier
+// per rank scales its HP and power (enemyRanks.ts ENEMY_RANKS). Absent on a combatant = Normal.
+export type EnemyRank = "weak" | "normal" | "strong" | "elite" | "boss";
 
 // E-CREW 0.14.0 (Task 14): one thing that happened at a scan step boundary. `step` is the boundary
 // number (1..encounterSteps - 1: boundary N sits at N / encounterSteps of the body's scan).
@@ -7196,6 +7205,10 @@ export interface GroundFightRecord {
   // (user 2026-10-14), not a fight point. A win passes no point (the work goes on from that spot); a loss is an
   // ordinary loss.
   reinforcement?: true;
+  // Field Kits FKR-1 (enemy ranks): enemy id -> its rank, for every enemy ranked above or below Normal (the log's
+  // "Elite Bruiser"). Record only (nothing reads it back into a fight); written only on a ranked run's fight that
+  // fielded one, so every other record keeps its exact shape.
+  ranks?: Record<string, EnemyRank>;
 }
 
 // A ground team's current step on the run timeline (GO-7b): idle / staging are open-ended (stepEndsAt null).

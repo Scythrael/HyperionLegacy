@@ -53,7 +53,7 @@ import { generateEquipment } from "./itemgen";
 import { damageControlEffect, pathfinderEffect, DAMAGE_CONTROL_SUITE_KEY, PATHFINDER_SUITE_KEY } from "./utilityGear";
 import { addItemQuality } from "./inventory";
 import { advanceExpedition, claimExpedition, expeditionCandidates, startExpedition } from "./expedition";
-import { plainAwayMember, withSlottedAwayTeams } from "./awayTeamTestFixtures";
+import { asPreRanksDispatch, plainAwayMember, withSlottedAwayTeams } from "./awayTeamTestFixtures";
 import { seatOfficer, withFacilityLevel } from "./wiring/probes";
 
 // ===== shared helpers =====
@@ -319,7 +319,8 @@ describe("WR-4 pre-fix goldens", () => {
       plainAwayMember("member-11", "science", "ship-1"),
     ];
     const s0 = seatOfficer(withSlottedAwayTeams({ ...freshState(), awayMembers: squad, nextAwayMemberId: 100, expeditionSeed: 0x1234 }), "science", ["sci.discovery"]);
-    const res = startExpedition(s0, "ship-1", 1, expeditionCandidates(s0, "ship-1")[0].id);
+    // Field Kits FKR-1: the run as dispatched before enemy ranks (the flag off), so it keeps its capture.
+    const res = asPreRanksDispatch(startExpedition(s0, "ship-1", 1, expeditionCandidates(s0, "ship-1")[0].id));
     if (!res.success || !res.expedition) throw new Error(`dispatch refused: ${res.reason}`);
     expect(res.expedition.groundOps).toBeDefined();
     // The run advanced through the live tick (the officer rides it), then claimed.

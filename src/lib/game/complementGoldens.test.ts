@@ -48,7 +48,7 @@ import { CREW_PROFESSIONS, commandStructureForHull, complementTotalCap, division
 import { totalCrew } from "./crew";
 import { TRANSPORT_BATCH_SIZE, TRANSPORT_WINDOW_SECONDS, transportBatch } from "./transports";
 import { FIELD_REPAIR_DAMAGE_SHARE } from "./groundOps";
-import { asLegacyDispatch, plainAwayMember, withSlottedAwayTeams } from "./awayTeamTestFixtures";
+import { asLegacyDispatch, asPreRanksDispatch, plainAwayMember, withSlottedAwayTeams } from "./awayTeamTestFixtures";
 
 // ===== shared helpers =====
 
@@ -159,7 +159,8 @@ const FINAL = 2_000_000;
 function expeditionRun(roster: AwayMember[], seed: number, legacy: boolean, preDamage: boolean): { exp: Expedition; done: Expedition; claimed: GameState } {
   const s = withSlottedAwayTeams({ ...freshState(), awayMembers: roster.map((m) => ({ ...m })), nextAwayMemberId: 100, expeditionSeed: seed });
   const started = startExpedition(s, "ship-1", 1, expeditionCandidates(s, "ship-1")[0].id);
-  const res = legacy ? asLegacyDispatch(started) : started;
+  // Field Kits FKR-1: the Ground Ops runs as dispatched before enemy ranks (the flag off), so they keep their capture.
+  const res = legacy ? asLegacyDispatch(started) : asPreRanksDispatch(started);
   if (!res.success || !res.expedition) throw new Error(`dispatch refused: ${res.reason}`);
   let exp = res.expedition;
   // The field repair fixture: the ship leaves carrying hull damage one point under the field repair threshold, so the

@@ -162,6 +162,35 @@ entry live with a sensitivity check (probe: the fight's enemy hp / power). **Sav
 **Staging:** deployable on its own (ranks are complete; the reserve rules arrive in FKR-6).
 Commit `feat(0.14.0): enemy ranks Weak to Boss in ground fights (FKR-1)`.
 
+**FKR-1 carry (2026-10-16, done):** committed as `feat(0.14.0): enemy ranks Weak to Boss on ground fights (FKR-1)`.
+`enemyRanks.ts` (pure): `ENEMY_RANKS` with ONE multiplier per rank (user N1 as answered: Weak 0.7, Normal 1, Strong
+1.3, Elite 1.7, Boss 2.5) on hp, hpMax, power and heal, `threat` following power; `FINAL_FIGHT_LEAD` by grade
+(Simple / Standard none, Challenging Elite, Dangerous and Deadly Boss, the 2026-10-16 correction); `REINFORCEMENT_RANK`
+Normal (N5); `fightLeadRank` (only an ordinary fight for the objective's LAST fight point leads; surprise and
+reinforcement fights, earlier points, unrated objectives and training runs are all Normal, N3); `withEnemyRanks`
+(the lead is the strongest fielded enemy, highest power then list order: a Striker on most sites); `isTrainingRun`
+(the ONE read of SF's `Expedition.difficulty.firstRun`, typed by SF-1, written by SF-2; absent = not a training run);
+`rankedEnemies`, `rankedEnemyName` ("Elite Striker") and `rankAtLeast` for FKR-3 / FKR-6. `GroundCombatant.rank` is
+stamped on every enemy of a ranked fight; `GroundFightRecord.ranks` lists the non-Normal ones only. Flag
+`Expedition.enemyRanks: { version: 1 }` stamped by `buildExpedition`. `resolveTaskFight` / `resolveTaskFightOnSeed`
+take a trailing `kind` ("point" default; groundOps `startFight` passes surprise / reinforcement) and rank AFTER
+generation, flora and escalation; the fielded list FKR-0 hashes is untouched. Threat: `ThreatTask` carries
+`difficulty`; the memo key appends `["ranks", version, grade, training]` on ranked runs only (every unranked key
+byte-identical). No draw added (`salts.test.ts` untouched), no save change. Wiring: `expedition:ENEMY_RANKS:<rank>`
+x5, live, equals curve, probe `content:enemyRank:<rank>` (the lead's power ratio through `withEnemyRanks` on a real
+guard); `ENEMY_RANK_IDS` listed in `UNREAD_CONSTANTS` (read by the registry). Goldens: every FK-3, FKR-0, SF-0
+(golden 4, 5, 7, sweep B), G2-0, CP-0, WR-4, AF-1, AF-2, SQ-4 and GO-7b hash unchanged; the fixtures that dispatch strip
+the flag at dispatch (`withoutEnemyRanks`, `asPreRanksDispatch`; `withoutRisk`, `withoutAffixes`,
+`withoutAffixCatalog` and `withoutFieldKits` strip it too), plus four scenario fixtures pinned to a pre-rank seed
+(groundOpsParity, groundOpsRisk riskRun, groundOpsAffixes dispatch, save v67 to v68). Tests: `enemyRanks.test.ts`
+(21) and `groundOpsRanks.test.ts` (13: the stamped twin of FKR-0 (2) and (3), surprise / reinforcement Normal, the
+training seam test that FLIPS at SF-2, all three fresh-save candidates as training runs equal their unranked run,
+whole ranked runs placed by the rule, parity one call == 997 s == 1 s on a stamped Deadly run). Measured (scratch,
+deleted; FKR-0's graded bodies, clear odds out of 256, unranked to ranked): Simple / Standard unchanged everywhere;
+Challenging one team rank 3 (High) 184 to 106, rank 6 (Low) 19 to 4; Dangerous both teams rank 3 (Low) 53 to 0, rank 6
+(Low) 243 to 54, (High) both rank 3 255 to 105; Deadly both rank 3 (High) 256 to 242. UI: none (the rank word needs a
+stored fight record in the readout; FKR-3 / FKR-9 own the chips and the "Elite Striker" line).
+
 #### FKR-2: Kit catalog, condition lines and severity ranks (pure; no engine change)
 
 **Files:** new `src/lib/game/fieldKits.ts` + `fieldKits.test.ts`; `salts.test.ts` (register the module).

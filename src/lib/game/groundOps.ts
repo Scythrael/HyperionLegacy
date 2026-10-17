@@ -1409,7 +1409,8 @@ function ambushRetreat(exp: Expedition, ops: GroundOpsState, team: GroundTeamRun
 // joint task's Security squads fight as ONE side (groundFight.ts taskFightTeam: team then slot order). `rec` adds
 // to the closed step's record; `kind` marks an ambush met as a fight (Squads SQ-4) or a Reinforcing extra battle
 // (AF-1). The objective's ALERT at `t` escalates the fight (AF-1: groundFight.ts withEscalation; 0 = none), and its
-// COVER shapes it (AF-2, Rocky Outcroppings: groundFight.ts withCover; none = as before).
+// COVER shapes it (AF-2, Rocky Outcroppings: groundFight.ts withCover; none = as before). On a ranked run (Field Kits
+// FKR-1) `kind` places the ranks: only the objective's final fight point is led by an Elite or a Boss.
 function startFight(
   exp: Expedition,
   ops: GroundOpsState,
@@ -1431,6 +1432,7 @@ function startFight(
     undefined,
     alert,
     taskCover(ref.task),
+    kind ?? "point",
   );
   if (kind === "surprise") record.surprise = true;
   if (kind === "reinforcement") record.reinforcement = true;

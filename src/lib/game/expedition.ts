@@ -123,6 +123,8 @@ import {
   type GroundOpsEditCheck,
   type GroundOpsScanDriver,
 } from "./groundOps";
+// Field Kits FKR-1: the enemy ranks catalog version a new run is stamped with (enemyRanks.ts is pure, no cycle).
+import { ENEMY_RANKS_VERSION } from "./enemyRanks";
 // E-CREW (Task 16): the claim turns the run's downed members into injuries (pure; imports model types,
 // crewOverlay and crewBuffs only, never this module, so no cycle). GO-7b: a Ground Ops run brings home the
 // members still in the medical bay instead (applyGroundOpsInjuries).
@@ -1206,6 +1208,9 @@ function buildExpedition(
     groundOps: newGroundOpsState(groundSnapshot),
     // Squads SQ-4: the risk-aware flag (see above).
     risk: risk.profile,
+    // Field Kits FKR-1: the enemy ranks flag (enemyRanks.ts), stamped with the rank catalog's version, so a run in
+    // flight at the update (no flag) keeps fielding every enemy at Normal.
+    enemyRanks: { version: ENEMY_RANKS_VERSION },
   };
   return expedition;
 }

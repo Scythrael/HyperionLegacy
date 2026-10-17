@@ -68,6 +68,7 @@ import type {
   SecuritySpec,
   SnapshotMember,
   GroundStatus,
+  EnemyRank,
 } from "./model";
 import { SALVAGE_LOOT_POOLS, DEFAULT_GAMBIT_PROGRAMS, DEFAULT_MEMBER_GAMBIT, memberVariety } from "./model";
 import { makeRng, type Rng } from "./combat/rng";
@@ -324,6 +325,10 @@ export interface GroundCombatant {
   // hit chance x (1 - this)). Both absent on every combatant of a fight without cover, so it is the fight as before.
   range?: GroundRange;
   longRangeEvasion?: number;
+  // Field Kits FKR-1 (enemy ranks): an ENEMY's rank on a ranked run (groundFight.ts withEnemyRanks stamps every
+  // enemy of such a fight, its HP and power already scaled). Absent = Normal (every fight of an unranked run, and
+  // every member). No battle rule reads it yet; FKR-6's gambit rank conditions will.
+  rank?: EnemyRank;
 }
 
 // E-CREW (Task 20): the away team's frozen Senior Staff bonuses (stored on the Expedition at dispatch), as

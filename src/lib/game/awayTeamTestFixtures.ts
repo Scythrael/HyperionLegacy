@@ -71,9 +71,9 @@ export function withoutGroundOps(exp: Expedition): Expedition {
 // record differs). Tests that pin pre-SQ-4 flagged behavior dispatch, then strip it with this. Every other key
 // keeps its order. Pure: shallow copies (the input is never touched).
 // Ground Ops GO-8: a run dispatched before SQ-4 never had ship events either, so they come off too
-// (withoutShipEvents).
+// (withoutShipEvents). Field Kits FKR-1: nor enemy ranks (withoutEnemyRanks).
 export function withoutRisk(exp: Expedition): Expedition {
-  const rest = { ...withoutShipEvents(exp) };
+  const rest = { ...withoutShipEvents(withoutEnemyRanks(exp)) };
   delete rest.risk;
   rest.bodies = exp.bodies.map((b) => {
     const body = { ...b };
@@ -96,7 +96,10 @@ export function withoutShipEvents(exp: Expedition): Expedition {
 // before AF-1. The flag is the risk profile's `difficultyTier` (its presence makes a run affix-aware); a task
 // stamped on an affix-aware run also carries `affixes`, `difficultyScore`, `alert` and `visits`, which come off
 // too. Every other key keeps its order. A run without a profile is returned as it is. Pure: shallow copies.
-export function withoutAffixes(exp: Expedition): Expedition {
+// Field Kits FKR-1: a run dispatched before AF-1 never had enemy ranks either, so the flag comes off too
+// (withoutEnemyRanks), on every run.
+export function withoutAffixes(raw: Expedition): Expedition {
+  const exp = withoutEnemyRanks(raw);
   if (!exp.risk) return exp;
   const risk = { ...exp.risk } as Record<string, unknown>;
   delete risk.difficultyTier;
@@ -113,6 +116,34 @@ export function withoutAffixes(exp: Expedition): Expedition {
       }),
     })),
   };
+}
+
+// Field Kits FKR-1 (enemy ranks): the run WITHOUT its enemy ranks flag (`Expedition.enemyRanks`), i.e. the run the
+// same dispatch produced before FKR-1: every enemy Normal. Only the flag is stamped at dispatch (a fight's record
+// `ranks` appears only once a ranked run fights), so a dispatch record loses just that key. A run without the flag is
+// returned as it is; every other key keeps its order. Golden fixtures that dispatch (SF-0, G2-0, CP-0, WR-4 and the
+// earlier gates) strip it with this, so they keep proving nothing else moved. Pure: a shallow copy.
+export function withoutEnemyRanks(exp: Expedition): Expedition {
+  if (!("enemyRanks" in exp)) return exp;
+  const rest = { ...exp };
+  delete rest.enemyRanks;
+  return rest;
+}
+
+// A whole state with every expedition through withoutEnemyRanks (a fixture that dispatches through tick or holds the
+// state between steps). Identity when no run carries the flag. Pure.
+export function withoutEnemyRanksState(state: GameState): GameState {
+  if (!state.expeditions.some((e) => "enemyRanks" in e)) return state;
+  return { ...state, expeditions: state.expeditions.map(withoutEnemyRanks) };
+}
+
+// Field Kits FKR-1: a dispatch result turned into the run it was before FKR-1: the returned expedition and every
+// expedition in `next` lose the enemy ranks flag (withoutEnemyRanks). Tests that pin a real dispatch's pre-rank
+// trajectory (a seed picked for a wipe, a reinforcement, a stall) dispatch through this. A refusal is returned
+// unchanged. Pure.
+export function asPreRanksDispatch<R extends { next: GameState; expedition?: Expedition }>(res: R): R {
+  if (!res.expedition) return res;
+  return { ...res, expedition: withoutEnemyRanks(res.expedition), next: withoutEnemyRanksState(res.next) };
 }
 
 // Field Kits (FK-3, docs/plans/2026-10-14-field-kits-plan.md section 3): the run WITHOUT its Field Kits fields, i.e.
@@ -176,7 +207,9 @@ export function withoutFieldKitsState(state: GameState): GameState {
 // Objective affixes (AF-2): the run WITHOUT its affix CATALOG version, i.e. the affix-aware run the same dispatch
 // produced between AF-1 and AF-2 (its objectives stamp from AF-1's catalog, Reinforcing only, on AF-1's draw
 // layout). Every other key keeps its order. A run without a profile is returned as it is. Pure: shallow copies.
-export function withoutAffixCatalog(exp: Expedition): Expedition {
+// Field Kits FKR-1: a run dispatched before AF-2 never had enemy ranks either (withoutEnemyRanks), on every run.
+export function withoutAffixCatalog(raw: Expedition): Expedition {
+  const exp = withoutEnemyRanks(raw);
   if (!exp.risk) return exp;
   const risk = { ...exp.risk } as Record<string, unknown>;
   delete risk.affixCatalog;

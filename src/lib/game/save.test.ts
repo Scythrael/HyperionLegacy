@@ -39,7 +39,7 @@ import { awayRecruitSeedFrom, SENIOR_STAFF_DEFAULT_SEED } from "./model";
 import { emptyGroundTeams, isWellFormedShipGroundTeams, shipGroundTeams } from "./groundTeams";
 import { isValidComposition, shipTeamKinds } from "./groundComposition";
 import { deployableMembers } from "./awayTeam";
-import { asLegacyDispatch, asV67GroundState, plainAwayMember, withMinimumAwayTeam, withSlottedAwayTeams, withoutShipEvents } from "./awayTeamTestFixtures";
+import { asLegacyDispatch, asV67GroundState, plainAwayMember, withMinimumAwayTeam, withSlottedAwayTeams, withoutEnemyRanks, withoutShipEvents } from "./awayTeamTestFixtures";
 import { advanceExpedition, claimExpedition, expeditionCandidates, startExpedition } from "./expedition";
 import { tick } from "./tick";
 import type { GameState } from "./model";
@@ -6810,7 +6810,8 @@ describe("migrate, v67 -> v68 squad composition + the founding telescope (Squads
     // Ground Ops GO-8: a v67 build never froze ship-event inputs (it carried the neutral profile), so the run comes
     // off as that build dispatched it (withoutShipEvents). With them, its light hull damage would come home and the
     // GO-8 review's repair gate would rightly hold the NEXT dispatch below.
-    const raw = v67State({ ...launched.next, expeditions: launched.next.expeditions.map(withoutShipEvents) });
+    // Field Kits FKR-1: nor enemy ranks (withoutEnemyRanks): a v67 build never stamped the flag.
+    const raw = v67State({ ...launched.next, expeditions: launched.next.expeditions.map((e) => withoutShipEvents(withoutEnemyRanks(e))) });
     const viaStep = migrateFrom(67, JSON.parse(JSON.stringify(raw)));
     // SF-1: the "no step" load is handed the run counters the v69 -> v70 step derives from the same history.
     const noStep = migrateFrom(SAVE_VERSION, { ...JSON.parse(JSON.stringify(raw)), runCounts: veteranRunCountsV70(raw) });

@@ -51,6 +51,7 @@ import { fightPointCount, riskFightPointCount } from "./groundTasks";
 import { bodyFloraGrade } from "./riskFactors";
 import { threatAssessment, type ThreatAssessment, type ThreatTier } from "./combat/threatAssessment";
 import { hasCover, type GroundCover } from "./affixes";
+import { isTrainingRun, ranksLive } from "./enemyRanks";
 
 // ===== Constants =====
 
@@ -69,7 +70,8 @@ export const GROUND_THREAT_MEMO_SIZE = 256;
 
 // What a threat read needs from the run: the fields a task fight reads, plus the run seed for the sample keys.
 export type ThreatExp = TaskFightExp & Pick<Expedition, "seed">;
-type ThreatTask = Pick<ExpeditionActivity, "id" | "poiId" | "fightCount" | "pointsCleared" | "fightPoints">;
+// Field Kits FKR-1: `difficulty` places a ranked run's ranks (the final fight's lead; enemyRanks.ts).
+type ThreatTask = Pick<ExpeditionActivity, "id" | "poiId" | "fightCount" | "pointsCleared" | "fightPoints" | "difficulty">;
 
 export interface GroundThreatSample {
   win: boolean;
@@ -139,7 +141,9 @@ export function groundThreatSampleFights(
       exp,
       sampleTeams,
       body,
-      { id: task.id, poiId: task.poiId, pointsCleared: j, fightCount: fightCount + (j - cleared) },
+      // Field Kits FKR-1: the grade and the fight points ride along so a ranked run's final fight meets its lead (a
+      // task not yet stamped has no grade either, so it ranks nothing).
+      { id: task.id, poiId: task.poiId, pointsCleared: j, fightCount: fightCount + (j - cleared), difficulty: task.difficulty, fightPoints: task.fightPoints },
       groundThreatSampleSeed(exp, flatIndex, sample, j),
       carry,
       undefined,
@@ -161,6 +165,9 @@ export function groundThreatSampleFights(
 
 // The memo key's field lists. `satisfies Record<keyof T, true>` makes a field added to TaskFightExp,
 // GroundFightTeam or ThreatTask a compile error here until it is listed, so the key can never miss an input.
+// Field Kits FKR-1: the enemy ranks flag and the training run stamp (`difficulty`; and with them the task's grade) are
+// keyed apart, appended only on a ranked run (an unranked fight reads neither), so every unranked key reads exactly
+// as before.
 const EXP_KEY_FIELDS = {
   seed: true,
   id: true,
@@ -170,13 +177,13 @@ const EXP_KEY_FIELDS = {
   squadFearResist: true,
   hazardResist: true,
   teamKit: true,
-} as const satisfies Record<keyof ThreatExp, true>;
+} as const satisfies Record<Exclude<keyof ThreatExp, "enemyRanks" | "difficulty">, true>;
 const TEAM_KEY_FIELDS = { securityIds: true, downedThisTask: true, securityShare: true } as const satisfies Record<
   keyof GroundFightTeam,
   true
 >;
 const TASK_KEY_FIELDS = { id: true, poiId: true, fightCount: true, pointsCleared: true, fightPoints: true } as const satisfies Record<
-  keyof ThreatTask,
+  Exclude<keyof ThreatTask, "difficulty">,
   true
 >;
 
@@ -213,6 +220,9 @@ export function groundThreatOddsKey(
   // so it never reads as an alert level, appended only when either side has some.
   const escalation = alertLevel > 0 ? [alertLevel] : [];
   const covered = hasCover(cover) ? [["cover", cover.team, cover.enemy]] : [];
+  // Field Kits FKR-1: a ranked run's ranks shape the read (the catalog version, the objective's grade, the training
+  // run stamp), tagged and appended only on a ranked run.
+  const ranked = ranksLive(exp) ? [["ranks", exp.enemyRanks?.version, task.difficulty, isTrainingRun(exp)]] : [];
   return JSON.stringify(
     // Squads SQ-4: the body's risk shapes the read, so it is part of the key: its flora the fights (groundFight.ts
     // withFloraToxins), its combat and fauna an unstamped task's fight count (taskFightTotal). Absent risk: "u".
@@ -228,6 +238,7 @@ export function groundThreatOddsKey(
       carried,
       ...escalation,
       ...covered,
+      ...ranked,
     ],
     keyReplacer,
   );

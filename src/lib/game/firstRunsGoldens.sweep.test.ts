@@ -14,6 +14,7 @@ import { describe, expect, it } from "vitest";
 import type { ShipTypeKey } from "./model";
 import { advanceExpedition, makeExpeditionSeed, startExpedition } from "./expedition";
 import { hash, onHull, VAULT_SITES, runOutcome, SWEEP, SWEEP_END, withCrew, type CrewName } from "./firstRunsGoldens.fixture";
+import { asPreRanksDispatch } from "./awayTeamTestFixtures";
 
 const SEEDS = 60;
 const CHUNK = 3;
@@ -151,7 +152,8 @@ const GOLDEN: Record<string, string[]> = {
 };
 
 function code(seed: number, hull: ShipTypeKey, crew: CrewName): string {
-  const res = startExpedition(withCrew(onHull(hull, makeExpeditionSeed(0x1234567, seed)), crew), "ship-1", 1, "cand-0");
+  // Field Kits FKR-1: the run as dispatched before enemy ranks (the flag off), so the section 2.5 B table keeps its capture.
+  const res = asPreRanksDispatch(startExpedition(withCrew(onHull(hull, makeExpeditionSeed(0x1234567, seed)), crew), "ship-1", 1, "cand-0"));
   if (!res.success || !res.expedition) throw new Error(`dispatch refused: ${res.reason}`);
   expect(res.expedition.shakedown).toBe(true);
   const done = advanceExpedition(res.expedition, SWEEP_END);

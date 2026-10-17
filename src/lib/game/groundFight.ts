@@ -29,7 +29,8 @@
 // seed (gambit.ts NEURAL_BACKUP_SALT), never a draw on the fight's. Never the legacy COMBAT_SALT stream and
 // never a shared one. The result reads only the stored run and the arguments, so offline == live.
 //
-// Module graph: model (types), combat/rng, gambit, medicalBay, relics, groundTasks; never expedition.ts.
+// Module graph: model (types), combat/rng, gambit, medicalBay, relics, groundTasks, riskFactors, affixes, enemyRanks;
+// never expedition.ts.
 
 import type {
   Expedition,
@@ -59,6 +60,7 @@ import { resistedHazard } from "./relics";
 import { teamSnapshotMembers } from "./groundTasks";
 import { FLORA_POISON_PERMILLE_PER_GRADE, bodyFloraGrade } from "./riskFactors";
 import { escalationAt, hasCover, type GroundCover } from "./affixes";
+import { fightLeadRank, fightRankContext, rankedEnemies, ranksLive, withEnemyRanks, type RankedFightKind } from "./enemyRanks";
 
 // ===== Constants =====
 
@@ -235,44 +237,55 @@ export function withCover(
 // display-only events appended; it never changes the record. With nobody left to field there is no battle and
 // no draw: a loss of 0 rounds with nothing recorded (GO-7b sends the team home). `alertLevel` = the objective's
 // alert when the fight starts (objective affixes, AF-1: withEscalation; 0 = none). `cover` = the objective's cover
-// against long-range attacks (AF-2, Rocky Outcroppings: affixes.ts longRangeCover; absent = none). Pure; mints fresh
-// combatants and never mutates its inputs.
+// against long-range attacks (AF-2, Rocky Outcroppings: affixes.ts longRangeCover; absent = none). `kind` = where the
+// fight sits in the objective (Field Kits FKR-1, enemy ranks: a fight point, a surprise fight or a reinforcement
+// fight; only a ranked run reads it). Pure; mints fresh combatants and never mutates its inputs.
 export function resolveTaskFight(
   exp: Expedition,
   teams: readonly GroundFightTeam[],
   body: Pick<ExpeditionBody, "hazard" | "risk">,
-  task: Pick<ExpeditionActivity, "id" | "poiId" | "fightCount" | "pointsCleared">,
+  task: RankedFightTask,
   flatIndex: number,
   carried?: Readonly<Record<string, GroundMemberCarry>>,
   logSink?: GambitLogEvent[],
   alertLevel = 0,
   cover?: GroundCover,
+  kind: RankedFightKind = "point",
 ): GroundFightRecord {
-  return resolveTaskFightOnSeed(exp, teams, body, task, taskFightSeed(exp, flatIndex, task.fightCount ?? 0), carried, logSink, alertLevel, cover);
+  return resolveTaskFightOnSeed(exp, teams, body, task, taskFightSeed(exp, flatIndex, task.fightCount ?? 0), carried, logSink, alertLevel, cover, kind);
 }
 
+// The task fields a fight reads: its stream keys and site, plus (Field Kits FKR-1, ranked runs only) its stamped grade
+// and fight points, which place its ranks.
+export type RankedFightTask = Pick<ExpeditionActivity, "id" | "poiId" | "fightCount" | "pointsCleared" | "difficulty" | "fightPoints">;
+
 // Every Expedition field a task fight reads once its seed is chosen: the squad (taskFightTeam), the guard's
-// hazard (the museum resist) and the team kit. groundThreat.ts keys its memo on exactly these, so a new read
-// here must widen this type first (TypeScript then flags the memo's key list until it is listed too).
+// hazard (the museum resist), the team kit and (Field Kits FKR-1) the enemy ranks flag with the training run stamp
+// (enemyRanks.ts isTrainingRun reads `difficulty`). groundThreat.ts keys its memo on exactly these, so a new read here
+// must widen this type first (TypeScript then flags the memo's key list until it is listed too).
 export type TaskFightExp = Pick<
   Expedition,
-  "id" | "roster" | "securityStrength" | "squadTriage" | "squadFearResist" | "hazardResist" | "teamKit"
+  "id" | "roster" | "securityStrength" | "squadTriage" | "squadFearResist" | "hazardResist" | "teamKit" | "enemyRanks" | "difficulty"
 >;
 
 // THE fight body on a given stream seed. resolveTaskFight passes the real fight's keyed seed (above); the
 // threat indicator (groundThreat.ts, GO-6) passes its OWN salted sample seeds, so its samples field the same
 // squad and the same guard rules as a real fight while never touching a real fight's stream. Engine code
-// resolves a real fight through resolveTaskFight only. Pure; never mutates its inputs.
+// resolves a real fight through resolveTaskFight only. Field Kits FKR-1: on a RANKED run (enemyRanks.ts ranksLive)
+// the guard's ranks are placed AFTER the generation, the flora toxins and the escalation (enemyRanks.ts
+// withEnemyRanks; no draw), and the record lists every enemy not Normal; an unranked run never calls it. Pure; never
+// mutates its inputs.
 export function resolveTaskFightOnSeed(
   exp: TaskFightExp,
   teams: readonly GroundFightTeam[],
   body: Pick<ExpeditionBody, "hazard" | "risk">,
-  task: Pick<ExpeditionActivity, "id" | "poiId" | "fightCount" | "pointsCleared">,
+  task: RankedFightTask,
   seed: number,
   carried?: Readonly<Record<string, GroundMemberCarry>>,
   logSink?: GambitLogEvent[],
   alertLevel = 0,
   cover?: GroundCover,
+  kind: RankedFightKind = "point",
 ): GroundFightRecord {
   const fightNumber = task.fightCount ?? 0;
   const pointIndex = task.pointsCleared ?? 0;
@@ -284,6 +297,7 @@ export function resolveTaskFightOnSeed(
     withFloraToxins(generateEncounter(seed, resistedHazard(body.hazard, exp.hazardResist ?? 0), task.poiId), bodyFloraGrade(body)),
     alertLevel,
   );
+  if (ranksLive(exp)) withEnemyRanks(enemies, fightLeadRank(fightRankContext(exp, task, task.fightPoints?.length ?? 0, kind)));
   withCover(team, enemies, cover, exp.roster?.security);
   const result = resolveGroundBattle(team, enemies, exp.teamKit, makeRng(seed), logSink, seed);
 
@@ -308,5 +322,7 @@ export function resolveTaskFightOnSeed(
     memberEnd,
   };
   if (result.neuralBackup) record.neuralBackup = { ...result.neuralBackup };
+  const ranks = rankedEnemies(enemies);
+  if (ranks) record.ranks = ranks;
   return record;
 }

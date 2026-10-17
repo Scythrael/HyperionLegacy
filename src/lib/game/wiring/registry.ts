@@ -108,6 +108,7 @@ import { STATUS_EFFECT_DEFS } from "../combat/statusEffects";
 import { DC_REPAIR_SPEED_B, DC_REPAIR_SPEED_R, DC_WAVE_REGEN_B, DC_WAVE_REGEN_R, PF_HAZARD_RESIST_B, PF_HAZARD_RESIST_R, PF_SCAN_SPEED_B, PF_SCAN_SPEED_R } from "../utilityGear";
 import { DRONE_POD_AFFIX_POOL, DRONE_POD_IMPLICIT_STAT, WEAPON_AFFIX_POOL, WEAPON_IMPLICIT_STAT } from "../itemgen";
 import { AFFIX_DEFS, ESCALATION_ENEMIES_PER_LEVEL, HEIGHTENED_SENSES_KNEE, HEIGHTENED_SENSES_PER_LEVEL } from "../affixes";
+import { ENEMY_RANKS, ENEMY_RANK_IDS } from "../enemyRanks";
 import {
   WIRING_SCIENCE_ID,
   WIRING_SECURITY_ID,
@@ -263,6 +264,7 @@ export const CATALOGS = {
   POI_CATALOG,
   PLANET_TYPES,
   AFFIX_DEFS,
+  ENEMY_RANKS,
 } as const;
 export type Catalogs = typeof CATALOGS;
 
@@ -2320,6 +2322,29 @@ function affixEntries(): WiringEntry[] {
 }
 
 // ============================================================================
+// expedition: enemy ranks (Field Kits FKR-1, enemyRanks.ts ENEMY_RANKS)
+// ============================================================================
+
+// Every rank's ONE multiplier (user N1: HP and power alike), read through the fight's own placement step on a real
+// guard: the lead's power at that rank over its power at Normal equals the configured multiplier.
+function enemyRankEntries(): WiringEntry[] {
+  return ENEMY_RANK_IDS.map((rank) =>
+    entry({
+      id: `expedition:ENEMY_RANKS:${rank}`,
+      system: "expedition",
+      source: { catalog: "ENEMY_RANKS", key: rank },
+      claim: `${ENEMY_RANKS[rank].label} enemy rank: its HP and power take the rank multiplier`,
+      probe: `content:enemyRank:${rank}`,
+      contexts: ["ground"],
+      direction: "none",
+      curve: { kind: "equals" },
+      magnitude: (c) => c.ENEMY_RANKS[rank].mult,
+      on: sourceOn,
+    }),
+  );
+}
+
+// ============================================================================
 // crew scalars, the away team's crew strength, the medical bay
 // ============================================================================
 
@@ -2724,6 +2749,7 @@ function build(): readonly WiringEntry[] {
     ...missionEntries(),
     ...contentEntries(),
     ...affixEntries(),
+    ...enemyRankEntries(),
     ...crewScalarEntries(),
     ...medicalEntries(),
     ...auditEntries(),

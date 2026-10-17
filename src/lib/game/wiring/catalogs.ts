@@ -31,6 +31,7 @@ import {
   type MemberSlotType,
 } from "../model";
 import { AFFIX_DEFS, escalationAt } from "../affixes";
+import { ENEMY_RANK_IDS } from "../enemyRanks";
 import { SENIOR_STAFF_BONUSES } from "../seniorStaffBonuses";
 import { CREW_PROFESSION_BUFFS, SECOND_LEVEL_EXCLUSIVE } from "../crewBuffs";
 import { CREW_RACES } from "../crewRaces";
@@ -180,6 +181,8 @@ export function enumerateEffectSources(): EffectSource[] {
     ),
   );
   add("AFFIX_ESCALATION", Object.keys(escalationAt(1)));
+  // the enemy ranks (Field Kits FKR-1): one source per rank multiplier
+  add("ENEMY_RANKS", ENEMY_RANK_IDS);
   add("POI_CATALOG", POI_CATALOG.map((p) => p.id));
   add("SALVAGE_LOOT_POOLS", Object.keys(SALVAGE_LOOT_POOLS));
   // the data catalogs, field by field

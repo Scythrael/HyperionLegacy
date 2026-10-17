@@ -57,6 +57,7 @@ import { combatHullTypeOf, defaultSystemDurabilityForHull, foldedPlayerDefense, 
 import { battleRating, DEFAULT_SAMPLES } from "./combat/rating";
 import { threatAssessment } from "./combat/threatAssessment";
 import { CREW_NAMES, hash, onHull, runOutcome, stateHash, SWEEP, SWEEP_END, withCrew, type CrewName, type RunOutcome } from "./firstRunsGoldens.fixture";
+import { asPreRanksDispatch } from "./awayTeamTestFixtures";
 
 // ===== shared helpers =====
 
@@ -742,8 +743,9 @@ describe("SF-0 golden 3: gathering, one delivered cycle for every MISSIONS key x
 
 const FIRST_HULLS: ShipTypeKey[] = ["generalFreighter", "orion", "aurora", "eir"];
 
+// Field Kits FKR-1: the run as dispatched before enemy ranks (the flag off), so every SF-0 pin keeps its capture.
 function sweepRun(state: GameState, cand: string): { exp: Expedition; done: Expedition; claimed: GameState | null; next: GameState } {
-  const res = startExpedition(state, "ship-1", 1, cand);
+  const res = asPreRanksDispatch(startExpedition(state, "ship-1", 1, cand));
   if (!res.success || !res.expedition) throw new Error(`dispatch refused: ${res.reason}`);
   const done = advanceExpedition(res.expedition, SWEEP_END);
   let claimed: GameState | null = null;
@@ -797,7 +799,7 @@ describe("SF-0 golden 4: the first expedition (the shakedown) of the three fresh
   // record, log line and ship leg of the one-call run).
   it("offline == live: one call == 997 s chunks == the event-boundary chain on a stalled shakedown", () => {
     const H = 250_000;
-    const exp = startExpedition(withCrew(onHull("orion"), "d18"), "ship-1", 1, "cand-1").expedition!;
+    const exp = asPreRanksDispatch(startExpedition(withCrew(onHull("orion"), "d18"), "ship-1", 1, "cand-1")).expedition!; // FKR-1: flag off
     const frozen = structuredClone(exp);
     const one = advanceExpedition(exp, H);
     let e = exp;
