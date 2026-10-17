@@ -55,7 +55,7 @@ import type { CombatStance } from "./combat/positioning";
 import type { Combatant } from "./combat/types";
 import { rollHaul, scanStepKey } from "./gambit";
 import { equippedFor } from "./equipment";
-import { effectiveShipStats, officerCombatModsFromProfile, officerCombatProfile, officerRepairSpeedBonus, shipCrewContribution } from "./crewOverlay";
+import { effectiveShipStats, officerCombatModsFromProfile, officerCombatProfile, shipCrewContribution, shipRepairSpeedBonus } from "./crewOverlay";
 import { CREW_STAT_KEYS } from "./crewBuffs";
 import { departmentFacet } from "./officerStats";
 import { diminishing } from "./diminishing";
@@ -159,7 +159,8 @@ export function snapshotShipEventProfile(state: GameState, ship: ShipInstance): 
     officerCombat: structuredClone(officerCombatProfile(state, ship)),
     hullMax: 0,
     // GO-8b: the field repair's divisor (the Shipyard's: Rapid Recovery, Veteran Instincts, Engineering Constitution).
-    repairSpeed: officerRepairSpeedBonus(state, ship),
+    // CP-2: officers + the complement's Damage Control and Mission Turnaround, frozen here at dispatch.
+    repairSpeed: shipRepairSpeedBonus(state, ship),
   };
   const c = buildShipCombatant(ship.id, battle, 0, 0);
   battle.hullMax = c.hullMax;

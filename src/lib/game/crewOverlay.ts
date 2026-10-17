@@ -30,7 +30,8 @@
 import type { GameState, ShipInstance, ShipDerivedStats, SeniorStaffOfficer, CrewSignature, CrewBucket, OfficerCombatMods, SeniorStaffSeat, PromotionObjectiveKind } from "./model";
 import { shipDerivedStats } from "./model";
 import { equippedFor } from "./equipment";
-import { CREW_STAT_KEYS } from "./crewBuffs";
+import { CREW_PROFESSION_BUFFS, CREW_STAT_KEYS, SECOND_LEVEL_EXCLUSIVE } from "./crewBuffs";
+import { CREW_RACES } from "./crewRaces";
 import { contributionForSignature, rollupBuckets, totalCrew } from "./crew";
 import { officerRacialBonus } from "./seniorStaff";
 import { getSeniorStaffBonusById } from "./seniorStaffBonuses";
@@ -49,6 +50,7 @@ import {
 import { museumBonuses, type MuseumStat } from "./relics";
 // E-CREW 0.14.0 (Task 21): the officer stat facets (pure; imports no crew overlay code, so no cycle).
 import { constitutionRamp, departmentFacet, departmentStrengthMultipliers, seatFacet } from "./officerStats";
+import { diminishing } from "./diminishing";
 
 // ============================================================================
 // crew.* -> ship-stat mapping (FIRST-PASS, TUNABLE)
@@ -57,24 +59,30 @@ import { constitutionRamp, departmentFacet, departmentStrengthMultipliers, seatF
 // The crew rollup + officer fold produce a { crew.*: number } modifier map (fractional bonuses, e.g.
 // 0.02 == +2%). applyCrewOverlay reads ONLY the keys that have a REAL consumer today and folds them
 // onto ShipDerivedStats; every other crew.* key (surveyAptitude, sensors, boardingDefense,
-// awayTeamProtection, crewOutputMult, craftDuplicateChance, missionTurnaround, preventCrewLoss,
-// counterInfiltration, droneHandling, rareFindChance, crewEffectiveness, reducedCrewLosses, triage,
-// powerEfficiency, hullRepairRate, endurance, ...) is a NO-OP for now: its system has not landed, so it
+// awayTeamProtection, craftDuplicateChance, preventCrewLoss, counterInfiltration, droneHandling,
+// rareFindChance, reducedCrewLosses, triage, powerEfficiency, endurance, ...) is a NO-OP here: its system
+// has not landed (or it is read off the map by its own consumer, listed below), so it
 // maps to NOTHING and lies dormant until it does. (rareFindChance is no ship stat but is not dormant: the
 // expedition snapshots it at dispatch for the relic roll, E-CREW Task 15, and survey missions read it for
 // their rare-drop odds, Task 20. reducedCrewLosses is read at claim for injury recovery, Task 16.) The
 // mapping table:
 //
-//   crew.transitOutSpeed + crew.transitBackSpeed -> transitSpeedMult   (both legs share one speed mult)
+//   crew.transitOutSpeed                         -> transitOutLegMult  (the outbound leg only; CP-2, OC-E5)
+//   crew.transitBackSpeed                        -> transitBackLegMult (the return leg only; CP-2, OC-E5)
 //   crew.rangeEfficiency  + crew.fuelEfficiency  -> engineEfficiency   (0-based additive fuel-burn bonus)
 //   crew.effectiveCargo                          -> cargoCapacity      (multiplicative)
 //   crew.extractionYield                         -> extractionYieldMult (multiplicative)
 //   crew.unloadSpeed                             -> unloadSpeedMult    (divides unloadTicks in effectiveMissionDef)
+//   crew.missionTurnaround                       -> unloadSpeedMult    (x (1 + t), its unload half; CP-2)
 //
-// hullRepairRate + the combat keys map to NOTHING here on purpose: hull repair is a Shipyard timed
-// process (not a shipDerivedStats consumer) and combat power stays on installed combat gear so crew
-// never DOUBLE-DIPS weapons/shields (locked design). They become live when/if a derived-stats consumer
-// for them exists. All magnitudes above are first-pass; retuning happens in a later balance phase.
+// CP-2 (Complement and Acquisition plan): the keys read OFF this map by a direct consumer, not folded here:
+//   crew.hullRepairRate + crew.missionTurnaround -> the repair speed-up (crewRepairSpeedBonus: Shipyard + field repair)
+//   crew.crewOutputMult                          -> the mission output share (crewMissionOutputBonus)
+//   crew.crewEffectiveness                       -> every OTHER complement key x crewEffectivenessMultiplier (inside
+//                                                   rawShipCrewContribution, so every consumer inherits it)
+// The combat keys still map to NOTHING on purpose: combat power stays on installed combat gear so crew never
+// DOUBLE-DIPS weapons/shields (locked design, D12). All magnitudes above are first-pass; retuning happens in a
+// later balance phase.
 //
 // E-CREW 0.14.0 (Task 20, "officer bonuses go live", design 6.1 + D12): two OFFICER-ONLY keys ride this
 // same map so the ship-stat readout's per-source split (ShipSystemsPanel) and the museum's crewBonuses
@@ -84,8 +92,7 @@ import { constitutionRamp, departmentFacet, departmentStrengthMultipliers, seatF
 //   officer.missionTurnaroundCut (Veteran Instincts) -> unloadSpeedMult x (1 + b) (the unload half of
 //                                                       turnaround; the repair half is officerRepairSpeedBonus)
 // They are deliberately NOT the Complement's crew.crewOutputMult / crew.missionTurnaround keys: those
-// exclusive-pool buffs go live with their own consumers in Task 23, and sharing a key would light them
-// early or count the officer twice once they do.
+// exclusive-pool buffs have their own consumers (CP-2), and sharing a key would count the officer twice.
 //
 // E-CREW 0.14.0 (Task 21, officer stat facets, officerStats.ts): the Operations department's CONSTITUTION
 // facet (its share of a shorter turnaround) also rides officer.missionTurnaroundCut, and the STRENGTH facet
@@ -94,6 +101,19 @@ import { constitutionRamp, departmentFacet, departmentStrengthMultipliers, seatF
 // E-CREW 0.14.0 (Task 20): the officer-only pass-through keys (see the mapping-table note above).
 export const OFFICER_ALL_STATS_KEY = "officer.allStatsMult";
 export const OFFICER_TURNAROUND_KEY = "officer.missionTurnaroundCut";
+// Complement and Acquisition CP-2 (OC-E5): the Pilot's sweeping transit cut, both legs (transitSpeedMult). It used to
+// ride crew.transitOutSpeed, which now lifts the outbound leg only, so the officer keeps its own pass-through key.
+export const OFFICER_TRANSIT_KEY = "officer.transitTimeCut";
+
+// CP-2 (OC-3 answered 2026-10-16 "Boosts other buffs"): Crew Effectiveness (the Medical buff crew.crewEffectiveness
+// plus the Earth-born racial) multiplies every OTHER complement buff on the ship by 1 + diminishing(e, knee) (D23: a
+// concave curve, never a cap). [PROVISIONAL] the knee, one constant.
+export const CREW_EFFECTIVENESS_KNEE = 0.2;
+
+// The multiplier a summed Crew Effectiveness `e` gives the ship's other complement buffs. Exactly 1 at e <= 0. Pure.
+export function crewEffectivenessMultiplier(e: number): number {
+  return e > 0 ? 1 + diminishing(e, CREW_EFFECTIVENESS_KNEE) : 1;
+}
 
 // E-CREW 0.14.0 (Task 20): every officer bonus statKey has a live consumer EXCEPT these, whose system lands
 // later in this same release. The Task 22 "no dead stats" standing test reads this as its allow-list and
@@ -107,7 +127,7 @@ export const OFFICER_BONUSES_PENDING_IN_RELEASE: Readonly<Record<string, string>
 // value of null means "not through this map": since Task 20 every such bonus is read DIRECTLY by its
 // consumer (officerBonusTotal; listed below). Unknown officer statKeys are treated as null (defensive).
 const OFFICER_STATKEY_TO_CREW: Record<string, string | null> = {
-  "officer.transitTimeCut": CREW_STAT_KEYS.transitOutSpeed, // a sweeping transit cut == a speed lift
+  "officer.transitTimeCut": OFFICER_TRANSIT_KEY, // a sweeping transit cut == a speed lift on both legs (CP-2, OC-E5)
   "officer.effectiveCargoMult": CREW_STAT_KEYS.effectiveCargo,
   "officer.extractionYieldMult": CREW_STAT_KEYS.extractionYield,
   "officer.unloadTimeCut": CREW_STAT_KEYS.unloadSpeed,
@@ -152,21 +172,60 @@ const OFFICER_STATKEY_TO_CREW: Record<string, string | null> = {
 // unchanged, so a crew-free ship's stats are byte-identical to today. Only when a mapped key is
 // non-zero does it return a fresh, overlaid object.
 export function applyCrewOverlay(base: ShipDerivedStats, crew: Record<string, number>): ShipDerivedStats {
-  const transit = (crew[CREW_STAT_KEYS.transitOutSpeed] ?? 0) + (crew[CREW_STAT_KEYS.transitBackSpeed] ?? 0);
+  // CP-2 (OC-E5): the sweeping transit cut (the officer's, both legs) rides transitSpeedMult; the complement's
+  // Fast Departure and Fast Return each lift their own leg (applyLegLifts).
+  const transit = crew[OFFICER_TRANSIT_KEY] ?? 0;
+  const outLeg = crew[CREW_STAT_KEYS.transitOutSpeed] ?? 0;
+  const backLeg = crew[CREW_STAT_KEYS.transitBackSpeed] ?? 0;
   const range = (crew[CREW_STAT_KEYS.rangeEfficiency] ?? 0) + (crew[CREW_STAT_KEYS.fuelEfficiency] ?? 0);
   const cargo = crew[CREW_STAT_KEYS.effectiveCargo] ?? 0;
   const extraction = crew[CREW_STAT_KEYS.extractionYield] ?? 0;
   const unload = crew[CREW_STAT_KEYS.unloadSpeed] ?? 0;
+  // CP-2: the complement's Mission Turnaround, the unload half (its repair half is crewRepairSpeedBonus).
+  const crewTurnaround = crew[CREW_STAT_KEYS.missionTurnaround] ?? 0;
   // E-CREW Task 20: the officer-only lifts (Inspiring Leader, Veteran Instincts' unload half).
   const lift = crew[OFFICER_ALL_STATS_KEY] ?? 0;
   const turnaround = crew[OFFICER_TURNAROUND_KEY] ?? 0;
 
   // Neutral fast path: nothing mapped -> identity (same reference), the byte-identical guarantee.
-  if (transit === 0 && range === 0 && cargo === 0 && extraction === 0 && unload === 0 && lift === 0 && turnaround === 0) {
+  if (
+    transit === 0 &&
+    outLeg === 0 &&
+    backLeg === 0 &&
+    range === 0 &&
+    cargo === 0 &&
+    extraction === 0 &&
+    unload === 0 &&
+    crewTurnaround === 0 &&
+    lift === 0 &&
+    turnaround === 0
+  ) {
     return base;
   }
 
-  return applyOfficerLifts(applyMappedCrewStats(base, transit, range, cargo, extraction, unload), lift, turnaround);
+  const mapped = applyCrewTurnaround(applyLegLifts(applyMappedCrewStats(base, transit, range, cargo, extraction, unload), outLeg, backLeg), crewTurnaround);
+  return applyOfficerLifts(mapped, lift, turnaround);
+}
+
+// CP-2 (OC-E5, user 2026-10-15 "Each its own leg"): Fast Departure lifts the outbound leg and Fast Return the
+// return leg, each x (1 + b) on its own optional field (model.ts outboundLegSpeed / returnLegSpeed). A 0 lift
+// writes nothing, so `base` comes back unchanged without either buff.
+function applyLegLifts(base: ShipDerivedStats, outLeg: number, backLeg: number): ShipDerivedStats {
+  if (outLeg === 0 && backLeg === 0) return base;
+  return {
+    ...base,
+    ...(outLeg !== 0 ? { transitOutLegMult: (base.transitOutLegMult ?? 1) * (1 + outLeg) } : {}),
+    ...(backLeg !== 0 ? { transitBackLegMult: (base.transitBackLegMult ?? 1) * (1 + backLeg) } : {}),
+  };
+}
+
+// CP-2 (Task 23, design 6.2 exclusive pool): the complement's Mission Turnaround, unloadSpeedMult x (1 + t), the
+// unload half of a shorter turnaround (mirroring Veteran Instincts, on its OWN key so neither counts the other).
+// A complement buff that stacks with headcount, so it is linear per head like every other complement buff (each
+// head is bounded by the hull's crew cap); its repair half joins the D23 repair divisor. 0 returns `base`.
+function applyCrewTurnaround(base: ShipDerivedStats, t: number): ShipDerivedStats {
+  if (t === 0) return base;
+  return { ...base, unloadSpeedMult: (base.unloadSpeedMult ?? 1) * (1 + t) };
 }
 
 // The pre-Task-20 body of applyCrewOverlay (the five mapped crew keys), unchanged. With all five 0 it
@@ -318,7 +377,13 @@ function rawShipCrewContribution(state: GameState, ship: ShipInstance): Record<s
           }
         : contributionForSignature;
     const rollup = rollupBuckets(buckets, contrib);
-    for (const key of Object.keys(rollup)) add(key, rollup[key]);
+    // CP-2 (OC-3): Crew Effectiveness ("healthy crew work better", D26). The complement's own crew.crewEffectiveness
+    // (the Medical buff and the Earth-born per-head racial, already through the quarters and Strength multipliers
+    // above) plus every assigned officer's Earth-born racial lifts every OTHER complement key by
+    // crewEffectivenessMultiplier (D23 curve). It never scales itself, and the officers' own bonuses (added below) are
+    // not scaled. Exactly 1 without it, and then every value is added as before (no float op).
+    const lift = crewEffectivenessMultiplier((rollup[EFFECTIVENESS_KEY] ?? 0) + officerEffectivenessRacials(state, ship, bridgeMod));
+    for (const key of Object.keys(rollup)) add(key, lift === 1 || key === EFFECTIVENESS_KEY ? rollup[key] : rollup[key] * lift);
   }
 
   // --- Senior Staff officers assigned to THIS ship (assignedShipId is the assignment authority).
@@ -353,6 +418,21 @@ function rawShipCrewContribution(state: GameState, ship: ShipInstance): Record<s
   return out;
 }
 
+const EFFECTIVENESS_KEY = CREW_STAT_KEYS.crewEffectiveness;
+
+// CP-2 (OC-3): the Crew Effectiveness the officers assigned to `ship` add through their racial (Earth-born), at the
+// officer magnitude, bridge-module amp included exactly as the officer fold below applies it. 0 without one. Pure.
+function officerEffectivenessRacials(state: GameState, ship: ShipInstance, bridgeMod: ReturnType<typeof installedBridgeModule>): number {
+  let total = 0;
+  for (const officer of state.officers) {
+    if (officer.assignedShipId !== ship.id) continue;
+    const racial = officerRacialBonus(officer);
+    if (racial.statKey !== EFFECTIVENESS_KEY || racial.magnitude === 0) continue;
+    total += racial.magnitude * (bridgeMod ? bridgeOfficerMultiplier(bridgeMod, officer, hullSpecOf(ship)) : 1);
+  }
+  return total;
+}
+
 // The summed magnitude of every rolled officer bonus whose catalog statKey is `statKey`, across the officers
 // assigned to `ship`, amplified by the ship's bridge module exactly as rawShipCrewContribution amplifies
 // them (the stored magnitude is already rank-scaled; never re-scaled here). For an officer bonus whose
@@ -371,16 +451,24 @@ export function officerBonusTotal(state: GameState, ship: ShipInstance, statKey:
       total += bonus.magnitude * officerMult;
     }
   }
-  return total;
+  return total === 0 ? 0 : museumOfficerAmp(state, total);
+}
+
+// CP-2 (OC-E8, user 2026-10-15 "Officers too"): the Museum's crewBonuses (Xeno 4-piece) amplifies the officer bonuses
+// read DIRECTLY by their consumers exactly as it amplifies the crew map: x (1 + crewBonuses). An empty museum returns
+// `value` itself (no float op), so a save without the set is unchanged. Pure.
+function museumOfficerAmp(state: GameState, value: number): number {
+  const amp = museumBonuses(state).crewBonuses;
+  return amp === 0 ? value : value * (1 + amp);
 }
 
 // ============================================================================
 // E-CREW 0.14.0 (Task 20): the officer bonuses read DIRECTLY by their consumers
 // ============================================================================
 //
-// Direct reads (officerBonusTotal) carry the bridge-module amp but NOT the museum's crewBonuses
-// amplification, the same as Task 14's Evasive Command and Task 16's Rapid Recovery reads. (The ship-stat
-// lifts above ride the crew map, so the museum does amplify those.) FIRST-PASS; a balance-pass question.
+// Direct reads (officerBonusTotal) carry the bridge-module amp and, since CP-2 (OC-E8, "Officers too"), the
+// museum's crewBonuses amplification too, like the ship-stat lifts above that ride the crew map. The combat
+// profile below applies the same museum factor to each combat bonus.
 
 // One officer combat bonus on the ship, with the facets of the department it belongs to (E-CREW Task 21): the
 // bonus `kind`, its magnitude (bridge-module amp included, exactly as officerBonusTotal sums it), and the
@@ -409,6 +497,9 @@ const OFFICER_COMBAT_KIND_OF: Readonly<Record<string, OfficerCombatKind>> = {
 export function officerCombatProfile(state: GameState, ship: ShipInstance): OfficerCombatEntry[] {
   const bridgeMod = installedBridgeModule(state, ship);
   const hullSpec = hullSpecOf(ship);
+  // CP-2 (OC-E8): the museum's crewBonuses on the officer combat bonuses (0 with an empty museum: no float op), read
+  // only once a combat bonus is found (most ships carry none).
+  let museumAmp: number | undefined;
   const out: OfficerCombatEntry[] = [];
   const facets = new Map<SeniorStaffSeat, { integrity: number; constitution: number }>();
   for (const officer of state.officers) {
@@ -423,7 +514,9 @@ export function officerCombatProfile(state: GameState, ship: ShipInstance): Offi
         f = { integrity: seatFacet(state, ship, officer.seat, "integrity"), constitution: seatFacet(state, ship, officer.seat, "constitution") };
         facets.set(officer.seat, f);
       }
-      out.push({ kind, magnitude: bonus.magnitude * officerMult, integrity: f.integrity, constitution: f.constitution });
+      if (museumAmp === undefined) museumAmp = museumBonuses(state).crewBonuses;
+      const magnitude = museumAmp === 0 ? bonus.magnitude * officerMult : bonus.magnitude * officerMult * (1 + museumAmp);
+      out.push({ kind, magnitude, integrity: f.integrity, constitution: f.constitution });
     }
   }
   // E-CREW (Task 21 review calls): Engineering's Integrity, faster shield recharge below half hull. Appended
@@ -513,6 +606,75 @@ export function officerRepairSpeedBonus(state: GameState, ship: ShipInstance): n
 // delivered haul and credit award of this ship's runs grows by (economyTick). 0 without it. PURE.
 export function officerMissionOutputBonus(state: GameState, ship: ShipInstance): number {
   return officerBonusTotal(state, ship, "officer.shipOutputMult");
+}
+
+// ============================================================================
+// Complement and Acquisition CP-2: the complement's ship-side consumers read off the crew map
+// ============================================================================
+//
+// Each reads the ship's finished crew map (shipCrewContribution: complement + racials, Crew Effectiveness, the
+// quarters module, the Strength facet and the museum's crewBonuses all applied), so these keys inherit every
+// amplifier the live complement keys already get. 0 without the key, and the ship* sums below then return the
+// officer value itself, so a ship without these buffs reads exactly what it read before CP-2.
+
+// Damage Control (crew.hullRepairRate, plus the Stheni racial) and the repair half of Mission Turnaround
+// (crew.missionTurnaround): the complement's share of the repair speed-up. Pure.
+export function crewRepairSpeedBonus(state: GameState, ship: ShipInstance): number {
+  if (!carriesCrewKey(state, ship, CREW_STAT_KEYS.hullRepairRate) && !carriesCrewKey(state, ship, CREW_STAT_KEYS.missionTurnaround)) return 0;
+  const crew = shipCrewContribution(state, ship);
+  return (crew[CREW_STAT_KEYS.hullRepairRate] ?? 0) + (crew[CREW_STAT_KEYS.missionTurnaround] ?? 0);
+}
+
+// The crew-map sources of each crew.* key: the buffs that target it and the races whose racial does (catalog
+// data, built once). A ship carries the key only if a bucket or an assigned notable holds one of those buffs or
+// races, or an assigned officer is of one of those races (officer bonuses map through OFFICER_STATKEY_TO_CREW,
+// none of whose targets are read by the CP-2 consumers). A fast, exact guard: economyTick reads the output share
+// every tick, and most ships carry no such key, so the full map is built only when one could be non-zero.
+const KEY_SOURCES: ReadonlyMap<string, { buffs: ReadonlySet<string>; races: ReadonlySet<string> }> = (() => {
+  const out = new Map<string, { buffs: Set<string>; races: Set<string> }>();
+  const of = (key: string) => {
+    let e = out.get(key);
+    if (!e) out.set(key, (e = { buffs: new Set(), races: new Set() }));
+    return e;
+  };
+  for (const def of [...Object.values(CREW_PROFESSION_BUFFS).flat(), ...SECOND_LEVEL_EXCLUSIVE]) of(def.statKey).buffs.add(def.id);
+  for (const [race, def] of Object.entries(CREW_RACES)) of(def.racialBonus.statKey).races.add(race);
+  return out;
+})();
+
+function carriesCrewKey(state: GameState, ship: ShipInstance, key: string): boolean {
+  const src = KEY_SOURCES.get(key);
+  if (!src) return false;
+  const holds = (b: { buff1Id: string; buff2Id: string | null; race: string }): boolean =>
+    src.buffs.has(b.buff1Id) || (b.buff2Id !== null && src.buffs.has(b.buff2Id)) || src.races.has(b.race);
+  if (ship.complement?.buckets.some((b) => b.count > 0 && holds(b))) return true;
+  if (state.notableCrew.some((n) => (n.assignedShipId ?? null) === ship.id && holds(n))) return true;
+  return src.races.size > 0 && state.officers.some((o) => o.assignedShipId === ship.id && src.races.has(o.race));
+}
+
+// The whole repair speed-up every repair reads: the Shipyard divisor (tick.ts shipRepairDurationTicks divides the
+// repair by 1 + this, a D23 divisor: never 0, each point worth a little less) and the Ground Ops field repair
+// (frozen at dispatch, shipScanEvents.ts ShipEventBattle.repairSpeed). Officers + complement. Pure.
+export function shipRepairSpeedBonus(state: GameState, ship: ShipInstance): number {
+  const officers = officerRepairSpeedBonus(state, ship);
+  const crew = crewRepairSpeedBonus(state, ship);
+  return crew === 0 ? officers : officers + crew;
+}
+
+// Crew Output Multiplier (crew.crewOutputMult, OC-E3 "More mission + patrol haul"): the complement's share of the
+// mission output every delivered haul and credit award grows by. Pure.
+export function crewMissionOutputBonus(state: GameState, ship: ShipInstance): number {
+  if (!carriesCrewKey(state, ship, CREW_STAT_KEYS.crewOutputMult)) return 0;
+  return shipCrewContribution(state, ship)[CREW_STAT_KEYS.crewOutputMult] ?? 0;
+}
+
+// The whole mission output share economyTick applies (extraction / survey / transport deliveries and patrol wave
+// loot, through the existing whole-unit chanceRound streams; no new stream): Command Presence + Crew Output
+// Multiplier, one additive share. Loot is not battle power, so D12 holds. Pure.
+export function shipMissionOutputBonus(state: GameState, ship: ShipInstance): number {
+  const officers = officerMissionOutputBonus(state, ship);
+  const crew = crewMissionOutputBonus(state, ship);
+  return crew === 0 ? officers : officers + crew;
 }
 
 // ============================================================================

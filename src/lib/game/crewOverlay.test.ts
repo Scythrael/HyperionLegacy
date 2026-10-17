@@ -15,6 +15,7 @@ import {
   effectiveShipStats,
   resolveCrew,
   foldOfficerMissionCompletions,
+  crewEffectivenessMultiplier,
 } from "./crewOverlay";
 import {
   freshState,
@@ -39,7 +40,9 @@ function bucket(overrides: Partial<CrewBucket> & Pick<CrewBucket, "buff1Id">): C
     profession: "operations",
     rarity: "standard", // x1.0
     rank: 1, // x1.0
-    race: "earthBorn", // racial crew.crewEffectiveness (a DORMANT key), so it never perturbs a mapped stat
+    // racial crew.crewEffectiveness: since CP-2 it lifts every OTHER complement key by crewEffectivenessMultiplier
+    // (0.0004 per head), so the expectations below include that lift.
+    race: "earthBorn",
     buff2Id: null,
     count: 1,
     ...overrides, // includes the required buff1Id
@@ -74,8 +77,9 @@ describe("applyCrewOverlay", () => {
     expect(applyCrewOverlay(base, {})).toBe(base);
   });
 
-  it("is a no-op (same reference) when only DORMANT keys are present", () => {
-    // crewEffectiveness / surveyAptitude / boardingDefense etc. map to nothing yet.
+  it("is a no-op (same reference) when only keys it does not fold are present", () => {
+    // surveyAptitude / boardingDefense map to nothing here; crewEffectiveness and hullRepairRate are read by their
+    // own consumers (the rollup lift and the repair speed-up, CP-2), never by the overlay.
     const dormant = {
       [CREW_STAT_KEYS.crewEffectiveness]: 0.5,
       [CREW_STAT_KEYS.surveyAptitude]: 0.5,
@@ -85,11 +89,11 @@ describe("applyCrewOverlay", () => {
     expect(applyCrewOverlay(base, dormant)).toBe(base);
   });
 
-  it("scales cargo, transit (both legs), extraction, and adds range; sets unloadSpeedMult", () => {
+  it("scales cargo, each transit leg on its own, extraction, and adds range; sets unloadSpeedMult", () => {
     const crew = {
       [CREW_STAT_KEYS.effectiveCargo]: 0.1,
-      [CREW_STAT_KEYS.transitOutSpeed]: 0.02,
-      [CREW_STAT_KEYS.transitBackSpeed]: 0.03, // summed with transitOut -> +0.05 transit
+      [CREW_STAT_KEYS.transitOutSpeed]: 0.02, // CP-2 (OC-E5): the outbound leg only
+      [CREW_STAT_KEYS.transitBackSpeed]: 0.03, // the return leg only
       [CREW_STAT_KEYS.extractionYield]: 0.2,
       [CREW_STAT_KEYS.rangeEfficiency]: 0.04,
       [CREW_STAT_KEYS.fuelEfficiency]: 0.01, // summed with range -> +0.05 additive to engineEfficiency
@@ -97,7 +101,9 @@ describe("applyCrewOverlay", () => {
     };
     const out = applyCrewOverlay(base, crew);
     expect(out.cargoCapacity).toBeCloseTo(base.cargoCapacity * 1.1, 9);
-    expect(out.transitSpeedMult).toBeCloseTo(base.transitSpeedMult * 1.05, 9);
+    expect(out.transitSpeedMult).toBe(base.transitSpeedMult);
+    expect(out.transitOutLegMult).toBeCloseTo(1.02, 12);
+    expect(out.transitBackLegMult).toBeCloseTo(1.03, 12);
     expect(out.extractionYieldMult).toBeCloseTo(base.extractionYieldMult * 1.2, 9);
     expect(out.engineEfficiency).toBeCloseTo(base.engineEfficiency + 0.05, 9);
     expect(out.unloadSpeedMult).toBeCloseTo(1.25, 9);
@@ -119,9 +125,10 @@ describe("shipCrewContribution", () => {
   it("rolls up a complement into crew.* keys (buff + racial)", () => {
     const s = stateWith([bucket({ buff1Id: "ops.unloadSpeed", count: 100 })], []);
     const contrib = shipCrewContribution(s, ship(s));
-    // ops.unloadSpeed magnitude 0.002 * 100 = 0.2 (standard x1, rank1 x1).
-    expect(contrib[CREW_STAT_KEYS.unloadSpeed]).toBeCloseTo(0.2, 9);
-    // earthBorn racial crew.crewEffectiveness complement 0.0004 * 100 = 0.04 (dormant, still summed).
+    // ops.unloadSpeed magnitude 0.002 * 100 = 0.2 (standard x1, rank1 x1), lifted by the crew's own Earth-born
+    // Crew Effectiveness (0.0004 * 100 = 0.04, CP-2).
+    expect(contrib[CREW_STAT_KEYS.unloadSpeed]).toBeCloseTo(0.2 * crewEffectivenessMultiplier(0.04), 12);
+    // earthBorn racial crew.crewEffectiveness complement 0.0004 * 100 = 0.04 (never scales itself).
     expect(contrib[CREW_STAT_KEYS.crewEffectiveness]).toBeCloseTo(0.04, 9);
   });
 
@@ -148,9 +155,10 @@ describe("shipCrewContribution", () => {
         buff1Id: "ops.unloadSpeed", buff2Id: null, name: "Standout", gender: "nonbinary", assignedShipId: "ship-1" },
     ];
     const contrib = shipCrewContribution(s, ship(s));
-    // one crew of the ops.unloadSpeed signature (standard x1, rank1 x1): magnitude 0.002 * 1.
-    expect(contrib[CREW_STAT_KEYS.unloadSpeed]).toBeCloseTo(0.002, 9);
-    // earthBorn racial crew.crewEffectiveness complement 0.0004 * 1 (dormant, still summed).
+    // one crew of the ops.unloadSpeed signature (standard x1, rank1 x1): magnitude 0.002 * 1, with its own Earth-born
+    // Crew Effectiveness lift (CP-2).
+    expect(contrib[CREW_STAT_KEYS.unloadSpeed]).toBeCloseTo(0.002 * crewEffectivenessMultiplier(0.0004), 15);
+    // earthBorn racial crew.crewEffectiveness complement 0.0004 * 1.
     expect(contrib[CREW_STAT_KEYS.crewEffectiveness]).toBeCloseTo(0.0004, 9);
   });
 
@@ -201,8 +209,8 @@ describe("effectiveShipStats", () => {
     const ship = s.ships.find((sh) => sh.id === "ship-1")!;
     const boosted = effectiveShipStats(s, ship);
     const bare = shipDerivedStats(ship, []);
-    // ops.effectiveCargo 0.0015 * 100 = 0.15 -> +15% cargo.
-    expect(boosted.cargoCapacity).toBeCloseTo(bare.cargoCapacity * 1.15, 6);
+    // ops.effectiveCargo 0.0015 * 100 = 0.15 -> +15% cargo, lifted by the crew's Earth-born Crew Effectiveness (CP-2).
+    expect(boosted.cargoCapacity).toBeCloseTo(bare.cargoCapacity * (1 + 0.15 * crewEffectivenessMultiplier(0.04)), 9);
   });
 });
 

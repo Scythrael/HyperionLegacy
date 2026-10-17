@@ -328,11 +328,10 @@ import {
   resolveCrew,
   foldOfficerMissionCompletions,
   foldOfficerPromotionCounters,
-  officerCombatMods,
   officerCombatModsFromProfile,
   officerCombatProfile,
-  officerMissionOutputBonus,
-  officerRepairSpeedBonus,
+  shipMissionOutputBonus,
+  shipRepairSpeedBonus,
   shipCrewContribution,
   type OfficerCombatEntry,
 } from "./crewOverlay";
@@ -1825,7 +1824,8 @@ export function tickCaptainMission(
     bonusRollChance?: number;
     bonusRollChanceMult?: number;
     // E-CREW 0.14.0 (Task 20): Command Presence, the share every DELIVERED haul and credit award of this
-    // mission grows by (crewOverlay.ts officerMissionOutputBonus). Applied at the delivery branch below,
+    // mission grows by (crewOverlay.ts shipMissionOutputBonus: Command Presence + the complement's Crew Output
+    // Multiplier since CP-2). Applied at the delivery branch below,
     // ONCE per completed cycle, so it is a per-cycle constant (closed-form safe). Absent / 0 = no change.
     missionOutputMult?: number;
     // E-CREW 0.14.0 (Task 21): the CUNNING facets of the ship's Operations and Science departments
@@ -4021,7 +4021,8 @@ export function economyTick(
           // Integrity extras) at the run's hours, and rolls Engineering's Cunning for each new cycle.
           patrolShip
             ? {
-                outputShare: officerMissionOutputBonus(state, patrolShip),
+                // CP-2 (OC-E3): plus the complement's Crew Output Multiplier (shipMissionOutputBonus).
+                outputShare: shipMissionOutputBonus(state, patrolShip),
                 relaunchCombatProfile: officerCombatProfile(state, patrolShip),
                 secondsPerTick: state.tickDurationSeconds,
                 freeRepairChance: departmentFacet(state, patrolShip, "engineering", "cunning"),
@@ -4219,7 +4220,8 @@ export function economyTick(
       rareYieldMult: fleetRareYield,
       rareChanceMult: surveyRareFind === 0 ? captainRareChanceMult(captain) : captainRareChanceMult(captain) + surveyRareFind,
       // E-CREW 0.14.0 (Task 20): Command Presence (the ship's mission output; 0 without the officer).
-      missionOutputMult: ship ? officerMissionOutputBonus(state, ship) : 0,
+      // CP-2 (OC-E3): plus the complement's Crew Output Multiplier (0 without the buff).
+      missionOutputMult: ship ? shipMissionOutputBonus(state, ship) : 0,
       // E-CREW 0.14.0 (Task 21): the Operations / Science departments' Cunning (0 without a facet).
       cunningOperationsChance: ship ? departmentFacet(state, ship, "operations", "cunning") : 0,
       cunningScienceChance: ship ? departmentFacet(state, ship, "science", "cunning") : 0,
@@ -5052,6 +5054,14 @@ export { patrolWaveParams } from "./combat/waveSchedule";
 // E-CREW 0.14.0 (Task 21 review calls, Flight Deck CONSTITUTION): how many ticks a patrol cycle's return leg
 // is cut by, given the Flight Deck's facet and the run's hours when the leg starts: transitBack minus
 // ceil(transitBack / (1 + ramp)), the leg never below 1 tick. 0 without the facet. Pure.
+// Complement and Acquisition CP-2 (OC-E13, B17): the hours a patrol's FIRST cycle samples the Constitution combat ramp
+// at: the middle of its own route (a fresh patrol has flown 0 hours at dispatch, so a start sample never ramps and a
+// Dispatch Once patrol never did). Relaunches keep their sample (the hours flown before the new cycle), which is
+// always later than this, so the ramp still only grows cycle by cycle. Pure.
+export function patrolCycleOneRampHours(def: PatrolDef, secondsPerTick: number): number {
+  return ((def.transitOutTicks + def.rollWindowTicks + def.transitBackTicks) * secondsPerTick) / 2 / 3600;
+}
+
 export function patrolReturnCutTicks(def: PatrolDef, facet: number, hoursBeforeLeg: number): number {
   const ramp = constitutionRamp(facet, hoursBeforeLeg);
   if (ramp === 0) return 0;
@@ -5470,7 +5480,10 @@ export function dispatchCaptainOnPatrol(
   // keys the drone id prefix to masterSeed. Dispatch passes the dispatch-time stance /
   // masterSeed / repeatDispatch.
   // E-CREW (Task 20): freeze the seated officers' combat bonuses onto the first cycle (undefined = none).
-  const officerCombat = officerCombatMods(state, ship);
+  // CP-2 (OC-E13, B17, user 2026-10-15 "Ramp cycle 1 too"): folded at the first cycle's own mid-route sample, so a
+  // Dispatch Once patrol's Constitution ramps too. Without a Constitution facet the ramp is 0 at any hour and this is
+  // exactly officerCombatMods (the 0-hour fold).
+  const officerCombat = officerCombatModsFromProfile(officerCombatProfile(state, ship), patrolCycleOneRampHours(PATROLS[patrolKey], state.tickDurationSeconds));
   // E-CREW (Task 21): the first cycle's Engineering Cunning roll, keyed on its masterSeed (0 hours: no ramp).
   const freeRepairTicks = cunningProc(masterSeed, "engineering", departmentFacet(state, ship, "engineering", "cunning"))
     ? CUNNING_FREE_REPAIR_TICKS
@@ -7224,7 +7237,8 @@ export function startShipBuild(
 // production path is unchanged there too; only upgraded plating (a bigger real hull) differs.
 // PURE: reads the ship + static SHIP_TYPES + the passed gear, mutates nothing.
 // E-CREW 0.14.0 (Task 20): `officerSpeedBonus` is the seated officers' repair speed-up (crewOverlay.ts
-// officerRepairSpeedBonus: Rapid Recovery + Veteran Instincts), decided at process creation like the suite
+// shipRepairSpeedBonus: Rapid Recovery + Veteran Instincts, plus the complement's Damage Control and Mission
+// Turnaround since CP-2), decided at process creation like the suite
 // below. The base repair DIVIDES by (1 + bonus) (ceil, >= 1 tick): a D23 divisor, never 0 and each point
 // worth a little less. 0 (the default, and every ship without those officers) returns the base unchanged.
 export function shipRepairDurationTicks(
@@ -7306,7 +7320,8 @@ export function processShipRepairs(state: GameState): GameState {
       working,
       "shipRepair",
       {},
-      shipRepairDurationTicks(ship, equippedFor(state, ship.id), officerRepairSpeedBonus(state, ship)),
+      // CP-2: officers + the complement's Damage Control and Mission Turnaround (shipRepairSpeedBonus).
+      shipRepairDurationTicks(ship, equippedFor(state, ship.id), shipRepairSpeedBonus(state, ship)),
       {
         type: "clearShipDamage",
         shipId: ship.id,

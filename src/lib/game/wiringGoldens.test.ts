@@ -55,6 +55,7 @@ import { addItemQuality } from "./inventory";
 import { advanceExpedition, claimExpedition, expeditionCandidates, startExpedition } from "./expedition";
 import { asPreRanksDispatch, plainAwayMember, withSlottedAwayTeams } from "./awayTeamTestFixtures";
 import { seatOfficer, withFacilityLevel } from "./wiring/probes";
+import { withCp2Off } from "./complementCp2Switch.fixture";
 
 // ===== shared helpers =====
 
@@ -184,11 +185,17 @@ const GOLDEN: Record<string, string | string[]> = {
     "eir:59a618c0",
   ],
   // Re-pinned by WR-4 (OC-C2): Dense Ore for Cobalt Ore; pre-fix e0bbc3d2 (naming denseOre back reproduces it).
-  lunarMine: "8e6c6c4c",
+  // Re-pinned by CP-2 (WR-4 8e6c6c4c): the passive mission ship takes transport crew mid-run whose Earth-born racials
+  // and Crew Effectiveness now lift its other complement buffs; with the CP-2 effects switched off the run
+  // reproduces 8e6c6c4c (LUNAR_MINE_CP2_OFF).
+  lunarMine: "77bdfad2",
   // Re-pinned by WR-4 (B4, OC-E10): the seated officer's promotion counters (crewHours while out, then the claim's
   // personnelAchievement); the dispatch record and the resolved run are unchanged.
   expedition: ["1fc7c9e6", "1dae182b", "1f818423", "a991930"],
 };
+
+// The WR-4 capture of the Lunar Mine run (before CP-2), reproduced with the CP-2 effects switched off.
+const LUNAR_MINE_CP2_OFF = "8e6c6c4c";
 
 describe("WR-4 pre-fix goldens", () => {
   it("dispatch: every mission's gate at the ore cap, then every allowed mission run 300 s", () => {
@@ -227,7 +234,7 @@ describe("WR-4 pre-fix goldens", () => {
   });
 
   it("patrol: a Repeat patrol on a destroyer with a seated tactical officer, relaunched, with the display replay", () => {
-    const st = seatOfficer(installMissingCombatBaselines(rich(onHull(freshState(), "destroyer"))), "tactical", ["tac.weaponCommand"]);
+    const st = seatOfficer(installMissingCombatBaselines(rich(onHull(freshState(), "destroyer"))), "tactical", ["tac.weaponCommand"], { race: "earthBorn" });
     expect(st.officers.length).toBe(1);
     const r = dispatchCaptainOnPatrol(st, 1, "crimsonReaverSweep", "balanced", true);
     expect(r.success).toBe(true);
@@ -310,6 +317,8 @@ describe("WR-4 pre-fix goldens", () => {
     expect(r.success).toBe(true);
     const s = runTicks(r.next, 2000, lcg(0x10a1));
     expect(hashState(s)).toEqual(GOLDEN.lunarMine);
+    // CP-2's "turn it off" proof: its switched effects are the only thing it moved here.
+    expect(withCp2Off(() => hashState(runTicks(r.next, 2000, lcg(0x10a1))))).toEqual(LUNAR_MINE_CP2_OFF);
   });
 
   it("expedition: a Ground Ops run with a seated officer, through claim", () => {
@@ -318,7 +327,7 @@ describe("WR-4 pre-fix goldens", () => {
       { ...plainAwayMember("member-2", "security", "ship-1"), rank: 2, traits: ["fieldMedic"] },
       plainAwayMember("member-11", "science", "ship-1"),
     ];
-    const s0 = seatOfficer(withSlottedAwayTeams({ ...freshState(), awayMembers: squad, nextAwayMemberId: 100, expeditionSeed: 0x1234 }), "science", ["sci.discovery"]);
+    const s0 = seatOfficer(withSlottedAwayTeams({ ...freshState(), awayMembers: squad, nextAwayMemberId: 100, expeditionSeed: 0x1234 }), "science", ["sci.discovery"], { race: "earthBorn" });
     // Field Kits FKR-1: the run as dispatched before enemy ranks (the flag off), so it keeps its capture.
     const res = asPreRanksDispatch(startExpedition(s0, "ship-1", 1, expeditionCandidates(s0, "ship-1")[0].id));
     if (!res.success || !res.expedition) throw new Error(`dispatch refused: ${res.reason}`);
