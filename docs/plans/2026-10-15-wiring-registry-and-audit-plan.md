@@ -966,6 +966,57 @@ frozen per cycle beside `officerCombat`; chance effects reuse existing rolls or 
 WR-5a prospector (extraction, logistics, trade; 14 nodes), WR-5b tactician (gunnery, aegis, fleetOps; 15 nodes), WR-5c
 explorer (surveySensors, expeditionRelics, commandCrew; 15 nodes). Sequential (shared `tick.ts` and `bridge.ts`).
 
+#### WR-5b carry note (built 2026-10-17; two commits: goldens, then the wiring)
+
+**Built:** `captainTacticianEffects.ts` (the readers: `captainCombatMods`, the frozen `CaptainCombatMods` record, the
+repair and patrol reward factors, each node's exact text), `combat/captainEdge.ts` (the battle side: the fold onto a
+fresh player combatant and its drone screen, the projectile and drone damage banks, the incoming hit chance, the
+weapon charge clock, Bulwark's lethal-hit save), `captainSecondaryEffects.ts` (the tooltip and registry claim text;
+App.svelte's describer reads it). Tests: `captainTacticianEffects.test.ts` (21: every node at its consumer, a real
+resolveBattle or patrol, at its catalog magnitude), `tacticianGoldens.test.ts` (captured first).
+
+**Rulings applied:** every node is its own x (1 + m) factor folded after the officers ("Always multiply"); it acts on
+the ship its captain commands; frozen per patrol cycle (`PatrolMissionState.captainCombat`, dispatch and each
+relaunch, read by the live loop and the replay) and at dispatch for the Ground Ops ship events
+(`ShipEventBattle.captainCombat`); the Shipyard repair reads it when the repair starts. No draw anywhere: fractional
+factors bank integer thousandths (a weapon's `damageCarryMilli`, the battle's per-combatant drone carry) or
+hundredths (the weapon charge clock), so 5% of a 4-point hit is exact over a battle. No new salt.
+
+**Each node:** gunnery1 projectile damage x1.05; gunnery2 weapon accuracy x1.05 (rounded); gunnery3 x1.08 while the
+target is above half hull; gunnery4 the cooldown clock runs 1.08x; gunnery5 x1.5 on each weapon's first shot of a
+battle (capstone 0.5); aegis1 shield pool and recharge x1.05; aegis2 hull pool x1.05; aegis3 the Shipyard divisor,
+the Ground Ops field repair divisor and the Damage Control Suite's between-wave fraction x1.08; aegis4 incoming hit
+chance / 1.05; aegis5 one lethal hit per battle leaves 1 hull (capstone 1); fleetOps1 drone hit damage x1.05;
+fleetOps2 drone hit points x1.05; fleetOps3 won patrol waves' loot and credits x1.08 (the wave's existing private
+output-rounding stream); fleetOps4 drone replenish rate x1.05; fleetOps5 +1 squadron copied from the first installed
+pod (capstone 1; none without a pod).
+
+**[PROVISIONAL]:** aegis4 as a divisor on the incoming hit chance (the ship's own evasion is 0 without an Evasive
+Command officer, so a multiplier on it would be dead; alternative +5 evasion points). fleetOps4 Wing Commander as the
+plan table's drone replenish (no multi-ship system). gunnery5's "first shot" is each weapon's first shot of the
+battle: OC-D9 (enemies start at range) is not built, every fight opens at position 0; when it lands the opening shot
+is still each weapon's first.
+
+**Registry:** the 15 Tactician entries are live (30 sensitivity checks: patrol + shipEvent for the battle nodes,
+Shipyard + Ground Ops + patrol for aegis3, patrol for fleetOps3); claims read the tooltip helper. New probes in
+`probes.ts` (captainShotDamage, captainShotDamageHighHealth, captainOpeningShot, captainWeaponAccuracy,
+captainWeaponCooldown, captainIncomingHit, captainLethalSurvived, captainDroneShot, battleDroneHp,
+battleDroneReplenish, battleDroneSquadrons, patrolRewardMult, captainRepairRate); `playerCombatant` and `repairTicks`
+now read the captain too (unchanged without a node).
+
+**Goldens moved (every move in `tacticianGoldens.test.ts`'s header):** the no-node row never moved; each node's row
+moves only in the columns its effect touches (the dispatch record carries the frozen record; replays and the event
+battle where the fight changes; the final state where the run ends differently; the repair ticks for aegis3 only).
+No other golden in the suite moved.
+
+**Not in this slice / merge notes:** WR-5a (built in parallel) adds the "no secondary buys while the captain's ship
+is out" guard; WR-5b relies on it (not duplicated). `captainSecondaryEffects.ts` is created here AND by WR-5a: keep
+WR-5a's file and route its text through `prospectorText(key) ?? tacticianEffectText(key) ?? genericText(effect)`
+(and drop its alphaStrike / bulwark / wolfpack taglines); `model.ts` capstone type gains `magnitude?` on both sides; the
+registry's `TACTICIAN_SEAMS` and WR-5a's `PROSPECTOR_SEAMS` sit side by side in `secondaryEntries`. The patrol
+forecast (`rating.ts`, App's dispatch forecast) and the ship sheet's hull and shield readouts include neither officers
+nor the captain today; they stay that way (a display follow-up if wanted).
+
 ### WR-6: Placeholders and partial talents elsewhere (captain primary, spec, race; Homeworld)
 
 tacticianHub, explorerHub, the tactical / science spec bonuses, the captain racial (OC-A40 to OC-A43);

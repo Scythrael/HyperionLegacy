@@ -17,13 +17,12 @@
 import { describe, expect, it } from "vitest";
 import Decimal from "break_infinity.js";
 import { freshState, type EquipmentInstance, type GameState, type PatrolMissionState, type SecondaryTalentKey } from "./model";
-import { dispatchCaptainOnPatrol, economyTick, installMissingCombatBaselines, shipRepairDurationTicks } from "./tick";
+import { dispatchCaptainOnPatrol, economyTick, installMissingCombatBaselines, shipRepairDurationTicks, shipyardRepairSpeedBonus } from "./tick";
 import { replayPatrol } from "./combat/patrolReplay";
 import { resolveBattle } from "./combat/resolveBattle";
 import { shipToCombatant } from "./combat/bridge";
 import { makeWeaponInstance } from "./combat/weapons";
 import { equippedFor } from "./equipment";
-import { officerRepairSpeedBonus } from "./crewOverlay";
 import { generateEquipment } from "./itemgen";
 import { DAMAGE_CONTROL_SUITE_KEY } from "./utilityGear";
 import { CLOAKED_VESSEL_HULL, buildShipCombatant, snapshotShipEventProfile } from "./shipScanEvents";
@@ -108,7 +107,9 @@ function eventRow(s0: GameState): string[] {
 
 function repairRow(s0: GameState): string {
   const ship = { ...s0.ships[0], damaged: true, repairDamage: 437 };
-  return String(shipRepairDurationTicks(ship, equippedFor(s0, ship.id), officerRepairSpeedBonus(s0, ship)));
+  // WR-5b: the Shipyard's divisor is shipyardRepairSpeedBonus now (the officers' x the captain's Damage Control),
+  // exactly officerRepairSpeedBonus without the node (the capture's call), so the no-node row reads the same.
+  return String(shipRepairDurationTicks(ship, equippedFor(s0, ship.id), shipyardRepairSpeedBonus(s0, ship)));
 }
 
 const TACTICIAN: readonly SecondaryTalentKey[] = [
@@ -117,24 +118,43 @@ const TACTICIAN: readonly SecondaryTalentKey[] = [
   "fleetOps1", "fleetOps2", "fleetOps3", "fleetOps4", "fleetOps5",
 ];
 
+// Re-pinned by WR-5b (the nodes wired). The `none` row never moved: a save without a node is byte-identical. Per node,
+// the columns that moved (every other column is the capture) and why:
+//   gunnery1: dispatch, replay@12, replay@25, eventProfile, eventBattle (the frozen record; every projectile x1.05).
+//   gunnery2: dispatch, replay@12, replay@25, eventProfile, eventBattle (the frozen record; accuracy x1.05, so more hits land).
+//   gunnery3: dispatch, replay@12, replay@25, eventProfile, eventBattle (the frozen record; x1.08 on a target above half hull).
+//   gunnery4: dispatch, replay@12, replay@25, eventProfile, eventBattle (the frozen record; weapons recharge 1.08x as fast).
+//   gunnery5: dispatch, replay@12, replay@25, eventProfile, eventBattle (the frozen record; each weapon's first shot x1.5).
+//   aegis1: dispatch, replay@12, replay@25, eventProfile, eventBattle (the frozen record and the folded shield pool; shield and recharge x1.05 (the profile's shieldCapacity)).
+//   aegis2: dispatch, replay@12, replay@25, final, eventProfile, eventBattle (the frozen record and the folded hull pool; hull x1.05 (the profile's hullMax; the limp-home repair damage is the larger pool)).
+//   aegis3: dispatch, final, eventProfile, repair (the frozen record; the Shipyard divisor x1.08 (156 to 145 ticks, so the repair ends sooner) and the frozen field repair divisor. The replays and the event battle hold: the suite's patch-up already tops this hull up to its cap (captainTacticianEffects.test.ts proves the lift on a damaged hull)).
+//   aegis4: dispatch, replay@12, replay@25, eventProfile, eventBattle (the frozen record; incoming hit chance / 1.05).
+//   aegis5: dispatch, replay@12, replay@25, eventProfile, eventBattle (the frozen record; a lethal hit leaves 1 hull once per battle).
+//   fleetOps1: dispatch, replay@12, replay@25, eventProfile, eventBattle (the frozen record; drone hits x1.05).
+//   fleetOps2: dispatch, replay@12, replay@25, eventProfile, eventBattle (the frozen record; the seeded drones' hit points x1.05).
+//   fleetOps3: dispatch, final, eventProfile (the frozen record; the won waves' loot x1.08. The replays and the event battle hold (loot only)).
+//   fleetOps4: dispatch, replay@12, replay@25, eventProfile, eventBattle (the frozen record; the seeded replenish rate x1.05).
+//   fleetOps5: dispatch, replay@12, replay@25, final, eventProfile, eventBattle (the frozen record; one more seeded squadron, which also changes how the run ends).
+// The final state holds where the run still ends the same way (the same waves won and lost, the same loot). The
+// repair column now reads shipyardRepairSpeedBonus, which equals the capture's officerRepairSpeedBonus without a node.
 // [patrol dispatch, patrol replay @12 s, @25 s, patrol final state, event profile, event battle, repair ticks]
 const GOLDEN: Record<string, string[]> = {
   none: ["5178250e", "f8d1a282", "19067d1b", "43013dc9", "8481e801", "4e0baba", "156"],
-  gunnery1: ["5178250e", "f8d1a282", "19067d1b", "50194f86", "8481e801", "4e0baba", "156"],
-  gunnery2: ["5178250e", "f8d1a282", "19067d1b", "b12b0125", "8481e801", "4e0baba", "156"],
-  gunnery3: ["5178250e", "f8d1a282", "19067d1b", "e7b5da0", "8481e801", "4e0baba", "156"],
-  gunnery4: ["5178250e", "f8d1a282", "19067d1b", "e82f99e7", "8481e801", "4e0baba", "156"],
-  gunnery5: ["5178250e", "f8d1a282", "19067d1b", "a24252b2", "8481e801", "4e0baba", "156"],
-  aegis1: ["5178250e", "f8d1a282", "19067d1b", "a4382707", "8481e801", "4e0baba", "156"],
-  aegis2: ["5178250e", "f8d1a282", "19067d1b", "f1e822fc", "8481e801", "4e0baba", "156"],
-  aegis3: ["5178250e", "f8d1a282", "19067d1b", "87cf0441", "8481e801", "4e0baba", "156"],
-  aegis4: ["5178250e", "f8d1a282", "19067d1b", "8a41a126", "8481e801", "4e0baba", "156"],
-  aegis5: ["5178250e", "f8d1a282", "19067d1b", "d802aceb", "8481e801", "4e0baba", "156"],
-  fleetOps1: ["5178250e", "f8d1a282", "19067d1b", "ff5f4d56", "8481e801", "4e0baba", "156"],
-  fleetOps2: ["5178250e", "f8d1a282", "19067d1b", "c16cb235", "8481e801", "4e0baba", "156"],
-  fleetOps3: ["5178250e", "f8d1a282", "19067d1b", "a82b2f70", "8481e801", "4e0baba", "156"],
-  fleetOps4: ["5178250e", "f8d1a282", "19067d1b", "bc73e8f7", "8481e801", "4e0baba", "156"],
-  fleetOps5: ["5178250e", "f8d1a282", "19067d1b", "c6259382", "8481e801", "4e0baba", "156"],
+  gunnery1: ["abe30654", "81d7f014", "8da17c63", "50194f86", "cbc8ed0f", "2c30cf99", "156"],
+  gunnery2: ["50587d54", "40617fd0", "d43cf5be", "b12b0125", "31705a4f", "ca5a56e9", "156"],
+  gunnery3: ["a4cd49b5", "7d714225", "e46145c1", "e7b5da0", "735b160c", "72590ef7", "156"],
+  gunnery4: ["7b3dd517", "bf39cec3", "877a6163", "e82f99e7", "be50d026", "5e616e80", "156"],
+  gunnery5: ["b6f24926", "f0ee4404", "fb6de65b", "a24252b2", "b7043659", "59d805c3", "156"],
+  aegis1: ["d18d435", "fd56a76d", "2df986df", "a4382707", "e3f7ae00", "447844fd", "156"],
+  aegis2: ["59d4caa0", "ed78e89", "3fdc527a", "9604a23e", "a458ca07", "3fd9b84a", "156"],
+  aegis3: ["834d9263", "f8d1a282", "19067d1b", "a31ca87d", "553e6bd1", "4e0baba", "145"],
+  aegis4: ["4fb28b28", "cb5b44ca", "e563b729", "8a41a126", "97d18d69", "3cce7bd5", "156"],
+  aegis5: ["9fe233a3", "2751e4da", "d3812e73", "d802aceb", "e2856ce2", "21768082", "156"],
+  fleetOps1: ["36f4dbfc", "28ce5790", "93298185", "ff5f4d56", "242c913d", "701d030", "156"],
+  fleetOps2: ["b5d4acc4", "c057b657", "81dac34d", "c16cb235", "b26c8eca", "3930570f", "156"],
+  fleetOps3: ["7ce825b2", "f8d1a282", "19067d1b", "cfd67a94", "f812afa5", "4e0baba", "156"],
+  fleetOps4: ["c732f35c", "38cc1e5e", "7fc698ab", "bc73e8f7", "fce1f1cc", "fb47a727", "156"],
+  fleetOps5: ["af9ef029", "91dc42b", "298a80f8", "63adff7", "1837c35f", "854a268", "156"],
 };
 
 describe("WR-5b tactician goldens", () => {

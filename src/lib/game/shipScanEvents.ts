@@ -56,6 +56,8 @@ import type { Combatant } from "./combat/types";
 import { rollHaul, scanStepKey } from "./gambit";
 import { equippedFor } from "./equipment";
 import { effectiveShipStats, officerCombatModsFromProfile, officerCombatProfile, officerRepairSpeedBonus, shipCrewContribution } from "./crewOverlay";
+// WR-5b (0.14.0): the commanding captain's Tactician talents, frozen with the battle profile.
+import { shipCaptainCombatMods, withCaptainRepair } from "./captainTacticianEffects";
 import { CREW_STAT_KEYS } from "./crewBuffs";
 import { departmentFacet } from "./officerStats";
 import { diminishing } from "./diminishing";
@@ -153,13 +155,17 @@ const COMBAT_SLOT_TYPES: ReadonlySet<string> = new Set(["weapon", "shieldEmitter
 // The frozen profile at dispatch (groundOps.ts snapshotGroundOps writes it). Pure: fresh, JSON-safe data.
 export function snapshotShipEventProfile(state: GameState, ship: ShipInstance): ShipEventProfile {
   const gear = equippedFor(state, ship.id).filter((piece) => COMBAT_SLOT_TYPES.has(piece.slotType));
+  // WR-5b: the commanding captain's Tactician talents (absent without a node, so the profile is unchanged).
+  const captainCombat = shipCaptainCombatMods(state, ship);
   const battle: ShipEventBattle = {
     hullType: ship.typeKey,
     ...(gear.length > 0 ? { installedGear: structuredClone(gear) } : {}),
     officerCombat: structuredClone(officerCombatProfile(state, ship)),
     hullMax: 0,
     // GO-8b: the field repair's divisor (the Shipyard's: Rapid Recovery, Veteran Instincts, Engineering Constitution).
-    repairSpeed: officerRepairSpeedBonus(state, ship),
+    // WR-5b: x the captain's Damage Control, its own factor (the Shipyard's divisor gets the same).
+    repairSpeed: withCaptainRepair(officerRepairSpeedBonus(state, ship), captainCombat),
+    ...(captainCombat ? { captainCombat: { ...captainCombat } } : {}),
   };
   const c = buildShipCombatant(ship.id, battle, 0, 0);
   battle.hullMax = c.hullMax;
@@ -188,6 +194,7 @@ export function buildShipCombatant(id: string, battle: ShipEventBattle, hoursOut
     hullType: SHIP_TYPES[battle.hullType] ? hullType : undefined,
     installedGear: battle.installedGear,
     officerCombat: officerCombatModsFromProfile(battle.officerCombat, hoursOut),
+    captainCombat: battle.captainCombat,
   });
   if (hullDamage > 0) c.hull = Math.max(1, c.hullMax - Math.round(hullDamage));
   return c;

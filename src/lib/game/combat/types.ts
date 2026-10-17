@@ -191,6 +191,35 @@ export interface CombatWeapon {
 	// TODO(Phase 9): a targeting rule may also route a normal shot at a squadron; for
 	// now the flag is the single, explicit way a shot targets the drones directly.
 	antiDrone?: boolean;
+	// WR-5b (0.14.0): the commanding captain's Tactician nodes on THIS weapon (combat/captainEdge.ts sets them at the
+	// fold, resolveBattle reads them). All OPTIONAL: absent on every enemy and on a ship whose captain owns no such
+	// node, so those battles are byte-identical.
+	//   chargeRatePct    : Ammo Reserves, the cooldown clock advances this many hundredths of a tick per tick (108 =
+	//                      1.08x); the remainder carries in chargeCarry, so the rate is exact in whole integers.
+	//   chargeCarry      : that remainder (hundredths of a tick, 0 to 99).
+	//   openingVolley    : Alpha Strike, true until this weapon's first shot of the battle.
+	//   damageCarryMilli : the thousandths of a damage point the captain's damage factor has banked on this weapon
+	//                      (combat/captainEdge.ts captainProjectileDamage), so a small factor on small hits is exact.
+	chargeRatePct?: number;
+	chargeCarry?: number;
+	openingVolley?: boolean;
+	damageCarryMilli?: number;
+}
+
+// WR-5b (0.14.0): the commanding captain's Tactician nodes a battle reads from the ship's combatant (combat/
+// captainEdge.ts applyCaptainCombat writes it from the frozen CaptainCombatMods). Every factor is a FRACTION (0.05 =
+// +5%), each its own x (1 + it) factor (the user's "Always multiply", 2026-10-17):
+//   weaponDamage     : Weapons Drill, every weapon projectile
+//   highHealthDamage : Overcharge, a weapon projectile whose target is above half hull
+//   openingVolley    : Alpha Strike, each weapon's first shot of the battle
+//   droneDamage      : Drone Handler, every drone hit
+//   evasion          : Point Defense, every enemy shot's and drone's hit chance against this ship / (1 + it)
+export interface CaptainCombatEdge {
+	weaponDamage: number;
+	highHealthDamage: number;
+	openingVolley: number;
+	droneDamage: number;
+	evasion: number;
 }
 
 // One participant in the battle: a ship (yours or an enemy).
@@ -252,6 +281,11 @@ export interface Combatant {
 	// added to its evasion. Post-draw integer scaling only (never a draw), so the draw schedule is
 	// unchanged. OPTIONAL: absent (enemies, ratings, an all-10 bridge) leaves the battle byte-identical.
 	underFire?: { weaponDamage: number; shieldRecharge: number; evasion: number };
+	// WR-5b (0.14.0): the commanding captain's battle-time Tactician edges (see CaptainCombatEdge) and Bulwark's
+	// charges (a hit that would take the hull to 0 or below leaves it at 1 and spends one; combat/captainEdge.ts
+	// landHullDamage). OPTIONAL: absent on enemies and on a ship whose captain owns none, so the battle is unchanged.
+	captainEdge?: CaptainCombatEdge;
+	bulwarkCharges?: number;
 
 	// Per-family resists (design S5). Resistances are DUAL-purpose: they cut
 	// incoming DAMAGE of a family AND the chance + rank of that family's

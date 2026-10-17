@@ -504,6 +504,8 @@
     buySecondaryTalent,
     committedBranch,
   } from "./lib/game/captainSecondaryTree";
+  // WR-5b: each secondary node's exact player text (the same helper the wiring registry's claim reads).
+  import { describeSecondaryTalentEffect as describeSecondaryTalentEffectText } from "./lib/game/captainSecondaryEffects";
   import {
     canRetireCaptain,
     retireBlockReason,
@@ -8802,41 +8804,12 @@
   $: selectedSecondaryTree = SECONDARY_CAPTAIN_TALENTS[`${selectedSecondaryBranch}1` as SecondaryTalentKey].tree;
 
 
-  // Capstone (rung-5) taglines. The effect payload carries only an `id`, so these one-liners (drawn
-  // from the catalog's own capstone comments) let describeSecondaryTalentEffect render a real line.
-  const SECONDARY_CAPSTONE_TAGLINE: Record<string, string> = {
-    motherlode: "Motherlode: a chance for a full double haul",
-    overloadedHolds: "Overloaded Holds: carry beyond cargo cap, penalty-free",
-    tradeBaron: "Trade Baron: best margins + a passive credit trickle",
-    alphaStrike: "Alpha Strike: a bonus-damage opening volley",
-    bulwark: "Bulwark: survive one lethal hit per battle",
-    wolfpack: "Wolfpack: an extra drone squadron / fleet-wide edge",
-    deepScan: "Deep Scan: full-system reveal + a guaranteed rare find",
-    relicHunter: "Relic Hunter: a guaranteed relic from an expedition",
-    legendaryCaptain: "Legendary Captain: a crew-wide multiplier + officer aura",
-  };
-
-  // camelCase stat key -> spaced lower-case words, so a first-pass statMult line reads "extraction
-  // yield" not "extractionYield" (display nicety only; the stat key is inert placeholder data).
-  function humanizeSecondaryStat(stat: string): string {
-    return stat.replace(/([a-z0-9])([A-Z])/g, "$1 $2").toLowerCase();
-  }
-
   // The secondary tree's effect describer, passed to RadialWeb as describeEffect (mirrors
-  // describeCaptainTalentEffect / describeHomeworldTalentEffect). Renders each member to one short,
-  // HONEST player-facing line; the magnitudes are first-pass placeholders and nothing applies them yet,
-  // so gateway `none` rungs say so plainly rather than a misleading "+0%".
+  // describeCaptainTalentEffect / describeHomeworldTalentEffect). WR-5b: the engine helper
+  // (captainSecondaryEffects.ts) renders each node's exact effect from its catalog magnitudes, the same
+  // text the wiring registry's claim reads, so the tooltip says exactly what the node does.
   function describeSecondaryTalentEffect(effect: CaptainSecondaryTalentEffect): string {
-    switch (effect.type) {
-      case "none":
-        return "No bonus yet (system pending)";
-      case "statMult":
-        return `+${(effect.mult * 100).toFixed(1)}% ${humanizeSecondaryStat(effect.stat)}`;
-      case "procChance":
-        return `${(effect.chance * 100).toFixed(0)}% chance-based bonus (first-pass)`;
-      case "capstone":
-        return SECONDARY_CAPSTONE_TAGLINE[effect.id] ?? "Branch capstone";
-    }
+    return describeSecondaryTalentEffectText(effect);
   }
 
   // Buy one PRESTIGE secondary-tree node for `captainId`. buySecondaryTalent returns a CaptainState (NOT

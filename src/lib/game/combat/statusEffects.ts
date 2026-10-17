@@ -33,6 +33,7 @@
 // ============================================================================
 
 import type { Rng } from "./rng";
+import { landHullDamage } from "./captainEdge";
 
 // ---------------------------------------------------------------------------
 // CORE TYPES
@@ -596,6 +597,8 @@ export function tickEffects(
 		hull: number;
 		alive: boolean;
 		statusEffects: StatusEffect[];
+		// WR-5b: a captain's Bulwark charges (Combatant.bulwarkCharges), spent by a lethal DoT tick.
+		bulwarkCharges?: number;
 	},
 	dtDeciSec: number,
 	// Forward hook (see doc above): unused in v1's flat DoT, hence the leading
@@ -622,7 +625,8 @@ export function tickEffects(
 		// STEP 1: DoT damage this tick (internal, straight to hull).
 		const dot = dotDamageThisTick(effect, def, dtDeciSec);
 		if (dot > 0) {
-			combatant.hull -= dot;
+			// WR-5b: through landHullDamage, so a captain's Bulwark charge can survive a lethal DoT tick at 1 hull.
+			landHullDamage(combatant, dot);
 			dotDamageByDef.set(effect.defId, (dotDamageByDef.get(effect.defId) ?? 0) + dot);
 		}
 

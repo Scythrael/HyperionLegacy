@@ -3215,6 +3215,11 @@ export interface PatrolMissionState {
   // such officer never writes it, so a no-officer patrol is byte-identical to before; an in-flight patrol
   // from an older save fights without it until its next relaunch freezes the current officers.
   officerCombat?: OfficerCombatMods;
+  // WR-5b (0.14.0): the commanding captain's Tactician talents (captainTacticianEffects.ts captainCombatMods), FROZEN
+  // when this cycle starts (dispatch, and again at each relaunch), beside officerCombat and read the same way by every
+  // wave, the live loop and the display replay. OPTIONAL: absent when the captain owns no Tactician node (no
+  // SAVE_VERSION bump; the secondary tree exists on this branch only).
+  captainCombat?: CaptainCombatMods;
   // E-CREW 0.14.0 (Task 21): the Engineering department's CUNNING over-delivery for THIS cycle ("a free
   // repair tick"), rolled when the cycle starts (dispatch / relaunch) from the cycle's masterSeed on its own
   // keyed stream (officerStats.ts cunningProc) and frozen here. If the cycle ends in defeat, the limp-home
@@ -3248,6 +3253,34 @@ export interface OfficerCombatMods {
   // bridge.ts copies it onto Combatant.underFire and resolveBattle reads it live against the hull. OPTIONAL:
   // absent (every all-10 bridge) leaves the battle byte-identical.
   underFire?: { weaponDamage: number; shield: number; evasion: number };
+}
+
+// WR-5b (0.14.0): the commanding captain's Tactician (secondary tree) talents a ship battle, a patrol cycle and a
+// repair read, frozen at dispatch (captainTacticianEffects.ts captainCombatMods). SPARSE: a key is present only when
+// the captain owns its node, and the record is absent when none is owned, so a save without them is byte-identical.
+// Every value is the node's catalog magnitude (SECONDARY_CAPTAIN_TALENTS), each its own x (1 + it) factor (the
+// user's "Always multiply", 2026-10-17) unless named a count:
+//   weaponDamage (gunnery1), accuracy (gunnery2), highHealthDamage (gunnery3), cooldown (gunnery4: the fire rate),
+//   openingVolley (gunnery5), shield (aegis1), hull (aegis2), repair (aegis3: Shipyard, field and between-wave
+//   repairs), evasion (aegis4: incoming hit chance / (1 + it)), bulwark (aegis5: lethal hits survived per battle, a
+//   count), droneDamage (fleetOps1), droneHp (fleetOps2), patrolLoot (fleetOps3), droneReplenish (fleetOps4),
+//   wolfpack (fleetOps5: extra drone squadrons, a count).
+export interface CaptainCombatMods {
+  weaponDamage?: number;
+  accuracy?: number;
+  highHealthDamage?: number;
+  cooldown?: number;
+  openingVolley?: number;
+  shield?: number;
+  hull?: number;
+  repair?: number;
+  evasion?: number;
+  bulwark?: number;
+  droneDamage?: number;
+  droneHp?: number;
+  patrolLoot?: number;
+  droneReplenish?: number;
+  wolfpack?: number;
 }
 
 // How many ticks a phase requires before advancing to the next one.
@@ -7417,6 +7450,10 @@ export interface ShipEventBattle {
   // Instincts + the Engineering department's Constitution), the FIELD REPAIR's divisor. Its presence is the field
   // repair flag (a run without it never sets down for repairs).
   repairSpeed?: number;
+  // WR-5b (0.14.0): the commanding captain's Tactician talents frozen at dispatch (captainTacticianEffects.ts
+  // captainCombatMods), read by buildShipCombatant. Its Damage Control (aegis3) factor is already folded into
+  // repairSpeed above. OPTIONAL: absent when the captain owns no Tactician node.
+  captainCombat?: CaptainCombatMods;
 }
 
 // The default per-save expedition seed a fresh save starts from, and the value the v58->v59 migration
@@ -11659,7 +11696,7 @@ export type SecondaryTalentKey =
   | "gunnery1" | "gunnery2" | "gunnery3" | "gunnery4" | "gunnery5"
   // Tactician / Aegis
   | "aegis1" | "aegis2" | "aegis3" | "aegis4" | "aegis5"
-  // Tactician / Fleet Ops (rungs 4-5 gateway until the fleet-ops system, 0.14.x)
+  // Tactician / Fleet Ops
   | "fleetOps1" | "fleetOps2" | "fleetOps3" | "fleetOps4" | "fleetOps5"
   // Explorer / Survey & Sensors
   | "surveySensors1" | "surveySensors2" | "surveySensors3" | "surveySensors4" | "surveySensors5"
@@ -11692,7 +11729,7 @@ export type CaptainSecondaryTalentEffect =
   | { type: "none" }
   | { type: "statMult"; stat: string; mult: number }
   | { type: "procChance"; chance: number }
-  | { type: "capstone"; id: string };
+  | { type: "capstone"; id: string; magnitude?: number };
 
 // Mirrors CaptainTalentDef's shape (branch/label/cost/neighbors/effect/flavor/x/y), plus `tree` +
 // `rung`. `cost` is always 1 secondary point. `neighbors` is bidirectional by convention (like the
@@ -11860,7 +11897,7 @@ export const SECONDARY_CAPTAIN_TALENTS: Record<SecondaryTalentKey, CaptainSecond
     tree: "tactician", branch: "gunnery", rung: 5,
     label: "Alpha Strike", cost: 1, // CAPSTONE
     x: -512, y: -90, neighbors: ["gunnery4"],
-    effect: { type: "capstone", id: "alphaStrike" }, // opening-volley burst: first combat round bonus/double damage
+    effect: { type: "capstone", id: "alphaStrike", magnitude: 0.5 }, // WR-5b: +50% damage on each weapon's first shot of a battle
     flavor: "The first exchange is the whole fight. You make sure it is the last one they choose.",
   },
   // --- Aegis / defense (-> Bulwark) ---
@@ -11896,10 +11933,10 @@ export const SECONDARY_CAPTAIN_TALENTS: Record<SecondaryTalentKey, CaptainSecond
     tree: "tactician", branch: "aegis", rung: 5,
     label: "Bulwark", cost: 1, // CAPSTONE
     x: -450, y: -260, neighbors: ["aegis4"],
-    effect: { type: "capstone", id: "bulwark" }, // a damage floor / survive-one-lethal-hit per battle
+    effect: { type: "capstone", id: "bulwark", magnitude: 1 }, // WR-5b: lethal hits survived per battle (each leaves 1 hull)
     flavor: "They threw everything at you and you were still there when the smoke cleared.",
   },
-  // --- Fleet Ops / drones & patrols (rungs 4-5 gateway until the fleet-ops system, 0.14.x) ---
+  // Fleet Ops / drones and patrols (WR-5b: rung 4 acts on the drone screen until a multi-ship fleet-ops system exists)
   fleetOps1: {
     tree: "tactician", branch: "fleetOps", rung: 1, isHub: true,
     label: "Drone Handler", cost: 1,
@@ -11923,16 +11960,16 @@ export const SECONDARY_CAPTAIN_TALENTS: Record<SecondaryTalentKey, CaptainSecond
   },
   fleetOps4: {
     tree: "tactician", branch: "fleetOps", rung: 4,
-    label: "Wing Commander", cost: 1, // util, gateway
+    label: "Wing Commander", cost: 1, // util
     x: -270, y: -322, neighbors: ["fleetOps3", "fleetOps5"],
-    effect: { type: "none" }, // coordinate multiple ships; no fleet-ops system to apply it to yet
+    effect: { type: "statMult", stat: "droneReplenish", mult: 0.05 }, // WR-5b [PROVISIONAL] (plan 5.A): the drone screen's replenish rate (no multi-ship system yet)
     flavor: "One captain, many hulls, a single mind moving them.",
   },
   fleetOps5: {
     tree: "tactician", branch: "fleetOps", rung: 5,
-    label: "Wolfpack", cost: 1, // CAPSTONE, gateway
+    label: "Wolfpack", cost: 1, // CAPSTONE
     x: -334, y: -398, neighbors: ["fleetOps4"],
-    effect: { type: "capstone", id: "wolfpack" }, // extra drone squadron / fleet-wide combat bonus; gateway
+    effect: { type: "capstone", id: "wolfpack", magnitude: 1 }, // WR-5b: extra drone squadrons (copies of the first installed pod's)
     flavor: "They do not fight a ship. They fight the pack, and the pack fights as one.",
   },
   // ============ TREE 3 - EXPLORER ============

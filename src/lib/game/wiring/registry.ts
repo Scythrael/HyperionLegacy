@@ -105,7 +105,8 @@ import { WEAPON_DEFS } from "../combat/weapons";
 import { ROLE_TEMPLATE } from "../combat/drones";
 import { PIRATE_HULLS } from "../combat/enemyHulls";
 import { STATUS_EFFECT_DEFS } from "../combat/statusEffects";
-import { DC_REPAIR_SPEED_B, DC_REPAIR_SPEED_R, DC_WAVE_REGEN_B, DC_WAVE_REGEN_R, PF_HAZARD_RESIST_B, PF_HAZARD_RESIST_R, PF_SCAN_SPEED_B, PF_SCAN_SPEED_R } from "../utilityGear";
+import { DAMAGE_CONTROL_SUITE_KEY, DC_REPAIR_SPEED_B, DC_REPAIR_SPEED_R, DC_WAVE_REGEN_B, DC_WAVE_REGEN_R, PF_HAZARD_RESIST_B, PF_HAZARD_RESIST_R, PF_SCAN_SPEED_B, PF_SCAN_SPEED_R } from "../utilityGear";
+import { secondaryTalentEffectText } from "../captainSecondaryEffects";
 import { DRONE_POD_AFFIX_POOL, DRONE_POD_IMPLICIT_STAT, WEAPON_AFFIX_POOL, WEAPON_IMPLICIT_STAT } from "../itemgen";
 import { AFFIX_DEFS, ESCALATION_ENEMIES_PER_LEVEL, HEIGHTENED_SENSES_KNEE, HEIGHTENED_SENSES_PER_LEVEL } from "../affixes";
 import { ENEMY_RANKS, ENEMY_RANK_IDS } from "../enemyRanks";
@@ -906,18 +907,57 @@ function captainSpecEntries(): WiringEntry[] {
   });
 }
 
-// The pending owner of each secondary node (plan section 5.A: WR-5a prospector, WR-5b tactician, WR-5c explorer),
-// with the claimed value's probe where one already exists (it must not move until the slice wires it).
+// The catalog magnitude of a secondary node (a statMult's mult, a procChance's chance, a capstone's magnitude).
+function secondaryNodeMagnitude(key: SecondaryTalentKey): (c: Catalogs) => number {
+  return (c) => {
+    const e = c.SECONDARY_CAPTAIN_TALENTS[key].effect;
+    return e.type === "statMult" ? e.mult : e.type === "procChance" ? e.chance : e.type === "capstone" ? e.magnitude ?? 0 : 0;
+  };
+}
+
+// WR-5b: the Tactician tree, live (captainTacticianEffects.ts, combat/captainEdge.ts). Ship battles are read on the
+// ship the captain commands: the patrol fold every wave builds and the Ground Ops ship-event combatant frozen at
+// dispatch. The drone nodes on a carrier (a destroyer fields no drones); the patrol-only nodes on the dispatched
+// cycle. Each the node's catalog magnitude, its own x (1 + m) factor.
+const BATTLE: ContextId[] = ["patrol", "shipEvent"];
+const carrierBase = (): GameState => combatBase("carrier");
+// A destroyer with a Damage Control Suite installed (the between-wave patch-up has a fraction to lift).
+const suiteBase = (): GameState =>
+  installPiece(combatBase(), { slotType: "specUtility", moduleVariant: DAMAGE_CONTROL_SUITE_KEY, implicitStats: { repairSpeed: 20, waveHullRegen: 20 } });
+const TACTICIAN_SEAMS: Readonly<
+  Partial<Record<SecondaryTalentKey, { probe: ProbeId; contexts: ContextId[]; curve: Curve; direction?: Direction; tolerance?: number; base: () => GameState; note?: string }>>
+> = {
+  gunnery1: { probe: "captainShotDamage", contexts: BATTLE, curve: { kind: "linearRelative" }, base: () => combatBase() },
+  gunnery2: { probe: "captainWeaponAccuracy", contexts: BATTLE, curve: { kind: "linearRelative" }, tolerance: 0.5, base: () => combatBase() },
+  gunnery3: { probe: "captainShotDamageHighHealth", contexts: BATTLE, curve: { kind: "linearRelative" }, base: () => combatBase() },
+  gunnery4: { probe: "captainWeaponCooldown", contexts: BATTLE, curve: { kind: "divisor" }, direction: "down", tolerance: 0.01, base: () => combatBase() },
+  gunnery5: { probe: "captainOpeningShot", contexts: BATTLE, curve: { kind: "linearRelative" }, base: () => combatBase() },
+  aegis1: { probe: "combatShieldMax", contexts: BATTLE, curve: { kind: "linearRelative" }, tolerance: 0.5, base: () => combatBase() },
+  aegis2: { probe: "combatHullMax", contexts: BATTLE, curve: { kind: "linearRelative" }, tolerance: 0.5, base: () => combatBase() },
+  aegis3: {
+    probe: "captainRepairRate",
+    contexts: ["shipyard", "expedition:groundOps", "patrol"],
+    curve: { kind: "linearRelative" },
+    base: suiteBase,
+    note: "Shipyard: the repair divisor (the ticks it shortens: captainTacticianEffects.test.ts); Ground Ops: the frozen field repair divisor; patrol: the Damage Control Suite's between-wave fraction",
+  },
+  aegis4: { probe: "captainIncomingHit", contexts: BATTLE, curve: { kind: "divisor" }, direction: "down", tolerance: 0.5, base: () => combatBase() },
+  aegis5: { probe: "captainLethalSurvived", contexts: BATTLE, curve: { kind: "gate" }, base: () => combatBase() },
+  fleetOps1: { probe: "captainDroneShot", contexts: BATTLE, curve: { kind: "linearRelative" }, base: carrierBase },
+  fleetOps2: { probe: "battleDroneHp", contexts: BATTLE, curve: { kind: "linearRelative" }, tolerance: 0.5, base: carrierBase },
+  fleetOps3: { probe: "patrolRewardMult", contexts: ["patrol"], curve: { kind: "linearRelative" }, base: () => combatBase() },
+  fleetOps4: { probe: "battleDroneReplenish", contexts: BATTLE, curve: { kind: "linearRelative" }, tolerance: 0.5, base: carrierBase },
+  fleetOps5: { probe: "battleDroneSquadrons", contexts: BATTLE, curve: { kind: "gate" }, base: carrierBase },
+};
+
+// The pending owner of each secondary node (plan section 5.A: WR-5a prospector, WR-5c explorer), with the claimed
+// value's probe where one already exists (it must not move until the slice wires it).
 const SECONDARY_PROBES: Partial<Record<SecondaryTalentKey, ProbeId>> = {
   extraction1: "sheetYield",
   extraction3: "missionExtractionTicks",
   logistics1: "sheetCargo",
   logistics2: "sheetEngineEff",
   logistics3: "sheetUnload",
-  gunnery1: "officerWeapons",
-  aegis1: "officerShields",
-  aegis3: "repairTicks",
-  aegis4: "officerEvasion",
   surveySensors1: "sheetSensors",
   surveySensors2: "expScanRate",
   expeditionRelics2: "expActivityRelicFind",
@@ -929,7 +969,22 @@ function secondaryEntries(): WiringEntry[] {
     const def = SECONDARY_CAPTAIN_TALENTS[key];
     const owner = def.tree === "prospector" ? "WR-5a" : def.tree === "tactician" ? "WR-5b" : "WR-5c";
     const on: Transform = (s) => editCaptain(s, { unlockedSecondaryTalents: [...s.captains[0].unlockedSecondaryTalents, key] });
-    const common = { id: `captain:SECONDARY_CAPTAIN_TALENTS:${key}`, system: "captain" as const, source: { catalog: "SECONDARY_CAPTAIN_TALENTS", key }, claim: `${def.label}: ${def.flavor}`, on };
+    // WR-5b: the claim is the node's player text, from the same helper the talent tooltip renders.
+    const common = { id: `captain:SECONDARY_CAPTAIN_TALENTS:${key}`, system: "captain" as const, source: { catalog: "SECONDARY_CAPTAIN_TALENTS", key }, claim: `${def.label}: ${secondaryTalentEffectText(key)}`, on };
+    const tactician = TACTICIAN_SEAMS[key];
+    if (tactician) {
+      return entry({
+        ...common,
+        probe: tactician.probe,
+        contexts: tactician.contexts,
+        curve: tactician.curve,
+        direction: tactician.direction ?? "up",
+        magnitude: secondaryNodeMagnitude(key),
+        base: tactician.base,
+        ...(tactician.tolerance !== undefined ? { tolerance: tactician.tolerance } : {}),
+        ...(tactician.note ? { note: tactician.note } : {}),
+      });
+    }
     if (key === "logistics4") {
       return entry({
         ...common,
@@ -943,13 +998,9 @@ function secondaryEntries(): WiringEntry[] {
       });
     }
     const probe = SECONDARY_PROBES[key];
-    // OC-A1: a relative multiplier on the NAMED existing value of the captain's own ship. The combat nodes are read
-    // with a Tactical officer's weapon and shield bonuses seated on a combat hull, so a multiplier on them shows.
-    const combatNode = key === "gunnery1" || key === "aegis1";
     return entry({
       ...common,
       probe,
-      ...(combatNode ? { base: () => seatOfficer(combatBase(), "tactical", ["tac.weaponCommand", "tac.shieldCommand"]) } : {}),
       status: pending(`${owner} (section 5.A ${key})`, probe ? [homeContextOf(probe)] : undefined),
     });
   });
