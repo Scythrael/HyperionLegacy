@@ -4129,9 +4129,14 @@ export interface TimedProcess {
 //                    resolve); a mission or patrol runs through to the end of its CURRENT cycle or route on its next
 //                    tick (tickCaptainMission / tickCaptainPatrol read it; a new cycle or route is built without it);
 //                    an expedition is advanced to completion at once and keeps this as a stamp.
+//   clockOffsetSeconds  an expedition only: how far its own clock ran ahead of the game clock at the skip (its natural
+//                    end minus the game time then). Its stored times (bay ends) are on its own clock, so the claim
+//                    reads them shifted back by this (injuries.ts applyGroundOpsInjuries), exactly as if it had
+//                    been claimed at its natural end. Absent = 0 = the game clock.
 export interface ProcessSpeed {
   overtimeSteps?: number;
   instantComplete?: true;
+  clockOffsetSeconds?: number;
 }
 
 // A built facility's live state. `level` 0 = not built; unlock is the level 0->1

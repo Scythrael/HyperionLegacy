@@ -159,9 +159,9 @@ export function buyOvertime(
 ): { next: GameState; bought: boolean; reason?: OvertimeBlockReason; cost?: number } {
   const quote = canBuyOvertime(state, ref);
   if (!quote.ok) return { next: state, bought: false, reason: quote.reason, ...(quote.cost !== undefined ? { cost: quote.cost } : {}) };
-  const id = (ref as { id: string }).id;
+  if (ref.kind !== "process") return { next: state, bought: false, reason: "notEligible" }; // unreachable: the quote refuses it
   const activeProcesses = state.activeProcesses.map((p) =>
-    p.id === id
+    p.id === ref.id
       ? {
           ...p,
           remainingTicks: rescaledRemaining(p.remainingTicks, quote.step - 1, quote.step),
@@ -183,6 +183,8 @@ export const TIME_SKIP_HORIZON_SECONDS = 30 * 24 * 3600;
 export type TimeSkipBlockReason = "notFound" | "alreadySkipped" | "complete" | "cannotFinish";
 
 // Can this process be finished now? Pure (for an expedition it runs the run's own clock ahead, which is pure).
+// ⚠️ EXPENSIVE FOR AN EXPEDITION: answering means running the whole run ahead (up to TIME_SKIP_HORIZON_SECONDS of its
+// clock; a few hundred milliseconds for a run that never finishes). Call it on a player action, never per render.
 export function canApplyTimeSkip(state: GameState, ref: ProcessRef): { ok: true } | { ok: false; reason: TimeSkipBlockReason } {
   const r = timeSkipResult(state, ref);
   return r.ok ? { ok: true } : r;
@@ -209,7 +211,10 @@ function timeSkipResult(state: GameState, ref: ProcessRef): { ok: true; next: Ga
   if (exp.phase === "complete") return { ok: false, reason: "complete" };
   const done = advanceExpedition(exp, state.gameTimeSeconds + TIME_SKIP_HORIZON_SECONDS);
   if (done.phase !== "complete") return { ok: false, reason: "cannotFinish" };
-  const stamped = { ...done, speed: { ...done.speed, instantComplete: true as const } };
+  // The run's clock now sits at its natural end E while the game clock stays at now: record E - now so the claim
+  // reads the run's own stored times (its medical bay ends) as at E (injuries.ts applyGroundOpsInjuries).
+  const offset = done.phaseAnchorSeconds - state.gameTimeSeconds;
+  const stamped = { ...done, speed: { ...done.speed, instantComplete: true as const, ...(offset > 0 ? { clockOffsetSeconds: offset } : {}) } };
   return { ok: true, next: { ...state, expeditions: state.expeditions.map((e) => (e.id === exp.id ? stamped : e)) } };
 }
 
@@ -233,7 +238,7 @@ export interface GrantBundle {
   hullType?: ShipTypeKey;
 }
 
-export type GrantBlockReason = "empty" | "badAmount" | "unknownItem" | "unknownGear" | "unknownHull" | "docksFull";
+export type GrantBlockReason = "empty" | "badAmount" | "unknownItem" | "unknownGear" | "unknownHull" | "docksFull" | "storageFull";
 
 const GEAR_BLUEPRINT_KINDS = new Set(["equipment", "weapon", "drone"]);
 const validAmount = (n: number): boolean => Number.isInteger(n) && n > 0;
@@ -251,12 +256,15 @@ export function canGrant(state: GameState, bundle: GrantBundle): { ok: true } | 
     if (!(bundle.hullType in SHIP_TYPES)) return { ok: false, reason: "unknownHull" };
     if (state.ships.length >= state.shipStorageCapacity) return { ok: false, reason: "docksFull" };
   }
+  // Items only, and every one already at its storage cap: nothing would arrive, so refuse rather than log an empty gift.
+  const onlyItems = bundle.credits === undefined && gear.length === 0 && bundle.hullType === undefined;
+  if (onlyItems && items.every(([id]) => itemTotal(state.inventory, id).gte(itemCap(state, id)))) return { ok: false, reason: "storageFull" };
   return { ok: true };
 }
 
 // Grant a bundle and return the System Log line naming what arrived ("<reason>. Received 500 credits, 4 Frame
-// Segment, 1 uninspected Plasma Cannon and a General Freighter."). Items fill up to their storage cap (the line names
-// what arrived); the hull is minted the way a Shipyard build mints one (mintBuiltShip, Standard Issue installed).
+// Segments, 1 uninspected Plasma Cannon and a General Freighter."). Items fill up to their storage cap (the line names
+// what arrived; a bundle of items that are all at their cap is refused as storageFull); the hull is minted the way a Shipyard build mints one (mintBuiltShip, Standard Issue installed).
 // A grant is not income: lifetime credits earned are unchanged [PROPOSAL]. A refusal returns the SAME state, the
 // reason and an empty line.
 export function grant(
@@ -271,7 +279,7 @@ export function grant(
 
   if (bundle.credits !== undefined) {
     next = { ...next, credits: next.credits.plus(bundle.credits) };
-    parts.push(`${count(bundle.credits)} credits`);
+    parts.push(counted(bundle.credits, "credit"));
   }
 
   let inventory = next.inventory;
@@ -280,7 +288,7 @@ export function grant(
     const before = itemTotal(inventory, id);
     ({ inventory, discovered } = addToInventory(inventory, discovered, id, new Decimal(n), itemCap(state, id)));
     const arrived = itemTotal(inventory, id).minus(before).toNumber();
-    if (arrived > 0) parts.push(`${count(arrived)} ${ITEMS[id].label}`);
+    if (arrived > 0) parts.push(counted(arrived, ITEMS[id].label));
   }
   if (inventory !== next.inventory || discovered !== next.discovered) next = { ...next, inventory, discovered };
 
@@ -289,7 +297,7 @@ export function grant(
     const blanks = { ...next.blanks };
     for (const [key, n] of gear) {
       blanks[key] = (blanks[key] ?? new Decimal(0)).plus(n);
-      parts.push(`${count(n)} uninspected ${BLUEPRINTS[key].label.replace(/ Blueprint$/, "")}`);
+      parts.push(counted(n, `uninspected ${BLUEPRINTS[key].label.replace(/ Blueprint$/, "")}`));
     }
     next = { ...next, blanks };
   }
@@ -302,11 +310,18 @@ export function grant(
   }
 
   const head = reason.trim().replace(/[.!?]+$/, "");
-  const body = parts.length === 0 ? "nothing new (storage is full)" : parts.length === 1 ? parts[0] : `${parts.slice(0, -1).join(", ")} and ${parts[parts.length - 1]}`;
+  const body = parts.length === 1 ? parts[0] : `${parts.slice(0, -1).join(", ")} and ${parts[parts.length - 1]}`;
   const logLine = head.length > 0 ? `${head}. Received ${body}.` : `Received ${body}.`;
   return { next, granted: true, logLine };
 }
 
-function count(n: number): string {
-  return n.toLocaleString("en-US");
+// "1 credit", "500 credits", "4 Frame Segments", "2 uninspected Plasma Cannons" (simple English plurals on the last word).
+function counted(n: number, noun: string): string {
+  return `${n.toLocaleString("en-US")} ${n === 1 ? noun : plural(noun)}`;
+}
+
+function plural(noun: string): string {
+  if (/(s|x|z|ch|sh)$/i.test(noun)) return `${noun}es`;
+  if (/[^aeiou]y$/i.test(noun)) return `${noun.slice(0, -1)}ies`;
+  return `${noun}s`;
 }

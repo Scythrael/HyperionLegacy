@@ -248,7 +248,8 @@ safe first runs plan's USER ANSWERS group 2 (a time skip on every timed process,
 group 3 (a TUTORIAL duration constant for the first explorer expedition, SF-2's job). No UI in this slice: an
 Overtime button needs a sketch first.
 
-**The data shape.** One optional record, `speed?: ProcessSpeed = { overtimeSteps?: number; instantComplete?: true }`,
+**The data shape.** One optional record, `speed?: ProcessSpeed = { overtimeSteps?: number; instantComplete?: true;
+clockOffsetSeconds?: number }`,
 on `TimedProcess`, `CaptainMissionState`, `PatrolMissionState` and `Expedition` (model.ts). Absent on everything
 nothing sped up, so a save without a purchase is byte-identical (every existing golden is unchanged). Plain numbers
 and a flag: no migration, SAVE_VERSION stays 70.
@@ -261,6 +262,13 @@ and a flag: no migration, SAVE_VERSION stays 70.
 | Captain missions (extraction cycles) | `phase` + `phaseProgressTicks` | not offered | tickCaptainMission runs the CURRENT cycle through to its delivery inside the next tick without spending that tick's time (same rolls, cargo, XP, berth claim); the next cycle is built without the flag |
 | Patrols | `progressTicks` along the route | not offered | tickCaptainPatrol flies the CURRENT route (and a limp home) to its end inside the next tick; a relaunched route is built without the flag |
 | Expeditions | `phaseAnchorSeconds` against the game clock | not offered | advanced to its own completion at once (pure in elapsed time and the run's seed, so the findings are the ones the run would produce) and stamped; a run that cannot finish on its own within 30 days of its clock (a team that keeps failing) is refused **[PROPOSAL]** |
+
+**A skipped expedition's claim.** The skip runs the run's own clock to its natural end E while the game clock stays at
+now, so the run's stored times (its medical bay ends) sit on its clock. The stamp records `clockOffsetSeconds` = E -
+now, and the Ground Ops claim (injuries.ts applyGroundOpsInjuries) reads them shifted back by it: a member comes home
+injured only if still in the bay at E, with exactly the time left at E. Tests: findings AND claim parity with the run
+claimed at its natural end, on finishing Ground Ops runs (review follow-up, 2026-10-17). `canApplyTimeSkip` on an
+expedition runs the whole run ahead (up to 30 days of its clock), so call it on a player action, never per render.
 
 Offline == live: Overtime changes only the stored countdown, so one catch-up call and many one-tick steps subtract
 the same ticks and complete on the same tick (tests per Overtime kind; a mid-job two-step case). The skip on a
@@ -287,8 +295,9 @@ variant is `applyTimeSkip` on that expedition.
   job reads as started earlier than it was.
 
 **The grant hook.** `grant(state, { credits?, items?, gear?, hullType? }, reason)` returns the state and a System Log
-line ("<reason>. Received 500 credits, 4 Frame Segment, 1 uninspected Plasma Cannon and a General Freighter.").
-All or nothing; positive whole amounts only. Items fill up to their storage cap (the line names what arrived). Gear
+line ("<reason>. Received 500 credits, 4 Frame Segments, 1 uninspected Plasma Cannon and a General Freighter.").
+All or nothing; positive whole amounts only. Items fill up to their storage cap (the line names what arrived; a
+bundle of items that are all at their cap is refused as `storageFull`). Gear
 arrives as uninspected pieces of a gear blueprint (the same blank a Fabricator craft deposits) **[PROPOSAL]**, so a
 grant makes no draws; a pre-rolled piece would need a seeded roll. The hull is minted exactly as a Shipyard build
 mints one (`mintBuiltShip`, Standard Issue installed) and is refused when the Docks are full. A grant is not income:
@@ -298,6 +307,6 @@ lifetime credits earned are unchanged **[PROPOSAL]**.
 shipyard, research and facility contexts). The time skip and the grant are the new `seam` status, owned by the
 tutorial patch and the tutorial / quests patch (tested in processSpeed.test.ts; not release blockers).
 
-**Open calls (re-present to the user):** OC-S1 the max step count (3); OC-S2 the price (10 per job minute x tier x
-step); OC-S3 refuse on a job's last tick; OC-S4 gear grants as uninspected pieces; OC-S5 a grant is not counted as
-earned credits; OC-S6 the 30-day expedition skip horizon.
+**Open calls, ANSWERED (user, 2026-10-17):** OC-S1 to OC-S3 "3 steps, 10/min x tier" as built (3 steps; 10 per job
+minute x tier x step; refused on a job's last tick); OC-S4 and OC-S5 "uninspected gear, not counted as earned" as
+built; OC-S6 "up to 30 days" as built.

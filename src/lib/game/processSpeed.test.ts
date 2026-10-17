@@ -19,6 +19,8 @@ import {
   PATROLS,
   SHIP_TYPES,
   freshState,
+  type AwayMember,
+  type Expedition,
   type GameState,
   type ProcessEffect,
   type RelicVaultToken,
@@ -29,8 +31,9 @@ import {
 import { dispatchCaptainOnMission, dispatchCaptainOnPatrol, economyTick, installMissingCombatBaselines, itemCap, recallCaptain, startProcess } from "./tick";
 import { itemTotal } from "./inventory";
 import { RELIC_SETS } from "./relics";
-import { advanceExpedition, expeditionCandidates, startExpedition } from "./expedition";
-import { asLegacyDispatch, ensureMinimumAwayTeam } from "./awayTeamTestFixtures";
+import { advanceExpedition, claimExpedition, expeditionCandidates, startExpedition } from "./expedition";
+import { applyGroundOpsInjuries } from "./injuries";
+import { asLegacyDispatch, ensureMinimumAwayTeam, plainAwayMember, withSlottedAwayTeams } from "./awayTeamTestFixtures";
 import {
   OVERTIME_CREDITS_PER_MINUTE,
   OVERTIME_MAX_STEPS,
@@ -93,20 +96,22 @@ function relicToken(): RelicVaultToken {
   return { id: "t1", tier: "standard", quality: 0, setId: "precursor", poiId: RELIC_SETS.find((s) => s.id === "precursor")!.sources[0] };
 }
 
-const ALL_KINDS: TimedProcessKind[] = [
-  "refineJob",
-  "facilityUpgrade",
-  "fuelRefineJob",
-  "researchProject",
-  "fabricateJob",
-  "shipBuild",
-  "equipmentStorageUpgrade",
-  "docksExpansion",
-  "transitBerthExpansion",
-  "shipRepair",
-  "salvageJob",
-  "relicStudy",
-];
+// Every timed process kind, as a Record so a NEW kind fails to compile here until the every-process tests cover it.
+const KIND_COVERED: Record<TimedProcessKind, true> = {
+  refineJob: true,
+  facilityUpgrade: true,
+  fuelRefineJob: true,
+  researchProject: true,
+  fabricateJob: true,
+  shipBuild: true,
+  equipmentStorageUpgrade: true,
+  docksExpansion: true,
+  transitBerthExpansion: true,
+  shipRepair: true,
+  salvageJob: true,
+  relicStudy: true,
+};
+const ALL_KINDS = Object.keys(KIND_COVERED) as TimedProcessKind[];
 
 function withJob(kind: TimedProcessKind, ticks = JOB_TICKS, base: GameState = rich()): { state: GameState; ref: ProcessRef } {
   // A repair needs a damaged hull to clear.
@@ -382,6 +387,11 @@ describe("time skip: a mission cycle runs through to its delivery on the next ti
     expect(outcome(after)).toEqual(outcome(economyTick(s, n + 1, RNG)));
   });
 
+  it("after the skip, one catch-up call equals the same span stepped (offline == live)", () => {
+    const skipped = applyTimeSkip(stepped(mission(), 30), { kind: "run", captainId: 1 }).next;
+    same(economyTick(skipped, 200, RNG), stepped(skipped, 200));
+  });
+
   it("a recalled mission delivers and stands down", () => {
     const s = recallCaptain(stepped(mission(), 10), 1).next;
     const after = economyTick(applyTimeSkip(s, { kind: "run", captainId: 1 }).next, 1, RNG);
@@ -419,6 +429,11 @@ describe("time skip: a patrol route runs through to its end on the next tick", (
     const after = economyTick(applyTimeSkip(s, { kind: "run", captainId: 1 }).next, 1, RNG);
     expect(after.captains[0].mission).toBeNull();
     expect(outcome(after)).toEqual(outcome(economyTick(s, ROUTE, RNG)));
+  });
+
+  it("after the skip, one catch-up call equals the same span stepped (offline == live)", () => {
+    const skipped = applyTimeSkip(stepped(patrol(true), 2), { kind: "run", captainId: 1 }).next;
+    same(economyTick(skipped, 3 * ROUTE + 5, RNG), stepped(skipped, 3 * ROUTE + 5));
   });
 
   it("a repeating patrol: the next route starts at normal speed with the tick's own time", () => {
@@ -464,6 +479,94 @@ describe("time skip: an expedition finishes at once with the findings its run wo
   });
 });
 
+describe("time skip: a Ground Ops expedition finishes now and its claim matches normal play", () => {
+  // The GO-7b parity squad (a medic aboard): its runs fight, recover in the medical bay and come home.
+  const member = (id: string, teamType: AwayMember["teamType"], over: Partial<AwayMember> = {}): AwayMember => ({ ...plainAwayMember(id, teamType, "ship-1"), ...over });
+  const SQUAD: AwayMember[] = [member("member-1", "security", { rank: 3 }), member("member-2", "security", { rank: 2, traits: ["fieldMedic"] }), member("member-11", "science")];
+  const START = 5000; // the skip happens with the game clock well past 0
+  const dispatched = (seed: number): GameState | null => {
+    const s = withSlottedAwayTeams({ ...freshState(), gameTimeSeconds: START, awayMembers: SQUAD.map((m) => ({ ...m })), nextAwayMemberId: 100, expeditionSeed: seed });
+    const r = startExpedition(s, "ship-1", 1, expeditionCandidates(s, "ship-1")[0].id);
+    return r.success && r.next.expeditions[0]?.groundOps ? r.next : null;
+  };
+  // Normal play: the run advanced on its own clock to its natural end E, claimed at E.
+  const natural = (s: GameState): { at: GameState; done: Expedition } => {
+    const done = advanceExpedition(s.expeditions[0], s.gameTimeSeconds + 30 * 24 * 3600);
+    return { at: { ...s, gameTimeSeconds: done.phaseAnchorSeconds, expeditions: [done] }, done };
+  };
+  // Everything a claim decides, with every time read relative to the claim's own game clock.
+  const claimView = (s: GameState) => {
+    const c = claimExpedition(s, s.expeditions[0].id);
+    expect(c.success).toBe(true);
+    const now = s.gameTimeSeconds;
+    return {
+      findings: c.findings,
+      injuries: (c.injuries ?? []).map((i) => ({ memberId: i.memberId, recoverySeconds: i.recoverySeconds, untilIn: i.untilSeconds - now })),
+      members: c.next.awayMembers.map((m) => ({
+        id: m.id,
+        untilIn: m.injuredUntilSeconds === undefined ? null : m.injuredUntilSeconds - now,
+        atIn: m.injuredAtSeconds === undefined ? null : m.injuredAtSeconds - now,
+      })),
+      inventory: c.next.inventory,
+      credits: c.next.credits.toString(),
+      relicVault: c.next.relicVault,
+      ships: c.next.ships,
+      officers: c.next.officers,
+      runCounts: c.next.runCounts,
+    };
+  };
+
+  // Seeds whose Ground Ops run finishes on its own.
+  const finishing: number[] = [];
+  for (let seed = 1; seed <= 40 && finishing.length < 6; seed++) {
+    const s = dispatched(seed);
+    if (s && natural(s).done.phase === "complete") finishing.push(seed);
+  }
+
+  // The bug this guards: a bay stay that ends after the skip's game time but before the run's natural end. Read on
+  // the game clock it would bring the member home injured; at the natural end they are already cured.
+  it("the fixture finds Ground Ops runs that finish, one of them with a bay stay that ends after the skip's game time", () => {
+    expect(finishing.length).toBeGreaterThan(0);
+    const bayAfterNow = finishing.some((seed) => natural(dispatched(seed)!).done.groundOps!.teams.some((t) => Object.values(t.bayEnds).some((until) => until > START)));
+    expect(bayAfterNow, "no finishing seed used the medical bay: widen the search").toBe(true);
+  });
+
+  it("a member still in the bay at the natural end comes home with exactly the time left at that end", () => {
+    const s = dispatched(finishing[0])!;
+    const { at, done } = natural(s);
+    const end = done.phaseAnchorSeconds;
+    const team = done.groundOps!.teams[0];
+    const inBay: Expedition = { ...done, groundOps: { ...done.groundOps!, teams: [{ ...team, bayEnds: { "member-1": end + 1000 }, bayStart: end - 500 }, ...done.groundOps!.teams.slice(1)] } };
+    const offset = end - START;
+    const naturalHome = applyGroundOpsInjuries(at, inBay);
+    const skippedHome = applyGroundOpsInjuries({ ...at, gameTimeSeconds: START }, { ...inBay, speed: { instantComplete: true, clockOffsetSeconds: offset } });
+    expect(naturalHome.injuries).toEqual([{ memberId: "member-1", recoverySeconds: 1000, untilSeconds: end + 1000 }]);
+    expect(skippedHome.injuries).toEqual([{ memberId: "member-1", recoverySeconds: 1000, untilSeconds: START + 1000 }]);
+    const m = skippedHome.next.awayMembers.find((x) => x.id === "member-1")!;
+    expect([m.injuredAtSeconds, m.injuredUntilSeconds]).toEqual([START - 500, START + 1000]);
+  });
+
+  it("findings, injuries, deposits and counters equal the run played out and claimed at its natural end", () => {
+    for (const seed of finishing) {
+      const s = dispatched(seed)!;
+      const r = applyTimeSkip(s, { kind: "expedition", id: s.expeditions[0].id });
+      expect(r.applied, `seed ${seed}`).toBe(true);
+      const skipped = r.next.expeditions[0];
+      const { at, done } = natural(s);
+      expect(skipped.phase).toBe("complete");
+      expect(skipped.speed?.clockOffsetSeconds).toBe(done.phaseAnchorSeconds - START);
+      expect(skipped.findings, `seed ${seed}`).toEqual(done.findings);
+      expect(claimView(r.next), `seed ${seed}`).toEqual(claimView(at));
+    }
+  });
+
+  it("without a skip offset the Ground Ops claim reads the game clock as before", () => {
+    const s = dispatched(finishing[0])!;
+    const { at, done } = natural(s);
+    expect(applyGroundOpsInjuries(at, done)).toEqual(applyGroundOpsInjuries(at, { ...done, speed: { instantComplete: true } }));
+  });
+});
+
 describe("no modifier, no change: a state without a speed record never grows one", () => {
   it("stepping missions, patrols and processes writes no speed field", () => {
     let s = dispatchCaptainOnMission(rich(), 1, "shortOreRun").next;
@@ -492,7 +595,9 @@ describe("grant: items, credits, gear and a hull, with a log line", () => {
     expect(r.next.nextShipId).toBe(s.nextShipId + 1);
     // The hull arrives the way a built one does: with its Standard Issue gear installed.
     expect(r.next.equipment.filter((e) => e.fittedToShipId === minted.id).length).toBeGreaterThan(0);
-    expect(r.logLine).toBe("Tutorial: your first build. Received 500 credits, 4 Frame Segment, 1 uninspected Plasma Cannon and a General Freighter.");
+    expect(r.logLine).toBe("Tutorial: your first build. Received 500 credits, 4 Frame Segments, 1 uninspected Plasma Cannon and a General Freighter.");
+    const plural = grant(s, { credits: 1, gear: { plasmaBp: 2 } }, "Test").logLine;
+    expect(plural).toBe("Test. Received 1 credit and 2 uninspected Plasma Cannons.");
   });
 
   it("a minted hull matches the one a Shipyard build mints", () => {
@@ -508,7 +613,14 @@ describe("grant: items, credits, gear and a hull, with a log line", () => {
     const cap = itemCap(s, "frameSegment").toNumber();
     const r = grant(s, { items: { frameSegment: cap + 1000 } }, "Quest reward");
     expect(itemTotal(r.next.inventory, "frameSegment").toNumber()).toBe(cap);
-    expect(r.logLine).toBe(`Quest reward. Received ${cap.toLocaleString("en-US")} Frame Segment.`);
+    expect(r.logLine).toBe(`Quest reward. Received ${cap.toLocaleString("en-US")} Frame Segments.`);
+    // Nothing can arrive when every item is already at its cap: refused (the SAME state), not an empty success.
+    expect(canGrant(r.next, { items: { frameSegment: 5 } })).toEqual({ ok: false, reason: "storageFull" });
+    const none = grant(r.next, { items: { frameSegment: 5 } }, "Quest reward");
+    expect(none.granted).toBe(false);
+    expect(none.next).toBe(r.next);
+    // A bundle that also carries something else still arrives, naming only what came.
+    expect(grant(r.next, { credits: 3, items: { frameSegment: 5 } }, "Quest reward").logLine).toBe("Quest reward. Received 3 credits.");
   });
 
   it("refuses atomically: an empty grant, a bad amount, an unknown item, a non-gear blueprint, an unknown hull, full docks", () => {
