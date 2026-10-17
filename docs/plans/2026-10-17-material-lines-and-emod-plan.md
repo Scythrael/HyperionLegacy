@@ -494,3 +494,7 @@ Sets in 0.14.x). The power budget itself should not move: seven registry rows an
   shuts off; installing over budget is refused with the reason shown.
 - **Module slot conflict:** "Separate counts (Recommended)": bridge, quarters and sensor always have their own slot;
   `moduleSlots` caps only the universal modules and spec utility (Aurora the most). Supersedes OC-D4's wording.
+- **P1 pinned:** "No ship goes over (Recommended)": base output at or above today's heaviest crafted loadout; the
+  budget binds on modules and higher drive classes. **P3 surplus:** "Speeds the drive (Recommended)" (supersedes the
+  "faster shield recharge" example in the first answer). **M2 scope:** "Power + all 5 types, small roster
+  (Recommended)": salvage-only module loop to 0.14.x. **P6 penalty:** "sqrt curve, floor 60% (Recommended)".
