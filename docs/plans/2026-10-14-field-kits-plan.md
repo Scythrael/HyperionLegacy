@@ -897,3 +897,8 @@ Reading (this reshapes FK-1, FK-4, FK-5, FK-6, FK-8, FK-9):
 - **Build order:** "SF-2 next, then staging (Recommended)".
 - **Field devices (2026-10-16, via the wiring plan OC-F1):** Shroud and Lure move to the GROUND (ground ambush and
   reinforcement chances; Lure adds a salvage drop scale); the 50 to 75% per-use roll (FKR-8) applies there.
+- **N8 + N10 bones (2026-10-17):** "Start Fracture, worsen (Recommended)": every bone injury starts as a Fracture,
+  worsens on repeat hits to Broken Bone then Shattered Bone; a Splint turns a Broken Bone back into a Fracture.
+  **N11 bay times:** "30m / 1h / 2h (Recommended)". **N9:** "Bones only now (Recommended)". **N12 free basics:** "1
+  First Aid Kit + crew curve (Recommended)", refreshed every objective and every trip. (Confirms FKR-2's provisional
+  N8 / N9 / N12 picks.)
