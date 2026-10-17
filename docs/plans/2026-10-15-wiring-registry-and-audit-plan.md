@@ -1394,3 +1394,7 @@ is the first candidate to ask the user about a 0.14.x deferral, recorded as `def
   (Recommended)". **OC-E12 third buff:** "Roll a third buff (Recommended)": top crew rank rolls a third buff from its
   profession pool (moves crew-generation goldens: re-capture first). **OC-E13 Constitution cycle 1:** "Ramp cycle 1
   too (Recommended)".
+- **OC-F1 Shroud / Lure:** "Move them to the ground (Recommended)": they scale ground ambush and reinforcement
+  chances; Lure adds a salvage drop scale (supersedes FK-7's ship-event default; FK plan to note).
+- **OC-F2 Neural Backup:** "Revives the wearer (Recommended)". **OC-F4 Saboteur / Debuff spec:** "Also power Suppress
+  (Recommended)". **OC-F5 Quick Draw:** "Beats stun and fear (Recommended)".

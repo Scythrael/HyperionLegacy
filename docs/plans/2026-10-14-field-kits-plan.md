@@ -191,6 +191,21 @@ Challenging one team rank 3 (High) 184 to 106, rank 6 (Low) 19 to 4; Dangerous b
 (Low) 243 to 54, (High) both rank 3 255 to 105; Deadly both rank 3 (High) 256 to 242. UI: none (the rank word needs a
 stored fight record in the readout; FKR-3 / FKR-9 own the chips and the "Elite Striker" line).
 
+**FKR-1 follow-up (2026-10-17, done):** `fix(0.14.0): Dangerous ends with an Elite, Strong leads its earlier fights
+(FKR-1 follow-up)`, per the 2026-10-16 rulings below ("Soften Dangerous", "Use them on the curve", "heal scales too").
+`FINAL_FIGHT_LEAD` is now Simple / Standard none, Challenging and Dangerous Elite, Deadly Boss; the new
+`EARLIER_FIGHT_LEAD` puts a Strong lead on every earlier fight POINT of a Dangerous objective only (surprise and
+reinforcement fights stay Normal, N5; training runs stay all Normal). Weak stays in the catalog and is never placed
+here: SF-3 owns it, and its two wiring entries are pending with owner SF-3. Heal keeps scaling with the rank. The
+catalog stays version 1 (no ranked run had reached players). `groundFight.ts taskFightGuard` is the guard a task fight
+fields (resolveTaskFightOnSeed calls it); the wiring probe `content:enemyRank:<rank>:<hp|power>` reads the lead's HP and
+power on a real fight at the point the placement leads with that rank (Strong on a Dangerous earlier point, Elite on
+a Challenging final, Boss on a Deadly final, Normal on a Simple final), ranked run vs the flag off, linearRelative
+(HP within one rounding step): 8 live entries plus 2 pending. Every golden unchanged (flagged runs only). Re-measured
+(same scratch method, out of 256, unranked to ranked): Simple / Standard unchanged; Challenging one team rank 3 (High)
+184 to 106, rank 6 (Low) 19 to 4; Dangerous both teams rank 3 (Low) 53 to 5, rank 6 (Low) 243 to 108, both rank 3
+(High) 255 to 133, both rank 6 (High) 256 to 255; Deadly both rank 3 (High) 256 to 242.
+
 #### FKR-2: Kit catalog, condition lines and severity ranks (pure; no engine change)
 
 **Files:** new `src/lib/game/fieldKits.ts` + `fieldKits.test.ts`; `salts.test.ts` (register the module).
@@ -880,3 +895,5 @@ Reading (this reshapes FK-1, FK-4, FK-5, FK-6, FK-8, FK-9):
   runs) use Weak enemies (the curve's low end expressed as the Weak rank, owned by SF-3); Dangerous objectives' NON-final
   fight leads are Strong. **Rank heals:** "Yes, heal scales too (Recommended)".
 - **Build order:** "SF-2 next, then staging (Recommended)".
+- **Field devices (2026-10-16, via the wiring plan OC-F1):** Shroud and Lure move to the GROUND (ground ambush and
+  reinforcement chances; Lure adds a salvage drop scale); the 50 to 75% per-use roll (FKR-8) applies there.
