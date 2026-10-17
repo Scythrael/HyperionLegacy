@@ -110,6 +110,18 @@ import { DRONE_POD_AFFIX_POOL, DRONE_POD_IMPLICIT_STAT, WEAPON_AFFIX_POOL, WEAPO
 import { AFFIX_DEFS, ESCALATION_ENEMIES_PER_LEVEL, HEIGHTENED_SENSES_KNEE, HEIGHTENED_SENSES_PER_LEVEL } from "../affixes";
 import { ENEMY_RANKS, ENEMY_RANK_IDS } from "../enemyRanks";
 import {
+  CONDITION_LINES,
+  CONDITION_LINE_IDS,
+  FIELD_KITS,
+  FIELD_KIT_IDS,
+  FREE_BASIC_CURVE_KNEE,
+  FREE_BASIC_SET,
+  KIT_CATEGORY_RULES,
+  type FieldKitDef,
+  type FieldKitId,
+  type KitCategory,
+} from "../fieldKits";
+import {
   WIRING_SCIENCE_ID,
   WIRING_SECURITY_ID,
   bucketOf,
@@ -265,6 +277,10 @@ export const CATALOGS = {
   PLANET_TYPES,
   AFFIX_DEFS,
   ENEMY_RANKS,
+  FIELD_KITS,
+  KIT_CATEGORY_RULES,
+  CONDITION_LINES,
+  FREE_BASIC_SET,
 } as const;
 export type Catalogs = typeof CATALOGS;
 
@@ -2355,6 +2371,102 @@ function enemyRankEntries(): WiringEntry[] {
 }
 
 // ============================================================================
+// away: the field kits (Field Kits FKR-2, fieldKits.ts). Nothing reads the catalog yet: every entry is PENDING and
+// names the FKR slice that makes it live (with a sensitivity check) in its own commit.
+// ============================================================================
+
+const KIT_OWNER: Readonly<Record<FieldKitId, string>> = {
+  firstAidKit: "FKR-6 (kits in battle: a Use Item rule spends the member's own First Aid Kit)",
+  antitoxin: "FKR-6 (kits in battle: Antitoxin clears Poison)",
+  combatStim: "FKR-6 (kits in battle: Combat Stim grants Inspired)",
+  splint: "FKR-6 (kits in battle: Splint on the bone line, N8)",
+  traumaKit: "FKR-6 (kits in battle: Trauma Kit on serious conditions)",
+  injuryKit: "FKR-6 + FKR-7 (the Injury Kit treatment share reaches the medical bay)",
+};
+
+const CATEGORY_OWNER: Readonly<Record<KitCategory, string>> = {
+  firstAid: "FKR-6 (First Aid kits at 0.5x untrained, 1.25x with Medical Training)",
+  advancedMedical: "FKR-6 (the Medical Training gate on Splint, Trauma Kit and Injury Kit)",
+  explosives: "FKR-5 (Saboteur +6% on the Saboteur's own grenade throws)",
+  fieldDevices: "FKR-8 (the 50 to 75% per-use device roll, Codebreaker +6%)",
+};
+
+function fieldKitEntries(): WiringEntry[] {
+  // Each kit's measurable effect, read from the catalog: a heal (HP), a bay treatment share (the bay divisor), a buff
+  // (its rounds, read verbatim), else the conditions one use treats (what it clears plus the line ranks it reaches).
+  const conditionsTreated = (k: FieldKitDef): number => k.clears.length + Object.values(k.lines ?? {}).reduce((n, care) => n + (care?.upTo ?? 0), 0);
+  const out: WiringEntry[] = FIELD_KIT_IDS.map((id) => {
+    const def = FIELD_KITS[id];
+    const shape: Pick<EntryInput, "curve" | "direction" | "magnitude"> =
+      def.heal !== undefined
+        ? { curve: { kind: "linearAbsolute" }, magnitude: (c) => c.FIELD_KITS[id].heal ?? 0 }
+        : def.treatmentShare !== undefined
+          ? { curve: { kind: "divisor" }, direction: "down", magnitude: (c) => c.FIELD_KITS[id].treatmentShare ?? 0 }
+          : def.buff !== undefined
+            ? { curve: { kind: "equals" }, direction: "none", magnitude: (c) => c.FIELD_KITS[id].buff?.rounds ?? 0 }
+            : { curve: { kind: "event", metric: "conditions treated" }, magnitude: (c) => conditionsTreated(c.FIELD_KITS[id]) };
+    return entry({
+      id: `away:FIELD_KITS:${id}`,
+      system: "away",
+      source: { catalog: "FIELD_KITS", key: id },
+      claim: `${def.label}: what one use treats, heals or grants`,
+      ...shape,
+      status: pending(KIT_OWNER[id]),
+    });
+  });
+  for (const cat of Object.keys(KIT_CATEGORY_RULES) as KitCategory[]) {
+    out.push(
+      entry({
+        id: `away:KIT_CATEGORY_RULES:${cat}`,
+        system: "away",
+        source: { catalog: "KIT_CATEGORY_RULES", key: cat },
+        claim: `Kit category ${cat}: who can use it and how well`,
+        // First Aid: training's lift over the untrained use; Advanced Medical: the gate (untrained 0 to trained 1);
+        // Explosives and Field Devices: their specialist's bonus (Saboteur, Codebreaker).
+        curve: cat === "advancedMedical" ? { kind: "gate" } : { kind: "linearRelative" },
+        magnitude: (c) => {
+          const rule = c.KIT_CATEGORY_RULES[cat];
+          if (cat === "firstAid") return rule.trained / rule.untrained - 1;
+          if (cat === "advancedMedical") return rule.trained - rule.untrained;
+          return rule.specialistBonus;
+        },
+        status: pending(CATEGORY_OWNER[cat]),
+      }),
+    );
+  }
+  for (const line of CONDITION_LINE_IDS) {
+    CONDITION_LINES[line].forEach((r, i) =>
+      out.push(
+        entry({
+          id: `away:CONDITION_LINES:${line}:${r.id}`,
+          system: "away",
+          source: { catalog: "CONDITION_LINES", key: `${line}:${r.id}` },
+          claim: `${r.label}: severity rank ${i + 1} of the ${line} line, worse at higher ranks`,
+          direction: "down",
+          curve: { kind: "equals" },
+          magnitude: (c) => c.CONDITION_LINES[line].findIndex((x) => x.id === r.id) + 1,
+          status: pending("FKR-4 (the bone line in battle: inflicted, worsening, power and accuracy down)"),
+        }),
+      ),
+    );
+  }
+  for (const id of Object.keys(FREE_BASIC_SET) as FieldKitId[]) {
+    out.push(
+      entry({
+        id: `away:FREE_BASIC_SET:${id}`,
+        system: "away",
+        source: { catalog: "FREE_BASIC_SET", key: id },
+        claim: `Free basic set: every member starts each objective with ${FIELD_KITS[id].label} supplies, more with Medical and Operations crew`,
+        curve: { kind: "diminishing", knee: FREE_BASIC_CURVE_KNEE, base: FREE_BASIC_SET[id]?.base ?? 0 },
+        magnitude: (c) => c.FREE_BASIC_SET[id]?.base ?? 0,
+        status: pending("FKR-7 (the per-objective free basic set, refreshed each objective and reload)"),
+      }),
+    );
+  }
+  return out;
+}
+
+// ============================================================================
 // crew scalars, the away team's crew strength, the medical bay
 // ============================================================================
 
@@ -2548,6 +2660,7 @@ const AUDIT_ROWS: readonly { id: string; system: WiringSystem; claim: string; st
   { id: "away:audit:fieldDeviceEffectiveness", system: "away", claim: "fieldDevice effectiveness (both values 1; the specialist check is always false)", status: pending("FK-7") },
   { id: "away:audit:memberSlotPhysicals", system: "away", claim: "Member slot physicals (mass, powerDraw, durability)", status: pending("WR-8, OC-D14") },
   { id: "away:audit:treatmentShare", system: "away", claim: "treatmentShare (always 0)", status: pending("FK-5 / FK-6") },
+  { id: "away:audit:fieldKitsCure", system: "away", claim: "Cure clears basic debuffs only on a Field Kits run (fieldKits.ts BASIC_DEBUFFS; today it clears any debuff)", status: pending("FKR-4 (Cure reads BASIC_DEBUFFS on flagged runs)") },
   { id: "away:audit:memberFallOutcome", system: "away", claim: "memberFallOutcome (the Safety Interlock hook, one branch)", status: pending("OC-F13") },
   { id: "away:audit:prospectingTeam", system: "away", claim: "The Prospecting team type (no recruits, specs or gear)", status: pending("WR-10, OC-F11") },
   { id: "away:audit:statusPicker", system: "away", claim: "Status picker entries that never match (only six of nine statuses can fire)", status: pending("FK-9 + WR-10") },
@@ -2760,6 +2873,7 @@ function build(): readonly WiringEntry[] {
     ...contentEntries(),
     ...affixEntries(),
     ...enemyRankEntries(),
+    ...fieldKitEntries(),
     ...crewScalarEntries(),
     ...medicalEntries(),
     ...auditEntries(),
