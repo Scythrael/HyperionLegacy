@@ -1,7 +1,8 @@
 // Field Kits FKR-2 (docs/plans/2026-10-14-field-kits-plan.md REVISED SLICES R3 FKR-2, USER ANSWERS 2026-10-15 and
 // 2026-10-16): THE FIELD KIT CATALOG, pure. Nothing reads this module yet: FKR-4 (conditions), FKR-5 (grenade
 // charges), FKR-6 (kits in battle), FKR-7 (per-member packs and the free basic set) and FKR-8 (the device roll) wire
-// it, each flipping its wiring registry entry from pending to live in its own commit.
+// it, each flipping its wiring registry entry from pending to live in its own commit. FKR-3 adds the kits as ITEMS,
+// their Fabricator blueprints (FIELD_KIT_BLUEPRINT) and the Quartermaster price data (FIELD_KIT_PRICES, read at FKR-7).
 //
 //   - THE SIX KITS (user-named, D20): First Aid Kit, Antitoxin, Combat Stim (First Aid: anyone, 0.5x untrained,
 //     1.25x with Medical Training, gambit.ts's constants by import) and Splint, Trauma Kit, Injury Kit (Advanced
@@ -24,7 +25,7 @@
 // 2026-10-17; [PROPOSAL] marks the numbers the user has not named (the free basic curve's shape). DETERMINISM: pure; the only draw is fieldDevicePercent's, on FIELD_DEVICE_SALT (registered in
 // salts.test.ts). Module graph: model (types), gambit (first aid constants), diminishing, combat/rng.
 
-import type { AwayRosterSnapshot, AwayTraitId, GambitStatusId } from "./model";
+import { BLUEPRINTS, type AwayRosterSnapshot, type AwayTraitId, type GambitStatusId } from "./model";
 import { FIRST_AID_HEAL, FIRST_AID_TRAINED_EFFECTIVENESS, FIRST_AID_UNTRAINED_EFFECTIVENESS } from "./gambit";
 import { diminishing } from "./diminishing";
 import { makeRng } from "./combat/rng";
@@ -326,6 +327,62 @@ export function isSaboteur(member: { readonly traits: readonly AwayTraitId[] }):
 export function saboteurGrenadeMult(throwerIsSaboteur: boolean): number {
   return throwerIsSaboteur ? 1 + SABOTEUR_GRENADE_BONUS : 1;
 }
+
+// ===== Items, blueprints and Quartermaster prices (FKR-3) =====
+
+// Each kit is a stackable ITEMS row keyed by its kit id (model.ts ITEMS, category "fieldKit") crafted from one
+// MATERIAL blueprint (model.ts BLUEPRINTS, call 3 "Two research tiers"). Kits ignore quality (call 16): FKR-6 and
+// FKR-7 count every quality bucket alike. Returning kits may exceed the warehouse cap (call 17, FKR-7's claim).
+export const FIELD_KIT_BLUEPRINT: Readonly<Record<FieldKitId, string>> = {
+  firstAidKit: "firstAidKitBp",
+  antitoxin: "antitoxinBp",
+  combatStim: "combatStimBp",
+  splint: "splintBp",
+  traumaKit: "traumaKitBp",
+  injuryKit: "injuryKitBp",
+};
+
+// N13 "3x material value (Recommended)": a kit's Quartermaster price is 3x the material value of ONE kit (its
+// recipe's inputs at their worth, over the craft's output count), rounded to FIELD_KIT_PRICE_STEP credits.
+export const FIELD_KIT_PRICE_MULTIPLE = 3;
+export const FIELD_KIT_PRICE_STEP = 5;
+
+// The credit worth of each material a kit recipe consumes. [PROPOSAL] the game has no material value table (only
+// deprecated stock carries a sellValue), so this one exists for the kit prices alone. It is anchored on the user's
+// N13 examples: a refined Tier 1 unit is 20 (First Aid Kit = 3 x (20 + 20) / 2 = 60) and Volatile Resin, an uncommon
+// forage that does not refine, is 80 (Combat Stim = 3 x (80 + 20) / 2 = 150). The rest follow the production chain:
+// Fibrous Biomass refines 6 to 1 into Purified Biomass (20 / 6), a Power Coupling is 4 Polysilicate Wafers (80), and
+// the rare Exotic Spore Cluster is twice the uncommon resin (160). Antitoxin shares the Combat Stim's recipe, so it
+// lands at the same 150.
+export const FIELD_KIT_MATERIAL_WORTH: Readonly<Record<string, number>> = {
+  purifiedBiomass: 20,
+  polysilicateWafer: 20,
+  titaniumIngot: 20,
+  fibrousBiomass: 20 / 6,
+  volatileResin: 80,
+  exoticSporeCluster: 160,
+  powerCoupling: 80,
+};
+
+// The material value of one `kit`: its blueprint's inputs at FIELD_KIT_MATERIAL_WORTH over the craft's output
+// count. Pure.
+export function fieldKitMaterialValue(kit: FieldKitId): number {
+  const recipe = BLUEPRINTS[FIELD_KIT_BLUEPRINT[kit]].recipe;
+  let sum = 0;
+  for (const [item, qty] of Object.entries(recipe.inputs)) sum += qty * (FIELD_KIT_MATERIAL_WORTH[item] ?? 0);
+  return sum / (recipe.outputQty ?? 1);
+}
+
+function priceOf(kit: FieldKitId): number {
+  return Math.round((fieldKitMaterialValue(kit) * FIELD_KIT_PRICE_MULTIPLE) / FIELD_KIT_PRICE_STEP) * FIELD_KIT_PRICE_STEP;
+}
+
+// The Quartermaster's price per kit in credits [PROVISIONAL, N13's rule on proposed worths]: First Aid Kit 60,
+// Antitoxin 150, Combat Stim 150, Splint 35, Trauma Kit 660, Injury Kit 420. Nothing reads it until FKR-7 (kit sales
+// and the off-by-default launch top-up); its wiring entries are pending with that owner.
+export const FIELD_KIT_PRICES: Readonly<Record<FieldKitId, number>> = Object.fromEntries(
+  FIELD_KIT_IDS.map((id) => [id, priceOf(id)]),
+) as Record<FieldKitId, number>;
 
 // ===== The flag =====
 

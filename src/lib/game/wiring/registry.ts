@@ -113,7 +113,9 @@ import {
   CONDITION_LINES,
   CONDITION_LINE_IDS,
   FIELD_KITS,
+  FIELD_KIT_BLUEPRINT,
   FIELD_KIT_IDS,
+  FIELD_KIT_PRICES,
   FREE_BASIC_CURVE_KNEE,
   FREE_BASIC_SET,
   KIT_CATEGORY_RULES,
@@ -281,6 +283,7 @@ export const CATALOGS = {
   KIT_CATEGORY_RULES,
   CONDITION_LINES,
   FREE_BASIC_SET,
+  FIELD_KIT_PRICES,
 } as const;
 export type Catalogs = typeof CATALOGS;
 
@@ -1292,6 +1295,25 @@ function recipeAndBlueprintEntries(): WiringEntry[] {
         curve: { kind: "equals" },
         magnitude: (c) => c.BLUEPRINTS[key].researchDurationTicks,
         note: "the research time reaches the started project (no museum); cost and Lab tier are the start gates",
+      }),
+    );
+  }
+  // Field Kits FKR-3: a field kit blueprint's craft deposits its kits (the output count reaches the inventory). The
+  // kit's battle use stays pending on its own entry (away:FIELD_KITS:<id>, owner FKR-6).
+  for (const id of FIELD_KIT_IDS) {
+    const key = FIELD_KIT_BLUEPRINT[id];
+    out.push(
+      entry({
+        id: `facility:BLUEPRINTS:${key}:craft`,
+        system: "facility",
+        source: { catalog: "BLUEPRINTS", key: `${key}:craft` },
+        claim: `${FIELD_KITS[id].label} Blueprint: a craft deposits its kits`,
+        probe: `content:craft:${key}`,
+        contexts: ["craft"],
+        direction: "none",
+        curve: { kind: "equals" },
+        magnitude: (c) => c.BLUEPRINTS[key].recipe.outputQty ?? 0,
+        note: "one craft at a built Fabricator, researched and holding the inputs: the kits it leaves in the inventory",
       }),
     );
   }
@@ -2460,6 +2482,21 @@ function fieldKitEntries(): WiringEntry[] {
         curve: { kind: "diminishing", knee: FREE_BASIC_CURVE_KNEE, base: FREE_BASIC_SET[id]?.base ?? 0 },
         magnitude: (c) => c.FREE_BASIC_SET[id]?.base ?? 0,
         status: pending("FKR-7 (the per-objective free basic set, refreshed each objective and reload)"),
+      }),
+    );
+  }
+  // FKR-3: the Quartermaster price of each kit (N13, 3x material value). Nothing sells kits until FKR-7.
+  for (const id of FIELD_KIT_IDS) {
+    out.push(
+      entry({
+        id: `facility:FIELD_KIT_PRICES:${id}`,
+        system: "facility",
+        source: { catalog: "FIELD_KIT_PRICES", key: id },
+        claim: `${FIELD_KITS[id].label}: the Quartermaster sells it for its price`,
+        direction: "none",
+        curve: { kind: "equals" },
+        magnitude: (c) => c.FIELD_KIT_PRICES[id],
+        status: pending("FKR-7 (Quartermaster kit sales and the off-by-default launch top-up charge the price)"),
       }),
     );
   }

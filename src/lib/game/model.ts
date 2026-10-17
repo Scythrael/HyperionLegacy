@@ -7970,9 +7970,14 @@ export const REFINE_RECIPES: Record<string, RefineRecipeDef> = {
 // Contrast with the exclusive salvage-PRODUCED exotics below (anomalousAlloy etc.):
 // those are things salvage OUTPUTS, so they keep normal raw/refined/component
 // categories, exclusivity there is a property of their source, not a category.
+//
+// "fieldKit" (Field Kits FKR-3, 0.14.0): a stackable consumable a squad member carries into a ground objective (the
+// six medical and stim kits, fieldKits.ts FIELD_KITS; grenades and field devices stay installed tools, user FK1).
+// Crafted at the Fabricator, stored by warehouse tier like any item, and quality-free (user call 16, "Ignore
+// quality"): a kit works the same from any quality bucket.
 export type ItemCategory =
   | "raw" | "refined" | "minorComponent" | "majorComponent" | "shipModule" | "shipSystem"
-  | "salvagedMaterial";
+  | "salvagedMaterial" | "fieldKit";
 
 // Rarity is forward room for the UI's rarity-color reveal (design §7). Every
 // tier of the union is valid today; Phase 1's seeds only reach "rare".
@@ -8353,6 +8358,61 @@ export const ITEMS: Record<string, ItemDef> = {
     // (which led to the 0.13.8 discovery hotfix). Deliberately UNANNOUNCED: never list it in patch
     // notes or the Discord post, and do not "clean up" the line during flavor/copy passes.
     flavor: "A sealed memory core pulled whole from a dead ship, its archives locked behind a cipher no one alive can key. \"What is this thing even for?\"",
+  },
+
+  // FIELD KITS (Field Kits FKR-3, 0.14.0): the six consumable kits a squad member carries, keyed by their
+  // fieldKits.ts kit id (FIELD_KIT_IDS), labeled as FIELD_KITS names them. Crafted from their BLUEPRINTS
+  // (firstAidKitBp ..), so each hint says exactly that. Warehouse tier 1 for both research tiers (a tier 2 kit
+  // still stores on the base shelf). Rarity is display only (common for the tier 1 kits, uncommon for tier 2).
+  // NOT sellable: the Quartermaster SELLS kits (FKR-7, fieldKits.ts FIELD_KIT_PRICES) and never buys them back.
+  // Nothing spends a kit yet: FKR-6 uses them in battle, FKR-7 packs them per member.
+  firstAidKit: {
+    label: "First Aid Kit",
+    category: "fieldKit",
+    tier: 1,
+    rarity: "common",
+    unlockHint: "Crafted at the Fabricator after research.",
+    flavor: "Dressings, a sealant spray and a quick diagnostic strip. Clears the common battlefield ailments and closes a few wounds.",
+  },
+  antitoxin: {
+    label: "Antitoxin",
+    category: "fieldKit",
+    tier: 1,
+    rarity: "common",
+    unlockHint: "Crafted at the Fabricator after research.",
+    flavor: "A single-dose injector that flushes poison from the blood.",
+  },
+  splint: {
+    label: "Splint",
+    category: "fieldKit",
+    tier: 1,
+    rarity: "common",
+    unlockHint: "Crafted at the Fabricator after research.",
+    flavor: "A titanium brace with fiber wraps. Sets a fracture so it heals, and eases a broken bone. Needs a trained hand.",
+  },
+  combatStim: {
+    label: "Combat Stim",
+    category: "fieldKit",
+    tier: 1,
+    rarity: "uncommon",
+    unlockHint: "Crafted at the Fabricator after research.",
+    flavor: "An auto-injector that leaves its user inspired for a couple of rounds.",
+  },
+  traumaKit: {
+    label: "Trauma Kit",
+    category: "fieldKit",
+    tier: 1,
+    rarity: "uncommon",
+    unlockHint: "Crafted at the Fabricator after research.",
+    flavor: "For the serious cases: hemorrhage, neurotoxin, concussion and broken bones. Needs a trained hand.",
+  },
+  injuryKit: {
+    label: "Injury Kit",
+    category: "fieldKit",
+    tier: 1,
+    rarity: "uncommon",
+    unlockHint: "Crafted at the Fabricator after research.",
+    flavor: "A stabilizer cuff for a downed squadmate that shortens their stay in the medical bay. Needs a trained hand.",
   },
 };
 
@@ -9869,6 +9929,82 @@ export const BLUEPRINTS: Record<string, BlueprintDef> = {
     recipe: { inputs: { intactDataCore: 1, polysilicateWafer: 3, powerCoupling: 2 } },
     flavor: "A cortical implant that keeps a running copy of its wearer. Once, when it matters most, it can bring them back.",
     unlockHint: "Identify a Heart of the Archive to unlock this research; crafted at the Fabricator.",
+  },
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // FIELD KIT BLUEPRINTS (Field Kits FKR-3, 0.14.0; docs/plans/2026-10-14-field-kits-plan.md, USER ANSWERS call 3
+  // "Two research tiers (Recommended)"): six MATERIAL blueprints whose stackable output is a field kit (ITEMS
+  // category "fieldKit", keyed by the fieldKits.ts kit id; fieldKits.ts FIELD_KIT_BLUEPRINT maps them). Tier 1
+  // (cheap, 2 per craft): First Aid Kit, Antitoxin, Splint. Tier 2: Combat Stim, Trauma Kit, Injury Kit. Every
+  // input is an existing material. The Fabricator lists them under its own "Field Kits" group (awayGearDisplay.ts
+  // fabricatorGroupOf). Recipes and times [PROVISIONAL]: the answered proposal's numbers, balance-tunable. Nothing
+  // spends a kit until FKR-6 (battle) and FKR-7 (packs).
+  // ══════════════════════════════════════════════════════════════════════════
+  firstAidKitBp: {
+    key: "firstAidKitBp",
+    label: "First Aid Kit Blueprint",
+    tier: 1,
+    researchDurationTicks: 60,
+    researchCreditCost: 700,
+    craftDurationTicks: 120,
+    recipe: { inputs: { purifiedBiomass: 1, polysilicateWafer: 1 }, outputItem: "firstAidKit", outputQty: 2 },
+    flavor: "Field dressings and a basic diagnostic strip, packed so anyone can patch up a squadmate mid-fight.",
+    unlockHint: "Researched at the Research Lab; crafted at the Fabricator. A field kit a squad member carries.",
+  },
+  antitoxinBp: {
+    key: "antitoxinBp",
+    label: "Antitoxin Blueprint",
+    tier: 1,
+    researchDurationTicks: 60,
+    researchCreditCost: 700,
+    craftDurationTicks: 120,
+    recipe: { inputs: { purifiedBiomass: 1, volatileResin: 1 }, outputItem: "antitoxin", outputQty: 2 },
+    flavor: "A broad antitoxin refined from forage resin, quick to load and quicker to work.",
+    unlockHint: "Researched at the Research Lab; crafted at the Fabricator. A field kit a squad member carries.",
+  },
+  splintBp: {
+    key: "splintBp",
+    label: "Splint Blueprint",
+    tier: 1,
+    researchDurationTicks: 60,
+    researchCreditCost: 700,
+    craftDurationTicks: 120,
+    recipe: { inputs: { titaniumIngot: 1, fibrousBiomass: 1 }, outputItem: "splint", outputQty: 2 },
+    flavor: "A light titanium brace with fiber wraps, for setting a bone well enough to keep moving.",
+    unlockHint: "Researched at the Research Lab; crafted at the Fabricator. A field kit a squad member carries.",
+  },
+  combatStimBp: {
+    key: "combatStimBp",
+    label: "Combat Stim Blueprint",
+    tier: 2,
+    researchDurationTicks: 120,
+    researchCreditCost: 1600,
+    craftDurationTicks: 300,
+    recipe: { inputs: { volatileResin: 1, purifiedBiomass: 1 }, outputItem: "combatStim", outputQty: 2 },
+    flavor: "An auto-injector that sharpens focus and steadies the hands for a short burst.",
+    unlockHint: "Researched at the Research Lab (needs a higher lab tier); crafted at the Fabricator. A field kit a squad member carries.",
+  },
+  traumaKitBp: {
+    key: "traumaKitBp",
+    label: "Trauma Kit Blueprint",
+    tier: 2,
+    researchDurationTicks: 120,
+    researchCreditCost: 1600,
+    craftDurationTicks: 300,
+    recipe: { inputs: { purifiedBiomass: 2, exoticSporeCluster: 1, polysilicateWafer: 1 }, outputItem: "traumaKit", outputQty: 1 },
+    flavor: "Clotting foam, neural blockers and a bone set, for the injuries first aid cannot touch.",
+    unlockHint: "Researched at the Research Lab (needs a higher lab tier); crafted at the Fabricator. A field kit a squad member carries.",
+  },
+  injuryKitBp: {
+    key: "injuryKitBp",
+    label: "Injury Kit Blueprint",
+    tier: 2,
+    researchDurationTicks: 120,
+    researchCreditCost: 1600,
+    craftDurationTicks: 300,
+    recipe: { inputs: { purifiedBiomass: 2, polysilicateWafer: 1, powerCoupling: 1 }, outputItem: "injuryKit", outputQty: 1 },
+    flavor: "A powered stabilizer cuff that starts the healing on the spot, so the medical bay has less to do.",
+    unlockHint: "Researched at the Research Lab (needs a higher lab tier); crafted at the Fabricator. A field kit a squad member carries.",
   },
 };
 

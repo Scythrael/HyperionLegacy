@@ -294,6 +294,52 @@ export const ICON_PATHS = {
   lock: ["M6 11h12a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1v-8a1 1 0 0 1 1-1z", "M8 11V8a4 4 0 0 1 8 0v3"],
   // Flag: a pennant on a pole (something waits on your choice, e.g. "Pick a type").
   flag: ["M5 21V4", "M5 4h12l-2.5 4 2.5 4H5"],
+
+  // Field Kits (0.14.0 FKR-3): one glyph per kit, the bone severity line and the five enemy rank chips.
+  // The kits. First Aid Kit: a carry case with a handle and a cross. Kept apart from `medBay` (a handleless rounded
+  // panel) by the handle, and from the Trauma Kit (the same case) by its mark.
+  kitFirstAid: ["M4 8h16a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1z", "M9 8V5.5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1V8", "M12 11v6M9 14h6"],
+  // Antitoxin: a drop with a cross in it (an antidote).
+  kitAntitoxin: ["M12 3c3.3 4.2 6 7.6 6 11a6 6 0 0 1-12 0c0-3.4 2.7-6.8 6-11z", "M12 11.5v5M9.5 14h5"],
+  // Combat Stim: an auto-injector on the diagonal (needle, barrel, plunger and its thumb bar).
+  kitCombatStim: ["M7.1 14.1l7-7 2.8 2.8-7 7z", "M8.5 15.5l-5 5", "M15.5 8.5l3-3", "M17 4l3 3"],
+  // Splint: a straight board bound by two short straps. Straps reaching far past the board read as a hash mark at
+  // 16px, so they stop just past its edges.
+  kitSplint: ["M9.5 2.5h5v19h-5z", "M7.7 8.3l8.6-2", "M7.7 17.8l8.6-2"],
+  // Trauma Kit: the carry case with a heartbeat trace (the serious cases).
+  kitTrauma: ["M4 8h16a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1z", "M9 8V5.5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1V8", "M6 14.5h3l1.5-3 3 5.5 1.5-2.5h3"],
+  // Injury Kit: an adhesive bandage on the diagonal with its pad (patched up for the medical bay).
+  kitInjury: ["M9.97 18.97l9-9a3.5 3.5 0 0 0-4.94-4.94l-9 9a3.5 3.5 0 0 0 4.94 4.94z", "M12 9.2l2.8 2.8-2.8 2.8-2.8-2.8z"],
+
+  // The bone line (lightest first): one bone on the diagonal drawn three ways. A vertical bone read as an hourglass
+  // at 16px, and the three ranks blurred together, so the bone lies diagonal and each rank opens a wider gap.
+  // Fracture: a whole bone with a crack across it.
+  boneFracture: [
+    "M13.78 7.82A2.6 2.6 0 1 1 17.98 6.02 2.6 2.6 0 1 1 16.18 10.22L10.22 16.18A2.6 2.6 0 1 1 6.02 17.98 2.6 2.6 0 1 1 7.82 13.78z",
+    "M9.6 10.3l2.4.85v1.7l2.4.85",
+  ],
+  // Broken Bone: the bone in two pieces with jagged ends.
+  boneBroken: [
+    "M13.78 7.82A2.6 2.6 0 1 1 17.98 6.02 2.6 2.6 0 1 1 16.18 10.22L14.83 11.58 13.39 11.41 13.23 9.97 11.79 9.81z",
+    "M10.22 16.18A2.6 2.6 0 1 1 6.02 17.98 2.6 2.6 0 1 1 7.82 13.78L9.17 12.42 10.61 12.59 10.77 14.03 12.21 14.19z",
+  ],
+  // Shattered Bone: two short end pieces, a wide gap and splinters flying off to the sides. Splinters inside the gap
+  // filled it back in at 16px (it read as the Fracture), so they sit outside it.
+  boneShattered: [
+    "M13.78 7.82A2.6 2.6 0 1 1 17.98 6.02 2.6 2.6 0 1 1 16.18 10.22L15.61 10.8 14.17 10.63 14 9.2 12.57 9.03z",
+    "M10.22 16.18A2.6 2.6 0 1 1 6.02 17.98 2.6 2.6 0 1 1 7.82 13.78L8.39 13.2 9.83 13.37 10 14.8 11.43 14.97z",
+    "M9.74 8.32l-.14 1.84",
+    "M14.4 13.84l-.14 1.84",
+  ],
+
+  // Enemy rank chips: one hexagonal chip, its mark reading as a scale. Weak: a chevron down (below the line);
+  // Normal: a level bar; Strong: one chevron up; Elite: two chevrons up; Boss: a crown. The chip frame keeps the
+  // chevrons from reading as the `chevronUp` / `chevronDown` ornaments.
+  rankWeak: ["M12 2.5l8.5 4.9v9.7L12 22l-8.5-4.9V7.4z", "M8.5 10.5l3.5 3.5 3.5-3.5"],
+  rankNormal: ["M12 2.5l8.5 4.9v9.7L12 22l-8.5-4.9V7.4z", "M8 12.2h8"],
+  rankStrong: ["M12 2.5l8.5 4.9v9.7L12 22l-8.5-4.9V7.4z", "M8.5 14l3.5-3.5 3.5 3.5"],
+  rankElite: ["M12 2.5l8.5 4.9v9.7L12 22l-8.5-4.9V7.4z", "M8.5 12l3.5-3.5 3.5 3.5", "M8.5 16l3.5-3.5 3.5 3.5"],
+  rankBoss: ["M12 2.5l8.5 4.9v9.7L12 22l-8.5-4.9V7.4z", "M7.5 15.5v-6l2.5 2.5 2-3.5 2 3.5 2.5-2.5v6z"],
 } as const satisfies Record<string, readonly string[]>;
 
 /**
