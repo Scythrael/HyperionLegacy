@@ -1387,3 +1387,6 @@ is the first candidate to ask the user about a 0.14.x deferral, recorded as `def
 - **Fuel refund scope (2026-10-16):** the user confirmed the ship fuel / range STAT stays (only the retired stockpile
   goes); refund "Only above the free tank (Recommended)": credits at the old price for fuel beyond the free 500-unit
   starter tank only. (Supersedes the full refund built in 32d64ff.)
+- **OC-E1 Counter-Infiltration:** "Resist enemy debuffs (Recommended)". **OC-E2 Prevent a Crew Loss:** "Shorter bay
+  time (Recommended)". **OC-E3 Crew Output Multiplier:** "More mission + patrol haul (Recommended)". **OC-E4 Pilot
+  Cunning:** "Quicker trips home (Recommended)": a chance per mission cycle to shorten the return leg.
