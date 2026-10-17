@@ -1414,3 +1414,6 @@ is the first candidate to ask the user about a 0.14.x deferral, recorded as `def
 - **OC-G3 anomaly:** "Sensors + a small reward (Recommended)". **OC-G6 planet notes:** "Model Ocean only
   (Recommended)". **OC-H1 Xeno Science team power:** "Members too (Recommended)". **OC-H2 Museum salvage yield:** "Keep
   scope, honest text (Recommended)".
+- **OC-I2 factions:** "Routes when you name content (Recommended)": hidden from text until the user names content.
+  **OC-J1 salvage reach past the top tier:** "Shift odds upward (Recommended)". **OC-J2 salvage narration:** "Show it
+  (Recommended)". **OC-J3 dead-end loot:** "Sell now, recipes later (Recommended)".
