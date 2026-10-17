@@ -661,3 +661,4 @@ the CP-6 core fix was dispatched the same day.
   no entries for past retirements, PLUS each captain's entry lists notable moments: specific achievements earned and
   when (links with the coming achievements system; build the per-captain record shape now so achievements plug in).
 - **OC-20 Science sensor amplification:** "Proposed numbers (Recommended)". **OC-21 stacking:** "Multiply (Recommended)".
+- **OC-14 bridge set:** "Keep the 3 built (Recommended)".

@@ -356,3 +356,4 @@ Expected to move, each moved hash explained in its commit:
 - **W8:** "Home Shipyard card (Recommended)": a quiet line on the Home dashboard's Shipyard card.
 - **Credit sinks:** "Short pass now (Recommended)": inventory credit sources and sinks, propose healthy sinks for
   approval (planning doc dispatched 2026-10-16).
+- **W1 storage:** "0-1000 condition (Recommended)": per-mille condition replaces the unused durability field.
