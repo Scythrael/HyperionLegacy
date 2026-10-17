@@ -91,9 +91,16 @@ function tradeCase(nodes: readonly SecondaryTalentKey[]): string[] {
 
 const GOLDEN: Record<string, string[]> = {
   none: ["4d51e00b", "3ba6d9e4", "2da86dea", "89a0f577", "100", "cef4520b", "a84e5872", "44e370c8"],
-  extraction: ["5f14ef03", "d5fcd8ba"],
-  logistics: ["2a2b871c", "89a0f577", "100", "7ab424bd"],
-  trade: ["3fcfeb21", "b9ca771d"],
+  // Re-pinned by WR-5a (the Extraction nodes act on the runs: yield, finds, extraction speed, delivery quality, the
+  // Motherlode roll and its counter). Pre-wiring 5f14ef03 / d5fcd8ba.
+  extraction: ["3cc9531e", "3e5dbb4a"],
+  // Re-pinned by WR-5a: the long ore run (cargo, unload, the overflow), the range (Fuel Discipline: 100 -> 105 ly, +5%
+  // engine efficiency on a 0-based hull) and the Ground Ops record (the offload, Rapid Turnaround, frozen at dispatch).
+  // The dispatch gates did not move. Pre-wiring 2a2b871c / 100 / 7ab424bd.
+  logistics: ["49a33682", "89a0f577", "105", "fb278ff"],
+  // Re-pinned by WR-5a: the supply run (margin, discount and Trade Baron). The docked 200 s did not move: the fleet has
+  // no supply route yet, so Trade Routes pays nothing. Pre-wiring b9ca771d.
+  trade: ["3fcfeb21", "e6b7c5c9"],
   otherTrees: ["8e3d5835", "a7807fd6"],
 };
 

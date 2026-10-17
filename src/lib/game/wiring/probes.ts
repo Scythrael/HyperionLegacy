@@ -25,6 +25,7 @@ import {
   equipmentStorageCap,
   groundTeamCount,
   freshState,
+  missionPhaseTicks,
   rollQuality,
   type AffixAlignment,
   type AffixId,
@@ -137,6 +138,7 @@ import { damageControlEffect, pathfinderEffect } from "../utilityGear";
 import { installedSensorArray, sensorArrayEffect, sensorArrayRelicFindBonus } from "../sensorArrays";
 import { quartersCapacityBonus } from "../crewModules";
 import { addItemQuality, itemTotal } from "../inventory";
+import { captainMotherlodeChance } from "../captainSecondaryEffects";
 import { GROUND_CONDITIONS, conditionCureSeconds } from "../medicalBay";
 import { loadoutSlotDefsForShipType } from "../armory";
 import { gambitProgramEquals } from "../memberGambits";
@@ -494,6 +496,40 @@ function qualityClimbThreshold(bonus: number): number {
   return lo;
 }
 
+// WR-5a: one delivery of captain 1's shortOreRun (the last unloading tick of a recalled cycle carrying 10 Titanium
+// Ore), every economy draw returning `draw`: the quality rung the delivered ore landed at.
+function deliveredQuality(s: GameState, draw: number): number {
+  const def = missionDefFor(s, "shortOreRun");
+  const cargo = { commonOre: new Decimal(10), uncommonMaterial: new Decimal(0), rareMaterial: new Decimal(0) };
+  const mission = {
+    kind: "extraction",
+    missionKey: "shortOreRun",
+    phase: "unloading",
+    phaseProgressTicks: missionPhaseTicks("unloading", def, cargo) - 1,
+    cargo,
+    recalled: true,
+  } as CaptainMissionState;
+  const before = editCaptain(s, { mission } as Partial<CaptainState>);
+  const after = economyTick(before, 1, () => draw);
+  const buckets = after.inventory.commonOre ?? [];
+  const was = before.inventory.commonOre ?? [];
+  for (let q = buckets.length - 1; q >= 0; q -= 1) if (Number(buckets[q] ?? 0) > Number(was[q] ?? 0)) return q;
+  return -1;
+}
+
+// The largest constant draw whose delivery still climbs to quality 1 (the deposit's first-climb threshold).
+function deliveryQualityThreshold(s: GameState): number {
+  let lo = 0;
+  let hi = 1;
+  if (deliveredQuality(s, 1e-12) < 1) return 0;
+  for (let i = 0; i < 44; i++) {
+    const mid = (lo + hi) / 2;
+    if (deliveredQuality(s, mid) >= 1) lo = mid;
+    else hi = mid;
+  }
+  return lo;
+}
+
 // == whole-context consumers (WR-1 review: a claimed context a stat does not reach yet is read through the
 // context's OWN consumer, so the check proves the stat is absent there, and starts failing the day it arrives) ==
 
@@ -706,6 +742,27 @@ export const PROBES = {
   missionOutputBonus: { label: "officerMissionOutputBonus (economyTick delivery share)", read: (s) => officerMissionOutputBonus(s, shipOf(s)) },
   missionCycleOutput: { label: "one whole shortOreRun cycle (economyTick): the credits and Titanium Ore delivered", read: (s) => cycleOutput(s) },
   missionOreQuality: { label: "one whole shortOreRun cycle (economyTick): the quality of the ore delivered", read: (s) => cycleOreQuality(s) },
+  // == the captain secondary tree (WR-5a) ==
+  deliveryQualityClimb: {
+    label: "economyTick's mission deposit: the largest constant draw whose delivered ore still climbs to quality 1 (shortOreRun)",
+    read: (s) => deliveryQualityThreshold(s),
+  },
+  motherlodeChance: { label: "the Motherlode chance economyTick hands tickCaptainMission (captainMotherlodeChance)", read: (s) => captainMotherlodeChance(captainOf(s)) },
+  transportCycleCredits: {
+    label: "one whole frontierSupplyRun cycle (economyTick): the net credits it delivered",
+    read: (s) => {
+      const { before, after } = oneCycle(s, "frontierSupplyRun");
+      return Number(after.credits) - Number(before.credits);
+    },
+  },
+  dockedCredits: {
+    label: "economyTick: credits gained in one tick with captain 1 docked",
+    read: (s) => {
+      const idle = editCaptain(s, { mission: null } as Partial<CaptainState>);
+      const after = economyTick(idle, 1, () => 0.5);
+      return Number(after.credits) - Number(idle.credits);
+    },
+  },
   rareFind: {
     label: "crew rare find: Expedition.crewRareFind (relic roll) / crew.rareFindChance read by survey rare odds (tick.ts:4148)",
     read: (s, ctx) => (ctx === "mission:survey" ? shipCrewContribution(s, shipOf(s))[CREW_STAT_KEYS.rareFindChance] ?? 0 : dispatchRun(s).crewRareFind ?? 0),

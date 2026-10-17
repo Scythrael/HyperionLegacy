@@ -49,6 +49,8 @@ import {
 import { museumBonuses, type MuseumStat } from "./relics";
 // E-CREW 0.14.0 (Task 21): the officer stat facets (pure; imports no crew overlay code, so no cycle).
 import { constitutionRamp, departmentFacet, departmentStrengthMultipliers, seatFacet } from "./officerStats";
+// WR-5a (0.14.0): the commanding captain's secondary-tree ship-stat lifts (pure; imports only model.ts).
+import { captainShipLifts, commandingCaptain, type CaptainShipLifts } from "./captainSecondaryEffects";
 
 // ============================================================================
 // crew.* -> ship-stat mapping (FIRST-PASS, TUNABLE)
@@ -532,10 +534,43 @@ export function officerMissionOutputBonus(state: GameState, ship: ShipInstance):
 // this one function, the museum's ship-stat bonuses land everywhere at once. With an empty museum both
 // overlays are identity (same reference), so the result is byte-identical to E4a.
 export function effectiveShipStats(state: GameState, ship: ShipInstance): ShipDerivedStats {
+  // WR-5a: the commanding captain's Prospector nodes, LAST (Overloaded Holds' overflow is a share of the finished hold).
+  return applyCaptainOverlay(shipStatsBeforeCaptain(state, ship), captainShipLifts(commandingCaptain(state, ship)));
+}
+
+// effectiveShipStats WITHOUT the captain overlay: the gear fold, the crew, the museum and the officer facets. The
+// ship readout's source split reads it (its Captain bucket is effective minus this). PURE.
+export function shipStatsBeforeCaptain(state: GameState, ship: ShipInstance): ShipDerivedStats {
   const base = shipDerivedStats(ship, equippedFor(state, ship.id));
   const museum = museumBonuses(state);
   const crewed = applyCrewOverlay(base, shipCrewContribution(state, ship, museum));
   return applyOfficerFacetStats(applyMuseumOverlay(crewed, museum), state, ship);
+}
+
+// WR-5a (0.14.0): the commanding captain's secondary-tree ship-stat lifts (captainSecondaryEffects.ts
+// captainShipLifts; OC-A1 / OC-A2). Each "+X%" node compounds as its own (1 + x) factor on the value it names:
+//   Prospector's Eye  -> extractionYieldMult x (1 + y)
+//   Efficient Haul    -> extractionSpeedMult x (1 + s)  (effectiveMissionDef shortens the extracting phase)
+//   Quartermaster     -> cargoCapacity x (1 + c)         (counts toward the mission cargo gates)
+//   Fuel Discipline   -> engineEfficiency + e            (the 0-based fuel-burn bonus: reach and burn, one value)
+//   Rapid Turnaround  -> unloadSpeedMult x (1 + u)       (missions; frozen into the Ground Ops offload at dispatch)
+//   Overloaded Holds  -> cargoCapacity x (1 + o) more, with unloadCargoCapacity = the hold before the overflow,
+//                        so the overflow unloads at no extra time.
+// A field is written only when its lift is non-zero, and no lift at all returns `base` itself (a captain with no
+// Prospector node changes nothing, the byte-identical guarantee). PURE.
+export function applyCaptainOverlay(base: ShipDerivedStats, lifts: CaptainShipLifts): ShipDerivedStats {
+  const { extractionYield, extractionSpeed, cargo, engineEfficiency, unloadSpeed, overflow } = lifts;
+  if (extractionYield === 0 && extractionSpeed === 0 && cargo === 0 && engineEfficiency === 0 && unloadSpeed === 0 && overflow === 0) return base;
+  const hold = cargo === 0 ? base.cargoCapacity : base.cargoCapacity * (1 + cargo);
+  return {
+    ...base,
+    cargoCapacity: overflow === 0 ? hold : hold * (1 + overflow),
+    ...(overflow !== 0 ? { unloadCargoCapacity: hold } : {}),
+    ...(extractionYield !== 0 ? { extractionYieldMult: base.extractionYieldMult * (1 + extractionYield) } : {}),
+    ...(extractionSpeed !== 0 ? { extractionSpeedMult: (base.extractionSpeedMult ?? 1) * (1 + extractionSpeed) } : {}),
+    ...(engineEfficiency !== 0 ? { engineEfficiency: base.engineEfficiency + engineEfficiency } : {}),
+    ...(unloadSpeed !== 0 ? { unloadSpeedMult: (base.unloadSpeedMult ?? 1) * (1 + unloadSpeed) } : {}),
+  };
 }
 
 // E-CREW 0.14.0 (Task 21 review calls): the two officer stat facets effectiveMissionDef reads off the stats,

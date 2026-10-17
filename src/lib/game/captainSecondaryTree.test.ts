@@ -302,8 +302,8 @@ describe("migrate, v57 -> v58 captain secondary-tree dormant fields", () => {
 // ============================================================================
 // Dormancy / additive-neutrality
 // ============================================================================
-describe("captain secondary-tree fields are DORMANT (no engine reads them)", () => {
-  it("a captain carrying secondary state ticks identically to one without it, and the fields pass through untouched", () => {
+describe("captain secondary-tree fields on IDLE captains (WR-5a: the Extraction nodes act on missions only)", () => {
+  it("an idle captain carrying Extraction nodes ticks identically to one without them, and the fields pass through untouched", () => {
     const control = freshState();
     // The modified state differs ONLY in the secondary-tree fields of its captains.
     const modified = {
@@ -326,8 +326,8 @@ describe("captain secondary-tree fields are DORMANT (no engine reads them)", () 
       expect(c.retirements).toBe(3);
     }
 
-    // Stripping the secondary fields, the two post-tick states are byte-identical (proves no engine
-    // path branches on them: additive-neutral).
+    // Stripping the secondary fields, the two post-tick states are byte-identical (an idle captain flies no
+    // mission, so no Extraction node has anything to act on).
     const strip = (s: any) => ({
       ...s,
       captains: s.captains.map((c: any) => {

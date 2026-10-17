@@ -70,7 +70,9 @@ import {
   type SeniorStaffSeat,
   type ShipTypeKey,
 } from "../model";
+import Decimal from "break_infinity.js";
 import { diminishing } from "../diminishing";
+import { secondaryTalentEffectText } from "../captainSecondaryEffects";
 import { buyHomeworldTalent } from "../tick";
 import { combatHullTypeOf, hullDefenseComposition } from "../combat/bridge";
 import { SENIOR_STAFF_BONUSES, type SeniorStaffBonusDef } from "../seniorStaffBonuses";
@@ -890,14 +892,73 @@ function captainSpecEntries(): WiringEntry[] {
   });
 }
 
-// The pending owner of each secondary node (plan section 5.A: WR-5a prospector, WR-5b tactician, WR-5c explorer),
-// with the claimed value's probe where one already exists (it must not move until the slice wires it).
+// WR-5a: the Prospector tree, LIVE. Each node's seam, context(s) and curve; the magnitude is the node's catalog
+// magnitude (captainSecondaryEffects.ts secondaryTalentMagnitude), unless the entry names its own.
+const FRONTIER = MISSIONS.frontierSupplyRun;
+// The freighter's whole Frontier Supply Run load (ship-1 is the General Freighter) and its base net margin.
+const FRONTIER_LOAD = SHIP_TYPES.generalFreighter.cargoCapacity * (FRONTIER.supplyCostPerCargo ?? 0);
+const FRONTIER_NET = FRONTIER_LOAD * (FRONTIER.rewardMargin ?? 0);
+// A save whose fleet has delivered one supply run cycle (Trade Routes pays only on an established route).
+const withSupplyRoute = (s: GameState): GameState => ({
+  ...s,
+  lifetimeStats: { ...s.lifetimeStats, missionsCompleted: { ...s.lifetimeStats.missionsCompleted, frontierSupplyRun: new Decimal(1) } },
+});
+const ownsNodes = (s: GameState, keys: readonly SecondaryTalentKey[]): GameState =>
+  editCaptain(s, { unlockedSecondaryTalents: [...s.captains[0].unlockedSecondaryTalents, ...keys] });
+const PROSPECTOR_SEAMS: Readonly<
+  Partial<Record<SecondaryTalentKey, { probe: ProbeId; contexts: ContextId[]; curve: Curve; direction?: Direction; tolerance?: number; base?: () => GameState; magnitude?: (c: Catalogs) => number; note?: string }>>
+> = {
+  extraction1: { probe: "sheetYield", contexts: ["sheet"], curve: { kind: "linearRelative" } },
+  // The rare threshold the extraction roll compares against, on an ore run and a survey (the uncommon half rides the
+  // same sum: captainSecondaryEffects.test.ts).
+  extraction2: { probe: "extractionRareThreshold", contexts: ["mission:extraction", "mission:survey"], curve: { kind: "linearRelative" }, tolerance: 1e-9 },
+  extraction3: { probe: "missionExtractionTicks", contexts: ["mission:extraction"], curve: { kind: "divisor" }, direction: "down", tolerance: 1 },
+  extraction4: { probe: "deliveryQualityClimb", contexts: ["mission:extraction"], curve: { kind: "linearRelative" }, tolerance: 1e-12 },
+  // The chance handed to the roll, exact; the realized double hauls over a seed batch: captainSecondaryEffects.test.ts.
+  extraction5: { probe: "motherlodeChance", contexts: ["mission:extraction"], curve: { kind: "chanceAbsolute" } },
+  logistics1: { probe: "sheetCargo", contexts: ["sheet"], curve: { kind: "linearRelative" } },
+  logistics2: { probe: "sheetEngineEff", contexts: ["sheet"], curve: { kind: "linearAbsolute" } },
+  logistics3: { probe: "sheetUnload", contexts: ["sheet", "expedition:groundOps"], curve: { kind: "linearRelative" } },
+  // The overflow's free unload: captainSecondaryEffects.test.ts (the unload ticks stay the hold's).
+  logistics5: { probe: "sheetCargo", contexts: ["sheet"], curve: { kind: "linearRelative" } },
+  trade1: { probe: "transportCycleCredits", contexts: ["mission:transport"], curve: { kind: "linearRelative" } },
+  // The discount saved on the supplies: the load value x the discount, added to the net.
+  trade2: {
+    probe: "transportCycleCredits",
+    contexts: ["mission:transport"],
+    curve: { kind: "linearAbsolute" },
+    magnitude: (c) => {
+      const e = c.SECONDARY_CAPTAIN_TALENTS.trade2.effect;
+      return (e.type === "statMult" ? e.mult : 0) * FRONTIER_LOAD;
+    },
+  },
+  trade3: { probe: "transportCycleCredits", contexts: ["mission:transport"], curve: { kind: "linearRelative" } },
+  trade4: { probe: "dockedCredits", contexts: ["fleet"], curve: { kind: "linearAbsolute" }, base: () => withSupplyRoute(wiringBase()) },
+  // Trade Baron doubles every Trade bonus: on a captain owning Trade 1 to 4, the bonus part of the net (above the plain
+  // margin) grows by (factor - 1). The doubled docked trickle: captainSecondaryEffects.test.ts.
+  trade5: {
+    probe: "transportCycleCredits",
+    contexts: ["mission:transport"],
+    curve: { kind: "bonusRelative", base: FRONTIER_NET },
+    base: () => ownsNodes(wiringBase(), ["trade1", "trade2", "trade3", "trade4"]),
+    magnitude: (c) => {
+      const e = c.SECONDARY_CAPTAIN_TALENTS.trade5.effect;
+      return (e.type === "capstone" ? e.magnitude ?? 1 : 1) - 1;
+    },
+  },
+};
+
+// The catalog magnitude of a secondary node (a statMult's mult, a capstone's magnitude, a trickle's perTick).
+function secondaryMagnitude(key: SecondaryTalentKey): (c: Catalogs) => number {
+  return (c) => {
+    const e = c.SECONDARY_CAPTAIN_TALENTS[key].effect;
+    return e.type === "statMult" ? e.mult : e.type === "procChance" ? e.chance : e.type === "capstone" ? e.magnitude ?? 0 : e.type === "creditTrickle" ? e.perTick : 0;
+  };
+}
+
+// The pending owner of each secondary node (plan section 5.A: WR-5b tactician, WR-5c explorer), with the claimed
+// value's probe where one already exists (it must not move until the slice wires it).
 const SECONDARY_PROBES: Partial<Record<SecondaryTalentKey, ProbeId>> = {
-  extraction1: "sheetYield",
-  extraction3: "missionExtractionTicks",
-  logistics1: "sheetCargo",
-  logistics2: "sheetEngineEff",
-  logistics3: "sheetUnload",
   gunnery1: "officerWeapons",
   aegis1: "officerShields",
   aegis3: "repairTicks",
@@ -913,7 +974,21 @@ function secondaryEntries(): WiringEntry[] {
     const def = SECONDARY_CAPTAIN_TALENTS[key];
     const owner = def.tree === "prospector" ? "WR-5a" : def.tree === "tactician" ? "WR-5b" : "WR-5c";
     const on: Transform = (s) => editCaptain(s, { unlockedSecondaryTalents: [...s.captains[0].unlockedSecondaryTalents, key] });
-    const common = { id: `captain:SECONDARY_CAPTAIN_TALENTS:${key}`, system: "captain" as const, source: { catalog: "SECONDARY_CAPTAIN_TALENTS", key }, claim: `${def.label}: ${def.flavor}`, on };
+    // WR-5a: the claim is the node's player text, from the same helper the talent tooltip renders.
+    const common = { id: `captain:SECONDARY_CAPTAIN_TALENTS:${key}`, system: "captain" as const, source: { catalog: "SECONDARY_CAPTAIN_TALENTS", key }, claim: `${def.label}: ${secondaryTalentEffectText(key)}`, on };
+    const seam = PROSPECTOR_SEAMS[key];
+    if (seam) {
+      return entry({
+        ...common,
+        probe: seam.probe,
+        contexts: seam.contexts,
+        curve: seam.curve,
+        direction: seam.direction ?? "up",
+        magnitude: seam.magnitude ?? secondaryMagnitude(key),
+        ...(seam.tolerance !== undefined ? { tolerance: seam.tolerance } : {}),
+        ...(seam.base ? { base: seam.base } : {}),
+      });
+    }
     if (key === "logistics4") {
       return entry({
         ...common,

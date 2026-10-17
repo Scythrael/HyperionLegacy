@@ -1,13 +1,11 @@
-// Crew 0.14.0 (Phase C-3a): the captain PRESTIGE secondary talent tree ALLOCATION engine (pure,
-// DORMANT).
+// Crew 0.14.0 (Phase C-3a): the captain PRESTIGE secondary talent tree ALLOCATION engine (pure).
 //
 // The secondary tree (model.ts SECONDARY_CAPTAIN_TALENTS) is a SECOND captain-tier tree that deepens
 // the base tree's three identities: 3 trees x 3 branches x 5 rungs = 45 nodes. Points are earned via
-// captain RETIREMENT (a later phase, C-3b) and spent here. This module is the pure LOGIC layer for
-// spending those points; it is DORMANT on purpose (mirrors crew.ts / seniorStaff.ts): nothing here is
-// wired into tick.ts, shipDerivedStats, or the UI, and NOTHING applies the nodes' effects yet (effect
-// APPLICATION to gameplay is a still-later live phase). Every function is pure: it reads its inputs and
-// returns fresh values, never mutating an input captain/array in place.
+// captain RETIREMENT (C-3b) and spent here. This module is the pure LOGIC layer for spending those
+// points; the nodes' EFFECTS are applied by captainSecondaryEffects.ts (the Prospector tree is live since
+// WR-5a; the Tactician and Explorer trees follow with WR-5b / WR-5c). Every function is pure: it reads its
+// inputs and returns fresh values, never mutating an input captain/array in place.
 //
 // ALLOCATION RULES (docs/plans/2026-09-22-crew-0.14.0-plan.md, "Captain PRESTIGE secondary tree"):
 //   - Costs 1 secondaryPoint per node.
