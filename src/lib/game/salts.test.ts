@@ -27,6 +27,7 @@ import * as salvage from "./salvage";
 import * as seniorStaff from "./seniorStaff";
 import * as tick from "./tick";
 import * as officerStats from "./officerStats";
+import * as captainSecondaryEffects from "./captainSecondaryEffects";
 import * as waveSeed from "./combat/waveSeed";
 import * as model from "./model";
 
@@ -45,6 +46,7 @@ const MODULES: Record<string, Record<string, unknown>> = {
   "shipScanEvents.ts": shipScanEvents,
   "fieldKits.ts": fieldKits,
   "officerStats.ts": officerStats,
+  "captainSecondaryEffects.ts": captainSecondaryEffects, // WR-5a: MOTHERLODE_SALT
   "relics.ts": relics,
   "salvage.ts": salvage,
   "tick.ts": tick,
