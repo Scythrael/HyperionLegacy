@@ -216,7 +216,8 @@ const MEMBER_CATALOG: Record<string, string[]> = {
   memberWeapon: ["Pulse Rifle", "Scattergun", "Shock Baton", "Sidearm", "Plasma Cutter", "Rock Breaker", "Sampling Lance"],
   memberArmor: ["Ballistic Weave", "Assault Hardsuit", "Field Suit", "Hazard Suit", "Excavator Suit"],
   memberTool: [
-    "Stun Grenade", "Toxin Grenade", "Med Kit", "Shroud Emitter", "Lure Beacon",
+    // Field Kits FKR-5: the user-named Impact Grenade (FK11) after the two specialized grenades.
+    "Stun Grenade", "Toxin Grenade", "Impact Grenade", "Med Kit", "Shroud Emitter", "Lure Beacon",
     "Flora Scanner", "Thermal Rig", "Core Drill", "Decryptor", "Atmo Probe",
     "Assay Scanner", "Seismic Mapper",
   ],

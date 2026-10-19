@@ -28,7 +28,7 @@
 
 import { describe, expect, it } from "vitest";
 import Decimal from "break_infinity.js";
-import { freshState, type AwayMember, type BodyRiskGrades, type EquipmentInstance, type Expedition, type ExpeditionActivity, type ExpeditionBody, type GameState, type GroundStepRecord, type ShipGroundTeam } from "./model";
+import { EQUIPMENT_SLOTS, freshState, type AwayMember, type BodyRiskGrades, type EquipmentInstance, type Expedition, type ExpeditionActivity, type ExpeditionBody, type GameState, type GroundStepRecord, type ShipGroundTeam } from "./model";
 import { advanceExpedition, claimExpedition, expeditionCandidates, scanEncounterChance, scanStepRoll, shipScanEventChance, squadEncounterBias, fieldDeviceEffectiveness, startExpedition } from "./expedition";
 import { bodyFloraGrade, generateRiskProfile, type ExpeditionRegion } from "./riskFactors";
 import { groundOpsAssignIdle, groundOpsBodyScanned, initGroundTasks, taskCover } from "./groundOps";
@@ -669,6 +669,11 @@ const FKR0_FIXTURES: Record<string, Fixture> = {
 // Captured on the code BEFORE any revised Field Kits engine edit (FKR-0). Same layout as GOLDEN above; then (1) the
 // grenade battles, (2) the final and reinforcement fights, (3) the odds per grade, (4) the crafted rolls, (5) the
 // loadout round trip.
+// (4) the crafted grenade rolls: FKR-0's capture (kept, proved reproducible with the FKR-0 pools below) and FKR-5's
+// (the pools with the carry capacity line). Stun at seeds 2, 3, 27, then Toxin.
+const FKR0_CRAFTED_ROLLS = ["d8050ca3", "c801541e", "c9723513", "e2e4cbb3", "7316c8c8", "d4611562"];
+const FKR5_CRAFTED_ROLLS = ["d8050ca3", "4c0d7cdd", "2e6ffdd3", "f317238a", "7316c8c8", "9fad8889"];
+
 const FKR0_GOLDEN: Record<string, string[]> = {
   stunGrenade: ["23b745b8", "e496a2eb", "e496a2eb", "e496a2eb", "e496a2eb", "@1514", "746a81d4", "@3044", "298733d7", "complete", "26af29ef", "1540097"],
   toxinGrenade: ["36e8c5b0", "a657d8ad", "a657d8ad", "a657d8ad", "a657d8ad", "@1514", "eeed641c", "@3044", "6aec40b9", "complete", "966d6b7", "1540097"],
@@ -682,8 +687,8 @@ const FKR0_GOLDEN: Record<string, string[]> = {
   reinforcementsCat2: ["622e32b3", "1ec40759", "7284f62"],
   oddsLow: ["one team rank 3: 1:32 2:5 3:0 4:0 5:0", "5959943d", "both teams rank 6: 1:32 2:32 3:32 4:30 5:0", "8204f781"],
   oddsHigh: ["one team rank 3: 3:20 4:0 5:0", "365e1dd6", "both teams rank 6: 3:32 4:32 5:32", "d5333f73"],
-  // (4) MOVES AT FKR-5 (named): stunGrenade then toxinGrenade, each at the three INSPECT_SEEDS.
-  craftedRolls: ["d8050ca3", "c801541e", "c9723513", "e2e4cbb3", "7316c8c8", "d4611562"],
+  // (4) MOVED AT FKR-5 (named, below): stunGrenade then toxinGrenade, each at the three INSPECT_SEEDS.
+  craftedRolls: FKR5_CRAFTED_ROLLS,
   // created, checked in, applied (the round trip lands back on the created state).
   loadout: ["6ed6a25a", "c1e66bb0", "6ed6a25a"],
 };
@@ -865,20 +870,47 @@ describe("FKR-0 (3) the threat odds at each difficulty grade 1 to 5", () => {
 const INSPECT_SEEDS = [2, 3, 27];
 const INSPECT_CRAFTING_LEVEL = 20;
 
-describe("FKR-0 (4) one crafted roll of each grenade variety at three seeds (moves at FKR-5 on purpose)", () => {
+function inspectGrenades(): EquipmentInstance[] {
+  return (["stunGrenade", "toxinGrenade"] as const).flatMap((variety) =>
+    INSPECT_SEEDS.map((inspectSeed) => {
+      const bp = `${variety}Bp`;
+      const state: GameState = { ...freshState(), craftingLevel: INSPECT_CRAFTING_LEVEL, blanks: { [bp]: new Decimal(1) }, inspectSeed };
+      const next = inspectBlank(state, bp);
+      expect(next).not.toBe(state);
+      const piece = next.equipment[next.equipment.length - 1];
+      expect(piece.moduleVariant).toBe(variety);
+      return piece;
+    }),
+  );
+}
+
+describe("FKR-0 (4) one crafted roll of each grenade variety at three seeds (moved at FKR-5 on purpose)", () => {
   it("inspecting a Stun Grenade and a Toxin Grenade blank at each seed mints the captured pieces", () => {
-    const pieces = (["stunGrenade", "toxinGrenade"] as const).flatMap((variety) =>
-      INSPECT_SEEDS.map((inspectSeed) => {
-        const bp = `${variety}Bp`;
-        const state: GameState = { ...freshState(), craftingLevel: INSPECT_CRAFTING_LEVEL, blanks: { [bp]: new Decimal(1) }, inspectSeed };
-        const next = inspectBlank(state, bp);
-        expect(next).not.toBe(state);
-        const piece = next.equipment[next.equipment.length - 1];
-        expect(piece.moduleVariant).toBe(variety);
-        return piece;
-      }),
-    );
-    expect(pieces.map((p) => fnv(JSON.stringify(p)))).toEqual(FKR0_GOLDEN.craftedRolls);
+    expect(inspectGrenades().map((p) => fnv(JSON.stringify(p)))).toEqual(FKR0_GOLDEN.craftedRolls);
+  });
+
+  // MOVED BY FKR-5 (Field Kits tool charges; FK11 "+1 carry capacity"): both grenade pools gained the carry capacity
+  // line (pool weight 1, variety share 0.15, the other two shares lowered so each variety's shares still sum to 1), so
+  // the weighted affix picks land differently: four of the six captured pieces move (Stun at seeds 3 and 27, Toxin at
+  // seeds 2 and 27); Stun at seed 2 and Toxin at seed 3 still pick their FKR-0 lines.
+  // The FKR-0 capture stays below, and this proves the pool edit is the ONLY cause: with each variety's FKR-0 pool and
+  // shares put back for the call, the same seeds mint exactly the FKR-0 pieces again.
+  it("FKR-5: with the FKR-0 grenade pools restored, the same seeds mint the FKR-0 pieces exactly", () => {
+    const fkr0Pools = {
+      stunGrenade: { affixPool: [{ stat: "groundStatusChance", weight: 4 }, { stat: "groundAccuracy", weight: 2 }], statRatios: { groundStatusChance: 0.7, groundAccuracy: 0.3 } },
+      toxinGrenade: { affixPool: [{ stat: "groundStatusChance", weight: 3 }, { stat: "groundPower", weight: 3 }], statRatios: { groundStatusChance: 0.6, groundPower: 0.4 } },
+    } as const;
+    const varieties = EQUIPMENT_SLOTS.memberTool.varieties as unknown as { key: string; affixPool?: unknown; statRatios: unknown }[];
+    const saved = varieties.map((v) => ({ v, affixPool: v.affixPool, statRatios: v.statRatios }));
+    try {
+      for (const v of varieties) {
+        const old = fkr0Pools[v.key as keyof typeof fkr0Pools];
+        if (old) Object.assign(v, { affixPool: old.affixPool.map((a) => ({ ...a })), statRatios: { ...old.statRatios } });
+      }
+      expect(inspectGrenades().map((p) => fnv(JSON.stringify(p)))).toEqual(FKR0_CRAFTED_ROLLS);
+    } finally {
+      for (const { v, affixPool, statRatios } of saved) Object.assign(v, { affixPool, statRatios });
+    }
   });
 });
 

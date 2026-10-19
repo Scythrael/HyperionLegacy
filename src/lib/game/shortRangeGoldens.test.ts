@@ -332,6 +332,22 @@ const G1_ADDED_ENTRY_IDS: ReadonlySet<string> = new Set<string>([
   "ship:QUARTERS_MODULES:quartersGuestWing:capacity",
 ]);
 
+// Field Kits FKR-5 (tool charges and the grenade family) held apart the same way, so the base pin keeps proving no
+// existing entry moved: the 19 entries it ADDS (the Impact Grenade's three lines and the carry line on the two older
+// grenades, each grenade's four GRENADES rows, the throwGrenade action, the Impact Grenade blueprint's research) and the
+// ONE entry it FLIPS pending -> live (Explosives: Saboteur on the Saboteur's own throws), read back as pending here.
+const FKR5_ADDED_ENTRY_IDS: ReadonlySet<string> = new Set<string>([
+  "gear:security:stunGrenade:groundCarryCapacity",
+  "gear:security:toxinGrenade:groundCarryCapacity",
+  "gear:security:impactGrenade:groundPower",
+  "gear:security:impactGrenade:groundAccuracy",
+  "gear:security:impactGrenade:groundCarryCapacity",
+  ...["stunGrenade", "toxinGrenade", "impactGrenade"].flatMap((k) => ["charges", "perBattle", "blast", "status"].map((f) => `away:GRENADES:${k}:${f}`)),
+  "away:GAMBIT_ACTIONS:throwGrenade",
+  "facility:BLUEPRINTS:impactGrenadeBp",
+]);
+const FKR5_FLIPPED_LIVE: ReadonlySet<string> = new Set<string>(["away:KIT_CATEGORY_RULES:explosives"]);
+
 const CAPTURE = Boolean(import.meta.env.G1_CAPTURE);
 const captured: Record<string, unknown> = {};
 function pin(key: string, value: unknown): void {
@@ -433,8 +449,16 @@ describe("G1-0 golden 4: generateEquipment for the quarters slot at 50 fixed see
 
 describe("G1-0 golden 5: the wiring registry's ids and statuses", () => {
   it("the entries outside the G1 additions, hashed in registry order", () => {
-    const lines = WIRING_REGISTRY.filter((e) => !G1_ADDED_ENTRY_IDS.has(e.id)).map((e) => `${e.id}|${e.status.kind}`);
+    const lines = WIRING_REGISTRY.filter((e) => !G1_ADDED_ENTRY_IDS.has(e.id) && !FKR5_ADDED_ENTRY_IDS.has(e.id)).map(
+      (e) => `${e.id}|${FKR5_FLIPPED_LIVE.has(e.id) ? "pending" : e.status.kind}`,
+    );
     pin("registry", [lines.length, hash(lines)]);
+  });
+  it("Field Kits FKR-5: the added entries and the one flipped, each with its status", () => {
+    const added = WIRING_REGISTRY.filter((e) => FKR5_ADDED_ENTRY_IDS.has(e.id));
+    expect(added.length).toBe(FKR5_ADDED_ENTRY_IDS.size);
+    expect(added.every((e) => e.status.kind === "live")).toBe(true);
+    for (const id of FKR5_FLIPPED_LIVE) expect(WIRING_REGISTRY.find((e) => e.id === id)?.status.kind, id).toBe("live");
   });
   it("G1-1: the added entries, each with its status", () => {
     const added = WIRING_REGISTRY.filter((e) => G1_ADDED_ENTRY_IDS.has(e.id)).map((e) => `${e.id}|${e.status.kind}`);

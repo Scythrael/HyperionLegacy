@@ -159,6 +159,9 @@
     hold: "Hold",
     // Field Kits FKR-4: an enemy-only action (never legal for Security, so never offered).
     flashGrenade: "Flash Grenade",
+    // Field Kits FKR-5: legal for Security, but the editor offers it with the Field Kits pass (FKR-10, its "Skips when no
+    // charge is left" hint); no fight a player can launch arms a grenade before then.
+    throwGrenade: "Throw Grenade",
   };
   // Field Kits FKR-4: the Field Kits conditions stay out of the picker until the editor's Field Kits pass (FKR-10) offers
   // them with their severity; no fight a player can launch inflicts them before then.

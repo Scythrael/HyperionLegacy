@@ -55,7 +55,8 @@ describe("wiring registry parity with the no-dead-stats liveness level", () => {
     const registryIds = liveness.map((e) => e.id).sort();
     const testkitIds = ENTRIES.map((e) => e.id).sort();
     expect(registryIds).toEqual(testkitIds);
-    expect(testkitIds.length).toBe(149 + 25); // 149 at the move, + the 25 hidden Prospecting gear lines
+    // 149 at the move, + the 25 hidden Prospecting gear lines, + Field Kits FKR-5's 5 grenade lines (all live)
+    expect(testkitIds.length).toBe(149 + 25 + 5);
     expect(liveness.filter(isProspectingDeferral)).toHaveLength(25);
   });
 
