@@ -254,7 +254,7 @@ const GOLDEN: Record<string, unknown> = {
     "50:quartersFlightDeckWing:stellar:q2:iL31:{\"crewStations\":57}:{\"colonistCapacity\":76,\"crewStations\":19}:m0:quartersFlightDeckWing",
     "pool:[{\"stat\":\"crewStations\",\"weight\":5},{\"stat\":\"crewEfficiency\",\"weight\":2},{\"stat\":\"massReduction\",\"weight\":1},{\"stat\":\"colonistCapacity\",\"weight\":2}]",
   ],
-  "registry": [1181, "74fa057"],
+  "registry": [1183, "f5d1e3ce"],
   "registry:g1": ["ship:gearLine:colonistCapacity|pending", "ship:SHIP_TYPES:generalFreighter:colonistCapacity|pending", "ship:SHIP_TYPES:orion:colonistCapacity|pending", "ship:SHIP_TYPES:aurora:colonistCapacity|pending", "ship:SHIP_TYPES:eir:colonistCapacity|pending", "ship:SHIP_SEAMS:generalQuartersGuestPerk|pending", "ship:QUARTERS_MODULES:quartersGuestWing|live", "ship:QUARTERS_MODULES:quartersGuestWing:capacity|pending"],
   "old": ["aa94ddcd", "817862c7", "4ac62731", "d9a483c6"],
 };
@@ -435,6 +435,13 @@ describe("G1-0 golden 5: the wiring registry's ids and statuses", () => {
   it("the entries outside the G1 additions, hashed in registry order", () => {
     const lines = WIRING_REGISTRY.filter((e) => !G1_ADDED_ENTRY_IDS.has(e.id)).map((e) => `${e.id}|${e.status.kind}`);
     pin("registry", [lines.length, hash(lines)]);
+    // Expedition Tiers G2-3 moved this pin (74fa057 at 1181 -> f5d1e3ce at 1183) only by two ADDED audit rows (the
+    // voyage ladder above Tier I, owner G2-6; the drive class halving, owner G2-4). Its ship speed rows went live at
+    // Ground Ops but stay partial (pending for the patrol), so their status kind hashes the same. Without the two
+    // added rows the registry hashes exactly as before G2-3:
+    const added = new Set(["expedition:audit:voyageDeepTiers", "expedition:audit:voyageDriveClass"]);
+    const before = WIRING_REGISTRY.filter((e) => !G1_ADDED_ENTRY_IDS.has(e.id) && !added.has(e.id)).map((e) => `${e.id}|${e.status.kind}`);
+    expect([before.length, hash(before)]).toEqual([1181, "74fa057"]);
   });
   it("G1-1: the added entries, each with its status", () => {
     const added = WIRING_REGISTRY.filter((e) => G1_ADDED_ENTRY_IDS.has(e.id)).map((e) => `${e.id}|${e.status.kind}`);

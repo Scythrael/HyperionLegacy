@@ -874,6 +874,11 @@ const sheet = (s: GameState) => effectiveShipStats(s, shipOf(s));
 // yet) that context's whole consumer, the Ground Ops run or the patrol cycle.
 const sheetAt = (read: (s: GameState) => number) => (s: GameState, ctx: ContextId) =>
   ctx === "expedition:groundOps" ? groundOpsRunDigest(s) : ctx === "patrol" ? patrolDigest(s) : read(s);
+// Expedition Tiers G2-3: the leg speed a Ground Ops dispatch of ship-1 froze on its voyage (-1 without one).
+const voyageSpeed = (s: GameState, leg: "out" | "back"): number => {
+  const v = dispatchRun(readyForRun(s)).voyage;
+  return v ? (leg === "out" ? v.outboundSpeed : v.returnSpeed) : -1;
+};
 const sci = () => WIRING_SCIENCE_ID;
 // The research probe reads a long project, so one museum step moves it by many ticks (well above its rounding).
 const RESEARCH_PROBE_SCALE = 1000;
@@ -882,10 +887,16 @@ const sec = () => WIRING_SECURITY_ID;
 export const PROBES = {
   // == the ship stat sheet ==
   sheetCargo: { label: "effectiveShipStats.cargoCapacity (Ground Ops / patrol: the run / cycle digest)", read: sheetAt((s) => sheet(s).cargoCapacity) },
-  sheetTransit: { label: "effectiveShipStats.transitSpeedMult (Ground Ops / patrol: the run / cycle digest)", read: sheetAt((s) => sheet(s).transitSpeedMult) },
-  // CP-2 (OC-E5): each mission leg's own speed (effectiveMissionDef divides that leg by it).
-  sheetOutLeg: { label: "outboundLegSpeed(effectiveShipStats): the outbound leg's speed", read: (s) => outboundLegSpeed(sheet(s)) },
-  sheetBackLeg: { label: "returnLegSpeed(effectiveShipStats): the return leg's speed", read: (s) => returnLegSpeed(sheet(s)) },
+  // Expedition Tiers G2-3: at Ground Ops, the outbound leg speed the run's voyage froze (voyage.ts: each leg's seconds
+  // divide by it); the patrol reads its whole cycle digest.
+  sheetTransit: {
+    label: "effectiveShipStats.transitSpeedMult (Ground Ops: the voyage's frozen outbound speed; patrol: the cycle digest)",
+    read: (s, ctx) => (ctx === "expedition:groundOps" ? voyageSpeed(s, "out") : ctx === "patrol" ? patrolDigest(s) : sheet(s).transitSpeedMult),
+  },
+  // CP-2 (OC-E5): each mission leg's own speed (effectiveMissionDef divides that leg by it). G2-3: at Ground Ops, the
+  // voyage's frozen speed on that leg.
+  sheetOutLeg: { label: "outboundLegSpeed(effectiveShipStats): the outbound leg's speed (Ground Ops: the voyage's)", read: (s, ctx) => (ctx === "expedition:groundOps" ? voyageSpeed(s, "out") : outboundLegSpeed(sheet(s))) },
+  sheetBackLeg: { label: "returnLegSpeed(effectiveShipStats): the return leg's speed (Ground Ops: the voyage's)", read: (s, ctx) => (ctx === "expedition:groundOps" ? voyageSpeed(s, "back") : returnLegSpeed(sheet(s))) },
   sheetYield: { label: "effectiveShipStats.extractionYieldMult", read: (s) => sheet(s).extractionYieldMult },
   sheetUnload: {
     label: "unload speed: effectiveShipStats.unloadSpeedMult (missions) / groundOps.factors.offloadMult (Ground Ops)",

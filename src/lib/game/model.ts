@@ -7401,6 +7401,29 @@ export interface Expedition {
   // b, c, d; groundTaskQueueDisplay.ts bodyDesignation). Absent on every run dispatched before G2-2 (banked name,
   // Roman numeral bodies). Optional, no SAVE bump.
   region?: ExpeditionRegionStamp;
+  // Expedition Tiers G2-3: the VOYAGE, frozen at dispatch (voyage.ts planVoyage). Its PRESENCE puts the run on the
+  // tier-aware transit: the outbound leg, the return leg (before the Flight Deck ramp) and the anomaly detour are
+  // read from it. Absent on every run dispatched before G2-3: the fixed pre-G2-3 legs (expedition.ts
+  // TRANSIT_SECONDS, the retired shakedown's SHAKEDOWN_TRANSIT_SECONDS), byte-identically. Optional, no SAVE bump.
+  voyage?: ExpeditionVoyage;
+}
+
+// Expedition Tiers G2-3 (user G5 + G21, 2026-10-16): a run's voyage. `tier` sets the nominal hours (tiers are
+// difficulty); `distanceLy` (whole light-years from the homeworld) places it inside the tier's band, which shifts
+// the time only inside the tier; `driveClass` is the ship's drive class at dispatch (each class above the tier's
+// minimum halves the time); `outboundSpeed` / `returnSpeed` are the ship's own speed on each leg at dispatch
+// (outboundLegSpeed / returnLegSpeed: the sweeping transitSpeedMult times that leg's complement lift, CP-2 OC-E5).
+// The three durations are whole seconds; `returnSeconds` is before the Flight Deck ramp. Plain data.
+export interface ExpeditionVoyage {
+  version: 1;
+  tier: RegionTier;
+  distanceLy: number;
+  driveClass: number;
+  outboundSpeed: number;
+  returnSpeed: number;
+  outboundSeconds: number;
+  returnSeconds: number;
+  anomalySeconds: number;
 }
 
 // Expedition Tiers G2-2: the region a run was dispatched to. `tier` and `enemyTerritory` are the region the risk

@@ -26,11 +26,13 @@ const withoutMode = (r: SimReport): Omit<SimReport, "advance"> => {
 
 describe("WR-2 simulated player: determinism and offline == live", () => {
   // SF-2: the training run flies the regular transit now (no 30 minute shakedown), so the run is longer to simulate.
+  // Expedition Tiers G2-3: a Tier I voyage is about 2 hours each way (not 6), so inside the horizon the first run
+  // comes home, is claimed, and a second one launches.
   it("the same policy and seed give the same report (allAuto, seed 0)", { timeout: 60_000 }, () => {
     const a = simulate(ALL_AUTO, { seed: 0 });
     const b = simulate(ALL_AUTO, { seed: 0 });
     expect(b).toEqual(a);
-    expect(a.actions.map((x) => x.action)).toEqual(["fieldWeakestCrew", "dispatch:shortOreRun", "recall", "patrol:crimsonReaverSweep", "launchExpedition"]);
+    expect(a.actions.map((x) => x.action)).toEqual(["fieldWeakestCrew", "dispatch:shortOreRun", "recall", "patrol:crimsonReaverSweep", "launchExpedition", "claim", "launchExpedition"]);
   });
 
   it("one tick() call, 997 s chunks and 1 s ticks per look give the same report", () => {
