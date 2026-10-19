@@ -53,4 +53,4 @@ section 5.A captain nodes). Kept in their own file so the parallel integrator's 
 - **Captain race:** "Same as an officer": CAPTAIN_RACIAL_SCALE 1 (OC-A43).
 - **Homeworld rungs:** "Approve all": WORKS_DIRECTORATE_BONUS_CHANCE 0.05 (OC-B2), HOME_GUARD_PATROL_SHIELD 0.05 and
   CIVIC_CHARTER_TRANSPORT_CREW 1 (OC-B3).
-- Still provisional from the FKR-4 integration: BLEED_ON_HIT_PERMILLE 150 (ask next).
+- **Bleed chance:** "15% per landed hit (Recommended)": BLEED_ON_HIT_PERMILLE 150, confirmed.

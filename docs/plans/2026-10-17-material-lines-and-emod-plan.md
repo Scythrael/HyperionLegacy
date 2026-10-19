@@ -515,4 +515,9 @@ Sets in 0.14.x). The power budget itself should not move: seven registry rows an
 - **M7 recipes:** "Material Lines items (Recommended)".
 - **M8 duplicates:** "One per ship (Recommended)"; the Precursor Lens one per ship too.
 - **M9 module wear:** "Slowly underway (Recommended)".
-- Still open: L1 to L8, L10, L11, X1.
+- **L1 items:** "Build as named (Recommended)": the 7 July-approved items and 7 remaining recipes.
+- **L8 early Deuterium:** "Deuterium Skim mining run (Recommended)": Local Deuterium Skim returns as an ordinary Tier I
+  mining run (no fuel role). With L9 (via GG call 7): Deuterium feeds Class III+ FTL drives and the High-Output Core.
+- **L2 recipe scope:** "Six economy/defense slots (Recommended)": cargo, FTL, reactor, utility, shields, plating now;
+  weapons and drones wait for 0.16.0; bridge, quarters, sensors keep CP-11's components.
+- Still open: L3 to L7, L10, L11, X1.
