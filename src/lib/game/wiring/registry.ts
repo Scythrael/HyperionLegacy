@@ -373,6 +373,10 @@ const E_MOD = "E-MOD power budget";
 const SCIENCE_LINE_SWAP = "Science gear line swap (D26): Science gear rolls fieldwork/hazard/find lines instead";
 // Field Kits FKR-4: FK7 ("As proposed") names no enemy that inflicts Bleed, so the status and its bay row stay unreached.
 const NO_BLEED_INFLICTOR = "user call (FKR-4 report): FK7 names no enemy that inflicts Bleed";
+// Expedition Tiers G2-2 (plan 2026-10-14 G2-2: "the console still shows Tier I only (G2-6 adds the picker); a hidden
+// region is reachable by tests only"): every tier's candidates are built and tested (expeditionTierCandidates.test.ts),
+// but no player reaches a deeper tier until the console offers it, so the tier-gated sources wait on G2-6.
+const G2_6_PICKER = "G2-6 (the region picker: G2-2 built every tier's candidates, the console offers Tier I until then)";
 const PILOT_CUNNING = "pending user decision (officerStats.ts CUNNING_PENDING_SEATS)";
 // The user's T3 deferrals (capture 2026-10-15 section 3: "Move all five (Recommended)").
 const T3 = "capture 2026-10-15 section 3 T3 (moved to 0.14.x)";
@@ -1416,8 +1420,8 @@ function facilityRungEntries(): WiringEntry[] {
             probe: detailMoves ? "telescopeDetail" : undefined,
             contexts: detailMoves ? ["expedition:groundOps"] : [],
             magnitude: () => t.detail - prev.detail,
-            status: detailMoves ? LIVE : pending("G2-2 (reach tiers 2 to 7: every candidate is Tier I)"),
-            note: "detail is information only (by design); the reach tier waits for G2-2",
+            status: detailMoves ? LIVE : pending(G2_6_PICKER),
+            note: "detail is information only (by design); the reach tier waits for the console to offer deeper tiers (G2-6)",
           }),
         );
       } else if ("unlocksContent" in eff) {
@@ -1496,7 +1500,8 @@ function trackEntries(): WiringEntry[] {
     ),
   );
   // The Subspace Telescope ladder, rung by rung: the reading reaches the rung's region tier and reads its detail.
-  // The reach is information on the card today; the candidate pool stays Tier I until G2-2 (the PARTIAL check
+  // The reach is information on the card today; the console offers Tier I candidates until G2-6 adds the region
+  // picker (G2-2 built every tier's candidates; the PARTIAL check
   // reads the highest tier the candidates offer).
   for (const row of SUBSPACE_TELESCOPE_LEVELS) {
     const at = (s: GameState) => withFacilityLevel(s, SUBSPACE_TELESCOPE_FACILITY_KEY, row.level);
@@ -1515,7 +1520,7 @@ function trackEntries(): WiringEntry[] {
         magnitude: value("reachTier"),
         on: at,
         off: below,
-        status: pending("G2-2 (every candidate is Tier I)", ["expedition:groundOps"]),
+        status: pending(G2_6_PICKER, ["expedition:groundOps"]),
         flatChecks: { "expedition:groundOps": { probe: "candidateTopTier" } },
       }),
       entry({
@@ -3014,15 +3019,15 @@ const AUDIT_ROWS: readonly { id: string; system: WiringSystem; claim: string; st
   { id: "away:audit:statusPicker", system: "away", claim: "Status picker entries that never match (only six of nine statuses can fire)", status: pending("FK-9 + WR-10") },
   { id: "away:audit:fieldRepairOrder", system: "away", claim: "Player-ordered field repair (engine only, no UI)", status: pending("WR-10, OC-F14") },
   { id: "away:audit:legacyOnly", system: "away", claim: "Legacy-only: MAX_BATTLE_ATTEMPTS, EVAC_REWARD_FRACTION, ENCOUNTER_DROP_SCALE, scan ground battles, softenAmbush, the flat 2 h injury", status: pending("OC-G1") },
-  { id: "away:audit:tierDormant", system: "away", claim: "Tier-dormant rows: RISK_TIER_ODDS II to VII, enemy territory, hostile sites, SCIENCE_HEAVY, affix rows above Tier I, DIFFICULTY_TIER_ROLL_MULT", status: pending("G2-2, SF-3") },
+  { id: "away:audit:tierDormant", system: "away", claim: "Tier-dormant rows: RISK_TIER_ODDS II to VII, enemy territory (the homeworld's fixed sectors), hostile sites, SCIENCE_HEAVY, affix rows above Tier I, the tier haul TIER_HAUL_MULT II to VII, TIER_BODY_COUNT II to VII, the deeper famous systems, DIFFICULTY_TIER_ROLL_MULT", status: pending(`${G2_6_PICKER}, SF-3`) },
   { id: "away:audit:objectiveHooks", system: "away", claim: "taskChainFollowUp, calmObjective, affix weightFor (no caller)", status: pending("OC-C4") },
   // G. Expedition content
   { id: "expedition:audit:siteFlavor", system: "expedition", claim: "Hostile and clearing site flavor (never rendered)", status: pending("WR-11 (render; no call)") },
   { id: "expedition:audit:anomalyFinding", system: "expedition", claim: "Charting the anomaly costs 1 h and pays nothing (B15)", status: pending("WR-11, OC-G3") },
   { id: "expedition:audit:anomalySensors", system: "expedition", claim: "ANOMALY_CHANCE_PERMILLE: \"if sensors detect one\" (sensors not read)", status: pending("WR-11, OC-G3") },
   { id: "expedition:audit:relicSignature", system: "expedition", claim: "Foreknowledge relicSignature (the UI never reads it)", status: pending("WR-11 (delete or render; no call)") },
-  { id: "expedition:audit:blindLaunch", system: "expedition", claim: "The blind launch path (unreachable)", status: pending("G2-2") },
-  { id: "expedition:audit:oddsRiskyBelow", system: "expedition", claim: "ODDS_RISKY_BELOW (behind tier > 2)", status: pending("G2-2") },
+  { id: "expedition:audit:blindLaunch", system: "expedition", claim: "The blind launch path (a candidate past the telescope's reach: a deeper tier)", status: pending(G2_6_PICKER) },
+  { id: "expedition:audit:oddsRiskyBelow", system: "expedition", claim: "ODDS_RISKY_BELOW (behind tier > 2)", status: pending(G2_6_PICKER) },
   { id: "expedition:audit:shipEventProfileFields", system: "expedition", claim: "ShipEventProfile evasion and shieldCapacity (frozen, never read)", status: pending("WR-11, OC-G5") },
   { id: "expedition:audit:planetComments", system: "expedition", claim: "Planet comments: Ocean slower work, Frozen best relic survival, Toxic hardened team", status: pending("OC-G6") },
   { id: "expedition:audit:legacyFallbacks", system: "expedition", claim: "FIGHT_POINTS_DEFAULT / MIN, SURVEY_AMBUSH_CHANCE (old runs only)", status: pending("OC-G1") },
@@ -3281,7 +3286,7 @@ export const FLAT_UNCONTROLLED: Readonly<Record<string, string>> = {
   "sciCombatPower@ground": "Science never fights (D2): nothing live reaches a Science member's battle stats",
   "secInflictPermille@ground:noInflict": "an inflict piece is the only live source of on-hit statuses, and this context is the one without it",
   "salvageTalentCeiling@salvage:topTier": "the pool's top tier is the clamp: nothing can raise the tier a top Fleet Admiral rolls",
-  "candidateTopTier@expedition:groundOps": "every candidate is Tier I until G2-2: nothing raises the offered region tier",
+  "candidateTopTier@expedition:groundOps": "the console offers Tier I candidates until G2-6 adds the region picker (G2-2 built every tier): nothing raises the offered region tier",
   "missionOreQuality@mission:extraction": "nothing raises mined ore quality today (this line would be the first source)",
 };
 

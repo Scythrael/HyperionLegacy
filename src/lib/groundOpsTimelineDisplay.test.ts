@@ -503,7 +503,7 @@ describe("GO-14 the ship's lane", () => {
     const view = timelineView(e, ship, now, "whole", stub)!;
     const segs = view.ship.segments;
     // Only what the ship is doing now is highlighted: the leg, not the scan it broke off.
-    expect(segs.find((s) => s.category === "scan" && s.label === "scan II")).toMatchObject({ current: false });
+    expect(segs.find((s) => s.category === "scan" && s.label === "scan c")).toMatchObject({ current: false });
     expect(segs.filter((s) => s.current).map((s) => s.category)).toEqual(["leg"]);
     expect(segs.find((s) => s.category === "pause")).toMatchObject({ glyph: "shipDebris", label: "debris field" });
     expect(segs.find((s) => s.category === "pause")!.detail).toBe("Debris field: a detour around the debris (2m)");
@@ -520,8 +520,8 @@ describe("GO-14 the ship's lane", () => {
     expect(segs.some((s) => s.category === "repair")).toBe(false);
     const later = timelineView(e, ship, T0 + 2500, "whole", stub)!;
     const repair = later.ship.segments.find((s) => s.category === "repair")!;
-    expect(repair.detail).toBe(`Field repair at ${e.systemName} I · Terrestrial (after heavy damage): flying 5m, repairing 10m, flying back 5m; fixes 30 hull`);
-    expect(shipNowText(e, ship, T0 + 2500)).toBe(`Setting down for repairs at ${e.systemName} I · Terrestrial · 6m 40s left`);
+    expect(repair.detail).toBe(`Field repair at ${e.systemName} b · Terrestrial (after heavy damage): flying 5m, repairing 10m, flying back 5m; fixes 30 hull`);
+    expect(shipNowText(e, ship, T0 + 2500)).toBe(`Setting down for repairs at ${e.systemName} b · Terrestrial · 6m 40s left`);
     expect(view.ship.steps[0].current).toBe(true);
   });
 

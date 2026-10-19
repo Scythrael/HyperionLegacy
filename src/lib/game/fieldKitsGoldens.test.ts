@@ -42,7 +42,7 @@ import { resistedHazard } from "./relics";
 import { inspectBlank } from "./tick";
 import { applyGroundTeamLoadout, checkInGroundTeamLoadout, createGroundTeamLoadout } from "./armory";
 import { deserialize, migrate, serialize } from "./save";
-import { plainAwayMember, withSlottedAwayTeams, withoutAffixes, withoutFieldKits, withoutFieldKitsState, withoutGroundOps, withoutRisk, withoutSafeFirstRuns } from "./awayTeamTestFixtures";
+import { asPreG2NamesDispatch, plainAwayMember, withSlottedAwayTeams, withoutAffixes, withoutFieldKits, withoutFieldKitsState, withoutGroundOps, withoutRisk, withoutSafeFirstRuns } from "./awayTeamTestFixtures";
 // SF-1: whole states hash without the run counters (seeded by freshState, written by a claim), absent before SF-1.
 import { withoutRunCounts } from "./firstRunsGoldens.fixture";
 
@@ -103,7 +103,7 @@ function crewed(expeditionSeed: number, kinds: "gg" | "ss" = "gg", rank = 6, equ
 
 // Dispatch candidate 0, optionally on a forced region (the risk replaced before any body scans).
 function dispatch(state: GameState, region?: ExpeditionRegion): { next: GameState; exp: Expedition } {
-  const res = startExpedition(state, "ship-1", 1, expeditionCandidates(state, "ship-1")[0].id);
+  const res = asPreG2NamesDispatch(startExpedition(state, "ship-1", 1, expeditionCandidates(state, "ship-1")[0].id));
   if (!res.success || !res.expedition) throw new Error(`dispatch refused: ${res.reason}`);
   // Safe first runs SF-2: the run as dispatched before SF-2 (the retired 30 minute shakedown on expedition 1).
   let exp = withoutFieldKits(withoutSafeFirstRuns(res.expedition));
@@ -149,7 +149,7 @@ interface HandSetup {
 // tasks stamped through the real path, then planned, then the teams pick (the groundOpsAffixes / Outcroppings
 // pattern).
 function handRun(setup: HandSetup): { next: GameState; exp: Expedition } {
-  const res = startExpedition(setup.state, "ship-1", 1, "cand-0");
+  const res = asPreG2NamesDispatch(startExpedition(setup.state, "ship-1", 1, "cand-0"));
   if (!res.success || !res.expedition) throw new Error(`dispatch refused: ${res.reason}`);
   const d = withoutFieldKits(withoutSafeFirstRuns(res.expedition)); // SF-2: as dispatched before SF-2 (see dispatch)
   const body: ExpeditionBody = {

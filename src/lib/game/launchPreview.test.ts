@@ -99,8 +99,9 @@ function stampedTasks(exp: Expedition): SystemTaskPreview["tasks"] {
 // groundOpsRisk.test.ts posture), and advance past the scan. Ground Ops GO-8: with its ship-side scan events off
 // (withoutShipEvents): the preview reads the system's tasks; a sensor ghost's bonus find is a scan EVENT no
 // telescope foresees (it joins after the previewed tasks; shipScanEvents.test.ts pins that).
+// G2-2: a forced region dispatches that tier's own candidate (its bodies grow with the tier), then forces the region.
 function dispatchAndScan(state: GameState, region?: ExpeditionRegion): Expedition {
-  const res = startExpedition(state, "ship-1", 1, "cand-0");
+  const res = startExpedition(state, "ship-1", 1, region ? `cand-${region.tier}-0` : "cand-0");
   expect(res.success, String(res.reason)).toBe(true);
   let exp = withoutShipEvents(res.expedition!);
   if (region) {

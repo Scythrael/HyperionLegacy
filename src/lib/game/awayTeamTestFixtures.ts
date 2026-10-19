@@ -6,7 +6,10 @@
 // rather than the gate. The members are plain: rank 1, no traits, no gear, no own program.
 
 import { SHIP_TYPES, type AwayMember, type AwayTeamType, type Expedition, type GameState, type ShipGroundTeam, type ShipTypeDef, type ShipTypeKey } from "./model";
-import { expeditionAwayTeamCheck } from "./expedition";
+import { BANKED_SYSTEMS, SYSTEM_SALT, expeditionAwayTeamCheck, type ExpeditionCandidate } from "./expedition";
+import { PROVISIONAL_HOMEWORLD, type HomeworldPlacement } from "./galaxy";
+import { systemDistanceLy } from "./telescope";
+import { makeRng } from "./combat/rng";
 import { V67_GROUND_TEAM_COUNT, emptyGroundTeams, shipsWithMemberAutoSlotted } from "./groundTeams";
 import { byIdNumber } from "./awayTeam";
 import { NEUTRAL_SHIP_EVENT_PROFILE } from "./groundOps";
@@ -174,6 +177,51 @@ export function withoutSafeFirstRunsState(state: GameState): GameState {
 export function asPreSafeFirstRunsDispatch<R extends { next: GameState; expedition?: Expedition }>(res: R): R {
   if (!res.expedition) return res;
   return { ...res, expedition: withoutSafeFirstRuns(res.expedition), next: withoutSafeFirstRunsState(res.next) };
+}
+
+// Expedition Tiers G2-2 (docs/plans/2026-10-14-expedition-tiers-g2-plan.md G2-2): the run as the same dispatch made it
+// BEFORE G2-2, i.e. a run in flight at the update: its BANKED name back (`targetSystemId` / `systemName`: the pick on
+// the system stream's first draw, which G2-2 keeps and no longer reads) and no region stamp (`Expedition.region`).
+// Nothing else in a Tier I dispatch record differs (bodies, risk and objectives draw as before; the tier haul is x1
+// and reads the stamp), so a golden pinned before G2-2 compares through this. A Tier I candidate that G2-2 names
+// after a real star (Wolf 359 in the list after the first run) gets its banked name back the same way. Every other
+// key keeps its order. Pure: a shallow copy.
+export function withoutG2Names(exp: Expedition): Expedition {
+  const banked = BANKED_SYSTEMS[makeRng((exp.seed ^ SYSTEM_SALT) >>> 0).nextInt(BANKED_SYSTEMS.length)];
+  if (!("region" in exp) && exp.targetSystemId === banked.id && exp.systemName === banked.name) return exp;
+  const rest = { ...exp, targetSystemId: banked.id, systemName: banked.name };
+  delete rest.region;
+  return rest;
+}
+
+// A whole state with every expedition through withoutG2Names. Identity when nothing changes. Pure.
+export function withoutG2NamesState(state: GameState): GameState {
+  if (state.expeditions.every((e) => withoutG2Names(e) === e)) return state;
+  return { ...state, expeditions: state.expeditions.map(withoutG2Names) };
+}
+
+// G2-2: a Tier I console candidate as it was offered before G2-2: the id `cand-<slot>` (G2-2 reads `cand-1-<slot>`),
+// the banked name, no `region` field, and the drawn distance from `home` (a FAMOUS system reads its real one since
+// G2-2; the list after the first run holds Wolf 359). Every other key keeps its order. Goldens pinned before G2-2
+// hash candidates through this (expeditionTiersGoldens.test.ts asserts nothing else moved). Pure: fresh objects.
+export function asPreG2Candidate(c: ExpeditionCandidate, home: HomeworldPlacement = PROVISIONAL_HOMEWORLD): ExpeditionCandidate {
+  const banked = BANKED_SYSTEMS[makeRng((c.seed ^ SYSTEM_SALT) >>> 0).nextInt(BANKED_SYSTEMS.length)];
+  return {
+    id: `cand-${c.index}`,
+    index: c.index,
+    seed: c.seed,
+    systemId: banked.id,
+    systemName: banked.name,
+    foreknowledge: c.foreknowledge,
+    telescope: { ...c.telescope, distanceLy: systemDistanceLy(c.seed, 1, home) },
+  } as unknown as ExpeditionCandidate;
+}
+
+// G2-2: a dispatch result turned into the run it was before G2-2 (withoutG2Names on the returned expedition and every
+// expedition in `next`). A refusal is returned unchanged. Pure.
+export function asPreG2NamesDispatch<R extends { next: GameState; expedition?: Expedition }>(res: R): R {
+  if (!res.expedition) return res;
+  return { ...res, expedition: withoutG2Names(res.expedition), next: withoutG2NamesState(res.next) };
 }
 
 // Safe first runs SF-2: `state` as a save whose expedition training run is behind it and whose curve reads full

@@ -14,7 +14,7 @@
 //     candidate, and only again when an input that shapes them changes (launchViewInputs below), never per tick.
 // No game rule lives here: every gate, grade and outcome is read from the engine.
 
-import type { GameState, GroundTeamKind, ShipInstance } from "./game/model";
+import type { Expedition, GameState, GroundTeamKind, ShipInstance } from "./game/model";
 import type { ExpeditionCandidate } from "./game/expedition";
 import { squadsOfType, teamKindLabel, teamKindName } from "./game/groundComposition";
 import { getPlanetTypeById } from "./game/expeditionContent";
@@ -198,6 +198,21 @@ const ly = (n: number): string => `${Math.round(n).toLocaleString("en-US")} ly`;
 // "Tier I · Local Bubble · 92 ly". Pure.
 export function candidateRegionText(t: Pick<ExpeditionCandidate["telescope"], "regionTier" | "distanceLy">): string {
   return `Tier ${regionTierNumeral(t.regionTier)} · ${REGION_TIER_NAMES[t.regionTier]} · ${ly(t.distanceLy)}`;
+}
+
+// Expedition Tiers G2-2 (user #5 and G11, "Region, then 3 nearest"): the console lists a tier's candidates NEAREST
+// FIRST (ties by slot). The engine keeps slot order (expedition.ts tierCandidateSystems). Pure: a fresh array.
+export function nearestFirst<C extends Pick<ExpeditionCandidate, "index"> & { telescope: Pick<ExpeditionCandidate["telescope"], "distanceLy"> }>(
+  candidates: readonly C[],
+): C[] {
+  return [...candidates].sort((a, b) => a.telescope.distanceLy - b.telescope.distanceLy || a.index - b.index);
+}
+
+// Expedition Tiers G2-2: where a run in flight went, from its frozen region stamp ("Tier I · Local Bubble · 12 ly
+// from your homeworld"), or null for a run dispatched before G2-2 (no stamp). Pure.
+export function runRegionText(exp: Pick<Expedition, "region">): string | null {
+  const r = exp.region;
+  return r ? `${candidateRegionText({ regionTier: r.tier, distanceLy: r.distanceLy })} from your homeworld` : null;
 }
 
 // GO-12 review minor: the hint beside "Beyond sensor range" / "Contents hidden" when the telescope still reads the

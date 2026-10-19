@@ -7159,8 +7159,8 @@ export interface Expedition {
   id: string; // "expedition-N", allocated from GameState.nextExpeditionId; never reused
   shipId: string;
   captainId: number;
-  targetSystemId: string; // banked sci-fi system id (design Part E)
-  systemName: string; // display name
+  targetSystemId: string; // the system's id: a star catalog id since G2-2 (starCatalog.ts), a banked one before
+  systemName: string; // display name ("LB-0472", "Wolf 359"; a banked sci-fi name on a run dispatched before G2-2)
   // The installed sensor array's variant id at dispatch (null = none installed). IDENTITY (WR-4): a record of what
   // flew; nothing reads it for an effect (the resolved scanParams below carry the array's numbers).
   sensorArrayId: string | null;
@@ -7312,6 +7312,23 @@ export interface Expedition {
   // WR-5c: the commanding captain's explorer secondary nodes, frozen at dispatch (ExplorerCaptainRun). Absent when
   // the captain owns none of them. Optional, no SAVE bump (the tree is branch-only; no production save owns a node).
   explorerCaptain?: ExplorerCaptainRun;
+  // Expedition Tiers G2-2: WHERE the run went, frozen at dispatch from the chosen candidate (ExpeditionRegionStamp),
+  // so a run never re-reads the homeworld. Its PRESENCE marks a run named from the star catalog (bodies lettered
+  // b, c, d; groundTaskQueueDisplay.ts bodyDesignation). Absent on every run dispatched before G2-2 (banked name,
+  // Roman numeral bodies). Optional, no SAVE bump.
+  region?: ExpeditionRegionStamp;
+}
+
+// Expedition Tiers G2-2: the region a run was dispatched to. `tier` and `enemyTerritory` are the region the risk
+// profile drew from (the same values as Expedition.risk); `bearing` (whole tenths of a degree from the homeworld,
+// galaxy.ts bearingDirection) placed it against the homeworld's fixed enemy sectors; `distanceLy` is its distance from
+// the homeworld (whole light-years), what G2-3's voyage reads. Plain data.
+export interface ExpeditionRegionStamp {
+  version: 1;
+  tier: RegionTier;
+  enemyTerritory: boolean;
+  bearing: number;
+  distanceLy: number;
 }
 
 // Field Kits FKR-1: a ground enemy's RANK (user-named, 2026-10-16: Weak, Normal, Strong, Elite, Boss). One multiplier
