@@ -354,4 +354,8 @@ inert: culture names (finds keep their "Relic Sample" codes, honest Help), the R
 - **Call 4 past the cap:** "Keep counting, show it (Recommended)".
 - Note on call 14: G1's short-range relic rate was already answered on the short-range plan (2026-10-19: rare, per
   hour, Tier I 0.08x and Tier II 0.15x of the expedition rate); call 14 now only asks whether other missions drop too.
-- Still open: 5 to 17, plus the name sign-offs.
+- **Call 5 set sizes:** "Growing sets, 54 pieces (Recommended)".
+- **Call 6 exceptional odds:** "0.25% to 1.5%, x1.25/tier (Recommended)".
+- **Call 7 duplicates:** "Prefer missing pieces (Recommended)".
+- **Call 8 identify vs name:** "Type on identify, name via culture (Recommended)".
+- Still open: 9 to 17, plus the name sign-offs.
