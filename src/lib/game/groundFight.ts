@@ -273,6 +273,28 @@ export type TaskFightExp = Pick<
   "id" | "roster" | "securityStrength" | "squadTriage" | "squadFearResist" | "hazardResist" | "teamKit" | "enemyRanks" | "difficulty"
 >;
 
+// THE GUARD a task fight fields on a given stream seed, as fresh combatants: generateEncounter on the body's hazard
+// after the museum resist, the flora toxins, the alert's escalation and (Field Kits FKR-1, a ranked run only) the
+// enemy ranks. resolveTaskFightOnSeed fields exactly this list; the wiring probe reads it (the ranks' HP and power on a
+// real fight). Safe first runs SF-2: a TRAINING RUN's guard reads hazard 0 and the training profile (runDifficulty.ts:
+// one enemy at FIRST_RUN_ENEMY_SCALE of its strength; same seed, same draws); every other run's guard is exactly as
+// before. Pure.
+export function taskFightGuard(
+  exp: Pick<TaskFightExp, "hazardResist" | "enemyRanks" | "difficulty">,
+  body: Pick<ExpeditionBody, "hazard" | "risk">,
+  task: RankedFightTask,
+  seed: number,
+  alertLevel = 0,
+  kind: RankedFightKind = "point",
+): GroundCombatant[] {
+  const training = isTrainingRun(exp);
+  const hazard = training ? 0 : resistedHazard(body.hazard, exp.hazardResist ?? 0);
+  const profile = training ? { scale: FIRST_RUN_ENEMY_SCALE, maxEnemies: FIRST_RUN_MAX_ENEMIES } : undefined;
+  const enemies = withEscalation(withFloraToxins(generateEncounter(seed, hazard, task.poiId, profile), bodyFloraGrade(body)), alertLevel);
+  if (ranksLive(exp)) withEnemyRanks(enemies, fightLeadRank(fightRankContext(exp, task, task.fightPoints?.length ?? 0, kind)));
+  return enemies;
+}
+
 // THE fight body on a given stream seed. resolveTaskFight passes the real fight's keyed seed (above); the
 // threat indicator (groundThreat.ts, GO-6) passes its OWN salted sample seeds, so its samples field the same
 // squad and the same guard rules as a real fight while never touching a real fight's stream. Engine code
@@ -298,13 +320,7 @@ export function resolveTaskFightOnSeed(
   if (team.length === 0) {
     return { pointIndex, fightNumber, outcome: "loss", rounds: 0, downedMemberIds: [], memberConditions: {}, memberEnd: {} };
   }
-  // Safe first runs SF-2: a TRAINING RUN's guard reads hazard 0 and the training profile (runDifficulty.ts: one enemy
-  // at FIRST_RUN_ENEMY_SCALE of its strength); every other run's guard is exactly as before.
-  const training = isTrainingRun(exp);
-  const hazard = training ? 0 : resistedHazard(body.hazard, exp.hazardResist ?? 0);
-  const profile = training ? { scale: FIRST_RUN_ENEMY_SCALE, maxEnemies: FIRST_RUN_MAX_ENEMIES } : undefined;
-  const enemies = withEscalation(withFloraToxins(generateEncounter(seed, hazard, task.poiId, profile), bodyFloraGrade(body)), alertLevel);
-  if (ranksLive(exp)) withEnemyRanks(enemies, fightLeadRank(fightRankContext(exp, task, task.fightPoints?.length ?? 0, kind)));
+  const enemies = taskFightGuard(exp, body, task, seed, alertLevel, kind);
   withCover(team, enemies, cover, exp.roster?.security);
   const result = resolveGroundBattle(team, enemies, exp.teamKit, makeRng(seed), logSink, seed);
 

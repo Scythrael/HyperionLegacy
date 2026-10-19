@@ -45,6 +45,8 @@
   // Squads SQ-7.4: the Subspace Telescope Facilities card (its words and galaxy map are telescopeCardDisplay.ts).
   import TelescopeMap from "./lib/TelescopeMap.svelte";
   import { telescopeCardView, telescopeMapView } from "./lib/telescopeCardDisplay";
+  import { PROVISIONAL_HOMEWORLD, homeworldPlacement, isWellFormedHomeworld } from "./lib/game/galaxy";
+  import { drawHomeworldSeed } from "./lib/homeworldEntropy";
   // Exploration 0.14.0 (E4c): the Research facility's Relics sub-tab + the Archive's Museum sub-tab.
   import RelicStudyPanel from "./lib/RelicStudyPanel.svelte";
   import MuseumPanel from "./lib/MuseumPanel.svelte";
@@ -454,6 +456,7 @@
     canUnslotMember,
     groundSlotBlockText,
     groundTeamName,
+    groundTeamDefaultName,
     planComposition,
     previewGroundTeamKind,
     renameGroundTeam,
@@ -495,7 +498,7 @@
     type GearCategory,
   } from "./lib/awayGearDisplay";
   import { crewRankLabel } from "./lib/game/crewRank";
-  // Crew 0.14.0 (phase 4e): the DORMANT captain PRESTIGE secondary-tree allocation engine + the captain
+  // Crew 0.14.0 (phase 4e): the captain PRESTIGE secondary-tree allocation engine + the captain
   // RETIREMENT / XO-succession loop, both pure. buySecondaryTalent returns a CaptainState (spliced back
   // into state.captains by doBuySecondaryTalent); retireCaptain returns a whole GameState (same-ref no-op
   // when illegal). committedBranch surfaces the single-branch commitment in the UI.
@@ -503,7 +506,12 @@
     canBuySecondaryTalent,
     buySecondaryTalent,
     committedBranch,
+    secondaryTalentBuyLock,
+    secondaryTalentBuyLockText,
   } from "./lib/game/captainSecondaryTree";
+  // WR-5a: each secondary node's exact player text (the same helper the wiring registry's claim reads), and the
+  // supply run card's captain-adjusted margin and purchase cost.
+  import { describeSecondaryTalentEffect as describeSecondaryTalentEffectText, captainSupplyRunTerms } from "./lib/game/captainSecondaryEffects";
   import {
     canRetireCaptain,
     retireBlockReason,
@@ -521,6 +529,7 @@
     updateRoster,
     deleteRoster,
     setLinkedLoadout,
+    setLinkedSquadLoadout,
     setIncludePeople,
     assignSeat,
     pinNotable,
@@ -984,7 +993,20 @@
     loadoutCap, canCreateLoadout, createLoadout, renameLoadout, deleteLoadout,
     loadoutSlotDefsForShipType, installIntoLoadout, uninstallFromLoadout, loadoutInstallCandidates,
     checkOutLoadout, checkInLoadout, type LoadoutSlotDef,
+    // Ground Ops GO-17 UI: the ground team (squad) loadout lifecycle.
+    createGroundTeamLoadout, applyGroundTeamLoadout, checkInGroundTeamLoadout, renameGroundTeamLoadout,
+    deleteGroundTeamLoadout, type GroundLoadoutResult,
   } from "./lib/game/armory";
+  // Ground Ops GO-17 UI: the Armory's Squad Loadouts tab (display decisions in squadLoadoutDisplay.ts, tested).
+  import SquadLoadoutsPanel from "./lib/SquadLoadoutsPanel.svelte";
+  import {
+    applyReportView,
+    armoryCountShort,
+    armoryCountText,
+    blockReasonText,
+    createReportView,
+    reportLogText,
+  } from "./lib/squadLoadoutDisplay";
   // ITEM LIFECYCLE 0.13.6 (the Archive, Phase 4): the completionist record, pure over GameState.
   import { archivableBlueprints, archiveCompletion, archiveItem, itemScore, maxItemScore } from "./lib/game/archive";
   // Crafting 0.13.3 (Phase 4 Unit 4.2): the PURE queue view model. Every queue readout on a
@@ -1204,7 +1226,8 @@
   // "Every hull is combat-capable": seed the starting freighter's weak Standard-Issue
   // combat set so a brand-new game's hull is dispatchable (freshState alone leaves it
   // combat-bare; see the installMissingCombatBaselines import note above).
-  let state: GameState = installMissingCombatBaselines(freshState());
+  // Expedition Tiers G2-1: every new game draws its own homeworld seed (the one entropy source, homeworldEntropy.ts).
+  let state: GameState = installMissingCombatBaselines(freshState(drawHomeworldSeed()));
   let createdAt = Date.now();
   let currentTheme: ThemeName = "cyan";
   let tickBarEnabled = true;
@@ -2374,6 +2397,15 @@
   type ArchiveSubTab = "archive" | "museum";
   let activeArchiveSubTab: ArchiveSubTab = "archive";
 
+  // Ground Ops GO-17 UI: the Armory's TWO-tab axis. "ship" is the existing ship loadout console (unchanged);
+  // "squad" is the Squad Loadouts tab (SquadLoadoutsPanel), one loadout per ground team. Both count against
+  // the one shared cap. Defaults to "ship" so the Armory opens as it always has.
+  type ArmorySubTab = "ship" | "squad";
+  let activeArmorySubTab: ArmorySubTab = "ship";
+  // The Away Team card's "Loadouts" shortcut: open Squad Loadouts' Save with that ship and team picked. The
+  // nonce makes a second tap on the same team reopen it.
+  let squadLoadoutPreset: { shipId: string; teamIndex: number; nonce: number } | null = null;
+
   // Fabricator (Task F4 UI): the Fabricator's THREE-tab axis, Overview (slots in use +
   // in-flight craft jobs + researched/fabricable counts + the Shipyard signpost), Craft
   // (the tier-grouped RESEARCHED-blueprint list with per-blueprint order controls), and
@@ -3169,6 +3201,7 @@
       activeQuartermasterSubTab,
       activeSalvageBaySubTab,
       activeArchiveSubTab,
+      activeArmorySubTab,
       activeSystemSubTab,
     ].join("/");
     if (navKey !== navScroll.lastKey) {
@@ -5743,6 +5776,20 @@
     pushLog(`Roster "${rosterName(rosterId)}" ${linkedLoadoutId ? "linked to an Armory loadout" : "unlinked (portable)"}.`);
   }
 
+  // GO-17 UI: link (or clear) one ground team's squad loadout on a roster (applyRoster puts it on that team).
+  function doSetRosterSquadLoadout(rosterId: string, teamIndex: number, loadoutId: string | null) {
+    const next = setLinkedSquadLoadout(state, rosterId, teamIndex, loadoutId);
+    if (next === state) return;
+    state = next;
+    doSave();
+    const team = groundTeamDefaultName(teamIndex);
+    pushLog(
+      loadoutId
+        ? `Roster "${rosterName(rosterId)}" links "${state.squadLoadouts.find((l) => l.id === loadoutId)?.name ?? "a squad loadout"}" to ${team}.`
+        : `Roster "${rosterName(rosterId)}" no longer links a squad loadout to ${team}.`,
+    );
+  }
+
   function doSetRosterIncludePeople(rosterId: string, includePeople: boolean) {
     const next = setIncludePeople(state, rosterId, includePeople);
     if (next === state) return;
@@ -7230,6 +7277,82 @@
     if (next === state) { pushLog("Cannot check that loadout in while its ship is on a mission."); return; }
     state = next;
     doSave();
+  }
+
+  // ── Ground Ops GO-17 UI: Squad Loadouts (ground team loadouts) ─────────────────
+  // The SquadLoadoutsPanel's controls route here. Canonical do* flow: the pure armory.ts action, a refusal
+  // (same state ref) logs the engine's reason and stops, else state = next, pushLog, doSave. Create / apply
+  // return the engine result so the panel can draw the install report; the log carries every skip with its
+  // reason (groundLoadoutSkipText, via reportLogText). The panel disables a blocked control with the same
+  // reason, so a refusal here is a backstop.
+  const squadLoadoutName = (id: string): string => state.squadLoadouts.find((l) => l.id === id)?.name ?? "that loadout";
+
+  function doCreateGroundTeamLoadout(shipId: string, teamIndex: number, name: string): GroundLoadoutResult {
+    const r = createGroundTeamLoadout(state, shipId, teamIndex, name);
+    if (!r.ok) {
+      pushLog(`Cannot save ${groundTeamLabel(shipId, teamIndex)}'s gear: ${blockReasonText(state, r.reason, [shipId])}.`);
+      return r;
+    }
+    state = r.next;
+    pushLog(reportLogText(createReportView(r.next, r.loadoutId, r.pieces, r.skipped)));
+    doSave();
+    return r;
+  }
+
+  function doApplyGroundTeamLoadout(loadoutId: string, shipId: string, teamIndex: number): GroundLoadoutResult {
+    const r = applyGroundTeamLoadout(state, loadoutId, shipId, teamIndex);
+    if (!r.ok) {
+      pushLog(`Cannot put "${squadLoadoutName(loadoutId)}" on ${groundTeamLabel(shipId, teamIndex)}: ${blockReasonText(state, r.reason, [shipId])}.`);
+      return r;
+    }
+    state = r.next;
+    pushLog(reportLogText(applyReportView(r.next, loadoutId, shipId, teamIndex, r.pieces, r.skipped)));
+    doSave();
+    return r;
+  }
+
+  function doCheckInGroundTeamLoadout(loadoutId: string): boolean {
+    const name = squadLoadoutName(loadoutId);
+    const r = checkInGroundTeamLoadout(state, loadoutId);
+    if (!r.ok) {
+      const lo = state.squadLoadouts.find((l) => l.id === loadoutId);
+      pushLog(`Cannot check "${name}" in: ${blockReasonText(state, r.reason, lo?.checkedOutTo ? [lo.checkedOutTo.shipId] : [])}.`);
+      return false;
+    }
+    state = r.next;
+    pushLog(`Checked "${name}" in: its pieces rest in the locker.`);
+    doSave();
+    return true;
+  }
+
+  function doRenameGroundTeamLoadout(loadoutId: string, name: string) {
+    const before = squadLoadoutName(loadoutId);
+    const next = renameGroundTeamLoadout(state, loadoutId, name);
+    if (next === state) return; // missing, blank or unchanged
+    state = next;
+    pushLog(`Renamed squad loadout "${before}" to "${squadLoadoutName(loadoutId)}".`);
+    doSave();
+  }
+
+  function doDeleteGroundTeamLoadout(loadoutId: string) {
+    const name = squadLoadoutName(loadoutId);
+    const next = deleteGroundTeamLoadout(state, loadoutId);
+    if (next === state) {
+      pushLog(`Cannot delete "${name}": ${blockReasonText(state, "checkedOut", [])}.`);
+      return;
+    }
+    state = next;
+    pushLog(`Deleted squad loadout "${name}": its pieces went back to storage.`);
+    doSave();
+  }
+
+  // The Away Team card's "Loadouts" shortcut: the Armory's Squad Loadouts tab, Save opened on that ship + team.
+  function openSquadLoadouts(shipId: string, teamIndex: number) {
+    activeTab = "facilities";
+    facilitiesView = "console";
+    activeFoundryFacility = "armory";
+    activeArmorySubTab = "squad";
+    squadLoadoutPreset = { shipId, teamIndex, nonce: (squadLoadoutPreset?.nonce ?? 0) + 1 };
   }
 
   // ── ITEM LIFECYCLE 0.13.6: the Archive (completion record) ─────────────────
@@ -8802,41 +8925,12 @@
   $: selectedSecondaryTree = SECONDARY_CAPTAIN_TALENTS[`${selectedSecondaryBranch}1` as SecondaryTalentKey].tree;
 
 
-  // Capstone (rung-5) taglines. The effect payload carries only an `id`, so these one-liners (drawn
-  // from the catalog's own capstone comments) let describeSecondaryTalentEffect render a real line.
-  const SECONDARY_CAPSTONE_TAGLINE: Record<string, string> = {
-    motherlode: "Motherlode: a chance for a full double haul",
-    overloadedHolds: "Overloaded Holds: carry beyond cargo cap, penalty-free",
-    tradeBaron: "Trade Baron: best margins + a passive credit trickle",
-    alphaStrike: "Alpha Strike: a bonus-damage opening volley",
-    bulwark: "Bulwark: survive one lethal hit per battle",
-    wolfpack: "Wolfpack: an extra drone squadron / fleet-wide edge",
-    deepScan: "Deep Scan: full-system reveal + a guaranteed rare find",
-    relicHunter: "Relic Hunter: a guaranteed relic from an expedition",
-    legendaryCaptain: "Legendary Captain: a crew-wide multiplier + officer aura",
-  };
-
-  // camelCase stat key -> spaced lower-case words, so a first-pass statMult line reads "extraction
-  // yield" not "extractionYield" (display nicety only; the stat key is inert placeholder data).
-  function humanizeSecondaryStat(stat: string): string {
-    return stat.replace(/([a-z0-9])([A-Z])/g, "$1 $2").toLowerCase();
-  }
-
   // The secondary tree's effect describer, passed to RadialWeb as describeEffect (mirrors
-  // describeCaptainTalentEffect / describeHomeworldTalentEffect). Renders each member to one short,
-  // HONEST player-facing line; the magnitudes are first-pass placeholders and nothing applies them yet,
-  // so gateway `none` rungs say so plainly rather than a misleading "+0%".
+  // describeCaptainTalentEffect / describeHomeworldTalentEffect). WR-5a: the engine helper
+  // (captainSecondaryEffects.ts) renders each node's exact effect from its catalog magnitudes, the same
+  // text the wiring registry's claim reads, so the tooltip says exactly what the node does.
   function describeSecondaryTalentEffect(effect: CaptainSecondaryTalentEffect): string {
-    switch (effect.type) {
-      case "none":
-        return "No bonus yet (system pending)";
-      case "statMult":
-        return `+${(effect.mult * 100).toFixed(1)}% ${humanizeSecondaryStat(effect.stat)}`;
-      case "procChance":
-        return `${(effect.chance * 100).toFixed(0)}% chance-based bonus (first-pass)`;
-      case "capstone":
-        return SECONDARY_CAPSTONE_TAGLINE[effect.id] ?? "Branch capstone";
-    }
+    return describeSecondaryTalentEffectText(effect);
   }
 
   // Buy one PRESTIGE secondary-tree node for `captainId`. buySecondaryTalent returns a CaptainState (NOT
@@ -8846,8 +8940,9 @@
   function doBuySecondaryTalent(captainId: number, key: SecondaryTalentKey) {
     const captain = state.captains.find((c) => c.id === captainId);
     if (!captain) return;
-    if (!canBuySecondaryTalent(captain, key)) return; // illegal/unaffordable/off-branch: no-op, no save
-    const nextCaptain = buySecondaryTalent(captain, key);
+    // WR-5a: `state` adds the buy lock (the captain's ship is out); the panel shows the reason.
+    if (!canBuySecondaryTalent(captain, key, state)) return; // illegal/unaffordable/off-branch/ship out: no-op, no save
+    const nextCaptain = buySecondaryTalent(captain, key, state);
     const captains = state.captains.map((c) => (c.id === captainId ? nextCaptain : c));
     state = { ...state, captains };
     pushLog(`[${captain.label}] Prestige talent learned: ${SECONDARY_CAPTAIN_TALENTS[key].label}.`);
@@ -9103,7 +9198,7 @@
     clearSave();
     // Seed the fresh starter's weak Standard-Issue combat set (see newGame rationale at
     // the initial `state` declaration): a reset game's hull is dispatchable like a new one.
-    state = installMissingCombatBaselines(freshState());
+    state = installMissingCombatBaselines(freshState(drawHomeworldSeed()));
     createdAt = Date.now();
     // A fresh state ships a SINGLE captain (index 0). If the player had captain #2+
     // selected, activeCaptainIndex/personnelRosterView still point past the new roster,
@@ -9198,7 +9293,7 @@
     clearSave();
     // Seed the fresh starter's weak Standard-Issue combat set (see newGame rationale at
     // the initial `state` declaration) so the recovered game's hull is dispatchable.
-    state = installMissingCombatBaselines(freshState());
+    state = installMissingCombatBaselines(freshState(drawHomeworldSeed()));
     createdAt = Date.now();
     // Mirror resetSave()'s index reset for hygiene: the recovered state also has a single
     // captain, so re-seat the selection at index 0 rather than trust whatever it was.
@@ -9667,9 +9762,12 @@
   // Squads SQ-7.4: the Subspace Telescope card. Its words, ladder and map come from telescopeCardDisplay.ts (pure,
   // tested); the Upgrade button is the shared canBuildFacilityUpgrade / doStartFacilityUpgrade pair like every card.
   // The map is rebuilt only when the LEVEL changes (a primitive, so a tick that leaves it alone does not redraw).
-  $: telescopeView = telescopeCardView(state, { duration: (t) => durationReadout(t, showTickCounts, state.tickDurationSeconds) });
+  // G2-1: both are measured from the save's own homeworld, derived only when its stored SEED changes (a primitive).
+  $: telescopeHomeSeed = isWellFormedHomeworld(state.homeworld) ? state.homeworld.seed : null;
+  $: telescopeHome = telescopeHomeSeed === null ? PROVISIONAL_HOMEWORLD : homeworldPlacement(telescopeHomeSeed);
+  $: telescopeView = telescopeCardView(state, { duration: (t) => durationReadout(t, showTickCounts, state.tickDurationSeconds), homeworld: telescopeHome });
   $: telescopeLevelNow = telescopeView.level;
-  $: telescopeMap = telescopeMapView(telescopeLevelNow);
+  $: telescopeMap = telescopeMapView(telescopeLevelNow, telescopeHome);
   $: telescopeUpgradeCheck = canBuildFacilityUpgrade(state, SUBSPACE_TELESCOPE_FACILITY_KEY);
   $: telescopeUpgradeInFlight = state.activeProcesses.find(
     (p) =>
@@ -10199,7 +10297,7 @@
     // facility, no FACILITIES entry, no founding, no level; loadout count comes from talents.
     fpane("armory", "🗄️", FACILITY_LABELS.armory, "Loadout bay",
       null, null,
-      `${state.loadouts.length} / ${loadoutCap(state)} loadouts`,
+      armoryCountShort(state),
       facilityAttention.has("armory")),
     // ITEM LIFECYCLE 0.13.6: the Archive (completion record), a service facility like the Armory.
     fpane("archive", "🏛️", FACILITY_LABELS.archive, "Completion record",
@@ -10263,6 +10361,12 @@
           { key: "archive", label: "Archive" },
           { key: "museum", label: "Museum" },
         ], active: activeArchiveSubTab, onSelect: (key) => (activeArchiveSubTab = key as ArchiveSubTab) };
+      // Ground Ops GO-17 UI: ship loadouts and squad (ground team) loadouts, one shared cap.
+      case "armory":
+        return { tabs: [
+          { key: "ship", label: "Ship Loadouts" },
+          { key: "squad", label: "Squad Loadouts" },
+        ], active: activeArmorySubTab, onSelect: (key) => (activeArmorySubTab = key as ArmorySubTab) };
       default:
         return null;
     }
@@ -14307,8 +14411,8 @@
                  telescopeCardDisplay.ts (pure, tested); the Upgrade button is the SHARED facilityUpgradeButton on
                  canBuildFacilityUpgrade / doStartFacilityUpgrade, so its disabled reasons and the in-flight swap
                  behave exactly as at the Salvage Bay. Credits and an FA gate only (design 6.1: no materials, no
-                 talent gates, so the card can show every gate). Light-years are measured from the PROVISIONAL
-                 homeworld near the Sun's position until G2 places each player's homeworld. -->
+                 talent gates, so the card can show every gate). Light-years are measured from the save's own
+                 homeworld (Expedition Tiers G2-1, galaxy.ts: 10 to 120 ly from Sol, a seed stored per save). -->
             <div class="telescope-grid">
               <Panel>
                 <div class="telescope-head">
@@ -14715,6 +14819,28 @@
                   {/if}
                 </Panel>
               {/if}
+          {:else if activeFoundryFacility === "armory" && activeArmorySubTab === "squad"}
+            <!-- Ground Ops GO-17 UI: the Armory's Squad Loadouts tab (approved squad loadouts mockup, user S14).
+                 One named set of member kits per ground team; every action routes to a do* handler below over
+                 the pure armory.ts ground team loadout fns. -->
+            <Panel>
+              <div class="panel-title">
+                ARMORY · SQUAD LOADOUTS
+                <HelpTip
+                  label="How squad loadouts work"
+                  text="Save what a ground team wears as a named set, put it back on any team of the same type with one click, and check it in to rest the pieces in the locker. Ship and squad loadouts share one Armory capacity."
+                />
+              </div>
+              <SquadLoadoutsPanel
+                {state}
+                preset={squadLoadoutPreset}
+                onCreate={doCreateGroundTeamLoadout}
+                onApply={doApplyGroundTeamLoadout}
+                onCheckIn={doCheckInGroundTeamLoadout}
+                onRename={doRenameGroundTeamLoadout}
+                onDelete={doDeleteGroundTeamLoadout}
+              />
+            </Panel>
           {:else if activeFoundryFacility === "armory"}
             <!-- ITEM LIFECYCLE 0.13.6: the Armory console. Drill-in: the loadout ROSTER when
                  selectedLoadout is null, else the loadout EDITOR. All actions wrap armory.ts fns
@@ -14743,7 +14869,8 @@
                     </select>
                     <button class="buy-btn" disabled={!armoryNewShipType || !canCreateLoadout(state)} on:click={doCreateLoadout}>Create</button>
                   </div>
-                  <div class="armory-create-count">{state.loadouts.length} / {loadoutCap(state)} loadouts</div>
+                  <!-- GO-17 UI: the shared count (ship + squad loadouts, one cap), read from loadoutsUsed. -->
+                  <div class="armory-create-count">{armoryCountText(state)}</div>
                 </div>
                 {#if state.loadouts.length === 0}
                   <div class="warehouse-stub"><div class="warehouse-stub-glyph">🗄️</div><p>No loadouts yet. Pick a ship type above and create one.</p></div>
@@ -14993,6 +15120,7 @@
               onApplyRoster={doApplyRoster}
               onToggleOfficerFavorite={doToggleOfficerFavorite}
               onToggleNotableFavorite={doToggleNotableFavorite}
+              onSetSquadLoadout={doSetRosterSquadLoadout}
             />
           {/if}
         {/if}
@@ -15872,6 +16000,7 @@
           onRenameTeam={doRenameGroundTeam}
           onSetTeamHelp={doSetGroundTeamHelp}
           onSetTeamKind={doSetGroundTeamKind}
+          onOpenLoadouts={openSquadLoadouts}
         />
         {:else if activeShipDetailTab === "complement"}
         <!-- COMPLEMENT (Crew 0.14.0 phase 4b). The hundreds-scale crew population for this hull:
@@ -16473,7 +16602,8 @@
                JS mobile branch. All reads are activeCaptain-scoped; the two do* handlers own the writes.
                NOTE: keep Svelte block tokens (hash-if / colon-else / slash-if) OUT of this comment. -->
           {@const prestigeCommitted = committedBranch(activeCaptain)}
-          {@const prestigeSpendableHere = prestigeCommitted === null || prestigeCommitted === selectedSecondaryBranch}
+          {@const prestigeBuyLock = secondaryTalentBuyLock(state, activeCaptain.id)}
+          {@const prestigeSpendableHere = prestigeBuyLock === null && (prestigeCommitted === null || prestigeCommitted === selectedSecondaryBranch)}
           {@const prestigeSuccessor = seatedExecutiveOfficerFor(state, activeCaptain.id)}
           {@const prestigeLockedIn = activeCaptain.retirements >= MAX_CAPTAIN_RETIREMENTS}
           {@const prestigeCanRetire = canRetireCaptain(state, activeCaptain.id)}
@@ -16572,7 +16702,9 @@
                   />
                 </div>
 
-                {#if prestigeCommitted !== null && !prestigeSpendableHere}
+                {#if prestigeBuyLock !== null}
+                  <div class="cc-prestige-locked">{secondaryTalentBuyLockText(prestigeBuyLock)}.</div>
+                {:else if prestigeCommitted !== null && !prestigeSpendableHere}
                   <!-- Viewing an OFF-branch tree while committed: it is view-only. Passing points=0 +
                        pointsLabel="" below makes every node render locked and hides the corner readout,
                        so nothing looks buyable; this banner says why. -->
@@ -16810,7 +16942,8 @@
                   {@const loot = missionDef.lootTable}
                   <!-- Exploration 0.14.0 (E1b): a transport shows its credit economy, not loot. -->
                   {@const isTransport = missionDef.missionType === "transport"}
-                  {@const marginPct = Math.round((missionDef.rewardMargin ?? 0) * 100)}
+                  {@const supplyTerms = captainSupplyRunTerms(representativeCaptain, missionDef)}
+                  {@const marginPct = Math.round(supplyTerms.margin * 1000) / 10}
                   {#if unlocked}
                     {@const expanded = expandedMissionKey === missionKey}
                     <div class="mpane-wrap">
@@ -16880,7 +17013,7 @@
                               <div class="mission-detail-section">
                                 <div class="mission-col-label">Supply Economy</div>
                                 <div class="mission-req-line">Cost-in / reward-out supply run: no materials delivered.</div>
-                                <div class="mission-req-line">Load cost: {formatNumber(missionDef.supplyCostPerCargo ?? 0)} cr per unit of cargo (scales with the hull's hold).</div>
+                                <div class="mission-req-line">Load cost: {formatNumber(supplyTerms.costPerCargo)} cr per unit of cargo (scales with the hull's hold).</div>
                                 <div class="mission-req-line">Margin: +{marginPct}% on the load returned per cycle (net profit).</div>
                                 <div class="mission-req-line">Idles when the fleet cannot afford the load; resumes when credits recover.</div>
                               </div>

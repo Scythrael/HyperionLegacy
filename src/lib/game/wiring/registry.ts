@@ -70,7 +70,9 @@ import {
   type SeniorStaffSeat,
   type ShipTypeKey,
 } from "../model";
+import Decimal from "break_infinity.js";
 import { diminishing } from "../diminishing";
+import { secondaryTalentEffectText } from "../captainSecondaryEffects";
 import { buyHomeworldTalent } from "../tick";
 import { combatHullTypeOf, hullDefenseComposition } from "../combat/bridge";
 import { SENIOR_STAFF_BONUSES, type SeniorStaffBonusDef } from "../seniorStaffBonuses";
@@ -109,6 +111,19 @@ import { DC_REPAIR_SPEED_B, DC_REPAIR_SPEED_R, DC_WAVE_REGEN_B, DC_WAVE_REGEN_R,
 import { DRONE_POD_AFFIX_POOL, DRONE_POD_IMPLICIT_STAT, WEAPON_AFFIX_POOL, WEAPON_IMPLICIT_STAT } from "../itemgen";
 import { AFFIX_DEFS, ESCALATION_ENEMIES_PER_LEVEL, HEIGHTENED_SENSES_KNEE, HEIGHTENED_SENSES_PER_LEVEL } from "../affixes";
 import { ENEMY_RANKS, ENEMY_RANK_IDS } from "../enemyRanks";
+import { OVERTIME_STEP_RATE } from "../processSpeed";
+import {
+  CONDITION_LINES,
+  CONDITION_LINE_IDS,
+  FIELD_KITS,
+  FIELD_KIT_IDS,
+  FREE_BASIC_CURVE_KNEE,
+  FREE_BASIC_SET,
+  KIT_CATEGORY_RULES,
+  type FieldKitDef,
+  type FieldKitId,
+  type KitCategory,
+} from "../fieldKits";
 import {
   WIRING_SCIENCE_ID,
   WIRING_SECURITY_ID,
@@ -126,6 +141,8 @@ import {
   withFacilityLevel,
   withHomeworld,
   withMuseum,
+  withRunningJobs,
+  overtimeOneStep,
   WIRING_BUCKET_COUNT,
   AFFIX_ALIGNED_HOOKS,
   AFFIX_HOOK_KEYS,
@@ -162,7 +179,11 @@ export type WiringStatus =
   | { kind: "pending"; owner: string; contexts?: readonly ContextId[] }
   // The user deferred it past 0.14.0 (capture 2026-10-15 section 3 T3 and the like).
   | { kind: "deferred"; owner: string; userRef: string; contexts?: readonly ContextId[] }
-  | { kind: "held"; userRef: string }; // D14 Craft Duplicate only
+  | { kind: "held"; userRef: string } // D14 Craft Duplicate only
+  // 0.14.0: a SEAM the user asked to be built now and called by a later patch (the tutorial time skip and the grant
+  // hook: "Hook only", USER ANSWERS group 2 of the safe first runs plan). Tested in its own suite; not a placeholder
+  // effect (it moves nothing on its own) and not a release blocker. `owner` = the patch that calls it.
+  | { kind: "seam"; owner: string; userRef: string };
 
 export type Curve =
   | { kind: "linearRelative" } // value(on) = value(off) x (1 + m)
@@ -265,6 +286,10 @@ export const CATALOGS = {
   PLANET_TYPES,
   AFFIX_DEFS,
   ENEMY_RANKS,
+  FIELD_KITS,
+  KIT_CATEGORY_RULES,
+  CONDITION_LINES,
+  FREE_BASIC_SET,
 } as const;
 export type Catalogs = typeof CATALOGS;
 
@@ -890,14 +915,74 @@ function captainSpecEntries(): WiringEntry[] {
   });
 }
 
-// The pending owner of each secondary node (plan section 5.A: WR-5a prospector, WR-5b tactician, WR-5c explorer),
-// with the claimed value's probe where one already exists (it must not move until the slice wires it).
+// WR-5a: the Prospector tree, LIVE. Each node's seam, context(s) and curve; the magnitude is the node's catalog
+// magnitude (captainSecondaryEffects.ts secondaryTalentMagnitude), unless the entry names its own.
+const FRONTIER = MISSIONS.frontierSupplyRun;
+// The freighter's whole Frontier Supply Run load (ship-1 is the General Freighter).
+const FRONTIER_LOAD = SHIP_TYPES.generalFreighter.cargoCapacity * (FRONTIER.supplyCostPerCargo ?? 0);
+// A save whose fleet has delivered one supply run cycle (Trade Routes pays only on an established route).
+const withSupplyRoute = (s: GameState): GameState => ({
+  ...s,
+  lifetimeStats: { ...s.lifetimeStats, missionsCompleted: { ...s.lifetimeStats.missionsCompleted, frontierSupplyRun: new Decimal(1) } },
+});
+const ownsNodes = (s: GameState, keys: readonly SecondaryTalentKey[]): GameState =>
+  editCaptain(s, { unlockedSecondaryTalents: [...s.captains[0].unlockedSecondaryTalents, ...keys] });
+const PROSPECTOR_SEAMS: Readonly<
+  Partial<Record<SecondaryTalentKey, { probe: ProbeId; contexts: ContextId[]; curve: Curve; direction?: Direction; tolerance?: number; base?: () => GameState; magnitude?: (c: Catalogs) => number; note?: string }>>
+> = {
+  extraction1: { probe: "sheetYield", contexts: ["sheet"], curve: { kind: "linearRelative" } },
+  // The rare threshold the extraction roll compares against, on an ore run and a survey (its own factor; the uncommon
+  // half: captainSecondaryEffects.test.ts).
+  extraction2: { probe: "extractionRareThreshold", contexts: ["mission:extraction", "mission:survey"], curve: { kind: "linearRelative" }, tolerance: 1e-9 },
+  extraction3: { probe: "missionExtractionTicks", contexts: ["mission:extraction"], curve: { kind: "divisor" }, direction: "down", tolerance: 1 },
+  extraction4: { probe: "deliveryQualityClimb", contexts: ["mission:extraction"], curve: { kind: "linearRelative" }, tolerance: 1e-12 },
+  // The realized double hauls over 1,000 real deliveries (lifetime counter 0 to 999): their share sits at the
+  // configured chance within the batch's sampling spread (about 3 standard deviations).
+  extraction5: { probe: "motherlodeRate", contexts: ["mission:extraction"], curve: { kind: "chanceAbsolute" }, tolerance: 0.02 },
+  logistics1: { probe: "sheetCargo", contexts: ["sheet"], curve: { kind: "linearRelative" } },
+  // "Always multiply" (user 2026-10-17): +5% reach, its own factor on (1 + engineEfficiency).
+  logistics2: { probe: "shipRange", contexts: ["sheet"], curve: { kind: "linearRelative" } },
+  logistics3: { probe: "sheetUnload", contexts: ["sheet", "expedition:groundOps"], curve: { kind: "linearRelative" } },
+  // The overflow's free unload: captainSecondaryEffects.test.ts (the unload ticks stay the hold's).
+  logistics5: { probe: "sheetCargo", contexts: ["sheet"], curve: { kind: "linearRelative" } },
+  trade1: { probe: "transportCycleCredits", contexts: ["mission:transport"], curve: { kind: "linearRelative" } },
+  // The discount saved on the supplies: the load value x the discount, added to the net.
+  trade2: {
+    probe: "transportCycleCredits",
+    contexts: ["mission:transport"],
+    curve: { kind: "linearAbsolute" },
+    magnitude: (c) => {
+      const e = c.SECONDARY_CAPTAIN_TALENTS.trade2.effect;
+      return (e.type === "statMult" ? e.mult : 0) * FRONTIER_LOAD;
+    },
+  },
+  trade3: { probe: "transportCycleCredits", contexts: ["mission:transport"], curve: { kind: "linearRelative" } },
+  trade4: { probe: "dockedCredits", contexts: ["fleet"], curve: { kind: "linearAbsolute" }, base: () => withSupplyRoute(wiringBase()) },
+  // Trade Baron multiplies every Trade value by its factor: on a captain owning Trade 1 to 4 on an established route,
+  // the docked trickle x factor. Its margin and purchase cost terms: captainSecondaryEffects.test.ts.
+  trade5: {
+    probe: "dockedCredits",
+    contexts: ["fleet"],
+    curve: { kind: "linearRelative" },
+    base: () => withSupplyRoute(ownsNodes(wiringBase(), ["trade1", "trade2", "trade3", "trade4"])),
+    magnitude: (c) => {
+      const e = c.SECONDARY_CAPTAIN_TALENTS.trade5.effect;
+      return (e.type === "capstone" ? e.magnitude ?? 1 : 1) - 1;
+    },
+  },
+};
+
+// The catalog magnitude of a secondary node (a statMult's mult, a capstone's magnitude, a trickle's perTick).
+function secondaryMagnitude(key: SecondaryTalentKey): (c: Catalogs) => number {
+  return (c) => {
+    const e = c.SECONDARY_CAPTAIN_TALENTS[key].effect;
+    return e.type === "statMult" ? e.mult : e.type === "procChance" ? e.chance : e.type === "capstone" ? e.magnitude ?? 0 : e.type === "creditTrickle" ? e.perTick : 0;
+  };
+}
+
+// The pending owner of each secondary node (plan section 5.A: WR-5b tactician, WR-5c explorer), with the claimed
+// value's probe where one already exists (it must not move until the slice wires it).
 const SECONDARY_PROBES: Partial<Record<SecondaryTalentKey, ProbeId>> = {
-  extraction1: "sheetYield",
-  extraction3: "missionExtractionTicks",
-  logistics1: "sheetCargo",
-  logistics2: "sheetEngineEff",
-  logistics3: "sheetUnload",
   gunnery1: "officerWeapons",
   aegis1: "officerShields",
   aegis3: "repairTicks",
@@ -913,7 +998,21 @@ function secondaryEntries(): WiringEntry[] {
     const def = SECONDARY_CAPTAIN_TALENTS[key];
     const owner = def.tree === "prospector" ? "WR-5a" : def.tree === "tactician" ? "WR-5b" : "WR-5c";
     const on: Transform = (s) => editCaptain(s, { unlockedSecondaryTalents: [...s.captains[0].unlockedSecondaryTalents, key] });
-    const common = { id: `captain:SECONDARY_CAPTAIN_TALENTS:${key}`, system: "captain" as const, source: { catalog: "SECONDARY_CAPTAIN_TALENTS", key }, claim: `${def.label}: ${def.flavor}`, on };
+    // WR-5a: the claim is the node's player text, from the same helper the talent tooltip renders.
+    const common = { id: `captain:SECONDARY_CAPTAIN_TALENTS:${key}`, system: "captain" as const, source: { catalog: "SECONDARY_CAPTAIN_TALENTS", key }, claim: `${def.label}: ${secondaryTalentEffectText(key)}`, on };
+    const seam = PROSPECTOR_SEAMS[key];
+    if (seam) {
+      return entry({
+        ...common,
+        probe: seam.probe,
+        contexts: seam.contexts,
+        curve: seam.curve,
+        direction: seam.direction ?? "up",
+        magnitude: seam.magnitude ?? secondaryMagnitude(key),
+        ...(seam.tolerance !== undefined ? { tolerance: seam.tolerance } : {}),
+        ...(seam.base ? { base: seam.base } : {}),
+      });
+    }
     if (key === "logistics4") {
       return entry({
         ...common,
@@ -2325,23 +2424,129 @@ function affixEntries(): WiringEntry[] {
 // expedition: enemy ranks (Field Kits FKR-1, enemyRanks.ts ENEMY_RANKS)
 // ============================================================================
 
-// Every rank's ONE multiplier (user N1: HP and power alike), read through the fight's own placement step on a real
-// guard: the lead's power at that rank over its power at Normal equals the configured multiplier.
+// Every rank's ONE multiplier (user N1: HP and power alike; heal follows), read on a REAL task fight's guard
+// (groundFight.ts taskFightGuard) at a fight point the placement leads with that rank: the lead's power and its HP on a
+// ranked run are its unranked values x the multiplier (HP within one rounding step). Weak is pending: SF-3 places it
+// on the difficulty curve (user 2026-10-16 "Use them on the curve"), so no fight fields it yet.
 function enemyRankEntries(): WiringEntry[] {
-  return ENEMY_RANK_IDS.map((rank) =>
-    entry({
-      id: `expedition:ENEMY_RANKS:${rank}`,
-      system: "expedition",
-      source: { catalog: "ENEMY_RANKS", key: rank },
-      claim: `${ENEMY_RANKS[rank].label} enemy rank: its HP and power take the rank multiplier`,
-      probe: `content:enemyRank:${rank}`,
-      contexts: ["ground"],
-      direction: "none",
-      curve: { kind: "equals" },
-      magnitude: (c) => c.ENEMY_RANKS[rank].mult,
-      on: sourceOn,
+  return ENEMY_RANK_IDS.flatMap((rank) =>
+    (["power", "hp"] as const).map((stat) => {
+      const mult = ENEMY_RANKS[rank].mult;
+      const shared = {
+        id: `expedition:ENEMY_RANKS:${rank}${stat === "hp" ? ":hp" : ""}`,
+        system: "expedition" as const,
+        source: { catalog: "ENEMY_RANKS", key: stat === "hp" ? `${rank}:hp` : rank },
+        claim: `${ENEMY_RANKS[rank].label} enemy rank: its ${stat === "hp" ? "HP" : "power"} takes the rank multiplier`,
+      };
+      if (rank === "weak") return entry({ ...shared, status: pending("SF-3 (the difficulty curve places Weak enemies)") });
+      return entry({
+        ...shared,
+        probe: `content:enemyRank:${rank}:${stat}`,
+        contexts: ["ground"],
+        direction: mult > 1 ? "up" : mult < 1 ? "down" : "none",
+        curve: { kind: "linearRelative" },
+        magnitude: (c) => c.ENEMY_RANKS[rank].mult - 1,
+        ...(stat === "hp" ? { tolerance: 0.5 } : {}),
+        on: sourceOn,
+      });
     }),
   );
+}
+
+// ============================================================================
+// away: the field kits (Field Kits FKR-2, fieldKits.ts). Nothing reads the catalog yet: every entry is PENDING and
+// names the FKR slice that makes it live (with a sensitivity check) in its own commit.
+// ============================================================================
+
+const KIT_OWNER: Readonly<Record<FieldKitId, string>> = {
+  firstAidKit: "FKR-6 (kits in battle: a Use Item rule spends the member's own First Aid Kit)",
+  antitoxin: "FKR-6 (kits in battle: Antitoxin clears Poison)",
+  combatStim: "FKR-6 (kits in battle: Combat Stim grants Inspired)",
+  splint: "FKR-6 (kits in battle: Splint on the bone line, N8)",
+  traumaKit: "FKR-6 (kits in battle: Trauma Kit on serious conditions)",
+  injuryKit: "FKR-6 + FKR-7 (the Injury Kit treatment share reaches the medical bay)",
+};
+
+const CATEGORY_OWNER: Readonly<Record<KitCategory, string>> = {
+  firstAid: "FKR-6 (First Aid kits at 0.5x untrained, 1.25x with Medical Training)",
+  advancedMedical: "FKR-6 (the Medical Training gate on Splint, Trauma Kit and Injury Kit)",
+  explosives: "FKR-5 (Saboteur +6% on the Saboteur's own grenade throws)",
+  fieldDevices: "FKR-8 (the 50 to 75% per-use device roll, Codebreaker +6%)",
+};
+
+function fieldKitEntries(): WiringEntry[] {
+  // Each kit's measurable effect, read from the catalog: a heal (HP), a bay treatment share (the bay divisor), a buff
+  // (its rounds, read verbatim), else the conditions one use treats (what it clears plus the line ranks it reaches).
+  const conditionsTreated = (k: FieldKitDef): number => k.clears.length + Object.values(k.lines ?? {}).reduce((n, care) => n + (care?.upTo ?? 0), 0);
+  const out: WiringEntry[] = FIELD_KIT_IDS.map((id) => {
+    const def = FIELD_KITS[id];
+    const shape: Pick<EntryInput, "curve" | "direction" | "magnitude"> =
+      def.heal !== undefined
+        ? { curve: { kind: "linearAbsolute" }, magnitude: (c) => c.FIELD_KITS[id].heal ?? 0 }
+        : def.treatmentShare !== undefined
+          ? { curve: { kind: "divisor" }, direction: "down", magnitude: (c) => c.FIELD_KITS[id].treatmentShare ?? 0 }
+          : def.buff !== undefined
+            ? { curve: { kind: "equals" }, direction: "none", magnitude: (c) => c.FIELD_KITS[id].buff?.rounds ?? 0 }
+            : { curve: { kind: "event", metric: "conditions treated" }, magnitude: (c) => conditionsTreated(c.FIELD_KITS[id]) };
+    return entry({
+      id: `away:FIELD_KITS:${id}`,
+      system: "away",
+      source: { catalog: "FIELD_KITS", key: id },
+      claim: `${def.label}: what one use treats, heals or grants`,
+      ...shape,
+      status: pending(KIT_OWNER[id]),
+    });
+  });
+  for (const cat of Object.keys(KIT_CATEGORY_RULES) as KitCategory[]) {
+    out.push(
+      entry({
+        id: `away:KIT_CATEGORY_RULES:${cat}`,
+        system: "away",
+        source: { catalog: "KIT_CATEGORY_RULES", key: cat },
+        claim: `Kit category ${cat}: who can use it and how well`,
+        // First Aid: training's lift over the untrained use; Advanced Medical: the gate (untrained 0 to trained 1);
+        // Explosives and Field Devices: their specialist's bonus (Saboteur, Codebreaker).
+        curve: cat === "advancedMedical" ? { kind: "gate" } : { kind: "linearRelative" },
+        magnitude: (c) => {
+          const rule = c.KIT_CATEGORY_RULES[cat];
+          if (cat === "firstAid") return rule.trained / rule.untrained - 1;
+          if (cat === "advancedMedical") return rule.trained - rule.untrained;
+          return rule.specialistBonus;
+        },
+        status: pending(CATEGORY_OWNER[cat]),
+      }),
+    );
+  }
+  for (const line of CONDITION_LINE_IDS) {
+    CONDITION_LINES[line].forEach((r, i) =>
+      out.push(
+        entry({
+          id: `away:CONDITION_LINES:${line}:${r.id}`,
+          system: "away",
+          source: { catalog: "CONDITION_LINES", key: `${line}:${r.id}` },
+          claim: `${r.label}: severity rank ${i + 1} of the ${line} line, worse at higher ranks`,
+          direction: "down",
+          curve: { kind: "equals" },
+          magnitude: (c) => c.CONDITION_LINES[line].findIndex((x) => x.id === r.id) + 1,
+          status: pending("FKR-4 (the bone line in battle: inflicted, worsening, power and accuracy down)"),
+        }),
+      ),
+    );
+  }
+  for (const id of Object.keys(FREE_BASIC_SET) as FieldKitId[]) {
+    out.push(
+      entry({
+        id: `away:FREE_BASIC_SET:${id}`,
+        system: "away",
+        source: { catalog: "FREE_BASIC_SET", key: id },
+        claim: `Free basic set: every member starts each objective with ${FIELD_KITS[id].label} supplies, more with Medical and Operations crew`,
+        curve: { kind: "diminishing", knee: FREE_BASIC_CURVE_KNEE, base: FREE_BASIC_SET[id]?.base ?? 0 },
+        magnitude: (c) => c.FREE_BASIC_SET[id]?.base ?? 0,
+        status: pending("FKR-7 (the per-objective free basic set, refreshed each objective and reload)"),
+      }),
+    );
+  }
+  return out;
 }
 
 // ============================================================================
@@ -2538,6 +2743,7 @@ const AUDIT_ROWS: readonly { id: string; system: WiringSystem; claim: string; st
   { id: "away:audit:fieldDeviceEffectiveness", system: "away", claim: "fieldDevice effectiveness (both values 1; the specialist check is always false)", status: pending("FK-7") },
   { id: "away:audit:memberSlotPhysicals", system: "away", claim: "Member slot physicals (mass, powerDraw, durability)", status: pending("WR-8, OC-D14") },
   { id: "away:audit:treatmentShare", system: "away", claim: "treatmentShare (always 0)", status: pending("FK-5 / FK-6") },
+  { id: "away:audit:fieldKitsCure", system: "away", claim: "Cure clears basic debuffs only on a Field Kits run (fieldKits.ts BASIC_DEBUFFS; today it clears any debuff)", status: pending("FKR-4 (Cure reads BASIC_DEBUFFS on flagged runs)") },
   { id: "away:audit:memberFallOutcome", system: "away", claim: "memberFallOutcome (the Safety Interlock hook, one branch)", status: pending("OC-F13") },
   { id: "away:audit:prospectingTeam", system: "away", claim: "The Prospecting team type (no recruits, specs or gear)", status: pending("WR-10, OC-F11") },
   { id: "away:audit:statusPicker", system: "away", claim: "Status picker entries that never match (only six of nine statuses can fire)", status: pending("FK-9 + WR-10") },
@@ -2568,6 +2774,47 @@ const AUDIT_ROWS: readonly { id: string; system: WiringSystem; claim: string; st
 
 function auditEntries(): WiringEntry[] {
   return AUDIT_ROWS.map((r) => entry({ id: r.id, system: r.system, source: { catalog: "AUDIT", key: r.id }, claim: r.claim, status: r.status }));
+}
+
+// ============================================================================
+// 0.14.0 SPEED SEAM (processSpeed.ts): Overtime is live; the tutorial time skip and the grant hook are seams
+// ============================================================================
+
+const TUTORIAL_HOOKS = 'safe first runs plan USER ANSWERS group 2 (2026-10-16): "Hook only"; grant hook "Yes, add it now (Recommended)"';
+
+function speedSeamEntries(): WiringEntry[] {
+  return [
+    entry({
+      id: "facility:SPEED_SEAM:overtime",
+      system: "facility",
+      source: { catalog: "SPEED_SEAM", key: "overtime" },
+      claim: "Overtime: each step bought speeds a running job by 25% of its normal rate (Shipyard builds and repairs, research, facility upgrades)",
+      probe: "overtimeTicks",
+      contexts: ["shipyard", "research", "facility"],
+      direction: "down",
+      curve: { kind: "divisor" },
+      magnitude: () => OVERTIME_STEP_RATE,
+      on: overtimeOneStep,
+      base: () => withRunningJobs(wiringBase()),
+      note: "one step from the normal rate: the time left is divided by 1 + 0.25 (the countdown then runs unchanged)",
+    }),
+    entry({
+      id: "fleetAdmiral:SPEED_SEAM:timeSkip",
+      system: "fleetAdmiral",
+      source: { catalog: "SPEED_SEAM", key: "timeSkip" },
+      claim: "Tutorial time skip: instantly finishes any timed process, mission cycle, patrol route or expedition, for free",
+      status: { kind: "seam", owner: "the tutorial patch", userRef: TUTORIAL_HOOKS },
+      note: "processSpeed.test.ts proves it per process type",
+    }),
+    entry({
+      id: "fleetAdmiral:SPEED_SEAM:grant",
+      system: "fleetAdmiral",
+      source: { catalog: "SPEED_SEAM", key: "grant" },
+      claim: "Grant hook: items, credits, gear and a hull, with a log line",
+      status: { kind: "seam", owner: "the tutorial / quests patch", userRef: TUTORIAL_HOOKS },
+      note: "processSpeed.test.ts proves it",
+    }),
+  ];
 }
 
 // ============================================================================
@@ -2750,9 +2997,11 @@ function build(): readonly WiringEntry[] {
     ...contentEntries(),
     ...affixEntries(),
     ...enemyRankEntries(),
+    ...fieldKitEntries(),
     ...crewScalarEntries(),
     ...medicalEntries(),
     ...auditEntries(),
+    ...speedSeamEntries(),
   ].map((e) => (ALLOW_LIST_REASONS[e.id] ? { ...e, reason: ALLOW_LIST_REASONS[e.id] } : e));
 }
 

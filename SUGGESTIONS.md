@@ -1990,3 +1990,7 @@ should not roll on ship crew (no dead rolls).
 - **NOTABLE TO OFFICER: THE ACADEMY (user, 2026-10-16, suggestion box).** A notable crew member could leave their ship,
   return to the homeworld for academy coursework, and graduate as a commissioned officer eligible for a senior staff
   seat. "Whether that is necessary or not I am not sure." Also wanted now: a scrolling marquee of notable personnel.
+
+- **SCIENCE BATTLE PROCS (user, 2026-10-17, future).** Tools that give the Science team a chance to "proc" in battle,
+  adding a random effect to the battle party without directly fighting; the dormant Science gambit actions (Shield
+  Ally, Analyze, Secure Objective, Take Cover) stay in the code, disabled, for this.

@@ -3012,6 +3012,9 @@ export interface CaptainMissionState {
   // ONLY while the bonus is non-zero, so a run without the officer never writes it (byte-identical; no
   // SAVE_VERSION bump, absent reads as 0).
   outputRoundCursor?: number;
+  // 0.14.0 SPEED SEAM (ProcessSpeed): instantComplete runs THIS cycle through to its delivery on the next tick. The
+  // next cycle is a freshly built object without it. Absent = byte-identical.
+  speed?: ProcessSpeed;
 }
 
 // --- Combat Patrol mission (Combat 0.13.0, Phase 9b.5a, design §S14) -----------
@@ -3225,6 +3228,9 @@ export interface PatrolMissionState {
   // ramp on the hours the run has flown when the leg starts), frozen when the cycle starts. The route ends
   // this many ticks early (tick.ts patrolRouteTicks). OPTIONAL, written only when > 0.
   returnCutTicks?: number;
+  // 0.14.0 SPEED SEAM (ProcessSpeed): instantComplete flies THIS route through to its end on the next tick (a
+  // limping hull crawls the rest of the way home in the same tick). A relaunched route is built without it.
+  speed?: ProcessSpeed;
 }
 
 // E-CREW 0.14.0 (Task 20): the Senior Staff officer bonuses that act on a ship's COMBATANT in a ship battle
@@ -3356,6 +3362,10 @@ export interface ShipDerivedStats {
   //                            unloads x (1 + this) faster (MissionDef.fullHoldUnloadTicks).
   returnLegConstitution?: number;
   fullHoldUnloadIntegrity?: number;
+  // WR-5a (Overloaded Holds, captain secondary logistics5): the hold the UNLOAD phase scales with when the
+  // cargo above it is overflow that unloads at no extra time. Set by crewOverlay.ts (the captain overlay) only
+  // with the capstone; absent = cargoCapacity (effectiveMissionDef), so every other stats object is unchanged.
+  unloadCargoCapacity?: number;
 }
 
 // ----------------------------------------------------------------------------
@@ -3678,9 +3688,10 @@ export function effectiveMissionDef(base: MissionDef, ship: ShipDerivedStats): M
   // ceil(8/1) = 8, BYTE-IDENTICAL to base.unloadTicks (which is what keeps every reference-hull fixture
   // unchanged). ⚠️ A hull whose cargo != UNLOAD_REFERENCE_CARGO now gets a DIFFERENT crew-free unload
   // length than base.unloadTicks: that is the intended balance change, NOT a regression.
+  // WR-5a: Overloaded Holds' overflow unloads at no extra time, so the unload scales with the hold below it.
   const cargoScaledUnload = Math.max(
     UNLOAD_MIN_TICKS,
-    Math.ceil((base.unloadTicks * ship.cargoCapacity) / UNLOAD_REFERENCE_CARGO),
+    Math.ceil((base.unloadTicks * (ship.unloadCargoCapacity ?? ship.cargoCapacity)) / UNLOAD_REFERENCE_CARGO),
   );
   const unloadMult = ship.unloadSpeedMult ?? 1;
   const unloadTicks = Math.max(1, Math.ceil(cargoScaledUnload / unloadMult));
@@ -3872,6 +3883,11 @@ export interface CaptainState {
   // successor is a spread of the captain). OPTIONAL, written only once a cycle has rolled (absent = 0, no
   // SAVE_VERSION bump).
   cunningCycles?: number;
+  // WR-5a (Motherlode, captain secondary extraction5): this captain's LIFETIME count of delivered cycles that
+  // rolled the Motherlode double haul. It keys each cycle's private roll exactly as cunningCycles keys Cunning
+  // (a recall + redispatch never replays a roll). OPTIONAL, written only once a cycle has rolled (absent = 0,
+  // no SAVE_VERSION bump).
+  motherlodeCycles?: number;
 }
 
 // Combat 0.13.0 (Phase 9b.5a): narrow a captain's mission union to its EXTRACTION arm, or
@@ -4107,6 +4123,30 @@ export interface TimedProcess {
   // untouched. A plain string (no Decimal), so save hydration needs no change: it
   // rides the activeProcesses `...state` spread verbatim.
   lineId?: string;
+  // 0.14.0 SPEED SEAM (processSpeed.ts; design: docs/plans/2026-10-16-credit-sinks-pass.md "SPEED SEAM DESIGN"):
+  // the Overtime steps bought and the tutorial time skip. ABSENT on every process nothing sped up, which is every
+  // process in a 0.14.0 save without a purchase, so resolveProcesses and every reader are byte-identical. Plain
+  // numbers and a flag: rides hydrateDecimals's spread, no migration.
+  speed?: ProcessSpeed;
+}
+
+// 0.14.0 SPEED SEAM: the one speed record every timed thing can carry (a TimedProcess, an extraction mission, a
+// patrol, an expedition). Pure bookkeeping plus one engine read each (processSpeed.ts header):
+//   overtimeSteps    Overtime steps bought (a TimedProcess only). The purchase itself rescales remainingTicks (the
+//                    work left now runs at 1 + 0.25 x steps of the normal rate), so the countdown engine never reads
+//                    it: this is the record of what was bought (rate, price of the next step, the max-step gate).
+//   instantComplete  a tutorial time skip was applied. A TimedProcess is set to 0 ticks left (it completes on the next
+//                    resolve); a mission or patrol runs through to the end of its CURRENT cycle or route on its next
+//                    tick (tickCaptainMission / tickCaptainPatrol read it; a new cycle or route is built without it);
+//                    an expedition is advanced to completion at once and keeps this as a stamp.
+//   clockOffsetSeconds  an expedition only: how far its own clock ran ahead of the game clock at the skip (its natural
+//                    end minus the game time then). Its stored times (bay ends) are on its own clock, so the claim
+//                    reads them shifted back by this (injuries.ts applyGroundOpsInjuries), exactly as if it had
+//                    been claimed at its natural end. Absent = 0 = the game clock.
+export interface ProcessSpeed {
+  overtimeSteps?: number;
+  instantComplete?: true;
+  clockOffsetSeconds?: number;
 }
 
 // A built facility's live state. `level` 0 = not built; unlock is the level 0->1
@@ -6403,6 +6443,11 @@ export interface PersonnelRoster {
   includePeople: boolean; // the checkbox: whether this roster carries Senior Staff + Complement people at all
   seatAssignments: Partial<Record<SeniorStaffSeat, string>>; // seat -> the pinned officer's id (absent seat = unpinned)
   pinnedNotableCrew: string[]; // pinned NotableCrewMember ids, in PRIORITY order (index 0 = highest priority)
+  // Ground Ops GO-17 UI (user S14 "rosters link squad loadouts one per team"): the Armory GROUND TEAM
+  // loadout (GroundTeamLoadout id, "squad-N") linked to each ground team by team INDEX (0 = Alpha), null =
+  // no link for that team. applyRoster puts each one on its team (personnelRosters.ts). ABSENT = no links;
+  // optional + absent-safe, so no SAVE_VERSION bump (the Task 12-14 precedent).
+  linkedSquadLoadoutIds?: (string | null)[];
 }
 
 // ============================================================================
@@ -7036,6 +7081,9 @@ export interface Expedition {
   // run's ground fights (the final fight of a Challenging objective is led by an Elite, of a Dangerous or Deadly one
   // by a Boss); a run without it fields every enemy at Normal, byte-identically. Optional, no SAVE bump.
   enemyRanks?: { version: number };
+  // 0.14.0 SPEED SEAM (ProcessSpeed): a STAMP only. processSpeed.ts applyTimeSkip advances the run to its own
+  // completion at once (its phase anchors land at its natural end) and marks it; nothing in the engine reads it.
+  speed?: ProcessSpeed;
 }
 
 // Field Kits FKR-1: a ground enemy's RANK (user-named, 2026-10-16: Weak, Normal, Strong, Elite, Boss). One multiplier
@@ -7440,6 +7488,16 @@ export interface ShipEventBattle {
 // PRNG mixing start (a decorrelated transform of the crew seed's golden-ratio constant). TUNABLE.
 export const EXPEDITION_DEFAULT_SEED = 0x2545f491;
 
+// Expedition Tiers G2-1: the per-save HOMEWORLD (galaxy.ts). Only the SEED is stored; the placement (the point 10 to
+// 120 ly from Sol, the region bands measured from it and the enemy territory sectors) is derived from it, never
+// stored twice. Drawn ONCE from real entropy: App.svelte's new-game path passes homeworldEntropy.ts's draw to
+// freshState, and the SAVE v70 migration seeds an existing save from the entropy migrate is given (user G2: each
+// existing save gets its own random homeworld). Plain data (no Decimals).
+export interface HomeworldState {
+  version: 1;
+  seed: number; // a whole number in [0, 2^32)
+}
+
 export interface GameState {
   captains: CaptainState[];
   tickDurationSeconds: number; // fleet-wide tick cadence, every captain advances in lockstep on this single cadence (collapsed from a per-captain field during the UI Redesign; see docs/plans/2026-07-07-ui-redesign-design.md)
@@ -7822,6 +7880,12 @@ export interface GameState {
   // dispatchCaptainOnPatrol and economyTick's patrol fold. OPTIONAL: absent (a dev save at v70 from before SF-1) reads
   // the derived counters (runDifficulty.ts runCountsOf). Plain data, so hydrateDecimals carries it through `...state`.
   runCounts?: RunCounts;
+  // Expedition Tiers G2-1: the per-save homeworld seed (HomeworldState above; placement in galaxy.ts). freshState
+  // stores the seed it is given (every new game: App.svelte passes a fresh draw); SAVE v70 seeds it on an older save
+  // (save.ts withHomeworldV70, which every load also runs, so a save already at v70 from before G2-1 gets one too).
+  // OPTIONAL only for freshState with no seed (tests and the sim), which reads the provisional spot near Sol
+  // (galaxy.ts stateHomeworld); no loaded save lacks it. Display only at G2-1: nothing on the tick reads it.
+  homeworld?: HomeworldState;
   // --- Exploration 0.14.0 (Phase E3a): the away-team GAMBIT program pair --------------------------------
   // The player's ACCOUNT-LEVEL Security + Science gambit programs (the EDITABLE source; the E3b UI writes
   // these). D19 (user, 2026-10-06): NO battle reads this pair any more (members run their own program, else
@@ -11623,19 +11687,20 @@ export const CAPTAIN_SPEC_BONUS: Partial<Record<CaptainTalentBranch, CaptainTale
 };
 
 // ===========================================================================
-// Captain PRESTIGE secondary talent tree (Crew 0.14.0, Phase C-3a) -- DORMANT
+// Captain PRESTIGE secondary talent tree (Crew 0.14.0, Phase C-3a; wired by WR-5a / 5b / 5c)
 // ===========================================================================
 //
 // A SECOND captain-tier talent tree that DEEPENS the base tree's three identities. Points are earned
-// via captain RETIREMENT (a later phase, C-3b) and spent through captainSecondaryTree.ts. This block
-// is purely the tree STRUCTURE + the catalog DATA; the allocation ENGINE is captainSecondaryTree.ts,
-// and EFFECT APPLICATION to gameplay is a still-LATER live phase.
+// via captain RETIREMENT (C-3b) and spent through captainSecondaryTree.ts. This block is the tree
+// STRUCTURE + the catalog DATA; the allocation ENGINE is captainSecondaryTree.ts and the effect READERS
+// (plus each node's player text) are captainSecondaryEffects.ts.
 //
-// ⚠️ DORMANT + additive-neutral: NOTHING applies these effects yet. The `effect` field on every node
-// below is inert CATALOG DATA (a first-pass, tunable description of what the node WILL do), exactly
-// the way the base CAPTAIN_TALENTS once carried `{ type: "none" }` gateways for combat/science before
-// those systems existed. The tick economy reads none of this; a captain that owns secondary nodes
-// ticks byte-identically to one that does not, until the live-wiring phase lands.
+// LIVE (WR-5a, 2026-10-17): the whole PROSPECTOR tree (Extraction, Logistics, Trade). Its nodes act on
+// the ship the captain commands (OC-A2), each "+X%" as a relative multiplier on the named existing value
+// (OC-A1), read where that value is read (missions live, Ground Ops frozen at dispatch). logistics4 has
+// been live since D26 (Ground Ops reload). The TACTICIAN and EXPLORER trees are WR-5b / WR-5c: their
+// effects below are still catalog data no engine reads, and a captain owning only those nodes ticks
+// byte-identically to one owning none. The registry (wiring/registry.ts) lists every node's status.
 //
 // Shape (mirrors CAPTAIN_TALENTS): 3 TREES x 3 BRANCHES x 5 RUNGS = 45 nodes. A fully-retired captain
 // has 5 secondary points and fills EXACTLY ONE branch (all 5 rungs) = one of 9 ultimate specs. Within
@@ -11668,7 +11733,7 @@ export type SecondaryTalentKey =
   | "extraction1" | "extraction2" | "extraction3" | "extraction4" | "extraction5"
   // Prospector / Logistics
   | "logistics1" | "logistics2" | "logistics3" | "logistics4" | "logistics5"
-  // Prospector / Trade (all gateway until the trade system, 0.14.x)
+  // Prospector / Trade (the supply runs and the docked trickle)
   | "trade1" | "trade2" | "trade3" | "trade4" | "trade5"
   // Tactician / Gunnery
   | "gunnery1" | "gunnery2" | "gunnery3" | "gunnery4" | "gunnery5"
@@ -11693,21 +11758,22 @@ export const SECONDARY_TALENT_BRANCHES: readonly SecondaryTalentBranch[] = [
   "surveySensors", "expeditionRelics", "commandCrew",
 ];
 
-// A typed union of the secondary-tree effects, FIRST-PASS + inert (see the DORMANT note above). This
-// is CATALOG DATA only; no consumer applies any of it yet.
-//   none       - a pure gateway rung whose real system does not exist yet (Trade, and Fleet Ops'
-//                gateway rungs), or an unlock/preview with no magnitude. Renders honestly as "no bonus
-//                yet", the same reason CaptainTalentEffect carries its own `none` member.
-//   statMult   - a generic multiplicative bonus to a named stat. `stat` is a plain descriptive label,
-//                NOT yet a validated engine stat key (the live-wiring phase maps these to real stats).
-//   procChance - a generic chance-based effect (a find/quality/detection roll).
-//   capstone   - a rung-5 defining unlock/proc, identified by `id`; the live phase gives each a real
-//                mechanic. ALL magnitudes/chances below are FIRST-PASS TUNABLE placeholders.
+// A typed union of the secondary-tree effects (see the header above for which trees are live). The live
+// readers (captainSecondaryEffects.ts) read each node by its KEY, never by the `stat` label, so a label
+// is descriptive only. ALL magnitudes are tunable (the plan's [PROPOSAL] sizes, OC-A3).
+//   none          - a gateway rung with no effect yet (only in the WR-5b / WR-5c trees now).
+//   statMult      - a relative bonus of `mult` on the named existing value (OC-A1).
+//   procChance    - a chance-based effect (a find/quality/detection roll; WR-5b / WR-5c trees).
+//   capstone      - a rung-5 defining mechanic, identified by `id`; `magnitude` is its configured size
+//                   (a chance, a share or a factor, per id; captainSecondaryEffects.ts reads it). The
+//                   WR-5b / WR-5c capstones gain theirs with their slices.
+//   creditTrickle - credits per tick paid while the captain is docked (Trade Routes).
 export type CaptainSecondaryTalentEffect =
   | { type: "none" }
   | { type: "statMult"; stat: string; mult: number }
   | { type: "procChance"; chance: number }
-  | { type: "capstone"; id: string };
+  | { type: "capstone"; id: string; magnitude?: number }
+  | { type: "creditTrickle"; perTick: number };
 
 // Mirrors CaptainTalentDef's shape (branch/label/cost/neighbors/effect/flavor/x/y), plus `tree` +
 // `rung`. `cost` is always 1 secondary point. `neighbors` is bidirectional by convention (like the
@@ -11720,7 +11786,7 @@ export interface CaptainSecondaryTalentDef {
   cost: number; // secondaryPoints; always 1
   neighbors: SecondaryTalentKey[]; // bidirectional; intra-branch linear chain only (no cross-branch links)
   isHub?: boolean; // exactly one per branch = its rung-1 entry; the fog-of-war seed (always visible, learn first), mirroring CaptainTalentDef. RadialWeb needs it to render an un-started branch.
-  effect: CaptainSecondaryTalentEffect; // INERT catalog data; nothing applies it yet (see DORMANT note)
+  effect: CaptainSecondaryTalentEffect; // live for the Prospector tree (WR-5a); see the header above
   flavor: string; // short narrative blurb, for the later talent-tree tooltips
   x: number; // web-space coordinate; FIRST-PASS TUNABLE (the radial layout mockup comes at the UI phase)
   y: number; // FIRST-PASS TUNABLE
@@ -11738,35 +11804,35 @@ export const SECONDARY_CAPTAIN_TALENTS: Record<SecondaryTalentKey, CaptainSecond
     tree: "prospector", branch: "extraction", rung: 1, isHub: true,
     label: "Prospector's Eye", cost: 1,
     x: 41, y: 113, neighbors: ["extraction2"],
-    effect: { type: "statMult", stat: "extractionYield", mult: 0.05 },
+    effect: { type: "statMult", stat: "extractionYield", mult: 0.05 }, // x (1 + mult) on the ship's extractionYieldMult (all tiers, extraction + survey)
     flavor: "You read a survey scan the way others read a map: value first, everything else second.",
   },
   extraction2: {
     tree: "prospector", branch: "extraction", rung: 2,
     label: "Deep Veins", cost: 1,
     x: 75, y: 207, neighbors: ["extraction1", "extraction3"],
-    effect: { type: "procChance", chance: 0.05 }, // +rare/uncommon find chance
+    effect: { type: "statMult", stat: "findChance", mult: 0.05 }, // its own x (1 + mult) factor on the mission's rare AND uncommon chances (the existing rolls)
     flavor: "The richest seams hide below the obvious ones. You have learned where to look.",
   },
   extraction3: {
     tree: "prospector", branch: "extraction", rung: 3,
     label: "Efficient Haul", cost: 1,
     x: 109, y: 301, neighbors: ["extraction2", "extraction4"],
-    effect: { type: "statMult", stat: "extractionSpeed", mult: 0.08 }, // faster extraction cycles
+    effect: { type: "statMult", stat: "extractionSpeed", mult: 0.08 }, // x (1 + mult) on extractionSpeedMult: a shorter extracting phase
     flavor: "A tighter cut of the extraction cycle means more runs before the shift is done.",
   },
   extraction4: {
     tree: "prospector", branch: "extraction", rung: 4,
     label: "Assayer", cost: 1, // util
     x: 144, y: 395, neighbors: ["extraction3", "extraction5"],
-    effect: { type: "procChance", chance: 0.05 }, // +material quality chance
+    effect: { type: "statMult", stat: "deliveryQuality", mult: 0.05 }, // the rollQuality bonus of this captain's OWN deliveries (each climb x (1 + mult))
     flavor: "You grade ore by feel now, culling the dross before it ever reaches the hold.",
   },
   extraction5: {
     tree: "prospector", branch: "extraction", rung: 5,
     label: "Motherlode", cost: 1, // CAPSTONE
     x: 178, y: 489, neighbors: ["extraction4"],
-    effect: { type: "capstone", id: "motherlode" }, // chance for an extraction action to yield a full double haul / rare burst
+    effect: { type: "capstone", id: "motherlode", magnitude: 0.05 }, // the chance per delivered non-transport cycle that its haul doubles (private salted stream)
     flavor: "Once in a career a prospector cracks a deposit that pays for the whole ship. You do it on schedule.",
   },
   // --- Logistics (-> Overloaded Holds) [revised: hauling, not trade] ---
@@ -11774,71 +11840,71 @@ export const SECONDARY_CAPTAIN_TALENTS: Record<SecondaryTalentKey, CaptainSecond
     tree: "prospector", branch: "logistics", rung: 1, isHub: true,
     label: "Quartermaster", cost: 1,
     x: 0, y: 120, neighbors: ["logistics2"],
-    effect: { type: "statMult", stat: "cargoCapacity", mult: 0.05 },
+    effect: { type: "statMult", stat: "cargoCapacity", mult: 0.05 }, // x (1 + mult) on cargoCapacity (counts toward cargo gates)
     flavor: "Every centimeter of hold is inventoried, stacked, and accounted for.",
   },
   logistics2: {
     tree: "prospector", branch: "logistics", rung: 2,
     label: "Fuel Discipline", cost: 1,
     x: 0, y: 220, neighbors: ["logistics1", "logistics3"],
-    effect: { type: "statMult", stat: "fuelEfficiency", mult: 0.05 }, // +fuel efficiency / reach
+    effect: { type: "statMult", stat: "fuelEfficiency", mult: 0.05 }, // (1 + engineEfficiency) x (1 + mult): +mult reach (burn reads the same value)
     flavor: "You coax more reach out of every drop, plotting burns a lazier captain would waste.",
   },
   logistics3: {
     tree: "prospector", branch: "logistics", rung: 3,
     label: "Rapid Turnaround", cost: 1,
     x: 0, y: 320, neighbors: ["logistics2", "logistics4"],
-    effect: { type: "statMult", stat: "unloadSpeed", mult: 0.08 }, // +unload speed
+    effect: { type: "statMult", stat: "unloadSpeed", mult: 0.08 }, // x (1 + mult) on unloadSpeedMult (missions and the Ground Ops offload)
     flavor: "A hold empties fastest when the crew already knows where every crate goes.",
   },
   logistics4: {
     tree: "prospector", branch: "logistics", rung: 4,
     label: "Efficient Stowage", cost: 1, // util
     x: 0, y: 420, neighbors: ["logistics3", "logistics5"],
-    effect: { type: "statMult", stat: "loadSpeed", mult: 0.08 }, // +pre-mission load speed
+    effect: { type: "statMult", stat: "loadSpeed", mult: 0.08 }, // + mult on the Ground Ops reload divisor (D26)
     flavor: "Loading is choreography. Yours is rehearsed to the second.",
   },
   logistics5: {
     tree: "prospector", branch: "logistics", rung: 5,
     label: "Overloaded Holds", cost: 1, // CAPSTONE
     x: 0, y: 520, neighbors: ["logistics4"],
-    effect: { type: "capstone", id: "overloadedHolds" }, // carry beyond cargo cap by X% with no penalty
+    effect: { type: "capstone", id: "overloadedHolds", magnitude: 0.1 }, // the share of extra cargo above the hold; the unload still scales with the hold
     flavor: "The manifest says the hold is full. You have found the margin the manifest forgot.",
   },
-  // --- Trade (-> Trade Baron) [all gateway until the trade system, 0.14.x] ---
+  // Trade (-> Trade Baron): the supply runs (transport missions) and the docked trickle, WR-5a
   trade1: {
     tree: "prospector", branch: "trade", rung: 1, isHub: true,
-    label: "Market Contacts", cost: 1, // gateway
+    label: "Market Contacts", cost: 1,
     x: -41, y: 113, neighbors: ["trade2"],
-    effect: { type: "none" }, // unlock/boost market access; no trade system to apply it to yet
+    effect: { type: "statMult", stat: "transportMargin", mult: 0.05 }, // x (1 + mult) on a supply run's rewardMargin (a factor beside trade3's)
     flavor: "A name at every dock and a favor owed at most of them.",
   },
   trade2: {
     tree: "prospector", branch: "trade", rung: 2,
-    label: "Shrewd Negotiator", cost: 1, // gateway
+    label: "Shrewd Negotiator", cost: 1,
     x: -75, y: 207, neighbors: ["trade1", "trade3"],
-    effect: { type: "none" }, // better BUY prices; gateway until trade
+    effect: { type: "statMult", stat: "supplyCost", mult: 0.05 }, // the supplies cost x (1 - mult); the sale value is unchanged
     flavor: "You never take the first price, and rarely the second.",
   },
   trade3: {
     tree: "prospector", branch: "trade", rung: 3,
-    label: "Premium Goods", cost: 1, // gateway
+    label: "Premium Goods", cost: 1,
     x: -109, y: 301, neighbors: ["trade2", "trade4"],
-    effect: { type: "none" }, // better SELL margins; gateway until trade
+    effect: { type: "statMult", stat: "transportMargin", mult: 0.05 }, // x (1 + mult) on a supply run's rewardMargin (a factor beside trade1's)
     flavor: "Presentation is half the margin. Your holds sell before they open.",
   },
   trade4: {
     tree: "prospector", branch: "trade", rung: 4,
-    label: "Trade Routes", cost: 1, // util, gateway
+    label: "Trade Routes", cost: 1, // util
     x: -144, y: 395, neighbors: ["trade3", "trade5"],
-    effect: { type: "none" }, // passive income from established routes; gateway until trade
+    effect: { type: "creditTrickle", perTick: 1 }, // [PROVISIONAL] credits per tick while docked, once the fleet has delivered a supply run
     flavor: "A route run enough times runs itself, and pays whether you sail it or not.",
   },
   trade5: {
     tree: "prospector", branch: "trade", rung: 5,
-    label: "Trade Baron", cost: 1, // CAPSTONE, gateway
+    label: "Trade Baron", cost: 1, // CAPSTONE
     x: -178, y: 489, neighbors: ["trade4"],
-    effect: { type: "capstone", id: "tradeBaron" }, // best margins + passive credit trickle; gateway until trade
+    effect: { type: "capstone", id: "tradeBaron", magnitude: 2 }, // the factor on every Trade 1 to 4 value (margin, discount, trickle)
     flavor: "Fleets move when you say the price is right. The market bends to the baron.",
   },
   // ============ TREE 2 - TACTICIAN ============
@@ -12749,7 +12815,11 @@ export function freshLifetimeStats(): GameState["lifetimeStats"] {
   };
 }
 
-export function freshState(): GameState {
+// `homeworldSeed` (Expedition Tiers G2-1): this save's homeworld seed, stored as GameState.homeworld. The game ALWAYS
+// passes one (App.svelte's new-game paths, a fresh homeworldEntropy.ts draw). Omitted (tests, the sim, the wiring
+// fixtures), the state stores no homeworld and reads the provisional spot near Sol (galaxy.ts stateHomeworld), the
+// one every save shared before G2-1, so every golden captured on freshState stays byte-identical.
+export function freshState(homeworldSeed?: number): GameState {
   // Equipment 0.11.0 Task 20: the one starting hull ("ship-1", seeded below) is born
   // fully fitted with Standard-Issue on every live slot, so no live slot is ever empty
   // (the design's "a live slot is never empty" rule). Uses the SAME shared seeder the
@@ -12972,6 +13042,8 @@ export function freshState(): GameState {
     expeditionSeed: EXPEDITION_DEFAULT_SEED,
     // Safe first runs SF-1: nothing flown yet (the first explorer run will be the training run).
     runCounts: freshRunCounts(),
+    // Expedition Tiers G2-1: this save's homeworld seed when one is given (App.svelte always passes a fresh draw).
+    ...(homeworldSeed === undefined ? {} : { homeworld: { version: 1 as const, seed: homeworldSeed >>> 0 } }),
     // Exploration 0.14.0 (Phase E3a): the account-level away-team gambit pair starts from the Balanced
     // default (DEFAULT_GAMBIT_PROGRAMS). Existing saves reach the IDENTICAL shape via the v61->v62
     // migration (save.ts), so a fresh save and a migrated save stay indistinguishable.

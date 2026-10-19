@@ -32,6 +32,7 @@ import {
 } from "../model";
 import { AFFIX_DEFS, escalationAt } from "../affixes";
 import { ENEMY_RANK_IDS } from "../enemyRanks";
+import { CONDITION_LINES, CONDITION_LINE_IDS, FIELD_KIT_IDS, FREE_BASIC_SET, KIT_CATEGORY_RULES } from "../fieldKits";
 import { SENIOR_STAFF_BONUSES } from "../seniorStaffBonuses";
 import { CREW_PROFESSION_BUFFS, SECOND_LEVEL_EXCLUSIVE } from "../crewBuffs";
 import { CREW_RACES } from "../crewRaces";
@@ -183,6 +184,11 @@ export function enumerateEffectSources(): EffectSource[] {
   add("AFFIX_ESCALATION", Object.keys(escalationAt(1)));
   // the enemy ranks (Field Kits FKR-1): one source per rank multiplier
   add("ENEMY_RANKS", ENEMY_RANK_IDS);
+  // the field kits (Field Kits FKR-2): every kit, every category rule, every severity rank, the free basic set
+  add("FIELD_KITS", FIELD_KIT_IDS);
+  add("KIT_CATEGORY_RULES", Object.keys(KIT_CATEGORY_RULES));
+  add("CONDITION_LINES", CONDITION_LINE_IDS.flatMap((line) => CONDITION_LINES[line].map((r) => `${line}:${r.id}`)));
+  add("FREE_BASIC_SET", Object.keys(FREE_BASIC_SET));
   add("POI_CATALOG", POI_CATALOG.map((p) => p.id));
   add("SALVAGE_LOOT_POOLS", Object.keys(SALVAGE_LOOT_POOLS));
   // the data catalogs, field by field

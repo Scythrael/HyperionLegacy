@@ -25,6 +25,7 @@ import {
   equipmentStorageCap,
   groundTeamCount,
   freshState,
+  missionPhaseTicks,
   rollQuality,
   type AffixAlignment,
   type AffixId,
@@ -44,6 +45,7 @@ import {
   type GambitStatusId,
   type GambitTargetSelector,
   type GameState,
+  type TimedProcessKind,
   type MissionKey,
   type ObjectiveAffix,
   type OfficerStats,
@@ -80,9 +82,11 @@ import {
   shipRangeLightYears,
   shipRepairDurationTicks,
   shipyardBayCount,
+  startProcess,
   tierCap,
   xpPerTick,
 } from "../tick";
+import { OVERTIME_PROCESS_KINDS, buyOvertime } from "../processSpeed";
 import { combatHullTypeOf, shipToCombatant } from "../combat/bridge";
 import type { Combatant, CombatWeapon } from "../combat/types";
 import type { DroneRole, DroneSquadron } from "../combat/drones";
@@ -125,7 +129,8 @@ import { departmentFacet, seatFacet } from "../officerStats";
 import { RELICS, museumBonuses, type MuseumStat } from "../relics";
 import { salvageSalvagedMaterial, salvageShip, salvageTalentBonus, salvageYieldMult } from "../salvage";
 import { alertResetSeconds, escalationAt, extraBattleChance, longRangeCover, maxExtraBattles } from "../affixes";
-import { withEnemyRanks, type EnemyRank } from "../enemyRanks";
+import { ENEMY_RANKS_VERSION, type EnemyRank } from "../enemyRanks";
+import { taskFightGuard } from "../groundFight";
 import { sellItem } from "../quartermaster";
 import { retirementExpMultiplier } from "../captainRetirement";
 import { transitBerthCount } from "../berths";
@@ -234,6 +239,25 @@ export function seatOfficer(
     ...(opts.stats ? { stats: { ...opts.stats } } : {}),
   };
   return { ...s, officers: [...s.officers.filter((o) => o.seat !== seat || o.assignedShipId !== WIRING_SHIP_ID), officer] };
+}
+
+// 0.14.0 SPEED SEAM: one running job per Overtime context, each RUNNING_JOB_TICKS long: a hull build (shipyard), a
+// research project (research) and a facility rung (facility). Started through the shared startProcess engine.
+export const RUNNING_JOB_TICKS = 1000;
+const RUNNING_JOB_KIND: Partial<Record<ContextId, TimedProcessKind>> = { shipyard: "shipBuild", research: "researchProject", facility: "facilityUpgrade" };
+export function withRunningJobs(s: GameState): GameState {
+  let out = startProcess(s, "shipBuild", {}, RUNNING_JOB_TICKS, { type: "addShip", typeKey: "generalFreighter" }).next;
+  out = startProcess(out, "researchProject", {}, RUNNING_JOB_TICKS, { type: "unlockBlueprint", key: "frameSegmentBp" }).next;
+  return startProcess(out, "facilityUpgrade", {}, RUNNING_JOB_TICKS, { type: "facilityLevelUp", facility: "refinery" }).next;
+}
+
+// Buy ONE Overtime step on every running job it is offered on (a job it is not, or a refusal, is left as it is).
+export function overtimeOneStep(s: GameState): GameState {
+  let out = s;
+  for (const p of s.activeProcesses) {
+    if (OVERTIME_PROCESS_KINDS.includes(p.kind)) out = buyOvertime(out, { kind: "process", id: p.id }).next;
+  }
+  return out;
 }
 
 export const WIRING_BUCKET_COUNT = 20; // a real-sized complement bucket (standard rarity, Crewman rank)
@@ -494,6 +518,56 @@ function qualityClimbThreshold(bonus: number): number {
   return lo;
 }
 
+// WR-5a: one delivery of captain 1's shortOreRun (the last unloading tick of a recalled cycle carrying 10 Titanium
+// Ore), every economy draw returning `draw`: the quality rung the delivered ore landed at.
+function deliveryTick(s: GameState, draw: number, over: Partial<CaptainState> = {}): { before: GameState; after: GameState } {
+  const def = missionDefFor(s, "shortOreRun");
+  const cargo = { commonOre: new Decimal(10), uncommonMaterial: new Decimal(0), rareMaterial: new Decimal(0) };
+  const mission = {
+    kind: "extraction",
+    missionKey: "shortOreRun",
+    phase: "unloading",
+    phaseProgressTicks: missionPhaseTicks("unloading", def, cargo) - 1,
+    cargo,
+    recalled: true,
+  } as CaptainMissionState;
+  const before = editCaptain(s, { ...over, mission } as Partial<CaptainState>);
+  return { before, after: economyTick(before, 1, () => draw) };
+}
+
+// WR-5a (Motherlode): the share of MOTHERLODE_BATCH real deliveries (captain 1's lifetime Motherlode counter at 0 to
+// MOTHERLODE_BATCH - 1) whose 10 Titanium Ore landed doubled.
+const MOTHERLODE_BATCH = 1000;
+function motherlodeRate(s: GameState): number {
+  let doubled = 0;
+  for (let i = 0; i < MOTHERLODE_BATCH; i++) {
+    const { before, after } = deliveryTick(s, 0.999999, { motherlodeCycles: i });
+    if (heldOf(after, "commonOre") - heldOf(before, "commonOre") > 10) doubled++;
+  }
+  return doubled / MOTHERLODE_BATCH;
+}
+
+function deliveredQuality(s: GameState, draw: number): number {
+  const { before, after } = deliveryTick(s, draw);
+  const buckets = after.inventory.commonOre ?? [];
+  const was = before.inventory.commonOre ?? [];
+  for (let q = buckets.length - 1; q >= 0; q -= 1) if (Number(buckets[q] ?? 0) > Number(was[q] ?? 0)) return q;
+  return -1;
+}
+
+// The largest constant draw whose delivery still climbs to quality 1 (the deposit's first-climb threshold).
+function deliveryQualityThreshold(s: GameState): number {
+  let lo = 0;
+  let hi = 1;
+  if (deliveredQuality(s, 1e-12) < 1) return 0;
+  for (let i = 0; i < 44; i++) {
+    const mid = (lo + hi) / 2;
+    if (deliveredQuality(s, mid) >= 1) lo = mid;
+    else hi = mid;
+  }
+  return lo;
+}
+
 // == whole-context consumers (WR-1 review: a claimed context a stat does not reach yet is read through the
 // context's OWN consumer, so the check proves the stat is absent there, and starts failing the day it arrives) ==
 
@@ -706,6 +780,27 @@ export const PROBES = {
   missionOutputBonus: { label: "officerMissionOutputBonus (economyTick delivery share)", read: (s) => officerMissionOutputBonus(s, shipOf(s)) },
   missionCycleOutput: { label: "one whole shortOreRun cycle (economyTick): the credits and Titanium Ore delivered", read: (s) => cycleOutput(s) },
   missionOreQuality: { label: "one whole shortOreRun cycle (economyTick): the quality of the ore delivered", read: (s) => cycleOreQuality(s) },
+  // == the captain secondary tree (WR-5a) ==
+  deliveryQualityClimb: {
+    label: "economyTick's mission deposit: the largest constant draw whose delivered ore still climbs to quality 1 (shortOreRun)",
+    read: (s) => deliveryQualityThreshold(s),
+  },
+  motherlodeRate: { label: "economyTick deliveries: the share of 1,000 real shortOreRun deliveries (lifetime counter 0 to 999) whose haul landed doubled", read: (s) => motherlodeRate(s) },
+  transportCycleCredits: {
+    label: "one whole frontierSupplyRun cycle (economyTick): the net credits it delivered",
+    read: (s) => {
+      const { before, after } = oneCycle(s, "frontierSupplyRun");
+      return Number(after.credits) - Number(before.credits);
+    },
+  },
+  dockedCredits: {
+    label: "economyTick: credits gained in one tick with captain 1 docked",
+    read: (s) => {
+      const idle = editCaptain(s, { mission: null } as Partial<CaptainState>);
+      const after = economyTick(idle, 1, () => 0.5);
+      return Number(after.credits) - Number(idle.credits);
+    },
+  },
   rareFind: {
     label: "crew rare find: Expedition.crewRareFind (relic roll) / crew.rareFindChance read by survey rare odds (tick.ts:4148)",
     read: (s, ctx) => (ctx === "mission:survey" ? shipCrewContribution(s, shipOf(s))[CREW_STAT_KEYS.rareFindChance] ?? 0 : dispatchRun(s).crewRareFind ?? 0),
@@ -767,6 +862,10 @@ export const PROBES = {
   shipyardBays: { label: "shipyardBayCount", read: (s) => shipyardBayCount(s) },
   shipBuildTicks: { label: "shipBuildDurationTicks(destroyer)", read: (s) => shipBuildDurationTicks(s, "destroyer") },
   shipyardFounded: { label: "canBuildShip passes the founded gate (0/1)", read: (s) => buildGatePassed(s, "notFounded") },
+  overtimeTicks: {
+    label: "a running job's remaining ticks (processSpeed.ts Overtime): a hull build / a research project / a facility rung",
+    read: (s, ctx) => s.activeProcesses.find((p) => p.kind === RUNNING_JOB_KIND[ctx])?.remainingTicks ?? -1,
+  },
   dockRoom: { label: "canBuildShip passes the docks gate (0/1)", read: (s) => buildGatePassed(s, "storageFull") },
   // == facilities ==
   refineSlots: { label: "refineSlotCount", read: (s) => refineSlotCount(s) },
@@ -1314,21 +1413,31 @@ function readContent(id: string, s: GameState): number {
       return e[a];
     }
     case "enemyRank": {
-      // Field Kits FKR-1: a fight's guard (generateEncounter, a Derelict Outpost on a calm world) ranked through the
-      // fight's own placement step (enemyRanks.ts withEnemyRanks): the lead's power at rank `a` (on) over its power at
-      // Normal, i.e. the multiplier the fight really applies (1 off).
-      const guard = () => generateEncounter(0x5eed, 0, "derelictOutpost");
-      const normal = withEnemyRanks(guard(), "normal");
-      const ranked = withEnemyRanks(guard(), on ? (a as EnemyRank) : "normal");
-      // The lead: the strongest Normal enemy (highest power, first in list order), read on both lists by its id.
-      const leadId = normal.reduce((best, e) => (e.power > best.power ? e : best)).id;
-      const power = (list: GroundCombatant[]) => list.find((e) => e.id === leadId)!.power;
-      return power(ranked) / power(normal);
+      // Field Kits FKR-1: the guard of a REAL task fight (groundFight.ts taskFightGuard, the list resolveTaskFightOnSeed
+      // fields) at the fight point the placement leads with rank `a`: an objective of the grade and point
+      // ENEMY_RANK_PROBE_FIGHT names, on a Derelict Outpost (hazard 0.1). On = a ranked run, off = the same run without
+      // the flag (every enemy Normal). The lead's (the strongest enemy's) stat `b`: "hp" (whole numbers) or "power".
+      const at = ENEMY_RANK_PROBE_FIGHT[a as EnemyRank];
+      if (!at) throw new Error(`enemy rank ${a} has no placement to probe`);
+      const task = { id: "wiring-task", poiId: "derelictOutpost", fightCount: at.point, pointsCleared: at.point, difficulty: at.grade, fightPoints: [0.25, 0.5, 0.75] };
+      const guard = taskFightGuard({ hazardResist: 0, ...(on ? { enemyRanks: { version: ENEMY_RANKS_VERSION } } : {}) }, { hazard: 0.1 }, task, 0x5eed);
+      const lead = guard.reduce((best, e) => (e.power > best.power ? e : best));
+      return b === "hp" ? lead.hp : lead.power;
     }
     default:
       throw new Error(`unknown content probe ${id}`);
   }
 }
+
+// Field Kits FKR-1: the fight each placed rank is probed on (grade 1 Simple .. 5 Deadly, the 0-based fight point of a
+// three-point objective): Normal on a Simple final, Strong on a Dangerous earlier point, Elite on a Challenging final,
+// Boss on a Deadly final. Weak has none (SF-3 places it on the difficulty curve).
+const ENEMY_RANK_PROBE_FIGHT: Readonly<Partial<Record<EnemyRank, { grade: number; point: number }>>> = {
+  normal: { grade: 1, point: 2 },
+  strong: { grade: 4, point: 0 },
+  elite: { grade: 3, point: 2 },
+  boss: { grade: 5, point: 2 },
+};
 
 // The officer stat facets: the department facet each facet consumer reads (officerStats.ts departmentFacet; for
 // the XO's own bonuses, seatFacet). "facet:<dept>:<stat>".

@@ -5,12 +5,13 @@
 //   - STRENGTH (user, N1 "Weak 0.7 to Boss 2.5"): ONE multiplier per rank on HP and power alike: Weak x0.7, Normal x1,
 //     Strong x1.3, Elite x1.7, Boss x2.5. It multiplies hp, hpMax, power and heal; `threat` follows power (the
 //     generateEncounter rule threat == power, kept through withEscalation).
-//   - PLACEMENT (user, N2 "By difficulty" with the 2026-10-16 correction, N3 "Only final fights", N5 "Normal"): the
-//     FINAL fight of an objective (its last fight point) is led by an Elite on a Challenging objective and by a Boss
-//     on a Dangerous or Deadly one; Simple and Standard objectives have none. The lead is the fight's strongest enemy
-//     (highest power, then list order). Every other enemy is Normal: the rest of the final fight, every earlier fight,
-//     every surprise fight (an ambush met where the crew stood) and every Reinforcing reinforcement fight. An unrated
-//     objective (legacy, before SQ-4) is all Normal. Weak and Strong exist in the catalog; nothing places them yet.
+//   - PLACEMENT (user, N2 "By difficulty" with the 2026-10-16 correction, then "Soften Dangerous" and "Use them on the
+//     curve", N5 "Normal"): the FINAL fight of an objective (its last fight point) is led by an Elite on a Challenging
+//     or Dangerous objective and by a Boss on a Deadly one; every EARLIER fight point of a Dangerous objective is led
+//     by a Strong enemy; Simple and Standard objectives have none. The lead is the fight's strongest enemy (highest
+//     power, then list order). Every other enemy is Normal: the rest of a led fight, every surprise fight (an ambush
+//     met where the crew stood) and every Reinforcing reinforcement fight. An unrated objective (legacy, before SQ-4)
+//     is all Normal. Weak is in the catalog but placed by SF-3 (the difficulty curve's low end), never here.
 //   - TRAINING RUN (safe first runs, user: "never on a training run"): every enemy Normal. Read through ONE helper,
 //     isTrainingRun, off the safe first runs stamp (`Expedition.difficulty.firstRun`, typed by SF-1, written at dispatch
 //     by SF-2); a run without that stamp is not a training run.
@@ -29,7 +30,8 @@ export type { EnemyRank } from "./model";
 // ===== The catalog =====
 
 // The catalog version a ranked run is stamped with (Expedition.enemyRanks.version). Bump it when a rank's numbers or
-// placement change, and keep the old version's rules for runs stamped with it.
+// placement change after a version has reached players, and keep the old version's rules for runs stamped with it
+// (the 2026-10-16 "Soften Dangerous" follow-up kept version 1: no ranked run had shipped).
 export const ENEMY_RANKS_VERSION = 1;
 
 export interface EnemyRankDef {
@@ -49,9 +51,13 @@ export const ENEMY_RANKS: Readonly<Record<EnemyRank, EnemyRankDef>> = {
 // Weakest to strongest.
 export const ENEMY_RANK_IDS: readonly EnemyRank[] = ["weak", "normal", "strong", "elite", "boss"];
 
-// The FINAL fight's lead by objective grade (index grade - 1): Simple and Standard none, Challenging an Elite,
-// Dangerous and Deadly a Boss (user N2, corrected 2026-10-16).
-export const FINAL_FIGHT_LEAD: readonly (EnemyRank | null)[] = [null, null, "elite", "boss", "boss"];
+// The FINAL fight's lead by objective grade (index grade - 1): Simple and Standard none, Challenging and Dangerous an
+// Elite, Deadly a Boss (user N2 corrected, then "Soften Dangerous", 2026-10-16).
+export const FINAL_FIGHT_LEAD: readonly (EnemyRank | null)[] = [null, null, "elite", "elite", "boss"];
+
+// Every EARLIER fight point's lead by objective grade: Strong on a Dangerous objective only (user "Use them on the
+// curve", 2026-10-16), none elsewhere.
+export const EARLIER_FIGHT_LEAD: readonly (EnemyRank | null)[] = [null, null, null, "strong", null];
 
 // A Reinforcing reinforcement fight's enemies (user N5 "Normal").
 export const REINFORCEMENT_RANK: EnemyRank = "normal";
@@ -85,15 +91,17 @@ export interface FightRankContext {
 }
 
 // The rank of a fight's LEAD (its strongest enemy) by the objective's grade and the fight's place (see the header):
-// the grade's FINAL_FIGHT_LEAD on the final fight point, Normal everywhere else. Pure.
+// the grade's FINAL_FIGHT_LEAD on the final fight point, its EARLIER_FIGHT_LEAD on an earlier one, Normal for every
+// other fight. Pure.
 export function fightLeadRank(ctx: FightRankContext): EnemyRank {
   if (ctx.trainingRun) return "normal";
   if (ctx.kind === "reinforcement") return REINFORCEMENT_RANK;
   if (ctx.kind !== "point") return "normal";
   const g = ctx.grade;
   if (typeof g !== "number" || !Number.isInteger(g) || g < 1 || g > FINAL_FIGHT_LEAD.length) return "normal";
-  if (!(ctx.fightPointCount >= 1) || ctx.pointIndex !== ctx.fightPointCount - 1) return "normal";
-  return FINAL_FIGHT_LEAD[g - 1] ?? "normal";
+  const p = ctx.pointIndex;
+  if (!(ctx.fightPointCount >= 1) || !Number.isInteger(p) || p < 0 || p >= ctx.fightPointCount) return "normal";
+  return (p === ctx.fightPointCount - 1 ? FINAL_FIGHT_LEAD : EARLIER_FIGHT_LEAD)[g - 1] ?? "normal";
 }
 
 // The rank context of one fight of `task` on `exp`: its stamped grade, `fightPointCount` (the objective's fight

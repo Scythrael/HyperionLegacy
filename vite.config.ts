@@ -1,4 +1,4 @@
-import { defineConfig } from 'vite'
+import { defineConfig, configDefaults } from 'vitest/config'
 import { svelte } from '@sveltejs/vite-plugin-svelte'
 import { resolveBuildId } from './src/lib/buildId.ts'
 
@@ -36,5 +36,12 @@ export default defineConfig({
     // Per-build id captured by the running client at load; compared against the
     // fetched version.json to detect a fresh deploy. See src/lib/updateDetector.ts.
     __BUILD_ID__: JSON.stringify(BUILD_ID),
+  },
+  test: {
+    // Parallel builders work in git worktrees under .claude/worktrees; their copies of the test files must never
+    // run in this tree's suite (duplicate tests and timeouts).
+    exclude: [...configDefaults.exclude, '.claude/**'],
+    // Several parallel builders can load the machine; a 5 s default timeout then flakes on heavy goldens.
+    testTimeout: 20_000,
   },
 })

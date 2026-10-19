@@ -10,6 +10,7 @@ import {
   ENEMY_RANKS,
   ENEMY_RANKS_VERSION,
   ENEMY_RANK_IDS,
+  EARLIER_FIGHT_LEAD,
   FINAL_FIGHT_LEAD,
   REINFORCEMENT_RANK,
   fightLeadRank,
@@ -45,8 +46,9 @@ describe("FKR-1 the rank catalog (user N1: one multiplier on HP and power)", () 
     expect(ENEMY_RANKS_VERSION).toBe(1);
   });
 
-  it("the final fight's lead by grade: Simple and Standard none, Challenging an Elite, Dangerous and Deadly a Boss", () => {
-    expect(FINAL_FIGHT_LEAD).toEqual([null, null, "elite", "boss", "boss"]);
+  it("the leads by grade: finals Simple / Standard none, Challenging and Dangerous an Elite, Deadly a Boss; earlier fights Strong on Dangerous only", () => {
+    expect(FINAL_FIGHT_LEAD).toEqual([null, null, "elite", "elite", "boss"]); // user "Soften Dangerous", 2026-10-16
+    expect(EARLIER_FIGHT_LEAD).toEqual([null, null, null, "strong", null]); // user "Use them on the curve", 2026-10-16
     expect(REINFORCEMENT_RANK).toBe("normal"); // user N5
   });
 });
@@ -94,24 +96,30 @@ describe("FKR-1 withEnemyRanks: the lead takes the rank, everyone else stays Nor
   });
 });
 
-describe("FKR-1 fightLeadRank: only the final fight point of a Challenging or harder objective has a lead", () => {
-  it("the final point by grade 1 to 5: Normal, Normal, Elite, Boss, Boss", () => {
-    expect([1, 2, 3, 4, 5].map((g) => fightLeadRank(final(g)))).toEqual(["normal", "normal", "elite", "boss", "boss"]);
+describe("FKR-1 fightLeadRank: the final point of a Challenging or harder objective, and a Dangerous one's earlier points", () => {
+  it("the final point by grade 1 to 5: Normal, Normal, Elite, Elite, Boss", () => {
+    expect([1, 2, 3, 4, 5].map((g) => fightLeadRank(final(g)))).toEqual(["normal", "normal", "elite", "elite", "boss"]);
   });
 
-  it("every earlier point is Normal (user N3: only final fights)", () => {
-    for (const g of [3, 4, 5]) for (const p of [0, 1]) expect(fightLeadRank(final(g, { pointIndex: p }))).toBe("normal");
+  it("an earlier point by grade 1 to 5: Normal, Normal, Normal, Strong, Normal (Strong leads only on Dangerous)", () => {
+    for (const p of [0, 1]) expect([1, 2, 3, 4, 5].map((g) => fightLeadRank(final(g, { pointIndex: p })))).toEqual(["normal", "normal", "normal", "strong", "normal"]);
   });
 
-  it("a surprise fight and a reinforcement fight are Normal, even on the final point (user N5)", () => {
+  it("Weak is never placed here (the curve's low end is SF-3's)", () => {
+    for (const g of [1, 2, 3, 4, 5]) for (const p of [0, 1, 2]) for (const kind of ["point", "surprise", "reinforcement"] as const) expect(fightLeadRank(final(g, { pointIndex: p, kind }))).not.toBe("weak");
+  });
+
+  it("a surprise fight and a reinforcement fight are Normal, on the final point and before it (user N5)", () => {
     for (const g of [3, 4, 5]) {
-      expect(fightLeadRank(final(g, { kind: "surprise" }))).toBe("normal");
-      expect(fightLeadRank(final(g, { kind: "reinforcement" }))).toBe("normal");
+      for (const p of [0, 2]) {
+        expect(fightLeadRank(final(g, { kind: "surprise", pointIndex: p }))).toBe("normal");
+        expect(fightLeadRank(final(g, { kind: "reinforcement", pointIndex: p }))).toBe("normal");
+      }
     }
   });
 
-  it("a training run fields no Elite or Boss (user: never on a training run)", () => {
-    for (const g of [1, 2, 3, 4, 5]) expect(fightLeadRank(final(g, { trainingRun: true }))).toBe("normal");
+  it("a training run fields every enemy Normal (user: never on a training run)", () => {
+    for (const g of [1, 2, 3, 4, 5]) for (const p of [0, 2]) expect(fightLeadRank(final(g, { trainingRun: true, pointIndex: p }))).toBe("normal");
   });
 
   it("an unrated objective (legacy, before SQ-4), a corrupt grade or no fight points: Normal", () => {
@@ -121,7 +129,8 @@ describe("FKR-1 fightLeadRank: only the final fight point of a Challenging or ha
   });
 
   it("a one-point objective's only fight is its final fight", () => {
-    expect(fightLeadRank(final(4, { pointIndex: 0, fightPointCount: 1 }))).toBe("boss");
+    expect(fightLeadRank(final(4, { pointIndex: 0, fightPointCount: 1 }))).toBe("elite");
+    expect(fightLeadRank(final(5, { pointIndex: 0, fightPointCount: 1 }))).toBe("boss");
   });
 
   it("fightRankContext reads the task's stamped grade and the point fought for, and the run's training stamp", () => {

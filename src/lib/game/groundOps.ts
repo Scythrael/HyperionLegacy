@@ -153,9 +153,9 @@ export const NEUTRAL_SHIP_EVENT_PROFILE: Readonly<ShipEventProfile> = Object.fre
 });
 
 // Efficient Stowage (captain secondary talent logistics4, "+pre-mission load speed"): D26 points it at the
-// Ground Ops reload step. Read from the catalog entry (+0.08), so the data stays the one source. NOTE: the
-// captain SECONDARY tree is otherwise DORMANT (captainSecondaryTree.ts: nothing else applies its nodes yet);
-// this is its first and only live node. Rapid Turnaround (logistics3, unload) on the offload is Q22, unbuilt.
+// Ground Ops reload step. Read from the catalog entry (+0.08), so the data stays the one source. WR-5a: the
+// rest of the Prospector tree is live through captainSecondaryEffects.ts; Rapid Turnaround (logistics3) reaches
+// the offload through effectiveShipStats.unloadSpeedMult (offloadMult below, frozen at dispatch).
 const STOWAGE_EFFECT = SECONDARY_CAPTAIN_TALENTS.logistics4.effect;
 export const EFFICIENT_STOWAGE_RELOAD: number = STOWAGE_EFFECT.type === "statMult" ? STOWAGE_EFFECT.mult : 0;
 

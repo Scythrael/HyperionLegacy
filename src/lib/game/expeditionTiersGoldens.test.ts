@@ -124,11 +124,14 @@ function legacyCrew(): GameState {
 // The state a save held with `exp` in flight (the dispatch's exact `next`: the run listed, the expedition number and
 // the seed advanced), cut back to the v69 shape (withoutG2State, so from G2-1 on the save truly lacks `homeworld`
 // and the v69 -> v70 migration really seeds it), written to a save, stamped v69 and loaded back through migrate.
-// G2-1 gives migrate an injected entropy argument: this call then passes a fixed value. Pure.
+// G2-1 gave migrate an injected entropy argument: this call passes a fixed value (G2_1_ENTROPY), and golden 1 checks
+// the migration really seeded the homeworld from it. Pure.
+const G2_1_ENTROPY = 0x1234abcd;
 function restored(crew: GameState, exp: Expedition): GameState {
   const held: GameState = { ...crew, nextExpeditionId: crew.nextExpeditionId + 1, expeditionSeed: advanceExpeditionSeed(crew.expeditionSeed), expeditions: [exp] };
   const save = deserialize(serialize(withoutG2State(held), 0)) as SaveFile;
-  return migrate({ ...save, version: PRE_G2_SAVE_VERSION });
+  expect("homeworld" in save.state).toBe(false);
+  return migrate({ ...save, version: PRE_G2_SAVE_VERSION }, G2_1_ENTROPY);
 }
 
 // Advance in `step` second chunks from `from` to `to` (inclusive of `to`).
@@ -256,6 +259,7 @@ describe("G2-0 golden 1: legacy in-flight runs restored from their stored record
     it(`${name}: transit midpoint, arrival, mid-scan, window end and claim match the pre-G2 capture`, () => {
       const stored = structuredClone(PRE_G2_STORED_RUNS[name as "flagged" | "legacy"]) as Expedition;
       const state = restored(f.crew(), stored);
+      expect(state.homeworld).toEqual({ version: 1, seed: G2_1_ENTROPY }); // G2-1: the v69 -> v70 step ran
       const exp = state.expeditions[0];
       expect(exp).toEqual(stored);
       expect(withoutG2Run(exp)).toEqual(exp);
@@ -336,6 +340,9 @@ describe("G2-0 golden 2: fresh dispatches of candidates 0, 1 and 2, full timelin
 
 // ===== 3. display: candidates and the telescope =====
 
+// G2-1: freshState with no seed stores no homeworld and reads the provisional spot near Sol every save shared before
+// G2-1, so golden 3 stays byte-identical. A save's own homeworld moves only the light-years: "G2-1 golden 3 with the
+// homeworld" below asserts that field by field and pins the result.
 describe("G2-0 golden 3: candidates and the telescope views", () => {
   it("expeditionCandidates and each candidate's risk preview at telescope Levels 0, 1, 5 and 8", () => {
     const out: string[] = [];
@@ -366,6 +373,75 @@ describe("G2-0 golden 3: candidates and the telescope views", () => {
     for (let level = 0; level <= 8; level++) out.push(hash(telescopeReadingAtLevel(level)));
     for (const level of [1, 8]) out.push(`card${level}:${hash(telescopeCardView(atLevel(level, freshState())))}`, `map${level}:${hash(telescopeMapView(level))}`);
     expect(out).toEqual(GOLDEN["display:telescope"]);
+  });
+});
+
+// The leaf paths at which two plain JSON values differ ("" for the root). Pure.
+function changedPaths(a: unknown, b: unknown, path = ""): string[] {
+  if (a !== null && b !== null && typeof a === "object" && typeof b === "object") {
+    const keys = new Set([...Object.keys(a as object), ...Object.keys(b as object)]);
+    return [...keys].flatMap((k) => changedPaths((a as Record<string, unknown>)[k], (b as Record<string, unknown>)[k], path ? `${path}.${k}` : k));
+  }
+  return JSON.stringify(a) === JSON.stringify(b) ? [] : [path];
+}
+
+// G2-1 (plan section 3 G2-1: "golden 3 changes ONLY in distances and ly numbers, asserted field by field"): the same
+// views read with a stored homeworld (seed G2_1_HOMEWORLD_SEED) differ from golden 3 (no homeworld: the provisional
+// spot) only in the light-years: each candidate's distance and the telescope's range, and the card's range texts.
+// Pinned too.
+const G2_1_HOMEWORLD_SEED = 0x6a09e667;
+const homed = (s: GameState): GameState => ({ ...s, homeworld: { version: 1, seed: G2_1_HOMEWORLD_SEED } });
+const G2_1_GOLDEN: Record<string, string[]> = {
+  candidates: ["e196a0e6", "dfc8c538", "c7a61767", "7f6fe5b1"],
+  card: ["51c2886e", "e64670ea"],
+};
+
+describe("G2-1 golden 3 with the homeworld: only the light-years move", () => {
+  it("candidates: only telescope.distanceLy and telescope.rangeLy differ, at Levels 0, 1, 5 and 8", () => {
+    const out: string[] = [];
+    let moved = 0;
+    for (const level of [0, 1, 5, 8]) {
+      const state = homed(atLevel(level, crewed(2)));
+      expect(state.homeworld).toBeDefined();
+      const own = expeditionCandidates(state, "ship-1");
+      const shared = expeditionCandidates(withoutG2State(state), "ship-1");
+      own.forEach((c, i) => {
+        const paths = changedPaths(shared[i], c);
+        for (const p of paths) expect(["telescope.distanceLy", "telescope.rangeLy"], `L${level} ${c.id}`).toContain(p);
+        if (paths.includes("telescope.distanceLy")) moved += 1;
+      });
+      out.push(hash(own));
+    }
+    expect(moved).toBeGreaterThan(0);
+    expect(out).toEqual(G2_1_GOLDEN.candidates);
+  });
+
+  it("the launch view is unchanged by the homeworld (it reads the risk and task previews, never a distance)", () => {
+    const out: string[] = [];
+    for (const level of [5, 8]) {
+      const state = homed(atLevel(level, crewed(2)));
+      const shared = withoutG2State(state);
+      const sharedCands = expeditionCandidates(shared, "ship-1");
+      expeditionCandidates(state, "ship-1").forEach((c, i) => {
+        const view = expeditionLaunchView(state, "ship-1", c);
+        expect(view).toEqual(expeditionLaunchView(shared, "ship-1", sharedCands[i]));
+        out.push(hash(view));
+      });
+    }
+    expect(out).toEqual(GOLDEN["display:launch"]);
+  });
+
+  it("the card: only its light-year numbers and texts differ, at Levels 1 and 8; the map's default is unchanged", () => {
+    const out: string[] = [];
+    for (const level of [1, 8]) {
+      const state = homed(atLevel(level, freshState()));
+      const own = telescopeCardView(state);
+      const paths = changedPaths(telescopeCardView(withoutG2State(state)), own);
+      expect(paths.length).toBeGreaterThan(0);
+      for (const p of paths) expect(p, `level ${level}`).toMatch(/(^|\.)(rangeText|rangeLy)$/);
+      out.push(hash(own));
+    }
+    expect(out).toEqual(G2_1_GOLDEN.card);
   });
 });
 

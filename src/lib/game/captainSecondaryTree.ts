@@ -1,13 +1,11 @@
-// Crew 0.14.0 (Phase C-3a): the captain PRESTIGE secondary talent tree ALLOCATION engine (pure,
-// DORMANT).
+// Crew 0.14.0 (Phase C-3a): the captain PRESTIGE secondary talent tree ALLOCATION engine (pure).
 //
 // The secondary tree (model.ts SECONDARY_CAPTAIN_TALENTS) is a SECOND captain-tier tree that deepens
 // the base tree's three identities: 3 trees x 3 branches x 5 rungs = 45 nodes. Points are earned via
-// captain RETIREMENT (a later phase, C-3b) and spent here. This module is the pure LOGIC layer for
-// spending those points; it is DORMANT on purpose (mirrors crew.ts / seniorStaff.ts): nothing here is
-// wired into tick.ts, shipDerivedStats, or the UI, and NOTHING applies the nodes' effects yet (effect
-// APPLICATION to gameplay is a still-later live phase). Every function is pure: it reads its inputs and
-// returns fresh values, never mutating an input captain/array in place.
+// captain RETIREMENT (C-3b) and spent here. This module is the pure LOGIC layer for spending those
+// points; the nodes' EFFECTS are applied by captainSecondaryEffects.ts (the Prospector tree is live since
+// WR-5a; the Tactician and Explorer trees follow with WR-5b / WR-5c). Every function is pure: it reads its
+// inputs and returns fresh values, never mutating an input captain/array in place.
 //
 // ALLOCATION RULES (docs/plans/2026-09-22-crew-0.14.0-plan.md, "Captain PRESTIGE secondary tree"):
 //   - Costs 1 secondaryPoint per node.
@@ -23,9 +21,11 @@ import {
   SECONDARY_TALENT_BRANCHES,
   type CaptainState,
   type CaptainSecondaryTalentDef,
+  type GameState,
   type SecondaryTalentBranch,
   type SecondaryTalentKey,
 } from "./model";
+import { crewLockReason, crewLockReasonText, crewLockUntilText, type CrewLockReason } from "./crewLock";
 
 // The branch a node belongs to. Pure lookup.
 export function secondaryTalentBranchOf(key: SecondaryTalentKey): SecondaryTalentBranch {
@@ -54,12 +54,26 @@ export function committedBranch(captain: CaptainState): SecondaryTalentBranch | 
   return secondaryTalentBranchOf(owned[0]);
 }
 
+// WR-5a (user 2026-10-17, "Block buying while out"): why this captain cannot learn a node right now because its
+// ship is out (crewLock.ts shipCrewLocked: on a mission or patrol, or on an unclaimed expedition), else null. A
+// node acts on that ship, so learning one mid-run would change a run in flight. A captain with no ship is free. Pure.
+export function secondaryTalentBuyLock(state: GameState, captainId: number): CrewLockReason | null {
+  const ship = state.ships.find((s) => s.assignedCaptainId === captainId);
+  return ship ? crewLockReason(state, ship.id) : null;
+}
+
+// The player text for that lock ("Ship is out on a mission: learn prestige talents until it returns" style). Pure.
+export function secondaryTalentBuyLockText(reason: CrewLockReason): string {
+  return `${crewLockReasonText(reason)}: prestige talents can be learned again ${crewLockUntilText(reason).replace(/^until/, "once")}`;
+}
+
 // Whether the captain may buy `key` right now: it enforces points, no-double-buy, the single-branch
 // commitment, and adjacency (first buy must be a rung-1 entry; later buys must neighbor an owned node).
-// Pure.
-export function canBuySecondaryTalent(captain: CaptainState, key: SecondaryTalentKey): boolean {
+// With `state` (every game caller passes it), also the WR-5a buy lock above. Pure.
+export function canBuySecondaryTalent(captain: CaptainState, key: SecondaryTalentKey, state?: GameState): boolean {
   const def: CaptainSecondaryTalentDef | undefined = SECONDARY_CAPTAIN_TALENTS[key];
   if (!def) return false; // unknown key
+  if (state !== undefined && secondaryTalentBuyLock(state, captain.id) !== null) return false; // ship is out
   if ((captain.secondaryPoints ?? 0) < 1) return false; // no unspent point
   const owned = captain.unlockedSecondaryTalents;
   if (owned.includes(key)) return false; // already owned
@@ -76,10 +90,10 @@ export function canBuySecondaryTalent(captain: CaptainState, key: SecondaryTalen
 }
 
 // Spend one point on `key`, appending it to the captain's owned nodes. Pure. When the buy is illegal
-// (canBuy false), returns a same-shape NO-OP COPY (fresh object + cloned array), mirroring
+// (canBuy false, including the WR-5a buy lock when state is passed), returns a same-shape NO-OP COPY (fresh object + cloned array), mirroring
 // promoteOfficer's no-op-copy convention in seniorStaff.ts, so callers get a new reference either way.
-export function buySecondaryTalent(captain: CaptainState, key: SecondaryTalentKey): CaptainState {
-  if (!canBuySecondaryTalent(captain, key)) {
+export function buySecondaryTalent(captain: CaptainState, key: SecondaryTalentKey, state?: GameState): CaptainState {
+  if (!canBuySecondaryTalent(captain, key, state)) {
     return { ...captain, unlockedSecondaryTalents: [...captain.unlockedSecondaryTalents] };
   }
   return {

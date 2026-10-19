@@ -198,6 +198,43 @@ plus `expeditionTiersGoldens.fixture.ts` (the two STORED pre-G2 records, never r
   changes ONLY in distances and ly numbers (asserted field by field).
 - UI: none beyond numbers. No mockup needed.
 
+**G2-1 carry note (built 2026-10-17, on top of 7590156).** New pure `src/lib/game/galaxy.ts` (the ladder moved there,
+re-exported by telescope.ts); `src/lib/homeworldEntropy.ts` (the one entropy source, Web Crypto). For later slices:
+- Data model: `GameState.homeworld?: { version: 1, seed }` (model.ts `HomeworldState`). `homeworldPlacement(seed)`
+  derives `{ id, galactic, distanceFromSolLy, distanceFromCoreLy, regionBandsLy, enemySectors }`: a whole light-year
+  lattice point 10 to 120 ly from Sol (rejection draw on `HOMEWORLD_PLACEMENT_SALT`, no trigonometry). Bands come from
+  `regionBandsFrom(point)`: each region's far edge is `|point - anchor| + depth` (from Sol exactly the old provisional
+  bands, pinned); rungs `[1] [2] [3, 4] [5] [6] [7]`, Perseus and Sagittarius share one band (its far edge the farther
+  arm's), each near edge the rung below's far edge, Tier I from `NEAREST_STAR_LY` 4. Sol and everything within 150 ly
+  of it (Wolf 359) is Tier I from every homeworld.
+- `stateHomeworld(state)`: the stored seed's placement, or `PROVISIONAL_HOMEWORLD` (Sol, no sectors) when absent or
+  malformed. Review follow-up: `migrate` also runs the idempotent `withHomeworldV70` after the loop on EVERY load, so a
+  save already at v70 from a build before G2-1 gets its own homeworld too (never the shared spot). **Deviation from "a fixed default for tests"**: `freshState(seed?)` stores a homeworld ONLY when given a
+  seed (App.svelte's three new-game paths always pass `drawHomeworldSeed()`); with none (tests, the sim, the wiring
+  fixtures) the state has no `homeworld` and reads the provisional spot, so every golden captured on freshState stays
+  byte-identical without a re-pin.
+- SAVE: v70 step 3 of `MIGRATIONS[69]`, `withHomeworldV70` (frozen, idempotent: a well-formed value is the same
+  reference; hardened). `migrate(save, homeworldEntropy?)` passes a `MigrationContext` to every step;
+  `loadFromLocalStorage` passes a Web Crypto draw; absent, the entropy is an FNV mix of `save.created_at` (tests and
+  tools stay reproducible). Three "no step" save tests (save.test.ts x2, salvageCrew.test.ts) are handed the step's
+  homeworld, the SF-1 precedent.
+- Readers: `telescopeReading(state)` defaults to `stateHomeworld(state)`; `expeditionCandidates` and the blind count in
+  `startExpedition` pass it to `readSystem`; `telescopeCardView` defaults to it; App.svelte passes it to
+  `telescopeMapView` (derived only when the seed changes). The map centers on `homeworld.galactic`; badges are
+  BAND-RELATIVE (each badge's reference distance remapped into that homeworld's band; the provisional fixture gets the
+  pre-G2 spots exactly); the bounds, ring-fit, overlap, in-band and badge I tests run over 200 placements.
+- ENEMY TERRITORY (user G8) **[PROPOSAL layout]**: `homeworld.enemySectors`, one fixed sector per tier II to VII,
+  drawn from the same seed on `ENEMY_SECTOR_SALT` (Tier I's draw kept, value unused): the tier's band across bearings
+  `[startBearing, startBearing + width)` in tenths of a degree (`bearingDirection`: 0 toward the core, 900 a quarter
+  turn on), width = the tier's share of a full turn `ENEMY_SECTOR_WIDTH_PERMILLE` I 0, II 50, III 150, IV 250, V 350,
+  VI 450, VII 500 (open call 8's per-tier rates, so a uniform bearing lands in enemy territory at that rate). G2-2 HOOK:
+  give each candidate a bearing (a NEW salt) and set `enemyTerritory = inEnemySector(home, tier, bearing)`. G2-7: shade
+  the sectors on the telescope map (not drawn yet; nothing reads the sectors at G2-1).
+- Goldens: G2-0 goldens 1 to 4 unchanged. Golden 1's `restored` passes a fixed entropy (`G2_1_ENTROPY`) and asserts the
+  migration seeded the homeworld from it. New "G2-1 golden 3 with the homeworld" (seed `0x6a09e667`): candidates differ
+  from golden 3 ONLY in `telescope.distanceLy` / `telescope.rangeLy`, the launch views not at all, the card only in its
+  `rangeText` / `rangeLy` fields (asserted path by path), and pinned. Every other golden unchanged.
+
 ### G2-2: Regions for candidates; names, real stars, enemy territory (engine, display + new runs)
 
 - The console offers candidates PER TIER (user #5: "the nearest options within that region of the galaxy, within a
@@ -207,8 +244,13 @@ plus `expeditionTiersGoldens.fixture.ts` (the two STORED pre-G2 records, never r
   **[PROPOSAL]** `CANDIDATE_STRIDE` 16, 3 candidates per tier.
 - `expeditionRegion(seed)` is replaced by the candidate's region `{ tier, enemyTerritory }`, threaded through
   `expeditionRiskPreview`, `previewRun`, `systemTaskPreview`, `launchForecast`, `expeditionLaunchView` and
-  `startExpedition` (all already take or default a region). Enemy territory: one draw on a new
-  `ENEMY_TERRITORY_SALT`, permille by tier per open call 8; Tier I is 0, so Tier I stays identical.
+  `startExpedition` (all already take or default a region). Enemy territory (user G8, 2026-10-16: "Fixed sectors on
+  the map", NOT a per-system draw): G2-2 OWNS flagging candidates. Each candidate gets a bearing from the homeworld
+  (integer tenths of a degree, galaxy.ts `bearingDirection`, on a NEW salt), and its `enemyTerritory` is
+  `inEnemySector(stateHomeworld(state), tier, bearing)` against the fixed sectors G2-1 placed from the homeworld seed
+  (`homeworld.enemySectors`, one per tier II to VII). Tier I has no sector, so Tier I stays identical. The bearing is
+  frozen on the dispatch record with the region so a run never re-reads the homeworld. G2-7 OWNS shading the sectors
+  on the telescope map.
 - Names (user #6 "Yes indeed" to catalog codes): `regionCode-NNNN` (LB, OR, PE, SA, SC, GB, GC, the mockup's codes)
   and bodies lettered b, c, d. The FIRST `SYSTEM_SALT` draw (today's banked-name pick) is KEPT and its value unused,
   so body count, sizes and planet types draw exactly as today. A name stream on a new `SYSTEM_NAME_SALT`.
@@ -223,8 +265,9 @@ plus `expeditionTiersGoldens.fixture.ts` (the two STORED pre-G2 records, never r
   count on a new salt (mockup ranges II 1-3, III 2-3, IV and V 2-4, VI and VII 3-5).
 - Tests: per-tier candidates (count, band, nearest-first order, stable across ticks, advance only on dispatch);
   preview == run at every tier I..VII (risk, objectives, needs, hostile sites) on 16 seeds each; Tier I dispatch with
-  names restored == G2-0 golden 2; enemy territory frequency per tier within tolerance; famous systems land in the
-  right tier for 1,000 homeworld placements; salts registered.
+  names restored == G2-0 golden 2; a candidate is enemy territory exactly when its bearing lies in its tier's sector
+  (the frequency per tier within tolerance of the sector widths); famous systems land in the right tier for 1,000
+  homeworld placements; salts registered.
 - UI: the console still shows Tier I only (G2-6 adds the picker); a hidden region is reachable by tests only.
 
 ### G2-3: The voyage engine (transit by tier, distance and drive)

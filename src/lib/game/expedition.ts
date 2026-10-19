@@ -147,7 +147,7 @@ import {
 } from "./riskFactors";
 import type { BodyRiskGrades, ExpeditionRiskProfile, GroundTaskNeeds, GroundTeamKind } from "./model";
 // Squads SQ-5: the Subspace Telescope's reading of each candidate (display only; a run never reads it).
-import { TELESCOPE_DETAIL, blindLaunchCount, readSystem, telescopeLevel, telescopeReading } from "./telescope";
+import { TELESCOPE_DETAIL, blindLaunchCount, readSystem, stateHomeworld, telescopeLevel, telescopeReading } from "./telescope";
 // Squads SQ-6: the task preview's readers, the launch recommendation and the forecast (display only), and the one
 // engine action they offer (applyComposition, SQ-7's "Set composition").
 import {
@@ -701,12 +701,13 @@ function gateForeknowledge(
 export function expeditionCandidates(state: GameState, shipId: string): ExpeditionCandidate[] {
   const ship = state.ships.find((s) => s.id === shipId);
   const snap = shipSensorSnapshot(state, ship);
-  const reading = telescopeReading(state);
+  const homeworld = stateHomeworld(state); // G2-1: the range and distances from the save's own homeworld
+  const reading = telescopeReading(state, homeworld);
   const out: ExpeditionCandidate[] = [];
   for (let i = 0; i < EXPEDITION_CANDIDATE_COUNT; i++) {
     const seed = makeExpeditionSeed(state.expeditionSeed, i);
     const gen = generateSystem(seed);
-    const sys = readSystem(reading, seed, snap.sensorPower, expeditionRiskPreview(seed));
+    const sys = readSystem(reading, seed, snap.sensorPower, expeditionRiskPreview(seed), homeworld);
     // Squads SQ-6: the task demand (cheap: one throwaway discovery and stamping pass) rides the candidate from Per
     // body. The recommendation and the forecast simulate launches, so they are NOT built here: the UI asks for them
     // per candidate (expeditionLaunchView, e.g. for an expanded card).
@@ -1073,7 +1074,8 @@ export function startExpedition(
   const expedition = buildExpedition(state, ship, captainId, seed, anomalyOptIn, number, gen, risk);
   // Squads SQ-6 (user, SQ-5 call (b)): count a BLIND launch (beyond the telescope's range: the same reading the
   // candidate showed), so the future "go in blind" achievement can award retroactively. Never read by a run.
-  const blind = readSystem(telescopeReading(state), seed, expedition.sensorPower, risk).blind;
+  const homeworld = stateHomeworld(state);
+  const blind = readSystem(telescopeReading(state, homeworld), seed, expedition.sensorPower, risk, homeworld).blind;
 
   return {
     next: {

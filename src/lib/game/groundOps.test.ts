@@ -296,10 +296,11 @@ describe("GO-7a frozen factors", () => {
     expect(groundReloadMult(both, ship1(both))).toBeCloseTo(groundReloadMult(big, ship1(big)) + 0.08, 12);
   });
 
-  it("only logistics4 on the ship's ASSIGNED captain counts (Rapid Turnaround is not wired, Q22)", () => {
+  it("only logistics4 on the ship's ASSIGNED captain counts toward the reload (WR-5a: Rapid Turnaround is the offload)", () => {
     const b = basic();
     const turnaround = withTalents(b, ["logistics1", "logistics2", "logistics3"]);
     expect(groundReloadMult(turnaround, ship1(turnaround))).toBe(1);
+    expect(snapshotGroundOps(turnaround, ship1(turnaround), NO_FACETS).factors.offloadMult).toBeCloseTo(1.08, 12);
     const stowed = withTalents(b, ["logistics1", "logistics2", "logistics3", "logistics4"]);
     const parked = { ...stowed, ships: [{ ...ship1(stowed), assignedCaptainId: null }] };
     expect(groundReloadMult(parked, ship1(parked))).toBe(1);

@@ -1823,6 +1823,43 @@ engine half, reshapes Task 18)`; the UI half waits on the user's sketch):**
   expedition locks, the shared cap, rename / delete, texts); personnelRosters.test.ts +4 (S4-CP39). No engine,
   golden or parity test changed.
 
+**Carry from GO-17 UI HALF (built 2026-10-17, commit `feat(0.14.0): Squad Loadouts screen for ground teams (GO-17
+UI)`; the user approved the squad loadouts mockup, S14 "All as proposed"):**
+- **Armory sub-tabs.** The Armory console header now has `Ship Loadouts` (the existing console, unchanged) and
+  `Squad Loadouts` (`activeArmorySubTab`, default "ship"). The count reads `loadoutsUsed` everywhere: the Ship tab's
+  create form and the Squad tab say "N of 25 loadouts (ship + squad)", the Facilities pane "N / 25 loadouts"
+  (`squadLoadoutDisplay.ts armoryCountText / armoryCountShort`).
+- **SquadLoadoutsPanel.svelte** (new) draws; **squadLoadoutDisplay.ts** (new, +16 tests) decides. Filter chips All /
+  Strike / Survey / Ground; one card per loadout (kind chip = glyph + word, per-slot kit line, "Worn by Kestrel ·
+  Alpha" / "In the locker · N pieces"); worn: Check in + Rename; resting: Put on a team + Rename + Delete (inline
+  confirm). Save a team's gear: ship + team pickers, name (default "Bravo Ground set"), the preview table in its own
+  scroll box, the skipped list (locked / committed elsewhere stay on the member). Put on a team: every team in the
+  fleet, enabled exactly when `applyGroundTeamLoadout` accepts it (the display calls the engine on the current
+  state); disabled teams show the reason as text ("Strike team: this is a Ground loadout", the crew lock words,
+  `Wears "X" (check it in first)`; a team of another type always shows the type reason, even where the engine refuses
+  a lock or a worn loadout first). The report says which kits went on whole and how much of a partial kit went on,
+  groups empty / missing slots as one line per kit ("nobody in this
+  slot", "The kit stays in the locker") and lists every other skip per piece with `groundLoadoutSkipText`; the log
+  line carries the same (`reportLogText`). A stale worn loadout (ship gone, team type changed) lists with a warning
+  line and its Check in; Save on a team still holding one names it and offers its Check in right there. Every
+  lock shows `crewLockText` (mission vs expedition).
+- **Away Team shortcut.** Each ground team card ends with "Wears the "X" squad loadout" / "No squad loadout worn"
+  and a `Loadouts` button (`onOpenLoadouts`) that opens the Squad tab with Save on that ship + team.
+- **Rosters link squad loadouts, one per team (S4-CP39 extended).** `PersonnelRoster.linkedSquadLoadoutIds?:
+  (string | null)[]` by team INDEX (optional, absent-safe, NO SAVE_VERSION bump). `setLinkedSquadLoadout(state,
+  rosterId, teamIndex, id | null)` (a loadout links to one team; trailing nulls trimmed; index < `rosterSquadLinkSlots()`
+  = the most teams any hull fields). `applyRoster` puts each linked loadout on its team after the ship loadout, the
+  same rules per team (check in a different one first; never pulled off another team; a refused put leaves that team
+  as it was). PersonnelRostersPanel: one "Alpha / Bravo" select per team. personnelRosters.test.ts +4.
+- **Icons:** `locker` (subject), `checkIn` / `checkOut` / `saveSet` (action), `skipped` (alert) in icons.ts +
+  ICON_SEMANTICS.
+- **Deviations from the mockup:** no "Storage" tab (the Armory has none); the install / save report shows as a
+  banner above the cards (closing the picker), not beside it; the phone fold applies when the panel is under 520 px.
+- **Field Kits hook:** `SquadLoadoutKit.consumables` stays hidden (Field Kits uses per-member kits; comment in the
+  panel header). **Warehouse rows:** no Warehouse / Logistics row names a piece's loadout today (searched), so there
+  was nothing to extend for `squad-N`; a future "in loadout X" label must look in both `state.loadouts` and
+  `state.squadLoadouts`. Help (GO-18) still does not describe Squad Loadouts.
+
 ### GO-18: Help topics
 
 **Files:** `src/lib/helpTopics.ts` (+ the existing shape test).

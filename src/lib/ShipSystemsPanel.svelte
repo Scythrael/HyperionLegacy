@@ -104,7 +104,7 @@
   // fold every engine consumer routes through (so the readout shows Senior Staff + Complement
   // boosts); shipCrewContribution + applyCrewOverlay let the source popover split the crew delta by
   // source using the EXACT engine functions (never a reimplementation of the fold). READ-ONLY here.
-  import { effectiveShipStats, shipCrewContribution, applyCrewOverlay } from "./game/crewOverlay";
+  import { effectiveShipStats, shipCrewContribution, applyCrewOverlay, shipStatsBeforeCaptain } from "./game/crewOverlay";
 
   // --- Props ------------------------------------------------------------------
   // `state` is the whole GameState (read-only here); `shipId` selects the ship
@@ -456,6 +456,9 @@
   // crewBonuses amplification lives INSIDE the crew contribution, so it already shows in the Senior Staff
   // + Complement buckets above.) With an empty museum this equals effectiveStats and the bucket hides.
   $: crewOnlyStats = ship && fitStats ? applyCrewOverlay(fitStats, shipCrewContribution(safeState, ship)) : null;
+  // WR-5a: the stats before the commanding captain's Prospector nodes (the captain overlay is layered last), so the
+  // Museum bucket stops there and the Captain bucket is effective - this. With no node it equals effectiveStats.
+  $: preCaptainStats = ship ? shipStatsBeforeCaptain(safeState, ship) : null;
 
   // The economy stat rows (real numbers). `kind` picks the formatter: percent for the
   // multiplier / 0-based-bonus stats, flat for capacities / power / mass. Split into
@@ -543,9 +546,13 @@
       const cd = d.get(complementOnlyStats) - gear;
       if (Math.abs(cd) > 1e-9) out.push({ label: "Complement", text: fmtDeltaUnit(d.kind, cd), delta: true });
     }
-    if (crewOnlyStats && effectiveStats) {
-      const md = d.get(effectiveStats) - d.get(crewOnlyStats);
+    if (crewOnlyStats && preCaptainStats) {
+      const md = d.get(preCaptainStats) - d.get(crewOnlyStats);
       if (Math.abs(md) > 1e-9) out.push({ label: "Museum", text: fmtDeltaUnit(d.kind, md), delta: true });
+    }
+    if (preCaptainStats && effectiveStats) {
+      const kd = d.get(effectiveStats) - d.get(preCaptainStats);
+      if (Math.abs(kd) > 1e-9) out.push({ label: "Captain", text: fmtDeltaUnit(d.kind, kd), delta: true });
     }
     return out;
   }

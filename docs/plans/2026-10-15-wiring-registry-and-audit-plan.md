@@ -966,6 +966,61 @@ frozen per cycle beside `officerCombat`; chance effects reuse existing rolls or 
 WR-5a prospector (extraction, logistics, trade; 14 nodes), WR-5b tactician (gunnery, aegis, fleetOps; 15 nodes), WR-5c
 explorer (surveySensors, expeditionRelics, commandCrew; 15 nodes). Sequential (shared `tick.ts` and `bridge.ts`).
 
+#### WR-5a carry note (built 2026-10-17; two commits: goldens, then the wiring)
+
+**Built:** `captainSecondaryEffects.ts` (pure readers, by node KEY, magnitudes from the catalog; each node's player
+text, which the talent tooltip and the registry claim both read), `crewOverlay.ts applyCaptainOverlay` (layered last in
+`effectiveShipStats`; `shipStatsBeforeCaptain` feeds a new "Captain" bucket in the ship readout's source split), the
+mission seams in `tick.ts`, two optional fields (`ShipDerivedStats.unloadCargoCapacity`, `CaptainState.motherlodeCycles`,
+no save bump), `MOTHERLODE_SALT` (salts.test.ts). Tests: `captainSecondaryEffects.test.ts` (one block per node, own-ship,
+offline == live), `captainTalentGoldens.test.ts` (captured first). The stale DORMANT headers are gone (model.ts,
+captainSecondaryTree.ts, groundOps.ts).
+
+**Rulings applied:** OC-A1: the five ship-stat nodes compound as their own (1 + x) factor beside crew, museum and
+officers (none has a D23 curve); Deep Veins adds into the captain's rare and uncommon chance-mult sums; the margin nodes
+add into one (1 + sum) on rewardMargin. OC-A2: the captain who commands the ship (`assignedCaptainId`); missions read
+live like officers, Ground Ops reads the frozen dispatch factors, patrols read the sheet per cycle. OC-A3: capstone
+`magnitude` field (optional until WR-5b / WR-5c give theirs).
+
+**Nodes:** extraction1 yield x1.05; extraction2 rare and uncommon chance x1.05 (rolls, bonus roll, popup);
+extraction3 extractionSpeedMult x1.08; extraction4 rollQuality bonus 0.05 on that captain's deliveries (its
+own deliveries only; draw-count invariant); extraction5 5% per delivered non-transport cycle, haul x2 (private
+stream on the lifetime counter, before Command Presence); logistics1 cargo x1.05 (gates read it); logistics2
+reach x1.05 (range 100 -> 105 ly on the freighter); logistics3 unloadSpeedMult x1.08 (missions + frozen Ground
+Ops offload); logistics5 cargo x1.10 above the hold, unload scales with the hold below it; trade1 / trade3 margin x1.05
+x1.05; trade2 supplies paid x0.95 at the same sale value (the gate reads the paid cost); trade4 1 credit/tick
+docked; trade5 x2 on every Trade 1 to 4 value.
+
+**Picks put to the user (answered 2026-10-17, below):** trade4 Trade Routes reads "per delivered transport cycle, paid while docked" as: 1
+credit/tick while the captain is docked (no mission, no expedition), only once the FLEET has delivered at least one
+supply run cycle (lifetime completions; "an established route"). Alternatives: no route gate; or a per-cycle bonus paid
+at each delivery. Also: extraction4's per-item merge (two captains delivering the same item in one tick share the larger
+bonus); trade2 adds the discount saved to the net rather than shrinking the load (a smaller load would lower the profit).
+
+**Registry:** the 14 nodes flipped to live with sensitivity checks at catalog magnitude (16 checks for the 14, 17 with
+logistics4, unchanged; new probes `deliveryQualityClimb`, `motherlodeRate`, `transportCycleCredits`, `dockedCredits`).
+Pending secondary entries left: 30 (WR-5b 15, WR-5c 15).
+
+**WR-5a review follow-up (user rulings 2026-10-17):**
+- "Block buying while out": `canBuySecondaryTalent` / `buySecondaryTalent` take the state and refuse while the
+  captain's ship is crew-locked (crewLock.ts: a mission, a patrol or an unclaimed expedition);
+  `secondaryTalentBuyLock` / `secondaryTalentBuyLockText` name why, and the Prestige panel shows it above the web.
+- "Always multiply": every "+X%" node is its own x (1 + X) factor. Fuel Discipline is +5% REACH ((1 +
+  engineEfficiency) x 1.05; registry probe `shipRange`), Deep Veins composes (1 + mult)(1 + 0.05) at both roll sites
+  (`withDeepVeins`), Market Contacts and Premium Goods are two margin factors (Trade Baron doubles each). Only the trade
+  golden moved (e6b7c5c9 -> 496e435c); the extraction and logistics pins hold (no other bonus on those values there).
+- Assayer "Own ship only": the deposit fold grades the Assayer captain's own share with its bonus and the rest without,
+  both off ONE roll's recorded draws (no draw added).
+- Trade Routes and Shrewd Negotiator stay as built (no longer provisional).
+- Minors: the Motherlode probe measures doubled hauls over 1,000 real deliveries (tolerance 0.02); the Trade Baron check
+  reads the doubled docked trickle; the Shrewd Negotiator test exercises the working-capital gate; Assayer's text says
+  "climb a quality step"; the supply run card shows the representative captain's margin and purchase cost
+  (`captainSupplyRunTerms`); save.ts names `motherlodeCycles` among the optional fields.
+
+**Goldens moved (every move explained in the file):** extraction (both runs), logistics (ore run, range, Ground Ops
+record), trade (the supply run). Unmoved: the no-node control, the other-tree nodes, the docked 200 s without a route,
+the dispatch gates, and every other golden in the suite.
+
 ### WR-6: Placeholders and partial talents elsewhere (captain primary, spec, race; Homeworld)
 
 tacticianHub, explorerHub, the tactical / science spec bonuses, the captain racial (OC-A40 to OC-A43);
@@ -1398,3 +1453,37 @@ is the first candidate to ask the user about a 0.14.x deferral, recorded as `def
   chances; Lure adds a salvage drop scale (supersedes FK-7's ship-event default; FK plan to note).
 - **OC-F2 Neural Backup:** "Revives the wearer (Recommended)". **OC-F4 Saboteur / Debuff spec:** "Also power Suppress
   (Recommended)". **OC-F5 Quick Draw:** "Beats stun and fear (Recommended)".
+- **OC-F3 Med Kit:** "Fix the flavor (Recommended)". **OC-F6 Fall Back:** "Brace for the round (Recommended)": Shielded
+  for that round. **OC-F7 Science rank:** "Rank boosts fieldwork (Recommended)". **OC-F9 Corroded:** "Some enemies
+  cause it (Recommended)": certain enemy casters inflict Corroded.
+- **OC-F10 Science gambit actions (verbatim):** "Keep this in place. Because perhaps, I might eventually want tools that
+  have a chance to "proc" in battle where the science team might add a random effect to the battle party without
+  directly participating. So keep these in, but they will ultimately be disabled." So: keep shieldAlly / analyze /
+  secureObjective / takeCover, disabled (not offered), registered as `seam` (owner: a future Science battle-proc tool
+  system); logged in SUGGESTIONS.
+- **OC-F12 account gambit pair:** "Account-wide defaults (Recommended)": the account default program is given to newly
+  hired members.
+- **OC-F13 fall-outcome hook:** "Keep as a seam (Recommended)" (owner: future Safety Interlocks).
+- **OC-G2 gas giants:** "Ship-only study (Recommended)": gas giants get the ship-side study (15b) instead of ground
+  objectives; no landing, no field repair there.
+- **OC-G3 anomaly:** "Sensors + a small reward (Recommended)". **OC-G6 planet notes:** "Model Ocean only
+  (Recommended)". **OC-H1 Xeno Science team power:** "Members too (Recommended)". **OC-H2 Museum salvage yield:** "Keep
+  scope, honest text (Recommended)".
+- **OC-I2 factions:** "Routes when you name content (Recommended)": hidden from text until the user names content.
+  **OC-J1 salvage reach past the top tier:** "Shift odds upward (Recommended)". **OC-J2 salvage narration:** "Show it
+  (Recommended)". **OC-J3 dead-end loot:** "Sell now, recipes later (Recommended)".
+- **OC-D3 module lines:** "They scale the module (Recommended)" (Crew Stations also adds capacity). **OC-D5 favorsSpec:**
+  "+10% on its ship type (Recommended)". **OC-D6 statRatios:** "Unlisted = never rolls (Recommended)" (fixes B11;
+  moves crafted-roll goldens: re-capture first). **OC-D7 quarters capacity:** "Spread across divisions (Recommended)".
+- **OC-D13 hull descriptions:** "Make them true as built (Recommended)". **OC-B1 Salvage Operations on hull teardown:**
+  "Apply to hull teardown (Recommended)". **OC-I1 MISSIONS.cargoCapacity:** "Delete it (Recommended)". **OC-K1 Wiring
+  panel:** "Simple table, no mockup (Recommended)".
+- **OC-C4 framework hooks:** "Keep tested hooks (Recommended)". **OC-K3 display-only rule:** "Text that claims no effect
+  (Recommended)": anything with a number and % or + must be a real tested effect. **OC-K2 sim size:** "20 seeds x 24h
+  default (Recommended)", 200 seeds in full mode. **OC-G5 + OC-J4:** "Delete frozen copies, keep safeties
+  (Recommended)". => ALL wiring open calls except the 35 captain node rows (covered by OC-A1..A3 "Proposed sizes" and
+  the plan's node table defaults) are now answered.
+- **WR-5a calls (2026-10-17):** "Block buying while out (Recommended)": no secondary talent buys while the captain's
+  ship is out (shipCrewLocked); "Always multiply (Recommended)": every "+X%" talent is its own x(1 + X) factor (applies
+  to WR-5b / WR-5c too); Assayer "Own ship only (Recommended)"; Trade Routes / Shrewd Negotiator "As built
+  (Recommended)" (docked pay after one delivered supply run; discount adds to profit).
