@@ -19,6 +19,17 @@
 //   6. old save : a v69 save of the same fleet through deserialize + migrate, its state and every ship's stats.
 // Already pinned elsewhere and covered by the same rule: one delivered cycle for every MISSIONS key x every hull
 // (firstRunsGoldens.test.ts `gather:*`) and the SF-0 old save (`old:v69` there).
+//
+// MOVED BY G1-1 (guest quarters), each on purpose; every other pin here is unchanged:
+//   gen:quarters   the Crew Quarters pool gained the guest quarters affix (appended, weight 2: total weight 8 -> 10),
+//                  so the weighted picks of 46 of the 50 seeds land on other lines, and a guest line is stored in
+//                  berths (4 per budget point). GEN_QUARTERS_AT_G1_0 keeps the G1-0 record, and golden 4b proves the
+//                  generator reproduces it exactly with the G1-0 pool: the appended affix is the only cause.
+//   registry       8 entries ADDED (G1_ADDED_ENTRY_IDS, pinned as `registry:g1`); the base pin is unchanged, so no
+//                  existing entry moved.
+// ADDED BY G1-1: `guests:<hull>` (guest quarters bare and with each quarters variety, the Guest Wing last) and
+// `stats:<hull>:guestWing` (every other stat with a Guest Wing installed). The sheets hash through withoutGuests, so
+// the stats pins keep proving no other stat moved (the transport hulls now carry base guest quarters).
 
 import { describe, expect, it } from "vitest";
 import { writeFileSync } from "node:fs";
@@ -33,7 +44,7 @@ import { buildShipRoster } from "./shipRoster";
 import { deserialize, migrate, serialize, type SaveFile } from "./save";
 import { WIRING_REGISTRY } from "./wiring/registry";
 import { bucketOf, withBuckets } from "./wiring/probes";
-import { hash, onHull, withCrew } from "./firstRunsGoldens.fixture";
+import { hash, onHull, withCrew, withoutGuests } from "./firstRunsGoldens.fixture";
 
 // ===== shared helpers =====
 
@@ -59,12 +70,9 @@ function g1StateHash(state: GameState): string {
 }
 
 // A ship's derived stats WITHOUT guest quarters (the optional `colonistCapacity` G1-1 makes live), so these pins prove
-// every OTHER stat is unchanged; the guest quarters values get their own pins in the slice that adds them. A no-op
-// today (no stats object carries the field). Pure.
+// every OTHER stat is unchanged; the guest quarters values have their own pins (`guests:<hull>`). Pure.
 function statsHash(stats: ShipDerivedStats): string {
-  const rest = { ...stats } as Record<string, unknown>;
-  delete rest.colonistCapacity;
-  return hash(rest);
+  return hash(withoutGuests(stats));
 }
 
 // The nine quarters varieties as they stood at G1-0, named literally so a variety added later never shifts which
@@ -166,65 +174,156 @@ const GOLDEN: Record<string, unknown> = {
   "stats:orion": ["859f2c75", "ec74deed", "b55917c9", "ec74deed", "ec74deed", "2cc7074a", "ec74deed", "f800d632", "a2037617", "d24d5073"],
   "stats:aurora": ["59fc8c38", "d52a9ba3", "dc065a95", "d52a9ba3", "d52a9ba3", "6bf9671a", "d52a9ba3", "11b7d999", "f5eae818", "727da0bf"],
   "stats:eir": ["f48e6005", "692728ff", "9330a43b", "692728ff", "692728ff", "13923d66", "692728ff", "aaf5508c", "f3a3b171", "9a5833b0"],
+  "stats:generalFreighter:guestWing": "4ec6953b",
+  "guests:generalFreighter": [20, 22, 22, 22, 22, 22, 22, 22, 22, 22, 66],
+  "stats:prospectorHauler:guestWing": "dab172af",
+  "guests:prospectorHauler": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 40],
+  "stats:prospectorRunner:guestWing": "b800f591",
+  "guests:prospectorRunner": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 40],
+  "stats:prospectorMiner:guestWing": "b8a60abf",
+  "guests:prospectorMiner": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 40],
+  "stats:destroyer:guestWing": "3d40bb7a",
+  "guests:destroyer": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 40],
+  "stats:battleship:guestWing": "246f2c62",
+  "guests:battleship": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 40],
+  "stats:carrier:guestWing": "67cd439e",
+  "guests:carrier": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 40],
+  "stats:orion:guestWing": "859f2c75",
+  "guests:orion": [40, 40, 40, 40, 40, 40, 40, 40, 40, 40, 80],
+  "stats:aurora:guestWing": "59fc8c38",
+  "guests:aurora": [40, 40, 40, 40, 40, 40, 40, 40, 40, 40, 80],
+  "stats:eir:guestWing": "f48e6005",
+  "guests:eir": [80, 80, 80, 80, 80, 80, 80, 80, 80, 80, 120],
   "gen:quarters": [
-    "1:quartersEngineeringWing:augmented:q1:iL8:{\"crewStations\":12}:{\"crewEfficiency\":6,\"crewStations\":6}:m0:quartersEngineeringWing",
-    "2:quartersScienceWing:stellar:q2:iL15:{\"crewStations\":28}:{\"crewEfficiency\":9,\"crewStations\":9}:m0:quartersScienceWing",
-    "3:quartersMedicalWing:radiant:q3:iL22:{\"crewStations\":51}:{\"crewEfficiency\":17,\"crewStations\":17}:m0:quartersMedicalWing",
-    "4:quartersOperationsWing:standard:q4:iL29:{\"crewStations\":49}:{\"crewEfficiency\":25}:m0:quartersOperationsWing",
-    "5:quartersFlightDeckWing:augmented:q5:iL36:{\"crewStations\":77}:{\"crewStations\":38}:m0:quartersFlightDeckWing",
-    "6:quartersUtilitarian:stellar:q0:iL3:{\"crewStations\":5}:{\"crewEfficiency\":2,\"crewStations\":2}:m0:quartersUtilitarian",
-    "7:quartersEfficient:radiant:q1:iL10:{\"crewStations\":19}:{\"crewEfficiency\":6,\"crewStations\":6}:m0:quartersEfficient",
-    "8:quartersElite:standard:q2:iL17:{\"crewStations\":24}:{\"crewEfficiency\":12,\"crewStations\":12}:m0:quartersElite",
-    "9:quartersSecurityWing:augmented:q3:iL24:{\"crewStations\":42}:{\"crewStations\":21,\"crewEfficiency\":21}:m0:quartersSecurityWing",
-    "10:quartersEngineeringWing:stellar:q4:iL31:{\"crewStations\":69}:{\"crewEfficiency\":23,\"crewStations\":23}:m0:quartersEngineeringWing",
-    "11:quartersScienceWing:radiant:q5:iL38:{\"crewStations\":107}:{\"crewEfficiency\":36,\"crewStations\":36}:m0:quartersScienceWing",
-    "12:quartersMedicalWing:standard:q0:iL5:{\"crewStations\":6}:{\"crewEfficiency\":3,\"crewStations\":3}:m0:quartersMedicalWing",
-    "13:quartersOperationsWing:augmented:q1:iL12:{\"crewStations\":18}:{\"crewEfficiency\":9,\"crewStations\":9}:m0:quartersOperationsWing",
-    "14:quartersFlightDeckWing:stellar:q2:iL19:{\"crewStations\":35}:{\"crewEfficiency\":12,\"crewStations\":12}:m0:quartersFlightDeckWing",
-    "15:quartersUtilitarian:radiant:q3:iL26:{\"crewStations\":61}:{\"crewEfficiency\":20,\"crewStations\":20}:m0:quartersUtilitarian",
-    "16:quartersEfficient:standard:q4:iL33:{\"crewStations\":56}:{\"crewEfficiency\":28,\"crewStations\":28}:m0:quartersEfficient",
+    "1:quartersEngineeringWing:augmented:q1:iL8:{\"crewStations\":12}:{\"crewStations\":6}:m0:quartersEngineeringWing",
+    "2:quartersScienceWing:stellar:q2:iL15:{\"crewStations\":28}:{\"colonistCapacity\":36,\"crewEfficiency\":9}:m0:quartersScienceWing",
+    "3:quartersMedicalWing:radiant:q3:iL22:{\"crewStations\":51}:{\"colonistCapacity\":68,\"crewStations\":17}:m0:quartersMedicalWing",
+    "4:quartersOperationsWing:standard:q4:iL29:{\"crewStations\":49}:{\"colonistCapacity\":100}:m0:quartersOperationsWing",
+    "5:quartersFlightDeckWing:augmented:q5:iL36:{\"crewStations\":77}:{\"crewStations\":38,\"colonistCapacity\":152}:m0:quartersFlightDeckWing",
+    "6:quartersUtilitarian:stellar:q0:iL3:{\"crewStations\":5}:{\"colonistCapacity\":8,\"crewStations\":2,\"crewEfficiency\":2}:m0:quartersUtilitarian",
+    "7:quartersEfficient:radiant:q1:iL10:{\"crewStations\":19}:{\"colonistCapacity\":24,\"crewStations\":6,\"crewEfficiency\":6}:m0:quartersEfficient",
+    "8:quartersElite:standard:q2:iL17:{\"crewStations\":24}:{\"colonistCapacity\":48,\"crewStations\":12}:m0:quartersElite",
+    "9:quartersSecurityWing:augmented:q3:iL24:{\"crewStations\":42}:{\"crewStations\":21,\"colonistCapacity\":84}:m0:quartersSecurityWing",
+    "10:quartersEngineeringWing:stellar:q4:iL31:{\"crewStations\":69}:{\"colonistCapacity\":92,\"crewStations\":23,\"crewEfficiency\":23}:m0:quartersEngineeringWing",
+    "11:quartersScienceWing:radiant:q5:iL38:{\"crewStations\":107}:{\"colonistCapacity\":144,\"crewEfficiency\":36,\"crewStations\":36}:m0:quartersScienceWing",
+    "12:quartersMedicalWing:standard:q0:iL5:{\"crewStations\":6}:{\"colonistCapacity\":12,\"crewEfficiency\":3}:m0:quartersMedicalWing",
+    "13:quartersOperationsWing:augmented:q1:iL12:{\"crewStations\":18}:{\"colonistCapacity\":36,\"crewStations\":9}:m0:quartersOperationsWing",
+    "14:quartersFlightDeckWing:stellar:q2:iL19:{\"crewStations\":35}:{\"colonistCapacity\":48,\"crewStations\":12}:m0:quartersFlightDeckWing",
+    "15:quartersUtilitarian:radiant:q3:iL26:{\"crewStations\":61}:{\"colonistCapacity\":80,\"crewEfficiency\":20}:m0:quartersUtilitarian",
+    "16:quartersEfficient:standard:q4:iL33:{\"crewStations\":56}:{\"colonistCapacity\":112,\"crewStations\":28}:m0:quartersEfficient",
     "17:quartersElite:augmented:q5:iL40:{\"crewStations\":85}:{\"crewStations\":43,\"crewEfficiency\":43}:m0:quartersElite",
-    "18:quartersSecurityWing:stellar:q0:iL7:{\"crewStations\":11}:{\"crewEfficiency\":4,\"crewStations\":4}:m0:quartersSecurityWing",
-    "19:quartersEngineeringWing:radiant:q1:iL14:{\"crewStations\":27}:{\"crewEfficiency\":9,\"crewStations\":9}:m0:quartersEngineeringWing",
-    "20:quartersScienceWing:standard:q2:iL21:{\"crewStations\":29}:{\"crewEfficiency\":15,\"crewStations\":15}:m0:quartersScienceWing",
-    "21:quartersMedicalWing:augmented:q3:iL28:{\"crewStations\":50}:{\"crewStations\":25}:m0:quartersMedicalWing",
-    "22:quartersOperationsWing:stellar:q4:iL35:{\"crewStations\":78}:{\"crewEfficiency\":26,\"crewStations\":26}:m0:quartersOperationsWing",
-    "23:quartersFlightDeckWing:radiant:q5:iL2:{\"crewStations\":6}:{\"crewEfficiency\":2,\"crewStations\":2}:m0:quartersFlightDeckWing",
-    "24:quartersUtilitarian:standard:q0:iL9:{\"crewStations\":11}:{\"crewEfficiency\":5,\"crewStations\":5}:m0:quartersUtilitarian",
-    "25:quartersEfficient:augmented:q1:iL16:{\"crewStations\":24}:{\"crewStations\":12}:m0:quartersEfficient",
-    "26:quartersElite:stellar:q2:iL23:{\"crewStations\":43}:{\"crewEfficiency\":14,\"crewStations\":14}:m0:quartersElite",
-    "27:quartersSecurityWing:radiant:q3:iL30:{\"crewStations\":70}:{\"crewEfficiency\":23,\"crewStations\":23}:m0:quartersSecurityWing",
-    "28:quartersEngineeringWing:standard:q4:iL37:{\"crewStations\":63}:{\"crewEfficiency\":31,\"crewStations\":31}:m0:quartersEngineeringWing",
+    "18:quartersSecurityWing:stellar:q0:iL7:{\"crewStations\":11}:{\"colonistCapacity\":16,\"crewStations\":4}:m0:quartersSecurityWing",
+    "19:quartersEngineeringWing:radiant:q1:iL14:{\"crewStations\":27}:{\"colonistCapacity\":36,\"crewStations\":9,\"crewEfficiency\":9}:m0:quartersEngineeringWing",
+    "20:quartersScienceWing:standard:q2:iL21:{\"crewStations\":29}:{\"colonistCapacity\":60,\"crewStations\":15}:m0:quartersScienceWing",
+    "21:quartersMedicalWing:augmented:q3:iL28:{\"crewStations\":50}:{\"crewEfficiency\":25,\"colonistCapacity\":100}:m0:quartersMedicalWing",
+    "22:quartersOperationsWing:stellar:q4:iL35:{\"crewStations\":78}:{\"colonistCapacity\":104,\"crewEfficiency\":26,\"crewStations\":26}:m0:quartersOperationsWing",
+    "23:quartersFlightDeckWing:radiant:q5:iL2:{\"crewStations\":6}:{\"colonistCapacity\":8,\"crewEfficiency\":2,\"crewStations\":2}:m0:quartersFlightDeckWing",
+    "24:quartersUtilitarian:standard:q0:iL9:{\"crewStations\":11}:{\"colonistCapacity\":20,\"crewEfficiency\":5}:m0:quartersUtilitarian",
+    "25:quartersEfficient:augmented:q1:iL16:{\"crewStations\":24}:{\"colonistCapacity\":48,\"crewStations\":12}:m0:quartersEfficient",
+    "26:quartersElite:stellar:q2:iL23:{\"crewStations\":43}:{\"colonistCapacity\":56,\"crewStations\":14}:m0:quartersElite",
+    "27:quartersSecurityWing:radiant:q3:iL30:{\"crewStations\":70}:{\"colonistCapacity\":92,\"crewStations\":23}:m0:quartersSecurityWing",
+    "28:quartersEngineeringWing:standard:q4:iL37:{\"crewStations\":63}:{\"colonistCapacity\":124,\"crewStations\":31}:m0:quartersEngineeringWing",
     "29:quartersScienceWing:augmented:q5:iL4:{\"crewStations\":9}:{\"crewStations\":4,\"crewEfficiency\":4}:m0:quartersScienceWing",
-    "30:quartersMedicalWing:stellar:q0:iL11:{\"crewStations\":17}:{\"crewEfficiency\":6,\"crewStations\":6}:m0:quartersMedicalWing",
-    "31:quartersOperationsWing:radiant:q1:iL18:{\"crewStations\":35}:{\"crewEfficiency\":12,\"crewStations\":12}:m0:quartersOperationsWing",
-    "32:quartersFlightDeckWing:standard:q2:iL25:{\"crewStations\":35}:{\"crewEfficiency\":18,\"crewStations\":18}:m0:quartersFlightDeckWing",
+    "30:quartersMedicalWing:stellar:q0:iL11:{\"crewStations\":17}:{\"colonistCapacity\":24,\"crewStations\":6,\"crewEfficiency\":6}:m0:quartersMedicalWing",
+    "31:quartersOperationsWing:radiant:q1:iL18:{\"crewStations\":35}:{\"colonistCapacity\":48,\"crewStations\":12}:m0:quartersOperationsWing",
+    "32:quartersFlightDeckWing:standard:q2:iL25:{\"crewStations\":35}:{\"colonistCapacity\":72,\"crewStations\":18}:m0:quartersFlightDeckWing",
     "33:quartersUtilitarian:augmented:q3:iL32:{\"crewStations\":57}:{\"crewEfficiency\":28,\"crewStations\":28}:m0:quartersUtilitarian",
-    "34:quartersEfficient:stellar:q4:iL39:{\"crewStations\":87}:{\"crewEfficiency\":29,\"crewStations\":29}:m0:quartersEfficient",
-    "35:quartersElite:radiant:q5:iL6:{\"crewStations\":17}:{\"crewEfficiency\":6,\"crewStations\":6}:m0:quartersElite",
-    "36:quartersSecurityWing:standard:q0:iL13:{\"crewStations\":15}:{\"crewEfficiency\":8}:m0:quartersSecurityWing",
-    "37:quartersEngineeringWing:augmented:q1:iL20:{\"crewStations\":29}:{\"crewEfficiency\":15}:m0:quartersEngineeringWing",
-    "38:quartersScienceWing:stellar:q2:iL27:{\"crewStations\":50}:{\"crewEfficiency\":17,\"crewStations\":17}:m0:quartersScienceWing",
-    "39:quartersMedicalWing:radiant:q3:iL34:{\"crewStations\":79}:{\"crewEfficiency\":26,\"crewStations\":26}:m0:quartersMedicalWing",
-    "40:quartersOperationsWing:standard:q4:iL1:{\"crewStations\":2}:{\"crewStations\":1}:m0:quartersOperationsWing",
-    "41:quartersFlightDeckWing:augmented:q5:iL8:{\"crewStations\":17}:{\"crewStations\":9,\"crewEfficiency\":9}:m0:quartersFlightDeckWing",
-    "42:quartersUtilitarian:stellar:q0:iL15:{\"crewStations\":23}:{\"crewStations\":8,\"crewEfficiency\":8}:m0:quartersUtilitarian",
-    "43:quartersEfficient:radiant:q1:iL22:{\"crewStations\":43}:{\"crewStations\":14,\"crewEfficiency\":14}:m0:quartersEfficient",
-    "44:quartersElite:standard:q2:iL29:{\"crewStations\":41}:{\"crewStations\":20}:m0:quartersElite",
-    "45:quartersSecurityWing:augmented:q3:iL36:{\"crewStations\":64}:{\"crewEfficiency\":32,\"crewStations\":32}:m0:quartersSecurityWing",
-    "46:quartersEngineeringWing:stellar:q4:iL3:{\"crewStations\":7}:{\"crewEfficiency\":2,\"crewStations\":2}:m0:quartersEngineeringWing",
-    "47:quartersScienceWing:radiant:q5:iL10:{\"crewStations\":28}:{\"crewEfficiency\":9,\"crewStations\":9}:m0:quartersScienceWing",
-    "48:quartersMedicalWing:standard:q0:iL17:{\"crewStations\":20}:{\"crewEfficiency\":10}:m0:quartersMedicalWing",
+    "34:quartersEfficient:stellar:q4:iL39:{\"crewStations\":87}:{\"colonistCapacity\":116,\"crewEfficiency\":29,\"crewStations\":29}:m0:quartersEfficient",
+    "35:quartersElite:radiant:q5:iL6:{\"crewStations\":17}:{\"colonistCapacity\":24,\"crewEfficiency\":6,\"crewStations\":6}:m0:quartersElite",
+    "36:quartersSecurityWing:standard:q0:iL13:{\"crewStations\":15}:{\"colonistCapacity\":32}:m0:quartersSecurityWing",
+    "37:quartersEngineeringWing:augmented:q1:iL20:{\"crewStations\":29}:{\"colonistCapacity\":60,\"crewEfficiency\":15}:m0:quartersEngineeringWing",
+    "38:quartersScienceWing:stellar:q2:iL27:{\"crewStations\":50}:{\"colonistCapacity\":68,\"crewStations\":17,\"crewEfficiency\":17}:m0:quartersScienceWing",
+    "39:quartersMedicalWing:radiant:q3:iL34:{\"crewStations\":79}:{\"colonistCapacity\":104,\"crewStations\":26,\"crewEfficiency\":26}:m0:quartersMedicalWing",
+    "40:quartersOperationsWing:standard:q4:iL1:{\"crewStations\":2}:{\"colonistCapacity\":4,\"crewStations\":1}:m0:quartersOperationsWing",
+    "41:quartersFlightDeckWing:augmented:q5:iL8:{\"crewStations\":17}:{\"crewStations\":9}:m0:quartersFlightDeckWing",
+    "42:quartersUtilitarian:stellar:q0:iL15:{\"crewStations\":23}:{\"colonistCapacity\":32,\"crewStations\":8,\"crewEfficiency\":8}:m0:quartersUtilitarian",
+    "43:quartersEfficient:radiant:q1:iL22:{\"crewStations\":43}:{\"colonistCapacity\":56,\"crewStations\":14}:m0:quartersEfficient",
+    "44:quartersElite:standard:q2:iL29:{\"crewStations\":41}:{\"colonistCapacity\":80,\"crewEfficiency\":20}:m0:quartersElite",
+    "45:quartersSecurityWing:augmented:q3:iL36:{\"crewStations\":64}:{\"crewStations\":32}:m0:quartersSecurityWing",
+    "46:quartersEngineeringWing:stellar:q4:iL3:{\"crewStations\":7}:{\"colonistCapacity\":8,\"crewEfficiency\":2}:m0:quartersEngineeringWing",
+    "47:quartersScienceWing:radiant:q5:iL10:{\"crewStations\":28}:{\"colonistCapacity\":36,\"crewStations\":9}:m0:quartersScienceWing",
+    "48:quartersMedicalWing:standard:q0:iL17:{\"crewStations\":20}:{\"colonistCapacity\":40}:m0:quartersMedicalWing",
     "49:quartersOperationsWing:augmented:q1:iL24:{\"crewStations\":35}:{\"crewStations\":18,\"crewEfficiency\":18}:m0:quartersOperationsWing",
-    "50:quartersFlightDeckWing:stellar:q2:iL31:{\"crewStations\":57}:{\"crewStations\":19,\"crewEfficiency\":19}:m0:quartersFlightDeckWing",
-    "pool:[{\"stat\":\"crewStations\",\"weight\":5},{\"stat\":\"crewEfficiency\",\"weight\":2},{\"stat\":\"massReduction\",\"weight\":1}]",
+    "50:quartersFlightDeckWing:stellar:q2:iL31:{\"crewStations\":57}:{\"colonistCapacity\":76,\"crewStations\":19}:m0:quartersFlightDeckWing",
+    "pool:[{\"stat\":\"crewStations\",\"weight\":5},{\"stat\":\"crewEfficiency\",\"weight\":2},{\"stat\":\"massReduction\",\"weight\":1},{\"stat\":\"colonistCapacity\",\"weight\":2}]",
   ],
   "registry": [1170, "cd249d26"],
+  "registry:g1": ["ship:gearLine:colonistCapacity|pending", "ship:SHIP_TYPES:generalFreighter:colonistCapacity|pending", "ship:SHIP_TYPES:orion:colonistCapacity|pending", "ship:SHIP_TYPES:aurora:colonistCapacity|pending", "ship:SHIP_TYPES:eir:colonistCapacity|pending", "ship:SHIP_SEAMS:generalQuartersGuestPerk|pending", "ship:QUARTERS_MODULES:quartersGuestWing|live", "ship:QUARTERS_MODULES:quartersGuestWing:capacity|pending"],
   "old": ["aa94ddcd", "817862c7", "4ac62731", "d9a483c6"],
 };
 
-// The registry entries a G1 slice adds (new ids only; an existing entry never changes here). Empty at G1-0.
-const G1_ADDED_ENTRY_IDS: ReadonlySet<string> = new Set<string>([]);
+// The G1-0 record of golden 4 (captured on a678241), with the pool it was drawn from, kept for golden 4b.
+const GEN_QUARTERS_AT_G1_0: readonly string[] = [
+  "1:quartersEngineeringWing:augmented:q1:iL8:{\"crewStations\":12}:{\"crewEfficiency\":6,\"crewStations\":6}:m0:quartersEngineeringWing",
+  "2:quartersScienceWing:stellar:q2:iL15:{\"crewStations\":28}:{\"crewEfficiency\":9,\"crewStations\":9}:m0:quartersScienceWing",
+  "3:quartersMedicalWing:radiant:q3:iL22:{\"crewStations\":51}:{\"crewEfficiency\":17,\"crewStations\":17}:m0:quartersMedicalWing",
+  "4:quartersOperationsWing:standard:q4:iL29:{\"crewStations\":49}:{\"crewEfficiency\":25}:m0:quartersOperationsWing",
+  "5:quartersFlightDeckWing:augmented:q5:iL36:{\"crewStations\":77}:{\"crewStations\":38}:m0:quartersFlightDeckWing",
+  "6:quartersUtilitarian:stellar:q0:iL3:{\"crewStations\":5}:{\"crewEfficiency\":2,\"crewStations\":2}:m0:quartersUtilitarian",
+  "7:quartersEfficient:radiant:q1:iL10:{\"crewStations\":19}:{\"crewEfficiency\":6,\"crewStations\":6}:m0:quartersEfficient",
+  "8:quartersElite:standard:q2:iL17:{\"crewStations\":24}:{\"crewEfficiency\":12,\"crewStations\":12}:m0:quartersElite",
+  "9:quartersSecurityWing:augmented:q3:iL24:{\"crewStations\":42}:{\"crewStations\":21,\"crewEfficiency\":21}:m0:quartersSecurityWing",
+  "10:quartersEngineeringWing:stellar:q4:iL31:{\"crewStations\":69}:{\"crewEfficiency\":23,\"crewStations\":23}:m0:quartersEngineeringWing",
+  "11:quartersScienceWing:radiant:q5:iL38:{\"crewStations\":107}:{\"crewEfficiency\":36,\"crewStations\":36}:m0:quartersScienceWing",
+  "12:quartersMedicalWing:standard:q0:iL5:{\"crewStations\":6}:{\"crewEfficiency\":3,\"crewStations\":3}:m0:quartersMedicalWing",
+  "13:quartersOperationsWing:augmented:q1:iL12:{\"crewStations\":18}:{\"crewEfficiency\":9,\"crewStations\":9}:m0:quartersOperationsWing",
+  "14:quartersFlightDeckWing:stellar:q2:iL19:{\"crewStations\":35}:{\"crewEfficiency\":12,\"crewStations\":12}:m0:quartersFlightDeckWing",
+  "15:quartersUtilitarian:radiant:q3:iL26:{\"crewStations\":61}:{\"crewEfficiency\":20,\"crewStations\":20}:m0:quartersUtilitarian",
+  "16:quartersEfficient:standard:q4:iL33:{\"crewStations\":56}:{\"crewEfficiency\":28,\"crewStations\":28}:m0:quartersEfficient",
+  "17:quartersElite:augmented:q5:iL40:{\"crewStations\":85}:{\"crewStations\":43,\"crewEfficiency\":43}:m0:quartersElite",
+  "18:quartersSecurityWing:stellar:q0:iL7:{\"crewStations\":11}:{\"crewEfficiency\":4,\"crewStations\":4}:m0:quartersSecurityWing",
+  "19:quartersEngineeringWing:radiant:q1:iL14:{\"crewStations\":27}:{\"crewEfficiency\":9,\"crewStations\":9}:m0:quartersEngineeringWing",
+  "20:quartersScienceWing:standard:q2:iL21:{\"crewStations\":29}:{\"crewEfficiency\":15,\"crewStations\":15}:m0:quartersScienceWing",
+  "21:quartersMedicalWing:augmented:q3:iL28:{\"crewStations\":50}:{\"crewStations\":25}:m0:quartersMedicalWing",
+  "22:quartersOperationsWing:stellar:q4:iL35:{\"crewStations\":78}:{\"crewEfficiency\":26,\"crewStations\":26}:m0:quartersOperationsWing",
+  "23:quartersFlightDeckWing:radiant:q5:iL2:{\"crewStations\":6}:{\"crewEfficiency\":2,\"crewStations\":2}:m0:quartersFlightDeckWing",
+  "24:quartersUtilitarian:standard:q0:iL9:{\"crewStations\":11}:{\"crewEfficiency\":5,\"crewStations\":5}:m0:quartersUtilitarian",
+  "25:quartersEfficient:augmented:q1:iL16:{\"crewStations\":24}:{\"crewStations\":12}:m0:quartersEfficient",
+  "26:quartersElite:stellar:q2:iL23:{\"crewStations\":43}:{\"crewEfficiency\":14,\"crewStations\":14}:m0:quartersElite",
+  "27:quartersSecurityWing:radiant:q3:iL30:{\"crewStations\":70}:{\"crewEfficiency\":23,\"crewStations\":23}:m0:quartersSecurityWing",
+  "28:quartersEngineeringWing:standard:q4:iL37:{\"crewStations\":63}:{\"crewEfficiency\":31,\"crewStations\":31}:m0:quartersEngineeringWing",
+  "29:quartersScienceWing:augmented:q5:iL4:{\"crewStations\":9}:{\"crewStations\":4,\"crewEfficiency\":4}:m0:quartersScienceWing",
+  "30:quartersMedicalWing:stellar:q0:iL11:{\"crewStations\":17}:{\"crewEfficiency\":6,\"crewStations\":6}:m0:quartersMedicalWing",
+  "31:quartersOperationsWing:radiant:q1:iL18:{\"crewStations\":35}:{\"crewEfficiency\":12,\"crewStations\":12}:m0:quartersOperationsWing",
+  "32:quartersFlightDeckWing:standard:q2:iL25:{\"crewStations\":35}:{\"crewEfficiency\":18,\"crewStations\":18}:m0:quartersFlightDeckWing",
+  "33:quartersUtilitarian:augmented:q3:iL32:{\"crewStations\":57}:{\"crewEfficiency\":28,\"crewStations\":28}:m0:quartersUtilitarian",
+  "34:quartersEfficient:stellar:q4:iL39:{\"crewStations\":87}:{\"crewEfficiency\":29,\"crewStations\":29}:m0:quartersEfficient",
+  "35:quartersElite:radiant:q5:iL6:{\"crewStations\":17}:{\"crewEfficiency\":6,\"crewStations\":6}:m0:quartersElite",
+  "36:quartersSecurityWing:standard:q0:iL13:{\"crewStations\":15}:{\"crewEfficiency\":8}:m0:quartersSecurityWing",
+  "37:quartersEngineeringWing:augmented:q1:iL20:{\"crewStations\":29}:{\"crewEfficiency\":15}:m0:quartersEngineeringWing",
+  "38:quartersScienceWing:stellar:q2:iL27:{\"crewStations\":50}:{\"crewEfficiency\":17,\"crewStations\":17}:m0:quartersScienceWing",
+  "39:quartersMedicalWing:radiant:q3:iL34:{\"crewStations\":79}:{\"crewEfficiency\":26,\"crewStations\":26}:m0:quartersMedicalWing",
+  "40:quartersOperationsWing:standard:q4:iL1:{\"crewStations\":2}:{\"crewStations\":1}:m0:quartersOperationsWing",
+  "41:quartersFlightDeckWing:augmented:q5:iL8:{\"crewStations\":17}:{\"crewStations\":9,\"crewEfficiency\":9}:m0:quartersFlightDeckWing",
+  "42:quartersUtilitarian:stellar:q0:iL15:{\"crewStations\":23}:{\"crewStations\":8,\"crewEfficiency\":8}:m0:quartersUtilitarian",
+  "43:quartersEfficient:radiant:q1:iL22:{\"crewStations\":43}:{\"crewStations\":14,\"crewEfficiency\":14}:m0:quartersEfficient",
+  "44:quartersElite:standard:q2:iL29:{\"crewStations\":41}:{\"crewStations\":20}:m0:quartersElite",
+  "45:quartersSecurityWing:augmented:q3:iL36:{\"crewStations\":64}:{\"crewEfficiency\":32,\"crewStations\":32}:m0:quartersSecurityWing",
+  "46:quartersEngineeringWing:stellar:q4:iL3:{\"crewStations\":7}:{\"crewEfficiency\":2,\"crewStations\":2}:m0:quartersEngineeringWing",
+  "47:quartersScienceWing:radiant:q5:iL10:{\"crewStations\":28}:{\"crewEfficiency\":9,\"crewStations\":9}:m0:quartersScienceWing",
+  "48:quartersMedicalWing:standard:q0:iL17:{\"crewStations\":20}:{\"crewEfficiency\":10}:m0:quartersMedicalWing",
+  "49:quartersOperationsWing:augmented:q1:iL24:{\"crewStations\":35}:{\"crewStations\":18,\"crewEfficiency\":18}:m0:quartersOperationsWing",
+  "50:quartersFlightDeckWing:stellar:q2:iL31:{\"crewStations\":57}:{\"crewStations\":19,\"crewEfficiency\":19}:m0:quartersFlightDeckWing",
+  "pool:[{\"stat\":\"crewStations\",\"weight\":5},{\"stat\":\"crewEfficiency\",\"weight\":2},{\"stat\":\"massReduction\",\"weight\":1}]",
+];
+
+const QUARTERS_POOL_AT_G1_0 = [
+  { stat: "crewStations", weight: 5 },
+  { stat: "crewEfficiency", weight: 2 },
+  { stat: "massReduction", weight: 1 },
+];
+// The registry entries a G1 slice adds (new ids only; an existing entry never changes here). G1-1: the guest quarters
+// sources (the gear line, the four transport hulls' bases, the General quarters perk) and the Guest Wing module.
+const G1_ADDED_ENTRY_IDS: ReadonlySet<string> = new Set<string>([
+  "ship:gearLine:colonistCapacity",
+  "ship:SHIP_TYPES:generalFreighter:colonistCapacity",
+  "ship:SHIP_TYPES:orion:colonistCapacity",
+  "ship:SHIP_TYPES:aurora:colonistCapacity",
+  "ship:SHIP_TYPES:eir:colonistCapacity",
+  "ship:SHIP_SEAMS:generalQuartersGuestPerk",
+  "ship:QUARTERS_MODULES:quartersGuestWing",
+  "ship:QUARTERS_MODULES:quartersGuestWing:capacity",
+]);
 
 const CAPTURE = Boolean(import.meta.env.G1_CAPTURE);
 const captured: Record<string, unknown> = {};
@@ -261,17 +360,25 @@ describe("G1-0 golden 3: effectiveShipStats for every hull, bare and with each q
       const s0 = withBuckets(onHull(hull), [bucketOf("operations", "ops.unloadSpeed"), bucketOf("engineering", "eng.range"), bucketOf("operations", "ops.effectiveCargo")]);
       const ship = s0.ships[0];
       const out = [statsHash(effectiveShipStats(s0, ship))];
+      // G1-1: guest quarters, bare then each variety (the G1-0 nine, then the Guest Wing).
+      const guests = [effectiveShipStats(s0, ship).colonistCapacity ?? 0];
       for (const v of QUARTERS_VARIETIES_AT_G1_0) {
         const s = withPiece(s0, derelictQuarters(v, `equip-q-${v}`), ship.id);
         out.push(statsHash(effectiveShipStats(s, ship)));
+        guests.push(effectiveShipStats(s, ship).colonistCapacity ?? 0);
       }
       pin(`stats:${hull}`, out);
+      const wing = withPiece(s0, derelictQuarters("quartersGuestWing", "equip-q-wing"), ship.id);
+      guests.push(effectiveShipStats(wing, ship).colonistCapacity ?? 0);
+      pin(`stats:${hull}:guestWing`, statsHash(effectiveShipStats(wing, ship)));
+      pin(`guests:${hull}`, guests);
     });
   }
 });
 
-describe("G1-0 golden 4: generateEquipment for the quarters slot at 50 fixed seeds", () => {
-  it("one line per seed: variety, rarity, quality, iLevel, the implicit and rolled lines, mass", () => {
+// Golden 4's lines: one per seed (variety, rarity, quality, iLevel, the implicit and rolled lines, mass, the stamp),
+// then the pool the seeds draw from, so a move names its cause.
+function genQuartersLines(): string[] {
     const rarities: EquipmentRarity[] = ["standard", "augmented", "stellar", "radiant"];
     const out: string[] = [];
     for (let seed = 1; seed <= 50; seed++) {
@@ -292,9 +399,28 @@ describe("G1-0 golden 4: generateEquipment for the quarters slot at 50 fixed see
       });
       out.push(`${seed}:${variety}:${rarity}:q${quality}:iL${iLevel}:${JSON.stringify(p.implicitStats)}:${JSON.stringify(p.rolledStats)}:m${p.mass}:${p.moduleVariant}`);
     }
-    // The pool the seeds draw from, so a move names its cause.
     out.push(`pool:${JSON.stringify(EQUIPMENT_SLOTS.quarters.affixPool)}`);
-    pin("gen:quarters", out);
+    return out;
+}
+
+describe("G1-0 golden 4: generateEquipment for the quarters slot at 50 fixed seeds", () => {
+  it("one line per seed: variety, rarity, quality, iLevel, the implicit and rolled lines, mass", () => {
+    pin("gen:quarters", genQuartersLines());
+  });
+
+  // G1-1: the move's cause, proven. With the pool put back to its G1-0 table the generator reproduces the G1-0 record
+  // line for line, so the appended guest quarters affix is the ONLY thing that moved these rolls (the berth
+  // conversion touches only guest lines, which the G1-0 pool cannot roll).
+  it("4b: with the G1-0 pool the generator reproduces the G1-0 record exactly", () => {
+    const slot = EQUIPMENT_SLOTS.quarters;
+    const live = slot.affixPool;
+    slot.affixPool = QUARTERS_POOL_AT_G1_0.map((e) => ({ ...e }));
+    try {
+      expect(genQuartersLines()).toEqual(GEN_QUARTERS_AT_G1_0);
+    } finally {
+      slot.affixPool = live;
+    }
+    expect(slot.affixPool.map((e) => e.stat)).toEqual([...QUARTERS_POOL_AT_G1_0.map((e) => e.stat), "colonistCapacity"]);
   });
 });
 
@@ -302,6 +428,11 @@ describe("G1-0 golden 5: the wiring registry's ids and statuses", () => {
   it("the entries outside the G1 additions, hashed in registry order", () => {
     const lines = WIRING_REGISTRY.filter((e) => !G1_ADDED_ENTRY_IDS.has(e.id)).map((e) => `${e.id}|${e.status.kind}`);
     pin("registry", [lines.length, hash(lines)]);
+  });
+  it("G1-1: the added entries, each with its status", () => {
+    const added = WIRING_REGISTRY.filter((e) => G1_ADDED_ENTRY_IDS.has(e.id)).map((e) => `${e.id}|${e.status.kind}`);
+    expect(added.length).toBe(G1_ADDED_ENTRY_IDS.size);
+    pin("registry:g1", added);
   });
 });
 

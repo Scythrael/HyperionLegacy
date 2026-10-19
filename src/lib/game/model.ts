@@ -215,6 +215,12 @@ export interface ShipTypeDef {
   // EVEN (an odd value is a data error a test catches). The squad SIZE per type stays awayTeams[].size; the
   // team KINDS (Ground / Strike / Survey) decide how many squads of each type (groundComposition.ts).
   groundSquads: number;
+  // G1-1 (Short-Range Missions, 0.14.0, plan docs/plans/2026-10-17-short-range-missions-plan.md section 3.4; user
+  // 2026-10-19 call 6 "Affix, variety, hull, perk"): the hull's BASE guest quarters, the berths passengers ride in
+  // (refugees, prisoners). Guests are NOT crew: they add nothing to the complement, take no crew stations and never
+  // substitute for the cargo hold. Folded into ShipDerivedStats.colonistCapacity (shipDerivedStats). OPTIONAL: set
+  // only on the transport-minded hulls (HULL_GUEST_QUARTERS); absent reads as 0.
+  colonistCapacity?: number;
   // FORWARD (not populated this pass): reactorTier?: number  // reactorTier <= tier; gates equip/module tiers
 }
 
@@ -1047,6 +1053,12 @@ export type PatrolKey = keyof typeof PATROLS;
 // hull is actually built. The tactician combat trio (destroyer/battleship/carrier)
 // and the explorer family (orion/aurora/eir, 0.14.0 Phase E0) are now BUILT below;
 // no forward bucket remains absent.
+// G1-1 (Short-Range Missions, 0.14.0): each transport-minded hull's BASE guest quarters (ShipTypeDef.colonistCapacity),
+// the berths its passengers ride in. [PROVISIONAL] first-pass numbers the user approved as provisional (2026-10-19,
+// call 6: "Eir 80, Orion 40, Aurora 40, General Freighter 20, others 0"); every other hull omits the field (0). The ONE
+// place these numbers live: each SHIP_TYPES entry below reads its value from here.
+export const HULL_GUEST_QUARTERS = { generalFreighter: 20, orion: 40, aurora: 40, eir: 80 } as const;
+
 export const SHIP_TYPES: Record<ShipTypeKey, ShipTypeDef> = {
   // ⚠️ FUEL STATS ARE FIRST-PASS TUNABLE ⚠️ The fuelCapacity / engineEfficiency
   // values below establish the four hulls' fuel PROFILES (design §3): the Freighter
@@ -1066,6 +1078,8 @@ export const SHIP_TYPES: Record<ShipTypeKey, ShipTypeDef> = {
     // CHEAPEST hull to build (the starter/fallback): a small frame + coupling BOM, no
     // major assembly. ⚠️ FIRST-PASS TUNABLE (see ShipTypeDef.buildRecipe).
     buildRecipe: { components: { frameSegment: 4, powerCoupling: 2 }, credits: 500, durationTicks: 300 },
+    // G1-1: a few guest berths (HULL_GUEST_QUARTERS, [PROVISIONAL]).
+    colonistCapacity: HULL_GUEST_QUARTERS.generalFreighter,
     // E-CREW away squads (design section 5.2, FIRST-PASS TUNABLE): 3 Security, 3 Science; Prospecting 3 (hidden until unlocked).
     groundSquads: 4, // Squads SQ-1 (user 2026-10-12: DOUBLE EVERY HULL): 4 squads = 2 teams; bigger hulls get more later
     awayTeams: [
@@ -1273,6 +1287,8 @@ export const SHIP_TYPES: Record<ShipTypeKey, ShipTypeDef> = {
     hullIntegrity: 340, shieldCapacity: 800, shieldRecharge: 12, weaponHardpoints: 1, // FIRST-PASS TUNABLE
     // Capital-class BOM (between the destroyer and the battleship). ⚠️ FIRST-PASS TUNABLE.
     buildRecipe: { components: { frameSegment: 10, powerCoupling: 8, structuralAssembly: 3 }, credits: 4200, durationTicks: 1000 },
+    // G1-1: an explorer's guest berths (HULL_GUEST_QUARTERS, [PROVISIONAL]).
+    colonistCapacity: HULL_GUEST_QUARTERS.orion,
     // E-CREW away squads (design section 5.2, FIRST-PASS TUNABLE): 3 Security, 4 Science; Prospecting 3 (hidden until unlocked).
     groundSquads: 4, // Squads SQ-1 (user 2026-10-12: DOUBLE EVERY HULL): 4 squads = 2 teams; bigger hulls get more later
     awayTeams: [
@@ -1294,6 +1310,8 @@ export const SHIP_TYPES: Record<ShipTypeKey, ShipTypeDef> = {
     hullIntegrity: 300, shieldCapacity: 720, shieldRecharge: 14, weaponHardpoints: 1, // FIRST-PASS TUNABLE
     // Capital-class BOM, a touch lighter than Orion (leaner combat frame). ⚠️ FIRST-PASS TUNABLE.
     buildRecipe: { components: { frameSegment: 9, powerCoupling: 8, structuralAssembly: 3 }, credits: 3900, durationTicks: 950 },
+    // G1-1: an explorer's guest berths (HULL_GUEST_QUARTERS, [PROVISIONAL]).
+    colonistCapacity: HULL_GUEST_QUARTERS.aurora,
     // E-CREW away squads (design section 5.2, FIRST-PASS TUNABLE): 3 Security, 4 Science; Prospecting 3 (hidden until unlocked).
     groundSquads: 4, // Squads SQ-1 (user 2026-10-12: DOUBLE EVERY HULL): 4 squads = 2 teams; bigger hulls get more later
     awayTeams: [
@@ -1317,6 +1335,8 @@ export const SHIP_TYPES: Record<ShipTypeKey, ShipTypeDef> = {
     hullIntegrity: 360, shieldCapacity: 700, shieldRecharge: 10, weaponHardpoints: 1, // FIRST-PASS TUNABLE
     // Heaviest explorer BOM (the biggest frame). ⚠️ FIRST-PASS TUNABLE.
     buildRecipe: { components: { frameSegment: 12, powerCoupling: 8, structuralAssembly: 4 }, credits: 4600, durationTicks: 1100 },
+    // G1-1: the evac transport's big guest wing (HULL_GUEST_QUARTERS, [PROVISIONAL]).
+    colonistCapacity: HULL_GUEST_QUARTERS.eir,
     // E-CREW away squads (design section 5.2, FIRST-PASS TUNABLE): 4 Security, 4 Science; Prospecting 3 (hidden until unlocked).
     groundSquads: 4, // Squads SQ-1 (user 2026-10-12: DOUBLE EVERY HULL): 4 squads = 2 teams; bigger hulls get more later
     awayTeams: [
@@ -2095,6 +2115,10 @@ export interface EquipmentSlotDef {
   equipRequirement?: EquipRequirement;
 }
 
+// G1-1 (Short-Range Missions): the guest quarters affix's weight in the Crew Quarters pool (beside crewStations 5,
+// crewEfficiency 2, massReduction 1). [PROVISIONAL] first pass (the plan's recommended source; no weight was asked).
+export const GUEST_QUARTERS_AFFIX_WEIGHT = 2;
+
 // The six live slots (four economy + two Combat 1.0 defensive). ⚠️ statRatios and affix
 // WEIGHTS are FIRST-PASS TUNABLE launch placeholders (retuned at the device-check stage,
 // not piecemeal), same spirit as every other economy constant in this file. Each variety's
@@ -2330,9 +2354,17 @@ export const EQUIPMENT_SLOTS: Record<string, EquipmentSlotDef> = {
       { key: "bridgeFlagCommand", label: "Flag Command", statRatios: {} },
     ],
   },
-  // QUARTERS = the Complement amplifier + capacity. 9 variants: 6 DIVISION-focused (one per
-  // complement profession) + 3 GENERAL (Utilitarian / Efficient / Elite). crewStations (crew
-  // capacity) is the signature; crewEfficiency (per-head comfort) is a secondary affix.
+  // QUARTERS = the Complement amplifier + capacity. 10 variants: 6 DIVISION-focused (one per
+  // complement profession) + 3 GENERAL (Utilitarian / Efficient / Elite) + the GUEST WING (G1-1).
+  // crewStations (crew capacity) is the signature; crewEfficiency (per-head comfort) is a secondary affix.
+  //
+  // G1-1 (Short-Range Missions, user 2026-10-19 call 6): GUEST QUARTERS (`colonistCapacity`, the berths passengers
+  // ride in) is the one quarters line that is NOT catalog-driven: it FOLDS as a flat berth count into
+  // ShipDerivedStats.colonistCapacity (equipmentStatMods), like `sensors`. It rolls two ways: as an AFFIX on any
+  // quarters module (APPENDED to the pool below, append-only: stored items never re-roll, so every quarters piece
+  // already in a save keeps its lines byte-identical; only NEW quarters rolls move, pinned in shortRangeGoldens), and
+  // as the GUEST WING's signature line (its own implicitStats, so it carries no crewStations line: fewer crew
+  // stations in trade). A guest line's value is in BERTHS (itemgen.ts GUEST_QUARTERS_PER_POINT converts its budget).
   quarters: {
     slotType: "quarters",
     label: "Crew Quarters Module",
@@ -2341,6 +2373,7 @@ export const EQUIPMENT_SLOTS: Record<string, EquipmentSlotDef> = {
       { stat: "crewStations", weight: 5 },
       { stat: "crewEfficiency", weight: 2 },
       { stat: "massReduction", weight: 1 },
+      { stat: "colonistCapacity", weight: GUEST_QUARTERS_AFFIX_WEIGHT },
     ],
     varieties: [
       // 6 DIVISION-focused (variety key == QUARTERS_MODULES id).
@@ -2354,6 +2387,10 @@ export const EQUIPMENT_SLOTS: Record<string, EquipmentSlotDef> = {
       { key: "quartersUtilitarian", label: "Utilitarian Quarters", statRatios: {} },
       { key: "quartersEfficient", label: "Efficient Quarters", statRatios: {} },
       { key: "quartersElite", label: "Elite Quarters", statRatios: {} },
+      // G1-1 GUEST WING (user 2026-10-19: "Guest Wing (Recommended)"): berths for passengers instead of crew. Its
+      // signature line is guest quarters (its OWN implicitStats, so no crewStations line); its crew effect is the
+      // QUARTERS_MODULES catalog's (a small fixed crew capacity, no effectiveness boost).
+      { key: "quartersGuestWing", label: "Guest Wing", statRatios: {}, implicitStats: ["colonistCapacity"] },
     ],
   },
   // 0.14.0 SENSORS (DORMANT): the SENSOR slot, activated from the reserved `sensor` EquipmentSlotType
@@ -3000,6 +3037,11 @@ export const LIVE_STAT_KEYS = [
   "waveHullRegen",
   "expeditionScanSpeed",
   "hazardResist",
+  // G1-1 (Short-Range Missions, 0.14.0): GUEST QUARTERS, the berths passengers ride in, MOVED from RESERVED_STAT_KEYS
+  // when the Crew Quarters affix line and the Guest Wing's signature line went live. FOLDED by equipmentStatMods as a
+  // flat berth count into ShipDerivedStats.colonistCapacity (shown as "Guest quarters"); the short-range passenger
+  // runs (G1-4) read it. Never crew: it moves no complement capacity and never stands in for the cargo hold.
+  "colonistCapacity",
 ] as const;
 
 // RESERVED forward vocabulary for 0.12.0 (combat / crew / sensor / defense).
@@ -3013,8 +3055,7 @@ export const RESERVED_STAT_KEYS = [
   // Logistics / crew / sensor:
   // (crewStations + crewEfficiency MOVED to LIVE_STAT_KEYS in Crew 0.14.0 Phase 1b when the bridge +
   // quarters crew-module slots were activated, exactly as the six defensive gear stats moved to LIVE
-  // in Combat 1.0 Unit 1.1.)
-  "colonistCapacity",
+  // in Combat 1.0 Unit 1.1. colonistCapacity MOVED to LIVE_STAT_KEYS in G1-1, Short-Range Missions 0.14.0.)
   "droneCapacity",
   "shortRangeSensors",
   "longRangeSensors",
@@ -3530,6 +3571,13 @@ export interface ShipDerivedStats {
   // the same object it was. transitSpeedMult itself stays the sweeping speed (hull, gear, officers, museum).
   transitOutLegMult?: number;
   transitBackLegMult?: number;
+  // G1-1 (Short-Range Missions, 0.14.0; shown as "Guest quarters", user 2026-10-19 call 5): the berths passengers
+  // ride in, folded by shipDerivedStats from the hull's base (ShipTypeDef.colonistCapacity), every installed guest
+  // line (the Crew Quarters affix, the Guest Wing's signature) and the General hull's quarters perk. A whole number.
+  // OPTIONAL and written only when non-zero, so every stats object of a ship with no guest berths is unchanged.
+  // Guests are not crew (no complement, no crew stations) and never substitute for the hold: only the passenger
+  // jobs read it (the short-range cycle, G1-4).
+  colonistCapacity?: number;
 }
 
 // CP-2 (OC-E5): a ship's speed on each mission leg: the sweeping transitSpeedMult times that leg's own complement
@@ -3671,6 +3719,11 @@ export function equipmentStatMods(pieces: EquipmentInstance[]): EquipmentStatMod
           case "sensors":
             flat[key] += value;
             break;
+          // G1-1: guest quarters, a flat berth count (the line is already in berths, itemgen.ts). Written into
+          // `flat` only when a piece carries the line, so a guest-free fold returns the same `flat` shape as before.
+          case "colonistCapacity":
+            flat.colonistCapacity = (flat.colonistCapacity ?? 0) + value;
+            break;
           // PERCENT stats: summed as raw plus magnitudes (curve-converted later).
           case "transitSpeedMult":
           case "engineEfficiency":
@@ -3744,7 +3797,25 @@ function hullDerivedStats(ship: ShipInstance): ShipDerivedStats {
     // Exploration 0.14.0 (E1a): a bare hull has NO sensors, its only source is a fitted
     // sensor item (explorer-hull base sensors are deferred, design I.6). Folded in below.
     sensors: 0,
+    // G1-1: the hull's base guest quarters, written only when it has some (HULL_GUEST_QUARTERS).
+    ...((def.colonistCapacity ?? 0) > 0 ? { colonistCapacity: def.colonistCapacity } : {}),
   };
+}
+
+// G1-1 (Short-Range Missions, 0.14.0): the General hull family's Crew Quarters perk, "guest quarters +10% for
+// passenger runs" (the SMS-1 General Quarters line, approved with OC-13 "One catalog, by hull"; CP-13 builds the
+// family's other quarters and bridge lines and may absorb this constant into its catalog). A quarters module of any
+// variety installed on a hull of spec "general" multiplies the ship's whole guest quarters by (1 + this), rounded
+// to whole berths. Guest quarters are read only by the passenger jobs, so "for passenger runs" is where it acts.
+export const GENERAL_QUARTERS_GUEST_PERK = 0.1;
+
+// A ship's guest quarters: the hull base plus every installed guest line, times the General quarters perk when it
+// applies, as whole berths. 0 when the ship has none. Pure.
+function foldGuestQuarters(ship: ShipInstance, pieces: EquipmentInstance[], base: number, gearLines: number): number {
+  const raw = base + gearLines;
+  if (raw <= 0) return 0;
+  const perk = SHIP_TYPES[ship.typeKey].spec === "general" && pieces.some((p) => p.slotType === "quarters");
+  return perk ? Math.round(raw * (1 + GENERAL_QUARTERS_GUEST_PERK)) : raw;
 }
 
 // Project a ShipInstance to its mission-relevant derived stats, FOLDING IN the
@@ -3785,6 +3856,8 @@ export function shipDerivedStats(
   const cargoCapacity = base.cargoCapacity + mods.flat.cargoCapacity;
   const fuelCapacity = base.fuelCapacity + mods.flat.fuelCapacity;
   const sensors = base.sensors + mods.flat.sensors;
+  // G1-1: guest quarters (hull base + guest lines, then the General quarters perk). Never touches the hold.
+  const colonistCapacity = foldGuestQuarters(ship, pieces, base.colonistCapacity ?? 0, mods.flat.colonistCapacity ?? 0);
 
   // (3) PERCENT boosts through the curve.
   const transitCurve = PERCENT_STAT_CURVES.transitSpeedMult;
@@ -3827,6 +3900,7 @@ export function shipDerivedStats(
     powerOutput: mods.powerOutput,
     powerDraw: mods.totalPowerDraw,
     sensors,
+    ...(colonistCapacity > 0 ? { colonistCapacity } : {}),
   };
 }
 

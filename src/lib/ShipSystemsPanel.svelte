@@ -506,6 +506,10 @@
       { label: "Power Output", base: base.powerOutput, fitted: fit.powerOutput, kind: "flat" },
       { label: "Power Draw", base: base.powerDraw, fitted: fit.powerDraw, kind: "flat" },
       { label: "Mass", base: base.mass, fitted: fit.mass, kind: "flat" },
+      // G1-1: guest quarters, only when either loadout has some (a ship with none never shows the row).
+      ...((base.colonistCapacity ?? 0) > 0 || (fit.colonistCapacity ?? 0) > 0
+        ? [{ label: "Guest Quarters", base: base.colonistCapacity ?? 0, fitted: fit.colonistCapacity ?? 0, kind: "flat" as const }]
+        : []),
     ];
   }
   // 0.14.0 crew C-4c readout descriptors: ONE list per economy stat the readout shows, so the
@@ -525,6 +529,8 @@
     { key: "powerOutput", label: "Power Output", kind: "flat", get: (s) => s.powerOutput },
     { key: "powerDraw", label: "Power Draw", kind: "flat", get: (s) => s.powerDraw },
     { key: "mass", label: "Mass", kind: "flat", get: (s) => s.mass },
+    // G1-1 (Short-Range Missions): the berths passengers ride in; shown only when non-zero (readoutRows below).
+    { key: "guestQuarters", label: "Guest Quarters", kind: "flat", get: (s) => s.colonistCapacity ?? 0 },
   ];
   // Plain-language definition per stat for the (i) affordance: what it does + how it affects play,
   // one sentence each (US English, first-pass). Keyed by StatDescriptor.key.
@@ -538,6 +544,7 @@
     powerOutput: "Total power the reactor supplies to the ship; it needs to cover everything the installed systems draw.",
     powerDraw: "Total power the installed systems consume; keep it at or under power output. Lower is better.",
     mass: "The ship's combined mass from its hull and installed systems; lower mass is generally easier to move.",
+    guestQuarters: "Berths for passengers such as refugees, separate from the crew and the cargo hold. Passenger runs need enough of them for everyone aboard.",
   };
   // The economy readout rows: base (bare hull), gear (gear-only fold), and effective (crew-inclusive)
   // for each stat. The row VALUE shows `effective`; the inline "(...)" note stays the GEAR delta
@@ -552,7 +559,10 @@
           base: d.get(baseStats),
           gear: d.get(fitStats),
           effective: d.get(effectiveStats),
-        })).filter((r) => (r.key !== "outLeg" && r.key !== "backLeg") || Math.abs(r.effective - effectiveStats.transitSpeedMult) > 1e-9)
+        }))
+          .filter((r) => (r.key !== "outLeg" && r.key !== "backLeg") || Math.abs(r.effective - effectiveStats.transitSpeedMult) > 1e-9)
+          // G1-1: Guest Quarters shows only on a ship that has some.
+          .filter((r) => r.key !== "guestQuarters" || r.effective > 0)
       : ([] as ReadoutRow[]);
   // CP-2: the two complement-fed shares that are not ship-sheet stats (each shown only when non-zero): the repair
   // speed-up every repair divides by (Damage Control, Mission Turnaround, Rapid Recovery, Veteran Instincts) and the

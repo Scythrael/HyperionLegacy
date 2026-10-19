@@ -276,6 +276,28 @@ same object), each source moves the stat by its catalog magnitude, guests never 
 quarters roll pins move (named). **UI:** the stat line on the Ship Systems tile and stat breakdown reuses the existing
 line pattern (no mockup), unless open call 6 adds the variety (its tile then rides G1-6's sign-off).
 
+**Carry note (G1-0 + G1-1, built 2026-10-19 on `a678241`):**
+- G1-0 lives in `shortRangeGoldens.test.ts` (fleet 6 h, Home + Ships views, stats per hull x quarters variety,
+  quarters gen at 50 seeds, registry ids and statuses, a v69 load). Re-capture with `G1_CAPTURE=<path>` (writes JSON).
+  A slice that adds registry entries lists them in `G1_ADDED_ENTRY_IDS` so the base pin keeps proving nothing moved.
+  Sheet goldens everywhere hash through `withoutGuests` (firstRunsGoldens.fixture.ts); guest values pin as `guests:*`.
+- Guest quarters reads `effectiveShipStats(...).colonistCapacity ?? 0` (whole berths; absent = 0). Sources: hull base
+  `HULL_GUEST_QUARTERS` (model.ts) [PROVISIONAL]; the quarters affix (appended, `GUEST_QUARTERS_AFFIX_WEIGHT` 2
+  [PROVISIONAL]); the Guest Wing (`quartersGuestWing`, signature line only, crew capacity `GUEST_WING_CREW_CAPACITY` 4
+  [PROVISIONAL]); lines are stored in berths (`GUEST_QUARTERS_PER_POINT` 4 [PROVISIONAL], itemgen.ts); the General
+  perk `GENERAL_QUARTERS_GUEST_PERK` 0.1 (model.ts, any quarters module on a General hull, whole total, rounded).
+  Calibration for G1-2's sheets: a Freighter with a derelict iL10 Guest Wing reads (20 + 40) x 1.1 = 66, an Orion 80,
+  an Eir 120; a guest affix at iL10 standard is 24 berths.
+- Wiring: 6 guest entries are `pending` G1-4 at the new context `mission:shortRange` (live at `sheet`);
+  `sheetGuestQuarters` reads 0 there and `FLAT_UNCONTROLLED` says why. G1-4 points that probe at the cycle, flips
+  them live and removes the FLAT_UNCONTROLLED line. The Guest Wing's crew-effect entry is `notApplicable` (boost 0).
+- For G1-2: the sheet now has SIX categories, Range, Cargo, Guest quarters, Sensors, Engineering and **Security** (user
+  2026-10-19: the seventh template, Prisoner Transport, reads Guest quarters + the ship's Security crew strength; every
+  tier sheet gains a Security row, small at Tier I). Section 3.6's `ShortRangeCategory` and `ShortRangeTemplateKey`
+  widen accordingly (the template key is still to name, [PROPOSAL]).
+- Elsewhere: CP-11 must add a Guest Wing blueprint (no module has one yet); CP-12's quarters tile reuses the SVG
+  `guestWing` glyph (icons.ts, `varietySvgIcon`); CP-13 may absorb the General perk into its hull-family catalog.
+
 ### G1-2: Templates, sheets and the roll (pure engine)
 
 `shortRange.ts`: the catalog, sheets, `rollShortRangeJob`, the training and ramp rules, `shortRangeCyclePlan`, sheet

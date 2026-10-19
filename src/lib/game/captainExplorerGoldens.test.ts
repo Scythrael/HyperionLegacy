@@ -23,6 +23,7 @@ import { PATROLS, type GameState, type SecondaryTalentKey } from "./model";
 import { dispatchCaptainOnMission, dispatchCaptainOnPatrol, economyTick, installMissingCombatBaselines, startRelicStudy } from "./tick";
 import { advanceExpedition, claimExpedition, expeditionCandidates, startExpedition } from "./expedition";
 import { effectiveShipStats } from "./crewOverlay";
+import { withoutGuests } from "./firstRunsGoldens.fixture";
 import { seniorStaffCandidates } from "./seniorStaff";
 import { awayRecruitCandidates } from "./awayTeam";
 import { WIRING_BUCKET_COUNT, bucketOf, editCaptain, installPiece, seatOfficer, withAwayTeam, withBuckets, withFacilityLevel, wiringBase } from "./wiring/probes";
@@ -96,7 +97,8 @@ export function readVariant(key: SecondaryTalentKey | null): Record<string, stri
 function readVariantLive(key: SecondaryTalentKey | null): Record<string, string> {
   const s0 = own(fixture(), key);
   const ship = s0.ships.find((sh) => sh.id === "ship-1")!;
-  const sheet = hash(effectiveShipStats(s0, ship));
+  // G1-1: the sheet hash strips guest quarters (withoutGuests), so this pin keeps proving no other stat moved.
+  const sheet = hash(withoutGuests(effectiveShipStats(s0, ship)));
   const candidates = expeditionCandidates(s0, "ship-1");
   const cands = hash(candidates);
   const res = asPreSafeFirstRunsDispatch(startExpedition(s0, "ship-1", 1, candidates[0].id));
