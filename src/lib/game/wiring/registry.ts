@@ -70,7 +70,9 @@ import {
   type SeniorStaffSeat,
   type ShipTypeKey,
 } from "../model";
+import Decimal from "break_infinity.js";
 import { diminishing } from "../diminishing";
+import { secondaryTalentEffectText } from "../captainSecondaryEffects";
 import { buyHomeworldTalent } from "../tick";
 import { combatHullTypeOf, hullDefenseComposition } from "../combat/bridge";
 import { SENIOR_STAFF_BONUSES, type SeniorStaffBonusDef } from "../seniorStaffBonuses";
@@ -110,6 +112,7 @@ import { DC_REPAIR_SPEED_B, DC_REPAIR_SPEED_R, DC_WAVE_REGEN_B, DC_WAVE_REGEN_R,
 import { DRONE_POD_AFFIX_POOL, DRONE_POD_IMPLICIT_STAT, WEAPON_AFFIX_POOL, WEAPON_IMPLICIT_STAT } from "../itemgen";
 import { AFFIX_DEFS, ESCALATION_ENEMIES_PER_LEVEL, HEIGHTENED_SENSES_KNEE, HEIGHTENED_SENSES_PER_LEVEL } from "../affixes";
 import { ENEMY_RANKS, ENEMY_RANK_IDS } from "../enemyRanks";
+import { OVERTIME_STEP_RATE } from "../processSpeed";
 import {
   CONDITION_LINES,
   CONDITION_LINE_IDS,
@@ -139,6 +142,8 @@ import {
   withFacilityLevel,
   withHomeworld,
   withMuseum,
+  withRunningJobs,
+  overtimeOneStep,
   WIRING_BUCKET_COUNT,
   AFFIX_ALIGNED_HOOKS,
   AFFIX_HOOK_KEYS,
@@ -175,7 +180,11 @@ export type WiringStatus =
   | { kind: "pending"; owner: string; contexts?: readonly ContextId[] }
   // The user deferred it past 0.14.0 (capture 2026-10-15 section 3 T3 and the like).
   | { kind: "deferred"; owner: string; userRef: string; contexts?: readonly ContextId[] }
-  | { kind: "held"; userRef: string }; // D14 Craft Duplicate only
+  | { kind: "held"; userRef: string } // D14 Craft Duplicate only
+  // 0.14.0: a SEAM the user asked to be built now and called by a later patch (the tutorial time skip and the grant
+  // hook: "Hook only", USER ANSWERS group 2 of the safe first runs plan). Tested in its own suite; not a placeholder
+  // effect (it moves nothing on its own) and not a release blocker. `owner` = the patch that calls it.
+  | { kind: "seam"; owner: string; userRef: string };
 
 export type Curve =
   | { kind: "linearRelative" } // value(on) = value(off) x (1 + m)
@@ -943,14 +952,74 @@ function captainSpecEntries(): WiringEntry[] {
   });
 }
 
-// The pending owner of each secondary node (plan section 5.A: WR-5a prospector, WR-5b tactician, WR-5c explorer),
-// with the claimed value's probe where one already exists (it must not move until the slice wires it).
+// WR-5a: the Prospector tree, LIVE. Each node's seam, context(s) and curve; the magnitude is the node's catalog
+// magnitude (captainSecondaryEffects.ts secondaryTalentMagnitude), unless the entry names its own.
+const FRONTIER = MISSIONS.frontierSupplyRun;
+// The freighter's whole Frontier Supply Run load (ship-1 is the General Freighter).
+const FRONTIER_LOAD = SHIP_TYPES.generalFreighter.cargoCapacity * (FRONTIER.supplyCostPerCargo ?? 0);
+// A save whose fleet has delivered one supply run cycle (Trade Routes pays only on an established route).
+const withSupplyRoute = (s: GameState): GameState => ({
+  ...s,
+  lifetimeStats: { ...s.lifetimeStats, missionsCompleted: { ...s.lifetimeStats.missionsCompleted, frontierSupplyRun: new Decimal(1) } },
+});
+const ownsNodes = (s: GameState, keys: readonly SecondaryTalentKey[]): GameState =>
+  editCaptain(s, { unlockedSecondaryTalents: [...s.captains[0].unlockedSecondaryTalents, ...keys] });
+const PROSPECTOR_SEAMS: Readonly<
+  Partial<Record<SecondaryTalentKey, { probe: ProbeId; contexts: ContextId[]; curve: Curve; direction?: Direction; tolerance?: number; base?: () => GameState; magnitude?: (c: Catalogs) => number; note?: string }>>
+> = {
+  extraction1: { probe: "sheetYield", contexts: ["sheet"], curve: { kind: "linearRelative" } },
+  // The rare threshold the extraction roll compares against, on an ore run and a survey (its own factor; the uncommon
+  // half: captainSecondaryEffects.test.ts).
+  extraction2: { probe: "extractionRareThreshold", contexts: ["mission:extraction", "mission:survey"], curve: { kind: "linearRelative" }, tolerance: 1e-9 },
+  extraction3: { probe: "missionExtractionTicks", contexts: ["mission:extraction"], curve: { kind: "divisor" }, direction: "down", tolerance: 1 },
+  extraction4: { probe: "deliveryQualityClimb", contexts: ["mission:extraction"], curve: { kind: "linearRelative" }, tolerance: 1e-12 },
+  // The realized double hauls over 1,000 real deliveries (lifetime counter 0 to 999): their share sits at the
+  // configured chance within the batch's sampling spread (about 3 standard deviations).
+  extraction5: { probe: "motherlodeRate", contexts: ["mission:extraction"], curve: { kind: "chanceAbsolute" }, tolerance: 0.02 },
+  logistics1: { probe: "sheetCargo", contexts: ["sheet"], curve: { kind: "linearRelative" } },
+  // "Always multiply" (user 2026-10-17): +5% reach, its own factor on (1 + engineEfficiency).
+  logistics2: { probe: "shipRange", contexts: ["sheet"], curve: { kind: "linearRelative" } },
+  logistics3: { probe: "sheetUnload", contexts: ["sheet", "expedition:groundOps"], curve: { kind: "linearRelative" } },
+  // The overflow's free unload: captainSecondaryEffects.test.ts (the unload ticks stay the hold's).
+  logistics5: { probe: "sheetCargo", contexts: ["sheet"], curve: { kind: "linearRelative" } },
+  trade1: { probe: "transportCycleCredits", contexts: ["mission:transport"], curve: { kind: "linearRelative" } },
+  // The discount saved on the supplies: the load value x the discount, added to the net.
+  trade2: {
+    probe: "transportCycleCredits",
+    contexts: ["mission:transport"],
+    curve: { kind: "linearAbsolute" },
+    magnitude: (c) => {
+      const e = c.SECONDARY_CAPTAIN_TALENTS.trade2.effect;
+      return (e.type === "statMult" ? e.mult : 0) * FRONTIER_LOAD;
+    },
+  },
+  trade3: { probe: "transportCycleCredits", contexts: ["mission:transport"], curve: { kind: "linearRelative" } },
+  trade4: { probe: "dockedCredits", contexts: ["fleet"], curve: { kind: "linearAbsolute" }, base: () => withSupplyRoute(wiringBase()) },
+  // Trade Baron multiplies every Trade value by its factor: on a captain owning Trade 1 to 4 on an established route,
+  // the docked trickle x factor. Its margin and purchase cost terms: captainSecondaryEffects.test.ts.
+  trade5: {
+    probe: "dockedCredits",
+    contexts: ["fleet"],
+    curve: { kind: "linearRelative" },
+    base: () => withSupplyRoute(ownsNodes(wiringBase(), ["trade1", "trade2", "trade3", "trade4"])),
+    magnitude: (c) => {
+      const e = c.SECONDARY_CAPTAIN_TALENTS.trade5.effect;
+      return (e.type === "capstone" ? e.magnitude ?? 1 : 1) - 1;
+    },
+  },
+};
+
+// The catalog magnitude of a secondary node (a statMult's mult, a capstone's magnitude, a trickle's perTick).
+function secondaryMagnitude(key: SecondaryTalentKey): (c: Catalogs) => number {
+  return (c) => {
+    const e = c.SECONDARY_CAPTAIN_TALENTS[key].effect;
+    return e.type === "statMult" ? e.mult : e.type === "procChance" ? e.chance : e.type === "capstone" ? e.magnitude ?? 0 : e.type === "creditTrickle" ? e.perTick : 0;
+  };
+}
+
+// The pending owner of each secondary node (plan section 5.A: WR-5b tactician, WR-5c explorer), with the claimed
+// value's probe where one already exists (it must not move until the slice wires it).
 const SECONDARY_PROBES: Partial<Record<SecondaryTalentKey, ProbeId>> = {
-  extraction1: "sheetYield",
-  extraction3: "missionExtractionTicks",
-  logistics1: "sheetCargo",
-  logistics2: "sheetEngineEff",
-  logistics3: "sheetUnload",
   gunnery1: "officerWeapons",
   aegis1: "officerShields",
   aegis3: "repairTicks",
@@ -966,7 +1035,21 @@ function secondaryEntries(): WiringEntry[] {
     const def = SECONDARY_CAPTAIN_TALENTS[key];
     const owner = def.tree === "prospector" ? "WR-5a" : def.tree === "tactician" ? "WR-5b" : "WR-5c";
     const on: Transform = (s) => editCaptain(s, { unlockedSecondaryTalents: [...s.captains[0].unlockedSecondaryTalents, key] });
-    const common = { id: `captain:SECONDARY_CAPTAIN_TALENTS:${key}`, system: "captain" as const, source: { catalog: "SECONDARY_CAPTAIN_TALENTS", key }, claim: `${def.label}: ${def.flavor}`, on };
+    // WR-5a: the claim is the node's player text, from the same helper the talent tooltip renders.
+    const common = { id: `captain:SECONDARY_CAPTAIN_TALENTS:${key}`, system: "captain" as const, source: { catalog: "SECONDARY_CAPTAIN_TALENTS", key }, claim: `${def.label}: ${secondaryTalentEffectText(key)}`, on };
+    const seam = PROSPECTOR_SEAMS[key];
+    if (seam) {
+      return entry({
+        ...common,
+        probe: seam.probe,
+        contexts: seam.contexts,
+        curve: seam.curve,
+        direction: seam.direction ?? "up",
+        magnitude: seam.magnitude ?? secondaryMagnitude(key),
+        ...(seam.tolerance !== undefined ? { tolerance: seam.tolerance } : {}),
+        ...(seam.base ? { base: seam.base } : {}),
+      });
+    }
     if (key === "logistics4") {
       return entry({
         ...common,
@@ -2737,6 +2820,47 @@ function auditEntries(): WiringEntry[] {
 }
 
 // ============================================================================
+// 0.14.0 SPEED SEAM (processSpeed.ts): Overtime is live; the tutorial time skip and the grant hook are seams
+// ============================================================================
+
+const TUTORIAL_HOOKS = 'safe first runs plan USER ANSWERS group 2 (2026-10-16): "Hook only"; grant hook "Yes, add it now (Recommended)"';
+
+function speedSeamEntries(): WiringEntry[] {
+  return [
+    entry({
+      id: "facility:SPEED_SEAM:overtime",
+      system: "facility",
+      source: { catalog: "SPEED_SEAM", key: "overtime" },
+      claim: "Overtime: each step bought speeds a running job by 25% of its normal rate (Shipyard builds and repairs, research, facility upgrades)",
+      probe: "overtimeTicks",
+      contexts: ["shipyard", "research", "facility"],
+      direction: "down",
+      curve: { kind: "divisor" },
+      magnitude: () => OVERTIME_STEP_RATE,
+      on: overtimeOneStep,
+      base: () => withRunningJobs(wiringBase()),
+      note: "one step from the normal rate: the time left is divided by 1 + 0.25 (the countdown then runs unchanged)",
+    }),
+    entry({
+      id: "fleetAdmiral:SPEED_SEAM:timeSkip",
+      system: "fleetAdmiral",
+      source: { catalog: "SPEED_SEAM", key: "timeSkip" },
+      claim: "Tutorial time skip: instantly finishes any timed process, mission cycle, patrol route or expedition, for free",
+      status: { kind: "seam", owner: "the tutorial patch", userRef: TUTORIAL_HOOKS },
+      note: "processSpeed.test.ts proves it per process type",
+    }),
+    entry({
+      id: "fleetAdmiral:SPEED_SEAM:grant",
+      system: "fleetAdmiral",
+      source: { catalog: "SPEED_SEAM", key: "grant" },
+      claim: "Grant hook: items, credits, gear and a hull, with a log line",
+      status: { kind: "seam", owner: "the tutorial / quests patch", userRef: TUTORIAL_HOOKS },
+      note: "processSpeed.test.ts proves it",
+    }),
+  ];
+}
+
+// ============================================================================
 // The no-dead-stats allow-list's reasons (kept verbatim from PENDING_IN_RELEASE at the WR-1 move)
 // ============================================================================
 
@@ -2921,6 +3045,7 @@ function build(): readonly WiringEntry[] {
     ...medicalEntries(),
     ...prospectingEntries(),
     ...auditEntries(),
+    ...speedSeamEntries(),
   ].map((e) => (ALLOW_LIST_REASONS[e.id] ? { ...e, reason: ALLOW_LIST_REASONS[e.id] } : e));
 }
 

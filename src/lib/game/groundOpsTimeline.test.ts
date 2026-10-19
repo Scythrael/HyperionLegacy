@@ -38,7 +38,7 @@ import {
 } from "./groundOps";
 import { fightPointFractions, segmentHaul, taskFullHaul, taskWorkSeconds } from "./groundTasks";
 import { resolveTaskFight, taskFightSeconds } from "./groundFight";
-import { plainAwayMember, registerSyntheticHull, withSlottedAwayTeams } from "./awayTeamTestFixtures";
+import { asPreSafeFirstRunsDispatch, plainAwayMember, registerSyntheticHull, withSlottedAwayTeams } from "./awayTeamTestFixtures";
 import type { ShipTypeKey } from "./model";
 
 // ===== fixtures =====
@@ -102,7 +102,9 @@ function opsRun(setup: Setup): { state: GameState; exp: Expedition } {
     nextAwayMemberId: 100,
   });
   if (setup.state) s = setup.state(s);
-  const res = startExpedition(s, "ship-1", 1, expeditionCandidates(s, "ship-1")[0].id);
+  // Safe first runs SF-2: the run as dispatched before SF-2 (the 30 minute shakedown legs these timings were written
+  // around; withoutSafeFirstRuns).
+  const res = asPreSafeFirstRunsDispatch(startExpedition(s, "ship-1", 1, expeditionCandidates(s, "ship-1")[0].id));
   if (!res.success || !res.expedition) throw new Error(`dispatch refused: ${res.reason}`);
   const dispatched = res.expedition;
   const body: ExpeditionBody = {

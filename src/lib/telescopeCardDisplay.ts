@@ -13,9 +13,9 @@
 // and an unreached one dashed, and the legend and the region key say the same thing in words. The SVG's accessible
 // name (`ariaLabel`) summarizes the level, the reach and the next reach.
 //
-// ⚠️ PROVISIONAL HOMEWORLD (G2 not built): light-years and the badge positions are measured from telescope.ts
-// PROVISIONAL_HOMEWORLD (near the Sun's position). Every reader here takes the homeworld as a parameter, so G2's
-// per-player placement swaps in without touching the card.
+// THE HOMEWORLD (Expedition Tiers G2-1): light-years and the badge positions are measured from the save's own
+// homeworld (galaxy.ts stateHomeworld; the card reads it off the state, App.svelte passes it to the map). The map's
+// default, PROVISIONAL_HOMEWORLD (Sol's position), is the fixture the badges were hand-placed for.
 //
 // DISPLAY ONLY. Nothing here changes a rule.
 
@@ -26,11 +26,13 @@ import {
   TELESCOPE_DEVELOPMENT_CYCLES,
   TELESCOPE_LORE,
   regionTierNumeral,
+  stateHomeworld,
   telescopeLevel,
   telescopeReadingAtLevel,
   type HomeworldPlacement,
   type TelescopeDetail,
 } from "./game/telescope";
+import { SOL_GALACTIC } from "./game/galaxy";
 
 const TIERS: readonly RegionTier[] = [1, 2, 3, 4, 5, 6, 7];
 
@@ -116,7 +118,7 @@ export interface TelescopeCardOptions {
   // How a duration in ticks reads (App.svelte passes its durationReadout, so the card honors the tick-count
   // preference like every facility card). Default: "120 ticks".
   duration?: (ticks: number) => string;
-  homeworld?: HomeworldPlacement;
+  homeworld?: HomeworldPlacement; // default: the save's own (galaxy.ts stateHomeworld)
 }
 
 export function telescopeUpgradeInProgress(state: Pick<GameState, "activeProcesses">): boolean {
@@ -127,7 +129,7 @@ export function telescopeUpgradeInProgress(state: Pick<GameState, "activeProcess
 
 export function telescopeCardView(state: GameState, options: TelescopeCardOptions = {}): TelescopeCardView {
   const duration = options.duration ?? ((t: number) => `${t.toLocaleString("en-US")} ticks`);
-  const homeworld = options.homeworld ?? PROVISIONAL_HOMEWORLD;
+  const homeworld = options.homeworld ?? stateHomeworld(state);
   const track = upgrades();
   const maxLevel = track.length;
   const level = telescopeLevel(state);
@@ -197,9 +199,11 @@ export function telescopeCardView(state: GameState, options: TelescopeCardOption
 
 // ===== The galaxy map =====
 //
-// Galactic coordinates in light-years, the Galactic Core at the origin and the homeworld at (0, its distance from
-// the core). The map is CENTERED ON THE HOMEWORLD with a square-root radial scale (r_px = R * sqrt(d / DMAX)), so
-// the 150 ly Local Bubble ring and the 26,500 ly ring to the core both stay readable (the approved mockup's scale).
+// Galactic coordinates in light-years, the Galactic Core at the origin, Sol at (0, 26,500) and the homeworld at its
+// own position (galaxy.ts, 10 to 120 ly from Sol since G2-1). The map is CENTERED ON THE HOMEWORLD with a square-root
+// radial scale (r_px = R * sqrt(d / DMAX)), so the 150 ly Local Bubble ring and the 26,500 ly ring to the core both
+// stay readable (the approved mockup's scale). The galaxy itself (disk, arms, bulge, the Orion spur through Sol) is
+// fixed; only the center moves.
 
 export const TELESCOPE_MAP_RADIUS = 168;
 const MAP_DMAX = 76_000;
@@ -220,9 +224,11 @@ const BULGE_LY = 6_000;
 // from overlapping). Two badges sit BESIDE their spot instead of on it: the Local Bubble is too small to draw, so
 // its badge touches the Level 1 ring (BUBBLE_BADGE_DIRECTION), and the Core's badge sits just off the core dot
 // (CORE_BADGE_OFFSET) so the dot and the "Galactic Core" label stay visible.
-// ⚠️ G2: these are hand-placed for PROVISIONAL_HOMEWORLD. With per-player homeworlds the badge spots must become
-// band-relative (placed inside each region's band as measured from that homeworld) and the overlap and ring-fit
-// tests re-run per placement.
+// G2-1 (the SQ-7.4 carry note): BAND-RELATIVE per homeworld. These spots are hand-placed for PROVISIONAL_HOMEWORLD
+// (the REFERENCE bands); for another homeworld each badge keeps its direction and its place WITHIN its band: its
+// distance d is remapped from the reference band onto that homeworld's band (badgeDistanceLy), so it always sits
+// inside its region's band as measured from that homeworld. telescopeCardDisplay.test.ts runs the bounds, ring-fit,
+// overlap and in-band tests over 200 placements.
 const BADGE_POSITIONS: Readonly<Record<RegionTier, { x: number; dy: number }>> = {
   // dy is relative to the homeworld's galactic y (positive = outward, away from the core).
   1: { x: 60, dy: 90 }, // distance only (the pixel spot is BUBBLE_BADGE_DIRECTION)
@@ -234,6 +240,15 @@ const BADGE_POSITIONS: Readonly<Record<RegionTier, { x: number; dy: number }>> =
   7: { x: 0, dy: 0 }, // unused: the Core badge is placed off the Galactic Core (galactic origin, below)
 };
 const BUBBLE_BADGE_DIRECTION = { x: 0.75, y: 0.66 };
+
+// A badge's distance from homeworld: its reference distance d moved to the same place in that homeworld's band
+// (written as d plus the edge shifts, so the reference homeworld gets d back exactly).
+function badgeDistanceLy(d: number, tier: RegionTier, homeworld: HomeworldPlacement): number {
+  const ref = PROVISIONAL_HOMEWORLD.regionBandsLy[tier];
+  const band = homeworld.regionBandsLy[tier];
+  const f = (d - ref.near) / Math.max(1, ref.far - ref.near);
+  return d + (band.near - ref.near) + f * (band.far - band.near - (ref.far - ref.near));
+}
 const CORE_BADGE_OFFSET = { x: 17, y: 3 };
 
 export interface TelescopeMapBadge {
@@ -280,7 +295,8 @@ function rangeLyForReachTop(homeworld: HomeworldPlacement): number {
 }
 
 export function telescopeMapView(level: number, homeworld: HomeworldPlacement = PROVISIONAL_HOMEWORLD): TelescopeMapView {
-  const homeY = homeworld.distanceFromCoreLy;
+  const homeX = homeworld.galactic.x;
+  const homeY = homeworld.galactic.y;
   // The radial scale: the mockup's TELESCOPE_MAP_RADIUS, shrunk only when this homeworld's farthest range would not
   // fit the view box (never clip a ring).
   const farthestLy = rangeLyForReachTop(homeworld);
@@ -288,7 +304,7 @@ export function telescopeMapView(level: number, homeworld: HomeworldPlacement = 
 
   // Galactic (x, y) -> map pixels, centered on the homeworld.
   const proj = (x: number, y: number): [number, number] => {
-    const dx = x;
+    const dx = x - homeX;
     const dy = y - homeY;
     const d = Math.hypot(dx, dy);
     if (d < 1) return [CX, CY];
@@ -334,8 +350,10 @@ export function telescopeMapView(level: number, homeworld: HomeworldPlacement = 
   const [coreX, coreY] = proj(0, 0);
   const badges: TelescopeMapBadge[] = TIERS.map((tier) => {
     const pos = BADGE_POSITIONS[tier];
-    const gx = pos.x;
-    const gy = tier === 7 ? 0 : homeY + pos.dy;
+    const ref = Math.hypot(pos.x, pos.dy);
+    const scale = tier === 7 || ref < 1 ? 1 : badgeDistanceLy(ref, tier, homeworld) / ref;
+    const gx = tier === 7 ? 0 : homeX + pos.x * scale;
+    const gy = tier === 7 ? 0 : homeY + pos.dy * scale;
     let [x, y] = proj(gx, gy);
     if (tier === 1) {
       // Touching the Level 1 ring from outside, so "in range" reads true on the map.
@@ -353,7 +371,7 @@ export function telescopeMapView(level: number, homeworld: HomeworldPlacement = 
       name,
       x: round1(x),
       y: round1(y),
-      distanceLy: Math.round(Math.hypot(gx, gy - homeY)),
+      distanceLy: Math.round(Math.hypot(gx - homeX, gy - homeY)),
       reached,
       label: `${numeral} ${name}, ${reached ? "in range" : "beyond range"}`,
     };
@@ -377,7 +395,7 @@ export function telescopeMapView(level: number, homeworld: HomeworldPlacement = 
     home: { x: CX, y: CY },
     core: { x: round1(coreX), y: round1(coreY) },
     diskPath: pathOf(circle(DISK_LY, 120), true),
-    armPaths: [pathOf(arm(32_400, 2.6, 80)), pathOf(arm(21_000, 2.6, 80)), pathOf(arm(16_000, 2.8, 80)), pathOf(arm(homeY, 0.35, 20))],
+    armPaths: [pathOf(arm(32_400, 2.6, 80)), pathOf(arm(21_000, 2.6, 80)), pathOf(arm(16_000, 2.8, 80)), pathOf(arm(SOL_GALACTIC.y, 0.35, 20))],
     bulgePath: pathOf(circle(BULGE_LY, 60), true),
     ringR: ringR(now.rangeLy),
     nextRingR: rangeGrows && after ? ringR(after.rangeLy) : null,

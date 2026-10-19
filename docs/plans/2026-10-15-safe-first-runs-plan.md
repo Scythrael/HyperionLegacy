@@ -678,3 +678,58 @@ state without stored counters (a dev save or fixture from before SF-1) is never 
 first dispatch (patrol dispatch and the claim already stored them). **Flag for SF-4 (the user's pacing call):** the
 patrol curve counts WON ROUTES, so it fills after 9 of them, which a single Repeat session can fly in one sitting.
 - **Veterans (2026-10-16):** "Full strength, as today (Recommended)": existing saves play as now; only new games ramp.
+
+## SF-2 CARRY NOTE (2026-10-17, built on 7590156)
+
+**What the training run is now.** `buildExpedition` writes `Expedition.difficulty` (runDifficultyAt) ONLY on the
+training run (the first expedition from an explorer, SF3; a recalled one carries over, SF16): every other run stores
+exactly the record it did (SF-3 stamps the ramped runs). The one read is enemyRanks.ts `isTrainingRun`, so FKR-1's
+"no Elite or Boss on a training run" now sees the stamp. The profile, each read only on the stamp, no new draw on any
+stream:
+1. Guards (groundFight.ts): hazard read as 0 and gambit.ts `generateEncounter`'s new optional `EncounterProfile`
+   (absent = today's guard): HP, power and heal x `FIRST_RUN_ENEMY_SCALE` 0.2, at most `FIRST_RUN_MAX_ENEMIES` 1 (the
+   first enemy in role order). Every enemy Normal (FKR-1). Flora poison still applies.
+2. No affixes (the roll is still made and dropped) and no ambush chance (groundOps.ts initGroundTasks).
+3. Ship events fire and always pass (shipScanEvents.ts trainingShipEvent, SF8): debris and storm pass, a ghost passes
+   with its bonus find, a probe or cloaked vessel is beaten off with its salvage (no battle fought), a boarding attempt
+   is repelled. No pause, no hull wear, nothing taken.
+4. The backstop (groundOps.ts trainingFellBack): a lost fight still clears its point; the crew comes home as from any
+   loss (bay, a wiped team's recovery leg); no alert, no loss streak, no send-back, no helper skip; the step record
+   carries `fellBack: true` and the log a `trainingFellBack` entry, worded by groundOpsLogText as "<objective>: The
+   guards fell back. Training run: no setback." (`TRAINING_FELL_BACK_TEXT`).
+5. Odds: groundThreat.ts groundTaskClearOdds reads Guaranteed on a training run (no samples, no memo entry), so the
+   default plan, the recommendation and the launch forecast agree with the run.
+6. Transit: the 30 minute shakedown is RETIRED (group 3). New runs store `shakedown: false`; the training run flies
+   `TUTORIAL_TRANSIT_SECONDS` (= `TRANSIT_SECONDS` for now; the tutorial patch shortens it), every other run the
+   regular one; a run in flight from before SF-2 keeps its stored shakedown and its 30 minute legs.
+Gear wear is not built, so there is none to switch off (note for whoever builds it: skip it on the stamp).
+
+**The proof.** `safeFirstExpedition.test.ts` (22 default tests, about 3 s): the stamp and the transit per explorer,
+the freighter's ordinary first run, veterans, the legacy shakedown, the recall carry-over, each profile effect against
+the same run without the stamp (never vacuous), the backstop with an unarmed crew and with a crew wiped every fight
+(recovery legs), offline == live on that run (one call, 997 s chunks, 1 s steps around the first recovery leg, the
+event-boundary chain), the Forecast-detail launch view against the run, and a fixed sample (3 fresh candidates x 3
+explorers x 10 crews, 8 seeds x 3 explorers x 4 crews). `safeFirstExpedition.sweep.test.ts` (gated, `npm run
+test:sweep:training` or SF_SWEEP; about 20 s): 500 Tier I seeds x Orion, Aurora, Eir x {D18 minimum, board 2 hires and
+all 10 at window i mod 6, full rank 1, full rank 1 with a passive complement} = 7,500 runs, every one complete with
+every objective done (71,595), no lost fight (77,760 won), no send-back, no stuck flag at any 10,000 s checkpoint, no
+hull damage, no ship-event setback (20,130 passed), no boarding loss, claimed with the ship undamaged; 13,335 Vault or
+Subterranean objectives among them. The fixed constants (0.2, 1) needed no tuning: the backstop never fired.
+
+**Goldens.** Moved on purpose (SF-0 `firstRunsGoldens.test.ts`, the moves listed in its GOLDEN header): the 24
+`first:*` rows (freighters: the regular transit; explorers: the training run, all 54 explorer rows now complete clean),
+`first:parity`, `later:eir:real` and its line, and the 24 gated `lines:first:*`. Unchanged: everything else in SF-0
+(`first:launch`, `guards`, `gather:*`, patrols, `old:v69`; `later:orion:*` through a fixture that marks the training
+run done), FK-3, FKR-0, G2-0 goldens 1, 2 and 4, CP-0, WR-4 and every earlier gate. The pre-SF-2 dispatch is
+reconstructed by awayTeamTestFixtures.ts `withoutSafeFirstRuns` / `asPreSafeFirstRunsDispatch` (no stamp, the
+shakedown back on "expedition-1"), folded into `withoutRisk` / `withoutGroundOps` / `withoutAffixes` /
+`withoutAffixCatalog` (a run from before those flags is from before SF-2 too) and applied explicitly in CP-0, WR-4,
+G2-0 and FK-3. **The SF-0 section 2.5 B sweep stays the pre-SF-2 NOMINAL Tier I record** (dispatched as before SF-2),
+the baseline SF-3's ramp is measured against, instead of becoming a second copy of the training proof. Behavior
+tests that assumed the 1,800 s shakedown now wait the regular transit (clearing, launch preview, telescope, the sim
+horizons); `asExpeditionVeteran` is the helper for nominal explorer play.
+
+For later slices: SF-3 writes the stamp on ramped runs and generalizes groundFight.ts's training branch to
+`runEnemyScale` / `runMaxEnemies` / `encounterHazard` (the hazard 0 and the backstop stay training only). SF-6 shows
+the "Training run" chip from `isTrainingRun`, the run log (no UI renders `groundOpsLogText` yet), and the retired
+"shakedown run" label in ExpeditionPanel.svelte (legacy in-flight runs only now). SF-4 adds the patrol stamp.

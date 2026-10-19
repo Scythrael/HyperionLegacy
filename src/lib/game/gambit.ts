@@ -1589,7 +1589,15 @@ const HAZARD_STAT_COEFF = 0.8; // enemy HP/power scale by (1 + hazard * this)
 // Generate a seeded, role-tagged enemy set for one activity, scaled by the body's hazard + the PoI. PURE:
 // mints fresh combatants from the injected seed. The Healer presence (Vault / Subterranean) is what makes
 // "target the healer" the winning line on hard finds.
-export function generateEncounter(seed: number, hazard: number, poiId: string): GroundCombatant[] {
+//
+// Safe first runs SF-2: an optional PROFILE scales the guard (absent = exactly today's encounter): HP, power and heal
+// (threat follows power) times `scale` after the hazard multiplier, and at most `maxEnemies` enemies (the first ones in
+// role order; null = no cap). Every draw is taken as before (the extra-enemy roll included), so the stream is unchanged.
+export interface EncounterProfile {
+  scale: number;
+  maxEnemies: number | null;
+}
+export function generateEncounter(seed: number, hazard: number, poiId: string, profile?: EncounterProfile): GroundCombatant[] {
   const rng = makeRng(seed >>> 0);
   const roles = (POI_ENCOUNTER_ROLES[poiId] ?? DEFAULT_ENCOUNTER_ROLES).slice();
   // Hazard may add one extra body (a seeded roll), drawn from the PoI's own role list so the extra fits
@@ -1597,13 +1605,20 @@ export function generateEncounter(seed: number, hazard: number, poiId: string): 
   if (rng.chance(Math.round(Math.min(1, Math.max(0, hazard)) * HAZARD_EXTRA_ENEMY_PERMILLE), 1000)) {
     roles.push(roles[rng.nextInt(roles.length)]);
   }
-  const statMult = 1 + Math.max(0, hazard) * HAZARD_STAT_COEFF;
+  // The cap keeps at least one enemy (a cap of 0 or below, or a non-number, reads as 1: a guarded site always fields
+  // its guard).
+  if (profile && profile.maxEnemies !== null) {
+    const cap = Number.isFinite(profile.maxEnemies) ? Math.max(1, Math.floor(profile.maxEnemies)) : 1;
+    if (roles.length > cap) roles.length = cap;
+  }
+  const statMult = (1 + Math.max(0, hazard) * HAZARD_STAT_COEFF) * (profile && Number.isFinite(profile.scale) ? Math.max(0, profile.scale) : 1);
   const groupCounts = new Map<EnemyRole, number>();
   return roles.map((role) => {
     const n = (groupCounts.get(role) ?? 0) + 1;
     groupCounts.set(role, n);
     const base = ENEMY_ROLE_STATS[role];
-    const hp = Math.round(base.hp * statMult);
+    // A scaled guard keeps at least 1 HP (the unscaled roll is exactly as before: its HP is always far above 1).
+    const hp = profile ? Math.max(1, Math.round(base.hp * statMult)) : Math.round(base.hp * statMult);
     const power = base.power * statMult;
     const combatant: GroundCombatant = {
       id: `enemy-${role}-${n}`,

@@ -48,7 +48,9 @@
   import { crewRankLabel } from "./game/crewRank";
   import { complementTotalCap } from "./game/commandStructure";
   import { CREW_RACES } from "./game/crewRaces";
-  import { canApplyRoster, rosterApplyGateText } from "./game/personnelRosters";
+  import { canApplyRoster, rosterApplyGateText, rosterSquadLinkSlots } from "./game/personnelRosters";
+  import { groundTeamDefaultName } from "./game/groundTeams";
+  import { rosterSquadOptions } from "./squadLoadoutDisplay";
   import { crewLockReason, crewLockUntilText } from "./game/crewLock";
   import Icon from "./ui/Icon.svelte";
 
@@ -89,6 +91,9 @@
   // it curates the sort/pin affordances the builder surfaces.
   export let onToggleOfficerFavorite: (officerId: string) => void;
   export let onToggleNotableFavorite: (notableId: string) => void;
+  // GO-17 UI: link (or clear, with null) the Armory squad loadout for one ground team by index (host:
+  // setLinkedSquadLoadout). Applying the roster puts each linked one on its team.
+  export let onSetSquadLoadout: (rosterId: string, teamIndex: number, loadoutId: string | null) => void;
 
   // --- Local UI state ---------------------------------------------------------
   // The selected saved roster's id (null = nothing selected / build a new one).
@@ -404,6 +409,36 @@
           </div>
         </div>
       {/if}
+
+      <!-- GO-17 UI (user S14): one Armory SQUAD loadout per ground team, put on its team when applied. -->
+      {@const squadOptions = rosterSquadOptions(state)}
+      <div class="pr-field">
+        <span class="pr-field-t">Squad loadouts (one per ground team)</span>
+        {#if squadOptions.length === 0}
+          <div class="pr-empty-hint">No squad loadouts yet. Save a team's gear in the Armory's Squad Loadouts tab first.</div>
+        {:else}
+          {#each Array.from({ length: rosterSquadLinkSlots() }, (_, i) => i) as teamIndex (teamIndex)}
+            {@const linkedId = roster.linkedSquadLoadoutIds?.[teamIndex] ?? null}
+            <div class="pr-squad-row">
+              <label for="pr-squad-{teamIndex}">{groundTeamDefaultName(teamIndex)}</label>
+              <select
+                id="pr-squad-{teamIndex}"
+                value={linkedId ?? ""}
+                on:change={(e) => onSetSquadLoadout(roster.id, teamIndex, e.currentTarget.value || null)}
+              >
+                <option value="">No squad loadout</option>
+                {#each squadOptions as o (o.id)}
+                  <option value={o.id}>{o.label}</option>
+                {/each}
+                {#if linkedId !== null && !squadOptions.some((o) => o.id === linkedId)}
+                  <option value={linkedId}>No longer in the Armory</option>
+                {/if}
+              </select>
+            </div>
+          {/each}
+          <div class="pr-hint">Teams go by position on the ship (Alpha first). A loadout goes only on a team of its own type; a piece that cannot go on is skipped, never forced.</div>
+        {/if}
+      </div>
 
       <!-- INCLUDE Senior Staff & Complement -->
       <label class="pr-chk">
@@ -742,6 +777,24 @@
   /* FIELDS */
   .pr-field {
     margin-bottom: 11px;
+  }
+  /* GO-17 UI: the per-team squad loadout links. */
+  .pr-field-t {
+    display: block;
+    font-family: var(--font-mono);
+    font-size: var(--text-2xs);
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--color-text-dim);
+    margin-bottom: 6px;
+  }
+  .pr-squad-row {
+    margin-bottom: 8px;
+  }
+  .pr-hint {
+    font-size: var(--text-xs);
+    color: var(--color-text-dim);
+    line-height: 1.5;
   }
   .pr-field label {
     display: block;

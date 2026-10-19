@@ -394,3 +394,30 @@ entries); G1-5 small but blocked on G3; G1-6 large (new tab, popup, cards, two l
 Roughly the size of G2 without its galaxy work. If open call 2 picks (b), add one large slice and a design round.
 Push-back flag: 0.14.0 still carries complement, expedition tiers, Field Kits, Relics v2, the gas giant study,
 Material Lines and universal modules ahead of G1 in the build order.
+
+## USER ANSWERS (2026-10-17)
+
+- **Existing survey / supply missions:** "Keep them separate (Recommended)". **Refugees vs the E5 facility-crews
+  loop:** "Relocate now, crews loop right after (Recommended)". **Placement:** "Own Operations tab (Recommended)".
+  **Slots:** "Mission Control upgrades (Recommended)".
+
+## USER ANSWERS (2026-10-19)
+
+- **Call 1, what re-rolls:** "Whole job (Recommended)": each run a slot can draw any template.
+- **Call 3, sheet shape:** "One per tier, all stats (Recommended)".
+- **Call 4, categories:** "Five, Engineering = crew (Recommended)": Range, Cargo, Guest quarters, Sensors, Engineering;
+  Engineering is the ship's Engineering crew strength as a rating.
+- **Call 5, stat name:** "Guest quarters (Recommended)".
+- **Call 6, guest quarters sources:** "Affix, variety, hull, perk (Recommended)": a quarters affix line, a new quarters
+  variety (name still open), a hull base on transport hulls [PROVISIONAL Eir 80, Orion 40, Aurora 40, General Freighter
+  20, others 0], and the General perk.
+- **Call 9, after training:** "Slow start, no failure (Recommended)".
+- **Call 10, training profile:** "Full training profile (Recommended)": smallest roll, "Training run" chip, no wear,
+  normal length via the tutorial hook.
+- **Quarters variety name:** "Guest Wing (Recommended)".
+- **Call 11, relics:** "Rare, per hour (Recommended)": lowest-tier unidentified relics, chance per hour of mission
+  time, Tier I 0.08x and Tier II 0.15x the expedition rate; G1-5 after Relics v2.
+- **Call 12, destinations:** "Generated now, charted later (Recommended)".
+- **Call 13, rewards:** "Tier II income band (Recommended)": the mockup table at about 1,000 to 1,300 credits per hour
+  at base.
+- Still open: 14, 15, 17, 18.

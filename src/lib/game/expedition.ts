@@ -124,7 +124,7 @@ import {
   type GroundOpsScanDriver,
 } from "./groundOps";
 // Field Kits FKR-1: the enemy ranks catalog version a new run is stamped with (enemyRanks.ts is pure, no cycle).
-import { ENEMY_RANKS_VERSION } from "./enemyRanks";
+import { ENEMY_RANKS_VERSION, isTrainingRun } from "./enemyRanks";
 // E-CREW (Task 16): the claim turns the run's downed members into injuries (pure; imports model types,
 // crewOverlay and crewBuffs only, never this module, so no cycle). GO-7b: a Ground Ops run brings home the
 // members still in the medical bay instead (applyGroundOpsInjuries).
@@ -147,7 +147,7 @@ import {
 } from "./riskFactors";
 import type { BodyRiskGrades, ExpeditionRiskProfile, GroundTaskNeeds, GroundTeamKind } from "./model";
 // Squads SQ-5: the Subspace Telescope's reading of each candidate (display only; a run never reads it).
-import { TELESCOPE_DETAIL, blindLaunchCount, readSystem, telescopeLevel, telescopeReading } from "./telescope";
+import { TELESCOPE_DETAIL, blindLaunchCount, readSystem, stateHomeworld, telescopeLevel, telescopeReading } from "./telescope";
 // Squads SQ-6: the task preview's readers, the launch recommendation and the forecast (display only), and the one
 // engine action they offer (applyComposition, SQ-7's "Set composition").
 import {
@@ -180,17 +180,22 @@ import { addToInventory, itemCap, foldLifetimeStatsDelta } from "./tick";
 import Decimal from "break_infinity.js";
 import { formatCountdown } from "./format";
 // Safe first runs SF-1: the run counters a claim updates (runDifficulty.ts imports model.ts only, so no cycle).
-import { countClaimedExpedition, runCountsOf } from "./runDifficulty";
+import { countClaimedExpedition, runCountsOf, runDifficultyAt } from "./runDifficulty";
 
 // ============================================================================
 // FIRST-PASS TUNABLE constants
 // ============================================================================
 
 // TRANSIT: design I.2 says ~6 HOURS IRL to the first real target with a decent ship. At the default
-// 1s tick cadence, 1 tick == 1 second, so 6 hrs == 21600 ticks. The inaugural SHAKEDOWN run (the
-// per-account first expedition) is much shorter to "prove the drives" before the real long-haul.
+// 1s tick cadence, 1 tick == 1 second, so 6 hrs == 21600 ticks.
 export const TRANSIT_SECONDS = 21600; // ~6 hours IRL at the 1s cadence
-export const SHAKEDOWN_TRANSIT_SECONDS = 1800; // ~30 min IRL: the inaugural shakedown
+// The RETIRED inaugural SHAKEDOWN (the per-account first expedition, 30 minutes). Safe first runs SF-2 (user, group 3)
+// retired it as a special length: only a run in flight at the update (Expedition.shakedown stored true) still flies it.
+export const SHAKEDOWN_TRANSIT_SECONDS = 1800; // ~30 min IRL: the retired inaugural shakedown (in-flight runs only)
+// Safe first runs SF-2 (user, group 3): the TRAINING RUN's transit (runDifficulty.ts isTrainingExpedition: the first
+// expedition from an explorer). Its own constant, set EQUAL to the regular one for now: the tutorial patch shortens it
+// (about 5 seconds, the story beats carrying the trip). The return leg reuses it, like every run's.
+export const TUTORIAL_TRANSIT_SECONDS = TRANSIT_SECONDS;
 
 // The RETURN leg mirrors the outbound BASE transit (design C.0: recall re-runs that same transit
 // home). It does NOT re-add the anomaly detour time (charting happened on the way out).
@@ -696,12 +701,13 @@ function gateForeknowledge(
 export function expeditionCandidates(state: GameState, shipId: string): ExpeditionCandidate[] {
   const ship = state.ships.find((s) => s.id === shipId);
   const snap = shipSensorSnapshot(state, ship);
-  const reading = telescopeReading(state);
+  const homeworld = stateHomeworld(state); // G2-1: the range and distances from the save's own homeworld
+  const reading = telescopeReading(state, homeworld);
   const out: ExpeditionCandidate[] = [];
   for (let i = 0; i < EXPEDITION_CANDIDATE_COUNT; i++) {
     const seed = makeExpeditionSeed(state.expeditionSeed, i);
     const gen = generateSystem(seed);
-    const sys = readSystem(reading, seed, snap.sensorPower, expeditionRiskPreview(seed));
+    const sys = readSystem(reading, seed, snap.sensorPower, expeditionRiskPreview(seed), homeworld);
     // Squads SQ-6: the task demand (cheap: one throwaway discovery and stamping pass) rides the candidate from Per
     // body. The recommendation and the forecast simulate launches, so they are NOT built here: the UI asks for them
     // per candidate (expeditionLaunchView, e.g. for an expanded card).
@@ -1068,7 +1074,8 @@ export function startExpedition(
   const expedition = buildExpedition(state, ship, captainId, seed, anomalyOptIn, number, gen, risk);
   // Squads SQ-6 (user, SQ-5 call (b)): count a BLIND launch (beyond the telescope's range: the same reading the
   // candidate showed), so the future "go in blind" achievement can award retroactively. Never read by a run.
-  const blind = readSystem(telescopeReading(state), seed, expedition.sensorPower, risk).blind;
+  const homeworld = stateHomeworld(state);
+  const blind = readSystem(telescopeReading(state, homeworld), seed, expedition.sensorPower, risk, homeworld).blind;
 
   return {
     next: {
@@ -1158,6 +1165,9 @@ function buildExpedition(
   // Squads SQ-4: the RISK PROFILE's presence (with each body's grades) is the risk-aware flag the ground tasks
   // stamp from.
   const bodies = gen.bodies.map((b, i) => ({ ...b, risk: risk.bodies[i] }));
+  // Safe first runs SF-2: the training run's stamp, from stored state only (the counters and the runs out).
+  const trainingStamp = runDifficultyAt(state, "expedition", risk.profile.tier, ship.typeKey);
+  const training = trainingStamp.firstRun;
 
   const expedition: Expedition = {
     id,
@@ -1170,7 +1180,13 @@ function buildExpedition(
     sensorPower: snap.sensorPower,
     phase: "transit",
     phaseAnchorSeconds: state.gameTimeSeconds,
-    shakedown: number === 1, // per-account inaugural run (nextExpeditionId === 1 means none dispatched yet)
+    // Safe first runs SF-2: the 30 minute shakedown is retired (user, group 3); the training run below flies the
+    // tutorial transit instead.
+    shakedown: false,
+    // Safe first runs SF-2: the TRAINING RUN's stamp (runDifficulty.ts runDifficultyAt), written only on the training
+    // run (the first expedition from an explorer; SF-3 stamps the ramped runs), so every other run stores exactly the
+    // record it did. The forecast's throwaway run is built here too, so the launch view reads the same profile.
+    ...(training ? { difficulty: trainingStamp } : {}),
     bodies,
     anomalyResolved: false,
     anomalyCharted: false,
@@ -1224,9 +1240,12 @@ function buildExpedition(
 // Per-phase pure helpers (all read from ELAPSED-in-phase seconds)
 // ============================================================================
 
-// The BASE transit duration (no anomaly detour), shakedown-aware. The RETURN leg reuses this.
+// The BASE transit duration (no anomaly detour). The RETURN leg reuses this. A run in flight from before SF-2 with the
+// retired shakedown keeps its 30 minutes; the training run (SF-2) flies the tutorial length; every other run the
+// regular one.
 function baseTransitSeconds(exp: Expedition): number {
-  return exp.shakedown ? SHAKEDOWN_TRANSIT_SECONDS : TRANSIT_SECONDS;
+  if (exp.shakedown) return SHAKEDOWN_TRANSIT_SECONDS;
+  return isTrainingRun(exp) ? TUTORIAL_TRANSIT_SECONDS : TRANSIT_SECONDS;
 }
 
 // The full TRANSIT duration: base + the anomaly detour once charted. anomalyCharted only becomes true

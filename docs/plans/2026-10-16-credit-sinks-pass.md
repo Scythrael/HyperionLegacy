@@ -243,3 +243,73 @@ hard caps (prices rise on a curve instead).
 - **Speed seam calls (2026-10-17):** OC-S1 + OC-S2 + OC-S3 "3 steps, 10/min x tier (Recommended)" (max 3 steps,
   1.75x; step k costs ceil(10 x job minutes x tier x k); not offered on a job's final tick); OC-S4 + OC-S5
   "Uninspected gear, not 'earned' (Recommended)"; OC-S6 "Up to 30 days (Recommended)".
+
+## SPEED SEAM DESIGN (2026-10-17, built: `src/lib/game/processSpeed.ts`)
+
+Serves the USER ANSWERS above (Overtime: "+25% steps, rising cost", one seam with the tutorial time skip) and the
+safe first runs plan's USER ANSWERS group 2 (a time skip on every timed process, "Hook only"; a grant hook) and
+group 3 (a TUTORIAL duration constant for the first explorer expedition, SF-2's job). No UI in this slice: an
+Overtime button needs a sketch first.
+
+**The data shape.** One optional record, `speed?: ProcessSpeed = { overtimeSteps?: number; instantComplete?: true;
+clockOffsetSeconds?: number }`,
+on `TimedProcess`, `CaptainMissionState`, `PatrolMissionState` and `Expedition` (model.ts). Absent on everything
+nothing sped up, so a save without a purchase is byte-identical (every existing golden is unchanged). Plain numbers
+and a flag: no migration, SAVE_VERSION stays 70.
+
+**How each process reads it.**
+
+| Process | Where its timing lives | Overtime | Time skip |
+| :- | :- | :- | :- |
+| Refining, crafting, research, relic study, facility upgrades (incl. the Docks, berths and storage tracks), ship builds, ship repairs, salvage | `TimedProcess.remainingTicks`, a countdown resolveProcesses subtracts | buyOvertime rescales `remainingTicks` (work left = remainingTicks x rate; new time = that / new rate) and records the step; resolveProcesses is untouched | `remainingTicks` = 0: the job completes on the next tick through its normal completion branch (same effect, XP lump, log entry) |
+| Captain missions (extraction cycles) | `phase` + `phaseProgressTicks` | not offered | tickCaptainMission runs the CURRENT cycle through to its delivery inside the next tick without spending that tick's time (same rolls, cargo, XP, berth claim); the next cycle is built without the flag |
+| Patrols | `progressTicks` along the route | not offered | tickCaptainPatrol flies the CURRENT route (and a limp home) to its end inside the next tick; a relaunched route is built without the flag |
+| Expeditions | `phaseAnchorSeconds` against the game clock | not offered | advanced to its own completion at once (pure in elapsed time and the run's seed, so the findings are the ones the run would produce) and stamped; a run that cannot finish on its own within 30 days of its clock (a team that keeps failing) is refused **[PROPOSAL]** |
+
+**A skipped expedition's claim.** The skip runs the run's own clock to its natural end E while the game clock stays at
+now, so the run's stored times (its medical bay ends) sit on its clock. The stamp records `clockOffsetSeconds` = E -
+now, and the Ground Ops claim (injuries.ts applyGroundOpsInjuries) reads them shifted back by it: a member comes home
+injured only if still in the bay at E, with exactly the time left at E. Tests: findings AND claim parity with the run
+claimed at its natural end, on finishing Ground Ops runs (review follow-up, 2026-10-17). `canApplyTimeSkip` on an
+expedition runs the whole run ahead (up to 30 days of its clock), so call it on a player action, never per render.
+
+Offline == live: Overtime changes only the stored countdown, so one catch-up call and many one-tick steps subtract
+the same ticks and complete on the same tick (tests per Overtime kind; a mid-job two-step case). The skip on a
+mission or patrol is closed-form for the same reason the loops already are. Nothing in the seam draws.
+
+**The tutorial duration (group 3).** The first explorer expedition's TUTORIAL duration constant (set equal to the
+normal Tier I length) is chosen at dispatch by SF-2; nothing in this seam interferes with it, and the instant
+variant is `applyTimeSkip` on that expedition.
+
+**Overtime [PROPOSAL] numbers.**
+- Rate after k steps: 1 + 0.25 x k (user). **Max 3 steps** [PROPOSAL]: at most 1.75x, never double, never instant;
+  the time left goes to 80%, 67%, then 57% of the normal-rate time, so each step saves less than the last.
+- **Price of step k:** ceil(10 credits x the job's minutes x its tier x k) [PROPOSAL]. Job minutes = its own full
+  length (durationTicks, which already carries facility speed bonuses), so the price does not depend on when it is
+  bought. Tier = the hull being built or repaired, the blueprint being researched, or the rung being built (never
+  below 1). Examples: a 5-minute Tier I hull build costs 50 / 100 / 150; a 20-minute build 200 / 400 / 600; the
+  45-minute telescope level 8 rung (tier 8) 3,600 / 7,200 / 10,800.
+- Offered on Shipyard builds and repairs, research and facility upgrades (incl. the Docks, berths and equipment
+  storage tracks) (user list); not on refining, crafting, salvage, relic study, missions, patrols or expeditions.
+- Refused when the job is maxed, time-skipped, on its last tick [PROPOSAL], or the balance is short. The job's size
+  (and its lump Fleet Admiral XP) is unchanged; only the time left changes. `processWorkFraction` is the honest
+  progress bar under Overtime (the existing bars jump forward at a purchase, the time-left readouts stay right).
+- Known display item for the UI slice: the completion log back-dates a job's start by its full length, so a sped-up
+  job reads as started earlier than it was.
+
+**The grant hook.** `grant(state, { credits?, items?, gear?, hullType? }, reason)` returns the state and a System Log
+line ("<reason>. Received 500 credits, 4 Frame Segments, 1 uninspected Plasma Cannon and a General Freighter.").
+All or nothing; positive whole amounts only. Items fill up to their storage cap (the line names what arrived; a
+bundle of items that are all at their cap is refused as `storageFull`). Gear
+arrives as uninspected pieces of a gear blueprint (the same blank a Fabricator craft deposits) **[PROPOSAL]**, so a
+grant makes no draws; a pre-rolled piece would need a seeded roll. The hull is minted exactly as a Shipyard build
+mints one (`mintBuiltShip`, Standard Issue installed) and is refused when the Docks are full. A grant is not income:
+lifetime credits earned are unchanged **[PROPOSAL]**.
+
+**Wiring registry.** Overtime is LIVE (`facility:SPEED_SEAM:overtime`, a divisor on a running job's time left at the
+shipyard, research and facility contexts). The time skip and the grant are the new `seam` status, owned by the
+tutorial patch and the tutorial / quests patch (tested in processSpeed.test.ts; not release blockers).
+
+**Open calls, ANSWERED (user, 2026-10-17):** OC-S1 to OC-S3 "3 steps, 10/min x tier" as built (3 steps; 10 per job
+minute x tier x step; refused on a job's last tick); OC-S4 and OC-S5 "uninspected gear, not counted as earned" as
+built; OC-S6 "up to 30 days" as built.

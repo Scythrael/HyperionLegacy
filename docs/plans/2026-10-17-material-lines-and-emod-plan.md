@@ -483,3 +483,18 @@ Ground Ops, Relics v2, the gas giant study and G1. This plan is the largest rema
 engine is the single biggest new system left in the release. The cleanest cuts that keep every promise honest are
 EM-9 (the salvage loop), ML-5 (quality blanks) and, if the user wants more room, the M2 (c) split (Procs, Actives and
 Sets in 0.14.x). The power budget itself should not move: seven registry rows and Task 22's allow-list wait on it.
+
+## USER ANSWERS (2026-10-17)
+
+- **Hull base power:** "Hulls get base power (Recommended)": each hull supplies enough base power for a normal
+  Standard-Issue + early crafted fit; a crafted Reactor Core adds more; explorers power-rich.
+- **Reactor Core value (B10):** "Power headroom + surplus bonus (Recommended)": raises the budget, and unused surplus
+  gives a small bonus (e.g. faster shield recharge).
+- **Over budget:** "Gentle penalty curve (Recommended)": smooth reduced strength as the shortfall grows; nothing
+  shuts off; installing over budget is refused with the reason shown.
+- **Module slot conflict:** "Separate counts (Recommended)": bridge, quarters and sensor always have their own slot;
+  `moduleSlots` caps only the universal modules and spec utility (Aurora the most). Supersedes OC-D4's wording.
+- **P1 pinned:** "No ship goes over (Recommended)": base output at or above today's heaviest crafted loadout; the
+  budget binds on modules and higher drive classes. **P3 surplus:** "Speeds the drive (Recommended)" (supersedes the
+  "faster shield recharge" example in the first answer). **M2 scope:** "Power + all 5 types, small roster
+  (Recommended)": salvage-only module loop to 0.14.x. **P6 penalty:** "sqrt curve, floor 60% (Recommended)".

@@ -355,6 +355,15 @@ import { resolveExpeditions } from "./expedition";
 // x1 (byte-identical) until a captain retires, so wiring it into captain XP accrual below changes no
 // existing save's behavior (every existing save has 0 retirements).
 import { retirementExpMultiplier } from "./captainRetirement";
+// WR-5a (0.14.0): the captain secondary-tree readers (the Prospector tree; pure, imports only model.ts).
+import {
+  captainDeliveryQualityBonus,
+  captainDockedCreditsPerTick,
+  withDeepVeins,
+  captainMotherlodeChance,
+  captainTransportTerms,
+  motherlodeSeed,
+} from "./captainSecondaryEffects";
 // Crafting Allocation Redesign (Task C2): the per-slot line engine below reuses C1's
 // pure allocation core, `lineInputsPerIteration` builds a line's per-iteration input
 // map from the recipe registries (the SAME map startRefineJob/startFabricateJob build
@@ -1682,9 +1691,10 @@ export function missionDropChances(state: GameState, captain: CaptainState, miss
   const def = MISSIONS[missionKey];
   const ship = state.ships.find((s) => s.assignedCaptainId === captain.id);
   const surveyRareFind = surveyRareFindFor(state, ship, missionKey);
-  const rareChanceMult = surveyRareFind === 0 ? captainRareChanceMult(captain) : captainRareChanceMult(captain) + surveyRareFind;
+  // WR-5a: Deep Veins (extraction2) is its own x (1 + v) factor on both chances (withDeepVeins), as economyTick rolls.
+  const rareChanceMult = withDeepVeins(surveyRareFind === 0 ? captainRareChanceMult(captain) : captainRareChanceMult(captain) + surveyRareFind, captain);
   return {
-    uncommon: Math.min(1, def.uncommonChance * (1 + captainUncommonChanceMult(captain))),
+    uncommon: Math.min(1, def.uncommonChance * (1 + withDeepVeins(captainUncommonChanceMult(captain), captain))),
     rare: museumRareChance(def.rareChance * (1 + rareChanceMult), museumBonuses(state).rareMaterialChance),
   };
 }
@@ -1851,6 +1861,15 @@ export function tickCaptainMission(
     // economyTick ONCE per call off its incoming state, so it is a call-constant exactly like the other
     // fields here. Omitted / 0 -> bit-identical odds.
     museumRareChanceMult?: number;
+    // WR-5a (captain secondary tree, captainSecondaryEffects.ts): call-constants read off the captain flying the
+    // mission. motherlodeChance: Motherlode (extraction5), the chance per delivered non-transport cycle that its
+    // haul doubles, rolled on a PRIVATE keyed stream (motherlodeSeed of the captain's LIFETIME
+    // CaptainState.motherlodeCycles), never the shared rng. transportMarginBonus / transportSupplyDiscount: Trade 1
+    // to 3 (x Trade Baron): a supply run's margin x (1 + bonus), its supplies bought x (1 - discount) at the same
+    // sale value. Absent / 0 = no roll, the exact pre-WR-5a arithmetic.
+    motherlodeChance?: number;
+    transportMarginBonus?: number;
+    transportSupplyDiscount?: number;
   } = {},
   // The assigned ship's three derived stats (cargoCapacity, transitSpeedMult,
   // extractionYieldMult), or null for "no ship modifier", the default, which
@@ -2158,6 +2177,16 @@ export function tickCaptainMission(
   const transportLoadCost =
     missionDef.missionType === "transport" ? missionDef.cargoCapacity * (missionDef.supplyCostPerCargo ?? 0) : 0;
   const transportRewardMargin = missionDef.rewardMargin ?? 0;
+  // WR-5a: the captain's Trade terms (call-constants). The working capital PAID is the discounted cost; the sale
+  // returns the full load value plus the boosted margin, so the net is loadCost x margin x (1 + bonus) plus the
+  // discount saved. Both 0 keeps the exact pre-WR-5a expressions below.
+  const transportMarginBonus = Math.max(0, bonuses.transportMarginBonus ?? 0);
+  const transportSupplyDiscount = Math.max(0, bonuses.transportSupplyDiscount ?? 0);
+  const transportTradeLive = transportMarginBonus > 0 || transportSupplyDiscount > 0;
+  const transportPaidCost = transportSupplyDiscount === 0 ? transportLoadCost : transportLoadCost * (1 - transportSupplyDiscount);
+  // WR-5a: Motherlode (a call-constant chance) and the captain's lifetime roll counter, advanced in delivery order.
+  const motherlodeChance = Math.max(0, bonuses.motherlodeChance ?? 0);
+  let motherlodeCycles: number | undefined = captain.motherlodeCycles;
 
   // E-CREW 0.14.0 (Task 20): Command Presence's output share, a CALL-CONSTANT like the bonuses above (it is
   // read off the ship's seated officers by economyTick, which never reseats mid-call), applied at each
@@ -2211,7 +2240,14 @@ export function tickCaptainMission(
     specBonusRollChance: bonuses.specBonusRollChance ?? 0,
   };
 
-  while (remaining > 0 && mission !== null) {
+  // 0.14.0 SPEED SEAM (processSpeed.ts applyTimeSkip, the tutorial time skip): while the CURRENT cycle carries
+  // speed.instantComplete, each phase is applied whole and the call's own ticks are not spent, so the cycle runs
+  // through to its delivery inside this call (the same rolls, cargo, XP and berth claim the time would have
+  // produced) and the call's ticksElapsed then runs on in the next cycle. A new cycle is built without the flag, so
+  // the skip ends with the cycle; a berth hold breaks out as usual and the skip resumes on the next tick. Without the
+  // flag the condition and every step below are the original ones (byte-identical).
+  while (mission !== null && (remaining > 0 || mission.speed?.instantComplete === true)) {
+    const skipping = mission.speed?.instantComplete === true;
     // Fuel Economy v2 (F3): the ordersReceived phase of a cycle that AUTO-BOUGHT its fuel
     // shortfall runs REFUEL_PENALTY_TICKS longer ("refuel at a non-allied station"). The delay
     // is a per-cycle constant stamped on mission.refuelDelayTicks at the cycle boundary (below)
@@ -2227,7 +2263,7 @@ export function tickCaptainMission(
       missionPhaseTicks(mission.phase, missionDef, mission.cargo) +
       (mission.phase === "ordersReceived" ? mission.refuelDelayTicks ?? 0 : 0);
     const ticksLeftInPhase = requiredTicks - mission.phaseProgressTicks;
-    let ticksToApply = Math.min(remaining, ticksLeftInPhase);
+    let ticksToApply = skipping ? ticksLeftInPhase : Math.min(remaining, ticksLeftInPhase);
 
     // Snap to the exact phase boundary when float drift leaves the tentative
     // post-step progress within epsilon of it. Recomputing ticksToApply from
@@ -2304,7 +2340,8 @@ export function tickCaptainMission(
     }
 
     mission.phaseProgressTicks += ticksToApply;
-    remaining -= ticksToApply;
+    // 0.14.0 SPEED SEAM: a skipped phase is free time (the call's own ticks stay for the next cycle).
+    if (!skipping) remaining -= ticksToApply;
     // A phase that completes with call budget left over (spilling into the
     // next phase within this same call) can leave a sub-epsilon residue in
     // `remaining` even after the snap above (e.g. 2.58e-15), since `remaining`
@@ -2352,9 +2389,21 @@ export function tickCaptainMission(
         const rareFind =
           sciStream !== null &&
           sciStream.next() < museumRareChance(missionDef.rareChance * (1 + resolvedBonuses.rareChanceMult), resolvedBonuses.museumRareChanceMult);
-        const haul = rareFind
+        const found = rareFind
           ? { ...cargo, rareMaterial: cargo.rareMaterial.plus(new Decimal(missionDef.extractionRatePerTick).times(1 + resolvedBonuses.rareYieldMult)) }
           : cargo;
+        // WR-5a: Motherlode. Each delivered non-transport cycle of a captain with the node takes ONE draw of its
+        // private stream (keyed on the captain's lifetime Motherlode counter, which then steps, so no cycle of a
+        // career, on this run or a later one, shares a key); a hit DOUBLES the haul (after Science's find, before
+        // Command Presence and Operations' bonus, so their shares grow the doubled haul). Whole units stay whole.
+        let motherlode = false;
+        if (motherlodeChance > 0 && missionDef.missionType !== "transport") {
+          motherlode = makeRng(motherlodeSeed(captain.id, motherlodeCycles ?? 0)).next() < motherlodeChance;
+          motherlodeCycles = (motherlodeCycles ?? 0) + 1;
+        }
+        const haul = motherlode
+          ? { commonOre: found.commonOre.times(2), uncommonMaterial: found.uncommonMaterial.times(2), rareMaterial: found.rareMaterial.times(2) }
+          : found;
         // Exploration 0.14.0 (Phase E1b): TRANSPORT missions deposit NO extraction loot (a transport
         // is a pure credit loop, not a mining run). The cargo still ACCUMULATED during extracting (the
         // roll loop above is untouched, so the seeded rng stream stays byte-aligned live and offline),
@@ -2398,10 +2447,14 @@ export function tickCaptainMission(
         // transport cycle counts as completed (an idle cycle delivered nothing). A non-transport
         // mission takes the unchanged flat per-cycle award.
         if (missionDef.missionType === "transport") {
-          if (creditsRemaining >= transportLoadCost) {
-            creditsRemaining -= transportLoadCost; // working capital committed this cycle (running balance)
+          if (creditsRemaining >= transportPaidCost) {
+            creditsRemaining -= transportPaidCost; // working capital committed this cycle (running balance)
             // NET profit (cost returned, only margin is new); E-CREW (Task 21): plus Operations' bonus cargo.
-            const margin = outputCredits(transportLoadCost * transportRewardMargin);
+            // WR-5a: the captain's Trade terms (the boosted margin plus the discount saved on the supplies).
+            const net = transportTradeLive
+              ? transportLoadCost * transportRewardMargin * (1 + transportMarginBonus) + (transportLoadCost - transportPaidCost)
+              : transportLoadCost * transportRewardMargin;
+            const margin = outputCredits(net);
             creditsDelta += marginStream === null ? margin : bonusCargo(margin, marginStream);
             cyclesCompleted += 1;
           }
@@ -2625,6 +2678,8 @@ export function tickCaptainMission(
       lastStopReason: stopReason ?? captain.lastStopReason,
       // E-CREW (Task 21): the lifetime Cunning counter, written only once a cycle has rolled.
       ...(cunningCycles !== undefined ? { cunningCycles } : {}),
+      // WR-5a: the lifetime Motherlode counter, written only once a cycle has rolled.
+      ...(motherlodeCycles !== undefined ? { motherlodeCycles } : {}),
     },
     homePlanetDelta,
     fleetAdminXpDelta,
@@ -3088,17 +3143,23 @@ export function tickCaptainPatrol(
   let endReason: PatrolEndReason | null = null;
 
   let remaining = ticksElapsed;
-  while (remaining > 0 && mission !== null) {
+  // 0.14.0 SPEED SEAM (processSpeed.ts applyTimeSkip, the tutorial time skip): while the CURRENT route carries
+  // speed.instantComplete, every route tick is taken whole and the call's own ticks are not spent, so the route (and
+  // a limp home) runs through to its end inside this call with the same waves, loot and damage the time would have
+  // produced. A relaunched route is built by freshPatrolMission without the flag, so the call's ticksElapsed then
+  // runs on in it at normal speed. Without the flag the condition and every step are the original ones.
+  while (mission !== null && (remaining > 0 || mission.speed?.instantComplete === true)) {
+    const skipping = mission.speed?.instantComplete === true;
     // Advance to the NEXT whole route-tick boundary (the extraction closed-form idiom).
     const nextBoundary = Math.floor(progress) + 1;
-    let step = Math.min(remaining, nextBoundary - progress);
+    let step = skipping ? nextBoundary - progress : Math.min(remaining, nextBoundary - progress);
     // Snap to the boundary when float drift leaves the tentative step within epsilon of
     // it, so the "landed on a whole tick?" test below reads the corrected value.
     if (Math.abs(progress + step - nextBoundary) < MISSION_TICK_EPSILON) {
       step = nextBoundary - progress;
     }
     progress += step;
-    remaining -= step;
+    if (!skipping) remaining -= step;
 
     // A sub-tick partial (did not reach the boundary): nothing happens except banking
     // `progress`; the loop exits next check (remaining now 0) with the residue carried.
@@ -3901,6 +3962,11 @@ export function economyTick(
   // assigned to each such ship. Closed-form (a pure additive count) and per-tick safe (it changes no
   // stat mid-span; promotion is a discrete player action, never auto-applied here).
   const shipMissionCompletions = new Map<string, number>();
+  // WR-5a (Assayer, captain secondary extraction4; user 2026-10-17 "Own ship only"): per item, the share of this
+  // call's delivery that came from an Assayer captain's OWN mission, with its rollQuality bonus. The deposit fold
+  // below grades that share with the bonus and the rest without it, both off the SAME recorded draws (rollQuality is
+  // draw-count invariant), so no draw is added. Empty without the node, so the fold rolls exactly as before.
+  const assayerDelivered = new Map<string, { amount: Decimal; bonus: number }>();
   // Safe first runs SF-1: the patrol routes WON this call, fleet-wide (the patrol curve, runDifficulty.ts
   // countPatrolRoutes), folded once into runCounts below. A pure additive count, so one big call and many small ones
   // accrue the identical total.
@@ -4212,12 +4278,14 @@ export function economyTick(
     // AND the bonus roll read it, and the existing min(1, ...) bound still holds. Only the THRESHOLD moves:
     // the draw count per tick is unchanged. 0 for a non-survey mission or a ship without either source.
     const surveyRareFind = surveyRareFindFor(state, ship, missionKey);
+    const tradeTerms = captainTransportTerms(captain);
     const bonuses = {
       commonYieldMult: captainCommonYieldMult(captain),
       uncommonYieldMult: captainUncommonYieldMult(captain),
-      uncommonChanceMult: captainUncommonChanceMult(captain),
+      // WR-5a: Deep Veins (extraction2), its own x (1 + v) factor on both chances (withDeepVeins; identity without it).
+      uncommonChanceMult: withDeepVeins(captainUncommonChanceMult(captain), captain),
       rareYieldMult: fleetRareYield,
-      rareChanceMult: surveyRareFind === 0 ? captainRareChanceMult(captain) : captainRareChanceMult(captain) + surveyRareFind,
+      rareChanceMult: withDeepVeins(surveyRareFind === 0 ? captainRareChanceMult(captain) : captainRareChanceMult(captain) + surveyRareFind, captain),
       // E-CREW 0.14.0 (Task 20): Command Presence (the ship's mission output; 0 without the officer).
       missionOutputMult: ship ? officerMissionOutputBonus(state, ship) : 0,
       // E-CREW 0.14.0 (Task 21): the Operations / Science departments' Cunning (0 without a facet).
@@ -4229,6 +4297,10 @@ export function economyTick(
       specBonusRollChance: captainSpecBonusRollChance(captain),
       // E4b: the museum's rareMaterialChance (0 with an empty museum -> bit-identical odds).
       museumRareChanceMult: museum.rareMaterialChance,
+      // WR-5a: the flying captain's Motherlode chance and Trade terms (all 0 without the nodes).
+      motherlodeChance: captainMotherlodeChance(captain),
+      transportMarginBonus: tradeTerms.marginBonus,
+      transportSupplyDiscount: tradeTerms.supplyDiscount,
     };
     // rng passed explicitly (rather than omitted) since bonuses is positional
     // arg 4, omitting arg 3 here would pass bonuses AS rng. rng is economyTick's
@@ -4276,8 +4348,14 @@ export function economyTick(
     // item keys, so fold over the ACTUAL keys present and grow-on-demand (`?? 0`)
     // rather than assuming the fixed 3 ore tiers. For an ore-only fleet the keys are
     // exactly the 3 seeds -> byte-identical to the pre-rework forEach.
+    // WR-5a: Assayer's delivery quality bonus rides each item this captain delivered.
+    const qualityBonus = captainDeliveryQualityBonus(captain);
     for (const key of Object.keys(delta)) {
       homePlanetDelta[key] = (homePlanetDelta[key] ?? new Decimal(0)).plus(delta[key]);
+      if (qualityBonus > 0 && delta[key].gt(0)) {
+        const prev = assayerDelivered.get(key);
+        assayerDelivered.set(key, { amount: (prev?.amount ?? new Decimal(0)).plus(delta[key]), bonus: Math.max(prev?.bonus ?? 0, qualityBonus) });
+      }
     }
     fleetAdminXpDelta += captainFleetAdminXpDelta;
     creditsDelta += captainCreditsDelta;
@@ -4332,6 +4410,16 @@ export function economyTick(
     }
   }
 
+  // WR-5a (Trade Routes, captain secondary trade4; x Trade Baron): credits per tick for every captain DOCKED at the
+  // START of this call (no mission, no expedition) once the fleet has delivered a supply run. Read off the incoming
+  // state and scaled by ticksElapsed, closed-form exactly like the passive trickle above. 0 without the node.
+  let dockedCredits = 0;
+  for (const captain of state.captains) dockedCredits += captainDockedCreditsPerTick(state, captain) * ticksElapsed;
+  if (dockedCredits > 0) {
+    creditsDelta += dockedCredits;
+    lifetimeStats = { ...lifetimeStats, creditsEarned: lifetimeStats.creditsEarned.plus(dockedCredits) };
+  }
+
   // Ship Production Economy (Phase 1, Task 4): fold the accumulated loot delta
   // (mission deliveries + passiveTrickle, BOTH already merged into homePlanetDelta
   // above) into a NEW inventory + discovered pair, this REPLACES the old
@@ -4379,13 +4467,38 @@ export function economyTick(
     // tick, so the draw is consumed at the identical point on both paths, keeping the seeded
     // stream aligned. Re-gating this draw on the post-clamp delta would skip it only on the
     // capped path and silently desync offline loot rng from live.
-    const quality = amount.gt(0) ? rollQuality(rng) : 0;
-    // Warehouse cap clamp: the deposit is bounded at this item's cap (itemCap), so a
-    // cycle completing while just-under-cap lands AT the cap instead of overshooting.
-    // Below cap this is byte-identical to the old unclamped add (min is a no-op).
-    const added = addToInventory(inventory, discovered, key, amount, itemCap(state, key), quality);
-    inventory = added.inventory;
-    discovered = added.discovered;
+    const assayer = assayerDelivered.get(key);
+    if (assayer === undefined || !amount.gt(0)) {
+      const quality = amount.gt(0) ? rollQuality(rng) : 0;
+      // Warehouse cap clamp: the deposit is bounded at this item's cap (itemCap), so a
+      // cycle completing while just-under-cap lands AT the cap instead of overshooting.
+      // Below cap this is byte-identical to the old unclamped add (min is a no-op).
+      const added = addToInventory(inventory, discovered, key, amount, itemCap(state, key), quality);
+      inventory = added.inventory;
+      discovered = added.discovered;
+      continue;
+    }
+    // WR-5a (Assayer, own deliveries only): ONE roll's draws, recorded, grade the rest of the item plainly and are
+    // REPLAYED for the Assayer captain's own share with its bonus (rollQuality draws the same count with or without a
+    // bonus, so the replay reads exactly the draws taken: no draw is added to the shared stream). The Assayer share
+    // deposits first, then the rest (the cap clamps the later deposit, as two deliveries would).
+    const draws: number[] = [];
+    const plainQuality = rollQuality(() => {
+      const r = rng();
+      draws.push(r);
+      return r;
+    });
+    let at = 0;
+    const assayerQuality = rollQuality(() => draws[at++], assayer.bonus);
+    const rest = amount.minus(assayer.amount);
+    const own = addToInventory(inventory, discovered, key, assayer.amount, itemCap(state, key), assayerQuality);
+    inventory = own.inventory;
+    discovered = own.discovered;
+    if (rest.gt(0)) {
+      const added = addToInventory(inventory, discovered, key, rest, itemCap(state, key), plainQuality);
+      inventory = added.inventory;
+      discovered = added.discovered;
+    }
   }
 
   // Phase 1, Task 9: the post-mission fleet state, missions, passiveTrickle, and
@@ -5199,6 +5312,50 @@ function combatStandardIssueSpecFor(typeKey: string): CombatStandardIssueSpec {
     shieldRecharge: SI_EMITTER_RECHARGE,
     hullStrength: SI_PLATING_HP,
   };
+}
+
+// The fleet fields a hull mint advances (resolveProcesses threads them as accumulators).
+export interface ShipMintAccumulator {
+  ships: ShipInstance[];
+  nextShipId: number;
+  equipment: EquipmentInstance[];
+  nextEquipmentId: number;
+}
+
+// MINT ONE PARKED HULL of `typeKey`, the way a completed Shipyard build does (resolveProcesses's addShip branch) and
+// the grant hook does (processSpeed.ts grant), so the two can never drift. 0.14.0: lifted out of resolveProcesses
+// verbatim. The id comes from nextShipId as "ship-N" (the SAME scheme freshState uses) and nextShipId is bumped so
+// ids stay monotonic; assignedCaptainId is null (PARKED, the player assigns it via the Docks). The docks cap is the
+// CALLER's check (resolveProcesses holds a finished build; the grant refuses). PURE: fresh arrays, no draws.
+export function mintBuiltShip(acc: ShipMintAccumulator, typeKey: ShipTypeKey): ShipMintAccumulator & { shipId: string } {
+  const minted: ShipInstance = {
+    id: `ship-${acc.nextShipId}`,
+    typeKey,
+    assignedCaptainId: null,
+  };
+  const ships = [...acc.ships, minted];
+  const nextShipId = acc.nextShipId + 1;
+  // Equipment 0.11.0 (Task 20): a newly-built hull is born with its Standard-Issue
+  // baseline installed on every live slot, so no live slot is ever empty and the
+  // hull is dispatchable the moment it is assigned a captain, exactly like freshState's
+  // starting hull and a migrated ship. Uses the SHARED seeder threaded through the SAME
+  // equipment / nextEquipmentId accumulators resolveProcesses already advances for crafted
+  // gear (Task 19), so the ids stay monotonic across builds AND crafts in one resolve.
+  const seededHull = seedStandardIssueForShip(minted.id, acc.nextEquipmentId);
+  let equipment = [...acc.equipment, ...seededHull.pieces];
+  let nextEquipmentId = seededHull.nextId;
+  // Combat 1.0 (Unit 1.3): if the built hull is a COMBAT hull (destroyer/battleship/carrier),
+  // ALSO install its free Standard-Issue combat set (weapon + shield emitter + hull plating)
+  // so it clears the empty-required-slot dispatch blocker (canDispatchPatrol) the moment it is
+  // crewed. Threaded off the ALREADY-advanced nextEquipmentId (economy seed first, combat seed
+  // second) so every minted id stays unique + monotonic across builds and crafts in one resolve.
+  // A non-combat hull resolves to an empty loadout spec and mints nothing (clean no-op). The
+  // shared combatStandardIssueSpecFor resolves the FULL loadout + behavior-preserving per-hull
+  // magnitudes (Unit 1.4) from the SAME tables the migration + captain-grant paths use.
+  const seededCombat = seedCombatStandardIssueForShip(minted.id, combatStandardIssueSpecFor(minted.typeKey), nextEquipmentId);
+  equipment = [...equipment, ...seededCombat.pieces];
+  nextEquipmentId = seededCombat.nextId;
+  return { ships, nextShipId, equipment, nextEquipmentId, shipId: minted.id };
 }
 
 // installMissingCombatBaselines: fill every COMBAT hull in the fleet that is missing its required
@@ -10975,38 +11132,9 @@ export function resolveProcesses(
         continue; // skip mint + the XP lump at the loop tail; retry next tick
       }
       // Closed-form: fires exactly ONCE on the completion that drops the process, so one big
-      // resolve and many small ones mint the identical hull with the identical id.
-      const minted: ShipInstance = {
-        id: `ship-${nextShipId}`,
-        typeKey: process.effect.typeKey,
-        assignedCaptainId: null,
-      };
-      ships = [...ships, minted];
-      nextShipId += 1;
-      // Equipment 0.11.0 (Task 20): a newly-built hull is born fully fitted with its
-      // Standard-Issue baseline on every live slot, so no live slot is ever empty and the
-      // hull is dispatchable the moment it is assigned a captain, exactly like freshState's
-      // starting hull and a migrated ship. Uses the SHARED seeder threaded through the SAME
-      // equipment / nextEquipmentId accumulators this resolver already advances for crafted
-      // gear (Task 19), so the ids stay monotonic across builds AND crafts in one resolve.
-      const seededHull = seedStandardIssueForShip(minted.id, nextEquipmentId);
-      equipment = [...equipment, ...seededHull.pieces];
-      nextEquipmentId = seededHull.nextId;
-      // Combat 1.0 (Unit 1.3): if the built hull is a COMBAT hull (destroyer/battleship/carrier),
-      // ALSO install its free Standard-Issue combat set (weapon + shield emitter + hull plating)
-      // so it clears the empty-required-slot dispatch blocker (canDispatchPatrol) the moment it is
-      // crewed. Threaded off the ALREADY-advanced nextEquipmentId (economy seed first, combat seed
-      // second) so every minted id stays unique + monotonic across builds and crafts in one resolve.
-      // A non-combat hull resolves to an empty loadout spec and mints nothing (clean no-op). The
-      // shared combatStandardIssueSpecFor resolves the FULL loadout + behavior-preserving per-hull
-      // magnitudes (Unit 1.4) from the SAME tables the migration + captain-grant paths use.
-      const seededCombat = seedCombatStandardIssueForShip(
-        minted.id,
-        combatStandardIssueSpecFor(minted.typeKey),
-        nextEquipmentId
-      );
-      equipment = [...equipment, ...seededCombat.pieces];
-      nextEquipmentId = seededCombat.nextId;
+      // resolve and many small ones mint the identical hull with the identical id. 0.14.0: the
+      // mint lives in mintBuiltShip so the grant hook (processSpeed.ts) mints the identical hull.
+      ({ ships, nextShipId, equipment, nextEquipmentId } = mintBuiltShip({ ships, nextShipId, equipment, nextEquipmentId }, process.effect.typeKey));
     } else if (process.effect.type === "addEquipment") {
       // Equipment 0.11.0 (Task 19): a completed EQUIPMENT fabricate job MINTS a non-stacking
       // EquipmentInstance (NOT an inventory item, and no stackable output). We look up

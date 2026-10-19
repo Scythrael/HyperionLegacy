@@ -24,6 +24,8 @@ import {
   deleteRoster,
   renameRoster,
   setLinkedLoadout,
+  setLinkedSquadLoadout,
+  rosterSquadLinkSlots,
   setIncludePeople,
   assignSeat,
   pinNotable,
@@ -395,6 +397,70 @@ describe("applyRoster applies its linked SHIP loadout (S4-CP39)", () => {
     const { s, loadoutId, rosterId } = linked();
     const worn = { ...s, loadouts: s.loadouts.map((l) => (l.id === loadoutId ? { ...l, checkedOutToShipId: "ship-1" } : l)) };
     expect(applyRoster(worn, rosterId, "ship-1")).toBe(worn);
+  });
+});
+
+// GO-17 UI (user S14: "rosters link squad loadouts one per team"): a roster links one Armory GROUND TEAM
+// loadout per team index and applyRoster puts each on its team, the ship loadout rule (never forced, never
+// pulled off another team, a refused put leaves the team as it was).
+describe("applyRoster applies its linked SQUAD loadouts (GO-17 UI)", () => {
+  const emptyKit = () => ({ armor: null, weapon: null, tool: null, implants: [] as string[] });
+  const squad = (id: string, kind: "ground" | "strike" | "survey" = "ground", checkedOutTo: { shipId: string; teamIndex: number } | null = null) => ({
+    id, name: id, kind, security: [emptyKit()], science: [emptyKit()], checkedOutTo,
+  });
+  function withSquads(squads: ReturnType<typeof squad>[], links: (string | null)[] = []) {
+    const base = stateWith();
+    const r = createRoster({ ...base, squadLoadouts: squads, nextSquadLoadoutId: squads.length + 1 }, { name: "R", includePeople: false });
+    let s = r.next;
+    links.forEach((id, i) => { s = setLinkedSquadLoadout(s, r.rosterId!, i, id); });
+    return { s, rosterId: r.rosterId! };
+  }
+  const wornBy = (s: GameState, id: string) => s.squadLoadouts.find((l) => l.id === id)!.checkedOutTo;
+  const linksOf = (s: GameState, rosterId: string) => s.personnelRosters.find((r) => r.id === rosterId)!.linkedSquadLoadoutIds;
+
+  it("setLinkedSquadLoadout links one loadout per team, moves a repeat, clears, and refuses bad input same-ref", () => {
+    const { s, rosterId } = withSquads([squad("squad-1"), squad("squad-2")]);
+    const a = setLinkedSquadLoadout(s, rosterId, 1, "squad-2");
+    expect(linksOf(a, rosterId)).toEqual([null, "squad-2"]);
+    const moved = setLinkedSquadLoadout(a, rosterId, 0, "squad-2"); // one team per loadout
+    expect(linksOf(moved, rosterId)).toEqual(["squad-2"]);
+    const cleared = setLinkedSquadLoadout(moved, rosterId, 0, null);
+    expect(linksOf(cleared, rosterId)).toBeUndefined();
+    expect(setLinkedSquadLoadout(a, rosterId, 1, "squad-2")).toBe(a); // unchanged
+    expect(setLinkedSquadLoadout(a, rosterId, 0, "squad-9")).toBe(a); // no such loadout
+    expect(setLinkedSquadLoadout(a, rosterId, -1, "squad-1")).toBe(a);
+    expect(setLinkedSquadLoadout(a, rosterId, 1.5, "squad-1")).toBe(a);
+    expect(setLinkedSquadLoadout(a, rosterId, rosterSquadLinkSlots(), "squad-1")).toBe(a);
+    expect(setLinkedSquadLoadout(a, "roster-9", 0, "squad-1")).toBe(a);
+  });
+
+  it("puts each linked loadout on its team, even for a gear-only roster", () => {
+    const { s, rosterId } = withSquads([squad("squad-1"), squad("squad-2")], ["squad-2", "squad-1"]);
+    const applied = applyRoster(s, rosterId, "ship-1");
+    expect(wornBy(applied, "squad-2")).toEqual({ shipId: "ship-1", teamIndex: 0 });
+    expect(wornBy(applied, "squad-1")).toEqual({ shipId: "ship-1", teamIndex: 1 });
+    expect(wornBy(s, "squad-1")).toBeNull(); // input untouched
+  });
+
+  it("a team wearing a different loadout checks it in first", () => {
+    const { s, rosterId } = withSquads([squad("squad-1"), squad("squad-2", "ground", { shipId: "ship-1", teamIndex: 0 })], ["squad-1"]);
+    const applied = applyRoster(s, rosterId, "ship-1");
+    expect(wornBy(applied, "squad-2")).toBeNull();
+    expect(wornBy(applied, "squad-1")).toEqual({ shipId: "ship-1", teamIndex: 0 });
+  });
+
+  it("never pulls a loadout off another team; a refused put (other team type) leaves the team as it was", () => {
+    const worn = withSquads([squad("squad-1", "ground", { shipId: "ship-9", teamIndex: 0 })], ["squad-1"]);
+    expect(applyRoster(worn.s, worn.rosterId, "ship-1")).toBe(worn.s);
+
+    const kind = withSquads([squad("squad-1", "strike"), squad("squad-2", "ground", { shipId: "ship-1", teamIndex: 0 })], ["squad-1"]);
+    const out = applyRoster(kind.s, kind.rosterId, "ship-1");
+    expect(out).toBe(kind.s);
+    expect(wornBy(out, "squad-2")).toEqual({ shipId: "ship-1", teamIndex: 0 });
+
+    const gone = withSquads([squad("squad-1")], ["squad-1"]);
+    const deleted = { ...gone.s, squadLoadouts: [] };
+    expect(applyRoster(deleted, gone.rosterId, "ship-1")).toBe(deleted);
   });
 });
 

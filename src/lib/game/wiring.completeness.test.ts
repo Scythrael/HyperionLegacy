@@ -23,7 +23,7 @@ import { classifiedCatalogDefs, enumerateEffectSources, shipLineKeys } from "./w
 import { FIELD_ROLES, UNREAD_CONSTANTS } from "./wiring/fieldRoles";
 
 // Registry catalogs that are not catalog walks: the plan's audit rows, derived seams and missing fields.
-const SUPPLEMENTARY_CATALOGS = new Set(["AUDIT", "AWAY_TEAM_STRENGTH", "CAPTAIN_PROGRESSION", "MEMBER_PERKS", "SHIP_SEAMS", "SHIP_TYPES.missing", "GAMBIT_PROGRAMS"]);
+const SUPPLEMENTARY_CATALOGS = new Set(["AUDIT", "AWAY_TEAM_STRENGTH", "CAPTAIN_PROGRESSION", "MEMBER_PERKS", "SHIP_SEAMS", "SHIP_TYPES.missing", "GAMBIT_PROGRAMS", "SPEED_SEAM"]);
 
 const sources = enumerateEffectSources();
 // The display texts that promise a number today (the five Fleet Logistics queue labels, "+1 ..."): the scan must see them.
@@ -165,11 +165,15 @@ describe("wiring completeness: every entry is well formed", () => {
     const bad = WIRING_REGISTRY.filter((e) => e.status.kind === "live" && !e.notApplicable && (e.probe === undefined || e.contexts.length === 0)).map((e) => e.id);
     expect(bad).toEqual([]);
   });
-  it("a pending or deferred entry names its owner; a deferred or held entry carries the user's words", () => {
+  it("a pending, deferred or seam entry names its owner; a deferred, held or seam entry carries the user's words", () => {
     for (const e of WIRING_REGISTRY) {
       if (e.status.kind === "pending") expect(e.status.owner.length, e.id).toBeGreaterThan(0);
       if (e.status.kind === "deferred") expect(e.status.userRef.length, e.id).toBeGreaterThan(0);
       if (e.status.kind === "held") expect(e.status.userRef.length, e.id).toBeGreaterThan(0);
+      if (e.status.kind === "seam") {
+        expect(e.status.owner.length, e.id).toBeGreaterThan(0);
+        expect(e.status.userRef.length, e.id).toBeGreaterThan(0);
+      }
     }
   });
   it("every context is a known context, and a PARTIAL entry's missing contexts are not also live", () => {

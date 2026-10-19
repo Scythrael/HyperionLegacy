@@ -321,12 +321,14 @@ describe("migrate, v68 -> v69 orphaned ship references repaired (CP-6)", () => {
 
   it("a clean save loads byte-identically to the same save at the current version", () => {
     const clean = raw(crewedFleet());
+    // G2-1: the "at" load is handed the homeworld the v69 -> v70 step seeds (homeworldMigration.test.ts tests it).
     const via = migrateFrom(68, JSON.parse(JSON.stringify(clean)));
-    const at = migrateFrom(SAVE_VERSION, JSON.parse(JSON.stringify(clean)));
+    const at = migrateFrom(SAVE_VERSION, { ...JSON.parse(JSON.stringify(clean)), homeworld: via.homeworld });
     expect(JSON.stringify(via)).toBe(JSON.stringify(at));
     const fresh = raw(freshState());
-    expect(JSON.stringify(migrateFrom(68, JSON.parse(JSON.stringify(fresh))))).toBe(
-      JSON.stringify(migrateFrom(SAVE_VERSION, JSON.parse(JSON.stringify(fresh))))
+    const freshVia = migrateFrom(68, JSON.parse(JSON.stringify(fresh)));
+    expect(JSON.stringify(freshVia)).toBe(
+      JSON.stringify(migrateFrom(SAVE_VERSION, { ...JSON.parse(JSON.stringify(fresh)), homeworld: freshVia.homeworld }))
     );
   });
 

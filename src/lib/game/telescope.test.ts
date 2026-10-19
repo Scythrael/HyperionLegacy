@@ -42,6 +42,7 @@ import {
   rangeLyForReach,
   readSystem,
   regionTierNumeral,
+  stateHomeworld,
   systemDistanceLy,
   telescopeLevel,
   telescopeReading,
@@ -158,7 +159,9 @@ describe("telescope upgrades run like every facility upgrade", () => {
 
     const done = resolveProcesses(started.next, 120).next;
     expect(telescopeLevel(done)).toBe(2);
-    expect(telescopeReading(done)).toMatchObject({ level: 2, reachTier: 2, rangeLy: 3_000, detail: 2 });
+    expect(telescopeReading(done, PROVISIONAL_HOMEWORLD)).toMatchObject({ level: 2, reachTier: 2, rangeLy: 3_000, detail: 2 });
+    // G2-1: the state reader measures from the save's own homeworld.
+    expect(telescopeReading(done)).toEqual(telescopeReadingAtLevel(2, stateHomeworld(done)));
   });
 
   it("Level 8 is fully upgraded", () => {
@@ -193,7 +196,8 @@ describe("the reading: range in light-years from the homeworld, and detail", () 
     ];
     for (const [level, reachTier, rangeLy, detail] of expected) {
       expect(telescopeReadingAtLevel(level), `level ${level}`).toEqual({ level, reachTier, rangeLy, detail, detailName: TELESCOPE_DETAIL_NAMES[detail] });
-      expect(telescopeReading(atLevel(level))).toEqual(telescopeReadingAtLevel(level));
+      expect(telescopeReading(atLevel(level), PROVISIONAL_HOMEWORLD)).toEqual(telescopeReadingAtLevel(level));
+      expect(telescopeReading(atLevel(level))).toEqual(telescopeReadingAtLevel(level, stateHomeworld(atLevel(level))));
     }
   });
 
@@ -364,7 +368,7 @@ describe("the candidate carries the telescope reading", () => {
       expect(c.telescope.detail).toBe(2);
       // SQ-6: the reading plus the task-based pieces, none of which Graded shows.
       expect(c.telescope).toEqual({
-        ...readSystem(telescopeReading(s), c.seed, 0, expeditionRiskPreview(c.seed)),
+        ...readSystem(telescopeReading(s), c.seed, 0, expeditionRiskPreview(c.seed), stateHomeworld(s)),
         demand: null,
       });
     }
@@ -389,7 +393,9 @@ describe("the candidate carries the telescope reading", () => {
       delete copy.blindLaunches;
       return JSON.parse(JSON.stringify(copy));
     };
-    const CHECKPOINTS = [T0 + 10_000, T0 + 30_000, T0 + 60_000, T0 + 120_000, T0 + 400_000];
+    // Safe first runs SF-2: the last checkpoint leaves room for the regular transit legs (the 30 minute shakedown is
+    // retired), so the run still completes and is claimed.
+    const CHECKPOINTS = [T0 + 10_000, T0 + 30_000, T0 + 60_000, T0 + 120_000, T0 + 400_000, T0 + 800_000];
     let reference: string[] | null = null;
     let claimed = 0;
     for (let level = 0; level <= 8; level++) {

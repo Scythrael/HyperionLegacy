@@ -294,6 +294,18 @@ export const ICON_PATHS = {
   lock: ["M6 11h12a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1v-8a1 1 0 0 1 1-1z", "M8 11V8a4 4 0 0 1 8 0v3"],
   // Flag: a pennant on a pole (something waits on your choice, e.g. "Pick a type").
   flag: ["M5 21V4", "M5 4h12l-2.5 4 2.5 4H5"],
+
+  // Squad Loadouts (0.14.0 GO-17 UI, the approved squad loadouts mockup's glyphs).
+  // Locker: a two-door gear locker with handles (a loadout resting in the Armory).
+  locker: ["M6 3h12a1 1 0 0 1 1 1v16a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z", "M12 3v18", "M9.5 10v2", "M14.5 10v2"],
+  // Check in: an arrow down onto the shelf line (the set goes back into the locker).
+  checkIn: ["M12 4v11", "M7.5 10.5L12 15l4.5-4.5", "M5 19h14"],
+  // Check out / put on: an arrow up off the shelf line (the set comes out onto a team).
+  checkOut: ["M12 15V4", "M7.5 8.5L12 4l4.5 4.5", "M5 19h14"],
+  // Save a set: the classic disk (body with a clipped corner, shutter, label).
+  saveSet: ["M5 4h11l3 3v13H5z", "M8 4v5h7V4", "M8 20v-6h8v6"],
+  // Skipped: a circle with a bar (a piece left out of an install, with its reason beside it).
+  skipped: ["M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18z", "M8 12h8"],
 } as const satisfies Record<string, readonly string[]>;
 
 /**
