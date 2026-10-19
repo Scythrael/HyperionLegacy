@@ -1,4 +1,4 @@
-// Crew 0.14.0 (Phase 2): the crew TRANSPORT influx (pure, DORMANT).
+// Crew 0.14.0 (Phase 2): the crew TRANSPORT influx (pure; crewOverlay.ts resolveCrew delivers it once per tick).
 //
 // Transports are the "gentle gacha influx" that trickles fresh complement crew into the unassigned
 // pool over time. This module is the PURE logic for that: a deterministic per-window batch of newly
@@ -11,12 +11,12 @@
 // window as floor(gameTimeSeconds / TRANSPORT_WINDOW_SECONDS) makes the influx a pure function of
 // elapsed game time, so an offline span naturally delivers its backlog and live == offline agrees.
 //
-// DORMANT: nothing here is wired into the tick. The later "crew goes live" wiring phase will call
-// crewTransportsDue each tick, deliver transportBatch per elapsed window into state.crewPool, and
-// advance state.lastTransportWindow (the field already exists from Phase 0). ALL numbers are
-// FIRST-PASS + TUNABLE. See docs/plans/2026-09-22-crew-0.14.0-plan.md ("Engine seams" 4, Phase 2).
+// Wired: crewOverlay.ts resolveCrew calls crewTransportsDue each tick, delivers the due batches into
+// state.crewPool and advances state.lastTransportWindow. ALL numbers are FIRST-PASS + TUNABLE. See
+// docs/plans/2026-09-22-crew-0.14.0-plan.md ("Engine seams" 4, Phase 2).
 
-import type { CrewBucket, CrewSignature } from "./model";
+import type { CrewBucket, CrewSignature, GameState } from "./model";
+import { HOMEWORLD_TALENTS } from "./model";
 import { generateComplementCrew } from "./crewGeneration";
 import { addToBucketList, coalesceBuckets } from "./crew";
 
@@ -27,6 +27,19 @@ export const TRANSPORT_WINDOW_SECONDS = 1800;
 
 // How many crew ride one transport. A gentle trickle, not a flood. FIRST-PASS + TUNABLE.
 export const TRANSPORT_BATCH_SIZE = 12;
+
+// WR-6 (0.14.0, OC-B3, user 2026-10-15 "Citizenry helps crew recruitment"): the crew one transport carries for this
+// fleet: the base batch plus every owned transportCrewBonus Homeworld talent (Civic Charter). A batch of N + k rolls
+// the same first N crew as a batch of N (each crew's roll is keyed by its index), so the bonus ADDS crew and never
+// rerolls the others. Exactly TRANSPORT_BATCH_SIZE without one. Pure.
+export function transportBatchSize(state: Pick<GameState, "unlockedHomeworldTalents">): number {
+  let extra = 0;
+  for (const key of state.unlockedHomeworldTalents) {
+    const e = HOMEWORLD_TALENTS[key]?.effect;
+    if (e && e.type === "transportCrewBonus") extra += e.crew;
+  }
+  return TRANSPORT_BATCH_SIZE + Math.max(0, Math.floor(extra));
+}
 
 // The transport window index for a given game time: floor(gameTimeSeconds / TRANSPORT_WINDOW_SECONDS).
 // A new batch is due whenever this steps. Pure.
@@ -81,12 +94,14 @@ export function deliverDueTransports(
   pool: CrewBucket[],
   lastWindow: number,
   gameTimeSeconds: number,
+  // WR-6: the crew per transport (transportBatchSize); the base batch by default.
+  batchSize: number = TRANSPORT_BATCH_SIZE,
 ): { pool: CrewBucket[]; lastWindow: number } {
   const current = transportWindowIndex(gameTimeSeconds);
   let next = pool.map((b) => ({ ...b }));
   // Deliver each owed window's batch, in order, from lastWindow+1 up to the current window.
   for (let w = lastWindow + 1; w <= current; w += 1) {
-    next = foldTransportBatch(next, transportBatch(seed, w, TRANSPORT_BATCH_SIZE));
+    next = foldTransportBatch(next, transportBatch(seed, w, batchSize));
   }
   // Never move the marker backward (a lastWindow ahead of current leaves it untouched).
   return { pool: next, lastWindow: Math.max(lastWindow, current) };

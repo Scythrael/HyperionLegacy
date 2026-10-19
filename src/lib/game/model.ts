@@ -4041,8 +4041,9 @@ export interface CaptainState {
   // never taken a successor), so an old save needs NO field-level migration and NO SAVE_VERSION bump:
   // it rides the `...captain` spread through serialize/hydrateDecimals untouched (a plain string, not
   // a Decimal), exactly like lastStopReason below and the established optional-additive convention.
-  // This is IDENTITY DATA ONLY today: applying a captain RACIAL BONUS from it is a documented FOLLOW-ON
-  // (ties to the E-CAP captain-identity set); nothing on the tick reads this field yet.
+  // WR-6 (0.14.0, OC-A43): the captain carries this race's racial on the ship it commands, at the officer
+  // (Senior Staff) magnitude x CAPTAIN_RACIAL_SCALE, through the same crew map an officer's racial rides
+  // (seniorStaff.ts captainRacialBonus, crewOverlay.ts rawShipCrewContribution). Absent = no racial.
   race?: CrewRace;
   // OPTIONAL transient display hint (offline recap): the reason this captain's mission last
   // ended at a genuine wall-stop, see CaptainStopReason above. undefined by default (a clean
@@ -4309,6 +4310,11 @@ export interface TimedProcess {
   // process in a 0.14.0 save without a purchase, so resolveProcesses and every reader are byte-identical. Plain
   // numbers and a flag: rides hydrateDecimals's spread, no migration.
   speed?: ProcessSpeed;
+  // WR-6 (0.14.0, OC-B2): Works Directorate's extra output, decided when a Fabricator job STARTS (tick.ts
+  // startProcess, its own keyed roll) and stamped here, so the job delivers one more of its output at completion.
+  // Written only when the roll lands (absent = the normal output), so a job started before WR-6, or without the
+  // talent, completes byte-identically. A plain flag: no migration.
+  bonusOutput?: true;
 }
 
 // 0.14.0 SPEED SEAM: the one speed record every timed thing can carry (a TimedProcess, an extraction mission, a
@@ -11727,16 +11733,18 @@ export type CaptainTalentEffect =
   | { type: "rareChanceMult"; mult: number }
   | { type: "bonusRollChance"; chance: number }
   | { type: "bonusRollChanceMult"; mult: number }
-  // Radial Skill Web (Task 2): a genuinely-null gateway effect. Used by the
-  // Tactician/Explorer hubs, which are "learn me first" seeds for branches
-  // whose real mechanics (combat / a redefined science system) don't exist
-  // yet. Chosen over a `commonYieldMult`/`mult: 0.0` placeholder because that
-  // would render through describeCaptainTalentEffect as a misleading
-  // "+0.0% Common Ore yield" line on a combat/science node, a `none` member
-  // renders honestly as "no bonus yet" instead. Carries no payload; the tick
-  // economy (tick.ts) simply has nothing to apply for it. When those systems
-  // land, the hub's effect changes to a real member and this stays available
-  // for any future pure-gateway node.
+  // WR-6 (0.14.0, wiring plan OC-A40 to OC-A42): the Tactician and Explorer hubs and the tactical / science spec
+  // bonuses, live. Each is its own x (1 + mult) factor ("Always multiply", user 2026-10-17) on the ship the captain
+  // commands (OC-A2), read by captainPrimaryEffects.ts and folded where the matching secondary node already acts:
+  //   weaponDamageMult : every weapon projectile's damage in ship battles (the frozen captain combat record)
+  //   scanRateMult     : the expedition scan rate (the frozen scan params)
+  //   relicFindMult    : the relic find chance on expedition objectives (the frozen run record)
+  | { type: "weaponDamageMult"; mult: number }
+  | { type: "scanRateMult"; mult: number }
+  | { type: "relicFindMult"; mult: number }
+  // Radial Skill Web (Task 2): a genuinely-null gateway effect. No captain node carries it since WR-6 (both hubs
+  // grant a real bonus now); it stays available for a future pure-gateway node and renders honestly as "no bonus
+  // yet" rather than a misleading "+0.0%" line.
   | { type: "none" };
 
 // unlockCaptainSlot carries no gate beyond the node's own `cost` (adminPoints)
@@ -11824,17 +11832,18 @@ export type HomeworldTalentEffect =
   // or a node granting more at once, lands with zero engine change. The value is
   // seeded from CRAFTING_ILEVEL_PER_NODE (below), the single source of truth.
   | { type: "craftingItemLevel"; bonus: number }
-  // Radial Skill Web (Task 3): a genuinely-null gateway effect, added to mirror
-  // CaptainTalentEffect's own `none` member (Task 2) exactly. Used by the
-  // Homeland Defense and Citizenry hubs, which are "learn me first" seeds for
-  // categories whose real mechanics (a Battlespace/defense system, a population
-  // system) don't exist yet. Chosen over a `rareYieldMult`/`mult: 0.0`
-  // placeholder because that would render through describeHomeworldTalentEffect
-  // as a misleading "+0.0% Rare Material yield" line on a defense/citizenry
-  // hub, a `none` member renders honestly as "no bonus yet" instead. Carries
-  // no payload; the tick economy (tick.ts) simply has nothing to apply for it.
-  // When those systems land, the hub's effect changes to a real member and this
-  // stays available for any future pure-gateway node.
+  // WR-6 (0.14.0, wiring plan OC-B2 / OC-B3, user 2026-10-15 "Give them real effects"): the three placeholder hubs,
+  // live. Each is fleet-wide (Fleet Admiral prestige), read where its system already runs:
+  //   fabricatorBonusOutput : the chance a Fabricator job delivers one more of its output (its own keyed roll when
+  //                           the job STARTS, stamped on the job, so a job in flight never changes; tick.ts startProcess)
+  //   patrolShieldMult      : the ship's shield pool and recharge on patrols, its own x (1 + mult) factor frozen per
+  //                           patrol cycle with the captain combat record (captainTacticianEffects.ts)
+  //   transportCrewBonus    : more crew on every crew transport (transports.ts transportBatchSize)
+  | { type: "fabricatorBonusOutput"; chance: number }
+  | { type: "patrolShieldMult"; mult: number }
+  | { type: "transportCrewBonus"; crew: number }
+  // Radial Skill Web (Task 3): a genuinely-null gateway effect, mirroring CaptainTalentEffect's own `none`. No
+  // Homeworld node carries it since WR-6; it stays available for a future pure-gateway node.
   | { type: "none" };
 
 // Radial Skill Web (docs/plans/2026-07-08-radial-skill-web-plan.md, Task 1):
@@ -11894,12 +11903,10 @@ export interface HomeworldTalentDef {
 //     re-homed ex-`command` extraction talents (Bulk -> Refined Extraction,
 //     commonYieldMult/uncommonYieldMult, extraction yield fits the salvage
 //     theme) and the existing Keen Eye I/II + Lucky Strike I/II.
-//   - tactical ("Tactician") and science ("Explorer") are a single gateway
-//     hub each, "learn me first" seeds for branches whose real mechanics
-//     (combat / a redefined science system) don't exist yet. Their hubs carry
-//     a `{ type: "none" }` effect (an honest "no bonus yet", NOT a misleading
-//     0.0 yield placeholder) so they render correctly but grant nothing until
-//     their systems land. No inert filler nodes are authored for them.
+//   - tactical ("Tactician") and science ("Explorer") are a single hub each.
+//     WR-6 (0.14.0): each hub grants a real bonus now (Combat Readiness: weapon
+//     damage in ship battles; Survey Doctrine: expedition scan rate), and their
+//     deeper doctrine lives in the secondary tree (WR-5b / WR-5c).
 //
 // `command`/`diplomacy` are GONE (removed with the old five-column model in
 // Task 1); their content is either dropped (diplomacy) or re-homed onto
@@ -11917,10 +11924,23 @@ export type CaptainTalentKey =
   | "prospectorKeenEyeII"
   | "prospectorLuckyStrikeI"
   | "prospectorLuckyStrikeII"
-  // tactical ("Tactician"), lean gateway stub until combat exists
+  // tactical ("Tactician"), its hub (weapon damage, WR-6)
   | "tacticianHub"
-  // science ("Explorer"), lean gateway stub until a science mechanic exists
+  // science ("Explorer"), its hub (expedition scan rate, WR-6)
   | "explorerHub";
+
+// WR-6 (0.14.0): the sizes of the captain primary bonuses the user has not sized yet. Each is the wiring plan's
+// recommended option (section 5.A), [PROVISIONAL] until the user answers its open call; a retune is this one edit.
+// [PROVISIONAL] OC-A40: Combat Readiness (tacticianHub), +5% weapon damage on the captain's ship.
+export const TACTICIAN_HUB_WEAPON_DAMAGE = 0.05;
+// [PROVISIONAL] OC-A41: Survey Doctrine (explorerHub), +5% expedition scan rate.
+export const EXPLORER_HUB_SCAN_RATE = 0.05;
+// [PROVISIONAL] OC-A42: the tactical spec's bonus, +1% weapon damage (mirrors the Prospector spec's +1%).
+export const TACTICAL_SPEC_WEAPON_DAMAGE = 0.01;
+// [PROVISIONAL] OC-A42: the science spec's bonus, +1% relic find chance.
+export const SCIENCE_SPEC_RELIC_FIND = 0.01;
+// [PROVISIONAL] OC-A43: a captain carries its race's racial at the officer (Senior Staff) magnitude times this.
+export const CAPTAIN_RACIAL_SCALE = 1;
 
 export const CAPTAIN_TALENTS: Record<CaptainTalentKey, CaptainTalentDef & { effect: CaptainTalentEffect }> = {
   // --- resourcefulness ("Prospector") -----------------------------------
@@ -12007,9 +12027,9 @@ export const CAPTAIN_TALENTS: Record<CaptainTalentKey, CaptainTalentDef & { effe
     x: 0,
     y: 0,
     isHub: true,
-    neighbors: [], // no content nodes yet, grows when combat lands (design §6.2)
-    effect: { type: "none" }, // pure gateway; no combat system to hang a real effect on yet
-    flavor: "Discipline first. The rest of the doctrine comes when there's a war to fight.",
+    neighbors: [], // the deeper doctrine lives in the secondary tree (Gunnery, Aegis, Fleet Ops)
+    effect: { type: "weaponDamageMult", mult: TACTICIAN_HUB_WEAPON_DAMAGE },
+    flavor: "Discipline first. Drilled gun crews put every shot where it counts.",
   },
   // --- science ("Explorer"), gateway hub only -------------------------
   explorerHub: {
@@ -12019,29 +12039,27 @@ export const CAPTAIN_TALENTS: Record<CaptainTalentKey, CaptainTalentDef & { effe
     x: 0,
     y: 0,
     isHub: true,
-    neighbors: [], // no content nodes yet, grows when a science mechanic lands
-    effect: { type: "none" }, // pure gateway; no science system to hang a real effect on yet
-    flavor: "Every uncharted system is a question. Answering it starts here.",
+    neighbors: [], // the deeper doctrine lives in the secondary tree (Survey, Relics, Command)
+    effect: { type: "scanRateMult", mult: EXPLORER_HUB_SCAN_RATE },
+    flavor: "Every uncharted system is a question. A disciplined survey answers it sooner.",
   },
 };
 
 // Innate bonus granted once a captain has this branch chosen as their spec
 // (CaptainState.spec), separate from, and additive with, whatever they've
-// bought in the talent tree itself. Deliberately Partial<...>: a branch with
-// NO entry here is not yet selectable as a spec at all (tactical/science
-// today, their underlying systems, Combat/a redefined Science mechanic,
-// don't exist yet, so there's nothing meaningful to grant a bonus FOR).
-// Revives the Phase 1 "Captain Prestige panel + specialization picker"
-// mechanic (retired during the Phase 4 Navigation/Progression Overhaul along
-// with the old Generator Stack economy it was built on), now expressed
-// against this newer Captain Talent tree instead.
+// bought in the talent tree itself. Revives the Phase 1 "Captain Prestige panel +
+// specialization picker" mechanic, expressed against this Captain Talent tree.
 //
 // Radial Skill Web (Task 2): the `command` entry was dropped along with the
-// command branch itself. resourcefulness ("Prospector") is the only branch
-// with a real spec bonus at launch, the sole selectable spec until tactical
-// or science earns its own system (and thus its own spec bonus).
+// command branch itself. WR-6 (0.14.0, OC-A42): every spec carries a real bonus
+// now. Prospector: the bonus-roll chance (tick.ts captainSpecBonusRollChance).
+// Tactician and Explorer: their own x (1 + mult) factor on the captain's ship,
+// read by captainPrimaryEffects.ts beside the hubs (sizes [PROVISIONAL] above).
+// Still typed Partial so a future branch can land before its bonus.
 export const CAPTAIN_SPEC_BONUS: Partial<Record<CaptainTalentBranch, CaptainTalentEffect>> = {
   resourcefulness: { type: "bonusRollChance", chance: 0.01 },
+  tactical: { type: "weaponDamageMult", mult: TACTICAL_SPEC_WEAPON_DAMAGE },
+  science: { type: "relicFindMult", mult: SCIENCE_SPEC_RELIC_FIND },
 };
 
 // ===========================================================================
@@ -12567,6 +12585,16 @@ export type HomeworldTalentKey =
 export const SALVAGE_TALENT_YIELD_BONUS = 0.1;
 export const SALVAGE_TALENT_CEILING_BONUS = 1;
 
+// WR-6 (0.14.0, OC-B2 / OC-B3, user 2026-10-15 "Give them real effects": Home Guard helps patrol combat, Civic Charter
+// helps crew recruitment, Works Directorate gives a Fabricator bonus and keeps gating the Refinery). The user named
+// what each does; the sizes are the wiring plan's proposals, each [PROVISIONAL] in this one place until sized.
+// [PROVISIONAL] OC-B2: Works Directorate, the chance a Fabricator job delivers one more of its output.
+export const WORKS_DIRECTORATE_BONUS_CHANCE = 0.05;
+// [PROVISIONAL] OC-B3: Home Guard, +5% shield capacity and recharge on patrols.
+export const HOME_GUARD_PATROL_SHIELD = 0.05;
+// [PROVISIONAL] OC-B3: Civic Charter, +1 crew on every crew transport.
+export const CIVIC_CHARTER_TRANSPORT_CREW = 1;
+
 // Crafting 0.13.3 (Phase 1 Unit 1.2, design §5.2): how much queue depth ONE node of
 // the fleetLogisticsQueue1/2/3 chain grants. SINGLE SOURCE OF TRUTH: each node embeds
 // this in its `queueDepth` effect payload and tick.ts's queueDepth() helper sums those
@@ -12864,9 +12892,9 @@ export const HOMEWORLD_TALENTS: Record<HomeworldTalentKey, HomeworldTalentDef & 
     x: 0,
     y: 0,
     isHub: true,
-    neighbors: [], // no content nodes yet, grows when a defense system lands (design §6.3)
-    effect: { type: "none" }, // pure gateway; no defense system to hang a real effect on yet
-    flavor: "The homeworld's first and last line, for now, a promise more than a wall.",
+    neighbors: [], // grows when a homeworld defense system lands (design §6.3)
+    effect: { type: "patrolShieldMult", mult: HOME_GUARD_PATROL_SHIELD },
+    flavor: "The homeworld's first and last line. Its shield crews train every patrol that flies the flag.",
   },
   // --- citizenry, hub-only gateway stub -------------------------------
   citizenryHub: {
@@ -12876,9 +12904,9 @@ export const HOMEWORLD_TALENTS: Record<HomeworldTalentKey, HomeworldTalentDef & 
     x: 0,
     y: 0,
     isHub: true,
-    neighbors: [], // no content nodes yet, grows when a population system lands (design §6.3)
-    effect: { type: "none" }, // pure gateway; no population system to hang a real effect on yet
-    flavor: "Every world needs a people worth defending. Their story starts here.",
+    neighbors: [], // grows when a population system lands (design §6.3)
+    effect: { type: "transportCrewBonus", crew: CIVIC_CHARTER_TRANSPORT_CREW },
+    flavor: "Every world needs a people worth defending. A charter worth signing draws more of them to the fleet.",
   },
   // --- economy, hub + one existing content node -----------------------
   economyHub: {
@@ -12914,12 +12942,11 @@ export const HOMEWORLD_TALENTS: Record<HomeworldTalentKey, HomeworldTalentDef & 
     y: 0,
     isHub: true,
     neighbors: ["industryBonusOutput"],
-    // `none` placeholder (Phase 4, Task F5): this hub once granted
-    // recipeBonusOutput on the legacy instant-craft, retired with RECIPES. The
-    // industry branch's real mechanic is now the Fabricator facility; a future
-    // task re-wires this node to a Fabricator bonus. Rendered honestly as "no
-    // bonus yet", the same `none` idiom the Homeland Defense/Citizenry hubs use.
-    effect: { type: "none" },
+    // WR-6 (0.14.0, OC-B2): the promised Fabricator re-wire (SUGGESTIONS, the industry branch): a chance per
+    // Fabricator job of one more of its output, rolled on its own keyed stream when the job starts (tick.ts
+    // startProcess), so an offline batch resolves exactly as live play would. It also stays the gate on Refinery
+    // rungs 3 and 4 (requiresHomeworldTalents), and its effect text names that gate.
+    effect: { type: "fabricatorBonusOutput", chance: WORKS_DIRECTORATE_BONUS_CHANCE },
     flavor: "Nationalize the foundries and the whole homeworld starts to hum.",
   },
   industryBonusOutput: {
@@ -12991,9 +13018,9 @@ export const MAX_UNLOCKABLE_CAPTAINS =
 //
 // PLACEHOLDER COPY: the flavor/bullets below are launch-placeholder narrative
 // (same convention as MISSIONS/RECIPES/talent flavor, frontier/belter
-// sci-fi tone, editable as text, not balance- or lore-locked). The tactical
-// ("Tactician") and science ("Explorer") specs, and the hub-only homeworld
-// categories, honestly note that their real systems are still coming.
+// sci-fi tone, editable as text, not balance- or lore-locked). WR-6 (0.14.0):
+// every card names only effects the engine applies (the hubs and spec bonuses
+// are live), and a category still waiting on its system says so plainly.
 export interface SelectorCard {
   key: string; // MUST match a real branch/category key (see note above)
   title: string;
@@ -13024,8 +13051,8 @@ export const specCards: SelectorCard[] = [
       "Out past the shipping lanes, someone eventually shoots first. The Tactician plans for that day.",
     bullets: [
       "Combat-focused discipline for when the shooting starts.",
-      "Full talent web arrives when the combat system lands.",
-      "For now: a single gateway node, a promise, not yet a fight.",
+      "The spec itself sharpens the guns of the ship you command.",
+      "Its hub adds weapon damage; retirement opens Gunnery, Aegis and Fleet Ops.",
     ],
   },
   {
@@ -13035,8 +13062,8 @@ export const specCards: SelectorCard[] = [
       "Every uncharted system is a question with a paycheck attached. Explorers go find the answer.",
     bullets: [
       "Survey- and science-focused deep-space doctrine.",
-      "Full talent web arrives when the science system lands.",
-      "For now: a single gateway node, charted course, empty map.",
+      "The spec itself improves the relic odds of your expeditions.",
+      "Its hub speeds expedition scans; retirement opens Survey, Relics and Command.",
     ],
   },
 ];
@@ -13065,8 +13092,8 @@ export const categoryCards: SelectorCard[] = [
       "The homeworld is the one asset you can never re-mine. Someone has to stand watch over it.",
     bullets: [
       "The homeworld's standing guard against future threats.",
-      "Its real defenses arrive with the battlespace system.",
-      "For now: a single gateway node, a promise more than a wall.",
+      "Its hub strengthens the shields of every ship on patrol.",
+      "Homeworld defenses grow here when that system lands.",
     ],
   },
   {
@@ -13076,8 +13103,8 @@ export const categoryCards: SelectorCard[] = [
       "A frontier world is only as strong as the people who choose to stay and build on it.",
     bullets: [
       "The homeworld's population and the civic life it supports.",
-      "Real effects arrive with the population system.",
-      "For now: a single gateway node, a people finding their footing.",
+      "Its hub brings more crew aboard every crew transport.",
+      "Population effects grow here when that system lands.",
     ],
   },
   {
@@ -13098,8 +13125,8 @@ export const categoryCards: SelectorCard[] = [
       "Nationalize the foundries and the whole homeworld starts to hum with output.",
     bullets: [
       "Fabrication and manufacturing throughput.",
-      "Stretches every crafting batch a little further.",
-      "One content node beyond the hub at launch, grown later.",
+      "Its hub gives Fabricator jobs a chance of extra output, and opens the Refinery's upper rungs.",
+      "Tooling Upgrade raises crafted item levels.",
     ],
   },
 ];

@@ -17,7 +17,8 @@
 // data edit. Every reader is PURE and returns the exact neutral value (1, 0, false, undefined) without the node, so a
 // captain without explorer nodes changes nothing, byte for byte.
 //
-// This module imports only model.ts; captainSecondaryEffects.ts reads explorerTalentText below for the tooltip and
+// This module imports only model.ts (and captainPrimaryEffects.ts, which imports only model.ts: WR-6 folds the
+// Explorer hub and the science spec into the same frozen records); captainSecondaryEffects.ts reads explorerTalentText below for the tooltip and
 // the registry claim (its lookup chain: prospector, tactician, explorer).
 
 import {
@@ -30,6 +31,8 @@ import {
   type GameState,
   type SecondaryTalentKey,
 } from "./model";
+// WR-6: the primary tree's Survey Doctrine and the science spec fold into the same frozen records (imports model.ts only).
+import { captainPrimaryMult } from "./captainPrimaryEffects";
 
 type Captain = CaptainState | undefined | null;
 
@@ -87,9 +90,11 @@ export function captainSensorsMult(captain: Captain): number {
 // The captain's survey nodes as optional scan-param fields (expedition.ts shipSensorSnapshot folds them in, so the
 // dispatch freezes them and every candidate preview reads them): Cartographer (scan rate), Anomaly Sense (discovery
 // odds), Deep Scan (sure discovery attempts per body). {} without them. Pure.
+// WR-6: Survey Doctrine (the Explorer hub, a primary talent) is its own scan rate factor beside Cartographer.
 export function captainSurveyScanParams(captain: Captain): Partial<ExpeditionScanParams> {
   const out: Partial<ExpeditionScanParams> = {};
-  if (owns(captain, "surveySensors2")) out.captainScanRateMult = factor(captain, "surveySensors2");
+  const scanRate = factor(captain, "surveySensors2") * captainPrimaryMult(captain, "scanRateMult");
+  if (scanRate !== 1) out.captainScanRateMult = scanRate;
   if (owns(captain, "surveySensors3")) out.captainDiscoveryMult = factor(captain, "surveySensors3");
   const sure = Math.max(0, Math.floor(owned(captain, "surveySensors5")));
   if (sure > 0) out.captainSureFinds = sure;
@@ -120,10 +125,12 @@ export function captainSquadStrengthMult(captain: Captain): number {
   return factor(captain, "expeditionRelics1");
 }
 
-// The run-frozen nodes (Expedition.explorerCaptain), or undefined when the captain owns none. Pure.
+// The run-frozen nodes (Expedition.explorerCaptain), or undefined when the captain owns none. WR-6: the science
+// spec's relic find bonus is its own factor beside Field Science. Pure.
 export function explorerCaptainRun(captain: Captain): ExplorerCaptainRun | undefined {
   const run: ExplorerCaptainRun = {};
-  if (owns(captain, "expeditionRelics2")) run.relicFindMult = factor(captain, "expeditionRelics2");
+  const relicFind = factor(captain, "expeditionRelics2") * captainPrimaryMult(captain, "relicFindMult");
+  if (relicFind !== 1) run.relicFindMult = relicFind;
   if (owns(captain, "expeditionRelics3")) run.squadPowerMult = factor(captain, "expeditionRelics3");
   if (owns(captain, "expeditionRelics4")) run.relicStudySpeed = owned(captain, "expeditionRelics4");
   const tiers = Math.max(0, Math.floor(owned(captain, "expeditionRelics5")));

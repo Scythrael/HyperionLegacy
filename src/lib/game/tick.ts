@@ -338,8 +338,9 @@ import {
 } from "./crewOverlay";
 // WR-5b (0.14.0): the commanding captain's Tactician talents (frozen per patrol cycle; the Shipyard repair).
 import {
-  captainCombatMods,
   captainWaveRegenFraction,
+  homeGuardPatrolShieldMult,
+  patrolCaptainCombatMods,
   patrolWaveRewardMult,
   shipCaptainCombatMods,
   withCaptainRepair,
@@ -841,11 +842,15 @@ export function describeCaptainTalentEffect(effect: CaptainTalentEffect): string
       return `+${(effect.chance * 100).toFixed(1)}% chance/tick for a bonus roll`;
     case "bonusRollChanceMult":
       return `+${(effect.mult * 100).toFixed(1)}% to bonus roll chance`;
-    // Radial Skill Web (Task 2): the gateway-hub effect. Tactician/Explorer
-    // hubs carry `{ type: "none" }` because their branches' real mechanics
-    // (combat / science) don't exist yet. Rendered honestly as "no bonus yet"
-    // rather than a misleading "+0.0%" line, this is the whole reason the
-    // `none` member exists instead of a `mult: 0.0` placeholder.
+    // WR-6: the Tactician / Explorer hubs and the tactical / science spec bonuses (captainPrimaryEffects.ts).
+    case "weaponDamageMult":
+      return `+${(effect.mult * 100).toFixed(1)}% weapon damage in ship battles (patrols and expedition ship events)`;
+    case "scanRateMult":
+      return `+${(effect.mult * 100).toFixed(1)}% expedition scan rate`;
+    case "relicFindMult":
+      return `+${(effect.mult * 100).toFixed(1)}% relic find chance on expedition objectives`;
+    // Radial Skill Web (Task 2): the gateway-hub effect, carried by no node since WR-6. Rendered honestly as "no
+    // bonus yet" rather than a misleading "+0.0%" line.
     case "none":
       return "No bonus yet, unlocks this branch";
   }
@@ -867,8 +872,10 @@ export function describeHomeworldTalentEffect(effect: HomeworldTalentEffect): st
     // 0.11.0 Storage/Salvage (Task C4): the combined salvage talent. Surfaces
     // BOTH bumps in one tooltip line, the yield as a percentage-point add onto
     // the recycle recovery, the ceiling as a "+N tier" reach on the loot roll.
+    // WR-6 (B16, OC-B1): the yield is a FLAT add onto the recovery fraction, so the text says percentage points,
+    // and it now reaches hull teardowns too.
     case "salvageBoost":
-      return `+${(effect.yieldBonus * 100).toFixed(0)}% salvage recovery, +${effect.ceilingBonus} loot tier reach`;
+      return `+${(effect.yieldBonus * 100).toFixed(0)} percentage points salvage recovery (recycled systems and hull teardowns), +${effect.ceilingBonus} loot tier reach`;
     // Crafting 0.13.3 (Phase 1 Unit 1.2): the queue-depth chain. "per facility" is
     // load-bearing in this string, not filler: the grant applies to EVERY
     // queue-capable facility independently (design §5.2), and a tooltip reading
@@ -898,12 +905,15 @@ export function describeHomeworldTalentEffect(effect: HomeworldTalentEffect): st
     // rule from the design, enforced at the one place a player actually reads it.
     case "craftingItemLevel":
       return `+${effect.bonus} crafted item level, up to the blueprint's tier cap`;
-    // Radial Skill Web (Task 3): the gateway-hub effect, mirroring the captain
-    // side's `none` case above. Homeland Defense / Citizenry hubs carry
-    // `{ type: "none" }` because their categories' real mechanics (a defense /
-    // population system) don't exist yet. Rendered honestly as "no bonus yet"
-    // rather than a misleading "+0.0%" line, the whole reason the `none`
-    // member exists instead of a `mult: 0.0` placeholder.
+    // WR-6 (OC-B2): Works Directorate's text also names the Refinery gate it already is (model.ts, rungs 3 and 4).
+    case "fabricatorBonusOutput":
+      return `${(effect.chance * 100).toFixed(1)}% chance a Fabricator job delivers one more of its output; opens Refinery upgrades 3 and 4`;
+    // WR-6 (OC-B3): Home Guard and Civic Charter.
+    case "patrolShieldMult":
+      return `+${(effect.mult * 100).toFixed(1)}% shield capacity and recharge on patrols (fleet-wide)`;
+    case "transportCrewBonus":
+      return `+${effect.crew} crew on every crew transport`;
+    // Radial Skill Web (Task 3): the gateway-hub effect, carried by no node since WR-6.
     case "none":
       return "No bonus yet, unlocks this branch";
   }
@@ -1360,7 +1370,8 @@ function completionYieldFor(
     case "addItem":
       // A refine output or a material fabricate output: one item, one amount, stored as a
       // Decimal STRING so the record carries full precision with no live Decimal in the save.
-      return { ...empty, reward: "materials", items: [{ itemId: effect.itemId, amount: effect.amount.toString() }], subjectKey: effect.itemId };
+      // WR-6: the amount actually deposited (twice the output with Works Directorate's stamp).
+      return { ...empty, reward: "materials", items: [{ itemId: effect.itemId, amount: completedOutputAmount(process).toString() }], subjectKey: effect.itemId };
     case "unlockBlueprint":
       return { ...empty, reward: "blueprint", subjectKey: effect.key };
     case "addShip":
@@ -1374,9 +1385,9 @@ function completionYieldFor(
       // ITEM LIFECYCLE 0.13.6: a completed fabricate deposited a stackable BLANK (uninspected), not
       // a rolled instance. It has its OWN reward kind so the classification is honest (a blank is
       // not a finished system) and the Recently-Completed row can say "blank" rather than implying a
-      // usable piece; the blueprint is the subject so the board still names the craft. Always one
-      // blank per completion.
-      return { ...empty, reward: "blanks", pieces: 1, subjectKey: effect.blueprintKey };
+      // usable piece; the blueprint is the subject so the board still names the craft. One blank per
+      // completion, two with Works Directorate's stamp (WR-6).
+      return { ...empty, reward: "blanks", pieces: completedBlankCount(process), subjectKey: effect.blueprintKey };
     case "facilityLevelUp":
       // Read off the ALREADY-BUMPED accumulator, so this is the level the player now has.
       return { ...empty, reward: "level", subjectKey: effect.facility, level: levels.facilities[effect.facility]?.level ?? 0 };
@@ -3029,6 +3040,8 @@ export function tickCaptainPatrol(
     // E-CREW (Task 21 review calls): the Flight Deck's Constitution facet a relaunch reads (the new cycle's
     // faster return, returnCutTicks).
     returnConstitution?: number;
+    // WR-6 (OC-B3): the fleet's Home Guard shield factor a relaunch freezes onto its new cycle (1 / absent = none).
+    homeGuardShield?: number;
   } = {},
 ): PatrolTickResult {
   const noOp: PatrolTickResult = {
@@ -3447,7 +3460,8 @@ export function tickCaptainPatrol(
             // E-CREW (Task 20): the NEW cycle freezes the officers seated now (economyTick's live read).
             officerCombat: relaunchCombat,
             // WR-5b: and the commanding captain's Tactician talents now (no buy while out, so the dispatch value).
-            captainCombat: captainCombatMods(captain),
+            // WR-6: with the fleet's Home Guard shield factor as read when this cycle starts.
+            captainCombat: patrolCaptainCombatMods(captain, officerEffects.homeGuardShield ?? 1),
             // E-CREW (Task 21): Engineering's Cunning roll for the new cycle, keyed on its own masterSeed.
             freeRepairTicks: cunningProc(newSeed, "engineering", officerEffects.freeRepairChance ?? 0) ? CUNNING_FREE_REPAIR_TICKS : 0,
             // E-CREW (Task 21 review calls): the Flight Deck's Constitution, a faster return the longer the run.
@@ -4119,6 +4133,8 @@ export function economyTick(
                 secondsPerTick: state.tickDurationSeconds,
                 freeRepairChance: departmentFacet(state, patrolShip, "engineering", "cunning"),
                 returnConstitution: departmentFacet(state, patrolShip, "flightDeck", "constitution"),
+                // WR-6: Home Guard, for the next cycle's frozen record (exactly 1 without the talent).
+                homeGuardShield: homeGuardPatrolShieldMult(state),
               }
             : {},
         );
@@ -5695,8 +5711,9 @@ export function dispatchCaptainOnPatrol(
     hullType,
     installedGear,
     officerCombat,
-    // WR-5b: freeze the commanding captain's Tactician talents onto the first cycle (undefined = none).
-    captainCombat: captainCombatMods(state.captains[idx]),
+    // WR-5b: freeze the commanding captain's Tactician talents onto the first cycle (undefined = none). WR-6: with
+    // the fleet's Home Guard shield factor (patrols only).
+    captainCombat: patrolCaptainCombatMods(state.captains[idx], homeGuardPatrolShieldMult(state)),
     freeRepairTicks,
     returnCutTicks,
   });
@@ -5990,6 +6007,44 @@ export function assignShipToCaptain(
 // the field is left OFF the process entirely (not set to undefined), so those
 // processes are byte-identical to before this param existed and a deep-equal parity
 // snapshot is unaffected.
+// WR-6 (0.14.0, OC-B2, user 2026-10-15 "Works Directorate gives a Fabricator bonus"): the chance a Fabricator job
+// delivers one more of its output, from the owned fabricatorBonusOutput Homeworld talents. Several combine as
+// independent chances, 1 - (1 - a)(1 - b), a concave stack that never needs a cap (D23). 0 without one. Pure.
+export function fabricatorBonusOutputChance(state: Pick<GameState, "unlockedHomeworldTalents">): number {
+  let miss = 1;
+  for (const key of state.unlockedHomeworldTalents) {
+    const e = HOMEWORLD_TALENTS[key]?.effect;
+    if (e && e.type === "fabricatorBonusOutput" && e.chance > 0) miss *= 1 - Math.min(1, e.chance);
+  }
+  return 1 - miss;
+}
+
+// The salt of Works Directorate's keyed stream (odd, unique in the repo; salts.test.ts).
+export const WORKS_DIRECTORATE_SALT = 0x4b1d7e35;
+// The roll's resolution: chances are compared in ten-thousandths (one integer draw).
+const WORKS_DIRECTORATE_DENOMINATOR = 10_000;
+
+// Whether the Fabricator job minted as process number `processNumber` (TimedProcess "proc-N", N from nextProcessId,
+// never reused) lands its extra output at `chance`. One integer draw on its own stream keyed by the process number,
+// so no shared stream moves and the outcome is the same live, offline and on reload. false at chance 0 (no draw).
+// Pure.
+export function worksDirectorateBonus(processNumber: number, chance: number): boolean {
+  if (!(chance > 0)) return false;
+  const seed = (Math.imul((processNumber >>> 0) ^ 0x85ebca6b, 0xc2b2ae35) ^ WORKS_DIRECTORATE_SALT) >>> 0;
+  return makeRng(seed).chance(Math.round(Math.min(1, chance) * WORKS_DIRECTORATE_DENOMINATOR), WORKS_DIRECTORATE_DENOMINATOR);
+}
+
+// What a completed addItem job deposits: its output, twice over when Works Directorate stamped the job. Pure.
+export function completedOutputAmount(process: Pick<TimedProcess, "effect" | "bonusOutput">): Decimal {
+  const amount = process.effect.type === "addItem" ? process.effect.amount : new Decimal(0);
+  return process.bonusOutput ? amount.times(2) : amount;
+}
+
+// How many blanks a completed addBlank job deposits: one, or two with Works Directorate's stamp. Pure.
+export function completedBlankCount(process: Pick<TimedProcess, "bonusOutput">): number {
+  return process.bonusOutput ? 2 : 1;
+}
+
 export function startProcess(
   state: GameState,
   kind: TimedProcessKind,
@@ -6035,6 +6090,11 @@ export function startProcess(
     // conditional spread, so a non-line process carries NO lineId key at all,
     // keeping it identical to a pre-C2 process for deep-equal snapshots.
     ...(lineId !== undefined ? { lineId } : {}),
+    // WR-6 (OC-B2): Works Directorate decides a Fabricator job's extra output NOW, on the job's own keyed roll,
+    // and stamps it (absent without the talent or when the roll misses, so every other process is unchanged).
+    ...(kind === "fabricateJob" && worksDirectorateBonus(state.nextProcessId, fabricatorBonusOutputChance(state))
+      ? { bonusOutput: true as const }
+      : {}),
   };
 
   return {
@@ -11106,6 +11166,9 @@ export function resolveProcesses(
       // (⚠️ parity test in quality-roll.test.ts). effect.amount is always > 0 for a real
       // recipe, so this always contributes a genuine deposit.
       const quality = rollQuality(rng, craftQualityBonus); // E4b: museum craftingQuality (draw-count invariant)
+      // WR-6 (OC-B2): a Fabricator job stamped with Works Directorate's extra output delivers its output twice, at
+      // the same rolled quality (no extra draw). Exactly the effect's amount otherwise.
+      const outputAmount = completedOutputAmount(process);
       // Output granted through the shared add seam -> the item is marked
       // discovered (its amount is always > 0 for a real refine recipe). Warehouse cap
       // clamp: the deposit is bounded at the output item's cap (itemCap), so a job
@@ -11114,7 +11177,7 @@ export function resolveProcesses(
         inventory,
         discovered,
         process.effect.itemId,
-        process.effect.amount,
+        outputAmount,
         itemCap(state, process.effect.itemId),
         quality
       );
@@ -11155,7 +11218,7 @@ export function resolveProcesses(
           ...lifetimeStats,
           itemsCrafted: {
             ...lifetimeStats.itemsCrafted,
-            [itemId]: priorCrafted.plus(process.effect.amount),
+            [itemId]: priorCrafted.plus(outputAmount),
           },
         };
       }
@@ -11371,8 +11434,9 @@ export function resolveProcesses(
       // Because this draws NOTHING from the tick's threaded stream, it cannot perturb the offline==
       // live parity draw order (the opposite of the addEquipment branch, which rolled here). Clones
       // the blank store once, the same value-identical-when-untouched discipline as `equipment`.
+      // WR-6 (OC-B2): two blanks when Works Directorate's extra output was stamped on the job.
       const blankKey = process.effect.blueprintKey;
-      blanks = { ...blanks, [blankKey]: (blanks[blankKey] ?? new Decimal(0)).plus(1) };
+      blanks = { ...blanks, [blankKey]: (blanks[blankKey] ?? new Decimal(0)).plus(completedBlankCount(process)) };
     } else if (process.effect.type === "equipmentStorageLevelUp") {
       // Equipment 0.11.0 (Task B2): a completed equipment-storage upgrade bumps the
       // spare-storage LEVEL by 1, so equipmentStorageCap (model.ts) derives the NEXT

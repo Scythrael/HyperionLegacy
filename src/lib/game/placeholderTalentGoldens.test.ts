@@ -15,7 +15,7 @@
 //
 // Every state hash normalizes the variant's own input away (the captain's talents, spec and race, the Homeworld
 // talents), so before WR-6 wires anything every variant reads EXACTLY the baseline (the sources are inert): that is
-// the capture. The WR-6 commit re-pins ONLY the parts a source moves, each with its reason beside it, and the
+// the capture. The WR-6 commit re-pins ONLY the parts a source moves, each with its reason beside it (MOVES), and the
 // baseline ("none") never moves.
 
 import { describe, expect, it } from "vitest";
@@ -230,7 +230,33 @@ const BASELINE: Record<string, string> = {
 };
 
 // Per source: the parts it moves since WR-6 wired it (anything not listed equals BASELINE, byte for byte), and why.
-const MOVES: Partial<Record<Wr6Variant, Record<string, string>>> = {};
+const MOVES: Partial<Record<Wr6Variant, Record<string, string>>> = {
+  // Combat Readiness: weaponDamage 0.05 joins the frozen captain combat record, so the run's frozen ship-event battle
+  // profile (dispatch) and the event fights it plays (done) change, as do the patrol cycle's record and the event
+  // battle. The claim holds (this run's event fights end the same way), and so does the 900 s patrol (the destroyer's
+  // Warband waves resolve to the same result).
+  tacticianHub: { dispatch: "93ab3127", done: "468f02a3", patrolDispatch: "cb60fa74", event: "a56b391f" },
+  // Survey Doctrine: captainScanRateMult 1.05 in the frozen scan params; the scan runs faster, the same finds come home.
+  explorerHub: { dispatch: "4276d790", done: "65b36ec7" },
+  // The tactical spec: weaponDamage 0.01 in the same record, so exactly the columns Combat Readiness moves.
+  tacticalSpec: { dispatch: "57a64d4c", done: "54765ae4", patrolDispatch: "d7d15c1b", event: "97bbb1ca" },
+  // The science spec: explorerCaptain.relicFindMult 1.01 on the run; this seed's relic rolls land the same.
+  scienceSpec: { dispatch: "f381e50", done: "fb954bf0" },
+  // A Station-born captain: its racial (crew.unloadSpeed, the officer magnitude) on the sheet, so the run freezes a
+  // faster offload. The Short Ore Run does not reach its unload inside 900 s, and a patrol has no unload.
+  captainRace: { sheet: "551eac54", dispatch: "3afa589e", done: "48483427" },
+  // Salvage Operations on a hull teardown: +10 percentage points on the teardown fraction, so more components and
+  // credits come back.
+  fleetLogisticsSalvage: { teardown: "6d506c38" },
+  // Works Directorate: the jobs whose keyed roll lands deliver a second blank or a second Frame Segment.
+  industryHub: { craft: "88f1495f" },
+  // Home Guard: the patrol cycle's frozen record carries shield 0.05 and the folded shield pool is 5% larger. The
+  // ship-event battle does not move (patrols only), and the 900 s patrol ends the same way.
+  homelandDefenseHub: { patrolDispatch: "e1e0a4f2" },
+  // Civic Charter: 13 crew per transport. The mission column moves too: its first tick delivers the fixture's whole
+  // transport backlog (game time 100,000 s, no transport since 0), so the pool and the auto-crewed complement differ.
+  citizenryHub: { mission: "fe60f344", crew: "ae5bd1f" },
+};
 
 describe("WR-6 goldens: the captain primary hubs, specs and race, and the Homeworld placeholders (captured before wiring)", () => {
   it("the baseline (no source) is pinned", () => {
