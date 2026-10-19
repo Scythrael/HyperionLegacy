@@ -377,6 +377,23 @@
     // install rows) from offering away-team gear for a ship.
     isMemberSlotType,
   } from "./lib/game/model";
+  // WR-3: the Debug Wiring panel's view model (the registry itself loads lazily inside it; types only here).
+  import {
+    loadWiringDeps,
+    measureWiring,
+    groupWiringRows,
+    wiringTotals,
+    wiringSubjectsText,
+    contributionText,
+    expectedText,
+    OWNERSHIP_LABEL,
+    VERDICT_LABEL,
+    SYSTEM_LABEL,
+    WIRING_VIEW_OPTIONS,
+    type WiringRow,
+    type WiringView,
+  } from "./lib/wiringPanelDisplay";
+  import type { WiringSystem } from "./lib/game/wiring/registry";
   // Home dashboard (0.13.1). JumpTarget is the destination union that types
   // jumpToActivity's single argument (below), so the one nav-dispatch entry point stays in
   // lockstep with the pure model's Section-8 destinations, adding a destination there forces
@@ -4811,6 +4828,48 @@
   function devToggleSavePersistBanner() {
     savePersistFailed.update((shown) => !shown);
   }
+
+  // [DEV] WR-3 Wiring panel (Debug tab only).
+  // Every wiring registry entry on the CURRENT save: owned or not, its status, its contexts and its live
+  // contribution (the seam probe on the save vs the save without the source). Measured on demand, never per tick:
+  // the registry and its probes load lazily (wiringPanelDisplay.ts loadWiringDeps), so the app bundle does not carry
+  // them, and the pass is pure (it reads a snapshot of `state` and writes nothing). All logic is in
+  // wiringPanelDisplay.ts (tested); this block only holds the panel's filters and the last snapshot.
+  let wiringRows: WiringRow[] = [];
+  let wiringSystems: readonly WiringSystem[] = [];
+  let wiringBusy = false;
+  let wiringProgress = "";
+  let wiringError = "";
+  let wiringSubjects = "";
+  let wiringSystemFilter: WiringSystem | "all" = "all";
+  let wiringView: WiringView = "all";
+  let wiringSearch = "";
+
+  async function devMeasureWiring() {
+    if (wiringBusy) return;
+    wiringBusy = true;
+    wiringError = "";
+    wiringProgress = "Loading the registry...";
+    try {
+      const deps = await loadWiringDeps();
+      const snapshot = state;
+      wiringSubjects = wiringSubjectsText(snapshot);
+      wiringSystems = deps.systems;
+      wiringRows = await measureWiring(snapshot, deps, {
+        onProgress: (done, total) => (wiringProgress = `Measuring ${done} / ${total}...`),
+      });
+      wiringProgress = "";
+    } catch (err) {
+      wiringError = err instanceof Error ? err.message : String(err);
+      wiringProgress = "";
+    } finally {
+      wiringBusy = false;
+    }
+  }
+
+  $: wiringGroups = groupWiringRows(wiringRows, wiringSystems, { system: wiringSystemFilter, view: wiringView, search: wiringSearch });
+  $: wiringSummary = wiringTotals(wiringRows);
+  $: wiringShownCount = wiringGroups.reduce((n, g) => n + g.rows.length, 0);
 
   // --- [DEV] Combat 0.13.0 test battle (Debug tab only) --------------------
   // Runs the REAL combat engine on the player's current ship vs a hardcoded pirate
@@ -18860,6 +18919,103 @@
           </div>
         </Panel>
 
+        <!-- [DEV] WR-3 Wiring panel: every wiring registry entry on this save (see devMeasureWiring and
+             wiringPanelDisplay.ts). Same {#if DEV_MODE && activeSystemSubTab === "debug"} gate as the DEBUG PANEL,
+             inside the existing tab scroll area. A plain table at desktop width; each row stacks into a labeled card
+             at phone width (one DOM, CSS only). -->
+        <Panel class="dev-panel">
+          <div class="panel-title dev-title">WIRING (dev-only)</div>
+          <div class="dev-row">
+            <button class="dev-btn" on:click={devMeasureWiring} disabled={wiringBusy}>
+              {wiringRows.length ? "Measure again" : "Measure this save"}
+            </button>
+            {#if wiringProgress}<span class="dev-readout-text">{wiringProgress}</span>{/if}
+            {#if wiringError}<span class="dev-readout-text wiring-bad">Failed: {wiringError}</span>{/if}
+          </div>
+          {#if wiringRows.length}
+            <p class="wiring-lead">
+              A snapshot of the save when measured. {wiringSubjects} Contribution reads the entry's seam probe on the
+              save vs the same save without the source; Expected is the entry's curve at its catalog magnitude, shown
+              only where that magnitude is what the save owns.
+            </p>
+            <p class="wiring-lead">
+              {wiringSummary.entries} entries: {wiringSummary.byStatus.live} live, {wiringSummary.byStatus.pending} pending,
+              {wiringSummary.byStatus.deferred} deferred, {wiringSummary.byStatus.held} held, {wiringSummary.byStatus.seam} seam.
+              Owned here: {wiringSummary.owned}; contributing: {wiringSummary.contributing}; contributing nothing:
+              {wiringSummary.nothing}.
+            </p>
+            <div class="dev-row">
+              <label class="wiring-field">
+                <span class="dev-label">System</span>
+                <select class="dev-btn" bind:value={wiringSystemFilter}>
+                  <option value="all">All systems</option>
+                  {#each wiringSystems as sys (sys)}<option value={sys}>{SYSTEM_LABEL[sys]}</option>{/each}
+                </select>
+              </label>
+              <label class="wiring-field">
+                <span class="dev-label">Show</span>
+                <select class="dev-btn" bind:value={wiringView}>
+                  {#each WIRING_VIEW_OPTIONS as opt (opt.key)}<option value={opt.key}>{opt.label}</option>{/each}
+                </select>
+              </label>
+              <label class="wiring-field">
+                <span class="dev-label">Search</span>
+                <input class="dev-btn wiring-search" type="search" bind:value={wiringSearch} placeholder="id, source or claim" />
+              </label>
+            </div>
+            <p class="wiring-lead">{wiringShownCount} shown.</p>
+            {#each wiringGroups as group (group.system)}
+              <details class="wiring-group" open={wiringShownCount <= 80}>
+                <summary>
+                  {SYSTEM_LABEL[group.system]}: {group.rows.length} entries, {group.owned} owned, {group.contributing} contributing,
+                  {group.nothing} contributing nothing
+                </summary>
+                <div class="wiring-scroll"><table class="wiring-table">
+                  <thead>
+                    <tr><th>Source</th><th>Owned</th><th>Status</th><th>Contexts</th><th>Contribution (now vs without)</th><th>Expected</th></tr>
+                  </thead>
+                  <tbody>
+                    {#each group.rows as row (row.id)}
+                      <tr class:wiring-row-bad={row.verdict === "nothing" || row.verdict === "error"}>
+                        <td data-label="Source">
+                          <div class="wiring-id">{row.id}</div>
+                          <div class="wiring-sub">{row.claim}</div>
+                          {#if row.probe}<div class="wiring-sub">probe {row.probe}{row.magnitude !== null ? `, catalog m ${row.magnitude}` : ""}</div>{/if}
+                          {#if row.note}<div class="wiring-sub">{row.note}</div>{/if}
+                        </td>
+                        <td data-label="Owned">
+                          {OWNERSHIP_LABEL[row.ownership]}
+                          {#if VERDICT_LABEL[row.verdict]}<div class="wiring-verdict" class:wiring-good={row.verdict === "contributing"} class:wiring-bad={row.verdict === "nothing" || row.verdict === "error"}>{VERDICT_LABEL[row.verdict]}</div>{/if}
+                          {#if row.ownershipNote}<div class="wiring-sub">{row.ownershipNote}</div>{/if}
+                        </td>
+                        <td data-label="Status">
+                          <span class="wiring-chip" class:wiring-chip-live={row.status.kind === "live"} class:wiring-chip-pending={row.status.kind === "pending"} class:wiring-chip-seam={row.status.kind === "seam"}>{row.status.label}</span>
+                          {#if row.status.detail}<div class="wiring-sub">{row.status.detail}</div>{/if}
+                        </td>
+                        <td data-label="Contexts">
+                          {row.liveContexts.length ? row.liveContexts.join(", ") : "none live"}
+                          {#if row.pendingContexts.length}<div class="wiring-sub">not yet: {row.pendingContexts.join(", ")}</div>{/if}
+                          {#each row.outOfScope as o (o.context)}<div class="wiring-sub">out of scope: {o.context} ({o.reason})</div>{/each}
+                        </td>
+                        <td data-label="Contribution">
+                          {#each row.readings as r (r.context)}
+                            <div class:wiring-bad={r.error !== undefined}>{row.readings.length > 1 ? `${r.context}: ` : ""}{contributionText(r)}</div>
+                          {:else}<span class="wiring-sub">n/a</span>{/each}
+                        </td>
+                        <td data-label="Expected">
+                          {#each row.readings as r (r.context)}
+                            <div>{row.readings.length > 1 ? `${r.context}: ` : ""}{expectedText(r)}</div>
+                          {:else}<span class="wiring-sub">n/a</span>{/each}
+                        </td>
+                      </tr>
+                    {/each}
+                  </tbody>
+                </table></div>
+              </details>
+            {/each}
+          {/if}
+        </Panel>
+
         <!-- [DEV] Equipment 0.11.0 test harness (device-check checkpoint). NOT the
              shipped, mockup-gated fitting UI (that lands later with the user's
              sketches). Functional over pretty: it wires the REAL equipment helpers
@@ -21269,6 +21425,38 @@
   .dev-title { color: var(--color-warning) !important; }
   .dev-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
   .dev-label { font-size: var(--text-xs); color: var(--color-text-secondary); width: 78px; }
+  /* WR-3 Wiring panel (dev-only). A plain table at desktop width that scrolls inside its own box rather than
+     widening the page; at phone width every row stacks into a labeled card (each cell names its column through
+     data-label), so the same DOM reads at 375 px. */
+  .wiring-lead { font-size: var(--text-xs); color: var(--color-text-secondary); margin: 0 0 8px; }
+  .wiring-field { display: flex; align-items: center; gap: 6px; }
+  .wiring-search { min-width: 0; width: 180px; }
+  .wiring-group { margin-bottom: 8px; border: 1px solid var(--color-border); padding: 4px 8px; }
+  .wiring-group > summary { cursor: pointer; font-size: var(--text-sm); color: var(--color-text-primary); padding: 4px 0; }
+  .wiring-scroll { overflow-x: auto; }
+  .wiring-table { width: 100%; border-collapse: collapse; font-size: var(--text-xs); }
+  .wiring-table th { text-align: left; color: var(--color-text-secondary); font-weight: normal; padding: 4px 6px; border-bottom: 1px solid var(--color-border); }
+  .wiring-table td { vertical-align: top; padding: 4px 6px; border-bottom: 1px solid var(--color-border); overflow-wrap: anywhere; min-width: 80px; }
+  .wiring-table td:first-child { min-width: 220px; }
+  .wiring-id { color: var(--color-text-primary); }
+  .wiring-sub { color: var(--color-text-dim); }
+  .wiring-good { color: var(--color-success); }
+  .wiring-bad { color: var(--color-danger); }
+  .wiring-row-bad td:first-child { box-shadow: inset 3px 0 0 var(--color-danger); }
+  .wiring-chip { display: inline-block; padding: 0 6px; border: 1px solid var(--color-border-strong); color: var(--color-text-secondary); }
+  .wiring-chip-live { color: var(--color-success); border-color: var(--color-success); }
+  .wiring-chip-pending { color: var(--color-warning); border-color: var(--color-warning); }
+  .wiring-chip-seam { color: var(--color-accent-bright); border-color: var(--color-accent); }
+  @media (max-width: 640px) {
+    .wiring-table, .wiring-table tbody, .wiring-table tr, .wiring-table td { display: block; width: 100%; }
+    .wiring-table thead { display: none; }
+    .wiring-table tr { border-bottom: 1px solid var(--color-border-strong); padding: 6px 0; }
+    .wiring-table td { border-bottom: none; padding: 2px 0; min-width: 0; }
+    .wiring-table td:first-child { min-width: 0; }
+    .wiring-table td::before { content: attr(data-label); display: block; color: var(--color-text-secondary); font-size: var(--text-2xs); }
+    .wiring-search { width: 100%; }
+    .wiring-field { flex: 1 1 100%; }
+  }
   /* .opt-section-title was REMOVED in 0.13.5. It was a sub-heading INSIDE one settings panel, which
      made a section a rule drawn across a continuous surface. Sections are their own panels now
      (.settings-section below), so each carries the shared .panel-title and its own border, and the
