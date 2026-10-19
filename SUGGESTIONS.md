@@ -1163,6 +1163,9 @@ see KNOWN_ISSUES.md for actual bugs/gaps; this file is for not-yet-scoped future
   the deterministic log, never the source of truth; SVG only; respects reduced motion; must work at 375 px. Pairs
   with the 2.0 ship battle screen idea (shared replay layer). Mockup v1 (2026-10-19):
   https://claude.ai/artifact/AzmMLMyZRA7gdydPjJwrSg
+  User answers on the mockup (2026-10-19, all Recommended): abstract node map first (terrain art layered later);
+  whole body in view, tap a team to follow and zoom; fight replay on demand only; lives in a "Planet" tab in the
+  Expedition panel beside the lanes; the fight replay shows Science as a small "working nearby" strip.
 
 - **Faction Reputation system -> future, post-combat (user 2026-07-22).** Reputation per faction; low rep triggers escalating consequences:
   - **Severe (very low rep):** a BOUNTY is placed on you and your CAPTAIN can be destroyed (captain-specific death -> ties to the future captain-death + crew-promotion turnover; needs the monotonic captain-id counter combat is already adding). A **Diplomacy spec** could grant account-wide reputation-gain bonuses.
