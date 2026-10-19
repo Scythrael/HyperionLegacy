@@ -1587,8 +1587,11 @@ describe("ITEMS, Phase 1 seed registry", () => {
     //   majorComponent (1): future Fabricator-output placeholder.
     //   salvagedMaterial (2): intactReactorCore (the "Damaged Reactor Housing") +
     //     damagedWeaponSystem (the "Damaged Weapon System", Combat 1.0 Unit 1.7).
+    // Field Kits FKR-3 (0.14.0) ADDED the six fieldKit consumables (First Aid Kit, Antitoxin, Combat Stim,
+    // Splint, Trauma Kit, Injury Kit), bringing the total to 31.
     const keys = Object.keys(ITEMS);
-    expect(keys).toHaveLength(25);
+    expect(keys).toHaveLength(31);
+    expect(Object.values(ITEMS).filter((i) => i.category === "fieldKit")).toHaveLength(6);
     const raw = Object.values(ITEMS).filter((i) => i.category === "raw");
     const refined = Object.values(ITEMS).filter((i) => i.category === "refined");
     const minor = Object.values(ITEMS).filter((i) => i.category === "minorComponent");
@@ -1678,7 +1681,7 @@ describe("ITEMS, Phase 1 seed registry", () => {
   // here. Derived by iterating the live ITEMS registry, no hard-coded key list --
   // so it automatically covers any item added later.
   it("every ITEMS entry carries complete Warehouse catalog metadata (tier/category/rarity/unlockHint)", () => {
-    const validCategories = ["raw", "refined", "minorComponent", "majorComponent", "shipModule", "shipSystem", "salvagedMaterial"];
+    const validCategories = ["raw", "refined", "minorComponent", "majorComponent", "shipModule", "shipSystem", "salvagedMaterial", "fieldKit"];
     const validRarities = ["common", "uncommon", "rare", "epic", "legendary"];
     for (const [key, item] of Object.entries(ITEMS)) {
       // tier: a real number, at least tier 1 (T1 is the lowest warehouse tier).

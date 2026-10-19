@@ -80,6 +80,17 @@ export const ICON_SEMANTICS: Record<IconName, IconSemantic> = {
   // Squad Loadouts (0.14.0 GO-17 UI): a piece skipped by an install is an attention mark (its reason sits beside
   // it), the counterpart to `check` for what went on.
   skipped: "alert",
+  // Field Kits (0.14.0 FKR-3). The bone line marks a member's condition and how bad it is (an injury, like
+  // `injury`); the rank chips are the one read of how strong an enemy is, a scale from Weak to Boss. A pack must keep
+  // each readable as what it is and keep the ranks reading in order.
+  boneFracture: "alert",
+  boneBroken: "alert",
+  boneShattered: "alert",
+  rankWeak: "alert",
+  rankNormal: "alert",
+  rankStrong: "alert",
+  rankElite: "alert",
+  rankBoss: "alert",
 
   // SUBJECT: names a thing. Restyling freely is the whole point of a pack.
   refinery: "subject",
@@ -147,6 +158,13 @@ export const ICON_SEMANTICS: Record<IconName, IconSemantic> = {
   fightPoint: "subject",
   // Squad Loadouts (0.14.0 GO-17 UI): the locker names where a resting loadout sits.
   locker: "subject",
+  // Field Kits (0.14.0 FKR-3): each kit glyph names one carried kit.
+  kitFirstAid: "subject",
+  kitAntitoxin: "subject",
+  kitCombatStim: "subject",
+  kitSplint: "subject",
+  kitTrauma: "subject",
+  kitInjury: "subject",
 
   // ACTION: something the player does. Should stay recognisable as that action.
   salvage: "action",

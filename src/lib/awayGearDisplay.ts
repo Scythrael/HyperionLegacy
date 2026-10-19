@@ -8,7 +8,7 @@
 // game/memberEquipment.ts and the catalog is game/model.ts.
 
 import type { AwayTeamType, BlueprintDef, EquipmentInstance, EquipmentSlotType, GameState, MemberSlotType } from "./game/model";
-import { EQUIPMENT_SLOTS, MEMBER_SLOT_TYPES, isMemberSlotType, memberVariety, shipDisplayLabel } from "./game/model";
+import { EQUIPMENT_SLOTS, ITEMS, MEMBER_SLOT_TYPES, isMemberSlotType, memberVariety, shipDisplayLabel } from "./game/model";
 import { memberFitBlockText, uniqueWearer, type MemberFitBlockReason } from "./game/memberEquipment";
 import { crewLockText } from "./game/crewLock";
 import { SQUAD_META } from "./awayTeamDisplay";
@@ -144,6 +144,65 @@ export function blueprintGearCategory(
   if (bp.weaponOutput || bp.droneOutput) return "ship";
   if (bp.equipmentOutput) return gearCategoryOfSlot(bp.equipmentOutput.slotType);
   return null;
+}
+
+// Field Kits FKR-3: is this a field kit blueprint (a material blueprint whose stackable output is a "fieldKit" item,
+// model.ts ITEMS)? Pure.
+export function isFieldKitBlueprint(bp: Pick<BlueprintDef, "unlockOnly" | "weaponOutput" | "droneOutput" | "equipmentOutput" | "recipe">): boolean {
+  if (blueprintGearCategory(bp) !== null || bp.unlockOnly) return false;
+  const out = bp.recipe.outputItem;
+  return out !== undefined && ITEMS[out]?.category === "fieldKit";
+}
+
+// The Fabricator's Item dropdown shelves (E-CREW Task 10, plus Field Kits FKR-3's own "Field Kits" group): Materials,
+// Ship Systems, Away-Team Gear, Implants, Field Kits.
+export type FabricatorGroup = "material" | GearCategory | "fieldKit";
+export const FABRICATOR_GROUP_ORDER: readonly FabricatorGroup[] = ["material", ...GEAR_CATEGORY_ORDER, "fieldKit"];
+export const FABRICATOR_GROUP_LABEL: Readonly<Record<FabricatorGroup, string>> = {
+  material: "Materials",
+  ...GEAR_CATEGORY_LABEL,
+  fieldKit: "Field Kits",
+};
+
+// The shelf a blueprint's craft files under: its gear category, Field Kits for a kit, else Materials. Pure.
+export function fabricatorGroupOf(bp: Pick<BlueprintDef, "unlockOnly" | "weaponOutput" | "droneOutput" | "equipmentOutput" | "recipe">): FabricatorGroup {
+  if (isFieldKitBlueprint(bp)) return "fieldKit";
+  return blueprintGearCategory(bp) ?? "material";
+}
+
+// The Item dropdown's option groups for one tier, each in the given (BLUEPRINTS) order, empty shelves dropped. When
+// the tier holds only one kind the single group comes back unlabeled (label null), so the dropdown lists plain
+// options. Pure (App.svelte passes availableFabricateBlueprints so the list stays live).
+export function fabricateKeyGroups(
+  blueprints: readonly BlueprintDef[],
+  tier: number
+): { key: FabricatorGroup; label: string | null; keys: string[] }[] {
+  const buckets = FABRICATOR_GROUP_ORDER.map((key) => ({ key, label: FABRICATOR_GROUP_LABEL[key], keys: [] as string[] }));
+  for (const bp of blueprints) {
+    if (bp.tier !== tier) continue;
+    const g = fabricatorGroupOf(bp);
+    buckets.find((b) => b.key === g)?.keys.push(bp.key);
+  }
+  const used = buckets.filter((b) => b.keys.length > 0);
+  return used.length <= 1 ? used.map((b) => ({ ...b, label: null })) : used;
+}
+
+// The Research list's sections inside a tier (E-CREW Task 10, plus Field Kits FKR-3): every other blueprint first
+// (unlabeled, in its existing order), then the trailing "Away-Team Gear", "Implants" and "Field Kits" shelves.
+export type ResearchSection = "main" | "awayTeam" | "implant" | "fieldKit";
+export const RESEARCH_SECTION_ORDER: readonly ResearchSection[] = ["main", "awayTeam", "implant", "fieldKit"];
+export const RESEARCH_SECTION_LABEL: Readonly<Record<ResearchSection, string | null>> = {
+  main: null,
+  awayTeam: GEAR_CATEGORY_LABEL.awayTeam,
+  implant: GEAR_CATEGORY_LABEL.implant,
+  fieldKit: FABRICATOR_GROUP_LABEL.fieldKit,
+};
+
+// The Research section a blueprint files under. Pure.
+export function researchSectionOf(bp: Pick<BlueprintDef, "unlockOnly" | "weaponOutput" | "droneOutput" | "equipmentOutput" | "recipe">): ResearchSection {
+  if (isFieldKitBlueprint(bp)) return "fieldKit";
+  const c = blueprintGearCategory(bp);
+  return c === "awayTeam" || c === "implant" ? c : "main";
 }
 
 // ============================================================================

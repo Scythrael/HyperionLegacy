@@ -1438,6 +1438,21 @@ function readContent(id: string, s: GameState): number {
       const job = after.activeProcesses.find((p) => p.kind === "refineJob");
       return job ? job.remainingTicks : -1;
     }
+    case "craft": {
+      // Field Kits FKR-3: one craft of blueprint `a` on a Fabricator at its tier, researched and holding the inputs, run
+      // to completion: how many of its output item the inventory gained.
+      const bp = BLUEPRINTS[a];
+      const out = bp.recipe.outputItem;
+      if (out === undefined) return -1;
+      let ready: GameState = { ...withFacilityLevel(s, "fabricator", Math.max(1, bp.tier)), researchedBlueprints: [...s.researchedBlueprints, a] };
+      for (const [item, qty] of Object.entries(bp.recipe.inputs)) ready = holding(ready, item, new Decimal(qty));
+      const before = heldOf(ready, out);
+      const r = startLine(ready, "fabricate", a, { kind: "batch", remaining: 1 });
+      if (!r.started) return -1;
+      let after = r.next;
+      for (let i = 0; i < bp.craftDurationTicks + 2; i += 1) after = economyTick(after, 1, () => 0.5);
+      return heldOf(after, out) - before;
+    }
     case "affix": {
       // An objective carrying one instance of affix `a` at rank `b` (alignment `d`), read by the hook `c`'s reader.
       const alignment = (d ?? "negative") as AffixAlignment;
