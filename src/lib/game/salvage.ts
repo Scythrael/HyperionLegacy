@@ -197,8 +197,8 @@ export function salvageTalentBonus(state: GameState): {
 // (1 + museumBonuses(state).salvageYield). The ONE seam both recycle (salvageEquipment) and hull
 // teardown (salvageShip) read, so the museum scales every recipe/build refund identically. It is applied
 // AFTER the band + quality + talent terms are summed (a multiplier on the whole fraction, the "x(1 + b)"
-// museum convention), unlike the FA talent, which stays a FLAT add on recycle only (a hull teardown never
-// reads the talent, by design). Reads state only; draws NOTHING, so the one-draw rng contract of both
+// museum convention), unlike the FA talent, which stays a FLAT add of percentage points (on recycle and, since
+// WR-6, on a hull teardown too). Reads state only; draws NOTHING, so the one-draw rng contract of both
 // salvages is untouched (the timed salvageJob stays offline == live). Empty museum -> exactly 1, and
 // x * 1 === x in IEEE math, so every fraction (and every floored amount) is bit-identical.
 export function salvageYieldMult(state: GameState): number {
@@ -778,6 +778,20 @@ export type SalvageShipResult =
   | { ok: false; next: GameState; reason: SalvageRejectReason };
 
 // ----------------------------------------------------------------------------
+// hullTeardownFraction
+// ----------------------------------------------------------------------------
+// The share of a hull's build components and credits a teardown gives back, from the band draw `bandDraw` in
+// [0, 1): the band, plus the Fleet Admiral salvage talent's yield bonus (WR-6, OC-B1 "Apply to hull teardown":
+// Salvage Operations adds its percentage points here exactly as it does to a recycled system's fraction; 0 without
+// it, so a teardown without the talent is unchanged), all x the museum's salvageYield (E4b; exactly 1 with no
+// museum). It scales the fraction BEFORE chance-rounding, so neither bonus adds a shared-stream draw. Pure.
+export function hullTeardownFraction(state: GameState, bandDraw: number): number {
+  const band = SALVAGE_FRACTION_MIN + bandDraw * (SALVAGE_FRACTION_MAX - SALVAGE_FRACTION_MIN);
+  const talent = salvageTalentBonus(state).yieldBonus;
+  return (talent === 0 ? band : band + talent) * salvageYieldMult(state);
+}
+
+// ----------------------------------------------------------------------------
 // salvageShip
 // ----------------------------------------------------------------------------
 // Break down a hull in the fleet: return its INSTALLED CRAFTED systems to the spare pool,
@@ -900,18 +914,14 @@ export function salvageShip(
 
   // --- Recover build materials + credits ------------------------------------
   // Mirror salvageEquipment's recovery band: recover a VARIABLE fraction, rolled uniformly in
-  // [MIN, MAX] with the injected rng, of what the hull cost to BUILD (its buildRecipe). No
-  // quality/talent bonus applies here: a hull has no quality rung, and the FA salvage talent
-  // buffs fine MATERIAL recycling, not a coarse hull teardown. So the fraction is the raw band.
+  // [MIN, MAX] with the injected rng, of what the hull cost to BUILD (its buildRecipe). A hull has
+  // no quality rung, so no quality bonus; the FA salvage talent applies here too since WR-6
+  // (hullTeardownFraction).
   const recipe = SHIP_TYPES[ship.typeKey].buildRecipe;
   // The ONE shared-stream draw (unchanged count); it also seeds the private rounding stream.
   const bandDraw = rng();
   const rounding = salvageRoundingStream(bandDraw);
-  // E4b: the museum's salvageYield DOES scale a teardown (the museum is a fleet-wide relic bonus, not the
-  // fine-recycling FA talent above), via the shared salvageYieldMult seam (exactly 1 with no museum).
-  // It scales the fraction BEFORE chance-rounding, so it never adds a shared-stream draw.
-  const fraction =
-    (SALVAGE_FRACTION_MIN + bandDraw * (SALVAGE_FRACTION_MAX - SALVAGE_FRACTION_MIN)) * salvageYieldMult(state);
+  const fraction = hullTeardownFraction(state, bandDraw);
 
   // Deposit count * fraction of each build component, CHANCE-ROUNDED (0.13.9, see chanceRound),
   // into the QUALITY-0 bucket (crude recovery, same as recycled scrap). Record every component's

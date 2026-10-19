@@ -53,12 +53,22 @@ describe("WR-2 choice ablation: a live choice moves, an inert one is dead", () =
     expect(r.verdicts[0].surprise).toBe(false);
   });
 
-  it("Homeworld placeholder hub Homeland Defense ('No bonus yet') moves nothing and is flagged dead", () => {
-    const e = wiringEntry("fleetAdmiral:HOMEWORLD_TALENTS:homelandDefenseHub")!;
+  // WR-6 wired the Homeworld placeholder hubs, so the inert example is now the Martian racial (pending the E-MOD power
+  // budget), and Home Guard, once the "No bonus yet" example, is pinned moving.
+  it("a pending choice (the Martian racial, waiting on the power budget) moves nothing and is flagged dead", () => {
+    const e = wiringEntry("racial:martian")!;
     expect(e.status.kind).toBe("pending");
     const r = ablateChoices([e], { seeds: [0], horizonSeconds: 1800 });
     expect(r.verdicts[0].verdict).toBe("dead");
     expect(r.verdicts[0].moved).toEqual([]);
+  });
+
+  it("WR-6: the former placeholder hub Home Guard moves the patrol (its shield pool)", () => {
+    const e = wiringEntry("fleetAdmiral:HOMEWORLD_TALENTS:homelandDefenseHub")!;
+    expect(e.status.kind).toBe("live");
+    const r = ablateChoices([e], { seeds: [0], horizonSeconds: 1800 });
+    expect(r.verdicts[0].verdict).toBe("moves");
+    expect(r.verdicts[0].moved).toContain("patrol:shieldLeft");
   });
 
   it("scripted([choice]) applies the choice to the start and nothing else", () => {

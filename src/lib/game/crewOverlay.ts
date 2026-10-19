@@ -34,9 +34,9 @@ import { CREW_PROFESSION_BUFFS, CREW_STAT_KEYS, SECOND_LEVEL_EXCLUSIVE } from ".
 import { CREW_RACES } from "./crewRaces";
 import { coalesceBuckets, contributionForSignature, notableSignature, removeFromBucketList, rollupBuckets, totalCrew } from "./crew";
 import { shipCrewLocked } from "./crewLock";
-import { officerRacialBonus } from "./seniorStaff";
+import { captainRacialBonus, officerRacialBonus } from "./seniorStaff";
 import { getSeniorStaffBonusById } from "./seniorStaffBonuses";
-import { crewTransportsDue, deliverDueTransports } from "./transports";
+import { crewTransportsDue, deliverDueTransports, transportBatchSize } from "./transports";
 import { autoCrewShip } from "./autoCrew";
 import {
   installedQuartersModule,
@@ -421,6 +421,11 @@ function rawShipCrewContribution(state: GameState, ship: ShipInstance): Record<s
     add(racial.statKey, racial.magnitude * officerMult);
   }
 
+  // WR-6 (OC-A43 [PROVISIONAL]): the commanding captain's racial, at the officer magnitude x CAPTAIN_RACIAL_SCALE.
+  // The captain is not an officer, so neither the bridge module nor its own Mentor scales it. Nothing without a race.
+  const captainRacial = captainRacialBonus(captain);
+  if (captainRacial) add(captainRacial.statKey, captainRacial.magnitude);
+
   // E-CREW 0.14.0 (Task 21): the Operations department's CONSTITUTION facet, its share of a shorter
   // post-mission turnaround: it rides the officer-only turnaround key (faster unloading, applyOfficerLifts)
   // beside Veteran Instincts' unload half. add() skips a 0, so an all-10 bridge writes nothing.
@@ -441,6 +446,9 @@ function officerEffectivenessRacials(state: GameState, ship: ShipInstance, bridg
     if (racial.statKey !== EFFECTIVENESS_KEY || racial.magnitude === 0) continue;
     total += racial.magnitude * (bridgeMod ? bridgeOfficerMultiplier(bridgeMod, officer, hullSpecOf(ship)) : 1);
   }
+  // WR-6: an Earth-born commanding captain's racial lifts the complement the same way (unamplified, see the fold).
+  const captainRacial = captainRacialBonus(commandingCaptain(state, ship));
+  if (captainRacial && captainRacial.statKey === EFFECTIVENESS_KEY) total += captainRacial.magnitude;
   return total;
 }
 
@@ -907,6 +915,8 @@ export function resolveCrew(state: GameState): GameState {
     state.crewPool,
     state.lastTransportWindow,
     state.gameTimeSeconds,
+    // WR-6 (OC-B3): Civic Charter's extra crew per transport (exactly the base batch without it).
+    transportBatchSize(state),
   );
 
   // 2) Auto-crew every PASSIVE ship from the (post-delivery) pool, in state.ships order (monotonic,

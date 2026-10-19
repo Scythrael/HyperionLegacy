@@ -40,6 +40,7 @@
 // edit. All PURE.
 
 import {
+  HOMEWORLD_TALENTS,
   SECONDARY_CAPTAIN_TALENTS,
   commandingCaptain,
   type CaptainCombatMods,
@@ -48,6 +49,7 @@ import {
   type SecondaryTalentKey,
 } from "./model";
 import { OVERCHARGE_HULL_SHARE } from "./combat/captainEdge";
+import { captainPrimaryMult } from "./captainPrimaryEffects";
 
 // The node's configured magnitude: a statMult's mult, a procChance's chance, a capstone's magnitude; 0 otherwise.
 export function tacticianMagnitude(key: SecondaryTalentKey): number {
@@ -84,9 +86,11 @@ export const TACTICIAN_MOD_OF: Readonly<Partial<Record<SecondaryTalentKey, keyof
 };
 
 // The captain's Tactician talents as the frozen record (undefined when none is owned, so the caller never stores an
-// empty record). Pure.
+// empty record). WR-6: Combat Readiness (the Tactician hub) and the tactical spec are each their own weapon damage
+// factor on top of Weapons Drill: weaponDamage = (1 + gunnery1) x hub x spec - 1, exactly gunnery1's magnitude (or
+// absent) without them. Pure.
 export function captainCombatMods(captain: CaptainState | undefined | null): CaptainCombatMods | undefined {
-  if (!captain || captain.unlockedSecondaryTalents.length === 0) return undefined;
+  if (!captain) return undefined;
   let mods: CaptainCombatMods | undefined;
   for (const key of captain.unlockedSecondaryTalents) {
     const field = TACTICIAN_MOD_OF[key];
@@ -95,12 +99,36 @@ export function captainCombatMods(captain: CaptainState | undefined | null): Cap
     if (!(m > 0)) continue;
     mods = { ...(mods ?? {}), [field]: m };
   }
+  const primary = captainPrimaryMult(captain, "weaponDamageMult");
+  if (primary !== 1) mods = { ...(mods ?? {}), weaponDamage: (1 + (mods?.weaponDamage ?? 0)) * primary - 1 };
   return mods;
 }
 
 // The ship's commanding captain's frozen record (the dispatch read; model.ts commandingCaptain, OC-A2). Pure.
 export function shipCaptainCombatMods(state: GameState, ship: { assignedCaptainId: number | null }): CaptainCombatMods | undefined {
   return captainCombatMods(commandingCaptain(state, ship));
+}
+
+// WR-6 (OC-B3, user 2026-10-15 "Homeland Defense helps patrol combat"): the fleet's Home Guard factor on a patrolling
+// ship's shield pool and recharge, the product of (1 + mult) over the owned patrolShieldMult Homeworld talents;
+// exactly 1 without one. Pure.
+export function homeGuardPatrolShieldMult(state: Pick<GameState, "unlockedHomeworldTalents">): number {
+  let f = 1;
+  for (const key of state.unlockedHomeworldTalents) {
+    const e = HOMEWORLD_TALENTS[key]?.effect;
+    if (e && e.type === "patrolShieldMult") f *= 1 + e.mult;
+  }
+  return f;
+}
+
+// The record a patrol CYCLE freezes (dispatch and every relaunch): the captain's record, with Home Guard (`guard`,
+// homeGuardPatrolShieldMult) as its own shield factor on top of Shield Discipline: shield = (1 + aegis1) x guard - 1.
+// Patrols only (an expedition ship event reads shipCaptainCombatMods, without it). Exactly captainCombatMods(captain)
+// at guard 1. Pure.
+export function patrolCaptainCombatMods(captain: CaptainState | undefined | null, guard: number): CaptainCombatMods | undefined {
+  const mods = captainCombatMods(captain);
+  if (guard === 1) return mods;
+  return { ...(mods ?? {}), shield: (1 + (mods?.shield ?? 0)) * guard - 1 };
 }
 
 // A repair divisor's speed-up with Damage Control on top: (1 + bonus) x (1 + repair) - 1. The bonus unchanged

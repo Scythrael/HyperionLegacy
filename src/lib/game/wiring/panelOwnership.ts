@@ -246,6 +246,9 @@ const ADAPTERS: Readonly<Record<string, Adapter>> = {
       : NOT_OWNED;
   },
   CAPTAIN_PROGRESSION: (_e, v, key) => {
+    // WR-6: a captain race is owned when captain 1 carries one ("without" drops it). The registry measures a
+    // Station-born captain, so the expected value is that race's.
+    if (key === "race") return captainOf(v)?.race ? owned(editCaptainIn(v, (c) => ({ ...c, race: undefined }))) : NOT_OWNED;
     if (key !== "retirementExpMultiplier") return { ownership: "unmeasured", note: "no owner reader in the panel" };
     return (captainOf(v)?.retirements ?? 0) > 0 ? owned(editCaptainIn(v, (c) => ({ ...c, retirements: 0 }))) : NOT_OWNED;
   },

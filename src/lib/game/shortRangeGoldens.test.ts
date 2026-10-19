@@ -39,6 +39,9 @@
 //                  destroyer on patrol, the Orion on expedition), so those crew wait in the pool. FLEET_BEFORE_OC11
 //                  keeps the old record and golden 1 reproduces it with withOc11Off: the pause is the only cause.
 //                  The views do not move.
+// MOVED BY WR-6 (captain primary, spec, race, Homeworld placeholders): `registry` 93d27465 -> c748495a, the count
+// unchanged: nine placeholder entries flip pending -> live (WR6_WIRED_IDS); golden 5 reproduces the old hash with
+// those nine read as pending.
 // ADDED BY G1-1: `guests:<hull>` (guest quarters bare and with each quarters variety, the Guest Wing last) and
 // `stats:<hull>:guestWing` (every other stat with a Guest Wing installed). The sheets hash through withoutGuests, so
 // the stats pins keep proving no other stat moved (the transport hulls now carry base guest quarters).
@@ -264,7 +267,7 @@ const GOLDEN: Record<string, unknown> = {
     "50:quartersFlightDeckWing:stellar:q2:iL31:{\"crewStations\":57}:{\"colonistCapacity\":76,\"crewStations\":19}:m0:quartersFlightDeckWing",
     "pool:[{\"stat\":\"crewStations\",\"weight\":5},{\"stat\":\"crewEfficiency\",\"weight\":2},{\"stat\":\"massReduction\",\"weight\":1},{\"stat\":\"colonistCapacity\",\"weight\":2}]",
   ],
-  "registry": [1182, "93d27465"],
+  "registry": [1182, "c748495a"],
   "registry:g1": ["ship:gearLine:colonistCapacity|pending", "ship:SHIP_TYPES:generalFreighter:colonistCapacity|pending", "ship:SHIP_TYPES:orion:colonistCapacity|pending", "ship:SHIP_TYPES:aurora:colonistCapacity|pending", "ship:SHIP_TYPES:eir:colonistCapacity|pending", "ship:SHIP_SEAMS:generalQuartersGuestPerk|pending", "ship:QUARTERS_MODULES:quartersGuestWing|live", "ship:QUARTERS_MODULES:quartersGuestWing:capacity|pending"],
   "old": ["aa94ddcd", "817862c7", "4ac62731", "d9a483c6"],
 };
@@ -364,6 +367,20 @@ function fleetRun(): { hours: string[]; seen: string[][]; s: GameState } {
   return { hours, seen, s };
 }
 
+// The `registry` pin before WR-6 (after CP-8), and the nine entries WR-6 flips pending -> live.
+const REGISTRY_BEFORE_WR6 = [1182, "93d27465"];
+const WR6_WIRED_IDS: ReadonlySet<string> = new Set<string>([
+  "captain:CAPTAIN_TALENTS:tacticianHub",
+  "captain:CAPTAIN_TALENTS:explorerHub",
+  "captain:CAPTAIN_SPEC_BONUS:tactical",
+  "captain:CAPTAIN_SPEC_BONUS:science",
+  "captain:progression:race",
+  "fleetAdmiral:HOMEWORLD_TALENTS:fleetLogisticsSalvage",
+  "fleetAdmiral:HOMEWORLD_TALENTS:industryHub",
+  "fleetAdmiral:HOMEWORLD_TALENTS:homelandDefenseHub",
+  "fleetAdmiral:HOMEWORLD_TALENTS:citizenryHub",
+]);
+
 // The `fleet` record before OC-11 (captured on a678241); reproduced with the pause off.
 const FLEET_BEFORE_OC11 = ["aa94ddcd", "1a72036c", "5008dacf", "cbf18a80", "6c8ebe80", "33d00a42", "19f8bdb2"];
 
@@ -459,6 +476,13 @@ describe("G1-0 golden 5: the wiring registry's ids and statuses", () => {
   it("the entries outside the G1 additions, hashed in registry order", () => {
     const lines = WIRING_REGISTRY.filter((e) => !G1_ADDED_ENTRY_IDS.has(e.id)).map((e) => `${e.id}|${e.status.kind}`);
     pin("registry", [lines.length, hash(lines)]);
+  });
+  // WR-6: the nine placeholder entries it wires flip pending -> live (the count and the order hold). With those nine
+  // read as pending again the lines hash to the pin from before WR-6, so the flips are the only move.
+  it("WR-6 is the only cause of the registry move", () => {
+    const lines = WIRING_REGISTRY.filter((e) => !G1_ADDED_ENTRY_IDS.has(e.id)).map((e) => `${e.id}|${WR6_WIRED_IDS.has(e.id) ? "pending" : e.status.kind}`);
+    expect(WIRING_REGISTRY.filter((e) => WR6_WIRED_IDS.has(e.id)).map((e) => e.status.kind)).toEqual(Array(WR6_WIRED_IDS.size).fill("live"));
+    expect([lines.length, hash(lines)]).toEqual(REGISTRY_BEFORE_WR6);
   });
   it("G1-1: the added entries, each with its status", () => {
     const added = WIRING_REGISTRY.filter((e) => G1_ADDED_ENTRY_IDS.has(e.id)).map((e) => `${e.id}|${e.status.kind}`);
