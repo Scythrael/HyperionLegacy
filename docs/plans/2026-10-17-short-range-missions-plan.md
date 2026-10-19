@@ -400,3 +400,12 @@ Material Lines and universal modules ahead of G1 in the build order.
 - **Existing survey / supply missions:** "Keep them separate (Recommended)". **Refugees vs the E5 facility-crews
   loop:** "Relocate now, crews loop right after (Recommended)". **Placement:** "Own Operations tab (Recommended)".
   **Slots:** "Mission Control upgrades (Recommended)".
+
+## USER ANSWERS (2026-10-19)
+
+- **Call 1, what re-rolls:** "Whole job (Recommended)": each run a slot can draw any template.
+- **Call 3, sheet shape:** "One per tier, all stats (Recommended)".
+- **Call 4, categories:** "Five, Engineering = crew (Recommended)": Range, Cargo, Guest quarters, Sensors, Engineering;
+  Engineering is the ship's Engineering crew strength as a rating.
+- **Call 5, stat name:** "Guest quarters (Recommended)".
+- Still open: 6, 9, 10, 11, 12, 13, 14, 15, 17, 18.
