@@ -446,6 +446,7 @@ rung; inputs are existing components only. No Material Lines dependency.
 **Determinism:** the mint rides the existing generation path (stamping already done). **Save:** none. **Tests:** each
 blueprint mints its variant; a fresh save can research and craft a Wide-Beam Array with no relic; the archive gains
 15 rows (patch notes must say completion % drops, the Task 10 precedent).
+CP-11 also owns a Guest Wing blueprint (G1-1 added the variety, `quartersGuestWing`; review 2026-10-19).
 
 ### CP-12: Bridge and Crew Quarters tiles (Task 28 UI)
 

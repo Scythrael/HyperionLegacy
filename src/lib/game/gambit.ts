@@ -83,6 +83,9 @@ import { fieldworkEffect, type FieldworkEffect } from "./fieldwork";
 import { constitutionRamp } from "./officerStats";
 // WR-5c: the commanding captain's explorer secondary nodes (pure; imports only model.ts, so no cycle).
 import { captainSquadStrengthMult } from "./captainExplorerEffects";
+// Field Kits FKR-4: the bay's condition classes (Stoneskin's battle half reads the injury class). medicalBay.ts imports
+// model.ts types only, so no cycle.
+import { GROUND_CONDITIONS, STONESKIN_INJURY_MULT } from "./medicalBay";
 
 // ============================================================================
 // FIRST-PASS TUNABLE constants
@@ -166,10 +169,25 @@ interface StatusEffectDef {
     | "armorDown" // armor x (1 - magnitude) (corroded)
     | "mayFallBack" // chance per turn to fall back instead of acting (fear)
     | "damageTakenDown" // incoming damage x (1 - magnitude) (shielded)
-    | "damageUp"; // outgoing damage x (1 + magnitude) (inspired)
+    | "damageUp" // outgoing damage x (1 + magnitude) (inspired)
+    // Field Kits FKR-4 (only a Field Kits run's fights inflict these):
+    | "powerAccuracyDown" // outgoing damage AND hit chance x (1 - magnitude) (the bone line)
+    | "turnLoss" // chance `magnitude` per turn to lose the action (concussion)
+    | "dotTurnLoss"; // deals `magnitude` HP at end of round AND NEUROTOXIN_TURN_LOSS per turn to lose the action (neurotoxin)
   magnitude: number;
   duration: number; // rounds
 }
+
+// Field Kits FKR-4 (user FK13 "Proposed numbers", group 6): a Neurotoxin's chance per turn to lose the action
+// (its DoT is the row's magnitude, 5 per round for 4 rounds).
+export const NEUROTOXIN_TURN_LOSS = 0.25;
+// The bone line's conditions last until treated (a Splint or Trauma Kit, FKR-6) or cured in the medical bay: the rounds
+// they are applied with are far past any objective's fights (MAX_ROUNDS each), so they ride every fight's carry.
+export const BONE_CONDITION_ROUNDS = 10_000;
+// Blindness (user FK13: "hit x0.25 for 2 to 3 rounds"): a flash grenade rolls BLINDNESS_MIN_ROUNDS +
+// nextInt(BLINDNESS_ROUND_SPAN) rounds on the fight stream ("a turn or two of blindness", source decision 5).
+export const BLINDNESS_MIN_ROUNDS = 2;
+export const BLINDNESS_ROUND_SPAN = 2;
 
 export const GAMBIT_STATUSES: Record<GambitStatusId, StatusEffectDef> = {
   poison: { id: "poison", label: "Poison", kind: "debuff", effect: "dotDamage", magnitude: 5, duration: 4 },
@@ -181,12 +199,53 @@ export const GAMBIT_STATUSES: Record<GambitStatusId, StatusEffectDef> = {
   fear: { id: "fear", label: "Fear", kind: "debuff", effect: "mayFallBack", magnitude: 0.4, duration: 2 },
   shielded: { id: "shielded", label: "Shielded", kind: "buff", effect: "damageTakenDown", magnitude: 0.4, duration: 2 },
   inspired: { id: "inspired", label: "Inspired", kind: "buff", effect: "damageUp", magnitude: 0.3, duration: 2 },
+  // Field Kits FKR-4 (user FK13 "Proposed numbers"; names D20, transcript 70901 answer 1, and the user's severity ranks
+  // 2026-10-15). The bone line's power and accuracy cut is x0.8 at Fracture (the user's number), "worse at higher
+  // ranks": x0.7 and x0.6 [PROPOSAL, the plan's numbers].
+  fracture: { id: "fracture", label: "Fracture", kind: "debuff", effect: "powerAccuracyDown", magnitude: 0.2, duration: BONE_CONDITION_ROUNDS },
+  brokenBone: { id: "brokenBone", label: "Broken Bone", kind: "debuff", effect: "powerAccuracyDown", magnitude: 0.3, duration: BONE_CONDITION_ROUNDS },
+  shatteredBone: { id: "shatteredBone", label: "Shattered Bone", kind: "debuff", effect: "powerAccuracyDown", magnitude: 0.4, duration: BONE_CONDITION_ROUNDS },
+  hemorrhage: { id: "hemorrhage", label: "Hemorrhage", kind: "debuff", effect: "dotDamage", magnitude: 12, duration: 4 },
+  neurotoxin: { id: "neurotoxin", label: "Neurotoxin", kind: "debuff", effect: "dotTurnLoss", magnitude: 5, duration: 4 },
+  concussion: { id: "concussion", label: "Concussion", kind: "debuff", effect: "turnLoss", magnitude: 0.35, duration: 3 },
+  blindness: { id: "blindness", label: "Blindness", kind: "debuff", effect: "accuracyDown", magnitude: 0.75, duration: BLINDNESS_MIN_ROUNDS },
 };
 
 // The DEBUFF ids a Cure with no explicit statusId clears (every debuff; buffs are never cleared).
 const DEBUFF_IDS: GambitStatusId[] = (Object.keys(GAMBIT_STATUSES) as GambitStatusId[]).filter(
   (id) => GAMBIT_STATUSES[id].kind === "debuff",
 );
+
+// Field Kits (FK2, user 2026-10-15 "Basic debuffs only"): the BASIC debuffs, the only ones the medic's free Cure and
+// the team kit's Use Item clear: the user's basic list (Bleed, Blindness, Weakened, Suppressed, Corroded) plus Poison,
+// and Stun and Fear (user 2026-10-17: "Yes, both clear them"). Never a serious condition (Hemorrhage, Neurotoxin,
+// Concussion, any bone rank: their kits and the medical bay treat them) and never a buff. Every debuff a fight could
+// carry before Field Kits is on this list, so a fight without the new conditions cures exactly as before.
+// fieldKits.ts re-exports it as the kit catalog's basic list.
+export const BASIC_DEBUFFS: readonly GambitStatusId[] = ["bleed", "blindness", "weakened", "suppressed", "corroded", "poison", "stun", "fear"];
+const BASIC_DEBUFF_SET: ReadonlySet<GambitStatusId> = new Set(BASIC_DEBUFFS);
+
+// Field Kits FKR-4: the BONE severity line, lightest first (user 2026-10-15: "Fracture -> Broken Bone -> Shattered
+// Bone"; N9 "Bones only now"). A bone hit on a combatant already holding a bone condition raises it one rank, the
+// heaviest staying heaviest; with none it starts at Fracture (user N10 "Start Fracture, worsen"). fieldKits.ts
+// CONDITION_LINES.bone reads it.
+export const BONE_LINE: readonly GambitStatusId[] = ["fracture", "brokenBone", "shatteredBone"];
+
+// Field Kits FKR-4 (user FK6 "Yes, covers Concussion"): a status a combatant's resist to ANOTHER status also covers.
+// Cortex Shield's stun resist shrugs off a Concussion too (the better of the two resists rolls).
+const RESIST_ALSO_FROM: Readonly<Partial<Record<GambitStatusId, GambitStatusId>>> = { concussion: "stun" };
+
+// Field Kits FKR-4 (D24, Ossir Stoneskin's battle half: "Chances of receiving physical ailments is reduced by 25%, but
+// if they do land, they last for 25% longer"): a Stoneskin combatant (groundFight.ts stamps it on a Field Kits run
+// only) resists a PHYSICAL status (the medical bay's injury class: Bleed, Hemorrhage, Concussion, the bone line) this
+// much more, folded with its own resist as independent chances (1 - (1 - own)(1 - this)), and one that lands lasts
+// ceil(duration x STONESKIN_INJURY_MULT).
+export const STONESKIN_BATTLE_RESIST = 0.25;
+
+// Is `id` a PHYSICAL status (an injury-class medical bay condition)? Own keys only. Pure.
+export function isPhysicalStatus(id: GambitStatusId): boolean {
+  return Object.prototype.hasOwnProperty.call(GROUND_CONDITIONS, id) && GROUND_CONDITIONS[id].cls === "injury";
+}
 
 // --- Decorrelation salts (distinct from expedition.ts's salts; do NOT reuse across purposes) ---
 // Exported (GO-4) so salts.test.ts can assert every engine salt is odd and distinct; read-only constants.
@@ -332,6 +391,22 @@ export interface GroundCombatant {
   // enemy of such a fight, its HP and power already scaled). Absent = Normal (every fight of an unranked run, and
   // every member). No battle rule reads it yet; FKR-6's gambit rank conditions will.
   rank?: EnemyRank;
+  // Field Kits FKR-4: stamped only on a Field Kits run's fight (fieldKitsConditions.ts), so every other fight's
+  // combatants lack them and draw and act exactly as before.
+  // An enemy's HEAVY HIT: a landed attack or execute dealing at least `fraction` of the target's max HP inflicts each of
+  // `statuses` (each through the target's resist roll). A Bruiser's Fracture (a bone hit) and Concussion.
+  heavyHit?: { fraction: number; statuses: readonly GambitStatusId[] };
+  // An enemy's EXECUTE affliction: a landed Execute on a low-HP target that is still standing inflicts it (a Striker's
+  // Hemorrhage on finishing a wounded target).
+  executeAfflicts?: GambitStatusId;
+  // An enemy's NORMAL-HIT affliction: a landed attack, or a landed Execute on a target not yet wounded, rolls `permille`
+  // on the fight stream and, on a hit, inflicts `id` through the target's resist roll (a Striker's Bleed, user
+  // 2026-10-19). The low-HP Execute brings executeAfflicts instead.
+  normalHitAfflicts?: { id: GambitStatusId; permille: number };
+  // An enemy's flash grenades left this battle (a Striker carries one): the "flashGrenade" action spends one.
+  flashGrenades?: number;
+  // A member's Ossir STONESKIN battle half (STONESKIN_BATTLE_RESIST and STONESKIN_INJURY_MULT on physical statuses).
+  stoneskin?: boolean;
 }
 
 // E-CREW (Task 20): the away team's frozen Senior Staff bonuses (stored on the Expedition at dispatch), as
@@ -570,6 +645,82 @@ export function clearDebuffs(c: GroundCombatant, id?: GambitStatusId): boolean {
   return c.statuses.length < before;
 }
 
+// Field Kits (FK2): is `id` a BASIC debuff (BASIC_DEBUFFS: what Cure and the team kit clear)? Pure.
+export function isBasicDebuff(id: GambitStatusId): boolean {
+  return BASIC_DEBUFF_SET.has(id);
+}
+
+// Field Kits (FK2): is `id` a SERIOUS condition, a debuff outside BASIC_DEBUFFS (Hemorrhage, Neurotoxin, Concussion,
+// the bone line)? Cure and the team kit never touch one. Every debuff before Field Kits is basic. Pure.
+export function isSeriousCondition(id: GambitStatusId): boolean {
+  return GAMBIT_STATUSES[id].kind === "debuff" && !BASIC_DEBUFF_SET.has(id);
+}
+
+// Does `c` carry something Cure (or the team kit) can clear: the named status unless it is serious, else any debuff
+// that is not serious? With no serious condition in play (every fight before Field Kits) this reads exactly as
+// "carries the named status / any debuff" did. Pure.
+export function hasCleansable(c: Pick<GroundCombatant, "statuses">, id?: GambitStatusId): boolean {
+  if (id) return !isSeriousCondition(id) && c.statuses.some((s) => s.id === id);
+  return c.statuses.some((s) => GAMBIT_STATUSES[s.id].kind === "debuff" && !isSeriousCondition(s.id));
+}
+
+// The medic's free CURE, IN PLACE (FK2 "Basic debuffs only"): clears the named status unless it is serious, else every
+// debuff that is not serious (the basic ones); serious conditions and buffs stay. Returns whether anything was removed.
+// With no serious condition in play this is clearDebuffs exactly. Pure over the working clone.
+export function cureBasicDebuffs(c: GroundCombatant, id?: GambitStatusId): boolean {
+  if (id) return isSeriousCondition(id) ? false : clearDebuffs(c, id);
+  const before = c.statuses.length;
+  c.statuses = c.statuses.filter((s) => GAMBIT_STATUSES[s.id].kind !== "debuff" || isSeriousCondition(s.id));
+  return c.statuses.length < before;
+}
+
+// The bone condition `c` holds (its BONE_LINE index), or -1. Pure.
+function boneRankIndex(c: Pick<GroundCombatant, "statuses">): number {
+  let best = -1;
+  for (const s of c.statuses) best = Math.max(best, BONE_LINE.indexOf(s.id));
+  return best;
+}
+
+// The permille chance `target` shrugs off `id`: its own resist, the better of it and a covering resist
+// (RESIST_ALSO_FROM: Cortex Shield's stun resist covers Concussion), then Stoneskin's battle half folded in on a
+// physical status (independent chances). A target with none of these reads exactly its own resist. Pure.
+export function statusResistPermille(target: Pick<GroundCombatant, "resists" | "stoneskin">, id: GambitStatusId): number {
+  let resist = target.resists?.[id] ?? 0;
+  const also = RESIST_ALSO_FROM[id];
+  if (also !== undefined) resist = Math.max(resist, target.resists?.[also] ?? 0);
+  if (target.stoneskin === true && isPhysicalStatus(id)) resist = Math.round(1000 - (1000 - Math.min(1000, resist)) * (1 - STONESKIN_BATTLE_RESIST));
+  return resist;
+}
+
+// The rounds a status that lands on `target` lasts: `rounds` (else its catalog duration), x STONESKIN_INJURY_MULT
+// rounded up on a Stoneskin combatant's physical status. Pure.
+function landedRounds(target: Pick<GroundCombatant, "stoneskin">, id: GambitStatusId, rounds?: number): number {
+  const base = rounds ?? GAMBIT_STATUSES[id].duration;
+  return target.stoneskin === true && isPhysicalStatus(id) ? Math.ceil(base * STONESKIN_INJURY_MULT) : base;
+}
+
+// A BONE HIT on `c`, IN PLACE (the resist roll already passed): with no bone condition it takes a Fracture (user N10);
+// holding one, it worsens one rank (Fracture to Broken Bone to Shattered Bone, the heaviest staying), refreshed to the
+// full BONE_CONDITION_ROUNDS. One bone condition at a time. No rng. Exported for the wiring probe (the line's ranks).
+export function applyBoneHit(c: GroundCombatant): void {
+  const held = boneRankIndex(c);
+  const next = BONE_LINE[Math.min(BONE_LINE.length - 1, held + 1)];
+  if (held >= 0) c.statuses = c.statuses.filter((s) => !BONE_LINE.includes(s.id));
+  applyStatus(c, next, undefined, landedRounds(c, next));
+}
+
+// The permille chance `c` loses its action this turn to a Concussion or a Neurotoxin (Field Kits FKR-4): each one held
+// is an independent chance (1 - the product of the misses), 0 with neither. Pure.
+export function turnLossPermille(c: Pick<GroundCombatant, "statuses">): number {
+  let keep = 1;
+  for (const s of c.statuses) {
+    const def = GAMBIT_STATUSES[s.id];
+    if (def.effect === "turnLoss") keep *= 1 - def.magnitude;
+    else if (def.effect === "dotTurnLoss") keep *= 1 - NEUROTOXIN_TURN_LOSS;
+  }
+  return keep === 1 ? 0 : Math.round((1 - keep) * 1000);
+}
+
 // D20: the first-aid effectiveness a member's Use Item works at (Medical Training or not). Pure.
 export function firstAidEffectiveness(actor: Pick<GroundCombatant, "medic">): number {
   return actor.medic === true ? FIRST_AID_TRAINED_EFFECTIVENESS : FIRST_AID_UNTRAINED_EFFECTIVENESS;
@@ -579,11 +730,13 @@ export function firstAidEffectiveness(actor: Pick<GroundCombatant, "medic">): nu
 // (the named one, else every debuff; buffs are never touched) loses ceil(remaining * effectiveness) rounds
 // and is pruned at 0, then (only if a debuff was cut) the target heals round(FIRST_AID_HEAL * effectiveness)
 // HP, capped at max. Returns whether a debuff was cut. No rng.
+// Field Kits (FK2): first aid never touches a SERIOUS condition (isSeriousCondition); those are their kits' or the
+// medical bay's. No serious condition existed before Field Kits, so this cuts exactly what it did.
 export function applyFirstAid(c: GroundCombatant, effectiveness: number, id?: GambitStatusId): boolean {
   let cut = false;
   c.statuses = c.statuses
     .map((s) => {
-      const targeted = id ? s.id === id : GAMBIT_STATUSES[s.id].kind === "debuff";
+      const targeted = !isSeriousCondition(s.id) && (id ? s.id === id : GAMBIT_STATUSES[s.id].kind === "debuff");
       if (!targeted) return s;
       cut = true;
       return { ...s, remaining: s.remaining - Math.ceil(s.remaining * effectiveness) };
@@ -595,17 +748,23 @@ export function applyFirstAid(c: GroundCombatant, effectiveness: number, id?: Ga
 }
 
 // A combatant's outgoing-damage multiplier from its buffs/debuffs (Weakened down, Inspired up).
+// Field Kits FKR-4: a held bone condition cuts both (its rank's catalog magnitude); with none, both read as before.
 function outgoingDamageMult(c: GroundCombatant): number {
   let mult = 1;
   if (hasStatus(c, "weakened")) mult *= 1 - GAMBIT_STATUSES.weakened.magnitude;
   if (hasStatus(c, "inspired")) mult *= 1 + GAMBIT_STATUSES.inspired.magnitude;
+  const bone = boneRankIndex(c);
+  if (bone >= 0) mult *= 1 - GAMBIT_STATUSES[BONE_LINE[bone]].magnitude;
   return mult;
 }
 
-// A combatant's hit chance (0..1) after Suppressed.
+// A combatant's hit chance (0..1) after Suppressed (and, Field Kits FKR-4, Blindness and a bone condition).
 function effectiveAccuracy(c: GroundCombatant): number {
   let acc = c.accuracy;
   if (hasStatus(c, "suppressed")) acc *= 1 - GAMBIT_STATUSES.suppressed.magnitude;
+  if (hasStatus(c, "blindness")) acc *= 1 - GAMBIT_STATUSES.blindness.magnitude;
+  const bone = boneRankIndex(c);
+  if (bone >= 0) acc *= 1 - GAMBIT_STATUSES[BONE_LINE[bone]].magnitude;
   return Math.max(0, Math.min(1, acc));
 }
 
@@ -773,10 +932,15 @@ function dealDamage(target: GroundCombatant, amount: number): void {
 // traits + resistStatus gear). The resist roll draws ONE rng step, and ONLY when the target has a resist
 // above 0 for that status, so a target with no resists (every enemy, a member without one) draws exactly
 // as before. Returns whether the status landed.
-function tryApplyStatus(target: GroundCombatant, id: GambitStatusId, rng: Rng): boolean {
-  const resist = target.resists?.[id] ?? 0;
+// Field Kits FKR-4: the resist is statusResistPermille (a covering resist, Stoneskin's battle half), still ONE roll and
+// only when above 0; a BONE status is a bone hit (applyBoneHit: it starts at Fracture or worsens one rank); `rounds`
+// (a flash grenade's rolled Blindness) overrides the catalog duration; a Stoneskin combatant's physical status lasts
+// longer (landedRounds). A target and status with none of these apply exactly as before.
+function tryApplyStatus(target: GroundCombatant, id: GambitStatusId, rng: Rng, rounds?: number): boolean {
+  const resist = statusResistPermille(target, id);
   if (resist > 0 && rng.chance(resist, 1000)) return false;
-  applyStatus(target, id);
+  if (BONE_LINE.includes(id)) applyBoneHit(target);
+  else applyStatus(target, id, undefined, landedRounds(target, id, rounds));
   return true;
 }
 
@@ -785,7 +949,8 @@ function tryApplyStatus(target: GroundCombatant, id: GambitStatusId, rng: Rng): 
 // documented: hit-check, then (on hit) the damage variance, then the group-hit splash (no draw), then (on
 // hit, if any) the attacker's statusOnHit roll (+ the target's resist roll), then each of the attacker's
 // onHitStatuses in order (its chance roll, + the target's resist roll). Combatants with no splash, no
-// onHitStatuses and no resists (enemies, a plain member) draw exactly the pre-E-CREW sequence.
+// onHitStatuses and no resists (enemies, a plain member) draw exactly the pre-E-CREW sequence. Field Kits FKR-4: then a
+// heavy hit's statuses (each a resist roll). Returns whether the strike landed.
 function doStrike(
   attacker: GroundCombatant,
   target: GroundCombatant,
@@ -793,10 +958,10 @@ function doStrike(
   mult: number,
   applyOnHit: boolean,
   state: BattleState,
-): void {
+): boolean {
   // AF-2: cover against long-range attacks lowers the threshold of the SAME single hit-check draw.
   const hit = rng.chance(Math.round(strikeHitChance(attacker, target) * 1000), 1000);
-  if (!hit) return; // a clean miss (the hit-check draw was still consumed, keeping the stream position fixed)
+  if (!hit) return false; // a clean miss (the hit-check draw was still consumed, keeping the stream position fixed)
   const dmg = rollDamage(attacker, target, rng, mult);
   dealDamage(target, dmg);
   // Group hit (Scattergun): a share of the landed damage splashes onto every OTHER alive foe of the
@@ -819,6 +984,25 @@ function doStrike(
       if (rng.chance(inflict.permille, 1000)) tryApplyStatus(target, inflict.id, rng);
     }
   }
+  // Field Kits FKR-4: a HEAVY HIT (a landed strike of at least the attacker's heavyHit fraction of the target's max HP)
+  // inflicts each of its statuses on a target still standing, each through the target's resist roll. Only a Field Kits
+  // run's Bruisers carry heavyHit, so every other strike draws exactly as before.
+  if (applyOnHit && attacker.heavyHit && dmg >= target.hpMax * attacker.heavyHit.fraction) {
+    for (const id of attacker.heavyHit.statuses) {
+      if (target.downed) break;
+      tryApplyStatus(target, id, rng);
+    }
+  }
+  return true;
+}
+
+// Field Kits (user 2026-10-19): a landed normal hit's affliction (normalHitAfflicts) on a target still standing: its
+// chance roll, then the target's resist roll, both on the fight stream. Only a Field Kits run's Strikers carry it, so
+// every other strike draws exactly as before.
+function rollNormalHitAffliction(actor: GroundCombatant, target: GroundCombatant, rng: Rng): void {
+  const a = actor.normalHitAfflicts;
+  if (a === undefined || target.downed) return;
+  if (rng.chance(a.permille, 1000)) tryApplyStatus(target, a.id, rng);
 }
 
 // Apply a resolved rule's action. Mutates the working battle clone (combatants + battle state) in place.
@@ -833,7 +1017,7 @@ function applyAction(
 ): void {
   switch (action) {
     case "attack":
-      if (target) doStrike(actor, target, rng, 1, true, state);
+      if (target && doStrike(actor, target, rng, 1, true, state)) rollNormalHitAffliction(actor, target, rng);
       return;
     case "suppress":
       if (target) {
@@ -844,7 +1028,21 @@ function applyAction(
     case "execute": {
       if (!target) return;
       const low = target.hp < target.hpMax * EXECUTE_HP_FRACTION;
-      doStrike(actor, target, rng, low ? EXECUTE_BONUS_MULT : 1, true, state);
+      const landed = doStrike(actor, target, rng, low ? EXECUTE_BONUS_MULT : 1, true, state);
+      // Field Kits FKR-4: a Striker's Hemorrhage on finishing a wounded target that is still standing (a resist roll).
+      if (landed && low && actor.executeAfflicts !== undefined && !target.downed) tryApplyStatus(target, actor.executeAfflicts, rng);
+      // An Execute on a target not yet wounded is a normal hit (a Striker's Bleed, user 2026-10-19).
+      if (landed && !low) rollNormalHitAffliction(actor, target, rng);
+      return;
+    }
+    case "flashGrenade": {
+      // Field Kits FKR-4: an enemy's flash grenade (a Striker carries one; ruleFires checks it is left). Spends it, then
+      // its own hit check on the fight stream; on a hit the target is Blinded for BLINDNESS_MIN_ROUNDS +
+      // nextInt(BLINDNESS_ROUND_SPAN) rounds (one draw), through the target's resist roll. No damage.
+      if (!target) return;
+      actor.flashGrenades = Math.max(0, (actor.flashGrenades ?? 0) - 1);
+      if (!rng.chance(Math.round(strikeHitChance(actor, target) * 1000), 1000)) return;
+      tryApplyStatus(target, "blindness", rng, BLINDNESS_MIN_ROUNDS + rng.nextInt(BLINDNESS_ROUND_SPAN));
       return;
     }
     case "taunt":
@@ -871,8 +1069,8 @@ function applyAction(
       return;
     case "cure":
       // Clear the named debuff (or all debuffs) from the target ally. Params carried on the rule are
-      // threaded via the resolver (see evaluateAndAct).
-      if (target) clearDebuffs(target, state.pendingCureStatusId);
+      // threaded via the resolver (see evaluateAndAct). Field Kits (FK2): never a serious condition.
+      if (target) cureBasicDebuffs(target, state.pendingCureStatusId);
       return;
     case "secureObjective":
       // E-CREW (Task 13): the objective track is GONE (a battle ends only on clear or wipe). The id stays in
@@ -970,17 +1168,26 @@ function ruleFires(
     return { fires: false };
   }
   if (rule.action === "aidHeal" && Math.round(actor.heal) < 1) return { fires: false };
-  const target = resolveTarget(rule.target, rule.params, actor, state);
+  // Field Kits FKR-4: a flash grenade fires only while the thrower has one left.
+  if (rule.action === "flashGrenade" && !((actor.flashGrenades ?? 0) > 0)) return { fires: false };
+  let target = resolveTarget(rule.target, rule.params, actor, state);
   if (!target) return { fires: false };
+  // Field Kits (FK2): an "ally has any debuff" Cure or Use Item looks past an ally whose only debuffs are serious (a
+  // Fracture rides the whole objective), to the most wounded ally it CAN cleanse, so a fractured squadmate never
+  // blocks the medic's Cure for everyone else. With no serious condition in play the selector's own pick always
+  // qualifies, so this never runs on a fight before Field Kits.
+  if ((rule.action === "cure" || rule.action === "useItem") && rule.target === "allyHasStatus" && rule.params?.statusId === undefined && !hasCleansable(target)) {
+    const cleansable = state.combatants.filter((c) => !c.downed && c.side === actor.side && hasCleansable(c));
+    cleansable.sort((a, b) => a.hp - b.hp || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+    target = cleansable[0] ?? target;
+  }
 
   // Cure/useItem only fire when the target actually carries a cleansable debuff (else fall through so a
   // lower rule can act). The selector often already found an afflicted ally, but a bare "self"/"allyLowestHp"
-  // selector paired with cure must not waste the turn on a clean ally.
+  // selector paired with cure must not waste the turn on a clean ally. Field Kits (FK2): a serious condition is not
+  // cleansable this way (hasCleansable), so the rule falls through to the next one.
   if (rule.action === "cure" || rule.action === "useItem") {
-    const sid = rule.params?.statusId;
-    const cleansable = sid
-      ? hasStatus(target, sid)
-      : target.statuses.some((s) => GAMBIT_STATUSES[s.id].kind === "debuff");
+    const cleansable = hasCleansable(target, rule.params?.statusId);
     if (!cleansable) return { fires: false };
     if (rule.action === "useItem" && state.teamKit <= 0) return { fires: false };
   }
@@ -1027,6 +1234,8 @@ function fireRule(
     if ((rule.action === "cure" || rule.action === "useItem") && debuffRounds(target) < debuffRoundsBefore) ev.statusCleared = true;
     const offensive = rule.action === "attack" || rule.action === "suppress" || rule.action === "execute";
     if (offensive && delta === 0 && !target.downed) ev.missed = true;
+    // Field Kits FKR-4: a flash grenade deals no damage; it missed when it Blinded nobody new.
+    if (rule.action === "flashGrenade" && target.statuses.length === statusesBefore) ev.missed = true;
   }
   state.log.push(ev);
 }
@@ -1213,6 +1422,10 @@ export function resolveGroundBattle(
       if (hasStatus(actor, "stun")) continue;
       // Fear: a chance to fall back (do nothing) instead of acting.
       if (hasStatus(actor, "fear") && rng.chance(Math.round(GAMBIT_STATUSES.fear.magnitude * 1000), 1000)) continue;
+      // Field Kits FKR-4: a Concussion or a Neurotoxin may cost the turn (one draw, only while one is held, so a fight
+      // without them draws exactly as before).
+      const lose = turnLossPermille(actor);
+      if (lose > 0 && rng.chance(lose, 1000)) continue;
 
       const program = programFor(actor);
       if (actor.side === "enemy") {
@@ -1248,7 +1461,8 @@ function evaluateEnemy(program: GambitProgram, actor: GroundCombatant, state: Ba
   for (const rule of program) {
     const res = ruleFires(rule, actor, state);
     if (!res.fires) continue;
-    const offensive = rule.action === "attack" || rule.action === "suppress" || rule.action === "execute";
+    // Field Kits FKR-4: a flash grenade is thrown at the foe the rule would strike, so a taunt or a guard draws it too.
+    const offensive = rule.action === "attack" || rule.action === "suppress" || rule.action === "execute" || rule.action === "flashGrenade";
     const target = offensive ? taunter ?? guardFor(state, res.target) ?? res.target : res.target;
     fireRule(rule, actor, target, state, rng);
     return;
@@ -1263,7 +1477,8 @@ export function tickEndOfRound(state: BattleState): void {
   for (const c of state.combatants) {
     if (c.downed) continue;
     for (const s of c.statuses) {
-      if (GAMBIT_STATUSES[s.id].effect === "dotDamage") dealDamage(c, Math.round(s.magnitude));
+      const effect = GAMBIT_STATUSES[s.id].effect;
+      if (effect === "dotDamage" || effect === "dotTurnLoss") dealDamage(c, Math.round(s.magnitude));
     }
   }
   for (const c of state.combatants) {

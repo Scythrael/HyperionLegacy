@@ -148,6 +148,8 @@ export const ICON_SEMANTICS: Record<IconName, IconSemantic> = {
   radiationStorm: "subject",
   boarding: "subject",
   supplyCache: "subject",
+  // Short-Range Missions (0.14.0 G1-1): the Guest Wing names one quarters module.
+  guestWing: "subject",
   telescope: "subject",
   riskCombat: "subject",
   riskFauna: "subject",

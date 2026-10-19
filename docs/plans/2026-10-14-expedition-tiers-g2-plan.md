@@ -270,6 +270,40 @@ re-exported by telescope.ts); `src/lib/homeworldEntropy.ts` (the one entropy sou
   homeworld placements; salts registered.
 - UI: the console still shows Tier I only (G2-6 adds the picker); a hidden region is reachable by tests only.
 
+**G2-2 carry note (built 2026-10-19, on top of a678241).** New pure `src/lib/game/starCatalog.ts` (region codes,
+body letters, `FAMOUS_SYSTEMS` with real galactic coordinates, measured from the homeworld). For later slices:
+- Candidates: `expedition.ts tierCandidateSystems(state, tier)` (identity: seed, name, famous id, bearing, distance,
+  region) and `candidateSystemById` (`cand-<tier>-<slot>`, legacy `cand-<slot>` = Tier I; leading zeros refused);
+  `expeditionCandidates(state, shipId, tier = 1)` adds `region` to each candidate. **Deviation:** the ENGINE keeps
+  slot order; the console sorts nearest first (`expeditionDispatchDisplay.ts nearestFirst`), so no list index moved
+  under a test, the sim or a probe. G2-6's picker passes the tier and keeps `nearestFirst`.
+- Names: `LB-0472` style on `SYSTEM_NAME_SALT`; famous slot 1 in 12 on `FAMOUS_SYSTEM_SALT` (never twice in one list);
+  Wolf 359 on Tier I slot 0 when exactly `WOLF_359_LIST_AFTER_DISPATCHES` (1) expeditions were dispatched.
+  **Review ruling (user 2026-10-19, "Next list for veterans"):** a veteran save (`runCounts.expedition.veteran`) that
+  never met it gets it on slot 0 of its NEXT freshly generated Tier I list, once: its first dispatch under 0.14.0
+  writes `GameState.wolf359List` (`expedition.ts wolf359ListAfterDispatch`: the list it dispatched from when that list
+  already held Wolf 359, else the next count). The list on screen is never rerolled; a save that is not a veteran never
+  carries the key. Golden moved: only `firstRunsGoldens.test.ts old:v69` (the veteran's claimed state carries the
+  stamp; the test proves the state without it hashes as before). Its nod is still the user's (G2-7).
+  Eta Carinae sits at 7,470 ly (inside the 2.3 kpc estimate) so it stays inside the shared Tier III/IV band from
+  every homeworld; a famous Tier I star nearer than the band's 4 ly edge is clamped into the band.
+- Bodies: `generateBodies(seed, tier)`; the system stream's first draw (the banked pick) and its 1 to 3 count draw are
+  kept on every tier; deeper tiers draw the count on `BODY_COUNT_SALT` (`TIER_BODY_COUNT`, user G17).
+- Run: `Expedition.region = { version: 1, tier, enemyTerritory, bearing, distanceLy }` (model.ts
+  `ExpeditionRegionStamp`), written only by startExpedition. G2-3's `voyage` can read `distanceLy` from it. Its
+  presence letters bodies b, c, d (`groundTaskQueueDisplay.ts bodyDesignation`) and the in-flight header names the
+  region (`runRegionText`). The tier haul (`riskFactors.ts TIER_HAUL_MULT`, user G16) multiplies `taskFullHaul` by
+  the STAMP's tier, so a forced-tier fixture without a stamp and every pre-G2-2 run roll as before.
+- `expeditionRegion(seed)` is gone: previews default to `TIER_I_REGION`; `readSystem` takes the candidate's distance.
+- Goldens: no hash re-pinned. Pre-G2 goldens compare through `awayTeamTestFixtures.ts asPreG2NamesDispatch` (banked
+  name back, stamp dropped) and `asPreG2Candidate` (old id and name, no `region`, a famous system's drawn distance);
+  golden 3 asserts nothing else moved. Tests forcing Tier IV now dispatch `cand-4-0` (bodies grow with the tier).
+- Registry: the telescope reach rows, `tierDormant` (now listing the tier haul, the tier body counts and the deeper
+  famous systems), `blindLaunch` and `oddsRiskyBelow` re-owned from G2-2 to G2-6 (the engine reaches every tier and
+  `expeditionTierCandidates.test.ts` proves it; no player does until the picker). G2-6 flips them live.
+- G2-6 note (review 2026-10-19): `TIER_HAUL_MULT` and `TIER_BODY_COUNT` need their OWN registry entries, each with a
+  probe, when G2-6 flips the tier rows (today they ride the `away:audit:tierDormant` row's claim only).
+
 ### G2-3: The voyage engine (transit by tier, distance and drive)
 
 - `startExpedition` writes `voyage` (tier, distance, the ship's drive class at dispatch, `outboundSeconds`).

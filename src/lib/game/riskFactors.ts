@@ -67,18 +67,30 @@ export function toRiskGrade(n: number): RiskGrade {
   return Math.max(0, Math.min(4, Math.round(n))) as RiskGrade;
 }
 
-// ===== The region (G2's map supplies it; until then every candidate is Tier I) =====
+// ===== The region (Expedition Tiers G2-2: the candidate's own) =====
 
 export interface ExpeditionRegion {
   tier: RegionTier;
   enemyTerritory: boolean;
 }
 
-// The region a candidate system lies in [PROVISIONAL]: the expedition tiers (G2: regions, distances, homeworld
-// placement, enemy territory zones) are not built, so every candidate is Tier I outside enemy territory (the
-// design's "today every candidate is effectively Tier I"). G2 replaces this one function. Pure.
-export function expeditionRegion(_seed: number): ExpeditionRegion {
-  return { tier: 1, enemyTerritory: false };
+// The region a candidate system lies in is the CANDIDATE'S (expedition.ts tierCandidateSystems, G2-2): the tier the
+// console offered it in, and enemy territory when its bearing from the homeworld lies in that tier's fixed sector
+// (galaxy.ts inEnemySector, user G8 "Fixed sectors on the map"). The pure previews take it as a parameter; this is
+// their default, Tier I outside enemy territory (Tier I has no sector, so every Tier I candidate reads it).
+export const TIER_I_REGION: Readonly<ExpeditionRegion> = { tier: 1, enemyTerritory: false };
+
+// ===== The tier reward (user G16, 2026-10-16: "Haul x1 to x3.3 now (Recommended)") =====
+
+// A run's haul (every objective's materials and credits) by its region tier; relic odds stay with Relics v2. Applied
+// on the objective's own reward draws (groundTasks.ts taskFullHaul) for a run carrying its G2-2 region stamp
+// (Expedition.region), so a Tier I run (x1) and every run dispatched before G2-2 roll exactly as before.
+export const TIER_HAUL_MULT: Readonly<Record<RegionTier, number>> = { 1: 1, 2: 1.25, 3: 1.5, 4: 1.8, 5: 2.2, 6: 2.7, 7: 3.3 };
+
+// The haul multiplier of a run's region (1 without one, or at an unknown tier). Pure.
+export function tierHaulMult(region: { tier: RegionTier } | undefined): number {
+  const m = region ? TIER_HAUL_MULT[region.tier] : undefined;
+  return typeof m === "number" && Number.isFinite(m) && m > 0 ? m : 1;
 }
 
 // ===== The tier odds tables (user-approved, #11): weights None / Low / Moderate / High / Extreme, sum 100 =====

@@ -320,6 +320,47 @@ win rate, a member's bay seconds); removes their `no-dead-stats` entries in the 
 **Staging:** do not deploy between FKR-4 and FKR-7 (flag 2 is not stamped yet; nothing is visible, but the window
 is unreviewed as a whole). Commit `feat(0.14.0): Field Kits conditions, severity and enemy inflictors (FKR-4)`.
 
+**FKR-4 carry (2026-10-19, done):** committed as `feat(0.14.0): Field Kits conditions, severity and enemy inflictors
+(FKR-4)`. Behind flag 2: `Expedition.fieldKits: { catalog }` is typed here and read ONLY through `fieldKits.ts
+fieldKitsLive`; FKR-7 stamps it, so no player run moves yet (tests stamp it by hand). `model.ts`: GambitStatusId gains
+the seven conditions, GambitActionId the enemy-only `flashGrenade`. `gambit.ts`: rows at FK13 (Hemorrhage 12 x4,
+Neurotoxin 5 x4 plus `NEUROTOXIN_TURN_LOSS` 0.25, Concussion 0.35 x3, Blindness x0.25 for 2 or 3 rounds rolled on the
+fight stream, Fracture x0.8 and [PROPOSAL] Broken Bone x0.7, Shattered Bone x0.6 on power AND accuracy;
+`BONE_CONDITION_ROUNDS` 10000 so a bone condition rides every fight's carry until treated or bayed); `BONE_LINE` +
+`applyBoneHit` (a bone hit starts at Fracture and worsens one rank, N10); `turnLossPermille` (independent chances, one
+draw only while one is held); `BASIC_DEBUFFS` now lives here (fieldKits.ts re-exports it, `CONDITION_LINES` reads
+`BONE_LINE`) and Cure and the team kit's Use Item never touch a SERIOUS condition (`isSeriousCondition`: every debuff
+before Field Kits is basic, so old fights cure exactly as before; an any-debuff Cure or Use Item looks past an ally whose
+only debuffs are serious, so a fractured squadmate never blocks the medic); `statusResistPermille` (FK6: a stun resist covers
+Concussion, `RESIST_ALSO_FROM`; D24: Stoneskin folds `STONESKIN_BATTLE_RESIST` 0.25 into a physical status's roll, a
+physical status being the bay's injury class, and one that lands lasts ceil(x1.25)). New `fieldKitsConditions.ts`
+stamps the inflictors post-generation, after ranks, no draw: Bruisers `heavyHit` (`HEAVY_HIT_FRACTION` 0.25: Fracture
+and Concussion, both through the resist roll), Strikers `executeAfflicts` Hemorrhage (a landed low-HP Execute on a
+target still standing) and one flash grenade (`FLASH_GRENADE_RULE` leads their program, target foeHighestThreat
+[PROPOSAL]), Casters' Poison becomes Neurotoxin from grade 3 (N14), Swarm and every hostile-site enemy Fear on a
+landed attack (`FEAR_ON_HIT_PERMILLE` 200 [PROVISIONAL]); `withFieldKitsTeam` stamps Stoneskin on Ossir members.
+`groundFight.ts` (two one-line calls: taskFightTeam, taskFightGuard; TaskFightExp gains `fieldKits`),
+`groundThreat.ts` (the key appends `["fieldKits", catalog, grade]` on a flagged run only), `medicalBay.ts`
+(`brokenBone` 3600 s, `shatteredBone` 7200 s, N11). UI: the editor's status picker hides the seven conditions until
+FKR-10; ACTION_LABEL / the log verb name the flash grenade. Wiring: LIVE now: Morale Anchor (`runSecFearResist`), Iron
+Will (`secFearResist`), Cortex Shield's resist line (`secConcussionResist`), GAMBIT_STATUSES fear and the seven,
+GAMBIT_ACTIONS flashGrenade, every GROUND_CONDITIONS row but Bleed, CONDITION_LINES x3 (`content:bone`), the new
+`away:MEMBER_PERKS:stoneskin:battle` (`runSecStoneskinResist`) and `away:audit:fieldKitsCure` (`content:fieldKitsCure`);
+the Stoneskin bay entry keeps only OC-G1's legacy context pending; the liveness testkit gains a "field kits fights"
+probe so no-dead-stats sees Morale Anchor and Cortex Shield live (their allow-list reasons are gone). STILL PENDING:
+the Bleed status and its bay row (owner: a user call, FK7 names no enemy that inflicts Bleed). Goldens: every FK-3,
+FKR-0, SF-0, G2-0 and later hash unchanged (no new golden commit: FKR-0 already pins the flag-less runs). Tests:
+`fieldKitsConditions.test.ts` (26, incl. a stamped Deadly run's parity); `medicalBay.test.ts` and
+`wiring.liveness.test.ts` updated for the two bay rows and the two flipped liveness entries. Observation for the balance pass: against a
+strong squad on a calm body a Bruiser rarely reaches the heavy-hit line (a quarter of a member's max HP); hazardous
+bodies and Elite or Boss leads do.
+**FKR-4 review rulings (user 2026-10-19).** Bleed: a Striker's landed NORMAL hit (an attack, or an Execute on a target
+not yet wounded) may inflict Bleed (`normalHitAfflicts`, `BLEED_ON_HIT_PERMILLE` 150 [PROVISIONAL: the user named the
+inflictor, not the chance], one chance roll then the resist roll on the fight stream, the Fear style); Hemorrhage
+stays the low-HP Execute's. The Bleed status and its bay row are LIVE (nothing pending in the bay rows now).
+`FEAR_ON_HIT_PERMILLE` 200 ("20% per landed hit") and `FLASH_GRENADE_RULE` foeHighestThreat ("Squad's biggest
+threat") are user-confirmed.
+
 #### FKR-5: Tool charges, the carry capacity line, the grenade family (data + engine, behind flag 2)
 
 **Files:** `model.ts` (`charges` on the grenade varieties; new variety `impactGrenade` with its blueprint and

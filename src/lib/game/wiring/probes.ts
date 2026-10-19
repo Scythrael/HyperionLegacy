@@ -133,9 +133,12 @@ import {
   resolveTarget,
   strikeHitChance,
   tickEndOfRound,
+  applyBoneHit,
+  statusResistPermille,
   type BattleState,
   type GroundCombatant,
 } from "../gambit";
+import { FIELD_KITS_CATALOG_VERSION } from "../fieldKits";
 import { fieldworkEffect, fieldworkHazardResist, fieldworkSpeedMult } from "../fieldwork";
 import { taskSecurityHazardResist } from "../groundTasks";
 import { awayRecruitCandidates, snapshotMembers } from "../awayTeam";
@@ -179,6 +182,7 @@ export const CONTEXT_IDS = [
   "mission:extraction",
   "mission:survey",
   "mission:transport",
+  "mission:shortRange", // G1: a short-range mission cycle (G1-4 builds the cycle; until then nothing reads there)
   "patrol", // ship battles (patrols and the Ground Ops ship events build the same combatant)
   "shipyard", // Shipyard repair, builds, bays
   "expedition:groundOps", // a run dispatched since GO-7b (every new run)
@@ -782,6 +786,16 @@ function runTaskMember(s: GameState, memberId: string): GroundCombatant | undefi
   return taskFightTeam(run, teams, { id: "wiring-task", fightCount: 0 }).find((c) => c.memberId === memberId);
 }
 
+// Field Kits FKR-4: the same member on a FIELD KITS run (flag 2 stamped by hand: FKR-7 stamps it at dispatch), where a
+// task fight stamps the squad's Field Kits battle traits (fieldKitsConditions.ts withFieldKitsTeam: Stoneskin).
+function runFieldKitsTaskMember(s: GameState, memberId: string): GroundCombatant | undefined {
+  const run: Expedition = { ...dispatchRun(readyForRun(s)), fieldKits: { catalog: FIELD_KITS_CATALOG_VERSION } };
+  const ops = run.groundOps;
+  if (!ops) return undefined;
+  const teams = ops.teams.map((t, i) => ({ securityIds: t.securityIds, downedThisTask: [], securityShare: ops.factors.securityShare[i] ?? 0 }));
+  return taskFightTeam(run, teams, { id: "wiring-task", fightCount: 0 }).find((c) => c.memberId === memberId);
+}
+
 // A relic the dispatched run recovers (the first seed whose roll hits on a hazard-1 Buried Vault), brought home by the
 // claim's deposit and studied at a Research Lab: the study's duration in ticks. -1 when no seed hits (never: the
 // hazard-1 chance is 75% before any bonus).
@@ -880,6 +894,12 @@ export const PROBES = {
   sheetEngineEff: { label: "effectiveShipStats.engineEfficiency (Ground Ops: the run digest)", read: sheetAt((s) => sheet(s).engineEfficiency) },
   sheetFuelCapacity: { label: "effectiveShipStats.fuelCapacity (Ground Ops: the run digest)", read: sheetAt((s) => sheet(s).fuelCapacity) },
   sheetSensors: { label: "effectiveShipStats.sensors (patrol: the cycle digest)", read: sheetAt((s) => sheet(s).sensors) },
+  // G1-1: guest quarters on the sheet. At mission:shortRange it reads the short-range cycle's passenger capacity, which
+  // does not exist until G1-4 (the cycle engine): 0 there, so a guest source stays flat at that claimed context.
+  sheetGuestQuarters: {
+    label: "effectiveShipStats.colonistCapacity (mission:shortRange: no cycle reads it until G1-4)",
+    read: (s, ctx) => (ctx === "mission:shortRange" ? 0 : sheet(s).colonistCapacity ?? 0),
+  },
   sheetMass: { label: "effectiveShipStats.mass", read: (s) => sheet(s).mass },
   sheetPowerOutput: { label: "effectiveShipStats.powerOutput", read: (s) => sheet(s).powerOutput },
   sheetPowerDraw: { label: "effectiveShipStats.powerDraw", read: (s) => sheet(s).powerDraw },
@@ -1213,6 +1233,26 @@ export const PROBES = {
     read: (s, ctx) => (memberCombatant(ctx === "ground:noInflict" ? withoutInflictPieces(s) : s, sec())?.onHitStatuses ?? []).reduce((a, x) => a + x.permille, 0),
   },
   secPoisonResist: { label: "Security combatant poison resist permille", read: (s) => memberCombatant(s, sec())?.resists?.poison ?? 0 },
+  // Field Kits FKR-4: the resists a Field Kits run's inflictors roll against (gambit.ts statusResistPermille).
+  secFearResist: { label: "Security combatant fear resist permille", read: (s) => memberCombatant(s, sec())?.resists?.fear ?? 0 },
+  secConcussionResist: {
+    label: "Security combatant Concussion resist roll permille (statusResistPermille: Cortex Shield's stun resist covers it)",
+    read: (s) => {
+      const c = memberCombatant(s, sec());
+      return c ? statusResistPermille(c, "concussion") : 0;
+    },
+  },
+  runSecFearResist: {
+    label: "the dispatched run's Security member in a Field Kits objective fight: fear resist (fraction; Morale Anchor folds in)",
+    read: (s) => (runFieldKitsTaskMember(s, sec())?.resists?.fear ?? 0) / 1000,
+  },
+  runSecStoneskinResist: {
+    label: "the dispatched run's Security member in a Field Kits objective fight: a physical status's resist roll (permille, Fracture)",
+    read: (s) => {
+      const c = runFieldKitsTaskMember(s, sec());
+      return c ? statusResistPermille(c, "fracture") : 0;
+    },
+  },
   secGuardBelow: { label: "Security combatant guardBelow", read: (s) => memberCombatant(s, sec())?.guardBelow ?? 0 },
   secFirstStrike: { label: "Security combatant firstStrike (0/1)", read: (s) => (memberCombatant(s, sec())?.firstStrike ? 1 : 0) },
   secFirstAid: { label: "firstAidEffectiveness(Security combatant)", read: (s) => firstAidEffectiveness(memberCombatant(s, sec()) ?? { medic: false }) },
@@ -1354,11 +1394,18 @@ const ACTION_TARGET: Readonly<Record<GambitActionId, GambitTargetSelector>> = {
   analyze: "foeNearest",
   secureObjective: "self",
   takeCover: "self",
+  flashGrenade: "foeHighestThreat",
 };
 export const GAMBIT_ACTIONS = Object.keys(ACTION_TARGET) as GambitActionId[];
 
+// Field Kits FKR-4: the flash grenade is an ENEMY action (a Striker's, one per battle), so its scenario puts a Striker
+// carrying one first, facing the squad.
+function flashScenario(): BattleState {
+  return battle([gc("e0", "enemy", { role: "striker", flashGrenades: 1 }), gc("a1", "team"), gc("a2", "team", { threat: 20 })]);
+}
+
 function actionChange(action: GambitActionId): number {
-  const before = actionScenario();
+  const before = action === "flashGrenade" ? flashScenario() : actionScenario();
   const after = cloneBattle(before);
   evaluateAndAct([{ target: ACTION_TARGET[action], action }], after.combatants[0], after, makeRng(0x5eed));
   return battleChange(before, after);
@@ -1417,7 +1464,8 @@ function strikeDamage(attackerStatus: GambitStatusId | null, targetStatus: Gambi
 function groundStatusValue(id: GambitStatusId, on: boolean): number {
   const def = GAMBIT_STATUSES[id];
   switch (def.effect) {
-    case "dotDamage": {
+    case "dotDamage":
+    case "dotTurnLoss": {
       const c = gc("e1", "enemy", { hp: 100, hpMax: 100 });
       if (on) applyStatus(c, id);
       const st = battle([c]);
@@ -1429,10 +1477,24 @@ function groundStatusValue(id: GambitStatusId, on: boolean): number {
       return strikeDamage(on ? id : null, null);
     case "damageTakenDown":
       return strikeDamage(null, on ? id : null);
-    case "accuracyDown": {
+    case "accuracyDown":
+    case "powerAccuracyDown": {
       const c = gc("a1", "team", { accuracy: 0.9 });
       if (on) applyStatus(c, id);
       return strikeHitChance(c, {});
+    }
+    case "turnLoss":
+    case "mayFallBack": {
+      // Field Kits FKR-4: a CHANCE to lose the turn (Concussion, Fear) moves the fight stream itself, so one seed can
+      // read either way: the squad's hp lost summed over a batch of battles where the foe opens with it vs not.
+      let lost = 0;
+      for (let seed = 1; seed <= 32; seed += 1) {
+        const team = [gc("a1", "team", { hp: 60, hpMax: 60, power: 20 })];
+        const foe = gc("e1", "enemy", { hp: 30, hpMax: 30, power: 10 });
+        if (on) applyStatus(foe, id);
+        lost += team[0].hpMax - resolveGroundBattle(team, [foe], 0, makeRng(seed * 0x9e3779b1)).teamHpRemaining;
+      }
+      return lost;
     }
     case "skipTurn": {
       // The squad's hp lost over one battle when the foe opens stunned vs not.
@@ -1672,6 +1734,28 @@ function readContent(id: string, s: GameState): number {
       // An objective one alert level up (on) vs calm: the escalation's `a` (extraEnemies or damageMult).
       const e = escalationAt(on ? 1 : 0) as unknown as Record<string, number>;
       return e[a];
+    }
+    case "bone": {
+      // Field Kits FKR-4: the bone hits (gambit.ts applyBoneHit, the hit a Bruiser's heavy hit lands) a fresh combatant
+      // takes to hold bone condition `a`: its severity rank (Fracture first, then one rank worse per hit).
+      if (!on) return 0;
+      const c = gc("a1", "team");
+      for (let hits = 1; hits <= 10; hits += 1) {
+        applyBoneHit(c);
+        if (c.statuses.some((x) => x.id === a)) return hits;
+      }
+      return -1;
+    }
+    case "fieldKitsCure": {
+      // Field Kits FKR-4 (FK2 "Basic debuffs only"): a medic's Cure on an ally holding a Poison, plus (on) a serious
+      // condition (a Concussion): the statuses the ally still holds after it (the serious one stays).
+      const actor = gc("a1", "team", { medic: true });
+      const ally = gc("a2", "team");
+      applyStatus(ally, "poison");
+      if (on) applyStatus(ally, "concussion");
+      const st = battle([actor, ally, gc("e1", "enemy")]);
+      evaluateAndAct([{ target: "allyHasStatus", action: "cure" }], actor, st, makeRng(0x5eed));
+      return ally.statuses.length;
     }
     case "enemyRank": {
       // Field Kits FKR-1: the guard of a REAL task fight (groundFight.ts taskFightGuard, the list resolveTaskFightOnSeed

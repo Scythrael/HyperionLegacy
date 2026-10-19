@@ -21,7 +21,7 @@
 
 import { describe, expect, it } from "vitest";
 // SF-1: whole states hash without the run counters (withoutRunCounts).
-import { withoutRunCounts } from "./firstRunsGoldens.fixture";
+import { withoutGuests, withoutRunCounts } from "./firstRunsGoldens.fixture";
 import Decimal from "break_infinity.js";
 import {
   freshState,
@@ -49,7 +49,7 @@ import { CREW_PROFESSIONS, commandStructureForHull, complementTotalCap, division
 import { totalCrew } from "./crew";
 import { TRANSPORT_BATCH_SIZE, TRANSPORT_WINDOW_SECONDS, transportBatch } from "./transports";
 import { FIELD_REPAIR_DAMAGE_SHARE } from "./groundOps";
-import { asLegacyDispatch, asPreRanksDispatch, asPreSafeFirstRunsDispatch, plainAwayMember, withSlottedAwayTeams } from "./awayTeamTestFixtures";
+import { asLegacyDispatch, asPreG2NamesDispatch, asPreRanksDispatch, asPreSafeFirstRunsDispatch, plainAwayMember, withSlottedAwayTeams } from "./awayTeamTestFixtures";
 
 // ===== shared helpers =====
 
@@ -127,7 +127,8 @@ function sheetState(hull: ShipTypeKey, buckets: CrewBucket[]): GameState {
 function sheetHashes(hull: ShipTypeKey, buckets: CrewBucket[]): string {
   const s = sheetState(hull, buckets);
   const ship = s.ships[0];
-  return `${hash(effectiveShipStats(s, ship))}/${hash(shipCrewContribution(s, ship))}`;
+  // G1-1: the sheet hash strips guest quarters (withoutGuests), so these pins keep proving no other stat moved.
+  return `${hash(withoutGuests(effectiveShipStats(s, ship)))}/${hash(shipCrewContribution(s, ship))}`;
 }
 
 // A captain mission dispatched for real, 200 s before the first transport window (captain level 10 so every mission
@@ -159,7 +160,7 @@ const FINAL = 2_000_000;
 
 function expeditionRun(roster: AwayMember[], seed: number, legacy: boolean, preDamage: boolean): { exp: Expedition; done: Expedition; claimed: GameState } {
   const s = withSlottedAwayTeams({ ...freshState(), awayMembers: roster.map((m) => ({ ...m })), nextAwayMemberId: 100, expeditionSeed: seed });
-  const started = startExpedition(s, "ship-1", 1, expeditionCandidates(s, "ship-1")[0].id);
+  const started = asPreG2NamesDispatch(startExpedition(s, "ship-1", 1, expeditionCandidates(s, "ship-1")[0].id));
   // Field Kits FKR-1: the Ground Ops runs as dispatched before enemy ranks (the flag off), so they keep their capture.
   // Safe first runs SF-2: and before SF-2 (the retired 30 minute shakedown on expedition 1; asLegacyDispatch does both).
   const res = legacy ? asLegacyDispatch(started) : asPreSafeFirstRunsDispatch(asPreRanksDispatch(started));

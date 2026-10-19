@@ -36,6 +36,9 @@ describe("GROUND_CONDITIONS (user 9b.5 cure times, 1 tick = 1 second)", () => {
       ["hemorrhage", "injury", 300],
       ["concussion", "injury", 900],
       ["fracture", "injury", 1800],
+      // Field Kits FKR-4 (user N11 "30m / 1h / 2h"): the bone line's heavier ranks.
+      ["brokenBone", "injury", 3600],
+      ["shatteredBone", "injury", 7200],
       ["downed", "injury", 1200],
     ]);
     for (const [key, def] of Object.entries(C)) {

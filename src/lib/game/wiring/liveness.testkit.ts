@@ -22,7 +22,8 @@
 //   facet:<seat>:<stat>    every officer stat facet per seat, in a full bridge + complement context.
 //
 // THE PROBES are real consumers only (the ship stat sheet, reach, Shipyard repair, ship battles, the expedition's
-// readers, battles, injuries and whole run + claim on both engines, mission cycles and a Repeat patrol through
+// readers, battles, a Field Kits run's objective fights (FKR-4, flag 2 stamped by hand), injuries and whole run +
+// claim on both engines, mission cycles and a Repeat patrol through
 // economyTick, a patrol defeat repair, the ship scan events), compared through ALLOW-LISTS of consequence fields.
 // A NaN or Infinity in any fingerprint throws. Magnitudes are deliberately exaggerated (bonus x5, stats at 70,
 // 60-point gear lines, 400-head buckets): this level is about WIRING; the registry's sensitivity level
@@ -84,6 +85,8 @@ import { activityRelicFindBonus, resolveExpeditionActivity, resolveScanEncounter
 import { fieldworkEffect } from "../fieldwork";
 import { applyExpeditionInjuries, applyGroundOpsInjuries } from "../injuries";
 import { groundTeamBaySeconds } from "../groundOps";
+import { resolveTaskFight } from "../groundFight";
+import { FIELD_KITS_CATALOG_VERSION } from "../fieldKits";
 import { SHIP_EVENT_DRAW_UNITS, SHIP_EVENT_WEIGHTS, boardingRepelChance, resolveShipScanEventFromDraws, shipEventDraws } from "../shipScanEvents";
 import { withSlottedAwayTeams, withoutGroundOps } from "../awayTeamTestFixtures";
 import { effectiveShipStats, officerCombatMods } from "../crewOverlay";
@@ -393,6 +396,32 @@ function probeExpeditionBattles(t: Transform): string {
   );
 }
 
+// Field Kits FKR-4: a FIELD KITS run's objective fights (flag 2 stamped by hand on the dispatched run: FKR-7 stamps it at
+// dispatch), where the enemy inflictors (Fear from Swarm and hostile garrisons, a Bruiser's heavy-hit Fracture and
+// Concussion, a Striker's Hemorrhage and flash grenade, a Caster's Neurotoxin from Challenging) roll against the squad's
+// resists: each fight's record and battle log on a swarm cave, a hostile fortification and a derelict outpost, at two
+// fight numbers and two grades.
+const FIELD_KITS_PROBE_SITES = ["caveNetwork", "enemyFortification", "derelictOutpost"];
+function probeFieldKitsFights(t: Transform): string {
+  return fp(
+    dispatches(t).map(({ exp }) => {
+      const run: Expedition = { ...exp, fieldKits: { catalog: FIELD_KITS_CATALOG_VERSION } };
+      const ops = run.groundOps!;
+      const teams = ops.teams.map((team, i) => ({ securityIds: team.securityIds, downedThisTask: [], securityShare: ops.factors.securityShare[i] ?? 0 }));
+      const body = syntheticBody("terrestrial", 0.4);
+      return FIELD_KITS_PROBE_SITES.flatMap((poiId, i) =>
+        [0, 1].flatMap((fightCount) =>
+          [2, 4].map((difficulty) => {
+            const log: GambitLogEvent[] = [];
+            const task = { id: `probe-fk-${poiId}`, poiId, fightCount, pointsCleared: 0, difficulty, fightPoints: [0.5] };
+            return [resolveTaskFight(run, teams, body, task, i, undefined, log), log];
+          }),
+        ),
+      );
+    }),
+  );
+}
+
 // Injury recovery, both engines: a LEGACY run's claim injuries (every Security member downed in a scan battle,
 // timed by the ship's care at claim), and a GROUND OPS run's medical bay (every member carrying a full set of
 // conditions, timed by the run's frozen care: groundTeamBaySeconds) and its claim (each member still in the bay
@@ -532,6 +561,7 @@ export const PROBES: readonly Probe[] = [
   { name: "expedition readers", run: probeExpeditionReaders },
   { name: "injury recovery", run: probeInjuries },
   { name: "expedition battles", run: probeExpeditionBattles },
+  { name: "field kits fights", run: probeFieldKitsFights },
   { name: "expedition run + claim", run: probeExpeditionRun },
   { name: "mission cycles", run: probeMissions },
   { name: "patrol run", run: probePatrol },

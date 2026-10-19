@@ -73,9 +73,9 @@ import { LY_PER_TICK } from "./fuel";
 import { equippedFor } from "./equipment";
 import { itemTotal } from "./inventory";
 // Ground Ops GO-1: whole-state goldens hash without the new, inert ground-team slots (captured before them).
-import { asLegacyDispatch, withSlottedAwayTeams, withoutGroundSquadState } from "./awayTeamTestFixtures";
+import { asLegacyDispatch, asPreG2NamesDispatch, withSlottedAwayTeams, withoutGroundSquadState } from "./awayTeamTestFixtures";
 // SF-1: whole states hash without the run counters (seeded by freshState, written by a patrol), absent before SF-1.
-import { withoutRunCounts } from "./firstRunsGoldens.fixture";
+import { withoutGuests, withoutRunCounts } from "./firstRunsGoldens.fixture";
 import { withCp2Off } from "./complementCp2Switch.fixture";
 import { activityRelicFindBonus, generateEncounter, softenAmbush } from "./gambit";
 import { applyExpeditionInjuries, injuryRecoverySeconds } from "./injuries";
@@ -102,7 +102,7 @@ import {
 // Ground Ops (GO-7b): this file pins LEGACY expedition runs (goldens captured before Ground Ops): every dispatch
 // slots the members in hire order (dispatch reads the slotted ground teams) and resolves without the groundOps
 // flag (asLegacyDispatch), exactly the record the pre-switch dispatch produced.
-const legacyStart: typeof startExpedition = (state, ...rest) => asLegacyDispatch(startExpedition(withSlottedAwayTeams(state), ...rest));
+const legacyStart: typeof startExpedition = (state, ...rest) => asPreG2NamesDispatch(asLegacyDispatch(startExpedition(withSlottedAwayTeams(state), ...rest)));
 
 // ===== fixtures =====
 
@@ -239,7 +239,8 @@ function scenarioHashes(statsFor: (seat: SeniorStaffSeat) => OfficerStats | unde
   const officers = () => bridge(statsFor);
   const out: Record<string, string | string[]> = {};
   const sheet = withCrew(freshState(), officers());
-  out.sheet = fnv(JSON.stringify([effectiveShipStats(sheet, sheet.ships[0]), shipCrewContribution(sheet, sheet.ships[0])]));
+  // G1-1: the sheet hash strips guest quarters (withoutGuests), so this pin keeps proving no other stat moved.
+  out.sheet = fnv(JSON.stringify([withoutGuests(effectiveShipStats(sheet, sheet.ships[0])), shipCrewContribution(sheet, sheet.ships[0])]));
   for (const key of ["shortOreRun", "surveyMineralAnomaly", "frontierSupplyRun"] as MissionKey[]) {
     out[`mission:${key}`] = fnv(JSON.stringify(withoutRunCounts(withoutGroundSquadState(runTicks(missionState(key, officers()), 700, lcg(0xbeef))))));
   }
@@ -462,7 +463,7 @@ describe("neutrality: an all-10 bridge = byte-identical to before Task 21 (golde
       expect(map[CREW_STAT_KEYS.transitOutSpeed]).toBeUndefined();
       const out: Record<string, number> = {};
       for (const [k, v] of Object.entries(map)) out[k === OFFICER_TRANSIT_KEY ? CREW_STAT_KEYS.transitOutSpeed : k] = v;
-      return fnv(JSON.stringify([effectiveShipStats(sheet, sheet.ships[0]), out]));
+      return fnv(JSON.stringify([withoutGuests(effectiveShipStats(sheet, sheet.ships[0])), out]));
     });
     expect(renamed).toBe(SHEET_CP2_OFF_PRE);
   });

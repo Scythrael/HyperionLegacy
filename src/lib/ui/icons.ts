@@ -255,6 +255,17 @@ export const ICON_PATHS = {
   // Supply cache: a lidded supply crate with a handle slot (the scan step's small find).
   supplyCache: ["M4 9h16v11H4z", "M3 5h18v4H3z", "M10 13h4"],
 
+  // G1-1 (Short-Range Missions): the Guest Wing quarters module, berths for passengers. A bed seen from the side: a tall
+  // headboard, the frame line with its foot leg, a pillow at the head and a raised blanket over the sleeper. Reviewed at
+  // 16 / 28 / 56 px: the pillow and the blanket keep a 2.5-unit gap (0.75 clear of the 1.75 stroke) so they stay two
+  // bumps at 16 px; the headboard rising above the blanket is what keeps it reading as a bed, not a sofa or a crate.
+  guestWing: [
+    "M4 5v14",
+    "M4 14h16v5",
+    "M6.5 11h2a1 1 0 0 1 1 1v2h-4v-2a1 1 0 0 1 1-1z",
+    "M12 14v-2.5a1.5 1.5 0 0 1 1.5-1.5h5a1.5 1.5 0 0 1 1.5 1.5V14",
+  ],
+
   // Threat dot: the tier marker on a threat chip (GO-10 ThreatChip; replaces the patrol chip's emoji). A
   // SOLID disc drawn stroke-only: concentric rings 1.5 apart under the 1.75 stroke overlap with no gap, so
   // the contract (stroke only, currentColor) holds and the dot still takes the tier color; the last hair
