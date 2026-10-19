@@ -30,3 +30,12 @@ section 5.A captain nodes). Kept in their own file so the parallel integrator's 
 - Builder calls accepted as built: the unlock takes effect immediately; PROSPECTING_BLUEPRINTS sit outside BLUEPRINTS
   until the quests patch. The Claim / Dig glyph stays [PROVISIONAL] and needs a mockup + SVG review before it is visible.
 
+
+## FKR-4 / G2-2 review calls (2026-10-19)
+
+- **Fear chance:** "20% per landed hit (Recommended)": FEAR_ON_HIT_PERMILLE 200, no longer provisional.
+- **Flash grenade target:** "Squad's biggest threat (Recommended)": foeHighestThreat, no longer a proposal.
+- **Bleed inflictor:** "Strikers on a normal hit (Recommended)": Strikers' landed normal hits can cause Bleed;
+  Hemorrhage stays their Execute version.
+- **Wolf 359 for veterans:** "Next list for veterans (Recommended)": any save that has never seen Wolf 359 gets it in
+  its next Tier I list, once.
