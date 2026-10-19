@@ -507,6 +507,8 @@ Sets in 0.14.x). The power budget itself should not move: seven registry rows an
   FTL drives; whether the High-Output Core also takes it is asked with L8.
 - **P5 drive draw:** "x1.6 per class (Recommended)".
 - **M3 Active auto-cast:** "One preset rule (Recommended)".
-- **M4 trigger set:** "Something else" (no text given; follow-up asked 2026-10-19).
+- **M4 trigger set:** "Original proposal (Recommended)" (the earlier "Something else" was a misclick, user
+  2026-10-19): combat battle start, incoming ambush, after ambush, on hit, per combat tick, below a hull threshold;
+  outside combat per mission cycle and per body scanned.
 - **M5 uniqueness:** "Unique effects only (Recommended)".
-- Still open: M4 (follow-up), M6 to M9, L1 to L8, L10, L11, X1.
+- Still open: M6 to M9, L1 to L8, L10, L11, X1.
