@@ -524,4 +524,9 @@ Sets in 0.14.x). The power budget itself should not move: seven registry rows an
 - **L5 spending stock:** "Toggle, lowest-first default (Recommended)".
 - **L7 crafted gear inherits quality:** "Yes, gear too (Recommended)": quality blanks, one step appended to v70.
 - **L6 carry formula:** "Weighted average + climb (Recommended)".
-- Still open: L3, L10, L11, X1.
+- **L3 Cobalt gate:** "Accept level 4 (Recommended)".
+- **L10 rarity cap:** "Skip it (Recommended)".
+- **L11 small data calls:** "Approve all three (Recommended)": Sprint Drive vs Efficient Core as in E-MAT 3c;
+  Structural Assembly kept on Hauler Hold, dropped on High-Output Core; Reclaimed Alloy retagged uncommon.
+- **X1 OC-D2 owner:** "Material Lines builds it (Recommended)": ML-3 builds it; WR-7 drops the row.
+- ALL Material Lines and E-MOD calls answered (2026-10-19).
