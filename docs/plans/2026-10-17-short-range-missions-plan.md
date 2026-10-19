@@ -420,4 +420,5 @@ Material Lines and universal modules ahead of G1 in the build order.
 - **Call 12, destinations:** "Generated now, charted later (Recommended)".
 - **Call 13, rewards:** "Tier II income band (Recommended)": the mockup table at about 1,000 to 1,300 credits per hour
   at base.
-- Still open: 14, 15, 17, 18.
+- **Call 14, ground teams:** "None in 0.14.0 (Recommended)": a squad-using template is logged for the quests patch.
+- Still open: 15, 17, 18.

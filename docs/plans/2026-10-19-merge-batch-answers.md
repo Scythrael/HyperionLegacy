@@ -20,4 +20,13 @@ section 5.A captain nodes). Kept in their own file so the parallel integrator's 
 
 - **Deep Scan (WR-5c):** "Keeps range (Recommended)", as built.
 
-Still provisional (to ask next): WR-5c Drillmaster (fractional counters).
+- **Drillmaster (WR-5c):** "Fractional, as built (Recommended)".
+
+## Prospecting squads review calls (2026-10-19)
+
+- **Hazard Suit ARM/HP on a Prospecting wearer:** "Give ARM/HP a dig meaning (Recommended)": Armor and HP reduce
+  cave-in and retreat injuries for a Prospecting wearer, so every line acts for every wearer.
+- **Prospecting recruit board slots:** "3, like the others (Recommended)".
+- Builder calls accepted as built: the unlock takes effect immediately; PROSPECTING_BLUEPRINTS sit outside BLUEPRINTS
+  until the quests patch. The Claim / Dig glyph stays [PROVISIONAL] and needs a mockup + SVG review before it is visible.
+
