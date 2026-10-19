@@ -18,8 +18,9 @@
 // (model.ts SECONDARY_CAPTAIN_TALENTS), so a retune is a data edit. All PURE.
 //
 // WIRED HERE (the Prospector tree): extraction1 to extraction5, logistics1 to logistics3 and logistics5 (logistics4
-// is groundOps.ts groundReloadMult, live since D26), trade1 to trade5. The Tactician and Explorer trees are WR-5b /
-// WR-5c: their text below is still the generic catalog line.
+// is groundOps.ts groundReloadMult, live since D26), trade1 to trade5. The Tactician tree (WR-5b) keeps its readers
+// and exact text in captainTacticianEffects.ts; the text lookup below routes through it. The Explorer tree is WR-5c:
+// its text below is still the generic catalog line.
 
 import {
   SECONDARY_CAPTAIN_TALENTS,
@@ -28,6 +29,8 @@ import {
   type GameState,
   type SecondaryTalentKey,
 } from "./model";
+// WR-5b: the Tactician tree's exact text (captainTacticianEffects.ts imports nothing from this module, so no cycle).
+import { tacticianEffectText } from "./captainTacticianEffects";
 
 // ============================================================================
 // Catalog reads
@@ -60,10 +63,8 @@ function owned(captain: CaptainState | undefined | null, key: SecondaryTalentKey
   return owns(captain, key) ? secondaryTalentMagnitude(key) : 0;
 }
 
-// The captain who commands `ship` (OC-A2), or undefined for an unassigned hull.
-export function commandingCaptain(state: GameState, ship: { assignedCaptainId: number | null }): CaptainState | undefined {
-  return ship.assignedCaptainId === null ? undefined : state.captains.find((c) => c.id === ship.assignedCaptainId);
-}
+// The captain who commands `ship` (OC-A2), or undefined for an unassigned hull (one copy, in model.ts).
+export { commandingCaptain } from "./model";
 
 // ============================================================================
 // Extraction and Logistics: the ship stat sheet (crewOverlay.ts applyCaptainOverlay)
@@ -242,11 +243,8 @@ function prospectorText(key: SecondaryTalentKey): string | null {
   }
 }
 
-// The WR-5b / WR-5c capstones' catalog taglines (their slices replace them with exact text).
+// The WR-5c capstones' catalog taglines (its slice replaces them with exact text).
 const CAPSTONE_TAGLINE: Readonly<Record<string, string>> = {
-  alphaStrike: "Alpha Strike: a bonus-damage opening volley",
-  bulwark: "Bulwark: survive one lethal hit per battle",
-  wolfpack: "Wolfpack: an extra drone squadron / fleet-wide edge",
   deepScan: "Deep Scan: full-system reveal + a guaranteed rare find",
   relicHunter: "Relic Hunter: a guaranteed relic from an expedition",
   legendaryCaptain: "Legendary Captain: a crew-wide multiplier + officer aura",
@@ -254,7 +252,7 @@ const CAPSTONE_TAGLINE: Readonly<Record<string, string>> = {
 
 const humanize = (stat: string): string => stat.replace(/([a-z0-9])([A-Z])/g, "$1 $2").toLowerCase();
 
-// The generic line of a not-yet-wired node's effect (the WR-5b / WR-5c trees).
+// The generic line of a not-yet-wired node's effect (the WR-5c tree).
 function genericText(effect: CaptainSecondaryTalentEffect): string {
   switch (effect.type) {
     case "none":
@@ -272,7 +270,7 @@ function genericText(effect: CaptainSecondaryTalentEffect): string {
 
 // One node's player text: exactly what it does. Pure.
 export function secondaryTalentEffectText(key: SecondaryTalentKey): string {
-  return prospectorText(key) ?? genericText(SECONDARY_CAPTAIN_TALENTS[key].effect);
+  return prospectorText(key) ?? tacticianEffectText(key) ?? genericText(SECONDARY_CAPTAIN_TALENTS[key].effect);
 }
 
 // The node whose catalog effect is `effect` (RadialWeb hands the describer the effect object), or undefined.

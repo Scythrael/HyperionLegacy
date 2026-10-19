@@ -512,8 +512,8 @@
     secondaryTalentBuyLock,
     secondaryTalentBuyLockText,
   } from "./lib/game/captainSecondaryTree";
-  // WR-5a: each secondary node's exact player text (the same helper the wiring registry's claim reads), and the
-  // supply run card's captain-adjusted margin and purchase cost.
+  // WR-5a / WR-5b: each secondary node's exact player text (the same helper the wiring registry's claim reads), and
+  // the supply run card's captain-adjusted margin and purchase cost.
   import { describeSecondaryTalentEffect as describeSecondaryTalentEffectText, captainSupplyRunTerms } from "./lib/game/captainSecondaryEffects";
   import {
     canRetireCaptain,
@@ -8939,7 +8939,7 @@
 
 
   // The secondary tree's effect describer, passed to RadialWeb as describeEffect (mirrors
-  // describeCaptainTalentEffect / describeHomeworldTalentEffect). WR-5a: the engine helper
+  // describeCaptainTalentEffect / describeHomeworldTalentEffect). WR-5a / WR-5b: the engine helper
   // (captainSecondaryEffects.ts) renders each node's exact effect from its catalog magnitudes, the same
   // text the wiring registry's claim reads, so the tooltip says exactly what the node does.
   function describeSecondaryTalentEffect(effect: CaptainSecondaryTalentEffect): string {

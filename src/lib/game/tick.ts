@@ -76,6 +76,7 @@ import {
   type CaptainMissionState,
   type PatrolMissionState,
   type OfficerCombatMods,
+  type CaptainCombatMods,
   type PatrolKey,
   type PatrolDef,
   type PatrolPhase,
@@ -335,6 +336,15 @@ import {
   shipCrewContribution,
   type OfficerCombatEntry,
 } from "./crewOverlay";
+// WR-5b (0.14.0): the commanding captain's Tactician talents (frozen per patrol cycle; the Shipyard repair).
+import {
+  captainCombatMods,
+  captainWaveRegenFraction,
+  patrolWaveRewardMult,
+  shipCaptainCombatMods,
+  withCaptainRepair,
+} from "./captainTacticianEffects";
+import { applyCaptainDrones } from "./combat/captainEdge";
 // E-CREW 0.14.0 (Task 21): the officer stat facets (Cunning over-delivery rolls on private keyed streams).
 import {
   constitutionRamp,
@@ -3071,7 +3081,8 @@ export function tickCaptainPatrol(
   // E-CREW (Task 20): folded WITH the current cycle's frozen officer bonuses (Shield Command / Inspiring
   // Leader lift these pools), the SAME value every wave combatant below reads; re-folded on a relaunch,
   // whose new cycle freezes its own. `let` for that reason only.
-  let foldedDefense = foldedPlayerDefense(shipDef, installedGear, captain.mission.officerCombat);
+  // WR-5b: and the cycle's frozen captain Tactician talents (Shield Discipline, Reinforced Hull), the same way.
+  let foldedDefense = foldedPlayerDefense(shipDef, installedGear, captain.mission.officerCombat, captain.mission.captainCombat);
   // Command Presence's per-wave reward share (0 = no multiply, byte-identical rewards).
   const patrolOutputShare = Math.max(0, officerEffects.outputShare ?? 0);
   // Exploration 0.14.0 (E4d): the installed Damage Control Suite's between-wave hull patch-up fraction,
@@ -3205,7 +3216,13 @@ export function tickCaptainPatrol(
       // replay also calls at the same point, so the two stay byte-identical. Once per wave index (each
       // wave fires exactly once here, however the span is chunked), no rng: offline == live. Without the
       // suite the fraction is 0 and the hull is returned unchanged.
-      mission.playerHull = damageControlBeforeWave(waveIndex, foldedDefense.hullMax, mission.playerHull, waveHullRegenFraction);
+      // WR-5b: the cycle's frozen captain Damage Control lifts the suite's fraction (exactly the suite's without it).
+      mission.playerHull = damageControlBeforeWave(
+        waveIndex,
+        foldedDefense.hullMax,
+        mission.playerHull,
+        captainWaveRegenFraction(waveHullRegenFraction, mission.captainCombat),
+      );
       // ---- FIGHT the scheduled wave. --------------------------------------------------
       // PLAYER combatant: FRESH from the hull defaults (weapons + cooldowns reset each
       // wave, each wave being a discrete battle, design-correct), then OVERRIDE hull/
@@ -3231,6 +3248,8 @@ export function tickCaptainPatrol(
         carrySystemDurability: mission.playerSystemDurability,
         // E-CREW (Task 20): this cycle's FROZEN officer combat bonuses (absent = none).
         officerCombat: mission.officerCombat,
+        // WR-5b: this cycle's FROZEN captain Tactician talents (absent = none).
+        captainCombat: mission.captainCombat,
       });
 
       // ENEMY team: deterministic from the ENEMY-salt derivation. idPrefix = faction id +
@@ -3296,10 +3315,13 @@ export function tickCaptainPatrol(
         // so a big call and many small ones scale the identical amounts; 0 skips the multiply entirely.
         // Every amount stays a WHOLE unit: the boosted value is rounded with chanceRound on this wave's PRIVATE
         // output-rounding stream (WAVE_OUTPUT_ROUNDING_SEED_SALT; materials in roll order, then the bounty).
+        // WR-5b: the cycle's frozen captain Patrol Efficiency is its own factor on the same amounts and the same
+        // stream (exactly 1 + patrolOutputShare without it, so a no-node patrol is unchanged).
+        const rewardMult = patrolWaveRewardMult(patrolOutputShare, mission.captainCombat);
         const outputRng =
-          patrolOutputShare === 0 ? null : makeRng(deriveWaveSeed(mission.masterSeed, waveIndex, WAVE_OUTPUT_ROUNDING_SEED_SALT));
+          rewardMult === 1 ? null : makeRng(deriveWaveSeed(mission.masterSeed, waveIndex, WAVE_OUTPUT_ROUNDING_SEED_SALT));
         const boosted = (amount: number): number =>
-          outputRng === null ? amount : chanceRound(amount * (1 + patrolOutputShare), () => outputRng.next());
+          outputRng === null ? amount : chanceRound(amount * rewardMult, () => outputRng.next());
         for (const itemId of Object.keys(loot.materials)) {
           lootMaterials[itemId] = (lootMaterials[itemId] ?? new Decimal(0)).plus(boosted(loot.materials[itemId]));
         }
@@ -3422,6 +3444,8 @@ export function tickCaptainPatrol(
             installedGear,
             // E-CREW (Task 20): the NEW cycle freezes the officers seated now (economyTick's live read).
             officerCombat: relaunchCombat,
+            // WR-5b: and the commanding captain's Tactician talents now (no buy while out, so the dispatch value).
+            captainCombat: captainCombatMods(captain),
             // E-CREW (Task 21): Engineering's Cunning roll for the new cycle, keyed on its own masterSeed.
             freeRepairTicks: cunningProc(newSeed, "engineering", officerEffects.freeRepairChance ?? 0) ? CUNNING_FREE_REPAIR_TICKS : 0,
             // E-CREW (Task 21 review calls): the Flight Deck's Constitution, a faster return the longer the run.
@@ -3433,7 +3457,7 @@ export function tickCaptainPatrol(
           });
           // The new cycle's frozen bonuses may differ from the old one's: re-fold the carry pools so the
           // between-wave regen and the limp damage read the SAME fold as this cycle's wave combatants.
-          foldedDefense = foldedPlayerDefense(shipDef, installedGear, mission.officerCombat);
+          foldedDefense = foldedPlayerDefense(shipDef, installedGear, mission.officerCombat, mission.captainCombat);
           // ⚠️ 0.13.4 Phase 2: CARRY THE PER-RUN COUNT ACROSS THE RELAUNCH. freshPatrolMission
           // is the shared factory for a NEW patrol and seeds routesCompletedThisRun to 0, which
           // is right for a dispatch and WRONG here: a relaunch is the middle of a run, not the
@@ -5213,13 +5237,16 @@ function freshPatrolMission(args: {
   // dispatch. Relaunch: the officers seated at the relaunch (economyTick's live read). Stored only when
   // present, so a no-officer cycle's mission is byte-identical to before.
   officerCombat?: OfficerCombatMods;
+  // WR-5b (0.14.0): the commanding captain's Tactician talents to FREEZE onto this cycle (captainTacticianEffects.ts
+  // captainCombatMods: undefined without a node). Stored only when present, like officerCombat.
+  captainCombat?: CaptainCombatMods;
   // E-CREW 0.14.0 (Task 21): the cycle's Engineering Cunning free repair ticks (rolled by the caller on this
   // cycle's masterSeed). Stored only when > 0, so a cycle without the roll is byte-identical to before.
   freeRepairTicks?: number;
   // E-CREW 0.14.0 (Task 21 review calls): the cycle's Flight Deck Constitution return cut. Stored only when > 0.
   returnCutTicks?: number;
 }): PatrolMissionState {
-  const { patrolKey, stance, masterSeed, repeatDispatch, shipDef, hullType, installedGear, officerCombat } = args;
+  const { patrolKey, stance, masterSeed, repeatDispatch, shipDef, hullType, installedGear, officerCombat, captainCombat } = args;
   const freeRepairTicks = args.freeRepairTicks ?? 0;
   const returnCutTicks = args.returnCutTicks ?? 0;
   // factionId + wave params BOTH come from this one def lookup (no caller-passed def that
@@ -5232,9 +5259,10 @@ function freshPatrolMission(args: {
   // For a Standard-Issue set (or absent gear) this folds byte-identically to the authored stats, so
   // no SI patrol fixture / parity outcome moves.
   // E-CREW (Task 20): folded WITH the cycle's officer bonuses, the same pools its wave combatants carry.
-  const folded = foldedPlayerDefense(shipDef, installedGear, officerCombat);
+  const folded = foldedPlayerDefense(shipDef, installedGear, officerCombat, captainCombat);
   return {
     ...(officerCombat ? { officerCombat } : {}),
+    ...(captainCombat ? { captainCombat } : {}),
     ...(freeRepairTicks > 0 ? { freeRepairTicks } : {}),
     ...(returnCutTicks > 0 ? { returnCutTicks } : {}),
     kind: "patrol",
@@ -5270,9 +5298,10 @@ function freshPatrolMission(args: {
     // patrol cycle, and identical between this live seed and the display replay's (structural parity).
     playerHull: folded.hullMax,
     playerShield: folded.shieldMax,
+    // WR-5b: the cycle's captain drone nodes shape the seeded screen (unchanged without them).
     playerDrones: installedGear
-      ? installedDronesForPatrol(installedGear, `patrol-${masterSeed}-p`)
-      : defaultDronesForHull(hullType, `patrol-${masterSeed}-p`),
+      ? installedDronesForPatrol(installedGear, `patrol-${masterSeed}-p`, captainCombat)
+      : applyCaptainDrones(defaultDronesForHull(hullType, `patrol-${masterSeed}-p`), captainCombat),
     // Carry-state seeded to FULL system durability (Phase 12b Unit B2): every weapon + the
     // reactor + the ftl at their fresh ceilings (no wear), the same "start clean" a fresh
     // dispatch AND a relaunch both want. Wear accumulates from here across the cycle's waves.
@@ -5661,6 +5690,8 @@ export function dispatchCaptainOnPatrol(
     hullType,
     installedGear,
     officerCombat,
+    // WR-5b: freeze the commanding captain's Tactician talents onto the first cycle (undefined = none).
+    captainCombat: captainCombatMods(state.captains[idx]),
     freeRepairTicks,
     returnCutTicks,
   });
@@ -7376,6 +7407,14 @@ export function startShipBuild(
 // SHIPYARD_BAY_BASE block and shipyardBayCount for the (a)+(b)+(c) proof).
 // ============================================================================
 
+// The Shipyard repair's speed-up (shipRepairDurationTicks' divisor): the officers' (Rapid Recovery, Veteran
+// Instincts, Engineering Constitution) plus the complement's Damage Control and Mission Turnaround (CP-2,
+// crewOverlay.ts shipRepairSpeedBonus), x the commanding captain's Damage Control (WR-5b), its own factor.
+// Exactly shipRepairSpeedBonus without the node. Pure.
+export function shipyardRepairSpeedBonus(state: GameState, ship: ShipInstance): number {
+  return withCaptainRepair(shipRepairSpeedBonus(state, ship), shipCaptainCombatMods(state, ship));
+}
+
 // A hull's repair time RIGHT NOW = the deterministic first-pass formula (model.ts):
 //   REPAIR_BASE_TICKS + ceil(repairDamage * REPAIR_TICKS_PER_HULL)
 // FIXED at process creation (like shipBuildDurationTicks), so a repair job is closed-form:
@@ -7477,8 +7516,9 @@ export function processShipRepairs(state: GameState): GameState {
       working,
       "shipRepair",
       {},
-      // CP-2: officers + the complement's Damage Control and Mission Turnaround (shipRepairSpeedBonus).
-      shipRepairDurationTicks(ship, equippedFor(state, ship.id), shipRepairSpeedBonus(state, ship)),
+      // CP-2: officers + the complement's Damage Control and Mission Turnaround; WR-5b: x the commanding
+      // captain's Damage Control, its own factor (shipyardRepairSpeedBonus).
+      shipRepairDurationTicks(ship, equippedFor(state, ship.id), shipyardRepairSpeedBonus(state, ship)),
       {
         type: "clearShipDamage",
         shipId: ship.id,

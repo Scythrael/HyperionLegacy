@@ -28,7 +28,7 @@
 //      reshaping this function.
 // ============================================================================
 
-import type { ShipTypeDef, ShipTypeKey, PatrolSystemDurability, EquipmentInstance, OfficerCombatMods } from "../model";
+import type { ShipTypeDef, ShipTypeKey, PatrolSystemDurability, EquipmentInstance, OfficerCombatMods, CaptainCombatMods } from "../model";
 // Combat-defense rework (2026-08-27, HYBRID model): the SI hull-plating floor + the shield REFERENCE
 // constants, imported as VALUES (model.ts owns the item-mint constants; a combat leaf importing model
 // values is the allowed direction, model never imports combat at runtime). hullDefenseComposition below
@@ -44,6 +44,8 @@ import type { CombatStance } from "./positioning";
 import { makeWeaponInstance, WEAPON_DEFS, type WeaponId } from "./weapons";
 import { makeSquadron, type DroneRole, type DroneSquadron } from "./drones";
 import { qualityDurabilityMax, type DurableSystem } from "./durability";
+// WR-5b (0.14.0): the commanding captain's Tactician fold (absent mods = a no-op).
+import { applyCaptainCombat, applyCaptainDrones } from "./captainEdge";
 
 // Default stance for a bridged ship (design S6): Balanced (fight at Medium range)
 // until the mission layer sets a real per-dispatch stance (player-chosen) or the
@@ -592,13 +594,19 @@ export function defaultDronesForHull(hullType: CombatHullType, idPrefix: string)
 //
 // PURE: filters the passed gear and maps to fresh squadrons (squadronFromPod mints independent
 // instances), mutating nothing.
+// WR-5b (0.14.0): `captainCombat` is the cycle's frozen captain record: its drone nodes (Squadron Tactics, Wing
+// Commander, Wolfpack) shape the seeded screen (combat/captainEdge.ts applyCaptainDrones). Absent = unchanged.
 export function installedDronesForPatrol(
   installedGear: EquipmentInstance[],
   idPrefix: string,
+  captainCombat?: CaptainCombatMods,
 ): DroneSquadron[] {
-  return installedGear
-    .filter((piece) => piece.slotType === "droneBay")
-    .map((pod, index) => squadronFromPod(pod, `${idPrefix}-${pod.droneRole}${index}`));
+  return applyCaptainDrones(
+    installedGear
+      .filter((piece) => piece.slotType === "droneBay")
+      .map((pod, index) => squadronFromPod(pod, `${idPrefix}-${pod.droneRole}${index}`)),
+    captainCombat,
+  );
 }
 
 // defaultSystemDurabilityForHull: build a combat hull's FULL (no-wear) per-system durability
@@ -703,6 +711,10 @@ export interface ShipToCombatantArgs {
 	// ship with no such officer) leaves the combatant byte-identical. D12: officers are EXEMPT from the
 	// "crew never double-dips weapons/shields" rule, so ONLY officers feed this; the Complement never does.
 	officerCombat?: OfficerCombatMods;
+	// WR-5b (0.14.0): the commanding captain's Tactician talents (model.ts CaptainCombatMods), folded AFTER the
+	// officers by combat/captainEdge.ts applyCaptainCombat, each its own factor. OPTIONAL: absent (enemies, ratings,
+	// a captain owning no Tactician node) leaves the combatant byte-identical.
+	captainCombat?: CaptainCombatMods;
 }
 
 // E-CREW 0.14.0 (Task 20): fold the Senior Staff combat bonuses onto a freshly minted combatant, IN PLACE
@@ -961,6 +973,8 @@ export function shipToCombatant(args: ShipToCombatantArgs): Combatant {
 	};
 	// E-CREW (Task 20): the seated officers' combat bonuses, on top of everything above (absent = no-op).
 	applyOfficerCombat(combatant, args.officerCombat);
+	// WR-5b: the commanding captain's Tactician nodes, on top (absent = no-op).
+	applyCaptainCombat(combatant, args.captainCombat);
 	return combatant;
 }
 
@@ -998,13 +1012,15 @@ export interface FoldedPlayerDefense {
 // E-CREW (Task 20): `officerCombat` is the patrol cycle's frozen officer bonuses (Shield Command and
 // Inspiring Leader lift these pools), passed by EVERY patrol carry surface alongside the wave combatant's
 // own, so the carry pools and the fighting combatant stay one fold. Absent = the pre-Task-20 fold.
+// WR-5b: `captainCombat` likewise (Shield Discipline and Reinforced Hull lift these pools), the cycle's frozen value.
 export function foldedPlayerDefense(
 	stats: CombatShipStats,
 	installedGear?: EquipmentInstance[],
 	officerCombat?: OfficerCombatMods,
+	captainCombat?: CaptainCombatMods,
 ): FoldedPlayerDefense {
 	// A throwaway id/team: nothing is fought here, we only read the folded defense ceilings.
-	const combatant = shipToCombatant({ id: "defense-fold", team: "player", stats, installedGear, officerCombat });
+	const combatant = shipToCombatant({ id: "defense-fold", team: "player", stats, installedGear, officerCombat, captainCombat });
 	return {
 		hullMax: combatant.hullMax,
 		shieldMax: combatant.shieldMax,

@@ -56,6 +56,7 @@ import {
   type ShipTypeKey,
   type SnapshotMember,
   type MemberPerkId,
+  type PatrolMissionState,
 } from "../model";
 import {
   canBuildShip,
@@ -85,6 +86,7 @@ import {
   shipRepairDurationTicks,
   shipyardBayCount,
   startProcess,
+  shipyardRepairSpeedBonus,
   tierCap,
   xpPerTick,
 } from "../tick";
@@ -143,6 +145,10 @@ import { POI_CATALOG, PLANET_TYPES, planetTypeHazard, poisForPlanetType } from "
 import { damageControlEffect, pathfinderEffect } from "../utilityGear";
 import { installedSensorArray, sensorArrayEffect, sensorArrayRelicFindBonus } from "../sensorArrays";
 import { quartersCapacityBonus } from "../crewModules";
+// WR-5b (0.14.0): the captain Tactician seams.
+import { captainWaveRegenFraction, patrolWaveRewardMult, shipCaptainCombatMods } from "../captainTacticianEffects";
+import { captainDroneDamage, captainProjectileDamage, incomingHitChance } from "../combat/captainEdge";
+import { applyProjectileDamage } from "../combat/resolveBattle";
 import { addItemQuality, itemTotal } from "../inventory";
 import { GROUND_CONDITIONS, conditionCureSeconds } from "../medicalBay";
 import { loadoutSlotDefsForShipType } from "../armory";
@@ -501,7 +507,40 @@ export function playerCombatant(s: GameState): Combatant {
     hullType,
     installedGear: equippedFor(s, ship.id),
     officerCombat: officerCombatMods(s, ship),
+    // WR-5b: the commanding captain's Tactician talents (absent without a node).
+    captainCombat: shipCaptainCombatMods(s, ship),
   });
+}
+
+// WR-5b: the ship's combatant in a claimed ship-battle context: the patrol fold (shipToCombatant, as every wave
+// builds it) or the Ground Ops ship-event combatant from the profile frozen at dispatch.
+function battleCombatant(s: GameState, ctx: ContextId): Combatant {
+  return ctx === "shipEvent" ? shipEventCombatant(s) ?? playerCombatant(s) : playerCombatant(s);
+}
+
+// WR-5b: ship-1's patrol, dispatched (the cycle its waves fight with, frozen at dispatch).
+function dispatchedPatrol(s: GameState): PatrolMissionState {
+  const r = dispatchCaptainOnPatrol(s, WIRING_CAPTAIN_ID, "crimsonReaverSweep", "balanced", false);
+  if (!r.success) throw new Error(`wiring patrol refused: ${r.reason}`);
+  return captainOf(r.next).mission as PatrolMissionState;
+}
+
+// WR-5b: the drone screen a claimed ship-battle context fields: the patrol cycle's seeded carry-state, or the ship
+// event's combatant.
+function battleDrones(s: GameState, ctx: ContextId): DroneSquadron[] {
+  return ctx === "shipEvent" ? battleCombatant(s, ctx).drones : dispatchedPatrol(s).playerDrones;
+}
+
+// WR-5b: the mean damage of 1,000 raw-100 projectiles from the combatant's first weapon (Alpha Strike's opening shot
+// spent, unless `opening`), at a target `above` half hull or below it, through the seam fireWeapon calls.
+const SHOT_RAW = 100;
+function meanShot(c: Combatant, above: boolean, opening = false): number {
+  const weapon = { ...c.weapons[0], openingVolley: opening ? c.weapons[0].openingVolley : false, damageCarryMilli: 0 };
+  const target = { hull: above ? 100 : 40, hullMax: 100 };
+  if (opening) return captainProjectileDamage(c.captainEdge, weapon, target, SHOT_RAW);
+  let total = 0;
+  for (let i = 0; i < 1000; i++) total += captainProjectileDamage(c.captainEdge, weapon, target, SHOT_RAW);
+  return total / 1000;
 }
 
 // == Shipyard gates ==
@@ -868,12 +907,73 @@ export const PROBES = {
   combatDroneAccuracy: { label: "shipToCombatant first squadron accuracy", read: (s) => playerCombatant(s).drones[0]?.accuracy ?? 0 },
   combatDroneCount: { label: "shipToCombatant squadron count", read: (s) => playerCombatant(s).drones.length },
   waveHullRegen: { label: "damageControlEffect.waveHullRegenFraction (tick.ts:3002)", read: (s) => damageControlEffect(equippedFor(s, WIRING_SHIP_ID)).waveHullRegenFraction },
+  // == WR-5b: the captain Tactician seams (patrol: the wave combatant / the dispatched cycle; shipEvent: the frozen
+  // ship-event combatant) ==
+  captainShotDamage: {
+    label: "captainProjectileDamage: the mean of 1,000 raw-100 projectiles at a target below half hull (patrol / shipEvent)",
+    read: (s, ctx) => meanShot(battleCombatant(s, ctx), false),
+  },
+  captainShotDamageHighHealth: {
+    label: "captainProjectileDamage: the mean of 1,000 raw-100 projectiles at a target above half hull (patrol / shipEvent)",
+    read: (s, ctx) => meanShot(battleCombatant(s, ctx), true),
+  },
+  captainOpeningShot: {
+    label: "captainProjectileDamage: a fresh weapon's first raw-100 projectile (patrol / shipEvent)",
+    read: (s, ctx) => meanShot(battleCombatant(s, ctx), false, true),
+  },
+  captainWeaponAccuracy: { label: "the first weapon's accuracy (patrol / shipEvent)", read: (s, ctx) => battleCombatant(s, ctx).weapons[0]?.accuracy ?? 0 },
+  captainWeaponCooldown: {
+    label: "the first weapon's effective cooldown: cooldownDeciSec / (chargeRatePct / 100) (patrol / shipEvent)",
+    read: (s, ctx) => {
+      const w = battleCombatant(s, ctx).weapons[0];
+      return w ? (w.cooldownDeciSec * 100) / (w.chargeRatePct ?? 100) : 0;
+    },
+  },
+  captainIncomingHit: { label: "incomingHitChance: a 100% shot against the ship (patrol / shipEvent)", read: (s, ctx) => incomingHitChance(battleCombatant(s, ctx), 100) },
+  captainLethalSurvived: {
+    label: "a lethal hit on the shieldless ship: 1 when it is still standing (patrol / shipEvent)",
+    read: (s, ctx) => {
+      const c = battleCombatant(s, ctx);
+      c.shield = 0;
+      applyProjectileDamage(c, "kinetic", 0, 0, c.hull + 10_000);
+      return c.hull > 0 ? 1 : 0;
+    },
+  },
+  captainDroneShot: {
+    label: "captainDroneDamage: the mean of 1,000 raw-100 drone hits (patrol / shipEvent)",
+    read: (s, ctx) => {
+      const c = battleCombatant(s, ctx);
+      const carry = { milli: 0 };
+      let total = 0;
+      for (let i = 0; i < 1000; i++) total += captainDroneDamage(c.captainEdge, carry, SHOT_RAW);
+      return total / 1000;
+    },
+  },
+  battleDroneHp: { label: "the first squadron's droneHp: the patrol cycle's seed / the ship-event combatant", read: (s, ctx) => battleDrones(s, ctx)[0]?.droneHp ?? 0 },
+  battleDroneReplenish: {
+    label: "the first squadron's droneReplenishRate: the patrol cycle's seed / the ship-event combatant",
+    read: (s, ctx) => battleDrones(s, ctx)[0]?.droneReplenishRate ?? 0,
+  },
+  battleDroneSquadrons: { label: "the squadron count: the patrol cycle's seed / the ship-event combatant", read: (s, ctx) => battleDrones(s, ctx).length },
+  patrolRewardMult: {
+    label: "patrolWaveRewardMult(0, the dispatched cycle's captainCombat): a won wave's loot and credit factor",
+    read: (s) => patrolWaveRewardMult(0, dispatchedPatrol(s).captainCombat),
+  },
+  captainRepairRate: {
+    label: "hull repair rate: 1 + the Shipyard divisor shipRepairDurationTicks divides by / 1 + the frozen field repair divisor (Ground Ops) / the cycle's between-wave patch-up fraction (patrol)",
+    read: (s, ctx) => {
+      if (ctx === "expedition:groundOps") return 1 + (snapshotShipEventProfile(s, shipOf(s)).battle?.repairSpeed ?? 0);
+      if (ctx === "patrol") return captainWaveRegenFraction(damageControlEffect(equippedFor(s, WIRING_SHIP_ID)).waveHullRegenFraction, dispatchedPatrol(s).captainCombat);
+      return 1 + shipyardRepairSpeedBonus(s, shipOf(s));
+    },
+  },
   // == Shipyard ==
   repairTicks: {
     label: "shipRepairDurationTicks (500 damage)",
     read: (s) => {
       const ship = { ...shipOf(s), damaged: true, repairDamage: 500 };
-      return shipRepairDurationTicks(ship, equippedFor(s, ship.id), shipRepairSpeedBonus(s, ship));
+      // CP-2 + WR-5b: the Shipyard's divisor (officers + complement, x the commanding captain's Damage Control when owned).
+      return shipRepairDurationTicks(ship, equippedFor(s, ship.id), shipyardRepairSpeedBonus(s, ship));
     },
   },
   officerRepairBonus: {

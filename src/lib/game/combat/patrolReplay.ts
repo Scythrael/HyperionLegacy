@@ -44,6 +44,7 @@ import {
   type PatrolSystemDurability,
   type EquipmentInstance,
   type OfficerCombatMods,
+  type CaptainCombatMods,
 } from "../model";
 // Combat 1.0 (Unit 1.4): the SAME fitted-gear query the live tick loop uses (equippedFor), so the
 // display replay derives the player's installed combat gear byte-identically to the real fight and
@@ -68,6 +69,7 @@ import {
 // E4d: the Damage Control Suite's between-wave regen fraction (a model-only leaf), read off the SAME
 // installed gear the live loop reads, so the replay's patch-up matches the real fight.
 import { damageControlEffect } from "../utilityGear";
+import { captainWaveRegenFraction } from "../captainTacticianEffects";
 import { generateEnemyWaveDetailed } from "./enemyWave";
 import { resolveBattle } from "./resolveBattle";
 import { replenishDrones } from "./droneDefense";
@@ -213,6 +215,9 @@ export interface ResolvePatrolWavesInput {
   // officerCombat), threaded into the folded carry pools AND every wave's player combatant exactly as the
   // live loop threads them. OPTIONAL: absent = no officer bonus (byte-identical to before).
   officerCombat?: OfficerCombatMods;
+  // WR-5b (0.14.0): the cycle's frozen captain Tactician talents (the mission's stored captainCombat), threaded the
+  // same way (the folded pools, every wave's combatant, the Damage Control patch-up). Absent = none.
+  captainCombat?: CaptainCombatMods;
 }
 
 export interface ResolvePatrolWavesResult {
@@ -233,10 +238,10 @@ export function resolvePatrolWaves(input: ResolvePatrolWavesInput): ResolvePatro
   // loop folds the identical value (tick.ts foldedDefense), keeping the two paths byte-identical. For a
   // Standard-Issue set (or the low-level tests' absent gear) this folds to the authored stats exactly,
   // so no existing replay/parity outcome moves.
-  const foldedDefense = foldedPlayerDefense(stats, input.installedGear, input.officerCombat);
+  const foldedDefense = foldedPlayerDefense(stats, input.installedGear, input.officerCombat, input.captainCombat);
   // E4d: the Damage Control Suite's between-wave hull patch-up fraction (0 without the suite), the SAME
-  // value the live loop computes from the same gear.
-  const waveHullRegenFraction = damageControlEffect(input.installedGear).waveHullRegenFraction;
+  // value the live loop computes from the same gear. WR-5b: x the captain's Damage Control, as live.
+  const waveHullRegenFraction = captainWaveRegenFraction(damageControlEffect(input.installedGear).waveHullRegenFraction, input.captainCombat);
 
   // The wave schedule: a pure function of the master seed + def params, IDENTICAL to
   // the array freshPatrolMission persisted at dispatch (same call), so the replay's
@@ -307,6 +312,7 @@ export function resolvePatrolWaves(input: ResolvePatrolWavesInput): ResolvePatro
       carrySystemDurability,
       // E-CREW (Task 20): the same frozen officer bonuses the live wave reads.
       officerCombat: input.officerCombat,
+      captainCombat: input.captainCombat,
     });
 
     // ENEMY team + labels, from the ENEMY-salt derivation with the SAME idPrefix the
@@ -449,7 +455,9 @@ export function replayPatrol(state: GameState, captain: CaptainState): PatrolRep
   // the SAME installedDronesForPatrol + idPrefix the live seed uses, so a crafted pod's squadron shows
   // in the replay identically to the real patrol; a Standard-Issue carrier is byte-identical to the old
   // default-screen seed. Freshly built, so no input is shared.
-  const startDrones = installedDronesForPatrol(installedGear, `patrol-${mission.masterSeed}-p`);
+  // WR-5b: the cycle's frozen captain record shapes the seeded screen exactly as freshPatrolMission did.
+  const captainCombat = mission.captainCombat;
+  const startDrones = installedDronesForPatrol(installedGear, `patrol-${mission.masterSeed}-p`, captainCombat);
 
   // Combat-defense BLOCKER fix (2026-08-27): the FULL hull/shield start pools folded from the ship's
   // INSTALLED gear (the SAME pool the wave combatant fights with, and the SAME seed freshPatrolMission
@@ -459,7 +467,7 @@ export function replayPatrol(state: GameState, captain: CaptainState): PatrolRep
   // E-CREW (Task 20): the cycle's FROZEN officer bonuses (stored on the mission when the cycle started),
   // never the officers seated now, so the replay reproduces the fight the live loop actually resolved.
   const officerCombat = mission.officerCombat;
-  const startDefense = foldedPlayerDefense(shipDef, installedGear, officerCombat);
+  const startDefense = foldedPlayerDefense(shipDef, installedGear, officerCombat, captainCombat);
 
   const resolved = resolvePatrolWaves({
     playerId: ship.id,
@@ -480,6 +488,7 @@ export function replayPatrol(state: GameState, captain: CaptainState): PatrolRep
     // both accumulate identical wear across the waves.
     startSystemDurability: defaultSystemDurabilityForHull(hullType, shipDef, installedGear),
     officerCombat,
+    captainCombat,
   });
 
   return {
