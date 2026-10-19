@@ -859,6 +859,42 @@ registry is imported lazily so production bundles do not carry it.
 **UI:** dev-only table; one DOM, readable at 375 px. A text sketch is in OC-K1 (whether the user wants a mockup first).
 Commit `feat(0.14.0): Debug Wiring panel shows every bonus's live contribution (WR-3)`.
 
+#### WR-3 carry note (built 2026-10-19; one commit, UI and a pure helper only, no engine change, no golden moved)
+
+**Built:** `src/lib/wiringPanelDisplay.ts` (the view model: the measuring pass, verdicts, filters, groups, text) +
+`wiringPanelDisplay.test.ts` (20 tests); `src/lib/game/wiring/panelOwnership.ts` (the per-catalog ownership readers
+and the probe view; beside the registry because it is keyed by catalog NAME, and the completeness test's unread-constant
+scan skips that folder, so naming `FIELD_KIT_PRICES` there never counts as reading the constant); a "WIRING (dev-only)" panel in App.svelte's Debug tab under
+the DEBUG PANEL (OC-K1: "Simple table, no mockup"). "Measure this save" takes a snapshot of `state` and measures every
+entry (1,170 today) in slices with a progress line; filters: system, Show (All / Owned / Owned but contributing nothing
+/ Pending incl. partial / Deferred, held, seam) and a search on id, source and claim. Columns: Source (id, claim, probe,
+catalog magnitude), Owned (+ verdict), Status (live / partial / pending / deferred / held / seam chip with owner and
+user ref), Contexts (live, "not yet", out of scope), Contribution (now vs without), Expected. At 640 px and below
+each row stacks into a labeled card (same DOM). No glyphs.
+
+**Lazy:** the helper imports the registry and probes as types only; `loadWiringDeps` imports them dynamically. Checked
+with builds: a preview build emits `registry` (96 kB) and `probes` (45 kB) chunks, loaded on the button; a production
+build carries neither (DEV_MODE is a build constant, the panel is dead code). A pass on a new game takes about 10 ms.
+
+**How it measures (deviations from "probe(save) vs off(save)", all because the registry's transforms are FIXTURE
+transforms):** the probes read ship-1, captain 1 and the fixture members, so the panel measures those subjects: ship-1,
+captain 1, and the first Security and Science member aboard ship-1, aliased to `member-901` / `member-902` in a probe
+view (`wiringProbeView`, never written back). Ownership and "without" come from one reader per player-choice catalog
+(27: talents, nodes, Homeworld, officers, complement buffs, rarity, rank, racials, facets, traits, member and ship gear
+lines, modules, arrays, Museum stats, relics, set tiers, rungs): "without" removes just that source (the bonus zeroed,
+the line dropped, the node unbought), where `off` would seat a blank fixture officer, empty the whole Museum, or be the
+identity. Rung tracks are measured as the rung's own step (the entry's on vs off on the save). Content catalogs (missions,
+enemies, POIs, recipes...) read "content"; derived or seam rows read "n/a" with a reason; hull data and one-time grants
+(captain slots) are owned but "not measurable here". Expected is shown only where the registry magnitude is what the save
+owns (talents, nodes, Homeworld, rungs, traits): elsewhere it is the fixture's (20 gear points, a 20-head bucket, an
+ensign), and an additive stack can read "off curve" without a broken wire. A test fails when a new catalog is not
+classified.
+
+**Readings:** a new game owns 21 (the starting facility and telescope rungs, Standard Issue lines, hull data) and
+"contributing nothing" is EMPTY (the section 7 QA line holds). On a sample save, Inspiring Leader reads "contributing
+nothing" when the complement carries no cargo buff: its registry probe is the crew map's cargo slot, so it is the
+probe's view, not a dead wire (the same seamOnly shape WR-2 reports). No [PROVISIONAL] or [PROPOSAL] values.
+
 ### WR-4: Bugs and seams (engine fixes with clear answers, text fixes)
 
 **Goldens first** (`wiringGoldens.test.ts`: mission dispatch at ore cap incl. transports, a Shipyard repair, a
