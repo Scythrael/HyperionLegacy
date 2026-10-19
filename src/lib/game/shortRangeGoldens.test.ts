@@ -1,0 +1,321 @@
+// G1-0 (Short-Range Missions, docs/plans/2026-10-17-short-range-missions-plan.md section 4 G1-0): golden hashes and
+// tables captured on the code BEFORE any short-range engine edit (on top of a678241). They are the "today" record every
+// G1 slice compares against: with no short-range dispatch every pin here stays byte-identical, and a slice that moves
+// one on purpose (G1-1's quarters affix line is the first) must name the move beside the pin. Whole records, never a
+// narrow subset; every whole STATE goes through g1StateHash (no `runCounts`, no `homeworld`, no `shortRangeBoard`),
+// so the counters and the board G1-3 adds move nothing by themselves.
+//
+//   1. fleet    : a mixed fleet (a captain mission on Repeat, a patrol on Repeat, an expedition) advanced six hours
+//                 through economyTick, the whole state hashed every hour.
+//   2. views    : the Home dashboard and the Ships roster (the Operations pure view helpers) on that fleet at 0, 3
+//                 and 6 hours.
+//   3. stats    : effectiveShipStats for every hull carrying an Operations and an Engineering complement bucket (so a
+//                 quarters module's division multipliers show), bare and with each quarters variety installed (a
+//                 derelict piece: implicit lines only, so the affix pool cannot reach it), hashed through statsHash.
+//   4. gen      : generateEquipment for the quarters slot at 50 fixed seeds (varieties, rarities, qualities and item
+//                 levels cycled), one readable line per seed. Adding an affix to the quarters pool moves these.
+//   5. registry : the wiring registry's ids and statuses (hash and count), with the entries a G1 slice adds held
+//                 apart (G1_ADDED_ENTRY_IDS), so the base pin proves no existing entry moved.
+//   6. old save : a v69 save of the same fleet through deserialize + migrate, its state and every ship's stats.
+// Already pinned elsewhere and covered by the same rule: one delivered cycle for every MISSIONS key x every hull
+// (firstRunsGoldens.test.ts `gather:*`) and the SF-0 old save (`old:v69` there).
+
+import { describe, expect, it } from "vitest";
+import { writeFileSync } from "node:fs";
+import Decimal from "break_infinity.js";
+import { EQUIPMENT_SLOTS, MISSIONS, SHIP_TYPES, type EquipmentInstance, type EquipmentRarity, type GameState, type ShipDerivedStats, type ShipTypeKey } from "./model";
+import { dispatchCaptainOnMission, dispatchCaptainOnPatrol, economyTick, installMissingCombatBaselines, mintBuiltShip } from "./tick";
+import { startExpedition } from "./expedition";
+import { effectiveShipStats } from "./crewOverlay";
+import { generateEquipment } from "./itemgen";
+import { buildHomeDashboard } from "./homeDashboard";
+import { buildShipRoster } from "./shipRoster";
+import { deserialize, migrate, serialize, type SaveFile } from "./save";
+import { WIRING_REGISTRY } from "./wiring/registry";
+import { bucketOf, withBuckets } from "./wiring/probes";
+import { hash, onHull, withCrew } from "./firstRunsGoldens.fixture";
+
+// ===== shared helpers =====
+
+const HULLS = Object.keys(SHIP_TYPES) as ShipTypeKey[];
+const RNG = (): number => 0.5;
+
+function lcg(seed: number): () => number {
+  let s = seed >>> 0;
+  return () => {
+    s = (Math.imul(s, 1664525) + 1013904223) >>> 0;
+    return s / 4294967296;
+  };
+}
+
+// The whole state WITHOUT the fields the G1 slices (and SF-1 / G2-1 before them) add on purpose: the run counters, the
+// stored homeworld and the short-range board (G1-3). A no-op for the board today. Pure.
+function g1StateHash(state: GameState): string {
+  const rest = { ...state } as Record<string, unknown>;
+  delete rest.runCounts;
+  delete rest.homeworld;
+  delete rest.shortRangeBoard;
+  return hash(rest);
+}
+
+// A ship's derived stats WITHOUT guest quarters (the optional `colonistCapacity` G1-1 makes live), so these pins prove
+// every OTHER stat is unchanged; the guest quarters values get their own pins in the slice that adds them. A no-op
+// today (no stats object carries the field). Pure.
+function statsHash(stats: ShipDerivedStats): string {
+  const rest = { ...stats } as Record<string, unknown>;
+  delete rest.colonistCapacity;
+  return hash(rest);
+}
+
+// The nine quarters varieties as they stood at G1-0, named literally so a variety added later never shifts which
+// variety a seed rolls below.
+const QUARTERS_VARIETIES_AT_G1_0 = [
+  "quartersSecurityWing",
+  "quartersEngineeringWing",
+  "quartersScienceWing",
+  "quartersMedicalWing",
+  "quartersOperationsWing",
+  "quartersFlightDeckWing",
+  "quartersUtilitarian",
+  "quartersEfficient",
+  "quartersElite",
+] as const;
+
+// Install `piece` on `shipId` (the slot is a singleton: nothing else of its slot is on the ship in these fixtures).
+function withPiece(state: GameState, piece: EquipmentInstance, shipId: string): GameState {
+  return { ...state, equipment: [...state.equipment, { ...piece, fittedToShipId: shipId }] };
+}
+
+// A derelict quarters piece of `variety` (no affixes: only the implicit lines, which the affix pool cannot reach).
+function derelictQuarters(variety: string, id: string): EquipmentInstance {
+  return generateEquipment({
+    slotType: "quarters",
+    varietyKey: variety,
+    blueprintKey: null,
+    iLevel: 10,
+    quality: 0,
+    rarity: "derelict",
+    ascension: "none",
+    rng: RNG,
+    allocateId: () => id,
+  });
+}
+
+// ===== the mixed fleet =====
+
+const MAX_UNLOCK = Math.max(...Object.values(MISSIONS).map((m) => m.unlockLevel));
+
+// ship-1 an Orion with a rank 3 crew (the expedition, captain 1), ship-2 a General Freighter (a captain mission on
+// Repeat, captain 2), ship-3 a Destroyer (a patrol on Repeat, captain 3). Mission Control at the highest unlock and the
+// stores full of credits, so nothing refuses on what this golden is not about.
+function mixedFleet(): GameState {
+  const crewed = withCrew(onHull("orion"), "rank3");
+  const cap1 = crewed.captains[0];
+  // The two extra hulls are minted the way the Shipyard mints a build (Standard Issue on every live slot).
+  let acc = { ships: crewed.ships, nextShipId: crewed.nextShipId, equipment: crewed.equipment, nextEquipmentId: crewed.nextEquipmentId };
+  const freighter = mintBuiltShip(acc, "generalFreighter");
+  acc = freighter;
+  const destroyer = mintBuiltShip(acc, "destroyer");
+  const captainOf: Record<string, number> = { [freighter.shipId]: 2, [destroyer.shipId]: 3 };
+  const fleet: GameState = installMissingCombatBaselines({
+    ...crewed,
+    credits: new Decimal(1_000_000_000),
+    facilities: { ...crewed.facilities, missionControl: { ...crewed.facilities.missionControl, level: MAX_UNLOCK } },
+    ships: destroyer.ships.map((sh) => (captainOf[sh.id] === undefined ? sh : { ...sh, assignedCaptainId: captainOf[sh.id] })),
+    nextShipId: destroyer.nextShipId,
+    equipment: destroyer.equipment,
+    nextEquipmentId: destroyer.nextEquipmentId,
+    captains: [
+      { ...cap1, level: 10 },
+      { ...cap1, id: 2, label: "Second", level: 10 },
+      { ...cap1, id: 3, label: "Third", level: 10 },
+    ],
+  });
+  const exp = startExpedition(fleet, "ship-1", 1, "cand-0");
+  if (!exp.success) throw new Error(`expedition refused: ${exp.reason}`);
+  const mission = dispatchCaptainOnMission(exp.next, 2, "shortOreRun");
+  if (!mission.success) throw new Error(`mission refused: ${mission.reason}`);
+  const patrol = dispatchCaptainOnPatrol(mission.next, 3, "crimsonReaverSweep", "balanced", true);
+  if (!patrol.success) throw new Error(`patrol refused: ${patrol.reason}`);
+  return patrol.next;
+}
+
+const HOUR = 3600;
+const ROSTER_OPTS = { sortKey: "attention", filterKey: "all", searchText: "", favorites: new Set<string>() } as const;
+
+function views(s: GameState): string[] {
+  return [hash(buildHomeDashboard(s)), hash(buildShipRoster(s, { ...ROSTER_OPTS, favorites: new Set<string>() }))];
+}
+
+// ===== the goldens =====
+
+// Captured on a678241 (feat/crew-0.14.0), before any G1 engine edit. Line layouts: fleet = [start, hour 1 .. hour 6]
+// state hashes; views = per checkpoint [home, roster]; stats:<hull> = [bare, then each QUARTERS_VARIETIES_AT_G1_0
+// variety installed]; gen:quarters = one line per seed; registry = [count, hash] of the entries outside
+// G1_ADDED_ENTRY_IDS; old = [state, then each ship's stats].
+const GOLDEN: Record<string, unknown> = {
+  "fleet": ["aa94ddcd", "1a72036c", "5008dacf", "cbf18a80", "6c8ebe80", "33d00a42", "19f8bdb2"],
+  "views": [["a78ec59d", "f4663cfa"], ["c4d89f65", "f4663cfa"], ["d17143e7", "f4663cfa"]],
+  "stats:generalFreighter": ["4ec6953b", "a23b4064", "64c2af9f", "a23b4064", "a23b4064", "adc17d60", "a23b4064", "7d4cb65c", "4cb04650", "be1d595e"],
+  "stats:prospectorHauler": ["dab172af", "4c6d2883", "e7aa301f", "4c6d2883", "4c6d2883", "e795f0e6", "4c6d2883", "a1875eb0", "ec014cd9", "8c4400cf"],
+  "stats:prospectorRunner": ["b800f591", "d8f1dbc7", "bbc001a6", "d8f1dbc7", "d8f1dbc7", "4f50d62e", "d8f1dbc7", "f563b320", "6816dbdf", "d4a28dc3"],
+  "stats:prospectorMiner": ["b8a60abf", "11d1dfb7", "6c436790", "11d1dfb7", "11d1dfb7", "60ce6075", "11d1dfb7", "8b42c18c", "3904fab2", "a2014a1b"],
+  "stats:destroyer": ["3d40bb7a", "f728345c", "52394197", "f728345c", "f728345c", "5770fb9a", "f728345c", "195a282f", "bfeb6df9", "78a70374"],
+  "stats:battleship": ["246f2c62", "ce0e2391", "b3fab6f4", "ce0e2391", "ce0e2391", "12d5eca0", "ce0e2391", "5e8b95e", "b3e3dae7", "5b6570e8"],
+  "stats:carrier": ["67cd439e", "dec91223", "48df020c", "dec91223", "dec91223", "9544b23c", "dec91223", "b9fcb13b", "cbaad9cb", "b0c9ff28"],
+  "stats:orion": ["859f2c75", "ec74deed", "b55917c9", "ec74deed", "ec74deed", "2cc7074a", "ec74deed", "f800d632", "a2037617", "d24d5073"],
+  "stats:aurora": ["59fc8c38", "d52a9ba3", "dc065a95", "d52a9ba3", "d52a9ba3", "6bf9671a", "d52a9ba3", "11b7d999", "f5eae818", "727da0bf"],
+  "stats:eir": ["f48e6005", "692728ff", "9330a43b", "692728ff", "692728ff", "13923d66", "692728ff", "aaf5508c", "f3a3b171", "9a5833b0"],
+  "gen:quarters": [
+    "1:quartersEngineeringWing:augmented:q1:iL8:{\"crewStations\":12}:{\"crewEfficiency\":6,\"crewStations\":6}:m0:quartersEngineeringWing",
+    "2:quartersScienceWing:stellar:q2:iL15:{\"crewStations\":28}:{\"crewEfficiency\":9,\"crewStations\":9}:m0:quartersScienceWing",
+    "3:quartersMedicalWing:radiant:q3:iL22:{\"crewStations\":51}:{\"crewEfficiency\":17,\"crewStations\":17}:m0:quartersMedicalWing",
+    "4:quartersOperationsWing:standard:q4:iL29:{\"crewStations\":49}:{\"crewEfficiency\":25}:m0:quartersOperationsWing",
+    "5:quartersFlightDeckWing:augmented:q5:iL36:{\"crewStations\":77}:{\"crewStations\":38}:m0:quartersFlightDeckWing",
+    "6:quartersUtilitarian:stellar:q0:iL3:{\"crewStations\":5}:{\"crewEfficiency\":2,\"crewStations\":2}:m0:quartersUtilitarian",
+    "7:quartersEfficient:radiant:q1:iL10:{\"crewStations\":19}:{\"crewEfficiency\":6,\"crewStations\":6}:m0:quartersEfficient",
+    "8:quartersElite:standard:q2:iL17:{\"crewStations\":24}:{\"crewEfficiency\":12,\"crewStations\":12}:m0:quartersElite",
+    "9:quartersSecurityWing:augmented:q3:iL24:{\"crewStations\":42}:{\"crewStations\":21,\"crewEfficiency\":21}:m0:quartersSecurityWing",
+    "10:quartersEngineeringWing:stellar:q4:iL31:{\"crewStations\":69}:{\"crewEfficiency\":23,\"crewStations\":23}:m0:quartersEngineeringWing",
+    "11:quartersScienceWing:radiant:q5:iL38:{\"crewStations\":107}:{\"crewEfficiency\":36,\"crewStations\":36}:m0:quartersScienceWing",
+    "12:quartersMedicalWing:standard:q0:iL5:{\"crewStations\":6}:{\"crewEfficiency\":3,\"crewStations\":3}:m0:quartersMedicalWing",
+    "13:quartersOperationsWing:augmented:q1:iL12:{\"crewStations\":18}:{\"crewEfficiency\":9,\"crewStations\":9}:m0:quartersOperationsWing",
+    "14:quartersFlightDeckWing:stellar:q2:iL19:{\"crewStations\":35}:{\"crewEfficiency\":12,\"crewStations\":12}:m0:quartersFlightDeckWing",
+    "15:quartersUtilitarian:radiant:q3:iL26:{\"crewStations\":61}:{\"crewEfficiency\":20,\"crewStations\":20}:m0:quartersUtilitarian",
+    "16:quartersEfficient:standard:q4:iL33:{\"crewStations\":56}:{\"crewEfficiency\":28,\"crewStations\":28}:m0:quartersEfficient",
+    "17:quartersElite:augmented:q5:iL40:{\"crewStations\":85}:{\"crewStations\":43,\"crewEfficiency\":43}:m0:quartersElite",
+    "18:quartersSecurityWing:stellar:q0:iL7:{\"crewStations\":11}:{\"crewEfficiency\":4,\"crewStations\":4}:m0:quartersSecurityWing",
+    "19:quartersEngineeringWing:radiant:q1:iL14:{\"crewStations\":27}:{\"crewEfficiency\":9,\"crewStations\":9}:m0:quartersEngineeringWing",
+    "20:quartersScienceWing:standard:q2:iL21:{\"crewStations\":29}:{\"crewEfficiency\":15,\"crewStations\":15}:m0:quartersScienceWing",
+    "21:quartersMedicalWing:augmented:q3:iL28:{\"crewStations\":50}:{\"crewStations\":25}:m0:quartersMedicalWing",
+    "22:quartersOperationsWing:stellar:q4:iL35:{\"crewStations\":78}:{\"crewEfficiency\":26,\"crewStations\":26}:m0:quartersOperationsWing",
+    "23:quartersFlightDeckWing:radiant:q5:iL2:{\"crewStations\":6}:{\"crewEfficiency\":2,\"crewStations\":2}:m0:quartersFlightDeckWing",
+    "24:quartersUtilitarian:standard:q0:iL9:{\"crewStations\":11}:{\"crewEfficiency\":5,\"crewStations\":5}:m0:quartersUtilitarian",
+    "25:quartersEfficient:augmented:q1:iL16:{\"crewStations\":24}:{\"crewStations\":12}:m0:quartersEfficient",
+    "26:quartersElite:stellar:q2:iL23:{\"crewStations\":43}:{\"crewEfficiency\":14,\"crewStations\":14}:m0:quartersElite",
+    "27:quartersSecurityWing:radiant:q3:iL30:{\"crewStations\":70}:{\"crewEfficiency\":23,\"crewStations\":23}:m0:quartersSecurityWing",
+    "28:quartersEngineeringWing:standard:q4:iL37:{\"crewStations\":63}:{\"crewEfficiency\":31,\"crewStations\":31}:m0:quartersEngineeringWing",
+    "29:quartersScienceWing:augmented:q5:iL4:{\"crewStations\":9}:{\"crewStations\":4,\"crewEfficiency\":4}:m0:quartersScienceWing",
+    "30:quartersMedicalWing:stellar:q0:iL11:{\"crewStations\":17}:{\"crewEfficiency\":6,\"crewStations\":6}:m0:quartersMedicalWing",
+    "31:quartersOperationsWing:radiant:q1:iL18:{\"crewStations\":35}:{\"crewEfficiency\":12,\"crewStations\":12}:m0:quartersOperationsWing",
+    "32:quartersFlightDeckWing:standard:q2:iL25:{\"crewStations\":35}:{\"crewEfficiency\":18,\"crewStations\":18}:m0:quartersFlightDeckWing",
+    "33:quartersUtilitarian:augmented:q3:iL32:{\"crewStations\":57}:{\"crewEfficiency\":28,\"crewStations\":28}:m0:quartersUtilitarian",
+    "34:quartersEfficient:stellar:q4:iL39:{\"crewStations\":87}:{\"crewEfficiency\":29,\"crewStations\":29}:m0:quartersEfficient",
+    "35:quartersElite:radiant:q5:iL6:{\"crewStations\":17}:{\"crewEfficiency\":6,\"crewStations\":6}:m0:quartersElite",
+    "36:quartersSecurityWing:standard:q0:iL13:{\"crewStations\":15}:{\"crewEfficiency\":8}:m0:quartersSecurityWing",
+    "37:quartersEngineeringWing:augmented:q1:iL20:{\"crewStations\":29}:{\"crewEfficiency\":15}:m0:quartersEngineeringWing",
+    "38:quartersScienceWing:stellar:q2:iL27:{\"crewStations\":50}:{\"crewEfficiency\":17,\"crewStations\":17}:m0:quartersScienceWing",
+    "39:quartersMedicalWing:radiant:q3:iL34:{\"crewStations\":79}:{\"crewEfficiency\":26,\"crewStations\":26}:m0:quartersMedicalWing",
+    "40:quartersOperationsWing:standard:q4:iL1:{\"crewStations\":2}:{\"crewStations\":1}:m0:quartersOperationsWing",
+    "41:quartersFlightDeckWing:augmented:q5:iL8:{\"crewStations\":17}:{\"crewStations\":9,\"crewEfficiency\":9}:m0:quartersFlightDeckWing",
+    "42:quartersUtilitarian:stellar:q0:iL15:{\"crewStations\":23}:{\"crewStations\":8,\"crewEfficiency\":8}:m0:quartersUtilitarian",
+    "43:quartersEfficient:radiant:q1:iL22:{\"crewStations\":43}:{\"crewStations\":14,\"crewEfficiency\":14}:m0:quartersEfficient",
+    "44:quartersElite:standard:q2:iL29:{\"crewStations\":41}:{\"crewStations\":20}:m0:quartersElite",
+    "45:quartersSecurityWing:augmented:q3:iL36:{\"crewStations\":64}:{\"crewEfficiency\":32,\"crewStations\":32}:m0:quartersSecurityWing",
+    "46:quartersEngineeringWing:stellar:q4:iL3:{\"crewStations\":7}:{\"crewEfficiency\":2,\"crewStations\":2}:m0:quartersEngineeringWing",
+    "47:quartersScienceWing:radiant:q5:iL10:{\"crewStations\":28}:{\"crewEfficiency\":9,\"crewStations\":9}:m0:quartersScienceWing",
+    "48:quartersMedicalWing:standard:q0:iL17:{\"crewStations\":20}:{\"crewEfficiency\":10}:m0:quartersMedicalWing",
+    "49:quartersOperationsWing:augmented:q1:iL24:{\"crewStations\":35}:{\"crewStations\":18,\"crewEfficiency\":18}:m0:quartersOperationsWing",
+    "50:quartersFlightDeckWing:stellar:q2:iL31:{\"crewStations\":57}:{\"crewStations\":19,\"crewEfficiency\":19}:m0:quartersFlightDeckWing",
+    "pool:[{\"stat\":\"crewStations\",\"weight\":5},{\"stat\":\"crewEfficiency\",\"weight\":2},{\"stat\":\"massReduction\",\"weight\":1}]",
+  ],
+  "registry": [1170, "cd249d26"],
+  "old": ["aa94ddcd", "817862c7", "4ac62731", "d9a483c6"],
+};
+
+// The registry entries a G1 slice adds (new ids only; an existing entry never changes here). Empty at G1-0.
+const G1_ADDED_ENTRY_IDS: ReadonlySet<string> = new Set<string>([]);
+
+const CAPTURE = Boolean(import.meta.env.G1_CAPTURE);
+const captured: Record<string, unknown> = {};
+function pin(key: string, value: unknown): void {
+  if (CAPTURE) {
+    captured[key] = value;
+    return;
+  }
+  expect(value, key).toEqual(GOLDEN[key]);
+}
+
+describe("G1-0 golden 1 + 2: a mixed fleet over six hours, and the Home and Ships views on it", () => {
+  it("the whole state every hour, and the views at 0, 3 and 6 hours", () => {
+    let s = mixedFleet();
+    const hours: string[] = [g1StateHash(s)];
+    const seen: string[][] = [views(s)];
+    for (let h = 1; h <= 6; h++) {
+      s = economyTick(s, HOUR, RNG);
+      hours.push(g1StateHash(s));
+      if (h === 3 || h === 6) seen.push(views(s));
+    }
+    // Still out: the mission and the patrol repeat, the expedition is on its way.
+    expect(s.captains[1].mission).not.toBeNull();
+    expect(s.captains[2].mission).not.toBeNull();
+    expect(s.expeditions.length).toBe(1);
+    pin("fleet", hours);
+    pin("views", seen);
+  });
+});
+
+describe("G1-0 golden 3: effectiveShipStats for every hull, bare and with each quarters variety", () => {
+  for (const hull of HULLS) {
+    it(`${hull}`, () => {
+      const s0 = withBuckets(onHull(hull), [bucketOf("operations", "ops.unloadSpeed"), bucketOf("engineering", "eng.range"), bucketOf("operations", "ops.effectiveCargo")]);
+      const ship = s0.ships[0];
+      const out = [statsHash(effectiveShipStats(s0, ship))];
+      for (const v of QUARTERS_VARIETIES_AT_G1_0) {
+        const s = withPiece(s0, derelictQuarters(v, `equip-q-${v}`), ship.id);
+        out.push(statsHash(effectiveShipStats(s, ship)));
+      }
+      pin(`stats:${hull}`, out);
+    });
+  }
+});
+
+describe("G1-0 golden 4: generateEquipment for the quarters slot at 50 fixed seeds", () => {
+  it("one line per seed: variety, rarity, quality, iLevel, the implicit and rolled lines, mass", () => {
+    const rarities: EquipmentRarity[] = ["standard", "augmented", "stellar", "radiant"];
+    const out: string[] = [];
+    for (let seed = 1; seed <= 50; seed++) {
+      const variety = QUARTERS_VARIETIES_AT_G1_0[seed % QUARTERS_VARIETIES_AT_G1_0.length];
+      const rarity = rarities[seed % rarities.length];
+      const quality = seed % 6;
+      const iLevel = 1 + ((seed * 7) % 40);
+      const p = generateEquipment({
+        slotType: "quarters",
+        varietyKey: variety,
+        blueprintKey: null,
+        iLevel,
+        quality,
+        rarity,
+        ascension: "none",
+        rng: lcg(0x6100 + seed),
+        allocateId: () => `equip-${seed}`,
+      });
+      out.push(`${seed}:${variety}:${rarity}:q${quality}:iL${iLevel}:${JSON.stringify(p.implicitStats)}:${JSON.stringify(p.rolledStats)}:m${p.mass}:${p.moduleVariant}`);
+    }
+    // The pool the seeds draw from, so a move names its cause.
+    out.push(`pool:${JSON.stringify(EQUIPMENT_SLOTS.quarters.affixPool)}`);
+    pin("gen:quarters", out);
+  });
+});
+
+describe("G1-0 golden 5: the wiring registry's ids and statuses", () => {
+  it("the entries outside the G1 additions, hashed in registry order", () => {
+    const lines = WIRING_REGISTRY.filter((e) => !G1_ADDED_ENTRY_IDS.has(e.id)).map((e) => `${e.id}|${e.status.kind}`);
+    pin("registry", [lines.length, hash(lines)]);
+  });
+});
+
+describe("G1-0 golden 6: an old save (v69) of the mixed fleet through migrate", () => {
+  it("the migrated state and every ship's stats", () => {
+    const held = mixedFleet();
+    const save = deserialize(serialize(held, 0)) as SaveFile;
+    const state = migrate({ ...save, version: 69 });
+    pin("old", [g1StateHash(state), ...state.ships.map((sh) => statsHash(effectiveShipStats(state, sh)))]);
+  });
+});
+
+describe.runIf(CAPTURE)("G1-0 capture (G1_CAPTURE = an output path): write the goldens there", () => {
+  it("writes", () => {
+    writeFileSync(String(import.meta.env.G1_CAPTURE), JSON.stringify(captured, null, 2));
+  });
+});
