@@ -2012,7 +2012,8 @@
     | "recoveredTech"
     | "refined"
     | "components"
-    | "salvaged";
+    | "salvaged"
+    | "fieldKit";
 
   // Section display order (mockup order). The four raw sub-category sections
   // first, then Refined, then Components, then Salvaged Materials last (salvaged
@@ -2026,6 +2027,8 @@
     { key: "refined", label: "Refined" },
     { key: "components", label: "Components" },
     { key: "salvaged", label: "Salvaged Materials" },
+    // Field Kits FKR-3: the crafted kits' stock view (every kit is a tier 1 shelf item, model.ts ITEMS).
+    { key: "fieldKit", label: "Field Kits" },
   ];
 
   // SINGLE source of section membership. Raw sub-category sections match on the
@@ -2045,6 +2048,8 @@
         return item.category === "minorComponent" || item.category === "majorComponent";
       case "salvaged":
         return item.category === "salvagedMaterial";
+      case "fieldKit":
+        return item.category === "fieldKit";
     }
   }
 
@@ -15599,7 +15604,9 @@
                                non-danger fill) while materialAtCap is still false and it still accepts
                                stock. Only a genuinely capped item (atCap) shows 100%. -->
                           <span class="warehouse-pct">{atCap ? 100 : Math.floor(pct)}%</span>
-                          <span class="warehouse-glyph">{warehouseCategoryGlyph(item.category)}</span>
+                          {@const kitIc = fieldKitIcon(item.id)}
+                          <!-- Field Kits FKR-3: a kit wears its own SVG glyph (fieldKitIcons.ts); the rest keep the category glyph. -->
+                          <span class="warehouse-glyph">{#if kitIc !== null}<Icon name={kitIc} />{:else}{warehouseCategoryGlyph(item.category)}{/if}</span>
                           <span class="warehouse-ct">{formatNumber(count)}</span>
                         {:else}
                           <span class="warehouse-glyph warehouse-glyph-unknown">❓</span>
@@ -15611,8 +15618,8 @@
               {/if}
             {/each}
 
-            <!-- Salvaged Materials no longer has a special block: it is the final
-                 entry in MATERIALS_SECTIONS, so it renders above in the standard
+            <!-- Salvaged Materials no longer has a special block: it is an
+                 entry in MATERIALS_SECTIONS (Field Kits follows it), so it renders above in the standard
                  fill-tile loop like every other material section (user 2026-07-21).
                  The salvage ACTION lives in the Foundry Salvage Bay facility. -->
           </Panel>
