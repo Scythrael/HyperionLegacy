@@ -103,6 +103,8 @@ import {
   type MuseumStat,
 } from "../relics";
 import { BRIDGE_MODULES, QUARTERS_MODULES, moduleEffectScale } from "../crewModules";
+import { graduateStandout } from "../crewGraduation";
+import { signatureKey } from "../crew";
 import { SENSOR_ARRAYS } from "../sensorArrays";
 import { RETIREMENT_EXP_PER } from "../captainRetirement";
 import { explorerTalentText } from "../captainExplorerEffects";
@@ -150,6 +152,7 @@ import {
   withRunningJobs,
   overtimeOneStep,
   WIRING_BUCKET_COUNT,
+  WIRING_SHIP_ID,
   AFFIX_ALIGNED_HOOKS,
   AFFIX_HOOK_KEYS,
   GAMBIT_ACTIONS,
@@ -2953,7 +2956,6 @@ const AUDIT_ROWS: readonly { id: string; system: WiringSystem; claim: string; st
   { id: "ship:audit:partialCombat", system: "ship", claim: "Ambush opener (expedition cloaked events only), precharge (Ground Ops only), enemy mitigation (players only), evasion (Evasive Command only), drone replenish (between waves only)", status: pending("WR-8, OC-D9 / OC-D12") },
   { id: "ship:audit:podDurability", system: "ship", claim: "DRONE_POD_BASE_DURABILITY (pods never wear) and QUALITY_DURABILITY_BONUS on non-weapons", status: pending("WR-8, OC-D14") },
   // E. Crew
-  { id: "crew:audit:notables", system: "crew", claim: "Notable crew: the read paths are live but nothing creates one", status: pending("CP-8") },
   { id: "crew:audit:enlisted", system: "crew", claim: "The crew rank enlisted flag (never read)", status: pending("WR-9, OC-E11") },
   { id: "crew:audit:thirdBuff", system: "crew", claim: "buffCountForRank 3 (only gates the exclusive pick)", status: pending("WR-9, OC-E12") },
   { id: "crew:audit:commandCaps", system: "crew", claim: "Command structure caps (passive ships only; not enforced on load)", status: pending("CP-5, CP-7") },
@@ -3006,7 +3008,46 @@ const AUDIT_ROWS: readonly { id: string; system: WiringSystem; claim: string; st
 ];
 
 function auditEntries(): WiringEntry[] {
-  return [...AUDIT_ROWS.map((r) => entry({ id: r.id, system: r.system, source: { catalog: "AUDIT", key: r.id }, claim: r.claim, status: r.status })), ...cp2AuditEntries()];
+  return [...AUDIT_ROWS.map((r) => entry({ id: r.id, system: r.system, source: { catalog: "AUDIT", key: r.id }, claim: r.claim, status: r.status })), ...cp2AuditEntries(), ...cp8AuditEntries()];
+}
+
+// CP-8: notables are created now (graduation). Identity only (user 2026-10-16, "Let's keep it identity only"): a
+// graduate counts aboard exactly like one crew of its group. Measured on Efficient Unloading: a ship of 20 Crewmen
+// graduates one; against the same ship with that one crewmember gone, the unload bonus is 20 / 19 of it (the notable
+// carries its share), and against the ship before graduating it does not move at all.
+function cp8AuditEntries(): WiringEntry[] {
+  const ops = bucketOf("operations", "ops.unloadSpeed");
+  const crewed = () => withBuckets(wiringBase(), [ops]);
+  const graduate: Transform = (s) => graduateStandout(s, WIRING_SHIP_ID, signatureKey(ops)).next;
+  return [
+    entry({
+      id: "crew:audit:notables",
+      system: "crew",
+      source: { catalog: "AUDIT", key: "crew:audit:notables" },
+      claim: "A graduated notable stays aboard and carries its buffs like one crew of its group",
+      probe: "sheetUnload",
+      contexts: ["sheet"],
+      curve: { kind: "bonusRelative", base: 1 },
+      magnitude: () => 1 / (WIRING_BUCKET_COUNT - 1),
+      base: crewed,
+      on: graduate,
+      off: (s) => withBuckets(s, [{ ...ops, count: WIRING_BUCKET_COUNT - 1 }]),
+      note: "on: 19 Crewmen + the notable; off: the 19 alone",
+    }),
+    entry({
+      id: "crew:audit:notableIdentityOnly",
+      system: "crew",
+      source: { catalog: "AUDIT", key: "crew:audit:notableIdentityOnly" },
+      claim: "Graduating is identity only: the ship's stats do not change",
+      probe: "sheetUnload",
+      contexts: ["sheet"],
+      direction: "none",
+      magnitude: () => 0,
+      base: crewed,
+      on: graduate,
+      note: "a move of 0: the notable replaces the crewmember it was",
+    }),
+  ];
 }
 
 // CP-2: the two crew audit rows CP-2 resolves, now live with their own checks.

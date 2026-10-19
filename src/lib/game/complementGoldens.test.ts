@@ -19,7 +19,12 @@
 //   structure  : commandStructureForHull for every hull.
 // Each fixture also checks that it really holds what it is pinned for (the keys, the transport, the relaunch, ...).
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+
+// OC-11 (CP-8): the switch that proves the auto-crew pause is the ONLY thing OC-11 moved (complementOc11Switch.fixture.ts;
+// the "OC-11 goldens" block and the mission tests reproduce their pre-OC-11 captures with it).
+vi.mock("./crewLock", async (io) => (await import("./complementOc11Switch.fixture")).oc11CrewLockMock(io));
+import { withOc11Off } from "./complementOc11Switch.fixture";
 // SF-1: whole states hash without the run counters (withoutRunCounts).
 import { withoutRunCounts } from "./firstRunsGoldens.fixture";
 import Decimal from "break_infinity.js";
@@ -188,6 +193,12 @@ const CP0_MISSION: Record<string, string> = {
   surveyMineralAnomaly: "988bc42",
   frontierSupplyRun: "717a3120",
 };
+// The mission pins from before OC-11 (the CP-2 pins), reproduced with the OC-11 pause switched off.
+const OC11_OFF_MISSION: Record<string, string> = {
+  shortOreRun: "33ff8a16",
+  surveyMineralAnomaly: "bb43f634",
+  frontierSupplyRun: "f4b5648c",
+};
 
 // ===== the goldens =====
 
@@ -228,9 +239,12 @@ const GOLDEN: Record<string, string | string[]> = {
   // eb39cb91, e84193a6): the window's transport crew carry Earth-born racials and Crew Effectiveness, which now lift
   // the mission ship's other complement buffs (its hold and unload) once it is crewed; switched off, both reproduce
   // their CP-1 pins. The transport run's whole ticks and deliveries do not move (f4b5648c holds).
-  "mission:shortOreRun": "33ff8a16",
-  "mission:surveyMineralAnomaly": "bb43f634",
-  "mission:frontierSupplyRun": "f4b5648c",
+  // Re-pinned by OC-11 (CP-8, "Pause while out"): the mission ship is out when window 1's transport lands, so its crew
+  // now wait in the pool instead of boarding mid-run. With the pause switched off (withOc11Off) each reproduces its
+  // CP-2 pin (OC11_OFF_MISSION), and the CP-1 / CP-2 proofs below hold unchanged.
+  "mission:shortOreRun": "11d824d",
+  "mission:surveyMineralAnomaly": "1cb822f9",
+  "mission:frontierSupplyRun": "f04ae86a",
   // Re-pinned by WR-4 (B14): a battle's turn order is by side, then input order (the player side first), no longer
   // by id ("crimsonReavers-w..." used to sort ahead of "ship-1"); the dispatch record (16e07798) is unchanged.
   patrol: ["16e07798", "9e9d9838", "95126c89", "6f82e593", "349cbd04", "8c13b3c8", "c1af6ef3", "d7ae934c", "3ee0a8b7", "4c87428e"],
@@ -278,19 +292,28 @@ describe("CP-0 pre-complement goldens", () => {
   });
 
   for (const key of ["shortOreRun", "surveyMineralAnomaly", "frontierSupplyRun"] as MissionKey[]) {
-    it(`mission ${key}: 700 economyTick seconds across a transport window, the passive mission ship crewed mid-run`, () => {
+    it(`mission ${key}: 700 economyTick seconds across a transport window, the passive mission ship out (OC-11: not crewed mid-run)`, () => {
       const s = missionRun(key);
       expect(s.lastTransportWindow).toBe(1);
       expect(s.captains[0].mission).not.toBeNull();
-      expect(totalCrew(s.ships[0].complement!.buckets)).toBeGreaterThan(0);
+      // OC-11: the ship is out, so window 1's transport waits in the pool.
+      expect(totalCrew(s.ships[0].complement?.buckets ?? [])).toBe(0);
+      expect(totalCrew(s.crewPool)).toBe(TRANSPORT_BATCH_SIZE);
       expect(hash(s)).toBe(GOLDEN[`mission:${key}`]);
-      // CP-1 (D14) moved these three on purpose, and only by ONE crewmember: window 1's crew 9 (medical, rank 7, ossir,
-      // Triage) draws the exclusive pool; its one exclusive draw named Mission Turnaround from the four-entry pool and
-      // names Prevent a Crew Loss from the three rollable ones (same draw, craft duplicate gone). Both keys have no
-      // consumer yet, so naming the old buff back on that crewmember reproduces the CP-0 capture exactly.
-      expect(s.ships[0].complement!.buckets.filter(isMovedCrew).length + s.crewPool.filter(isMovedCrew).length).toBe(1);
-      // CP-2 then moved two of them (see GOLDEN); with its effects switched off the CP-1 proof holds unchanged.
-      expect(withCp2Off(() => hash(asBeforeCp1(missionRun(key))))).toBe(CP0_MISSION[key]);
+      expect(s.crewPool.filter(isMovedCrew).length).toBe(1);
+      withOc11Off(() => {
+        // Before OC-11 the passive mission ship was crewed mid-run.
+        const before = missionRun(key);
+        expect(totalCrew(before.ships[0].complement!.buckets)).toBeGreaterThan(0);
+        expect(hash(before)).toBe(OC11_OFF_MISSION[key]);
+        // CP-1 (D14) moved these three on purpose, and only by ONE crewmember: window 1's crew 9 (medical, rank 7,
+        // ossir, Triage) draws the exclusive pool; its one exclusive draw named Mission Turnaround from the four-entry
+        // pool and names Prevent a Crew Loss from the three rollable ones (same draw, craft duplicate gone). Both keys
+        // have no consumer yet, so naming the old buff back on that crewmember reproduces the CP-0 capture exactly.
+        expect(before.ships[0].complement!.buckets.filter(isMovedCrew).length + before.crewPool.filter(isMovedCrew).length).toBe(1);
+        // CP-2 then moved two of them (see GOLDEN); with its effects switched off the CP-1 proof holds unchanged.
+        expect(withCp2Off(() => hash(asBeforeCp1(missionRun(key))))).toBe(CP0_MISSION[key]);
+      });
     });
   }
 
@@ -416,7 +439,8 @@ describe("CP-2 turn it off: with the CP-2 effects switched off, every moved fixt
 
   for (const key of ["shortOreRun", "surveyMineralAnomaly", "frontierSupplyRun"] as MissionKey[]) {
     it(`mission ${key}`, () => {
-      expect(withCp2Off(() => hash(missionRun(key)))).toBe(CP2_OFF[`mission:${key}`]);
+      // OC-11 (CP-8): these were captured with the mission ship crewed mid-run, so the OC-11 pause is switched off.
+      expect(withOc11Off(() => withCp2Off(() => hash(missionRun(key))))).toBe(CP2_OFF[`mission:${key}`]);
     });
   }
 
@@ -479,26 +503,49 @@ function oc11Home(): GameState {
   return out;
 }
 
-const OC11_GOLDEN: Record<string, string | string[]> = {
+// Captured before the OC-11 engine edit (commit "test(0.14.0): OC-11 goldens ..."); reproduced with the pause off.
+const OC11_BEFORE: Record<string, string | string[]> = {
   expedition: ["899d6dce", "a1ddd4d6"],
   patrol: "ac3dfb63",
   home: "c0ba84ba",
 };
+// Re-pinned by OC-11: the ship that is out takes no crew; the expedition ship fills on the first tick after its claim.
+// The home control does not move.
+const OC11_GOLDEN: Record<string, string | string[]> = {
+  expedition: ["e0286113", "a96b26cf"],
+  patrol: "9864e5f5",
+  home: "c0ba84ba",
+};
+
+const aboard = (s: GameState): number => totalCrew(s.ships[0].complement?.buckets ?? []);
 
 describe("OC-11 goldens: offline runs with a passive ship that is out", () => {
   it("expedition: a passive ship on an unclaimed expedition across two transport windows, then claimed", () => {
     const { out, claimedNext } = oc11Expedition();
     expect(out.lastTransportWindow).toBe(2);
+    // Paused while out: both windows' crew wait in the pool; the first tick after the claim crews the ship.
+    expect(aboard(out)).toBe(0);
+    expect(totalCrew(out.crewPool)).toBe(2 * TRANSPORT_BATCH_SIZE);
+    expect(aboard(claimedNext)).toBeGreaterThan(0);
     expect([hash(out), hash(claimedNext)]).toEqual(OC11_GOLDEN.expedition);
+    const before = withOc11Off(() => oc11Expedition());
+    expect(aboard(before.out)).toBeGreaterThan(0);
+    expect([hash(before.out), hash(before.claimedNext)]).toEqual(OC11_BEFORE.expedition);
   });
 
   it("patrol: a passive carrier on a Repeat patrol across two transport windows", () => {
     const out = oc11Patrol();
     expect(out.lastTransportWindow).toBe(2);
+    expect(aboard(out)).toBe(0);
+    expect(totalCrew(out.crewPool)).toBe(2 * TRANSPORT_BATCH_SIZE);
     expect(hash(out)).toBe(OC11_GOLDEN.patrol);
+    const before = withOc11Off(() => oc11Patrol());
+    expect(aboard(before)).toBeGreaterThan(0);
+    expect(hash(before)).toBe(OC11_BEFORE.patrol);
   });
 
   it("home: the control, a passive ship idle at home (fills either way)", () => {
     expect(hash(oc11Home())).toBe(OC11_GOLDEN.home);
+    expect(hash(withOc11Off(() => oc11Home()))).toBe(OC11_BEFORE.home);
   });
 });
