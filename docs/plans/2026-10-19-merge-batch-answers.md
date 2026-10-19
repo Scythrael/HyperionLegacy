@@ -18,4 +18,6 @@ section 5.A captain nodes). Kept in their own file so the parallel integrator's 
   Preservationist study speed x1.08 (600 ticks become 556).
 - **Away-Team Doctrine (WR-5c):** "Security only (Recommended)", as built.
 
-Still provisional (to ask next): WR-5c Deep Scan (keeps telescope range), Drillmaster (fractional counters).
+- **Deep Scan (WR-5c):** "Keeps range (Recommended)", as built.
+
+Still provisional (to ask next): WR-5c Drillmaster (fractional counters).

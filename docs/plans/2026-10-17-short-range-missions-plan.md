@@ -408,4 +408,10 @@ Material Lines and universal modules ahead of G1 in the build order.
 - **Call 4, categories:** "Five, Engineering = crew (Recommended)": Range, Cargo, Guest quarters, Sensors, Engineering;
   Engineering is the ship's Engineering crew strength as a rating.
 - **Call 5, stat name:** "Guest quarters (Recommended)".
-- Still open: 6, 9, 10, 11, 12, 13, 14, 15, 17, 18.
+- **Call 6, guest quarters sources:** "Affix, variety, hull, perk (Recommended)": a quarters affix line, a new quarters
+  variety (name still open), a hull base on transport hulls [PROVISIONAL Eir 80, Orion 40, Aurora 40, General Freighter
+  20, others 0], and the General perk.
+- **Call 9, after training:** "Slow start, no failure (Recommended)".
+- **Call 10, training profile:** "Full training profile (Recommended)": smallest roll, "Training run" chip, no wear,
+  normal length via the tutorial hook.
+- Still open: 11, 12, 13, 14, 15, 17, 18, and the new quarters variety's name.
