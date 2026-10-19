@@ -394,8 +394,11 @@ const GOLDEN: Record<string, unknown> = {
     "unknownSite:0.65:n=2/2/2/3:hp=158/158/158/210:910e3ce6", "unknownSite:0.9:n=2/2/2/3:hp=178/178/178/236:79db530a",
     "unknownSite:1:n=2/2/2/3:hp=187/187/187/248:a435ab2a",
   ],
+  // Moved by the G2-2 review (user 2026-10-19, "Next list for veterans"): this save is a VETERAN (two expeditions
+  // flown before v70), so its dispatch stamps `wolf359List: 3` (its next Tier I list holds Wolf 359). Only the claimed
+  // state's hash moves (was "a830e43c"); golden 7 proves that state without the key still hashes to the old value.
   "old:v69": [
-    "92c29f65", "patrol:won:14", "2150f1b6", "80ce239", "expedition:complete", "a4fc1f4f", "bbbd0b9e", "a830e43c",
+    "92c29f65", "patrol:won:14", "2150f1b6", "80ce239", "expedition:complete", "a4fc1f4f", "bbbd0b9e", "c3a94416",
   ],
   // Re-pinned by WR-4 (B14): turn order by side, then input order (the player side first) moves the forecast wins.
   "patrol:forecast": [
@@ -936,6 +939,10 @@ describe("SF-0 golden 7: an old save (v69, expeditions and a patrol already flow
       `expedition:${run.done.phase}`, hash(run.exp), hash(run.done), run.claimed === null ? "unclaimed" : stateHash(run.claimed),
     ];
     pin("old:v69", out);
+    // G2-2 review: the veteran's one Wolf 359 stamp is the only change to the claimed state.
+    expect(run.claimed?.wolf359List).toBe(3);
+    const { wolf359List: _stamp, ...unstamped } = run.claimed!;
+    expect(stateHash(unstamped as GameState)).toBe("a830e43c");
   });
 });
 

@@ -399,6 +399,10 @@ export interface GroundCombatant {
   // An enemy's EXECUTE affliction: a landed Execute on a low-HP target that is still standing inflicts it (a Striker's
   // Hemorrhage on finishing a wounded target).
   executeAfflicts?: GambitStatusId;
+  // An enemy's NORMAL-HIT affliction: a landed attack, or a landed Execute on a target not yet wounded, rolls `permille`
+  // on the fight stream and, on a hit, inflicts `id` through the target's resist roll (a Striker's Bleed, user
+  // 2026-10-19). The low-HP Execute brings executeAfflicts instead.
+  normalHitAfflicts?: { id: GambitStatusId; permille: number };
   // An enemy's flash grenades left this battle (a Striker carries one): the "flashGrenade" action spends one.
   flashGrenades?: number;
   // A member's Ossir STONESKIN battle half (STONESKIN_BATTLE_RESIST and STONESKIN_INJURY_MULT on physical statuses).
@@ -992,6 +996,15 @@ function doStrike(
   return true;
 }
 
+// Field Kits (user 2026-10-19): a landed normal hit's affliction (normalHitAfflicts) on a target still standing: its
+// chance roll, then the target's resist roll, both on the fight stream. Only a Field Kits run's Strikers carry it, so
+// every other strike draws exactly as before.
+function rollNormalHitAffliction(actor: GroundCombatant, target: GroundCombatant, rng: Rng): void {
+  const a = actor.normalHitAfflicts;
+  if (a === undefined || target.downed) return;
+  if (rng.chance(a.permille, 1000)) tryApplyStatus(target, a.id, rng);
+}
+
 // Apply a resolved rule's action. Mutates the working battle clone (combatants + battle state) in place.
 // Returns whether the action DID something (used only for readability; the resolver already committed to
 // this rule). Unknown/illegal actions are treated as hold.
@@ -1004,7 +1017,7 @@ function applyAction(
 ): void {
   switch (action) {
     case "attack":
-      if (target) doStrike(actor, target, rng, 1, true, state);
+      if (target && doStrike(actor, target, rng, 1, true, state)) rollNormalHitAffliction(actor, target, rng);
       return;
     case "suppress":
       if (target) {
@@ -1018,6 +1031,8 @@ function applyAction(
       const landed = doStrike(actor, target, rng, low ? EXECUTE_BONUS_MULT : 1, true, state);
       // Field Kits FKR-4: a Striker's Hemorrhage on finishing a wounded target that is still standing (a resist roll).
       if (landed && low && actor.executeAfflicts !== undefined && !target.downed) tryApplyStatus(target, actor.executeAfflicts, rng);
+      // An Execute on a target not yet wounded is a normal hit (a Striker's Bleed, user 2026-10-19).
+      if (landed && !low) rollNormalHitAffliction(actor, target, rng);
       return;
     }
     case "flashGrenade": {

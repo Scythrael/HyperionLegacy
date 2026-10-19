@@ -372,8 +372,6 @@ function pending(owner: string, contexts?: readonly ContextId[]): WiringStatus {
 const TASK_23 = "E-CREW Task 23 (division pools + exclusive pool live, design 6.2)";
 const E_MOD = "E-MOD power budget";
 const SCIENCE_LINE_SWAP = "Science gear line swap (D26): Science gear rolls fieldwork/hazard/find lines instead";
-// Field Kits FKR-4: FK7 ("As proposed") names no enemy that inflicts Bleed, so the status and its bay row stay unreached.
-const NO_BLEED_INFLICTOR = "user call (FKR-4 report): FK7 names no enemy that inflicts Bleed";
 // Expedition Tiers G2-2 (plan 2026-10-14 G2-2: "the console still shows Tier I only (G2-6 adds the picker); a hidden
 // region is reachable by tests only"): every tier's candidates are built and tested (expeditionTierCandidates.test.ts),
 // but no player reaches a deeper tier until the console offers it, so the tier-gated sources wait on G2-6.
@@ -2400,7 +2398,6 @@ const SHIP_STATUS_PENDING: Readonly<Record<string, string>> = {
 };
 
 const GROUND_STATUS_PENDING: Readonly<Record<string, string>> = {
-  bleed: NO_BLEED_INFLICTOR,
   corroded: "WR-10, OC-F9 (only analyze, never run, inflicts it)",
   inspired: "FK-5 (nothing inflicts it)",
 };
@@ -2949,8 +2946,9 @@ function crewScalarEntries(): WiringEntry[] {
 }
 
 const ossir: Transform = (s) => editMember(s, WIRING_SECURITY_ID, { race: "ossir" });
-// Field Kits FKR-4: a Field Kits run's fights now apply every bay condition but Bleed (no enemy inflicts it).
-const PENDING_CONDITIONS: Readonly<Record<string, string>> = { bleed: NO_BLEED_INFLICTOR };
+// Field Kits FKR-4: a Field Kits run's fights apply every bay condition (Bleed since the user's 2026-10-19 call:
+// a Striker's landed normal hit, fieldKitsConditions.ts STRIKER_NORMAL_HIT_AFFLICTION). None pending.
+const PENDING_CONDITIONS: Readonly<Record<string, string>> = {};
 
 function medicalEntries(): WiringEntry[] {
   const out: WiringEntry[] = Object.keys(GROUND_CONDITIONS).map((id) => {

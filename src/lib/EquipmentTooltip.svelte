@@ -23,7 +23,7 @@
   // fixed hex, matching App.svelte's warehouseRarityColor posture.
   // ============================================================================
   import type { EquipmentRarity, EquipmentInstance, ItemRarity, ShipTypeKey } from "./game/model";
-  import { EQUIPMENT_SLOTS, BLUEPRINTS, DEFAULT_EQUIPMENT_VARIETY, ITEMS, SHIP_TYPES, equipmentSlotLabel, isMemberSlotType } from "./game/model";
+  import { EQUIPMENT_SLOTS, BLUEPRINTS, DEFAULT_EQUIPMENT_VARIETY, ITEMS, SHIP_TYPES, equipmentSlotLabel, guestQuartersShown, isMemberSlotType } from "./game/model";
   // E-CREW 0.14.0 (Task 10): the one member-piece namer ("Standard-Issue Pulse Rifle"), shared with every
   // away-team gear surface so the tooltip and the rows can never name a piece two ways.
   import { memberPieceName } from "./awayGearDisplay";
@@ -505,8 +505,9 @@
         { label: "Hull Integrity", value: fmtNum(def.hullIntegrity) },
         { label: "Shield Capacity", value: fmtNum(def.shieldCapacity) },
         { label: "Weapon Hardpoints", value: fmtNum(def.weaponHardpoints) },
-        // G1-1: a transport hull's base guest quarters, only when it has some.
-        ...((def.colonistCapacity ?? 0) > 0 ? [{ label: "Guest Quarters", value: fmtNum(def.colonistCapacity ?? 0) }] : []),
+        // G1-1: a transport hull's base guest quarters, only when it has some, once Short-Range Missions are in
+        // (model.ts GUEST_QUARTERS_DISPLAY_LIVE, user 2026-10-19).
+        ...(guestQuartersShown(def.colonistCapacity ?? 0) ? [{ label: "Guest Quarters", value: fmtNum(def.colonistCapacity ?? 0) }] : []),
       ];
       return {
         kind: "ship",

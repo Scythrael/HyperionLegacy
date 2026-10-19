@@ -41,6 +41,7 @@ import {
   type GroundCombatant,
 } from "./gambit";
 import {
+  BLEED_ON_HIT_PERMILLE,
   BRUISER_HEAVY_HIT,
   FEAR_ON_HIT_PERMILLE,
   FLASH_GRENADES_PER_STRIKER,
@@ -48,6 +49,7 @@ import {
   HEAVY_HIT_FRACTION,
   NEUROTOXIN_FROM_GRADE,
   STRIKER_EXECUTE_AFFLICTION,
+  STRIKER_NORMAL_HIT_AFFLICTION,
   withFieldKitsGuard,
 } from "./fieldKitsConditions";
 import { CONDITION_LINES, FIELD_KITS_CATALOG_VERSION, FIELD_KIT_STATUS_IDS, fieldKitsLive } from "./fieldKits";
@@ -200,6 +202,46 @@ describe("Field Kits conditions: the bone line worsens (N10), heavy hits, execut
     expect(healthy.statuses).toEqual([]);
   });
 
+  it("a Striker's landed normal hit (an attack, or an Execute on a healthy target) may bring a Bleed; the wounded Execute brings Hemorrhage only", () => {
+    expect(BLEED_ON_HIT_PERMILLE).toBe(150);
+    expect(STRIKER_NORMAL_HIT_AFFLICTION).toEqual({ id: "bleed", permille: 150 });
+    const striker = () => gc("e1", "enemy", { role: "striker", power: 5, executeAfflicts: STRIKER_EXECUTE_AFFLICTION, normalHitAfflicts: { ...STRIKER_NORMAL_HIT_AFFLICTION } });
+    const rate = (action: "attack" | "execute", hp: number): { bleed: number; hemorrhage: number } => {
+      let bleed = 0;
+      let hemorrhage = 0;
+      for (let seed = 1; seed <= 400; seed += 1) {
+        const s = striker();
+        const target = gc("a1", "team", { hp });
+        evaluateAndAct([{ target: "foeLowestHp", action }], s, battle([s, target]), makeRng(seed));
+        if (ids(target).includes("bleed")) bleed += 1;
+        if (ids(target).includes("hemorrhage")) hemorrhage += 1;
+      }
+      return { bleed, hemorrhage };
+    };
+    // accuracy 1, no resist: every strike lands, so the Bleed rate is the chance (150 of 1000, about 60 of 400).
+    for (const r of [rate("attack", 100), rate("execute", 100)]) {
+      expect(r.hemorrhage).toBe(0);
+      expect(r.bleed).toBeGreaterThan(35);
+      expect(r.bleed).toBeLessThan(90);
+    }
+    expect(rate("execute", 30)).toEqual({ bleed: 0, hemorrhage: 400 });
+  });
+
+  it("a Striker without the stamp (any fight off a Field Kits run) never brings a Bleed and draws nothing extra", () => {
+    for (let seed = 1; seed <= 50; seed += 1) {
+      const plain = gc("e1", "enemy", { role: "striker", power: 5 });
+      const target = gc("a1", "team");
+      const rng = makeRng(seed);
+      evaluateAndAct([{ target: "foeNearest", action: "attack" }], plain, battle([plain, target]), rng);
+      expect(target.statuses).toEqual([]);
+      // the same strike by a non-Striker leaves the stream at the same place
+      const ref = makeRng(seed);
+      const b = gc("e1", "enemy", { power: 5 });
+      evaluateAndAct([{ target: "foeNearest", action: "attack" }], b, battle([b, gc("a1", "team")]), ref);
+      expect(rng.next()).toBe(ref.next());
+    }
+  });
+
   it("a flash grenade Blinds the squad's biggest threat for 2 or 3 rounds, once per battle, then the Striker fights on", () => {
     const rounds = new Set<number>();
     for (let seed = 1; seed <= 40; seed += 1) {
@@ -330,6 +372,7 @@ describe("Field Kits inflictors: the guard stamping (FK7, N14), behind the flag"
       if (e.role === "bruiser") expect(e.heavyHit).toEqual({ fraction: 0.25, statuses: ["fracture", "concussion"] });
       if (e.role === "striker") {
         expect(e.executeAfflicts).toBe("hemorrhage");
+        expect(e.normalHitAfflicts).toEqual({ id: "bleed", permille: BLEED_ON_HIT_PERMILLE });
         expect(e.flashGrenades).toBe(1);
         expect(e.program?.[0]).toEqual(FLASH_GRENADE_RULE);
       }
@@ -362,6 +405,8 @@ describe("Field Kits inflictors: the guard stamping (FK7, N14), behind the flag"
     const on = taskFightGuard({ hazardResist: 0, fieldKits: KITS }, { hazard: 0.4 }, task, 0x1234);
     expect(on.map((e) => [e.id, e.hp, e.power])).toEqual(off.map((e) => [e.id, e.hp, e.power]));
     expect(on.some((e) => e.heavyHit) && on.some((e) => e.flashGrenades === 1)).toBe(true);
+    expect(on.some((e) => e.normalHitAfflicts !== undefined)).toBe(true);
+    expect(off.some((e) => e.normalHitAfflicts !== undefined)).toBe(false);
     expect(fieldKitsLive({})).toBe(false);
     expect(fieldKitsLive({ fieldKits: KITS })).toBe(true);
   });

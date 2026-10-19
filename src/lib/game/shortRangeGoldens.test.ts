@@ -29,7 +29,9 @@
 //                  existing entry moved.
 // MOVED BY FKR-4 (Field Kits conditions, merged before G1-1): the base `registry` pin moves 1170 -> 1181, entirely
 // FKR-4's added and flipped entries (its new condition, severity and inflictor rows, and the rows it flipped live).
-// G2-2's registry edits only reword pending owners (pending stays pending), so they hash the same.
+// G2-2's registry edits only reword pending owners (pending stays pending), so they hash the same. Then the review
+// rulings (user 2026-10-19) flip two entries pending -> live (29f0a757 -> 74fa057, the count unchanged): the Bleed
+// status (`away:GAMBIT_STATUSES:bleed`) and its bay row (`away:GROUND_CONDITIONS:bleed`), now that Strikers inflict it.
 // ADDED BY G1-1: `guests:<hull>` (guest quarters bare and with each quarters variety, the Guest Wing last) and
 // `stats:<hull>:guestWing` (every other stat with a Guest Wing installed). The sheets hash through withoutGuests, so
 // the stats pins keep proving no other stat moved (the transport hulls now carry base guest quarters).
@@ -252,7 +254,7 @@ const GOLDEN: Record<string, unknown> = {
     "50:quartersFlightDeckWing:stellar:q2:iL31:{\"crewStations\":57}:{\"colonistCapacity\":76,\"crewStations\":19}:m0:quartersFlightDeckWing",
     "pool:[{\"stat\":\"crewStations\",\"weight\":5},{\"stat\":\"crewEfficiency\",\"weight\":2},{\"stat\":\"massReduction\",\"weight\":1},{\"stat\":\"colonistCapacity\",\"weight\":2}]",
   ],
-  "registry": [1181, "29f0a757"],
+  "registry": [1181, "74fa057"],
   "registry:g1": ["ship:gearLine:colonistCapacity|pending", "ship:SHIP_TYPES:generalFreighter:colonistCapacity|pending", "ship:SHIP_TYPES:orion:colonistCapacity|pending", "ship:SHIP_TYPES:aurora:colonistCapacity|pending", "ship:SHIP_TYPES:eir:colonistCapacity|pending", "ship:SHIP_SEAMS:generalQuartersGuestPerk|pending", "ship:QUARTERS_MODULES:quartersGuestWing|live", "ship:QUARTERS_MODULES:quartersGuestWing:capacity|pending"],
   "old": ["aa94ddcd", "817862c7", "4ac62731", "d9a483c6"],
 };

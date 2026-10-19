@@ -8,12 +8,14 @@ import { describe, expect, it } from "vitest";
 import {
   EQUIPMENT_SLOTS,
   GENERAL_QUARTERS_GUEST_PERK,
+  GUEST_QUARTERS_DISPLAY_LIVE,
   HULL_GUEST_QUARTERS,
   LIVE_STAT_KEYS,
   RESERVED_STAT_KEYS,
   SHIP_TYPES,
   equipmentStatMods,
   freshState,
+  guestQuartersShown,
   rarityIndex,
   shipDerivedStats,
   type BlueprintDef,
@@ -71,7 +73,7 @@ describe("G1-1 guest quarters: the stat vocabulary", () => {
 });
 
 describe("G1-1 guest quarters: neutrality", () => {
-  it("a hull with no base and no guest line carries no colonistCapacity field (bare and fitted)", () => {
+  it("a hull with no base and no guest line carries no colonistCapacity field (bare and installed)", () => {
     for (const k of HULLS.filter((h) => SHIP_TYPES[h].colonistCapacity === undefined)) {
       expect("colonistCapacity" in shipDerivedStats(hull(k)), k).toBe(false);
       expect("colonistCapacity" in shipDerivedStats(hull(k), [quarters(0)]), k).toBe(false);
@@ -209,5 +211,20 @@ describe("G1-1 guest quarters: guests are not crew and not cargo", () => {
       expect(restWith, k).toEqual(restWithout);
       expect((b ?? 0) - (a ?? 0), k).toBeGreaterThan(0);
     }
+  });
+});
+
+// User 2026-10-19 ("Hide until Short-Range"): the Ship Systems row, its (i) definition and the hull card line stay
+// hidden until Short-Range Missions are in; the G1-4 / G1-6 slice flips GUEST_QUARTERS_DISPLAY_LIVE.
+describe("G1-1 guest quarters: hidden from the player until Short-Range Missions", () => {
+  it("the display is off today, so no ship shows the row, whatever its berths", () => {
+    expect(GUEST_QUARTERS_DISPLAY_LIVE).toBe(false);
+    for (const k of HULLS) expect(guestQuartersShown(shipDerivedStats(hull(k), [quarters(500, "quartersElite")]).colonistCapacity ?? 0), k).toBe(false);
+  });
+  it("once live, the row shows only on a ship that has some", () => {
+    expect(guestQuartersShown(HULL_GUEST_QUARTERS.eir, true)).toBe(true);
+    expect(guestQuartersShown(1, true)).toBe(true);
+    expect(guestQuartersShown(0, true)).toBe(false);
+    expect(guestQuartersShown(0, false)).toBe(false);
   });
 });

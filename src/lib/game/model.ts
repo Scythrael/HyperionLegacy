@@ -1058,6 +1058,16 @@ export type PatrolKey = keyof typeof PATROLS;
 // call 6: "Eir 80, Orion 40, Aurora 40, General Freighter 20, others 0"); every other hull omits the field (0). The ONE
 // place these numbers live: each SHIP_TYPES entry below reads its value from here.
 export const HULL_GUEST_QUARTERS = { generalFreighter: 20, orion: 40, aurora: 40, eir: 80 } as const;
+// G1-1 review (user 2026-10-19, "Hide until Short-Range"): the Ship Systems "Guest Quarters" rows (the stat readout,
+// its (i) definition, the install compare) and the hull card's line stay hidden until Short-Range Missions are in, so
+// no player meets a stat nothing they can do uses yet. The stat itself is live (shipDerivedStats folds it). The
+// G1-4 / G1-6 slice that puts passenger runs in front of the player flips this to true.
+export const GUEST_QUARTERS_DISPLAY_LIVE = false;
+// Does a Ship Systems row or hull card line show `berths` guest quarters: only once the display is live (above), and
+// only when there are some. `live` is for the tests. Pure.
+export function guestQuartersShown(berths: number, live: boolean = GUEST_QUARTERS_DISPLAY_LIVE): boolean {
+  return live && berths > 0;
+}
 
 export const SHIP_TYPES: Record<ShipTypeKey, ShipTypeDef> = {
   // ⚠️ FUEL STATS ARE FIRST-PASS TUNABLE ⚠️ The fuelCapacity / engineEfficiency
@@ -8199,6 +8209,14 @@ export interface GameState {
   // a blind dispatch, so a save that never launched blind carries no key. A plain number: no SAVE bump, and
   // hydrateDecimals carries it through its `...state` spread. Nothing on the tick reads it.
   blindLaunches?: number;
+  // Expedition Tiers G2-2 review (user 2026-10-19, "Next list for veterans"): the dispatch count whose Tier I list
+  // holds Wolf 359 for a VETERAN save (runCounts.expedition.veteran: it flew expeditions before 0.14.0, so it passed
+  // the list after its first run without meeting Wolf 359). Written ONCE by startExpedition on a veteran's first
+  // dispatch under 0.14.0: the count of the list it dispatched from when that list already held Wolf 359 (seen), else
+  // the next count (the next freshly generated list holds it on slot 0). OPTIONAL: absent on every new game (its list
+  // after the first run holds Wolf 359 by WOLF_359_LIST_AFTER_DISPATCHES), so a save that is not a veteran never
+  // carries the key. A plain number: no SAVE bump, hydrateDecimals carries it through its `...state` spread.
+  wolf359List?: number;
   // Safe first runs SF-1: the per-type run counters (RunCounts above; rules in runDifficulty.ts). freshState seeds
   // freshRunCounts(); save v70 derives them for an older save from its history (veterans). Written by claimExpedition,
   // dispatchCaptainOnPatrol and economyTick's patrol fold. OPTIONAL: absent (a dev save at v70 from before SF-1) reads

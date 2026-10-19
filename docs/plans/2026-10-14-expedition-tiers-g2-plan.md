@@ -278,8 +278,13 @@ body letters, `FAMOUS_SYSTEMS` with real galactic coordinates, measured from the
   slot order; the console sorts nearest first (`expeditionDispatchDisplay.ts nearestFirst`), so no list index moved
   under a test, the sim or a probe. G2-6's picker passes the tier and keeps `nearestFirst`.
 - Names: `LB-0472` style on `SYSTEM_NAME_SALT`; famous slot 1 in 12 on `FAMOUS_SYSTEM_SALT` (never twice in one list);
-  Wolf 359 on Tier I slot 0 when exactly `WOLF_359_LIST_AFTER_DISPATCHES` (1) expeditions were dispatched
-  **[PROVISIONAL: a veteran past that list meets it only as a rare find]**. Its nod is still the user's (G2-7).
+  Wolf 359 on Tier I slot 0 when exactly `WOLF_359_LIST_AFTER_DISPATCHES` (1) expeditions were dispatched.
+  **Review ruling (user 2026-10-19, "Next list for veterans"):** a veteran save (`runCounts.expedition.veteran`) that
+  never met it gets it on slot 0 of its NEXT freshly generated Tier I list, once: its first dispatch under 0.14.0
+  writes `GameState.wolf359List` (`expedition.ts wolf359ListAfterDispatch`: the list it dispatched from when that list
+  already held Wolf 359, else the next count). The list on screen is never rerolled; a save that is not a veteran never
+  carries the key. Golden moved: only `firstRunsGoldens.test.ts old:v69` (the veteran's claimed state carries the
+  stamp; the test proves the state without it hashes as before). Its nod is still the user's (G2-7).
   Eta Carinae sits at 7,470 ly (inside the 2.3 kpc estimate) so it stays inside the shared Tier III/IV band from
   every homeworld; a famous Tier I star nearer than the band's 4 ly edge is clamped into the band.
 - Bodies: `generateBodies(seed, tier)`; the system stream's first draw (the banked pick) and its 1 to 3 count draw are
@@ -296,6 +301,8 @@ body letters, `FAMOUS_SYSTEMS` with real galactic coordinates, measured from the
 - Registry: the telescope reach rows, `tierDormant` (now listing the tier haul, the tier body counts and the deeper
   famous systems), `blindLaunch` and `oddsRiskyBelow` re-owned from G2-2 to G2-6 (the engine reaches every tier and
   `expeditionTierCandidates.test.ts` proves it; no player does until the picker). G2-6 flips them live.
+- G2-6 note (review 2026-10-19): `TIER_HAUL_MULT` and `TIER_BODY_COUNT` need their OWN registry entries, each with a
+  probe, when G2-6 flips the tier rows (today they ride the `away:audit:tierDormant` row's claim only).
 
 ### G2-3: The voyage engine (transit by tier, distance and drive)
 

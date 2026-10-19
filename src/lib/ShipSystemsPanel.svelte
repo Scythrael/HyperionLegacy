@@ -55,7 +55,7 @@
     EquipmentSlotType,
     ShipDerivedStats,
   } from "./game/model";
-  import { SHIP_TYPES, EQUIPMENT_SLOTS, shipDerivedStats, isSparePiece, pieceVarietyDef, shipDisplayLabel, outboundLegSpeed, returnLegSpeed } from "./game/model";
+  import { SHIP_TYPES, EQUIPMENT_SLOTS, shipDerivedStats, isSparePiece, pieceVarietyDef, shipDisplayLabel, outboundLegSpeed, returnLegSpeed, guestQuartersShown } from "./game/model";
   import { LY_PER_TICK } from "./game/fuel";
   // WR-4 (OC-C1): the Fuel Depot's fleet reach, so the Range row matches the dispatch gates (tick.ts shipReachDef).
   import { fleetReachBonus } from "./game/tick";
@@ -506,8 +506,9 @@
       { label: "Power Output", base: base.powerOutput, fitted: fit.powerOutput, kind: "flat" },
       { label: "Power Draw", base: base.powerDraw, fitted: fit.powerDraw, kind: "flat" },
       { label: "Mass", base: base.mass, fitted: fit.mass, kind: "flat" },
-      // G1-1: guest quarters, only when either loadout has some (a ship with none never shows the row).
-      ...((base.colonistCapacity ?? 0) > 0 || (fit.colonistCapacity ?? 0) > 0
+      // G1-1: guest quarters, only when either loadout has some (a ship with none never shows the row), and only once
+      // Short-Range Missions are in (model.ts GUEST_QUARTERS_DISPLAY_LIVE, user 2026-10-19).
+      ...(guestQuartersShown(base.colonistCapacity ?? 0) || guestQuartersShown(fit.colonistCapacity ?? 0)
         ? [{ label: "Guest Quarters", base: base.colonistCapacity ?? 0, fitted: fit.colonistCapacity ?? 0, kind: "flat" as const }]
         : []),
     ];
@@ -561,8 +562,9 @@
           effective: d.get(effectiveStats),
         }))
           .filter((r) => (r.key !== "outLeg" && r.key !== "backLeg") || Math.abs(r.effective - effectiveStats.transitSpeedMult) > 1e-9)
-          // G1-1: Guest Quarters shows only on a ship that has some.
-          .filter((r) => r.key !== "guestQuarters" || r.effective > 0)
+          // G1-1: Guest Quarters (and its (i) definition) shows only on a ship that has some, once Short-Range Missions
+          // are in (model.ts GUEST_QUARTERS_DISPLAY_LIVE, user 2026-10-19).
+          .filter((r) => r.key !== "guestQuarters" || guestQuartersShown(r.effective))
       : ([] as ReadoutRow[]);
   // CP-2: the two complement-fed shares that are not ship-sheet stats (each shown only when non-zero): the repair
   // speed-up every repair divides by (Damage Control, Mission Turnaround, Rapid Recovery, Veteran Instincts) and the

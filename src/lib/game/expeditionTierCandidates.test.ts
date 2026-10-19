@@ -29,12 +29,13 @@ import {
   startExpedition,
   systemTaskPreview,
   tierCandidateSystems,
+  wolf359ListAfterDispatch,
 } from "./expedition";
 import { ENEMY_SECTOR_WIDTH_PERMILLE, REGION_TIERS, homeworldPlacement, inEnemySector, stateHomeworld } from "./galaxy";
 import { FAMOUS_SYSTEMS, REGION_CODES, WOLF_359_ID, famousSystem, famousSystemFrom } from "./starCatalog";
 import { TIER_HAUL_MULT, TIER_I_REGION } from "./riskFactors";
 import { taskFullHaul } from "./groundTasks";
-import { plainAwayMember } from "./awayTeamTestFixtures";
+import { asExpeditionVeteran, plainAwayMember } from "./awayTeamTestFixtures";
 import { bodyDesignation, bodyTitle } from "../groundTaskQueueDisplay";
 import { nearestFirst, runRegionText } from "../expeditionDispatchDisplay";
 import { taskNeedsOf } from "./groundOps";
@@ -296,6 +297,75 @@ describe("G2-2 names, real stars and Wolf 359", () => {
       const forced = Array.from({ length: 40 }, (_, k) => tierCandidateSystems(crewed(seedOf(k), seedOf(k), n), 1).some((c) => c.famousId === WOLF_359_ID));
       expect(forced.every(Boolean)).toBe(false);
     }
+  });
+
+  // User 2026-10-19 ("Next list for veterans"): a veteran save (it flew expeditions before 0.14.0) never met the list
+  // after its first run under G2-2, so its NEXT freshly generated Tier I list holds Wolf 359 on slot 0, once.
+  describe("Wolf 359 for veterans (user 2026-10-19)", () => {
+    const wolfAt0 = (st: GameState): boolean => tierCandidateSystems(st, 1)[0].famousId === WOLF_359_ID;
+    const hasWolf = (st: GameState): boolean => tierCandidateSystems(st, 1).some((c) => c.famousId === WOLF_359_ID);
+    // Dispatch from Tier I slot 1 (never the guaranteed slot), then free the ship for the next dispatch.
+    const dispatch = (st: GameState): GameState => {
+      const res = startExpedition(st, "ship-1", 1, "cand-1-1");
+      if (!res.success) throw new Error(`dispatch refused: ${res.reason}`);
+      return { ...res.next, expeditions: [] };
+    };
+
+    it("a veteran past the first list keeps the list on screen, gets Wolf 359 on slot 0 of the next one, then never again", () => {
+      let checked = 0;
+      for (let k = 0; k < 60; k++) {
+        const plain = crewed(seedOf(k), seedOf(k + 7), 5);
+        const vet = asExpeditionVeteran(plain);
+        if (hasWolf(vet)) continue; // a rolled Wolf 359 on screen: the save has seen it (next test)
+        checked += 1;
+        // The list on screen is not rerolled.
+        expect(tierCandidateSystems(vet, 1)).toEqual(tierCandidateSystems(plain, 1));
+        expect(wolf359ListAfterDispatch(vet)).toBe(5);
+        const next = dispatch(vet);
+        expect(next.wolf359List).toBe(5);
+        expect(wolfAt0(next)).toBe(true);
+        expect(tierCandidateSystems(next, 1).filter((c) => c.famousId === WOLF_359_ID)).toHaveLength(1);
+        // Beyond slot 0 the list is the one it would have been (a rolled Wolf 359 there gives way: never twice in one list).
+        const unforced = tierCandidateSystems({ ...next, wolf359List: undefined }, 1);
+        tierCandidateSystems(next, 1).slice(1).forEach((c, i) => {
+          if (unforced[i + 1].famousId !== WOLF_359_ID) expect(c).toEqual(unforced[i + 1]);
+        });
+        // Once: the stamp is never rewritten, and the list after reads no guarantee.
+        expect(wolf359ListAfterDispatch(next)).toBeUndefined();
+        const after = dispatch(next);
+        expect(after.wolf359List).toBe(5);
+        expect(tierCandidateSystems(after, 1)).toEqual(tierCandidateSystems({ ...after, wolf359List: undefined }, 1));
+      }
+      expect(checked).toBeGreaterThan(40);
+    });
+
+    it("a veteran whose list on screen already holds Wolf 359 (the list after one run, or a rolled find) is stamped as having seen it", () => {
+      const one = asExpeditionVeteran(crewed(seedOf(1), seedOf(2), WOLF_359_LIST_AFTER_DISPATCHES + 1));
+      expect(wolfAt0(one)).toBe(true);
+      expect(wolf359ListAfterDispatch(one)).toBe(WOLF_359_LIST_AFTER_DISPATCHES);
+      const next = dispatch(one);
+      expect(next.wolf359List).toBe(WOLF_359_LIST_AFTER_DISPATCHES);
+      expect(tierCandidateSystems(next, 1)).toEqual(tierCandidateSystems({ ...next, wolf359List: undefined }, 1)); // no second guarantee
+      let rolled = 0;
+      for (let k = 0; k < 400 && rolled < 3; k++) {
+        const vet = asExpeditionVeteran(crewed(seedOf(k), seedOf(k + 7), 6));
+        if (!hasWolf(vet)) continue;
+        rolled += 1;
+        expect(wolf359ListAfterDispatch(vet)).toBe(5);
+        expect(dispatch(vet).wolf359List).toBe(5);
+      }
+      expect(rolled).toBeGreaterThan(0);
+    });
+
+    it("a save that is not a veteran never carries the key: its list after the first run holds Wolf 359 as before", () => {
+      const fresh = crewed(seedOf(4), seedOf(5), 1);
+      const once = dispatch(fresh);
+      expect("wolf359List" in once).toBe(false);
+      expect(wolfAt0(once)).toBe(true);
+      const twice = dispatch(once);
+      expect("wolf359List" in twice).toBe(false);
+      expect(wolf359ListAfterDispatch(twice)).toBeUndefined();
+    });
   });
 
   it("every famous system lands in its own tier from 1,000 homeworlds (the clamp never moves a deeper one)", () => {

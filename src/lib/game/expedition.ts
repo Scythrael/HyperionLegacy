@@ -389,8 +389,9 @@ export const CANDIDATE_STRIDE = 16;
 // [PROPOSAL] a candidate slot is a FAMOUS system (starCatalog.ts, its tier's list) one time in this many.
 export const FAMOUS_SYSTEM_ONE_IN = 12;
 // User G10 (2026-10-16, "Guaranteed early"): Wolf 359 is guaranteed in the first Tier I list after the first run,
-// i.e. the list a save holds after this many dispatches (nextExpeditionId - 1); it takes Tier I slot 0.
-// [PROVISIONAL] a save already past that list (a veteran) meets Wolf 359 only as a rare famous find.
+// i.e. the list a save holds after this many dispatches (nextExpeditionId - 1); it takes Tier I slot 0. A VETERAN
+// save (user 2026-10-19, "Next list for veterans") already past that list gets it in its NEXT Tier I list, once
+// (GameState.wolf359List, written by startExpedition: wolf359ListAfterDispatch).
 export const WOLF_359_LIST_AFTER_DISPATCHES = 1;
 // User G17 (2026-10-16, "Grows with tier"): each tier's body count range. Tier I keeps the system stream's own
 // 1 to 3 draw; deeper tiers draw their count on BODY_COUNT_SALT (the mockup's ranges).
@@ -605,19 +606,39 @@ function dispatchedExpeditions(state: Pick<GameState, "nextExpeditionId">): numb
   return typeof n === "number" && Number.isFinite(n) ? Math.max(0, Math.floor(n) - 1) : 0;
 }
 
+// Does the save's current Tier I list carry Wolf 359 on slot 0 by guarantee: the list after the first run (every
+// save), or a veteran's scheduled list (GameState.wolf359List). Pure.
+function wolf359Guaranteed(state: Pick<GameState, "nextExpeditionId" | "wolf359List">): boolean {
+  const n = dispatchedExpeditions(state);
+  return n === WOLF_359_LIST_AFTER_DISPATCHES || (typeof state.wolf359List === "number" && state.wolf359List === n);
+}
+
+// User 2026-10-19 ("Next list for veterans"): the GameState.wolf359List a dispatch writes, or undefined (no key).
+// Only a VETERAN save (it flew expeditions before 0.14.0) that has no stamp yet gets one: the count of the list it
+// dispatches from when that list holds Wolf 359 (guaranteed or rolled: it has now seen it), else the next count (the
+// next freshly generated Tier I list holds it on slot 0). The list on screen is never rerolled. Pure.
+export function wolf359ListAfterDispatch(state: GameState): number | undefined {
+  if (typeof state.wolf359List === "number") return undefined;
+  if (!runCountsOf(state).expedition.veteran) return undefined;
+  const n = dispatchedExpeditions(state);
+  const seen = tierCandidateSystems(state, 1).some((c) => c.famousId === WOLF_359_ID);
+  return seen ? n : n + 1;
+}
+
 // The candidate systems the console offers for `tier`, in SLOT order (the console shows them nearest first:
 // expeditionDispatchDisplay.ts nearestFirst, so a list index never shifts under a test or a sim). Each slot is a famous system
-// (Wolf 359 on Tier I slot 0 in the first list after the first run, user G10; else the rolled one, never twice in
+// (Wolf 359 on Tier I slot 0 in the first list after the first run, user G10, or a veteran's scheduled list; else the
+// rolled one, never twice in
 // one list) at its real distance and bearing from the homeworld (clamped into the band, as a near star can sit
 // closer to a homeworld than the band's nearest-star edge), or a catalog-named system at its drawn distance
 // (telescope.ts systemDistanceLy) and drawn bearing. Enemy territory: its bearing inside the tier's fixed sector
 // (galaxy.ts inEnemySector; Tier I has none). Stable until a dispatch advances expeditionSeed. Pure.
 export function tierCandidateSystems(
-  state: Pick<GameState, "expeditionSeed" | "nextExpeditionId" | "homeworld">,
+  state: Pick<GameState, "expeditionSeed" | "nextExpeditionId" | "homeworld" | "wolf359List">,
   tier: RegionTier,
   homeworld: HomeworldPlacement = stateHomeworld(state),
 ): CandidateSystem[] {
-  const wolfSlot = tier === 1 && dispatchedExpeditions(state) === WOLF_359_LIST_AFTER_DISPATCHES ? 0 : -1;
+  const wolfSlot = tier === 1 && wolf359Guaranteed(state) ? 0 : -1;
   const used = new Set<string>(wolfSlot >= 0 ? [WOLF_359_ID] : []);
   const band = homeworld.regionBandsLy[tier] ?? homeworld.regionBandsLy[1];
   const out: CandidateSystem[] = [];
@@ -658,7 +679,7 @@ export function tierCandidateSystems(
 
 // The candidate system `candidateId` names on the current console (any tier; a pre-G2 `cand-<slot>` id names the
 // Tier I slot), or null. Pure.
-export function candidateSystemById(state: Pick<GameState, "expeditionSeed" | "nextExpeditionId" | "homeworld">, candidateId: string): CandidateSystem | null {
+export function candidateSystemById(state: Pick<GameState, "expeditionSeed" | "nextExpeditionId" | "homeworld" | "wolf359List">, candidateId: string): CandidateSystem | null {
   const m = /^cand-(?:([1-7])-)?(0|[1-9]\d*)$/.exec(candidateId);
   if (!m) return null;
   const tier = (m[1] === undefined ? 1 : Number(m[1])) as RegionTier;
@@ -1248,6 +1269,8 @@ export function startExpedition(
   // candidate showed), so the future "go in blind" achievement can award retroactively. Never read by a run.
   const homeworld = stateHomeworld(state);
   const blind = readSystem(telescopeReading(state, homeworld), seed, expedition.sensorPower, risk, homeworld, undefined, cand.distanceLy).blind;
+  // User 2026-10-19: a veteran's Wolf 359 list (no key on any other save).
+  const wolf359List = wolf359ListAfterDispatch(state);
 
   return {
     next: {
@@ -1262,6 +1285,7 @@ export function startExpedition(
       // Advance the preview seed ONLY here (a commit), so previews stay stable until a dispatch happens.
       expeditionSeed: advanceExpeditionSeed(state.expeditionSeed),
       ...(blind ? { blindLaunches: blindLaunchCount(state) + 1 } : {}),
+      ...(wolf359List !== undefined ? { wolf359List } : {}),
     },
     success: true,
     expedition,

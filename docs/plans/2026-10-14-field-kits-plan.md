@@ -354,6 +354,12 @@ FKR-0, SF-0, G2-0 and later hash unchanged (no new golden commit: FKR-0 already 
 `wiring.liveness.test.ts` updated for the two bay rows and the two flipped liveness entries. Observation for the balance pass: against a
 strong squad on a calm body a Bruiser rarely reaches the heavy-hit line (a quarter of a member's max HP); hazardous
 bodies and Elite or Boss leads do.
+**FKR-4 review rulings (user 2026-10-19).** Bleed: a Striker's landed NORMAL hit (an attack, or an Execute on a target
+not yet wounded) may inflict Bleed (`normalHitAfflicts`, `BLEED_ON_HIT_PERMILLE` 150 [PROVISIONAL: the user named the
+inflictor, not the chance], one chance roll then the resist roll on the fight stream, the Fear style); Hemorrhage
+stays the low-HP Execute's. The Bleed status and its bay row are LIVE (nothing pending in the bay rows now).
+`FEAR_ON_HIT_PERMILLE` 200 ("20% per landed hit") and `FLASH_GRENADE_RULE` foeHighestThreat ("Squad's biggest
+threat") are user-confirmed.
 
 #### FKR-5: Tool charges, the carry capacity line, the grenade family (data + engine, behind flag 2)
 
