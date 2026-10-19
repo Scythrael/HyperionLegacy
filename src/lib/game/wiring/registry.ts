@@ -90,6 +90,7 @@ import { AWAY_TRAITS, type AwayTraitDef } from "../awayTraits";
 import { FIRST_AID_TRAINED_EFFECTIVENESS, FIRST_AID_UNTRAINED_EFFECTIVENESS, GAMBIT_PRESETS, GAMBIT_STATUSES } from "../gambit";
 import { applyMemberGambitPreset } from "../memberGambits";
 import { GEAR_POINT_BUMP, GROUND_STAT_MEMBER_STAT, FIELDWORK_YIELD_PER_POINT, STATUS_RESIST_PER_POINT } from "../awayTeam";
+import { PROSPECTING_BLUEPRINTS, PROSPECTING_SPEC_BASE, PROSPECTING_USES } from "../prospecting";
 import { FIELDWORK_SPEED_KNEE, FIELDWORK_SPEED_PER_BUMP, FIELDWORK_YIELD_KNEE } from "../fieldwork";
 import {
   MUSEUM_COPY_LADDER,
@@ -375,6 +376,17 @@ const CORTEX_RESIST = "Field Kits 16b: Fear (D26) + stun resist covers Concussio
 const PILOT_CUNNING = "pending user decision (officerStats.ts CUNNING_PENDING_SEATS)";
 // The user's T3 deferrals (capture 2026-10-15 section 3: "Move all five (Recommended)").
 const T3 = "capture 2026-10-15 section 3 T3 (moved to 0.14.x)";
+
+// Prospecting squads (0.14.0, built HIDDEN; design docs/plans/2026-10-16-prospecting-squads-design.md section 8):
+// every Prospecting source is deferred to the prospecting quests patch, the user-approved exception to "no
+// placeholders" (user group 4, 2026-10-16: "It's building in the foundation for them as is, rather than building
+// them in after the fact"). A deferred entry moves no probe and does not block the release gate; the
+// completeness test still enumerates each one, so nothing Prospecting can hide unregistered.
+const PROSPECTING_DEFERRED: WiringStatus = {
+  kind: "deferred",
+  owner: "prospecting quests patch",
+  userRef: "safe-first-runs plan, user answers group 4 (2026-10-16): build Prospecting fully but hidden",
+};
 
 // ============================================================================
 // crew: officer bonuses, complement buffs, racials, facets (the no-dead-stats ids)
@@ -722,6 +734,26 @@ function gearEntries(): WiringEntry[] {
         for (const key of MEMBER_GROUND_STAT_KEYS) {
           if (!rollable.has(key)) continue;
           const id = `gear:${team}:${v.key}:${key}`;
+          if (team === "prospecting") {
+            // Hidden with the squad: no Prospecting member deploys anywhere in 0.14.0, so nothing reads the line yet.
+            out.push(
+              entry({
+                id,
+                system: "away",
+                source: { catalog: "EQUIPMENT_SLOTS.member", key: `${slotType}:${v.key}:${team}:${key}` },
+                claim: `${v.label} (${slotType}) ${key} on ${team}`,
+                liveness: true,
+                status: PROSPECTING_DEFERRED,
+                reason: "hidden with the Prospecting squad until the prospecting quests patch: no Prospecting member deploys in 0.14.0",
+                // User ruling 2026-10-19 ("Give ARM/HP a dig meaning"): on a Prospecting wearer Armor and HP feed the
+                // dig-safety value the quests patch's cave-in and retreat injury rolls consume.
+                ...(key === "groundArmor" || key === "groundHp"
+                  ? { note: "reads into prospecting.ts prospectingCrewStats digSafety (cave-in and retreat injury cut, D23 curve); consumed by the quests patch's injury rolls" }
+                  : {}),
+              }),
+            );
+            continue;
+          }
           const owner = GEAR_PENDING[id];
           const seam = gearSeam(team, key);
           const wearer = wearerOf(team);
@@ -762,6 +794,16 @@ function gearEntries(): WiringEntry[] {
 function traitEntry(t: AwayTraitDef): WiringEntry {
   const e = t.effects[0];
   const team = t.teamTypes[0];
+  if (team === "prospecting") {
+    // A Prospecting-only trait (hidden with the squad): no Prospecting member deploys in 0.14.0.
+    return entry({
+      id: `away:AWAY_TRAITS:${t.id}`,
+      system: "away",
+      source: { catalog: "AWAY_TRAITS", key: t.id },
+      claim: `${t.label}: ${t.description}`,
+      status: PROSPECTING_DEFERRED,
+    });
+  }
   const memberId = wearerOf(team);
   const withTrait: Transform = (s) => editMember(s, memberId, { traits: [t.id] });
   const common = {
@@ -2929,7 +2971,14 @@ const AUDIT_ROWS: readonly { id: string; system: WiringSystem; claim: string; st
   { id: "away:audit:treatmentShare", system: "away", claim: "treatmentShare (always 0)", status: pending("FK-5 / FK-6") },
   { id: "away:audit:fieldKitsCure", system: "away", claim: "Cure clears basic debuffs only on a Field Kits run (fieldKits.ts BASIC_DEBUFFS; today it clears any debuff)", status: pending("FKR-4 (Cure reads BASIC_DEBUFFS on flagged runs)") },
   { id: "away:audit:memberFallOutcome", system: "away", claim: "memberFallOutcome (the Safety Interlock hook, one branch)", status: pending("OC-F13") },
-  { id: "away:audit:prospectingTeam", system: "away", claim: "The Prospecting team type (no recruits, specs or gear)", status: pending("WR-10, OC-F11") },
+  { id: "away:audit:prospectingTeam", system: "away", claim: "The Prospecting squad type: built (specs, traits, YIELD / GRADE, recruits, gear, slots), hidden until a quest step unlocks it per save", status: PROSPECTING_DEFERRED },
+  { id: "away:audit:prospectingUnlock", system: "away", claim: "The per-save Prospecting unlock (GameState.prospectingSquadsUnlocked, unlockProspectingSquads): nothing sets it in 0.14.0", status: PROSPECTING_DEFERRED },
+  { id: "away:audit:prospectingBoardSlots", system: "away", claim: "The recruit board's separate Prospecting slots (PROSPECTING_BOARD_SLOTS), shown once unlocked", status: PROSPECTING_DEFERRED },
+  { id: "away:audit:prospectingTeamKinds", system: "away", claim: "The hidden Claim and Dig team kinds and their Prospecting slots (refused \"kindLocked\" while locked)", status: PROSPECTING_DEFERRED },
+  { id: "away:audit:prospectingStandardIssue", system: "away", claim: "The Quartermaster's Standard-Issue Prospecting rows (Plasma Cutter, Excavator Suit, Assay Scanner), shown once unlocked", status: PROSPECTING_DEFERRED },
+  { id: "away:audit:steadyProspecting", system: "away", claim: "Steady's Prospecting reach (+hazard resistance on a Prospecting member)", status: PROSPECTING_DEFERRED },
+  { id: "away:audit:sharedHazardGear", system: "away", claim: "The Hazard Suit and Environmental Adaptation worn by Prospecting (shared hazard gear)", status: PROSPECTING_DEFERRED },
+  { id: "away:audit:prospectingDigSafety", system: "away", claim: "Dig safety: a Prospecting crew's Armor and HP cut cave-in and retreat injuries (prospectingCrewStats digSafety, DIG_SAFETY_KNEE)", status: PROSPECTING_DEFERRED },
   { id: "away:audit:statusPicker", system: "away", claim: "Status picker entries that never match (only six of nine statuses can fire)", status: pending("FK-9 + WR-10") },
   { id: "away:audit:fieldRepairOrder", system: "away", claim: "Player-ordered field repair (engine only, no UI)", status: pending("WR-10, OC-F14") },
   { id: "away:audit:legacyOnly", system: "away", claim: "Legacy-only: MAX_BATTLE_ATTEMPTS, EVAC_REWARD_FRACTION, ENCOUNTER_DROP_SCALE, scan ground battles, softenAmbush, the flat 2 h injury", status: pending("OC-G1") },
@@ -3218,9 +3267,32 @@ function build(): readonly WiringEntry[] {
     ...fieldKitEntries(),
     ...crewScalarEntries(),
     ...medicalEntries(),
+    ...prospectingEntries(),
     ...auditEntries(),
     ...speedSeamEntries(),
   ].map((e) => (ALLOW_LIST_REASONS[e.id] ? { ...e, reason: ALLOW_LIST_REASONS[e.id] } : e));
+}
+
+// Prospecting squads (hidden): the role bases, the hidden blueprints and the three later uses, each deferred to
+// the prospecting quests patch (PROSPECTING_DEFERRED). The gear lines and traits register in gearEntries and
+// traitEntry.
+function prospectingEntries(): WiringEntry[] {
+  const out: WiringEntry[] = [];
+  for (const spec of Object.keys(PROSPECTING_SPEC_BASE)) {
+    out.push(entry({ id: `away:PROSPECTING_SPEC_BASE:${spec}`, system: "away", source: { catalog: "PROSPECTING_SPEC_BASE", key: spec }, claim: `The ${spec} role's base lift`, status: PROSPECTING_DEFERRED }));
+  }
+  for (const [key, bp] of Object.entries(PROSPECTING_BLUEPRINTS)) {
+    out.push(entry({ id: `facility:PROSPECTING_BLUEPRINTS:${key}`, system: "facility", source: { catalog: "PROSPECTING_BLUEPRINTS", key }, claim: `${bp.label}: research time, cost and Lab tier (merged into BLUEPRINTS when Prospecting goes visible)`, status: PROSPECTING_DEFERRED }));
+  }
+  const useClaim: Readonly<Record<string, string>> = {
+    quest: "Prospecting quests: a squad works a claim's deposits (YIELD, GRADE, FIELD, HAZ)",
+    mineralSite: "Expedition mineral sites: a Prospecting squad at Mineral Outcrop, Cave Network and Geothermal Chamber",
+    miningMission: "Ship mining missions: a Prospecting squad aboard lifts the ship's extraction",
+  };
+  for (const use of PROSPECTING_USES) {
+    out.push(entry({ id: `away:PROSPECTING_USES:${use}`, system: "away", source: { catalog: "PROSPECTING_USES", key: use }, claim: useClaim[use] ?? use, status: PROSPECTING_DEFERRED }));
+  }
+  return out;
 }
 
 export const WIRING_REGISTRY: readonly WiringEntry[] = build();

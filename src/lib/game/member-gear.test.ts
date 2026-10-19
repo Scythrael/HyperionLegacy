@@ -49,6 +49,7 @@ import { canFitEquipment } from "./equipment";
 import { loadoutSlotDefsForShipType } from "./armory";
 import { REQUISITION_CATALOGUE, REQUISITION_ENTRIES } from "./quartermaster";
 import { GROUND_STAT_MEMBER_STAT } from "./awayTeam";
+import { PROSPECTING_BLUEPRINTS } from "./prospecting";
 import { generateEquipment } from "./itemgen";
 import { canResearch, inspectBlank } from "./tick";
 import { PLANET_TYPES } from "./expeditionContent";
@@ -210,17 +211,20 @@ describe("ship-only lists never offer member gear", () => {
 // Catalog (design section 5.4, names exactly as the user-approved mockup)
 // ============================================================================
 
+// The Prospecting names (hidden squads design 2026-10-16 section 5, kept by the user) trail each slot.
 const MEMBER_CATALOG: Record<string, string[]> = {
-  memberWeapon: ["Pulse Rifle", "Scattergun", "Shock Baton", "Sidearm"],
-  memberArmor: ["Ballistic Weave", "Assault Hardsuit", "Field Suit", "Hazard Suit"],
+  memberWeapon: ["Pulse Rifle", "Scattergun", "Shock Baton", "Sidearm", "Plasma Cutter", "Rock Breaker", "Sampling Lance"],
+  memberArmor: ["Ballistic Weave", "Assault Hardsuit", "Field Suit", "Hazard Suit", "Excavator Suit"],
   memberTool: [
     "Stun Grenade", "Toxin Grenade", "Med Kit", "Shroud Emitter", "Lure Beacon",
     "Flora Scanner", "Thermal Rig", "Core Drill", "Decryptor", "Atmo Probe",
+    "Assay Scanner", "Seismic Mapper",
   ],
   implant: [
     "Dermal Weave", "Reflex Booster", "Targeting Optic", "Adrenal Surge", "Med-Nanite Swarm",
     "Toxin Filters", "Cortex Shield", "Neural Backup",
     "Synaptic Accelerator", "Archaeo-Scanner", "Environmental Adaptation", "Cipher Wetware", "Bio-Analyzer",
+    "Ore-Sense Optic", "Myo-Lift Frame",
   ],
 };
 
@@ -259,13 +263,20 @@ describe("member gear catalog", () => {
     expect(new Set(keys).size).toBe(keys.length);
   });
 
-  it("every member variety carries member traits with a non-empty teamTypes of real team types, never prospecting", () => {
+  it("every member variety carries member traits with a non-empty teamTypes of real team types; Prospecting wears only its own eight plus the two shared hazard pieces", () => {
+    const prospecting: string[] = [];
     for (const { slotType, v } of MEMBER_VARIETIES) {
       const teams = v.member.teamTypes;
       expect(teams.length, `${slotType}/${v.key}`).toBeGreaterThan(0);
       for (const t of teams) expect(AWAY_TEAM_TYPES, `${slotType}/${v.key}`).toContain(t);
-      expect(teams, `${slotType}/${v.key}`).not.toContain("prospecting");
+      if (teams.includes("prospecting")) prospecting.push(v.key);
     }
+    expect(prospecting.sort()).toEqual(
+      [
+        "plasmaCutter", "rockBreaker", "samplingLance", "hazardSuit", "excavatorSuit",
+        "assayScanner", "seismicMapper", "environmentalAdaptation", "oreSenseOptic", "myoLiftFrame",
+      ].sort(),
+    );
   });
 
   it("no SHIP variety carries member traits, and memberVariety refuses ship slots and unknown keys", () => {
@@ -290,13 +301,14 @@ describe("member gear catalog", () => {
     expect(variety("memberWeapon", "sidearm").member.teamTypes).toEqual(["science"]);
   });
 
-  it("armor: two Security, two Science; the Hazard Suit's signature is hazard resist", () => {
+  it("armor: two Security, two Science (the Hazard Suit shared with Prospecting), one Prospecting; the Hazard Suit's signature is hazard resist", () => {
     expect(variety("memberArmor", "ballisticWeave").member.teamTypes).toEqual(["security"]);
     expect(variety("memberArmor", "assaultHardsuit").member.teamTypes).toEqual(["security"]);
     expect(variety("memberArmor", "fieldSuit").member.teamTypes).toEqual(["science"]);
     const hazard = variety("memberArmor", "hazardSuit");
-    expect(hazard.member.teamTypes).toEqual(["science"]);
+    expect(hazard.member.teamTypes).toEqual(["science", "prospecting"]);
     expect(hazard.implicitStats).toEqual(["groundHazardResist"]);
+    expect(variety("memberArmor", "excavatorSuit").member.teamTypes).toEqual(["prospecting"]);
   });
 
   it("tools: the encounter dial (Shroud -0.4, Lure +0.4) is Security-only; Science tools are planet-tuned as authored", () => {
@@ -326,11 +338,13 @@ describe("member gear catalog", () => {
     }
   });
 
-  it("implants: exactly one team each (8 Security, 5 Science); Neural Backup is the ONE unique-equipped piece", () => {
+  it("implants: 8 Security, 5 Science (Environmental Adaptation shared with Prospecting), 2 Prospecting; Neural Backup is the ONE unique-equipped piece", () => {
     const implants = MEMBER_VARIETIES.filter(({ slotType }) => slotType === "implant").map(({ v }) => v.member.teamTypes);
     expect(implants.filter((t) => t.length === 1 && t[0] === "security").length).toBe(8);
-    expect(implants.filter((t) => t.length === 1 && t[0] === "science").length).toBe(5);
-    expect(implants.length).toBe(13);
+    expect(implants.filter((t) => t[0] === "science").length).toBe(5);
+    expect(variety("implant", "environmentalAdaptation").member.teamTypes).toEqual(["science", "prospecting"]);
+    expect(implants.filter((t) => t.length === 1 && t[0] === "prospecting").length).toBe(2);
+    expect(implants.length).toBe(15);
     const unique = MEMBER_VARIETIES.filter(({ v }) => v.member.uniqueEquipped === true).map(({ v }) => v.key);
     expect(unique).toEqual(["neuralBackup"]);
     expect(variety("implant", "neuralBackup").member).toEqual({
@@ -364,7 +378,9 @@ describe("member gear catalog", () => {
 // Blueprints
 // ============================================================================
 
-const memberBlueprints = Object.values(BLUEPRINTS).filter(
+// Prospecting squads (hidden): the Prospecting-only varieties' blueprints live in prospecting.ts
+// PROSPECTING_BLUEPRINTS (kept out of BLUEPRINTS until the surfaces go visible), so the catalog checks read both.
+const memberBlueprints = [...Object.values(BLUEPRINTS), ...Object.values(PROSPECTING_BLUEPRINTS)].filter(
   (bp) => bp.equipmentOutput !== undefined && isMemberSlotType(bp.equipmentOutput.slotType),
 );
 
@@ -475,9 +491,15 @@ describe("member gear generation", () => {
     }
   });
 
-  it("a Fabricator blank of every member blueprint inspects into a spare piece of that variety", () => {
+  it("a Fabricator blank of every member blueprint inspects into a spare piece of that variety (a hidden Prospecting one is refused)", () => {
     for (const bp of memberBlueprints) {
       const s0 = freshState();
+      if (bp.key in PROSPECTING_BLUEPRINTS) {
+        // Hidden: kept out of BLUEPRINTS until the prospecting quests patch, so no surface can make one yet.
+        const held: GameState = { ...s0, blanks: { [bp.key]: new Decimal(1) } };
+        expect(inspectBlank(held, bp.key), bp.key).toBe(held);
+        continue;
+      }
       const s: GameState = { ...s0, blanks: { [bp.key]: new Decimal(1) } };
       const after = inspectBlank(s, bp.key);
       expect(after, bp.key).not.toBe(s);

@@ -42,6 +42,12 @@ const ALLOW_LIST_AT_THE_MOVE: Readonly<Record<string, string>> = {
   "facet:pilot:cunning": "pending user decision (officerStats.ts CUNNING_PENDING_SEATS)",
 };
 
+// Prospecting squads (0.14.0, built HIDDEN; user group 4, 2026-10-16): the 25 Prospecting gear lines came AFTER the
+// move, each deferred to the prospecting quests patch on the user's word (no Prospecting member deploys in 0.14.0).
+const PROSPECTING_OWNER = "prospecting quests patch";
+const isProspectingDeferral = (e: (typeof WIRING_REGISTRY)[number]): boolean =>
+  e.id.startsWith("gear:prospecting:") && e.status.kind === "deferred" && e.status.owner === PROSPECTING_OWNER;
+
 describe("wiring registry parity with the no-dead-stats liveness level", () => {
   const liveness = WIRING_REGISTRY.filter((e) => e.liveness);
 
@@ -49,12 +55,14 @@ describe("wiring registry parity with the no-dead-stats liveness level", () => {
     const registryIds = liveness.map((e) => e.id).sort();
     const testkitIds = ENTRIES.map((e) => e.id).sort();
     expect(registryIds).toEqual(testkitIds);
-    expect(testkitIds.length).toBe(149);
+    expect(testkitIds.length).toBe(149 + 25); // 149 at the move, + the 25 hidden Prospecting gear lines
+    expect(liveness.filter(isProspectingDeferral)).toHaveLength(25);
   });
 
   it("every liveness entry that is not live was on the old allow-list, with the same owner (or a user deferral)", () => {
     for (const e of liveness) {
       if (e.status.kind === "live") continue;
+      if (isProspectingDeferral(e)) continue; // the user's deferral, after the move (above)
       const before = ALLOW_LIST_AT_THE_MOVE[e.id];
       expect(before, `${e.id} is not live in the registry but was live under no-dead-stats`).toBeDefined();
       if (e.status.kind === "pending") expect(e.status.owner, e.id).toBe(before);

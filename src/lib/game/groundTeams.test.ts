@@ -782,13 +782,16 @@ describe("GO-2 crew sync: every arrival aboard auto-slots, every departure unslo
     const hired = hireAwayMember(s, sec!.id, "ship-1");
     expect(slotsOf(hired, "ship-1")[0].security).toEqual(["member-1", "member-2", "member-100"]); // Alpha's gap first
     assertSlotInvariants(hired);
-    // 9 Security aboard (6 slots + 3 berths) is full; the reserve counts toward it
+    // 9 Security aboard (6 slots + 3 berths) is full; the reserve counts toward it. (The fixture's Prospecting
+    // member-21 is left out here: since the hidden Prospecting build, a Prospecting member aboard a ship that
+    // fields no Prospecting slot sits in a shared reserve berth too, groundComposition.ts reserveBerthsUsed.)
     const extra = ["member-4", "member-5", "member-6", "member-7", "member-8", "member-9"].map((id) => named(id, "security", "ship-1"));
-    const full = crewState({ awayMembers: [...crewState().awayMembers, ...extra] });
+    const crew = crewState().awayMembers.filter((m) => m.teamType !== "prospecting");
+    const full = crewState({ awayMembers: [...crew, ...extra] });
     expect(canHireAwayMember(full, sec!.id, "ship-1")).toEqual({ ok: false, reason: "squadFull" });
     expect(hireAwayMember(full, sec!.id, "ship-1")).toBe(full);
     // one fewer and the hire goes through, into the empty Bravo slot first
-    const room = crewState({ awayMembers: [...crewState().awayMembers, ...extra.slice(0, 5)] });
+    const room = crewState({ awayMembers: [...crew, ...extra.slice(0, 5)] });
     const into = hireAwayMember(room, sec!.id, "ship-1");
     expect(slotsOf(into, "ship-1").flatMap((t) => t.security)).toContain("member-100");
     assertSlotInvariants(into);

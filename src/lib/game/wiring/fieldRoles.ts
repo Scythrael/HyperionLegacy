@@ -272,4 +272,6 @@ export const UNREAD_CONSTANTS: Readonly<Record<string, string>> = {
   ENEMY_RANK_IDS: "bookkeeping: the enemy ranks in order, read by the wiring registry (one entry per rank, Field Kits FKR-1) and FKR-3's rank chips",
   FIELD_KITS_CATALOG_VERSION: "seam: FKR-7 (buildExpedition stamps Expedition.fieldKits.catalog with it, flag 2)",
   FIELD_KIT_PRICES: "seam: FKR-7 (Quartermaster kit sales and the launch top-up charge it; registered pending)",
+  PROSPECTING_USES: "seam: the prospecting quests patch (the three later Prospecting uses, read by the wiring registry; deferred)",
+  PROSPECTING_BLUEPRINTS: "seam: the prospecting quests patch merges these hidden blueprints into BLUEPRINTS (read by the wiring registry; deferred)",
 };

@@ -41,6 +41,7 @@ import { CREW_RANK_ORDER } from "../crewRank";
 import { OFFICER_STAT_KEYS } from "../seniorStaff";
 import { DEPARTMENT_OF_SEAT } from "../officerStats";
 import { AWAY_TRAITS } from "../awayTraits";
+import { PROSPECTING_BLUEPRINTS, PROSPECTING_SPEC_BASE, PROSPECTING_USES } from "../prospecting";
 import { GAMBIT_PRESETS, GAMBIT_STATUSES } from "../gambit";
 import { GROUND_CONDITIONS } from "../medicalBay";
 import { MUSEUM_STATS, RELIC_SETS, RELICS } from "../relics";
@@ -134,6 +135,10 @@ export function enumerateEffectSources(): EffectSource[] {
     }
   }
   add("AWAY_TRAITS", AWAY_TRAITS.map((t) => t.id));
+  // Prospecting squads (hidden): the role bases, the hidden blueprints and the three later uses.
+  add("PROSPECTING_SPEC_BASE", Object.keys(PROSPECTING_SPEC_BASE));
+  add("PROSPECTING_BLUEPRINTS", Object.keys(PROSPECTING_BLUEPRINTS));
+  add("PROSPECTING_USES", PROSPECTING_USES);
   add(
     "MEMBER_GROUND_EFFECTS",
     [...new Set(MEMBER_SLOT_TYPES.flatMap((st) => EQUIPMENT_SLOTS[st].varieties.map((v) => v.member?.groundEffect?.kind).filter((k): k is NonNullable<typeof k> => k !== undefined)))],

@@ -107,12 +107,13 @@ describe("awayTeamDisplay chip explanations", () => {
         n++;
       }
     }
-    expect(n).toBe(7);
+    expect(n).toBe(10); // 3 Security + 4 Science + 3 Prospecting roles (hidden squads design 2026-10-16)
   });
 
   it("names the right squad in each spec line", () => {
     for (const spec of specsFor("security")) expect(awaySpecDescription(spec)).toMatch(/^Security specialty/);
     for (const spec of specsFor("science")) expect(awaySpecDescription(spec)).toMatch(/^Science specialty/);
+    for (const spec of specsFor("prospecting")) expect(awaySpecDescription(spec)).toMatch(/^Prospecting role/);
   });
 
   it("says what each Science spec now does: a bigger haul at the PoIs fieldwork maps to it (Task 15)", () => {

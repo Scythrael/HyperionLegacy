@@ -2,8 +2,9 @@
 //
 // Each ship fields a persistent roster of NAMED away-team members (model.ts AwayMember), stored flat in
 // GameState.awayMembers and keyed to a ship by assignedShipId, exactly like Senior Staff officers.
-// Squads are typed (D2): Security fights, Science does fieldwork, Prospecting is WIRED ONLY (no ship fields
-// one). Squad SIZES come from SHIP_TYPES[typeKey].awayTeams[].size (design section 5.2), never from a
+// Squads are typed (D2): Security fights, Science does fieldwork, Prospecting extracts ore and is BUILT but
+// HIDDEN until the per-save unlock (prospecting.ts squadTypeUnlocked; design 2026-10-16). Squad SIZES come
+// from SHIP_TYPES[typeKey].awayTeams[].size (design section 5.2), never from a
 // hard-coded per-type switch. Squads SQ-2: how MANY squads of each type a ship fields comes from ONE
 // authority, the hull's groundSquads (team count) plus the ship's team KINDS (groundComposition.ts); the old
 // awayTeams[].count field was removed in WR-4.
@@ -53,9 +54,11 @@ import { makeRng, weightedPick, type Rng } from "./combat/rng";
 import { shipCrewLocked } from "./crewLock";
 // Ground Ops (GO-2): keep each ship's ground-team slots in sync with crew moves. groundTeamSlots.ts imports
 // model.ts only, so this is no cycle (groundTeams.ts, which imports this module, re-exports it).
-import { isGroundSquadType, shipsWithMemberAutoSlotted, shipsWithMemberUnslotted } from "./groundTeamSlots";
+import { isGroundSquadType, isSlotSquadType, shipsWithMemberAutoSlotted, shipsWithMemberUnslotted } from "./groundTeamSlots";
 // Squads SQ-2: the composition-following hire cap. groundComposition.ts imports model.ts only.
-import { reserveBerthsUsed, shipCrewCapacity, shipTeamKinds, type ShipCrewCapacity } from "./groundComposition";
+import { reserveBerthsUsed, shipCrewCapacity, shipTeamKinds, type CrewAboard, type ShipCrewCapacity } from "./groundComposition";
+// Prospecting squads (hidden): the unlock and the board's separate slots. prospecting.ts imports model.ts only.
+import { PROSPECTING_BOARD_SLOTS, squadTypeUnlocked } from "./prospecting";
 // Ground Ops (GO-3): the racial physical perks the snapshot freezes. medicalBay.ts imports model.ts types only.
 import { memberPerksFor } from "./medicalBay";
 // WR-5c: the board size (the stored size x the best Recruiter captain, rounded up; pure, imports only model.ts).
@@ -67,11 +70,12 @@ import { candidateBoardSize } from "./captainExplorerEffects";
 
 // How many member SLOTS `ship` fields of `teamType` across its ground teams: the hull's squad size for the
 // type x the squads of that type its composition holds (groundComposition.ts shipCrewCapacity over the
-// ship's team kinds: Ground + Ground on a 3 / 3 hull is 6 / 6, Strike + Ground 9 / 3). 0 for Prospecting
-// (wired only), an unknown hull, or a hull with no ground teams. Pure.
+// ship's team kinds: Ground + Ground on a 3 / 3 hull is 6 / 6, Strike + Ground 9 / 3). 0 for Prospecting on
+// every visible kind (only the hidden Claim and Dig field it), an unknown hull, or a hull with no ground teams.
+// Pure.
 export function shipSquadSlots(ship: Pick<ShipInstance, "typeKey" | "groundTeams">, teamType: AwayTeamType): number {
-  if (!isGroundSquadType(teamType)) return 0;
-  return shipCrewCapacity(ship.typeKey, shipTeamKinds(ship))[teamType];
+  if (!isSlotSquadType(teamType)) return 0;
+  return shipCrewCapacity(ship.typeKey, shipTeamKinds(ship))[teamType] ?? 0;
 }
 
 // The members currently on `shipId`'s `teamType` squad, in roster order. Pure read (fresh array).
@@ -84,24 +88,28 @@ export function membersInSquad(state: GameState, shipId: string, teamType: AwayT
 // the reserve; benched members are not aboard), and the reserve berths they fill (members of each type past
 // that type's slots, summed). berthsUsed > capacity.reserveBerths means the ship is OVER CAPACITY, possible
 // only after a type change (groundTeams.ts setGroundTeamKind never forces anyone off the ship). Pure.
+// Prospecting squads (hidden): `aboard.prospecting` is written only when a Prospecting member is aboard, so every
+// Security / Science ship keeps its exact shape (absent reads as 0).
 export interface ShipCrewRoom {
   capacity: ShipCrewCapacity;
-  aboard: { security: number; science: number };
+  aboard: CrewAboard;
   berthsUsed: number;
 }
 
 export function shipCrewRoom(state: GameState, ship: ShipInstance): ShipCrewRoom {
   const capacity = shipCrewCapacity(ship.typeKey, shipTeamKinds(ship));
-  const aboard = { security: 0, science: 0 };
+  const aboard: CrewAboard = { security: 0, science: 0 };
   for (const m of state.awayMembers) {
-    if (m.assignedShipId === ship.id && isGroundSquadType(m.teamType)) aboard[m.teamType] += 1;
+    if (m.assignedShipId !== ship.id) continue;
+    if (isGroundSquadType(m.teamType)) aboard[m.teamType] += 1;
+    else if (m.teamType === "prospecting") aboard.prospecting = (aboard.prospecting ?? 0) + 1;
   }
   return { capacity, aboard, berthsUsed: reserveBerthsUsed(aboard, capacity) };
 }
 
 // Whether one more `teamType` member fits aboard `shipId` (the hire / move cap, Squads SQ-2; the crew lock is
-// not part of it). False for a ship that does not exist and for any squad type the hull does not field
-// (Prospecting today). Pure.
+// not part of it). False for a ship that does not exist and for any squad type the ship's team kinds do not
+// field (Prospecting on every visible kind). Pure.
 export function squadHasRoom(state: GameState, shipId: string, teamType: AwayTeamType): boolean {
   return squadGate(state, shipId, teamType).ok;
 }
@@ -112,7 +120,9 @@ export function squadHasRoom(state: GameState, shipId: string, teamType: AwayTea
 
 // A member stat that traits, gear and implants can raise, each bump a FRACTION of the member's own value
 // (0.05 = +5%). The Security stats match the member card's HP / PWR / ARM / ACC line; the Science ones
-// its FIELD / RELIC / HAZ line, plus statusChance for the Debuff spec's afflictions.
+// its FIELD / RELIC / HAZ line, plus statusChance for the Debuff spec's afflictions; the Prospecting ones
+// (hidden, design 2026-10-16 section 3) its FIELD / YIELD / GRADE / HAZ line: oreYield (YIELD, units per
+// deposit) and oreGrade (GRADE, the lift on the better-tier roll), with FIELD and HAZ reused.
 // STACKING RULE: every same-stat bump from traits, gear and implants ADDS (two +5% accuracy sources make
 // +10%, never 1.05 * 1.05), the codebase's additive-within-a-layer convention. The member-power task
 // (design section 5.3) applies the summed bump once to the member's base value.
@@ -124,7 +134,15 @@ export type AwayMemberStat =
   | "statusChance"
   | "fieldwork"
   | "relicFind"
-  | "hazardResist";
+  | "hazardResist"
+  | ProspectingMemberStat;
+
+// The two Prospecting-only member stats. A snapshot writes them ONLY when nonzero (the `perks` precedent), so
+// every Security and Science snapshot keeps its exact shape.
+export type ProspectingMemberStat = "oreYield" | "oreGrade";
+
+// The eight stats every snapshot carries, always.
+export type CoreAwayMemberStat = Exclude<AwayMemberStat, ProspectingMemberStat>;
 
 // E-CREW 0.14.0 (Task 7): which member stat each GROUND gear line raises. Member gear rolls its own stat
 // vocabulary (model.ts MEMBER_GROUND_STAT_KEYS, `ground`-prefixed so it can never collide with a ship
@@ -162,6 +180,9 @@ export const GROUND_STAT_MEMBER_STAT: Record<MemberGroundStatKey, AwayMemberStat
   groundHazardResist: "hazardResist",
   groundOrganicsYield: null,
   groundVaultYield: null,
+  // Prospecting (hidden): YIELD and GRADE, converted like every mapped line and frozen only when nonzero.
+  groundOreYield: "oreYield",
+  groundOreGrade: "oreGrade",
 };
 
 // How many traits a member of this rank carries: the complement's buff-count ladder, reused as-is so
@@ -183,7 +204,8 @@ export function implantSlotsFor(member: Pick<AwayMember, "race">): number {
 const SPECS_BY_TEAM: Record<AwayTeamType, readonly AwayMemberSpec[]> = {
   security: ["offense", "defense", "debuff"],
   science: ["archaeology", "xenobiology", "geology", "cryptography"],
-  prospecting: [], // spec set still undecided (wired-only squad)
+  // Prospecting (hidden; user 2026-10-16): the three ROLES, fixed order (the recruit roll indexes it).
+  prospecting: ["excavation", "drilling", "assaying"],
 };
 
 // The specs a member of `teamType` can hold, in a fixed order (the recruit roll indexes into it). A
@@ -202,9 +224,10 @@ export function specsFor(teamType: AwayTeamType): AwayMemberSpec[] {
 // (seniorStaffRosterSize: one expansion upgrade grows both boards). Hiring copies a candidate into
 // GameState.awayMembers (hireAwayMember below).
 
-// The squads a recruit can roll, 50/50. Prospecting is deliberately absent (wired only, D2). Every type
-// listed here MUST have a non-empty specsFor set (rollAwayCandidate checks it); add specs for a type
-// before making it recruitable.
+// The squads a shared-board recruit can roll, 50/50. Prospecting is deliberately absent: once unlocked it gets
+// its OWN board slots (user 2026-10-16: "Separate board slots", so every Security / Science roll stays exactly
+// as it is; rollProspectingCandidate below). Every type listed here MUST have a non-empty specsFor set
+// (rollAwayCandidate checks it).
 const RECRUITABLE_TEAM_TYPES: readonly AwayTeamType[] = ["security", "science"];
 
 // FIRST-PASS + TUNABLE rank weights for ranks 1..8 (CREW_RANK_ORDER), weighted toward low ranks so a
@@ -241,11 +264,17 @@ function rollRecruitRank(rng: Rng): CrewRank {
 function rollAwayCandidate(baseSeed: number, windowIndex: number, slot: number): AwayMember {
   const seed = awayCandidateSeed(baseSeed, windowIndex, slot);
   const rng = makeRng(seed);
-
   const teamType = RECRUITABLE_TEAM_TYPES[rng.nextInt(RECRUITABLE_TEAM_TYPES.length)];
+  return rollCandidateOf(teamType, rng, seed, awayCandidateId(windowIndex, slot), slot);
+}
+
+// The rest of one candidate once its squad is known, in the fixed draw order (spec, race, rank, traits) and
+// with identity from its own stream. Shared by the shared board (above) and the Prospecting slots (below), so
+// the two can never drift. Pure in its inputs (it advances only `rng`).
+function rollCandidateOf(teamType: AwayTeamType, rng: Rng, seed: number, id: string, slot: number): AwayMember {
   const specs = specsFor(teamType);
-  // A programming error, not a player state: RECRUITABLE_TEAM_TYPES only lists types with specs. Fail
-  // loud (the board tests roll thousands of candidates, so this can never ship silently).
+  // A programming error, not a player state: every recruitable type has specs. Fail loud (the board tests
+  // roll thousands of candidates, so this can never ship silently).
   if (specs.length === 0) throw new Error(`awayTeam: recruitable team type "${teamType}" has no specs`);
   const spec = specs[rng.nextInt(specs.length)];
   const race: CrewRace = CREW_RACE_IDS[rng.nextInt(CREW_RACE_IDS.length)];
@@ -263,7 +292,7 @@ function rollAwayCandidate(baseSeed: number, windowIndex: number, slot: number):
   const identity = generateCrewIdentity(race, seed, slot);
 
   return {
-    id: awayCandidateId(windowIndex, slot),
+    id,
     teamType,
     spec,
     name: identity.name,
@@ -282,6 +311,11 @@ function rollAwayCandidate(baseSeed: number, windowIndex: number, slot: number):
 // A FIRED recruit therefore REAPPEARS on the board if their window is still open (no member carries their
 // hiredFrom any more). That acts as an undo for a misclicked fire and is harmless, since hiring is free.
 // Open for the user to revisit. Pure; returns a fresh array of fresh member objects.
+// Prospecting squads (hidden; user "Separate board slots"): once the save's Prospecting is unlocked
+// (prospecting.ts squadTypeUnlocked), PROSPECTING_BOARD_SLOTS Prospecting candidates FOLLOW the shared slots.
+// They roll from their own seed and id space, so they never touch a Security / Science roll and a board the
+// player is looking at gains slots rather than reshuffling. While locked the board is byte-identical to the
+// shared slots alone (pinned by prospectingHidden.golden.test.ts).
 export function awayRecruitCandidates(state: GameState): AwayMember[] {
   const windowIndex = officerRosterWindowIndex(state);
   // WR-5c: the stored size x the best Recruiter captain's factor, rounded up (captainExplorerEffects.ts candidateBoardSize).
@@ -293,7 +327,38 @@ export function awayRecruitCandidates(state: GameState): AwayMember[] {
     if (hired.has(awayCandidateId(windowIndex, slot))) continue;
     out.push(rollAwayCandidate(baseSeed, windowIndex, slot));
   }
+  if (squadTypeUnlocked(state, "prospecting")) {
+    for (let k = 0; k < PROSPECTING_BOARD_SLOTS; k += 1) {
+      if (hired.has(prospectingCandidateId(windowIndex, k))) continue;
+      out.push(rollProspectingCandidate(baseSeed, windowIndex, k));
+    }
+  }
   return out;
+}
+
+// The Prospecting slots' own salt: odd, 32-bit, and distinct from every registered salt (salts.test.ts lists this
+// module). Exported so the salt registry can see it.
+export const PROSPECTING_CANDIDATE_SEED_SALT = 0x2d4c8e5b;
+
+// The Prospecting slots' seed: the shared board's mix with its OWN salt, so the two slot sets stay decorrelated.
+// Same inputs => same seed. Pure.
+function prospectingCandidateSeed(baseSeed: number, windowIndex: number, slot: number): number {
+  let h = (baseSeed >>> 0) ^ PROSPECTING_CANDIDATE_SEED_SALT;
+  h = Math.imul(h ^ ((windowIndex + 1) >>> 0), 0x85ebca6b) >>> 0;
+  h = Math.imul(h ^ ((slot + 1) >>> 0), 0xc2b2ae35) >>> 0;
+  h ^= h >>> 16;
+  return h >>> 0;
+}
+
+// A Prospecting slot's stable candidate id, its own id space (never an "away-candidate-<window>-<slot>").
+function prospectingCandidateId(windowIndex: number, slot: number): string {
+  return `away-candidate-p-${windowIndex}-${slot}`;
+}
+
+// One Prospecting candidate: the squad is fixed, then the shared draw order (spec, race, rank, traits). Pure.
+function rollProspectingCandidate(baseSeed: number, windowIndex: number, slot: number): AwayMember {
+  const seed = prospectingCandidateSeed(baseSeed, windowIndex, slot);
+  return rollCandidateOf("prospecting", makeRng(seed), seed, prospectingCandidateId(windowIndex, slot), slot);
 }
 
 // Seconds until the board rolls over to its next window (the officer board's window, so both refresh
@@ -375,10 +440,11 @@ export function awayCrewBlockText(reason: AwayCrewBlockReason): string {
 function squadGate(state: GameState, shipId: string, teamType: AwayTeamType): AwayCrewGate {
   const ship = state.ships.find((s) => s.id === shipId);
   if (!ship) return { ok: false, reason: "noShip" };
-  if (!isGroundSquadType(teamType) || shipSquadSlots(ship, teamType) === 0) return { ok: false, reason: "noSquad" };
+  if (!isSlotSquadType(teamType) || shipSquadSlots(ship, teamType) === 0) return { ok: false, reason: "noSquad" };
   const room = shipCrewRoom(state, ship);
-  if (room.aboard[teamType] < room.capacity[teamType]) return { ok: true };
-  const after = { ...room.aboard, [teamType]: room.aboard[teamType] + 1 };
+  const aboardOfType = room.aboard[teamType] ?? 0;
+  if (aboardOfType < (room.capacity[teamType] ?? 0)) return { ok: true };
+  const after: CrewAboard = { ...room.aboard, [teamType]: aboardOfType + 1 };
   if (reserveBerthsUsed(after, room.capacity) <= room.capacity.reserveBerths) return { ok: true };
   return { ok: false, reason: room.berthsUsed > room.capacity.reserveBerths ? "overCapacity" : "squadFull" };
 }
@@ -549,7 +615,13 @@ export const GEAR_POINT_BUMP: Readonly<Record<AwayMemberStat, number>> = {
   fieldwork: 0.01,
   relicFind: 0.01,
   hazardResist: 0.01,
+  // Prospecting (hidden, design section 3) [PROVISIONAL]: a fraction of base per point, like FIELD.
+  oreYield: 0.01,
+  oreGrade: 0.01,
 };
+
+// The two Prospecting stats in a fixed order (written onto a snapshot only when nonzero).
+const PROSPECTING_MEMBER_STATS: readonly ProspectingMemberStat[] = ["oreYield", "oreGrade"];
 
 // The two fieldwork YIELD lines (GROUND_STAT_MEMBER_STAT maps both to null: no member card stat) convert
 // here, E-CREW Task 15:
@@ -568,7 +640,7 @@ export const STATUS_RESIST_PER_POINT = 0.01;
 export const STATUS_RESIST_CAP = 0.9;
 
 // The eight member stats in a fixed order (the keys every SnapshotMember.groundStats carries).
-const AWAY_MEMBER_STATS: readonly AwayMemberStat[] = [
+const AWAY_MEMBER_STATS: readonly CoreAwayMemberStat[] = [
   "hp",
   "power",
   "armor",
@@ -580,18 +652,21 @@ const AWAY_MEMBER_STATS: readonly AwayMemberStat[] = [
 ];
 
 // THE conversion: summed ground line points (any subset of MEMBER_GROUND_STAT_KEYS) -> the member stat
-// bumps (every AwayMemberStat key present, 0 when nothing feeds it) and the status-resist chance.
+// bumps (every core AwayMemberStat key present, 0 when nothing feeds it; the two Prospecting stats only when
+// a line feeds them, the golden-neutral rule) and the status-resist chance.
 // groundOrganicsYield / groundVaultYield are fieldwork yields, converted by fieldworkSource (Task 15). Pure.
 export function convertGroundPoints(points: Partial<Record<MemberGroundStatKey, number>>): {
-  stats: Record<AwayMemberStat, number>;
+  stats: Record<CoreAwayMemberStat, number> & Partial<Record<ProspectingMemberStat, number>>;
   statusResist: number;
 } {
-  const stats = {} as Record<AwayMemberStat, number>;
+  const stats = {} as Record<CoreAwayMemberStat, number> & Partial<Record<ProspectingMemberStat, number>>;
   for (const stat of AWAY_MEMBER_STATS) stats[stat] = 0;
   for (const key of MEMBER_GROUND_STAT_KEYS) {
     const stat = GROUND_STAT_MEMBER_STAT[key];
     if (stat === null) continue;
-    stats[stat] += (points[key] ?? 0) * GEAR_POINT_BUMP[stat];
+    const p = points[key] ?? 0;
+    if ((PROSPECTING_MEMBER_STATS as readonly string[]).includes(stat) && p === 0) continue;
+    stats[stat] = (stats[stat] ?? 0) + p * GEAR_POINT_BUMP[stat];
   }
   return { stats, statusResist: (points.groundStatusResist ?? 0) * STATUS_RESIST_PER_POINT };
 }

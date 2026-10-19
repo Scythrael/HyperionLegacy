@@ -68,6 +68,7 @@ import type {
   EquipmentRarity,
 } from "./model";
 import { fuelNeeded } from "./fuel";
+import { PROSPECTING_BLUEPRINTS } from "./prospecting";
 // Combat 1.0 (Unit 1.2b): the weapon roster, to prove each weapon blueprint's weaponType names a
 // REAL WeaponId (a typo would otherwise only surface at mint time in the Fabricator).
 import { WEAPON_DEFS } from "./combat/weapons";
@@ -1981,7 +1982,8 @@ describe("EQUIPMENT_SLOTS live-slot definitions (0.11.0 Task 2)", () => {
   // 13 implants).
   const EXPECTED_VARIETY_COUNT: Record<string, number> = {
     quarters: 9, specUtility: 5, sensor: 4,
-    memberWeapon: 4, memberArmor: 4, memberTool: 10, implant: 13,
+    // Prospecting squads (hidden, 2026-10-16): +3 weapons, +1 armor, +2 tools, +2 implants.
+    memberWeapon: 7, memberArmor: 5, memberTool: 12, implant: 15,
   };
   // E-CREW 0.14.0 (Task 7): member slots draw ONLY from the GROUND vocabulary, ship slots ONLY from the
   // ship allow-set above, so a ground line can never land on a ship slot (or a ship line on member gear).
@@ -2188,6 +2190,9 @@ describe("Equipment BLUEPRINTS (0.11.0 Task 18)", () => {
     // COVERAGE GUARD: every variety of every installable equipment slot (the four economy slots
     // PLUS the two defensive combat slots) must have a craftable blueprint. This is the assertion
     // that would have caught the shipped gap where shieldEmitters / hullPlating had none.
+    // Prospecting squads (hidden): the eight Prospecting-only varieties' blueprints sit in prospecting.ts
+    // PROSPECTING_BLUEPRINTS until the surfaces go visible (then they merge into BLUEPRINTS).
+    for (const bp of Object.values(PROSPECTING_BLUEPRINTS)) pairs.add(`${bp.equipmentOutput!.slotType}/${bp.equipmentOutput!.varietyKey}`);
     const EQUIP_BP_SLOTS = [
       "cargoBay", "ftlDrive", "reactorCore", "specUtility", "shieldEmitters", "hullPlating",
       // E-CREW 0.14.0 (Task 7): every member gear variety is craftable too.

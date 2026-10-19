@@ -226,10 +226,10 @@ describe("traitCountForRank / implantSlotsFor / specsFor", () => {
     }
   });
 
-  it("each squad type has its own spec set; prospecting has none yet", () => {
+  it("each squad type has its own spec set; Prospecting has its three roles (hidden squads design)", () => {
     expect(specsFor("security")).toEqual(["offense", "defense", "debuff"]);
     expect(specsFor("science")).toEqual(["archaeology", "xenobiology", "geology", "cryptography"]);
-    expect(specsFor("prospecting")).toEqual([]);
+    expect(specsFor("prospecting")).toEqual(["excavation", "drilling", "assaying"]);
   });
 });
 

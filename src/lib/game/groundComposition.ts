@@ -2,6 +2,10 @@
 // telescope-design.md sections 2.1 to 2.4 plus its USER ANSWERS (flat slots + team kind approved; the migrated
 // second pair defaults to Ground; a fixed crew per ship plus a small backup roster).
 //
+// Prospecting squads (0.14.0, built HIDDEN; design docs/plans/2026-10-16-prospecting-squads-design.md section 6):
+// a third squad type and two hidden kinds, Claim and Dig. Every list a player can reach (GROUND_TEAM_KINDS, the
+// default validCompositions) leaves them out until the per-save unlock.
+//
 // Every hull fields ShipTypeDef.groundSquads squads (4 today, user "DOUBLE EVERY HULL"), grouped into teams of
 // 2 squads (user: teams are PAIRS). A team's KIND names the pair (user names): Strike = 2 Security, Survey = 2
 // Science, Ground = 1 + 1. A ship must keep at least one Security and one Science squad (user: "Always
@@ -16,24 +20,41 @@
 import type { GroundTeamKind, ShipInstance, ShipTypeKey } from "./model";
 import { SHIP_TYPES, groundSquadSize, groundTeamCount } from "./model";
 
-// The squad types a ground team is built from (Prospecting is wired only and fields no ground squad).
-export type CompositionSquadType = "security" | "science";
+// The squad types a ground team is built from. Prospecting (built HIDDEN, design 2026-10-16 section 6) is fielded
+// only by the Claim and Dig kinds, which no save can choose while Prospecting is locked.
+export type CompositionSquadType = "security" | "science" | "prospecting";
 
-// The three team kinds, in their canonical order (stored ids are lowercase). Ground is the default: the
-// shape GO-1 built, every freshly minted team, and the pair the v68 migration adds (user, open call 2).
+// The three VISIBLE team kinds, in their canonical order (stored ids are lowercase). Ground is the default: the
+// shape GO-1 built, every freshly minted team, and the pair the v68 migration adds (user, open call 2). Every
+// picker and recommendation reads this list, so the hidden kinds below never show while locked.
 export const GROUND_TEAM_KINDS: readonly GroundTeamKind[] = ["ground", "strike", "survey"];
 export const DEFAULT_GROUND_TEAM_KIND: GroundTeamKind = "ground";
 
+// Prospecting squads (hidden): the two kinds that field a Prospecting squad (user "Type + two team kinds"; names
+// [PROPOSAL], kept). Claim = 1 Security + 1 Prospecting (Security guards the dig), Dig = 2 Prospecting.
+export const PROSPECTING_TEAM_KINDS: readonly GroundTeamKind[] = ["claim", "dig"];
+
+// Every kind a stored team may hold, visible first. validCompositions walks it with the hidden kinds left out
+// unless Prospecting is unlocked.
+export const ALL_GROUND_TEAM_KINDS: readonly GroundTeamKind[] = [...GROUND_TEAM_KINDS, ...PROSPECTING_TEAM_KINDS];
+
 export function isGroundTeamKind(value: unknown): value is GroundTeamKind {
-  return value === "ground" || value === "strike" || value === "survey";
+  return value === "ground" || value === "strike" || value === "survey" || value === "claim" || value === "dig";
 }
 
 // Squads of each type in one team of `kind`. Always 2 in total (a team is a pair of squads).
 const SQUADS_BY_KIND: Readonly<Record<GroundTeamKind, Readonly<Record<CompositionSquadType, number>>>> = {
-  ground: { security: 1, science: 1 },
-  strike: { security: 2, science: 0 },
-  survey: { security: 0, science: 2 },
+  ground: { security: 1, science: 1, prospecting: 0 },
+  strike: { security: 2, science: 0, prospecting: 0 },
+  survey: { security: 0, science: 2, prospecting: 0 },
+  claim: { security: 1, science: 0, prospecting: 1 },
+  dig: { security: 0, science: 0, prospecting: 2 },
 };
+
+// Whether a kind fields any squad of `type` (the hidden-kind gate asks it of Prospecting). Pure.
+export function kindFieldsType(kind: GroundTeamKind, type: CompositionSquadType): boolean {
+  return SQUADS_BY_KIND[kind][type] > 0;
+}
 
 export function squadsOfType(kind: GroundTeamKind, type: CompositionSquadType): number {
   return SQUADS_BY_KIND[kind][type];
@@ -47,6 +68,10 @@ export function scienceSquadsOf(kind: GroundTeamKind): number {
   return squadsOfType(kind, "science");
 }
 
+export function prospectingSquadsOf(kind: GroundTeamKind): number {
+  return squadsOfType(kind, "prospecting");
+}
+
 // The user's names for the kinds ("Ground" / "Strike" / "Survey") and the team label ("Strike team").
 export function teamKindName(kind: GroundTeamKind): string {
   switch (kind) {
@@ -56,6 +81,10 @@ export function teamKindName(kind: GroundTeamKind): string {
       return "Strike";
     case "survey":
       return "Survey";
+    case "claim":
+      return "Claim";
+    case "dig":
+      return "Dig";
   }
 }
 
@@ -76,53 +105,74 @@ export function groundSquadsOf(typeKey: ShipTypeKey): number {
   return Number.isFinite(squads) ? Math.max(0, Math.floor(squads)) : 0;
 }
 
-// Squad totals of a composition (a list of team kinds, one per team).
+// Squad totals of a composition (a list of team kinds, one per team). `prospecting` is written only when the
+// composition fields a Prospecting squad (a hidden Claim or Dig kind), so every visible composition keeps its
+// exact { security, science } shape.
 export interface CompositionSquads {
   security: number;
   science: number;
+  prospecting?: number;
 }
 
 export function compositionSquads(kinds: readonly GroundTeamKind[]): CompositionSquads {
   let security = 0;
   let science = 0;
+  let prospecting = 0;
   for (const kind of kinds) {
     if (!isGroundTeamKind(kind)) continue;
     security += securitySquadsOf(kind);
     science += scienceSquadsOf(kind);
+    prospecting += prospectingSquadsOf(kind);
   }
-  return { security, science };
+  return prospecting > 0 ? { security, science, prospecting } : { security, science };
 }
 
 // Whether a composition keeps the user's minimum: at least one Security AND one Science squad, every entry a
 // known kind, at least one team. On a 4-squad hull this refuses exactly Strike + Strike (no Science squad)
-// and Survey + Survey (no Security squad). Team order never matters.
+// and Survey + Survey (no Security squad); with the hidden kinds it also refuses Strike + Dig, Claim + Claim and
+// Survey + Dig, and allows Ground + Claim, Ground + Dig and Survey + Claim (design section 6). Team order never
+// matters. Whether a kind is UNLOCKED is a separate gate (groundTeams.ts, refusal "kindLocked").
 export function isValidComposition(kinds: readonly GroundTeamKind[]): boolean {
   if (kinds.length === 0 || !kinds.every(isGroundTeamKind)) return false;
   const squads = compositionSquads(kinds);
   return squads.security >= 1 && squads.science >= 1;
 }
 
-// Every valid composition of a hull's team count, each a kind list in GROUND_TEAM_KINDS order (team order
+// Which squad types beyond Security and Science a composition list may use. Absent = the visible kinds only
+// (every caller in 0.14.0). The prospecting quests patch passes { prospecting: squadTypeUnlocked(state,
+// "prospecting") } (prospecting.ts) once its pickers show the hidden kinds.
+export interface CompositionOptions {
+  prospecting?: boolean;
+}
+
+// The kinds a composition may use under `opts`: GROUND_TEAM_KINDS, plus the Prospecting kinds when unlocked.
+export function availableTeamKinds(opts: CompositionOptions = {}): readonly GroundTeamKind[] {
+  return opts.prospecting === true ? ALL_GROUND_TEAM_KINDS : GROUND_TEAM_KINDS;
+}
+
+// Every valid composition of a hull's team count, each a kind list in ALL_GROUND_TEAM_KINDS order (team order
 // does not matter, so each multiset appears once), Ground + Ground first (the default). A 4-squad hull gives
-// Ground + Ground, Strike + Ground, Survey + Ground, Strike + Survey. A hull with no teams gives none.
-export function validCompositions(typeKey: ShipTypeKey): GroundTeamKind[][] {
+// Ground + Ground, Strike + Ground, Survey + Ground, Strike + Survey (plus, with Prospecting unlocked, Ground +
+// Claim, Ground + Dig and Survey + Claim). A hull with no teams gives none.
+export function validCompositions(typeKey: ShipTypeKey, opts: CompositionOptions = {}): GroundTeamKind[][] {
   const teams = groundTeamCount(typeKey);
   if (teams <= 0) return [];
+  const kinds = availableTeamKinds(opts);
   const out: GroundTeamKind[][] = [];
   const walk = (from: number, acc: GroundTeamKind[]): void => {
     if (acc.length === teams) {
       if (isValidComposition(acc)) out.push([...acc]);
       return;
     }
-    for (let i = from; i < GROUND_TEAM_KINDS.length; i += 1) walk(i, [...acc, GROUND_TEAM_KINDS[i]]);
+    for (let i = from; i < kinds.length; i += 1) walk(i, [...acc, kinds[i]]);
   };
   walk(0, []);
   return out;
 }
 
 // The order kinds read in a composition label: Strike, Survey, Ground ("Strike + Ground", "Survey + Ground",
-// "Strike + Survey", the design's phrasing).
-const LABEL_ORDER: Readonly<Record<GroundTeamKind, number>> = { strike: 0, survey: 1, ground: 2 };
+// "Strike + Survey", the design's phrasing), then the hidden Claim and Dig ("Ground + Claim").
+const LABEL_ORDER: Readonly<Record<GroundTeamKind, number>> = { strike: 0, survey: 1, ground: 2, claim: 3, dig: 4 };
 
 // "Strike + Ground" for any team order; "" for an empty list.
 export function compositionLabel(kinds: readonly GroundTeamKind[]): string {
@@ -172,28 +222,45 @@ export function shipReserveBerths(typeKey: ShipTypeKey): number {
 }
 
 // A ship's fixed crew for a composition: the slots of each type, the shared reserve berths, and the total.
+// `prospecting` is written only when a team fields a Prospecting squad (a hidden Claim or Dig kind), so every
+// visible composition keeps its exact shape; absent reads as 0.
 export interface ShipCrewCapacity {
   security: number; // Security slots across the teams
   science: number; // Science slots across the teams
-  reserveBerths: number; // shared by both types (shipReserveBerths)
-  total: number; // security + science + reserveBerths
+  prospecting?: number; // Prospecting slots across the teams (hidden kinds only)
+  reserveBerths: number; // shared by every type (shipReserveBerths)
+  total: number; // security + science + prospecting + reserveBerths
 }
 
 export function shipCrewCapacity(typeKey: ShipTypeKey, kinds: readonly GroundTeamKind[]): ShipCrewCapacity {
   let security = 0;
   let science = 0;
+  let prospecting = 0;
   for (const kind of kinds) {
     if (!isGroundTeamKind(kind)) continue;
     security += teamSlotCount(typeKey, kind, "security");
     science += teamSlotCount(typeKey, kind, "science");
+    prospecting += teamSlotCount(typeKey, kind, "prospecting");
   }
   const reserveBerths = shipReserveBerths(typeKey);
-  return { security, science, reserveBerths, total: security + science + reserveBerths };
+  const total = security + science + prospecting + reserveBerths;
+  return prospecting > 0 ? { security, science, prospecting, reserveBerths, total } : { security, science, reserveBerths, total };
+}
+
+// Members aboard per squad type (awayTeam.ts shipCrewRoom). `prospecting` absent reads as 0.
+export interface CrewAboard {
+  security: number;
+  science: number;
+  prospecting?: number;
 }
 
 // How many reserve berths `aboard` members fill: the members of each type past that type's slots, summed (an
 // empty slot is not a berth). May exceed capacity.reserveBerths (an over-capacity ship); the caller decides
-// what that refuses.
-export function reserveBerthsUsed(aboard: { security: number; science: number }, capacity: Pick<ShipCrewCapacity, "security" | "science">): number {
-  return Math.max(0, aboard.security - capacity.security) + Math.max(0, aboard.science - capacity.science);
+// what that refuses. Prospecting members count like the other two (absent = 0 on both sides).
+export function reserveBerthsUsed(aboard: CrewAboard, capacity: Pick<ShipCrewCapacity, "security" | "science" | "prospecting">): number {
+  return (
+    Math.max(0, aboard.security - capacity.security) +
+    Math.max(0, aboard.science - capacity.science) +
+    Math.max(0, (aboard.prospecting ?? 0) - (capacity.prospecting ?? 0))
+  );
 }

@@ -11,7 +11,8 @@
 // never leave a stale figure in the text.
 //
 // The names are the approved mockup's (docs/plans/2026-10-02-crew-made-real-e-crew-design.md, mockup
-// section 2). Prospecting rolls no traits yet: the squad is wired only and nobody is ever recruited into it.
+// section 2). The Prospecting traits are the Prospecting squads design's (2026-10-16 section 4): built, and
+// HIDDEN with the squad (no Prospecting recruit appears until the per-save unlock, prospecting.ts).
 
 import type { AwayTeamType, AwayTraitId, GambitStatusId } from "./model";
 import type { AwayMemberStat } from "./awayTeam";
@@ -37,7 +38,7 @@ export interface AwayTraitDef {
   readonly effects: readonly AwayTraitEffect[]; // one today; a list so a future trait can carry two
 }
 
-// The catalog, Security first, then Science. Ids are stable save keys (members store them), so never
+// The catalog, Security first, then Science, then Prospecting. Ids are stable save keys (members store them), so never
 // rename one; retire a trait by leaving its row in place. FIRST-PASS + TUNABLE numbers.
 export const AWAY_TRAITS: readonly AwayTraitDef[] = [
   // ===== Security =====
@@ -136,15 +137,54 @@ export const AWAY_TRAITS: readonly AwayTraitDef[] = [
     effects: [{ kind: "poiYield", pois: ["mineralOutcrop", "geothermalChamber"], value: 0.1 }],
   },
   {
+    // Shared with Prospecting (user 2026-10-16: "Hazard gear + Steady"). Adding a squad leaves the Science pool,
+    // and so every Science roll, unchanged.
     id: "steady",
     label: "Steady",
     description: "Keeps a calm pace through rough ground.",
-    teamTypes: ["science"],
+    teamTypes: ["science", "prospecting"],
     effects: [{ kind: "stat", stat: "hazardResist", value: 0.1 }],
+  },
+  // ===== Prospecting (built HIDDEN; design 2026-10-16 section 4, names kept by the user) =====
+  // Existing effect kinds only. With Steady above, six traits cover the rank 7 and 8 draw of three.
+  {
+    id: "strongBack",
+    label: "Strong Back",
+    description: "Hauls more out of every seam.",
+    teamTypes: ["prospecting"],
+    effects: [{ kind: "stat", stat: "oreYield", value: 0.08 }],
+  },
+  {
+    id: "assayersEye",
+    label: "Assayer's Eye",
+    description: "Knows good rock at a glance.",
+    teamTypes: ["prospecting"],
+    effects: [{ kind: "stat", stat: "oreGrade", value: 0.05 }],
+  },
+  {
+    id: "tireless",
+    label: "Tireless",
+    description: "Keeps the drill turning.",
+    teamTypes: ["prospecting"],
+    effects: [{ kind: "stat", stat: "fieldwork", value: 0.08 }],
+  },
+  {
+    id: "rockhound",
+    label: "Rockhound",
+    description: "Lives for an open seam.",
+    teamTypes: ["prospecting"],
+    effects: [{ kind: "poiYield", pois: ["mineralOutcrop"], value: 0.1 }],
+  },
+  {
+    id: "deepVein",
+    label: "Deep Vein",
+    description: "Follows the ore underground.",
+    teamTypes: ["prospecting"],
+    effects: [{ kind: "poiYield", pois: ["caveNetwork", "geothermalChamber"], value: 0.1 }],
   },
 ];
 
-// The traits a recruit of `teamType` can roll, in catalog order (empty for Prospecting today). Pure.
+// The traits a recruit of `teamType` can roll, in catalog order. Pure.
 export function awayTraitsForTeam(teamType: AwayTeamType): AwayTraitDef[] {
   return AWAY_TRAITS.filter((t) => t.teamTypes.includes(teamType));
 }
@@ -174,6 +214,8 @@ const AWAY_STAT_TEXT: Record<AwayMemberStat, string> = {
   fieldwork: "fieldwork",
   relicFind: "relic chance",
   hazardResist: "hazard resistance",
+  oreYield: "yield",
+  oreGrade: "grade",
 };
 
 // A fraction as a percent, rounded to one decimal and printed without a trailing ".0" (0.05 => "5%",

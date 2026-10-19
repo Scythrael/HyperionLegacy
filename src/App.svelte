@@ -15316,7 +15316,7 @@
                     {#each group.pieces as piece (piece.id)}
                       {@const name = memberPieceName(piece)}
                       {@const grade = memberGradeText(piece)}
-                      {@const wearers = memberWearersText(piece)}
+                      {@const wearers = memberWearersText(piece, state)}
                       {@const lockId = `awg-lock-${piece.id}`}
                       <!-- The SAME busy condition the popup's Install on... uses: locked, or already
                            queued / running in the Salvage Bay (a reserved piece cannot install). -->
