@@ -1151,6 +1151,18 @@ see KNOWN_ISSUES.md for actual bugs/gaps; this file is for not-yet-scoped future
   is a projection of the sim" pattern as fuel-runway / XP parity). Do NOT build any event-log or
   animation machinery in 0.13.0; just do not paint the resolver into a corner.
 
+- **Ground teams visual: planet view + animated ground fight replay -> AFTER 0.14.0 (user 2026-10-19).** User asked:
+  "Is there a visual for this system when someone is getting into battle to see what their ground teams are doing on
+  the planet and so forth? Both running around, as well as in-battle?" Answer at the time: no; 0.14.0 shows team
+  timelines (GroundTeamTimeline lanes), the scan track with per-battle "View battle log" text, and the objective queue.
+  User chose "Log for later + mockup (Recommended)": capture now with a mockup, build after 0.14.0. Two views:
+  (1) a PLANET view where each team's marker moves between objectives on the body (deploy, travel, work, fight,
+  retreat, return), driven by the same phase timeline the lanes already show; (2) an animated GROUND FIGHT replay
+  (squad members vs enemies by rank, gambit actions, conditions, kits used) played from the seeded round log
+  (`deriveScanEncounterLog` / the fight's own log). Same rule as the ship battle screen above: pure cosmetic REPLAY of
+  the deterministic log, never the source of truth; SVG only; respects reduced motion; must work at 375 px. Pairs
+  with the 2.0 ship battle screen idea (shared replay layer). Mockup: see the 2026-10-19 artifact.
+
 - **Faction Reputation system -> future, post-combat (user 2026-07-22).** Reputation per faction; low rep triggers escalating consequences:
   - **Severe (very low rep):** a BOUNTY is placed on you and your CAPTAIN can be destroyed (captain-specific death -> ties to the future captain-death + crew-promotion turnover; needs the monotonic captain-id counter combat is already adding). A **Diplomacy spec** could grant account-wide reputation-gain bonuses.
   - **Moderate (bad but not worst, the user's FAVORITE):** that faction's LAW ENFORCEMENT randomly attacks you during their missions. Lose the fight -> you're hauled in and INCARCERATED for X ticks scaled by rep level; serving it RAISES your rep. Player should get an option to SURRENDER or make REPARATIONS instead of fighting. On capture: ship IMPOUNDED + captain in PRISON for a duration (up to ~a day if rep is bad enough).
