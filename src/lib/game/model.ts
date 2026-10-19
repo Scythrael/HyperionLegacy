@@ -6473,7 +6473,14 @@ export interface ShipComplement {
 
 // A "standout" the player plucked out of a bucket into a bounded, named roster. This is the ONLY
 // place a complement crewmember becomes a full object, and it is bounded by design (graduating
-// one drops its origin bucket's count by one).
+// one drops its origin bucket's count by one; crewGraduation.ts graduateStandout). Notables are
+// IDENTITY ONLY (user 2026-10-16, "Let's keep it identity only"): a name and a record, no stat edge;
+// aboard a ship one counts exactly like one crew of its signature.
+//
+// The bound (CP-8, OC-8, user 2026-10-16 "50 fleet-wide (Recommended)"): at most this many notables
+// across the whole fleet, assigned or not. Graduating refuses at the cap.
+export const NOTABLE_CREW_CAP = 50;
+
 export interface NotableCrewMember {
   id: string;
   profession: CrewProfession;
@@ -6489,9 +6496,11 @@ export interface NotableCrewMember {
   // assignedShipId authority). A pinned+applied notable occupies ONE complement slot of its
   // rank/division on top of the fungible bucket bulk. Optional + ADDITIVE: an absent value reads
   // as unassigned (null), so an old save needs no field-level migration for it (the personnelRosters
-  // v56->v57 migration only adds the two fleet-wide roster fields). DORMANT for the tick: folding an
-  // assigned notable's stat contribution into the crew overlay is a documented FOLLOW-ON
-  // (crewOverlay.ts), so with no roster applied all existing behavior is byte-identical.
+  // v56->v57 migration only adds the two fleet-wide roster fields). Graduation assigns the new notable
+  // to its ship; applyRoster assigns pinned ones; "send back" (crewGraduation.ts sendBackNotable)
+  // unassigns. An assigned notable feeds the crew overlay like one crew of its signature (GL-1,
+  // crewOverlay.ts rawShipCrewContribution) and holds its slot in every cap check (auto-crew,
+  // transfer, applyRoster).
   assignedShipId?: string | null;
 }
 
