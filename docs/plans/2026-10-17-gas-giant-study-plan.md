@@ -351,4 +351,8 @@ ancient entries (open call 13); nothing else can move without leaving a false He
 ## USER ANSWERS (2026-10-19)
 
 - **Call 4 supply caches:** "Stop on gas giants (Recommended)": no caches on gas giants; the draw is kept.
-- Still open: 5 to 12.
+- **Call 5 canister mapping:** "Proposed mapping (Recommended)": Standard Hydrogen, Methane; Augmented Ammonia,
+  Deuterium; Stellar Helium-3; Radiant Antimatter Containment Cell.
+- **Call 6 Galileo lines:** "Reuse lines (Recommended)": fieldwork = study speed, hazard resist = crush rating, relic
+  find = ancient data odds; ratios unchanged.
+- Still open: 7 to 12.

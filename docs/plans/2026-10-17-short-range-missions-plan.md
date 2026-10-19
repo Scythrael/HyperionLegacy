@@ -425,4 +425,9 @@ Material Lines and universal modules ahead of G1 in the build order.
   quarters, built in 0.14.0. Its details (label, what it reads beyond guest quarters, reward) asked next.
 - **Call 17, names:** "Keep them (Recommended)".
 - **Call 18, home unload berth:** "Yes, same rules (Recommended)".
-- All 18 calls answered; prisoner transport details pending.
+- **Prisoner Transport needs:** "Security crew rating (Recommended)": reads Guest quarters plus the ship's Security
+  crew strength as a SIXTH sheet category, Security; no squad, still set-and-forget. Consequence (from call 3, one
+  sheet per tier with all stats): every tier sheet gains a Security row.
+- **Prisoner Transport reward:** "Higher credits (Recommended)": about 20% more credits per hour than refugee
+  relocation, still in the Tier II band.
+- All 18 calls answered, plus the prisoner transport details.
