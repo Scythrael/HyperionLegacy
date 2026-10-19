@@ -10,6 +10,7 @@ import { expeditionAwayTeamCheck } from "./expedition";
 import { V67_GROUND_TEAM_COUNT, emptyGroundTeams, shipsWithMemberAutoSlotted } from "./groundTeams";
 import { byIdNumber } from "./awayTeam";
 import { NEUTRAL_SHIP_EVENT_PROFILE } from "./groundOps";
+import { N_FULL, runCountsOf } from "./runDifficulty";
 
 // Ground Operations (GO-1, and the GO-7c multi-team tests): register a SYNTHETIC hull under `key` in the
 // shared SHIP_TYPES table, cloned from the General Freighter with the given `awayTeams` (undefined = a hull
@@ -72,8 +73,9 @@ export function withoutGroundOps(exp: Expedition): Expedition {
 // keeps its order. Pure: shallow copies (the input is never touched).
 // Ground Ops GO-8: a run dispatched before SQ-4 never had ship events either, so they come off too
 // (withoutShipEvents). Field Kits FKR-1: nor enemy ranks (withoutEnemyRanks).
+// Safe first runs SF-2: nor the training run (withoutSafeFirstRuns).
 export function withoutRisk(exp: Expedition): Expedition {
-  const rest = { ...withoutShipEvents(withoutEnemyRanks(exp)) };
+  const rest = { ...withoutShipEvents(withoutEnemyRanks(withoutSafeFirstRuns(exp))) };
   delete rest.risk;
   rest.bodies = exp.bodies.map((b) => {
     const body = { ...b };
@@ -97,9 +99,9 @@ export function withoutShipEvents(exp: Expedition): Expedition {
 // stamped on an affix-aware run also carries `affixes`, `difficultyScore`, `alert` and `visits`, which come off
 // too. Every other key keeps its order. A run without a profile is returned as it is. Pure: shallow copies.
 // Field Kits FKR-1: a run dispatched before AF-1 never had enemy ranks either, so the flag comes off too
-// (withoutEnemyRanks), on every run.
+// (withoutEnemyRanks), on every run. Safe first runs SF-2: nor the training run (withoutSafeFirstRuns).
 export function withoutAffixes(raw: Expedition): Expedition {
-  const exp = withoutEnemyRanks(raw);
+  const exp = withoutEnemyRanks(withoutSafeFirstRuns(raw));
   if (!exp.risk) return exp;
   const risk = { ...exp.risk } as Record<string, unknown>;
   delete risk.difficultyTier;
@@ -144,6 +146,43 @@ export function withoutEnemyRanksState(state: GameState): GameState {
 export function asPreRanksDispatch<R extends { next: GameState; expedition?: Expedition }>(res: R): R {
   if (!res.expedition) return res;
   return { ...res, expedition: withoutEnemyRanks(res.expedition), next: withoutEnemyRanksState(res.next) };
+}
+
+// Safe first runs SF-2 (docs/plans/2026-10-15-safe-first-runs-plan.md): the run as the same dispatch made it BEFORE
+// SF-2, i.e. a run in flight at the update: no training run stamp (`Expedition.difficulty`, written only on the
+// training run) and the retired 30 minute shakedown back on the account's first run (`shakedown` true on
+// "expedition-1", the pre-SF-2 rule nextExpeditionId === 1). Nothing else in a dispatch record differs, and every
+// run below the stamp then resolves exactly as before SF-2 (the in-flight path). Every other key keeps its order. A
+// record already in that shape is returned as it is. Golden fixtures that pin a dispatch from before SF-2 (FK-3,
+// FKR-0, CP-0, WR-4, the G2-0 shakedowns and the earlier gates) strip it with this. Pure: a shallow copy.
+export function withoutSafeFirstRuns(exp: Expedition): Expedition {
+  const shakedown = exp.id === "expedition-1";
+  if (!("difficulty" in exp) && exp.shakedown === shakedown) return exp;
+  const rest = { ...exp, shakedown };
+  delete rest.difficulty;
+  return rest;
+}
+
+// A whole state with every expedition through withoutSafeFirstRuns. Identity when nothing changes. Pure.
+export function withoutSafeFirstRunsState(state: GameState): GameState {
+  if (state.expeditions.every((e) => withoutSafeFirstRuns(e) === e)) return state;
+  return { ...state, expeditions: state.expeditions.map(withoutSafeFirstRuns) };
+}
+
+// Safe first runs SF-2: a dispatch result turned into the run it was before SF-2 (withoutSafeFirstRuns on the
+// returned expedition and every expedition in `next`). A refusal is returned unchanged. Pure.
+export function asPreSafeFirstRunsDispatch<R extends { next: GameState; expedition?: Expedition }>(res: R): R {
+  if (!res.expedition) return res;
+  return { ...res, expedition: withoutSafeFirstRuns(res.expedition), next: withoutSafeFirstRunsState(res.next) };
+}
+
+// Safe first runs SF-2: `state` as a save whose expedition training run is behind it and whose curve reads full
+// strength (runDifficulty.ts: veteran, training done, N_FULL completed), so its next expedition from ANY hull is an
+// ordinary run, exactly as before SF-2 (apart from the retired shakedown length). Tests that pin nominal play on an
+// explorer from a fresh save go through this. Pure.
+export function asExpeditionVeteran(state: GameState): GameState {
+  const counts = runCountsOf(state);
+  return { ...state, runCounts: { ...counts, expedition: { completed: N_FULL, trainingDone: true, veteran: true } } };
 }
 
 // Field Kits (FK-3, docs/plans/2026-10-14-field-kits-plan.md section 3): the run WITHOUT its Field Kits fields, i.e.
@@ -208,8 +247,9 @@ export function withoutFieldKitsState(state: GameState): GameState {
 // produced between AF-1 and AF-2 (its objectives stamp from AF-1's catalog, Reinforcing only, on AF-1's draw
 // layout). Every other key keeps its order. A run without a profile is returned as it is. Pure: shallow copies.
 // Field Kits FKR-1: a run dispatched before AF-2 never had enemy ranks either (withoutEnemyRanks), on every run.
+// Safe first runs SF-2: nor the training run (withoutSafeFirstRuns).
 export function withoutAffixCatalog(raw: Expedition): Expedition {
-  const exp = withoutEnemyRanks(raw);
+  const exp = withoutEnemyRanks(withoutSafeFirstRuns(raw));
   if (!exp.risk) return exp;
   const risk = { ...exp.risk } as Record<string, unknown>;
   delete risk.affixCatalog;

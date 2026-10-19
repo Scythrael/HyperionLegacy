@@ -25,7 +25,8 @@ const withoutMode = (r: SimReport): Omit<SimReport, "advance"> => {
 };
 
 describe("WR-2 simulated player: determinism and offline == live", () => {
-  it("the same policy and seed give the same report (allAuto, seed 0)", () => {
+  // SF-2: the training run flies the regular transit now (no 30 minute shakedown), so the run is longer to simulate.
+  it("the same policy and seed give the same report (allAuto, seed 0)", { timeout: 60_000 }, () => {
     const a = simulate(ALL_AUTO, { seed: 0 });
     const b = simulate(ALL_AUTO, { seed: 0 });
     expect(b).toEqual(a);
@@ -68,7 +69,7 @@ describe("WR-2 choice ablation: a live choice moves, an inert one is dead", () =
   });
 });
 
-describe("WR-2 safe first runs: the allAuto newcomer baseline, characterized today (SF-2 / SF-4 flip these)", () => {
+describe("WR-2 safe first runs: the allAuto newcomer baseline (SF-2 flipped the expedition; SF-4 flips the patrol)", () => {
   it("the sim's Orion is a legal hull: exactly the SF-0 onHull loadout (its own one-hardpoint baselines)", () => {
     const s = simStartState(ALL_AUTO).state;
     const fitted = (x: typeof s) => x.equipment.filter((e) => e.fittedToShipId === "ship-1");
@@ -76,21 +77,20 @@ describe("WR-2 safe first runs: the allAuto newcomer baseline, characterized tod
     expect(fitted(s).filter((e) => e.slotType === "weapon").length).toBe(1);
   });
 
-  it("seed 0: the gathering run delivers, the first Sweep is won, the first expedition (the shakedown) stalls", () => {
-    const r = simulate(ALL_AUTO, { seed: 0 });
+  // SF-2: the first explorer expedition is the TRAINING RUN (the regular transit, so the horizon covers its return):
+  // the weakest launchable crew finishes it 100% with no lost fight and no setback.
+  it("seed 0: the gathering run delivers, the first Sweep is won, the first expedition (the training run) is safe", { timeout: 60_000 }, () => {
+    const r = simulate(ALL_AUTO, { seed: 0, horizonSeconds: 60_000 });
     expect(r.gather).toEqual({ mission: "shortOreRun", refusal: null, deliveries: 7, firstDeliverySeconds: 180, defeat: false });
     // WR-4 (B14): the player side acts first now, so the Sweep ends with more shield left (279, was 236).
     expect(r.patrol).toEqual({ patrol: "crimsonReaverSweep", refusal: null, won: true, endReason: "ordersComplete", repairSeconds: null, wavesWon: 2, wavesLost: 0, hullLeft: 340, shieldLeft: 279 });
     const first = r.expeditions[0];
-    expect(first.shakedown).toBe(true);
+    expect(first.shakedown).toBe(false);
     expect(first.candidate).toBe(0);
-    // TODAY (characterization): the weakest launchable crew cannot finish the shakedown. Safe First Runs OC-1 / OC-2
-    // require it to finish 100% with no setbacks; SF-2 makes this "safe" and updates this pin.
-    expect(r.firstExpedition).toEqual({
-      verdict: "stalled",
-      safe: false,
-      reasons: ["stalled: 0/11 objectives done, stuck on derelictOutpost", "3 lost fights"],
-    });
+    // Before SF-2 (characterization): "stalled: 0/11 objectives done, stuck on derelictOutpost", "3 lost fights".
+    // Safe First Runs OC-1 / OC-2: the weakest launchable crew finishes 100% with no setbacks.
+    expect(r.firstExpedition).toEqual({ verdict: "safe", safe: true, reasons: [] });
+    expect(first).toMatchObject({ end: "complete", claimed: true, objectivesDone: 11, objectivesTotal: 11, lostFights: 0, hullDamage: 0, setbacks: 0, boardingLoss: 0 });
   });
 });
 
@@ -107,10 +107,9 @@ describe("WR-2 newcomer archetype: the real new game", () => {
     expect(r.patrol?.refusal).toBeNull();
     // CURRENT BEHAVIOR, flipped by G2: the freighter launches an expedition today. User rules since WR-2: the
     // training run is the first expedition FROM AN EXPLORER, and only explorers reach expedition systems (G2's reach
-    // gate), so this launch is "not the training run" and G2 makes it a refusal. The engine's shakedown flag still
-    // means "first expedition on the account" (expedition.ts startExpedition, nextExpeditionId === 1); SF must make it
-    // "first from an explorer".
+    // gate), so this launch is "not the training run" and G2 makes it a refusal. SF-2 retired the account's 30 minute
+    // shakedown, so this first launch is an ordinary run.
     expect(r.expeditions.length).toBe(1);
-    expect(r.expeditions[0].shakedown).toBe(true);
+    expect(r.expeditions[0].shakedown).toBe(false);
   });
 });

@@ -14,9 +14,11 @@
 // - Existing saves count as done (veterans): a save that flew a type before 0.14.0 never gets its training run, and
 //   its curve reads full strength, so it plays exactly as today (save.ts v70, veteranRunCountsV70 below).
 //
-// SF-1 changes NO behavior: nothing reads the stamp, the curve or the training rule yet. SF-2 stamps the expedition
-// (runDifficultyAt in buildExpedition) and applies the training profile; SF-3 the ramp and the hazard ceiling; SF-4 the
-// patrol; G1 the short-range missions (keyed per template).
+// SF-1 changed NO behavior. SF-2 stamps the expedition TRAINING RUN (runDifficultyAt in expedition.ts buildExpedition,
+// written only when firstRun is true) and applies its profile (FIRST_RUN_ENEMY_SCALE and FIRST_RUN_MAX_ENEMIES in
+// groundFight.ts, no affixes or ambushes and the fell-back backstop in groundOps.ts, pass-only ship events, Guaranteed
+// odds, expedition.ts TUTORIAL_TRANSIT_SECONDS); SF-3 the ramp and the hazard ceiling (and the stamp on ramped runs);
+// SF-4 the patrol; G1 the short-range missions (keyed per template).
 
 import {
   SHIP_TYPES,

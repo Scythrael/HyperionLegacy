@@ -29,8 +29,12 @@
 // seed (gambit.ts NEURAL_BACKUP_SALT), never a draw on the fight's. Never the legacy COMBAT_SALT stream and
 // never a shared one. The result reads only the stored run and the arguments, so offline == live.
 //
-// Module graph: model (types), combat/rng, gambit, medicalBay, relics, groundTasks, riskFactors, affixes, enemyRanks;
-// never expedition.ts.
+// SAFE FIRST RUNS (SF-2): on a training run (enemyRanks.ts isTrainingRun) the guard reads hazard 0 and the training
+// profile (gambit.ts generateEncounter's EncounterProfile: runDifficulty.ts FIRST_RUN_ENEMY_SCALE and
+// FIRST_RUN_MAX_ENEMIES). Same seed, same draws.
+//
+// Module graph: model (types), combat/rng, gambit, medicalBay, relics, groundTasks, riskFactors, affixes, enemyRanks,
+// runDifficulty; never expedition.ts.
 
 import type {
   Expedition,
@@ -60,7 +64,8 @@ import { resistedHazard } from "./relics";
 import { teamSnapshotMembers } from "./groundTasks";
 import { FLORA_POISON_PERMILLE_PER_GRADE, bodyFloraGrade } from "./riskFactors";
 import { escalationAt, hasCover, type GroundCover } from "./affixes";
-import { fightLeadRank, fightRankContext, rankedEnemies, ranksLive, withEnemyRanks, type RankedFightKind } from "./enemyRanks";
+import { fightLeadRank, fightRankContext, isTrainingRun, rankedEnemies, ranksLive, withEnemyRanks, type RankedFightKind } from "./enemyRanks";
+import { FIRST_RUN_ENEMY_SCALE, FIRST_RUN_MAX_ENEMIES } from "./runDifficulty";
 
 // ===== Constants =====
 
@@ -271,7 +276,9 @@ export type TaskFightExp = Pick<
 // THE GUARD a task fight fields on a given stream seed, as fresh combatants: generateEncounter on the body's hazard
 // after the museum resist, the flora toxins, the alert's escalation and (Field Kits FKR-1, a ranked run only) the
 // enemy ranks. resolveTaskFightOnSeed fields exactly this list; the wiring probe reads it (the ranks' HP and power on a
-// real fight). Pure.
+// real fight). Safe first runs SF-2: a TRAINING RUN's guard reads hazard 0 and the training profile (runDifficulty.ts:
+// one enemy at FIRST_RUN_ENEMY_SCALE of its strength; same seed, same draws); every other run's guard is exactly as
+// before. Pure.
 export function taskFightGuard(
   exp: Pick<TaskFightExp, "hazardResist" | "enemyRanks" | "difficulty">,
   body: Pick<ExpeditionBody, "hazard" | "risk">,
@@ -280,10 +287,10 @@ export function taskFightGuard(
   alertLevel = 0,
   kind: RankedFightKind = "point",
 ): GroundCombatant[] {
-  const enemies = withEscalation(
-    withFloraToxins(generateEncounter(seed, resistedHazard(body.hazard, exp.hazardResist ?? 0), task.poiId), bodyFloraGrade(body)),
-    alertLevel,
-  );
+  const training = isTrainingRun(exp);
+  const hazard = training ? 0 : resistedHazard(body.hazard, exp.hazardResist ?? 0);
+  const profile = training ? { scale: FIRST_RUN_ENEMY_SCALE, maxEnemies: FIRST_RUN_MAX_ENEMIES } : undefined;
+  const enemies = withEscalation(withFloraToxins(generateEncounter(seed, hazard, task.poiId, profile), bodyFloraGrade(body)), alertLevel);
   if (ranksLive(exp)) withEnemyRanks(enemies, fightLeadRank(fightRankContext(exp, task, task.fightPoints?.length ?? 0, kind)));
   return enemies;
 }

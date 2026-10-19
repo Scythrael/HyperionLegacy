@@ -44,7 +44,7 @@ import { canDispatch, canDispatchPatrol, installMissingCombatBaselines, shipRang
 import { deserialize, migrate, serialize, type SaveFile } from "./save";
 import { telescopeReadingAtLevel } from "./telescope";
 import { telescopeCardView, telescopeMapView } from "../telescopeCardDisplay";
-import { asPreRanksDispatch, plainAwayMember, withSlottedAwayTeams } from "./awayTeamTestFixtures";
+import { asPreRanksDispatch, asPreSafeFirstRunsDispatch, plainAwayMember, withSlottedAwayTeams } from "./awayTeamTestFixtures";
 import { PRE_G2_STORED_RUNS } from "./expeditionTiersGoldens.fixture";
 
 // ===== shared helpers =====
@@ -286,9 +286,12 @@ describe("G2-0 golden 1: legacy in-flight runs restored from their stored record
 // ===== 2. fresh dispatches =====
 
 // Field Kits FKR-1: every fresh dispatch here is the run as dispatched before enemy ranks (the flag off), so golden 2
-// and golden 4 keep their capture; ranked runs are groundOpsRanks.test.ts's business.
+// and golden 4 keep their capture; ranked runs are groundOpsRanks.test.ts's business. Safe first runs SF-2: and as
+// dispatched before SF-2 (asPreSafeFirstRunsDispatch: no training stamp, the retired 30 minute shakedown back on
+// expedition 1), so the shakedown rows keep proving the in-flight path; the training run is
+// safeFirstExpedition.test.ts's business.
 function freshRun(nextExpeditionId: number, candidateId: string): { exp: Expedition; done: Expedition; tl: [string, number][]; claimed: GameState } {
-  const res = asPreRanksDispatch(startExpedition(crewed(nextExpeditionId), "ship-1", 1, candidateId));
+  const res = asPreSafeFirstRunsDispatch(asPreRanksDispatch(startExpedition(crewed(nextExpeditionId), "ship-1", 1, candidateId)));
   if (!res.success || !res.expedition) throw new Error(`dispatch refused: ${res.reason}`);
   const exp = res.expedition;
   const tl = timeline(exp);
@@ -331,7 +334,7 @@ describe("G2-0 golden 2: fresh dispatches of candidates 0, 1 and 2, full timelin
   }
 
   it("shakedown cand-0: one call == 997 s chunks == 1 s steps == the event-boundary chain", () => {
-    expectParity(asPreRanksDispatch(startExpedition(crewed(1), "ship-1", 1, "cand-0")).expedition!); // FKR-1: flag off
+    expectParity(asPreSafeFirstRunsDispatch(asPreRanksDispatch(startExpedition(crewed(1), "ship-1", 1, "cand-0"))).expedition!); // FKR-1, SF-2: as before both
   });
 });
 
@@ -503,7 +506,7 @@ describe("G2-0 golden 4: reach and eligibility for every hull x every mission an
           awayMembers: [plainAwayMember("member-1", "security", "ship-1"), plainAwayMember("member-11", "science", "ship-1")],
           nextAwayMemberId: 100,
         });
-        const res = asPreRanksDispatch(startExpedition(state, "ship-1", 1, "cand-0")); // FKR-1: flag off (see freshRun)
+        const res = asPreSafeFirstRunsDispatch(asPreRanksDispatch(startExpedition(state, "ship-1", 1, "cand-0"))); // FKR-1, SF-2: see freshRun
         if (res.success) launched += 1;
         out.push(`${boost ? "boost" : "stock"}:${hull}:${hash({ ...res, next: withoutG2State(res.next), expedition: res.expedition ? withoutG2Run(res.expedition) : null })}`);
       }

@@ -30,8 +30,10 @@
 // GHOST_FIND_SALT (expedition.ts, at the body's completion), each keyed by the boundary. Ramped values (the
 // officers' Constitution ramp on the ship's combat bonuses) read the event's WALL time, passed in as hoursOut.
 //
+// SAFE FIRST RUNS (SF-2): a training run's events fire and always pass (trainingShipEvent).
+//
 // Module graph: imports model, combat/*, gambit (rollHaul, scanStepKey), crewOverlay, equipment, officerStats,
-// diminishing, relics. Never imports expedition.ts or groundOps.ts. PURE throughout.
+// diminishing, relics, enemyRanks. Never imports expedition.ts or groundOps.ts. PURE throughout.
 //
 // EVERY NUMBER BELOW IS FIRST-PASS TUNABLE; the [PROVISIONAL] ones answer open questions Q12, Q13, Q19.
 
@@ -60,6 +62,8 @@ import { CREW_STAT_KEYS } from "./crewBuffs";
 import { departmentFacet } from "./officerStats";
 import { diminishing } from "./diminishing";
 import { resistedHazard } from "./relics";
+// Safe first runs SF-2: the training run stamp's one read (pass-only events).
+import { isTrainingRun } from "./enemyRanks";
 
 // ===== Salts (odd, distinct from every engine salt: salts.test.ts) =====
 
@@ -273,6 +277,7 @@ export function resolveShipScanEventFromDraws(
   const kind = shipEventKindOf(draws);
   const event: ExpeditionScanEvent = { bodyIndex, step, kind: "shipEvent", event: kind };
   if (!profile || !battle) return { event, finding: null };
+  if (isTrainingRun(exp)) return trainingShipEvent(exp, body, bodyIndex, step, kind, draws, event);
   const wear = (share: number): number => Math.max(1, Math.round(share * battle.hullMax));
   const ship = buildShipCombatant(exp.shipId || "ship", battle, hoursOut, exp.groundOps?.hullDamage ?? 0);
   let finding: ExpeditionFinding | null = null;
@@ -326,6 +331,32 @@ export function resolveShipScanEventFromDraws(
       }
       break;
     }
+  }
+  return { event, finding };
+}
+
+// Safe first runs SF-2 (user SF8, "events fire and always pass"): a TRAINING RUN's ship event fires as drawn (the same
+// kind from draws 1 and 3, a boarding attempt on draw 4) and every check passes: debris and the storm pass, a ghost
+// passes with its bonus discovery, a probe or cloaked vessel is beaten off with its salvage (no battle is fought), a
+// boarding attempt is repelled. No pause, no hull wear, nothing taken. No draw beyond the fixed five. Pure.
+function trainingShipEvent(
+  exp: Expedition,
+  body: ExpeditionBody,
+  bodyIndex: number,
+  step: number,
+  kind: ShipScanEventKind,
+  draws: ShipEventDraws,
+  event: ExpeditionScanEvent,
+): ShipScanEventResult {
+  let finding: ExpeditionFinding | null = null;
+  if (kind === "probe" || kind === "cloaked") {
+    event.outcome = "win";
+    finding = shipEventSalvage(exp, body, bodyIndex, step, kind === "cloaked");
+    event.findingId = finding.id;
+    if (draws.boardingAttempt < chanceUnits(BOARDING_ATTEMPT_CHANCE)) event.boarding = { repelled: true };
+  } else {
+    event.outcome = "pass";
+    if (kind === "ghost") event.bonusDiscovery = true;
   }
   return { event, finding };
 }

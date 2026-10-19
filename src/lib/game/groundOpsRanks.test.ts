@@ -106,6 +106,12 @@ function handRun(state: GameState, pois: string[], risk: BodyRiskGrades, ranked:
 const tasksOf = (e: Expedition): ExpeditionActivity[] => e.bodies[0].activities;
 const ranked = (e: Expedition): Expedition => ({ ...e, enemyRanks: RANKED });
 const training = (e: Expedition): Expedition => ({ ...e, difficulty: TRAINING });
+// Safe first runs SF-2: the same run WITHOUT the training stamp (an ordinary run; nothing else changes).
+const notTraining = (e: Expedition): Expedition => {
+  const rest = { ...e };
+  delete rest.difficulty;
+  return rest;
+};
 
 const fightTeamsOf = (exp: Expedition, indices: number[] = [0]): GroundFightTeam[] =>
   indices.map((i) => {
@@ -295,20 +301,22 @@ describe("FKR-1 the guard a fight fields, and Weak left to SF-3", () => {
 // ===== the training run =====
 
 describe("FKR-1 the training run fields no Elite or Boss", () => {
-  it("SEAM: no dispatch stamps the training run yet (SF-1 typed Expedition.difficulty; SF-2 writes it), so a fresh save's first run reads as not one: flips to true at SF-2", () => {
+  it("SEAM, flipped at SF-2: a fresh save's first explorer run is stamped as the training run and reads as one", () => {
     const exp = startExpedition(withCrew(onHull("orion"), "d18"), "ship-1", 1, "cand-0").expedition!;
-    expect(exp.shakedown).toBe(true);
-    expect(exp.difficulty).toBeUndefined();
-    expect(isTrainingRun(exp)).toBe(false);
+    expect(exp.shakedown).toBe(false); // SF-2 retired the 30 minute shakedown
+    expect(exp.difficulty).toEqual({ version: 1, firstRun: true, ramp: 0, tier: 1 });
+    expect(isTrainingRun(exp)).toBe(true);
   });
 
+  // SF-2: a training run's guards are also scaled down (its own profile), so the twin it must equal is the UNRANKED
+  // training run.
   it("a ranked run stamped as a training run fights every final exactly as an unranked one", () => {
     for (const which of ["Low", "High"] as const) {
       const plain = gradeRun(which);
       const twin = training(ranked(plain));
       expect(isTrainingRun(twin)).toBe(true);
       const teams = fightTeamsOf(plain);
-      for (const [k, t] of tasksOf(plain).entries()) expect(pointFight(twin, teams, k, t.fightPoints!.length - 1), `${which} ${t.poiId}`).toEqual(pointFight(plain, teams, k, t.fightPoints!.length - 1));
+      for (const [k, t] of tasksOf(plain).entries()) expect(pointFight(twin, teams, k, t.fightPoints!.length - 1), `${which} ${t.poiId}`).toEqual(pointFight(training(plain), teams, k, t.fightPoints!.length - 1));
     }
   });
 
@@ -322,8 +330,10 @@ describe("FKR-1 the training run fields no Elite or Boss", () => {
       const unranked = training(withoutEnemyRanks(exp));
       const a = advanceExpedition(asTraining, END);
       expect(withoutEnemyRanks(a), cand).toEqual(advanceExpedition(unranked, END));
-      // Without the training stamp the same run DOES field ranks somewhere (the check above is not vacuous).
-      if (JSON.stringify(withoutEnemyRanks(advanceExpedition(exp, END))) !== JSON.stringify(withoutEnemyRanks(advanceExpedition(withoutEnemyRanks(exp), END)))) ranksSeen += 1;
+      // Without the training stamp the same run DOES field ranks somewhere (the check above is not vacuous). SF-2: the
+      // dispatch stamps it now, so the ordinary twin takes it off (notTraining).
+      const ordinary = notTraining(exp);
+      if (JSON.stringify(withoutEnemyRanks(advanceExpedition(ordinary, END))) !== JSON.stringify(withoutEnemyRanks(advanceExpedition(withoutEnemyRanks(ordinary), END)))) ranksSeen += 1;
     }
     expect(ranksSeen).toBeGreaterThan(0);
   });
@@ -356,7 +366,8 @@ describe("FKR-1 the stamped twin of FKR-0 (3): the threat odds read the ranks, a
           if (r.grade <= 2) expect(b[i].wins, `${which} grade ${r.grade}`).toBe(r.wins);
           else expect(b[i].wins, `${which} grade ${r.grade}`).toBeLessThanOrEqual(r.wins);
           if (b[i].wins < r.wins) dropped += 1;
-          expect(t[i].wins, `${which} grade ${r.grade}: a training run reads unranked`).toBe(r.wins);
+          // SF-2: a training run reads Guaranteed (its backstop clears every fight point, groundThreat.ts).
+          expect(t[i].wins, `${which} grade ${r.grade}: a training run reads Guaranteed`).toBe(32);
           // The memo key: a ranked read never shares an unranked one's key, nor a training run's.
           expect(b[i].key).not.toBe(r.key);
           expect(t[i].key).not.toBe(b[i].key);

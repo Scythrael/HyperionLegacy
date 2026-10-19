@@ -6948,12 +6948,17 @@ export interface Expedition {
   sensorPower: number; // effectiveShipStats(...).sensors snapshotted at dispatch (crew-inclusive)
   phase: ExpeditionPhase;
   phaseAnchorSeconds: number; // gameTimeSeconds when the current phase started
-  shakedown: boolean; // the inaugural per-account run (shorter transit)
+  // The inaugural per-account run's shorter (30 minute) transit. RETIRED by safe first runs SF-2 (user, group 3: the
+  // first explorer run takes the regular length through expedition.ts TUTORIAL_TRANSIT_SECONDS): every run dispatched
+  // since SF-2 stores false; a run in flight at the update keeps its stored value and its 30 minute legs.
+  shakedown: boolean;
   // Safe first runs (plan 2026-10-15, SF-1 type; SF-2 writes it in buildExpedition through runDifficulty.ts
-  // runDifficultyAt): the run's DIFFICULTY, frozen at dispatch. `firstRun` = the training run (the first expedition
-  // from an explorer). Read today only by the run counters (runDifficulty.ts: a claimed training run marks training
-  // done; a stamped training run out blocks a second). Absent = today's path (every run dispatched before SF-2).
-  // Optional, no SAVE bump.
+  // runDifficultyAt): the run's DIFFICULTY, frozen at dispatch. `firstRun` = the TRAINING RUN (the first expedition
+  // from an explorer). SF-2 writes it ONLY on the training run (SF-3 stamps the ramped runs): enemyRanks.ts
+  // isTrainingRun reads it, and the training profile (every enemy Normal and scaled down to one per fight, no
+  // affixes, no ambushes, pass-only ship events, a lost fight still clears its point, the tutorial transit) keys on
+  // it. Also read by the run counters (a claimed training run marks training done; a stamped training run out
+  // blocks a second). Absent = today's path (every other run). Optional, no SAVE bump.
   difficulty?: RunDifficultyStamp;
   bodies: ExpeditionBody[];
   anomalyResolved: boolean; // the mid-transit anomaly-chart roll has fired
@@ -7327,6 +7332,9 @@ export interface GroundStepRecord {
   surprise?: true; // a fight step that was an ambush met as a surprise fight (Squads SQ-4)
   reinforcement?: true; // a fight step that was a Reinforcing extra battle (objective affixes, AF-1)
   stopped?: true; // GO-7d: the player's edit (skip, or a reassign away) ended this trip here; the crew headed back
+  // Safe first runs SF-2: a fight step LOST on a training run whose guards FELL BACK (the backstop): its fight point
+  // cleared anyway and nothing was set back (no alert, no loss streak, no send-back); the crew still came home.
+  fellBack?: true;
 }
 
 // GO-7b (user Q1, 2026-10-12): a RECOVERY LEG. A WIPED team cannot leave on its own ("can't leave them to die"):
@@ -7417,6 +7425,13 @@ export type GroundOpsLogEntry =
       // Objective affixes (AF-1): an objective's alert lapsed at `at` ("the threat appears to have retreated").
       at: number;
       kind: "alertReset";
+      taskId: string;
+    }
+  | {
+      // Safe first runs SF-2: a training run's fight was lost at `at` and its guards fell back (the backstop): the
+      // fight point cleared, no setback (groundOps.ts TRAINING_FELL_BACK_TEXT).
+      at: number;
+      kind: "trainingFellBack";
       taskId: string;
     };
 
@@ -7845,8 +7860,8 @@ export interface GameState {
   expeditions: Expedition[];
   // Monotonic id source for a new Expedition.id ("expedition-N"); never reused, mirrors nextShipId.
   // freshState seeds 1 so the first minted id is "expedition-1"; the v58->v59 migration backfills 1.
-  // ALSO the per-account "first expedition" signal: nextExpeditionId === 1 means none has ever been
-  // dispatched, which startExpedition reads to give the inaugural run its shorter SHAKEDOWN transit.
+  // It used to give the inaugural run (nextExpeditionId === 1) its shorter SHAKEDOWN transit; safe first runs SF-2
+  // retired that (the training run, runDifficulty.ts isTrainingExpedition, is the first run from an explorer).
   nextExpeditionId: number;
   // The per-save expedition PRNG seed. Each dispatched expedition derives its OWN stable seed from
   // this seed + its expedition number (expedition.ts makeExpeditionSeed), so every expedition's

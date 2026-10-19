@@ -33,6 +33,7 @@ import { advanceExpedition, claimExpedition, startExpedition } from "./expeditio
 import { dispatchCaptainOnPatrol, economyTick } from "./tick";
 import { migrate, serialize, deserialize, SAVE_VERSION, type SaveFile } from "./save";
 import { onHull, withCrew } from "./firstRunsGoldens.fixture";
+import { asPreSafeFirstRunsDispatch } from "./awayTeamTestFixtures";
 
 const RNG = (): number => 0.5;
 
@@ -221,18 +222,27 @@ describe("SF-1: the stamp a dispatch would write (consumed by SF-2 to SF-4)", ()
 });
 
 describe("SF-1: the engine writes the counters", () => {
-  it("claimExpedition counts a claimed run (no stamp yet: an ordinary run) and changes nothing else", () => {
-    // A full rank-3 Eir finishes every fresh candidate (plan section 2.5 A), so the run reaches its claim.
+  it("claimExpedition counts a claimed run (SF-2: the training run marks training done, an ordinary run counts once) and changes nothing else", () => {
+    // SF-2: an Eir's first run is the training run (stamped); its claim marks training done and is not counted.
     const crewed = withCrew(onHull("eir"), "rank3");
-    const res = startExpedition(crewed, "ship-1", 1, "cand-1");
+    const first = startExpedition(crewed, "ship-1", 1, "cand-1");
+    expect(first.expedition!.difficulty?.firstRun).toBe(true);
+    const trained = claimExpedition({ ...first.next, expeditions: [advanceExpedition(first.expedition!, 3_000_000)] }, first.expedition!.id);
+    expect(trained.success).toBe(true);
+    expect(runCountsOf(trained.next).expedition).toEqual({ completed: 0, trainingDone: true, veteran: false });
+    // An ordinary run (training done, no stamp). A full rank-3 Eir finishes every fresh candidate (plan section 2.5
+    // A), so the run reaches its claim.
+    const ordinary = { ...crewed, runCounts: { ...crewed.runCounts!, expedition: { completed: 0, trainingDone: true, veteran: false } } };
+    const res = startExpedition(ordinary, "ship-1", 1, "cand-1");
     expect(res.success).toBe(true);
-    expect(res.next.runCounts).toEqual(crewed.runCounts); // dispatch writes no counter
+    expect(res.expedition!.difficulty).toBeUndefined();
+    expect(res.next.runCounts).toEqual(ordinary.runCounts); // dispatch writes no counter
     const done = advanceExpedition(res.expedition!, 3_000_000);
     expect(done.phase).toBe("complete");
     const before = { ...res.next, expeditions: [done] };
     const claim = claimExpedition(before, done.id);
     expect(claim.success).toBe(true);
-    expect(runCountsOf(claim.next).expedition).toEqual({ completed: 1, trainingDone: false, veteran: false });
+    expect(runCountsOf(claim.next).expedition).toEqual({ completed: 1, trainingDone: true, veteran: false });
     const { runCounts: _a, ...rest } = claim.next;
     const { runCounts: _b, ...restWithoutCount } = claimExpedition({ ...before, runCounts: undefined }, done.id).next;
     expect(restWithoutCount).toEqual(rest);
@@ -340,7 +350,8 @@ describe("SF-1: SAVE v70, existing saves count as done (veterans)", () => {
 
   it("an in-flight run is unchanged by the migration and counts once at its claim", () => {
     const crewed = withCrew(onHull("eir"), "rank3");
-    const res = startExpedition(crewed, "ship-1", 1, "cand-1");
+    // SF-2: a v69 save's in-flight run was dispatched before SF-2 (no training stamp, the shakedown).
+    const res = asPreSafeFirstRunsDispatch(startExpedition(crewed, "ship-1", 1, "cand-1"));
     const restored = migrate(v69(res.next));
     expect(restored.expeditions).toEqual(res.next.expeditions);
     expect(restored.runCounts!.expedition).toEqual({ completed: 0, trainingDone: true, veteran: true });

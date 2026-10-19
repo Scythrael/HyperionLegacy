@@ -393,7 +393,9 @@ describe("the candidate carries the telescope reading", () => {
       delete copy.blindLaunches;
       return JSON.parse(JSON.stringify(copy));
     };
-    const CHECKPOINTS = [T0 + 10_000, T0 + 30_000, T0 + 60_000, T0 + 120_000, T0 + 400_000];
+    // Safe first runs SF-2: the last checkpoint leaves room for the regular transit legs (the 30 minute shakedown is
+    // retired), so the run still completes and is claimed.
+    const CHECKPOINTS = [T0 + 10_000, T0 + 30_000, T0 + 60_000, T0 + 120_000, T0 + 400_000, T0 + 800_000];
     let reference: string[] | null = null;
     let claimed = 0;
     for (let level = 0; level <= 8; level++) {
