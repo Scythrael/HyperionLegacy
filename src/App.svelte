@@ -456,6 +456,7 @@
     canUnslotMember,
     groundSlotBlockText,
     groundTeamName,
+    groundTeamDefaultName,
     planComposition,
     previewGroundTeamKind,
     renameGroundTeam,
@@ -528,6 +529,7 @@
     updateRoster,
     deleteRoster,
     setLinkedLoadout,
+    setLinkedSquadLoadout,
     setIncludePeople,
     assignSeat,
     pinNotable,
@@ -991,7 +993,20 @@
     loadoutCap, canCreateLoadout, createLoadout, renameLoadout, deleteLoadout,
     loadoutSlotDefsForShipType, installIntoLoadout, uninstallFromLoadout, loadoutInstallCandidates,
     checkOutLoadout, checkInLoadout, type LoadoutSlotDef,
+    // Ground Ops GO-17 UI: the ground team (squad) loadout lifecycle.
+    createGroundTeamLoadout, applyGroundTeamLoadout, checkInGroundTeamLoadout, renameGroundTeamLoadout,
+    deleteGroundTeamLoadout, type GroundLoadoutResult,
   } from "./lib/game/armory";
+  // Ground Ops GO-17 UI: the Armory's Squad Loadouts tab (display decisions in squadLoadoutDisplay.ts, tested).
+  import SquadLoadoutsPanel from "./lib/SquadLoadoutsPanel.svelte";
+  import {
+    applyReportView,
+    armoryCountShort,
+    armoryCountText,
+    blockReasonText,
+    createReportView,
+    reportLogText,
+  } from "./lib/squadLoadoutDisplay";
   // ITEM LIFECYCLE 0.13.6 (the Archive, Phase 4): the completionist record, pure over GameState.
   import { archivableBlueprints, archiveCompletion, archiveItem, itemScore, maxItemScore } from "./lib/game/archive";
   // Crafting 0.13.3 (Phase 4 Unit 4.2): the PURE queue view model. Every queue readout on a
@@ -2382,6 +2397,15 @@
   type ArchiveSubTab = "archive" | "museum";
   let activeArchiveSubTab: ArchiveSubTab = "archive";
 
+  // Ground Ops GO-17 UI: the Armory's TWO-tab axis. "ship" is the existing ship loadout console (unchanged);
+  // "squad" is the Squad Loadouts tab (SquadLoadoutsPanel), one loadout per ground team. Both count against
+  // the one shared cap. Defaults to "ship" so the Armory opens as it always has.
+  type ArmorySubTab = "ship" | "squad";
+  let activeArmorySubTab: ArmorySubTab = "ship";
+  // The Away Team card's "Loadouts" shortcut: open Squad Loadouts' Save with that ship and team picked. The
+  // nonce makes a second tap on the same team reopen it.
+  let squadLoadoutPreset: { shipId: string; teamIndex: number; nonce: number } | null = null;
+
   // Fabricator (Task F4 UI): the Fabricator's THREE-tab axis, Overview (slots in use +
   // in-flight craft jobs + researched/fabricable counts + the Shipyard signpost), Craft
   // (the tier-grouped RESEARCHED-blueprint list with per-blueprint order controls), and
@@ -3177,6 +3201,7 @@
       activeQuartermasterSubTab,
       activeSalvageBaySubTab,
       activeArchiveSubTab,
+      activeArmorySubTab,
       activeSystemSubTab,
     ].join("/");
     if (navKey !== navScroll.lastKey) {
@@ -5751,6 +5776,20 @@
     pushLog(`Roster "${rosterName(rosterId)}" ${linkedLoadoutId ? "linked to an Armory loadout" : "unlinked (portable)"}.`);
   }
 
+  // GO-17 UI: link (or clear) one ground team's squad loadout on a roster (applyRoster puts it on that team).
+  function doSetRosterSquadLoadout(rosterId: string, teamIndex: number, loadoutId: string | null) {
+    const next = setLinkedSquadLoadout(state, rosterId, teamIndex, loadoutId);
+    if (next === state) return;
+    state = next;
+    doSave();
+    const team = groundTeamDefaultName(teamIndex);
+    pushLog(
+      loadoutId
+        ? `Roster "${rosterName(rosterId)}" links "${state.squadLoadouts.find((l) => l.id === loadoutId)?.name ?? "a squad loadout"}" to ${team}.`
+        : `Roster "${rosterName(rosterId)}" no longer links a squad loadout to ${team}.`,
+    );
+  }
+
   function doSetRosterIncludePeople(rosterId: string, includePeople: boolean) {
     const next = setIncludePeople(state, rosterId, includePeople);
     if (next === state) return;
@@ -7238,6 +7277,82 @@
     if (next === state) { pushLog("Cannot check that loadout in while its ship is on a mission."); return; }
     state = next;
     doSave();
+  }
+
+  // ── Ground Ops GO-17 UI: Squad Loadouts (ground team loadouts) ─────────────────
+  // The SquadLoadoutsPanel's controls route here. Canonical do* flow: the pure armory.ts action, a refusal
+  // (same state ref) logs the engine's reason and stops, else state = next, pushLog, doSave. Create / apply
+  // return the engine result so the panel can draw the install report; the log carries every skip with its
+  // reason (groundLoadoutSkipText, via reportLogText). The panel disables a blocked control with the same
+  // reason, so a refusal here is a backstop.
+  const squadLoadoutName = (id: string): string => state.squadLoadouts.find((l) => l.id === id)?.name ?? "that loadout";
+
+  function doCreateGroundTeamLoadout(shipId: string, teamIndex: number, name: string): GroundLoadoutResult {
+    const r = createGroundTeamLoadout(state, shipId, teamIndex, name);
+    if (!r.ok) {
+      pushLog(`Cannot save ${groundTeamLabel(shipId, teamIndex)}'s gear: ${blockReasonText(state, r.reason, [shipId])}.`);
+      return r;
+    }
+    state = r.next;
+    pushLog(reportLogText(createReportView(r.next, r.loadoutId, r.pieces, r.skipped)));
+    doSave();
+    return r;
+  }
+
+  function doApplyGroundTeamLoadout(loadoutId: string, shipId: string, teamIndex: number): GroundLoadoutResult {
+    const r = applyGroundTeamLoadout(state, loadoutId, shipId, teamIndex);
+    if (!r.ok) {
+      pushLog(`Cannot put "${squadLoadoutName(loadoutId)}" on ${groundTeamLabel(shipId, teamIndex)}: ${blockReasonText(state, r.reason, [shipId])}.`);
+      return r;
+    }
+    state = r.next;
+    pushLog(reportLogText(applyReportView(r.next, loadoutId, shipId, teamIndex, r.pieces, r.skipped)));
+    doSave();
+    return r;
+  }
+
+  function doCheckInGroundTeamLoadout(loadoutId: string): boolean {
+    const name = squadLoadoutName(loadoutId);
+    const r = checkInGroundTeamLoadout(state, loadoutId);
+    if (!r.ok) {
+      const lo = state.squadLoadouts.find((l) => l.id === loadoutId);
+      pushLog(`Cannot check "${name}" in: ${blockReasonText(state, r.reason, lo?.checkedOutTo ? [lo.checkedOutTo.shipId] : [])}.`);
+      return false;
+    }
+    state = r.next;
+    pushLog(`Checked "${name}" in: its pieces rest in the locker.`);
+    doSave();
+    return true;
+  }
+
+  function doRenameGroundTeamLoadout(loadoutId: string, name: string) {
+    const before = squadLoadoutName(loadoutId);
+    const next = renameGroundTeamLoadout(state, loadoutId, name);
+    if (next === state) return; // missing, blank or unchanged
+    state = next;
+    pushLog(`Renamed squad loadout "${before}" to "${squadLoadoutName(loadoutId)}".`);
+    doSave();
+  }
+
+  function doDeleteGroundTeamLoadout(loadoutId: string) {
+    const name = squadLoadoutName(loadoutId);
+    const next = deleteGroundTeamLoadout(state, loadoutId);
+    if (next === state) {
+      pushLog(`Cannot delete "${name}": ${blockReasonText(state, "checkedOut", [])}.`);
+      return;
+    }
+    state = next;
+    pushLog(`Deleted squad loadout "${name}": its pieces went back to storage.`);
+    doSave();
+  }
+
+  // The Away Team card's "Loadouts" shortcut: the Armory's Squad Loadouts tab, Save opened on that ship + team.
+  function openSquadLoadouts(shipId: string, teamIndex: number) {
+    activeTab = "facilities";
+    facilitiesView = "console";
+    activeFoundryFacility = "armory";
+    activeArmorySubTab = "squad";
+    squadLoadoutPreset = { shipId, teamIndex, nonce: (squadLoadoutPreset?.nonce ?? 0) + 1 };
   }
 
   // ── ITEM LIFECYCLE 0.13.6: the Archive (completion record) ─────────────────
@@ -10182,7 +10297,7 @@
     // facility, no FACILITIES entry, no founding, no level; loadout count comes from talents.
     fpane("armory", "🗄️", FACILITY_LABELS.armory, "Loadout bay",
       null, null,
-      `${state.loadouts.length} / ${loadoutCap(state)} loadouts`,
+      armoryCountShort(state),
       facilityAttention.has("armory")),
     // ITEM LIFECYCLE 0.13.6: the Archive (completion record), a service facility like the Armory.
     fpane("archive", "🏛️", FACILITY_LABELS.archive, "Completion record",
@@ -10246,6 +10361,12 @@
           { key: "archive", label: "Archive" },
           { key: "museum", label: "Museum" },
         ], active: activeArchiveSubTab, onSelect: (key) => (activeArchiveSubTab = key as ArchiveSubTab) };
+      // Ground Ops GO-17 UI: ship loadouts and squad (ground team) loadouts, one shared cap.
+      case "armory":
+        return { tabs: [
+          { key: "ship", label: "Ship Loadouts" },
+          { key: "squad", label: "Squad Loadouts" },
+        ], active: activeArmorySubTab, onSelect: (key) => (activeArmorySubTab = key as ArmorySubTab) };
       default:
         return null;
     }
@@ -14698,6 +14819,28 @@
                   {/if}
                 </Panel>
               {/if}
+          {:else if activeFoundryFacility === "armory" && activeArmorySubTab === "squad"}
+            <!-- Ground Ops GO-17 UI: the Armory's Squad Loadouts tab (approved squad loadouts mockup, user S14).
+                 One named set of member kits per ground team; every action routes to a do* handler below over
+                 the pure armory.ts ground team loadout fns. -->
+            <Panel>
+              <div class="panel-title">
+                ARMORY · SQUAD LOADOUTS
+                <HelpTip
+                  label="How squad loadouts work"
+                  text="Save what a ground team wears as a named set, put it back on any team of the same type with one click, and check it in to rest the pieces in the locker. Ship and squad loadouts share one Armory capacity."
+                />
+              </div>
+              <SquadLoadoutsPanel
+                {state}
+                preset={squadLoadoutPreset}
+                onCreate={doCreateGroundTeamLoadout}
+                onApply={doApplyGroundTeamLoadout}
+                onCheckIn={doCheckInGroundTeamLoadout}
+                onRename={doRenameGroundTeamLoadout}
+                onDelete={doDeleteGroundTeamLoadout}
+              />
+            </Panel>
           {:else if activeFoundryFacility === "armory"}
             <!-- ITEM LIFECYCLE 0.13.6: the Armory console. Drill-in: the loadout ROSTER when
                  selectedLoadout is null, else the loadout EDITOR. All actions wrap armory.ts fns
@@ -14726,7 +14869,8 @@
                     </select>
                     <button class="buy-btn" disabled={!armoryNewShipType || !canCreateLoadout(state)} on:click={doCreateLoadout}>Create</button>
                   </div>
-                  <div class="armory-create-count">{state.loadouts.length} / {loadoutCap(state)} loadouts</div>
+                  <!-- GO-17 UI: the shared count (ship + squad loadouts, one cap), read from loadoutsUsed. -->
+                  <div class="armory-create-count">{armoryCountText(state)}</div>
                 </div>
                 {#if state.loadouts.length === 0}
                   <div class="warehouse-stub"><div class="warehouse-stub-glyph">🗄️</div><p>No loadouts yet. Pick a ship type above and create one.</p></div>
@@ -14976,6 +15120,7 @@
               onApplyRoster={doApplyRoster}
               onToggleOfficerFavorite={doToggleOfficerFavorite}
               onToggleNotableFavorite={doToggleNotableFavorite}
+              onSetSquadLoadout={doSetRosterSquadLoadout}
             />
           {/if}
         {/if}
@@ -15855,6 +16000,7 @@
           onRenameTeam={doRenameGroundTeam}
           onSetTeamHelp={doSetGroundTeamHelp}
           onSetTeamKind={doSetGroundTeamKind}
+          onOpenLoadouts={openSquadLoadouts}
         />
         {:else if activeShipDetailTab === "complement"}
         <!-- COMPLEMENT (Crew 0.14.0 phase 4b). The hundreds-scale crew population for this hull:

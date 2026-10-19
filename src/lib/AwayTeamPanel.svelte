@@ -99,6 +99,7 @@
     shipSquadSlots,
   } from "./game/awayTeam";
   import type { AwayCrewGate } from "./game/awayTeam";
+  import { groundTeamWornLoadout } from "./game/armory";
   import { getAwayTrait, traitDisplayText } from "./game/awayTraits";
   import { injuryRecoveredFraction } from "./game/injuries";
   import { crewRankLabel } from "./game/crewRank";
@@ -142,6 +143,9 @@
   export let onRenameTeam: (shipId: string, teamIndex: number, name: string | null) => void;
   export let onSetTeamHelp: (shipId: string, teamIndex: number, on: boolean) => void;
   export let onSetTeamKind: (shipId: string, teamIndex: number, kind: GroundTeamKind) => void;
+  // GO-17 UI: the card's "Loadouts" shortcut (host: the Armory's Squad Loadouts tab with this ship + team
+  // picked). Null hides it.
+  export let onOpenLoadouts: ((shipId: string, teamIndex: number) => void) | null = null;
 
   // --- Local UI state ---------------------------------------------------------
   let confirmFireId: string | null = null;
@@ -693,6 +697,7 @@
             {@const pick = pickedKind(t, kindPick)}
             {@const change = kindPick[t.index] !== undefined ? kindChangeView(state, shipId, t.index, kindPick[t.index]) : null}
             {@const reasons = t.options.filter((o) => o.reason !== null)}
+            {@const wornSet = groundTeamWornLoadout(state, shipId, t.index)}
             <article class="gt-team" aria-labelledby="gt-team-{shipId}-{t.index}">
               <div class="gt-team-h">
                 <TeamBadge index={t.index} kind={t.kind} name={t.name} />
@@ -873,6 +878,22 @@
                   on:change={(e) => onSetTeamHelp(shipId, t.index, e.detail)}
                 />
                 <span class="gt-help-t">When done, help other teams <span class="gt-help-sub">(from the next launch)</span></span>
+              </div>
+
+              <!-- GO-17 UI: the team's squad loadout and the shortcut into the Armory's Squad Loadouts tab. -->
+              <div class="gt-loadout">
+                <span class="gt-loadout-t">
+                  <Icon name={wornSet ? "checkOut" : "locker"} />
+                  {wornSet ? `Wears the "${wornSet.name}" squad loadout` : "No squad loadout worn"}
+                </span>
+                {#if onOpenLoadouts !== null}
+                  <button
+                    type="button"
+                    class="aw-btn"
+                    aria-label="Squad loadouts for {t.name}"
+                    on:click={() => onOpenLoadouts?.(shipId, t.index)}
+                  >Loadouts</button>
+                {/if}
               </div>
             </article>
           {/each}
@@ -2036,6 +2057,25 @@
     display: flex;
     flex-direction: column;
     gap: 10px;
+  }
+  /* GO-17 UI: the team's squad loadout line + the Armory shortcut. */
+  .gt-loadout {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px 10px;
+    padding-top: 8px;
+    border-top: 1px solid var(--color-border);
+  }
+  .gt-loadout-t {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+    font-size: var(--text-xs);
+    color: var(--color-text-secondary);
+    overflow-wrap: anywhere;
   }
   .gt-team-h {
     display: flex;

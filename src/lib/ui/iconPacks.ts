@@ -77,6 +77,9 @@ export const ICON_SEMANTICS: Record<IconName, IconSemantic> = {
   threatDot: "alert",
   lock: "alert",
   flag: "alert",
+  // Squad Loadouts (0.14.0 GO-17 UI): a piece skipped by an install is an attention mark (its reason sits beside
+  // it), the counterpart to `check` for what went on.
+  skipped: "alert",
 
   // SUBJECT: names a thing. Restyling freely is the whole point of a pack.
   refinery: "subject",
@@ -142,6 +145,8 @@ export const ICON_SEMANTICS: Record<IconName, IconSemantic> = {
   blindLaunch: "subject",
   // A fight point marks WHERE a fight happens on a task bar: a thing on the bar, not an action.
   fightPoint: "subject",
+  // Squad Loadouts (0.14.0 GO-17 UI): the locker names where a resting loadout sits.
+  locker: "subject",
 
   // ACTION: something the player does. Should stay recognisable as that action.
   salvage: "action",
@@ -153,6 +158,10 @@ export const ICON_SEMANTICS: Record<IconName, IconSemantic> = {
   offload: "action",
   reload: "action",
   deploy: "action",
+  // Squad Loadouts (0.14.0 GO-17 UI): check a set in, put it on a team, save a team's gear.
+  checkIn: "action",
+  checkOut: "action",
+  saveSet: "action",
 
   // ORNAMENT: structure and direction. Least restricted.
   clock: "ornament",

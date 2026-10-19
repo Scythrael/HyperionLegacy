@@ -34,7 +34,14 @@ import { remainingCapacityForSignature } from "./commandStructure";
 import { addToBucketList, removeFromBucketList, coalesceBuckets } from "./crew";
 // S4-CP39 (Ground Ops GO-17): applyRoster brings its linked Armory ship loadout. armory.ts never imports this
 // module, so no cycle.
-import { checkInLoadout, checkOutLoadout } from "./armory";
+import {
+  applyGroundTeamLoadout,
+  checkInGroundTeamLoadout,
+  checkInLoadout,
+  checkOutLoadout,
+  groundTeamWornLoadout,
+} from "./armory";
+import { SHIP_TYPES, groundTeamCount, type ShipTypeKey } from "./model";
 // CP-6: the one crew lock (a leaf module, no cycle).
 import { crewLockReason, crewLockText, shipCrewLocked } from "./crewLock";
 
@@ -152,6 +159,38 @@ export function setLinkedLoadout(state: GameState, rosterId: string, linkedLoado
   return withRoster(state, rosterId, (r) =>
     r.linkedLoadoutId === linkedLoadoutId ? r : { ...r, linkedLoadoutId },
   );
+}
+
+// How many ground teams a roster can link a squad loadout for: the most teams any hull fields (a roster is
+// not tied to one hull; a link past the target ship's teams is simply skipped on apply). Pure.
+export function rosterSquadLinkSlots(): number {
+  return Math.max(0, ...(Object.keys(SHIP_TYPES) as ShipTypeKey[]).map(groundTeamCount));
+}
+
+// GO-17 UI (user S14: "rosters link squad loadouts one per team"): set (or clear, with null) the Armory GROUND
+// TEAM loadout linked to team `teamIndex` (0 = Alpha). A loadout links to ONE team: setting it here clears it
+// from any other team of this roster. Trailing empty links are trimmed and an all-empty list is removed, so an
+// unlinked roster keeps the absent field. Same-ref no-op on a missing roster, a bad team index, a non-null id
+// that names no ground team loadout, or no change. Pure.
+export function setLinkedSquadLoadout(
+  state: GameState,
+  rosterId: string,
+  teamIndex: number,
+  loadoutId: string | null,
+): GameState {
+  if (!Number.isInteger(teamIndex) || teamIndex < 0 || teamIndex >= rosterSquadLinkSlots()) return state;
+  if (loadoutId !== null && !(state.squadLoadouts ?? []).some((l) => l.id === loadoutId)) return state;
+  return withRoster(state, rosterId, (r) => {
+    const current = r.linkedSquadLoadoutIds ?? [];
+    if ((current[teamIndex] ?? null) === loadoutId) return r;
+    const links = Array.from({ length: Math.max(current.length, teamIndex + 1) }, (_, i) =>
+      current[i] === loadoutId ? null : current[i] ?? null,
+    );
+    links[teamIndex] = loadoutId;
+    while (links.length > 0 && links[links.length - 1] === null) links.pop();
+    const { linkedSquadLoadoutIds: _old, ...rest } = r;
+    return links.length === 0 ? rest : { ...rest, linkedSquadLoadoutIds: links };
+  });
 }
 
 // Toggle whether the roster carries people (Senior Staff + Complement). Same-ref no-op if missing or
@@ -360,6 +399,8 @@ export function applyRoster(state: GameState, rosterId: string, shipId: string):
 
   // S4-CP39: the linked loadout's GEAR lands first, so the people below are capped against the new gear.
   let next = withLinkedLoadout(state, roster, shipId);
+  // GO-17 UI: then each team's linked squad loadout (gear only, so it never touches the caps below).
+  next = withLinkedSquadLoadouts(next, roster, shipId);
   if (!roster.includePeople) return next; // no people to apply (a gear-only roster still brings its loadout)
 
   // (a) OFFICERS -> their matching seats on the ship (deterministic seat order).
@@ -455,4 +496,30 @@ function withLinkedLoadout(state: GameState, roster: PersonnelRoster, shipId: st
   }
   const out = checkOutLoadout(next, linkedId, shipId);
   return out === next ? state : out;
+}
+
+// GO-17 UI: put each team's linked GROUND TEAM loadout on that team of the ship, in team order, the ship
+// loadout rule above per team: a team wearing a DIFFERENT loadout checks it in first; a linked loadout that is
+// gone or already worn (by this team or any other) is left alone, never pulled off; and a refused put (another
+// team type, no such team on this hull, the ship crew-locked) leaves that team exactly as it was, its own
+// loadout still on. Pieces that cannot install are skipped by applyGroundTeamLoadout itself (never forced).
+// Same state when nothing changes. Pure.
+function withLinkedSquadLoadouts(state: GameState, roster: PersonnelRoster, shipId: string): GameState {
+  const links = roster.linkedSquadLoadoutIds ?? [];
+  let next = state;
+  links.forEach((loadoutId, teamIndex) => {
+    if (loadoutId === null || loadoutId === undefined) return;
+    const linked = (next.squadLoadouts ?? []).find((l) => l.id === loadoutId);
+    if (linked === undefined || linked.checkedOutTo !== null) return;
+    let trial = next;
+    const worn = groundTeamWornLoadout(trial, shipId, teamIndex);
+    if (worn !== null) {
+      const back = checkInGroundTeamLoadout(trial, worn.id);
+      if (!back.ok) return;
+      trial = back.next;
+    }
+    const put = applyGroundTeamLoadout(trial, loadoutId, shipId, teamIndex);
+    if (put.ok) next = put.next;
+  });
+  return next;
 }
