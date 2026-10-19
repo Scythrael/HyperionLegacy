@@ -421,4 +421,8 @@ Material Lines and universal modules ahead of G1 in the build order.
 - **Call 13, rewards:** "Tier II income band (Recommended)": the mockup table at about 1,000 to 1,300 credits per hour
   at base.
 - **Call 14, ground teams:** "None in 0.14.0 (Recommended)": a squad-using template is logged for the quests patch.
-- Still open: 15, 17, 18.
+- **Call 15, prisoner transport:** "Add a seventh job now" (NOT the recommendation): a seventh template on guest
+  quarters, built in 0.14.0. Its details (label, what it reads beyond guest quarters, reward) asked next.
+- **Call 17, names:** "Keep them (Recommended)".
+- **Call 18, home unload berth:** "Yes, same rules (Recommended)".
+- All 18 calls answered; prisoner transport details pending.

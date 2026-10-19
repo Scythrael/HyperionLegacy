@@ -347,3 +347,8 @@ ancient entries (open call 13); nothing else can move without leaving a false He
 
 - **Call 1 giant classes:** "By name + Sudarsky (Recommended)". **Call 2 nebulae:** "System-level sweep (Recommended)".
   **Call 3 who studies:** "The ship, always (Recommended)". **Call 13 scope:** "Keep all in 0.14.0 (Recommended)".
+
+## USER ANSWERS (2026-10-19)
+
+- **Call 4 supply caches:** "Stop on gas giants (Recommended)": no caches on gas giants; the draw is kept.
+- Still open: 5 to 12.
