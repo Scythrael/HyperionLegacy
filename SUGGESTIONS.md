@@ -1161,7 +1161,8 @@ see KNOWN_ISSUES.md for actual bugs/gaps; this file is for not-yet-scoped future
   (squad members vs enemies by rank, gambit actions, conditions, kits used) played from the seeded round log
   (`deriveScanEncounterLog` / the fight's own log). Same rule as the ship battle screen above: pure cosmetic REPLAY of
   the deterministic log, never the source of truth; SVG only; respects reduced motion; must work at 375 px. Pairs
-  with the 2.0 ship battle screen idea (shared replay layer). Mockup: see the 2026-10-19 artifact.
+  with the 2.0 ship battle screen idea (shared replay layer). Mockup v1 (2026-10-19):
+  https://claude.ai/artifact/AzmMLMyZRA7gdydPjJwrSg
 
 - **Faction Reputation system -> future, post-combat (user 2026-07-22).** Reputation per faction; low rep triggers escalating consequences:
   - **Severe (very low rep):** a BOUNTY is placed on you and your CAPTAIN can be destroyed (captain-specific death -> ties to the future captain-death + crew-promotion turnover; needs the monotonic captain-id counter combat is already adding). A **Diplomacy spec** could grant account-wide reputation-gain bonuses.
