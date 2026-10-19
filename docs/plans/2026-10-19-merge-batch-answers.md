@@ -39,3 +39,8 @@ section 5.A captain nodes). Kept in their own file so the parallel integrator's 
   Hemorrhage stays their Execute version.
 - **Wolf 359 for veterans:** "Next list for veterans (Recommended)": any save that has never seen Wolf 359 gets it in
   its next Tier I list, once.
+- **Hemorrhage timing:** "Execute hits, target survives (Recommended)", as built.
+- **General perk on guest quarters:** "Whole total (Recommended)": base + modules x1.10 whenever any quarters module
+  is installed on a General hull, as built.
+- **Guest quarters display before Short-Range:** "Hide until Short-Range (Recommended)": the Ship Systems row appears
+  once Short-Range Missions are in (G1-4 / G1-6 flips it).
