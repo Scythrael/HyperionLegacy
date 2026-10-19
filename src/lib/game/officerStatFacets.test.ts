@@ -40,6 +40,7 @@ import {
   shipRepairDurationTicks,
   tickCaptainMission,
   tickCaptainPatrol,
+  patrolCycleOneRampHours,
 } from "./tick";
 import { replayPatrol } from "./combat/patrolReplay";
 import { combatHullTypeOf, shipToCombatant } from "./combat/bridge";
@@ -63,6 +64,8 @@ import {
   officerCombatProfile,
   officerRepairSpeedBonus,
   shipCrewContribution,
+  crewEffectivenessMultiplier,
+  OFFICER_TRANSIT_KEY,
 } from "./crewOverlay";
 import { getSeniorStaffBonusById } from "./seniorStaffBonuses";
 import { CREW_STAT_KEYS } from "./crewBuffs";
@@ -73,6 +76,7 @@ import { itemTotal } from "./inventory";
 import { asLegacyDispatch, withSlottedAwayTeams, withoutGroundSquadState } from "./awayTeamTestFixtures";
 // SF-1: whole states hash without the run counters (seeded by freshState, written by a patrol), absent before SF-1.
 import { withoutRunCounts } from "./firstRunsGoldens.fixture";
+import { withCp2Off } from "./complementCp2Switch.fixture";
 import { activityRelicFindBonus, generateEncounter, softenAmbush } from "./gambit";
 import { applyExpeditionInjuries, injuryRecoverySeconds } from "./injuries";
 import {
@@ -279,10 +283,14 @@ function scenarioHashes(statsFor: (seat: SeniorStaffSeat) => OfficerStats | unde
 // fold disabled every one of these reproduces its previous value, so nothing else changed.
 // ============================================================================
 const GOLDEN_NEUTRAL: Record<string, string | string[]> = {
-  sheet: "2f50663a",
-  "mission:shortOreRun": "a03f5846",
-  "mission:surveyMineralAnomaly": "2edcb33e",
-  "mission:frontierSupplyRun": "2900fc4a",
+  // Re-pinned by CP-2 (sheet 2f50663a, missions a03f5846 / 2edcb33e / 2900fc4a, repair 9e0af219, expeditions
+  // 2aeb94e9...): this bridge is Earth-born (Crew Effectiveness now lifts the complement), its complement carries
+  // Damage Control (the repair) and Fast Departure (the outbound leg only), and the Pilot's sweeping transit cut rides
+  // its own key. With the CP-2 effects switched off every scenario reproduces its pre-CP-2 capture (the test below).
+  sheet: "1d05073f",
+  "mission:shortOreRun": "7d589775",
+  "mission:surveyMineralAnomaly": "a4a69f2",
+  "mission:frontierSupplyRun": "987f082d",
   // Re-pinned by WR-4 (B14): turn order by side, then input order (the player side first); each patrol's state and
   // replays moved, its dispatch record did not.
   "patrol:destroyer:dispatch": "bf27b495",
@@ -321,26 +329,27 @@ const GOLDEN_NEUTRAL: Record<string, string | string[]> = {
     "8af3282b",
     "cc898fa9",
   ],
-  repair: "9e0af219",
+  repair: "f6dcd689",
   expedition: [
-    "2aeb94e9/4d9b3ae6/a1bc9cbc",
-    "9799f10e/78bb63b2/60286a58",
-    "6b11a5/738c263f/a1bc9cbc",
-    "e62a1e30/6cbae86a/a1bc9cbc",
-    "e7b4bd1b/a328ddc5/99a22880",
-    "eff9b67b/e95b09e7/a1bc9cbc",
-    "69eeabea/e28a5013/a1bc9cbc",
-    "35a87b36/f3fb14ee/a1bc9cbc",
+    "24e73ea5/594cf5ec/a1bc9cbc",
+    "ee5575ac/eba8573c/6ac12a6e",
+    "8caf5b41/a222f16b/a1bc9cbc",
+    "3bed8ba/add2a542/a1bc9cbc",
+    "74848a53/8f4394b1/e8b897b6",
+    "5a872333/b83b8f99/a1bc9cbc",
+    "5aab8638/84916e0b/a1bc9cbc",
+    "7e02d44/e184f206/a1bc9cbc",
   ],
 };
 
 // The same bridge with officers that carry NO stats (absent = neutral); the hashes whose JSON includes the
 // officer records differ from GOLDEN_NEUTRAL.
 const GOLDEN_STATLESS: Record<string, string | string[]> = {
-  sheet: "2f50663a",
-  "mission:shortOreRun": "dad69d7c",
-  "mission:surveyMineralAnomaly": "5be79bc0",
-  "mission:frontierSupplyRun": "32117864",
+  // Re-pinned by CP-2 like GOLDEN_NEUTRAL (missions dad69d7c / 5be79bc0 / 32117864 before).
+  sheet: "1d05073f",
+  "mission:shortOreRun": "de7b033",
+  "mission:surveyMineralAnomaly": "ab28a5f4",
+  "mission:frontierSupplyRun": "7cce661f",
   // Re-pinned by WR-4 (B14): turn order by side, then input order (the player side first); each patrol's state and
   // replays moved, its dispatch record did not.
   "patrol:destroyer:dispatch": "bf27b495",
@@ -379,17 +388,58 @@ const GOLDEN_STATLESS: Record<string, string | string[]> = {
     "8af3282b",
     "cc898fa9",
   ],
-  repair: "9e0af219",
+  repair: "f6dcd689",
   expedition: [
-    "2aeb94e9/4d9b3ae6/a1bc9cbc",
-    "9799f10e/78bb63b2/60286a58",
-    "6b11a5/738c263f/a1bc9cbc",
-    "e62a1e30/6cbae86a/a1bc9cbc",
-    "e7b4bd1b/a328ddc5/99a22880",
-    "eff9b67b/e95b09e7/a1bc9cbc",
-    "69eeabea/e28a5013/a1bc9cbc",
-    "35a87b36/f3fb14ee/a1bc9cbc",
+    "24e73ea5/594cf5ec/a1bc9cbc",
+    "ee5575ac/eba8573c/6ac12a6e",
+    "8caf5b41/a222f16b/a1bc9cbc",
+    "3bed8ba/add2a542/a1bc9cbc",
+    "74848a53/8f4394b1/e8b897b6",
+    "5a872333/b83b8f99/a1bc9cbc",
+    "5aab8638/84916e0b/a1bc9cbc",
+    "7e02d44/e184f206/a1bc9cbc",
   ],
+};
+
+// CP-2 "turn it off": the scenario hashes with the CP-2 effects switched off (complementCp2Switch.fixture.ts),
+// captured on the code BEFORE the CP-2 engine edit. Equal after it, so the switched effects are the only thing CP-2
+// moved in these scenarios.
+// The pre-CP-2 values of the scenarios CP-2 moved (the CP2_OFF records spread the re-pinned goldens).
+const PRE_CP2_REPAIR = "9e0af219";
+const PRE_CP2_EXPEDITIONS = [
+  "2aeb94e9/4d9b3ae6/a1bc9cbc",
+  "9799f10e/78bb63b2/60286a58",
+  "6b11a5/738c263f/a1bc9cbc",
+  "e62a1e30/6cbae86a/a1bc9cbc",
+  "e7b4bd1b/a328ddc5/99a22880",
+  "eff9b67b/e95b09e7/a1bc9cbc",
+  "69eeabea/e28a5013/a1bc9cbc",
+  "35a87b36/f3fb14ee/a1bc9cbc",
+];
+// The sheet with the switch off: the pre-CP-2 capture was 3a556fef; the one difference left is a NAME, the Pilot's
+// sweeping transit cut now rides its own crew-map key (officer.transitTimeCut, OC-E5) instead of crew.transitOutSpeed,
+// with the same value. The test below renames it back and reproduces 3a556fef.
+const SHEET_CP2_OFF_PRE = "3a556fef";
+const SHEET_CP2_OFF_RENAMED = "38fbc94a";
+const GOLDEN_NEUTRAL_CP2_OFF: Record<string, string | string[]> = {
+  ...GOLDEN_NEUTRAL,
+  repair: PRE_CP2_REPAIR,
+  expedition: PRE_CP2_EXPEDITIONS,
+  // Only these differ from GOLDEN_NEUTRAL with the switch off: the sheet hash carries the crew map (the switched
+  // Earth-born racial is absent from it) and the three missions run with Fast Departure switched off too.
+  sheet: SHEET_CP2_OFF_RENAMED,
+  "mission:shortOreRun": "654a01f8",
+  "mission:surveyMineralAnomaly": "46c949da",
+  "mission:frontierSupplyRun": "7f6f651f",
+};
+const GOLDEN_STATLESS_CP2_OFF: Record<string, string | string[]> = {
+  ...GOLDEN_STATLESS,
+  repair: PRE_CP2_REPAIR,
+  expedition: PRE_CP2_EXPEDITIONS,
+  sheet: SHEET_CP2_OFF_RENAMED,
+  "mission:shortOreRun": "74fb66d6",
+  "mission:surveyMineralAnomaly": "90f0bbcc",
+  "mission:frontierSupplyRun": "ed683ce9",
 };
 
 describe("neutrality: an all-10 bridge = byte-identical to before Task 21 (golden)", () => {
@@ -399,6 +449,22 @@ describe("neutrality: an all-10 bridge = byte-identical to before Task 21 (golde
 
   it("the same bridge with stat-less officers (absent = neutral)", { timeout: 120_000 }, () => {
     expect(scenarioHashes(() => undefined)).toEqual(GOLDEN_STATLESS);
+  });
+
+  it("CP-2 turn it off: both bridges with the CP-2 effects switched off are the pre-CP-2 capture", { timeout: 240_000 }, () => {
+    expect(withCp2Off(() => scenarioHashes(() => NEUTRAL))).toEqual(GOLDEN_NEUTRAL_CP2_OFF);
+    expect(withCp2Off(() => scenarioHashes(() => undefined))).toEqual(GOLDEN_STATLESS_CP2_OFF);
+    // The sheet's one remaining difference is the Pilot's transit key name (same value): renamed back, it is the
+    // pre-CP-2 capture.
+    const sheet = withCrew(freshState(), bridge(() => NEUTRAL));
+    const renamed = withCp2Off(() => {
+      const map = { ...shipCrewContribution(sheet, sheet.ships[0]) };
+      expect(map[CREW_STAT_KEYS.transitOutSpeed]).toBeUndefined();
+      const out: Record<string, number> = {};
+      for (const [k, v] of Object.entries(map)) out[k === OFFICER_TRANSIT_KEY ? CREW_STAT_KEYS.transitOutSpeed : k] = v;
+      return fnv(JSON.stringify([effectiveShipStats(sheet, sheet.ships[0]), out]));
+    });
+    expect(renamed).toBe(SHEET_CP2_OFF_PRE);
   });
 });
 
@@ -509,8 +575,12 @@ describe("Strength scales the department's complement buffs", () => {
     const strong = map({ operations: { strength: 20 } });
     // The Operations bucket carries Stowage Discipline + Efficient Unloading: the complement part scales
     // x1.1, while the officers' own seat bonuses (Cargo Optimization, Logistics Mastery) do not.
+    // CP-2: every complement key also carries the ship's Crew Effectiveness lift (the Earth-born bridge and Medical
+    // crew), which Operations' Strength does not change: the raw Operations share x 0.1 x that lift.
     const cargo = CREW_STAT_KEYS.effectiveCargo;
-    expect(strong[cargo] - base[cargo]).toBeCloseTo(complementOnly()[cargo] * 0.1, 12);
+    const eff = CREW_STAT_KEYS.crewEffectiveness;
+    const raw = complementOnly()[cargo] / crewEffectivenessMultiplier(complementOnly()[eff]);
+    expect(strong[cargo] - base[cargo]).toBeCloseTo(raw * 0.1 * crewEffectivenessMultiplier(base[eff]), 12);
     expect(strong[CREW_STAT_KEYS.transitOutSpeed]).toBe(base[CREW_STAT_KEYS.transitOutSpeed]);
     expect(strong[CREW_STAT_KEYS.extractionYield]).toBe(base[CREW_STAT_KEYS.extractionYield]);
   });
@@ -519,8 +589,13 @@ describe("Strength scales the department's complement buffs", () => {
     const base = map({});
     const xo = map({ executive: { strength: 20 } });
     const crew = complementOnly();
+    // CP-2: the XO's Strength also lifts the Medical crew's Crew Effectiveness, so each key's raw share grows from
+    // x lift(base) to x 1.04 x lift(xo).
+    const eff = CREW_STAT_KEYS.crewEffectiveness;
+    const lift = (m: Record<string, number>) => crewEffectivenessMultiplier(m[eff]);
     for (const key of [CREW_STAT_KEYS.effectiveCargo, CREW_STAT_KEYS.transitOutSpeed, CREW_STAT_KEYS.rangeEfficiency, CREW_STAT_KEYS.reducedCrewLosses]) {
-      expect(xo[key] - base[key], key).toBeCloseTo(crew[key] * 0.04, 12);
+      const raw = crew[key] / lift(crew);
+      expect(xo[key] - base[key], key).toBeCloseTo(raw * (1.04 * lift(xo) - lift(base)), 12);
     }
   });
 
@@ -893,7 +968,11 @@ describe("Constitution: long-haul ramp and shorter turnaround", () => {
     const profile = officerCombatProfile(s, ship);
     expect(officerCombatModsFromProfile(profile, 0)).toEqual(officerCombatMods(s, ship));
     const r = dispatchCaptainOnPatrol(s, 1, "crimsonReaverSweep", "balanced", true);
-    expect((r.next.captains[0].mission as PatrolMissionState).officerCombat).toEqual({ weaponDamage: 0.1, shield: 0.1, hull: 0, evasion: 0 });
+    // CP-2 (OC-E13, B17): the first cycle ramps too, at its own mid-route sample (it used to freeze the bare 0.1).
+    const first = (r.next.captains[0].mission as PatrolMissionState).officerCombat!;
+    expect(first).toEqual(officerCombatModsFromProfile(profile, patrolCycleOneRampHours(PATROLS.crimsonReaverSweep, s.tickDurationSeconds)));
+    expect(first.weaponDamage).toBeCloseTo(0.1 * (1 + constitutionRamp(0.18, patrolCycleOneRampHours(PATROLS.crimsonReaverSweep, s.tickDurationSeconds))), 12);
+    expect(first.weaponDamage).toBeGreaterThan(0.1);
     // 3600 seconds per tick: one route is many hours, so the relaunches climb the ramp fast.
     const effects = { relaunchCombatProfile: profile, secondsPerTick: 3600 };
     const gear = equippedFor(r.next, "ship-1");
@@ -907,7 +986,7 @@ describe("Constitution: long-haul ramp and shorter turnaround", () => {
       if (m.masterSeed !== before) seen.push(m.officerCombat!.weaponDamage);
     }
     expect(seen.length).toBe(3);
-    expect(seen[0]).toBeGreaterThan(0.1);
+    expect(seen[0]).toBeGreaterThan(first.weaponDamage);
     expect(seen[1]).toBeGreaterThan(seen[0]);
     expect(seen[2]).toBeGreaterThan(seen[1]);
   });

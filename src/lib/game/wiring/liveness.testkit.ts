@@ -580,17 +580,36 @@ function crewEntry(def: CrewBuffDef, profession: CrewProfession): StatEntry {
     id: `crew:${def.statKey}`,
     category: "crew",
     label: `${def.label} (${def.id})`,
-    variants: [{ label: profession, baseKey: `bucket-none@${profession}`, base: withBucket(NO_BONUS.id), with: withBucket(def.id) }],
+    variants: [
+      { label: profession, baseKey: `bucket-none@${profession}`, base: withBucket(NO_BONUS.id), with: withBucket(def.id) },
+      // CP-2: a buff that LIFTS other buffs (Crew Effectiveness) shows only beside one, so every buff also gets a
+      // variant whose two states both carry the lifted bucket (it adds the same thing to both).
+      { label: `${profession} + ${LIFTED.buff1Id}`, baseKey: `bucket-none@${profession}+lifted`, base: withLifted(withBucket(NO_BONUS.id)), with: withLifted(withBucket(def.id)) },
+    ],
   };
 }
 
-// racial bonuses: an officer of the race carrying no bonus vs no officer
+// CP-2: the bucket a lifting buff or racial is read beside (Efficient Unloading, a Spacer crew: its race lifts nothing).
+const LIFTED: CrewBucket = { ...bucket("operations", "spacer", "ops.unloadSpeed", null) };
+function withLifted(t: Transform): Transform {
+  return (s0) => {
+    const s = t(s0);
+    const ship = shipOf(s);
+    return editShip(s, { complement: { mode: "active", buckets: [...(ship.complement?.buckets ?? []), LIFTED] } });
+  };
+}
+
+// racial bonuses: an officer of the race carrying no bonus vs no officer (and the same beside a lifted bucket, CP-2)
 function racialEntry(race: CrewRace): StatEntry {
+  const withOfficer: Transform = (s) => ({ ...s, officers: [officer("officer-1", "executive", [], race)] });
   return {
     id: `racial:${race}`,
     category: "racial",
     label: `${CREW_RACES[race].label} racial (${CREW_RACES[race].racialBonus.statKey})`,
-    variants: [{ label: race, baseKey: "no-officer", base: (s) => s, with: (s) => ({ ...s, officers: [officer("officer-1", "executive", [], race)] }) }],
+    variants: [
+      { label: race, baseKey: "no-officer", base: (s) => s, with: withOfficer },
+      { label: `${race} + ${LIFTED.buff1Id}`, baseKey: "no-officer+lifted", base: withLifted((s) => s), with: withLifted(withOfficer) },
+    ],
   };
 }
 

@@ -23,6 +23,8 @@ import {
   blueprintResearchable,
   effectiveMissionDef,
   equipmentStorageCap,
+  outboundLegSpeed,
+  returnLegSpeed,
   groundTeamCount,
   freshState,
   missionPhaseTicks,
@@ -124,7 +126,7 @@ import { applyExpeditionInjuries, injuryRecoverySeconds, shipInjuryFactors } fro
 import { boardingRepelChance, buildShipCombatant, snapshotShipEventProfile } from "../shipScanEvents";
 import { shipsWithMemberAutoSlotted } from "../groundTeamSlots";
 import { equippedFor } from "../equipment";
-import { effectiveShipStats, officerCombatMods, officerMissionOutputBonus, officerRepairSpeedBonus, shipCrewContribution } from "../crewOverlay";
+import { effectiveShipStats, officerCombatMods, officerRepairSpeedBonus, shipCrewContribution, shipMissionOutputBonus, shipRepairSpeedBonus } from "../crewOverlay";
 import { departmentFacet, seatFacet } from "../officerStats";
 import { RELICS, museumBonuses, type MuseumStat } from "../relics";
 import { salvageSalvagedMaterial, salvageShip, salvageTalentBonus, salvageYieldMult } from "../salvage";
@@ -219,6 +221,9 @@ export function editCaptain(s: GameState, over: Partial<CaptainState>): GameStat
 }
 
 // Seat one officer on ship-1 carrying `bonusIds` at their catalog magnitude (an ensign stores the base magnitude).
+// CP-2: the default race is the Spacer, whose racial (crew.endurance) has no 0.14.0 consumer (deferred to 0.14.x), so
+// a fixture officer moves nothing through its race. The Earth-born racial (the old default) is Crew Effectiveness,
+// live since CP-2, which would lift every complement buff the fixture also carries.
 export function seatOfficer(
   s: GameState,
   seat: SeniorStaffSeat,
@@ -230,7 +235,7 @@ export function seatOfficer(
     id: opts.id ?? `wiring-officer-${seat}`,
     seat,
     name: `Wiring ${seat}`,
-    race: opts.race ?? "earthBorn",
+    race: opts.race ?? FIXTURE_RACE,
     gender: "nonbinary",
     rank: "ensign" as const,
     bonuses: [bonuses[0] ?? NO_OFFICER_BONUS, bonuses[1] ?? NO_OFFICER_BONUS] as [typeof NO_OFFICER_BONUS, typeof NO_OFFICER_BONUS],
@@ -262,7 +267,11 @@ export function overtimeOneStep(s: GameState): GameState {
 
 export const WIRING_BUCKET_COUNT = 20; // a real-sized complement bucket (standard rarity, Crewman rank)
 
-export function bucketOf(profession: CrewProfession, buff1Id: string, count = WIRING_BUCKET_COUNT, race: CrewRace = "earthBorn"): CrewBucket {
+// CP-2: the race fixture crew and officers carry unless a test names one: the Spacer, whose racial has no consumer in
+// 0.14.0 (the long-haul ramp is deferred to 0.14.x), so a bucket's race never lifts the buff under test.
+export const FIXTURE_RACE: CrewRace = "spacer";
+
+export function bucketOf(profession: CrewProfession, buff1Id: string, count = WIRING_BUCKET_COUNT, race: CrewRace = FIXTURE_RACE): CrewBucket {
   return { profession, rarity: "standard", rank: 1, race, buff1Id, buff2Id: null, count };
 }
 
@@ -604,6 +613,15 @@ export function groundOpsRunDigest(s: GameState): number {
 // EVERYTHING one patrol cycle reads of the ship: dispatch captain 1 on the first patrol (a combat hull), fly one
 // whole cycle through the real economyTick, and digest the cycle (the mission record tick by tick, the purse, the
 // hold, the tank and the ship). -1 when the ship cannot patrol (a non-combat hull: the check's control then fails).
+// CP-2 (OC-E13, B17): the officer weapon bonus a Dispatch Once patrol's FIRST cycle freezes at dispatch (the
+// Constitution ramp's own mid-route sample). -1 when the patrol cannot dispatch.
+export function patrolCycleOneWeapons(s: GameState): number {
+  const r = dispatchCaptainOnPatrol(s, WIRING_CAPTAIN_ID, Object.keys(PATROLS)[0], "balanced", false);
+  if (!r.success) return -1;
+  const mission = captainOf(r.next).mission;
+  return mission?.kind === "patrol" ? mission.officerCombat?.weaponDamage ?? 0 : -1;
+}
+
 export function patrolDigest(s: GameState): number {
   const key = Object.keys(PATROLS)[0];
   const r = dispatchCaptainOnPatrol(s, WIRING_CAPTAIN_ID, key, "balanced", false);
@@ -726,6 +744,9 @@ export const PROBES = {
   // == the ship stat sheet ==
   sheetCargo: { label: "effectiveShipStats.cargoCapacity (Ground Ops / patrol: the run / cycle digest)", read: sheetAt((s) => sheet(s).cargoCapacity) },
   sheetTransit: { label: "effectiveShipStats.transitSpeedMult (Ground Ops / patrol: the run / cycle digest)", read: sheetAt((s) => sheet(s).transitSpeedMult) },
+  // CP-2 (OC-E5): each mission leg's own speed (effectiveMissionDef divides that leg by it).
+  sheetOutLeg: { label: "outboundLegSpeed(effectiveShipStats): the outbound leg's speed", read: (s) => outboundLegSpeed(sheet(s)) },
+  sheetBackLeg: { label: "returnLegSpeed(effectiveShipStats): the return leg's speed", read: (s) => returnLegSpeed(sheet(s)) },
   sheetYield: { label: "effectiveShipStats.extractionYieldMult", read: (s) => sheet(s).extractionYieldMult },
   sheetUnload: {
     label: "unload speed: effectiveShipStats.unloadSpeedMult (missions) / groundOps.factors.offloadMult (Ground Ops)",
@@ -777,7 +798,10 @@ export const PROBES = {
       return heldOf(after, "commonOre") - heldOf(idle, "commonOre");
     },
   },
-  missionOutputBonus: { label: "officerMissionOutputBonus (economyTick delivery share)", read: (s) => officerMissionOutputBonus(s, shipOf(s)) },
+  missionOutputBonus: {
+    label: "shipMissionOutputBonus (the share economyTick applies to mission deliveries and to patrol wave loot)",
+    read: (s) => shipMissionOutputBonus(s, shipOf(s)),
+  },
   missionCycleOutput: { label: "one whole shortOreRun cycle (economyTick): the credits and Titanium Ore delivered", read: (s) => cycleOutput(s) },
   missionOreQuality: { label: "one whole shortOreRun cycle (economyTick): the quality of the ore delivered", read: (s) => cycleOreQuality(s) },
   // == the captain secondary tree (WR-5a) ==
@@ -813,6 +837,7 @@ export const PROBES = {
   captainXpPerTick: { label: "xpPerTick(shortOreRun) x retirementExpMultiplier", read: (s) => xpPerTick("shortOreRun", captainOf(s), s) * retirementExpMultiplier(s) },
   // == ship combat ==
   officerWeapons: { label: "officerCombatMods.weaponDamage", read: (s) => officerCombatMods(s, shipOf(s))?.weaponDamage ?? 0 },
+  patrolCycleOneWeapons: { label: "dispatchCaptainOnPatrol: the first cycle's frozen officerCombat.weaponDamage", read: (s) => patrolCycleOneWeapons(s) },
   officerShields: { label: "officerCombatMods.shield", read: (s) => officerCombatMods(s, shipOf(s))?.shield ?? 0 },
   officerHull: { label: "officerCombatMods.hull", read: (s) => officerCombatMods(s, shipOf(s))?.hull ?? 0 },
   officerEvasion: {
@@ -848,7 +873,7 @@ export const PROBES = {
     label: "shipRepairDurationTicks (500 damage)",
     read: (s) => {
       const ship = { ...shipOf(s), damaged: true, repairDamage: 500 };
-      return shipRepairDurationTicks(ship, equippedFor(s, ship.id), officerRepairSpeedBonus(s, ship));
+      return shipRepairDurationTicks(ship, equippedFor(s, ship.id), shipRepairSpeedBonus(s, ship));
     },
   },
   officerRepairBonus: {
@@ -856,8 +881,20 @@ export const PROBES = {
     read: (s, ctx) => (ctx === "medbay" ? dispatchRun(s).groundOps?.factors.rapidRecoveryShare ?? 0 : officerRepairSpeedBonus(s, shipOf(s))),
   },
   turnaround: {
-    label: "turnaround: effectiveShipStats.unloadSpeedMult (missions) / 1 + officerRepairSpeedBonus (Shipyard)",
-    read: (s, ctx) => (ctx === "shipyard" ? 1 + officerRepairSpeedBonus(s, shipOf(s)) : sheet(s).unloadSpeedMult ?? 1),
+    label:
+      "turnaround: effectiveShipStats.unloadSpeedMult (missions) / 1 + shipRepairSpeedBonus (Shipyard) / 1 + the field repair speed frozen at dispatch (shipEvent)",
+    read: (s, ctx) =>
+      ctx === "shipyard"
+        ? 1 + shipRepairSpeedBonus(s, shipOf(s))
+        : ctx === "shipEvent"
+          ? 1 + (dispatchRun(s).groundOps?.shipEventProfile.battle?.repairSpeed ?? 0)
+          : sheet(s).unloadSpeedMult ?? 1,
+  },
+  // CP-2 (OC-E8): the museum's crewBonuses where it amplifies: the complement on the sheet (unload) and an officer
+  // bonus read directly (Fleet Triage, frozen on the run as squadTriage), each as 1 + the amplified share.
+  crewAmplified: {
+    label: "crew amplification: effectiveShipStats.unloadSpeedMult (sheet) / 1 + Expedition.squadTriage (ground)",
+    read: (s, ctx) => (ctx === "ground" ? 1 + (dispatchRun(s).squadTriage ?? 0) : sheet(s).unloadSpeedMult ?? 1),
   },
   shipyardBays: { label: "shipyardBayCount", read: (s) => shipyardBayCount(s) },
   shipBuildTicks: { label: "shipBuildDurationTicks(destroyer)", read: (s) => shipBuildDurationTicks(s, "destroyer") },

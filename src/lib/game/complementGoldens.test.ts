@@ -43,7 +43,8 @@ import { advanceExpedition, claimExpedition, expeditionCandidates, startExpediti
 import { effectiveShipStats, officerRepairSpeedBonus, shipCrewContribution } from "./crewOverlay";
 import { equippedFor } from "./equipment";
 import { CREW_PROFESSION_BUFFS, SECOND_LEVEL_EXCLUSIVE } from "./crewBuffs";
-import { CREW_RACE_IDS } from "./crewRaces";
+import { CREW_RACE_IDS, CREW_RACES } from "./crewRaces";
+import { withCp2Off } from "./complementCp2Switch.fixture";
 import { CREW_PROFESSIONS, commandStructureForHull, complementTotalCap, divisionCap } from "./commandStructure";
 import { totalCrew } from "./crew";
 import { TRANSPORT_BATCH_SIZE, TRANSPORT_WINDOW_SECONDS, transportBatch } from "./transports";
@@ -206,22 +207,29 @@ const GOLDEN: Record<string, string | string[]> = {
     "aurora:6e23df72/5465b825",
     "eir:a2143996/5465b825",
   ],
+  // Re-pinned by CP-2: the full complement holds every CP-2 key (Damage Control, Mission Turnaround, Crew Output,
+  // Crew Effectiveness, the Earth-born and Stheni racials, Fast Departure / Fast Return), so its sheet and crew map
+  // move (CP-0 2699e91/a812089b ... eir 734e27d3/db5bc5eb). With the CP-2 effects switched off each hull reproduces
+  // its pre-CP-2 capture (the "CP-2 turn it off" block below).
   "sheet:full": [
-    "generalFreighter:2699e91/a812089b",
-    "prospectorHauler:e8644def/98e08719",
-    "prospectorRunner:5fee99c0/98e08719",
-    "prospectorMiner:3bb0d88f/98e08719",
-    "destroyer:569cd943/ef34c0dd",
-    "battleship:8f7da410/d00e8aba",
-    "carrier:5b35b9cf/d00e8aba",
-    "orion:b3d12aa7/db5bc5eb",
-    "aurora:cc46b42b/db5bc5eb",
-    "eir:734e27d3/db5bc5eb",
+    "generalFreighter:169b8653/2360e09b",
+    "prospectorHauler:d0f28f95/ea984e46",
+    "prospectorRunner:deb1c7d6/ea984e46",
+    "prospectorMiner:666c9728/ea984e46",
+    "destroyer:1b06b16a/8aafe454",
+    "battleship:e72f1e71/6ea4d3e6",
+    "carrier:a825a669/6ea4d3e6",
+    "orion:3eb9ca64/8aa1df62",
+    "aurora:c30fe7f2/8aa1df62",
+    "eir:f0adf82/8aa1df62",
   ],
   // Re-pinned by CP-1 (D14): one transport crewmember's exclusive buff changed name (see the mission test and
-  // CP0_MISSION, which keeps the CP-0 capture and proves that is the only difference).
-  "mission:shortOreRun": "eb39cb91",
-  "mission:surveyMineralAnomaly": "e84193a6",
+  // CP0_MISSION, which keeps the CP-0 capture and proves that is the only difference). Re-pinned by CP-2 (CP-1
+  // eb39cb91, e84193a6): the window's transport crew carry Earth-born racials and Crew Effectiveness, which now lift
+  // the mission ship's other complement buffs (its hold and unload) once it is crewed; switched off, both reproduce
+  // their CP-1 pins. The transport run's whole ticks and deliveries do not move (f4b5648c holds).
+  "mission:shortOreRun": "33ff8a16",
+  "mission:surveyMineralAnomaly": "bb43f634",
   "mission:frontierSupplyRun": "f4b5648c",
   // Re-pinned by WR-4 (B14): a battle's turn order is by side, then input order (the player side first), no longer
   // by id ("crimsonReavers-w..." used to sort ahead of "ship-1"); the dispatch record (16e07798) is unchanged.
@@ -281,7 +289,8 @@ describe("CP-0 pre-complement goldens", () => {
       // names Prevent a Crew Loss from the three rollable ones (same draw, craft duplicate gone). Both keys have no
       // consumer yet, so naming the old buff back on that crewmember reproduces the CP-0 capture exactly.
       expect(s.ships[0].complement!.buckets.filter(isMovedCrew).length + s.crewPool.filter(isMovedCrew).length).toBe(1);
-      expect(hash(asBeforeCp1(s))).toBe(CP0_MISSION[key]);
+      // CP-2 then moved two of them (see GOLDEN); with its effects switched off the CP-1 proof holds unchanged.
+      expect(withCp2Off(() => hash(asBeforeCp1(missionRun(key))))).toBe(CP0_MISSION[key]);
     });
   }
 
@@ -367,5 +376,53 @@ describe("CP-0 pre-complement goldens", () => {
   it("structure: commandStructureForHull for every hull", () => {
     const out = HULLS.map((hull) => `${hull}:${hash(commandStructureForHull(hull))}`);
     expect(out).toEqual(GOLDEN.structure);
+  });
+});
+
+// ===== CP-2: the "turn it off" proof =====
+//
+// CP-2 (ship-side complement buffs) makes six keys act (Damage Control, Mission Turnaround, Crew Output Multiplier,
+// Crew Effectiveness, and the Earth-born and Stheni racials) and splits Fast Departure / Fast Return onto their own
+// legs (OC-E5). The fixtures that carry those keys (the full sheets; the three mission ships, which take transport
+// crew mid-run) therefore move. This block switches exactly those effects OFF (each buff's and racial's catalog
+// magnitude set to 0 for the duration of one call; nothing else touched) and pins the hashes the fixtures give with
+// the switch off. These were captured on the code BEFORE the CP-2 engine edit, so equality afterwards proves that
+// the switched-off effects are the ONLY thing CP-2 moved.
+// Captured before the CP-2 engine edit. The three mission captures equal GOLDEN's CP-1 pins: switching the transit
+// buffs off moves nothing there (the window's transit crew never change a whole transit tick).
+const CP2_OFF: Record<string, string | string[]> = {
+  "sheet:full": [
+    "generalFreighter:275f6a0f/c6260247",
+    "prospectorHauler:c9f46e2c/8e4dc8f5",
+    "prospectorRunner:b4331e48/8e4dc8f5",
+    "prospectorMiner:44d9b113/8e4dc8f5",
+    "destroyer:59911649/c5405a4f",
+    "battleship:89c0863c/d6bbc514",
+    "carrier:be4b06cd/d6bbc514",
+    "orion:160a1e2c/8cad2218",
+    "aurora:a3e518d3/8cad2218",
+    "eir:a1ab019a/8cad2218",
+  ],
+  "mission:shortOreRun": "eb39cb91",
+  "mission:surveyMineralAnomaly": "e84193a6",
+  "mission:frontierSupplyRun": "f4b5648c",
+};
+
+describe("CP-2 turn it off: with the CP-2 effects switched off, every moved fixture is the pre-CP-2 capture", () => {
+  it("sheet: every hull with a full complement", () => {
+    const full = withCp2Off(() => HULLS.map((hull) => `${hull}:${sheetHashes(hull, fullComplement(hull))}`));
+    expect(full).toEqual(CP2_OFF["sheet:full"]);
+  });
+
+  for (const key of ["shortOreRun", "surveyMineralAnomaly", "frontierSupplyRun"] as MissionKey[]) {
+    it(`mission ${key}`, () => {
+      expect(withCp2Off(() => hash(missionRun(key)))).toBe(CP2_OFF[`mission:${key}`]);
+    });
+  }
+
+  it("the switch restores every magnitude it touched", () => {
+    const before = JSON.stringify([CREW_PROFESSION_BUFFS, SECOND_LEVEL_EXCLUSIVE, CREW_RACES]);
+    withCp2Off(() => 0);
+    expect(JSON.stringify([CREW_PROFESSION_BUFFS, SECOND_LEVEL_EXCLUSIVE, CREW_RACES])).toBe(before);
   });
 });

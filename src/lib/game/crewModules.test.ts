@@ -79,7 +79,9 @@ function staffShip(s: GameState, shipId: string, buckets: CrewBucket[]): GameSta
 }
 
 function bucket(profession: CrewProfession, buff1Id: string, count: number, rank: CrewBucket["rank"] = 1): CrewBucket {
-  return { profession, rarity: "standard", rank, race: "earthBorn", buff1Id, buff2Id: null, count };
+  // CP-2: a Spacer crew (its racial, crew.endurance, has no 0.14.0 consumer), so the race lifts nothing the module
+  // tests measure. (The Earth-born racial is Crew Effectiveness, which lifts every other complement buff since CP-2.)
+  return { profession, rarity: "standard", rank, race: "spacer", buff1Id, buff2Id: null, count };
 }
 
 function officer(overrides: Partial<SeniorStaffOfficer> = {}): SeniorStaffOfficer {

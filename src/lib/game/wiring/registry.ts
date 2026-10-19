@@ -83,7 +83,9 @@ import { CREW_RANKS, CREW_RANK_ORDER, rankMagnitudeFactor } from "../crewRank";
 import { GROUND_CONDITIONS, STONESKIN_INJURY_MULT } from "../medicalBay";
 import { OFFICER_STAT_KEYS } from "../seniorStaff";
 import { DEPARTMENT_OF_SEAT, OFFICER_STAT_NEUTRAL, XO_DEPARTMENT_SHARE, officerStatFacet } from "../officerStats";
-import { OFFICER_BONUSES_PENDING_IN_RELEASE } from "../crewOverlay";
+import { CREW_EFFECTIVENESS_KNEE, OFFICER_BONUSES_PENDING_IN_RELEASE } from "../crewOverlay";
+import { patrolCycleOneRampHours } from "../tick";
+import { constitutionRamp } from "../constitutionRamp";
 import { AWAY_TRAITS, type AwayTraitDef } from "../awayTraits";
 import { FIRST_AID_TRAINED_EFFECTIVENESS, FIRST_AID_UNTRAINED_EFFECTIVENESS, GAMBIT_PRESETS, GAMBIT_STATUSES } from "../gambit";
 import { applyMemberGambitPreset } from "../memberGambits";
@@ -365,7 +367,6 @@ const TASK_23 = "E-CREW Task 23 (division pools + exclusive pool live, design 6.
 const E_MOD = "E-MOD power budget";
 const FIELD_KITS_FEAR = "Field Kits 16b: enemies inflict Fear (D26)";
 const SCIENCE_LINE_SWAP = "Science gear line swap (D26): Science gear rolls fieldwork/hazard/find lines instead";
-const TASK_23_ALL_BUFFS = "Task 23: small boost to all complement buffs (D26)";
 const CORTEX_RESIST = "Field Kits 16b: Fear (D26) + stun resist covers Concussion [proposal, pending user]";
 const PILOT_CUNNING = "pending user decision (officerStats.ts CUNNING_PENDING_SEATS)";
 // The user's T3 deferrals (capture 2026-10-15 section 3: "Move all five (Recommended)").
@@ -433,12 +434,45 @@ function officerEntries(): WiringEntry[] {
 }
 
 // What each crew.* key moves when a complement carries it. Absent = no consumer (pending, below).
-const CREW_SEAMS: Readonly<Record<string, { probe: ProbeId; contexts: ContextId[]; curve: Curve; tolerance?: number }>> = {
+interface CrewSeam {
+  probe: ProbeId;
+  contexts: ContextId[];
+  curve: Curve;
+  tolerance?: number;
+  // CP-2: a fixture the key needs to show on (Crew Effectiveness lifts OTHER buffs, so its fixture carries one), the
+  // complement the source's bucket joins (default: the source's bucket alone), and the move the source's catalog
+  // magnitude makes through the consumer's curve (default: the magnitude itself).
+  base?: () => GameState;
+  alongside?: readonly CrewBucket[];
+  effect?: (m: number) => number;
+}
+
+// CP-2 (OC-3): Crew Effectiveness lifts every OTHER complement buff, read on a fixture carrying one (Efficient
+// Unloading, a Spacer bucket, whose race lifts nothing): the unload bonus above 1 grows by diminishing(e, knee).
+const LIFTED_BUCKET = bucketOf("operations", "ops.unloadSpeed");
+const EFFECTIVENESS_SEAM: CrewSeam = {
+  probe: "sheetUnload",
+  contexts: ["sheet"],
+  curve: { kind: "bonusRelative", base: 1 },
+  base: () => withBuckets(wiringBase(), [LIFTED_BUCKET]),
+  alongside: [LIFTED_BUCKET],
+  effect: (e) => diminishing(e, CREW_EFFECTIVENESS_KNEE),
+};
+
+const CREW_SEAMS: Readonly<Record<string, CrewSeam>> = {
   [CREW_STAT_KEYS.unloadSpeed]: { probe: "sheetUnload", contexts: ["sheet", "expedition:groundOps"], curve: { kind: "linearRelative" } },
   [CREW_STAT_KEYS.loadSpeed]: { probe: "expReloadMult", contexts: ["expedition:groundOps"], curve: { kind: "linearAbsolute" } },
   [CREW_STAT_KEYS.effectiveCargo]: { probe: "sheetCargo", contexts: ["sheet"], curve: { kind: "linearRelative" } },
-  [CREW_STAT_KEYS.transitOutSpeed]: { probe: "sheetTransit", contexts: ["sheet"], curve: { kind: "linearRelative" } },
-  [CREW_STAT_KEYS.transitBackSpeed]: { probe: "sheetTransit", contexts: ["sheet"], curve: { kind: "linearRelative" } },
+  // CP-2 (OC-E5): each transit buff lifts its own leg.
+  [CREW_STAT_KEYS.transitOutSpeed]: { probe: "sheetOutLeg", contexts: ["sheet"], curve: { kind: "linearRelative" } },
+  [CREW_STAT_KEYS.transitBackSpeed]: { probe: "sheetBackLeg", contexts: ["sheet"], curve: { kind: "linearRelative" } },
+  // CP-2: Damage Control joins the repair divisor (Shipyard, and the field repair frozen at dispatch).
+  [CREW_STAT_KEYS.hullRepairRate]: { probe: "turnaround", contexts: ["shipyard", "shipEvent"], curve: { kind: "linearRelative" } },
+  // CP-2: Mission Turnaround: the unload x (1 + t) and the same repair divisor (Veteran Instincts' shape, own key).
+  [CREW_STAT_KEYS.missionTurnaround]: { probe: "turnaround", contexts: ["sheet", "shipyard", "shipEvent"], curve: { kind: "linearRelative" } },
+  // CP-2 (OC-E3): Crew Output Multiplier joins the mission output share (mission deliveries and patrol wave loot).
+  [CREW_STAT_KEYS.crewOutputMult]: { probe: "missionOutputBonus", contexts: ["mission:extraction", "patrol"], curve: { kind: "linearAbsolute" } },
+  [CREW_STAT_KEYS.crewEffectiveness]: EFFECTIVENESS_SEAM,
   [CREW_STAT_KEYS.rangeEfficiency]: { probe: "sheetEngineEff", contexts: ["sheet"], curve: { kind: "linearAbsolute" } },
   [CREW_STAT_KEYS.boardingDefense]: { probe: "expBoardingDefense", contexts: ["shipEvent"], curve: { kind: "linearAbsolute" } },
   [CREW_STAT_KEYS.extractionYield]: { probe: "sheetYield", contexts: ["sheet"], curve: { kind: "linearRelative" } },
@@ -459,33 +493,26 @@ interface DeadKeySeam {
 const POWERED_PIECE_DRAW = 20; // a piece drawing real power, so a power-draw cut would show
 const withMedic: Transform = (s) => editMember(s, WIRING_SECURITY_ID, { traits: ["fieldMedic"] });
 const CREW_PENDING_PROBES: Readonly<Record<string, DeadKeySeam>> = {
-  [CREW_STAT_KEYS.hullRepairRate]: { probe: "repairTicks", context: "shipyard" },
   [CREW_STAT_KEYS.surveyAptitude]: { probe: "expScanRate", context: "expedition:groundOps" },
   [CREW_STAT_KEYS.awayTeamProtection]: { probe: "runSecHp", context: "ground", base: () => withAwayTeam(wiringBase()) },
   [CREW_STAT_KEYS.droneHandling]: { probe: "combatDroneHp", context: "patrol", base: () => combatBase("carrier") },
   [CREW_STAT_KEYS.triage]: { probe: "runSecHeal", context: "ground", base: () => withMedic(withAwayTeam(wiringBase())) },
-  [CREW_STAT_KEYS.missionTurnaround]: { probe: "missionUnloadTicks", context: "mission:extraction" },
   [CREW_STAT_KEYS.powerEfficiency]: {
     probe: "sheetPowerDraw",
     context: "sheet",
     base: () => installPiece(wiringBase(), { slotType: "cargoBay", powerDraw: POWERED_PIECE_DRAW }),
   },
-  [CREW_STAT_KEYS.crewOutputMult]: { probe: "missionCycleOutput", context: "mission:extraction" },
   [CREW_STAT_KEYS.preventCrewLoss]: { probe: "injuryCare", context: "medbay" },
 };
 
 const CREW_PENDING: Readonly<Record<string, string>> = {
   [CREW_STAT_KEYS.powerEfficiency]: E_MOD,
   [CREW_STAT_KEYS.droneHandling]: TASK_23,
-  [CREW_STAT_KEYS.hullRepairRate]: TASK_23,
   [CREW_STAT_KEYS.counterInfiltration]: TASK_23,
   [CREW_STAT_KEYS.awayTeamProtection]: TASK_23,
   [CREW_STAT_KEYS.surveyAptitude]: TASK_23,
   [CREW_STAT_KEYS.triage]: TASK_23,
-  [CREW_STAT_KEYS.crewOutputMult]: TASK_23,
-  [CREW_STAT_KEYS.missionTurnaround]: TASK_23,
   [CREW_STAT_KEYS.preventCrewLoss]: TASK_23,
-  [CREW_STAT_KEYS.crewEffectiveness]: TASK_23_ALL_BUFFS,
 };
 
 const PROFESSION_OF_BUFF = new Map<string, CrewProfession>(
@@ -510,11 +537,13 @@ function crewEntries(): WiringEntry[] {
       probe: held ? undefined : probe,
       contexts: held || owner ? [] : seam?.contexts ?? [],
       curve: seam?.curve ?? { kind: "linearAbsolute" },
-      // One standard Crewman per head: the buff's catalog magnitude x the bucket's head count.
-      magnitude: () => def.magnitude * WIRING_BUCKET_COUNT,
-      on: (s) => withBuckets(s, [bucketOf(profession, def.id)]),
-      off: (s) => withBuckets(s, [bucketOf(profession, "wiring.none")]),
-      ...(dead?.base ? { base: dead.base } : {}),
+      // One standard Crewman per head: the buff's catalog magnitude x the bucket's head count (through the
+      // consumer's curve where the seam names one, CP-2).
+      magnitude: () => (seam?.effect ?? ((m: number) => m))(def.magnitude * WIRING_BUCKET_COUNT),
+      on: (s) => withBuckets(s, [...(seam?.alongside ?? []), bucketOf(profession, def.id)]),
+      off: (s) => withBuckets(s, [...(seam?.alongside ?? []), bucketOf(profession, "wiring.none")]),
+      ...(dead?.base ? { base: dead.base } : seam?.base && !owner ? { base: seam.base } : {}),
+      ...(seam?.tolerance !== undefined ? { tolerance: seam.tolerance } : {}),
       status: held
         ? { kind: "held", userRef: "D14 (design 2026-10-02): Craft Duplicate is held for homeworld staffing" }
         : owner
@@ -529,8 +558,6 @@ const RACIAL_PENDING: Readonly<Partial<Record<CrewRace, WiringStatus>>> = {
   belter: pending(TASK_23),
   outerColony: pending(TASK_23),
   vael: pending(TASK_23),
-  stheni: pending(TASK_23),
-  earthBorn: pending(TASK_23_ALL_BUFFS),
   spacer: { kind: "deferred", owner: "Task 23: complement long-haul ramp (D26)", userRef: `${T3}: the Spacer long-haul ramp` },
 };
 
@@ -551,10 +578,10 @@ function racialEntries(): WiringEntry[] {
       probe,
       contexts: status.kind === "live" ? seam?.contexts ?? [] : [],
       curve: seam?.curve ?? { kind: "linearAbsolute" },
-      magnitude: (c) => c.CREW_RACES[race].racialBonus.seniorStaff,
+      magnitude: (c) => (seam?.effect ?? ((m: number) => m))(c.CREW_RACES[race].racialBonus.seniorStaff),
       on: (s) => seatOfficer(s, "executive", [], { race }),
       off: identity,
-      ...(dead?.base ? { base: dead.base } : {}),
+      ...(dead?.base ? { base: dead.base } : seam?.base && status.kind === "live" ? { base: seam.base } : {}),
       status: claimed,
     });
   });
@@ -1720,9 +1747,8 @@ function hullEntries(): WiringEntry[] {
 // Where each division's not-yet-live complement keys would act (a division wing amplifies them too, once they do).
 const DEAD_DIVISION_CONTEXTS: Readonly<Partial<Record<CrewProfession, ContextId[]>>> = {
   security: ["ground"], // counterInfiltration, awayTeamProtection
-  engineering: ["shipyard"], // hullRepairRate, powerEfficiency
   science: ["expedition:groundOps"], // surveyAptitude
-  medical: ["ground"], // crewEffectiveness, triage
+  medical: ["ground"], // triage (Crew Effectiveness is live since CP-2)
   flightDeck: ["patrol"], // droneHandling
 };
 
@@ -1730,7 +1756,6 @@ const DEAD_DIVISION_CONTEXTS: Readonly<Partial<Record<CrewProfession, ContextId[
 // claims to act (the dead key's own consumer and fixture). The wing amplifies nothing there until the key is live.
 const DEAD_KEY_OF_DIVISION: Readonly<Partial<Record<CrewProfession, string>>> = {
   security: "sec.awayTeam",
-  engineering: "eng.hullRepair",
   science: "sci.survey",
   medical: "med.triage",
   flightDeck: "flight.droneHandling",
@@ -1742,6 +1767,14 @@ function divisionWingChecks(division: CrewProfession): Partial<Record<ContextId,
   if (!def || !dead) return {};
   const fixture = dead.base ?? (() => wiringBase());
   return { [dead.context]: { probe: dead.probe, base: () => withBuckets(fixture(), [bucketOf(division, def.id)]) } };
+}
+
+// CP-2: the Engineering wing is LIVE: every Engineering key it amplifies acts (Engine Tuning, and Damage Control since
+// CP-2) except Power Discipline, whose own entry (crew:crew.powerEfficiency) waits on the E-MOD power budget and
+// keeps its flat check there. The other non-Operations wings wait on their division's dead keys.
+const LIVE_WINGS: ReadonlySet<CrewProfession> = new Set(["operations", "engineering"]);
+function wingPending(division: CrewProfession): WiringStatus {
+  return pending(`CP-3, CP-4, E-MOD (the ${division} division's dead keys; its live keys move)`, DEAD_DIVISION_CONTEXTS[division] ?? ["ground"]);
 }
 
 function moduleEntries(): WiringEntry[] {
@@ -1765,11 +1798,8 @@ function moduleEntries(): WiringEntry[] {
         magnitude: () => boost * scale,
         base: opsBase,
         on: (s) => installPiece(s, { slotType: "quarters", moduleVariant: def.id }),
-        status:
-          def.kind === "division" && def.division !== "operations"
-            ? pending(`CP-2, CP-3, CP-4, E-MOD (the ${def.division} division's dead keys; its live keys move)`, DEAD_DIVISION_CONTEXTS[def.division!] ?? ["ground"])
-            : LIVE,
-        ...(def.kind === "division" && def.division !== "operations" ? { flatChecks: divisionWingChecks(def.division!) } : {}),
+        status: def.kind === "division" && !LIVE_WINGS.has(def.division!) ? wingPending(def.division!) : LIVE,
+        ...(def.kind === "division" && !LIVE_WINGS.has(def.division!) ? { flatChecks: divisionWingChecks(def.division!) } : {}),
         note:
           def.kind === "division" && def.division !== "operations"
             ? "measured on Operations, the OFF division (its own division boost is the same multiplier)"
@@ -1864,7 +1894,14 @@ const MUSEUM_SEAMS: Readonly<Record<MuseumStat, { probe: ProbeId; contexts: Cont
   miningYield: { probe: "sheetYield", contexts: ["sheet"], curve: { kind: "linearRelative" } },
   sensors: { probe: "sheetSensors", contexts: ["sheet"], curve: { kind: "linearRelative" }, base: () => installPiece(wiringBase(), { slotType: "sensor", moduleVariant: "sensorBalanced", implicitStats: { sensors: 20 } }) },
   extractionSpeed: { probe: "sheetExtractionSpeed", contexts: ["sheet"], curve: { kind: "linearRelative" } },
-  crewBonuses: { probe: "sheetUnload", contexts: ["sheet"], curve: { kind: "bonusRelative", base: 1 }, base: () => withBuckets(wiringBase(), [bucketOf("operations", "ops.unloadSpeed")]) },
+  // CP-2 (OC-E8, "Officers too"): the complement on the sheet AND an officer bonus read directly (Fleet Triage, frozen
+  // on the run as squadTriage), one fixture carrying both.
+  crewBonuses: {
+    probe: "crewAmplified",
+    contexts: ["sheet", "ground"],
+    curve: { kind: "bonusRelative", base: 1 },
+    base: () => withBuckets(seatOfficer(withAwayTeam(wiringBase()), "medical", ["med.fleetTriage"]), [bucketOf("operations", "ops.unloadSpeed")]),
+  },
   researchSpeed: { probe: "researchTicks", contexts: ["research"], curve: { kind: "divisor" }, tolerance: 1, direction: "down" },
   craftingQuality: { probe: "craftQualityClimb", contexts: ["craft"], curve: { kind: "linearRelative" }, tolerance: 1e-12 },
   salvageYield: { probe: "salvageYield", contexts: ["salvage"], curve: { kind: "linearAbsolute" } },
@@ -1877,14 +1914,11 @@ const MUSEUM_SEAMS: Readonly<Record<MuseumStat, { probe: ProbeId; contexts: Cont
 
 const MUSEUM_PARTIAL: Readonly<Partial<Record<MuseumStat, WiringStatus>>> = {
   transitSpeed: pending("G2-3 + OC-D8 (missions only)", ["expedition:groundOps", "patrol"]),
-  crewBonuses: pending("WR-9, OC-E8 (officer bonuses read through officerBonusTotal are not amplified)", ["ground"]),
 };
 
-// The museum's PARTIAL checks: transit on a patrol flies a combat hull; the crew amplifier is read on the officer
-// bonus it does not reach (Fleet Triage, frozen on the run as squadTriage).
+// The museum's PARTIAL checks: transit on a patrol flies a combat hull.
 const MUSEUM_FLAT_CHECKS: Readonly<Partial<Record<MuseumStat, Partial<Record<ContextId, FlatCheck>>>>> = {
   transitSpeed: { patrol: { base: () => combatBase() } },
-  crewBonuses: { ground: { probe: "expSquadTriage", base: () => seatOfficer(withAwayTeam(wiringBase()), "medical", ["med.fleetTriage"]) } },
 };
 
 // A museum record that sets ONLY `stat` (one set tier at level 1), and the stat's value in it. The set's per-copy
@@ -2729,8 +2763,6 @@ const AUDIT_ROWS: readonly { id: string; system: WiringSystem; claim: string; st
   { id: "crew:audit:enlisted", system: "crew", claim: "The crew rank enlisted flag (never read)", status: pending("WR-9, OC-E11") },
   { id: "crew:audit:thirdBuff", system: "crew", claim: "buffCountForRank 3 (only gates the exclusive pick)", status: pending("WR-9, OC-E12") },
   { id: "crew:audit:commandCaps", system: "crew", claim: "Command structure caps (passive ships only; not enforced on load)", status: pending("CP-5, CP-7") },
-  { id: "crew:audit:constitutionCycle1", system: "crew", claim: "The Constitution battle ramp skips patrol cycle 1, so a Dispatch Once patrol never ramps (B17)", status: pending("WR-9, OC-E13") },
-  { id: "crew:audit:transitSplit", system: "crew", claim: "Fast Departure and Fast Return merge into one transit multiplier", status: pending("WR-9, OC-E5") },
   { id: "crew:audit:rapidLoadoutScope", system: "crew", claim: "Rapid Loadout acts on Ground Ops only", status: pending("WR-9, OC-E6") },
   { id: "crew:audit:moraleAttrition", system: "crew", claim: "Morale Anchor's \"complement attrition\" half (no system)", status: pending("WR-9, OC-E7") },
   { id: "crew:audit:commandPresenceExpedition", system: "crew", claim: "Command Presence and Operations Integrity do not reach expeditions", status: pending("WR-9, OC-E9") },
@@ -2773,7 +2805,47 @@ const AUDIT_ROWS: readonly { id: string; system: WiringSystem; claim: string; st
 ];
 
 function auditEntries(): WiringEntry[] {
-  return AUDIT_ROWS.map((r) => entry({ id: r.id, system: r.system, source: { catalog: "AUDIT", key: r.id }, claim: r.claim, status: r.status }));
+  return [...AUDIT_ROWS.map((r) => entry({ id: r.id, system: r.system, source: { catalog: "AUDIT", key: r.id }, claim: r.claim, status: r.status })), ...cp2AuditEntries()];
+}
+
+// CP-2: the two crew audit rows CP-2 resolves, now live with their own checks.
+const CONSTITUTION_HIGH = 20; // the top of the officer stat roll (OFFICER_STAT_ROLL_MAX)
+function cp2AuditEntries(): WiringEntry[] {
+  const neutral: OfficerStats = { strength: OFFICER_STAT_NEUTRAL, integrity: OFFICER_STAT_NEUTRAL, cunning: OFFICER_STAT_NEUTRAL, constitution: OFFICER_STAT_NEUTRAL };
+  const tactical = (constitution: number): Transform => (s) => seatOfficer(s, "tactical", ["tac.weaponCommand"], { stats: { ...neutral, constitution } });
+  return [
+    // OC-E13 (B17, user 2026-10-15 "Ramp cycle 1 too"): the first cycle of a Dispatch Once patrol freezes the
+    // Constitution ramp at its own mid-route sample, so a high Constitution grows its battle bonus from cycle 1.
+    entry({
+      id: "crew:audit:constitutionCycle1",
+      system: "crew",
+      source: { catalog: "AUDIT", key: "crew:audit:constitutionCycle1" },
+      claim: "The Constitution battle ramp acts on patrol cycle 1 too (B17), so a Dispatch Once patrol ramps",
+      probe: "patrolCycleOneWeapons",
+      contexts: ["patrol"],
+      curve: { kind: "linearRelative" },
+      magnitude: () => constitutionRamp(officerStatFacet(CONSTITUTION_HIGH), patrolCycleOneRampHours(Object.values(PATROLS)[0], combatBase().tickDurationSeconds)),
+      base: () => combatBase(),
+      on: tactical(CONSTITUTION_HIGH),
+      off: tactical(OFFICER_STAT_NEUTRAL),
+      note: "the tactical seat's Constitution ramps its own Weapons Command; the sample is half the patrol's route",
+    }),
+    // OC-E5 (user 2026-10-15 "Each its own leg"): Fast Departure lifts the outbound leg (its crew entry proves it) and
+    // leaves the return leg exactly where it was (this check: a move of 0 on the other leg).
+    entry({
+      id: "crew:audit:transitSplit",
+      system: "crew",
+      source: { catalog: "AUDIT", key: "crew:audit:transitSplit" },
+      claim: "Fast Departure and Fast Return each act on their own leg (Fast Departure leaves the return leg unchanged)",
+      probe: "sheetBackLeg",
+      contexts: ["sheet"],
+      direction: "none",
+      magnitude: () => 0,
+      on: (s) => withBuckets(s, [bucketOf("flightDeck", "flight.transitOut")]),
+      off: (s) => withBuckets(s, [bucketOf("flightDeck", "wiring.none")]),
+      note: "a move of 0: the other leg's speed is untouched; crew:crew.transitOutSpeed / transitBackSpeed prove each own leg",
+    }),
+  ];
 }
 
 // ============================================================================
@@ -2831,21 +2903,15 @@ const ALLOW_LIST_REASONS: Readonly<Record<string, string>> = {
     "weakened or poison), so the resist never rolls. The Iron Will trait and Cortex Shield's fear half wait the same way.",
   "crew:crew.powerEfficiency": "Power Discipline: power efficiency waits for the power budget (design 6.2)",
   "crew:crew.droneHandling": "Deck Handling: carrier drone handling (Flight Deck pool)",
-  "crew:crew.hullRepairRate": "Damage Control: Shipyard repair rate (Engineering pool)",
   "crew:crew.counterInfiltration": "Counter-Infiltration: resists enemy debuffs (Security pool)",
   "crew:crew.awayTeamProtection": "Away-Team Protection: squad HP (Security pool)",
   "crew:crew.surveyAptitude": "Survey Aptitude: scan speed (Science pool)",
   "crew:crew.triage": "Triage: squad healing (Medical pool)",
-  "crew:crew.crewOutputMult": "Crew Output Multiplier: output mult (exclusive pool)",
-  "crew:crew.missionTurnaround": "Mission Turnaround: turnaround cut (exclusive pool)",
   "crew:crew.preventCrewLoss": "Prevent a Crew Loss: shorter injuries (exclusive pool)",
-  "crew:crew.crewEffectiveness": "Crew Effectiveness (Medical): healthy crew work better",
   "racial:martian": "racial crew.powerEfficiency waits for the power budget",
   "racial:belter": "racial crew.droneHandling (Flight Deck pool key)",
   "racial:outerColony": "racial crew.surveyAptitude (Science pool key)",
   "racial:vael": "racial crew.surveyAptitude (Science pool key)",
-  "racial:stheni": "racial crew.hullRepairRate (Engineering pool key)",
-  "racial:earthBorn": "racial crew.crewEffectiveness (see crew:crew.crewEffectiveness)",
   "racial:spacer": "racial crew.endurance: a complement build-up like Constitution (D23 curve)",
   "gear:science:sidearm:groundPower": SIDEARM_TOOL,
   "gear:science:sidearm:groundAccuracy": SIDEARM_TOOL,

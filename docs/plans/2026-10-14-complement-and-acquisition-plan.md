@@ -233,6 +233,30 @@ of a pre-slice run unchanged. Remove the 6 entries (hullRepairRate, missionTurna
 crewEffectiveness, stheni, earthBorn). **UI:** ShipSystemsPanel source split already shows crew-map keys; the repair
 and output lines need one label each in the stat breakdown (text only).
 
+**Carry note (2026-10-17, CP-2 landed, with the wiring plan's ship-side crew answers OC-E3, OC-E5, OC-E8, OC-E13):**
+`crewOverlay.ts`: Damage Control (+ Stheni) and Mission Turnaround's repair half feed `crewRepairSpeedBonus`;
+`shipRepairSpeedBonus` (officers + complement) is what the Shipyard divisor (`tick.ts` processShipRepairs, D23
+divisor) and the GO-8b field repair (`shipScanEvents.ts`, frozen at dispatch; an older run keeps its value) read.
+Mission Turnaround's unload half is `applyCrewOverlay` unloadSpeedMult x (1 + t), its own key. Crew Output
+Multiplier feeds `crewMissionOutputBonus`; `shipMissionOutputBonus` (Command Presence + it) is the share economyTick
+applies to mission deliveries and patrol wave loot (the existing chanceRound streams, no new stream). Crew
+Effectiveness (+ Earth-born, crew per head and officers at the officer magnitude) multiplies every OTHER complement
+key by `crewEffectivenessMultiplier` = 1 + diminishing(e, `CREW_EFFECTIVENESS_KNEE` 0.2 [PROVISIONAL]) inside
+`rawShipCrewContribution`; never itself, never the officers' bonuses. OC-E5: Fast Departure / Fast Return lift
+`ShipDerivedStats.transitOutLegMult` / `transitBackLegMult` (model.ts `outboundLegSpeed` / `returnLegSpeed`, read by
+`effectiveMissionDef`); the Pilot's sweeping transit cut moved to its own key `OFFICER_TRANSIT_KEY`. OC-E8: the
+Museum's crewBonuses also multiplies `officerBonusTotal` and the officer combat profile. OC-E13: a patrol's first
+cycle folds the Constitution ramp at `patrolCycleOneRampHours` (half its route). Fast guards (`carriesCrewKey`) keep
+the per-tick output read as cheap as before. UI: ShipSystemsPanel shows Departure / Return Speed rows when a leg
+differs, and Repair Speed / Mission Output lines with the complement's part. Registry: crew hullRepairRate,
+missionTurnaround, crewOutputMult, crewEffectiveness, racials stheni and earthBorn, Museum crewBonuses (sheet +
+ground), audit transitSplit and constitutionCycle1, and the Engineering wing flipped to live. Probe fixtures now
+default to a Spacer crew and officer (`FIXTURE_RACE`: no 0.14.0 consumer). Goldens: every moved hash carries a CP-2
+key (Earth-born transport crew, full complements, the Earth-born facet bridge); `complementCp2Switch.fixture.ts`
+`withCp2Off` zeroes exactly the switched magnitudes and each moved golden reproduces its pre-CP-2 capture with it
+(captured on the pre-CP-2 code). CP-3 and CP-4 not touched (Survey Aptitude, Triage, Counter-Infiltration,
+Away-Team Protection, Prevent a Crew Loss, Deck Handling and the Spacer ramp stay pending).
+
 ### CP-3: Ground Ops complement consumers (Task 23: Security, Science, Medical, exclusive) [after Field Kits engine]
 
 **Files:** `groundOps.ts` (dispatch snapshot, `snapshotGroundOps`), `groundFight.ts` (`buildRosterCombatants` care /

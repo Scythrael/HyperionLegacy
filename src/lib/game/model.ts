@@ -3366,6 +3366,22 @@ export interface ShipDerivedStats {
   // cargo above it is overflow that unloads at no extra time. Set by crewOverlay.ts (the captain overlay) only
   // with the capstone; absent = cargoCapacity (effectiveMissionDef), so every other stats object is unchanged.
   unloadCargoCapacity?: number;
+  // Complement and Acquisition CP-2 (OC-E5, user 2026-10-15 "Each its own leg"): the complement's per-leg speed
+  // lifts, folded by crewOverlay.ts applyCrewOverlay from Fast Departure (crew.transitOutSpeed, the outbound leg)
+  // and Fast Return (crew.transitBackSpeed, the return leg). Each multiplies transitSpeedMult on ITS leg only
+  // (effectiveMissionDef). Set only when non-zero, read absent as the neutral 1, so a ship without either buff is
+  // the same object it was. transitSpeedMult itself stays the sweeping speed (hull, gear, officers, museum).
+  transitOutLegMult?: number;
+  transitBackLegMult?: number;
+}
+
+// CP-2 (OC-E5): a ship's speed on each mission leg: the sweeping transitSpeedMult times that leg's own complement
+// lift (absent = 1, and x * 1 is exact, so a ship without the lift divides by transitSpeedMult as before). Pure.
+export function outboundLegSpeed(ship: ShipDerivedStats): number {
+  return ship.transitOutLegMult === undefined ? ship.transitSpeedMult : ship.transitSpeedMult * ship.transitOutLegMult;
+}
+export function returnLegSpeed(ship: ShipDerivedStats): number {
+  return ship.transitBackLegMult === undefined ? ship.transitSpeedMult : ship.transitSpeedMult * ship.transitBackLegMult;
 }
 
 // ----------------------------------------------------------------------------
@@ -3695,7 +3711,8 @@ export function effectiveMissionDef(base: MissionDef, ship: ShipDerivedStats): M
   );
   const unloadMult = ship.unloadSpeedMult ?? 1;
   const unloadTicks = Math.max(1, Math.ceil(cargoScaledUnload / unloadMult));
-  const transitOutTicks = Math.ceil(base.transitOutTicks / ship.transitSpeedMult);
+  // CP-2 (OC-E5): each leg divides by its own speed (Fast Departure out, Fast Return back).
+  const transitOutTicks = Math.ceil(base.transitOutTicks / outboundLegSpeed(ship));
   const museumFold = museumExtractionSpeedFold(base.extractionRatePerTick, ship.cargoCapacity, ship.extractionSpeedMult);
   // E-CREW (Task 21): the Flight Deck's Constitution ramp on the return leg (absent facet = the plain divide)
   // and the Operations Integrity full-hold unload (written only when the facet is non-zero).
@@ -3703,7 +3720,7 @@ export function effectiveMissionDef(base: MissionDef, ship: ShipDerivedStats): M
     1 +
     transitOutTicks +
     (museumFold.extractionTicksOverride ?? Math.ceil(ship.cargoCapacity / (museumFold.extractionRatePerTick ?? base.extractionRatePerTick)));
-  const transitBackTicks = ship.returnLegConstitution ? rampedReturnTicks(base, ship, outbound) : Math.ceil(base.transitBackTicks / ship.transitSpeedMult);
+  const transitBackTicks = ship.returnLegConstitution ? rampedReturnTicks(base, ship, outbound) : Math.ceil(base.transitBackTicks / returnLegSpeed(ship));
   const fullHold = ship.fullHoldUnloadIntegrity ?? 0;
   return {
     ...base,
@@ -3747,11 +3764,11 @@ export function missionPhaseTicks(
 
 // E-CREW 0.14.0 (Task 21, Flight Deck CONSTITUTION): the return leg's ticks after the ramp. The voyage's hours
 // before the return starts are its orders + outbound + extracting phases (RAMP_SECONDS_PER_TICK each); the leg
-// is divided by (transitSpeedMult * (1 + ramp)), ceil, at least 1 tick. Pure.
+// is divided by (the return leg's speed * (1 + ramp)), ceil, at least 1 tick. Pure.
 function rampedReturnTicks(base: MissionDef, ship: ShipDerivedStats, outboundTicks: number): number {
   const ramp = constitutionRamp(ship.returnLegConstitution ?? 0, (outboundTicks * RAMP_SECONDS_PER_TICK) / 3600);
-  if (ramp === 0) return Math.ceil(base.transitBackTicks / ship.transitSpeedMult);
-  return Math.max(1, Math.ceil(base.transitBackTicks / (ship.transitSpeedMult * (1 + ramp))));
+  if (ramp === 0) return Math.ceil(base.transitBackTicks / returnLegSpeed(ship));
+  return Math.max(1, Math.ceil(base.transitBackTicks / (returnLegSpeed(ship) * (1 + ramp))));
 }
 
 // Exploration 0.14.0 (Phase E4b): the floor on a museum-shortened extracting phase (whole ticks).
@@ -7476,9 +7493,10 @@ export interface ShipEventBattle {
   installedGear?: EquipmentInstance[];
   officerCombat: OfficerCombatEntry[]; // crewOverlay.ts officerCombatProfile at dispatch
   hullMax: number; // the folded hull pool at dispatch (light damage and the field repair threshold are shares of it)
-  // GO-8b: the ship's repair speed-up at dispatch (crewOverlay.ts officerRepairSpeedBonus: Rapid Recovery + Veteran
-  // Instincts + the Engineering department's Constitution), the FIELD REPAIR's divisor. Its presence is the field
-  // repair flag (a run without it never sets down for repairs).
+  // GO-8b: the ship's repair speed-up at dispatch (crewOverlay.ts shipRepairSpeedBonus: Rapid Recovery + Veteran
+  // Instincts + the Engineering department's Constitution, plus the complement's Damage Control and Mission
+  // Turnaround since CP-2), the FIELD REPAIR's divisor. Its presence is the field repair flag (a run without it never
+  // sets down for repairs). A run dispatched before CP-2 keeps the value it froze.
   repairSpeed?: number;
 }
 
