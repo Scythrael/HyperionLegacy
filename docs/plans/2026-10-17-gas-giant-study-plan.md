@@ -355,4 +355,10 @@ ancient entries (open call 13); nothing else can move without leaving a false He
   Deuterium; Stellar Helium-3; Radiant Antimatter Containment Cell.
 - **Call 6 Galileo lines:** "Reuse lines (Recommended)": fieldwork = study speed, hazard resist = crush rating, relic
   find = ancient data odds; ratios unchanged.
-- Still open: 7 to 12.
+- **Call 7 canister uses:** "Drives + Lab blueprints (Recommended)": inputs to the G2 drive classes and Lab tier 3 to 7
+  blueprints (Deuterium Class III+, the cell Class VI and VII, Helium-3 reactors, Hydrogen, Methane, Ammonia in sensor
+  and quarters modules), also sellable. This is also Material Lines call L9's shared answer.
+- **Call 8 Lab lane:** "Auto when idle (Recommended)", with a pause toggle.
+- **Call 9 data types:** "Your six + 2, +12% (Recommended)": the six plus Materials and Sensors; +12% per boost on
+  the next project of the family, D23 stacking; 5% recipe chance.
+- Still open: 10 to 12.
