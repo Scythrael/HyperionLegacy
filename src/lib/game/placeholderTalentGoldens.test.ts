@@ -252,8 +252,10 @@ const MOVES: Partial<Record<Wr6Variant, Record<string, string>>> = {
   // Salvage Operations on a hull teardown: +10 percentage points on the teardown fraction, so more components and
   // credits come back.
   fleetLogisticsSalvage: { teardown: "6d506c38" },
-  // Works Directorate: the jobs whose keyed roll lands deliver a second blank or a second Frame Segment.
-  industryHub: { craft: "88f1495f" },
+  // Works Directorate: the jobs whose keyed roll lands deliver a second blank or a second Frame Segment. Re-pinned
+  // (88f1495f -> 8b902b9d) when the roll gained the save's seed in its key (worksDirectorateSeed), so job N no longer
+  // rolls identically in every save: a different set of the 40 jobs lands. No production save carries a stamped job yet.
+  industryHub: { craft: "8b902b9d" },
   // Home Guard: the patrol cycle's frozen record carries shield 0.05 and the folded shield pool is 5% larger. The
   // ship-event battle does not move (patrols only), and the 900 s patrol ends the same way.
   homelandDefenseHub: { patrolDispatch: "e1e0a4f2" },

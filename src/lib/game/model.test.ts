@@ -1116,7 +1116,7 @@ describe("Captain Specialization, CaptainState.spec and CAPTAIN_SPEC_BONUS", () 
   it("CAPTAIN_SPEC_BONUS has a real bonus for every spec (WR-6)", () => {
     // Radial Skill Web (Task 2) dropped the `command` spec bonus along with the
     // command branch itself. WR-6 (OC-A42) gave tactical and science their own
-    // bonuses (sizes [PROVISIONAL] in model.ts).
+    // bonuses (sizes in model.ts).
     expect(CAPTAIN_SPEC_BONUS.resourcefulness).toEqual({ type: "bonusRollChance", chance: 0.01 });
     expect(CAPTAIN_SPEC_BONUS.tactical).toEqual({ type: "weaponDamageMult", mult: TACTICAL_SPEC_WEAPON_DAMAGE });
     expect(CAPTAIN_SPEC_BONUS.science).toEqual({ type: "relicFindMult", mult: SCIENCE_SPEC_RELIC_FIND });

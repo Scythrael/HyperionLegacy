@@ -6024,13 +6024,31 @@ export const WORKS_DIRECTORATE_SALT = 0x4b1d7e35;
 // The roll's resolution: chances are compared in ten-thousandths (one integer draw).
 const WORKS_DIRECTORATE_DENOMINATOR = 10_000;
 
+// The save's own seed for Works Directorate: the homeworld seed (GameState.homeworld, drawn once per save at the
+// browser boundary; the only per-save seed that differs between players). 0 for a state without one (freshState
+// with no seed: tests and the sim). Pure.
+export function worksDirectorateSaveSeed(state: Pick<GameState, "homeworld">): number {
+  const seed = state.homeworld?.seed;
+  return typeof seed === "number" && Number.isFinite(seed) ? seed >>> 0 : 0;
+}
+
+// The keyed stream seed of the Fabricator job minted as process number `processNumber` in the save keyed by
+// `saveSeed`: the save seed, the salt and the process number mixed (the relicStudySeed convention), then avalanched,
+// so job N rolls differently in every save. Pure uint32.
+export function worksDirectorateSeed(saveSeed: number, processNumber: number): number {
+  let h = ((saveSeed >>> 0) ^ WORKS_DIRECTORATE_SALT ^ Math.imul(processNumber >>> 0, 0x9e3779b9)) >>> 0;
+  h = Math.imul(h ^ (h >>> 16), 0x85ebca6b) >>> 0;
+  h = Math.imul(h ^ (h >>> 13), 0xc2b2ae35) >>> 0;
+  return (h ^ (h >>> 16)) >>> 0;
+}
+
 // Whether the Fabricator job minted as process number `processNumber` (TimedProcess "proc-N", N from nextProcessId,
-// never reused) lands its extra output at `chance`. One integer draw on its own stream keyed by the process number,
-// so no shared stream moves and the outcome is the same live, offline and on reload. false at chance 0 (no draw).
-// Pure.
-export function worksDirectorateBonus(processNumber: number, chance: number): boolean {
+// never reused) lands its extra output at `chance`. One integer draw on its own stream keyed by the save's seed and
+// the process number, so no shared stream moves, the outcome is the same live, offline and on reload, and job N does
+// not roll identically in every save. false at chance 0 (no draw). Pure.
+export function worksDirectorateBonus(saveSeed: number, processNumber: number, chance: number): boolean {
   if (!(chance > 0)) return false;
-  const seed = (Math.imul((processNumber >>> 0) ^ 0x85ebca6b, 0xc2b2ae35) ^ WORKS_DIRECTORATE_SALT) >>> 0;
+  const seed = worksDirectorateSeed(saveSeed, processNumber);
   return makeRng(seed).chance(Math.round(Math.min(1, chance) * WORKS_DIRECTORATE_DENOMINATOR), WORKS_DIRECTORATE_DENOMINATOR);
 }
 
@@ -6092,7 +6110,7 @@ export function startProcess(
     ...(lineId !== undefined ? { lineId } : {}),
     // WR-6 (OC-B2): Works Directorate decides a Fabricator job's extra output NOW, on the job's own keyed roll,
     // and stamps it (absent without the talent or when the roll misses, so every other process is unchanged).
-    ...(kind === "fabricateJob" && worksDirectorateBonus(state.nextProcessId, fabricatorBonusOutputChance(state))
+    ...(kind === "fabricateJob" && worksDirectorateBonus(worksDirectorateSaveSeed(state), state.nextProcessId, fabricatorBonusOutputChance(state))
       ? { bonusOutput: true as const }
       : {}),
   };

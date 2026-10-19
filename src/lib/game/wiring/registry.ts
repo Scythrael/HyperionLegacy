@@ -981,7 +981,7 @@ function captainTalentEntries(): WiringEntry[] {
       case "scanRateMult":
       case "relicFindMult":
         // WR-6: the Tactician / Explorer hubs, each its own factor where the matching secondary node acts.
-        return entry({ ...common, ...PRIMARY_SEAMS[eff.type], magnitude: mult, note: "[PROVISIONAL] size (OC-A40 / OC-A41)" });
+        return entry({ ...common, ...PRIMARY_SEAMS[eff.type], magnitude: mult, note: "size OC-A40 / OC-A41 (user 2026-10-19)" });
       case "none":
         throw new Error(`wiring: captain talent ${key} is a "none" gateway (WR-6 wired every hub)`);
     }
@@ -1014,7 +1014,7 @@ function captainSpecEntries(): WiringEntry[] {
           return e && e.type === kind ? e.mult : 0;
         },
         on: (s) => editCaptain(s, { spec: branch }),
-        note: "[PROVISIONAL] size (OC-A42)",
+        note: "size OC-A42 (user 2026-10-19)",
       });
     }
     // Release gate (0.14.0): every spec carries a real bonus since WR-6, so a spec without one is a placeholder bug.
@@ -1286,7 +1286,7 @@ function captainProgressionEntries(): WiringEntry[] {
       magnitude: () => RETIREMENT_EXP_PER,
       on: (s) => editCaptain(s, { retirements: 1 }),
     }),
-    // WR-6 (OC-A43 [PROVISIONAL]): the captain carries its race's racial on the ship it commands, at the officer
+    // WR-6 (OC-A43, user 2026-10-19 "Same as an officer"): the captain carries its race's racial on the ship it commands, at the officer
     // magnitude x CAPTAIN_RACIAL_SCALE. Measured with a Station-born captain (crew.unloadSpeed, a live racial key; the
     // other races ride the same crew map as their officer racial entries).
     entry({
@@ -1299,7 +1299,7 @@ function captainProgressionEntries(): WiringEntry[] {
       curve: { kind: "linearRelative" },
       magnitude: (c) => c.CREW_RACES.stationBorn.racialBonus.seniorStaff * CAPTAIN_RACIAL_SCALE,
       on: (s) => editCaptain(s, { race: "stationBorn" }),
-      note: "[PROVISIONAL] magnitude (CAPTAIN_RACIAL_SCALE)",
+      note: "magnitude CAPTAIN_RACIAL_SCALE 1 (user 2026-10-19)",
     }),
   ];
 }
@@ -1387,17 +1387,17 @@ function homeworldEntries(): WiringEntry[] {
           }),
         );
         break;
-      // WR-6 (OC-B2 / OC-B3, user 2026-10-15 "Give them real effects"; sizes [PROVISIONAL]).
+      // WR-6 (OC-B2 / OC-B3, user 2026-10-15 "Give them real effects"; sizes approved 2026-10-19).
       case "fabricatorBonusOutput":
         // The realized extra output over 1,000 real Fabricator jobs (process numbers 1 to 1,000): its share sits at the
         // configured chance within the batch's sampling spread (about 3 standard deviations).
-        out.push(entry({ ...common, probe: "fabricatorBonusShare", contexts: ["craft"], curve: { kind: "chanceAbsolute" }, magnitude: field("chance"), tolerance: 0.02, note: "[PROVISIONAL] chance (OC-B2); also gates Refinery rungs 3 and 4" }));
+        out.push(entry({ ...common, probe: "fabricatorBonusShare", contexts: ["craft"], curve: { kind: "chanceAbsolute" }, magnitude: field("chance"), tolerance: 0.02, note: "chance OC-B2 (user 2026-10-19); also gates Refinery rungs 3 and 4" }));
         break;
       case "patrolShieldMult":
-        out.push(entry({ ...common, probe: "patrolShieldPool", contexts: ["patrol"], curve: { kind: "linearRelative" }, magnitude: field("mult"), tolerance: 0.5, base: () => combatBase(), note: "[PROVISIONAL] size (OC-B3)" }));
+        out.push(entry({ ...common, probe: "patrolShieldPool", contexts: ["patrol"], curve: { kind: "linearRelative" }, magnitude: field("mult"), tolerance: 0.5, base: () => combatBase(), note: "size OC-B3 (user 2026-10-19)" }));
         break;
       case "transportCrewBonus":
-        out.push(entry({ ...common, probe: "transportCrewDelivered", contexts: ["fleet"], magnitude: field("crew"), note: "[PROVISIONAL] size (OC-B3)" }));
+        out.push(entry({ ...common, probe: "transportCrewDelivered", contexts: ["fleet"], magnitude: field("crew"), note: "size OC-B3 (user 2026-10-19)" }));
         break;
       case "none":
         throw new Error(`wiring: Homeworld talent ${key} is a "none" placeholder (WR-6 wired every hub)`);

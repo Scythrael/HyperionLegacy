@@ -12066,17 +12066,17 @@ export type CaptainTalentKey =
   // science ("Explorer"), its hub (expedition scan rate, WR-6)
   | "explorerHub";
 
-// WR-6 (0.14.0): the sizes of the captain primary bonuses the user has not sized yet. Each is the wiring plan's
-// recommended option (section 5.A), [PROVISIONAL] until the user answers its open call; a retune is this one edit.
-// [PROVISIONAL] OC-A40: Combat Readiness (tacticianHub), +5% weapon damage on the captain's ship.
+// WR-6 (0.14.0): the sizes of the captain primary bonuses, each the wiring plan's recommended option (section 5.A),
+// confirmed by the user 2026-10-19 (docs/plans/2026-10-19-merge-batch-answers.md); a retune is this one edit.
+// OC-A40: Combat Readiness (tacticianHub), +5% weapon damage on the captain's ship.
 export const TACTICIAN_HUB_WEAPON_DAMAGE = 0.05;
-// [PROVISIONAL] OC-A41: Survey Doctrine (explorerHub), +5% expedition scan rate.
+// OC-A41: Survey Doctrine (explorerHub), +5% expedition scan rate.
 export const EXPLORER_HUB_SCAN_RATE = 0.05;
-// [PROVISIONAL] OC-A42: the tactical spec's bonus, +1% weapon damage (mirrors the Prospector spec's +1%).
+// OC-A42: the tactical spec's bonus, +1% weapon damage, ship weapons only, not drones (mirrors the Prospector spec's +1%).
 export const TACTICAL_SPEC_WEAPON_DAMAGE = 0.01;
-// [PROVISIONAL] OC-A42: the science spec's bonus, +1% relic find chance.
+// OC-A42: the science spec's bonus, +1% relic find chance.
 export const SCIENCE_SPEC_RELIC_FIND = 0.01;
-// [PROVISIONAL] OC-A43: a captain carries its race's racial at the officer (Senior Staff) magnitude times this.
+// OC-A43 ("Same as an officer"): a captain carries its race's racial at the officer (Senior Staff) magnitude times this.
 export const CAPTAIN_RACIAL_SCALE = 1;
 
 export const CAPTAIN_TALENTS: Record<CaptainTalentKey, CaptainTalentDef & { effect: CaptainTalentEffect }> = {
@@ -12191,7 +12191,7 @@ export const CAPTAIN_TALENTS: Record<CaptainTalentKey, CaptainTalentDef & { effe
 // command branch itself. WR-6 (0.14.0, OC-A42): every spec carries a real bonus
 // now. Prospector: the bonus-roll chance (tick.ts captainSpecBonusRollChance).
 // Tactician and Explorer: their own x (1 + mult) factor on the captain's ship,
-// read by captainPrimaryEffects.ts beside the hubs (sizes [PROVISIONAL] above).
+// read by captainPrimaryEffects.ts beside the hubs (sizes above, confirmed 2026-10-19).
 // Still typed Partial so a future branch can land before its bonus.
 export const CAPTAIN_SPEC_BONUS: Partial<Record<CaptainTalentBranch, CaptainTalentEffect>> = {
   resourcefulness: { type: "bonusRollChance", chance: 0.01 },
@@ -12724,12 +12724,12 @@ export const SALVAGE_TALENT_CEILING_BONUS = 1;
 
 // WR-6 (0.14.0, OC-B2 / OC-B3, user 2026-10-15 "Give them real effects": Home Guard helps patrol combat, Civic Charter
 // helps crew recruitment, Works Directorate gives a Fabricator bonus and keeps gating the Refinery). The user named
-// what each does; the sizes are the wiring plan's proposals, each [PROVISIONAL] in this one place until sized.
-// [PROVISIONAL] OC-B2: Works Directorate, the chance a Fabricator job delivers one more of its output.
+// what each does; the sizes are the wiring plan's proposals, approved by the user 2026-10-19 ("Approve all").
+// OC-B2: Works Directorate, the chance a Fabricator job delivers one more of its output.
 export const WORKS_DIRECTORATE_BONUS_CHANCE = 0.05;
-// [PROVISIONAL] OC-B3: Home Guard, +5% shield capacity and recharge on patrols.
+// OC-B3: Home Guard, +5% shield capacity and recharge on patrols.
 export const HOME_GUARD_PATROL_SHIELD = 0.05;
-// [PROVISIONAL] OC-B3: Civic Charter, +1 crew on every crew transport.
+// OC-B3: Civic Charter, +1 crew on every crew transport.
 export const CIVIC_CHARTER_TRANSPORT_CREW = 1;
 
 // Crafting 0.13.3 (Phase 1 Unit 1.2, design §5.2): how much queue depth ONE node of

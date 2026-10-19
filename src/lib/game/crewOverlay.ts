@@ -421,7 +421,7 @@ function rawShipCrewContribution(state: GameState, ship: ShipInstance): Record<s
     add(racial.statKey, racial.magnitude * officerMult);
   }
 
-  // WR-6 (OC-A43 [PROVISIONAL]): the commanding captain's racial, at the officer magnitude x CAPTAIN_RACIAL_SCALE.
+  // WR-6 (OC-A43, "Same as an officer"): the commanding captain's racial, at the officer magnitude x CAPTAIN_RACIAL_SCALE.
   // The captain is not an officer, so neither the bridge module nor its own Mentor scales it. Nothing without a race.
   const captainRacial = captainRacialBonus(captain);
   if (captainRacial) add(captainRacial.statKey, captainRacial.magnitude);

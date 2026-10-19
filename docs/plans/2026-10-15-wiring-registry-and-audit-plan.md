@@ -1184,7 +1184,7 @@ new effect types `weaponDamageMult` / `scanRateMult` / `relicFindMult` (captain)
   and never rerolls the first 12.
 - Text: spec and category cards and the hub flavors name only live effects; stale DORMANT comments fixed in passing.
 
-**[PROVISIONAL] (no user answer; the plan's recommended option, one constant each in model.ts):**
+**Sizes (confirmed by the user 2026-10-19, docs/plans/2026-10-19-merge-batch-answers.md; no longer provisional):**
 `TACTICIAN_HUB_WEAPON_DAMAGE` 0.05 (OC-A40), `EXPLORER_HUB_SCAN_RATE` 0.05 (OC-A41), `TACTICAL_SPEC_WEAPON_DAMAGE`
 0.01 and `SCIENCE_SPEC_RELIC_FIND` 0.01 (OC-A42; "combat damage" built as weapon damage), `CAPTAIN_RACIAL_SCALE` 1
 (OC-A43), and the sizes the user did not name for OC-B2 / OC-B3: `WORKS_DIRECTORATE_BONUS_CHANCE` 0.05,
@@ -1198,6 +1198,15 @@ if a node or spec ever goes back to a placeholder. The Debug panel reads captain
 **Goldens moved:** only `placeholderTalentGoldens.test.ts`, each source's own columns (reasons in MOVES); no other
 golden in the suite moved. **For WR-12:** Help text and the 0.14.0 patch note (production owners of the hubs and
 tactical / science specs gain their effects).
+
+**Integration follow-up (2026-10-19, after the CP-8 and WR-6 merges):** the [PROVISIONAL] tags on the eight sizes above
+dropped (user 2026-10-19, all Recommended). The Works Directorate roll is now keyed by the save's seed as well as the
+process number (`worksDirectorateSeed`: the homeworld seed, the only per-save seed that differs between players, 0
+without one), so job N no longer rolls identically in every save; no production save carries a stamped job yet, and
+the only golden that moved is WR-6's own `industryHub` craft column. **Patch notes (WR-12) must tell current players
+who own industryHub (Works Directorate), the Tactician or Explorer hubs (Combat Readiness, Survey Doctrine), the
+tactical or science specs, Homeland Defense (Home Guard) or Citizenry (Civic Charter) that those now have real
+effects.**
 
 ### WR-7: Ship systems (non-combat)
 

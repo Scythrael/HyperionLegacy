@@ -270,7 +270,7 @@ export function officerRacialBonus(officer: SeniorStaffOfficer): { statKey: stri
   return { statKey: rb.statKey, magnitude: rb.seniorStaff };
 }
 
-// WR-6 (0.14.0, OC-A43 [PROVISIONAL]: the plan's proposal): a captain carries its race's racial on the ship it
+// WR-6 (0.14.0, OC-A43, user 2026-10-19 "Same as an officer"): a captain carries its race's racial on the ship it
 // commands, at the officer magnitude x CAPTAIN_RACIAL_SCALE. A captain gains a race when its Executive officer
 // succeeds it (captainRetirement.ts); null without one, so a captain with no race changes nothing. Pure.
 export function captainRacialBonus(captain: Pick<CaptainState, "race"> | undefined | null): { statKey: string; magnitude: number } | null {

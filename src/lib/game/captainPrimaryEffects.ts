@@ -12,7 +12,7 @@
 //     patrols. It does that by folding into the records the secondary tree already freezes: the captain combat
 //     record (captainTacticianEffects.ts captainCombatMods), the scan params and the explorer run record
 //     (captainExplorerEffects.ts), so every reader of those records reads these too.
-// The sizes are [PROVISIONAL] constants in model.ts (TACTICIAN_HUB_WEAPON_DAMAGE, EXPLORER_HUB_SCAN_RATE,
+// The sizes are constants in model.ts (confirmed by the user 2026-10-19) (TACTICIAN_HUB_WEAPON_DAMAGE, EXPLORER_HUB_SCAN_RATE,
 // TACTICAL_SPEC_WEAPON_DAMAGE, SCIENCE_SPEC_RELIC_FIND), read through the catalogs so a retune is a data edit.
 //
 // This module imports only model.ts. Every reader returns exactly 1 without a source, so a captain without one

@@ -30,6 +30,7 @@ import {
   resolveProcesses,
   startProcess,
   worksDirectorateBonus,
+  worksDirectorateSeed,
 } from "./tick";
 import { captainCombatMods, homeGuardPatrolShieldMult, patrolCaptainCombatMods, shipCaptainCombatMods } from "./captainTacticianEffects";
 import { captainSurveyScanParams, explorerCaptainRun } from "./captainExplorerEffects";
@@ -44,7 +45,7 @@ import { combatBase, editCaptain, shipOf, teardownRecovered, withHomeworld, wiri
 
 const captain1 = (s: GameState) => s.captains[0];
 
-describe("WR-6 captain primary: the hubs and the specs (OC-A40 to OC-A42, sizes [PROVISIONAL])", () => {
+describe("WR-6 captain primary: the hubs and the specs (OC-A40 to OC-A42)", () => {
   it("Combat Readiness and the tactical spec are each their own weapon damage factor, composing with Weapons Drill", () => {
     const base = wiringBase();
     expect(captainCombatMods(captain1(base))).toBeUndefined();
@@ -81,7 +82,7 @@ describe("WR-6 captain primary: the hubs and the specs (OC-A40 to OC-A42, sizes 
   });
 });
 
-describe("WR-6 captain race (OC-A43 [PROVISIONAL]: the officer magnitude)", () => {
+describe("WR-6 captain race (OC-A43: the officer magnitude)", () => {
   it("a Station-born captain adds its racial to the ship's crew map; no race adds nothing", () => {
     const base = wiringBase();
     const ship = shipOf(base);
@@ -110,7 +111,7 @@ describe("WR-6 Salvage Operations on hull teardown (OC-B1, B16 wording)", () => 
   });
 });
 
-describe("WR-6 Works Directorate (OC-B2: the Fabricator bonus, [PROVISIONAL] chance)", () => {
+describe("WR-6 Works Directorate (OC-B2: the Fabricator bonus)", () => {
   const startBlanks = (s0: GameState, n: number): GameState => {
     let s = s0;
     for (let i = 0; i < n; i++) s = startProcess(s, "fabricateJob", {}, 5 + (i % 7), { type: "addBlank", blueprintKey: "wr6" }).next;
@@ -120,9 +121,17 @@ describe("WR-6 Works Directorate (OC-B2: the Fabricator bonus, [PROVISIONAL] cha
   it("the chance comes from the talent; no talent, no roll and no stamp", () => {
     expect(fabricatorBonusOutputChance(wiringBase())).toBe(0);
     expect(fabricatorBonusOutputChance(withHomeworld(wiringBase(), ["industryHub"]))).toBeCloseTo(WORKS_DIRECTORATE_BONUS_CHANCE, 12);
-    expect(worksDirectorateBonus(7, 0)).toBe(false);
+    expect(worksDirectorateBonus(0, 7, 0)).toBe(false);
     const s = startBlanks(wiringBase(), 200);
     expect(s.activeProcesses.some((p) => p.bonusOutput)).toBe(false);
+  });
+
+  it("the roll is keyed by the save's seed too: job N lands differently in two saves, identically in one", () => {
+    const stamps = (seed: number): boolean[] =>
+      startBlanks(withHomeworld({ ...wiringBase(), homeworld: { version: 1, seed } }, ["industryHub"]), 300).activeProcesses.map((p) => p.bonusOutput === true);
+    expect(stamps(0x1234)).toEqual(stamps(0x1234));
+    expect(stamps(0x1234)).not.toEqual(stamps(0xbeef));
+    expect(worksDirectorateSeed(1, 7)).not.toBe(worksDirectorateSeed(2, 7));
   });
 
   it("only a Fabricator job is stamped (a refine job never is)", () => {
@@ -161,7 +170,7 @@ describe("WR-6 Works Directorate (OC-B2: the Fabricator bonus, [PROVISIONAL] cha
   });
 });
 
-describe("WR-6 Home Guard (OC-B3: patrol shields, [PROVISIONAL] size)", () => {
+describe("WR-6 Home Guard (OC-B3: patrol shields)", () => {
   it("a patrol cycle freezes the Home Guard shield factor; an expedition ship event does not read it", () => {
     const base = withHomeworld({ ...combatBase(), captains: combatBase().captains.map((c) => ({ ...c, level: 10 })) }, ["homelandDefenseHub"]);
     expect(homeGuardPatrolShieldMult(base)).toBeCloseTo(1 + HOME_GUARD_PATROL_SHIELD, 12);
@@ -177,7 +186,7 @@ describe("WR-6 Home Guard (OC-B3: patrol shields, [PROVISIONAL] size)", () => {
   });
 });
 
-describe("WR-6 Civic Charter (OC-B3: crew recruitment, [PROVISIONAL] size)", () => {
+describe("WR-6 Civic Charter (OC-B3: crew recruitment)", () => {
   it("every transport carries the extra crew, and the base batch's crew are unchanged (the bonus only adds)", () => {
     expect(transportBatchSize(wiringBase())).toBe(TRANSPORT_BATCH_SIZE);
     expect(transportBatchSize(withHomeworld(wiringBase(), ["citizenryHub"]))).toBe(TRANSPORT_BATCH_SIZE + CIVIC_CHARTER_TRANSPORT_CREW);
