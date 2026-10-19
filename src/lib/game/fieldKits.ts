@@ -1,5 +1,5 @@
 // Field Kits FKR-2 (docs/plans/2026-10-14-field-kits-plan.md REVISED SLICES R3 FKR-2, USER ANSWERS 2026-10-15 and
-// 2026-10-16): THE FIELD KIT CATALOG, pure. Nothing reads this module yet: FKR-4 (conditions), FKR-5 (grenade
+// 2026-10-16): THE FIELD KIT CATALOG, pure. FKR-4 reads the flag (fieldKitsLive) and the conditions; FKR-5 (grenade
 // charges), FKR-6 (kits in battle), FKR-7 (per-member packs and the free basic set) and FKR-8 (the device roll) wire
 // it, each flipping its wiring registry entry from pending to live in its own commit. FKR-3 adds the kits as ITEMS,
 // their Fabricator blueprints (FIELD_KIT_BLUEPRINT) and the Quartermaster price data (FIELD_KIT_PRICES, read at FKR-7).
@@ -25,8 +25,15 @@
 // 2026-10-17; [PROPOSAL] marks the numbers the user has not named (the free basic curve's shape). DETERMINISM: pure; the only draw is fieldDevicePercent's, on FIELD_DEVICE_SALT (registered in
 // salts.test.ts). Module graph: model (types), gambit (first aid constants), diminishing, combat/rng.
 
-import { BLUEPRINTS, type AwayRosterSnapshot, type AwayTraitId, type GambitStatusId } from "./model";
-import { FIRST_AID_HEAL, FIRST_AID_TRAINED_EFFECTIVENESS, FIRST_AID_UNTRAINED_EFFECTIVENESS } from "./gambit";
+import { BLUEPRINTS, type AwayRosterSnapshot, type AwayTraitId, type Expedition, type GambitStatusId } from "./model";
+import {
+  BASIC_DEBUFFS as BATTLE_BASIC_DEBUFFS,
+  BONE_LINE,
+  FIRST_AID_HEAL,
+  FIRST_AID_TRAINED_EFFECTIVENESS,
+  FIRST_AID_UNTRAINED_EFFECTIVENESS,
+  GAMBIT_STATUSES,
+} from "./gambit";
 import { diminishing } from "./diminishing";
 import { makeRng } from "./combat/rng";
 
@@ -40,12 +47,12 @@ export const FIELD_KIT_IDS: readonly FieldKitId[] = ["firstAidKit", "antitoxin",
 // (Shroud Emitter, Lure Beacon) are installed TOOLS (FK1, "Keep as installed tools") whose rules live here too.
 export type KitCategory = "firstAid" | "advancedMedical" | "explosives" | "fieldDevices";
 
-// The conditions Field Kits adds. FKR-4 folds them into model.ts GambitStatusId (with their GAMBIT_STATUSES rows);
-// until then this module names them itself so the catalog can say what treats what. Fracture, Hemorrhage, Neurotoxin,
-// Concussion and Blindness already have medical bay rows (medicalBay.ts GROUND_CONDITIONS); Broken Bone and Shattered
-// Bone get theirs at FKR-4 (user N11: Fracture 30 minutes, Broken Bone 1 hour, Shattered Bone 2 hours).
+// The conditions Field Kits adds, part of model.ts GambitStatusId since FKR-4 (their battle rows are gambit.ts
+// GAMBIT_STATUSES, their medical bay rows medicalBay.ts GROUND_CONDITIONS: user N11, Fracture 30 minutes, Broken Bone 1
+// hour, Shattered Bone 2 hours). Only a Field Kits run's fights inflict them (fieldKitsLive).
 export type FieldKitStatusId = "fracture" | "brokenBone" | "shatteredBone" | "hemorrhage" | "neurotoxin" | "concussion" | "blindness";
-export type FieldKitConditionId = GambitStatusId | FieldKitStatusId;
+export type FieldKitConditionId = GambitStatusId;
+export const FIELD_KIT_STATUS_IDS: readonly FieldKitStatusId[] = ["fracture", "brokenBone", "shatteredBone", "hemorrhage", "neurotoxin", "concussion", "blindness"];
 
 // ===== Condition lines and severity ranks =====
 
@@ -59,14 +66,11 @@ export interface SeverityRankDef {
   readonly label: string; // the player-facing name (the user's)
 }
 
-// Each line's ranks, lightest first (index 0 is rank 1). The bone line WORSENS in battle (FKR-4: a bone hit on a member
-// already holding a bone condition raises it one rank; user N10: it always starts at Fracture).
+// Each line's ranks, lightest first (index 0 is rank 1). The bone line WORSENS in battle (FKR-4, gambit.ts BONE_LINE: a
+// bone hit on a member already holding a bone condition raises it one rank; user N10: it always starts at Fracture). Read
+// from the battle's own line and labels, so the two can never drift.
 export const CONDITION_LINES: Readonly<Record<ConditionLine, readonly SeverityRankDef[]>> = {
-  bone: [
-    { id: "fracture", label: "Fracture" },
-    { id: "brokenBone", label: "Broken Bone" },
-    { id: "shatteredBone", label: "Shattered Bone" },
-  ],
+  bone: BONE_LINE.map((id) => ({ id: id as FieldKitStatusId, label: GAMBIT_STATUSES[id].label })),
 };
 
 export interface Severity {
@@ -85,11 +89,11 @@ export function severityOf(status: FieldKitConditionId): Severity | undefined {
 
 // ===== Basic debuffs (Cure and First Aid) =====
 
-// What the medic's free Cure clears on a Field Kits run (FK2, "Basic debuffs only"; FKR-4 makes it live): the user's
-// basic list (Bleed, Blindness, Weakened, Suppressed, Corroded) plus Poison, which Cure clears and a First Aid Kit
-// does not (Antitoxin's job). Stun and Fear are basic debuffs too (user 2026-10-17: a First Aid Kit and Cure clear
-// them). Never a serious condition (Hemorrhage, Neurotoxin, Concussion, any bone rank) and never a buff.
-export const BASIC_DEBUFFS: readonly FieldKitConditionId[] = ["bleed", "blindness", "weakened", "suppressed", "corroded", "poison", "stun", "fear"];
+// What the medic's free Cure clears (FK2, "Basic debuffs only"; live since FKR-4, gambit.ts owns the list the battle
+// reads): the user's basic list (Bleed, Blindness, Weakened, Suppressed, Corroded) plus Poison, which Cure clears and a
+// First Aid Kit does not (Antitoxin's job). Stun and Fear are basic debuffs too (user 2026-10-17: a First Aid Kit and
+// Cure clear them). Never a serious condition (Hemorrhage, Neurotoxin, Concussion, any bone rank) and never a buff.
+export const BASIC_DEBUFFS: readonly FieldKitConditionId[] = BATTLE_BASIC_DEBUFFS;
 
 // A First Aid Kit clears the basic debuffs except Poison (group 5: "First Aid clears basic debuffs (Bleed, Blindness,
 // Weakened, Suppressed, Corroded)"; Antitoxin takes Poison), Stun and Fear included (user 2026-10-17).
@@ -390,3 +394,11 @@ export const FIELD_KIT_PRICES: Readonly<Record<FieldKitId, number>> = Object.fro
 // The catalog version a Field Kits run is stamped with (Expedition.fieldKits.catalog, FKR-7). Bump it when a kit's
 // numbers or coverage change, and keep the old version's rules for runs stamped with it.
 export const FIELD_KITS_CATALOG_VERSION = 1;
+
+// Is `exp` a Field Kits run (flag 2: Expedition.fieldKits stamped with a known catalog version)? The ONE read of the
+// flag (FKR-4's conditions and inflictors, fieldKitsConditions.ts; the later slices read it too). A run without it
+// fights byte-identically. Pure.
+export function fieldKitsLive(exp: Pick<Expedition, "fieldKits">): boolean {
+  const v = exp.fieldKits?.catalog;
+  return typeof v === "number" && v >= 1;
+}

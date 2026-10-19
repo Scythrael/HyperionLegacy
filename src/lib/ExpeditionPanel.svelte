@@ -375,6 +375,7 @@
     useItem: "uses a kit on",
     fallBack: "falls back",
     hold: "holds",
+    flashGrenade: "throws a flash grenade at",
   };
   function roleName(role: string): string {
     return ROLE_NAME[role] ?? role;

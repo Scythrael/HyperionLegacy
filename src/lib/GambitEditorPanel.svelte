@@ -34,6 +34,7 @@
     GambitStatusId,
   } from "./game/model";
   import { GAMBIT_PRESETS, GAMBIT_STATUSES, isActionLegalForRole, validateGambitProgram } from "./game/gambit";
+  import { FIELD_KIT_STATUS_IDS } from "./game/fieldKits";
   import { ACCOUNT_PAIR_NOTICE, accountPairNoticeShown, gambitEditorView } from "./gambitEditorDisplay";
   import { nameList } from "./groundTeamDisplay";
   import Icon from "./ui/Icon.svelte";
@@ -156,8 +157,14 @@
     useItem: "Use Item",
     fallBack: "Fall Back",
     hold: "Hold",
+    // Field Kits FKR-4: an enemy-only action (never legal for Security, so never offered).
+    flashGrenade: "Flash Grenade",
   };
-  const ALL_STATUSES: GambitStatusId[] = Object.keys(GAMBIT_STATUSES) as GambitStatusId[];
+  // Field Kits FKR-4: the Field Kits conditions stay out of the picker until the editor's Field Kits pass (FKR-10) offers
+  // them with their severity; no fight a player can launch inflicts them before then.
+  const ALL_STATUSES: GambitStatusId[] = (Object.keys(GAMBIT_STATUSES) as GambitStatusId[]).filter(
+    (id) => !(FIELD_KIT_STATUS_IDS as readonly string[]).includes(id),
+  );
   const LEGAL_ACTIONS = ALL_ACTIONS.filter((a) => isActionLegalForRole("security", a));
 
   // A sensible default for a freshly added rule.

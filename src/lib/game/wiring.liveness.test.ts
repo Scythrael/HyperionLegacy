@@ -79,7 +79,13 @@ describe("wiring registry parity with the no-dead-stats liveness level", () => {
       expect(e.reason, `${e.id}: the old PENDING_IN_RELEASE reason is missing`).toBeDefined();
       expect(e.reason!.length, e.id).toBeGreaterThan(10);
     }
-    expect(liveness.find((e) => e.id === "officer:officer.crewRetention")?.reason).toContain("nothing inflicts Fear yet");
+    // Field Kits FKR-4: Morale Anchor and Cortex Shield's resist went live once a Field Kits run's enemies inflict Fear
+    // and Concussion, so their old reasons are gone with their pending status.
+    for (const id of ["officer:officer.crewRetention", "gear:security:cortexShield:groundStatusResist"]) {
+      const e = liveness.find((x) => x.id === id)!;
+      expect(e.status.kind, id).toBe("live");
+      expect(e.reason, id).toBeUndefined();
+    }
   });
 
   it("the Spacer long-haul ramp is deferred past 0.14.0 on the user's word (capture 2026-10-15 T3)", () => {

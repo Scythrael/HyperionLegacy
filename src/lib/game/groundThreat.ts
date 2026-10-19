@@ -53,6 +53,7 @@ import { bodyFloraGrade } from "./riskFactors";
 import { threatAssessment, type ThreatAssessment, type ThreatTier } from "./combat/threatAssessment";
 import { hasCover, type GroundCover } from "./affixes";
 import { isTrainingRun, ranksLive } from "./enemyRanks";
+import { fieldKitsLive } from "./fieldKits";
 
 // ===== Constants =====
 
@@ -178,7 +179,7 @@ const EXP_KEY_FIELDS = {
   squadFearResist: true,
   hazardResist: true,
   teamKit: true,
-} as const satisfies Record<Exclude<keyof ThreatExp, "enemyRanks" | "difficulty" | "explorerCaptain">, true>;
+} as const satisfies Record<Exclude<keyof ThreatExp, "enemyRanks" | "difficulty" | "explorerCaptain" | "fieldKits">, true>;
 const TEAM_KEY_FIELDS = { securityIds: true, downedThisTask: true, securityShare: true } as const satisfies Record<
   keyof GroundFightTeam,
   true
@@ -226,6 +227,9 @@ export function groundThreatOddsKey(
   const ranked = ranksLive(exp) ? [["ranks", exp.enemyRanks?.version, task.difficulty, isTrainingRun(exp)]] : [];
   // WR-5c: the captain's Away-Team Doctrine shapes the squad (taskFightTeam), tagged and appended only when present.
   const doctrine = exp.explorerCaptain?.squadPowerMult !== undefined ? [["doctrine", exp.explorerCaptain.squadPowerMult]] : [];
+  // Field Kits FKR-4: a Field Kits run's conditions and inflictors shape the read (with the task's grade: Neurotoxin from
+  // Challenging), tagged and appended only on such a run.
+  const kits = fieldKitsLive(exp) ? [["fieldKits", exp.fieldKits?.catalog, task.difficulty]] : [];
   return JSON.stringify(
     // Squads SQ-4: the body's risk shapes the read, so it is part of the key: its flora the fights (groundFight.ts
     // withFloraToxins), its combat and fauna an unstamped task's fight count (taskFightTotal). Absent risk: "u".
@@ -243,6 +247,7 @@ export function groundThreatOddsKey(
       ...covered,
       ...ranked,
       ...doctrine,
+      ...kits,
     ],
     keyReplacer,
   );
