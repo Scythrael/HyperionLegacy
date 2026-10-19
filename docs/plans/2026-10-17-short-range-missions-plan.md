@@ -414,4 +414,10 @@ Material Lines and universal modules ahead of G1 in the build order.
 - **Call 9, after training:** "Slow start, no failure (Recommended)".
 - **Call 10, training profile:** "Full training profile (Recommended)": smallest roll, "Training run" chip, no wear,
   normal length via the tutorial hook.
-- Still open: 11, 12, 13, 14, 15, 17, 18, and the new quarters variety's name.
+- **Quarters variety name:** "Guest Wing (Recommended)".
+- **Call 11, relics:** "Rare, per hour (Recommended)": lowest-tier unidentified relics, chance per hour of mission
+  time, Tier I 0.08x and Tier II 0.15x the expedition rate; G1-5 after Relics v2.
+- **Call 12, destinations:** "Generated now, charted later (Recommended)".
+- **Call 13, rewards:** "Tier II income band (Recommended)": the mockup table at about 1,000 to 1,300 credits per hour
+  at base.
+- Still open: 14, 15, 17, 18.
