@@ -520,4 +520,8 @@ Sets in 0.14.x). The power budget itself should not move: seven registry rows an
   mining run (no fuel role). With L9 (via GG call 7): Deuterium feeds Class III+ FTL drives and the High-Output Core.
 - **L2 recipe scope:** "Six economy/defense slots (Recommended)": cargo, FTL, reactor, utility, shields, plating now;
   weapons and drones wait for 0.16.0; bridge, quarters, sensors keep CP-11's components.
-- Still open: L3 to L7, L10, L11, X1.
+- **L4 per-unit chance:** "Expected count + 1 roll (Recommended)".
+- **L5 spending stock:** "Toggle, lowest-first default (Recommended)".
+- **L7 crafted gear inherits quality:** "Yes, gear too (Recommended)": quality blanks, one step appended to v70.
+- **L6 carry formula:** "Weighted average + climb (Recommended)".
+- Still open: L3, L10, L11, X1.
