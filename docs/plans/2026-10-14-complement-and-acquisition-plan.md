@@ -380,6 +380,22 @@ mode (the UI offers to switch it to manual first). No crew created or destroyed.
 **Determinism:** RNG-free; picks applied in the given order. **Save:** none. **Tests:** division and inclusive rank caps
 hold; partial fill; pool round trip; locked and auto refusals are same-ref.
 
+**Carry note (2026-10-19, CP-7 landed, commit "feat(0.14.0): crew transfer engine (CP-7)"):** built in a NEW module
+`crewTransfer.ts`, not `crew.ts`: the quarters bonus lives in `crewModules.ts`, which imports `seniorStaff.ts`, which
+imports `crew.ts`, so `crew.ts` asking it would close an import cycle. API: `CREW_POOL` ("pool"),
+`canTransferCrew(state, from, to, picks)` (order: `noPicks` for an empty list or a count that is not a whole number
+of at least 1, `sameEndpoint`, then source before target `noShip`, `onMission` = `shipCrewLocked`, `autoCrew` = OC-7
+"Manual ships only", a fresh ship with no complement reads as auto), `transferCrew` returning `{ next, gate, results,
+moved }` (one result row per pick: requested, moved, `limitedBy` "targetFull" | "sourceShort" | null; `next` is the
+SAME ref on a refusal or when nothing moved), `crewTransferBlockText` / `crewTransferGateText` (the lock names the
+mission or expedition) / `crewTransferShortfallText`, and `crewTransferRoom` (the picker's "up to N" per row). The
+target's occupancy = its bulk plus every notable assigned to it, its quarters bonus via `quartersCapacityBonus`; the
+pool has no cap. Over cap (OC-6) the target takes nothing and the source can still give. Only bulk moves; notables
+never move here (CP-8). No App handler (the plan names none; CP-10 adds `doTransferCrew`). No goldens moved (a new
+action nothing calls yet). Not this slice: OC-11 "Pause while out" (auto-fill on a locked passive ship) is still
+unbuilt in `resolveCrew`; CP-5 per-hull caps are not built yet, transfer reads whatever `commandStructureForHull`
+returns, so it picks them up unchanged.
+
 ### CP-8: Graduate, notable cap, manifest generator, auto-fill counts notables (Task 26 engine)
 
 **Files:** `crew.ts` (`canGraduate` / `graduateStandout(state, shipId, signatureKey)`, `manifestRows(state, shipId,
