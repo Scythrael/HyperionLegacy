@@ -7020,11 +7020,18 @@ export type GambitActionId =
   // --- Both ---
   | "useItem" // spend a team-kit consumable to cure an ally (works with no Science curer)
   | "fallBack" // disengage this round
-  | "hold"; // do nothing (explicit no-op)
+  | "hold" // do nothing (explicit no-op)
+  // Enemy only (never in a squad's legal set):
+  // Field Kits FKR-4: a Striker's FLASH GRENADE (Blindness on the target), one per Striker per battle, on a Field Kits
+  // run only (gambit.ts; fieldKitsConditions.ts arms the Strikers).
+  | "flashGrenade";
 
 // The STATUS / AFFLICTION vocabulary (gambit.ts GAMBIT_STATUSES carries the effect semantics + first-pass
 // magnitudes/durations). Debuffs: Poison/Bleed (DoT), Stun (skip), Weakened (dmg down), Suppressed (acc
 // down), Corroded (armor down), Fear (may fall back). Buffs: Shielded (dmg taken down), Inspired (dmg up).
+// Field Kits FKR-4 (user-named, D20 and the 2026-10-15 severity ranks): the bone line Fracture, Broken Bone, Shattered
+// Bone (power and accuracy down, worsening), Hemorrhage (a heavy DoT), Neurotoxin (DoT plus lost turns), Concussion
+// (lost turns) and Blindness (attacks mostly miss). Only a Field Kits run's fights inflict them.
 export type GambitStatusId =
   | "poison"
   | "bleed"
@@ -7034,7 +7041,14 @@ export type GambitStatusId =
   | "corroded"
   | "fear"
   | "shielded"
-  | "inspired";
+  | "inspired"
+  | "fracture"
+  | "brokenBone"
+  | "shatteredBone"
+  | "hemorrhage"
+  | "neurotoxin"
+  | "concussion"
+  | "blindness";
 
 // Optional parameters a selector reads (an HP threshold as a 0..1 fraction, a status id). Absent when the
 // selector needs none.
@@ -7287,6 +7301,11 @@ export interface Expedition {
   // run's ground fights (the final fight of a Challenging objective is led by an Elite, of a Dangerous or Deadly one
   // by a Boss); a run without it fields every enemy at Normal, byte-identically. Optional, no SAVE bump.
   enemyRanks?: { version: number };
+  // Field Kits FKR-4 (docs/plans/2026-10-14-field-kits-plan.md REVISED SLICES R2): the FIELD KITS flag (flag 2), stamped
+  // at dispatch with the kit catalog's version (fieldKits.ts FIELD_KITS_CATALOG_VERSION) from FKR-7. Its PRESENCE turns
+  // on the Field Kits conditions in the run's ground fights (fieldKits.ts fieldKitsLive: enemy inflictors, the bone
+  // line, Stoneskin's battle half); a run without it fights byte-identically. Optional, no SAVE bump.
+  fieldKits?: { catalog: number };
   // 0.14.0 SPEED SEAM (ProcessSpeed): a STAMP only. processSpeed.ts applyTimeSkip advances the run to its own
   // completion at once (its phase anchors land at its natural end) and marks it; nothing in the engine reads it.
   speed?: ProcessSpeed;

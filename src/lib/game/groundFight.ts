@@ -66,6 +66,9 @@ import { FLORA_POISON_PERMILLE_PER_GRADE, bodyFloraGrade } from "./riskFactors";
 import { escalationAt, hasCover, type GroundCover } from "./affixes";
 import { fightLeadRank, fightRankContext, isTrainingRun, rankedEnemies, ranksLive, withEnemyRanks, type RankedFightKind } from "./enemyRanks";
 import { FIRST_RUN_ENEMY_SCALE, FIRST_RUN_MAX_ENEMIES } from "./runDifficulty";
+// Field Kits FKR-4: the flag and the inflictors (a Field Kits run only).
+import { fieldKitsLive } from "./fieldKits";
+import { withFieldKitsGuard, withFieldKitsTeam } from "./fieldKitsConditions";
 
 // ===== Constants =====
 
@@ -95,7 +98,8 @@ export type { GroundFightRecord, GroundMemberCarry, GroundMemberEnd } from "./mo
 const hasOwn = (o: object, k: string): boolean => Object.prototype.hasOwnProperty.call(o, k);
 
 // Is `id` a battle status that PERSISTS past the battle: a battle status the medical bay cures (Poison,
-// Bleed today; Field Kits 16b adds more)? Own keys only, so "toString" is never one. Pure.
+// Bleed; Field Kits FKR-4 adds the bone line, Hemorrhage, Neurotoxin, Concussion and Blindness, which only a Field Kits
+// run's fights inflict)? Own keys only, so "toString" is never one. Pure.
 export function isCarriedStatus(id: string): boolean {
   return hasOwn(GROUND_CONDITIONS, id) && hasOwn(GAMBIT_STATUSES, id);
 }
@@ -141,7 +145,7 @@ function carriedStatuses(statuses: readonly GroundStatus[] | undefined): GroundS
 // clamped to [1, hpMax] (a standing member is never fielded at 0; a non-finite HP is ignored), with its
 // persisting statuses only. GO-6's threat samples build their squads here too. Pure.
 export function taskFightTeam(
-  exp: Pick<Expedition, "id" | "roster" | "securityStrength" | "squadTriage" | "squadFearResist" | "explorerCaptain">,
+  exp: Pick<Expedition, "id" | "roster" | "securityStrength" | "squadTriage" | "squadFearResist" | "explorerCaptain" | "fieldKits">,
   teams: readonly GroundFightTeam[],
   task: Pick<ExpeditionActivity, "id" | "fightCount">,
   carried?: Readonly<Record<string, GroundMemberCarry>>,
@@ -160,6 +164,8 @@ export function taskFightTeam(
     // WR-5c: the captain's Away-Team Doctrine, frozen at dispatch (absent = unchanged).
     powerMult: exp.explorerCaptain?.squadPowerMult,
   });
+  // Field Kits FKR-4: Stoneskin's battle half (a Field Kits run only; fieldKitsConditions.ts).
+  if (fieldKitsLive(exp)) withFieldKitsTeam(team, members);
   if (!carried) return team;
   for (const c of team) {
     const id = c.memberId;
@@ -272,7 +278,7 @@ export type RankedFightTask = Pick<ExpeditionActivity, "id" | "poiId" | "fightCo
 // must widen this type first (TypeScript then flags the memo's key list until it is listed too).
 export type TaskFightExp = Pick<
   Expedition,
-  "id" | "roster" | "securityStrength" | "squadTriage" | "squadFearResist" | "hazardResist" | "teamKit" | "enemyRanks" | "difficulty" | "explorerCaptain"
+  "id" | "roster" | "securityStrength" | "squadTriage" | "squadFearResist" | "hazardResist" | "teamKit" | "enemyRanks" | "difficulty" | "explorerCaptain" | "fieldKits"
 >;
 
 // THE GUARD a task fight fields on a given stream seed, as fresh combatants: generateEncounter on the body's hazard
@@ -282,7 +288,7 @@ export type TaskFightExp = Pick<
 // one enemy at FIRST_RUN_ENEMY_SCALE of its strength; same seed, same draws); every other run's guard is exactly as
 // before. Pure.
 export function taskFightGuard(
-  exp: Pick<TaskFightExp, "hazardResist" | "enemyRanks" | "difficulty">,
+  exp: Pick<TaskFightExp, "hazardResist" | "enemyRanks" | "difficulty" | "fieldKits">,
   body: Pick<ExpeditionBody, "hazard" | "risk">,
   task: RankedFightTask,
   seed: number,
@@ -294,6 +300,8 @@ export function taskFightGuard(
   const profile = training ? { scale: FIRST_RUN_ENEMY_SCALE, maxEnemies: FIRST_RUN_MAX_ENEMIES } : undefined;
   const enemies = withEscalation(withFloraToxins(generateEncounter(seed, hazard, task.poiId, profile), bodyFloraGrade(body)), alertLevel);
   if (ranksLive(exp)) withEnemyRanks(enemies, fightLeadRank(fightRankContext(exp, task, task.fightPoints?.length ?? 0, kind)));
+  // Field Kits FKR-4: the enemy inflictors, last (a Field Kits run only; fieldKitsConditions.ts; no draw).
+  if (fieldKitsLive(exp)) withFieldKitsGuard(enemies, { grade: task.difficulty, poiId: task.poiId });
   return enemies;
 }
 
