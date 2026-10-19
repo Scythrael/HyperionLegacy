@@ -35,6 +35,7 @@ import { generateRiskProfile } from "./riskFactors";
 import { BOARDING_ATTEMPT_CHANCE, SHIP_EVENT_DRAW_UNITS, chanceUnits, resolveShipScanEventFromDraws, type ShipEventDraws } from "./shipScanEvents";
 import { asExpeditionVeteran, withoutSafeFirstRuns } from "./awayTeamTestFixtures";
 import { SWEEP_END } from "./firstRunsGoldens.fixture";
+import { installMissingCombatBaselines } from "./tick";
 import {
   D18,
   EXPLORERS,
@@ -121,6 +122,24 @@ describe("SF-2 the training run: the first expedition from an explorer, stamped 
     expect(scanFrom - exp.phaseAnchorSeconds).toBe(TRANSIT_SECONDS + (advanceExpedition(exp, scanFrom).anomalyCharted ? ANOMALY_EXTRA_SECONDS : 0));
   });
 
+  // End to end: a save whose General Freighter flew (and claimed) the account's first expedition still gets its
+  // training run on its first EXPLORER expedition (the freighter's run counts on the curve, not as the training run).
+  it("a freighter flies the first expedition and claims it; the save's first explorer expedition is still the training run", { timeout: 60_000 }, () => {
+    const first = dispatched(provingState("generalFreighter", { name: "rank6", crew: "rank6" }), "cand-1");
+    expect(first.exp.difficulty).toBeUndefined();
+    const done = advanceExpedition(first.exp, SWEEP_END);
+    expect(done.phase).toBe("complete");
+    const claim = claimExpedition({ ...first.next, gameTimeSeconds: done.phaseAnchorSeconds, expeditions: [done] }, done.id);
+    expect(claim.success).toBe(true);
+    expect(claim.next.runCounts!.expedition).toEqual({ completed: 1, trainingDone: false, veteran: false });
+    expect(claim.next.nextExpeditionId).toBe(2);
+    // The same ship rebuilt as an Orion (its own Standard-Issue baselines), the same save and crew.
+    const explorer = installMissingCombatBaselines({ ...claim.next, ships: claim.next.ships.map((s) => (s.id === "ship-1" ? { ...s, typeKey: "orion" as const } : s)) });
+    const proof = proveTrainingRun(explorer, "cand-0", "orion after the freighter");
+    expect(proof.done.id).toBe("expedition-2");
+    expect(proof.done.difficulty).toEqual({ version: 1, firstRun: true, ramp: 0, tier: 1 });
+  });
+
   it("a veteran save (or one whose training run is claimed) flies an ordinary run: no stamp", () => {
     expect(dispatched(asExpeditionVeteran(provingState("orion", D18))).exp.difficulty).toBeUndefined();
     const s = provingState("eir", D18);
@@ -167,6 +186,23 @@ describe("SF-2 the training profile, each effect against the same run without th
         expect(scaled[0].heal).toBeCloseTo(base[0].heal * FIRST_RUN_ENEMY_SCALE, 9);
         expect(scaled[0].threat).toBe(scaled[0].power);
         expect(scaled[0].hp).toBeLessThan(base[0].hp);
+      }
+    }
+  });
+
+  it("generateEncounter's profile is hardened: a cap of 0, below 0 or not a number fields one enemy; a 0 scale keeps 1 HP", () => {
+    for (const maxEnemies of [0, -3, Number.NaN, 0.5]) {
+      const guard = generateEncounter(5, 0.9, "subterraneanCivilization", { scale: FIRST_RUN_ENEMY_SCALE, maxEnemies });
+      expect(guard, String(maxEnemies)).toHaveLength(1);
+      expect(guard[0].id).toBe(generateEncounter(5, 0.9, "subterraneanCivilization")[0].id);
+    }
+    for (const scale of [0, -1, Number.NaN]) {
+      const guard = generateEncounter(5, 0, "caveNetwork", { scale, maxEnemies: null });
+      expect(guard).toHaveLength(generateEncounter(5, 0, "caveNetwork").length);
+      for (const e of guard) {
+        expect(e.hp, String(scale)).toBeGreaterThanOrEqual(1);
+        expect(e.hpMax).toBe(e.hp);
+        expect(Number.isFinite(e.power) && e.power >= 0).toBe(true);
       }
     }
   });

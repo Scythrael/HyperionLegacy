@@ -1605,14 +1605,20 @@ export function generateEncounter(seed: number, hazard: number, poiId: string, p
   if (rng.chance(Math.round(Math.min(1, Math.max(0, hazard)) * HAZARD_EXTRA_ENEMY_PERMILLE), 1000)) {
     roles.push(roles[rng.nextInt(roles.length)]);
   }
-  if (profile && profile.maxEnemies !== null && roles.length > profile.maxEnemies) roles.length = Math.max(1, Math.floor(profile.maxEnemies));
-  const statMult = (1 + Math.max(0, hazard) * HAZARD_STAT_COEFF) * (profile ? Math.max(0, profile.scale) : 1);
+  // The cap keeps at least one enemy (a cap of 0 or below, or a non-number, reads as 1: a guarded site always fields
+  // its guard).
+  if (profile && profile.maxEnemies !== null) {
+    const cap = Number.isFinite(profile.maxEnemies) ? Math.max(1, Math.floor(profile.maxEnemies)) : 1;
+    if (roles.length > cap) roles.length = cap;
+  }
+  const statMult = (1 + Math.max(0, hazard) * HAZARD_STAT_COEFF) * (profile && Number.isFinite(profile.scale) ? Math.max(0, profile.scale) : 1);
   const groupCounts = new Map<EnemyRole, number>();
   return roles.map((role) => {
     const n = (groupCounts.get(role) ?? 0) + 1;
     groupCounts.set(role, n);
     const base = ENEMY_ROLE_STATS[role];
-    const hp = Math.round(base.hp * statMult);
+    // A scaled guard keeps at least 1 HP (the unscaled roll is exactly as before: its HP is always far above 1).
+    const hp = profile ? Math.max(1, Math.round(base.hp * statMult)) : Math.round(base.hp * statMult);
     const power = base.power * statMult;
     const combatant: GroundCombatant = {
       id: `enemy-${role}-${n}`,
