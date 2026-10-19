@@ -511,4 +511,8 @@ Sets in 0.14.x). The power budget itself should not move: seven registry rows an
   2026-10-19): combat battle start, incoming ambush, after ambush, on hit, per combat tick, below a hull threshold;
   outside combat per mission cycle and per body scanned.
 - **M5 uniqueness:** "Unique effects only (Recommended)".
-- Still open: M6 to M9, L1 to L8, L10, L11, X1.
+- **M6 v1 roster:** "Approve all (Recommended)": the eight rows in section 5 call 12 as named, with those effects.
+- **M7 recipes:** "Material Lines items (Recommended)".
+- **M8 duplicates:** "One per ship (Recommended)"; the Precursor Lens one per ship too.
+- **M9 module wear:** "Slowly underway (Recommended)".
+- Still open: L1 to L8, L10, L11, X1.
