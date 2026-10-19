@@ -12,7 +12,10 @@ section 5.A captain nodes). Kept in their own file so the parallel integrator's 
   owning it twice adds nothing. Replaces the built compounding.
 - **Point Defense (WR-5b aegis4):** "Divide enemy hit chance (Recommended)": incoming hit chance divided by 1.05, as built.
 
-Still provisional from the same reviews (to ask next): WR-5b fleetOps4 Wing Commander (+5% drone replenish rate),
-gunnery5 Alpha Strike (each weapon's first shot of the battle); WR-5c Field Science (own x1.05 factor), Preservationist
-(study speed x1.08), Deep Scan (keeps telescope range), Drillmaster (fractional counters), Away-Team Doctrine (Security
-squad only).
+- **Wing Commander (WR-5b fleetOps4):** "+5% drone replenish (Recommended)", as built.
+- **Alpha Strike (WR-5b gunnery5):** "Each weapon's first (Recommended)": each weapon's first shot of the battle, as built.
+- **Field Science / Preservationist (WR-5c):** "As built (Recommended)": Field Science its own x1.05 factor;
+  Preservationist study speed x1.08 (600 ticks become 556).
+- **Away-Team Doctrine (WR-5c):** "Security only (Recommended)", as built.
+
+Still provisional (to ask next): WR-5c Deep Scan (keeps telescope range), Drillmaster (fractional counters).
