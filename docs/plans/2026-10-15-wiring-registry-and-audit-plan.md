@@ -1097,7 +1097,8 @@ officer combat record. No SAVE bump (branch-only tree).
 - commandCrew1 Inspiring Leader: the complement's buffs x1.05 (officers not scaled).
 - commandCrew2 Mentor: every officer bonus and racial x1.05 (crew map, `officerBonusTotal`, combat profile).
 - commandCrew3 Drillmaster: every promotion counter increment x1.08 (economyTick live; the claim reads the frozen copy).
-- commandCrew4 Recruiter: both boards `ceil(10 x 1.08) = 11` (`candidateBoardSize`; each Recruiter captain compounds).
+- commandCrew4 Recruiter: both boards `ceil(10 x 1.08) = 11` (`candidateBoardSize`; built compounding per captain,
+  replaced 2026-10-19 by the user's "Best one counts": the best Recruiter in the fleet counts, a second adds nothing).
 - commandCrew5 Legendary Captain (magnitude 0.1): complement and officers x1.10.
 
 **[PROVISIONAL] picks (the user tunes):** Field Science is a factor, not +0.05 into the find sum ("Always multiply");

@@ -193,11 +193,16 @@ describe("WR-5c Expedition & Relics", () => {
 });
 
 describe("WR-5c Command & Crew", () => {
-  it("Recruiter: 10 x 1.08 rounds up to 11 on both boards; two Recruiter captains compound (10 x 1.08 x 1.08 = 11.66 -> 12)", () => {
+  // User 2026-10-19 ("Best one counts"): the fleet-wide boards use the best Recruiter owned by any captain; owning it
+  // twice adds nothing (replaces the built compounding, which made two Recruiters 10 x 1.08 x 1.08 -> 12).
+  it("Recruiter: 10 x 1.08 rounds up to 11 on both boards; a second Recruiter captain adds nothing (best one counts)", () => {
     const one = own(wiringBase(), "commandCrew4");
     expect(candidateBoardSize(one)).toBe(Math.ceil(SENIOR_STAFF_ROSTER_BASE * (1 + mag("commandCrew4"))));
     const two = { ...one, captains: [...one.captains, { ...one.captains[0], id: 2 }] };
-    expect(candidateBoardSize(two)).toBe(Math.ceil(SENIOR_STAFF_ROSTER_BASE * (1 + mag("commandCrew4")) ** 2 - 1e-9));
+    expect(candidateBoardSize(two)).toBe(candidateBoardSize(one));
+    // A Recruiter on a second captain only (the first owns none) still counts.
+    const other = { ...wiringBase(), captains: [...wiringBase().captains, { ...one.captains[0], id: 2 }] };
+    expect(candidateBoardSize(other)).toBe(candidateBoardSize(one));
   });
 
   it("Drillmaster: offline == live (one tick() call, 997 s chunks and 1 s ticks give the same officer counters)", () => {
@@ -231,7 +236,9 @@ describe("WR-5c text: every explorer node says exactly what it does (no placehol
       expect(describeSecondaryTalentEffect(SECONDARY_CAPTAIN_TALENTS[k].effect)).toBe(text);
     }
     expect(explorerTalentText("surveySensors1")).toBe("+5% ship sensors (surveys, expedition scans and the telescope's ship lift)");
-    expect(explorerTalentText("commandCrew4")).toBe("+8% candidate board size, rounded up (+1 on each board of 10)");
+    expect(explorerTalentText("commandCrew4")).toBe(
+      "+8% candidate board size, rounded up (+1 on each board of 10); fleet-wide, the best Recruiter counts and a second one adds nothing",
+    );
     expect(explorerTalentText("extraction1")).toBeNull();
   });
 });

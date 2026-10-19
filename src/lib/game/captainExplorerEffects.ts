@@ -161,15 +161,16 @@ export function shipPromotionMult(state: Pick<GameState, "captains" | "ships">, 
 }
 
 // commandCrew4 Recruiter: both candidate boards (officers and away-team recruits) show the stored board size x
-// (1 + X) for every captain of the fleet who owns it (each its own factor), ROUNDED UP to whole candidates: 8% of
-// the base 10 is 0.8, so one Recruiter adds 1 candidate. The boards are fleet-wide, so there is no "own ship" here
-// [PROVISIONAL]. Slots are keyed by index, so a larger board appends candidates and leaves the others as they were.
-// Exactly the stored size without a Recruiter. Pure.
+// (1 + X), ROUNDED UP to whole candidates: 8% of the base 10 is 0.8, so a Recruiter adds 1 candidate. The boards are
+// fleet-wide, so there is no "own ship" here. User 2026-10-19 ("Best one counts"): the boards use the highest
+// Recruiter owned by any captain of the fleet; a second captain owning it adds nothing. Slots are keyed by index, so a
+// larger board appends candidates and leaves the others as they were. Exactly the stored size without a Recruiter.
+// Pure.
 const BOARD_ROUNDING_GUARD = 1e-9; // a float product a hair above a whole number (10 x 1.0000000001) stays that number
 export function candidateBoardSize(state: Pick<GameState, "captains" | "seniorStaffRosterSize">): number {
   const base = Math.max(0, state.seniorStaffRosterSize ?? SENIOR_STAFF_ROSTER_BASE);
   let mult = 1;
-  for (const c of state.captains) mult *= factor(c, "commandCrew4");
+  for (const c of state.captains) mult = Math.max(mult, factor(c, "commandCrew4"));
   return mult === 1 ? base : Math.ceil(base * mult - BOARD_ROUNDING_GUARD);
 }
 
@@ -211,7 +212,7 @@ export function explorerTalentText(key: SecondaryTalentKey): string | null {
       return `+${pct(m)} promotion objective progress for this ship's officers`;
     case "commandCrew4": {
       const extra = Math.ceil(SENIOR_STAFF_ROSTER_BASE * (1 + m) - BOARD_ROUNDING_GUARD) - SENIOR_STAFF_ROSTER_BASE;
-      return `+${pct(m)} candidate board size, rounded up (+${extra} on each board of ${SENIOR_STAFF_ROSTER_BASE})`;
+      return `+${pct(m)} candidate board size, rounded up (+${extra} on each board of ${SENIOR_STAFF_ROSTER_BASE}); fleet-wide, the best Recruiter counts and a second one adds nothing`;
     }
     case "commandCrew5":
       return `Legendary Captain: +${pct(m)} to every complement buff and officer bonus on this ship`;

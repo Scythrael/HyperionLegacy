@@ -352,8 +352,9 @@ export const FIELD_KIT_PRICE_STEP = 5;
 // N13 examples: a refined Tier 1 unit is 20 (First Aid Kit = 3 x (20 + 20) / 2 = 60) and Volatile Resin, an uncommon
 // forage that does not refine, is 80 (Combat Stim = 3 x (80 + 20) / 2 = 150). The rest follow the production chain:
 // Fibrous Biomass refines 6 to 1 into Purified Biomass (20 / 6), a Power Coupling is 4 Polysilicate Wafers (80), and
-// the rare Exotic Spore Cluster is twice the uncommon resin (160). Antitoxin shares the Combat Stim's recipe, so it
-// lands at the same 150.
+// the rare Exotic Spore Cluster is twice the uncommon resin (160). Antitoxin (user 2026-10-19) is Purified Biomass +
+// Titanium Ingot, so it lands at First Aid's 60; the Splint's two Purified Biomass (user 2026-10-19, "Raise to Tier 2
+// band") put it at 95, between First Aid and Combat Stim.
 export const FIELD_KIT_MATERIAL_WORTH: Readonly<Record<string, number>> = {
   purifiedBiomass: 20,
   polysilicateWafer: 20,
@@ -378,7 +379,7 @@ function priceOf(kit: FieldKitId): number {
 }
 
 // The Quartermaster's price per kit in credits [PROVISIONAL, N13's rule on proposed worths]: First Aid Kit 60,
-// Antitoxin 150, Combat Stim 150, Splint 35, Trauma Kit 660, Injury Kit 420. Nothing reads it until FKR-7 (kit sales
+// Antitoxin 60, Combat Stim 150, Splint 95, Trauma Kit 660, Injury Kit 420. Nothing reads it until FKR-7 (kit sales
 // and the off-by-default launch top-up); its wiring entries are pending with that owner.
 export const FIELD_KIT_PRICES: Readonly<Record<FieldKitId, number>> = Object.fromEntries(
   FIELD_KIT_IDS.map((id) => [id, priceOf(id)]),

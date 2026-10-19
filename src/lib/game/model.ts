@@ -10122,8 +10122,9 @@ export const BLUEPRINTS: Record<string, BlueprintDef> = {
     researchDurationTicks: 60,
     researchCreditCost: 700,
     craftDurationTicks: 120,
-    recipe: { inputs: { purifiedBiomass: 1, volatileResin: 1 }, outputItem: "antitoxin", outputQty: 2 },
-    flavor: "A broad antitoxin refined from forage resin, quick to load and quicker to work.",
+    // User 2026-10-19 ("Biomass + Titanium, 60"): purified biomass in a titanium injector, priced like First Aid.
+    recipe: { inputs: { purifiedBiomass: 1, titaniumIngot: 1 }, outputItem: "antitoxin", outputQty: 2 },
+    flavor: "A broad antitoxin refined from purified biomass and sealed in a titanium injector, quick to load and quicker to work.",
     unlockHint: "Researched at the Research Lab; crafted at the Fabricator. A field kit a squad member carries.",
   },
   splintBp: {
@@ -10133,7 +10134,9 @@ export const BLUEPRINTS: Record<string, BlueprintDef> = {
     researchDurationTicks: 60,
     researchCreditCost: 700,
     craftDurationTicks: 120,
-    recipe: { inputs: { titaniumIngot: 1, fibrousBiomass: 1 }, outputItem: "splint", outputQty: 2 },
+    // User 2026-10-19 ("Raise to Tier 2 band"): purified biomass padding added so the price lands near 100 (95),
+    // between First Aid (60) and Combat Stim (150). Two units: one refined Tier 1 unit only reaches 65.
+    recipe: { inputs: { titaniumIngot: 1, fibrousBiomass: 1, purifiedBiomass: 2 }, outputItem: "splint", outputQty: 2 },
     flavor: "A light titanium brace with fiber wraps, for setting a bone well enough to keep moving.",
     unlockHint: "Researched at the Research Lab; crafted at the Fabricator. A field kit a squad member carries.",
   },

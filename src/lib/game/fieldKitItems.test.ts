@@ -24,8 +24,9 @@ import {
 // the serious kits.
 const RECIPES: Readonly<Record<FieldKitId, { tier: number; inputs: Record<string, number>; qty: number }>> = {
   firstAidKit: { tier: 1, inputs: { purifiedBiomass: 1, polysilicateWafer: 1 }, qty: 2 },
-  antitoxin: { tier: 1, inputs: { purifiedBiomass: 1, volatileResin: 1 }, qty: 2 },
-  splint: { tier: 1, inputs: { titaniumIngot: 1, fibrousBiomass: 1 }, qty: 2 },
+  // User 2026-10-19 merge batch answers: Antitoxin "Biomass + Titanium, 60"; Splint "Raise to Tier 2 band" (95).
+  antitoxin: { tier: 1, inputs: { purifiedBiomass: 1, titaniumIngot: 1 }, qty: 2 },
+  splint: { tier: 1, inputs: { titaniumIngot: 1, fibrousBiomass: 1, purifiedBiomass: 2 }, qty: 2 },
   combatStim: { tier: 2, inputs: { volatileResin: 1, purifiedBiomass: 1 }, qty: 2 },
   traumaKit: { tier: 2, inputs: { purifiedBiomass: 2, exoticSporeCluster: 1, polysilicateWafer: 1 }, qty: 1 },
   injuryKit: { tier: 2, inputs: { purifiedBiomass: 2, polysilicateWafer: 1, powerCoupling: 1 }, qty: 1 },
@@ -184,6 +185,13 @@ describe("Quartermaster price data (FKR-3, N13: 3x material value)", () => {
   it("the user's examples hold: First Aid Kit 60, Combat Stim 150", () => {
     expect(FIELD_KIT_PRICES.firstAidKit).toBe(60);
     expect(FIELD_KIT_PRICES.combatStim).toBe(150);
+  });
+
+  it("the user's 2026-10-19 prices hold: Antitoxin 60 (like First Aid), Splint near 100 between First Aid and Stim", () => {
+    expect(FIELD_KIT_PRICES.antitoxin).toBe(60);
+    expect(FIELD_KIT_PRICES.splint).toBe(95);
+    expect(FIELD_KIT_PRICES.splint).toBeGreaterThan(FIELD_KIT_PRICES.firstAidKit);
+    expect(FIELD_KIT_PRICES.splint).toBeLessThan(FIELD_KIT_PRICES.combatStim);
   });
 
   it("every recipe input has a worth", () => {

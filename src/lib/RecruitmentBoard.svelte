@@ -38,7 +38,7 @@
   import type { AwayCrewBlockReason } from "./game/awayTeam";
   import { getAwayTrait, awayTraitEffectText, traitDisplayText } from "./game/awayTraits";
   import { officerRosterWindowIndex } from "./game/seniorStaff";
-  // WR-5c: the board size (the stored size x every Recruiter captain, rounded up).
+  // WR-5c: the board size (the stored size x the best Recruiter captain, rounded up).
   import { candidateBoardSize } from "./game/captainExplorerEffects";
   import { crewRankLabel } from "./game/crewRank";
   import HelpTip from "./HelpTip.svelte";
