@@ -44,3 +44,13 @@ section 5.A captain nodes). Kept in their own file so the parallel integrator's 
   is installed on a General hull, as built.
 - **Guest quarters display before Short-Range:** "Hide until Short-Range (Recommended)": the Ship Systems row appears
   once Short-Range Missions are in (G1-4 / G1-6 flips it).
+
+## WR-6 placeholder talent sizes (2026-10-19, all Recommended; the [PROVISIONAL] tags can drop)
+
+- **Hub talents:** "+5% each": TACTICIAN_HUB_WEAPON_DAMAGE 0.05 (OC-A40), EXPLORER_HUB_SCAN_RATE 0.05 (OC-A41).
+- **Specs:** "+1% per point": TACTICAL_SPEC_WEAPON_DAMAGE 0.01 (ship weapons only, not drones), SCIENCE_SPEC_RELIC_FIND
+  0.01 (OC-A42).
+- **Captain race:** "Same as an officer": CAPTAIN_RACIAL_SCALE 1 (OC-A43).
+- **Homeworld rungs:** "Approve all": WORKS_DIRECTORATE_BONUS_CHANCE 0.05 (OC-B2), HOME_GUARD_PATROL_SHIELD 0.05 and
+  CIVIC_CHARTER_TRANSPORT_CREW 1 (OC-B3).
+- Still provisional from the FKR-4 integration: BLEED_ON_HIT_PERMILLE 150 (ask next).
