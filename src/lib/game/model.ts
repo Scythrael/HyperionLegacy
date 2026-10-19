@@ -3946,14 +3946,9 @@ export function effectiveMissionDef(base: MissionDef, ship: ShipDerivedStats): M
   // unchanged). ⚠️ A hull whose cargo != UNLOAD_REFERENCE_CARGO now gets a DIFFERENT crew-free unload
   // length than base.unloadTicks: that is the intended balance change, NOT a regression.
   // WR-5a: Overloaded Holds' overflow unloads at no extra time, so the unload scales with the hold below it.
-  const cargoScaledUnload = Math.max(
-    UNLOAD_MIN_TICKS,
-    Math.ceil((base.unloadTicks * (ship.unloadCargoCapacity ?? ship.cargoCapacity)) / UNLOAD_REFERENCE_CARGO),
-  );
-  const unloadMult = ship.unloadSpeedMult ?? 1;
-  const unloadTicks = Math.max(1, Math.ceil(cargoScaledUnload / unloadMult));
+  const unloadTicks = scaledUnloadTicks(base.unloadTicks, ship.unloadCargoCapacity ?? ship.cargoCapacity, ship);
   // CP-2 (OC-E5): each leg divides by its own speed (Fast Departure out, Fast Return back).
-  const transitOutTicks = Math.ceil(base.transitOutTicks / outboundLegSpeed(ship));
+  const transitOutTicks = outboundLegTicks(base.transitOutTicks, ship);
   const museumFold = museumExtractionSpeedFold(base.extractionRatePerTick, ship.cargoCapacity, ship.extractionSpeedMult);
   // E-CREW (Task 21): the Flight Deck's Constitution ramp on the return leg (absent facet = the plain divide)
   // and the Operations Integrity full-hold unload (written only when the facet is non-zero).
@@ -3961,8 +3956,8 @@ export function effectiveMissionDef(base: MissionDef, ship: ShipDerivedStats): M
     1 +
     transitOutTicks +
     (museumFold.extractionTicksOverride ?? Math.ceil(ship.cargoCapacity / (museumFold.extractionRatePerTick ?? base.extractionRatePerTick)));
-  const transitBackTicks = ship.returnLegConstitution ? rampedReturnTicks(base, ship, outbound) : Math.ceil(base.transitBackTicks / returnLegSpeed(ship));
-  const fullHold = ship.fullHoldUnloadIntegrity ?? 0;
+  const transitBackTicks = returnLegTicks(base.transitBackTicks, ship, outbound);
+  const fullHoldTicks = fullHoldUnloadTicksFor(unloadTicks, ship);
   return {
     ...base,
     transitOutTicks,
@@ -3970,8 +3965,37 @@ export function effectiveMissionDef(base: MissionDef, ship: ShipDerivedStats): M
     cargoCapacity: ship.cargoCapacity,
     unloadTicks,
     ...museumFold,
-    ...(fullHold > 0 ? { fullHoldUnloadTicks: Math.max(1, Math.ceil(unloadTicks / (1 + fullHold))) } : {}),
+    ...(fullHoldTicks !== undefined ? { fullHoldUnloadTicks: fullHoldTicks } : {}),
   };
+}
+
+// The mission folds, one helper each, shared by effectiveMissionDef and the short-range cycle plan (G1-2,
+// shortRange.ts shortRangeCyclePlan) so a crew or gear bonus that claims "missions" acts on both the same way.
+// Each is effectiveMissionDef's own arithmetic, unchanged. Pure.
+
+// The unload length for `basis` units: (1) cargo-scaled against UNLOAD_REFERENCE_CARGO (ceil), floored at
+// UNLOAD_MIN_TICKS; (2) divided by the crew unloadSpeedMult (ceil), at least 1 tick.
+export function scaledUnloadTicks(baseUnloadTicks: number, basis: number, ship: ShipDerivedStats): number {
+  const cargoScaledUnload = Math.max(UNLOAD_MIN_TICKS, Math.ceil((baseUnloadTicks * basis) / UNLOAD_REFERENCE_CARGO));
+  const unloadMult = ship.unloadSpeedMult ?? 1;
+  return Math.max(1, Math.ceil(cargoScaledUnload / unloadMult));
+}
+
+// The outbound leg: the base ticks divided by the outbound leg's speed (Fast Departure), ceil.
+export function outboundLegTicks(baseTicks: number, ship: ShipDerivedStats): number {
+  return Math.ceil(baseTicks / outboundLegSpeed(ship));
+}
+
+// The return leg: the Flight Deck Constitution ramp over the `ticksBeforeReturn` already flown when the facet is set,
+// else the base ticks divided by the return leg's speed (Fast Return), ceil.
+export function returnLegTicks(baseTicks: number, ship: ShipDerivedStats, ticksBeforeReturn: number): number {
+  return ship.returnLegConstitution ? rampedReturnTicks(baseTicks, ship, ticksBeforeReturn) : Math.ceil(baseTicks / returnLegSpeed(ship));
+}
+
+// The Operations Integrity full-hold unload ("a packed hold unloads faster"): undefined without the facet.
+export function fullHoldUnloadTicksFor(unloadTicks: number, ship: ShipDerivedStats): number | undefined {
+  const fullHold = ship.fullHoldUnloadIntegrity ?? 0;
+  return fullHold > 0 ? Math.max(1, Math.ceil(unloadTicks / (1 + fullHold))) : undefined;
 }
 
 // E-CREW 0.14.0 (Task 21, Operations INTEGRITY): the hold share at which a hold counts as packed. FIRST-PASS.
@@ -4006,10 +4030,10 @@ export function missionPhaseTicks(
 // E-CREW 0.14.0 (Task 21, Flight Deck CONSTITUTION): the return leg's ticks after the ramp. The voyage's hours
 // before the return starts are its orders + outbound + extracting phases (RAMP_SECONDS_PER_TICK each); the leg
 // is divided by (the return leg's speed * (1 + ramp)), ceil, at least 1 tick. Pure.
-function rampedReturnTicks(base: MissionDef, ship: ShipDerivedStats, outboundTicks: number): number {
+function rampedReturnTicks(baseTicks: number, ship: ShipDerivedStats, outboundTicks: number): number {
   const ramp = constitutionRamp(ship.returnLegConstitution ?? 0, (outboundTicks * RAMP_SECONDS_PER_TICK) / 3600);
-  if (ramp === 0) return Math.ceil(base.transitBackTicks / returnLegSpeed(ship));
-  return Math.max(1, Math.ceil(base.transitBackTicks / (returnLegSpeed(ship) * (1 + ramp))));
+  if (ramp === 0) return Math.ceil(baseTicks / returnLegSpeed(ship));
+  return Math.max(1, Math.ceil(baseTicks / (returnLegSpeed(ship) * (1 + ramp))));
 }
 
 // Exploration 0.14.0 (Phase E4b): the floor on a museum-shortened extracting phase (whole ticks).

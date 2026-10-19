@@ -1762,7 +1762,7 @@ const BONUS_ROLL_COMMON_CHANCE = 0.3;
 // survey material. A ship with NO sensor fitted reads sensors 0 -> +0, so a survey run is
 // byte-identical to a plain (un-sensored) extraction run at sensors 0. Applied ONLY to
 // survey-flagged missions (missionType "survey"); extraction/patrol missions never read it.
-const SURVEY_SENSOR_YIELD_COEFF = 0.02;
+export const SURVEY_SENSOR_YIELD_COEFF = 0.02;
 
 function rollBonusExtractionTick(
   missionDef: MissionDef,
