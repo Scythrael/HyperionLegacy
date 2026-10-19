@@ -364,4 +364,10 @@ inert: culture names (finds keep their "Relic Sample" codes, honest Help), the R
 - **Call 11 Precursor:** "Umbrella word (Recommended)".
 - **Call 12 identification:** "Free, queued, lanes by Lab (Recommended)": 10 minutes x rarity, lanes I 1, III 2, V 3,
   VII 4, no Lab gate per tier.
-- Still open: 13 to 17, plus the name sign-offs (exceptional set names, 42 culture names).
+- **Call 13 blank rarity:** "Better rarity only (Recommended)": relic chance and haul multiplier untouched.
+- **Call 14 other drops:** "Short-Range only (Recommended)": mining, salvage and patrols stay relic-free.
+- **Call 15 planet 100% bonus:** "Relics owns the roll (Recommended)": G3 owns it, G7 calls it.
+- **Calls 16 + 17:** "Every set + site bias (Recommended)": every exceptional set completion is a ledger event; a
+  relic's source site doubles the weight of its old set's types.
+- ALL 17 calls answered. Still open: the name sign-offs (exceptional set names, 42 culture names), presented as a
+  sign-off sheet before R2-8.
