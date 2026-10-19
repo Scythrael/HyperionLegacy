@@ -84,7 +84,7 @@
   // card, rendered inline below the Ship Systems bay grid when a tile is selected.
   // equipmentRarityColor (its module-context export) is the SINGLE rarity->color
   // source the bay TILES also read, so tile border/dot and the tooltip never drift.
-  import EquipmentTooltip, { equipmentRarityColor, equipmentIcon, blueprintIcon, type ItemTooltipSubject } from "./lib/EquipmentTooltip.svelte";
+  import EquipmentTooltip, { equipmentRarityColor, equipmentIcon, equipmentSvgIcon, blueprintIcon, type ItemTooltipSubject } from "./lib/EquipmentTooltip.svelte";
   // Radial Skill Web (Task 11b, minimal buildable integration), the pannable
   // fog-of-war talent web that REPLACES the old depth-row talent panels in
   // BOTH the Captain Talents and Homeworld Talents sub-tabs below. It owns its
@@ -13664,7 +13664,8 @@
                              {@const} itself, so the compiler records them as dependencies.
                              See the stale-derivation trap note on systemSalvageState. -->
                         {@const salvageState = systemSalvageState(bayInFlightInstances, bayReservations, piece.id)}
-                        {@const memberIc = memberSlotIcon(piece.slotType)}
+                        <!-- G1-1: a variety with an SVG glyph (the Guest Wing) draws it here like a member piece. -->
+                        {@const memberIc = memberSlotIcon(piece.slotType) ?? equipmentSvgIcon(piece)}
                         <!-- The ship tiles' title convention ("Standard-Issue baseline" / "radiant · Q5"),
                              led by a member piece's variety name ("Ballistic Weave · Standard-Issue baseline"). -->
                         {@const shipTitle = isBaseline ? "Standard-Issue baseline" : `${piece.rarity} · Q${piece.quality}`}
@@ -15265,6 +15266,8 @@
                     {#each group.pieces as piece (piece.id)}
                       {@const isBaseline = piece.blueprintKey === null}
                       {@const baseTitle = isBaseline ? "Standard-Issue baseline" : `${piece.rarity} · Q${piece.quality}`}
+                      <!-- G1-1: a variety with an SVG glyph (the Guest Wing) draws it in place of the emoji. -->
+                      {@const svgIc = equipmentSvgIcon(piece)}
                       <button
                         type="button"
                         class="systems-tile"
@@ -15279,7 +15282,7 @@
                         on:click={() => (selectedShipSpareId = selectedShipSpareId === piece.id ? null : piece.id)}
                       >
                         <span class="systems-tile-dot"></span>
-                        <span class="systems-tile-ic">{equipmentIcon(piece)}</span>
+                        <span class="systems-tile-ic">{#if svgIc !== null}<Icon name={svgIc} />{:else}{equipmentIcon(piece)}{/if}</span>
                         <span class="systems-tile-il">iL {piece.iLevel}</span>
                         {#if piece.locked === true}
                           <span class="sb-tile-lock" aria-hidden="true">🔒</span>

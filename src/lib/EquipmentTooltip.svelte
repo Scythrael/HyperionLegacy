@@ -28,6 +28,7 @@
   // away-team gear surface so the tooltip and the rows can never name a piece two ways.
   import { memberPieceName } from "./awayGearDisplay";
   import { pieceHazardResistText } from "./ui/hazardResistText";
+  import type { IconName } from "./ui/icons";
   import { previewCraftOutcome, type CraftPreview } from "./game/itemgen";
   // Weapon combat stats (damage / accuracy / etc.) do NOT live on the EquipmentInstance's rolled
   // lines — they come from the weapon's base def, scaled by the rolled weaponYield/accuracy. We
@@ -139,6 +140,14 @@
     sensorBioResonance: "🧬",
   };
 
+  // G1-1 (Short-Range Missions): the varieties that ship an SVG glyph (icons.ts, classified in ICON_SEMANTICS) in
+  // place of an emoji. Every NEW variety glyph is SVG (the icon migration policy); iconFor returns "" for these so no
+  // emoji draws, and the hosts (this card's header, the Armory and Ships storage tiles) render <Icon> from
+  // varietySvgIcon / equipmentSvgIcon instead.
+  const EQUIPMENT_VARIETY_SVG_ICON: Partial<Record<string, IconName>> = {
+    quartersGuestWing: "guestWing",
+  };
+
   // Fallback glyph per SLOT, used if a variety is unmapped OR a slot has no variety
   // (weapons/drone pods roll no EQUIPMENT_SLOTS variety), so a card never renders blank.
   const SLOT_ICON_FALLBACK: Record<string, string> = {
@@ -169,12 +178,21 @@
   // returns "" and the card's existing {#if view.icon} guard renders no icon rather than the satellite fallback.
   function iconFor(varietyKey: string | null, slotType: string): string {
     if (isMemberSlotType(slotType)) return "";
+    if (varietyKey !== null && EQUIPMENT_VARIETY_SVG_ICON[varietyKey] !== undefined) return ""; // G1-1: drawn as SVG
     if (varietyKey !== null && EQUIPMENT_VARIETY_ICON[varietyKey] !== undefined) return EQUIPMENT_VARIETY_ICON[varietyKey];
     return SLOT_ICON_FALLBACK[slotType] ?? "🛰️";
   }
 
   export function equipmentIcon(piece: EquipmentInstance): string {
     return iconFor(resolveVarietyKey(piece), piece.slotType);
+  }
+
+  // G1-1: the SVG glyph a variety draws with (EQUIPMENT_VARIETY_SVG_ICON), or null for an emoji-glyph variety.
+  export function varietySvgIcon(varietyKey: string | null): IconName | null {
+    return varietyKey === null ? null : EQUIPMENT_VARIETY_SVG_ICON[varietyKey] ?? null;
+  }
+  export function equipmentSvgIcon(piece: EquipmentInstance): IconName | null {
+    return varietySvgIcon(resolveVarietyKey(piece));
   }
 
   // Crafted Blanks 0.13.7: the glyph for an UNROLLED blank, keyed off its BLUEPRINT (a blank
@@ -217,6 +235,8 @@
     waveHullRegen: "Hull Regen Between Waves",
     expeditionScanSpeed: "Expedition Scan Speed",
     hazardResist: "Hazard Resist",
+    // G1-1 (Short-Range Missions): the berths passengers ride in (user 2026-10-19: "Guest quarters").
+    colonistCapacity: "Guest Quarters",
     hullStrength: "Hull Plating",
     hullIntegrity: "Hull Integrity",
     shieldCapacity: "Shield Capacity",
@@ -286,6 +306,7 @@
   // Ship Systems bay passes Salvage). Only rendered when the host passes children AND the
   // subject is an equipment instance (materials/ships/crafts carry no per-item actions).
   // ============================================================================
+  import Icon from "./ui/Icon.svelte";
 
   // NEW primary API: the tagged subject. LEGACY: `piece` alone still works and maps to an
   // equipment subject, so the finished-gear call sites need no change.
@@ -423,6 +444,9 @@
       }
     | null;
 
+  // G1-1: the header's SVG glyph for a variety that draws one (the Guest Wing), else null (the emoji `icon` draws).
+  $: svgIcon = view === null ? null : view.kind === "equipment" ? equipmentSvgIcon(view.piece) : view.kind === "craft" ? varietySvgIcon(view.preview?.varietyKey ?? null) : null;
+
   const NEUTRAL = "var(--color-text-secondary)";
   const DIM = "var(--color-text-dim)";
   const ACCENT = "var(--color-accent)";
@@ -481,6 +505,8 @@
         { label: "Hull Integrity", value: fmtNum(def.hullIntegrity) },
         { label: "Shield Capacity", value: fmtNum(def.shieldCapacity) },
         { label: "Weapon Hardpoints", value: fmtNum(def.weaponHardpoints) },
+        // G1-1: a transport hull's base guest quarters, only when it has some.
+        ...((def.colonistCapacity ?? 0) > 0 ? [{ label: "Guest Quarters", value: fmtNum(def.colonistCapacity ?? 0) }] : []),
       ];
       return {
         kind: "ship",
@@ -548,7 +574,7 @@
       }}
     >
       <div class="et-r1">
-        {#if view.icon}<span class="et-icon">{view.icon}</span>{/if}
+        {#if svgIcon !== null}<span class="et-icon"><Icon name={svgIcon} /></span>{:else if view.icon}<span class="et-icon">{view.icon}</span>{/if}
         <span class="et-name-text">{view.name}</span>
         <span class="et-q" style="color: {view.chipColor}; border-color: {view.chipColor};">{view.chip}</span>
         {#if interactive}<span class="et-chev" aria-hidden="true">▶</span>{/if}

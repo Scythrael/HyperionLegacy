@@ -28,4 +28,7 @@ declare module "node:fs" {
   // fittedToShipId null comparisons, so it needs to list a directory and tell files from folders.
   export function readdirSync(path: string): string[];
   export function statSync(path: string): { isDirectory(): boolean };
+  // G1-0 (Short-Range Missions): shortRangeGoldens.test.ts writes its captured goldens to the path in G1_CAPTURE
+  // (only when that variable is set), so a slice that moves a pin on purpose can re-capture and diff the record.
+  export function writeFileSync(path: string, data: string): void;
 }

@@ -182,6 +182,7 @@ export const CONTEXT_IDS = [
   "mission:extraction",
   "mission:survey",
   "mission:transport",
+  "mission:shortRange", // G1: a short-range mission cycle (G1-4 builds the cycle; until then nothing reads there)
   "patrol", // ship battles (patrols and the Ground Ops ship events build the same combatant)
   "shipyard", // Shipyard repair, builds, bays
   "expedition:groundOps", // a run dispatched since GO-7b (every new run)
@@ -893,6 +894,12 @@ export const PROBES = {
   sheetEngineEff: { label: "effectiveShipStats.engineEfficiency (Ground Ops: the run digest)", read: sheetAt((s) => sheet(s).engineEfficiency) },
   sheetFuelCapacity: { label: "effectiveShipStats.fuelCapacity (Ground Ops: the run digest)", read: sheetAt((s) => sheet(s).fuelCapacity) },
   sheetSensors: { label: "effectiveShipStats.sensors (patrol: the cycle digest)", read: sheetAt((s) => sheet(s).sensors) },
+  // G1-1: guest quarters on the sheet. At mission:shortRange it reads the short-range cycle's passenger capacity, which
+  // does not exist until G1-4 (the cycle engine): 0 there, so a guest source stays flat at that claimed context.
+  sheetGuestQuarters: {
+    label: "effectiveShipStats.colonistCapacity (mission:shortRange: no cycle reads it until G1-4)",
+    read: (s, ctx) => (ctx === "mission:shortRange" ? 0 : sheet(s).colonistCapacity ?? 0),
+  },
   sheetMass: { label: "effectiveShipStats.mass", read: (s) => sheet(s).mass },
   sheetPowerOutput: { label: "effectiveShipStats.powerOutput", read: (s) => sheet(s).powerOutput },
   sheetPowerDraw: { label: "effectiveShipStats.powerDraw", read: (s) => sheet(s).powerDraw },

@@ -1973,6 +1973,8 @@ describe("EQUIPMENT_SLOTS live-slot definitions (0.11.0 Task 2)", () => {
     "waveHullRegen",
     "expeditionScanSpeed",
     "hazardResist",
+    // G1-1 (Short-Range Missions): guest quarters (the quarters affix line + the Guest Wing's signature).
+    "colonistCapacity",
   ]);
 
   // E4d: the per-slot variety counts. 3 for every gear slot, except quarters (9 crew-quarters variants),
@@ -1981,7 +1983,7 @@ describe("EQUIPMENT_SLOTS live-slot definitions (0.11.0 Task 2)", () => {
   // E-CREW 0.14.0 (Task 7): the four member slots carry the mockup catalog (4 weapons, 4 armors, 10 tools,
   // 13 implants).
   const EXPECTED_VARIETY_COUNT: Record<string, number> = {
-    quarters: 9, specUtility: 5, sensor: 4,
+    quarters: 10, specUtility: 5, sensor: 4, // G1-1: the Guest Wing is the 10th quarters variant
     // Prospecting squads (hidden, 2026-10-16): +3 weapons, +1 armor, +2 tools, +2 implants.
     memberWeapon: 7, memberArmor: 5, memberTool: 12, implant: 15,
   };
@@ -2732,7 +2734,7 @@ describe("STAT_KEYS registry, drift guard over EQUIPMENT_SLOTS (0.11.0 Task 3)",
     }
   });
 
-  it("LIVE_STAT_KEYS holds exactly the 22 live keys (10 economy + 6 Combat 1.0 defensive + 2 crew-module + 4 E4d utility)", () => {
+  it("LIVE_STAT_KEYS holds exactly the 23 live keys (10 economy + 6 Combat 1.0 defensive + 2 crew-module + 4 E4d utility + G1-1 guest quarters)", () => {
     // Pins the LIVE vocabulary so a key added/removed here is a deliberate, tested
     // change (the slot table draws only from this set).
     expect([...LIVE_STAT_KEYS].sort()).toEqual(
@@ -2762,6 +2764,8 @@ describe("STAT_KEYS registry, drift guard over EQUIPMENT_SLOTS (0.11.0 Task 3)",
         "waveHullRegen",
         "expeditionScanSpeed",
         "hazardResist",
+        // G1-1 (Short-Range Missions) guest quarters, moved from RESERVED:
+        "colonistCapacity",
       ].sort(),
     );
   });

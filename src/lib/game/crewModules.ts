@@ -7,7 +7,7 @@
 //
 // A module is a normal EquipmentInstance on its slot; WHICH variant it is lives on the instance as
 // `moduleVariant` (a catalog id, stamped by generateEquipment). This module owns the catalogs
-// (QUARTERS_MODULES = 9, BRIDGE_MODULES = 3) and the pure functions that turn an installed piece into
+// (QUARTERS_MODULES = 10, BRIDGE_MODULES = 3) and the pure functions that turn an installed piece into
 // its effect. The crew overlay (crewOverlay.ts) calls these; nothing here mutates state.
 //
 // ⚠️ CAPACITY PRINCIPLE (balance, LOCKED, docs/plans/2026-09-22-crew-0.14.0-plan.md): base crew
@@ -62,7 +62,7 @@ export function moduleEffectScale(rarity: EquipmentRarity, quality: number): num
 }
 
 // ============================================================================
-// Quarters modules (9): 6 division-focused + 3 general
+// Quarters modules (10): 6 division-focused + 3 general + the Guest Wing (G1-1)
 // ============================================================================
 
 export type QuartersModuleKind = "division" | "general";
@@ -96,6 +96,11 @@ export interface QuartersModuleDef {
 const DIVISION_FOCUS_BOOST = 0.5;
 const DIVISION_OFF_BOOST = -0.1;
 const DIVISION_CAPACITY = 6;
+
+// G1-1: the Guest Wing's fixed crew capacity, below every other capacity-giving module (division 6, Utilitarian 12,
+// Efficient 40) because its berths go to guests. [PROVISIONAL] first pass (the plan's "fewer crew stations in trade";
+// no number was asked).
+export const GUEST_WING_CREW_CAPACITY = 4;
 
 function divisionModule(division: CrewProfession, label: string, id: string): QuartersModuleDef {
   return {
@@ -153,6 +158,20 @@ export const QUARTERS_MODULES: readonly QuartersModuleDef[] = [
     focusBoost: 0.4,
     offBoost: 0,
     baseCapacity: 0,
+    capacityScales: false,
+  },
+  // G1-1 (Short-Range Missions, user 2026-10-19 "Guest Wing (Recommended)"): berths for PASSENGERS, not crew. Its
+  // effect is its guest quarters line (the variety's signature, model.ts EQUIPMENT_SLOTS.quarters, folded into
+  // ShipDerivedStats.colonistCapacity); for the crew it is a plain module: no effectiveness boost and a small fixed
+  // crew capacity (fewer crew stations, the trade for the guest berths). Guests never count toward the complement.
+  {
+    id: "quartersGuestWing",
+    label: "Guest Wing",
+    slot: "quarters",
+    kind: "general",
+    focusBoost: 0,
+    offBoost: 0,
+    baseCapacity: GUEST_WING_CREW_CAPACITY,
     capacityScales: false,
   },
 ];

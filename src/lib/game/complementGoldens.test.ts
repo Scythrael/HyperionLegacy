@@ -21,7 +21,7 @@
 
 import { describe, expect, it } from "vitest";
 // SF-1: whole states hash without the run counters (withoutRunCounts).
-import { withoutRunCounts } from "./firstRunsGoldens.fixture";
+import { withoutGuests, withoutRunCounts } from "./firstRunsGoldens.fixture";
 import Decimal from "break_infinity.js";
 import {
   freshState,
@@ -127,7 +127,8 @@ function sheetState(hull: ShipTypeKey, buckets: CrewBucket[]): GameState {
 function sheetHashes(hull: ShipTypeKey, buckets: CrewBucket[]): string {
   const s = sheetState(hull, buckets);
   const ship = s.ships[0];
-  return `${hash(effectiveShipStats(s, ship))}/${hash(shipCrewContribution(s, ship))}`;
+  // G1-1: the sheet hash strips guest quarters (withoutGuests), so these pins keep proving no other stat moved.
+  return `${hash(withoutGuests(effectiveShipStats(s, ship)))}/${hash(shipCrewContribution(s, ship))}`;
 }
 
 // A captain mission dispatched for real, 200 s before the first transport window (captain level 10 so every mission

@@ -48,6 +48,17 @@ export function withoutRunCounts<T>(value: T): T {
   return rest as T;
 }
 
+// G1-1 (Short-Range Missions): a ship stat sheet WITHOUT guest quarters (the optional `colonistCapacity` G1-1 makes
+// live: the transport hulls' base berths and every guest line). Every sheet golden captured before G1-1 hashes through
+// this, so it keeps proving that no OTHER stat moved; the guest quarters values have their own pins
+// (shortRangeGoldens.test.ts `guests:*`). Any other value is returned as it is. Pure: a shallow copy.
+export function withoutGuests<T>(stats: T): T {
+  if (!stats || typeof stats !== "object" || !("colonistCapacity" in stats)) return stats;
+  const rest = { ...stats } as Record<string, unknown>;
+  delete rest.colonistCapacity;
+  return rest as T;
+}
+
 // The measurement gate: the pure measurement tables (the 60-seed sweep, the 200-seed win tables, the forecast bands,
 // the readable outcome lines) run only with SF_SWEEP set or under `npm run test:sweep` (vitest in mode "sweep"); the
 // default run keeps every real pin.

@@ -27,6 +27,7 @@ import {
   EQUIPMENT_SLOTS,
   EQUIPMENT_STORAGE_RUNGS,
   FACILITIES,
+  GENERAL_QUARTERS_GUEST_PERK,
   HOMEWORLD_TALENTS,
   ITEMS,
   LIVE_STAT_KEYS,
@@ -380,6 +381,8 @@ const G2_6_PICKER = "G2-6 (the region picker: G2-2 built every tier's candidates
 const PILOT_CUNNING = "pending user decision (officerStats.ts CUNNING_PENDING_SEATS)";
 // The user's T3 deferrals (capture 2026-10-15 section 3: "Move all five (Recommended)").
 const T3 = "capture 2026-10-15 section 3 T3 (moved to 0.14.x)";
+// G1-1: every guest quarters source moves the sheet now; the short-range passenger jobs that read it land in G1-4.
+const G1_GUESTS = "G1-4 (the short-range passenger jobs read guest quarters)";
 
 // Prospecting squads (0.14.0, built HIDDEN; design docs/plans/2026-10-16-prospecting-squads-design.md section 8):
 // every Prospecting source is deferred to the prospecting quests patch, the user-approved exception to "no
@@ -1622,6 +1625,7 @@ const SHIP_PIECE_FOR: Readonly<Record<string, { slotType: string; moduleVariant?
   kineticDampening: { slotType: "hullPlating" },
   crewStations: { slotType: "quarters", moduleVariant: "quartersUtilitarian" },
   crewEfficiency: { slotType: "bridge", moduleVariant: "bridgeBalancedCommand" },
+  colonistCapacity: { slotType: "quarters", moduleVariant: "quartersGuestWing" },
   repairSpeed: { slotType: "specUtility", moduleVariant: "damageControlSuite" },
   waveHullRegen: { slotType: "specUtility", moduleVariant: "damageControlSuite" },
   expeditionScanSpeed: { slotType: "specUtility", moduleVariant: "pathfinderSuite" },
@@ -1659,6 +1663,9 @@ const LINE_SEAMS: Readonly<Record<string, LineSeam | null>> = {
   cargoCapacity: { probe: "sheetCargo", contexts: ["sheet"], curve: { kind: "linearAbsolute" }, magnitude: () => LINE_POINTS },
   fuelCapacity: { probe: "sheetFuelCapacity", contexts: ["sheet"], curve: { kind: "linearAbsolute" }, magnitude: () => LINE_POINTS },
   sensors: { probe: "sheetSensors", contexts: ["sheet"], curve: { kind: "linearAbsolute" }, magnitude: () => LINE_POINTS },
+  // G1-1: a guest line is stored in berths and adds them flat. Measured on an Orion (an explorer: the General quarters
+  // perk would multiply both readings, which is its own entry, ship:SHIP_SEAMS:generalQuartersGuestPerk).
+  colonistCapacity: { probe: "sheetGuestQuarters", contexts: ["sheet"], curve: { kind: "linearAbsolute" }, magnitude: () => LINE_POINTS, base: () => wiringBase("orion") },
   transitSpeedMult: { probe: "sheetTransit", contexts: ["sheet"], curve: { kind: "linearRelative" }, magnitude: () => percent("transitSpeedMult") },
   engineEfficiency: { probe: "sheetEngineEff", contexts: ["sheet"], curve: { kind: "linearAbsolute" }, magnitude: () => percent("engineEfficiency") },
   extractionYieldMult: { probe: "sheetYield", contexts: ["sheet"], curve: { kind: "linearRelative" }, magnitude: () => percent("extractionYieldMult") },
@@ -1785,6 +1792,7 @@ function shipLineEntries(): WiringEntry[] {
       engineEfficiency: pending("G2-4 (no expedition range gate)", ["expedition:groundOps"]),
       sensors: { kind: "deferred", owner: "CP-15 (patrol cloak detection)", userRef: `${T3}: patrol cloak detection`, contexts: ["patrol"] },
       repairSpeed: pending("WR-7, OC-D10 (not Ground Ops field repair)", ["expedition:groundOps"]),
+      colonistCapacity: pending(G1_GUESTS, ["mission:shortRange"]),
     };
     return entry({
       ...common,
@@ -1921,7 +1929,39 @@ function hullEntries(): WiringEntry[] {
     for (const field of Object.keys(HULL_FIELD_PENDING)) {
       out.push(hullEntry(hull, field, { status: pending(HULL_FIELD_PENDING[field]) }));
     }
+    // G1-1: a transport-minded hull's base guest quarters, read verbatim off its bare sheet.
+    if (SHIP_TYPES[hull].colonistCapacity !== undefined) {
+      out.push(
+        hullEntry(hull, "colonistCapacity", {
+          probe: "sheetGuestQuarters",
+          contexts: ["sheet"],
+          magnitude: (c) => c.SHIP_TYPES[hull].colonistCapacity ?? 0,
+          base: () => {
+            const s = wiringBase(hull);
+            return { ...s, equipment: s.equipment.filter((e) => e.fittedToShipId !== "ship-1") };
+          },
+          status: pending(G1_GUESTS, ["mission:shortRange"]),
+        }),
+      );
+    }
   }
+  // G1-1: the General hull family's quarters perk, "guest quarters +10% for passenger runs": a Crew Quarters module
+  // (here a Utilitarian, which carries no guest line) on the General Freighter multiplies its base berths.
+  out.push(
+    entry({
+      id: "ship:SHIP_SEAMS:generalQuartersGuestPerk",
+      system: "ship",
+      source: { catalog: "SHIP_SEAMS", key: "generalQuartersGuestPerk" },
+      claim: "General Quarters: guest quarters +10% for passenger runs",
+      probe: "sheetGuestQuarters",
+      contexts: ["sheet"],
+      curve: { kind: "linearRelative" },
+      magnitude: () => GENERAL_QUARTERS_GUEST_PERK,
+      on: (s) => installPiece(s, { slotType: "quarters", moduleVariant: "quartersUtilitarian" }),
+      tolerance: 0.5, // whole berths
+      status: pending(G1_GUESTS, ["mission:shortRange"]),
+    }),
+  );
   out.push(
     entry({
       id: "ship:SHIP_TYPES:sensors",
@@ -1976,6 +2016,27 @@ function moduleEntries(): WiringEntry[] {
   const opsBase = () => withBuckets(wiringBase(), [bucketOf("operations", "ops.unloadSpeed")]);
   for (const def of QUARTERS_MODULES) {
     const boost = def.kind === "division" ? (def.division === "operations" ? def.focusBoost : def.offBoost) : def.focusBoost;
+    // G1-1: a module with no effectiveness boost at all (the Guest Wing: its effect is its guest quarters line,
+    // ship:gearLine:colonistCapacity) has nothing to measure on the crew; its capacity entry below still applies.
+    if (def.kind === "general" && boost === 0) {
+      out.push(
+        entry({
+          id: `ship:QUARTERS_MODULES:${def.id}`,
+          system: "ship",
+          source: { catalog: "QUARTERS_MODULES", key: def.id },
+          claim: def.label,
+          notApplicable: "no crew-effectiveness boost (focusBoost 0): its effect is its guest quarters line (ship:gearLine:colonistCapacity)",
+        }),
+        entry({
+          id: `ship:QUARTERS_MODULES:${def.id}:capacity`,
+          system: "ship",
+          source: { catalog: "QUARTERS_MODULES", key: `${def.id}:capacity` },
+          claim: `${def.label}: more crew berths`,
+          status: pending("CP-5 + WR-7, OC-D7 (raises only the total cap; division caps still bind, B22)"),
+        }),
+      );
+      continue;
+    }
     out.push(
       entry({
         id: `ship:QUARTERS_MODULES:${def.id}`,
@@ -3288,6 +3349,7 @@ export const FLAT_UNCONTROLLED: Readonly<Record<string, string>> = {
   "salvageTalentCeiling@salvage:topTier": "the pool's top tier is the clamp: nothing can raise the tier a top Fleet Admiral rolls",
   "candidateTopTier@expedition:groundOps": "the console offers Tier I candidates until G2-6 adds the region picker (G2-2 built every tier): nothing raises the offered region tier",
   "missionOreQuality@mission:extraction": "nothing raises mined ore quality today (this line would be the first source)",
+  "sheetGuestQuarters@mission:shortRange": "no short-range cycle exists until G1-4, so nothing reads guest quarters there yet",
 };
 
 // ============================================================================
