@@ -394,3 +394,9 @@ entries); G1-5 small but blocked on G3; G1-6 large (new tab, popup, cards, two l
 Roughly the size of G2 without its galaxy work. If open call 2 picks (b), add one large slice and a design round.
 Push-back flag: 0.14.0 still carries complement, expedition tiers, Field Kits, Relics v2, the gas giant study,
 Material Lines and universal modules ahead of G1 in the build order.
+
+## USER ANSWERS (2026-10-17)
+
+- **Existing survey / supply missions:** "Keep them separate (Recommended)". **Refugees vs the E5 facility-crews
+  loop:** "Relocate now, crews loop right after (Recommended)". **Placement:** "Own Operations tab (Recommended)".
+  **Slots:** "Mission Control upgrades (Recommended)".
