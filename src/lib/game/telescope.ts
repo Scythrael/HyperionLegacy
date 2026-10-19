@@ -230,6 +230,9 @@ export interface SystemTelescopeReading {
   blind: boolean;
   telescopeDetail: TelescopeDetail; // what the telescope alone reads here (0 when blind)
   shipLift: boolean; // the ship's sensors raised the detail
+  // WR-5c: the commanding captain raised it too (Foreknowledge: whole levels; Deep Scan: the full reading). Present
+  // only when it did, so every other reading is the pre-WR-5c record.
+  captainSight?: "foreknowledge" | "deepScan";
   detail: TelescopeDetail; // the effective detail the card shows
   detailName: string;
   risk: TelescopeRiskView | null; // the risk preview gated by `detail` (null when blind)
@@ -238,18 +241,24 @@ export interface SystemTelescopeReading {
 // Read one candidate system: the telescope's reading, the candidate's seed, the launching ship's crew-inclusive
 // sensors and the candidate's risk preview (expeditionRiskPreview(seed)). In range by DISTANCE (which, with the
 // bands above, is exactly "the region is within the reached tiers"). Pure.
+// WR-5c: `captain` is the commanding captain's sight (captainExplorerEffects.ts captainTelescopeSight): Foreknowledge
+// adds `lift` whole levels on top of the ship's lift, Deep Scan (`full`) reads at the top detail; both only in range
+// (a blind launch stays blind) and never past Forecast. The default is no sight (the pre-WR-5c reading).
 export function readSystem(
   reading: TelescopeReading,
   seed: number,
   shipSensorPower: number,
   preview: { profile: ExpeditionRiskProfile; bodies: readonly BodyRiskGrades[] },
   homeworld: HomeworldPlacement = PROVISIONAL_HOMEWORLD,
+  captain: { readonly lift: number; readonly full: boolean } = { lift: 0, full: false },
 ): SystemTelescopeReading {
   const regionTier = preview.profile.tier;
   const distanceLy = systemDistanceLy(seed, regionTier, homeworld);
   const inRange = reading.reachTier > 0 && distanceLy <= reading.rangeLy;
   const telescopeDetail: TelescopeDetail = inRange ? reading.detail : 0;
-  const lifted = inRange && shipSensorPower >= TELESCOPE_SHIP_LIFT_SENSORS ? toDetail(telescopeDetail + TELESCOPE_SHIP_LIFT) : telescopeDetail;
+  const shipLifted = inRange && shipSensorPower >= TELESCOPE_SHIP_LIFT_SENSORS ? toDetail(telescopeDetail + TELESCOPE_SHIP_LIFT) : telescopeDetail;
+  const lifted: TelescopeDetail = !inRange ? shipLifted : captain.full ? MAX_DETAIL : captain.lift > 0 ? toDetail(shipLifted + captain.lift) : shipLifted;
+  const captainSight = lifted > shipLifted ? (captain.full ? "deepScan" : "foreknowledge") : undefined;
   return {
     regionTier,
     distanceLy,
@@ -257,7 +266,8 @@ export function readSystem(
     inRange,
     blind: !inRange,
     telescopeDetail,
-    shipLift: lifted > telescopeDetail,
+    shipLift: shipLifted > telescopeDetail,
+    ...(captainSight ? { captainSight } : {}),
     detail: lifted,
     detailName: TELESCOPE_DETAIL_NAMES[lifted],
     risk: inRange ? gateRiskView(preview, lifted) : null,

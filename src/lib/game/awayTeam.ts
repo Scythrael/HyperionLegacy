@@ -58,6 +58,8 @@ import { isGroundSquadType, shipsWithMemberAutoSlotted, shipsWithMemberUnslotted
 import { reserveBerthsUsed, shipCrewCapacity, shipTeamKinds, type ShipCrewCapacity } from "./groundComposition";
 // Ground Ops (GO-3): the racial physical perks the snapshot freezes. medicalBay.ts imports model.ts types only.
 import { memberPerksFor } from "./medicalBay";
+// WR-5c: the board size (the stored size x the best Recruiter captain, rounded up; pure, imports only model.ts).
+import { candidateBoardSize } from "./captainExplorerEffects";
 
 // ============================================================================
 // Squad capacity (design section 5.2; Squads SQ-2: the composition-following cap)
@@ -282,7 +284,8 @@ function rollAwayCandidate(baseSeed: number, windowIndex: number, slot: number):
 // Open for the user to revisit. Pure; returns a fresh array of fresh member objects.
 export function awayRecruitCandidates(state: GameState): AwayMember[] {
   const windowIndex = officerRosterWindowIndex(state);
-  const size = Math.max(0, state.seniorStaffRosterSize ?? SENIOR_STAFF_ROSTER_BASE);
+  // WR-5c: the stored size x the best Recruiter captain's factor, rounded up (captainExplorerEffects.ts candidateBoardSize).
+  const size = candidateBoardSize(state);
   const baseSeed = state.awayRecruitSeed >>> 0;
   const hired = new Set(state.awayMembers.map((m) => m.hiredFrom).filter((id) => id !== undefined));
   const out: AwayMember[] = [];

@@ -23,6 +23,8 @@ import {
   blueprintResearchable,
   effectiveMissionDef,
   equipmentStorageCap,
+  outboundLegSpeed,
+  returnLegSpeed,
   groundTeamCount,
   freshState,
   missionPhaseTicks,
@@ -54,6 +56,7 @@ import {
   type ShipTypeKey,
   type SnapshotMember,
   type MemberPerkId,
+  type PatrolMissionState,
 } from "../model";
 import {
   canBuildShip,
@@ -65,7 +68,9 @@ import {
   captainBonusRollChanceMult,
   captainSpecBonusRollChance,
   craftingItemLevelBonus,
+  dispatchCaptainOnMission,
   dispatchCaptainOnPatrol,
+  startRelicStudy,
   economyTick,
   fabricateSlotCount,
   fleetRareYieldMult,
@@ -83,6 +88,7 @@ import {
   shipRepairDurationTicks,
   shipyardBayCount,
   startProcess,
+  shipyardRepairSpeedBonus,
   tierCap,
   xpPerTick,
 } from "../tick";
@@ -98,10 +104,23 @@ import { generateEnemyWave } from "../combat/enemyWave";
 import type { PirateHullId } from "../combat/enemyHulls";
 import { STATUS_EFFECT_DEFS, activeStatDelta, applyEffect, tickEffects } from "../combat/statusEffects";
 import { makeRng } from "../combat/rng";
-import { advanceExpedition, expeditionCandidates, scanEncounterChance, scanRatePerSecond, startExpedition } from "../expedition";
+import {
+  advanceExpedition,
+  claimExpedition,
+  depositExpeditionFindings,
+  discoveryOddsPermille,
+  expeditionCandidates,
+  rollBodyDiscoveries,
+  scanEncounterChance,
+  scanRatePerSecond,
+  startExpedition,
+} from "../expedition";
 import {
   GAMBIT_STATUSES,
   activityRelicFindBonus,
+  relicChancePermille,
+  relicTierCeiling,
+  rollRelicToken,
   applyStatus,
   buildRosterCombatants,
   deriveAwayTeam,
@@ -119,18 +138,19 @@ import {
 } from "../gambit";
 import { fieldworkEffect, fieldworkHazardResist, fieldworkSpeedMult } from "../fieldwork";
 import { taskSecurityHazardResist } from "../groundTasks";
-import { snapshotMembers } from "../awayTeam";
+import { awayRecruitCandidates, snapshotMembers } from "../awayTeam";
+import { seniorStaffCandidates } from "../seniorStaff";
 import { applyExpeditionInjuries, injuryRecoverySeconds, shipInjuryFactors } from "../injuries";
 import { boardingRepelChance, buildShipCombatant, snapshotShipEventProfile } from "../shipScanEvents";
 import { shipsWithMemberAutoSlotted } from "../groundTeamSlots";
 import { equippedFor } from "../equipment";
-import { effectiveShipStats, officerCombatMods, officerMissionOutputBonus, officerRepairSpeedBonus, shipCrewContribution } from "../crewOverlay";
+import { effectiveShipStats, officerCombatMods, officerRepairSpeedBonus, shipCrewContribution, shipMissionOutputBonus, shipRepairSpeedBonus } from "../crewOverlay";
 import { departmentFacet, seatFacet } from "../officerStats";
 import { RELICS, museumBonuses, type MuseumStat } from "../relics";
 import { salvageSalvagedMaterial, salvageShip, salvageTalentBonus, salvageYieldMult } from "../salvage";
 import { alertResetSeconds, escalationAt, extraBattleChance, longRangeCover, maxExtraBattles } from "../affixes";
 import { ENEMY_RANKS_VERSION, type EnemyRank } from "../enemyRanks";
-import { taskFightGuard } from "../groundFight";
+import { taskFightGuard, taskFightTeam } from "../groundFight";
 import { sellItem } from "../quartermaster";
 import { retirementExpMultiplier } from "../captainRetirement";
 import { transitBerthCount } from "../berths";
@@ -141,6 +161,10 @@ import { POI_CATALOG, PLANET_TYPES, planetTypeHazard, poisForPlanetType } from "
 import { damageControlEffect, pathfinderEffect } from "../utilityGear";
 import { installedSensorArray, sensorArrayEffect, sensorArrayRelicFindBonus } from "../sensorArrays";
 import { quartersCapacityBonus } from "../crewModules";
+// WR-5b (0.14.0): the captain Tactician seams.
+import { captainWaveRegenFraction, patrolWaveRewardMult, shipCaptainCombatMods } from "../captainTacticianEffects";
+import { captainDroneDamage, captainProjectileDamage, incomingHitChance } from "../combat/captainEdge";
+import { applyProjectileDamage } from "../combat/resolveBattle";
 import { addItemQuality, itemTotal } from "../inventory";
 import { GROUND_CONDITIONS, conditionCureSeconds } from "../medicalBay";
 import { loadoutSlotDefsForShipType } from "../armory";
@@ -219,6 +243,9 @@ export function editCaptain(s: GameState, over: Partial<CaptainState>): GameStat
 }
 
 // Seat one officer on ship-1 carrying `bonusIds` at their catalog magnitude (an ensign stores the base magnitude).
+// CP-2: the default race is the Spacer, whose racial (crew.endurance) has no 0.14.0 consumer (deferred to 0.14.x), so
+// a fixture officer moves nothing through its race. The Earth-born racial (the old default) is Crew Effectiveness,
+// live since CP-2, which would lift every complement buff the fixture also carries.
 export function seatOfficer(
   s: GameState,
   seat: SeniorStaffSeat,
@@ -230,7 +257,7 @@ export function seatOfficer(
     id: opts.id ?? `wiring-officer-${seat}`,
     seat,
     name: `Wiring ${seat}`,
-    race: opts.race ?? "earthBorn",
+    race: opts.race ?? FIXTURE_RACE,
     gender: "nonbinary",
     rank: "ensign" as const,
     bonuses: [bonuses[0] ?? NO_OFFICER_BONUS, bonuses[1] ?? NO_OFFICER_BONUS] as [typeof NO_OFFICER_BONUS, typeof NO_OFFICER_BONUS],
@@ -262,7 +289,11 @@ export function overtimeOneStep(s: GameState): GameState {
 
 export const WIRING_BUCKET_COUNT = 20; // a real-sized complement bucket (standard rarity, Crewman rank)
 
-export function bucketOf(profession: CrewProfession, buff1Id: string, count = WIRING_BUCKET_COUNT, race: CrewRace = "earthBorn"): CrewBucket {
+// CP-2: the race fixture crew and officers carry unless a test names one: the Spacer, whose racial has no consumer in
+// 0.14.0 (the long-haul ramp is deferred to 0.14.x), so a bucket's race never lifts the buff under test.
+export const FIXTURE_RACE: CrewRace = "spacer";
+
+export function bucketOf(profession: CrewProfession, buff1Id: string, count = WIRING_BUCKET_COUNT, race: CrewRace = FIXTURE_RACE): CrewBucket {
   return { profession, rarity: "standard", rank: 1, race, buff1Id, buff2Id: null, count };
 }
 
@@ -492,7 +523,40 @@ export function playerCombatant(s: GameState): Combatant {
     hullType,
     installedGear: equippedFor(s, ship.id),
     officerCombat: officerCombatMods(s, ship),
+    // WR-5b: the commanding captain's Tactician talents (absent without a node).
+    captainCombat: shipCaptainCombatMods(s, ship),
   });
+}
+
+// WR-5b: the ship's combatant in a claimed ship-battle context: the patrol fold (shipToCombatant, as every wave
+// builds it) or the Ground Ops ship-event combatant from the profile frozen at dispatch.
+function battleCombatant(s: GameState, ctx: ContextId): Combatant {
+  return ctx === "shipEvent" ? shipEventCombatant(s) ?? playerCombatant(s) : playerCombatant(s);
+}
+
+// WR-5b: ship-1's patrol, dispatched (the cycle its waves fight with, frozen at dispatch).
+function dispatchedPatrol(s: GameState): PatrolMissionState {
+  const r = dispatchCaptainOnPatrol(s, WIRING_CAPTAIN_ID, "crimsonReaverSweep", "balanced", false);
+  if (!r.success) throw new Error(`wiring patrol refused: ${r.reason}`);
+  return captainOf(r.next).mission as PatrolMissionState;
+}
+
+// WR-5b: the drone screen a claimed ship-battle context fields: the patrol cycle's seeded carry-state, or the ship
+// event's combatant.
+function battleDrones(s: GameState, ctx: ContextId): DroneSquadron[] {
+  return ctx === "shipEvent" ? battleCombatant(s, ctx).drones : dispatchedPatrol(s).playerDrones;
+}
+
+// WR-5b: the mean damage of 1,000 raw-100 projectiles from the combatant's first weapon (Alpha Strike's opening shot
+// spent, unless `opening`), at a target `above` half hull or below it, through the seam fireWeapon calls.
+const SHOT_RAW = 100;
+function meanShot(c: Combatant, above: boolean, opening = false): number {
+  const weapon = { ...c.weapons[0], openingVolley: opening ? c.weapons[0].openingVolley : false, damageCarryMilli: 0 };
+  const target = { hull: above ? 100 : 40, hullMax: 100 };
+  if (opening) return captainProjectileDamage(c.captainEdge, weapon, target, SHOT_RAW);
+  let total = 0;
+  for (let i = 0; i < 1000; i++) total += captainProjectileDamage(c.captainEdge, weapon, target, SHOT_RAW);
+  return total / 1000;
 }
 
 // == Shipyard gates ==
@@ -604,6 +668,15 @@ export function groundOpsRunDigest(s: GameState): number {
 // EVERYTHING one patrol cycle reads of the ship: dispatch captain 1 on the first patrol (a combat hull), fly one
 // whole cycle through the real economyTick, and digest the cycle (the mission record tick by tick, the purse, the
 // hold, the tank and the ship). -1 when the ship cannot patrol (a non-combat hull: the check's control then fails).
+// CP-2 (OC-E13, B17): the officer weapon bonus a Dispatch Once patrol's FIRST cycle freezes at dispatch (the
+// Constitution ramp's own mid-route sample). -1 when the patrol cannot dispatch.
+export function patrolCycleOneWeapons(s: GameState): number {
+  const r = dispatchCaptainOnPatrol(s, WIRING_CAPTAIN_ID, Object.keys(PATROLS)[0], "balanced", false);
+  if (!r.success) return -1;
+  const mission = captainOf(r.next).mission;
+  return mission?.kind === "patrol" ? mission.officerCombat?.weaponDamage ?? 0 : -1;
+}
+
 export function patrolDigest(s: GameState): number {
   const key = Object.keys(PATROLS)[0];
   const r = dispatchCaptainOnPatrol(s, WIRING_CAPTAIN_ID, key, "balanced", false);
@@ -687,6 +760,76 @@ function legacyInjurySeconds(s: GameState): number {
   return applyExpeditionInjuries(ready, legacy).injuries.find((i) => i.memberId === WIRING_SECURITY_ID)?.recoverySeconds ?? 0;
 }
 
+// == WR-5c: the explorer secondary nodes' consumers ==
+
+// The dispatched run's finds over 24 synthetic bodies (every planet type, three body indices each): the real
+// discovery roll (expedition.ts rollBodyDiscoveries). Pure.
+function discoveriesOver(run: Expedition): number {
+  let n = 0;
+  for (const p of PLANET_IDS) {
+    for (let i = 0; i < 3; i++) n += rollBodyDiscoveries(run, { ...syntheticBody(p, 0), id: `wiring-${p}-${i}` }, i).length;
+  }
+  return n;
+}
+
+// The dispatched run's Security member as a Ground Ops task fight fields it (groundFight.ts taskFightTeam: the run's
+// frozen strength share, officer care and the captain's Away-Team Doctrine).
+function runTaskMember(s: GameState, memberId: string): GroundCombatant | undefined {
+  const run = dispatchRun(readyForRun(s));
+  const ops = run.groundOps;
+  if (!ops) return undefined;
+  const teams = ops.teams.map((t, i) => ({ securityIds: t.securityIds, downedThisTask: [], securityShare: ops.factors.securityShare[i] ?? 0 }));
+  return taskFightTeam(run, teams, { id: "wiring-task", fightCount: 0 }).find((c) => c.memberId === memberId);
+}
+
+// A relic the dispatched run recovers (the first seed whose roll hits on a hazard-1 Buried Vault), brought home by the
+// claim's deposit and studied at a Research Lab: the study's duration in ticks. -1 when no seed hits (never: the
+// hazard-1 chance is 75% before any bonus).
+function runRelicStudyTicks(s: GameState): number {
+  const run = dispatchRun(readyForRun(s));
+  for (let seed = 1; seed < 64; seed++) {
+    const relic = rollRelicToken(seed, 1, "buriedVault", `wiring-relic-${seed}`, 0, run.explorerCaptain);
+    if (!relic) continue;
+    const home = depositExpeditionFindings(withFacilityLevel(s, "research", 1), [{ id: "wiring-find", source: "activity", poiId: "buriedVault", relic }]);
+    const token = (home.relicVault ?? []).find((t) => t.id === relic.id);
+    if (!token) return -1;
+    const r = startRelicStudy(home, token.id);
+    return r.started ? r.next.activeProcesses.find((p) => p.kind === "relicStudy")?.durationTicks ?? -1 : -1;
+  }
+  return -1;
+}
+
+// The first officer aboard ship-1 (the fixture seats one), after 600 economyTick seconds of a Short Ore Run: its
+// crewHours (the promotion counter every run feeds). -1 when the mission cannot dispatch or no officer sits aboard.
+function missionCrewHours(s: GameState): number {
+  const r = dispatchCaptainOnMission(s, WIRING_CAPTAIN_ID, "shortOreRun");
+  if (!r.success) return -1;
+  let after = r.next;
+  for (let t = 0; t < 600; t++) after = economyTick(after, 1, () => 0.5);
+  const o = after.officers.find((x) => x.assignedShipId === WIRING_SHIP_ID);
+  return o ? o.promotionCounters?.crewHours ?? 0 : -1;
+}
+
+// A dispatched run brought home with one objective done, then claimed: the first officer aboard's
+// personnelAchievement (the counter the claim feeds from the stored run). -1 without an officer aboard.
+function claimedObjectives(s: GameState): number {
+  const ready = readyForRun(s);
+  const cand = expeditionCandidates(ready, WIRING_SHIP_ID)[0];
+  const res = startExpedition(ready, WIRING_SHIP_ID, WIRING_CAPTAIN_ID, cand.id);
+  if (!res.success || !res.expedition) return -1;
+  const exp = res.expedition;
+  const done: Expedition = {
+    ...exp,
+    phase: "complete",
+    groundOps: undefined,
+    bodies: exp.bodies.map((b, i) => (i === 0 ? { ...b, activities: [{ id: "wiring-act", bodyId: b.id, poiId: "buriedVault", done: true }] } : b)),
+  };
+  const claim = claimExpedition({ ...res.next, expeditions: [done] }, exp.id);
+  if (!claim.success) return -1;
+  const o = claim.next.officers.find((x) => x.assignedShipId === WIRING_SHIP_ID);
+  return o ? o.promotionCounters?.personnelAchievement ?? 0 : -1;
+}
+
 // == the ground objective affixes (affixes.ts readers) ==
 
 const AFFIX_READERS: Readonly<Record<string, (list: readonly ObjectiveAffix[], alignment: AffixAlignment) => number>> = {
@@ -726,6 +869,9 @@ export const PROBES = {
   // == the ship stat sheet ==
   sheetCargo: { label: "effectiveShipStats.cargoCapacity (Ground Ops / patrol: the run / cycle digest)", read: sheetAt((s) => sheet(s).cargoCapacity) },
   sheetTransit: { label: "effectiveShipStats.transitSpeedMult (Ground Ops / patrol: the run / cycle digest)", read: sheetAt((s) => sheet(s).transitSpeedMult) },
+  // CP-2 (OC-E5): each mission leg's own speed (effectiveMissionDef divides that leg by it).
+  sheetOutLeg: { label: "outboundLegSpeed(effectiveShipStats): the outbound leg's speed", read: (s) => outboundLegSpeed(sheet(s)) },
+  sheetBackLeg: { label: "returnLegSpeed(effectiveShipStats): the return leg's speed", read: (s) => returnLegSpeed(sheet(s)) },
   sheetYield: { label: "effectiveShipStats.extractionYieldMult", read: (s) => sheet(s).extractionYieldMult },
   sheetUnload: {
     label: "unload speed: effectiveShipStats.unloadSpeedMult (missions) / groundOps.factors.offloadMult (Ground Ops)",
@@ -777,7 +923,10 @@ export const PROBES = {
       return heldOf(after, "commonOre") - heldOf(idle, "commonOre");
     },
   },
-  missionOutputBonus: { label: "officerMissionOutputBonus (economyTick delivery share)", read: (s) => officerMissionOutputBonus(s, shipOf(s)) },
+  missionOutputBonus: {
+    label: "shipMissionOutputBonus (the share economyTick applies to mission deliveries and to patrol wave loot)",
+    read: (s) => shipMissionOutputBonus(s, shipOf(s)),
+  },
   missionCycleOutput: { label: "one whole shortOreRun cycle (economyTick): the credits and Titanium Ore delivered", read: (s) => cycleOutput(s) },
   missionOreQuality: { label: "one whole shortOreRun cycle (economyTick): the quality of the ore delivered", read: (s) => cycleOreQuality(s) },
   // == the captain secondary tree (WR-5a) ==
@@ -813,6 +962,7 @@ export const PROBES = {
   captainXpPerTick: { label: "xpPerTick(shortOreRun) x retirementExpMultiplier", read: (s) => xpPerTick("shortOreRun", captainOf(s), s) * retirementExpMultiplier(s) },
   // == ship combat ==
   officerWeapons: { label: "officerCombatMods.weaponDamage", read: (s) => officerCombatMods(s, shipOf(s))?.weaponDamage ?? 0 },
+  patrolCycleOneWeapons: { label: "dispatchCaptainOnPatrol: the first cycle's frozen officerCombat.weaponDamage", read: (s) => patrolCycleOneWeapons(s) },
   officerShields: { label: "officerCombatMods.shield", read: (s) => officerCombatMods(s, shipOf(s))?.shield ?? 0 },
   officerHull: { label: "officerCombatMods.hull", read: (s) => officerCombatMods(s, shipOf(s))?.hull ?? 0 },
   officerEvasion: {
@@ -843,12 +993,73 @@ export const PROBES = {
   combatDroneAccuracy: { label: "shipToCombatant first squadron accuracy", read: (s) => playerCombatant(s).drones[0]?.accuracy ?? 0 },
   combatDroneCount: { label: "shipToCombatant squadron count", read: (s) => playerCombatant(s).drones.length },
   waveHullRegen: { label: "damageControlEffect.waveHullRegenFraction (tick.ts:3002)", read: (s) => damageControlEffect(equippedFor(s, WIRING_SHIP_ID)).waveHullRegenFraction },
+  // == WR-5b: the captain Tactician seams (patrol: the wave combatant / the dispatched cycle; shipEvent: the frozen
+  // ship-event combatant) ==
+  captainShotDamage: {
+    label: "captainProjectileDamage: the mean of 1,000 raw-100 projectiles at a target below half hull (patrol / shipEvent)",
+    read: (s, ctx) => meanShot(battleCombatant(s, ctx), false),
+  },
+  captainShotDamageHighHealth: {
+    label: "captainProjectileDamage: the mean of 1,000 raw-100 projectiles at a target above half hull (patrol / shipEvent)",
+    read: (s, ctx) => meanShot(battleCombatant(s, ctx), true),
+  },
+  captainOpeningShot: {
+    label: "captainProjectileDamage: a fresh weapon's first raw-100 projectile (patrol / shipEvent)",
+    read: (s, ctx) => meanShot(battleCombatant(s, ctx), false, true),
+  },
+  captainWeaponAccuracy: { label: "the first weapon's accuracy (patrol / shipEvent)", read: (s, ctx) => battleCombatant(s, ctx).weapons[0]?.accuracy ?? 0 },
+  captainWeaponCooldown: {
+    label: "the first weapon's effective cooldown: cooldownDeciSec / (chargeRatePct / 100) (patrol / shipEvent)",
+    read: (s, ctx) => {
+      const w = battleCombatant(s, ctx).weapons[0];
+      return w ? (w.cooldownDeciSec * 100) / (w.chargeRatePct ?? 100) : 0;
+    },
+  },
+  captainIncomingHit: { label: "incomingHitChance: a 100% shot against the ship (patrol / shipEvent)", read: (s, ctx) => incomingHitChance(battleCombatant(s, ctx), 100) },
+  captainLethalSurvived: {
+    label: "a lethal hit on the shieldless ship: 1 when it is still standing (patrol / shipEvent)",
+    read: (s, ctx) => {
+      const c = battleCombatant(s, ctx);
+      c.shield = 0;
+      applyProjectileDamage(c, "kinetic", 0, 0, c.hull + 10_000);
+      return c.hull > 0 ? 1 : 0;
+    },
+  },
+  captainDroneShot: {
+    label: "captainDroneDamage: the mean of 1,000 raw-100 drone hits (patrol / shipEvent)",
+    read: (s, ctx) => {
+      const c = battleCombatant(s, ctx);
+      const carry = { milli: 0 };
+      let total = 0;
+      for (let i = 0; i < 1000; i++) total += captainDroneDamage(c.captainEdge, carry, SHOT_RAW);
+      return total / 1000;
+    },
+  },
+  battleDroneHp: { label: "the first squadron's droneHp: the patrol cycle's seed / the ship-event combatant", read: (s, ctx) => battleDrones(s, ctx)[0]?.droneHp ?? 0 },
+  battleDroneReplenish: {
+    label: "the first squadron's droneReplenishRate: the patrol cycle's seed / the ship-event combatant",
+    read: (s, ctx) => battleDrones(s, ctx)[0]?.droneReplenishRate ?? 0,
+  },
+  battleDroneSquadrons: { label: "the squadron count: the patrol cycle's seed / the ship-event combatant", read: (s, ctx) => battleDrones(s, ctx).length },
+  patrolRewardMult: {
+    label: "patrolWaveRewardMult(0, the dispatched cycle's captainCombat): a won wave's loot and credit factor",
+    read: (s) => patrolWaveRewardMult(0, dispatchedPatrol(s).captainCombat),
+  },
+  captainRepairRate: {
+    label: "hull repair rate: 1 + the Shipyard divisor shipRepairDurationTicks divides by / 1 + the frozen field repair divisor (Ground Ops) / the cycle's between-wave patch-up fraction (patrol)",
+    read: (s, ctx) => {
+      if (ctx === "expedition:groundOps") return 1 + (snapshotShipEventProfile(s, shipOf(s)).battle?.repairSpeed ?? 0);
+      if (ctx === "patrol") return captainWaveRegenFraction(damageControlEffect(equippedFor(s, WIRING_SHIP_ID)).waveHullRegenFraction, dispatchedPatrol(s).captainCombat);
+      return 1 + shipyardRepairSpeedBonus(s, shipOf(s));
+    },
+  },
   // == Shipyard ==
   repairTicks: {
     label: "shipRepairDurationTicks (500 damage)",
     read: (s) => {
       const ship = { ...shipOf(s), damaged: true, repairDamage: 500 };
-      return shipRepairDurationTicks(ship, equippedFor(s, ship.id), officerRepairSpeedBonus(s, ship));
+      // CP-2 + WR-5b: the Shipyard's divisor (officers + complement, x the commanding captain's Damage Control when owned).
+      return shipRepairDurationTicks(ship, equippedFor(s, ship.id), shipyardRepairSpeedBonus(s, ship));
     },
   },
   officerRepairBonus: {
@@ -856,8 +1067,20 @@ export const PROBES = {
     read: (s, ctx) => (ctx === "medbay" ? dispatchRun(s).groundOps?.factors.rapidRecoveryShare ?? 0 : officerRepairSpeedBonus(s, shipOf(s))),
   },
   turnaround: {
-    label: "turnaround: effectiveShipStats.unloadSpeedMult (missions) / 1 + officerRepairSpeedBonus (Shipyard)",
-    read: (s, ctx) => (ctx === "shipyard" ? 1 + officerRepairSpeedBonus(s, shipOf(s)) : sheet(s).unloadSpeedMult ?? 1),
+    label:
+      "turnaround: effectiveShipStats.unloadSpeedMult (missions) / 1 + shipRepairSpeedBonus (Shipyard) / 1 + the field repair speed frozen at dispatch (shipEvent)",
+    read: (s, ctx) =>
+      ctx === "shipyard"
+        ? 1 + shipRepairSpeedBonus(s, shipOf(s))
+        : ctx === "shipEvent"
+          ? 1 + (dispatchRun(s).groundOps?.shipEventProfile.battle?.repairSpeed ?? 0)
+          : sheet(s).unloadSpeedMult ?? 1,
+  },
+  // CP-2 (OC-E8): the museum's crewBonuses where it amplifies: the complement on the sheet (unload) and an officer
+  // bonus read directly (Fleet Triage, frozen on the run as squadTriage), each as 1 + the amplified share.
+  crewAmplified: {
+    label: "crew amplification: effectiveShipStats.unloadSpeedMult (sheet) / 1 + Expedition.squadTriage (ground)",
+    read: (s, ctx) => (ctx === "ground" ? 1 + (dispatchRun(s).squadTriage ?? 0) : sheet(s).unloadSpeedMult ?? 1),
   },
   shipyardBays: { label: "shipyardBayCount", read: (s) => shipyardBayCount(s) },
   shipBuildTicks: { label: "shipBuildDurationTicks(destroyer)", read: (s) => shipBuildDurationTicks(s, "destroyer") },
@@ -942,6 +1165,29 @@ export const PROBES = {
   expCoverageWidth: { label: "dispatch: scanParams.coverageWidth", read: (s) => dispatchRun(s).scanParams.coverageWidth },
   expLandmarkBias: { label: "dispatch: scanParams.landmarkOddsBias", read: (s) => dispatchRun(s).scanParams.landmarkOddsBias },
   expUndergroundBias: { label: "dispatch: scanParams.undergroundPoiOddsBias", read: (s) => dispatchRun(s).scanParams.undergroundPoiOddsBias },
+  // == WR-5c: the captain's explorer secondary nodes, through their consumers ==
+  expDiscoveryOdds: {
+    label: "discoveryOddsPermille: the dispatched run's surface odds on a terrestrial world",
+    read: (s) => discoveryOddsPermille(dispatchRun(s).scanParams, "terrestrial").surface,
+  },
+  expDiscoveries: { label: "rollBodyDiscoveries: the dispatched run's finds over 24 synthetic bodies (every planet type)", read: (s) => discoveriesOver(dispatchRun(s)) },
+  candDetail: { label: "expeditionCandidates[0].telescope.detail", read: (s) => expeditionCandidates(s, WIRING_SHIP_ID)[0].telescope.detail },
+  runTaskSecPower: { label: "the dispatched run's Security member in a Ground Ops objective fight (taskFightTeam): power", read: (s) => runTaskMember(s, sec())?.power ?? 0 },
+  runTaskSecAccuracy: { label: "the dispatched run's Security member in a Ground Ops objective fight (taskFightTeam): accuracy", read: (s) => runTaskMember(s, sec())?.accuracy ?? 0 },
+  runRelicChance: {
+    label: "relicChancePermille: the dispatched run's relic chance on a hazard-0.5 objective (no fieldwork)",
+    read: (s) => {
+      const run = dispatchRun(s);
+      return relicChancePermille(0.5, activityRelicFindBonus(run, { relicFind: 0 }), run.explorerCaptain?.relicFindMult);
+    },
+  },
+  runRelicTierCeiling: { label: "relicTierCeiling: the dispatched run's tier ceiling on a hazard-0 objective", read: (s) => relicTierCeiling(0, dispatchRun(s).explorerCaptain?.relicTierLift) },
+  runRelicStudyTicks: { label: "startRelicStudy: the duration of a relic the dispatched run recovers, brought home and studied", read: (s) => runRelicStudyTicks(s) },
+  crewMapCargo: { label: "shipCrewContribution[crew.effectiveCargo]", read: (s) => shipCrewContribution(s, shipOf(s))[CREW_STAT_KEYS.effectiveCargo] ?? 0 },
+  missionCrewHours: { label: "economyTick: an officer's crewHours after 600 s of a Short Ore Run", read: (s) => missionCrewHours(s) },
+  claimObjectives: { label: "claimExpedition: an officer's personnelAchievement after a run with one objective done", read: (s) => claimedObjectives(s) },
+  officerBoard: { label: "seniorStaffCandidates (count)", read: (s) => seniorStaffCandidates(s).length },
+  recruitBoard: { label: "awayRecruitCandidates (count)", read: (s) => awayRecruitCandidates(s).length },
   arrayRelicFind: { label: "sensorArrayRelicFindBonus", read: (s) => sensorArrayRelicFindBonus(installedSensorArray(s, shipOf(s))) },
   arrayLandmarkBias: {
     label: "sensorArrayEffect.landmarkOddsBias",
@@ -1400,6 +1646,21 @@ function readContent(id: string, s: GameState): number {
       const after = economyTick(r.next, 1, () => 0.5);
       const job = after.activeProcesses.find((p) => p.kind === "refineJob");
       return job ? job.remainingTicks : -1;
+    }
+    case "craft": {
+      // Field Kits FKR-3: one craft of blueprint `a` on a Fabricator at its tier, researched and holding the inputs, run
+      // to completion: how many of its output item the inventory gained.
+      const bp = BLUEPRINTS[a];
+      const out = bp.recipe.outputItem;
+      if (out === undefined) return -1;
+      let ready: GameState = { ...withFacilityLevel(s, "fabricator", Math.max(1, bp.tier)), researchedBlueprints: [...s.researchedBlueprints, a] };
+      for (const [item, qty] of Object.entries(bp.recipe.inputs)) ready = holding(ready, item, new Decimal(qty));
+      const before = heldOf(ready, out);
+      const r = startLine(ready, "fabricate", a, { kind: "batch", remaining: 1 });
+      if (!r.started) return -1;
+      let after = r.next;
+      for (let i = 0; i < bp.craftDurationTicks + 2; i += 1) after = economyTick(after, 1, () => 0.5);
+      return heldOf(after, out) - before;
     }
     case "affix": {
       // An objective carrying one instance of affix `a` at rank `b` (alignment `d`), read by the hook `c`'s reader.

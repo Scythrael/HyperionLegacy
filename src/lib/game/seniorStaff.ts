@@ -41,6 +41,8 @@ import { generateCrewIdentity } from "./crew";
 // CP-6: the one crew lock. crewLock.ts is a leaf (equipment.ts + model types), so no import cycle.
 import { shipCrewLocked } from "./crewLock";
 import { makeRng, weightedPick, type Rng } from "./combat/rng";
+// WR-5c: the board size (the stored size x the best Recruiter captain, rounded up; pure, imports only model.ts).
+import { candidateBoardSize } from "./captainExplorerEffects";
 
 // The 7 typed bridge seats, in a fixed order (matches the SeniorStaffSeat union). Exported for
 // iteration (rolling a candidate seat, enumerating a hull's seats). One of each per hull.
@@ -512,7 +514,8 @@ function pickWeightedBonusIndex(
 // GameState.officers. Pure; returns a fresh array of fresh officer objects.
 export function seniorStaffCandidates(state: GameState): SeniorStaffOfficer[] {
   const windowIndex = officerRosterWindowIndex(state);
-  const size = Math.max(0, state.seniorStaffRosterSize ?? SENIOR_STAFF_ROSTER_BASE);
+  // WR-5c: the stored size x the best Recruiter captain's factor, rounded up (captainExplorerEffects.ts candidateBoardSize).
+  const size = candidateBoardSize(state);
   const baseSeed = state.seniorStaffSeed >>> 0;
   const out: SeniorStaffOfficer[] = [];
   for (let slot = 0; slot < size; slot += 1) {

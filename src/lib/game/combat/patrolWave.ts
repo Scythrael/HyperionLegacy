@@ -27,7 +27,7 @@ import { shipToCombatant, type CombatHullType, type CombatShipStats } from "./br
 import type { CombatStance } from "./positioning";
 import type { Combatant } from "./types";
 import type { DroneSquadron } from "./drones";
-import type { PatrolSystemDurability, EquipmentInstance, OfficerCombatMods } from "../model";
+import type { PatrolSystemDurability, EquipmentInstance, OfficerCombatMods, CaptainCombatMods } from "../model";
 // E4d: the Damage Control Suite's pure regen arithmetic (utilityGear.ts imports model only, so no cycle).
 import { damageControlWaveRegen } from "../utilityGear";
 
@@ -79,6 +79,9 @@ export function buildPatrolPlayerCombatant(args: {
   // (PatrolMissionState.officerCombat), passed straight to shipToCombatant. Both paths (live + replay)
   // read the SAME stored value, so the combatants stay byte-identical. Absent = no officer bonus.
   officerCombat?: OfficerCombatMods;
+  // WR-5b (0.14.0): the cycle's frozen captain Tactician talents (PatrolMissionState.captainCombat), passed straight
+  // to shipToCombatant like officerCombat. Absent = none.
+  captainCombat?: CaptainCombatMods;
 }): Combatant {
   // FRESH per wave (weapons + cooldowns reset each wave). From the ship's INSTALLED gear when the
   // caller supplies it (Unit 1.4), else the hull defaults (the pre-1.4 build). shipToCombatant mints
@@ -92,6 +95,7 @@ export function buildPatrolPlayerCombatant(args: {
     stance: args.stance,
     installedGear: args.installedGear,
     officerCombat: args.officerCombat,
+    captainCombat: args.captainCombat,
   });
   // OVERRIDE with the carry-state so hull damage + drone losses persist across waves.
   player.hull = args.carryHull;

@@ -197,6 +197,14 @@ describe("wiring completeness: every entry is well formed", () => {
   it("every magnitude reads a finite number from the catalogs", () => {
     for (const e of WIRING_REGISTRY) expect(Number.isFinite(e.magnitude(CATALOGS)), e.id).toBe(true);
   });
+  // 0.14.0 release gate for the captain secondary trees (WR-5a prospector, WR-5b tactician, WR-5c explorer): every
+  // node has a live entry, none is left pending.
+  it("every captain secondary talent node is live, none pending", () => {
+    const secondary = WIRING_REGISTRY.filter((e) => e.source.catalog === "SECONDARY_CAPTAIN_TALENTS");
+    const keys = new Set(secondary.map((e) => e.source.key.split(":")[0]));
+    expect(keys.size).toBe(Object.keys(CATALOGS.SECONDARY_CAPTAIN_TALENTS).length);
+    for (const e of secondary) expect(e.status.kind, e.id).toBe("live");
+  });
 });
 
 describe("wiring completeness: B18, every rollable line is registered", () => {

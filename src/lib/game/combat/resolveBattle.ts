@@ -88,6 +88,8 @@ import {
 // a combatant-level disruption (whose def carries a `system` category) onto the relevant
 // ship-system pip. Never consulted on an outcome path (emission is generateLog-gated).
 import { STATUS_EFFECT_DEFS } from "./statusEffects";
+// WR-5b (0.14.0): the commanding captain's Tactician talents (absent fields = the exact pre-WR-5b path).
+import { captainDroneDamage, captainProjectileDamage, chargeWeapon, incomingHitChance, landHullDamage } from "./captainEdge";
 
 // ---------------------------------------------------------------------------
 // attachFlavor: select a cosmetic flavor line for a log event and stamp it on.
@@ -233,6 +235,9 @@ interface Accumulators {
 	move: number;
 	// Banked tenths of a shield-point from shield recharge.
 	shield: number;
+	// WR-5b (0.14.0): the thousandths of a damage point Drone Handler has banked across this combatant's drone hits
+	// (combat/captainEdge.ts captainDroneDamage). Stays 0 without the node.
+	drone: { milli: number };
 }
 
 // Deep-ish clone of the participant list so resolveBattle NEVER mutates the
@@ -584,8 +589,10 @@ export function applyProjectileDamage(
 
 	// STEP 5d (hull): the remainder lands on hull. Hull may go negative; the
 	// caller's death check reads `alive`, never re-derives from a clamped value.
+	// WR-5b: through landHullDamage, so a captain's Bulwark charge can leave a lethal hit at 1 hull (exactly
+	// `hull -= hullPath` without one).
 	if (hullPath > 0) {
-		target.hull -= hullPath;
+		landHullDamage(target, hullPath);
 	}
 
 	// Total damage the target actually lost = shield drained + hull-path landed.
@@ -800,7 +807,8 @@ export function fireWeapon(
 	// Per-projectile hit chance: (debuffed) accuracy reduced by the target's
 	// (maneuver-scaled) evasion, clamped to a valid percent. No minimum floor, so a 0
 	// net chance is a guaranteed miss (the evade tests rely on this) and >= 100 sure.
-	const hitChance = Math.max(0, Math.min(100, effectiveAccuracy - effectiveEvasion));
+	// WR-5b: the target's captain Point Defense divides it (unchanged without the node).
+	const hitChance = incomingHitChance(target, Math.max(0, Math.min(100, effectiveAccuracy - effectiveEvasion)));
 
 	// PHASE 4 DEBUFF (applied): the attacker's weapon-damage debuff (Coil
 	// Dampening) scales every projectile's raw damage DOWN. Computed once per shot.
@@ -902,6 +910,8 @@ export function fireWeapon(
 		if (attackerSteady(self)) {
 			raw = Math.round(raw * (1 + self.underFire!.weaponDamage));
 		}
+		// WR-5b: the attacker's captain edges (Weapons Drill, Overcharge, Alpha Strike), banked whole points; no draw.
+		raw = captainProjectileDamage(self.captainEdge, weapon, target, raw);
 
 		// PHASE 7b INTERCEPT: each projectile pulls the NEXT available defender (one
 		// drone per projectile, design S8 saturation). If the screen is thinner than
@@ -966,6 +976,9 @@ export function fireWeapon(
 		totalHullDealt += hullDealt;
 		if (attenuated) anyAttenuated = true;
 	}
+
+	// WR-5b: Alpha Strike's opening shot is spent (hit or miss), so the weapon's later shots are plain.
+	if (weapon.openingVolley === true) weapon.openingVolley = false;
 
 	// PHASE 4 (design S2.6): on a CONNECTING shot, roll each effect slot's proc off
 	// the combat stream; on success apply it to the target with rank escalation.
@@ -1122,6 +1135,8 @@ function fireSquadron(
 	target: Combatant,
 	squadron: DroneSquadron,
 	combat: Rng,
+	// WR-5b: the owner's Drone Handler carry (resolveBattle's per-combatant accumulators). Absent = a fresh carry.
+	droneCarry: { milli: number } = { milli: 0 },
 ): VolleyResult {
 	// NO-OFFENSE short-circuit (Support in 7a): a zero-yield squadron never fires,
 	// so it draws nothing and cannot perturb the combat stream. Its real kit is
@@ -1163,7 +1178,8 @@ function fireSquadron(
 	}
 	// Per-drone hit chance: the squadron's accuracy reduced by the target's evasion,
 	// clamped to a valid percent (no floor: a 0 net chance is a guaranteed miss).
-	const hitChance = Math.max(0, Math.min(100, squadron.accuracy - effectiveEvasion));
+	// WR-5b: the target's captain Point Defense divides it (unchanged without the node).
+	const hitChance = incomingHitChance(target, Math.max(0, Math.min(100, squadron.accuracy - effectiveEvasion)));
 
 	let dronesHit = 0;
 	let totalDealt = 0;
@@ -1189,7 +1205,8 @@ function fireSquadron(
 
 		// STEP 4: raw damage in [yieldMin, yieldMax] (one combat draw per hit). No
 		// crit for drones in 7a (TODO balance).
-		const raw = combat.nextRange(squadron.yieldMin, squadron.yieldMax);
+		// WR-5b: the owner's captain Drone Handler, banked whole points (no draw); `raw` unchanged without it.
+		const raw = captainDroneDamage(self.captainEdge, droneCarry, combat.nextRange(squadron.yieldMin, squadron.yieldMax));
 
 		// STEP 5: mitigation, same strict order as a weapon shot. Drones carry no
 		// particle attenuation or kinetic armor-pen (0/0), so they route through
@@ -1665,7 +1682,7 @@ export function resolveBattle(
 	// Per-combatant fixed-point accumulators (movement + shield banking).
 	const accumulators = new Map<string, Accumulators>();
 	for (const c of combatants) {
-		accumulators.set(c.id, { move: 0, shield: 0 });
+		accumulators.set(c.id, { move: 0, shield: 0, drone: { milli: 0 } });
 	}
 
 	// PHASE 7b IN-COMBAT DRONE REPLENISH banks (design S8). Keyed by
@@ -1909,7 +1926,8 @@ export function resolveBattle(
 				// offline. Deterministic (durability is combat-stream driven), so offline ==
 				// live holds; a full-durability weapon is never skipped (regression-safe).
 				if (weapon.durability <= 0) continue;
-				weapon.cooldownAccumulator += DT_DECISEC;
+				// WR-5b: through chargeWeapon (Ammo Reserves runs the clock faster; exactly `+= DT_DECISEC` without it).
+				chargeWeapon(weapon, DT_DECISEC);
 				// Not yet ready to fire.
 				if (weapon.cooldownAccumulator < weapon.cooldownDeciSec) continue;
 
@@ -2260,7 +2278,7 @@ export function resolveBattle(
 					// exact fractional rates), then volley. Every combat-stream draw happens
 					// inside fireSquadron, on a schedule independent of generateLog (parity).
 					squadron.cooldownAccumulator -= squadron.attackCooldownDeciSec;
-					const volley = fireSquadron(self, target, squadron, combat);
+					const volley = fireSquadron(self, target, squadron, combat, acc.drone);
 
 					// LOG + COSMETIC gated on generateLog ONLY (cannot change the outcome:
 					// fireSquadron already did all its combat draws). ONE AGGREGATE event per

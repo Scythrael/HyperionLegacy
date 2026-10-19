@@ -55,7 +55,7 @@
     EquipmentSlotType,
     ShipDerivedStats,
   } from "./game/model";
-  import { SHIP_TYPES, EQUIPMENT_SLOTS, shipDerivedStats, isSparePiece, pieceVarietyDef, shipDisplayLabel } from "./game/model";
+  import { SHIP_TYPES, EQUIPMENT_SLOTS, shipDerivedStats, isSparePiece, pieceVarietyDef, shipDisplayLabel, outboundLegSpeed, returnLegSpeed } from "./game/model";
   import { LY_PER_TICK } from "./game/fuel";
   // WR-4 (OC-C1): the Fuel Depot's fleet reach, so the Range row matches the dispatch gates (tick.ts shipReachDef).
   import { fleetReachBonus } from "./game/tick";
@@ -104,7 +104,16 @@
   // fold every engine consumer routes through (so the readout shows Senior Staff + Complement
   // boosts); shipCrewContribution + applyCrewOverlay let the source popover split the crew delta by
   // source using the EXACT engine functions (never a reimplementation of the fold). READ-ONLY here.
-  import { effectiveShipStats, shipCrewContribution, applyCrewOverlay, shipStatsBeforeCaptain } from "./game/crewOverlay";
+  import {
+    effectiveShipStats,
+    shipCrewContribution,
+    applyCrewOverlay,
+    shipStatsBeforeCaptain,
+    crewMissionOutputBonus,
+    crewRepairSpeedBonus,
+    shipMissionOutputBonus,
+    shipRepairSpeedBonus,
+  } from "./game/crewOverlay";
 
   // --- Props ------------------------------------------------------------------
   // `state` is the whole GameState (read-only here); `shipId` selects the ship
@@ -448,17 +457,31 @@
   // any bridge-module amp, and (E-CREW Task 21) the Strength facet's lift of the complement's buffs. The two
   // buckets therefore always sum to the crew total, even where an officer MULTIPLIES the complement (an
   // honest coarse grouping, not a faked per-source split the exported functions do not expose).
+  // WR-5c: the crew-side buckets read the save with the commanding captain's secondary nodes set aside, so Inspiring
+  // Leader, Mentor and Legendary Captain (which scale the complement and the officers inside the crew map) land in
+  // the Captain bucket with the captain's other nodes, not in Complement or Senior Staff. The buckets still sum to the
+  // shown value (Captain = effective - preCaptainStats, both off this one baseline). Without a node it is safeState.
+  $: noCaptainNodesState =
+    ship && ship.assignedCaptainId !== null
+      ? {
+          ...safeState,
+          captains: safeState.captains.map((c) =>
+            c.id === ship.assignedCaptainId && c.unlockedSecondaryTalents.length > 0 ? { ...c, unlockedSecondaryTalents: [] } : c,
+          ),
+        }
+      : safeState;
   $: complementOnlyStats =
-    ship && fitStats ? applyCrewOverlay(fitStats, shipCrewContribution({ ...safeState, officers: [] }, ship)) : null;
+    ship && fitStats ? applyCrewOverlay(fitStats, shipCrewContribution({ ...noCaptainNodesState, officers: [] }, ship)) : null;
   // 0.14.0 E4b: the crew-inclusive stats WITHOUT the museum overlay (both crew sources folded, exactly the
   // value effectiveShipStats overlays the museum onto). The MUSEUM bucket is effective - this, so the
   // source buckets still sum to the shown value once the museum's ship-stat bonuses apply. (The museum's
   // crewBonuses amplification lives INSIDE the crew contribution, so it already shows in the Senior Staff
   // + Complement buckets above.) With an empty museum this equals effectiveStats and the bucket hides.
-  $: crewOnlyStats = ship && fitStats ? applyCrewOverlay(fitStats, shipCrewContribution(safeState, ship)) : null;
-  // WR-5a: the stats before the commanding captain's Prospector nodes (the captain overlay is layered last), so the
-  // Museum bucket stops there and the Captain bucket is effective - this. With no node it equals effectiveStats.
-  $: preCaptainStats = ship ? shipStatsBeforeCaptain(safeState, ship) : null;
+  $: crewOnlyStats = ship && fitStats ? applyCrewOverlay(fitStats, shipCrewContribution(noCaptainNodesState, ship)) : null;
+  // WR-5a / WR-5c: the stats before every secondary node of the commanding captain (the Prospector overlay and Keen
+  // Sensors are layered last; the crew nodes are set aside above), so the Museum bucket stops there and the Captain
+  // bucket is effective - this. With no node it equals effectiveStats.
+  $: preCaptainStats = ship ? shipStatsBeforeCaptain(noCaptainNodesState, ship) : null;
 
   // The economy stat rows (real numbers). `kind` picks the formatter: percent for the
   // multiplier / 0-based-bonus stats, flat for capacities / power / mass. Split into
@@ -494,6 +517,10 @@
     { key: "extractionYield", label: "Extraction Yield", kind: "pct", get: (s) => s.extractionYieldMult },
     { key: "cargoCapacity", label: "Cargo Capacity", kind: "flat", get: (s) => s.cargoCapacity },
     { key: "ftlSpeed", label: "FTL Speed", kind: "pct", get: (s) => s.transitSpeedMult },
+    // CP-2 (OC-E5): Fast Departure / Fast Return lift one leg each; these two rows show only when a leg differs from
+    // the FTL Speed row (readoutRows below).
+    { key: "outLeg", label: "Departure Speed", kind: "pct", get: outboundLegSpeed },
+    { key: "backLeg", label: "Return Speed", kind: "pct", get: returnLegSpeed },
     { key: "range", label: "Range", kind: "ly", get: shipRangeLyOf },
     { key: "powerOutput", label: "Power Output", kind: "flat", get: (s) => s.powerOutput },
     { key: "powerDraw", label: "Power Draw", kind: "flat", get: (s) => s.powerDraw },
@@ -505,6 +532,8 @@
     extractionYield: "How much raw material a mining or salvage mission pulls in; higher yield means more resources per run.",
     cargoCapacity: "How much a ship can carry home in a single trip; a bigger hold means fewer runs to move the same haul.",
     ftlSpeed: "How fast the ship crosses between sectors; higher speed shortens every mission's travel time.",
+    outLeg: "The ship's speed on the outbound leg of a mission: FTL Speed plus the Fast Departure crew aboard.",
+    backLeg: "The ship's speed on the return leg of a mission: FTL Speed plus the Fast Return crew aboard.",
     range: "How far the ship can travel before it must turn back, in light-years; more range reaches farther destinations. The Fuel Depot extends it for the whole fleet.",
     powerOutput: "Total power the reactor supplies to the ship; it needs to cover everything the installed systems draw.",
     powerDraw: "Total power the installed systems consume; keep it at or under power output. Lower is better.",
@@ -523,8 +552,19 @@
           base: d.get(baseStats),
           gear: d.get(fitStats),
           effective: d.get(effectiveStats),
-        }))
+        })).filter((r) => (r.key !== "outLeg" && r.key !== "backLeg") || Math.abs(r.effective - effectiveStats.transitSpeedMult) > 1e-9)
       : ([] as ReadoutRow[]);
+  // CP-2: the two complement-fed shares that are not ship-sheet stats (each shown only when non-zero): the repair
+  // speed-up every repair divides by (Damage Control, Mission Turnaround, Rapid Recovery, Veteran Instincts) and the
+  // mission output share (Crew Output Multiplier, Command Presence). The note splits out the complement's part.
+  type ShareRow = { key: string; label: string; total: number; crew: number };
+  $: shareRows = ship
+    ? ([
+        { key: "repair", label: "Repair Speed", total: shipRepairSpeedBonus(safeState, ship), crew: crewRepairSpeedBonus(safeState, ship) },
+        { key: "output", label: "Mission Output", total: shipMissionOutputBonus(safeState, ship), crew: crewMissionOutputBonus(safeState, ship) },
+      ] as ShareRow[]).filter((r) => r.total > 1e-9)
+    : ([] as ShareRow[]);
+  const fmtShare = (v: number): string => `+${(v * 100).toFixed(1)}%`;
   // The SOURCE buckets for one readout stat: Base/hull (absolute), then the non-zero contributors as
   // signed deltas off the bare hull -> Ship systems (gear), Senior Staff (officers), Complement, Museum
   // (0.14.0 E4b: the account-level relic museum's ship-stat bonuses, layered last). Only
@@ -1901,6 +1941,12 @@
                 aria-label={"Show sources for " + row.label}
                 on:click|stopPropagation={(e) => toggleStatPop(row.key, "source", e.currentTarget)}
               >{fmtStatValue({ label: row.label, base: row.base, fitted: row.effective, kind: row.kind })}{#if gearNote}{" "}<small>({gearNote})</small>{/if}</button>
+            </div>
+          {/each}
+          {#each shareRows as row (row.key)}
+            <div class="ss-srow">
+              <span class="ss-sk">{row.label}</span>
+              <span class="ss-sv">{fmtShare(row.total)}{#if row.crew > 1e-9 && row.crew < row.total - 1e-9}{" "}<small>(complement {fmtShare(row.crew)})</small>{/if}</span>
             </div>
           {/each}
         </div>

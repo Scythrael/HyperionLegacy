@@ -3218,6 +3218,11 @@ export interface PatrolMissionState {
   // such officer never writes it, so a no-officer patrol is byte-identical to before; an in-flight patrol
   // from an older save fights without it until its next relaunch freezes the current officers.
   officerCombat?: OfficerCombatMods;
+  // WR-5b (0.14.0): the commanding captain's Tactician talents (captainTacticianEffects.ts captainCombatMods), FROZEN
+  // when this cycle starts (dispatch, and again at each relaunch), beside officerCombat and read the same way by every
+  // wave, the live loop and the display replay. OPTIONAL: absent when the captain owns no Tactician node (no
+  // SAVE_VERSION bump; the secondary tree exists on this branch only).
+  captainCombat?: CaptainCombatMods;
   // E-CREW 0.14.0 (Task 21): the Engineering department's CUNNING over-delivery for THIS cycle ("a free
   // repair tick"), rolled when the cycle starts (dispatch / relaunch) from the cycle's masterSeed on its own
   // keyed stream (officerStats.ts cunningProc) and frozen here. If the cycle ends in defeat, the limp-home
@@ -3254,6 +3259,34 @@ export interface OfficerCombatMods {
   // bridge.ts copies it onto Combatant.underFire and resolveBattle reads it live against the hull. OPTIONAL:
   // absent (every all-10 bridge) leaves the battle byte-identical.
   underFire?: { weaponDamage: number; shield: number; evasion: number };
+}
+
+// WR-5b (0.14.0): the commanding captain's Tactician (secondary tree) talents a ship battle, a patrol cycle and a
+// repair read, frozen at dispatch (captainTacticianEffects.ts captainCombatMods). SPARSE: a key is present only when
+// the captain owns its node, and the record is absent when none is owned, so a save without them is byte-identical.
+// Every value is the node's catalog magnitude (SECONDARY_CAPTAIN_TALENTS), each its own x (1 + it) factor (the
+// user's "Always multiply", 2026-10-17) unless named a count:
+//   weaponDamage (gunnery1), accuracy (gunnery2), highHealthDamage (gunnery3), cooldown (gunnery4: the fire rate),
+//   openingVolley (gunnery5), shield (aegis1), hull (aegis2), repair (aegis3: Shipyard, field and between-wave
+//   repairs), evasion (aegis4: incoming hit chance / (1 + it)), bulwark (aegis5: lethal hits survived per battle, a
+//   count), droneDamage (fleetOps1), droneHp (fleetOps2), patrolLoot (fleetOps3), droneReplenish (fleetOps4),
+//   wolfpack (fleetOps5: extra drone squadrons, a count).
+export interface CaptainCombatMods {
+  weaponDamage?: number;
+  accuracy?: number;
+  highHealthDamage?: number;
+  cooldown?: number;
+  openingVolley?: number;
+  shield?: number;
+  hull?: number;
+  repair?: number;
+  evasion?: number;
+  bulwark?: number;
+  droneDamage?: number;
+  droneHp?: number;
+  patrolLoot?: number;
+  droneReplenish?: number;
+  wolfpack?: number;
 }
 
 // How many ticks a phase requires before advancing to the next one.
@@ -3366,6 +3399,22 @@ export interface ShipDerivedStats {
   // cargo above it is overflow that unloads at no extra time. Set by crewOverlay.ts (the captain overlay) only
   // with the capstone; absent = cargoCapacity (effectiveMissionDef), so every other stats object is unchanged.
   unloadCargoCapacity?: number;
+  // Complement and Acquisition CP-2 (OC-E5, user 2026-10-15 "Each its own leg"): the complement's per-leg speed
+  // lifts, folded by crewOverlay.ts applyCrewOverlay from Fast Departure (crew.transitOutSpeed, the outbound leg)
+  // and Fast Return (crew.transitBackSpeed, the return leg). Each multiplies transitSpeedMult on ITS leg only
+  // (effectiveMissionDef). Set only when non-zero, read absent as the neutral 1, so a ship without either buff is
+  // the same object it was. transitSpeedMult itself stays the sweeping speed (hull, gear, officers, museum).
+  transitOutLegMult?: number;
+  transitBackLegMult?: number;
+}
+
+// CP-2 (OC-E5): a ship's speed on each mission leg: the sweeping transitSpeedMult times that leg's own complement
+// lift (absent = 1, and x * 1 is exact, so a ship without the lift divides by transitSpeedMult as before). Pure.
+export function outboundLegSpeed(ship: ShipDerivedStats): number {
+  return ship.transitOutLegMult === undefined ? ship.transitSpeedMult : ship.transitSpeedMult * ship.transitOutLegMult;
+}
+export function returnLegSpeed(ship: ShipDerivedStats): number {
+  return ship.transitBackLegMult === undefined ? ship.transitSpeedMult : ship.transitSpeedMult * ship.transitBackLegMult;
 }
 
 // ----------------------------------------------------------------------------
@@ -3695,7 +3744,8 @@ export function effectiveMissionDef(base: MissionDef, ship: ShipDerivedStats): M
   );
   const unloadMult = ship.unloadSpeedMult ?? 1;
   const unloadTicks = Math.max(1, Math.ceil(cargoScaledUnload / unloadMult));
-  const transitOutTicks = Math.ceil(base.transitOutTicks / ship.transitSpeedMult);
+  // CP-2 (OC-E5): each leg divides by its own speed (Fast Departure out, Fast Return back).
+  const transitOutTicks = Math.ceil(base.transitOutTicks / outboundLegSpeed(ship));
   const museumFold = museumExtractionSpeedFold(base.extractionRatePerTick, ship.cargoCapacity, ship.extractionSpeedMult);
   // E-CREW (Task 21): the Flight Deck's Constitution ramp on the return leg (absent facet = the plain divide)
   // and the Operations Integrity full-hold unload (written only when the facet is non-zero).
@@ -3703,7 +3753,7 @@ export function effectiveMissionDef(base: MissionDef, ship: ShipDerivedStats): M
     1 +
     transitOutTicks +
     (museumFold.extractionTicksOverride ?? Math.ceil(ship.cargoCapacity / (museumFold.extractionRatePerTick ?? base.extractionRatePerTick)));
-  const transitBackTicks = ship.returnLegConstitution ? rampedReturnTicks(base, ship, outbound) : Math.ceil(base.transitBackTicks / ship.transitSpeedMult);
+  const transitBackTicks = ship.returnLegConstitution ? rampedReturnTicks(base, ship, outbound) : Math.ceil(base.transitBackTicks / returnLegSpeed(ship));
   const fullHold = ship.fullHoldUnloadIntegrity ?? 0;
   return {
     ...base,
@@ -3747,11 +3797,11 @@ export function missionPhaseTicks(
 
 // E-CREW 0.14.0 (Task 21, Flight Deck CONSTITUTION): the return leg's ticks after the ramp. The voyage's hours
 // before the return starts are its orders + outbound + extracting phases (RAMP_SECONDS_PER_TICK each); the leg
-// is divided by (transitSpeedMult * (1 + ramp)), ceil, at least 1 tick. Pure.
+// is divided by (the return leg's speed * (1 + ramp)), ceil, at least 1 tick. Pure.
 function rampedReturnTicks(base: MissionDef, ship: ShipDerivedStats, outboundTicks: number): number {
   const ramp = constitutionRamp(ship.returnLegConstitution ?? 0, (outboundTicks * RAMP_SECONDS_PER_TICK) / 3600);
-  if (ramp === 0) return Math.ceil(base.transitBackTicks / ship.transitSpeedMult);
-  return Math.max(1, Math.ceil(base.transitBackTicks / (ship.transitSpeedMult * (1 + ramp))));
+  if (ramp === 0) return Math.ceil(base.transitBackTicks / returnLegSpeed(ship));
+  return Math.max(1, Math.ceil(base.transitBackTicks / (returnLegSpeed(ship) * (1 + ramp))));
 }
 
 // Exploration 0.14.0 (Phase E4b): the floor on a museum-shortened extracting phase (whole ticks).
@@ -3888,6 +3938,13 @@ export interface CaptainState {
   // (a recall + redispatch never replays a roll). OPTIONAL, written only once a cycle has rolled (absent = 0,
   // no SAVE_VERSION bump).
   motherlodeCycles?: number;
+}
+
+// WR-5a / WR-5b / WR-5c (0.14.0, OC-A2 "own ship"): the captain who commands `ship` (ship.assignedCaptainId), or
+// undefined for an unassigned hull. The ONE copy every captain secondary tree reader uses (captainSecondaryEffects.ts
+// re-exports it); it lives here so those modules share it without importing each other. Pure.
+export function commandingCaptain(state: Pick<GameState, "captains">, ship: { assignedCaptainId: number | null }): CaptainState | undefined {
+  return ship.assignedCaptainId === null ? undefined : state.captains.find((c) => c.id === ship.assignedCaptainId);
 }
 
 // Combat 0.13.0 (Phase 9b.5a): narrow a captain's mission union to its EXTRACTION arm, or
@@ -6740,6 +6797,7 @@ export interface ExpeditionRelicToken {
   tier: EquipmentRarity; // the salvage-tier rarity this relic rolled (reuses the rarity ladder)
   quality: number; // 0..5 quality bucket from the salvage tier (reuses the 0-5 quality system)
   unidentified: true; // always true this phase: E4 owns identification/research/museum
+  studySpeed?: number; // WR-5c Preservationist: the study of this relic runs (1 + this) faster; absent = 0
 }
 
 // ============================================================================
@@ -6769,6 +6827,7 @@ export interface RelicVaultToken {
   quality: number; // 0..5 quality bucket carried from the reward roll (provenance; no effect yet)
   setId: RelicSetId; // the set this token identifies WITHIN
   poiId: string; // the PoI the finding came from (expeditionContent.ts POI_CATALOG id)
+  studySpeed?: number; // WR-5c Preservationist (carried from the token): the study runs (1 + this) faster; absent = 0
 }
 
 // The per-save relic PRNG seed. A study's identification roll is keyed off (relicSeed, a fixed salt, the
@@ -6927,6 +6986,24 @@ export interface ExpeditionScanParams {
   coverageWidth: number;
   landmarkOddsBias: number;
   undergroundPoiOddsBias: number;
+  // WR-5c (captain secondary talents, explorer tree; captainExplorerEffects.ts): the commanding captain's survey
+  // nodes, folded into the ship's sensor snapshot (expedition.ts shipSensorSnapshot) so a dispatch freezes them AND
+  // the candidate previews read them (the preview stays truthful). Each is written only when the captain owns its
+  // node, so every other snapshot is the four-field record above, byte for byte.
+  captainScanRateMult?: number; // Cartographer: the scan rate x this
+  captainDiscoveryMult?: number; // Anomaly Sense: each discovery attempt's odds x this
+  captainSureFinds?: number; // Deep Scan: this many discovery attempts of each body succeed
+}
+
+// WR-5c: the commanding captain's explorer nodes a Ground Ops run reads, frozen at dispatch (expedition.ts
+// buildExpedition; captainExplorerEffects.ts explorerCaptainRun). Absent when the captain owns none of them, and each
+// field only when its node is owned, so a run without them is the pre-WR-5c record.
+export interface ExplorerCaptainRun {
+  relicFindMult?: number; // Field Science: the relic chance x this (gambit.ts relicChancePermille)
+  squadPowerMult?: number; // Away-Team Doctrine: the Security squad's power and accuracy x this
+  relicStudySpeed?: number; // Preservationist: stamped on the run's relic tokens (their study runs 1 + this faster)
+  relicTierLift?: number; // Relic Hunter: the relic rarity tier ceiling + this
+  promotionMult?: number; // Drillmaster: the run's promotion counter increments at the claim x this
 }
 
 // One active expedition. Its `seed` is the per-expedition PRNG seed (derived at dispatch from the
@@ -7084,6 +7161,9 @@ export interface Expedition {
   // 0.14.0 SPEED SEAM (ProcessSpeed): a STAMP only. processSpeed.ts applyTimeSkip advances the run to its own
   // completion at once (its phase anchors land at its natural end) and marks it; nothing in the engine reads it.
   speed?: ProcessSpeed;
+  // WR-5c: the commanding captain's explorer secondary nodes, frozen at dispatch (ExplorerCaptainRun). Absent when
+  // the captain owns none of them. Optional, no SAVE bump (the tree is branch-only; no production save owns a node).
+  explorerCaptain?: ExplorerCaptainRun;
 }
 
 // Field Kits FKR-1: a ground enemy's RANK (user-named, 2026-10-16: Weak, Normal, Strong, Elite, Boss). One multiplier
@@ -7476,10 +7556,15 @@ export interface ShipEventBattle {
   installedGear?: EquipmentInstance[];
   officerCombat: OfficerCombatEntry[]; // crewOverlay.ts officerCombatProfile at dispatch
   hullMax: number; // the folded hull pool at dispatch (light damage and the field repair threshold are shares of it)
-  // GO-8b: the ship's repair speed-up at dispatch (crewOverlay.ts officerRepairSpeedBonus: Rapid Recovery + Veteran
-  // Instincts + the Engineering department's Constitution), the FIELD REPAIR's divisor. Its presence is the field
-  // repair flag (a run without it never sets down for repairs).
+  // GO-8b: the ship's repair speed-up at dispatch (crewOverlay.ts shipRepairSpeedBonus: Rapid Recovery + Veteran
+  // Instincts + the Engineering department's Constitution, plus the complement's Damage Control and Mission
+  // Turnaround since CP-2), the FIELD REPAIR's divisor. Its presence is the field repair flag (a run without it never
+  // sets down for repairs). A run dispatched before CP-2 keeps the value it froze.
   repairSpeed?: number;
+  // WR-5b (0.14.0): the commanding captain's Tactician talents frozen at dispatch (captainTacticianEffects.ts
+  // captainCombatMods), read by buildShipCombatant. Its Damage Control (aegis3) factor is already folded into
+  // repairSpeed above. OPTIONAL: absent when the captain owns no Tactician node.
+  captainCombat?: CaptainCombatMods;
 }
 
 // The default per-save expedition seed a fresh save starts from, and the value the v58->v59 migration
@@ -8049,9 +8134,14 @@ export const REFINE_RECIPES: Record<string, RefineRecipeDef> = {
 // Contrast with the exclusive salvage-PRODUCED exotics below (anomalousAlloy etc.):
 // those are things salvage OUTPUTS, so they keep normal raw/refined/component
 // categories, exclusivity there is a property of their source, not a category.
+//
+// "fieldKit" (Field Kits FKR-3, 0.14.0): a stackable consumable a squad member carries into a ground objective (the
+// six medical and stim kits, fieldKits.ts FIELD_KITS; grenades and field devices stay installed tools, user FK1).
+// Crafted at the Fabricator, stored by warehouse tier like any item, and quality-free (user call 16, "Ignore
+// quality"): a kit works the same from any quality bucket.
 export type ItemCategory =
   | "raw" | "refined" | "minorComponent" | "majorComponent" | "shipModule" | "shipSystem"
-  | "salvagedMaterial";
+  | "salvagedMaterial" | "fieldKit";
 
 // Rarity is forward room for the UI's rarity-color reveal (design §7). Every
 // tier of the union is valid today; Phase 1's seeds only reach "rare".
@@ -8432,6 +8522,61 @@ export const ITEMS: Record<string, ItemDef> = {
     // (which led to the 0.13.8 discovery hotfix). Deliberately UNANNOUNCED: never list it in patch
     // notes or the Discord post, and do not "clean up" the line during flavor/copy passes.
     flavor: "A sealed memory core pulled whole from a dead ship, its archives locked behind a cipher no one alive can key. \"What is this thing even for?\"",
+  },
+
+  // FIELD KITS (Field Kits FKR-3, 0.14.0): the six consumable kits a squad member carries, keyed by their
+  // fieldKits.ts kit id (FIELD_KIT_IDS), labeled as FIELD_KITS names them. Crafted from their BLUEPRINTS
+  // (firstAidKitBp ..), so each hint says exactly that. Warehouse tier 1 for both research tiers (a tier 2 kit
+  // still stores on the base shelf). Rarity is display only (common for the tier 1 kits, uncommon for tier 2).
+  // NOT sellable: the Quartermaster SELLS kits (FKR-7, fieldKits.ts FIELD_KIT_PRICES) and never buys them back.
+  // Nothing spends a kit yet: FKR-6 uses them in battle, FKR-7 packs them per member.
+  firstAidKit: {
+    label: "First Aid Kit",
+    category: "fieldKit",
+    tier: 1,
+    rarity: "common",
+    unlockHint: "Crafted at the Fabricator after research.",
+    flavor: "Dressings, a sealant spray and a quick diagnostic strip. Clears the common battlefield ailments and closes a few wounds.",
+  },
+  antitoxin: {
+    label: "Antitoxin",
+    category: "fieldKit",
+    tier: 1,
+    rarity: "common",
+    unlockHint: "Crafted at the Fabricator after research.",
+    flavor: "A single-dose injector that flushes poison from the blood.",
+  },
+  splint: {
+    label: "Splint",
+    category: "fieldKit",
+    tier: 1,
+    rarity: "common",
+    unlockHint: "Crafted at the Fabricator after research.",
+    flavor: "A titanium brace with fiber wraps. Sets a fracture so it heals, and eases a broken bone. Needs a trained hand.",
+  },
+  combatStim: {
+    label: "Combat Stim",
+    category: "fieldKit",
+    tier: 1,
+    rarity: "uncommon",
+    unlockHint: "Crafted at the Fabricator after research.",
+    flavor: "An auto-injector that leaves its user inspired for a couple of rounds.",
+  },
+  traumaKit: {
+    label: "Trauma Kit",
+    category: "fieldKit",
+    tier: 1,
+    rarity: "uncommon",
+    unlockHint: "Crafted at the Fabricator after research.",
+    flavor: "For the serious cases: hemorrhage, neurotoxin, concussion and broken bones. Needs a trained hand.",
+  },
+  injuryKit: {
+    label: "Injury Kit",
+    category: "fieldKit",
+    tier: 1,
+    rarity: "uncommon",
+    unlockHint: "Crafted at the Fabricator after research.",
+    flavor: "A stabilizer cuff for a downed squadmate that shortens their stay in the medical bay. Needs a trained hand.",
   },
 };
 
@@ -9948,6 +10093,85 @@ export const BLUEPRINTS: Record<string, BlueprintDef> = {
     recipe: { inputs: { intactDataCore: 1, polysilicateWafer: 3, powerCoupling: 2 } },
     flavor: "A cortical implant that keeps a running copy of its wearer. Once, when it matters most, it can bring them back.",
     unlockHint: "Identify a Heart of the Archive to unlock this research; crafted at the Fabricator.",
+  },
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // FIELD KIT BLUEPRINTS (Field Kits FKR-3, 0.14.0; docs/plans/2026-10-14-field-kits-plan.md, USER ANSWERS call 3
+  // "Two research tiers (Recommended)"): six MATERIAL blueprints whose stackable output is a field kit (ITEMS
+  // category "fieldKit", keyed by the fieldKits.ts kit id; fieldKits.ts FIELD_KIT_BLUEPRINT maps them). Tier 1
+  // (cheap, 2 per craft): First Aid Kit, Antitoxin, Splint. Tier 2: Combat Stim, Trauma Kit, Injury Kit. Every
+  // input is an existing material. The Fabricator lists them under its own "Field Kits" group (awayGearDisplay.ts
+  // fabricatorGroupOf). Recipes and times [PROVISIONAL]: the answered proposal's numbers, balance-tunable. Nothing
+  // spends a kit until FKR-6 (battle) and FKR-7 (packs).
+  // ══════════════════════════════════════════════════════════════════════════
+  firstAidKitBp: {
+    key: "firstAidKitBp",
+    label: "First Aid Kit Blueprint",
+    tier: 1,
+    researchDurationTicks: 60,
+    researchCreditCost: 700,
+    craftDurationTicks: 120,
+    recipe: { inputs: { purifiedBiomass: 1, polysilicateWafer: 1 }, outputItem: "firstAidKit", outputQty: 2 },
+    flavor: "Field dressings and a basic diagnostic strip, packed so anyone can patch up a squadmate mid-fight.",
+    unlockHint: "Researched at the Research Lab; crafted at the Fabricator. A field kit a squad member carries.",
+  },
+  antitoxinBp: {
+    key: "antitoxinBp",
+    label: "Antitoxin Blueprint",
+    tier: 1,
+    researchDurationTicks: 60,
+    researchCreditCost: 700,
+    craftDurationTicks: 120,
+    // User 2026-10-19 ("Biomass + Titanium, 60"): purified biomass in a titanium injector, priced like First Aid.
+    recipe: { inputs: { purifiedBiomass: 1, titaniumIngot: 1 }, outputItem: "antitoxin", outputQty: 2 },
+    flavor: "A broad antitoxin refined from purified biomass and sealed in a titanium injector, quick to load and quicker to work.",
+    unlockHint: "Researched at the Research Lab; crafted at the Fabricator. A field kit a squad member carries.",
+  },
+  splintBp: {
+    key: "splintBp",
+    label: "Splint Blueprint",
+    tier: 1,
+    researchDurationTicks: 60,
+    researchCreditCost: 700,
+    craftDurationTicks: 120,
+    // User 2026-10-19 ("Raise to Tier 2 band"): purified biomass padding added so the price lands near 100 (95),
+    // between First Aid (60) and Combat Stim (150). Two units: one refined Tier 1 unit only reaches 65.
+    recipe: { inputs: { titaniumIngot: 1, fibrousBiomass: 1, purifiedBiomass: 2 }, outputItem: "splint", outputQty: 2 },
+    flavor: "A light titanium brace with fiber wraps, for setting a bone well enough to keep moving.",
+    unlockHint: "Researched at the Research Lab; crafted at the Fabricator. A field kit a squad member carries.",
+  },
+  combatStimBp: {
+    key: "combatStimBp",
+    label: "Combat Stim Blueprint",
+    tier: 2,
+    researchDurationTicks: 120,
+    researchCreditCost: 1600,
+    craftDurationTicks: 300,
+    recipe: { inputs: { volatileResin: 1, purifiedBiomass: 1 }, outputItem: "combatStim", outputQty: 2 },
+    flavor: "An auto-injector that sharpens focus and steadies the hands for a short burst.",
+    unlockHint: "Researched at the Research Lab (needs a higher lab tier); crafted at the Fabricator. A field kit a squad member carries.",
+  },
+  traumaKitBp: {
+    key: "traumaKitBp",
+    label: "Trauma Kit Blueprint",
+    tier: 2,
+    researchDurationTicks: 120,
+    researchCreditCost: 1600,
+    craftDurationTicks: 300,
+    recipe: { inputs: { purifiedBiomass: 2, exoticSporeCluster: 1, polysilicateWafer: 1 }, outputItem: "traumaKit", outputQty: 1 },
+    flavor: "Clotting foam, neural blockers and a bone set, for the injuries first aid cannot touch.",
+    unlockHint: "Researched at the Research Lab (needs a higher lab tier); crafted at the Fabricator. A field kit a squad member carries.",
+  },
+  injuryKitBp: {
+    key: "injuryKitBp",
+    label: "Injury Kit Blueprint",
+    tier: 2,
+    researchDurationTicks: 120,
+    researchCreditCost: 1600,
+    craftDurationTicks: 300,
+    recipe: { inputs: { purifiedBiomass: 2, polysilicateWafer: 1, powerCoupling: 1 }, outputItem: "injuryKit", outputQty: 1 },
+    flavor: "A powered stabilizer cuff that starts the healing on the spot, so the medical bay has less to do.",
+    unlockHint: "Researched at the Research Lab (needs a higher lab tier); crafted at the Fabricator. A field kit a squad member carries.",
   },
 };
 
@@ -11739,7 +11963,7 @@ export type SecondaryTalentKey =
   | "gunnery1" | "gunnery2" | "gunnery3" | "gunnery4" | "gunnery5"
   // Tactician / Aegis
   | "aegis1" | "aegis2" | "aegis3" | "aegis4" | "aegis5"
-  // Tactician / Fleet Ops (rungs 4-5 gateway until the fleet-ops system, 0.14.x)
+  // Tactician / Fleet Ops
   | "fleetOps1" | "fleetOps2" | "fleetOps3" | "fleetOps4" | "fleetOps5"
   // Explorer / Survey & Sensors
   | "surveySensors1" | "surveySensors2" | "surveySensors3" | "surveySensors4" | "surveySensors5"
@@ -11758,22 +11982,24 @@ export const SECONDARY_TALENT_BRANCHES: readonly SecondaryTalentBranch[] = [
   "surveySensors", "expeditionRelics", "commandCrew",
 ];
 
-// A typed union of the secondary-tree effects (see the header above for which trees are live). The live
-// readers (captainSecondaryEffects.ts) read each node by its KEY, never by the `stat` label, so a label
-// is descriptive only. ALL magnitudes are tunable (the plan's [PROPOSAL] sizes, OC-A3).
-//   none          - a gateway rung with no effect yet (only in the WR-5b / WR-5c trees now).
+// A typed union of the secondary-tree effects (all three trees are live: WR-5a, WR-5b, WR-5c). The live
+// readers (captainSecondaryEffects.ts, captainTacticianEffects.ts, captainExplorerEffects.ts) read each node
+// by its KEY, never by the `stat` label, so a label is descriptive only. ALL magnitudes are tunable (the
+// plan's [PROPOSAL] sizes, OC-A3).
+//   none          - a gateway rung with no magnitude of its own.
 //   statMult      - a relative bonus of `mult` on the named existing value (OC-A1).
-//   procChance    - a chance-based effect (a find/quality/detection roll; WR-5b / WR-5c trees).
+//   procChance    - a chance-based effect (a find/quality/detection roll).
 //   capstone      - a rung-5 defining mechanic, identified by `id`; `magnitude` is its configured size
-//                   (a chance, a share or a factor, per id; captainSecondaryEffects.ts reads it). The
-//                   WR-5b / WR-5c capstones gain theirs with their slices.
+//                   (a chance, a share or a factor, per id; its tree's reader module reads it).
 //   creditTrickle - credits per tick paid while the captain is docked (Trade Routes).
+//   levelLift     - WR-5c: whole LEVELS added to a named display ladder (Foreknowledge: the telescope detail).
 export type CaptainSecondaryTalentEffect =
   | { type: "none" }
   | { type: "statMult"; stat: string; mult: number }
   | { type: "procChance"; chance: number }
   | { type: "capstone"; id: string; magnitude?: number }
-  | { type: "creditTrickle"; perTick: number };
+  | { type: "creditTrickle"; perTick: number }
+  | { type: "levelLift"; stat: string; levels: number };
 
 // Mirrors CaptainTalentDef's shape (branch/label/cost/neighbors/effect/flavor/x/y), plus `tree` +
 // `rung`. `cost` is always 1 secondary point. `neighbors` is bidirectional by convention (like the
@@ -11941,7 +12167,7 @@ export const SECONDARY_CAPTAIN_TALENTS: Record<SecondaryTalentKey, CaptainSecond
     tree: "tactician", branch: "gunnery", rung: 5,
     label: "Alpha Strike", cost: 1, // CAPSTONE
     x: -512, y: -90, neighbors: ["gunnery4"],
-    effect: { type: "capstone", id: "alphaStrike" }, // opening-volley burst: first combat round bonus/double damage
+    effect: { type: "capstone", id: "alphaStrike", magnitude: 0.5 }, // WR-5b: +50% damage on each weapon's first shot of a battle
     flavor: "The first exchange is the whole fight. You make sure it is the last one they choose.",
   },
   // --- Aegis / defense (-> Bulwark) ---
@@ -11977,10 +12203,10 @@ export const SECONDARY_CAPTAIN_TALENTS: Record<SecondaryTalentKey, CaptainSecond
     tree: "tactician", branch: "aegis", rung: 5,
     label: "Bulwark", cost: 1, // CAPSTONE
     x: -450, y: -260, neighbors: ["aegis4"],
-    effect: { type: "capstone", id: "bulwark" }, // a damage floor / survive-one-lethal-hit per battle
+    effect: { type: "capstone", id: "bulwark", magnitude: 1 }, // WR-5b: lethal hits survived per battle (each leaves 1 hull)
     flavor: "They threw everything at you and you were still there when the smoke cleared.",
   },
-  // --- Fleet Ops / drones & patrols (rungs 4-5 gateway until the fleet-ops system, 0.14.x) ---
+  // Fleet Ops / drones and patrols (WR-5b: rung 4 acts on the drone screen until a multi-ship fleet-ops system exists)
   fleetOps1: {
     tree: "tactician", branch: "fleetOps", rung: 1, isHub: true,
     label: "Drone Handler", cost: 1,
@@ -12004,16 +12230,16 @@ export const SECONDARY_CAPTAIN_TALENTS: Record<SecondaryTalentKey, CaptainSecond
   },
   fleetOps4: {
     tree: "tactician", branch: "fleetOps", rung: 4,
-    label: "Wing Commander", cost: 1, // util, gateway
+    label: "Wing Commander", cost: 1, // util
     x: -270, y: -322, neighbors: ["fleetOps3", "fleetOps5"],
-    effect: { type: "none" }, // coordinate multiple ships; no fleet-ops system to apply it to yet
+    effect: { type: "statMult", stat: "droneReplenish", mult: 0.05 }, // WR-5b [PROVISIONAL] (plan 5.A): the drone screen's replenish rate (no multi-ship system yet)
     flavor: "One captain, many hulls, a single mind moving them.",
   },
   fleetOps5: {
     tree: "tactician", branch: "fleetOps", rung: 5,
-    label: "Wolfpack", cost: 1, // CAPSTONE, gateway
+    label: "Wolfpack", cost: 1, // CAPSTONE
     x: -334, y: -398, neighbors: ["fleetOps4"],
-    effect: { type: "capstone", id: "wolfpack" }, // extra drone squadron / fleet-wide combat bonus; gateway
+    effect: { type: "capstone", id: "wolfpack", magnitude: 1 }, // WR-5b: extra drone squadrons (copies of the first installed pod's)
     flavor: "They do not fight a ship. They fight the pack, and the pack fights as one.",
   },
   // ============ TREE 3 - EXPLORER ============
@@ -12041,16 +12267,16 @@ export const SECONDARY_CAPTAIN_TALENTS: Record<SecondaryTalentKey, CaptainSecond
   },
   surveySensors4: {
     tree: "explorer", branch: "surveySensors", rung: 4,
-    label: "Foreknowledge", cost: 1, // util, gateway (exploration lands later in 0.14.0)
+    label: "Foreknowledge", cost: 1, // util (WR-5c: the candidate telescope reading)
     x: 270, y: -322, neighbors: ["surveySensors3", "surveySensors5"],
-    effect: { type: "none" }, // preview a destination's rewards/hazards; no exploration system to apply it to yet
+    effect: { type: "levelLift", stat: "telescopeDetail", levels: 1 }, // WR-5c: + this many telescope detail levels on the expedition candidates
     flavor: "You know what waits at the next star before you burn for it.",
   },
   surveySensors5: {
     tree: "explorer", branch: "surveySensors", rung: 5,
     label: "Deep Scan", cost: 1, // CAPSTONE
     x: 334, y: -398, neighbors: ["surveySensors4"],
-    effect: { type: "capstone", id: "deepScan" }, // full-system reveal + a guaranteed rare-tier discovery
+    effect: { type: "capstone", id: "deepScan", magnitude: 1 }, // WR-5c: full foreknowledge at launch + this many sure discovery attempts per body
     flavor: "One pass and the whole system gives up its secrets, including the one it was hiding.",
   },
   // --- Expedition & Relics (-> Relic Hunter) ---
@@ -12086,7 +12312,7 @@ export const SECONDARY_CAPTAIN_TALENTS: Record<SecondaryTalentKey, CaptainSecond
     tree: "explorer", branch: "expeditionRelics", rung: 5,
     label: "Relic Hunter", cost: 1, // CAPSTONE
     x: 450, y: -260, neighbors: ["expeditionRelics4"],
-    effect: { type: "capstone", id: "relicHunter" }, // guaranteed relic from an expedition / +relic rarity tier
+    effect: { type: "capstone", id: "relicHunter", magnitude: 1 }, // WR-5c: the relic rarity tier ceiling + this many tiers
     flavor: "Where there is a legend, there is a relic, and you have never come home empty.",
   },
   // --- Command & Crew (-> Legendary Captain) ---
@@ -12122,7 +12348,7 @@ export const SECONDARY_CAPTAIN_TALENTS: Record<SecondaryTalentKey, CaptainSecond
     tree: "explorer", branch: "commandCrew", rung: 5,
     label: "Legendary Captain", cost: 1, // CAPSTONE
     x: 512, y: -90, neighbors: ["commandCrew4"],
-    effect: { type: "capstone", id: "legendaryCaptain" }, // crew-wide multiplier + an officer aura
+    effect: { type: "capstone", id: "legendaryCaptain", magnitude: 0.1 }, // WR-5c: x (1 + this) on the ship's complement buffs AND officer bonuses
     flavor: "They will tell stories about serving under you long after the ship is scrap.",
   },
 };

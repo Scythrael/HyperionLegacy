@@ -270,6 +270,36 @@ the Quartermaster price list `FIELD_KIT_PRICES` as data (about 3x crafting mater
 Stim 150 [PROVISIONAL], open call N13). No reader yet, so the price entries are registered `pending` (owner FKR-7).
 Commit `feat(0.14.0): field kit items, blueprints and glyphs (FKR-3)`.
 
+**FKR-3 carry (2026-10-17, done):** committed as `feat(0.14.0): field kit items, blueprints and glyphs (FKR-3)`. Data
+plus small UI hooks; no engine, save or battle change (no kit is usable in battle yet). `model.ts`: ItemCategory gains
+`fieldKit`; six ITEMS rows keyed by the kit ids (`firstAidKit`, `antitoxin`, `combatStim`, `splint`, `traumaKit`,
+`injuryKit`), labels from `FIELD_KITS`, warehouse tier 1, hint "Crafted at the Fabricator after research.", not
+sellable; six MATERIAL blueprints per call 3 ("Two research tiers"): tier 1 (60 ticks, 700 credits, craft 120)
+First Aid Kit (1 Purified Biomass + 1 Polysilicate Wafer makes 2), Antitoxin (1 Purified Biomass + 1 Volatile Resin
+makes 2), Splint (1 Titanium Ingot + 1 Fibrous Biomass makes 2); tier 2 (120 ticks, 1600 credits, craft 300) Combat
+Stim (1 Volatile Resin + 1 Purified Biomass makes 2), Trauma Kit (2 Purified Biomass + 1 Exotic Spore Cluster + 1
+Polysilicate Wafer makes 1), Injury Kit (2 Purified Biomass + 1 Polysilicate Wafer + 1 Power Coupling makes 1).
+`fieldKits.ts`: `FIELD_KIT_BLUEPRINT`, `FIELD_KIT_PRICE_MULTIPLE` 3 (N13), `FIELD_KIT_PRICE_STEP` 5,
+`FIELD_KIT_MATERIAL_WORTH` [PROPOSAL: no material value table existed; refined Tier 1 = 20 and Volatile Resin = 80 are
+anchored on the user's examples, Fibrous Biomass 20 / 6 by its refine ratio, Power Coupling 80 by its 4 wafers,
+Exotic Spore Cluster 160], `fieldKitMaterialValue`, `FIELD_KIT_PRICES` [PROVISIONAL]: First Aid Kit 60, Antitoxin
+150, Combat Stim 150, Splint 35, Trauma Kit 660, Injury Kit 420 (Antitoxin shares the Stim's recipe, so its price).
+UI: `awayGearDisplay.ts` `isFieldKitBlueprint`, `fabricatorGroupOf`, `fabricateKeyGroups` (the Fabricator's
+"Field Kits" group, last) and `researchSectionOf` (a trailing "Field Kits" Research section); App.svelte delegates
+to them, the Research card and the offline "Materials banked" row show the kit glyph. Glyphs (icons.ts +
+ICON_SEMANTICS, reviewed at 16 / 28 / 56 px light and dark): `kitFirstAid`, `kitAntitoxin`, `kitCombatStim`,
+`kitSplint`, `kitTrauma`, `kitInjury` (subject); `boneFracture`, `boneBroken`, `boneShattered` (alert; a diagonal
+bone, whole with a crack / two pieces / two stubs with splinters, redrawn after a vertical bone read as an hourglass
+at 16 px) and `rankWeak` .. `rankBoss` (alert; a hexagonal chip with a down chevron, a level bar, one and two up
+chevrons, a crown). `src/lib/ui/fieldKitIcons.ts` maps kits, bone ranks and enemy ranks to them (nothing renders
+the bone or rank chips yet: FKR-9 / FKR-10). Wiring: `facility:BLUEPRINTS:<kitBp>:craft` x6 LIVE (probe
+`content:craft:<bp>`, one craft deposits outputQty kits, equals), `facility:FIELD_KIT_PRICES:<kit>` x6 pending (owner
+FKR-7), `FIELD_KIT_PRICES` in UNREAD_CONSTANTS; the six `facility:BLUEPRINTS:<kitBp>` research entries come from
+the catalog walk; the kits' battle entries stay pending (FKR-6). Calls 16 (kits ignore quality) and 17 (returning
+kits may exceed the cap) are FKR-6 / FKR-7's to honor; the craft deposits into a quality bucket like any material.
+Tests: `fieldKitItems.test.ts` (16), `fieldKitIcons.test.ts` (5), 5 new in `awayGearDisplay.test.ts`, the ITEMS count
+in `model.test.ts` 25 to 31.
+
 #### FKR-4: Conditions and inflictors (engine, behind flag 2)
 
 **Files:** as FK-4 (`model.ts`, `gambit.ts`, `groundFight.ts` `withFieldKitsGuard`, `groundThreat.ts`, `medicalBay.ts`

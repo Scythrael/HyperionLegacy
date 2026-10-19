@@ -59,7 +59,7 @@ import type {
   SnapshotMember,
   PromotionObjectiveKind,
 } from "./model";
-import { memberVariety } from "./model";
+import { commandingCaptain, memberVariety } from "./model";
 import { makeRng, type Rng } from "./combat/rng";
 import { installedSensorArray, sensorArrayEffect, sensorArrayRelicFindBonus } from "./sensorArrays";
 // E4d: the relic-unlocked Pathfinder Suite's expedition effect (a pure leaf over the installed pieces).
@@ -148,6 +148,8 @@ import {
 import type { BodyRiskGrades, ExpeditionRiskProfile, GroundTaskNeeds, GroundTeamKind } from "./model";
 // Squads SQ-5: the Subspace Telescope's reading of each candidate (display only; a run never reads it).
 import { TELESCOPE_DETAIL, blindLaunchCount, readSystem, stateHomeworld, telescopeLevel, telescopeReading } from "./telescope";
+// WR-5c: the commanding captain's explorer secondary nodes (pure; imports only model.ts).
+import { NO_CAPTAIN_SIGHT, captainSurveyScanParams, captainTelescopeSight, explorerCaptainRun } from "./captainExplorerEffects";
 // Squads SQ-6: the task preview's readers, the launch recommendation and the forecast (display only), and the one
 // engine action they offer (applyComposition, SQ-7's "Set composition").
 import {
@@ -527,9 +529,12 @@ function shipSensorSnapshot(
 ): { sensorArrayId: string | null; scanParams: ExpeditionScanParams; sensorPower: number } {
   if (!ship) return { sensorArrayId: null, scanParams: { ...NEUTRAL_SCAN_PARAMS }, sensorPower: 0 };
   const installed = installedSensorArray(state, ship);
+  // WR-5c: the commanding captain's survey nodes (Cartographer, Anomaly Sense, Deep Scan) ride the scan params, so
+  // the dispatch freezes them and every preview built from this snapshot reads them. {} without them.
+  const captainSurvey = captainSurveyScanParams(commandingCaptain(state, ship));
   return {
     sensorArrayId: installed?.def.id ?? null,
-    scanParams: installed ? sensorArrayEffect(installed) : { ...NEUTRAL_SCAN_PARAMS },
+    scanParams: { ...(installed ? sensorArrayEffect(installed) : NEUTRAL_SCAN_PARAMS), ...captainSurvey },
     // effectiveShipStats folds equipment + crew (crewOverlay), so a Science officer / Science division /
     // a fitted sensor item all shape this by construction. 0 for a bare hull today.
     sensorPower: effectiveShipStats(state, ship).sensors,
@@ -703,11 +708,15 @@ export function expeditionCandidates(state: GameState, shipId: string): Expediti
   const snap = shipSensorSnapshot(state, ship);
   const homeworld = stateHomeworld(state); // G2-1: the range and distances from the save's own homeworld
   const reading = telescopeReading(state, homeworld);
+  // WR-5c: the commanding captain's Foreknowledge (+ detail levels) and Deep Scan (the full reading, and every
+  // foreknowledge field below). Display only, like the telescope; never past its range.
+  const sight = ship ? captainTelescopeSight(commandingCaptain(state, ship)) : NO_CAPTAIN_SIGHT;
+  const foreSensors = sight.full ? Number.POSITIVE_INFINITY : snap.sensorPower;
   const out: ExpeditionCandidate[] = [];
   for (let i = 0; i < EXPEDITION_CANDIDATE_COUNT; i++) {
     const seed = makeExpeditionSeed(state.expeditionSeed, i);
     const gen = generateSystem(seed);
-    const sys = readSystem(reading, seed, snap.sensorPower, expeditionRiskPreview(seed), homeworld);
+    const sys = readSystem(reading, seed, snap.sensorPower, expeditionRiskPreview(seed), homeworld, sight);
     // Squads SQ-6: the task demand (cheap: one throwaway discovery and stamping pass) rides the candidate from Per
     // body. The recommendation and the forecast simulate launches, so they are NOT built here: the UI asks for them
     // per candidate (expeditionLaunchView, e.g. for an expanded card).
@@ -720,7 +729,7 @@ export function expeditionCandidates(state: GameState, shipId: string): Expediti
       seed,
       systemId: gen.systemId,
       systemName: gen.systemName,
-      foreknowledge: telescope.blind ? { ...BLIND_FOREKNOWLEDGE } : gateForeknowledge(snap.sensorPower, gen.bodies, seed, snap.scanParams),
+      foreknowledge: telescope.blind ? { ...BLIND_FOREKNOWLEDGE } : gateForeknowledge(foreSensors, gen.bodies, seed, snap.scanParams),
       telescope,
     });
   }
@@ -961,7 +970,7 @@ function launchViewKey(state: GameState, ship: ShipInstance, seed: number, detai
   const ids = new Set(aboard.map((m) => m.id));
   const gear = state.equipment.filter((e) => e.fittedToShipId === ship.id || (e.fittedToMemberId !== undefined && e.fittedToMemberId !== null && ids.has(e.fittedToMemberId)));
   const deploys = expeditionAwayTeamCheck(state, ship).ground.teams.map((t) => t.deploys);
-  const captain = ship.assignedCaptainId === null ? undefined : state.captains.find((c) => c.id === ship.assignedCaptainId);
+  const captain = commandingCaptain(state, ship);
   const officers = state.officers.filter((o) => o.assignedShipId === ship.id);
   const notables = state.notableCrew.filter((n) => (n.assignedShipId ?? null) === ship.id);
   const gen = generateSystem(seed);
@@ -1168,6 +1177,8 @@ function buildExpedition(
   // Safe first runs SF-2: the training run's stamp, from stored state only (the counters and the runs out).
   const trainingStamp = runDifficultyAt(state, "expedition", risk.profile.tier, ship.typeKey);
   const training = trainingStamp.firstRun;
+  // WR-5c: the commanding captain's run-frozen explorer nodes (undefined without them).
+  const explorer = explorerCaptainRun(commandingCaptain(state, ship));
 
   const expedition: Expedition = {
     id,
@@ -1232,6 +1243,9 @@ function buildExpedition(
     // Field Kits FKR-1: the enemy ranks flag (enemyRanks.ts), stamped with the rank catalog's version, so a run in
     // flight at the update (no flag) keeps fielding every enemy at Normal.
     enemyRanks: { version: ENEMY_RANKS_VERSION },
+    // WR-5c: the commanding captain's run-frozen explorer nodes (Field Science, Away-Team Doctrine, Preservationist,
+    // Relic Hunter, Drillmaster), only when it owns one (captainExplorerEffects.ts explorerCaptainRun).
+    ...(explorer ? { explorerCaptain: explorer } : {}),
   };
   return expedition;
 }
@@ -1278,7 +1292,10 @@ export function scanRatePerSecond(exp: Expedition, body: ExpeditionBody): number
   const resist = partyResist > 0 ? (exp.hazardResist ?? 0) + partyResist : exp.hazardResist ?? 0;
   const hazardSlow = 1 + Math.max(0, resistedHazard(body.hazard, resist)) * SCAN_HAZARD_PENALTY;
   const museumScan = 1 + (exp.scanSpeedBonus ?? 0);
-  return (SCAN_BASE_RATE * exp.scanParams.scanRateMult * exp.scanParams.coverageWidth * sensorBoost * museumScan) / hazardSlow;
+  const rate = (SCAN_BASE_RATE * exp.scanParams.scanRateMult * exp.scanParams.coverageWidth * sensorBoost * museumScan) / hazardSlow;
+  // WR-5c: the captain's Cartographer, its own factor (frozen in the scan params at dispatch). Absent = the rate.
+  const cartographer = exp.scanParams.captainScanRateMult;
+  return cartographer !== undefined && cartographer > 0 && Number.isFinite(cartographer) ? rate * cartographer : rate;
 }
 
 // Total time to scan the WHOLE system (all bodies, sequentially). The SCANNING phase's duration. E-CREW
@@ -1386,15 +1403,21 @@ function assignDiscoveriesAndActivities(
   const pools = floraWeightedPools(poisForPlanetType(planet.id), body);
   const attempts = DISCOVERY_ATTEMPTS_BASE + rng.nextInt(DISCOVERY_ATTEMPTS_SPREAD + 1);
   // Per-pool per-attempt odds: base + the PLANET TYPE's pool bias + the sensor ARRAY's pool bias.
-  const surfacePermille = clampPermille(BASE_DISCOVERY_PERMILLE / 1000 + planet.surfaceBias + exp.scanParams.landmarkOddsBias);
-  const undergroundPermille = clampPermille(BASE_DISCOVERY_PERMILLE / 1000 + planet.undergroundBias + exp.scanParams.undergroundPoiOddsBias);
+  // WR-5c: the captain's Anomaly Sense multiplies each attempt's odds (its own factor, before the clamp), and Deep Scan
+  // makes the first `captainSureFinds` attempts land (the surface roll, or the underground one on a world with no
+  // surface pool). A sure attempt still draws its chance, so the draw order is the same; a find it adds takes its PoI
+  // pick from this body's own keyed stream, like any find. Absent, the odds and the rolls are the pre-WR-5c ones.
+  const { surface: surfacePermille, underground: undergroundPermille } = discoveryOddsPermille(exp.scanParams, planet.id);
+  const sure = Math.max(0, Math.floor(exp.scanParams.captainSureFinds ?? 0));
   const discoveries: ExpeditionDiscovery[] = [];
   for (let a = 0; a < attempts; a++) {
-    if (pools.surface.length > 0 && rng.chance(surfacePermille, 1000)) {
+    const sureSurface = a < sure && pools.surface.length > 0;
+    const sureUnderground = a < sure && pools.surface.length === 0;
+    if (pools.surface.length > 0 && (rng.chance(surfacePermille, 1000) || sureSurface)) {
       const poi = pickWeightedPoi(rng, pools.surface).poi;
       discoveries.push({ id: `${exp.id}-${body.id}-disc-${discoveries.length}`, kind: "landmark", poiId: poi.id });
     }
-    if (pools.underground.length > 0 && rng.chance(undergroundPermille, 1000)) {
+    if (pools.underground.length > 0 && (rng.chance(undergroundPermille, 1000) || sureUnderground)) {
       const poi = pickWeightedPoi(rng, pools.underground).poi;
       discoveries.push({ id: `${exp.id}-${body.id}-disc-${discoveries.length}`, kind: "underground", poiId: poi.id });
     }
@@ -1440,6 +1463,27 @@ function assignDiscoveriesAndActivities(
     poiId: d.poiId,
     done: false,
   }));
+}
+
+// The per-attempt discovery odds of each pool, in permille, on a planet type: the base odds + the planet type's pool
+// bias + the sensor array's pool bias, x the captain's Anomaly Sense (WR-5c, its own factor, before the clamp; absent
+// = the pre-WR-5c odds). The one formula assignDiscoveriesAndActivities rolls against (the wiring probe reads it). Pure.
+export function discoveryOddsPermille(scanParams: ExpeditionScanParams, planetType: ExpeditionPlanetType): { surface: number; underground: number } {
+  const planet = PLANET_TYPES.find((p) => p.id === planetType) ?? PLANET_TYPES[0];
+  const oddsMult = scanParams.captainDiscoveryMult;
+  const lift = (p: number): number => (oddsMult !== undefined && oddsMult > 0 && Number.isFinite(oddsMult) ? p * oddsMult : p);
+  return {
+    surface: clampPermille(lift(BASE_DISCOVERY_PERMILLE / 1000 + planet.surfaceBias + scanParams.landmarkOddsBias)),
+    underground: clampPermille(lift(BASE_DISCOVERY_PERMILLE / 1000 + planet.undergroundBias + scanParams.undergroundPoiOddsBias)),
+  };
+}
+
+// The discoveries the real roll gives `body` (at `bodyIndex`) on run `exp`, without touching either: a throwaway copy
+// through assignDiscoveriesAndActivities (no hostile site joins: no deployed squads). Pure (the wiring probe reads it).
+export function rollBodyDiscoveries(exp: Expedition, body: ExpeditionBody, bodyIndex: number): ExpeditionDiscovery[] {
+  const copy: ExpeditionBody = { ...body, discoveries: [], activities: [] };
+  assignDiscoveriesAndActivities({ ...exp, scanEvents: [] }, copy, bodyIndex, null);
+  return copy.discoveries;
 }
 
 // Squads SQ-4 (design 5.3): a High or Extreme FLORA body draws Xeno-Flora Bloom sites more often: the Bloom's
@@ -2172,7 +2216,16 @@ export function depositExpeditionFindings(state: GameState, findings: readonly E
     if (f.relic) {
       const setId = relicSetForPoi(f.poiId);
       if (setId !== null && f.poiId !== undefined) {
-        vaultAdds.push({ id: f.relic.id, tier: f.relic.tier, quality: f.relic.quality, setId, poiId: f.poiId });
+        // WR-5c: a Preservationist token keeps its study speed in the vault (absent otherwise, the pre-WR-5c token).
+        const studySpeed = f.relic.studySpeed;
+        vaultAdds.push({
+          id: f.relic.id,
+          tier: f.relic.tier,
+          quality: f.relic.quality,
+          setId,
+          poiId: f.poiId,
+          ...(studySpeed !== undefined && studySpeed > 0 ? { studySpeed } : {}),
+        });
         touched = true;
       }
     }
@@ -2248,7 +2301,8 @@ export function claimExpedition(state: GameState, expeditionId: string): Expedit
   // save without stored counters derives them with this run still out.
   const next = {
     ...repaired,
-    officers: foldOfficerPromotionCounters(repaired.officers, expeditionPromotionIncrements(exp)),
+    // WR-5c: x the run's frozen Drillmaster (Expedition.explorerCaptain), exactly 1 without it.
+    officers: foldOfficerPromotionCounters(repaired.officers, expeditionPromotionIncrements(exp), () => exp.explorerCaptain?.promotionMult ?? 1),
     runCounts: countClaimedExpedition(runCountsOf(state), exp),
   };
   return {

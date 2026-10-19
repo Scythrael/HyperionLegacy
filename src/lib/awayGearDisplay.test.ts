@@ -2,7 +2,8 @@
 // categories, the member compare rows).
 
 import { describe, it, expect } from "vitest";
-import { BLUEPRINTS, EQUIPMENT_SLOTS, MEMBER_SLOT_TYPES, freshState, shipDisplayLabel } from "./game/model";
+import { BLUEPRINTS, EQUIPMENT_SLOTS, ITEMS, MEMBER_SLOT_TYPES, freshState, shipDisplayLabel } from "./game/model";
+import { FIELD_KIT_BLUEPRINT } from "./game/fieldKits";
 import type { AwayMember, AwayTeamType, EquipmentInstance, EquipmentSlotType, GameState } from "./game/model";
 import { memberFitBlockText } from "./game/memberEquipment";
 import { ICON_NAMES } from "./ui/icons";
@@ -15,6 +16,14 @@ import {
   groupMemberSpares,
   gearCategoryOfSlot,
   blueprintGearCategory,
+  isFieldKitBlueprint,
+  fabricatorGroupOf,
+  fabricateKeyGroups,
+  FABRICATOR_GROUP_LABEL,
+  FABRICATOR_GROUP_ORDER,
+  researchSectionOf,
+  RESEARCH_SECTION_ORDER,
+  RESEARCH_SECTION_LABEL,
   pieceStatTotals,
   memberCompareRows,
   fmtGearStat,
@@ -151,6 +160,63 @@ describe("awayGearDisplay: gear categories", () => {
     }
     expect(member).toBeGreaterThan(0);
     expect(implant).toBeGreaterThan(0);
+  });
+});
+
+describe("awayGearDisplay: the Fabricator and Research shelves (Field Kits FKR-3)", () => {
+  const kitKeys = Object.values(FIELD_KIT_BLUEPRINT);
+
+  it("a field kit blueprint is a material blueprint whose output is a fieldKit item, and nothing else is", () => {
+    for (const bp of Object.values(BLUEPRINTS)) {
+      const isKit = kitKeys.includes(bp.key);
+      expect(isFieldKitBlueprint(bp), bp.key).toBe(isKit);
+      if (isKit) expect(ITEMS[bp.recipe.outputItem ?? ""].category).toBe("fieldKit");
+    }
+  });
+
+  it("files kit blueprints under Field Kits; every other shelf is unchanged", () => {
+    for (const bp of Object.values(BLUEPRINTS)) {
+      const g = fabricatorGroupOf(bp);
+      if (kitKeys.includes(bp.key)) expect(g, bp.key).toBe("fieldKit");
+      else expect(g, bp.key).toBe(blueprintGearCategory(bp) ?? "material");
+    }
+    expect(FABRICATOR_GROUP_LABEL.fieldKit).toBe("Field Kits");
+    expect(FABRICATOR_GROUP_LABEL.material).toBe("Materials");
+    expect(FABRICATOR_GROUP_ORDER[FABRICATOR_GROUP_ORDER.length - 1]).toBe("fieldKit");
+  });
+
+  it("the Item dropdown's groups for a tier: labeled shelves in order, Field Kits last, each in BLUEPRINTS order", () => {
+    const all = Object.values(BLUEPRINTS);
+    const groups = fabricateKeyGroups(all, 1);
+    expect(groups.map((g) => g.key)).toEqual(FABRICATOR_GROUP_ORDER.filter((k) => groups.some((g) => g.key === k)));
+    const kits = groups.find((g) => g.key === "fieldKit");
+    expect(kits?.label).toBe("Field Kits");
+    expect(kits?.keys).toEqual(["firstAidKitBp", "antitoxinBp", "splintBp"]);
+    const tier2Kits = fabricateKeyGroups(all, 2).find((g) => g.key === "fieldKit");
+    expect(tier2Kits?.keys).toEqual(["combatStimBp", "traumaKitBp", "injuryKitBp"]);
+    const keys = groups.flatMap((g) => g.keys);
+    expect(new Set(keys).size).toBe(keys.length);
+    expect(keys.sort()).toEqual(all.filter((bp) => bp.tier === 1).map((bp) => bp.key).sort());
+  });
+
+  it("a tier holding one kind lists plain options (one unlabeled group), as before", () => {
+    const only = [BLUEPRINTS.firstAidKitBp, BLUEPRINTS.splintBp];
+    expect(fabricateKeyGroups(only, 1)).toEqual([{ key: "fieldKit", label: null, keys: ["firstAidKitBp", "splintBp"] }]);
+    expect(fabricateKeyGroups([BLUEPRINTS.frameSegmentBp], 1)).toEqual([{ key: "material", label: null, keys: ["frameSegmentBp"] }]);
+    expect(fabricateKeyGroups(only, 2)).toEqual([]);
+  });
+
+  it("the Research list files kit blueprints into a trailing Field Kits section", () => {
+    for (const bp of Object.values(BLUEPRINTS)) {
+      const sec = researchSectionOf(bp);
+      if (kitKeys.includes(bp.key)) expect(sec).toBe("fieldKit");
+      else {
+        const c = blueprintGearCategory(bp);
+        expect(sec).toBe(c === "awayTeam" || c === "implant" ? c : "main");
+      }
+    }
+    expect(RESEARCH_SECTION_ORDER).toEqual(["main", "awayTeam", "implant", "fieldKit"]);
+    expect(RESEARCH_SECTION_LABEL).toEqual({ main: null, awayTeam: "Away-Team Gear", implant: "Implants", fieldKit: "Field Kits" });
   });
 });
 

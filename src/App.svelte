@@ -495,7 +495,10 @@
     NEEDS_MEDICAL_TRAINING_TEXT,
     pieceNeedsMedicalTraining,
     uniqueWearerLabel,
-    type GearCategory,
+    fabricateKeyGroups,
+    researchSectionOf,
+    RESEARCH_SECTION_LABEL,
+    RESEARCH_SECTION_ORDER,
   } from "./lib/awayGearDisplay";
   import { crewRankLabel } from "./lib/game/crewRank";
   // Crew 0.14.0 (phase 4e): the captain PRESTIGE secondary-tree allocation engine + the captain
@@ -509,8 +512,8 @@
     secondaryTalentBuyLock,
     secondaryTalentBuyLockText,
   } from "./lib/game/captainSecondaryTree";
-  // WR-5a: each secondary node's exact player text (the same helper the wiring registry's claim reads), and the
-  // supply run card's captain-adjusted margin and purchase cost.
+  // WR-5a / WR-5b / WR-5c: each secondary node's exact player text (the same helper the wiring registry's claim
+  // reads), and the supply run card's captain-adjusted margin and purchase cost.
   import { describeSecondaryTalentEffect as describeSecondaryTalentEffectText, captainSupplyRunTerms } from "./lib/game/captainSecondaryEffects";
   import {
     canRetireCaptain,
@@ -1059,6 +1062,7 @@
   // icon-only queue row controls (move up / move down / remove). Those are stable BUTTONS,
   // never tooltip actions, per the 0.13.2 display-only-tooltip rule.
   import Icon from "./lib/ui/Icon.svelte";
+  import { fieldKitBlueprintIcon, fieldKitIcon } from "./lib/ui/fieldKitIcons";
   // GO-10: the shared threat tier chip (SVG tier dot, HelpTip bubble), used by the patrol card + dispatch popup.
   import ThreatChip from "./lib/ui/ThreatChip.svelte";
   import type { IconName } from "./lib/ui/icons";
@@ -2008,7 +2012,8 @@
     | "recoveredTech"
     | "refined"
     | "components"
-    | "salvaged";
+    | "salvaged"
+    | "fieldKit";
 
   // Section display order (mockup order). The four raw sub-category sections
   // first, then Refined, then Components, then Salvaged Materials last (salvaged
@@ -2022,6 +2027,8 @@
     { key: "refined", label: "Refined" },
     { key: "components", label: "Components" },
     { key: "salvaged", label: "Salvaged Materials" },
+    // Field Kits FKR-3: the crafted kits' stock view (every kit is a tier 1 shelf item, model.ts ITEMS).
+    { key: "fieldKit", label: "Field Kits" },
   ];
 
   // SINGLE source of section membership. Raw sub-category sections match on the
@@ -2041,6 +2048,8 @@
         return item.category === "minorComponent" || item.category === "majorComponent";
       case "salvaged":
         return item.category === "salvagedMaterial";
+      case "fieldKit":
+        return item.category === "fieldKit";
     }
   }
 
@@ -2154,6 +2163,10 @@
       // not a raw resource or a finished part, so it gets its own recycle glyph.
       case "salvagedMaterial":
         return "♻️";
+      // Field Kits FKR-3: a kit draws its own SVG glyph (fieldKitIcons.ts fieldKitIcon) wherever one is listed, so
+      // this emoji placeholder set stays out of it.
+      case "fieldKit":
+        return "";
     }
   }
 
@@ -8926,7 +8939,7 @@
 
 
   // The secondary tree's effect describer, passed to RadialWeb as describeEffect (mirrors
-  // describeCaptainTalentEffect / describeHomeworldTalentEffect). WR-5a: the engine helper
+  // describeCaptainTalentEffect / describeHomeworldTalentEffect). WR-5a / WR-5b / WR-5c: the engine helper
   // (captainSecondaryEffects.ts) renders each node's exact effect from its catalog magnitudes, the same
   // text the wiring registry's claim reads, so the tooltip says exactly what the node does.
   function describeSecondaryTalentEffect(effect: CaptainSecondaryTalentEffect): string {
@@ -9952,25 +9965,15 @@
   }
 
   // E-CREW 0.14.0 (Task 10): the Item dropdown's option groups for one tier: Materials, Ship Systems,
-  // Away-Team Gear, Implants (blueprintGearCategory), each in BLUEPRINTS order. When the tier holds only one
-  // kind the single group comes back unlabeled (label null), so the dropdown lists plain options exactly as
-  // before. Takes the blueprint list as a parameter for the stale-derivation reason fabricateKeysForTier
-  // records. Pure.
+  // Away-Team Gear, Implants and (Field Kits FKR-3) Field Kits, each in BLUEPRINTS order; awayGearDisplay.ts
+  // fabricateKeyGroups owns the rule. When the tier holds only one kind the single group comes back unlabeled
+  // (label null), so the dropdown lists plain options exactly as before. Takes the blueprint list as a parameter
+  // for the stale-derivation reason fabricateKeysForTier records. Pure.
   function fabricateKeyGroupsForTier(
     blueprints: BlueprintDef[],
     tier: number
   ): { key: string; label: string | null; keys: string[] }[] {
-    const buckets: { key: string; label: string; keys: string[] }[] = [
-      { key: "material", label: "Materials", keys: [] },
-      ...GEAR_CATEGORY_ORDER.map((c) => ({ key: c as string, label: GEAR_CATEGORY_LABEL[c], keys: [] as string[] })),
-    ];
-    for (const bp of blueprints) {
-      if (bp.tier !== tier) continue;
-      const cat: string = blueprintGearCategory(bp) ?? "material";
-      buckets.find((b) => b.key === cat)?.keys.push(bp.key);
-    }
-    const used = buckets.filter((b) => b.keys.length > 0);
-    return used.length <= 1 ? used.map((b) => ({ ...b, label: null })) : used;
+    return fabricateKeyGroups(blueprints, tier);
   }
 
   // Blueprints grouped by TIER for the Research list (tiers ascending). PURE over
@@ -9994,15 +9997,12 @@
       .sort((a, b) => a - b)
       .map((tier) => {
         const blueprints = byTier.get(tier) ?? [];
-        const memberCat = (bp: BlueprintDef): GearCategory | null => {
-          const c = blueprintGearCategory(bp);
-          return c === "awayTeam" || c === "implant" ? c : null;
-        };
-        const sections: BlueprintSection[] = [
-          { key: "main", label: null, blueprints: blueprints.filter((bp) => memberCat(bp) === null) },
-          { key: "awayTeam", label: GEAR_CATEGORY_LABEL.awayTeam, blueprints: blueprints.filter((bp) => memberCat(bp) === "awayTeam") },
-          { key: "implant", label: GEAR_CATEGORY_LABEL.implant, blueprints: blueprints.filter((bp) => memberCat(bp) === "implant") },
-        ];
+        // Field Kits FKR-3: a trailing "Field Kits" shelf after Implants (awayGearDisplay.ts researchSectionOf).
+        const sections: BlueprintSection[] = RESEARCH_SECTION_ORDER.map((key) => ({
+          key,
+          label: RESEARCH_SECTION_LABEL[key],
+          blueprints: blueprints.filter((bp) => researchSectionOf(bp) === key),
+        }));
         return { tier, blueprints, sections: sections.filter((s) => s.blueprints.length > 0) };
       });
   })();
@@ -12579,8 +12579,9 @@
                          to their disabled buttons. Declared here (immediate {#each} child)
                          because {@const} cannot be a child of a plain element. -->
                     {@const job = activeResearchProjects.find((p) => p.effect.type === "unlockBlueprint" && p.effect.key === bp.key)}
+                    {@const kitIc = fieldKitBlueprintIcon(bp.key)}
                     <div class="mission-card">
-                      <div class="research-name">{bp.label}</div>
+                      <div class="research-name">{#if kitIc !== null}<Icon name={kitIc} size={12} /> {/if}{bp.label}</div>
                       <!-- Recipe line. FIVE blueprint shapes (see BlueprintDef): an UNLOCK-ONLY
                            blueprint (Combat 0.13.0 warship gate) crafts nothing, so it shows what
                            it UNLOCKS (a hull at the Shipyard) instead of "Crafts: inputs -> output".
@@ -15603,7 +15604,9 @@
                                non-danger fill) while materialAtCap is still false and it still accepts
                                stock. Only a genuinely capped item (atCap) shows 100%. -->
                           <span class="warehouse-pct">{atCap ? 100 : Math.floor(pct)}%</span>
-                          <span class="warehouse-glyph">{warehouseCategoryGlyph(item.category)}</span>
+                          {@const kitIc = fieldKitIcon(item.id)}
+                          <!-- Field Kits FKR-3: a kit wears its own SVG glyph (fieldKitIcons.ts); the rest keep the category glyph. -->
+                          <span class="warehouse-glyph">{#if kitIc !== null}<Icon name={kitIc} />{:else}{warehouseCategoryGlyph(item.category)}{/if}</span>
                           <span class="warehouse-ct">{formatNumber(count)}</span>
                         {:else}
                           <span class="warehouse-glyph warehouse-glyph-unknown">❓</span>
@@ -15615,8 +15618,8 @@
               {/if}
             {/each}
 
-            <!-- Salvaged Materials no longer has a special block: it is the final
-                 entry in MATERIALS_SECTIONS, so it renders above in the standard
+            <!-- Salvaged Materials no longer has a special block: it is an
+                 entry in MATERIALS_SECTIONS (Field Kits follows it), so it renders above in the standard
                  fill-tile loop like every other material section (user 2026-07-21).
                  The salvage ACTION lives in the Foundry Salvage Bay facility. -->
           </Panel>
@@ -20185,7 +20188,8 @@
                 <div class="offline-summary-row">
                   <span class="offline-summary-row-label">
                     {#if ITEMS[mat.itemId]}
-                      <span class="offline-summary-item-icon" aria-hidden="true">{warehouseCategoryGlyph(ITEMS[mat.itemId].category)}</span>
+                      {@const kitIc = fieldKitIcon(mat.itemId)}
+                      <span class="offline-summary-item-icon" aria-hidden="true">{#if kitIc !== null}<Icon name={kitIc} />{:else}{warehouseCategoryGlyph(ITEMS[mat.itemId].category)}{/if}</span>
                       {ITEMS[mat.itemId].label}
                     {:else}
                       {mat.itemId}
