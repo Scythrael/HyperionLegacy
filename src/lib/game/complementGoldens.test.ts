@@ -49,7 +49,7 @@ import { CREW_PROFESSIONS, commandStructureForHull, complementTotalCap, division
 import { totalCrew } from "./crew";
 import { TRANSPORT_BATCH_SIZE, TRANSPORT_WINDOW_SECONDS, transportBatch } from "./transports";
 import { FIELD_REPAIR_DAMAGE_SHARE } from "./groundOps";
-import { asLegacyDispatch, asPreRanksDispatch, asPreSafeFirstRunsDispatch, plainAwayMember, withSlottedAwayTeams } from "./awayTeamTestFixtures";
+import { asLegacyDispatch, asPreG2NamesDispatch, asPreRanksDispatch, asPreSafeFirstRunsDispatch, plainAwayMember, withSlottedAwayTeams } from "./awayTeamTestFixtures";
 
 // ===== shared helpers =====
 
@@ -159,7 +159,7 @@ const FINAL = 2_000_000;
 
 function expeditionRun(roster: AwayMember[], seed: number, legacy: boolean, preDamage: boolean): { exp: Expedition; done: Expedition; claimed: GameState } {
   const s = withSlottedAwayTeams({ ...freshState(), awayMembers: roster.map((m) => ({ ...m })), nextAwayMemberId: 100, expeditionSeed: seed });
-  const started = startExpedition(s, "ship-1", 1, expeditionCandidates(s, "ship-1")[0].id);
+  const started = asPreG2NamesDispatch(startExpedition(s, "ship-1", 1, expeditionCandidates(s, "ship-1")[0].id));
   // Field Kits FKR-1: the Ground Ops runs as dispatched before enemy ranks (the flag off), so they keep their capture.
   // Safe first runs SF-2: and before SF-2 (the retired 30 minute shakedown on expedition 1; asLegacyDispatch does both).
   const res = legacy ? asLegacyDispatch(started) : asPreSafeFirstRunsDispatch(asPreRanksDispatch(started));

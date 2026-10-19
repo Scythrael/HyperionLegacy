@@ -53,7 +53,7 @@ import { generateEquipment } from "./itemgen";
 import { damageControlEffect, pathfinderEffect, DAMAGE_CONTROL_SUITE_KEY, PATHFINDER_SUITE_KEY } from "./utilityGear";
 import { addItemQuality } from "./inventory";
 import { advanceExpedition, claimExpedition, expeditionCandidates, startExpedition } from "./expedition";
-import { asPreRanksDispatch, asPreSafeFirstRunsDispatch, plainAwayMember, withSlottedAwayTeams } from "./awayTeamTestFixtures";
+import { asPreG2NamesDispatch, asPreRanksDispatch, asPreSafeFirstRunsDispatch, plainAwayMember, withSlottedAwayTeams } from "./awayTeamTestFixtures";
 import { seatOfficer, withFacilityLevel } from "./wiring/probes";
 import { withCp2Off } from "./complementCp2Switch.fixture";
 
@@ -330,7 +330,7 @@ describe("WR-4 pre-fix goldens", () => {
     const s0 = seatOfficer(withSlottedAwayTeams({ ...freshState(), awayMembers: squad, nextAwayMemberId: 100, expeditionSeed: 0x1234 }), "science", ["sci.discovery"], { race: "earthBorn" });
     // Field Kits FKR-1: the run as dispatched before enemy ranks (the flag off), so it keeps its capture. Safe first
     // runs SF-2: and before SF-2 (the retired 30 minute shakedown on expedition 1).
-    const res = asPreSafeFirstRunsDispatch(asPreRanksDispatch(startExpedition(s0, "ship-1", 1, expeditionCandidates(s0, "ship-1")[0].id)));
+    const res = asPreG2NamesDispatch(asPreSafeFirstRunsDispatch(asPreRanksDispatch(startExpedition(s0, "ship-1", 1, expeditionCandidates(s0, "ship-1")[0].id))));
     if (!res.success || !res.expedition) throw new Error(`dispatch refused: ${res.reason}`);
     expect(res.expedition.groundOps).toBeDefined();
     // The run advanced through the live tick (the officer rides it), then claimed.

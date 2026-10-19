@@ -138,16 +138,19 @@ import {
   FLORA_BLOOM_WEIGHT_MULT,
   difficultyWeight,
   bodyFloraGrade,
-  expeditionRegion,
+  TIER_I_REGION,
   generateRiskProfile,
   hostileSiteFieldable,
   isClearingSiteId,
   isHostileSiteId,
   type ExpeditionRegion,
 } from "./riskFactors";
-import type { BodyRiskGrades, ExpeditionRiskProfile, GroundTaskNeeds, GroundTeamKind } from "./model";
+import type { BodyRiskGrades, ExpeditionRegionStamp, ExpeditionRiskProfile, GroundTaskNeeds, GroundTeamKind, RegionTier } from "./model";
 // Squads SQ-5: the Subspace Telescope's reading of each candidate (display only; a run never reads it).
-import { TELESCOPE_DETAIL, blindLaunchCount, readSystem, stateHomeworld, telescopeLevel, telescopeReading } from "./telescope";
+import { TELESCOPE_DETAIL, blindLaunchCount, readSystem, stateHomeworld, systemDistanceLy, telescopeLevel, telescopeReading, type HomeworldPlacement } from "./telescope";
+// Expedition Tiers G2-2: the region ladder, the enemy sectors and the star catalog (pure; neither imports this module).
+import { BEARING_TURN, REGION_TIERS, inEnemySector } from "./galaxy";
+import { WOLF_359_ID, CATALOG_NUMBER_MAX, catalogSystemName, famousSystem, famousSystemFrom, famousSystemsOfTier, type FamousSystem } from "./starCatalog";
 // WR-5c: the commanding captain's explorer secondary nodes (pure; imports only model.ts).
 import { NO_CAPTAIN_SIGHT, captainSurveyScanParams, captainTelescopeSight, explorerCaptainRun } from "./captainExplorerEffects";
 // Squads SQ-6: the task preview's readers, the launch recommendation and the forecast (display only), and the one
@@ -297,7 +300,7 @@ export const FIELD_DEVICE_TRAINED_EFFECTIVENESS = 1;
 // across ticks (a preview NEVER advances expeditionSeed) yet reproducible; dispatch COMMITS one
 // candidate's seed to the launched expedition and only THEN advances expeditionSeed so the next list is
 // fresh. Because a candidate's seed IS the seed the committed expedition uses, the foreknowledge preview
-// (a display-derived projection of generateSystem(seed) + the same discovery roll) can never lie.
+// (a display-derived projection of generateBodies(seed, tier) + the same discovery roll) can never lie.
 export const EXPEDITION_CANDIDATE_COUNT = 3; // how many candidate targets the console offers (TUNABLE)
 
 // SENSOR FOREKNOWLEDGE THRESHOLDS: the crew-inclusive `sensors` power (effectiveShipStats) a ship needs
@@ -319,8 +322,10 @@ export const SENSOR_REVEAL_RELIC = 65; // >= this: the system's RELIC SIGNATURE 
 // array, would surface a relic lead"), derived from the SAME seeded discovery roll the committed
 // expedition runs, so it never lies.
 
-// The banked sci-fi system names (design Part E). A dispatched expedition picks one by a seeded index.
-// Extend this list as more systems are named; the seeded pick just indexes into it.
+// The banked sci-fi system names (design Part E). RETIRED by Expedition Tiers G2-2 (user G9, 2026-10-16: "Retire
+// them"): new candidates take star catalog names (starCatalog.ts); a run dispatched before G2-2 keeps its stored
+// banked name. The list stays because the system stream's FIRST draw (the old pick) is kept with its value unused,
+// on this same bound, so every later draw of that stream (body count, planet types, sizes) lands as before.
 export interface BankedSystem {
   id: string;
   name: string;
@@ -364,6 +369,40 @@ export const SYSTEM_SALT = 0x1b56c4f9;
 export const ANOMALY_SALT = 0x7f4a7c15;
 export const DISCOVERY_SALT = 0x2c1b3c6d;
 export const ENCOUNTER_SALT = 0x3a8f05c5; // E-CREW Task 14: the per-boundary scan step roll
+// Expedition Tiers G2-2: the candidate's own streams, each keyed by the candidate's seed alone (one draw layout per
+// stream, so none shifts another): its catalog number, its bearing from the homeworld, the famous-system roll and the
+// deeper tiers' body count.
+export const SYSTEM_NAME_SALT = 0x5d3f8a2b;
+export const CANDIDATE_BEARING_SALT = 0x6e2c47d9;
+export const FAMOUS_SYSTEM_SALT = 0x19b7e563;
+export const BODY_COUNT_SALT = 0x2a64f1e7;
+
+// ============================================================================
+// Expedition Tiers G2-2: candidates per region tier (user #5 and G11 "Region, then 3 nearest")
+// ============================================================================
+//
+// The console offers EXPEDITION_CANDIDATE_COUNT candidates PER TIER, shown nearest first. Candidate `slot` of tier `t`
+// takes seed makeExpeditionSeed(expeditionSeed, (t - 1) * CANDIDATE_STRIDE + slot), so Tier I's three are exactly
+// the pre-G2 three (their bodies, risk and objectives byte-identical). Ids read `cand-<tier>-<slot>`; a pre-G2 id
+// `cand-<slot>` names the Tier I slot. [PROPOSAL] the stride (room for more candidates per tier later).
+export const CANDIDATE_STRIDE = 16;
+// [PROPOSAL] a candidate slot is a FAMOUS system (starCatalog.ts, its tier's list) one time in this many.
+export const FAMOUS_SYSTEM_ONE_IN = 12;
+// User G10 (2026-10-16, "Guaranteed early"): Wolf 359 is guaranteed in the first Tier I list after the first run,
+// i.e. the list a save holds after this many dispatches (nextExpeditionId - 1); it takes Tier I slot 0.
+// [PROVISIONAL] a save already past that list (a veteran) meets Wolf 359 only as a rare famous find.
+export const WOLF_359_LIST_AFTER_DISPATCHES = 1;
+// User G17 (2026-10-16, "Grows with tier"): each tier's body count range. Tier I keeps the system stream's own
+// 1 to 3 draw; deeper tiers draw their count on BODY_COUNT_SALT (the mockup's ranges).
+export const TIER_BODY_COUNT: Readonly<Record<RegionTier, readonly [number, number]>> = {
+  1: [BODY_COUNT_MIN, BODY_COUNT_MAX],
+  2: [1, 3],
+  3: [2, 3],
+  4: [2, 4],
+  5: [2, 4],
+  6: [3, 5],
+  7: [3, 5],
+};
 
 // A small epsilon for phase-boundary comparisons: scan/return durations can be fractional
 // (scanTotal / rate), and gameTimeSeconds is float, so an "elapsed >= duration" check must tolerate a
@@ -489,13 +528,23 @@ export function expeditionAwayTeamCheck(state: GameState, ship: ShipInstance): E
   return { ok: ground.ok, security: ground.security, science: ground.science, ground };
 }
 
-// Generate the target system + its 1..3 generic bodies from the expedition seed. Deterministic. The
+// The body count of a system of `tier` (TIER_BODY_COUNT): Tier I reads the system stream's own draw (`drawn`);
+// deeper tiers draw theirs on BODY_COUNT_SALT. Pure.
+function tierBodyCount(seed: number, tier: RegionTier, drawn: number): number {
+  if (tier === 1) return drawn;
+  const [min, max] = TIER_BODY_COUNT[tier] ?? TIER_BODY_COUNT[1];
+  return makeRng((seed ^ BODY_COUNT_SALT) >>> 0).nextRange(min, max);
+}
+
+// Generate the target system's bodies from the expedition seed and its region tier. Deterministic. The
 // body-generation stream is SEPARATE from each body's own discovery stream (see assignDiscoveries), so
-// generation order never perturbs discovery outcomes.
-function generateSystem(seed: number): { systemId: string; systemName: string; bodies: ExpeditionBody[] } {
+// generation order never perturbs discovery outcomes. G2-2: the stream's FIRST draw (the retired banked-name pick)
+// is kept with its value unused, and so is the 1 to 3 count draw on a deeper tier, so a Tier I system draws exactly
+// as before; the name comes from the candidate (tierCandidateSystems).
+function generateBodies(seed: number, tier: RegionTier): ExpeditionBody[] {
   const rng = makeRng((seed ^ SYSTEM_SALT) >>> 0);
-  const system = BANKED_SYSTEMS[rng.nextInt(BANKED_SYSTEMS.length)];
-  const bodyCount = rng.nextRange(BODY_COUNT_MIN, BODY_COUNT_MAX);
+  rng.nextInt(BANKED_SYSTEMS.length); // the retired banked-name pick: draw kept, value unused
+  const bodyCount = tierBodyCount(seed, tier, rng.nextRange(BODY_COUNT_MIN, BODY_COUNT_MAX));
   const bodies: ExpeditionBody[] = [];
   for (let i = 0; i < bodyCount; i++) {
     // E2b: pick the body's PLANET TYPE from the seeded generation stream (FIRST-PASS uniform over the 8
@@ -515,7 +564,118 @@ function generateSystem(seed: number): { systemId: string; systemName: string; b
       activities: [],
     });
   }
-  return { systemId: system.id, systemName: system.name, bodies };
+  return bodies;
+}
+
+// ===== Expedition Tiers G2-2: the candidate systems of a tier =====
+
+// One candidate system's identity: where it is and what it is called, ship-independent. `distanceLy` and `bearing`
+// are measured from the save's homeworld; `region` is what the risk roll and the run read.
+export interface CandidateSystem {
+  id: string; // "cand-<tier>-<slot>"
+  tier: RegionTier;
+  slot: number;
+  seed: number;
+  systemId: string;
+  systemName: string;
+  famousId: string | null; // a starCatalog.ts famous system, or null (a catalog-named one)
+  bearing: number; // whole tenths of a degree from the homeworld (galaxy.ts bearingDirection)
+  distanceLy: number; // whole light-years from the homeworld, inside the tier's band
+  region: ExpeditionRegion;
+}
+
+// The seed of candidate `slot` of `tier` (Tier I's slot i is the pre-G2 candidate i). Pure.
+export function candidateSlotSeed(expeditionSeed: number, tier: RegionTier, slot: number): number {
+  return makeExpeditionSeed(expeditionSeed, (tier - 1) * CANDIDATE_STRIDE + slot);
+}
+
+// The famous system a slot rolls (FAMOUS_SYSTEM_ONE_IN; then which of its tier's), or null. Both draws are always
+// taken, one stream per candidate seed. Pure.
+function rolledFamousSystem(seed: number, tier: RegionTier): FamousSystem | null {
+  const rng = makeRng((seed ^ FAMOUS_SYSTEM_SALT) >>> 0);
+  const hit = rng.nextInt(FAMOUS_SYSTEM_ONE_IN) === 0;
+  const list = famousSystemsOfTier(tier);
+  const pick = rng.nextInt(Math.max(1, list.length));
+  return hit ? list[pick] ?? null : null;
+}
+
+// How many expeditions the save has dispatched (the Wolf 359 guarantee's clock). Pure.
+function dispatchedExpeditions(state: Pick<GameState, "nextExpeditionId">): number {
+  const n = state.nextExpeditionId;
+  return typeof n === "number" && Number.isFinite(n) ? Math.max(0, Math.floor(n) - 1) : 0;
+}
+
+// The candidate systems the console offers for `tier`, in SLOT order (the console shows them nearest first:
+// expeditionDispatchDisplay.ts nearestFirst, so a list index never shifts under a test or a sim). Each slot is a famous system
+// (Wolf 359 on Tier I slot 0 in the first list after the first run, user G10; else the rolled one, never twice in
+// one list) at its real distance and bearing from the homeworld (clamped into the band, as a near star can sit
+// closer to a homeworld than the band's nearest-star edge), or a catalog-named system at its drawn distance
+// (telescope.ts systemDistanceLy) and drawn bearing. Enemy territory: its bearing inside the tier's fixed sector
+// (galaxy.ts inEnemySector; Tier I has none). Stable until a dispatch advances expeditionSeed. Pure.
+export function tierCandidateSystems(
+  state: Pick<GameState, "expeditionSeed" | "nextExpeditionId" | "homeworld">,
+  tier: RegionTier,
+  homeworld: HomeworldPlacement = stateHomeworld(state),
+): CandidateSystem[] {
+  const wolfSlot = tier === 1 && dispatchedExpeditions(state) === WOLF_359_LIST_AFTER_DISPATCHES ? 0 : -1;
+  const used = new Set<string>(wolfSlot >= 0 ? [WOLF_359_ID] : []);
+  const band = homeworld.regionBandsLy[tier] ?? homeworld.regionBandsLy[1];
+  const out: CandidateSystem[] = [];
+  for (let slot = 0; slot < EXPEDITION_CANDIDATE_COUNT; slot++) {
+    const seed = candidateSlotSeed(state.expeditionSeed, tier, slot);
+    let famous = slot === wolfSlot ? famousSystem(WOLF_359_ID) ?? null : rolledFamousSystem(seed, tier);
+    if (famous && slot !== wolfSlot) {
+      if (used.has(famous.id)) famous = null;
+      else used.add(famous.id);
+    }
+    let named: { systemId: string; systemName: string };
+    let bearing: number;
+    let distanceLy: number;
+    if (famous) {
+      const seen = famousSystemFrom(famous, homeworld);
+      named = { systemId: famous.id, systemName: famous.name };
+      bearing = seen.bearing;
+      distanceLy = Math.max(Math.min(band.near + 1, band.far), Math.min(band.far, seen.distanceLy));
+    } else {
+      named = catalogSystemName(tier, makeRng((seed ^ SYSTEM_NAME_SALT) >>> 0).nextRange(1, CATALOG_NUMBER_MAX));
+      bearing = makeRng((seed ^ CANDIDATE_BEARING_SALT) >>> 0).nextInt(BEARING_TURN);
+      distanceLy = systemDistanceLy(seed, tier, homeworld);
+    }
+    out.push({
+      id: `cand-${tier}-${slot}`,
+      tier,
+      slot,
+      seed,
+      ...named,
+      famousId: famous?.id ?? null,
+      bearing,
+      distanceLy,
+      region: { tier, enemyTerritory: inEnemySector(homeworld, tier, bearing) },
+    });
+  }
+  return out;
+}
+
+// The candidate system `candidateId` names on the current console (any tier; a pre-G2 `cand-<slot>` id names the
+// Tier I slot), or null. Pure.
+export function candidateSystemById(state: Pick<GameState, "expeditionSeed" | "nextExpeditionId" | "homeworld">, candidateId: string): CandidateSystem | null {
+  const m = /^cand-(?:([1-7])-)?(0|[1-9]\d*)$/.exec(candidateId);
+  if (!m) return null;
+  const tier = (m[1] === undefined ? 1 : Number(m[1])) as RegionTier;
+  const slot = Number(m[2]);
+  if (!REGION_TIERS.includes(tier) || slot >= EXPEDITION_CANDIDATE_COUNT) return null;
+  return tierCandidateSystems(state, tier).find((c) => c.slot === slot) ?? null;
+}
+
+// The region stamp a dispatch to `cand` freezes on its run (Expedition.region). Pure; a fresh object.
+function regionStampOf(cand: CandidateSystem): ExpeditionRegionStamp {
+  return { version: 1, tier: cand.tier, enemyTerritory: cand.region.enemyTerritory, bearing: cand.bearing, distanceLy: cand.distanceLy };
+}
+
+// A throwaway system for a preview at `seed` in `region` (the forecast's simulated launch; no candidate name is
+// needed there). Pure.
+function previewSystem(seed: number, region: ExpeditionRegion): { systemId: string; systemName: string; bodies: ExpeditionBody[] } {
+  return { systemId: "preview", systemName: "", bodies: generateBodies(seed, region.tier) };
 }
 
 // The resolved sensor snapshot for a ship: its installed array (or null), that array's rarity/quality-
@@ -565,7 +725,7 @@ export function expeditionGearBonuses(state: GameState, ship: ShipInstance): Exp
 
 // A candidate's FOREKNOWLEDGE view: a progressive reveal gated by the ship's crew-inclusive `sensors`.
 // Below SENSOR_REVEAL_IN_RANGE the destination is `inRange: false` (only its name is known); each higher
-// threshold unlocks the next field. Every revealed value is a projection of generateSystem(candidate.seed)
+// threshold unlocks the next field. Every revealed value is a projection of generateBodies(candidate.seed, its tier)
 // (+ the same discovery roll for the relic signature), so it matches what the committed expedition
 // resolves. A field is null until its threshold is met (the UI shows a masked placeholder for a null).
 export interface ExpeditionForeknowledgeBody {
@@ -588,8 +748,11 @@ export interface ExpeditionForeknowledge {
 // system identity (always known -- a name shows even beyond sensor range, like the mockup's Cygnus Gate),
 // and the sensor-gated foreknowledge view.
 export interface ExpeditionCandidate {
-  id: string; // "cand-<index>", stable for a given expeditionSeed
-  index: number;
+  id: string; // "cand-<tier>-<slot>" (G2-2), stable for a given expeditionSeed
+  index: number; // the slot within its tier (the console sorts nearest first, so not its screen position)
+  // Expedition Tiers G2-2: the region the candidate lies in (its tier, and enemy territory by the homeworld's fixed
+  // sectors). The risk roll, the previews and the run read it; the UI shows only what `telescope` reads of it.
+  region: ExpeditionRegion;
   seed: number; // == the committed expedition's seed if this candidate is chosen (so the preview matches)
   systemId: string;
   systemName: string;
@@ -607,19 +770,19 @@ export interface ExpeditionCandidate {
 
 // The foreknowledge of a BLIND candidate: beyond the telescope's range the ship's own sensor layers are hidden too
 // (design 6.4: a ship parked at the homeworld cannot see thousands of light-years) [PROPOSAL, open call 7; user #7
-// asks for a "truly unknown territory" warning]. Unreachable today: every candidate is Tier I and the founding
-// telescope reads Tier I.
+// asks for a "truly unknown territory" warning]. G2-2: a candidate of a tier past the telescope's reach reads it (the
+// console offers deeper tiers once G2-6 adds the region picker).
 const BLIND_FOREKNOWLEDGE: ExpeditionForeknowledge = { inRange: false, bodyCount: null, bodies: null, relicSignature: null, relicSets: null };
 
-// Run the REAL seeded discovery roll for a preview system (generateSystem's bodies), reusing the exact
+// Run the REAL seeded discovery roll for a preview system (generateBodies), reusing the exact
 // engine path (assignDiscoveriesAndActivities) so the projection cannot drift from what the committed
 // expedition resolves. Builds a throwaway expedition-shaped object with the given seed + the ship's
 // snapshotted scan params (the array bias skews discoveries, so the preview must use the ship's array),
 // then reads the resulting discoveries. Pure: mutates only the local throwaway. Returns the distinct relic
 // SETS the would-be discoveries source (relics.ts relicSetForPoi), in canonical RELIC_SETS order; the
 // boolean signature is "this list is non-empty".
-function previewRelicSets(seed: number, scanParams: ExpeditionScanParams): RelicSetId[] {
-  const fake = previewRun(seed, scanParams, expeditionRegion(seed));
+function previewRelicSets(seed: number, scanParams: ExpeditionScanParams, region: ExpeditionRegion): RelicSetId[] {
+  const fake = previewRun(seed, scanParams, region);
   fake.bodies.forEach((b, i) => assignDiscoveriesAndActivities(fake, b, i));
   const found = new Set<RelicSetId>();
   for (const b of fake.bodies) {
@@ -636,7 +799,7 @@ function previewRelicSets(seed: number, scanParams: ExpeditionScanParams): Relic
 // flora's Bloom lift shapes the previewed discoveries as it shapes the run's), and the ship's scan params. No
 // ground teams, so no hostile site joins unless the caller passes the squads. Pure: fresh objects.
 function previewRun(seed: number, scanParams: ExpeditionScanParams, region: ExpeditionRegion): Expedition {
-  const gen = generateSystem(seed);
+  const gen = previewSystem(seed, region);
   const risk = generateRiskProfile(seed, region, gen.bodies);
   return {
     id: "preview",
@@ -678,13 +841,14 @@ function gateForeknowledge(
   bodies: ExpeditionBody[],
   seed: number,
   scanParams: ExpeditionScanParams,
+  region: ExpeditionRegion,
 ): ExpeditionForeknowledge {
   const inRange = sensorPower >= SENSOR_REVEAL_IN_RANGE;
   if (!inRange) return { inRange: false, bodyCount: null, bodies: null, relicSignature: null, relicSets: null };
   const showTypes = sensorPower >= SENSOR_REVEAL_PLANET_TYPES;
   const showHazard = sensorPower >= SENSOR_REVEAL_HAZARD;
   const showRelic = sensorPower >= SENSOR_REVEAL_RELIC;
-  const relicSets = showRelic ? previewRelicSets(seed, scanParams) : null;
+  const relicSets = showRelic ? previewRelicSets(seed, scanParams, region) : null;
   return {
     inRange: true,
     bodyCount: bodies.length,
@@ -703,7 +867,9 @@ function gateForeknowledge(
 // an unchanged state. The candidate SEEDS are ship-independent (all ships see the same frontier systems);
 // only the FOREKNOWLEDGE reveal differs by the ship's sensors. dispatch (startExpedition) commits one
 // candidate's seed and only THEN advances expeditionSeed for a fresh next list.
-export function expeditionCandidates(state: GameState, shipId: string): ExpeditionCandidate[] {
+// Expedition Tiers G2-2: the list of ONE region tier (tierCandidateSystems: three per tier, nearest first); Tier I
+// by default. The console shows Tier I until G2-6 adds the region picker.
+export function expeditionCandidates(state: GameState, shipId: string, tier: RegionTier = 1): ExpeditionCandidate[] {
   const ship = state.ships.find((s) => s.id === shipId);
   const snap = shipSensorSnapshot(state, ship);
   const homeworld = stateHomeworld(state); // G2-1: the range and distances from the save's own homeworld
@@ -712,37 +878,27 @@ export function expeditionCandidates(state: GameState, shipId: string): Expediti
   // foreknowledge field below). Display only, like the telescope; never past its range.
   const sight = ship ? captainTelescopeSight(commandingCaptain(state, ship)) : NO_CAPTAIN_SIGHT;
   const foreSensors = sight.full ? Number.POSITIVE_INFINITY : snap.sensorPower;
-  const out: ExpeditionCandidate[] = [];
-  for (let i = 0; i < EXPEDITION_CANDIDATE_COUNT; i++) {
-    const seed = makeExpeditionSeed(state.expeditionSeed, i);
-    const gen = generateSystem(seed);
-    const sys = readSystem(reading, seed, snap.sensorPower, expeditionRiskPreview(seed), homeworld, sight);
+  return tierCandidateSystems(state, tier, homeworld).map((cand) => {
+    const { seed, region } = cand;
+    const bodies = generateBodies(seed, region.tier);
+    const sys = readSystem(reading, seed, snap.sensorPower, expeditionRiskPreview(seed, region), homeworld, sight, cand.distanceLy);
     // Squads SQ-6: the task demand (cheap: one throwaway discovery and stamping pass) rides the candidate from Per
     // body. The recommendation and the forecast simulate launches, so they are NOT built here: the UI asks for them
     // per candidate (expeditionLaunchView, e.g. for an expanded card).
     const demand =
-      ship && sys.detail >= TELESCOPE_DETAIL.perBody ? taskDemand(previewForHull(systemTaskPreview(seed, snap.scanParams), ship.typeKey)) : null;
+      ship && sys.detail >= TELESCOPE_DETAIL.perBody ? taskDemand(previewForHull(systemTaskPreview(seed, snap.scanParams, region), ship.typeKey)) : null;
     const telescope: CandidateTelescopeReading = { ...sys, demand };
-    out.push({
-      id: `cand-${i}`,
-      index: i,
+    return {
+      id: cand.id,
+      index: cand.slot,
+      region: { ...region },
       seed,
-      systemId: gen.systemId,
-      systemName: gen.systemName,
-      foreknowledge: telescope.blind ? { ...BLIND_FOREKNOWLEDGE } : gateForeknowledge(foreSensors, gen.bodies, seed, snap.scanParams),
+      systemId: cand.systemId,
+      systemName: cand.systemName,
+      foreknowledge: telescope.blind ? { ...BLIND_FOREKNOWLEDGE } : gateForeknowledge(foreSensors, bodies, seed, snap.scanParams, region),
       telescope,
-    });
-  }
-  return out;
-}
-
-// The seed of candidate `candidateId` on the current console list (the same ids and seeds expeditionCandidates
-// offers, without building the readings), or null. Pure.
-function candidateSeed(state: GameState, candidateId: string): number | null {
-  for (let i = 0; i < EXPEDITION_CANDIDATE_COUNT; i++) {
-    if (candidateId === `cand-${i}`) return makeExpeditionSeed(state.expeditionSeed, i);
-  }
-  return null;
+    };
+  });
 }
 
 // ============================================================================
@@ -757,9 +913,9 @@ const EVERY_SITE: GroundTaskNeeds = { security: Number.POSITIVE_INFINITY, scienc
 // seed, the ship's scan params, the bodies' risk grades) and the run's own stamping (groundOps.ts
 // initGroundTasks: fight points, needs under riskFactors.ts tierNeeds, difficulty), body by body. Every hostile
 // site the risk roll placed is listed (`hostile`); the run reveals one only when the deployed squads field it.
-// `region` defaults to the seed's (expeditionRegion); tests pass another. Pure: a throwaway run, never stored.
+// `region` is the candidate's (G2-2), Tier I by default. Pure: a throwaway run, never stored.
 // The UI never calls this for a candidate: it reads candidate.telescope, which carries only what the detail allows.
-export function systemTaskPreview(seed: number, scanParams: ExpeditionScanParams, region: ExpeditionRegion = expeditionRegion(seed)): SystemTaskPreview {
+export function systemTaskPreview(seed: number, scanParams: ExpeditionScanParams, region: ExpeditionRegion = TIER_I_REGION): SystemTaskPreview {
   const run = previewRun(seed, scanParams, region);
   const tasks: PreviewTask[] = [];
   run.bodies.forEach((body, i) => {
@@ -807,7 +963,7 @@ export function simulateLaunch(state: GameState, shipId: string, seed: number, k
     }
   }
   const ship = s.ships.find((x) => x.id === shipId) as ShipInstance;
-  const gen = generateSystem(seed);
+  const gen = previewSystem(seed, region);
   const risk = generateRiskProfile(seed, region, gen.bodies);
   const fleets = validCompositions(ship.typeKey).map(compositionSquads);
   const placed = risk.bodies.filter((b) => b.site !== undefined && fleets.some((sq) => hostileSiteFieldable(b.site!, sq))).length;
@@ -834,7 +990,7 @@ export function compositionFightOdds(
   seed: number,
   kinds: readonly GroundTeamKind[],
   preview: SystemTaskPreview,
-  region: ExpeditionRegion = expeditionRegion(seed),
+  region: ExpeditionRegion = TIER_I_REGION,
   sim: SimulatedLaunch | null = simulateLaunch(state, shipId, seed, kinds, region),
 ): number | null {
   if (!sim || !sim.exp || compositionChanges(sim.used, kinds) > 0) return null;
@@ -875,7 +1031,7 @@ export function launchForecast(
   shipId: string,
   seed: number,
   kinds: readonly GroundTeamKind[],
-  region: ExpeditionRegion = expeditionRegion(seed),
+  region: ExpeditionRegion = TIER_I_REGION,
   sim: SimulatedLaunch | null = simulateLaunch(state, shipId, seed, kinds, region),
 ): LaunchForecast | null {
   if (!sim) return null;
@@ -965,7 +1121,7 @@ export function launchForecast(
 export const LAUNCH_VIEW_MEMO_SIZE = 32;
 const launchViewMemo = new Map<string, LaunchView>();
 
-function launchViewKey(state: GameState, ship: ShipInstance, seed: number, detail: number, scanParams: ExpeditionScanParams): string {
+function launchViewKey(state: GameState, ship: ShipInstance, seed: number, region: ExpeditionRegion, detail: number, scanParams: ExpeditionScanParams): string {
   const aboard = state.awayMembers.filter((m) => m.assignedShipId === ship.id);
   const ids = new Set(aboard.map((m) => m.id));
   const gear = state.equipment.filter((e) => e.fittedToShipId === ship.id || (e.fittedToMemberId !== undefined && e.fittedToMemberId !== null && ids.has(e.fittedToMemberId)));
@@ -973,11 +1129,12 @@ function launchViewKey(state: GameState, ship: ShipInstance, seed: number, detai
   const captain = commandingCaptain(state, ship);
   const officers = state.officers.filter((o) => o.assignedShipId === ship.id);
   const notables = state.notableCrew.filter((n) => (n.assignedShipId ?? null) === ship.id);
-  const gen = generateSystem(seed);
-  const dispatch = buildExpedition(state, ship, ship.assignedCaptainId ?? 0, seed, true, 0, gen, generateRiskProfile(seed, expeditionRegion(seed), gen.bodies), "");
+  const gen = previewSystem(seed, region);
+  const dispatch = buildExpedition(state, ship, ship.assignedCaptainId ?? 0, seed, true, 0, gen, generateRiskProfile(seed, region, gen.bodies), "");
   const frozen = JSON.stringify({ ...dispatch, phaseAnchorSeconds: 0 }, (k, v) => (k === "stepStartedAt" ? undefined : v));
   return JSON.stringify([
     seed,
+    region,
     telescopeLevel(state),
     detail,
     scanParams,
@@ -1000,20 +1157,25 @@ export function launchViewMemoSize(): number {
 
 // The launch view of `candidate` (one of expeditionCandidates(state, shipId)) for ship `shipId` (see above). Display
 // only; all nulls for an unknown ship or below Per body. Pure in effect (memoized on its whole input).
-export function expeditionLaunchView(state: GameState, shipId: string, candidate: Pick<ExpeditionCandidate, "seed" | "telescope">): LaunchView {
+// G2-2: the candidate's region (Tier I when a caller passes none).
+export function expeditionLaunchView(
+  state: GameState,
+  shipId: string,
+  candidate: Pick<ExpeditionCandidate, "seed" | "telescope"> & { region?: ExpeditionRegion },
+): LaunchView {
   const ship = state.ships.find((x) => x.id === shipId);
   const detail = candidate.telescope.detail;
   if (!ship || !(detail >= TELESCOPE_DETAIL.perBody)) return { demand: null, recommendation: null, forecast: null };
   const seed = candidate.seed;
+  const region = candidate.region ?? TIER_I_REGION;
   const scanParams = shipSensorSnapshot(state, ship).scanParams;
-  const key = launchViewKey(state, ship, seed, detail, scanParams);
+  const key = launchViewKey(state, ship, seed, region, detail, scanParams);
   const hit = launchViewMemo.get(key);
   if (hit) {
     launchViewMemo.delete(key);
     launchViewMemo.set(key, hit);
     return hit;
   }
-  const region = expeditionRegion(seed);
   const sims = new Map<string, SimulatedLaunch | null>();
   const simOf = (kinds: readonly GroundTeamKind[]): SimulatedLaunch | null => {
     const k = [...kinds].sort().join("+");
@@ -1035,13 +1197,13 @@ export function expeditionLaunchView(state: GameState, shipId: string, candidate
   return view;
 }
 
-// Squads SQ-4: a candidate's RISK PROFILE (riskFactors.ts): the region its seed lies in (expeditionRegion, Tier I
-// until G2), the system's grades and every body's, on the candidate's own seed (RISK_SALT). Pure and
-// ship-independent: startExpedition stores exactly this for the committed seed, so a pre-launch reading (the
-// Subspace Telescope, SQ-5) can never disagree with the run. A body's hostile `site` is the seeded placement;
-// whether it becomes a task depends on the squads the ship deploys (hostileSiteFieldable).
-export function expeditionRiskPreview(seed: number): { profile: ExpeditionRiskProfile; bodies: BodyRiskGrades[] } {
-  return generateRiskProfile(seed, expeditionRegion(seed), generateSystem(seed).bodies);
+// Squads SQ-4: a candidate's RISK PROFILE (riskFactors.ts): the candidate's region (G2-2: its tier and enemy
+// territory; Tier I by default), the system's grades and every body's, on the candidate's own seed (RISK_SALT).
+// Pure and ship-independent: startExpedition stores exactly this for the committed candidate, so a pre-launch
+// reading (the Subspace Telescope, SQ-5) can never disagree with the run. A body's hostile `site` is the seeded
+// placement; whether it becomes a task depends on the squads the ship deploys (hostileSiteFieldable).
+export function expeditionRiskPreview(seed: number, region: ExpeditionRegion = TIER_I_REGION): { profile: ExpeditionRiskProfile; bodies: BodyRiskGrades[] } {
+  return generateRiskProfile(seed, region, generateBodies(seed, region.tier));
 }
 
 // Dispatch a ship + captain on a NEW expedition by COMMITTING a chosen candidate target. Pure: returns
@@ -1068,23 +1230,24 @@ export function startExpedition(
   // GO-8 review (user, 2026-10-14): a damaged ship, or one in a Shipyard repair bay, is repaired first.
   if (expeditionShipDamaged(state, ship)) return { next: state, success: false, reason: "shipDamaged" };
 
-  // The candidate's seed (the console's ids, without building every reading: SQ-6's forecast builds runs).
-  const committed = candidateSeed(state, candidateId);
-  if (committed === null) return { next: state, success: false, reason: "noSuchCandidate" };
+  // The candidate (the console's ids, without building every reading: SQ-6's forecast builds runs). G2-2: any tier's.
+  const cand = candidateSystemById(state, candidateId);
+  if (cand === null) return { next: state, success: false, reason: "noSuchCandidate" };
   // D18: no minimum away team (1 Security + 1 Science, ready), no expedition.
   if (!expeditionAwayTeamCheck(state, ship).ok) return { next: state, success: false, reason: "needsAwayTeam" };
 
   const number = state.nextExpeditionId;
-  const seed = committed; // COMMIT the previewed candidate's seed so the launch matches its preview
-  const gen = generateSystem(seed);
-  // Squads SQ-4: the RISK PROFILE (riskFactors.ts), drawn from the committed candidate's seed exactly as
+  const seed = cand.seed; // COMMIT the previewed candidate's seed so the launch matches its preview
+  const gen = { systemId: cand.systemId, systemName: cand.systemName, bodies: generateBodies(seed, cand.tier) };
+  // Squads SQ-4: the RISK PROFILE (riskFactors.ts), drawn from the committed candidate's seed and region exactly as
   // expeditionRiskPreview reads it, so the pre-launch reading and the run are one draw.
-  const risk = expeditionRiskPreview(seed);
-  const expedition = buildExpedition(state, ship, captainId, seed, anomalyOptIn, number, gen, risk);
+  const risk = expeditionRiskPreview(seed, cand.region);
+  // G2-2: the run freezes where it went (Expedition.region), so it never re-reads the homeworld.
+  const expedition: Expedition = { ...buildExpedition(state, ship, captainId, seed, anomalyOptIn, number, gen, risk), region: regionStampOf(cand) };
   // Squads SQ-6 (user, SQ-5 call (b)): count a BLIND launch (beyond the telescope's range: the same reading the
   // candidate showed), so the future "go in blind" achievement can award retroactively. Never read by a run.
   const homeworld = stateHomeworld(state);
-  const blind = readSystem(telescopeReading(state, homeworld), seed, expedition.sensorPower, risk, homeworld).blind;
+  const blind = readSystem(telescopeReading(state, homeworld), seed, expedition.sensorPower, risk, homeworld, undefined, cand.distanceLy).blind;
 
   return {
     next: {
