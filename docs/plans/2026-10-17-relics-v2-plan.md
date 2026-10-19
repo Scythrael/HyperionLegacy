@@ -358,4 +358,10 @@ inert: culture names (finds keep their "Relic Sample" codes, honest Help), the R
 - **Call 6 exceptional odds:** "0.25% to 1.5%, x1.25/tier (Recommended)".
 - **Call 7 duplicates:** "Prefer missing pieces (Recommended)".
 - **Call 8 identify vs name:** "Type on identify, name via culture (Recommended)".
-- Still open: 9 to 17, plus the name sign-offs.
+- **Call 9 cultures:** "Tied to source planet (Recommended)": +1 study point per identified find plus 15b ancient data;
+  named at 10; ONE Cultures tab also serves 15b's special blueprints.
+- **Call 10 culture names:** "Curated roster, 42 names (Recommended)": 6 per tier on a sign-off sheet.
+- **Call 11 Precursor:** "Umbrella word (Recommended)".
+- **Call 12 identification:** "Free, queued, lanes by Lab (Recommended)": 10 minutes x rarity, lanes I 1, III 2, V 3,
+  VII 4, no Lab gate per tier.
+- Still open: 13 to 17, plus the name sign-offs (exceptional set names, 42 culture names).
