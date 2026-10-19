@@ -37,7 +37,7 @@ import {
   type PatrolMissionState,
   type ShipTypeKey,
 } from "./model";
-import { dispatchCaptainOnMission, dispatchCaptainOnPatrol, economyTick, installMissingCombatBaselines, processShipRepairs, shipRepairDurationTicks } from "./tick";
+import { dispatchCaptainOnMission, dispatchCaptainOnPatrol, economyTick, installMissingCombatBaselines, processShipRepairs, shipRepairDurationTicks, tick } from "./tick";
 import { replayPatrol } from "./combat/patrolReplay";
 import { advanceExpedition, claimExpedition, expeditionCandidates, startExpedition } from "./expedition";
 import { effectiveShipStats, officerRepairSpeedBonus, shipCrewContribution } from "./crewOverlay";
@@ -424,5 +424,81 @@ describe("CP-2 turn it off: with the CP-2 effects switched off, every moved fixt
     const before = JSON.stringify([CREW_PROFESSION_BUFFS, SECOND_LEVEL_EXCLUSIVE, CREW_RACES]);
     withCp2Off(() => 0);
     expect(JSON.stringify([CREW_PROFESSION_BUFFS, SECOND_LEVEL_EXCLUSIVE, CREW_RACES])).toBe(before);
+  });
+});
+
+// ===== OC-11 "Pause while out": offline runs with a passive ship that is out =====
+//
+// Captured on the code BEFORE the OC-11 engine edit (user 2026-10-16, "Pause while out (Recommended)": auto-crew does
+// not fill a passive ship while it is crew-locked, crewLock.ts shipCrewLocked). Each fixture runs OFFLINE through
+// tick() (one economyTick(_, 1) per second) across two transport windows and checks that the same span stepped live
+// gives the same state:
+//   expedition : a passive ship on an unclaimed Ground Ops expedition, then the claimed state one tick later.
+//   patrol     : a passive carrier on a Repeat patrol (out the whole span).
+//   home       : the control, a passive ship idle at home (it fills; OC-11 must not move it).
+const OC11_SPAN = 2 * TRANSPORT_WINDOW_SECONDS;
+const OC11_START = TRANSPORT_WINDOW_SECONDS - 100;
+
+function offlineAndLive(s0: GameState, rngOf: () => () => number): GameState {
+  const offline = tick(OC11_SPAN, s0, rngOf());
+  let live = s0;
+  const rng = rngOf();
+  for (let i = 0; i < OC11_SPAN; i++) live = economyTick(live, 1, rng);
+  expect(hash(offline), "offline == live").toBe(hash(live));
+  return offline;
+}
+
+function oc11Expedition(): { out: GameState; claimedNext: GameState } {
+  const s = withSlottedAwayTeams({ ...freshState(), awayMembers: MEDIC_SQUAD.map((m) => ({ ...m })), nextAwayMemberId: 100, expeditionSeed: 0x1234, gameTimeSeconds: OC11_START });
+  // The CP-0 Ground Ops dispatch shape (before enemy ranks and the safe first run), so the run reaches claim.
+  const res = asPreSafeFirstRunsDispatch(asPreRanksDispatch(startExpedition(s, "ship-1", 1, expeditionCandidates(s, "ship-1")[0].id)));
+  if (!res.success || !res.expedition) throw new Error(`dispatch refused: ${res.reason}`);
+  const out = offlineAndLive(res.next, () => lcg(0x0c11));
+  expect(out.expeditions).toHaveLength(1);
+  const done = advanceExpedition(out.expeditions[0], FINAL);
+  const claim = claimExpedition({ ...out, expeditions: [done] }, done.id);
+  expect(claim.success, `${done.phase} ${JSON.stringify((claim as { reason?: unknown }).reason)}`).toBe(true);
+  return { out, claimedNext: economyTick(claim.next, 1, lcg(0x0c12)) };
+}
+
+function oc11Patrol(): GameState {
+  const base = freshState();
+  const st = installMissingCombatBaselines({ ...base, credits: new Decimal(100000), gameTimeSeconds: OC11_START, ships: base.ships.map((sh) => ({ ...sh, typeKey: "carrier" as ShipTypeKey })) });
+  const r = dispatchCaptainOnPatrol(st, 1, "crimsonReaverSweep", "balanced", true);
+  expect(r.success).toBe(true);
+  const out = offlineAndLive(r.next, () => () => 0.5);
+  expect(out.captains[0].mission).not.toBeNull();
+  return out;
+}
+
+function oc11Home(): GameState {
+  const out = offlineAndLive({ ...freshState(), gameTimeSeconds: OC11_START }, () => lcg(0x0c13));
+  // The freighter takes what its division caps allow from the two windows' crew; the rest waits in the pool.
+  expect(totalCrew(out.ships[0].complement!.buckets) + totalCrew(out.crewPool)).toBe(2 * TRANSPORT_BATCH_SIZE);
+  expect(totalCrew(out.ships[0].complement!.buckets)).toBeGreaterThan(0);
+  return out;
+}
+
+const OC11_GOLDEN: Record<string, string | string[]> = {
+  expedition: ["899d6dce", "a1ddd4d6"],
+  patrol: "ac3dfb63",
+  home: "c0ba84ba",
+};
+
+describe("OC-11 goldens: offline runs with a passive ship that is out", () => {
+  it("expedition: a passive ship on an unclaimed expedition across two transport windows, then claimed", () => {
+    const { out, claimedNext } = oc11Expedition();
+    expect(out.lastTransportWindow).toBe(2);
+    expect([hash(out), hash(claimedNext)]).toEqual(OC11_GOLDEN.expedition);
+  });
+
+  it("patrol: a passive carrier on a Repeat patrol across two transport windows", () => {
+    const out = oc11Patrol();
+    expect(out.lastTransportWindow).toBe(2);
+    expect(hash(out)).toBe(OC11_GOLDEN.patrol);
+  });
+
+  it("home: the control, a passive ship idle at home (fills either way)", () => {
+    expect(hash(oc11Home())).toBe(OC11_GOLDEN.home);
   });
 });
