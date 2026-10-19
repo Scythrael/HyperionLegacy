@@ -505,4 +505,8 @@ Sets in 0.14.x). The power budget itself should not move: seven registry rows an
   draw on a diminishing curve.
 - **L9 Deuterium consumers:** answered through gas giant call 7 ("Drives + Lab blueprints"): Deuterium feeds Class III+
   FTL drives; whether the High-Output Core also takes it is asked with L8.
-- Still open: P5, M3 to M9, L1 to L8, L10, L11, X1.
+- **P5 drive draw:** "x1.6 per class (Recommended)".
+- **M3 Active auto-cast:** "One preset rule (Recommended)".
+- **M4 trigger set:** "Something else" (no text given; follow-up asked 2026-10-19).
+- **M5 uniqueness:** "Unique effects only (Recommended)".
+- Still open: M4 (follow-up), M6 to M9, L1 to L8, L10, L11, X1.
