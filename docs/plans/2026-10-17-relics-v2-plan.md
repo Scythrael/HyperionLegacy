@@ -344,3 +344,14 @@ names; (A) on call 2 keeps that near 54 + 42. Dependencies: G2-2 for real tiers 
 (safe first runs), Lab tiers 3 to 7 (complement plan; lanes read whatever level exists), the ledger (decided, unowned),
 15b for the ancient-data feed, G1 and G7 as callers of the two seams. Could move to 0.14.x without leaving anything
 inert: culture names (finds keep their "Relic Sample" codes, honest Help), the R2-8 culture detail view.
+
+## USER ANSWERS (2026-10-19)
+
+- **Call 1 today's relics:** "Become Tier I pool (Recommended)": the 17 relics become Tier I's general pool by band
+  (4 / 5 / 4 / 4); ids, names, flavors and first-find unlocks kept; the set ladder retired.
+- **Call 2 general pools:** "Same types, scaled per tier (Recommended)".
+- **Call 3 soft cap:** "1000 per tier (Recommended)".
+- **Call 4 past the cap:** "Keep counting, show it (Recommended)".
+- Note on call 14: G1's short-range relic rate was already answered on the short-range plan (2026-10-19: rare, per
+  hour, Tier I 0.08x and Tier II 0.15x of the expedition rate); call 14 now only asks whether other missions drop too.
+- Still open: 5 to 17, plus the name sign-offs.
