@@ -178,7 +178,7 @@ const EXP_KEY_FIELDS = {
   squadFearResist: true,
   hazardResist: true,
   teamKit: true,
-} as const satisfies Record<Exclude<keyof ThreatExp, "enemyRanks" | "difficulty">, true>;
+} as const satisfies Record<Exclude<keyof ThreatExp, "enemyRanks" | "difficulty" | "explorerCaptain">, true>;
 const TEAM_KEY_FIELDS = { securityIds: true, downedThisTask: true, securityShare: true } as const satisfies Record<
   keyof GroundFightTeam,
   true
@@ -224,6 +224,8 @@ export function groundThreatOddsKey(
   // Field Kits FKR-1: a ranked run's ranks shape the read (the catalog version, the objective's grade, the training
   // run stamp), tagged and appended only on a ranked run.
   const ranked = ranksLive(exp) ? [["ranks", exp.enemyRanks?.version, task.difficulty, isTrainingRun(exp)]] : [];
+  // WR-5c: the captain's Away-Team Doctrine shapes the squad (taskFightTeam), tagged and appended only when present.
+  const doctrine = exp.explorerCaptain?.squadPowerMult !== undefined ? [["doctrine", exp.explorerCaptain.squadPowerMult]] : [];
   return JSON.stringify(
     // Squads SQ-4: the body's risk shapes the read, so it is part of the key: its flora the fights (groundFight.ts
     // withFloraToxins), its combat and fauna an unstamped task's fight count (taskFightTotal). Absent risk: "u".
@@ -240,6 +242,7 @@ export function groundThreatOddsKey(
       ...escalation,
       ...covered,
       ...ranked,
+      ...doctrine,
     ],
     keyReplacer,
   );

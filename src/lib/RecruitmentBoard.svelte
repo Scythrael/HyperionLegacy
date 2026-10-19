@@ -38,6 +38,8 @@
   import type { AwayCrewBlockReason } from "./game/awayTeam";
   import { getAwayTrait, awayTraitEffectText, traitDisplayText } from "./game/awayTraits";
   import { officerRosterWindowIndex } from "./game/seniorStaff";
+  // WR-5c: the board size (the stored size x every Recruiter captain, rounded up).
+  import { candidateBoardSize } from "./game/captainExplorerEffects";
   import { crewRankLabel } from "./game/crewRank";
   import HelpTip from "./HelpTip.svelte";
   import {
@@ -114,7 +116,7 @@
     const shipsKey = s.ships
       .map((x) => `${x.id}:${x.name ?? ""}:${x.typeKey}:${crewLockReason(s, x.id) ?? 0}`)
       .join(",");
-    const key = `${officerRosterWindowIndex(s)}|${s.awayRecruitSeed}|${s.seniorStaffRosterSize}|${hostShipId}|${shipsKey}`;
+    const key = `${officerRosterWindowIndex(s)}|${s.awayRecruitSeed}|${candidateBoardSize(s)}|${hostShipId}|${shipsKey}`;
     if (key === memoKey && s.awayMembers === memoMembers && picks === memoPicks) return memoRows;
     memoKey = key;
     memoMembers = s.awayMembers;

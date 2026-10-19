@@ -19,8 +19,8 @@
 //
 // WIRED HERE (the Prospector tree): extraction1 to extraction5, logistics1 to logistics3 and logistics5 (logistics4
 // is groundOps.ts groundReloadMult, live since D26), trade1 to trade5. The Tactician tree (WR-5b) keeps its readers
-// and exact text in captainTacticianEffects.ts; the text lookup below routes through it. The Explorer tree is WR-5c:
-// its text below is still the generic catalog line.
+// and exact text in captainTacticianEffects.ts, the Explorer tree (WR-5c) in captainExplorerEffects.ts; the text
+// lookup below routes through both.
 
 import {
   SECONDARY_CAPTAIN_TALENTS,
@@ -29,8 +29,9 @@ import {
   type GameState,
   type SecondaryTalentKey,
 } from "./model";
-// WR-5b: the Tactician tree's exact text (captainTacticianEffects.ts imports nothing from this module, so no cycle).
+// WR-5b / WR-5c: the Tactician and Explorer trees' exact text (neither module imports this one, so no cycle).
 import { tacticianEffectText } from "./captainTacticianEffects";
+import { explorerTalentText } from "./captainExplorerEffects";
 
 // ============================================================================
 // Catalog reads
@@ -41,7 +42,7 @@ function owns(captain: CaptainState | undefined | null, key: SecondaryTalentKey)
 }
 
 // The node's configured magnitude: a statMult's mult, a procChance's chance, a capstone's magnitude, a trickle's
-// perTick; 0 for a gateway. Pure.
+// perTick, a levelLift's levels; 0 for a gateway. Pure.
 export function secondaryTalentMagnitude(key: SecondaryTalentKey): number {
   const e = SECONDARY_CAPTAIN_TALENTS[key].effect;
   switch (e.type) {
@@ -53,6 +54,8 @@ export function secondaryTalentMagnitude(key: SecondaryTalentKey): number {
       return e.magnitude ?? 0;
     case "creditTrickle":
       return e.perTick;
+    case "levelLift":
+      return e.levels;
     case "none":
       return 0;
   }
@@ -243,16 +246,10 @@ function prospectorText(key: SecondaryTalentKey): string | null {
   }
 }
 
-// The WR-5c capstones' catalog taglines (its slice replaces them with exact text).
-const CAPSTONE_TAGLINE: Readonly<Record<string, string>> = {
-  deepScan: "Deep Scan: full-system reveal + a guaranteed rare find",
-  relicHunter: "Relic Hunter: a guaranteed relic from an expedition",
-  legendaryCaptain: "Legendary Captain: a crew-wide multiplier + officer aura",
-};
-
 const humanize = (stat: string): string => stat.replace(/([a-z0-9])([A-Z])/g, "$1 $2").toLowerCase();
 
-// The generic line of a not-yet-wired node's effect (the WR-5c tree).
+// The generic line of an effect no tree's text covers (every catalog node has exact text since WR-5c; this is the
+// fallback for a stray effect object handed to the describer).
 function genericText(effect: CaptainSecondaryTalentEffect): string {
   switch (effect.type) {
     case "none":
@@ -262,15 +259,17 @@ function genericText(effect: CaptainSecondaryTalentEffect): string {
     case "procChance":
       return `${(effect.chance * 100).toFixed(0)}% chance-based bonus (first-pass)`;
     case "capstone":
-      return CAPSTONE_TAGLINE[effect.id] ?? "Branch capstone";
+      return "Branch capstone";
     case "creditTrickle":
       return `+${effect.perTick}/tick while docked`;
+    case "levelLift":
+      return `+${effect.levels} ${humanize(effect.stat)}`;
   }
 }
 
 // One node's player text: exactly what it does. Pure.
 export function secondaryTalentEffectText(key: SecondaryTalentKey): string {
-  return prospectorText(key) ?? tacticianEffectText(key) ?? genericText(SECONDARY_CAPTAIN_TALENTS[key].effect);
+  return prospectorText(key) ?? tacticianEffectText(key) ?? explorerTalentText(key) ?? genericText(SECONDARY_CAPTAIN_TALENTS[key].effect);
 }
 
 // The node whose catalog effect is `effect` (RadialWeb hands the describer the effect object), or undefined.

@@ -41,6 +41,7 @@
 
 import {
   SECONDARY_CAPTAIN_TALENTS,
+  commandingCaptain,
   type AwayMember,
   type AwayRosterSnapshot,
   type AwayTeamType,
@@ -179,7 +180,7 @@ function sharesOf(counts: readonly number[]): number[] {
 // Pure.
 export function groundReloadMult(state: GameState, ship: ShipInstance): number {
   const loadSpeed = nonNegative(shipCrewContribution(state, ship)[CREW_STAT_KEYS.loadSpeed]);
-  const captain = ship.assignedCaptainId === null ? undefined : state.captains.find((c) => c.id === ship.assignedCaptainId);
+  const captain = commandingCaptain(state, ship);
   const stowage = captain?.unlockedSecondaryTalents.includes("logistics4") ? EFFICIENT_STOWAGE_RELOAD : 0;
   return stepMult(1 + loadSpeed + stowage);
 }
@@ -1692,6 +1693,8 @@ function offloadFindings(exp: Expedition, ops: GroundOpsState, team: GroundTeamR
       task.poiId,
       `${exp.id}-relic-${task.id}`,
       riskBonus > 0 ? find + riskBonus : find,
+      // WR-5c: the captain's Field Science, Relic Hunter and Preservationist, frozen at dispatch (absent = unchanged).
+      exp.explorerCaptain,
     );
   }
   exp.findings.push(finding);

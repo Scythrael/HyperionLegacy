@@ -1072,6 +1072,52 @@ registry's `TACTICIAN_SEAMS` and WR-5a's `PROSPECTOR_SEAMS` sit side by side in 
 forecast (`rating.ts`, App's dispatch forecast) and the ship sheet's hull and shield readouts include neither officers
 nor the captain today; they stay that way (a display follow-up if wanted).
 
+#### WR-5c carry note (built 2026-10-17 in parallel with WR-5a / WR-5b; two commits: goldens, then the wiring)
+
+**Built:** `captainExplorerEffects.ts` (pure readers + each node's exact text; imports only model.ts), a compatible
+`captainSecondaryEffects.ts` (tooltip describer; App.svelte's describer block is the same as WR-5a's), goldens
+`captainExplorerGoldens.test.ts` (captured first: every node read exactly the baseline), tests
+`captainExplorerEffects.test.ts`. Every node acts on the ship its captain commands, as its own x (1 + X) factor, read
+from the catalog; runs freeze it (scan params, sensor power, squad strengths, the new optional
+`Expedition.explorerCaptain`); missions and the sheet read it live like the officers; patrols freeze it with the
+officer combat record. No SAVE bump (branch-only tree).
+- surveySensors1 Keen Sensors: sheet sensors x1.05, last in `effectiveShipStats` (surveys, run sensorPower, telescope
+  lift and ship events all read the sheet).
+- surveySensors2 Cartographer: `scanParams.captainScanRateMult` 1.08, x the scan rate.
+- surveySensors3 Anomaly Sense: `scanParams.captainDiscoveryMult` 1.05, x each attempt's odds (`discoveryOddsPermille`).
+- surveySensors4 Foreknowledge: new effect `levelLift` (1); candidates read +1 telescope detail (`readSystem` captain sight).
+- surveySensors5 Deep Scan (magnitude 1): candidates read at Forecast with every foreknowledge field; the first
+  `captainSureFinds` attempts of each body land (the draw is still taken).
+- expeditionRelics1 Expedition Lead: Security and Science strengths x1.05 in `deriveAwayTeam` (preview == dispatch).
+- expeditionRelics2 Field Science: relic chance x1.05 as its own factor (`relicChancePermille`).
+- expeditionRelics3 Away-Team Doctrine: Security power and accuracy x1.05 in Ground Ops fights (threat memo keyed).
+- expeditionRelics4 Preservationist: the relics that ship recovers carry `studySpeed` 0.08 to the vault; their study
+  speed x1.08 (600 ticks -> 556).
+- expeditionRelics5 Relic Hunter (magnitude 1): relic tier ceiling +1, never past the top.
+- commandCrew1 Inspiring Leader: the complement's buffs x1.05 (officers not scaled).
+- commandCrew2 Mentor: every officer bonus and racial x1.05 (crew map, `officerBonusTotal`, combat profile).
+- commandCrew3 Drillmaster: every promotion counter increment x1.08 (economyTick live; the claim reads the frozen copy).
+- commandCrew4 Recruiter: both boards `ceil(10 x 1.08) = 11` (`candidateBoardSize`; each Recruiter captain compounds).
+- commandCrew5 Legendary Captain (magnitude 0.1): complement and officers x1.10.
+
+**[PROVISIONAL] picks (the user tunes):** Field Science is a factor, not +0.05 into the find sum ("Always multiply");
+Preservationist is study SPEED x1.08 (a divisor), stamped per relic (own ship); Deep Scan keeps the telescope's range
+(blind stays blind) and its sure attempt is the surface roll (underground on a world with no surface pool); Recruiter
+counts every captain who owns it (the boards are fleet-wide); Drillmaster scales all four counters, so
+`missionsCompleted` can be fractional (the checklist already floors).
+
+**Registry:** the 15 explorer entries are live as 23 (a node with two or three claimed values gets `<key>:<part>`
+entries); new probes `expDiscoveryOdds`, `expDiscoveries`, `candDetail`, `runTaskSecPower`, `runTaskSecAccuracy`,
+`runRelicChance`, `runRelicTierCeiling`, `runRelicStudyTicks`, `crewMapCargo`, `missionCrewHours`, `claimObjectives`,
+`officerBoard`, `recruitBoard`. Goldens moved: only the variants owning a node, each part explained beside its hash.
+
+**Merge with WR-5a (both add `captainSecondaryEffects.ts`):** keep WR-5a's file; route the explorer keys through
+`explorerTalentText` (`prospectorText(key) ?? explorerTalentText(key) ?? genericText(...)`), add the `levelLift` case to
+its magnitude and generic-text switches, drop its deepScan / relicHunter / legendaryCaptain taglines. model.ts: both add
+`magnitude?` to `capstone` (same line); keep `levelLift`. crewOverlay.ts `effectiveShipStats`: compose WR-5a's
+`applyCaptainOverlay` with `applyCaptainSensors` (and leave Keen Sensors out of `shipStatsBeforeCaptain`). registry.ts
+`secondaryEntries`: keep the `flatMap` and the explorer route.
+
 ### WR-6: Placeholders and partial talents elsewhere (captain primary, spec, race; Homeworld)
 
 tacticianHub, explorerHub, the tactical / science spec bonuses, the captain racial (OC-A40 to OC-A43);

@@ -457,17 +457,31 @@
   // any bridge-module amp, and (E-CREW Task 21) the Strength facet's lift of the complement's buffs. The two
   // buckets therefore always sum to the crew total, even where an officer MULTIPLIES the complement (an
   // honest coarse grouping, not a faked per-source split the exported functions do not expose).
+  // WR-5c: the crew-side buckets read the save with the commanding captain's secondary nodes set aside, so Inspiring
+  // Leader, Mentor and Legendary Captain (which scale the complement and the officers inside the crew map) land in
+  // the Captain bucket with the captain's other nodes, not in Complement or Senior Staff. The buckets still sum to the
+  // shown value (Captain = effective - preCaptainStats, both off this one baseline). Without a node it is safeState.
+  $: noCaptainNodesState =
+    ship && ship.assignedCaptainId !== null
+      ? {
+          ...safeState,
+          captains: safeState.captains.map((c) =>
+            c.id === ship.assignedCaptainId && c.unlockedSecondaryTalents.length > 0 ? { ...c, unlockedSecondaryTalents: [] } : c,
+          ),
+        }
+      : safeState;
   $: complementOnlyStats =
-    ship && fitStats ? applyCrewOverlay(fitStats, shipCrewContribution({ ...safeState, officers: [] }, ship)) : null;
+    ship && fitStats ? applyCrewOverlay(fitStats, shipCrewContribution({ ...noCaptainNodesState, officers: [] }, ship)) : null;
   // 0.14.0 E4b: the crew-inclusive stats WITHOUT the museum overlay (both crew sources folded, exactly the
   // value effectiveShipStats overlays the museum onto). The MUSEUM bucket is effective - this, so the
   // source buckets still sum to the shown value once the museum's ship-stat bonuses apply. (The museum's
   // crewBonuses amplification lives INSIDE the crew contribution, so it already shows in the Senior Staff
   // + Complement buckets above.) With an empty museum this equals effectiveStats and the bucket hides.
-  $: crewOnlyStats = ship && fitStats ? applyCrewOverlay(fitStats, shipCrewContribution(safeState, ship)) : null;
-  // WR-5a: the stats before the commanding captain's Prospector nodes (the captain overlay is layered last), so the
-  // Museum bucket stops there and the Captain bucket is effective - this. With no node it equals effectiveStats.
-  $: preCaptainStats = ship ? shipStatsBeforeCaptain(safeState, ship) : null;
+  $: crewOnlyStats = ship && fitStats ? applyCrewOverlay(fitStats, shipCrewContribution(noCaptainNodesState, ship)) : null;
+  // WR-5a / WR-5c: the stats before every secondary node of the commanding captain (the Prospector overlay and Keen
+  // Sensors are layered last; the crew nodes are set aside above), so the Museum bucket stops there and the Captain
+  // bucket is effective - this. With no node it equals effectiveStats.
+  $: preCaptainStats = ship ? shipStatsBeforeCaptain(noCaptainNodesState, ship) : null;
 
   // The economy stat rows (real numbers). `kind` picks the formatter: percent for the
   // multiplier / 0-based-bonus stats, flat for capacities / power / mass. Split into

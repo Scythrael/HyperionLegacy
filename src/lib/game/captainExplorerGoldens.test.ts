@@ -1,0 +1,188 @@
+// WR-5c (0.14.0, plan docs/plans/2026-10-15-wiring-registry-and-audit-plan.md section 4 WR-5c): golden hashes captured
+// on the code BEFORE any WR-5c engine edit (the CP-0 / FK-3 / G2-0 / SF-0 / WR-4 pattern). The fixture is one rich
+// explorer-ready save: the starting hull with its Standard Issue gear, a Balanced Array (20 sensors), a Security,
+// Science and Operations complement, a seated Science officer (Discovery Instinct) and Executive officer (Command
+// Presence), and the D18 away team. Each variant gives captain 1 ONE explorer secondary node (or none) and reads:
+//
+//   sheet     : the crew-boosted ship stat sheet (effectiveShipStats).
+//   cands     : the expedition console's candidate list (telescope reading, foreknowledge, task demand).
+//   dispatch  : the Ground Ops run record a dispatch of the first candidate freezes.
+//   done      : that run advanced to its end (advanceExpedition), the record.
+//   claim     : the state after the claim (vault, inventory, officers' promotion counters).
+//   study     : the first vault token's relic study duration (or "none").
+//   mission   : a Short Ore Run flown 900 economyTick seconds (officer and crew output on missions).
+//   patrol    : a destroyer with a seated Tactical officer (Weapons Command) on a Repeat patrol, 900 seconds.
+//   boards    : the officer board and the away-team recruit board sizes.
+//
+// Every state hash normalizes the captains' secondary nodes away, so before WR-5c wires anything every variant
+// reads EXACTLY the baseline (the nodes are inert): that is the capture. The WR-5c commit re-pins ONLY the parts
+// a node moves, each with its reason beside it, and the baseline ("none") never moves.
+
+import { describe, expect, it } from "vitest";
+import { PATROLS, type GameState, type SecondaryTalentKey } from "./model";
+import { dispatchCaptainOnMission, dispatchCaptainOnPatrol, economyTick, installMissingCombatBaselines, startRelicStudy } from "./tick";
+import { advanceExpedition, claimExpedition, expeditionCandidates, startExpedition } from "./expedition";
+import { effectiveShipStats } from "./crewOverlay";
+import { seniorStaffCandidates } from "./seniorStaff";
+import { awayRecruitCandidates } from "./awayTeam";
+import { WIRING_BUCKET_COUNT, bucketOf, editCaptain, installPiece, seatOfficer, withAwayTeam, withBuckets, withFacilityLevel, wiringBase } from "./wiring/probes";
+// Integration (0.14.0, WR-5c meeting SF-2 and CP-2 on feat/crew-0.14.0): the capture predates both, so the fixture
+// keeps its pre-merge inputs through the repo's own switches (the FK-3 / CP-0 / WR-4 pattern) and every pin stays as
+// captured. SF-2 retired the 30 minute shakedown on expedition 1 (asPreSafeFirstRunsDispatch puts it back). CP-2
+// moved the fixture default race from Earth-born to Spacer and made the Earth-born racial act, so the fixture names
+// Earth-born and reads under withCp2Off (that racial at 0). Nothing else differs from the WR-5c tip's capture.
+import { asPreSafeFirstRunsDispatch } from "./awayTeamTestFixtures";
+import { withCp2Off } from "./complementCp2Switch.fixture";
+
+function fnv(s: string): string {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  return h.toString(16);
+}
+const hash = (v: unknown): string => fnv(JSON.stringify(v));
+// A state without the captains' secondary nodes (the variant's own input), so an inert node reads the baseline.
+const hashState = (s: GameState): string => hash({ ...s, captains: s.captains.map((c) => ({ ...c, unlockedSecondaryTalents: [] })) });
+
+function lcg(seed: number): () => number {
+  let s = seed >>> 0;
+  return () => {
+    s = (Math.imul(s, 1664525) + 1013904223) >>> 0;
+    return s / 4294967296;
+  };
+}
+
+function runTicks(s: GameState, n: number, rng: () => number): GameState {
+  let out = s;
+  for (let i = 0; i < n; i++) out = economyTick(out, 1, rng);
+  return out;
+}
+
+// The rich explorer-ready save (see the header).
+function fixture(): GameState {
+  let s = installMissingCombatBaselines(wiringBase());
+  s = installPiece(s, { slotType: "sensor", moduleVariant: "sensorBalanced", implicitStats: { sensors: 20 } });
+  s = withBuckets(s, [
+    bucketOf("security", "sec.boarding", WIRING_BUCKET_COUNT, "earthBorn"),
+    bucketOf("science", "sci.rareFind", WIRING_BUCKET_COUNT, "earthBorn"),
+    bucketOf("operations", "ops.effectiveCargo", WIRING_BUCKET_COUNT, "earthBorn"),
+  ]);
+  s = seatOfficer(s, "science", ["sci.discovery", "sci.yieldSurge"], { race: "earthBorn" });
+  s = seatOfficer(s, "executive", ["xo.commandOutput", "ops.cargoExpand"], { race: "earthBorn" });
+  s = withAwayTeam(s);
+  s = withFacilityLevel(s, "research", 1);
+  return { ...s, expeditionSeed: 0x5c0de, gameTimeSeconds: 100_000 };
+}
+
+function patrolFixture(): GameState {
+  const s = seatOfficer(installMissingCombatBaselines(wiringBase("destroyer")), "tactical", ["tac.weaponCommand", "tac.shieldCommand"], { race: "earthBorn" });
+  return { ...s, captains: s.captains.map((c) => ({ ...c, level: 10 })) };
+}
+
+const own = (s: GameState, key: SecondaryTalentKey | null): GameState => (key ? editCaptain(s, { unlockedSecondaryTalents: [key] }) : s);
+
+export const EXPLORER_NODES: readonly SecondaryTalentKey[] = [
+  "surveySensors1", "surveySensors2", "surveySensors3", "surveySensors4", "surveySensors5",
+  "expeditionRelics1", "expeditionRelics2", "expeditionRelics3", "expeditionRelics4", "expeditionRelics5",
+  "commandCrew1", "commandCrew2", "commandCrew3", "commandCrew4", "commandCrew5",
+];
+
+export function readVariant(key: SecondaryTalentKey | null): Record<string, string> {
+  return withCp2Off(() => readVariantLive(key));
+}
+
+function readVariantLive(key: SecondaryTalentKey | null): Record<string, string> {
+  const s0 = own(fixture(), key);
+  const ship = s0.ships.find((sh) => sh.id === "ship-1")!;
+  const sheet = hash(effectiveShipStats(s0, ship));
+  const candidates = expeditionCandidates(s0, "ship-1");
+  const cands = hash(candidates);
+  const res = asPreSafeFirstRunsDispatch(startExpedition(s0, "ship-1", 1, candidates[0].id));
+  if (!res.success || !res.expedition) throw new Error(`dispatch refused: ${res.reason}`);
+  const dispatch = hash(res.expedition);
+  const end = 3_000_000;
+  const done = advanceExpedition(res.next.expeditions[0], end);
+  if (done.phase !== "complete") throw new Error("the golden run did not finish");
+  const claim = claimExpedition({ ...res.next, expeditions: [done], gameTimeSeconds: end }, done.id);
+  if (!claim.success) throw new Error("the golden claim was refused");
+  const token = (claim.next.relicVault ?? [])[0];
+  const studied = token ? startRelicStudy(claim.next, token.id) : null;
+  const study = studied && studied.started ? String(studied.next.activeProcesses.find((p) => p.kind === "relicStudy")?.durationTicks) : "none";
+
+  const m = dispatchCaptainOnMission(own(fixture(), key), 1, "shortOreRun");
+  if (!m.success) throw new Error("the golden mission was refused");
+  const mission = hashState(runTicks(m.next, 900, lcg(0x5c1)));
+
+  const p = dispatchCaptainOnPatrol(own(patrolFixture(), key), 1, Object.keys(PATROLS)[0], "balanced", true);
+  if (!p.success) throw new Error("the golden patrol was refused");
+  const patrol = hashState(runTicks(p.next, 900, lcg(0x5c2)));
+
+  const boards = `${seniorStaffCandidates(s0).length}/${awayRecruitCandidates(s0).length}`;
+  return { sheet, cands, dispatch, done: hash(done), claim: hashState(claim.next), study, mission, patrol, boards };
+}
+
+// ===== the goldens (captured before WR-5c) =====
+
+const BASELINE: Record<string, string> = {
+  sheet: "7cabdac1",
+  cands: "68c028f8",
+  dispatch: "3527221b",
+  done: "4aca4b1a",
+  claim: "8cf7de8a",
+  study: "600",
+  mission: "c3e1866b",
+  patrol: "b8afc1be",
+  boards: "10/10",
+};
+
+// Per node: the parts it moves since WR-5c wired it (anything not listed equals BASELINE, byte for byte), and why.
+const MOVES: Partial<Record<SecondaryTalentKey, Record<string, string>>> = {
+  // Keen Sensors: sensors 20 -> 21 on the sheet, so the run freezes sensorPower 21 (a faster scan). The candidates
+  // keep their reading (21 crosses no reveal threshold and stays under the telescope lift at 40).
+  surveySensors1: { sheet: "f5a46f18", dispatch: "ffa208a1", done: "9c494328" },
+  // Cartographer: captainScanRateMult 1.08 in the frozen scan params; the scan runs faster, the same finds come home.
+  surveySensors2: { dispatch: "8dd19ed3", done: "30ea7946" },
+  // Anomaly Sense: captainDiscoveryMult 1.05 in the frozen scan params; every attempt's odds rise, the claim is unchanged.
+  surveySensors3: { dispatch: "313d4b5", done: "639b9be8" },
+  // Foreknowledge: each candidate reads one telescope detail level higher (display only; the run is untouched).
+  surveySensors4: { cands: "cb1aeb4e" },
+  // Deep Scan: the candidates read in full (top detail, every foreknowledge field), and captainSureFinds 1 rides the
+  // frozen scan params (each body's first attempt finds something).
+  surveySensors5: { cands: "e58c409c", dispatch: "791e6e4b", done: "fc8f8b2a" },
+  // Expedition Lead: the frozen Security and Science strengths x1.05; the squads fight and work harder, the haul moves.
+  expeditionRelics1: { dispatch: "c215cfaa", done: "9ecdc4fc", claim: "69e6fd30" },
+  // Field Science: explorerCaptain.relicFindMult 1.05 on the run; this seed's relic rolls land the same.
+  expeditionRelics2: { dispatch: "c7ac4326", done: "424414ed" },
+  // Away-Team Doctrine: explorerCaptain.squadPowerMult 1.05; the fights play out differently, the claim is unchanged.
+  expeditionRelics3: { dispatch: "a1789cbd", done: "6b8ef730" },
+  // Preservationist: the recovered relic carries studySpeed 0.08, so its study takes ceil(600 / 1.08) = 556 ticks.
+  expeditionRelics4: { dispatch: "8df1c515", done: "c9e72b7e", claim: "56679ba6", study: "556" },
+  // Relic Hunter: the tier ceiling + 1; the relic rolls Augmented (the study x1.5: 900 ticks).
+  expeditionRelics5: { dispatch: "cd665e05", done: "f92598ee", claim: "1a27f406", study: "900" },
+  // Inspiring Leader: the complement's buffs x1.05 (the cargo buff on the sheet, so the mission hauls more; the frozen
+  // crew rare find on the run). The destroyer patrol has no complement, so it does not move.
+  commandCrew1: { sheet: "fedf8bdf", dispatch: "8d3b7c34", done: "e499ab1d", mission: "95bf1cc" },
+  // Mentor: every officer bonus x1.05 (the sheet's yield and cargo, the run's Discovery Instinct, the mission's
+  // Command Presence, the patrol's Weapons and Shield Command).
+  commandCrew2: { sheet: "869097d4", dispatch: "1cc6be51", done: "61085ea4", mission: "9423023e", patrol: "9ecd4efc" },
+  // Drillmaster: every promotion counter increment x1.08 (the mission's and patrol's hours and cycles, the claim's
+  // objectives), and explorerCaptain.promotionMult 1.08 frozen on the run.
+  commandCrew3: { dispatch: "9b88a3dc", done: "d1053e03", claim: "85cdad0e", mission: "365aba7b", patrol: "3c5fd0b1" },
+  // Recruiter: both boards 10 x 1.08 = 10.8, rounded up to 11.
+  commandCrew4: { boards: "11/11" },
+  // Legendary Captain: the complement AND the officers x1.10 (everything Inspiring Leader and Mentor move).
+  commandCrew5: { sheet: "32c2c065", dispatch: "ba74462f", done: "877c44c6", mission: "716140ba", patrol: "f35b43d5" },
+};
+
+describe("WR-5c goldens: the explorer secondary nodes (captured before wiring; each move explained above)", () => {
+  it("the baseline (no node) is pinned", () => {
+    expect(readVariant(null)).toEqual(BASELINE);
+  });
+  for (const key of EXPLORER_NODES) {
+    it(`${key}: only its own parts move`, () => {
+      expect(readVariant(key)).toEqual({ ...BASELINE, ...(MOVES[key] ?? {}) });
+    });
+  }
+});

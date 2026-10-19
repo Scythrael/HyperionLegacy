@@ -373,6 +373,8 @@ import {
   captainTransportTerms,
   motherlodeSeed,
 } from "./captainSecondaryEffects";
+// WR-5c: the commanding captain's Drillmaster (the ship's promotion multiplier).
+import { shipPromotionMult } from "./captainExplorerEffects";
 // Crafting Allocation Redesign (Task C2): the per-slot line engine below reuses C1's
 // pure allocation core, `lineInputsPerIteration` builds a line's per-iteration input
 // map from the recipe registries (the SAME map startRefineJob/startFabricateJob build
@@ -4567,9 +4569,12 @@ export function economyTick(
     // completed or no officer sits a completing ship, so a save with no officers is byte-identical.
     // WR-4 (B4, OC-E10): and with the other promotion counters (hours out on runs, patrol kills). Same-reference
     // no-op when no officer sits a ship that was out or fought, so an officer-free save is byte-identical.
+    // WR-5c: every increment x the ship's Drillmaster (its commanding captain, read off the incoming state; a
+    // buy is refused while the ship is out, so the factor holds for the whole run). Exactly 1 without the node.
     officers: foldOfficerPromotionCounters(
-      foldOfficerMissionCompletions(state.officers, shipMissionCompletions),
+      foldOfficerMissionCompletions(state.officers, shipMissionCompletions, (id) => shipPromotionMult(state, id)),
       runCounterIncrements(shipsOnRuns, deltaSeconds, shipKills),
+      (id) => shipPromotionMult(state, id),
     ),
     // Flat .plus(), unlike fleetAdminXpDelta (which resolves through
     // applyFleetAdminXp's level-up loop below), credits has no leveling
@@ -7774,7 +7779,12 @@ export function startRelicStudy(
     nextRelicStudyIndex: studyIndex + 1,
   };
   // E4b: the museum's researchSpeed shortens the study too (start-time only, the shared seam).
-  const durationTicks = museumResearchDurationTicks(relicStudyDurationTicks(token.tier), museumBonuses(state).researchSpeed);
+  // WR-5c: a token recovered under a Preservationist captain carries its own study speed, its own x (1 + s) factor on
+  // the speed (OC-A1 "Always multiply"); absent, the museum's speed alone, bit for bit.
+  const museumSpeed = museumBonuses(state).researchSpeed;
+  const own = token.studySpeed !== undefined && token.studySpeed > 0 && Number.isFinite(token.studySpeed) ? token.studySpeed : 0;
+  const speed = own > 0 ? (1 + Math.max(0, museumSpeed)) * (1 + own) - 1 : museumSpeed;
+  const durationTicks = museumResearchDurationTicks(relicStudyDurationTicks(token.tier), speed);
   return startProcess(afterVault, "relicStudy", {}, durationTicks, {
     type: "identifyRelic",
     token: { ...token },
