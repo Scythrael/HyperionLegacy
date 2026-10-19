@@ -271,4 +271,6 @@ export const UNREAD_CONSTANTS: Readonly<Record<string, string>> = {
   ECONOMY_FLOOR_SLOTS: "display: the Quartermaster's economy floor set, named for its readers",
   ENEMY_RANK_IDS: "bookkeeping: the enemy ranks in order, read by the wiring registry (one entry per rank, Field Kits FKR-1) and FKR-3's rank chips",
   FIELD_KITS_CATALOG_VERSION: "seam: FKR-7 (buildExpedition stamps Expedition.fieldKits.catalog with it, flag 2)",
+  PROSPECTING_USES: "seam: the prospecting quests patch (the three later Prospecting uses, read by the wiring registry; deferred)",
+  PROSPECTING_BLUEPRINTS: "seam: the prospecting quests patch merges these hidden blueprints into BLUEPRINTS (read by the wiring registry; deferred)",
 };

@@ -23,12 +23,13 @@ export interface SquadMeta {
   icon: IconName;
 }
 
-// EXHAUSTIVE over AwayTeamType, so a new squad type is a compile error until it has labels. Prospecting
-// is wired only (no hull fields it), so its row never renders today; it exists to satisfy the Record.
+// EXHAUSTIVE over AwayTeamType, so a new squad type is a compile error until it has labels. Prospecting is
+// built but HIDDEN (prospecting.ts): only the hidden Claim and Dig kinds field it, so its row never renders
+// while locked. "Prospecting Crew" is the name the user kept (design 2026-10-16, call 11).
 export const SQUAD_META: Record<AwayTeamType, SquadMeta> = {
   security: { name: "Security Detail", short: "Security", role: "fights during objectives", icon: "security" },
   science: { name: "Science Party", short: "Science", role: "does the objective fieldwork", icon: "research" },
-  prospecting: { name: "Prospecting Crew", short: "Prospecting", role: "surveys for ore", icon: "ore" },
+  prospecting: { name: "Prospecting Crew", short: "Prospecting", role: "extracts ore", icon: "ore" },
 };
 
 // Spec display labels (US English). EXHAUSTIVE over AwayMemberSpec.
@@ -40,6 +41,9 @@ const SPEC_LABEL: Record<AwayMemberSpec, string> = {
   xenobiology: "Xenobiology",
   geology: "Geology",
   cryptography: "Cryptography",
+  excavation: "Excavation",
+  drilling: "Drilling",
+  assaying: "Assaying",
 };
 
 export function awaySpecLabel(spec: AwayMemberSpec): string {
@@ -72,6 +76,10 @@ const SPEC_DESCRIPTION: Record<AwayMemberSpec, string> = {
   xenobiology: scienceSpecLine("xenobiology", "alien life and plant blooms"),
   geology: scienceSpecLine("geology", "rock, minerals and deep caves"),
   cryptography: scienceSpecLine("cryptography", "old codes, locks and sealed vaults"),
+  // Prospecting roles (hidden; prospecting.ts PROSPECTING_SPEC_BASE): each lifts one or two base stats.
+  excavation: "Prospecting role: a bigger haul, with extra base yield from every deposit.",
+  drilling: "Prospecting role: faster, safer work, with extra base fieldwork pace and hazard resistance.",
+  assaying: "Prospecting role: a better grade, with extra base grade, so more ore lands in the better tiers.",
 };
 
 export function awaySpecDescription(spec: AwayMemberSpec): string {

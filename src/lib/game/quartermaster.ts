@@ -96,6 +96,8 @@ import { salvageReservedInstanceIds } from "./reservation";
 // The one "which squad wears this piece" rule, shared with the member install gate (Task 9 review M2).
 // memberEquipment.ts imports nothing that imports this file, so there is no cycle.
 import { pieceWearableBy } from "./memberEquipment";
+// Prospecting squads (hidden): the unlock gate on Prospecting's rows. prospecting.ts imports model.ts only.
+import { squadTypeUnlocked } from "./prospecting";
 
 // ----------------------------------------------------------------------------
 // RequisitionMint: HOW one catalogue row mints its baseline.
@@ -163,8 +165,7 @@ export interface MemberRequisitionRow {
 }
 
 // A member slot's catalogue value: one row PER SQUAD TYPE, because the slot is shared by every squad and
-// each squad wears its own varieties. Partial on purpose: a squad with no row has no floor to draw
-// (Prospecting is wired only and fields no members).
+// each squad wears its own varieties. Partial on purpose: a squad with no row has no floor to draw.
 export interface MemberRequisitionSlot {
   perTeam: Partial<Record<AwayTeamType, MemberRequisitionRow>>;
 }
@@ -312,20 +313,28 @@ export const REQUISITION_CATALOGUE: RequisitionCatalogue = {
   //                                     body types (terrestrial, ocean, toxic). The Decryptor works on
   //                                     any body, but its job is vault and civilization sites, a
   //                                     specialty rather than the basic field kit.
+  //   Prospecting (built HIDDEN; design 2026-10-16 section 5, by slot ROLE as the Standard-Issue stats decision
+  //   reads it: "Weapon provides offensive stats. Armor provides defensive stats. Kit provides utility"):
+  //     weapon         Plasma Cutter    the cutting tool (user "A cutting tool"): YIELD first, FIELD second.
+  //     armor          Excavator Suit   the work suit: hazard defense first, FIELD second.
+  //     tool           Assay Scanner    the role kit: GRADE first, FIELD second.
+  //   Their rows stay off REQUISITION_ENTRIES (the list the console renders) and canRequisition refuses them
+  //   until the save's Prospecting is unlocked (requisitionEntriesFor).
   // A test fences every pick to a real variety its squad may wear, so a catalog rename fails loudly.
   //
-  // NOT ISSUED: implants (earned through the Cybernetics Bay, no free floor) and the Prospecting squad
-  // (wired only: no hull fields one and no gear lists it).
+  // NOT ISSUED: implants (earned through the Cybernetics Bay, no free floor).
   memberArmor: {
     perTeam: {
       security: { varietyKey: "ballisticWeave", blurb: "The light suit every Security recruit can draw." },
       science: { varietyKey: "fieldSuit", blurb: "The working suit every Science recruit can draw." },
+      prospecting: { varietyKey: "excavatorSuit", blurb: "The work suit every Prospecting recruit can draw." },
     },
   },
   memberWeapon: {
     perTeam: {
       security: { varietyKey: "pulseRifle", blurb: "The basic long gun every Security recruit can draw." },
       science: { varietyKey: "sidearm", blurb: "The self-defense piece every Science recruit can draw." },
+      prospecting: { varietyKey: "plasmaCutter", blurb: "The cutting tool every Prospecting recruit can draw. It cuts rock, not foes." },
     },
   },
   memberTool: {
@@ -335,6 +344,7 @@ export const REQUISITION_CATALOGUE: RequisitionCatalogue = {
         blurb: "The basic field kit every Security recruit can draw. Needs Medical Training to heal.",
       },
       science: { varietyKey: "floraScanner", blurb: "The basic survey tool every Science recruit can draw." },
+      prospecting: { varietyKey: "assayScanner", blurb: "The basic assay kit every Prospecting recruit can draw." },
     },
   },
   implant: null,
@@ -431,16 +441,34 @@ function buildRequisitionEntries(): RequisitionEntry[] {
   return entries;
 }
 
-// The catalogue entry for one (slot, squad) request, or null when there is no floor to issue: an unknown
-// slot, a null slot, a ship slot asked for a squad, a member slot asked without one, or a squad with no
-// row in that slot. The ONE resolver the gate and the mutator share, so they cannot disagree. Pure.
-function requisitionEntryFor(slotType: EquipmentSlotType, teamType: AwayTeamType | null): RequisitionEntry | null {
-  return REQUISITION_ENTRIES.find((e) => e.slotType === slotType && e.teamType === teamType) ?? null;
+// The catalogue entry for one (slot, squad) request on `state`, or null when there is no floor to issue: an
+// unknown slot, a null slot, a ship slot asked for a squad, a member slot asked without one, a squad with no
+// row in that slot, or a squad the save has not unlocked (Prospecting while hidden). The ONE resolver the gate
+// and the mutator share, so they cannot disagree. Pure.
+function requisitionEntryFor(
+  state: Pick<GameState, "prospectingSquadsUnlocked">,
+  slotType: EquipmentSlotType,
+  teamType: AwayTeamType | null
+): RequisitionEntry | null {
+  if (teamType !== null && !squadTypeUnlocked(state, teamType)) return null;
+  return ALL_REQUISITION_ENTRIES.find((e) => e.slotType === slotType && e.teamType === teamType) ?? null;
 }
 
-// The list the Requisition tab renders. Built once at module load, like every other
+// Every row the catalogue defines, Prospecting's included. Built once at module load, like every other
 // static table in this codebase.
-export const REQUISITION_ENTRIES: readonly RequisitionEntry[] = buildRequisitionEntries();
+const ALL_REQUISITION_ENTRIES: readonly RequisitionEntry[] = buildRequisitionEntries();
+
+// The list the Requisition tab renders: every row of an always-visible squad (Prospecting's rows are hidden
+// until the save unlocks it; requisitionEntriesFor adds them then). Byte-identical to the pre-Prospecting list
+// (pinned by prospectingHidden.golden.test.ts).
+export const REQUISITION_ENTRIES: readonly RequisitionEntry[] = ALL_REQUISITION_ENTRIES.filter((e) => e.teamType !== "prospecting");
+
+// The rows `state` may see: REQUISITION_ENTRIES on a locked save, every row once Prospecting is unlocked (in
+// catalogue order, so a member slot reads Security, Science, Prospecting). The prospecting quests patch points
+// the console at this. Pure.
+export function requisitionEntriesFor(state: Pick<GameState, "prospectingSquadsUnlocked">): readonly RequisitionEntry[] {
+  return squadTypeUnlocked(state, "prospecting") ? ALL_REQUISITION_ENTRIES : REQUISITION_ENTRIES;
+}
 
 // ----------------------------------------------------------------------------
 // The typed refusal union. Mirrors EquipFitBlockReason / DispatchBlockReason: the gate
@@ -537,7 +565,7 @@ export function canRequisition(
   // also the BOUNDARY a UI (or a stale save, or a test) can reach with a string that is not a live
   // slot at all, or a squad the slot has no row for, and a runtime miss must be a stated refusal
   // rather than a crash.
-  if (requisitionEntryFor(slotType, teamType) === null) return { ok: false, reason: "noBaselineForSlot" };
+  if (requisitionEntryFor(state, slotType, teamType) === null) return { ok: false, reason: "noBaselineForSlot" };
   if (freeSpareBaselinesFor(state, slotType, teamType).length > 0) {
     return { ok: false, reason: "alreadyHoldingOne" };
   }
@@ -637,7 +665,7 @@ export function requisitionStandardIssue(
   if (!gate.ok) return { next: state, minted: null, reason: gate.reason };
 
   // The gate proved this entry exists.
-  const entry = requisitionEntryFor(slotType, teamType)!;
+  const entry = requisitionEntryFor(state, slotType, teamType)!;
   const mintedId = "equip-" + state.nextEquipmentId;
   const allocateId = () => mintedId;
 

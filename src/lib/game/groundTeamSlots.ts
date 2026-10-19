@@ -11,7 +11,7 @@
 import type { AwayMember, AwayTeamType, ShipGroundTeam, ShipInstance } from "./model";
 import { shipTeamKinds, teamSlotCount } from "./groundComposition";
 
-// The two squad types a ground team slots (Prospecting is wired only and fields no ground squad).
+// The two squad types that DEPLOY on an expedition (Security fights, Science does fieldwork; D18 needs both).
 export type GroundSquadType = "security" | "science";
 export const GROUND_SQUAD_TYPES: readonly GroundSquadType[] = ["security", "science"];
 
@@ -19,10 +19,27 @@ export function isGroundSquadType(teamType: AwayTeamType): teamType is GroundSqu
   return teamType === "security" || teamType === "science";
 }
 
-// Where a member sits: a ground team, one of its two squads, a slot in that squad.
+// Prospecting squads (0.14.0, built HIDDEN; design 2026-10-16 section 6): every squad type a team may SLOT. The
+// Prospecting slots exist only on the hidden Claim and Dig kinds (ShipGroundTeam.prospecting), and they never
+// join an expedition crew (groundTeams.ts deployableGroundTeams reads GROUND_SQUAD_TYPES only).
+export type SlotSquadType = GroundSquadType | "prospecting";
+export const SLOT_SQUAD_TYPES: readonly SlotSquadType[] = ["security", "science", "prospecting"];
+
+export function isSlotSquadType(teamType: AwayTeamType): teamType is SlotSquadType {
+  return teamType === "security" || teamType === "science" || teamType === "prospecting";
+}
+
+// A team's slot list of `type` (Prospecting's optional list reads as [] when absent). The SAME array the team
+// holds when present, so a write through it edits that team (callers only write to a normalized copy). Pure.
+export function teamSlots(team: ShipGroundTeam, type: SlotSquadType): (string | null)[] {
+  if (type === "prospecting") return team.prospecting ?? [];
+  return team[type];
+}
+
+// Where a member sits: a ground team, one of its squads, a slot in that squad.
 export interface GroundSlotRef {
   teamIndex: number;
-  teamType: GroundSquadType;
+  teamType: SlotSquadType;
   slotIndex: number;
 }
 
@@ -38,8 +55,9 @@ function normalizedSlots(stored: unknown, length: number): (string | null)[] {
 // missing ones empty Ground teams), each team's KIND the stored one when known, else Ground (Squads SQ-1,
 // groundComposition.ts shipTeamKinds), each slot list sized to that kind on this hull (teamSlotCount: extra
 // slots dropped, missing ones null), a boolean help toggle, a string name only when one is stored, and
-// `kindPending: true` only when that is stored. A ship minted without the field (shipBuild, the
-// captain-unlock grant) reads as the hull's empty teams (Ground + Ground).
+// `kindPending: true` only when that is stored. The Prospecting list is written ONLY for a kind that fields a
+// Prospecting squad (Claim, Dig), so every Ground / Strike / Survey team keeps its exact shape. A ship minted
+// without the field (shipBuild, the captain-unlock grant) reads as the hull's empty teams (Ground + Ground).
 // NEVER MUTATE THE RESULT IN PLACE AS A WAY TO CHANGE STATE: it is a fresh copy (fresh arrays every call),
 // so a write to it changes nothing. The slot actions edit a copy and write it back onto a new ship object.
 // Pure.
@@ -53,6 +71,8 @@ export function shipGroundTeams(ship: Pick<ShipInstance, "typeKey" | "groundTeam
       science: normalizedSlots(t.science, teamSlotCount(ship.typeKey, kind, "science")),
       helpOthers: t.helpOthers === true,
     };
+    const prospecting = teamSlotCount(ship.typeKey, kind, "prospecting");
+    if (prospecting > 0) team.prospecting = normalizedSlots(t.prospecting, prospecting);
     if (typeof t.name === "string") team.name = t.name;
     if (t.kindPending === true) team.kindPending = true;
     return team;
@@ -78,8 +98,8 @@ export function cleanShipGroundTeams(
   const seen = new Set<string>();
   const teams = shipGroundTeams(ship);
   for (const team of teams) {
-    for (const teamType of GROUND_SQUAD_TYPES) {
-      const slots = team[teamType];
+    for (const teamType of SLOT_SQUAD_TYPES) {
+      const slots = teamSlots(team, teamType);
       for (let i = 0; i < slots.length; i += 1) {
         const id = slots[i];
         if (id === null) continue;
@@ -91,11 +111,12 @@ export function cleanShipGroundTeams(
   return teams;
 }
 
-// The slot `memberId` occupies in `teams` (team order, Security before Science, slot order), or null. Pure.
+// The slot `memberId` occupies in `teams` (team order, Security, Science, then Prospecting, slot order), or
+// null. Pure.
 export function findGroundSlot(teams: readonly ShipGroundTeam[], memberId: string): GroundSlotRef | null {
   for (let teamIndex = 0; teamIndex < teams.length; teamIndex += 1) {
-    for (const teamType of GROUND_SQUAD_TYPES) {
-      const slotIndex = teams[teamIndex][teamType].indexOf(memberId);
+    for (const teamType of SLOT_SQUAD_TYPES) {
+      const slotIndex = teamSlots(teams[teamIndex], teamType).indexOf(memberId);
       if (slotIndex >= 0) return { teamIndex, teamType, slotIndex };
     }
   }
@@ -104,9 +125,9 @@ export function findGroundSlot(teams: readonly ShipGroundTeam[], memberId: strin
 
 // The FIRST empty slot of `teamType` in `teams`: lowest team index first, then lowest slot. Null when every
 // slot of that type is taken (or the hull fields none). Pure.
-export function firstEmptyGroundSlot(teams: readonly ShipGroundTeam[], teamType: GroundSquadType): GroundSlotRef | null {
+export function firstEmptyGroundSlot(teams: readonly ShipGroundTeam[], teamType: SlotSquadType): GroundSlotRef | null {
   for (let teamIndex = 0; teamIndex < teams.length; teamIndex += 1) {
-    const slotIndex = teams[teamIndex][teamType].indexOf(null);
+    const slotIndex = teamSlots(teams[teamIndex], teamType).indexOf(null);
     if (slotIndex >= 0) return { teamIndex, teamType, slotIndex };
   }
   return null;
@@ -119,7 +140,7 @@ function storedHoldsMember(ship: ShipInstance, memberId: string): boolean {
   return ship.groundTeams.some(
     (t) =>
       isRecord(t) &&
-      GROUND_SQUAD_TYPES.some((type) => Array.isArray(t[type]) && (t[type] as unknown[]).includes(memberId)),
+      SLOT_SQUAD_TYPES.some((type) => Array.isArray(t[type]) && (t[type] as unknown[]).includes(memberId)),
   );
 }
 
@@ -133,13 +154,14 @@ export function shipsWithMemberUnslotted(
   members: readonly GroundSlotMember[],
 ): ShipInstance[] {
   if (!ships.some((s) => storedHoldsMember(s, memberId))) return ships;
+  const clear = (list: (string | null)[]) => list.map((id) => (id === memberId ? null : id));
   return ships.map((ship) => {
     if (!storedHoldsMember(ship, memberId)) return ship;
-    const teams = cleanShipGroundTeams(ship, members).map((t) => ({
-      ...t,
-      security: t.security.map((id) => (id === memberId ? null : id)),
-      science: t.science.map((id) => (id === memberId ? null : id)),
-    }));
+    const teams = cleanShipGroundTeams(ship, members).map((t) => {
+      const team: ShipGroundTeam = { ...t, security: clear(t.security), science: clear(t.science) };
+      if (t.prospecting) team.prospecting = clear(t.prospecting);
+      return team;
+    });
     return { ...ship, groundTeams: teams };
   });
 }
@@ -149,8 +171,9 @@ export function shipsWithMemberUnslotted(
 // unbench). The member must already be out of every other slot (the callers unslot first). The ship's slots
 // are CLEANED first (cleanShipGroundTeams over `members`, the other members of the state; the arriving
 // member need not be in it), so a corrupt id never hides an empty slot. No empty slot (a full squad, or a
-// type the hull fields no ground squad of, Prospecting) leaves the member aboard unslotted (the ship's
-// reserve) and returns the SAME array; so does an unknown ship or a member already slotted there. Pure.
+// type the ship's team kinds field no squad of, Prospecting on every visible kind) leaves the member aboard
+// unslotted (the ship's reserve) and returns the SAME array; so does an unknown ship or a member already
+// slotted there. Pure.
 export function shipsWithMemberAutoSlotted(
   ships: ShipInstance[],
   shipId: string,
@@ -158,7 +181,7 @@ export function shipsWithMemberAutoSlotted(
   teamType: AwayTeamType,
   members: readonly GroundSlotMember[],
 ): ShipInstance[] {
-  if (!isGroundSquadType(teamType)) return ships;
+  if (!isSlotSquadType(teamType)) return ships;
   const index = ships.findIndex((s) => s.id === shipId);
   if (index < 0) return ships;
   const ship = ships[index];
@@ -166,7 +189,7 @@ export function shipsWithMemberAutoSlotted(
   const teams = cleanShipGroundTeams(ship, members);
   const open = firstEmptyGroundSlot(teams, teamType);
   if (!open) return ships;
-  teams[open.teamIndex][teamType][open.slotIndex] = memberId; // the fresh copy, never stored state
+  teamSlots(teams[open.teamIndex], teamType)[open.slotIndex] = memberId; // the fresh copy, never stored state
   const next = [...ships];
   next[index] = { ...ship, groundTeams: teams };
   return next;

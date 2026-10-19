@@ -13,6 +13,7 @@ import { memberFitBlockText, uniqueWearer, type MemberFitBlockReason } from "./g
 import { crewLockText } from "./game/crewLock";
 import { SQUAD_META } from "./awayTeamDisplay";
 import { hasMedicalTraining } from "./game/awayTraits";
+import { squadTypeUnlocked } from "./game/prospecting";
 import type { IconName } from "./ui/icons";
 
 // ============================================================================
@@ -58,11 +59,16 @@ export function memberPieceName(piece: Pick<EquipmentInstance, "slotType" | "mod
 }
 
 // Which squads may wear a member piece, as a short line ("Security only", "Security or Science"), or "" when
-// the variety does not resolve. The member twin of a ship piece's hull / captain requirement. Pure.
-export function memberWearersText(piece: Pick<EquipmentInstance, "slotType" | "moduleVariant">): string {
+// the variety does not resolve. The member twin of a ship piece's hull / captain requirement. Prospecting
+// squads (hidden): the line names only squads `state` has unlocked (prospecting.ts squadTypeUnlocked; omitted
+// = a locked save), so the shared Hazard Suit still reads "Science only" until Prospecting goes visible. Pure.
+export function memberWearersText(
+  piece: Pick<EquipmentInstance, "slotType" | "moduleVariant">,
+  state: Pick<GameState, "prospectingSquadsUnlocked"> = {},
+): string {
   const variety = memberVariety(piece.slotType, piece.moduleVariant ?? "");
   if (variety === undefined) return "";
-  const names = variety.member.teamTypes.map((t: AwayTeamType) => SQUAD_META[t].short);
+  const names = variety.member.teamTypes.filter((t) => squadTypeUnlocked(state, t)).map((t: AwayTeamType) => SQUAD_META[t].short);
   if (names.length === 0) return "";
   return names.length === 1 ? `${names[0]} only` : names.join(" or ");
 }

@@ -202,7 +202,8 @@ export interface ShipTypeDef {
   requiresBlueprint?: string;
   // E-CREW (D7, design section 5.2): the away squads this hull fields, one entry per squad type with
   // its `teamType` and the member count per squad (`size`, 3 or 4: model.ts groundSquadSize reads it).
-  // Every SHIP_TYPES entry lists a Security and a Science squad plus a Prospecting entry (no recruits yet).
+  // Every SHIP_TYPES entry lists a Security and a Science squad plus a Prospecting entry (fielded only by the hidden
+  // Claim and Dig team kinds, prospecting squads design 2026-10-16).
   // How many squads a ship fields comes from ONE authority, `groundSquads` below (the team count) plus each
   // ship's team KINDS (groundComposition.ts); the v66 -> v67 migration reads its own frozen constants. (WR-4: the
   // per-type `count` field, unread since Squads SQ-2, is gone.) OPTIONAL so a hull without the data simply fields
@@ -1065,7 +1066,7 @@ export const SHIP_TYPES: Record<ShipTypeKey, ShipTypeDef> = {
     // CHEAPEST hull to build (the starter/fallback): a small frame + coupling BOM, no
     // major assembly. ⚠️ FIRST-PASS TUNABLE (see ShipTypeDef.buildRecipe).
     buildRecipe: { components: { frameSegment: 4, powerCoupling: 2 }, credits: 500, durationTicks: 300 },
-    // E-CREW away squads (design section 5.2, FIRST-PASS TUNABLE): 3 Security, 3 Science; Prospecting wired, never fielded.
+    // E-CREW away squads (design section 5.2, FIRST-PASS TUNABLE): 3 Security, 3 Science; Prospecting 3 (hidden until unlocked).
     groundSquads: 4, // Squads SQ-1 (user 2026-10-12: DOUBLE EVERY HULL): 4 squads = 2 teams; bigger hulls get more later
     awayTeams: [
       { teamType: "security", size: 3 },
@@ -1084,7 +1085,7 @@ export const SHIP_TYPES: Record<ShipTypeKey, ShipTypeDef> = {
     // MOST EXPENSIVE to build (double cargo): the biggest frame BOM + 2 major
     // assemblies + the longest build. ⚠️ FIRST-PASS TUNABLE.
     buildRecipe: { components: { frameSegment: 8, powerCoupling: 5, structuralAssembly: 2 }, credits: 1400, durationTicks: 700 },
-    // E-CREW away squads (design section 5.2, FIRST-PASS TUNABLE): 3 Security, 3 Science; Prospecting wired, never fielded.
+    // E-CREW away squads (design section 5.2, FIRST-PASS TUNABLE): 3 Security, 3 Science; Prospecting 3 (hidden until unlocked).
     groundSquads: 4, // Squads SQ-1 (user 2026-10-12: DOUBLE EVERY HULL): 4 squads = 2 teams; bigger hulls get more later
     awayTeams: [
       { teamType: "security", size: 3 },
@@ -1103,7 +1104,7 @@ export const SHIP_TYPES: Record<ShipTypeKey, ShipTypeDef> = {
     // MID build (fast but small hold): a lighter frame BOM than the extraction hulls +
     // 1 major assembly. ⚠️ FIRST-PASS TUNABLE.
     buildRecipe: { components: { frameSegment: 4, powerCoupling: 4, structuralAssembly: 1 }, credits: 900, durationTicks: 450 },
-    // E-CREW away squads (design section 5.2, FIRST-PASS TUNABLE): 3 Security, 3 Science; Prospecting wired, never fielded.
+    // E-CREW away squads (design section 5.2, FIRST-PASS TUNABLE): 3 Security, 3 Science; Prospecting 3 (hidden until unlocked).
     groundSquads: 4, // Squads SQ-1 (user 2026-10-12: DOUBLE EVERY HULL): 4 squads = 2 teams; bigger hulls get more later
     awayTeams: [
       { teamType: "security", size: 3 },
@@ -1122,7 +1123,7 @@ export const SHIP_TYPES: Record<ShipTypeKey, ShipTypeDef> = {
     // ABOVE-MID build (specialized extraction rig): a heavier BOM than the Runner +
     // 1 major assembly, below the Hauler. ⚠️ FIRST-PASS TUNABLE.
     buildRecipe: { components: { frameSegment: 6, powerCoupling: 4, structuralAssembly: 1 }, credits: 1100, durationTicks: 550 },
-    // E-CREW away squads (design section 5.2, FIRST-PASS TUNABLE): 3 Security, 3 Science; Prospecting wired, never fielded.
+    // E-CREW away squads (design section 5.2, FIRST-PASS TUNABLE): 3 Security, 3 Science; Prospecting 3 (hidden until unlocked).
     groundSquads: 4, // Squads SQ-1 (user 2026-10-12: DOUBLE EVERY HULL): 4 squads = 2 teams; bigger hulls get more later
     awayTeams: [
       { teamType: "security", size: 3 },
@@ -1158,7 +1159,7 @@ export const SHIP_TYPES: Record<ShipTypeKey, ShipTypeDef> = {
     // Combat hull BOM: heavier than the economy hulls (more assemblies), a mid-length
     // build. ⚠️ FIRST-PASS TUNABLE. (9b re-tunes alongside the research gate.)
     buildRecipe: { components: { frameSegment: 6, powerCoupling: 5, structuralAssembly: 2 }, credits: 2000, durationTicks: 600 },
-    // E-CREW away squads (design section 5.2, FIRST-PASS TUNABLE): 4 Security, 3 Science; Prospecting wired, never fielded.
+    // E-CREW away squads (design section 5.2, FIRST-PASS TUNABLE): 4 Security, 3 Science; Prospecting 3 (hidden until unlocked).
     groundSquads: 4, // Squads SQ-1 (user 2026-10-12: DOUBLE EVERY HULL): 4 squads = 2 teams; bigger hulls get more later
     awayTeams: [
       { teamType: "security", size: 4 },
@@ -1184,7 +1185,7 @@ export const SHIP_TYPES: Record<ShipTypeKey, ShipTypeDef> = {
     hullIntegrity: 1400, shieldCapacity: 600, shieldRecharge: 6, weaponHardpoints: 6,
     // Heaviest BOM + longest build of any hull (a capital ship). ⚠️ FIRST-PASS TUNABLE.
     buildRecipe: { components: { frameSegment: 14, powerCoupling: 10, structuralAssembly: 5 }, credits: 5000, durationTicks: 1200 },
-    // E-CREW away squads (design section 5.2, FIRST-PASS TUNABLE): 4 Security, 3 Science; Prospecting wired, never fielded.
+    // E-CREW away squads (design section 5.2, FIRST-PASS TUNABLE): 4 Security, 3 Science; Prospecting 3 (hidden until unlocked).
     groundSquads: 4, // Squads SQ-1 (user 2026-10-12: DOUBLE EVERY HULL): 4 squads = 2 teams; bigger hulls get more later
     awayTeams: [
       { teamType: "security", size: 4 },
@@ -1212,7 +1213,7 @@ export const SHIP_TYPES: Record<ShipTypeKey, ShipTypeDef> = {
     hullIntegrity: 1100, shieldCapacity: 500, shieldRecharge: 7, weaponHardpoints: 2, droneBays: 2,
     // Heavy BOM (a big hull), just under the battleship. ⚠️ FIRST-PASS TUNABLE.
     buildRecipe: { components: { frameSegment: 12, powerCoupling: 10, structuralAssembly: 4 }, credits: 4800, durationTicks: 1150 },
-    // E-CREW away squads (design section 5.2, FIRST-PASS TUNABLE): 4 Security, 3 Science; Prospecting wired, never fielded.
+    // E-CREW away squads (design section 5.2, FIRST-PASS TUNABLE): 4 Security, 3 Science; Prospecting 3 (hidden until unlocked).
     groundSquads: 4, // Squads SQ-1 (user 2026-10-12: DOUBLE EVERY HULL): 4 squads = 2 teams; bigger hulls get more later
     awayTeams: [
       { teamType: "security", size: 4 },
@@ -1272,7 +1273,7 @@ export const SHIP_TYPES: Record<ShipTypeKey, ShipTypeDef> = {
     hullIntegrity: 340, shieldCapacity: 800, shieldRecharge: 12, weaponHardpoints: 1, // FIRST-PASS TUNABLE
     // Capital-class BOM (between the destroyer and the battleship). ⚠️ FIRST-PASS TUNABLE.
     buildRecipe: { components: { frameSegment: 10, powerCoupling: 8, structuralAssembly: 3 }, credits: 4200, durationTicks: 1000 },
-    // E-CREW away squads (design section 5.2, FIRST-PASS TUNABLE): 3 Security, 4 Science; Prospecting wired, never fielded.
+    // E-CREW away squads (design section 5.2, FIRST-PASS TUNABLE): 3 Security, 4 Science; Prospecting 3 (hidden until unlocked).
     groundSquads: 4, // Squads SQ-1 (user 2026-10-12: DOUBLE EVERY HULL): 4 squads = 2 teams; bigger hulls get more later
     awayTeams: [
       { teamType: "security", size: 3 },
@@ -1293,7 +1294,7 @@ export const SHIP_TYPES: Record<ShipTypeKey, ShipTypeDef> = {
     hullIntegrity: 300, shieldCapacity: 720, shieldRecharge: 14, weaponHardpoints: 1, // FIRST-PASS TUNABLE
     // Capital-class BOM, a touch lighter than Orion (leaner combat frame). ⚠️ FIRST-PASS TUNABLE.
     buildRecipe: { components: { frameSegment: 9, powerCoupling: 8, structuralAssembly: 3 }, credits: 3900, durationTicks: 950 },
-    // E-CREW away squads (design section 5.2, FIRST-PASS TUNABLE): 3 Security, 4 Science; Prospecting wired, never fielded.
+    // E-CREW away squads (design section 5.2, FIRST-PASS TUNABLE): 3 Security, 4 Science; Prospecting 3 (hidden until unlocked).
     groundSquads: 4, // Squads SQ-1 (user 2026-10-12: DOUBLE EVERY HULL): 4 squads = 2 teams; bigger hulls get more later
     awayTeams: [
       { teamType: "security", size: 3 },
@@ -1316,7 +1317,7 @@ export const SHIP_TYPES: Record<ShipTypeKey, ShipTypeDef> = {
     hullIntegrity: 360, shieldCapacity: 700, shieldRecharge: 10, weaponHardpoints: 1, // FIRST-PASS TUNABLE
     // Heaviest explorer BOM (the biggest frame). ⚠️ FIRST-PASS TUNABLE.
     buildRecipe: { components: { frameSegment: 12, powerCoupling: 8, structuralAssembly: 4 }, credits: 4600, durationTicks: 1100 },
-    // E-CREW away squads (design section 5.2, FIRST-PASS TUNABLE): 4 Security, 4 Science; Prospecting wired, never fielded.
+    // E-CREW away squads (design section 5.2, FIRST-PASS TUNABLE): 4 Security, 4 Science; Prospecting 3 (hidden until unlocked).
     groundSquads: 4, // Squads SQ-1 (user 2026-10-12: DOUBLE EVERY HULL): 4 squads = 2 teams; bigger hulls get more later
     awayTeams: [
       { teamType: "security", size: 4 },
@@ -1523,7 +1524,11 @@ export interface ShipInstance {
 //   science.length  = scienceSquadsOf(kind)  * groundSquadSize(hull, "science")
 // Squad k of a type holds slots [k * size, (k + 1) * size); a Strike team's science list is empty, a Survey
 // team's security list is empty. groundComposition.ts holds the kind math.
-export type GroundTeamKind = "ground" | "strike" | "survey";
+// Prospecting squads (0.14.0, built HIDDEN; design 2026-10-16 section 6, user "Type + two team kinds"): two
+// more kinds field the third squad type, Claim = 1 Security + 1 Prospecting (Security guards the dig) and Dig =
+// 2 Prospecting (names [PROPOSAL], kept by the user). No real save can hold either while Prospecting is locked
+// (groundTeams.ts setGroundTeamKind refuses them with "kindLocked").
+export type GroundTeamKind = "ground" | "strike" | "survey" | "claim" | "dig";
 
 export interface ShipGroundTeam {
   // Player-chosen name. ABSENT (or blank) = the default by index (groundTeams.ts GROUND_TEAM_DEFAULT_NAMES:
@@ -1532,6 +1537,11 @@ export interface ShipGroundTeam {
   kind: GroundTeamKind; // the team type (SQ-1, v68); a missing or unknown stored kind reads as "ground"
   security: (string | null)[]; // length = securitySquadsOf(kind) * groundSquadSize(typeKey, "security")
   science: (string | null)[]; // length = scienceSquadsOf(kind) * groundSquadSize(typeKey, "science")
+  // Prospecting squads (hidden, design section 6): the Prospecting slots, squad-major like the other two. PRESENT
+  // only on a kind that fields a Prospecting squad (Claim, Dig), length = prospectingSquadsOf(kind) *
+  // groundSquadSize(typeKey, "prospecting"); ABSENT reads as [] (every Ground / Strike / Survey team, so every
+  // existing save and golden keeps its exact shape). Optional + absent-safe: no SAVE_VERSION bump.
+  prospecting?: (string | null)[];
   // "When done, help other teams" (D25): the ship's default for the NEXT dispatch (GO-7c reads it).
   helpOthers: boolean;
   // SQ-1 (v68): set ONLY on the pair the v67 -> v68 migration adds, so the Away Team tab can prompt "Pick a
@@ -1557,8 +1567,8 @@ export function groundTeamCount(typeKey: ShipTypeKey): number {
 }
 
 // The member slots in ONE ground team's `teamType` squad on a hull: the matching entry's `size`; 0 when the
-// hull lists no such squad. Pure.
-export function groundSquadSize(typeKey: ShipTypeKey, teamType: "security" | "science"): number {
+// hull lists no such squad. Prospecting reads the hull's existing prospecting entry (3 on every hull). Pure.
+export function groundSquadSize(typeKey: ShipTypeKey, teamType: AwayTeamType): number {
   return Math.max(0, firstAwayTeamEntry(typeKey, teamType)?.size ?? 0);
 }
 
@@ -1971,7 +1981,7 @@ export interface EquipmentVarietyDef {
 // gate (Task 8), the roster snapshot + battle + fieldwork (Tasks 12-16) are the consumers. See the
 // member-gear block of EQUIPMENT_SLOTS for the per-field meaning.
 export interface MemberVarietyTraits {
-  readonly teamTypes: readonly AwayTeamType[];          // squads allowed to wear it (never "prospecting" yet)
+  readonly teamTypes: readonly AwayTeamType[];          // squads allowed to wear it (Prospecting pieces stay hidden until unlocked)
   readonly weaponRange?: "long" | "short";              // member weapons: back line vs front line
   readonly planetTypes?: readonly ExpeditionPlanetType[]; // Science tools: tuned bodies; absent = any body
   readonly encounterBias?: number;                      // Security tools: signed scale on the encounter chance
@@ -2402,8 +2412,8 @@ export const EQUIPMENT_SLOTS: Record<string, EquipmentSlotDef> = {
   //
   // MEMBER TRAITS (each variety's `member: MemberVarietyTraits`, DORMANT DATA here; consumers are E-CREW
   // Tasks 8-16):
-  //   teamTypes      , which squad types may wear it (REQUIRED; "prospecting" is wired-only and no gear
-  //                    lists it yet).
+  //   teamTypes      , which squad types may wear it (REQUIRED; Prospecting pieces are built but HIDDEN
+  //                    until the per-save unlock, prospecting.ts).
   //   weaponRange    , long (back line) vs short (front line) for the Security battle.
   //   planetTypes    , Science tools tuned to body types; ABSENT = works on any body (Decryptor).
   //   encounterBias  , the Security encounter dial (Shroud lowers the random-encounter chance, Lure raises
@@ -2456,6 +2466,47 @@ export const EQUIPMENT_SLOTS: Record<string, EquipmentSlotDef> = {
         member: { teamTypes: ["science"], weaponRange: "short" },
         statRatios: { groundPower: 0.45, groundAccuracy: 0.45, groundStatusChance: 0.1 },
       },
+      // Prospecting weapons (HIDDEN with the squad; design 2026-10-16 section 5, user "A cutting tool"): a WORK
+      // implement whose "offense" is offense against rock (YIELD). No damage, no weaponRange: Prospecting never
+      // fights. Each carries its own pools so none falls back to the slot's combat lines (D26).
+      // Plasma Cutter: the Standard-Issue cutter, YIELD first, FIELD second.
+      {
+        key: "plasmaCutter",
+        label: "Plasma Cutter",
+        member: { teamTypes: ["prospecting"] },
+        implicitStats: ["groundOreYield", "groundFieldwork"],
+        affixPool: [
+          { stat: "groundOreYield", weight: 4 },
+          { stat: "groundFieldwork", weight: 3 },
+          { stat: "groundOreGrade", weight: 1 },
+        ],
+        statRatios: { groundOreYield: 0.5, groundFieldwork: 0.4, groundOreGrade: 0.1 },
+      },
+      // Rock Breaker: the heavy hauler, almost all YIELD.
+      {
+        key: "rockBreaker",
+        label: "Rock Breaker",
+        member: { teamTypes: ["prospecting"] },
+        implicitStats: ["groundOreYield"],
+        affixPool: [
+          { stat: "groundOreYield", weight: 4 },
+          { stat: "groundFieldwork", weight: 2 },
+        ],
+        statRatios: { groundOreYield: 0.75, groundFieldwork: 0.25 },
+      },
+      // Sampling Lance: cuts clean cores, a GRADE lean.
+      {
+        key: "samplingLance",
+        label: "Sampling Lance",
+        member: { teamTypes: ["prospecting"] },
+        implicitStats: ["groundOreGrade"],
+        affixPool: [
+          { stat: "groundOreGrade", weight: 3 },
+          { stat: "groundOreYield", weight: 3 },
+          { stat: "groundFieldwork", weight: 1 },
+        ],
+        statRatios: { groundOreGrade: 0.5, groundOreYield: 0.4, groundFieldwork: 0.1 },
+      },
     ],
   },
   // MEMBER ARMOR: the suit. Signature groundArmor; HP + hazard affixes.
@@ -2501,11 +2552,13 @@ export const EQUIPMENT_SLOTS: Record<string, EquipmentSlotDef> = {
         ],
         statRatios: { groundFieldwork: 0.5, groundArmor: 0.3, groundHp: 0.2 },
       },
-      // Hazard Suit: Science, cuts the hazard slowdown on a hostile body.
+      // Hazard Suit: Science, cuts the hazard slowdown on a hostile body. Prospecting shares it (user 2026-10-16:
+      // "Hazard gear + Steady"); adding a squad to teamTypes changes no roll, and the worn-by line names only
+      // unlocked squads (awayGearDisplay.ts memberWearersText).
       {
         key: "hazardSuit",
         label: "Hazard Suit",
-        member: { teamTypes: ["science"] },
+        member: { teamTypes: ["science", "prospecting"] },
         implicitStats: ["groundHazardResist"],
         affixPool: [
           { stat: "groundHazardResist", weight: 4 },
@@ -2513,6 +2566,18 @@ export const EQUIPMENT_SLOTS: Record<string, EquipmentSlotDef> = {
           { stat: "groundHp", weight: 2 },
         ],
         statRatios: { groundHazardResist: 0.6, groundArmor: 0.2, groundHp: 0.2 },
+      },
+      // Excavator Suit (Prospecting, HIDDEN): the Standard-Issue work suit, hazard defense first, FIELD second.
+      {
+        key: "excavatorSuit",
+        label: "Excavator Suit",
+        member: { teamTypes: ["prospecting"] },
+        implicitStats: ["groundHazardResist", "groundFieldwork"],
+        affixPool: [
+          { stat: "groundHazardResist", weight: 3 },
+          { stat: "groundFieldwork", weight: 3 },
+        ],
+        statRatios: { groundHazardResist: 0.6, groundFieldwork: 0.4 },
       },
     ],
   },
@@ -2638,6 +2703,33 @@ export const EQUIPMENT_SLOTS: Record<string, EquipmentSlotDef> = {
         label: "Atmo Probe",
         member: { teamTypes: ["science"], planetTypes: ["gasGiant"] },
         statRatios: { groundFieldwork: 0.6, groundHazardResist: 0.3, groundRelicFind: 0.1 },
+      },
+      // Prospecting tools (HIDDEN with the squad), each with its own pools (no relic line):
+      // Assay Scanner: the Standard-Issue role kit, GRADE first, FIELD second.
+      {
+        key: "assayScanner",
+        label: "Assay Scanner",
+        member: { teamTypes: ["prospecting"] },
+        implicitStats: ["groundOreGrade", "groundFieldwork"],
+        affixPool: [
+          { stat: "groundOreGrade", weight: 4 },
+          { stat: "groundFieldwork", weight: 2 },
+          { stat: "groundHazardResist", weight: 1 },
+        ],
+        statRatios: { groundOreGrade: 0.6, groundFieldwork: 0.3, groundHazardResist: 0.1 },
+      },
+      // Seismic Mapper: reads the seam ahead, YIELD and pace.
+      {
+        key: "seismicMapper",
+        label: "Seismic Mapper",
+        member: { teamTypes: ["prospecting"] },
+        implicitStats: ["groundOreYield"],
+        affixPool: [
+          { stat: "groundOreYield", weight: 3 },
+          { stat: "groundFieldwork", weight: 3 },
+          { stat: "groundHazardResist", weight: 1 },
+        ],
+        statRatios: { groundOreYield: 0.5, groundFieldwork: 0.4, groundHazardResist: 0.1 },
       },
     ],
   },
@@ -2780,11 +2872,12 @@ export const EQUIPMENT_SLOTS: Record<string, EquipmentSlotDef> = {
         ],
         statRatios: { groundRelicFind: 0.7, groundFieldwork: 0.3 },
       },
-      // Environmental Adaptation: shrugs off a hostile body's hazards.
+      // Environmental Adaptation: shrugs off a hostile body's hazards. Shared with Prospecting (user 2026-10-16:
+      // "Hazard gear + Steady"), the Hazard Suit's rule.
       {
         key: "environmentalAdaptation",
         label: "Environmental Adaptation",
-        member: { teamTypes: ["science"] },
+        member: { teamTypes: ["science", "prospecting"] },
         implicitStats: ["groundHazardResist"],
         affixPool: [
           { stat: "groundHazardResist", weight: 3 },
@@ -2815,6 +2908,31 @@ export const EQUIPMENT_SLOTS: Record<string, EquipmentSlotDef> = {
           { stat: "groundFieldwork", weight: 1 },
         ],
         statRatios: { groundOrganicsYield: 0.8, groundFieldwork: 0.2 },
+      },
+      // Prospecting implants (HIDDEN with the squad; Cybernetics Bay):
+      // Ore-Sense Optic: sees the grade in the rock.
+      {
+        key: "oreSenseOptic",
+        label: "Ore-Sense Optic",
+        member: { teamTypes: ["prospecting"] },
+        implicitStats: ["groundOreGrade"],
+        affixPool: [
+          { stat: "groundOreGrade", weight: 4 },
+          { stat: "groundFieldwork", weight: 1 },
+        ],
+        statRatios: { groundOreGrade: 0.8, groundFieldwork: 0.2 },
+      },
+      // Myo-Lift Frame: a powered lift assist, more hauled out of every seam.
+      {
+        key: "myoLiftFrame",
+        label: "Myo-Lift Frame",
+        member: { teamTypes: ["prospecting"] },
+        implicitStats: ["groundOreYield"],
+        affixPool: [
+          { stat: "groundOreYield", weight: 3 },
+          { stat: "groundFieldwork", weight: 2 },
+        ],
+        statRatios: { groundOreYield: 0.6, groundFieldwork: 0.4 },
       },
     ],
   },
@@ -2942,6 +3060,10 @@ export const RESERVED_STAT_KEYS = [
 //   groundOrganicsYield / groundVaultYield                 , fieldwork YIELD toward one find family
 //                                                            (organics: Flora Scanner, Bio-Analyzer;
 //                                                            vaults: Decryptor, Cipher Wetware)
+//   groundOreYield / groundOreGrade                        , Prospecting lines (YIELD / GRADE, user 2026-10-16:
+//                                                            "Add YIELD + GRADE"): units per deposit and the lift
+//                                                            on the better-tier roll. HIDDEN with the squad; only
+//                                                            Prospecting pieces roll them (prospecting.ts)
 // The tools' encounter dial (Shroud / Lure) is NOT a stat line: it is the variety's `encounterBias`
 // descriptor (EquipmentVarietyDef), a fixed property of the tool rather than a rolled magnitude.
 export const MEMBER_GROUND_STAT_KEYS = [
@@ -2956,6 +3078,8 @@ export const MEMBER_GROUND_STAT_KEYS = [
   "groundHazardResist",
   "groundOrganicsYield",
   "groundVaultYield",
+  "groundOreYield",
+  "groundOreGrade",
 ] as const;
 export type MemberGroundStatKey = (typeof MEMBER_GROUND_STAT_KEYS)[number];
 
@@ -6269,16 +6393,21 @@ export interface SeniorStaffOfficer {
 // the Armory squad loadouts wire them in later tasks.
 
 // The away squad types, a DATA LIST and never a binary (D2): Security fights, Science does fieldwork.
-// "prospecting" is WIRED ONLY (data + gear compatibility); no ship fields a prospecting squad and no
-// activity uses one yet.
+// "prospecting" (user group 4, 2026-10-16: design docs/plans/2026-10-16-prospecting-squads-design.md) is
+// BUILT but HIDDEN: specs, traits, recruits, gear, team slots and Standard-Issue rows all exist, and every one
+// of them stays out of reach until the per-save unlock (GameState.prospectingSquadsUnlocked, prospecting.ts
+// squadTypeUnlocked) that a quest step sets in the prospecting quests patch. Prospecting never fights.
 export type AwayTeamType = "security" | "science" | "prospecting";
 export const AWAY_TEAM_TYPES: readonly AwayTeamType[] = ["security", "science", "prospecting"];
 
 // A member's specialty within its squad type. Security members specialize in offense / defense /
-// debuff; Science members in one fieldwork discipline. Prospecting has no specs yet (wired only).
+// debuff; Science members in one fieldwork discipline; Prospecting members in one ROLE (user 2026-10-16:
+// Excavation lifts YIELD, Drilling lifts FIELD and HAZ, Assaying lifts GRADE; prospecting.ts
+// PROSPECTING_SPEC_BASE).
 export type SecuritySpec = "offense" | "defense" | "debuff";
 export type ScienceSpec = "archaeology" | "xenobiology" | "geology" | "cryptography";
-export type AwayMemberSpec = SecuritySpec | ScienceSpec;
+export type ProspectingSpec = "excavation" | "drilling" | "assaying";
+export type AwayMemberSpec = SecuritySpec | ScienceSpec | ProspectingSpec;
 
 // A rolled away-team trait id, a stable string key into the trait catalog (awayTraits.ts AWAY_TRAITS).
 // Deliberately a plain string, not a closed union: it is persisted on members, so a save can carry an id
@@ -6288,7 +6417,7 @@ export type AwayTraitId = string;
 // One named away-team member. Few, named, full objects (like SeniorStaffOfficer, unlike the bucketed
 // complement), so persisting per person is fine. NOTE: `spec` is not yet tied to `teamType` at the
 // type level (a Security member could carry a Science spec); a specsFor(teamType) validator lands with
-// recruitment. Prospecting's spec set is still to be decided.
+// recruitment.
 export interface AwayMember {
   id: string; // "member-N" from GameState.nextAwayMemberId; never reused
   teamType: AwayTeamType;
@@ -7848,6 +7977,11 @@ export interface GameState {
   awayRecruitSeed: number; // stable per-save PRNG seed for the derived recruit board (awayRecruitSeedFrom)
   squadLoadouts: GroundTeamLoadout[]; // the Armory squad loadouts, one per ground team (GO-1 reshape; v67 coerces to [])
   nextSquadLoadoutId: number; // monotonic id source for a new GroundTeamLoadout id; never reused
+  // Prospecting squads (0.14.0, built HIDDEN; design 2026-10-16 section 8): the PER-SAVE unlock. ABSENT = locked
+  // (every save in 0.14.0: nothing sets it). A quest step in the prospecting quests patch sets it through
+  // prospecting.ts unlockProspectingSquads (user 2026-10-16: "A quest step unlocks it"). While locked no recruit,
+  // team kind, Quartermaster row or worn-by line names Prospecting. Optional + absent-safe: no SAVE_VERSION bump.
+  prospectingSquadsUnlocked?: true;
 }
 
 // RecipeKey / RecipeDef / RECIPES (the legacy INSTANT Homeworld craft path) were

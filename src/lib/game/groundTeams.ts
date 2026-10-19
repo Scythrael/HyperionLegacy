@@ -29,24 +29,31 @@ import {
   DEFAULT_GROUND_TEAM_KIND,
   isGroundTeamKind,
   isValidComposition,
+  kindFieldsType,
   squadsOfType,
   teamSlotCount,
 } from "./groundComposition";
 import { byIdNumber, isMemberReady, shipCrewLocked } from "./awayTeam";
 import {
   GROUND_SQUAD_TYPES,
+  SLOT_SQUAD_TYPES,
   cleanShipGroundTeams,
   findGroundSlot,
   firstEmptyGroundSlot,
   isGroundSquadType,
+  isSlotSquadType,
   shipGroundTeams,
   shipsWithMemberAutoSlotted,
   shipsWithMemberUnslotted,
+  teamSlots,
   type GroundSlotMember,
   type GroundSlotRef,
   type GroundSquadType,
+  type SlotSquadType,
 } from "./groundTeamSlots";
 import { formatCountdown } from "./format";
+// Prospecting squads (hidden): the unlock gate on the Claim and Dig kinds. prospecting.ts imports model.ts only.
+import { squadTypeUnlocked } from "./prospecting";
 
 // The size readers live in model.ts (freshState seeds the starting hull with them, and model.ts must not
 // import this module); the slot primitives live in groundTeamSlots.ts (awayTeam.ts needs them). Re-exported
@@ -55,16 +62,20 @@ import { formatCountdown } from "./format";
 export { emptyGroundTeams, groundSquadSize, groundTeamCount };
 export {
   GROUND_SQUAD_TYPES,
+  SLOT_SQUAD_TYPES,
   cleanShipGroundTeams,
   findGroundSlot,
   firstEmptyGroundSlot,
   isGroundSquadType,
+  isSlotSquadType,
   shipGroundTeams,
   shipsWithMemberAutoSlotted,
   shipsWithMemberUnslotted,
+  teamSlots,
   type GroundSlotMember,
   type GroundSlotRef,
   type GroundSquadType,
+  type SlotSquadType,
 };
 
 // The default team names by index (user 9b.7: "Alpha / Bravo / Charlie", renameable).
@@ -114,18 +125,22 @@ const isSlotList = (v: unknown, length: number): v is (string | null)[] =>
 // optional `kindPending: true`. Shape only: it does not check that the ids name members aboard (GO-2's
 // invariant) nor that the composition keeps one squad of each type (groundComposition.ts isValidComposition;
 // no build can store a refused one, SQ-2's kind change refuses it).
+// Prospecting squads (hidden): a Claim or Dig team carries its Prospecting slot list sized to the kind; every
+// other kind carries none (absent, the shipGroundTeams shape).
 export function isWellFormedShipGroundTeams(value: unknown, typeKey: ShipTypeKey): value is ShipGroundTeam[] {
   if (!Array.isArray(value) || value.length !== groundTeamCount(typeKey)) return false;
-  return value.every(
-    (t) =>
-      isRecord(t) &&
-      isGroundTeamKind(t.kind) &&
+  return value.every((t) => {
+    if (!isRecord(t) || !isGroundTeamKind(t.kind)) return false;
+    const prospecting = teamSlotCount(typeKey, t.kind, "prospecting");
+    return (
       (t.name === undefined || typeof t.name === "string") &&
       isSlotList(t.security, teamSlotCount(typeKey, t.kind, "security")) &&
       isSlotList(t.science, teamSlotCount(typeKey, t.kind, "science")) &&
+      (prospecting > 0 ? isSlotList(t.prospecting, prospecting) : t.prospecting === undefined) &&
       typeof t.helpOthers === "boolean" &&
-      (t.kindPending === undefined || t.kindPending === true),
-  );
+      (t.kindPending === undefined || t.kindPending === true)
+    );
+  });
 }
 
 // The FROZEN migration shapes (GO-1's v67, SQ-1's v68). The v66 -> v67 and v67 -> v68 migration steps
@@ -193,7 +208,9 @@ export function isWellFormedV67ShipGroundTeams(value: unknown, typeKey: ShipType
 // lists sized to that kind at the frozen squad sizes (the kind's squads of each type come from
 // groundComposition.ts squadsOfType: the definition of the three kinds, not hull data), a boolean help
 // toggle, an optional string name and an optional `kindPending: true`. The migrations' idempotency guard.
-// Shape only.
+// Shape only. FROZEN to the three kinds v68 shipped with (the hidden Prospecting kinds came later and no v68
+// save can hold one).
+const V68_KINDS: ReadonlySet<string> = new Set(["ground", "strike", "survey"]);
 export function isWellFormedV68ShipGroundTeams(value: unknown, typeKey: ShipTypeKey): value is ShipGroundTeam[] {
   const sizes = frozenSizes(typeKey);
   if (!Array.isArray(value) || value.length !== (sizes ? V68_GROUND_TEAM_COUNT : 0)) return false;
@@ -202,6 +219,7 @@ export function isWellFormedV68ShipGroundTeams(value: unknown, typeKey: ShipType
     (t) =>
       isRecord(t) &&
       isGroundTeamKind(t.kind) &&
+      V68_KINDS.has(t.kind) &&
       (t.name === undefined || typeof t.name === "string") &&
       isSlotList(t.security, squadsOfType(t.kind, "security") * sizes.security) &&
       isSlotList(t.science, squadsOfType(t.kind, "science") * sizes.science) &&
@@ -333,6 +351,8 @@ export function v68ShipGroundTeamsFromV67(
 //   sameKind:      a no-op team type change: the team already is that type and needs no confirm (SQ-2)
 //   needsBothTypes: the change would leave the ship without a Security squad or without a Science squad
 //                  (user: "Always require one of each type minimum"; Strike + Strike, Survey + Survey) (SQ-2)
+//   kindLocked:    a hidden Prospecting kind (Claim, Dig) on a save whose Prospecting is still locked
+//                  (prospecting.ts squadTypeUnlocked; design 2026-10-16 section 6)
 export type GroundSlotBlockReason =
   | "noShip"
   | "onMission"
@@ -345,7 +365,8 @@ export type GroundSlotBlockReason =
   | "notSlotted"
   | "noSuchKind"
   | "sameKind"
-  | "needsBothTypes";
+  | "needsBothTypes"
+  | "kindLocked";
 
 export type GroundSlotGate = { ok: true } | { ok: false; reason: GroundSlotBlockReason };
 
@@ -377,10 +398,18 @@ export function groundSlotBlockText(reason: GroundSlotBlockReason): string {
       return "Already this team type";
     case "needsBothTypes":
       return "A ship needs at least one Security squad and one Science squad";
+    case "kindLocked":
+      return "Not available yet";
   }
 }
 
 const refuse = (reason: GroundSlotBlockReason): GroundSlotGate => ({ ok: false, reason });
+
+// Whether a team kind fields only squad types this save has unlocked (the hidden Claim and Dig need
+// Prospecting). Pure.
+function kindUnlocked(state: GameState, kind: GroundTeamKind): boolean {
+  return SLOT_SQUAD_TYPES.every((type) => !kindFieldsType(kind, type) || squadTypeUnlocked(state, type));
+}
 
 // The ship lookup every slot gate starts with, checked in order: noShip, onMission. Pure.
 function shipGate(state: GameState, shipId: string): { ship: ShipInstance } | { gate: GroundSlotGate } {
@@ -420,7 +449,7 @@ export function canSlotMember(
   state: GameState,
   shipId: string,
   teamIndex: number,
-  teamType: GroundSquadType,
+  teamType: SlotSquadType,
   slotIndex: number,
   memberId: string,
 ): GroundSlotGate {
@@ -428,7 +457,7 @@ export function canSlotMember(
   if ("gate" in s) return s.gate;
   const team = teamAt(writableTeams(state, s.ship), teamIndex);
   if (!team) return refuse("noSuchTeam");
-  const slots = isGroundSquadType(teamType) ? team[teamType] : [];
+  const slots = isSlotSquadType(teamType) ? teamSlots(team, teamType) : [];
   if (!Number.isInteger(slotIndex) || slotIndex < 0 || slotIndex >= slots.length) return refuse("noSuchSlot");
   const a = aboardGate(state, shipId, memberId);
   if ("gate" in a) return a.gate;
@@ -443,7 +472,7 @@ export function slotMember(
   state: GameState,
   shipId: string,
   teamIndex: number,
-  teamType: GroundSquadType,
+  teamType: SlotSquadType,
   slotIndex: number,
   memberId: string,
 ): GameState {
@@ -451,8 +480,8 @@ export function slotMember(
   const ship = state.ships.find((s) => s.id === shipId) as ShipInstance;
   const teams = writableTeams(state, ship);
   const from = findGroundSlot(teams, memberId);
-  if (from) teams[from.teamIndex][from.teamType][from.slotIndex] = null;
-  teams[teamIndex][teamType][slotIndex] = memberId;
+  if (from) teamSlots(teams[from.teamIndex], from.teamType)[from.slotIndex] = null;
+  teamSlots(teams[teamIndex], teamType)[slotIndex] = memberId;
   return withShipTeams(state, shipId, teams);
 }
 
@@ -474,7 +503,7 @@ export function unslotMember(state: GameState, shipId: string, memberId: string)
   const ship = state.ships.find((s) => s.id === shipId) as ShipInstance;
   const teams = writableTeams(state, ship);
   const at = findGroundSlot(teams, memberId) as GroundSlotRef;
-  teams[at.teamIndex][at.teamType][at.slotIndex] = null;
+  teamSlots(teams[at.teamIndex], at.teamType)[at.slotIndex] = null;
   return withShipTeams(state, shipId, teams);
 }
 
@@ -490,7 +519,7 @@ export function canSwapGroundMembers(state: GameState, shipId: string, memberIdA
   if ("gate" in a) return a.gate;
   const b = aboardGate(state, shipId, memberIdB);
   if ("gate" in b) return b.gate;
-  if (a.member.teamType !== b.member.teamType || !isGroundSquadType(a.member.teamType)) return refuse("wrongTeamType");
+  if (a.member.teamType !== b.member.teamType || !isSlotSquadType(a.member.teamType)) return refuse("wrongTeamType");
   const teams = writableTeams(state, s.ship);
   if (!findGroundSlot(teams, memberIdA) && !findGroundSlot(teams, memberIdB)) return refuse("notSlotted");
   return { ok: true };
@@ -505,8 +534,8 @@ export function swapGroundMembers(state: GameState, shipId: string, memberIdA: s
   const teams = writableTeams(state, ship);
   const atA = findGroundSlot(teams, memberIdA);
   const atB = findGroundSlot(teams, memberIdB);
-  if (atA) teams[atA.teamIndex][atA.teamType][atA.slotIndex] = memberIdB;
-  if (atB) teams[atB.teamIndex][atB.teamType][atB.slotIndex] = memberIdA;
+  if (atA) teamSlots(teams[atA.teamIndex], atA.teamType)[atA.slotIndex] = memberIdB;
+  if (atB) teamSlots(teams[atB.teamIndex], atB.teamType)[atB.slotIndex] = memberIdA;
   return withShipTeams(state, shipId, teams);
 }
 
@@ -576,7 +605,8 @@ export type GroundTeamKindPreview =
   | { ok: false; reason: GroundSlotBlockReason };
 
 // The gate plus the planned teams (a normalized, cleaned copy with the change applied). Checked in order:
-// noShip, onMission, noSuchTeam, noSuchKind, sameKind, needsBothTypes. Pure.
+// noShip, onMission, noSuchTeam, noSuchKind, kindLocked (a hidden Prospecting kind on a locked save), sameKind,
+// needsBothTypes. Pure.
 function planGroundTeamKind(
   state: GameState,
   shipId: string,
@@ -589,6 +619,7 @@ function planGroundTeamKind(
   const team = teamAt(teams, teamIndex);
   if (!team) return { gate: refuse("noSuchTeam") };
   if (!isGroundTeamKind(kind)) return { gate: refuse("noSuchKind") };
+  if (!kindUnlocked(state, kind)) return { gate: refuse("kindLocked") };
   if (team.kind === kind && team.kindPending !== true) return { gate: refuse("sameKind") };
   const kinds = teams.map((t) => t.kind);
   kinds[teamIndex] = kind;
@@ -596,13 +627,18 @@ function planGroundTeamKind(
 
   const next: ShipGroundTeam = { ...team, kind, security: [], science: [] };
   delete next.kindPending;
+  delete next.prospecting;
   const toReserve: string[] = [];
   const fromReserve: string[] = [];
-  const opened: [GroundSquadType, number][] = [];
-  for (const teamType of GROUND_SQUAD_TYPES) {
-    const old = team[teamType];
+  const opened: [SlotSquadType, number][] = [];
+  for (const teamType of SLOT_SQUAD_TYPES) {
+    const old = teamSlots(team, teamType);
     const length = teamSlotCount(s.ship.typeKey, kind, teamType);
-    next[teamType] = Array.from({ length }, (_, i) => (i < old.length ? old[i] : null));
+    const slots = Array.from({ length }, (_, i) => (i < old.length ? old[i] : null));
+    // Prospecting's list is written only on a kind that fields it (the shipGroundTeams shape).
+    if (teamType === "prospecting") {
+      if (length > 0) next.prospecting = slots;
+    } else next[teamType] = slots;
     for (let i = length; i < old.length; i += 1) {
       const id = old[i];
       if (id !== null) toReserve.push(id);
@@ -612,11 +648,11 @@ function planGroundTeamKind(
   teams[teamIndex] = next;
   for (const [teamType, from] of opened) {
     const slotted = new Set<string>();
-    for (const t of teams) for (const id of [...t.security, ...t.science]) if (id !== null) slotted.add(id);
+    for (const t of teams) for (const type of SLOT_SQUAD_TYPES) for (const id of teamSlots(t, type)) if (id !== null) slotted.add(id);
     const reserve = state.awayMembers
       .filter((m) => m.assignedShipId === shipId && m.teamType === teamType && !slotted.has(m.id))
       .sort(byIdNumber);
-    const slots = next[teamType];
+    const slots = teamSlots(next, teamType);
     for (let i = from, r = 0; i < slots.length && r < reserve.length; i += 1, r += 1) {
       slots[i] = reserve[r].id;
       fromReserve.push(reserve[r].id);
@@ -707,6 +743,7 @@ function compositionRun(
   const teams = writableTeams(state, s.ship);
   if (!Array.isArray(kinds) || kinds.length !== teams.length) return { gate: refuse("noSuchTeam") };
   if (!kinds.every(isGroundTeamKind)) return { gate: refuse("noSuchKind") };
+  if (!kinds.every((k) => kindUnlocked(state, k))) return { gate: refuse("kindLocked") };
   if (!isValidComposition(kinds)) return { gate: refuse("needsBothTypes") };
   const current = teams.map((t) => t.kind);
   let best: { changes: CompositionChange[]; next: GameState; squads: number; moved: number; changed: boolean[] } | null = null;

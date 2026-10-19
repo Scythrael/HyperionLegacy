@@ -57,8 +57,8 @@ describe("AWAY_TRAITS catalog", () => {
     expect(AWAY_TRAITS.some((t) => t.label === "Field Medic")).toBe(false);
   });
 
-  it("no trait rolls for the wired-only Prospecting squad yet", () => {
-    expect(awayTraitsForTeam("prospecting")).toEqual([]);
+  it("the hidden Prospecting squad rolls its six traits: Steady (shared with Science) and its own five", () => {
+    expect(awayTraitsForTeam("prospecting").map((t) => t.id)).toEqual(["steady", "strongBack", "assayersEye", "tireless", "rockhound", "deepVein"]);
   });
 
   it("getAwayTrait finds by id and tolerates an unknown id", () => {

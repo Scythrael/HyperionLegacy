@@ -798,5 +798,7 @@ export function liveVia(entry: StatEntry): string | null {
 }
 
 // The entry counts by category (the coverage test pins them; a new catalog entry changes one).
-export const EXPECTED_COUNTS = { officer: 16, crew: 21, racial: 10, gear: 74, facet: 28 };
+// Prospecting squads (hidden): gear 74 -> 99, the 25 Prospecting lines (eight Prospecting-only varieties plus the
+// shared Hazard Suit and Environmental Adaptation worn by Prospecting), every one deferred to the quests patch.
+export const EXPECTED_COUNTS = { officer: 16, crew: 21, racial: 10, gear: 99, facet: 28 };
 

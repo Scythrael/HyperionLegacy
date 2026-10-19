@@ -103,13 +103,15 @@ describe("REQUISITION_CATALOGUE: the list is DERIVED from data, never hand-liste
   });
 
   it("REQUISITION_ENTRIES is exactly the non-null rows, in catalogue order", () => {
-    // A ship slot yields one row; a member slot yields one row per squad it lists (E-CREW Task 9).
+    // A ship slot yields one row; a member slot yields one row per squad it lists (E-CREW Task 9). The hidden
+    // Prospecting rows stay off the rendered list (prospecting squads design 2026-10-16; requisitionEntriesFor).
     const expected: string[] = [];
     for (const slot of Object.keys(REQUISITION_CATALOGUE) as EquipmentSlotType[]) {
       const value = REQUISITION_CATALOGUE[slot];
       if (value === null) continue;
       if (isMemberSlotType(slot)) {
         for (const team of AWAY_TEAM_TYPES) {
+          if (team === "prospecting") continue;
           if ((value as MemberRequisitionSlot).perTeam[team] !== undefined) expected.push(`${slot}:${team}`);
         }
       } else {

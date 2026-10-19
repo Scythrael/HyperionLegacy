@@ -105,6 +105,10 @@ export const TEAM_KIND_GLYPHS: Record<GroundTeamKind, IconName> = {
   ground: "groundTeam",
   strike: "strikeTeam",
   survey: "surveyTeam",
+  // Prospecting squads (HIDDEN kinds, never rendered while locked): the existing ore glyph [PROVISIONAL]. Their
+  // own paired emblems (mockup + the 16 / 28 / 56 px SVG review) land with the visible Prospecting UI.
+  claim: "ore",
+  dig: "ore",
 };
 
 // The smallest size a team kind glyph renders at (GO-10 review: the paired emblems blur below it). A small

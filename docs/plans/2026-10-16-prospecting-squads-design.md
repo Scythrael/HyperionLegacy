@@ -320,3 +320,39 @@ large 0.14.0; if the release is tight, PS-3 is the slice that could wait without
 - **Unlock:** user answered "Something else" with no detail: re-asked 2026-10-16.
 - **Names:** "Keep them (Recommended)".
 - **Unlock (re-asked):** "A quest step unlocks it" (per save; the earlier "Something else" was a misclick).
+
+## CARRY NOTE: built HIDDEN (2026-10-19, builder branch off feat/crew-0.14.0 at 5f9342a)
+
+Built per the USER ANSWERS above; nothing a player can see moves while the flag is unset (proved by
+`prospectingHidden.golden.test.ts`, captured BEFORE any edit: recruit board over 5 seeds x 20 windows x 2 sizes,
+Quartermaster rows, every hull's compositions and crew caps, a fresh save, Security / Science specs and trait pools,
+the worn-by lines, two roster snapshots; all unchanged, plus every existing stateHash golden).
+
+- **Unlock seam:** `prospecting.ts` `squadTypeUnlocked(state, type)` (the one predicate) and
+  `unlockProspectingSquads(state)` (sets optional `GameState.prospectingSquadsUnlocked: true`, idempotent). Nothing
+  calls it in 0.14.0; the quests patch's quest step calls it through the shared grant seam. No Debug toggle (user:
+  tests only). Applies IMMEDIATELY: with separate board slots no board reshuffles, so call 7's "next window" was not
+  needed [builder call, revisit if wanted].
+- **Built:** `ProspectingSpec` (Excavation / Drilling / Assaying, `PROSPECTING_SPEC_BASE` +15% YIELD; +10% FIELD and
+  HAZ; +10% GRADE); `groundOreYield` / `groundOreGrade` keys, member stats `oreYield` / `oreGrade` (snapshot writes
+  them only when nonzero); five traits + Steady shared; eight Prospecting-only varieties (Plasma Cutter, Rock Breaker,
+  Sampling Lance, Excavator Suit, Assay Scanner, Seismic Mapper, Ore-Sense Optic, Myo-Lift Frame) with own pools, no
+  combat or relic line, no weaponRange; Hazard Suit and Environmental Adaptation shared; Standard-Issue rows Plasma
+  Cutter / Excavator Suit / Assay Scanner (`requisitionEntriesFor(state)`; `REQUISITION_ENTRIES` unchanged); recruit
+  board: `PROSPECTING_BOARD_SLOTS` = 3 [PROVISIONAL] separate slots, own seed and id space
+  (`away-candidate-p-<window>-<slot>`); team kinds Claim (1 Security + 1 Prospecting) and Dig (2 Prospecting),
+  `ShipGroundTeam.prospecting?` present only on those kinds, `setGroundTeamKind` / `applyComposition` refuse
+  "kindLocked" ("Not available yet") while locked, `validCompositions(h, { prospecting: true })` lists them; crew caps
+  and reserve berths count three types (absent keys on visible compositions).
+- **Never fights / never deploys:** Prospecting slots stay out of expedition crews (`GROUND_SQUAD_TYPES` unchanged).
+- **Later uses (all three, user):** `PROSPECTING_USES` = quest, mineralSite, miningMission and the shared reader
+  `prospectingCrewStats(members, poi?)` (role base + gear + traits + site traits, rank-scaled). Each use designs its
+  own D23 curve; whether mineralSite stacks with a Science geologist is still the user's call.
+- **Blueprints:** `PROSPECTING_BLUEPRINTS` (eight) live OUTSIDE `BLUEPRINTS`, because Research / Fabricator / Archive
+  and completion totals read BLUEPRINTS whole with no hidden-entry rule. The quests patch merges them in.
+- **Wiring:** every Prospecting source is `deferred`, owner "prospecting quests patch" (25 gear lines, 5 traits, 3
+  roles, 8 blueprints, 3 uses, 7 audit rows incl. Steady's reach and the shared hazard gear).
+- **Save:** optional fields only, SAVE_VERSION stays 70, no migration.
+- **Open for the quests patch:** Claim / Dig glyphs (they borrow the ore glyph [PROVISIONAL]; needs mockup + SVG
+  review), Armory loadouts carry no Prospecting kits, the visible UI (Away Team tab, picker, Quartermaster console via
+  `requisitionEntriesFor`), and a Claim team's Security squad deploys like any Security squad.
