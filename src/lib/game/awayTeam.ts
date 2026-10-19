@@ -333,10 +333,14 @@ export function awayRecruitCandidates(state: GameState): AwayMember[] {
   return out;
 }
 
-// The Prospecting slots' seed: the shared board's mix with its OWN starting constant, so the two slot sets stay
-// decorrelated. Same inputs => same seed. Pure.
+// The Prospecting slots' own salt: odd, 32-bit, and distinct from every registered salt (salts.test.ts lists this
+// module). Exported so the salt registry can see it.
+export const PROSPECTING_CANDIDATE_SEED_SALT = 0x2d4c8e5b;
+
+// The Prospecting slots' seed: the shared board's mix with its OWN salt, so the two slot sets stay decorrelated.
+// Same inputs => same seed. Pure.
 function prospectingCandidateSeed(baseSeed: number, windowIndex: number, slot: number): number {
-  let h = (baseSeed >>> 0) ^ 0x3c6ef372;
+  let h = (baseSeed >>> 0) ^ PROSPECTING_CANDIDATE_SEED_SALT;
   h = Math.imul(h ^ ((windowIndex + 1) >>> 0), 0x85ebca6b) >>> 0;
   h = Math.imul(h ^ ((slot + 1) >>> 0), 0xc2b2ae35) >>> 0;
   h ^= h >>> 16;

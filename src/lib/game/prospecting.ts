@@ -16,7 +16,7 @@
 //   - The THREE LATER USES (user: prospecting quests, expedition mineral sites AND ship mining missions) as one
 //     typed list plus the crew reader each use will call (prospectingCrewStats). Nothing reads them in 0.14.0.
 //
-// Imports model.ts (and the leaf crewRank.ts) only, so awayTeam.ts, groundTeams.ts and quartermaster.ts can all
+// Imports model.ts types and the leaf diminishing.ts only, so awayTeam.ts, groundTeams.ts and quartermaster.ts can all
 // ask squadTypeUnlocked without an import cycle. Every function is pure.
 //
 // WIRING: every Prospecting source carries a registry entry with status deferred, owner "prospecting quests
@@ -24,6 +24,7 @@
 // "It's building in the foundation for them as is, rather than building them in after the fact").
 
 import type { AwayTeamType, BlueprintDef, GameState, ProspectingSpec, SnapshotMember } from "./model";
+import { diminishing } from "./diminishing";
 
 // ============================================================================
 // The unlock (design section 8)
@@ -71,7 +72,8 @@ export const PROSPECTING_SPEC_BASE: Readonly<Record<ProspectingSpec, Prospecting
 // ============================================================================
 
 // How many SEPARATE Prospecting candidates the recruit board adds once unlocked (awayTeam.ts
-// awayRecruitCandidates). The Security / Science slots and their rolls are untouched. [PROVISIONAL]
+// awayRecruitCandidates). The Security / Science slots and their rolls are untouched. 3 is the user's ruling
+// (2026-10-19: "3, as built").
 export const PROSPECTING_BOARD_SLOTS = 3;
 
 // ============================================================================
@@ -88,21 +90,29 @@ export const PROSPECTING_BOARD_SLOTS = 3;
 export type ProspectingUse = "quest" | "mineralSite" | "miningMission";
 export const PROSPECTING_USES: readonly ProspectingUse[] = ["quest", "mineralSite", "miningMission"];
 
+// DIG SAFETY (user ruling 2026-10-19, "Give ARM/HP a dig meaning"): on a Prospecting wearer, Armor and HP (the
+// shared Hazard Suit's groundArmor / groundHp lines) cut cave-in and retreat injuries. The crew's summed ARM + HP
+// bumps (rank-scaled like every other stat here) pass through the D23 diminishing curve (unbounded, no cap) at
+// this knee. The quests patch's injury rolls consume digSafety (deferred, wiring registry). [PROVISIONAL] knee.
+export const DIG_SAFETY_KNEE = 1;
+
 // A Prospecting crew's summed stats, the reader all three uses call (design section 9). Per member: the role's
 // base (PROSPECTING_SPEC_BASE) + the snapshot's gear and trait bumps (awayTeam.ts snapshotMember groundStats,
 // the additive STACKING RULE) + its poiYield traits matching `poi` (yield only), all scaled by the member's rank
 // (rankFactor, so the open away:audit:scienceRank gap is not repeated). Non-Prospecting members are skipped (a
-// Claim team's Security members guard; they do not dig). Each use applies its own D23 curve on top (no hard
-// cap). Pure.
+// Claim team's Security members guard; they do not dig). Each use applies its own D23 curve on top of the four
+// work stats (no hard cap); digSafety already carries its curve (DIG_SAFETY_KNEE above). Pure.
 export interface ProspectingCrewStats {
   oreYield: number;
   oreGrade: number;
   fieldwork: number;
   hazardResist: number;
+  digSafety: number; // diminishing(summed ARM + HP bumps, DIG_SAFETY_KNEE): the cave-in and retreat injury cut
 }
 
 export function prospectingCrewStats(members: readonly SnapshotMember[], poi?: string): ProspectingCrewStats {
-  const out: ProspectingCrewStats = { oreYield: 0, oreGrade: 0, fieldwork: 0, hazardResist: 0 };
+  const out: ProspectingCrewStats = { oreYield: 0, oreGrade: 0, fieldwork: 0, hazardResist: 0, digSafety: 0 };
+  let protection = 0;
   for (const m of members) {
     if (m.teamType !== "prospecting") continue;
     const base = PROSPECTING_SPEC_BASE[m.spec as ProspectingSpec] ?? { oreYield: 0, fieldwork: 0, hazardResist: 0, oreGrade: 0 };
@@ -116,7 +126,9 @@ export function prospectingCrewStats(members: readonly SnapshotMember[], poi?: s
     out.oreGrade += (base.oreGrade + stat("oreGrade")) * rf;
     out.fieldwork += (base.fieldwork + stat("fieldwork")) * rf;
     out.hazardResist += (base.hazardResist + stat("hazardResist")) * rf;
+    protection += (stat("armor") + stat("hp")) * rf;
   }
+  out.digSafety = diminishing(protection, DIG_SAFETY_KNEE);
   return out;
 }
 

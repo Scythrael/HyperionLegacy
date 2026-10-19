@@ -714,6 +714,11 @@ function gearEntries(): WiringEntry[] {
                 liveness: true,
                 status: PROSPECTING_DEFERRED,
                 reason: "hidden with the Prospecting squad until the prospecting quests patch: no Prospecting member deploys in 0.14.0",
+                // User ruling 2026-10-19 ("Give ARM/HP a dig meaning"): on a Prospecting wearer Armor and HP feed the
+                // dig-safety value the quests patch's cave-in and retreat injury rolls consume.
+                ...(key === "groundArmor" || key === "groundHp"
+                  ? { note: "reads into prospecting.ts prospectingCrewStats digSafety (cave-in and retreat injury cut, D23 curve); consumed by the quests patch's injury rolls" }
+                  : {}),
               }),
             );
             continue;
@@ -2789,6 +2794,7 @@ const AUDIT_ROWS: readonly { id: string; system: WiringSystem; claim: string; st
   { id: "away:audit:prospectingStandardIssue", system: "away", claim: "The Quartermaster's Standard-Issue Prospecting rows (Plasma Cutter, Excavator Suit, Assay Scanner), shown once unlocked", status: PROSPECTING_DEFERRED },
   { id: "away:audit:steadyProspecting", system: "away", claim: "Steady's Prospecting reach (+hazard resistance on a Prospecting member)", status: PROSPECTING_DEFERRED },
   { id: "away:audit:sharedHazardGear", system: "away", claim: "The Hazard Suit and Environmental Adaptation worn by Prospecting (shared hazard gear)", status: PROSPECTING_DEFERRED },
+  { id: "away:audit:prospectingDigSafety", system: "away", claim: "Dig safety: a Prospecting crew's Armor and HP cut cave-in and retreat injuries (prospectingCrewStats digSafety, DIG_SAFETY_KNEE)", status: PROSPECTING_DEFERRED },
   { id: "away:audit:statusPicker", system: "away", claim: "Status picker entries that never match (only six of nine statuses can fire)", status: pending("FK-9 + WR-10") },
   { id: "away:audit:fieldRepairOrder", system: "away", claim: "Player-ordered field repair (engine only, no UI)", status: pending("WR-10, OC-F14") },
   { id: "away:audit:legacyOnly", system: "away", claim: "Legacy-only: MAX_BATTLE_ATTEMPTS, EVAC_REWARD_FRACTION, ENCOUNTER_DROP_SCALE, scan ground battles, softenAmbush, the flat 2 h injury", status: pending("OC-G1") },

@@ -339,7 +339,7 @@ the worn-by lines, two roster snapshots; all unchanged, plus every existing stat
   Sampling Lance, Excavator Suit, Assay Scanner, Seismic Mapper, Ore-Sense Optic, Myo-Lift Frame) with own pools, no
   combat or relic line, no weaponRange; Hazard Suit and Environmental Adaptation shared; Standard-Issue rows Plasma
   Cutter / Excavator Suit / Assay Scanner (`requisitionEntriesFor(state)`; `REQUISITION_ENTRIES` unchanged); recruit
-  board: `PROSPECTING_BOARD_SLOTS` = 3 [PROVISIONAL] separate slots, own seed and id space
+  board: `PROSPECTING_BOARD_SLOTS` = 3 (user ruling 2026-10-19: "3, as built") separate slots, own seed and id space
   (`away-candidate-p-<window>-<slot>`); team kinds Claim (1 Security + 1 Prospecting) and Dig (2 Prospecting),
   `ShipGroundTeam.prospecting?` present only on those kinds, `setGroundTeamKind` / `applyComposition` refuse
   "kindLocked" ("Not available yet") while locked, `validCompositions(h, { prospecting: true })` lists them; crew caps
@@ -356,3 +356,13 @@ the worn-by lines, two roster snapshots; all unchanged, plus every existing stat
 - **Open for the quests patch:** Claim / Dig glyphs (they borrow the ore glyph [PROVISIONAL]; needs mockup + SVG
   review), Armory loadouts carry no Prospecting kits, the visible UI (Away Team tab, picker, Quartermaster console via
   `requisitionEntriesFor`), and a Claim team's Security squad deploys like any Security squad.
+
+**Rulings and review fix (user and coordinator, 2026-10-19):**
+- Hazard Suit ARM / HP on a Prospecting wearer: "Give ARM/HP a dig meaning". `prospectingCrewStats` now returns
+  `digSafety` = diminishing(summed rank-scaled ARM + HP bumps, `DIG_SAFETY_KNEE` 1 [PROVISIONAL]), the cave-in and
+  retreat injury cut; the two registry lines point at it (deferred, owner "prospecting quests patch", which consumes
+  it for injury rolls). Audit row `away:audit:prospectingDigSafety`.
+- Board slots: 3, as built. The immediate unlock and `PROSPECTING_BLUEPRINTS` placement: accepted as built.
+- Review fix: the Prospecting candidate seed uses its own exported odd salt `PROSPECTING_CANDIDATE_SEED_SALT`
+  (0x2d4c8e5b), registered in salts.test.ts (the first build reused seniorStaff OFFICER_STAT_SEED_SALT, even and
+  unexported). No save holds a Prospecting candidate, so no golden moved.

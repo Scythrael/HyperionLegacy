@@ -53,7 +53,9 @@ import {
 } from "./groundTeams";
 import { pieceWearableBy } from "./memberEquipment";
 import { REQUISITION_ENTRIES, canRequisition, requisitionEntriesFor, requisitionStandardIssue } from "./quartermaster";
+import { diminishing } from "./diminishing";
 import {
+  DIG_SAFETY_KNEE,
   PROSPECTING_BLUEPRINTS,
   PROSPECTING_BOARD_SLOTS,
   PROSPECTING_SPEC_BASE,
@@ -325,7 +327,28 @@ describe("the roster snapshot (design section 3, the golden-neutral rule)", () =
     expect(plain.oreYield).toBeCloseTo((0.15 + 10 * GEAR_POINT_BUMP.oreYield) * rf, 12);
     const atOutcrop = prospectingCrewStats([digger, guard], "mineralOutcrop");
     expect(atOutcrop.oreYield).toBeCloseTo((0.15 + 10 * GEAR_POINT_BUMP.oreYield + 0.1) * rf, 12);
-    expect(prospectingCrewStats([guard])).toEqual({ oreYield: 0, oreGrade: 0, fieldwork: 0, hazardResist: 0 });
+    expect(prospectingCrewStats([guard])).toEqual({ oreYield: 0, oreGrade: 0, fieldwork: 0, hazardResist: 0, digSafety: 0 });
+  });
+
+  it("dig safety (user 2026-10-19): a Prospecting wearer's Hazard Suit ARM and HP, rank-scaled, through the D23 curve, never capped", () => {
+    const suited = (id: string, rank: AwayMember["rank"], armor: number, hp: number) =>
+      snapshotMember(member(id, "prospecting", { rank }), [piece(`equip-${id}`, "memberArmor", "hazardSuit", id, { groundArmor: armor, groundHp: hp })]);
+    const a = suited("member-1", 3, 8, 6);
+    const raw = (8 * GEAR_POINT_BUMP.armor + 6 * GEAR_POINT_BUMP.hp) * rankMagnitudeFactor(3);
+    expect(prospectingCrewStats([a]).digSafety).toBeCloseTo(diminishing(raw, DIG_SAFETY_KNEE), 12);
+    // Below the raw sum (diminishing), more is always more, and there is no ceiling.
+    expect(prospectingCrewStats([a]).digSafety).toBeLessThan(raw);
+    let last = 0;
+    for (const pts of [10, 100, 1000, 10000]) {
+      const v = prospectingCrewStats([suited("member-9", 1, pts, pts)]).digSafety;
+      expect(v).toBeGreaterThan(last);
+      last = v;
+    }
+    expect(last).toBeGreaterThan(10);
+    // A Security guard's armor never counts (they guard; they do not dig).
+    const guard = snapshotMember(member("member-2", "security"), [piece("equip-g", "memberArmor", "assaultHardsuit", "member-2", { groundArmor: 50 })]);
+    expect(prospectingCrewStats([guard]).digSafety).toBe(0);
+    expect(prospectingCrewStats([a, guard]).digSafety).toBeCloseTo(prospectingCrewStats([a]).digSafety, 12);
   });
 });
 
@@ -482,7 +505,14 @@ describe("wiring (design section 8): every Prospecting source is deferred to the
       "away:audit:prospectingStandardIssue",
       "away:audit:steadyProspecting",
       "away:audit:sharedHazardGear",
+      "away:audit:prospectingDigSafety",
     ]) deferred(id);
+    // The Hazard Suit's ARM / HP lines on a Prospecting wearer point at the dig-safety value.
+    for (const key of ["groundArmor", "groundHp"]) {
+      const e = WIRING_REGISTRY.find((x) => x.id === `gear:prospecting:hazardSuit:${key}`)!;
+      deferred(e.id);
+      expect(e.note).toContain("digSafety");
+    }
   });
 
   it("the role bases, the hidden blueprints, the three later uses, the five traits and every Prospecting gear line", () => {

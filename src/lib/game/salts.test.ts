@@ -30,6 +30,7 @@ import * as officerStats from "./officerStats";
 import * as captainSecondaryEffects from "./captainSecondaryEffects";
 import * as waveSeed from "./combat/waveSeed";
 import * as model from "./model";
+import * as awayTeam from "./awayTeam";
 
 // The modules whose salts must be distinct AND odd.
 const MODULES: Record<string, Record<string, unknown>> = {
@@ -51,6 +52,8 @@ const MODULES: Record<string, Record<string, unknown>> = {
   "salvage.ts": salvage,
   "tick.ts": tick,
   "combat/waveSeed.ts": waveSeed,
+  // Prospecting squads (hidden): the recruit board's separate Prospecting slots.
+  "awayTeam.ts": awayTeam,
 };
 
 // Legacy salts checked for DISTINCTNESS only. model.ts AWAY_RECRUIT_SEED_SALT (0x5a17c0de) predates the odd
