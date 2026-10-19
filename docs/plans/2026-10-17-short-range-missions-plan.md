@@ -307,6 +307,35 @@ training roll is the minimum, ramp monotone in completed runs and flat at Tier I
 mission fold (transit, unload, Constitution, Fast Departure / Return) identically to `effectiveMissionDef` on a
 matching def. **UI:** none.
 
+**Carry note (G1-2, built 2026-10-19 on `1c512fc`):**
+- `shortRange.ts` is pure; nothing in the game calls it yet. Seven templates (`SHORT_RANGE_TEMPLATE_KEYS`, a FROZEN
+  draw order); the seventh key is `prisonerTransport` [PROPOSAL], label "Prisoner Transport". Six categories, one
+  sheet per tier (`SHORT_RANGE_SHEETS`, exactly the largest roll); every number [PROVISIONAL] in one named constant
+  (`SHORT_RANGE_TEMPLATES`, `SHORT_RANGE_SHEETS`, `SHORT_RANGE_CREW_RATING`, `SHORT_RANGE_WORK`).
+- Range is in the game's real lightyears: the mockup's distances x LY_PER_TICK (Tier I 15 to 45 ly one way, sheet 90;
+  Tier II 30 to 65, sheet 130), so the mockup's transit ticks hold and a General Freighter (100 ly) reaches Tier I but
+  not Tier II. The 3.3 table's 180 / 260 were in the mockup's scale.
+- Engineering and Security ratings: `shortRangeCrewRating(shipDivisionStrength(...))`, 2 x log2(1 + strength / 2).
+  `shipDivisionStrength` (gambit.ts) is the away team's own Security / Science sum, now shared (deriveAwayTeam reads
+  it; identical numbers); Engineering adds the engineering-seat officer. A 6 h crewed Freighter rates about 3.7 / 1.2.
+- The roll: `rollShortRangeJob(state, slot, cycleIndex)`, six draws always. The training run is decided per drawn
+  template by `runDifficultyAt(state, "shortRange", tier, template)`, i.e. `runCounts.shortRange[template].dispatched
+  === 0`: with the whole job re-rolling, **G1-3/G1-4 must bump `dispatched` per cycle START of that template** (not
+  per slot dispatch), and two slots may both draw an untried template at once (both are training runs). The ramp
+  applies to the distance and every size (`spanTop`, share = `rampEnemyScale(ramp)`); a training run at a Tier II
+  slot takes that tier's smallest roll.
+- `shortRangeCyclePlan(roll, stats, engineeringRating)`: model.ts's folds are now shared helpers
+  (`scaledUnloadTicks`, `outboundLegTicks`, `returnLegTicks`, `fullHoldUnloadTicksFor`; effectiveMissionDef reads
+  them, byte-identical). No orders tick; the Constitution ramp reads transit out + on site. Every job has a home
+  turnaround (Supply Pickup unloads its units; the rest take the 3-tick floor).
+- `shortRangeCycleReward(roll, stats)`: credits, the drop-off's `loadCost` (G1-4: spend at the cycle start, the
+  working-capital idle), materials (pickup: `commonOre` x units; survey: `rareMaterial`, stochastic whole units on
+  `SHORT_RANGE_ROUNDING_SALT`), integer XP per active tick. Base credits per hour (reference ship at the sheet, full
+  strength): Tier I 1,050 to 1,260, Tier II 1,050 to 1,260; Prisoner Transport 1.20x Refugee Relocation.
+- Wiring: `SHORT_RANGE_TEMPLATES` is classified (fieldRoles) and enumerated (catalogs); 21 entries
+  `mission:SHORT_RANGE_TEMPLATES:<key>:<rolls|work|reward>` are `pending` owner G1-4 (in `G1_ADDED_ENTRY_IDS`, so
+  `registry:g1` moved by exactly these). G1-4 flips them live with a cycle probe. Salts registered in salts.test.ts.
+
 ### G1-3: Board, dispatch, recall (engine)
 
 Derived slots (open call 8), `canDispatchShortRange` with one block reason per short category plus the captain-mission

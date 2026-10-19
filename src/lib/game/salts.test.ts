@@ -31,6 +31,7 @@ import * as captainSecondaryEffects from "./captainSecondaryEffects";
 import * as waveSeed from "./combat/waveSeed";
 import * as model from "./model";
 import * as awayTeam from "./awayTeam";
+import * as shortRange from "./shortRange";
 
 // The modules whose salts must be distinct AND odd.
 const MODULES: Record<string, Record<string, unknown>> = {
@@ -54,6 +55,8 @@ const MODULES: Record<string, Record<string, unknown>> = {
   "combat/waveSeed.ts": waveSeed,
   // Prospecting squads (hidden): the recruit board's separate Prospecting slots.
   "awayTeam.ts": awayTeam,
+  // G1-2: the short-range board seed, the roll and the whole-unit rounding.
+  "shortRange.ts": shortRange,
 };
 
 // Legacy salts checked for DISTINCTNESS only. model.ts AWAY_RECRUIT_SEED_SALT (0x5a17c0de) predates the odd
@@ -126,6 +129,9 @@ describe("salt registry (GO-4)", () => {
       "combat/waveSeed.ts RELAUNCH_SEED_SALT",
       "combat/waveSeed.ts WAVE_LOOT_SEED_SALT",
       "combat/waveSeed.ts WAVE_OUTPUT_ROUNDING_SEED_SALT",
+      "shortRange.ts SHORT_RANGE_BOARD_SALT",
+      "shortRange.ts SHORT_RANGE_ROLL_SALT",
+      "shortRange.ts SHORT_RANGE_ROUNDING_SALT",
     ]) {
       expect(names).toContain(expected);
     }

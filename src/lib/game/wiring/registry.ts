@@ -117,6 +117,7 @@ import { DRONE_POD_AFFIX_POOL, DRONE_POD_IMPLICIT_STAT, WEAPON_AFFIX_POOL, WEAPO
 import { AFFIX_DEFS, ESCALATION_ENEMIES_PER_LEVEL, HEIGHTENED_SENSES_KNEE, HEIGHTENED_SENSES_PER_LEVEL } from "../affixes";
 import { ENEMY_RANKS, ENEMY_RANK_IDS } from "../enemyRanks";
 import { OVERTIME_STEP_RATE } from "../processSpeed";
+import { SHORT_RANGE_TEMPLATES, SHORT_RANGE_TEMPLATE_KEYS } from "../shortRange";
 import {
   CONDITION_LINES,
   CONDITION_LINE_IDS,
@@ -381,6 +382,9 @@ const PILOT_CUNNING = "pending user decision (officerStats.ts CUNNING_PENDING_SE
 const T3 = "capture 2026-10-15 section 3 T3 (moved to 0.14.x)";
 // G1-1: every guest quarters source moves the sheet now; the short-range passenger jobs that read it land in G1-4.
 const G1_GUESTS = "G1-4 (the short-range passenger jobs read guest quarters)";
+// G1-2: the short-range template catalog. Its rolls, work and rewards act in the pure engine (shortRange.ts, tested
+// there), but no game path flies a short-range cycle until the cycle engine lands.
+const G1_CYCLE = "G1-4 (the short-range cycle engine flies the rolls, times the work and pays the rewards)";
 
 // Prospecting squads (0.14.0, built HIDDEN; design docs/plans/2026-10-16-prospecting-squads-design.md section 8):
 // every Prospecting source is deferred to the prospecting quests patch, the user-approved exception to "no
@@ -2365,6 +2369,21 @@ function missionEntries(): WiringEntry[] {
         status: pending("WR-11, OC-I1 (overwritten by the hull hold, model.ts:3733)"),
       }),
     );
+  }
+  // G1-2: every effect field of every short-range template, pending the cycle engine (G1-4).
+  for (const key of SHORT_RANGE_TEMPLATE_KEYS) {
+    const def = SHORT_RANGE_TEMPLATES[key];
+    for (const field of ["rolls", "work", "reward"] as const) {
+      out.push(
+        entry({
+          id: `mission:SHORT_RANGE_TEMPLATES:${key}:${field}`,
+          system: "mission",
+          source: { catalog: "SHORT_RANGE_TEMPLATES", key: `${key}:${field}` },
+          claim: `${def.label} ${field}`,
+          status: pending(G1_CYCLE),
+        }),
+      );
+    }
   }
   for (const id of Object.keys(PATROLS)) {
     out.push(

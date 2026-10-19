@@ -55,6 +55,7 @@ import { STATUS_EFFECT_DEFS } from "../combat/statusEffects";
 import { DRONE_POD_AFFIX_POOL, DRONE_POD_IMPLICIT_STAT, WEAPON_AFFIX_POOL, WEAPON_IMPLICIT_STAT } from "../itemgen";
 import { AFFIX_ALIGNED_HOOKS, AFFIX_HOOK_KEYS, GAMBIT_ACTIONS, GAMBIT_SELECTORS } from "./probes";
 import { FIELD_ROLES, effectFieldsOf } from "./fieldRoles";
+import { SHORT_RANGE_TEMPLATES } from "../shortRange";
 
 export interface EffectSource {
   readonly catalog: string;
@@ -99,6 +100,7 @@ const FIELD_CATALOGS: Readonly<Record<string, Readonly<Record<string, object>>>>
   SENSOR_ARRAYS: Object.fromEntries(SENSOR_ARRAYS.map((a) => [a.id, a])),
   ITEMS,
   SUBSPACE_TELESCOPE_LEVELS: Object.fromEntries(SUBSPACE_TELESCOPE_LEVELS.map((r) => [String(r.level), r])),
+  SHORT_RANGE_TEMPLATES,
 };
 
 function fieldSources(catalog: string, defs: Readonly<Record<string, object>>): EffectSource[] {
