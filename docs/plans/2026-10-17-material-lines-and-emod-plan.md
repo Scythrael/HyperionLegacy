@@ -498,3 +498,11 @@ Sets in 0.14.x). The power budget itself should not move: seven registry rows an
   budget binds on modules and higher drive classes. **P3 surplus:** "Speeds the drive (Recommended)" (supersedes the
   "faster shield recharge" example in the first answer). **M2 scope:** "Power + all 5 types, small roster
   (Recommended)": salvage-only module loop to 0.14.x. **P6 penalty:** "sqrt curve, floor 60% (Recommended)".
+
+## USER ANSWERS (2026-10-19)
+
+- **P4 power efficiency:** "Cuts net draw (Recommended)": Overdrive, Power Discipline and Martian cut the ship's net
+  draw on a diminishing curve.
+- **L9 Deuterium consumers:** answered through gas giant call 7 ("Drives + Lab blueprints"): Deuterium feeds Class III+
+  FTL drives; whether the High-Output Core also takes it is asked with L8.
+- Still open: P5, M3 to M9, L1 to L8, L10, L11, X1.
