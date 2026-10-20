@@ -123,9 +123,9 @@ export function crewEffectivenessMultiplier(e: number): number {
 
 // E-MOD EM-1 (user P4 2026-10-19 "Cuts net draw (Recommended)"): power efficiency (Reactor Overdrive, Power
 // Discipline, the Martian racial: all crew.powerEfficiency) cuts the ship's NET power draw on a D23 curve,
-// draw / (1 + diminishing(e, knee)), rounded up to a whole point (the budget is integer). [PROVISIONAL] the knee, one
-// constant: a single Overdrive officer (0.1) cuts about 8%, a heavily Martian bridge with Power Discipline crew (0.5)
-// about 24%, and no amount reaches zero draw.
+// draw / (1 + diminishing(e, knee)), rounded up to a whole point (the budget is integer). The knee 0.25 (user confirmed
+// 2026-10-20): a single Overdrive officer (0.1) cuts about 8%, a heavily Martian bridge with Power Discipline crew
+// (0.5) about 24%, and no amount reaches zero draw.
 export const POWER_EFFICIENCY_KNEE = 0.25;
 
 // A ship's net power draw: `gross` cut by a summed power efficiency `e`. Exactly `gross` at e <= 0 or with nothing

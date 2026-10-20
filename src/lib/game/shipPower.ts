@@ -17,7 +17,7 @@
 
 import type { EquipmentInstance, GameState } from "./model";
 import { SHIP_TYPES, equipmentStatMods } from "./model";
-import { equippedFor } from "./equipment";
+import { MULTI_SLOT_TYPES, equippedFor } from "./equipment";
 import { netPowerDraw, shipCrewContribution } from "./crewOverlay";
 import { CREW_STAT_KEYS } from "./crewBuffs";
 import { powerBudget, type PowerBudget } from "./combat/power";
@@ -35,9 +35,6 @@ export interface PowerCandidate {
   replacingInstanceId?: string;
 }
 
-// The slots that hold more than one piece (equipment.ts MULTI_SLOT_TYPES); every other slot swaps its occupant.
-const MULTI_SLOTS: ReadonlySet<string> = new Set(["weapon", "droneBay"]);
-
 function piecesWith(state: GameState, shipId: string, candidate: PowerCandidate | undefined): EquipmentInstance[] {
   const pieces = equippedFor(state, shipId);
   if (!candidate) return pieces;
@@ -45,7 +42,8 @@ function piecesWith(state: GameState, shipId: string, candidate: PowerCandidate 
   const kept = pieces.filter((p) => {
     if (p.id === piece.id) return false;
     if (replacingInstanceId !== undefined) return p.id !== replacingInstanceId;
-    return MULTI_SLOTS.has(piece.slotType) || p.slotType !== piece.slotType;
+    // A multi slot (equipment.ts MULTI_SLOT_TYPES) keeps its pieces; every other slot swaps its occupant.
+    return MULTI_SLOT_TYPES.has(piece.slotType) || p.slotType !== piece.slotType;
   });
   return [...kept, { ...piece, fittedToShipId: shipId }];
 }
