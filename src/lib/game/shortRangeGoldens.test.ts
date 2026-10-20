@@ -17,6 +17,8 @@
 //   5. registry : the wiring registry's ids and statuses (hash and count), with the entries a G1 slice adds held
 //                 apart (G1_ADDED_ENTRY_IDS), so the base pin proves no existing entry moved.
 //   6. old save : a v69 save of the same fleet through deserialize + migrate, its state and every ship's stats.
+//   7. beside   : (G1-4) the same fleet with a short-range run added, the OTHER runs' state hashed every hour, captured
+//                 while the run still held still (G1-3), so the cycle engine provably leaves every other run as it was.
 // Already pinned elsewhere and covered by the same rule: one delivered cycle for every MISSIONS key x every hull
 // (firstRunsGoldens.test.ts `gather:*`) and the SF-0 old save (`old:v69` there).
 //
@@ -78,7 +80,8 @@ import { describe, expect, it, vi } from "vitest";
 import { withEm1Off } from "./emodEm1Switch.fixture";
 import { writeFileSync } from "node:fs";
 import Decimal from "break_infinity.js";
-import { EQUIPMENT_SLOTS, FIELD_KITS_PLAYER_LIVE, MISSIONS, SHIP_TYPES, type EquipmentInstance, type EquipmentRarity, type GameState, type ShipDerivedStats, type ShipTypeKey } from "./model";
+import { EQUIPMENT_SLOTS, FIELD_KITS_PLAYER_LIVE, MISSIONS, SHIP_TYPES, type EquipmentInstance, type EquipmentRarity, type GameState, type ShipDerivedStats, type ShipTypeKey, type ShortRangeMissionState } from "./model";
+import { startShortRangeCycle } from "./shortRangeBoard";
 import { dispatchCaptainOnMission, dispatchCaptainOnPatrol, economyTick, installMissingCombatBaselines, mintBuiltShip } from "./tick";
 import { startExpedition } from "./expedition";
 import { effectiveShipStats } from "./crewOverlay";
@@ -318,6 +321,8 @@ const GOLDEN: Record<string, unknown> = {
     // G1-2: the short-range template catalog, pending the cycle engine (G1-4).
     "mission:SHORT_RANGE_TEMPLATES:refugeeRelocation:rolls|pending", "mission:SHORT_RANGE_TEMPLATES:refugeeRelocation:work|pending", "mission:SHORT_RANGE_TEMPLATES:refugeeRelocation:reward|pending", "mission:SHORT_RANGE_TEMPLATES:supplyDropOff:rolls|pending", "mission:SHORT_RANGE_TEMPLATES:supplyDropOff:work|pending", "mission:SHORT_RANGE_TEMPLATES:supplyDropOff:reward|pending", "mission:SHORT_RANGE_TEMPLATES:supplyPickup:rolls|pending", "mission:SHORT_RANGE_TEMPLATES:supplyPickup:work|pending", "mission:SHORT_RANGE_TEMPLATES:supplyPickup:reward|pending", "mission:SHORT_RANGE_TEMPLATES:phenomenonSurvey:rolls|pending", "mission:SHORT_RANGE_TEMPLATES:phenomenonSurvey:work|pending", "mission:SHORT_RANGE_TEMPLATES:phenomenonSurvey:reward|pending", "mission:SHORT_RANGE_TEMPLATES:telescopeRepair:rolls|pending", "mission:SHORT_RANGE_TEMPLATES:telescopeRepair:work|pending", "mission:SHORT_RANGE_TEMPLATES:telescopeRepair:reward|pending", "mission:SHORT_RANGE_TEMPLATES:commBoosterBuild:rolls|pending", "mission:SHORT_RANGE_TEMPLATES:commBoosterBuild:work|pending", "mission:SHORT_RANGE_TEMPLATES:commBoosterBuild:reward|pending", "mission:SHORT_RANGE_TEMPLATES:prisonerTransport:rolls|pending", "mission:SHORT_RANGE_TEMPLATES:prisonerTransport:work|pending", "mission:SHORT_RANGE_TEMPLATES:prisonerTransport:reward|pending"],
   "old": ["aa94ddcd", "817862c7", "4ac62731", "d9a483c6"],
+  // G1-4 golden 7, captured on 047b133 (the short-range run held still there): the OTHER runs beside it.
+  "fleet:shortRange:others": ["5329673d", "29572349", "388259d2", "c32245d1", "3c38a24b", "f9fe2b3a", "4bcd2925"],
 };
 
 // The G1-0 record of golden 4 (captured on a678241), with the pool it was drawn from, kept for golden 4b.
@@ -674,6 +679,56 @@ describe("G1-0 golden 6: an old save (v69) of the mixed fleet through migrate", 
     const save = deserialize(serialize(held, 0)) as SaveFile;
     const state = migrate({ ...save, version: 69 });
     pin("old", [g1StateHash(state), ...state.ships.map((sh) => statsHash(withEm1Off(() => effectiveShipStats(state, sh))))]);
+  });
+});
+
+// ===== G1-4 golden 7: a short-range run beside the mixed fleet =====
+
+// The mixed fleet plus a fourth captain (id 4) flying a General Freighter on short-range slot 0, its first cycle started
+// through the board's own cycle-start seam (startShortRangeCycle; the sheet gate is the dispatch's, not the cycle's).
+const SR_CAPTAIN_ID = 4;
+function fleetWithShortRange(): { s: GameState; shipId: string } {
+  const base = mixedFleet();
+  const minted = mintBuiltShip(base, "generalFreighter");
+  const captain = { ...base.captains[0], id: SR_CAPTAIN_ID, label: "Fourth", level: 10, mission: null };
+  const s: GameState = {
+    ...base,
+    ships: minted.ships.map((sh) => (sh.id === minted.shipId ? { ...sh, assignedCaptainId: SR_CAPTAIN_ID } : sh)),
+    nextShipId: minted.nextShipId,
+    equipment: minted.equipment,
+    nextEquipmentId: minted.nextEquipmentId,
+    captains: [...base.captains, captain],
+  };
+  const ship = s.ships.find((sh) => sh.id === minted.shipId)!;
+  const start = startShortRangeCycle(s, ship, { id: 0, tier: 1 }, 0);
+  const mission: ShortRangeMissionState = { kind: "shortRange", slotId: 0, roll: start.roll, plan: start.plan, phase: "transitOut", phaseProgressTicks: 0, recalled: false };
+  return { s: { ...s, captains: s.captains.map((c) => (c.id === SR_CAPTAIN_ID ? { ...c, mission } : c)), runCounts: start.runCounts }, shipId: minted.shipId };
+}
+
+// Everything the OTHER runs own: their captains, the expedition, their ships, the timed processes and the officers on
+// their ships. A short-range run's own rewards (credits, the Warehouse, XP, lifetime totals, counters) are left out.
+function othersHash(s: GameState, shipId: string): string {
+  return hash({
+    captains: s.captains.filter((c) => c.id !== SR_CAPTAIN_ID),
+    expeditions: s.expeditions,
+    ships: s.ships.filter((sh) => sh.id !== shipId),
+    activeProcesses: s.activeProcesses,
+    officers: s.officers.filter((o) => o.assignedShipId !== shipId),
+  });
+}
+
+describe("G1-4 golden 7: a short-range run beside the mixed fleet leaves every other run byte-identical", () => {
+  it("the other runs' state every hour for six hours", () => {
+    let { s, shipId } = fleetWithShortRange();
+    const hours = [othersHash(s, shipId)];
+    for (let h = 1; h <= 6; h++) {
+      s = economyTick(s, HOUR, RNG);
+      hours.push(othersHash(s, shipId));
+    }
+    expect(s.captains[1].mission).not.toBeNull();
+    expect(s.captains[2].mission).not.toBeNull();
+    expect(s.expeditions.length).toBe(1);
+    pin("fleet:shortRange:others", hours);
   });
 });
 
