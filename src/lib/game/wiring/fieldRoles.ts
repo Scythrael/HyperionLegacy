@@ -57,6 +57,8 @@ export const FIELD_ROLES: Readonly<Record<string, Readonly<Record<string, FieldR
     supplyCostPerCargo: "effect",
     rewardMargin: "effect",
   },
+  // G1-2: the short-range templates (shortRange.ts). `destinations` picks a placeholder designation list.
+  SHORT_RANGE_TEMPLATES: { key: "identity", label: "display", destinations: "display", rolls: "effect", work: "effect", reward: "effect" },
   PIRATE_HULLS: {
     id: "identity",
     name: "display",
@@ -223,6 +225,23 @@ export const FIELD_ROLES: Readonly<Record<string, Readonly<Record<string, FieldR
   },
   RELIC_SETS: { id: "identity", label: "display", relicIds: "identity", sources: "effect", perCopyStat: "effect", tiers: "effect" },
   RELICS: { id: "identity", label: "display", flavor: "display", setId: "identity", index: "identity", rarity: "effect" },
+  // Relics v2 R2-1 (dormant): the general pool and the exceptional sets; each effect field names the slice that reads it.
+  RELIC_TYPES: {
+    id: "identity",
+    label: "display",
+    flavor: "display",
+    band: { seam: "Relics v2 R2-3 (identification v2 picks a type by band)" },
+    siteSet: { seam: "Relics v2 R2-3 (the site bias doubles the old set's types)" },
+    stats: { seam: "Relics v2 R2-4 (museum math v2 sums each type's stats per tier)" },
+    weight: { seam: "Relics v2 R2-3 (the in-band pick)" },
+  },
+  EXCEPTIONAL_SETS: {
+    id: "identity",
+    tier: "identity",
+    label: "display",
+    pieces: { seam: "Relics v2 R2-4 + R2-5 (the piece values; the content sign-off sheet)" },
+    fullSet: { seam: "Relics v2 R2-4 + R2-5 (the full-set bonus; the content sign-off sheet)" },
+  },
   PATROLS: {
     label: "display",
     factionId: "identity", // the fought faction's id; since WR-4 (B14) only a combatant id prefix, never turn order
@@ -272,8 +291,16 @@ export const UNREAD_CONSTANTS: Readonly<Record<string, string>> = {
   CUNNING_PENDING_SEATS: "bookkeeping: the seats with no Cunning over-delivery yet (Pilot Cunning, WR-9 OC-E4)",
   ECONOMY_FLOOR_SLOTS: "display: the Quartermaster's economy floor set, named for its readers",
   ENEMY_RANK_IDS: "bookkeeping: the enemy ranks in order, read by the wiring registry (one entry per rank, Field Kits FKR-1) and FKR-3's rank chips",
+  GRENADE_IDS: "bookkeeping: the grenade family in catalog order, read by the wiring registry (its GRENADES entries, Field Kits FKR-5) and FKR-9's charge readout",
   FIELD_KITS_CATALOG_VERSION: "seam: FKR-7 (buildExpedition stamps Expedition.fieldKits.catalog with it, flag 2)",
   FIELD_KIT_PRICES: "seam: FKR-7 (Quartermaster kit sales and the launch top-up charge it; registered pending)",
   PROSPECTING_USES: "seam: the prospecting quests patch (the three later Prospecting uses, read by the wiring registry; deferred)",
   PROSPECTING_BLUEPRINTS: "seam: the prospecting quests patch merges these hidden blueprints into BLUEPRINTS (read by the wiring registry; deferred)",
+  // Relics v2 R2-1 (dormant catalog; plan 2026-10-17 section 4): each is read by the slice named, tested in relicsV2Catalog.test.ts.
+  RELIC_SITE_BIAS_MULT: "seam: Relics v2 R2-3 (identification v2: the source site doubles its old set's types, user call 17)",
+  RELIC_BAND_ODDS: "seam: Relics v2 R2-3 (identification v2 picks the band; R2-2's blank-rarity tables share the shift)",
+  EXCEPTIONAL_PER_100K: "seam: Relics v2 R2-3 (identification v2's exceptional check, user call 6)",
+  RELIC_SOFT_CAP: "seam: Relics v2 R2-4 (the per-tier soft cap freeze, user call 3)",
+  CULTURE_ROSTER: "seam: Relics v2 R2-2 + R2-6 (a blank's culture from its planet; the names await the user's sign-off sheet)",
+  CULTURE_STUDY_POINTS: "seam: Relics v2 R2-6 (a culture is named at this many study points, user call 9)",
 };

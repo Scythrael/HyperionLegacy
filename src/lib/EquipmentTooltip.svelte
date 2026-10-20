@@ -260,6 +260,8 @@
     groundHazardResist: "Hazard Resist",
     groundOrganicsYield: "Organics Yield",
     groundVaultYield: "Vault Yield",
+    // Field Kits FKR-5: a grenade's extra charge per objective (FK11 "+1 carry capacity").
+    groundCarryCapacity: "Carry Capacity",
   };
   export function statLabel(key: string): string {
     if (STAT_LABEL[key]) return STAT_LABEL[key];

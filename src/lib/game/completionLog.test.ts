@@ -41,6 +41,7 @@ import {
   type TimedProcessKind,
   type ProcessEffect,
   TRANSIT_BERTH_BASE,
+  generalMuseumRecord,
 } from "./model";
 import { resolveProcesses, economyTick, startLine, cancelLine, UNKNOWN_COMPLETION_TIME_MS } from "./tick";
 // 0.13.7 Crafted Blanks: the dashboard row builder, so the blank-reward wording is asserted
@@ -397,7 +398,7 @@ describe("every TimedProcessKind leaves an honest record", () => {
     const relic = byKind.get("relicStudy")!;
     expect(relic.reward).toBe("relic");
     expect(getRelicById(relic.subjectKey!)?.setId).toBe("precursor");
-    expect(out.relicMuseum[relic.subjectKey!]).toBe(1);
+    expect(generalMuseumRecord(out)[relic.subjectKey!]).toBe(1);
   });
 
   // 0.13.7 Crafted Blanks: a completed equipment fabricate no longer mints a usable instance,

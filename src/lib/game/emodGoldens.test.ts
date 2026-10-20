@@ -38,10 +38,11 @@ import { DRONE_POD_BASE_POWER_DRAW, generateDronePod, generateEquipment, generat
 import { effectiveShipStats } from "./crewOverlay";
 import { advanceExpedition, claimExpedition, expeditionCandidates, startExpedition } from "./expedition";
 import { shipEventsLive } from "./shipScanEvents";
-import { plainAwayMember, withSlottedAwayTeams } from "./awayTeamTestFixtures";
+import { asPreVoyageDispatch, plainAwayMember, withSlottedAwayTeams } from "./awayTeamTestFixtures";
 import { WIRING_REGISTRY } from "./wiring/registry";
 import { getSeniorStaffBonusById } from "./seniorStaffBonuses";
 import { withEm1Off } from "./emodEm1Switch.fixture";
+import { withV1Museum } from "./firstRunsGoldens.fixture";
 
 // ===== shared helpers =====
 
@@ -54,7 +55,9 @@ function fnv(s: string): string {
   return h.toString(16);
 }
 
-const hash = (v: unknown): string => fnv(JSON.stringify(v));
+// Relics v2 R2-1 (merged after EM-0's capture): whole states hash with the Museum v2 record in its v1 form
+// (withV1Museum, the feat precedent), as EM-0 captured them.
+const hash = (v: unknown): string => fnv(JSON.stringify(withV1Museum(v)));
 
 function lcg(seed: number): () => number {
   let s = seed >>> 0;
@@ -254,7 +257,9 @@ const SQUAD: AwayMember[] = [member("member-1", "security", { rank: 3 }), member
 function groundOpsRun(seed: number): string[] {
   const s0 = powerFixture("orion");
   const s = withSlottedAwayTeams({ ...s0, awayMembers: SQUAD.map((m) => ({ ...m })), nextAwayMemberId: 100, expeditionSeed: seed });
-  const res = startExpedition(s, SHIP, 1, expeditionCandidates(s, SHIP)[0].id);
+  // G2-3 (merged after EM-0's capture): the run as dispatched before the voyage engine (asPreVoyageDispatch, the feat
+  // precedent), so it flies the fixed legs EM-0 pinned.
+  const res = asPreVoyageDispatch(startExpedition(s, SHIP, 1, expeditionCandidates(s, SHIP)[0].id));
   if (!res.success || !res.expedition) throw new Error(`dispatch refused: ${res.reason}`);
   const exp = res.expedition;
   expect(shipEventsLive(exp)).toBe(true);
@@ -279,7 +284,9 @@ function missionRun(key: MissionKey): string {
 // ===== the goldens =====
 
 // Captured on a9caa06 (feat/crew-0.14.0) by EM-0, before any engine edit; the moves since are named per pin. The
-// patrol, Ground Ops and mission pins have never moved: EM-1 adds no install gate and no combat penalty.
+// patrol, Ground Ops and mission pins have never moved: EM-1 adds no install gate and no combat penalty (after the merge
+// of feat 922025e they hash whole states through withV1Museum and dispatch the Ground Ops runs through
+// asPreVoyageDispatch, the feat precedents for R2-1 and G2-3, and every one reproduces its EM-0 capture).
 const GOLDEN: Record<string, unknown> = {
   // Re-pinned by EM-1: every sheet's powerOutput gains the hull's basePowerOutput (P1); with the EM-1 switch on
   // (withEm1Off) every hull reproduces its EM-0 capture (EM0 below).
@@ -363,8 +370,10 @@ const GOLDEN: Record<string, unknown> = {
   // lines and the slot and weapon draw rows went live, every hull's basePowerOutput joined, the drive class draw seam
   // joined, the reactor surplus row is owned by EM-4 and the division wings no longer name E-MOD (EM-0: eb2a0c07, with
   // 13 E-MOD rows). The two rows left naming E-MOD: the Precursor Lens module (EM-8) and the reactor surplus (EM-4).
+  // Re-pinned again at the merge of feat 922025e (EM-1 aea24b6b): FKR-5, G2-3 and R2-1 added their entries (the
+  // G1-0 golden 5 in shortRangeGoldens.test.ts proves each slice is its only cause); the E-MOD rows did not change.
   registry: [
-    "aea24b6b",
+    "452c9676",
     "relic:RELICS:precursorLens",
     "ship:audit:reactorCoreNet",
   ],

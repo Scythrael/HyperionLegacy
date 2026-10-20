@@ -59,6 +59,7 @@ import {
   type SeniorStaffSeat,
   type ShipInstance,
   type ShipTypeKey,
+  FIELD_KITS_PLAYER_LIVE,
 } from "../model";
 import {
   dispatchCaptainOnPatrol,
@@ -85,7 +86,7 @@ import { activityRelicFindBonus, resolveExpeditionActivity, resolveScanEncounter
 import { fieldworkEffect } from "../fieldwork";
 import { applyExpeditionInjuries, applyGroundOpsInjuries } from "../injuries";
 import { groundTeamBaySeconds } from "../groundOps";
-import { resolveTaskFight } from "../groundFight";
+import { resolveTaskFight, taskFightTeam } from "../groundFight";
 import { FIELD_KITS_CATALOG_VERSION } from "../fieldKits";
 import { SHIP_EVENT_DRAW_UNITS, SHIP_EVENT_WEIGHTS, boardingRepelChance, resolveShipScanEventFromDraws, shipEventDraws } from "../shipScanEvents";
 import { withSlottedAwayTeams, withoutGroundOps } from "../awayTeamTestFixtures";
@@ -219,7 +220,7 @@ const STATE_OUTCOME_KEYS: readonly (keyof GameState)[] = [
   "activeProcesses",
   "archive",
   "relicVault",
-  "relicMuseum",
+  "museumV2",
   "relicDiscovered",
   "crewPool",
 ];
@@ -434,7 +435,7 @@ function probeFieldKitsFights(t: Transform): string {
       const ops = run.groundOps!;
       const teams = ops.teams.map((team, i) => ({ securityIds: team.securityIds, downedThisTask: [], securityShare: ops.factors.securityShare[i] ?? 0 }));
       const body = syntheticBody("terrestrial", 0.4);
-      return FIELD_KITS_PROBE_SITES.flatMap((poiId, i) =>
+      const fights = FIELD_KITS_PROBE_SITES.flatMap((poiId, i) =>
         [0, 1].flatMap((fightCount) =>
           [2, 4].map((difficulty) => {
             const log: GambitLogEvent[] = [];
@@ -443,6 +444,9 @@ function probeFieldKitsFights(t: Transform): string {
           }),
         ),
       );
+      // Field Kits FKR-5: the squad as such a fight arms it (each worn grenade's throw and its charges per objective).
+      const armed = taskFightTeam(run, teams, { id: "probe-fk-armed", fightCount: 0 }).map((c) => [c.memberId, c.grenade]);
+      return { fights, armed };
     }),
   );
 }
@@ -875,5 +879,9 @@ export function liveVia(entry: StatEntry): string | null {
 // The entry counts by category (the coverage test pins them; a new catalog entry changes one).
 // Prospecting squads (hidden): gear 74 -> 99, the 25 Prospecting lines (eight Prospecting-only varieties plus the
 // shared Hazard Suit and Environmental Adaptation worn by Prospecting), every one deferred to the quests patch.
-export const EXPECTED_COUNTS = { officer: 16, crew: 21, racial: 10, gear: 99, facet: 28 };
+// Field Kits FKR-5: gear 99 -> 104, the Impact Grenade's power and accuracy lines and the carry capacity line on all
+// three grenades, every one live. Until FIELD_KITS_PLAYER_LIVE (FKR-7) the Stun and Toxin Grenades craft from their
+// pre-FKR-5 pools, so their two carry lines are not rollable yet: 102.
+export const FIELD_KITS_GEAR_LINES = FIELD_KITS_PLAYER_LIVE ? 5 : 3;
+export const EXPECTED_COUNTS = { officer: 16, crew: 21, racial: 10, gear: 99 + FIELD_KITS_GEAR_LINES, facet: 28 };
 

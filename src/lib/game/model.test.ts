@@ -71,6 +71,7 @@ import type {
 } from "./model";
 import { fuelNeeded } from "./fuel";
 import { PROSPECTING_BLUEPRINTS } from "./prospecting";
+import { FIELD_KITS_HIDDEN_BLUEPRINTS, FIELD_KITS_PLAYER_LIVE } from "./model";
 // Combat 1.0 (Unit 1.2b): the weapon roster, to prove each weapon blueprint's weaponType names a
 // REAL WeaponId (a typo would otherwise only surface at mint time in the Fabricator).
 import { WEAPON_DEFS } from "./combat/weapons";
@@ -1989,7 +1990,8 @@ describe("EQUIPMENT_SLOTS live-slot definitions (0.11.0 Task 2)", () => {
   const EXPECTED_VARIETY_COUNT: Record<string, number> = {
     quarters: 10, specUtility: 5, sensor: 4, // G1-1: the Guest Wing is the 10th quarters variant
     // Prospecting squads (hidden, 2026-10-16): +3 weapons, +1 armor, +2 tools, +2 implants.
-    memberWeapon: 7, memberArmor: 5, memberTool: 12, implant: 15,
+    // Field Kits FKR-5: +1 tool, the Impact Grenade.
+    memberWeapon: 7, memberArmor: 5, memberTool: 13, implant: 15,
   };
   // E-CREW 0.14.0 (Task 7): member slots draw ONLY from the GROUND vocabulary, ship slots ONLY from the
   // ship allow-set above, so a ground line can never land on a ship slot (or a ship line on member gear).
@@ -2177,13 +2179,16 @@ describe("Equipment BLUEPRINTS (0.11.0 Task 18)", () => {
     "dermalWeaveBp", "reflexBoosterBp", "targetingOpticBp", "adrenalSurgeBp", "medNaniteSwarmBp",
     "toxinFiltersBp", "cortexShieldBp", "neuralBackupBp",
     "synapticAcceleratorBp", "archaeoScannerBp", "environmentalAdaptationBp", "cipherWetwareBp", "bioAnalyzerBp",
+    // Field Kits FKR-5: the Impact Grenade, hidden in FIELD_KITS_HIDDEN_BLUEPRINTS until FIELD_KITS_PLAYER_LIVE (FKR-7).
+    ...(FIELD_KITS_PLAYER_LIVE ? ["impactGrenadeBp"] : []),
   ];
+  const EQUIP_BP_COUNT = 52 + (FIELD_KITS_PLAYER_LIVE ? 1 : 0);
 
   // Every equipment blueprint = a BLUEPRINTS entry carrying `equipmentOutput`.
   const equipmentBlueprints = Object.values(BLUEPRINTS).filter((bp) => bp.equipmentOutput);
 
-  it("defines exactly 52 equipment blueprints, one per (equipmentOutput slot × variety)", () => {
-    expect(equipmentBlueprints).toHaveLength(52);
+  it("defines exactly 52 equipment blueprints (53 once the Impact Grenade's is live), one per (equipmentOutput slot × variety)", () => {
+    expect(equipmentBlueprints).toHaveLength(EQUIP_BP_COUNT);
     // The named set matches the derived key list (no missing / extra entry).
     const keys = equipmentBlueprints.map((bp) => bp.key).sort();
     expect(keys).toEqual([...EQUIP_BP_KEYS].sort());
@@ -2192,13 +2197,15 @@ describe("Equipment BLUEPRINTS (0.11.0 Task 18)", () => {
     const pairs = new Set(
       equipmentBlueprints.map((bp) => `${bp.equipmentOutput!.slotType}/${bp.equipmentOutput!.varietyKey}`),
     );
-    expect(pairs.size).toBe(52);
+    expect(pairs.size).toBe(EQUIP_BP_COUNT);
     // COVERAGE GUARD: every variety of every installable equipment slot (the four economy slots
     // PLUS the two defensive combat slots) must have a craftable blueprint. This is the assertion
     // that would have caught the shipped gap where shieldEmitters / hullPlating had none.
     // Prospecting squads (hidden): the eight Prospecting-only varieties' blueprints sit in prospecting.ts
     // PROSPECTING_BLUEPRINTS until the surfaces go visible (then they merge into BLUEPRINTS).
     for (const bp of Object.values(PROSPECTING_BLUEPRINTS)) pairs.add(`${bp.equipmentOutput!.slotType}/${bp.equipmentOutput!.varietyKey}`);
+    // Field Kits FKR-5: likewise the Impact Grenade's, in FIELD_KITS_HIDDEN_BLUEPRINTS until FIELD_KITS_PLAYER_LIVE.
+    for (const bp of Object.values(FIELD_KITS_HIDDEN_BLUEPRINTS)) pairs.add(`${bp.equipmentOutput!.slotType}/${bp.equipmentOutput!.varietyKey}`);
     const EQUIP_BP_SLOTS = [
       "cargoBay", "ftlDrive", "reactorCore", "specUtility", "shieldEmitters", "hullPlating",
       // E-CREW 0.14.0 (Task 7): every member gear variety is craftable too.

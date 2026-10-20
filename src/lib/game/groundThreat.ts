@@ -180,8 +180,10 @@ const EXP_KEY_FIELDS = {
   hazardResist: true,
   teamKit: true,
 } as const satisfies Record<Exclude<keyof ThreatExp, "enemyRanks" | "difficulty" | "explorerCaptain" | "fieldKits">, true>;
+// Field Kits FKR-5: a team's grenade charges (`charges`) are read only on a Field Kits run, so they are keyed with the
+// Field Kits tag below, never here (every other key reads exactly as before).
 const TEAM_KEY_FIELDS = { securityIds: true, downedThisTask: true, securityShare: true } as const satisfies Record<
-  keyof GroundFightTeam,
+  Exclude<keyof GroundFightTeam, "charges">,
   true
 >;
 const TASK_KEY_FIELDS = { id: true, poiId: true, fightCount: true, pointsCleared: true, fightPoints: true } as const satisfies Record<
@@ -229,7 +231,8 @@ export function groundThreatOddsKey(
   const doctrine = exp.explorerCaptain?.squadPowerMult !== undefined ? [["doctrine", exp.explorerCaptain.squadPowerMult]] : [];
   // Field Kits FKR-4: a Field Kits run's conditions and inflictors shape the read (with the task's grade: Neurotoxin from
   // Challenging), tagged and appended only on such a run.
-  const kits = fieldKitsLive(exp) ? [["fieldKits", exp.fieldKits?.catalog, task.difficulty]] : [];
+  // FKR-5: with each team's grenade charges left this objective (the throws the squad can still make).
+  const kits = fieldKitsLive(exp) ? [["fieldKits", exp.fieldKits?.catalog, task.difficulty, teams.map((t) => t.charges)]] : [];
   return JSON.stringify(
     // Squads SQ-4: the body's risk shapes the read, so it is part of the key: its flora the fights (groundFight.ts
     // withFloraToxins), its combat and fauna an unstamped task's fight count (taskFightTotal). Absent risk: "u".

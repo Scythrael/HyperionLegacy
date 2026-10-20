@@ -145,7 +145,9 @@ import {
   isHostileSiteId,
   type ExpeditionRegion,
 } from "./riskFactors";
-import type { BodyRiskGrades, ExpeditionRegionStamp, ExpeditionRiskProfile, GroundTaskNeeds, GroundTeamKind, RegionTier } from "./model";
+import type { BodyRiskGrades, ExpeditionRegionStamp, ExpeditionRiskProfile, ExpeditionVoyage, GroundTaskNeeds, GroundTeamKind, RegionTier } from "./model";
+// Expedition Tiers G2-3: the voyage engine (pure; imports model and galaxy types only, so no cycle).
+import { STANDARD_DRIVE_CLASS, planVoyage, voyageOf } from "./voyage";
 // Squads SQ-5: the Subspace Telescope's reading of each candidate (display only; a run never reads it).
 import { TELESCOPE_DETAIL, blindLaunchCount, readSystem, stateHomeworld, systemDistanceLy, telescopeLevel, telescopeReading, type HomeworldPlacement } from "./telescope";
 // Expedition Tiers G2-2: the region ladder, the enemy sectors and the star catalog (pure; neither imports this module).
@@ -191,26 +193,31 @@ import { countClaimedExpedition, runCountsOf, runDifficultyAt } from "./runDiffi
 // FIRST-PASS TUNABLE constants
 // ============================================================================
 
-// TRANSIT: design I.2 says ~6 HOURS IRL to the first real target with a decent ship. At the default
-// 1s tick cadence, 1 tick == 1 second, so 6 hrs == 21600 ticks.
-export const TRANSIT_SECONDS = 21600; // ~6 hours IRL at the 1s cadence
+// TRANSIT. Expedition Tiers G2-3: every run dispatched from G2-3 on flies its VOYAGE (voyage.ts: the tier's nominal
+// hours, the band position, the drive class, each leg at the ship's own speed on it), frozen on the run. The fixed
+// legs below are what a run dispatched BEFORE G2-3 (no `voyage`) keeps flying, byte-identically:
+// design I.2's ~6 HOURS IRL (1 tick == 1 second at the default cadence, so 6 hrs == 21600 ticks), both ways.
+export const TRANSIT_SECONDS = 21600; // ~6 hours IRL at the 1s cadence: pre-G2-3 runs only
 // The RETIRED inaugural SHAKEDOWN (the per-account first expedition, 30 minutes). Safe first runs SF-2 (user, group 3)
 // retired it as a special length: only a run in flight at the update (Expedition.shakedown stored true) still flies it.
 export const SHAKEDOWN_TRANSIT_SECONDS = 1800; // ~30 min IRL: the retired inaugural shakedown (in-flight runs only)
-// Safe first runs SF-2 (user, group 3): the TRAINING RUN's transit (runDifficulty.ts isTrainingExpedition: the first
-// expedition from an explorer). Its own constant, set EQUAL to the regular one for now: the tutorial patch shortens it
-// (about 5 seconds, the story beats carrying the trip). The return leg reuses it, like every run's.
-export const TUTORIAL_TRANSIT_SECONDS = TRANSIT_SECONDS;
+// Safe first runs SF-2: the TRAINING RUN's nominal transit lives with the voyage (voyage.ts TUTORIAL_TRANSIT_SECONDS,
+// equal to the Tier I nominal). A training run dispatched before G2-3 flew TRANSIT_SECONDS (the constant was equal to
+// it then) and keeps it.
+export { TUTORIAL_TRANSIT_SECONDS } from "./voyage";
 
 // The RETURN leg mirrors the outbound BASE transit (design C.0: recall re-runs that same transit
-// home). It does NOT re-add the anomaly detour time (charting happened on the way out).
-// (returnDuration reads baseTransitSeconds below.)
+// home). It does NOT re-add the anomaly detour time (charting happened on the way out). A voyage run's return leg
+// is its own (`voyage.returnSeconds`, at the ship's return-leg speed: CP-2 OC-E5).
+// (returnDuration reads baseReturnSeconds below.)
 
 // ANOMALY: a mid-transit seeded chance to CHART AN ANOMALY -> adds time + a small placeholder bonus.
 // The roll fires once, at the transit MIDPOINT (a "window boundary"); it is decided by a seed +
 // salt, so evaluating it lazily at the midpoint is identical to any other resolution ordering.
 export const ANOMALY_CHECK_FRACTION = 0.5; // roll at the halfway point of the BASE transit
-export const ANOMALY_EXTRA_SECONDS = 3600; // charting adds ~1 hour IRL to the transit leg
+// Charting adds ~1 hour IRL to a pre-G2-3 run's transit leg; a voyage run's detour is `voyage.anomalySeconds`
+// (voyage.ts VOYAGE_ANOMALY_DETOUR_PERMILLE of its outbound leg).
+export const ANOMALY_EXTRA_SECONDS = 3600;
 export const ANOMALY_CHANCE_PERMILLE = 350; // 35% chance to chart (permille -> exact integer draw)
 
 // SCANNING: % scanned per second via the installed array's effect + the ship's sensors. Bigger body
@@ -691,6 +698,27 @@ export function candidateSystemById(state: Pick<GameState, "expeditionSeed" | "n
 // The region stamp a dispatch to `cand` freezes on its run (Expedition.region). Pure; a fresh object.
 function regionStampOf(cand: CandidateSystem): ExpeditionRegionStamp {
   return { version: 1, tier: cand.tier, enemyTerritory: cand.region.enemyTerritory, bearing: cand.bearing, distanceLy: cand.distanceLy };
+}
+
+// Expedition Tiers G2-3: the voyage a dispatch of `ship` to `cand` freezes (voyage.ts planVoyage): the candidate's
+// tier and distance inside its tier's band from the homeworld, the ship's drive class (Class I for every drive until
+// G2-4) and its stat sheet (each leg at its own speed); `training` = the training run (its own nominal). Exported for
+// the console's transit row (G2-6) so it shows exactly what a launch would fly. Pure: a fresh object.
+export function candidateVoyage(
+  state: GameState,
+  ship: ShipInstance,
+  cand: Pick<CandidateSystem, "tier" | "distanceLy">,
+  training: boolean,
+  homeworld: HomeworldPlacement = stateHomeworld(state),
+): ExpeditionVoyage {
+  return planVoyage({
+    tier: cand.tier,
+    distanceLy: cand.distanceLy,
+    band: homeworld.regionBandsLy[cand.tier] ?? homeworld.regionBandsLy[1],
+    driveClass: STANDARD_DRIVE_CLASS,
+    stats: effectiveShipStats(state, ship),
+    training,
+  });
 }
 
 // A throwaway system for a preview at `seed` in `region` (the forecast's simulated launch; no candidate name is
@@ -1263,11 +1291,13 @@ export function startExpedition(
   // Squads SQ-4: the RISK PROFILE (riskFactors.ts), drawn from the committed candidate's seed and region exactly as
   // expeditionRiskPreview reads it, so the pre-launch reading and the run are one draw.
   const risk = expeditionRiskPreview(seed, cand.region);
-  // G2-2: the run freezes where it went (Expedition.region), so it never re-reads the homeworld.
-  const expedition: Expedition = { ...buildExpedition(state, ship, captainId, seed, anomalyOptIn, number, gen, risk), region: regionStampOf(cand) };
+  // G2-2: the run freezes where it went (Expedition.region), so it never re-reads the homeworld. G2-3: and how long
+  // it flies (Expedition.voyage), so a later drive, crew or homeworld change never reshapes it.
+  const homeworld = stateHomeworld(state);
+  const built = buildExpedition(state, ship, captainId, seed, anomalyOptIn, number, gen, risk);
+  const expedition: Expedition = { ...built, region: regionStampOf(cand), voyage: candidateVoyage(state, ship, cand, isTrainingRun(built), homeworld) };
   // Squads SQ-6 (user, SQ-5 call (b)): count a BLIND launch (beyond the telescope's range: the same reading the
   // candidate showed), so the future "go in blind" achievement can award retroactively. Never read by a run.
-  const homeworld = stateHomeworld(state);
   const blind = readSystem(telescopeReading(state, homeworld), seed, expedition.sensorPower, risk, homeworld, undefined, cand.distanceLy).blind;
   // User 2026-10-19: a veteran's Wolf 359 list (no key on any other save).
   const wolf359List = wolf359ListAfterDispatch(state);
@@ -1441,12 +1471,24 @@ function buildExpedition(
 // Per-phase pure helpers (all read from ELAPSED-in-phase seconds)
 // ============================================================================
 
-// The BASE transit duration (no anomaly detour). The RETURN leg reuses this. A run in flight from before SF-2 with the
-// retired shakedown keeps its 30 minutes; the training run (SF-2) flies the tutorial length; every other run the
-// regular one.
+// The BASE transit duration (no anomaly detour). Expedition Tiers G2-3: a voyage run's outbound leg as frozen at
+// dispatch. A run dispatched before G2-3 keeps its fixed leg: the retired shakedown's 30 minutes when it flew one,
+// else TRANSIT_SECONDS (its training run too: the tutorial constant equaled it then).
 function baseTransitSeconds(exp: Expedition): number {
-  if (exp.shakedown) return SHAKEDOWN_TRANSIT_SECONDS;
-  return isTrainingRun(exp) ? TUTORIAL_TRANSIT_SECONDS : TRANSIT_SECONDS;
+  const voyage = voyageOf(exp);
+  if (voyage) return voyage.outboundSeconds;
+  return exp.shakedown ? SHAKEDOWN_TRANSIT_SECONDS : TRANSIT_SECONDS;
+}
+
+// The RETURN leg's base (before the Flight Deck ramp): a voyage run's own return leg, else the pre-G2-3 mirror of
+// the outbound base. Pure.
+function baseReturnSeconds(exp: Expedition): number {
+  return voyageOf(exp)?.returnSeconds ?? baseTransitSeconds(exp);
+}
+
+// The charted anomaly's detour: a voyage run's frozen share of its outbound leg, else the pre-G2-3 flat hour. Pure.
+function anomalyDetourSeconds(exp: Expedition): number {
+  return voyageOf(exp)?.anomalySeconds ?? ANOMALY_EXTRA_SECONDS;
 }
 
 // The full TRANSIT duration: base + the anomaly detour once charted. anomalyCharted only becomes true
@@ -1454,7 +1496,7 @@ function baseTransitSeconds(exp: Expedition): number {
 // inside the base transit, so by the time elapsed could reach the base duration the anomaly is always
 // resolved -> this duration is stable at the completion check (no mid-flight inconsistency).
 function transitDurationSeconds(exp: Expedition): number {
-  return baseTransitSeconds(exp) + (exp.anomalyCharted ? ANOMALY_EXTRA_SECONDS : 0);
+  return baseTransitSeconds(exp) + (exp.anomalyCharted ? anomalyDetourSeconds(exp) : 0);
 }
 
 // The scan rate (scan units / second) for one body: base rate, shaped by the snapshotted array's
@@ -1520,9 +1562,9 @@ function activitiesDurationSeconds(exp: Expedition): number {
 
 // E-CREW (Task 21 review calls, Flight Deck CONSTITUTION): the RETURN leg, divided by (1 + the ramp on the
 // hours since dispatch when it starts: the transit, the scan and the tasks, all fixed by then). Exactly the base
-// transit without exp.rampReturn. Pure.
+// transit without exp.rampReturn. Pure. Expedition Tiers G2-3: a voyage run's base is its own return leg.
 export function returnDurationSeconds(exp: Expedition): number {
-  const base = baseTransitSeconds(exp);
+  const base = baseReturnSeconds(exp);
   if (!exp.rampReturn) return base;
   // Ground Ops (GO-7b): a flagged run's scan and tasks share one window (flaggedWindowSeconds).
   const outbound = exp.groundOps ? flaggedWindowSeconds(exp) : scanningDurationSeconds(exp) + activitiesDurationSeconds(exp);

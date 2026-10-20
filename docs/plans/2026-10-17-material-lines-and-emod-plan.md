@@ -546,3 +546,6 @@ Sets in 0.14.x). The power budget itself should not move: seven registry rows an
   Structural Assembly kept on Hauler Hold, dropped on High-Output Core; Reclaimed Alloy retagged uncommon.
 - **X1 OC-D2 owner:** "Material Lines builds it (Recommended)": ML-3 builds it; WR-7 drops the row.
 - ALL Material Lines and E-MOD calls answered (2026-10-19).
+- **ML-1 recipe numbers (2026-10-20):** "Approve (Recommended)": MATERIAL_LINE_RECIPE_NUMBERS as built (Ferrite 20:1
+  12 ticks; Circuitry 5:1 and Iridium 3:1 20 ticks; Cobalt Coil 3 Cobalt + 1 Titanium Ingot; Osmium Plate 2 Osmium +
+  2 Ferrite Ingot; Photonic Gel 1 Wafer + 3 Resin; Biocatalyst 2 Purified Biomass + 1 Spore; compounds 20 ticks).

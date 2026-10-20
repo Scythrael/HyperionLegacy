@@ -463,7 +463,7 @@ export function launchViewInputs(
     state.equipment,
     state.officers,
     state.notableCrew,
-    state.relicMuseum,
+    state.museumV2,
     state.facilities,
     // GO-12 review minor: the fleet's talent unlocks BY REFERENCE (the review named `unlockedSkillNodes`, the retired
     // skill tree's field; GameState's live talent list is unlockedHomeworldTalents, replaced only on a purchase).

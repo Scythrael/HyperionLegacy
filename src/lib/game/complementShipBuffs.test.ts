@@ -14,7 +14,7 @@
 
 import { describe, it, expect } from "vitest";
 import Decimal from "break_infinity.js";
-import { MISSIONS, effectiveMissionDef, freshState, type CrewBucket, type GameState, type PatrolMissionState, type SeniorStaffOfficer, type ShipTypeKey } from "./model";
+import { MISSIONS, effectiveMissionDef, freshState, withGeneralMuseumRecord, type CrewBucket, type GameState, type PatrolMissionState, type SeniorStaffOfficer, type ShipTypeKey } from "./model";
 import {
   CREW_EFFECTIVENESS_KNEE,
   crewEffectivenessMultiplier,
@@ -277,17 +277,17 @@ describe("the Museum's crewBonuses amplifies the officer bonuses read directly (
     const amp = museumBonusesFromRecord(record).crewBonuses;
     expect(amp).toBeGreaterThan(0);
     const base = installMissingCombatBaselines({ ...crewed([], "destroyer"), officers: [officer("medical", ["med.fleetTriage"]), officer("tactical", ["tac.weaponCommand"])] });
-    const withMuseum = { ...base, relicMuseum: record };
+    const withMuseum = withGeneralMuseumRecord(base, record);
     const triage = officerBonusTotal(base, ship1(base), "officer.crewLossPrevention");
     expect(triage).toBeGreaterThan(0);
     expect(officerBonusTotal(withMuseum, ship1(withMuseum), "officer.crewLossPrevention")).toBeCloseTo(triage * (1 + amp), 12);
     const weapons = (s: GameState) => officerCombatProfile(s, ship1(s)).find((e) => e.kind === "weapons")!.magnitude;
     expect(weapons(withMuseum)).toBeCloseTo(weapons(base) * (1 + amp), 12);
-    expect(officerBonusTotal({ ...base, relicMuseum: {} }, ship1(base), "officer.crewLossPrevention")).toBe(triage);
+    expect(officerBonusTotal(withGeneralMuseumRecord(base, {}), ship1(base), "officer.crewLossPrevention")).toBe(triage);
   });
 
   it("a ship with no officers and no crew is untouched by the museum's crewBonuses", () => {
-    const s = { ...freshState(), relicMuseum: xenoMuseum() };
+    const s = withGeneralMuseumRecord(freshState(), xenoMuseum());
     expect(shipRepairSpeedBonus(s, ship1(s))).toBe(0);
     expect(shipMissionOutputBonus(s, ship1(s))).toBe(0);
   });

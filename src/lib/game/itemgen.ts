@@ -30,6 +30,7 @@
 
 import {
   EQUIPMENT_SLOTS,
+  GRENADE_CARRY_PER_LINE,
   PRODUCIBLE_EQUIPMENT_RARITIES,
   rarityIndex,
   SLOT_BASE_PHYSICALS,
@@ -108,6 +109,13 @@ export const GUEST_QUARTERS_PER_POINT = 4;
 // points. Pure.
 export function guestLineValue(stat: string, points: number): number {
   return stat === "colonistCapacity" ? points * GUEST_QUARTERS_PER_POINT : points;
+}
+
+// Field Kits FKR-5: a grenade's +1 CARRY CAPACITY line (groundCarryCapacity, FK11) is a COUNT, not budget points: it
+// is stored as GRENADE_CARRY_PER_LINE whatever the piece's budget, so the tooltip reads "+1" and awayTeam.ts toolCharges
+// adds one charge per line. Every other line is guestLineValue's (points, or berths for a guest line). Pure.
+export function rolledLineValue(stat: string, points: number): number {
+  return stat === "groundCarryCapacity" ? GRENADE_CARRY_PER_LINE : guestLineValue(stat, points);
 }
 
 // ----------------------------------------------------------------------------
@@ -416,7 +424,7 @@ export function generateEquipment(a: {
         CRAFTED_DEFENSE_RECHARGE_BASE, CRAFTED_DEFENSE_RECHARGE_PER_LEVEL, a.iLevel, a.quality, rarityIdx,
       );
     } else {
-      implicitStats[stat] = guestLineValue(stat, implicitEach); // G1-1: a guest line is stored in berths
+      implicitStats[stat] = rolledLineValue(stat, implicitEach); // G1-1: a guest line is stored in berths (FKR-5: a carry line as a count)
     }
   }
 
@@ -430,7 +438,7 @@ export function generateEquipment(a: {
   // wantAffixes), so the affix share is spread evenly across the lines that exist.
   const affixEach = rolledStatKeys.length > 0 ? Math.round(affixShare / rolledStatKeys.length) : 0;
   for (const stat of rolledStatKeys) {
-    rolledStats[stat] = guestLineValue(stat, affixEach); // G1-1: a guest line is stored in berths
+    rolledStats[stat] = rolledLineValue(stat, affixEach); // G1-1: a guest line is stored in berths (FKR-5: a carry line as a count)
   }
 
   // --- Fold massReduction / powerDrawReduction into the physicals -------------

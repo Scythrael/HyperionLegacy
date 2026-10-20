@@ -26,7 +26,7 @@ import { PATROLS, type GameState, type SecondaryTalentKey } from "./model";
 import { dispatchCaptainOnMission, dispatchCaptainOnPatrol, economyTick, installMissingCombatBaselines, startRelicStudy } from "./tick";
 import { advanceExpedition, claimExpedition, expeditionCandidates, startExpedition } from "./expedition";
 import { effectiveShipStats } from "./crewOverlay";
-import { withoutGuests } from "./firstRunsGoldens.fixture";
+import { withV1Museum, withoutGuests } from "./firstRunsGoldens.fixture";
 import { seniorStaffCandidates } from "./seniorStaff";
 import { awayRecruitCandidates } from "./awayTeam";
 import { WIRING_BUCKET_COUNT, bucketOf, editCaptain, installPiece, seatOfficer, withAwayTeam, withBuckets, withFacilityLevel, wiringBase } from "./wiring/probes";
@@ -48,7 +48,8 @@ function fnv(s: string): string {
 }
 const hash = (v: unknown): string => fnv(JSON.stringify(v));
 // A state without the captains' secondary nodes (the variant's own input), so an inert node reads the baseline.
-const hashState = (s: GameState): string => hash({ ...s, captains: s.captains.map((c) => ({ ...c, unlockedSecondaryTalents: [] })) });
+// Relics v2 R2-1: the Museum v2 record in its v1 form (withV1Museum), as these were captured.
+const hashState = (s: GameState): string => hash({ ...withV1Museum(s), captains: s.captains.map((c) => ({ ...c, unlockedSecondaryTalents: [] })) });
 
 function lcg(seed: number): () => number {
   let s = seed >>> 0;
