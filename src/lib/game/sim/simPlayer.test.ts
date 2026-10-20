@@ -53,10 +53,11 @@ describe("WR-2 choice ablation: a live choice moves, an inert one is dead", () =
     expect(r.verdicts[0].surprise).toBe(false);
   });
 
-  // WR-6 wired the Homeworld placeholder hubs, so the inert example is now the Martian racial (pending the E-MOD power
-  // budget), and Home Guard, once the "No bonus yet" example, is pinned moving.
-  it("a pending choice (the Martian racial, waiting on the power budget) moves nothing and is flagged dead", () => {
-    const e = wiringEntry("racial:martian")!;
+  // WR-6 wired the Homeworld placeholder hubs and E-MOD EM-1 the Martian racial (power efficiency), so the inert example
+  // is now the Belter racial (Deck Handling, pending the Task 23 drone handling), and Home Guard, once the "No bonus yet"
+  // example, is pinned moving.
+  it("a pending choice (the Belter racial, waiting on drone handling) moves nothing and is flagged dead", () => {
+    const e = wiringEntry("racial:belter")!;
     expect(e.status.kind).toBe("pending");
     const r = ablateChoices([e], { seeds: [0], horizonSeconds: 1800 });
     expect(r.verdicts[0].verdict).toBe("dead");

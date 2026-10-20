@@ -19,6 +19,9 @@
 // a node moves, each with its reason beside it, and the baseline ("none") never moves.
 
 import { describe, expect, it } from "vitest";
+// E-MOD EM-1: sheets pinned before the power budget engine are hashed with it switched off (emodGoldens.test.ts pins
+// the power numbers and proves the switch reproduces its own capture), so these pins keep proving nothing else moved.
+import { withEm1Off } from "./emodEm1Switch.fixture";
 import { PATROLS, type GameState, type SecondaryTalentKey } from "./model";
 import { dispatchCaptainOnMission, dispatchCaptainOnPatrol, economyTick, installMissingCombatBaselines, startRelicStudy } from "./tick";
 import { advanceExpedition, claimExpedition, expeditionCandidates, startExpedition } from "./expedition";
@@ -98,7 +101,7 @@ function readVariantLive(key: SecondaryTalentKey | null): Record<string, string>
   const s0 = own(fixture(), key);
   const ship = s0.ships.find((sh) => sh.id === "ship-1")!;
   // G1-1: the sheet hash strips guest quarters (withoutGuests), so this pin keeps proving no other stat moved.
-  const sheet = hash(withoutGuests(effectiveShipStats(s0, ship)));
+  const sheet = hash(withoutGuests(withEm1Off(() => effectiveShipStats(s0, ship))));
   const candidates = expeditionCandidates(s0, "ship-1");
   const cands = hash(candidates.map((c) => asPreG2Candidate(c))); // G2-2: as offered before G2-2 (ids, names)
   const res = asPreG2NamesDispatch(asPreSafeFirstRunsDispatch(startExpedition(s0, "ship-1", 1, candidates[0].id)));

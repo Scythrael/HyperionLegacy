@@ -47,6 +47,9 @@
 // the stats pins keep proving no other stat moved (the transport hulls now carry base guest quarters).
 
 import { describe, expect, it, vi } from "vitest";
+// E-MOD EM-1: sheets pinned before the power budget engine are hashed with it switched off (emodGoldens.test.ts pins
+// the power numbers and proves the switch reproduces its own capture), so these pins keep proving nothing else moved.
+import { withEm1Off } from "./emodEm1Switch.fixture";
 import { writeFileSync } from "node:fs";
 import Decimal from "break_infinity.js";
 import { EQUIPMENT_SLOTS, MISSIONS, SHIP_TYPES, type EquipmentInstance, type EquipmentRarity, type GameState, type ShipDerivedStats, type ShipTypeKey } from "./model";
@@ -267,7 +270,7 @@ const GOLDEN: Record<string, unknown> = {
     "50:quartersFlightDeckWing:stellar:q2:iL31:{\"crewStations\":57}:{\"colonistCapacity\":76,\"crewStations\":19}:m0:quartersFlightDeckWing",
     "pool:[{\"stat\":\"crewStations\",\"weight\":5},{\"stat\":\"crewEfficiency\",\"weight\":2},{\"stat\":\"massReduction\",\"weight\":1},{\"stat\":\"colonistCapacity\",\"weight\":2}]",
   ],
-  "registry": [1182, "c748495a"],
+  "registry": [1182, "6325aad9"], // Re-pinned by E-MOD EM-1 (c748495a before: see REGISTRY_BEFORE_EM1)
   "registry:g1": ["ship:gearLine:colonistCapacity|pending", "ship:SHIP_TYPES:generalFreighter:colonistCapacity|pending", "ship:SHIP_TYPES:orion:colonistCapacity|pending", "ship:SHIP_TYPES:aurora:colonistCapacity|pending", "ship:SHIP_TYPES:eir:colonistCapacity|pending", "ship:SHIP_SEAMS:generalQuartersGuestPerk|pending", "ship:QUARTERS_MODULES:quartersGuestWing|live", "ship:QUARTERS_MODULES:quartersGuestWing:capacity|pending"],
   "old": ["aa94ddcd", "817862c7", "4ac62731", "d9a483c6"],
 };
@@ -381,6 +384,24 @@ const WR6_WIRED_IDS: ReadonlySet<string> = new Set<string>([
   "fleetAdmiral:HOMEWORLD_TALENTS:citizenryHub",
 ]);
 
+// E-MOD EM-1: the `registry` pin before EM-1 (after WR-6), the seven entries EM-1 flips pending -> live and the eleven
+// it adds (every hull's basePowerOutput and the drive class draw seam), left out of the hashed lines like G1's.
+const REGISTRY_BEFORE_EM1 = [1182, "c748495a"];
+const EM1_WIRED_IDS: ReadonlySet<string> = new Set<string>([
+  "officer:officer.powerEfficiencyMult",
+  "crew:crew.powerEfficiency",
+  "racial:martian",
+  "ship:gearLine:powerOutput",
+  "ship:gearLine:powerDrawReduction",
+  "ship:audit:slotPowerDraw",
+  "ship:audit:weaponPowerDraw",
+]);
+const EM1_ADDED_ENTRY_IDS: ReadonlySet<string> = new Set<string>([
+  ...HULLS.map((h) => `ship:SHIP_TYPES:${h}:basePowerOutput`),
+  "ship:SHIP_SEAMS:driveClassPowerDraw",
+]);
+const notAdded = (id: string): boolean => !G1_ADDED_ENTRY_IDS.has(id) && !EM1_ADDED_ENTRY_IDS.has(id);
+
 // The `fleet` record before OC-11 (captured on a678241); reproduced with the pause off.
 const FLEET_BEFORE_OC11 = ["aa94ddcd", "1a72036c", "5008dacf", "cbf18a80", "6c8ebe80", "33d00a42", "19f8bdb2"];
 
@@ -407,18 +428,18 @@ describe("G1-0 golden 3: effectiveShipStats for every hull, bare and with each q
     it(`${hull}`, () => {
       const s0 = withBuckets(onHull(hull), [bucketOf("operations", "ops.unloadSpeed"), bucketOf("engineering", "eng.range"), bucketOf("operations", "ops.effectiveCargo")]);
       const ship = s0.ships[0];
-      const out = [statsHash(effectiveShipStats(s0, ship))];
+      const out = [statsHash(withEm1Off(() => effectiveShipStats(s0, ship)))];
       // G1-1: guest quarters, bare then each variety (the G1-0 nine, then the Guest Wing).
       const guests = [effectiveShipStats(s0, ship).colonistCapacity ?? 0];
       for (const v of QUARTERS_VARIETIES_AT_G1_0) {
         const s = withPiece(s0, derelictQuarters(v, `equip-q-${v}`), ship.id);
-        out.push(statsHash(effectiveShipStats(s, ship)));
+        out.push(statsHash(withEm1Off(() => effectiveShipStats(s, ship))));
         guests.push(effectiveShipStats(s, ship).colonistCapacity ?? 0);
       }
       pin(`stats:${hull}`, out);
       const wing = withPiece(s0, derelictQuarters("quartersGuestWing", "equip-q-wing"), ship.id);
       guests.push(effectiveShipStats(wing, ship).colonistCapacity ?? 0);
-      pin(`stats:${hull}:guestWing`, statsHash(effectiveShipStats(wing, ship)));
+      pin(`stats:${hull}:guestWing`, statsHash(withEm1Off(() => effectiveShipStats(wing, ship))));
       pin(`guests:${hull}`, guests);
     });
   }
@@ -474,13 +495,21 @@ describe("G1-0 golden 4: generateEquipment for the quarters slot at 50 fixed see
 
 describe("G1-0 golden 5: the wiring registry's ids and statuses", () => {
   it("the entries outside the G1 additions, hashed in registry order", () => {
-    const lines = WIRING_REGISTRY.filter((e) => !G1_ADDED_ENTRY_IDS.has(e.id)).map((e) => `${e.id}|${e.status.kind}`);
+    const lines = WIRING_REGISTRY.filter((e) => notAdded(e.id)).map((e) => `${e.id}|${e.status.kind}`);
     pin("registry", [lines.length, hash(lines)]);
+  });
+  // E-MOD EM-1: the seven power entries it wires flip pending -> live (the count and the order hold). With those seven
+  // read as pending again the lines hash to the pin from before EM-1, so the flips are the only move.
+  it("EM-1 is the only cause of its registry move", () => {
+    const lines = WIRING_REGISTRY.filter((e) => notAdded(e.id)).map((e) => `${e.id}|${EM1_WIRED_IDS.has(e.id) ? "pending" : e.status.kind}`);
+    expect(WIRING_REGISTRY.filter((e) => EM1_WIRED_IDS.has(e.id)).map((e) => e.status.kind)).toEqual(Array(EM1_WIRED_IDS.size).fill("live"));
+    expect(WIRING_REGISTRY.filter((e) => EM1_ADDED_ENTRY_IDS.has(e.id))).toHaveLength(EM1_ADDED_ENTRY_IDS.size);
+    expect([lines.length, hash(lines)]).toEqual(REGISTRY_BEFORE_EM1);
   });
   // WR-6: the nine placeholder entries it wires flip pending -> live (the count and the order hold). With those nine
   // read as pending again the lines hash to the pin from before WR-6, so the flips are the only move.
   it("WR-6 is the only cause of the registry move", () => {
-    const lines = WIRING_REGISTRY.filter((e) => !G1_ADDED_ENTRY_IDS.has(e.id)).map((e) => `${e.id}|${WR6_WIRED_IDS.has(e.id) ? "pending" : e.status.kind}`);
+    const lines = WIRING_REGISTRY.filter((e) => notAdded(e.id)).map((e) => `${e.id}|${WR6_WIRED_IDS.has(e.id) || EM1_WIRED_IDS.has(e.id) ? "pending" : e.status.kind}`);
     expect(WIRING_REGISTRY.filter((e) => WR6_WIRED_IDS.has(e.id)).map((e) => e.status.kind)).toEqual(Array(WR6_WIRED_IDS.size).fill("live"));
     expect([lines.length, hash(lines)]).toEqual(REGISTRY_BEFORE_WR6);
   });
@@ -496,7 +525,7 @@ describe("G1-0 golden 6: an old save (v69) of the mixed fleet through migrate", 
     const held = mixedFleet();
     const save = deserialize(serialize(held, 0)) as SaveFile;
     const state = migrate({ ...save, version: 69 });
-    pin("old", [g1StateHash(state), ...state.ships.map((sh) => statsHash(effectiveShipStats(state, sh)))]);
+    pin("old", [g1StateHash(state), ...state.ships.map((sh) => statsHash(withEm1Off(() => effectiveShipStats(state, sh))))]);
   });
 });
 

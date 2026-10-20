@@ -31,6 +31,7 @@ export const FIELD_ROLES: Readonly<Record<string, Readonly<Record<string, FieldR
     droneBays: "effect",
     groundSquads: "effect",
     colonistCapacity: "effect",
+    basePowerOutput: "effect", // E-MOD EM-1 (P1): the hull's own power output
     buildRecipe: "gate",
     requiresBlueprint: "gate",
     awayTeams: "gate",
@@ -193,7 +194,7 @@ export const FIELD_ROLES: Readonly<Record<string, Readonly<Record<string, FieldR
     durabilityMax: "effect",
     quality: "effect",
     range: { seam: "WR-8, OC-D9 (every ship sits at position 0, B3)" },
-    powerDraw: { seam: "E-MOD + WR-7, OC-D1 (no power budget)" },
+    powerDraw: "effect", // E-MOD EM-1: a crafted weapon's draw joins the ship's power budget
     armorPen: { seam: "WR-8, OC-D12 (enemy armor is 0)" },
   },
   ROLE_TEMPLATE: {

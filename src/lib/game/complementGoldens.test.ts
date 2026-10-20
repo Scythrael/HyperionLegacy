@@ -20,6 +20,9 @@
 // Each fixture also checks that it really holds what it is pinned for (the keys, the transport, the relaunch, ...).
 
 import { describe, expect, it, vi } from "vitest";
+// E-MOD EM-1: sheets pinned before the power budget engine are hashed with it switched off (emodGoldens.test.ts pins
+// the power numbers and proves the switch reproduces its own capture), so these pins keep proving nothing else moved.
+import { withEm1Off } from "./emodEm1Switch.fixture";
 
 // OC-11 (CP-8): the switch that proves the auto-crew pause is the ONLY thing OC-11 moved (complementOc11Switch.fixture.ts;
 // the "OC-11 goldens" block and the mission tests reproduce their pre-OC-11 captures with it).
@@ -133,7 +136,7 @@ function sheetHashes(hull: ShipTypeKey, buckets: CrewBucket[]): string {
   const s = sheetState(hull, buckets);
   const ship = s.ships[0];
   // G1-1: the sheet hash strips guest quarters (withoutGuests), so these pins keep proving no other stat moved.
-  return `${hash(withoutGuests(effectiveShipStats(s, ship)))}/${hash(shipCrewContribution(s, ship))}`;
+  return `${hash(withoutGuests(withEm1Off(() => effectiveShipStats(s, ship))))}/${hash(shipCrewContribution(s, ship))}`;
 }
 
 // A captain mission dispatched for real, 200 s before the first transport window (captain level 10 so every mission

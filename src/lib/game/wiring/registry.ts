@@ -47,6 +47,7 @@ import {
   SI_EMITTER_CAP,
   SI_EMITTER_RECHARGE,
   SI_PLATING_HP,
+  SLOT_BASE_PHYSICALS,
   SUBSPACE_TELESCOPE_FACILITY_KEY,
   SUBSPACE_TELESCOPE_LEVELS,
   TRANSIT_BERTH_RUNGS,
@@ -86,7 +87,7 @@ import { CREW_RANKS, CREW_RANK_ORDER, rankMagnitudeFactor } from "../crewRank";
 import { GROUND_CONDITIONS, STONESKIN_INJURY_MULT } from "../medicalBay";
 import { OFFICER_STAT_KEYS } from "../seniorStaff";
 import { DEPARTMENT_OF_SEAT, OFFICER_STAT_NEUTRAL, XO_DEPARTMENT_SHARE, officerStatFacet } from "../officerStats";
-import { CREW_EFFECTIVENESS_KNEE, OFFICER_BONUSES_PENDING_IN_RELEASE } from "../crewOverlay";
+import { CREW_EFFECTIVENESS_KNEE, OFFICER_BONUSES_PENDING_IN_RELEASE, POWER_EFFICIENCY_KNEE } from "../crewOverlay";
 import { patrolCycleOneRampHours } from "../tick";
 import { constitutionRamp } from "../constitutionRamp";
 import { AWAY_TRAITS, type AwayTraitDef } from "../awayTraits";
@@ -287,6 +288,7 @@ export const CATALOGS = {
   RELIC_SETS,
   RELICS,
   WEAPON_DEFS,
+  SLOT_BASE_PHYSICALS,
   ROLE_TEMPLATE,
   PIRATE_HULLS,
   STATUS_EFFECT_DEFS,
@@ -375,7 +377,6 @@ function pending(owner: string, contexts?: readonly ContextId[]): WiringStatus {
 
 // The phase strings no-dead-stats used (kept verbatim: the liveness level reads them as owners).
 const TASK_23 = "E-CREW Task 23 (division pools + exclusive pool live, design 6.2)";
-const E_MOD = "E-MOD power budget";
 const SCIENCE_LINE_SWAP = "Science gear line swap (D26): Science gear rolls fieldwork/hazard/find lines instead";
 // Expedition Tiers G2-2 (plan 2026-10-14 G2-2: "the console still shows Tier I only (G2-6 adds the picker); a hidden
 // region is reachable by tests only"): every tier's candidates are built and tested (expeditionTierCandidates.test.ts),
@@ -408,8 +409,34 @@ function seatFor(def: SeniorStaffBonusDef): SeniorStaffSeat {
   return def.seat === "any" ? "executive" : def.seat;
 }
 
-// What each officer statKey moves (probe, contexts, curve). Absent = pending (OFFICER_PENDING below).
-const OFFICER_SEAMS: Readonly<Record<string, { probe: ProbeId; contexts: ContextId[]; curve: Curve }>> = {
+// E-MOD EM-1: power efficiency (Reactor Overdrive, Power Discipline, the Martian racial) cuts the ship's NET power draw,
+// draw / (1 + diminishing(e, knee)) rounded up to a whole point. Read on a ship carrying a large powered piece, so the
+// whole-point rounding is a small share of the move (tolerance: one point).
+const POWERED_PIECE_DRAW = 1000;
+const poweredBase = (): GameState => installPiece(wiringBase(), { slotType: "cargoBay", powerDraw: POWERED_PIECE_DRAW });
+const POWER_EFFICIENCY_SEAM = {
+  probe: "sheetPowerDraw" as ProbeId,
+  contexts: ["sheet"] as ContextId[],
+  curve: { kind: "divisor" } as Curve,
+  direction: "down" as const,
+  tolerance: 1,
+  base: poweredBase,
+  effect: (m: number) => diminishing(m, POWER_EFFICIENCY_KNEE),
+};
+
+// What each officer statKey moves (probe, contexts, curve). Absent = pending (OFFICER_PENDING below). E-MOD EM-1: an
+// optional fixture, direction, tolerance and the move the catalog magnitude makes through the consumer's curve.
+interface OfficerSeam {
+  probe: ProbeId;
+  contexts: ContextId[];
+  curve: Curve;
+  direction?: "up" | "down";
+  tolerance?: number;
+  base?: () => GameState;
+  effect?: (m: number) => number;
+}
+const OFFICER_SEAMS: Readonly<Record<string, OfficerSeam>> = {
+  "officer.powerEfficiencyMult": POWER_EFFICIENCY_SEAM,
   "officer.shipOutputMult": { probe: "missionOutputBonus", contexts: ["mission:extraction"], curve: { kind: "linearAbsolute" } },
   "officer.transitTimeCut": { probe: "sheetTransit", contexts: ["sheet"], curve: { kind: "linearRelative" } },
   "officer.evasion": { probe: "officerEvasion", contexts: ["patrol", "expedition:groundOps"], curve: { kind: "linearAbsolute" } },
@@ -448,10 +475,14 @@ function officerEntries(): WiringEntry[] {
         probe: seam?.probe,
         contexts: owner ? [] : seam?.contexts ?? [],
         curve: seam?.curve ?? { kind: "linearAbsolute" },
-        magnitude: (c) => c.SENIOR_STAFF_BONUSES.find((d) => d.id === def.id)!.magnitude,
+        ...(seam?.direction ? { direction: seam.direction } : {}),
+        ...(seam?.tolerance !== undefined ? { tolerance: seam.tolerance } : {}),
+        magnitude: (c) => (seam?.effect ?? ((m: number) => m))(c.SENIOR_STAFF_BONUSES.find((d) => d.id === def.id)!.magnitude),
         on: (s) => seatOfficer(s, seat, [def.id]),
         off: (s) => seatOfficer(s, seat, []),
-        base: def.statKey.startsWith("officer.weapon") || def.statKey.startsWith("officer.shield") ? () => combatBase() : () => wiringBase(),
+        base:
+          seam?.base ??
+          (def.statKey.startsWith("officer.weapon") || def.statKey.startsWith("officer.shield") ? () => combatBase() : () => wiringBase()),
         status: owner ? pending(owner) : LIVE,
       }),
     );
@@ -472,6 +503,7 @@ interface CrewSeam {
   base?: () => GameState;
   alongside?: readonly CrewBucket[];
   effect?: (m: number) => number;
+  direction?: "up" | "down"; // E-MOD EM-1: power efficiency moves the draw DOWN
 }
 
 // CP-2 (OC-3): Crew Effectiveness lifts every OTHER complement buff, read on a fixture carrying one (Efficient
@@ -506,34 +538,28 @@ const CREW_SEAMS: Readonly<Record<string, CrewSeam>> = {
   [CREW_STAT_KEYS.rareFindChance]: { probe: "rareFind", contexts: ["expedition:groundOps", "mission:survey"], curve: { kind: "linearAbsolute" } },
   [CREW_STAT_KEYS.reducedCrewLosses]: { probe: "injuryCare", contexts: ["medbay"], curve: { kind: "linearAbsolute" } },
   [CREW_STAT_KEYS.fuelEfficiency]: { probe: "sheetEngineEff", contexts: ["sheet"], curve: { kind: "linearAbsolute" } },
+  // E-MOD EM-1 (P4): Power Discipline and the Martian racial cut the net power draw (POWER_EFFICIENCY_SEAM).
+  [CREW_STAT_KEYS.powerEfficiency]: POWER_EFFICIENCY_SEAM,
 };
 
 // The claimed consumer of each dead crew.* key, read so a pending key that starts moving fails until it is flipped:
 // the probe, the claimed context, and a fixture that HAS the system the key would act on (WR-1 review: an away team
-// for the squad keys, a medic for Triage, a carrier with drones for Deck Handling, a powered piece for Power
-// Discipline), so the flat check is real.
+// for the squad keys, a medic for Triage, a carrier with drones for Deck Handling), so the flat check is real.
 interface DeadKeySeam {
   probe: ProbeId;
   context: ContextId;
   base?: () => GameState;
 }
-const POWERED_PIECE_DRAW = 20; // a piece drawing real power, so a power-draw cut would show
 const withMedic: Transform = (s) => editMember(s, WIRING_SECURITY_ID, { traits: ["fieldMedic"] });
 const CREW_PENDING_PROBES: Readonly<Record<string, DeadKeySeam>> = {
   [CREW_STAT_KEYS.surveyAptitude]: { probe: "expScanRate", context: "expedition:groundOps" },
   [CREW_STAT_KEYS.awayTeamProtection]: { probe: "runSecHp", context: "ground", base: () => withAwayTeam(wiringBase()) },
   [CREW_STAT_KEYS.droneHandling]: { probe: "combatDroneHp", context: "patrol", base: () => combatBase("carrier") },
   [CREW_STAT_KEYS.triage]: { probe: "runSecHeal", context: "ground", base: () => withMedic(withAwayTeam(wiringBase())) },
-  [CREW_STAT_KEYS.powerEfficiency]: {
-    probe: "sheetPowerDraw",
-    context: "sheet",
-    base: () => installPiece(wiringBase(), { slotType: "cargoBay", powerDraw: POWERED_PIECE_DRAW }),
-  },
   [CREW_STAT_KEYS.preventCrewLoss]: { probe: "injuryCare", context: "medbay" },
 };
 
 const CREW_PENDING: Readonly<Record<string, string>> = {
-  [CREW_STAT_KEYS.powerEfficiency]: E_MOD,
   [CREW_STAT_KEYS.droneHandling]: TASK_23,
   [CREW_STAT_KEYS.counterInfiltration]: TASK_23,
   [CREW_STAT_KEYS.awayTeamProtection]: TASK_23,
@@ -564,6 +590,7 @@ function crewEntries(): WiringEntry[] {
       probe: held ? undefined : probe,
       contexts: held || owner ? [] : seam?.contexts ?? [],
       curve: seam?.curve ?? { kind: "linearAbsolute" },
+      ...(seam?.direction && !owner ? { direction: seam.direction } : {}),
       // One standard Crewman per head: the buff's catalog magnitude x the bucket's head count (through the
       // consumer's curve where the seam names one, CP-2).
       magnitude: () => (seam?.effect ?? ((m: number) => m))(def.magnitude * WIRING_BUCKET_COUNT),
@@ -581,7 +608,6 @@ function crewEntries(): WiringEntry[] {
 }
 
 const RACIAL_PENDING: Readonly<Partial<Record<CrewRace, WiringStatus>>> = {
-  martian: pending(E_MOD),
   belter: pending(TASK_23),
   outerColony: pending(TASK_23),
   vael: pending(TASK_23),
@@ -605,6 +631,8 @@ function racialEntries(): WiringEntry[] {
       probe,
       contexts: status.kind === "live" ? seam?.contexts ?? [] : [],
       curve: seam?.curve ?? { kind: "linearAbsolute" },
+      ...(seam?.direction && status.kind === "live" ? { direction: seam.direction } : {}),
+      ...(seam?.tolerance !== undefined && status.kind === "live" ? { tolerance: seam.tolerance } : {}),
       magnitude: (c) => (seam?.effect ?? ((m: number) => m))(c.CREW_RACES[race].racialBonus.seniorStaff),
       on: (s) => seatOfficer(s, "executive", [], { race }),
       off: identity,
@@ -1719,6 +1747,9 @@ const LINE_SEAMS: Readonly<Record<string, LineSeam | null>> = {
   engineEfficiency: { probe: "sheetEngineEff", contexts: ["sheet"], curve: { kind: "linearAbsolute" }, magnitude: () => percent("engineEfficiency") },
   extractionYieldMult: { probe: "sheetYield", contexts: ["sheet"], curve: { kind: "linearRelative" }, magnitude: () => percent("extractionYieldMult") },
   massReduction: null, // consumed at mint (itemgen.ts:425): measured below as its own entry on the piece's mass
+  // E-MOD EM-1: a Reactor Core's powerOutput line adds to the ship's power output (on top of the hull's own, P1).
+  powerOutput: { probe: "sheetPowerOutput", contexts: ["sheet"], curve: { kind: "linearAbsolute" }, magnitude: () => LINE_POINTS },
+  powerDrawReduction: null, // consumed at mint like massReduction: measured below as its own entry on the piece's draw
   // An emitter's raw lines scale by the hull's shield effectiveness (bridge.ts hullDefenseComposition).
   shieldCapacity: {
     probe: "combatShieldMax",
@@ -1751,8 +1782,6 @@ const LINE_SEAMS: Readonly<Record<string, LineSeam | null>> = {
 };
 
 const LINE_PENDING: Readonly<Record<string, { owner: string; probe?: ProbeId; contexts?: ContextId[] }>> = {
-  powerOutput: { owner: "E-MOD + WR-7, OC-D1 (display only; promises a power budget)" },
-  powerDrawReduction: { owner: "E-MOD + WR-7, OC-D1 (display only; promises a power budget)" },
   materialQualityChance: { owner: "WR-7, OC-D2 (rolls on every Prospecting Rig, read by nothing)", probe: "missionOreQuality", contexts: ["mission:extraction"] },
   crewStations: { owner: "WR-7, OC-D3 (the tooltip prints the rolled value; nothing reads it)", probe: "quartersCapacity", contexts: ["sheet"] },
   crewEfficiency: { owner: "WR-7, OC-D3 (the tooltip prints the rolled value; nothing reads it)", probe: "sheetUnload", contexts: ["sheet"] },
@@ -1830,6 +1859,22 @@ function shipLineEntries(): WiringEntry[] {
         note: "consumed at mint (itemgen.ts:425) into the piece's mass; measured as the lighter piece's speed",
       });
     }
+    if (key === "powerDrawReduction") {
+      // E-MOD EM-1: the line (consumed at mint into piece.powerDraw, itemgen.ts) takes LINE_POINTS off a powered piece:
+      // the ship's power draw drops by exactly that much.
+      return entry({
+        ...common,
+        probe: "sheetPowerDraw",
+        contexts: ["sheet"],
+        direction: "down",
+        curve: { kind: "linearAbsolute" },
+        magnitude: () => -LINE_POINTS,
+        base: bareHull,
+        on: (s) => installPiece(s, { slotType: "reactorCore", powerDraw: POWER_PIECE - LINE_POINTS }),
+        off: (s) => installPiece(s, { slotType: "reactorCore", powerDraw: POWER_PIECE }),
+        note: "consumed at mint (itemgen.ts) into the piece's powerDraw; measured as the leaner piece's draw",
+      });
+    }
     if (p) return entry({ ...common, probe: p.probe, status: pending(p.owner, p.contexts) });
     if (!seam) return entry({ ...common, status: pending("WR-1 follow-up: no seam probe for this ship line") });
     // The patrol checks fly a combat hull (a freighter cannot patrol, so its patrol reading would be vacuous).
@@ -1858,6 +1903,7 @@ function shipLineEntries(): WiringEntry[] {
 }
 
 const MASS_PIECE = 30; // the massReduction fixture's piece mass (the bare hull carries no other mass)
+const POWER_PIECE = 30; // the powerDrawReduction fixture's piece draw (the bare hull draws nothing else)
 const claimsPatrol = (st: WiringStatus | undefined): boolean => (st?.kind === "pending" || st?.kind === "deferred") && (st.contexts ?? []).includes("patrol");
 const bareHull = (): GameState => {
   const s = wiringBase();
@@ -1974,6 +2020,16 @@ function hullEntries(): WiringEntry[] {
         magnitude: (c) => Math.floor((c.SHIP_TYPES[hull].groundSquads ?? 0) / 2),
         note: "two squads make one ground team (groundTeamCount)",
       }),
+      // E-MOD EM-1 (P1): the hull's own power generation, read verbatim off its bare sheet's power output.
+      hullEntry(hull, "basePowerOutput", {
+        probe: "sheetPowerOutput",
+        contexts: ["sheet"],
+        magnitude: (c) => c.SHIP_TYPES[hull].basePowerOutput,
+        base: () => {
+          const s = wiringBase(hull);
+          return { ...s, equipment: s.equipment.filter((e) => e.fittedToShipId !== "ship-1") };
+        },
+      }),
     );
     for (const field of Object.keys(HULL_FIELD_PENDING)) {
       out.push(hullEntry(hull, field, { status: pending(HULL_FIELD_PENDING[field]) }));
@@ -2049,12 +2105,11 @@ function divisionWingChecks(division: CrewProfession): Partial<Record<ContextId,
   return { [dead.context]: { probe: dead.probe, base: () => withBuckets(fixture(), [bucketOf(division, def.id)]) } };
 }
 
-// CP-2: the Engineering wing is LIVE: every Engineering key it amplifies acts (Engine Tuning, and Damage Control since
-// CP-2) except Power Discipline, whose own entry (crew:crew.powerEfficiency) waits on the E-MOD power budget and
-// keeps its flat check there. The other non-Operations wings wait on their division's dead keys.
+// CP-2: the Engineering wing is LIVE: every Engineering key it amplifies acts (Engine Tuning, Damage Control since
+// CP-2, and Power Discipline since E-MOD EM-1). The other non-Operations wings wait on their division's dead keys.
 const LIVE_WINGS: ReadonlySet<CrewProfession> = new Set(["operations", "engineering"]);
 function wingPending(division: CrewProfession): WiringStatus {
-  return pending(`CP-3, CP-4, E-MOD (the ${division} division's dead keys; its live keys move)`, DEAD_DIVISION_CONTEXTS[division] ?? ["ground"]);
+  return pending(`CP-3, CP-4 (the ${division} division's dead keys; its live keys move)`, DEAD_DIVISION_CONTEXTS[division] ?? ["ground"]);
 }
 
 function moduleEntries(): WiringEntry[] {
@@ -3076,9 +3131,9 @@ const AUDIT_ROWS: readonly { id: string; system: WiringSystem; claim: string; st
   // D. Ship
   { id: "ship:audit:statRatios", system: "ship", claim: "Variety statRatios: an unlisted key keeps weight 1, so Hauler Hold rolls massReduction more than Prospector Hold (B11)", status: pending("WR-7, OC-D6") },
   { id: "ship:audit:favorsSpec", system: "ship", claim: "Variety favorsSpec (no reader)", status: pending("WR-7, OC-D5") },
-  { id: "ship:audit:slotPowerDraw", system: "ship", claim: "SLOT_BASE_PHYSICALS powerDraw (display only; promises a budget)", status: pending("E-MOD + WR-7, OC-D1") },
+  { id: "ship:audit:slotPowerDraw", system: "ship", claim: "SLOT_BASE_PHYSICALS powerDraw: a crafted piece draws its slot's power from the ship's budget", status: LIVE },
   { id: "ship:audit:slotDurability", system: "ship", claim: "SLOT_BASE_PHYSICALS durability for economy, defense, crew, sensor and member pieces (never read)", status: pending("WR-8, OC-D14") },
-  { id: "ship:audit:reactorCoreNet", system: "ship", claim: "A crafted Reactor Core is net negative: no power budget, and its mass drags speed and fuel (B10)", status: pending("E-MOD + OC-D1") },
+  { id: "ship:audit:reactorCoreNet", system: "ship", claim: "A crafted Reactor Core is net negative: its output only raises the power budget (no install gate or penalty before EM-2 / EM-3, the hull's own output covers every loadout), and its mass drags speed and fuel (B10)", status: pending("E-MOD EM-4 (unused reactor power speeds the drive, P3)") },
   { id: "ship:audit:arrayCharacter", system: "ship", claim: "ARRAY_CHARACTER: \"Focused: faster\" while its net rate is 0.78x; no Bio-Resonance line (B12)", status: pending("WR-7, OC-D11") },
   { id: "ship:audit:hullDescriptions", system: "ship", claim: "Hull descriptions (Aurora, Eir, Orion) claim what the engine does not do", status: pending("WR-7, OC-D13 (heavy cruiser wording: SF-6)") },
   { id: "ship:audit:combatPositions", system: "ship", claim: "Weapon and drone range, stance (incl. the patrol stance the player picks), BAND_*, enemy stance, speed and position: every ship spawns at 0 (B3)", status: pending("WR-8, OC-D9") },
@@ -3094,7 +3149,7 @@ const AUDIT_ROWS: readonly { id: string; system: WiringSystem; claim: string; st
   { id: "ship:audit:familyResists", system: "ship", claim: "damageResist_<family> / disruptionResist_<family> (read in combat; no affix pool rolls them)", status: pending("WR-8, OC-D12") },
   { id: "ship:audit:installedSystems", system: "ship", claim: "Reactor / FTL systems from installed gear (bridge.ts:945 uses a fresh quality-0 system)", status: pending("WR-8, OC-D12") },
   { id: "ship:audit:derivedStatsInCombat", system: "ship", claim: "ShipDerivedStats in combat (powerOutput, sensors, mass)", status: pending("WR-8, OC-D12") },
-  { id: "ship:audit:weaponPowerDraw", system: "ship", claim: "Weapon powerDraw and the power.ts helpers (powerBudget, canFitByPower, totalPowerDraw: no callers)", status: pending("E-MOD + WR-7, OC-D1") },
+  { id: "ship:audit:weaponPowerDraw", system: "ship", claim: "Weapon powerDraw: a crafted weapon draws its def's power from the ship's budget", status: LIVE },
   { id: "ship:audit:commentOnlyRules", system: "ship", claim: "The Tachyon anti-shield exception and the Voltaic chain (comments only)", status: pending("WR-8, OC-D12") },
   { id: "ship:audit:inertDescriptors", system: "ship", claim: "The vs-Drones triangle column, status persistence between battles, ResolveOptions.objective, TargetingPolicy.escortShare, builtInBays, frameHp, the DoT rng", status: pending("WR-8, OC-D12") },
   { id: "ship:audit:statusColor", system: "ship", claim: "Status color (no reader)", status: pending("WR-11 (use in the combat view or delete; no call)") },
@@ -3153,10 +3208,53 @@ const AUDIT_ROWS: readonly { id: string; system: WiringSystem; claim: string; st
 
 function auditEntries(): WiringEntry[] {
   return [
-    ...AUDIT_ROWS.map((r) => entry({ id: r.id, system: r.system, source: { catalog: "AUDIT", key: r.id }, claim: r.claim, status: r.status })),
+    ...AUDIT_ROWS.map((r) => entry({ id: r.id, system: r.system, source: { catalog: "AUDIT", key: r.id }, claim: r.claim, status: r.status, ...(auditRowWiring()[r.id] ?? {}) })),
     ...cp2AuditEntries(),
     ...fieldKitsAuditEntries(),
     ...cp8AuditEntries(),
+    ...emodAuditEntries(),
+  ];
+}
+
+// E-MOD EM-1: the wiring of the audit rows that went live in place (their row keeps its registry position): the power
+// draw rows, live with the power budget (the ship's power draw readout, the budget the install gate EM-2 and the combat
+// penalty EM-3 read).
+function auditRowWiring(): Readonly<Record<string, Partial<EntryInput>>> {
+  const emitter = (draw: number): Transform => (s) => installPiece(s, { slotType: "shieldEmitters", powerDraw: draw });
+  const torpedo = (draw: number): Transform => (s) => installPiece(s, { slotType: "weapon", weaponType: "concussionTorpedo", powerDraw: draw });
+  return {
+    "ship:audit:slotPowerDraw": {
+      probe: "sheetPowerDraw",
+      contexts: ["sheet"],
+      curve: { kind: "linearAbsolute" },
+      magnitude: (c) => c.SLOT_BASE_PHYSICALS.shieldEmitters.powerDraw,
+      base: bareHull,
+      on: emitter(SLOT_BASE_PHYSICALS.shieldEmitters.powerDraw),
+      off: emitter(0),
+    },
+    "ship:audit:weaponPowerDraw": {
+      probe: "sheetPowerDraw",
+      contexts: ["sheet"],
+      curve: { kind: "linearAbsolute" },
+      magnitude: (c) => c.WEAPON_DEFS.concussionTorpedo.powerDraw,
+      base: bareHull,
+      on: torpedo(WEAPON_DEFS.concussionTorpedo.powerDraw),
+      off: torpedo(0),
+    },
+  };
+}
+
+// E-MOD EM-1: the drive class draw seam G2-4's classed drives call (every drive is Class I until then).
+function emodAuditEntries(): WiringEntry[] {
+  return [
+    entry({
+      id: "ship:SHIP_SEAMS:driveClassPowerDraw",
+      system: "ship",
+      source: { catalog: "SHIP_SEAMS", key: "driveClassPowerDraw" },
+      claim: "An FTL drive draws x1.6 power per drive class above I (DRIVE_CLASS_POWER_DRAW_MULT)",
+      status: { kind: "seam", owner: "G2-4 (the Class II to VII drive blueprints)", userRef: "E-MOD P5 (user 2026-10-19): \"x1.6 per class (Recommended)\"" },
+      note: "every drive is Class I until G2-4; shipPower.test.ts proves the multiplier on a classed blueprint",
+    }),
   ];
 }
 
@@ -3309,14 +3407,12 @@ const SCIENCE_NEVER_FIGHTS = "Science never fights (D2)";
 const SIDEARM_TOOL = "Science never fights (D2); the Sidearm becomes a tool";
 const ALLOW_LIST_REASONS: Readonly<Record<string, string>> = {
   ...Object.fromEntries(Object.keys(OFFICER_BONUSES_PENDING_IN_RELEASE).map((k) => [`officer:${k}`, OFFICER_DORMANT])),
-  "crew:crew.powerEfficiency": "Power Discipline: power efficiency waits for the power budget (design 6.2)",
   "crew:crew.droneHandling": "Deck Handling: carrier drone handling (Flight Deck pool)",
   "crew:crew.counterInfiltration": "Counter-Infiltration: resists enemy debuffs (Security pool)",
   "crew:crew.awayTeamProtection": "Away-Team Protection: squad HP (Security pool)",
   "crew:crew.surveyAptitude": "Survey Aptitude: scan speed (Science pool)",
   "crew:crew.triage": "Triage: squad healing (Medical pool)",
   "crew:crew.preventCrewLoss": "Prevent a Crew Loss: shorter injuries (exclusive pool)",
-  "racial:martian": "racial crew.powerEfficiency waits for the power budget",
   "racial:belter": "racial crew.droneHandling (Flight Deck pool key)",
   "racial:outerColony": "racial crew.surveyAptitude (Science pool key)",
   "racial:vael": "racial crew.surveyAptitude (Science pool key)",

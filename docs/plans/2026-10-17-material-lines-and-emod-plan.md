@@ -321,6 +321,22 @@ Discipline, Martian) on a D23 curve, `reactorSurplus`, `shipPowerBudget`. Remove
 `PENDING_IN_RELEASE` loses its three E-MOD entries. Tests: each source moves `sheetPowerDraw`; neutrality (no officer,
 no Martian, Standard-Issue gear) byte-identical; integer exactness. Save: none.
 
+*Carry note (EM-0 and EM-1 built 2026-10-20, on a9caa06).* EM-0 is `emodGoldens.test.ts` (512 to 2,048 sheets per
+hull, the census, 20 patrols, 2 Ground Ops runs, 2 missions, the registry). The census reads 83 for the Freighter (it
+installs no utility; section 2.2 said 85), the rest as section 2.2; `basePowerOutput` takes the option (a) values.
+EM-1 moved only the sheets (output + hull base; draw cut by efficiency) and the registry; every patrol, mission and
+Ground Ops pin held. Golden files that pinned a sheet earlier hash it inside `withEm1Off`
+(`emodEm1Switch.fixture.ts`), which reproduces every EM-0 capture. Built: `netPowerDraw` in `crewOverlay.ts`
+(`ceil(gross / (1 + diminishing(e, POWER_EFFICIENCY_KNEE)))`, folded in `applyCrewOverlay`; **[PROVISIONAL] knee
+0.25**: one Overdrive officer about 8%, e 0.5 about 24%); `DRIVE_CLASS_POWER_DRAW_MULT` 1.6 with `ftlDriveClass` reading
+an optional `BlueprintDef.driveClass` (absent = Class I; G2-4 sets it and must not bake the class into `powerDraw` at
+mint; if OC-3's hull-tier class should also draw, G2-4 extends `ftlDriveClass`); `shipPower.ts shipPowerBudget(state,
+shipId, { piece, replacingInstanceId }?)` with `reactorSurplus` (EM-2 gates on its `overBudget`, EM-3 freezes its
+output and draw, EM-4 reads `reactorSurplus`). Registry: Overdrive, Power Discipline, Martian, the powerOutput and
+powerDrawReduction lines, the slot and weapon draw rows LIVE; each hull's `basePowerOutput` and the drive class seam
+added; `ship:audit:reactorCoreNet` now owned by EM-4. UI: the Power Output / Power Draw (i) texts and the Overdrive
+description only (the power bar waits for the EM-10 mockup).
+
 **EM-2 Install gate.** `canFitEquipment` gains `overPower` (pristine values only, never wear), checked after capacity;
 the same check on every install path: hand install, item-side install, Armory loadout check-out (whole-set budget
 including the loadout's own reactor), roster loadout apply, reactor swap (an install that leaves draw above the new

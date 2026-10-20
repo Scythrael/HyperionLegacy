@@ -65,7 +65,7 @@ import { captainComplementMult, captainOfficerOutputMult, captainSensorsMult } f
 // 0.02 == +2%). applyCrewOverlay reads ONLY the keys that have a REAL consumer today and folds them
 // onto ShipDerivedStats; every other crew.* key (surveyAptitude, sensors, boardingDefense,
 // awayTeamProtection, craftDuplicateChance, preventCrewLoss, counterInfiltration, droneHandling,
-// rareFindChance, reducedCrewLosses, triage, powerEfficiency, endurance, ...) is a NO-OP here: its system
+// rareFindChance, reducedCrewLosses, triage, endurance, ...) is a NO-OP here: its system
 // has not landed (or it is read off the map by its own consumer, listed below), so it
 // maps to NOTHING and lies dormant until it does. (rareFindChance is no ship stat but is not dormant: the
 // expedition snapshots it at dispatch for the relic roll, E-CREW Task 15, and survey missions read it for
@@ -79,6 +79,7 @@ import { captainComplementMult, captainOfficerOutputMult, captainSensorsMult } f
 //   crew.extractionYield                         -> extractionYieldMult (multiplicative)
 //   crew.unloadSpeed                             -> unloadSpeedMult    (divides unloadTicks in effectiveMissionDef)
 //   crew.missionTurnaround                       -> unloadSpeedMult    (x (1 + t), its unload half; CP-2)
+//   crew.powerEfficiency                         -> powerDraw          (the net draw, E-MOD EM-1: netPowerDraw)
 //
 // CP-2 (Complement and Acquisition plan): the keys read OFF this map by a direct consumer, not folded here:
 //   crew.hullRepairRate + crew.missionTurnaround -> the repair speed-up (crewRepairSpeedBonus: Shipyard + field repair)
@@ -120,12 +121,25 @@ export function crewEffectivenessMultiplier(e: number): number {
   return e > 0 ? 1 + diminishing(e, CREW_EFFECTIVENESS_KNEE) : 1;
 }
 
+// E-MOD EM-1 (user P4 2026-10-19 "Cuts net draw (Recommended)"): power efficiency (Reactor Overdrive, Power
+// Discipline, the Martian racial: all crew.powerEfficiency) cuts the ship's NET power draw on a D23 curve,
+// draw / (1 + diminishing(e, knee)), rounded up to a whole point (the budget is integer). [PROVISIONAL] the knee, one
+// constant: a single Overdrive officer (0.1) cuts about 8%, a heavily Martian bridge with Power Discipline crew (0.5)
+// about 24%, and no amount reaches zero draw.
+export const POWER_EFFICIENCY_KNEE = 0.25;
+
+// A ship's net power draw: `gross` cut by a summed power efficiency `e`. Exactly `gross` at e <= 0 or with nothing
+// drawing. Pure.
+export function netPowerDraw(gross: number, e: number): number {
+  if (e <= 0 || gross <= 0) return gross;
+  return Math.ceil(gross / (1 + diminishing(e, POWER_EFFICIENCY_KNEE)) - 1e-9);
+}
+
 // E-CREW 0.14.0 (Task 20): every officer bonus statKey has a live consumer EXCEPT these, whose system lands
 // later in this same release. The Task 22 "no dead stats" standing test reads this as its allow-list and
 // fails once the named phase lands and the entry is still here. Key -> the phase that brings it live.
-export const OFFICER_BONUSES_PENDING_IN_RELEASE: Readonly<Record<string, string>> = {
-  "officer.powerEfficiencyMult": "E-MOD power budget", // Reactor Overdrive
-};
+// E-MOD EM-1: empty. Reactor Overdrive (the last entry) went live with the power budget (netPowerDraw).
+export const OFFICER_BONUSES_PENDING_IN_RELEASE: Readonly<Record<string, string>> = {};
 
 // Maps an OFFICER bonus's own broader `officer.*` stat vocabulary (seniorStaffBonuses.ts) onto the
 // crew.* key it corresponds to, so officer bonuses and complement buffs accumulate into ONE map. A
@@ -137,8 +151,7 @@ const OFFICER_STATKEY_TO_CREW: Record<string, string | null> = {
   "officer.extractionYieldMult": CREW_STAT_KEYS.extractionYield,
   "officer.unloadTimeCut": CREW_STAT_KEYS.unloadSpeed,
   "officer.rangeMult": CREW_STAT_KEYS.rangeEfficiency,
-  // Reactor Overdrive: shares the Engineering division's crew.powerEfficiency key, which has no consumer yet.
-  // LIVE WITH E-MOD power budget (listed in OFFICER_BONUSES_PENDING_IN_RELEASE for the Task 22 test).
+  // Reactor Overdrive: shares the Engineering division's crew.powerEfficiency key (E-MOD EM-1: the net power draw).
   "officer.powerEfficiencyMult": CREW_STAT_KEYS.powerEfficiency,
   // Discovery Instinct: no ship stat; read off crew.rareFindChance by the expedition relic roll at dispatch
   // (E-CREW Task 15, Expedition.crewRareFind) and by survey missions' rare-drop odds (Task 20, economyTick).
@@ -191,9 +204,12 @@ export function applyCrewOverlay(base: ShipDerivedStats, crew: Record<string, nu
   // E-CREW Task 20: the officer-only lifts (Inspiring Leader, Veteran Instincts' unload half).
   const lift = crew[OFFICER_ALL_STATS_KEY] ?? 0;
   const turnaround = crew[OFFICER_TURNAROUND_KEY] ?? 0;
+  // E-MOD EM-1 (P4): power efficiency cuts the net draw. Nothing drawing, or no efficiency, folds nothing.
+  const power = base.powerDraw > 0 ? crew[CREW_STAT_KEYS.powerEfficiency] ?? 0 : 0;
 
   // Neutral fast path: nothing mapped -> identity (same reference), the byte-identical guarantee.
   if (
+    power <= 0 &&
     transit === 0 &&
     outLeg === 0 &&
     backLeg === 0 &&
@@ -209,7 +225,13 @@ export function applyCrewOverlay(base: ShipDerivedStats, crew: Record<string, nu
   }
 
   const mapped = applyCrewTurnaround(applyLegLifts(applyMappedCrewStats(base, transit, range, cargo, extraction, unload), outLeg, backLeg), crewTurnaround);
-  return applyOfficerLifts(mapped, lift, turnaround);
+  return applyPowerEfficiency(applyOfficerLifts(mapped, lift, turnaround), power);
+}
+
+// E-MOD EM-1 (P4): the net power draw after the ship's summed power efficiency (netPowerDraw). 0 returns `base`.
+function applyPowerEfficiency(base: ShipDerivedStats, e: number): ShipDerivedStats {
+  if (e <= 0) return base;
+  return { ...base, powerDraw: netPowerDraw(base.powerDraw, e) };
 }
 
 // CP-2 (OC-E5, user 2026-10-15 "Each its own leg"): Fast Departure lifts the outbound leg and Fast Return the

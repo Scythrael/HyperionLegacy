@@ -40,6 +40,8 @@ import { advanceExpedition, claimExpedition, expeditionCandidates, startExpediti
 import { shipEventsLive } from "./shipScanEvents";
 import { plainAwayMember, withSlottedAwayTeams } from "./awayTeamTestFixtures";
 import { WIRING_REGISTRY } from "./wiring/registry";
+import { getSeniorStaffBonusById } from "./seniorStaffBonuses";
+import { withEm1Off } from "./emodEm1Switch.fixture";
 
 // ===== shared helpers =====
 
@@ -174,7 +176,8 @@ function withPowerCrew(s: GameState): GameState {
     gender: "nonbinary" as const,
     rank: "ensign" as const,
     bonuses: [
-      { id: "eng.overdrive", magnitude: 0.1 },
+      // Read off the catalog at call time, so the EM-1 switch (withEm1Off) can turn it off too.
+      { id: "eng.overdrive", magnitude: getSeniorStaffBonusById("eng.overdrive")!.magnitude },
       { id: "test.none", magnitude: 0 },
     ] as [{ id: string; magnitude: number }, { id: string; magnitude: number }],
     missionsCompleted: 0,
@@ -275,32 +278,36 @@ function missionRun(key: MissionKey): string {
 
 // ===== the goldens =====
 
-// Captured on a9caa06 (feat/crew-0.14.0), before any EM-1 engine edit. The power crew moves no sheet yet (its key,
-// crew.powerEfficiency, has no consumer), so each sheetFull pair reads the same hash twice.
+// Captured on a9caa06 (feat/crew-0.14.0) by EM-0, before any engine edit; the moves since are named per pin. The
+// patrol, Ground Ops and mission pins have never moved: EM-1 adds no install gate and no combat penalty.
 const GOLDEN: Record<string, unknown> = {
+  // Re-pinned by EM-1: every sheet's powerOutput gains the hull's basePowerOutput (P1); with the EM-1 switch on
+  // (withEm1Off) every hull reproduces its EM-0 capture (EM0 below).
   sheetCombinations: [
-    "generalFreighter:512:f4c378a7",
-    "prospectorHauler:1024:ba38163b",
-    "prospectorRunner:1024:4951d2a7",
-    "prospectorMiner:1024:20329e4b",
-    "destroyer:1024:48b66def",
-    "battleship:1024:df33d023",
-    "carrier:2048:f6f8a49b",
-    "orion:1024:52faec4b",
-    "aurora:1024:dc56e30b",
-    "eir:1024:52921f03",
+    "generalFreighter:512:e1c3f535",
+    "prospectorHauler:1024:4cfab90f",
+    "prospectorRunner:1024:d8a2c35f",
+    "prospectorMiner:1024:29c15883",
+    "destroyer:1024:de5e8dcb",
+    "battleship:1024:c9c7ae3f",
+    "carrier:2048:caef074f",
+    "orion:1024:5eea007",
+    "aurora:1024:2dbeb963",
+    "eir:1024:a14f96fb",
   ],
+  // Re-pinned by EM-1: the hull's base output (both halves) and, in the second half, the power crew's net-draw cut
+  // (P4); with the switch on both halves reproduce EM0, so the two moves are the only ones.
   sheetFull: [
-    "generalFreighter:3a274007/3a274007",
-    "prospectorHauler:9c3047ab/9c3047ab",
-    "prospectorRunner:b9690d52/b9690d52",
-    "prospectorMiner:5bebcb6d/5bebcb6d",
-    "destroyer:40665e55/40665e55",
-    "battleship:67af3f40/67af3f40",
-    "carrier:beb620d7/beb620d7",
-    "orion:c8fb621c/c8fb621c",
-    "aurora:efeb261/efeb261",
-    "eir:79c9fffa/79c9fffa",
+    "generalFreighter:78c613c7/7aec42e3",
+    "prospectorHauler:c7305c3d/2797cc9",
+    "prospectorRunner:7609e343/b6673266",
+    "prospectorMiner:1d6fd670/bb4ee37d",
+    "destroyer:e9783aec/c3f931dd",
+    "battleship:181dfacd/e461fe24",
+    "carrier:7b183e99/982351b1",
+    "orion:7c5412f0/1c42aea1",
+    "aurora:6d507f81/d458fdd0",
+    "eir:7fdd10db/182593fa",
   ],
   census: {
     generalFreighter: 83,
@@ -338,21 +345,57 @@ const GOLDEN: Record<string, unknown> = {
   "groundOps:5678": ["49bebe7a", "f370042b", "8deed810"],
   "mission:shortOreRun": "e6e74d3d",
   "mission:surveyMineralAnomaly": "3f929827",
+  // EM-1: the full crafted loadout's power output / draw / draw with the power crew aboard (the crafted Reactor Core
+  // supplies 32 on top of the hull's own; the crew's 0.2 efficiency cuts the draw by about 13%).
+  power: [
+    "generalFreighter:117/83/72",
+    "prospectorHauler:117/85/74",
+    "prospectorRunner:82/50/44",
+    "prospectorMiner:82/50/44",
+    "destroyer:192/155/134",
+    "battleship:262/225/194",
+    "carrier:142/105/91",
+    "orion:162/50/44",
+    "aurora:182/50/44",
+    "eir:152/50/44",
+  ],
+  // Re-pinned by EM-1: Reactor Overdrive, Power Discipline, the Martian racial, the powerOutput and powerDrawReduction
+  // lines and the slot and weapon draw rows went live, every hull's basePowerOutput joined, the drive class draw seam
+  // joined, the reactor surplus row is owned by EM-4 and the division wings no longer name E-MOD (EM-0: eb2a0c07, with
+  // 13 E-MOD rows). The two rows left naming E-MOD: the Precursor Lens module (EM-8) and the reactor surplus (EM-4).
   registry: [
-    "eb2a0c07",
-    "crew:crew.powerEfficiency",
-    "officer:officer.powerEfficiencyMult",
-    "racial:martian",
+    "aea24b6b",
     "relic:RELICS:precursorLens",
-    "ship:QUARTERS_MODULES:quartersFlightDeckWing",
-    "ship:QUARTERS_MODULES:quartersMedicalWing",
-    "ship:QUARTERS_MODULES:quartersScienceWing",
-    "ship:QUARTERS_MODULES:quartersSecurityWing",
     "ship:audit:reactorCoreNet",
-    "ship:audit:slotPowerDraw",
-    "ship:audit:weaponPowerDraw",
-    "ship:gearLine:powerDrawReduction",
-    "ship:gearLine:powerOutput",
+  ],
+};
+
+// The EM-0 captures of the pins EM-1 moved (before it the power crew moved no sheet: crew.powerEfficiency had no
+// consumer, so each sheetFull pair read the same hash twice). withEm1Off reproduces each exactly.
+const EM0: Record<string, unknown> = {
+  sheetCombinations: [
+    "generalFreighter:512:f4c378a7",
+    "prospectorHauler:1024:ba38163b",
+    "prospectorRunner:1024:4951d2a7",
+    "prospectorMiner:1024:20329e4b",
+    "destroyer:1024:48b66def",
+    "battleship:1024:df33d023",
+    "carrier:2048:f6f8a49b",
+    "orion:1024:52faec4b",
+    "aurora:1024:dc56e30b",
+    "eir:1024:52921f03",
+  ],
+  sheetFull: [
+    "generalFreighter:3a274007/3a274007",
+    "prospectorHauler:9c3047ab/9c3047ab",
+    "prospectorRunner:b9690d52/b9690d52",
+    "prospectorMiner:5bebcb6d/5bebcb6d",
+    "destroyer:40665e55/40665e55",
+    "battleship:67af3f40/67af3f40",
+    "carrier:beb620d7/beb620d7",
+    "orion:c8fb621c/c8fb621c",
+    "aurora:efeb261/efeb261",
+    "eir:79c9fffa/79c9fffa",
   ],
 };
 
@@ -360,7 +403,7 @@ function pinned(name: string, value: unknown): void {
   expect(value, name).toEqual(GOLDEN[name]);
 }
 
-describe("EM-0 pre-power-budget goldens", () => {
+describe("EM-0 goldens (re-pinned by EM-1 where named)", () => {
   it("sheet: every hull, every slot combination the census can build", () => {
     const out = HULLS.map((hull) => {
       const { hash: h, count } = combinationsHash(hull);
@@ -408,5 +451,42 @@ describe("EM-0 pre-power-budget goldens", () => {
     const snapshot = hash(WIRING_REGISTRY.map((e) => [e.id, e.status, e.contexts, e.probe ?? null]));
     const emod = WIRING_REGISTRY.filter((e) => e.status.kind !== "live" && "owner" in e.status && /E-MOD/.test(e.status.owner)).map((e) => e.id).sort();
     pinned("registry", [snapshot, ...emod]);
+  });
+});
+
+describe("EM-1 turn it off: with the power budget engine switched off, every moved sheet is the EM-0 capture", () => {
+  it("sheet: every hull, every slot combination", () => {
+    expect(withEm1Off(() => HULLS.map((hull) => {
+      const { hash: h, count } = combinationsHash(hull);
+      return `${hull}:${count}:${h}`;
+    }))).toEqual(EM0.sheetCombinations);
+  });
+
+  it("sheet: the full crafted loadout, alone and with the power-efficiency crew", () => {
+    expect(withEm1Off(() => HULLS.map((hull) => `${hull}:${hash(sheetOf(fullLoadout(hull)))}/${hash(sheetOf(withPowerCrew(fullLoadout(hull))))}`))).toEqual(EM0.sheetFull);
+  });
+
+  it("the switch restores every value it touched", () => {
+    const before = JSON.stringify([HULLS.map((h) => SHIP_TYPES[h].basePowerOutput), getSeniorStaffBonusById("eng.overdrive")]);
+    withEm1Off(() => expect(SHIP_TYPES.destroyer.basePowerOutput).toBe(0));
+    expect(JSON.stringify([HULLS.map((h) => SHIP_TYPES[h].basePowerOutput), getSeniorStaffBonusById("eng.overdrive")])).toBe(before);
+  });
+});
+
+describe("EM-1 power numbers (P1: no live ship goes over budget)", () => {
+  it("every hull's base output covers its maximum crafted draw (the EM-0 census)", () => {
+    for (const hull of HULLS) expect(SHIP_TYPES[hull].basePowerOutput, hull).toBeGreaterThanOrEqual(maxCraftedDraw(hull));
+  });
+
+  it("the full crafted loadout's output and draw, alone and with the power crew, on every hull", () => {
+    const out = HULLS.map((hull) => {
+      const alone = sheetOf(fullLoadout(hull));
+      const crewed = sheetOf(withPowerCrew(fullLoadout(hull)));
+      expect(alone.powerDraw, hull).toBeLessThanOrEqual(alone.powerOutput);
+      expect(crewed.powerDraw, hull).toBeLessThan(alone.powerDraw);
+      expect(Number.isInteger(crewed.powerDraw), hull).toBe(true);
+      return `${hull}:${alone.powerOutput}/${alone.powerDraw}/${crewed.powerDraw}`;
+    });
+    pinned("power", out);
   });
 });
