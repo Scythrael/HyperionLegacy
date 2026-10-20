@@ -118,3 +118,9 @@ section 5.A captain nodes). Kept in their own file so the parallel integrator's 
   Quartermaster purchase is refused if it would go over the warehouse cap, but kits returning from a run may go over it.
 - **Pack screen mockup:** "Yes, mockup now (Recommended)": draft the FKR-9 dispatch packing screen for sign-off so kits
   can go live in 0.14.0.
+- **Kits switch-on timing:** "Yes, with the pack screen (Recommended)": FIELD_KITS_RUNS_LIVE and FIELD_KITS_PLAYER_LIVE
+  flip together in the pack screen slice (FKR-9/10), still 0.14.0.
+- **Free First Aid Kit curve (FKR-2):** "Approve (Recommended)": Medical + Operations headcount 0-4 = 1, 5 = 2, 15 = 3,
+  27 = 4, 41 = 5, 57 = 6, diminishing, no cap.
+- **Short-Range engine rules (G1-4):** "Approve all (Recommended)": extraction-roll talents out of scope for short-range;
+  one log entry per run end; a recall while still at home ends at once and returns the training run.
