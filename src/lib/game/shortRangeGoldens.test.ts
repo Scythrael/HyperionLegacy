@@ -354,6 +354,36 @@ const G1_ADDED_ENTRY_IDS: ReadonlySet<string> = new Set<string>([
   ),
 ]);
 
+// Field Kits FKR-5 (tool charges and the grenade family) held apart the same way, so the base pin keeps proving no
+// existing entry moved: the 19 entries it ADDS (the Impact Grenade's three lines and the carry line on the two older
+// grenades, each grenade's four GRENADES rows, the throwGrenade action, the Impact Grenade blueprint's research) and the
+// ONE entry it FLIPS pending -> live (Explosives: Saboteur on the Saboteur's own throws), read back as pending here.
+const FKR5_ADDED_ENTRY_IDS: ReadonlySet<string> = new Set<string>([
+  "gear:security:stunGrenade:groundCarryCapacity",
+  "gear:security:toxinGrenade:groundCarryCapacity",
+  "gear:security:impactGrenade:groundPower",
+  "gear:security:impactGrenade:groundAccuracy",
+  "gear:security:impactGrenade:groundCarryCapacity",
+  ...["stunGrenade", "toxinGrenade", "impactGrenade"].flatMap((k) => ["charges", "perBattle", "blast", "status"].map((f) => `away:GRENADES:${k}:${f}`)),
+  "away:GAMBIT_ACTIONS:throwGrenade",
+  "facility:BLUEPRINTS:impactGrenadeBp",
+]);
+const FKR5_FLIPPED_LIVE: ReadonlySet<string> = new Set<string>(["away:KIT_CATEGORY_RULES:explosives"]);
+
+// The ONE exclusion helper every registry pin goes through. Each slice names the entries it ADDED (stripped) and the
+// entries it FLIPPED (read back as their earlier status), so a pin taken before that slice is reproduced exactly and
+// proves no other entry moved. Lines are `${id}|${status kind}` in registry order; the pin is [count, hash].
+type RegistrySlice = { readonly added?: ReadonlySet<string>; readonly flipped?: ReadonlySet<string>; readonly was?: string };
+const G1_SLICE: RegistrySlice = { added: G1_ADDED_ENTRY_IDS };
+const FKR5_SLICE: RegistrySlice = { added: FKR5_ADDED_ENTRY_IDS, flipped: FKR5_FLIPPED_LIVE, was: "pending" };
+function registryPin(...slices: readonly RegistrySlice[]): [number, string] {
+  const lines = WIRING_REGISTRY.filter((e) => !slices.some((sl) => sl.added?.has(e.id))).map((e) => {
+    const flip = slices.find((sl) => sl.flipped?.has(e.id));
+    return `${e.id}|${flip ? (flip.was ?? "pending") : e.status.kind}`;
+  });
+  return [lines.length, hash(lines)];
+}
+
 const CAPTURE = Boolean(import.meta.env.G1_CAPTURE);
 const captured: Record<string, unknown> = {};
 function pin(key: string, value: unknown): void {
@@ -389,6 +419,7 @@ const WR6_WIRED_IDS: ReadonlySet<string> = new Set<string>([
   "fleetAdmiral:HOMEWORLD_TALENTS:homelandDefenseHub",
   "fleetAdmiral:HOMEWORLD_TALENTS:citizenryHub",
 ]);
+const WR6_SLICE: RegistrySlice = { flipped: WR6_WIRED_IDS, was: "pending" };
 
 // The `fleet` record before OC-11 (captured on a678241); reproduced with the pause off.
 const FLEET_BEFORE_OC11 = ["aa94ddcd", "1a72036c", "5008dacf", "cbf18a80", "6c8ebe80", "33d00a42", "19f8bdb2"];
@@ -483,15 +514,20 @@ describe("G1-0 golden 4: generateEquipment for the quarters slot at 50 fixed see
 
 describe("G1-0 golden 5: the wiring registry's ids and statuses", () => {
   it("the entries outside the G1 additions, hashed in registry order", () => {
-    const lines = WIRING_REGISTRY.filter((e) => !G1_ADDED_ENTRY_IDS.has(e.id)).map((e) => `${e.id}|${e.status.kind}`);
-    pin("registry", [lines.length, hash(lines)]);
+    pin("registry", registryPin(G1_SLICE, FKR5_SLICE));
   });
   // WR-6: the nine placeholder entries it wires flip pending -> live (the count and the order hold). With those nine
-  // read as pending again the lines hash to the pin from before WR-6, so the flips are the only move.
+  // read as pending again (and the later slices held apart) the lines hash to the pin from before WR-6, so the flips
+  // are the only move.
   it("WR-6 is the only cause of the registry move", () => {
-    const lines = WIRING_REGISTRY.filter((e) => !G1_ADDED_ENTRY_IDS.has(e.id)).map((e) => `${e.id}|${WR6_WIRED_IDS.has(e.id) ? "pending" : e.status.kind}`);
     expect(WIRING_REGISTRY.filter((e) => WR6_WIRED_IDS.has(e.id)).map((e) => e.status.kind)).toEqual(Array(WR6_WIRED_IDS.size).fill("live"));
-    expect([lines.length, hash(lines)]).toEqual(REGISTRY_BEFORE_WR6);
+    expect(registryPin(G1_SLICE, FKR5_SLICE, WR6_SLICE)).toEqual(REGISTRY_BEFORE_WR6);
+  });
+  it("Field Kits FKR-5: the added entries and the one flipped, each with its status", () => {
+    const added = WIRING_REGISTRY.filter((e) => FKR5_ADDED_ENTRY_IDS.has(e.id));
+    expect(added.length).toBe(FKR5_ADDED_ENTRY_IDS.size);
+    expect(added.every((e) => e.status.kind === "live")).toBe(true);
+    for (const id of FKR5_FLIPPED_LIVE) expect(WIRING_REGISTRY.find((e) => e.id === id)?.status.kind, id).toBe("live");
   });
   it("G1-1: the added entries, each with its status", () => {
     const added = WIRING_REGISTRY.filter((e) => G1_ADDED_ENTRY_IDS.has(e.id)).map((e) => `${e.id}|${e.status.kind}`);

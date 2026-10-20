@@ -407,6 +407,29 @@ export interface GroundCombatant {
   flashGrenades?: number;
   // A member's Ossir STONESKIN battle half (STONESKIN_BATTLE_RESIST and STONESKIN_INJURY_MULT on physical statuses).
   stoneskin?: boolean;
+  // Field Kits FKR-5: a member's THROWN grenade on a Field Kits run (fieldKitsGrenades.ts withThrownGrenades stamps it
+  // from the member's snapshot; absent on every other combatant, so their turns draw and act exactly as before). The
+  // "throwGrenade" action blasts the target's group: each body takes power x powerMult (a damage roll) and may take
+  // `status` at statusPermille (Saboteur's own-throw bonus already folded into both). `charges` = the member's charges
+  // left this objective as the fight starts; `perBattle` = throws allowed this battle; `used` = throws so far.
+  grenade?: ThrownGrenade;
+}
+
+// Field Kits FKR-5: a combatant's grenade for one battle (see GroundCombatant.grenade).
+export interface ThrownGrenade {
+  readonly status: GambitStatusId;
+  readonly statusPermille: number;
+  readonly powerMult: number;
+  readonly charges: number;
+  readonly perBattle: number;
+  readonly used: number;
+}
+
+// Field Kits FKR-5 (FK11 "skip it"): can this combatant throw a grenade right now? It needs one with a charge left this
+// objective and a throw left this battle. Pure.
+export function canThrowGrenade(c: Pick<GroundCombatant, "grenade">): boolean {
+  const g = c.grenade;
+  return g !== undefined && g.used < g.charges && g.used < g.perBattle;
 }
 
 // E-CREW (Task 20): the away team's frozen Senior Staff bonuses (stored on the Expedition at dispatch), as
@@ -436,6 +459,9 @@ const SECURITY_LEGAL: ReadonlySet<GambitActionId> = new Set<GambitActionId>([
   "useItem",
   "fallBack",
   "hold",
+  // Field Kits FKR-5: anyone may throw a grenade (D20 "Pull a pin and toss it"); it fires only for a member carrying one
+  // with a charge and a throw left (canThrowGrenade), which only a Field Kits run's fights arm.
+  "throwGrenade",
 ]);
 // E-CREW (Task 13): the MEDIC actions. A Security program MAY contain them (the editor offers them and the
 // Triage preset leads with them), but at runtime they fire only for a member with Medical Training
@@ -1045,6 +1071,30 @@ function applyAction(
       tryApplyStatus(target, "blindness", rng, BLINDNESS_MIN_ROUNDS + rng.nextInt(BLINDNESS_ROUND_SPAN));
       return;
     }
+    case "throwGrenade": {
+      // Field Kits FKR-5: the member's grenade (ruleFires checked a charge and a throw are left). Spends one, then blasts
+      // the TARGET'S GROUP (user N6 "Group blast"): the target first, then every other standing foe sharing its group
+      // tag in id order. Per body, on the fight stream, in that order: a hit check (strikeHitChance, the flash
+      // grenade's), on a hit the damage roll (rollDamage at the grenade's powerMult: one variance draw), then, on a body
+      // still standing, the debuff's chance roll and the body's resist roll (tryApplyStatus). Only a Field Kits run arms
+      // a grenade, so no other fight ever draws here.
+      if (!target || !actor.grenade) return;
+      const g = actor.grenade;
+      actor.grenade = { ...g, used: g.used + 1 };
+      const blast = [
+        target,
+        ...state.combatants
+          .filter((c) => !c.downed && c.side === target.side && c.id !== target.id && c.groupTag === target.groupTag)
+          .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)),
+      ];
+      for (const body of blast) {
+        if (body.downed) continue;
+        if (!rng.chance(Math.round(strikeHitChance(actor, body) * 1000), 1000)) continue;
+        dealDamage(body, rollDamage(actor, body, rng, g.powerMult));
+        if (!body.downed && g.statusPermille > 0 && rng.chance(g.statusPermille, 1000)) tryApplyStatus(body, g.status, rng);
+      }
+      return;
+    }
     case "taunt":
       // Force enemy focus onto the taunter for a couple of rounds (the tank pulls aggro). Recorded on the
       // battle state (see enemyTargetOverride); no rng.
@@ -1170,6 +1220,9 @@ function ruleFires(
   if (rule.action === "aidHeal" && Math.round(actor.heal) < 1) return { fires: false };
   // Field Kits FKR-4: a flash grenade fires only while the thrower has one left.
   if (rule.action === "flashGrenade" && !((actor.flashGrenades ?? 0) > 0)) return { fires: false };
+  // Field Kits FKR-5 (FK11): a grenade rule whose actor is out of charges, or has used its throw this battle, is
+  // skipped and the next rule acts.
+  if (rule.action === "throwGrenade" && !canThrowGrenade(actor)) return { fires: false };
   let target = resolveTarget(rule.target, rule.params, actor, state);
   if (!target) return { fires: false };
   // Field Kits (FK2): an "ally has any debuff" Cure or Use Item looks past an ally whose only debuffs are serious (a
@@ -1232,7 +1285,8 @@ function fireRule(
     if (target.statuses.length > statusesBefore) ev.statusApplied = true;
     // A cleanse that only shortened a debuff (untrained first aid, D20) still counts as cleansing.
     if ((rule.action === "cure" || rule.action === "useItem") && debuffRounds(target) < debuffRoundsBefore) ev.statusCleared = true;
-    const offensive = rule.action === "attack" || rule.action === "suppress" || rule.action === "execute";
+    // Field Kits FKR-5: a thrown grenade reads like a strike on its target (the rest of the blast is not logged per body).
+    const offensive = rule.action === "attack" || rule.action === "suppress" || rule.action === "execute" || rule.action === "throwGrenade";
     if (offensive && delta === 0 && !target.downed) ev.missed = true;
     // Field Kits FKR-4: a flash grenade deals no damage; it missed when it Blinded nobody new.
     if (rule.action === "flashGrenade" && target.statuses.length === statusesBefore) ev.missed = true;
@@ -1324,6 +1378,9 @@ export interface GroundBattleResult {
   // first ally downed) and whether they came back. Absent in every battle without a wearer or a down, so
   // such a battle's result is exactly the pre-Task-16 shape.
   neuralBackup?: { memberId?: string; revived: boolean };
+  // Field Kits FKR-5: present ONLY when a named member threw a grenade this battle: memberId -> throws (the charges
+  // spent). Absent in every other battle, so its result is exactly the pre-FKR-5 shape.
+  chargesUsed?: Record<string, number>;
 }
 
 // Run ONE ground battle to completion. Deterministic in (combatants, programs, rng). WIN when every enemy
@@ -1403,6 +1460,9 @@ export function resolveGroundBattle(
         .map((c) => c.memberId as string),
     };
     if (backup) out.neuralBackup = backup;
+    // Field Kits FKR-5: the charges each named thrower spent, in combatant order.
+    const thrown = state.combatants.filter((c) => c.side === "team" && c.memberId !== undefined && (c.grenade?.used ?? 0) > 0);
+    if (thrown.length > 0) out.chargesUsed = Object.fromEntries(thrown.map((c) => [c.memberId as string, c.grenade!.used]));
     return out;
   };
 
@@ -1601,6 +1661,14 @@ export function deriveAwayTeam(state: GameState, ship: ShipInstance): AwayTeamSn
   return { securityStrength: security, scienceStrength: science, teamKit };
 }
 
+// A snapshotted Security member's on-hit affliction chance (0..MEMBER_STATUS_CHANCE_CAP): the spec's base plus the
+// summed statusChance bump (gear and traits). THE STATUS-CHANCE RULE: every inflict piece the member wears lands with
+// it, and (Field Kits FKR-5) so does a thrown Stun or Toxin Grenade's debuff. Pure.
+export function memberStatusChance(m: Pick<SnapshotMember, "spec" | "groundStats">): number {
+  const spec = SECURITY_SPEC_BASE[m.spec as SecuritySpec] ?? { hp: 0, power: 0, armor: 0, statusChance: 0 };
+  return Math.max(0, Math.min(MEMBER_STATUS_CHANCE_CAP, spec.statusChance + (m.groundStats.statusChance ?? 0)));
+}
+
 // Build the NAMED Security squad from the roster snapshot (E-CREW Task 13, design section 5.3): one
 // combatant per snapshotted member, in snapshot (deploy) order. Member power =
 //   (Security base + spec base + crew layer) * rank factor * (1 + the member's summed gear/trait bump)
@@ -1640,7 +1708,7 @@ export function buildRosterCombatants(
     const armor = Math.max(0, (SECURITY_BASE_ARMOR + spec.armor) * rf * (1 + bump("armor")));
     const rawAccuracy = SECURITY_BASE_ACCURACY * (1 + bump("accuracy"));
     const accuracy = Math.max(0, Math.min(MEMBER_ACCURACY_CAP, doctrine === 1 ? rawAccuracy : rawAccuracy * doctrine));
-    const statusChance = Math.max(0, Math.min(MEMBER_STATUS_CHANCE_CAP, spec.statusChance + bump("statusChance")));
+    const statusChance = memberStatusChance(m);
 
     let medicTrait = false;
     let healPoints = 0;

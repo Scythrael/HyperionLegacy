@@ -116,6 +116,8 @@ export const CONTENT_CATALOGS: ReadonlySet<string> = new Set([
   "CONDITION_LINES",
   "FREE_BASIC_SET",
   "FIELD_KIT_PRICES",
+  // Field Kits FKR-5: the grenade family's charges, throws, blast and debuff (catalog facts of the grenade varieties).
+  "GRENADES",
   "GROUND_CONDITIONS",
   "SPEED_SEAM",
 ]);

@@ -29,6 +29,7 @@ import {
   EQUIPMENT_STORAGE_RUNGS,
   FACILITIES,
   GENERAL_QUARTERS_GUEST_PERK,
+  GRENADE_CARRY_PER_LINE,
   HOMEWORLD_TALENTS,
   ITEMS,
   LIVE_STAT_KEYS,
@@ -136,6 +137,7 @@ import {
   type FieldKitId,
   type KitCategory,
 } from "../fieldKits";
+import { GRENADES, GRENADE_IDS } from "../fieldKitsGrenades";
 import {
   WIRING_SCIENCE_ID,
   WIRING_SECURITY_ID,
@@ -304,6 +306,8 @@ export const CATALOGS = {
   CONDITION_LINES,
   FREE_BASIC_SET,
   FIELD_KIT_PRICES,
+  GRENADES,
+  GRENADE_CARRY_PER_LINE,
 } as const;
 export type Catalogs = typeof CATALOGS;
 
@@ -696,6 +700,10 @@ function gearSeam(team: AwayTeamType, key: MemberGroundStatKey): { probe: ProbeI
         return { probe: "secPoisonResist", curve: { kind: "chanceAbsolute" }, magnitude: () => N * STATUS_RESIST_PER_POINT * 1000, context: "ground", tolerance: 1 };
       case "groundHazardResist":
         return { probe: "secTaskHazardResist", curve: { kind: "linearAbsolute" }, magnitude: (c) => bump(c, key), context: "fieldwork" };
+      // Field Kits FKR-5 (FK11 "+1 carry capacity"): one more grenade charge per objective, read on a Field Kits
+      // objective fight's armed squad (the count, whatever the line's value).
+      case "groundCarryCapacity":
+        return { probe: "runSecGrenadeCharges", curve: { kind: "gate" }, magnitude: (c) => c.GRENADE_CARRY_PER_LINE, context: "ground" };
       default:
         return null;
     }
@@ -2825,10 +2833,10 @@ const KIT_OWNER: Readonly<Record<FieldKitId, string>> = {
   injuryKit: "FKR-6 + FKR-7 (the Injury Kit treatment share reaches the medical bay)",
 };
 
-const CATEGORY_OWNER: Readonly<Record<KitCategory, string>> = {
+// The categories not live yet, by owner (Explosives went live at FKR-5: Saboteur on the Saboteur's own throws).
+const CATEGORY_OWNER: Readonly<Partial<Record<KitCategory, string>>> = {
   firstAid: "FKR-6 (First Aid kits at 0.5x untrained, 1.25x with Medical Training)",
   advancedMedical: "FKR-6 (the Medical Training gate on Splint, Trauma Kit and Injury Kit)",
-  explosives: "FKR-5 (Saboteur +6% on the Saboteur's own grenade throws)",
   fieldDevices: "FKR-8 (the 50 to 75% per-use device roll, Codebreaker +6%)",
 };
 
@@ -2856,6 +2864,19 @@ function fieldKitEntries(): WiringEntry[] {
     });
   });
   for (const cat of Object.keys(KIT_CATEGORY_RULES) as KitCategory[]) {
+    const owner = CATEGORY_OWNER[cat];
+    // Field Kits FKR-5 (FK10 "Own grenades only"): Explosives' specialist bonus is Saboteur's x1.06 on the Saboteur's own
+    // throws, read on a Field Kits objective fight's armed squad (the blast's power multiplier of a worn Impact
+    // Grenade; the debuff chance takes the same factor, fieldKitsGrenades.test.ts).
+    const saboteur: Partial<EntryInput> =
+      cat === "explosives"
+        ? {
+            probe: "runSecGrenadePower",
+            contexts: ["ground"],
+            base: () => wearPiece(withAwayTeam(wiringBase()), WIRING_SECURITY_ID, "memberTool", "impactGrenade", {}),
+            on: (s) => editMember(s, WIRING_SECURITY_ID, { traits: ["saboteur"] }),
+          }
+        : {};
     out.push(
       entry({
         id: `away:KIT_CATEGORY_RULES:${cat}`,
@@ -2871,7 +2892,42 @@ function fieldKitEntries(): WiringEntry[] {
           if (cat === "advancedMedical") return rule.trained - rule.untrained;
           return rule.specialistBonus;
         },
-        status: pending(CATEGORY_OWNER[cat]),
+        ...saboteur,
+        status: owner ? pending(owner) : LIVE,
+      }),
+    );
+  }
+  // Field Kits FKR-5: the grenade family (FK11, N4, N6), each grenade measured on a reference thrower armed the way a
+  // Field Kits fight arms it: its charges per objective and throws per battle (read verbatim), its blast (the thrower's
+  // power x powerMult) and its debuff (bodies afflicted over a batch of throws).
+  for (const k of GRENADE_IDS) {
+    const g = GRENADES[k];
+    const label = EQUIPMENT_SLOTS.memberTool.varieties.find((v) => v.key === k)?.label ?? k;
+    const shared = (field: string) => ({
+      id: `away:GRENADES:${k}:${field}`,
+      system: "away" as const,
+      source: { catalog: "GRENADES", key: `${k}:${field}` },
+      probe: `content:grenade:${k}:${field}` as ProbeId,
+      contexts: ["ground"] as ContextId[],
+      on: sourceOn,
+    });
+    out.push(
+      entry({ ...shared("charges"), claim: `${label}: its charges per objective`, curve: { kind: "equals" }, magnitude: (c) => c.GRENADES[k].charges.perObjective }),
+      entry({ ...shared("perBattle"), claim: `${label}: its throws per battle`, curve: { kind: "equals" }, magnitude: (c) => c.GRENADES[k].charges.perBattle }),
+      entry({
+        ...shared("blast"),
+        claim: `${label}: the blast hits the target's group at a multiple of the thrower's power`,
+        direction: g.powerMult > 1 ? "up" : g.powerMult < 1 ? "down" : "none",
+        curve: { kind: "linearRelative" },
+        magnitude: (c) => c.GRENADES[k].powerMult - 1,
+        // The damage is a whole number at power 1000: one rounding step each side.
+        tolerance: 2,
+      }),
+      entry({
+        ...shared("status"),
+        claim: `${label}: the blast may inflict ${GAMBIT_STATUSES[g.status].label} on each body it hits`,
+        curve: { kind: "event", metric: "bodies its debuff lands on over 64 throws at a group of two" },
+        magnitude: () => 1,
       }),
     );
   }
