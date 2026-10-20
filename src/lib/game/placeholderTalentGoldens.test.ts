@@ -19,6 +19,9 @@
 // baseline ("none") never moves.
 
 import { describe, expect, it } from "vitest";
+// E-MOD EM-1: sheets pinned before the power budget engine are hashed with it switched off (emodGoldens.test.ts pins
+// the power numbers and proves the switch reproduces its own capture), so these pins keep proving nothing else moved.
+import { withEm1Off } from "./emodEm1Switch.fixture";
 import Decimal from "break_infinity.js";
 import { BLUEPRINTS, blueprintMintsEquipmentInstance, type GameState, type HomeworldTalentKey, type PatrolMissionState } from "./model";
 import { dispatchCaptainOnMission, dispatchCaptainOnPatrol, economyTick, installMissingCombatBaselines, resolveProcesses, startProcess } from "./tick";
@@ -172,7 +175,7 @@ export function readWr6Variant(v: Wr6Variant): Record<string, string> {
   const s0 = own(explorerFixture(), v);
   // Merged after G1-1 and G2-2 (both captured before them): the sheet hashes without guest quarters (the General
   // Freighter's base berths), and the dispatch is the one before G2-2 (the console names and region fields stripped).
-  const sheet = hash(withoutGuests(effectiveShipStats(s0, s0.ships.find((sh) => sh.id === "ship-1")!)));
+  const sheet = hash(withoutGuests(withEm1Off(() => effectiveShipStats(s0, s0.ships.find((sh) => sh.id === "ship-1")!))));
   const candidates = expeditionCandidates(s0, "ship-1");
   const res = asPreG2NamesDispatch(startExpedition(s0, "ship-1", 1, candidates[0].id));
   if (!res.success || !res.expedition) throw new Error(`dispatch refused: ${res.reason}`);
