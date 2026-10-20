@@ -37,6 +37,7 @@ import {
   type ItemRarity,
   type CaptainState,
   type PatrolMissionState,
+  type ShortRangeMissionState,
   type PatrolPhase,
   type ShipInstance,
   type MissionKey,
@@ -66,6 +67,7 @@ import {
 } from "./model";
 // 0.13.4 Phase 4: the transit-berth read model, so the In Progress board can report a hold.
 import { missionPhaseStatus } from "./berths";
+import { shortRangeMissionLabel } from "./shortRangeBoard";
 
 // The game's REAL "can I start this?" gates (Unit 2). Each is the single source of truth
 // the corresponding setup UI's Start/Dispatch button already reads, so the dashboard's
@@ -149,7 +151,8 @@ export type JumpTarget =
 // design Section 4 honest-progress: missions have no whole-clock countdown); a
 // "timed-job" and an "extraction" row both carry remaining/duration ticks for the ETA
 // readout. Extensible in lockstep with the two mission arms + the generic process loop.
-export type ActivityRowKind = "timed-job" | "patrol" | "extraction";
+// G1-3: "shortRange" is a captain flying a short-range board slot (rowForShortRange).
+export type ActivityRowKind = "timed-job" | "patrol" | "extraction" | "shortRange";
 
 // The combat-only detail block, present ONLY on a patrol row (null on every other
 // kind). Mirrors the IN PROGRESS patrol card (App.svelte:8100-8137): waves resolved of
@@ -713,6 +716,30 @@ function rowForExtraction(
     remainingTicks,
     durationTicks: Math.ceil(requiredTicks),
     jumpTarget: "gathering",
+    combat: null,
+  };
+}
+
+// G1-3: the ActivityRow for a captain flying a SHORT-RANGE board slot. Like an extraction row it reports PER-PHASE
+// progress and time, read from the cycle plan frozen on the run (the same lengths the cycle engine advances on), and
+// its phase line goes through missionPhaseStatus so a run held for a transit berth says so. Not navigable until the
+// board has its own Operations tab (G1-6 sets the jump).
+function rowForShortRange(captain: CaptainState, mission: ShortRangeMissionState, state: GameState): ActivityRow {
+  const plan = mission.plan;
+  const requiredTicks = Math.max(
+    1,
+    mission.phase === "transitOut" ? plan.transitOutTicks : mission.phase === "onSite" ? plan.onSiteTicks : mission.phase === "transitBack" ? plan.transitBackTicks : plan.unloadTicks,
+  );
+  return {
+    id: `shortRange-${captain.id}`,
+    icon: "shortRange",
+    primaryLabel: `${captain.label}, ${shortRangeMissionLabel(mission)}`,
+    secondaryLabel: missionPhaseStatus(state, captain),
+    kind: "shortRange",
+    progress: Math.min(1, mission.phaseProgressTicks / requiredTicks),
+    remainingTicks: Math.max(0, Math.ceil(requiredTicks - mission.phaseProgressTicks)),
+    durationTicks: Math.ceil(requiredTicks),
+    jumpTarget: null,
     combat: null,
   };
 }
@@ -1493,6 +1520,8 @@ export function buildHomeDashboard(state: GameState): HomeDashboardModel {
     }
     if (captain.mission !== null && captain.mission.kind === "patrol") {
       inProgress.push(rowForPatrol(captain, captain.mission, state));
+    } else if (captain.mission !== null && captain.mission.kind === "shortRange") {
+      inProgress.push(rowForShortRange(captain, captain.mission, state));
     }
   }
 

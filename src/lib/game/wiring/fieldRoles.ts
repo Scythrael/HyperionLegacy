@@ -288,7 +288,6 @@ export const UNREAD_CONSTANTS: Readonly<Record<string, string>> = {
   OFFICER_BONUSES_PENDING_IN_RELEASE: "bookkeeping: read by the wiring registry (the officer bonuses whose system lands later)",
   NEUTRAL_SHIP_EVENT_PROFILE: "seam: the profile a pre-GO-8 flagged run carries (OC-G1, the legacy path)",
   STAT_KEYS: "identity: the stat vocabulary bundle (LIVE / RESERVED / ground)",
-  MISSION_CONTROL_UNLOCK_COMPLETIONS: "seam: WR-4, OC-C4 (only a commented-out Mission Control rung reads it)",
   ALL_AUTO_SALVAGE_QUALITIES: "display: every quality tier for the auto-salvage picker",
   CUNNING_PENDING_SEATS: "bookkeeping: the seats with no Cunning over-delivery yet (Pilot Cunning, WR-9 OC-E4)",
   ECONOMY_FLOOR_SLOTS: "display: the Quartermaster's economy floor set, named for its readers",

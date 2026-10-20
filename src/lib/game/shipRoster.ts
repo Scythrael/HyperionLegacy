@@ -67,7 +67,9 @@ export type ShipFilterKey = "all" | "needsOrders" | "byClass";
 // "idle" or "parked":
 //   expedition: the ship is out on an expedition (an unclaimed state.expeditions record for it).
 //   repairing : a Shipyard repair is running on the ship (its shipRepair process).
-export type ShipStatus = "parked" | "idle" | "repairing" | "gathering" | "patrol" | "expedition";
+// G1-3:
+//   shortRange: the captain is flying a short-range board slot (mission.kind "shortRange").
+export type ShipStatus = "parked" | "idle" | "repairing" | "gathering" | "shortRange" | "patrol" | "expedition";
 
 // One roster row: a compact, fully-derived snapshot of a single hull. Everything
 // the row markup renders is precomputed here so the row template does no rescanning
@@ -119,8 +121,9 @@ const STATUS_SORT_RANK: Record<ShipStatus, number> = {
 	idle: 1,
 	repairing: 2,
 	gathering: 3,
-	patrol: 4,
-	expedition: 5,
+	shortRange: 4, // G1-3: between gathering and patrol (the order of every other bucket is unchanged)
+	patrol: 5,
+	expedition: 6,
 };
 
 // ----------------------------------------------------------------------------
@@ -155,7 +158,8 @@ function deriveStatus(
 	// On a mission: the discriminated-union kind picks the bucket. "extraction" is a
 	// resource-gathering run; "patrol" is a combat patrol. (Narrowing on mission.kind
 	// is exactly what every other mission consumer does.)
-	const status: ShipStatus = captain.mission.kind === "patrol" ? "patrol" : "gathering";
+	// G1-3: a short-range run is its own bucket (exhaustive over the mission kinds).
+	const status: ShipStatus = captain.mission.kind === "patrol" ? "patrol" : captain.mission.kind === "shortRange" ? "shortRange" : "gathering";
 	return { captainName: captain.label, status };
 }
 

@@ -1507,6 +1507,9 @@ function facilityRungEntries(): WiringEntry[] {
         out.push(entry({ ...common, probe: "shipBuildTicks", contexts: ["shipyard"], direction: "down", curve: { kind: "divisor" }, magnitude: (c) => num("buildSpeedMult")(c) - 1 }));
       else if ("addShipyardBays" in eff) out.push(entry({ ...common, probe: "shipyardBays", contexts: ["shipyard"], magnitude: num("addShipyardBays") }));
       else if ("addSalvageSlots" in eff) out.push(entry({ ...common, probe: "salvageLanes", contexts: ["salvage"], magnitude: num("addSalvageSlots") }));
+      // G1-3: a Mission Control board rung opens one short-range slot (enumerated once SHORT_RANGE_BOARD_LIVE puts the
+      // rungs in FACILITIES, G1-6; until then facility:audit:missionControlUnlock names them).
+      else if ("addShortRangeSlot" in eff) out.push(entry({ ...common, probe: "shortRangeSlots", contexts: ["mission:shortRange"], magnitude: () => 1 }));
       else if ("telescope" in eff) {
         const t = eff.telescope as { detail: number; reachTier: number };
         const prev = i > 0 ? ((fdef.upgrades[i - 1].effect as unknown as { telescope: { detail: number; reachTier: number } }).telescope) : { detail: 0, reachTier: 0 };
@@ -3286,7 +3289,7 @@ const AUDIT_ROWS: readonly { id: string; system: WiringSystem; claim: string; st
   { id: "facility:audit:fuelAutoBuy", system: "facility", claim: "The mission fuel budget and credit auto-buy plumbing (FUEL_CREDITS_PER_UNIT, REFUEL_PENALTY_TICKS, refuelDelayTicks): unreachable since 0.13.6 (an infinite fuel budget). (B5's Buy Fuel, tank and refinery are gone, WR-4.)", status: pending("S4-A02 (the fuel-economy cleanup: remove or keep, a user call)") },
   { id: "facility:audit:requiresResearch", system: "facility", claim: "The requiresResearch rung gate (B1 fixed in WR-4: it checks the researched blueprint; no rung lists one yet)", status: pending("OC-C4") },
   { id: "facility:audit:requiresFacilityLevels", system: "facility", claim: "requiresFacilityLevels / requiresMissionCompletions rung gates (correct, no rung uses them)", status: pending("WR-4, OC-C4") },
-  { id: "facility:audit:missionControlUnlock", system: "facility", claim: "MISSION_CONTROL_UNLOCK_COMPLETIONS 50 (only a commented-out rung)", status: pending("WR-4, OC-C4") },
+  { id: "facility:audit:missionControlUnlock", system: "facility", claim: "MISSION_CONTROL_UNLOCK_COMPLETIONS 50 and the Mission Control board rungs (MISSION_CONTROL_BOARD_RUNGS, G1-3: a Tier II short-range slot at level 2 behind the 50-completion gate, a fourth at level 3), hidden until SHORT_RANGE_BOARD_LIVE", status: pending("G1-6 (flips SHORT_RANGE_BOARD_LIVE with the board UI; the rungs then enumerate as facility rung entries on the shortRangeSlots probe)") },
   { id: "facility:audit:itemEquipStats", system: "facility", claim: "ItemDef.equipStats (no item fills it)", status: pending("WR-4, OC-C4") },
   { id: "facility:audit:precursorCircuit", system: "facility", claim: "Precursor Circuit: salvage drops it, nothing consumes it", status: pending("WR-10, OC-J3") },
   // D. Ship
