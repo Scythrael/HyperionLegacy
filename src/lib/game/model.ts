@@ -3583,11 +3583,16 @@ export interface PatrolMissionState {
   // 0.14.0 (complement plan CP-4, OC-1 "Faster drone replenish"; user "everything wired" 2026-10-20): the ship's Deck
   // Handling (crew.droneHandling: the Flight Deck buff and the Belter racial, crewOverlay.ts shipDeckHandling), FROZEN
   // when this cycle starts (dispatch, and again at each relaunch) beside captainCombat: the cycle's drone squadrons
-  // are seeded with droneReplenishRate x (1 + it) (combat/bridge.ts applyDeckHandling), read the same way by the live
+  // are seeded with it in parts per million (combat/bridge.ts applyDeckHandling) and bank the extra replenish in whole
+  // units (droneDefense.ts replenishUnits: droneReplenishRate x (1 + it) over time), read the same way by the live
   // loop and the display replay. OPTIONAL, written only when > 0 AND the cycle fields a drone screen (no SAVE_VERSION
   // bump; a destroyer or battleship cycle stores nothing): an in-flight patrol from an
   // older save keeps its seeded screen until its next relaunch freezes the crew aboard then.
   deckHandling?: number;
+  // 0.14.0 (CP-4): the Deck Handling bank (DroneSquadron.replenishCarryPpm, squadron by squadron) this cycle STARTED
+  // with, carried over from the cycle before at a relaunch, so the display replay seeds the same bank. OPTIONAL,
+  // written only when one is > 0.
+  replenishCarryStart?: number[];
   // E-CREW 0.14.0 (Task 21): the Engineering department's CUNNING over-delivery for THIS cycle ("a free
   // repair tick"), rolled when the cycle starts (dispatch / relaunch) from the cycle's masterSeed on its own
   // keyed stream (officerStats.ts cunningProc) and frozen here. If the cycle ends in defeat, the limp-home

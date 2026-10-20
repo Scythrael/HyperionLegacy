@@ -298,8 +298,13 @@ exactly zero. Remove droneHandling, belter, spacer.
 their division's pool key, so each consumer lights the buff and the racial together. Deck Handling + Belter
 (`crew.droneHandling`, OC-1): `crewOverlay.ts shipDeckHandling` is frozen per patrol cycle on
 `PatrolMissionState.deckHandling` (dispatch and each relaunch, beside `captainCombat`; written only when > 0 and the
-cycle fields a drone screen) and `combat/bridge.ts applyDeckHandling` seeds every squadron at droneReplenishRate x
-(1 + it), rounded at the fold like Wing Commander; the live loop and `patrolReplay` read the frozen value. Survey
+cycle fields a drone screen) and `combat/bridge.ts applyDeckHandling` seeds every squadron with it in parts per
+million (`deckHandlingPpm`). The rate is not rounded: `droneDefense.ts replenishUnits` banks the extra progress in
+integer ppm (`replenishCarryPpm`) and pays whole units, only on ticks a drone is recovering, and a relaunch carries
+the bank into the next cycle (`PatrolMissionState.replenishCarryStart`, which the replay seeds too), so one Belter
+crewman acts over a long Repeat patrol (review, 2026-10-20). **For the user:** CP-4 says "between waves"; the
+in-combat replenish module banks Deck Handling the same way (`resolveBattle`), so it acts there too (no content sets
+that module yet). Survey
 Aptitude + Vael / Outer-Colony (`crew.surveyAptitude`, OC-4): `shipSurveyAptitude` joins the expedition's
 `scanSpeedBonus` at dispatch. Spacer ("+Transit speed"): its racial moved off the sourceless `crew.endurance` onto
 `crewBuffs.ts TRANSIT_SPEED_KEY` (the Pilot's sweeping key, `transitSpeedMult`: both mission legs and the G2-3
@@ -311,7 +316,8 @@ Flight Deck quarters wings are live; the four Ground Ops keys and the Security /
 gained a carrier patrol dispatch probe; `simPlayer.test.ts` proves dead-choice detection on a synthetic cosmetic
 choice. Goldens: `racialsGoldens.test.ts` (captured first) plus the moved complement / facet / registry pins, each
 reproduced with `racialsSwitch.fixture.ts withRacialsOff`. NOT built (still CP-4 / CP-3): the Flight Deck Integrity
-facet on replenish below half hull, the Spacer long-haul ramp (0.14.x, T3), and CP-3's four Ground Ops consumers.
+facet on replenish below half hull, the Spacer long-haul ramp (0.14.x, T3; kept visible as the deferred registry row
+`crew:audit:spacerLongHaulRamp`), and CP-3's four Ground Ops consumers.
 
 ### CP-5: Per-hull complement caps and division mixes (Task 24)
 

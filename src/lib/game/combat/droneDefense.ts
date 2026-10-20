@@ -172,6 +172,26 @@ export function availableDefenders(carrier: Combatant): Defender[] {
 // finished repair), so the caller can log/announce the recovery. Mutates the
 // squadron's drones in place; makes NO rng draw (deterministic progress).
 // ---------------------------------------------------------------------------
+// 0.14.0 (CP-4, OC-1): parts per million, the unit Deck Handling is banked in.
+export const REPLENISH_PPM = 1_000_000;
+
+// The between-wave replenish units for ONE tick: droneReplenishRate, plus the whole units the squadron's Deck Handling
+// has banked (droneReplenishRate x deckHandlingPpm per tick, carried in replenishCarryPpm and paid out in whole units),
+// so a small amount (one Belter crewman's racial) still acts over a long patrol instead of rounding away. It banks only
+// while a drone is recovering (destroyed or disrupted), the ticks the progress would land on. Integer arithmetic, no
+// draw: one call per tick, so offline == live and the display replay (the same call) agrees. Mutates only the
+// squadron's carry; without Deck Handling it is exactly droneReplenishRate and touches nothing.
+export function replenishUnits(squadron: DroneSquadron): number {
+	const base = squadron.droneReplenishRate;
+	const ppm = squadron.deckHandlingPpm ?? 0;
+	if (!(ppm > 0)) return base;
+	if (!squadron.drones.some((d) => !d.alive || d.status === "disrupted")) return base;
+	const total = base * ppm + (squadron.replenishCarryPpm ?? 0);
+	const extra = Math.floor(total / REPLENISH_PPM);
+	squadron.replenishCarryPpm = total - extra * REPLENISH_PPM;
+	return base + extra;
+}
+
 export function replenishDrones(squadron: DroneSquadron, rateUnits: number): number {
 	// Clamp to a non-negative integer: a 0 rate is a legal no-op (parity-safe when
 	// the in-combat percent floors to nothing on a given tick).

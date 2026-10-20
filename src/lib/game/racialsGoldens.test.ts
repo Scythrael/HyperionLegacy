@@ -158,9 +158,9 @@ const GOLDEN: Record<string, string | string[]> = {
   "sheet:survey": BEFORE["sheet:survey"],
   // MOVES: the Spacer racial is the sweeping transit speed now (transitSpeedMult, and its key in the crew map).
   "sheet:spacer": "d3b2a51d/70b9f0b0",
-  // MOVES: the cycle freezes the crew's Deck Handling (dispatch record) and its squadrons replenish faster, so the
-  // replays and the state move from the first wave the screen recovers in.
-  patrol: ["d014f094", "31a0d9ae", "147b0957", "3a58343d", "f552f256", "3e6bc4cc", "bc60e48d", "77cdde1a", "23c8e185", "bf2c515"],
+  // MOVES: the cycle freezes the crew's Deck Handling (dispatch record) and its squadrons carry it (deckHandlingPpm) and
+  // bank the faster replenish (replenishCarryPpm), so the replays and the state move.
+  patrol: ["5f119ee3", "90133792", "475c2905", "5e744913", "3ed198fc", "36432380", "e15fcac5", "9bb32e8", "e4cd679d", "8a456d95"],
   // MOVES: the dispatch freezes the crew's Survey Aptitude into scanSpeedBonus, so every scan is faster.
   survey: ["594c5451", "e969f48", "9fe025be"],
   // MOVES: the Spacer Pilot and crew speed the voyage (both legs, frozen at dispatch).

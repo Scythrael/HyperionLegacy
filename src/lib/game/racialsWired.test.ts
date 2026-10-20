@@ -13,9 +13,10 @@ import { describe, expect, it } from "vitest";
 import { freshState, outboundLegSpeed, returnLegSpeed, type CaptainState, type CrewBucket, type GameState, type PatrolMissionState } from "./model";
 import { dispatchCaptainOnPatrol, economyTick, tick } from "./tick";
 import { replayPatrol } from "./combat/patrolReplay";
-import { applyDeckHandling } from "./combat/bridge";
+import { applyDeckHandling, installedDronesForPatrol } from "./combat/bridge";
+import { REPLENISH_PPM, replenishUnits } from "./combat/droneDefense";
 import { expeditionCandidates, startExpedition } from "./expedition";
-import { effectiveShipStats, shipCrewContribution, shipDeckHandling, shipSurveyAptitude } from "./crewOverlay";
+import { crewRepairSpeedBonus, effectiveShipStats, shipCrewContribution, shipDeckHandling, shipSurveyAptitude } from "./crewOverlay";
 import { CREW_STAT_KEYS, TRANSIT_SPEED_KEY } from "./crewBuffs";
 import { CREW_RACES } from "./crewRaces";
 import { combatBase, editCaptain, seatOfficer, withAwayTeam, wiringBase } from "./wiring/probes";
@@ -43,7 +44,7 @@ function dispatched(s: GameState, repeat = false): GameState {
 describe("Belter + Deck Handling: a patrol cycle's drones replenish faster", () => {
   const belterXo = (s: GameState) => seatOfficer(s, "executive", [], { race: "belter" });
 
-  it("the dispatch freezes the crew's Deck Handling and seeds every squadron at replenish x (1 + it)", () => {
+  it("the dispatch freezes the crew's Deck Handling and seeds every squadron with it (parts per million)", () => {
     const off = patrolOf(dispatched(combatBase("carrier")));
     const s = withCrew(belterXo(combatBase("carrier")), [bucket("flightDeck", "belter", "flight.droneHandling", 40)]);
     const dh = shipDeckHandling(s, s.ships[0]);
@@ -55,9 +56,55 @@ describe("Belter + Deck Handling: a patrol cycle's drones replenish faster", () 
     expect(off.deckHandling).toBeUndefined();
     expect(on.playerDrones.length).toBe(off.playerDrones.length);
     expect(on.playerDrones.length).toBeGreaterThan(0);
-    on.playerDrones.forEach((sq, i) => expect(sq.droneReplenishRate).toBe(Math.round(off.playerDrones[i].droneReplenishRate * (1 + dh))));
-    // Never drone hit points or damage (D12: replenishment only).
-    on.playerDrones.forEach((sq, i) => expect({ ...sq, droneReplenishRate: 0 }).toEqual({ ...off.playerDrones[i], droneReplenishRate: 0 }));
+    on.playerDrones.forEach((sq) => expect(sq.deckHandlingPpm).toBe(Math.round(dh * REPLENISH_PPM)));
+    // The rate itself, drone hit points and damage are untouched (D12: replenishment only, banked).
+    on.playerDrones.forEach((sq, i) => expect({ ...sq, deckHandlingPpm: undefined }).toEqual({ ...off.playerDrones[i], deckHandlingPpm: undefined }));
+  });
+
+  it("the bank pays the extra whole units: rate x (1 + it) over a long recovery, and nothing while every drone is up", () => {
+    const sq = { ...applyDeckHandling(installedDronesForPatrol(combatBase("carrier").equipment.filter((e) => e.fittedToShipId === "ship-1"), "t"), 0.0005)[0] };
+    expect(sq.deckHandlingPpm).toBe(500); // one Belter crewman's racial
+    expect(replenishUnits(sq)).toBe(sq.droneReplenishRate); // all online: no bank
+    expect(sq.replenishCarryPpm).toBeUndefined();
+    const down = { ...sq, drones: sq.drones.map((d) => ({ ...d, alive: false })) };
+    let units = 0;
+    const ticks = 10_000;
+    for (let t = 0; t < ticks; t++) units += replenishUnits(down);
+    expect(units).toBe(ticks * sq.droneReplenishRate + Math.floor((ticks * sq.droneReplenishRate * 500) / REPLENISH_PPM));
+    expect(units).toBeGreaterThan(ticks * sq.droneReplenishRate);
+  });
+
+  it("ONE Belter crewman moves the replenish over a long Repeat patrol (the bank carries across relaunches)", () => {
+    const one = [bucket("flightDeck", "belter", "flight.transitOut", 1)];
+    const run = (s0: GameState) => {
+      let s = dispatched(s0, true);
+      let prev = patrolOf(s).playerDrones.map((sq) => sq.replenishCarryPpm ?? 0);
+      let paid = 0;
+      let carriedOver = false;
+      for (let i = 0; i < 20_000; i++) {
+        const seed = patrolOf(s).masterSeed;
+        s = economyTick(s, 1, () => 0.5);
+        const m = patrolOf(s);
+        const now = m.playerDrones.map((sq) => sq.replenishCarryPpm ?? 0);
+        if (now.some((c, j) => c < (prev[j] ?? 0))) paid += 1; // the bank released a whole unit
+        if (m.masterSeed !== seed && (m.replenishCarryStart ?? []).some((c) => c > 0)) carriedOver = true;
+        prev = now;
+      }
+      return { s, paid, carriedOver };
+    };
+    const belter = run(withCrew(combatBase("carrier"), one));
+    expect(patrolOf(belter.s).deckHandling).toBe(CREW_RACES.belter.racialBonus.complement);
+    expect(belter.carriedOver).toBe(true);
+    expect(belter.paid).toBeGreaterThan(0);
+    // The same patrol with a crewman of another race replenishes on the plain rate only.
+    const control = run(withCrew(combatBase("carrier"), [bucket("flightDeck", "spacer", "flight.transitOut", 1)]));
+    expect(control.paid).toBe(0);
+    expect(patrolOf(control.s).playerDrones.every((sq) => sq.deckHandlingPpm === undefined)).toBe(true);
+    // And the display replay of the cycle in flight seeds the bank the live cycle started with (replenishCarryStart).
+    const replay = replayPatrol(belter.s, belter.s.captains[0]);
+    expect(replay.available).toBe(true);
+    const start = patrolOf(belter.s).replenishCarryStart;
+    if (start) expect(JSON.stringify(replay)).toContain(`"replenishCarryPpm":`);
   });
 
   it("a hull without drones keeps an empty screen; a ship without the key writes nothing", () => {
@@ -93,6 +140,27 @@ describe("Belter + Deck Handling: a patrol cycle's drones replenish faster", () 
     const { deckHandling: _dh, ...without } = patrolOf(s);
     const stripped = { ...s, captains: s.captains.map((c, i) => (i === 0 ? { ...c, mission: without } : c)) };
     expect(replayPatrol(stripped, stripped.captains[0])).not.toEqual(replay);
+  });
+
+  it("replay == live with a heavy Deck Handling bank: every won wave's hull, shield and drone screen agree", () => {
+    for (const seed of [1, 3, 5, 7, 11]) {
+      const crew = [bucket("flightDeck", "belter", "flight.droneHandling", 400)];
+      let s = dispatched({ ...withCrew(belterXo(combatBase("carrier")), crew), nextPatrolSeed: seed });
+      const replay = replayPatrol(s, s.captains[0]);
+      const won = replay.waves.filter((w) => w.playerWon);
+      const live: { hull: number; shield: number }[] = [];
+      let prev = 0;
+      for (let i = 0; i < 60; i++) {
+        s = economyTick(s, 1, () => 0.5);
+        const m = s.captains[0].mission as PatrolMissionState | null;
+        if (m && m.wavesWon > prev) {
+          live.push({ hull: m.playerHull, shield: m.playerShield });
+          prev = m.wavesWon;
+        }
+      }
+      expect(live.length, `seed ${seed}`).toBe(won.length);
+      won.forEach((w, i) => expect({ hull: w.playerEnd?.hull, shield: w.playerEnd?.shield }, `seed ${seed} wave ${i}`).toEqual(live[i]));
+    }
   });
 
   it("offline == live: one tick() call, 997 s chunks and 1 s ticks give the same patrol", () => {
@@ -149,6 +217,12 @@ describe("Spacer: the sweeping transit speed", () => {
 });
 
 describe("the crew-key guard sees the commanding captain's racial (WR-6, OC-A43)", () => {
+  it("a Stheni captain alone speeds the ship's repairs (Damage Control's key)", () => {
+    const s = editCaptain(wiringBase(), { race: "stheni" } as Partial<CaptainState>);
+    expect(crewRepairSpeedBonus(s, s.ships[0])).toBe(CREW_RACES.stheni.racialBonus.seniorStaff);
+    expect(crewRepairSpeedBonus(wiringBase(), wiringBase().ships[0])).toBe(0);
+  });
+
   it("a Belter or Vael captain alone gives the ship the key", () => {
     for (const [race, read] of [
       ["belter", shipDeckHandling],

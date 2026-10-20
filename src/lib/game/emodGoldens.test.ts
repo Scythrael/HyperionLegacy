@@ -379,13 +379,13 @@ const GOLDEN: Record<string, unknown> = {
   // after the ML-1 re-pin without moving it: feat a2a1b6a reads a488ee24) re-owned the facility:audit:missionControlUnlock
   // row, and Field Kits FKR-6 added 5 entries and flipped 8 pending -> live. With FKR-6 read back (FKR6_BEFORE) the
   // snapshot is a488ee24, and with the G1-3 row's old owner too it is c1260fe0; the E-MOD rows did not change.
-  // Re-pinned by the inert racials (0.14.0, 30489b98 -> bb253425): eight entries went live with their probes and
+  // Re-pinned by the inert racials (0.14.0, 30489b98 -> b5c9178b): eight entries went live with their probes and
   // contexts (Deck Handling, Survey Aptitude, the Belter, Vael, Outer-Colony and Spacer racials, the Science and Flight
   // Deck wings), the four still-pending Ground Ops crew keys and the Security and Medical wings name their owner CP-3
   // (was "E-CREW Task 23" / "CP-3, CP-4"), and one audit row joins (the Spacer long-haul ramp, deferred). Read back
   // (RACIALS_BEFORE, RACIALS_ADDED_IDS) the snapshot is 30489b98, and every earlier read-back holds; the E-MOD rows hold.
   registry: [
-    "bb253425",
+    "b5c9178b",
     "relic:RELICS:precursorLens",
     "ship:audit:reactorCoreNet",
   ],

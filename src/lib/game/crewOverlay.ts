@@ -741,7 +741,8 @@ export function shipMissionOutputBonus(state: GameState, ship: ShipInstance): nu
 }
 
 // Deck Handling (crew.droneHandling: the Flight Deck buff and the Belter racial; complement plan CP-4, OC-1 "Faster
-// drone replenish"): the share a patrol cycle's drone squadrons replenish faster by, droneReplenishRate x (1 + it),
+// drone replenish"): the share a patrol cycle's drone squadrons replenish faster by, droneReplenishRate x (1 + it) banked
+// in whole units (combat/droneDefense.ts replenishUnits),
 // never drone damage (D12: the complement never feeds weapons or shields). Frozen when the cycle starts
 // (PatrolMissionState.deckHandling). A complement buff stacks with headcount (bounded by the hull's crew cap), so it
 // stays linear like every other complement buff. 0 without the key. Pure.

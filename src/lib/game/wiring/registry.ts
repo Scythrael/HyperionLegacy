@@ -559,9 +559,9 @@ const CREW_SEAMS: Readonly<Record<string, CrewSeam>> = {
   // E-MOD EM-1 (P4): Power Discipline and the Martian racial cut the net power draw (POWER_EFFICIENCY_SEAM).
   [CREW_STAT_KEYS.powerEfficiency]: POWER_EFFICIENCY_SEAM,
   // The inert racials go live (0.14.0, user "everything wired" 2026-10-20). Deck Handling + the Belter racial (CP-4,
-  // OC-1 "Faster drone replenish"): the patrol cycle's seeded replenish rate x (1 + it), rounded at the fold like Wing
-  // Commander (one rounding step), on a carrier that fields drones.
-  [CREW_STAT_KEYS.droneHandling]: { probe: "battleDroneReplenish", contexts: ["patrol"], curve: { kind: "linearRelative" }, tolerance: 0.5, base: () => combatBase("carrier") },
+  // OC-1 "Faster drone replenish"): the patrol cycle's between-wave replenish x (1 + it), banked in whole units so any
+  // amount acts, read through the consumer over a long recovery (within one banked unit), on a carrier with drones.
+  [CREW_STAT_KEYS.droneHandling]: { probe: "patrolReplenishShare", contexts: ["patrol"], curve: { kind: "linearAbsolute" }, tolerance: 1e-5, base: () => combatBase("carrier") },
   // Survey Aptitude + the Vael and Outer-Colony racials (CP-3's racial piece, OC-4 "Faster scans"): the dispatch's
   // scanSpeedBonus, so the scan rate x (1 + it) on a run that carries no other scan bonus.
   [CREW_STAT_KEYS.surveyAptitude]: { probe: "expScanRate", contexts: ["expedition:groundOps"], curve: { kind: "linearRelative" } },

@@ -470,15 +470,17 @@ const GOLDEN_STATLESS_CP2_OFF: Record<string, string | string[]> = {
 // Science bucket (Survey Aptitude's scan speed: the expeditions). The destroyer and battleship patrols and the repair
 // do not move (no drone screen; no transit or scan). With the racials switched off every scenario reproduces
 // GOLDEN_NEUTRAL / GOLDEN_STATLESS (the pins before them).
-// (The Short Ore Run's whole transit ticks do not change at this lift, and the carrier's sampled replays show no
-// recovering drone, so those pins hold.)
+// (The Short Ore Run's whole transit ticks do not change at this lift, so that pin holds. The carrier's replays move:
+// its squadrons carry the frozen Deck Handling, deckHandlingPpm, and bank its replenish.)
+const RACIALS_CARRIER_REPLAYS = ["36a079f5", "79086bfe", "8a562598", "1255745a", "9c005698", "da742a87", "213ff866", "85d7de42"];
 const RACIALS_NEUTRAL: Record<string, string | string[]> = {
   ...GOLDEN_NEUTRAL,
   sheet: "290732ef",
   "mission:surveyMineralAnomaly": "35ea9b71",
   "mission:frontierSupplyRun": "50e9c6c7",
-  "patrol:carrier:dispatch": "760ca16e",
-  "patrol:carrier:state": "1f8a0358",
+  "patrol:carrier:dispatch": "6fc22017",
+  "patrol:carrier:state": "96d9813e",
+  "patrol:carrier:replays": RACIALS_CARRIER_REPLAYS,
   expedition: [
     "bb004bc4/25b5beb7/a1bc9cbc",
     "e0b9853b/4b4a7548/6ac12a6e",
@@ -495,8 +497,9 @@ const RACIALS_STATLESS: Record<string, string | string[]> = {
   sheet: "290732ef",
   "mission:surveyMineralAnomaly": "3fff3e9b",
   "mission:frontierSupplyRun": "1064e341",
-  "patrol:carrier:dispatch": "760ca16e",
-  "patrol:carrier:state": "9c452172",
+  "patrol:carrier:dispatch": "6fc22017",
+  "patrol:carrier:state": "dfe9e30",
+  "patrol:carrier:replays": RACIALS_CARRIER_REPLAYS,
   expedition: [
     "bb004bc4/25b5beb7/a1bc9cbc",
     "e0b9853b/4b4a7548/6ac12a6e",

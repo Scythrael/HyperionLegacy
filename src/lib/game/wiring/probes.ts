@@ -105,6 +105,7 @@ import type { WeaponId } from "../combat/weapons";
 import { resolveBattle } from "../combat/resolveBattle";
 import { makeWeaponInstance } from "../combat/weapons";
 import { makeSquadron } from "../combat/drones";
+import { replenishUnits } from "../combat/droneDefense";
 import { generateEnemyWave } from "../combat/enemyWave";
 import type { PirateHullId } from "../combat/enemyHulls";
 import { STATUS_EFFECT_DEFS, activeStatDelta, applyEffect, tickEffects } from "../combat/statusEffects";
@@ -560,6 +561,18 @@ function dispatchedPatrol(s: GameState): PatrolMissionState {
 // event's combatant.
 function battleDrones(s: GameState, ctx: ContextId): DroneSquadron[] {
   return ctx === "shipEvent" ? battleCombatant(s, ctx).drones : dispatchedPatrol(s).playerDrones;
+}
+
+// 0.14.0 (CP-4): the banked between-wave replenish of the dispatched cycle's first squadron, every drone destroyed, as a
+// share of the plain rate. 0 when the cycle fields no squadron.
+export const REPLENISH_PROBE_TICKS = 100_000;
+function patrolReplenishShare(s: GameState): number {
+  const first = dispatchedPatrol(s).playerDrones[0];
+  if (!first || first.droneReplenishRate <= 0) return 0;
+  const sq: DroneSquadron = { ...first, drones: first.drones.map((d) => ({ ...d, alive: false })) };
+  let units = 0;
+  for (let t = 0; t < REPLENISH_PROBE_TICKS; t++) units += replenishUnits(sq);
+  return units / (REPLENISH_PROBE_TICKS * first.droneReplenishRate);
 }
 
 // WR-5b: the mean damage of 1,000 raw-100 projectiles from the combatant's first weapon (Alpha Strike's opening shot
@@ -1109,6 +1122,10 @@ export const PROBES = {
     label: "the first squadron's droneReplenishRate: the patrol cycle's seed / the ship-event combatant",
     read: (s, ctx) => battleDrones(s, ctx)[0]?.droneReplenishRate ?? 0,
   },
+  // 0.14.0 (CP-4, OC-1): the between-wave replenish a patrol cycle's first squadron really pays, through the consumer
+  // (droneDefense.ts replenishUnits, Deck Handling banked), as a share of its plain rate over REPLENISH_PROBE_TICKS
+  // ticks with every drone down: 1 + deckHandling, within one banked unit over the span.
+  patrolReplenishShare: { label: "replenishUnits over a long recovery / (ticks x droneReplenishRate): 1 + Deck Handling", read: (s) => patrolReplenishShare(s) },
   battleDroneSquadrons: { label: "the squadron count: the patrol cycle's seed / the ship-event combatant", read: (s, ctx) => battleDrones(s, ctx).length },
   patrolRewardMult: {
     label: "patrolWaveRewardMult(0, the dispatched cycle's captainCombat): a won wave's loot and credit factor",
