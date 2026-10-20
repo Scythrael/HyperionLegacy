@@ -54,3 +54,10 @@ section 5.A captain nodes). Kept in their own file so the parallel integrator's 
 - **Homeworld rungs:** "Approve all": WORKS_DIRECTORATE_BONUS_CHANCE 0.05 (OC-B2), HOME_GUARD_PATROL_SHIELD 0.05 and
   CIVIC_CHARTER_TRANSPORT_CREW 1 (OC-B3).
 - **Bleed chance:** "15% per landed hit (Recommended)": BLEED_ON_HIT_PERMILLE 150, confirmed.
+
+## Provisional numbers confirmed (2026-10-19, all Recommended; tags can drop)
+
+- **Hull guest quarters:** "Approve": HULL_GUEST_QUARTERS Eir 80, Orion 40, Aurora 40, General Freighter 20, others 0.
+- **Guest Wing:** "4 per point, 4 crew": GUEST_QUARTERS_PER_POINT 4, GUEST_WING_CREW_CAPACITY 4.
+- **Crew Effectiveness knee:** "Knee 0.2" (CP-2).
+- **Famous star rate:** "1 in 12" (G2-2).
