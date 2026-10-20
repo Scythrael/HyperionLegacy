@@ -88,3 +88,16 @@ section 5.A captain nodes). Kept in their own file so the parallel integrator's 
 - **Hotfix 0.13.10:** user tested it on staging: "Tested OK, promote it" (2026-10-20).
 - **Power efficiency knee (EM-1):** "As built (Recommended)": POWER_EFFICIENCY_KNEE 0.25 (one Overdrive officer about
   8%, 0.5 total about 24%), confirmed (2026-10-20).
+
+## Relics v2 constants and Spacer (2026-10-20)
+
+- **Spacer racial:** "Wire a simple racial now (Recommended)": Spacer gets a small working racial in 0.14.0 so no race is
+  inert; the full Spacer ramp stays 0.14.x (T3). Belter (CP-4, faster drone replenish) and Outer Colony / Vael (CP-3,
+  faster scans) are wired by their CP slices in 0.14.0.
+- **RELIC_TYPE_STATS + RELIC_TYPE_WEIGHT:** "Approve (Recommended)": each relic keeps its old set-position stat; equal
+  weight in a band before site bias.
+- **RELIC_BAND_ODDS_ANCHORS:** "Approve (Recommended)": Tier I unchanged; Tier IV and VII anchor rows as built,
+  interpolated between.
+- **EXCEPTIONAL_PIECE_VALUE / EXCEPTIONAL_FULL_SET_MULT:** "Approve (Recommended)": +3% at Tier I to +15% at Tier VII
+  per piece; full set 5x one piece. EXCEPTIONAL_PIECE_STAT_CYCLE stays a placeholder until the name sign-off sheet
+  assigns stats with the names.
