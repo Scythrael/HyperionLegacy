@@ -5,7 +5,7 @@
 import LZString from "lz-string";
 import Decimal from "break_infinity.js";
 import { QUALITY_TIERS } from "./inventory";
-import { type GameState, type MissionPhase, freshCaptains, freshLifetimeStats, requiredTicksForPhase, MISSIONS, SHIP_TYPES, seedStandardIssueForShip, STANDARD_ISSUE_ILEVEL, SI_PLATING_HP, SI_EMITTER_CAP, SI_EMITTER_RECHARGE, isStandardIssueBaseline, AUTO_SALVAGE_RARITIES_NONE, AUTO_SALVAGE_GRACE_SECONDS_DEFAULT, SENIOR_STAFF_DEFAULT_SEED, SENIOR_STAFF_ROSTER_BASE, EXPEDITION_DEFAULT_SEED, DEFAULT_GAMBIT_PROGRAMS, RELIC_DEFAULT_SEED, awayRecruitSeedFrom } from "./model";
+import { type GameState, type MissionPhase, type ShortRangeMissionState, freshCaptains, freshLifetimeStats, requiredTicksForPhase, MISSIONS, SHIP_TYPES, seedStandardIssueForShip, STANDARD_ISSUE_ILEVEL, SI_PLATING_HP, SI_EMITTER_CAP, SI_EMITTER_RECHARGE, isStandardIssueBaseline, AUTO_SALVAGE_RARITIES_NONE, AUTO_SALVAGE_GRACE_SECONDS_DEFAULT, SENIOR_STAFF_DEFAULT_SEED, SENIOR_STAFF_ROSTER_BASE, EXPEDITION_DEFAULT_SEED, DEFAULT_GAMBIT_PROGRAMS, RELIC_DEFAULT_SEED, awayRecruitSeedFrom } from "./model";
 // E-CREW (Task 2): the v64->v65 step backfills each officer's stats through the officer stat roll
 // (a neutral stub until Task 19, the real seeded roll since). Task 19's v65->v66 step re-rolls the
 // stub-era neutral lines through the same roll. One-way import: seniorStaff.ts is a pure leaf over
@@ -56,6 +56,7 @@ import { drawHomeworldSeed } from "../homeworldEntropy";
 // Safe first runs SF-1: the v69 -> v70 step derives the run counters through runDifficulty.ts veteranRunCountsV70
 // (FROZEN: reads only the raw save and V70_PATROL_KEYS). One-way import (runDifficulty.ts imports model.ts only).
 import { veteranRunCountsV70 } from "./runDifficulty";
+import { isWellFormedShortRangeBoard, isWellFormedShortRangeMission } from "./shortRangeBoard";
 import {
   backfillV67ShipGroundTeams,
   isWellFormedGroundTeamLoadout,
@@ -173,8 +174,24 @@ function hydrateInventoryBuckets(
 // at runtime the first time it touched one. Idempotent, so calling it on an
 // already-hydrated state (e.g. state built fresh via freshState(), never
 // serialized at all) is also safe, toDecimal() no-ops on an existing Decimal.
+// G1-3: a stored short-range run as it loads: the run itself when well formed, else null (the captain idles, no
+// reward; the drop is reported to the console so a broken save can be diagnosed).
+function hydratedShortRangeMission(captain: any): ShortRangeMissionState | null {
+  if (isWellFormedShortRangeMission(captain.mission)) return captain.mission;
+  console.warn(`Load: captain ${String(captain.id)}'s short-range run was unreadable and ended (no reward).`);
+  return null;
+}
+
+// G1-3: the stored board, kept only when well formed; a malformed one is dropped (absent reads as every slot at cycle
+// 0). A state without one is returned as is (no key is added).
+function withWellFormedShortRangeBoard<T extends { shortRangeBoard?: unknown }>(state: T): T {
+  if (state.shortRangeBoard === undefined || isWellFormedShortRangeBoard(state.shortRangeBoard)) return state;
+  const { shortRangeBoard: _dropped, ...rest } = state;
+  return rest as T;
+}
+
 function hydrateDecimals(state: any): GameState {
-  return {
+  return withWellFormedShortRangeBoard({
     ...state,
     // Hostile-input guard (cloud / import): tickDurationSeconds is the DIVISOR for offline
     // catch-up (tick() computes ticksElapsed = deltaSeconds / tickDurationSeconds, and
@@ -198,10 +215,15 @@ function hydrateDecimals(state: any): GameState {
       // kind, still gets the byte-identical cargo hydration below. By the time this runs the
       // v31->v32 migration has already stamped kind:"extraction" on any pre-v32 mission, and
       // a patrol can only exist in a v32+ save, so the kind check is reliable.
+      // G1-3: a SHORT-RANGE run holds only plain data (its frozen roll and plan), so it also rides through, once it
+      // is well formed (shortRangeBoard.ts isWellFormedShortRangeMission). Any other short-range arm (a hand-edited
+      // roll, an unknown template) ENDS at load: the captain idles with no reward, never a crash.
       mission: c.mission
         ? c.mission.kind === "patrol"
           ? c.mission
-          : {
+          : c.mission.kind === "shortRange"
+            ? hydratedShortRangeMission(c)
+            : {
               ...c.mission,
               cargo: {
                 commonOre: toDecimal(c.mission.cargo.commonOre),
@@ -301,7 +323,7 @@ function hydrateDecimals(state: any): GameState {
       captainXpAwarded: toDecimal(state.lifetimeStats.captainXpAwarded),
       fleetAdminXpAwarded: toDecimal(state.lifetimeStats.fleetAdminXpAwarded),
     },
-  };
+  });
 }
 
 // Migration table, keyed by the version a save is migrating FROM.

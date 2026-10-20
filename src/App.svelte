@@ -1001,6 +1001,8 @@
   // missions through. The two mission-timing popups now read it (they read the bare equipment fold before,
   // which omitted crew and the museum, so the shown times disagreed with the flown ones).
   import { effectiveShipStats } from "./lib/game/crewOverlay";
+  // G1-3: a short-range run's display name (its current job) for the status rows and the recall log.
+  import { shortRangeMissionLabel } from "./lib/game/shortRangeBoard";
   // Crafted Blanks 0.13.7: the display order for a bulk inspect-reveal (rarity -> quality -> iLevel).
   import { sortRolledPieces } from "./lib/game/inspectSort";
   // ITEM LIFECYCLE 0.13.6 (Armory, Phase 3): the loadout lifecycle, pure over GameState.
@@ -1888,6 +1890,7 @@
     idle: "Idle",
     repairing: "Repairing",
     gathering: "Gathering",
+    shortRange: "On short-range mission",
     patrol: "On patrol",
     expedition: "On expedition",
   };
@@ -3617,12 +3620,17 @@
         missionLabel = MISSIONS[captain.mission.missionKey].label;
       } else if (captain.mission.kind === "patrol") {
         missionLabel = PATROLS[captain.mission.patrolKey].label;
+      } else {
+        // G1-3: a short-range run names its current job.
+        missionLabel = shortRangeMissionLabel(captain.mission);
       }
     }
+    const finishesCycle = captain.mission !== null && captain.mission.kind === "shortRange";
     const { next, success } = recallCaptain(state, captainId);
     if (!success) return;
     state = next;
-    pushLog(`[${captain.label}] Recall ordered, returning to base from: ${missionLabel}.`);
+    // G1-3: a short-range recall finishes the current cycle first (tick.ts recallCaptain), so the log says so.
+    pushLog(finishesCycle ? `[${captain.label}] Recall ordered: ${missionLabel} stops after this cycle.` : `[${captain.label}] Recall ordered, returning to base from: ${missionLabel}.`);
     doSave();
   }
 
@@ -16043,7 +16051,9 @@
                 ? "Idle"
                 : assignedCaptain.mission.kind === "extraction"
                   ? `On mission: ${MISSIONS[assignedCaptain.mission.missionKey].label}`
-                  : `On patrol: ${PATROLS[assignedCaptain.mission.patrolKey].label}`}
+                  : assignedCaptain.mission.kind === "shortRange"
+                    ? `On short-range mission: ${shortRangeMissionLabel(assignedCaptain.mission)}`
+                    : `On patrol: ${PATROLS[assignedCaptain.mission.patrolKey].label}`}
         <!-- 0.13.6: if an Armory loadout is checked out to this hull, its install screen is
              read-only (edited in the Armory). Resolve it once so the panel can lock + name it. -->
         {@const shipLoadout = state.loadouts.find((l) => l.checkedOutToShipId === ship.id) ?? null}
@@ -16396,6 +16406,8 @@
                       <span class="cprow-val">On mission · {MISSIONS[captain.mission.missionKey].label}</span>
                     {:else if captain.mission.kind === "patrol"}
                       <span class="cprow-val up">On patrol · {PATROLS[captain.mission.patrolKey].label}</span>
+                    {:else if captain.mission.kind === "shortRange"}
+                      <span class="cprow-val">On short-range mission · {shortRangeMissionLabel(captain.mission)}</span>
                     {/if}
                   </span>
                 </span>
@@ -16581,6 +16593,8 @@
                 Assignment: On mission · {MISSIONS[activeCaptain.mission.missionKey].label}
               {:else if activeCaptain.mission.kind === "patrol"}
                 Assignment: On patrol · {PATROLS[activeCaptain.mission.patrolKey].label}
+              {:else if activeCaptain.mission.kind === "shortRange"}
+                Assignment: On short-range mission · {shortRangeMissionLabel(activeCaptain.mission)}
               {/if}
             </div>
             <div class="research-cost">Ship: {overviewShip === null ? "None · Unassigned" : overviewShip.name ? `${shipDisplayLabel(state, overviewShip)} · ${SHIP_TYPES[overviewShip.typeKey]?.label ?? overviewShip.typeKey}` : shipDisplayLabel(state, overviewShip)}</div>
@@ -17734,7 +17748,7 @@
                    the SAME formatter the source panels use, so the clock can't drift. An
                    extraction reports PER-PHASE time, so it reads "... in phase". -->
               {#if row.remainingTicks !== null && row.durationTicks !== null}
-                <span class="home-eta">{remainingReadout(row.remainingTicks, row.durationTicks, showTickCounts, state.tickDurationSeconds)}{row.kind === "extraction" ? " in phase" : ""}</span>
+                <span class="home-eta">{remainingReadout(row.remainingTicks, row.durationTicks, showTickCounts, state.tickDurationSeconds)}{row.kind === "extraction" || row.kind === "shortRange" ? " in phase" : ""}</span>
               {/if}
             </span>
             {#if row.combat !== null}

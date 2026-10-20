@@ -207,6 +207,14 @@ export function countPatrolDispatch(counts: RunCounts): RunCounts {
   return { ...counts, patrol: { ...counts.patrol, dispatched: counts.patrol.dispatched + 1 } };
 }
 
+// One short-range cycle START of `template` (G1-3: the first cycle at dispatch; G1-4: every later cycle start). The
+// whole job re-rolls each cycle, so a template's training run is decided by THIS count (isFirstRun: dispatched === 0),
+// bumped per cycle start of that template, never per slot dispatch. Pure.
+export function countShortRangeCycleStart(counts: RunCounts, template: string): RunCounts {
+  const prev = counts.shortRange[template] ?? { dispatched: 0, completed: 0 };
+  return { ...counts, shortRange: { ...counts.shortRange, [template]: { ...prev, dispatched: prev.dispatched + 1 } } };
+}
+
 // Won patrol routes (economyTick, beside lifetimeStats.missionsCompleted). SF-4 leaves the training cycle's route out.
 // Zero or junk routes return the SAME counts. Pure.
 export function countPatrolRoutes(counts: RunCounts, routes: number): RunCounts {

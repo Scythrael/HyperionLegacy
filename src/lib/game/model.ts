@@ -45,6 +45,8 @@ import type { WeaponId } from "./combat/weapons";
 // Ground Operations (GO-8): the officers' combat PROFILE a ship-event run freezes at dispatch (crewOverlay.ts
 // officerCombatProfile, folded at each event's wall hours). TYPE-ONLY import (compile-erased): no runtime cycle.
 import type { OfficerCombatEntry } from "./crewOverlay";
+// G1-3: the short-range mission arm stores a roll and its cycle plan (types only; shortRange.ts imports this file).
+import type { ShortRangeCyclePlan, ShortRangeRoll, ShortRangeTier } from "./shortRange";
 
 // Data model, tech spec §1 (Data Model).
 // Phase 4 (docs/plans/2026-07-06-phase4-navigation-progression-overhaul-plan.md):
@@ -3272,7 +3274,52 @@ export type StatKey = LiveStatKey | ReservedStatKey | MemberGroundStatKey;
 // exhaustive switch over the kind (economyTick's routing, the tickers) to handle it
 // or fail to compile. "extraction" is today's resource-extraction mission; "patrol" is
 // the 0.13.0 combat patrol (PatrolMissionState below).
-export type MissionKind = "extraction" | "patrol";
+// G1-3 (Short-Range Missions): "shortRange" is a board slot's run (ShortRangeMissionState below).
+export type MissionKind = "extraction" | "patrol" | "shortRange";
+
+// Short-Range Missions (G1-3, docs/plans/2026-10-17-short-range-missions-plan.md 3.1 and 3.6).
+// One cycle of a short-range run: transit out, the job on site, transit back, the home turnaround (unloading, which
+// occupies a transit berth on the captain-mission rules, call 18: berths.ts).
+export type ShortRangePhase = "transitOut" | "onSite" | "transitBack" | "unloading";
+
+// Display labels for a short-range phase (the PATROL_PHASE_LABEL counterpart). Exhaustive over ShortRangePhase.
+export const SHORT_RANGE_PHASE_LABEL: Record<ShortRangePhase, string> = {
+  transitOut: "Transiting Out",
+  onSite: "On Site",
+  transitBack: "Transiting Back",
+  unloading: "Unloading",
+};
+
+// The "shortRange" arm of the CaptainState.mission union: a captain and their hull flying one board slot, cycle after
+// cycle until recalled (call 1: every cycle re-rolls the whole job). The cycle's roll AND its phase lengths are FROZEN
+// at the cycle start (shortRangeBoard.ts startShortRangeCycle), so offline == live by construction and every reader
+// (the cycle engine G1-4, the berth queue, the readouts) agrees without re-deriving. The hull, its gear and its crew
+// cannot change while it is out (the crew lock), so the frozen plan always equals a fresh one. Only new code writes
+// this arm (no save carries it before G1-3), so the union widening needs no migration; save.ts drops a malformed one
+// at load (the captain idles, no reward).
+export interface ShortRangeMissionState {
+  kind: "shortRange"; // discriminant
+  slotId: number; // the board slot (shortRangeBoardSlots); one captain per slot
+  roll: ShortRangeRoll; // this cycle's job (shortRange.ts rollShortRangeJob), frozen at the cycle start
+  plan: ShortRangeCyclePlan; // this cycle's phase lengths (shortRange.ts shortRangeCyclePlan), frozen with the roll
+  phase: ShortRangePhase;
+  phaseProgressTicks: number; // ticks banked in the current phase
+  // Recall intent: the run ends (mission -> null) when THIS cycle's home turnaround completes, instead of starting
+  // the next cycle. Unlike an extraction recall it never breaks off mid-cycle (plan 4 G1-3, QA 4: "the ship finishes
+  // the cycle and stops"). Set by recallCaptain, or at dispatch for a single run.
+  recalled: boolean;
+  // 0.14.0 SPEED SEAM (ProcessSpeed, the extraction arm's field): the time skip flags THIS cycle; the cycle engine
+  // (G1-4, the seam adapter) runs it through to its delivery. The next cycle is a fresh object without it.
+  speed?: ProcessSpeed;
+}
+
+// The board's per-slot cycle cursor (GameState.shortRangeBoard): slot id -> the cycle index its NEXT roll reads
+// (rollShortRangeJob). Advanced only by a delivered cycle (G1-4), so a skipped or idled roll is never re-drawn and no
+// stream shifts (plan 3.1). Slot count and tiers are DERIVED from Mission Control (shortRangeBoardSlots), never here.
+export interface ShortRangeBoardState {
+  version: 1;
+  nextCycle: Record<number, number>;
+}
 
 // The EXTRACTION arm of the CaptainState.mission discriminated union (Combat 0.13.0,
 // Phase 9b.5a). Behavior is UNCHANGED from before the union: every field and every
@@ -4241,7 +4288,8 @@ export interface CaptainState {
   // (PatrolMissionState, kind:"patrol") = the 0.13.0 combat patrol. Every consumer that
   // reads extraction-only fields (missionKey/phase/cargo/...) MUST narrow on
   // `mission.kind === "extraction"` first; the compiler flags any that don't.
-  mission: CaptainMissionState | PatrolMissionState | null;
+  // G1-3: a short-range board mission (ShortRangeMissionState, kind:"shortRange") is the third arm.
+  mission: CaptainMissionState | PatrolMissionState | ShortRangeMissionState | null;
   xp: Decimal; // accumulated toward the NEXT level, see xpForNextLevel() below; accrued per active tick in tick.ts's tickCaptainMission (Task 4)
   level: number; // starts at 1
   statPoints: number; // unspent, earned on level-up, spent via buyHomeworldTalent's unlockCaptainSlot effect (tick.ts)
@@ -4621,6 +4669,10 @@ export type FacilityUpgradeEffect =
   // would imply a stat this facility does not have). Extensible union, same
   // property-presence narrowing convention as the members above.
   | { unlocksContent: true }
+  // G1-3 (Short-Range Missions, call 8 "Mission Control upgrades"): one more board SLOT at this tier. Read by
+  // shortRangeBoardSlots (shortRangeBoard.ts), which appends one slot per reached Mission Control board rung
+  // (MISSION_CONTROL_BOARD_RUNGS) after the two Tier I slots every save starts with.
+  | { addShortRangeSlot: ShortRangeTier }
   // --- WR-4 (OC-C1): the Fuel Depot's FLEET REACH rung -------------------------
   // The share of every ship's reach the rung adds (FUEL_DEPOT_REACH_PER_RUNG). tick.ts fleetReachBonus SUMS it
   // across the reached fuelStorage rungs (the same derive-on-read/reached-rungs idiom refineSlotCount uses) and
@@ -4967,6 +5019,36 @@ function buildFuelDepotUpgrades(): FacilityUpgradeDef[] {
 // other numeric constant here. Real balance at the device checkpoint.
 export const MISSION_CONTROL_UNLOCK_COMPLETIONS = 50;
 
+// G1-3 (Short-Range Missions): the Mission Control BOARD rungs (call 8, user 2026-10-17 "Mission Control
+// upgrades (Recommended)": two Tier I slots from the start, a Tier II slot at Mission Control level 2 through the kept
+// 50-completion hook, a fourth at level 3). Each rung grants one board slot (addShortRangeSlot, its tier).
+// HIDDEN UNTIL THE BOARD IS LIVE (the FIELD_KITS_PLAYER_LIVE precedent, user 2026-10-19 "Hide until Short-Range"):
+// they join FACILITIES.missionControl only once SHORT_RANGE_BOARD_LIVE is true, so no player can build an upgrade
+// whose slot no screen shows yet, and every facility reader, the sim and the registry are unchanged until then.
+// shortRangeBoardSlots reads this table directly, so the slot ladder is live (and tested) at every level now.
+// G1-6 flips the flag with the board UI (its Mission Control card text then names the slot).
+export const SHORT_RANGE_BOARD_LIVE = false;
+// [PROVISIONAL] every cost, duration and the fourth slot's tier (Tier II) await the user. The level 1 -> 2 rung is the
+// reserved completion-gated template kept for exactly this (MISSION_CONTROL_UNLOCK_COMPLETIONS of each ore run).
+export const MISSION_CONTROL_BOARD_RUNGS: readonly FacilityUpgradeDef[] = [
+  {
+    materials: {},
+    credits: new Decimal(2500),
+    durationTicks: 120,
+    effect: { addShortRangeSlot: 2 },
+    requiresMissionCompletions: {
+      shortOreRun: MISSION_CONTROL_UNLOCK_COMPLETIONS,
+      longOreRun: MISSION_CONTROL_UNLOCK_COMPLETIONS,
+    },
+  },
+  {
+    materials: {},
+    credits: new Decimal(6000),
+    durationTicks: 240,
+    effect: { addShortRangeSlot: 2 },
+  },
+];
+
 // --- Subspace Telescope (Squads SQ-5, design section 6) -------------------------------
 // The homeworld facility that pre-surveys candidate systems before launch (user-named, 3c):
 // its RANGE is which regions it reads (nearer regions first; beyond range a system launches
@@ -5119,6 +5201,9 @@ export const FACILITIES: Record<string, FacilityDef> = {
       // The requiresMissionCompletions prereq TYPE + its canBuildFacilityUpgrade
       // enforcement stay in place and tested (mission-control.test.ts), so this is a
       // pure data re-add with no engine work.
+      // G1-3: that rung is now MISSION_CONTROL_BOARD_RUNGS[0] (a Tier II short-range board slot), followed by the
+      // level 2 -> 3 rung (a fourth slot); both join here once SHORT_RANGE_BOARD_LIVE (G1-6).
+      ...(SHORT_RANGE_BOARD_LIVE ? MISSION_CONTROL_BOARD_RUNGS : []),
     ],
   },
   // --- Research Lab (Task R2, design §1) --------------------------------------
@@ -8414,6 +8499,10 @@ export interface GameState {
   // dispatchCaptainOnPatrol and economyTick's patrol fold. OPTIONAL: absent (a dev save at v70 from before SF-1) reads
   // the derived counters (runDifficulty.ts runCountsOf). Plain data, so hydrateDecimals carries it through `...state`.
   runCounts?: RunCounts;
+  // G1-3 (Short-Range Missions): the board's per-slot cycle cursor (ShortRangeBoardState below). OPTIONAL: absent
+  // reads as every slot at cycle 0 (shortRangeNextCycle, shortRangeBoard.ts), so no save needs a step; written by
+  // the cycle engine (G1-4) when a cycle delivers. A malformed value reads as absent (save.ts hydration). Plain data.
+  shortRangeBoard?: ShortRangeBoardState;
   // Expedition Tiers G2-1: the per-save homeworld seed (HomeworldState above; placement in galaxy.ts). freshState
   // stores the seed it is given (every new game: App.svelte passes a fresh draw); SAVE v70 seeds it on an older save
   // (save.ts withHomeworldV70, which every load also runs, so a save already at v70 from before G2-1 gets one too).
