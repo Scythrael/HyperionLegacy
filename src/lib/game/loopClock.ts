@@ -21,7 +21,7 @@
 // unit tested directly; see loopClock.test.ts.
 
 import type { GameState } from "./model";
-import { economyTick, offlineCapTicks, tick } from "./tick";
+import { economyTick, tick } from "./tick";
 
 // A poll that owes at most this many cycles is paid by stepping them live, the steady path. At
 // production speed one poll owes exactly one cycle, so the steady case is the old behavior
