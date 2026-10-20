@@ -215,11 +215,45 @@ records (empty, one copy, a full set, a ladder level, 1000 copies); a v69 save h
 in-flight study, migrated and ticked to completion, hashed through `stateHash`. Commit
 `test(0.14.0): pre-relics-v2 goldens (R2-0)`.
 
+**R2-0 carry note (2026-10-20, built on a9caa06):** `src/lib/game/relicsV2Goldens.test.ts`, 15 tests, as planned. The
+`rollRelicToken` fixture runs are the G2-0 `PRE_G2_STORED_RUNS` (the flagged run yields six relic findings, the legacy
+run none), so a grid of 64 seeds x 5 hazards x 5 PoIs x 2 find bonuses x 2 captains pins the roll as well (2,920 hits).
+Golden 6 is a v69 save with two vault tokens, four museum types and a stellar study in flight (1,168 ticks), migrated
+with fixed entropy and ticked through `stateHash`, plus one call == 1 s steps.
+
 ### R2-1: Catalog, data model, migration (engine, dormant)
 Section 3 shapes; `RELIC_TYPES` Tier I; band and exceptional odds tables; the `MIGRATIONS[69]` step; wiring
 registry entries (dormant until R2-3 reads them, registered as seams). Tests: catalog asserts (unique ids, bands
 non-empty, weights positive, every stat in `MUSEUM_STATS`); migration (museum moved, `relicMuseum` gone, discovered
 untouched, fresh == migrated); every R2-0 golden unchanged.
+
+**R2-1 carry note (2026-10-20):**
+- Catalog (end of `relics.ts`): `RELIC_TYPES` is built FROM `RELICS` (ids, names, flavors cannot drift), bands
+  4 / 5 / 4 / 4; `RELIC_BAND_ODDS` reads Tier I straight from `RELIC_RARITY_WEIGHTS_BY_TIER` and interpolates to the
+  Tier IV and VII anchors; `EXCEPTIONAL_PER_100K` is computed (Tier VII radiant 5,722); `EXCEPTIONAL_SET_SIZES` gives
+  **14** sets and 54 pieces (call 5's sizes; "12" anywhere is a miscount), ids `exc-t<tier>-<a|b|c>` and
+  `exc-t<tier>-<x>-p<n>`, every label `[PROPOSAL] ...`; `RELIC_SOFT_CAP` 1000; `CULTURE_ROSTER` 42 placeholder ids
+  `culture-t<tier>-<n>`, no display names; `CULTURE_STUDY_POINTS` 10.
+- [PROVISIONAL], one constant each: `RELIC_TYPE_STATS` (the plan's old-position rule, test-asserted),
+  `RELIC_TYPE_WEIGHT` 1, `RELIC_BAND_ODDS_ANCHORS` (the rows the plan did not give: augmented and stellar at IV and VII,
+  radiant at IV), `EXCEPTIONAL_PIECE_VALUE` (3% to 15% linear), `EXCEPTIONAL_FULL_SET_MULT` 5,
+  `EXCEPTIONAL_PIECE_STAT_CYCLE` (pieces cycle the 14 Museum stats; a full set lands on its first piece's stat). R2-5's
+  content sheet should present the last three with the names.
+- Model: `museumV2: MuseumV2` REPLACES `relicMuseum` and is required, not optional as 3.2 says (it replaces a required
+  field and the migration always writes it); freshState puts it at the old key position. Read and write only through
+  `model.ts` `generalMuseumRecord` / `museumV2WithGeneral` / `withGeneralMuseumRecord`. Token `regionTier`,
+  `cultureId`, `source`, the effect's `v?: 2` and `relicQueue?` are optional and unwritten. `setId` stays REQUIRED
+  until R2-2 mints the first token without it (the Research panel and the dashboard read it).
+- Migration: `withMuseumV2V70` appended to `MIGRATIONS[69]` and also run after the loop on every load (a pre-R2-1 v70
+  dev save still holds `relicMuseum`). Frozen, idempotent (same reference), key position kept, counts sanitized.
+- Goldens: no value moved. Every whole-state golden helper now hashes through `withV1Museum`
+  (`firstRunsGoldens.fixture.ts`: `museumV2` shown as the v1 `relicMuseum` at its key position, only while it holds
+  nothing v1 could not), including `stateHash` and `withoutRunCounts`; the G1-0 registry golden leaves out the new
+  `relic:RELIC_TYPES:*` / `relic:EXCEPTIONAL_SETS:*` entries.
+- Wiring: 17 + 68 new entries, all `pending` (owners R2-4, and R2-4 + R2-5); six constants listed in
+  `UNREAD_CONSTANTS` with their owning slice; the Debug panel lists both catalogs as unmeasured (dormant).
+- Left to their slices: `MUSEUM_V2_PER_COPY` / `MUSEUM_V2_KNEE` (R2-4), lanes by Lab level (R2-3), `cultureFor` and the
+  new salts (R2-2 / R2-3). No `[PROPOSAL]` label may reach player text: R2-7 / R2-8 take the signed-off names.
 
 ### R2-2: Blanks by tier, sources, hooks (engine)
 `rollRelicToken` keeps its two draws (chance, then rarity) and reads the run's tier (`exp.risk?.tier ?? 1`): Tier I

@@ -44,6 +44,7 @@ import {
   HOMEWORLD_TALENTS,
   FACILITIES,
   REFINE_RECIPES,
+  refineRecipeOffered,
   ITEMS,
   freshCaptainStack,
   // Equipment 0.11.0 (Task 20): the shared Standard-Issue seeder, so a ship minted by a
@@ -75,6 +76,7 @@ import {
   type CaptainStopReason,
   type CaptainMissionState,
   type PatrolMissionState,
+  type ShortRangeMissionState,
   type OfficerCombatMods,
   type CaptainCombatMods,
   type PatrolKey,
@@ -182,6 +184,9 @@ import {
   // Exploration 0.14.0 (Phase E4a): the persisted unidentified-relic token a relicStudy carries.
   type RelicVaultToken,
   RELIC_DEFAULT_SEED,
+  // Relics v2 R2-1: the Tier I general record (where the v1 copies live) and its write.
+  generalMuseumRecord,
+  museumV2WithGeneral,
 } from "./model";
 // Exploration 0.14.0 (Phase E4a): the relic catalog's pure identification roll + study constants.
 // relics.ts imports only model/expeditionContent TYPES + the leaf PRNG, so this adds no import cycle.
@@ -4039,10 +4044,14 @@ export function economyTick(
     // so the fleet SELF-HEALS and the captain is re-dispatchable on a valid mission next tick,
     // rather than the whole economy throwing. Keyed by mission kind so the correct table is
     // consulted; a NEW kind is a compile error at the exhaustive switch below, not silently here.
+    // G1-3: a short-range run carries no table key: its job is the frozen roll, and save.ts already drops a run
+    // whose roll names an unknown template at load (shortRangeBoard.ts isWellFormedShortRangeMission), so it is known.
     const missionKeyKnown =
       captain.mission.kind === "patrol"
         ? PATROLS[captain.mission.patrolKey] !== undefined
-        : MISSIONS[captain.mission.missionKey] !== undefined;
+        : captain.mission.kind === "shortRange"
+          ? true
+          : MISSIONS[captain.mission.missionKey] !== undefined;
     if (!missionKeyKnown) {
       // 0.13.4 Phase 2: ENDING #4, and the one that had no reason at all before this release.
       // Recorded only for a PATROL: an extraction mission dropped by the same guard is outside
@@ -4201,6 +4210,12 @@ export function economyTick(
         }
         return patrolResult.captain;
       }
+      case "shortRange":
+        // G1-3 (Short-Range Missions): the board's dispatch, recall and bookkeeping are built; the CYCLE (phases,
+        // re-roll at each cycle start, rewards, XP, the berth hold) is G1-4's tickCaptainShortRange, routed here.
+        // Until then a short-range run holds still: no progress, no reward, never a crash. No player path
+        // dispatches one before the board UI (G1-6).
+        return captain;
       default:
         return assertNeverMission(captain.mission);
     }
@@ -5765,8 +5780,14 @@ export function recallCaptain(state: GameState, captainId: number): { next: Game
   // long-haul: an exploration ship recalled hours out flies the full hours-long trip back, deliberately
   // (recall is a real commitment, never a free teleport home). PURE: recall is a PLAYER action, not a
   // tick, so the deterministic fly-home ticks that follow keep the offline==live parity gate intact.
-  let recalledMission: CaptainMissionState | PatrolMissionState;
-  if (mission.kind === "extraction") {
+  let recalledMission: CaptainMissionState | PatrolMissionState | ShortRangeMissionState;
+  if (mission.kind === "shortRange") {
+    // G1-3 (Short-Range Missions, plan 4 G1-3 and QA 4): recall FINISHES THE CURRENT CYCLE, then stops. The phase and
+    // progress are left alone; the cycle engine (G1-4) ends the run when this cycle's home turnaround completes
+    // instead of starting the next one. A short-range run is short and has no cargo to abandon, so there is
+    // nothing to break off for.
+    recalledMission = { ...mission, recalled: true };
+  } else if (mission.kind === "extraction") {
     const outbound = mission.phase === "ordersReceived" || mission.phase === "transitOut" || mission.phase === "extracting";
     recalledMission = outbound
       ? { ...mission, recalled: true, phase: "transitBack", phaseProgressTicks: 0 }
@@ -8707,6 +8728,9 @@ export function canStartLine(
   // Checked first so every later gate can safely read the def.
   if (kind === "refine") {
     if (!REFINE_RECIPES[recipeKey]) return { ok: false, reason: "notFound" };
+    // ML-1: a recipe whose output leads nowhere yet is not on offer (model.ts refineRecipeOffered, the one check the
+    // dropdown and the dashboard read too). "notFound" because the player never sees it listed.
+    if (!refineRecipeOffered(recipeKey)) return { ok: false, reason: "notFound" };
   } else {
     if (!BLUEPRINTS[recipeKey]) return { ok: false, reason: "notFound" };
   }
@@ -11116,7 +11140,8 @@ export function resolveProcesses(
   // Exploration 0.14.0 (Phase E4a): the museum copy counts + the first-find registry, raised only by a
   // completing relicStudy (the identifyRelic branch). Seeded from the incoming state, so a call that
   // completes no study returns them value-identical (and a pre-E4 shape reads as empty).
-  let relicMuseum: Record<string, number> = state.relicMuseum ?? {};
+  // Relics v2 R2-1: the v1 copies live in the Tier I general record (museumV2.general["1"]); a v1 study writes there.
+  let relicMuseum: Readonly<Record<string, number>> = generalMuseumRecord(state);
   let relicDiscovered: string[] = state.relicDiscovered ?? [];
   let relicStudyCompleted = false; // gates the write-back so a no-study call never even re-keys the fields
   // Exploration 0.14.0 (Phase E4b): the museum's craftingQuality fraction, read ONCE per resolve off the
@@ -11717,8 +11742,9 @@ export function resolveProcesses(
       activeProcesses: stillActive,
       // Exploration 0.14.0 (Phase E4a): the museum + first-find registry, written back ONLY when a relic
       // study completed this call (conditional spread), so every call that completes no study lands
-      // byte-identical to before this phase, key set included.
-      ...(relicStudyCompleted ? { relicMuseum, relicDiscovered } : {}),
+      // byte-identical to before this phase, key set included. Relics v2 R2-1: the copies go back into the Tier I
+      // general record (museumV2WithGeneral keeps every other part and the record's key position).
+      ...(relicStudyCompleted ? { museumV2: museumV2WithGeneral(state.museumV2, relicMuseum), relicDiscovered } : {}),
       // CP-6 review: a completed hull teardown's loadout + people writes (absent when none completed).
       ...(salvageWrites ?? {}),
     },

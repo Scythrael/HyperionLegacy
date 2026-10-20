@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { freshState, type CompletionLogEntry, type GameState, type RelicVaultToken, type RelicSetId } from "./game/model";
+import { freshState, generalMuseumRecord, withGeneralMuseumRecord, type CompletionLogEntry, type GameState, type RelicVaultToken, type RelicSetId } from "./game/model";
 import { RELIC_SETS, getRelicById } from "./game/relics";
 import { startRelicStudy, resolveProcesses, identifyStudiedRelic } from "./game/tick";
 import { buildRelicReveal, pickRelicStudyRecord, unseenRelicStudyRecords } from "./relicReveal";
@@ -65,7 +65,7 @@ describe("pickRelicStudyRecord", () => {
 
 describe("buildRelicReveal", () => {
   it("reads the identified relic's catalog entry + the museum as it now stands", () => {
-    const s: GameState = { ...freshState(), relicMuseum: { hullRivet: 4, flightRecorder: 2, ancientDriveCoil: 1 } };
+    const s: GameState = withGeneralMuseumRecord(freshState(), { hullRivet: 4, flightRecorder: 2, ancientDriveCoil: 1 });
     const r = buildRelicReveal(s, record("done-9", "ancientDriveCoil"), true, "radiant")!;
     expect(r).toMatchObject({
       recordId: "done-9",
@@ -101,7 +101,7 @@ describe("buildRelicReveal", () => {
     expect(rec).not.toBeNull();
     const reveal = buildRelicReveal(after, rec, !s.relicDiscovered.includes(rec.subjectKey!), "stellar")!;
     expect(reveal.setId).toBe("xenobiology");
-    expect(after.relicMuseum[reveal.relicId]).toBe(1);
+    expect(generalMuseumRecord(after)[reveal.relicId]).toBe(1);
     expect(reveal.copyNumber).toBe(1);
     expect(reveal.firstFind).toBe(true);
     expect(after.relicDiscovered).toContain(reveal.relicId);

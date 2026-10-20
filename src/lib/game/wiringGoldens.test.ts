@@ -19,6 +19,7 @@
 // the state is pinned.
 
 import { describe, expect, it, vi } from "vitest";
+import { withV1Museum } from "./firstRunsGoldens.fixture";
 import Decimal from "break_infinity.js";
 // OC-11 (CP-8): the switch that proves the auto-crew pause is the only thing it moved here (see the lunarMine pin).
 vi.mock("./crewLock", async (io) => (await import("./complementOc11Switch.fixture")).oc11CrewLockMock(io));
@@ -74,7 +75,8 @@ function fnv(s: string): string {
 const hash = (v: unknown): string => fnv(JSON.stringify(v));
 // A whole state, without the retired fuel stockpile (see the header).
 // SF-1: nor the run counters (`runCounts`, seeded by freshState, written by a claim and a patrol), absent before SF-1.
-const hashState = (s: GameState): string => hash({ ...s, fuel: undefined, runCounts: undefined });
+// Relics v2 R2-1: the Museum v2 record in its v1 form (withV1Museum), as these were captured.
+const hashState = (s: GameState): string => hash({ ...withV1Museum(s), fuel: undefined, runCounts: undefined });
 
 function lcg(seed: number): () => number {
   let s = seed >>> 0;

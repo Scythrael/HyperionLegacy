@@ -37,6 +37,7 @@ import {
   type ItemRarity,
   type CaptainState,
   type PatrolMissionState,
+  type ShortRangeMissionState,
   type PatrolPhase,
   type ShipInstance,
   type MissionKey,
@@ -53,6 +54,7 @@ import {
   MISSIONS,
   PATROLS,
   REFINE_RECIPES,
+  refineRecipeOffered,
   MISSION_PHASE_LABEL,
   // The stuck-at-00:00 fix (2026-09-11): the readout must resolve the SAME effective mission def
   // the engine advances against. See rowForExtraction.
@@ -65,6 +67,7 @@ import {
 } from "./model";
 // 0.13.4 Phase 4: the transit-berth read model, so the In Progress board can report a hold.
 import { missionPhaseStatus } from "./berths";
+import { shortRangeMissionLabel } from "./shortRangeBoard";
 
 // The game's REAL "can I start this?" gates (Unit 2). Each is the single source of truth
 // the corresponding setup UI's Start/Dispatch button already reads, so the dashboard's
@@ -148,7 +151,8 @@ export type JumpTarget =
 // design Section 4 honest-progress: missions have no whole-clock countdown); a
 // "timed-job" and an "extraction" row both carry remaining/duration ticks for the ETA
 // readout. Extensible in lockstep with the two mission arms + the generic process loop.
-export type ActivityRowKind = "timed-job" | "patrol" | "extraction";
+// G1-3: "shortRange" is a captain flying a short-range board slot (rowForShortRange).
+export type ActivityRowKind = "timed-job" | "patrol" | "extraction" | "shortRange";
 
 // The combat-only detail block, present ONLY on a patrol row (null on every other
 // kind). Mirrors the IN PROGRESS patrol card (App.svelte:8100-8137): waves resolved of
@@ -716,6 +720,30 @@ function rowForExtraction(
   };
 }
 
+// G1-3: the ActivityRow for a captain flying a SHORT-RANGE board slot. Like an extraction row it reports PER-PHASE
+// progress and time, read from the cycle plan frozen on the run (the same lengths the cycle engine advances on), and
+// its phase line goes through missionPhaseStatus so a run held for a transit berth says so. Not navigable until the
+// board has its own Operations tab (G1-6 sets the jump).
+function rowForShortRange(captain: CaptainState, mission: ShortRangeMissionState, state: GameState): ActivityRow {
+  const plan = mission.plan;
+  const requiredTicks = Math.max(
+    1,
+    mission.phase === "transitOut" ? plan.transitOutTicks : mission.phase === "onSite" ? plan.onSiteTicks : mission.phase === "transitBack" ? plan.transitBackTicks : plan.unloadTicks,
+  );
+  return {
+    id: `shortRange-${captain.id}`,
+    icon: "shortRange",
+    primaryLabel: `${captain.label}, ${shortRangeMissionLabel(mission)}`,
+    secondaryLabel: missionPhaseStatus(state, captain),
+    kind: "shortRange",
+    progress: Math.min(1, mission.phaseProgressTicks / requiredTicks),
+    remainingTicks: Math.max(0, Math.ceil(requiredTicks - mission.phaseProgressTicks)),
+    durationTicks: Math.ceil(requiredTicks),
+    jumpTarget: null,
+    combat: null,
+  };
+}
+
 // Build the ActivityRow for a captain on a PATROL (mirrors the Combat IN PROGRESS card,
 // App.svelte:8095-8137). A patrol has NO honest whole-clock ETA (design Section 4), so
 // remaining/duration are null and `progress` is the WAVE-based fraction (resolved of
@@ -928,7 +956,8 @@ function buildNeedsOrders(state: GameState, queuedWork: QueuedWorkSummary): Prom
   // and the recipe scan is a registry walk with an affordability gate per candidate.
   if (
     !queueWouldFillEveryFreeBay(queueFor("refinery")) &&
-    Object.keys(REFINE_RECIPES).some((k) => canStartLine(state, "refine", k, 1).ok)
+    // ML-1: only recipes the Refinery offers (refineRecipeOffered; canStartLine refuses the rest too).
+    Object.keys(REFINE_RECIPES).filter(refineRecipeOffered).some((k) => canStartLine(state, "refine", k, 1).ok)
   ) {
     prompts.push({
       id: "idle-refinery",
@@ -1491,6 +1520,8 @@ export function buildHomeDashboard(state: GameState): HomeDashboardModel {
     }
     if (captain.mission !== null && captain.mission.kind === "patrol") {
       inProgress.push(rowForPatrol(captain, captain.mission, state));
+    } else if (captain.mission !== null && captain.mission.kind === "shortRange") {
+      inProgress.push(rowForShortRange(captain, captain.mission, state));
     }
   }
 

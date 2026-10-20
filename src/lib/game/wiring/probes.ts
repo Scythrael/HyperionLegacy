@@ -59,6 +59,7 @@ import {
   type SnapshotMember,
   type MemberPerkId,
   type PatrolMissionState,
+  withGeneralMuseumRecord,
 } from "../model";
 import {
   canBuildShip,
@@ -163,6 +164,7 @@ import { taskFightGuard, taskFightTeam } from "../groundFight";
 import { sellItem } from "../quartermaster";
 import { retirementExpMultiplier } from "../captainRetirement";
 import { transitBerthCount } from "../berths";
+import { shortRangeBoardSlots } from "../shortRangeBoard";
 import { telescopeReading } from "../telescope";
 import { getSeniorStaffBonusById } from "../seniorStaffBonuses";
 import { CREW_STAT_KEYS } from "../crewBuffs";
@@ -337,8 +339,9 @@ export function withFacilityLevel(s: GameState, key: string, level: number): Gam
   return { ...s, facilities: { ...s.facilities, [key]: { level } } };
 }
 
+// Relics v2 R2-1: the record is the Tier I general record (museumV2.general["1"], where the v1 copies live).
 export function withMuseum(s: GameState, record: Readonly<Record<string, number>>): GameState {
-  return { ...s, relicMuseum: { ...record } };
+  return withGeneralMuseumRecord(s, record);
 }
 
 export function withHomeworld(s: GameState, keys: readonly string[]): GameState {
@@ -1164,6 +1167,8 @@ export const PROBES = {
   researchSlots: { label: "researchSlotCount", read: (s) => researchSlotCount(s) },
   fabricateSlots: { label: "fabricateSlotCount", read: (s) => fabricateSlotCount(s) },
   salvageLanes: { label: "salvageSlotCount", read: (s) => salvageSlotCount(s) },
+  // G1-3: the short-range board's slot count (shortRangeBoard.ts, derived from the Mission Control level).
+  shortRangeSlots: { label: "shortRangeBoardSlots (count)", read: (s) => shortRangeBoardSlots(s).length },
   missionsUnlocked: { label: "missions unlocked (count)", read: (s) => (Object.keys(MISSIONS) as MissionKey[]).filter((k) => missionUnlocked(s, k)).length },
   telescopeReach: { label: "telescopeReading.reachTier", read: (s) => telescopeReading(s).reachTier },
   telescopeDetail: { label: "telescopeReading.detail", read: (s) => telescopeReading(s).detail },

@@ -1479,7 +1479,9 @@ describe("shipDerivedStats fold (Task 13)", () => {
     expect(bare.engineEfficiency).toBe(SHIP_TYPES.generalFreighter.engineEfficiency);
     expect(bare.fuelCapacity).toBe(SHIP_TYPES.generalFreighter.fuelCapacity);
     expect(bare.mass).toBe(0);
-    expect(bare.powerOutput).toBe(0);
+    // E-MOD EM-1 (P1): a bare hull's power output is its own generation.
+    expect(bare.powerOutput).toBe(SHIP_TYPES.generalFreighter.basePowerOutput);
+    expect(bare.powerDraw).toBe(0);
     // Exploration 0.14.0 (E1a): a bare hull has NO sensors (explorer-hull base sensors deferred).
     expect(bare.sensors).toBe(0);
   });
@@ -1545,13 +1547,14 @@ describe("shipDerivedStats fold (Task 13)", () => {
     expect(haulerStats.extractionYieldMult).not.toBe(balancedStats.extractionYieldMult);
   });
 
-  it("surfaces the power budget (powerOutput vs powerDraw) NON-BINDING", () => {
+  it("surfaces the power budget (powerOutput vs powerDraw); the sheet itself never clamps (E-MOD EM-1)", () => {
     const reactor = makeEquip({ id: "r", slotType: "reactorCore", implicitStats: { powerOutput: 60 }, powerDraw: 0 });
     const drawer = makeEquip({ id: "d", slotType: "specUtility", implicitStats: { extractionYieldMult: 3 }, powerDraw: 15 });
     const stats = shipDerivedStats(freighter, [reactor, drawer]);
-    expect(stats.powerOutput).toBe(60);
+    // The hull's own output (P1) plus the reactor line.
+    expect(stats.powerOutput).toBe(SHIP_TYPES.generalFreighter.basePowerOutput + 60);
     expect(stats.powerDraw).toBe(15);
-    // NON-BINDING: an over-draw (draw > output) does NOT throw or clamp the other stats.
+    // An over-draw (draw > output) does NOT throw or clamp the other stats (the gate and penalty are EM-2 / EM-3).
     const overDraw = shipDerivedStats(freighter, [makeEquip({ id: "x", slotType: "specUtility", implicitStats: { extractionYieldMult: 3 }, powerDraw: 999 })]);
     expect(overDraw.extractionYieldMult).toBeGreaterThan(shipDerivedStats(freighter).extractionYieldMult);
   });
@@ -1592,8 +1595,10 @@ describe("ITEMS, Phase 1 seed registry", () => {
     //     damagedWeaponSystem (the "Damaged Weapon System", Combat 1.0 Unit 1.7).
     // Field Kits FKR-3 (0.14.0) ADDED the six fieldKit consumables (First Aid Kit, Antitoxin, Combat Stim,
     // Splint, Trauma Kit, Injury Kit), bringing the total to 31.
+    // Material Lines ML-1 (0.14.0) ADDED the seven July-approved refined goods (Ferrite Ingot, Reclaimed Circuit,
+    // Iridium Catalyst, Cobalt Coil, Osmium Plate, Photonic Gel, Biocatalyst; refined 5 -> 12), bringing the total to 38.
     const keys = Object.keys(ITEMS);
-    expect(keys).toHaveLength(31);
+    expect(keys).toHaveLength(38);
     expect(Object.values(ITEMS).filter((i) => i.category === "fieldKit")).toHaveLength(6);
     const raw = Object.values(ITEMS).filter((i) => i.category === "raw");
     const refined = Object.values(ITEMS).filter((i) => i.category === "refined");
@@ -1601,7 +1606,7 @@ describe("ITEMS, Phase 1 seed registry", () => {
     const major = Object.values(ITEMS).filter((i) => i.category === "majorComponent");
     const salvaged = Object.values(ITEMS).filter((i) => i.category === "salvagedMaterial");
     expect(raw).toHaveLength(14);
-    expect(refined).toHaveLength(5);
+    expect(refined).toHaveLength(12);
     expect(minor).toHaveLength(3);
     expect(major).toHaveLength(1);
     expect(salvaged).toHaveLength(2);
@@ -1765,14 +1770,26 @@ describe("Task A3, salvaged-material category + exclusive salvage items", () => 
 
   // Each exclusive exotic carries an HONEST reserved-tone hint (no invented source),
   // in the same spirit as denseOre's "no source yet" placeholder.
-  it("each exclusive exotic has an honest 'recovered from salvage, reserved for a future recipe' hint", () => {
+  it("each exclusive exotic still waiting on its recipe has an honest 'recovered from salvage, reserved' hint and the typed marker", () => {
     // Exploration 0.14.0 (E4d): Anomalous Alloy got its first recipe (the discovery-gated Damage Control
     // Suite), so it left the "reserved" set; its hint now names that recipe instead (asserted below).
-    for (const id of ["precursorCircuit", "intactDataCore"]) {
+    // ML-1: the reserve is the typed ItemDef.reserved marker (owner EM-8 for the Precursor Circuit); Intact Data Core
+    // left the set when the Neural Backup took it (asserted below).
+    for (const id of ["precursorCircuit"]) {
       const hint = ITEMS[id].unlockHint.toLowerCase();
       expect(hint).toContain("salvage");
       expect(hint).toContain("reserved for a future recipe");
+      expect(ITEMS[id].reserved).toMatch(/^EM-8/);
     }
+  });
+
+  it("ML-1: Intact Data Core's hint is honest about its use (salvage source + the Neural Backup)", () => {
+    const hint = ITEMS.intactDataCore.unlockHint.toLowerCase();
+    expect(hint).toContain("salvage");
+    expect(hint).not.toContain("reserved");
+    expect(hint).toContain("neural backup");
+    expect(ITEMS.intactDataCore.reserved).toBeUndefined();
+    expect(Object.values(BLUEPRINTS).some((bp) => (bp.recipe.inputs.intactDataCore ?? 0) > 0)).toBe(true);
   });
 
   it("E4d: Anomalous Alloy's hint is honest about its first real use (salvage source + the Damage Control Suite)", () => {

@@ -13,6 +13,7 @@
 // Whole-state hashes leave out `fuel` and `runCounts`, exactly like wiringGoldens.test.ts.
 
 import { describe, expect, it } from "vitest";
+import { withV1Museum } from "./firstRunsGoldens.fixture";
 import Decimal from "break_infinity.js";
 import { MISSIONS, freshState, type AwayMember, type GameState, type MissionKey, type SecondaryTalentKey } from "./model";
 import { canDispatch, dispatchCaptainOnMission, economyTick, shipRangeLightYears } from "./tick";
@@ -28,7 +29,8 @@ function fnv(s: string): string {
   return h.toString(16);
 }
 const hash = (v: unknown): string => fnv(JSON.stringify(v));
-const hashState = (s: GameState): string => hash({ ...s, fuel: undefined, runCounts: undefined });
+// Relics v2 R2-1: the Museum v2 record in its v1 form (withV1Museum), as these were captured.
+const hashState = (s: GameState): string => hash({ ...withV1Museum(s), fuel: undefined, runCounts: undefined });
 
 function lcg(seed: number): () => number {
   let s = seed >>> 0;

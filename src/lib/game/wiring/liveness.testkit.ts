@@ -21,7 +21,7 @@
 //                          every squad the variety's teamTypes list (effect pieces balanced by an inert filler line).
 //   facet:<seat>:<stat>    every officer stat facet per seat, in a full bridge + complement context.
 //
-// THE PROBES are real consumers only (the ship stat sheet, reach, Shipyard repair, ship battles, the expedition's
+// THE PROBES are real consumers only (the ship stat sheet, the sheet of a ship drawing power (E-MOD EM-1), reach, Shipyard repair, ship battles, the expedition's
 // readers, battles, a Field Kits run's objective fights (FKR-4, flag 2 stamped by hand), injuries and whole run +
 // claim on both engines, mission cycles and a Repeat patrol through
 // economyTick, a patrol defeat repair, the ship scan events), compared through ALLOW-LISTS of consequence fields.
@@ -55,6 +55,7 @@ import {
   type MissionKey,
   type OfficerStats,
   type PatrolMissionState,
+  type ShortRangeMissionState,
   type SeniorStaffOfficer,
   type SeniorStaffSeat,
   type ShipInstance,
@@ -220,7 +221,7 @@ const STATE_OUTCOME_KEYS: readonly (keyof GameState)[] = [
   "activeProcesses",
   "archive",
   "relicVault",
-  "relicMuseum",
+  "museumV2",
   "relicDiscovered",
   "crewPool",
 ];
@@ -243,14 +244,28 @@ const PATROL_OUTCOME_KEYS: readonly (keyof PatrolMissionState)[] = [
   "limpDamage",
   "routesCompletedThisRun",
 ];
+// G1-3: a short-range run's outcome is its slot, frozen job and plan, and where it is in the cycle.
+const SHORT_RANGE_OUTCOME_KEYS: readonly (keyof ShortRangeMissionState)[] = ["slotId", "roll", "plan", "phase", "phaseProgressTicks", "recalled"];
 const SHIP_OUTCOME_KEYS: readonly (keyof ShipInstance)[] = ["id", "typeKey", "damaged", "repairDamage"];
+
+function missionOutcome(m: CaptainState["mission"]): unknown {
+  if (m === null) return null;
+  switch (m.kind) {
+    case "extraction":
+      return pick(m, MISSION_OUTCOME_KEYS);
+    case "patrol":
+      return pick(m, PATROL_OUTCOME_KEYS);
+    case "shortRange":
+      return pick(m, SHORT_RANGE_OUTCOME_KEYS);
+  }
+}
 
 export function outcome(s: GameState): string {
   return fp({
     state: pick(s, STATE_OUTCOME_KEYS),
     captains: s.captains.map((c) => ({
       ...pick(c, CAPTAIN_OUTCOME_KEYS),
-      mission: c.mission === null ? null : c.mission.kind === "patrol" ? pick(c.mission, PATROL_OUTCOME_KEYS) : pick(c.mission, MISSION_OUTCOME_KEYS),
+      mission: missionOutcome(c.mission),
     })),
     ships: s.ships.map((sh) => pick(sh, SHIP_OUTCOME_KEYS)),
     shipGear: s.equipment.filter((e) => !e.fittedToMemberId && !isMemberSlotType(e.slotType)).map((e) => [e.id, e.fittedToShipId, e.durability]),
@@ -287,6 +302,31 @@ export function shipScaffold(typeKey?: ShipTypeKey): GameState {
 
 function probeSheet(t: Transform): string {
   const s = t(shipScaffold());
+  return fp(effectiveShipStats(s, shipOf(s)));
+}
+
+// E-MOD EM-1: the same sheet on a ship carrying a powered piece (Standard Issue draws nothing, so a power-efficiency
+// cut shows only where something draws power).
+const POWERED_DRAW = 1000;
+function probePoweredSheet(t: Transform): string {
+  const s0 = shipScaffold();
+  const powered: EquipmentInstance = {
+    id: "equip-90100",
+    slotType: "cargoBay",
+    rarity: "standard",
+    ascension: "none",
+    quality: 0,
+    iLevel: 10,
+    blueprintKey: null,
+    implicitStats: {},
+    rolledStats: {},
+    mass: 0,
+    powerDraw: POWERED_DRAW,
+    durabilityMax: 100,
+    durability: 100,
+    fittedToShipId: SHIP_ID,
+  };
+  const s = t({ ...s0, equipment: [...s0.equipment.filter((e) => !(e.fittedToShipId === SHIP_ID && e.slotType === "cargoBay")), powered] });
   return fp(effectiveShipStats(s, shipOf(s)));
 }
 
@@ -559,6 +599,7 @@ export interface Probe {
 // Cheapest first: a live effect stops at its first moving probe; a dead one runs them all.
 export const PROBES: readonly Probe[] = [
   { name: "ship stats", run: probeSheet },
+  { name: "ship stats drawing power", run: probePoweredSheet },
   { name: "reach", run: probeReach },
   { name: "repair time", run: probeRepair },
   { name: "ship battle", run: probeShipBattle },

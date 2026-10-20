@@ -47,6 +47,8 @@ import type { WeaponId } from "./combat/weapons";
 import type { OfficerCombatEntry } from "./crewOverlay";
 // Field Kits FKR-6: the kit ids a gambit rule and a fight record name (type only; fieldKits.ts imports this module).
 import type { FieldKitId } from "./fieldKits";
+// G1-3: the short-range mission arm stores a roll and its cycle plan (types only; shortRange.ts imports this file).
+import type { ShortRangeCyclePlan, ShortRangeRoll, ShortRangeTier } from "./shortRange";
 
 // Data model, tech spec §1 (Data Model).
 // Phase 4 (docs/plans/2026-07-06-phase4-navigation-progression-overhaul-plan.md):
@@ -223,6 +225,12 @@ export interface ShipTypeDef {
   // substitute for the cargo hold. Folded into ShipDerivedStats.colonistCapacity (shipDerivedStats). OPTIONAL: set
   // only on the transport-minded hulls (HULL_GUEST_QUARTERS); absent reads as 0.
   colonistCapacity?: number;
+  // E-MOD EM-1 (0.14.0, plan docs/plans/2026-10-17-material-lines-and-emod-plan.md section 3.2; user P1 2026-10-17 "No
+  // ship goes over"): the hull's OWN power generation, the base of the B.4 power grid. Each value sits at or above the
+  // heaviest crafted loadout the hull can install today (the EM-0 census: emodGoldens.test.ts), so no live ship goes
+  // over budget; the budget binds on modules and higher drive classes. Explorers run well above their census, the
+  // power-rich identity (B.4). shipDerivedStats folds it into ShipDerivedStats.powerOutput.
+  basePowerOutput: number;
   // FORWARD (not populated this pass): reactorTier?: number  // reactorTier <= tier; gates equip/module tiers
 }
 
@@ -1085,6 +1093,7 @@ export const SHIP_TYPES: Record<ShipTypeKey, ShipTypeDef> = {
     cargoCapacity: 90, transitSpeedMult: 1.0, extractionYieldMult: 1.0,
     fuelCapacity: 200, engineEfficiency: 0, // range hull: big tank, baseline burn
     moduleSlots: 1, equipmentSlots: 0,
+    basePowerOutput: 85, // E-MOD EM-1 (P1): the hull's own power, at or above its heaviest crafted loadout
     // ⚠️ TUNABLE / INERT (0.12.0 combat): range hull, tough frame, modest shields, one hardpoint.
     hullIntegrity: 500, shieldCapacity: 200, shieldRecharge: 5, weaponHardpoints: 2,
     // CHEAPEST hull to build (the starter/fallback): a small frame + coupling BOM, no
@@ -1106,6 +1115,7 @@ export const SHIP_TYPES: Record<ShipTypeKey, ShipTypeDef> = {
     cargoCapacity: 180, transitSpeedMult: 0.8, extractionYieldMult: 1.0,
     fuelCapacity: 160, engineEfficiency: 0.15, // between: mid tank, mild efficiency
     moduleSlots: 2, equipmentSlots: 0,
+    basePowerOutput: 85, // E-MOD EM-1 (P1): the hull's own power, at or above its heaviest crafted loadout
     // ⚠️ TUNABLE / INERT (0.12.0 combat): biggest hull, most integrity + shields, slow regen.
     hullIntegrity: 700, shieldCapacity: 250, shieldRecharge: 4, weaponHardpoints: 2,
     // MOST EXPENSIVE to build (double cargo): the biggest frame BOM + 2 major
@@ -1125,6 +1135,7 @@ export const SHIP_TYPES: Record<ShipTypeKey, ShipTypeDef> = {
     cargoCapacity: 60, transitSpeedMult: 1.5, extractionYieldMult: 1.0,
     fuelCapacity: 100, engineEfficiency: 0.5, // efficiency hull: small tank, least burn
     moduleSlots: 2, equipmentSlots: 0,
+    basePowerOutput: 50, // E-MOD EM-1 (P1): the hull's own power, at or above its heaviest crafted loadout
     // ⚠️ TUNABLE / INERT (0.12.0 combat): fast + fragile, least integrity, quickest shield regen.
     hullIntegrity: 300, shieldCapacity: 150, shieldRecharge: 8, weaponHardpoints: 1,
     // MID build (fast but small hold): a lighter frame BOM than the extraction hulls +
@@ -1144,6 +1155,7 @@ export const SHIP_TYPES: Record<ShipTypeKey, ShipTypeDef> = {
     cargoCapacity: 90, transitSpeedMult: 1.0, extractionYieldMult: 1.35,
     fuelCapacity: 140, engineEfficiency: 0.25, // between: mid tank, moderate efficiency
     moduleSlots: 2, equipmentSlots: 0,
+    basePowerOutput: 50, // E-MOD EM-1 (P1): the hull's own power, at or above its heaviest crafted loadout
     // ⚠️ TUNABLE / INERT (0.12.0 combat): mid extraction rig, balanced defensive profile.
     hullIntegrity: 450, shieldCapacity: 180, shieldRecharge: 6, weaponHardpoints: 1,
     // ABOVE-MID build (specialized extraction rig): a heavier BOM than the Runner +
@@ -1178,6 +1190,7 @@ export const SHIP_TYPES: Record<ShipTypeKey, ShipTypeDef> = {
     cargoCapacity: 30, transitSpeedMult: 1.3, extractionYieldMult: 1.0,
     fuelCapacity: 130, engineEfficiency: 0.2, // nimble: mid-small tank, decent efficiency
     moduleSlots: 2, equipmentSlots: 0,
+    basePowerOutput: 160, // E-MOD EM-1 (P1): the hull's own power, at or above its heaviest crafted loadout
     // ⚠️ TUNABLE / LIVE (combat): FAST + fragile-ish striker. Solid hull, strong fast-
     // regen shields, but FEWER weapon hardpoints than the battleship (a raider, not a
     // gun platform). Default loadout = 2 fast weapons (see COMBAT_DEFAULT_LOADOUT).
@@ -1205,6 +1218,7 @@ export const SHIP_TYPES: Record<ShipTypeKey, ShipTypeDef> = {
     cargoCapacity: 40, transitSpeedMult: 0.7, extractionYieldMult: 1.0,
     fuelCapacity: 180, engineEfficiency: 0.05, // heavy: big tank, near-baseline burn
     moduleSlots: 3, equipmentSlots: 0,
+    basePowerOutput: 230, // E-MOD EM-1 (P1): the hull's own power, at or above its heaviest crafted loadout
     // ⚠️ TUNABLE / LIVE (combat): the TANK. MOST hull + shields of any hull and the MOST
     // weapon hardpoints (a wall of guns), at the cost of SLOW movement + slow shield
     // regen. Default loadout = 3 heavy weapons (see COMBAT_DEFAULT_LOADOUT).
@@ -1231,6 +1245,7 @@ export const SHIP_TYPES: Record<ShipTypeKey, ShipTypeDef> = {
     cargoCapacity: 25, transitSpeedMult: 0.8, extractionYieldMult: 1.0,
     fuelCapacity: 170, engineEfficiency: 0.1, // large hull: mid-large tank, mild efficiency
     moduleSlots: 2, equipmentSlots: 0,
+    basePowerOutput: 110, // E-MOD EM-1 (P1): the hull's own power, at or above its heaviest crafted loadout
     // ⚠️ TUNABLE / LIVE (combat): the DRONE platform. Tough (second only to the
     // battleship) but with REDUCED weapon hardpoints (design S8: carriers trade
     // hardpoints for built-in hangar bays). Its offense is its drone screen, NOT its
@@ -1295,6 +1310,7 @@ export const SHIP_TYPES: Record<ShipTypeKey, ShipTypeDef> = {
     cargoCapacity: 120, transitSpeedMult: 1.1, extractionYieldMult: 1.0, // FIRST-PASS TUNABLE
     fuelCapacity: 340, engineEfficiency: 0.35, // FIRST-PASS TUNABLE: highest-tier range + good reach efficiency
     moduleSlots: 4, equipmentSlots: 0, // FIRST-PASS TUNABLE: 4 > any combat hull (battleship 3), the explorer identity
+    basePowerOutput: 130, // E-MOD EM-1 (P1): the hull's own power, at or above its heaviest crafted loadout
     // ⚠️ TUNABLE / LIVE (combat): the glass tank. Huge shields, frail hull, one token gun.
     hullIntegrity: 340, shieldCapacity: 800, shieldRecharge: 12, weaponHardpoints: 1, // FIRST-PASS TUNABLE
     // Capital-class BOM (between the destroyer and the battleship). ⚠️ FIRST-PASS TUNABLE.
@@ -1318,6 +1334,7 @@ export const SHIP_TYPES: Record<ShipTypeKey, ShipTypeDef> = {
     cargoCapacity: 100, transitSpeedMult: 1.3, extractionYieldMult: 1.1, // FIRST-PASS TUNABLE: fastest explorer
     fuelCapacity: 320, engineEfficiency: 0.4, // FIRST-PASS TUNABLE: highest-tier range + best reach efficiency
     moduleSlots: 5, equipmentSlots: 0, // FIRST-PASS TUNABLE: 5, the MOST in the fleet (survey/science identity)
+    basePowerOutput: 150, // E-MOD EM-1 (P1): the hull's own power, at or above its heaviest crafted loadout
     // ⚠️ TUNABLE / LIVE (combat): the frailest explorer (leanest combat), quick shields.
     hullIntegrity: 300, shieldCapacity: 720, shieldRecharge: 14, weaponHardpoints: 1, // FIRST-PASS TUNABLE
     // Capital-class BOM, a touch lighter than Orion (leaner combat frame). ⚠️ FIRST-PASS TUNABLE.
@@ -1342,6 +1359,7 @@ export const SHIP_TYPES: Record<ShipTypeKey, ShipTypeDef> = {
     cargoCapacity: 220, transitSpeedMult: 0.9, extractionYieldMult: 1.0, // FIRST-PASS TUNABLE: biggest hold, slower heavy transport
     fuelCapacity: 300, engineEfficiency: 0.3, // FIRST-PASS TUNABLE: still highest-tier range, modest among explorers
     moduleSlots: 4, equipmentSlots: 0, // FIRST-PASS TUNABLE: 4 > any combat hull (battleship 3)
+    basePowerOutput: 120, // E-MOD EM-1 (P1): the hull's own power, at or above its heaviest crafted loadout
     // ⚠️ TUNABLE / LIVE (combat): a touch tougher frame than the other explorers (a big transport)
     // but still frail vs its shields, modest recharge.
     hullIntegrity: 360, shieldCapacity: 700, shieldRecharge: 10, weaponHardpoints: 1, // FIRST-PASS TUNABLE
@@ -3274,7 +3292,52 @@ export type StatKey = LiveStatKey | ReservedStatKey | MemberGroundStatKey;
 // exhaustive switch over the kind (economyTick's routing, the tickers) to handle it
 // or fail to compile. "extraction" is today's resource-extraction mission; "patrol" is
 // the 0.13.0 combat patrol (PatrolMissionState below).
-export type MissionKind = "extraction" | "patrol";
+// G1-3 (Short-Range Missions): "shortRange" is a board slot's run (ShortRangeMissionState below).
+export type MissionKind = "extraction" | "patrol" | "shortRange";
+
+// Short-Range Missions (G1-3, docs/plans/2026-10-17-short-range-missions-plan.md 3.1 and 3.6).
+// One cycle of a short-range run: transit out, the job on site, transit back, the home turnaround (unloading, which
+// occupies a transit berth on the captain-mission rules, call 18: berths.ts).
+export type ShortRangePhase = "transitOut" | "onSite" | "transitBack" | "unloading";
+
+// Display labels for a short-range phase (the PATROL_PHASE_LABEL counterpart). Exhaustive over ShortRangePhase.
+export const SHORT_RANGE_PHASE_LABEL: Record<ShortRangePhase, string> = {
+  transitOut: "Transiting Out",
+  onSite: "On Site",
+  transitBack: "Transiting Back",
+  unloading: "Unloading",
+};
+
+// The "shortRange" arm of the CaptainState.mission union: a captain and their hull flying one board slot, cycle after
+// cycle until recalled (call 1: every cycle re-rolls the whole job). The cycle's roll AND its phase lengths are FROZEN
+// at the cycle start (shortRangeBoard.ts startShortRangeCycle), so offline == live by construction and every reader
+// (the cycle engine G1-4, the berth queue, the readouts) agrees without re-deriving. The hull, its gear and its crew
+// cannot change while it is out (the crew lock), so the frozen plan always equals a fresh one. Only new code writes
+// this arm (no save carries it before G1-3), so the union widening needs no migration; save.ts drops a malformed one
+// at load (the captain idles, no reward).
+export interface ShortRangeMissionState {
+  kind: "shortRange"; // discriminant
+  slotId: number; // the board slot (shortRangeBoardSlots); one captain per slot
+  roll: ShortRangeRoll; // this cycle's job (shortRange.ts rollShortRangeJob), frozen at the cycle start
+  plan: ShortRangeCyclePlan; // this cycle's phase lengths (shortRange.ts shortRangeCyclePlan), frozen with the roll
+  phase: ShortRangePhase;
+  phaseProgressTicks: number; // ticks banked in the current phase
+  // Recall intent: the run ends (mission -> null) when THIS cycle's home turnaround completes, instead of starting
+  // the next cycle. Unlike an extraction recall it never breaks off mid-cycle (plan 4 G1-3, QA 4: "the ship finishes
+  // the cycle and stops"). Set by recallCaptain, or at dispatch for a single run.
+  recalled: boolean;
+  // 0.14.0 SPEED SEAM (ProcessSpeed, the extraction arm's field): the time skip flags THIS cycle; the cycle engine
+  // (G1-4, the seam adapter) runs it through to its delivery. The next cycle is a fresh object without it.
+  speed?: ProcessSpeed;
+}
+
+// The board's per-slot cycle cursor (GameState.shortRangeBoard): slot id -> the cycle index its NEXT roll reads
+// (rollShortRangeJob). Advanced only by a delivered cycle (G1-4), so a skipped or idled roll is never re-drawn and no
+// stream shifts (plan 3.1). Slot count and tiers are DERIVED from Mission Control (shortRangeBoardSlots), never here.
+export interface ShortRangeBoardState {
+  version: 1;
+  nextCycle: Record<number, number>;
+}
 
 // The EXTRACTION arm of the CaptainState.mission discriminated union (Combat 0.13.0,
 // Phase 9b.5a). Behavior is UNCHANGED from before the union: every field and every
@@ -3645,11 +3708,12 @@ export function missionCycleTiming(missionDef: MissionDef): MissionCycleTiming {
 //       math can read the EQUIPMENT-FOLDED value from one place. engineEfficiency
 //       BINDS (economyTick prices fuelPerCycle from it, canDispatch prices `need`
 //       from it); fuelCapacity BINDS the canDispatch RANGE gate.
-//   powerOutput / powerDraw / mass , SURFACED from the fold for the UI + the 0.12.0
-//       power budget. mass is consumed INTERNALLY by the fold's Mass penalty (it is
-//       surfaced too, for display). powerOutput/powerDraw are NON-BINDING this patch
-//       (nothing gates on the power balance yet, see the fold below); they BIND in
-//       0.12.0.
+//   powerOutput / powerDraw / mass , the POWER BUDGET (E-MOD EM-1) and the mass the fold's
+//       Mass penalty consumes INTERNALLY (surfaced too, for display). powerOutput = the hull's
+//       basePowerOutput + every installed powerOutput line (the reactor implicit); powerDraw =
+//       the installed pieces' draw (an FTL drive at its class, P5), cut by the crew's power
+//       efficiency in the crew overlay (crewOverlay.ts applyCrewOverlay, P4). The install gate
+//       (EM-2) and the combat over-budget penalty (EM-3) read them; EM-1 displays them.
 export interface ShipDerivedStats {
   cargoCapacity: number;
   transitSpeedMult: number;
@@ -3657,8 +3721,8 @@ export interface ShipDerivedStats {
   engineEfficiency: number; // 0-based fuel-burn bonus (0 = baseline 1:1), see fuel.ts
   fuelCapacity: number;     // max fuel for one round trip (the canDispatch RANGE gate)
   mass: number;             // total equipped mass (0 for a bare hull); drives the Mass penalty below
-  powerOutput: number;      // reactor Power Output from fitted gear (0 with no reactor fitted)
-  powerDraw: number;        // total Power Draw of fitted gear (0 with no gear); must fit powerOutput in 0.12.0
+  powerOutput: number;      // hull basePowerOutput + installed powerOutput lines (the reactor implicit)
+  powerDraw: number;        // installed pieces' draw (net of power efficiency once crew fold in); 0 with no powered gear
   // Exploration 0.14.0 (Phase E1a): the ship's SENSORS stat, folded ADDITIVELY from a fitted SENSOR
   // ARRAY (the `sensor` slot's `sensors` implicit + affix lines). This is the FIRST live consumer of
   // the `sensors` stat: survey missions scale their material yield by it (tick.ts's tickCaptainMission).
@@ -3815,6 +3879,24 @@ export interface EquipmentStatMods {
   totalPowerDraw: number;
   powerOutput: number;
 }
+// E-MOD EM-1 (S4-A03; user P5 2026-10-19 "x1.6 per class (Recommended)"): an FTL drive's power draw grows x1.6 for
+// each drive class above I, so deep reach competes with weapons and modules for the hull's power.
+export const DRIVE_CLASS_POWER_DRAW_MULT = 1.6;
+
+// An installed FTL drive's class: its blueprint's driveClass (G2-4 authors the classed blueprints), Class I when the
+// piece has no blueprint (Standard Issue, a legacy piece) or the blueprint names none. Pure.
+export function ftlDriveClass(piece: Pick<EquipmentInstance, "blueprintKey">): number {
+  const cls = piece.blueprintKey ? BLUEPRINTS[piece.blueprintKey]?.driveClass : undefined;
+  return cls !== undefined && cls > 1 ? Math.floor(cls) : 1;
+}
+
+// A drive's draw at its class: x DRIVE_CLASS_POWER_DRAW_MULT per class above I, rounded UP to a whole point (the
+// budget is integer, power.ts). Class I returns `draw` itself, so every drive today folds byte-identically. Pure.
+export function driveClassPowerDraw(draw: number, driveClass: number): number {
+  if (driveClass <= 1 || draw <= 0) return draw;
+  return Math.ceil(draw * Math.pow(DRIVE_CLASS_POWER_DRAW_MULT, driveClass - 1) - 1e-9);
+}
+
 export function equipmentStatMods(pieces: EquipmentInstance[]): EquipmentStatMods {
   const flat: Record<string, number> = { cargoCapacity: 0, fuelCapacity: 0, sensors: 0 };
   const percentPlus: Record<string, number> = {
@@ -3832,7 +3914,8 @@ export function equipmentStatMods(pieces: EquipmentInstance[]): EquipmentStatMod
     // Intrinsic per-piece fields (NOT stat lines): mass + powerDraw are summed gross,
     // then netted by the reduction affixes below.
     grossMass += piece.mass;
-    grossPowerDraw += piece.powerDraw;
+    // E-MOD EM-1 (P5): an FTL drive draws more per class above I (Class I, every drive today, is the piece's own draw).
+    grossPowerDraw += piece.slotType === "ftlDrive" ? driveClassPowerDraw(piece.powerDraw, ftlDriveClass(piece)) : piece.powerDraw;
 
     // Every stat line the piece carries: implicit (slot-signature) + rolled (affixes).
     // One loop over both records so a stat that appears in both accumulates.
@@ -3919,10 +4002,10 @@ function hullDerivedStats(ship: ShipInstance): ShipDerivedStats {
     extractionYieldMult: def.extractionYieldMult,
     engineEfficiency: def.engineEfficiency,
     fuelCapacity: def.fuelCapacity,
-    // A bare hull carries no equipment mass/power: those are equipment concepts,
-    // so they are 0 until gear is fitted (below).
+    // A bare hull carries no equipment mass or draw: those are equipment concepts, so they are 0 until gear is
+    // fitted (below). E-MOD EM-1: its power OUTPUT is the hull's own generation (basePowerOutput, P1).
     mass: 0,
-    powerOutput: 0,
+    powerOutput: def.basePowerOutput,
     powerDraw: 0,
     // Exploration 0.14.0 (E1a): a bare hull has NO sensors, its only source is a fitted
     // sensor item (explorer-hull base sensors are deferred, design I.6). Folded in below.
@@ -3965,8 +4048,8 @@ function foldGuestQuarters(ship: ShipInstance, pieces: EquipmentInstance[], base
 //   4. MASS penalty (mass-vs-thrust): heavier fitments drag transitSpeedMult
 //      (multiplicative, stays positive) and engineEfficiency (subtractive, can go
 //      below baseline), clamped at ENGINE_EFF_FLOOR.
-//   5. POWER surfaced (powerOutput / powerDraw / mass) for the UI + 0.12.0 budget;
-//      NON-BINDING this patch (nothing here gates on the power balance).
+//   5. POWER: output = the hull's base + every powerOutput line; draw = the pieces' draw (an FTL drive at
+//      its class). The crew's power efficiency cuts the draw later, in the crew overlay (E-MOD EM-1).
 //
 // The optional `pieces` param DEFAULTS to [] so shipDerivedStats(ship) reproduces
 // the bare-hull projection EXACTLY (equipmentStatMods([]) is all-zero -> every
@@ -4019,7 +4102,7 @@ export function shipDerivedStats(
   engineEfficiency -= MASS_EFF_DRAG * mods.totalMass;
   if (engineEfficiency < ENGINE_EFF_FLOOR) engineEfficiency = ENGINE_EFF_FLOOR;
 
-  // (5) Power surfaced, non-binding.
+  // (5) Power: the hull's own output plus the installed lines (E-MOD EM-1).
   return {
     cargoCapacity,
     transitSpeedMult,
@@ -4027,7 +4110,7 @@ export function shipDerivedStats(
     engineEfficiency,
     fuelCapacity,
     mass: mods.totalMass,
-    powerOutput: mods.powerOutput,
+    powerOutput: base.powerOutput + mods.powerOutput,
     powerDraw: mods.totalPowerDraw,
     sensors,
     ...(colonistCapacity > 0 ? { colonistCapacity } : {}),
@@ -4243,7 +4326,8 @@ export interface CaptainState {
   // (PatrolMissionState, kind:"patrol") = the 0.13.0 combat patrol. Every consumer that
   // reads extraction-only fields (missionKey/phase/cargo/...) MUST narrow on
   // `mission.kind === "extraction"` first; the compiler flags any that don't.
-  mission: CaptainMissionState | PatrolMissionState | null;
+  // G1-3: a short-range board mission (ShortRangeMissionState, kind:"shortRange") is the third arm.
+  mission: CaptainMissionState | PatrolMissionState | ShortRangeMissionState | null;
   xp: Decimal; // accumulated toward the NEXT level, see xpForNextLevel() below; accrued per active tick in tick.ts's tickCaptainMission (Task 4)
   level: number; // starts at 1
   statPoints: number; // unspent, earned on level-up, spent via buyHomeworldTalent's unlockCaptainSlot effect (tick.ts)
@@ -4502,7 +4586,10 @@ export type ProcessEffect =
   // studyIndex, token.id), so it is a pure function of stored values and offline == live by
   // construction. NO Decimal (the token is plain strings/numbers), so hydrateDecimals skips this effect
   // via its `"amount" in effect` guard and it round-trips through JSON verbatim.
-  | { type: "identifyRelic"; token: RelicVaultToken; studyIndex: number };
+  // Relics v2 R2-1 (DORMANT): `v: 2` marks a v2 study (its PRESENCE is the flag, plan 2026-10-17 section 3.2); R2-3
+  // stamps it. A study without it resolves through the v1 roll exactly as dispatched, so every in-flight study keeps
+  // its result.
+  | { type: "identifyRelic"; token: RelicVaultToken; studyIndex: number; v?: 2 };
 
 // One in-flight timed process. `id` is monotonic ("proc-N"), allocated from
 // GameState.nextProcessId (mirrors the ShipInstance/nextShipId pattern).
@@ -4623,6 +4710,10 @@ export type FacilityUpgradeEffect =
   // would imply a stat this facility does not have). Extensible union, same
   // property-presence narrowing convention as the members above.
   | { unlocksContent: true }
+  // G1-3 (Short-Range Missions, call 8 "Mission Control upgrades"): one more board SLOT at this tier. Read by
+  // shortRangeBoardSlots (shortRangeBoard.ts), which appends one slot per reached Mission Control board rung
+  // (MISSION_CONTROL_BOARD_RUNGS) after the two Tier I slots every save starts with.
+  | { addShortRangeSlot: ShortRangeTier }
   // --- WR-4 (OC-C1): the Fuel Depot's FLEET REACH rung -------------------------
   // The share of every ship's reach the rung adds (FUEL_DEPOT_REACH_PER_RUNG). tick.ts fleetReachBonus SUMS it
   // across the reached fuelStorage rungs (the same derive-on-read/reached-rungs idiom refineSlotCount uses) and
@@ -4969,6 +5060,36 @@ function buildFuelDepotUpgrades(): FacilityUpgradeDef[] {
 // other numeric constant here. Real balance at the device checkpoint.
 export const MISSION_CONTROL_UNLOCK_COMPLETIONS = 50;
 
+// G1-3 (Short-Range Missions): the Mission Control BOARD rungs (call 8, user 2026-10-17 "Mission Control
+// upgrades (Recommended)": two Tier I slots from the start, a Tier II slot at Mission Control level 2 through the kept
+// 50-completion hook, a fourth at level 3). Each rung grants one board slot (addShortRangeSlot, its tier).
+// HIDDEN UNTIL THE BOARD IS LIVE (the FIELD_KITS_PLAYER_LIVE precedent, user 2026-10-19 "Hide until Short-Range"):
+// they join FACILITIES.missionControl only once SHORT_RANGE_BOARD_LIVE is true, so no player can build an upgrade
+// whose slot no screen shows yet, and every facility reader, the sim and the registry are unchanged until then.
+// shortRangeBoardSlots reads this table directly, so the slot ladder is live (and tested) at every level now.
+// G1-6 flips the flag with the board UI (its Mission Control card text then names the slot).
+export const SHORT_RANGE_BOARD_LIVE = false;
+// [PROVISIONAL] every cost, duration and the fourth slot's tier (Tier II) await the user. The level 1 -> 2 rung is the
+// reserved completion-gated template kept for exactly this (MISSION_CONTROL_UNLOCK_COMPLETIONS of each ore run).
+export const MISSION_CONTROL_BOARD_RUNGS: readonly FacilityUpgradeDef[] = [
+  {
+    materials: {},
+    credits: new Decimal(2500),
+    durationTicks: 120,
+    effect: { addShortRangeSlot: 2 },
+    requiresMissionCompletions: {
+      shortOreRun: MISSION_CONTROL_UNLOCK_COMPLETIONS,
+      longOreRun: MISSION_CONTROL_UNLOCK_COMPLETIONS,
+    },
+  },
+  {
+    materials: {},
+    credits: new Decimal(6000),
+    durationTicks: 240,
+    effect: { addShortRangeSlot: 2 },
+  },
+];
+
 // --- Subspace Telescope (Squads SQ-5, design section 6) -------------------------------
 // The homeworld facility that pre-surveys candidate systems before launch (user-named, 3c):
 // its RANGE is which regions it reads (nearer regions first; beyond range a system launches
@@ -5121,6 +5242,9 @@ export const FACILITIES: Record<string, FacilityDef> = {
       // The requiresMissionCompletions prereq TYPE + its canBuildFacilityUpgrade
       // enforcement stay in place and tested (mission-control.test.ts), so this is a
       // pure data re-add with no engine work.
+      // G1-3: that rung is now MISSION_CONTROL_BOARD_RUNGS[0] (a Tier II short-range board slot), followed by the
+      // level 2 -> 3 rung (a fourth slot); both join here once SHORT_RANGE_BOARD_LIVE (G1-6).
+      ...(SHORT_RANGE_BOARD_LIVE ? MISSION_CONTROL_BOARD_RUNGS : []),
     ],
   },
   // --- Research Lab (Task R2, design §1) --------------------------------------
@@ -7170,6 +7294,10 @@ export interface ExpeditionRelicToken {
   quality: number; // 0..5 quality bucket from the salvage tier (reuses the 0-5 quality system)
   unidentified: true; // always true this phase: E4 owns identification/research/museum
   studySpeed?: number; // WR-5c Preservationist: the study of this relic runs (1 + this) faster; absent = 0
+  // Relics v2 R2-1 (DORMANT; plan 2026-10-17 section 3.2): stamped at the roll from R2-2 on. Absent = Tier I and a
+  // culture derived at read time (R2-2 / R2-6), so every token rolled before Relics v2 reads exactly as it did.
+  regionTier?: RegionTier;
+  cultureId?: string;
 }
 
 // ============================================================================
@@ -7200,6 +7328,70 @@ export interface RelicVaultToken {
   setId: RelicSetId; // the set this token identifies WITHIN
   poiId: string; // the PoI the finding came from (expeditionContent.ts POI_CATALOG id)
   studySpeed?: number; // WR-5c Preservationist (carried from the token): the study runs (1 + this) faster; absent = 0
+  // Relics v2 R2-1 (DORMANT; plan 2026-10-17 section 3.2): all optional, read with a default, nothing writes them
+  // until R2-2. regionTier absent = Tier I; cultureId absent = derived at read time from the token id (R2-2 / R2-6);
+  // source absent = "expedition". (setId stays required until R2-2 mints the first token that does not need it.)
+  regionTier?: RegionTier;
+  cultureId?: string;
+  source?: RelicVaultTokenSource;
+}
+
+// Relics v2 R2-1: where a vault blank came from (plan 2026-10-17 section 3.2; OC-14 short-range, OC-15 the planet 100%
+// bonus roll, the tutorial grant seam). Absent on a token = "expedition".
+export type RelicVaultTokenSource = "expedition" | "shortRange" | "completion" | "grant";
+
+// Relics v2 R2-1: a RegionTier as a record key (JSON object keys are strings). The Museum v2 record is keyed by it.
+export type RegionTierKey = "1" | "2" | "3" | "4" | "5" | "6" | "7";
+
+// Relics v2 R2-1 (plan 2026-10-17 section 3.2; USER ANSWERS 2026-10-19 calls 1 to 4, 7, 9 and 16): the MUSEUM v2
+// record. It REPLACES the v1 `relicMuseum` (the v69 -> v70 step moves every v1 copy into general["1"]: every v1 copy is
+// a Tier I copy, and the ids did not change). Plain numbers and strings only (no Decimals), so hydrateDecimals is
+// unchanged.
+//   general       copies per region tier per general relic TYPE id (relics.ts RELIC_TYPES). Sparse: a tier is absent
+//                 until its first copy, a type until its first copy at that tier.
+//   exceptional   copies per exceptional PIECE id (relics.ts EXCEPTIONAL_SETS); duplicates counted (OC-7, R2-5).
+//   frozen        the snapshot of a tier's general counts taken when it first reached the soft cap (OC-3, R2-4).
+//   cultures      per culture id: study points and finds per type (OC-9, R2-6).
+//   culturesNamed culture ids in reveal order, each appended once (R2-6).
+//   setsCompleted exceptional set ids in completion order, each appended once (the ledger hook reads it, R2-5).
+// R2-1 is DORMANT: only general["1"] is written (by a v1 relic study, exactly where the v1 museum was written); every
+// other part stays empty until its slice.
+export interface MuseumCultureRecord {
+  points: number;
+  finds: Record<string, number>;
+}
+export interface MuseumV2 {
+  general: Partial<Record<RegionTierKey, Record<string, number>>>;
+  exceptional: Record<string, number>;
+  frozen: Partial<Record<RegionTierKey, Record<string, number>>>;
+  cultures: Record<string, MuseumCultureRecord>;
+  culturesNamed: string[];
+  setsCompleted: string[];
+}
+
+// The empty Museum v2 record freshState seeds. Pure: a new object every call.
+export function emptyMuseumV2(): MuseumV2 {
+  return { general: {}, exceptional: {}, frozen: {}, cultures: {}, culturesNamed: [], setsCompleted: [] };
+}
+
+// The general copy record of one region tier (Tier I by default: where every v1 copy lives). A save or fixture
+// without the record reads empty. The ONE reader every v1 consumer goes through (museum bonuses, the Museum panel,
+// the reveal card, the wiring probes). Pure.
+export function generalMuseumRecord(state: { readonly museumV2?: MuseumV2 }, tier: RegionTier = 1): Readonly<Record<string, number>> {
+  return state.museumV2?.general?.[String(tier) as RegionTierKey] ?? {};
+}
+
+// The Museum v2 record with one region tier's general copies REPLACED by `record` (copied). Every other part, and
+// every other tier, is kept. The key positions of an existing record are kept too (a spread over an existing key
+// keeps its place), so a write never reorders the saved JSON. Pure.
+export function museumV2WithGeneral(museum: MuseumV2 | undefined, record: Readonly<Record<string, number>>, tier: RegionTier = 1): MuseumV2 {
+  const base = museum ?? emptyMuseumV2();
+  return { ...base, general: { ...base.general, [String(tier) as RegionTierKey]: { ...record } } };
+}
+
+// The state with one region tier's general copies replaced (museumV2WithGeneral). Pure.
+export function withGeneralMuseumRecord<S extends { museumV2?: MuseumV2 }>(state: S, record: Readonly<Record<string, number>>, tier: RegionTier = 1): S {
+  return { ...state, museumV2: museumV2WithGeneral(state.museumV2, record, tier) };
 }
 
 // The per-save relic PRNG seed. A study's identification roll is keyed off (relicSeed, a fixed salt, the
@@ -8459,6 +8651,10 @@ export interface GameState {
   // dispatchCaptainOnPatrol and economyTick's patrol fold. OPTIONAL: absent (a dev save at v70 from before SF-1) reads
   // the derived counters (runDifficulty.ts runCountsOf). Plain data, so hydrateDecimals carries it through `...state`.
   runCounts?: RunCounts;
+  // G1-3 (Short-Range Missions): the board's per-slot cycle cursor (ShortRangeBoardState below). OPTIONAL: absent
+  // reads as every slot at cycle 0 (shortRangeNextCycle, shortRangeBoard.ts), so no save needs a step; written by
+  // the cycle engine (G1-4) when a cycle delivers. A malformed value reads as absent (save.ts hydration). Plain data.
+  shortRangeBoard?: ShortRangeBoardState;
   // Expedition Tiers G2-1: the per-save homeworld seed (HomeworldState above; placement in galaxy.ts). freshState
   // stores the seed it is given (every new game: App.svelte passes a fresh draw); SAVE v70 seeds it on an older save
   // (save.ts withHomeworldV70, which every load also runs, so a save already at v70 from before G2-1 gets one too).
@@ -8483,9 +8679,10 @@ export interface GameState {
   // The UNIDENTIFIED relics waiting for Research (claimExpedition appends; startRelicStudy removes one
   // into its process). Ordered by arrival.
   relicVault: RelicVaultToken[];
-  // The MUSEUM: identified copy count per relic id (relics.ts RELICS). Sparse: a relic absent until its
-  // first identified copy. Plain numbers (copy counts are small integers, never idle-scale).
-  relicMuseum: Record<string, number>;
+  // The MUSEUM (Relics v2 R2-1: the MuseumV2 record above, which replaced the v1 `relicMuseum` copy record; the
+  // v69 -> v70 step moves the v1 copies into museumV2.general["1"]). Read and written through relics.ts
+  // generalMuseumRecord / withGeneralMuseumRecord. Plain numbers (copy counts are small integers, never idle-scale).
+  museumV2: MuseumV2;
   // The DISCOVERED registry: relic ids in FIRST-FIND order, each appended exactly once (the first
   // identified copy of its type). The unknown-relic discovery unlock reads this.
   relicDiscovered: string[];
@@ -8494,6 +8691,9 @@ export interface GameState {
   // Monotonic study index, stamped onto each relicStudy process at START (the "index" the keyed
   // identification roll mixes in). freshState seeds 1; never reused.
   nextRelicStudyIndex: number;
+  // Relics v2 R2-1 (DORMANT; plan 2026-10-17 section 3.2, OC-12 "Free, queued, lanes by Lab"): vault token ids queued
+  // for identification, in order. Absent = an empty queue; nothing writes it until R2-3.
+  relicQueue?: string[];
   // ===== E-CREW "Crew Made Real" (Task 2, DORMANT) =====
   // The away-team roster and the Armory squad loadouts (see the AwayMember / GroundTeamLoadout block above).
   // freshState seeds the clean-slate defaults; the v64->v65 migration (save.ts) backfills the IDENTICAL
@@ -8592,6 +8792,37 @@ export interface RefineRecipeDef {
 // it as their canonical fixture key, so keeping it minimizes churn) but its NUMBERS are now
 // the player-friendly 20:1 / 12-tick values (so players are not stuck with the 100:1 waste).
 // `refineTitaniumIngot` was RETIRED; any reference to it repoints to `refineCommonOre`.
+
+// ML-1 (0.14.0, Material Lines; plan docs/plans/2026-10-17-material-lines-and-emod-plan.md section 3.1): the seven
+// July-approved recipes the user re-confirmed as named (L1, 2026-10-19 "Build as named"): three simple refines and
+// four compounds (multi-input; the engine deducts and reserves every input). Keys and items are the user's; ONLY the
+// numbers were mine, and the user approved them as built (2026-10-20, ML-1 review):
+// a common ore refines like Titanium Ore (20:1, 12 ticks), an uncommon one like Polysilicate Ore (5:1, 20 ticks), a
+// rare one at 3:1; a compound takes a few of its raw plus one or two refined goods and runs 20 ticks. Every duration is
+// one the speed rungs keep at an exact crafting XP per tick (the WR-4 rule, refine.test.ts; 40 breaks it).
+const MATERIAL_LINE_RECIPE_NUMBERS: Readonly<Record<string, { input: Record<string, number>; output: string; ticks: number }>> = {
+  refineFerriteIngot: { input: { ferriteOre: 20 }, output: "ferriteIngot", ticks: 12 },
+  refineReclaimedCircuit: { input: { salvagedCircuitry: 5 }, output: "reclaimedCircuit", ticks: 20 },
+  refineIridiumCatalyst: { input: { rareMaterial: 3 }, output: "iridiumCatalyst", ticks: 20 },
+  synthCobaltCoil: { input: { cobaltOre: 3, titaniumIngot: 1 }, output: "cobaltCoil", ticks: 20 },
+  synthOsmiumPlate: { input: { osmiumOre: 2, ferriteIngot: 2 }, output: "osmiumPlate", ticks: 20 },
+  synthPhotonicGel: { input: { polysilicateWafer: 1, volatileResin: 3 }, output: "photonicGel", ticks: 20 },
+  synthBiocatalyst: { input: { purifiedBiomass: 2, exoticSporeCluster: 1 }, output: "biocatalyst", ticks: 20 },
+};
+
+// Built once at module load; REFINE_RECIPES spreads it after its hand-written rows.
+function materialLineRecipes(): Record<string, RefineRecipeDef> {
+  const out: Record<string, RefineRecipeDef> = {};
+  for (const [key, r] of Object.entries(MATERIAL_LINE_RECIPE_NUMBERS)) {
+    out[key] = {
+      input: Object.fromEntries(Object.entries(r.input).map(([id, n]) => [id, new Decimal(n)])),
+      output: { itemId: r.output, amount: new Decimal(1) },
+      durationTicks: r.ticks,
+    };
+  }
+  return out;
+}
+
 export const REFINE_RECIPES: Record<string, RefineRecipeDef> = {
   refineCommonOre: {
     input: { commonOre: new Decimal(20) },
@@ -8606,7 +8837,8 @@ export const REFINE_RECIPES: Record<string, RefineRecipeDef> = {
   // WR-4 (OC-C3, user 2026-10-16 "Add Refinery recipes": "Scrap Alloy refines into Reclaimed Alloy and Fibrous
   // Biomass into Purified Biomass; each becomes an input to existing Fabricator recipes"). Both inputs are common
   // mission staples (the Salvage and Forage runs, plus expedition hauls). [PROPOSAL] every number here (the user
-  // tunes them): Reclaimed Alloy is a RARE refined good, so 10:1; Purified Biomass is uncommon, so 6:1. Both run 20
+  // tunes them): Reclaimed Alloy was tagged RARE, so 10:1 (ML-1 retags it uncommon, display only; the ratio stays
+  // until the user tunes it); Purified Biomass is uncommon, so 6:1. Both run 20
   // ticks, the Polysilicate Wafer's length (a duration must keep the speed rung's crafting XP per tick exact).
   refineReclaimedAlloy: {
     input: { scrapAlloy: new Decimal(10) },
@@ -8618,7 +8850,48 @@ export const REFINE_RECIPES: Record<string, RefineRecipeDef> = {
     output: { itemId: "purifiedBiomass", amount: new Decimal(1) },
     durationTicks: 20,
   },
+  ...materialLineRecipes(),
 };
+
+// ML-1 review (the user's "everything wired, nothing inert player-reachable" rule; the field kits precedent "Hide
+// until kits are live"): THE ONE CHECK for whether the Refinery offers a recipe. canStartLine (the engine gate), the
+// Refinery item dropdown and the Home dashboard's idle-refinery scan all read it, so a recipe whose output leads
+// nowhere yet can neither be started nor suggested. A recipe is offered unless its output is a DEAD END: an item
+// carrying the ItemDef.reserved marker, or one whose only consumers are Refinery recipes that are themselves not
+// offered (Ferrite Ingot, whose one consumer makes the reserved Osmium Plate). Derived on every call from the static
+// tables, so the gate lifts by itself the moment ML-2 / EM-8 drop a marker. Pure.
+export function refineRecipeOffered(recipeKey: string): boolean {
+  const recipe = REFINE_RECIPES[recipeKey];
+  return recipe !== undefined && !isRefineDeadEnd(recipe.output.itemId, new Set());
+}
+
+function isRefineDeadEnd(itemId: string, visiting: Set<string>): boolean {
+  if (ITEMS[itemId]?.reserved !== undefined) return true;
+  if (consumedOutsideRefinery().has(itemId)) return false;
+  if (visiting.has(itemId)) return true; // a cycle of refines with no outside consumer leads nowhere
+  visiting.add(itemId);
+  const refines = Object.values(REFINE_RECIPES).filter((r) => r.input[itemId] !== undefined);
+  // No consumer at all is the sink rule's business (materialLines.test.ts), not a reason to hide the recipe.
+  if (refines.length === 0) return false;
+  return refines.every((r) => isRefineDeadEnd(r.output.itemId, visiting));
+}
+
+// Every item something other than the Refinery consumes: blueprints, hull builds, facility and storage / docks /
+// berth rungs, material salvage, the Quartermaster's sell counter. Built on first use (those tables are declared
+// further down this file), static afterwards.
+let consumedOutsideRefineryCache: ReadonlySet<string> | null = null;
+function consumedOutsideRefinery(): ReadonlySet<string> {
+  if (consumedOutsideRefineryCache) return consumedOutsideRefineryCache;
+  const out = new Set<string>();
+  for (const bp of Object.values(BLUEPRINTS)) for (const id of Object.keys(bp.recipe.inputs)) out.add(id);
+  for (const hull of Object.values(SHIP_TYPES)) for (const id of Object.keys(hull.buildRecipe.components)) out.add(id);
+  for (const f of Object.values(FACILITIES)) for (const u of f.upgrades) for (const id of Object.keys(u.materials)) out.add(id);
+  for (const rungs of [EQUIPMENT_STORAGE_RUNGS, SHIP_DOCKS_RUNGS, TRANSIT_BERTH_RUNGS]) for (const r of rungs) for (const id of Object.keys(r.materials)) out.add(id);
+  for (const id of Object.keys(SALVAGE_LOOT_POOLS)) out.add(id);
+  for (const [id, def] of Object.entries(ITEMS)) if (def.sellValue !== undefined) out.add(id);
+  consumedOutsideRefineryCache = out;
+  return out;
+}
 
 // Item taxonomy (Ship Production Economy epic, 2026-07-11 facility-framework
 // design §7). The category ladder is the forward-compat spine the whole epic
@@ -8669,6 +8942,12 @@ export interface ItemDef {
   // item (enforced by model.test.ts), absent on all non-raw items. Static catalog
   // data, not saved GameState, so it needs no migration.
   subCategory?: RawSubCategory;
+  // ML-1 (0.14.0, Material Lines): the TYPED reserve marker. Present only on an item that is produced today but has
+  // no consumer yet, and it names the slice that wires that consumer (for example "ML-2: ..."). The wiring registry
+  // turns it into a pending entry (ITEMS:<id>:reserved, owner = this text), so the release gate holds until the
+  // consumer lands, and the sink test (materialLines.test.ts) fails if a reserved item gains a consumer while still
+  // marked, or if any item without one is unmarked. Static catalog data, never saved.
+  reserved?: string;
   // FORWARD (not populated this pass): only shipModule/shipSystem items ever
   // carry equip stats; every Phase 1 seed leaves this undefined.
   equipStats?: Record<string, number>;
@@ -8688,6 +8967,10 @@ export interface ItemDef {
 // the storage/inventory keys alongside), do NOT seed those forward items until
 // their phase. The model.test.ts drift guard asserts every live storage key has
 // an entry here, so this table cannot silently fall out of sync with storage.
+// ML-1: the owners named by ItemDef.reserved (each becomes a pending wiring registry entry with this text as owner).
+const ML2_RECIPE_REWORK = "ML-2 (Material Lines recipe rework: the cargo, FTL, reactor, utility, shield and plating blueprints)";
+const EM8_PRECURSOR_LENS = "EM-8 (the Precursor Lens special module is crafted with it)";
+
 export const ITEMS: Record<string, ItemDef> = {
   // --- Raw loot (mission extraction output; keyed as LootMaterialKey) ---
   commonOre: {
@@ -8752,7 +9035,8 @@ export const ITEMS: Record<string, ItemDef> = {
     rarity: "common",
     // The guaranteed (and ONLY) drop of the localFuelRun mission, a common-tier ore.
     unlockHint: "Skimmed from the retired Local Deuterium Skim run; sell any you hold at the Quartermaster.",
-    flavor: "Deuterium-laced water ice cracked from a local field. Cook it down at the Fuel Depot and it runs the FTL drives.",
+    // ML-1: the flavor no longer tells the player to cook it down at the Fuel Depot (that pipeline retired in 0.13.6).
+    flavor: "Deuterium-laced water ice cracked from a local field, heavy hydrogen the fleet no longer burns for fuel.",
     // DEPRECATED by fuel-to-reach (0.13.6): the skim run + the Fuel Depot that consumed this are
     // retired, so any stockpile is now dead stock. Sellable at the Quartermaster to recoup its old
     // worth: the Fuel Depot refined 50 ice -> 100 fuel and fuel was 20 cr/unit, so 1 ice = 2 fuel = 40 cr. TUNABLE.
@@ -8859,7 +9143,8 @@ export const ITEMS: Record<string, ItemDef> = {
     category: "salvagedMaterial",
     tier: 1,
     rarity: "rare",
-    unlockHint: "A rare drop from the Salvage Nearby Skirmish Wreckage run; salvage it for materials (a coming mechanic).",
+    // ML-1: the "(a coming mechanic)" tail was stale (material salvage is live; SALVAGE_LOOT_POOLS.intactReactorCore).
+    unlockHint: "A rare drop from the Salvage Nearby Skirmish Wreckage run; salvage it for materials at the Salvage Bay.",
     flavor: "A cracked, burned-out reactor shell, dead weight to install, but a rich seam of parts to strip.",
   },
   // WEAPON-CRAFTING LOOT (Combat 1.0, Unit 1.7, design S12): the reserved "Damaged
@@ -8934,7 +9219,12 @@ export const ITEMS: Record<string, ItemDef> = {
     label: "Reclaimed Alloy",
     category: "refined",
     tier: 1,
-    rarity: "rare",
+    // ML-1 (L11, user 2026-10-19 "Approve all three"): retagged uncommon; it refines from common Scrap Alloy.
+    // Rarity is read by the Warehouse color, the reward chips AND the Salvage Bay's confirm prompt, which maps a
+    // material's rarity to a quality tier (App.svelte salvageTargetNeedsConfirm, RARITY_TO_QUALITY_TIER: uncommon 1,
+    // rare 2). Reclaimed Alloy is a refined good, and material salvage takes salvagedMaterial items only (salvage.ts),
+    // so the prompt never reaches it today; if it ever does, it asks under the uncommon tier's setting.
+    rarity: "uncommon",
     unlockHint: "Refined from Scrap Alloy at the Refinery.",
     flavor: "Battlefield scrap re-smelted into something stronger than it ever was whole.",
   },
@@ -8945,6 +9235,74 @@ export const ITEMS: Record<string, ItemDef> = {
     rarity: "uncommon",
     unlockHint: "Refined from Fibrous Biomass at the Refinery.",
     flavor: "Raw flora rendered down to a clean, stable feedstock, no volatility left.",
+  },
+  // --- Material Lines (ML-1, 0.14.0): the seven July-approved refined goods (July section 12, re-confirmed by the
+  // user 2026-10-19, L1 "Build as named"). Each is produced by its MATERIAL_LINE_RECIPE_NUMBERS row (above REFINE_RECIPES),
+  // and the Refinery offers that recipe only once its output has a use (refineRecipeOffered).
+  // Ferrite Ingot feeds the Osmium Plate compound today; the other six are RESERVED for ML-2, the recipe rework that
+  // puts them into the cargo, FTL, reactor, utility, shield and plating blueprints (L2, user 2026-10-19). Rarity is
+  // display only (the E-MAT strawman: ingots, circuit and compounds uncommon; plate, catalyst and biocatalyst rare).
+  ferriteIngot: {
+    label: "Ferrite Ingot",
+    category: "refined",
+    tier: 1,
+    rarity: "uncommon",
+    unlockHint: "Refined from Ferrite at the Refinery.",
+    flavor: "Lunar ferrite smelted into a dense, dark bar, the heavy twin of the titanium ingot.",
+  },
+  reclaimedCircuit: {
+    label: "Reclaimed Circuit",
+    category: "refined",
+    tier: 1,
+    rarity: "uncommon",
+    unlockHint: "Refined from Salvaged Circuitry at the Refinery.",
+    flavor: "Scorched wreck boards stripped, cleaned and re-traced into a circuit the fleet can trust.",
+    reserved: ML2_RECIPE_REWORK,
+  },
+  iridiumCatalyst: {
+    label: "Iridium Catalyst",
+    category: "refined",
+    tier: 1,
+    rarity: "rare",
+    unlockHint: "Refined from Iridium Ore at the Refinery.",
+    flavor: "A few grams of iridium drawn into a fine catalytic mesh, the spark a high-output core is built around.",
+    reserved: ML2_RECIPE_REWORK,
+  },
+  cobaltCoil: {
+    label: "Cobalt Coil",
+    category: "refined",
+    tier: 1,
+    rarity: "uncommon",
+    unlockHint: "Compounded from Cobalt Ore and a Titanium Ingot at the Refinery.",
+    flavor: "Cobalt wire wound tight around a titanium core, the field coil that drives and emitters run on.",
+    reserved: ML2_RECIPE_REWORK,
+  },
+  osmiumPlate: {
+    label: "Osmium Plate",
+    category: "refined",
+    tier: 1,
+    rarity: "rare",
+    unlockHint: "Compounded from Osmium Ore and Ferrite Ingots at the Refinery.",
+    flavor: "Osmium pressed into a ferrite backing, a plate so dense it seems to pull at the hand that lifts it.",
+    reserved: ML2_RECIPE_REWORK,
+  },
+  photonicGel: {
+    label: "Photonic Gel",
+    category: "refined",
+    tier: 1,
+    rarity: "uncommon",
+    unlockHint: "Compounded from a Polysilicate Wafer and Volatile Resin at the Refinery.",
+    flavor: "Luminous resin set into a wafer lattice, a gel that carries light the way wire carries current.",
+    reserved: ML2_RECIPE_REWORK,
+  },
+  biocatalyst: {
+    label: "Biocatalyst",
+    category: "refined",
+    tier: 1,
+    rarity: "rare",
+    unlockHint: "Compounded from Purified Biomass and an Exotic Spore Cluster at the Refinery.",
+    flavor: "A living culture grown from spores on a clean biomass bed, it quickens any process it touches.",
+    reserved: ML2_RECIPE_REWORK,
   },
 
   // COMPONENTS, future Fabricator outputs (refined stock assembled into parts).
@@ -9009,13 +9367,15 @@ export const ITEMS: Record<string, ItemDef> = {
     rarity: "epic",
     unlockHint: "Recovered only from salvage; reserved for a future recipe not yet built.",
     flavor: "An impossibly fine circuit lattice from a hull far older than the fleet, still faintly warm to the touch.",
+    reserved: EM8_PRECURSOR_LENS,
   },
   intactDataCore: {
     label: "Intact Data Core",
     category: "minorComponent",
     tier: 1,
     rarity: "legendary",
-    unlockHint: "Recovered only from salvage; reserved for a future recipe not yet built.",
+    // ML-1: no longer reserved; the Neural Backup implant (neuralBackupBp, E-CREW Task 7) consumes one.
+    unlockHint: "Recovered only from salvage; used to craft the Neural Backup implant.",
     // ⚠️ EASTER EGG, keep as-is: the closing quote is the game's FIRST MEME (user, 2026-10-01), a
     // nod to the 2026-09-29 player report that this salvage-only exotic had "no slot" and no use
     // (which led to the 0.13.8 discovery hotfix). Deliberately UNANNOUNCED: never list it in patch
@@ -9357,6 +9717,11 @@ export interface BlueprintDef {
   // combat yet (no hangar-bay install, no bridge fold); this unit only makes them research ->
   // fabricate craftable and visible in the UI, mirroring how weapons landed in Unit 1.2b.
   droneOutput?: { role: DroneRole };
+  // E-MOD EM-1 (user P5 2026-10-19 "x1.6 per class"): an FTL drive blueprint's drive class, 1 (Class I) to 7. G2-4
+  // authors the Class II to VII drive blueprints and their gates; absent reads Class I, which every drive is today.
+  // The power fold (equipmentStatMods) multiplies an installed drive's draw by DRIVE_CLASS_POWER_DRAW_MULT per class
+  // above I the moment a blueprint sets this (ftlDriveClass), so G2-4 must NOT bake the class into powerDraw at mint.
+  driveClass?: number;
   // --- Unlock-only shape (Combat 0.13.0, Phase 9b: warship research gate) ---------
   // A THIRD blueprint family, on top of the two output families above. An UNLOCK-ONLY
   // blueprint outputs NOTHING craftable: it has no `recipe.outputItem` (no stackable) AND
@@ -13824,7 +14189,9 @@ export function freshState(homeworldSeed?: number): GameState {
     // discovered), the fixed relic seed, and the study index at 1. Existing saves reach the IDENTICAL
     // shape via the v62->v63 migration (save.ts).
     relicVault: [],
-    relicMuseum: {},
+    // Relics v2 R2-1: the empty Museum v2 record, in the v1 museum's key position (the v69 -> v70 step puts it at the
+    // same position, so a fresh save and a migrated save stay indistinguishable, key order included).
+    museumV2: emptyMuseumV2(),
     relicDiscovered: [],
     relicSeed: RELIC_DEFAULT_SEED,
     nextRelicStudyIndex: 1,

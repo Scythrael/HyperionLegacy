@@ -190,6 +190,8 @@
     // show a recipe/upgrade the backend would reject on a data mismatch.
     FACILITIES,
     REFINE_RECIPES,
+    // ML-1: the Refinery lists only the recipes it offers (the same check canStartLine reads).
+    refineRecipeOffered,
     ITEMS,
     // Display-only phase-label maps (0.13.1 DRY consolidation): the mission +
     // patrol phase readouts. FORMERLY file-local consts here AND mirrored in
@@ -376,6 +378,9 @@
     // E-CREW Task 7: the member-slot predicate that keeps ship-only lists (the dev per-ship
     // install rows) from offering away-team gear for a ship.
     isMemberSlotType,
+    // Relics v2 R2-1: the Tier I general record (where the v1 museum copies live) and its write, for the dev museum.
+    generalMuseumRecord,
+    withGeneralMuseumRecord,
   } from "./lib/game/model";
   // WR-3: the Debug Wiring panel's view model (the registry itself loads lazily inside it; types only here).
   import {
@@ -1001,6 +1006,8 @@
   // missions through. The two mission-timing popups now read it (they read the bare equipment fold before,
   // which omitted crew and the museum, so the shown times disagreed with the flown ones).
   import { effectiveShipStats } from "./lib/game/crewOverlay";
+  // G1-3: a short-range run's display name (its current job) for the status rows and the recall log.
+  import { shortRangeMissionLabel } from "./lib/game/shortRangeBoard";
   // Crafted Blanks 0.13.7: the display order for a bulk inspect-reveal (rarity -> quality -> iLevel).
   import { sortRolledPieces } from "./lib/game/inspectSort";
   // ITEM LIFECYCLE 0.13.6 (Armory, Phase 3): the loadout lifecycle, pure over GameState.
@@ -1888,6 +1895,7 @@
     idle: "Idle",
     repairing: "Repairing",
     gathering: "Gathering",
+    shortRange: "On short-range mission",
     patrol: "On patrol",
     expedition: "On expedition",
   };
@@ -3617,12 +3625,17 @@
         missionLabel = MISSIONS[captain.mission.missionKey].label;
       } else if (captain.mission.kind === "patrol") {
         missionLabel = PATROLS[captain.mission.patrolKey].label;
+      } else {
+        // G1-3: a short-range run names its current job.
+        missionLabel = shortRangeMissionLabel(captain.mission);
       }
     }
+    const finishesCycle = captain.mission !== null && captain.mission.kind === "shortRange";
     const { next, success } = recallCaptain(state, captainId);
     if (!success) return;
     state = next;
-    pushLog(`[${captain.label}] Recall ordered, returning to base from: ${missionLabel}.`);
+    // G1-3: a short-range recall finishes the current cycle first (tick.ts recallCaptain), so the log says so.
+    pushLog(finishesCycle ? `[${captain.label}] Recall ordered: ${missionLabel} stops after this cycle.` : `[${captain.label}] Recall ordered, returning to base from: ${missionLabel}.`);
     doSave();
   }
 
@@ -4689,7 +4702,7 @@
     const set = RELIC_SETS.find((s) => s.id === devMuseumSet);
     if (!set) return;
     const n = Math.max(1, Math.floor(devMuseumCopies));
-    const museum: Record<string, number> = { ...(state.relicMuseum ?? {}) };
+    const museum: Record<string, number> = { ...generalMuseumRecord(state) };
     let discovered = [...(state.relicDiscovered ?? [])];
     set.relicIds.forEach((rid, i) => {
       const last = i === set.relicIds.length - 1;
@@ -4702,7 +4715,7 @@
       museum[rid] = copies;
       if (!discovered.includes(rid)) discovered.push(rid);
     });
-    state = { ...state, relicMuseum: museum, relicDiscovered: discovered };
+    state = { ...withGeneralMuseumRecord(state, museum), relicDiscovered: discovered };
     pushLog(`[DEV] ${set.label} museum set to ${devMuseumMode} ${n} copies.`);
   }
 
@@ -7763,7 +7776,7 @@
     cfgQty = 1;
     if (kind === "refine") {
       cfgTier = 1; // REFINE_RECIPES carry no tier -> a single synthetic "Tier 1"
-      cfgRecipeKey = Object.keys(REFINE_RECIPES)[0] ?? "";
+      cfgRecipeKey = Object.keys(REFINE_RECIPES).filter(refineRecipeOffered)[0] ?? "";
     } else {
       const tiers = availableFabricateTiers;
       cfgTier = tiers[0] ?? 1;
@@ -11649,7 +11662,7 @@
                           <label style="display: inline-flex; align-items: center; gap: 6px;">
                             Item
                             <select class="modal-input" bind:value={cfgRecipeKey} aria-label="Item">
-                              {#each Object.keys(REFINE_RECIPES) as rk}
+                              {#each Object.keys(REFINE_RECIPES).filter(refineRecipeOffered) as rk}
                                 <option value={rk}>{ITEMS[REFINE_RECIPES[rk].output.itemId]?.label ?? rk}</option>
                               {/each}
                             </select>
@@ -16043,7 +16056,9 @@
                 ? "Idle"
                 : assignedCaptain.mission.kind === "extraction"
                   ? `On mission: ${MISSIONS[assignedCaptain.mission.missionKey].label}`
-                  : `On patrol: ${PATROLS[assignedCaptain.mission.patrolKey].label}`}
+                  : assignedCaptain.mission.kind === "shortRange"
+                    ? `On short-range mission: ${shortRangeMissionLabel(assignedCaptain.mission)}`
+                    : `On patrol: ${PATROLS[assignedCaptain.mission.patrolKey].label}`}
         <!-- 0.13.6: if an Armory loadout is checked out to this hull, its install screen is
              read-only (edited in the Armory). Resolve it once so the panel can lock + name it. -->
         {@const shipLoadout = state.loadouts.find((l) => l.checkedOutToShipId === ship.id) ?? null}
@@ -16396,6 +16411,8 @@
                       <span class="cprow-val">On mission · {MISSIONS[captain.mission.missionKey].label}</span>
                     {:else if captain.mission.kind === "patrol"}
                       <span class="cprow-val up">On patrol · {PATROLS[captain.mission.patrolKey].label}</span>
+                    {:else if captain.mission.kind === "shortRange"}
+                      <span class="cprow-val">On short-range mission · {shortRangeMissionLabel(captain.mission)}</span>
                     {/if}
                   </span>
                 </span>
@@ -16581,6 +16598,8 @@
                 Assignment: On mission · {MISSIONS[activeCaptain.mission.missionKey].label}
               {:else if activeCaptain.mission.kind === "patrol"}
                 Assignment: On patrol · {PATROLS[activeCaptain.mission.patrolKey].label}
+              {:else if activeCaptain.mission.kind === "shortRange"}
+                Assignment: On short-range mission · {shortRangeMissionLabel(activeCaptain.mission)}
               {/if}
             </div>
             <div class="research-cost">Ship: {overviewShip === null ? "None · Unassigned" : overviewShip.name ? `${shipDisplayLabel(state, overviewShip)} · ${SHIP_TYPES[overviewShip.typeKey]?.label ?? overviewShip.typeKey}` : shipDisplayLabel(state, overviewShip)}</div>
@@ -17734,7 +17753,7 @@
                    the SAME formatter the source panels use, so the clock can't drift. An
                    extraction reports PER-PHASE time, so it reads "... in phase". -->
               {#if row.remainingTicks !== null && row.durationTicks !== null}
-                <span class="home-eta">{remainingReadout(row.remainingTicks, row.durationTicks, showTickCounts, state.tickDurationSeconds)}{row.kind === "extraction" ? " in phase" : ""}</span>
+                <span class="home-eta">{remainingReadout(row.remainingTicks, row.durationTicks, showTickCounts, state.tickDurationSeconds)}{row.kind === "extraction" || row.kind === "shortRange" ? " in phase" : ""}</span>
               {/if}
             </span>
             {#if row.combat !== null}

@@ -269,6 +269,32 @@ in/out; multi-input deducts all atomically and refuses when any is short; alloca
 salvaged item has a sink or a typed reserve (extended to every producible refined item); every refined input is
 producible. Neutral: no golden moves (new keys only). UI: Refinery list only (grouping waits for ML-7).
 
+> **Carry note (ML-0 + ML-1 built 2026-10-20).** ML-0: `materialLinesGoldens.test.ts` pins the six gathering runs
+> (stepped == one offline `tick()`, with the shared-stream draw count), a refine line, a fabricate line, an equipment
+> blank + inspect, a Prospector Miner with a crafted Refinery-Feed Rig on the Local Asteroid run (ML-3's seam), and the
+> census. ML-1: the 7 items and 7 recipes as named (keys `refineFerriteIngot`, `refineReclaimedCircuit`,
+> `refineIridiumCatalyst`, `synthCobaltCoil`, `synthOsmiumPlate`, `synthPhotonicGel`, `synthBiocatalyst`), every
+> ratio and duration in ONE table, `MATERIAL_LINE_RECIPE_NUMBERS` (model.ts; compounds run 20 ticks because 40 breaks
+> the speed rung XP rule; the user approved the numbers as built, 2026-10-20). `ItemDef.reserved` is live: field role `effect`, one pending registry
+> entry `facility:ITEMS:<id>:reserved` per reserve (owner = the marker). Reserved now: Reclaimed Circuit, Iridium
+> Catalyst, Cobalt Coil, Osmium Plate, Photonic Gel, Biocatalyst (owner ML-2) and Precursor Circuit (owner EM-8).
+> **ML-2 and EM-8 must drop the marker in the same commit that adds the consumer** (materialLines.test.ts fails while
+> an item is both reserved and consumed). Ferrite Ingot already feeds the Osmium Plate. Stale text fixed: Damaged
+> Reactor Housing hint, Deuterium Ice flavor (its hint was already honest), Intact Data Core hint (the Neural Backup
+> consumes it). Reclaimed Alloy retagged uncommon (L11). Goldens: only the ML-0 census moved (refined 5 to 12, recipes
+> 4 to 11; the test proves removing the ML-1 rows reproduces ML-0). `shortRangeGoldens` holds the 14 new registry
+> entries apart (`registry:ml1`), so its base pin is unchanged.
+> **Review fix (2026-10-20, "nothing inert player-reachable"):** `refineRecipeOffered(key)` (model.ts) is the ONE
+> check canStartLine, the Refinery dropdown and the dashboard's idle-refinery scan read. A recipe is hidden while its
+> output is reserved or only feeds hidden recipes, so all seven ML-1 recipes are hidden today (Ferrite Ingot only feeds
+> the reserved Osmium Plate) and each comes on offer by itself when ML-2 / EM-8 drop the marker. Their registry
+> entries (`facility:REFINE_RECIPES:<key>`) read pending (owner ML-2, no probe) while hidden and turn live with their
+> content probe by themselves; ML-2 re-pins `shortRangeGoldens` `registry:ml1` when they do. **ML-2 note:** the
+> seven recipes, and so the six E-MAT orphan raws' Refinery sinks (all but Scrap Alloy), first become player-reachable
+> in ML-2. **Patch note line (L11):** "Reclaimed Alloy is now tagged uncommon (it refines from common Scrap Alloy)."
+> Rarity also feeds the Salvage Bay confirm prompt's tier (App.svelte `salvageTargetNeedsConfirm`), but material
+> salvage takes salvaged materials only, so nothing a player does changes beyond the color and the reward chips.
+
 **ML-2 Recipe rework (data).** Per call L2 (a): cargo, FTL, reactor, utility, shields, plating per E-MAT 3c and 3d with
 today's items, Sprint Drive vs Efficient Core differentiated (L11), Hauler Hold / High-Output Core Structural Assembly
 rule (L11). Tests: no-wall walker (every slot keeps a non-relic variety whose full tree bottoms out in Asteroid + Lunar
@@ -320,6 +346,26 @@ Discipline, Martian) on a D23 curve, `reactorSurplus`, `shipPowerBudget`. Remove
 `powerOutput`, `powerDrawReduction`, `ship:audit:slotPowerDraw`, `ship:audit:weaponPowerDraw`); Task 22's
 `PENDING_IN_RELEASE` loses its three E-MOD entries. Tests: each source moves `sheetPowerDraw`; neutrality (no officer,
 no Martian, Standard-Issue gear) byte-identical; integer exactness. Save: none.
+
+*Carry note (EM-0 and EM-1 built 2026-10-20, on a9caa06).* EM-0 is `emodGoldens.test.ts` (512 to 2,048 sheets per
+hull, the census, 20 patrols, 2 Ground Ops runs, 2 missions, the registry). The census reads 83 for the Freighter (it
+installs no utility; section 2.2 said 85), the rest as section 2.2; `basePowerOutput` takes the option (a) values.
+EM-1 moved only the sheets (output + hull base; draw cut by efficiency) and the registry; every patrol, mission and
+Ground Ops pin held. Golden files that pinned a sheet earlier hash it inside `withEm1Off`
+(`emodEm1Switch.fixture.ts`), which reproduces every EM-0 capture. Built: `netPowerDraw` in `crewOverlay.ts`
+(`ceil(gross / (1 + diminishing(e, POWER_EFFICIENCY_KNEE)))`, folded in `applyCrewOverlay`; knee 0.25,
+user confirmed 2026-10-20: one Overdrive officer about 8%, e 0.5 about 24%); `DRIVE_CLASS_POWER_DRAW_MULT` 1.6 with `ftlDriveClass` reading
+an optional `BlueprintDef.driveClass` (absent = Class I; G2-4 sets it and must not bake the class into `powerDraw` at
+mint; if OC-3's hull-tier class should also draw, G2-4 extends `ftlDriveClass`); `shipPower.ts shipPowerBudget(state,
+shipId, { piece, replacingInstanceId }?)` with `reactorSurplus` (EM-2 gates on its `overBudget`, EM-3 freezes its
+output and draw, EM-4 reads `reactorSurplus`). Registry: Overdrive, Power Discipline, Martian, the powerOutput and
+powerDrawReduction lines, the slot and weapon draw rows LIVE; each hull's `basePowerOutput` and the drive class seam
+added; `ship:audit:reactorCoreNet` now owned by EM-4. UI: the Power Output / Power Draw (i) texts and the Overdrive
+description only (the power bar waits for the EM-10 mockup). **For G2-4:** the voyage class (G2-3 hard-codes
+`driveClass: STANDARD_DRIVE_CLASS` at expedition.ts ~718) and the power draw must read ONE drive class source,
+`ftlDriveClass`. **For the release:** Overdrive, Power Discipline and Martian show LIVE, but a lower draw changes nothing
+until the install gate and the combat penalty read it, so EM-2 and EM-3 must land in 0.14.0. Integration (2026-10-20):
+`MULTI_SLOT_TYPES` is exported from equipment.ts and shipPower.ts reuses it (EM-5 adds `module` there once).
 
 **EM-2 Install gate.** `canFitEquipment` gains `overPower` (pristine values only, never wear), checked after capacity;
 the same check on every install path: hand install, item-side install, Armory loadout check-out (whole-set budget

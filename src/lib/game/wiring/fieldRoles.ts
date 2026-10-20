@@ -31,6 +31,7 @@ export const FIELD_ROLES: Readonly<Record<string, Readonly<Record<string, FieldR
     droneBays: "effect",
     groundSquads: "effect",
     colonistCapacity: "effect",
+    basePowerOutput: "effect", // E-MOD EM-1 (P1): the hull's own power output
     buildRecipe: "gate",
     requiresBlueprint: "gate",
     awayTeams: "gate",
@@ -96,6 +97,8 @@ export const FIELD_ROLES: Readonly<Record<string, Readonly<Record<string, FieldR
     subCategory: "identity",
     tier: "identity", // which warehouse cap holds it
     rarity: "identity", // which salvage multiplier times it
+    // ML-1: a produced item with no consumer yet; each one is a pending registry entry owned by the named slice.
+    reserved: "effect",
     sellValue: "effect",
   },
   SENIOR_STAFF_BONUSES: { id: "identity", label: "display", description: "display", seat: "gate", statKey: "identity", magnitude: "effect", rollTier: "effect" },
@@ -195,7 +198,7 @@ export const FIELD_ROLES: Readonly<Record<string, Readonly<Record<string, FieldR
     durabilityMax: "effect",
     quality: "effect",
     range: { seam: "WR-8, OC-D9 (every ship sits at position 0, B3)" },
-    powerDraw: { seam: "E-MOD + WR-7, OC-D1 (no power budget)" },
+    powerDraw: "effect", // E-MOD EM-1: a crafted weapon's draw joins the ship's power budget
     armorPen: { seam: "WR-8, OC-D12 (enemy armor is 0)" },
   },
   ROLE_TEMPLATE: {
@@ -224,6 +227,23 @@ export const FIELD_ROLES: Readonly<Record<string, Readonly<Record<string, FieldR
   },
   RELIC_SETS: { id: "identity", label: "display", relicIds: "identity", sources: "effect", perCopyStat: "effect", tiers: "effect" },
   RELICS: { id: "identity", label: "display", flavor: "display", setId: "identity", index: "identity", rarity: "effect" },
+  // Relics v2 R2-1 (dormant): the general pool and the exceptional sets; each effect field names the slice that reads it.
+  RELIC_TYPES: {
+    id: "identity",
+    label: "display",
+    flavor: "display",
+    band: { seam: "Relics v2 R2-3 (identification v2 picks a type by band)" },
+    siteSet: { seam: "Relics v2 R2-3 (the site bias doubles the old set's types)" },
+    stats: { seam: "Relics v2 R2-4 (museum math v2 sums each type's stats per tier)" },
+    weight: { seam: "Relics v2 R2-3 (the in-band pick)" },
+  },
+  EXCEPTIONAL_SETS: {
+    id: "identity",
+    tier: "identity",
+    label: "display",
+    pieces: { seam: "Relics v2 R2-4 + R2-5 (the piece values; the content sign-off sheet)" },
+    fullSet: { seam: "Relics v2 R2-4 + R2-5 (the full-set bonus; the content sign-off sheet)" },
+  },
   PATROLS: {
     label: "display",
     factionId: "identity", // the fought faction's id; since WR-4 (B14) only a combatant id prefix, never turn order
@@ -268,7 +288,6 @@ export const UNREAD_CONSTANTS: Readonly<Record<string, string>> = {
   OFFICER_BONUSES_PENDING_IN_RELEASE: "bookkeeping: read by the wiring registry (the officer bonuses whose system lands later)",
   NEUTRAL_SHIP_EVENT_PROFILE: "seam: the profile a pre-GO-8 flagged run carries (OC-G1, the legacy path)",
   STAT_KEYS: "identity: the stat vocabulary bundle (LIVE / RESERVED / ground)",
-  MISSION_CONTROL_UNLOCK_COMPLETIONS: "seam: WR-4, OC-C4 (only a commented-out Mission Control rung reads it)",
   ALL_AUTO_SALVAGE_QUALITIES: "display: every quality tier for the auto-salvage picker",
   CUNNING_PENDING_SEATS: "bookkeeping: the seats with no Cunning over-delivery yet (Pilot Cunning, WR-9 OC-E4)",
   ECONOMY_FLOOR_SLOTS: "display: the Quartermaster's economy floor set, named for its readers",
@@ -278,4 +297,11 @@ export const UNREAD_CONSTANTS: Readonly<Record<string, string>> = {
   FIELD_KIT_PRICES: "seam: FKR-7 (Quartermaster kit sales and the launch top-up charge it; registered pending)",
   PROSPECTING_USES: "seam: the prospecting quests patch (the three later Prospecting uses, read by the wiring registry; deferred)",
   PROSPECTING_BLUEPRINTS: "seam: the prospecting quests patch merges these hidden blueprints into BLUEPRINTS (read by the wiring registry; deferred)",
+  // Relics v2 R2-1 (dormant catalog; plan 2026-10-17 section 4): each is read by the slice named, tested in relicsV2Catalog.test.ts.
+  RELIC_SITE_BIAS_MULT: "seam: Relics v2 R2-3 (identification v2: the source site doubles its old set's types, user call 17)",
+  RELIC_BAND_ODDS: "seam: Relics v2 R2-3 (identification v2 picks the band; R2-2's blank-rarity tables share the shift)",
+  EXCEPTIONAL_PER_100K: "seam: Relics v2 R2-3 (identification v2's exceptional check, user call 6)",
+  RELIC_SOFT_CAP: "seam: Relics v2 R2-4 (the per-tier soft cap freeze, user call 3)",
+  CULTURE_ROSTER: "seam: Relics v2 R2-2 + R2-6 (a blank's culture from its planet; the names await the user's sign-off sheet)",
+  CULTURE_STUDY_POINTS: "seam: Relics v2 R2-6 (a culture is named at this many study points, user call 9)",
 };

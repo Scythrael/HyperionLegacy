@@ -48,6 +48,7 @@ import { telescopeReadingAtLevel } from "./telescope";
 import { telescopeCardView, telescopeMapView } from "../telescopeCardDisplay";
 import { asPreG2Candidate as asPreG2CandidateFixture, asPreG2NamesDispatch, asPreRanksDispatch, asPreSafeFirstRunsDispatch, plainAwayMember, withSlottedAwayTeams } from "./awayTeamTestFixtures";
 import { PRE_G2_STORED_RUNS } from "./expeditionTiersGoldens.fixture";
+import { withV1Museum } from "./firstRunsGoldens.fixture";
 
 // ===== shared helpers =====
 
@@ -83,8 +84,10 @@ function withoutG2Run(exp: Expedition): Expedition {
 // The state WITHOUT the G2 state fields (G2-1's stored `homeworld`) and with every run through withoutG2Run. A
 // no-op at G2-0; it lets golden 1's claim stay byte-identical across the v70 bump. Pure: shallow copies.
 // SF-1: also without the run counters (`runCounts`: seeded by freshState, written by a claim), absent before SF-1.
+// Relics v2 R2-1: and with the Museum v2 record in its v1 form (withV1Museum: the v69 save's `relicMuseum`, which
+// the v69 -> v70 step moves back), so the claim hashes and the restored save are the pre-R2-1 ones.
 function withoutG2State(state: GameState): GameState {
-  const rest = { ...state } as Record<string, unknown>;
+  const rest = { ...withV1Museum(state) } as Record<string, unknown>;
   delete rest.homeworld;
   delete rest.runCounts;
   return { ...(rest as unknown as GameState), expeditions: state.expeditions.map(withoutG2Run) };

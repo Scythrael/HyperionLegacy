@@ -18,6 +18,7 @@ import { applyTimeSkip } from "./processSpeed";
 import { installMissingCombatBaselines } from "./tick";
 import { asExpeditionVeteran, plainAwayMember } from "./awayTeamTestFixtures";
 import { PRE_G2_3_STORED_RUNS } from "./voyageGoldens.fixture";
+import { withV1Museum } from "./firstRunsGoldens.fixture";
 
 function fnv(s: string): string {
   let h = 0x811c9dc5;
@@ -142,7 +143,7 @@ describe("G2-3 goldens first: pre-voyage in-flight runs keep their timing", () =
       expect(claim.success).toBe(true);
       const skip = applyTimeSkip({ ...state, gameTimeSeconds: T0 + 1_000 }, { kind: "expedition", id: exp.id });
       expect(skip.applied).toBe(true);
-      const out = [hash(tl), ...points.map((t) => hash(advanceExpedition(exp, t))), hash(done), hash(claim.next), hash(skip.next.expeditions)];
+      const out = [hash(tl), ...points.map((t) => hash(advanceExpedition(exp, t))), hash(done), hash(withV1Museum(claim.next)), hash(skip.next.expeditions)]; // R2-1: the museum in its v1 form, as captured
       expect(out).toEqual(GOLDEN[name]);
     });
 
