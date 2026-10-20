@@ -2017,6 +2017,81 @@ export interface MemberVarietyTraits {
   readonly encounterBias?: number;                      // Security tools: signed scale on the encounter chance
   readonly uniqueEquipped?: true;                       // ONE worn in the entire fleet (D11, Neural Backup)
   readonly groundEffect?: GroundGearEffect;             // a fixed special behavior (see GroundGearEffect)
+  readonly grenade?: GrenadeTraits;                     // Field Kits FKR-5: a THROWN grenade (see GrenadeTraits)
+}
+
+// Field Kits FKR-5 (docs/plans/2026-10-14-field-kits-plan.md R3 FKR-5; user FK11 verbatim, N4, N6, N7): a grenade
+// tool's THROW, a fixed catalog fact of the variety. On a Field Kits run (flag 2) a grenade is thrown by a gambit rule
+// ("throwGrenade"), spending one CHARGE; it no longer applies its status passively on every strike (N7 "Thrown, spend
+// charges"). A run without the flag keeps the variety's passive groundEffect exactly as before.
+//   charges:      uses per OBJECTIVE (refilled free at every objective start, group 7 "Free, every objective") and
+//                 throws per BATTLE (FK11 "perhaps it's limited to 1 per battle as they deal AoE damage"). Each
+//                 rolled +1 carry capacity line (groundCarryCapacity) adds one more per objective (FK11, N4).
+//   powerMult:    the blast hits the TARGET'S GROUP (N6 "Group blast"), each body for the thrower's power x this.
+//   status:       the debuff a blast may inflict on each body it hits (FK11 "a chance to inflict a debuff, as do
+//                 other grenade types").
+//   statusChance: that debuff's fixed chance; absent = the thrower's statusChance (THE STATUS-CHANCE RULE, so the
+//                 grenade's groundStatusChance line keeps its meaning).
+export interface GrenadeTraits {
+  readonly charges: { readonly perObjective: number; readonly perBattle: number };
+  readonly powerMult: number;
+  readonly status: GambitStatusId;
+  readonly statusChance?: number;
+}
+
+// Field Kits FKR-5 (user N4 "Grenades only": Impact 4, Stun 2, Toxin 2, 1 throw per battle; FK11 "a plain grenade
+// might have 4 to start, while specialized ones might have 2 to start").
+export const GRENADE_CHARGES_PLAIN = 4;
+export const GRENADE_CHARGES_SPECIALIZED = 2;
+export const GRENADE_THROWS_PER_BATTLE = 1;
+// User N6 "Group blast + Concussion": the Impact Grenade hits the target's group at 1.5x the thrower's power, 30%
+// Concussion.
+export const IMPACT_GRENADE_POWER_MULT = 1.5;
+export const IMPACT_GRENADE_CONCUSSION_CHANCE = 0.3;
+// The SPECIALIZED grenades' blast (Stun, Toxin): their debuff is the point, so the blast is lighter than the Impact
+// Grenade's (user 2026-10-20 "Half damage": Stun and Toxin hit for 0.5x, a third of the Impact Grenade's 1.5x).
+export const SPECIALIZED_GRENADE_POWER_MULT = 0.5;
+// Each rolled carry capacity line adds this many charges per objective (FK11 "+1 carry capacity").
+export const GRENADE_CARRY_PER_LINE = 1;
+// The Impact Grenade's Fabricator recipe (user 2026-10-20 "Approve"; the Stun Grenade's tier 1 band, a titanium casing
+// in place of one wafer): 1 Titanium Ingot + 1 Polysilicate Wafer + 1 Power Coupling, researched for 700 credits.
+export const IMPACT_GRENADE_RECIPE: Readonly<Record<string, number>> = { titaniumIngot: 1, polysilicateWafer: 1, powerCoupling: 1 };
+
+// THE ONE SWITCH for the Field Kits pieces a player could reach before FKR-7 wires kits into runs (user 2026-10-20
+// "Hide until kits are live"). While false: the Impact Grenade blueprint stays out of BLUEPRINTS (so out of Research,
+// the Fabricator and the Archive; it waits in FIELD_KITS_HIDDEN_BLUEPRINTS), and a NEW Stun or Toxin Grenade craft rolls
+// from its pre-FKR-5 pool (no +1 Carry Capacity line), exactly as before FKR-5. Pieces already minted keep their
+// lines. FKR-7 flips it to true: the blueprint merges in and the two pools gain the carry line (GRENADE_CRAFT_POOLS).
+export const FIELD_KITS_PLAYER_LIVE = false;
+
+// The Stun and Toxin Grenades' craft pools: `base` as before FKR-5, `carry` with FKR-5's +1 Carry Capacity line (FK11;
+// pool weight 1, variety share 0.15 [PROPOSAL: a "possibly" line, about one Standard craft in four], the other two
+// shares lowered so each variety's shares still sum to 1). FIELD_KITS_PLAYER_LIVE picks one (grenadeCraftPool).
+type GrenadeCraftPool = { readonly affixPool: readonly { readonly stat: string; readonly weight: number }[]; readonly statRatios: Readonly<Record<string, number>> };
+export const GRENADE_CRAFT_POOLS: Readonly<Record<"stunGrenade" | "toxinGrenade", Readonly<Record<"base" | "carry", GrenadeCraftPool>>>> = {
+  stunGrenade: {
+    base: { affixPool: [{ stat: "groundStatusChance", weight: 4 }, { stat: "groundAccuracy", weight: 2 }], statRatios: { groundStatusChance: 0.7, groundAccuracy: 0.3 } },
+    carry: {
+      affixPool: [{ stat: "groundStatusChance", weight: 4 }, { stat: "groundAccuracy", weight: 2 }, { stat: "groundCarryCapacity", weight: 1 }],
+      statRatios: { groundStatusChance: 0.6, groundAccuracy: 0.25, groundCarryCapacity: 0.15 },
+    },
+  },
+  toxinGrenade: {
+    base: { affixPool: [{ stat: "groundStatusChance", weight: 3 }, { stat: "groundPower", weight: 3 }], statRatios: { groundStatusChance: 0.6, groundPower: 0.4 } },
+    carry: {
+      affixPool: [{ stat: "groundStatusChance", weight: 3 }, { stat: "groundPower", weight: 3 }, { stat: "groundCarryCapacity", weight: 1 }],
+      statRatios: { groundStatusChance: 0.5, groundPower: 0.35, groundCarryCapacity: 0.15 },
+    },
+  },
+};
+
+// A fresh copy of the pool `key` crafts from under FIELD_KITS_PLAYER_LIVE (`live` overrides it for a test). Pure.
+export function grenadeCraftPool(
+  key: "stunGrenade" | "toxinGrenade",
+  live: boolean = FIELD_KITS_PLAYER_LIVE,
+): { affixPool: { stat: string; weight: number }[]; statRatios: Record<string, number> } {
+  const p = GRENADE_CRAFT_POOLS[key][live ? "carry" : "base"];
+  return { affixPool: p.affixPool.map((a) => ({ ...a })), statRatios: { ...p.statRatios } };
 }
 
 // A member variety with its traits guaranteed present (what memberVariety returns).
@@ -2642,29 +2717,66 @@ export const EQUIPMENT_SLOTS: Record<string, EquipmentSlotDef> = {
     ],
     varieties: [
       // Security tools:
-      // Stun Grenade: a thrown stun.
+      // Stun Grenade: a thrown stun. Field Kits FKR-5: a SPECIALIZED grenade (2 charges, a light blast, Stun at the
+      // thrower's status chance). Its pool gains the +1 carry capacity line (FK11) once FIELD_KITS_PLAYER_LIVE is
+      // true (FKR-7); until then a new craft rolls exactly as before FKR-5. Pieces already minted keep their lines.
       {
         key: "stunGrenade",
         label: "Stun Grenade",
-        member: { teamTypes: ["security"], groundEffect: { kind: "inflict", status: "stun" } },
+        member: {
+          teamTypes: ["security"],
+          groundEffect: { kind: "inflict", status: "stun" },
+          grenade: {
+            charges: { perObjective: GRENADE_CHARGES_SPECIALIZED, perBattle: GRENADE_THROWS_PER_BATTLE },
+            powerMult: SPECIALIZED_GRENADE_POWER_MULT,
+            status: "stun",
+          },
+        },
         implicitStats: ["groundStatusChance"],
-        affixPool: [
-          { stat: "groundStatusChance", weight: 4 },
-          { stat: "groundAccuracy", weight: 2 },
-        ],
-        statRatios: { groundStatusChance: 0.7, groundAccuracy: 0.3 },
+        ...grenadeCraftPool("stunGrenade"),
       },
-      // Toxin Grenade: a thrown poison cloud.
+      // Toxin Grenade: a thrown poison cloud. Field Kits FKR-5: a SPECIALIZED grenade (2 charges, a light blast,
+      // Poison at the thrower's status chance), its pool with the carry capacity line once FIELD_KITS_PLAYER_LIVE.
       {
         key: "toxinGrenade",
         label: "Toxin Grenade",
-        member: { teamTypes: ["security"], groundEffect: { kind: "inflict", status: "poison" } },
+        member: {
+          teamTypes: ["security"],
+          groundEffect: { kind: "inflict", status: "poison" },
+          grenade: {
+            charges: { perObjective: GRENADE_CHARGES_SPECIALIZED, perBattle: GRENADE_THROWS_PER_BATTLE },
+            powerMult: SPECIALIZED_GRENADE_POWER_MULT,
+            status: "poison",
+          },
+        },
         implicitStats: ["groundStatusChance"],
+        ...grenadeCraftPool("toxinGrenade"),
+      },
+      // Impact Grenade (the user's name, FK11: "an impact grenade explodes on contact, deals AoE damage and has a chance
+      // to inflict a debuff"): the PLAIN grenade, Field Kits FKR-5. 4 charges, the target's group at 1.5x the thrower's
+      // power, 30% Concussion (N6). It has NO passive groundEffect: its blast fires only when thrown, on a Field Kits
+      // run; on any other run a worn one acts only through its stat lines, like any worn piece. Its blueprint is its
+      // only source and stays hidden until FIELD_KITS_PLAYER_LIVE (FKR-7), so no player holds one before then. Its
+      // lines raise the wearer's power and aim, which the blast reads; the carry capacity line adds a charge.
+      {
+        key: "impactGrenade",
+        label: "Impact Grenade",
+        member: {
+          teamTypes: ["security"],
+          grenade: {
+            charges: { perObjective: GRENADE_CHARGES_PLAIN, perBattle: GRENADE_THROWS_PER_BATTLE },
+            powerMult: IMPACT_GRENADE_POWER_MULT,
+            status: "concussion",
+            statusChance: IMPACT_GRENADE_CONCUSSION_CHANCE,
+          },
+        },
+        implicitStats: ["groundPower"],
         affixPool: [
-          { stat: "groundStatusChance", weight: 3 },
           { stat: "groundPower", weight: 3 },
+          { stat: "groundAccuracy", weight: 3 },
+          { stat: "groundCarryCapacity", weight: 1 },
         ],
-        statRatios: { groundStatusChance: 0.6, groundPower: 0.4 },
+        statRatios: { groundPower: 0.6, groundAccuracy: 0.25, groundCarryCapacity: 0.15 },
       },
       // Med Kit: the in-fight heal (the medic-style item the user asked Security to carry). D20: its HEAL
       // (and the medic abilities) need Medical Training (the fieldMedic trait). Its groundHp / groundArmor
@@ -3115,6 +3227,10 @@ export const RESERVED_STAT_KEYS = [
 //                                                            "Add YIELD + GRADE"): units per deposit and the lift
 //                                                            on the better-tier roll. HIDDEN with the squad; only
 //                                                            Prospecting pieces roll them (prospecting.ts)
+//   groundCarryCapacity                                   , Field Kits FKR-5 (FK11 "+1 carry capacity"): a grenade's
+//                                                            extra charge per objective. Stored as GRENADE_CARRY_PER_LINE
+//                                                            (a count, not budget points); no member stat (awayTeam.ts
+//                                                            toolCharges reads it)
 // The tools' encounter dial (Shroud / Lure) is NOT a stat line: it is the variety's `encounterBias`
 // descriptor (EquipmentVarietyDef), a fixed property of the tool rather than a rolled magnitude.
 export const MEMBER_GROUND_STAT_KEYS = [
@@ -3131,6 +3247,7 @@ export const MEMBER_GROUND_STAT_KEYS = [
   "groundVaultYield",
   "groundOreYield",
   "groundOreGrade",
+  "groundCarryCapacity",
 ] as const;
 export type MemberGroundStatKey = (typeof MEMBER_GROUND_STAT_KEYS)[number];
 
@@ -3766,6 +3883,7 @@ export function equipmentStatMods(pieces: EquipmentInstance[]): EquipmentStatMod
           case "groundHazardResist":
           case "groundOrganicsYield":
           case "groundVaultYield":
+          case "groundCarryCapacity":
             break;
           // RESERVED (materialQualityChance) + any unknown key: intentionally ignored this
           // patch (its consumer is still deferred). No silent surprise: the fold simply does
@@ -3946,14 +4064,9 @@ export function effectiveMissionDef(base: MissionDef, ship: ShipDerivedStats): M
   // unchanged). ⚠️ A hull whose cargo != UNLOAD_REFERENCE_CARGO now gets a DIFFERENT crew-free unload
   // length than base.unloadTicks: that is the intended balance change, NOT a regression.
   // WR-5a: Overloaded Holds' overflow unloads at no extra time, so the unload scales with the hold below it.
-  const cargoScaledUnload = Math.max(
-    UNLOAD_MIN_TICKS,
-    Math.ceil((base.unloadTicks * (ship.unloadCargoCapacity ?? ship.cargoCapacity)) / UNLOAD_REFERENCE_CARGO),
-  );
-  const unloadMult = ship.unloadSpeedMult ?? 1;
-  const unloadTicks = Math.max(1, Math.ceil(cargoScaledUnload / unloadMult));
+  const unloadTicks = scaledUnloadTicks(base.unloadTicks, ship.unloadCargoCapacity ?? ship.cargoCapacity, ship);
   // CP-2 (OC-E5): each leg divides by its own speed (Fast Departure out, Fast Return back).
-  const transitOutTicks = Math.ceil(base.transitOutTicks / outboundLegSpeed(ship));
+  const transitOutTicks = outboundLegTicks(base.transitOutTicks, ship);
   const museumFold = museumExtractionSpeedFold(base.extractionRatePerTick, ship.cargoCapacity, ship.extractionSpeedMult);
   // E-CREW (Task 21): the Flight Deck's Constitution ramp on the return leg (absent facet = the plain divide)
   // and the Operations Integrity full-hold unload (written only when the facet is non-zero).
@@ -3961,8 +4074,8 @@ export function effectiveMissionDef(base: MissionDef, ship: ShipDerivedStats): M
     1 +
     transitOutTicks +
     (museumFold.extractionTicksOverride ?? Math.ceil(ship.cargoCapacity / (museumFold.extractionRatePerTick ?? base.extractionRatePerTick)));
-  const transitBackTicks = ship.returnLegConstitution ? rampedReturnTicks(base, ship, outbound) : Math.ceil(base.transitBackTicks / returnLegSpeed(ship));
-  const fullHold = ship.fullHoldUnloadIntegrity ?? 0;
+  const transitBackTicks = returnLegTicks(base.transitBackTicks, ship, outbound);
+  const fullHoldTicks = fullHoldUnloadTicksFor(unloadTicks, ship);
   return {
     ...base,
     transitOutTicks,
@@ -3970,8 +4083,37 @@ export function effectiveMissionDef(base: MissionDef, ship: ShipDerivedStats): M
     cargoCapacity: ship.cargoCapacity,
     unloadTicks,
     ...museumFold,
-    ...(fullHold > 0 ? { fullHoldUnloadTicks: Math.max(1, Math.ceil(unloadTicks / (1 + fullHold))) } : {}),
+    ...(fullHoldTicks !== undefined ? { fullHoldUnloadTicks: fullHoldTicks } : {}),
   };
+}
+
+// The mission folds, one helper each, shared by effectiveMissionDef and the short-range cycle plan (G1-2,
+// shortRange.ts shortRangeCyclePlan) so a crew or gear bonus that claims "missions" acts on both the same way.
+// Each is effectiveMissionDef's own arithmetic, unchanged. Pure.
+
+// The unload length for `basis` units: (1) cargo-scaled against UNLOAD_REFERENCE_CARGO (ceil), floored at
+// UNLOAD_MIN_TICKS; (2) divided by the crew unloadSpeedMult (ceil), at least 1 tick.
+export function scaledUnloadTicks(baseUnloadTicks: number, basis: number, ship: ShipDerivedStats): number {
+  const cargoScaledUnload = Math.max(UNLOAD_MIN_TICKS, Math.ceil((baseUnloadTicks * basis) / UNLOAD_REFERENCE_CARGO));
+  const unloadMult = ship.unloadSpeedMult ?? 1;
+  return Math.max(1, Math.ceil(cargoScaledUnload / unloadMult));
+}
+
+// The outbound leg: the base ticks divided by the outbound leg's speed (Fast Departure), ceil.
+export function outboundLegTicks(baseTicks: number, ship: ShipDerivedStats): number {
+  return Math.ceil(baseTicks / outboundLegSpeed(ship));
+}
+
+// The return leg: the Flight Deck Constitution ramp over the `ticksBeforeReturn` already flown when the facet is set,
+// else the base ticks divided by the return leg's speed (Fast Return), ceil.
+export function returnLegTicks(baseTicks: number, ship: ShipDerivedStats, ticksBeforeReturn: number): number {
+  return ship.returnLegConstitution ? rampedReturnTicks(baseTicks, ship, ticksBeforeReturn) : Math.ceil(baseTicks / returnLegSpeed(ship));
+}
+
+// The Operations Integrity full-hold unload ("a packed hold unloads faster"): undefined without the facet.
+export function fullHoldUnloadTicksFor(unloadTicks: number, ship: ShipDerivedStats): number | undefined {
+  const fullHold = ship.fullHoldUnloadIntegrity ?? 0;
+  return fullHold > 0 ? Math.max(1, Math.ceil(unloadTicks / (1 + fullHold))) : undefined;
 }
 
 // E-CREW 0.14.0 (Task 21, Operations INTEGRITY): the hold share at which a hold counts as packed. FIRST-PASS.
@@ -4006,10 +4148,10 @@ export function missionPhaseTicks(
 // E-CREW 0.14.0 (Task 21, Flight Deck CONSTITUTION): the return leg's ticks after the ramp. The voyage's hours
 // before the return starts are its orders + outbound + extracting phases (RAMP_SECONDS_PER_TICK each); the leg
 // is divided by (the return leg's speed * (1 + ramp)), ceil, at least 1 tick. Pure.
-function rampedReturnTicks(base: MissionDef, ship: ShipDerivedStats, outboundTicks: number): number {
+function rampedReturnTicks(baseTicks: number, ship: ShipDerivedStats, outboundTicks: number): number {
   const ramp = constitutionRamp(ship.returnLegConstitution ?? 0, (outboundTicks * RAMP_SECONDS_PER_TICK) / 3600);
-  if (ramp === 0) return Math.ceil(base.transitBackTicks / returnLegSpeed(ship));
-  return Math.max(1, Math.ceil(base.transitBackTicks / (returnLegSpeed(ship) * (1 + ramp))));
+  if (ramp === 0) return Math.ceil(baseTicks / returnLegSpeed(ship));
+  return Math.max(1, Math.ceil(baseTicks / (returnLegSpeed(ship) * (1 + ramp))));
 }
 
 // Exploration 0.14.0 (Phase E4b): the floor on a museum-shortened extracting phase (whole ticks).
@@ -7120,6 +7262,11 @@ export type GambitActionId =
   | "useItem" // spend a team-kit consumable to cure an ally (works with no Science curer)
   | "fallBack" // disengage this round
   | "hold" // do nothing (explicit no-op)
+  // Field Kits FKR-5: THROW the member's grenade at the target's group, spending one charge (a Field Kits run only:
+  // gambit.ts; fieldKitsGrenades.ts arms the thrower). A rule whose actor has no charge left, or has spent its throws
+  // this battle, does not fire (FK11: "IF a gambit line requires a grenade to be used, and you're out or you've used one
+  // already in that battle, skip it").
+  | "throwGrenade"
   // Enemy only (never in a squad's legal set):
   // Field Kits FKR-4: a Striker's FLASH GRENADE (Blindness on the target), one per Striker per battle, on a Field Kits
   // run only (gambit.ts; fieldKitsConditions.ts arms the Strikers).
@@ -7416,6 +7563,29 @@ export interface Expedition {
   // b, c, d; groundTaskQueueDisplay.ts bodyDesignation). Absent on every run dispatched before G2-2 (banked name,
   // Roman numeral bodies). Optional, no SAVE bump.
   region?: ExpeditionRegionStamp;
+  // Expedition Tiers G2-3: the VOYAGE, frozen at dispatch (voyage.ts planVoyage). Its PRESENCE puts the run on the
+  // tier-aware transit: the outbound leg, the return leg (before the Flight Deck ramp) and the anomaly detour are
+  // read from it. Absent on every run dispatched before G2-3: the fixed pre-G2-3 legs (expedition.ts
+  // TRANSIT_SECONDS, the retired shakedown's SHAKEDOWN_TRANSIT_SECONDS), byte-identically. Optional, no SAVE bump.
+  voyage?: ExpeditionVoyage;
+}
+
+// Expedition Tiers G2-3 (user G5 + G21, 2026-10-16): a run's voyage. `tier` sets the nominal hours (tiers are
+// difficulty); `distanceLy` (whole light-years from the homeworld) places it inside the tier's band, which shifts
+// the time only inside the tier; `driveClass` is the ship's drive class at dispatch (each class above the tier's
+// minimum halves the time); `outboundSpeed` / `returnSpeed` are the ship's own speed on each leg at dispatch
+// (outboundLegSpeed / returnLegSpeed: the sweeping transitSpeedMult times that leg's complement lift, CP-2 OC-E5).
+// The three durations are whole seconds; `returnSeconds` is before the Flight Deck ramp. Plain data.
+export interface ExpeditionVoyage {
+  version: 1;
+  tier: RegionTier;
+  distanceLy: number;
+  driveClass: number;
+  outboundSpeed: number;
+  returnSpeed: number;
+  outboundSeconds: number;
+  returnSeconds: number;
+  anomalySeconds: number;
 }
 
 // Expedition Tiers G2-2: the region a run was dispatched to. `tier` and `enemyTerritory` are the region the risk
@@ -7490,6 +7660,9 @@ export interface SnapshotGearPiece {
   slotType: MemberSlotType;
   varietyKey: string; // the piece's stamped moduleVariant ("" when unstamped)
   points: number; // the piece's summed ground line points (implicit + rolled)
+  // Field Kits FKR-5: the piece's +1 carry capacity lines (groundCarryCapacity, a grenade's extra charges), written
+  // only when it has one, so every snapshot of a piece without one keeps its exact shape. Absent = 0.
+  carry?: number;
 }
 
 // One deployed member, frozen at dispatch (awayTeam.ts snapshotAwayRoster). Plain data, no live refs.
@@ -7606,6 +7779,10 @@ export interface GroundFightRecord {
   // "Elite Bruiser"). Record only (nothing reads it back into a fight); written only on a ranked run's fight that
   // fielded one, so every other record keeps its exact shape.
   ranks?: Record<string, EnemyRank>;
+  // Field Kits FKR-5 (tool charges): memberId -> the grenade charges that member threw in this fight. Written only on a
+  // Field Kits run's fight in which someone threw, so every other record keeps its exact shape. FKR-7 subtracts it from
+  // the member's charges left this objective.
+  chargesUsed?: Record<string, number>;
 }
 
 // A ground team's current step on the run timeline (GO-7b): idle / staging are open-ended (stepEndsAt null).
@@ -9372,6 +9549,26 @@ export function blueprintMintsEquipmentInstance(bp: BlueprintDef): boolean {
 //     (raw -> refined -> minor -> major) the item taxonomy is built around.
 // Higher tiers (equipment / modules / ship systems) are DEFERRED until the Fabricator +
 // ship-systems phases define them (design §5), no placeholder tiers here.
+//
+// Field Kits FKR-5: the blueprints kept OUT of BLUEPRINTS until FIELD_KITS_PLAYER_LIVE (user 2026-10-20 "Hide until
+// kits are live"): the Research list, Fabricator, Archive and their completion totals read BLUEPRINTS whole and have no
+// hidden-entry rule (the PROSPECTING_BLUEPRINTS pattern). FKR-7 flips the switch and BLUEPRINTS spreads them in.
+// The Impact Grenade, the PLAIN grenade (FK11), so tier 1 beside the Stun Grenade (IMPACT_GRENADE_RECIPE).
+export const FIELD_KITS_HIDDEN_BLUEPRINTS: Readonly<Record<string, BlueprintDef>> = {
+  impactGrenadeBp: {
+    key: "impactGrenadeBp",
+    label: "Impact Grenade Blueprint",
+    tier: 1,
+    researchDurationTicks: 60,
+    researchCreditCost: 700,
+    craftDurationTicks: 150,
+    equipmentOutput: { slotType: "memberTool", varietyKey: "impactGrenade" },
+    recipe: { inputs: { ...IMPACT_GRENADE_RECIPE } },
+    flavor: "Pull the pin, throw, and let the blast do the arguing.",
+    unlockHint: "Researched at the Research Lab; crafted at the Fabricator. Away-team gear, worn by a squad member.",
+  },
+};
+
 export const BLUEPRINTS: Record<string, BlueprintDef> = {
   frameSegmentBp: {
     key: "frameSegmentBp",
@@ -10250,6 +10447,9 @@ export const BLUEPRINTS: Record<string, BlueprintDef> = {
     flavor: "A canister of something that lingers. Throw it, then stand upwind.",
     unlockHint: "Researched at the Research Lab (needs a higher lab tier); crafted at the Fabricator. Away-team gear, worn by a squad member.",
   },
+  // Field Kits FKR-5: the Impact Grenade (FIELD_KITS_HIDDEN_BLUEPRINTS), merged in here, in this place, only once
+  // FIELD_KITS_PLAYER_LIVE is true (FKR-7).
+  ...(FIELD_KITS_PLAYER_LIVE ? FIELD_KITS_HIDDEN_BLUEPRINTS : {}),
   medKitBp: {
     key: "medKitBp",
     label: "Med Kit Blueprint",

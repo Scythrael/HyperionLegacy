@@ -92,6 +92,7 @@ const NOT_OWNED: Owned = { ownership: "notOwned" };
 // Game data every save plays with (missions, enemies, content tables): proved by the sensitivity suite, not owned.
 export const CONTENT_CATALOGS: ReadonlySet<string> = new Set([
   "MISSIONS",
+  "SHORT_RANGE_TEMPLATES", // G1-2: the short-range jobs, content like MISSIONS
   "PATROLS",
   "WEAPON_DEFS",
   "ROLE_TEMPLATE",
@@ -115,6 +116,8 @@ export const CONTENT_CATALOGS: ReadonlySet<string> = new Set([
   "CONDITION_LINES",
   "FREE_BASIC_SET",
   "FIELD_KIT_PRICES",
+  // Field Kits FKR-5: the grenade family's charges, throws, blast and debuff (catalog facts of the grenade varieties).
+  "GRENADES",
   "GROUND_CONDITIONS",
   "SPEED_SEAM",
 ]);

@@ -27,6 +27,8 @@
 //                  generator reproduces it exactly with the G1-0 pool: the appended affix is the only cause.
 //   registry       8 entries ADDED (G1_ADDED_ENTRY_IDS, pinned as `registry:g1`); the base pin is unchanged, so no
 //                  existing entry moved.
+// MOVED BY G1-2 (templates, sheets and the roll): `registry:g1` gains the 21 short-range template entries (seven
+// templates x rolls, work, reward), all pending G1-4; the base pin and every other pin here are unchanged.
 // MOVED BY FKR-4 (Field Kits conditions, merged before G1-1): the base `registry` pin moves 1170 -> 1181, entirely
 // FKR-4's added and flipped entries (its new condition, severity and inflictor rows, and the rows it flipped live).
 // G2-2's registry edits only reword pending owners (pending stays pending), so they hash the same. Then the review
@@ -43,8 +45,18 @@
 // unchanged: nine placeholder entries flip pending -> live (WR6_WIRED_IDS); golden 5 reproduces the old hash with
 // those nine read as pending.
 // ADDED BY ML-1 (Material Lines items and recipes): 14 registry entries, held apart like G1's (ML1_ADDED_ENTRY_IDS,
-// pinned as `registry:ml1`): the seven new Refinery recipes (live, the content probe on each duration) and the seven
-// typed reserves (pending, owned by ML-2 or EM-8). No existing entry moved, so the base pin is unchanged.
+// pinned as `registry:ml1`): the seven new Refinery recipes (pending while the Refinery hides them, refineRecipeOffered;
+// each reads live by itself once ML-2 gives its output a use) and the seven typed reserves (pending, owned by ML-2 or
+// EM-8). No existing entry moved, so the base pin is unchanged.
+// MOVED BY FKR-5 (grenade charges), its review rulings (user 2026-10-20) and G2-3 (the voyage engine), re-captured
+// once at their integration (0.14.0):
+//   registry       1182 c748495a -> 1201 e6523a6f: FKR-5 adds 19 entries and flips Explosives pending -> live; the
+//                  rulings hide three of the 19 until FKR-7 (FIELD_KITS_PLAYER_LIVE false: the Impact Grenade
+//                  blueprint and the Stun and Toxin carry lines) and add one audit row naming them; G2-3 adds two
+//                  audit rows. Every registry check goes through registryPin, the one exclusion helper: with those
+//                  slices held apart and the flip read back as pending it reproduces c748495a, and with WR-6 read back
+//                  too it reproduces the pin from before WR-6. The registry moves before this one: FKR-4, the
+//                  2026-10-19 review rulings (the Bleed flips), CP-8 and WR-6 (above).
 // ADDED BY G1-1: `guests:<hull>` (guest quarters bare and with each quarters variety, the Guest Wing last) and
 // `stats:<hull>:guestWing` (every other stat with a Guest Wing installed). The sheets hash through withoutGuests, so
 // the stats pins keep proving no other stat moved (the transport hulls now carry base guest quarters).
@@ -52,7 +64,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { writeFileSync } from "node:fs";
 import Decimal from "break_infinity.js";
-import { EQUIPMENT_SLOTS, MISSIONS, SHIP_TYPES, type EquipmentInstance, type EquipmentRarity, type GameState, type ShipDerivedStats, type ShipTypeKey } from "./model";
+import { EQUIPMENT_SLOTS, FIELD_KITS_PLAYER_LIVE, MISSIONS, SHIP_TYPES, type EquipmentInstance, type EquipmentRarity, type GameState, type ShipDerivedStats, type ShipTypeKey } from "./model";
 import { dispatchCaptainOnMission, dispatchCaptainOnPatrol, economyTick, installMissingCombatBaselines, mintBuiltShip } from "./tick";
 import { startExpedition } from "./expedition";
 import { effectiveShipStats } from "./crewOverlay";
@@ -270,15 +282,15 @@ const GOLDEN: Record<string, unknown> = {
     "50:quartersFlightDeckWing:stellar:q2:iL31:{\"crewStations\":57}:{\"colonistCapacity\":76,\"crewStations\":19}:m0:quartersFlightDeckWing",
     "pool:[{\"stat\":\"crewStations\",\"weight\":5},{\"stat\":\"crewEfficiency\",\"weight\":2},{\"stat\":\"massReduction\",\"weight\":1},{\"stat\":\"colonistCapacity\",\"weight\":2}]",
   ],
-  "registry": [1182, "c748495a"],
+  "registry": [1201, "e6523a6f"],
   "registry:ml1": [
-    "facility:REFINE_RECIPES:refineFerriteIngot|live",
-    "facility:REFINE_RECIPES:refineReclaimedCircuit|live",
-    "facility:REFINE_RECIPES:refineIridiumCatalyst|live",
-    "facility:REFINE_RECIPES:synthCobaltCoil|live",
-    "facility:REFINE_RECIPES:synthOsmiumPlate|live",
-    "facility:REFINE_RECIPES:synthPhotonicGel|live",
-    "facility:REFINE_RECIPES:synthBiocatalyst|live",
+    "facility:REFINE_RECIPES:refineFerriteIngot|pending",
+    "facility:REFINE_RECIPES:refineReclaimedCircuit|pending",
+    "facility:REFINE_RECIPES:refineIridiumCatalyst|pending",
+    "facility:REFINE_RECIPES:synthCobaltCoil|pending",
+    "facility:REFINE_RECIPES:synthOsmiumPlate|pending",
+    "facility:REFINE_RECIPES:synthPhotonicGel|pending",
+    "facility:REFINE_RECIPES:synthBiocatalyst|pending",
     "facility:ITEMS:reclaimedCircuit:reserved|pending",
     "facility:ITEMS:iridiumCatalyst:reserved|pending",
     "facility:ITEMS:cobaltCoil:reserved|pending",
@@ -287,7 +299,9 @@ const GOLDEN: Record<string, unknown> = {
     "facility:ITEMS:biocatalyst:reserved|pending",
     "facility:ITEMS:precursorCircuit:reserved|pending",
   ],
-  "registry:g1": ["ship:gearLine:colonistCapacity|pending", "ship:SHIP_TYPES:generalFreighter:colonistCapacity|pending", "ship:SHIP_TYPES:orion:colonistCapacity|pending", "ship:SHIP_TYPES:aurora:colonistCapacity|pending", "ship:SHIP_TYPES:eir:colonistCapacity|pending", "ship:SHIP_SEAMS:generalQuartersGuestPerk|pending", "ship:QUARTERS_MODULES:quartersGuestWing|live", "ship:QUARTERS_MODULES:quartersGuestWing:capacity|pending"],
+  "registry:g1": ["ship:gearLine:colonistCapacity|pending", "ship:SHIP_TYPES:generalFreighter:colonistCapacity|pending", "ship:SHIP_TYPES:orion:colonistCapacity|pending", "ship:SHIP_TYPES:aurora:colonistCapacity|pending", "ship:SHIP_TYPES:eir:colonistCapacity|pending", "ship:SHIP_SEAMS:generalQuartersGuestPerk|pending", "ship:QUARTERS_MODULES:quartersGuestWing|live", "ship:QUARTERS_MODULES:quartersGuestWing:capacity|pending",
+    // G1-2: the short-range template catalog, pending the cycle engine (G1-4).
+    "mission:SHORT_RANGE_TEMPLATES:refugeeRelocation:rolls|pending", "mission:SHORT_RANGE_TEMPLATES:refugeeRelocation:work|pending", "mission:SHORT_RANGE_TEMPLATES:refugeeRelocation:reward|pending", "mission:SHORT_RANGE_TEMPLATES:supplyDropOff:rolls|pending", "mission:SHORT_RANGE_TEMPLATES:supplyDropOff:work|pending", "mission:SHORT_RANGE_TEMPLATES:supplyDropOff:reward|pending", "mission:SHORT_RANGE_TEMPLATES:supplyPickup:rolls|pending", "mission:SHORT_RANGE_TEMPLATES:supplyPickup:work|pending", "mission:SHORT_RANGE_TEMPLATES:supplyPickup:reward|pending", "mission:SHORT_RANGE_TEMPLATES:phenomenonSurvey:rolls|pending", "mission:SHORT_RANGE_TEMPLATES:phenomenonSurvey:work|pending", "mission:SHORT_RANGE_TEMPLATES:phenomenonSurvey:reward|pending", "mission:SHORT_RANGE_TEMPLATES:telescopeRepair:rolls|pending", "mission:SHORT_RANGE_TEMPLATES:telescopeRepair:work|pending", "mission:SHORT_RANGE_TEMPLATES:telescopeRepair:reward|pending", "mission:SHORT_RANGE_TEMPLATES:commBoosterBuild:rolls|pending", "mission:SHORT_RANGE_TEMPLATES:commBoosterBuild:work|pending", "mission:SHORT_RANGE_TEMPLATES:commBoosterBuild:reward|pending", "mission:SHORT_RANGE_TEMPLATES:prisonerTransport:rolls|pending", "mission:SHORT_RANGE_TEMPLATES:prisonerTransport:work|pending", "mission:SHORT_RANGE_TEMPLATES:prisonerTransport:reward|pending"],
   "old": ["aa94ddcd", "817862c7", "4ac62731", "d9a483c6"],
 };
 
@@ -352,7 +366,8 @@ const QUARTERS_POOL_AT_G1_0 = [
   { stat: "massReduction", weight: 1 },
 ];
 // The registry entries a G1 slice adds (new ids only; an existing entry never changes here). G1-1: the guest quarters
-// sources (the gear line, the four transport hulls' bases, the General quarters perk) and the Guest Wing module.
+// sources (the gear line, the four transport hulls' bases, the General quarters perk) and the Guest Wing module. G1-2:
+// the short-range template catalog's 21 effect fields.
 const G1_ADDED_ENTRY_IDS: ReadonlySet<string> = new Set<string>([
   "ship:gearLine:colonistCapacity",
   "ship:SHIP_TYPES:generalFreighter:colonistCapacity",
@@ -362,6 +377,10 @@ const G1_ADDED_ENTRY_IDS: ReadonlySet<string> = new Set<string>([
   "ship:SHIP_SEAMS:generalQuartersGuestPerk",
   "ship:QUARTERS_MODULES:quartersGuestWing",
   "ship:QUARTERS_MODULES:quartersGuestWing:capacity",
+  // G1-2: every effect field of every short-range template (rolls, work, reward), pending the cycle engine (G1-4).
+  ...["refugeeRelocation", "supplyDropOff", "supplyPickup", "phenomenonSurvey", "telescopeRepair", "commBoosterBuild", "prisonerTransport"].flatMap((k) =>
+    ["rolls", "work", "reward"].map((f) => `mission:SHORT_RANGE_TEMPLATES:${k}:${f}`),
+  ),
 ]);
 // The registry entries ML-1 adds (new ids only): its seven Refinery recipes and its seven typed reserves.
 const ML1_ADDED_ENTRY_IDS: ReadonlySet<string> = new Set<string>([
@@ -370,7 +389,53 @@ const ML1_ADDED_ENTRY_IDS: ReadonlySet<string> = new Set<string>([
   ),
   ...["reclaimedCircuit", "iridiumCatalyst", "cobaltCoil", "osmiumPlate", "photonicGel", "biocatalyst", "precursorCircuit"].map((id) => `facility:ITEMS:${id}:reserved`),
 ]);
-const heldApart = (id: string): boolean => G1_ADDED_ENTRY_IDS.has(id) || ML1_ADDED_ENTRY_IDS.has(id);
+
+// Field Kits FKR-5 (tool charges and the grenade family), held apart by the cause checks: the 19 entries it ADDS (the
+// Impact Grenade's three lines and the carry line on the two older grenades, each grenade's four GRENADES rows, the
+// throwGrenade action, the Impact Grenade blueprint's research) and the ONE entry it FLIPS pending -> live (Explosives:
+// Saboteur on the Saboteur's own throws), read back as pending there.
+const FKR5_ADDED_ENTRY_IDS: ReadonlySet<string> = new Set<string>([
+  "gear:security:stunGrenade:groundCarryCapacity",
+  "gear:security:toxinGrenade:groundCarryCapacity",
+  "gear:security:impactGrenade:groundPower",
+  "gear:security:impactGrenade:groundAccuracy",
+  "gear:security:impactGrenade:groundCarryCapacity",
+  ...["stunGrenade", "toxinGrenade", "impactGrenade"].flatMap((k) => ["charges", "perBattle", "blast", "status"].map((f) => `away:GRENADES:${k}:${f}`)),
+  "away:GAMBIT_ACTIONS:throwGrenade",
+  "facility:BLUEPRINTS:impactGrenadeBp",
+]);
+const FKR5_FLIPPED_LIVE: ReadonlySet<string> = new Set<string>(["away:KIT_CATEGORY_RULES:explosives"]);
+// The review rulings (user 2026-10-20 "Hide until kits are live"): while FIELD_KITS_PLAYER_LIVE is false three of
+// FKR-5's entries are not in the registry (the Impact Grenade blueprint waits outside BLUEPRINTS; the Stun and Toxin
+// carry lines are not rollable), and one audit row naming them is added (pending FKR-7). Held apart with FKR-5.
+const FKR5_HIDDEN_UNTIL_FKR7: ReadonlySet<string> = new Set<string>([
+  "gear:security:stunGrenade:groundCarryCapacity",
+  "gear:security:toxinGrenade:groundCarryCapacity",
+  "facility:BLUEPRINTS:impactGrenadeBp",
+]);
+const FKR5_RULINGS_ADDED: ReadonlySet<string> = new Set<string>(["away:audit:fieldKitsHiddenPieces"]);
+// Expedition Tiers G2-3 (the voyage engine) ADDS two audit rows (the voyage ladder above Tier I, owner G2-6; the drive
+// class halving, owner G2-4). Its ship speed rows went live at Ground Ops but stay partial (pending for the patrol), so
+// their status kind hashes the same.
+const G23_ADDED_ENTRY_IDS: ReadonlySet<string> = new Set<string>(["expedition:audit:voyageDeepTiers", "expedition:audit:voyageDriveClass"]);
+// The `registry` pin on the feat base before FKR-5 and G2-3 merged (after WR-6, CP-8 and G1-2).
+const REGISTRY_BEFORE_FKR5_G23 = [1182, "c748495a"];
+
+// The ONE exclusion helper every registry pin goes through. Each slice names the entries it ADDED (stripped) and the
+// entries it FLIPPED (read back as their earlier status), so a pin taken before that slice is reproduced exactly and
+// proves no other entry moved. Lines are `${id}|${status kind}` in registry order; the pin is [count, hash].
+type RegistrySlice = { readonly added?: ReadonlySet<string>; readonly flipped?: ReadonlySet<string>; readonly was?: string };
+const G1_SLICE: RegistrySlice = { added: G1_ADDED_ENTRY_IDS };
+const ML1_SLICE: RegistrySlice = { added: ML1_ADDED_ENTRY_IDS };
+const FKR5_SLICE: RegistrySlice = { added: new Set([...FKR5_ADDED_ENTRY_IDS, ...FKR5_RULINGS_ADDED]), flipped: FKR5_FLIPPED_LIVE, was: "pending" };
+const G23_SLICE: RegistrySlice = { added: G23_ADDED_ENTRY_IDS };
+function registryPin(...slices: readonly RegistrySlice[]): [number, string] {
+  const lines = WIRING_REGISTRY.filter((e) => !slices.some((sl) => sl.added?.has(e.id))).map((e) => {
+    const flip = slices.find((sl) => sl.flipped?.has(e.id));
+    return `${e.id}|${flip ? (flip.was ?? "pending") : e.status.kind}`;
+  });
+  return [lines.length, hash(lines)];
+}
 
 const CAPTURE = Boolean(import.meta.env.G1_CAPTURE);
 const captured: Record<string, unknown> = {};
@@ -407,6 +472,7 @@ const WR6_WIRED_IDS: ReadonlySet<string> = new Set<string>([
   "fleetAdmiral:HOMEWORLD_TALENTS:homelandDefenseHub",
   "fleetAdmiral:HOMEWORLD_TALENTS:citizenryHub",
 ]);
+const WR6_SLICE: RegistrySlice = { flipped: WR6_WIRED_IDS, was: "pending" };
 
 // The `fleet` record before OC-11 (captured on a678241); reproduced with the pause off.
 const FLEET_BEFORE_OC11 = ["aa94ddcd", "1a72036c", "5008dacf", "cbf18a80", "6c8ebe80", "33d00a42", "19f8bdb2"];
@@ -501,15 +567,27 @@ describe("G1-0 golden 4: generateEquipment for the quarters slot at 50 fixed see
 
 describe("G1-0 golden 5: the wiring registry's ids and statuses", () => {
   it("the entries outside the G1 additions, hashed in registry order", () => {
-    const lines = WIRING_REGISTRY.filter((e) => !heldApart(e.id)).map((e) => `${e.id}|${e.status.kind}`);
-    pin("registry", [lines.length, hash(lines)]);
+    pin("registry", registryPin(G1_SLICE, ML1_SLICE));
+  });
+  // FKR-5 and G2-3 moved the pin (see the header); with their entries held apart and the Explosives flip read back as
+  // pending, the registry hashes exactly as the feat base before them.
+  it("FKR-5 and G2-3 are the only causes of the registry move", () => {
+    expect(registryPin(G1_SLICE, ML1_SLICE, FKR5_SLICE, G23_SLICE)).toEqual(REGISTRY_BEFORE_FKR5_G23);
   });
   // WR-6: the nine placeholder entries it wires flip pending -> live (the count and the order hold). With those nine
-  // read as pending again the lines hash to the pin from before WR-6, so the flips are the only move.
+  // read as pending again (and the later slices held apart) the lines hash to the pin from before WR-6, so the flips
+  // are the only move.
   it("WR-6 is the only cause of the registry move", () => {
-    const lines = WIRING_REGISTRY.filter((e) => !heldApart(e.id)).map((e) => `${e.id}|${WR6_WIRED_IDS.has(e.id) ? "pending" : e.status.kind}`);
     expect(WIRING_REGISTRY.filter((e) => WR6_WIRED_IDS.has(e.id)).map((e) => e.status.kind)).toEqual(Array(WR6_WIRED_IDS.size).fill("live"));
-    expect([lines.length, hash(lines)]).toEqual(REGISTRY_BEFORE_WR6);
+    expect(registryPin(G1_SLICE, ML1_SLICE, FKR5_SLICE, G23_SLICE, WR6_SLICE)).toEqual(REGISTRY_BEFORE_WR6);
+  });
+  it("Field Kits FKR-5: the added entries and the one flipped, each with its status", () => {
+    const added = WIRING_REGISTRY.filter((e) => FKR5_ADDED_ENTRY_IDS.has(e.id));
+    const shown = [...FKR5_ADDED_ENTRY_IDS].filter((id) => FIELD_KITS_PLAYER_LIVE || !FKR5_HIDDEN_UNTIL_FKR7.has(id));
+    expect(added.map((e) => e.id).sort()).toEqual(shown.sort());
+    expect(added.every((e) => e.status.kind === "live")).toBe(true);
+    if (!FIELD_KITS_PLAYER_LIVE) for (const id of FKR5_RULINGS_ADDED) expect(WIRING_REGISTRY.find((e) => e.id === id)?.status.kind, id).toBe("pending");
+    for (const id of FKR5_FLIPPED_LIVE) expect(WIRING_REGISTRY.find((e) => e.id === id)?.status.kind, id).toBe("live");
   });
   it("G1-1: the added entries, each with its status", () => {
     const added = WIRING_REGISTRY.filter((e) => G1_ADDED_ENTRY_IDS.has(e.id)).map((e) => `${e.id}|${e.status.kind}`);

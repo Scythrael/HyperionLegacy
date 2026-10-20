@@ -29,6 +29,7 @@ import {
   EQUIPMENT_STORAGE_RUNGS,
   FACILITIES,
   GENERAL_QUARTERS_GUEST_PERK,
+  GRENADE_CARRY_PER_LINE,
   HOMEWORLD_TALENTS,
   ITEMS,
   LIVE_STAT_KEYS,
@@ -39,6 +40,7 @@ import {
   PATROLS,
   PERCENT_STAT_CURVES,
   REFINE_RECIPES,
+  refineRecipeOffered,
   SALVAGE_LOOT_POOLS,
   SECONDARY_CAPTAIN_TALENTS,
   SHIP_DOCKS_BASE,
@@ -121,6 +123,7 @@ import { DRONE_POD_AFFIX_POOL, DRONE_POD_IMPLICIT_STAT, WEAPON_AFFIX_POOL, WEAPO
 import { AFFIX_DEFS, ESCALATION_ENEMIES_PER_LEVEL, HEIGHTENED_SENSES_KNEE, HEIGHTENED_SENSES_PER_LEVEL } from "../affixes";
 import { ENEMY_RANKS, ENEMY_RANK_IDS } from "../enemyRanks";
 import { OVERTIME_STEP_RATE } from "../processSpeed";
+import { SHORT_RANGE_TEMPLATES, SHORT_RANGE_TEMPLATE_KEYS } from "../shortRange";
 import {
   CONDITION_LINES,
   CONDITION_LINE_IDS,
@@ -135,6 +138,7 @@ import {
   type FieldKitId,
   type KitCategory,
 } from "../fieldKits";
+import { GRENADES, GRENADE_IDS } from "../fieldKitsGrenades";
 import {
   WIRING_SCIENCE_ID,
   WIRING_SECURITY_ID,
@@ -303,6 +307,8 @@ export const CATALOGS = {
   CONDITION_LINES,
   FREE_BASIC_SET,
   FIELD_KIT_PRICES,
+  GRENADES,
+  GRENADE_CARRY_PER_LINE,
 } as const;
 export type Catalogs = typeof CATALOGS;
 
@@ -386,6 +392,9 @@ const PILOT_CUNNING = "pending user decision (officerStats.ts CUNNING_PENDING_SE
 const T3 = "capture 2026-10-15 section 3 T3 (moved to 0.14.x)";
 // G1-1: every guest quarters source moves the sheet now; the short-range passenger jobs that read it land in G1-4.
 const G1_GUESTS = "G1-4 (the short-range passenger jobs read guest quarters)";
+// G1-2: the short-range template catalog. Its rolls, work and rewards act in the pure engine (shortRange.ts, tested
+// there), but no game path flies a short-range cycle until the cycle engine lands.
+const G1_CYCLE = "G1-4 (the short-range cycle engine flies the rolls, times the work and pays the rewards)";
 
 // Prospecting squads (0.14.0, built HIDDEN; design docs/plans/2026-10-16-prospecting-squads-design.md section 8):
 // every Prospecting source is deferred to the prospecting quests patch, the user-approved exception to "no
@@ -411,7 +420,7 @@ function seatFor(def: SeniorStaffBonusDef): SeniorStaffSeat {
 // What each officer statKey moves (probe, contexts, curve). Absent = pending (OFFICER_PENDING below).
 const OFFICER_SEAMS: Readonly<Record<string, { probe: ProbeId; contexts: ContextId[]; curve: Curve }>> = {
   "officer.shipOutputMult": { probe: "missionOutputBonus", contexts: ["mission:extraction"], curve: { kind: "linearAbsolute" } },
-  "officer.transitTimeCut": { probe: "sheetTransit", contexts: ["sheet"], curve: { kind: "linearRelative" } },
+  "officer.transitTimeCut": { probe: "sheetTransit", contexts: ["sheet", "expedition:groundOps"], curve: { kind: "linearRelative" } },
   "officer.evasion": { probe: "officerEvasion", contexts: ["patrol", "expedition:groundOps"], curve: { kind: "linearAbsolute" } },
   "officer.unloadTimeCut": { probe: "sheetUnload", contexts: ["sheet", "expedition:groundOps"], curve: { kind: "linearRelative" } },
   "officer.effectiveCargoMult": { probe: "sheetCargo", contexts: ["sheet"], curve: { kind: "linearRelative" } },
@@ -491,8 +500,8 @@ const CREW_SEAMS: Readonly<Record<string, CrewSeam>> = {
   [CREW_STAT_KEYS.loadSpeed]: { probe: "expReloadMult", contexts: ["expedition:groundOps"], curve: { kind: "linearAbsolute" } },
   [CREW_STAT_KEYS.effectiveCargo]: { probe: "sheetCargo", contexts: ["sheet"], curve: { kind: "linearRelative" } },
   // CP-2 (OC-E5): each transit buff lifts its own leg.
-  [CREW_STAT_KEYS.transitOutSpeed]: { probe: "sheetOutLeg", contexts: ["sheet"], curve: { kind: "linearRelative" } },
-  [CREW_STAT_KEYS.transitBackSpeed]: { probe: "sheetBackLeg", contexts: ["sheet"], curve: { kind: "linearRelative" } },
+  [CREW_STAT_KEYS.transitOutSpeed]: { probe: "sheetOutLeg", contexts: ["sheet", "expedition:groundOps"], curve: { kind: "linearRelative" } },
+  [CREW_STAT_KEYS.transitBackSpeed]: { probe: "sheetBackLeg", contexts: ["sheet", "expedition:groundOps"], curve: { kind: "linearRelative" } },
   // CP-2: Damage Control joins the repair divisor (Shipyard, and the field repair frozen at dispatch).
   [CREW_STAT_KEYS.hullRepairRate]: { probe: "turnaround", contexts: ["shipyard", "shipEvent"], curve: { kind: "linearRelative" } },
   // CP-2: Mission Turnaround: the unload x (1 + t) and the same repair divisor (Veteran Instincts' shape, own key).
@@ -692,6 +701,10 @@ function gearSeam(team: AwayTeamType, key: MemberGroundStatKey): { probe: ProbeI
         return { probe: "secPoisonResist", curve: { kind: "chanceAbsolute" }, magnitude: () => N * STATUS_RESIST_PER_POINT * 1000, context: "ground", tolerance: 1 };
       case "groundHazardResist":
         return { probe: "secTaskHazardResist", curve: { kind: "linearAbsolute" }, magnitude: (c) => bump(c, key), context: "fieldwork" };
+      // Field Kits FKR-5 (FK11 "+1 carry capacity"): one more grenade charge per objective, read on a Field Kits
+      // objective fight's armed squad (the count, whatever the line's value).
+      case "groundCarryCapacity":
+        return { probe: "runSecGrenadeCharges", curve: { kind: "gate" }, magnitude: (c) => c.GRENADE_CARRY_PER_LINE, context: "ground" };
       default:
         return null;
     }
@@ -1594,6 +1607,20 @@ function trackEntries(): WiringEntry[] {
   return out;
 }
 
+// The owner of a hidden refine recipe: the reserve on its output, or on the first reserved good its output feeds
+// (Ferrite Ingot -> Osmium Plate, owner ML-2).
+function hiddenRecipeOwner(itemId: string, seen: Set<string> = new Set()): string {
+  const reserved = ITEMS[itemId]?.reserved;
+  if (reserved !== undefined) return reserved;
+  seen.add(itemId);
+  for (const r of Object.values(REFINE_RECIPES)) {
+    if (r.input[itemId] === undefined || seen.has(r.output.itemId)) continue;
+    const owner = hiddenRecipeOwner(r.output.itemId, seen);
+    if (!owner.startsWith("WR-1 follow-up")) return owner;
+  }
+  return "WR-1 follow-up: a hidden refine recipe with no reserved output";
+}
+
 // Content data the engine reads verbatim: refine recipes (the job's duration) and blueprints (the research project's).
 function recipeAndBlueprintEntries(): WiringEntry[] {
   const out: WiringEntry[] = [];
@@ -1610,6 +1637,10 @@ function recipeAndBlueprintEntries(): WiringEntry[] {
         curve: { kind: "equals" },
         magnitude: (c) => c.REFINE_RECIPES[key].durationTicks,
         note: "inputs and output ride the refine tests; the duration reaches the started job (Refinery speed 1)",
+        // ML-1: a recipe the Refinery does not offer yet (its output leads nowhere: model.ts refineRecipeOffered) is
+        // pending on the slice that gives its output a use (no probe: the engine refuses to start it, so there is
+        // nothing to measure); it reads live, probe and all, by itself once that marker drops.
+        ...(refineRecipeOffered(key) ? {} : { probe: undefined, contexts: [], status: pending(hiddenRecipeOwner(r.output.itemId)) }),
       }),
     );
   }
@@ -1715,7 +1746,7 @@ const LINE_SEAMS: Readonly<Record<string, LineSeam | null>> = {
   // G1-1: a guest line is stored in berths and adds them flat. Measured on an Orion (an explorer: the General quarters
   // perk would multiply both readings, which is its own entry, ship:SHIP_SEAMS:generalQuartersGuestPerk).
   colonistCapacity: { probe: "sheetGuestQuarters", contexts: ["sheet"], curve: { kind: "linearAbsolute" }, magnitude: () => LINE_POINTS, base: () => wiringBase("orion") },
-  transitSpeedMult: { probe: "sheetTransit", contexts: ["sheet"], curve: { kind: "linearRelative" }, magnitude: () => percent("transitSpeedMult") },
+  // Expedition Tiers G2-3: the voyage flies each leg at the ship's own speed on it (the run freezes it).
   engineEfficiency: { probe: "sheetEngineEff", contexts: ["sheet"], curve: { kind: "linearAbsolute" }, magnitude: () => percent("engineEfficiency") },
   extractionYieldMult: { probe: "sheetYield", contexts: ["sheet"], curve: { kind: "linearRelative" }, magnitude: () => percent("extractionYieldMult") },
   massReduction: null, // consumed at mint (itemgen.ts:425): measured below as its own entry on the piece's mass
@@ -1836,7 +1867,7 @@ function shipLineEntries(): WiringEntry[] {
     const patrolOnCombat: Partial<Record<ContextId, FlatCheck>> = { patrol: { base: () => combatBase() } };
     const partial: Readonly<Record<string, WiringStatus>> = {
       cargoCapacity: pending("WR-7, OC-D8 (expeditions and patrols do not read the hold)", ["expedition:groundOps", "patrol"]),
-      transitSpeedMult: pending("G2-3 + WR-7, OC-D8 (patrol legs and expedition transit are fixed)", ["patrol", "expedition:groundOps"]),
+      transitSpeedMult: pending("WR-7, OC-D8 (patrol legs are fixed)", ["patrol"]),
       fuelCapacity: pending("G2-4 (no expedition range gate)", ["expedition:groundOps"]),
       engineEfficiency: pending("G2-4 (no expedition range gate)", ["expedition:groundOps"]),
       sensors: { kind: "deferred", owner: "CP-15 (patrol cloak detection)", userRef: `${T3}: patrol cloak detection`, contexts: ["patrol"] },
@@ -1893,10 +1924,12 @@ function hullEntries(): WiringEntry[] {
   for (const hull of Object.keys(SHIP_TYPES) as ShipTypeKey[]) {
     const combat = combatHullTypeOf(hull) !== null; // only a combat hull can patrol, so only it claims the patrol
     for (const field of ["cargoCapacity", "transitSpeedMult", "extractionYieldMult", "fuelCapacity", "engineEfficiency"] as const) {
+      // Expedition Tiers G2-3: the hull's speed reaches the expedition voyage (the run freezes it as each leg's speed).
+      const transit = field === "transitSpeedMult";
       out.push(
         hullEntry(hull, field, {
           probe: HULL_FIELD_PROBES[field],
-          contexts: ["sheet"],
+          contexts: transit ? ["sheet", "expedition:groundOps"] : ["sheet"],
           magnitude: (c) => c.SHIP_TYPES[hull][field],
           base: () => {
             // A bare hull: no installed gear, so the sheet is the hull's own number.
@@ -1906,19 +1939,21 @@ function hullEntries(): WiringEntry[] {
           status:
             field === "cargoCapacity"
               ? pending("WR-7, OC-D8 (missions only)", combat ? ["expedition:groundOps", "patrol"] : ["expedition:groundOps"])
-              : field === "transitSpeedMult"
-                ? pending("G2-3 + WR-7, OC-D8 (missions only)", combat ? ["expedition:groundOps", "patrol"] : ["expedition:groundOps"])
+              : transit
+                ? combat
+                  ? pending("WR-7, OC-D8 (patrol legs are fixed)", ["patrol"])
+                  : LIVE
                 : field === "fuelCapacity" || field === "engineEfficiency"
                   ? pending("G2-4 (no expedition reach gate)", ["expedition:groundOps"])
                   : LIVE,
           // A hull field reaches a run or a patrol only through the sheet stat it seeds: the flat checks raise that
           // same stat with a gear line on the hull (patrols fly the hull with its combat baseline installed).
-          ...(field === "extractionYieldMult"
+          ...(field === "extractionYieldMult" || (transit && !combat)
             ? {}
             : {
                 flatChecks: {
-                  "expedition:groundOps": { on: shipPiece(field, LINE_POINTS), off: identity },
-                  ...(combat && (field === "cargoCapacity" || field === "transitSpeedMult")
+                  ...(transit ? {} : { "expedition:groundOps": { on: shipPiece(field, LINE_POINTS), off: identity } }),
+                  ...(combat && (field === "cargoCapacity" || transit)
                     ? { patrol: { base: () => combatBase(hull), on: shipPiece(field, LINE_POINTS), off: identity } }
                     : {}),
                 },
@@ -2191,7 +2226,7 @@ function sensorArrayEntries(): WiringEntry[] {
 
 const MUSEUM_SEAMS: Readonly<Record<MuseumStat, { probe: ProbeId; contexts: ContextId[]; curve: Curve; base?: () => GameState; tolerance?: number; direction?: Direction } | null>> = {
   cargoCapacity: { probe: "sheetCargo", contexts: ["sheet"], curve: { kind: "linearRelative" } },
-  transitSpeed: { probe: "sheetTransit", contexts: ["sheet"], curve: { kind: "linearRelative" } },
+  transitSpeed: { probe: "sheetTransit", contexts: ["sheet", "expedition:groundOps"], curve: { kind: "linearRelative" } },
   miningYield: { probe: "sheetYield", contexts: ["sheet"], curve: { kind: "linearRelative" } },
   sensors: { probe: "sheetSensors", contexts: ["sheet"], curve: { kind: "linearRelative" }, base: () => installPiece(wiringBase(), { slotType: "sensor", moduleVariant: "sensorBalanced", implicitStats: { sensors: 20 } }) },
   extractionSpeed: { probe: "sheetExtractionSpeed", contexts: ["sheet"], curve: { kind: "linearRelative" } },
@@ -2214,7 +2249,7 @@ const MUSEUM_SEAMS: Readonly<Record<MuseumStat, { probe: ProbeId; contexts: Cont
 };
 
 const MUSEUM_PARTIAL: Readonly<Partial<Record<MuseumStat, WiringStatus>>> = {
-  transitSpeed: pending("G2-3 + OC-D8 (missions only)", ["expedition:groundOps", "patrol"]),
+  transitSpeed: pending("OC-D8 (patrol legs are fixed; G2-3 put it on the expedition voyage)", ["patrol"]),
 };
 
 // The museum's PARTIAL checks: transit on a patrol flies a combat hull.
@@ -2416,6 +2451,21 @@ function missionEntries(): WiringEntry[] {
         status: pending("WR-11, OC-I1 (overwritten by the hull hold, model.ts:3733)"),
       }),
     );
+  }
+  // G1-2: every effect field of every short-range template, pending the cycle engine (G1-4).
+  for (const key of SHORT_RANGE_TEMPLATE_KEYS) {
+    const def = SHORT_RANGE_TEMPLATES[key];
+    for (const field of ["rolls", "work", "reward"] as const) {
+      out.push(
+        entry({
+          id: `mission:SHORT_RANGE_TEMPLATES:${key}:${field}`,
+          system: "mission",
+          source: { catalog: "SHORT_RANGE_TEMPLATES", key: `${key}:${field}` },
+          claim: `${def.label} ${field}`,
+          status: pending(G1_CYCLE),
+        }),
+      );
+    }
   }
   for (const id of Object.keys(PATROLS)) {
     out.push(
@@ -2817,10 +2867,10 @@ const KIT_OWNER: Readonly<Record<FieldKitId, string>> = {
   injuryKit: "FKR-6 + FKR-7 (the Injury Kit treatment share reaches the medical bay)",
 };
 
-const CATEGORY_OWNER: Readonly<Record<KitCategory, string>> = {
+// The categories not live yet, by owner (Explosives went live at FKR-5: Saboteur on the Saboteur's own throws).
+const CATEGORY_OWNER: Readonly<Partial<Record<KitCategory, string>>> = {
   firstAid: "FKR-6 (First Aid kits at 0.5x untrained, 1.25x with Medical Training)",
   advancedMedical: "FKR-6 (the Medical Training gate on Splint, Trauma Kit and Injury Kit)",
-  explosives: "FKR-5 (Saboteur +6% on the Saboteur's own grenade throws)",
   fieldDevices: "FKR-8 (the 50 to 75% per-use device roll, Codebreaker +6%)",
 };
 
@@ -2848,6 +2898,19 @@ function fieldKitEntries(): WiringEntry[] {
     });
   });
   for (const cat of Object.keys(KIT_CATEGORY_RULES) as KitCategory[]) {
+    const owner = CATEGORY_OWNER[cat];
+    // Field Kits FKR-5 (FK10 "Own grenades only"): Explosives' specialist bonus is Saboteur's x1.06 on the Saboteur's own
+    // throws, read on a Field Kits objective fight's armed squad (the blast's power multiplier of a worn Impact
+    // Grenade; the debuff chance takes the same factor, fieldKitsGrenades.test.ts).
+    const saboteur: Partial<EntryInput> =
+      cat === "explosives"
+        ? {
+            probe: "runSecGrenadePower",
+            contexts: ["ground"],
+            base: () => wearPiece(withAwayTeam(wiringBase()), WIRING_SECURITY_ID, "memberTool", "impactGrenade", {}),
+            on: (s) => editMember(s, WIRING_SECURITY_ID, { traits: ["saboteur"] }),
+          }
+        : {};
     out.push(
       entry({
         id: `away:KIT_CATEGORY_RULES:${cat}`,
@@ -2863,7 +2926,42 @@ function fieldKitEntries(): WiringEntry[] {
           if (cat === "advancedMedical") return rule.trained - rule.untrained;
           return rule.specialistBonus;
         },
-        status: pending(CATEGORY_OWNER[cat]),
+        ...saboteur,
+        status: owner ? pending(owner) : LIVE,
+      }),
+    );
+  }
+  // Field Kits FKR-5: the grenade family (FK11, N4, N6), each grenade measured on a reference thrower armed the way a
+  // Field Kits fight arms it: its charges per objective and throws per battle (read verbatim), its blast (the thrower's
+  // power x powerMult) and its debuff (bodies afflicted over a batch of throws).
+  for (const k of GRENADE_IDS) {
+    const g = GRENADES[k];
+    const label = EQUIPMENT_SLOTS.memberTool.varieties.find((v) => v.key === k)?.label ?? k;
+    const shared = (field: string) => ({
+      id: `away:GRENADES:${k}:${field}`,
+      system: "away" as const,
+      source: { catalog: "GRENADES", key: `${k}:${field}` },
+      probe: `content:grenade:${k}:${field}` as ProbeId,
+      contexts: ["ground"] as ContextId[],
+      on: sourceOn,
+    });
+    out.push(
+      entry({ ...shared("charges"), claim: `${label}: its charges per objective`, curve: { kind: "equals" }, magnitude: (c) => c.GRENADES[k].charges.perObjective }),
+      entry({ ...shared("perBattle"), claim: `${label}: its throws per battle`, curve: { kind: "equals" }, magnitude: (c) => c.GRENADES[k].charges.perBattle }),
+      entry({
+        ...shared("blast"),
+        claim: `${label}: the blast hits the target's group at a multiple of the thrower's power`,
+        direction: g.powerMult > 1 ? "up" : g.powerMult < 1 ? "down" : "none",
+        curve: { kind: "linearRelative" },
+        magnitude: (c) => c.GRENADES[k].powerMult - 1,
+        // The damage is a whole number at power 1000: one rounding step each side.
+        tolerance: 2,
+      }),
+      entry({
+        ...shared("status"),
+        claim: `${label}: the blast may inflict ${GAMBIT_STATUSES[g.status].label} on each body it hits`,
+        curve: { kind: "event", metric: "bodies its debuff lands on over 64 throws at a group of two" },
+        magnitude: () => 1,
       }),
     );
   }
@@ -3136,6 +3234,8 @@ const AUDIT_ROWS: readonly { id: string; system: WiringSystem; claim: string; st
   { id: "away:audit:steadyProspecting", system: "away", claim: "Steady's Prospecting reach (+hazard resistance on a Prospecting member)", status: PROSPECTING_DEFERRED },
   { id: "away:audit:sharedHazardGear", system: "away", claim: "The Hazard Suit and Environmental Adaptation worn by Prospecting (shared hazard gear)", status: PROSPECTING_DEFERRED },
   { id: "away:audit:prospectingDigSafety", system: "away", claim: "Dig safety: a Prospecting crew's Armor and HP cut cave-in and retreat injuries (prospectingCrewStats digSafety, DIG_SAFETY_KNEE)", status: PROSPECTING_DEFERRED },
+  // Field Kits FKR-5 review ruling (user 2026-10-20 "Hide until kits are live"): model.ts FIELD_KITS_PLAYER_LIVE.
+  { id: "away:audit:fieldKitsHiddenPieces", system: "away", claim: "Hidden until kits are live (FIELD_KITS_PLAYER_LIVE): the Impact Grenade blueprint (FIELD_KITS_HIDDEN_BLUEPRINTS, out of Research, the Fabricator and the Archive) and the +1 Carry Capacity line on new Stun and Toxin Grenade crafts", status: pending("FKR-7 (flips FIELD_KITS_PLAYER_LIVE when kits are wired into runs)") },
   { id: "away:audit:statusPicker", system: "away", claim: "Status picker entries that never match (only six of nine statuses can fire)", status: pending("FK-9 + WR-10") },
   { id: "away:audit:fieldRepairOrder", system: "away", claim: "Player-ordered field repair (engine only, no UI)", status: pending("WR-10, OC-F14") },
   { id: "away:audit:legacyOnly", system: "away", claim: "Legacy-only: MAX_BATTLE_ATTEMPTS, EVAC_REWARD_FRACTION, ENCOUNTER_DROP_SCALE, scan ground battles, softenAmbush, the flat 2 h injury", status: pending("OC-G1") },
@@ -3143,7 +3243,11 @@ const AUDIT_ROWS: readonly { id: string; system: WiringSystem; claim: string; st
   { id: "away:audit:objectiveHooks", system: "away", claim: "taskChainFollowUp, calmObjective, affix weightFor (no caller)", status: pending("OC-C4") },
   // G. Expedition content
   { id: "expedition:audit:siteFlavor", system: "expedition", claim: "Hostile and clearing site flavor (never rendered)", status: pending("WR-11 (render; no call)") },
-  { id: "expedition:audit:anomalyFinding", system: "expedition", claim: "Charting the anomaly costs 1 h and pays nothing (B15)", status: pending("WR-11, OC-G3") },
+  { id: "expedition:audit:anomalyFinding", system: "expedition", claim: "Charting the anomaly costs a detour (a voyage run: 25% of its outbound leg; an older run: 1 h) and pays nothing (B15)", status: pending("WR-11, OC-G3") },
+  // Expedition Tiers G2-3: the voyage engine reaches every tier and every drive class (voyage.test.ts proves the ladder,
+  // the band scale and the halving); no player reaches a deeper tier until the picker, nor a class above I until G2-4.
+  { id: "expedition:audit:voyageDeepTiers", system: "expedition", claim: "The voyage ladder above Tier I: TIER_TRANSIT_HOURS II 4 h, III 8 h, IV 12 h, V 24 h, VI 72 h, VII 168 h", status: pending(G2_6_PICKER) },
+  { id: "expedition:audit:voyageDriveClass", system: "expedition", claim: "A voyage leg halves per drive class above the tier's minimum (voyage.ts voyageClassSteps): every drive is Class I (STANDARD_DRIVE_CLASS)", status: pending("G2-4 (drive classes on FTL drives and hulls, user G3)") },
   { id: "expedition:audit:anomalySensors", system: "expedition", claim: "ANOMALY_CHANCE_PERMILLE: \"if sensors detect one\" (sensors not read)", status: pending("WR-11, OC-G3") },
   { id: "expedition:audit:relicSignature", system: "expedition", claim: "Foreknowledge relicSignature (the UI never reads it)", status: pending("WR-11 (delete or render; no call)") },
   { id: "expedition:audit:blindLaunch", system: "expedition", claim: "The blind launch path (a candidate past the telescope's reach: a deeper tier)", status: pending(G2_6_PICKER) },

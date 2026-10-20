@@ -158,10 +158,11 @@ export function asPreRanksDispatch<R extends { next: GameState; expedition?: Exp
 // run below the stamp then resolves exactly as before SF-2 (the in-flight path). Every other key keeps its order. A
 // record already in that shape is returned as it is. Golden fixtures that pin a dispatch from before SF-2 (FK-3,
 // FKR-0, CP-0, WR-4, the G2-0 shakedowns and the earlier gates) strip it with this. Pure: a shallow copy.
+// Expedition Tiers G2-3: a run from before SF-2 had no voyage either (withoutVoyage), so it flies the fixed legs.
 export function withoutSafeFirstRuns(exp: Expedition): Expedition {
   const shakedown = exp.id === "expedition-1";
-  if (!("difficulty" in exp) && exp.shakedown === shakedown) return exp;
-  const rest = { ...exp, shakedown };
+  if (!("difficulty" in exp) && !("voyage" in exp) && exp.shakedown === shakedown) return exp;
+  const rest = { ...withoutVoyage(exp), shakedown };
   delete rest.difficulty;
   return rest;
 }
@@ -186,12 +187,32 @@ export function asPreSafeFirstRunsDispatch<R extends { next: GameState; expediti
 // and reads the stamp), so a golden pinned before G2-2 compares through this. A Tier I candidate that G2-2 names
 // after a real star (Wolf 359 in the list after the first run) gets its banked name back the same way. Every other
 // key keeps its order. Pure: a shallow copy.
+// Expedition Tiers G2-3: a run from before G2-2 had no voyage either, so this also drops `Expedition.voyage`
+// (withoutVoyage): the run then flies the fixed pre-G2-3 legs it flew when the golden was pinned.
 export function withoutG2Names(exp: Expedition): Expedition {
   const banked = BANKED_SYSTEMS[makeRng((exp.seed ^ SYSTEM_SALT) >>> 0).nextInt(BANKED_SYSTEMS.length)];
-  if (!("region" in exp) && exp.targetSystemId === banked.id && exp.systemName === banked.name) return exp;
-  const rest = { ...exp, targetSystemId: banked.id, systemName: banked.name };
+  if (!("region" in exp) && !("voyage" in exp) && exp.targetSystemId === banked.id && exp.systemName === banked.name) return exp;
+  const rest = { ...withoutVoyage(exp), targetSystemId: banked.id, systemName: banked.name };
   delete rest.region;
   return rest;
+}
+
+// Expedition Tiers G2-3 (docs/plans/2026-10-14-expedition-tiers-g2-plan.md G2-3): the run as the same dispatch made it
+// BEFORE G2-3, i.e. a run in flight at the update: no voyage (`Expedition.voyage`), so it flies the fixed pre-G2-3
+// legs (expedition.ts TRANSIT_SECONDS, the flat anomaly hour). Nothing else in a dispatch record differs. A record
+// without one is returned as it is. Every other key keeps its order. Pure: a shallow copy.
+export function withoutVoyage(exp: Expedition): Expedition {
+  if (!("voyage" in exp)) return exp;
+  const rest = { ...exp };
+  delete rest.voyage;
+  return rest;
+}
+
+// G2-3: a dispatch result turned into the run it was before G2-3 (withoutVoyage on the returned expedition and every
+// expedition in `next`). A refusal is returned unchanged. Pure.
+export function asPreVoyageDispatch<R extends { next: GameState; expedition?: Expedition }>(res: R): R {
+  if (!res.expedition) return res;
+  return { ...res, expedition: withoutVoyage(res.expedition), next: { ...res.next, expeditions: res.next.expeditions.map(withoutVoyage) } };
 }
 
 // A whole state with every expedition through withoutG2Names. Identity when nothing changes. Pure.

@@ -217,6 +217,15 @@ describe("ML-1 review: a recipe that leads nowhere yet is not offered", () => {
     });
   });
 
+  it("each hidden recipe is a pending registry entry owned by the slice that lifts it (ML-2), never claimed live", () => {
+    for (const key of ALL) {
+      const e = WIRING_REGISTRY.find((w) => w.id === `facility:REFINE_RECIPES:${key}`);
+      expect(e?.status.kind, key).toBe("pending");
+      expect(e?.status.kind === "pending" ? e.status.owner : "", key).toMatch(/^ML-2 /);
+    }
+    expect(WIRING_REGISTRY.find((w) => w.id === "facility:REFINE_RECIPES:refineCommonOre")?.status.kind).toBe("live");
+  });
+
   it("dropping one marker offers exactly the recipes it unblocks", () => {
     withMarkersLifted(["cobaltCoil"], () => {
       expect(ALL.filter(refineRecipeOffered)).toEqual(["synthCobaltCoil"]);

@@ -380,6 +380,50 @@ new affix line changes NEW grenade crafts only (existing instances keep their li
 grenade bonus (OC-F4's grenade half), each live with a sensitivity check. **Save:** optional fields; none.
 Commit `feat(0.14.0): grenade charges, carry capacity and the Impact Grenade (FKR-5)`.
 
+**FKR-5 carry (2026-10-19, done):** committed as `feat(0.14.0): grenade charges, carry capacity and the Impact Grenade
+(FKR-5)`. Behind flag 2 (read only through `fieldKitsLive`; FKR-7 stamps it), so no flag-less run moves. `model.ts`:
+`MemberVarietyTraits.grenade` (`GrenadeTraits`: `charges { perObjective, perBattle }`, `powerMult`, `status`, optional
+fixed `statusChance`; the plan's `ToolVariety.charges` lives here) on the three grenades at N4 / N6 (Impact 4, Stun 2,
+Toxin 2, 1 throw per battle; Impact x1.5 group blast, 30% Concussion); the new **Impact Grenade** variety (Security
+tool, NO passive groundEffect, implicit groundPower, affixes groundAccuracy + carry) and `impactGrenadeBp` (tier 1, 60
+ticks, 700 credits, craft 150, `IMPACT_GRENADE_RECIPE` (user 2026-10-20 "Approve") 1 Titanium Ingot + 1 Polysilicate Wafer + 1 Power
+Coupling); the carry line is `groundCarryCapacity` (not the plan's `toolCarryCapacity`: every ground key carries the
+`ground` prefix, member-gear.test.ts), in all three grenade pools (weight 1, variety share 0.15 [PROPOSAL], other
+shares lowered to keep each sum 1), minted as `GRENADE_CARRY_PER_LINE` (1) whatever the budget (itemgen.ts
+`rolledLineValue`); `GambitActionId` gains `throwGrenade`; `GroundFightRecord.chargesUsed?` and
+`SnapshotGearPiece.carry?` (both written only when nonzero). `awayTeam.ts`: `pieceCarryLines`, `pieceToolCharges`,
+`memberGrenade`, `toolCharges(member)` (base + carry lines; 0 for the Med Kit, Shroud, Lure); the carry line never
+counts toward a piece's effect points. New `fieldKitsGrenades.ts`: `GRENADES` / `GRENADE_IDS` (read from the
+varieties), `withThrownGrenades` (a Field Kits fight's squad: the grenade's passive on-hit comes off, a Shock Baton's
+stays; each grenadier is armed with its throw, charges = `GroundFightTeam.charges[member]` else full, Saboteur x1.06 on
+its own blast AND debuff chance), `chargesLeftFor`, `passiveInflictStatuses`. `gambit.ts`: `GroundCombatant.grenade`
+(`ThrownGrenade`), `canThrowGrenade`, `memberStatusChance` (extracted, byte-identical), `throwGrenade` legal for
+Security; it fires only with a charge and a throw left (FK11 "skip it": the next rule acts) and blasts the target plus
+every standing foe of its group in id order: per body a hit check (`strikeHitChance`, the flash grenade's), the damage
+roll at `powerMult`, then on a standing body the debuff chance roll and the resist roll, all on the fight stream;
+`GroundBattleResult.chargesUsed`. Stun / Toxin blasts are `SPECIALIZED_GRENADE_POWER_MULT` 0.5 (user 2026-10-20 "Half
+damage") and their debuff lands at the thrower's status chance [PROPOSAL: the
+status-chance rule, so their groundStatusChance line keeps its meaning]. `groundFight.ts`: `GroundFightTeam.charges?`
+(FKR-7 passes `GroundTeamRun.charges`), the arming beside FKR-4's Stoneskin, the record's `chargesUsed`.
+`groundThreat.ts`: the Field Kits key tag appends each team's charges (unflagged keys unchanged). UI: ACTION_LABEL
+"Throw Grenade" (not offered in the editor until FKR-10), the log verb, the tooltip's "Carry Capacity" (+1). No wear
+(gear wear has not landed: a throw is never a wear source, charges never wear). **Not done here, on purpose:** the
+default program's throw (N15, needs FKR-6's Boss reserve), so a stamped run on the default program arms grenades but
+throws none; the per-objective charge bookkeeping across fights (FKR-7 writes `GroundTeamRun.charges`, subtracts
+`chargesUsed`; until then every fight starts full); the threat sample threading charges between its fights (FKR-6).
+Wiring: LIVE `gear:security:impactGrenade:{groundPower,groundAccuracy,groundCarryCapacity}` and the carry line on Stun
+and Toxin (probe `runSecGrenadeCharges`, gate +1), `away:GRENADES:<grenade>:{charges,perBattle,blast,status}` x3
+(content `grenade` probes on an armed reference thrower), `away:GAMBIT_ACTIONS:throwGrenade`, `facility:BLUEPRINTS:
+impactGrenadeBp`, and `away:KIT_CATEGORY_RULES:explosives` flipped pending -> live (probe `runSecGrenadePower`,
+Saboteur's x1.06); `GRENADES` joins CATALOGS, CONTENT_CATALOGS and the catalog walk; `GRENADE_IDS` in UNREAD_CONSTANTS;
+liveness counts gear 99 -> 104 (the five new lines, all live; the field kits fights probe also fingerprints the armed
+squad). Goldens: **MOVED, named:** FKR-0 (4) `craftedRolls` (four of six pieces: Stun seeds 3 and 27, Toxin 2 and 27;
+the pool gained the carry line) with a proof test that the FKR-0 pools reproduce the FKR-0 hashes exactly. Held apart
+(no pin moved): G1-0 golden 5's base registry pin (FKR-5's 19 added ids and its one flip read back, still 1181 /
+74fa057) and the Prospecting hidden `wearers` pin (the Impact Grenade checked to read like its siblings). Every FK-3,
+FKR-0 whole-run, SF-0, G2-0 and later hash unchanged. Tests: `fieldKitsCharges.test.ts` (23, incl. a stamped throwing
+run's parity one call == 997 s == 1 s).
+
 #### FKR-6: Kits in battle, rank conditions and reserves (engine, behind flag 2)
 
 **Files:** as FK-5 (`gambit.ts`, `groundFight.ts`, `groundThreat.ts`), plus `GambitRuleParams.minRank` /
@@ -419,6 +463,11 @@ top-up off by default buys nothing; on, it buys the shortfall and charges the li
 basics and charges reset each objective; parity one call == 997 s == 1 s with packs, a Reinforcing alert and a joint
 crew; an Injury Kit shortens only that member's bay time. **Wiring:** `FIELD_KIT_PRICES` and the free-basics curve
 flip live. **Save:** optional fields; none.
+**Hidden pieces (user 2026-10-20 "Hide until kits are live"):** flip `model.ts` `FIELD_KITS_PLAYER_LIVE` to true. That
+merges `FIELD_KITS_HIDDEN_BLUEPRINTS` (the Impact Grenade blueprint) into `BLUEPRINTS` (Research, Fabricator, Archive)
+and gives new Stun and Toxin crafts the +1 Carry Capacity line (`GRENADE_CRAFT_POOLS.carry`); FKR-0 (4) `craftedRolls`
+then reads FKR-5's capture, the G1-0 `registry` pin moves (the three hidden FKR-5 entries return), and the
+`away:audit:fieldKitsHiddenPieces` row closes.
 Commit `feat(0.14.0): per-member packs, per-objective supplies and Quartermaster kits (FKR-7)`.
 
 #### FKR-8: Field devices roll per use (engine)

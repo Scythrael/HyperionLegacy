@@ -69,6 +69,8 @@ import { FIRST_RUN_ENEMY_SCALE, FIRST_RUN_MAX_ENEMIES } from "./runDifficulty";
 // Field Kits FKR-4: the flag and the inflictors (a Field Kits run only).
 import { fieldKitsLive } from "./fieldKits";
 import { withFieldKitsGuard, withFieldKitsTeam } from "./fieldKitsConditions";
+// Field Kits FKR-5: the squad's thrown grenades and their charges (a Field Kits run only).
+import { withThrownGrenades } from "./fieldKitsGrenades";
 
 // ===== Constants =====
 
@@ -87,6 +89,10 @@ export interface GroundFightTeam {
   securityIds: readonly string[];
   downedThisTask?: readonly string[];
   securityShare: number;
+  // Field Kits FKR-5: memberId -> the grenade charges that member has left this objective (FKR-7 keeps the count on
+  // the team's run and passes it here). A member without an entry starts the fight with full charges
+  // (fieldKitsGrenades.ts chargesLeftFor). Read only on a Field Kits run.
+  charges?: Readonly<Record<string, number>>;
 }
 
 // The fight record types (GroundMemberCarry, GroundMemberEnd, GroundFightRecord) live in model.ts since GO-7b
@@ -164,8 +170,12 @@ export function taskFightTeam(
     // WR-5c: the captain's Away-Team Doctrine, frozen at dispatch (absent = unchanged).
     powerMult: exp.explorerCaptain?.squadPowerMult,
   });
-  // Field Kits FKR-4: Stoneskin's battle half (a Field Kits run only; fieldKitsConditions.ts).
-  if (fieldKitsLive(exp)) withFieldKitsTeam(team, members);
+  // Field Kits FKR-4: Stoneskin's battle half (a Field Kits run only; fieldKitsConditions.ts). FKR-5: the thrown
+  // grenades with each member's charges left this objective (fieldKitsGrenades.ts), in place of their passive on-hit.
+  if (fieldKitsLive(exp)) {
+    withFieldKitsTeam(team, members);
+    withThrownGrenades(team, members, teamCharges(teams));
+  }
   if (!carried) return team;
   for (const c of team) {
     const id = c.memberId;
@@ -175,6 +185,17 @@ export function taskFightTeam(
     c.statuses = carriedStatuses(carry.statuses);
   }
   return team;
+}
+
+// Field Kits FKR-5: the fight's charges left, merged over its teams (each member sits on one team). Undefined when no
+// team carries a count, so every member starts with full charges. Pure.
+function teamCharges(teams: readonly GroundFightTeam[]): Record<string, number> | undefined {
+  let out: Record<string, number> | undefined;
+  for (const t of teams) {
+    if (!t.charges) continue;
+    out = { ...(out ?? {}), ...t.charges };
+  }
+  return out;
 }
 
 // Squads SQ-4 (design 5.3): FLORA raises the Poison chance in a body's fights. Every guard's attack gains
@@ -355,6 +376,8 @@ export function resolveTaskFightOnSeed(
     memberEnd,
   };
   if (result.neuralBackup) record.neuralBackup = { ...result.neuralBackup };
+  // Field Kits FKR-5: the charges each member threw (a Field Kits run's fight in which someone threw, only).
+  if (result.chargesUsed) record.chargesUsed = { ...result.chargesUsed };
   const ranks = rankedEnemies(enemies);
   if (ranks) record.ranks = ranks;
   return record;
