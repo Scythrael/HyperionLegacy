@@ -154,23 +154,6 @@ export function awayRecapSpan(
   return { before: open.before, secondsAway: open.secondsAway + Math.max(0, nowMs - open.shownAtMs) / 1000 };
 }
 
-// Game ticks a planned poll actually pays: a catch-up beyond the offline cap pays only the cap.
-export function paidTicks(plan: AdvancePlan, state: GameState): number {
-  const raw = plan.cycles * plan.ticksPerCycle;
-  return plan.mode === "catchUp" ? Math.min(raw, offlineCapTicks(state)) : raw;
-}
-
-// The fuel-runway EMA blend, weighted. Live play takes one sample per bar cycle, so a poll that
-// pays several cycles counts as that many samples of its average rate: blending once with
-// 1 - (1 - alpha)^weight equals blending `weight` times with the same value. Weight 1 is the old
-// single-sample blend exactly (special-cased so the steady path stays bit-identical). The first
-// sample ever seeds the EMA directly.
-export function blendRunwayEma(prev: number, inst: number, samplesSoFar: number, weight: number, alpha: number): number {
-  if (samplesSoFar === 0) return inst;
-  const a = weight === 1 ? alpha : 1 - Math.pow(1 - alpha, weight);
-  return a * inst + (1 - a) * prev;
-}
-
 // A fresh loop clock starting at `paidThroughMs`. After a reload this must be the moment the
 // offline catch-up paid THROUGH (its returnedAtMs), not the moment the loop happens to start: the
 // catch-up itself takes real time to compute, and starting later would leave those seconds

@@ -8,8 +8,6 @@ import {
   LIVE_STEP_MAX_CYCLES,
   paidThroughMs,
   awayRecapSpan,
-  paidTicks,
-  blendRunwayEma,
   startLoopClock,
   type LoopClock,
 } from "./loopClock";
@@ -354,32 +352,6 @@ describe("awayRecapSpan: a recap never replaces one that is still open", () => {
     // Opened at T0 for a 600 s absence; the player left it open, hid the tab, came back 900 s later.
     const open = { before: a, secondsAway: 600, shownAtMs: T0 };
     expect(awayRecapSpan(open, b, 300, T0 + 900_000)).toEqual({ before: a, secondsAway: 1500 });
-  });
-});
-
-describe("paidTicks / blendRunwayEma: the runway EMA weighs a catch-up by what it paid", () => {
-  it("a step pays cycles times ticks per cycle", () => {
-    const { plan } = planPoll(clockAt(T0), T0 + 2000, 1, 10);
-    if (plan.kind !== "advance") throw new Error("expected an advance plan");
-    expect(paidTicks(plan, missionState())).toBe(20);
-  });
-
-  it("a catch-up beyond the offline cap pays only the capped ticks", () => {
-    const s = missionState();
-    s.tickDurationSeconds = 86_400; // cap = 2 ticks
-    const { plan } = planPoll(clockAt(T0), T0 + 5 * 86_400 * 1000, s.tickDurationSeconds, 1);
-    if (plan.kind !== "advance") throw new Error("expected an advance plan");
-    expect(paidTicks(plan, s)).toBe(2);
-  });
-
-  it("weight 1 is the old blend exactly; the first sample seeds; a heavy weight converges", () => {
-    expect(blendRunwayEma(5, 1, 0, 1, 0.1)).toBe(1);
-    expect(blendRunwayEma(5, 1, 3, 1, 0.1)).toBe(0.1 * 1 + (1 - 0.1) * 5);
-    // 60 samples of the same rate pull the EMA almost all the way there, as 60 live polls would.
-    const once = blendRunwayEma(5, 1, 3, 60, 0.1);
-    let stepwise = 5;
-    for (let i = 0; i < 60; i++) stepwise = 0.1 * 1 + 0.9 * stepwise;
-    expect(once).toBeCloseTo(stepwise, 9);
   });
 });
 
