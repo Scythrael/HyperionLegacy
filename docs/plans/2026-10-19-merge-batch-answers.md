@@ -111,3 +111,10 @@ section 5.A captain nodes). Kept in their own file so the parallel integrator's 
   the 50-completion gate), level 3 = 6,000 credits / 240 ticks, fourth slot Tier II, no completion gate.
 - **Kit rules (FKR-6):** "Approve all (Recommended)": basics before extras; Combat Stim rounds scale with skill (min 1);
   "on a Boss" = while a Boss stands; one Injury Kit per downed member per battle; Triage preset kit rules as built.
+
+## FKR-7 run rules (2026-10-20)
+
+- **Kit packing and cap rules:** "Approve both (Recommended)": a kit a member cannot use is never packed or bought; a
+  Quartermaster purchase is refused if it would go over the warehouse cap, but kits returning from a run may go over it.
+- **Pack screen mockup:** "Yes, mockup now (Recommended)": draft the FKR-9 dispatch packing screen for sign-off so kits
+  can go live in 0.14.0.
