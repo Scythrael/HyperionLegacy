@@ -154,6 +154,11 @@ export function rankedEnemyName(rank: EnemyRank | undefined, roleName: string): 
 }
 
 // Is `rank` at least `min` (FKR-6's "target is Elite or stronger")? Absent reads Normal. Pure.
+// Field Kits FKR-6 hardening: a rule's `min` comes from a stored save, so an unknown one (a hostile or damaged save) is
+// never met and never throws; an unknown `rank` reads Normal.
 export function rankAtLeast(rank: EnemyRank | undefined, min: EnemyRank): boolean {
-  return ENEMY_RANKS[rank ?? "normal"].order >= ENEMY_RANKS[min].order;
+  const want = (ENEMY_RANKS as Partial<Record<string, EnemyRankDef>>)[min]?.order;
+  if (typeof want !== "number") return false;
+  const have = (ENEMY_RANKS as Partial<Record<string, EnemyRankDef>>)[rank ?? "normal"]?.order;
+  return (typeof have === "number" ? have : ENEMY_RANKS.normal.order) >= want;
 }

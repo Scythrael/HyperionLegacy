@@ -7383,12 +7383,13 @@ export const DEFAULT_MEMBER_GAMBIT: GambitProgram = [
 
 // Field Kits FKR-6 (N7 + N15, user 2026-10-16 "Thrown, spend charges": "the DEFAULT program throws them sensibly, saving
 // one for a Boss"; a user-approved change to D19's "no automatic kit use" for GRENADES only, never a kit): the grenade
-// rules a member on the built-in default runs on a Field Kits run. [PROVISIONAL] the exact rules: N15's "Throw grenade
-// at the largest group, keep 1 for a Boss", plus a rule that spends the kept charge ON the Boss (its highest threat:
-// a Boss lead is the fight's strongest enemy at x2.5). A member without a grenade, out of charges, or past this
-// battle's throw skips both (FK11), so the rest of the default acts exactly as D19's.
+// rules a member on the built-in default runs on a Field Kits run: N15's "Throw grenade at the largest group, keep 1 for
+// a Boss", plus a rule that spends the kept charge on an Elite OR a Boss, whichever shows up (user 2026-10-20 "Save for
+// Elite or Boss": the fight's highest threat, which an Elite or Boss lead is at x1.7 or x2.5). A member without a
+// grenade, out of charges, or past this battle's throw skips both (FK11), so the rest of the default acts exactly as
+// D19's.
 export const FIELD_KITS_DEFAULT_GRENADE_RULES: readonly GambitRule[] = [
-  { target: "foeHighestThreat", params: { minRank: "boss" }, action: "throwGrenade" },
+  { target: "foeHighestThreat", params: { minRank: "elite" }, action: "throwGrenade" },
   { target: "foeLargestGroup", params: { reserveForBoss: 1 }, action: "throwGrenade" },
 ];
 

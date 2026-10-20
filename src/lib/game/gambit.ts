@@ -606,7 +606,8 @@ const TRIAGE_PROGRAM: GambitProgram = [
 ];
 // Field Kits FKR-6 (call 15, user 2026-10-17 "Means First Aid Kit": "the Triage preset gets explicit kit rules"): the
 // preset once kits are live (model.ts FIELD_KITS_PLAYER_LIVE, FKR-7 flips it; until then the player is handed the
-// program above, user 2026-10-20 "Hide until kits are live"). [PROPOSAL] the kit rules and their order: the serious
+// program above, user 2026-10-20 "Hide until kits are live"). The kit rules and their order (user 2026-10-20 "Approve
+// all", "Triage preset kit rules as built"): the serious
 // conditions first (a Trauma Kit, then a Splint on a bone; both Medical Training only, so an untrained member skips
 // them), then Antitoxin on Poison, then the First Aid Kit, each spent only on an ally who needs it.
 const TRIAGE_FIELD_KITS_PROGRAM: GambitProgram = [
@@ -1357,8 +1358,8 @@ function ruleFires(
 
 // Field Kits FKR-6: would a reserve rule break its "keep N for a Boss" by spending one now, holding `held`? The reserve
 // lifts on a Boss: a rule aimed at a FOE spends freely when that foe is a Boss; a rule aimed at an ALLY (a kit) spends
-// freely while a Boss stands among the actor's foes ([PROPOSAL]: "on a Boss" read for a kit, whose target is never
-// an enemy, as "in a Boss fight"). No reserve (absent or 0) never breaks. Pure.
+// freely while a Boss stands among the actor's foes (user 2026-10-20 "Approve all": "on a Boss" for a kit, whose target
+// is never an enemy, is "while a Boss stands"). No reserve (absent or 0) never breaks. Pure.
 function breaksReserve(rule: GambitRule, actor: GroundCombatant, target: GroundCombatant, state: BattleState, held: number): boolean {
   const keep = rule.params?.reserveForBoss;
   if (!(typeof keep === "number" && keep > 0)) return false;

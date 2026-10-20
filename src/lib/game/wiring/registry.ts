@@ -2672,7 +2672,7 @@ function contentEntries(): WiringEntry[] {
       on: sourceOn,
     }),
     entry({
-      ...base("away", "GAMBIT_PROGRAMS", "fieldKitsDefault", "The default program throws grenades on a Field Kits run, keeping one for a Boss"),
+      ...base("away", "GAMBIT_PROGRAMS", "fieldKitsDefault", "The default program throws grenades on a Field Kits run, keeping one for an Elite or a Boss"),
       probe: "content:fieldKitsDefault",
       contexts: ["ground"],
       curve: { kind: "event", metric: "grenades a member on the default throws in one battle" },

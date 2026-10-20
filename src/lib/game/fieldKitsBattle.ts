@@ -5,7 +5,7 @@
 //
 //   - PER MEMBER (FK4 "One per member"): each fielded member carries their OWN kits: the objective's free basic set
 //     (group 7 "Free basics + your stock") and the extras they packed. A Use Item spends one from the ACTOR's own
-//     carry, a free basic first, then an extra (gambit.ts spendKit) [PROPOSAL, the plan's order]. FKR-7 passes both
+//     carry, a free basic first, then an extra (gambit.ts spendKit; user 2026-10-20 "Approve all"). FKR-7 passes both
 //     counts on the fight's team (GroundFightTeam.basics / .kits); a member without an entry carries none.
 //   - WHICH KIT: a Use Item rule names one (GambitRuleParams.kitId); a rule naming none means the First Aid Kit (call
 //     15, user 2026-10-17 "Means First Aid Kit").
@@ -15,15 +15,16 @@
 //                                  1.25x with Medical Training, Fleet Triage on top; the existing applyFirstAid math),
 //                                  the First Aid Kit's small heal riding the cleanse;
 //       Combat Stim              : a standing ally without Inspired: Inspired for 2 rounds x the effectiveness, at least 1
-//                                  [PROPOSAL: the effectiveness scales the rounds];
+//                                  (user 2026-10-20 "Approve all": the rounds scale with skill);
 //       Splint                   : a Fracture not yet splinted (it now heals in 3 rounds, source decision 6) or a Broken
 //                                  Bone (it becomes a Fracture, N8); never a Shattered Bone;
 //       Trauma Kit               : Hemorrhage, Neurotoxin, Concussion, a Fracture or a Broken Bone (one use clears every
 //                                  one the target holds, or the one the rule names);
 //       Injury Kit               : a DOWNED ally ("Ally downed") not yet treated this battle: its bay share (0.5) goes on
-//                                  the record (`treated`); FKR-7 sums it into the trip and the medical bay reads it.
+//                                  the record (`treated`; one per downed member per battle, user 2026-10-20); FKR-7
+//                                  sums it into the trip and the medical bay reads it.
 //   - THE DEFAULT PROGRAM (N15): a member whose program is D19's default runs model.ts FIELD_KITS_DEFAULT_MEMBER_GAMBIT
-//     on a Field Kits run (it throws grenades, keeping one for a Boss; still no automatic kit use).
+//     on a Field Kits run (it throws grenades, keeping one for an Elite or a Boss; still no automatic kit use).
 //   - SPLINTED FRACTURE (call 18, "No Fracture bay time"): a Fracture healing from a Splint (SPLINT_HEAL_ROUNDS left or
 //     fewer) is no bay condition (groundFight.ts memberEndConditions).
 //   - ODDS (FK12 "Yes, count packs"): the threat samples field the same packs and charges, spending them fight by fight

@@ -447,19 +447,19 @@ Commit `feat(0.14.0): kits in battle, rank conditions and Boss reserves (FKR-6)`
 e1d6d06), then `feat(0.14.0): kits in battle, rank conditions and Boss reserves (FKR-6)`. Behind flag 2 only; every
 flag-less golden unchanged. New pure `fieldKitsBattle.ts`: `FIELD_KITS_BATTLE` (the kit rules, injected into
 `resolveGroundBattle` because fieldKits.ts imports gambit.ts), `kitUsable` / `applyKit` (First Aid Kit and Antitoxin at
-the first aid cut, the heal riding the cleanse; Combat Stim Inspired 2 rounds x effectiveness, at least 1 [PROPOSAL];
+the first aid cut, the heal riding the cleanse; Combat Stim Inspired 2 rounds x effectiveness, at least 1;
 Splint heals a Fracture in 3 rounds or turns a Broken Bone into a Fracture; Trauma Kit clears its list in one use;
 Injury Kit on a DOWNED ally once per battle, its 0.5 share on the record), `withFieldKitPacks` (every fielded member
 carries `GroundFightTeam.basics` + `.kits`, absent = none), `withFieldKitsDefaultProgram`, `fightSuppliesAfter`
 (charges, basics and extras left after a fight: the threat samples use it now, FKR-7's `finishFight` should too),
 `LEGACY_USE_ITEM_KIT` (call 15). `gambit.ts`: `GroundCombatant.kits` / `.injuryTreated`, `spendKit` (a free basic
-first, then an extra [PROPOSAL]), selector `allyDowned` (fires only as a Field Kits Use Item), `kitFires` (the kit
+first, then an extra), selector `allyDowned` (fires only as a Field Kits Use Item), `kitFires` (the kit
 gate, the need, the look-past), rank conditions `params.minRank` on the resolved target (read on EVERY run: an unranked
 foe and an ally read Normal; no stored program carries one), `params.reserveForBoss` (`breaksReserve`: a foe target
-lifts it when it is a Boss; a kit's ally target while a Boss stands among the foes [PROPOSAL]), `GroundBattleResult` /
+lifts it when it is a Boss; a kit's ally target while a Boss stands among the foes), `GroundBattleResult` /
 `GroundFightRecord` `basicsUsed` / `kitsUsed` / `treated`; Triage's explicit kit rules wait behind
-`FIELD_KITS_PLAYER_LIVE` [PROPOSAL rules]. `model.ts`: `FIELD_KITS_DEFAULT_GRENADE_RULES` [PROVISIONAL: N15's "largest
-group, keep 1 for a Boss" plus "throw at a Boss"] and `FIELD_KITS_DEFAULT_MEMBER_GAMBIT` (swapped in on a Field Kits
+`FIELD_KITS_PLAYER_LIVE`. `model.ts`: `FIELD_KITS_DEFAULT_GRENADE_RULES` (N15's "largest
+group, keep 1 for a Boss" plus "throw the kept one at an Elite or a Boss") and `FIELD_KITS_DEFAULT_MEMBER_GAMBIT` (swapped in on a Field Kits
 fight for a member whose program IS D19's default; still no Use Item). `groundFight.ts memberEndConditions`: a
 splinted Fracture is no bay condition (call 18). `groundThreat.ts`: the samples spend supplies fight by fight and the
 Field Kits key lists each team's basics and kits (FK12). `memberGambits.ts gambitRuleEquals` reads the three new
@@ -471,6 +471,11 @@ minRank:boss,reserveForBoss,fieldKitsDefault}`. Goldens MOVED, named: G1-0 golde
 program throws none" test now expects the throw. **For FKR-7:** pass `GroundTeamRun.basics` / `.kits` / `.charges`
 through the fight's team, subtract the record's spends with `fightSuppliesAfter`, sum `treated` into
 `GroundTeamRun.treatment` and the bay's `treatmentShare`; FKR-10 shows the Field Kits default in the editor.
+**FKR-6 review rulings (user 2026-10-20, merge-batch answers "Spacer bonus, FKR-6 and G1-3 picks"):** "Save for
+Elite or Boss": the default's kept grenade goes on an Elite or a Boss (`minRank: "elite"`; the stamped `default` pin
+did not move). "Approve all": basics before extras, Combat Stim rounds scale with skill (min 1), "on a Boss" = while a
+Boss stands, one Injury Kit per downed member per battle, Triage's kit rules as built (tags dropped). Hardening:
+`enemyRanks.ts rankAtLeast` never throws on an unknown rank or condition from a stored save (never met / reads Normal).
 
 #### FKR-7: Run plumbing: flag 2, per-member packs, per-objective refresh, stock, Quartermaster (engine)
 

@@ -303,6 +303,19 @@ describe("rank conditions (group 7: 'target is Elite or stronger', 'target is a 
     evaluateAndAct([{ target: "foeNearest", params: { minRank: "strong" }, action: "attack" }, { target: "self", action: "hold" }], actor, st, makeRng(3));
     expect(st.log![0].action).toBe("hold");
   });
+  it("an unknown rank from a damaged or hostile save never throws: an unknown condition is never met, an unknown rank reads Normal", () => {
+    const actor = gc("a1", "team");
+    const foe = gc("e1", "enemy", { rank: "mythic" as EnemyRank, hp: 1000, hpMax: 1000 });
+    const st: BattleState = { combatants: [actor, foe], round: 0, teamKit: 0, tauntedBy: null, log: [] };
+    for (const minRank of ["toString", "legendary", "__proto__"]) {
+      st.log = [];
+      expect(() => evaluateAndAct([{ target: "foeNearest", params: { minRank: minRank as EnemyRank }, action: "attack" }, { target: "self", action: "hold" }], actor, st, makeRng(3))).not.toThrow();
+      expect(st.log![0].action, minRank).toBe("hold");
+    }
+    st.log = [];
+    evaluateAndAct([{ target: "foeNearest", params: { minRank: "normal" }, action: "attack" }], actor, st, makeRng(3));
+    expect(st.log![0].action).toBe("attack");
+  });
   it("an ally target reads Normal (a kit rule with a rank condition never fires)", () => {
     const actor = gc("a1", "team", { kits: pack({ firstAidKit: 1 }) });
     const ally = gc("a2", "team");
@@ -330,7 +343,7 @@ describe("'keep N for a Boss' (group 7 reserve; FK11 'save at least one for the 
     expect(fires(gc("a1", "team", { grenade: grenade(2, 1) }), gc("e1", "enemy", { rank: "boss" }))).toBe(true);
     expect(fires(gc("a1", "team", { grenade: grenade(1) }), gc("e1", "enemy"), { ...throwRule, params: { reserveForBoss: 0 } })).toBe(true);
   });
-  it("a kit rule (aimed at an ally) keeps its reserve unless a Boss stands among the foes [PROPOSAL]", () => {
+  it("a kit rule (aimed at an ally) keeps its reserve unless a Boss stands among the foes (user 2026-10-20)", () => {
     const ally = () => {
       const a = gc("a2", "team");
       applyStatus(a, "weakened");
@@ -351,12 +364,12 @@ describe("'keep N for a Boss' (group 7 reserve; FK11 'save at least one for the 
 
 // ===== the Field Kits default program (N15) =====
 
-describe("the default program on a Field Kits run (N15: throws, keeping one for a Boss; still no kit use, D19)", () => {
+describe("the default program on a Field Kits run (N15: throws, keeping one for an Elite or a Boss, user 2026-10-20; still no kit use, D19)", () => {
   it("is D19's default with the two grenade rules after its medic and defense rules", () => {
     expect(FIELD_KITS_DEFAULT_MEMBER_GAMBIT.filter((r) => !FIELD_KITS_DEFAULT_GRENADE_RULES.includes(r))).toEqual(DEFAULT_MEMBER_GAMBIT);
     expect(FIELD_KITS_DEFAULT_MEMBER_GAMBIT.slice(3, 5)).toEqual(FIELD_KITS_DEFAULT_GRENADE_RULES);
     expect(FIELD_KITS_DEFAULT_GRENADE_RULES).toEqual([
-      { target: "foeHighestThreat", params: { minRank: "boss" }, action: "throwGrenade" },
+      { target: "foeHighestThreat", params: { minRank: "elite" }, action: "throwGrenade" },
       { target: "foeLargestGroup", params: { reserveForBoss: 1 }, action: "throwGrenade" },
     ]);
     expect(FIELD_KITS_DEFAULT_MEMBER_GAMBIT.some((r) => r.action === "useItem")).toBe(false);
@@ -372,7 +385,7 @@ describe("the default program on a Field Kits run (N15: throws, keeping one for 
     expect(custom.program).toBe(own);
   });
 
-  it("throws at the largest group while charges are spare, keeps the last one, then throws it at a Boss", () => {
+  it("throws at the largest group while charges are spare, keeps the last one, then throws it at an Elite or a Boss", () => {
     const thrower = (used: number) => {
       const c = gc("a1", "team", { memberId: "m1", hp: 1e6, hpMax: 1e6, grenade: { status: "concussion", statusPermille: 0, powerMult: 1.5, charges: 2, perBattle: 1, used } });
       c.program = FIELD_KITS_DEFAULT_MEMBER_GAMBIT;
@@ -380,13 +393,16 @@ describe("the default program on a Field Kits run (N15: throws, keeping one for 
     };
     const foes = (lead?: EnemyRank) => [gc("e1", "enemy", { hp: 1e6, hpMax: 1e6, threat: 50, ...(lead ? { rank: lead } : {}) }), gc("e2", "enemy", { hp: 1e6, hpMax: 1e6 })];
     expect(resolveGroundBattle([thrower(0)], foes(), 0, makeRng(9)).chargesUsed).toEqual({ m1: 1 });
-    // One charge left: kept against a Normal or an Elite fight, thrown at a Boss.
-    const keep = thrower(1);
-    keep.grenade = { ...keep.grenade!, charges: 1, used: 0 };
-    expect(resolveGroundBattle([keep], foes("elite"), 0, makeRng(9)).chargesUsed).toBeUndefined();
-    const boss = thrower(1);
-    boss.grenade = { ...boss.grenade!, charges: 1, used: 0 };
-    expect(resolveGroundBattle([boss], foes("boss"), 0, makeRng(9)).chargesUsed).toEqual({ m1: 1 });
+    // One charge left: kept against a Normal or a Strong fight, thrown at an Elite or a Boss ("Save for Elite or Boss").
+    const lastCharge = () => {
+      const c = thrower(0);
+      c.grenade = { ...c.grenade!, charges: 1 };
+      return c;
+    };
+    expect(resolveGroundBattle([lastCharge()], foes(), 0, makeRng(9)).chargesUsed).toBeUndefined();
+    expect(resolveGroundBattle([lastCharge()], foes("strong"), 0, makeRng(9)).chargesUsed).toBeUndefined();
+    expect(resolveGroundBattle([lastCharge()], foes("elite"), 0, makeRng(9)).chargesUsed).toEqual({ m1: 1 });
+    expect(resolveGroundBattle([lastCharge()], foes("boss"), 0, makeRng(9)).chargesUsed).toEqual({ m1: 1 });
   });
 });
 
