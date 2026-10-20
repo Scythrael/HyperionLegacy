@@ -142,6 +142,7 @@ import {
   type GroundCombatant,
 } from "../gambit";
 import { FIELD_KITS_CATALOG_VERSION } from "../fieldKits";
+import { withThrownGrenades } from "../fieldKitsGrenades";
 import { fieldworkEffect, fieldworkHazardResist, fieldworkSpeedMult } from "../fieldwork";
 import { taskSecurityHazardResist } from "../groundTasks";
 import { awayRecruitCandidates, snapshotMembers } from "../awayTeam";
@@ -905,6 +906,11 @@ const sheet = (s: GameState) => effectiveShipStats(s, shipOf(s));
 // yet) that context's whole consumer, the Ground Ops run or the patrol cycle.
 const sheetAt = (read: (s: GameState) => number) => (s: GameState, ctx: ContextId) =>
   ctx === "expedition:groundOps" ? groundOpsRunDigest(s) : ctx === "patrol" ? patrolDigest(s) : read(s);
+// Expedition Tiers G2-3: the leg speed a Ground Ops dispatch of ship-1 froze on its voyage (-1 without one).
+const voyageSpeed = (s: GameState, leg: "out" | "back"): number => {
+  const v = dispatchRun(readyForRun(s)).voyage;
+  return v ? (leg === "out" ? v.outboundSpeed : v.returnSpeed) : -1;
+};
 const sci = () => WIRING_SCIENCE_ID;
 // The research probe reads a long project, so one museum step moves it by many ticks (well above its rounding).
 const RESEARCH_PROBE_SCALE = 1000;
@@ -913,10 +919,16 @@ const sec = () => WIRING_SECURITY_ID;
 export const PROBES = {
   // == the ship stat sheet ==
   sheetCargo: { label: "effectiveShipStats.cargoCapacity (Ground Ops / patrol: the run / cycle digest)", read: sheetAt((s) => sheet(s).cargoCapacity) },
-  sheetTransit: { label: "effectiveShipStats.transitSpeedMult (Ground Ops / patrol: the run / cycle digest)", read: sheetAt((s) => sheet(s).transitSpeedMult) },
-  // CP-2 (OC-E5): each mission leg's own speed (effectiveMissionDef divides that leg by it).
-  sheetOutLeg: { label: "outboundLegSpeed(effectiveShipStats): the outbound leg's speed", read: (s) => outboundLegSpeed(sheet(s)) },
-  sheetBackLeg: { label: "returnLegSpeed(effectiveShipStats): the return leg's speed", read: (s) => returnLegSpeed(sheet(s)) },
+  // Expedition Tiers G2-3: at Ground Ops, the outbound leg speed the run's voyage froze (voyage.ts: each leg's seconds
+  // divide by it); the patrol reads its whole cycle digest.
+  sheetTransit: {
+    label: "effectiveShipStats.transitSpeedMult (Ground Ops: the voyage's frozen outbound speed; patrol: the cycle digest)",
+    read: (s, ctx) => (ctx === "expedition:groundOps" ? voyageSpeed(s, "out") : ctx === "patrol" ? patrolDigest(s) : sheet(s).transitSpeedMult),
+  },
+  // CP-2 (OC-E5): each mission leg's own speed (effectiveMissionDef divides that leg by it). G2-3: at Ground Ops, the
+  // voyage's frozen speed on that leg.
+  sheetOutLeg: { label: "outboundLegSpeed(effectiveShipStats): the outbound leg's speed (Ground Ops: the voyage's)", read: (s, ctx) => (ctx === "expedition:groundOps" ? voyageSpeed(s, "out") : outboundLegSpeed(sheet(s))) },
+  sheetBackLeg: { label: "returnLegSpeed(effectiveShipStats): the return leg's speed (Ground Ops: the voyage's)", read: (s, ctx) => (ctx === "expedition:groundOps" ? voyageSpeed(s, "back") : returnLegSpeed(sheet(s))) },
   sheetYield: { label: "effectiveShipStats.extractionYieldMult", read: (s) => sheet(s).extractionYieldMult },
   sheetUnload: {
     label: "unload speed: effectiveShipStats.unloadSpeedMult (missions) / groundOps.factors.offloadMult (Ground Ops)",
@@ -1299,6 +1311,15 @@ export const PROBES = {
       return c ? statusResistPermille(c, "fracture") : 0;
     },
   },
+  // Field Kits FKR-5: a Field Kits objective fight arms the member's worn grenade (fieldKitsGrenades.ts withThrownGrenades).
+  runSecGrenadeCharges: {
+    label: "the dispatched run's Security member in a Field Kits objective fight: grenade charges left (full at an objective's start)",
+    read: (s) => runFieldKitsTaskMember(s, sec())?.grenade?.charges ?? 0,
+  },
+  runSecGrenadePower: {
+    label: "the dispatched run's Security member in a Field Kits objective fight: the grenade blast's power multiplier",
+    read: (s) => runFieldKitsTaskMember(s, sec())?.grenade?.powerMult ?? 0,
+  },
   secGuardBelow: { label: "Security combatant guardBelow", read: (s) => memberCombatant(s, sec())?.guardBelow ?? 0 },
   secFirstStrike: { label: "Security combatant firstStrike (0/1)", read: (s) => (memberCombatant(s, sec())?.firstStrike ? 1 : 0) },
   secFirstAid: { label: "firstAidEffectiveness(Security combatant)", read: (s) => firstAidEffectiveness(memberCombatant(s, sec()) ?? { medic: false }) },
@@ -1441,8 +1462,16 @@ const ACTION_TARGET: Readonly<Record<GambitActionId, GambitTargetSelector>> = {
   secureObjective: "self",
   takeCover: "self",
   flashGrenade: "foeHighestThreat",
+  throwGrenade: "foeLargestGroup",
 };
 export const GAMBIT_ACTIONS = Object.keys(ACTION_TARGET) as GambitActionId[];
+
+// Field Kits FKR-5: a thrown grenade needs a thrower carrying one (a Field Kits fight arms it), so its scenario arms the
+// actor with an Impact Grenade's throw (one charge, one throw) facing a group of two.
+function throwScenario(): BattleState {
+  const grenade = { status: "concussion" as GambitStatusId, statusPermille: 300, powerMult: 1.5, charges: 1, perBattle: 1, used: 0 };
+  return battle([gc("a1", "team", { grenade }), gc("e1", "enemy", { hp: 100, hpMax: 100 }), gc("e2", "enemy", { hp: 100, hpMax: 100 })]);
+}
 
 // Field Kits FKR-4: the flash grenade is an ENEMY action (a Striker's, one per battle), so its scenario puts a Striker
 // carrying one first, facing the squad.
@@ -1451,7 +1480,7 @@ function flashScenario(): BattleState {
 }
 
 function actionChange(action: GambitActionId): number {
-  const before = action === "flashGrenade" ? flashScenario() : actionScenario();
+  const before = action === "flashGrenade" ? flashScenario() : action === "throwGrenade" ? throwScenario() : actionScenario();
   const after = cloneBattle(before);
   evaluateAndAct([{ target: ACTION_TARGET[action], action }], after.combatants[0], after, makeRng(0x5eed));
   return battleChange(before, after);
@@ -1652,6 +1681,30 @@ function missionFieldValue(s: GameState, field: string, key: MissionKey): number
   }
 }
 
+// Field Kits FKR-5: the grenade probes' reference thrower (power 1000, so a blast's rounding is a rounding step), the
+// foes' hp (no blast downs one) and the thrower's own status chance (a Stun or Toxin Grenade's debuff lands at it).
+const GRENADE_PROBE_HP = 1_000_000;
+const GRENADE_PROBE_STATUS_CHANCE = 0.25;
+function armedThrower(varietyKey: string, statusChance: number): GroundCombatant {
+  const m: SnapshotMember = {
+    memberId: "wiring-thrower",
+    teamType: "security",
+    spec: "offense",
+    rank: 1,
+    rankFactor: 1,
+    traits: [],
+    groundStats: { statusChance },
+    resists: {},
+    implants: [],
+    gear: [{ pieceId: "wiring-grenade", slotType: "memberTool", varietyKey, points: 0 }],
+    gambit: [],
+    effects: [],
+  };
+  const c = gc("a1", "team", { memberId: m.memberId, power: 1000 });
+  withThrownGrenades([c], [m]);
+  return c;
+}
+
 // The content probe dispatcher.
 function readContent(id: string, s: GameState): number {
   const [, family, a, b, c, d] = id.split(":");
@@ -1802,6 +1855,45 @@ function readContent(id: string, s: GameState): number {
       const st = battle([actor, ally, gc("e1", "enemy")]);
       evaluateAndAct([{ target: "allyHasStatus", action: "cure" }], actor, st, makeRng(0x5eed));
       return ally.statuses.length;
+    }
+    case "grenade": {
+      // Field Kits FKR-5: grenade variety `a`, armed on a reference thrower the way a Field Kits fight arms it
+      // (fieldKitsGrenades.ts withThrownGrenades), field `b`:
+      //   charges   : the charges it brings to an objective (off: no grenade worn, 0);
+      //   perBattle : the throws one whole battle lets it make, with charges to spare and a program that throws every
+      //               turn it can (off: no grenade, 0);
+      //   blast     : the hp one throw takes off a foe with no armor (off: the same throw at power x1);
+      //   status    : the bodies its debuff lands on over a batch of throws at a group of two (off: the debuff chance 0).
+      if (b === "charges") return on ? (armedThrower(a, 0).grenade?.charges ?? 0) : 0;
+      if (b === "perBattle") {
+        if (!on) return 0;
+        const thrower = armedThrower(a, 0);
+        if (!thrower.grenade) return -1;
+        thrower.grenade = { ...thrower.grenade, charges: 99 };
+        thrower.hp = thrower.hpMax = GRENADE_PROBE_HP;
+        thrower.program = [{ target: "foeNearest", action: "throwGrenade" }, { target: "foeNearest", action: "attack" }];
+        const foe = gc("e1", "enemy", { hp: GRENADE_PROBE_HP, hpMax: GRENADE_PROBE_HP });
+        return resolveGroundBattle([thrower], [foe], 0, makeRng(0x5eed)).chargesUsed?.[thrower.memberId!] ?? 0;
+      }
+      if (b === "blast") {
+        const thrower = armedThrower(a, 0);
+        if (!thrower.grenade) return -1;
+        thrower.grenade = { ...thrower.grenade, statusPermille: 0, ...(on ? {} : { powerMult: 1 }) };
+        const foe = gc("e1", "enemy", { hp: GRENADE_PROBE_HP, hpMax: GRENADE_PROBE_HP });
+        evaluateAndAct([{ target: "foeNearest", action: "throwGrenade" }], thrower, battle([thrower, foe]), makeRng(0x5eed));
+        return GRENADE_PROBE_HP - foe.hp;
+      }
+      let afflicted = 0;
+      for (let seed = 1; seed <= 64; seed += 1) {
+        const thrower = armedThrower(a, GRENADE_PROBE_STATUS_CHANCE);
+        if (!thrower.grenade) return -1;
+        const status = thrower.grenade.status;
+        if (!on) thrower.grenade = { ...thrower.grenade, statusPermille: 0 };
+        const foes = [gc("e1", "enemy", { hp: GRENADE_PROBE_HP, hpMax: GRENADE_PROBE_HP }), gc("e2", "enemy", { hp: GRENADE_PROBE_HP, hpMax: GRENADE_PROBE_HP })];
+        evaluateAndAct([{ target: "foeLargestGroup", action: "throwGrenade" }], thrower, battle([thrower, ...foes]), makeRng(Math.imul(seed, 0x9e3779b1) >>> 0));
+        afflicted += foes.filter((f) => f.statuses.some((x) => x.id === status)).length;
+      }
+      return afflicted;
     }
     case "enemyRank": {
       // Field Kits FKR-1: the guard of a REAL task fight (groundFight.ts taskFightGuard, the list resolveTaskFightOnSeed

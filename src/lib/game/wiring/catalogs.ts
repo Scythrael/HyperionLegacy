@@ -33,6 +33,7 @@ import {
 import { AFFIX_DEFS, escalationAt } from "../affixes";
 import { ENEMY_RANK_IDS } from "../enemyRanks";
 import { CONDITION_LINES, CONDITION_LINE_IDS, FIELD_KIT_BLUEPRINT, FIELD_KIT_IDS, FREE_BASIC_SET, KIT_CATEGORY_RULES } from "../fieldKits";
+import { GRENADE_IDS } from "../fieldKitsGrenades";
 import { SENIOR_STAFF_BONUSES } from "../seniorStaffBonuses";
 import { CREW_PROFESSION_BUFFS, SECOND_LEVEL_EXCLUSIVE } from "../crewBuffs";
 import { CREW_RACES } from "../crewRaces";
@@ -55,6 +56,10 @@ import { STATUS_EFFECT_DEFS } from "../combat/statusEffects";
 import { DRONE_POD_AFFIX_POOL, DRONE_POD_IMPLICIT_STAT, WEAPON_AFFIX_POOL, WEAPON_IMPLICIT_STAT } from "../itemgen";
 import { AFFIX_ALIGNED_HOOKS, AFFIX_HOOK_KEYS, GAMBIT_ACTIONS, GAMBIT_SELECTORS } from "./probes";
 import { FIELD_ROLES, effectFieldsOf } from "./fieldRoles";
+import { SHORT_RANGE_TEMPLATES } from "../shortRange";
+
+// Field Kits FKR-5: the sources each grenade carries (its GrenadeTraits, as the registry measures them).
+export const GRENADE_FIELDS = ["charges", "perBattle", "blast", "status"] as const;
 
 export interface EffectSource {
   readonly catalog: string;
@@ -99,6 +104,7 @@ const FIELD_CATALOGS: Readonly<Record<string, Readonly<Record<string, object>>>>
   SENSOR_ARRAYS: Object.fromEntries(SENSOR_ARRAYS.map((a) => [a.id, a])),
   ITEMS,
   SUBSPACE_TELESCOPE_LEVELS: Object.fromEntries(SUBSPACE_TELESCOPE_LEVELS.map((r) => [String(r.level), r])),
+  SHORT_RANGE_TEMPLATES,
 };
 
 function fieldSources(catalog: string, defs: Readonly<Record<string, object>>): EffectSource[] {
@@ -200,6 +206,8 @@ export function enumerateEffectSources(): EffectSource[] {
   // the field kit items (Field Kits FKR-3): each kit blueprint's craft and each kit's Quartermaster price
   add("BLUEPRINTS", FIELD_KIT_IDS.map((id) => `${FIELD_KIT_BLUEPRINT[id]}:craft`));
   add("FIELD_KIT_PRICES", FIELD_KIT_IDS);
+  // the grenade family (Field Kits FKR-5): each grenade's charges per objective, throws per battle, blast and debuff
+  add("GRENADES", GRENADE_IDS.flatMap((k) => GRENADE_FIELDS.map((f) => `${k}:${f}`)));
   add("POI_CATALOG", POI_CATALOG.map((p) => p.id));
   add("SALVAGE_LOOT_POOLS", Object.keys(SALVAGE_LOOT_POOLS));
   // the data catalogs, field by field
