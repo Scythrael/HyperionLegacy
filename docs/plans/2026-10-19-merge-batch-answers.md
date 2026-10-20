@@ -71,3 +71,12 @@ section 5.A captain nodes). Kept in their own file so the parallel integrator's 
   damage grenade at 1.5x": SPECIALIZED_GRENADE_POWER_MULT 0.5 as built (0.5x power, i.e. one third of the Impact).
 - **Impact Grenade recipe:** "Approve (Recommended)": 1 Titanium Ingot + 1 Polysilicate Wafer + 1 Power Coupling, Tier 1,
   700 credits research.
+
+## G1-2 provisional picks (2026-10-20, all Recommended; tags can drop)
+
+- **Short-range Range:** "90 / 130 ly": real light-years, round trip, Tier I / Tier II.
+- **Security sheet and prisoner groups:** "Approve": Security 1 at Tier I, 4 at Tier II; groups 20 to 40 and 40 to 70.
+- **Reward materials:** "Approve": Supply Pickup pays Titanium Ore (commonOre), Phenomenon Survey pays Iridium Ore
+  (rareMaterial).
+- **Names:** "Approve": template key prisonerTransport, label "Prisoner Transport"; mockup placeholder designations
+  and phenomenon names for destinations.
