@@ -86,3 +86,5 @@ section 5.A captain nodes). Kept in their own file so the parallel integrator's 
   Capacity craft line stay hidden until FKR-7 wires kits into runs.
 - **Prospecting dig safety knee:** "Knee 1 (Recommended)": DIG_SAFETY_KNEE 1, confirmed.
 - **Hotfix 0.13.10:** user tested it on staging: "Tested OK, promote it" (2026-10-20).
+- **Power efficiency knee (EM-1):** "As built (Recommended)": POWER_EFFICIENCY_KNEE 0.25 (one Overdrive officer about
+  8%, 0.5 total about 24%), confirmed (2026-10-20).
