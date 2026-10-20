@@ -20,6 +20,8 @@
 //   - identifyRelic: the keyed deterministic identification roll a completed study runs.
 //   - Museum readers: relicCopyLevel, setTierLevels (with bottleneck info for the E4c UI),
 //     setCompletion, museumBonuses (Record<MuseumStat, number>).
+//   - Relics v2 R2-1 (DORMANT, end of file): the v2 catalog (RELIC_TYPES, the band and exceptional odds tables, the
+//     exceptional sets, the soft cap, the culture roster), read by the later Relics v2 slices.
 //
 // ⚠️ ADDITIVE-NEUTRAL SEAM FOR E4b: museumBonuses on an empty museum is ALL ZEROS, so
 // wiring a consumer later as `base * (1 + bonus)` or `base + bonus` changes nothing for a
@@ -36,7 +38,7 @@
 // one-way, the same arrangement expeditionContent.ts has with model.ts.
 // ============================================================================
 
-import type { EquipmentRarity, GameState, RelicSetId } from "./model";
+import type { EquipmentRarity, GameState, RegionTier, RelicSetId } from "./model";
 import type { ExpeditionPoiId } from "./expeditionContent";
 import { makeRng } from "./combat/rng";
 
@@ -661,7 +663,9 @@ export function museumBonusesFromRecord(museum: Readonly<Record<string, number>>
   return out;
 }
 
-// The museum's total bonuses for a game state (reads state.relicMuseum; a pre-E4 shape reads empty).
+// The museum's total bonuses for a game state. Relics v2 R2-1: reads the Tier I general record
+// (state.museumV2.general["1"], where the v69 -> v70 step moved every v1 copy; model.ts generalMuseumRecord is the same
+// read), through the v1 math until R2-4 replaces it. A pre-E4 shape reads empty.
 // E4b wires every MuseumStat into its live consumer (see the consumer map below). DERIVED ON READ, never
 // stored: each consumer reads it fresh off the state it is handed (economyTick once per call off its
 // incoming state; actions at action time), so it can never go stale and is never cached across ticks.
@@ -678,7 +682,7 @@ export function museumBonusesFromRecord(museum: Readonly<Record<string, number>>
 //                       -> SNAPSHOTTED onto the Expedition at dispatch (expedition.ts startExpedition)
 //   scienceTeamPower    -> gambit.ts deriveAwayTeam (scienceStrength x (1 + b), then snapshotted)
 export function museumBonuses(state: GameState): Record<MuseumStat, number> {
-  return museumBonusesFromRecord(state.relicMuseum ?? {});
+  return museumBonusesFromRecord(state.museumV2?.general?.["1"] ?? {});
 }
 
 // ============================================================================
@@ -728,3 +732,307 @@ export function resistedHazard(hazard: number, resist: number): number {
   if (!(resist > 0)) return hazard;
   return Math.max(0, hazard * (1 - effectiveHazardResist(resist)));
 }
+
+// ============================================================================
+// Relics v2 R2-1 (docs/plans/2026-10-17-relics-v2-plan.md section 3.1): THE V2 CATALOG. DORMANT.
+// ============================================================================
+// Pure data and pure readers; nothing on a game path reads any of it until its slice does (R2-2 blanks by tier, R2-3
+// identification v2, R2-4 museum math v2, R2-5 exceptional sets, R2-6 cultures), so every v1 result is unchanged.
+//
+// The user's answers this catalog follows (plan USER ANSWERS 2026-10-19):
+//   call 1  "Become Tier I pool": the 17 relics become the general pool by band, 4 / 5 / 4 / 4, ids, names, flavors
+//           and first-find unlocks kept, the set ladder retired (R2-4 retires it).
+//   call 2  "Same types, scaled per tier": ONE pool of general types, counted per region tier.
+//   call 3  "1000 per tier": the soft cap (RELIC_SOFT_CAP).
+//   call 5  "Growing sets, 54 pieces": EXCEPTIONAL_SET_SIZES.
+//   call 6  "0.25% to 1.5%, x1.25/tier": EXCEPTIONAL_PER_100K.
+//   call 9  "Tied to source planet": named at 10 study points (CULTURE_STUDY_POINTS).
+//   call 10 "Curated roster, 42 names": 6 per tier. The NAMES await the user's sign-off sheet, so the roster holds
+//           stable placeholder ids only and no display name at all.
+//   call 13 "Better rarity only": RELIC_BAND_ODDS (the relic chance and the haul multiplier untouched).
+//   call 17 site bias: "a relic's source site doubles the weight of its old set's types" (RELIC_SITE_BIAS_MULT).
+// Every number the user did not answer is the plan's recommended value, marked [PROVISIONAL] on its ONE constant.
+// Exceptional set and piece NAMES await the user's sign-off sheet (R2-5): stable ids and [PROPOSAL] labels only.
+
+// The four BANDS a general relic type belongs to and a blank's rarity folds onto (standard..radiant, the rarities the
+// relic roll produces; derelict reads standard, luminous and constellar read radiant, as identifyRelic folds them).
+export type RelicBand = "standard" | "augmented" | "stellar" | "radiant";
+export const RELIC_BANDS: readonly RelicBand[] = ["standard", "augmented", "stellar", "radiant"];
+
+// A blank's band: the same fold identifyRelic applies to a token's rarity. Pure.
+export function relicBandOf(rarity: EquipmentRarity): RelicBand {
+  return skewTierOf(rarity);
+}
+
+// The v1 rarity class a type's band comes from (call 1: common = standard, uncommon = augmented, rare = stellar,
+// capstone = radiant), which is what makes the bands 4 / 5 / 4 / 4.
+const BAND_OF_V1_RARITY: Readonly<Record<RelicRarity, RelicBand>> = { common: "standard", uncommon: "augmented", rare: "stellar", capstone: "radiant" };
+
+// One museum stat a general type grants, with its share of the type's per-copy value (1 = all of it).
+export interface RelicTypeStat {
+  stat: MuseumStat;
+  share: number;
+}
+
+// [PROVISIONAL] (plan 3.1 [PROPOSAL], not an answered call): each type carries the stat its old set position granted.
+// Index 1 = the set's per-copy stat, index k = the k-piece tier's stat; the two-stat Precursor capstone keeps both at
+// half share. All 14 Museum stats stay fed (a catalog test asserts the rule and the coverage).
+export const RELIC_TYPE_STATS: Readonly<Record<string, readonly RelicTypeStat[]>> = {
+  glyphTablet: [{ stat: "researchSpeed", share: 1 }],
+  resonanceShard: [{ stat: "researchSpeed", share: 1 }],
+  starChartFragment: [{ stat: "craftingQuality", share: 1 }],
+  precursorLens: [{ stat: "relicFindChance", share: 1 }],
+  heartOfTheArchive: [
+    { stat: "researchSpeed", share: 0.5 },
+    { stat: "craftingQuality", share: 0.5 },
+  ],
+  hullRivet: [{ stat: "cargoCapacity", share: 1 }],
+  flightRecorder: [{ stat: "transitSpeed", share: 1 }],
+  ancientDriveCoil: [{ stat: "cargoCapacity", share: 1 }],
+  captainsSigil: [{ stat: "salvageYield", share: 1 }],
+  sporeCapsule: [{ stat: "sensors", share: 1 }],
+  bioluminescentSeed: [{ stat: "scanSpeed", share: 1 }],
+  leviathanScale: [{ stat: "scienceTeamPower", share: 1 }],
+  livingCrystal: [{ stat: "crewBonuses", share: 1 }],
+  geodeCore: [{ stat: "miningYield", share: 1 }],
+  magmaPearl: [{ stat: "rareMaterialChance", share: 1 }],
+  deepVeinCompass: [{ stat: "extractionSpeed", share: 1 }],
+  tectonicKeystone: [{ stat: "hazardResist", share: 1 }],
+};
+
+// [PROVISIONAL] (plan 3.1 "in-band weight", no number given): every type weighs the same inside its band; the band odds
+// already make the commons dominate. An integer, so the R2-3 pick stays one integer draw.
+export const RELIC_TYPE_WEIGHT = 1;
+
+// User call 17: a blank's source site DOUBLES the in-band weight of its old set's types (a Deep Earth site favors Geode
+// Core). R2-3 applies it.
+export const RELIC_SITE_BIAS_MULT = 2;
+
+// One GENERAL relic type (call 2: the same types at every region tier, counted per tier).
+export interface RelicTypeDef {
+  id: string; // unchanged from the v1 relic id, so relicDiscovered and every relic-gated blueprint keep working
+  label: string; // the v1 name, unchanged
+  flavor: string; // the v1 flavor line, unchanged
+  band: RelicBand;
+  siteSet: RelicSetId; // the old set, read only by the site bias (call 17)
+  stats: readonly RelicTypeStat[];
+  weight: number; // in-band weight before the site bias
+}
+
+// The general pool, built from the 17 approved relics so the ids, names and flavors cannot drift from them.
+export const RELIC_TYPES: readonly RelicTypeDef[] = RELICS.map((r) => ({
+  id: r.id,
+  label: r.label,
+  flavor: r.flavor,
+  band: BAND_OF_V1_RARITY[r.rarity],
+  siteSet: r.setId,
+  stats: RELIC_TYPE_STATS[r.id] ?? [],
+  weight: RELIC_TYPE_WEIGHT,
+}));
+
+const RELIC_TYPE_BY_ID: Map<string, RelicTypeDef> = (() => {
+  const map = new Map<string, RelicTypeDef>();
+  for (const def of RELIC_TYPES) {
+    if (map.has(def.id)) throw new Error(`Duplicate relic type id: ${def.id}`);
+    if (def.stats.length === 0) throw new Error(`Relic type ${def.id} grants no museum stat`);
+    map.set(def.id, def);
+  }
+  for (const id of Object.keys(RELIC_TYPE_STATS)) if (!map.has(id)) throw new Error(`RELIC_TYPE_STATS names an unknown type: ${id}`);
+  return map;
+})();
+
+export function getRelicTypeById(id: string): RelicTypeDef | undefined {
+  return RELIC_TYPE_BY_ID.get(id);
+}
+
+// The general types of one band, in catalog order. Pure.
+export function relicTypesInBand(band: RelicBand): RelicTypeDef[] {
+  return RELIC_TYPES.filter((t) => t.band === band);
+}
+
+// Band odds per region tier (call 13: better rarity only)
+
+// A revealed-band weight row, in RELIC_BANDS order (standard, augmented, stellar, radiant).
+type BandRow = readonly [number, number, number, number];
+
+// [PROVISIONAL] (plan 3.1 [PROPOSAL]): the Tier IV and Tier VII anchor rows. The plan gives the standard blank at
+// Tier IV (40/35/18/7) and Tier VII (20/35/28/17) and the radiant blank at Tier VII (0/10/40/50); the other rows
+// follow the same upward shift. Tier I is NOT here: it is today's RELIC_RARITY_WEIGHTS_BY_TIER exactly (read below),
+// and the tiers between the anchors interpolate linearly, rounded to integers.
+export const RELIC_BAND_ODDS_ANCHORS: Readonly<Record<4 | 7, Readonly<Record<RelicBand, BandRow>>>> = {
+  4: { standard: [40, 35, 18, 7], augmented: [28, 35, 27, 10], stellar: [12, 28, 38, 22], radiant: [5, 15, 40, 40] },
+  7: { standard: [20, 35, 28, 17], augmented: [15, 32, 33, 20], stellar: [5, 22, 41, 32], radiant: [0, 10, 40, 50] },
+};
+
+const REGION_TIER_LIST: readonly RegionTier[] = [1, 2, 3, 4, 5, 6, 7];
+
+function tierOneRow(blank: RelicBand): BandRow {
+  const w = RELIC_RARITY_WEIGHTS_BY_TIER[blank];
+  return [w.common, w.uncommon, w.rare, w.capstone];
+}
+
+function lerpRow(a: BandRow, b: BandRow, frac: number): BandRow {
+  const at = (i: number) => Math.round(a[i] + (b[i] - a[i]) * frac);
+  return [at(0), at(1), at(2), at(3)];
+}
+
+function bandRowAt(tier: RegionTier, blank: RelicBand): BandRow {
+  const one = tierOneRow(blank);
+  const four = RELIC_BAND_ODDS_ANCHORS[4][blank];
+  const seven = RELIC_BAND_ODDS_ANCHORS[7][blank];
+  if (tier === 1) return one;
+  if (tier < 4) return lerpRow(one, four, (tier - 1) / 3);
+  if (tier === 4) return four;
+  if (tier < 7) return lerpRow(four, seven, (tier - 4) / 3);
+  return seven;
+}
+
+// RELIC_BAND_ODDS[tier][blank band][revealed band]: the integer weight a blank of that band reveals a general type of
+// each band with, at that region tier. Tier I is today's identification skew, so a Tier I blank keeps its v1 odds.
+export const RELIC_BAND_ODDS: Readonly<Record<RegionTier, Readonly<Record<RelicBand, Readonly<Record<RelicBand, number>>>>>> = (() => {
+  const out = {} as Record<RegionTier, Record<RelicBand, Record<RelicBand, number>>>;
+  for (const tier of REGION_TIER_LIST) {
+    out[tier] = {} as Record<RelicBand, Record<RelicBand, number>>;
+    for (const blank of RELIC_BANDS) {
+      const row = bandRowAt(tier, blank);
+      out[tier][blank] = { standard: row[0], augmented: row[1], stellar: row[2], radiant: row[3] };
+    }
+  }
+  return out;
+})();
+
+// Exceptional relics
+
+// Call 6: a blank's chance to reveal an EXCEPTIONAL piece, per 100,000, at Tier I by its band (0.25% to 1.5%) ...
+export const EXCEPTIONAL_PER_100K_TIER_I: Readonly<Record<RelicBand, number>> = { standard: 250, augmented: 500, stellar: 1000, radiant: 1500 };
+// ... times this per region tier above I, rounded to an integer (an integer chance, so the R2-3 check is one draw).
+export const EXCEPTIONAL_TIER_GROWTH = 1.25;
+
+export const EXCEPTIONAL_PER_100K: Readonly<Record<RegionTier, Readonly<Record<RelicBand, number>>>> = (() => {
+  const out = {} as Record<RegionTier, Record<RelicBand, number>>;
+  for (const tier of REGION_TIER_LIST) {
+    const f = Math.pow(EXCEPTIONAL_TIER_GROWTH, tier - 1);
+    out[tier] = {} as Record<RelicBand, number>;
+    for (const band of RELIC_BANDS) out[tier][band] = Math.round(EXCEPTIONAL_PER_100K_TIER_I[band] * f);
+  }
+  return out;
+})();
+
+// Call 5 "Growing sets, 54 pieces": the piece count of each exceptional set, per region tier. I: one set of 2; II: one
+// of 3; III: two of 3; IV and V: two of 4; VI: three of 4; VII: three of 5.
+export const EXCEPTIONAL_SET_SIZES: Readonly<Record<RegionTier, readonly number[]>> = {
+  1: [2],
+  2: [3],
+  3: [3, 3],
+  4: [4, 4],
+  5: [4, 4],
+  6: [4, 4, 4],
+  7: [5, 5, 5],
+};
+
+// [PROVISIONAL] (plan 3.1 [PROPOSAL]: "Tier I +3% rising to Tier VII +15%"): one piece's flat value per region tier,
+// linear between the two ends. The R2-5 content sheet may retune every value.
+export const EXCEPTIONAL_PIECE_VALUE: Readonly<Record<RegionTier, number>> = { 1: 0.03, 2: 0.05, 3: 0.07, 4: 0.09, 5: 0.11, 6: 0.13, 7: 0.15 };
+
+// [PROVISIONAL] (plan 3.1 [PROPOSAL]: "full-set bonus five times one piece"): a completed set's bonus, in pieces.
+export const EXCEPTIONAL_FULL_SET_MULT = 5;
+
+// [PROVISIONAL] (no stat was proposed per piece; the R2-5 content sheet assigns them): pieces take the Museum stats in
+// this order, cycling across the whole catalog (54 pieces over 14 stats, so every stat is fed), and a set's full-set
+// bonus lands on its first piece's stat.
+export const EXCEPTIONAL_PIECE_STAT_CYCLE: readonly MuseumStat[] = MUSEUM_STATS;
+
+export interface ExceptionalPieceDef {
+  id: string; // stable: "<set id>-p<n>"
+  setId: string;
+  label: string; // [PROPOSAL] until the user's sign-off sheet names it
+  stat: MuseumStat;
+  value: number; // flat fraction while held (duplicates add nothing, call 7)
+}
+
+export interface ExceptionalSetDef {
+  id: string; // stable: "exc-t<tier>-<letter>"
+  tier: RegionTier;
+  label: string; // [PROPOSAL] until the user's sign-off sheet names it
+  pieces: readonly ExceptionalPieceDef[];
+  fullSet: readonly { stat: MuseumStat; value: number }[]; // granted once every piece is held
+}
+
+const ROMAN: Readonly<Record<RegionTier, string>> = { 1: "I", 2: "II", 3: "III", 4: "IV", 5: "V", 6: "VI", 7: "VII" };
+const SET_LETTERS = ["a", "b", "c"];
+
+// The 54 exceptional pieces in 14 sets, Tier I first. Ids are stable (a save stores them); labels are [PROPOSAL].
+export const EXCEPTIONAL_SETS: readonly ExceptionalSetDef[] = (() => {
+  const out: ExceptionalSetDef[] = [];
+  let cursor = 0;
+  for (const tier of REGION_TIER_LIST) {
+    EXCEPTIONAL_SET_SIZES[tier].forEach((size, i) => {
+      const letter = SET_LETTERS[i];
+      const id = `exc-t${tier}-${letter}`;
+      const value = EXCEPTIONAL_PIECE_VALUE[tier];
+      const pieces: ExceptionalPieceDef[] = [];
+      for (let k = 1; k <= size; k++) {
+        pieces.push({
+          id: `${id}-p${k}`,
+          setId: id,
+          label: `[PROPOSAL] Tier ${ROMAN[tier]} Set ${letter.toUpperCase()} piece ${k}`,
+          stat: EXCEPTIONAL_PIECE_STAT_CYCLE[cursor % EXCEPTIONAL_PIECE_STAT_CYCLE.length],
+          value,
+        });
+        cursor++;
+      }
+      out.push({
+        id,
+        tier,
+        label: `[PROPOSAL] Tier ${ROMAN[tier]} Exceptional Set ${letter.toUpperCase()}`,
+        pieces,
+        fullSet: [{ stat: pieces[0].stat, value: value * EXCEPTIONAL_FULL_SET_MULT }],
+      });
+    });
+  }
+  return out;
+})();
+
+const EXCEPTIONAL_SET_BY_ID: Map<string, ExceptionalSetDef> = new Map(EXCEPTIONAL_SETS.map((s) => [s.id, s]));
+const EXCEPTIONAL_PIECE_BY_ID: Map<string, ExceptionalPieceDef> = (() => {
+  const map = new Map<string, ExceptionalPieceDef>();
+  for (const set of EXCEPTIONAL_SETS) {
+    for (const piece of set.pieces) {
+      if (map.has(piece.id) || RELIC_TYPE_BY_ID.has(piece.id)) throw new Error(`Duplicate relic id: ${piece.id}`);
+      map.set(piece.id, piece);
+    }
+  }
+  return map;
+})();
+
+export function getExceptionalSetById(id: string): ExceptionalSetDef | undefined {
+  return EXCEPTIONAL_SET_BY_ID.get(id);
+}
+
+export function getExceptionalPieceById(id: string): ExceptionalPieceDef | undefined {
+  return EXCEPTIONAL_PIECE_BY_ID.get(id);
+}
+
+// The exceptional sets of one region tier, in catalog order. Pure.
+export function exceptionalSetsOfTier(tier: RegionTier): ExceptionalSetDef[] {
+  return EXCEPTIONAL_SETS.filter((s) => s.tier === tier);
+}
+
+// Soft cap and cultures
+
+// Call 3 "1000 per tier" (call 4: keep counting past it and show it): identified general relics per region tier at
+// which that tier's counts freeze for the regular game (R2-4).
+export const RELIC_SOFT_CAP = 1000;
+
+// Call 10: six curated cultures per region tier (42). Their NAMES await the user's sign-off sheet, so the roster
+// holds stable placeholder ids only ("culture-t<tier>-<n>"); nothing here is a display name. No culture is ever the
+// First Cause antagonists (R2-6 guards the roster).
+export const CULTURES_PER_TIER = 6;
+export const CULTURE_ROSTER: Readonly<Record<RegionTier, readonly string[]>> = (() => {
+  const out = {} as Record<RegionTier, string[]>;
+  for (const tier of REGION_TIER_LIST) out[tier] = Array.from({ length: CULTURES_PER_TIER }, (_, i) => `culture-t${tier}-${i + 1}`);
+  return out;
+})();
+
+// Call 9: a culture's name is revealed at this many study points (+1 per identified find, plus 15b ancient data; R2-6).
+export const CULTURE_STUDY_POINTS = 10;

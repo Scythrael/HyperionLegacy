@@ -84,6 +84,13 @@ import {
 //      is derived from it (galaxy.ts), so only the light-years the telescope and the candidates show move. An
 //      in-flight run never reads it and resolves byte-identically. See withHomeworldV70, which migrate ALSO runs after
 //      the loop on every load, so a save already at v70 from a build before G2-1 gets its own homeworld too.
+//   4. Relics v2 R2-1 (plan 2026-10-17 section 3.4; USER ANSWERS 2026-10-19 call 1 "Become Tier I pool"): the v1
+//      museum copy record (`relicMuseum`) moves into the Museum v2 record (`museumV2`, model.ts MuseumV2) as its Tier I
+//      general record: every v1 copy is a Tier I copy (no region existed before 0.14.0) and the ids did not change, so
+//      relicDiscovered and every relic-gated blueprint stay unlocked, and the museum bonuses read the same copies through
+//      the same v1 math (R2-4 changes the math, not this step). Vault tokens and in-flight studies are untouched (their
+//      new fields are optional). See withMuseumV2V70, which migrate ALSO runs after the loop on every load, so a save
+//      already at v70 from a build before R2-1 moves its museum too.
 export const SAVE_VERSION = 70;
 export const SAVE_KEY = "fleet_admiral_save";
 
@@ -2561,7 +2568,8 @@ const MIGRATIONS: Record<number, Migration> = {
   // 1. WR-4 (OC-C1): the retired fuel stockpile and any Fuel Depot refine batch still in flight.
   // 2. Safe first runs SF-1: the run counters, derived from the save's history (withRunCountsV70).
   // 3. Expedition Tiers G2-1: the per-save homeworld seed, from the injected entropy (withHomeworldV70).
-  69: (state: any, ctx: MigrationContext): any => withHomeworldV70(withRunCountsV70(dropRetiredFuelV70(state)), ctx.homeworldEntropy),
+  // 4. Relics v2 R2-1: the v1 museum copies move into museumV2.general["1"] (withMuseumV2V70).
+  69: (state: any, ctx: MigrationContext): any => withMuseumV2V70(withHomeworldV70(withRunCountsV70(dropRetiredFuelV70(state)), ctx.homeworldEntropy)),
 };
 
 // The v69 -> v70 WR-4 step: drop `fuel` and every `fuelRefineJob` process (its addFuel output names a field that no
@@ -2626,6 +2634,64 @@ export function withHomeworldV70(state: any, entropy: number): any {
   if (!state || typeof state !== "object" || isWellFormedV70Homeworld(state.homeworld)) return state;
   const seed = Number.isFinite(entropy) ? Math.trunc(entropy) >>> 0 : 0;
   return { ...state, homeworld: { version: 1, seed } };
+}
+
+// The v69 -> v70 Relics v2 R2-1 step: move the v1 museum copy record (`relicMuseum`) into the Museum v2 record
+// (`museumV2`) as its Tier I general record, and drop `relicMuseum`. Every v1 copy is a Tier I copy; the ids are
+// unchanged. The record takes the old field's KEY POSITION (a save that already holds `museumV2` keeps that one's), so
+// a migrated save and a fresh save stay indistinguishable, key order included. A save with no copies gets the empty
+// record (no Tier I entry), exactly what freshState seeds.
+// FROZEN: reads only the raw save and its own shape check and builds the empty record inline (never relics.ts or
+// model.ts helpers). Idempotent: a save with no `relicMuseum` and a well-formed `museumV2` is returned as the SAME
+// reference, so the every-load call below is free. Hardened: a non-object state passes through; a malformed
+// `museumV2` is replaced by the empty record; a v1 count that is not a positive finite number is dropped and the rest
+// are floored (the v1 reader, relics.ts relicCopies, read them the same way); when both fields exist (a fixture built
+// from a current freshState plus a v1 record) the v1 counts are ADDED to the Tier I record, so nothing is lost.
+function isWellFormedV70MuseumV2(value: any): boolean {
+  const rec = (v: any) => !!v && typeof v === "object" && !Array.isArray(v);
+  return (
+    rec(value) &&
+    rec(value.general) &&
+    rec(value.exceptional) &&
+    rec(value.frozen) &&
+    rec(value.cultures) &&
+    Array.isArray(value.culturesNamed) &&
+    Array.isArray(value.setsCompleted)
+  );
+}
+export function withMuseumV2V70(state: any): any {
+  if (!state || typeof state !== "object") return state;
+  const hasOld = Object.prototype.hasOwnProperty.call(state, "relicMuseum");
+  const wellFormed = isWellFormedV70MuseumV2(state.museumV2);
+  if (!hasOld && wellFormed) return state;
+  const base = wellFormed
+    ? state.museumV2
+    : { general: {}, exceptional: {}, frozen: {}, cultures: {}, culturesNamed: [], setsCompleted: [] };
+  const old = state.relicMuseum;
+  const adds: Record<string, number> = {};
+  if (old && typeof old === "object" && !Array.isArray(old)) {
+    for (const [id, n] of Object.entries(old)) if (typeof n === "number" && Number.isFinite(n) && n > 0) adds[id] = Math.floor(n);
+  }
+  let museumV2 = base;
+  if (Object.keys(adds).length > 0) {
+    const tierOne: Record<string, number> = { ...(base.general["1"] ?? {}) };
+    for (const [id, n] of Object.entries(adds)) tierOne[id] = (typeof tierOne[id] === "number" && tierOne[id] > 0 ? tierOne[id] : 0) + n;
+    museumV2 = { ...base, general: { ...base.general, "1": tierOne } };
+  }
+  // Rebuild in key order: `museumV2` where it already is, else where `relicMuseum` was, else at the end.
+  const out: any = {};
+  const keepOwnPlace = Object.prototype.hasOwnProperty.call(state, "museumV2");
+  for (const key of Object.keys(state)) {
+    if (key === "relicMuseum") {
+      if (!keepOwnPlace) out.museumV2 = museumV2;
+    } else if (key === "museumV2") {
+      out.museumV2 = museumV2;
+    } else {
+      out[key] = state[key];
+    }
+  }
+  if (!("museumV2" in out)) out.museumV2 = museumV2;
+  return out;
 }
 
 // The entropy migrate falls back to when its caller passes none (tests and tools that load a save directly): a
@@ -2706,6 +2772,9 @@ export function migrate(save: SaveFile, homeworldEntropy?: number): GameState {
   // v70 build from before G2-1 would stay on the shared near-Sol spot the user rejected ("Random for everyone").
   // withHomeworldV70 is idempotent (a well-formed homeworld is kept, the same reference), so it runs on EVERY load.
   state = withHomeworldV70(state, ctx.homeworldEntropy);
+  // Relics v2 R2-1: the same for the museum. A dev or QA save at v70 from a build before R2-1 still holds the v1
+  // `relicMuseum`, which nothing reads any more; withMuseumV2V70 is idempotent (the SAME reference once moved).
+  state = withMuseumV2V70(state);
   // Hydrate the SHAPE first (Decimals, quality buckets), THEN reconcile any over-cap stack
   // down to its warehouse cap. clampInventoryToCaps needs the hydrated Decimal inventory +
   // the facility levels (both present after hydrateDecimals) to resolve each item's cap. It

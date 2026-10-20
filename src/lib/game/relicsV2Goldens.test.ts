@@ -12,14 +12,14 @@
 // NEVER regenerate these from a later build. A slice that moves one names it and the reason in its commit.
 
 import { describe, it, expect } from "vitest";
-import { freshState, RELIC_DEFAULT_SEED, type EquipmentRarity, type Expedition, type ExpeditionFinding, type GameState, type RelicSetId } from "./model";
+import { freshState, generalMuseumRecord, withGeneralMuseumRecord, RELIC_DEFAULT_SEED, type EquipmentRarity, type Expedition, type ExpeditionFinding, type GameState, type RelicSetId } from "./model";
 import { MUSEUM_STATS, RELIC_SETS, RELICS, identifyRelic, museumBonusesFromRecord, relicStudyDurationTicks, relicStudySeed } from "./relics";
 import { rollRelicToken } from "./gambit";
 import { advanceExpedition, depositExpeditionFindings } from "./expedition";
 import { economyTick, museumResearchDurationTicks, startRelicStudy, tick } from "./tick";
 import { deserialize, migrate, serialize, type SaveFile } from "./save";
 import { PRE_G2_STORED_RUNS } from "./expeditionTiersGoldens.fixture";
-import { hash, stateHash } from "./firstRunsGoldens.fixture";
+import { hash, stateHash, withV1Museum } from "./firstRunsGoldens.fixture";
 
 const SETS: readonly RelicSetId[] = ["precursor", "shipwright", "xenobiology", "deepEarth"];
 const TOKEN_RARITIES: readonly EquipmentRarity[] = ["standard", "augmented", "stellar", "radiant"];
@@ -229,12 +229,11 @@ describe("R2-0 golden 6: a v69 relic save, migrated and ticked to completion", (
   // The state a save held: two vault tokens, a museum with copies, a first-find registry, one study in flight.
   const held = (): GameState => {
     const s: GameState = {
-      ...freshState(),
+      ...withGeneralMuseumRecord(freshState(), { glyphTablet: 12, resonanceShard: 11, hullRivet: 3, geodeCore: 1 }),
       relicVault: [
         { id: "expedition-3-relic-a", tier: "stellar", quality: 3, setId: "xenobiology", poiId: "xenoFloraBloom" },
         { id: "expedition-3-relic-b", tier: "standard", quality: 1, setId: "precursor", poiId: "ancientRuins" },
       ],
-      relicMuseum: { glyphTablet: 12, resonanceShard: 11, hullRivet: 3, geodeCore: 1 },
       relicDiscovered: ["glyphTablet", "resonanceShard", "hullRivet", "geodeCore"],
       nextRelicStudyIndex: 5,
     };
@@ -242,8 +241,10 @@ describe("R2-0 golden 6: a v69 relic save, migrated and ticked to completion", (
     expect(started.started).toBe(true);
     return started.next;
   };
+  // R2-1: the save a pre-R2-1 build wrote holds the v1 `relicMuseum` (withV1Museum writes it at the record's place).
   const loaded = (): GameState => {
-    const save = deserialize(serialize(held(), 0)) as SaveFile;
+    const save = deserialize(serialize(withV1Museum(held()), 0)) as SaveFile;
+    expect((save.state as unknown as Record<string, unknown>).relicMuseum).toEqual({ glyphTablet: 12, resonanceShard: 11, hullRivet: 3, geodeCore: 1 });
     return migrate({ ...save, version: 69 }, ENTROPY);
   };
 
@@ -254,7 +255,7 @@ describe("R2-0 golden 6: a v69 relic save, migrated and ticked to completion", (
     expect(stateHash(s)).toBe("b276466f");
     const done = tick(proc.remainingTicks + 10, s, () => 0);
     expect(done.activeProcesses.some((p) => p.kind === "relicStudy")).toBe(false);
-    expect({ museum: done.relicMuseum, discovered: done.relicDiscovered, vault: done.relicVault.map((t) => t.id) }).toEqual({
+    expect({ museum: generalMuseumRecord(done), discovered: done.relicDiscovered, vault: done.relicVault.map((t) => t.id) }).toEqual({
       museum: { glyphTablet: 12, resonanceShard: 11, hullRivet: 3, geodeCore: 1, sporeCapsule: 1 },
       discovered: ["glyphTablet", "resonanceShard", "hullRivet", "geodeCore", "sporeCapsule"],
       vault: ["expedition-3-relic-b"],
@@ -268,6 +269,6 @@ describe("R2-0 golden 6: a v69 relic save, migrated and ticked to completion", (
     const offline = tick(span, s, () => 0);
     let live = s;
     for (let i = 0; i < span; i++) live = economyTick(live, 1, () => 0);
-    expect({ m: live.relicMuseum, d: live.relicDiscovered, p: live.activeProcesses }).toEqual({ m: offline.relicMuseum, d: offline.relicDiscovered, p: offline.activeProcesses });
+    expect({ m: live.museumV2, d: live.relicDiscovered, p: live.activeProcesses }).toEqual({ m: offline.museumV2, d: offline.relicDiscovered, p: offline.activeProcesses });
   });
 });

@@ -31,7 +31,7 @@ import { makeWeaponInstance } from "./combat/weapons";
 import { CLOAKED_VESSEL_HULL, buildShipCombatant, snapshotShipEventProfile } from "./shipScanEvents";
 import { TRANSPORT_WINDOW_SECONDS } from "./transports";
 import { WIRING_BUCKET_COUNT, bucketOf, editCaptain, installPiece, seatOfficer, withAwayTeam, withBuckets, withFacilityLevel, withHomeworld, wiringBase } from "./wiring/probes";
-import { withoutGuests } from "./firstRunsGoldens.fixture";
+import { withV1Museum, withoutGuests } from "./firstRunsGoldens.fixture";
 import { asPreG2NamesDispatch } from "./awayTeamTestFixtures";
 
 function fnv(s: string): string {
@@ -44,9 +44,10 @@ function fnv(s: string): string {
 }
 const hash = (v: unknown): string => fnv(JSON.stringify(v));
 // A state without the variant's own input, so an inert source reads the baseline.
+// Relics v2 R2-1: the Museum v2 record in its v1 form (withV1Museum), as these were captured.
 const hashState = (s: GameState): string =>
   hash({
-    ...s,
+    ...withV1Museum(s),
     unlockedHomeworldTalents: [],
     captains: s.captains.map((c) => ({ ...c, unlockedCaptainTalents: [], spec: null, race: undefined })),
   });

@@ -38,6 +38,8 @@ import {
   type TimedProcess,
   type ShipDerivedStats,
   type CaptainState,
+  generalMuseumRecord,
+  withGeneralMuseumRecord,
 } from "./model";
 import {
   RELICS,
@@ -86,7 +88,7 @@ function fullMuseum(copies: number): Record<string, number> {
 }
 const FULL = fullMuseum(160); // every tier at the max ladder level (5)
 
-const withMuseum = (s: GameState, museum: Record<string, number>): GameState => ({ ...s, relicMuseum: museum });
+const withMuseum = (s: GameState, museum: Record<string, number>): GameState => withGeneralMuseumRecord(s, museum);
 const ship1 = (s: GameState): ShipInstance => s.ships.find((sh) => sh.id === "ship-1")!;
 
 function bucket(overrides: Partial<CrewBucket> & Pick<CrewBucket, "buff1Id">): CrewBucket {
@@ -604,7 +606,7 @@ describe("ADDITIVE-NEUTRAL: an empty museum is byte-identical everywhere", () =>
     expect(museumBonuses(zeroEntries)).toEqual(zeroMuseumBonuses());
     const a = tick(500, withMuseum(d, {}), seededRng());
     const b = tick(500, zeroEntries, seededRng());
-    expect({ ...b, relicMuseum: {} }).toEqual({ ...a, relicMuseum: {} });
+    expect(withMuseum(b, {})).toEqual(withMuseum(a, {}));
   });
 
   it("an empty museum leaves research / study durations, expedition snapshots and crew maps untouched", () => {
@@ -643,7 +645,7 @@ describe("PARITY: a museum that GROWS mid-span stays offline == live", () => {
     for (let i = 0; i < SPAN; i++) small = economyTick(small, 1, rng);
 
     const snap = (st: GameState) => ({
-      relicMuseum: st.relicMuseum,
+      relicMuseum: generalMuseumRecord(st),
       captains: st.captains,
       inventory: st.inventory,
       credits: st.credits.toString(),
@@ -654,7 +656,7 @@ describe("PARITY: a museum that GROWS mid-span stays offline == live", () => {
     expect(snap(big)).toEqual(snap(small));
 
     // Non-vacuous: the museum really grew mid-span, the ship stats really moved, and cycles completed.
-    const copies = (st: GameState) => Object.values(st.relicMuseum).reduce((a, b) => a + b, 0);
+    const copies = (st: GameState) => Object.values(generalMuseumRecord(st)).reduce((a, b) => a + b, 0);
     expect(copies(big)).toBe(copies(base) + 1);
     expect(effectiveShipStats(big, ship1(big))).not.toEqual(effectiveShipStats(base, ship1(base)));
     expect(Object.values(big.lifetimeStats.missionsCompleted).some((v) => new Decimal(v).gt(0))).toBe(true);

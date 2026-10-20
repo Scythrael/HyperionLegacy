@@ -32,7 +32,7 @@ import * as shipLoadout from "./shipLoadout";
 import { buildShipRoster } from "./shipRoster";
 import { berthEtaTicks } from "./berths";
 import { effectiveShipStats } from "./crewOverlay";
-import { effectiveMissionDef } from "./model";
+import { effectiveMissionDef, withGeneralMuseumRecord } from "./model";
 import { addItemQuality, itemTotal } from "./inventory";
 import { expeditionCandidates, startExpedition } from "./expedition";
 import { plainAwayMember, withMinimumAwayTeam, withSlottedAwayTeams } from "./awayTeamTestFixtures";
@@ -164,7 +164,7 @@ describe("B20: the berth ETA and the dispatch popup's rare chance follow the eng
 
   it("the popup's drop chances are the engine's: the museum rare-material chance counts", () => {
     // Two Deep Earth relics, ten copies each: the set's 2-piece tier is the museum rare-material chance.
-    const s: GameState = { ...freshState(), relicMuseum: { geodeCore: 10, magmaPearl: 10 } };
+    const s: GameState = withGeneralMuseumRecord(freshState(), { geodeCore: 10, magmaPearl: 10 });
     const raw = MISSIONS.surveyMineralAnomaly.rareChance;
     const chances = missionDropChances(s, s.captains[0], "surveyMineralAnomaly");
     expect(chances.uncommon).toBeCloseTo(MISSIONS.surveyMineralAnomaly.uncommonChance, 12);

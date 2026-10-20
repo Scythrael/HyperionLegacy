@@ -4358,7 +4358,10 @@ export type ProcessEffect =
   // studyIndex, token.id), so it is a pure function of stored values and offline == live by
   // construction. NO Decimal (the token is plain strings/numbers), so hydrateDecimals skips this effect
   // via its `"amount" in effect` guard and it round-trips through JSON verbatim.
-  | { type: "identifyRelic"; token: RelicVaultToken; studyIndex: number };
+  // Relics v2 R2-1 (DORMANT): `v: 2` marks a v2 study (its PRESENCE is the flag, plan 2026-10-17 section 3.2); R2-3
+  // stamps it. A study without it resolves through the v1 roll exactly as dispatched, so every in-flight study keeps
+  // its result.
+  | { type: "identifyRelic"; token: RelicVaultToken; studyIndex: number; v?: 2 };
 
 // One in-flight timed process. `id` is monotonic ("proc-N"), allocated from
 // GameState.nextProcessId (mirrors the ShipInstance/nextShipId pattern).
@@ -7026,6 +7029,10 @@ export interface ExpeditionRelicToken {
   quality: number; // 0..5 quality bucket from the salvage tier (reuses the 0-5 quality system)
   unidentified: true; // always true this phase: E4 owns identification/research/museum
   studySpeed?: number; // WR-5c Preservationist: the study of this relic runs (1 + this) faster; absent = 0
+  // Relics v2 R2-1 (DORMANT; plan 2026-10-17 section 3.2): stamped at the roll from R2-2 on. Absent = Tier I and a
+  // culture derived at read time (R2-2 / R2-6), so every token rolled before Relics v2 reads exactly as it did.
+  regionTier?: RegionTier;
+  cultureId?: string;
 }
 
 // ============================================================================
@@ -7056,6 +7063,70 @@ export interface RelicVaultToken {
   setId: RelicSetId; // the set this token identifies WITHIN
   poiId: string; // the PoI the finding came from (expeditionContent.ts POI_CATALOG id)
   studySpeed?: number; // WR-5c Preservationist (carried from the token): the study runs (1 + this) faster; absent = 0
+  // Relics v2 R2-1 (DORMANT; plan 2026-10-17 section 3.2): all optional, read with a default, nothing writes them
+  // until R2-2. regionTier absent = Tier I; cultureId absent = derived at read time from the token id (R2-2 / R2-6);
+  // source absent = "expedition". (setId stays required until R2-2 mints the first token that does not need it.)
+  regionTier?: RegionTier;
+  cultureId?: string;
+  source?: RelicVaultTokenSource;
+}
+
+// Relics v2 R2-1: where a vault blank came from (plan 2026-10-17 section 3.2; OC-14 short-range, OC-15 the planet 100%
+// bonus roll, the tutorial grant seam). Absent on a token = "expedition".
+export type RelicVaultTokenSource = "expedition" | "shortRange" | "completion" | "grant";
+
+// Relics v2 R2-1: a RegionTier as a record key (JSON object keys are strings). The Museum v2 record is keyed by it.
+export type RegionTierKey = "1" | "2" | "3" | "4" | "5" | "6" | "7";
+
+// Relics v2 R2-1 (plan 2026-10-17 section 3.2; USER ANSWERS 2026-10-19 calls 1 to 4, 7, 9 and 16): the MUSEUM v2
+// record. It REPLACES the v1 `relicMuseum` (the v69 -> v70 step moves every v1 copy into general["1"]: every v1 copy is
+// a Tier I copy, and the ids did not change). Plain numbers and strings only (no Decimals), so hydrateDecimals is
+// unchanged.
+//   general       copies per region tier per general relic TYPE id (relics.ts RELIC_TYPES). Sparse: a tier is absent
+//                 until its first copy, a type until its first copy at that tier.
+//   exceptional   copies per exceptional PIECE id (relics.ts EXCEPTIONAL_SETS); duplicates counted (OC-7, R2-5).
+//   frozen        the snapshot of a tier's general counts taken when it first reached the soft cap (OC-3, R2-4).
+//   cultures      per culture id: study points and finds per type (OC-9, R2-6).
+//   culturesNamed culture ids in reveal order, each appended once (R2-6).
+//   setsCompleted exceptional set ids in completion order, each appended once (the ledger hook reads it, R2-5).
+// R2-1 is DORMANT: only general["1"] is written (by a v1 relic study, exactly where the v1 museum was written); every
+// other part stays empty until its slice.
+export interface MuseumCultureRecord {
+  points: number;
+  finds: Record<string, number>;
+}
+export interface MuseumV2 {
+  general: Partial<Record<RegionTierKey, Record<string, number>>>;
+  exceptional: Record<string, number>;
+  frozen: Partial<Record<RegionTierKey, Record<string, number>>>;
+  cultures: Record<string, MuseumCultureRecord>;
+  culturesNamed: string[];
+  setsCompleted: string[];
+}
+
+// The empty Museum v2 record freshState seeds. Pure: a new object every call.
+export function emptyMuseumV2(): MuseumV2 {
+  return { general: {}, exceptional: {}, frozen: {}, cultures: {}, culturesNamed: [], setsCompleted: [] };
+}
+
+// The general copy record of one region tier (Tier I by default: where every v1 copy lives). A save or fixture
+// without the record reads empty. The ONE reader every v1 consumer goes through (museum bonuses, the Museum panel,
+// the reveal card, the wiring probes). Pure.
+export function generalMuseumRecord(state: { readonly museumV2?: MuseumV2 }, tier: RegionTier = 1): Readonly<Record<string, number>> {
+  return state.museumV2?.general?.[String(tier) as RegionTierKey] ?? {};
+}
+
+// The Museum v2 record with one region tier's general copies REPLACED by `record` (copied). Every other part, and
+// every other tier, is kept. The key positions of an existing record are kept too (a spread over an existing key
+// keeps its place), so a write never reorders the saved JSON. Pure.
+export function museumV2WithGeneral(museum: MuseumV2 | undefined, record: Readonly<Record<string, number>>, tier: RegionTier = 1): MuseumV2 {
+  const base = museum ?? emptyMuseumV2();
+  return { ...base, general: { ...base.general, [String(tier) as RegionTierKey]: { ...record } } };
+}
+
+// The state with one region tier's general copies replaced (museumV2WithGeneral). Pure.
+export function withGeneralMuseumRecord<S extends { museumV2?: MuseumV2 }>(state: S, record: Readonly<Record<string, number>>, tier: RegionTier = 1): S {
+  return { ...state, museumV2: museumV2WithGeneral(state.museumV2, record, tier) };
 }
 
 // The per-save relic PRNG seed. A study's identification roll is keyed off (relicSeed, a fixed salt, the
@@ -8261,9 +8332,10 @@ export interface GameState {
   // The UNIDENTIFIED relics waiting for Research (claimExpedition appends; startRelicStudy removes one
   // into its process). Ordered by arrival.
   relicVault: RelicVaultToken[];
-  // The MUSEUM: identified copy count per relic id (relics.ts RELICS). Sparse: a relic absent until its
-  // first identified copy. Plain numbers (copy counts are small integers, never idle-scale).
-  relicMuseum: Record<string, number>;
+  // The MUSEUM (Relics v2 R2-1: the MuseumV2 record above, which replaced the v1 `relicMuseum` copy record; the
+  // v69 -> v70 step moves the v1 copies into museumV2.general["1"]). Read and written through relics.ts
+  // generalMuseumRecord / withGeneralMuseumRecord. Plain numbers (copy counts are small integers, never idle-scale).
+  museumV2: MuseumV2;
   // The DISCOVERED registry: relic ids in FIRST-FIND order, each appended exactly once (the first
   // identified copy of its type). The unknown-relic discovery unlock reads this.
   relicDiscovered: string[];
@@ -8272,6 +8344,9 @@ export interface GameState {
   // Monotonic study index, stamped onto each relicStudy process at START (the "index" the keyed
   // identification roll mixes in). freshState seeds 1; never reused.
   nextRelicStudyIndex: number;
+  // Relics v2 R2-1 (DORMANT; plan 2026-10-17 section 3.2, OC-12 "Free, queued, lanes by Lab"): vault token ids queued
+  // for identification, in order. Absent = an empty queue; nothing writes it until R2-3.
+  relicQueue?: string[];
   // ===== E-CREW "Crew Made Real" (Task 2, DORMANT) =====
   // The away-team roster and the Armory squad loadouts (see the AwayMember / GroundTeamLoadout block above).
   // freshState seeds the clean-slate defaults; the v64->v65 migration (save.ts) backfills the IDENTICAL
@@ -13579,7 +13654,9 @@ export function freshState(homeworldSeed?: number): GameState {
     // discovered), the fixed relic seed, and the study index at 1. Existing saves reach the IDENTICAL
     // shape via the v62->v63 migration (save.ts).
     relicVault: [],
-    relicMuseum: {},
+    // Relics v2 R2-1: the empty Museum v2 record, in the v1 museum's key position (the v69 -> v70 step puts it at the
+    // same position, so a fresh save and a migrated save stay indistinguishable, key order included).
+    museumV2: emptyMuseumV2(),
     relicDiscovered: [],
     relicSeed: RELIC_DEFAULT_SEED,
     nextRelicStudyIndex: 1,

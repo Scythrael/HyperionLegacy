@@ -21,6 +21,8 @@ import {
   type EquipmentInstance,
   type GameState,
   type HomeworldTalentKey,
+  generalMuseumRecord,
+  withGeneralMuseumRecord,
 } from "../model";
 import { MUSEUM_COPY_LADDER, RELIC_SETS, museumBonuses, type MuseumStat } from "../relics";
 import { OFFICER_STAT_NEUTRAL } from "../officerStats";
@@ -131,6 +133,8 @@ export const UNMEASURED_CATALOGS: Readonly<Record<string, string>> = {
   PROSPECTING_SPEC_BASE: "hidden until the prospecting quests patch",
   PROSPECTING_BLUEPRINTS: "hidden until the prospecting quests patch",
   PROSPECTING_USES: "hidden until the prospecting quests patch",
+  RELIC_TYPES: "dormant until Relics v2 R2-4 (copies per tier; R2-8 brings the Museum v2 page)",
+  EXCEPTIONAL_SETS: "dormant until Relics v2 R2-5 (exceptional pieces are not found before then)",
 };
 
 const shipOf = (s: GameState) => s.ships.find((sh) => sh.id === PANEL_SHIP_ID);
@@ -284,20 +288,22 @@ const ADAPTERS: Readonly<Record<string, Adapter>> = {
   BRIDGE_MODULES: (_e, v, key) => moduleOn(v, "bridge", key.split(":")[0]),
   SENSOR_ARRAYS: (_e, v, key) => moduleOn(v, "sensor", key.split(":")[0]),
   MUSEUM_STATS: (_e, v, key) =>
-    (museumBonuses(v)[key as MuseumStat] ?? 0) !== 0 ? owned({ ...v, relicMuseum: {} }, "without = an empty Museum (the stat's whole total)") : NOT_OWNED,
+    (museumBonuses(v)[key as MuseumStat] ?? 0) !== 0 ? owned(withGeneralMuseumRecord(v, {}), "without = an empty Museum (the stat's whole total)") : NOT_OWNED,
   RELICS: (_e, v, key) => {
-    if ((v.relicMuseum?.[key] ?? 0) <= 0) return NOT_OWNED;
-    const { [key]: _gone, ...rest } = v.relicMuseum;
-    return owned({ ...v, relicMuseum: rest }, "without = none of its copies");
+    const museum = generalMuseumRecord(v);
+    if ((museum[key] ?? 0) <= 0) return NOT_OWNED;
+    const { [key]: _gone, ...rest } = museum;
+    return owned(withGeneralMuseumRecord(v, rest), "without = none of its copies");
   },
   RELIC_SETS: (_e, v, key) => {
     const [setId, piecesText] = key.split(":");
     const set = RELIC_SETS.find((x) => x.id === setId);
     const relics = set?.relicIds.slice(0, Number(piecesText)) ?? [];
     const first = MUSEUM_COPY_LADDER[0];
-    if (!relics.length || !relics.every((r) => (v.relicMuseum?.[r] ?? 0) >= first)) return NOT_OWNED;
+    const museum = generalMuseumRecord(v);
+    if (!relics.length || !relics.every((r) => (museum[r] ?? 0) >= first)) return NOT_OWNED;
     const last = relics[relics.length - 1];
-    return owned({ ...v, relicMuseum: { ...v.relicMuseum, [last]: first - 1 } }, `without = the tier's last relic at ${first - 1} copies`);
+    return owned(withGeneralMuseumRecord(v, { ...museum, [last]: first - 1 }), `without = the tier's last relic at ${first - 1} copies`);
   },
   CREW_RARITY_MULTIPLIER: (_e, v, key) =>
     bucketsAboard(v).some((b) => b.rarity === key)

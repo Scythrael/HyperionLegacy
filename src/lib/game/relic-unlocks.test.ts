@@ -44,6 +44,7 @@ import {
   type RelicVaultToken,
   type TimedProcess,
   type Expedition,
+  withGeneralMuseumRecord,
 } from "./model";
 import { RELICS, RELIC_SETS, getRelicById, getRelicSetById, undiscoveredResearchMask, museumBonuses } from "./relics";
 import {
@@ -314,7 +315,7 @@ describe("E4d reveal: the 'Research unlocked' line", () => {
       creditsAmount: null,
       stale: false,
     };
-    const s: GameState = { ...freshState(), relicMuseum: { leviathanScale: 1 } };
+    const s: GameState = withGeneralMuseumRecord(freshState(), { leviathanScale: 1 });
     expect(buildRelicReveal(s, rec, true, "radiant")!.researchUnlocked).toEqual(["Bio-Resonance Array"]);
     expect(buildRelicReveal(s, rec, false, "radiant")!.researchUnlocked).toEqual([]);
   });
@@ -649,7 +650,7 @@ describe("E4d expedition gear: Pathfinder Suite + Bio-Resonance Array feed the d
   it("gear stacks ADDITIVELY on top of the museum's snapshot values", () => {
     const museum: Record<string, number> = {};
     for (const r of RELICS) museum[r.id] = 40;
-    const s = { ...withEquipment(freshState(), pathfinder(), bio()), relicMuseum: museum };
+    const s = withGeneralMuseumRecord(withEquipment(freshState(), pathfinder(), bio()), museum);
     const b = museumBonuses(s);
     const gear = expeditionGearBonuses(s, ship1(s));
     const exp = dispatch(s).expedition!;

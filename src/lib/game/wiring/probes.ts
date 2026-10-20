@@ -57,6 +57,7 @@ import {
   type SnapshotMember,
   type MemberPerkId,
   type PatrolMissionState,
+  withGeneralMuseumRecord,
 } from "../model";
 import {
   canBuildShip,
@@ -333,8 +334,9 @@ export function withFacilityLevel(s: GameState, key: string, level: number): Gam
   return { ...s, facilities: { ...s.facilities, [key]: { level } } };
 }
 
+// Relics v2 R2-1: the record is the Tier I general record (museumV2.general["1"], where the v1 copies live).
 export function withMuseum(s: GameState, record: Readonly<Record<string, number>>): GameState {
-  return { ...s, relicMuseum: { ...record } };
+  return withGeneralMuseumRecord(s, record);
 }
 
 export function withHomeworld(s: GameState, keys: readonly string[]): GameState {

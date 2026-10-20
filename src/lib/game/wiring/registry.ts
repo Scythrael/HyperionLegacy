@@ -96,11 +96,13 @@ import { GEAR_POINT_BUMP, GROUND_STAT_MEMBER_STAT, FIELDWORK_YIELD_PER_POINT, ST
 import { PROSPECTING_BLUEPRINTS, PROSPECTING_SPEC_BASE, PROSPECTING_USES } from "../prospecting";
 import { FIELDWORK_SPEED_KNEE, FIELDWORK_SPEED_PER_BUMP, FIELDWORK_YIELD_KNEE } from "../fieldwork";
 import {
+  EXCEPTIONAL_SETS,
   MUSEUM_COPY_LADDER,
   MUSEUM_PER_COPY_BONUS,
   MUSEUM_STATS,
   MUSEUM_TIER_LEVEL_BONUS,
   RELIC_SETS,
+  RELIC_TYPES,
   RELICS,
   museumBonusesFromRecord,
   type MuseumStat,
@@ -286,6 +288,8 @@ export const CATALOGS = {
   SENSOR_ARRAYS,
   RELIC_SETS,
   RELICS,
+  RELIC_TYPES,
+  EXCEPTIONAL_SETS,
   WEAPON_DEFS,
   ROLE_TEMPLATE,
   PIRATE_HULLS,
@@ -2319,6 +2323,54 @@ function relicEntries(): WiringEntry[] {
   return out;
 }
 
+// Relics v2 R2-1 (plan 2026-10-17 section 4): the v2 catalog is DORMANT, so each of its effect sources is pending with
+// the slice that wires it. A general type's stat moves its Museum stat once R2-4's museum math v2 reads RELIC_TYPES (its
+// consumer is the relic:MUSEUM_STATS entry); an exceptional piece and a full-set bonus once R2-4 adds their flat values
+// and R2-5 grants them. Until then nothing reads them, so nothing can move.
+const R2_4_TYPES = "Relics v2 R2-4 (museum math v2 sums each general type's stats per tier)";
+const R2_5_EXCEPTIONAL = "Relics v2 R2-4 + R2-5 (exceptional piece and full-set values; names await the content sign-off sheet)";
+
+function relicV2Entries(): WiringEntry[] {
+  const out: WiringEntry[] = [];
+  for (const t of RELIC_TYPES) {
+    out.push(
+      entry({
+        id: `relic:RELIC_TYPES:${t.id}`,
+        system: "relic",
+        source: { catalog: "RELIC_TYPES", key: t.id },
+        claim: `${t.label}: ${t.stats.map((s) => s.stat).join(" + ")} per copy, per tier`,
+        magnitude: (c) => c.RELIC_TYPES.find((x) => x.id === t.id)!.stats.reduce((a, s) => a + s.share, 0),
+        status: pending(R2_4_TYPES),
+      }),
+    );
+  }
+  for (const set of EXCEPTIONAL_SETS) {
+    for (const p of set.pieces) {
+      out.push(
+        entry({
+          id: `relic:EXCEPTIONAL_SETS:${set.id}:${p.id}`,
+          system: "relic",
+          source: { catalog: "EXCEPTIONAL_SETS", key: `${set.id}:${p.id}` },
+          claim: `${p.label}: ${p.stat}`,
+          magnitude: (c) => c.EXCEPTIONAL_SETS.find((x) => x.id === set.id)!.pieces.find((x) => x.id === p.id)!.value,
+          status: pending(R2_5_EXCEPTIONAL),
+        }),
+      );
+    }
+    out.push(
+      entry({
+        id: `relic:EXCEPTIONAL_SETS:${set.id}:full`,
+        system: "relic",
+        source: { catalog: "EXCEPTIONAL_SETS", key: `${set.id}:full` },
+        claim: `${set.label} full set: ${set.fullSet.map((b) => b.stat).join(" + ")}`,
+        magnitude: (c) => c.EXCEPTIONAL_SETS.find((x) => x.id === set.id)!.fullSet.reduce((a, b) => a + b.value, 0),
+        status: pending(R2_5_EXCEPTIONAL),
+      }),
+    );
+  }
+  return out;
+}
+
 // ============================================================================
 // mission: MISSIONS fields
 // ============================================================================
@@ -3467,6 +3519,7 @@ function build(): readonly WiringEntry[] {
     ...sensorArrayEntries(),
     ...museumEntries(),
     ...relicEntries(),
+    ...relicV2Entries(),
     ...missionEntries(),
     ...contentEntries(),
     ...affixEntries(),
