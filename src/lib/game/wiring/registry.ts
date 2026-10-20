@@ -419,7 +419,7 @@ function seatFor(def: SeniorStaffBonusDef): SeniorStaffSeat {
 // What each officer statKey moves (probe, contexts, curve). Absent = pending (OFFICER_PENDING below).
 const OFFICER_SEAMS: Readonly<Record<string, { probe: ProbeId; contexts: ContextId[]; curve: Curve }>> = {
   "officer.shipOutputMult": { probe: "missionOutputBonus", contexts: ["mission:extraction"], curve: { kind: "linearAbsolute" } },
-  "officer.transitTimeCut": { probe: "sheetTransit", contexts: ["sheet"], curve: { kind: "linearRelative" } },
+  "officer.transitTimeCut": { probe: "sheetTransit", contexts: ["sheet", "expedition:groundOps"], curve: { kind: "linearRelative" } },
   "officer.evasion": { probe: "officerEvasion", contexts: ["patrol", "expedition:groundOps"], curve: { kind: "linearAbsolute" } },
   "officer.unloadTimeCut": { probe: "sheetUnload", contexts: ["sheet", "expedition:groundOps"], curve: { kind: "linearRelative" } },
   "officer.effectiveCargoMult": { probe: "sheetCargo", contexts: ["sheet"], curve: { kind: "linearRelative" } },
@@ -499,8 +499,8 @@ const CREW_SEAMS: Readonly<Record<string, CrewSeam>> = {
   [CREW_STAT_KEYS.loadSpeed]: { probe: "expReloadMult", contexts: ["expedition:groundOps"], curve: { kind: "linearAbsolute" } },
   [CREW_STAT_KEYS.effectiveCargo]: { probe: "sheetCargo", contexts: ["sheet"], curve: { kind: "linearRelative" } },
   // CP-2 (OC-E5): each transit buff lifts its own leg.
-  [CREW_STAT_KEYS.transitOutSpeed]: { probe: "sheetOutLeg", contexts: ["sheet"], curve: { kind: "linearRelative" } },
-  [CREW_STAT_KEYS.transitBackSpeed]: { probe: "sheetBackLeg", contexts: ["sheet"], curve: { kind: "linearRelative" } },
+  [CREW_STAT_KEYS.transitOutSpeed]: { probe: "sheetOutLeg", contexts: ["sheet", "expedition:groundOps"], curve: { kind: "linearRelative" } },
+  [CREW_STAT_KEYS.transitBackSpeed]: { probe: "sheetBackLeg", contexts: ["sheet", "expedition:groundOps"], curve: { kind: "linearRelative" } },
   // CP-2: Damage Control joins the repair divisor (Shipyard, and the field repair frozen at dispatch).
   [CREW_STAT_KEYS.hullRepairRate]: { probe: "turnaround", contexts: ["shipyard", "shipEvent"], curve: { kind: "linearRelative" } },
   // CP-2: Mission Turnaround: the unload x (1 + t) and the same repair divisor (Veteran Instincts' shape, own key).
@@ -1727,7 +1727,7 @@ const LINE_SEAMS: Readonly<Record<string, LineSeam | null>> = {
   // G1-1: a guest line is stored in berths and adds them flat. Measured on an Orion (an explorer: the General quarters
   // perk would multiply both readings, which is its own entry, ship:SHIP_SEAMS:generalQuartersGuestPerk).
   colonistCapacity: { probe: "sheetGuestQuarters", contexts: ["sheet"], curve: { kind: "linearAbsolute" }, magnitude: () => LINE_POINTS, base: () => wiringBase("orion") },
-  transitSpeedMult: { probe: "sheetTransit", contexts: ["sheet"], curve: { kind: "linearRelative" }, magnitude: () => percent("transitSpeedMult") },
+  // Expedition Tiers G2-3: the voyage flies each leg at the ship's own speed on it (the run freezes it).
   engineEfficiency: { probe: "sheetEngineEff", contexts: ["sheet"], curve: { kind: "linearAbsolute" }, magnitude: () => percent("engineEfficiency") },
   extractionYieldMult: { probe: "sheetYield", contexts: ["sheet"], curve: { kind: "linearRelative" }, magnitude: () => percent("extractionYieldMult") },
   massReduction: null, // consumed at mint (itemgen.ts:425): measured below as its own entry on the piece's mass
@@ -1848,7 +1848,7 @@ function shipLineEntries(): WiringEntry[] {
     const patrolOnCombat: Partial<Record<ContextId, FlatCheck>> = { patrol: { base: () => combatBase() } };
     const partial: Readonly<Record<string, WiringStatus>> = {
       cargoCapacity: pending("WR-7, OC-D8 (expeditions and patrols do not read the hold)", ["expedition:groundOps", "patrol"]),
-      transitSpeedMult: pending("G2-3 + WR-7, OC-D8 (patrol legs and expedition transit are fixed)", ["patrol", "expedition:groundOps"]),
+      transitSpeedMult: pending("WR-7, OC-D8 (patrol legs are fixed)", ["patrol"]),
       fuelCapacity: pending("G2-4 (no expedition range gate)", ["expedition:groundOps"]),
       engineEfficiency: pending("G2-4 (no expedition range gate)", ["expedition:groundOps"]),
       sensors: { kind: "deferred", owner: "CP-15 (patrol cloak detection)", userRef: `${T3}: patrol cloak detection`, contexts: ["patrol"] },
@@ -1905,10 +1905,12 @@ function hullEntries(): WiringEntry[] {
   for (const hull of Object.keys(SHIP_TYPES) as ShipTypeKey[]) {
     const combat = combatHullTypeOf(hull) !== null; // only a combat hull can patrol, so only it claims the patrol
     for (const field of ["cargoCapacity", "transitSpeedMult", "extractionYieldMult", "fuelCapacity", "engineEfficiency"] as const) {
+      // Expedition Tiers G2-3: the hull's speed reaches the expedition voyage (the run freezes it as each leg's speed).
+      const transit = field === "transitSpeedMult";
       out.push(
         hullEntry(hull, field, {
           probe: HULL_FIELD_PROBES[field],
-          contexts: ["sheet"],
+          contexts: transit ? ["sheet", "expedition:groundOps"] : ["sheet"],
           magnitude: (c) => c.SHIP_TYPES[hull][field],
           base: () => {
             // A bare hull: no installed gear, so the sheet is the hull's own number.
@@ -1918,19 +1920,21 @@ function hullEntries(): WiringEntry[] {
           status:
             field === "cargoCapacity"
               ? pending("WR-7, OC-D8 (missions only)", combat ? ["expedition:groundOps", "patrol"] : ["expedition:groundOps"])
-              : field === "transitSpeedMult"
-                ? pending("G2-3 + WR-7, OC-D8 (missions only)", combat ? ["expedition:groundOps", "patrol"] : ["expedition:groundOps"])
+              : transit
+                ? combat
+                  ? pending("WR-7, OC-D8 (patrol legs are fixed)", ["patrol"])
+                  : LIVE
                 : field === "fuelCapacity" || field === "engineEfficiency"
                   ? pending("G2-4 (no expedition reach gate)", ["expedition:groundOps"])
                   : LIVE,
           // A hull field reaches a run or a patrol only through the sheet stat it seeds: the flat checks raise that
           // same stat with a gear line on the hull (patrols fly the hull with its combat baseline installed).
-          ...(field === "extractionYieldMult"
+          ...(field === "extractionYieldMult" || (transit && !combat)
             ? {}
             : {
                 flatChecks: {
-                  "expedition:groundOps": { on: shipPiece(field, LINE_POINTS), off: identity },
-                  ...(combat && (field === "cargoCapacity" || field === "transitSpeedMult")
+                  ...(transit ? {} : { "expedition:groundOps": { on: shipPiece(field, LINE_POINTS), off: identity } }),
+                  ...(combat && (field === "cargoCapacity" || transit)
                     ? { patrol: { base: () => combatBase(hull), on: shipPiece(field, LINE_POINTS), off: identity } }
                     : {}),
                 },
@@ -2203,7 +2207,7 @@ function sensorArrayEntries(): WiringEntry[] {
 
 const MUSEUM_SEAMS: Readonly<Record<MuseumStat, { probe: ProbeId; contexts: ContextId[]; curve: Curve; base?: () => GameState; tolerance?: number; direction?: Direction } | null>> = {
   cargoCapacity: { probe: "sheetCargo", contexts: ["sheet"], curve: { kind: "linearRelative" } },
-  transitSpeed: { probe: "sheetTransit", contexts: ["sheet"], curve: { kind: "linearRelative" } },
+  transitSpeed: { probe: "sheetTransit", contexts: ["sheet", "expedition:groundOps"], curve: { kind: "linearRelative" } },
   miningYield: { probe: "sheetYield", contexts: ["sheet"], curve: { kind: "linearRelative" } },
   sensors: { probe: "sheetSensors", contexts: ["sheet"], curve: { kind: "linearRelative" }, base: () => installPiece(wiringBase(), { slotType: "sensor", moduleVariant: "sensorBalanced", implicitStats: { sensors: 20 } }) },
   extractionSpeed: { probe: "sheetExtractionSpeed", contexts: ["sheet"], curve: { kind: "linearRelative" } },
@@ -2226,7 +2230,7 @@ const MUSEUM_SEAMS: Readonly<Record<MuseumStat, { probe: ProbeId; contexts: Cont
 };
 
 const MUSEUM_PARTIAL: Readonly<Partial<Record<MuseumStat, WiringStatus>>> = {
-  transitSpeed: pending("G2-3 + OC-D8 (missions only)", ["expedition:groundOps", "patrol"]),
+  transitSpeed: pending("OC-D8 (patrol legs are fixed; G2-3 put it on the expedition voyage)", ["patrol"]),
 };
 
 // The museum's PARTIAL checks: transit on a patrol flies a combat hull.
@@ -3207,7 +3211,11 @@ const AUDIT_ROWS: readonly { id: string; system: WiringSystem; claim: string; st
   { id: "away:audit:objectiveHooks", system: "away", claim: "taskChainFollowUp, calmObjective, affix weightFor (no caller)", status: pending("OC-C4") },
   // G. Expedition content
   { id: "expedition:audit:siteFlavor", system: "expedition", claim: "Hostile and clearing site flavor (never rendered)", status: pending("WR-11 (render; no call)") },
-  { id: "expedition:audit:anomalyFinding", system: "expedition", claim: "Charting the anomaly costs 1 h and pays nothing (B15)", status: pending("WR-11, OC-G3") },
+  { id: "expedition:audit:anomalyFinding", system: "expedition", claim: "Charting the anomaly costs a detour (a voyage run: 25% of its outbound leg; an older run: 1 h) and pays nothing (B15)", status: pending("WR-11, OC-G3") },
+  // Expedition Tiers G2-3: the voyage engine reaches every tier and every drive class (voyage.test.ts proves the ladder,
+  // the band scale and the halving); no player reaches a deeper tier until the picker, nor a class above I until G2-4.
+  { id: "expedition:audit:voyageDeepTiers", system: "expedition", claim: "The voyage ladder above Tier I: TIER_TRANSIT_HOURS II 4 h, III 8 h, IV 12 h, V 24 h, VI 72 h, VII 168 h", status: pending(G2_6_PICKER) },
+  { id: "expedition:audit:voyageDriveClass", system: "expedition", claim: "A voyage leg halves per drive class above the tier's minimum (voyage.ts voyageClassSteps): every drive is Class I (STANDARD_DRIVE_CLASS)", status: pending("G2-4 (drive classes on FTL drives and hulls, user G3)") },
   { id: "expedition:audit:anomalySensors", system: "expedition", claim: "ANOMALY_CHANCE_PERMILLE: \"if sensors detect one\" (sensors not read)", status: pending("WR-11, OC-G3") },
   { id: "expedition:audit:relicSignature", system: "expedition", claim: "Foreknowledge relicSignature (the UI never reads it)", status: pending("WR-11 (delete or render; no call)") },
   { id: "expedition:audit:blindLaunch", system: "expedition", claim: "The blind launch path (a candidate past the telescope's reach: a deeper tier)", status: pending(G2_6_PICKER) },

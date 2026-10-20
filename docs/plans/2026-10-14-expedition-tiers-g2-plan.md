@@ -325,6 +325,43 @@ body letters, `FAMOUS_SYSTEMS` with real galactic coordinates, measured from the
   with `voyage` deleted == golden 2; parity (one call == 997 s == 1 s) on Tier I, IV and VII runs with Ground Ops,
   the anomaly, a field repair and the Flight Deck ramp.
 
+**G2-3 carry note (built 2026-10-19, on top of 1c512fc).** New pure `src/lib/game/voyage.ts` (the ladder, the band
+scale, the class halving, `planVoyage`, `voyageOf`). For later slices:
+- Run: `Expedition.voyage = { version: 1, tier, distanceLy, driveClass, outboundSpeed, returnSpeed, outboundSeconds,
+  returnSeconds, anomalySeconds }` (model.ts `ExpeditionVoyage`), written only by startExpedition (beside the G2-2
+  region stamp; the forecast's throwaway run carries none, it never flies a leg). **Shape deviation:** no
+  `enemyTerritory` (the region stamp holds it); per-leg speeds and seconds instead of one `outboundSeconds` (CP-2
+  OC-E5: Fast Departure lifts the outbound leg, Fast Return the return leg, the Pilot's officer.transitTimeCut both).
+  `expedition.ts candidateVoyage(state, ship, cand, training)` is the console's transit row for G2-6.
+- One leg = round(TIER_TRANSIT_HOURS x 3,600 x band scale / 2^(class - tier) / leg speed), floored at 30 minutes (user
+  G5). `tierMinimumDriveClass(tier) = tier` and `STANDARD_DRIVE_CLASS` 1: G2-4 replaces the latter with the ship's real
+  class and adds the gate (a class below the tier is refused there; the engine never halves below 0 steps).
+- `baseTransitSeconds` / `baseReturnSeconds` / `anomalyDetourSeconds` read the voyage; without one (every run in flight
+  at the update) the fixed pre-G2-3 legs: `TRANSIT_SECONDS` 6 h, the shakedown's 30 minutes, the flat anomaly hour. A
+  training run dispatched before G2-3 keeps 6 h (the tutorial constant equaled it then).
+- Training run: `TUTORIAL_TRANSIT_SECONDS` moved to voyage.ts (re-exported), now the Tier I nominal (7,200 s): the
+  training run flies exactly the voyage an ordinary run of the same ship to the same system flies.
+- Shakedown (open call 6): moot, SF-2 retired it before G2-3.
+- [PROVISIONAL] `VOYAGE_BAND_SCALE_PERMILLE` (x0.75 near edge to x1.25 far edge) and `VOYAGE_ANOMALY_DETOUR_PERMILLE` 250
+  (25% of the outbound leg, no cap): the plan's open call 5 recommendation; the recorded G5 answer names only the
+  ladder, the halving and the floor. Note for the user: at x0.75 to x1.25 a far Tier III system (up to 10 h) can
+  outlast a near Tier IV one (from 9 h); at x0.8 to x1.2 the two only meet (9.6 h). At the same band position every
+  tier is longer than the one below.
+- G2-5 (recall): "distance flown" is `voyage.outboundSeconds` elapsed (never the detour, user G14); the return of a
+  recalled run reads its own leg speed (`returnSpeed`).
+- Speed seam: the time skip finishes a voyage run at its natural end (tested at Tiers I, IV, VII). Overtime stays off
+  expeditions (credit sinks USER ANSWERS).
+- Wiring: the ship speed sources are live at `expedition:groundOps` (the gear line, the ten hulls, the museum, the
+  Pilot, Fast Departure, Fast Return), probed by the voyage's frozen leg speeds (probes.ts `sheetTransit` /
+  `sheetOutLeg` / `sheetBackLeg`); each stays pending for the patrol (OC-D8). New audit rows
+  `expedition:audit:voyageDeepTiers` (owner G2-6) and `expedition:audit:voyageDriveClass` (owner G2-4).
+- Goldens: `voyageGoldens.test.ts` (two stored pre-voyage records: a training run, a veteran's Tier IV run) captured
+  first and unchanged. Pre-G2-3 goldens compare through `awayTeamTestFixtures.ts withoutVoyage`, now folded into
+  `withoutG2Names` and `withoutSafeFirstRuns` (a run from before either had no voyage); no hash re-pinned except
+  `shortRangeGoldens` `registry` (the two added audit rows only, proven by a hash without them). Behavior tests updated
+  on purpose: the sim's allAuto seed 0 now claims and relaunches inside its horizon; launchPreview scans a deeper
+  run from its own arrival; safeFirstExpedition asserts the voyage.
+
 ### G2-4: Propulsion, the reach gate, frontier sensors (engine)
 
 - Drive class (open call 3, open call 20) **[PROPOSAL]**: a `driveClass` 1..7 on FTL drive blueprints; every existing
