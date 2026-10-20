@@ -94,6 +94,8 @@ export const FIELD_ROLES: Readonly<Record<string, Readonly<Record<string, FieldR
     subCategory: "identity",
     tier: "identity", // which warehouse cap holds it
     rarity: "identity", // which salvage multiplier times it
+    // ML-1: a produced item with no consumer yet; each one is a pending registry entry owned by the named slice.
+    reserved: "effect",
     sellValue: "effect",
   },
   SENIOR_STAFF_BONUSES: { id: "identity", label: "display", description: "display", seat: "gate", statKey: "identity", magnitude: "effect", rollTier: "effect" },

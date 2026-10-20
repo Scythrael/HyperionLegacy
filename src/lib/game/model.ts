@@ -8370,6 +8370,38 @@ export interface RefineRecipeDef {
 // it as their canonical fixture key, so keeping it minimizes churn) but its NUMBERS are now
 // the player-friendly 20:1 / 12-tick values (so players are not stuck with the 100:1 waste).
 // `refineTitaniumIngot` was RETIRED; any reference to it repoints to `refineCommonOre`.
+
+// ML-1 (0.14.0, Material Lines; plan docs/plans/2026-10-17-material-lines-and-emod-plan.md section 3.1): the seven
+// July-approved recipes the user re-confirmed as named (L1, 2026-10-19 "Build as named"): three simple refines and
+// four compounds (multi-input; the engine deducts and reserves every input). Keys and items are the user's; ONLY the
+// numbers are mine.
+// [PROVISIONAL] every ratio and duration in MATERIAL_LINE_RECIPE_NUMBERS (no call priced them; the user tunes them):
+// a common ore refines like Titanium Ore (20:1, 12 ticks), an uncommon one like Polysilicate Ore (5:1, 20 ticks), a
+// rare one at 3:1; a compound takes a few of its raw plus one or two refined goods and runs 20 ticks. Every duration is
+// one the speed rungs keep at an exact crafting XP per tick (the WR-4 rule, refine.test.ts; 40 breaks it).
+const MATERIAL_LINE_RECIPE_NUMBERS: Readonly<Record<string, { input: Record<string, number>; output: string; ticks: number }>> = {
+  refineFerriteIngot: { input: { ferriteOre: 20 }, output: "ferriteIngot", ticks: 12 },
+  refineReclaimedCircuit: { input: { salvagedCircuitry: 5 }, output: "reclaimedCircuit", ticks: 20 },
+  refineIridiumCatalyst: { input: { rareMaterial: 3 }, output: "iridiumCatalyst", ticks: 20 },
+  synthCobaltCoil: { input: { cobaltOre: 3, titaniumIngot: 1 }, output: "cobaltCoil", ticks: 20 },
+  synthOsmiumPlate: { input: { osmiumOre: 2, ferriteIngot: 2 }, output: "osmiumPlate", ticks: 20 },
+  synthPhotonicGel: { input: { polysilicateWafer: 1, volatileResin: 3 }, output: "photonicGel", ticks: 20 },
+  synthBiocatalyst: { input: { purifiedBiomass: 2, exoticSporeCluster: 1 }, output: "biocatalyst", ticks: 20 },
+};
+
+// Built once at module load; REFINE_RECIPES spreads it after its hand-written rows.
+function materialLineRecipes(): Record<string, RefineRecipeDef> {
+  const out: Record<string, RefineRecipeDef> = {};
+  for (const [key, r] of Object.entries(MATERIAL_LINE_RECIPE_NUMBERS)) {
+    out[key] = {
+      input: Object.fromEntries(Object.entries(r.input).map(([id, n]) => [id, new Decimal(n)])),
+      output: { itemId: r.output, amount: new Decimal(1) },
+      durationTicks: r.ticks,
+    };
+  }
+  return out;
+}
+
 export const REFINE_RECIPES: Record<string, RefineRecipeDef> = {
   refineCommonOre: {
     input: { commonOre: new Decimal(20) },
@@ -8384,7 +8416,8 @@ export const REFINE_RECIPES: Record<string, RefineRecipeDef> = {
   // WR-4 (OC-C3, user 2026-10-16 "Add Refinery recipes": "Scrap Alloy refines into Reclaimed Alloy and Fibrous
   // Biomass into Purified Biomass; each becomes an input to existing Fabricator recipes"). Both inputs are common
   // mission staples (the Salvage and Forage runs, plus expedition hauls). [PROPOSAL] every number here (the user
-  // tunes them): Reclaimed Alloy is a RARE refined good, so 10:1; Purified Biomass is uncommon, so 6:1. Both run 20
+  // tunes them): Reclaimed Alloy was tagged RARE, so 10:1 (ML-1 retags it uncommon, display only; the ratio stays
+  // until the user tunes it); Purified Biomass is uncommon, so 6:1. Both run 20
   // ticks, the Polysilicate Wafer's length (a duration must keep the speed rung's crafting XP per tick exact).
   refineReclaimedAlloy: {
     input: { scrapAlloy: new Decimal(10) },
@@ -8396,6 +8429,7 @@ export const REFINE_RECIPES: Record<string, RefineRecipeDef> = {
     output: { itemId: "purifiedBiomass", amount: new Decimal(1) },
     durationTicks: 20,
   },
+  ...materialLineRecipes(),
 };
 
 // Item taxonomy (Ship Production Economy epic, 2026-07-11 facility-framework
@@ -8447,6 +8481,12 @@ export interface ItemDef {
   // item (enforced by model.test.ts), absent on all non-raw items. Static catalog
   // data, not saved GameState, so it needs no migration.
   subCategory?: RawSubCategory;
+  // ML-1 (0.14.0, Material Lines): the TYPED reserve marker. Present only on an item that is produced today but has
+  // no consumer yet, and it names the slice that wires that consumer (for example "ML-2: ..."). The wiring registry
+  // turns it into a pending entry (ITEMS:<id>:reserved, owner = this text), so the release gate holds until the
+  // consumer lands, and the sink test (materialLines.test.ts) fails if a reserved item gains a consumer while still
+  // marked, or if any item without one is unmarked. Static catalog data, never saved.
+  reserved?: string;
   // FORWARD (not populated this pass): only shipModule/shipSystem items ever
   // carry equip stats; every Phase 1 seed leaves this undefined.
   equipStats?: Record<string, number>;
@@ -8466,6 +8506,10 @@ export interface ItemDef {
 // the storage/inventory keys alongside), do NOT seed those forward items until
 // their phase. The model.test.ts drift guard asserts every live storage key has
 // an entry here, so this table cannot silently fall out of sync with storage.
+// ML-1: the owners named by ItemDef.reserved (each becomes a pending wiring registry entry with this text as owner).
+const ML2_RECIPE_REWORK = "ML-2 (Material Lines recipe rework: the cargo, FTL, reactor, utility, shield and plating blueprints)";
+const EM8_PRECURSOR_LENS = "EM-8 (the Precursor Lens special module is crafted with it)";
+
 export const ITEMS: Record<string, ItemDef> = {
   // --- Raw loot (mission extraction output; keyed as LootMaterialKey) ---
   commonOre: {
@@ -8530,7 +8574,8 @@ export const ITEMS: Record<string, ItemDef> = {
     rarity: "common",
     // The guaranteed (and ONLY) drop of the localFuelRun mission, a common-tier ore.
     unlockHint: "Skimmed from the retired Local Deuterium Skim run; sell any you hold at the Quartermaster.",
-    flavor: "Deuterium-laced water ice cracked from a local field. Cook it down at the Fuel Depot and it runs the FTL drives.",
+    // ML-1: the flavor no longer tells the player to cook it down at the Fuel Depot (that pipeline retired in 0.13.6).
+    flavor: "Deuterium-laced water ice cracked from a local field, heavy hydrogen the fleet no longer burns for fuel.",
     // DEPRECATED by fuel-to-reach (0.13.6): the skim run + the Fuel Depot that consumed this are
     // retired, so any stockpile is now dead stock. Sellable at the Quartermaster to recoup its old
     // worth: the Fuel Depot refined 50 ice -> 100 fuel and fuel was 20 cr/unit, so 1 ice = 2 fuel = 40 cr. TUNABLE.
@@ -8637,7 +8682,8 @@ export const ITEMS: Record<string, ItemDef> = {
     category: "salvagedMaterial",
     tier: 1,
     rarity: "rare",
-    unlockHint: "A rare drop from the Salvage Nearby Skirmish Wreckage run; salvage it for materials (a coming mechanic).",
+    // ML-1: the "(a coming mechanic)" tail was stale (material salvage is live; SALVAGE_LOOT_POOLS.intactReactorCore).
+    unlockHint: "A rare drop from the Salvage Nearby Skirmish Wreckage run; salvage it for materials at the Salvage Bay.",
     flavor: "A cracked, burned-out reactor shell, dead weight to install, but a rich seam of parts to strip.",
   },
   // WEAPON-CRAFTING LOOT (Combat 1.0, Unit 1.7, design S12): the reserved "Damaged
@@ -8712,7 +8758,9 @@ export const ITEMS: Record<string, ItemDef> = {
     label: "Reclaimed Alloy",
     category: "refined",
     tier: 1,
-    rarity: "rare",
+    // ML-1 (L11, user 2026-10-19 "Approve all three"): retagged uncommon; it refines from common Scrap Alloy.
+    // Display only (the Warehouse color and the reward chips).
+    rarity: "uncommon",
     unlockHint: "Refined from Scrap Alloy at the Refinery.",
     flavor: "Battlefield scrap re-smelted into something stronger than it ever was whole.",
   },
@@ -8723,6 +8771,73 @@ export const ITEMS: Record<string, ItemDef> = {
     rarity: "uncommon",
     unlockHint: "Refined from Fibrous Biomass at the Refinery.",
     flavor: "Raw flora rendered down to a clean, stable feedstock, no volatility left.",
+  },
+  // --- Material Lines (ML-1, 0.14.0): the seven July-approved refined goods (July section 12, re-confirmed by the
+  // user 2026-10-19, L1 "Build as named"). Each is produced by its MATERIAL_LINE_RECIPES row (below REFINE_RECIPES).
+  // Ferrite Ingot feeds the Osmium Plate compound today; the other six are RESERVED for ML-2, the recipe rework that
+  // puts them into the cargo, FTL, reactor, utility, shield and plating blueprints (L2, user 2026-10-19). Rarity is
+  // display only (the E-MAT strawman: ingots, circuit and compounds uncommon; plate, catalyst and biocatalyst rare).
+  ferriteIngot: {
+    label: "Ferrite Ingot",
+    category: "refined",
+    tier: 1,
+    rarity: "uncommon",
+    unlockHint: "Refined from Ferrite at the Refinery.",
+    flavor: "Lunar ferrite smelted into a dense, dark bar, the heavy twin of the titanium ingot.",
+  },
+  reclaimedCircuit: {
+    label: "Reclaimed Circuit",
+    category: "refined",
+    tier: 1,
+    rarity: "uncommon",
+    unlockHint: "Refined from Salvaged Circuitry at the Refinery.",
+    flavor: "Scorched wreck boards stripped, cleaned and re-traced into a circuit the fleet can trust.",
+    reserved: ML2_RECIPE_REWORK,
+  },
+  iridiumCatalyst: {
+    label: "Iridium Catalyst",
+    category: "refined",
+    tier: 1,
+    rarity: "rare",
+    unlockHint: "Refined from Iridium Ore at the Refinery.",
+    flavor: "A few grams of iridium drawn into a fine catalytic mesh, the spark a high-output core is built around.",
+    reserved: ML2_RECIPE_REWORK,
+  },
+  cobaltCoil: {
+    label: "Cobalt Coil",
+    category: "refined",
+    tier: 1,
+    rarity: "uncommon",
+    unlockHint: "Compounded from Cobalt Ore and a Titanium Ingot at the Refinery.",
+    flavor: "Cobalt wire wound tight around a titanium core, the field coil that drives and emitters run on.",
+    reserved: ML2_RECIPE_REWORK,
+  },
+  osmiumPlate: {
+    label: "Osmium Plate",
+    category: "refined",
+    tier: 1,
+    rarity: "rare",
+    unlockHint: "Compounded from Osmium Ore and Ferrite Ingots at the Refinery.",
+    flavor: "Osmium pressed into a ferrite backing, a plate so dense it seems to pull at the hand that lifts it.",
+    reserved: ML2_RECIPE_REWORK,
+  },
+  photonicGel: {
+    label: "Photonic Gel",
+    category: "refined",
+    tier: 1,
+    rarity: "uncommon",
+    unlockHint: "Compounded from a Polysilicate Wafer and Volatile Resin at the Refinery.",
+    flavor: "Luminous resin set into a wafer lattice, a gel that carries light the way wire carries current.",
+    reserved: ML2_RECIPE_REWORK,
+  },
+  biocatalyst: {
+    label: "Biocatalyst",
+    category: "refined",
+    tier: 1,
+    rarity: "rare",
+    unlockHint: "Compounded from Purified Biomass and an Exotic Spore Cluster at the Refinery.",
+    flavor: "A living culture grown from spores on a clean biomass bed, it quickens any process it touches.",
+    reserved: ML2_RECIPE_REWORK,
   },
 
   // COMPONENTS, future Fabricator outputs (refined stock assembled into parts).
@@ -8787,13 +8902,15 @@ export const ITEMS: Record<string, ItemDef> = {
     rarity: "epic",
     unlockHint: "Recovered only from salvage; reserved for a future recipe not yet built.",
     flavor: "An impossibly fine circuit lattice from a hull far older than the fleet, still faintly warm to the touch.",
+    reserved: EM8_PRECURSOR_LENS,
   },
   intactDataCore: {
     label: "Intact Data Core",
     category: "minorComponent",
     tier: 1,
     rarity: "legendary",
-    unlockHint: "Recovered only from salvage; reserved for a future recipe not yet built.",
+    // ML-1: no longer reserved; the Neural Backup implant (neuralBackupBp, E-CREW Task 7) consumes one.
+    unlockHint: "Recovered only from salvage; used to craft the Neural Backup implant.",
     // ⚠️ EASTER EGG, keep as-is: the closing quote is the game's FIRST MEME (user, 2026-10-01), a
     // nod to the 2026-09-29 player report that this salvage-only exotic had "no slot" and no use
     // (which led to the 0.13.8 discovery hotfix). Deliberately UNANNOUNCED: never list it in patch

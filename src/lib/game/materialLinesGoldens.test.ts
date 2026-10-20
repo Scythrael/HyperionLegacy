@@ -132,17 +132,25 @@ const GOLDEN = {
   fabricate: "42704bb2:2",
   inspect: ["9c3d1516:0", "3dea091e", "d3741ac8"],
   rig: "39a58762:1097",
+  // Re-pinned by ML-1 (by design: its data adds the seven July-approved refined goods, refined 5 -> 12, and their
+  // seven Refinery recipes, 4 -> 11). Every other golden above held unchanged through ML-1 (new keys only). The
+  // pre-ML-1 capture is ML0_CENSUS; removing the ML-1 rows reproduces it (asserted below).
   census: {
     "items.raw": 14,
     "items.salvagedMaterial": 2,
-    "items.refined": 5,
+    "items.refined": 12,
     "items.minorComponent": 3,
     "items.majorComponent": 1,
     "items.fieldKit": 6,
-    refineRecipes: 4,
+    refineRecipes: 11,
     blueprints: 78,
   } as Record<string, number>,
 };
+
+// The ML-0 census (before ML-1), and what ML-1 added.
+const ML0_CENSUS: Record<string, number> = { ...GOLDEN.census, "items.refined": 5, refineRecipes: 4 };
+const ML1_ITEM_IDS = ["ferriteIngot", "reclaimedCircuit", "iridiumCatalyst", "cobaltCoil", "osmiumPlate", "photonicGel", "biocatalyst"];
+const ML1_RECIPE_KEYS = ["refineFerriteIngot", "refineReclaimedCircuit", "refineIridiumCatalyst", "synthCobaltCoil", "synthOsmiumPlate", "synthPhotonicGel", "synthBiocatalyst"];
 
 describe("ML-0 Material Lines pre-change goldens", () => {
   it("missions: every gathering run, stepped and offline, with its shared-stream draw count", () => {
@@ -211,10 +219,17 @@ describe("ML-0 Material Lines pre-change goldens", () => {
   });
 
   it("census: the item catalog by category, the Refinery recipes and the blueprints", () => {
-    const census: Record<string, number> = {};
-    for (const d of Object.values(ITEMS)) census[`items.${d.category}`] = (census[`items.${d.category}`] ?? 0) + 1;
-    census.refineRecipes = Object.keys(REFINE_RECIPES).length;
-    census.blueprints = Object.keys(BLUEPRINTS).length;
-    expect(census).toEqual(GOLDEN.census);
+    const count = (items: [string, { category: string }][], recipes: string[]): Record<string, number> => {
+      const census: Record<string, number> = {};
+      for (const [, d] of items) census[`items.${d.category}`] = (census[`items.${d.category}`] ?? 0) + 1;
+      census.refineRecipes = recipes.length;
+      census.blueprints = Object.keys(BLUEPRINTS).length;
+      return census;
+    };
+    expect(count(Object.entries(ITEMS), Object.keys(REFINE_RECIPES))).toEqual(GOLDEN.census);
+    // ML-1's proof: without its seven items and seven recipes the catalog is the ML-0 capture.
+    const preItems = Object.entries(ITEMS).filter(([id]) => !ML1_ITEM_IDS.includes(id));
+    const preRecipes = Object.keys(REFINE_RECIPES).filter((k) => !ML1_RECIPE_KEYS.includes(k));
+    expect(count(preItems, preRecipes)).toEqual(ML0_CENSUS);
   });
 });

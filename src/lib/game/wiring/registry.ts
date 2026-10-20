@@ -2691,6 +2691,17 @@ function contentEntries(): WiringEntry[] {
       }),
     );
   }
+  // ML-1: an item produced today whose consumer a later slice wires (ItemDef.reserved names it). Pending until that
+  // slice adds the consumer and drops the marker (materialLines.test.ts fails while both are true).
+  for (const [id, item] of Object.entries(ITEMS)) {
+    if (item.reserved === undefined) continue;
+    out.push(
+      entry({
+        ...base("facility", "ITEMS", `${id}:reserved`, `${item.label} is produced and has a consumer`),
+        status: pending(item.reserved),
+      }),
+    );
+  }
   return out;
 }
 

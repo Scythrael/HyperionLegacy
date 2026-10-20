@@ -42,6 +42,9 @@
 // MOVED BY WR-6 (captain primary, spec, race, Homeworld placeholders): `registry` 93d27465 -> c748495a, the count
 // unchanged: nine placeholder entries flip pending -> live (WR6_WIRED_IDS); golden 5 reproduces the old hash with
 // those nine read as pending.
+// ADDED BY ML-1 (Material Lines items and recipes): 14 registry entries, held apart like G1's (ML1_ADDED_ENTRY_IDS,
+// pinned as `registry:ml1`): the seven new Refinery recipes (live, the content probe on each duration) and the seven
+// typed reserves (pending, owned by ML-2 or EM-8). No existing entry moved, so the base pin is unchanged.
 // ADDED BY G1-1: `guests:<hull>` (guest quarters bare and with each quarters variety, the Guest Wing last) and
 // `stats:<hull>:guestWing` (every other stat with a Guest Wing installed). The sheets hash through withoutGuests, so
 // the stats pins keep proving no other stat moved (the transport hulls now carry base guest quarters).
@@ -268,6 +271,22 @@ const GOLDEN: Record<string, unknown> = {
     "pool:[{\"stat\":\"crewStations\",\"weight\":5},{\"stat\":\"crewEfficiency\",\"weight\":2},{\"stat\":\"massReduction\",\"weight\":1},{\"stat\":\"colonistCapacity\",\"weight\":2}]",
   ],
   "registry": [1182, "c748495a"],
+  "registry:ml1": [
+    "facility:REFINE_RECIPES:refineFerriteIngot|live",
+    "facility:REFINE_RECIPES:refineReclaimedCircuit|live",
+    "facility:REFINE_RECIPES:refineIridiumCatalyst|live",
+    "facility:REFINE_RECIPES:synthCobaltCoil|live",
+    "facility:REFINE_RECIPES:synthOsmiumPlate|live",
+    "facility:REFINE_RECIPES:synthPhotonicGel|live",
+    "facility:REFINE_RECIPES:synthBiocatalyst|live",
+    "facility:ITEMS:reclaimedCircuit:reserved|pending",
+    "facility:ITEMS:iridiumCatalyst:reserved|pending",
+    "facility:ITEMS:cobaltCoil:reserved|pending",
+    "facility:ITEMS:osmiumPlate:reserved|pending",
+    "facility:ITEMS:photonicGel:reserved|pending",
+    "facility:ITEMS:biocatalyst:reserved|pending",
+    "facility:ITEMS:precursorCircuit:reserved|pending",
+  ],
   "registry:g1": ["ship:gearLine:colonistCapacity|pending", "ship:SHIP_TYPES:generalFreighter:colonistCapacity|pending", "ship:SHIP_TYPES:orion:colonistCapacity|pending", "ship:SHIP_TYPES:aurora:colonistCapacity|pending", "ship:SHIP_TYPES:eir:colonistCapacity|pending", "ship:SHIP_SEAMS:generalQuartersGuestPerk|pending", "ship:QUARTERS_MODULES:quartersGuestWing|live", "ship:QUARTERS_MODULES:quartersGuestWing:capacity|pending"],
   "old": ["aa94ddcd", "817862c7", "4ac62731", "d9a483c6"],
 };
@@ -344,6 +363,14 @@ const G1_ADDED_ENTRY_IDS: ReadonlySet<string> = new Set<string>([
   "ship:QUARTERS_MODULES:quartersGuestWing",
   "ship:QUARTERS_MODULES:quartersGuestWing:capacity",
 ]);
+// The registry entries ML-1 adds (new ids only): its seven Refinery recipes and its seven typed reserves.
+const ML1_ADDED_ENTRY_IDS: ReadonlySet<string> = new Set<string>([
+  ...["refineFerriteIngot", "refineReclaimedCircuit", "refineIridiumCatalyst", "synthCobaltCoil", "synthOsmiumPlate", "synthPhotonicGel", "synthBiocatalyst"].map(
+    (k) => `facility:REFINE_RECIPES:${k}`,
+  ),
+  ...["reclaimedCircuit", "iridiumCatalyst", "cobaltCoil", "osmiumPlate", "photonicGel", "biocatalyst", "precursorCircuit"].map((id) => `facility:ITEMS:${id}:reserved`),
+]);
+const heldApart = (id: string): boolean => G1_ADDED_ENTRY_IDS.has(id) || ML1_ADDED_ENTRY_IDS.has(id);
 
 const CAPTURE = Boolean(import.meta.env.G1_CAPTURE);
 const captured: Record<string, unknown> = {};
@@ -474,13 +501,13 @@ describe("G1-0 golden 4: generateEquipment for the quarters slot at 50 fixed see
 
 describe("G1-0 golden 5: the wiring registry's ids and statuses", () => {
   it("the entries outside the G1 additions, hashed in registry order", () => {
-    const lines = WIRING_REGISTRY.filter((e) => !G1_ADDED_ENTRY_IDS.has(e.id)).map((e) => `${e.id}|${e.status.kind}`);
+    const lines = WIRING_REGISTRY.filter((e) => !heldApart(e.id)).map((e) => `${e.id}|${e.status.kind}`);
     pin("registry", [lines.length, hash(lines)]);
   });
   // WR-6: the nine placeholder entries it wires flip pending -> live (the count and the order hold). With those nine
   // read as pending again the lines hash to the pin from before WR-6, so the flips are the only move.
   it("WR-6 is the only cause of the registry move", () => {
-    const lines = WIRING_REGISTRY.filter((e) => !G1_ADDED_ENTRY_IDS.has(e.id)).map((e) => `${e.id}|${WR6_WIRED_IDS.has(e.id) ? "pending" : e.status.kind}`);
+    const lines = WIRING_REGISTRY.filter((e) => !heldApart(e.id)).map((e) => `${e.id}|${WR6_WIRED_IDS.has(e.id) ? "pending" : e.status.kind}`);
     expect(WIRING_REGISTRY.filter((e) => WR6_WIRED_IDS.has(e.id)).map((e) => e.status.kind)).toEqual(Array(WR6_WIRED_IDS.size).fill("live"));
     expect([lines.length, hash(lines)]).toEqual(REGISTRY_BEFORE_WR6);
   });
@@ -488,6 +515,11 @@ describe("G1-0 golden 5: the wiring registry's ids and statuses", () => {
     const added = WIRING_REGISTRY.filter((e) => G1_ADDED_ENTRY_IDS.has(e.id)).map((e) => `${e.id}|${e.status.kind}`);
     expect(added.length).toBe(G1_ADDED_ENTRY_IDS.size);
     pin("registry:g1", added);
+  });
+  it("ML-1: the added entries, each with its status", () => {
+    const added = WIRING_REGISTRY.filter((e) => ML1_ADDED_ENTRY_IDS.has(e.id)).map((e) => `${e.id}|${e.status.kind}`);
+    expect(added.length).toBe(ML1_ADDED_ENTRY_IDS.size);
+    pin("registry:ml1", added);
   });
 });
 
