@@ -386,7 +386,7 @@ Commit `feat(0.14.0): grenade charges, carry capacity and the Impact Grenade (FK
 fixed `statusChance`; the plan's `ToolVariety.charges` lives here) on the three grenades at N4 / N6 (Impact 4, Stun 2,
 Toxin 2, 1 throw per battle; Impact x1.5 group blast, 30% Concussion); the new **Impact Grenade** variety (Security
 tool, NO passive groundEffect, implicit groundPower, affixes groundAccuracy + carry) and `impactGrenadeBp` (tier 1, 60
-ticks, 700 credits, craft 150, `IMPACT_GRENADE_RECIPE` [PROVISIONAL] 1 Titanium Ingot + 1 Polysilicate Wafer + 1 Power
+ticks, 700 credits, craft 150, `IMPACT_GRENADE_RECIPE` (user 2026-10-20 "Approve") 1 Titanium Ingot + 1 Polysilicate Wafer + 1 Power
 Coupling); the carry line is `groundCarryCapacity` (not the plan's `toolCarryCapacity`: every ground key carries the
 `ground` prefix, member-gear.test.ts), in all three grenade pools (weight 1, variety share 0.15 [PROPOSAL], other
 shares lowered to keep each sum 1), minted as `GRENADE_CARRY_PER_LINE` (1) whatever the budget (itemgen.ts
@@ -401,8 +401,8 @@ its own blast AND debuff chance), `chargesLeftFor`, `passiveInflictStatuses`. `g
 Security; it fires only with a charge and a throw left (FK11 "skip it": the next rule acts) and blasts the target plus
 every standing foe of its group in id order: per body a hit check (`strikeHitChance`, the flash grenade's), the damage
 roll at `powerMult`, then on a standing body the debuff chance roll and the resist roll, all on the fight stream;
-`GroundBattleResult.chargesUsed`. Stun / Toxin blasts are `SPECIALIZED_GRENADE_POWER_MULT` 0.5 [PROVISIONAL: the user
-named only the Impact Grenade's numbers] and their debuff lands at the thrower's status chance [PROPOSAL: the
+`GroundBattleResult.chargesUsed`. Stun / Toxin blasts are `SPECIALIZED_GRENADE_POWER_MULT` 0.5 (user 2026-10-20 "Half
+damage") and their debuff lands at the thrower's status chance [PROPOSAL: the
 status-chance rule, so their groundStatusChance line keeps its meaning]. `groundFight.ts`: `GroundFightTeam.charges?`
 (FKR-7 passes `GroundTeamRun.charges`), the arming beside FKR-4's Stoneskin, the record's `chargesUsed`.
 `groundThreat.ts`: the Field Kits key tag appends each team's charges (unflagged keys unchanged). UI: ACTION_LABEL
@@ -463,6 +463,11 @@ top-up off by default buys nothing; on, it buys the shortfall and charges the li
 basics and charges reset each objective; parity one call == 997 s == 1 s with packs, a Reinforcing alert and a joint
 crew; an Injury Kit shortens only that member's bay time. **Wiring:** `FIELD_KIT_PRICES` and the free-basics curve
 flip live. **Save:** optional fields; none.
+**Hidden pieces (user 2026-10-20 "Hide until kits are live"):** flip `model.ts` `FIELD_KITS_PLAYER_LIVE` to true. That
+merges `FIELD_KITS_HIDDEN_BLUEPRINTS` (the Impact Grenade blueprint) into `BLUEPRINTS` (Research, Fabricator, Archive)
+and gives new Stun and Toxin crafts the +1 Carry Capacity line (`GRENADE_CRAFT_POOLS.carry`); FKR-0 (4) `craftedRolls`
+then reads FKR-5's capture, the G1-0 `registry` pin moves (the three hidden FKR-5 entries return), and the
+`away:audit:fieldKitsHiddenPieces` row closes.
 Commit `feat(0.14.0): per-member packs, per-objective supplies and Quartermaster kits (FKR-7)`.
 
 #### FKR-8: Field devices roll per use (engine)

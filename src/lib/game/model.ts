@@ -2024,13 +2024,13 @@ export interface MemberVarietyTraits {
 // tool's THROW, a fixed catalog fact of the variety. On a Field Kits run (flag 2) a grenade is thrown by a gambit rule
 // ("throwGrenade"), spending one CHARGE; it no longer applies its status passively on every strike (N7 "Thrown, spend
 // charges"). A run without the flag keeps the variety's passive groundEffect exactly as before.
-//   charges     , uses per OBJECTIVE (refilled free at every objective start, group 7 "Free, every objective") and
+//   charges:      uses per OBJECTIVE (refilled free at every objective start, group 7 "Free, every objective") and
 //                 throws per BATTLE (FK11 "perhaps it's limited to 1 per battle as they deal AoE damage"). Each
 //                 rolled +1 carry capacity line (groundCarryCapacity) adds one more per objective (FK11, N4).
-//   powerMult   , the blast hits the TARGET'S GROUP (N6 "Group blast"), each body for the thrower's power x this.
-//   status      , the debuff a blast may inflict on each body it hits (FK11 "a chance to inflict a debuff, as do
+//   powerMult:    the blast hits the TARGET'S GROUP (N6 "Group blast"), each body for the thrower's power x this.
+//   status:       the debuff a blast may inflict on each body it hits (FK11 "a chance to inflict a debuff, as do
 //                 other grenade types").
-//   statusChance, that debuff's fixed chance; absent = the thrower's statusChance (THE STATUS-CHANCE RULE, so the
+//   statusChance: that debuff's fixed chance; absent = the thrower's statusChance (THE STATUS-CHANCE RULE, so the
 //                 grenade's groundStatusChance line keeps its meaning).
 export interface GrenadeTraits {
   readonly charges: { readonly perObjective: number; readonly perBattle: number };
@@ -2049,14 +2049,50 @@ export const GRENADE_THROWS_PER_BATTLE = 1;
 export const IMPACT_GRENADE_POWER_MULT = 1.5;
 export const IMPACT_GRENADE_CONCUSSION_CHANCE = 0.3;
 // The SPECIALIZED grenades' blast (Stun, Toxin): their debuff is the point, so the blast is lighter than the Impact
-// Grenade's [PROVISIONAL: the user named the Impact Grenade's numbers only (N6); FK11 says the other types also deal
-// damage and carry a debuff chance; balance pass].
+// Grenade's (user 2026-10-20 "Half damage": Stun and Toxin hit for 0.5x, a third of the Impact Grenade's 1.5x).
 export const SPECIALIZED_GRENADE_POWER_MULT = 0.5;
 // Each rolled carry capacity line adds this many charges per objective (FK11 "+1 carry capacity").
 export const GRENADE_CARRY_PER_LINE = 1;
-// The Impact Grenade's Fabricator recipe [PROVISIONAL: no recipe was asked; the Stun Grenade's tier 1 band, a
-// titanium casing in place of one wafer]: 1 Titanium Ingot + 1 Polysilicate Wafer + 1 Power Coupling.
+// The Impact Grenade's Fabricator recipe (user 2026-10-20 "Approve"; the Stun Grenade's tier 1 band, a titanium casing
+// in place of one wafer): 1 Titanium Ingot + 1 Polysilicate Wafer + 1 Power Coupling, researched for 700 credits.
 export const IMPACT_GRENADE_RECIPE: Readonly<Record<string, number>> = { titaniumIngot: 1, polysilicateWafer: 1, powerCoupling: 1 };
+
+// THE ONE SWITCH for the Field Kits pieces a player could reach before FKR-7 wires kits into runs (user 2026-10-20
+// "Hide until kits are live"). While false: the Impact Grenade blueprint stays out of BLUEPRINTS (so out of Research,
+// the Fabricator and the Archive; it waits in FIELD_KITS_HIDDEN_BLUEPRINTS), and a NEW Stun or Toxin Grenade craft rolls
+// from its pre-FKR-5 pool (no +1 Carry Capacity line), exactly as before FKR-5. Pieces already minted keep their
+// lines. FKR-7 flips it to true: the blueprint merges in and the two pools gain the carry line (GRENADE_CRAFT_POOLS).
+export const FIELD_KITS_PLAYER_LIVE = false;
+
+// The Stun and Toxin Grenades' craft pools: `base` as before FKR-5, `carry` with FKR-5's +1 Carry Capacity line (FK11;
+// pool weight 1, variety share 0.15 [PROPOSAL: a "possibly" line, about one Standard craft in four], the other two
+// shares lowered so each variety's shares still sum to 1). FIELD_KITS_PLAYER_LIVE picks one (grenadeCraftPool).
+type GrenadeCraftPool = { readonly affixPool: readonly { readonly stat: string; readonly weight: number }[]; readonly statRatios: Readonly<Record<string, number>> };
+export const GRENADE_CRAFT_POOLS: Readonly<Record<"stunGrenade" | "toxinGrenade", Readonly<Record<"base" | "carry", GrenadeCraftPool>>>> = {
+  stunGrenade: {
+    base: { affixPool: [{ stat: "groundStatusChance", weight: 4 }, { stat: "groundAccuracy", weight: 2 }], statRatios: { groundStatusChance: 0.7, groundAccuracy: 0.3 } },
+    carry: {
+      affixPool: [{ stat: "groundStatusChance", weight: 4 }, { stat: "groundAccuracy", weight: 2 }, { stat: "groundCarryCapacity", weight: 1 }],
+      statRatios: { groundStatusChance: 0.6, groundAccuracy: 0.25, groundCarryCapacity: 0.15 },
+    },
+  },
+  toxinGrenade: {
+    base: { affixPool: [{ stat: "groundStatusChance", weight: 3 }, { stat: "groundPower", weight: 3 }], statRatios: { groundStatusChance: 0.6, groundPower: 0.4 } },
+    carry: {
+      affixPool: [{ stat: "groundStatusChance", weight: 3 }, { stat: "groundPower", weight: 3 }, { stat: "groundCarryCapacity", weight: 1 }],
+      statRatios: { groundStatusChance: 0.5, groundPower: 0.35, groundCarryCapacity: 0.15 },
+    },
+  },
+};
+
+// A fresh copy of the pool `key` crafts from under FIELD_KITS_PLAYER_LIVE (`live` overrides it for a test). Pure.
+export function grenadeCraftPool(
+  key: "stunGrenade" | "toxinGrenade",
+  live: boolean = FIELD_KITS_PLAYER_LIVE,
+): { affixPool: { stat: string; weight: number }[]; statRatios: Record<string, number> } {
+  const p = GRENADE_CRAFT_POOLS[key][live ? "carry" : "base"];
+  return { affixPool: p.affixPool.map((a) => ({ ...a })), statRatios: { ...p.statRatios } };
+}
 
 // A member variety with its traits guaranteed present (what memberVariety returns).
 export type MemberVarietyDef = EquipmentVarietyDef & { member: MemberVarietyTraits };
@@ -2682,8 +2718,8 @@ export const EQUIPMENT_SLOTS: Record<string, EquipmentSlotDef> = {
     varieties: [
       // Security tools:
       // Stun Grenade: a thrown stun. Field Kits FKR-5: a SPECIALIZED grenade (2 charges, a light blast, Stun at the
-      // thrower's status chance); its pool gains the +1 carry capacity line (FK11), so NEW crafts roll differently
-      // (FKR-0 golden (4) moves, named). Pieces already minted keep their lines.
+      // thrower's status chance). Its pool gains the +1 carry capacity line (FK11) once FIELD_KITS_PLAYER_LIVE is
+      // true (FKR-7); until then a new craft rolls exactly as before FKR-5. Pieces already minted keep their lines.
       {
         key: "stunGrenade",
         label: "Stun Grenade",
@@ -2697,16 +2733,10 @@ export const EQUIPMENT_SLOTS: Record<string, EquipmentSlotDef> = {
           },
         },
         implicitStats: ["groundStatusChance"],
-        affixPool: [
-          { stat: "groundStatusChance", weight: 4 },
-          { stat: "groundAccuracy", weight: 2 },
-          { stat: "groundCarryCapacity", weight: 1 },
-        ],
-        // [PROPOSAL] the carry line's share (0.15): a "possibly" line (FK11), about one Standard craft in four.
-        statRatios: { groundStatusChance: 0.6, groundAccuracy: 0.25, groundCarryCapacity: 0.15 },
+        ...grenadeCraftPool("stunGrenade"),
       },
       // Toxin Grenade: a thrown poison cloud. Field Kits FKR-5: a SPECIALIZED grenade (2 charges, a light blast,
-      // Poison at the thrower's status chance), its pool with the carry capacity line.
+      // Poison at the thrower's status chance), its pool with the carry capacity line once FIELD_KITS_PLAYER_LIVE.
       {
         key: "toxinGrenade",
         label: "Toxin Grenade",
@@ -2720,18 +2750,14 @@ export const EQUIPMENT_SLOTS: Record<string, EquipmentSlotDef> = {
           },
         },
         implicitStats: ["groundStatusChance"],
-        affixPool: [
-          { stat: "groundStatusChance", weight: 3 },
-          { stat: "groundPower", weight: 3 },
-          { stat: "groundCarryCapacity", weight: 1 },
-        ],
-        statRatios: { groundStatusChance: 0.5, groundPower: 0.35, groundCarryCapacity: 0.15 },
+        ...grenadeCraftPool("toxinGrenade"),
       },
       // Impact Grenade (the user's name, FK11: "an impact grenade explodes on contact, deals AoE damage and has a chance
       // to inflict a debuff"): the PLAIN grenade, Field Kits FKR-5. 4 charges, the target's group at 1.5x the thrower's
-      // power, 30% Concussion (N6). It has NO passive groundEffect: it only ever acts thrown, on a Field Kits run (no
-      // run dispatched before Field Kits can carry one). Its lines raise the wearer's power and aim, which the blast
-      // reads; the carry capacity line adds a charge.
+      // power, 30% Concussion (N6). It has NO passive groundEffect: its blast fires only when thrown, on a Field Kits
+      // run; on any other run a worn one acts only through its stat lines, like any worn piece. Its blueprint is its
+      // only source and stays hidden until FIELD_KITS_PLAYER_LIVE (FKR-7), so no player holds one before then. Its
+      // lines raise the wearer's power and aim, which the blast reads; the carry capacity line adds a charge.
       {
         key: "impactGrenade",
         label: "Impact Grenade",
@@ -9363,6 +9389,26 @@ export function blueprintMintsEquipmentInstance(bp: BlueprintDef): boolean {
 //     (raw -> refined -> minor -> major) the item taxonomy is built around.
 // Higher tiers (equipment / modules / ship systems) are DEFERRED until the Fabricator +
 // ship-systems phases define them (design §5), no placeholder tiers here.
+//
+// Field Kits FKR-5: the blueprints kept OUT of BLUEPRINTS until FIELD_KITS_PLAYER_LIVE (user 2026-10-20 "Hide until
+// kits are live"): the Research list, Fabricator, Archive and their completion totals read BLUEPRINTS whole and have no
+// hidden-entry rule (the PROSPECTING_BLUEPRINTS pattern). FKR-7 flips the switch and BLUEPRINTS spreads them in.
+// The Impact Grenade, the PLAIN grenade (FK11), so tier 1 beside the Stun Grenade (IMPACT_GRENADE_RECIPE).
+export const FIELD_KITS_HIDDEN_BLUEPRINTS: Readonly<Record<string, BlueprintDef>> = {
+  impactGrenadeBp: {
+    key: "impactGrenadeBp",
+    label: "Impact Grenade Blueprint",
+    tier: 1,
+    researchDurationTicks: 60,
+    researchCreditCost: 700,
+    craftDurationTicks: 150,
+    equipmentOutput: { slotType: "memberTool", varietyKey: "impactGrenade" },
+    recipe: { inputs: { ...IMPACT_GRENADE_RECIPE } },
+    flavor: "Pull the pin, throw, and let the blast do the arguing.",
+    unlockHint: "Researched at the Research Lab; crafted at the Fabricator. Away-team gear, worn by a squad member.",
+  },
+};
+
 export const BLUEPRINTS: Record<string, BlueprintDef> = {
   frameSegmentBp: {
     key: "frameSegmentBp",
@@ -10241,20 +10287,9 @@ export const BLUEPRINTS: Record<string, BlueprintDef> = {
     flavor: "A canister of something that lingers. Throw it, then stand upwind.",
     unlockHint: "Researched at the Research Lab (needs a higher lab tier); crafted at the Fabricator. Away-team gear, worn by a squad member.",
   },
-  // Field Kits FKR-5: the Impact Grenade, the PLAIN grenade (FK11), so tier 1 beside the Stun Grenade. Recipe
-  // [PROVISIONAL] (IMPACT_GRENADE_RECIPE).
-  impactGrenadeBp: {
-    key: "impactGrenadeBp",
-    label: "Impact Grenade Blueprint",
-    tier: 1,
-    researchDurationTicks: 60,
-    researchCreditCost: 700,
-    craftDurationTicks: 150,
-    equipmentOutput: { slotType: "memberTool", varietyKey: "impactGrenade" },
-    recipe: { inputs: { ...IMPACT_GRENADE_RECIPE } },
-    flavor: "Pull the pin, throw, and let the blast do the arguing.",
-    unlockHint: "Researched at the Research Lab; crafted at the Fabricator. Away-team gear, worn by a squad member.",
-  },
+  // Field Kits FKR-5: the Impact Grenade (FIELD_KITS_HIDDEN_BLUEPRINTS), merged in here, in this place, only once
+  // FIELD_KITS_PLAYER_LIVE is true (FKR-7).
+  ...(FIELD_KITS_PLAYER_LIVE ? FIELD_KITS_HIDDEN_BLUEPRINTS : {}),
   medKitBp: {
     key: "medKitBp",
     label: "Med Kit Blueprint",

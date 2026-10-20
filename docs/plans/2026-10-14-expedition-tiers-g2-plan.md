@@ -342,10 +342,9 @@ scale, the class halving, `planVoyage`, `voyageOf`). For later slices:
 - Training run: `TUTORIAL_TRANSIT_SECONDS` moved to voyage.ts (re-exported), now the Tier I nominal (7,200 s): the
   training run flies exactly the voyage an ordinary run of the same ship to the same system flies.
 - Shakedown (open call 6): moot, SF-2 retired it before G2-3.
-- [PROVISIONAL] `VOYAGE_BAND_SCALE_PERMILLE` (x0.75 near edge to x1.25 far edge) and `VOYAGE_ANOMALY_DETOUR_PERMILLE` 250
-  (25% of the outbound leg, no cap): the plan's open call 5 recommendation; the recorded G5 answer names only the
-  ladder, the halving and the floor. Note for the user: at x0.75 to x1.25 a far Tier III system (up to 10 h) can
-  outlast a near Tier IV one (from 9 h); at x0.8 to x1.2 the two only meet (9.6 h). At the same band position every
+- RESOLVED (user 2026-10-20): `VOYAGE_BAND_SCALE_PERMILLE` x0.8 near edge to x1.2 far edge (built at x0.75 to x1.25,
+  changed at the integration): tiers never overlap; the farthest Tier III just meets the nearest Tier IV at 9.6 h.
+  `VOYAGE_ANOMALY_DETOUR_PERMILLE` 250 (25% of the outbound leg, no cap), as built. At the same band position every
   tier is longer than the one below.
 - G2-5 (recall): "distance flown" is `voyage.outboundSeconds` elapsed (never the detour, user G14); the return of a
   recalled run reads its own leg speed (`returnSpeed`).

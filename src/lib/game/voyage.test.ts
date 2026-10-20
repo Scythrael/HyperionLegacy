@@ -162,20 +162,25 @@ describe("G2-3 the transit table: tiers set the time (user G5, G21)", () => {
     expect(voyageLegSeconds(7200, 1000, 0, 5)).toBe(1800);
   });
 
-  it("the band scale: the near edge flies x0.75, the far edge x1.25, linear between, clamped to the band", () => {
-    expect(VOYAGE_BAND_SCALE_PERMILLE).toEqual({ near: 750, far: 1250 });
-    expect(voyageBandScalePermille(100, BAND)).toBe(750);
-    expect(voyageBandScalePermille(300, BAND)).toBe(1250);
+  it("the band scale: the near edge flies x0.8, the far edge x1.2, linear between, clamped to the band", () => {
+    expect(VOYAGE_BAND_SCALE_PERMILLE).toEqual({ near: 800, far: 1200 });
+    expect(voyageBandScalePermille(100, BAND)).toBe(800);
+    expect(voyageBandScalePermille(300, BAND)).toBe(1200);
     expect(voyageBandScalePermille(200, BAND)).toBe(1000);
-    expect(voyageBandScalePermille(150, BAND)).toBe(875);
-    expect(voyageBandScalePermille(50, BAND)).toBe(750);
-    expect(voyageBandScalePermille(9_000, BAND)).toBe(1250);
+    expect(voyageBandScalePermille(150, BAND)).toBe(900);
+    expect(voyageBandScalePermille(50, BAND)).toBe(800);
+    expect(voyageBandScalePermille(9_000, BAND)).toBe(1200);
     expect(voyageBandScalePermille(Number.NaN, BAND)).toBe(1000);
     expect(voyageBandScalePermille(120, { near: 120, far: 120 })).toBe(1000);
     // A nearer system in the same band is a shorter trip (mockup answer 5); the same spot one tier deeper is longer.
     const at = (tier: RegionTier, d: number) => planVoyage({ tier, distanceLy: d, band: BAND, driveClass: tier, stats: speedSheet(1), training: false }).outboundSeconds;
     expect(at(4, 120)).toBeLessThan(at(4, 280));
     for (const tier of REGION_TIERS.slice(1)) for (const d of [100, 200, 300]) expect(at(tier, d)).toBeGreaterThan(at((tier - 1) as RegionTier, d));
+    // User 2026-10-20: tiers never overlap. The farthest system of a tier is never longer than the nearest of the next;
+    // the farthest Tier III just meets the nearest Tier IV at 9.6 h.
+    for (const tier of REGION_TIERS.slice(1)) expect(at((tier - 1) as RegionTier, 300)).toBeLessThanOrEqual(at(tier, 100));
+    expect(at(3, 300)).toBe(9.6 * 3600);
+    expect(at(4, 100)).toBe(9.6 * 3600);
   });
 
   it("the leg speed divides each leg on its own; the training run flies its own nominal (equal to Tier I's)", () => {
@@ -232,8 +237,8 @@ describe("G2-3 a dispatch stamps its voyage and the run flies it", () => {
     const hours = ([1, 4, 7] as const).map((t) => dispatch(state, t).voyage!.outboundSeconds / 3600);
     const speed = effectiveShipStats(state, state.ships[0]).transitSpeedMult;
     [2, 12, 168].forEach((nominal, i) => {
-      expect(hours[i]).toBeGreaterThanOrEqual((nominal * 0.75) / speed - 1e-3);
-      expect(hours[i]).toBeLessThanOrEqual((nominal * 1.25) / speed + 1e-3);
+      expect(hours[i]).toBeGreaterThanOrEqual((nominal * 0.8) / speed - 1e-3);
+      expect(hours[i]).toBeLessThanOrEqual((nominal * 1.2) / speed + 1e-3);
     });
   });
 

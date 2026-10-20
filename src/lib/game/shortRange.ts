@@ -45,7 +45,7 @@ import { SURVEY_SENSOR_YIELD_COEFF, shipReachesRoundTrip, shipTripRangeLightYear
 // ===== vocabulary =====
 
 // The template keys (stored in saves: runCounts.shortRange and the mission arm), in the FROZEN draw order the roll's
-// first draw indexes. "prisonerTransport" is [PROPOSAL]: the user named the job, the key is mine.
+// first draw indexes. "prisonerTransport": the user named the job and approved the key (2026-10-20 "Approve").
 export type ShortRangeTemplateKey =
   | "refugeeRelocation"
   | "supplyDropOff"
@@ -123,7 +123,7 @@ export interface ShortRangeTemplateDef {
   reward: ShortRangeRewardDef;
 }
 
-// ===== the catalog [PROVISIONAL numbers; labels from plan 3.2, kept by call 17] =====
+// ===== the catalog (numbers approved by the user 2026-10-20; labels from plan 3.2, kept by call 17) =====
 
 // Distances are the game's real lightyears: the mockup's 30 to 90 and 60 to 130 times LY_PER_TICK (0.5), which keeps
 // the mockup's transit ticks exactly and lets a General Freighter's real 100 ly reach pass Tier I as it did there.
@@ -134,7 +134,8 @@ const TIER_II_DISTANCE: ShortRangeSpan = [30, 65];
 const XP_JOB = { captainXpPerTick: { 1: 2, 2: 3 }, fleetAdminXpPerTick: 1 } as const;
 const XP_GOODS = { captainXpPerTick: { 1: 1, 2: 2 }, fleetAdminXpPerTick: 1 } as const;
 
-// [PROVISIONAL] every number here (one named constant).
+// Every number here in one named constant (user 2026-10-20 "Approve": prisoner groups 20 to 40 at Tier I and 40 to 70
+// at Tier II; Supply Pickup pays Titanium Ore, commonOre; Phenomenon Survey pays Iridium Ore, rareMaterial).
 export const SHORT_RANGE_TEMPLATES: Readonly<Record<ShortRangeTemplateKey, ShortRangeTemplateDef>> = {
   refugeeRelocation: {
     key: "refugeeRelocation",
@@ -203,20 +204,21 @@ export const SHORT_RANGE_TEMPLATES: Readonly<Record<ShortRangeTemplateKey, Short
   },
 };
 
-// [PROVISIONAL] The requirement sheet per tier (call 3: one per tier, every category). Range is the round trip in
-// lightyears; Engineering and Security are crew ratings (shortRangeCrewRating). Each sheet sits at or above every roll
-// its templates can make (the contract below), and is exactly the largest of them.
+// The requirement sheet per tier (call 3: one per tier, every category; user 2026-10-20: Range "90 / 130 ly" real
+// light-years, round trip; Security 1 at Tier I and 4 at Tier II "Approve"). Range is the round trip in lightyears;
+// Engineering and Security are crew ratings (shortRangeCrewRating). Each sheet sits at or above every roll its
+// templates can make (the contract below), and is exactly the largest of them.
 export const SHORT_RANGE_SHEETS: Readonly<Record<ShortRangeTier, Readonly<Record<ShortRangeCategory, number>>>> = {
   1: { range: 90, cargo: 90, guests: 60, sensors: 10, engineering: 3, security: 1 },
   2: { range: 130, cargo: 150, guests: 100, sensors: 20, engineering: 5, security: 4 },
 };
 
-// [PROVISIONAL] The crew rating curve (D23: concave, unbounded): rating = perDoubling x log2(1 + strength /
+// The crew rating curve (D23: concave, unbounded; user 2026-10-20 "Approve"): rating = perDoubling x log2(1 + strength /
 // referenceStrength), so each doubling of a division's crew strength adds about `perDoubling`. A General Freighter's
 // usual crew (5 Engineering, 1 or 2 Security) rates about 3.7 Engineering and 1.2 to 2.1 Security: Tier I's 3 and 1.
 export const SHORT_RANGE_CREW_RATING = { perDoubling: 2, referenceStrength: 2 } as const;
 
-// [PROVISIONAL] The cycle's work rules (one named constant): the home turnaround's base ticks (the mission unload
+// The cycle's work rules (one named constant; user 2026-10-20 "Approve"): the home turnaround's base ticks (the mission unload
 // base, scaled by what comes home), and the Sensors and Engineering references the scan and the work divide by
 // (1 + rating / reference), a D23 curve that never reaches zero.
 export const SHORT_RANGE_WORK = { homeUnloadTicks: 8, sensorsReference: 20, engineeringReference: 4 } as const;
@@ -225,7 +227,8 @@ export const SHORT_RANGE_WORK = { homeUnloadTicks: 8, sensorsReference: 20, engi
 // the normal length for now (user: "a separate TUTORIAL duration constant set EQUAL to the normal one").
 export const SHORT_RANGE_TUTORIAL_TICKS_SCALE = 1;
 
-// ===== destinations and flavor (display only) [PROPOSAL placeholder designations, call 12; flavor from the mockup] =====
+// ===== destinations and flavor (display only): the mockup's placeholder designations and phenomenon names (call 12,
+// user 2026-10-20 "Approve"); flavor from the mockup =====
 
 export const SHORT_RANGE_DESTINATIONS: Readonly<Record<ShortRangeDestinationKind, readonly string[]>> = {
   surface: ["Body II, desert world", "Body III, temperate world", "Body IV b, ice moon", "Body V a, ocean moon"],

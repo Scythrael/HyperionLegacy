@@ -309,8 +309,8 @@ matching def. **UI:** none.
 
 **Carry note (G1-2, built 2026-10-19 on `1c512fc`):**
 - `shortRange.ts` is pure; nothing in the game calls it yet. Seven templates (`SHORT_RANGE_TEMPLATE_KEYS`, a FROZEN
-  draw order); the seventh key is `prisonerTransport` [PROPOSAL], label "Prisoner Transport". Six categories, one
-  sheet per tier (`SHORT_RANGE_SHEETS`, exactly the largest roll); every number [PROVISIONAL] in one named constant
+  draw order); the seventh key is `prisonerTransport` (user 2026-10-20 "Approve"), label "Prisoner Transport". Six categories, one
+  sheet per tier (`SHORT_RANGE_SHEETS`, exactly the largest roll); every number (user 2026-10-20 "Approve") in one named constant
   (`SHORT_RANGE_TEMPLATES`, `SHORT_RANGE_SHEETS`, `SHORT_RANGE_CREW_RATING`, `SHORT_RANGE_WORK`).
 - Range is in the game's real lightyears: the mockup's distances x LY_PER_TICK (Tier I 15 to 45 ly one way, sheet 90;
   Tier II 30 to 65, sheet 130), so the mockup's transit ticks hold and a General Freighter (100 ly) reaches Tier I but

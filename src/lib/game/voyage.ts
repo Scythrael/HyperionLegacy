@@ -19,8 +19,10 @@
 // and the within-band scale, the tier drives the hours.
 //
 // THE SPEED SEAM (processSpeed.ts): an expedition is a pure function of its stored record and elapsed time, so the
-// tutorial time skip finishes a voyage run by running its own clock (each leg at its frozen length). Overtime is not
-// offered on expeditions (credit sinks USER ANSWERS: Shipyard, research and facility upgrades only).
+// tutorial time skip finishes a voyage run by running its own clock (each leg at its frozen length). Overtime (the
+// credit-paid speed-up, credit sinks USER ANSWERS) covers gear repair, Shipyard repairs and builds, research and
+// facility upgrades; expeditions are excluded by user ruling 2026-10-20 ("No, not expeditions"): a voyage keeps its
+// frozen legs.
 //
 // Module graph: model (types + the leg speed readers), galaxy (types). Imported by expedition.ts.
 
@@ -31,12 +33,13 @@ import type { RegionBandLy } from "./galaxy";
 export const TIER_TRANSIT_HOURS: Readonly<Record<RegionTier, number>> = { 1: 2, 2: 4, 3: 8, 4: 12, 5: 24, 6: 72, 7: 168 };
 // (user G5) No leg is shorter than 30 minutes.
 export const VOYAGE_FLOOR_SECONDS = 1_800;
-// [PROVISIONAL] Where a system sits in its tier's band scales the time (user G21: "distance shifts time only within a
-// tier"): the band's near edge flies x0.75 of the nominal, its far edge x1.25 (the plan's open call 5 recommendation),
-// linear between, in whole per-mille.
-export const VOYAGE_BAND_SCALE_PERMILLE: Readonly<{ near: number; far: number }> = { near: 750, far: 1_250 };
-// [PROVISIONAL] The charted anomaly's detour: 25% of the outbound leg (the plan's open call 5 recommendation; the
-// pre-G2-3 detour was a flat hour on a 6 hour leg). Not distance flown (user G14).
+// Where a system sits in its tier's band scales the time (user G21: "distance shifts time only within a tier"): the
+// band's near edge flies x0.8 of the nominal, its far edge x1.2, linear between, in whole per-mille. User 2026-10-20
+// "x0.8 to x1.2": tiers never overlap; the farthest Tier III (8 h x1.2) just meets the nearest Tier IV (12 h x0.8)
+// at 9.6 h.
+export const VOYAGE_BAND_SCALE_PERMILLE: Readonly<{ near: number; far: number }> = { near: 800, far: 1_200 };
+// The charted anomaly's detour: 25% of the outbound leg (user 2026-10-20 "25% of outbound"; the pre-G2-3 detour was a
+// flat hour on a 6 hour leg). Not distance flown (user G14).
 export const VOYAGE_ANOMALY_DETOUR_PERMILLE = 250;
 // Every ship's drive class until G2-4 (drive classes on FTL drives and hulls, user G3) gives drives a class: Class I.
 export const STANDARD_DRIVE_CLASS = 1;
@@ -56,8 +59,8 @@ export function tierNominalSeconds(tier: RegionTier): number {
   return (TIER_TRANSIT_HOURS[tier] ?? TIER_TRANSIT_HOURS[1]) * 3_600;
 }
 
-// The band scale (whole per-mille) of a system `distanceLy` from the homeworld in `band`: near edge 750, far edge
-// 1,250, clamped to the band (a famous star clamped into it, or a malformed number, reads its edge). A degenerate
+// The band scale (whole per-mille) of a system `distanceLy` from the homeworld in `band`: near edge 800, far edge
+// 1,200, clamped to the band (a famous star clamped into it, or a malformed number, reads its edge). A degenerate
 // band reads its middle. Pure.
 export function voyageBandScalePermille(distanceLy: number, band: RegionBandLy): number {
   const { near, far } = VOYAGE_BAND_SCALE_PERMILLE;

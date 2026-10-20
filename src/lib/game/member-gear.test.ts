@@ -50,6 +50,7 @@ import { loadoutSlotDefsForShipType } from "./armory";
 import { REQUISITION_CATALOGUE, REQUISITION_ENTRIES } from "./quartermaster";
 import { GROUND_STAT_MEMBER_STAT } from "./awayTeam";
 import { PROSPECTING_BLUEPRINTS } from "./prospecting";
+import { FIELD_KITS_HIDDEN_BLUEPRINTS } from "./model";
 import { generateEquipment } from "./itemgen";
 import { canResearch, inspectBlank } from "./tick";
 import { PLANET_TYPES } from "./expeditionContent";
@@ -380,8 +381,10 @@ describe("member gear catalog", () => {
 // ============================================================================
 
 // Prospecting squads (hidden): the Prospecting-only varieties' blueprints live in prospecting.ts
-// PROSPECTING_BLUEPRINTS (kept out of BLUEPRINTS until the surfaces go visible), so the catalog checks read both.
-const memberBlueprints = [...Object.values(BLUEPRINTS), ...Object.values(PROSPECTING_BLUEPRINTS)].filter(
+// PROSPECTING_BLUEPRINTS (kept out of BLUEPRINTS until the surfaces go visible), so the catalog checks read both. Field
+// Kits FKR-5: the Impact Grenade's waits in FIELD_KITS_HIDDEN_BLUEPRINTS until FIELD_KITS_PLAYER_LIVE (FKR-7), when
+// BLUEPRINTS spreads it in (keyed, so it is counted once either way).
+const memberBlueprints = Object.values({ ...BLUEPRINTS, ...PROSPECTING_BLUEPRINTS, ...FIELD_KITS_HIDDEN_BLUEPRINTS }).filter(
   (bp) => bp.equipmentOutput !== undefined && isMemberSlotType(bp.equipmentOutput.slotType),
 );
 
@@ -495,8 +498,9 @@ describe("member gear generation", () => {
   it("a Fabricator blank of every member blueprint inspects into a spare piece of that variety (a hidden Prospecting one is refused)", () => {
     for (const bp of memberBlueprints) {
       const s0 = freshState();
-      if (bp.key in PROSPECTING_BLUEPRINTS) {
-        // Hidden: kept out of BLUEPRINTS until the prospecting quests patch, so no surface can make one yet.
+      if (!(bp.key in BLUEPRINTS)) {
+        // Hidden: kept out of BLUEPRINTS until the prospecting quests patch (or FKR-7 for the Impact Grenade), so no
+        // surface can make one yet.
         const held: GameState = { ...s0, blanks: { [bp.key]: new Decimal(1) } };
         expect(inspectBlank(held, bp.key), bp.key).toBe(held);
         continue;

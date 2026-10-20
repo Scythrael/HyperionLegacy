@@ -59,6 +59,7 @@ import {
   type SeniorStaffSeat,
   type ShipInstance,
   type ShipTypeKey,
+  FIELD_KITS_PLAYER_LIVE,
 } from "../model";
 import {
   dispatchCaptainOnPatrol,
@@ -853,6 +854,8 @@ export function liveVia(entry: StatEntry): string | null {
 // Prospecting squads (hidden): gear 74 -> 99, the 25 Prospecting lines (eight Prospecting-only varieties plus the
 // shared Hazard Suit and Environmental Adaptation worn by Prospecting), every one deferred to the quests patch.
 // Field Kits FKR-5: gear 99 -> 104, the Impact Grenade's power and accuracy lines and the carry capacity line on all
-// three grenades, every one live.
-export const EXPECTED_COUNTS = { officer: 16, crew: 21, racial: 10, gear: 104, facet: 28 };
+// three grenades, every one live. Until FIELD_KITS_PLAYER_LIVE (FKR-7) the Stun and Toxin Grenades craft from their
+// pre-FKR-5 pools, so their two carry lines are not rollable yet: 102.
+export const FIELD_KITS_GEAR_LINES = FIELD_KITS_PLAYER_LIVE ? 5 : 3;
+export const EXPECTED_COUNTS = { officer: 16, crew: 21, racial: 10, gear: 99 + FIELD_KITS_GEAR_LINES, facet: 28 };
 

@@ -34,9 +34,6 @@ import { AFFIX_DEFS, escalationAt } from "../affixes";
 import { ENEMY_RANK_IDS } from "../enemyRanks";
 import { CONDITION_LINES, CONDITION_LINE_IDS, FIELD_KIT_BLUEPRINT, FIELD_KIT_IDS, FREE_BASIC_SET, KIT_CATEGORY_RULES } from "../fieldKits";
 import { GRENADE_IDS } from "../fieldKitsGrenades";
-
-// Field Kits FKR-5: the sources each grenade carries (its GrenadeTraits, as the registry measures them).
-export const GRENADE_FIELDS = ["charges", "perBattle", "blast", "status"] as const;
 import { SENIOR_STAFF_BONUSES } from "../seniorStaffBonuses";
 import { CREW_PROFESSION_BUFFS, SECOND_LEVEL_EXCLUSIVE } from "../crewBuffs";
 import { CREW_RACES } from "../crewRaces";
@@ -60,6 +57,9 @@ import { DRONE_POD_AFFIX_POOL, DRONE_POD_IMPLICIT_STAT, WEAPON_AFFIX_POOL, WEAPO
 import { AFFIX_ALIGNED_HOOKS, AFFIX_HOOK_KEYS, GAMBIT_ACTIONS, GAMBIT_SELECTORS } from "./probes";
 import { FIELD_ROLES, effectFieldsOf } from "./fieldRoles";
 import { SHORT_RANGE_TEMPLATES } from "../shortRange";
+
+// Field Kits FKR-5: the sources each grenade carries (its GrenadeTraits, as the registry measures them).
+export const GRENADE_FIELDS = ["charges", "perBattle", "blast", "status"] as const;
 
 export interface EffectSource {
   readonly catalog: string;

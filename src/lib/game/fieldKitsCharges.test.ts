@@ -21,7 +21,10 @@ import {
   IMPACT_GRENADE_RECIPE,
   SPECIALIZED_GRENADE_POWER_MULT,
   BLUEPRINTS,
+  FIELD_KITS_HIDDEN_BLUEPRINTS,
+  FIELD_KITS_PLAYER_LIVE,
   freshState,
+  grenadeCraftPool,
   memberVariety,
   type AwayMember,
   type BodyRiskGrades,
@@ -131,19 +134,32 @@ describe("the grenade family: the user's numbers (FK11, N4, N6)", () => {
     expect(v.label).toBe("Impact Grenade");
     expect(v.member.teamTypes).toEqual(["security"]);
     expect(v.member.groundEffect).toBeUndefined();
-    const bp = BLUEPRINTS.impactGrenadeBp;
+    const bp = FIELD_KITS_HIDDEN_BLUEPRINTS.impactGrenadeBp;
     expect(bp.equipmentOutput).toEqual({ slotType: "memberTool", varietyKey: "impactGrenade" });
     expect(bp.tier).toBe(1);
     expect(bp.recipe.inputs).toEqual(IMPACT_GRENADE_RECIPE);
+    expect(bp.researchCreditCost).toBe(700);
+    // Hidden until FKR-7 (user 2026-10-20): out of BLUEPRINTS (Research, Fabricator, Archive) until the switch flips.
+    expect("impactGrenadeBp" in BLUEPRINTS).toBe(FIELD_KITS_PLAYER_LIVE);
+    if (FIELD_KITS_PLAYER_LIVE) expect(BLUEPRINTS.impactGrenadeBp).toBe(bp);
   });
 
-  it("all three grenade pools carry the carry capacity line, no other piece does", () => {
+  it("the grenade pools carry the carry capacity line (Stun and Toxin once FIELD_KITS_PLAYER_LIVE), no other piece does", () => {
     for (const slot of ["memberWeapon", "memberArmor", "memberTool", "implant"] as const) {
       for (const v of EQUIPMENT_SLOTS[slot].varieties) {
         const pool = (v.affixPool ?? EQUIPMENT_SLOTS[slot].affixPool).map((a) => a.stat);
-        expect(pool.includes("groundCarryCapacity"), v.key).toBe(GRENADE_IDS.includes(v.key));
+        const want = v.key === "impactGrenade" || (FIELD_KITS_PLAYER_LIVE && GRENADE_IDS.includes(v.key));
+        expect(pool.includes("groundCarryCapacity"), v.key).toBe(want);
         expect((v.implicitStats ?? []).includes("groundCarryCapacity"), v.key).toBe(false);
       }
+    }
+    // The switch picks the pool: the carry pools add the line at weight 1 and a 0.15 share; the shares sum to 1.
+    for (const key of ["stunGrenade", "toxinGrenade"] as const) {
+      const live = grenadeCraftPool(key, true);
+      expect(live.affixPool.find((a) => a.stat === "groundCarryCapacity")?.weight, key).toBe(1);
+      expect(live.statRatios.groundCarryCapacity, key).toBe(0.15);
+      expect(grenadeCraftPool(key, false).affixPool.some((a) => a.stat === "groundCarryCapacity"), key).toBe(false);
+      for (const p of [live, grenadeCraftPool(key, false)]) expect(Object.values(p.statRatios).reduce((a, b) => a + b, 0)).toBeCloseTo(1, 12);
     }
   });
 });
@@ -154,13 +170,26 @@ describe("the +1 carry capacity line (FK11): a charge count, never effect magnit
   it("is minted as GRENADE_CARRY_PER_LINE whatever the budget, and a Radiant grenade (three picks of three) always rolls it", () => {
     expect(rolledLineValue("groundCarryCapacity", 37)).toBe(GRENADE_CARRY_PER_LINE);
     expect(rolledLineValue("groundPower", 37)).toBe(37);
-    for (const varietyKey of GRENADE_IDS) {
+    const radiant = (varietyKey: string): EquipmentInstance => {
       let n = 0;
-      const p = generateEquipment({ slotType: "memberTool", varietyKey, blueprintKey: null, iLevel: 30, quality: 3, rarity: "radiant", ascension: "none", rng: () => 0.37, allocateId: () => `equip-${(n += 1)}` });
-      expect(p.rolledStats.groundCarryCapacity, varietyKey).toBe(1);
-      expect(pieceCarryLines(p)).toBe(1);
-      expect(pieceToolCharges(p)).toBe(GRENADES[varietyKey].charges.perObjective + 1);
+      return generateEquipment({ slotType: "memberTool", varietyKey, blueprintKey: null, iLevel: 30, quality: 3, rarity: "radiant", ascension: "none", rng: () => 0.37, allocateId: () => `equip-${(n += 1)}` });
+    };
+    // With the carry pools installed (FIELD_KITS_PLAYER_LIVE on), every grenade's Radiant craft rolls the line.
+    const varieties = EQUIPMENT_SLOTS.memberTool.varieties as unknown as { key: string; affixPool?: unknown; statRatios: unknown }[];
+    const saved = varieties.map((v) => ({ v, affixPool: v.affixPool, statRatios: v.statRatios }));
+    try {
+      for (const v of varieties) if (v.key === "stunGrenade" || v.key === "toxinGrenade") Object.assign(v, grenadeCraftPool(v.key, true));
+      for (const varietyKey of GRENADE_IDS) {
+        const p = radiant(varietyKey);
+        expect(p.rolledStats.groundCarryCapacity, varietyKey).toBe(1);
+        expect(pieceCarryLines(p)).toBe(1);
+        expect(pieceToolCharges(p)).toBe(GRENADES[varietyKey].charges.perObjective + 1);
+      }
+    } finally {
+      for (const { v, affixPool, statRatios } of saved) Object.assign(v, { affixPool, statRatios });
     }
+    // Hidden until FKR-7: with the switch off a new Stun or Toxin craft never rolls it.
+    if (!FIELD_KITS_PLAYER_LIVE) for (const varietyKey of ["stunGrenade", "toxinGrenade"]) expect(radiant(varietyKey).rolledStats.groundCarryCapacity, varietyKey).toBeUndefined();
   });
 
   it("counts lines, not values; a piece with none adds nothing; a non-grenade has no charges", () => {

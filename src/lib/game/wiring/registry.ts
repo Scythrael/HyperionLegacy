@@ -3204,6 +3204,8 @@ const AUDIT_ROWS: readonly { id: string; system: WiringSystem; claim: string; st
   { id: "away:audit:steadyProspecting", system: "away", claim: "Steady's Prospecting reach (+hazard resistance on a Prospecting member)", status: PROSPECTING_DEFERRED },
   { id: "away:audit:sharedHazardGear", system: "away", claim: "The Hazard Suit and Environmental Adaptation worn by Prospecting (shared hazard gear)", status: PROSPECTING_DEFERRED },
   { id: "away:audit:prospectingDigSafety", system: "away", claim: "Dig safety: a Prospecting crew's Armor and HP cut cave-in and retreat injuries (prospectingCrewStats digSafety, DIG_SAFETY_KNEE)", status: PROSPECTING_DEFERRED },
+  // Field Kits FKR-5 review ruling (user 2026-10-20 "Hide until kits are live"): model.ts FIELD_KITS_PLAYER_LIVE.
+  { id: "away:audit:fieldKitsHiddenPieces", system: "away", claim: "Hidden until kits are live (FIELD_KITS_PLAYER_LIVE): the Impact Grenade blueprint (FIELD_KITS_HIDDEN_BLUEPRINTS, out of Research, the Fabricator and the Archive) and the +1 Carry Capacity line on new Stun and Toxin Grenade crafts", status: pending("FKR-7 (flips FIELD_KITS_PLAYER_LIVE when kits are wired into runs)") },
   { id: "away:audit:statusPicker", system: "away", claim: "Status picker entries that never match (only six of nine statuses can fire)", status: pending("FK-9 + WR-10") },
   { id: "away:audit:fieldRepairOrder", system: "away", claim: "Player-ordered field repair (engine only, no UI)", status: pending("WR-10, OC-F14") },
   { id: "away:audit:legacyOnly", system: "away", claim: "Legacy-only: MAX_BATTLE_ATTEMPTS, EVAC_REWARD_FRACTION, ENCOUNTER_DROP_SCALE, scan ground battles, softenAmbush, the flat 2 h injury", status: pending("OC-G1") },
