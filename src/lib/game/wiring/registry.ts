@@ -40,6 +40,7 @@ import {
   PATROLS,
   PERCENT_STAT_CURVES,
   REFINE_RECIPES,
+  refineRecipeOffered,
   SALVAGE_LOOT_POOLS,
   SECONDARY_CAPTAIN_TALENTS,
   SHIP_DOCKS_BASE,
@@ -1638,6 +1639,20 @@ function trackEntries(): WiringEntry[] {
   return out;
 }
 
+// The owner of a hidden refine recipe: the reserve on its output, or on the first reserved good its output feeds
+// (Ferrite Ingot -> Osmium Plate, owner ML-2).
+function hiddenRecipeOwner(itemId: string, seen: Set<string> = new Set()): string {
+  const reserved = ITEMS[itemId]?.reserved;
+  if (reserved !== undefined) return reserved;
+  seen.add(itemId);
+  for (const r of Object.values(REFINE_RECIPES)) {
+    if (r.input[itemId] === undefined || seen.has(r.output.itemId)) continue;
+    const owner = hiddenRecipeOwner(r.output.itemId, seen);
+    if (!owner.startsWith("WR-1 follow-up")) return owner;
+  }
+  return "WR-1 follow-up: a hidden refine recipe with no reserved output";
+}
+
 // Content data the engine reads verbatim: refine recipes (the job's duration) and blueprints (the research project's).
 function recipeAndBlueprintEntries(): WiringEntry[] {
   const out: WiringEntry[] = [];
@@ -1654,6 +1669,10 @@ function recipeAndBlueprintEntries(): WiringEntry[] {
         curve: { kind: "equals" },
         magnitude: (c) => c.REFINE_RECIPES[key].durationTicks,
         note: "inputs and output ride the refine tests; the duration reaches the started job (Refinery speed 1)",
+        // ML-1: a recipe the Refinery does not offer yet (its output leads nowhere: model.ts refineRecipeOffered) is
+        // pending on the slice that gives its output a use (no probe: the engine refuses to start it, so there is
+        // nothing to measure); it reads live, probe and all, by itself once that marker drops.
+        ...(refineRecipeOffered(key) ? {} : { probe: undefined, contexts: [], status: pending(hiddenRecipeOwner(r.output.itemId)) }),
       }),
     );
   }
@@ -2826,6 +2845,17 @@ function contentEntries(): WiringEntry[] {
         direction: "none",
         curve: { kind: "equals" },
         magnitude: (c) => (c.ITEMS[id] as { sellValue?: number }).sellValue ?? 0,
+      }),
+    );
+  }
+  // ML-1: an item produced today whose consumer a later slice wires (ItemDef.reserved names it). Pending until that
+  // slice adds the consumer and drops the marker (materialLines.test.ts fails while both are true).
+  for (const [id, item] of Object.entries(ITEMS)) {
+    if (item.reserved === undefined) continue;
+    out.push(
+      entry({
+        ...base("facility", "ITEMS", `${id}:reserved`, `${item.label} is produced and has a consumer`),
+        status: pending(item.reserved),
       }),
     );
   }

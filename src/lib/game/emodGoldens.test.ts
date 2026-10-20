@@ -372,8 +372,11 @@ const GOLDEN: Record<string, unknown> = {
   // 13 E-MOD rows). The two rows left naming E-MOD: the Precursor Lens module (EM-8) and the reactor surplus (EM-4).
   // Re-pinned again at the merge of feat 922025e (EM-1 aea24b6b): FKR-5, G2-3 and R2-1 added their entries (the
   // G1-0 golden 5 in shortRangeGoldens.test.ts proves each slice is its only cause); the E-MOD rows did not change.
+  // Re-pinned at the merge into the ML-1 branch (452c9676): Material Lines ML-1 added 14 entries (its seven Refinery
+  // recipes, pending while hidden, and its seven typed reserves); with them left out the snapshot reproduces
+  // 452c9676 (asserted below, ML1_ENTRY_IDS), so they are the only cause; the E-MOD rows did not change.
   registry: [
-    "452c9676",
+    "c1260fe0",
     "relic:RELICS:precursorLens",
     "ship:audit:reactorCoreNet",
   ],
@@ -407,6 +410,13 @@ const EM0: Record<string, unknown> = {
     "eir:79c9fffa/79c9fffa",
   ],
 };
+
+// The registry snapshot before Material Lines ML-1, and the 14 entries ML-1 added (its recipes and its reserves).
+const REGISTRY_BEFORE_ML1 = "452c9676";
+const ML1_ENTRY_IDS: ReadonlySet<string> = new Set<string>([
+  ...["refineFerriteIngot", "refineReclaimedCircuit", "refineIridiumCatalyst", "synthCobaltCoil", "synthOsmiumPlate", "synthPhotonicGel", "synthBiocatalyst"].map((k) => `facility:REFINE_RECIPES:${k}`),
+  ...["reclaimedCircuit", "iridiumCatalyst", "cobaltCoil", "osmiumPlate", "photonicGel", "biocatalyst", "precursorCircuit"].map((id) => `facility:ITEMS:${id}:reserved`),
+]);
 
 function pinned(name: string, value: unknown): void {
   expect(value, name).toEqual(GOLDEN[name]);
@@ -460,6 +470,8 @@ describe("EM-0 goldens (re-pinned by EM-1 where named)", () => {
     const snapshot = hash(WIRING_REGISTRY.map((e) => [e.id, e.status, e.contexts, e.probe ?? null]));
     const emod = WIRING_REGISTRY.filter((e) => e.status.kind !== "live" && "owner" in e.status && /E-MOD/.test(e.status.owner)).map((e) => e.id).sort();
     pinned("registry", [snapshot, ...emod]);
+    const beforeMl1 = hash(WIRING_REGISTRY.filter((e) => !ML1_ENTRY_IDS.has(e.id)).map((e) => [e.id, e.status, e.contexts, e.probe ?? null]));
+    expect(beforeMl1).toBe(REGISTRY_BEFORE_ML1);
   });
 });
 

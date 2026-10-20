@@ -44,6 +44,11 @@
 // MOVED BY WR-6 (captain primary, spec, race, Homeworld placeholders): `registry` 93d27465 -> c748495a, the count
 // unchanged: nine placeholder entries flip pending -> live (WR6_WIRED_IDS); golden 5 reproduces the old hash with
 // those nine read as pending.
+// ADDED BY ML-1 (Material Lines items and recipes): 14 registry entries, held apart like G1's (ML1_ADDED_ENTRY_IDS,
+// pinned as `registry:ml1`): the seven new Refinery recipes (pending while the Refinery hides them, refineRecipeOffered;
+// each reads live by itself once ML-2 gives its output a use) and the seven typed reserves (pending, owned by ML-2 or
+// EM-8). No existing entry moved: ML1_SLICE rides in every registryPin call (beside R2-1 and EM-1 since their merge),
+// so the base pin and every cause pin are unchanged.
 // MOVED BY FKR-5 (grenade charges), its review rulings (user 2026-10-20) and G2-3 (the voyage engine), re-captured
 // once at their integration (0.14.0):
 //   registry       1182 c748495a -> 1201 e6523a6f: FKR-5 adds 19 entries and flips Explosives pending -> live; the
@@ -288,6 +293,22 @@ const GOLDEN: Record<string, unknown> = {
     "pool:[{\"stat\":\"crewStations\",\"weight\":5},{\"stat\":\"crewEfficiency\",\"weight\":2},{\"stat\":\"massReduction\",\"weight\":1},{\"stat\":\"colonistCapacity\",\"weight\":2}]",
   ],
   "registry": [1212, "887dfdf8"],
+  "registry:ml1": [
+    "facility:REFINE_RECIPES:refineFerriteIngot|pending",
+    "facility:REFINE_RECIPES:refineReclaimedCircuit|pending",
+    "facility:REFINE_RECIPES:refineIridiumCatalyst|pending",
+    "facility:REFINE_RECIPES:synthCobaltCoil|pending",
+    "facility:REFINE_RECIPES:synthOsmiumPlate|pending",
+    "facility:REFINE_RECIPES:synthPhotonicGel|pending",
+    "facility:REFINE_RECIPES:synthBiocatalyst|pending",
+    "facility:ITEMS:reclaimedCircuit:reserved|pending",
+    "facility:ITEMS:iridiumCatalyst:reserved|pending",
+    "facility:ITEMS:cobaltCoil:reserved|pending",
+    "facility:ITEMS:osmiumPlate:reserved|pending",
+    "facility:ITEMS:photonicGel:reserved|pending",
+    "facility:ITEMS:biocatalyst:reserved|pending",
+    "facility:ITEMS:precursorCircuit:reserved|pending",
+  ],
   "registry:g1": ["ship:gearLine:colonistCapacity|pending", "ship:SHIP_TYPES:generalFreighter:colonistCapacity|pending", "ship:SHIP_TYPES:orion:colonistCapacity|pending", "ship:SHIP_TYPES:aurora:colonistCapacity|pending", "ship:SHIP_TYPES:eir:colonistCapacity|pending", "ship:SHIP_SEAMS:generalQuartersGuestPerk|pending", "ship:QUARTERS_MODULES:quartersGuestWing|live", "ship:QUARTERS_MODULES:quartersGuestWing:capacity|pending",
     // G1-2: the short-range template catalog, pending the cycle engine (G1-4).
     "mission:SHORT_RANGE_TEMPLATES:refugeeRelocation:rolls|pending", "mission:SHORT_RANGE_TEMPLATES:refugeeRelocation:work|pending", "mission:SHORT_RANGE_TEMPLATES:refugeeRelocation:reward|pending", "mission:SHORT_RANGE_TEMPLATES:supplyDropOff:rolls|pending", "mission:SHORT_RANGE_TEMPLATES:supplyDropOff:work|pending", "mission:SHORT_RANGE_TEMPLATES:supplyDropOff:reward|pending", "mission:SHORT_RANGE_TEMPLATES:supplyPickup:rolls|pending", "mission:SHORT_RANGE_TEMPLATES:supplyPickup:work|pending", "mission:SHORT_RANGE_TEMPLATES:supplyPickup:reward|pending", "mission:SHORT_RANGE_TEMPLATES:phenomenonSurvey:rolls|pending", "mission:SHORT_RANGE_TEMPLATES:phenomenonSurvey:work|pending", "mission:SHORT_RANGE_TEMPLATES:phenomenonSurvey:reward|pending", "mission:SHORT_RANGE_TEMPLATES:telescopeRepair:rolls|pending", "mission:SHORT_RANGE_TEMPLATES:telescopeRepair:work|pending", "mission:SHORT_RANGE_TEMPLATES:telescopeRepair:reward|pending", "mission:SHORT_RANGE_TEMPLATES:commBoosterBuild:rolls|pending", "mission:SHORT_RANGE_TEMPLATES:commBoosterBuild:work|pending", "mission:SHORT_RANGE_TEMPLATES:commBoosterBuild:reward|pending", "mission:SHORT_RANGE_TEMPLATES:prisonerTransport:rolls|pending", "mission:SHORT_RANGE_TEMPLATES:prisonerTransport:work|pending", "mission:SHORT_RANGE_TEMPLATES:prisonerTransport:reward|pending"],
@@ -371,6 +392,13 @@ const G1_ADDED_ENTRY_IDS: ReadonlySet<string> = new Set<string>([
     ["rolls", "work", "reward"].map((f) => `mission:SHORT_RANGE_TEMPLATES:${k}:${f}`),
   ),
 ]);
+// The registry entries ML-1 adds (new ids only): its seven Refinery recipes and its seven typed reserves.
+const ML1_ADDED_ENTRY_IDS: ReadonlySet<string> = new Set<string>([
+  ...["refineFerriteIngot", "refineReclaimedCircuit", "refineIridiumCatalyst", "synthCobaltCoil", "synthOsmiumPlate", "synthPhotonicGel", "synthBiocatalyst"].map(
+    (k) => `facility:REFINE_RECIPES:${k}`,
+  ),
+  ...["reclaimedCircuit", "iridiumCatalyst", "cobaltCoil", "osmiumPlate", "photonicGel", "biocatalyst", "precursorCircuit"].map((id) => `facility:ITEMS:${id}:reserved`),
+]);
 
 // Field Kits FKR-5 (tool charges and the grenade family), held apart by the cause checks: the 19 entries it ADDS (the
 // Impact Grenade's three lines and the carry line on the two older grenades, each grenade's four GRENADES rows, the
@@ -408,6 +436,7 @@ const REGISTRY_BEFORE_FKR5_G23 = [1182, "c748495a"];
 // proves no other entry moved. Lines are `${id}|${status kind}` in registry order; the pin is [count, hash].
 type RegistrySlice = { readonly added?: ReadonlySet<string>; readonly flipped?: ReadonlySet<string>; readonly was?: string };
 const G1_SLICE: RegistrySlice = { added: G1_ADDED_ENTRY_IDS };
+const ML1_SLICE: RegistrySlice = { added: ML1_ADDED_ENTRY_IDS };
 const FKR5_SLICE: RegistrySlice = { added: new Set([...FKR5_ADDED_ENTRY_IDS, ...FKR5_RULINGS_ADDED]), flipped: FKR5_FLIPPED_LIVE, was: "pending" };
 const G23_SLICE: RegistrySlice = { added: G23_ADDED_ENTRY_IDS };
 function registryPin(...slices: readonly RegistrySlice[]): [number, string] {
@@ -571,26 +600,26 @@ const R2_1_SLICE: RegistrySlice = { added: new Set(WIRING_REGISTRY.filter((e) =>
 
 describe("G1-0 golden 5: the wiring registry's ids and statuses", () => {
   it("the entries outside the G1 additions, hashed in registry order", () => {
-    pin("registry", registryPin(G1_SLICE, R2_1_SLICE));
+    pin("registry", registryPin(G1_SLICE, ML1_SLICE, R2_1_SLICE));
   });
   // FKR-5 and G2-3 moved the pin (see the header); with their entries held apart and the Explosives flip read back as
   // pending, the registry hashes exactly as the feat base before them.
   it("FKR-5 and G2-3 are the only causes of the registry move", () => {
-    expect(registryPin(G1_SLICE, FKR5_SLICE, G23_SLICE, R2_1_SLICE, EM1_SLICE)).toEqual(REGISTRY_BEFORE_FKR5_G23);
+    expect(registryPin(G1_SLICE, ML1_SLICE, FKR5_SLICE, G23_SLICE, R2_1_SLICE, EM1_SLICE)).toEqual(REGISTRY_BEFORE_FKR5_G23);
   });
   // E-MOD EM-1: the seven power entries it wires flip pending -> live (the count and the order hold). With those seven
   // read as pending again the lines hash to the pin from before EM-1, so the flips are the only move.
   it("EM-1 is the only cause of its registry move", () => {
     expect(WIRING_REGISTRY.filter((e) => EM1_WIRED_IDS.has(e.id)).map((e) => e.status.kind)).toEqual(Array(EM1_WIRED_IDS.size).fill("live"));
     expect(WIRING_REGISTRY.filter((e) => EM1_ADDED_ENTRY_IDS.has(e.id))).toHaveLength(EM1_ADDED_ENTRY_IDS.size);
-    expect(registryPin(G1_SLICE, R2_1_SLICE, EM1_SLICE)).toEqual(REGISTRY_BEFORE_EM1);
+    expect(registryPin(G1_SLICE, ML1_SLICE, R2_1_SLICE, EM1_SLICE)).toEqual(REGISTRY_BEFORE_EM1);
   });
   // WR-6: the nine placeholder entries it wires flip pending -> live (the count and the order hold). With those nine
   // read as pending again (and the later slices held apart) the lines hash to the pin from before WR-6, so the flips
   // are the only move.
   it("WR-6 is the only cause of the registry move", () => {
     expect(WIRING_REGISTRY.filter((e) => WR6_WIRED_IDS.has(e.id)).map((e) => e.status.kind)).toEqual(Array(WR6_WIRED_IDS.size).fill("live"));
-    expect(registryPin(G1_SLICE, FKR5_SLICE, G23_SLICE, WR6_SLICE, R2_1_SLICE, EM1_SLICE)).toEqual(REGISTRY_BEFORE_WR6);
+    expect(registryPin(G1_SLICE, ML1_SLICE, FKR5_SLICE, G23_SLICE, WR6_SLICE, R2_1_SLICE, EM1_SLICE)).toEqual(REGISTRY_BEFORE_WR6);
   });
   it("Field Kits FKR-5: the added entries and the one flipped, each with its status", () => {
     const added = WIRING_REGISTRY.filter((e) => FKR5_ADDED_ENTRY_IDS.has(e.id));
@@ -604,6 +633,11 @@ describe("G1-0 golden 5: the wiring registry's ids and statuses", () => {
     const added = WIRING_REGISTRY.filter((e) => G1_ADDED_ENTRY_IDS.has(e.id)).map((e) => `${e.id}|${e.status.kind}`);
     expect(added.length).toBe(G1_ADDED_ENTRY_IDS.size);
     pin("registry:g1", added);
+  });
+  it("ML-1: the added entries, each with its status", () => {
+    const added = WIRING_REGISTRY.filter((e) => ML1_ADDED_ENTRY_IDS.has(e.id)).map((e) => `${e.id}|${e.status.kind}`);
+    expect(added.length).toBe(ML1_ADDED_ENTRY_IDS.size);
+    pin("registry:ml1", added);
   });
 });
 
