@@ -44,6 +44,7 @@ import {
   HOMEWORLD_TALENTS,
   FACILITIES,
   REFINE_RECIPES,
+  refineRecipeOffered,
   ITEMS,
   freshCaptainStack,
   // Equipment 0.11.0 (Task 20): the shared Standard-Issue seeder, so a ship minted by a
@@ -8707,6 +8708,9 @@ export function canStartLine(
   // Checked first so every later gate can safely read the def.
   if (kind === "refine") {
     if (!REFINE_RECIPES[recipeKey]) return { ok: false, reason: "notFound" };
+    // ML-1: a recipe whose output leads nowhere yet is not on offer (model.ts refineRecipeOffered, the one check the
+    // dropdown and the dashboard read too). "notFound" because the player never sees it listed.
+    if (!refineRecipeOffered(recipeKey)) return { ok: false, reason: "notFound" };
   } else {
     if (!BLUEPRINTS[recipeKey]) return { ok: false, reason: "notFound" };
   }

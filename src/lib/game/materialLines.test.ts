@@ -7,6 +7,10 @@
 //   - every raw, salvaged, refined and component item has a consumer, or a typed reserve naming the slice that wires
 //     one (never both), and every reserved item is really produced today
 //   - every refined input of a refine recipe or blueprint is producible; every raw input has a live mission source
+//   - ML-1 review (the user's "everything wired, nothing inert player-reachable" rule): a recipe whose output leads
+//     nowhere yet is not offered (refineRecipeOffered: canStartLine, the Refinery dropdown, the dashboard scan), and
+//     the gate lifts by itself when ML-2 / EM-8 drop the reserve marker. The engine tests below lift the markers for
+//     their duration (withMarkersLifted) to exercise the recipes as they will run once offered.
 
 import { describe, expect, it } from "vitest";
 import {
@@ -21,10 +25,12 @@ import {
   SHIP_TYPES,
   TRANSIT_BERTH_RUNGS,
   freshState,
+  refineRecipeOffered,
   type GameState,
   type ItemCategory,
 } from "./model";
 import { canStartLine, economyTick, processRefineLines, startLine } from "./tick";
+import { buildHomeDashboard } from "./homeDashboard";
 import { addItemQuality, itemTotal } from "./inventory";
 import { allocatedItem } from "./allocation";
 import { WIRING_REGISTRY } from "./wiring/registry";
@@ -51,6 +57,20 @@ const ML1_ITEMS: Record<string, string> = {
 };
 
 const COMPOUNDS = Object.keys(ML1_RECIPES).filter((k) => ML1_RECIPES[k].inputs.length > 1);
+const RESERVED_TODAY = ["reclaimedCircuit", "iridiumCatalyst", "cobaltCoil", "osmiumPlate", "photonicGel", "biocatalyst", "precursorCircuit"];
+
+// Runs `fn` with the reserve marker lifted from `ids` (as ML-2 / EM-8 will when they add the consumer), then restores
+// it. The marker is static data, so this is the honest way to show the gate lifts on its own.
+function withMarkersLifted<T>(ids: readonly string[], fn: () => T): T {
+  const saved = ids.map((id) => [id, ITEMS[id].reserved] as const);
+  try {
+    for (const id of ids) delete ITEMS[id].reserved;
+    return fn();
+  } finally {
+    for (const [id, r] of saved) if (r !== undefined) ITEMS[id].reserved = r;
+  }
+}
+const lifted = <T>(fn: () => T): T => withMarkersLifted(RESERVED_TODAY, fn);
 
 // A Refinery at level 1 (one slot) holding exactly `iterations` of a recipe's inputs (one unit fewer of `short`).
 function stocked(recipeKey: string, iterations: number, short?: string): GameState {
@@ -117,50 +137,100 @@ describe("ML-1 recipes: the seven Refinery recipes, as named", () => {
     expect(new Set(outputs).size).toBe(outputs.length);
   });
 
-  it("each runs through the real line engine: inputs to zero, exactly one output", () => {
-    for (const [key, want] of Object.entries(ML1_RECIPES)) {
-      const r = startLine(stocked(key, 1), "refine", key, { kind: "batch", remaining: 1 });
-      expect(r.started, key).toBe(true);
-      let s = r.next;
-      for (let i = 0; i < REFINE_RECIPES[key].durationTicks + 2; i++) s = economyTick(s, 1, () => 0.99);
-      expect(s.refineLines, key).toHaveLength(0);
-      expect(s.activeProcesses.filter((p) => p.kind === "refineJob"), key).toHaveLength(0);
-      for (const id of want.inputs) expect(itemTotal(s.inventory, id).toString(), `${key} ${id}`).toBe("0");
-      expect(itemTotal(s.inventory, want.output).toString(), key).toBe("1");
-      expect(s.discovered, key).toContain(want.output);
+  it("each runs through the real line engine: inputs to zero, exactly one output", () =>
+    lifted(() => {
+      for (const [key, want] of Object.entries(ML1_RECIPES)) {
+        const r = startLine(stocked(key, 1), "refine", key, { kind: "batch", remaining: 1 });
+        expect(r.started, key).toBe(true);
+        let s = r.next;
+        for (let i = 0; i < REFINE_RECIPES[key].durationTicks + 2; i++) s = economyTick(s, 1, () => 0.99);
+        expect(s.refineLines, key).toHaveLength(0);
+        expect(s.activeProcesses.filter((p) => p.kind === "refineJob"), key).toHaveLength(0);
+        for (const id of want.inputs) expect(itemTotal(s.inventory, id).toString(), `${key} ${id}`).toBe("0");
+        expect(itemTotal(s.inventory, want.output).toString(), key).toBe("1");
+        expect(s.discovered, key).toContain(want.output);
+      }
+    }));
+
+  it("a compound deducts EVERY input at job start, atomically", () =>
+    lifted(() => {
+      for (const key of COMPOUNDS) {
+        const started = processRefineLines(startLine(stocked(key, 2), "refine", key, { kind: "batch", remaining: 2 }).next);
+        expect(started.activeProcesses.filter((p) => p.kind === "refineJob"), key).toHaveLength(1);
+        for (const [id, amount] of Object.entries(REFINE_RECIPES[key].input)) {
+          // two iterations stocked, one job started: exactly one iteration's worth left
+          expect(itemTotal(started.inventory, id).toString(), `${key} ${id}`).toBe(amount.toString());
+        }
+      }
+    }));
+
+  it("a compound refuses when ANY one input is short, and takes nothing", () =>
+    lifted(() => {
+      for (const key of COMPOUNDS) {
+        for (const id of Object.keys(REFINE_RECIPES[key].input)) {
+          const s = stocked(key, 1, id);
+          expect(canStartLine(s, "refine", key, 1), `${key} short ${id}`).toEqual({ ok: false, reason: "materials" });
+          const r = startLine(s, "refine", key, { kind: "batch", remaining: 1 });
+          expect(r.started, `${key} short ${id}`).toBe(false);
+          expect(r.next, `${key} short ${id}`).toBe(s);
+        }
+      }
+    }));
+
+  it("the allocation model reserves every input of a running line", () =>
+    lifted(() => {
+      for (const key of Object.keys(ML1_RECIPES)) {
+        const s = startLine(stocked(key, 3), "refine", key, { kind: "batch", remaining: 3 }).next;
+        for (const [id, amount] of Object.entries(REFINE_RECIPES[key].input)) {
+          expect(allocatedItem(s.refineLines, [], id).toString(), `${key} ${id}`).toBe(amount.times(3).toString());
+        }
+      }
+    }));
+});
+
+describe("ML-1 review: a recipe that leads nowhere yet is not offered", () => {
+  const ALL = Object.keys(ML1_RECIPES);
+
+  it("today none of the seven is offered (six reserved outputs; Ferrite Ingot only feeds the reserved Osmium Plate)", () => {
+    for (const key of ALL) expect(refineRecipeOffered(key), key).toBe(false);
+    for (const key of ["refineCommonOre", "refinePolysilicateWafer", "refineReclaimedAlloy", "refinePurifiedBiomass"]) {
+      expect(refineRecipeOffered(key), key).toBe(true);
     }
   });
 
-  it("a compound deducts EVERY input at job start, atomically", () => {
-    for (const key of COMPOUNDS) {
-      const started = processRefineLines(startLine(stocked(key, 2), "refine", key, { kind: "batch", remaining: 2 }).next);
-      expect(started.activeProcesses.filter((p) => p.kind === "refineJob"), key).toHaveLength(1);
-      for (const [id, amount] of Object.entries(REFINE_RECIPES[key].input)) {
-        // two iterations stocked, one job started: exactly one iteration's worth left
-        expect(itemTotal(started.inventory, id).toString(), `${key} ${id}`).toBe(amount.toString());
-      }
+  it("the engine refuses a hidden recipe even fully stocked, and takes nothing", () => {
+    for (const key of ALL) {
+      const s = stocked(key, 1);
+      expect(canStartLine(s, "refine", key, 1), key).toEqual({ ok: false, reason: "notFound" });
+      const r = startLine(s, "refine", key, { kind: "batch", remaining: 1 });
+      expect(r.started, key).toBe(false);
+      expect(r.next, key).toBe(s);
     }
   });
 
-  it("a compound refuses when ANY one input is short, and takes nothing", () => {
-    for (const key of COMPOUNDS) {
-      for (const id of Object.keys(REFINE_RECIPES[key].input)) {
-        const s = stocked(key, 1, id);
-        expect(canStartLine(s, "refine", key, 1), `${key} short ${id}`).toEqual({ ok: false, reason: "materials" });
-        const r = startLine(s, "refine", key, { kind: "batch", remaining: 1 });
-        expect(r.started, `${key} short ${id}`).toBe(false);
-        expect(r.next, `${key} short ${id}`).toBe(s);
-      }
-    }
+  it("the dashboard never suggests a hidden recipe, and does once it is offered", () => {
+    // Only Cobalt Ore and a Titanium Ingot in stock: the Cobalt Coil compound is the one recipe that could start.
+    const s = stocked("synthCobaltCoil", 1);
+    expect(buildHomeDashboard(s).needsOrders.some((p) => p.id === "idle-refinery")).toBe(false);
+    withMarkersLifted(["cobaltCoil"], () => {
+      expect(buildHomeDashboard(s).needsOrders.some((p) => p.id === "idle-refinery")).toBe(true);
+    });
   });
 
-  it("the allocation model reserves every input of a running line", () => {
-    for (const key of Object.keys(ML1_RECIPES)) {
-      const s = startLine(stocked(key, 3), "refine", key, { kind: "batch", remaining: 3 }).next;
-      for (const [id, amount] of Object.entries(REFINE_RECIPES[key].input)) {
-        expect(allocatedItem(s.refineLines, [], id).toString(), `${key} ${id}`).toBe(amount.times(3).toString());
-      }
-    }
+  it("dropping one marker offers exactly the recipes it unblocks", () => {
+    withMarkersLifted(["cobaltCoil"], () => {
+      expect(ALL.filter(refineRecipeOffered)).toEqual(["synthCobaltCoil"]);
+      expect(canStartLine(stocked("synthCobaltCoil", 1), "refine", "synthCobaltCoil", 1)).toEqual({ ok: true });
+    });
+    // Osmium Plate gains a use: its compound AND the Ferrite refine feeding it come on offer together.
+    withMarkersLifted(["osmiumPlate"], () => {
+      expect(ALL.filter(refineRecipeOffered).sort()).toEqual(["refineFerriteIngot", "synthOsmiumPlate"]);
+    });
+    lifted(() => {
+      for (const key of ALL) expect(refineRecipeOffered(key), key).toBe(true);
+    });
+    // and the markers are back
+    for (const key of ALL) expect(refineRecipeOffered(key), key).toBe(false);
   });
 });
 
@@ -227,7 +297,7 @@ describe("ML-1 sink rule: every material has a consumer or a typed reserve", () 
     for (const [id, d] of Object.entries(ITEMS)) {
       if (d.reserved === undefined) continue;
       expect(d.reserved, id).toMatch(/^(ML|EM|GG|WR|CP|G\d)-\d/);
-      expect(made.has(id), `${id} is produced`).toBe(true);
+      expect(made.has(id), `${id} has a configured producer`).toBe(true);
     }
   });
 
@@ -248,10 +318,15 @@ describe("ML-1 sink rule: every material has a consumer or a typed reserve", () 
     expect(used.get("ferriteIngot")).toContain("refine:synthOsmiumPlate");
   });
 
-  it("the six orphan raws of the E-MAT census now have a sink", () => {
-    for (const id of ["rareMaterial", "ferriteOre", "cobaltOre", "osmiumOre", "scrapAlloy", "salvagedCircuitry"]) {
-      expect(used.has(id), id).toBe(true);
-    }
+  // A LIVE sink is a consumer outside the Refinery or an OFFERED refine recipe; a hidden recipe is a dead end, not a sink.
+  const liveSink = (id: string): boolean => (used.get(id) ?? []).some((by) => !by.startsWith("refine:") || refineRecipeOffered(by.slice("refine:".length)));
+
+  it("the six orphan raws of the E-MAT census: Scrap Alloy has a live sink now, the other five once ML-2 lifts its reserves", () => {
+    const ORPHANS = ["rareMaterial", "ferriteOre", "cobaltOre", "osmiumOre", "scrapAlloy", "salvagedCircuitry"];
+    expect(ORPHANS.filter(liveSink)).toEqual(["scrapAlloy"]); // Reclaimed Alloy feeds the Damage Control Suite
+    withMarkersLifted(RESERVED_TODAY.filter((id) => id !== "precursorCircuit"), () => {
+      for (const id of ORPHANS) expect(liveSink(id), id).toBe(true);
+    });
   });
 });
 

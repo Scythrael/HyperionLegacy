@@ -8374,8 +8374,7 @@ export interface RefineRecipeDef {
 // ML-1 (0.14.0, Material Lines; plan docs/plans/2026-10-17-material-lines-and-emod-plan.md section 3.1): the seven
 // July-approved recipes the user re-confirmed as named (L1, 2026-10-19 "Build as named"): three simple refines and
 // four compounds (multi-input; the engine deducts and reserves every input). Keys and items are the user's; ONLY the
-// numbers are mine.
-// [PROVISIONAL] every ratio and duration in MATERIAL_LINE_RECIPE_NUMBERS (no call priced them; the user tunes them):
+// numbers were mine, and the user approved them as built (2026-10-20, ML-1 review):
 // a common ore refines like Titanium Ore (20:1, 12 ticks), an uncommon one like Polysilicate Ore (5:1, 20 ticks), a
 // rare one at 3:1; a compound takes a few of its raw plus one or two refined goods and runs 20 ticks. Every duration is
 // one the speed rungs keep at an exact crafting XP per tick (the WR-4 rule, refine.test.ts; 40 breaks it).
@@ -8431,6 +8430,46 @@ export const REFINE_RECIPES: Record<string, RefineRecipeDef> = {
   },
   ...materialLineRecipes(),
 };
+
+// ML-1 review (the user's "everything wired, nothing inert player-reachable" rule; the field kits precedent "Hide
+// until kits are live"): THE ONE CHECK for whether the Refinery offers a recipe. canStartLine (the engine gate), the
+// Refinery item dropdown and the Home dashboard's idle-refinery scan all read it, so a recipe whose output leads
+// nowhere yet can neither be started nor suggested. A recipe is offered unless its output is a DEAD END: an item
+// carrying the ItemDef.reserved marker, or one whose only consumers are Refinery recipes that are themselves not
+// offered (Ferrite Ingot, whose one consumer makes the reserved Osmium Plate). Derived on every call from the static
+// tables, so the gate lifts by itself the moment ML-2 / EM-8 drop a marker. Pure.
+export function refineRecipeOffered(recipeKey: string): boolean {
+  const recipe = REFINE_RECIPES[recipeKey];
+  return recipe !== undefined && !isRefineDeadEnd(recipe.output.itemId, new Set());
+}
+
+function isRefineDeadEnd(itemId: string, visiting: Set<string>): boolean {
+  if (ITEMS[itemId]?.reserved !== undefined) return true;
+  if (consumedOutsideRefinery().has(itemId)) return false;
+  if (visiting.has(itemId)) return true; // a cycle of refines with no outside consumer leads nowhere
+  visiting.add(itemId);
+  const refines = Object.values(REFINE_RECIPES).filter((r) => r.input[itemId] !== undefined);
+  // No consumer at all is the sink rule's business (materialLines.test.ts), not a reason to hide the recipe.
+  if (refines.length === 0) return false;
+  return refines.every((r) => isRefineDeadEnd(r.output.itemId, visiting));
+}
+
+// Every item something other than the Refinery consumes: blueprints, hull builds, facility and storage / docks /
+// berth rungs, material salvage, the Quartermaster's sell counter. Built on first use (those tables are declared
+// further down this file), static afterwards.
+let consumedOutsideRefineryCache: ReadonlySet<string> | null = null;
+function consumedOutsideRefinery(): ReadonlySet<string> {
+  if (consumedOutsideRefineryCache) return consumedOutsideRefineryCache;
+  const out = new Set<string>();
+  for (const bp of Object.values(BLUEPRINTS)) for (const id of Object.keys(bp.recipe.inputs)) out.add(id);
+  for (const hull of Object.values(SHIP_TYPES)) for (const id of Object.keys(hull.buildRecipe.components)) out.add(id);
+  for (const f of Object.values(FACILITIES)) for (const u of f.upgrades) for (const id of Object.keys(u.materials)) out.add(id);
+  for (const rungs of [EQUIPMENT_STORAGE_RUNGS, SHIP_DOCKS_RUNGS, TRANSIT_BERTH_RUNGS]) for (const r of rungs) for (const id of Object.keys(r.materials)) out.add(id);
+  for (const id of Object.keys(SALVAGE_LOOT_POOLS)) out.add(id);
+  for (const [id, def] of Object.entries(ITEMS)) if (def.sellValue !== undefined) out.add(id);
+  consumedOutsideRefineryCache = out;
+  return out;
+}
 
 // Item taxonomy (Ship Production Economy epic, 2026-07-11 facility-framework
 // design §7). The category ladder is the forward-compat spine the whole epic
@@ -8759,7 +8798,10 @@ export const ITEMS: Record<string, ItemDef> = {
     category: "refined",
     tier: 1,
     // ML-1 (L11, user 2026-10-19 "Approve all three"): retagged uncommon; it refines from common Scrap Alloy.
-    // Display only (the Warehouse color and the reward chips).
+    // Rarity is read by the Warehouse color, the reward chips AND the Salvage Bay's confirm prompt, which maps a
+    // material's rarity to a quality tier (App.svelte salvageTargetNeedsConfirm, RARITY_TO_QUALITY_TIER: uncommon 1,
+    // rare 2). Reclaimed Alloy is a refined good, and material salvage takes salvagedMaterial items only (salvage.ts),
+    // so the prompt never reaches it today; if it ever does, it asks under the uncommon tier's setting.
     rarity: "uncommon",
     unlockHint: "Refined from Scrap Alloy at the Refinery.",
     flavor: "Battlefield scrap re-smelted into something stronger than it ever was whole.",
@@ -8773,7 +8815,8 @@ export const ITEMS: Record<string, ItemDef> = {
     flavor: "Raw flora rendered down to a clean, stable feedstock, no volatility left.",
   },
   // --- Material Lines (ML-1, 0.14.0): the seven July-approved refined goods (July section 12, re-confirmed by the
-  // user 2026-10-19, L1 "Build as named"). Each is produced by its MATERIAL_LINE_RECIPES row (below REFINE_RECIPES).
+  // user 2026-10-19, L1 "Build as named"). Each is produced by its MATERIAL_LINE_RECIPE_NUMBERS row (above REFINE_RECIPES),
+  // and the Refinery offers that recipe only once its output has a use (refineRecipeOffered).
   // Ferrite Ingot feeds the Osmium Plate compound today; the other six are RESERVED for ML-2, the recipe rework that
   // puts them into the cargo, FTL, reactor, utility, shield and plating blueprints (L2, user 2026-10-19). Rarity is
   // display only (the E-MAT strawman: ingots, circuit and compounds uncommon; plate, catalyst and biocatalyst rare).

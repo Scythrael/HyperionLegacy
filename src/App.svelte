@@ -190,6 +190,8 @@
     // show a recipe/upgrade the backend would reject on a data mismatch.
     FACILITIES,
     REFINE_RECIPES,
+    // ML-1: the Refinery lists only the recipes it offers (the same check canStartLine reads).
+    refineRecipeOffered,
     ITEMS,
     // Display-only phase-label maps (0.13.1 DRY consolidation): the mission +
     // patrol phase readouts. FORMERLY file-local consts here AND mirrored in
@@ -7731,7 +7733,7 @@
     cfgQty = 1;
     if (kind === "refine") {
       cfgTier = 1; // REFINE_RECIPES carry no tier -> a single synthetic "Tier 1"
-      cfgRecipeKey = Object.keys(REFINE_RECIPES)[0] ?? "";
+      cfgRecipeKey = Object.keys(REFINE_RECIPES).filter(refineRecipeOffered)[0] ?? "";
     } else {
       const tiers = availableFabricateTiers;
       cfgTier = tiers[0] ?? 1;
@@ -11617,7 +11619,7 @@
                           <label style="display: inline-flex; align-items: center; gap: 6px;">
                             Item
                             <select class="modal-input" bind:value={cfgRecipeKey} aria-label="Item">
-                              {#each Object.keys(REFINE_RECIPES) as rk}
+                              {#each Object.keys(REFINE_RECIPES).filter(refineRecipeOffered) as rk}
                                 <option value={rk}>{ITEMS[REFINE_RECIPES[rk].output.itemId]?.label ?? rk}</option>
                               {/each}
                             </select>

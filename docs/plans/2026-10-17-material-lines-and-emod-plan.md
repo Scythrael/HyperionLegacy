@@ -274,8 +274,8 @@ producible. Neutral: no golden moves (new keys only). UI: Refinery list only (gr
 > blank + inspect, a Prospector Miner with a crafted Refinery-Feed Rig on the Local Asteroid run (ML-3's seam), and the
 > census. ML-1: the 7 items and 7 recipes as named (keys `refineFerriteIngot`, `refineReclaimedCircuit`,
 > `refineIridiumCatalyst`, `synthCobaltCoil`, `synthOsmiumPlate`, `synthPhotonicGel`, `synthBiocatalyst`), every
-> ratio and duration **[PROVISIONAL]** in ONE table, `MATERIAL_LINE_RECIPE_NUMBERS` (model.ts; compounds run 20 ticks
-> because 40 breaks the speed rung XP rule). `ItemDef.reserved` is live: field role `effect`, one pending registry
+> ratio and duration in ONE table, `MATERIAL_LINE_RECIPE_NUMBERS` (model.ts; compounds run 20 ticks because 40 breaks
+> the speed rung XP rule; the user approved the numbers as built, 2026-10-20). `ItemDef.reserved` is live: field role `effect`, one pending registry
 > entry `facility:ITEMS:<id>:reserved` per reserve (owner = the marker). Reserved now: Reclaimed Circuit, Iridium
 > Catalyst, Cobalt Coil, Osmium Plate, Photonic Gel, Biocatalyst (owner ML-2) and Precursor Circuit (owner EM-8).
 > **ML-2 and EM-8 must drop the marker in the same commit that adds the consumer** (materialLines.test.ts fails while
@@ -284,6 +284,14 @@ producible. Neutral: no golden moves (new keys only). UI: Refinery list only (gr
 > consumes it). Reclaimed Alloy retagged uncommon (L11). Goldens: only the ML-0 census moved (refined 5 to 12, recipes
 > 4 to 11; the test proves removing the ML-1 rows reproduces ML-0). `shortRangeGoldens` holds the 14 new registry
 > entries apart (`registry:ml1`), so its base pin is unchanged.
+> **Review fix (2026-10-20, "nothing inert player-reachable"):** `refineRecipeOffered(key)` (model.ts) is the ONE
+> check canStartLine, the Refinery dropdown and the dashboard's idle-refinery scan read. A recipe is hidden while its
+> output is reserved or only feeds hidden recipes, so all seven ML-1 recipes are hidden today (Ferrite Ingot only feeds
+> the reserved Osmium Plate) and each comes on offer by itself when ML-2 / EM-8 drop the marker. **ML-2 note:** the
+> seven recipes, and so the six E-MAT orphan raws' Refinery sinks (all but Scrap Alloy), first become player-reachable
+> in ML-2. **Patch note line (L11):** "Reclaimed Alloy is now tagged uncommon (it refines from common Scrap Alloy)."
+> Rarity also feeds the Salvage Bay confirm prompt's tier (App.svelte `salvageTargetNeedsConfirm`), but material
+> salvage takes salvaged materials only, so nothing a player does changes beyond the color and the reward chips.
 
 **ML-2 Recipe rework (data).** Per call L2 (a): cargo, FTL, reactor, utility, shields, plating per E-MAT 3c and 3d with
 today's items, Sprint Drive vs Efficient Core differentiated (L11), Hauler Hold / High-Output Core Structural Assembly

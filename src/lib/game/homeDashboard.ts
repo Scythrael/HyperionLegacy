@@ -53,6 +53,7 @@ import {
   MISSIONS,
   PATROLS,
   REFINE_RECIPES,
+  refineRecipeOffered,
   MISSION_PHASE_LABEL,
   // The stuck-at-00:00 fix (2026-09-11): the readout must resolve the SAME effective mission def
   // the engine advances against. See rowForExtraction.
@@ -928,7 +929,8 @@ function buildNeedsOrders(state: GameState, queuedWork: QueuedWorkSummary): Prom
   // and the recipe scan is a registry walk with an affordability gate per candidate.
   if (
     !queueWouldFillEveryFreeBay(queueFor("refinery")) &&
-    Object.keys(REFINE_RECIPES).some((k) => canStartLine(state, "refine", k, 1).ok)
+    // ML-1: only recipes the Refinery offers (refineRecipeOffered; canStartLine refuses the rest too).
+    Object.keys(REFINE_RECIPES).filter(refineRecipeOffered).some((k) => canStartLine(state, "refine", k, 1).ok)
   ) {
     prompts.push({
       id: "idle-refinery",
