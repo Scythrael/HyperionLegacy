@@ -959,7 +959,13 @@ export interface ExceptionalSetDef {
 }
 
 const ROMAN: Readonly<Record<RegionTier, string>> = { 1: "I", 2: "II", 3: "III", 4: "IV", 5: "V", 6: "VI", 7: "VII" };
-const SET_LETTERS = ["a", "b", "c"];
+
+// The letter of a tier's i-th exceptional set (0 -> "a", 1 -> "b", ...), DERIVED so a fourth set in a tier gets "d" and
+// an id can never read "undefined". Throws past "z" (26 sets in one tier), which no catalog may reach. Pure.
+export function exceptionalSetLetter(index: number): string {
+  if (!Number.isInteger(index) || index < 0 || index >= 26) throw new Error(`Exceptional set index out of range: ${index}`);
+  return String.fromCharCode(97 + index);
+}
 
 // The 54 exceptional pieces in 14 sets, Tier I first. Ids are stable (a save stores them); labels are [PROPOSAL].
 export const EXCEPTIONAL_SETS: readonly ExceptionalSetDef[] = (() => {
@@ -967,7 +973,7 @@ export const EXCEPTIONAL_SETS: readonly ExceptionalSetDef[] = (() => {
   let cursor = 0;
   for (const tier of REGION_TIER_LIST) {
     EXCEPTIONAL_SET_SIZES[tier].forEach((size, i) => {
-      const letter = SET_LETTERS[i];
+      const letter = exceptionalSetLetter(i);
       const id = `exc-t${tier}-${letter}`;
       const value = EXCEPTIONAL_PIECE_VALUE[tier];
       const pieces: ExceptionalPieceDef[] = [];

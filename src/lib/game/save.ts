@@ -2647,6 +2647,10 @@ export function withHomeworldV70(state: any, entropy: number): any {
 // `museumV2` is replaced by the empty record; a v1 count that is not a positive finite number is dropped and the rest
 // are floored (the v1 reader, relics.ts relicCopies, read them the same way); when both fields exist (a fixture built
 // from a current freshState plus a v1 record) the v1 counts are ADDED to the Tier I record, so nothing is lost.
+// Every load also SANITIZES the counts inside a loaded `museumV2` (sanitizeV70MuseumV2Counts): every copy count, frozen
+// count, exceptional count, culture study point and culture find must be a non-negative integer. A finite positive
+// fraction is floored, anything else (negative, NaN, Infinity, a non-number, a non-object tier or culture) is dropped
+// (a culture's bad `points` reads 0). A record that is already clean is kept as the SAME reference, part by part.
 function isWellFormedV70MuseumV2(value: any): boolean {
   const rec = (v: any) => !!v && typeof v === "object" && !Array.isArray(v);
   return (
@@ -2659,14 +2663,65 @@ function isWellFormedV70MuseumV2(value: any): boolean {
     Array.isArray(value.setsCompleted)
   );
 }
+// A count record with every value a non-negative integer (floored when finite and positive, else dropped); the SAME
+// reference when nothing needed fixing. Pure.
+function cleanV70Counts(rec: any): Record<string, number> {
+  let dirty = false;
+  const out: Record<string, number> = {};
+  for (const [id, n] of Object.entries(rec)) {
+    if (typeof n === "number" && Number.isFinite(n) && n >= 0) {
+      const f = Math.floor(n);
+      if (f !== n) dirty = true;
+      out[id] = f;
+    } else dirty = true;
+  }
+  return dirty ? out : rec;
+}
+// A per-tier record of count records (general, frozen): each tier cleaned, a non-object tier dropped; the SAME
+// reference when clean. Pure.
+function cleanV70TierCounts(rec: any): any {
+  let dirty = false;
+  const out: any = {};
+  for (const [tier, counts] of Object.entries(rec)) {
+    if (!counts || typeof counts !== "object" || Array.isArray(counts)) {
+      dirty = true;
+      continue;
+    }
+    const c = cleanV70Counts(counts);
+    if (c !== counts) dirty = true;
+    out[tier] = c;
+  }
+  return dirty ? out : rec;
+}
+export function sanitizeV70MuseumV2Counts(museum: any): any {
+  const general = cleanV70TierCounts(museum.general);
+  const frozen = cleanV70TierCounts(museum.frozen);
+  const exceptional = cleanV70Counts(museum.exceptional);
+  let culturesDirty = false;
+  const cultures: any = {};
+  for (const [id, c] of Object.entries(museum.cultures as Record<string, any>)) {
+    if (!c || typeof c !== "object" || Array.isArray(c)) {
+      culturesDirty = true;
+      continue;
+    }
+    const p = c.points;
+    const points = typeof p === "number" && Number.isFinite(p) && p >= 0 ? Math.floor(p) : 0;
+    const finds = c.finds && typeof c.finds === "object" && !Array.isArray(c.finds) ? cleanV70Counts(c.finds) : {};
+    if (points !== p || finds !== c.finds) {
+      culturesDirty = true;
+      cultures[id] = { ...c, points, finds };
+    } else cultures[id] = c;
+  }
+  if (general === museum.general && frozen === museum.frozen && exceptional === museum.exceptional && !culturesDirty) return museum;
+  return { ...museum, general, frozen, exceptional, cultures: culturesDirty ? cultures : museum.cultures };
+}
 export function withMuseumV2V70(state: any): any {
   if (!state || typeof state !== "object") return state;
   const hasOld = Object.prototype.hasOwnProperty.call(state, "relicMuseum");
   const wellFormed = isWellFormedV70MuseumV2(state.museumV2);
-  if (!hasOld && wellFormed) return state;
-  const base = wellFormed
-    ? state.museumV2
-    : { general: {}, exceptional: {}, frozen: {}, cultures: {}, culturesNamed: [], setsCompleted: [] };
+  const clean = wellFormed ? sanitizeV70MuseumV2Counts(state.museumV2) : null;
+  if (!hasOld && wellFormed && clean === state.museumV2) return state;
+  const base = clean ?? { general: {}, exceptional: {}, frozen: {}, cultures: {}, culturesNamed: [], setsCompleted: [] };
   const old = state.relicMuseum;
   const adds: Record<string, number> = {};
   if (old && typeof old === "object" && !Array.isArray(old)) {

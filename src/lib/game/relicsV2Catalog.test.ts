@@ -32,6 +32,7 @@ import {
   RELIC_TYPE_STATS,
   RELIC_TYPES,
   RELICS,
+  exceptionalSetLetter,
   exceptionalSetsOfTier,
   getExceptionalPieceById,
   getExceptionalSetById,
@@ -43,7 +44,7 @@ import {
   type MuseumStat,
   type RelicBand,
 } from "./relics";
-import { deserialize, migrate, serialize, withMuseumV2V70, SAVE_VERSION, type SaveFile } from "./save";
+import { deserialize, migrate, serialize, sanitizeV70MuseumV2Counts, withMuseumV2V70, SAVE_VERSION, type SaveFile } from "./save";
 import { startRelicStudy } from "./tick";
 import { withV1Museum } from "./firstRunsGoldens.fixture";
 
@@ -200,6 +201,15 @@ describe("R2-1 catalog: exceptional relics (user calls 5, 6, 7)", () => {
     }
   });
 
+  it("set letters are derived: a fourth set in a tier is \"d\", never \"undefined\"; out of range throws", () => {
+    expect([0, 1, 2, 3, 25].map(exceptionalSetLetter)).toEqual(["a", "b", "c", "d", "z"]);
+    for (const bad of [-1, 26, 1.5, Number.NaN]) expect(() => exceptionalSetLetter(bad)).toThrow();
+    for (const set of EXCEPTIONAL_SETS) {
+      expect(set.id).toMatch(/^exc-t[1-7]-[a-z]$/);
+      for (const p of set.pieces) expect(p.id).not.toContain("undefined");
+    }
+  });
+
   it("every name is a [PROPOSAL] label until the user's sign-off sheet (no invented display name)", () => {
     for (const set of EXCEPTIONAL_SETS) {
       expect(set.label.startsWith("[PROPOSAL] ")).toBe(true);
@@ -333,6 +343,36 @@ describe("R2-1 migration: MIGRATIONS[69] moves the v1 museum into museumV2.gener
     const m = migrate({ ...s, version: 70 }, ENTROPY);
     expect("relicMuseum" in m).toBe(false);
     expect(generalMuseumRecord(m)).toEqual({ hullRivet: 4 });
+  });
+
+  it("every load sanitizes the counts inside a loaded museumV2 to non-negative integers; a clean record is the same reference", () => {
+    const dirty = {
+      ...emptyMuseumV2(),
+      general: { "1": { hullRivet: 2.9, geodeCore: -1, sporeCapsule: Number.NaN, glyphTablet: 0, x: "3" }, "2": 7, "3": { magmaPearl: 4 } },
+      frozen: { "1": { hullRivet: Infinity } },
+      exceptional: { "exc-t1-a-p1": 1.5, "exc-t1-a-p2": -2 },
+      cultures: { "culture-t1-1": { points: 3.7, finds: { hullRivet: 1, geodeCore: -3 } }, "culture-t1-2": { points: -1, finds: [] }, bad: 5 },
+    };
+    const cleaned = sanitizeV70MuseumV2Counts(dirty);
+    expect(cleaned).toEqual({
+      ...emptyMuseumV2(),
+      general: { "1": { hullRivet: 2, glyphTablet: 0 }, "3": { magmaPearl: 4 } },
+      frozen: { "1": {} },
+      exceptional: { "exc-t1-a-p1": 1 },
+      cultures: { "culture-t1-1": { points: 3, finds: { hullRivet: 1 } }, "culture-t1-2": { points: 0, finds: {} } },
+    });
+    expect(sanitizeV70MuseumV2Counts(cleaned)).toBe(cleaned);
+    expect(cleaned.general["3"]).toBe(dirty.general["3"]); // a clean tier keeps its reference
+    // Through the step and through a real load (a v70 save, the every-load call).
+    const s = { ...freshState(), museumV2: dirty } as unknown as GameState;
+    const stepped = withMuseumV2V70(s);
+    expect(stepped.museumV2).toEqual(cleaned);
+    expect(Object.keys(stepped)).toEqual(Object.keys(s));
+    const loaded = migrate({ ...(deserialize(serialize(s, 0)) as SaveFile), version: 70 }, ENTROPY);
+    expect(generalMuseumRecord(loaded)).toEqual({ hullRivet: 2, glyphTablet: 0 });
+    expect(loaded.museumV2.exceptional).toEqual({ "exc-t1-a-p1": 1 });
+    const fine = withGeneralMuseumRecord(freshState(), { hullRivet: 3 });
+    expect(withMuseumV2V70(fine)).toBe(fine);
   });
 
   it("hardened: junk passes through, bad counts are dropped or floored, a malformed record is replaced, both fields add", () => {
