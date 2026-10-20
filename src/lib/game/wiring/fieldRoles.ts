@@ -56,6 +56,8 @@ export const FIELD_ROLES: Readonly<Record<string, Readonly<Record<string, FieldR
     supplyCostPerCargo: "effect",
     rewardMargin: "effect",
   },
+  // G1-2: the short-range templates (shortRange.ts). `destinations` picks a placeholder designation list.
+  SHORT_RANGE_TEMPLATES: { key: "identity", label: "display", destinations: "display", rolls: "effect", work: "effect", reward: "effect" },
   PIRATE_HULLS: {
     id: "identity",
     name: "display",
@@ -271,6 +273,7 @@ export const UNREAD_CONSTANTS: Readonly<Record<string, string>> = {
   CUNNING_PENDING_SEATS: "bookkeeping: the seats with no Cunning over-delivery yet (Pilot Cunning, WR-9 OC-E4)",
   ECONOMY_FLOOR_SLOTS: "display: the Quartermaster's economy floor set, named for its readers",
   ENEMY_RANK_IDS: "bookkeeping: the enemy ranks in order, read by the wiring registry (one entry per rank, Field Kits FKR-1) and FKR-3's rank chips",
+  GRENADE_IDS: "bookkeeping: the grenade family in catalog order, read by the wiring registry (its GRENADES entries, Field Kits FKR-5) and FKR-9's charge readout",
   FIELD_KITS_CATALOG_VERSION: "seam: FKR-7 (buildExpedition stamps Expedition.fieldKits.catalog with it, flag 2)",
   FIELD_KIT_PRICES: "seam: FKR-7 (Quartermaster kit sales and the launch top-up charge it; registered pending)",
   PROSPECTING_USES: "seam: the prospecting quests patch (the three later Prospecting uses, read by the wiring registry; deferred)",

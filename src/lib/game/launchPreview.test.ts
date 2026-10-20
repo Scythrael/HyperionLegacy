@@ -44,6 +44,8 @@ const T0 = 100_000;
 // The instant the bodies are scanned: the outbound transit (the regular one since safe first runs SF-2 retired the 30
 // minute shakedown) plus the 28,200 s of scanning these tests always gave.
 const SCANNED_AT = T0 + TRANSIT_SECONDS + 28_200;
+// Expedition Tiers G2-3: a deeper tier's voyage flies longer than the pre-G2-3 leg; scan it from its own arrival.
+const scannedAt = (exp: Expedition): number => Math.max(SCANNED_AT, T0 + (exp.voyage ? exp.voyage.outboundSeconds + exp.voyage.anomalySeconds : 0) + 28_200);
 
 // The candidates with each one's launch view folded into its telescope block (what SQ-7's expanded card shows).
 function cands(state: GameState) {
@@ -108,7 +110,7 @@ function dispatchAndScan(state: GameState, region?: ExpeditionRegion): Expeditio
     const forced = generateRiskProfile(exp.seed, region, exp.bodies);
     exp = { ...exp, risk: forced.profile, bodies: exp.bodies.map((b, i) => ({ ...b, risk: forced.bodies[i] })) };
   }
-  const scanned = advanceExpedition(exp, SCANNED_AT);
+  const scanned = advanceExpedition(exp, scannedAt(exp));
   expect(scanned.bodies.every((b) => b.scanned)).toBe(true);
   return scanned;
 }

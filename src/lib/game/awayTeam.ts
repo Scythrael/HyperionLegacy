@@ -27,6 +27,7 @@ import type {
   ExpeditionPlanetType,
   GambitProgram,
   GambitStatusId,
+  GrenadeTraits,
   GameState,
   MemberGroundEffect,
   MemberGroundStatKey,
@@ -38,6 +39,7 @@ import type {
 } from "./model";
 import {
   DEFAULT_MEMBER_GAMBIT,
+  GRENADE_CARRY_PER_LINE,
   MEMBER_GROUND_STAT_KEYS,
   SENIOR_STAFF_ROSTER_BASE,
   groundSquadSize,
@@ -183,6 +185,8 @@ export const GROUND_STAT_MEMBER_STAT: Record<MemberGroundStatKey, AwayMemberStat
   // Prospecting (hidden): YIELD and GRADE, converted like every mapped line and frozen only when nonzero.
   groundOreYield: "oreYield",
   groundOreGrade: "oreGrade",
+  // Field Kits FKR-5: a grenade's +1 carry capacity line is a CHARGE count (toolCharges below), not a member stat.
+  groundCarryCapacity: null,
 };
 
 // How many traits a member of this rank carries: the complement's buff-count ladder, reused as-is so
@@ -683,11 +687,50 @@ export function pieceGroundPoints(
   return out;
 }
 
-// A piece's total ground points across every line: the magnitude a gear EFFECT scales with. Pure.
+// A piece's total ground points across every line: the magnitude a gear EFFECT scales with. Field Kits FKR-5: a carry
+// capacity line is a charge count, never effect magnitude, so it is left out (every piece without one sums as before).
+// Pure.
 function pieceTotalPoints(piece: Pick<EquipmentInstance, "implicitStats" | "rolledStats">): number {
   let total = 0;
-  for (const v of Object.values(pieceGroundPoints(piece))) total += v ?? 0;
+  for (const [key, v] of Object.entries(pieceGroundPoints(piece))) if (key !== "groundCarryCapacity") total += v ?? 0;
   return total;
+}
+
+// ============================================================================
+// Field Kits FKR-5: grenade CHARGES (user FK11, N4)
+// ============================================================================
+
+// A piece's +1 carry capacity LINES (FK11 "a stat that can possibly roll on the tool +1 carry capacity"): one per
+// implicit or rolled groundCarryCapacity line with a positive value (the mint stores each as GRENADE_CARRY_PER_LINE; a
+// piece rolls at most one, its affix picks being distinct). Pure.
+export function pieceCarryLines(piece: Pick<EquipmentInstance, "implicitStats" | "rolledStats">): number {
+  return ((piece.implicitStats.groundCarryCapacity ?? 0) > 0 ? 1 : 0) + ((piece.rolledStats.groundCarryCapacity ?? 0) > 0 ? 1 : 0);
+}
+
+// A grenade piece's charges per objective: its variety's base (N4: Impact 4, Stun 2, Toxin 2) plus
+// GRENADE_CARRY_PER_LINE per carry line. 0 for a piece that is not a grenade. The Dispatch readout (FKR-9) reads it.
+// Pure.
+export function pieceToolCharges(piece: Pick<EquipmentInstance, "slotType" | "moduleVariant" | "implicitStats" | "rolledStats">): number {
+  const grenade = memberVariety(piece.slotType, piece.moduleVariant ?? "")?.member.grenade;
+  return grenade ? grenade.charges.perObjective + pieceCarryLines(piece) * GRENADE_CARRY_PER_LINE : 0;
+}
+
+// The grenade a snapshotted member wears (the first worn piece whose variety throws: a member has one Tool slot), with
+// its variety's throw and its carry lines, or undefined. Pure.
+export function memberGrenade(member: Pick<SnapshotMember, "gear">): { piece: SnapshotGearPiece; grenade: GrenadeTraits } | undefined {
+  for (const piece of member.gear) {
+    const grenade = memberVariety(piece.slotType, piece.varietyKey)?.member.grenade;
+    if (grenade) return { piece, grenade };
+  }
+  return undefined;
+}
+
+// A snapshotted member's tool CHARGES per objective (the plan's toolCharges(member)): the worn grenade's base plus
+// GRENADE_CARRY_PER_LINE per carry line frozen at dispatch (SnapshotGearPiece.carry). 0 without a grenade: the Med Kit,
+// Shroud Emitter and Lure Beacon carry no charges (N4 "Grenades only"). Pure.
+export function toolCharges(member: Pick<SnapshotMember, "gear">): number {
+  const worn = memberGrenade(member);
+  return worn ? worn.grenade.charges.perObjective + (worn.piece.carry ?? 0) * GRENADE_CARRY_PER_LINE : 0;
 }
 
 // One fieldwork SOURCE (model.ts SnapshotFieldworkSource) from summed ground points: the three fieldwork
@@ -771,7 +814,9 @@ export function snapshotMember(member: AwayMember, worn: readonly EquipmentInsta
     }
     const points = pieceTotalPoints(piece);
     const varietyKey = piece.moduleVariant ?? "";
-    gear.push({ pieceId: piece.id, slotType: piece.slotType, varietyKey, points });
+    // Field Kits FKR-5: a piece's carry capacity lines are frozen only when it has one (the golden-neutral rule).
+    const carry = pieceCarryLines(piece);
+    gear.push({ pieceId: piece.id, slotType: piece.slotType, varietyKey, points, ...(carry > 0 ? { carry } : {}) });
     const variety = memberVariety(piece.slotType, varietyKey);
     const planetTypes = variety?.member.planetTypes;
     if (planetTypes && planetTypes.length > 0) {
