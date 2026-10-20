@@ -70,6 +70,12 @@
 //                  Field Kits default program under GAMBIT_PROGRAMS) and flips 8 pending -> live (the six kits, the First
 //                  Aid and Advanced Medical category rules). Held apart through FKR6_SLICE, the registry hashes exactly
 //                  as the pin before it; with EM1_SLICE too it reproduces e6523a6f.
+// MOVED BY G1-4 (the cycle engine): `registry:g1` only. The six guest quarters sources and the 21 short-range template
+//                  entries flip pending -> live (the cycle reads them at mission:shortRange), and one entry is added,
+//                  `captain:SECONDARY_CAPTAIN_TALENTS:trade2:shortRange` (Shrewd Negotiator at the drop-off's own load).
+//                  The mission:shortRange sweep only adds contexts and outOfScope reasons, which the ids-and-statuses
+//                  pins do not read, so the base `registry` pin and every cause pin are unchanged. Golden 7 (below)
+//                  proves the engine leaves every other run byte-identical.
 // ADDED BY G1-1: `guests:<hull>` (guest quarters bare and with each quarters variety, the Guest Wing last) and
 // `stats:<hull>:guestWing` (every other stat with a Guest Wing installed). The sheets hash through withoutGuests, so
 // the stats pins keep proving no other stat moved (the transport hulls now carry base guest quarters).
@@ -317,9 +323,9 @@ const GOLDEN: Record<string, unknown> = {
     "facility:ITEMS:biocatalyst:reserved|pending",
     "facility:ITEMS:precursorCircuit:reserved|pending",
   ],
-  "registry:g1": ["ship:gearLine:colonistCapacity|pending", "ship:SHIP_TYPES:generalFreighter:colonistCapacity|pending", "ship:SHIP_TYPES:orion:colonistCapacity|pending", "ship:SHIP_TYPES:aurora:colonistCapacity|pending", "ship:SHIP_TYPES:eir:colonistCapacity|pending", "ship:SHIP_SEAMS:generalQuartersGuestPerk|pending", "ship:QUARTERS_MODULES:quartersGuestWing|live", "ship:QUARTERS_MODULES:quartersGuestWing:capacity|pending",
-    // G1-2: the short-range template catalog, pending the cycle engine (G1-4).
-    "mission:SHORT_RANGE_TEMPLATES:refugeeRelocation:rolls|pending", "mission:SHORT_RANGE_TEMPLATES:refugeeRelocation:work|pending", "mission:SHORT_RANGE_TEMPLATES:refugeeRelocation:reward|pending", "mission:SHORT_RANGE_TEMPLATES:supplyDropOff:rolls|pending", "mission:SHORT_RANGE_TEMPLATES:supplyDropOff:work|pending", "mission:SHORT_RANGE_TEMPLATES:supplyDropOff:reward|pending", "mission:SHORT_RANGE_TEMPLATES:supplyPickup:rolls|pending", "mission:SHORT_RANGE_TEMPLATES:supplyPickup:work|pending", "mission:SHORT_RANGE_TEMPLATES:supplyPickup:reward|pending", "mission:SHORT_RANGE_TEMPLATES:phenomenonSurvey:rolls|pending", "mission:SHORT_RANGE_TEMPLATES:phenomenonSurvey:work|pending", "mission:SHORT_RANGE_TEMPLATES:phenomenonSurvey:reward|pending", "mission:SHORT_RANGE_TEMPLATES:telescopeRepair:rolls|pending", "mission:SHORT_RANGE_TEMPLATES:telescopeRepair:work|pending", "mission:SHORT_RANGE_TEMPLATES:telescopeRepair:reward|pending", "mission:SHORT_RANGE_TEMPLATES:commBoosterBuild:rolls|pending", "mission:SHORT_RANGE_TEMPLATES:commBoosterBuild:work|pending", "mission:SHORT_RANGE_TEMPLATES:commBoosterBuild:reward|pending", "mission:SHORT_RANGE_TEMPLATES:prisonerTransport:rolls|pending", "mission:SHORT_RANGE_TEMPLATES:prisonerTransport:work|pending", "mission:SHORT_RANGE_TEMPLATES:prisonerTransport:reward|pending"],
+  "registry:g1": ["captain:SECONDARY_CAPTAIN_TALENTS:trade2:shortRange|live", "ship:gearLine:colonistCapacity|live", "ship:SHIP_TYPES:generalFreighter:colonistCapacity|live", "ship:SHIP_TYPES:orion:colonistCapacity|live", "ship:SHIP_TYPES:aurora:colonistCapacity|live", "ship:SHIP_TYPES:eir:colonistCapacity|live", "ship:SHIP_SEAMS:generalQuartersGuestPerk|live", "ship:QUARTERS_MODULES:quartersGuestWing|live", "ship:QUARTERS_MODULES:quartersGuestWing:capacity|pending",
+    // G1-2: the short-range template catalog; G1-4 flipped every one live (the cycle engine reads it).
+    "mission:SHORT_RANGE_TEMPLATES:refugeeRelocation:rolls|live", "mission:SHORT_RANGE_TEMPLATES:refugeeRelocation:work|live", "mission:SHORT_RANGE_TEMPLATES:refugeeRelocation:reward|live", "mission:SHORT_RANGE_TEMPLATES:supplyDropOff:rolls|live", "mission:SHORT_RANGE_TEMPLATES:supplyDropOff:work|live", "mission:SHORT_RANGE_TEMPLATES:supplyDropOff:reward|live", "mission:SHORT_RANGE_TEMPLATES:supplyPickup:rolls|live", "mission:SHORT_RANGE_TEMPLATES:supplyPickup:work|live", "mission:SHORT_RANGE_TEMPLATES:supplyPickup:reward|live", "mission:SHORT_RANGE_TEMPLATES:phenomenonSurvey:rolls|live", "mission:SHORT_RANGE_TEMPLATES:phenomenonSurvey:work|live", "mission:SHORT_RANGE_TEMPLATES:phenomenonSurvey:reward|live", "mission:SHORT_RANGE_TEMPLATES:telescopeRepair:rolls|live", "mission:SHORT_RANGE_TEMPLATES:telescopeRepair:work|live", "mission:SHORT_RANGE_TEMPLATES:telescopeRepair:reward|live", "mission:SHORT_RANGE_TEMPLATES:commBoosterBuild:rolls|live", "mission:SHORT_RANGE_TEMPLATES:commBoosterBuild:work|live", "mission:SHORT_RANGE_TEMPLATES:commBoosterBuild:reward|live", "mission:SHORT_RANGE_TEMPLATES:prisonerTransport:rolls|live", "mission:SHORT_RANGE_TEMPLATES:prisonerTransport:work|live", "mission:SHORT_RANGE_TEMPLATES:prisonerTransport:reward|live"],
   "old": ["aa94ddcd", "817862c7", "4ac62731", "d9a483c6"],
   // G1-4 golden 7, captured on 047b133 (the short-range run held still there): the OTHER runs beside it.
   "fleet:shortRange:others": ["5329673d", "29572349", "388259d2", "c32245d1", "3c38a24b", "f9fe2b3a", "4bcd2925"],
@@ -401,6 +407,8 @@ const G1_ADDED_ENTRY_IDS: ReadonlySet<string> = new Set<string>([
   ...["refugeeRelocation", "supplyDropOff", "supplyPickup", "phenomenonSurvey", "telescopeRepair", "commBoosterBuild", "prisonerTransport"].flatMap((k) =>
     ["rolls", "work", "reward"].map((f) => `mission:SHORT_RANGE_TEMPLATES:${k}:${f}`),
   ),
+  // G1-4: Shrewd Negotiator on a short-range drop-off (its own load, so its own entry beside the supply-run one).
+  "captain:SECONDARY_CAPTAIN_TALENTS:trade2:shortRange",
 ]);
 // The registry entries ML-1 adds (new ids only): its seven Refinery recipes and its seven typed reserves.
 const ML1_ADDED_ENTRY_IDS: ReadonlySet<string> = new Set<string>([

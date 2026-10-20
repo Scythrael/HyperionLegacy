@@ -379,8 +379,11 @@ const GOLDEN: Record<string, unknown> = {
   // after the ML-1 re-pin without moving it: feat a2a1b6a reads a488ee24) re-owned the facility:audit:missionControlUnlock
   // row, and Field Kits FKR-6 added 5 entries and flipped 8 pending -> live. With FKR-6 read back (FKR6_BEFORE) the
   // snapshot is a488ee24, and with the G1-3 row's old owner too it is c1260fe0; the E-MOD rows did not change.
+  // Re-pinned by G1-4 (30489b98 -> 80e62647): the short-range cycle engine flipped the six guest quarters sources
+  // and the 21 template fields live at mission:shortRange, added captain:SECONDARY_CAPTAIN_TALENTS:trade2:shortRange,
+  // and gave 17 mission-claim entries the mission:shortRange context; read back (g14Back) the snapshot is 30489b98.
   registry: [
-    "30489b98",
+    "80e62647",
     "relic:RELICS:precursorLens",
     "ship:audit:reactorCoreNet",
   ],
@@ -447,15 +450,49 @@ const G13_ROW = "facility:audit:missionControlUnlock";
 const G13_ROW_BEFORE = { kind: "pending", owner: "WR-4, OC-C4" };
 const REGISTRY_BEFORE_G13 = "c1260fe0";
 
-// The registry snapshot rows with FKR-6 read back (its added entries left out, its flips as they stood) and, when
-// `g13Back`, G1-3's audit row with its old owner.
+// G1-4 (the short-range cycle engine): the one entry it added, the 27 it flipped pending -> live (the six guest
+// quarters sources, read at the sheet then, and the 21 template fields, with no probe then), and the entries its
+// mission:shortRange sweep gave that context (their status and probe unchanged). The snapshot before it: G14_BEFORE.
+const G14_ADDED_IDS: ReadonlySet<string> = new Set<string>(["captain:SECONDARY_CAPTAIN_TALENTS:trade2:shortRange"]);
+const G14_GUEST_IDS: ReadonlySet<string> = new Set<string>([
+  "ship:gearLine:colonistCapacity",
+  "ship:SHIP_TYPES:generalFreighter:colonistCapacity",
+  "ship:SHIP_TYPES:orion:colonistCapacity",
+  "ship:SHIP_TYPES:aurora:colonistCapacity",
+  "ship:SHIP_TYPES:eir:colonistCapacity",
+  "ship:SHIP_SEAMS:generalQuartersGuestPerk",
+]);
+const G14_GUESTS_OWNER = "G1-4 (the short-range passenger jobs read guest quarters)";
+const G14_CYCLE_OWNER = "G1-4 (the short-range cycle engine flies the rolls, times the work and pays the rewards)";
+const G14_SWEPT_IDS: ReadonlySet<string> = new Set<string>([
+  "officer:officer.shipOutputMult",
+  "crew:crew.crewOutputMult",
+  "captain:SECONDARY_CAPTAIN_TALENTS:commandCrew2",
+  "captain:SECONDARY_CAPTAIN_TALENTS:commandCrew5:officers",
+  "captain:SECONDARY_CAPTAIN_TALENTS:commandCrew3",
+  "captain:SECONDARY_CAPTAIN_TALENTS:trade1",
+  "captain:SECONDARY_CAPTAIN_TALENTS:trade3",
+  "captain:SECONDARY_CAPTAIN_TALENTS:extraction4",
+  "captain:SECONDARY_CAPTAIN_TALENTS:extraction5",
+  ...Array.from({ length: 8 }, (_, i) => `facility:TRANSIT_BERTH_RUNGS:${i}`),
+]);
+const REGISTRY_BEFORE_G14 = "30489b98";
+function g14Back(e: (typeof WIRING_REGISTRY)[number]): unknown[] {
+  if (e.id.startsWith("mission:SHORT_RANGE_TEMPLATES:")) return [e.id, { kind: "pending", owner: G14_CYCLE_OWNER }, [], null];
+  if (G14_GUEST_IDS.has(e.id)) return [e.id, { kind: "pending", owner: G14_GUESTS_OWNER, contexts: ["mission:shortRange"] }, ["sheet"], e.probe ?? null];
+  if (G14_SWEPT_IDS.has(e.id)) return [e.id, e.status, e.contexts.filter((c) => c !== "mission:shortRange"), e.probe ?? null];
+  return [e.id, e.status, e.contexts, e.probe ?? null];
+}
+
+// The registry snapshot rows with G1-4 read back (g14Back), FKR-6 read back (its added entries left out, its flips as
+// they stood) and, when `g13Back`, G1-3's audit row with its old owner.
 function registryRowsBack(g13Back: boolean): unknown[][] {
-  return WIRING_REGISTRY.filter((e) => !FKR6_ADDED_IDS.has(e.id)).map((e) =>
+  return WIRING_REGISTRY.filter((e) => !FKR6_ADDED_IDS.has(e.id) && !G14_ADDED_IDS.has(e.id)).map((e) =>
     e.id in FKR6_BEFORE
       ? [e.id, { kind: "pending", owner: FKR6_BEFORE[e.id] }, [], null]
       : g13Back && e.id === G13_ROW
         ? [e.id, G13_ROW_BEFORE, e.contexts, e.probe ?? null]
-        : [e.id, e.status, e.contexts, e.probe ?? null],
+        : g14Back(e),
   );
 }
 
@@ -514,6 +551,10 @@ describe("EM-0 goldens (re-pinned by EM-1 where named)", () => {
     // With the later moves read back (FKR-6 and G1-3, the test below) and ML-1's entries left out: the snapshot before ML-1.
     const beforeMl1 = hash(registryRowsBack(true).filter((r) => !ML1_ENTRY_IDS.has(r[0] as string)));
     expect(beforeMl1).toBe(REGISTRY_BEFORE_ML1);
+  });
+  it("registry: G1-4 (the short-range cycle engine) is the only cause of the latest snapshot move", () => {
+    const rows = WIRING_REGISTRY.filter((e) => !G14_ADDED_IDS.has(e.id)).map(g14Back);
+    expect(hash(rows)).toBe(REGISTRY_BEFORE_G14);
   });
   it("registry: FKR-6 and G1-3's audit row are the only causes of its snapshot move", () => {
     expect(hash(registryRowsBack(false))).toBe(REGISTRY_BEFORE_FKR6);

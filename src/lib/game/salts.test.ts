@@ -137,6 +137,7 @@ describe("salt registry (GO-4)", () => {
       "shortRange.ts SHORT_RANGE_BOARD_SALT",
       "shortRange.ts SHORT_RANGE_ROLL_SALT",
       "shortRange.ts SHORT_RANGE_ROUNDING_SALT",
+      "shortRange.ts SHORT_RANGE_OUTPUT_SALT",
     ]) {
       expect(names).toContain(expected);
     }

@@ -77,6 +77,7 @@ import {
   type CaptainMissionState,
   type PatrolMissionState,
   type ShortRangeMissionState,
+  type RunCounts,
   type OfficerCombatMods,
   type CaptainCombatMods,
   type PatrolKey,
@@ -417,7 +418,10 @@ import { itemTotal, addItemQuality, removeItemLowestFirst, lowestStockedQuality 
 // scope; server-side moderation in 0.14.0 plugs into the same signature.
 import { validateCaptainName } from "./captainName";
 // Safe first runs SF-1: the run counters (runDifficulty.ts imports model.ts only, so no cycle).
-import { countPatrolDispatch, countPatrolRoutes, runCountsOf } from "./runDifficulty";
+import { countPatrolDispatch, countPatrolRoutes, runCountsOf, uncountShortRangeCycleStart } from "./runDifficulty";
+// G1-4: the short-range cycle engine and the board's stored-cursor shape check.
+import { shortRangeHasDeparted, tickCaptainShortRange } from "./shortRangeCycle";
+import { isWellFormedShortRangeBoard } from "./shortRangeBoard";
 
 // Must stay in sync with MissionPhase and requiredTicksForPhase's switch --
 // there's no compiler link between this array and the union type, so a 6th
@@ -1305,6 +1309,37 @@ function appendPatrolCompletions(
       // A patrol ending is never the salvage fail-safe no-op this flag exists to record, so it
       // is always false here. Set explicitly rather than left to a default: the field is
       // required precisely so no writer can forget to make that claim.
+      stale: false,
+    });
+    nextId += 1;
+  }
+  return { ...state, completionLog: log, nextCompletionLogId: nextId };
+}
+
+// G1-4 (Short-Range Missions): one completion log entry per short-range RUN that ended (the patrol precedent: one
+// entry per run, never per cycle, so a board on Repeat cannot evict the log). `iterations` carries the cycles the run
+// delivered; the subject is the board slot. Its reward is "nothing" for the patrol's reason: every cycle's pay already
+// landed as it was delivered, so re-listing it here would double-report. Same single allocator as the patrol endings.
+// A same-reference no-op with no ending. Pure.
+function appendShortRangeRunEndings(state: GameState, endings: readonly { slotId: number; cycles: number }[], nowMs: number): GameState {
+  if (endings.length === 0) return state;
+  let log = state.completionLog ?? [];
+  let nextId = state.nextCompletionLogId ?? 1;
+  for (const ending of endings) {
+    log = pushCompletionEntry(log, {
+      id: `done-${nextId}`,
+      kind: "shortRangeRun",
+      reward: "nothing",
+      atMs: nowMs,
+      // A run's length is the sum of rolled cycles, not a fixed duration (the patrol entry's reasoning).
+      startedAtMs: nowMs,
+      iterations: ending.cycles,
+      items: [],
+      pieces: 0,
+      subjectKey: `slot-${ending.slotId}`,
+      level: null,
+      fuelAmount: null,
+      creditsAmount: null,
       stale: false,
     });
     nextId += 1;
@@ -4031,6 +4066,13 @@ export function economyTick(
   // Queue order is state.captains order, i.e. monotonic captain-id insertion order: the same
   // determinism processShipRepairs uses, stable across save, load and offline catch-up.
   let berthBudgetRemaining = transitBerthsFree(state);
+  // G1-4 (Short-Range Missions): the run counters and the board's cycle cursor, threaded across every short-range
+  // captain in state.captains order (each cycle start reads the starts and deliveries before it), and the runs that
+  // ended this call (drained into the completion log after resolveProcesses, beside the patrol endings). Both stay
+  // null with no short-range run, so such a call writes neither field (byte-identical).
+  let shortRangeCounts: RunCounts | null = null;
+  let shortRangeCursor: Readonly<Record<number, number>> | null = null;
+  const shortRangeEndings: { captainId: number; slotId: number; cycles: number }[] = [];
   const captains = state.captains.map((captain) => {
     if (captain.mission === null) return captain;
     // UNKNOWN-KEY INERT GUARD (fix: a removed/renamed mission/patrol key hard-crashed every tick,
@@ -4210,12 +4252,69 @@ export function economyTick(
         }
         return patrolResult.captain;
       }
-      case "shortRange":
-        // G1-3 (Short-Range Missions): the board's dispatch, recall and bookkeeping are built; the CYCLE (phases,
-        // re-roll at each cycle start, rewards, XP, the berth hold) is G1-4's tickCaptainShortRange, routed here.
-        // Until then a short-range run holds still: no progress, no reward, never a crash. No player path
-        // dispatches one before the board UI (G1-6).
-        return captain;
+      case "shortRange": {
+        // G1-4 (Short-Range Missions): THE CYCLE ENGINE (shortRangeCycle.ts tickCaptainShortRange): the phases, the
+        // whole job re-rolled at each cycle start, the departure gate (a drop-off's load paid as it leaves, a full
+        // Warehouse for a pickup), the berth hold, the pay. Folded through the SAME fleet-wide accumulators and
+        // budgets the extraction arm uses, so its credits, deliveries, XP and lifetime totals land through the
+        // identical seams. No player path dispatches one before the board UI (G1-6).
+        const srShip = state.ships.find((s) => s.assignedCaptainId === captain.id);
+        const counts = shortRangeCounts ?? runCountsOf(state);
+        const cursor = shortRangeCursor ?? (isWellFormedShortRangeBoard(state.shortRangeBoard) ? state.shortRangeBoard.nextCycle : {});
+        const sr = tickCaptainShortRange({
+          ticksElapsed,
+          captain,
+          state,
+          ship: srShip,
+          creditsBudget: creditsBudgetRemaining,
+          berthBudget: berthBudgetRemaining,
+          runCounts: counts,
+          nextCycle: cursor,
+          atCap: (itemId) => materialAtCap(state, itemId),
+        });
+        berthBudgetRemaining -= sr.berthsClaimed;
+        creditsBudgetRemaining -= sr.budgetDraw;
+        creditsDelta += sr.creditsDelta;
+        fleetAdminXpDelta += sr.fleetAdminXpDelta;
+        if (sr.runCounts !== counts) shortRangeCounts = sr.runCounts;
+        if (sr.nextCycle !== cursor) shortRangeCursor = sr.nextCycle;
+        // The deliveries go through the one deposit fold below (the Warehouse cap clamp and the quality roll), WR-5a's
+        // Assayer grading this captain's own share exactly as it grades an extraction delivery.
+        const srQuality = captainDeliveryQualityBonus(captain);
+        const srItems: Record<string, Decimal> = {};
+        for (const [key, units] of Object.entries(sr.materials)) {
+          if (!(units > 0)) continue;
+          const amount = new Decimal(units);
+          srItems[key] = amount;
+          homePlanetDelta[key] = (homePlanetDelta[key] ?? new Decimal(0)).plus(amount);
+          if (srQuality > 0) {
+            const prev = assayerDelivered.get(key);
+            assayerDelivered.set(key, { amount: (prev?.amount ?? new Decimal(0)).plus(amount), bonus: Math.max(prev?.bonus ?? 0, srQuality) });
+          }
+        }
+        // Captain XP per active tick x the retirement multiplier, resolved through the shared level-up fold.
+        const srXp = new Decimal(sr.captainXpAwarded).times(captainXpMult);
+        let srCaptain = sr.captain;
+        if (srXp.gt(0)) {
+          const ups = foldXpLevelUps(srCaptain.xp.plus(srXp), srCaptain.level, xpForNextLevel);
+          srCaptain = { ...srCaptain, xp: ups.xp, level: ups.level, statPoints: srCaptain.statPoints + ups.levelUps };
+        }
+        // Lifetime totals: delivered cycles count under `shortRange:<template>` (plan 2 [PROPOSAL]); the credits earned
+        // leave out the working capital a drop-off paid and got back.
+        const srCompleted: Record<string, Decimal> = {};
+        for (const [template, n] of Object.entries(sr.completedByTemplate)) srCompleted[`shortRange:${template}`] = new Decimal(n);
+        lifetimeStats = foldLifetimeStatsDelta(lifetimeStats, {
+          itemsGathered: srItems,
+          missionsCompleted: srCompleted,
+          creditsEarned: new Decimal(sr.creditsEarned),
+          captainXpAwarded: srXp,
+          fleetAdminXpAwarded: new Decimal(sr.fleetAdminXpDelta),
+        });
+        // The officers aboard get missionsCompleted credit per delivered cycle (promotion gates), like a mission's.
+        if (srShip && sr.cyclesDelivered > 0) shipMissionCompletions.set(srShip.id, (shipMissionCompletions.get(srShip.id) ?? 0) + sr.cyclesDelivered);
+        if (sr.ended !== null) shortRangeEndings.push({ captainId: captain.id, ...sr.ended });
+        return srCaptain;
+      }
       default:
         return assertNeverMission(captain.mission);
     }
@@ -4568,6 +4667,9 @@ export function economyTick(
   // mission/credits/loot/lifetime math above changed, these are the exact same
   // fields with the exact same values, just held in a const instead of an inline
   // literal, so a call with no active processes lands byte-identical to before.
+  // G1-4: read back through explicit types (the captain map's callback assigns them, which TS cannot follow).
+  const srCountsAfter = shortRangeCounts as RunCounts | null;
+  const srCursorAfter = shortRangeCursor as Readonly<Record<number, number>> | null;
   const postMissionState: GameState = {
     ...state,
     captains,
@@ -4636,7 +4738,11 @@ export function economyTick(
     lifetimeStats,
     // Safe first runs SF-1: the won patrol routes on the patrol curve. Untouched (the same reference) when no route
     // was won this call.
-    ...(patrolRoutesWon > 0 ? { runCounts: countPatrolRoutes(runCountsOf(state), patrolRoutesWon) } : {}),
+    // G1-4: plus the short-range cycle starts and deliveries (threaded through the captain map above). Untouched when
+    // neither moved.
+    ...(patrolRoutesWon > 0 || srCountsAfter !== null ? { runCounts: countPatrolRoutes(srCountsAfter ?? runCountsOf(state), patrolRoutesWon) } : {}),
+    // G1-4: the board's cycle cursor, written only when a short-range cycle was delivered this call.
+    ...(srCursorAfter !== null ? { shortRangeBoard: { version: 1 as const, nextCycle: { ...srCursorAfter } } } : {}),
   };
 
   // Phase 1, Task 9: resolve every in-flight timed process ONCE, fleet-wide (NOT
@@ -4674,7 +4780,8 @@ export function economyTick(
   // patrol ending sorts AFTER a process completion in the log. Both carry the same `atMs`
   // (there is one clock per tick), so no readout can tell them apart by time anyway, and the
   // log is chronological by append order.
-  const postProcessState = appendPatrolCompletions(postProcessStateRaw, patrolEndings, nowMs);
+  // G1-4: and the short-range runs that ended, after the patrol endings (the same single allocator, in turn).
+  const postProcessState = appendShortRangeRunEndings(appendPatrolCompletions(postProcessStateRaw, patrolEndings, nowMs), shortRangeEndings, nowMs);
 
   // Crafting 0.13.3 (Phase 1 Unit 1.4, design §5.5): promote WAITING queued orders into
   // real running work, at THE one correct seam: AFTER resolveProcesses (so a facility
@@ -5765,11 +5872,24 @@ export function dispatchCaptainOnPatrol(
 // `recalled: boolean`, so spreading the (non-null) mission and overriding recalled
 // preserves the arm's `kind` + every other field and stays a valid union member. A
 // patrol honors the flag at its own cycle end (9b.5b); an extraction mission at unload.
-export function recallCaptain(state: GameState, captainId: number): { next: GameState; success: boolean } {
+// G1-4: `nowMs` stamps the completion log entry of a short-range run that ends AT ONCE (recalled before it left home:
+// see below). 0 = no clock supplied, which the log reads as an unknown time (the economyTick convention).
+export function recallCaptain(state: GameState, captainId: number, nowMs: number = UNKNOWN_COMPLETION_TIME_MS): { next: GameState; success: boolean } {
   const idx = state.captains.findIndex((c) => c.id === captainId);
   if (idx === -1) return { next: state, success: false };
   const mission = state.captains[idx].mission;
   if (mission === null) return { next: state, success: false };
+  // G1-4: a short-range cycle that has NOT LEFT HOME (it waits at the departure gate for its load or Warehouse room,
+  // or leaves on the next tick) has no cycle to finish: the run ends now. Its cycle start is taken back
+  // (uncountShortRangeCycleStart: the template keeps its training run), nothing was paid, and the run's completion
+  // log entry is written here with the cycles it delivered before.
+  if (mission.kind === "shortRange" && !shortRangeHasDeparted(mission)) {
+    const captains = [...state.captains];
+    captains[idx] = { ...captains[idx], mission: null };
+    const counts = uncountShortRangeCycleStart(runCountsOf(state), mission.roll.template);
+    const ended = appendShortRangeRunEndings({ ...state, captains, runCounts: counts }, [{ slotId: mission.slotId, cycles: mission.cyclesThisRun ?? 0 }], nowMs);
+    return { next: ended, success: true };
+  }
 
   // 0.13.6 (user 2026-09-17): recall means BREAK OFF NOW and fly the FULL return leg home, not
   // "finish the current cycle/route first". So when the ship is still outbound / on-site / mid-fight,
