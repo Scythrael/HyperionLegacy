@@ -22,6 +22,7 @@
 
 import {
   BLUEPRINTS,
+  CAPTAIN_RACIAL_SCALE,
   CAPTAIN_SPEC_BONUS,
   CAPTAIN_TALENTS,
   EQUIPMENT_SLOTS,
@@ -74,7 +75,8 @@ import {
 import Decimal from "break_infinity.js";
 import { diminishing } from "../diminishing";
 import { secondaryTalentEffectText } from "../captainSecondaryEffects";
-import { buyHomeworldTalent } from "../tick";
+import { buyHomeworldTalent, describeCaptainTalentEffect } from "../tick";
+import type { CaptainPrimaryMultKind } from "../captainPrimaryEffects";
 import { combatHullTypeOf, hullDefenseComposition } from "../combat/bridge";
 import { SENIOR_STAFF_BONUSES, type SeniorStaffBonusDef } from "../seniorStaffBonuses";
 import { CREW_PROFESSION_BUFFS, CREW_STAT_KEYS, HELD_CREW_BUFF_IDS, SECOND_LEVEL_EXCLUSIVE, type CrewBuffDef } from "../crewBuffs";
@@ -104,6 +106,8 @@ import {
   type MuseumStat,
 } from "../relics";
 import { BRIDGE_MODULES, QUARTERS_MODULES, moduleEffectScale } from "../crewModules";
+import { graduateStandout } from "../crewGraduation";
+import { signatureKey } from "../crew";
 import { SENSOR_ARRAYS } from "../sensorArrays";
 import { RETIREMENT_EXP_PER } from "../captainRetirement";
 import { explorerTalentText } from "../captainExplorerEffects";
@@ -151,6 +155,7 @@ import {
   withRunningJobs,
   overtimeOneStep,
   WIRING_BUCKET_COUNT,
+  WIRING_SHIP_ID,
   AFFIX_ALIGNED_HOOKS,
   AFFIX_HOOK_KEYS,
   GAMBIT_ACTIONS,
@@ -972,30 +977,61 @@ function captainTalentEntries(): WiringEntry[] {
           curve: { kind: "linearRelative" },
           magnitude: mult,
         });
-      default:
-        return entry({ ...common, status: pending(key === "tacticianHub" ? "WR-6, OC-A40" : "WR-6, OC-A41"), note: "\"No bonus yet\" gateway hub" });
+      case "weaponDamageMult":
+      case "scanRateMult":
+      case "relicFindMult":
+        // WR-6: the Tactician / Explorer hubs, each its own factor where the matching secondary node acts.
+        return entry({ ...common, ...PRIMARY_SEAMS[eff.type], magnitude: mult, note: "size OC-A40 / OC-A41 (user 2026-10-19)" });
+      case "none":
+        throw new Error(`wiring: captain talent ${key} is a "none" gateway (WR-6 wired every hub)`);
     }
   });
 }
+
+// WR-6 (0.14.0): where the captain primary bonuses (the two hubs, the tactical and science specs) act: on the ship
+// the captain commands, through the records the secondary tree freezes (captainPrimaryEffects.ts).
+const PRIMARY_SEAMS: Readonly<Record<CaptainPrimaryMultKind, Pick<EntryInput, "probe" | "contexts" | "curve" | "tolerance" | "base">>> = {
+  weaponDamageMult: { probe: "captainShotDamage", contexts: ["patrol", "shipEvent"], curve: { kind: "linearRelative" }, base: () => combatBase() },
+  scanRateMult: { probe: "expScanRate", contexts: ["expedition:groundOps"], curve: { kind: "linearRelative" } },
+  relicFindMult: { probe: "runRelicChance", contexts: ["expedition:groundOps"], curve: { kind: "linearRelative" }, tolerance: 0.5 },
+};
 
 function captainSpecEntries(): WiringEntry[] {
   const branches = [...new Set(Object.values(CAPTAIN_TALENTS).map((d) => d.branch))] as CaptainTalentBranch[];
   return branches.map((branch) => {
     const eff = CAPTAIN_SPEC_BONUS[branch];
+    // WR-6 (OC-A42): the tactical and science spec bonuses, each its own factor on the hub's seam.
+    if (eff && (eff.type === "weaponDamageMult" || eff.type === "scanRateMult" || eff.type === "relicFindMult")) {
+      const kind = eff.type;
+      return entry({
+        id: `captain:CAPTAIN_SPEC_BONUS:${branch}`,
+        system: "captain",
+        source: { catalog: "CAPTAIN_SPEC_BONUS", key: branch },
+        claim: `${branch} specialization bonus: ${describeCaptainTalentEffect(eff)}`,
+        ...PRIMARY_SEAMS[kind],
+        magnitude: (c) => {
+          const e = c.CAPTAIN_SPEC_BONUS[branch];
+          return e && e.type === kind ? e.mult : 0;
+        },
+        on: (s) => editCaptain(s, { spec: branch }),
+        note: "size OC-A42 (user 2026-10-19)",
+      });
+    }
+    // Release gate (0.14.0): every spec carries a real bonus since WR-6, so a spec without one is a placeholder bug.
+    if (eff?.type !== "bonusRollChance") throw new Error(`wiring: the ${branch} spec has no wired bonus`);
     return entry({
       id: `captain:CAPTAIN_SPEC_BONUS:${branch}`,
       system: "captain",
       source: { catalog: "CAPTAIN_SPEC_BONUS", key: branch },
       claim: `${branch} specialization bonus`,
-      probe: eff ? "bonusRollTrigger" : undefined,
-      contexts: eff ? ["mission:extraction"] : [],
+      probe: "bonusRollTrigger",
+      contexts: ["mission:extraction"],
       curve: { kind: "chanceAbsolute" },
       magnitude: (c) => {
         const e = c.CAPTAIN_SPEC_BONUS[branch];
         return e && "chance" in e ? e.chance : 0;
       },
       on: (s) => editCaptain(s, { spec: branch }),
-      status: eff ? LIVE : pending("WR-6, OC-A42"),
     });
   });
 }
@@ -1250,12 +1286,20 @@ function captainProgressionEntries(): WiringEntry[] {
       magnitude: () => RETIREMENT_EXP_PER,
       on: (s) => editCaptain(s, { retirements: 1 }),
     }),
+    // WR-6 (OC-A43, user 2026-10-19 "Same as an officer"): the captain carries its race's racial on the ship it commands, at the officer
+    // magnitude x CAPTAIN_RACIAL_SCALE. Measured with a Station-born captain (crew.unloadSpeed, a live racial key; the
+    // other races ride the same crew map as their officer racial entries).
     entry({
       id: "captain:progression:race",
       system: "captain",
       source: { catalog: "CAPTAIN_PROGRESSION", key: "race" },
-      claim: "Captain race (\"racial bonus is a follow-on\")",
-      status: pending("WR-6, OC-A43"),
+      claim: "Captain race: the captain carries its race's racial on the ship it commands, at the officer magnitude",
+      probe: "sheetUnload",
+      contexts: ["sheet", "expedition:groundOps"],
+      curve: { kind: "linearRelative" },
+      magnitude: (c) => c.CREW_RACES.stationBorn.racialBonus.seniorStaff * CAPTAIN_RACIAL_SCALE,
+      on: (s) => editCaptain(s, { race: "stationBorn" }),
+      note: "magnitude CAPTAIN_RACIAL_SCALE 1 (user 2026-10-19)",
     }),
   ];
 }
@@ -1306,10 +1350,11 @@ function homeworldEntries(): WiringEntry[] {
           entry({
             ...common,
             probe: "salvageTalentYield",
-            contexts: ["salvage"],
+            // WR-6 (OC-B1 "Apply to hull teardown"): the recycle fraction and the hull teardown fraction (B16: the
+            // text says percentage points, the flat add it is).
+            contexts: ["salvage", "salvage:teardown"],
             magnitude: field("yieldBonus"),
-            status: pending("WR-6, OC-B1 (hull teardown: salvageShip skips the bonus; B16 wording)", ["salvage:teardown"]),
-            note: "recycle LIVE (salvage.ts:439); hull teardown not (salvage.ts:913)",
+            note: "a flat add onto the recovery fraction: salvageEquipment and hullTeardownFraction",
           }),
           entry({
             ...common,
@@ -1342,14 +1387,20 @@ function homeworldEntries(): WiringEntry[] {
           }),
         );
         break;
-      default:
-        out.push(
-          entry({
-            ...common,
-            status: pending(key === "industryHub" ? "WR-6, OC-B2 (its text says No bonus yet; it gates Refinery rungs 3 and 4)" : "WR-6, OC-B3"),
-            note: "\"No bonus yet\" placeholder hub",
-          }),
-        );
+      // WR-6 (OC-B2 / OC-B3, user 2026-10-15 "Give them real effects"; sizes approved 2026-10-19).
+      case "fabricatorBonusOutput":
+        // The realized extra output over 1,000 real Fabricator jobs (process numbers 1 to 1,000): its share sits at the
+        // configured chance within the batch's sampling spread (about 3 standard deviations).
+        out.push(entry({ ...common, probe: "fabricatorBonusShare", contexts: ["craft"], curve: { kind: "chanceAbsolute" }, magnitude: field("chance"), tolerance: 0.02, note: "chance OC-B2 (user 2026-10-19); also gates Refinery rungs 3 and 4" }));
+        break;
+      case "patrolShieldMult":
+        out.push(entry({ ...common, probe: "patrolShieldPool", contexts: ["patrol"], curve: { kind: "linearRelative" }, magnitude: field("mult"), tolerance: 0.5, base: () => combatBase(), note: "size OC-B3 (user 2026-10-19)" }));
+        break;
+      case "transportCrewBonus":
+        out.push(entry({ ...common, probe: "transportCrewDelivered", contexts: ["fleet"], magnitude: field("crew"), note: "size OC-B3 (user 2026-10-19)" }));
+        break;
+      case "none":
+        throw new Error(`wiring: Homeworld talent ${key} is a "none" placeholder (WR-6 wired every hub)`);
     }
   }
   return out;
@@ -3050,7 +3101,6 @@ const AUDIT_ROWS: readonly { id: string; system: WiringSystem; claim: string; st
   { id: "ship:audit:partialCombat", system: "ship", claim: "Ambush opener (expedition cloaked events only), precharge (Ground Ops only), enemy mitigation (players only), evasion (Evasive Command only), drone replenish (between waves only)", status: pending("WR-8, OC-D9 / OC-D12") },
   { id: "ship:audit:podDurability", system: "ship", claim: "DRONE_POD_BASE_DURABILITY (pods never wear) and QUALITY_DURABILITY_BONUS on non-weapons", status: pending("WR-8, OC-D14") },
   // E. Crew
-  { id: "crew:audit:notables", system: "crew", claim: "Notable crew: the read paths are live but nothing creates one", status: pending("CP-8") },
   { id: "crew:audit:enlisted", system: "crew", claim: "The crew rank enlisted flag (never read)", status: pending("WR-9, OC-E11") },
   { id: "crew:audit:thirdBuff", system: "crew", claim: "buffCountForRank 3 (only gates the exclusive pick)", status: pending("WR-9, OC-E12") },
   { id: "crew:audit:commandCaps", system: "crew", claim: "Command structure caps (passive ships only; not enforced on load)", status: pending("CP-5, CP-7") },
@@ -3106,6 +3156,7 @@ function auditEntries(): WiringEntry[] {
     ...AUDIT_ROWS.map((r) => entry({ id: r.id, system: r.system, source: { catalog: "AUDIT", key: r.id }, claim: r.claim, status: r.status })),
     ...cp2AuditEntries(),
     ...fieldKitsAuditEntries(),
+    ...cp8AuditEntries(),
   ];
 }
 
@@ -3125,6 +3176,45 @@ function fieldKitsAuditEntries(): WiringEntry[] {
       curve: { kind: "gate" },
       magnitude: () => 1,
       on: sourceOn,
+    }),
+  ];
+}
+
+// CP-8: notables are created now (graduation). Identity only (user 2026-10-16, "Let's keep it identity only"): a
+// graduate counts aboard exactly like one crew of its group. Measured on Efficient Unloading: a ship of 20 Crewmen
+// graduates one; against the same ship with that one crewmember gone, the unload bonus is 20 / 19 of it (the notable
+// carries its share), and against the ship before graduating it does not move at all.
+function cp8AuditEntries(): WiringEntry[] {
+  const ops = bucketOf("operations", "ops.unloadSpeed");
+  const crewed = () => withBuckets(wiringBase(), [ops]);
+  const graduate: Transform = (s) => graduateStandout(s, WIRING_SHIP_ID, signatureKey(ops)).next;
+  return [
+    entry({
+      id: "crew:audit:notables",
+      system: "crew",
+      source: { catalog: "AUDIT", key: "crew:audit:notables" },
+      claim: "A graduated notable stays aboard and carries its buffs like one crew of its group",
+      probe: "sheetUnload",
+      contexts: ["sheet"],
+      curve: { kind: "bonusRelative", base: 1 },
+      magnitude: () => 1 / (WIRING_BUCKET_COUNT - 1),
+      base: crewed,
+      on: graduate,
+      off: (s) => withBuckets(s, [{ ...ops, count: WIRING_BUCKET_COUNT - 1 }]),
+      note: "on: 19 Crewmen + the notable; off: the 19 alone",
+    }),
+    entry({
+      id: "crew:audit:notableIdentityOnly",
+      system: "crew",
+      source: { catalog: "AUDIT", key: "crew:audit:notableIdentityOnly" },
+      claim: "Graduating is identity only: the ship's stats do not change",
+      probe: "sheetUnload",
+      contexts: ["sheet"],
+      direction: "none",
+      magnitude: () => 0,
+      base: crewed,
+      on: graduate,
+      note: "a move of 0: the notable replaces the crewmember it was",
     }),
   ];
 }

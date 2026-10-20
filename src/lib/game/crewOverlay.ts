@@ -32,10 +32,11 @@ import { shipDerivedStats } from "./model";
 import { equippedFor } from "./equipment";
 import { CREW_PROFESSION_BUFFS, CREW_STAT_KEYS, SECOND_LEVEL_EXCLUSIVE } from "./crewBuffs";
 import { CREW_RACES } from "./crewRaces";
-import { contributionForSignature, rollupBuckets, totalCrew } from "./crew";
-import { officerRacialBonus } from "./seniorStaff";
+import { coalesceBuckets, contributionForSignature, notableSignature, removeFromBucketList, rollupBuckets, totalCrew } from "./crew";
+import { shipCrewLocked } from "./crewLock";
+import { captainRacialBonus, officerRacialBonus } from "./seniorStaff";
 import { getSeniorStaffBonusById } from "./seniorStaffBonuses";
-import { crewTransportsDue, deliverDueTransports } from "./transports";
+import { crewTransportsDue, deliverDueTransports, transportBatchSize } from "./transports";
 import { autoCrewShip } from "./autoCrew";
 import {
   installedQuartersModule,
@@ -420,6 +421,11 @@ function rawShipCrewContribution(state: GameState, ship: ShipInstance): Record<s
     add(racial.statKey, racial.magnitude * officerMult);
   }
 
+  // WR-6 (OC-A43, "Same as an officer"): the commanding captain's racial, at the officer magnitude x CAPTAIN_RACIAL_SCALE.
+  // The captain is not an officer, so neither the bridge module nor its own Mentor scales it. Nothing without a race.
+  const captainRacial = captainRacialBonus(captain);
+  if (captainRacial) add(captainRacial.statKey, captainRacial.magnitude);
+
   // E-CREW 0.14.0 (Task 21): the Operations department's CONSTITUTION facet, its share of a shorter
   // post-mission turnaround: it rides the officer-only turnaround key (faster unloading, applyOfficerLifts)
   // beside Veteran Instincts' unload half. add() skips a 0, so an all-10 bridge writes nothing.
@@ -440,6 +446,9 @@ function officerEffectivenessRacials(state: GameState, ship: ShipInstance, bridg
     if (racial.statKey !== EFFECTIVENESS_KEY || racial.magnitude === 0) continue;
     total += racial.magnitude * (bridgeMod ? bridgeOfficerMultiplier(bridgeMod, officer, hullSpecOf(ship)) : 1);
   }
+  // WR-6: an Earth-born commanding captain's racial lifts the complement the same way (unamplified, see the fold).
+  const captainRacial = captainRacialBonus(commandingCaptain(state, ship));
+  if (captainRacial && captainRacial.statKey === EFFECTIVENESS_KEY) total += captainRacial.magnitude;
   return total;
 }
 
@@ -889,8 +898,9 @@ export function foldOfficerPromotionCounters(
 //     span delivers the exact backlog the equivalent live ticks would (parity), advancing
 //     lastTransportWindow. No RNG on the economy stream (its own seeded PRNG is separate).
 //   - Auto-crew: RNG-FREE, top-rank-down within the command-structure caps, deterministic in
-//     (pool order, hull, complement). ACTIVE-mode ships are left untouched (active assignment is a
-//     later phase).
+//     (pool order, hull, complement). ACTIVE-mode ships are left untouched (the player curates them),
+//     and so is a passive ship that is crew-locked (OC-11, out on a run); assigned notables count as
+//     occupants (CP-8).
 //
 // SAME-REFERENCE NO-OP FAST PATH: when no transport window is due AND the pool is empty (the universal
 // crew-free / early-game case), there is nothing to deliver or assign, so it returns `state` unchanged
@@ -905,6 +915,8 @@ export function resolveCrew(state: GameState): GameState {
     state.crewPool,
     state.lastTransportWindow,
     state.gameTimeSeconds,
+    // WR-6 (OC-B3): Civic Charter's extra crew per transport (exactly the base batch without it).
+    transportBatchSize(state),
   );
 
   // 2) Auto-crew every PASSIVE ship from the (post-delivery) pool, in state.ships order (monotonic,
@@ -913,19 +925,39 @@ export function resolveCrew(state: GameState): GameState {
   let shipsChanged = false;
   const ships = state.ships.map((ship) => {
     const mode = ship.complement?.mode ?? "passive";
-    if (mode !== "passive") return ship; // active mode: player-curated, untouched this phase
-    const before = totalCrew(ship.complement?.buckets ?? []);
+    // Active mode: player-curated, never auto-filled. OC-11 (user 2026-10-16, "Pause while out (Recommended)";
+    // SUGGESTIONS 151 "Crew-allocation settings LOCK when a mission starts"): a passive ship that is crew-locked
+    // (crewLock.ts shipCrewLocked: out on a mission or patrol, or on an expedition until it is claimed) takes no
+    // crew either; it fills from the pool on the first tick after it returns or its run is claimed.
+    if (mode !== "passive" || shipCrewLocked(state, ship.id)) return ship;
+    const bulk = ship.complement?.buckets ?? [];
+    const before = totalCrew(bulk);
+    // CP-8 (B23): every NOTABLE assigned to the ship holds one slot of its signature, so the filler's occupancy is
+    // the bulk PLUS those notables (the applyRoster step (c) rule) and bulk plus notables never exceed a cap. The
+    // notable slots are stripped back out afterward: ship.complement keeps only the fungible bulk. With no notable
+    // aboard the complement goes in unchanged (the pre-CP-8 fill, byte-identical).
+    const notables = state.notableCrew.filter((n) => (n.assignedShipId ?? null) === ship.id);
+    const seeded =
+      notables.length === 0
+        ? ship.complement
+        : { buckets: coalesceBuckets([...bulk, ...notables.map((n) => ({ ...notableSignature(n), count: 1 }))]), mode };
     // Phase 1b: a quarters module raises the hull's LOCKED base cap by its capacity bonus (fixed for
     // every module except Efficient, which scales with rarity/quality). autoCrewShip already threads
     // bonusCapacity through complementTotalCap / remainingCapacityForSignature, so passing it here is
     // all the auto-crew filler needs to fill the extra berths. 0 with no module (byte-identical fill).
-    const staffed = autoCrewShip(pool, ship.typeKey, ship.complement, quartersCapacityBonus(state, ship));
+    const staffed = autoCrewShip(pool, ship.typeKey, seeded, quartersCapacityBonus(state, ship));
     pool = staffed.pool;
+    let filled = staffed.complement;
+    if (notables.length > 0) {
+      let buckets = filled.buckets;
+      for (const n of notables) buckets = removeFromBucketList(buckets, notableSignature(n), 1);
+      filled = { buckets, mode: filled.mode };
+    }
     // autoCrewShip only ADDS crew, so a rise in headcount is the exact "crew moved in" signal. When
     // nothing moved, keep the original ship reference (avoids needless ref churn every tick).
-    if (totalCrew(staffed.complement.buckets) > before) {
+    if (totalCrew(filled.buckets) > before) {
       shipsChanged = true;
-      return { ...ship, complement: staffed.complement };
+      return { ...ship, complement: filled };
     }
     return ship;
   });

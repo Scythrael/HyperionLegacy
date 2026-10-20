@@ -88,10 +88,12 @@ import {
   shipRepairDurationTicks,
   shipyardBayCount,
   startProcess,
+  resolveProcesses,
   shipyardRepairSpeedBonus,
   tierCap,
   xpPerTick,
 } from "../tick";
+import { TRANSPORT_WINDOW_SECONDS } from "../transports";
 import { OVERTIME_PROCESS_KINDS, buyOvertime } from "../processSpeed";
 import { combatHullTypeOf, shipToCombatant } from "../combat/bridge";
 import type { Combatant, CombatWeapon } from "../combat/types";
@@ -147,10 +149,10 @@ import { applyExpeditionInjuries, injuryRecoverySeconds, shipInjuryFactors } fro
 import { boardingRepelChance, buildShipCombatant, snapshotShipEventProfile } from "../shipScanEvents";
 import { shipsWithMemberAutoSlotted } from "../groundTeamSlots";
 import { equippedFor } from "../equipment";
-import { effectiveShipStats, officerCombatMods, officerRepairSpeedBonus, shipCrewContribution, shipMissionOutputBonus, shipRepairSpeedBonus } from "../crewOverlay";
+import { effectiveShipStats, officerCombatMods, officerRepairSpeedBonus, resolveCrew, shipCrewContribution, shipMissionOutputBonus, shipRepairSpeedBonus } from "../crewOverlay";
 import { departmentFacet, seatFacet } from "../officerStats";
 import { RELICS, museumBonuses, type MuseumStat } from "../relics";
-import { salvageSalvagedMaterial, salvageShip, salvageTalentBonus, salvageYieldMult } from "../salvage";
+import { hullTeardownFraction, salvageSalvagedMaterial, salvageShip, salvageTalentBonus, salvageYieldMult } from "../salvage";
 import { alertResetSeconds, escalationAt, extraBattleChance, longRangeCover, maxExtraBattles } from "../affixes";
 import { ENEMY_RANKS_VERSION, type EnemyRank } from "../enemyRanks";
 import { taskFightGuard, taskFightTeam } from "../groundFight";
@@ -715,13 +717,40 @@ function withoutInflictPieces(s: GameState): GameState {
 }
 
 // A hull torn down at the Salvage Bay (a second hull, so the last-hull guard never refuses): what it gave back.
-function teardownRecovered(s: GameState): number {
+// What a hull teardown of a copy of ship-1 gives back (components plus credits) at the middle band draw.
+export function teardownRecovered(s: GameState): number {
   const spare: ShipInstance = { ...shipOf(s), id: "wiring-teardown", assignedCaptainId: null };
   const held = { ...s, ships: [...s.ships, spare] };
   const r = salvageShip(held, spare.id, () => 0.5);
   if (!r.ok) return -1;
   const items = Object.keys(SHIP_TYPES[spare.typeKey].buildRecipe.components);
   return items.reduce((a, k) => a + heldOf(r.next, k) - heldOf(held, k), 0) + Number(r.next.credits) - Number(held.credits);
+}
+
+// WR-6: Works Directorate measured where it pays: 1,000 Fabricator blank jobs started through the real seam (each its
+// own process number), all resolved; the share that delivered a second blank.
+const FABRICATOR_SAMPLE_JOBS = 1000;
+const FABRICATOR_SAMPLE_KEY = "wiring-blank";
+function fabricatorBonusShare(s: GameState): number {
+  let st: GameState = { ...s, activeProcesses: [], blanks: {} };
+  for (let i = 0; i < FABRICATOR_SAMPLE_JOBS; i++) {
+    const r = startProcess(st, "fabricateJob", {}, 1, { type: "addBlank", blueprintKey: FABRICATOR_SAMPLE_KEY });
+    if (!r.started) return -1;
+    st = r.next;
+  }
+  const done = resolveProcesses(st, 1, () => 0.5).next;
+  const blanks = Number(done.blanks[FABRICATOR_SAMPLE_KEY] ?? 0);
+  return (blanks - FABRICATOR_SAMPLE_JOBS) / FABRICATOR_SAMPLE_JOBS;
+}
+
+// WR-6: the crew one transport window delivers into the fleet (the pool and every complement it auto-fills).
+function crewHeads(s: GameState): number {
+  const count = (buckets: readonly { count: number }[]) => buckets.reduce((a, b) => a + b.count, 0);
+  return count(s.crewPool) + s.ships.reduce((a, sh) => a + count(sh.complement?.buckets ?? []), 0);
+}
+function transportCrewDelivered(s: GameState): number {
+  const due: GameState = { ...s, lastTransportWindow: 0, gameTimeSeconds: TRANSPORT_WINDOW_SECONDS };
+  return crewHeads(resolveCrew(due)) - crewHeads(due);
 }
 
 // The loot tier one salvaged material gives a Fleet Admiral past every loot-tier threshold, the draw at the top.
@@ -1139,8 +1168,23 @@ export const PROBES = {
   queueDepthShipyard: { label: "queueDepth(shipyard)", read: (s) => queueDepth(s, "shipyard") },
   craftingIlevelBonus: { label: "craftingItemLevelBonus", read: (s) => craftingItemLevelBonus(s) },
   salvageTalentYield: {
-    label: "salvageTalentBonus.yieldBonus (recycle fraction) / salvage:teardown: what a hull teardown gives back",
-    read: (s, ctx) => (ctx === "salvage:teardown" ? teardownRecovered(s) : salvageTalentBonus(s).yieldBonus),
+    // WR-6: the teardown reads hullTeardownFraction at the middle band draw (what salvageShip recovers from); the
+    // realized refund that fraction drives is teardownRecovered (wiringPlaceholderTalents.test.ts).
+    label: "salvageTalentBonus.yieldBonus (recycle fraction) / salvage:teardown: hullTeardownFraction at the middle band draw",
+    read: (s, ctx) => (ctx === "salvage:teardown" ? hullTeardownFraction(s, 0.5) : salvageTalentBonus(s).yieldBonus),
+  },
+  // == WR-6: the Homeworld hubs ==
+  fabricatorBonusShare: {
+    label: "the share of 1,000 real Fabricator jobs (startProcess, then resolveProcesses) delivering a second blank",
+    read: (s) => fabricatorBonusShare(s),
+  },
+  patrolShieldPool: {
+    label: "the dispatched patrol cycle's full shield pool (playerShield, from the frozen captain combat record)",
+    read: (s) => dispatchedPatrol(s).playerShield,
+  },
+  transportCrewDelivered: {
+    label: "crew one transport window delivers (resolveCrew: the pool plus every complement)",
+    read: (s) => transportCrewDelivered(s),
   },
   salvageTalentCeiling: {
     label: "salvageTalentBonus.ceilingBonus / salvage:topTier: the loot tier (its quality rung) a top Fleet Admiral rolls at the top draw",

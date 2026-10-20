@@ -20,6 +20,8 @@ import {
   HOMEWORLD_TALENTS,
   MAX_UNLOCKABLE_CAPTAINS,
   CAPTAIN_SPEC_BONUS,
+  SCIENCE_SPEC_RELIC_FIND,
+  TACTICAL_SPEC_WEAPON_DAMAGE,
   specCards,
   categoryCards,
   SHIP_TYPES,
@@ -1111,14 +1113,13 @@ describe("Captain Specialization, CaptainState.spec and CAPTAIN_SPEC_BONUS", () 
     expect(freshCaptains(1)[0].spec).toBeNull();
   });
 
-  it("CAPTAIN_SPEC_BONUS has an entry for resourcefulness only", () => {
+  it("CAPTAIN_SPEC_BONUS has a real bonus for every spec (WR-6)", () => {
     // Radial Skill Web (Task 2) dropped the `command` spec bonus along with the
-    // command branch itself. resourcefulness ("Prospector") is the only branch
-    // with a real spec bonus at launch; tactical/science remain absent until
-    // their systems exist (same "not yet a real spec" convention as before).
+    // command branch itself. WR-6 (OC-A42) gave tactical and science their own
+    // bonuses (sizes in model.ts).
     expect(CAPTAIN_SPEC_BONUS.resourcefulness).toEqual({ type: "bonusRollChance", chance: 0.01 });
-    expect(CAPTAIN_SPEC_BONUS.tactical).toBeUndefined();
-    expect(CAPTAIN_SPEC_BONUS.science).toBeUndefined();
+    expect(CAPTAIN_SPEC_BONUS.tactical).toEqual({ type: "weaponDamageMult", mult: TACTICAL_SPEC_WEAPON_DAMAGE });
+    expect(CAPTAIN_SPEC_BONUS.science).toEqual({ type: "relicFindMult", mult: SCIENCE_SPEC_RELIC_FIND });
   });
 });
 

@@ -413,6 +413,32 @@ for a save with no assigned notables (none can exist before this slice; CP-0 gol
 `nextNotableId` already persist). **Tests:** count drops by one and the notable appears with the same buffs; cap
 refusal; manifest is pure and stable across calls; a passive ship with an assigned notable never exceeds its caps.
 
+**Carry note (2026-10-19, CP-8 + OC-11 landed, commits "test(0.14.0): OC-11 goldens for passive ships that are out
+(CP-8)" then "feat(0.14.0): graduate, notable cap, manifest, auto-crew counts notables and pauses while out (CP-8)"):**
+built in a NEW module `crewGraduation.ts`, not `crew.ts` (the lock lives in `crewLock.ts`, which imports
+`equipment.ts`; `crew.ts` stays the dependency-free primitives). API: `canGraduate` / `graduateStandout(state, shipId,
+signatureKey)` returning `{ next, gate, notable }` (order `noShip`, `onMission` = `shipCrewLocked`, `noBucket`,
+`notableCap`; either complement mode; same ref on a refusal), `graduateBlockText` / `graduateGateText` (names the
+mission or expedition), `nextGraduateIdentity` (the name the confirm shows before committing), `canSendBackNotable` /
+`sendBackNotable` (OC-9: unassign, the record keeps its name; `noNotable`, `notAboard`, `onMission`) with texts, and
+`manifestRows(state, shipId, offset, limit)` returning `{ rows, total }` (bulk only, bucket order, row i of a bucket
+= `generateCrewIdentity(race, manifestSeed(shipId, key), i)`; notables are not rows, they carry their own names).
+Names seed from FNV-1a of the signature key with two new odd salts, `NOTABLE_NAME_SALT` and `MANIFEST_NAME_SALT`,
+registered in `salts.test.ts`; no shared stream. `model.ts NOTABLE_CREW_CAP` = 50 fleet-wide (OC-8 answered, not
+provisional), assigned or not. Identity only (user 2026-10-16): the notable keeps its bucket's signature, so the crew
+map is unchanged by a graduation. `crew.ts notableSignature` is the shared helper. `resolveCrew`: (B23) every notable
+assigned to a passive ship is seeded into the auto-crew occupancy and stripped back out (the applyRoster step (c)
+rule; no notable aboard = the old fill); (OC-11, "Pause while out") `if (mode !== "passive" || shipCrewLocked(state,
+ship.id)) return ship;`, so a ship out on a mission, patrol or unclaimed expedition fills on the first tick after it
+is free. Wiring: `crew:audit:notables` is live (sheetUnload: the notable carries one crewmember's share, 20 / 19 of
+the 19 left) plus `crew:audit:notableIdentityOnly` (a move of 0 against the ship before graduating). Goldens moved
+ONLY by OC-11, each reproduced with the pause switched off (`complementOc11Switch.fixture.ts withOc11Off`, a test
+mock of `shipCrewLocked`): the three CP-0 mission runs (the mission ship no longer boards window 1's crew mid-run;
+the CP-1 and CP-2 proofs run unchanged inside the switch), `wiringGoldens` lunarMine, and the new OC-11 expedition and
+patrol pins; the OC-11 home control and every other golden did not move. Stale "DORMANT" notable comments fixed in
+`model.ts` and `personnelRosters.ts`. No App handler (CP-9 adds `doGraduate`); the notable marquee is CP-9 UI; the
+Academy promotion is SUGGESTIONS only. Not built: a way to assign an unassigned notable outside `applyRoster`.
+
 ### CP-9: Complement table, graduate modal, manifest (Tasks 25 / 26 UI part 1)
 
 **Files:** `ComplementPanel.svelte` (bucket table under the graphs: Group, Division, Rank, Rarity, Buffs, Count, sort

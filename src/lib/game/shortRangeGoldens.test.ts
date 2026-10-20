@@ -32,11 +32,21 @@
 // G2-2's registry edits only reword pending owners (pending stays pending), so they hash the same. Then the review
 // rulings (user 2026-10-19) flip two entries pending -> live (29f0a757 -> 74fa057, the count unchanged): the Bleed
 // status (`away:GAMBIT_STATUSES:bleed`) and its bay row (`away:GROUND_CONDITIONS:bleed`), now that Strikers inflict it.
+// MOVED BY CP-8 (graduate, notable cap, manifest; OC-11 pause while out), each on purpose:
+//   registry       1181 -> 1182: the pending `crew:audit:notables` row becomes live with its own check, and
+//                  `crew:audit:notableIdentityOnly` is added (one row out, two entries in).
+//   fleet          hours 1 to 6: OC-11 holds the transport crew for a ship that is out (the freighter on Repeat, the
+//                  destroyer on patrol, the Orion on expedition), so those crew wait in the pool. FLEET_BEFORE_OC11
+//                  keeps the old record and golden 1 reproduces it with withOc11Off: the pause is the only cause.
+//                  The views do not move.
+// MOVED BY WR-6 (captain primary, spec, race, Homeworld placeholders): `registry` 93d27465 -> c748495a, the count
+// unchanged: nine placeholder entries flip pending -> live (WR6_WIRED_IDS); golden 5 reproduces the old hash with
+// those nine read as pending.
 // ADDED BY G1-1: `guests:<hull>` (guest quarters bare and with each quarters variety, the Guest Wing last) and
 // `stats:<hull>:guestWing` (every other stat with a Guest Wing installed). The sheets hash through withoutGuests, so
 // the stats pins keep proving no other stat moved (the transport hulls now carry base guest quarters).
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { writeFileSync } from "node:fs";
 import Decimal from "break_infinity.js";
 import { EQUIPMENT_SLOTS, MISSIONS, SHIP_TYPES, type EquipmentInstance, type EquipmentRarity, type GameState, type ShipDerivedStats, type ShipTypeKey } from "./model";
@@ -51,6 +61,9 @@ import { WIRING_REGISTRY } from "./wiring/registry";
 import { bucketOf, withBuckets } from "./wiring/probes";
 import { hash, onHull, withCrew, withoutGuests } from "./firstRunsGoldens.fixture";
 import { asPreG2NamesDispatch } from "./awayTeamTestFixtures";
+// CP-8 / OC-11: the test switch that proves the auto-crew pause is the only thing that moved the fleet pin.
+vi.mock("./crewLock", async (io) => (await import("./complementOc11Switch.fixture")).oc11CrewLockMock(io));
+import { withOc11Off } from "./complementOc11Switch.fixture";
 
 // ===== shared helpers =====
 
@@ -169,7 +182,7 @@ function views(s: GameState): string[] {
 // variety installed]; gen:quarters = one line per seed; registry = [count, hash] of the entries outside
 // G1_ADDED_ENTRY_IDS; old = [state, then each ship's stats].
 const GOLDEN: Record<string, unknown> = {
-  "fleet": ["aa94ddcd", "1a72036c", "5008dacf", "cbf18a80", "6c8ebe80", "33d00a42", "19f8bdb2"],
+  "fleet": ["aa94ddcd", "56ea6bfc", "9e282be3", "41544d1e", "cccaec70", "f73efc26", "583cf72c"],
   "views": [["a78ec59d", "f4663cfa"], ["c4d89f65", "f4663cfa"], ["d17143e7", "f4663cfa"]],
   "stats:generalFreighter": ["4ec6953b", "a23b4064", "64c2af9f", "a23b4064", "a23b4064", "adc17d60", "a23b4064", "7d4cb65c", "4cb04650", "be1d595e"],
   "stats:prospectorHauler": ["dab172af", "4c6d2883", "e7aa301f", "4c6d2883", "4c6d2883", "e795f0e6", "4c6d2883", "a1875eb0", "ec014cd9", "8c4400cf"],
@@ -254,7 +267,7 @@ const GOLDEN: Record<string, unknown> = {
     "50:quartersFlightDeckWing:stellar:q2:iL31:{\"crewStations\":57}:{\"colonistCapacity\":76,\"crewStations\":19}:m0:quartersFlightDeckWing",
     "pool:[{\"stat\":\"crewStations\",\"weight\":5},{\"stat\":\"crewEfficiency\",\"weight\":2},{\"stat\":\"massReduction\",\"weight\":1},{\"stat\":\"colonistCapacity\",\"weight\":2}]",
   ],
-  "registry": [1181, "74fa057"],
+  "registry": [1182, "c748495a"],
   "registry:g1": ["ship:gearLine:colonistCapacity|pending", "ship:SHIP_TYPES:generalFreighter:colonistCapacity|pending", "ship:SHIP_TYPES:orion:colonistCapacity|pending", "ship:SHIP_TYPES:aurora:colonistCapacity|pending", "ship:SHIP_TYPES:eir:colonistCapacity|pending", "ship:SHIP_SEAMS:generalQuartersGuestPerk|pending", "ship:QUARTERS_MODULES:quartersGuestWing|live", "ship:QUARTERS_MODULES:quartersGuestWing:capacity|pending"],
   "old": ["aa94ddcd", "817862c7", "4ac62731", "d9a483c6"],
 };
@@ -342,22 +355,50 @@ function pin(key: string, value: unknown): void {
   expect(value, key).toEqual(GOLDEN[key]);
 }
 
+function fleetRun(): { hours: string[]; seen: string[][]; s: GameState } {
+  let s = mixedFleet();
+  const hours: string[] = [g1StateHash(s)];
+  const seen: string[][] = [views(s)];
+  for (let h = 1; h <= 6; h++) {
+    s = economyTick(s, HOUR, RNG);
+    hours.push(g1StateHash(s));
+    if (h === 3 || h === 6) seen.push(views(s));
+  }
+  return { hours, seen, s };
+}
+
+// The `registry` pin before WR-6 (after CP-8), and the nine entries WR-6 flips pending -> live.
+const REGISTRY_BEFORE_WR6 = [1182, "93d27465"];
+const WR6_WIRED_IDS: ReadonlySet<string> = new Set<string>([
+  "captain:CAPTAIN_TALENTS:tacticianHub",
+  "captain:CAPTAIN_TALENTS:explorerHub",
+  "captain:CAPTAIN_SPEC_BONUS:tactical",
+  "captain:CAPTAIN_SPEC_BONUS:science",
+  "captain:progression:race",
+  "fleetAdmiral:HOMEWORLD_TALENTS:fleetLogisticsSalvage",
+  "fleetAdmiral:HOMEWORLD_TALENTS:industryHub",
+  "fleetAdmiral:HOMEWORLD_TALENTS:homelandDefenseHub",
+  "fleetAdmiral:HOMEWORLD_TALENTS:citizenryHub",
+]);
+
+// The `fleet` record before OC-11 (captured on a678241); reproduced with the pause off.
+const FLEET_BEFORE_OC11 = ["aa94ddcd", "1a72036c", "5008dacf", "cbf18a80", "6c8ebe80", "33d00a42", "19f8bdb2"];
+
 describe("G1-0 golden 1 + 2: a mixed fleet over six hours, and the Home and Ships views on it", () => {
   it("the whole state every hour, and the views at 0, 3 and 6 hours", () => {
-    let s = mixedFleet();
-    const hours: string[] = [g1StateHash(s)];
-    const seen: string[][] = [views(s)];
-    for (let h = 1; h <= 6; h++) {
-      s = economyTick(s, HOUR, RNG);
-      hours.push(g1StateHash(s));
-      if (h === 3 || h === 6) seen.push(views(s));
-    }
+    const { hours, seen, s } = fleetRun();
     // Still out: the mission and the patrol repeat, the expedition is on its way.
     expect(s.captains[1].mission).not.toBeNull();
     expect(s.captains[2].mission).not.toBeNull();
     expect(s.expeditions.length).toBe(1);
     pin("fleet", hours);
     pin("views", seen);
+  });
+  // CP-8 / OC-11: with the pause off the run reproduces the record from before OC-11, views included.
+  it("OC-11 is the only cause of the fleet move", () => {
+    const before = withOc11Off(() => fleetRun());
+    expect(before.hours).toEqual(FLEET_BEFORE_OC11);
+    expect(before.seen).toEqual(GOLDEN.views);
   });
 });
 
@@ -435,6 +476,13 @@ describe("G1-0 golden 5: the wiring registry's ids and statuses", () => {
   it("the entries outside the G1 additions, hashed in registry order", () => {
     const lines = WIRING_REGISTRY.filter((e) => !G1_ADDED_ENTRY_IDS.has(e.id)).map((e) => `${e.id}|${e.status.kind}`);
     pin("registry", [lines.length, hash(lines)]);
+  });
+  // WR-6: the nine placeholder entries it wires flip pending -> live (the count and the order hold). With those nine
+  // read as pending again the lines hash to the pin from before WR-6, so the flips are the only move.
+  it("WR-6 is the only cause of the registry move", () => {
+    const lines = WIRING_REGISTRY.filter((e) => !G1_ADDED_ENTRY_IDS.has(e.id)).map((e) => `${e.id}|${WR6_WIRED_IDS.has(e.id) ? "pending" : e.status.kind}`);
+    expect(WIRING_REGISTRY.filter((e) => WR6_WIRED_IDS.has(e.id)).map((e) => e.status.kind)).toEqual(Array(WR6_WIRED_IDS.size).fill("live"));
+    expect([lines.length, hash(lines)]).toEqual(REGISTRY_BEFORE_WR6);
   });
   it("G1-1: the added entries, each with its status", () => {
     const added = WIRING_REGISTRY.filter((e) => G1_ADDED_ENTRY_IDS.has(e.id)).map((e) => `${e.id}|${e.status.kind}`);
