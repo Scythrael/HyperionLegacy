@@ -61,6 +61,7 @@
 
 import {
   MISSION_PHASE_LABEL,
+  SHORT_RANGE_PHASE_LABEL,
   TRANSIT_BERTH_BASE,
   TRANSIT_BERTH_RUNGS,
   MISSIONS,
@@ -108,8 +109,18 @@ export function transitBerthCount(state: GameState): number {
 //
 // This one predicate is proof property (c): occupancy is a question asked of the phase, never
 // a fact stored anywhere. PURE.
+// G1-3 (call 18, "Yes, same rules"): a short-range run's home turnaround ("unloading") occupies a berth exactly like an
+// extraction unload. A patrol never does (design 5.4).
 function isUnloading(captain: CaptainState): boolean {
-  return captain.mission !== null && captain.mission.kind === "extraction" && captain.mission.phase === "unloading";
+  const mission = captain.mission;
+  if (mission === null) return false;
+  switch (mission.kind) {
+    case "extraction":
+    case "shortRange":
+      return mission.phase === "unloading";
+    case "patrol":
+      return false;
+  }
 }
 
 // How many berths are occupied right now. Derived on every read, by design.
@@ -134,8 +145,14 @@ export function transitBerthsFree(state: GameState): number {
 // The `>=` rather than `===` is deliberate: phase progress is a float accumulated across
 // calls, and the mission tick's own epsilon snapping means a banked value can sit a hair
 // above the requirement. An `===` here would silently stop recognising held captains.
+//
+// G1-3: a short-range run is held the same way, at the end of its return leg; its leg length is the cycle plan frozen
+// on the run at the cycle start (shortRangeBoard.ts startShortRangeCycle), the very number the cycle engine compares.
 export function isAwaitingBerth(state: GameState, captain: CaptainState): boolean {
   const mission = captain.mission;
+  if (mission !== null && mission.kind === "shortRange") {
+    return mission.phase === "transitBack" && mission.phaseProgressTicks >= mission.plan.transitBackTicks;
+  }
   if (mission === null || mission.kind !== "extraction" || mission.phase !== "transitBack") return false;
   const ship = state.ships.find((s) => s.assignedCaptainId === captain.id);
   if (ship === undefined) return false;
@@ -199,6 +216,11 @@ function worstUnloadTicks(state: GameState): number {
   let worst = Math.max(...Object.values(MISSIONS).map((m) => m.unloadTicks));
   for (const captain of state.captains) {
     const mission = captain.mission;
+    // G1-3: a short-range run's home turnaround is its own frozen plan's unload.
+    if (mission !== null && mission.kind === "shortRange") {
+      worst = Math.max(worst, mission.plan.unloadTicks);
+      continue;
+    }
     if (mission === null || mission.kind !== "extraction") continue;
     const rawDef = MISSIONS[mission.missionKey as MissionKey];
     const ship = state.ships.find((s) => s.assignedCaptainId === captain.id);
@@ -248,8 +270,10 @@ export function missionPhaseStatus(state: GameState, captain: CaptainState): str
   // which this function deliberately does not own: patrols never occupy a berth (design 5.4), so
   // there is nothing for it to add. Returning "" hands the caller back to whatever it rendered
   // before, rather than indexing the extraction label table with a patrol phase.
-  if (mission.kind !== "extraction") return "";
-  if (!isAwaitingBerth(state, captain)) return MISSION_PHASE_LABEL[mission.phase];
+  if (mission.kind === "patrol") return "";
+  // G1-3: a short-range run reads its own phase vocabulary, with the same berth hold folded in.
+  const label = mission.kind === "shortRange" ? SHORT_RANGE_PHASE_LABEL[mission.phase] : MISSION_PHASE_LABEL[mission.phase];
+  if (!isAwaitingBerth(state, captain)) return label;
   const position = berthQueuePosition(state, captain.id);
   // Position is non-null here by construction (isAwaitingBerth is the same predicate
   // captainsAwaitingBerth filters on), but a defensive fall-through beats rendering "null".
@@ -260,7 +284,7 @@ export function missionPhaseStatus(state: GameState, captain: CaptainState): str
   // claims a berth normally. If a berth is actually available for this captain (its queue
   // position is within the free count, the same test berthEtaTicks uses to return 0), it is
   // arriving, not queuing, and must read as an ordinary return leg.
-  if (position <= transitBerthsFree(state)) return MISSION_PHASE_LABEL[mission.phase];
+  if (position <= transitBerthsFree(state)) return label;
   return `Waiting for a docking bay (${ordinal(position)} in line)`;
 }
 

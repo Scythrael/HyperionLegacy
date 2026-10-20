@@ -45,6 +45,10 @@ import type { WeaponId } from "./combat/weapons";
 // Ground Operations (GO-8): the officers' combat PROFILE a ship-event run freezes at dispatch (crewOverlay.ts
 // officerCombatProfile, folded at each event's wall hours). TYPE-ONLY import (compile-erased): no runtime cycle.
 import type { OfficerCombatEntry } from "./crewOverlay";
+// Field Kits FKR-6: the kit ids a gambit rule and a fight record name (type only; fieldKits.ts imports this module).
+import type { FieldKitId } from "./fieldKits";
+// G1-3: the short-range mission arm stores a roll and its cycle plan (types only; shortRange.ts imports this file).
+import type { ShortRangeCyclePlan, ShortRangeRoll, ShortRangeTier } from "./shortRange";
 
 // Data model, tech spec §1 (Data Model).
 // Phase 4 (docs/plans/2026-07-06-phase4-navigation-progression-overhaul-plan.md):
@@ -3288,7 +3292,52 @@ export type StatKey = LiveStatKey | ReservedStatKey | MemberGroundStatKey;
 // exhaustive switch over the kind (economyTick's routing, the tickers) to handle it
 // or fail to compile. "extraction" is today's resource-extraction mission; "patrol" is
 // the 0.13.0 combat patrol (PatrolMissionState below).
-export type MissionKind = "extraction" | "patrol";
+// G1-3 (Short-Range Missions): "shortRange" is a board slot's run (ShortRangeMissionState below).
+export type MissionKind = "extraction" | "patrol" | "shortRange";
+
+// Short-Range Missions (G1-3, docs/plans/2026-10-17-short-range-missions-plan.md 3.1 and 3.6).
+// One cycle of a short-range run: transit out, the job on site, transit back, the home turnaround (unloading, which
+// occupies a transit berth on the captain-mission rules, call 18: berths.ts).
+export type ShortRangePhase = "transitOut" | "onSite" | "transitBack" | "unloading";
+
+// Display labels for a short-range phase (the PATROL_PHASE_LABEL counterpart). Exhaustive over ShortRangePhase.
+export const SHORT_RANGE_PHASE_LABEL: Record<ShortRangePhase, string> = {
+  transitOut: "Transiting Out",
+  onSite: "On Site",
+  transitBack: "Transiting Back",
+  unloading: "Unloading",
+};
+
+// The "shortRange" arm of the CaptainState.mission union: a captain and their hull flying one board slot, cycle after
+// cycle until recalled (call 1: every cycle re-rolls the whole job). The cycle's roll AND its phase lengths are FROZEN
+// at the cycle start (shortRangeBoard.ts startShortRangeCycle), so offline == live by construction and every reader
+// (the cycle engine G1-4, the berth queue, the readouts) agrees without re-deriving. The hull, its gear and its crew
+// cannot change while it is out (the crew lock), so the frozen plan always equals a fresh one. Only new code writes
+// this arm (no save carries it before G1-3), so the union widening needs no migration; save.ts drops a malformed one
+// at load (the captain idles, no reward).
+export interface ShortRangeMissionState {
+  kind: "shortRange"; // discriminant
+  slotId: number; // the board slot (shortRangeBoardSlots); one captain per slot
+  roll: ShortRangeRoll; // this cycle's job (shortRange.ts rollShortRangeJob), frozen at the cycle start
+  plan: ShortRangeCyclePlan; // this cycle's phase lengths (shortRange.ts shortRangeCyclePlan), frozen with the roll
+  phase: ShortRangePhase;
+  phaseProgressTicks: number; // ticks banked in the current phase
+  // Recall intent: the run ends (mission -> null) when THIS cycle's home turnaround completes, instead of starting
+  // the next cycle. Unlike an extraction recall it never breaks off mid-cycle (plan 4 G1-3, QA 4: "the ship finishes
+  // the cycle and stops"). Set by recallCaptain, or at dispatch for a single run.
+  recalled: boolean;
+  // 0.14.0 SPEED SEAM (ProcessSpeed, the extraction arm's field): the time skip flags THIS cycle; the cycle engine
+  // (G1-4, the seam adapter) runs it through to its delivery. The next cycle is a fresh object without it.
+  speed?: ProcessSpeed;
+}
+
+// The board's per-slot cycle cursor (GameState.shortRangeBoard): slot id -> the cycle index its NEXT roll reads
+// (rollShortRangeJob). Advanced only by a delivered cycle (G1-4), so a skipped or idled roll is never re-drawn and no
+// stream shifts (plan 3.1). Slot count and tiers are DERIVED from Mission Control (shortRangeBoardSlots), never here.
+export interface ShortRangeBoardState {
+  version: 1;
+  nextCycle: Record<number, number>;
+}
 
 // The EXTRACTION arm of the CaptainState.mission discriminated union (Combat 0.13.0,
 // Phase 9b.5a). Behavior is UNCHANGED from before the union: every field and every
@@ -4285,7 +4334,8 @@ export interface CaptainState {
   // (PatrolMissionState, kind:"patrol") = the 0.13.0 combat patrol. Every consumer that
   // reads extraction-only fields (missionKey/phase/cargo/...) MUST narrow on
   // `mission.kind === "extraction"` first; the compiler flags any that don't.
-  mission: CaptainMissionState | PatrolMissionState | null;
+  // G1-3: a short-range board mission (ShortRangeMissionState, kind:"shortRange") is the third arm.
+  mission: CaptainMissionState | PatrolMissionState | ShortRangeMissionState | null;
   xp: Decimal; // accumulated toward the NEXT level, see xpForNextLevel() below; accrued per active tick in tick.ts's tickCaptainMission (Task 4)
   level: number; // starts at 1
   statPoints: number; // unspent, earned on level-up, spent via buyHomeworldTalent's unlockCaptainSlot effect (tick.ts)
@@ -4668,6 +4718,10 @@ export type FacilityUpgradeEffect =
   // would imply a stat this facility does not have). Extensible union, same
   // property-presence narrowing convention as the members above.
   | { unlocksContent: true }
+  // G1-3 (Short-Range Missions, call 8 "Mission Control upgrades"): one more board SLOT at this tier. Read by
+  // shortRangeBoardSlots (shortRangeBoard.ts), which appends one slot per reached Mission Control board rung
+  // (MISSION_CONTROL_BOARD_RUNGS) after the two Tier I slots every save starts with.
+  | { addShortRangeSlot: ShortRangeTier }
   // --- WR-4 (OC-C1): the Fuel Depot's FLEET REACH rung -------------------------
   // The share of every ship's reach the rung adds (FUEL_DEPOT_REACH_PER_RUNG). tick.ts fleetReachBonus SUMS it
   // across the reached fuelStorage rungs (the same derive-on-read/reached-rungs idiom refineSlotCount uses) and
@@ -5014,6 +5068,36 @@ function buildFuelDepotUpgrades(): FacilityUpgradeDef[] {
 // other numeric constant here. Real balance at the device checkpoint.
 export const MISSION_CONTROL_UNLOCK_COMPLETIONS = 50;
 
+// G1-3 (Short-Range Missions): the Mission Control BOARD rungs (call 8, user 2026-10-17 "Mission Control
+// upgrades (Recommended)": two Tier I slots from the start, a Tier II slot at Mission Control level 2 through the kept
+// 50-completion hook, a fourth at level 3). Each rung grants one board slot (addShortRangeSlot, its tier).
+// HIDDEN UNTIL THE BOARD IS LIVE (the FIELD_KITS_PLAYER_LIVE precedent, user 2026-10-19 "Hide until Short-Range"):
+// they join FACILITIES.missionControl only once SHORT_RANGE_BOARD_LIVE is true, so no player can build an upgrade
+// whose slot no screen shows yet, and every facility reader, the sim and the registry are unchanged until then.
+// shortRangeBoardSlots reads this table directly, so the slot ladder is live (and tested) at every level now.
+// G1-6 flips the flag with the board UI (its Mission Control card text then names the slot).
+export const SHORT_RANGE_BOARD_LIVE = false;
+// [PROVISIONAL] every cost, duration and the fourth slot's tier (Tier II) await the user. The level 1 -> 2 rung is the
+// reserved completion-gated template kept for exactly this (MISSION_CONTROL_UNLOCK_COMPLETIONS of each ore run).
+export const MISSION_CONTROL_BOARD_RUNGS: readonly FacilityUpgradeDef[] = [
+  {
+    materials: {},
+    credits: new Decimal(2500),
+    durationTicks: 120,
+    effect: { addShortRangeSlot: 2 },
+    requiresMissionCompletions: {
+      shortOreRun: MISSION_CONTROL_UNLOCK_COMPLETIONS,
+      longOreRun: MISSION_CONTROL_UNLOCK_COMPLETIONS,
+    },
+  },
+  {
+    materials: {},
+    credits: new Decimal(6000),
+    durationTicks: 240,
+    effect: { addShortRangeSlot: 2 },
+  },
+];
+
 // --- Subspace Telescope (Squads SQ-5, design section 6) -------------------------------
 // The homeworld facility that pre-surveys candidate systems before launch (user-named, 3c):
 // its RANGE is which regions it reads (nearer regions first; beyond range a system launches
@@ -5166,6 +5250,9 @@ export const FACILITIES: Record<string, FacilityDef> = {
       // The requiresMissionCompletions prereq TYPE + its canBuildFacilityUpgrade
       // enforcement stay in place and tested (mission-control.test.ts), so this is a
       // pure data re-add with no engine work.
+      // G1-3: that rung is now MISSION_CONTROL_BOARD_RUNGS[0] (a Tier II short-range board slot), followed by the
+      // level 2 -> 3 rung (a fourth slot); both join here once SHORT_RANGE_BOARD_LIVE (G1-6).
+      ...(SHORT_RANGE_BOARD_LIVE ? MISSION_CONTROL_BOARD_RUNGS : []),
     ],
   },
   // --- Research Lab (Task R2, design §1) --------------------------------------
@@ -7354,7 +7441,10 @@ export type GambitTargetSelector =
   | "selfHasStatus" // params.statusId
   // --- Non-target conditions (fire against a contextual default target) ---
   | "openingRound"
-  | "outnumbered";
+  | "outnumbered"
+  // Field Kits FKR-6: a DOWNED ally (the lowest id), the Injury Kit's target (FK-M5). Every other selector sees standing
+  // allies only. A rule with this selector fires only as a Field Kits run's Use Item with an Injury Kit (gambit.ts).
+  | "allyDowned";
 
 // ACTIONS, role-scoped. SECURITY fights; SCIENCE supports/cures/secures; BOTH share the neutral trio.
 // Role-legality is enforced by gambit.ts (isActionLegalForRole): a Science rule with a Security action
@@ -7416,6 +7506,17 @@ export type GambitStatusId =
 export interface GambitRuleParams {
   hpThreshold?: number; // 0..1 fraction for allyHpBelow / selfHpBelow
   statusId?: GambitStatusId; // for foeHasStatus / allyHasStatus / selfHasStatus (and cure's target status)
+  // Field Kits FKR-6 (all optional; a rule without them reads exactly as before):
+  //   kitId          : the kit a Use Item rule spends from the actor's OWN carried kits on a Field Kits run (absent =
+  //                    the First Aid Kit, call 15 "Means First Aid Kit"). A run without Field Kits keeps the team kit.
+  //   minRank        : the rule fires only when its resolved target is at least this enemy rank (group 7 "Rank rules +
+  //                    reserve": "target is Elite or stronger" = "elite", "target is a Boss" = "boss"). An ally, or an
+  //                    enemy of an unranked run, reads Normal.
+  //   reserveForBoss : "keep N for a Boss": on a target that is not a Boss the rule fires only while the actor holds
+  //                    MORE than N of what it spends (grenade charges, or that kit); on a Boss it spends freely.
+  kitId?: FieldKitId;
+  minRank?: EnemyRank;
+  reserveForBoss?: number;
 }
 
 // ONE gambit rule: a target selector (+ optional params) and the action to take on the match.
@@ -7479,6 +7580,27 @@ export const DEFAULT_MEMBER_GAMBIT: GambitProgram = [
   { target: "foeLowestHp", action: "execute" },
   { target: "foeNearest", action: "attack" },
 ];
+
+// Field Kits FKR-6 (N7 + N15, user 2026-10-16 "Thrown, spend charges": "the DEFAULT program throws them sensibly, saving
+// one for a Boss"; a user-approved change to D19's "no automatic kit use" for GRENADES only, never a kit): the grenade
+// rules a member on the built-in default runs on a Field Kits run: N15's "Throw grenade at the largest group, keep 1 for
+// a Boss", plus a rule that spends the kept charge on an Elite OR a Boss, whichever shows up (user 2026-10-20 "Save for
+// Elite or Boss": the fight's highest threat, which an Elite or Boss lead is at x1.7 or x2.5). A member without a
+// grenade, out of charges, or past this battle's throw skips both (FK11), so the rest of the default acts exactly as
+// D19's.
+export const FIELD_KITS_DEFAULT_GRENADE_RULES: readonly GambitRule[] = [
+  { target: "foeHighestThreat", params: { minRank: "elite" }, action: "throwGrenade" },
+  { target: "foeLargestGroup", params: { reserveForBoss: 1 }, action: "throwGrenade" },
+];
+
+// The default program on a Field Kits run: D19's DEFAULT_MEMBER_GAMBIT with the grenade rules after its medic and
+// defense rules (cure, patch, brace) and before its targeting. groundFight.ts swaps it in for a member whose
+// snapshot program IS the default (a run without Field Kits never reads it, so no flag-less run moves). Still no
+// Use Item rule: kits are never spent automatically (D19).
+export const FIELD_KITS_DEFAULT_MEMBER_GAMBIT: GambitProgram = (() => {
+  const at = DEFAULT_MEMBER_GAMBIT.findIndex((r) => r.action === "brace") + 1;
+  return [...DEFAULT_MEMBER_GAMBIT.slice(0, at), ...FIELD_KITS_DEFAULT_GRENADE_RULES, ...DEFAULT_MEMBER_GAMBIT.slice(at)];
+})();
 
 // A snapshot of the installed sensor array's resolved (rarity/quality-scaled) scan-behavior params,
 // captured at dispatch so resolution is a pure function of the stored expedition (no live fitment
@@ -7898,6 +8020,14 @@ export interface GroundFightRecord {
   // Field Kits run's fight in which someone threw, so every other record keeps its exact shape. FKR-7 subtracts it from
   // the member's charges left this objective.
   chargesUsed?: Record<string, number>;
+  // Field Kits FKR-6 (kits in battle): memberId -> the kits that member SPENT in this fight, split by where they came
+  // from: `basicsUsed` from the objective's free basic set, `kitsUsed` from the extras they carry (stock, which never
+  // comes home once spent). `treated`: memberId -> the Injury Kit share a downed member received (the medical bay
+  // divisor, medicalBay.ts treatmentShare). Each is written only on a Field Kits run's fight where it happened, so
+  // every other record keeps its exact shape. FKR-7 subtracts the spends from the team's run and sums `treated`.
+  basicsUsed?: Record<string, Partial<Record<FieldKitId, number>>>;
+  kitsUsed?: Record<string, Partial<Record<FieldKitId, number>>>;
+  treated?: Record<string, number>;
 }
 
 // A ground team's current step on the run timeline (GO-7b): idle / staging are open-ended (stepEndsAt null).
@@ -8529,6 +8659,10 @@ export interface GameState {
   // dispatchCaptainOnPatrol and economyTick's patrol fold. OPTIONAL: absent (a dev save at v70 from before SF-1) reads
   // the derived counters (runDifficulty.ts runCountsOf). Plain data, so hydrateDecimals carries it through `...state`.
   runCounts?: RunCounts;
+  // G1-3 (Short-Range Missions): the board's per-slot cycle cursor (ShortRangeBoardState below). OPTIONAL: absent
+  // reads as every slot at cycle 0 (shortRangeNextCycle, shortRangeBoard.ts), so no save needs a step; written by
+  // the cycle engine (G1-4) when a cycle delivers. A malformed value reads as absent (save.ts hydration). Plain data.
+  shortRangeBoard?: ShortRangeBoardState;
   // Expedition Tiers G2-1: the per-save homeworld seed (HomeworldState above; placement in galaxy.ts). freshState
   // stores the seed it is given (every new game: App.svelte passes a fresh draw); SAVE v70 seeds it on an older save
   // (save.ts withHomeworldV70, which every load also runs, so a save already at v70 from before G2-1 gets one too).
@@ -8666,6 +8800,37 @@ export interface RefineRecipeDef {
 // it as their canonical fixture key, so keeping it minimizes churn) but its NUMBERS are now
 // the player-friendly 20:1 / 12-tick values (so players are not stuck with the 100:1 waste).
 // `refineTitaniumIngot` was RETIRED; any reference to it repoints to `refineCommonOre`.
+
+// ML-1 (0.14.0, Material Lines; plan docs/plans/2026-10-17-material-lines-and-emod-plan.md section 3.1): the seven
+// July-approved recipes the user re-confirmed as named (L1, 2026-10-19 "Build as named"): three simple refines and
+// four compounds (multi-input; the engine deducts and reserves every input). Keys and items are the user's; ONLY the
+// numbers were mine, and the user approved them as built (2026-10-20, ML-1 review):
+// a common ore refines like Titanium Ore (20:1, 12 ticks), an uncommon one like Polysilicate Ore (5:1, 20 ticks), a
+// rare one at 3:1; a compound takes a few of its raw plus one or two refined goods and runs 20 ticks. Every duration is
+// one the speed rungs keep at an exact crafting XP per tick (the WR-4 rule, refine.test.ts; 40 breaks it).
+const MATERIAL_LINE_RECIPE_NUMBERS: Readonly<Record<string, { input: Record<string, number>; output: string; ticks: number }>> = {
+  refineFerriteIngot: { input: { ferriteOre: 20 }, output: "ferriteIngot", ticks: 12 },
+  refineReclaimedCircuit: { input: { salvagedCircuitry: 5 }, output: "reclaimedCircuit", ticks: 20 },
+  refineIridiumCatalyst: { input: { rareMaterial: 3 }, output: "iridiumCatalyst", ticks: 20 },
+  synthCobaltCoil: { input: { cobaltOre: 3, titaniumIngot: 1 }, output: "cobaltCoil", ticks: 20 },
+  synthOsmiumPlate: { input: { osmiumOre: 2, ferriteIngot: 2 }, output: "osmiumPlate", ticks: 20 },
+  synthPhotonicGel: { input: { polysilicateWafer: 1, volatileResin: 3 }, output: "photonicGel", ticks: 20 },
+  synthBiocatalyst: { input: { purifiedBiomass: 2, exoticSporeCluster: 1 }, output: "biocatalyst", ticks: 20 },
+};
+
+// Built once at module load; REFINE_RECIPES spreads it after its hand-written rows.
+function materialLineRecipes(): Record<string, RefineRecipeDef> {
+  const out: Record<string, RefineRecipeDef> = {};
+  for (const [key, r] of Object.entries(MATERIAL_LINE_RECIPE_NUMBERS)) {
+    out[key] = {
+      input: Object.fromEntries(Object.entries(r.input).map(([id, n]) => [id, new Decimal(n)])),
+      output: { itemId: r.output, amount: new Decimal(1) },
+      durationTicks: r.ticks,
+    };
+  }
+  return out;
+}
+
 export const REFINE_RECIPES: Record<string, RefineRecipeDef> = {
   refineCommonOre: {
     input: { commonOre: new Decimal(20) },
@@ -8680,7 +8845,8 @@ export const REFINE_RECIPES: Record<string, RefineRecipeDef> = {
   // WR-4 (OC-C3, user 2026-10-16 "Add Refinery recipes": "Scrap Alloy refines into Reclaimed Alloy and Fibrous
   // Biomass into Purified Biomass; each becomes an input to existing Fabricator recipes"). Both inputs are common
   // mission staples (the Salvage and Forage runs, plus expedition hauls). [PROPOSAL] every number here (the user
-  // tunes them): Reclaimed Alloy is a RARE refined good, so 10:1; Purified Biomass is uncommon, so 6:1. Both run 20
+  // tunes them): Reclaimed Alloy was tagged RARE, so 10:1 (ML-1 retags it uncommon, display only; the ratio stays
+  // until the user tunes it); Purified Biomass is uncommon, so 6:1. Both run 20
   // ticks, the Polysilicate Wafer's length (a duration must keep the speed rung's crafting XP per tick exact).
   refineReclaimedAlloy: {
     input: { scrapAlloy: new Decimal(10) },
@@ -8692,7 +8858,48 @@ export const REFINE_RECIPES: Record<string, RefineRecipeDef> = {
     output: { itemId: "purifiedBiomass", amount: new Decimal(1) },
     durationTicks: 20,
   },
+  ...materialLineRecipes(),
 };
+
+// ML-1 review (the user's "everything wired, nothing inert player-reachable" rule; the field kits precedent "Hide
+// until kits are live"): THE ONE CHECK for whether the Refinery offers a recipe. canStartLine (the engine gate), the
+// Refinery item dropdown and the Home dashboard's idle-refinery scan all read it, so a recipe whose output leads
+// nowhere yet can neither be started nor suggested. A recipe is offered unless its output is a DEAD END: an item
+// carrying the ItemDef.reserved marker, or one whose only consumers are Refinery recipes that are themselves not
+// offered (Ferrite Ingot, whose one consumer makes the reserved Osmium Plate). Derived on every call from the static
+// tables, so the gate lifts by itself the moment ML-2 / EM-8 drop a marker. Pure.
+export function refineRecipeOffered(recipeKey: string): boolean {
+  const recipe = REFINE_RECIPES[recipeKey];
+  return recipe !== undefined && !isRefineDeadEnd(recipe.output.itemId, new Set());
+}
+
+function isRefineDeadEnd(itemId: string, visiting: Set<string>): boolean {
+  if (ITEMS[itemId]?.reserved !== undefined) return true;
+  if (consumedOutsideRefinery().has(itemId)) return false;
+  if (visiting.has(itemId)) return true; // a cycle of refines with no outside consumer leads nowhere
+  visiting.add(itemId);
+  const refines = Object.values(REFINE_RECIPES).filter((r) => r.input[itemId] !== undefined);
+  // No consumer at all is the sink rule's business (materialLines.test.ts), not a reason to hide the recipe.
+  if (refines.length === 0) return false;
+  return refines.every((r) => isRefineDeadEnd(r.output.itemId, visiting));
+}
+
+// Every item something other than the Refinery consumes: blueprints, hull builds, facility and storage / docks /
+// berth rungs, material salvage, the Quartermaster's sell counter. Built on first use (those tables are declared
+// further down this file), static afterwards.
+let consumedOutsideRefineryCache: ReadonlySet<string> | null = null;
+function consumedOutsideRefinery(): ReadonlySet<string> {
+  if (consumedOutsideRefineryCache) return consumedOutsideRefineryCache;
+  const out = new Set<string>();
+  for (const bp of Object.values(BLUEPRINTS)) for (const id of Object.keys(bp.recipe.inputs)) out.add(id);
+  for (const hull of Object.values(SHIP_TYPES)) for (const id of Object.keys(hull.buildRecipe.components)) out.add(id);
+  for (const f of Object.values(FACILITIES)) for (const u of f.upgrades) for (const id of Object.keys(u.materials)) out.add(id);
+  for (const rungs of [EQUIPMENT_STORAGE_RUNGS, SHIP_DOCKS_RUNGS, TRANSIT_BERTH_RUNGS]) for (const r of rungs) for (const id of Object.keys(r.materials)) out.add(id);
+  for (const id of Object.keys(SALVAGE_LOOT_POOLS)) out.add(id);
+  for (const [id, def] of Object.entries(ITEMS)) if (def.sellValue !== undefined) out.add(id);
+  consumedOutsideRefineryCache = out;
+  return out;
+}
 
 // Item taxonomy (Ship Production Economy epic, 2026-07-11 facility-framework
 // design §7). The category ladder is the forward-compat spine the whole epic
@@ -8743,6 +8950,12 @@ export interface ItemDef {
   // item (enforced by model.test.ts), absent on all non-raw items. Static catalog
   // data, not saved GameState, so it needs no migration.
   subCategory?: RawSubCategory;
+  // ML-1 (0.14.0, Material Lines): the TYPED reserve marker. Present only on an item that is produced today but has
+  // no consumer yet, and it names the slice that wires that consumer (for example "ML-2: ..."). The wiring registry
+  // turns it into a pending entry (ITEMS:<id>:reserved, owner = this text), so the release gate holds until the
+  // consumer lands, and the sink test (materialLines.test.ts) fails if a reserved item gains a consumer while still
+  // marked, or if any item without one is unmarked. Static catalog data, never saved.
+  reserved?: string;
   // FORWARD (not populated this pass): only shipModule/shipSystem items ever
   // carry equip stats; every Phase 1 seed leaves this undefined.
   equipStats?: Record<string, number>;
@@ -8762,6 +8975,10 @@ export interface ItemDef {
 // the storage/inventory keys alongside), do NOT seed those forward items until
 // their phase. The model.test.ts drift guard asserts every live storage key has
 // an entry here, so this table cannot silently fall out of sync with storage.
+// ML-1: the owners named by ItemDef.reserved (each becomes a pending wiring registry entry with this text as owner).
+const ML2_RECIPE_REWORK = "ML-2 (Material Lines recipe rework: the cargo, FTL, reactor, utility, shield and plating blueprints)";
+const EM8_PRECURSOR_LENS = "EM-8 (the Precursor Lens special module is crafted with it)";
+
 export const ITEMS: Record<string, ItemDef> = {
   // --- Raw loot (mission extraction output; keyed as LootMaterialKey) ---
   commonOre: {
@@ -8826,7 +9043,8 @@ export const ITEMS: Record<string, ItemDef> = {
     rarity: "common",
     // The guaranteed (and ONLY) drop of the localFuelRun mission, a common-tier ore.
     unlockHint: "Skimmed from the retired Local Deuterium Skim run; sell any you hold at the Quartermaster.",
-    flavor: "Deuterium-laced water ice cracked from a local field. Cook it down at the Fuel Depot and it runs the FTL drives.",
+    // ML-1: the flavor no longer tells the player to cook it down at the Fuel Depot (that pipeline retired in 0.13.6).
+    flavor: "Deuterium-laced water ice cracked from a local field, heavy hydrogen the fleet no longer burns for fuel.",
     // DEPRECATED by fuel-to-reach (0.13.6): the skim run + the Fuel Depot that consumed this are
     // retired, so any stockpile is now dead stock. Sellable at the Quartermaster to recoup its old
     // worth: the Fuel Depot refined 50 ice -> 100 fuel and fuel was 20 cr/unit, so 1 ice = 2 fuel = 40 cr. TUNABLE.
@@ -8933,7 +9151,8 @@ export const ITEMS: Record<string, ItemDef> = {
     category: "salvagedMaterial",
     tier: 1,
     rarity: "rare",
-    unlockHint: "A rare drop from the Salvage Nearby Skirmish Wreckage run; salvage it for materials (a coming mechanic).",
+    // ML-1: the "(a coming mechanic)" tail was stale (material salvage is live; SALVAGE_LOOT_POOLS.intactReactorCore).
+    unlockHint: "A rare drop from the Salvage Nearby Skirmish Wreckage run; salvage it for materials at the Salvage Bay.",
     flavor: "A cracked, burned-out reactor shell, dead weight to install, but a rich seam of parts to strip.",
   },
   // WEAPON-CRAFTING LOOT (Combat 1.0, Unit 1.7, design S12): the reserved "Damaged
@@ -9008,7 +9227,12 @@ export const ITEMS: Record<string, ItemDef> = {
     label: "Reclaimed Alloy",
     category: "refined",
     tier: 1,
-    rarity: "rare",
+    // ML-1 (L11, user 2026-10-19 "Approve all three"): retagged uncommon; it refines from common Scrap Alloy.
+    // Rarity is read by the Warehouse color, the reward chips AND the Salvage Bay's confirm prompt, which maps a
+    // material's rarity to a quality tier (App.svelte salvageTargetNeedsConfirm, RARITY_TO_QUALITY_TIER: uncommon 1,
+    // rare 2). Reclaimed Alloy is a refined good, and material salvage takes salvagedMaterial items only (salvage.ts),
+    // so the prompt never reaches it today; if it ever does, it asks under the uncommon tier's setting.
+    rarity: "uncommon",
     unlockHint: "Refined from Scrap Alloy at the Refinery.",
     flavor: "Battlefield scrap re-smelted into something stronger than it ever was whole.",
   },
@@ -9019,6 +9243,74 @@ export const ITEMS: Record<string, ItemDef> = {
     rarity: "uncommon",
     unlockHint: "Refined from Fibrous Biomass at the Refinery.",
     flavor: "Raw flora rendered down to a clean, stable feedstock, no volatility left.",
+  },
+  // --- Material Lines (ML-1, 0.14.0): the seven July-approved refined goods (July section 12, re-confirmed by the
+  // user 2026-10-19, L1 "Build as named"). Each is produced by its MATERIAL_LINE_RECIPE_NUMBERS row (above REFINE_RECIPES),
+  // and the Refinery offers that recipe only once its output has a use (refineRecipeOffered).
+  // Ferrite Ingot feeds the Osmium Plate compound today; the other six are RESERVED for ML-2, the recipe rework that
+  // puts them into the cargo, FTL, reactor, utility, shield and plating blueprints (L2, user 2026-10-19). Rarity is
+  // display only (the E-MAT strawman: ingots, circuit and compounds uncommon; plate, catalyst and biocatalyst rare).
+  ferriteIngot: {
+    label: "Ferrite Ingot",
+    category: "refined",
+    tier: 1,
+    rarity: "uncommon",
+    unlockHint: "Refined from Ferrite at the Refinery.",
+    flavor: "Lunar ferrite smelted into a dense, dark bar, the heavy twin of the titanium ingot.",
+  },
+  reclaimedCircuit: {
+    label: "Reclaimed Circuit",
+    category: "refined",
+    tier: 1,
+    rarity: "uncommon",
+    unlockHint: "Refined from Salvaged Circuitry at the Refinery.",
+    flavor: "Scorched wreck boards stripped, cleaned and re-traced into a circuit the fleet can trust.",
+    reserved: ML2_RECIPE_REWORK,
+  },
+  iridiumCatalyst: {
+    label: "Iridium Catalyst",
+    category: "refined",
+    tier: 1,
+    rarity: "rare",
+    unlockHint: "Refined from Iridium Ore at the Refinery.",
+    flavor: "A few grams of iridium drawn into a fine catalytic mesh, the spark a high-output core is built around.",
+    reserved: ML2_RECIPE_REWORK,
+  },
+  cobaltCoil: {
+    label: "Cobalt Coil",
+    category: "refined",
+    tier: 1,
+    rarity: "uncommon",
+    unlockHint: "Compounded from Cobalt Ore and a Titanium Ingot at the Refinery.",
+    flavor: "Cobalt wire wound tight around a titanium core, the field coil that drives and emitters run on.",
+    reserved: ML2_RECIPE_REWORK,
+  },
+  osmiumPlate: {
+    label: "Osmium Plate",
+    category: "refined",
+    tier: 1,
+    rarity: "rare",
+    unlockHint: "Compounded from Osmium Ore and Ferrite Ingots at the Refinery.",
+    flavor: "Osmium pressed into a ferrite backing, a plate so dense it seems to pull at the hand that lifts it.",
+    reserved: ML2_RECIPE_REWORK,
+  },
+  photonicGel: {
+    label: "Photonic Gel",
+    category: "refined",
+    tier: 1,
+    rarity: "uncommon",
+    unlockHint: "Compounded from a Polysilicate Wafer and Volatile Resin at the Refinery.",
+    flavor: "Luminous resin set into a wafer lattice, a gel that carries light the way wire carries current.",
+    reserved: ML2_RECIPE_REWORK,
+  },
+  biocatalyst: {
+    label: "Biocatalyst",
+    category: "refined",
+    tier: 1,
+    rarity: "rare",
+    unlockHint: "Compounded from Purified Biomass and an Exotic Spore Cluster at the Refinery.",
+    flavor: "A living culture grown from spores on a clean biomass bed, it quickens any process it touches.",
+    reserved: ML2_RECIPE_REWORK,
   },
 
   // COMPONENTS, future Fabricator outputs (refined stock assembled into parts).
@@ -9083,13 +9375,15 @@ export const ITEMS: Record<string, ItemDef> = {
     rarity: "epic",
     unlockHint: "Recovered only from salvage; reserved for a future recipe not yet built.",
     flavor: "An impossibly fine circuit lattice from a hull far older than the fleet, still faintly warm to the touch.",
+    reserved: EM8_PRECURSOR_LENS,
   },
   intactDataCore: {
     label: "Intact Data Core",
     category: "minorComponent",
     tier: 1,
     rarity: "legendary",
-    unlockHint: "Recovered only from salvage; reserved for a future recipe not yet built.",
+    // ML-1: no longer reserved; the Neural Backup implant (neuralBackupBp, E-CREW Task 7) consumes one.
+    unlockHint: "Recovered only from salvage; used to craft the Neural Backup implant.",
     // ⚠️ EASTER EGG, keep as-is: the closing quote is the game's FIRST MEME (user, 2026-10-01), a
     // nod to the 2026-09-29 player report that this salvage-only exotic had "no slot" and no use
     // (which led to the 0.13.8 discovery hotfix). Deliberately UNANNOUNCED: never list it in patch

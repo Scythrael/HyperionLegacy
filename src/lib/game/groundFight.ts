@@ -67,10 +67,12 @@ import { escalationAt, hasCover, type GroundCover } from "./affixes";
 import { fightLeadRank, fightRankContext, isTrainingRun, rankedEnemies, ranksLive, withEnemyRanks, type RankedFightKind } from "./enemyRanks";
 import { FIRST_RUN_ENEMY_SCALE, FIRST_RUN_MAX_ENEMIES } from "./runDifficulty";
 // Field Kits FKR-4: the flag and the inflictors (a Field Kits run only).
-import { fieldKitsLive } from "./fieldKits";
+import { SPLINT_HEAL_ROUNDS, fieldKitsLive, type FieldKitId } from "./fieldKits";
 import { withFieldKitsGuard, withFieldKitsTeam } from "./fieldKitsConditions";
 // Field Kits FKR-5: the squad's thrown grenades and their charges (a Field Kits run only).
 import { withThrownGrenades } from "./fieldKitsGrenades";
+// Field Kits FKR-6: kits in battle, the Field Kits default program (a Field Kits run only).
+import { FIELD_KITS_BATTLE, withFieldKitPacks, withFieldKitsDefaultProgram, type MemberKitCounts } from "./fieldKitsBattle";
 
 // ===== Constants =====
 
@@ -93,6 +95,11 @@ export interface GroundFightTeam {
   // the team's run and passes it here). A member without an entry starts the fight with full charges
   // (fieldKitsGrenades.ts chargesLeftFor). Read only on a Field Kits run.
   charges?: Readonly<Record<string, number>>;
+  // Field Kits FKR-6: memberId -> the kits that member carries into the fight: `basics` = the objective's free basic
+  // set left, `kits` = the extras they packed, left (FKR-7 keeps both on the team's run, GroundTeamRun.basics / .kits,
+  // and passes them here). A member without an entry carries none. Read only on a Field Kits run.
+  basics?: Readonly<Record<string, Readonly<Partial<Record<FieldKitId, number>>>>>;
+  kits?: Readonly<Record<string, Readonly<Partial<Record<FieldKitId, number>>>>>;
 }
 
 // The fight record types (GroundMemberCarry, GroundMemberEnd, GroundFightRecord) live in model.ts since GO-7b
@@ -113,10 +120,16 @@ export function isCarriedStatus(id: string): boolean {
 // The bay conditions on a team combatant at a battle's end: "health" when below max HP (a downed member
 // always is), each remaining persisting status (isCarriedStatus) once, in status order, and "downed" when
 // downed. Every id is a GROUND_CONDITIONS key. Pure.
+// Field Kits FKR-6 (call 18, user 2026-10-17 "No Fracture bay time"): a Fracture healing from a Splint (SPLINT_HEAL_ROUNDS
+// rounds left or fewer; an unsplinted one rides gambit.ts BONE_CONDITION_ROUNDS) is no bay condition: it still carries
+// into the objective's next fight and heals there. Only a Field Kits run's fights inflict a Fracture.
 export function memberEndConditions(c: Pick<GroundCombatant, "hp" | "hpMax" | "statuses" | "downed">): string[] {
   const out: string[] = [];
   if (c.downed || c.hp < c.hpMax) out.push("health");
-  for (const s of c.statuses) if (isCarriedStatus(s.id) && !out.includes(s.id)) out.push(s.id);
+  for (const s of c.statuses) {
+    if (s.id === "fracture" && s.remaining <= SPLINT_HEAL_ROUNDS) continue;
+    if (isCarriedStatus(s.id) && !out.includes(s.id)) out.push(s.id);
+  }
   if (c.downed) out.push("downed");
   return out;
 }
@@ -172,9 +185,12 @@ export function taskFightTeam(
   });
   // Field Kits FKR-4: Stoneskin's battle half (a Field Kits run only; fieldKitsConditions.ts). FKR-5: the thrown
   // grenades with each member's charges left this objective (fieldKitsGrenades.ts), in place of their passive on-hit.
+  // FKR-6: the Field Kits default program (N15) and each member's own kits (their free basics and extras left).
   if (fieldKitsLive(exp)) {
     withFieldKitsTeam(team, members);
     withThrownGrenades(team, members, teamCharges(teams));
+    withFieldKitsDefaultProgram(team);
+    withFieldKitPacks(team, teamKitCounts(teams, (t) => t.basics), teamKitCounts(teams, (t) => t.kits));
   }
   if (!carried) return team;
   for (const c of team) {
@@ -194,6 +210,18 @@ function teamCharges(teams: readonly GroundFightTeam[]): Record<string, number> 
   for (const t of teams) {
     if (!t.charges) continue;
     out = { ...(out ?? {}), ...t.charges };
+  }
+  return out;
+}
+
+// Field Kits FKR-6: one kind of the fight's kit counts (basics or extras), merged over its teams (each member sits on
+// one team). Undefined when no team carries any. Pure.
+function teamKitCounts(teams: readonly GroundFightTeam[], of: (t: GroundFightTeam) => MemberKitCounts | undefined): MemberKitCounts | undefined {
+  let out: Record<string, Readonly<Partial<Record<FieldKitId, number>>>> | undefined;
+  for (const t of teams) {
+    const counts = of(t);
+    if (!counts) continue;
+    out = { ...(out ?? {}), ...counts };
   }
   return out;
 }
@@ -353,7 +381,8 @@ export function resolveTaskFightOnSeed(
   }
   const enemies = taskFightGuard(exp, body, task, seed, alertLevel, kind);
   withCover(team, enemies, cover, exp.roster?.security);
-  const result = resolveGroundBattle(team, enemies, exp.teamKit, makeRng(seed), logSink, seed);
+  // Field Kits FKR-6: a Field Kits run's battle spends each member's own kits (the team kit is never read there).
+  const result = resolveGroundBattle(team, enemies, exp.teamKit, makeRng(seed), logSink, seed, fieldKitsLive(exp) ? FIELD_KITS_BATTLE : undefined);
 
   // resolveGroundBattle reports the 0-based round a fight ENDED in (or MAX_ROUNDS at the cap, after
   // MAX_ROUNDS full rounds); the record counts rounds fought.
@@ -378,6 +407,10 @@ export function resolveTaskFightOnSeed(
   if (result.neuralBackup) record.neuralBackup = { ...result.neuralBackup };
   // Field Kits FKR-5: the charges each member threw (a Field Kits run's fight in which someone threw, only).
   if (result.chargesUsed) record.chargesUsed = { ...result.chargesUsed };
+  // Field Kits FKR-6: the kits each member spent and the Injury Kit shares (a Field Kits run's fight where it happened).
+  if (result.basicsUsed) record.basicsUsed = structuredClone(result.basicsUsed);
+  if (result.kitsUsed) record.kitsUsed = structuredClone(result.kitsUsed);
+  if (result.treated) record.treated = { ...result.treated };
   const ranks = rankedEnemies(enemies);
   if (ranks) record.ranks = ranks;
   return record;

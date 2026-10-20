@@ -1,7 +1,8 @@
 // G1-2 (Short-Range Missions, docs/plans/2026-10-17-short-range-missions-plan.md sections 3.2 to 3.7 and both USER
 // ANSWERS sections): the PURE engine of a short-range mission. The template catalog, the requirement sheets, the roll,
 // the training and slow-start rules, the cycle plan and the per-cycle reward. No board, dispatch, cycle loop or UI here
-// (G1-3 to G1-6 build on these); nothing in the game calls this module yet, so every existing run is untouched.
+// (G1-3 to G1-6 build on these; shortRangeBoard.ts, G1-3, is the board and dispatch), so every existing run is
+// untouched.
 //
 // What the user decided (2026-10-17 and 2026-10-19):
 // - The WHOLE JOB re-rolls each run: a slot can draw any template every cycle (call 1).
@@ -403,6 +404,11 @@ export function shortRangeSheetLegTicks(tier: ShortRangeTier): number {
   return Math.ceil(SHORT_RANGE_SHEETS[tier].range / 2 / LY_PER_TICK);
 }
 
+// The ship's Engineering crew rating (the sheet's Engineering row and the cycle plan's repair or build speed). Pure.
+export function shortRangeShipEngineering(state: GameState, ship: ShipInstance): number {
+  return shortRangeCrewRating(shipDivisionStrength(state, ship, "engineering"));
+}
+
 // The picked ship's value in every category, against `tier`'s sheet: Range is the reach on the sheet's round trip
 // (shipTripRangeLightYears, gear and the long-haul ramp included); Cargo, Guest quarters and Sensors are its effective
 // stats; Engineering and Security its crew ratings. Pure.
@@ -413,7 +419,7 @@ export function shortRangeShipRatings(state: GameState, ship: ShipInstance, tier
     cargo: stats.cargoCapacity,
     guests: stats.colonistCapacity ?? 0,
     sensors: stats.sensors,
-    engineering: shortRangeCrewRating(shipDivisionStrength(state, ship, "engineering")),
+    engineering: shortRangeShipEngineering(state, ship),
     security: shortRangeCrewRating(shipDivisionStrength(state, ship, "security")),
   };
 }

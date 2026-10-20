@@ -38,8 +38,10 @@ import {
   MEMBER_SLOT_TYPES,
   MISSIONS,
   PATROLS,
+  FIELD_KITS_DEFAULT_GRENADE_RULES,
   PERCENT_STAT_CURVES,
   REFINE_RECIPES,
+  refineRecipeOffered,
   SALVAGE_LOOT_POOLS,
   SECONDARY_CAPTAIN_TALENTS,
   SHIP_DOCKS_BASE,
@@ -1515,6 +1517,9 @@ function facilityRungEntries(): WiringEntry[] {
         out.push(entry({ ...common, probe: "shipBuildTicks", contexts: ["shipyard"], direction: "down", curve: { kind: "divisor" }, magnitude: (c) => num("buildSpeedMult")(c) - 1 }));
       else if ("addShipyardBays" in eff) out.push(entry({ ...common, probe: "shipyardBays", contexts: ["shipyard"], magnitude: num("addShipyardBays") }));
       else if ("addSalvageSlots" in eff) out.push(entry({ ...common, probe: "salvageLanes", contexts: ["salvage"], magnitude: num("addSalvageSlots") }));
+      // G1-3: a Mission Control board rung opens one short-range slot (enumerated once SHORT_RANGE_BOARD_LIVE puts the
+      // rungs in FACILITIES, G1-6; until then facility:audit:missionControlUnlock names them).
+      else if ("addShortRangeSlot" in eff) out.push(entry({ ...common, probe: "shortRangeSlots", contexts: ["mission:shortRange"], magnitude: () => 1 }));
       else if ("telescope" in eff) {
         const t = eff.telescope as { detail: number; reachTier: number };
         const prev = i > 0 ? ((fdef.upgrades[i - 1].effect as unknown as { telescope: { detail: number; reachTier: number } }).telescope) : { detail: 0, reachTier: 0 };
@@ -1647,6 +1652,20 @@ function trackEntries(): WiringEntry[] {
   return out;
 }
 
+// The owner of a hidden refine recipe: the reserve on its output, or on the first reserved good its output feeds
+// (Ferrite Ingot -> Osmium Plate, owner ML-2).
+function hiddenRecipeOwner(itemId: string, seen: Set<string> = new Set()): string {
+  const reserved = ITEMS[itemId]?.reserved;
+  if (reserved !== undefined) return reserved;
+  seen.add(itemId);
+  for (const r of Object.values(REFINE_RECIPES)) {
+    if (r.input[itemId] === undefined || seen.has(r.output.itemId)) continue;
+    const owner = hiddenRecipeOwner(r.output.itemId, seen);
+    if (!owner.startsWith("WR-1 follow-up")) return owner;
+  }
+  return "WR-1 follow-up: a hidden refine recipe with no reserved output";
+}
+
 // Content data the engine reads verbatim: refine recipes (the job's duration) and blueprints (the research project's).
 function recipeAndBlueprintEntries(): WiringEntry[] {
   const out: WiringEntry[] = [];
@@ -1663,6 +1682,10 @@ function recipeAndBlueprintEntries(): WiringEntry[] {
         curve: { kind: "equals" },
         magnitude: (c) => c.REFINE_RECIPES[key].durationTicks,
         note: "inputs and output ride the refine tests; the duration reaches the started job (Refinery speed 1)",
+        // ML-1: a recipe the Refinery does not offer yet (its output leads nowhere: model.ts refineRecipeOffered) is
+        // pending on the slice that gives its output a use (no probe: the engine refuses to start it, so there is
+        // nothing to measure); it reads live, probe and all, by itself once that marker drops.
+        ...(refineRecipeOffered(key) ? {} : { probe: undefined, contexts: [], status: pending(hiddenRecipeOwner(r.output.itemId)) }),
       }),
     );
   }
@@ -2757,6 +2780,43 @@ function contentEntries(): WiringEntry[] {
       status: pending("WR-10, OC-F12 (D19: no battle reads it)"),
     }),
   );
+  // Field Kits FKR-6 (group 7 "Rank rules + reserve"; N15): the rank conditions ("target is Elite or stronger",
+  // "target is a Boss": the ranks of a Weak-to-Boss lineup a rule still attacks), the "keep N for a Boss" reserve (the
+  // charges a thrower spends against a Normal foe drop by N) and the Field Kits default program (the grenades a member
+  // on the default throws in one battle).
+  for (const min of ["elite", "boss"] as const) {
+    out.push(
+      entry({
+        ...base("away", "GAMBIT_PROGRAMS", `minRank:${min}`, `Gambit condition: target is ${ENEMY_RANKS[min].label}${min === "boss" ? "" : " or stronger"}`),
+        probe: `content:rankCondition:${min}`,
+        contexts: ["ground"],
+        direction: "down",
+        curve: { kind: "equals" },
+        magnitude: (c) => Object.values(c.ENEMY_RANKS).filter((r) => r.order >= c.ENEMY_RANKS[min].order).length,
+        on: sourceOn,
+      }),
+    );
+  }
+  const reserve = FIELD_KITS_DEFAULT_GRENADE_RULES.find((r) => r.params?.reserveForBoss !== undefined)?.params?.reserveForBoss ?? 0;
+  out.push(
+    entry({
+      ...base("away", "GAMBIT_PROGRAMS", "reserveForBoss", "Gambit option: keep N charges or kits for a Boss"),
+      probe: "content:bossReserve",
+      contexts: ["ground"],
+      direction: "down",
+      curve: { kind: "linearAbsolute" },
+      magnitude: () => -reserve,
+      on: sourceOn,
+    }),
+    entry({
+      ...base("away", "GAMBIT_PROGRAMS", "fieldKitsDefault", "The default program throws grenades on a Field Kits run, keeping one for an Elite or a Boss"),
+      probe: "content:fieldKitsDefault",
+      contexts: ["ground"],
+      curve: { kind: "event", metric: "grenades a member on the default throws in one battle" },
+      magnitude: () => 1,
+      on: sourceOn,
+    }),
+  );
   for (const p of POI_CATALOG) {
     out.push(
       entry({
@@ -2834,6 +2894,17 @@ function contentEntries(): WiringEntry[] {
         direction: "none",
         curve: { kind: "equals" },
         magnitude: (c) => (c.ITEMS[id] as { sellValue?: number }).sellValue ?? 0,
+      }),
+    );
+  }
+  // ML-1: an item produced today whose consumer a later slice wires (ItemDef.reserved names it). Pending until that
+  // slice adds the consumer and drops the marker (materialLines.test.ts fails while both are true).
+  for (const [id, item] of Object.entries(ITEMS)) {
+    if (item.reserved === undefined) continue;
+    out.push(
+      entry({
+        ...base("facility", "ITEMS", `${id}:reserved`, `${item.label} is produced and has a consumer`),
+        status: pending(item.reserved),
       }),
     );
   }
@@ -2939,25 +3010,19 @@ function enemyRankEntries(): WiringEntry[] {
 }
 
 // ============================================================================
-// away: the field kits (Field Kits FKR-2, fieldKits.ts). Nothing reads the catalog yet: every entry is PENDING and
-// names the FKR slice that makes it live (with a sensitivity check) in its own commit.
+// away: the field kits (Field Kits FKR-2, fieldKits.ts). Since FKR-6 every kit and the First Aid / Advanced Medical rules
+// are LIVE in a Field Kits run's battle (fieldKitsBattle.ts; probes content:kit / content:kitCategory, each kit spent
+// through a real Use Item rule on a battle carrying the Field Kits kit rules). Field Devices stays pending (FKR-8).
 // ============================================================================
 
-const KIT_OWNER: Readonly<Record<FieldKitId, string>> = {
-  firstAidKit: "FKR-6 (kits in battle: a Use Item rule spends the member's own First Aid Kit)",
-  antitoxin: "FKR-6 (kits in battle: Antitoxin clears Poison)",
-  combatStim: "FKR-6 (kits in battle: Combat Stim grants Inspired)",
-  splint: "FKR-6 (kits in battle: Splint on the bone line, N8)",
-  traumaKit: "FKR-6 (kits in battle: Trauma Kit on serious conditions)",
-  injuryKit: "FKR-6 + FKR-7 (the Injury Kit treatment share reaches the medical bay)",
-};
-
-// The categories not live yet, by owner (Explosives went live at FKR-5: Saboteur on the Saboteur's own throws).
+// The categories not live yet, by owner (Explosives went live at FKR-5, First Aid and Advanced Medical at FKR-6).
 const CATEGORY_OWNER: Readonly<Partial<Record<KitCategory, string>>> = {
-  firstAid: "FKR-6 (First Aid kits at 0.5x untrained, 1.25x with Medical Training)",
-  advancedMedical: "FKR-6 (the Medical Training gate on Splint, Trauma Kit and Injury Kit)",
   fieldDevices: "FKR-8 (the 50 to 75% per-use device roll, Codebreaker +6%)",
 };
+
+// Field Kits FKR-6: the category rules measured in battle (content:kitCategory): First Aid's trained lift on one First
+// Aid Kit's heal, Advanced Medical's Medical Training gate on a Splint.
+const CATEGORY_BATTLE_PROBE: Readonly<Partial<Record<KitCategory, true>>> = { firstAid: true, advancedMedical: true };
 
 function fieldKitEntries(): WiringEntry[] {
   // Each kit's measurable effect, read from the catalog: a heal (HP), a bay treatment share (the bay divisor), a buff
@@ -2973,13 +3038,19 @@ function fieldKitEntries(): WiringEntry[] {
           : def.buff !== undefined
             ? { curve: { kind: "equals" }, direction: "none", magnitude: (c) => c.FIELD_KITS[id].buff?.rounds ?? 0 }
             : { curve: { kind: "event", metric: "conditions treated" }, magnitude: (c) => conditionsTreated(c.FIELD_KITS[id]) };
+    // Field Kits FKR-6: live in a Field Kits run's battle. The Injury Kit's share is measured through the medical bay's
+    // divisor (medicalBay.ts conditionCureSeconds, a Broken Bone's time; whole seconds, so one step of tolerance);
+    // FKR-7 sums the fight record's `treated` into the run's bay.
     return entry({
       id: `away:FIELD_KITS:${id}`,
       system: "away",
       source: { catalog: "FIELD_KITS", key: id },
       claim: `${def.label}: what one use treats, heals or grants`,
       ...shape,
-      status: pending(KIT_OWNER[id]),
+      probe: `content:kit:${id}`,
+      contexts: ["ground"],
+      on: sourceOn,
+      ...(def.treatmentShare !== undefined ? { tolerance: 1, note: "the battle records the share; FKR-7 routes it into the run's medical bay" } : {}),
     });
   });
   for (const cat of Object.keys(KIT_CATEGORY_RULES) as KitCategory[]) {
@@ -2995,7 +3066,9 @@ function fieldKitEntries(): WiringEntry[] {
             base: () => wearPiece(withAwayTeam(wiringBase()), WIRING_SECURITY_ID, "memberTool", "impactGrenade", {}),
             on: (s) => editMember(s, WIRING_SECURITY_ID, { traits: ["saboteur"] }),
           }
-        : {};
+        : CATEGORY_BATTLE_PROBE[cat]
+          ? { probe: `content:kitCategory:${cat}` as ProbeId, contexts: ["ground"] as ContextId[], on: sourceOn }
+          : {};
     out.push(
       entry({
         id: `away:KIT_CATEGORY_RULES:${cat}`,
@@ -3264,7 +3337,7 @@ const AUDIT_ROWS: readonly { id: string; system: WiringSystem; claim: string; st
   { id: "facility:audit:fuelAutoBuy", system: "facility", claim: "The mission fuel budget and credit auto-buy plumbing (FUEL_CREDITS_PER_UNIT, REFUEL_PENALTY_TICKS, refuelDelayTicks): unreachable since 0.13.6 (an infinite fuel budget). (B5's Buy Fuel, tank and refinery are gone, WR-4.)", status: pending("S4-A02 (the fuel-economy cleanup: remove or keep, a user call)") },
   { id: "facility:audit:requiresResearch", system: "facility", claim: "The requiresResearch rung gate (B1 fixed in WR-4: it checks the researched blueprint; no rung lists one yet)", status: pending("OC-C4") },
   { id: "facility:audit:requiresFacilityLevels", system: "facility", claim: "requiresFacilityLevels / requiresMissionCompletions rung gates (correct, no rung uses them)", status: pending("WR-4, OC-C4") },
-  { id: "facility:audit:missionControlUnlock", system: "facility", claim: "MISSION_CONTROL_UNLOCK_COMPLETIONS 50 (only a commented-out rung)", status: pending("WR-4, OC-C4") },
+  { id: "facility:audit:missionControlUnlock", system: "facility", claim: "MISSION_CONTROL_UNLOCK_COMPLETIONS 50 and the Mission Control board rungs (MISSION_CONTROL_BOARD_RUNGS, G1-3: a Tier II short-range slot at level 2 behind the 50-completion gate, a fourth at level 3), hidden until SHORT_RANGE_BOARD_LIVE", status: pending("G1-6 (flips SHORT_RANGE_BOARD_LIVE with the board UI; the rungs then enumerate as facility rung entries on the shortRangeSlots probe)") },
   { id: "facility:audit:itemEquipStats", system: "facility", claim: "ItemDef.equipStats (no item fills it)", status: pending("WR-4, OC-C4") },
   { id: "facility:audit:precursorCircuit", system: "facility", claim: "Precursor Circuit: salvage drops it, nothing consumes it", status: pending("WR-10, OC-J3") },
   // D. Ship
@@ -3300,6 +3373,14 @@ const AUDIT_ROWS: readonly { id: string; system: WiringSystem; claim: string; st
   { id: "crew:audit:commandCaps", system: "crew", claim: "Command structure caps (passive ships only; not enforced on load)", status: pending("CP-5, CP-7") },
   { id: "crew:audit:rapidLoadoutScope", system: "crew", claim: "Rapid Loadout acts on Ground Ops only", status: pending("WR-9, OC-E6") },
   { id: "crew:audit:moraleAttrition", system: "crew", claim: "Morale Anchor's \"complement attrition\" half (no system)", status: pending("WR-9, OC-E7") },
+  // The inert racials (0.14.0): the Spacer racial went live on the transit speed (user 2026-10-20 "+Transit speed"); the
+  // long-haul ramp it was first named for stays the user's 0.14.x deferral, kept visible here.
+  {
+    id: "crew:audit:spacerLongHaulRamp",
+    system: "crew",
+    claim: "The Spacer long-haul ramp (crew.endurance: a complement build-up like Constitution, D23 curve; no source in 0.14.0)",
+    status: { kind: "deferred", owner: "Task 23: complement long-haul ramp (D26)", userRef: `${T3}: the Spacer long-haul ramp` },
+  },
   { id: "crew:audit:commandPresenceExpedition", system: "crew", claim: "Command Presence and Operations Integrity do not reach expeditions", status: pending("WR-9, OC-E9") },
   // F. Away team and ground
   { id: "away:audit:shroudLureGroundOps", system: "away", claim: "Shroud Emitter and Lure Beacon on Ground Ops move the ship event chance; no drop multiplier", status: pending("FK-7 + OC-F1") },

@@ -56,6 +56,7 @@ import {
   type MissionKey,
   type OfficerStats,
   type PatrolMissionState,
+  type ShortRangeMissionState,
   type SeniorStaffOfficer,
   type SeniorStaffSeat,
   type ShipInstance,
@@ -244,14 +245,28 @@ const PATROL_OUTCOME_KEYS: readonly (keyof PatrolMissionState)[] = [
   "limpDamage",
   "routesCompletedThisRun",
 ];
+// G1-3: a short-range run's outcome is its slot, frozen job and plan, and where it is in the cycle.
+const SHORT_RANGE_OUTCOME_KEYS: readonly (keyof ShortRangeMissionState)[] = ["slotId", "roll", "plan", "phase", "phaseProgressTicks", "recalled"];
 const SHIP_OUTCOME_KEYS: readonly (keyof ShipInstance)[] = ["id", "typeKey", "damaged", "repairDamage"];
+
+function missionOutcome(m: CaptainState["mission"]): unknown {
+  if (m === null) return null;
+  switch (m.kind) {
+    case "extraction":
+      return pick(m, MISSION_OUTCOME_KEYS);
+    case "patrol":
+      return pick(m, PATROL_OUTCOME_KEYS);
+    case "shortRange":
+      return pick(m, SHORT_RANGE_OUTCOME_KEYS);
+  }
+}
 
 export function outcome(s: GameState): string {
   return fp({
     state: pick(s, STATE_OUTCOME_KEYS),
     captains: s.captains.map((c) => ({
       ...pick(c, CAPTAIN_OUTCOME_KEYS),
-      mission: c.mission === null ? null : c.mission.kind === "patrol" ? pick(c.mission, PATROL_OUTCOME_KEYS) : pick(c.mission, MISSION_OUTCOME_KEYS),
+      mission: missionOutcome(c.mission),
     })),
     ships: s.ships.map((sh) => pick(sh, SHIP_OUTCOME_KEYS)),
     shipGear: s.equipment.filter((e) => !e.fittedToMemberId && !isMemberSlotType(e.slotType)).map((e) => [e.id, e.fittedToShipId, e.durability]),
