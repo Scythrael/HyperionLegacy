@@ -101,3 +101,13 @@ section 5.A captain nodes). Kept in their own file so the parallel integrator's 
 - **EXCEPTIONAL_PIECE_VALUE / EXCEPTIONAL_FULL_SET_MULT:** "Approve (Recommended)": +3% at Tier I to +15% at Tier VII
   per piece; full set 5x one piece. EXCEPTIONAL_PIECE_STAT_CYCLE stays a placeholder until the name sign-off sheet
   assigns stats with the names.
+
+## Spacer bonus, FKR-6 and G1-3 picks (2026-10-20)
+
+- **Spacer racial:** "+Transit speed (Recommended)": a small travel-speed racial at the usual officer racial size.
+- **Default grenade reserve (FKR-6):** "Save for Elite or Boss (Recommended)": the kept grenade goes on an Elite or a
+  Boss, whichever shows up (not Boss only).
+- **Short-Range board rungs (G1-3):** "Approve (Recommended)": level 2 = 2,500 credits / 120 ticks (Tier II slot behind
+  the 50-completion gate), level 3 = 6,000 credits / 240 ticks, fourth slot Tier II, no completion gate.
+- **Kit rules (FKR-6):** "Approve all (Recommended)": basics before extras; Combat Stim rounds scale with skill (min 1);
+  "on a Boss" = while a Boss stands; one Injury Kit per downed member per battle; Triage preset kit rules as built.
