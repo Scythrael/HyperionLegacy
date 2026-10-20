@@ -75,8 +75,29 @@ export function shipGroundTeams(ship: Pick<ShipInstance, "typeKey" | "groundTeam
     if (prospecting > 0) team.prospecting = normalizedSlots(t.prospecting, prospecting);
     if (typeof t.name === "string") team.name = t.name;
     if (t.kindPending === true) team.kindPending = true;
+    // Field Kits FKR-7: the per-member pack preference and the top-up toggle, kept only when stored (so every team
+    // without them keeps its exact shape). A pack keeps its whole counts of 1 or more; the dispatch planner
+    // (fieldKitsRun.ts) reads only the known kits.
+    const packs = storedPacks(t.packs);
+    if (packs) team.packs = packs;
+    if (t.topUp === true) team.topUp = true;
     return team;
   });
+}
+
+// A stored pack preference as a fresh copy: memberId -> kit -> a whole count of 1 or more (a bad entry dropped), or
+// undefined when nothing usable is stored. Pure.
+function storedPacks(raw: unknown): ShipGroundTeam["packs"] {
+  if (!isRecord(raw)) return undefined;
+  let out: NonNullable<ShipGroundTeam["packs"]> | undefined;
+  for (const [memberId, pack] of Object.entries(raw)) {
+    if (!isRecord(pack)) continue;
+    const counts: Record<string, number> = {};
+    for (const [kit, n] of Object.entries(pack)) if (typeof n === "number" && Number.isFinite(n) && n >= 1) counts[kit] = Math.floor(n);
+    out ??= {};
+    out[memberId] = counts;
+  }
+  return out;
 }
 
 // What a slot WRITE needs to know about a member: who they are, which ship they are aboard, their squad.

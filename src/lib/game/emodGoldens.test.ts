@@ -379,8 +379,10 @@ const GOLDEN: Record<string, unknown> = {
   // after the ML-1 re-pin without moving it: feat a2a1b6a reads a488ee24) re-owned the facility:audit:missionControlUnlock
   // row, and Field Kits FKR-6 added 5 entries and flipped 8 pending -> live. With FKR-6 read back (FKR6_BEFORE) the
   // snapshot is a488ee24, and with the G1-3 row's old owner too it is c1260fe0; the E-MOD rows did not change.
+  // Re-pinned by Field Kits FKR-7 (30489b98 -> 3c94e7d1): it added 2 entries, flipped 8 pending -> live and re-owned the
+  // hidden pieces row (FKR-9 / FKR-10); with those read back (FKR7_BEFORE) the snapshot is 30489b98 again.
   registry: [
-    "30489b98",
+    "3c94e7d1",
     "relic:RELICS:precursorLens",
     "ship:audit:reactorCoreNet",
   ],
@@ -447,16 +449,36 @@ const G13_ROW = "facility:audit:missionControlUnlock";
 const G13_ROW_BEFORE = { kind: "pending", owner: "WR-4, OC-C4" };
 const REGISTRY_BEFORE_G13 = "c1260fe0";
 
-// The registry snapshot rows with FKR-6 read back (its added entries left out, its flips as they stood) and, when
-// `g13Back`, G1-3's audit row with its old owner.
+// Field Kits FKR-7 (the run plumbing): the 2 entries it added, and the 9 rows it moved as they stood before it: the 8 it
+// flipped pending -> live (status, no contexts, no probe) and the hidden pieces row's owner (still pending). The
+// snapshot before it is REGISTRY_BEFORE_FKR7 (the FKR-6 re-pin).
+const FKR7_ADDED_IDS: ReadonlySet<string> = new Set<string>(["away:FREE_BASIC_SET:firstAidKit:crew", "away:audit:fieldKitsRunsSwitch"]);
+const FKR7_PRICE = "FKR-7 (Quartermaster kit sales and the off-by-default launch top-up charge the price)";
+const FKR7_BEFORE: Readonly<Record<string, string>> = {
+  "away:FREE_BASIC_SET:firstAidKit": "FKR-7 (the per-objective free basic set, refreshed each objective and reload)",
+  ...Object.fromEntries(["firstAidKit", "antitoxin", "combatStim", "splint", "traumaKit", "injuryKit"].map((k) => [`facility:FIELD_KIT_PRICES:${k}`, FKR7_PRICE])),
+  "away:audit:treatmentShare": "FK-5 / FK-6",
+  "away:audit:fieldKitsHiddenPieces": "FKR-7 (flips FIELD_KITS_PLAYER_LIVE when kits are wired into runs)",
+};
+const REGISTRY_BEFORE_FKR7 = "30489b98";
+
+// The registry snapshot rows with FKR-7 read back (its added entries left out, its moved rows as they stood) and, when
+// `fkr6Back`, FKR-6 too (its added entries left out, its flips as they stood).
+function registryRowsBeforeFkr7(fkr6Back: boolean): { e: (typeof WIRING_REGISTRY)[number]; row: unknown[] }[] {
+  return WIRING_REGISTRY.filter((e) => !FKR7_ADDED_IDS.has(e.id) && !(fkr6Back && FKR6_ADDED_IDS.has(e.id))).map((e) => ({
+    e,
+    row:
+      e.id in FKR7_BEFORE
+        ? [e.id, { kind: "pending", owner: FKR7_BEFORE[e.id] }, [], null]
+        : fkr6Back && e.id in FKR6_BEFORE
+          ? [e.id, { kind: "pending", owner: FKR6_BEFORE[e.id] }, [], null]
+          : [e.id, e.status, e.contexts, e.probe ?? null],
+  }));
+}
+
+// The registry snapshot rows with FKR-7 and FKR-6 read back and, when `g13Back`, G1-3's audit row with its old owner.
 function registryRowsBack(g13Back: boolean): unknown[][] {
-  return WIRING_REGISTRY.filter((e) => !FKR6_ADDED_IDS.has(e.id)).map((e) =>
-    e.id in FKR6_BEFORE
-      ? [e.id, { kind: "pending", owner: FKR6_BEFORE[e.id] }, [], null]
-      : g13Back && e.id === G13_ROW
-        ? [e.id, G13_ROW_BEFORE, e.contexts, e.probe ?? null]
-        : [e.id, e.status, e.contexts, e.probe ?? null],
-  );
+  return registryRowsBeforeFkr7(true).map(({ e, row }) => (g13Back && e.id === G13_ROW ? [e.id, G13_ROW_BEFORE, e.contexts, e.probe ?? null] : row));
 }
 
 function pinned(name: string, value: unknown): void {
@@ -514,6 +536,9 @@ describe("EM-0 goldens (re-pinned by EM-1 where named)", () => {
     // With the later moves read back (FKR-6 and G1-3, the test below) and ML-1's entries left out: the snapshot before ML-1.
     const beforeMl1 = hash(registryRowsBack(true).filter((r) => !ML1_ENTRY_IDS.has(r[0] as string)));
     expect(beforeMl1).toBe(REGISTRY_BEFORE_ML1);
+  });
+  it("registry: Field Kits FKR-7 is the only cause of its latest snapshot move", () => {
+    expect(hash(registryRowsBeforeFkr7(false).map(({ row }) => row))).toBe(REGISTRY_BEFORE_FKR7);
   });
   it("registry: FKR-6 and G1-3's audit row are the only causes of its snapshot move", () => {
     expect(hash(registryRowsBack(false))).toBe(REGISTRY_BEFORE_FKR6);

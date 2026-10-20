@@ -156,6 +156,12 @@ const SWITCH_OFF_PINS = { dispatch: "de6856f1", claim: "b4583b50" } as const;
 const STAMPED_PINS = { run: "61824ec6", odds: "fae5feaa", claim: "268249ad" } as const;
 const UNSTAMPED_TWIN_PINS = { run: "65e15d57", odds: "fae5feaa", claim: "ceb4d88d" } as const;
 
+// MOVED AT FKR-7, named: the stamped run's fights now read the teams' hand-placed extras and spend them (an Injury Kit,
+// a Splint, First Aid Kits by the program's Use Item rules), its grenade charges carry between an objective's fights,
+// the Injury Kit shares reach the bay, and the extras left come home at claim (the claim's inventory). The odds read
+// is unchanged: the first objective's samples clear it either way. Re-pinned on FKR-7.
+const FKR7_MOVED_STAMPED: Partial<Record<keyof typeof STAMPED_PINS, string>> = { run: "47822be2", claim: "af9b5caf" };
+
 describe("FKR-7 goldens: what dispatch, the run and the claim did at FKR-6", () => {
   it("SWITCH OFF: a real dispatch holding stock, credits, packs and a top-up deducts nothing, stamps nothing, claims as before", { timeout: 120_000 }, () => {
     const state = crewed(SWITCH_OFF_SEED);
@@ -172,10 +178,13 @@ describe("FKR-7 goldens: what dispatch, the run and the claim did at FKR-6", () 
     expect({ dispatch: stateHash(res.next), claim: stateHash(claimed.next) }).toEqual(SWITCH_OFF_PINS);
   });
 
-  it("STAMPED BY HAND: the run with hand-placed extras (FKR-7 moves it on purpose, named there)", { timeout: 120_000 }, () => {
+  it("STAMPED BY HAND: the run with hand-placed extras MOVED on purpose at FKR-7 (named below)", { timeout: 120_000 }, () => {
     const state = crewed(SEED, KIT_PROGRAM);
     const exp = stampedRun(state, ["enemyColony", "derelictOutpost"], { ...CALM, combat: 3 });
-    expect(runPins(exp, state)).toEqual(STAMPED_PINS);
+    const got = runPins(exp, state);
+    expect(got.run).not.toBe(STAMPED_PINS.run);
+    expect(got.claim).not.toBe(STAMPED_PINS.claim);
+    expect(got).toEqual({ ...STAMPED_PINS, ...FKR7_MOVED_STAMPED });
   });
 
   it("ITS UNSTAMPED TWIN: the same run without flag 2 (byte-identical across FKR-7)", { timeout: 120_000 }, () => {

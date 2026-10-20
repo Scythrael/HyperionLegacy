@@ -293,8 +293,6 @@ export const UNREAD_CONSTANTS: Readonly<Record<string, string>> = {
   ECONOMY_FLOOR_SLOTS: "display: the Quartermaster's economy floor set, named for its readers",
   ENEMY_RANK_IDS: "bookkeeping: the enemy ranks in order, read by the wiring registry (one entry per rank, Field Kits FKR-1) and FKR-3's rank chips",
   GRENADE_IDS: "bookkeeping: the grenade family in catalog order, read by the wiring registry (its GRENADES entries, Field Kits FKR-5) and FKR-9's charge readout",
-  FIELD_KITS_CATALOG_VERSION: "seam: FKR-7 (buildExpedition stamps Expedition.fieldKits.catalog with it, flag 2)",
-  FIELD_KIT_PRICES: "seam: FKR-7 (Quartermaster kit sales and the launch top-up charge it; registered pending)",
   PROSPECTING_USES: "seam: the prospecting quests patch (the three later Prospecting uses, read by the wiring registry; deferred)",
   PROSPECTING_BLUEPRINTS: "seam: the prospecting quests patch merges these hidden blueprints into BLUEPRINTS (read by the wiring registry; deferred)",
   // Relics v2 R2-1 (dormant catalog; plan 2026-10-17 section 4): each is read by the slice named, tested in relicsV2Catalog.test.ts.
