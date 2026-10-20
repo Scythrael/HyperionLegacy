@@ -80,3 +80,7 @@ section 5.A captain nodes). Kept in their own file so the parallel integrator's 
   (rareMaterial).
 - **Names:** "Approve": template key prisonerTransport, label "Prisoner Transport"; mockup placeholder designations
   and phenomenon names for destinations.
+- **Overtime on expeditions:** "No, not expeditions (Recommended)": expeditions stay fixed; the free time skip seam
+  still applies.
+- **Field Kits before FKR-7:** "Hide until kits are live (Recommended)": the Impact Grenade blueprint and the +1 Carry
+  Capacity craft line stay hidden until FKR-7 wires kits into runs.
