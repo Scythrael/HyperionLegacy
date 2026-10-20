@@ -124,12 +124,19 @@ const THROW: GambitProgram = [{ target: "foeLargestGroup", action: "throwGrenade
 const program = (id: string): GambitProgram => gambitPresetPrograms(id)!.security;
 
 // Captured on FKR-5 (e1d6d06).
-export const FKR5_STAMPED_PINS = {
+const FKR5_STAMPED_PINS = {
   throw: { fights: "768ca09e", run: "d05a966c" },
   decapitate: { fights: "d931b2e6", run: "df109462" },
   default: { fights: "352470e0", run: "53d86f60" },
   triage: { fights: "746a3eb3", run: "9f802a9c" },
 } as const;
+
+// MOVED AT FKR-6, named (see the header): the default program now throws (N15) and Triage's kit-less Use Item spends
+// the member's own First Aid Kits, none packed before FKR-7 (call 15). Re-pinned on FKR-6.
+const FKR6_MOVED_PINS: Partial<Record<keyof typeof FKR5_STAMPED_PINS, { fights: string; run: string }>> = {
+  default: { fights: "a2808357", run: "d4ce6a8c" },
+  triage: { fights: "f255b27a", run: "32c10f40" },
+};
 
 describe("FKR-6 goldens: what a stamped run's fights did at FKR-5", () => {
   const cases: [keyof typeof FKR5_STAMPED_PINS, GambitProgram | undefined, number][] = [
@@ -139,9 +146,15 @@ describe("FKR-6 goldens: what a stamped run's fights did at FKR-5", () => {
     ["triage", program("triage"), 0x2b77],
   ];
   for (const [name, prog, seed] of cases) {
-    it(`${name}: two fights and a whole stamped run`, { timeout: 120_000 }, () => {
+    const moved = FKR6_MOVED_PINS[name];
+    it(`${name}: two fights and a whole stamped run ${moved ? "MOVED on purpose at FKR-6" : "unchanged from FKR-5"}`, { timeout: 120_000 }, () => {
       const got = pin(prog, seed);
-      expect(got).toEqual(FKR5_STAMPED_PINS[name]);
+      if (moved) {
+        expect(got.fights).not.toBe(FKR5_STAMPED_PINS[name].fights);
+        expect(got).toEqual(moved);
+      } else {
+        expect(got).toEqual(FKR5_STAMPED_PINS[name]);
+      }
     });
   }
 });

@@ -53,6 +53,11 @@
 //                  slices held apart and the flip read back as pending it reproduces c748495a, and with WR-6 read back
 //                  too it reproduces the pin from before WR-6. The registry moves before this one: FKR-4, the
 //                  2026-10-19 review rulings (the Bleed flips), CP-8 and WR-6 (above).
+// MOVED BY FKR-6 (kits in battle, rank conditions, the Boss reserve): registry 1201 e6523a6f -> 1206 120f6d8b:
+//                  FKR-6 adds 5 entries (the "Ally downed" selector; the two rank conditions, the Boss reserve and the
+//                  Field Kits default program under GAMBIT_PROGRAMS) and flips 8 pending -> live (the six kits, the First
+//                  Aid and Advanced Medical category rules). Held apart through FKR6_SLICE, the registry hashes exactly
+//                  as the e6523a6f pin.
 // ADDED BY G1-1: `guests:<hull>` (guest quarters bare and with each quarters variety, the Guest Wing last) and
 // `stats:<hull>:guestWing` (every other stat with a Guest Wing installed). The sheets hash through withoutGuests, so
 // the stats pins keep proving no other stat moved (the transport hulls now carry base guest quarters).
@@ -278,7 +283,7 @@ const GOLDEN: Record<string, unknown> = {
     "50:quartersFlightDeckWing:stellar:q2:iL31:{\"crewStations\":57}:{\"colonistCapacity\":76,\"crewStations\":19}:m0:quartersFlightDeckWing",
     "pool:[{\"stat\":\"crewStations\",\"weight\":5},{\"stat\":\"crewEfficiency\",\"weight\":2},{\"stat\":\"massReduction\",\"weight\":1},{\"stat\":\"colonistCapacity\",\"weight\":2}]",
   ],
-  "registry": [1201, "e6523a6f"],
+  "registry": [1206, "120f6d8b"],
   "registry:g1": ["ship:gearLine:colonistCapacity|pending", "ship:SHIP_TYPES:generalFreighter:colonistCapacity|pending", "ship:SHIP_TYPES:orion:colonistCapacity|pending", "ship:SHIP_TYPES:aurora:colonistCapacity|pending", "ship:SHIP_TYPES:eir:colonistCapacity|pending", "ship:SHIP_SEAMS:generalQuartersGuestPerk|pending", "ship:QUARTERS_MODULES:quartersGuestWing|live", "ship:QUARTERS_MODULES:quartersGuestWing:capacity|pending",
     // G1-2: the short-range template catalog, pending the cycle engine (G1-4).
     "mission:SHORT_RANGE_TEMPLATES:refugeeRelocation:rolls|pending", "mission:SHORT_RANGE_TEMPLATES:refugeeRelocation:work|pending", "mission:SHORT_RANGE_TEMPLATES:refugeeRelocation:reward|pending", "mission:SHORT_RANGE_TEMPLATES:supplyDropOff:rolls|pending", "mission:SHORT_RANGE_TEMPLATES:supplyDropOff:work|pending", "mission:SHORT_RANGE_TEMPLATES:supplyDropOff:reward|pending", "mission:SHORT_RANGE_TEMPLATES:supplyPickup:rolls|pending", "mission:SHORT_RANGE_TEMPLATES:supplyPickup:work|pending", "mission:SHORT_RANGE_TEMPLATES:supplyPickup:reward|pending", "mission:SHORT_RANGE_TEMPLATES:phenomenonSurvey:rolls|pending", "mission:SHORT_RANGE_TEMPLATES:phenomenonSurvey:work|pending", "mission:SHORT_RANGE_TEMPLATES:phenomenonSurvey:reward|pending", "mission:SHORT_RANGE_TEMPLATES:telescopeRepair:rolls|pending", "mission:SHORT_RANGE_TEMPLATES:telescopeRepair:work|pending", "mission:SHORT_RANGE_TEMPLATES:telescopeRepair:reward|pending", "mission:SHORT_RANGE_TEMPLATES:commBoosterBuild:rolls|pending", "mission:SHORT_RANGE_TEMPLATES:commBoosterBuild:work|pending", "mission:SHORT_RANGE_TEMPLATES:commBoosterBuild:reward|pending", "mission:SHORT_RANGE_TEMPLATES:prisonerTransport:rolls|pending", "mission:SHORT_RANGE_TEMPLATES:prisonerTransport:work|pending", "mission:SHORT_RANGE_TEMPLATES:prisonerTransport:reward|pending"],
@@ -393,6 +398,21 @@ const FKR5_RULINGS_ADDED: ReadonlySet<string> = new Set<string>(["away:audit:fie
 const G23_ADDED_ENTRY_IDS: ReadonlySet<string> = new Set<string>(["expedition:audit:voyageDeepTiers", "expedition:audit:voyageDriveClass"]);
 // The `registry` pin on the feat base before FKR-5 and G2-3 merged (after WR-6, CP-8 and G1-2).
 const REGISTRY_BEFORE_FKR5_G23 = [1182, "c748495a"];
+// Field Kits FKR-6 (kits in battle), held apart by the cause checks: the 5 entries it ADDS and the 8 it FLIPS pending
+// -> live (read back as pending there). The registry pin before it is REGISTRY_BEFORE_FKR6.
+const FKR6_ADDED_ENTRY_IDS: ReadonlySet<string> = new Set<string>([
+  "away:GAMBIT_SELECTORS:allyDowned",
+  "away:GAMBIT_PROGRAMS:minRank:elite",
+  "away:GAMBIT_PROGRAMS:minRank:boss",
+  "away:GAMBIT_PROGRAMS:reserveForBoss",
+  "away:GAMBIT_PROGRAMS:fieldKitsDefault",
+]);
+const FKR6_FLIPPED_LIVE: ReadonlySet<string> = new Set<string>([
+  ...["firstAidKit", "antitoxin", "combatStim", "splint", "traumaKit", "injuryKit"].map((k) => `away:FIELD_KITS:${k}`),
+  "away:KIT_CATEGORY_RULES:firstAid",
+  "away:KIT_CATEGORY_RULES:advancedMedical",
+]);
+const REGISTRY_BEFORE_FKR6 = [1201, "e6523a6f"];
 
 // The ONE exclusion helper every registry pin goes through. Each slice names the entries it ADDED (stripped) and the
 // entries it FLIPPED (read back as their earlier status), so a pin taken before that slice is reproduced exactly and
@@ -401,6 +421,7 @@ type RegistrySlice = { readonly added?: ReadonlySet<string>; readonly flipped?: 
 const G1_SLICE: RegistrySlice = { added: G1_ADDED_ENTRY_IDS };
 const FKR5_SLICE: RegistrySlice = { added: new Set([...FKR5_ADDED_ENTRY_IDS, ...FKR5_RULINGS_ADDED]), flipped: FKR5_FLIPPED_LIVE, was: "pending" };
 const G23_SLICE: RegistrySlice = { added: G23_ADDED_ENTRY_IDS };
+const FKR6_SLICE: RegistrySlice = { added: FKR6_ADDED_ENTRY_IDS, flipped: FKR6_FLIPPED_LIVE, was: "pending" };
 function registryPin(...slices: readonly RegistrySlice[]): [number, string] {
   const lines = WIRING_REGISTRY.filter((e) => !slices.some((sl) => sl.added?.has(e.id))).map((e) => {
     const flip = slices.find((sl) => sl.flipped?.has(e.id));
@@ -543,15 +564,21 @@ describe("G1-0 golden 5: the wiring registry's ids and statuses", () => {
   });
   // FKR-5 and G2-3 moved the pin (see the header); with their entries held apart and the Explosives flip read back as
   // pending, the registry hashes exactly as the feat base before them.
+  it("FKR-6 is the only cause of the latest registry move", () => {
+    expect(registryPin(G1_SLICE, FKR6_SLICE)).toEqual(REGISTRY_BEFORE_FKR6);
+    expect(WIRING_REGISTRY.filter((e) => FKR6_ADDED_ENTRY_IDS.has(e.id) || FKR6_FLIPPED_LIVE.has(e.id)).map((e) => e.status.kind)).toEqual(
+      Array(FKR6_ADDED_ENTRY_IDS.size + FKR6_FLIPPED_LIVE.size).fill("live"),
+    );
+  });
   it("FKR-5 and G2-3 are the only causes of the registry move", () => {
-    expect(registryPin(G1_SLICE, FKR5_SLICE, G23_SLICE)).toEqual(REGISTRY_BEFORE_FKR5_G23);
+    expect(registryPin(G1_SLICE, FKR6_SLICE, FKR5_SLICE, G23_SLICE)).toEqual(REGISTRY_BEFORE_FKR5_G23);
   });
   // WR-6: the nine placeholder entries it wires flip pending -> live (the count and the order hold). With those nine
   // read as pending again (and the later slices held apart) the lines hash to the pin from before WR-6, so the flips
   // are the only move.
   it("WR-6 is the only cause of the registry move", () => {
     expect(WIRING_REGISTRY.filter((e) => WR6_WIRED_IDS.has(e.id)).map((e) => e.status.kind)).toEqual(Array(WR6_WIRED_IDS.size).fill("live"));
-    expect(registryPin(G1_SLICE, FKR5_SLICE, G23_SLICE, WR6_SLICE)).toEqual(REGISTRY_BEFORE_WR6);
+    expect(registryPin(G1_SLICE, FKR6_SLICE, FKR5_SLICE, G23_SLICE, WR6_SLICE)).toEqual(REGISTRY_BEFORE_WR6);
   });
   it("Field Kits FKR-5: the added entries and the one flipped, each with its status", () => {
     const added = WIRING_REGISTRY.filter((e) => FKR5_ADDED_ENTRY_IDS.has(e.id));

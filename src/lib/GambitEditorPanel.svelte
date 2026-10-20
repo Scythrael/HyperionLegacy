@@ -122,6 +122,9 @@
     selfHasStatus: "Self: has status",
     openingRound: "Opening round",
     outnumbered: "Outnumbered",
+    // Field Kits FKR-6: the Injury Kit's target. Not in SELECTOR_GROUPS yet: the editor's Field Kits pass (FKR-10)
+    // offers it with the kit picker; no fight a player can launch carries kits before then.
+    allyDowned: "Ally: downed",
   };
 
   // The full action list in a stable order, FILTERED to Security's legal set (isActionLegalForRole), so a rule

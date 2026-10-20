@@ -45,6 +45,8 @@ import type { WeaponId } from "./combat/weapons";
 // Ground Operations (GO-8): the officers' combat PROFILE a ship-event run freezes at dispatch (crewOverlay.ts
 // officerCombatProfile, folded at each event's wall hours). TYPE-ONLY import (compile-erased): no runtime cycle.
 import type { OfficerCombatEntry } from "./crewOverlay";
+// Field Kits FKR-6: the kit ids a gambit rule and a fight record name (type only; fieldKits.ts imports this module).
+import type { FieldKitId } from "./fieldKits";
 
 // Data model, tech spec §1 (Data Model).
 // Phase 4 (docs/plans/2026-07-06-phase4-navigation-progression-overhaul-plan.md):
@@ -7239,7 +7241,10 @@ export type GambitTargetSelector =
   | "selfHasStatus" // params.statusId
   // --- Non-target conditions (fire against a contextual default target) ---
   | "openingRound"
-  | "outnumbered";
+  | "outnumbered"
+  // Field Kits FKR-6: a DOWNED ally (the lowest id), the Injury Kit's target (FK-M5). Every other selector sees standing
+  // allies only. A rule with this selector fires only as a Field Kits run's Use Item with an Injury Kit (gambit.ts).
+  | "allyDowned";
 
 // ACTIONS, role-scoped. SECURITY fights; SCIENCE supports/cures/secures; BOTH share the neutral trio.
 // Role-legality is enforced by gambit.ts (isActionLegalForRole): a Science rule with a Security action
@@ -7301,6 +7306,17 @@ export type GambitStatusId =
 export interface GambitRuleParams {
   hpThreshold?: number; // 0..1 fraction for allyHpBelow / selfHpBelow
   statusId?: GambitStatusId; // for foeHasStatus / allyHasStatus / selfHasStatus (and cure's target status)
+  // Field Kits FKR-6 (all optional; a rule without them reads exactly as before):
+  //   kitId          : the kit a Use Item rule spends from the actor's OWN carried kits on a Field Kits run (absent =
+  //                    the First Aid Kit, call 15 "Means First Aid Kit"). A run without Field Kits keeps the team kit.
+  //   minRank        : the rule fires only when its resolved target is at least this enemy rank (group 7 "Rank rules +
+  //                    reserve": "target is Elite or stronger" = "elite", "target is a Boss" = "boss"). An ally, or an
+  //                    enemy of an unranked run, reads Normal.
+  //   reserveForBoss : "keep N for a Boss": on a target that is not a Boss the rule fires only while the actor holds
+  //                    MORE than N of what it spends (grenade charges, or that kit); on a Boss it spends freely.
+  kitId?: FieldKitId;
+  minRank?: EnemyRank;
+  reserveForBoss?: number;
 }
 
 // ONE gambit rule: a target selector (+ optional params) and the action to take on the match.
@@ -7364,6 +7380,26 @@ export const DEFAULT_MEMBER_GAMBIT: GambitProgram = [
   { target: "foeLowestHp", action: "execute" },
   { target: "foeNearest", action: "attack" },
 ];
+
+// Field Kits FKR-6 (N7 + N15, user 2026-10-16 "Thrown, spend charges": "the DEFAULT program throws them sensibly, saving
+// one for a Boss"; a user-approved change to D19's "no automatic kit use" for GRENADES only, never a kit): the grenade
+// rules a member on the built-in default runs on a Field Kits run. [PROVISIONAL] the exact rules: N15's "Throw grenade
+// at the largest group, keep 1 for a Boss", plus a rule that spends the kept charge ON the Boss (its highest threat:
+// a Boss lead is the fight's strongest enemy at x2.5). A member without a grenade, out of charges, or past this
+// battle's throw skips both (FK11), so the rest of the default acts exactly as D19's.
+export const FIELD_KITS_DEFAULT_GRENADE_RULES: readonly GambitRule[] = [
+  { target: "foeHighestThreat", params: { minRank: "boss" }, action: "throwGrenade" },
+  { target: "foeLargestGroup", params: { reserveForBoss: 1 }, action: "throwGrenade" },
+];
+
+// The default program on a Field Kits run: D19's DEFAULT_MEMBER_GAMBIT with the grenade rules after its medic and
+// defense rules (cure, patch, brace) and before its targeting. groundFight.ts swaps it in for a member whose
+// snapshot program IS the default (a run without Field Kits never reads it, so no flag-less run moves). Still no
+// Use Item rule: kits are never spent automatically (D19).
+export const FIELD_KITS_DEFAULT_MEMBER_GAMBIT: GambitProgram = (() => {
+  const at = DEFAULT_MEMBER_GAMBIT.findIndex((r) => r.action === "brace") + 1;
+  return [...DEFAULT_MEMBER_GAMBIT.slice(0, at), ...FIELD_KITS_DEFAULT_GRENADE_RULES, ...DEFAULT_MEMBER_GAMBIT.slice(at)];
+})();
 
 // A snapshot of the installed sensor array's resolved (rarity/quality-scaled) scan-behavior params,
 // captured at dispatch so resolution is a pure function of the stored expedition (no live fitment
@@ -7783,6 +7819,14 @@ export interface GroundFightRecord {
   // Field Kits run's fight in which someone threw, so every other record keeps its exact shape. FKR-7 subtracts it from
   // the member's charges left this objective.
   chargesUsed?: Record<string, number>;
+  // Field Kits FKR-6 (kits in battle): memberId -> the kits that member SPENT in this fight, split by where they came
+  // from: `basicsUsed` from the objective's free basic set, `kitsUsed` from the extras they carry (stock, which never
+  // comes home once spent). `treated`: memberId -> the Injury Kit share a downed member received (the medical bay
+  // divisor, medicalBay.ts treatmentShare). Each is written only on a Field Kits run's fight where it happened, so
+  // every other record keeps its exact shape. FKR-7 subtracts the spends from the team's run and sums `treated`.
+  basicsUsed?: Record<string, Partial<Record<FieldKitId, number>>>;
+  kitsUsed?: Record<string, Partial<Record<FieldKitId, number>>>;
+  treated?: Record<string, number>;
 }
 
 // A ground team's current step on the run timeline (GO-7b): idle / staging are open-ended (stepEndsAt null).

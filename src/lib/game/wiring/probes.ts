@@ -13,7 +13,9 @@
 import Decimal from "break_infinity.js";
 import {
   BLUEPRINTS,
+  DEFAULT_MEMBER_GAMBIT,
   EQUIPMENT_SLOTS,
+  FIELD_KITS_DEFAULT_GRENADE_RULES,
   MEMBER_SLOT_TYPES,
   MISSIONS,
   PATROLS,
@@ -140,8 +142,9 @@ import {
   type BattleState,
   type GroundCombatant,
 } from "../gambit";
-import { FIELD_KITS_CATALOG_VERSION } from "../fieldKits";
+import { FIELD_KITS_CATALOG_VERSION, type FieldKitId } from "../fieldKits";
 import { withThrownGrenades } from "../fieldKitsGrenades";
+import { FIELD_KITS_BATTLE, withFieldKitsDefaultProgram } from "../fieldKitsBattle";
 import { fieldworkEffect, fieldworkHazardResist, fieldworkSpeedMult } from "../fieldwork";
 import { taskSecurityHazardResist } from "../groundTasks";
 import { awayRecruitCandidates, snapshotMembers } from "../awayTeam";
@@ -155,7 +158,7 @@ import { departmentFacet, seatFacet } from "../officerStats";
 import { RELICS, museumBonuses, type MuseumStat } from "../relics";
 import { hullTeardownFraction, salvageSalvagedMaterial, salvageShip, salvageTalentBonus, salvageYieldMult } from "../salvage";
 import { alertResetSeconds, escalationAt, extraBattleChance, longRangeCover, maxExtraBattles } from "../affixes";
-import { ENEMY_RANKS_VERSION, type EnemyRank } from "../enemyRanks";
+import { ENEMY_RANK_IDS, ENEMY_RANKS_VERSION, type EnemyRank } from "../enemyRanks";
 import { taskFightGuard, taskFightTeam } from "../groundFight";
 import { sellItem } from "../quartermaster";
 import { retirementExpMultiplier } from "../captainRetirement";
@@ -1494,7 +1497,9 @@ function selectorScenario(): BattleState {
   const e2 = gc("e2", "enemy", { hp: 30, threat: 20, role: "healer", groupTag: "b" });
   applyStatus(e2, "suppressed");
   const e3 = gc("e3", "enemy", { hp: 20, threat: 8, role: "caster", groupTag: "b" });
-  return battle([a1, a2, e1, e2, e3]);
+  // Field Kits FKR-6: a downed ally (no other selector sees it).
+  const a3 = gc("a3", "team", { hp: 0, downed: true });
+  return battle([a1, a2, e1, e2, e3, a3]);
 }
 const SELECTOR_PICK: Readonly<Record<GambitTargetSelector, { pick: string; params?: GambitRule["params"] }>> = {
   foeNearest: { pick: "e1" },
@@ -1514,6 +1519,7 @@ const SELECTOR_PICK: Readonly<Record<GambitTargetSelector, { pick: string; param
   selfHasStatus: { pick: "a1", params: { statusId: "weakened" } },
   openingRound: { pick: "e1" },
   outnumbered: { pick: "e1" },
+  allyDowned: { pick: "a3" },
 };
 export const GAMBIT_SELECTORS = Object.keys(SELECTOR_PICK) as GambitTargetSelector[];
 
@@ -1893,6 +1899,16 @@ function readContent(id: string, s: GameState): number {
       }
       return afflicted;
     }
+    case "kit":
+      return kitProbe(a as FieldKitId, on);
+    case "kitCategory":
+      return kitCategoryProbe(a, on);
+    case "rankCondition":
+      return rankConditionProbe(on ? (a as EnemyRank) : undefined);
+    case "bossReserve":
+      return bossReserveProbe(on);
+    case "fieldKitsDefault":
+      return fieldKitsDefaultProbe(on);
     case "enemyRank": {
       // Field Kits FKR-1: the guard of a REAL task fight (groundFight.ts taskFightGuard, the list resolveTaskFightOnSeed
       // fields) at the fight point the placement leads with rank `a`: an objective of the grade and point
@@ -1908,6 +1924,143 @@ function readContent(id: string, s: GameState): number {
     default:
       throw new Error(`unknown content probe ${id}`);
   }
+}
+
+// == Field Kits FKR-6: kits in battle, rank conditions, the Boss reserve, the Field Kits default program ==
+
+// A battle state with the Field Kits kit rules (a Field Kits run's battle), and a member carrying `n` of `kit`.
+function kitBattle(combatants: GroundCombatant[]): BattleState {
+  return { ...battle(combatants, 0), kitRules: FIELD_KITS_BATTLE };
+}
+function packed(c: GroundCombatant, kit: FieldKitId, n: number): GroundCombatant {
+  c.kits = { basics: {}, extras: n > 0 ? { [kit]: n } : {}, basicsUsed: {}, extrasUsed: {} };
+  return c;
+}
+const ZERO_CARE = { medicalShare: 0, rapidRecoveryShare: 0, officerFacetShare: 0, injurySteady: 0 };
+
+// Kit `kit`'s effect through Use Item rules (on: the actor carries the kits; off: none, so the rule never fires):
+//   firstAidKit : the hp an afflicted ally gains from one use at effectiveness 1 (an untrained hand x a Fleet Triage of
+//                 2; the heal rides the cleanse);
+//   antitoxin   : the conditions one use removes from a Poisoned ally (a Medical Training hand);
+//   combatStim  : the Inspired rounds one use grants at effectiveness 1;
+//   splint      : the allies two uses treat (a Fracture splinted, a Broken Bone turned into a Fracture);
+//   traumaKit   : the conditions two uses clear (Hemorrhage, Neurotoxin, Concussion and a Fracture on one ally, a Broken
+//                 Bone on another);
+//   injuryKit   : a downed ally's Broken Bone bay time with the share one use records (the medical bay divisor).
+function kitProbe(kit: FieldKitId, on: boolean): number {
+  const n = on ? 2 : 0;
+  const use = (actor: GroundCombatant, st: BattleState, target: GambitRule["target"], times = 1) => {
+    for (let i = 0; i < times; i += 1) evaluateAndAct([{ target, params: { kitId: kit }, action: "useItem" }], actor, st, makeRng(0x5eed));
+  };
+  switch (kit) {
+    case "firstAidKit": {
+      const actor = packed(gc("a1", "team", { careMult: 2 }), kit, n);
+      const ally = gc("a2", "team", { hp: 50, hpMax: 200 });
+      applyStatus(ally, "weakened");
+      use(actor, kitBattle([actor, ally, gc("e1", "enemy")]), "allyHasStatus");
+      return ally.hp - 50;
+    }
+    case "antitoxin": {
+      const actor = packed(gc("a1", "team", { medic: true }), kit, n);
+      const ally = gc("a2", "team");
+      applyStatus(ally, "poison");
+      use(actor, kitBattle([actor, ally, gc("e1", "enemy")]), "allyHasStatus");
+      return 1 - ally.statuses.length;
+    }
+    case "combatStim": {
+      const actor = packed(gc("a1", "team", { careMult: 2 }), kit, n);
+      use(actor, kitBattle([actor, gc("e1", "enemy")]), "self");
+      return actor.statuses.find((x) => x.id === "inspired")?.remaining ?? 0;
+    }
+    case "splint": {
+      const actor = packed(gc("a1", "team", { medic: true }), kit, n);
+      const a2 = gc("a2", "team");
+      const a3 = gc("a3", "team");
+      applyBoneHit(a2);
+      applyBoneHit(a3);
+      applyBoneHit(a3);
+      const before = [a2, a3].map((c) => JSON.stringify(c.statuses));
+      use(actor, kitBattle([actor, a2, a3, gc("e1", "enemy")]), "allyHasStatus", 2);
+      return [a2, a3].filter((c, i) => JSON.stringify(c.statuses) !== before[i]).length;
+    }
+    case "traumaKit": {
+      const actor = packed(gc("a1", "team", { medic: true }), kit, n);
+      const a2 = gc("a2", "team", { hp: 20 });
+      for (const id of ["hemorrhage", "neurotoxin", "concussion"] as const) applyStatus(a2, id);
+      applyBoneHit(a2);
+      const a3 = gc("a3", "team");
+      applyBoneHit(a3);
+      applyBoneHit(a3);
+      const held = a2.statuses.length + a3.statuses.length;
+      use(actor, kitBattle([actor, a2, a3, gc("e1", "enemy")]), "allyHasStatus", 2);
+      return held - a2.statuses.length - a3.statuses.length;
+    }
+    case "injuryKit": {
+      const actor = packed(gc("a1", "team", { medic: true }), kit, n);
+      const ally = gc("a2", "team", { memberId: "wiring-downed", hp: 0, downed: true });
+      use(actor, kitBattle([actor, ally, gc("e1", "enemy")]), "allyDowned");
+      return conditionCureSeconds(GROUND_CONDITIONS.brokenBone, [], ZERO_CARE, ally.injuryTreated ?? 0);
+    }
+  }
+}
+
+// Kit category `cat`'s rule (on: a Medical Training hand; off: an untrained one):
+//   firstAid        : the hp one First Aid Kit restores (a large Fleet Triage keeps the rounding out of the ratio);
+//   advancedMedical : the Splints that fire on a Fractured ally (the gate).
+function kitCategoryProbe(cat: string, on: boolean): number {
+  if (cat === "firstAid") {
+    const actor = packed(gc("a1", "team", { medic: on, careMult: 100 }), "firstAidKit", 1);
+    const ally = gc("a2", "team", { hp: 1, hpMax: 100_000 });
+    applyStatus(ally, "weakened");
+    evaluateAndAct([{ target: "allyHasStatus", params: { kitId: "firstAidKit" }, action: "useItem" }], actor, kitBattle([actor, ally, gc("e1", "enemy")]), makeRng(0x5eed));
+    return ally.hp - 1;
+  }
+  if (cat === "advancedMedical") {
+    const actor = packed(gc("a1", "team", { medic: on }), "splint", 1);
+    const ally = gc("a2", "team");
+    applyBoneHit(ally);
+    evaluateAndAct([{ target: "allyHasStatus", params: { kitId: "splint" }, action: "useItem" }], actor, kitBattle([actor, ally, gc("e1", "enemy")]), makeRng(0x5eed));
+    return actor.kits?.extrasUsed.splint ?? 0;
+  }
+  throw new Error(`kit category ${cat} has no battle probe`);
+}
+
+// A rank condition (on: "target is <rank> or stronger"; off: no condition): how many of a lineup of one enemy per rank
+// (Weak to Boss) the rule attacks.
+function rankConditionProbe(minRank: EnemyRank | undefined): number {
+  let fires = 0;
+  for (const rank of ENEMY_RANK_IDS) {
+    const actor = gc("a1", "team");
+    const foe = gc("e1", "enemy", { rank, hp: 1000, hpMax: 1000 });
+    evaluateAndAct([{ target: "foeNearest", ...(minRank ? { params: { minRank } } : {}), action: "attack" }], actor, battle([actor, foe]), makeRng(0x5eed));
+    if (foe.hp < 1000) fires += 1;
+  }
+  return fires;
+}
+
+// The Boss reserve (on: the Field Kits default's "keep N for a Boss" on a throw rule; off: none): the charges a thrower
+// with two left, throwing every turn it can, spends over a whole battle against a Normal foe.
+function bossReserveProbe(on: boolean): number {
+  const keep = FIELD_KITS_DEFAULT_GRENADE_RULES.find((r) => r.params?.reserveForBoss !== undefined)?.params?.reserveForBoss;
+  const thrower = gc("a1", "team", { memberId: "wiring-thrower", hp: GRENADE_PROBE_HP, hpMax: GRENADE_PROBE_HP });
+  thrower.grenade = { status: "concussion", statusPermille: 0, powerMult: 1, charges: 2, perBattle: 99, used: 0 };
+  thrower.program = [
+    { target: "foeNearest", ...(on && keep !== undefined ? { params: { reserveForBoss: keep } } : {}), action: "throwGrenade" },
+    { target: "foeNearest", action: "attack" },
+  ];
+  const foe = gc("e1", "enemy", { hp: GRENADE_PROBE_HP, hpMax: GRENADE_PROBE_HP });
+  return resolveGroundBattle([thrower], [foe], 0, makeRng(0x5eed)).chargesUsed?.[thrower.memberId!] ?? 0;
+}
+
+// The Field Kits default program (on: a Field Kits fight swaps it in for a member on D19's default; off: D19's own): the
+// grenades a member on the default, armed with an Impact Grenade, throws in one battle against a group of two.
+function fieldKitsDefaultProbe(on: boolean): number {
+  const thrower = armedThrower("impactGrenade", 0);
+  thrower.program = DEFAULT_MEMBER_GAMBIT.map((r) => ({ ...r }));
+  thrower.hp = thrower.hpMax = GRENADE_PROBE_HP;
+  if (on) withFieldKitsDefaultProgram([thrower]);
+  const foes = [gc("e1", "enemy", { hp: GRENADE_PROBE_HP, hpMax: GRENADE_PROBE_HP }), gc("e2", "enemy", { hp: GRENADE_PROBE_HP, hpMax: GRENADE_PROBE_HP })];
+  return resolveGroundBattle([thrower], foes, 0, makeRng(0x5eed)).chargesUsed?.[thrower.memberId!] ?? 0;
 }
 
 // Field Kits FKR-1: the fight each placed rank is probed on (grade 1 Simple .. 5 Deadly, the 0-based fight point of a
