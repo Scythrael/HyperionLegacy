@@ -144,7 +144,8 @@ const CATALOG_SINGLETON_SLOTS: ReadonlySet<EquipmentSlotType> = new Set<Equipmen
   "quarters",
   "sensor",
 ]);
-const MULTI_SLOT_TYPES: ReadonlySet<EquipmentSlotType> = new Set<EquipmentSlotType>(["weapon", "droneBay"]);
+// Exported for the power budget reader (shipPower.ts), so its candidate swap follows the same slot rule.
+export const MULTI_SLOT_TYPES: ReadonlySet<EquipmentSlotType> = new Set<EquipmentSlotType>(["weapon", "droneBay"]);
 
 // ----------------------------------------------------------------------------
 // captainBranchToShipSpec

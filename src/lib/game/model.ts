@@ -221,6 +221,12 @@ export interface ShipTypeDef {
   // substitute for the cargo hold. Folded into ShipDerivedStats.colonistCapacity (shipDerivedStats). OPTIONAL: set
   // only on the transport-minded hulls (HULL_GUEST_QUARTERS); absent reads as 0.
   colonistCapacity?: number;
+  // E-MOD EM-1 (0.14.0, plan docs/plans/2026-10-17-material-lines-and-emod-plan.md section 3.2; user P1 2026-10-17 "No
+  // ship goes over"): the hull's OWN power generation, the base of the B.4 power grid. Each value sits at or above the
+  // heaviest crafted loadout the hull can install today (the EM-0 census: emodGoldens.test.ts), so no live ship goes
+  // over budget; the budget binds on modules and higher drive classes. Explorers run well above their census, the
+  // power-rich identity (B.4). shipDerivedStats folds it into ShipDerivedStats.powerOutput.
+  basePowerOutput: number;
   // FORWARD (not populated this pass): reactorTier?: number  // reactorTier <= tier; gates equip/module tiers
 }
 
@@ -1083,6 +1089,7 @@ export const SHIP_TYPES: Record<ShipTypeKey, ShipTypeDef> = {
     cargoCapacity: 90, transitSpeedMult: 1.0, extractionYieldMult: 1.0,
     fuelCapacity: 200, engineEfficiency: 0, // range hull: big tank, baseline burn
     moduleSlots: 1, equipmentSlots: 0,
+    basePowerOutput: 85, // E-MOD EM-1 (P1): the hull's own power, at or above its heaviest crafted loadout
     // ⚠️ TUNABLE / INERT (0.12.0 combat): range hull, tough frame, modest shields, one hardpoint.
     hullIntegrity: 500, shieldCapacity: 200, shieldRecharge: 5, weaponHardpoints: 2,
     // CHEAPEST hull to build (the starter/fallback): a small frame + coupling BOM, no
@@ -1104,6 +1111,7 @@ export const SHIP_TYPES: Record<ShipTypeKey, ShipTypeDef> = {
     cargoCapacity: 180, transitSpeedMult: 0.8, extractionYieldMult: 1.0,
     fuelCapacity: 160, engineEfficiency: 0.15, // between: mid tank, mild efficiency
     moduleSlots: 2, equipmentSlots: 0,
+    basePowerOutput: 85, // E-MOD EM-1 (P1): the hull's own power, at or above its heaviest crafted loadout
     // ⚠️ TUNABLE / INERT (0.12.0 combat): biggest hull, most integrity + shields, slow regen.
     hullIntegrity: 700, shieldCapacity: 250, shieldRecharge: 4, weaponHardpoints: 2,
     // MOST EXPENSIVE to build (double cargo): the biggest frame BOM + 2 major
@@ -1123,6 +1131,7 @@ export const SHIP_TYPES: Record<ShipTypeKey, ShipTypeDef> = {
     cargoCapacity: 60, transitSpeedMult: 1.5, extractionYieldMult: 1.0,
     fuelCapacity: 100, engineEfficiency: 0.5, // efficiency hull: small tank, least burn
     moduleSlots: 2, equipmentSlots: 0,
+    basePowerOutput: 50, // E-MOD EM-1 (P1): the hull's own power, at or above its heaviest crafted loadout
     // ⚠️ TUNABLE / INERT (0.12.0 combat): fast + fragile, least integrity, quickest shield regen.
     hullIntegrity: 300, shieldCapacity: 150, shieldRecharge: 8, weaponHardpoints: 1,
     // MID build (fast but small hold): a lighter frame BOM than the extraction hulls +
@@ -1142,6 +1151,7 @@ export const SHIP_TYPES: Record<ShipTypeKey, ShipTypeDef> = {
     cargoCapacity: 90, transitSpeedMult: 1.0, extractionYieldMult: 1.35,
     fuelCapacity: 140, engineEfficiency: 0.25, // between: mid tank, moderate efficiency
     moduleSlots: 2, equipmentSlots: 0,
+    basePowerOutput: 50, // E-MOD EM-1 (P1): the hull's own power, at or above its heaviest crafted loadout
     // ⚠️ TUNABLE / INERT (0.12.0 combat): mid extraction rig, balanced defensive profile.
     hullIntegrity: 450, shieldCapacity: 180, shieldRecharge: 6, weaponHardpoints: 1,
     // ABOVE-MID build (specialized extraction rig): a heavier BOM than the Runner +
@@ -1176,6 +1186,7 @@ export const SHIP_TYPES: Record<ShipTypeKey, ShipTypeDef> = {
     cargoCapacity: 30, transitSpeedMult: 1.3, extractionYieldMult: 1.0,
     fuelCapacity: 130, engineEfficiency: 0.2, // nimble: mid-small tank, decent efficiency
     moduleSlots: 2, equipmentSlots: 0,
+    basePowerOutput: 160, // E-MOD EM-1 (P1): the hull's own power, at or above its heaviest crafted loadout
     // ⚠️ TUNABLE / LIVE (combat): FAST + fragile-ish striker. Solid hull, strong fast-
     // regen shields, but FEWER weapon hardpoints than the battleship (a raider, not a
     // gun platform). Default loadout = 2 fast weapons (see COMBAT_DEFAULT_LOADOUT).
@@ -1203,6 +1214,7 @@ export const SHIP_TYPES: Record<ShipTypeKey, ShipTypeDef> = {
     cargoCapacity: 40, transitSpeedMult: 0.7, extractionYieldMult: 1.0,
     fuelCapacity: 180, engineEfficiency: 0.05, // heavy: big tank, near-baseline burn
     moduleSlots: 3, equipmentSlots: 0,
+    basePowerOutput: 230, // E-MOD EM-1 (P1): the hull's own power, at or above its heaviest crafted loadout
     // ⚠️ TUNABLE / LIVE (combat): the TANK. MOST hull + shields of any hull and the MOST
     // weapon hardpoints (a wall of guns), at the cost of SLOW movement + slow shield
     // regen. Default loadout = 3 heavy weapons (see COMBAT_DEFAULT_LOADOUT).
@@ -1229,6 +1241,7 @@ export const SHIP_TYPES: Record<ShipTypeKey, ShipTypeDef> = {
     cargoCapacity: 25, transitSpeedMult: 0.8, extractionYieldMult: 1.0,
     fuelCapacity: 170, engineEfficiency: 0.1, // large hull: mid-large tank, mild efficiency
     moduleSlots: 2, equipmentSlots: 0,
+    basePowerOutput: 110, // E-MOD EM-1 (P1): the hull's own power, at or above its heaviest crafted loadout
     // ⚠️ TUNABLE / LIVE (combat): the DRONE platform. Tough (second only to the
     // battleship) but with REDUCED weapon hardpoints (design S8: carriers trade
     // hardpoints for built-in hangar bays). Its offense is its drone screen, NOT its
@@ -1293,6 +1306,7 @@ export const SHIP_TYPES: Record<ShipTypeKey, ShipTypeDef> = {
     cargoCapacity: 120, transitSpeedMult: 1.1, extractionYieldMult: 1.0, // FIRST-PASS TUNABLE
     fuelCapacity: 340, engineEfficiency: 0.35, // FIRST-PASS TUNABLE: highest-tier range + good reach efficiency
     moduleSlots: 4, equipmentSlots: 0, // FIRST-PASS TUNABLE: 4 > any combat hull (battleship 3), the explorer identity
+    basePowerOutput: 130, // E-MOD EM-1 (P1): the hull's own power, at or above its heaviest crafted loadout
     // ⚠️ TUNABLE / LIVE (combat): the glass tank. Huge shields, frail hull, one token gun.
     hullIntegrity: 340, shieldCapacity: 800, shieldRecharge: 12, weaponHardpoints: 1, // FIRST-PASS TUNABLE
     // Capital-class BOM (between the destroyer and the battleship). ⚠️ FIRST-PASS TUNABLE.
@@ -1316,6 +1330,7 @@ export const SHIP_TYPES: Record<ShipTypeKey, ShipTypeDef> = {
     cargoCapacity: 100, transitSpeedMult: 1.3, extractionYieldMult: 1.1, // FIRST-PASS TUNABLE: fastest explorer
     fuelCapacity: 320, engineEfficiency: 0.4, // FIRST-PASS TUNABLE: highest-tier range + best reach efficiency
     moduleSlots: 5, equipmentSlots: 0, // FIRST-PASS TUNABLE: 5, the MOST in the fleet (survey/science identity)
+    basePowerOutput: 150, // E-MOD EM-1 (P1): the hull's own power, at or above its heaviest crafted loadout
     // ⚠️ TUNABLE / LIVE (combat): the frailest explorer (leanest combat), quick shields.
     hullIntegrity: 300, shieldCapacity: 720, shieldRecharge: 14, weaponHardpoints: 1, // FIRST-PASS TUNABLE
     // Capital-class BOM, a touch lighter than Orion (leaner combat frame). ⚠️ FIRST-PASS TUNABLE.
@@ -1340,6 +1355,7 @@ export const SHIP_TYPES: Record<ShipTypeKey, ShipTypeDef> = {
     cargoCapacity: 220, transitSpeedMult: 0.9, extractionYieldMult: 1.0, // FIRST-PASS TUNABLE: biggest hold, slower heavy transport
     fuelCapacity: 300, engineEfficiency: 0.3, // FIRST-PASS TUNABLE: still highest-tier range, modest among explorers
     moduleSlots: 4, equipmentSlots: 0, // FIRST-PASS TUNABLE: 4 > any combat hull (battleship 3)
+    basePowerOutput: 120, // E-MOD EM-1 (P1): the hull's own power, at or above its heaviest crafted loadout
     // ⚠️ TUNABLE / LIVE (combat): a touch tougher frame than the other explorers (a big transport)
     // but still frail vs its shields, modest recharge.
     hullIntegrity: 360, shieldCapacity: 700, shieldRecharge: 10, weaponHardpoints: 1, // FIRST-PASS TUNABLE
@@ -3643,11 +3659,12 @@ export function missionCycleTiming(missionDef: MissionDef): MissionCycleTiming {
 //       math can read the EQUIPMENT-FOLDED value from one place. engineEfficiency
 //       BINDS (economyTick prices fuelPerCycle from it, canDispatch prices `need`
 //       from it); fuelCapacity BINDS the canDispatch RANGE gate.
-//   powerOutput / powerDraw / mass , SURFACED from the fold for the UI + the 0.12.0
-//       power budget. mass is consumed INTERNALLY by the fold's Mass penalty (it is
-//       surfaced too, for display). powerOutput/powerDraw are NON-BINDING this patch
-//       (nothing gates on the power balance yet, see the fold below); they BIND in
-//       0.12.0.
+//   powerOutput / powerDraw / mass , the POWER BUDGET (E-MOD EM-1) and the mass the fold's
+//       Mass penalty consumes INTERNALLY (surfaced too, for display). powerOutput = the hull's
+//       basePowerOutput + every installed powerOutput line (the reactor implicit); powerDraw =
+//       the installed pieces' draw (an FTL drive at its class, P5), cut by the crew's power
+//       efficiency in the crew overlay (crewOverlay.ts applyCrewOverlay, P4). The install gate
+//       (EM-2) and the combat over-budget penalty (EM-3) read them; EM-1 displays them.
 export interface ShipDerivedStats {
   cargoCapacity: number;
   transitSpeedMult: number;
@@ -3655,8 +3672,8 @@ export interface ShipDerivedStats {
   engineEfficiency: number; // 0-based fuel-burn bonus (0 = baseline 1:1), see fuel.ts
   fuelCapacity: number;     // max fuel for one round trip (the canDispatch RANGE gate)
   mass: number;             // total equipped mass (0 for a bare hull); drives the Mass penalty below
-  powerOutput: number;      // reactor Power Output from fitted gear (0 with no reactor fitted)
-  powerDraw: number;        // total Power Draw of fitted gear (0 with no gear); must fit powerOutput in 0.12.0
+  powerOutput: number;      // hull basePowerOutput + installed powerOutput lines (the reactor implicit)
+  powerDraw: number;        // installed pieces' draw (net of power efficiency once crew fold in); 0 with no powered gear
   // Exploration 0.14.0 (Phase E1a): the ship's SENSORS stat, folded ADDITIVELY from a fitted SENSOR
   // ARRAY (the `sensor` slot's `sensors` implicit + affix lines). This is the FIRST live consumer of
   // the `sensors` stat: survey missions scale their material yield by it (tick.ts's tickCaptainMission).
@@ -3813,6 +3830,24 @@ export interface EquipmentStatMods {
   totalPowerDraw: number;
   powerOutput: number;
 }
+// E-MOD EM-1 (S4-A03; user P5 2026-10-19 "x1.6 per class (Recommended)"): an FTL drive's power draw grows x1.6 for
+// each drive class above I, so deep reach competes with weapons and modules for the hull's power.
+export const DRIVE_CLASS_POWER_DRAW_MULT = 1.6;
+
+// An installed FTL drive's class: its blueprint's driveClass (G2-4 authors the classed blueprints), Class I when the
+// piece has no blueprint (Standard Issue, a legacy piece) or the blueprint names none. Pure.
+export function ftlDriveClass(piece: Pick<EquipmentInstance, "blueprintKey">): number {
+  const cls = piece.blueprintKey ? BLUEPRINTS[piece.blueprintKey]?.driveClass : undefined;
+  return cls !== undefined && cls > 1 ? Math.floor(cls) : 1;
+}
+
+// A drive's draw at its class: x DRIVE_CLASS_POWER_DRAW_MULT per class above I, rounded UP to a whole point (the
+// budget is integer, power.ts). Class I returns `draw` itself, so every drive today folds byte-identically. Pure.
+export function driveClassPowerDraw(draw: number, driveClass: number): number {
+  if (driveClass <= 1 || draw <= 0) return draw;
+  return Math.ceil(draw * Math.pow(DRIVE_CLASS_POWER_DRAW_MULT, driveClass - 1) - 1e-9);
+}
+
 export function equipmentStatMods(pieces: EquipmentInstance[]): EquipmentStatMods {
   const flat: Record<string, number> = { cargoCapacity: 0, fuelCapacity: 0, sensors: 0 };
   const percentPlus: Record<string, number> = {
@@ -3830,7 +3865,8 @@ export function equipmentStatMods(pieces: EquipmentInstance[]): EquipmentStatMod
     // Intrinsic per-piece fields (NOT stat lines): mass + powerDraw are summed gross,
     // then netted by the reduction affixes below.
     grossMass += piece.mass;
-    grossPowerDraw += piece.powerDraw;
+    // E-MOD EM-1 (P5): an FTL drive draws more per class above I (Class I, every drive today, is the piece's own draw).
+    grossPowerDraw += piece.slotType === "ftlDrive" ? driveClassPowerDraw(piece.powerDraw, ftlDriveClass(piece)) : piece.powerDraw;
 
     // Every stat line the piece carries: implicit (slot-signature) + rolled (affixes).
     // One loop over both records so a stat that appears in both accumulates.
@@ -3917,10 +3953,10 @@ function hullDerivedStats(ship: ShipInstance): ShipDerivedStats {
     extractionYieldMult: def.extractionYieldMult,
     engineEfficiency: def.engineEfficiency,
     fuelCapacity: def.fuelCapacity,
-    // A bare hull carries no equipment mass/power: those are equipment concepts,
-    // so they are 0 until gear is fitted (below).
+    // A bare hull carries no equipment mass or draw: those are equipment concepts, so they are 0 until gear is
+    // fitted (below). E-MOD EM-1: its power OUTPUT is the hull's own generation (basePowerOutput, P1).
     mass: 0,
-    powerOutput: 0,
+    powerOutput: def.basePowerOutput,
     powerDraw: 0,
     // Exploration 0.14.0 (E1a): a bare hull has NO sensors, its only source is a fitted
     // sensor item (explorer-hull base sensors are deferred, design I.6). Folded in below.
@@ -3963,8 +3999,8 @@ function foldGuestQuarters(ship: ShipInstance, pieces: EquipmentInstance[], base
 //   4. MASS penalty (mass-vs-thrust): heavier fitments drag transitSpeedMult
 //      (multiplicative, stays positive) and engineEfficiency (subtractive, can go
 //      below baseline), clamped at ENGINE_EFF_FLOOR.
-//   5. POWER surfaced (powerOutput / powerDraw / mass) for the UI + 0.12.0 budget;
-//      NON-BINDING this patch (nothing here gates on the power balance).
+//   5. POWER: output = the hull's base + every powerOutput line; draw = the pieces' draw (an FTL drive at
+//      its class). The crew's power efficiency cuts the draw later, in the crew overlay (E-MOD EM-1).
 //
 // The optional `pieces` param DEFAULTS to [] so shipDerivedStats(ship) reproduces
 // the bare-hull projection EXACTLY (equipmentStatMods([]) is all-zero -> every
@@ -4017,7 +4053,7 @@ export function shipDerivedStats(
   engineEfficiency -= MASS_EFF_DRAG * mods.totalMass;
   if (engineEfficiency < ENGINE_EFF_FLOOR) engineEfficiency = ENGINE_EFF_FLOOR;
 
-  // (5) Power surfaced, non-binding.
+  // (5) Power: the hull's own output plus the installed lines (E-MOD EM-1).
   return {
     cargoCapacity,
     transitSpeedMult,
@@ -4025,7 +4061,7 @@ export function shipDerivedStats(
     engineEfficiency,
     fuelCapacity,
     mass: mods.totalMass,
-    powerOutput: mods.powerOutput,
+    powerOutput: base.powerOutput + mods.powerOutput,
     powerDraw: mods.totalPowerDraw,
     sensors,
     ...(colonistCapacity > 0 ? { colonistCapacity } : {}),
@@ -4500,7 +4536,10 @@ export type ProcessEffect =
   // studyIndex, token.id), so it is a pure function of stored values and offline == live by
   // construction. NO Decimal (the token is plain strings/numbers), so hydrateDecimals skips this effect
   // via its `"amount" in effect` guard and it round-trips through JSON verbatim.
-  | { type: "identifyRelic"; token: RelicVaultToken; studyIndex: number };
+  // Relics v2 R2-1 (DORMANT): `v: 2` marks a v2 study (its PRESENCE is the flag, plan 2026-10-17 section 3.2); R2-3
+  // stamps it. A study without it resolves through the v1 roll exactly as dispatched, so every in-flight study keeps
+  // its result.
+  | { type: "identifyRelic"; token: RelicVaultToken; studyIndex: number; v?: 2 };
 
 // One in-flight timed process. `id` is monotonic ("proc-N"), allocated from
 // GameState.nextProcessId (mirrors the ShipInstance/nextShipId pattern).
@@ -7168,6 +7207,10 @@ export interface ExpeditionRelicToken {
   quality: number; // 0..5 quality bucket from the salvage tier (reuses the 0-5 quality system)
   unidentified: true; // always true this phase: E4 owns identification/research/museum
   studySpeed?: number; // WR-5c Preservationist: the study of this relic runs (1 + this) faster; absent = 0
+  // Relics v2 R2-1 (DORMANT; plan 2026-10-17 section 3.2): stamped at the roll from R2-2 on. Absent = Tier I and a
+  // culture derived at read time (R2-2 / R2-6), so every token rolled before Relics v2 reads exactly as it did.
+  regionTier?: RegionTier;
+  cultureId?: string;
 }
 
 // ============================================================================
@@ -7198,6 +7241,70 @@ export interface RelicVaultToken {
   setId: RelicSetId; // the set this token identifies WITHIN
   poiId: string; // the PoI the finding came from (expeditionContent.ts POI_CATALOG id)
   studySpeed?: number; // WR-5c Preservationist (carried from the token): the study runs (1 + this) faster; absent = 0
+  // Relics v2 R2-1 (DORMANT; plan 2026-10-17 section 3.2): all optional, read with a default, nothing writes them
+  // until R2-2. regionTier absent = Tier I; cultureId absent = derived at read time from the token id (R2-2 / R2-6);
+  // source absent = "expedition". (setId stays required until R2-2 mints the first token that does not need it.)
+  regionTier?: RegionTier;
+  cultureId?: string;
+  source?: RelicVaultTokenSource;
+}
+
+// Relics v2 R2-1: where a vault blank came from (plan 2026-10-17 section 3.2; OC-14 short-range, OC-15 the planet 100%
+// bonus roll, the tutorial grant seam). Absent on a token = "expedition".
+export type RelicVaultTokenSource = "expedition" | "shortRange" | "completion" | "grant";
+
+// Relics v2 R2-1: a RegionTier as a record key (JSON object keys are strings). The Museum v2 record is keyed by it.
+export type RegionTierKey = "1" | "2" | "3" | "4" | "5" | "6" | "7";
+
+// Relics v2 R2-1 (plan 2026-10-17 section 3.2; USER ANSWERS 2026-10-19 calls 1 to 4, 7, 9 and 16): the MUSEUM v2
+// record. It REPLACES the v1 `relicMuseum` (the v69 -> v70 step moves every v1 copy into general["1"]: every v1 copy is
+// a Tier I copy, and the ids did not change). Plain numbers and strings only (no Decimals), so hydrateDecimals is
+// unchanged.
+//   general       copies per region tier per general relic TYPE id (relics.ts RELIC_TYPES). Sparse: a tier is absent
+//                 until its first copy, a type until its first copy at that tier.
+//   exceptional   copies per exceptional PIECE id (relics.ts EXCEPTIONAL_SETS); duplicates counted (OC-7, R2-5).
+//   frozen        the snapshot of a tier's general counts taken when it first reached the soft cap (OC-3, R2-4).
+//   cultures      per culture id: study points and finds per type (OC-9, R2-6).
+//   culturesNamed culture ids in reveal order, each appended once (R2-6).
+//   setsCompleted exceptional set ids in completion order, each appended once (the ledger hook reads it, R2-5).
+// R2-1 is DORMANT: only general["1"] is written (by a v1 relic study, exactly where the v1 museum was written); every
+// other part stays empty until its slice.
+export interface MuseumCultureRecord {
+  points: number;
+  finds: Record<string, number>;
+}
+export interface MuseumV2 {
+  general: Partial<Record<RegionTierKey, Record<string, number>>>;
+  exceptional: Record<string, number>;
+  frozen: Partial<Record<RegionTierKey, Record<string, number>>>;
+  cultures: Record<string, MuseumCultureRecord>;
+  culturesNamed: string[];
+  setsCompleted: string[];
+}
+
+// The empty Museum v2 record freshState seeds. Pure: a new object every call.
+export function emptyMuseumV2(): MuseumV2 {
+  return { general: {}, exceptional: {}, frozen: {}, cultures: {}, culturesNamed: [], setsCompleted: [] };
+}
+
+// The general copy record of one region tier (Tier I by default: where every v1 copy lives). A save or fixture
+// without the record reads empty. The ONE reader every v1 consumer goes through (museum bonuses, the Museum panel,
+// the reveal card, the wiring probes). Pure.
+export function generalMuseumRecord(state: { readonly museumV2?: MuseumV2 }, tier: RegionTier = 1): Readonly<Record<string, number>> {
+  return state.museumV2?.general?.[String(tier) as RegionTierKey] ?? {};
+}
+
+// The Museum v2 record with one region tier's general copies REPLACED by `record` (copied). Every other part, and
+// every other tier, is kept. The key positions of an existing record are kept too (a spread over an existing key
+// keeps its place), so a write never reorders the saved JSON. Pure.
+export function museumV2WithGeneral(museum: MuseumV2 | undefined, record: Readonly<Record<string, number>>, tier: RegionTier = 1): MuseumV2 {
+  const base = museum ?? emptyMuseumV2();
+  return { ...base, general: { ...base.general, [String(tier) as RegionTierKey]: { ...record } } };
+}
+
+// The state with one region tier's general copies replaced (museumV2WithGeneral). Pure.
+export function withGeneralMuseumRecord<S extends { museumV2?: MuseumV2 }>(state: S, record: Readonly<Record<string, number>>, tier: RegionTier = 1): S {
+  return { ...state, museumV2: museumV2WithGeneral(state.museumV2, record, tier) };
 }
 
 // The per-save relic PRNG seed. A study's identification roll is keyed off (relicSeed, a fixed salt, the
@@ -8438,9 +8545,10 @@ export interface GameState {
   // The UNIDENTIFIED relics waiting for Research (claimExpedition appends; startRelicStudy removes one
   // into its process). Ordered by arrival.
   relicVault: RelicVaultToken[];
-  // The MUSEUM: identified copy count per relic id (relics.ts RELICS). Sparse: a relic absent until its
-  // first identified copy. Plain numbers (copy counts are small integers, never idle-scale).
-  relicMuseum: Record<string, number>;
+  // The MUSEUM (Relics v2 R2-1: the MuseumV2 record above, which replaced the v1 `relicMuseum` copy record; the
+  // v69 -> v70 step moves the v1 copies into museumV2.general["1"]). Read and written through relics.ts
+  // generalMuseumRecord / withGeneralMuseumRecord. Plain numbers (copy counts are small integers, never idle-scale).
+  museumV2: MuseumV2;
   // The DISCOVERED registry: relic ids in FIRST-FIND order, each appended exactly once (the first
   // identified copy of its type). The unknown-relic discovery unlock reads this.
   relicDiscovered: string[];
@@ -8449,6 +8557,9 @@ export interface GameState {
   // Monotonic study index, stamped onto each relicStudy process at START (the "index" the keyed
   // identification roll mixes in). freshState seeds 1; never reused.
   nextRelicStudyIndex: number;
+  // Relics v2 R2-1 (DORMANT; plan 2026-10-17 section 3.2, OC-12 "Free, queued, lanes by Lab"): vault token ids queued
+  // for identification, in order. Absent = an empty queue; nothing writes it until R2-3.
+  relicQueue?: string[];
   // ===== E-CREW "Crew Made Real" (Task 2, DORMANT) =====
   // The away-team roster and the Armory squad loadouts (see the AwayMember / GroundTeamLoadout block above).
   // freshState seeds the clean-slate defaults; the v64->v65 migration (save.ts) backfills the IDENTICAL
@@ -9472,6 +9583,11 @@ export interface BlueprintDef {
   // combat yet (no hangar-bay install, no bridge fold); this unit only makes them research ->
   // fabricate craftable and visible in the UI, mirroring how weapons landed in Unit 1.2b.
   droneOutput?: { role: DroneRole };
+  // E-MOD EM-1 (user P5 2026-10-19 "x1.6 per class"): an FTL drive blueprint's drive class, 1 (Class I) to 7. G2-4
+  // authors the Class II to VII drive blueprints and their gates; absent reads Class I, which every drive is today.
+  // The power fold (equipmentStatMods) multiplies an installed drive's draw by DRIVE_CLASS_POWER_DRAW_MULT per class
+  // above I the moment a blueprint sets this (ftlDriveClass), so G2-4 must NOT bake the class into powerDraw at mint.
+  driveClass?: number;
   // --- Unlock-only shape (Combat 0.13.0, Phase 9b: warship research gate) ---------
   // A THIRD blueprint family, on top of the two output families above. An UNLOCK-ONLY
   // blueprint outputs NOTHING craftable: it has no `recipe.outputItem` (no stackable) AND
@@ -13939,7 +14055,9 @@ export function freshState(homeworldSeed?: number): GameState {
     // discovered), the fixed relic seed, and the study index at 1. Existing saves reach the IDENTICAL
     // shape via the v62->v63 migration (save.ts).
     relicVault: [],
-    relicMuseum: {},
+    // Relics v2 R2-1: the empty Museum v2 record, in the v1 museum's key position (the v69 -> v70 step puts it at the
+    // same position, so a fresh save and a migrated save stay indistinguishable, key order included).
+    museumV2: emptyMuseumV2(),
     relicDiscovered: [],
     relicSeed: RELIC_DEFAULT_SEED,
     nextRelicStudyIndex: 1,

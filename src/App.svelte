@@ -378,6 +378,9 @@
     // E-CREW Task 7: the member-slot predicate that keeps ship-only lists (the dev per-ship
     // install rows) from offering away-team gear for a ship.
     isMemberSlotType,
+    // Relics v2 R2-1: the Tier I general record (where the v1 museum copies live) and its write, for the dev museum.
+    generalMuseumRecord,
+    withGeneralMuseumRecord,
   } from "./lib/game/model";
   // WR-3: the Debug Wiring panel's view model (the registry itself loads lazily inside it; types only here).
   import {
@@ -4691,7 +4694,7 @@
     const set = RELIC_SETS.find((s) => s.id === devMuseumSet);
     if (!set) return;
     const n = Math.max(1, Math.floor(devMuseumCopies));
-    const museum: Record<string, number> = { ...(state.relicMuseum ?? {}) };
+    const museum: Record<string, number> = { ...generalMuseumRecord(state) };
     let discovered = [...(state.relicDiscovered ?? [])];
     set.relicIds.forEach((rid, i) => {
       const last = i === set.relicIds.length - 1;
@@ -4704,7 +4707,7 @@
       museum[rid] = copies;
       if (!discovered.includes(rid)) discovered.push(rid);
     });
-    state = { ...state, relicMuseum: museum, relicDiscovered: discovered };
+    state = { ...withGeneralMuseumRecord(state, museum), relicDiscovered: discovered };
     pushLog(`[DEV] ${set.label} museum set to ${devMuseumMode} ${n} copies.`);
   }
 

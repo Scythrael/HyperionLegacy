@@ -21,7 +21,7 @@
 //                          every squad the variety's teamTypes list (effect pieces balanced by an inert filler line).
 //   facet:<seat>:<stat>    every officer stat facet per seat, in a full bridge + complement context.
 //
-// THE PROBES are real consumers only (the ship stat sheet, reach, Shipyard repair, ship battles, the expedition's
+// THE PROBES are real consumers only (the ship stat sheet, the sheet of a ship drawing power (E-MOD EM-1), reach, Shipyard repair, ship battles, the expedition's
 // readers, battles, a Field Kits run's objective fights (FKR-4, flag 2 stamped by hand), injuries and whole run +
 // claim on both engines, mission cycles and a Repeat patrol through
 // economyTick, a patrol defeat repair, the ship scan events), compared through ALLOW-LISTS of consequence fields.
@@ -220,7 +220,7 @@ const STATE_OUTCOME_KEYS: readonly (keyof GameState)[] = [
   "activeProcesses",
   "archive",
   "relicVault",
-  "relicMuseum",
+  "museumV2",
   "relicDiscovered",
   "crewPool",
 ];
@@ -287,6 +287,31 @@ export function shipScaffold(typeKey?: ShipTypeKey): GameState {
 
 function probeSheet(t: Transform): string {
   const s = t(shipScaffold());
+  return fp(effectiveShipStats(s, shipOf(s)));
+}
+
+// E-MOD EM-1: the same sheet on a ship carrying a powered piece (Standard Issue draws nothing, so a power-efficiency
+// cut shows only where something draws power).
+const POWERED_DRAW = 1000;
+function probePoweredSheet(t: Transform): string {
+  const s0 = shipScaffold();
+  const powered: EquipmentInstance = {
+    id: "equip-90100",
+    slotType: "cargoBay",
+    rarity: "standard",
+    ascension: "none",
+    quality: 0,
+    iLevel: 10,
+    blueprintKey: null,
+    implicitStats: {},
+    rolledStats: {},
+    mass: 0,
+    powerDraw: POWERED_DRAW,
+    durabilityMax: 100,
+    durability: 100,
+    fittedToShipId: SHIP_ID,
+  };
+  const s = t({ ...s0, equipment: [...s0.equipment.filter((e) => !(e.fittedToShipId === SHIP_ID && e.slotType === "cargoBay")), powered] });
   return fp(effectiveShipStats(s, shipOf(s)));
 }
 
@@ -559,6 +584,7 @@ export interface Probe {
 // Cheapest first: a live effect stops at its first moving probe; a dead one runs them all.
 export const PROBES: readonly Probe[] = [
   { name: "ship stats", run: probeSheet },
+  { name: "ship stats drawing power", run: probePoweredSheet },
   { name: "reach", run: probeReach },
   { name: "repair time", run: probeRepair },
   { name: "ship battle", run: probeShipBattle },

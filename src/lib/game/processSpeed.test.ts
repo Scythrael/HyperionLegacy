@@ -27,6 +27,7 @@ import {
   type ShipTypeKey,
   type TimedProcess,
   type TimedProcessKind,
+  generalMuseumRecord,
 } from "./model";
 import { dispatchCaptainOnMission, dispatchCaptainOnPatrol, economyTick, installMissingCombatBaselines, itemCap, recallCaptain, startProcess } from "./tick";
 import { itemTotal } from "./inventory";
@@ -329,7 +330,7 @@ describe("time skip: every timed process finishes on the next tick, for free", (
         docks: s.shipStorageCapacity,
         berths: s.transitBerthCapacity,
         frame: itemTotal(s.inventory, "frameSegment").toString(),
-        museum: s.relicMuseum,
+        museum: generalMuseumRecord(s),
       });
       expect(pick(after)).toEqual(pick(natural));
     });

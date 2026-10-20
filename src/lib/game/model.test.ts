@@ -1479,7 +1479,9 @@ describe("shipDerivedStats fold (Task 13)", () => {
     expect(bare.engineEfficiency).toBe(SHIP_TYPES.generalFreighter.engineEfficiency);
     expect(bare.fuelCapacity).toBe(SHIP_TYPES.generalFreighter.fuelCapacity);
     expect(bare.mass).toBe(0);
-    expect(bare.powerOutput).toBe(0);
+    // E-MOD EM-1 (P1): a bare hull's power output is its own generation.
+    expect(bare.powerOutput).toBe(SHIP_TYPES.generalFreighter.basePowerOutput);
+    expect(bare.powerDraw).toBe(0);
     // Exploration 0.14.0 (E1a): a bare hull has NO sensors (explorer-hull base sensors deferred).
     expect(bare.sensors).toBe(0);
   });
@@ -1545,13 +1547,14 @@ describe("shipDerivedStats fold (Task 13)", () => {
     expect(haulerStats.extractionYieldMult).not.toBe(balancedStats.extractionYieldMult);
   });
 
-  it("surfaces the power budget (powerOutput vs powerDraw) NON-BINDING", () => {
+  it("surfaces the power budget (powerOutput vs powerDraw); the sheet itself never clamps (E-MOD EM-1)", () => {
     const reactor = makeEquip({ id: "r", slotType: "reactorCore", implicitStats: { powerOutput: 60 }, powerDraw: 0 });
     const drawer = makeEquip({ id: "d", slotType: "specUtility", implicitStats: { extractionYieldMult: 3 }, powerDraw: 15 });
     const stats = shipDerivedStats(freighter, [reactor, drawer]);
-    expect(stats.powerOutput).toBe(60);
+    // The hull's own output (P1) plus the reactor line.
+    expect(stats.powerOutput).toBe(SHIP_TYPES.generalFreighter.basePowerOutput + 60);
     expect(stats.powerDraw).toBe(15);
-    // NON-BINDING: an over-draw (draw > output) does NOT throw or clamp the other stats.
+    // An over-draw (draw > output) does NOT throw or clamp the other stats (the gate and penalty are EM-2 / EM-3).
     const overDraw = shipDerivedStats(freighter, [makeEquip({ id: "x", slotType: "specUtility", implicitStats: { extractionYieldMult: 3 }, powerDraw: 999 })]);
     expect(overDraw.extractionYieldMult).toBeGreaterThan(shipDerivedStats(freighter).extractionYieldMult);
   });

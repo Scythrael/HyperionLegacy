@@ -4,6 +4,9 @@
 // byte-identically to the code BEFORE Task 21 (golden hashes captured before the change).
 
 import { describe, it, expect } from "vitest";
+// E-MOD EM-1: sheets pinned before the power budget engine are hashed with it switched off (emodGoldens.test.ts pins
+// the power numbers and proves the switch reproduces its own capture), so these pins keep proving nothing else moved.
+import { withEm1Off } from "./emodEm1Switch.fixture";
 import Decimal from "break_infinity.js";
 import {
   freshState,
@@ -240,7 +243,7 @@ function scenarioHashes(statsFor: (seat: SeniorStaffSeat) => OfficerStats | unde
   const out: Record<string, string | string[]> = {};
   const sheet = withCrew(freshState(), officers());
   // G1-1: the sheet hash strips guest quarters (withoutGuests), so this pin keeps proving no other stat moved.
-  out.sheet = fnv(JSON.stringify([withoutGuests(effectiveShipStats(sheet, sheet.ships[0])), shipCrewContribution(sheet, sheet.ships[0])]));
+  out.sheet = fnv(JSON.stringify([withoutGuests(withEm1Off(() => effectiveShipStats(sheet, sheet.ships[0]))), shipCrewContribution(sheet, sheet.ships[0])]));
   for (const key of ["shortOreRun", "surveyMineralAnomaly", "frontierSupplyRun"] as MissionKey[]) {
     out[`mission:${key}`] = fnv(JSON.stringify(withoutRunCounts(withoutGroundSquadState(runTicks(missionState(key, officers()), 700, lcg(0xbeef))))));
   }
@@ -463,7 +466,7 @@ describe("neutrality: an all-10 bridge = byte-identical to before Task 21 (golde
       expect(map[CREW_STAT_KEYS.transitOutSpeed]).toBeUndefined();
       const out: Record<string, number> = {};
       for (const [k, v] of Object.entries(map)) out[k === OFFICER_TRANSIT_KEY ? CREW_STAT_KEYS.transitOutSpeed : k] = v;
-      return fnv(JSON.stringify([withoutGuests(effectiveShipStats(sheet, sheet.ships[0])), out]));
+      return fnv(JSON.stringify([withoutGuests(withEm1Off(() => effectiveShipStats(sheet, sheet.ships[0]))), out]));
     });
     expect(renamed).toBe(SHEET_CP2_OFF_PRE);
   });

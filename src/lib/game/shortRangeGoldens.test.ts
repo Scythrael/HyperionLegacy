@@ -47,7 +47,8 @@
 // ADDED BY ML-1 (Material Lines items and recipes): 14 registry entries, held apart like G1's (ML1_ADDED_ENTRY_IDS,
 // pinned as `registry:ml1`): the seven new Refinery recipes (pending while the Refinery hides them, refineRecipeOffered;
 // each reads live by itself once ML-2 gives its output a use) and the seven typed reserves (pending, owned by ML-2 or
-// EM-8). No existing entry moved, so the base pin is unchanged.
+// EM-8). No existing entry moved: ML1_SLICE rides in every registryPin call (beside R2-1 and EM-1 since their merge),
+// so the base pin and every cause pin are unchanged.
 // MOVED BY FKR-5 (grenade charges), its review rulings (user 2026-10-20) and G2-3 (the voyage engine), re-captured
 // once at their integration (0.14.0):
 //   registry       1182 c748495a -> 1201 e6523a6f: FKR-5 adds 19 entries and flips Explosives pending -> live; the
@@ -57,11 +58,19 @@
 //                  slices held apart and the flip read back as pending it reproduces c748495a, and with WR-6 read back
 //                  too it reproduces the pin from before WR-6. The registry moves before this one: FKR-4, the
 //                  2026-10-19 review rulings (the Bleed flips), CP-8 and WR-6 (above).
+// MOVED BY E-MOD EM-1 (the power budget engine): `registry` 1201 e6523a6f -> 1212 887dfdf8: EM-1 adds eleven entries
+//                  (every hull's basePowerOutput, the drive class draw seam) and flips seven pending -> live (Reactor
+//                  Overdrive, Power Discipline, the Martian racial, the powerOutput and powerDrawReduction lines, the
+//                  slot and weapon draw rows). With EM1_SLICE held apart registryPin reproduces e6523a6f, and every
+//                  earlier proof chain passes it too.
 // ADDED BY G1-1: `guests:<hull>` (guest quarters bare and with each quarters variety, the Guest Wing last) and
 // `stats:<hull>:guestWing` (every other stat with a Guest Wing installed). The sheets hash through withoutGuests, so
 // the stats pins keep proving no other stat moved (the transport hulls now carry base guest quarters).
 
 import { describe, expect, it, vi } from "vitest";
+// E-MOD EM-1: sheets pinned before the power budget engine are hashed with it switched off (emodGoldens.test.ts pins
+// the power numbers and proves the switch reproduces its own capture), so these pins keep proving nothing else moved.
+import { withEm1Off } from "./emodEm1Switch.fixture";
 import { writeFileSync } from "node:fs";
 import Decimal from "break_infinity.js";
 import { EQUIPMENT_SLOTS, FIELD_KITS_PLAYER_LIVE, MISSIONS, SHIP_TYPES, type EquipmentInstance, type EquipmentRarity, type GameState, type ShipDerivedStats, type ShipTypeKey } from "./model";
@@ -74,7 +83,7 @@ import { buildShipRoster } from "./shipRoster";
 import { deserialize, migrate, serialize, type SaveFile } from "./save";
 import { WIRING_REGISTRY } from "./wiring/registry";
 import { bucketOf, withBuckets } from "./wiring/probes";
-import { hash, onHull, withCrew, withoutGuests } from "./firstRunsGoldens.fixture";
+import { hash, onHull, withCrew, withV1Museum, withoutGuests } from "./firstRunsGoldens.fixture";
 import { asPreG2NamesDispatch } from "./awayTeamTestFixtures";
 // CP-8 / OC-11: the test switch that proves the auto-crew pause is the only thing that moved the fleet pin.
 vi.mock("./crewLock", async (io) => (await import("./complementOc11Switch.fixture")).oc11CrewLockMock(io));
@@ -95,8 +104,9 @@ function lcg(seed: number): () => number {
 
 // The whole state WITHOUT the fields the G1 slices (and SF-1 / G2-1 before them) add on purpose: the run counters, the
 // stored homeworld and the short-range board (G1-3). A no-op for the board today. Pure.
+// Relics v2 R2-1: and with the Museum v2 record in its v1 form (withV1Museum), as these were captured.
 function g1StateHash(state: GameState): string {
-  const rest = { ...state } as Record<string, unknown>;
+  const rest = { ...withV1Museum(state) } as Record<string, unknown>;
   delete rest.runCounts;
   delete rest.homeworld;
   delete rest.shortRangeBoard;
@@ -282,7 +292,7 @@ const GOLDEN: Record<string, unknown> = {
     "50:quartersFlightDeckWing:stellar:q2:iL31:{\"crewStations\":57}:{\"colonistCapacity\":76,\"crewStations\":19}:m0:quartersFlightDeckWing",
     "pool:[{\"stat\":\"crewStations\",\"weight\":5},{\"stat\":\"crewEfficiency\",\"weight\":2},{\"stat\":\"massReduction\",\"weight\":1},{\"stat\":\"colonistCapacity\",\"weight\":2}]",
   ],
-  "registry": [1201, "e6523a6f"],
+  "registry": [1212, "887dfdf8"],
   "registry:ml1": [
     "facility:REFINE_RECIPES:refineFerriteIngot|pending",
     "facility:REFINE_RECIPES:refineReclaimedCircuit|pending",
@@ -474,6 +484,24 @@ const WR6_WIRED_IDS: ReadonlySet<string> = new Set<string>([
 ]);
 const WR6_SLICE: RegistrySlice = { flipped: WR6_WIRED_IDS, was: "pending" };
 
+// E-MOD EM-1: the `registry` pin before EM-1 (the feat base after FKR-5, G2-3 and R2-1), the seven entries EM-1 flips
+// pending -> live and the eleven it adds (every hull's basePowerOutput and the drive class draw seam).
+const REGISTRY_BEFORE_EM1 = [1201, "e6523a6f"];
+const EM1_WIRED_IDS: ReadonlySet<string> = new Set<string>([
+  "officer:officer.powerEfficiencyMult",
+  "crew:crew.powerEfficiency",
+  "racial:martian",
+  "ship:gearLine:powerOutput",
+  "ship:gearLine:powerDrawReduction",
+  "ship:audit:slotPowerDraw",
+  "ship:audit:weaponPowerDraw",
+]);
+const EM1_ADDED_ENTRY_IDS: ReadonlySet<string> = new Set<string>([
+  ...HULLS.map((h) => `ship:SHIP_TYPES:${h}:basePowerOutput`),
+  "ship:SHIP_SEAMS:driveClassPowerDraw",
+]);
+const EM1_SLICE: RegistrySlice = { added: EM1_ADDED_ENTRY_IDS, flipped: EM1_WIRED_IDS, was: "pending" };
+
 // The `fleet` record before OC-11 (captured on a678241); reproduced with the pause off.
 const FLEET_BEFORE_OC11 = ["aa94ddcd", "1a72036c", "5008dacf", "cbf18a80", "6c8ebe80", "33d00a42", "19f8bdb2"];
 
@@ -500,18 +528,18 @@ describe("G1-0 golden 3: effectiveShipStats for every hull, bare and with each q
     it(`${hull}`, () => {
       const s0 = withBuckets(onHull(hull), [bucketOf("operations", "ops.unloadSpeed"), bucketOf("engineering", "eng.range"), bucketOf("operations", "ops.effectiveCargo")]);
       const ship = s0.ships[0];
-      const out = [statsHash(effectiveShipStats(s0, ship))];
+      const out = [statsHash(withEm1Off(() => effectiveShipStats(s0, ship)))];
       // G1-1: guest quarters, bare then each variety (the G1-0 nine, then the Guest Wing).
       const guests = [effectiveShipStats(s0, ship).colonistCapacity ?? 0];
       for (const v of QUARTERS_VARIETIES_AT_G1_0) {
         const s = withPiece(s0, derelictQuarters(v, `equip-q-${v}`), ship.id);
-        out.push(statsHash(effectiveShipStats(s, ship)));
+        out.push(statsHash(withEm1Off(() => effectiveShipStats(s, ship))));
         guests.push(effectiveShipStats(s, ship).colonistCapacity ?? 0);
       }
       pin(`stats:${hull}`, out);
       const wing = withPiece(s0, derelictQuarters("quartersGuestWing", "equip-q-wing"), ship.id);
       guests.push(effectiveShipStats(wing, ship).colonistCapacity ?? 0);
-      pin(`stats:${hull}:guestWing`, statsHash(effectiveShipStats(wing, ship)));
+      pin(`stats:${hull}:guestWing`, statsHash(withEm1Off(() => effectiveShipStats(wing, ship))));
       pin(`guests:${hull}`, guests);
     });
   }
@@ -565,21 +593,33 @@ describe("G1-0 golden 4: generateEquipment for the quarters slot at 50 fixed see
   });
 });
 
+// Relics v2 R2-1: the dormant v2 catalog's entries (RELIC_TYPES, EXCEPTIONAL_SETS) are additions too, appended after
+// the relic entries; leaving them out keeps proving that no existing entry moved.
+const isRelicsV2Entry = (id: string): boolean => id.startsWith("relic:RELIC_TYPES:") || id.startsWith("relic:EXCEPTIONAL_SETS:");
+const R2_1_SLICE: RegistrySlice = { added: new Set(WIRING_REGISTRY.filter((e) => isRelicsV2Entry(e.id)).map((e) => e.id)) };
+
 describe("G1-0 golden 5: the wiring registry's ids and statuses", () => {
   it("the entries outside the G1 additions, hashed in registry order", () => {
-    pin("registry", registryPin(G1_SLICE, ML1_SLICE));
+    pin("registry", registryPin(G1_SLICE, ML1_SLICE, R2_1_SLICE));
   });
   // FKR-5 and G2-3 moved the pin (see the header); with their entries held apart and the Explosives flip read back as
   // pending, the registry hashes exactly as the feat base before them.
   it("FKR-5 and G2-3 are the only causes of the registry move", () => {
-    expect(registryPin(G1_SLICE, ML1_SLICE, FKR5_SLICE, G23_SLICE)).toEqual(REGISTRY_BEFORE_FKR5_G23);
+    expect(registryPin(G1_SLICE, ML1_SLICE, FKR5_SLICE, G23_SLICE, R2_1_SLICE, EM1_SLICE)).toEqual(REGISTRY_BEFORE_FKR5_G23);
+  });
+  // E-MOD EM-1: the seven power entries it wires flip pending -> live (the count and the order hold). With those seven
+  // read as pending again the lines hash to the pin from before EM-1, so the flips are the only move.
+  it("EM-1 is the only cause of its registry move", () => {
+    expect(WIRING_REGISTRY.filter((e) => EM1_WIRED_IDS.has(e.id)).map((e) => e.status.kind)).toEqual(Array(EM1_WIRED_IDS.size).fill("live"));
+    expect(WIRING_REGISTRY.filter((e) => EM1_ADDED_ENTRY_IDS.has(e.id))).toHaveLength(EM1_ADDED_ENTRY_IDS.size);
+    expect(registryPin(G1_SLICE, ML1_SLICE, R2_1_SLICE, EM1_SLICE)).toEqual(REGISTRY_BEFORE_EM1);
   });
   // WR-6: the nine placeholder entries it wires flip pending -> live (the count and the order hold). With those nine
   // read as pending again (and the later slices held apart) the lines hash to the pin from before WR-6, so the flips
   // are the only move.
   it("WR-6 is the only cause of the registry move", () => {
     expect(WIRING_REGISTRY.filter((e) => WR6_WIRED_IDS.has(e.id)).map((e) => e.status.kind)).toEqual(Array(WR6_WIRED_IDS.size).fill("live"));
-    expect(registryPin(G1_SLICE, ML1_SLICE, FKR5_SLICE, G23_SLICE, WR6_SLICE)).toEqual(REGISTRY_BEFORE_WR6);
+    expect(registryPin(G1_SLICE, ML1_SLICE, FKR5_SLICE, G23_SLICE, WR6_SLICE, R2_1_SLICE, EM1_SLICE)).toEqual(REGISTRY_BEFORE_WR6);
   });
   it("Field Kits FKR-5: the added entries and the one flipped, each with its status", () => {
     const added = WIRING_REGISTRY.filter((e) => FKR5_ADDED_ENTRY_IDS.has(e.id));
@@ -606,7 +646,7 @@ describe("G1-0 golden 6: an old save (v69) of the mixed fleet through migrate", 
     const held = mixedFleet();
     const save = deserialize(serialize(held, 0)) as SaveFile;
     const state = migrate({ ...save, version: 69 });
-    pin("old", [g1StateHash(state), ...state.ships.map((sh) => statsHash(effectiveShipStats(state, sh)))]);
+    pin("old", [g1StateHash(state), ...state.ships.map((sh) => statsHash(withEm1Off(() => effectiveShipStats(state, sh))))]);
   });
 });
 

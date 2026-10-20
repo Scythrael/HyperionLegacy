@@ -19,6 +19,9 @@
 // baseline ("none") never moves.
 
 import { describe, expect, it } from "vitest";
+// E-MOD EM-1: sheets pinned before the power budget engine are hashed with it switched off (emodGoldens.test.ts pins
+// the power numbers and proves the switch reproduces its own capture), so these pins keep proving nothing else moved.
+import { withEm1Off } from "./emodEm1Switch.fixture";
 import Decimal from "break_infinity.js";
 import { BLUEPRINTS, blueprintMintsEquipmentInstance, type GameState, type HomeworldTalentKey, type PatrolMissionState } from "./model";
 import { dispatchCaptainOnMission, dispatchCaptainOnPatrol, economyTick, installMissingCombatBaselines, resolveProcesses, startProcess } from "./tick";
@@ -31,7 +34,7 @@ import { makeWeaponInstance } from "./combat/weapons";
 import { CLOAKED_VESSEL_HULL, buildShipCombatant, snapshotShipEventProfile } from "./shipScanEvents";
 import { TRANSPORT_WINDOW_SECONDS } from "./transports";
 import { WIRING_BUCKET_COUNT, bucketOf, editCaptain, installPiece, seatOfficer, withAwayTeam, withBuckets, withFacilityLevel, withHomeworld, wiringBase } from "./wiring/probes";
-import { withoutGuests } from "./firstRunsGoldens.fixture";
+import { withV1Museum, withoutGuests } from "./firstRunsGoldens.fixture";
 import { asPreG2NamesDispatch } from "./awayTeamTestFixtures";
 
 function fnv(s: string): string {
@@ -44,9 +47,10 @@ function fnv(s: string): string {
 }
 const hash = (v: unknown): string => fnv(JSON.stringify(v));
 // A state without the variant's own input, so an inert source reads the baseline.
+// Relics v2 R2-1: the Museum v2 record in its v1 form (withV1Museum), as these were captured.
 const hashState = (s: GameState): string =>
   hash({
-    ...s,
+    ...withV1Museum(s),
     unlockedHomeworldTalents: [],
     captains: s.captains.map((c) => ({ ...c, unlockedCaptainTalents: [], spec: null, race: undefined })),
   });
@@ -171,7 +175,7 @@ export function readWr6Variant(v: Wr6Variant): Record<string, string> {
   const s0 = own(explorerFixture(), v);
   // Merged after G1-1 and G2-2 (both captured before them): the sheet hashes without guest quarters (the General
   // Freighter's base berths), and the dispatch is the one before G2-2 (the console names and region fields stripped).
-  const sheet = hash(withoutGuests(effectiveShipStats(s0, s0.ships.find((sh) => sh.id === "ship-1")!)));
+  const sheet = hash(withoutGuests(withEm1Off(() => effectiveShipStats(s0, s0.ships.find((sh) => sh.id === "ship-1")!))));
   const candidates = expeditionCandidates(s0, "ship-1");
   const res = asPreG2NamesDispatch(startExpedition(s0, "ship-1", 1, candidates[0].id));
   if (!res.success || !res.expedition) throw new Error(`dispatch refused: ${res.reason}`);
