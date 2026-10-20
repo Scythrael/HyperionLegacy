@@ -33,7 +33,7 @@ import { shipToCombatant } from "./combat/bridge";
 import { makeWeaponInstance } from "./combat/weapons";
 import { CLOAKED_VESSEL_HULL, buildShipCombatant, snapshotShipEventProfile } from "./shipScanEvents";
 import { TRANSPORT_WINDOW_SECONDS } from "./transports";
-import { WIRING_BUCKET_COUNT, bucketOf, editCaptain, installPiece, seatOfficer, withAwayTeam, withBuckets, withFacilityLevel, withHomeworld, wiringBase } from "./wiring/probes";
+import { FIXTURE_RACE, WIRING_BUCKET_COUNT, bucketOf, editCaptain, installPiece, seatOfficer, withAwayTeam, withBuckets, withFacilityLevel, withHomeworld, wiringBase } from "./wiring/probes";
 import { withV1Museum, withoutGuests } from "./firstRunsGoldens.fixture";
 import { asPreG2NamesDispatch } from "./awayTeamTestFixtures";
 
@@ -48,11 +48,19 @@ function fnv(s: string): string {
 const hash = (v: unknown): string => fnv(JSON.stringify(v));
 // A state without the variant's own input, so an inert source reads the baseline.
 // Relics v2 R2-1: the Museum v2 record in its v1 form (withV1Museum), as these were captured.
+// The inert racials (0.14.0): the probes' fixture race (probes.ts FIXTURE_RACE) moved from the Spacer to the Belter
+// once the Spacer racial went live on the transit speed. Neither acts on anything these fixtures read (the Belter only
+// on a carrier's drone screen; the patrol here is a destroyer's), and the sheet, run and event hashes, which carry no
+// race, are unchanged; the state hashes carry the fixture's officer and crew race NAME, so it is named back here.
+const AT_CAPTURE_RACE = "spacer";
+const asCaptured = <T extends { race: string }>(x: T): T => (x.race === FIXTURE_RACE ? { ...x, race: AT_CAPTURE_RACE } : x);
 const hashState = (s: GameState): string =>
   hash({
     ...withV1Museum(s),
     unlockedHomeworldTalents: [],
     captains: s.captains.map((c) => ({ ...c, unlockedCaptainTalents: [], spec: null, race: undefined })),
+    officers: s.officers.map(asCaptured),
+    ships: s.ships.map((sh) => (sh.complement ? { ...sh, complement: { ...sh.complement, buckets: sh.complement.buckets.map(asCaptured) } } : sh)),
   });
 
 function lcg(seed: number): () => number {

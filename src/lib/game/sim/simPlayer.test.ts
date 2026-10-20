@@ -6,7 +6,7 @@
 //   2. offline == live: advancing each look's span in one tick() call, in 997 s chunks, or one second at a time
 //      gives the same report;
 //   3. a known-live choice moves its outcome (a Prospector talent: the gathered Titanium Ore);
-//   4. a known-inert choice is flagged dead (a Homeworld placeholder hub, "No bonus yet");
+//   4. an inert choice is flagged dead (a synthetic one: no selectable choice is inert since 0.14.0);
 //   5. the newcomer baseline's first expedition, characterized as it is TODAY: not safe, with exactly why (Safe
 //      First Runs SF-2 flips it; that slice updates these pins and says so);
 //   6. the newcomer archetype plays the real new game (General Freighter, board hires, the Quartermaster kit,
@@ -55,15 +55,19 @@ describe("WR-2 choice ablation: a live choice moves, an inert one is dead", () =
     expect(r.verdicts[0].surprise).toBe(false);
   });
 
-  // WR-6 wired the Homeworld placeholder hubs and E-MOD EM-1 the Martian racial (power efficiency), so the inert example
-  // is now the Belter racial (Deck Handling, pending the Task 23 drone handling), and Home Guard, once the "No bonus yet"
-  // example, is pinned moving.
-  it("a pending choice (the Belter racial, waiting on drone handling) moves nothing and is flagged dead", () => {
-    const e = wiringEntry("racial:belter")!;
-    expect(e.status.kind).toBe("pending");
+  // WR-6 wired the Homeworld placeholder hubs, E-MOD EM-1 the Martian racial, and the inert-racials slice (0.14.0, user
+  // "everything wired") the last four races, so no selectable choice is inert any more. The dead-choice detection is
+  // proven on a SYNTHETIC choice instead: the Belter racial's entry with its transform swapped for a purely cosmetic
+  // edit (renaming the ship, which no engine reader reads), still marked pending so a dead verdict is no surprise.
+  it("a synthetic inert choice (a cosmetic ship rename) moves nothing and is flagged dead", () => {
+    const belter = wiringEntry("racial:belter")!;
+    expect(belter.status.kind).toBe("live");
+    const rename = (s: Parameters<typeof belter.on>[0]) => ({ ...s, ships: s.ships.map((sh) => (sh.id === "ship-1" ? { ...sh, name: "Synthetic Inert" } : sh)) });
+    const e = { ...belter, id: "synthetic:inertRename", status: { kind: "pending" as const, owner: "synthetic fixture" }, on: rename };
     const r = ablateChoices([e], { seeds: [0], horizonSeconds: 1800 });
     expect(r.verdicts[0].verdict).toBe("dead");
     expect(r.verdicts[0].moved).toEqual([]);
+    expect(r.verdicts[0].surprise).toBe(false);
   });
 
   it("WR-6: the former placeholder hub Home Guard moves the patrol (its shield pool)", () => {

@@ -251,9 +251,9 @@ export function editCaptain(s: GameState, over: Partial<CaptainState>): GameStat
 }
 
 // Seat one officer on ship-1 carrying `bonusIds` at their catalog magnitude (an ensign stores the base magnitude).
-// CP-2: the default race is the Spacer, whose racial (crew.endurance) has no 0.14.0 consumer (deferred to 0.14.x), so
-// a fixture officer moves nothing through its race. The Earth-born racial (the old default) is Crew Effectiveness,
-// live since CP-2, which would lift every complement buff the fixture also carries.
+// The default race is FIXTURE_RACE (the Belter: its racial acts only on a carrier's patrol drone screen), so a fixture
+// officer moves nothing else through its race. The Earth-born racial (the first default) is Crew Effectiveness, live
+// since CP-2, which would lift every complement buff the fixture also carries.
 export function seatOfficer(
   s: GameState,
   seat: SeniorStaffSeat,
@@ -297,9 +297,11 @@ export function overtimeOneStep(s: GameState): GameState {
 
 export const WIRING_BUCKET_COUNT = 20; // a real-sized complement bucket (standard rarity, Crewman rank)
 
-// CP-2: the race fixture crew and officers carry unless a test names one: the Spacer, whose racial has no consumer in
-// 0.14.0 (the long-haul ramp is deferred to 0.14.x), so a bucket's race never lifts the buff under test.
-export const FIXTURE_RACE: CrewRace = "spacer";
+// CP-2: the race fixture crew and officers carry unless a test names one, chosen so a bucket's race never lifts the
+// buff under test. Every racial acts since 0.14.0 (user "everything wired" 2026-10-20), so this is the Belter, whose
+// racial (Deck Handling) acts only on a carrier's patrol drone screen: no other probe reads it, and the Deck Handling
+// probes compare two states that both carry it. (The Spacer, the CP-2 choice, now lifts the transit speed.)
+export const FIXTURE_RACE: CrewRace = "belter";
 
 export function bucketOf(profession: CrewProfession, buff1Id: string, count = WIRING_BUCKET_COUNT, race: CrewRace = FIXTURE_RACE): CrewBucket {
   return { profession, rarity: "standard", rank: 1, race, buff1Id, buff2Id: null, count };

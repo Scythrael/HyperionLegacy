@@ -293,6 +293,26 @@ uses (expedition `rampScience` / `rampReturn`, patrol relaunch), never a new sam
 **Tests:** a carrier with the key replenishes faster, a non-carrier is unchanged; replay parity; ramp at 0 hours is
 exactly zero. Remove droneHandling, belter, spacer.
 
+**Carry note (2026-10-20, the four inert racials wired: CP-4's replenish consumer + CP-3's Survey Aptitude piece; user
+"everything wired", merge-batch answers "Relics v2 constants and Spacer" and "Spacer bonus"):** the racials share
+their division's pool key, so each consumer lights the buff and the racial together. Deck Handling + Belter
+(`crew.droneHandling`, OC-1): `crewOverlay.ts shipDeckHandling` is frozen per patrol cycle on
+`PatrolMissionState.deckHandling` (dispatch and each relaunch, beside `captainCombat`; written only when > 0 and the
+cycle fields a drone screen) and `combat/bridge.ts applyDeckHandling` seeds every squadron at droneReplenishRate x
+(1 + it), rounded at the fold like Wing Commander; the live loop and `patrolReplay` read the frozen value. Survey
+Aptitude + Vael / Outer-Colony (`crew.surveyAptitude`, OC-4): `shipSurveyAptitude` joins the expedition's
+`scanSpeedBonus` at dispatch. Spacer ("+Transit speed"): its racial moved off the sourceless `crew.endurance` onto
+`crewBuffs.ts TRANSIT_SPEED_KEY` (the Pilot's sweeping key, `transitSpeedMult`: both mission legs and the G2-3
+voyage), same 0.05 / 0.0005 magnitudes; Senior Staff shows it as "Transit Speed". Fix in passing: `carriesCrewKey`
+now sees the commanding captain's race (WR-6 OC-A43), so a Stheni / Belter / Vael captain alone passes the guard.
+Registry: crew droneHandling + surveyAptitude, racials belter / outerColony / vael / spacer and the Science and
+Flight Deck quarters wings are live; the four Ground Ops keys and the Security / Medical wings now name CP-3 (not
+"E-CREW Task 23"). `FIXTURE_RACE` is the Belter (only a carrier's drone screen reads it); the no-dead-stats battery
+gained a carrier patrol dispatch probe; `simPlayer.test.ts` proves dead-choice detection on a synthetic cosmetic
+choice. Goldens: `racialsGoldens.test.ts` (captured first) plus the moved complement / facet / registry pins, each
+reproduced with `racialsSwitch.fixture.ts withRacialsOff`. NOT built (still CP-4 / CP-3): the Flight Deck Integrity
+facet on replenish below half hull, the Spacer long-haul ramp (0.14.x, T3), and CP-3's four Ground Ops consumers.
+
 ### CP-5: Per-hull complement caps and division mixes (Task 24)
 
 **Files:** `model.ts` (`ShipTypeDef.complementCap?`, `complementDivisionWeights?`), `commandStructure.ts` (read the

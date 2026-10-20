@@ -81,7 +81,7 @@ import { buyHomeworldTalent, describeCaptainTalentEffect } from "../tick";
 import type { CaptainPrimaryMultKind } from "../captainPrimaryEffects";
 import { combatHullTypeOf, hullDefenseComposition } from "../combat/bridge";
 import { SENIOR_STAFF_BONUSES, type SeniorStaffBonusDef } from "../seniorStaffBonuses";
-import { CREW_PROFESSION_BUFFS, CREW_STAT_KEYS, HELD_CREW_BUFF_IDS, SECOND_LEVEL_EXCLUSIVE, type CrewBuffDef } from "../crewBuffs";
+import { CREW_PROFESSION_BUFFS, CREW_STAT_KEYS, HELD_CREW_BUFF_IDS, SECOND_LEVEL_EXCLUSIVE, TRANSIT_SPEED_KEY, type CrewBuffDef } from "../crewBuffs";
 import { CREW_RACES } from "../crewRaces";
 import { CREW_RARITY_MULTIPLIER } from "../crewRarity";
 import { CREW_RANKS, CREW_RANK_ORDER, rankMagnitudeFactor } from "../crewRank";
@@ -385,7 +385,11 @@ function pending(owner: string, contexts?: readonly ContextId[]): WiringStatus {
 }
 
 // The phase strings no-dead-stats used (kept verbatim: the liveness level reads them as owners).
-const TASK_23 = "E-CREW Task 23 (division pools + exclusive pool live, design 6.2)";
+// The slice that owns the four Ground Ops complement consumers still pending (complement plan
+// docs/plans/2026-10-14-complement-and-acquisition-plan.md section 3 CP-3). The old owner, "E-CREW Task 23 (division
+// pools + exclusive pool live, design 6.2)", was split into CP-1 to CP-4; CP-2 and the inert-racials slice (0.14.0,
+// user "everything wired" 2026-10-20) took the rest live. Exported for the liveness parity test (the renamed owner).
+export const CP_3 = "Complement plan CP-3 (Ground Ops complement consumers: Security, Medical, exclusive pool)";
 const SCIENCE_LINE_SWAP = "Science gear line swap (D26): Science gear rolls fieldwork/hazard/find lines instead";
 // Expedition Tiers G2-2 (plan 2026-10-14 G2-2: "the console still shows Tier I only (G2-6 adds the picker); a hidden
 // region is reachable by tests only"): every tier's candidates are built and tested (expeditionTierCandidates.test.ts),
@@ -552,6 +556,16 @@ const CREW_SEAMS: Readonly<Record<string, CrewSeam>> = {
   [CREW_STAT_KEYS.fuelEfficiency]: { probe: "sheetEngineEff", contexts: ["sheet"], curve: { kind: "linearAbsolute" } },
   // E-MOD EM-1 (P4): Power Discipline and the Martian racial cut the net power draw (POWER_EFFICIENCY_SEAM).
   [CREW_STAT_KEYS.powerEfficiency]: POWER_EFFICIENCY_SEAM,
+  // The inert racials go live (0.14.0, user "everything wired" 2026-10-20). Deck Handling + the Belter racial (CP-4,
+  // OC-1 "Faster drone replenish"): the patrol cycle's seeded replenish rate x (1 + it), rounded at the fold like Wing
+  // Commander (one rounding step), on a carrier that fields drones.
+  [CREW_STAT_KEYS.droneHandling]: { probe: "battleDroneReplenish", contexts: ["patrol"], curve: { kind: "linearRelative" }, tolerance: 0.5, base: () => combatBase("carrier") },
+  // Survey Aptitude + the Vael and Outer-Colony racials (CP-3's racial piece, OC-4 "Faster scans"): the dispatch's
+  // scanSpeedBonus, so the scan rate x (1 + it) on a run that carries no other scan bonus.
+  [CREW_STAT_KEYS.surveyAptitude]: { probe: "expScanRate", contexts: ["expedition:groundOps"], curve: { kind: "linearRelative" } },
+  // The Spacer racial (user 2026-10-20 "+Transit speed"): the sweeping transit speed key, read exactly as the Pilot's
+  // Ace Navigator (the sheet and the voyage's frozen speed). No crew buff targets it, so only the racial reads this.
+  [TRANSIT_SPEED_KEY]: { probe: "sheetTransit", contexts: ["sheet", "expedition:groundOps"], curve: { kind: "linearRelative" } },
 };
 
 // The claimed consumer of each dead crew.* key, read so a pending key that starts moving fails until it is flipped:
@@ -564,20 +578,16 @@ interface DeadKeySeam {
 }
 const withMedic: Transform = (s) => editMember(s, WIRING_SECURITY_ID, { traits: ["fieldMedic"] });
 const CREW_PENDING_PROBES: Readonly<Record<string, DeadKeySeam>> = {
-  [CREW_STAT_KEYS.surveyAptitude]: { probe: "expScanRate", context: "expedition:groundOps" },
   [CREW_STAT_KEYS.awayTeamProtection]: { probe: "runSecHp", context: "ground", base: () => withAwayTeam(wiringBase()) },
-  [CREW_STAT_KEYS.droneHandling]: { probe: "combatDroneHp", context: "patrol", base: () => combatBase("carrier") },
   [CREW_STAT_KEYS.triage]: { probe: "runSecHeal", context: "ground", base: () => withMedic(withAwayTeam(wiringBase())) },
   [CREW_STAT_KEYS.preventCrewLoss]: { probe: "injuryCare", context: "medbay" },
 };
 
 const CREW_PENDING: Readonly<Record<string, string>> = {
-  [CREW_STAT_KEYS.droneHandling]: TASK_23,
-  [CREW_STAT_KEYS.counterInfiltration]: TASK_23,
-  [CREW_STAT_KEYS.awayTeamProtection]: TASK_23,
-  [CREW_STAT_KEYS.surveyAptitude]: TASK_23,
-  [CREW_STAT_KEYS.triage]: TASK_23,
-  [CREW_STAT_KEYS.preventCrewLoss]: TASK_23,
+  [CREW_STAT_KEYS.counterInfiltration]: CP_3,
+  [CREW_STAT_KEYS.awayTeamProtection]: CP_3,
+  [CREW_STAT_KEYS.triage]: CP_3,
+  [CREW_STAT_KEYS.preventCrewLoss]: CP_3,
 };
 
 const PROFESSION_OF_BUFF = new Map<string, CrewProfession>(
@@ -619,12 +629,11 @@ function crewEntries(): WiringEntry[] {
   });
 }
 
-const RACIAL_PENDING: Readonly<Partial<Record<CrewRace, WiringStatus>>> = {
-  belter: pending(TASK_23),
-  outerColony: pending(TASK_23),
-  vael: pending(TASK_23),
-  spacer: { kind: "deferred", owner: "Task 23: complement long-haul ramp (D26)", userRef: `${T3}: the Spacer long-haul ramp` },
-};
+// Every racial is live (0.14.0, user "everything wired" 2026-10-20): Belter through Deck Handling's replenish (CP-4,
+// OC-1), Vael and Outer-Colony through Survey Aptitude's scan speed (CP-3's racial piece, OC-4), and the Spacer on the
+// sweeping transit speed (merge-batch answers 2026-10-20 "+Transit speed"). The Spacer long-haul ramp itself
+// (crew.endurance, D26) stays 0.14.x (T3); no source targets that key in 0.14.0, so it has no entry.
+const RACIAL_PENDING: Readonly<Partial<Record<CrewRace, WiringStatus>>> = {};
 
 function racialEntries(): WiringEntry[] {
   return (Object.keys(CREW_RACES) as CrewRace[]).map((race) => {
@@ -2101,20 +2110,17 @@ function hullEntries(): WiringEntry[] {
 
 
 // Where each division's not-yet-live complement keys would act (a division wing amplifies them too, once they do).
+// (Science's Survey Aptitude and the Flight Deck's Deck Handling went live with the inert racials, 0.14.0.)
 const DEAD_DIVISION_CONTEXTS: Readonly<Partial<Record<CrewProfession, ContextId[]>>> = {
   security: ["ground"], // counterInfiltration, awayTeamProtection
-  science: ["expedition:groundOps"], // surveyAptitude
   medical: ["ground"], // triage (Crew Effectiveness is live since CP-2)
-  flightDeck: ["patrol"], // droneHandling
 };
 
 // A division wing's flat check: its division's complement carrying the division's dead key, read where the key
 // claims to act (the dead key's own consumer and fixture). The wing amplifies nothing there until the key is live.
 const DEAD_KEY_OF_DIVISION: Readonly<Partial<Record<CrewProfession, string>>> = {
   security: "sec.awayTeam",
-  science: "sci.survey",
   medical: "med.triage",
-  flightDeck: "flight.droneHandling",
 };
 function divisionWingChecks(division: CrewProfession): Partial<Record<ContextId, FlatCheck>> {
   const buffId = DEAD_KEY_OF_DIVISION[division];
@@ -2126,10 +2132,12 @@ function divisionWingChecks(division: CrewProfession): Partial<Record<ContextId,
 }
 
 // CP-2: the Engineering wing is LIVE: every Engineering key it amplifies acts (Engine Tuning, Damage Control since
-// CP-2, and Power Discipline since E-MOD EM-1). The other non-Operations wings wait on their division's dead keys.
-const LIVE_WINGS: ReadonlySet<CrewProfession> = new Set(["operations", "engineering"]);
+// CP-2, and Power Discipline since E-MOD EM-1). The Science and Flight Deck wings went live with the inert racials
+// (0.14.0: Survey Aptitude's scan speed, Deck Handling's drone replenish), so every key they amplify acts too. The
+// Security and Medical wings wait on CP-3's Ground Ops consumers.
+const LIVE_WINGS: ReadonlySet<CrewProfession> = new Set(["operations", "engineering", "science", "flightDeck"]);
 function wingPending(division: CrewProfession): WiringStatus {
-  return pending(`CP-3, CP-4 (the ${division} division's dead keys; its live keys move)`, DEAD_DIVISION_CONTEXTS[division] ?? ["ground"]);
+  return pending(`CP-3 (the ${division} division's dead keys; its live keys move)`, DEAD_DIVISION_CONTEXTS[division] ?? ["ground"]);
 }
 
 function moduleEntries(): WiringEntry[] {
@@ -3544,16 +3552,10 @@ const SCIENCE_NEVER_FIGHTS = "Science never fights (D2)";
 const SIDEARM_TOOL = "Science never fights (D2); the Sidearm becomes a tool";
 const ALLOW_LIST_REASONS: Readonly<Record<string, string>> = {
   ...Object.fromEntries(Object.keys(OFFICER_BONUSES_PENDING_IN_RELEASE).map((k) => [`officer:${k}`, OFFICER_DORMANT])),
-  "crew:crew.droneHandling": "Deck Handling: carrier drone handling (Flight Deck pool)",
   "crew:crew.counterInfiltration": "Counter-Infiltration: resists enemy debuffs (Security pool)",
   "crew:crew.awayTeamProtection": "Away-Team Protection: squad HP (Security pool)",
-  "crew:crew.surveyAptitude": "Survey Aptitude: scan speed (Science pool)",
   "crew:crew.triage": "Triage: squad healing (Medical pool)",
   "crew:crew.preventCrewLoss": "Prevent a Crew Loss: shorter injuries (exclusive pool)",
-  "racial:belter": "racial crew.droneHandling (Flight Deck pool key)",
-  "racial:outerColony": "racial crew.surveyAptitude (Science pool key)",
-  "racial:vael": "racial crew.surveyAptitude (Science pool key)",
-  "racial:spacer": "racial crew.endurance: a complement build-up like Constitution (D23 curve)",
   "gear:science:sidearm:groundPower": SIDEARM_TOOL,
   "gear:science:sidearm:groundAccuracy": SIDEARM_TOOL,
   "gear:science:sidearm:groundStatusChance": SIDEARM_TOOL,

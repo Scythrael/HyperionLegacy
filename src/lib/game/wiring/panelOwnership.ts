@@ -26,6 +26,8 @@ import {
 } from "../model";
 import { MUSEUM_COPY_LADDER, RELIC_SETS, museumBonuses, type MuseumStat } from "../relics";
 import { OFFICER_STAT_NEUTRAL } from "../officerStats";
+import { CREW_RACES } from "../crewRaces";
+import { CREW_STAT_KEYS } from "../crewBuffs";
 
 // The subjects the probes read (probes.ts WIRING_SHIP_ID, WIRING_CAPTAIN_ID, WIRING_SECURITY_ID, WIRING_SCIENCE_ID;
 // repeated here so the panel never imports probes.ts statically; the test pins them equal).
@@ -35,8 +37,15 @@ export const PANEL_SECURITY_ID = "member-901";
 export const PANEL_SCIENCE_ID = "member-902";
 // The id an engine reader ignores: an officer bonus or crew buff swapped to it acts on nothing (the fixtures use it).
 const NONE_ID = "wiring.none";
-// The race whose racial has no 0.14.0 consumer (probes.ts FIXTURE_RACE: the Spacer long-haul ramp is deferred).
-const INERT_RACE = "spacer";
+// The panel's neutral race (probes.ts FIXTURE_RACE): the Belter, whose racial acts only on a carrier's patrol drone
+// screen. Every racial acts since 0.14.0, so the Belter itself is measured against the Spacer (transit speed), which
+// never touches the drone screen its probe reads.
+const INERT_RACE = "belter";
+const neutralRaceFor = (race: string): string => (race === INERT_RACE ? "spacer" : INERT_RACE);
+// Deck Handling (the Flight Deck buff and the Belter racial) acts only on a drone screen; a ship that installs no drone
+// bay owns it but has nothing for it to act on, which is not a dead wire.
+const DRONELESS_NOTE = "acts on a patrol's drone screen; this ship installs no drone bay";
+const fieldsNoDrones = (s: GameState): boolean => !s.equipment.some((e) => e.fittedToShipId === PANEL_SHIP_ID && e.slotType === "droneBay");
 
 export type Ownership = "owned" | "notOwned" | "content" | "unmeasured";
 
@@ -210,10 +219,13 @@ const ADAPTERS: Readonly<Record<string, Adapter>> = {
     // The racial acts through the ship's officers and complement (CREW_RACES racialBonus), not the away squads.
     const has = officersAboard(v).some((o) => o.race === key) || bucketsAboard(v).some((b) => b.race === key);
     if (!has) return NOT_OWNED;
-    if (key === INERT_RACE) return { ownership: "owned", measure: false, note: "the Spacer is the panel's neutral race" };
-    const toInert = <T extends { race: string }>(x: T): T => (x.race === key ? { ...x, race: INERT_RACE } : x);
+    const statKey = CREW_RACES[key as keyof typeof CREW_RACES]?.racialBonus.statKey;
+    if (statKey === CREW_STAT_KEYS.droneHandling && fieldsNoDrones(v)) return { ownership: "owned", measure: false, note: DRONELESS_NOTE };
+    const neutral = neutralRaceFor(key);
+    const toInert = <T extends { race: string }>(x: T): T => (x.race === key ? { ...x, race: neutral } : x);
     const s1 = { ...v, officers: v.officers.map((o) => (o.assignedShipId === PANEL_SHIP_ID ? toInert(o) : o)) } as GameState;
-    return owned(editBuckets(s1, (b) => toInert(b)), "without = the same officers and crew as Spacers (no racial consumer)");
+    const label = neutral === "spacer" ? "Spacers (transit speed only)" : "Belters (a carrier's drone replenish only)";
+    return owned(editBuckets(s1, (b) => toInert(b)), `without = the same officers and crew as ${label}`);
   },
   OFFICER_STAT_FACETS: (_e, v, key) => {
     const [seat, stat] = key.split(":");
@@ -320,6 +332,7 @@ const ADAPTERS: Readonly<Record<string, Adapter>> = {
 
 function crewBuff(v: GameState, key: string): Owned {
   if (!bucketsAboard(v).some((b) => b.buff1Id === key || b.buff2Id === key)) return NOT_OWNED;
+  if (key === "flight.droneHandling" && fieldsNoDrones(v)) return { ownership: "owned", measure: false, note: DRONELESS_NOTE };
   return owned(editBuckets(v, (b) => ({ ...b, buff1Id: b.buff1Id === key ? NONE_ID : b.buff1Id, buff2Id: b.buff2Id === key ? null : b.buff2Id })));
 }
 

@@ -30,7 +30,7 @@
 import type { GameState, ShipInstance, ShipDerivedStats, SeniorStaffOfficer, CrewSignature, CrewBucket, OfficerCombatMods, SeniorStaffSeat, PromotionObjectiveKind } from "./model";
 import { shipDerivedStats } from "./model";
 import { equippedFor } from "./equipment";
-import { CREW_PROFESSION_BUFFS, CREW_STAT_KEYS, SECOND_LEVEL_EXCLUSIVE } from "./crewBuffs";
+import { CREW_PROFESSION_BUFFS, CREW_STAT_KEYS, SECOND_LEVEL_EXCLUSIVE, TRANSIT_SPEED_KEY } from "./crewBuffs";
 import { CREW_RACES } from "./crewRaces";
 import { coalesceBuckets, contributionForSignature, notableSignature, removeFromBucketList, rollupBuckets, totalCrew } from "./crew";
 import { shipCrewLocked } from "./crewLock";
@@ -86,6 +86,12 @@ import { captainComplementMult, captainOfficerOutputMult, captainSensorsMult } f
 //   crew.crewOutputMult                          -> the mission output share (crewMissionOutputBonus)
 //   crew.crewEffectiveness                       -> every OTHER complement key x crewEffectivenessMultiplier (inside
 //                                                   rawShipCrewContribution, so every consumer inherits it)
+// The inert racials go live (0.14.0, user "everything wired" 2026-10-20), read off this map at dispatch:
+//   crew.droneHandling (Deck Handling + Belter)  -> the patrol cycle's drone replenish rate (shipDeckHandling, frozen
+//                                                   on PatrolMissionState.deckHandling; OC-1 "Faster drone replenish")
+//   crew.surveyAptitude (Survey Aptitude + Vael and Outer-Colony) -> the expedition's scanSpeedBonus (shipSurveyAptitude,
+//                                                   frozen at dispatch; OC-4 "Faster scans")
+// and the Spacer racial rides OFFICER_TRANSIT_KEY (the sweeping transit speed, both legs and the voyage).
 // The combat keys still map to NOTHING on purpose: combat power stays on installed combat gear so crew never
 // DOUBLE-DIPS weapons/shields (locked design, D12). All magnitudes above are first-pass; retuning happens in a
 // later balance phase.
@@ -109,7 +115,9 @@ export const OFFICER_ALL_STATS_KEY = "officer.allStatsMult";
 export const OFFICER_TURNAROUND_KEY = "officer.missionTurnaroundCut";
 // Complement and Acquisition CP-2 (OC-E5): the Pilot's sweeping transit cut, both legs (transitSpeedMult). It used to
 // ride crew.transitOutSpeed, which now lifts the outbound leg only, so the officer keeps its own pass-through key.
-export const OFFICER_TRANSIT_KEY = "officer.transitTimeCut";
+// 0.14.0 (user 2026-10-20 "+Transit speed"): the Spacer racial (officer, captain and per-head complement) rides it too
+// (crewBuffs.ts TRANSIT_SPEED_KEY), so the mission legs and the expedition voyage pick it up with no new consumer.
+export const OFFICER_TRANSIT_KEY = TRANSIT_SPEED_KEY;
 
 // CP-2 (OC-3 answered 2026-10-16 "Boosts other buffs"): Crew Effectiveness (the Medical buff crew.crewEffectiveness
 // plus the Earth-born racial) multiplies every OTHER complement buff on the ship by 1 + diminishing(e, knee) (D23: a
@@ -699,7 +707,12 @@ function carriesCrewKey(state: GameState, ship: ShipInstance, key: string): bool
     src.buffs.has(b.buff1Id) || (b.buff2Id !== null && src.buffs.has(b.buff2Id)) || src.races.has(b.race);
   if (ship.complement?.buckets.some((b) => b.count > 0 && holds(b))) return true;
   if (state.notableCrew.some((n) => (n.assignedShipId ?? null) === ship.id && holds(n))) return true;
-  return src.races.size > 0 && state.officers.some((o) => o.assignedShipId === ship.id && src.races.has(o.race));
+  if (src.races.size === 0) return false;
+  if (state.officers.some((o) => o.assignedShipId === ship.id && src.races.has(o.race))) return true;
+  // WR-6 (OC-A43): the commanding captain carries its race's racial on this ship too (rawShipCrewContribution adds it),
+  // so a Stheni or Belter captain alone must pass the guard.
+  const captainRace = commandingCaptain(state, ship)?.race;
+  return captainRace !== undefined && src.races.has(captainRace);
 }
 
 // The whole repair speed-up every repair reads: the Shipyard divisor (tick.ts shipRepairDurationTicks divides the
@@ -725,6 +738,24 @@ export function shipMissionOutputBonus(state: GameState, ship: ShipInstance): nu
   const officers = officerMissionOutputBonus(state, ship);
   const crew = crewMissionOutputBonus(state, ship);
   return crew === 0 ? officers : officers + crew;
+}
+
+// Deck Handling (crew.droneHandling: the Flight Deck buff and the Belter racial; complement plan CP-4, OC-1 "Faster
+// drone replenish"): the share a patrol cycle's drone squadrons replenish faster by, droneReplenishRate x (1 + it),
+// never drone damage (D12: the complement never feeds weapons or shields). Frozen when the cycle starts
+// (PatrolMissionState.deckHandling). A complement buff stacks with headcount (bounded by the hull's crew cap), so it
+// stays linear like every other complement buff. 0 without the key. Pure.
+export function shipDeckHandling(state: GameState, ship: ShipInstance): number {
+  if (!carriesCrewKey(state, ship, CREW_STAT_KEYS.droneHandling)) return 0;
+  return Math.max(0, shipCrewContribution(state, ship)[CREW_STAT_KEYS.droneHandling] ?? 0);
+}
+
+// Survey Aptitude (crew.surveyAptitude: the Science buff and the Vael and Outer-Colony racials; complement plan CP-3,
+// OC-4 "Faster scans"): adds to the expedition's scanSpeedBonus (the scan rate x (1 + it)), frozen at dispatch. 0
+// without the key. Pure.
+export function shipSurveyAptitude(state: GameState, ship: ShipInstance): number {
+  if (!carriesCrewKey(state, ship, CREW_STAT_KEYS.surveyAptitude)) return 0;
+  return Math.max(0, shipCrewContribution(state, ship)[CREW_STAT_KEYS.surveyAptitude] ?? 0);
 }
 
 // ============================================================================

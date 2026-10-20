@@ -12,8 +12,8 @@
 //   mission   : a Short Ore Run flown 700 economyTick seconds, once with Spacers aboard and once with the other three
 //               races (whose consumers are patrols and expeditions only, so that one is a control).
 //
-// The engine commit re-pins ONLY what a racial moves, each with its reason beside it, and proves the move with the
-// racials switched off (racialsSwitch.fixture.ts): every moved fixture then reproduces its capture here.
+// The wiring commit re-pins ONLY what a racial moves (GOLDEN), each with its reason beside it, and proves the move
+// with the racials switched off (racialsSwitch.fixture.ts): every fixture then reproduces its capture (BEFORE).
 
 import { describe, expect, it } from "vitest";
 import Decimal from "break_infinity.js";
@@ -26,6 +26,7 @@ import { CREW_STAT_KEYS } from "./crewBuffs";
 import { seatOfficer } from "./wiring/probes";
 import { plainAwayMember, withSlottedAwayTeams } from "./awayTeamTestFixtures";
 import { withoutRunCounts } from "./firstRunsGoldens.fixture";
+import { withRacialsOff } from "./racialsSwitch.fixture";
 
 function fnv(s: string): string {
   let h = 0x811c9dc5;
@@ -135,13 +136,14 @@ function racialsMission(officers: readonly [SeniorStaffSeat, CrewRace][], bucket
   return hash(s);
 }
 
-// Captured on the code BEFORE the engine edit (on top of f56fb8f).
-const RACIALS_GOLDEN: Record<string, string | string[]> = {
+// Captured on the code BEFORE the engine edit (on top of f56fb8f, in the goldens-first change of this slice). The
+// switch proof below reproduces every one of these with the racials switched off.
+const BEFORE: Record<string, string | string[]> = {
   "sheet:belter": "f58d21f7/75d0ca5b",
   "sheet:survey": "e980da23/803dff47",
   "sheet:spacer": "cd763a7/85076d98",
   // The dispatch record and the replays equal complementGoldens.test.ts "patrol" (the same carrier patrol): the
-  // Belter crew act on nothing yet. Only the final state differs (it holds the crew).
+  // Belter crew acted on nothing then. Only the final state differs (it holds the crew).
   patrol: ["16e07798", "9e9d9838", "95126c89", "6f82e593", "349cbd04", "8c13b3c8", "c1af6ef3", "d7ae934c", "3ee0a8b7", "f2047c48"],
   survey: ["ffdce4b", "59f6a41a", "888f3b19"],
   spacerRun: ["cb74a940", "c48cc2f6", "e0c5fb05"],
@@ -149,11 +151,31 @@ const RACIALS_GOLDEN: Record<string, string | string[]> = {
   "mission:others": "bf5a25cf",
 };
 
-describe("inert racials: goldens captured before the engine edit", () => {
+// The pins today. Each move names its reason; an unchanged pin equals BEFORE.
+const GOLDEN: Record<string, string | string[]> = {
+  // Unchanged: Deck Handling and Survey Aptitude act at patrol and expedition dispatch, never on the sheet.
+  "sheet:belter": BEFORE["sheet:belter"],
+  "sheet:survey": BEFORE["sheet:survey"],
+  // MOVES: the Spacer racial is the sweeping transit speed now (transitSpeedMult, and its key in the crew map).
+  "sheet:spacer": "d3b2a51d/70b9f0b0",
+  // MOVES: the cycle freezes the crew's Deck Handling (dispatch record) and its squadrons replenish faster, so the
+  // replays and the state move from the first wave the screen recovers in.
+  patrol: ["d014f094", "31a0d9ae", "147b0957", "3a58343d", "f552f256", "3e6bc4cc", "bc60e48d", "77cdde1a", "23c8e185", "bf2c515"],
+  // MOVES: the dispatch freezes the crew's Survey Aptitude into scanSpeedBonus, so every scan is faster.
+  survey: ["594c5451", "e969f48", "9fe025be"],
+  // MOVES: the Spacer Pilot and crew speed the voyage (both legs, frozen at dispatch).
+  spacerRun: ["4ab89c29", "e238662c", "c4dc7d6"],
+  // MOVES: the Spacers shorten the mission's transit legs.
+  "mission:spacer": "1758c111",
+  // Unchanged (the control): Belter, Vael and Outer-Colony crews act on patrols and expeditions only.
+  "mission:others": BEFORE["mission:others"],
+};
+
+describe("inert racials: the goldens (captured before the wiring, re-pinned only where a racial moves)", () => {
   it("sheets: Belter, Survey (Vael + Outer-Colony) and Spacer crews", () => {
-    expect(racialsSheet("carrier", BELTER, BELTER_CREW)).toBe(RACIALS_GOLDEN["sheet:belter"]);
-    expect(racialsSheet("orion", SURVEY, SURVEY_CREW)).toBe(RACIALS_GOLDEN["sheet:survey"]);
-    expect(racialsSheet("generalFreighter", SPACER, SPACER_CREW)).toBe(RACIALS_GOLDEN["sheet:spacer"]);
+    expect(racialsSheet("carrier", BELTER, BELTER_CREW)).toBe(GOLDEN["sheet:belter"]);
+    expect(racialsSheet("orion", SURVEY, SURVEY_CREW)).toBe(GOLDEN["sheet:survey"]);
+    expect(racialsSheet("generalFreighter", SPACER, SPACER_CREW)).toBe(GOLDEN["sheet:spacer"]);
   });
 
   it("patrol: a Belter carrier's Repeat patrol (dispatch, replays, the state after 1,200 s)", () => {
@@ -162,23 +184,22 @@ describe("inert racials: goldens captured before the engine edit", () => {
     expect(r.drones).toBeGreaterThan(0);
     expect(r.replenished).toBe(true);
     expect(r.relaunches).toBeGreaterThan(1);
-    expect(r.out).toEqual(RACIALS_GOLDEN.patrol);
+    expect(r.out).toEqual(GOLDEN.patrol);
   });
 
   it("survey: a Ground Ops run with a Vael Science officer and Outer-Colony Survey Aptitude crew", () => {
     const { exp, out } = racialsRun(SURVEY, SURVEY_CREW, 0x1244);
     expect(exp.groundOps).toBeDefined();
-    expect(out).toEqual(RACIALS_GOLDEN.survey);
+    expect(out).toEqual(GOLDEN.survey);
   });
 
   it("spacerRun: the same run with a Spacer Pilot and Spacer crew", () => {
-    const { out } = racialsRun(SPACER, SPACER_CREW, 0x1244);
-    expect(out).toEqual(RACIALS_GOLDEN.spacerRun);
+    expect(racialsRun(SPACER, SPACER_CREW, 0x1244).out).toEqual(GOLDEN.spacerRun);
   });
 
-  it("missions: a Short Ore Run with Spacers aboard, and one with the other three races", () => {
-    expect(racialsMission(SPACER, SPACER_CREW)).toBe(RACIALS_GOLDEN["mission:spacer"]);
-    expect(racialsMission(OTHERS, OTHERS_CREW)).toBe(RACIALS_GOLDEN["mission:others"]);
+  it("missions: a Short Ore Run with Spacers aboard, and one with the other three races (the control)", () => {
+    expect(racialsMission(SPACER, SPACER_CREW)).toBe(GOLDEN["mission:spacer"]);
+    expect(racialsMission(OTHERS, OTHERS_CREW)).toBe(GOLDEN["mission:others"]);
   });
 
   it("self-check: each crew carries its racial's key on the ship", () => {
@@ -186,5 +207,33 @@ describe("inert racials: goldens captured before the engine edit", () => {
     const crew = shipCrewContribution(s, s.ships[0]);
     expect(crew[CREW_STAT_KEYS.droneHandling]).toBeGreaterThan(0);
     expect(crew[CREW_STAT_KEYS.surveyAptitude]).toBeGreaterThan(0);
+  });
+});
+
+// ===== the "turn it off" proof =====
+// With the racials switched off (racialsSwitch.fixture.ts) every fixture reproduces its capture from before the
+// wiring, so the switched effects are the ONLY thing the wiring moved. The sheets restore only the Spacer key: they
+// hash the crew map itself, where the drone and survey keys always sat (zeroing them would move the map, although
+// nothing there reads it).
+describe("inert racials: switched off, every fixture reproduces its pre-wiring capture", () => {
+  it("sheets (the Spacer key restored)", () => {
+    withRacialsOff(
+      () => {
+        expect(racialsSheet("carrier", BELTER, BELTER_CREW)).toBe(BEFORE["sheet:belter"]);
+        expect(racialsSheet("orion", SURVEY, SURVEY_CREW)).toBe(BEFORE["sheet:survey"]);
+        expect(racialsSheet("generalFreighter", SPACER, SPACER_CREW)).toBe(BEFORE["sheet:spacer"]);
+      },
+      { droneAndSurvey: false },
+    );
+  });
+
+  it("patrol, runs and missions", () => {
+    withRacialsOff(() => {
+      expect(racialsPatrol().out).toEqual(BEFORE.patrol);
+      expect(racialsRun(SURVEY, SURVEY_CREW, 0x1244).out).toEqual(BEFORE.survey);
+      expect(racialsRun(SPACER, SPACER_CREW, 0x1244).out).toEqual(BEFORE.spacerRun);
+      expect(racialsMission(SPACER, SPACER_CREW)).toBe(BEFORE["mission:spacer"]);
+      expect(racialsMission(OTHERS, OTHERS_CREW)).toBe(BEFORE["mission:others"]);
+    });
   });
 });

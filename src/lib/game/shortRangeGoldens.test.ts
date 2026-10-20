@@ -58,6 +58,10 @@
 //                  Overdrive, Power Discipline, the Martian racial, the powerOutput and powerDrawReduction lines, the
 //                  slot and weapon draw rows). With EM1_SLICE held apart registryPin reproduces e6523a6f, and every
 //                  earlier proof chain passes it too.
+// MOVED BY the inert racials (0.14.0): `registry` 1212 887dfdf8 -> 1212 cea14e70: seven entries flip live (Deck Handling
+//                  and Survey Aptitude, the Belter, Vael, Outer-Colony and Spacer racials, the Science and Flight Deck
+//                  quarters wings). With RACIALS_SLICE and RACIALS_SPACER_SLICE read back registryPin reproduces
+//                  887dfdf8, and every earlier proof chain passes them too.
 // ADDED BY G1-1: `guests:<hull>` (guest quarters bare and with each quarters variety, the Guest Wing last) and
 // `stats:<hull>:guestWing` (every other stat with a Guest Wing installed). The sheets hash through withoutGuests, so
 // the stats pins keep proving no other stat moved (the transport hulls now carry base guest quarters).
@@ -287,7 +291,7 @@ const GOLDEN: Record<string, unknown> = {
     "50:quartersFlightDeckWing:stellar:q2:iL31:{\"crewStations\":57}:{\"colonistCapacity\":76,\"crewStations\":19}:m0:quartersFlightDeckWing",
     "pool:[{\"stat\":\"crewStations\",\"weight\":5},{\"stat\":\"crewEfficiency\",\"weight\":2},{\"stat\":\"massReduction\",\"weight\":1},{\"stat\":\"colonistCapacity\",\"weight\":2}]",
   ],
-  "registry": [1212, "887dfdf8"],
+  "registry": [1212, "cea14e70"],
   "registry:g1": ["ship:gearLine:colonistCapacity|pending", "ship:SHIP_TYPES:generalFreighter:colonistCapacity|pending", "ship:SHIP_TYPES:orion:colonistCapacity|pending", "ship:SHIP_TYPES:aurora:colonistCapacity|pending", "ship:SHIP_TYPES:eir:colonistCapacity|pending", "ship:SHIP_SEAMS:generalQuartersGuestPerk|pending", "ship:QUARTERS_MODULES:quartersGuestWing|live", "ship:QUARTERS_MODULES:quartersGuestWing:capacity|pending",
     // G1-2: the short-range template catalog, pending the cycle engine (G1-4).
     "mission:SHORT_RANGE_TEMPLATES:refugeeRelocation:rolls|pending", "mission:SHORT_RANGE_TEMPLATES:refugeeRelocation:work|pending", "mission:SHORT_RANGE_TEMPLATES:refugeeRelocation:reward|pending", "mission:SHORT_RANGE_TEMPLATES:supplyDropOff:rolls|pending", "mission:SHORT_RANGE_TEMPLATES:supplyDropOff:work|pending", "mission:SHORT_RANGE_TEMPLATES:supplyDropOff:reward|pending", "mission:SHORT_RANGE_TEMPLATES:supplyPickup:rolls|pending", "mission:SHORT_RANGE_TEMPLATES:supplyPickup:work|pending", "mission:SHORT_RANGE_TEMPLATES:supplyPickup:reward|pending", "mission:SHORT_RANGE_TEMPLATES:phenomenonSurvey:rolls|pending", "mission:SHORT_RANGE_TEMPLATES:phenomenonSurvey:work|pending", "mission:SHORT_RANGE_TEMPLATES:phenomenonSurvey:reward|pending", "mission:SHORT_RANGE_TEMPLATES:telescopeRepair:rolls|pending", "mission:SHORT_RANGE_TEMPLATES:telescopeRepair:work|pending", "mission:SHORT_RANGE_TEMPLATES:telescopeRepair:reward|pending", "mission:SHORT_RANGE_TEMPLATES:commBoosterBuild:rolls|pending", "mission:SHORT_RANGE_TEMPLATES:commBoosterBuild:work|pending", "mission:SHORT_RANGE_TEMPLATES:commBoosterBuild:reward|pending", "mission:SHORT_RANGE_TEMPLATES:prisonerTransport:rolls|pending", "mission:SHORT_RANGE_TEMPLATES:prisonerTransport:work|pending", "mission:SHORT_RANGE_TEMPLATES:prisonerTransport:reward|pending"],
@@ -473,6 +477,22 @@ const EM1_ADDED_ENTRY_IDS: ReadonlySet<string> = new Set<string>([
 ]);
 const EM1_SLICE: RegistrySlice = { added: EM1_ADDED_ENTRY_IDS, flipped: EM1_WIRED_IDS, was: "pending" };
 
+// The inert racials (0.14.0, user "everything wired" 2026-10-20): the `registry` pin before them (after EM-1) and the
+// entries they flip live. Nothing is added. Six were pending (Deck Handling and Survey Aptitude, the Belter, Vael and
+// Outer-Colony racials, the Science and Flight Deck quarters wings); the Spacer was deferred (its old long-haul ramp).
+const REGISTRY_BEFORE_RACIALS = [1212, "887dfdf8"];
+const RACIALS_WIRED_IDS: ReadonlySet<string> = new Set<string>([
+  "crew:crew.droneHandling",
+  "crew:crew.surveyAptitude",
+  "racial:belter",
+  "racial:outerColony",
+  "racial:vael",
+  "ship:QUARTERS_MODULES:quartersScienceWing",
+  "ship:QUARTERS_MODULES:quartersFlightDeckWing",
+]);
+const RACIALS_SLICE: RegistrySlice = { flipped: RACIALS_WIRED_IDS, was: "pending" };
+const RACIALS_SPACER_SLICE: RegistrySlice = { flipped: new Set<string>(["racial:spacer"]), was: "deferred" };
+
 // The `fleet` record before OC-11 (captured on a678241); reproduced with the pause off.
 const FLEET_BEFORE_OC11 = ["aa94ddcd", "1a72036c", "5008dacf", "cbf18a80", "6c8ebe80", "33d00a42", "19f8bdb2"];
 
@@ -573,24 +593,30 @@ describe("G1-0 golden 5: the wiring registry's ids and statuses", () => {
   it("the entries outside the G1 additions, hashed in registry order", () => {
     pin("registry", registryPin(G1_SLICE, R2_1_SLICE));
   });
+  // The inert racials: their seven flips read back (six pending, the Spacer deferred), the lines hash to the pin from
+  // before them, so the flips are the only move (the count holds: nothing added).
+  it("the inert racials are the only cause of their registry move", () => {
+    expect(WIRING_REGISTRY.filter((e) => RACIALS_WIRED_IDS.has(e.id) || e.id === "racial:spacer").map((e) => e.status.kind)).toEqual(Array(RACIALS_WIRED_IDS.size + 1).fill("live"));
+    expect(registryPin(G1_SLICE, R2_1_SLICE, RACIALS_SLICE, RACIALS_SPACER_SLICE)).toEqual(REGISTRY_BEFORE_RACIALS);
+  });
   // FKR-5 and G2-3 moved the pin (see the header); with their entries held apart and the Explosives flip read back as
   // pending, the registry hashes exactly as the feat base before them.
   it("FKR-5 and G2-3 are the only causes of the registry move", () => {
-    expect(registryPin(G1_SLICE, FKR5_SLICE, G23_SLICE, R2_1_SLICE, EM1_SLICE)).toEqual(REGISTRY_BEFORE_FKR5_G23);
+    expect(registryPin(G1_SLICE, FKR5_SLICE, G23_SLICE, R2_1_SLICE, EM1_SLICE, RACIALS_SLICE, RACIALS_SPACER_SLICE)).toEqual(REGISTRY_BEFORE_FKR5_G23);
   });
   // E-MOD EM-1: the seven power entries it wires flip pending -> live (the count and the order hold). With those seven
   // read as pending again the lines hash to the pin from before EM-1, so the flips are the only move.
   it("EM-1 is the only cause of its registry move", () => {
     expect(WIRING_REGISTRY.filter((e) => EM1_WIRED_IDS.has(e.id)).map((e) => e.status.kind)).toEqual(Array(EM1_WIRED_IDS.size).fill("live"));
     expect(WIRING_REGISTRY.filter((e) => EM1_ADDED_ENTRY_IDS.has(e.id))).toHaveLength(EM1_ADDED_ENTRY_IDS.size);
-    expect(registryPin(G1_SLICE, R2_1_SLICE, EM1_SLICE)).toEqual(REGISTRY_BEFORE_EM1);
+    expect(registryPin(G1_SLICE, R2_1_SLICE, EM1_SLICE, RACIALS_SLICE, RACIALS_SPACER_SLICE)).toEqual(REGISTRY_BEFORE_EM1);
   });
   // WR-6: the nine placeholder entries it wires flip pending -> live (the count and the order hold). With those nine
   // read as pending again (and the later slices held apart) the lines hash to the pin from before WR-6, so the flips
   // are the only move.
   it("WR-6 is the only cause of the registry move", () => {
     expect(WIRING_REGISTRY.filter((e) => WR6_WIRED_IDS.has(e.id)).map((e) => e.status.kind)).toEqual(Array(WR6_WIRED_IDS.size).fill("live"));
-    expect(registryPin(G1_SLICE, FKR5_SLICE, G23_SLICE, WR6_SLICE, R2_1_SLICE, EM1_SLICE)).toEqual(REGISTRY_BEFORE_WR6);
+    expect(registryPin(G1_SLICE, FKR5_SLICE, G23_SLICE, WR6_SLICE, R2_1_SLICE, EM1_SLICE, RACIALS_SLICE, RACIALS_SPACER_SLICE)).toEqual(REGISTRY_BEFORE_WR6);
   });
   it("Field Kits FKR-5: the added entries and the one flipped, each with its status", () => {
     const added = WIRING_REGISTRY.filter((e) => FKR5_ADDED_ENTRY_IDS.has(e.id));

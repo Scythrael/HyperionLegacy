@@ -372,8 +372,12 @@ const GOLDEN: Record<string, unknown> = {
   // 13 E-MOD rows). The two rows left naming E-MOD: the Precursor Lens module (EM-8) and the reactor surplus (EM-4).
   // Re-pinned again at the merge of feat 922025e (EM-1 aea24b6b): FKR-5, G2-3 and R2-1 added their entries (the
   // G1-0 golden 5 in shortRangeGoldens.test.ts proves each slice is its only cause); the E-MOD rows did not change.
+  // Re-pinned by the inert racials (0.14.0, 452c9676): seven entries went live with their probes and contexts (Deck
+  // Handling, Survey Aptitude, the Belter, Vael, Outer-Colony and Spacer racials, the Science and Flight Deck wings), and
+  // the four still-pending Ground Ops crew keys and the Security and Medical wings name their owner CP-3 (was "E-CREW
+  // Task 23" / "CP-3, CP-4"). G1-0 golden 5 proves the status flips are the only status move; the E-MOD rows hold.
   registry: [
-    "452c9676",
+    "8a202320",
     "relic:RELICS:precursorLens",
     "ship:audit:reactorCoreNet",
   ],

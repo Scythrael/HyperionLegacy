@@ -596,17 +596,34 @@ export function defaultDronesForHull(hullType: CombatHullType, idPrefix: string)
 // instances), mutating nothing.
 // WR-5b (0.14.0): `captainCombat` is the cycle's frozen captain record: its drone nodes (Squadron Tactics, Wing
 // Commander, Wolfpack) shape the seeded screen (combat/captainEdge.ts applyCaptainDrones). Absent = unchanged.
+// 0.14.0 (CP-4, OC-1): `deckHandling` is the cycle's frozen Deck Handling (PatrolMissionState.deckHandling), folded
+// after the captain's nodes (applyDeckHandling). Absent or 0 = unchanged.
 export function installedDronesForPatrol(
   installedGear: EquipmentInstance[],
   idPrefix: string,
   captainCombat?: CaptainCombatMods,
+  deckHandling?: number,
 ): DroneSquadron[] {
-  return applyCaptainDrones(
-    installedGear
-      .filter((piece) => piece.slotType === "droneBay")
-      .map((pod, index) => squadronFromPod(pod, `${idPrefix}-${pod.droneRole}${index}`)),
-    captainCombat,
+  return applyDeckHandling(
+    applyCaptainDrones(
+      installedGear
+        .filter((piece) => piece.slotType === "droneBay")
+        .map((pod, index) => squadronFromPod(pod, `${idPrefix}-${pod.droneRole}${index}`)),
+      captainCombat,
+    ),
+    deckHandling,
   );
+}
+
+// 0.14.0 (complement plan CP-4, OC-1 "Faster drone replenish"): the crew's Deck Handling (Flight Deck buff + Belter
+// racial) on a patrol cycle's seeded squadrons: droneReplenishRate x (1 + deckHandling), rounded at the fold like
+// Wing Commander (the codebase's integer-at-the-fold convention), so both the between-wave replenish and any
+// in-combat replenish read it. Replenishment only, never drone damage or hit points (D12). Fresh squadrons are
+// returned (the input is never mutated); absent, 0 or no squadron returns the list itself. Pure.
+export function applyDeckHandling(squadrons: DroneSquadron[], deckHandling: number | undefined): DroneSquadron[] {
+  const dh = deckHandling ?? 0;
+  if (!(dh > 0) || squadrons.length === 0) return squadrons;
+  return squadrons.map((sq) => ({ ...sq, droneReplenishRate: Math.round(sq.droneReplenishRate * (1 + dh)) }));
 }
 
 // defaultSystemDurabilityForHull: build a combat hull's FULL (no-wear) per-system durability

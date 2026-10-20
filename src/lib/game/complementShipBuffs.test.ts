@@ -41,16 +41,17 @@ import { MUSEUM_COPY_LADDER, museumBonusesFromRecord, RELIC_SETS } from "./relic
 
 // ===== fixtures =====
 
-// A Spacer crew by default: its racial (crew.endurance) has no 0.14.0 consumer, so the race lifts nothing.
+// A Belter crew by default: its racial (Deck Handling) acts only on a carrier's patrol drone screen, so the race lifts
+// nothing these tests measure. (The Spacer, the CP-2 choice, lifts the transit speed since 0.14.0.)
 function bucket(profession: CrewBucket["profession"], buff1Id: string, count: number, over: Partial<CrewBucket> = {}): CrewBucket {
-  return { profession, rarity: "standard", rank: 1, race: "spacer", buff1Id, buff2Id: null, count, ...over };
+  return { profession, rarity: "standard", rank: 1, race: "belter", buff1Id, buff2Id: null, count, ...over };
 }
 
 function crewed(buckets: CrewBucket[], typeKey: ShipTypeKey = "generalFreighter", s0: GameState = freshState()): GameState {
   return { ...s0, ships: s0.ships.map((sh) => (sh.id === "ship-1" ? { ...sh, typeKey, complement: { mode: "active", buckets } } : sh)) };
 }
 
-function officer(seat: SeniorStaffOfficer["seat"], bonusIds: string[], race: SeniorStaffOfficer["race"] = "spacer"): SeniorStaffOfficer {
+function officer(seat: SeniorStaffOfficer["seat"], bonusIds: string[], race: SeniorStaffOfficer["race"] = "belter"): SeniorStaffOfficer {
   const bonuses = bonusIds.map((id) => ({ id, magnitude: getSeniorStaffBonusById(id)!.magnitude }));
   const none = { id: "none", magnitude: 0 };
   return {
