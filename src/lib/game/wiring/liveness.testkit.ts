@@ -220,7 +220,7 @@ const STATE_OUTCOME_KEYS: readonly (keyof GameState)[] = [
   "activeProcesses",
   "archive",
   "relicVault",
-  "relicMuseum",
+  "museumV2",
   "relicDiscovered",
   "crewPool",
 ];

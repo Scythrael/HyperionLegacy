@@ -70,7 +70,7 @@ import { buildShipRoster } from "./shipRoster";
 import { deserialize, migrate, serialize, type SaveFile } from "./save";
 import { WIRING_REGISTRY } from "./wiring/registry";
 import { bucketOf, withBuckets } from "./wiring/probes";
-import { hash, onHull, withCrew, withoutGuests } from "./firstRunsGoldens.fixture";
+import { hash, onHull, withCrew, withV1Museum, withoutGuests } from "./firstRunsGoldens.fixture";
 import { asPreG2NamesDispatch } from "./awayTeamTestFixtures";
 // CP-8 / OC-11: the test switch that proves the auto-crew pause is the only thing that moved the fleet pin.
 vi.mock("./crewLock", async (io) => (await import("./complementOc11Switch.fixture")).oc11CrewLockMock(io));
@@ -91,8 +91,9 @@ function lcg(seed: number): () => number {
 
 // The whole state WITHOUT the fields the G1 slices (and SF-1 / G2-1 before them) add on purpose: the run counters, the
 // stored homeworld and the short-range board (G1-3). A no-op for the board today. Pure.
+// Relics v2 R2-1: and with the Museum v2 record in its v1 form (withV1Museum), as these were captured.
 function g1StateHash(state: GameState): string {
-  const rest = { ...state } as Record<string, unknown>;
+  const rest = { ...withV1Museum(state) } as Record<string, unknown>;
   delete rest.runCounts;
   delete rest.homeworld;
   delete rest.shortRangeBoard;
@@ -537,21 +538,26 @@ describe("G1-0 golden 4: generateEquipment for the quarters slot at 50 fixed see
   });
 });
 
+// Relics v2 R2-1: the dormant v2 catalog's entries (RELIC_TYPES, EXCEPTIONAL_SETS) are additions too, appended after
+// the relic entries; leaving them out keeps proving that no existing entry moved.
+const isRelicsV2Entry = (id: string): boolean => id.startsWith("relic:RELIC_TYPES:") || id.startsWith("relic:EXCEPTIONAL_SETS:");
+const R2_1_SLICE: RegistrySlice = { added: new Set(WIRING_REGISTRY.filter((e) => isRelicsV2Entry(e.id)).map((e) => e.id)) };
+
 describe("G1-0 golden 5: the wiring registry's ids and statuses", () => {
   it("the entries outside the G1 additions, hashed in registry order", () => {
-    pin("registry", registryPin(G1_SLICE));
+    pin("registry", registryPin(G1_SLICE, R2_1_SLICE));
   });
   // FKR-5 and G2-3 moved the pin (see the header); with their entries held apart and the Explosives flip read back as
   // pending, the registry hashes exactly as the feat base before them.
   it("FKR-5 and G2-3 are the only causes of the registry move", () => {
-    expect(registryPin(G1_SLICE, FKR5_SLICE, G23_SLICE)).toEqual(REGISTRY_BEFORE_FKR5_G23);
+    expect(registryPin(G1_SLICE, FKR5_SLICE, G23_SLICE, R2_1_SLICE)).toEqual(REGISTRY_BEFORE_FKR5_G23);
   });
   // WR-6: the nine placeholder entries it wires flip pending -> live (the count and the order hold). With those nine
   // read as pending again (and the later slices held apart) the lines hash to the pin from before WR-6, so the flips
   // are the only move.
   it("WR-6 is the only cause of the registry move", () => {
     expect(WIRING_REGISTRY.filter((e) => WR6_WIRED_IDS.has(e.id)).map((e) => e.status.kind)).toEqual(Array(WR6_WIRED_IDS.size).fill("live"));
-    expect(registryPin(G1_SLICE, FKR5_SLICE, G23_SLICE, WR6_SLICE)).toEqual(REGISTRY_BEFORE_WR6);
+    expect(registryPin(G1_SLICE, FKR5_SLICE, G23_SLICE, WR6_SLICE, R2_1_SLICE)).toEqual(REGISTRY_BEFORE_WR6);
   });
   it("Field Kits FKR-5: the added entries and the one flipped, each with its status", () => {
     const added = WIRING_REGISTRY.filter((e) => FKR5_ADDED_ENTRY_IDS.has(e.id));

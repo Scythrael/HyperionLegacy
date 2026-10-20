@@ -23,7 +23,7 @@ import { REQUISITION_ENTRIES } from "./quartermaster";
 import { shipCrewCapacity, shipReserveBerths, validCompositions } from "./groundComposition";
 import { emptyGroundTeams } from "./groundTeams";
 import { memberWearersText } from "../awayGearDisplay";
-import { hash } from "./firstRunsGoldens.fixture";
+import { hash, withV1Museum } from "./firstRunsGoldens.fixture";
 
 // Captured at 5f9342a (feat/crew-0.14.0's tip), before any Prospecting edit.
 const PINS: Readonly<Record<string, string>> = {
@@ -114,7 +114,7 @@ describe("Prospecting hidden: nothing a player can see moves while the unlock fl
   });
 
   it("a fresh save", () => {
-    pin("freshState", freshState());
+    pin("freshState", withV1Museum(freshState())); // R2-1: the museum in its v1 form, as captured
   });
 
   it("the Security and Science specs and trait pools", () => {

@@ -182,6 +182,9 @@ import {
   // Exploration 0.14.0 (Phase E4a): the persisted unidentified-relic token a relicStudy carries.
   type RelicVaultToken,
   RELIC_DEFAULT_SEED,
+  // Relics v2 R2-1: the Tier I general record (where the v1 copies live) and its write.
+  generalMuseumRecord,
+  museumV2WithGeneral,
 } from "./model";
 // Exploration 0.14.0 (Phase E4a): the relic catalog's pure identification roll + study constants.
 // relics.ts imports only model/expeditionContent TYPES + the leaf PRNG, so this adds no import cycle.
@@ -11116,7 +11119,8 @@ export function resolveProcesses(
   // Exploration 0.14.0 (Phase E4a): the museum copy counts + the first-find registry, raised only by a
   // completing relicStudy (the identifyRelic branch). Seeded from the incoming state, so a call that
   // completes no study returns them value-identical (and a pre-E4 shape reads as empty).
-  let relicMuseum: Record<string, number> = state.relicMuseum ?? {};
+  // Relics v2 R2-1: the v1 copies live in the Tier I general record (museumV2.general["1"]); a v1 study writes there.
+  let relicMuseum: Readonly<Record<string, number>> = generalMuseumRecord(state);
   let relicDiscovered: string[] = state.relicDiscovered ?? [];
   let relicStudyCompleted = false; // gates the write-back so a no-study call never even re-keys the fields
   // Exploration 0.14.0 (Phase E4b): the museum's craftingQuality fraction, read ONCE per resolve off the
@@ -11717,8 +11721,9 @@ export function resolveProcesses(
       activeProcesses: stillActive,
       // Exploration 0.14.0 (Phase E4a): the museum + first-find registry, written back ONLY when a relic
       // study completed this call (conditional spread), so every call that completes no study lands
-      // byte-identical to before this phase, key set included.
-      ...(relicStudyCompleted ? { relicMuseum, relicDiscovered } : {}),
+      // byte-identical to before this phase, key set included. Relics v2 R2-1: the copies go back into the Tier I
+      // general record (museumV2WithGeneral keeps every other part and the record's key position).
+      ...(relicStudyCompleted ? { museumV2: museumV2WithGeneral(state.museumV2, relicMuseum), relicDiscovered } : {}),
       // CP-6 review: a completed hull teardown's loadout + people writes (absent when none completed).
       ...(salvageWrites ?? {}),
     },
