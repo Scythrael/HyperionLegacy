@@ -3580,6 +3580,19 @@ export interface PatrolMissionState {
   // wave, the live loop and the display replay. OPTIONAL: absent when the captain owns no Tactician node (no
   // SAVE_VERSION bump; the secondary tree exists on this branch only).
   captainCombat?: CaptainCombatMods;
+  // 0.14.0 (complement plan CP-4, OC-1 "Faster drone replenish"; user "everything wired" 2026-10-20): the ship's Deck
+  // Handling (crew.droneHandling: the Flight Deck buff and the Belter racial, crewOverlay.ts shipDeckHandling), FROZEN
+  // when this cycle starts (dispatch, and again at each relaunch) beside captainCombat: the cycle's drone squadrons
+  // are seeded with it in parts per million (combat/bridge.ts applyDeckHandling) and bank the extra replenish in whole
+  // units (droneDefense.ts replenishUnits: droneReplenishRate x (1 + it) over time), read the same way by the live
+  // loop and the display replay. OPTIONAL, written only when > 0 AND the cycle fields a drone screen (no SAVE_VERSION
+  // bump; a destroyer or battleship cycle stores nothing): an in-flight patrol from an
+  // older save keeps its seeded screen until its next relaunch freezes the crew aboard then.
+  deckHandling?: number;
+  // 0.14.0 (CP-4): the Deck Handling bank (DroneSquadron.replenishCarryPpm, squadron by squadron) this cycle STARTED
+  // with, carried over from the cycle before at a relaunch, so the display replay seeds the same bank. OPTIONAL,
+  // written only when one is > 0.
+  replenishCarryStart?: number[];
   // E-CREW 0.14.0 (Task 21): the Engineering department's CUNNING over-delivery for THIS cycle ("a free
   // repair tick"), rolled when the cycle starts (dispatch / relaunch) from the cycle's masterSeed on its own
   // keyed stream (officerStats.ts cunningProc) and frozen here. If the cycle ends in defeat, the limp-home
@@ -7688,7 +7701,7 @@ export interface Expedition {
   // scienceTeamPower needs no field of its own: it is folded into scienceStrength above before that is
   // snapshotted. All three are 0 for an empty museum (and the v63 -> v64 migration backfills 0 onto
   // in-flight expeditions), which makes every formula that reads them bit-identical to E4a.
-  scanSpeedBonus: number; // museum scanSpeed: multiplies the scan rate by (1 + this)
+  scanSpeedBonus: number; // museum scanSpeed + gear + the crew's Survey Aptitude (0.14.0): multiplies the scan rate by (1 + this)
   relicFindBonus: number; // museum relicFindChance: multiplies a won task's relic-token chance by (1 + this), capped at certain
   hazardResist: number; // museum hazardResist: shrinks the body hazard scanning + ground encounters see (bounded, never negative)
   // --- E-CREW 0.14.0 (Task 12): the named AWAY-TEAM ROSTER snapshot (design section 5.5) -------------

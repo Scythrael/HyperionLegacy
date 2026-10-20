@@ -105,6 +105,7 @@ import type { WeaponId } from "../combat/weapons";
 import { resolveBattle } from "../combat/resolveBattle";
 import { makeWeaponInstance } from "../combat/weapons";
 import { makeSquadron } from "../combat/drones";
+import { replenishUnits } from "../combat/droneDefense";
 import { generateEnemyWave } from "../combat/enemyWave";
 import type { PirateHullId } from "../combat/enemyHulls";
 import { STATUS_EFFECT_DEFS, activeStatDelta, applyEffect, tickEffects } from "../combat/statusEffects";
@@ -255,9 +256,9 @@ export function editCaptain(s: GameState, over: Partial<CaptainState>): GameStat
 }
 
 // Seat one officer on ship-1 carrying `bonusIds` at their catalog magnitude (an ensign stores the base magnitude).
-// CP-2: the default race is the Spacer, whose racial (crew.endurance) has no 0.14.0 consumer (deferred to 0.14.x), so
-// a fixture officer moves nothing through its race. The Earth-born racial (the old default) is Crew Effectiveness,
-// live since CP-2, which would lift every complement buff the fixture also carries.
+// The default race is FIXTURE_RACE (the Belter: its racial acts only on a carrier's patrol drone screen), so a fixture
+// officer moves nothing else through its race. The Earth-born racial (the first default) is Crew Effectiveness, live
+// since CP-2, which would lift every complement buff the fixture also carries.
 export function seatOfficer(
   s: GameState,
   seat: SeniorStaffSeat,
@@ -301,9 +302,11 @@ export function overtimeOneStep(s: GameState): GameState {
 
 export const WIRING_BUCKET_COUNT = 20; // a real-sized complement bucket (standard rarity, Crewman rank)
 
-// CP-2: the race fixture crew and officers carry unless a test names one: the Spacer, whose racial has no consumer in
-// 0.14.0 (the long-haul ramp is deferred to 0.14.x), so a bucket's race never lifts the buff under test.
-export const FIXTURE_RACE: CrewRace = "spacer";
+// CP-2: the race fixture crew and officers carry unless a test names one, chosen so a bucket's race never lifts the
+// buff under test. Every racial acts since 0.14.0 (user "everything wired" 2026-10-20), so this is the Belter, whose
+// racial (Deck Handling) acts only on a carrier's patrol drone screen: no other probe reads it, and the Deck Handling
+// probes compare two states that both carry it. (The Spacer, the CP-2 choice, now lifts the transit speed.)
+export const FIXTURE_RACE: CrewRace = "belter";
 
 export function bucketOf(profession: CrewProfession, buff1Id: string, count = WIRING_BUCKET_COUNT, race: CrewRace = FIXTURE_RACE): CrewBucket {
   return { profession, rarity: "standard", rank: 1, race, buff1Id, buff2Id: null, count };
@@ -558,6 +561,18 @@ function dispatchedPatrol(s: GameState): PatrolMissionState {
 // event's combatant.
 function battleDrones(s: GameState, ctx: ContextId): DroneSquadron[] {
   return ctx === "shipEvent" ? battleCombatant(s, ctx).drones : dispatchedPatrol(s).playerDrones;
+}
+
+// 0.14.0 (CP-4): the banked between-wave replenish of the dispatched cycle's first squadron, every drone destroyed, as a
+// share of the plain rate. 0 when the cycle fields no squadron.
+export const REPLENISH_PROBE_TICKS = 100_000;
+function patrolReplenishShare(s: GameState): number {
+  const first = dispatchedPatrol(s).playerDrones[0];
+  if (!first || first.droneReplenishRate <= 0) return 0;
+  const sq: DroneSquadron = { ...first, drones: first.drones.map((d) => ({ ...d, alive: false })) };
+  let units = 0;
+  for (let t = 0; t < REPLENISH_PROBE_TICKS; t++) units += replenishUnits(sq);
+  return units / (REPLENISH_PROBE_TICKS * first.droneReplenishRate);
 }
 
 // WR-5b: the mean damage of 1,000 raw-100 projectiles from the combatant's first weapon (Alpha Strike's opening shot
@@ -1107,6 +1122,10 @@ export const PROBES = {
     label: "the first squadron's droneReplenishRate: the patrol cycle's seed / the ship-event combatant",
     read: (s, ctx) => battleDrones(s, ctx)[0]?.droneReplenishRate ?? 0,
   },
+  // 0.14.0 (CP-4, OC-1): the between-wave replenish a patrol cycle's first squadron really pays, through the consumer
+  // (droneDefense.ts replenishUnits, Deck Handling banked), as a share of its plain rate over REPLENISH_PROBE_TICKS
+  // ticks with every drone down: 1 + deckHandling, within one banked unit over the span.
+  patrolReplenishShare: { label: "replenishUnits over a long recovery / (ticks x droneReplenishRate): 1 + Deck Handling", read: (s) => patrolReplenishShare(s) },
   battleDroneSquadrons: { label: "the squadron count: the patrol cycle's seed / the ship-event combatant", read: (s, ctx) => battleDrones(s, ctx).length },
   patrolRewardMult: {
     label: "patrolWaveRewardMult(0, the dispatched cycle's captainCombat): a won wave's loot and credit factor",

@@ -2497,6 +2497,10 @@ const MIGRATIONS: Record<number, Migration> = {
   // (derived, never stored). The facets read the stats this step already rolled (absent = neutral), so
   // a loaded save's officers go live at once; an in-flight patrol keeps its frozen cycle until the next
   // relaunch and an in-flight expedition finishes without the run-frozen facets.
+  // The inert racials (0.14.0, CP-4 Deck Handling) add NOTHING here either, same rule (optional, absent = none):
+  // PatrolMissionState.deckHandling and replenishCarryStart, and DroneSquadron.deckHandlingPpm / replenishCarryPpm
+  // inside the patrol's playerDrones (an in-flight patrol keeps its seeded screen until the next relaunch freezes the
+  // crew aboard). The Survey Aptitude and Spacer racials write no new field (scanSpeedBonus already exists).
   65: (state: any): any => {
     const seniorStaffSeed = state.seniorStaffSeed ?? SENIOR_STAFF_DEFAULT_SEED;
     return {

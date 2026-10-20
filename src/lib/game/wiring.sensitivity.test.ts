@@ -73,8 +73,10 @@ describe("wiring sensitivity: every claimed context that does not move yet stays
     expect(flatChecks.filter(({ e }) => e.contexts.length > 0).length).toBeGreaterThan(70);
     // Lowered from 30 at the CP-2 + WR-5a integration (0.14.0): both slices moved inert sources live, leaving 28;
     // WR-5b's Tactician tree left 24, WR-5c's Explorer tree 20 (no pending secondary captain entry is left). The
-    // guard only asserts the sweep is not vacuous; lower it again as more sources go live.
-    expect(flatChecks.filter(({ e }) => e.contexts.length === 0).length).toBeGreaterThan(15);
+    // guard only asserts the sweep is not vacuous; lower it again as more sources go live. Lowered from 15 when the
+    // four inert racials went live (0.14.0: Belter, Vael, Outer-Colony, Spacer with Deck Handling and Survey Aptitude),
+    // leaving 13.
+    expect(flatChecks.filter(({ e }) => e.contexts.length === 0).length).toBeGreaterThan(10);
   });
   for (const { e, ctx } of flatChecks) {
     const owner = e.status.kind === "pending" || e.status.kind === "deferred" ? e.status.owner : "";

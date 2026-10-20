@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { CREW_RACES, CREW_RACE_IDS, CREW_GENDERS } from "./crewRaces";
-import { CREW_STAT_KEYS } from "./crewBuffs";
+import { CREW_STAT_KEYS, TRANSIT_SPEED_KEY } from "./crewBuffs";
 import type { CrewRace } from "./model";
 
 const EXPECTED_RACES: CrewRace[] = [
@@ -35,7 +35,8 @@ describe("crewRaces: roster", () => {
 
 describe("crewRaces: context-scaled racial bonus", () => {
   it("gives every race a known stat key and TWO magnitudes, senior-staff STRONGER than complement", () => {
-    const knownKeys = new Set(Object.values(CREW_STAT_KEYS));
+    // A crew.* key, or the sweeping transit speed key (the Spacer, 0.14.0).
+    const knownKeys = new Set<string>([...Object.values(CREW_STAT_KEYS), TRANSIT_SPEED_KEY]);
     for (const r of CREW_RACE_IDS) {
       const rb = CREW_RACES[r].racialBonus;
       expect(knownKeys.has(rb.statKey)).toBe(true);

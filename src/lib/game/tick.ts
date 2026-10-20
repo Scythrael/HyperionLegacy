@@ -240,7 +240,7 @@ import { fuelNeeded, fuelForRoundTrip, rangeLightYears } from "./fuel";
 import { combatHullTypeOf, COMBAT_DEFAULT_LOADOUT, defaultDronesForHull,
   // 0.13.5 F5: the full padded loadout helpers.
   defaultWeaponsForHull,
-  defaultDroneRolesForHull, installedDronesForPatrol, defaultSystemDurabilityForHull, foldedPlayerDefense, type CombatHullType } from "./combat/bridge";
+  defaultDroneRolesForHull, installedDronesForPatrol, applyDeckHandling, withReplenishCarry, defaultSystemDurabilityForHull, foldedPlayerDefense, type CombatHullType } from "./combat/bridge";
 // Combat 1.0 (Unit 1.4): WeaponId types the per-hull Standard-Issue weapon loadout the combat
 // baseline seeder + installMissingCombatBaselines build (type-only, no runtime coupling).
 import type { WeaponId } from "./combat/weapons";
@@ -269,7 +269,7 @@ import type { CombatStance } from "./combat/positioning";
 // the carry-state squadron shape the deep-clone helper preserves.
 import { generateEnemyWave } from "./combat/enemyWave";
 import { resolveBattle } from "./combat/resolveBattle";
-import { replenishDrones } from "./combat/droneDefense";
+import { replenishDrones, replenishUnits } from "./combat/droneDefense";
 import type { DroneSquadron } from "./combat/drones";
 // Combat 0.13.0 (Phase 12b-1): the SHARED per-wave leaves. buildPatrolPlayerCombatant
 // builds the wave's player combatant from the carry-state; regenPatrolShield is the
@@ -339,6 +339,7 @@ import {
   shipMissionOutputBonus,
   shipRepairSpeedBonus,
   shipCrewContribution,
+  shipDeckHandling,
   type OfficerCombatEntry,
 } from "./crewOverlay";
 // WR-5b (0.14.0): the commanding captain's Tactician talents (frozen per patrol cycle; the Shipyard repair).
@@ -3047,6 +3048,8 @@ export function tickCaptainPatrol(
     returnConstitution?: number;
     // WR-6 (OC-B3): the fleet's Home Guard shield factor a relaunch freezes onto its new cycle (1 / absent = none).
     homeGuardShield?: number;
+    // 0.14.0 (CP-4, OC-1): the crew's Deck Handling a relaunch freezes onto its new cycle (0 / absent = none).
+    deckHandling?: number;
   } = {},
 ): PatrolTickResult {
   const noOp: PatrolTickResult = {
@@ -3391,7 +3394,8 @@ export function tickCaptainPatrol(
         foldedDefense.shieldRecharge,
       );
       for (const squadron of mission.playerDrones) {
-        replenishDrones(squadron, squadron.droneReplenishRate);
+        // 0.14.0 (CP-4): plus the whole units the cycle's Deck Handling has banked (replenishUnits).
+        replenishDrones(squadron, replenishUnits(squadron));
       }
     }
 
@@ -3467,6 +3471,10 @@ export function tickCaptainPatrol(
             // WR-5b: and the commanding captain's Tactician talents now (no buy while out, so the dispatch value).
             // WR-6: with the fleet's Home Guard shield factor as read when this cycle starts.
             captainCombat: patrolCaptainCombatMods(captain, officerEffects.homeGuardShield ?? 1),
+            // 0.14.0 (CP-4, OC-1): and the crew's Deck Handling aboard now (economyTick's live read).
+            deckHandling: officerEffects.deckHandling ?? 0,
+            // and the Deck Handling bank its squadrons had not paid out yet, carried into the new cycle.
+            replenishCarry: mission.playerDrones.map((sq) => sq.replenishCarryPpm ?? 0),
             // E-CREW (Task 21): Engineering's Cunning roll for the new cycle, keyed on its own masterSeed.
             freeRepairTicks: cunningProc(newSeed, "engineering", officerEffects.freeRepairChance ?? 0) ? CUNNING_FREE_REPAIR_TICKS : 0,
             // E-CREW (Task 21 review calls): the Flight Deck's Constitution, a faster return the longer the run.
@@ -4144,6 +4152,8 @@ export function economyTick(
                 returnConstitution: departmentFacet(state, patrolShip, "flightDeck", "constitution"),
                 // WR-6: Home Guard, for the next cycle's frozen record (exactly 1 without the talent).
                 homeGuardShield: homeGuardPatrolShieldMult(state),
+                // 0.14.0 (CP-4): Deck Handling, for the next cycle's frozen record (0 without the key).
+                deckHandling: shipDeckHandling(state, patrolShip),
               }
             : {},
         );
@@ -5281,8 +5291,15 @@ function freshPatrolMission(args: {
   freeRepairTicks?: number;
   // E-CREW 0.14.0 (Task 21 review calls): the cycle's Flight Deck Constitution return cut. Stored only when > 0.
   returnCutTicks?: number;
+  // 0.14.0 (CP-4, OC-1 "Faster drone replenish"): the cycle's Deck Handling (crewOverlay.ts shipDeckHandling: the
+  // Flight Deck buff + the Belter racial), folded into the seeded screen's replenish rate. Stored only when > 0.
+  deckHandling?: number;
+  // 0.14.0 (CP-4): a relaunch's carried Deck Handling bank, squadron by squadron (bridge.ts withReplenishCarry). Stored
+  // as replenishCarryStart only when one is > 0, so the display replay seeds the same bank.
+  replenishCarry?: readonly number[];
 }): PatrolMissionState {
   const { patrolKey, stance, masterSeed, repeatDispatch, shipDef, hullType, installedGear, officerCombat, captainCombat } = args;
+  const deckHandling = args.deckHandling ?? 0;
   const freeRepairTicks = args.freeRepairTicks ?? 0;
   const returnCutTicks = args.returnCutTicks ?? 0;
   // factionId + wave params BOTH come from this one def lookup (no caller-passed def that
@@ -5296,9 +5313,22 @@ function freshPatrolMission(args: {
   // no SI patrol fixture / parity outcome moves.
   // E-CREW (Task 20): folded WITH the cycle's officer bonuses, the same pools its wave combatants carry.
   const folded = foldedPlayerDefense(shipDef, installedGear, officerCombat, captainCombat);
+  // WR-5b: the cycle's captain drone nodes shape the seeded screen (unchanged without them). 0.14.0 (CP-4): and the
+  // cycle's Deck Handling speeds its replenishment (unchanged at 0).
+  const playerDrones = withReplenishCarry(
+    installedGear
+      ? installedDronesForPatrol(installedGear, `patrol-${masterSeed}-p`, captainCombat, deckHandling)
+      : applyDeckHandling(applyCaptainDrones(defaultDronesForHull(hullType, `patrol-${masterSeed}-p`), captainCombat), deckHandling),
+    args.replenishCarry,
+  );
+  const replenishCarryStart = playerDrones.map((sq) => sq.replenishCarryPpm ?? 0);
   return {
     ...(officerCombat ? { officerCombat } : {}),
     ...(captainCombat ? { captainCombat } : {}),
+    // 0.14.0 (CP-4): stored only when it acts: some Deck Handling aboard AND a drone screen to replenish (a destroyer
+    // or battleship cycle carries no squadron, so its record is unchanged).
+    ...(deckHandling > 0 && playerDrones.length > 0 ? { deckHandling } : {}),
+    ...(replenishCarryStart.some((c) => c > 0) ? { replenishCarryStart } : {}),
     ...(freeRepairTicks > 0 ? { freeRepairTicks } : {}),
     ...(returnCutTicks > 0 ? { returnCutTicks } : {}),
     kind: "patrol",
@@ -5334,10 +5364,8 @@ function freshPatrolMission(args: {
     // patrol cycle, and identical between this live seed and the display replay's (structural parity).
     playerHull: folded.hullMax,
     playerShield: folded.shieldMax,
-    // WR-5b: the cycle's captain drone nodes shape the seeded screen (unchanged without them).
-    playerDrones: installedGear
-      ? installedDronesForPatrol(installedGear, `patrol-${masterSeed}-p`, captainCombat)
-      : applyCaptainDrones(defaultDronesForHull(hullType, `patrol-${masterSeed}-p`), captainCombat),
+    // The seeded screen (built above, with the captain's drone nodes and the cycle's Deck Handling).
+    playerDrones,
     // Carry-state seeded to FULL system durability (Phase 12b Unit B2): every weapon + the
     // reactor + the ftl at their fresh ceilings (no wear), the same "start clean" a fresh
     // dispatch AND a relaunch both want. Wear accumulates from here across the cycle's waves.
@@ -5731,6 +5759,8 @@ export function dispatchCaptainOnPatrol(
     captainCombat: patrolCaptainCombatMods(state.captains[idx], homeGuardPatrolShieldMult(state)),
     freeRepairTicks,
     returnCutTicks,
+    // 0.14.0 (CP-4, OC-1 "Faster drone replenish"): freeze the crew's Deck Handling onto the first cycle (0 = none).
+    deckHandling: shipDeckHandling(state, ship),
   });
 
   const captains = [...state.captains];

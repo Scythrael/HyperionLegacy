@@ -24,7 +24,8 @@
 // THE PROBES are real consumers only (the ship stat sheet, the sheet of a ship drawing power (E-MOD EM-1), reach, Shipyard repair, ship battles, the expedition's
 // readers, battles, a Field Kits run's objective fights (FKR-4, flag 2 stamped by hand), injuries and whole run +
 // claim on both engines, mission cycles and a Repeat patrol through
-// economyTick, a patrol defeat repair, the ship scan events), compared through ALLOW-LISTS of consequence fields.
+// economyTick, a carrier patrol dispatch (its drone screen), a patrol defeat repair, the ship scan events), compared
+// through ALLOW-LISTS of consequence fields.
 // A NaN or Infinity in any fingerprint throws. Magnitudes are deliberately exaggerated (bonus x5, stats at 70,
 // 60-point gear lines, 400-head buckets): this level is about WIRING; the registry's sensitivity level
 // (wiring.sensitivity.test.ts) checks direction and magnitude at real values.
@@ -575,6 +576,15 @@ function probePatrol(t: Transform): string {
   return outcome(s);
 }
 
+// The inert racials go live (0.14.0): a CARRIER's patrol dispatch, the cycle record it freezes and the drone screen it
+// seeds (Deck Handling and the Belter racial speed the screen's replenish; the destroyer patrol above fields none).
+function probeCarrierPatrolDispatch(t: Transform): string {
+  const s0 = installMissingCombatBaselines(t(shipScaffold("carrier")));
+  const r = dispatchCaptainOnPatrol(s0, 1, "crimsonReaverSweep", "balanced", false);
+  if (!r.success) throw new Error(`carrier patrol dispatch refused: ${r.reason}`);
+  return outcome(r.next);
+}
+
 // A patrol cycle that ends in DEFEAT: the ship limps home and the Shipyard repairs it (Engineering's Cunning
 // free repair tick is decided at dispatch and spent here).
 function probePatrolDefeatRepair(t: Transform): string {
@@ -610,6 +620,7 @@ export const PROBES: readonly Probe[] = [
   { name: "expedition run + claim", run: probeExpeditionRun },
   { name: "mission cycles", run: probeMissions },
   { name: "patrol run", run: probePatrol },
+  { name: "carrier patrol dispatch", run: probeCarrierPatrolDispatch },
   { name: "patrol defeat repair", run: probePatrolDefeatRepair },
   { name: "ship scan events", run: probeShipScanEvents },
 ];
@@ -664,8 +675,10 @@ function crewEntry(def: CrewBuffDef, profession: CrewProfession): StatEntry {
   };
 }
 
-// CP-2: the bucket a lifting buff or racial is read beside (Efficient Unloading, a Spacer crew: its race lifts nothing).
-const LIFTED: CrewBucket = { ...bucket("operations", "spacer", "ops.unloadSpeed", null) };
+// CP-2: the bucket a lifting buff or racial is read beside (Efficient Unloading). Both states of a variant carry it,
+// so its race adds the same thing to each: a Belter crew (its racial acts only on a carrier's drone screen; the Spacer,
+// the old choice, went live on the transit speed in 0.14.0).
+const LIFTED: CrewBucket = { ...bucket("operations", "belter", "ops.unloadSpeed", null) };
 function withLifted(t: Transform): Transform {
   return (s0) => {
     const s = t(s0);

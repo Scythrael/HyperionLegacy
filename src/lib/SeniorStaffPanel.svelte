@@ -56,6 +56,7 @@
   import Icon from "./ui/Icon.svelte";
   import { getSeniorStaffBonusById } from "./game/seniorStaffBonuses";
   import { CREW_RACES } from "./game/crewRaces";
+  import { TRANSIT_SPEED_KEY } from "./game/crewBuffs";
   import { officerStatTooltip } from "./game/officerStats";
 
   // --- Props ------------------------------------------------------------------
@@ -174,10 +175,11 @@
     });
   }
   // The officer's inherited racial bonus as a {label, pct} row. statKey is a "crew.xxx" key;
-  // humanize it for display (the racial has no catalog label of its own).
+  // humanize it for display (the racial has no catalog label of its own). The Spacer's is the ship's
+  // sweeping transit speed key (0.14.0), whose name reads "Transit Time Cut", so it gets its label here.
   function racialRow(officer: SeniorStaffOfficer): { label: string; pct: string } {
     const rb = officerRacialBonus(officer);
-    return { label: humanizeStatKey(rb.statKey), pct: fmtPct(rb.magnitude) };
+    return { label: rb.statKey === TRANSIT_SPEED_KEY ? "Transit Speed" : humanizeStatKey(rb.statKey), pct: fmtPct(rb.magnitude) };
   }
   // Race display label (CREW_RACES catalog).
   function raceLabel(officer: SeniorStaffOfficer): string {

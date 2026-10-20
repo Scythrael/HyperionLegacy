@@ -65,7 +65,7 @@ import { installedSensorArray, sensorArrayEffect, sensorArrayRelicFindBonus } fr
 // E4d: the relic-unlocked Pathfinder Suite's expedition effect (a pure leaf over the installed pieces).
 import { pathfinderEffect } from "./utilityGear";
 import { equippedFor } from "./equipment";
-import { effectiveShipStats, foldOfficerPromotionCounters, officerBonusTotal, shipCrewContribution } from "./crewOverlay";
+import { effectiveShipStats, foldOfficerPromotionCounters, officerBonusTotal, shipCrewContribution, shipSurveyAptitude } from "./crewOverlay";
 import { CREW_STAT_KEYS } from "./crewBuffs";
 import { fieldworkHazardResist, fieldworkSpeedMult } from "./fieldwork";
 import { ACTIVITY_SECONDS } from "./groundTasks";
@@ -1361,6 +1361,9 @@ function buildExpedition(
   const squadFearResist = officerBonusTotal(state, ship, "officer.crewRetention");
   const encounterEvasion = officerBonusTotal(state, ship, "officer.evasion");
   const crewRareFind = shipCrewContribution(state, ship)[CREW_STAT_KEYS.rareFindChance] ?? 0;
+  // Survey Aptitude + the Vael and Outer-Colony racials (complement plan CP-3, OC-4 "Faster scans"): the crew's share
+  // of the scan speed, frozen into scanSpeedBonus below. 0 without the key, so the stored bonus is unchanged.
+  const crewSurvey = shipSurveyAptitude(state, ship);
   // E-CREW (Task 21): the officer stat FACETS that reach this run, frozen here like the bonuses above and
   // written only when they do something (absent = none, so an all-10 bridge stores the pre-Task-21 record).
   //   Cunning (this run is ONE mission: rolled once, keyed on the run's seed and the seat, private streams):
@@ -1425,7 +1428,7 @@ function buildExpedition(
     scienceStrength: awayTeam.scienceStrength,
     teamKit: awayTeam.teamKit,
     gambitPrograms,
-    scanSpeedBonus: museum.scanSpeed + gear.scanSpeed,
+    scanSpeedBonus: crewSurvey > 0 ? museum.scanSpeed + gear.scanSpeed + crewSurvey : museum.scanSpeed + gear.scanSpeed,
     relicFindBonus: museum.relicFindChance + gear.relicFindChance,
     hazardResist: museum.hazardResist + gear.hazardResist,
     roster,
@@ -1506,7 +1509,8 @@ function transitDurationSeconds(exp: Expedition): number {
 // hazardResist shrinks the hazard the body presents (resistedHazard, bounded, never negative) before the
 // hazard slow is computed. Both are stored on the expedition at dispatch, so the rate stays a pure
 // function of the stored run. Both are 0 for an empty museum: x * 1 is exact and resistedHazard returns
-// the hazard unchanged, so the rate is bit-identical to E4a.
+// the hazard unchanged, so the rate is bit-identical to E4a. (0.14.0: the crew's Survey Aptitude, with the Vael and
+// Outer-Colony racials, joins the stored scanSpeedBonus at dispatch; OC-4 "Faster scans".)
 //
 // E-CREW Task 15: the Science party's hazard resist on THIS body (Hazard Suit, Environmental Adaptation,
 // Steady, a tuned tool's hazard line on its bodies; fieldwork.ts fieldworkHazardResist) ADDS to the stored

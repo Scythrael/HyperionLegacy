@@ -379,8 +379,13 @@ const GOLDEN: Record<string, unknown> = {
   // after the ML-1 re-pin without moving it: feat a2a1b6a reads a488ee24) re-owned the facility:audit:missionControlUnlock
   // row, and Field Kits FKR-6 added 5 entries and flipped 8 pending -> live. With FKR-6 read back (FKR6_BEFORE) the
   // snapshot is a488ee24, and with the G1-3 row's old owner too it is c1260fe0; the E-MOD rows did not change.
+  // Re-pinned by the inert racials (0.14.0, 30489b98 -> b5c9178b): eight entries went live with their probes and
+  // contexts (Deck Handling, Survey Aptitude, the Belter, Vael, Outer-Colony and Spacer racials, the Science and Flight
+  // Deck wings), the four still-pending Ground Ops crew keys and the Security and Medical wings name their owner CP-3
+  // (was "E-CREW Task 23" / "CP-3, CP-4"), and one audit row joins (the Spacer long-haul ramp, deferred). Read back
+  // (RACIALS_BEFORE, RACIALS_ADDED_IDS) the snapshot is 30489b98, and every earlier read-back holds; the E-MOD rows hold.
   registry: [
-    "30489b98",
+    "b5c9178b",
     "relic:RELICS:precursorLens",
     "ship:audit:reactorCoreNet",
   ],
@@ -447,15 +452,42 @@ const G13_ROW = "facility:audit:missionControlUnlock";
 const G13_ROW_BEFORE = { kind: "pending", owner: "WR-4, OC-C4" };
 const REGISTRY_BEFORE_G13 = "c1260fe0";
 
-// The registry snapshot rows with FKR-6 read back (its added entries left out, its flips as they stood) and, when
-// `g13Back`, G1-3's audit row with its old owner.
-function registryRowsBack(g13Back: boolean): unknown[][] {
-  return WIRING_REGISTRY.filter((e) => !FKR6_ADDED_IDS.has(e.id)).map((e) =>
-    e.id in FKR6_BEFORE
-      ? [e.id, { kind: "pending", owner: FKR6_BEFORE[e.id] }, [], null]
-      : g13Back && e.id === G13_ROW
-        ? [e.id, G13_ROW_BEFORE, e.contexts, e.probe ?? null]
-        : [e.id, e.status, e.contexts, e.probe ?? null],
+// The inert racials (0.14.0): the one audit row they added (the Spacer long-haul ramp, still deferred) and the 14 rows
+// they changed as they stood before them ([status, contexts, probe]): 8 flipped live (Deck Handling, Survey Aptitude,
+// the Belter, Outer-Colony, Vael and Spacer racials, the Science and Flight Deck wings) and 6 re-owned to CP-3 (the
+// four Ground Ops crew keys, the Security and Medical wings). Read back, the snapshot is feat's 30489b98.
+const REGISTRY_BEFORE_RACIALS = "30489b98";
+const RACIALS_ADDED_IDS: ReadonlySet<string> = new Set<string>(["crew:audit:spacerLongHaulRamp"]);
+const RACIALS_BEFORE: Readonly<Record<string, readonly unknown[]>> = {
+  "crew:crew.droneHandling": [{ "kind": "pending", "owner": "E-CREW Task 23 (division pools + exclusive pool live, design 6.2)", "contexts": ["patrol"]}, [], "combatDroneHp"],
+  "crew:crew.counterInfiltration": [{ "kind": "pending", "owner": "E-CREW Task 23 (division pools + exclusive pool live, design 6.2)" }, [], null],
+  "crew:crew.awayTeamProtection": [{ "kind": "pending", "owner": "E-CREW Task 23 (division pools + exclusive pool live, design 6.2)", "contexts": ["ground"]}, [], "runSecHp"],
+  "crew:crew.surveyAptitude": [{ "kind": "pending", "owner": "E-CREW Task 23 (division pools + exclusive pool live, design 6.2)", "contexts": ["expedition:groundOps"]}, [], "expScanRate"],
+  "crew:crew.triage": [{ "kind": "pending", "owner": "E-CREW Task 23 (division pools + exclusive pool live, design 6.2)", "contexts": ["ground"]}, [], "runSecHeal"],
+  "crew:crew.preventCrewLoss": [{ "kind": "pending", "owner": "E-CREW Task 23 (division pools + exclusive pool live, design 6.2)", "contexts": ["medbay"]}, [], "injuryCare"],
+  "racial:belter": [{ "kind": "pending", "owner": "E-CREW Task 23 (division pools + exclusive pool live, design 6.2)", "contexts": ["patrol"]}, [], "combatDroneHp"],
+  "racial:outerColony": [{ "kind": "pending", "owner": "E-CREW Task 23 (division pools + exclusive pool live, design 6.2)", "contexts": ["expedition:groundOps"]}, [], "expScanRate"],
+  "racial:spacer": [{ "kind": "deferred", "owner": "Task 23: complement long-haul ramp (D26)", "userRef": "capture 2026-10-15 section 3 T3 (moved to 0.14.x): the Spacer long-haul ramp" }, [], null],
+  "racial:vael": [{ "kind": "pending", "owner": "E-CREW Task 23 (division pools + exclusive pool live, design 6.2)", "contexts": ["expedition:groundOps"]}, [], "expScanRate"],
+  "ship:QUARTERS_MODULES:quartersSecurityWing": [{ "kind": "pending", "owner": "CP-3, CP-4 (the security division's dead keys; its live keys move)", "contexts": ["ground"]}, ["sheet"], "sheetUnload"],
+  "ship:QUARTERS_MODULES:quartersScienceWing": [{ "kind": "pending", "owner": "CP-3, CP-4 (the science division's dead keys; its live keys move)", "contexts": ["expedition:groundOps"]}, ["sheet"], "sheetUnload"],
+  "ship:QUARTERS_MODULES:quartersMedicalWing": [{ "kind": "pending", "owner": "CP-3, CP-4 (the medical division's dead keys; its live keys move)", "contexts": ["ground"]}, ["sheet"], "sheetUnload"],
+  "ship:QUARTERS_MODULES:quartersFlightDeckWing": [{ "kind": "pending", "owner": "CP-3, CP-4 (the flightDeck division's dead keys; its live keys move)", "contexts": ["patrol"]}, ["sheet"], "sheetUnload"],
+};
+
+// The registry snapshot rows with the inert racials read back, then (unless `racialsOnly`) FKR-6 read back too (its
+// added entries left out, its flips as they stood) and, when `g13Back`, G1-3's audit row with its old owner.
+function registryRowsBack(g13Back: boolean, racialsOnly = false): unknown[][] {
+  return WIRING_REGISTRY.filter((e) => !RACIALS_ADDED_IDS.has(e.id) && (racialsOnly || !FKR6_ADDED_IDS.has(e.id))).map((e) =>
+    e.id in RACIALS_BEFORE
+      ? [e.id, ...RACIALS_BEFORE[e.id]]
+      : racialsOnly
+        ? [e.id, e.status, e.contexts, e.probe ?? null]
+        : e.id in FKR6_BEFORE
+          ? [e.id, { kind: "pending", owner: FKR6_BEFORE[e.id] }, [], null]
+          : g13Back && e.id === G13_ROW
+            ? [e.id, G13_ROW_BEFORE, e.contexts, e.probe ?? null]
+            : [e.id, e.status, e.contexts, e.probe ?? null],
   );
 }
 
@@ -514,6 +546,9 @@ describe("EM-0 goldens (re-pinned by EM-1 where named)", () => {
     // With the later moves read back (FKR-6 and G1-3, the test below) and ML-1's entries left out: the snapshot before ML-1.
     const beforeMl1 = hash(registryRowsBack(true).filter((r) => !ML1_ENTRY_IDS.has(r[0] as string)));
     expect(beforeMl1).toBe(REGISTRY_BEFORE_ML1);
+  });
+  it("registry: the inert racials are the only cause of the latest snapshot move", () => {
+    expect(hash(registryRowsBack(false, true))).toBe(REGISTRY_BEFORE_RACIALS);
   });
   it("registry: FKR-6 and G1-3's audit row are the only causes of its snapshot move", () => {
     expect(hash(registryRowsBack(false))).toBe(REGISTRY_BEFORE_FKR6);

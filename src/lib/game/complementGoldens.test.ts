@@ -53,6 +53,9 @@ import { equippedFor } from "./equipment";
 import { CREW_PROFESSION_BUFFS, SECOND_LEVEL_EXCLUSIVE } from "./crewBuffs";
 import { CREW_RACE_IDS, CREW_RACES } from "./crewRaces";
 import { withCp2Off } from "./complementCp2Switch.fixture";
+// The inert racials (0.14.0): the switch that restores the Spacer racial's old key and zeroes the drone / survey
+// sources (racialsSwitch.fixture.ts; racialsGoldens.test.ts pins what the wiring moved).
+import { withRacialsOff } from "./racialsSwitch.fixture";
 import { CREW_PROFESSIONS, commandStructureForHull, complementTotalCap, divisionCap } from "./commandStructure";
 import { totalCrew } from "./crew";
 import { TRANSPORT_BATCH_SIZE, TRANSPORT_WINDOW_SECONDS, transportBatch } from "./transports";
@@ -226,17 +229,20 @@ const GOLDEN: Record<string, string | string[]> = {
   // Crew Effectiveness, the Earth-born and Stheni racials, Fast Departure / Fast Return), so its sheet and crew map
   // move (CP-0 2699e91/a812089b ... eir 734e27d3/db5bc5eb). With the CP-2 effects switched off each hull reproduces
   // its pre-CP-2 capture (the "CP-2 turn it off" block below).
+  // Re-pinned by the inert racials (0.14.0): the full complement carries Spacers, whose racial is the sweeping transit
+  // speed now (transitSpeedMult on the sheet, and its key in the crew map instead of crew.endurance). With the Spacer
+  // key restored (withRacialsOff, droneAndSurvey false) each hull reproduces its CP-2 pin (SHEET_FULL_BEFORE_RACIALS).
   "sheet:full": [
-    "generalFreighter:169b8653/2360e09b",
-    "prospectorHauler:d0f28f95/ea984e46",
-    "prospectorRunner:deb1c7d6/ea984e46",
-    "prospectorMiner:666c9728/ea984e46",
-    "destroyer:1b06b16a/8aafe454",
-    "battleship:e72f1e71/6ea4d3e6",
-    "carrier:a825a669/6ea4d3e6",
-    "orion:3eb9ca64/8aa1df62",
-    "aurora:c30fe7f2/8aa1df62",
-    "eir:f0adf82/8aa1df62",
+    "generalFreighter:127732e/a0186ddf",
+    "prospectorHauler:c8627a0b/26dd17de",
+    "prospectorRunner:3f72ff3c/26dd17de",
+    "prospectorMiner:d9451016/26dd17de",
+    "destroyer:d2a4a857/60bd8be8",
+    "battleship:3dbdf177/601d98d6",
+    "carrier:c161b2e9/601d98d6",
+    "orion:77f6cbb8/72d00d12",
+    "aurora:fcf0627a/72d00d12",
+    "eir:f07eef76/72d00d12",
   ],
   // Re-pinned by CP-1 (D14): one transport crewmember's exclusive buff changed name (see the mission test and
   // CP0_MISSION, which keeps the CP-0 capture and proves that is the only difference). Re-pinned by CP-2 (CP-1
@@ -275,12 +281,29 @@ const GOLDEN: Record<string, string | string[]> = {
   ],
 };
 
+// The CP-2 pins of the full sheets, before the inert racials (0.14.0) moved the Spacer racial onto the transit speed.
+const SHEET_FULL_BEFORE_RACIALS: readonly string[] = [
+  "generalFreighter:169b8653/2360e09b",
+  "prospectorHauler:d0f28f95/ea984e46",
+  "prospectorRunner:deb1c7d6/ea984e46",
+  "prospectorMiner:666c9728/ea984e46",
+  "destroyer:1b06b16a/8aafe454",
+  "battleship:e72f1e71/6ea4d3e6",
+  "carrier:a825a669/6ea4d3e6",
+  "orion:3eb9ca64/8aa1df62",
+  "aurora:c30fe7f2/8aa1df62",
+  "eir:f0adf82/8aa1df62",
+];
+
 describe("CP-0 pre-complement goldens", () => {
   it("sheet: every hull, no complement and a full complement holding every buff id and every race", () => {
     const empty = HULLS.map((hull) => `${hull}:${sheetHashes(hull, [])}`);
     const full = HULLS.map((hull) => `${hull}:${sheetHashes(hull, fullComplement(hull))}`);
     expect(empty).toEqual(GOLDEN["sheet:none"]);
     expect(full).toEqual(GOLDEN["sheet:full"]);
+    // The inert racials: the Spacer key restored, every hull is its CP-2 pin again (the Spacer was the only move).
+    const restored = withRacialsOff(() => HULLS.map((hull) => `${hull}:${sheetHashes(hull, fullComplement(hull))}`), { droneAndSurvey: false });
+    expect(restored).toEqual(SHEET_FULL_BEFORE_RACIALS);
   });
 
   it("sheet self-check: each full complement fills every division and holds every buff id and race", () => {
@@ -437,7 +460,8 @@ const CP2_OFF: Record<string, string | string[]> = {
 
 describe("CP-2 turn it off: with the CP-2 effects switched off, every moved fixture is the pre-CP-2 capture", () => {
   it("sheet: every hull with a full complement", () => {
-    const full = withCp2Off(() => HULLS.map((hull) => `${hull}:${sheetHashes(hull, fullComplement(hull))}`));
+    // Captured before the inert racials too, so the Spacer racial's old key is restored (withRacialsOff).
+    const full = withRacialsOff(() => withCp2Off(() => HULLS.map((hull) => `${hull}:${sheetHashes(hull, fullComplement(hull))}`)), { droneAndSurvey: false });
     expect(full).toEqual(CP2_OFF["sheet:full"]);
   });
 
@@ -544,7 +568,9 @@ describe("OC-11 goldens: offline runs with a passive ship that is out", () => {
     expect(aboard(out)).toBe(0);
     expect(totalCrew(out.crewPool)).toBe(2 * TRANSPORT_BATCH_SIZE);
     expect(hash(out)).toBe(OC11_GOLDEN.patrol);
-    const before = withOc11Off(() => oc11Patrol());
+    // Captured before the inert racials too: without the pause the transport crew board the carrier mid-run, and its
+    // next relaunch freezes their Deck Handling and Belter racials (0.14.0), so those are switched off here.
+    const before = withRacialsOff(() => withOc11Off(() => oc11Patrol()));
     expect(aboard(before)).toBeGreaterThan(0);
     expect(hash(before)).toBe(OC11_BEFORE.patrol);
   });
