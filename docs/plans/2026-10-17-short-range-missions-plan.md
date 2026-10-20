@@ -515,3 +515,11 @@ Material Lines and universal modules ahead of G1 in the build order.
 - **Prisoner Transport reward:** "Higher credits (Recommended)": about 20% more credits per hour than refugee
   relocation, still in the Tier II band.
 - All 18 calls answered, plus the prisoner transport details.
+
+## USER ANSWERS (2026-10-20)
+
+- **Load cost timing (G1-3 review contradiction):** "At cycle start (Recommended)": supply jobs pay their load cost when a
+  cycle starts, like today's supply runs; if the player cannot afford it the slot idles and resumes on its own (never a
+  failure). G1-4 implements this; the G1-3 carry note's "settled when the cycle delivers" is superseded.
+- **Board rungs:** approved as built (docs/plans/2026-10-19-merge-batch-answers.md); the "[PROVISIONAL] await the user"
+  text at model.ts MISSION_CONTROL_BOARD_RUNGS becomes "approved 2026-10-20" in G1-4.
