@@ -61,3 +61,13 @@ section 5.A captain nodes). Kept in their own file so the parallel integrator's 
 - **Guest Wing:** "4 per point, 4 crew": GUEST_QUARTERS_PER_POINT 4, GUEST_WING_CREW_CAPACITY 4.
 - **Crew Effectiveness knee:** "Knee 0.2" (CP-2).
 - **Famous star rate:** "1 in 12" (G2-2).
+
+## G2-3 / FKR-5 provisional picks (2026-10-20)
+
+- **Voyage band scale:** "x0.8 to x1.2 (Recommended)" (NOT the built x0.75 to x1.25): tiers never overlap; the
+  farthest Tier III just meets the nearest Tier IV at 9.6 h. VOYAGE_BAND_SCALE_PERMILLE changes to 800..1200.
+- **Anomaly detour:** "25% of outbound (Recommended)": VOYAGE_ANOMALY_DETOUR_PERMILLE 250, as built.
+- **Stun / Toxin grenade damage:** "Half damage (Recommended)", option text "Stun/Toxin hit for 0.5x; Impact is the
+  damage grenade at 1.5x": SPECIALIZED_GRENADE_POWER_MULT 0.5 as built (0.5x power, i.e. one third of the Impact).
+- **Impact Grenade recipe:** "Approve (Recommended)": 1 Titanium Ingot + 1 Polysilicate Wafer + 1 Power Coupling, Tier 1,
+  700 credits research.
