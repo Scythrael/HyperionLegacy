@@ -56,6 +56,8 @@ export const FIELD_ROLES: Readonly<Record<string, Readonly<Record<string, FieldR
     supplyCostPerCargo: "effect",
     rewardMargin: "effect",
   },
+  // G1-2: the short-range templates (shortRange.ts). `destinations` picks a placeholder designation list.
+  SHORT_RANGE_TEMPLATES: { key: "identity", label: "display", destinations: "display", rolls: "effect", work: "effect", reward: "effect" },
   PIRATE_HULLS: {
     id: "identity",
     name: "display",

@@ -1529,29 +1529,50 @@ function professionHeadcount(
   return buckets.filter((b) => b.profession === profession).reduce((n, b) => n + b.count, 0);
 }
 
-export function deriveAwayTeam(state: GameState, ship: ShipInstance): AwayTeamSnapshot {
+// The officer seats whose holder adds to a division's crew strength: tactical -> Security, science/medical ->
+// Science, engineering -> Engineering (G1-2: the short-range Engineering rating). A division with no entry takes no
+// officer strength.
+export const DIVISION_STRENGTH_SEATS: Readonly<Partial<Record<CrewProfession, readonly SeniorStaffSeat[]>>> = {
+  security: ["tactical"],
+  science: ["science", "medical"],
+  engineering: ["engineering"],
+};
+
+// The ship's complement buckets plus its assigned notables (each a single crew of its signature). Pure.
+function crewBucketsOf(state: GameState, ship: ShipInstance) {
   const buckets = ship.complement?.buckets ?? [];
   // Assigned notables sit on top of the bucket bulk (same authority as officer seating; mirrors
   // crewOverlay's assignedNotables handling), each as a single crew of its signature.
   const notables = state.notableCrew.filter((n) => (n.assignedShipId ?? null) === ship.id);
   const notableBuckets = notables.map((n) => ({ profession: n.profession, rarity: n.rarity, rank: n.rank, count: 1 }));
-  const all = [...buckets, ...notableBuckets];
+  return [...buckets, ...notableBuckets];
+}
 
-  let security = professionStrength(all, "security");
-  let science = professionStrength(all, "science");
+// One division's CREW STRENGTH on a ship: its crew (count x rarity x rank, professionStrength) plus every officer
+// assigned to the ship in one of the division's seats (DIVISION_STRENGTH_SEATS). Rank-scaled via the same rank
+// magnitude factor family (officer ranks map through their bonus magnitudes; first-pass we use a flat
+// OFFICER_STRENGTH scaled by the number of rolled bonuses as a simple rank proxy, since officer combat power is not in
+// the crew overlay). The away team's Security and Science strengths are this (before the museum and captain
+// factors deriveAwayTeam applies); G1-2 reads Security and Engineering as the short-range sheet ratings. Pure.
+export function shipDivisionStrength(state: GameState, ship: ShipInstance, profession: CrewProfession): number {
+  return divisionStrengthOf(state, ship, crewBucketsOf(state, ship), profession);
+}
 
-  // Officers assigned to this ship add strength by seat: tactical -> Security, science/medical -> Science.
-  // Rank-scaled via the same rank magnitude factor family (officer ranks map through their bonus
-  // magnitudes; first-pass we use a flat OFFICER_STRENGTH scaled by the number of rolled bonuses as a
-  // simple rank proxy, since officer combat power is not in the crew overlay).
-  const securitySeats: ReadonlySet<SeniorStaffSeat> = new Set<SeniorStaffSeat>(["tactical"]);
-  const scienceSeats: ReadonlySet<SeniorStaffSeat> = new Set<SeniorStaffSeat>(["science", "medical"]);
+function divisionStrengthOf(state: GameState, ship: ShipInstance, all: ReturnType<typeof crewBucketsOf>, profession: CrewProfession): number {
+  let strength = professionStrength(all, profession);
+  const seats = DIVISION_STRENGTH_SEATS[profession] ?? [];
   for (const officer of state.officers) {
     if (officer.assignedShipId !== ship.id) continue;
-    const strength = OFFICER_STRENGTH * (1 + officer.bonuses.length * 0.25);
-    if (securitySeats.has(officer.seat)) security += strength;
-    else if (scienceSeats.has(officer.seat)) science += strength;
+    if (seats.includes(officer.seat)) strength += OFFICER_STRENGTH * (1 + officer.bonuses.length * 0.25);
   }
+  return strength;
+}
+
+export function deriveAwayTeam(state: GameState, ship: ShipInstance): AwayTeamSnapshot {
+  const all = crewBucketsOf(state, ship);
+  // Officers assigned to this ship add strength by seat (DIVISION_STRENGTH_SEATS).
+  let security = divisionStrengthOf(state, ship, all, "security");
+  let science = divisionStrengthOf(state, ship, all, "science");
 
   // Team kit: a base plus a share of the ship's medical + operations crew (the support branches that
   // stock cures/stims). Clamped to a sane max.

@@ -27,6 +27,8 @@
 //                  generator reproduces it exactly with the G1-0 pool: the appended affix is the only cause.
 //   registry       8 entries ADDED (G1_ADDED_ENTRY_IDS, pinned as `registry:g1`); the base pin is unchanged, so no
 //                  existing entry moved.
+// MOVED BY G1-2 (templates, sheets and the roll): `registry:g1` gains the 21 short-range template entries (seven
+// templates x rolls, work, reward), all pending G1-4; the base pin and every other pin here are unchanged.
 // MOVED BY FKR-4 (Field Kits conditions, merged before G1-1): the base `registry` pin moves 1170 -> 1181, entirely
 // FKR-4's added and flipped entries (its new condition, severity and inflictor rows, and the rows it flipped live).
 // G2-2's registry edits only reword pending owners (pending stays pending), so they hash the same. Then the review
@@ -268,7 +270,9 @@ const GOLDEN: Record<string, unknown> = {
     "pool:[{\"stat\":\"crewStations\",\"weight\":5},{\"stat\":\"crewEfficiency\",\"weight\":2},{\"stat\":\"massReduction\",\"weight\":1},{\"stat\":\"colonistCapacity\",\"weight\":2}]",
   ],
   "registry": [1182, "c748495a"],
-  "registry:g1": ["ship:gearLine:colonistCapacity|pending", "ship:SHIP_TYPES:generalFreighter:colonistCapacity|pending", "ship:SHIP_TYPES:orion:colonistCapacity|pending", "ship:SHIP_TYPES:aurora:colonistCapacity|pending", "ship:SHIP_TYPES:eir:colonistCapacity|pending", "ship:SHIP_SEAMS:generalQuartersGuestPerk|pending", "ship:QUARTERS_MODULES:quartersGuestWing|live", "ship:QUARTERS_MODULES:quartersGuestWing:capacity|pending"],
+  "registry:g1": ["ship:gearLine:colonistCapacity|pending", "ship:SHIP_TYPES:generalFreighter:colonistCapacity|pending", "ship:SHIP_TYPES:orion:colonistCapacity|pending", "ship:SHIP_TYPES:aurora:colonistCapacity|pending", "ship:SHIP_TYPES:eir:colonistCapacity|pending", "ship:SHIP_SEAMS:generalQuartersGuestPerk|pending", "ship:QUARTERS_MODULES:quartersGuestWing|live", "ship:QUARTERS_MODULES:quartersGuestWing:capacity|pending",
+    // G1-2: the short-range template catalog, pending the cycle engine (G1-4).
+    "mission:SHORT_RANGE_TEMPLATES:refugeeRelocation:rolls|pending", "mission:SHORT_RANGE_TEMPLATES:refugeeRelocation:work|pending", "mission:SHORT_RANGE_TEMPLATES:refugeeRelocation:reward|pending", "mission:SHORT_RANGE_TEMPLATES:supplyDropOff:rolls|pending", "mission:SHORT_RANGE_TEMPLATES:supplyDropOff:work|pending", "mission:SHORT_RANGE_TEMPLATES:supplyDropOff:reward|pending", "mission:SHORT_RANGE_TEMPLATES:supplyPickup:rolls|pending", "mission:SHORT_RANGE_TEMPLATES:supplyPickup:work|pending", "mission:SHORT_RANGE_TEMPLATES:supplyPickup:reward|pending", "mission:SHORT_RANGE_TEMPLATES:phenomenonSurvey:rolls|pending", "mission:SHORT_RANGE_TEMPLATES:phenomenonSurvey:work|pending", "mission:SHORT_RANGE_TEMPLATES:phenomenonSurvey:reward|pending", "mission:SHORT_RANGE_TEMPLATES:telescopeRepair:rolls|pending", "mission:SHORT_RANGE_TEMPLATES:telescopeRepair:work|pending", "mission:SHORT_RANGE_TEMPLATES:telescopeRepair:reward|pending", "mission:SHORT_RANGE_TEMPLATES:commBoosterBuild:rolls|pending", "mission:SHORT_RANGE_TEMPLATES:commBoosterBuild:work|pending", "mission:SHORT_RANGE_TEMPLATES:commBoosterBuild:reward|pending", "mission:SHORT_RANGE_TEMPLATES:prisonerTransport:rolls|pending", "mission:SHORT_RANGE_TEMPLATES:prisonerTransport:work|pending", "mission:SHORT_RANGE_TEMPLATES:prisonerTransport:reward|pending"],
   "old": ["aa94ddcd", "817862c7", "4ac62731", "d9a483c6"],
 };
 
@@ -333,7 +337,8 @@ const QUARTERS_POOL_AT_G1_0 = [
   { stat: "massReduction", weight: 1 },
 ];
 // The registry entries a G1 slice adds (new ids only; an existing entry never changes here). G1-1: the guest quarters
-// sources (the gear line, the four transport hulls' bases, the General quarters perk) and the Guest Wing module.
+// sources (the gear line, the four transport hulls' bases, the General quarters perk) and the Guest Wing module. G1-2:
+// the short-range template catalog's 21 effect fields.
 const G1_ADDED_ENTRY_IDS: ReadonlySet<string> = new Set<string>([
   "ship:gearLine:colonistCapacity",
   "ship:SHIP_TYPES:generalFreighter:colonistCapacity",
@@ -343,6 +348,10 @@ const G1_ADDED_ENTRY_IDS: ReadonlySet<string> = new Set<string>([
   "ship:SHIP_SEAMS:generalQuartersGuestPerk",
   "ship:QUARTERS_MODULES:quartersGuestWing",
   "ship:QUARTERS_MODULES:quartersGuestWing:capacity",
+  // G1-2: every effect field of every short-range template (rolls, work, reward), pending the cycle engine (G1-4).
+  ...["refugeeRelocation", "supplyDropOff", "supplyPickup", "phenomenonSurvey", "telescopeRepair", "commBoosterBuild", "prisonerTransport"].flatMap((k) =>
+    ["rolls", "work", "reward"].map((f) => `mission:SHORT_RANGE_TEMPLATES:${k}:${f}`),
+  ),
 ]);
 
 const CAPTURE = Boolean(import.meta.env.G1_CAPTURE);
