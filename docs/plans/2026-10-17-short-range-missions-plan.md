@@ -344,6 +344,38 @@ reasons (busy, no ship, needs repair, crew lock), `dispatchCaptainOnShortRange`,
 crew lock, salvage safety, assign-ship guard, berths, homeDashboard, sim player, save hydration). **Tests:** each
 gate, same-ref on refusal, union exhaustiveness compile, a hand-edited bad roll loads safely. **UI:** none.
 
+**Carry note (G1-3, built 2026-10-20 on `e1d6d06`):**
+- `shortRangeBoard.ts` is the board and dispatch. Slots: `SHORT_RANGE_BASE_SLOT_TIERS` [1, 1], then one slot per
+  reached `MISSION_CONTROL_BOARD_RUNGS` rung (model.ts; rung i opens at Mission Control level i + 2). The level 1 -> 2
+  rung is the kept completion-gated template (`MISSION_CONTROL_UNLOCK_COMPLETIONS` of shortOreRun and longOreRun) and
+  opens the Tier II slot; the level 2 -> 3 rung opens the fourth. [PROVISIONAL] costs (2,500 and 6,000 credits, 120 and
+  240 ticks) and the fourth slot's tier (Tier II). The rungs join `FACILITIES.missionControl` only when
+  `SHORT_RANGE_BOARD_LIVE` (false; the FIELD_KITS_PLAYER_LIVE precedent), so FACILITIES, the sim and every pin are
+  unchanged. **G1-6 flips it**, and then: the App Mission Control card's "Unlocks the missions gated at level N" line
+  must name the slot instead; the registry already classifies `addShortRangeSlot` (probe `shortRangeSlots`, context
+  `mission:shortRange`); `facility:audit:missionControlUnlock` (pending G1-6) then retires.
+- The mission arm (`ShortRangeMissionState`, model.ts) freezes the roll AND its `plan` (`shortRangeCyclePlan`) at each
+  cycle start, so berths and readouts read the plan, never re-derive it. `startShortRangeCycle(state, ship, slot,
+  cycleIndex)` is THE cycle-start seam: it rolls against the counters as they stand, freezes the plan and returns
+  `runCounts` with `countShortRangeCycleStart` (runDifficulty.ts) applied. **G1-4 must call it at every later cycle
+  start** (bumping `dispatched` per template start; two slots can both start an untried template). G1-4 also writes
+  `GameState.shortRangeBoard.nextCycle[slot]` on a delivered cycle (G1-3 only reads it, `shortRangeNextCycle`).
+- Dispatch spends nothing (the drop-off's working capital is G1-4's delivered-cycle settlement, as for supply runs).
+  `repeat` false starts the run recalled (one cycle). Recall (`recallCaptain`) only sets `recalled`: G1-4 ends the run
+  when that cycle's home turnaround completes. The `speed` field is on the arm (the time skip can flag it); G1-4's
+  ticker honors `instantComplete`.
+- Gate order: noCaptain, noSlot, busy, slotTaken, noShip, needsRepair, crewLocked (an expedition: `shipCrewLocked`),
+  then every short category (`short`, sheet order; `reason` is the first). `shortRangeBlockText` has the words.
+- economyTick routes `kind: "shortRange"` to a hold-still arm (no progress) for G1-4 to replace with
+  `tickCaptainShortRange`. Berths: "unloading" occupies a berth; a run is held when `transitBack` progress reaches
+  `plan.transitBackTicks` (G1-4's hold must bank there and never gate the unload phase: the softlock proof).
+- Consumers handled: crew lock, gear lock, salvage, ship swap and shipsOutOnRuns (all `mission !== null`); berths;
+  recall; the liveness outcome; Ships roster status `shortRange` ("On short-range mission"); Home in-progress row
+  (`rowForShortRange`, per-phase from the plan, not navigable until G1-6 sets its jump); ship and captain status lines
+  and the recall log (App). NOT yet: the Operations Overview in-progress card and its "No missions in progress" line
+  (G1-6). Save: a malformed run (unknown template, bad plan or phase) ends at load with no reward (console warning); a
+  malformed board is dropped. No SAVE step.
+
 ### G1-4: The cycle engine (engine)
 
 `tickCaptainShortRange` routed from `economyTick`: phases, re-roll at each cycle start, rewards per template, the
