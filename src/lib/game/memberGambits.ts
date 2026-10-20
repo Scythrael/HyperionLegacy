@@ -26,13 +26,17 @@ function cloneProgram(p: readonly GambitRule[]): GambitProgram {
   return p.map(cloneRule);
 }
 
-// Structural rule / program equality (params compared by value, an absent param equal to an absent one).
+// Structural rule / program equality (params compared by value, an absent param equal to an absent one). Field Kits
+// FKR-6: the kit, rank condition and Boss reserve params count too (absent on every rule written before them).
 export function gambitRuleEquals(a: GambitRule, b: GambitRule): boolean {
   return (
     a.target === b.target &&
     a.action === b.action &&
     (a.params?.hpThreshold ?? null) === (b.params?.hpThreshold ?? null) &&
-    (a.params?.statusId ?? null) === (b.params?.statusId ?? null)
+    (a.params?.statusId ?? null) === (b.params?.statusId ?? null) &&
+    (a.params?.kitId ?? null) === (b.params?.kitId ?? null) &&
+    (a.params?.minRank ?? null) === (b.params?.minRank ?? null) &&
+    (a.params?.reserveForBoss ?? null) === (b.params?.reserveForBoss ?? null)
   );
 }
 export function gambitProgramEquals(a: readonly GambitRule[], b: readonly GambitRule[]): boolean {

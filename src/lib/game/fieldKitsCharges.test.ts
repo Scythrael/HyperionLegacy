@@ -460,10 +460,12 @@ describe("grenades on a real run's fights, behind the flag", () => {
     expect(some.chargesUsed).toEqual({ "member-2": 1, "member-4": 1 });
   });
 
-  it("a stamped run on the default program arms the grenades but throws none (FKR-6 adds the default throw, N15)", () => {
-    const quiet = kitted(handRun(crewed(0xc4a2), ["enemyColony"], { ...CALM, combat: 2 }, false));
+  it("a stamped run on the default program throws (FKR-6, N15: the Field Kits default); the flag-less twin never does", () => {
+    const plain = handRun(crewed(0xc4a2), ["enemyColony"], { ...CALM, combat: 2 }, false);
+    const quiet = kitted(plain);
     const task = { ...tasksOf(quiet)[0], fightCount: 0, pointsCleared: 0 };
-    expect(resolveTaskFight(quiet, fightTeamsOf(quiet), quiet.bodies[0], task, 0).chargesUsed).toBeUndefined();
+    expect(resolveTaskFight(quiet, fightTeamsOf(quiet), quiet.bodies[0], task, 0).chargesUsed).toEqual({ "member-1": 1, "member-2": 1, "member-4": 1 });
+    expect(resolveTaskFight(plain, fightTeamsOf(plain), plain.bodies[0], task, 0).chargesUsed).toBeUndefined();
   });
 
   it("a stamped fight is deterministic and its log names the throws", () => {

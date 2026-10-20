@@ -38,6 +38,7 @@ import {
   MEMBER_SLOT_TYPES,
   MISSIONS,
   PATROLS,
+  FIELD_KITS_DEFAULT_GRENADE_RULES,
   PERCENT_STAT_CURVES,
   REFINE_RECIPES,
   refineRecipeOffered,
@@ -2771,6 +2772,43 @@ function contentEntries(): WiringEntry[] {
       status: pending("WR-10, OC-F12 (D19: no battle reads it)"),
     }),
   );
+  // Field Kits FKR-6 (group 7 "Rank rules + reserve"; N15): the rank conditions ("target is Elite or stronger",
+  // "target is a Boss": the ranks of a Weak-to-Boss lineup a rule still attacks), the "keep N for a Boss" reserve (the
+  // charges a thrower spends against a Normal foe drop by N) and the Field Kits default program (the grenades a member
+  // on the default throws in one battle).
+  for (const min of ["elite", "boss"] as const) {
+    out.push(
+      entry({
+        ...base("away", "GAMBIT_PROGRAMS", `minRank:${min}`, `Gambit condition: target is ${ENEMY_RANKS[min].label}${min === "boss" ? "" : " or stronger"}`),
+        probe: `content:rankCondition:${min}`,
+        contexts: ["ground"],
+        direction: "down",
+        curve: { kind: "equals" },
+        magnitude: (c) => Object.values(c.ENEMY_RANKS).filter((r) => r.order >= c.ENEMY_RANKS[min].order).length,
+        on: sourceOn,
+      }),
+    );
+  }
+  const reserve = FIELD_KITS_DEFAULT_GRENADE_RULES.find((r) => r.params?.reserveForBoss !== undefined)?.params?.reserveForBoss ?? 0;
+  out.push(
+    entry({
+      ...base("away", "GAMBIT_PROGRAMS", "reserveForBoss", "Gambit option: keep N charges or kits for a Boss"),
+      probe: "content:bossReserve",
+      contexts: ["ground"],
+      direction: "down",
+      curve: { kind: "linearAbsolute" },
+      magnitude: () => -reserve,
+      on: sourceOn,
+    }),
+    entry({
+      ...base("away", "GAMBIT_PROGRAMS", "fieldKitsDefault", "The default program throws grenades on a Field Kits run, keeping one for an Elite or a Boss"),
+      probe: "content:fieldKitsDefault",
+      contexts: ["ground"],
+      curve: { kind: "event", metric: "grenades a member on the default throws in one battle" },
+      magnitude: () => 1,
+      on: sourceOn,
+    }),
+  );
   for (const p of POI_CATALOG) {
     out.push(
       entry({
@@ -2964,25 +3002,19 @@ function enemyRankEntries(): WiringEntry[] {
 }
 
 // ============================================================================
-// away: the field kits (Field Kits FKR-2, fieldKits.ts). Nothing reads the catalog yet: every entry is PENDING and
-// names the FKR slice that makes it live (with a sensitivity check) in its own commit.
+// away: the field kits (Field Kits FKR-2, fieldKits.ts). Since FKR-6 every kit and the First Aid / Advanced Medical rules
+// are LIVE in a Field Kits run's battle (fieldKitsBattle.ts; probes content:kit / content:kitCategory, each kit spent
+// through a real Use Item rule on a battle carrying the Field Kits kit rules). Field Devices stays pending (FKR-8).
 // ============================================================================
 
-const KIT_OWNER: Readonly<Record<FieldKitId, string>> = {
-  firstAidKit: "FKR-6 (kits in battle: a Use Item rule spends the member's own First Aid Kit)",
-  antitoxin: "FKR-6 (kits in battle: Antitoxin clears Poison)",
-  combatStim: "FKR-6 (kits in battle: Combat Stim grants Inspired)",
-  splint: "FKR-6 (kits in battle: Splint on the bone line, N8)",
-  traumaKit: "FKR-6 (kits in battle: Trauma Kit on serious conditions)",
-  injuryKit: "FKR-6 + FKR-7 (the Injury Kit treatment share reaches the medical bay)",
-};
-
-// The categories not live yet, by owner (Explosives went live at FKR-5: Saboteur on the Saboteur's own throws).
+// The categories not live yet, by owner (Explosives went live at FKR-5, First Aid and Advanced Medical at FKR-6).
 const CATEGORY_OWNER: Readonly<Partial<Record<KitCategory, string>>> = {
-  firstAid: "FKR-6 (First Aid kits at 0.5x untrained, 1.25x with Medical Training)",
-  advancedMedical: "FKR-6 (the Medical Training gate on Splint, Trauma Kit and Injury Kit)",
   fieldDevices: "FKR-8 (the 50 to 75% per-use device roll, Codebreaker +6%)",
 };
+
+// Field Kits FKR-6: the category rules measured in battle (content:kitCategory): First Aid's trained lift on one First
+// Aid Kit's heal, Advanced Medical's Medical Training gate on a Splint.
+const CATEGORY_BATTLE_PROBE: Readonly<Partial<Record<KitCategory, true>>> = { firstAid: true, advancedMedical: true };
 
 function fieldKitEntries(): WiringEntry[] {
   // Each kit's measurable effect, read from the catalog: a heal (HP), a bay treatment share (the bay divisor), a buff
@@ -2998,13 +3030,19 @@ function fieldKitEntries(): WiringEntry[] {
           : def.buff !== undefined
             ? { curve: { kind: "equals" }, direction: "none", magnitude: (c) => c.FIELD_KITS[id].buff?.rounds ?? 0 }
             : { curve: { kind: "event", metric: "conditions treated" }, magnitude: (c) => conditionsTreated(c.FIELD_KITS[id]) };
+    // Field Kits FKR-6: live in a Field Kits run's battle. The Injury Kit's share is measured through the medical bay's
+    // divisor (medicalBay.ts conditionCureSeconds, a Broken Bone's time; whole seconds, so one step of tolerance);
+    // FKR-7 sums the fight record's `treated` into the run's bay.
     return entry({
       id: `away:FIELD_KITS:${id}`,
       system: "away",
       source: { catalog: "FIELD_KITS", key: id },
       claim: `${def.label}: what one use treats, heals or grants`,
       ...shape,
-      status: pending(KIT_OWNER[id]),
+      probe: `content:kit:${id}`,
+      contexts: ["ground"],
+      on: sourceOn,
+      ...(def.treatmentShare !== undefined ? { tolerance: 1, note: "the battle records the share; FKR-7 routes it into the run's medical bay" } : {}),
     });
   });
   for (const cat of Object.keys(KIT_CATEGORY_RULES) as KitCategory[]) {
@@ -3020,7 +3058,9 @@ function fieldKitEntries(): WiringEntry[] {
             base: () => wearPiece(withAwayTeam(wiringBase()), WIRING_SECURITY_ID, "memberTool", "impactGrenade", {}),
             on: (s) => editMember(s, WIRING_SECURITY_ID, { traits: ["saboteur"] }),
           }
-        : {};
+        : CATEGORY_BATTLE_PROBE[cat]
+          ? { probe: `content:kitCategory:${cat}` as ProbeId, contexts: ["ground"] as ContextId[], on: sourceOn }
+          : {};
     out.push(
       entry({
         id: `away:KIT_CATEGORY_RULES:${cat}`,

@@ -71,7 +71,11 @@ import type {
   GroundStatus,
   EnemyRank,
 } from "./model";
-import { SALVAGE_LOOT_POOLS, DEFAULT_GAMBIT_PROGRAMS, DEFAULT_MEMBER_GAMBIT, commandingCaptain, memberVariety } from "./model";
+import { SALVAGE_LOOT_POOLS, DEFAULT_GAMBIT_PROGRAMS, DEFAULT_MEMBER_GAMBIT, FIELD_KITS_PLAYER_LIVE, commandingCaptain, memberVariety } from "./model";
+// Field Kits FKR-6: the kit ids (type only: fieldKits.ts imports this module, so the kit RULES arrive by injection,
+// BattleKitRules below) and the rank order the rank conditions compare (enemyRanks.ts imports types only, so no cycle).
+import type { FieldKitId } from "./fieldKits";
+import { rankAtLeast } from "./enemyRanks";
 import { makeRng, type Rng } from "./combat/rng";
 import { crewRarityMultiplier } from "./crewRarity";
 import { rankMagnitudeFactor } from "./crewRank";
@@ -413,6 +417,58 @@ export interface GroundCombatant {
   // `status` at statusPermille (Saboteur's own-throw bonus already folded into both). `charges` = the member's charges
   // left this objective as the fight starts; `perBattle` = throws allowed this battle; `used` = throws so far.
   grenade?: ThrownGrenade;
+  // Field Kits FKR-6: a member's OWN carried kits on a Field Kits run (fieldKitsBattle.ts withFieldKitPacks stamps every
+  // fielded member, an empty pack included; absent on every other combatant, so a Use Item there spends the team kit
+  // exactly as before). Mutated on the battle's working clone as kits are spent.
+  kits?: CombatantKits;
+  // Field Kits FKR-6: the Injury Kit share this DOWNED member received this battle (one kit per downed member per
+  // battle; the record's `treated`). Absent until treated.
+  injuryTreated?: number;
+}
+
+// Field Kits FKR-6: one member's kits for one battle. `basics` = the objective's free basic set left, `extras` = the
+// carried extras left (FKR-7 passes both from the team's run); a use spends a basic first, then an extra
+// (CombatantKits are counted, never quality-bucketed: call 16 "Ignore quality"). `basicsUsed` / `extrasUsed` count the
+// spends for the fight record.
+export interface CombatantKits {
+  basics: Partial<Record<FieldKitId, number>>;
+  extras: Partial<Record<FieldKitId, number>>;
+  basicsUsed: Partial<Record<FieldKitId, number>>;
+  extrasUsed: Partial<Record<FieldKitId, number>>;
+}
+
+// Field Kits FKR-6: how many of `kit` a member still carries this battle (basics + extras). Pure.
+export function kitsHeld(kits: CombatantKits | undefined, kit: FieldKitId): number {
+  if (!kits) return 0;
+  return Math.max(0, kits.basics[kit] ?? 0) + Math.max(0, kits.extras[kit] ?? 0);
+}
+
+// Field Kits FKR-6: spend ONE `kit` from a member's carry, IN PLACE: a free basic first, then an extra. Returns
+// whether one was there to spend. No rng.
+export function spendKit(kits: CombatantKits, kit: FieldKitId): boolean {
+  if ((kits.basics[kit] ?? 0) > 0) {
+    kits.basics[kit] = (kits.basics[kit] ?? 0) - 1;
+    kits.basicsUsed[kit] = (kits.basicsUsed[kit] ?? 0) + 1;
+    return true;
+  }
+  if ((kits.extras[kit] ?? 0) > 0) {
+    kits.extras[kit] = (kits.extras[kit] ?? 0) - 1;
+    kits.extrasUsed[kit] = (kits.extrasUsed[kit] ?? 0) + 1;
+    return true;
+  }
+  return false;
+}
+
+// Field Kits FKR-6: the kit RULES a Field Kits battle reads (fieldKitsBattle.ts FIELD_KITS_BATTLE builds them from the
+// kit catalog, fieldKits.ts; injected because fieldKits.ts imports this module). Both pure over the working clone.
+//   legacyKit : the kit a Use Item rule that names none spends (call 15, user 2026-10-17 "Means First Aid Kit").
+//   usable    : would ONE use of `kit` by `actor` do something to `target` (the actor may use it at all, and the target
+//               needs it: a condition the kit treats, narrowed to `statusId` when the rule names one)?
+//   apply     : one use, IN PLACE (the kit is already spent). No rng: every kit effect is arithmetic.
+export interface BattleKitRules {
+  readonly legacyKit: FieldKitId;
+  usable(kit: FieldKitId, actor: GroundCombatant, target: GroundCombatant, statusId?: GambitStatusId): boolean;
+  apply(kit: FieldKitId, actor: GroundCombatant, target: GroundCombatant, statusId?: GambitStatusId): void;
 }
 
 // Field Kits FKR-5: a combatant's grenade for one battle (see GroundCombatant.grenade).
@@ -540,6 +596,31 @@ function cloneProgramsData(p: GambitPrograms): GambitPrograms {
   return { security: p.security.map(cloneRule), science: p.science.map(cloneRule) };
 }
 
+// The Triage preset's Security program (below): the medic cures and heals, everyone spends kit on an afflicted ally.
+const TRIAGE_PROGRAM: GambitProgram = [
+  { target: "allyHasStatus", action: "cure" },
+  { target: "allyHpBelow", params: { hpThreshold: 0.75 }, action: "aidHeal" },
+  { target: "allyHasStatus", action: "useItem" },
+  { target: "foeLowestHp", action: "execute" },
+  { target: "foeNearest", action: "attack" },
+];
+// Field Kits FKR-6 (call 15, user 2026-10-17 "Means First Aid Kit": "the Triage preset gets explicit kit rules"): the
+// preset once kits are live (model.ts FIELD_KITS_PLAYER_LIVE, FKR-7 flips it; until then the player is handed the
+// program above, user 2026-10-20 "Hide until kits are live"). The kit rules and their order (user 2026-10-20 "Approve
+// all", "Triage preset kit rules as built"): the serious
+// conditions first (a Trauma Kit, then a Splint on a bone; both Medical Training only, so an untrained member skips
+// them), then Antitoxin on Poison, then the First Aid Kit, each spent only on an ally who needs it.
+const TRIAGE_FIELD_KITS_PROGRAM: GambitProgram = [
+  { target: "allyHasStatus", action: "cure" },
+  { target: "allyHpBelow", params: { hpThreshold: 0.75 }, action: "aidHeal" },
+  { target: "allyHasStatus", params: { kitId: "traumaKit" }, action: "useItem" },
+  { target: "allyHasStatus", params: { kitId: "splint" }, action: "useItem" },
+  { target: "allyHasStatus", params: { kitId: "antitoxin" }, action: "useItem" },
+  { target: "allyHasStatus", params: { kitId: "firstAidKit" }, action: "useItem" },
+  { target: "foeLowestHp", action: "execute" },
+  { target: "foeNearest", action: "attack" },
+];
+
 // E-CREW (Task 13): rewritten for SECURITY ONLY (design D16: "the six preset titles stay"). Science never
 // enters a battle, so every preset's Science program is empty and nothing executes one. Each Security
 // program runs PER MEMBER; a member with none runs DEFAULT_MEMBER_GAMBIT (D19), which is not a preset.
@@ -603,13 +684,7 @@ export const GAMBIT_PRESETS: readonly GambitPreset[] = [
     id: "triage",
     title: "Triage",
     programs: {
-      security: [
-        { target: "allyHasStatus", action: "cure" },
-        { target: "allyHpBelow", params: { hpThreshold: 0.75 }, action: "aidHeal" },
-        { target: "allyHasStatus", action: "useItem" },
-        { target: "foeLowestHp", action: "execute" },
-        { target: "foeNearest", action: "attack" },
-      ],
+      security: FIELD_KITS_PLAYER_LIVE ? TRIAGE_FIELD_KITS_PROGRAM : TRIAGE_PROGRAM,
       science: [],
     },
   },
@@ -926,6 +1001,10 @@ export function resolveTarget(
       return state.round === 0 && foes.length ? [...foes].sort(byLowestId)[0] : null;
     case "outnumbered":
       return foes.length > allies.length && foes.length ? [...foes].sort(byLowestId)[0] : null;
+    // Field Kits FKR-6: a DOWNED ally (never the actor), the lowest id. ruleFires lets it fire only for a Field Kits
+    // run's Use Item with an Injury Kit.
+    case "allyDowned":
+      return state.combatants.filter((c) => c.downed && c.side === actor.side && c.id !== actor.id).sort(byLowestId)[0] ?? null;
   }
 }
 
@@ -1127,6 +1206,14 @@ function applyAction(
       // the action union for old stored Science programs; it is Science-only, and Science never fights.
       return;
     case "useItem":
+      // Field Kits FKR-6: on a Field Kits run the actor spends ONE of the rule's kit from its OWN carry (a free basic
+      // first, then an extra) and applies it (BattleKitRules.apply; ruleFires checked the actor carries one and the
+      // target needs it). The team kit is never read there.
+      if (actor.kits && state.kitRules) {
+        const kit = state.pendingKitId ?? state.kitRules.legacyKit;
+        if (target && spendKit(actor.kits, kit)) state.kitRules.apply(kit, actor, target, state.pendingCureStatusId);
+        return;
+      }
       // Spend a team-kit consumable on FIRST AID for the target ally (D20: anyone may, at the user's
       // first-aid effectiveness). Only fires when kit remains AND there is something to cleanse (the
       // resolver gated the target already).
@@ -1190,6 +1277,10 @@ export interface BattleState {
   tauntedBy: { id: string; remaining: number } | null; // a team member currently pulling enemy aggro
   pendingCureStatusId?: GambitStatusId; // the statusId a firing cure/useItem rule targets (threaded per-eval)
   log?: GambitLogEvent[]; // OPTIONAL transient sink; when present, fired rules append a display-only event
+  // Field Kits FKR-6: present only in a Field Kits run's battle (resolveGroundBattle's `kitRules`): a member carrying
+  // kits (GroundCombatant.kits) spends them through these. Absent: Use Item spends the team kit as before.
+  kitRules?: BattleKitRules;
+  pendingKitId?: FieldKitId; // the kitId a firing Use Item rule names (threaded per-eval, like pendingCureStatusId)
 }
 
 
@@ -1223,28 +1314,81 @@ function ruleFires(
   // Field Kits FKR-5 (FK11): a grenade rule whose actor is out of charges, or has used its throw this battle, is
   // skipped and the next rule acts.
   if (rule.action === "throwGrenade" && !canThrowGrenade(actor)) return { fires: false };
+  // Field Kits FKR-6: a Use Item on a Field Kits run spends the actor's OWN kits (kitFires below); "ally downed" fires
+  // for nothing else (no other action does anything to a downed ally).
+  const kitMode = rule.action === "useItem" && actor.kits !== undefined && state.kitRules !== undefined;
+  if (rule.target === "allyDowned" && !kitMode) return { fires: false };
   let target = resolveTarget(rule.target, rule.params, actor, state);
   if (!target) return { fires: false };
-  // Field Kits (FK2): an "ally has any debuff" Cure or Use Item looks past an ally whose only debuffs are serious (a
-  // Fracture rides the whole objective), to the most wounded ally it CAN cleanse, so a fractured squadmate never
-  // blocks the medic's Cure for everyone else. With no serious condition in play the selector's own pick always
-  // qualifies, so this never runs on a fight before Field Kits.
-  if ((rule.action === "cure" || rule.action === "useItem") && rule.target === "allyHasStatus" && rule.params?.statusId === undefined && !hasCleansable(target)) {
-    const cleansable = state.combatants.filter((c) => !c.downed && c.side === actor.side && hasCleansable(c));
-    cleansable.sort((a, b) => a.hp - b.hp || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
-    target = cleansable[0] ?? target;
-  }
+  if (kitMode) {
+    target = kitFires(rule, actor, target, state);
+    if (!target) return { fires: false };
+  } else {
+    // Field Kits (FK2): an "ally has any debuff" Cure or Use Item looks past an ally whose only debuffs are serious (a
+    // Fracture rides the whole objective), to the most wounded ally it CAN cleanse, so a fractured squadmate never
+    // blocks the medic's Cure for everyone else. With no serious condition in play the selector's own pick always
+    // qualifies, so this never runs on a fight before Field Kits.
+    if ((rule.action === "cure" || rule.action === "useItem") && rule.target === "allyHasStatus" && rule.params?.statusId === undefined && !hasCleansable(target)) {
+      const cleansable = state.combatants.filter((c) => !c.downed && c.side === actor.side && hasCleansable(c));
+      cleansable.sort((a, b) => a.hp - b.hp || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+      target = cleansable[0] ?? target;
+    }
 
-  // Cure/useItem only fire when the target actually carries a cleansable debuff (else fall through so a
-  // lower rule can act). The selector often already found an afflicted ally, but a bare "self"/"allyLowestHp"
-  // selector paired with cure must not waste the turn on a clean ally. Field Kits (FK2): a serious condition is not
-  // cleansable this way (hasCleansable), so the rule falls through to the next one.
-  if (rule.action === "cure" || rule.action === "useItem") {
-    const cleansable = hasCleansable(target, rule.params?.statusId);
-    if (!cleansable) return { fires: false };
-    if (rule.action === "useItem" && state.teamKit <= 0) return { fires: false };
+    // Cure/useItem only fire when the target actually carries a cleansable debuff (else fall through so a
+    // lower rule can act). The selector often already found an afflicted ally, but a bare "self"/"allyLowestHp"
+    // selector paired with cure must not waste the turn on a clean ally. Field Kits (FK2): a serious condition is not
+    // cleansable this way (hasCleansable), so the rule falls through to the next one.
+    if (rule.action === "cure" || rule.action === "useItem") {
+      const cleansable = hasCleansable(target, rule.params?.statusId);
+      if (!cleansable) return { fires: false };
+      if (rule.action === "useItem" && state.teamKit <= 0) return { fires: false };
+    }
+  }
+  // Field Kits FKR-6 (group 7 "Rank rules + reserve"): a rank condition gates any rule on its resolved target ("target
+  // is Elite or stronger", "target is a Boss"); an ally, or an enemy of an unranked run, reads Normal.
+  const minRank = rule.params?.minRank;
+  if (minRank !== undefined && !rankAtLeast(target.rank, minRank)) return { fires: false };
+  // "Keep N for a Boss": a grenade rule on a target that is not a Boss fires only while the thrower has MORE than N
+  // charges left (the kit half is in kitFires). Only a Field Kits run arms a grenade.
+  if (rule.action === "throwGrenade" && actor.grenade && breaksReserve(rule, actor, target, state, actor.grenade.charges - actor.grenade.used)) {
+    return { fires: false };
   }
   return { fires: true, target };
+}
+
+// Field Kits FKR-6: would a reserve rule break its "keep N for a Boss" by spending one now, holding `held`? The reserve
+// lifts on a Boss: a rule aimed at a FOE spends freely when that foe is a Boss; a rule aimed at an ALLY (a kit) spends
+// freely while a Boss stands among the actor's foes (user 2026-10-20 "Approve all": "on a Boss" for a kit, whose target
+// is never an enemy, is "while a Boss stands"). No reserve (absent or 0) never breaks. Pure.
+function breaksReserve(rule: GambitRule, actor: GroundCombatant, target: GroundCombatant, state: BattleState, held: number): boolean {
+  const keep = rule.params?.reserveForBoss;
+  if (!(typeof keep === "number" && keep > 0)) return false;
+  const lifted = target.side !== actor.side ? rankAtLeast(target.rank, "boss") : aliveFoes(state, actor).some((f) => rankAtLeast(f.rank, "boss"));
+  return !lifted && held <= keep;
+}
+
+// Field Kits FKR-6: a Field Kits run's Use Item: the target it would treat, or null (the rule does not fire and the next
+// rule acts). The kit is the rule's kitId, else the legacy kit (call 15: the First Aid Kit). It fires only when the
+// actor carries one, the actor can use it on the target (BattleKitRules.usable: the Medical Training gate and the
+// target's need), and spending it keeps the rule's Boss reserve. An "ally has any debuff" or "ally downed" rule whose
+// pick does not need the kit looks past it to the ally who does (the most wounded, then the lowest id), as Cure does.
+function kitFires(rule: GambitRule, actor: GroundCombatant, picked: GroundCombatant, state: BattleState): GroundCombatant | null {
+  const rules = state.kitRules!;
+  const kit = rule.params?.kitId ?? rules.legacyKit;
+  const held = kitsHeld(actor.kits, kit);
+  if (held <= 0) return null;
+  const statusId = rule.params?.statusId;
+  let target: GroundCombatant | null = picked;
+  if (!rules.usable(kit, actor, picked, statusId)) {
+    const lookPast = (rule.target === "allyHasStatus" && statusId === undefined) || rule.target === "allyDowned";
+    if (!lookPast) return null;
+    const downed = rule.target === "allyDowned";
+    const candidates = state.combatants.filter((c) => c.side === actor.side && c.downed === downed && (!downed || c.id !== actor.id) && rules.usable(kit, actor, c, statusId));
+    candidates.sort((a, b) => a.hp - b.hp || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+    target = candidates[0] ?? null;
+  }
+  if (!target || breaksReserve(rule, actor, target, state, held)) return null;
+  return target;
 }
 
 // Apply a firing rule's action, threading the cure-status param, and (ONLY when a log sink is attached to
@@ -1261,8 +1405,10 @@ function fireRule(
 ): void {
   if (!state.log) {
     state.pendingCureStatusId = rule.params?.statusId;
+    state.pendingKitId = rule.params?.kitId;
     applyAction(rule.action, actor, target, rng, state);
     state.pendingCureStatusId = undefined;
+    state.pendingKitId = undefined;
     return;
   }
   // --- logging path (observation only) ---
@@ -1271,8 +1417,10 @@ function fireRule(
   const statusesBefore = target ? target.statuses.length : 0;
   const debuffRoundsBefore = target ? debuffRounds(target) : 0;
   state.pendingCureStatusId = rule.params?.statusId;
+  state.pendingKitId = rule.params?.kitId;
   applyAction(rule.action, actor, target, rng, state);
   state.pendingCureStatusId = undefined;
+  state.pendingKitId = undefined;
   const ev: GambitLogEvent = { round: state.round + 1, side: actor.side, role: actor.role, action: rule.action };
   if (actor.memberId) ev.memberId = actor.memberId;
   if (target) {
@@ -1381,6 +1529,11 @@ export interface GroundBattleResult {
   // Field Kits FKR-5: present ONLY when a named member threw a grenade this battle: memberId -> throws (the charges
   // spent). Absent in every other battle, so its result is exactly the pre-FKR-5 shape.
   chargesUsed?: Record<string, number>;
+  // Field Kits FKR-6: present ONLY when a named member spent a kit (basicsUsed: from the free basic set; kitsUsed: from
+  // carried extras) or a downed member received an Injury Kit (treated: its bay share) this battle.
+  basicsUsed?: Record<string, Partial<Record<FieldKitId, number>>>;
+  kitsUsed?: Record<string, Partial<Record<FieldKitId, number>>>;
+  treated?: Record<string, number>;
 }
 
 // Run ONE ground battle to completion. Deterministic in (combatants, programs, rng). WIN when every enemy
@@ -1407,6 +1560,7 @@ export function resolveGroundBattle(
   rng: Rng,
   log?: GambitLogEvent[], // OPTIONAL transient sink (E3b); undefined => byte-identical no-log behavior
   reviveSeed: number = 0,
+  kitRules?: BattleKitRules, // Field Kits FKR-6: a Field Kits run's kit rules (absent: the team kit, as before)
 ): GroundBattleResult {
   const state: BattleState = {
     combatants: [...team, ...enemies],
@@ -1415,6 +1569,7 @@ export function resolveGroundBattle(
     tauntedBy: null,
     log,
   };
+  if (kitRules) state.kitRules = kitRules;
 
   const teamAlive = () => state.combatants.filter((c) => c.side === "team" && !c.downed);
   const enemyAlive = () => state.combatants.filter((c) => c.side === "enemy" && !c.downed);
@@ -1463,6 +1618,22 @@ export function resolveGroundBattle(
     // Field Kits FKR-5: the charges each named thrower spent, in combatant order.
     const thrown = state.combatants.filter((c) => c.side === "team" && c.memberId !== undefined && (c.grenade?.used ?? 0) > 0);
     if (thrown.length > 0) out.chargesUsed = Object.fromEntries(thrown.map((c) => [c.memberId as string, c.grenade!.used]));
+    // Field Kits FKR-6: the kits each named member spent (free basics and carried extras apart) and the Injury Kit
+    // share each downed member received, in combatant order; each only when nonzero.
+    const named = state.combatants.filter((c) => c.side === "team" && c.memberId !== undefined);
+    const spent = (pick: (k: CombatantKits) => Partial<Record<FieldKitId, number>>): Record<string, Partial<Record<FieldKitId, number>>> | undefined => {
+      const rows = named.flatMap((c) => {
+        const used = c.kits ? Object.entries(pick(c.kits)).filter(([, n]) => (n ?? 0) > 0) : [];
+        return used.length > 0 ? [[c.memberId as string, Object.fromEntries(used)] as const] : [];
+      });
+      return rows.length > 0 ? Object.fromEntries(rows) : undefined;
+    };
+    const basicsUsed = spent((k) => k.basicsUsed);
+    if (basicsUsed) out.basicsUsed = basicsUsed;
+    const kitsUsed = spent((k) => k.extrasUsed);
+    if (kitsUsed) out.kitsUsed = kitsUsed;
+    const treated = named.filter((c) => (c.injuryTreated ?? 0) > 0);
+    if (treated.length > 0) out.treated = Object.fromEntries(treated.map((c) => [c.memberId as string, c.injuryTreated as number]));
     return out;
   };
 

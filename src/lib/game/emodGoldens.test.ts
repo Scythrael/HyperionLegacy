@@ -375,8 +375,12 @@ const GOLDEN: Record<string, unknown> = {
   // Re-pinned at the merge into the ML-1 branch (452c9676): Material Lines ML-1 added 14 entries (its seven Refinery
   // recipes, pending while hidden, and its seven typed reserves); with them left out the snapshot reproduces
   // 452c9676 (asserted below, ML1_ENTRY_IDS), so they are the only cause; the E-MOD rows did not change.
+  // Re-pinned at the merge into the FKR-6 branch (c1260fe0 -> 30489b98), two causes, each read back below: G1-3 (merged
+  // after the ML-1 re-pin without moving it: feat a2a1b6a reads a488ee24) re-owned the facility:audit:missionControlUnlock
+  // row, and Field Kits FKR-6 added 5 entries and flipped 8 pending -> live. With FKR-6 read back (FKR6_BEFORE) the
+  // snapshot is a488ee24, and with the G1-3 row's old owner too it is c1260fe0; the E-MOD rows did not change.
   registry: [
-    "c1260fe0",
+    "30489b98",
     "relic:RELICS:precursorLens",
     "ship:audit:reactorCoreNet",
   ],
@@ -417,6 +421,43 @@ const ML1_ENTRY_IDS: ReadonlySet<string> = new Set<string>([
   ...["refineFerriteIngot", "refineReclaimedCircuit", "refineIridiumCatalyst", "synthCobaltCoil", "synthOsmiumPlate", "synthPhotonicGel", "synthBiocatalyst"].map((k) => `facility:REFINE_RECIPES:${k}`),
   ...["reclaimedCircuit", "iridiumCatalyst", "cobaltCoil", "osmiumPlate", "photonicGel", "biocatalyst", "precursorCircuit"].map((id) => `facility:ITEMS:${id}:reserved`),
 ]);
+
+// Field Kits FKR-6: the 5 entries it added, and the 8 it flipped pending -> live as they stood before it (status, no
+// contexts, no probe).
+const FKR6_ADDED_IDS: ReadonlySet<string> = new Set<string>([
+  "away:GAMBIT_SELECTORS:allyDowned",
+  "away:GAMBIT_PROGRAMS:minRank:elite",
+  "away:GAMBIT_PROGRAMS:minRank:boss",
+  "away:GAMBIT_PROGRAMS:reserveForBoss",
+  "away:GAMBIT_PROGRAMS:fieldKitsDefault",
+]);
+const FKR6_BEFORE: Readonly<Record<string, string>> = {
+  "away:FIELD_KITS:firstAidKit": "FKR-6 (kits in battle: a Use Item rule spends the member's own First Aid Kit)",
+  "away:FIELD_KITS:antitoxin": "FKR-6 (kits in battle: Antitoxin clears Poison)",
+  "away:FIELD_KITS:combatStim": "FKR-6 (kits in battle: Combat Stim grants Inspired)",
+  "away:FIELD_KITS:splint": "FKR-6 (kits in battle: Splint on the bone line, N8)",
+  "away:FIELD_KITS:traumaKit": "FKR-6 (kits in battle: Trauma Kit on serious conditions)",
+  "away:FIELD_KITS:injuryKit": "FKR-6 + FKR-7 (the Injury Kit treatment share reaches the medical bay)",
+  "away:KIT_CATEGORY_RULES:firstAid": "FKR-6 (First Aid kits at 0.5x untrained, 1.25x with Medical Training)",
+  "away:KIT_CATEGORY_RULES:advancedMedical": "FKR-6 (the Medical Training gate on Splint, Trauma Kit and Injury Kit)",
+};
+const REGISTRY_BEFORE_FKR6 = "a488ee24";
+// G1-3's one moved row, as it stood before it (the c1260fe0 snapshot).
+const G13_ROW = "facility:audit:missionControlUnlock";
+const G13_ROW_BEFORE = { kind: "pending", owner: "WR-4, OC-C4" };
+const REGISTRY_BEFORE_G13 = "c1260fe0";
+
+// The registry snapshot rows with FKR-6 read back (its added entries left out, its flips as they stood) and, when
+// `g13Back`, G1-3's audit row with its old owner.
+function registryRowsBack(g13Back: boolean): unknown[][] {
+  return WIRING_REGISTRY.filter((e) => !FKR6_ADDED_IDS.has(e.id)).map((e) =>
+    e.id in FKR6_BEFORE
+      ? [e.id, { kind: "pending", owner: FKR6_BEFORE[e.id] }, [], null]
+      : g13Back && e.id === G13_ROW
+        ? [e.id, G13_ROW_BEFORE, e.contexts, e.probe ?? null]
+        : [e.id, e.status, e.contexts, e.probe ?? null],
+  );
+}
 
 function pinned(name: string, value: unknown): void {
   expect(value, name).toEqual(GOLDEN[name]);
@@ -470,8 +511,13 @@ describe("EM-0 goldens (re-pinned by EM-1 where named)", () => {
     const snapshot = hash(WIRING_REGISTRY.map((e) => [e.id, e.status, e.contexts, e.probe ?? null]));
     const emod = WIRING_REGISTRY.filter((e) => e.status.kind !== "live" && "owner" in e.status && /E-MOD/.test(e.status.owner)).map((e) => e.id).sort();
     pinned("registry", [snapshot, ...emod]);
-    const beforeMl1 = hash(WIRING_REGISTRY.filter((e) => !ML1_ENTRY_IDS.has(e.id)).map((e) => [e.id, e.status, e.contexts, e.probe ?? null]));
+    // With the later moves read back (FKR-6 and G1-3, the test below) and ML-1's entries left out: the snapshot before ML-1.
+    const beforeMl1 = hash(registryRowsBack(true).filter((r) => !ML1_ENTRY_IDS.has(r[0] as string)));
     expect(beforeMl1).toBe(REGISTRY_BEFORE_ML1);
+  });
+  it("registry: FKR-6 and G1-3's audit row are the only causes of its snapshot move", () => {
+    expect(hash(registryRowsBack(false))).toBe(REGISTRY_BEFORE_FKR6);
+    expect(hash(registryRowsBack(true))).toBe(REGISTRY_BEFORE_G13);
   });
 });
 

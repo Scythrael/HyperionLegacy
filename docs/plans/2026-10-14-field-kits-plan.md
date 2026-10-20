@@ -443,6 +443,40 @@ Injury Kit `treatmentShare`) live with a sensitivity check; the gambit status pi
 partial or live as its statuses become reachable. **Save:** none.
 Commit `feat(0.14.0): kits in battle, rank conditions and Boss reserves (FKR-6)`.
 
+**FKR-6 carry (2026-10-20, done):** goldens first (`fieldKitsBattleGoldens.test.ts`, FKR-5's stamped fights on
+e1d6d06), then `feat(0.14.0): kits in battle, rank conditions and Boss reserves (FKR-6)`. Behind flag 2 only; every
+flag-less golden unchanged. New pure `fieldKitsBattle.ts`: `FIELD_KITS_BATTLE` (the kit rules, injected into
+`resolveGroundBattle` because fieldKits.ts imports gambit.ts), `kitUsable` / `applyKit` (First Aid Kit and Antitoxin at
+the first aid cut, the heal riding the cleanse; Combat Stim Inspired 2 rounds x effectiveness, at least 1;
+Splint heals a Fracture in 3 rounds or turns a Broken Bone into a Fracture; Trauma Kit clears its list in one use;
+Injury Kit on a DOWNED ally once per battle, its 0.5 share on the record), `withFieldKitPacks` (every fielded member
+carries `GroundFightTeam.basics` + `.kits`, absent = none), `withFieldKitsDefaultProgram`, `fightSuppliesAfter`
+(charges, basics and extras left after a fight: the threat samples use it now, FKR-7's `finishFight` should too),
+`LEGACY_USE_ITEM_KIT` (call 15). `gambit.ts`: `GroundCombatant.kits` / `.injuryTreated`, `spendKit` (a free basic
+first, then an extra), selector `allyDowned` (fires only as a Field Kits Use Item), `kitFires` (the kit
+gate, the need, the look-past), rank conditions `params.minRank` on the resolved target (read on EVERY run: an unranked
+foe and an ally read Normal; no stored program carries one), `params.reserveForBoss` (`breaksReserve`: a foe target
+lifts it when it is a Boss; a kit's ally target while a Boss stands among the foes), `GroundBattleResult` /
+`GroundFightRecord` `basicsUsed` / `kitsUsed` / `treated`; Triage's explicit kit rules wait behind
+`FIELD_KITS_PLAYER_LIVE`. `model.ts`: `FIELD_KITS_DEFAULT_GRENADE_RULES` (N15's "largest
+group, keep 1 for a Boss" plus "throw the kept one at an Elite or a Boss") and `FIELD_KITS_DEFAULT_MEMBER_GAMBIT` (swapped in on a Field Kits
+fight for a member whose program IS D19's default; still no Use Item). `groundFight.ts memberEndConditions`: a
+splinted Fracture is no bay condition (call 18). `groundThreat.ts`: the samples spend supplies fight by fight and the
+Field Kits key lists each team's basics and kits (FK12). `memberGambits.ts gambitRuleEquals` reads the three new
+params. Editor: `SELECTOR_LABEL.allyDowned` only (not offered until FKR-10). Wiring: `away:FIELD_KITS:<kit>` x6 and
+`away:KIT_CATEGORY_RULES:{firstAid,advancedMedical}` LIVE (probes `content:kit:*`, `content:kitCategory:*`; the
+Injury Kit through the bay divisor), new LIVE `away:GAMBIT_SELECTORS:allyDowned`, `away:GAMBIT_PROGRAMS:{minRank:elite,
+minRank:boss,reserveForBoss,fieldKitsDefault}`. Goldens MOVED, named: G1-0 golden 5 `registry` 1201 e6523a6f -> 1206
+120f6d8b (FKR6_SLICE reproduces e6523a6f); the stamped `default` and `triage` pins (N15, call 15); FKR-5's "default
+program throws none" test now expects the throw. **For FKR-7:** pass `GroundTeamRun.basics` / `.kits` / `.charges`
+through the fight's team, subtract the record's spends with `fightSuppliesAfter`, sum `treated` into
+`GroundTeamRun.treatment` and the bay's `treatmentShare`; FKR-10 shows the Field Kits default in the editor.
+**FKR-6 review rulings (user 2026-10-20, merge-batch answers "Spacer bonus, FKR-6 and G1-3 picks"):** "Save for
+Elite or Boss": the default's kept grenade goes on an Elite or a Boss (`minRank: "elite"`; the stamped `default` pin
+did not move). "Approve all": basics before extras, Combat Stim rounds scale with skill (min 1), "on a Boss" = while a
+Boss stands, one Injury Kit per downed member per battle, Triage's kit rules as built (tags dropped). Hardening:
+`enemyRanks.ts rankAtLeast` never throws on an unknown rank or condition from a stored save (never met / reads Normal).
+
 #### FKR-7: Run plumbing: flag 2, per-member packs, per-objective refresh, stock, Quartermaster (engine)
 
 **Files:** `expedition.ts` (stamp `fieldKits`; deduct packs at dispatch; return at claim), `groundOps.ts`
