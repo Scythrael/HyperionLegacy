@@ -12,11 +12,12 @@
 // every other member, the ships and the account-level pair (state.gambitPrograms, inert since D19) keep their
 // references.
 //
-// Imports model.ts, gambit.ts and groundTeamSlots.ts only.
+// Imports model.ts, gambit.ts, groundTeamSlots.ts and (FKR-10, the runs switch) fieldKits.ts only.
 
 import type { AwayMember, GambitProgram, GambitRule, GameState } from "./model";
-import { DEFAULT_MEMBER_GAMBIT, groundSquadSize } from "./model";
-import { GAMBIT_PRESETS, gambitPresetPrograms, type GambitPreset } from "./gambit";
+import { DEFAULT_MEMBER_GAMBIT, FIELD_KITS_DEFAULT_MEMBER_GAMBIT, groundSquadSize } from "./model";
+import { FIELD_KITS_RUNS_LIVE } from "./fieldKits";
+import { GAMBIT_PRESETS, GAMBIT_PRESET_EARLIER_PROGRAMS, gambitPresetPrograms, type GambitPreset } from "./gambit";
 import { cleanShipGroundTeams, findGroundSlot } from "./groundTeamSlots";
 
 function cloneRule(r: GambitRule): GambitRule {
@@ -55,12 +56,38 @@ export function memberGambitProgram(member: Pick<AwayMember, "gambit" | "teamTyp
   return member.teamType === "security" ? cloneProgram(DEFAULT_MEMBER_GAMBIT) : [];
 }
 
+// Field Kits FKR-10 ("FKR-10 shows the Field Kits default in the editor", FKR-6 carry): the program the editor SHOWS and
+// EDITS for a member. Their own, else, once kits are live in runs (fieldKits.ts FIELD_KITS_RUNS_LIVE), the Field Kits
+// default they actually fight with (model.ts FIELD_KITS_DEFAULT_MEMBER_GAMBIT, swapped in at the fight for a member on
+// D19's default), so a first edit copies what they fight with and never silently drops the grenade rules. While kits
+// are off it is memberGambitProgram exactly. The snapshot keeps reading memberGambitProgram (D19's default), so a
+// dispatch record never moves. Always a fresh copy. Pure.
+export function memberEditableProgram(member: Pick<AwayMember, "gambit" | "teamType">, kitsLive: boolean = FIELD_KITS_RUNS_LIVE): GambitProgram {
+  const program = memberGambitProgram(member);
+  return kitsLive && member.teamType === "security" ? cloneProgram(fieldKitsFightProgram(program)) : program;
+}
+
+// THE ONE READ of the program a Security member fights with on a Field Kits run (FKR-6 N15, review 2026-10-21): a program
+// EQUAL to D19's default (stored as their own or not) is swapped for the Field Kits default, which throws grenades and
+// keeps one for an Elite or a Boss; any other program is the member's own. The fight (fieldKitsBattle.ts
+// withFieldKitsDefaultProgram), the editor (memberEditableProgram) and the dispatch readout (fieldKitsDisplay.ts) all call
+// this, so what the player sees is what fights. The swap is a fresh copy; any other program comes back as it is. Pure.
+export function fieldKitsFightProgram(program: readonly GambitRule[]): GambitProgram {
+  // The copy keeps each rule's own key order (the fight's clone before this helper), so a fight is byte-identical.
+  return gambitProgramEquals(program, DEFAULT_MEMBER_GAMBIT)
+    ? FIELD_KITS_DEFAULT_MEMBER_GAMBIT.map((r) => (r.params ? { ...r, params: { ...r.params } } : { ...r }))
+    : (program as GambitProgram);
+}
+
 // The preset whose Security program the member's OWN program matches, else null (the default is not a preset,
 // and an edited preset reads as custom). Pure.
 export function matchedMemberPreset(member: Pick<AwayMember, "gambit">): GambitPreset | null {
   if (!Array.isArray(member.gambit)) return null;
   const own = member.gambit;
-  return GAMBIT_PRESETS.find((p) => gambitProgramEquals(p.programs.security, own)) ?? null;
+  // FKR-9 / FKR-10 review: a program a preset handed out before its current one still reads as that preset (the
+  // pre-kits Triage, gambit.ts GAMBIT_PRESET_EARLIER_PROGRAMS), so no player sees their preset silently relabeled.
+  const earlier = (id: string) => (GAMBIT_PRESET_EARLIER_PROGRAMS[id] ?? []).some((p) => gambitProgramEquals(p, own));
+  return GAMBIT_PRESETS.find((p) => gambitProgramEquals(p.programs.security, own) || earlier(p.id)) ?? null;
 }
 
 // `state` with Security member `memberId`'s program replaced by `program` (null = clear back to the default).
@@ -95,7 +122,7 @@ function securityMember(state: GameState, memberId: string): AwayMember | null {
 export function setMemberGambitRule(state: GameState, memberId: string, index: number, rule: GambitRule): GameState {
   const m = securityMember(state, memberId);
   if (!m) return state;
-  const program = memberGambitProgram(m);
+  const program = memberEditableProgram(m);
   if (!Number.isInteger(index) || index < 0 || index >= program.length) return state;
   if (gambitRuleEquals(program[index], rule)) return state;
   program[index] = cloneRule(rule);
@@ -106,14 +133,14 @@ export function setMemberGambitRule(state: GameState, memberId: string, index: n
 export function addMemberGambitRule(state: GameState, memberId: string, rule: GambitRule): GameState {
   const m = securityMember(state, memberId);
   if (!m) return state;
-  return writeMemberGambit(state, memberId, [...memberGambitProgram(m), cloneRule(rule)]);
+  return writeMemberGambit(state, memberId, [...memberEditableProgram(m), cloneRule(rule)]);
 }
 
 // REMOVE: drop rule `index`. Pure.
 export function removeMemberGambitRule(state: GameState, memberId: string, index: number): GameState {
   const m = securityMember(state, memberId);
   if (!m) return state;
-  const program = memberGambitProgram(m);
+  const program = memberEditableProgram(m);
   if (!Number.isInteger(index) || index < 0 || index >= program.length) return state;
   return writeMemberGambit(state, memberId, program.filter((_, i) => i !== index));
 }
@@ -122,7 +149,7 @@ export function removeMemberGambitRule(state: GameState, memberId: string, index
 export function moveMemberGambitRule(state: GameState, memberId: string, index: number, dir: "up" | "down"): GameState {
   const m = securityMember(state, memberId);
   if (!m) return state;
-  const program = memberGambitProgram(m);
+  const program = memberEditableProgram(m);
   const target = dir === "up" ? index - 1 : index + 1;
   if (!Number.isInteger(index) || index < 0 || index >= program.length || target < 0 || target >= program.length) return state;
   [program[index], program[target]] = [program[target], program[index]];

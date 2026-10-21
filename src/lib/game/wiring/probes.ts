@@ -16,6 +16,8 @@ import {
   DEFAULT_MEMBER_GAMBIT,
   EQUIPMENT_SLOTS,
   FIELD_KITS_DEFAULT_GRENADE_RULES,
+  fieldKitsShownBlueprints,
+  grenadeCraftPool,
   MEMBER_SLOT_TYPES,
   MISSIONS,
   PATROLS,
@@ -166,7 +168,7 @@ import { ENEMY_RANK_IDS, ENEMY_RANKS_VERSION, type EnemyRank } from "../enemyRan
 import { taskFightGuard, taskFightTeam } from "../groundFight";
 import { buyFieldKits, sellItem } from "../quartermaster";
 // Field Kits FKR-7: the run plumbing (the free basic set at an objective start, the bay share).
-import { fieldKitsStamp, refreshObjectiveSupplies } from "../fieldKitsRun";
+import { carriedExtras, fieldKitsStamp, refreshObjectiveSupplies } from "../fieldKitsRun";
 import { groundTeamBaySeconds } from "../groundOps";
 import { retirementExpMultiplier } from "../captainRetirement";
 import { transitBerthCount } from "../berths";
@@ -2074,12 +2076,40 @@ function readContent(id: string, s: GameState): number {
       // fields) at the fight point the placement leads with rank `a`: an objective of the grade and point
       // ENEMY_RANK_PROBE_FIGHT names, on a Derelict Outpost (hazard 0.1). On = a ranked run, off = the same run without
       // the flag (every enemy Normal). The lead's (the strongest enemy's) stat `b`: "hp" (whole numbers) or "power".
+      // Safe first runs SF-3: Weak is placed by the difficulty curve, so its fight is on an ORDINARY run at the curve's
+      // floor (the stamp ramp 0, Tier I: the curve's low end), the same stamp on and off; every enemy there is Weak.
       const at = ENEMY_RANK_PROBE_FIGHT[a as EnemyRank];
       if (!at) throw new Error(`enemy rank ${a} has no placement to probe`);
       const task = { id: "wiring-task", poiId: "derelictOutpost", fightCount: at.point, pointsCleared: at.point, difficulty: at.grade, fightPoints: [0.25, 0.5, 0.75] };
-      const guard = taskFightGuard({ hazardResist: 0, ...(on ? { enemyRanks: { version: ENEMY_RANKS_VERSION } } : {}) }, { hazard: 0.1 }, task, 0x5eed);
+      const curve = at.curveFloor ? { difficulty: { version: 1 as const, firstRun: false, ramp: 0, tier: 1 as const } } : {};
+      const guard = taskFightGuard({ hazardResist: 0, ...curve, ...(on ? { enemyRanks: { version: ENEMY_RANKS_VERSION } } : {}) }, { hazard: 0.1 }, task, 0x5eed);
       const lead = guard.reduce((best, e) => (e.power > best.power ? e : best));
       return b === "hp" ? lead.hp : lead.power;
+    }
+    case "fieldKitsRunsSwitch": {
+      // Field Kits FKR-9 / FKR-10 (the switch-on): the extras a REAL Launch packs. On: startExpedition with its DEFAULT
+      // runs switch (fieldKits.ts FIELD_KITS_RUNS_LIVE, the argument the dispatch console's Launch leaves out) for a crew
+      // whose Warehouse holds FIELD_KITS_SWITCH_PROBE_STOCK First Aid Kits; off: the same launch with kits off. The
+      // extras the run carries (each member's default pack holds one First Aid Kit, so the stock is the limit).
+      const ready = withAwayTeam({ ...s, inventory: { ...s.inventory, firstAidKit: [new Decimal(FIELD_KITS_SWITCH_PROBE_STOCK)] } });
+      const cand = expeditionCandidates(ready, WIRING_SHIP_ID)[0];
+      const res = on ? startExpedition(ready, WIRING_SHIP_ID, WIRING_CAPTAIN_ID, cand.id) : startExpedition(ready, WIRING_SHIP_ID, WIRING_CAPTAIN_ID, cand.id, true, false);
+      if (!res.success || !res.expedition) throw new Error(`field kits switch probe: dispatch refused (${res.reason})`);
+      return Object.values(carriedExtras(res.expedition)).reduce((n, x) => n + (x ?? 0), 0);
+    }
+    case "fieldKitsHiddenPieces": {
+      // Field Kits FKR-9 / FKR-10 (model.ts FIELD_KITS_PLAYER_LIVE): the pieces kept hidden until kits went live that a
+      // player can now reach: each FIELD_KITS_HIDDEN_BLUEPRINTS blueprint in BLUEPRINTS (Research, the Fabricator, the
+      // Archive), and each of the Stun and Toxin Grenades whose craft pool rolls the +1 Carry Capacity line. Both sides
+      // run the same readers the build uses: on, the switched-on catalog (the shown blueprints found in BLUEPRINTS, the
+      // varieties' real craft pools); off, the same readers with the switch off (model.ts fieldKitsShownBlueprints(false),
+      // grenadeCraftPool(key, false)), the state a player saw before kits went live.
+      const shown = fieldKitsShownBlueprints(on);
+      const merged = Object.keys(shown).filter((k) => BLUEPRINTS[k] === shown[k]).length;
+      const tool = EQUIPMENT_SLOTS.memberTool.varieties;
+      const poolOf = (key: "stunGrenade" | "toxinGrenade") => (on ? tool.find((v) => v.key === key)?.affixPool : grenadeCraftPool(key, false).affixPool) ?? [];
+      const carry = (["stunGrenade", "toxinGrenade"] as const).filter((key) => poolOf(key).some((a) => a.stat === "groundCarryCapacity")).length;
+      return merged + carry;
     }
     default:
       throw new Error(`unknown content probe ${id}`);
@@ -2170,6 +2200,8 @@ function kitProbe(kit: FieldKitId, on: boolean): number {
 //   base : on, a ship with no support crew (the set's base); off, a run stamped with no free set (0);
 //   crew : on, a ship with FREE_BASIC_PROBE_HEADS Medical crew; off, none (the D23 crew curve's rise).
 const FREE_BASIC_PROBE_HEADS = 16;
+// Field Kits FKR-9 / FKR-10: the First Aid Kits the runs switch probe's Warehouse holds (one per wiring Security member).
+export const FIELD_KITS_SWITCH_PROBE_STOCK = 1;
 function freeBasicProbe(s: GameState, kit: FieldKitId, part: string, on: boolean): number {
   const heads = part === "crew" && on ? FREE_BASIC_PROBE_HEADS : 0;
   const buckets = heads > 0 ? [{ profession: "medical" as const, rarity: "standard" as const, rank: 1 as const, race: "earthBorn" as const, buff1Id: "med.triage", buff2Id: null, count: heads }] : [];
@@ -2241,8 +2273,10 @@ function fieldKitsDefaultProbe(on: boolean): number {
 
 // Field Kits FKR-1: the fight each placed rank is probed on (grade 1 Simple .. 5 Deadly, the 0-based fight point of a
 // three-point objective): Normal on a Simple final, Strong on a Dangerous earlier point, Elite on a Challenging final,
-// Boss on a Deadly final. Weak has none (SF-3 places it on the difficulty curve).
-const ENEMY_RANK_PROBE_FIGHT: Readonly<Partial<Record<EnemyRank, { grade: number; point: number }>>> = {
+// Boss on a Deadly final; Weak (safe first runs SF-3, the curve's low end) on a Simple final of an ordinary run at the
+// curve's floor (`curveFloor`).
+const ENEMY_RANK_PROBE_FIGHT: Readonly<Partial<Record<EnemyRank, { grade: number; point: number; curveFloor?: true }>>> = {
+  weak: { grade: 1, point: 2, curveFloor: true },
   normal: { grade: 1, point: 2 },
   strong: { grade: 4, point: 0 },
   elite: { grade: 3, point: 2 },

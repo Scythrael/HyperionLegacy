@@ -35,7 +35,7 @@ import { effectiveShipStats } from "./crewOverlay";
 import { effectiveMissionDef, withGeneralMuseumRecord } from "./model";
 import { addItemQuality, itemTotal } from "./inventory";
 import { expeditionCandidates, startExpedition } from "./expedition";
-import { plainAwayMember, withMinimumAwayTeam, withSlottedAwayTeams } from "./awayTeamTestFixtures";
+import { asPreFieldKitsDispatch, plainAwayMember, withMinimumAwayTeam, withSlottedAwayTeams } from "./awayTeamTestFixtures";
 import { REQUISITION_CATALOGUE } from "./quartermaster";
 import { seatOfficer, withFacilityLevel } from "./wiring/probes";
 import { PATROLS } from "./model";
@@ -319,7 +319,7 @@ describe("B4: officer promotion counters are fed (OC-E10), starting at 0", () =>
       plainAwayMember("member-11", "science", "ship-1"),
     ];
     const s0 = seatOfficer(withSlottedAwayTeams({ ...freshState(), awayMembers: squad, nextAwayMemberId: 100, expeditionSeed: 0x1234 }), "science", ["sci.discovery"]);
-    const res = startExpedition(s0, "ship-1", 1, expeditionCandidates(s0, "ship-1")[0].id);
+    const res = asPreFieldKitsDispatch(startExpedition(s0, "ship-1", 1, expeditionCandidates(s0, "ship-1")[0].id));
     const done = advanceExpedition(res.expedition!, 2_000_000);
     expect(done.phase).toBe("complete");
     const claim = claimExpedition({ ...res.next, expeditions: [done], gameTimeSeconds: 2_000_000 }, done.id);

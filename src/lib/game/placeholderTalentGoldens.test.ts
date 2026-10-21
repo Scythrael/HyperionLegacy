@@ -35,7 +35,7 @@ import { CLOAKED_VESSEL_HULL, buildShipCombatant, snapshotShipEventProfile } fro
 import { TRANSPORT_WINDOW_SECONDS } from "./transports";
 import { FIXTURE_RACE, WIRING_BUCKET_COUNT, bucketOf, editCaptain, installPiece, seatOfficer, withAwayTeam, withBuckets, withFacilityLevel, withHomeworld, wiringBase } from "./wiring/probes";
 import { goldenJson, withV1Museum, withoutGuests } from "./firstRunsGoldens.fixture"; // gear wear: goldenJson puts the retired durability back
-import { asPreG2NamesDispatch } from "./awayTeamTestFixtures";
+import { asPreCurveDispatch, asPreG2NamesDispatch } from "./awayTeamTestFixtures";
 
 function fnv(s: string): string {
   let h = 0x811c9dc5;
@@ -185,7 +185,9 @@ export function readWr6Variant(v: Wr6Variant): Record<string, string> {
   // Freighter's base berths), and the dispatch is the one before G2-2 (the console names and region fields stripped).
   const sheet = hash(withoutGuests(withEm1Off(() => effectiveShipStats(s0, s0.ships.find((sh) => sh.id === "ship-1")!))));
   const candidates = expeditionCandidates(s0, "ship-1");
-  const res = asPreG2NamesDispatch(startExpedition(s0, "ship-1", 1, candidates[0].id));
+  // Safe first runs SF-3: pinned on the run as dispatched before the curve (asPreCurveDispatch: a new save's ordinary run
+  // now sits on the curve's floor).
+  const res = asPreCurveDispatch(asPreG2NamesDispatch(startExpedition(s0, "ship-1", 1, candidates[0].id)));
   if (!res.success || !res.expedition) throw new Error(`dispatch refused: ${res.reason}`);
   const end = 3_000_000;
   const done = advanceExpedition(res.next.expeditions[0], end);

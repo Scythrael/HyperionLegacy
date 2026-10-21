@@ -27,6 +27,7 @@ import { describe, expect, it } from "vitest";
 import Decimal from "break_infinity.js";
 import {
   BLUEPRINTS,
+  FIELD_KITS_HIDDEN_BLUEPRINTS,
   ITEMS,
   REFINE_RECIPES,
   RESEARCH_FACILITY_KEY,
@@ -173,10 +174,14 @@ function expectParity(exp: Expedition): void {
 // record, timeline, finished run, scan events, findings, claim, deposits]; risk = [profile, body 0, body 1].
 // Cross-check: the dispatch records and timelines are the G2-0 regular rows' own (expeditionTiersGoldens.test.ts
 // fresh:regular:cand-0 ffa69009 / 5a7a918b and cand-2 93b332c5 / f23b02ce), and the gas giant launch view is G2-0
-// display:launch's (b956de0c), so the two captures agree on the shared code path.
+// display:launch's (2de1df4 since SF-3, b956de0c before), so the two captures agree on the shared code path.
+// Safe first runs SF-3 (at its merge): the launch view (third hash) of each row moved on purpose, the same move SF-3
+// named in expeditionTiersGoldens display:launch (a44bfe48 -> 6964ecd8, b956de0c -> 2de1df4): the forecast is built on
+// the run the dispatch would make, and this new save's first ordinary run now sits on the difficulty curve's floor, so
+// its Forecast detail odds read the gentler run. The dispatch itself is pinned as before the ranks (and so before SF-3).
 const GOLDEN: Record<string, readonly string[]> = {
-  giant: ["f5ddbd0a", "e375bf74", "b956de0c", "4ac8a0a7", "44d0a224", "93b332c5", "f23b02ce", "e8b83c3e", "d95c0baf", "a6f5bf49", "9a143f7", "661f503f"],
-  plain: ["82735f", "61454ce6", "a44bfe48", "81d9393c", "394ef6cb", "ffa69009", "5a7a918b", "52c3393d", "2dc0e5cf", "5d234ce9", "8b1199fc", "174e7996"],
+  giant: ["f5ddbd0a", "e375bf74", "2de1df4", "4ac8a0a7", "44d0a224", "93b332c5", "f23b02ce", "e8b83c3e", "d95c0baf", "a6f5bf49", "9a143f7", "661f503f"],
+  plain: ["82735f", "61454ce6", "6964ecd8", "81d9393c", "394ef6cb", "ffa69009", "5a7a918b", "52c3393d", "2dc0e5cf", "5d234ce9", "8b1199fc", "174e7996"],
   risk: ["6b5a19c0", "9c9d2b43", "31ca5738"],
 };
 
@@ -318,7 +323,10 @@ describe("GG-0 golden 5: the item census", () => {
 
   it("item ids, counts by category, refine recipes and blueprint count (GG-1's additions held apart)", () => {
     const before = census(Object.keys(ITEMS).filter((id) => !gg1.has(id)), Object.keys(REFINE_RECIPES).filter((k) => k !== GG1_RECIPE));
-    expect({ items: hash(before.ids), byCategory: before.byCategory, refineRecipes: before.refineRecipes, blueprints: Object.keys(BLUEPRINTS).length }).toEqual(CENSUS_GOLDEN);
+    expect({ items: hash(before.ids), byCategory: before.byCategory, refineRecipes: before.refineRecipes, blueprints: Object.keys(BLUEPRINTS).filter((k) => !(k in FIELD_KITS_HIDDEN_BLUEPRINTS)).length }).toEqual(CENSUS_GOLDEN);
+    // Field Kits FKR-9 / FKR-10 (the switch-on): the hidden Impact Grenade blueprint merges in, the one named move of the
+    // blueprint count (78 to 79), counted apart as in materialLinesGoldens.test.ts.
+    for (const k of Object.keys(FIELD_KITS_HIDDEN_BLUEPRINTS)) expect(BLUEPRINTS[k], k).toBe(FIELD_KITS_HIDDEN_BLUEPRINTS[k]);
   });
 
   it("GG-1's additions: fifteen items appended in order and the one recipe appended", () => {

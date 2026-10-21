@@ -277,7 +277,7 @@ describe("G2-3 a dispatch stamps its voyage and the run flies it", () => {
     const training = dispatch(orion(fresh), 1);
     expect(training.difficulty?.firstRun).toBe(true);
     const ordinary = dispatch(orion({ ...crewed(), nextExpeditionId: 1 }), 1); // the same list (no Wolf 359 guarantee yet)
-    expect(ordinary.difficulty).toBeUndefined();
+    expect(ordinary.difficulty?.firstRun).toBe(false); // SF-3: an ordinary run carries the curve stamp
     expect(training.voyage).toEqual(ordinary.voyage);
   });
 });

@@ -297,7 +297,7 @@ describe("G1-2 the training run and the slow-start curve", () => {
     }
   });
 
-  it("the share follows SF4: run 2 at 35%, run 6 about 54%, run 9 about 80%, full from run 11; flat at Tier II", () => {
+  it("the share follows SF4: run 2 at 35%, run 6 about 54%, run 9 about 80%, full from run 12 (the SF-3 review's smoothed top, one shared curve); flat at Tier II", () => {
     const share = (completed: number, tier: ShortRangeTier): number => {
       const state: GameState = { ...wiringBase(), runCounts: { ...freshRunCounts(), shortRange: { refugeeRelocation: { dispatched: completed + 1, completed } } } };
       return shortRangeSpanShare(runDifficultyAt(state, "shortRange", tier, "refugeeRelocation"));

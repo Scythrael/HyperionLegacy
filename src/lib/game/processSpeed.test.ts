@@ -37,7 +37,7 @@ import { applyGroundOpsInjuries } from "./injuries";
 import { dispatchCaptainOnShortRange } from "./shortRangeBoard";
 import { resolveCrew } from "./crewOverlay";
 import { editShip, installPiece, wiringBase } from "./wiring/probes";
-import { asLegacyDispatch, ensureMinimumAwayTeam, plainAwayMember, withSlottedAwayTeams } from "./awayTeamTestFixtures";
+import { asLegacyDispatch, asPreCurveDispatch, ensureMinimumAwayTeam, plainAwayMember, withSlottedAwayTeams } from "./awayTeamTestFixtures";
 import {
   OVERTIME_CREDITS_PER_MINUTE,
   OVERTIME_MAX_STEPS,
@@ -526,7 +526,9 @@ describe("time skip: an expedition finishes at once with the findings its run wo
   it("refuses a run that cannot finish on its own (a team that keeps failing) and a missing run", () => {
     const ready = ensureMinimumAwayTeam(freshState(), "ship-1");
     const cands = expeditionCandidates(ready, "ship-1");
-    const r = startExpedition(ready, "ship-1", 1, cands[0].id, true);
+    // Safe first runs SF-3: pinned on the run as dispatched before the curve (a new save's first ordinary run sits at the
+    // curve's floor, gentle enough to finish).
+    const r = asPreCurveDispatch(startExpedition(ready, "ship-1", 1, cands[0].id, true));
     expect(canApplyTimeSkip(r.next, { kind: "expedition", id: r.next.expeditions[0].id })).toEqual({ ok: false, reason: "cannotFinish" });
     expect(canApplyTimeSkip(freshState(), { kind: "expedition", id: "expedition-9" })).toEqual({ ok: false, reason: "notFound" });
   });

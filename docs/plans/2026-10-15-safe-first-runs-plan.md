@@ -741,3 +741,75 @@ the "Training run" chip from `isTrainingRun`, the run log (no UI renders `ground
   next (about +15% squad power in the sim meets both Tier I targets: 97% completion, 98% vault wins).
 - **Run 10 to 11 cliff:** "Smooth the last steps (Recommended)": spread the final climb over runs 9 to 12 and let affixes
   and ambushes reach full strength one run later.
+
+## SF-3 CARRY NOTE (2026-10-20, built on a678241; goldens first in 23448d2)
+
+**What an ordinary run is now.** `buildExpedition` writes `Expedition.difficulty` on EVERY new expedition: the training
+run's stamp (SF-2) or an ordinary one `{ version 1, firstRun false, ramp, tier }` (runDifficulty.ts `runDifficultyAt`;
+read strictly by `rampedStampOf`, `runRampOf`). The training run is Tier I only now (SF6: a Tier II+ dispatch is never
+the training run and reads full strength). The curve is SF-1's `rampFraction` (SF4 slow start: run 2 at 35%, run 6
+about 54%, run 9 about 80%, full from run 11; completed runs only, training excluded); `rampEnemyScale` is exactly 1 at
+full strength. What reads the ordinary stamp, no new draw on any stream:
+1. Guards (groundFight.ts `taskFightGuard`): hazard `encounterHazard` (SF7 ceilings Tier I 0.1, Tier II 0.5, Tier III+
+   raw; scans and the risk grade keep the raw hazard), the curve's strength as an `EncounterProfile` (no enemy cap; full
+   strength reads no profile), and on the curve's LOW END every unled enemy is Weak (enemyRanks.ts `EARLY_CURVE_RANK`
+   [PROVISIONAL], `curveBaseRank`: runs whose curve strength is at or below Weak's own x0.7, i.e. runs 2 to 7). Ranks
+   multiply after the curve (field kits plan rule), so a run-2 ordinary enemy stands at 0.35 x 0.7; a placed lead
+   (Elite / Boss / Strong) keeps its rank.
+2. Affix roll chance x ramp (affixes.ts, required affixes always) and the ambush chance x ramp (groundOps.ts).
+3. Ship events (shipScanEvents.ts): each check's FAIL chance x ramp (`rampedPassChance`), hull wear x ramp (none at the
+   floor), the battle enemy at the curve's strength on the capped hazard.
+4. Threat odds memo key appends `["curve", ramp, tier]` on stamped runs only.
+Wiring: `expedition:ENEMY_RANKS:weak` (+ `:hp`) live (probe on an ordinary run at the curve's floor).
+
+**Measured (gated `npm run test:sweep:ramp`, 200 seeds x 10 curve positions x {D18 minimum, full rank 1}).** Stall
+count and lost fights never fall as the curve rises; the D18 minimum completes run 2 on 195 of 200. The plan's nominal
+targets (rank 1 completes 95%, wins 90% of Vault / Subterranean at full strength) are REPORTED, not asserted: measured
+125 / 200 and 231 / 365 (every hold a Challenging+ Vault or Subterranean final with its FKR-1 Elite / Boss lead); the
+user's 2026-10-16 ruling makes comfortable nominal Tier I a full team in the Quartermaster's first set, whose stats are
+not built yet. **Flag for the user:** the Weak low end ends in one step between run 7 (ordinary enemy 0.62 x 0.7 =
+0.43) and run 8 (0.70 x 1): D18 Vault / Subterranean wins 182 to 0 and rank 1 lost fights 96 to 673 across that step.
+
+**Goldens.** `rampGoldens.test.ts` (captured pre-SF-3 in 23448d2) re-pinned with every move named in its header;
+`expeditionTiersGoldens` `display:launch` Level 8 of cand-0 and cand-2 (the forecast reads the gentler run). Every
+other golden unchanged: fixtures strip the ordinary stamp with `withoutCurve` / `asPreCurveDispatch` (folded into
+`withoutEnemyRanks` and `withoutFieldKits`, since a run from before FKR-1 is from before SF-3).
+
+**Merged with feat at adb41c6 (2026-10-20).** One curve source: G1's short-range span share already reads
+runDifficulty.ts `rampEnemyScale`; SF-3's Tier I training gate applies to EXPEDITIONS only, so a short-range template
+keeps its training run at any tier (G1 plan: a Tier II slot's training run takes that tier's smallest roll). Goldens
+captured before SF-3 strip the ordinary stamp at dispatch (`asPreCurveDispatch`, composed with `asPreG2NamesDispatch`
+where both apply): groundOpsAffixes / Outcroppings / Risk, placeholderTalentGoldens, racialsGoldens, fieldKitsRun and
+its goldens' switch-off row, voyageGoldens tier4 (`withoutCurve`). rampGoldens dispatches through
+`asPreG2NamesDispatch` (no region, no voyage), as does the ramp sweep fixture, so the SF-3 pins and the measured table hold. Registry: Weak's two flips are held
+apart by `SF3_SLICE` (shortRangeGoldens, every registryPin call, the ML-1 pattern) and `sf3` in emodGoldens `rowsBack`;
+emodGoldens `registry` re-pinned 60d00075 to 9a8ecb9c (read back, 60d00075).
+
+**SF-3 review applied (2026-10-21, user "Fade Weak" and "Smooth the last steps").**
+- The curve (runDifficulty.ts `rampFraction`; G1's short-range share reads the same one): the SF4 ease-in unchanged to
+  run 9 (`RAMP_EASE_SPAN` 9, `RAMP_EASE_UNTIL` 7), then even steps to full at run 12 (`N_FULL` 11). Enemy strength per
+  run 2 to 12: 0.35, 0.37, 0.42, 0.48, 0.54, 0.62, 0.70, 0.80, 0.86, 0.93, 1.00 (no step after run 9 larger than the
+  run 8 to 9 step). The affix roll and the ambush chance read the curve one run behind (`RAMP_ODDS_LAG` 1,
+  `rampOddsFraction`, stored as `difficulty.oddsRamp` only where it differs from `ramp`): full from run 13. Ship-event
+  checks and hull wear stay on the enemy curve.
+- Weak fades: every unled enemy on an ordinary run takes `curveBaseFactor` = 0.7 + 0.3 x ramp (enemyRanks.ts; the
+  ranks still multiply after the curve's strength), so an ordinary enemy stands at 0.25, 0.27, 0.31, 0.36, 0.43, 0.51,
+  0.61, 0.72, 0.81, 0.90, 1.00 of nominal on runs 2 to 12. It is NAMED Weak while ramp is below
+  `EARLY_CURVE_WEAK_UNTIL` 0.5 [PROVISIONAL] (the factor below the Weak / Normal midpoint: runs 2 to 7; run 8 sits at
+  0.54, clear of the line, so no near-tie decides the name), Normal from run 8. Surprise and reinforcement fights are
+  unled, so their enemies take the run's base too (REINFORCEMENT_RANK N5 = no lead, the run's base).
+- Measured (`npm run test:sweep:ramp`, 200 seeds each; stalled runs, Vault / Subterranean won of held): D18 minimum run
+  2: 5 stalled, 377 of 383; run 7: 175, 8 of 376; run 8: 176, 0; run 10: 184, 0; run 11 and 12: 187, 0. Full rank 1
+  run 2: 0, 383 of 383; run 7: 0, 376 of 376; run 8: 0, 369 of 369; run 10: 6, 361 of 369; run 11: 19, 341 of 366; run
+  12: 75, 231 of 365. The fixture `asExpeditionVeteran` keeps its pinned completed count 10 (a veteran reads full
+  strength regardless). Goldens moved: rampGoldens c5 and c9 (named in its header), the default sample pins and the
+  sweep table (re-measured, named in each file).
+
+**Merged with feat at 900d613 (FKR-9 / FKR-10, kits switched on; 2026-10-21).** `asPreCurveDispatch` composes
+`asPreFieldKitsDispatch` (a run before SF-3 was a run before the switch-on), and the ramp goldens and sweep fixture go
+through `asPreG2NamesDispatch`, which composes it too, so every SF-3 pin and the measured sweep table are unchanged and
+still comparable (kits off). With kits on, the SF-2 training proof sweep lost one fight for the D18 minimum crew on
+seeds 42 and 336 of each explorer (the Field Kits enemy inflictors); per OC-1 ("no lost fights") a training run's
+guards now skip `withFieldKitsGuard` (groundFight.ts), and the 500-seed proof passes again. Registry: SF3_SLICE beside
+FKR9_SLICE, GW_SLICE and GG1_SLICE in every shortRangeGoldens registryPin call; emodGoldens reads back sf3 beside fkr9
+and gw; `registry` re-pinned 1d8ae09b to bd1e2f48 (read back, 1d8ae09b).

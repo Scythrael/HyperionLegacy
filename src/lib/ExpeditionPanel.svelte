@@ -96,6 +96,11 @@
   // E4c: relic glyphs + set names come from the ONE UI-side relic vocabulary (every graphic is SVG).
   import Icon from "./ui/Icon.svelte";
   import { relicSetShortLabel } from "./ui/relicIcons";
+  // Field Kits FKR-9 (the signed-off packing mockup, USER ANSWERS 2026-10-20): per-member packing at dispatch with the
+  // per-team Quartermaster top-up, the in-run supplies readout (card line + detail table) and the claim's kit line.
+  // Every display decision is in fieldKitsDisplay.ts (tested); the pack and the toggle route to the host's do* handlers.
+  import { claimKitsView, dispatchPackView, runCardLine, runSuppliesView, steppedPack, type PackSourceView } from "./fieldKitsDisplay";
+  import type { FieldKitId } from "./game/fieldKits";
 
   // --- Props ------------------------------------------------------------------
   // `state` is the whole GameState (read-only here). The callbacks route every side effect
@@ -112,6 +117,11 @@
   // GO-13: a live queue edit (assign, reorder, skip, re-queue, Default plan, Auto-assign). Host: editGroundOps ->
   // doSave -> pushLog (doEditGroundOps); returns null when applied, else the refusal in plain words.
   export let onEditGroundOps: (expeditionId: string, edit: GroundOpsEdit) => string | null = () => null;
+  // Field Kits FKR-9: a member's pack preference (kit -> count; null = back to the default) and a team's "Top up from the
+  // Quartermaster at launch" toggle. Host: setMemberPack / setGroundTeamTopUp -> doSave -> pushLog (doSetMemberPack,
+  // doSetTeamTopUp). Both shape the NEXT dispatch only.
+  export let onSetMemberPack: (shipId: string, teamIndex: number, memberId: string, pack: Partial<Record<FieldKitId, number>> | null) => void = () => {};
+  export let onSetTeamTopUp: (shipId: string, teamIndex: number, on: boolean) => void = () => {};
 
   // --- Local UI state ---------------------------------------------------------
   // The ship whose console is open. null until the first eligible ship defaults in below.
@@ -249,6 +259,11 @@
   $: bayCards = chosenExpedition?.groundOps ? bayCardsView(chosenExpedition, chosenShip, now, state.awayMembers) : [];
   // GO-15: the scan tracks' key row (only the kinds this run shows).
   $: scanKey = chosenExpedition ? scanTrackKey(chosenExpedition) : null;
+  // Field Kits FKR-9: the dispatch pack screen (null while kits are not live in runs), the run's supplies readout per
+  // team and the claim's kit line (a Field Kits run only).
+  $: packView = chosenShip && !chosenExpedition ? dispatchPackView(state, chosenShip.id) : null;
+  $: supplies = chosenExpedition ? runSuppliesView(chosenExpedition, chosenShip, state.awayMembers) : [];
+  $: claimKits = chosenExpedition && chosenExpedition.phase === "complete" ? claimKitsView(chosenExpedition) : null;
 
   // --- Display helpers --------------------------------------------------------
   function shipName(shipId: string): string {
@@ -418,6 +433,15 @@
   }
 
   // --- Actions (all route to the host) ----------------------------------------
+  // Field Kits FKR-9: one stepper press on a member's pack, and the source chip's Reset.
+  function stepPack(teamIndex: number, memberId: string, pack: Partial<Record<FieldKitId, number>>, kit: FieldKitId, delta: number): void {
+    if (!chosenShip) return;
+    onSetMemberPack(chosenShip.id, teamIndex, memberId, steppedPack(pack, kit, delta));
+  }
+  function resetPack(teamIndex: number, memberId: string, source: PackSourceView): void {
+    if (!chosenShip || source.kind !== "edited") return;
+    onSetMemberPack(chosenShip.id, teamIndex, memberId, source.resetPack);
+  }
   // Launch: a BLIND candidate (beyond the telescope's range) asks first (user #7); any other launches at once.
   function launch(): void {
     if (!chosenShip || !selectedCandidate || !chosenCaptain) return;
@@ -496,6 +520,19 @@
               Ready to dispatch
             {/if}
           </span>
+          {#if exp && exp.phase === "activities"}
+            {@const card = runCardLine(exp, s)}
+            {#if card && card.teams.length > 0}
+              <!-- Field Kits FKR-9 ("Both"): the one-line supplies summary on the expedition card. -->
+              <span class="fk-card">
+                {#each card.teams as t (t.index)}
+                  <span><Icon name="kitFirstAid" size={12} /> {t.text}</span>
+                  {#if t.charges > 0}<span><Icon name="grenade" size={12} /> {t.charges} charge{t.charges === 1 ? "" : "s"}</span>{/if}
+                {/each}
+                {#if card.chip}<span class="fk-rank"><Icon name={card.chip.glyph} size={12} /> {card.chip.text}</span>{/if}
+              </span>
+            {/if}
+          {/if}
         </button>
       {/each}
     </div>
@@ -607,6 +644,53 @@
 
           <!-- GO-14: each team's timeline and the ship's lane, the medical bay cards, the task progress cards. -->
           <GroundTeamTimeline {exp} ship={chosenShip} {now} />
+          {#each supplies as sv (sv.index)}
+            <!-- Field Kits FKR-9 ("Both"): the team's supplies, under its timeline: free set left, extras and grenade
+                 charges left, each member's condition with its bay time; the objective's final fight rank. -->
+            <section class="fk-run" aria-label={sv.title}>
+              <div class="fk-run-head">
+                <span class="exp-section-tag">{sv.title}</span>
+                <span class="fk-obj">{sv.objectiveText}</span>
+                {#if sv.chip}<span class="fk-rank"><Icon name={sv.chip.glyph} size={12} /> {sv.chip.text}</span>{/if}
+              </div>
+              <div class="fk-colhead" aria-hidden="true"><span>Member</span><span>Free set left</span><span>Extras · charges</span><span>Condition</span></div>
+              <div class="fk-rows">
+                {#each sv.rows as r (r.id)}
+                  <div class="fk-row">
+                    <span class="fk-who">
+                      <Icon name={r.glyph} size={16} /> {r.name}
+                      {#if r.medic}<span class="fk-medmark"><Icon name="medBay" size={12} title="Medical Training" /></span>{/if}
+                    </span>
+                    <span class="fk-cell"><span class="fk-lbl">Free</span><span class="fk-free-n"><Icon name="kitFirstAid" size={12} /> {r.freeLeft} of {r.freeTotal}</span></span>
+                    <span class="fk-cell">
+                      <span class="fk-lbl">Extras</span>
+                      {#each r.extras as e (e.kit)}<span title={e.label}><Icon name={e.glyph} size={12} /> {e.left} of {e.packed}</span>{/each}
+                      {#if r.charges}
+                        <span>
+                          <Icon name="grenade" size={12} />
+                          <span class="fk-pips" role="img" aria-label="{r.charges.left} of {r.charges.total} charges">{#each Array(r.charges.total) as _, pi (pi)}<i class:off={pi >= r.charges.left}></i>{/each}</span>
+                          {r.charges.left} of {r.charges.total}
+                        </span>
+                      {/if}
+                      {#if r.toolNote}<span class="fk-dim">{r.toolNote}</span>{/if}
+                      {#if r.extras.length === 0 && !r.charges && !r.toolNote}<span class="fk-dim">None packed</span>{/if}
+                    </span>
+                    <span class="fk-cell fk-cond">
+                      <span class="fk-lbl">Condition</span>
+                      {#if r.conditions.length === 0}
+                        {r.healthText}
+                      {:else}
+                        {#each r.conditions as c (c.key)}
+                          <span>{#if c.glyph}<Icon name={c.glyph} size={12} />{/if} {c.text}{#if c.bayText}<span class="fk-bay"> · {c.bayText}</span>{/if}</span>
+                        {/each}
+                      {/if}
+                    </span>
+                  </div>
+                {/each}
+              </div>
+              <div class="fk-refresh"><Icon name="reload" size={16} /> <span>{sv.refreshText}</span></div>
+            </section>
+          {/each}
           {#if bayCards.length > 0}
             <div class="exp-cards">
               {#each bayCards as card (card.teamIndex)}<GroundBayCard {card} />{/each}
@@ -699,6 +783,13 @@
           <span class="exp-findings-label">findings gathered</span>
           {#if exp.anomalyCharted}<span class="exp-chip anomaly">+ charted anomaly</span>{/if}
         </div>
+        {#if claimKits}
+          <!-- Field Kits FKR-9: the claim's kit line, after the haul. -->
+          <div class="fk-claim">
+            <span class="fk-home"><Icon name="home" size={16} /> {claimKits.homeText}</span>
+            <span class="fk-claim-sub">{claimKits.subText}</span>
+          </div>
+        {/if}
       </div>
     {:else if chosenShip}
       <!-- ============================ DISPATCH ============================ -->
@@ -709,6 +800,9 @@
             <span class="exp-hdr-sub">
               {hullLabel(chosenShip.id)}{#if chosenCaptain} · {chosenCaptain.label}{/if} · Sensors {chosenSensors}
             </span>
+            {#if packView && packView.teams.length > 0}
+              <span class="fk-ready"><Icon name="check" size={12} /> {packView.readyText}</span>
+            {/if}
           </div>
           <button
             type="button"
@@ -945,12 +1039,21 @@
                 <span class="exp-team-name">Science<span class="exp-team-str">{chosenAwayTeam ? strengthBand(chosenAwayTeam.scienceStrength) : "-"}</span></span>
                 <span class="exp-team-role">Does the objective fieldwork and never fights.</span>
               </div>
-              <div class="exp-team">
-                <span class="exp-team-name">Team kit<span class="exp-team-str">{chosenAwayTeam ? chosenAwayTeam.teamKit : "-"}</span></span>
-                <span class="exp-team-role">Per-battle cure/stim consumables carried by the away team.</span>
-              </div>
+              {#if packView}
+                <div class="exp-team">
+                  <span class="exp-team-name">Field kits<span class="exp-team-str">{packView.summaryText}</span></span>
+                  <span class="exp-team-role">Packed per member below; the free set refills every objective.</span>
+                </div>
+              {:else}
+                <div class="exp-team">
+                  <span class="exp-team-name">Team kit<span class="exp-team-str">{chosenAwayTeam ? chosenAwayTeam.teamKit : "-"}</span></span>
+                  <span class="exp-team-role">Per-battle cure/stim consumables carried by the away team.</span>
+                </div>
+              {/if}
             </div>
-            <div class="exp-note">Hire, slot and swap Security and Science members on the ship's Away Team tab; the ship's crew (Security / Science / support) adds strength and team kit. The teams and their programs are snapshotted at launch.</div>
+            <div class="exp-note">
+              {#if packView}Hire, slot and swap Security and Science members on the ship's Away Team tab; the ship's crew (Security / Science / support) adds strength, and its Medical and Operations crew add to the free set. The teams, their programs and their packs are snapshotted at launch.{:else}Hire, slot and swap Security and Science members on the ship's Away Team tab; the ship's crew (Security / Science / support) adds strength and team kit. The teams and their programs are snapshotted at launch.{/if}
+            </div>
 
             <div class="exp-section-tag">Anomaly chart</div>
             <label class="exp-toggle">
@@ -962,6 +1065,135 @@
             </label>
           </div>
         </div>
+
+        {#if packView}
+          <!-- Field Kits FKR-9: PACK PER MEMBER (the signed-off mockup section 1). Pre-filled, so the zero-click path is
+               just Launch. One stepper per kit per member; the per-team top-up toggle and the Warehouse stock in the
+               side rail. Nothing here blocks Launch. -->
+          <section class="fk" aria-label="Field kits">
+            <div class="exp-section-tag">Field kits · pack per member</div>
+            <div class="fk-free">
+              <Icon name="kitFirstAid" size={16} />
+              <div>
+                <strong>{packView.free.text}</strong> {packView.free.detail}
+                <small>{packView.free.note}</small>
+              </div>
+            </div>
+            <div class="fk-cols">
+              <div class="fk-main">
+                {#each packView.teams as team (team.index)}
+                  <div class="fk-team">
+                    <div class="fk-team-head">
+                      <TeamBadge index={team.index} kind={team.kind} name={team.name} />
+                      <div class="fk-team-id">
+                        <div class="fk-team-name">{team.name}</div>
+                        <div class="fk-team-kind">{team.kindText}</div>
+                      </div>
+                      <span class="fk-summary"><Icon name="warehouse" size={12} /> {team.summaryText}</span>
+                    </div>
+                    <div class="fk-members">
+                      {#each team.members as m (m.id)}
+                        <article class="fk-mem" aria-label={m.name}>
+                          <div class="fk-mem-head">
+                            <span class="fk-role"><Icon name={m.glyph} size={16} /></span>
+                            <div class="fk-mem-id">
+                              <div class="fk-mem-name">
+                                {m.name}
+                                {#if m.medic}<span class="fk-medtag"><Icon name="medBay" size={12} /> Medical Training</span>{/if}
+                              </div>
+                              <div class="fk-mem-spec">{m.specText}</div>
+                              <div class="fk-src">
+                                {#if m.source.kind === "edited"}
+                                  {@const src = m.source}
+                                  <span class="fk-chip edited">Edited</span>
+                                  <button type="button" class="fk-link" on:click={() => resetPack(team.index, m.id, src)}>{src.resetLabel}</button>
+                                {:else}
+                                  <span class="fk-chip">{m.source.text}</span>
+                                {/if}
+                              </div>
+                            </div>
+                          </div>
+                          <div class="fk-tool">
+                            <Icon name={m.tool.glyph} size={16} />
+                            <span class="fk-tool-name">{m.tool.name}</span>
+                            {#if m.tool.base > 0}
+                              <span class="fk-pips" aria-hidden="true">{#each Array(m.tool.base) as _, pi (pi)}<i></i>{/each}{#each Array(m.tool.carry) as _, ci (ci)}<i class="carry"></i>{/each}</span>
+                            {/if}
+                            {#if m.tool.chargesText}<span>{m.tool.chargesText}</span>{/if}
+                            <span class="fk-tool-note">{m.tool.note}</span>
+                          </div>
+                          <div class="fk-kits">
+                            <div class="fk-kit">
+                              <Icon name="kitFirstAid" size={16} />
+                              <span class="fk-kit-name">First Aid Kit ×{m.free}<span class="fk-kit-note">Free set, every objective</span></span>
+                              <span class="fk-freechip">Included</span>
+                            </div>
+                            {#each m.kits as k (k.kit)}
+                              <div class="fk-kit">
+                                <Icon name={k.glyph} size={16} />
+                                <span class="fk-kit-name">{k.label}<span class="fk-kit-note" class:short={k.quiet}>{k.note}</span></span>
+                                <span class="fk-step" role="group" aria-label="{k.label} extras for {m.name}">
+                                  <!-- aria-disabled, not disabled: a button that disables itself at 0 or 9 drops keyboard focus to
+                                       the page; this one keeps focus and the press is a no-op (steppedPack clamps). -->
+                                  <button type="button" aria-label="One fewer {k.label} for {m.name}" aria-disabled={!k.canLess} on:click={() => k.canLess && stepPack(team.index, m.id, m.pack, k.kit, -1)}>&minus;</button>
+                                  <output aria-live="polite">{k.want}</output>
+                                  <button type="button" aria-label="One more {k.label} for {m.name}" aria-disabled={!k.canMore} on:click={() => k.canMore && stepPack(team.index, m.id, m.pack, k.kit, 1)}>+</button>
+                                </span>
+                              </div>
+                            {/each}
+                          </div>
+                          {#if m.noUseText}
+                            <div class="fk-nouse"><Icon name="medBay" size={12} /> <span>{m.noUseText}</span></div>
+                          {/if}
+                        </article>
+                      {/each}
+                    </div>
+                    {#if team.scienceNote}
+                      <div class="fk-ghost"><Icon name="research" size={14} /> <span>{team.scienceNote}</span></div>
+                    {/if}
+                  </div>
+                {/each}
+                {#each packView.ghosts as g (g.index)}
+                  <div class="fk-ghost"><Icon name="team" size={14} /> <span>{g.text}</span></div>
+                {/each}
+              </div>
+
+              <aside class="fk-side">
+                {#each packView.teams as team (team.index)}
+                  <div class="fk-panel">
+                    <label class="fk-switch">
+                      <input
+                        type="checkbox"
+                        role="switch"
+                        checked={team.topUp}
+                        on:change={(e) => chosenShip && onSetTeamTopUp(chosenShip.id, team.index, e.currentTarget.checked)}
+                      />
+                      <span class="fk-track" aria-hidden="true"></span>
+                      <span class="fk-sw-text">
+                        {#if packView.teams.length > 1}<span class="fk-sw-team">{team.name}</span>{/if}
+                        Top up from the Quartermaster at launch
+                        <small>{team.topUpNote}</small>
+                      </span>
+                    </label>
+                    <div class="fk-preview" class:on={team.preview.on} aria-live="polite">
+                      {team.preview.text}
+                      {#if team.preview.costText}<span class="fk-cost"><Icon name="credits" size={12} /> {team.preview.costText}</span>{/if}
+                    </div>
+                  </div>
+                {/each}
+                <div class="fk-panel">
+                  <div class="exp-section-tag">Warehouse stock</div>
+                  <ul class="fk-stock">
+                    {#each packView.stock as st (st.kit)}
+                      <li><Icon name={st.glyph} size={16} /><span>{st.label}</span><span class="fk-n">{st.text}</span></li>
+                    {/each}
+                  </ul>
+                  <div class="fk-foot">{packView.stockNote}</div>
+                </div>
+              </aside>
+            </div>
+          </section>
+        {/if}
       </div>
     {/if}
   {/if}
@@ -1979,5 +2211,592 @@
   .exp-blind-detail {
     font-size: var(--text-xs);
     color: var(--color-text-dim);
+  }
+
+  /* ===== Field Kits FKR-9 (the signed-off packing mockup). One DOM: the pack screen stacks on a narrow container and
+     lays the members beside a 300 px side rail on a wide one (the console's own container query). ===== */
+  .fk {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding-top: 12px;
+    border-top: 1px solid rgba(var(--color-accent-rgb), 0.14);
+  }
+  .fk-ready {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    margin-top: 3px;
+    font-size: var(--text-xs);
+    color: var(--color-success);
+  }
+  .fk-free {
+    display: flex;
+    gap: 10px;
+    align-items: flex-start;
+    padding: 9px 11px;
+    font-size: var(--text-xs);
+    color: var(--color-text-secondary);
+    border-radius: var(--corner);
+    background: color-mix(in srgb, var(--color-success) 8%, transparent);
+    border: 1px solid color-mix(in srgb, var(--color-success) 30%, transparent);
+  }
+  .fk-free > :global(svg) {
+    color: var(--color-success);
+    flex: none;
+    margin-top: 1px;
+  }
+  .fk-free strong {
+    color: var(--color-text-primary);
+    font-weight: 600;
+  }
+  .fk-free small {
+    display: block;
+    margin-top: 2px;
+    font-size: var(--text-2xs);
+    color: var(--color-text-dim);
+  }
+  .fk-cols {
+    display: grid;
+    gap: 12px;
+  }
+  .fk-main,
+  .fk-side {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    min-width: 0;
+  }
+  @container (min-width: 769px) {
+    .fk-cols {
+      grid-template-columns: minmax(0, 1fr) 300px;
+      align-items: start;
+    }
+  }
+  .fk-team {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .fk-team-head {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px 10px;
+  }
+  .fk-team-id {
+    min-width: 0;
+  }
+  .fk-team-name {
+    font-size: var(--text-sm);
+    font-weight: 600;
+    color: var(--color-text-primary);
+  }
+  .fk-team-kind {
+    font-size: var(--text-2xs);
+    color: var(--color-text-dim);
+  }
+  .fk-summary {
+    margin-left: auto;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: var(--text-2xs);
+    color: var(--color-text-secondary);
+  }
+  .fk-members {
+    display: grid;
+    gap: 8px;
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, 280px), 1fr));
+  }
+  .fk-mem {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    min-width: 0;
+    padding: 9px 11px;
+    background: rgba(var(--color-accent-rgb), 0.04);
+    border: 1px solid rgba(var(--color-accent-rgb), 0.18);
+    border-radius: var(--corner);
+  }
+  .fk-mem-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+  }
+  .fk-role {
+    flex: none;
+    width: 30px;
+    height: 30px;
+    display: grid;
+    place-items: center;
+    border-radius: 50%;
+    color: var(--color-accent);
+    border: 1px solid rgba(var(--color-accent-rgb), 0.4);
+  }
+  .fk-mem-id {
+    min-width: 0;
+    flex: 1;
+  }
+  .fk-mem-name {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 5px;
+    font-size: var(--text-sm);
+    font-weight: 600;
+    color: var(--color-text-primary);
+  }
+  .fk-medtag {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    padding: 0 6px;
+    font-size: var(--text-2xs);
+    font-weight: 500;
+    color: var(--color-success);
+    border: 1px solid color-mix(in srgb, var(--color-success) 40%, transparent);
+    border-radius: 999px;
+  }
+  .fk-mem-spec {
+    font-size: var(--text-2xs);
+    color: var(--color-text-dim);
+  }
+  .fk-src {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px 6px;
+    margin-top: 3px;
+    font-size: var(--text-2xs);
+  }
+  .fk-chip {
+    padding: 1px 7px;
+    border-radius: 999px;
+    background: rgba(var(--color-accent-rgb), 0.12);
+    color: var(--color-accent-bright);
+  }
+  .fk-chip.edited {
+    background: rgba(var(--color-accent-rgb), 0.06);
+    color: var(--color-text-secondary);
+  }
+  .fk-link {
+    padding: 4px 2px;
+    background: none;
+    border: 0;
+    color: var(--color-accent);
+    font: inherit;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+    cursor: pointer;
+  }
+  .fk-tool {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px 8px;
+    padding: 6px 8px;
+    font-size: var(--text-xs);
+    color: var(--color-text-secondary);
+    background: rgba(var(--color-accent-rgb), 0.06);
+    border-radius: var(--corner);
+  }
+  .fk-tool-name {
+    font-weight: 500;
+    color: var(--color-text-primary);
+  }
+  .fk-tool-note {
+    width: 100%;
+    font-size: var(--text-2xs);
+    color: var(--color-text-dim);
+  }
+  .fk-pips {
+    display: inline-flex;
+    gap: 3px;
+    vertical-align: middle;
+  }
+  .fk-pips i {
+    width: 8px;
+    height: 8px;
+    border: 1px solid var(--color-accent);
+    border-radius: 1px;
+    background: var(--color-accent);
+  }
+  .fk-pips i.carry {
+    background: transparent;
+    border-style: dashed;
+  }
+  .fk-pips i.off {
+    background: transparent;
+    border-color: var(--color-text-dim);
+  }
+  .fk-kits {
+    display: grid;
+    gap: 4px;
+  }
+  .fk-kit {
+    display: grid;
+    grid-template-columns: 18px minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 8px;
+    min-height: 32px;
+    color: var(--color-accent);
+  }
+  .fk-kit-name {
+    font-size: var(--text-xs);
+    color: var(--color-text-primary);
+  }
+  .fk-kit-note {
+    display: block;
+    font-size: var(--text-2xs);
+    color: var(--color-text-dim);
+  }
+  .fk-kit-note.short {
+    color: var(--color-accent-bright);
+  }
+  .fk-freechip {
+    padding: 1px 7px;
+    font-size: var(--text-2xs);
+    white-space: nowrap;
+    color: var(--color-success);
+    border: 1px solid color-mix(in srgb, var(--color-success) 40%, transparent);
+    border-radius: 999px;
+  }
+  .fk-step {
+    display: inline-flex;
+    align-items: center;
+    border: 1px solid rgba(var(--color-accent-rgb), 0.4);
+    border-radius: var(--corner);
+  }
+  .fk-step button {
+    width: 32px;
+    height: 30px;
+    display: grid;
+    place-items: center;
+    background: none;
+    border: 0;
+    color: var(--color-accent);
+    font: inherit;
+    font-size: var(--text-sm);
+    cursor: pointer;
+  }
+  .fk-step button[aria-disabled="true"] {
+    color: var(--color-text-dim);
+    opacity: 0.5;
+    cursor: default;
+  }
+  .fk-step output {
+    min-width: 22px;
+    text-align: center;
+    font-family: var(--font-mono);
+    font-size: var(--text-xs);
+    color: var(--color-text-primary);
+  }
+  .fk-nouse {
+    display: flex;
+    gap: 6px;
+    align-items: flex-start;
+    padding-top: 6px;
+    font-size: var(--text-2xs);
+    color: var(--color-text-dim);
+    border-top: 1px dashed rgba(var(--color-accent-rgb), 0.2);
+  }
+  .fk-ghost {
+    display: flex;
+    gap: 6px;
+    align-items: flex-start;
+    padding: 9px 11px;
+    font-size: var(--text-2xs);
+    color: var(--color-text-dim);
+    border: 1px dashed rgba(var(--color-accent-rgb), 0.2);
+    border-radius: var(--corner);
+  }
+  .fk-panel {
+    padding: 10px 11px;
+    background: rgba(var(--color-accent-rgb), 0.05);
+    border: 1px solid rgba(var(--color-accent-rgb), 0.14);
+    border-radius: var(--corner);
+  }
+  .fk-switch {
+    position: relative;
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    cursor: pointer;
+  }
+  .fk-switch input {
+    position: absolute;
+    opacity: 0;
+    width: 1px;
+    height: 1px;
+  }
+  .fk-track {
+    flex: none;
+    position: relative;
+    width: 34px;
+    height: 18px;
+    margin-top: 1px;
+    border-radius: 999px;
+    border: 1px solid rgba(var(--color-accent-rgb), 0.4);
+    background: rgba(var(--color-accent-rgb), 0.06);
+    transition: background 0.15s;
+  }
+  .fk-track::after {
+    content: "";
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: var(--color-text-dim);
+    transition: transform 0.15s, background 0.15s;
+  }
+  .fk-switch input:checked + .fk-track {
+    background: rgba(var(--color-accent-rgb), 0.35);
+  }
+  .fk-switch input:checked + .fk-track::after {
+    transform: translateX(16px);
+    background: var(--color-accent);
+  }
+  .fk-switch input:focus-visible + .fk-track,
+  .fk-step button:focus-visible,
+  .fk-link:focus-visible {
+    outline: 2px solid var(--color-accent-bright);
+    outline-offset: 2px;
+  }
+  .fk-sw-text {
+    font-size: var(--text-xs);
+    font-weight: 500;
+    color: var(--color-text-primary);
+  }
+  .fk-sw-team {
+    display: block;
+    font-family: var(--font-mono);
+    font-size: var(--text-2xs);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--color-accent-bright);
+  }
+  .fk-sw-text small {
+    display: block;
+    font-weight: 400;
+    font-size: var(--text-2xs);
+    color: var(--color-text-dim);
+  }
+  .fk-preview {
+    margin-top: 9px;
+    padding: 7px 9px;
+    font-size: var(--text-2xs);
+    color: var(--color-text-secondary);
+    border-left: 2px solid rgba(var(--color-accent-rgb), 0.4);
+  }
+  .fk-preview.on {
+    border-left-color: var(--color-accent);
+  }
+  .fk-cost {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    margin-top: 4px;
+    font-family: var(--font-mono);
+    color: var(--color-text-primary);
+  }
+  .fk-stock {
+    list-style: none;
+    margin: 8px 0 0;
+    padding: 0;
+    display: grid;
+    gap: 4px;
+    font-size: var(--text-xs);
+    color: var(--color-text-secondary);
+  }
+  .fk-stock li {
+    display: grid;
+    grid-template-columns: 18px 1fr auto;
+    align-items: center;
+    gap: 8px;
+  }
+  .fk-stock li > :global(svg) {
+    color: var(--color-accent);
+  }
+  .fk-n {
+    font-family: var(--font-mono);
+  }
+  .fk-foot {
+    margin-top: 8px;
+    font-size: var(--text-2xs);
+    color: var(--color-text-dim);
+  }
+
+  /* In the run: the card line on the ship picker, the supplies table under the timeline, the claim line. */
+  .fk-card {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 2px 10px;
+    margin-top: 3px;
+    font-size: var(--text-2xs);
+    color: var(--color-text-secondary);
+  }
+  .fk-card > span {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+  }
+  .fk-rank {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 1px 7px;
+    font-size: var(--text-2xs);
+    white-space: nowrap;
+    color: var(--color-accent-bright);
+    border: 1px solid rgba(var(--color-accent-rgb), 0.35);
+    border-radius: 999px;
+  }
+  .fk-run {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 10px 11px;
+    background: rgba(var(--color-accent-rgb), 0.04);
+    border: 1px solid rgba(var(--color-accent-rgb), 0.14);
+    border-radius: var(--corner);
+  }
+  .fk-run-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px 10px;
+  }
+  .fk-obj {
+    font-size: var(--text-xs);
+    font-weight: 600;
+    color: var(--color-text-primary);
+  }
+  .fk-colhead {
+    display: none;
+  }
+  .fk-rows {
+    display: grid;
+    gap: 6px;
+  }
+  .fk-row {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 4px;
+    padding: 7px 10px;
+    font-size: var(--text-xs);
+    color: var(--color-text-secondary);
+    background: rgba(var(--color-accent-rgb), 0.03);
+    border: 1px solid rgba(var(--color-accent-rgb), 0.14);
+    border-radius: var(--corner);
+  }
+  .fk-who {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+    font-weight: 500;
+    color: var(--color-text-primary);
+  }
+  .fk-medmark {
+    display: inline-flex;
+    color: var(--color-success);
+  }
+  .fk-cell {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px 8px;
+    min-width: 0;
+  }
+  .fk-cell > span {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+  }
+  .fk-lbl {
+    font-size: var(--text-3xs, 10px);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--color-text-dim);
+    margin-right: 4px;
+  }
+  .fk-free-n {
+    color: var(--color-success);
+  }
+  .fk-dim,
+  .fk-bay {
+    color: var(--color-text-dim);
+  }
+  .fk-refresh {
+    display: flex;
+    gap: 8px;
+    align-items: flex-start;
+    font-size: var(--text-2xs);
+    color: var(--color-text-secondary);
+  }
+  .fk-refresh > :global(svg) {
+    flex: none;
+    color: var(--color-success);
+  }
+  @container (min-width: 769px) {
+    .fk-colhead {
+      display: grid;
+      grid-template-columns: 150px repeat(3, minmax(0, 1fr));
+      gap: 10px;
+      padding: 0 10px 2px;
+      font-size: var(--text-3xs, 10px);
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--color-text-dim);
+    }
+    .fk-row {
+      grid-template-columns: 150px repeat(3, minmax(0, 1fr));
+      gap: 10px;
+      align-items: center;
+    }
+    /* The column labels stay for screen readers (the visual column head is aria-hidden): visually hidden, not gone. */
+    .fk-lbl {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      margin: -1px;
+      padding: 0;
+      overflow: hidden;
+      clip: rect(0 0 0 0);
+      white-space: nowrap;
+      border: 0;
+    }
+  }
+  .fk-claim {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px 14px;
+    padding: 9px 11px;
+    font-size: var(--text-xs);
+    border: 1px solid rgba(var(--color-accent-rgb), 0.14);
+    border-radius: var(--corner);
+  }
+  .fk-home {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-weight: 500;
+    color: var(--color-success);
+  }
+  .fk-claim-sub {
+    width: 100%;
+    font-size: var(--text-2xs);
+    color: var(--color-text-dim);
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .fk-track,
+    .fk-track::after {
+      transition: none;
+    }
   }
 </style>

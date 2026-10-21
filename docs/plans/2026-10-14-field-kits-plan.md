@@ -569,6 +569,25 @@ on fight readouts and the timeline ("Final fight: Elite Bruiser"), conditions wi
 the GO-14 timeline / bay card. **Tests:** display helpers; preview at 1280 and 375 px, light and dark, keyboard path,
 console clean; a `<select>` never acts on change.
 
+**FKR-9 carry (2026-10-20, done; built with FKR-10 to the signed-off mockup 4kB9DT4sC5vGh1Dbs3FLYF):** goldens first
+(`test(0.14.0): pre-switch dispatch fixtures ...`: `awayTeamTestFixtures.ts withoutFieldKitsStamp` / `asPreFieldKitsDispatch`,
+composed into every earlier "as pre-X dispatch" helper; it throws if a dispatch packed, so it can only strip the stamp),
+then the screens, then the switch-on. New `src/lib/fieldKitsDisplay.ts` (tested, 27): `dispatchPackView` (per deploying
+team, a card per Security member: spec glyph, Medical Training tag, the pack source "Default" / "Same as loadout: X" /
+"Edited" + Reset, the tool with charges and carry pips and the program's Boss reserve note, the free set, one stepper
+per usable kit pre-filled, notes "From the Warehouse" / quiet "N short, packs M" / "N bought at launch", ONE dim "needs
+Medical Training" line; per team the top-up toggle with its preview, computed by `planDispatchPacks` itself so the
+cost equals `topUpAtLaunch`; Warehouse stock left; Science / Survey / waiting-team ghost lines), `runSuppliesView`
+(the detail table under each team timeline), `runCardLine` (the ship picker's one line), `finalFightChip` ("Final
+fight: Elite", "Elite Bruiser" once the final fight is met), `claimKitsView` ("Kits home" + what the run used).
+Engine (display record only): `GroundTeamRun.packed` written beside `kits` at dispatch, `fieldKitsRun.ts usedExtras`.
+App.svelte `doSetMemberPack` / `doSetTeamTopUp`; the launch log names the top-up, the claim log the kits home. Glyphs:
+`grenade` (pull ring r 2.25 overlapping the cap, the mockup's r 1.5 ring closed up at 16 px), `roleOffense` (one sword:
+the mockup's crosshair was `riskCombat`), `roleDefense` (split shield: the plain one is `security`), `roleDebuff` (a
+falling trend: the mockup's drop read as `kitAntitoxin`), `home`; Medical Training uses `medBay`. [PROVISIONAL]
+`PACK_STEPPER_MAX` 9 (the mockup's bound). Not done: the GO-14 bay card itself is unchanged (the supplies table names
+each condition and its bay time).
+
 #### FKR-10: Gambit editor, Logistics stock, Quartermaster sales, Squad Loadouts row (UI)
 
 **Files:** `GambitEditorPanel.svelte` + `gambitEditorDisplay.ts` (kit picker; Throw Grenade; "Ally downed"; the rank
@@ -578,6 +597,24 @@ severity; hints "Fires only for a member with Medical Training", "Skips when no 
 pattern); the Squad Loadouts per-member pack row (rides the GO-17 sketch). **Mockup:** the reserve stepper and rank
 conditions go into FKR-9's sketch; the rest reuse existing patterns. **Tests:** as FKR-9; `SELECTOR_LABEL` /
 `ACTION_LABEL` exhaustiveness.
+
+**FKR-10 carry (2026-10-20, done):** the editor's vocabulary moved to `gambitEditorDisplay.ts` (tested,
+`gambitEditorFieldKits.test.ts`): Throw Grenade (after Use Item), "Ally: downed", the kit picker on Use Item, the rank
+picker on foe targets ("Target is Elite or stronger" / "Target is a Boss"), the "Keep for a Boss" stepper on spending
+rules ([PROVISIONAL] `RESERVE_MAX` 9), the seven conditions ("Broken Bone (severity 2 of 3)"), the hints; all offered
+only while FIELD_KITS_RUNS_LIVE. `memberGambits.ts memberEditableProgram`: a default member shows and edits the Field
+Kits default they fight with (the snapshot still reads D19's). Logistics: a Field Kits stock panel in the reserved
+Consumables spot. Quartermaster: the locked Purchase tab is real (the six kits, the Sell row pattern,
+`canBuyFieldKits` as the gate). Squad Loadouts: a Security kit row's "Pack:" line and the save preview's Pack column.
+**THE SWITCH-ON** (`feat(0.14.0): Field Kits switch on ...`): FIELD_KITS_RUNS_LIVE and FIELD_KITS_PLAYER_LIVE true in one
+commit; `away:audit:fieldKitsRunsSwitch` and `away:audit:fieldKitsHiddenPieces` LIVE (probes
+`content:fieldKitsRunsSwitch`, a real Launch with the default argument packs from stock, and
+`content:fieldKitsHiddenPieces`). Goldens MOVED, named: G1-0 golden 5 `registry` 1220 ee493e11 -> 1223 8ba89020
+(FKR9_SLICE reproduces it), EM-0 `registry` 60d00075 -> 9deacec7 (FKR9_BEFORE reproduces it), the ML-0 census
+blueprint count (the hidden blueprint counted apart), the editor's default program and memberGambits' edit base (the
+Field Kits default), the Triage preset test, the FKR-7 switch test. In flight: every earlier golden dispatches through
+`asPreFieldKitsDispatch` and is unchanged; FKR-7's switch-off dispatch is now the in-flight proof, the switch-on Launch
+its own test. Left for FKR-11: `away:audit:statusPicker` (owner "FK-9 + WR-10") is untouched.
 
 #### FKR-11: Help, wiring and no-dead-stats close-out, QA sheet
 
