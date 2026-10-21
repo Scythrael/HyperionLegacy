@@ -379,3 +379,20 @@ ancient entries (open call 13); nothing else can move without leaving a false He
 - **Class weights + shared glyph (verbatim):** "Yes. One shared glyph for the 5 cannisters. Eventually we can tweak the
   graphics to make each a little different overall." Class roll weights I 4, II 2, III 2, IV 1, V 1, Ice 3, Brown dwarf 1
   approved; one shared canister glyph now; FUTURE: distinct canister graphics (logged in SUGGESTIONS.md).
+
+## USER DATADUMP (2026-10-21, verbatim): reactor fuel in every core recipe
+
+"There should be some sort of material like deuterium in all cores. After all, the tech before antimatter reactors (which
+would likely be a high-tier tech later on, which is honestly where antimatter canisters could ultimately be used over a
+burn option. But the burn option might be useful as well. We'll see on that one. Might be a tech only available with
+antimatter reactors that can have an overburn option in exchange for extra canisters or something. But I digress. All
+reactor core crafting recipes should ultimately require something like this since that makes sense."
+
+Reading (to confirm by multiple choice): every Reactor Core crafting recipe takes a fuel canister input (a ladder by
+tier); Antimatter Containment Cells are the fuel of a future high-tier ANTIMATTER REACTOR tech; an "overburn" option
+(extra canisters for a boost) may be a feature of antimatter reactors, alongside or instead of the T3 burn (0.14.x;
+undecided, "We'll see on that one"). Existing crafted reactors are untouched (recipes only). Because Deuterium Ice has
+no source today, the Deuterium Skim run (Material Lines L8 / ML-6) must land with this so no core recipe is blocked.
+
+Also 2026-10-21: SF-3 ramp: "Fade Weak + build SI gear (Recommended)" and "Smooth the last steps (Recommended)"
+(recorded in the safe-first-runs plan).
