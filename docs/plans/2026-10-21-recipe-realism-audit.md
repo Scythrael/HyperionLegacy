@@ -452,3 +452,14 @@ them would move progression balance.
    for seals, toxins and explosives. Ratios and which recipes take them asked next.
 7. Three wrong ground rows: "Fix now (Recommended)".
 8. Power Coupling: "3 Wafers + 1 Ti Ingot (Recommended)".
+- Follow-up to 6: "Switch to them (Recommended)": Ablative Plating and Composite Plating take Biofiber; seals, the Toxin
+  Grenade and explosives take Resin Distillate; Purified Biomass stays food/medical. Ratios "5:1 and 3:1 (Recommended)":
+  5 Fibrous Biomass = 1 Biofiber, 3 Volatile Resin = 1 Resin Distillate, 20 ticks each.
+
+**Group C (odd rows):**
+9. Ground odd rows: "Fix now (Recommended)" (Biofiber where a fabric belongs).
+10. Weapon odd rows, verbatim: "Yeah, we fix those then, and creating new items and missions are part of the balancing
+    patch, so creating specific crafted items for each item/weapon type that would make sense with the nature of that
+    device (having voltaic weapon specific components, for example). So yeah, the foundation is in place to build what
+    we need. So 0.16.0 is fine." Reading: Plasma Cannon and Point-Defense Array fixed in 0.16.0, where the balancing
+    patch creates device-type-specific crafted components (e.g. voltaic weapon components) on today's foundation.
