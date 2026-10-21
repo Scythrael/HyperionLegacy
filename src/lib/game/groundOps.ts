@@ -1156,6 +1156,99 @@ function checkRunEnd(exp: Expedition, t: number): void {
   ops.endedAt = t;
 }
 
+// ===== Expedition Tiers G2-5: the recall closes the window; a resumed run opens it on charted bodies =====
+
+// The steps a team is DOWN on a surface in (or on its way between it and the ship): the recall's pickup collects
+// them. Every other step is aboard (idle, staging for a partner, offload, bay, reload).
+const SURFACE_STEPS: ReadonlySet<GroundStepKind> = new Set<GroundStepKind>(["deploy", "work", "fight", "return"]);
+
+// THE RECALL (user #4 "you retain your progress"; plan G2-5): the operations window closes at `t`. Every crew on a
+// surface stops where it is: a work step keeps the progress interpolated along it (nothing of the unfinished segment
+// is banked, the GO-7d stopCrew rule), a fight under way is broken off (its result, resolved at its start, is never
+// applied: the crew is pulled out), a drop or a shuttle simply ends; the teams come up on ONE shared in-system pickup
+// (IN_SYSTEM_LEG_SECONDS, only when anyone was down). Finished work comes home: every banked segment not yet
+// offloaded is offloaded now (its finding, and a completed objective's relic roll, exactly as an offload makes them).
+// Objectives in progress go back to queued with their progress kept; a team staging for a partner is released. The
+// medical bay works on the way home: each member's bay time for the conditions gathered on this trip starts once
+// aboard (a team already in the bay keeps its own clock); claimExpedition brings home whoever is still in it. A
+// field repair under way stops (the hull comes home with its damage). Returns the pickup seconds. Mutates the working
+// clone (expedition.ts recallExpedition's).
+export function closeGroundOps(exp: Expedition, t: number, driver: GroundOpsScanDriver): number {
+  const ops = exp.groundOps;
+  if (!ops || ops.endedAt !== undefined) return 0;
+  const surface = ops.teams.filter((team) => SURFACE_STEPS.has(team.step));
+  const pickup = surface.length > 0 ? IN_SYSTEM_LEG_SECONDS : 0;
+  const aboardAt = t + pickup;
+  // Work under way keeps its interpolated progress (the lead carries a crew's work step).
+  for (const team of ops.teams) {
+    if (team.step !== "work" || team.taskId === undefined || team.workFrom === undefined || team.workTo === undefined || team.stepEndsAt === null) continue;
+    const ref = findGroundTask(exp, team.taskId);
+    if (!ref) continue;
+    const span = team.stepEndsAt - team.stepStartedAt;
+    const f = span > 0 ? Math.max(0, Math.min(1, (t - team.stepStartedAt) / span)) : 0;
+    ref.task.progress = team.workFrom + (team.workTo - team.workFrom) * f;
+  }
+  // Finished work comes home: every banked segment not offloaded yet, credited to the team set that banked it.
+  for (const body of exp.bodies) {
+    for (const task of body.activities) {
+      if (!((task.segmentsBanked ?? 0) > (task.segmentsOffloaded ?? 0))) continue;
+      const ref = findGroundTask(exp, task.id);
+      if (!ref) continue;
+      const holder = ops.teams.find((team) => team.taskId === task.id) ?? ops.teams.find((team) => (task.assignedTeamIds ?? []).includes(team.index)) ?? ops.teams[0];
+      if (holder) offloadFindings(exp, ops, holder, ref, t, driver);
+    }
+  }
+  for (const body of exp.bodies) for (const task of body.activities) if (task.status === "active") task.status = "queued";
+  for (const team of ops.teams) {
+    if (team.step === "bay") continue;
+    const wasDown = SURFACE_STEPS.has(team.step);
+    if (wasDown) moveTo(ops, team, "return", t, aboardAt, { stopped: true });
+    const at = wasDown ? aboardAt : t;
+    let longest = 0;
+    const bayEnds: Record<string, number> = {};
+    for (const [id, secs] of Object.entries(groundTeamBaySeconds(exp, team))) {
+      if (!(secs > 0)) continue;
+      bayEnds[id] = at + secs;
+      longest = Math.max(longest, secs);
+    }
+    team.bayEnds = bayEnds;
+    if (longest > 0) {
+      team.bayStart = at;
+      moveTo(ops, team, "bay", at, at + longest, wasDown ? {} : { stopped: true });
+    } else {
+      moveTo(ops, team, "idle", at, null, wasDown ? {} : { stopped: true });
+    }
+    delete team.taskId;
+    delete team.borrowed;
+    delete team.attemptPoints;
+    delete team.workFrom;
+    delete team.workTo;
+    delete team.pendingFight; // a fight broken off: never applied
+    delete team.ambushed;
+    delete team.jointPartner;
+    delete team.recalled;
+    delete team.reinforcementsAt;
+    delete team.reinforcing;
+  }
+  ops.endedAt = t;
+  ops.recalledAt = t;
+  return pickup;
+}
+
+// A RESUMED run's window opens at `t` on its first `charted` bodies already scanned (expedition.ts opens the scan
+// clock past them): those bodies' objectives still to do (queued, nothing assigned: the recall left them so) are
+// planned for THIS run's teams as a body's new objectives are (planNewTasks: easiest first, a crew that cannot cover
+// one skips it with its log line), every team can act from `t`, idle teams take their work, and the run-end condition
+// is checked (a system whose remaining bodies are all charted closes at once when nothing is left). Mutates.
+export function openResumedGroundOps(exp: Expedition, charted: number, t: number): void {
+  const ops = exp.groundOps;
+  if (!ops) return;
+  for (const team of ops.teams) if (team.step === "idle") team.stepStartedAt = t;
+  for (let i = 0; i < Math.min(charted, exp.bodies.length); i += 1) planNewTasks(exp, i, t);
+  groundOpsAssignIdle(exp, t);
+  checkRunEnd(exp, t);
+}
+
 // ===== Objective affixes (AF-1): the alert's reset event =====
 
 // The earliest instant a stored alert lapses (affixes.ts alertResetsAt), over EVERY task of the run whatever its

@@ -431,6 +431,36 @@ scale, the class halving, `planVoyage`, `voyageOf`). For later slices:
   frees the captain and ship; parity (one call == chunked) with recall mid-transit, mid-scan, mid-fight and during a
   field repair; a never-recalled run byte-identical (goldens 1 and 2).
 
+**G2-5 carry note (built 2026-10-21, on top of G2-4).** Engine in `expedition.ts` (section "Expedition Tiers G2-5")
+and `groundOps.ts closeGroundOps` / `openResumedGroundOps`. Built to the USER ANSWERS (G12 resumable, G13 one confirm,
+G14 detour not flown) and the signed-off dispatch mockup ("as drawn": resumables in their own region; a recall BEFORE
+anything is charted returns the system to the ordinary candidates). For G2-6:
+- API: `canRecallExpedition`, `recallPreview` (the confirm's numbers: phase, `returnSeconds` incl. the pickup,
+  `pickupSeconds`, `held` "resume" / "candidate" / null), `recallExpedition` (same-reference refusal; reasons
+  `noExpedition`, `returning`, `complete`, `recallBlockText`). Resume cards: `resumableSystems(state, tier?)`
+  (`ResumableSystemView`: bodies scanned, objectives with progress, `progress` 0..1 by groundOpsProgress); launch a held
+  system through `startExpedition(..., "held-<expeditionId>")` (the propulsion gates apply); `canAbandonHeldSystem` /
+  `abandonHeldSystem` (resume records only). A returned ordinary candidate joins `expeditionCandidates(state, ship, tier)`
+  after the three generated ones with `index` -1 (it is no list slot); dispatching a held system never advances the
+  list (expeditionSeed and the Wolf 359 stamp untouched).
+- Rules: in transit the return is `returnSeconds x flown / outbound` (detour excluded: flown holds at the anomaly check
+  during it), ramped by the Flight Deck facet on the hours out, whole seconds; after arrival the window closes at the
+  recall (`ops.endedAt` = `ops.recalledAt`), work under way keeps its interpolated progress, a fight under way is broken
+  off (never applied), every banked segment is offloaded at once (finding and relic roll as an offload makes them),
+  active objectives go back to queued, a field repair under way stops (damage comes home); one shared pickup of
+  `IN_SYSTEM_LEG_SECONDS` only when a team is down (deploy, work, fight, return), then the full return leg; bay times
+  start once aboard and claim reads them. Stored: `Expedition.recall` (`ExpeditionRecall`), the run in `return`.
+- Held systems: `GameState.heldSystems` (`HeldSystem`, optional, no SAVE step). A charted system (at least one body
+  scanned, something left, a Ground Ops run with a region stamp) is kind "resume" with its bodies normalized (objectives
+  queued, nothing assigned, no streak or alert; an unfinished body's scan restarts) and its risk profile; nothing
+  charted is kind "candidate". A legacy run (no region stamp or no Ground Ops) leaves none. Resume: the new run carries
+  `resume: { heldId, scannedBodies }` and `anomalyResolved: true`; its window opens with `startedAt` moved back by the
+  charted bodies' clock (`ops.scanClockSkip`), the step cursor past them, their remaining objectives planned for the
+  new teams. **[PROPOSAL]** a returned ordinary candidate has no expiry or cap (it stays until launched).
+- Goldens: every pin unchanged (the stored voyage-era records, G2-0, G2-3); the two new audit rows held apart like
+  G2-4's. Registry: `expedition:audit:recall` and `expedition:audit:resumableSystems` pending G2-6 (no player can
+  recall until the button). No Overtime on expeditions: nothing here is paid.
+
 ### G2-6: Dispatch console and recall UI (needs a mockup sign-off)
 
 - ExpeditionPanel: a region picker (seven tabs I..VII, Roman numerals, each with its state: Ready, or the first unmet

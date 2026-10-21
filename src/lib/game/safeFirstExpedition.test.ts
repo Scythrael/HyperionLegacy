@@ -181,8 +181,8 @@ describe("SF-2 the training run: the first expedition from an explorer, stamped 
     const claimed = claimExpedition({ ...at, expeditions: [done] }, done.id);
     expect(claimed.next.runCounts!.expedition).toEqual({ completed: 0, trainingDone: true, veteran: false });
     expect(dispatched(claimed.next).exp.difficulty).toEqual(ORDINARY_FLOOR); // SF-3: run 2, the curve's floor
-    // G2-5's recall marker (read by shape until it lands): the training run carries over to the next dispatch.
-    const recalled = claimExpedition({ ...at, expeditions: [{ ...done, recall: { at: done.phaseAnchorSeconds } } as Expedition] }, done.id);
+    // G2-5's recall marker: the training run carries over to the next dispatch.
+    const recalled = claimExpedition({ ...at, expeditions: [{ ...done, recall: { version: 1, atSeconds: done.phaseAnchorSeconds, phaseAtRecall: "transit", pickupSeconds: 0, returnSeconds: 0 } } as Expedition] }, done.id);
     expect(recalled.success).toBe(true);
     expect(recalled.next.runCounts!.expedition.trainingDone).toBe(false);
     expect(isTrainingRun(dispatched(recalled.next).exp)).toBe(true);

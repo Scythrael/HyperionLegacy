@@ -174,13 +174,13 @@ describe("SF-1: the claim rule (user SF5 completed runs minus the training run; 
   });
 
   it("a recalled training run carries the training run over: nothing changes", () => {
-    expect(countClaimedExpedition(counts, run({ difficulty: training, recall: { atSeconds: 1 } }))).toEqual(counts);
+    expect(countClaimedExpedition(counts, run({ difficulty: training, recall: { version: 1, atSeconds: 1, phaseAtRecall: "transit", pickupSeconds: 0, returnSeconds: 0 } }))).toEqual(counts);
   });
 
   it("a claimed ordinary run counts once; a recalled one does not count (completed runs only)", () => {
     expect(countClaimedExpedition(counts, run()).expedition.completed).toBe(1);
     expect(countClaimedExpedition(counts, run({ difficulty: { ...training, firstRun: false, ramp: 0.2 } })).expedition.completed).toBe(1);
-    expect(countClaimedExpedition(counts, run({ recall: { atSeconds: 1 } }))).toEqual(counts);
+    expect(countClaimedExpedition(counts, run({ recall: { version: 1, atSeconds: 1, phaseAtRecall: "transit", pickupSeconds: 0, returnSeconds: 0 } }))).toEqual(counts);
   });
 
   it("patrol routes add on; zero or junk routes change nothing", () => {

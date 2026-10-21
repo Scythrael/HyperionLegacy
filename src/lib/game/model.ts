@@ -7900,6 +7900,52 @@ export interface Expedition {
   // read from it. Absent on every run dispatched before G2-3: the fixed pre-G2-3 legs (expedition.ts
   // TRANSIT_SECONDS, the retired shakedown's SHAKEDOWN_TRANSIT_SECONDS), byte-identically. Optional, no SAVE bump.
   voyage?: ExpeditionVoyage;
+  // Expedition Tiers G2-5: the player's RECALL (expedition.ts recallExpedition), written only by it: the run turned for
+  // home at `atSeconds` and flies the frozen `returnSeconds` (any pickup included). Absent = never recalled, and every
+  // reader is exactly as before. Optional, no SAVE bump.
+  recall?: ExpeditionRecall;
+  // Expedition Tiers G2-5: a RESUMED system (user G12 "Resumable"): the run was dispatched to a held system
+  // (GameState.heldSystems) and its first `scannedBodies` bodies were charted before (their scans stay done, their
+  // objectives keep their progress). Absent on every other run. Optional, no SAVE bump.
+  resume?: { version: 1; heldId: string; scannedBodies: number };
+}
+
+// Expedition Tiers G2-5 (user #7 "Based on distance traveled 1:1"; G13 one confirm with the return time; G14 detour
+// time is not distance flown): a recalled run. `phaseAtRecall` is where it turned; `flownSeconds` the outbound time
+// flown toward the system (in transit only, the detour not counted); `pickupSeconds` the shared in-system pickup of the
+// teams on a surface (0 when none was down); `returnSeconds` the whole way home from `atSeconds` (the pickup, then the
+// return leg at the Flight Deck ramp of the time out so far). `held` names the GameState.heldSystems record the recall
+// left (absent when none: a legacy run, or a finished system). Plain data.
+export interface ExpeditionRecall {
+  version: 1;
+  atSeconds: number;
+  phaseAtRecall: "transit" | "scanning" | "activities";
+  flownSeconds?: number;
+  pickupSeconds: number;
+  returnSeconds: number;
+  held?: string;
+}
+
+// Expedition Tiers G2-5: a system a recall left behind (GameState.heldSystems). Signed-off dispatch mockup (2026-10-21,
+// "as drawn"): a system recalled BEFORE anything was charted returns to being an ORDINARY CANDIDATE (`kind`
+// "candidate": its identity only, offered again among its tier's candidates and launched fresh); a system with charted
+// bodies is RESUMABLE (`kind` "resume", user G12: "Any explorer" resumes it, it stays open "Until finished" or abandoned,
+// "Pick up where you left off": finished scans stay done, objectives keep their progress, the trip is flown again). A
+// resume record carries the run's bodies (scans, discoveries, objectives with their progress; nothing assigned) and its
+// risk profile. Plain data.
+export interface HeldSystem {
+  version: 1;
+  id: string; // "held-<expeditionId>"
+  kind: "candidate" | "resume";
+  fromExpeditionId: string;
+  heldAt: number;
+  seed: number;
+  systemId: string;
+  systemName: string;
+  famousId: string | null;
+  region: ExpeditionRegionStamp;
+  risk?: ExpeditionRiskProfile;
+  bodies?: ExpeditionBody[];
 }
 
 // Expedition Tiers G2-3 (user G5 + G21, 2026-10-16): a run's voyage. `tier` sets the nominal hours (tiers are
@@ -8278,6 +8324,13 @@ export interface GroundOpsState {
   // GO-7c: the run's ground operations LOG, DISPLAY ONLY (resolution never reads it); absent until a line is
   // written, so a run without one keeps its exact shape.
   log?: GroundOpsLogEntry[];
+  // Expedition Tiers G2-5: the instant the player RECALLED the ship and the window closed (groundOps.ts
+  // closeGroundOps; endedAt is the same instant). Absent on every run nobody recalled.
+  recalledAt?: number;
+  // Expedition Tiers G2-5: a RESUMED run's scan clock starts past the bodies already charted (Expedition.resume): the
+  // clock seconds those bodies take on this run, so the window's startedAt sits that far before it opened and the
+  // next body is scanned from the moment it opens. Absent on every other run.
+  scanClockSkip?: number;
 }
 
 // GO-7c: one line of the ground operations log (groundOps.ts groundOpsLogText words it): a task nobody deployed
@@ -8766,6 +8819,10 @@ export interface GameState {
   // after the first run holds Wolf 359 by WOLF_359_LIST_AFTER_DISPATCHES), so a save that is not a veteran never
   // carries the key. A plain number: no SAVE bump, hydrateDecimals carries it through its `...state` spread.
   wolf359List?: number;
+  // Expedition Tiers G2-5: the systems recalls left behind (HeldSystem: ordinary candidates again, or resumable),
+  // oldest first. OPTIONAL: absent until the first recall that leaves one, so every save keeps its exact shape. Plain
+  // data: no SAVE bump, hydrateDecimals carries it through its `...state` spread.
+  heldSystems?: HeldSystem[];
   // Safe first runs SF-1: the per-type run counters (RunCounts above; rules in runDifficulty.ts). freshState seeds
   // freshRunCounts(); save v70 derives them for an older save from its history (veterans). Written by claimExpedition,
   // dispatchCaptainOnPatrol and economyTick's patrol fold. OPTIONAL: absent (a dev save at v70 from before SF-1) reads

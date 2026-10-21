@@ -101,6 +101,8 @@ export { MIN_SCIENCE_MEMBERS, MIN_SECURITY_MEMBERS };
 import {
   advanceGroundOpsWindow,
   applyGroundOpsEdit,
+  closeGroundOps,
+  openResumedGroundOps,
   checkGroundOpsEdit,
   cloneGroundOps,
   crewSquadsOf,
@@ -148,7 +150,7 @@ import {
   isHostileSiteId,
   type ExpeditionRegion,
 } from "./riskFactors";
-import type { BodyRiskGrades, ExpeditionRegionStamp, ExpeditionRiskProfile, ExpeditionVoyage, GroundTaskNeeds, GroundTeamKind, RegionTier } from "./model";
+import type { BodyRiskGrades, ExpeditionRecall, ExpeditionRegionStamp, ExpeditionRiskProfile, ExpeditionVoyage, GroundTaskNeeds, GroundTeamKind, HeldSystem, RegionTier } from "./model";
 // Expedition Tiers G2-3: the voyage engine (pure; imports model and galaxy types only, so no cycle).
 import { planVoyage, voyageOf } from "./voyage";
 // Expedition Tiers G2-4: the drive class, the reach gate and frontier sensors.
@@ -987,7 +989,8 @@ export function expeditionCandidates(state: GameState, shipId: string, tier: Reg
   // foreknowledge field below). Display only, like the telescope; never past its range.
   const sight = ship ? captainTelescopeSight(commandingCaptain(state, ship)) : NO_CAPTAIN_SIGHT;
   const foreSensors = sight.full ? Number.POSITIVE_INFINITY : snap.sensorPower;
-  return tierCandidateSystems(state, tier, homeworld).map((cand) => {
+  // G2-5: a system a recall returned to the candidates (nothing charted) joins its tier's list after the three.
+  return [...tierCandidateSystems(state, tier, homeworld), ...heldCandidates(state, tier)].map((cand) => {
     const { seed, region } = cand;
     const bodies = generateBodies(seed, region.tier);
     const sys = readSystem(reading, seed, snap.sensorPower, expeditionRiskPreview(seed, region), homeworld, sight, cand.distanceLy);
@@ -1352,7 +1355,9 @@ export function startExpedition(
   }
 
   // The candidate (the console's ids, without building every reading: SQ-6's forecast builds runs). G2-2: any tier's.
-  const cand = candidateSystemById(state, candidateId);
+  // G2-5: a held system (a recall left it: an ordinary candidate again, or resumable) is dispatched by its id too.
+  const held = heldSystemById(state, candidateId);
+  const cand = held ? heldCandidateSystem(held) : candidateSystemById(state, candidateId);
   if (cand === null) return { next: state, success: false, reason: "noSuchCandidate" };
   // G2-4: the region's drive class and frontier sensors, then this system's reach (propulsion.ts).
   if (propulsionGates) {
@@ -1364,15 +1369,23 @@ export function startExpedition(
 
   const number = state.nextExpeditionId;
   const seed = cand.seed; // COMMIT the previewed candidate's seed so the launch matches its preview
-  const gen = { systemId: cand.systemId, systemName: cand.systemName, bodies: generateBodies(seed, cand.tier) };
+  // G2-5 (user G12 "Pick up where you left off"): a resumed system flies to its held bodies (scans, discoveries and
+  // objectives as the recall left them) under its held risk profile; every other dispatch generates the system.
+  const resumed = held?.kind === "resume" && held.bodies && held.risk ? held : null;
+  const gen = { systemId: cand.systemId, systemName: cand.systemName, bodies: resumed ? resumedBodies(resumed) : generateBodies(seed, cand.tier) };
   // Squads SQ-4: the RISK PROFILE (riskFactors.ts), drawn from the committed candidate's seed and region exactly as
   // expeditionRiskPreview reads it, so the pre-launch reading and the run are one draw.
-  const risk = expeditionRiskPreview(seed, cand.region);
+  const risk = resumed ? { profile: { ...resumed.risk! }, bodies: gen.bodies.map((b, i) => b.risk ?? expeditionRiskPreview(seed, cand.region).bodies[i]) } : expeditionRiskPreview(seed, cand.region);
   // G2-2: the run freezes where it went (Expedition.region), so it never re-reads the homeworld. G2-3: and how long
   // it flies (Expedition.voyage), so a later drive, crew or homeworld change never reshapes it.
   const homeworld = stateHomeworld(state);
   const built = buildExpedition(state, ship, captainId, seed, anomalyOptIn, number, gen, risk, undefined, fieldKitsRuns);
-  const expedition: Expedition = { ...built, region: regionStampOf(cand), voyage: candidateVoyage(state, ship, cand, isTrainingRun(built), homeworld) };
+  const launched: Expedition = { ...built, region: regionStampOf(cand), voyage: candidateVoyage(state, ship, cand, isTrainingRun(built), homeworld) };
+  // G2-5: a resumed run met its route's anomaly on the first trip (resolved, never charted twice), and records how
+  // many bodies were charted before (the window opens past them, openResumedWindow).
+  const expedition: Expedition = resumed
+    ? { ...launched, anomalyResolved: true, resume: { version: 1, heldId: resumed.id, scannedBodies: chartedPrefix(resumed.bodies!) } }
+    : launched;
   // Field Kits FKR-7: the packs leave stock (lowest quality first) and a top-up's credits are spent: the SAME plan
   // buildExpedition packed (planDispatchPacks is pure on the same inputs). A run without flag 2 settles nothing.
   const packed = fieldKitsLive(built)
@@ -1381,8 +1394,10 @@ export function startExpedition(
   // Squads SQ-6 (user, SQ-5 call (b)): count a BLIND launch (beyond the telescope's range: the same reading the
   // candidate showed), so the future "go in blind" achievement can award retroactively. Never read by a run.
   const blind = readSystem(telescopeReading(state, homeworld), seed, expedition.sensorPower, risk, homeworld, undefined, cand.distanceLy).blind;
-  // User 2026-10-19: a veteran's Wolf 359 list (no key on any other save).
-  const wolf359List = wolf359ListAfterDispatch(state);
+  // User 2026-10-19: a veteran's Wolf 359 list (no key on any other save). G2-5: a held system is not from the list.
+  const wolf359List = held ? undefined : wolf359ListAfterDispatch(state);
+  // G2-5: the held system leaves the console (an ordinary candidate launched, or a resumed system flown again).
+  const heldLeft = held ? (state.heldSystems ?? []).filter((h) => h.id !== held.id) : undefined;
 
   return {
     next: {
@@ -1394,10 +1409,12 @@ export function startExpedition(
       // dispatch as pre-0.14.0 play (a veteran); storing them here keeps the save on its real counts. The stored
       // object itself (the same reference) when present.
       runCounts: runCountsOf(state),
-      // Advance the preview seed ONLY here (a commit), so previews stay stable until a dispatch happens.
-      expeditionSeed: advanceExpeditionSeed(state.expeditionSeed),
+      // Advance the preview seed ONLY here (a commit), so previews stay stable until a dispatch happens. G2-5: a held
+      // system was not on the list, so the list on screen stays.
+      expeditionSeed: held ? state.expeditionSeed : advanceExpeditionSeed(state.expeditionSeed),
       ...(blind ? { blindLaunches: blindLaunchCount(state) + 1 } : {}),
       ...(wolf359List !== undefined ? { wolf359List } : {}),
+      ...(heldLeft !== undefined ? { heldSystems: heldLeft } : {}),
     },
     success: true,
     expedition,
@@ -1659,6 +1676,9 @@ function activitiesDurationSeconds(exp: Expedition): number {
 // hours since dispatch when it starts: the transit, the scan and the tasks, all fixed by then). Exactly the base
 // transit without exp.rampReturn. Pure. Expedition Tiers G2-3: a voyage run's base is its own return leg.
 export function returnDurationSeconds(exp: Expedition): number {
+  // G2-5: a recalled run flies the way home frozen at its recall (the pickup and the leg, ramp included).
+  const recall = recallOf(exp);
+  if (recall) return recall.returnSeconds;
   const base = baseReturnSeconds(exp);
   if (!exp.rampReturn) return base;
   // Ground Ops (GO-7b): a flagged run's scan and tasks share one window (flaggedWindowSeconds).
@@ -1985,10 +2005,17 @@ function pauseAt(events: readonly ExpeditionScanEvent[], bodyIndex: number, step
 // unresolved boundary lies later than any elapsed value the phase has reached, so this is exact wherever it
 // is read. Pure.
 function encounterScanDurationSeconds(exp: Expedition): number {
+  return scanClockThroughBodies(exp, exp.bodies.length);
+}
+
+// The scan clock at the end of the first `n` bodies (their scan times and recorded pauses, in the walk's own order),
+// so the whole scan reads exactly as encounterScanDurationSeconds. G2-5: a resumed run's window opens this far into its
+// clock (the bodies charted before). Pure.
+function scanClockThroughBodies(exp: Expedition, n: number): number {
   const steps = exp.encounterSteps ?? 1;
   const events = exp.scanEvents ?? [];
   let bodyStart = 0;
-  for (let i = 0; i < exp.bodies.length; i++) {
+  for (let i = 0; i < Math.min(n, exp.bodies.length); i++) {
     const body = exp.bodies[i];
     let paused = 0;
     for (let k = 1; k < steps; k++) paused += pauseAt(events, i, k);
@@ -2199,7 +2226,8 @@ export function flaggedScanTimeline(exp: Expedition): { bodies: FlaggedScanSpan[
       paused += pause;
     }
     const bodyEnd = bodyStart + bodyTime + paused;
-    bodies.push({ bodyIndex: i, startsAt: scanClockToTime(ops, bodyStart), endsAt: body.scanned ? scanClockToTime(ops, bodyEnd) : null });
+    // G2-5: a resumed run's bodies charted before were scanned on an earlier trip (no span on this run's lane).
+    if (i >= (exp.resume?.scannedBodies ?? 0)) bodies.push({ bodyIndex: i, startsAt: scanClockToTime(ops, bodyStart), endsAt: body.scanned ? scanClockToTime(ops, bodyEnd) : null });
     if (!body.scanned) break;
     bodyStart = bodyEnd;
   }
@@ -2208,7 +2236,8 @@ export function flaggedScanTimeline(exp: Expedition): { bodies: FlaggedScanSpan[
 
 // Hours since dispatch at absolute time `t` of a flagged run's window (the transit is fully flown). Pure.
 function flaggedHoursAt(exp: Expedition, t: number): number {
-  const start = exp.groundOps?.startedAt ?? t;
+  // G2-5: a resumed run's startedAt sits its clock skip before the window opened (the transit ended there).
+  const start = (exp.groundOps?.startedAt ?? t) + (exp.groundOps?.scanClockSkip ?? 0);
   return (transitDurationSeconds(exp) + (t - start)) / 3600;
 }
 
@@ -2420,7 +2449,11 @@ export function advanceExpedition(exp: Expedition, nowSeconds: number): Expediti
     // phase math never disagrees with the event schedule.
     if (e.groundOps && (e.phase === "scanning" || e.phase === "activities")) {
       const ops = e.groundOps;
-      if (e.phase === "scanning" && ops.startedAt === undefined) ops.startedAt = e.phaseAnchorSeconds;
+      if (e.phase === "scanning" && ops.startedAt === undefined) {
+        ops.startedAt = e.phaseAnchorSeconds;
+        // G2-5: a RESUMED run opens past the bodies charted before (openResumedWindow).
+        if (e.resume) openResumedWindow(e);
+      }
       advanceGroundOpsWindow(e, nowSeconds, GROUND_OPS_SCAN_DRIVER);
       setFlaggedScanProgress(e, nowSeconds);
       if (e.phase === "scanning") {
@@ -2647,6 +2680,296 @@ function expeditionPromotionIncrements(exp: Expedition): Map<string, Partial<Rec
   if (objectives > 0) inc.personnelAchievement = objectives;
   if (shipWins > 0) inc.shipsDestroyed = shipWins;
   return new Map(Object.keys(inc).length > 0 ? [[exp.shipId, inc]] : []);
+}
+
+// ============================================================================
+// Expedition Tiers G2-5: RECALL and the RESUMABLE systems
+// ============================================================================
+//
+// User decisions (verbatim records in the plan's USER ANSWERS and docs/plans/2026-10-19-merge-batch-answers.md):
+//   - #7 "BAsed on distance traveled 1:1": recalled in transit, the ship flies home the time it has flown toward the
+//     system (G14: the anomaly detour is not distance flown), at its own return speed and the Flight Deck ramp of the
+//     time out so far; after arrival, the full return leg. Never longer than an ordinary return.
+//   - #4 "you retain your progress": after arrival the operations window closes at the recall instant
+//     (groundOps.ts closeGroundOps): objectives in progress stop with their progress kept, finished work comes home,
+//     teams on a surface come up on one shared in-system pickup before the return leg, the medical bay works on the
+//     way home.
+//   - G12 "Resumable": a system with charted bodies stays open (GameState.heldSystems, kind "resume"); "Any explorer"
+//     resumes it, "Until finished" or abandoned (one confirm, the console's), "Pick up where you left off": finished
+//     scans stay done, objectives keep their progress, the trip is flown again. Mockup sign-off (2026-10-21): a recall
+//     BEFORE anything was charted returns the system to the ordinary candidates (kind "candidate").
+//   - G13 "One confirm": the console's confirm names the return time and whether the system can be resumed
+//     (recallPreview). No Overtime on expeditions (user 2026-10-20): the recall never offers a paid speed-up.
+// A recall is a player action at an instant (the run is advanced to now first, the editGroundOps contract); after it
+// the run is again a pure function of its stored record. Allowed in transit, scanning and activities; refused once
+// the run is returning or complete. A run in flight from before G2-5 can be recalled too (a new action changes no run
+// nobody recalls); one without a region stamp (before G2-2) or without Ground Ops leaves no held system.
+
+export type RecallBlockReason = "noExpedition" | "returning" | "complete";
+
+// What a recall at the state's now would do (the confirm's numbers): the whole way home, its pickup, where it turns,
+// and what is left behind ("resume" / "candidate" / null). Read from the same recall the action applies. Pure.
+export interface RecallPreview {
+  phase: ExpeditionRecall["phaseAtRecall"];
+  returnSeconds: number;
+  pickupSeconds: number;
+  held: HeldSystem["kind"] | null;
+}
+
+// The player-facing line of a refusal (US English). EXHAUSTIVE with no default. Pure.
+export function recallBlockText(reason: RecallBlockReason): string {
+  switch (reason) {
+    case "noExpedition":
+      return "That expedition is no longer out";
+    case "returning":
+      return "The ship is already on its way home";
+    case "complete":
+      return "The ship is home: claim the expedition";
+  }
+}
+
+// The stored recall when well formed, else undefined. Pure.
+function recallOf(exp: { recall?: unknown }): ExpeditionRecall | undefined {
+  const r = exp.recall as Partial<ExpeditionRecall> | undefined;
+  if (typeof r !== "object" || r === null) return undefined;
+  return typeof r.returnSeconds === "number" && Number.isFinite(r.returnSeconds) && r.returnSeconds >= 0 ? (r as ExpeditionRecall) : undefined;
+}
+
+// When the run's transit ended (its window opened), for the hours out of a recall after arrival. Pure.
+function transitEndedAt(exp: Expedition): number {
+  if (exp.phase === "scanning") return exp.phaseAnchorSeconds;
+  const ops = exp.groundOps;
+  if (ops && ops.startedAt !== undefined) return ops.startedAt + (ops.scanClockSkip ?? 0);
+  return exp.phaseAnchorSeconds - scanningDurationSeconds(exp);
+}
+
+// The outbound time flown toward the system `elapsed` seconds into the transit: the detour, inserted at the anomaly
+// check, is never distance flown (user G14). Pure.
+function outboundFlown(exp: Expedition, elapsed: number): number {
+  const base = baseTransitSeconds(exp);
+  const mid = base * ANOMALY_CHECK_FRACTION;
+  if (elapsed <= mid || !exp.anomalyCharted) return Math.max(0, Math.min(base, elapsed));
+  return Math.max(mid, Math.min(base, elapsed - anomalyDetourSeconds(exp)));
+}
+
+// The return leg after `hoursOut` hours out, at the Flight Deck ramp (exactly the ordinary leg's rule). Pure.
+function rampedReturnLeg(exp: Expedition, base: number, hoursOut: number): number {
+  if (!exp.rampReturn) return base;
+  const ramp = constitutionRamp(exp.rampReturn, hoursOut);
+  return ramp === 0 ? base : base / (1 + ramp);
+}
+
+// The run's leading charted bodies (a scan runs in body order, so the scanned bodies are a prefix). Pure.
+function chartedPrefix(bodies: readonly ExpeditionBody[]): number {
+  let n = 0;
+  while (n < bodies.length && bodies[n].scanned) n += 1;
+  return n;
+}
+
+// Is anything left to do in the system (a body to scan, an objective not done)? Pure.
+function systemUnfinished(bodies: readonly ExpeditionBody[]): boolean {
+  return bodies.some((b) => !b.scanned || b.activities.some((a) => !a.done));
+}
+
+// The held record a recall of `exp` (already advanced and recalled at `t`) leaves behind, or null. Pure: fresh data.
+function heldFromRecall(exp: Expedition, t: number): HeldSystem | null {
+  const region = exp.region;
+  if (!region) return null;
+  const base = {
+    version: 1 as const,
+    id: `held-${exp.id}`,
+    fromExpeditionId: exp.id,
+    heldAt: t,
+    seed: exp.seed,
+    systemId: exp.targetSystemId,
+    systemName: exp.systemName,
+    famousId: famousSystem(exp.targetSystemId)?.id ?? null,
+    region: { ...region },
+  };
+  const charted = chartedPrefix(exp.bodies);
+  if (charted === 0) return { ...base, kind: "candidate" };
+  if (!exp.groundOps || !exp.risk || !systemUnfinished(exp.bodies)) return null;
+  return { ...base, kind: "resume", risk: { ...exp.risk }, bodies: heldBodies(exp.bodies) };
+}
+
+// The bodies a resume record keeps (user G12 "Pick up where you left off"): charted bodies whole, with their
+// objectives back in the queue (nothing assigned, no streak, no alert: a new crew lands on them after a trip home and
+// back), progress, cleared fight points and banked segments kept; an unfinished body's scan starts over. Pure.
+function heldBodies(bodies: readonly ExpeditionBody[]): ExpeditionBody[] {
+  return bodies.map((b) => {
+    if (!b.scanned) return { ...b, scanProgress: 0, discoveries: [], activities: [] };
+    return {
+      ...b,
+      discoveries: b.discoveries.map((d) => ({ ...d })),
+      activities: b.activities.map((a) => {
+        const c = cloneActivity(a);
+        if (c.done) return c;
+        c.status = "queued";
+        delete c.assignedTeamIds;
+        delete c.lossStreak;
+        delete c.sentBack;
+        delete c.alert;
+        return c;
+      }),
+    };
+  });
+}
+
+// The bodies a resumed dispatch flies to: the held bodies, copied. Pure.
+function resumedBodies(held: HeldSystem): ExpeditionBody[] {
+  return (held.bodies ?? []).map((b) => ({ ...b, discoveries: b.discoveries.map((d) => ({ ...d })), activities: b.activities.map(cloneActivity) }));
+}
+
+// Open a RESUMED run's window (advanceExpedition, at the scanning anchor): the scan clock starts past the bodies
+// charted before (their scan time on THIS run's sensors, no pauses: their boundaries are not rolled again), and those
+// bodies' remaining objectives are planned for this run's teams (groundOps.ts openResumedGroundOps). Mutates the clone.
+function openResumedWindow(e: Expedition): void {
+  const ops = e.groundOps;
+  const resume = e.resume;
+  if (!ops || !resume) return;
+  const charted = Math.max(0, Math.min(e.bodies.length, Math.floor(resume.scannedBodies)));
+  const skip = scanClockThroughBodies(e, charted);
+  const open = e.phaseAnchorSeconds;
+  ops.startedAt = open - skip;
+  if (skip > 0) ops.scanClockSkip = skip;
+  e.scanStepCursor = charted * Math.max(0, (e.encounterSteps ?? 1) - 1);
+  openResumedGroundOps(e, charted, open);
+}
+
+// The held systems of the save (oldest first). Pure.
+export function heldSystems(state: Pick<GameState, "heldSystems">): HeldSystem[] {
+  return Array.isArray(state.heldSystems) ? state.heldSystems : [];
+}
+function heldSystemById(state: Pick<GameState, "heldSystems">, id: string): HeldSystem | null {
+  if (!id.startsWith("held-")) return null;
+  return heldSystems(state).find((h) => h.id === id) ?? null;
+}
+
+// A held system as a candidate (its own id; slot -1: it is not one of the list's slots). Pure.
+function heldCandidateSystem(h: HeldSystem): CandidateSystem {
+  return {
+    id: h.id,
+    tier: h.region.tier,
+    slot: -1,
+    seed: h.seed,
+    systemId: h.systemId,
+    systemName: h.systemName,
+    famousId: h.famousId,
+    bearing: h.region.bearing,
+    distanceLy: h.region.distanceLy,
+    region: { tier: h.region.tier, enemyTerritory: h.region.enemyTerritory },
+  };
+}
+
+// The ordinary candidates a recall returned to `tier` (kind "candidate"), oldest first. Pure.
+function heldCandidates(state: Pick<GameState, "heldSystems">, tier: RegionTier): CandidateSystem[] {
+  return heldSystems(state).filter((h) => h.kind === "candidate" && h.region.tier === tier).map(heldCandidateSystem);
+}
+
+// One resumable system for the console (the mockup's Resume card): its identity, its charted bodies and the
+// objectives with progress kept, and its completion (groundOps.ts groundOpsProgress over its objectives). Pure.
+export interface ResumableSystemView {
+  id: string;
+  tier: RegionTier;
+  systemName: string;
+  distanceLy: number;
+  bodies: number;
+  bodiesScanned: number;
+  objectivesInProgress: number;
+  progress: number; // 0..1
+}
+export function resumableSystems(state: Pick<GameState, "heldSystems">, tier?: RegionTier): ResumableSystemView[] {
+  return heldSystems(state)
+    .filter((h) => h.kind === "resume" && (tier === undefined || h.region.tier === tier))
+    .map((h) => {
+      const bodies = h.bodies ?? [];
+      return {
+        id: h.id,
+        tier: h.region.tier,
+        systemName: h.systemName,
+        distanceLy: h.region.distanceLy,
+        bodies: bodies.length,
+        bodiesScanned: bodies.filter((b) => b.scanned).length,
+        objectivesInProgress: bodies.reduce((n, b) => n + b.activities.filter((a) => !a.done && (a.progress ?? 0) > 0).length, 0),
+        progress: groundOpsProgress({ bodies }, 0),
+      };
+    });
+}
+
+// ABANDON a resumable system (one confirm, the console's): its saved progress is let go; findings already claimed stay
+// claimed. Refused (the SAME state) for an id that is not a resumable system. Pure.
+export function canAbandonHeldSystem(state: Pick<GameState, "heldSystems">, id: string): boolean {
+  return heldSystemById(state, id)?.kind === "resume";
+}
+export function abandonHeldSystem(state: GameState, id: string): GameState {
+  if (!canAbandonHeldSystem(state, id)) return state;
+  return { ...state, heldSystems: heldSystems(state).filter((h) => h.id !== id) };
+}
+
+// The recall of `exp` at `t` (the run advanced to `t` first): the recalled run and what it leaves behind, or the
+// refusal. Pure: fresh data, the input untouched.
+function recallAt(exp: Expedition, t: number): { ok: true; exp: Expedition; held: HeldSystem | null } | { ok: false; reason: RecallBlockReason } {
+  const e = advanceExpedition(exp, t);
+  if (e.phase === "complete") return { ok: false, reason: "complete" };
+  if (e.phase === "return") return { ok: false, reason: "returning" };
+  const r = e === exp ? cloneExpedition(exp) : e;
+  const phaseAtRecall = r.phase as ExpeditionRecall["phaseAtRecall"];
+  let pickupSeconds = 0;
+  let returnSeconds: number;
+  let flownSeconds: number | undefined;
+  if (phaseAtRecall === "transit") {
+    const elapsed = Math.max(0, t - r.phaseAnchorSeconds);
+    flownSeconds = outboundFlown(r, elapsed);
+    const base = baseTransitSeconds(r);
+    const share = base > 0 ? flownSeconds / base : 0;
+    returnSeconds = Math.round(rampedReturnLeg(r, baseReturnSeconds(r) * share, elapsed / 3600));
+  } else {
+    if (r.groundOps) pickupSeconds = closeGroundOps(r, t, GROUND_OPS_SCAN_DRIVER);
+    const hoursOut = (transitDurationSeconds(r) + Math.max(0, t - transitEndedAt(r))) / 3600;
+    returnSeconds = pickupSeconds + Math.round(rampedReturnLeg(r, baseReturnSeconds(r), hoursOut));
+  }
+  const held = heldFromRecall(r, t);
+  r.recall = {
+    version: 1,
+    atSeconds: t,
+    phaseAtRecall,
+    ...(flownSeconds !== undefined ? { flownSeconds } : {}),
+    pickupSeconds,
+    returnSeconds,
+    ...(held ? { held: held.id } : {}),
+  };
+  r.phase = "return";
+  r.phaseAnchorSeconds = t;
+  return { ok: true, exp: r, held };
+}
+
+// Can the player recall this expedition now? Pure.
+export function canRecallExpedition(state: GameState, expeditionId: string): { ok: true } | { ok: false; reason: RecallBlockReason } {
+  const exp = state.expeditions.find((e) => e.id === expeditionId);
+  if (!exp) return { ok: false, reason: "noExpedition" };
+  const res = recallAt(exp, state.gameTimeSeconds);
+  return res.ok ? { ok: true } : { ok: false, reason: res.reason };
+}
+
+// The confirm's numbers (G13): exactly what recallExpedition would freeze now, or the refusal. Pure.
+export function recallPreview(state: GameState, expeditionId: string): { ok: true; preview: RecallPreview } | { ok: false; reason: RecallBlockReason } {
+  const exp = state.expeditions.find((e) => e.id === expeditionId);
+  if (!exp) return { ok: false, reason: "noExpedition" };
+  const res = recallAt(exp, state.gameTimeSeconds);
+  if (!res.ok) return res;
+  const rc = res.exp.recall!;
+  return { ok: true, preview: { phase: rc.phaseAtRecall, returnSeconds: rc.returnSeconds, pickupSeconds: rc.pickupSeconds, held: res.held?.kind ?? null } };
+}
+
+// RECALL the expedition now: the run turns for home (it claims like any run once home) and its system is held as the
+// recall leaves it. A refusal returns the SAME state. Pure.
+export function recallExpedition(state: GameState, expeditionId: string): GameState {
+  const index = state.expeditions.findIndex((e) => e.id === expeditionId);
+  if (index < 0) return state;
+  const res = recallAt(state.expeditions[index], state.gameTimeSeconds);
+  if (!res.ok) return state;
+  const expeditions = state.expeditions.map((e, i) => (i === index ? res.exp : e));
+  return { ...state, expeditions, ...(res.held ? { heldSystems: [...heldSystems(state), res.held] } : {}) };
 }
 
 // ============================================================================

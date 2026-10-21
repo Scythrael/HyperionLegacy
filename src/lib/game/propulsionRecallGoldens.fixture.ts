@@ -24,6 +24,8 @@ export const G2_4_ADDED_ENTRY_IDS: ReadonlySet<string> = new Set([
   "expedition:audit:frontierSensors",
   "expedition:audit:hullBaseDriveClass",
   "facility:audit:heldDriveClasses",
+  "expedition:audit:recall",
+  "expedition:audit:resumableSystems",
 ]);
 export const G2_4_FLIPPED_BEFORE: Readonly<Record<string, { kind: "pending"; owner: string } | { kind: "seam"; owner: string; userRef: string }>> = {
   "expedition:audit:voyageDriveClass": { kind: "pending", owner: "G2-4 (drive classes on FTL drives and hulls, user G3)" },
