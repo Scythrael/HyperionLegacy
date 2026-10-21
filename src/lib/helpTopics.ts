@@ -118,7 +118,7 @@ import { getPlanetTypeById, groundSiteLabel } from "./game/expeditionContent";
 import { BLIND_LAUNCH_WARNING } from "./expeditionDispatchDisplay";
 import type { RegionTier } from "./game/model";
 // Reactor fuel ladder (0.14.0): the Ship Systems topic reads each core's Deuterium Canister count off its recipe.
-import { BLUEPRINTS } from "./game/model";
+import { BLUEPRINTS, LAB_FABRICATOR_TOP_TIER } from "./game/model";
 // WR-4 (OC-C1): the Fuel Depot's per-level fleet reach, read from the engine constant (no stale number).
 import { FUEL_DEPOT_REACH_PER_RUNG } from "./game/model";
 
@@ -233,7 +233,7 @@ export const HELP_TOPICS: HelpTopic[] = [
   {
     id: "research",
     title: "Research",
-    body: "The Research Lab, in Facilities, is where you unlock blueprints. Each research project takes time and credits and permanently unlocks something you can build, from component recipes to ship-system and combat-gear blueprints (weapons, shield emitters, hull plating, and drone pods). Combat gear is researched here just like other ship systems: unlock a weapon, shield, plating, or drone-pod blueprint, then craft it at the Fabricator. Projects are organized in tiers gated by the lab's own level, so upgrading the lab opens deeper research. Research is the front of the whole production chain: research a blueprint here, craft it at the Fabricator, then use the result to build ships or install their systems, combat gear included.",
+    body: `The Research Lab, in Facilities, is where you unlock blueprints. Each research project takes time and credits and permanently unlocks something you can build, from component recipes to ship-system and combat-gear blueprints (weapons, shield emitters, hull plating, and drone pods). Combat gear is researched here just like other ship systems: unlock a weapon, shield, plating, or drone-pod blueprint, then craft it at the Fabricator. Projects are organized in tiers gated by the lab's own level, so upgrading the lab opens deeper research. The lab and the Fabricator each upgrade to level ${LAB_FABRICATOR_TOP_TIER}: every upgrade adds one more research or craft slot, and a tier N blueprint needs the lab at level N to research it and the Fabricator at level N to craft it. Research is the front of the whole production chain: research a blueprint here, craft it at the Fabricator, then use the result to build ships or install their systems, combat gear included.`,
   },
   {
     // Exploration 0.14.0 (E4c). No ladder thresholds or bonus sizes in the prose (they are tunable

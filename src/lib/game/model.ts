@@ -5263,6 +5263,49 @@ function buildSubspaceTelescopeUpgrades(): FacilityUpgradeDef[] {
   }));
 }
 
+// Research Lab and Fabricator tiers III to VII (complement plan OC-15).
+// User 2026-10-16 (OC-15): "Add tiers 3-7 now (Recommended)": the Research Lab gains levels 3 to 7 in 0.14.0 (drive
+// classes II to VII, top modules); user 2026-10-21: "Build them in 0.14.0 (Recommended)". The Fabricator is the Lab's
+// direct clone (a level-derived tier gate plus a summed slot grant), so it climbs the same ladder: a tier N blueprint
+// needs Lab level N to research and Fabricator level N to craft.
+//
+// ONE TABLE, one row per tier: the rung that REACHES that level, on both tracks. Every rung is real the moment it is
+// built: it grants one more slot (research or craft, the pattern every rung of both tracks has always carried), and
+// it opens that tier's blueprints. Tier III to VII content rides this ladder by its blueprint `tier` alone: the
+// classed drives (G2-4, Class N on tier N, joining BLUEPRINTS once both tracks reach the tier), the gas giant special
+// blueprints (GG-7), the top crew modules (CP-11 Flag Command / Elite Quarters, EM-7), and the identification lanes
+// Relics v2 reads off the Lab level (R2-3: I 1, III 2, V 3, VII 4) through labTier.
+//
+// The Fabricator's tier III row is the rung it already had (Crafting 0.13.3 FIX B, its third craft line), unchanged:
+// 20,000 credits / 240 ticks / FA 6. Each later row steps credits x2.5 and the FA gate +3 (the Shipyard's and the
+// Subspace Telescope's strides) and lengthens on the telescope's duration ladder.
+// [PROVISIONAL] every credits / ticks / FA number AND the one-slot grant per rung (sized on the existing rung curve;
+// the balancing patch retunes). Costs are credits plus an FA gate only, the gates both Upgrades panels show (no
+// materials, no talent gates: a gate the card cannot show is a trap).
+export interface LabFabricatorTierRungDef {
+  tier: number;            // the level this row REACHES on both tracks (3 .. 7)
+  credits: number;         // [PROVISIONAL]
+  durationTicks: number;   // [PROVISIONAL]
+  fleetAdminLevel: number; // FA gate [PROVISIONAL]
+  researchSlots: number;   // the Lab rung's slot grant [PROVISIONAL]
+  fabricateSlots: number;  // the Fabricator rung's slot grant [PROVISIONAL]
+}
+export const LAB_FABRICATOR_TIER_RUNGS: readonly LabFabricatorTierRungDef[] = [
+  { tier: 3, credits: 20_000, durationTicks: 240, fleetAdminLevel: 6, researchSlots: 1, fabricateSlots: 1 },
+  { tier: 4, credits: 50_000, durationTicks: 420, fleetAdminLevel: 9, researchSlots: 1, fabricateSlots: 1 },
+  { tier: 5, credits: 125_000, durationTicks: 720, fleetAdminLevel: 12, researchSlots: 1, fabricateSlots: 1 },
+  { tier: 6, credits: 300_000, durationTicks: 1_200, fleetAdminLevel: 15, researchSlots: 1, fabricateSlots: 1 },
+  { tier: 7, credits: 750_000, durationTicks: 1_800, fleetAdminLevel: 18, researchSlots: 1, fabricateSlots: 1 },
+];
+// The highest blueprint tier either track serves (both tracks end on the table's last row).
+export const LAB_FABRICATOR_TOP_TIER = LAB_FABRICATOR_TIER_RUNGS[LAB_FABRICATOR_TIER_RUNGS.length - 1].tier;
+function labTierRung(row: LabFabricatorTierRungDef): FacilityUpgradeDef {
+  return { materials: {}, credits: new Decimal(row.credits), durationTicks: row.durationTicks, effect: { addResearchSlots: row.researchSlots }, requiresFleetAdminLevel: row.fleetAdminLevel };
+}
+function fabricatorTierRung(row: LabFabricatorTierRungDef): FacilityUpgradeDef {
+  return { materials: {}, credits: new Decimal(row.credits), durationTicks: row.durationTicks, effect: { addFabricateSlots: row.fabricateSlots }, requiresFleetAdminLevel: row.fleetAdminLevel };
+}
+
 export const FACILITIES: Record<string, FacilityDef> = {
   refinery: {
     label: "Refinery",
@@ -5416,8 +5459,8 @@ export const FACILITIES: Record<string, FacilityDef> = {
       // [1] Level 1 -> 2: the REAL upgrade rung. Reaching level 2 unlocks TIER-2
       // blueprints (blueprintResearchable: tier 2 <= level 2) AND grants a 2nd research
       // slot (researchSlotCount sums to 2). Gated on CREDITS (the design's long-term
-      // sink, NO materials) + a modest FA-level prereq. Track ENDS here (finite; only
-      // tiers 1-2 exist). ⚠️ FIRST-PASS TUNABLE credits/duration/FA-level.
+      // sink, NO materials) + a modest FA-level prereq. ⚠️ FIRST-PASS TUNABLE
+      // credits/duration/FA-level.
       {
         materials: {}, // locked design #3: NO materials on research costs
         credits: new Decimal(5000), // the tier-2 unlock's credit sink (tunable)
@@ -5425,6 +5468,9 @@ export const FACILITIES: Record<string, FacilityDef> = {
         effect: { addResearchSlots: 1 },
         requiresFleetAdminLevel: 3, // modest gate, mirrors the Refinery's FA-level idiom (tunable)
       },
+      // [2..6] Levels 3 to 7 (OC-15): one rung per row of LAB_FABRICATOR_TIER_RUNGS, each a research slot plus
+      // that tier's blueprints. The track ENDS at LAB_FABRICATOR_TOP_TIER.
+      ...LAB_FABRICATOR_TIER_RUNGS.map(labTierRung),
     ],
   },
   // --- Fabricator (Phase 4, F1, design §1) -----------------------------------
@@ -5442,8 +5488,10 @@ export const FACILITIES: Record<string, FacilityDef> = {
   //     TIER unlock is level-derived (not summed), the same way the Research Lab derives
   //     researchable tiers from its level.
   //
-  // TRACK LENGTH: THREE rungs (levels 1, 2 and 3), matching the Refinery's three
-  // parallel production lines.
+  // TRACK LENGTH: SEVEN rungs (levels 1 to 7). Levels 1 to 3 matched the Refinery's three
+  // parallel production lines (FIX B below); levels 4 to 7 are the OC-15 tier rungs
+  // (LAB_FABRICATOR_TIER_RUNGS, user 2026-10-16 / 2026-10-21), each a craft slot plus
+  // that tier's blueprints.
   //
   // ⚠️ REVISED IN CRAFTING 0.13.3 (Unit 3.1b, FIX B), OWNER BALANCE CALL. This block
   // used to read "NO rung beyond tier 2, adding one would be a placeholder that unlocks
@@ -5458,8 +5506,8 @@ export const FACILITIES: Record<string, FacilityDef> = {
   // tier gate is `tier <= level`, so a level-3 Fabricator simply clears both existing
   // tiers with room to spare, exactly as a level-4 Refinery clears its recipes).
   //
-  // Still FINITE and still additive: a future blueprint tier extends the track by one
-  // more rung, mirroring the Research Lab / Refinery / Warehouse tracks.
+  // Still FINITE and still additive: OC-15 extended it to tier VII, one rung per tier, on
+  // the same table as the Research Lab's tier rungs.
   //
   // COST MODEL, upgrade rungs cost CREDITS (the OPTIONAL `credits` FacilityUpgradeDef
   // field, the SAME gate the Research rungs use), NOT materials (materials are the CRAFT
@@ -5493,10 +5541,11 @@ export const FACILITIES: Record<string, FacilityDef> = {
         requiresFleetAdminLevel: 3, // modest gate, mirrors the Research Lab's idiom (tunable)
       },
       // [2] Level 2 -> 3: the THIRD craft line (Crafting 0.13.3 Unit 3.1b, FIX B, owner
-      // balance call). Grants a 3rd { addFabricateSlots } so fabricateSlotCount tops out
-      // at 3, the SAME ceiling the Refinery's three addRefineSlots rungs reach. Unlocks
-      // no blueprint tier (none beyond 2 exists), which is fine: the tier gate is
-      // `tier <= level`, so this is headroom, not a broken promise. Track ENDS here.
+      // balance call). Grants a 3rd { addFabricateSlots }, the SAME count the Refinery's
+      // three addRefineSlots rungs reach, and (since OC-15) opens tier III blueprints.
+      // Since OC-15 it is LAB_FABRICATOR_TIER_RUNGS' tier III row, generated with the
+      // rows after it (the values below are that row's, unchanged; labFabricatorTiersGoldens
+      // golden 1 proves the rung byte-identical).
       //
       // SCALING, taken from the SHAPE of how the REFINERY's third slot rung steps over
       // its second, so the two production facilities read as one system rather than two:
@@ -5526,13 +5575,11 @@ export const FACILITIES: Record<string, FacilityDef> = {
       // ⚠️ FIRST-PASS TUNABLE, like every number on this track. The owner has said a
       // dedicated balance pass (post-exploration, around 0.16.0) will retune everything,
       // time inflation included, so these are a coherent starting point and not a verdict.
-      {
-        materials: {},
-        credits: new Decimal(20000), // 4x rung [1], mirroring the Refinery's third-rung cost step
-        durationTicks: 240, // 2x rung [1], mirroring the Refinery's third-rung duration step
-        effect: { addFabricateSlots: 1 },
-        requiresFleetAdminLevel: 6, // +3 over rung [1], mirroring the Refinery's third-rung FA step
-      },
+      //   credits 20000 (4x rung [1], the Refinery's third-rung cost step), duration 240
+      //   (2x rung [1]), FA 6 (+3 over rung [1]).
+      // [3..6] Levels 4 to 7 (OC-15): the table's later rows. The track ENDS at
+      // LAB_FABRICATOR_TOP_TIER.
+      ...LAB_FABRICATOR_TIER_RUNGS.map(fabricatorTierRung),
     ],
   },
   // --- Shipyard (Phase 5, Task S1, design §2) --------------------------------
@@ -10440,9 +10487,9 @@ export const BLUEPRINTS: Record<string, BlueprintDef> = {
   // unit only makes them research -> fabricate craftable and visible in the UI.
   //
   // TIER = 1 or 2 ONLY. `tier` gates the RESEARCH LAB level required to research the blueprint
-  // (canResearch: bp.tier > research level -> tierLocked), and the Research Lab caps at level 2
-  // (FACILITIES.research has 2 rungs), so a tier-3 weapon blueprint would be permanently un-
-  // researchable, and thus permanently un-craftable. The three basic family staples are tier 1;
+  // (canResearch: bp.tier > research level -> tierLocked), and the Research Lab capped at level 2
+  // when these were tiered, so a tier-3 weapon blueprint would have been permanently un-
+  // researchable, and thus permanently un-craftable (OC-15 has since raised both tracks to VII). The three basic family staples are tier 1;
   // the heavier / higher-impact weapons are tier 2 (matching structuralAssemblyBp / the tier-2
   // equipment lines). A later level-3 Research Lab rung can re-tier upward.
   //
@@ -10587,8 +10634,8 @@ export const BLUEPRINTS: Record<string, BlueprintDef> = {
   // no bridge fold); this unit only makes them research -> fabricate craftable and visible in the UI.
   //
   // TIER = 1 or 2 ONLY, for the SAME reason as the weapon blueprints: `tier` gates the RESEARCH LAB
-  // level required to research the blueprint, and the Research Lab caps at level 2, so a tier-3 pod
-  // would be permanently un-researchable, thus permanently un-craftable. Attack (the entry role) is
+  // level required to research the blueprint, and the Research Lab capped at level 2 when these were
+  // tiered (OC-15 has since raised it to VII), so a tier-3 pod would have been un-researchable. Attack (the entry role) is
   // tier 1; the more specialized defense + support roles are tier 2.
   //
   // RECIPES are electronics-heavy (design S8: a drone squadron is a swarm of small sensor-and-
@@ -10653,7 +10700,7 @@ export const BLUEPRINTS: Record<string, BlueprintDef> = {
   // so they auto-appear in Research (the UIs enumerate Object.keys(BLUEPRINTS)) and
   // mint a named, variety-resolved crafted piece, NOT a separate weapon/drone table.
   //
-  // TIER = 1 or 2 ONLY (the Research Lab caps at level 2, same constraint as the
+  // TIER = 1 or 2 ONLY (the Research Lab capped at level 2 before OC-15, same constraint as the
   // weapon/drone blueprints): the two workhorse varieties per slot are T1, the premium
   // capacity/composite variety is T2.
   //
@@ -10747,9 +10794,9 @@ export const BLUEPRINTS: Record<string, BlueprintDef> = {
   //
   // TIER = 2 (NOT the hulls' own tier-3 combat rank): this `tier` field gates the RESEARCH
   // LAB level required to research the blueprint (canResearch: bp.tier > research level ->
-  // tierLocked). The Research Lab caps at level 2 today (FACILITIES.research has 2 rungs), so
-  // a tier-3 blueprint would be permanently un-researchable, and thus its hull permanently
-  // un-buildable. Tier 2 keeps these reachable at the Lab's current ceiling, and it is the
+  // tierLocked). The Research Lab capped at level 2 when these were tiered (OC-15 has since raised
+  // it to VII), so a tier-3 blueprint would have been permanently un-researchable, and thus its
+  // hull permanently un-buildable. Tier 2 keeps these reachable at the Lab's current ceiling, and it is the
   // heaviest researchable tier (matching structuralAssemblyBp / the tier-2 equipment lines).
   // When a later phase adds a level-3 Research Lab rung, these can be re-tiered upward.
   //
@@ -10794,9 +10841,9 @@ export const BLUEPRINTS: Record<string, BlueprintDef> = {
   // choices, mirroring the battleship / carrier split.
   //
   // TIER = 2, for the SAME reason as the warship hull blueprints: `tier` gates the Research Lab
-  // LEVEL required (canResearch: bp.tier > level -> tierLocked), and the Lab caps at level 2
-  // today (FACILITIES.research has 2 rungs), so a tier-3 blueprint would be permanently
-  // un-researchable and its hull permanently un-buildable. Tier 2 keeps them reachable now.
+  // LEVEL required (canResearch: bp.tier > level -> tierLocked), and the Lab capped at level 2
+  // when these were tiered (OC-15 has since raised it to VII), so a tier-3 blueprint would have
+  // been un-researchable and its hull un-buildable. Tier 2 keeps them reachable early.
   //
   // ⚠️ E0 PLACEHOLDER GATE ONLY. The REAL discovery-gated acquisition (finding an explorer hull
   // out in the field) is a later phase (E4 research). This blueprint gate keeps the explorers
@@ -12570,7 +12617,18 @@ export const SUBSPACE_TELESCOPE_FACILITY_KEY = "subspaceTelescope";
 // once R2 formalizes the research facility, a single exported facilityLevel() could live
 // in model.ts and tick.ts import it, flagged, not done now (out of R1's additive scope).
 function researchFacilityLevel(state: GameState): number {
+  return labTier(state);
+}
+
+// OC-15: the highest blueprint tier the Research Lab / the Fabricator serves right now (its level, 0 when absent;
+// a level-N facility researches / crafts tier N and below, up to LAB_FABRICATOR_TOP_TIER). The ONE public reader for
+// everything gated on the Lab or Fabricator tier outside the blueprint gates themselves (Relics v2 R2-3's
+// identification lanes, the gas giant data study, propulsion's drive classes), so none of them reads the raw key.
+export function labTier(state: GameState): number {
   return state.facilities[RESEARCH_FACILITY_KEY]?.level ?? 0;
+}
+export function fabricatorTier(state: GameState): number {
+  return state.facilities[FABRICATOR_FACILITY_KEY]?.level ?? 0;
 }
 
 // Is a research PROJECT for `key` currently in flight? R3 adds the research-project
