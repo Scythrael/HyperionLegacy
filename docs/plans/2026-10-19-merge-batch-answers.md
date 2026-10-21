@@ -135,3 +135,10 @@ section 5.A captain nodes). Kept in their own file so the parallel integrator's 
   Toxin grenades detonate at the start of the thrower's next turn (enemies may move out of a cluster first).
 - **Mockups to start now:** all four: Short-Range board; Expedition dispatch console; gas giant study screens; Relics v2
   culture view + Material Lines Refinery layout + Modules row and power bar.
+
+## Mockups published 2026-10-21 (awaiting sign-off)
+
+- Short-Range board (G1-6): https://claude.ai/artifact/HhEA9ARvKjjfAhbnZBSdg3
+- Expedition dispatch console (G2-6): https://claude.ai/artifact/AnWvt9kfqAUJo1sCMkTpMC
+- Gas giant study v3 (GG-6): https://claude.ai/artifact/RR2pwa3wQmTGPm2ZHQeGEN
+- Relics v2 + Refinery + Modules (R2-8, ML-7, EM-10): https://claude.ai/artifact/6Pat4nwfbWzsUsqKUdMpKo
