@@ -156,3 +156,10 @@ lane); R2-8 / ML-7 / EM-10 (as drawn: shelves by rarity band per tier; hatched p
 type; inline reveal card; compounds with their main raw's line; no "more recipes" note; per-quality chips visible;
 "Use best materials" starts lowest-first; spec utility as a tile in the Modules row; one power bar with hatched cut and
 shaded surplus; over-budget flag on this screen; one-line Active rule text).
+
+## Timed grenade review calls (2026-10-21, all Recommended)
+
+- Fight ends before detonation: "Refund it": the charge comes back; the log says the fight ended before it went off
+  (also for a final-round throw).
+- Moved clear: "20%, lone targets can't dodge": GRENADE_FUSE_MOVED_CLEAR_CHANCE 0.2 for groups; a lone target always gets hit.
+- Enemy flash grenade: "Keep instant".
