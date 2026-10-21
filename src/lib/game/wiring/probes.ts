@@ -2063,10 +2063,13 @@ function readContent(id: string, s: GameState): number {
       // fields) at the fight point the placement leads with rank `a`: an objective of the grade and point
       // ENEMY_RANK_PROBE_FIGHT names, on a Derelict Outpost (hazard 0.1). On = a ranked run, off = the same run without
       // the flag (every enemy Normal). The lead's (the strongest enemy's) stat `b`: "hp" (whole numbers) or "power".
+      // Safe first runs SF-3: Weak is placed by the difficulty curve, so its fight is on an ORDINARY run at the curve's
+      // floor (the stamp ramp 0, Tier I: the curve's low end), the same stamp on and off; every enemy there is Weak.
       const at = ENEMY_RANK_PROBE_FIGHT[a as EnemyRank];
       if (!at) throw new Error(`enemy rank ${a} has no placement to probe`);
       const task = { id: "wiring-task", poiId: "derelictOutpost", fightCount: at.point, pointsCleared: at.point, difficulty: at.grade, fightPoints: [0.25, 0.5, 0.75] };
-      const guard = taskFightGuard({ hazardResist: 0, ...(on ? { enemyRanks: { version: ENEMY_RANKS_VERSION } } : {}) }, { hazard: 0.1 }, task, 0x5eed);
+      const curve = at.curveFloor ? { difficulty: { version: 1 as const, firstRun: false, ramp: 0, tier: 1 as const } } : {};
+      const guard = taskFightGuard({ hazardResist: 0, ...curve, ...(on ? { enemyRanks: { version: ENEMY_RANKS_VERSION } } : {}) }, { hazard: 0.1 }, task, 0x5eed);
       const lead = guard.reduce((best, e) => (e.power > best.power ? e : best));
       return b === "hp" ? lead.hp : lead.power;
     }
@@ -2257,8 +2260,10 @@ function fieldKitsDefaultProbe(on: boolean): number {
 
 // Field Kits FKR-1: the fight each placed rank is probed on (grade 1 Simple .. 5 Deadly, the 0-based fight point of a
 // three-point objective): Normal on a Simple final, Strong on a Dangerous earlier point, Elite on a Challenging final,
-// Boss on a Deadly final. Weak has none (SF-3 places it on the difficulty curve).
-const ENEMY_RANK_PROBE_FIGHT: Readonly<Partial<Record<EnemyRank, { grade: number; point: number }>>> = {
+// Boss on a Deadly final; Weak (safe first runs SF-3, the curve's low end) on a Simple final of an ordinary run at the
+// curve's floor (`curveFloor`).
+const ENEMY_RANK_PROBE_FIGHT: Readonly<Partial<Record<EnemyRank, { grade: number; point: number; curveFloor?: true }>>> = {
+  weak: { grade: 1, point: 2, curveFloor: true },
   normal: { grade: 1, point: 2 },
   strong: { grade: 4, point: 0 },
   elite: { grade: 3, point: 2 },

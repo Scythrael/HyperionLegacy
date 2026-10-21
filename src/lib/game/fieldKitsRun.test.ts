@@ -26,7 +26,7 @@ import { setGroundTeamTopUp, setMemberPack } from "./groundTeams";
 import { shipGroundTeams } from "./groundTeamSlots";
 import { applyGroundTeamLoadout, checkInGroundTeamLoadout, createGroundTeamLoadout } from "./armory";
 import { buyFieldKits, canBuyFieldKits, topUpAtLaunch } from "./quartermaster";
-import { plainAwayMember, withoutFieldKits } from "./awayTeamTestFixtures";
+import { withoutCurve, withoutCurveState, plainAwayMember, withoutFieldKits } from "./awayTeamTestFixtures";
 import { deserialize, migrate, serialize, type SaveFile } from "./save";
 
 const T0 = 100_000;
@@ -99,7 +99,10 @@ function crewed(o: CrewOpts = {}): GameState {
 }
 
 function dispatch(state: GameState, on = true) {
-  const res = startExpedition(state, "ship-1", 1, "cand-0", true, on);
+  // Safe first runs SF-3: the run at nominal (its curve stamp dropped; the kits stamp kept), as these tests were written
+  // against.
+  const raw = startExpedition(state, "ship-1", 1, "cand-0", true, on);
+  const res = raw.expedition ? { ...raw, expedition: withoutCurve(raw.expedition), next: withoutCurveState(raw.next) } : raw;
   if (!res.success || !res.expedition) throw new Error(`dispatch refused: ${res.reason}`);
   return res;
 }

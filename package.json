@@ -11,6 +11,7 @@
     "test": "vitest run",
     "test:sweep": "vitest run --mode sweep src/lib/game/firstRunsGoldens",
     "test:sweep:training": "vitest run --mode sweep src/lib/game/safeFirstExpedition",
+    "test:sweep:ramp": "vitest run --mode sweep src/lib/game/safeFirstRamp",
     "test:sim": "vitest run --mode sim --reporter=verbose src/lib/game/sim"
   },
   "devDependencies": {

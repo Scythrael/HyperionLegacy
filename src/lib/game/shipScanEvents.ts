@@ -30,10 +30,12 @@
 // GHOST_FIND_SALT (expedition.ts, at the body's completion), each keyed by the boundary. Ramped values (the
 // officers' Constitution ramp on the ship's combat bonuses) read the event's WALL time, passed in as hoursOut.
 //
-// SAFE FIRST RUNS (SF-2): a training run's events fire and always pass (trainingShipEvent).
+// SAFE FIRST RUNS (SF-2): a training run's events fire and always pass (trainingShipEvent). SF-3: an ordinary run on the
+// difficulty curve (runDifficulty.ts) reads each check's FAIL chance and each hull wear x its ramp, and its battle enemy
+// the curve's strength with the hazard at most the tier's ceiling; at full strength every number is exactly as before.
 //
 // Module graph: imports model, combat/*, gambit (rollHaul, scanStepKey), crewOverlay, equipment, officerStats,
-// diminishing, relics, enemyRanks. Never imports expedition.ts or groundOps.ts. PURE throughout.
+// diminishing, relics, enemyRanks, runDifficulty. Never imports expedition.ts or groundOps.ts. PURE throughout.
 //
 // EVERY NUMBER BELOW IS FIRST-PASS TUNABLE; the [PROVISIONAL] ones answer open questions Q12, Q13, Q19.
 
@@ -66,6 +68,8 @@ import { diminishing } from "./diminishing";
 import { resistedHazard } from "./relics";
 // Safe first runs SF-2: the training run stamp's one read (pass-only events).
 import { isTrainingRun } from "./enemyRanks";
+// Safe first runs SF-3: an ordinary run on the curve (the check and wear scale, the enemy's strength and hazard ceiling).
+import { encounterHazard, rampEnemyScale, rampedPassChance, rampedStampOf, runRampOf } from "./runDifficulty";
 
 // ===== Salts (odd, distinct from every engine salt: salts.test.ts) =====
 
@@ -286,29 +290,35 @@ export function resolveShipScanEventFromDraws(
   const event: ExpeditionScanEvent = { bodyIndex, step, kind: "shipEvent", event: kind };
   if (!profile || !battle) return { event, finding: null };
   if (isTrainingRun(exp)) return trainingShipEvent(exp, body, bodyIndex, step, kind, draws, event);
-  const wear = (share: number): number => Math.max(1, Math.round(share * battle.hullMax));
+  // Safe first runs SF-3: an ordinary run's curve position (1 = full strength, every run without the stamp): each check's
+  // FAIL chance and each hull wear x ramp (the battles' enemy reads the curve's strength, shipEventEnemy).
+  const ramp = runRampOf(exp);
+  const pass = (chance: number): number => chanceUnits(rampedPassChance(chance, ramp));
+  const wear = (share: number): number =>
+    ramp >= 1 ? Math.max(1, Math.round(share * battle.hullMax)) : ramp > 0 ? Math.max(1, Math.round(share * battle.hullMax * ramp)) : 0;
   const ship = buildShipCombatant(exp.shipId || "ship", battle, hoursOut, exp.groundOps?.hullDamage ?? 0);
   let finding: ExpeditionFinding | null = null;
   switch (kind) {
     case "debris": {
-      const pass = draws.check < chanceUnits(shipEventCheckChance(DEBRIS_PASS_BASE, (ship.evasion / 100) * DEBRIS_EVASION_SCALE));
-      event.outcome = pass ? "pass" : "fail";
-      if (!pass) {
+      const passed = draws.check < pass(shipEventCheckChance(DEBRIS_PASS_BASE, (ship.evasion / 100) * DEBRIS_EVASION_SCALE));
+      event.outcome = passed ? "pass" : "fail";
+      if (!passed) {
         event.pauseSeconds = DEBRIS_DELAY_SECONDS;
-        event.hullWear = wear(DEBRIS_HULL_SHARE);
+        const w = wear(DEBRIS_HULL_SHARE);
+        if (w > 0) event.hullWear = w;
       }
       break;
     }
     case "storm": {
-      const pass = draws.check < chanceUnits(shipEventCheckChance(STORM_PASS_BASE, (ship.shieldMax * (1 + Math.max(0, profile.engineering))) / STORM_SHIELD_SCALE));
-      event.outcome = pass ? "pass" : "fail";
-      if (!pass) event.pauseSeconds = STORM_SLOW_SECONDS;
+      const passed = draws.check < pass(shipEventCheckChance(STORM_PASS_BASE, (ship.shieldMax * (1 + Math.max(0, profile.engineering))) / STORM_SHIELD_SCALE));
+      event.outcome = passed ? "pass" : "fail";
+      if (!passed) event.pauseSeconds = STORM_SLOW_SECONDS;
       break;
     }
     case "ghost": {
-      const pass = draws.check < chanceUnits(ghostCheckChance(profile));
-      event.outcome = pass ? "pass" : "fail";
-      if (pass) event.bonusDiscovery = true;
+      const passed = draws.check < pass(ghostCheckChance(profile));
+      event.outcome = passed ? "pass" : "fail";
+      if (passed) event.bonusDiscovery = true;
       else event.pauseSeconds = GHOST_RESCAN_SECONDS;
       break;
     }
@@ -316,7 +326,7 @@ export function resolveShipScanEventFromDraws(
     case "cloaked": {
       const cloaked = kind === "cloaked";
       // The cloaked vessel: the sensor check decides who strikes first (pass: the ship ambushes it).
-      const ambushFirst = cloaked ? (draws.check < chanceUnits(ghostCheckChance(profile)) ? "ship" : "enemy") : null;
+      const ambushFirst = cloaked ? (draws.check < pass(ghostCheckChance(profile)) ? "ship" : "enemy") : null;
       const won = shipEventBattleWon(exp, body, bodyIndex, step, ship, cloaked ? CLOAKED_VESSEL_HULL : HOSTILE_PROBE_HULL, ambushFirst);
       event.outcome = won ? "win" : "loss";
       if (won) {
@@ -324,11 +334,12 @@ export function resolveShipScanEventFromDraws(
         event.findingId = finding.id;
       } else {
         event.pauseSeconds = cloaked ? CLOAKED_REPAIR_SECONDS : PROBE_REPAIR_SECONDS;
-        event.hullWear = wear(cloaked ? CLOAKED_HULL_SHARE : PROBE_HULL_SHARE);
+        const w = wear(cloaked ? CLOAKED_HULL_SHARE : PROBE_HULL_SHARE);
+        if (w > 0) event.hullWear = w;
       }
       // GO-9: the vessel may attempt to board (draws 4 and 5, see BOARDING_ATTEMPT_CHANCE).
       if (draws.boardingAttempt < chanceUnits(BOARDING_ATTEMPT_CHANCE)) {
-        const repelled = draws.boardingRepel < chanceUnits(boardingRepelChance(profile.boardingDefense));
+        const repelled = draws.boardingRepel < pass(boardingRepelChance(profile.boardingDefense));
         event.boarding = { repelled };
         if (!repelled) {
           event.pauseSeconds = (event.pauseSeconds ?? 0) + BOARDING_PAUSE_SECONDS;
@@ -402,7 +413,12 @@ export function shipEventBattleSeed(exp: Pick<Expedition, "seed">, bodyIndex: nu
 // soften); Task 21's "softened ambush", moved here from the scan ground battles). Pure: a fresh combatant.
 export function shipEventEnemy(exp: Expedition, body: ExpeditionBody, bodyIndex: number, step: number, hull: ShipEventEnemyHull): Combatant {
   const id = `${exp.id}-shipevent-b${bodyIndex}-s${step}`;
-  const k = (1 + PROBE_HAZARD_SCALE * resistedHazard(body.hazard, exp.hazardResist ?? 0)) * Math.max(0, 1 - (exp.ambushSoften ?? 0));
+  // Safe first runs SF-3: an ordinary run's enemy reads the hazard at most the tier's ceiling and the curve's strength.
+  const stamp = rampedStampOf(exp);
+  const resisted = resistedHazard(body.hazard, exp.hazardResist ?? 0);
+  const hazard = stamp ? encounterHazard(resisted, stamp.tier) : resisted;
+  const curve = stamp ? rampEnemyScale(stamp.ramp) : 1;
+  const k = (1 + PROBE_HAZARD_SCALE * hazard) * Math.max(0, 1 - (exp.ambushSoften ?? 0)) * curve;
   const c = shipToCombatant({
     id,
     team: "enemy",

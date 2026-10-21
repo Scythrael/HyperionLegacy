@@ -13,7 +13,7 @@ import { makeRng } from "./combat/rng";
 import { V67_GROUND_TEAM_COUNT, emptyGroundTeams, shipsWithMemberAutoSlotted } from "./groundTeams";
 import { byIdNumber } from "./awayTeam";
 import { NEUTRAL_SHIP_EVENT_PROFILE } from "./groundOps";
-import { N_FULL, runCountsOf } from "./runDifficulty";
+import { runCountsOf } from "./runDifficulty";
 
 // Ground Operations (GO-1, and the GO-7c multi-team tests): register a SYNTHETIC hull under `key` in the
 // shared SHIP_TYPES table, cloned from the General Freighter with the given `awayTeams` (undefined = a hull
@@ -151,18 +151,49 @@ export function asPreFieldKitsDispatch<R extends { next: GameState; expedition?:
 // `ranks` appears only once a ranked run fights), so a dispatch record loses just that key. A run without the flag is
 // returned as it is; every other key keeps its order. Golden fixtures that dispatch (SF-0, G2-0, CP-0, WR-4 and the
 // earlier gates) strip it with this, so they keep proving nothing else moved. Pure: a shallow copy.
+// Safe first runs SF-3: a run from before FKR-1 is from before SF-3 too, so this also drops an ORDINARY run's curve
+// stamp (withoutCurve); the training run's stamp stays (SF-2's fixtures strip it with withoutSafeFirstRuns).
 export function withoutEnemyRanks(exp: Expedition): Expedition {
-  if (!("enemyRanks" in exp)) return exp;
-  const rest = { ...exp };
+  const plain = withoutCurve(exp);
+  if (!("enemyRanks" in plain)) return plain;
+  const rest = { ...plain };
   delete rest.enemyRanks;
   return rest;
 }
 
 // A whole state with every expedition through withoutEnemyRanks (a fixture that dispatches through tick or holds the
-// state between steps). Identity when no run carries the flag. Pure.
+// state between steps). Identity when no run carries the flag or an ordinary curve stamp. Pure.
 export function withoutEnemyRanksState(state: GameState): GameState {
-  if (!state.expeditions.some((e) => "enemyRanks" in e)) return state;
+  if (!state.expeditions.some((e) => "enemyRanks" in e || withoutCurve(e) !== e)) return state;
   return { ...state, expeditions: state.expeditions.map(withoutEnemyRanks) };
+}
+
+// Safe first runs SF-3 (docs/plans/2026-10-15-safe-first-runs-plan.md): the run WITHOUT its ORDINARY difficulty stamp
+// (`Expedition.difficulty` with firstRun false: the curve's ramp and the tier), i.e. the run as the same dispatch made
+// it before SF-3: its guards at full strength on the raw hazard (no tier ceiling, no Weak low end), its affix roll,
+// ambushes and ship events at nominal. The training run's stamp is kept (SF-2's). A run without an ordinary stamp is
+// returned as it is; every other key keeps its order. Fixtures that pin a real dispatch's pre-SF-3 trajectory strip it
+// with this (or asPreCurveDispatch). Pure: a shallow copy.
+export function withoutCurve(exp: Expedition): Expedition {
+  if (exp.difficulty === undefined || exp.difficulty.firstRun === true) return exp;
+  const rest = { ...exp };
+  delete rest.difficulty;
+  return rest;
+}
+
+// A whole state with every expedition through withoutCurve. Identity when nothing changes. Pure.
+export function withoutCurveState(state: GameState): GameState {
+  if (state.expeditions.every((e) => withoutCurve(e) === e)) return state;
+  return { ...state, expeditions: state.expeditions.map(withoutCurve) };
+}
+
+// Safe first runs SF-3: a dispatch result turned into the run it was before SF-3 (withoutCurve on the returned
+// expedition and every expedition in `next`). A refusal is returned unchanged. Pure.
+// A run before SF-3 was a run before the Field Kits switch-on too, so this composes asPreFieldKitsDispatch.
+export function asPreCurveDispatch<R extends { next: GameState; expedition?: Expedition }>(raw: R): R {
+  const res = asPreFieldKitsDispatch(raw);
+  if (!res.expedition) return res;
+  return { ...res, expedition: withoutCurve(res.expedition), next: withoutCurveState(res.next) };
 }
 
 // Field Kits FKR-1: a dispatch result turned into the run it was before FKR-1: the returned expedition and every
@@ -273,12 +304,16 @@ export function asPreG2NamesDispatch<R extends { next: GameState; expedition?: E
 }
 
 // Safe first runs SF-2: `state` as a save whose expedition training run is behind it and whose curve reads full
-// strength (runDifficulty.ts: veteran, training done, N_FULL completed), so its next expedition from ANY hull is an
+// strength (runDifficulty.ts: veteran, training done, VETERAN_FIXTURE_COMPLETED completed), so its next expedition from ANY hull is an
 // ordinary run, exactly as before SF-2 (apart from the retired shakedown length). Tests that pin nominal play on an
 // explorer from a fresh save go through this. Pure.
+// The completed count the fixture writes: the curve's N_FULL when SF-2 pinned it (10). A veteran reads full strength
+// whatever the count, so the SF-3 review's longer curve (N_FULL 11) leaves this pinned value, and every golden that
+// hashes the counters, as they were.
+const VETERAN_FIXTURE_COMPLETED = 10;
 export function asExpeditionVeteran(state: GameState): GameState {
   const counts = runCountsOf(state);
-  return { ...state, runCounts: { ...counts, expedition: { completed: N_FULL, trainingDone: true, veteran: true } } };
+  return { ...state, runCounts: { ...counts, expedition: { completed: VETERAN_FIXTURE_COMPLETED, trainingDone: true, veteran: true } } };
 }
 
 // Field Kits (FK-3, docs/plans/2026-10-14-field-kits-plan.md section 3): the run WITHOUT its Field Kits fields, i.e.
@@ -295,6 +330,8 @@ export function withoutFieldKits(exp: Expedition): Expedition {
   const rest = { ...exp } as Record<string, unknown>;
   delete rest.fieldKits;
   delete rest.enemyRanks;
+  // Safe first runs SF-3: a run from before the flags is from before SF-3's curve stamp too (withoutCurve).
+  if (exp.difficulty !== undefined && exp.difficulty.firstRun !== true) delete rest.difficulty;
   const ops = exp.groundOps;
   if (ops) {
     rest.groundOps = {

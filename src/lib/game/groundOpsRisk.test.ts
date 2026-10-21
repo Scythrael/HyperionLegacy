@@ -41,7 +41,7 @@ import { generateEncounter } from "./gambit";
 import { groundTaskClearOdds, groundThreatOddsKey, remainingTaskFights } from "./groundThreat";
 import { groundSiteLabel } from "./expeditionContent";
 import { FLORA_POISON_PERMILLE_PER_GRADE, riskAmbushChance, riskRewardBonus } from "./riskFactors";
-import { asPreG2NamesDispatch, plainAwayMember, withSlottedAwayTeams, withoutEnemyRanks, withoutRisk } from "./awayTeamTestFixtures";
+import { asPreCurveDispatch, asPreG2NamesDispatch, plainAwayMember, withSlottedAwayTeams, withoutEnemyRanks, withoutRisk } from "./awayTeamTestFixtures";
 
 // ===== fixtures =====
 
@@ -92,7 +92,7 @@ function compState(kinds: [GroundTeamKind, GroundTeamKind] | "one"): GameState {
 }
 
 function dispatch(s: GameState): Expedition {
-  const res = asPreG2NamesDispatch(startExpedition(s, "ship-1", 1, expeditionCandidates(s, "ship-1")[0].id));
+  const res = asPreCurveDispatch(asPreG2NamesDispatch(startExpedition(s, "ship-1", 1, expeditionCandidates(s, "ship-1")[0].id)));
   if (!res.success || !res.expedition) throw new Error(`dispatch refused: ${res.reason}`);
   return res.expedition;
 }
@@ -213,7 +213,7 @@ describe("SQ-4 the gate: a flagged run without a risk profile resolves byte-iden
   for (const [name, build] of Object.entries(CASES)) {
     it(`${name}: checkpoints and the claim match the pre-SQ-4 capture`, { timeout: 120_000 }, () => {
       const s = build();
-      const res = asPreG2NamesDispatch(startExpedition(s, "ship-1", 1, expeditionCandidates(s, "ship-1")[0].id));
+      const res = asPreCurveDispatch(asPreG2NamesDispatch(startExpedition(s, "ship-1", 1, expeditionCandidates(s, "ship-1")[0].id)));
       expect(res.success).toBe(true);
       expect(res.expedition!.risk).toBeDefined(); // a run dispatched today IS risk-aware
       const exp = withoutRisk(res.expedition!);
@@ -236,7 +236,7 @@ describe("SQ-4 the risk profile: drawn at dispatch from the committed seed, so t
     for (let k = 0; k < 12; k += 1) {
       const s = { ...compState("one"), expeditionSeed: (0x51ed27 + k * 0x9e3779b) >>> 0 };
       for (const cand of expeditionCandidates(s, "ship-1")) {
-        const res = asPreG2NamesDispatch(startExpedition(s, "ship-1", 1, cand.id));
+        const res = asPreCurveDispatch(asPreG2NamesDispatch(startExpedition(s, "ship-1", 1, cand.id)));
         const exp = res.expedition!;
         const preview = expeditionRiskPreview(cand.seed);
         expect(exp.seed).toBe(cand.seed);

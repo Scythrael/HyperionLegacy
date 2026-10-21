@@ -19,7 +19,7 @@ import { topUpAtLaunch } from "./quartermaster";
 import { advanceExpedition, claimExpedition, startExpedition } from "./expedition";
 import { groundCrewClearOdds, groundOpsAssignIdle, groundOpsBodyScanned, initGroundTasks } from "./groundOps";
 import { itemTotal } from "./inventory";
-import { plainAwayMember, withoutFieldKits } from "./awayTeamTestFixtures";
+import { asPreCurveDispatch, plainAwayMember, withoutFieldKits } from "./awayTeamTestFixtures";
 import { hash, stateHash } from "./firstRunsGoldens.fixture";
 
 const T0 = 100_000;
@@ -169,7 +169,9 @@ describe("FKR-7 goldens: what dispatch, the run and the claim did at FKR-6", () 
   // switched-on engine. The same Launch made today is the SWITCH ON test below.
   it("SWITCH OFF: a real dispatch holding stock, credits, packs and a top-up deducts nothing, stamps nothing, claims as before", { timeout: 120_000 }, () => {
     const state = crewed(SWITCH_OFF_SEED);
-    const res = startExpedition(state, "ship-1", 1, "cand-0", true, false);
+    // Safe first runs SF-3: pinned on the run as dispatched before the curve (asPreCurveDispatch: a new save's ordinary run
+    // now sits on the curve's floor).
+    const res = asPreCurveDispatch(startExpedition(state, "ship-1", 1, "cand-0", true, false));
     expect(res.success).toBe(true);
     const exp = res.expedition!;
     expect("fieldKits" in exp).toBe(false);

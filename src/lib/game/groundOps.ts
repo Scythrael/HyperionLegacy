@@ -126,6 +126,7 @@ import {
 } from "./affixes";
 // Safe first runs SF-2: the training run stamp's one read (no affixes, no ambushes, the backstop).
 import { isTrainingRun } from "./enemyRanks";
+import { rampedChance, runOddsRampOf } from "./runDifficulty";
 // Field Kits FKR-7: the flag (flag 2) and the run plumbing (the per-objective refresh, the fight spends, the bay share).
 import { fieldKitsLive } from "./fieldKits";
 import { freshBasicsFor, refreshObjectiveSupplies, spendFightSupplies } from "./fieldKitsRun";
@@ -714,6 +715,9 @@ export function initGroundTasks(exp: Expedition, bodyIndex: number): void {
   // AF-2: the run's affix catalog version (a run dispatched before AF-2 stamps from AF-1's, on AF-1's draw layout).
   const catalog = runAffixCatalog(exp.risk);
   const training = isTrainingRun(exp);
+  // Safe first runs SF-3: an ordinary run's curve position (1 = full strength, every run without the stamp).
+  // (SF-3 review: the odds' own position, one run behind the enemy curve.)
+  const ramp = runOddsRampOf(exp);
   for (let k = 0; k < body.activities.length; k += 1) {
     const task = body.activities[k];
     if (isGroundTask(task)) continue;
@@ -741,6 +745,7 @@ export function initGroundTasks(exp: Expedition, bodyIndex: number): void {
           combat: fights > 0,
           catalog,
           planetType: body.planetType,
+          ...(ramp < 1 ? { ramp } : {}),
         });
         // Safe first runs SF-2: a training run's objectives carry no affixes (the roll is still made, on its own keyed
         // stream, and dropped), so no Reinforcing, no alert, no cover.
@@ -751,8 +756,8 @@ export function initGroundTasks(exp: Expedition, bodyIndex: number): void {
       task.needs = stampedNeeds(task, task.fightPoints.length);
       delete task.requiredTeams; // read into needs (the carry-forward); never stored twice
     }
-    // Safe first runs SF-2: no ambushes on a training run.
-    const chance = training ? 0 : groundTaskAmbushChance(task, body);
+    // Safe first runs SF-2: no ambushes on a training run. SF-3: an ordinary run's chance on the curve (x ramp).
+    const chance = training ? 0 : rampedChance(groundTaskAmbushChance(task, body), ramp);
     if (chance > 0) task.ambushChance = chance;
     task.progress = 0;
     task.pointsCleared = 0;

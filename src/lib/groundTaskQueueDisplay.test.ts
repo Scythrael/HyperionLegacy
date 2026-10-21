@@ -15,7 +15,7 @@ import {
 } from "./game/model";
 import { advanceExpedition, editGroundOps, expeditionCandidates, startExpedition } from "./game/expedition";
 import { GROUND_OPS_STUCK_TEXT, groundOpsAssignIdle, groundOpsBodyScanned, groundOpsStuck, type GroundOpsEdit } from "./game/groundOps";
-import { plainAwayMember, withSlottedAwayTeams } from "./game/awayTeamTestFixtures";
+import { asPreCurveDispatch, plainAwayMember, withSlottedAwayTeams } from "./game/awayTeamTestFixtures";
 import type { ThreatAssessment } from "./game/combat/threatAssessment";
 import {
   AUTO_ASSIGN_LABEL,
@@ -88,7 +88,7 @@ function finish(d: Expedition, body: ExpeditionBody, opts: { securityStrength?: 
 
 function oneTeamRun(poiIds: string[], opts: { members?: AwayMember[]; securityStrength?: number; hazard?: number } = {}): { state: GameState; exp: Expedition } {
   const s = withSlottedAwayTeams({ ...freshState(), gameTimeSeconds: T0 - 50_000, awayMembers: (opts.members ?? SQUAD).map((m) => ({ ...m })), nextAwayMemberId: 100 });
-  const res = startExpedition(s, "ship-1", 1, expeditionCandidates(s, "ship-1")[0].id);
+  const res = asPreCurveDispatch(startExpedition(s, "ship-1", 1, expeditionCandidates(s, "ship-1")[0].id));
   if (!res.success || !res.expedition) throw new Error(`dispatch refused: ${res.reason}`);
   const exp = finish(res.expedition, scannedBody(res.expedition.id, poiIds, opts.hazard ?? 0.2), opts);
   return { state: { ...res.next, gameTimeSeconds: T0, expeditions: [exp] }, exp };
@@ -118,7 +118,7 @@ function twoTeamRun(kinds: [GroundTeamKind, GroundTeamKind], tasks: { poiId: str
     nextAwayMemberId: 100,
     ships: base.ships.map((sh) => ({ ...sh, groundTeams: teams })),
   };
-  const res = startExpedition(s, "ship-1", 1, expeditionCandidates(s, "ship-1")[0].id);
+  const res = asPreCurveDispatch(startExpedition(s, "ship-1", 1, expeditionCandidates(s, "ship-1")[0].id));
   if (!res.success || !res.expedition) throw new Error(`dispatch refused: ${res.reason}`);
   const body = scannedBody(res.expedition.id, tasks.map((t) => t.poiId), 0.2);
   tasks.forEach((t, k) => {

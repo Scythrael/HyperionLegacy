@@ -105,7 +105,7 @@ describe("FKR-1 fightLeadRank: the final point of a Challenging or harder object
     for (const p of [0, 1]) expect([1, 2, 3, 4, 5].map((g) => fightLeadRank(final(g, { pointIndex: p })))).toEqual(["normal", "normal", "normal", "strong", "normal"]);
   });
 
-  it("Weak is never placed here (the curve's low end is SF-3's)", () => {
+  it("Weak is never a placed lead (SF-3 fields it as the curve's low end base rank, enemyRanks.ts curveBaseRank)", () => {
     for (const g of [1, 2, 3, 4, 5]) for (const p of [0, 1, 2]) for (const kind of ["point", "surprise", "reinforcement"] as const) expect(fightLeadRank(final(g, { pointIndex: p, kind }))).not.toBe("weak");
   });
 

@@ -17,7 +17,7 @@ import { groundTaskClearOdds, groundThreatOddsKey } from "./groundThreat";
 import { resistedHazard } from "./relics";
 import { bodyFloraGrade } from "./riskFactors";
 import { EARLIER_FIGHT_LEAD, ENEMY_RANKS_VERSION, FINAL_FIGHT_LEAD, isTrainingRun, withEnemyRanks } from "./enemyRanks";
-import { plainAwayMember, withoutEnemyRanks, withoutFieldKits } from "./awayTeamTestFixtures";
+import { asExpeditionVeteran, plainAwayMember, withoutCurve, withoutEnemyRanks, withoutFieldKits } from "./awayTeamTestFixtures";
 import { onHull, withCrew } from "./firstRunsGoldens.fixture";
 import { wiringEntry } from "./wiring/registry";
 
@@ -198,7 +198,8 @@ describe("FKR-1 the flag: stamped at dispatch on new runs only", () => {
     expect(res.next.expeditions[0].enemyRanks).toEqual({ version: ENEMY_RANKS_VERSION });
     const off = withoutEnemyRanks(exp);
     expect("enemyRanks" in off).toBe(false);
-    expect({ ...off, enemyRanks: exp.enemyRanks }).toEqual(exp);
+    // Safe first runs SF-3: it also drops the ordinary run's curve stamp (a run from before FKR-1 had none).
+    expect({ ...off, enemyRanks: exp.enemyRanks }).toEqual(withoutCurve(exp));
     expect(withoutEnemyRanks(off)).toBe(off);
   });
 
@@ -271,7 +272,7 @@ describe("FKR-1 the stamped twin of FKR-0 (2): only the placed fights move", () 
 
 // ===== the guard the wiring reads, and the Weak rank =====
 
-describe("FKR-1 the guard a fight fields, and Weak left to SF-3", () => {
+describe("FKR-1 the guard a fight fields, and Weak placed by SF-3", () => {
   it("taskFightGuard is FKR-0's fielded list on an unranked run and its ranked twin on a ranked one", () => {
     const plain = gradeRun("Low");
     for (const [k, t] of tasksOf(plain).entries()) {
@@ -286,11 +287,11 @@ describe("FKR-1 the guard a fight fields, and Weak left to SF-3", () => {
     }
   });
 
-  it("Weak's wiring entries are pending on SF-3 (the difficulty curve places it); the other ranks are live on HP and power", () => {
+  it("every rank's wiring entries are live on HP and power (SF-3 brought Weak live: the difficulty curve's low end places it)", () => {
     for (const id of ["expedition:ENEMY_RANKS:weak", "expedition:ENEMY_RANKS:weak:hp"]) {
       const e = wiringEntry(id)!;
-      expect(e.status.kind).toBe("pending");
-      expect(e.status.kind === "pending" && e.status.owner.startsWith("SF-3")).toBe(true);
+      expect(e.status.kind, id).toBe("live");
+      expect(e.probe, id).toBe(id.endsWith(":hp") ? "content:enemyRank:weak:hp" : "content:enemyRank:weak:power");
     }
     for (const rank of ["normal", "strong", "elite", "boss"]) {
       for (const id of [`expedition:ENEMY_RANKS:${rank}`, `expedition:ENEMY_RANKS:${rank}:hp`]) expect(wiringEntry(id)!.status.kind, id).toBe("live");
@@ -386,7 +387,8 @@ describe("FKR-1 whole ranked runs: every stored fight is placed by the rule", ()
     let leads = 0;
     let fights = 0;
     for (const seed of [0x51ed, 0x2b0b5e7, 0x6ade5]) {
-      const exp = startExpedition(crewed(seed), "ship-1", 1, "cand-0").expedition!;
+      // Safe first runs SF-3: a veteran's run (full strength: no Weak low end; that placement is safeFirstRamp.test.ts').
+      const exp = startExpedition(asExpeditionVeteran(crewed(seed)), "ship-1", 1, "cand-0").expedition!;
       for (const { fight, task } of runFights(exp, T0 + 400_000)) {
         expectPlaced(fight, task);
         fights += 1;

@@ -3013,8 +3013,8 @@ function affixEntries(): WiringEntry[] {
 
 // Every rank's ONE multiplier (user N1: HP and power alike; heal follows), read on a REAL task fight's guard
 // (groundFight.ts taskFightGuard) at a fight point the placement leads with that rank: the lead's power and its HP on a
-// ranked run are its unranked values x the multiplier (HP within one rounding step). Weak is pending: SF-3 places it
-// on the difficulty curve (user 2026-10-16 "Use them on the curve"), so no fight fields it yet.
+// ranked run are its unranked values x the multiplier (HP within one rounding step). Weak (safe first runs SF-3, user
+// 2026-10-16 "Use them on the curve") is read on the difficulty curve's low end: an ordinary run at the curve's floor.
 function enemyRankEntries(): WiringEntry[] {
   return ENEMY_RANK_IDS.flatMap((rank) =>
     (["power", "hp"] as const).map((stat) => {
@@ -3025,7 +3025,6 @@ function enemyRankEntries(): WiringEntry[] {
         source: { catalog: "ENEMY_RANKS", key: stat === "hp" ? `${rank}:hp` : rank },
         claim: `${ENEMY_RANKS[rank].label} enemy rank: its ${stat === "hp" ? "HP" : "power"} takes the rank multiplier`,
       };
-      if (rank === "weak") return entry({ ...shared, status: pending("SF-3 (the difficulty curve places Weak enemies)") });
       return entry({
         ...shared,
         probe: `content:enemyRank:${rank}:${stat}`,

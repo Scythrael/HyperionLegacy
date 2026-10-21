@@ -9,7 +9,7 @@ import { freshState, type AwayMember, type Expedition, type ExpeditionBody, type
 import { advanceExpedition, editGroundOps, expeditionCandidates, flaggedScanTimeline, startExpedition } from "./game/expedition";
 import { IN_SYSTEM_LEG_SECONDS, groundOpsAssignIdle, groundOpsBayCare, groundOpsBodyScanned } from "./game/groundOps";
 import { GROUND_CONDITIONS, conditionCureSeconds } from "./game/medicalBay";
-import { plainAwayMember, withSlottedAwayTeams } from "./game/awayTeamTestFixtures";
+import { asPreCurveDispatch, plainAwayMember, withSlottedAwayTeams } from "./game/awayTeamTestFixtures";
 import { runTeamName } from "./groundTaskQueueDisplay";
 import {
   GROUND_OPS_PHASE_LABEL,
@@ -54,7 +54,7 @@ interface Setup {
 
 function opsRun(setup: Setup): { state: GameState; exp: Expedition } {
   const s = withSlottedAwayTeams({ ...freshState(), gameTimeSeconds: T0 - 50_000, awayMembers: (setup.members ?? SQUAD).map((m) => ({ ...m })), nextAwayMemberId: 100 });
-  const res = startExpedition(s, "ship-1", 1, expeditionCandidates(s, "ship-1")[0].id);
+  const res = asPreCurveDispatch(startExpedition(s, "ship-1", 1, expeditionCandidates(s, "ship-1")[0].id));
   if (!res.success || !res.expedition) throw new Error(`dispatch refused: ${res.reason}`);
   const d = res.expedition;
   const body: ExpeditionBody = {
@@ -550,7 +550,7 @@ describe("GO-14 the ship's lane", () => {
 
   it("flaggedScanTimeline walks a real run: contiguous body spans from the window's start, each pause as long as recorded", () => {
     const s = withSlottedAwayTeams({ ...freshState(), awayMembers: SQUAD.map((m) => ({ ...m })), nextAwayMemberId: 100, expeditionSeed: 0x6eed1 });
-    const res = startExpedition(s, "ship-1", 1, expeditionCandidates(s, "ship-1")[0].id);
+    const res = asPreCurveDispatch(startExpedition(s, "ship-1", 1, expeditionCandidates(s, "ship-1")[0].id));
     const exp = res.expedition!;
     let t = 0;
     let e = exp;
