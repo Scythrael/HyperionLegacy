@@ -22,11 +22,14 @@
 
 import {
   BLUEPRINTS,
+  CAPTAIN_RACIAL_SCALE,
   CAPTAIN_SPEC_BONUS,
   CAPTAIN_TALENTS,
   EQUIPMENT_SLOTS,
   EQUIPMENT_STORAGE_RUNGS,
   FACILITIES,
+  GENERAL_QUARTERS_GUEST_PERK,
+  GRENADE_CARRY_PER_LINE,
   HOMEWORLD_TALENTS,
   ITEMS,
   LIVE_STAT_KEYS,
@@ -35,8 +38,10 @@ import {
   MEMBER_SLOT_TYPES,
   MISSIONS,
   PATROLS,
+  FIELD_KITS_DEFAULT_GRENADE_RULES,
   PERCENT_STAT_CURVES,
   REFINE_RECIPES,
+  refineRecipeOffered,
   SALVAGE_LOOT_POOLS,
   SECONDARY_CAPTAIN_TALENTS,
   SHIP_DOCKS_BASE,
@@ -45,6 +50,7 @@ import {
   SI_EMITTER_CAP,
   SI_EMITTER_RECHARGE,
   SI_PLATING_HP,
+  SLOT_BASE_PHYSICALS,
   SUBSPACE_TELESCOPE_FACILITY_KEY,
   SUBSPACE_TELESCOPE_LEVELS,
   TRANSIT_BERTH_RUNGS,
@@ -73,36 +79,41 @@ import {
 import Decimal from "break_infinity.js";
 import { diminishing } from "../diminishing";
 import { secondaryTalentEffectText } from "../captainSecondaryEffects";
-import { buyHomeworldTalent } from "../tick";
+import { buyHomeworldTalent, describeCaptainTalentEffect } from "../tick";
+import type { CaptainPrimaryMultKind } from "../captainPrimaryEffects";
 import { combatHullTypeOf, hullDefenseComposition } from "../combat/bridge";
 import { SENIOR_STAFF_BONUSES, type SeniorStaffBonusDef } from "../seniorStaffBonuses";
-import { CREW_PROFESSION_BUFFS, CREW_STAT_KEYS, HELD_CREW_BUFF_IDS, SECOND_LEVEL_EXCLUSIVE, type CrewBuffDef } from "../crewBuffs";
+import { CREW_PROFESSION_BUFFS, CREW_STAT_KEYS, HELD_CREW_BUFF_IDS, SECOND_LEVEL_EXCLUSIVE, TRANSIT_SPEED_KEY, type CrewBuffDef } from "../crewBuffs";
 import { CREW_RACES } from "../crewRaces";
 import { CREW_RARITY_MULTIPLIER } from "../crewRarity";
 import { CREW_RANKS, CREW_RANK_ORDER, rankMagnitudeFactor } from "../crewRank";
 import { GROUND_CONDITIONS, STONESKIN_INJURY_MULT } from "../medicalBay";
 import { OFFICER_STAT_KEYS } from "../seniorStaff";
 import { DEPARTMENT_OF_SEAT, OFFICER_STAT_NEUTRAL, XO_DEPARTMENT_SHARE, officerStatFacet } from "../officerStats";
-import { CREW_EFFECTIVENESS_KNEE, OFFICER_BONUSES_PENDING_IN_RELEASE } from "../crewOverlay";
+import { CREW_EFFECTIVENESS_KNEE, OFFICER_BONUSES_PENDING_IN_RELEASE, POWER_EFFICIENCY_KNEE } from "../crewOverlay";
 import { patrolCycleOneRampHours } from "../tick";
 import { constitutionRamp } from "../constitutionRamp";
 import { AWAY_TRAITS, type AwayTraitDef } from "../awayTraits";
-import { FIRST_AID_TRAINED_EFFECTIVENESS, FIRST_AID_UNTRAINED_EFFECTIVENESS, GAMBIT_PRESETS, GAMBIT_STATUSES } from "../gambit";
+import { FIRST_AID_TRAINED_EFFECTIVENESS, FIRST_AID_UNTRAINED_EFFECTIVENESS, GAMBIT_PRESETS, GAMBIT_STATUSES, STONESKIN_BATTLE_RESIST } from "../gambit";
 import { applyMemberGambitPreset } from "../memberGambits";
 import { GEAR_POINT_BUMP, GROUND_STAT_MEMBER_STAT, FIELDWORK_YIELD_PER_POINT, STATUS_RESIST_PER_POINT } from "../awayTeam";
 import { PROSPECTING_BLUEPRINTS, PROSPECTING_SPEC_BASE, PROSPECTING_USES } from "../prospecting";
 import { FIELDWORK_SPEED_KNEE, FIELDWORK_SPEED_PER_BUMP, FIELDWORK_YIELD_KNEE } from "../fieldwork";
 import {
+  EXCEPTIONAL_SETS,
   MUSEUM_COPY_LADDER,
   MUSEUM_PER_COPY_BONUS,
   MUSEUM_STATS,
   MUSEUM_TIER_LEVEL_BONUS,
   RELIC_SETS,
+  RELIC_TYPES,
   RELICS,
   museumBonusesFromRecord,
   type MuseumStat,
 } from "../relics";
 import { BRIDGE_MODULES, QUARTERS_MODULES, moduleEffectScale } from "../crewModules";
+import { graduateStandout } from "../crewGraduation";
+import { signatureKey } from "../crew";
 import { SENSOR_ARRAYS } from "../sensorArrays";
 import { RETIREMENT_EXP_PER } from "../captainRetirement";
 import { explorerTalentText } from "../captainExplorerEffects";
@@ -116,6 +127,7 @@ import { DRONE_POD_AFFIX_POOL, DRONE_POD_IMPLICIT_STAT, WEAPON_AFFIX_POOL, WEAPO
 import { AFFIX_DEFS, ESCALATION_ENEMIES_PER_LEVEL, HEIGHTENED_SENSES_KNEE, HEIGHTENED_SENSES_PER_LEVEL } from "../affixes";
 import { ENEMY_RANKS, ENEMY_RANK_IDS } from "../enemyRanks";
 import { OVERTIME_STEP_RATE } from "../processSpeed";
+import { SHORT_RANGE_TEMPLATES, SHORT_RANGE_TEMPLATE_KEYS } from "../shortRange";
 import {
   CONDITION_LINES,
   CONDITION_LINE_IDS,
@@ -130,9 +142,11 @@ import {
   type FieldKitId,
   type KitCategory,
 } from "../fieldKits";
+import { GRENADES, GRENADE_IDS } from "../fieldKitsGrenades";
 import {
   WIRING_SCIENCE_ID,
   WIRING_SECURITY_ID,
+  shortRangeTrainingCycle,
   bucketOf,
   combatBase,
   editCaptain,
@@ -150,6 +164,7 @@ import {
   withRunningJobs,
   overtimeOneStep,
   WIRING_BUCKET_COUNT,
+  WIRING_SHIP_ID,
   AFFIX_ALIGNED_HOOKS,
   AFFIX_HOOK_KEYS,
   GAMBIT_ACTIONS,
@@ -280,7 +295,10 @@ export const CATALOGS = {
   SENSOR_ARRAYS,
   RELIC_SETS,
   RELICS,
+  RELIC_TYPES,
+  EXCEPTIONAL_SETS,
   WEAPON_DEFS,
+  SLOT_BASE_PHYSICALS,
   ROLE_TEMPLATE,
   PIRATE_HULLS,
   STATUS_EFFECT_DEFS,
@@ -297,6 +315,10 @@ export const CATALOGS = {
   CONDITION_LINES,
   FREE_BASIC_SET,
   FIELD_KIT_PRICES,
+  GRENADES,
+  GRENADE_CARRY_PER_LINE,
+  // G1-4: the short-range template catalog (its rolls, work and pay are live through the cycle engine).
+  SHORT_RANGE_TEMPLATES,
 } as const;
 export type Catalogs = typeof CATALOGS;
 
@@ -368,14 +390,21 @@ function pending(owner: string, contexts?: readonly ContextId[]): WiringStatus {
 }
 
 // The phase strings no-dead-stats used (kept verbatim: the liveness level reads them as owners).
-const TASK_23 = "E-CREW Task 23 (division pools + exclusive pool live, design 6.2)";
-const E_MOD = "E-MOD power budget";
-const FIELD_KITS_FEAR = "Field Kits 16b: enemies inflict Fear (D26)";
+// The slice that owns the four Ground Ops complement consumers still pending (complement plan
+// docs/plans/2026-10-14-complement-and-acquisition-plan.md section 3 CP-3). The old owner, "E-CREW Task 23 (division
+// pools + exclusive pool live, design 6.2)", was split into CP-1 to CP-4; CP-2 and the inert-racials slice (0.14.0,
+// user "everything wired" 2026-10-20) took the rest live. Exported for the liveness parity test (the renamed owner).
+export const CP_3 = "Complement plan CP-3 (Ground Ops complement consumers: Security, Medical, exclusive pool)";
 const SCIENCE_LINE_SWAP = "Science gear line swap (D26): Science gear rolls fieldwork/hazard/find lines instead";
-const CORTEX_RESIST = "Field Kits 16b: Fear (D26) + stun resist covers Concussion [proposal, pending user]";
+// Expedition Tiers G2-2 (plan 2026-10-14 G2-2: "the console still shows Tier I only (G2-6 adds the picker); a hidden
+// region is reachable by tests only"): every tier's candidates are built and tested (expeditionTierCandidates.test.ts),
+// but no player reaches a deeper tier until the console offers it, so the tier-gated sources wait on G2-6.
+const G2_6_PICKER = "G2-6 (the region picker: G2-2 built every tier's candidates, the console offers Tier I until then)";
 const PILOT_CUNNING = "pending user decision (officerStats.ts CUNNING_PENDING_SEATS)";
 // The user's T3 deferrals (capture 2026-10-15 section 3: "Move all five (Recommended)").
 const T3 = "capture 2026-10-15 section 3 T3 (moved to 0.14.x)";
+// G1-4: the guest quarters sources and the short-range template catalog are LIVE at mission:shortRange (the cycle
+// engine, shortRangeCycle.ts): see the guest quarters entries, missionEntries and SHORT_RANGE_SWEEP below.
 
 // Prospecting squads (0.14.0, built HIDDEN; design docs/plans/2026-10-16-prospecting-squads-design.md section 8):
 // every Prospecting source is deferred to the prospecting quests patch, the user-approved exception to "no
@@ -398,10 +427,36 @@ function seatFor(def: SeniorStaffBonusDef): SeniorStaffSeat {
   return def.seat === "any" ? "executive" : def.seat;
 }
 
-// What each officer statKey moves (probe, contexts, curve). Absent = pending (OFFICER_PENDING below).
-const OFFICER_SEAMS: Readonly<Record<string, { probe: ProbeId; contexts: ContextId[]; curve: Curve }>> = {
+// E-MOD EM-1: power efficiency (Reactor Overdrive, Power Discipline, the Martian racial) cuts the ship's NET power draw,
+// draw / (1 + diminishing(e, knee)) rounded up to a whole point. Read on a ship carrying a large powered piece, so the
+// whole-point rounding is a small share of the move (tolerance: one point).
+const POWERED_PIECE_DRAW = 1000;
+const poweredBase = (): GameState => installPiece(wiringBase(), { slotType: "cargoBay", powerDraw: POWERED_PIECE_DRAW });
+const POWER_EFFICIENCY_SEAM = {
+  probe: "sheetPowerDraw" as ProbeId,
+  contexts: ["sheet"] as ContextId[],
+  curve: { kind: "divisor" } as Curve,
+  direction: "down" as const,
+  tolerance: 1,
+  base: poweredBase,
+  effect: (m: number) => diminishing(m, POWER_EFFICIENCY_KNEE),
+};
+
+// What each officer statKey moves (probe, contexts, curve). Absent = pending (OFFICER_PENDING below). E-MOD EM-1: an
+// optional fixture, direction, tolerance and the move the catalog magnitude makes through the consumer's curve.
+interface OfficerSeam {
+  probe: ProbeId;
+  contexts: ContextId[];
+  curve: Curve;
+  direction?: "up" | "down";
+  tolerance?: number;
+  base?: () => GameState;
+  effect?: (m: number) => number;
+}
+const OFFICER_SEAMS: Readonly<Record<string, OfficerSeam>> = {
+  "officer.powerEfficiencyMult": POWER_EFFICIENCY_SEAM,
   "officer.shipOutputMult": { probe: "missionOutputBonus", contexts: ["mission:extraction"], curve: { kind: "linearAbsolute" } },
-  "officer.transitTimeCut": { probe: "sheetTransit", contexts: ["sheet"], curve: { kind: "linearRelative" } },
+  "officer.transitTimeCut": { probe: "sheetTransit", contexts: ["sheet", "expedition:groundOps"], curve: { kind: "linearRelative" } },
   "officer.evasion": { probe: "officerEvasion", contexts: ["patrol", "expedition:groundOps"], curve: { kind: "linearAbsolute" } },
   "officer.unloadTimeCut": { probe: "sheetUnload", contexts: ["sheet", "expedition:groundOps"], curve: { kind: "linearRelative" } },
   "officer.effectiveCargoMult": { probe: "sheetCargo", contexts: ["sheet"], curve: { kind: "linearRelative" } },
@@ -410,6 +465,8 @@ const OFFICER_SEAMS: Readonly<Record<string, { probe: ProbeId; contexts: Context
   "officer.weaponEffectivenessMult": { probe: "officerWeapons", contexts: ["patrol"], curve: { kind: "linearAbsolute" } },
   "officer.shieldEffectivenessMult": { probe: "officerShields", contexts: ["patrol"], curve: { kind: "linearAbsolute" } },
   "officer.crewLossPrevention": { probe: "expSquadTriage", contexts: ["ground"], curve: { kind: "linearAbsolute" } },
+  // Field Kits FKR-4: Morale Anchor's Fear resist, now that a Field Kits run's Swarm and hostile garrisons inflict Fear.
+  "officer.crewRetention": { probe: "runSecFearResist", contexts: ["ground"], curve: { kind: "chanceAbsolute" } },
   "officer.repairRateMult": { probe: "officerRepairBonus", contexts: ["shipyard", "medbay"], curve: { kind: "linearAbsolute" } },
   "officer.rangeMult": { probe: "sheetEngineEff", contexts: ["sheet"], curve: { kind: "linearAbsolute" } },
   "officer.allStatsMult": { probe: "sheetCargo", contexts: ["sheet"], curve: { kind: "linearRelative" } },
@@ -418,7 +475,6 @@ const OFFICER_SEAMS: Readonly<Record<string, { probe: ProbeId; contexts: Context
 
 const OFFICER_PENDING: Readonly<Record<string, string>> = {
   ...OFFICER_BONUSES_PENDING_IN_RELEASE,
-  "officer.crewRetention": FIELD_KITS_FEAR,
 };
 
 function officerEntries(): WiringEntry[] {
@@ -437,10 +493,14 @@ function officerEntries(): WiringEntry[] {
         probe: seam?.probe,
         contexts: owner ? [] : seam?.contexts ?? [],
         curve: seam?.curve ?? { kind: "linearAbsolute" },
-        magnitude: (c) => c.SENIOR_STAFF_BONUSES.find((d) => d.id === def.id)!.magnitude,
+        ...(seam?.direction ? { direction: seam.direction } : {}),
+        ...(seam?.tolerance !== undefined ? { tolerance: seam.tolerance } : {}),
+        magnitude: (c) => (seam?.effect ?? ((m: number) => m))(c.SENIOR_STAFF_BONUSES.find((d) => d.id === def.id)!.magnitude),
         on: (s) => seatOfficer(s, seat, [def.id]),
         off: (s) => seatOfficer(s, seat, []),
-        base: def.statKey.startsWith("officer.weapon") || def.statKey.startsWith("officer.shield") ? () => combatBase() : () => wiringBase(),
+        base:
+          seam?.base ??
+          (def.statKey.startsWith("officer.weapon") || def.statKey.startsWith("officer.shield") ? () => combatBase() : () => wiringBase()),
         status: owner ? pending(owner) : LIVE,
       }),
     );
@@ -461,6 +521,7 @@ interface CrewSeam {
   base?: () => GameState;
   alongside?: readonly CrewBucket[];
   effect?: (m: number) => number;
+  direction?: "up" | "down"; // E-MOD EM-1: power efficiency moves the draw DOWN
 }
 
 // CP-2 (OC-3): Crew Effectiveness lifts every OTHER complement buff, read on a fixture carrying one (Efficient
@@ -480,8 +541,8 @@ const CREW_SEAMS: Readonly<Record<string, CrewSeam>> = {
   [CREW_STAT_KEYS.loadSpeed]: { probe: "expReloadMult", contexts: ["expedition:groundOps"], curve: { kind: "linearAbsolute" } },
   [CREW_STAT_KEYS.effectiveCargo]: { probe: "sheetCargo", contexts: ["sheet"], curve: { kind: "linearRelative" } },
   // CP-2 (OC-E5): each transit buff lifts its own leg.
-  [CREW_STAT_KEYS.transitOutSpeed]: { probe: "sheetOutLeg", contexts: ["sheet"], curve: { kind: "linearRelative" } },
-  [CREW_STAT_KEYS.transitBackSpeed]: { probe: "sheetBackLeg", contexts: ["sheet"], curve: { kind: "linearRelative" } },
+  [CREW_STAT_KEYS.transitOutSpeed]: { probe: "sheetOutLeg", contexts: ["sheet", "expedition:groundOps"], curve: { kind: "linearRelative" } },
+  [CREW_STAT_KEYS.transitBackSpeed]: { probe: "sheetBackLeg", contexts: ["sheet", "expedition:groundOps"], curve: { kind: "linearRelative" } },
   // CP-2: Damage Control joins the repair divisor (Shipyard, and the field repair frozen at dispatch).
   [CREW_STAT_KEYS.hullRepairRate]: { probe: "turnaround", contexts: ["shipyard", "shipEvent"], curve: { kind: "linearRelative" } },
   // CP-2: Mission Turnaround: the unload x (1 + t) and the same repair divisor (Veteran Instincts' shape, own key).
@@ -495,40 +556,40 @@ const CREW_SEAMS: Readonly<Record<string, CrewSeam>> = {
   [CREW_STAT_KEYS.rareFindChance]: { probe: "rareFind", contexts: ["expedition:groundOps", "mission:survey"], curve: { kind: "linearAbsolute" } },
   [CREW_STAT_KEYS.reducedCrewLosses]: { probe: "injuryCare", contexts: ["medbay"], curve: { kind: "linearAbsolute" } },
   [CREW_STAT_KEYS.fuelEfficiency]: { probe: "sheetEngineEff", contexts: ["sheet"], curve: { kind: "linearAbsolute" } },
+  // E-MOD EM-1 (P4): Power Discipline and the Martian racial cut the net power draw (POWER_EFFICIENCY_SEAM).
+  [CREW_STAT_KEYS.powerEfficiency]: POWER_EFFICIENCY_SEAM,
+  // The inert racials go live (0.14.0, user "everything wired" 2026-10-20). Deck Handling + the Belter racial (CP-4,
+  // OC-1 "Faster drone replenish"): the patrol cycle's between-wave replenish x (1 + it), banked in whole units so any
+  // amount acts, read through the consumer over a long recovery (within one banked unit), on a carrier with drones.
+  [CREW_STAT_KEYS.droneHandling]: { probe: "patrolReplenishShare", contexts: ["patrol"], curve: { kind: "linearAbsolute" }, tolerance: 1e-5, base: () => combatBase("carrier") },
+  // Survey Aptitude + the Vael and Outer-Colony racials (CP-3's racial piece, OC-4 "Faster scans"): the dispatch's
+  // scanSpeedBonus, so the scan rate x (1 + it) on a run that carries no other scan bonus.
+  [CREW_STAT_KEYS.surveyAptitude]: { probe: "expScanRate", contexts: ["expedition:groundOps"], curve: { kind: "linearRelative" } },
+  // The Spacer racial (user 2026-10-20 "+Transit speed"): the sweeping transit speed key, read exactly as the Pilot's
+  // Ace Navigator (the sheet and the voyage's frozen speed). No crew buff targets it, so only the racial reads this.
+  [TRANSIT_SPEED_KEY]: { probe: "sheetTransit", contexts: ["sheet", "expedition:groundOps"], curve: { kind: "linearRelative" } },
 };
 
 // The claimed consumer of each dead crew.* key, read so a pending key that starts moving fails until it is flipped:
 // the probe, the claimed context, and a fixture that HAS the system the key would act on (WR-1 review: an away team
-// for the squad keys, a medic for Triage, a carrier with drones for Deck Handling, a powered piece for Power
-// Discipline), so the flat check is real.
+// for the squad keys, a medic for Triage, a carrier with drones for Deck Handling), so the flat check is real.
 interface DeadKeySeam {
   probe: ProbeId;
   context: ContextId;
   base?: () => GameState;
 }
-const POWERED_PIECE_DRAW = 20; // a piece drawing real power, so a power-draw cut would show
 const withMedic: Transform = (s) => editMember(s, WIRING_SECURITY_ID, { traits: ["fieldMedic"] });
 const CREW_PENDING_PROBES: Readonly<Record<string, DeadKeySeam>> = {
-  [CREW_STAT_KEYS.surveyAptitude]: { probe: "expScanRate", context: "expedition:groundOps" },
   [CREW_STAT_KEYS.awayTeamProtection]: { probe: "runSecHp", context: "ground", base: () => withAwayTeam(wiringBase()) },
-  [CREW_STAT_KEYS.droneHandling]: { probe: "combatDroneHp", context: "patrol", base: () => combatBase("carrier") },
   [CREW_STAT_KEYS.triage]: { probe: "runSecHeal", context: "ground", base: () => withMedic(withAwayTeam(wiringBase())) },
-  [CREW_STAT_KEYS.powerEfficiency]: {
-    probe: "sheetPowerDraw",
-    context: "sheet",
-    base: () => installPiece(wiringBase(), { slotType: "cargoBay", powerDraw: POWERED_PIECE_DRAW }),
-  },
   [CREW_STAT_KEYS.preventCrewLoss]: { probe: "injuryCare", context: "medbay" },
 };
 
 const CREW_PENDING: Readonly<Record<string, string>> = {
-  [CREW_STAT_KEYS.powerEfficiency]: E_MOD,
-  [CREW_STAT_KEYS.droneHandling]: TASK_23,
-  [CREW_STAT_KEYS.counterInfiltration]: TASK_23,
-  [CREW_STAT_KEYS.awayTeamProtection]: TASK_23,
-  [CREW_STAT_KEYS.surveyAptitude]: TASK_23,
-  [CREW_STAT_KEYS.triage]: TASK_23,
-  [CREW_STAT_KEYS.preventCrewLoss]: TASK_23,
+  [CREW_STAT_KEYS.counterInfiltration]: CP_3,
+  [CREW_STAT_KEYS.awayTeamProtection]: CP_3,
+  [CREW_STAT_KEYS.triage]: CP_3,
+  [CREW_STAT_KEYS.preventCrewLoss]: CP_3,
 };
 
 const PROFESSION_OF_BUFF = new Map<string, CrewProfession>(
@@ -553,6 +614,7 @@ function crewEntries(): WiringEntry[] {
       probe: held ? undefined : probe,
       contexts: held || owner ? [] : seam?.contexts ?? [],
       curve: seam?.curve ?? { kind: "linearAbsolute" },
+      ...(seam?.direction && !owner ? { direction: seam.direction } : {}),
       // One standard Crewman per head: the buff's catalog magnitude x the bucket's head count (through the
       // consumer's curve where the seam names one, CP-2).
       magnitude: () => (seam?.effect ?? ((m: number) => m))(def.magnitude * WIRING_BUCKET_COUNT),
@@ -569,13 +631,11 @@ function crewEntries(): WiringEntry[] {
   });
 }
 
-const RACIAL_PENDING: Readonly<Partial<Record<CrewRace, WiringStatus>>> = {
-  martian: pending(E_MOD),
-  belter: pending(TASK_23),
-  outerColony: pending(TASK_23),
-  vael: pending(TASK_23),
-  spacer: { kind: "deferred", owner: "Task 23: complement long-haul ramp (D26)", userRef: `${T3}: the Spacer long-haul ramp` },
-};
+// Every racial is live (0.14.0, user "everything wired" 2026-10-20): Belter through Deck Handling's replenish (CP-4,
+// OC-1), Vael and Outer-Colony through Survey Aptitude's scan speed (CP-3's racial piece, OC-4), and the Spacer on the
+// sweeping transit speed (merge-batch answers 2026-10-20 "+Transit speed"). The Spacer long-haul ramp itself
+// (crew.endurance, D26) stays 0.14.x (T3); no source targets that key in 0.14.0, so it has no entry.
+const RACIAL_PENDING: Readonly<Partial<Record<CrewRace, WiringStatus>>> = {};
 
 function racialEntries(): WiringEntry[] {
   return (Object.keys(CREW_RACES) as CrewRace[]).map((race) => {
@@ -594,6 +654,8 @@ function racialEntries(): WiringEntry[] {
       probe,
       contexts: status.kind === "live" ? seam?.contexts ?? [] : [],
       curve: seam?.curve ?? { kind: "linearAbsolute" },
+      ...(seam?.direction && status.kind === "live" ? { direction: seam.direction } : {}),
+      ...(seam?.tolerance !== undefined && status.kind === "live" ? { tolerance: seam.tolerance } : {}),
       magnitude: (c) => (seam?.effect ?? ((m: number) => m))(c.CREW_RACES[race].racialBonus.seniorStaff),
       on: (s) => seatOfficer(s, "executive", [], { race }),
       off: identity,
@@ -655,7 +717,6 @@ const GEAR_PENDING: Readonly<Record<string, string>> = {
   "gear:science:fieldSuit:groundHp": SCIENCE_LINE_SWAP,
   "gear:science:hazardSuit:groundArmor": SCIENCE_LINE_SWAP,
   "gear:science:hazardSuit:groundHp": SCIENCE_LINE_SWAP,
-  "gear:security:cortexShield:groundStatusResist": CORTEX_RESIST,
 };
 
 function wearerOf(team: AwayTeamType): string {
@@ -682,6 +743,10 @@ function gearSeam(team: AwayTeamType, key: MemberGroundStatKey): { probe: ProbeI
         return { probe: "secPoisonResist", curve: { kind: "chanceAbsolute" }, magnitude: () => N * STATUS_RESIST_PER_POINT * 1000, context: "ground", tolerance: 1 };
       case "groundHazardResist":
         return { probe: "secTaskHazardResist", curve: { kind: "linearAbsolute" }, magnitude: (c) => bump(c, key), context: "fieldwork" };
+      // Field Kits FKR-5 (FK11 "+1 carry capacity"): one more grenade charge per objective, read on a Field Kits
+      // objective fight's armed squad (the count, whatever the line's value).
+      case "groundCarryCapacity":
+        return { probe: "runSecGrenadeCharges", curve: { kind: "gate" }, magnitude: (c) => c.GRENADE_CARRY_PER_LINE, context: "ground" };
       default:
         return null;
     }
@@ -755,12 +820,17 @@ function gearEntries(): WiringEntry[] {
             continue;
           }
           const owner = GEAR_PENDING[id];
-          const seam = gearSeam(team, key);
+          const baseSeam = gearSeam(team, key);
+          // Field Kits FKR-4 (user FK6): Cortex Shield's resist covers stun and fear, and its stun half covers Concussion,
+          // which a Field Kits run's Bruisers inflict: measured on the combatant's Concussion resist roll.
+          const cortex = v.key === "cortexShield" && key === "groundStatusResist" && baseSeam !== null;
+          const seam = cortex ? { ...baseSeam!, probe: "secConcussionResist" as ProbeId } : baseSeam;
           const wearer = wearerOf(team);
           const pair = key === "groundStatusChance" && team === "security" && !inflicts(slotType, v.key) && slotType !== "memberTool";
           const withPair: Transform = pair ? (s) => wearPiece(s, wearer, "memberTool", "stunGrenade", {}) : identity;
-          // groundStatusResist only acts on the statuses a resistStatus piece lists: measured on Toxin Filters (poison).
-          const resistOk = key !== "groundStatusResist" || v.key === "toxinFilters";
+          // groundStatusResist only acts on the statuses a resistStatus piece lists: measured on Toxin Filters (poison)
+          // and on Cortex Shield (Concussion, through its stun resist).
+          const resistOk = key !== "groundStatusResist" || v.key === "toxinFilters" || cortex;
           const live = !owner && seam !== null && resistOk;
           out.push(
             entry({
@@ -769,7 +839,7 @@ function gearEntries(): WiringEntry[] {
               source: { catalog: "EQUIPMENT_SLOTS.member", key: `${slotType}:${v.key}:${team}:${key}` },
               claim: `${v.label} (${slotType}) ${key} on ${team}`,
               liveness: true,
-              probe: owner === CORTEX_RESIST ? undefined : seam?.probe,
+              probe: seam?.probe,
               contexts: live ? [seam!.context] : [],
               curve: seam?.curve ?? { kind: "linearAbsolute" },
               magnitude: seam?.magnitude ?? (() => 0),
@@ -846,7 +916,9 @@ function traitEntry(t: AwayTraitDef): WiringEntry {
     case "firstStrike":
       return entry({ ...common, probe: "secFirstStrike", contexts: ["ground"], curve: { kind: "gate" }, magnitude: () => 1, note: "weak: the team already acts first (OC-F5)" });
     case "resistStatus":
-      return entry({ ...common, status: pending(FIELD_KITS_FEAR), note: "the resist is computed, but nothing inflicts the status on the squad" });
+      // Field Kits FKR-4: Iron Will's Fear resist, now that a Field Kits run's Swarm and hostile garrisons inflict Fear.
+      if (e.status === "fear") return entry({ ...common, probe: "secFearResist", contexts: ["ground"], curve: { kind: "chanceAbsolute" }, magnitude: (c) => value(c) * 1000, tolerance: 1 });
+      return entry({ ...common, status: pending("WR-10 (a trait resist with no seam probe for its status)"), note: "the resist is computed; no probe reads this status yet" });
     case "poiYield": {
       const poi = e.pois[0];
       const probe: Record<string, ProbeId> = { ancientRuins: "fieldYieldRuins", xenoFloraBloom: "fieldYieldOrganics", buriedVault: "fieldYieldVault", mineralOutcrop: "fieldYieldMineral" };
@@ -908,7 +980,7 @@ function groundEffectEntries(): WiringEntry[] {
       tolerance: 0.5,
       note: "revives the FIRST downed ally, not the wearer (B13, WR-10 OC-F2)",
     }),
-    fx("resistStatus", "Toxin Filters: resist poison (Cortex Shield: stun and fear, pending Field Kits)", {
+    fx("resistStatus", "Toxin Filters: resist poison (Cortex Shield: stun and fear, and Concussion through its stun resist)", {
       probe: "secPoisonResist",
       contexts: ["ground"],
       on: (s) => wearPiece(s, WIRING_SECURITY_ID, "implant", "toxinFilters", { groundStatusResist: N }),
@@ -960,30 +1032,61 @@ function captainTalentEntries(): WiringEntry[] {
           curve: { kind: "linearRelative" },
           magnitude: mult,
         });
-      default:
-        return entry({ ...common, status: pending(key === "tacticianHub" ? "WR-6, OC-A40" : "WR-6, OC-A41"), note: "\"No bonus yet\" gateway hub" });
+      case "weaponDamageMult":
+      case "scanRateMult":
+      case "relicFindMult":
+        // WR-6: the Tactician / Explorer hubs, each its own factor where the matching secondary node acts.
+        return entry({ ...common, ...PRIMARY_SEAMS[eff.type], magnitude: mult, note: "size OC-A40 / OC-A41 (user 2026-10-19)" });
+      case "none":
+        throw new Error(`wiring: captain talent ${key} is a "none" gateway (WR-6 wired every hub)`);
     }
   });
 }
+
+// WR-6 (0.14.0): where the captain primary bonuses (the two hubs, the tactical and science specs) act: on the ship
+// the captain commands, through the records the secondary tree freezes (captainPrimaryEffects.ts).
+const PRIMARY_SEAMS: Readonly<Record<CaptainPrimaryMultKind, Pick<EntryInput, "probe" | "contexts" | "curve" | "tolerance" | "base">>> = {
+  weaponDamageMult: { probe: "captainShotDamage", contexts: ["patrol", "shipEvent"], curve: { kind: "linearRelative" }, base: () => combatBase() },
+  scanRateMult: { probe: "expScanRate", contexts: ["expedition:groundOps"], curve: { kind: "linearRelative" } },
+  relicFindMult: { probe: "runRelicChance", contexts: ["expedition:groundOps"], curve: { kind: "linearRelative" }, tolerance: 0.5 },
+};
 
 function captainSpecEntries(): WiringEntry[] {
   const branches = [...new Set(Object.values(CAPTAIN_TALENTS).map((d) => d.branch))] as CaptainTalentBranch[];
   return branches.map((branch) => {
     const eff = CAPTAIN_SPEC_BONUS[branch];
+    // WR-6 (OC-A42): the tactical and science spec bonuses, each its own factor on the hub's seam.
+    if (eff && (eff.type === "weaponDamageMult" || eff.type === "scanRateMult" || eff.type === "relicFindMult")) {
+      const kind = eff.type;
+      return entry({
+        id: `captain:CAPTAIN_SPEC_BONUS:${branch}`,
+        system: "captain",
+        source: { catalog: "CAPTAIN_SPEC_BONUS", key: branch },
+        claim: `${branch} specialization bonus: ${describeCaptainTalentEffect(eff)}`,
+        ...PRIMARY_SEAMS[kind],
+        magnitude: (c) => {
+          const e = c.CAPTAIN_SPEC_BONUS[branch];
+          return e && e.type === kind ? e.mult : 0;
+        },
+        on: (s) => editCaptain(s, { spec: branch }),
+        note: "size OC-A42 (user 2026-10-19)",
+      });
+    }
+    // Release gate (0.14.0): every spec carries a real bonus since WR-6, so a spec without one is a placeholder bug.
+    if (eff?.type !== "bonusRollChance") throw new Error(`wiring: the ${branch} spec has no wired bonus`);
     return entry({
       id: `captain:CAPTAIN_SPEC_BONUS:${branch}`,
       system: "captain",
       source: { catalog: "CAPTAIN_SPEC_BONUS", key: branch },
       claim: `${branch} specialization bonus`,
-      probe: eff ? "bonusRollTrigger" : undefined,
-      contexts: eff ? ["mission:extraction"] : [],
+      probe: "bonusRollTrigger",
+      contexts: ["mission:extraction"],
       curve: { kind: "chanceAbsolute" },
       magnitude: (c) => {
         const e = c.CAPTAIN_SPEC_BONUS[branch];
         return e && "chance" in e ? e.chance : 0;
       },
       on: (s) => editCaptain(s, { spec: branch }),
-      status: eff ? LIVE : pending("WR-6, OC-A42"),
     });
   });
 }
@@ -1238,12 +1341,20 @@ function captainProgressionEntries(): WiringEntry[] {
       magnitude: () => RETIREMENT_EXP_PER,
       on: (s) => editCaptain(s, { retirements: 1 }),
     }),
+    // WR-6 (OC-A43, user 2026-10-19 "Same as an officer"): the captain carries its race's racial on the ship it commands, at the officer
+    // magnitude x CAPTAIN_RACIAL_SCALE. Measured with a Station-born captain (crew.unloadSpeed, a live racial key; the
+    // other races ride the same crew map as their officer racial entries).
     entry({
       id: "captain:progression:race",
       system: "captain",
       source: { catalog: "CAPTAIN_PROGRESSION", key: "race" },
-      claim: "Captain race (\"racial bonus is a follow-on\")",
-      status: pending("WR-6, OC-A43"),
+      claim: "Captain race: the captain carries its race's racial on the ship it commands, at the officer magnitude",
+      probe: "sheetUnload",
+      contexts: ["sheet", "expedition:groundOps"],
+      curve: { kind: "linearRelative" },
+      magnitude: (c) => c.CREW_RACES.stationBorn.racialBonus.seniorStaff * CAPTAIN_RACIAL_SCALE,
+      on: (s) => editCaptain(s, { race: "stationBorn" }),
+      note: "magnitude CAPTAIN_RACIAL_SCALE 1 (user 2026-10-19)",
     }),
   ];
 }
@@ -1294,10 +1405,11 @@ function homeworldEntries(): WiringEntry[] {
           entry({
             ...common,
             probe: "salvageTalentYield",
-            contexts: ["salvage"],
+            // WR-6 (OC-B1 "Apply to hull teardown"): the recycle fraction and the hull teardown fraction (B16: the
+            // text says percentage points, the flat add it is).
+            contexts: ["salvage", "salvage:teardown"],
             magnitude: field("yieldBonus"),
-            status: pending("WR-6, OC-B1 (hull teardown: salvageShip skips the bonus; B16 wording)", ["salvage:teardown"]),
-            note: "recycle LIVE (salvage.ts:439); hull teardown not (salvage.ts:913)",
+            note: "a flat add onto the recovery fraction: salvageEquipment and hullTeardownFraction",
           }),
           entry({
             ...common,
@@ -1330,14 +1442,20 @@ function homeworldEntries(): WiringEntry[] {
           }),
         );
         break;
-      default:
-        out.push(
-          entry({
-            ...common,
-            status: pending(key === "industryHub" ? "WR-6, OC-B2 (its text says No bonus yet; it gates Refinery rungs 3 and 4)" : "WR-6, OC-B3"),
-            note: "\"No bonus yet\" placeholder hub",
-          }),
-        );
+      // WR-6 (OC-B2 / OC-B3, user 2026-10-15 "Give them real effects"; sizes approved 2026-10-19).
+      case "fabricatorBonusOutput":
+        // The realized extra output over 1,000 real Fabricator jobs (process numbers 1 to 1,000): its share sits at the
+        // configured chance within the batch's sampling spread (about 3 standard deviations).
+        out.push(entry({ ...common, probe: "fabricatorBonusShare", contexts: ["craft"], curve: { kind: "chanceAbsolute" }, magnitude: field("chance"), tolerance: 0.02, note: "chance OC-B2 (user 2026-10-19); also gates Refinery rungs 3 and 4" }));
+        break;
+      case "patrolShieldMult":
+        out.push(entry({ ...common, probe: "patrolShieldPool", contexts: ["patrol"], curve: { kind: "linearRelative" }, magnitude: field("mult"), tolerance: 0.5, base: () => combatBase(), note: "size OC-B3 (user 2026-10-19)" }));
+        break;
+      case "transportCrewBonus":
+        out.push(entry({ ...common, probe: "transportCrewDelivered", contexts: ["fleet"], magnitude: field("crew"), note: "size OC-B3 (user 2026-10-19)" }));
+        break;
+      case "none":
+        throw new Error(`wiring: Homeworld talent ${key} is a "none" placeholder (WR-6 wired every hub)`);
     }
   }
   return out;
@@ -1399,6 +1517,9 @@ function facilityRungEntries(): WiringEntry[] {
         out.push(entry({ ...common, probe: "shipBuildTicks", contexts: ["shipyard"], direction: "down", curve: { kind: "divisor" }, magnitude: (c) => num("buildSpeedMult")(c) - 1 }));
       else if ("addShipyardBays" in eff) out.push(entry({ ...common, probe: "shipyardBays", contexts: ["shipyard"], magnitude: num("addShipyardBays") }));
       else if ("addSalvageSlots" in eff) out.push(entry({ ...common, probe: "salvageLanes", contexts: ["salvage"], magnitude: num("addSalvageSlots") }));
+      // G1-3: a Mission Control board rung opens one short-range slot (enumerated once SHORT_RANGE_BOARD_LIVE puts the
+      // rungs in FACILITIES, G1-6; until then facility:audit:missionControlUnlock names them).
+      else if ("addShortRangeSlot" in eff) out.push(entry({ ...common, probe: "shortRangeSlots", contexts: ["mission:shortRange"], magnitude: () => 1 }));
       else if ("telescope" in eff) {
         const t = eff.telescope as { detail: number; reachTier: number };
         const prev = i > 0 ? ((fdef.upgrades[i - 1].effect as unknown as { telescope: { detail: number; reachTier: number } }).telescope) : { detail: 0, reachTier: 0 };
@@ -1409,8 +1530,8 @@ function facilityRungEntries(): WiringEntry[] {
             probe: detailMoves ? "telescopeDetail" : undefined,
             contexts: detailMoves ? ["expedition:groundOps"] : [],
             magnitude: () => t.detail - prev.detail,
-            status: detailMoves ? LIVE : pending("G2-2 (reach tiers 2 to 7: every candidate is Tier I)"),
-            note: "detail is information only (by design); the reach tier waits for G2-2",
+            status: detailMoves ? LIVE : pending(G2_6_PICKER),
+            note: "detail is information only (by design); the reach tier waits for the console to offer deeper tiers (G2-6)",
           }),
         );
       } else if ("unlocksContent" in eff) {
@@ -1489,7 +1610,8 @@ function trackEntries(): WiringEntry[] {
     ),
   );
   // The Subspace Telescope ladder, rung by rung: the reading reaches the rung's region tier and reads its detail.
-  // The reach is information on the card today; the candidate pool stays Tier I until G2-2 (the PARTIAL check
+  // The reach is information on the card today; the console offers Tier I candidates until G2-6 adds the region
+  // picker (G2-2 built every tier's candidates; the PARTIAL check
   // reads the highest tier the candidates offer).
   for (const row of SUBSPACE_TELESCOPE_LEVELS) {
     const at = (s: GameState) => withFacilityLevel(s, SUBSPACE_TELESCOPE_FACILITY_KEY, row.level);
@@ -1508,7 +1630,7 @@ function trackEntries(): WiringEntry[] {
         magnitude: value("reachTier"),
         on: at,
         off: below,
-        status: pending("G2-2 (every candidate is Tier I)", ["expedition:groundOps"]),
+        status: pending(G2_6_PICKER, ["expedition:groundOps"]),
         flatChecks: { "expedition:groundOps": { probe: "candidateTopTier" } },
       }),
       entry({
@@ -1530,6 +1652,20 @@ function trackEntries(): WiringEntry[] {
   return out;
 }
 
+// The owner of a hidden refine recipe: the reserve on its output, or on the first reserved good its output feeds
+// (Ferrite Ingot -> Osmium Plate, owner ML-2).
+function hiddenRecipeOwner(itemId: string, seen: Set<string> = new Set()): string {
+  const reserved = ITEMS[itemId]?.reserved;
+  if (reserved !== undefined) return reserved;
+  seen.add(itemId);
+  for (const r of Object.values(REFINE_RECIPES)) {
+    if (r.input[itemId] === undefined || seen.has(r.output.itemId)) continue;
+    const owner = hiddenRecipeOwner(r.output.itemId, seen);
+    if (!owner.startsWith("WR-1 follow-up")) return owner;
+  }
+  return "WR-1 follow-up: a hidden refine recipe with no reserved output";
+}
+
 // Content data the engine reads verbatim: refine recipes (the job's duration) and blueprints (the research project's).
 function recipeAndBlueprintEntries(): WiringEntry[] {
   const out: WiringEntry[] = [];
@@ -1546,6 +1682,10 @@ function recipeAndBlueprintEntries(): WiringEntry[] {
         curve: { kind: "equals" },
         magnitude: (c) => c.REFINE_RECIPES[key].durationTicks,
         note: "inputs and output ride the refine tests; the duration reaches the started job (Refinery speed 1)",
+        // ML-1: a recipe the Refinery does not offer yet (its output leads nowhere: model.ts refineRecipeOffered) is
+        // pending on the slice that gives its output a use (no probe: the engine refuses to start it, so there is
+        // nothing to measure); it reads live, probe and all, by itself once that marker drops.
+        ...(refineRecipeOffered(key) ? {} : { probe: undefined, contexts: [], status: pending(hiddenRecipeOwner(r.output.itemId)) }),
       }),
     );
   }
@@ -1610,6 +1750,7 @@ const SHIP_PIECE_FOR: Readonly<Record<string, { slotType: string; moduleVariant?
   kineticDampening: { slotType: "hullPlating" },
   crewStations: { slotType: "quarters", moduleVariant: "quartersUtilitarian" },
   crewEfficiency: { slotType: "bridge", moduleVariant: "bridgeBalancedCommand" },
+  colonistCapacity: { slotType: "quarters", moduleVariant: "quartersGuestWing" },
   repairSpeed: { slotType: "specUtility", moduleVariant: "damageControlSuite" },
   waveHullRegen: { slotType: "specUtility", moduleVariant: "damageControlSuite" },
   expeditionScanSpeed: { slotType: "specUtility", moduleVariant: "pathfinderSuite" },
@@ -1647,10 +1788,17 @@ const LINE_SEAMS: Readonly<Record<string, LineSeam | null>> = {
   cargoCapacity: { probe: "sheetCargo", contexts: ["sheet"], curve: { kind: "linearAbsolute" }, magnitude: () => LINE_POINTS },
   fuelCapacity: { probe: "sheetFuelCapacity", contexts: ["sheet"], curve: { kind: "linearAbsolute" }, magnitude: () => LINE_POINTS },
   sensors: { probe: "sheetSensors", contexts: ["sheet"], curve: { kind: "linearAbsolute" }, magnitude: () => LINE_POINTS },
-  transitSpeedMult: { probe: "sheetTransit", contexts: ["sheet"], curve: { kind: "linearRelative" }, magnitude: () => percent("transitSpeedMult") },
+  // G1-1: a guest line is stored in berths and adds them flat. Measured on an Orion (an explorer: the General quarters
+  // perk would multiply both readings, which is its own entry, ship:SHIP_SEAMS:generalQuartersGuestPerk).
+  // G1-4: and the guest quarters a short-range sheet judges (mission:shortRange, shortRangeShipRatings).
+  colonistCapacity: { probe: "sheetGuestQuarters", contexts: ["sheet", "mission:shortRange"], curve: { kind: "linearAbsolute" }, magnitude: () => LINE_POINTS, base: () => wiringBase("orion") },
+  // Expedition Tiers G2-3: the voyage flies each leg at the ship's own speed on it (the run freezes it).
   engineEfficiency: { probe: "sheetEngineEff", contexts: ["sheet"], curve: { kind: "linearAbsolute" }, magnitude: () => percent("engineEfficiency") },
   extractionYieldMult: { probe: "sheetYield", contexts: ["sheet"], curve: { kind: "linearRelative" }, magnitude: () => percent("extractionYieldMult") },
   massReduction: null, // consumed at mint (itemgen.ts:425): measured below as its own entry on the piece's mass
+  // E-MOD EM-1: a Reactor Core's powerOutput line adds to the ship's power output (on top of the hull's own, P1).
+  powerOutput: { probe: "sheetPowerOutput", contexts: ["sheet"], curve: { kind: "linearAbsolute" }, magnitude: () => LINE_POINTS },
+  powerDrawReduction: null, // consumed at mint like massReduction: measured below as its own entry on the piece's draw
   // An emitter's raw lines scale by the hull's shield effectiveness (bridge.ts hullDefenseComposition).
   shieldCapacity: {
     probe: "combatShieldMax",
@@ -1683,8 +1831,6 @@ const LINE_SEAMS: Readonly<Record<string, LineSeam | null>> = {
 };
 
 const LINE_PENDING: Readonly<Record<string, { owner: string; probe?: ProbeId; contexts?: ContextId[] }>> = {
-  powerOutput: { owner: "E-MOD + WR-7, OC-D1 (display only; promises a power budget)" },
-  powerDrawReduction: { owner: "E-MOD + WR-7, OC-D1 (display only; promises a power budget)" },
   materialQualityChance: { owner: "WR-7, OC-D2 (rolls on every Prospecting Rig, read by nothing)", probe: "missionOreQuality", contexts: ["mission:extraction"] },
   crewStations: { owner: "WR-7, OC-D3 (the tooltip prints the rolled value; nothing reads it)", probe: "quartersCapacity", contexts: ["sheet"] },
   crewEfficiency: { owner: "WR-7, OC-D3 (the tooltip prints the rolled value; nothing reads it)", probe: "sheetUnload", contexts: ["sheet"] },
@@ -1762,13 +1908,29 @@ function shipLineEntries(): WiringEntry[] {
         note: "consumed at mint (itemgen.ts:425) into the piece's mass; measured as the lighter piece's speed",
       });
     }
+    if (key === "powerDrawReduction") {
+      // E-MOD EM-1: the line (consumed at mint into piece.powerDraw, itemgen.ts) takes LINE_POINTS off a powered piece:
+      // the ship's power draw drops by exactly that much.
+      return entry({
+        ...common,
+        probe: "sheetPowerDraw",
+        contexts: ["sheet"],
+        direction: "down",
+        curve: { kind: "linearAbsolute" },
+        magnitude: () => -LINE_POINTS,
+        base: bareHull,
+        on: (s) => installPiece(s, { slotType: "reactorCore", powerDraw: POWER_PIECE - LINE_POINTS }),
+        off: (s) => installPiece(s, { slotType: "reactorCore", powerDraw: POWER_PIECE }),
+        note: "consumed at mint (itemgen.ts) into the piece's powerDraw; measured as the leaner piece's draw",
+      });
+    }
     if (p) return entry({ ...common, probe: p.probe, status: pending(p.owner, p.contexts) });
     if (!seam) return entry({ ...common, status: pending("WR-1 follow-up: no seam probe for this ship line") });
     // The patrol checks fly a combat hull (a freighter cannot patrol, so its patrol reading would be vacuous).
     const patrolOnCombat: Partial<Record<ContextId, FlatCheck>> = { patrol: { base: () => combatBase() } };
     const partial: Readonly<Record<string, WiringStatus>> = {
       cargoCapacity: pending("WR-7, OC-D8 (expeditions and patrols do not read the hold)", ["expedition:groundOps", "patrol"]),
-      transitSpeedMult: pending("G2-3 + WR-7, OC-D8 (patrol legs and expedition transit are fixed)", ["patrol", "expedition:groundOps"]),
+      transitSpeedMult: pending("WR-7, OC-D8 (patrol legs are fixed)", ["patrol"]),
       fuelCapacity: pending("G2-4 (no expedition range gate)", ["expedition:groundOps"]),
       engineEfficiency: pending("G2-4 (no expedition range gate)", ["expedition:groundOps"]),
       sensors: { kind: "deferred", owner: "CP-15 (patrol cloak detection)", userRef: `${T3}: patrol cloak detection`, contexts: ["patrol"] },
@@ -1789,6 +1951,7 @@ function shipLineEntries(): WiringEntry[] {
 }
 
 const MASS_PIECE = 30; // the massReduction fixture's piece mass (the bare hull carries no other mass)
+const POWER_PIECE = 30; // the powerDrawReduction fixture's piece draw (the bare hull draws nothing else)
 const claimsPatrol = (st: WiringStatus | undefined): boolean => (st?.kind === "pending" || st?.kind === "deferred") && (st.contexts ?? []).includes("patrol");
 const bareHull = (): GameState => {
   const s = wiringBase();
@@ -1824,10 +1987,12 @@ function hullEntries(): WiringEntry[] {
   for (const hull of Object.keys(SHIP_TYPES) as ShipTypeKey[]) {
     const combat = combatHullTypeOf(hull) !== null; // only a combat hull can patrol, so only it claims the patrol
     for (const field of ["cargoCapacity", "transitSpeedMult", "extractionYieldMult", "fuelCapacity", "engineEfficiency"] as const) {
+      // Expedition Tiers G2-3: the hull's speed reaches the expedition voyage (the run freezes it as each leg's speed).
+      const transit = field === "transitSpeedMult";
       out.push(
         hullEntry(hull, field, {
           probe: HULL_FIELD_PROBES[field],
-          contexts: ["sheet"],
+          contexts: transit ? ["sheet", "expedition:groundOps"] : ["sheet"],
           magnitude: (c) => c.SHIP_TYPES[hull][field],
           base: () => {
             // A bare hull: no installed gear, so the sheet is the hull's own number.
@@ -1837,19 +2002,21 @@ function hullEntries(): WiringEntry[] {
           status:
             field === "cargoCapacity"
               ? pending("WR-7, OC-D8 (missions only)", combat ? ["expedition:groundOps", "patrol"] : ["expedition:groundOps"])
-              : field === "transitSpeedMult"
-                ? pending("G2-3 + WR-7, OC-D8 (missions only)", combat ? ["expedition:groundOps", "patrol"] : ["expedition:groundOps"])
+              : transit
+                ? combat
+                  ? pending("WR-7, OC-D8 (patrol legs are fixed)", ["patrol"])
+                  : LIVE
                 : field === "fuelCapacity" || field === "engineEfficiency"
                   ? pending("G2-4 (no expedition reach gate)", ["expedition:groundOps"])
                   : LIVE,
           // A hull field reaches a run or a patrol only through the sheet stat it seeds: the flat checks raise that
           // same stat with a gear line on the hull (patrols fly the hull with its combat baseline installed).
-          ...(field === "extractionYieldMult"
+          ...(field === "extractionYieldMult" || (transit && !combat)
             ? {}
             : {
                 flatChecks: {
-                  "expedition:groundOps": { on: shipPiece(field, LINE_POINTS), off: identity },
-                  ...(combat && (field === "cargoCapacity" || field === "transitSpeedMult")
+                  ...(transit ? {} : { "expedition:groundOps": { on: shipPiece(field, LINE_POINTS), off: identity } }),
+                  ...(combat && (field === "cargoCapacity" || transit)
                     ? { patrol: { base: () => combatBase(hull), on: shipPiece(field, LINE_POINTS), off: identity } }
                     : {}),
                 },
@@ -1905,11 +2072,51 @@ function hullEntries(): WiringEntry[] {
         magnitude: (c) => Math.floor((c.SHIP_TYPES[hull].groundSquads ?? 0) / 2),
         note: "two squads make one ground team (groundTeamCount)",
       }),
+      // E-MOD EM-1 (P1): the hull's own power generation, read verbatim off its bare sheet's power output.
+      hullEntry(hull, "basePowerOutput", {
+        probe: "sheetPowerOutput",
+        contexts: ["sheet"],
+        magnitude: (c) => c.SHIP_TYPES[hull].basePowerOutput,
+        base: () => {
+          const s = wiringBase(hull);
+          return { ...s, equipment: s.equipment.filter((e) => e.fittedToShipId !== "ship-1") };
+        },
+      }),
     );
     for (const field of Object.keys(HULL_FIELD_PENDING)) {
       out.push(hullEntry(hull, field, { status: pending(HULL_FIELD_PENDING[field]) }));
     }
+    // G1-1: a transport-minded hull's base guest quarters, read verbatim off its bare sheet.
+    if (SHIP_TYPES[hull].colonistCapacity !== undefined) {
+      out.push(
+        hullEntry(hull, "colonistCapacity", {
+          probe: "sheetGuestQuarters",
+          contexts: ["sheet", "mission:shortRange"],
+          magnitude: (c) => c.SHIP_TYPES[hull].colonistCapacity ?? 0,
+          base: () => {
+            const s = wiringBase(hull);
+            return { ...s, equipment: s.equipment.filter((e) => e.fittedToShipId !== "ship-1") };
+          },
+        }),
+      );
+    }
   }
+  // G1-1: the General hull family's quarters perk, "guest quarters +10% for passenger runs": a Crew Quarters module
+  // (here a Utilitarian, which carries no guest line) on the General Freighter multiplies its base berths.
+  out.push(
+    entry({
+      id: "ship:SHIP_SEAMS:generalQuartersGuestPerk",
+      system: "ship",
+      source: { catalog: "SHIP_SEAMS", key: "generalQuartersGuestPerk" },
+      claim: "General Quarters: guest quarters +10% for passenger runs",
+      probe: "sheetGuestQuarters",
+      contexts: ["sheet", "mission:shortRange"],
+      curve: { kind: "linearRelative" },
+      magnitude: () => GENERAL_QUARTERS_GUEST_PERK,
+      on: (s) => installPiece(s, { slotType: "quarters", moduleVariant: "quartersUtilitarian" }),
+      tolerance: 0.5, // whole berths
+    }),
+  );
   out.push(
     entry({
       id: "ship:SHIP_TYPES:sensors",
@@ -1924,20 +2131,17 @@ function hullEntries(): WiringEntry[] {
 
 
 // Where each division's not-yet-live complement keys would act (a division wing amplifies them too, once they do).
+// (Science's Survey Aptitude and the Flight Deck's Deck Handling went live with the inert racials, 0.14.0.)
 const DEAD_DIVISION_CONTEXTS: Readonly<Partial<Record<CrewProfession, ContextId[]>>> = {
   security: ["ground"], // counterInfiltration, awayTeamProtection
-  science: ["expedition:groundOps"], // surveyAptitude
   medical: ["ground"], // triage (Crew Effectiveness is live since CP-2)
-  flightDeck: ["patrol"], // droneHandling
 };
 
 // A division wing's flat check: its division's complement carrying the division's dead key, read where the key
 // claims to act (the dead key's own consumer and fixture). The wing amplifies nothing there until the key is live.
 const DEAD_KEY_OF_DIVISION: Readonly<Partial<Record<CrewProfession, string>>> = {
   security: "sec.awayTeam",
-  science: "sci.survey",
   medical: "med.triage",
-  flightDeck: "flight.droneHandling",
 };
 function divisionWingChecks(division: CrewProfession): Partial<Record<ContextId, FlatCheck>> {
   const buffId = DEAD_KEY_OF_DIVISION[division];
@@ -1948,12 +2152,13 @@ function divisionWingChecks(division: CrewProfession): Partial<Record<ContextId,
   return { [dead.context]: { probe: dead.probe, base: () => withBuckets(fixture(), [bucketOf(division, def.id)]) } };
 }
 
-// CP-2: the Engineering wing is LIVE: every Engineering key it amplifies acts (Engine Tuning, and Damage Control since
-// CP-2) except Power Discipline, whose own entry (crew:crew.powerEfficiency) waits on the E-MOD power budget and
-// keeps its flat check there. The other non-Operations wings wait on their division's dead keys.
-const LIVE_WINGS: ReadonlySet<CrewProfession> = new Set(["operations", "engineering"]);
+// CP-2: the Engineering wing is LIVE: every Engineering key it amplifies acts (Engine Tuning, Damage Control since
+// CP-2, and Power Discipline since E-MOD EM-1). The Science and Flight Deck wings went live with the inert racials
+// (0.14.0: Survey Aptitude's scan speed, Deck Handling's drone replenish), so every key they amplify acts too. The
+// Security and Medical wings wait on CP-3's Ground Ops consumers.
+const LIVE_WINGS: ReadonlySet<CrewProfession> = new Set(["operations", "engineering", "science", "flightDeck"]);
 function wingPending(division: CrewProfession): WiringStatus {
-  return pending(`CP-3, CP-4, E-MOD (the ${division} division's dead keys; its live keys move)`, DEAD_DIVISION_CONTEXTS[division] ?? ["ground"]);
+  return pending(`CP-3 (the ${division} division's dead keys; its live keys move)`, DEAD_DIVISION_CONTEXTS[division] ?? ["ground"]);
 }
 
 function moduleEntries(): WiringEntry[] {
@@ -1964,6 +2169,27 @@ function moduleEntries(): WiringEntry[] {
   const opsBase = () => withBuckets(wiringBase(), [bucketOf("operations", "ops.unloadSpeed")]);
   for (const def of QUARTERS_MODULES) {
     const boost = def.kind === "division" ? (def.division === "operations" ? def.focusBoost : def.offBoost) : def.focusBoost;
+    // G1-1: a module with no effectiveness boost at all (the Guest Wing: its effect is its guest quarters line,
+    // ship:gearLine:colonistCapacity) has nothing to measure on the crew; its capacity entry below still applies.
+    if (def.kind === "general" && boost === 0) {
+      out.push(
+        entry({
+          id: `ship:QUARTERS_MODULES:${def.id}`,
+          system: "ship",
+          source: { catalog: "QUARTERS_MODULES", key: def.id },
+          claim: def.label,
+          notApplicable: "no crew-effectiveness boost (focusBoost 0): its effect is its guest quarters line (ship:gearLine:colonistCapacity)",
+        }),
+        entry({
+          id: `ship:QUARTERS_MODULES:${def.id}:capacity`,
+          system: "ship",
+          source: { catalog: "QUARTERS_MODULES", key: `${def.id}:capacity` },
+          claim: `${def.label}: more crew berths`,
+          status: pending("CP-5 + WR-7, OC-D7 (raises only the total cap; division caps still bind, B22)"),
+        }),
+      );
+      continue;
+    }
     out.push(
       entry({
         id: `ship:QUARTERS_MODULES:${def.id}`,
@@ -2069,7 +2295,7 @@ function sensorArrayEntries(): WiringEntry[] {
 
 const MUSEUM_SEAMS: Readonly<Record<MuseumStat, { probe: ProbeId; contexts: ContextId[]; curve: Curve; base?: () => GameState; tolerance?: number; direction?: Direction } | null>> = {
   cargoCapacity: { probe: "sheetCargo", contexts: ["sheet"], curve: { kind: "linearRelative" } },
-  transitSpeed: { probe: "sheetTransit", contexts: ["sheet"], curve: { kind: "linearRelative" } },
+  transitSpeed: { probe: "sheetTransit", contexts: ["sheet", "expedition:groundOps"], curve: { kind: "linearRelative" } },
   miningYield: { probe: "sheetYield", contexts: ["sheet"], curve: { kind: "linearRelative" } },
   sensors: { probe: "sheetSensors", contexts: ["sheet"], curve: { kind: "linearRelative" }, base: () => installPiece(wiringBase(), { slotType: "sensor", moduleVariant: "sensorBalanced", implicitStats: { sensors: 20 } }) },
   extractionSpeed: { probe: "sheetExtractionSpeed", contexts: ["sheet"], curve: { kind: "linearRelative" } },
@@ -2092,7 +2318,7 @@ const MUSEUM_SEAMS: Readonly<Record<MuseumStat, { probe: ProbeId; contexts: Cont
 };
 
 const MUSEUM_PARTIAL: Readonly<Partial<Record<MuseumStat, WiringStatus>>> = {
-  transitSpeed: pending("G2-3 + OC-D8 (missions only)", ["expedition:groundOps", "patrol"]),
+  transitSpeed: pending("OC-D8 (patrol legs are fixed; G2-3 put it on the expedition voyage)", ["patrol"]),
 };
 
 // The museum's PARTIAL checks: transit on a patrol flies a combat hull.
@@ -2197,6 +2423,54 @@ function relicEntries(): WiringEntry[] {
   return out;
 }
 
+// Relics v2 R2-1 (plan 2026-10-17 section 4): the v2 catalog is DORMANT, so each of its effect sources is pending with
+// the slice that wires it. A general type's stat moves its Museum stat once R2-4's museum math v2 reads RELIC_TYPES (its
+// consumer is the relic:MUSEUM_STATS entry); an exceptional piece and a full-set bonus once R2-4 adds their flat values
+// and R2-5 grants them. Until then nothing reads them, so nothing can move.
+const R2_4_TYPES = "Relics v2 R2-4 (museum math v2 sums each general type's stats per tier)";
+const R2_5_EXCEPTIONAL = "Relics v2 R2-4 + R2-5 (exceptional piece and full-set values; names await the content sign-off sheet)";
+
+function relicV2Entries(): WiringEntry[] {
+  const out: WiringEntry[] = [];
+  for (const t of RELIC_TYPES) {
+    out.push(
+      entry({
+        id: `relic:RELIC_TYPES:${t.id}`,
+        system: "relic",
+        source: { catalog: "RELIC_TYPES", key: t.id },
+        claim: `${t.label}: ${t.stats.map((s) => s.stat).join(" + ")} per copy, per tier`,
+        magnitude: (c) => c.RELIC_TYPES.find((x) => x.id === t.id)!.stats.reduce((a, s) => a + s.share, 0),
+        status: pending(R2_4_TYPES),
+      }),
+    );
+  }
+  for (const set of EXCEPTIONAL_SETS) {
+    for (const p of set.pieces) {
+      out.push(
+        entry({
+          id: `relic:EXCEPTIONAL_SETS:${set.id}:${p.id}`,
+          system: "relic",
+          source: { catalog: "EXCEPTIONAL_SETS", key: `${set.id}:${p.id}` },
+          claim: `${p.label}: ${p.stat}`,
+          magnitude: (c) => c.EXCEPTIONAL_SETS.find((x) => x.id === set.id)!.pieces.find((x) => x.id === p.id)!.value,
+          status: pending(R2_5_EXCEPTIONAL),
+        }),
+      );
+    }
+    out.push(
+      entry({
+        id: `relic:EXCEPTIONAL_SETS:${set.id}:full`,
+        system: "relic",
+        source: { catalog: "EXCEPTIONAL_SETS", key: `${set.id}:full` },
+        claim: `${set.label} full set: ${set.fullSet.map((b) => b.stat).join(" + ")}`,
+        magnitude: (c) => c.EXCEPTIONAL_SETS.find((x) => x.id === set.id)!.fullSet.reduce((a, b) => a + b.value, 0),
+        status: pending(R2_5_EXCEPTIONAL),
+      }),
+    );
+  }
+  return out;
+}
+
 // ============================================================================
 // mission: MISSIONS fields
 // ============================================================================
@@ -2295,6 +2569,36 @@ function missionEntries(): WiringEntry[] {
       }),
     );
   }
+  // G1-2 + G1-4: every effect field of every short-range template, LIVE through the cycle engine (shortRangeCycle.ts),
+  // each read on the template's training cycle on the bare wiring fixture (probes.ts shortRangeTrainingCycle):
+  //   rolls   the training roll's primary size (people, units or scan points) is its span's smallest (SF: smallest roll)
+  //   work    the ticks economyTick spends on site equal the cycle plan's (shortRangeCyclePlan reads `work`)
+  //   reward  the credits one delivered cycle pays equal the reward table's (shortRangeCycleReward reads `reward`)
+  for (const key of SHORT_RANGE_TEMPLATE_KEYS) {
+    const def = SHORT_RANGE_TEMPLATES[key];
+    for (const field of ["rolls", "work", "reward"] as const) {
+      out.push(
+        entry({
+          id: `mission:SHORT_RANGE_TEMPLATES:${key}:${field}`,
+          system: "mission",
+          source: { catalog: "SHORT_RANGE_TEMPLATES", key: `${key}:${field}` },
+          claim: `${def.label} ${field}`,
+          probe: `content:shortRange:${field}:${key}` as ProbeId,
+          contexts: ["mission:shortRange"],
+          direction: "none",
+          curve: { kind: "equals" },
+          magnitude: (c) => {
+            if (field === "rolls") {
+              const spans = c.SHORT_RANGE_TEMPLATES[key].rolls[1];
+              return (spans.guests ?? spans.units ?? spans.scan ?? [-1])[0];
+            }
+            const training = shortRangeTrainingCycle(key);
+            return field === "work" ? training.plan.onSiteTicks : training.credits;
+          },
+        }),
+      );
+    }
+  }
   for (const id of Object.keys(PATROLS)) {
     out.push(
       entry({
@@ -2327,10 +2631,8 @@ const SHIP_STATUS_PENDING: Readonly<Record<string, string>> = {
 };
 
 const GROUND_STATUS_PENDING: Readonly<Record<string, string>> = {
-  bleed: "FK-4 (bleed per FK call 7: nothing inflicts it)",
   corroded: "WR-10, OC-F9 (only analyze, never run, inflicts it)",
   inspired: "FK-5 (nothing inflicts it)",
-  fear: FIELD_KITS_FEAR,
 };
 
 const ACTION_PENDING: Readonly<Partial<Record<GambitActionId, string>>> = {
@@ -2413,15 +2715,21 @@ function contentEntries(): WiringEntry[] {
   }
   for (const [id, def] of Object.entries(GAMBIT_STATUSES) as [GambitStatusId, (typeof GAMBIT_STATUSES)[GambitStatusId]][]) {
     const owner = GROUND_STATUS_PENDING[id];
+    // Field Kits FKR-4: Neurotoxin's DoT reads as a DoT, the bone line's cut as an accuracy cut (its power half rides the
+    // same magnitude, fieldKitsConditions.test.ts), and a turn loss or Fear as the squad's hp lost to a foe opening with it.
     const shape: Partial<EntryInput> =
-      def.effect === "dotDamage"
+      def.effect === "dotDamage" || def.effect === "dotTurnLoss"
         ? { curve: { kind: "linearAbsolute" }, magnitude: (c) => Math.round(c.GAMBIT_STATUSES[id].magnitude) }
-        : def.effect === "accuracyDown"
+        : def.effect === "accuracyDown" || def.effect === "powerAccuracyDown"
           ? { direction: "down", curve: { kind: "linearRelative" }, magnitude: (c) => -c.GAMBIT_STATUSES[id].magnitude }
           : def.effect === "damageDown" || def.effect === "damageTakenDown"
             ? { direction: "down", curve: { kind: "linearRelative" }, magnitude: (c) => -c.GAMBIT_STATUSES[id].magnitude, tolerance: 1 }
-            : def.effect === "skipTurn"
-              ? { direction: "down", curve: { kind: "event", metric: "squad hp lost to a foe that opens stunned" }, magnitude: () => 1 }
+            : def.effect === "skipTurn" || def.effect === "turnLoss" || def.effect === "mayFallBack"
+              ? {
+                  direction: "down",
+                  curve: { kind: "event", metric: def.effect === "skipTurn" ? "squad hp lost to a foe that opens stunned" : `squad hp lost to a foe that opens with ${def.label}` },
+                  magnitude: () => 1,
+                }
               : {};
     out.push(
       entry({
@@ -2483,6 +2791,43 @@ function contentEntries(): WiringEntry[] {
     entry({
       ...base("away", "GAMBIT_PROGRAMS", "account", "The account gambit pair (DEFAULT_GAMBIT_PROGRAMS, state.gambitPrograms)"),
       status: pending("WR-10, OC-F12 (D19: no battle reads it)"),
+    }),
+  );
+  // Field Kits FKR-6 (group 7 "Rank rules + reserve"; N15): the rank conditions ("target is Elite or stronger",
+  // "target is a Boss": the ranks of a Weak-to-Boss lineup a rule still attacks), the "keep N for a Boss" reserve (the
+  // charges a thrower spends against a Normal foe drop by N) and the Field Kits default program (the grenades a member
+  // on the default throws in one battle).
+  for (const min of ["elite", "boss"] as const) {
+    out.push(
+      entry({
+        ...base("away", "GAMBIT_PROGRAMS", `minRank:${min}`, `Gambit condition: target is ${ENEMY_RANKS[min].label}${min === "boss" ? "" : " or stronger"}`),
+        probe: `content:rankCondition:${min}`,
+        contexts: ["ground"],
+        direction: "down",
+        curve: { kind: "equals" },
+        magnitude: (c) => Object.values(c.ENEMY_RANKS).filter((r) => r.order >= c.ENEMY_RANKS[min].order).length,
+        on: sourceOn,
+      }),
+    );
+  }
+  const reserve = FIELD_KITS_DEFAULT_GRENADE_RULES.find((r) => r.params?.reserveForBoss !== undefined)?.params?.reserveForBoss ?? 0;
+  out.push(
+    entry({
+      ...base("away", "GAMBIT_PROGRAMS", "reserveForBoss", "Gambit option: keep N charges or kits for a Boss"),
+      probe: "content:bossReserve",
+      contexts: ["ground"],
+      direction: "down",
+      curve: { kind: "linearAbsolute" },
+      magnitude: () => -reserve,
+      on: sourceOn,
+    }),
+    entry({
+      ...base("away", "GAMBIT_PROGRAMS", "fieldKitsDefault", "The default program throws grenades on a Field Kits run, keeping one for an Elite or a Boss"),
+      probe: "content:fieldKitsDefault",
+      contexts: ["ground"],
+      curve: { kind: "event", metric: "grenades a member on the default throws in one battle" },
+      magnitude: () => 1,
+      on: sourceOn,
     }),
   );
   for (const p of POI_CATALOG) {
@@ -2562,6 +2907,17 @@ function contentEntries(): WiringEntry[] {
         direction: "none",
         curve: { kind: "equals" },
         magnitude: (c) => (c.ITEMS[id] as { sellValue?: number }).sellValue ?? 0,
+      }),
+    );
+  }
+  // ML-1: an item produced today whose consumer a later slice wires (ItemDef.reserved names it). Pending until that
+  // slice adds the consumer and drops the marker (materialLines.test.ts fails while both are true).
+  for (const [id, item] of Object.entries(ITEMS)) {
+    if (item.reserved === undefined) continue;
+    out.push(
+      entry({
+        ...base("facility", "ITEMS", `${id}:reserved`, `${item.label} is produced and has a consumer`),
+        status: pending(item.reserved),
       }),
     );
   }
@@ -2667,25 +3023,19 @@ function enemyRankEntries(): WiringEntry[] {
 }
 
 // ============================================================================
-// away: the field kits (Field Kits FKR-2, fieldKits.ts). Nothing reads the catalog yet: every entry is PENDING and
-// names the FKR slice that makes it live (with a sensitivity check) in its own commit.
+// away: the field kits (Field Kits FKR-2, fieldKits.ts). Since FKR-6 every kit and the First Aid / Advanced Medical rules
+// are LIVE in a Field Kits run's battle (fieldKitsBattle.ts; probes content:kit / content:kitCategory, each kit spent
+// through a real Use Item rule on a battle carrying the Field Kits kit rules). Field Devices stays pending (FKR-8).
 // ============================================================================
 
-const KIT_OWNER: Readonly<Record<FieldKitId, string>> = {
-  firstAidKit: "FKR-6 (kits in battle: a Use Item rule spends the member's own First Aid Kit)",
-  antitoxin: "FKR-6 (kits in battle: Antitoxin clears Poison)",
-  combatStim: "FKR-6 (kits in battle: Combat Stim grants Inspired)",
-  splint: "FKR-6 (kits in battle: Splint on the bone line, N8)",
-  traumaKit: "FKR-6 (kits in battle: Trauma Kit on serious conditions)",
-  injuryKit: "FKR-6 + FKR-7 (the Injury Kit treatment share reaches the medical bay)",
-};
-
-const CATEGORY_OWNER: Readonly<Record<KitCategory, string>> = {
-  firstAid: "FKR-6 (First Aid kits at 0.5x untrained, 1.25x with Medical Training)",
-  advancedMedical: "FKR-6 (the Medical Training gate on Splint, Trauma Kit and Injury Kit)",
-  explosives: "FKR-5 (Saboteur +6% on the Saboteur's own grenade throws)",
+// The categories not live yet, by owner (Explosives went live at FKR-5, First Aid and Advanced Medical at FKR-6).
+const CATEGORY_OWNER: Readonly<Partial<Record<KitCategory, string>>> = {
   fieldDevices: "FKR-8 (the 50 to 75% per-use device roll, Codebreaker +6%)",
 };
+
+// Field Kits FKR-6: the category rules measured in battle (content:kitCategory): First Aid's trained lift on one First
+// Aid Kit's heal, Advanced Medical's Medical Training gate on a Splint.
+const CATEGORY_BATTLE_PROBE: Readonly<Partial<Record<KitCategory, true>>> = { firstAid: true, advancedMedical: true };
 
 function fieldKitEntries(): WiringEntry[] {
   // Each kit's measurable effect, read from the catalog: a heal (HP), a bay treatment share (the bay divisor), a buff
@@ -2701,16 +3051,37 @@ function fieldKitEntries(): WiringEntry[] {
           : def.buff !== undefined
             ? { curve: { kind: "equals" }, direction: "none", magnitude: (c) => c.FIELD_KITS[id].buff?.rounds ?? 0 }
             : { curve: { kind: "event", metric: "conditions treated" }, magnitude: (c) => conditionsTreated(c.FIELD_KITS[id]) };
+    // Field Kits FKR-6: live in a Field Kits run's battle. The Injury Kit's share is measured through the medical bay's
+    // divisor (medicalBay.ts conditionCureSeconds, a Broken Bone's time; whole seconds, so one step of tolerance);
+    // FKR-7 sums the fight record's `treated` into the run's bay.
     return entry({
       id: `away:FIELD_KITS:${id}`,
       system: "away",
       source: { catalog: "FIELD_KITS", key: id },
       claim: `${def.label}: what one use treats, heals or grants`,
       ...shape,
-      status: pending(KIT_OWNER[id]),
+      probe: `content:kit:${id}`,
+      contexts: ["ground"],
+      on: sourceOn,
+      ...(def.treatmentShare !== undefined ? { tolerance: 1, note: "the battle records the share; FKR-7 sums it on the member's trip treatment, which the run's medical bay reads" } : {}),
     });
   });
   for (const cat of Object.keys(KIT_CATEGORY_RULES) as KitCategory[]) {
+    const owner = CATEGORY_OWNER[cat];
+    // Field Kits FKR-5 (FK10 "Own grenades only"): Explosives' specialist bonus is Saboteur's x1.06 on the Saboteur's own
+    // throws, read on a Field Kits objective fight's armed squad (the blast's power multiplier of a worn Impact
+    // Grenade; the debuff chance takes the same factor, fieldKitsGrenades.test.ts).
+    const saboteur: Partial<EntryInput> =
+      cat === "explosives"
+        ? {
+            probe: "runSecGrenadePower",
+            contexts: ["ground"],
+            base: () => wearPiece(withAwayTeam(wiringBase()), WIRING_SECURITY_ID, "memberTool", "impactGrenade", {}),
+            on: (s) => editMember(s, WIRING_SECURITY_ID, { traits: ["saboteur"] }),
+          }
+        : CATEGORY_BATTLE_PROBE[cat]
+          ? { probe: `content:kitCategory:${cat}` as ProbeId, contexts: ["ground"] as ContextId[], on: sourceOn }
+          : {};
     out.push(
       entry({
         id: `away:KIT_CATEGORY_RULES:${cat}`,
@@ -2726,7 +3097,42 @@ function fieldKitEntries(): WiringEntry[] {
           if (cat === "advancedMedical") return rule.trained - rule.untrained;
           return rule.specialistBonus;
         },
-        status: pending(CATEGORY_OWNER[cat]),
+        ...saboteur,
+        status: owner ? pending(owner) : LIVE,
+      }),
+    );
+  }
+  // Field Kits FKR-5: the grenade family (FK11, N4, N6), each grenade measured on a reference thrower armed the way a
+  // Field Kits fight arms it: its charges per objective and throws per battle (read verbatim), its blast (the thrower's
+  // power x powerMult) and its debuff (bodies afflicted over a batch of throws).
+  for (const k of GRENADE_IDS) {
+    const g = GRENADES[k];
+    const label = EQUIPMENT_SLOTS.memberTool.varieties.find((v) => v.key === k)?.label ?? k;
+    const shared = (field: string) => ({
+      id: `away:GRENADES:${k}:${field}`,
+      system: "away" as const,
+      source: { catalog: "GRENADES", key: `${k}:${field}` },
+      probe: `content:grenade:${k}:${field}` as ProbeId,
+      contexts: ["ground"] as ContextId[],
+      on: sourceOn,
+    });
+    out.push(
+      entry({ ...shared("charges"), claim: `${label}: its charges per objective`, curve: { kind: "equals" }, magnitude: (c) => c.GRENADES[k].charges.perObjective }),
+      entry({ ...shared("perBattle"), claim: `${label}: its throws per battle`, curve: { kind: "equals" }, magnitude: (c) => c.GRENADES[k].charges.perBattle }),
+      entry({
+        ...shared("blast"),
+        claim: `${label}: the blast hits the target's group at a multiple of the thrower's power`,
+        direction: g.powerMult > 1 ? "up" : g.powerMult < 1 ? "down" : "none",
+        curve: { kind: "linearRelative" },
+        magnitude: (c) => c.GRENADES[k].powerMult - 1,
+        // The damage is a whole number at power 1000: one rounding step each side.
+        tolerance: 2,
+      }),
+      entry({
+        ...shared("status"),
+        claim: `${label}: the blast may inflict ${GAMBIT_STATUSES[g.status].label} on each body it hits`,
+        curve: { kind: "event", metric: "bodies its debuff lands on over 64 throws at a group of two" },
+        magnitude: () => 1,
       }),
     );
   }
@@ -2738,28 +3144,53 @@ function fieldKitEntries(): WiringEntry[] {
           system: "away",
           source: { catalog: "CONDITION_LINES", key: `${line}:${r.id}` },
           claim: `${r.label}: severity rank ${i + 1} of the ${line} line, worse at higher ranks`,
-          direction: "down",
+          // Field Kits FKR-4: the bone hits a fresh combatant takes to hold this rank (Fracture first, one rank worse per
+          // hit); its power and accuracy cut is its GAMBIT_STATUSES entry.
+          probe: `content:bone:${r.id}`,
+          contexts: ["ground"],
+          direction: "none",
           curve: { kind: "equals" },
           magnitude: (c) => c.CONDITION_LINES[line].findIndex((x) => x.id === r.id) + 1,
-          status: pending("FKR-4 (the bone line in battle: inflicted, worsening, power and accuracy down)"),
+          on: sourceOn,
         }),
       ),
     );
   }
+  // Field Kits FKR-7: the free basic set, refilled as a crew lands on an objective (every objective and every trip),
+  // frozen at dispatch off the ship's Medical and Operations headcount (fieldKitsRun.ts). Its base is read verbatim; the
+  // crew's D23 curve (FREE_BASIC_CURVE_KNEE, whole kits) is its own entry: a ship with Medical crew lands more kits.
   for (const id of Object.keys(FREE_BASIC_SET) as FieldKitId[]) {
     out.push(
       entry({
         id: `away:FREE_BASIC_SET:${id}`,
         system: "away",
         source: { catalog: "FREE_BASIC_SET", key: id },
-        claim: `Free basic set: every member starts each objective with ${FIELD_KITS[id].label} supplies, more with Medical and Operations crew`,
-        curve: { kind: "diminishing", knee: FREE_BASIC_CURVE_KNEE, base: FREE_BASIC_SET[id]?.base ?? 0 },
+        claim: `Free basic set: every member starts each objective with ${FIELD_KITS[id].label} supplies`,
+        curve: { kind: "equals" },
         magnitude: (c) => c.FREE_BASIC_SET[id]?.base ?? 0,
-        status: pending("FKR-7 (the per-objective free basic set, refreshed each objective and reload)"),
+        probe: `content:freeBasic:${id}:base`,
+        contexts: ["ground"],
+        on: sourceOn,
       }),
     );
+    if (FREE_BASIC_SET[id]?.crewCurve) {
+      out.push(
+        entry({
+          id: `away:FREE_BASIC_SET:${id}:crew`,
+          system: "away",
+          source: { catalog: "FREE_BASIC_SET", key: `${id}:crew` },
+          claim: `Free basic set: more ${FIELD_KITS[id].label} supplies with Medical and Operations crew (diminishing, knee ${FREE_BASIC_CURVE_KNEE} kits)`,
+          curve: { kind: "event", metric: "free kits a member lands with, 16 Medical crew vs none" },
+          magnitude: () => 1,
+          probe: `content:freeBasic:${id}:crew`,
+          contexts: ["ground"],
+          on: sourceOn,
+        }),
+      );
+    }
   }
-  // FKR-3: the Quartermaster price of each kit (N13, 3x material value). Nothing sells kits until FKR-7.
+  // FKR-3: the Quartermaster price of each kit (N13, 3x material value). FKR-7: the Quartermaster's kit sale charges it
+  // (quartermaster.ts buyFieldKits), and so does a dispatch's top-up (fieldKitsRun.ts planDispatchPacks).
   for (const id of FIELD_KIT_IDS) {
     out.push(
       entry({
@@ -2770,7 +3201,9 @@ function fieldKitEntries(): WiringEntry[] {
         direction: "none",
         curve: { kind: "equals" },
         magnitude: (c) => c.FIELD_KIT_PRICES[id],
-        status: pending("FKR-7 (Quartermaster kit sales and the off-by-default launch top-up charge the price)"),
+        probe: `content:kitPrice:${id}`,
+        contexts: ["facility"],
+        on: sourceOn,
       }),
     );
   }
@@ -2866,25 +3299,27 @@ function crewScalarEntries(): WiringEntry[] {
   return out;
 }
 
-const CONDITION_PENDING = "FK-4 (no battle or task applies the condition yet)";
 const ossir: Transform = (s) => editMember(s, WIRING_SECURITY_ID, { race: "ossir" });
-const LIVE_CONDITIONS = new Set(["health", "poison", "downed"]);
+// Field Kits FKR-4: a Field Kits run's fights apply every bay condition (Bleed since the user's 2026-10-19 call:
+// a Striker's landed normal hit, fieldKitsConditions.ts STRIKER_NORMAL_HIT_AFFLICTION). None pending.
+const PENDING_CONDITIONS: Readonly<Record<string, string>> = {};
 
 function medicalEntries(): WiringEntry[] {
-  const out: WiringEntry[] = Object.keys(GROUND_CONDITIONS).map((id) =>
-    entry({
+  const out: WiringEntry[] = Object.keys(GROUND_CONDITIONS).map((id) => {
+    const owner = PENDING_CONDITIONS[id];
+    return entry({
       id: `away:GROUND_CONDITIONS:${id}`,
       system: "away",
       source: { catalog: "GROUND_CONDITIONS", key: id },
       claim: `${GROUND_CONDITIONS[id].label}: its medical bay time`,
-      probe: LIVE_CONDITIONS.has(id) ? `content:cure:${id}` : undefined,
-      contexts: LIVE_CONDITIONS.has(id) ? ["medbay"] : [],
+      probe: owner ? undefined : `content:cure:${id}`,
+      contexts: owner ? [] : ["medbay"],
       direction: "none",
       curve: { kind: "equals" },
       magnitude: () => GROUND_CONDITIONS[id].cureSeconds,
-      status: LIVE_CONDITIONS.has(id) ? LIVE : pending(CONDITION_PENDING),
-    }),
-  );
+      status: owner ? pending(owner) : LIVE,
+    });
+  });
   out.push(
     entry({
       id: "away:MEMBER_PERKS:stoneskin",
@@ -2897,13 +3332,29 @@ function medicalEntries(): WiringEntry[] {
       magnitude: () => STONESKIN_INJURY_MULT - 1,
       tolerance: 1,
       on: sourceOn,
-      status: pending("FK-4 (the battle half) + OC-G1 (the legacy claim ignores perks, injuries.ts:93)", ["expedition:legacy", "ground"]),
+      status: pending("OC-G1 (the legacy claim ignores perks, injuries.ts:93)", ["expedition:legacy"]),
       // An Ossir Security member (the race carries the perk) vs an Earth-born one: the legacy injury path's recovery
-      // time, and the member's battle resists (the in-battle half: injuries land less often).
+      // time. (The in-battle half is its own entry below, live since Field Kits FKR-4.)
       flatChecks: {
         "expedition:legacy": { probe: "legacyInjurySeconds", base: () => withAwayTeam(wiringBase()), on: ossir, off: identity },
-        ground: { probe: "secResistSum", base: () => withAwayTeam(wiringBase()), on: ossir, off: identity },
       },
+    }),
+    // Field Kits FKR-4: Stoneskin's battle half (D24 "Chances of receiving physical ailments is reduced by 25%, but if
+    // they do land, they last for 25% longer"): on a Field Kits run's fight an Ossir member's resist roll against a
+    // physical status (a Fracture here) rises by STONESKIN_BATTLE_RESIST; the longer duration rides the same stamp.
+    entry({
+      id: "away:MEMBER_PERKS:stoneskin:battle",
+      system: "away",
+      source: { catalog: "MEMBER_PERKS", key: "stoneskin:battle" },
+      claim: "Ossir Stoneskin: physical conditions land 25% less often in battle and last 25% longer",
+      probe: "runSecStoneskinResist",
+      contexts: ["ground"],
+      curve: { kind: "chanceAbsolute" },
+      magnitude: () => STONESKIN_BATTLE_RESIST * 1000,
+      tolerance: 1,
+      base: () => withAwayTeam(wiringBase()),
+      on: ossir,
+      off: identity,
     }),
   );
   return out;
@@ -2922,15 +3373,15 @@ const AUDIT_ROWS: readonly { id: string; system: WiringSystem; claim: string; st
   { id: "facility:audit:fuelAutoBuy", system: "facility", claim: "The mission fuel budget and credit auto-buy plumbing (FUEL_CREDITS_PER_UNIT, REFUEL_PENALTY_TICKS, refuelDelayTicks): unreachable since 0.13.6 (an infinite fuel budget). (B5's Buy Fuel, tank and refinery are gone, WR-4.)", status: pending("S4-A02 (the fuel-economy cleanup: remove or keep, a user call)") },
   { id: "facility:audit:requiresResearch", system: "facility", claim: "The requiresResearch rung gate (B1 fixed in WR-4: it checks the researched blueprint; no rung lists one yet)", status: pending("OC-C4") },
   { id: "facility:audit:requiresFacilityLevels", system: "facility", claim: "requiresFacilityLevels / requiresMissionCompletions rung gates (correct, no rung uses them)", status: pending("WR-4, OC-C4") },
-  { id: "facility:audit:missionControlUnlock", system: "facility", claim: "MISSION_CONTROL_UNLOCK_COMPLETIONS 50 (only a commented-out rung)", status: pending("WR-4, OC-C4") },
+  { id: "facility:audit:missionControlUnlock", system: "facility", claim: "MISSION_CONTROL_UNLOCK_COMPLETIONS 50 and the Mission Control board rungs (MISSION_CONTROL_BOARD_RUNGS, G1-3: a Tier II short-range slot at level 2 behind the 50-completion gate, a fourth at level 3), hidden until SHORT_RANGE_BOARD_LIVE", status: pending("G1-6 (flips SHORT_RANGE_BOARD_LIVE with the board UI; the rungs then enumerate as facility rung entries on the shortRangeSlots probe)") },
   { id: "facility:audit:itemEquipStats", system: "facility", claim: "ItemDef.equipStats (no item fills it)", status: pending("WR-4, OC-C4") },
   { id: "facility:audit:precursorCircuit", system: "facility", claim: "Precursor Circuit: salvage drops it, nothing consumes it", status: pending("WR-10, OC-J3") },
   // D. Ship
   { id: "ship:audit:statRatios", system: "ship", claim: "Variety statRatios: an unlisted key keeps weight 1, so Hauler Hold rolls massReduction more than Prospector Hold (B11)", status: pending("WR-7, OC-D6") },
   { id: "ship:audit:favorsSpec", system: "ship", claim: "Variety favorsSpec (no reader)", status: pending("WR-7, OC-D5") },
-  { id: "ship:audit:slotPowerDraw", system: "ship", claim: "SLOT_BASE_PHYSICALS powerDraw (display only; promises a budget)", status: pending("E-MOD + WR-7, OC-D1") },
+  { id: "ship:audit:slotPowerDraw", system: "ship", claim: "SLOT_BASE_PHYSICALS powerDraw: a crafted piece draws its slot's power from the ship's budget", status: LIVE },
   { id: "ship:audit:slotDurability", system: "ship", claim: "SLOT_BASE_PHYSICALS durability for economy, defense, crew, sensor and member pieces (never read)", status: pending("WR-8, OC-D14") },
-  { id: "ship:audit:reactorCoreNet", system: "ship", claim: "A crafted Reactor Core is net negative: no power budget, and its mass drags speed and fuel (B10)", status: pending("E-MOD + OC-D1") },
+  { id: "ship:audit:reactorCoreNet", system: "ship", claim: "A crafted Reactor Core is net negative: its output only raises the power budget (no install gate or penalty before EM-2 / EM-3, the hull's own output covers every loadout), and its mass drags speed and fuel (B10)", status: pending("E-MOD EM-4 (unused reactor power speeds the drive, P3)") },
   { id: "ship:audit:arrayCharacter", system: "ship", claim: "ARRAY_CHARACTER: \"Focused: faster\" while its net rate is 0.78x; no Bio-Resonance line (B12)", status: pending("WR-7, OC-D11") },
   { id: "ship:audit:hullDescriptions", system: "ship", claim: "Hull descriptions (Aurora, Eir, Orion) claim what the engine does not do", status: pending("WR-7, OC-D13 (heavy cruiser wording: SF-6)") },
   { id: "ship:audit:combatPositions", system: "ship", claim: "Weapon and drone range, stance (incl. the patrol stance the player picks), BAND_*, enemy stance, speed and position: every ship spawns at 0 (B3)", status: pending("WR-8, OC-D9") },
@@ -2946,19 +3397,26 @@ const AUDIT_ROWS: readonly { id: string; system: WiringSystem; claim: string; st
   { id: "ship:audit:familyResists", system: "ship", claim: "damageResist_<family> / disruptionResist_<family> (read in combat; no affix pool rolls them)", status: pending("WR-8, OC-D12") },
   { id: "ship:audit:installedSystems", system: "ship", claim: "Reactor / FTL systems from installed gear (bridge.ts:945 uses a fresh quality-0 system)", status: pending("WR-8, OC-D12") },
   { id: "ship:audit:derivedStatsInCombat", system: "ship", claim: "ShipDerivedStats in combat (powerOutput, sensors, mass)", status: pending("WR-8, OC-D12") },
-  { id: "ship:audit:weaponPowerDraw", system: "ship", claim: "Weapon powerDraw and the power.ts helpers (powerBudget, canFitByPower, totalPowerDraw: no callers)", status: pending("E-MOD + WR-7, OC-D1") },
+  { id: "ship:audit:weaponPowerDraw", system: "ship", claim: "Weapon powerDraw: a crafted weapon draws its def's power from the ship's budget", status: LIVE },
   { id: "ship:audit:commentOnlyRules", system: "ship", claim: "The Tachyon anti-shield exception and the Voltaic chain (comments only)", status: pending("WR-8, OC-D12") },
   { id: "ship:audit:inertDescriptors", system: "ship", claim: "The vs-Drones triangle column, status persistence between battles, ResolveOptions.objective, TargetingPolicy.escortShare, builtInBays, frameHp, the DoT rng", status: pending("WR-8, OC-D12") },
   { id: "ship:audit:statusColor", system: "ship", claim: "Status color (no reader)", status: pending("WR-11 (use in the combat view or delete; no call)") },
   { id: "ship:audit:partialCombat", system: "ship", claim: "Ambush opener (expedition cloaked events only), precharge (Ground Ops only), enemy mitigation (players only), evasion (Evasive Command only), drone replenish (between waves only)", status: pending("WR-8, OC-D9 / OC-D12") },
   { id: "ship:audit:podDurability", system: "ship", claim: "DRONE_POD_BASE_DURABILITY (pods never wear) and QUALITY_DURABILITY_BONUS on non-weapons", status: pending("WR-8, OC-D14") },
   // E. Crew
-  { id: "crew:audit:notables", system: "crew", claim: "Notable crew: the read paths are live but nothing creates one", status: pending("CP-8") },
   { id: "crew:audit:enlisted", system: "crew", claim: "The crew rank enlisted flag (never read)", status: pending("WR-9, OC-E11") },
   { id: "crew:audit:thirdBuff", system: "crew", claim: "buffCountForRank 3 (only gates the exclusive pick)", status: pending("WR-9, OC-E12") },
   { id: "crew:audit:commandCaps", system: "crew", claim: "Command structure caps (passive ships only; not enforced on load)", status: pending("CP-5, CP-7") },
   { id: "crew:audit:rapidLoadoutScope", system: "crew", claim: "Rapid Loadout acts on Ground Ops only", status: pending("WR-9, OC-E6") },
   { id: "crew:audit:moraleAttrition", system: "crew", claim: "Morale Anchor's \"complement attrition\" half (no system)", status: pending("WR-9, OC-E7") },
+  // The inert racials (0.14.0): the Spacer racial went live on the transit speed (user 2026-10-20 "+Transit speed"); the
+  // long-haul ramp it was first named for stays the user's 0.14.x deferral, kept visible here.
+  {
+    id: "crew:audit:spacerLongHaulRamp",
+    system: "crew",
+    claim: "The Spacer long-haul ramp (crew.endurance: a complement build-up like Constitution, D23 curve; no source in 0.14.0)",
+    status: { kind: "deferred", owner: "Task 23: complement long-haul ramp (D26)", userRef: `${T3}: the Spacer long-haul ramp` },
+  },
   { id: "crew:audit:commandPresenceExpedition", system: "crew", claim: "Command Presence and Operations Integrity do not reach expeditions", status: pending("WR-9, OC-E9") },
   // F. Away team and ground
   { id: "away:audit:shroudLureGroundOps", system: "away", claim: "Shroud Emitter and Lure Beacon on Ground Ops move the ship event chance; no drop multiplier", status: pending("FK-7 + OC-F1") },
@@ -2968,8 +3426,9 @@ const AUDIT_ROWS: readonly { id: string; system: WiringSystem; claim: string; st
   { id: "away:audit:scienceRank", system: "away", claim: "Science member rank \"nudges magnitude\" (fieldwork never reads it)", status: pending("WR-10, OC-F7") },
   { id: "away:audit:fieldDeviceEffectiveness", system: "away", claim: "fieldDevice effectiveness (both values 1; the specialist check is always false)", status: pending("FK-7") },
   { id: "away:audit:memberSlotPhysicals", system: "away", claim: "Member slot physicals (mass, powerDraw, durability)", status: pending("WR-8, OC-D14") },
-  { id: "away:audit:treatmentShare", system: "away", claim: "treatmentShare (always 0)", status: pending("FK-5 / FK-6") },
-  { id: "away:audit:fieldKitsCure", system: "away", claim: "Cure clears basic debuffs only on a Field Kits run (fieldKits.ts BASIC_DEBUFFS; today it clears any debuff)", status: pending("FKR-4 (Cure reads BASIC_DEBUFFS on flagged runs)") },
+  // Field Kits FKR-7: the Injury Kit's share (a fight's `treated`) sums on the member's trip treatment and the run's bay
+  // divides that member's cures by it (auditRowWiring below).
+  { id: "away:audit:treatmentShare", system: "away", claim: "An Injury Kit shortens the treated member's medical bay time (treatmentShare)", status: LIVE },
   { id: "away:audit:memberFallOutcome", system: "away", claim: "memberFallOutcome (the Safety Interlock hook, one branch)", status: pending("OC-F13") },
   { id: "away:audit:prospectingTeam", system: "away", claim: "The Prospecting squad type: built (specs, traits, YIELD / GRADE, recruits, gear, slots), hidden until a quest step unlocks it per save", status: PROSPECTING_DEFERRED },
   { id: "away:audit:prospectingUnlock", system: "away", claim: "The per-save Prospecting unlock (GameState.prospectingSquadsUnlocked, unlockProspectingSquads): nothing sets it in 0.14.0", status: PROSPECTING_DEFERRED },
@@ -2979,18 +3438,27 @@ const AUDIT_ROWS: readonly { id: string; system: WiringSystem; claim: string; st
   { id: "away:audit:steadyProspecting", system: "away", claim: "Steady's Prospecting reach (+hazard resistance on a Prospecting member)", status: PROSPECTING_DEFERRED },
   { id: "away:audit:sharedHazardGear", system: "away", claim: "The Hazard Suit and Environmental Adaptation worn by Prospecting (shared hazard gear)", status: PROSPECTING_DEFERRED },
   { id: "away:audit:prospectingDigSafety", system: "away", claim: "Dig safety: a Prospecting crew's Armor and HP cut cave-in and retreat injuries (prospectingCrewStats digSafety, DIG_SAFETY_KNEE)", status: PROSPECTING_DEFERRED },
+  // Field Kits FKR-5 review ruling (user 2026-10-20 "Hide until kits are live"): model.ts FIELD_KITS_PLAYER_LIVE.
+  // FKR-7 kept both switches off: kits are wired into runs, but no player can see or change a pack until the dispatch
+  // pack UI (FKR-9, user mockup sign-off) and the Quartermaster sale rows (FKR-10) land; both flip together then.
+  { id: "away:audit:fieldKitsHiddenPieces", system: "away", claim: "Hidden until kits are live (FIELD_KITS_PLAYER_LIVE): the Impact Grenade blueprint (FIELD_KITS_HIDDEN_BLUEPRINTS, out of Research, the Fabricator and the Archive) and the +1 Carry Capacity line on new Stun and Toxin Grenade crafts", status: pending("FKR-9 / FKR-10 (flip FIELD_KITS_PLAYER_LIVE with FIELD_KITS_RUNS_LIVE once the pack UI ships)") },
+  { id: "away:audit:fieldKitsRunsSwitch", system: "away", claim: "Field Kits in runs (fieldKits.ts FIELD_KITS_RUNS_LIVE): a new dispatch stamps flag 2, packs each member from stock, buys a top-up team's shortfall, and the unused extras come home at claim", status: pending("FKR-9 / FKR-10 (the per-member pack UI and the Quartermaster kit sale rows; flips with FIELD_KITS_PLAYER_LIVE)") },
   { id: "away:audit:statusPicker", system: "away", claim: "Status picker entries that never match (only six of nine statuses can fire)", status: pending("FK-9 + WR-10") },
   { id: "away:audit:fieldRepairOrder", system: "away", claim: "Player-ordered field repair (engine only, no UI)", status: pending("WR-10, OC-F14") },
   { id: "away:audit:legacyOnly", system: "away", claim: "Legacy-only: MAX_BATTLE_ATTEMPTS, EVAC_REWARD_FRACTION, ENCOUNTER_DROP_SCALE, scan ground battles, softenAmbush, the flat 2 h injury", status: pending("OC-G1") },
-  { id: "away:audit:tierDormant", system: "away", claim: "Tier-dormant rows: RISK_TIER_ODDS II to VII, enemy territory, hostile sites, SCIENCE_HEAVY, affix rows above Tier I, DIFFICULTY_TIER_ROLL_MULT", status: pending("G2-2, SF-3") },
+  { id: "away:audit:tierDormant", system: "away", claim: "Tier-dormant rows: RISK_TIER_ODDS II to VII, enemy territory (the homeworld's fixed sectors), hostile sites, SCIENCE_HEAVY, affix rows above Tier I, the tier haul TIER_HAUL_MULT II to VII, TIER_BODY_COUNT II to VII, the deeper famous systems, DIFFICULTY_TIER_ROLL_MULT", status: pending(`${G2_6_PICKER}, SF-3`) },
   { id: "away:audit:objectiveHooks", system: "away", claim: "taskChainFollowUp, calmObjective, affix weightFor (no caller)", status: pending("OC-C4") },
   // G. Expedition content
   { id: "expedition:audit:siteFlavor", system: "expedition", claim: "Hostile and clearing site flavor (never rendered)", status: pending("WR-11 (render; no call)") },
-  { id: "expedition:audit:anomalyFinding", system: "expedition", claim: "Charting the anomaly costs 1 h and pays nothing (B15)", status: pending("WR-11, OC-G3") },
+  { id: "expedition:audit:anomalyFinding", system: "expedition", claim: "Charting the anomaly costs a detour (a voyage run: 25% of its outbound leg; an older run: 1 h) and pays nothing (B15)", status: pending("WR-11, OC-G3") },
+  // Expedition Tiers G2-3: the voyage engine reaches every tier and every drive class (voyage.test.ts proves the ladder,
+  // the band scale and the halving); no player reaches a deeper tier until the picker, nor a class above I until G2-4.
+  { id: "expedition:audit:voyageDeepTiers", system: "expedition", claim: "The voyage ladder above Tier I: TIER_TRANSIT_HOURS II 4 h, III 8 h, IV 12 h, V 24 h, VI 72 h, VII 168 h", status: pending(G2_6_PICKER) },
+  { id: "expedition:audit:voyageDriveClass", system: "expedition", claim: "A voyage leg halves per drive class above the tier's minimum (voyage.ts voyageClassSteps): every drive is Class I (STANDARD_DRIVE_CLASS)", status: pending("G2-4 (drive classes on FTL drives and hulls, user G3)") },
   { id: "expedition:audit:anomalySensors", system: "expedition", claim: "ANOMALY_CHANCE_PERMILLE: \"if sensors detect one\" (sensors not read)", status: pending("WR-11, OC-G3") },
   { id: "expedition:audit:relicSignature", system: "expedition", claim: "Foreknowledge relicSignature (the UI never reads it)", status: pending("WR-11 (delete or render; no call)") },
-  { id: "expedition:audit:blindLaunch", system: "expedition", claim: "The blind launch path (unreachable)", status: pending("G2-2") },
-  { id: "expedition:audit:oddsRiskyBelow", system: "expedition", claim: "ODDS_RISKY_BELOW (behind tier > 2)", status: pending("G2-2") },
+  { id: "expedition:audit:blindLaunch", system: "expedition", claim: "The blind launch path (a candidate past the telescope's reach: a deeper tier)", status: pending(G2_6_PICKER) },
+  { id: "expedition:audit:oddsRiskyBelow", system: "expedition", claim: "ODDS_RISKY_BELOW (behind tier > 2)", status: pending(G2_6_PICKER) },
   { id: "expedition:audit:shipEventProfileFields", system: "expedition", claim: "ShipEventProfile evasion and shieldCapacity (frozen, never read)", status: pending("WR-11, OC-G5") },
   { id: "expedition:audit:planetComments", system: "expedition", claim: "Planet comments: Ocean slower work, Frozen best relic survival, Toxic hardened team", status: pending("OC-G6") },
   { id: "expedition:audit:legacyFallbacks", system: "expedition", claim: "FIGHT_POINTS_DEFAULT / MIN, SURVEY_AMBUSH_CHANCE (old runs only)", status: pending("OC-G1") },
@@ -3006,7 +3474,124 @@ const AUDIT_ROWS: readonly { id: string; system: WiringSystem; claim: string; st
 ];
 
 function auditEntries(): WiringEntry[] {
-  return [...AUDIT_ROWS.map((r) => entry({ id: r.id, system: r.system, source: { catalog: "AUDIT", key: r.id }, claim: r.claim, status: r.status })), ...cp2AuditEntries()];
+  return [
+    ...AUDIT_ROWS.map((r) => entry({ id: r.id, system: r.system, source: { catalog: "AUDIT", key: r.id }, claim: r.claim, status: r.status, ...(auditRowWiring()[r.id] ?? {}) })),
+    ...cp2AuditEntries(),
+    ...fieldKitsAuditEntries(),
+    ...cp8AuditEntries(),
+    ...emodAuditEntries(),
+  ];
+}
+
+// E-MOD EM-1: the wiring of the audit rows that went live in place (their row keeps its registry position): the power
+// draw rows, live with the power budget (the ship's power draw readout, the budget the install gate EM-2 and the combat
+// penalty EM-3 read).
+function auditRowWiring(): Readonly<Record<string, Partial<EntryInput>>> {
+  const emitter = (draw: number): Transform => (s) => installPiece(s, { slotType: "shieldEmitters", powerDraw: draw });
+  const torpedo = (draw: number): Transform => (s) => installPiece(s, { slotType: "weapon", weaponType: "concussionTorpedo", powerDraw: draw });
+  return {
+    // Field Kits FKR-7: one Injury Kit's share on a member's trip treatment divides their Broken Bone bay time.
+    "away:audit:treatmentShare": {
+      probe: "content:runTreatment",
+      contexts: ["medbay"],
+      direction: "down",
+      curve: { kind: "divisor" },
+      magnitude: (c) => c.FIELD_KITS.injuryKit.treatmentShare ?? 0,
+      on: sourceOn,
+      tolerance: 1,
+    },
+    "ship:audit:slotPowerDraw": {
+      probe: "sheetPowerDraw",
+      contexts: ["sheet"],
+      curve: { kind: "linearAbsolute" },
+      magnitude: (c) => c.SLOT_BASE_PHYSICALS.shieldEmitters.powerDraw,
+      base: bareHull,
+      on: emitter(SLOT_BASE_PHYSICALS.shieldEmitters.powerDraw),
+      off: emitter(0),
+    },
+    "ship:audit:weaponPowerDraw": {
+      probe: "sheetPowerDraw",
+      contexts: ["sheet"],
+      curve: { kind: "linearAbsolute" },
+      magnitude: (c) => c.WEAPON_DEFS.concussionTorpedo.powerDraw,
+      base: bareHull,
+      on: torpedo(WEAPON_DEFS.concussionTorpedo.powerDraw),
+      off: torpedo(0),
+    },
+  };
+}
+
+// E-MOD EM-1: the drive class draw seam G2-4's classed drives call (every drive is Class I until then).
+function emodAuditEntries(): WiringEntry[] {
+  return [
+    entry({
+      id: "ship:SHIP_SEAMS:driveClassPowerDraw",
+      system: "ship",
+      source: { catalog: "SHIP_SEAMS", key: "driveClassPowerDraw" },
+      claim: "An FTL drive draws x1.6 power per drive class above I (DRIVE_CLASS_POWER_DRAW_MULT)",
+      status: { kind: "seam", owner: "G2-4 (the Class II to VII drive blueprints)", userRef: "E-MOD P5 (user 2026-10-19): \"x1.6 per class (Recommended)\"" },
+      note: "every drive is Class I until G2-4; shipPower.test.ts proves the multiplier on a classed blueprint",
+    }),
+  ];
+}
+
+// Field Kits FKR-4: the audit row FKR-4 resolves, now live with its own check.
+function fieldKitsAuditEntries(): WiringEntry[] {
+  return [
+    // FK2 (user 2026-10-15, "Basic debuffs only"): the medic's free Cure clears basic debuffs only (gambit.ts
+    // BASIC_DEBUFFS); a serious condition (here a Concussion) stays for its kit or the medical bay. Every debuff before
+    // Field Kits is basic, so an older fight cures exactly as before.
+    entry({
+      id: "away:audit:fieldKitsCure",
+      system: "away",
+      source: { catalog: "AUDIT", key: "away:audit:fieldKitsCure" },
+      claim: "Cure clears basic debuffs only (gambit.ts BASIC_DEBUFFS): a serious condition stays for its kit or the bay",
+      probe: "content:fieldKitsCure",
+      contexts: ["ground"],
+      curve: { kind: "gate" },
+      magnitude: () => 1,
+      on: sourceOn,
+    }),
+  ];
+}
+
+// CP-8: notables are created now (graduation). Identity only (user 2026-10-16, "Let's keep it identity only"): a
+// graduate counts aboard exactly like one crew of its group. Measured on Efficient Unloading: a ship of 20 Crewmen
+// graduates one; against the same ship with that one crewmember gone, the unload bonus is 20 / 19 of it (the notable
+// carries its share), and against the ship before graduating it does not move at all.
+function cp8AuditEntries(): WiringEntry[] {
+  const ops = bucketOf("operations", "ops.unloadSpeed");
+  const crewed = () => withBuckets(wiringBase(), [ops]);
+  const graduate: Transform = (s) => graduateStandout(s, WIRING_SHIP_ID, signatureKey(ops)).next;
+  return [
+    entry({
+      id: "crew:audit:notables",
+      system: "crew",
+      source: { catalog: "AUDIT", key: "crew:audit:notables" },
+      claim: "A graduated notable stays aboard and carries its buffs like one crew of its group",
+      probe: "sheetUnload",
+      contexts: ["sheet"],
+      curve: { kind: "bonusRelative", base: 1 },
+      magnitude: () => 1 / (WIRING_BUCKET_COUNT - 1),
+      base: crewed,
+      on: graduate,
+      off: (s) => withBuckets(s, [{ ...ops, count: WIRING_BUCKET_COUNT - 1 }]),
+      note: "on: 19 Crewmen + the notable; off: the 19 alone",
+    }),
+    entry({
+      id: "crew:audit:notableIdentityOnly",
+      system: "crew",
+      source: { catalog: "AUDIT", key: "crew:audit:notableIdentityOnly" },
+      claim: "Graduating is identity only: the ship's stats do not change",
+      probe: "sheetUnload",
+      contexts: ["sheet"],
+      direction: "none",
+      magnitude: () => 0,
+      base: crewed,
+      on: graduate,
+      note: "a move of 0: the notable replaces the crewmember it was",
+    }),
+  ];
 }
 
 // CP-2: the two crew audit rows CP-2 resolves, now live with their own checks.
@@ -3099,21 +3684,10 @@ const SCIENCE_NEVER_FIGHTS = "Science never fights (D2)";
 const SIDEARM_TOOL = "Science never fights (D2); the Sidearm becomes a tool";
 const ALLOW_LIST_REASONS: Readonly<Record<string, string>> = {
   ...Object.fromEntries(Object.keys(OFFICER_BONUSES_PENDING_IN_RELEASE).map((k) => [`officer:${k}`, OFFICER_DORMANT])),
-  "officer:officer.crewRetention":
-    "Morale Anchor: wired as the squad's Fear resist (Task 20), but nothing inflicts Fear yet (enemy casters apply " +
-    "weakened or poison), so the resist never rolls. The Iron Will trait and Cortex Shield's fear half wait the same way.",
-  "crew:crew.powerEfficiency": "Power Discipline: power efficiency waits for the power budget (design 6.2)",
-  "crew:crew.droneHandling": "Deck Handling: carrier drone handling (Flight Deck pool)",
   "crew:crew.counterInfiltration": "Counter-Infiltration: resists enemy debuffs (Security pool)",
   "crew:crew.awayTeamProtection": "Away-Team Protection: squad HP (Security pool)",
-  "crew:crew.surveyAptitude": "Survey Aptitude: scan speed (Science pool)",
   "crew:crew.triage": "Triage: squad healing (Medical pool)",
   "crew:crew.preventCrewLoss": "Prevent a Crew Loss: shorter injuries (exclusive pool)",
-  "racial:martian": "racial crew.powerEfficiency waits for the power budget",
-  "racial:belter": "racial crew.droneHandling (Flight Deck pool key)",
-  "racial:outerColony": "racial crew.surveyAptitude (Science pool key)",
-  "racial:vael": "racial crew.surveyAptitude (Science pool key)",
-  "racial:spacer": "racial crew.endurance: a complement build-up like Constitution (D23 curve)",
   "gear:science:sidearm:groundPower": SIDEARM_TOOL,
   "gear:science:sidearm:groundAccuracy": SIDEARM_TOOL,
   "gear:science:sidearm:groundStatusChance": SIDEARM_TOOL,
@@ -3121,7 +3695,6 @@ const ALLOW_LIST_REASONS: Readonly<Record<string, string>> = {
   "gear:science:fieldSuit:groundHp": SCIENCE_NEVER_FIGHTS,
   "gear:science:hazardSuit:groundArmor": SCIENCE_NEVER_FIGHTS,
   "gear:science:hazardSuit:groundHp": SCIENCE_NEVER_FIGHTS,
-  "gear:security:cortexShield:groundStatusResist": "its resist covers stun and fear, and no enemy inflicts either on the squad today",
   "facet:pilot:cunning": "the Flight Deck has no over-delivery of its own yet (design section 7 names none)",
 };
 
@@ -3229,9 +3802,89 @@ export const FLAT_UNCONTROLLED: Readonly<Record<string, string>> = {
   "sciCombatPower@ground": "Science never fights (D2): nothing live reaches a Science member's battle stats",
   "secInflictPermille@ground:noInflict": "an inflict piece is the only live source of on-hit statuses, and this context is the one without it",
   "salvageTalentCeiling@salvage:topTier": "the pool's top tier is the clamp: nothing can raise the tier a top Fleet Admiral rolls",
-  "candidateTopTier@expedition:groundOps": "every candidate is Tier I until G2-2: nothing raises the offered region tier",
+  "candidateTopTier@expedition:groundOps": "the console offers Tier I candidates until G2-6 adds the region picker (G2-2 built every tier): nothing raises the offered region tier",
   "missionOreQuality@mission:extraction": "nothing raises mined ore quality today (this line would be the first source)",
 };
+
+// ============================================================================
+// G1-4: the mission:shortRange sweep (plan 4 G1-4: every entry whose claim covers missions gains mission:shortRange,
+// or an explicit outOfScope with its reason; wiring.completeness.test.ts holds every mission-claim entry to it)
+// ============================================================================
+
+const SR_CONTEXT: ContextId = "mission:shortRange";
+// The sources a short-range cycle reads, LIVE there through their own probe's mission:shortRange branch (probes.ts):
+// the ship's mission output share on the pay, the officers' promotion hours out, the captain's Trade margin on a
+// drop-off, Assayer on a delivered haul's quality, Motherlode on a delivered haul, and the transit berths its home
+// turnaround occupies.
+const SHORT_RANGE_SWEEP_LIVE: ReadonlySet<string> = new Set([
+  "officer:officer.shipOutputMult",
+  "crew:crew.crewOutputMult",
+  "captain:SECONDARY_CAPTAIN_TALENTS:commandCrew2",
+  "captain:SECONDARY_CAPTAIN_TALENTS:commandCrew5:officers",
+  "captain:SECONDARY_CAPTAIN_TALENTS:commandCrew3",
+  "captain:SECONDARY_CAPTAIN_TALENTS:trade1",
+  "captain:SECONDARY_CAPTAIN_TALENTS:trade3",
+  "captain:SECONDARY_CAPTAIN_TALENTS:extraction4",
+  "captain:SECONDARY_CAPTAIN_TALENTS:extraction5",
+  ...TRANSIT_BERTH_RUNGS.map((_, i) => `facility:TRANSIT_BERTH_RUNGS:${i}`),
+]);
+// The mission-claim sources a short-range cycle has nothing for, and why. [PROPOSAL, the user's to confirm: the
+// extraction-roll talents stay with extraction missions.]
+const NO_EXTRACTING = "a short-range job has no extracting phase or ore rolls: it pays its rolled job (shortRange.ts shortRangeCycleReward)";
+const SHORT_RANGE_SWEEP_OUT_OF_SCOPE: Readonly<Record<string, string>> = {
+  "officer:officer.rareFindMult": "a short-range survey's yield is its scan size and Sensors, with no rare-tier roll to raise (short-range relics are G1-5's)",
+  "crew:crew.rareFindChance": "a short-range survey's yield is its scan size and Sensors, with no rare-tier roll to raise (short-range relics are G1-5's)",
+  "captain:CAPTAIN_TALENTS:prospectorHub": NO_EXTRACTING,
+  "captain:CAPTAIN_TALENTS:prospectorBulkExtraction": NO_EXTRACTING,
+  "captain:CAPTAIN_TALENTS:prospectorRefinedExtraction": NO_EXTRACTING,
+  "captain:CAPTAIN_TALENTS:prospectorKeenEyeI": NO_EXTRACTING,
+  "captain:CAPTAIN_TALENTS:prospectorKeenEyeII": NO_EXTRACTING,
+  "captain:CAPTAIN_TALENTS:prospectorLuckyStrikeI": NO_EXTRACTING,
+  "captain:CAPTAIN_TALENTS:prospectorLuckyStrikeII": NO_EXTRACTING,
+  "captain:CAPTAIN_SPEC_BONUS:resourcefulness": NO_EXTRACTING,
+  "captain:SECONDARY_CAPTAIN_TALENTS:extraction2": "Deep Veins raises the extraction roll's find chances; a short-range job draws no find roll",
+  "captain:SECONDARY_CAPTAIN_TALENTS:extraction3": "Efficient Haul shortens the extracting phase; a short-range cycle has none",
+  "captain:SECONDARY_CAPTAIN_TALENTS:logistics4": "missions have no load phase (D26 points Efficient Stowage at the Ground Ops reload)",
+  "captain:SECONDARY_CAPTAIN_TALENTS:trade2": "measured on its own entry at the drop-off's own load (captain:SECONDARY_CAPTAIN_TALENTS:trade2:shortRange)",
+  "fleetAdmiral:HOMEWORLD_TALENTS:fleetLogisticsHub": NO_EXTRACTING,
+  "fleetAdmiral:HOMEWORLD_TALENTS:fleetLogisticsYield": NO_EXTRACTING,
+  "facility:FACILITIES:missionControl:0": "the short-range board's two base slots need no Mission Control level; its later slots are the MISSION_CONTROL_BOARD_RUNGS (addShortRangeSlot)",
+  "ship:gearLine:materialQualityChance": "a Prospecting Rig's ore quality is an extraction line; a short-range pickup's ore takes the deposit's own quality roll",
+  "relic:MUSEUM_STATS:rareMaterialChance": NO_EXTRACTING,
+};
+// The Trade margin talents pay a drop-off's margin in whole credits (shortRangeCycle.ts shortRangeDropOffMargin rounds
+// once after the bonus), so at mission:shortRange their outcome is an integer: one rounding step of tolerance.
+const SHORT_RANGE_WHOLE_CREDITS: ReadonlySet<string> = new Set(["captain:SECONDARY_CAPTAIN_TALENTS:trade1", "captain:SECONDARY_CAPTAIN_TALENTS:trade3"]);
+function withShortRangeScope(e: WiringEntry): WiringEntry {
+  if (SHORT_RANGE_WHOLE_CREDITS.has(e.id)) return { ...e, contexts: [...e.contexts, SR_CONTEXT], tolerance: Math.max(e.tolerance ?? 0, 0.5) };
+  if (SHORT_RANGE_SWEEP_LIVE.has(e.id)) return { ...e, contexts: [...e.contexts, SR_CONTEXT] };
+  const reason = SHORT_RANGE_SWEEP_OUT_OF_SCOPE[e.id];
+  return reason ? { ...e, outOfScope: [...(e.outOfScope ?? []), { context: SR_CONTEXT, reason }] } : e;
+}
+// Shrewd Negotiator on a short-range drop-off: the discount saved is the discount x THAT job's load (the training
+// drop-off's smallest units x its tier's supply cost), so it is its own entry beside the supply-run one.
+function trade2ShortRangeEntry(main: WiringEntry): WiringEntry {
+  return {
+    ...main,
+    id: `${main.id}:shortRange`,
+    source: { catalog: main.source.catalog, key: `${main.source.key}:shortRange` },
+    contexts: [SR_CONTEXT],
+    outOfScope: undefined,
+    magnitude: (c) => {
+      const e = c.SECONDARY_CAPTAIN_TALENTS.trade2.effect;
+      const drop = c.SHORT_RANGE_TEMPLATES.supplyDropOff;
+      const load = drop.reward.kind === "supplyLoop" ? (drop.rolls[1].units?.[0] ?? 0) * drop.reward.supplyCostPerUnit[1] : 0;
+      return (e.type === "statMult" ? e.mult : 0) * load;
+    },
+    note: "one Supply Drop-off cycle's net credits: the load bought at the discount, sold at full value",
+  };
+}
+function shortRangeSwept(entries: readonly WiringEntry[]): WiringEntry[] {
+  return entries.flatMap((e) => {
+    const scoped = withShortRangeScope(e);
+    return e.id === "captain:SECONDARY_CAPTAIN_TALENTS:trade2" ? [scoped, trade2ShortRangeEntry(e)] : [scoped];
+  });
+}
 
 // ============================================================================
 // The registry
@@ -3260,6 +3913,7 @@ function build(): readonly WiringEntry[] {
     ...sensorArrayEntries(),
     ...museumEntries(),
     ...relicEntries(),
+    ...relicV2Entries(),
     ...missionEntries(),
     ...contentEntries(),
     ...affixEntries(),
@@ -3270,7 +3924,9 @@ function build(): readonly WiringEntry[] {
     ...prospectingEntries(),
     ...auditEntries(),
     ...speedSeamEntries(),
-  ].map((e) => (ALLOW_LIST_REASONS[e.id] ? { ...e, reason: ALLOW_LIST_REASONS[e.id] } : e));
+  ]
+    .map((e) => (ALLOW_LIST_REASONS[e.id] ? { ...e, reason: ALLOW_LIST_REASONS[e.id] } : e))
+    .flatMap((e) => shortRangeSwept([e]));
 }
 
 // Prospecting squads (hidden): the role bases, the hidden blueprints and the three later uses, each deferred to

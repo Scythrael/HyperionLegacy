@@ -77,6 +77,8 @@
     dispatchTeamsView,
     expandedLaunchView,
     launchViewInputs,
+    nearestFirst,
+    runRegionText,
     sensorSplitHint,
     telescopeBlockView,
     type ExpandedLaunchView,
@@ -190,7 +192,8 @@
   $: chosenExpedition = chosenShipId ? expeditionByShip.get(chosenShipId) ?? null : null;
 
   // DISPATCH-view derives (only meaningful when the chosen ship has no active expedition).
-  $: candidates = chosenShip && !chosenExpedition ? expeditionCandidates(state, chosenShip.id) : [];
+  // G2-2: nearest first (user G11, "Region, then 3 nearest"); the region picker is G2-6, so Tier I for now.
+  $: candidates = chosenShip && !chosenExpedition ? nearestFirst(expeditionCandidates(state, chosenShip.id)) : [];
   // Default / repair the selected candidate when the list (or ship) changes.
   $: if (candidates.length > 0 && (selectedCandidateId === null || !candidates.some((c) => c.id === selectedCandidateId))) {
     selectedCandidateId = candidates[0].id;
@@ -375,6 +378,8 @@
     useItem: "uses a kit on",
     fallBack: "falls back",
     hold: "holds",
+    flashGrenade: "throws a flash grenade at",
+    throwGrenade: "throws a grenade at",
   };
   function roleName(role: string): string {
     return ROLE_NAME[role] ?? role;
@@ -505,6 +510,7 @@
             <span class="exp-hdr-sub">
               {shipName(exp.shipId)}{#if chosenCaptain} · {chosenCaptain.label}{/if}{#if exp.shakedown} · shakedown run{/if}
             </span>
+            {#if runRegionText(exp)}<span class="exp-hdr-sub">{runRegionText(exp)}</span>{/if}
           </div>
           {#if exp.phase === "complete"}
             <button type="button" class="exp-btn primary" on:click={() => onClaim(exp.id)}>Claim findings</button>

@@ -15,6 +15,11 @@
 //   5. census : the item census (ids and counts by category), the refine recipe ids and the blueprint count. GG-1
 //               adds items, so this is the one golden GG-1 moves (explained at the pin).
 // Plus offline == live parity on both runs: one call == 997 s chunks == 1 s steps over the 600 s around arrival.
+//
+// Merged with feat/crew-0.14.0 adb41c6 after the capture: G2-2 renamed the candidates (`cand-<slot>` became
+// `cand-1-<slot>`), named systems after real stars and stamped a region on each run, and R2-1 moved the museum into
+// the Museum v2 record. The captures read through the same pre-G2 helpers the G2-0 regular rows use
+// (asPreG2Candidate, asPreG2NamesDispatch, withV1Museum), so every pin above is still the a678241 capture.
 
 import { describe, expect, it } from "vitest";
 import Decimal from "break_infinity.js";
@@ -25,6 +30,7 @@ import {
   RESEARCH_FACILITY_KEY,
   SUBSPACE_TELESCOPE_FACILITY_KEY,
   freshState,
+  museumV2WithGeneral,
   type AwayMember,
   type Expedition,
   type GameState,
@@ -43,7 +49,8 @@ import {
 } from "./expedition";
 import { resolveShipScanEvent } from "./shipScanEvents";
 import { startResearch } from "./tick";
-import { asPreRanksDispatch, plainAwayMember } from "./awayTeamTestFixtures";
+import { asPreG2Candidate, asPreG2NamesDispatch, asPreRanksDispatch, plainAwayMember, withoutG2NamesState } from "./awayTeamTestFixtures";
+import { withV1Museum } from "./firstRunsGoldens.fixture";
 
 // ===== shared helpers =====
 
@@ -107,9 +114,10 @@ function timeline(exp: Expedition): [string, number][] {
 function captureRun(candidateId: string): { out: string[]; exp: Expedition; planetTypes: string[] } {
   const state = crewed();
   const cand = expeditionCandidates(state, "ship-1").find((c) => c.id === candidateId)!;
+  expect(cand, candidateId).toBeDefined();
   // Field Kits FKR-1: dispatched with the enemy ranks flag off (asPreRanksDispatch), as the G2-0 regular rows are, so
   // the unequipped rank 10 squads close the window inside a day of game time; ranked runs are groundOpsRanks.test.ts's.
-  const res = asPreRanksDispatch(startExpedition(state, "ship-1", 1, candidateId));
+  const res = asPreG2NamesDispatch(asPreRanksDispatch(startExpedition(state, "ship-1", 1, candidateId)));
   if (!res.success || !res.expedition) throw new Error(`dispatch refused: ${res.reason}`);
   const exp = res.expedition;
   expect(exp.groundOps).toBeDefined();
@@ -126,7 +134,7 @@ function captureRun(candidateId: string): { out: string[]; exp: Expedition; plan
   expect(claim.success).toBe(true);
   const deposits = { inventory: claim.next.inventory, credits: claim.next.credits.toString(), relicVault: claim.next.relicVault ?? null };
   const out = [
-    hash(cand),
+    hash(asPreG2Candidate(cand)),
     hash(preview),
     hash(view),
     ...draws,
@@ -135,7 +143,7 @@ function captureRun(candidateId: string): { out: string[]; exp: Expedition; plan
     hash(done),
     hash(done.scanEvents ?? null),
     hash(done.findings),
-    hash(claim.next),
+    hash(withV1Museum(withoutG2NamesState(claim.next))),
     hash(deposits),
   ];
   return { out, exp, planetTypes: exp.bodies.map((b) => b.planetType) };
@@ -183,29 +191,44 @@ const LAB_GOLDEN: Record<"plain" | "museum", readonly number[]> = {
   museum: [77, 77, 39, 39, 103],
 };
 
-// The census at GG-0 (a678241).
+// The census at GG-0 (a678241) was items 125548b0, refined 5, the first four recipes, 78 blueprints. Re-pinned at the
+// merge of feat/crew-0.14.0 adb41c6 (before any GG-1 item): Material Lines ML-1 added seven refined items and the
+// seven recipes after refinePurifiedBiomass (ferrite, reclaimed circuit, iridium catalyst; cobalt coil, osmium plate,
+// photonic gel, biocatalyst). Nothing else moved: the other categories and the blueprint count are GG-0's.
 const CENSUS_GOLDEN = {
-  items: "125548b0",
-  byCategory: { fieldKit: 6, majorComponent: 1, minorComponent: 3, raw: 14, refined: 5, salvagedMaterial: 2 } as Record<string, number>,
-  refineRecipes: ["refineCommonOre", "refinePolysilicateWafer", "refineReclaimedAlloy", "refinePurifiedBiomass"],
+  items: "4f57ddc8",
+  byCategory: { fieldKit: 6, majorComponent: 1, minorComponent: 3, raw: 14, refined: 12, salvagedMaterial: 2 } as Record<string, number>,
+  refineRecipes: [
+    "refineCommonOre",
+    "refinePolysilicateWafer",
+    "refineReclaimedAlloy",
+    "refinePurifiedBiomass",
+    "refineFerriteIngot",
+    "refineReclaimedCircuit",
+    "refineIridiumCatalyst",
+    "synthCobaltCoil",
+    "synthOsmiumPlate",
+    "synthPhotonicGel",
+    "synthBiocatalyst",
+  ],
   blueprints: 78,
 };
 
 describe("GG-0 golden 1: a Ground Ops run on a system with a gas giant", () => {
   it("candidate 2: candidate, task preview, launch view, scan draws, dispatch, timeline, run, claim and deposits", () => {
-    const { out, planetTypes } = captureRun("cand-2");
+    const { out, planetTypes } = captureRun("cand-1-2");
     expect(planetTypes).toContain("gasGiant");
     expect(out).toEqual(GOLDEN.giant);
   });
 
   it("candidate 2: one call == 997 s chunks == 1 s steps", () => {
-    expectParity(captureRun("cand-2").exp);
+    expectParity(captureRun("cand-1-2").exp);
   });
 });
 
 describe("GG-0 golden 2: the gas giant seed's risk grades per body", () => {
   it("expeditionRiskPreview per body, each equal to the dispatched body's grades", () => {
-    const { exp } = captureRun("cand-2");
+    const { exp } = captureRun("cand-1-2");
     const preview = expeditionRiskPreview(exp.seed);
     expect(preview.bodies.length).toBe(exp.bodies.length);
     preview.bodies.forEach((grades, i) => expect(exp.bodies[i].risk).toEqual(grades));
@@ -215,13 +238,13 @@ describe("GG-0 golden 2: the gas giant seed's risk grades per body", () => {
 
 describe("GG-0 golden 3: a run with no gas giant (byte-identical through every GG slice)", () => {
   it("candidate 0: candidate, task preview, launch view, scan draws, dispatch, timeline, run, claim and deposits", () => {
-    const { out, planetTypes } = captureRun("cand-0");
+    const { out, planetTypes } = captureRun("cand-1-0");
     expect(planetTypes).not.toContain("gasGiant");
     expect(out).toEqual(GOLDEN.plain);
   });
 
   it("candidate 0: one call == 997 s chunks == 1 s steps", () => {
-    expectParity(captureRun("cand-0").exp);
+    expectParity(captureRun("cand-1-0").exp);
   });
 });
 
@@ -233,7 +256,9 @@ describe("GG-0 golden 4: startResearch durations, with and without the museum", 
         ...base,
         facilities: { ...base.facilities, [RESEARCH_FACILITY_KEY]: { level: 9 } },
         credits: new Decimal(1e12),
-        relicMuseum: museum ? PRECURSOR_MUSEUM : base.relicMuseum,
+        // Relics v2 R2-1 (merged after GG-0): the v1 copy record now lives in the Museum v2 record's Tier I general
+        // copies (where the v69 -> v70 step moves every v1 copy), so the same hundred copies go there.
+        museumV2: museum ? museumV2WithGeneral(base.museumV2, PRECURSOR_MUSEUM) : base.museumV2,
       };
       const r = startResearch(ready, key);
       expect(r.started, key).toBe(true);

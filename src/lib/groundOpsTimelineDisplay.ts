@@ -40,7 +40,7 @@ import { GROUND_CONDITIONS, STONESKIN_INJURY_MULT, conditionCureSeconds, type Co
 import { segmentCount } from "./game/groundTasks";
 import { DEFAULT_GROUND_TEAM_KIND, isGroundTeamKind, teamKindName } from "./game/groundComposition";
 import { groundTeamShortLabel } from "./game/groundTeams";
-import { bodyNumeral, bodyTitle, crewText, queueTaskStatus, runTeamName, taskName } from "./groundTaskQueueDisplay";
+import { bodyDesignation, bodyTitle, crewText, queueTaskStatus, runTeamName, taskName } from "./groundTaskQueueDisplay";
 import type { IconName } from "./ui/icons";
 import { objectiveAffixesView, type ObjectiveAffixesView } from "./objectiveAffixDisplay";
 
@@ -522,7 +522,7 @@ function shipLane(exp: Expedition, ship: ShipInstance | null | undefined, axis: 
     for (const span of bodies) {
       const body = exp.bodies[span.bodyIndex];
       const end = span.endsAt ?? axis.end;
-      const name = body ? bodyTitle(exp, body, span.bodyIndex) : `body ${bodyNumeral(span.bodyIndex)}`;
+      const name = body ? bodyTitle(exp, body, span.bodyIndex) : `body ${bodyDesignation(exp, span.bodyIndex)}`;
       addBase(
         `scan-${span.bodyIndex}`,
         span.startsAt,
@@ -530,7 +530,7 @@ function shipLane(exp: Expedition, ship: ShipInstance | null | undefined, axis: 
         "discovery",
         {
           category: "scan",
-          label: `scan ${bodyNumeral(span.bodyIndex)}`,
+          label: `scan ${bodyDesignation(exp, span.bodyIndex)}`,
           detail: span.endsAt === null ? `Scanning ${name}, under way` : `Scanned ${name} (${spanText(end - span.startsAt)})`,
           lost: false,
         },

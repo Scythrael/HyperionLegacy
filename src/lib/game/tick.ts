@@ -44,6 +44,7 @@ import {
   HOMEWORLD_TALENTS,
   FACILITIES,
   REFINE_RECIPES,
+  refineRecipeOffered,
   ITEMS,
   freshCaptainStack,
   // Equipment 0.11.0 (Task 20): the shared Standard-Issue seeder, so a ship minted by a
@@ -75,6 +76,8 @@ import {
   type CaptainStopReason,
   type CaptainMissionState,
   type PatrolMissionState,
+  type ShortRangeMissionState,
+  type RunCounts,
   type OfficerCombatMods,
   type CaptainCombatMods,
   type PatrolKey,
@@ -182,6 +185,9 @@ import {
   // Exploration 0.14.0 (Phase E4a): the persisted unidentified-relic token a relicStudy carries.
   type RelicVaultToken,
   RELIC_DEFAULT_SEED,
+  // Relics v2 R2-1: the Tier I general record (where the v1 copies live) and its write.
+  generalMuseumRecord,
+  museumV2WithGeneral,
 } from "./model";
 // Exploration 0.14.0 (Phase E4a): the relic catalog's pure identification roll + study constants.
 // relics.ts imports only model/expeditionContent TYPES + the leaf PRNG, so this adds no import cycle.
@@ -235,7 +241,7 @@ import { fuelNeeded, fuelForRoundTrip, rangeLightYears } from "./fuel";
 import { combatHullTypeOf, COMBAT_DEFAULT_LOADOUT, defaultDronesForHull,
   // 0.13.5 F5: the full padded loadout helpers.
   defaultWeaponsForHull,
-  defaultDroneRolesForHull, installedDronesForPatrol, defaultSystemDurabilityForHull, foldedPlayerDefense, type CombatHullType } from "./combat/bridge";
+  defaultDroneRolesForHull, installedDronesForPatrol, applyDeckHandling, withReplenishCarry, defaultSystemDurabilityForHull, foldedPlayerDefense, type CombatHullType } from "./combat/bridge";
 // Combat 1.0 (Unit 1.4): WeaponId types the per-hull Standard-Issue weapon loadout the combat
 // baseline seeder + installMissingCombatBaselines build (type-only, no runtime coupling).
 import type { WeaponId } from "./combat/weapons";
@@ -264,7 +270,7 @@ import type { CombatStance } from "./combat/positioning";
 // the carry-state squadron shape the deep-clone helper preserves.
 import { generateEnemyWave } from "./combat/enemyWave";
 import { resolveBattle } from "./combat/resolveBattle";
-import { replenishDrones } from "./combat/droneDefense";
+import { replenishDrones, replenishUnits } from "./combat/droneDefense";
 import type { DroneSquadron } from "./combat/drones";
 // Combat 0.13.0 (Phase 12b-1): the SHARED per-wave leaves. buildPatrolPlayerCombatant
 // builds the wave's player combatant from the carry-state; regenPatrolShield is the
@@ -334,12 +340,14 @@ import {
   shipMissionOutputBonus,
   shipRepairSpeedBonus,
   shipCrewContribution,
+  shipDeckHandling,
   type OfficerCombatEntry,
 } from "./crewOverlay";
 // WR-5b (0.14.0): the commanding captain's Tactician talents (frozen per patrol cycle; the Shipyard repair).
 import {
-  captainCombatMods,
   captainWaveRegenFraction,
+  homeGuardPatrolShieldMult,
+  patrolCaptainCombatMods,
   patrolWaveRewardMult,
   shipCaptainCombatMods,
   withCaptainRepair,
@@ -411,7 +419,10 @@ import { itemTotal, addItemQuality, removeItemLowestFirst, lowestStockedQuality 
 // scope; server-side moderation in 0.14.0 plugs into the same signature.
 import { validateCaptainName } from "./captainName";
 // Safe first runs SF-1: the run counters (runDifficulty.ts imports model.ts only, so no cycle).
-import { countPatrolDispatch, countPatrolRoutes, runCountsOf } from "./runDifficulty";
+import { countPatrolDispatch, countPatrolRoutes, runCountsOf, uncountShortRangeCycleStart } from "./runDifficulty";
+// G1-4: the short-range cycle engine and the board's stored-cursor shape check.
+import { shortRangeHasDeparted, tickCaptainShortRange } from "./shortRangeCycle";
+import { isWellFormedShortRangeBoard } from "./shortRangeBoard";
 
 // Must stay in sync with MissionPhase and requiredTicksForPhase's switch --
 // there's no compiler link between this array and the union type, so a 6th
@@ -841,11 +852,15 @@ export function describeCaptainTalentEffect(effect: CaptainTalentEffect): string
       return `+${(effect.chance * 100).toFixed(1)}% chance/tick for a bonus roll`;
     case "bonusRollChanceMult":
       return `+${(effect.mult * 100).toFixed(1)}% to bonus roll chance`;
-    // Radial Skill Web (Task 2): the gateway-hub effect. Tactician/Explorer
-    // hubs carry `{ type: "none" }` because their branches' real mechanics
-    // (combat / science) don't exist yet. Rendered honestly as "no bonus yet"
-    // rather than a misleading "+0.0%" line, this is the whole reason the
-    // `none` member exists instead of a `mult: 0.0` placeholder.
+    // WR-6: the Tactician / Explorer hubs and the tactical / science spec bonuses (captainPrimaryEffects.ts).
+    case "weaponDamageMult":
+      return `+${(effect.mult * 100).toFixed(1)}% weapon damage in ship battles (patrols and expedition ship events)`;
+    case "scanRateMult":
+      return `+${(effect.mult * 100).toFixed(1)}% expedition scan rate`;
+    case "relicFindMult":
+      return `+${(effect.mult * 100).toFixed(1)}% relic find chance on expedition objectives`;
+    // Radial Skill Web (Task 2): the gateway-hub effect, carried by no node since WR-6. Rendered honestly as "no
+    // bonus yet" rather than a misleading "+0.0%" line.
     case "none":
       return "No bonus yet, unlocks this branch";
   }
@@ -867,8 +882,10 @@ export function describeHomeworldTalentEffect(effect: HomeworldTalentEffect): st
     // 0.11.0 Storage/Salvage (Task C4): the combined salvage talent. Surfaces
     // BOTH bumps in one tooltip line, the yield as a percentage-point add onto
     // the recycle recovery, the ceiling as a "+N tier" reach on the loot roll.
+    // WR-6 (B16, OC-B1): the yield is a FLAT add onto the recovery fraction, so the text says percentage points,
+    // and it now reaches hull teardowns too.
     case "salvageBoost":
-      return `+${(effect.yieldBonus * 100).toFixed(0)}% salvage recovery, +${effect.ceilingBonus} loot tier reach`;
+      return `+${(effect.yieldBonus * 100).toFixed(0)} percentage points salvage recovery (recycled systems and hull teardowns), +${effect.ceilingBonus} loot tier reach`;
     // Crafting 0.13.3 (Phase 1 Unit 1.2): the queue-depth chain. "per facility" is
     // load-bearing in this string, not filler: the grant applies to EVERY
     // queue-capable facility independently (design §5.2), and a tooltip reading
@@ -898,12 +915,15 @@ export function describeHomeworldTalentEffect(effect: HomeworldTalentEffect): st
     // rule from the design, enforced at the one place a player actually reads it.
     case "craftingItemLevel":
       return `+${effect.bonus} crafted item level, up to the blueprint's tier cap`;
-    // Radial Skill Web (Task 3): the gateway-hub effect, mirroring the captain
-    // side's `none` case above. Homeland Defense / Citizenry hubs carry
-    // `{ type: "none" }` because their categories' real mechanics (a defense /
-    // population system) don't exist yet. Rendered honestly as "no bonus yet"
-    // rather than a misleading "+0.0%" line, the whole reason the `none`
-    // member exists instead of a `mult: 0.0` placeholder.
+    // WR-6 (OC-B2): Works Directorate's text also names the Refinery gate it already is (model.ts, rungs 3 and 4).
+    case "fabricatorBonusOutput":
+      return `${(effect.chance * 100).toFixed(1)}% chance a Fabricator job delivers one more of its output; opens Refinery upgrades 3 and 4`;
+    // WR-6 (OC-B3): Home Guard and Civic Charter.
+    case "patrolShieldMult":
+      return `+${(effect.mult * 100).toFixed(1)}% shield capacity and recharge on patrols (fleet-wide)`;
+    case "transportCrewBonus":
+      return `+${effect.crew} crew on every crew transport`;
+    // Radial Skill Web (Task 3): the gateway-hub effect, carried by no node since WR-6.
     case "none":
       return "No bonus yet, unlocks this branch";
   }
@@ -1297,6 +1317,37 @@ function appendPatrolCompletions(
   return { ...state, completionLog: log, nextCompletionLogId: nextId };
 }
 
+// G1-4 (Short-Range Missions): one completion log entry per short-range RUN that ended (the patrol precedent: one
+// entry per run, never per cycle, so a board on Repeat cannot evict the log). `iterations` carries the cycles the run
+// delivered; the subject is the board slot. Its reward is "nothing" for the patrol's reason: every cycle's pay already
+// landed as it was delivered, so re-listing it here would double-report. Same single allocator as the patrol endings.
+// A same-reference no-op with no ending. Pure.
+function appendShortRangeRunEndings(state: GameState, endings: readonly { slotId: number; cycles: number }[], nowMs: number): GameState {
+  if (endings.length === 0) return state;
+  let log = state.completionLog ?? [];
+  let nextId = state.nextCompletionLogId ?? 1;
+  for (const ending of endings) {
+    log = pushCompletionEntry(log, {
+      id: `done-${nextId}`,
+      kind: "shortRangeRun",
+      reward: "nothing",
+      atMs: nowMs,
+      // A run's length is the sum of rolled cycles, not a fixed duration (the patrol entry's reasoning).
+      startedAtMs: nowMs,
+      iterations: ending.cycles,
+      items: [],
+      pieces: 0,
+      subjectKey: `slot-${ending.slotId}`,
+      level: null,
+      fuelAmount: null,
+      creditsAmount: null,
+      stale: false,
+    });
+    nextId += 1;
+  }
+  return { ...state, completionLog: log, nextCompletionLogId: nextId };
+}
+
 // The naming ids for a salvage target, read while the target still EXISTS (0.13.3 QA
 // finding D5). Returns undefined for the fungible arm (its item id is already the record's
 // subjectKey, so a second copy would be save bytes for no new fact) and for a target that
@@ -1360,7 +1411,8 @@ function completionYieldFor(
     case "addItem":
       // A refine output or a material fabricate output: one item, one amount, stored as a
       // Decimal STRING so the record carries full precision with no live Decimal in the save.
-      return { ...empty, reward: "materials", items: [{ itemId: effect.itemId, amount: effect.amount.toString() }], subjectKey: effect.itemId };
+      // WR-6: the amount actually deposited (twice the output with Works Directorate's stamp).
+      return { ...empty, reward: "materials", items: [{ itemId: effect.itemId, amount: completedOutputAmount(process).toString() }], subjectKey: effect.itemId };
     case "unlockBlueprint":
       return { ...empty, reward: "blueprint", subjectKey: effect.key };
     case "addShip":
@@ -1374,9 +1426,9 @@ function completionYieldFor(
       // ITEM LIFECYCLE 0.13.6: a completed fabricate deposited a stackable BLANK (uninspected), not
       // a rolled instance. It has its OWN reward kind so the classification is honest (a blank is
       // not a finished system) and the Recently-Completed row can say "blank" rather than implying a
-      // usable piece; the blueprint is the subject so the board still names the craft. Always one
-      // blank per completion.
-      return { ...empty, reward: "blanks", pieces: 1, subjectKey: effect.blueprintKey };
+      // usable piece; the blueprint is the subject so the board still names the craft. One blank per
+      // completion, two with Works Directorate's stamp (WR-6).
+      return { ...empty, reward: "blanks", pieces: completedBlankCount(process), subjectKey: effect.blueprintKey };
     case "facilityLevelUp":
       // Read off the ALREADY-BUMPED accumulator, so this is the level the player now has.
       return { ...empty, reward: "level", subjectKey: effect.facility, level: levels.facilities[effect.facility]?.level ?? 0 };
@@ -1762,7 +1814,7 @@ const BONUS_ROLL_COMMON_CHANCE = 0.3;
 // survey material. A ship with NO sensor fitted reads sensors 0 -> +0, so a survey run is
 // byte-identical to a plain (un-sensored) extraction run at sensors 0. Applied ONLY to
 // survey-flagged missions (missionType "survey"); extraction/patrol missions never read it.
-const SURVEY_SENSOR_YIELD_COEFF = 0.02;
+export const SURVEY_SENSOR_YIELD_COEFF = 0.02;
 
 function rollBonusExtractionTick(
   missionDef: MissionDef,
@@ -3029,6 +3081,10 @@ export function tickCaptainPatrol(
     // E-CREW (Task 21 review calls): the Flight Deck's Constitution facet a relaunch reads (the new cycle's
     // faster return, returnCutTicks).
     returnConstitution?: number;
+    // WR-6 (OC-B3): the fleet's Home Guard shield factor a relaunch freezes onto its new cycle (1 / absent = none).
+    homeGuardShield?: number;
+    // 0.14.0 (CP-4, OC-1): the crew's Deck Handling a relaunch freezes onto its new cycle (0 / absent = none).
+    deckHandling?: number;
   } = {},
 ): PatrolTickResult {
   const noOp: PatrolTickResult = {
@@ -3373,7 +3429,8 @@ export function tickCaptainPatrol(
         foldedDefense.shieldRecharge,
       );
       for (const squadron of mission.playerDrones) {
-        replenishDrones(squadron, squadron.droneReplenishRate);
+        // 0.14.0 (CP-4): plus the whole units the cycle's Deck Handling has banked (replenishUnits).
+        replenishDrones(squadron, replenishUnits(squadron));
       }
     }
 
@@ -3447,7 +3504,12 @@ export function tickCaptainPatrol(
             // E-CREW (Task 20): the NEW cycle freezes the officers seated now (economyTick's live read).
             officerCombat: relaunchCombat,
             // WR-5b: and the commanding captain's Tactician talents now (no buy while out, so the dispatch value).
-            captainCombat: captainCombatMods(captain),
+            // WR-6: with the fleet's Home Guard shield factor as read when this cycle starts.
+            captainCombat: patrolCaptainCombatMods(captain, officerEffects.homeGuardShield ?? 1),
+            // 0.14.0 (CP-4, OC-1): and the crew's Deck Handling aboard now (economyTick's live read).
+            deckHandling: officerEffects.deckHandling ?? 0,
+            // and the Deck Handling bank its squadrons had not paid out yet, carried into the new cycle.
+            replenishCarry: mission.playerDrones.map((sq) => sq.replenishCarryPpm ?? 0),
             // E-CREW (Task 21): Engineering's Cunning roll for the new cycle, keyed on its own masterSeed.
             freeRepairTicks: cunningProc(newSeed, "engineering", officerEffects.freeRepairChance ?? 0) ? CUNNING_FREE_REPAIR_TICKS : 0,
             // E-CREW (Task 21 review calls): the Flight Deck's Constitution, a faster return the longer the run.
@@ -4012,6 +4074,13 @@ export function economyTick(
   // Queue order is state.captains order, i.e. monotonic captain-id insertion order: the same
   // determinism processShipRepairs uses, stable across save, load and offline catch-up.
   let berthBudgetRemaining = transitBerthsFree(state);
+  // G1-4 (Short-Range Missions): the run counters and the board's cycle cursor, threaded across every short-range
+  // captain in state.captains order (each cycle start reads the starts and deliveries before it), and the runs that
+  // ended this call (drained into the completion log after resolveProcesses, beside the patrol endings). Both stay
+  // null with no short-range run, so such a call writes neither field (byte-identical).
+  let shortRangeCounts: RunCounts | null = null;
+  let shortRangeCursor: Readonly<Record<number, number>> | null = null;
+  const shortRangeEndings: { captainId: number; slotId: number; cycles: number }[] = [];
   const captains = state.captains.map((captain) => {
     if (captain.mission === null) return captain;
     // UNKNOWN-KEY INERT GUARD (fix: a removed/renamed mission/patrol key hard-crashed every tick,
@@ -4025,10 +4094,14 @@ export function economyTick(
     // so the fleet SELF-HEALS and the captain is re-dispatchable on a valid mission next tick,
     // rather than the whole economy throwing. Keyed by mission kind so the correct table is
     // consulted; a NEW kind is a compile error at the exhaustive switch below, not silently here.
+    // G1-3: a short-range run carries no table key: its job is the frozen roll, and save.ts already drops a run
+    // whose roll names an unknown template at load (shortRangeBoard.ts isWellFormedShortRangeMission), so it is known.
     const missionKeyKnown =
       captain.mission.kind === "patrol"
         ? PATROLS[captain.mission.patrolKey] !== undefined
-        : MISSIONS[captain.mission.missionKey] !== undefined;
+        : captain.mission.kind === "shortRange"
+          ? true
+          : MISSIONS[captain.mission.missionKey] !== undefined;
     if (!missionKeyKnown) {
       // 0.13.4 Phase 2: ENDING #4, and the one that had no reason at all before this release.
       // Recorded only for a PATROL: an extraction mission dropped by the same guard is outside
@@ -4119,6 +4192,10 @@ export function economyTick(
                 secondsPerTick: state.tickDurationSeconds,
                 freeRepairChance: departmentFacet(state, patrolShip, "engineering", "cunning"),
                 returnConstitution: departmentFacet(state, patrolShip, "flightDeck", "constitution"),
+                // WR-6: Home Guard, for the next cycle's frozen record (exactly 1 without the talent).
+                homeGuardShield: homeGuardPatrolShieldMult(state),
+                // 0.14.0 (CP-4): Deck Handling, for the next cycle's frozen record (0 without the key).
+                deckHandling: shipDeckHandling(state, patrolShip),
               }
             : {},
         );
@@ -4184,6 +4261,69 @@ export function economyTick(
           }
         }
         return patrolResult.captain;
+      }
+      case "shortRange": {
+        // G1-4 (Short-Range Missions): THE CYCLE ENGINE (shortRangeCycle.ts tickCaptainShortRange): the phases, the
+        // whole job re-rolled at each cycle start, the departure gate (a drop-off's load paid as it leaves, a full
+        // Warehouse for a pickup), the berth hold, the pay. Folded through the SAME fleet-wide accumulators and
+        // budgets the extraction arm uses, so its credits, deliveries, XP and lifetime totals land through the
+        // identical seams. No player path dispatches one before the board UI (G1-6).
+        const srShip = state.ships.find((s) => s.assignedCaptainId === captain.id);
+        const counts = shortRangeCounts ?? runCountsOf(state);
+        const cursor = shortRangeCursor ?? (isWellFormedShortRangeBoard(state.shortRangeBoard) ? state.shortRangeBoard.nextCycle : {});
+        const sr = tickCaptainShortRange({
+          ticksElapsed,
+          captain,
+          state,
+          ship: srShip,
+          creditsBudget: creditsBudgetRemaining,
+          berthBudget: berthBudgetRemaining,
+          runCounts: counts,
+          nextCycle: cursor,
+          atCap: (itemId) => materialAtCap(state, itemId),
+        });
+        berthBudgetRemaining -= sr.berthsClaimed;
+        creditsBudgetRemaining -= sr.budgetDraw;
+        creditsDelta += sr.creditsDelta;
+        fleetAdminXpDelta += sr.fleetAdminXpDelta;
+        if (sr.runCounts !== counts) shortRangeCounts = sr.runCounts;
+        if (sr.nextCycle !== cursor) shortRangeCursor = sr.nextCycle;
+        // The deliveries go through the one deposit fold below (the Warehouse cap clamp and the quality roll), WR-5a's
+        // Assayer grading this captain's own share exactly as it grades an extraction delivery.
+        const srQuality = captainDeliveryQualityBonus(captain);
+        const srItems: Record<string, Decimal> = {};
+        for (const [key, units] of Object.entries(sr.materials)) {
+          if (!(units > 0)) continue;
+          const amount = new Decimal(units);
+          srItems[key] = amount;
+          homePlanetDelta[key] = (homePlanetDelta[key] ?? new Decimal(0)).plus(amount);
+          if (srQuality > 0) {
+            const prev = assayerDelivered.get(key);
+            assayerDelivered.set(key, { amount: (prev?.amount ?? new Decimal(0)).plus(amount), bonus: Math.max(prev?.bonus ?? 0, srQuality) });
+          }
+        }
+        // Captain XP per active tick x the retirement multiplier, resolved through the shared level-up fold.
+        const srXp = new Decimal(sr.captainXpAwarded).times(captainXpMult);
+        let srCaptain = sr.captain;
+        if (srXp.gt(0)) {
+          const ups = foldXpLevelUps(srCaptain.xp.plus(srXp), srCaptain.level, xpForNextLevel);
+          srCaptain = { ...srCaptain, xp: ups.xp, level: ups.level, statPoints: srCaptain.statPoints + ups.levelUps };
+        }
+        // Lifetime totals: delivered cycles count under `shortRange:<template>` (plan 2 [PROPOSAL]); the credits earned
+        // leave out the working capital a drop-off paid and got back.
+        const srCompleted: Record<string, Decimal> = {};
+        for (const [template, n] of Object.entries(sr.completedByTemplate)) srCompleted[`shortRange:${template}`] = new Decimal(n);
+        lifetimeStats = foldLifetimeStatsDelta(lifetimeStats, {
+          itemsGathered: srItems,
+          missionsCompleted: srCompleted,
+          creditsEarned: new Decimal(sr.creditsEarned),
+          captainXpAwarded: srXp,
+          fleetAdminXpAwarded: new Decimal(sr.fleetAdminXpDelta),
+        });
+        // The officers aboard get missionsCompleted credit per delivered cycle (promotion gates), like a mission's.
+        if (srShip && sr.cyclesDelivered > 0) shipMissionCompletions.set(srShip.id, (shipMissionCompletions.get(srShip.id) ?? 0) + sr.cyclesDelivered);
+        if (sr.ended !== null) shortRangeEndings.push({ captainId: captain.id, ...sr.ended });
+        return srCaptain;
       }
       default:
         return assertNeverMission(captain.mission);
@@ -4537,6 +4677,9 @@ export function economyTick(
   // mission/credits/loot/lifetime math above changed, these are the exact same
   // fields with the exact same values, just held in a const instead of an inline
   // literal, so a call with no active processes lands byte-identical to before.
+  // G1-4: read back through explicit types (the captain map's callback assigns them, which TS cannot follow).
+  const srCountsAfter = shortRangeCounts as RunCounts | null;
+  const srCursorAfter = shortRangeCursor as Readonly<Record<number, number>> | null;
   const postMissionState: GameState = {
     ...state,
     captains,
@@ -4605,7 +4748,11 @@ export function economyTick(
     lifetimeStats,
     // Safe first runs SF-1: the won patrol routes on the patrol curve. Untouched (the same reference) when no route
     // was won this call.
-    ...(patrolRoutesWon > 0 ? { runCounts: countPatrolRoutes(runCountsOf(state), patrolRoutesWon) } : {}),
+    // G1-4: plus the short-range cycle starts and deliveries (threaded through the captain map above). Untouched when
+    // neither moved.
+    ...(patrolRoutesWon > 0 || srCountsAfter !== null ? { runCounts: countPatrolRoutes(srCountsAfter ?? runCountsOf(state), patrolRoutesWon) } : {}),
+    // G1-4: the board's cycle cursor, written only when a short-range cycle was delivered this call.
+    ...(srCursorAfter !== null ? { shortRangeBoard: { version: 1 as const, nextCycle: { ...srCursorAfter } } } : {}),
   };
 
   // Phase 1, Task 9: resolve every in-flight timed process ONCE, fleet-wide (NOT
@@ -4643,7 +4790,8 @@ export function economyTick(
   // patrol ending sorts AFTER a process completion in the log. Both carry the same `atMs`
   // (there is one clock per tick), so no readout can tell them apart by time anyway, and the
   // log is chronological by append order.
-  const postProcessState = appendPatrolCompletions(postProcessStateRaw, patrolEndings, nowMs);
+  // G1-4: and the short-range runs that ended, after the patrol endings (the same single allocator, in turn).
+  const postProcessState = appendShortRangeRunEndings(appendPatrolCompletions(postProcessStateRaw, patrolEndings, nowMs), shortRangeEndings, nowMs);
 
   // Crafting 0.13.3 (Phase 1 Unit 1.4, design §5.5): promote WAITING queued orders into
   // real running work, at THE one correct seam: AFTER resolveProcesses (so a facility
@@ -5250,8 +5398,15 @@ function freshPatrolMission(args: {
   freeRepairTicks?: number;
   // E-CREW 0.14.0 (Task 21 review calls): the cycle's Flight Deck Constitution return cut. Stored only when > 0.
   returnCutTicks?: number;
+  // 0.14.0 (CP-4, OC-1 "Faster drone replenish"): the cycle's Deck Handling (crewOverlay.ts shipDeckHandling: the
+  // Flight Deck buff + the Belter racial), folded into the seeded screen's replenish rate. Stored only when > 0.
+  deckHandling?: number;
+  // 0.14.0 (CP-4): a relaunch's carried Deck Handling bank, squadron by squadron (bridge.ts withReplenishCarry). Stored
+  // as replenishCarryStart only when one is > 0, so the display replay seeds the same bank.
+  replenishCarry?: readonly number[];
 }): PatrolMissionState {
   const { patrolKey, stance, masterSeed, repeatDispatch, shipDef, hullType, installedGear, officerCombat, captainCombat } = args;
+  const deckHandling = args.deckHandling ?? 0;
   const freeRepairTicks = args.freeRepairTicks ?? 0;
   const returnCutTicks = args.returnCutTicks ?? 0;
   // factionId + wave params BOTH come from this one def lookup (no caller-passed def that
@@ -5265,9 +5420,22 @@ function freshPatrolMission(args: {
   // no SI patrol fixture / parity outcome moves.
   // E-CREW (Task 20): folded WITH the cycle's officer bonuses, the same pools its wave combatants carry.
   const folded = foldedPlayerDefense(shipDef, installedGear, officerCombat, captainCombat);
+  // WR-5b: the cycle's captain drone nodes shape the seeded screen (unchanged without them). 0.14.0 (CP-4): and the
+  // cycle's Deck Handling speeds its replenishment (unchanged at 0).
+  const playerDrones = withReplenishCarry(
+    installedGear
+      ? installedDronesForPatrol(installedGear, `patrol-${masterSeed}-p`, captainCombat, deckHandling)
+      : applyDeckHandling(applyCaptainDrones(defaultDronesForHull(hullType, `patrol-${masterSeed}-p`), captainCombat), deckHandling),
+    args.replenishCarry,
+  );
+  const replenishCarryStart = playerDrones.map((sq) => sq.replenishCarryPpm ?? 0);
   return {
     ...(officerCombat ? { officerCombat } : {}),
     ...(captainCombat ? { captainCombat } : {}),
+    // 0.14.0 (CP-4): stored only when it acts: some Deck Handling aboard AND a drone screen to replenish (a destroyer
+    // or battleship cycle carries no squadron, so its record is unchanged).
+    ...(deckHandling > 0 && playerDrones.length > 0 ? { deckHandling } : {}),
+    ...(replenishCarryStart.some((c) => c > 0) ? { replenishCarryStart } : {}),
     ...(freeRepairTicks > 0 ? { freeRepairTicks } : {}),
     ...(returnCutTicks > 0 ? { returnCutTicks } : {}),
     kind: "patrol",
@@ -5303,10 +5471,8 @@ function freshPatrolMission(args: {
     // patrol cycle, and identical between this live seed and the display replay's (structural parity).
     playerHull: folded.hullMax,
     playerShield: folded.shieldMax,
-    // WR-5b: the cycle's captain drone nodes shape the seeded screen (unchanged without them).
-    playerDrones: installedGear
-      ? installedDronesForPatrol(installedGear, `patrol-${masterSeed}-p`, captainCombat)
-      : applyCaptainDrones(defaultDronesForHull(hullType, `patrol-${masterSeed}-p`), captainCombat),
+    // The seeded screen (built above, with the captain's drone nodes and the cycle's Deck Handling).
+    playerDrones,
     // Carry-state seeded to FULL system durability (Phase 12b Unit B2): every weapon + the
     // reactor + the ftl at their fresh ceilings (no wear), the same "start clean" a fresh
     // dispatch AND a relaunch both want. Wear accumulates from here across the cycle's waves.
@@ -5695,10 +5861,13 @@ export function dispatchCaptainOnPatrol(
     hullType,
     installedGear,
     officerCombat,
-    // WR-5b: freeze the commanding captain's Tactician talents onto the first cycle (undefined = none).
-    captainCombat: captainCombatMods(state.captains[idx]),
+    // WR-5b: freeze the commanding captain's Tactician talents onto the first cycle (undefined = none). WR-6: with
+    // the fleet's Home Guard shield factor (patrols only).
+    captainCombat: patrolCaptainCombatMods(state.captains[idx], homeGuardPatrolShieldMult(state)),
     freeRepairTicks,
     returnCutTicks,
+    // 0.14.0 (CP-4, OC-1 "Faster drone replenish"): freeze the crew's Deck Handling onto the first cycle (0 = none).
+    deckHandling: shipDeckHandling(state, ship),
   });
 
   const captains = [...state.captains];
@@ -5733,11 +5902,24 @@ export function dispatchCaptainOnPatrol(
 // `recalled: boolean`, so spreading the (non-null) mission and overriding recalled
 // preserves the arm's `kind` + every other field and stays a valid union member. A
 // patrol honors the flag at its own cycle end (9b.5b); an extraction mission at unload.
-export function recallCaptain(state: GameState, captainId: number): { next: GameState; success: boolean } {
+// G1-4: `nowMs` stamps the completion log entry of a short-range run that ends AT ONCE (recalled before it left home:
+// see below). 0 = no clock supplied, which the log reads as an unknown time (the economyTick convention).
+export function recallCaptain(state: GameState, captainId: number, nowMs: number = UNKNOWN_COMPLETION_TIME_MS): { next: GameState; success: boolean } {
   const idx = state.captains.findIndex((c) => c.id === captainId);
   if (idx === -1) return { next: state, success: false };
   const mission = state.captains[idx].mission;
   if (mission === null) return { next: state, success: false };
+  // G1-4: a short-range cycle that has NOT LEFT HOME (it waits at the departure gate for its load or Warehouse room,
+  // or leaves on the next tick) has no cycle to finish: the run ends now. Its cycle start is taken back
+  // (uncountShortRangeCycleStart: the template keeps its training run), nothing was paid, and the run's completion
+  // log entry is written here with the cycles it delivered before.
+  if (mission.kind === "shortRange" && !shortRangeHasDeparted(mission)) {
+    const captains = [...state.captains];
+    captains[idx] = { ...captains[idx], mission: null };
+    const counts = uncountShortRangeCycleStart(runCountsOf(state), mission.roll.template);
+    const ended = appendShortRangeRunEndings({ ...state, captains, runCounts: counts }, [{ slotId: mission.slotId, cycles: mission.cyclesThisRun ?? 0 }], nowMs);
+    return { next: ended, success: true };
+  }
 
   // 0.13.6 (user 2026-09-17): recall means BREAK OFF NOW and fly the FULL return leg home, not
   // "finish the current cycle/route first". So when the ship is still outbound / on-site / mid-fight,
@@ -5748,8 +5930,14 @@ export function recallCaptain(state: GameState, captainId: number): { next: Game
   // long-haul: an exploration ship recalled hours out flies the full hours-long trip back, deliberately
   // (recall is a real commitment, never a free teleport home). PURE: recall is a PLAYER action, not a
   // tick, so the deterministic fly-home ticks that follow keep the offline==live parity gate intact.
-  let recalledMission: CaptainMissionState | PatrolMissionState;
-  if (mission.kind === "extraction") {
+  let recalledMission: CaptainMissionState | PatrolMissionState | ShortRangeMissionState;
+  if (mission.kind === "shortRange") {
+    // G1-3 (Short-Range Missions, plan 4 G1-3 and QA 4): recall FINISHES THE CURRENT CYCLE, then stops. The phase and
+    // progress are left alone; the cycle engine (G1-4) ends the run when this cycle's home turnaround completes
+    // instead of starting the next one. A short-range run is short and has no cargo to abandon, so there is
+    // nothing to break off for.
+    recalledMission = { ...mission, recalled: true };
+  } else if (mission.kind === "extraction") {
     const outbound = mission.phase === "ordersReceived" || mission.phase === "transitOut" || mission.phase === "extracting";
     recalledMission = outbound
       ? { ...mission, recalled: true, phase: "transitBack", phaseProgressTicks: 0 }
@@ -5990,6 +6178,62 @@ export function assignShipToCaptain(
 // the field is left OFF the process entirely (not set to undefined), so those
 // processes are byte-identical to before this param existed and a deep-equal parity
 // snapshot is unaffected.
+// WR-6 (0.14.0, OC-B2, user 2026-10-15 "Works Directorate gives a Fabricator bonus"): the chance a Fabricator job
+// delivers one more of its output, from the owned fabricatorBonusOutput Homeworld talents. Several combine as
+// independent chances, 1 - (1 - a)(1 - b), a concave stack that never needs a cap (D23). 0 without one. Pure.
+export function fabricatorBonusOutputChance(state: Pick<GameState, "unlockedHomeworldTalents">): number {
+  let miss = 1;
+  for (const key of state.unlockedHomeworldTalents) {
+    const e = HOMEWORLD_TALENTS[key]?.effect;
+    if (e && e.type === "fabricatorBonusOutput" && e.chance > 0) miss *= 1 - Math.min(1, e.chance);
+  }
+  return 1 - miss;
+}
+
+// The salt of Works Directorate's keyed stream (odd, unique in the repo; salts.test.ts).
+export const WORKS_DIRECTORATE_SALT = 0x4b1d7e35;
+// The roll's resolution: chances are compared in ten-thousandths (one integer draw).
+const WORKS_DIRECTORATE_DENOMINATOR = 10_000;
+
+// The save's own seed for Works Directorate: the homeworld seed (GameState.homeworld, drawn once per save at the
+// browser boundary; the only per-save seed that differs between players). 0 for a state without one (freshState
+// with no seed: tests and the sim). Pure.
+export function worksDirectorateSaveSeed(state: Pick<GameState, "homeworld">): number {
+  const seed = state.homeworld?.seed;
+  return typeof seed === "number" && Number.isFinite(seed) ? seed >>> 0 : 0;
+}
+
+// The keyed stream seed of the Fabricator job minted as process number `processNumber` in the save keyed by
+// `saveSeed`: the save seed, the salt and the process number mixed (the relicStudySeed convention), then avalanched,
+// so job N rolls differently in every save. Pure uint32.
+export function worksDirectorateSeed(saveSeed: number, processNumber: number): number {
+  let h = ((saveSeed >>> 0) ^ WORKS_DIRECTORATE_SALT ^ Math.imul(processNumber >>> 0, 0x9e3779b9)) >>> 0;
+  h = Math.imul(h ^ (h >>> 16), 0x85ebca6b) >>> 0;
+  h = Math.imul(h ^ (h >>> 13), 0xc2b2ae35) >>> 0;
+  return (h ^ (h >>> 16)) >>> 0;
+}
+
+// Whether the Fabricator job minted as process number `processNumber` (TimedProcess "proc-N", N from nextProcessId,
+// never reused) lands its extra output at `chance`. One integer draw on its own stream keyed by the save's seed and
+// the process number, so no shared stream moves, the outcome is the same live, offline and on reload, and job N does
+// not roll identically in every save. false at chance 0 (no draw). Pure.
+export function worksDirectorateBonus(saveSeed: number, processNumber: number, chance: number): boolean {
+  if (!(chance > 0)) return false;
+  const seed = worksDirectorateSeed(saveSeed, processNumber);
+  return makeRng(seed).chance(Math.round(Math.min(1, chance) * WORKS_DIRECTORATE_DENOMINATOR), WORKS_DIRECTORATE_DENOMINATOR);
+}
+
+// What a completed addItem job deposits: its output, twice over when Works Directorate stamped the job. Pure.
+export function completedOutputAmount(process: Pick<TimedProcess, "effect" | "bonusOutput">): Decimal {
+  const amount = process.effect.type === "addItem" ? process.effect.amount : new Decimal(0);
+  return process.bonusOutput ? amount.times(2) : amount;
+}
+
+// How many blanks a completed addBlank job deposits: one, or two with Works Directorate's stamp. Pure.
+export function completedBlankCount(process: Pick<TimedProcess, "bonusOutput">): number {
+  return process.bonusOutput ? 2 : 1;
+}
+
 export function startProcess(
   state: GameState,
   kind: TimedProcessKind,
@@ -6035,6 +6279,11 @@ export function startProcess(
     // conditional spread, so a non-line process carries NO lineId key at all,
     // keeping it identical to a pre-C2 process for deep-equal snapshots.
     ...(lineId !== undefined ? { lineId } : {}),
+    // WR-6 (OC-B2): Works Directorate decides a Fabricator job's extra output NOW, on the job's own keyed roll,
+    // and stamps it (absent without the talent or when the roll misses, so every other process is unchanged).
+    ...(kind === "fabricateJob" && worksDirectorateBonus(worksDirectorateSaveSeed(state), state.nextProcessId, fabricatorBonusOutputChance(state))
+      ? { bonusOutput: true as const }
+      : {}),
   };
 
   return {
@@ -8629,6 +8878,9 @@ export function canStartLine(
   // Checked first so every later gate can safely read the def.
   if (kind === "refine") {
     if (!REFINE_RECIPES[recipeKey]) return { ok: false, reason: "notFound" };
+    // ML-1: a recipe whose output leads nowhere yet is not on offer (model.ts refineRecipeOffered, the one check the
+    // dropdown and the dashboard read too). "notFound" because the player never sees it listed.
+    if (!refineRecipeOffered(recipeKey)) return { ok: false, reason: "notFound" };
   } else {
     if (!BLUEPRINTS[recipeKey]) return { ok: false, reason: "notFound" };
   }
@@ -11038,7 +11290,8 @@ export function resolveProcesses(
   // Exploration 0.14.0 (Phase E4a): the museum copy counts + the first-find registry, raised only by a
   // completing relicStudy (the identifyRelic branch). Seeded from the incoming state, so a call that
   // completes no study returns them value-identical (and a pre-E4 shape reads as empty).
-  let relicMuseum: Record<string, number> = state.relicMuseum ?? {};
+  // Relics v2 R2-1: the v1 copies live in the Tier I general record (museumV2.general["1"]); a v1 study writes there.
+  let relicMuseum: Readonly<Record<string, number>> = generalMuseumRecord(state);
   let relicDiscovered: string[] = state.relicDiscovered ?? [];
   let relicStudyCompleted = false; // gates the write-back so a no-study call never even re-keys the fields
   // Exploration 0.14.0 (Phase E4b): the museum's craftingQuality fraction, read ONCE per resolve off the
@@ -11106,6 +11359,9 @@ export function resolveProcesses(
       // (⚠️ parity test in quality-roll.test.ts). effect.amount is always > 0 for a real
       // recipe, so this always contributes a genuine deposit.
       const quality = rollQuality(rng, craftQualityBonus); // E4b: museum craftingQuality (draw-count invariant)
+      // WR-6 (OC-B2): a Fabricator job stamped with Works Directorate's extra output delivers its output twice, at
+      // the same rolled quality (no extra draw). Exactly the effect's amount otherwise.
+      const outputAmount = completedOutputAmount(process);
       // Output granted through the shared add seam -> the item is marked
       // discovered (its amount is always > 0 for a real refine recipe). Warehouse cap
       // clamp: the deposit is bounded at the output item's cap (itemCap), so a job
@@ -11114,7 +11370,7 @@ export function resolveProcesses(
         inventory,
         discovered,
         process.effect.itemId,
-        process.effect.amount,
+        outputAmount,
         itemCap(state, process.effect.itemId),
         quality
       );
@@ -11155,7 +11411,7 @@ export function resolveProcesses(
           ...lifetimeStats,
           itemsCrafted: {
             ...lifetimeStats.itemsCrafted,
-            [itemId]: priorCrafted.plus(process.effect.amount),
+            [itemId]: priorCrafted.plus(outputAmount),
           },
         };
       }
@@ -11371,8 +11627,9 @@ export function resolveProcesses(
       // Because this draws NOTHING from the tick's threaded stream, it cannot perturb the offline==
       // live parity draw order (the opposite of the addEquipment branch, which rolled here). Clones
       // the blank store once, the same value-identical-when-untouched discipline as `equipment`.
+      // WR-6 (OC-B2): two blanks when Works Directorate's extra output was stamped on the job.
       const blankKey = process.effect.blueprintKey;
-      blanks = { ...blanks, [blankKey]: (blanks[blankKey] ?? new Decimal(0)).plus(1) };
+      blanks = { ...blanks, [blankKey]: (blanks[blankKey] ?? new Decimal(0)).plus(completedBlankCount(process)) };
     } else if (process.effect.type === "equipmentStorageLevelUp") {
       // Equipment 0.11.0 (Task B2): a completed equipment-storage upgrade bumps the
       // spare-storage LEVEL by 1, so equipmentStorageCap (model.ts) derives the NEXT
@@ -11635,8 +11892,9 @@ export function resolveProcesses(
       activeProcesses: stillActive,
       // Exploration 0.14.0 (Phase E4a): the museum + first-find registry, written back ONLY when a relic
       // study completed this call (conditional spread), so every call that completes no study lands
-      // byte-identical to before this phase, key set included.
-      ...(relicStudyCompleted ? { relicMuseum, relicDiscovered } : {}),
+      // byte-identical to before this phase, key set included. Relics v2 R2-1: the copies go back into the Tier I
+      // general record (museumV2WithGeneral keeps every other part and the record's key position).
+      ...(relicStudyCompleted ? { museumV2: museumV2WithGeneral(state.museumV2, relicMuseum), relicDiscovered } : {}),
       // CP-6 review: a completed hull teardown's loadout + people writes (absent when none completed).
       ...(salvageWrites ?? {}),
     },

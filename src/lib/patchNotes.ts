@@ -15,7 +15,7 @@
 // left untouched (never rewrite patch-note history), so this deliberately reads
 // as "0.2.0 newer than 0.9.0" once, only here.
 
-export const APP_VERSION = "0.13.9";
+export const APP_VERSION = "0.13.10";
 
 // ---------------------------------------------------------------------------
 // SHAPE. 0.13.5 introduced a STRUCTURED entry (marquee features + category
@@ -63,6 +63,20 @@ export function isStructuredNote(n: PatchNote): n is PatchNoteStructured {
 }
 
 export const PATCH_NOTES: PatchNote[] = [
+  {
+    version: "0.13.10",
+    lede: "A quick fix: your fleet now keeps working at full pace while the game sits in a background tab or your device sleeps.",
+    categories: [
+      {
+        title: "Bug Fixes",
+        tone: "fixes",
+        bullets: [
+          { lead: "No more lost time in the background.", text: "Progress slowed to a crawl while the game sat in a background tab or the device slept, and that time was never made up later. Your fleet now earns every second you are away. Come back after a long absence and you get the same \"While you were away\" summary you see after reopening the game. Steady play is a touch more accurate too." },
+        ],
+      },
+    ],
+    save: "Your save carries over untouched.",
+  },
   {
     version: "0.13.9",
     lede: "A quick fix release: gear stored in Armory loadouts no longer takes up space in your Systems Bay, plus a few corrections.",

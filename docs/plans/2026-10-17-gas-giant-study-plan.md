@@ -361,4 +361,9 @@ ancient entries (open call 13); nothing else can move without leaving a false He
 - **Call 8 Lab lane:** "Auto when idle (Recommended)", with a pause toggle.
 - **Call 9 data types:** "Your six + 2, +12% (Recommended)": the six plus Materials and Sensors; +12% per boost on
   the next project of the family, D23 stacking; 5% recipe chance.
-- Still open: 10 to 12.
+- **Call 10 ancient data:** "One lane (Recommended)": Ancient Data Fragment is a data type whose study decodes the
+  next entry; some entries unlock special blueprints; culture names come with G3 Relics v2.
+- **Call 11 special blueprints:** "Three now (Recommended)": Ramscoop Collector, Pressure-Forged Plating, Resonance
+  Sensor Array in 0.14.0; Annihilation Core moves to 0.14.x with the burn.
+- **Call 12 timings:** "Proposed (Recommended)": giant study 30 min (probe faster), nebula sweep 2 h, data study 20 min.
+- ALL gas giant calls answered.

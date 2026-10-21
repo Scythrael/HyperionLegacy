@@ -198,7 +198,7 @@ describe("GO-13 the queue screen on a one-team run", () => {
     expect(v.teams.map((t) => [t.index, t.letter, t.name, t.kindName])).toEqual([[0, "A", "Alpha", "Ground"]]);
     expect(v.bodies).toHaveLength(1);
     const body = v.bodies[0];
-    expect(body.title).toBe(`${exp.systemName} I · Terrestrial`);
+    expect(body.title).toBe(`${exp.systemName} b · Terrestrial`);
     expect(body.countText).toBe("3 objectives discovered");
     expect(body.rows.map((r) => r.name)).toEqual(["Mineral Outcrop", "Cave Network", "Crashed Ship"]);
     for (const r of body.rows) {
@@ -422,7 +422,7 @@ describe("GO-13 log lines and text rules", () => {
     const { state, exp } = twoTeamRun(["strike", "survey"], [{ poiId: "caveNetwork", needs: { security: 1, science: 1 } }]);
     const ship = shipOf(state);
     const id = exp.bodies[0].activities[0].id;
-    const title = `${exp.systemName} I · Terrestrial`;
+    const title = `${exp.systemName} b · Terrestrial`; // G2-2: a stamped run letters its bodies
     expect(groundOpsEditLogText(exp, ship, { kind: "assign", taskId: id, teamIndex: 0, partners: [1] })).toBe("Cave Network assigned to Alpha + Bravo.");
     expect(groundOpsEditLogText(exp, ship, { kind: "requeue", taskId: id, teamIndex: 1 })).toBe("Cave Network re-queued for Bravo.");
     expect(groundOpsEditLogText(exp, ship, { kind: "skip", taskId: id })).toBe("Skipped Cave Network.");

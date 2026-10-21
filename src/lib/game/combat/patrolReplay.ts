@@ -54,6 +54,7 @@ import { equippedFor } from "../equipment";
 import {
   combatHullTypeOf,
   installedDronesForPatrol,
+  withReplenishCarry,
   defaultSystemDurabilityForHull,
   foldedPlayerDefense,
   type CombatHullType,
@@ -72,7 +73,7 @@ import { damageControlEffect } from "../utilityGear";
 import { captainWaveRegenFraction } from "../captainTacticianEffects";
 import { generateEnemyWaveDetailed } from "./enemyWave";
 import { resolveBattle } from "./resolveBattle";
-import { replenishDrones } from "./droneDefense";
+import { replenishDrones, replenishUnits } from "./droneDefense";
 import { PIRATE_HULLS, type PirateHullId } from "./enemyHulls";
 import type {
   Combatant,
@@ -287,7 +288,8 @@ export function resolvePatrolWaves(input: ResolvePatrolWavesInput): ResolvePatro
     for (let r = 0; r < recoveryTicks; r++) {
       carryShield = regenPatrolShield(foldedDefense.shieldMax, carryShield, foldedDefense.shieldRecharge);
       for (const squadron of carryDrones) {
-        replenishDrones(squadron, squadron.droneReplenishRate);
+        // 0.14.0 (CP-4): the same banked Deck Handling the live loop pays (replenishUnits).
+        replenishDrones(squadron, replenishUnits(squadron));
       }
     }
 
@@ -457,7 +459,8 @@ export function replayPatrol(state: GameState, captain: CaptainState): PatrolRep
   // default-screen seed. Freshly built, so no input is shared.
   // WR-5b: the cycle's frozen captain record shapes the seeded screen exactly as freshPatrolMission did.
   const captainCombat = mission.captainCombat;
-  const startDrones = installedDronesForPatrol(installedGear, `patrol-${mission.masterSeed}-p`, captainCombat);
+  // 0.14.0 (CP-4, OC-1): and the cycle's frozen Deck Handling, exactly as freshPatrolMission seeded the live screen.
+  const startDrones = withReplenishCarry(installedDronesForPatrol(installedGear, `patrol-${mission.masterSeed}-p`, captainCombat, mission.deckHandling), mission.replenishCarryStart);
 
   // Combat-defense BLOCKER fix (2026-08-27): the FULL hull/shield start pools folded from the ship's
   // INSTALLED gear (the SAME pool the wave combatant fights with, and the SAME seed freshPatrolMission

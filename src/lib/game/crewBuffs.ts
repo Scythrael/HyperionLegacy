@@ -50,12 +50,19 @@ export const CREW_STAT_KEYS = {
   craftDuplicateChance: "crew.craftDuplicateChance",
   missionTurnaround: "crew.missionTurnaround",
   preventCrewLoss: "crew.preventCrewLoss",
-  // Racial-only lean targets (crewRaces.ts) that are not a buff-pool stat
+  // Racial-only lean targets (crewRaces.ts) that are not a buff-pool stat. endurance has no source in 0.14.0: the
+  // Spacer racial moved to TRANSIT_SPEED_KEY (below) and the Spacer long-haul ramp it was named for is 0.14.x (T3).
   fuelEfficiency: "crew.fuelEfficiency",
   endurance: "crew.endurance",
 } as const;
 
 export type CrewStatKey = (typeof CREW_STAT_KEYS)[keyof typeof CREW_STAT_KEYS];
+
+// The ship's SWEEPING transit speed key (both legs: crewOverlay.ts folds it into ShipDerivedStats.transitSpeedMult,
+// which every mission leg (outboundLegSpeed / returnLegSpeed) and every expedition voyage (voyage.ts) divides by).
+// The Pilot's Ace Navigator rides it (crewOverlay.ts OFFICER_TRANSIT_KEY is this key), and so does the Spacer racial
+// (user 2026-10-20 "+Transit speed": a small travel-speed racial at the usual officer racial size).
+export const TRANSIT_SPEED_KEY = "officer.transitTimeCut";
 
 export interface CrewBuffDef {
   id: string; // unique across ALL pools (profession pools + the exclusive pool)

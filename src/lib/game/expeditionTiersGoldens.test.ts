@@ -39,13 +39,16 @@ import {
   type ShipGroundTeam,
   type ShipTypeKey,
 } from "./model";
-import { advanceExpedition, advanceExpeditionSeed, claimExpedition, expeditionCandidates, expeditionLaunchView, expeditionRiskPreview, startExpedition } from "./expedition";
+import { advanceExpedition, advanceExpeditionSeed, claimExpedition, expeditionCandidates, expeditionLaunchView, expeditionRiskPreview, startExpedition, type ExpeditionCandidate } from "./expedition";
+import { PROVISIONAL_HOMEWORLD, stateHomeworld, type HomeworldPlacement } from "./galaxy";
+import { famousSystem } from "./starCatalog";
 import { canDispatch, canDispatchPatrol, installMissingCombatBaselines, shipRangeLightYears, shipReachesRoundTrip, shipTripRangeLightYears } from "./tick";
 import { deserialize, migrate, serialize, type SaveFile } from "./save";
 import { telescopeReadingAtLevel } from "./telescope";
 import { telescopeCardView, telescopeMapView } from "../telescopeCardDisplay";
-import { asPreRanksDispatch, asPreSafeFirstRunsDispatch, plainAwayMember, withSlottedAwayTeams } from "./awayTeamTestFixtures";
+import { asPreG2Candidate as asPreG2CandidateFixture, asPreG2NamesDispatch, asPreRanksDispatch, asPreSafeFirstRunsDispatch, plainAwayMember, withSlottedAwayTeams } from "./awayTeamTestFixtures";
 import { PRE_G2_STORED_RUNS } from "./expeditionTiersGoldens.fixture";
+import { withV1Museum } from "./firstRunsGoldens.fixture";
 
 // ===== shared helpers =====
 
@@ -71,6 +74,7 @@ const SCI = ["member-11", "member-12", "member-13", "member-14", "member-15", "m
 // G2-0, so today the result deep-equals its input; G2-3 / G2-5 / G2-8 runs pass through it. Pure: a shallow copy.
 function withoutG2Run(exp: Expedition): Expedition {
   const rest = { ...exp } as Record<string, unknown>;
+  delete rest.region; // G2-2's stamp
   delete rest.voyage;
   delete rest.recall;
   delete rest.burn;
@@ -80,8 +84,10 @@ function withoutG2Run(exp: Expedition): Expedition {
 // The state WITHOUT the G2 state fields (G2-1's stored `homeworld`) and with every run through withoutG2Run. A
 // no-op at G2-0; it lets golden 1's claim stay byte-identical across the v70 bump. Pure: shallow copies.
 // SF-1: also without the run counters (`runCounts`: seeded by freshState, written by a claim), absent before SF-1.
+// Relics v2 R2-1: and with the Museum v2 record in its v1 form (withV1Museum: the v69 save's `relicMuseum`, which
+// the v69 -> v70 step moves back), so the claim hashes and the restored save are the pre-R2-1 ones.
 function withoutG2State(state: GameState): GameState {
-  const rest = { ...state } as Record<string, unknown>;
+  const rest = { ...withV1Museum(state) } as Record<string, unknown>;
   delete rest.homeworld;
   delete rest.runCounts;
   return { ...(rest as unknown as GameState), expeditions: state.expeditions.map(withoutG2Run) };
@@ -285,13 +291,16 @@ describe("G2-0 golden 1: legacy in-flight runs restored from their stored record
 
 // ===== 2. fresh dispatches =====
 
+// Expedition Tiers G2-2 (plan G2-2: "Tier I dispatch with names restored == G2-0 golden 2"): every fresh dispatch here
+// goes through asPreG2NamesDispatch, which gives the run its pre-G2 banked name back and drops its region stamp; the
+// rest of the record (bodies, risk, objectives, fights, the x1 Tier I haul) is untouched, so the hashes stand.
 // Field Kits FKR-1: every fresh dispatch here is the run as dispatched before enemy ranks (the flag off), so golden 2
 // and golden 4 keep their capture; ranked runs are groundOpsRanks.test.ts's business. Safe first runs SF-2: and as
 // dispatched before SF-2 (asPreSafeFirstRunsDispatch: no training stamp, the retired 30 minute shakedown back on
 // expedition 1), so the shakedown rows keep proving the in-flight path; the training run is
 // safeFirstExpedition.test.ts's business.
 function freshRun(nextExpeditionId: number, candidateId: string): { exp: Expedition; done: Expedition; tl: [string, number][]; claimed: GameState } {
-  const res = asPreSafeFirstRunsDispatch(asPreRanksDispatch(startExpedition(crewed(nextExpeditionId), "ship-1", 1, candidateId)));
+  const res = asPreG2NamesDispatch(asPreSafeFirstRunsDispatch(asPreRanksDispatch(startExpedition(crewed(nextExpeditionId), "ship-1", 1, candidateId))));
   if (!res.success || !res.expedition) throw new Error(`dispatch refused: ${res.reason}`);
   const exp = res.expedition;
   const tl = timeline(exp);
@@ -343,11 +352,28 @@ describe("G2-0 golden 2: fresh dispatches of candidates 0, 1 and 2, full timelin
 // G2-1: freshState with no seed stores no homeworld and reads the provisional spot near Sol every save shared before
 // G2-1, so golden 3 stays byte-identical. A save's own homeworld moves only the light-years: "G2-1 golden 3 with the
 // homeworld" below asserts that field by field and pins the result.
+// G2-2 (plan G2-2): a Tier I candidate as the console offered it before G2-2. G2-2 moved, by design, only: the id
+// (`cand-<slot>` became `cand-1-<slot>`), the name (banked names retired, user G9), the new `region` field, and a
+// FAMOUS system's distance (its real one from the homeworld; crewed(2) is the list after the first run, so slot 0
+// is Wolf 359, user G10). This puts those back (the banked pick off the system stream's kept first draw, the drawn
+// distance) and asserts nothing else moved, so golden 3 keeps its capture. Pure.
+function asPreG2Candidate(c: ExpeditionCandidate, home: HomeworldPlacement): ExpeditionCandidate {
+  const old = asPreG2CandidateFixture(c, home);
+  const allowed = ["id", "systemId", "systemName", "region", ...(famousSystem(c.systemId) ? ["telescope.distanceLy"] : [])];
+  const moved = changedPaths(old, c).filter((p) => !allowed.includes(p));
+  expect(moved, c.id).toEqual([]);
+  expect(c.region).toEqual({ tier: 1, enemyTerritory: false });
+  return old as unknown as ExpeditionCandidate;
+}
+
 describe("G2-0 golden 3: candidates and the telescope views", () => {
   it("expeditionCandidates and each candidate's risk preview at telescope Levels 0, 1, 5 and 8", () => {
     const out: string[] = [];
     for (const level of [0, 1, 5, 8]) {
-      const cands = expeditionCandidates(atLevel(level, crewed(2)), "ship-1");
+      const live = expeditionCandidates(atLevel(level, crewed(2)), "ship-1");
+      expect(live.map((c) => c.id)).toEqual(["cand-1-0", "cand-1-1", "cand-1-2"]);
+      expect(live[0].systemName).toBe("Wolf 359"); // G2-2: the list after the first run (user G10)
+      const cands = live.map((c) => asPreG2Candidate(c, PROVISIONAL_HOMEWORLD));
       expect(cands.map((c) => c.id)).toEqual(["cand-0", "cand-1", "cand-2"]);
       out.push(`L${level}:${hash(cands)}`, ...cands.map((c) => hash(c)));
     }
@@ -410,7 +436,8 @@ describe("G2-1 golden 3 with the homeworld: only the light-years move", () => {
         for (const p of paths) expect(["telescope.distanceLy", "telescope.rangeLy"], `L${level} ${c.id}`).toContain(p);
         if (paths.includes("telescope.distanceLy")) moved += 1;
       });
-      out.push(hash(own));
+      // G2-2: hashed as offered before G2-2 (asPreG2Candidate, from this save's own homeworld).
+      out.push(hash(own.map((c) => asPreG2Candidate(c, stateHomeworld(state)))));
     }
     expect(moved).toBeGreaterThan(0);
     expect(out).toEqual(G2_1_GOLDEN.candidates);
@@ -506,7 +533,8 @@ describe("G2-0 golden 4: reach and eligibility for every hull x every mission an
           awayMembers: [plainAwayMember("member-1", "security", "ship-1"), plainAwayMember("member-11", "science", "ship-1")],
           nextAwayMemberId: 100,
         });
-        const res = asPreSafeFirstRunsDispatch(asPreRanksDispatch(startExpedition(state, "ship-1", 1, "cand-0"))); // FKR-1, SF-2: see freshRun
+        // FKR-1, SF-2: see freshRun; G2-2: with the pre-G2 names restored and no region stamp (asPreG2NamesDispatch).
+        const res = asPreG2NamesDispatch(asPreSafeFirstRunsDispatch(asPreRanksDispatch(startExpedition(state, "ship-1", 1, "cand-0"))));
         if (res.success) launched += 1;
         out.push(`${boost ? "boost" : "stock"}:${hull}:${hash({ ...res, next: withoutG2State(res.next), expedition: res.expedition ? withoutG2Run(res.expedition) : null })}`);
       }

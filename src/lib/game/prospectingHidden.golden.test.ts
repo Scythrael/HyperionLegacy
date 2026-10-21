@@ -23,7 +23,7 @@ import { REQUISITION_ENTRIES } from "./quartermaster";
 import { shipCrewCapacity, shipReserveBerths, validCompositions } from "./groundComposition";
 import { emptyGroundTeams } from "./groundTeams";
 import { memberWearersText } from "../awayGearDisplay";
-import { hash } from "./firstRunsGoldens.fixture";
+import { hash, withV1Museum } from "./firstRunsGoldens.fixture";
 
 // Captured at 5f9342a (feat/crew-0.14.0's tip), before any Prospecting edit.
 const PINS: Readonly<Record<string, string>> = {
@@ -36,6 +36,10 @@ const PINS: Readonly<Record<string, string>> = {
   wearers: "aed78fbc",
   snapshot: "d02149ce",
 };
+
+// Member pieces added after the capture (so the "wearers" pin hashes exactly the pieces it saw): Field Kits FKR-5's
+// Impact Grenade, a Security tool.
+const ADDED_AFTER_THE_PIN: ReadonlySet<string> = new Set(["impactGrenade"]);
 
 function pin(name: string, value: unknown): void {
   expect(PINS[name], `no pin named ${name}`).toBeDefined();
@@ -110,7 +114,7 @@ describe("Prospecting hidden: nothing a player can see moves while the unlock fl
   });
 
   it("a fresh save", () => {
-    pin("freshState", freshState());
+    pin("freshState", withV1Museum(freshState())); // R2-1: the museum in its v1 form, as captured
   });
 
   it("the Security and Science specs and trait pools", () => {
@@ -127,10 +131,17 @@ describe("Prospecting hidden: nothing a player can see moves while the unlock fl
       for (const v of EQUIPMENT_SLOTS[slotType].varieties) {
         const teams = v.member?.teamTypes ?? [];
         if (!teams.includes("security") && !teams.includes("science")) continue;
+        if (ADDED_AFTER_THE_PIN.has(v.key)) continue;
         lines.push(`${slotType}:${v.key}:${memberWearersText({ slotType, moduleVariant: v.key })}`);
       }
     }
     pin("wearers", lines);
+  });
+
+  it("a Security piece added after the pin reads like its siblings (Field Kits FKR-5: the Impact Grenade)", () => {
+    // The pin covers the pieces that existed at its capture; a later Security piece must read as Security alone.
+    const sibling = memberWearersText({ slotType: "memberTool", moduleVariant: "stunGrenade" });
+    for (const key of ADDED_AFTER_THE_PIN) expect(memberWearersText({ slotType: "memberTool", moduleVariant: key }), key).toBe(sibling);
   });
 
   it("a Security and a Science member's roster snapshot (gear on every line, traits)", () => {

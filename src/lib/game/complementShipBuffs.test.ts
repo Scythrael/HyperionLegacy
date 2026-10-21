@@ -14,7 +14,7 @@
 
 import { describe, it, expect } from "vitest";
 import Decimal from "break_infinity.js";
-import { MISSIONS, effectiveMissionDef, freshState, type CrewBucket, type GameState, type PatrolMissionState, type SeniorStaffOfficer, type ShipTypeKey } from "./model";
+import { MISSIONS, effectiveMissionDef, freshState, withGeneralMuseumRecord, type CrewBucket, type GameState, type PatrolMissionState, type SeniorStaffOfficer, type ShipTypeKey } from "./model";
 import {
   CREW_EFFECTIVENESS_KNEE,
   crewEffectivenessMultiplier,
@@ -41,16 +41,17 @@ import { MUSEUM_COPY_LADDER, museumBonusesFromRecord, RELIC_SETS } from "./relic
 
 // ===== fixtures =====
 
-// A Spacer crew by default: its racial (crew.endurance) has no 0.14.0 consumer, so the race lifts nothing.
+// A Belter crew by default: its racial (Deck Handling) acts only on a carrier's patrol drone screen, so the race lifts
+// nothing these tests measure. (The Spacer, the CP-2 choice, lifts the transit speed since 0.14.0.)
 function bucket(profession: CrewBucket["profession"], buff1Id: string, count: number, over: Partial<CrewBucket> = {}): CrewBucket {
-  return { profession, rarity: "standard", rank: 1, race: "spacer", buff1Id, buff2Id: null, count, ...over };
+  return { profession, rarity: "standard", rank: 1, race: "belter", buff1Id, buff2Id: null, count, ...over };
 }
 
 function crewed(buckets: CrewBucket[], typeKey: ShipTypeKey = "generalFreighter", s0: GameState = freshState()): GameState {
   return { ...s0, ships: s0.ships.map((sh) => (sh.id === "ship-1" ? { ...sh, typeKey, complement: { mode: "active", buckets } } : sh)) };
 }
 
-function officer(seat: SeniorStaffOfficer["seat"], bonusIds: string[], race: SeniorStaffOfficer["race"] = "spacer"): SeniorStaffOfficer {
+function officer(seat: SeniorStaffOfficer["seat"], bonusIds: string[], race: SeniorStaffOfficer["race"] = "belter"): SeniorStaffOfficer {
   const bonuses = bonusIds.map((id) => ({ id, magnitude: getSeniorStaffBonusById(id)!.magnitude }));
   const none = { id: "none", magnitude: 0 };
   return {
@@ -277,17 +278,17 @@ describe("the Museum's crewBonuses amplifies the officer bonuses read directly (
     const amp = museumBonusesFromRecord(record).crewBonuses;
     expect(amp).toBeGreaterThan(0);
     const base = installMissingCombatBaselines({ ...crewed([], "destroyer"), officers: [officer("medical", ["med.fleetTriage"]), officer("tactical", ["tac.weaponCommand"])] });
-    const withMuseum = { ...base, relicMuseum: record };
+    const withMuseum = withGeneralMuseumRecord(base, record);
     const triage = officerBonusTotal(base, ship1(base), "officer.crewLossPrevention");
     expect(triage).toBeGreaterThan(0);
     expect(officerBonusTotal(withMuseum, ship1(withMuseum), "officer.crewLossPrevention")).toBeCloseTo(triage * (1 + amp), 12);
     const weapons = (s: GameState) => officerCombatProfile(s, ship1(s)).find((e) => e.kind === "weapons")!.magnitude;
     expect(weapons(withMuseum)).toBeCloseTo(weapons(base) * (1 + amp), 12);
-    expect(officerBonusTotal({ ...base, relicMuseum: {} }, ship1(base), "officer.crewLossPrevention")).toBe(triage);
+    expect(officerBonusTotal(withGeneralMuseumRecord(base, {}), ship1(base), "officer.crewLossPrevention")).toBe(triage);
   });
 
   it("a ship with no officers and no crew is untouched by the museum's crewBonuses", () => {
-    const s = { ...freshState(), relicMuseum: xenoMuseum() };
+    const s = withGeneralMuseumRecord(freshState(), xenoMuseum());
     expect(shipRepairSpeedBonus(s, ship1(s))).toBe(0);
     expect(shipMissionOutputBonus(s, ship1(s))).toBe(0);
   });

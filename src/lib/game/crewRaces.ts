@@ -15,14 +15,15 @@
 // tick or UI. See docs/plans/2026-09-22-crew-0.14.0-plan.md ("Races", Phase 0.5).
 
 import type { CrewRace } from "./model";
-import { CREW_STAT_KEYS, type CrewStatKey } from "./crewBuffs";
+import { CREW_STAT_KEYS, TRANSIT_SPEED_KEY, type CrewStatKey } from "./crewBuffs";
 
 // Cosmetic, inclusive gender set (male/female/nonbinary). No mechanical effect anywhere.
 export const CREW_GENDERS: readonly string[] = ["male", "female", "nonbinary"];
 
-// A race's context-scaled racial bonus. One stat key, two magnitudes. FIRST-PASS values.
+// A race's context-scaled racial bonus. One stat key, two magnitudes. FIRST-PASS values. The key is a crew.* key, or
+// the ship's sweeping transit speed key (the Spacer).
 export interface RacialBonus {
-  statKey: CrewStatKey;
+  statKey: CrewStatKey | typeof TRANSIT_SPEED_KEY;
   seniorStaff: number; // STRONG magnitude when this race sits in a bridge seat (officer engine, later)
   complement: number; // TINY per-head magnitude in the complement rollup
 }
@@ -103,7 +104,10 @@ export const CREW_RACES: Record<CrewRace, CrewRaceDef> = {
     label: "Spacer",
     species: "human",
     lean: "endurance / long-haul",
-    racialBonus: { statKey: CREW_STAT_KEYS.endurance, seniorStaff: 0.05, complement: 0.0005 },
+    // 0.14.0 (user 2026-10-20 "+Transit speed (Recommended)": a small travel-speed racial at the usual officer racial
+    // size, so no race is inert): the ship's sweeping transit speed, both legs and the expedition voyage. The full
+    // Spacer long-haul ramp (crew.endurance, D26) stays 0.14.x (T3).
+    racialBonus: { statKey: TRANSIT_SPEED_KEY, seniorStaff: 0.05, complement: 0.0005 },
     names: { given: HUMAN_GIVEN_NAMES, family: HUMAN_FAMILY_NAMES },
   },
   // --- 4 allied species (coined names; NEW canon) ---

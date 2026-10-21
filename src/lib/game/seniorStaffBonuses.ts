@@ -74,7 +74,7 @@ export const SENIOR_STAFF_BONUSES: SeniorStaffBonusDef[] = [
   { id: "med.recovery", label: "Rapid Recovery", seat: "medical", statKey: "officer.repairRateMult", magnitude: 0.1, rollTier: "uncommon", description: "Speeds Shipyard hull repair and shortens away-team injuries." },
 
   // Engineering: efficiency and repair.
-  { id: "eng.overdrive", label: "Reactor Overdrive", seat: "engineering", statKey: "officer.powerEfficiencyMult", magnitude: 0.1, rollTier: "uncommon", description: "A sweeping power-efficiency lift for the whole ship (live with the power budget)." },
+  { id: "eng.overdrive", label: "Reactor Overdrive", seat: "engineering", statKey: "officer.powerEfficiencyMult", magnitude: 0.1, rollTier: "uncommon", description: "A sweeping power-efficiency lift for the whole ship: its systems draw less power." },
   { id: "eng.rangeMaster", label: "Range Mastery", seat: "engineering", statKey: "officer.rangeMult", magnitude: 0.1, rollTier: "common", description: "A large lift to the ship's effective range." },
 
   // Any-seat sweeping bonuses (seat-agnostic, rarer flavor).

@@ -13,11 +13,12 @@
 // Whole-state hashes leave out `fuel` and `runCounts`, exactly like wiringGoldens.test.ts.
 
 import { describe, expect, it } from "vitest";
+import { withV1Museum } from "./firstRunsGoldens.fixture";
 import Decimal from "break_infinity.js";
 import { MISSIONS, freshState, type AwayMember, type GameState, type MissionKey, type SecondaryTalentKey } from "./model";
 import { canDispatch, dispatchCaptainOnMission, economyTick, shipRangeLightYears } from "./tick";
 import { expeditionCandidates, startExpedition } from "./expedition";
-import { asPreRanksDispatch, asPreSafeFirstRunsDispatch, plainAwayMember, withSlottedAwayTeams } from "./awayTeamTestFixtures";
+import { asPreG2NamesDispatch, asPreRanksDispatch, asPreSafeFirstRunsDispatch, plainAwayMember, withSlottedAwayTeams } from "./awayTeamTestFixtures";
 
 function fnv(s: string): string {
   let h = 0x811c9dc5;
@@ -28,7 +29,8 @@ function fnv(s: string): string {
   return h.toString(16);
 }
 const hash = (v: unknown): string => fnv(JSON.stringify(v));
-const hashState = (s: GameState): string => hash({ ...s, fuel: undefined, runCounts: undefined });
+// Relics v2 R2-1: the Museum v2 record in its v1 form (withV1Museum), as these were captured.
+const hashState = (s: GameState): string => hash({ ...withV1Museum(s), fuel: undefined, runCounts: undefined });
 
 function lcg(seed: number): () => number {
   let s = seed >>> 0;
@@ -66,7 +68,7 @@ function groundOpsRecord(s: GameState): string {
   const squad: AwayMember[] = [plainAwayMember("member-1", "security", "ship-1"), plainAwayMember("member-11", "science", "ship-1")];
   const s0 = withSlottedAwayTeams({ ...s, awayMembers: squad, nextAwayMemberId: 100, expeditionSeed: 0x1234 });
   // Safe first runs SF-2: as dispatched before SF-2 (no training stamp, the retired 30 minute shakedown on expedition 1).
-  const res = asPreSafeFirstRunsDispatch(asPreRanksDispatch(startExpedition(s0, "ship-1", 1, expeditionCandidates(s0, "ship-1")[0].id)));
+  const res = asPreG2NamesDispatch(asPreSafeFirstRunsDispatch(asPreRanksDispatch(startExpedition(s0, "ship-1", 1, expeditionCandidates(s0, "ship-1")[0].id))));
   if (!res.success || !res.expedition) throw new Error(`dispatch refused: ${res.reason}`);
   return hash(res.expedition);
 }
