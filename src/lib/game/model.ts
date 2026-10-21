@@ -9044,7 +9044,7 @@ const EM8_PRECURSOR_LENS = "EM-8 (the Precursor Lens special module is crafted w
 // Gas Giant Study GG-1: the owners of the research data reserves (the Research Lab's study lane, GG-5).
 const GG5_DATA_STUDY = "GG-5 (the Research Lab study lane studies it into a +12% boost on the next project of its family)";
 const GG5_ANCIENT_STUDY = "GG-5 (the Research Lab study lane decodes the next ancient entry from it)";
-// Gas Giant Study GG-1 [PROPOSAL values, the user tunes them]: credits per canister at the Quartermaster's Sell counter.
+// Gas Giant Study GG-1 (values approved by the user 2026-10-21): credits per canister at the Quartermaster's Sell counter.
 // The Deuterium Canister anchors the scale: ten Deuterium Ice (40 cr each) refine into one, so it sells a little above
 // the 400 cr of ice it took; the Standard band sells under it and each band up roughly doubles.
 export const GAS_CANISTER_SELL_VALUE = {

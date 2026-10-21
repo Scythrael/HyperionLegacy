@@ -10,8 +10,8 @@
 //     odds of a study's canisters (Standard / Augmented / Stellar / Radiant, percent), the within-band item weights,
 //     and the inputs of its derived physics (radius model, heat inflation). Shown BY NAME ("Ammonia-cloud giant,
 //     Sudarsky I"), so the Sudarsky numerals never collide with drive classes or region tiers.
-//   - NEBULA_KINDS: the system-level nebula sweep's four kinds (user call 2, "System-level sweep"; the four kinds are
-//     [PROPOSAL]). Radiant odds 0: a nebula has no magnetosphere, so no trapped antimatter.
+//   - NEBULA_KINDS: the system-level nebula sweep's four kinds (user call 2, "System-level sweep"; the four kinds
+//     approved 2026-10-21). Radiant odds 0: a nebula has no magnetosphere, so no trapped antimatter.
 //   - giantPhysics / starProgress: pure physics from (class, mass): radius, density, cloud-top gravity, the probe's
 //     depth factor (gravity^0.4), and "how close it got to becoming a star" (the 13 and ~78 Jupiter-mass lines).
 //   - The study's item ids: the six canisters (user call 5 mapping), the eight research data types (user call 9: the
@@ -138,7 +138,7 @@ export interface GiantClassDef {
   id: GiantClassId;
   name: string; // the display name, sentence case ("Ammonia-cloud giant")
   sudarsky?: "I" | "II" | "III" | "IV" | "V"; // the Sudarsky class, shown after the name; absent on Ice Giant and Brown Dwarf
-  weight: number; // the class roll's integer weight (GG-2) [PROPOSAL]
+  weight: number; // the class roll's integer weight (GG-2; approved 2026-10-21)
   massMinMilliJ: number; // the mass band, integer milli-Jupiter masses (the mass is its own roll inside it, GG-2)
   massMaxMilliJ: number;
   radiusModel: GiantRadiusModel;
@@ -153,8 +153,9 @@ export interface GiantClassDef {
 
 // The seven classes. Mass bands from the science (design section 2): a planet stops below 13 Jupiter masses (the
 // deuterium-burning line), an ice giant sits near Uranus and Neptune (0.03 to 0.08), a brown dwarf runs from 13 to
-// the ~78 hydrogen-fusion line. Band odds and item weights are the v2 mockup's [PROPOSAL] table; class weights are
-// [PROPOSAL] (a cold Sudarsky I and an ice giant are the common sights, a brown dwarf the rare one).
+// the ~78 hydrogen-fusion line. Band odds and item weights are the v2 mockup's [PROPOSAL] table; the class weights
+// were approved by the user on 2026-10-21 (a cold Sudarsky I and an ice giant are the common sights, a brown dwarf the
+// rare one).
 export const GIANT_CLASSES: readonly GiantClassDef[] = [
   {
     id: "sudarskyI",
@@ -318,7 +319,7 @@ export function starProgress(massMilliJ: number): { deuteriumShare: number; fusi
 }
 
 // ============================================================================
-// Nebula kinds (user call 2: a system-level sweep; the four kinds are [PROPOSAL])
+// Nebula kinds (user call 2: a system-level sweep; the four kinds approved 2026-10-21)
 // ============================================================================
 
 export type NebulaKindId = "molecularCloud" | "emissionNebula" | "planetaryNebula" | "supernovaRemnant";

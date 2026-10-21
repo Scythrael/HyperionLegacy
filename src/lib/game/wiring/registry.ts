@@ -3974,6 +3974,8 @@ function gasStudyEntries(): WiringEntry[] {
     const system = useSystem[use];
     out.push(entry({ id: `${system}:GAS_STUDY_USES:${use}`, system, source: { catalog: "GAS_STUDY_USES", key: use }, claim: GAS_STUDY_USES[use], status: pending(GAS_STUDY_USES[use]) }));
   }
+  // The slice that reads each effect field. A field with no owner here gets NO entry (never a fallback owner), so the
+  // completeness test ("every enumerated source has a registry entry") fails until it is given one.
   const classOwner: Readonly<Record<string, string>> = {
     weight: GAS_STUDY_USES.classRoll,
     massMinMilliJ: GAS_STUDY_USES.classRoll,
@@ -3983,15 +3985,22 @@ function gasStudyEntries(): WiringEntry[] {
     bandOdds: GAS_STUDY_USES.studyReward,
     itemWeights: GAS_STUDY_USES.studyReward,
   };
+  const kindOwner: Readonly<Record<string, string>> = {
+    bandOdds: GAS_STUDY_USES.nebulaSweep,
+    itemWeights: GAS_STUDY_USES.nebulaSweep,
+  };
   for (const c of GIANT_CLASSES) {
     for (const field of effectFieldsOf("GIANT_CLASSES")) {
-      const owner = classOwner[field] ?? `GG-1 follow-up: GIANT_CLASSES.${field} has no owning slice`;
+      const owner = classOwner[field];
+      if (owner === undefined) continue;
       out.push(entry({ id: `expedition:GIANT_CLASSES:${c.id}:${field}`, system: "expedition", source: { catalog: "GIANT_CLASSES", key: `${c.id}:${field}` }, claim: `${c.name}: its ${field}`, status: pending(owner) }));
     }
   }
   for (const k of NEBULA_KINDS) {
     for (const field of effectFieldsOf("NEBULA_KINDS")) {
-      out.push(entry({ id: `expedition:NEBULA_KINDS:${k.id}:${field}`, system: "expedition", source: { catalog: "NEBULA_KINDS", key: `${k.id}:${field}` }, claim: `${k.name}: its ${field}`, status: pending(GAS_STUDY_USES.nebulaSweep) }));
+      const owner = kindOwner[field];
+      if (owner === undefined) continue;
+      out.push(entry({ id: `expedition:NEBULA_KINDS:${k.id}:${field}`, system: "expedition", source: { catalog: "NEBULA_KINDS", key: `${k.id}:${field}` }, claim: `${k.name}: its ${field}`, status: pending(owner) }));
     }
   }
   return out;

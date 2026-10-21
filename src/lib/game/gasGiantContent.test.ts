@@ -42,6 +42,7 @@ import { addItemQuality, itemTotal } from "./inventory";
 import { sellItem } from "./quartermaster";
 import { WIRING_REGISTRY } from "./wiring/registry";
 import { GG1_ADDED_ENTRY_IDS } from "./gasStudyGoldens.fixture";
+import { effectFieldsOf } from "./wiring/fieldRoles";
 
 const sum = (o: BandOdds): number => ITEM_BANDS.reduce((n, b) => n + o[b], 0);
 // An em dash (0x2014), an en dash (0x2013) or a double hyphen: built from code points so this file holds none.
@@ -133,6 +134,18 @@ describe("GG-1 everything wired: a consumer or a GG reserve, a source or a pendi
     expect(gasStudySourcePending("commonOre")).toBe(false);
     // The pending source is the study reward's own registry entry.
     expect(WIRING_REGISTRY.find((e) => e.id === "expedition:GAS_STUDY_USES:studyReward")?.status).toEqual({ kind: "pending", owner: GAS_STUDY_USES.studyReward });
+  });
+
+  it("every effect field of every class and kind has its pending entry (an unmapped field fails here, never a fallback)", () => {
+    for (const [catalog, defs] of [["GIANT_CLASSES", GIANT_CLASSES], ["NEBULA_KINDS", NEBULA_KINDS]] as const) {
+      for (const def of defs) {
+        for (const field of effectFieldsOf(catalog)) {
+          const e = WIRING_REGISTRY.find((w) => w.source.catalog === catalog && w.source.key === `${def.id}:${field}`);
+          expect(e, `${catalog} ${def.id} ${field}`).toBeDefined();
+          if (e?.status.kind === "pending") expect(e.status.owner, `${catalog} ${def.id} ${field}`).toMatch(/^GG-[2-7] /);
+        }
+      }
+    }
   });
 
   it("every study use is owned by a GG slice", () => {

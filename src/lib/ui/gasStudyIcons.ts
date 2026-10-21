@@ -9,8 +9,8 @@ import type { IconName } from "./icons";
 import { GAS_CANISTER_IDS, type GasCanisterId } from "../game/gasGiantContent";
 
 // Canister id -> its glyph. Exhaustive over GasCanisterId (a new canister without a glyph is a compile error). The
-// five gases share the cylinder; the antimatter cell is its own container (user: "it will require its own specialized
-// container").
+// five gases share the cylinder (user 2026-10-21: "One shared glyph for the 5 cannisters"; distinct graphics later,
+// SUGGESTIONS.md); the antimatter cell is its own container (user: "it will require its own specialized container").
 export const GAS_CANISTER_ICON: Readonly<Record<GasCanisterId, IconName>> = {
   hydrogenCanister: "gasCanister",
   methaneCanister: "gasCanister",
