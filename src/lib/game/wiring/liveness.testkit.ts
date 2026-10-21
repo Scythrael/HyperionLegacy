@@ -86,6 +86,7 @@ import {
 } from "../expedition";
 import { activityRelicFindBonus, resolveExpeditionActivity, resolveScanEncounter, type GambitLogEvent } from "../gambit";
 import { fieldworkEffect } from "../fieldwork";
+import { pieceCondition } from "../gearWear";
 import { applyExpeditionInjuries, applyGroundOpsInjuries } from "../injuries";
 import { groundTeamBaySeconds } from "../groundOps";
 import { resolveTaskFight, taskFightTeam } from "../groundFight";
@@ -269,7 +270,7 @@ export function outcome(s: GameState): string {
       mission: missionOutcome(c.mission),
     })),
     ships: s.ships.map((sh) => pick(sh, SHIP_OUTCOME_KEYS)),
-    shipGear: s.equipment.filter((e) => !e.fittedToMemberId && !isMemberSlotType(e.slotType)).map((e) => [e.id, e.fittedToShipId, e.durability]),
+    shipGear: s.equipment.filter((e) => !e.fittedToMemberId && !isMemberSlotType(e.slotType)).map((e) => [e.id, e.fittedToShipId, pieceCondition(e)]),
     injuries: s.awayMembers.map((m) => [m.id, m.injuredUntilSeconds, m.injuredAtSeconds]),
     expeditions: s.expeditions.map(expeditionOutcome),
   });
@@ -324,7 +325,6 @@ function probePoweredSheet(t: Transform): string {
     mass: 0,
     powerDraw: POWERED_DRAW,
     durabilityMax: 100,
-    durability: 100,
     fittedToShipId: SHIP_ID,
   };
   const s = t({ ...s0, equipment: [...s0.equipment.filter((e) => !(e.fittedToShipId === SHIP_ID && e.slotType === "cargoBay")), powered] });
@@ -722,7 +722,6 @@ function gearPiece(slotType: MemberSlotType, varietyKey: string, wearer: string,
     mass: 0,
     powerDraw: 0,
     durabilityMax: 100,
-    durability: 100,
     fittedToShipId: null,
     fittedToMemberId: wearer,
   };

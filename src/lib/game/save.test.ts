@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import Decimal from "break_infinity.js";
 import LZString from "lz-string";
-import { migrate, serialize, deserialize, importRawSave, loadFromLocalStorage, SAVE_KEY, SAVE_VERSION, dropRetiredFuelV70, V70_FUEL_REFUND_CREDITS_PER_UNIT, V70_FREE_STARTER_TANK, type SaveFile } from "./save";
+import { migrate, serialize, deserialize, importRawSave, loadFromLocalStorage, SAVE_KEY, SAVE_VERSION, dropRetiredFuelV70, dropRetiredDurabilityV70, V70_FUEL_REFUND_CREDITS_PER_UNIT, V70_FREE_STARTER_TANK, type SaveFile } from "./save";
 // SF-1: the run counters the v69 -> v70 step derives (handed to a "no step" load so the comparisons below isolate their step).
 import { veteranRunCountsV70 } from "./runDifficulty";
 import { itemTotal } from "./inventory"; // Task 9a: read item TOTAL across quality buckets
@@ -3851,7 +3851,7 @@ describe("migrate, Standard-Issue baseline seed (v27 -> v28)", () => {
       { id: "ship-2", typeKey: "generalFreighter", assignedCaptainId: 2 },
     ];
     save.state.equipment = [
-      { id: "equip-99", slotType: "cargoBay", rarity: "standard", ascension: "none", quality: 0, iLevel: 1, blueprintKey: null, implicitStats: { cargoCapacity: 0 }, rolledStats: {}, mass: 0, powerDraw: 0, durabilityMax: 100, durability: 100, fittedToShipId: "ship-1" },
+      { id: "equip-99", slotType: "cargoBay", rarity: "standard", ascension: "none", quality: 0, iLevel: 1, blueprintKey: null, implicitStats: { cargoCapacity: 0 }, rolledStats: {}, mass: 0, powerDraw: 0, durabilityMax: 100, fittedToShipId: "ship-1" },
     ];
     save.state.nextEquipmentId = 100;
     const migrated: any = migrate(save);
@@ -6934,6 +6934,68 @@ describe("the v66 -> v67 and v67 -> v68 steps are FROZEN (SQ-1 review: they neve
       { kind: "ground", security: [null, null, null, null], science: ["member-8", "member-9", "member-10"], helpOthers: false },
       { kind: "ground", security: [null, null, null, null], science: [null, null, null], helpOthers: false, kindPending: true },
     ]);
+  });
+});
+
+// GEAR WEAR (0.14.0, design 2026-10-16 section 6; user W1 "0-1000 condition": per-mille condition replaces the
+// unused durability field): MIGRATIONS[69] step 5 and the every-load pass delete the retired `durability` from every
+// stored EquipmentInstance and write nothing else, so every existing piece loads at full condition.
+describe("gear wear: the retired per-piece durability field (v69 -> v70 step 5, and every load)", () => {
+  // The pre-wear shape: every stored piece carries durability = durabilityMax (what every mint wrote).
+  const withDurability = (list: any[]): any[] => list.map((e) => ({ ...e, durability: e.durabilityMax }));
+  const rawState = (): any => {
+    const s: any = JSON.parse(JSON.stringify(deserialize(serialize(installMissingCombatBaselines(freshState()), 0))!.state));
+    s.equipment = withDurability(s.equipment);
+    return s;
+  };
+
+  it("deletes the field from every piece, keeps everything else, writes no condition", () => {
+    const before = rawState();
+    expect(before.equipment.length).toBeGreaterThan(3);
+    const after = dropRetiredDurabilityV70(before);
+    for (const e of after.equipment) {
+      expect("durability" in e, e.id).toBe(false);
+      expect("condition" in e, e.id).toBe(false);
+      expect("conditionAt" in e, e.id).toBe(false);
+    }
+    expect(after.equipment.map((e: any) => ({ ...e, durability: e.durabilityMax }))).toEqual(before.equipment);
+    const { equipment: _a, ...restBefore } = before;
+    const { equipment: _b, ...restAfter } = after;
+    expect(restAfter).toEqual(restBefore);
+  });
+
+  it("cleans an in-flight expedition's frozen battle gear too", () => {
+    const gear = withDurability(rawState().equipment.slice(0, 2));
+    const exp = { id: "exp-1", groundOps: { shipEventProfile: { evasion: 0, battle: { hullType: "orion", installedGear: gear, hullMax: 100 } } } };
+    const out = dropRetiredDurabilityV70({ ...rawState(), expeditions: [exp, { id: "exp-2" }] });
+    const frozen = out.expeditions[0].groundOps.shipEventProfile.battle.installedGear;
+    for (const e of frozen) expect("durability" in e).toBe(false);
+    expect(out.expeditions[0].groundOps.shipEventProfile.battle.hullMax).toBe(100);
+    expect(out.expeditions[1]).toEqual({ id: "exp-2" });
+  });
+
+  it("is idempotent and the identity (the SAME reference) on a save without the field; junk passes through", () => {
+    const once = dropRetiredDurabilityV70(rawState());
+    expect(dropRetiredDurabilityV70(once)).toBe(once);
+    expect(dropRetiredDurabilityV70(null)).toBe(null);
+    const junk = { equipment: "nope", expeditions: [null, 3, { groundOps: { shipEventProfile: { battle: { installedGear: "x" } } } }] };
+    expect(dropRetiredDurabilityV70(junk)).toBe(junk);
+    const mixed = { equipment: [null, 7, { id: "e", durability: 5, durabilityMax: 5 }] };
+    expect(dropRetiredDurabilityV70(mixed).equipment).toEqual([null, 7, { id: "e", durabilityMax: 5 }]);
+  });
+
+  it("a v69 save loads at v70 with every piece pristine; a v70 save from before this step sheds the field on load", () => {
+    for (const version of [69, SAVE_VERSION]) {
+      const file: any = JSON.parse(JSON.stringify(deserialize(serialize(installMissingCombatBaselines(freshState()), 0))));
+      file.version = version;
+      file.state.equipment = withDurability(file.state.equipment);
+      const loaded = migrate(file as SaveFile);
+      expect(loaded.equipment.length, `v${version}`).toBeGreaterThan(3);
+      for (const e of loaded.equipment) {
+        expect("durability" in e, `v${version} ${e.id}`).toBe(false);
+        expect(e.condition, `v${version} ${e.id}`).toBeUndefined();
+      }
+    }
   });
 });
 

@@ -56,6 +56,7 @@ import { STATUS_EFFECT_DEFS } from "../combat/statusEffects";
 import { DRONE_POD_AFFIX_POOL, DRONE_POD_IMPLICIT_STAT, WEAPON_AFFIX_POOL, WEAPON_IMPLICIT_STAT } from "../itemgen";
 import { AFFIX_ALIGNED_HOOKS, AFFIX_HOOK_KEYS, GAMBIT_ACTIONS, GAMBIT_SELECTORS } from "./probes";
 import { FIELD_ROLES, effectFieldsOf } from "./fieldRoles";
+import { REPAIR_RATES, REPAIR_RATE_BONUSES, WEAR_EFFICIENCY, WEAR_SOURCES } from "../gearWear";
 import { SHORT_RANGE_TEMPLATES } from "../shortRange";
 import { GAS_STUDY_USES, GIANT_CLASSES, NEBULA_KINDS } from "../gasGiantContent";
 
@@ -214,6 +215,11 @@ export function enumerateEffectSources(): EffectSource[] {
   add("FIELD_KIT_PRICES", FIELD_KIT_IDS);
   // the grenade family (Field Kits FKR-5): each grenade's charges per objective, throws per battle, blast and debuff
   add("GRENADES", GRENADE_IDS.flatMap((k) => GRENADE_FIELDS.map((f) => `${k}:${f}`)));
+  // gear wear (0.14.0, steps 1 and 2): every wear source, repair context, repair bonus and efficiency consumer
+  add("WEAR_SOURCES", WEAR_SOURCES.map((w) => w.id));
+  add("REPAIR_RATES", Object.keys(REPAIR_RATES));
+  add("REPAIR_RATE_BONUSES", REPAIR_RATE_BONUSES);
+  add("WEAR_EFFICIENCY", WEAR_EFFICIENCY.map((c) => c.id));
   add("POI_CATALOG", POI_CATALOG.map((p) => p.id));
   add("SALVAGE_LOOT_POOLS", Object.keys(SALVAGE_LOOT_POOLS));
   // the data catalogs, field by field

@@ -1375,7 +1375,6 @@ function makeEquip(over: Partial<EquipmentInstance> & { id: string }): Equipment
     mass: over.mass ?? 0,
     powerDraw: over.powerDraw ?? 0,
     durabilityMax: over.durabilityMax ?? 100,
-    durability: over.durability ?? 100,
     fittedToShipId: over.fittedToShipId ?? null,
   };
 }
@@ -1889,7 +1888,6 @@ describe("EquipmentInstance shape + rarityIndex ordering (0.11.0 Task 1)", () =>
       mass: 8,
       powerDraw: 5,
       durabilityMax: 100,
-      durability: 100,
       fittedToShipId: null,
       // `integrity` is the reserved anti-tamper token; omitted here since it is optional.
     };
@@ -1905,7 +1903,7 @@ describe("EquipmentInstance shape + rarityIndex ordering (0.11.0 Task 1)", () =>
     expect(gear.mass).toBe(8);
     expect(gear.powerDraw).toBe(5);
     expect(gear.durabilityMax).toBe(100);
-    expect(gear.durability).toBe(100);
+    expect(gear.condition).toBeUndefined(); // gear wear: absent = pristine
     expect(gear.fittedToShipId).toBeNull();
     expect(gear.integrity).toBeUndefined();
   });
@@ -1925,7 +1923,6 @@ describe("EquipmentInstance shape + rarityIndex ordering (0.11.0 Task 1)", () =>
       mass: 0,
       powerDraw: 0,
       durabilityMax: 50,
-      durability: 50,
       fittedToShipId: "ship-7",
     };
     expect(baseline.blueprintKey).toBeNull();
@@ -2500,7 +2497,7 @@ describe("generateStandardIssue (0.11.0 Task 20)", () => {
       expect(piece.rolledStats).toEqual({}); // NO affixes on the baseline
       // Durability is the slot base (reserved, never lost this patch).
       expect(piece.durabilityMax).toBe(SLOT_BASE_PHYSICALS[slot as keyof typeof SLOT_BASE_PHYSICALS].durability);
-      expect(piece.durability).toBe(piece.durabilityMax);
+      expect(piece.condition).toBeUndefined(); // gear wear: a fresh piece is pristine (no condition)
     }
   });
 
@@ -2587,7 +2584,7 @@ describe("generateCombatStandardIssue (Combat 1.0, Unit 1.3/1.4)", () => {
     expect(piece.implicitStats).toEqual({ shieldCapacity: 300, shieldRecharge: 10 });
     expect(piece.rolledStats).toEqual({}); // affix-free baseline
     expect(piece.durabilityMax).toBe(SLOT_BASE_PHYSICALS.shieldEmitters.durability);
-    expect(piece.durability).toBe(piece.durabilityMax);
+    expect(piece.condition).toBeUndefined(); // gear wear: a fresh piece is pristine (no condition)
   });
 
   it("mints a well-formed hull plating baseline: the passed hullStrength, no weaponType", () => {
@@ -2610,7 +2607,7 @@ describe("generateCombatStandardIssue (Combat 1.0, Unit 1.3/1.4)", () => {
     expect(piece.implicitStats).toEqual({ weaponYield: COMBAT_STANDARD_ISSUE_WEAPON_YIELD });
     expect(COMBAT_STANDARD_ISSUE_WEAPON_YIELD).toBe(0); // the base WEAPON_DEF provides the real combat stats
     expect(piece.durabilityMax).toBe(COMBAT_STANDARD_ISSUE_WEAPON_DURABILITY);
-    expect(piece.durability).toBe(piece.durabilityMax);
+    expect(piece.condition).toBeUndefined(); // gear wear: a fresh piece is pristine (no condition)
   });
 
   it("mints a well-formed DRONE-POD baseline: slotType droneBay, the given role, droneHp 0 (Unit 2.3a)", () => {
@@ -2627,7 +2624,7 @@ describe("generateCombatStandardIssue (Combat 1.0, Unit 1.3/1.4)", () => {
     expect(COMBAT_STANDARD_ISSUE_DRONE_HP).toBe(0);
     expect(piece.rolledStats).toEqual({}); // affix-free baseline
     expect(piece.durabilityMax).toBe(COMBAT_STANDARD_ISSUE_DRONE_DURABILITY);
-    expect(piece.durability).toBe(piece.durabilityMax);
+    expect(piece.condition).toBeUndefined(); // gear wear: a fresh piece is pristine (no condition)
   });
 
   it("throws for a drone-pod baseline with no droneRole (a pod must know its base template)", () => {

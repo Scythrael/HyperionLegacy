@@ -20,7 +20,8 @@
 // Merged with feat/crew-0.14.0 adb41c6 after the capture: G2-2 renamed the candidates (`cand-<slot>` became
 // `cand-1-<slot>`), named systems after real stars and stamped a region on each run, and R2-1 moved the museum into
 // the Museum v2 record. The captures read through the same pre-G2 helpers the G2-0 regular rows use
-// (asPreG2Candidate, asPreG2NamesDispatch, withV1Museum), so every pin above is still the a678241 capture.
+// (asPreG2Candidate, asPreG2NamesDispatch, withV1Museum), so every pin above is still the a678241 capture. Gear wear
+// steps 1 and 2 (merged later) retired the stored durability: hashes go through goldenJson, which puts it back.
 
 import { describe, expect, it } from "vitest";
 import Decimal from "break_infinity.js";
@@ -53,7 +54,7 @@ import { startResearch } from "./tick";
 import { gasStudyItemIds } from "./gasGiantContent";
 import { GG1_RECIPE } from "./gasStudyGoldens.fixture";
 import { asPreG2Candidate, asPreG2NamesDispatch, asPreRanksDispatch, plainAwayMember, withoutG2NamesState } from "./awayTeamTestFixtures";
-import { withV1Museum } from "./firstRunsGoldens.fixture";
+import { goldenJson, withV1Museum } from "./firstRunsGoldens.fixture";
 
 // ===== shared helpers =====
 
@@ -66,7 +67,8 @@ function fnv(s: string): string {
   return h.toString(16);
 }
 
-const hash = (v: unknown): string => fnv(JSON.stringify(v));
+// Gear wear (merged after the capture) retired the stored durability; goldenJson puts it back, as the G2-0 rows do.
+const hash = (v: unknown): string => fnv(goldenJson(v));
 
 const T0 = 100_000;
 const FINAL = T0 + 2_000_000;

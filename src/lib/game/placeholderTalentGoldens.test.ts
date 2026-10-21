@@ -34,7 +34,7 @@ import { makeWeaponInstance } from "./combat/weapons";
 import { CLOAKED_VESSEL_HULL, buildShipCombatant, snapshotShipEventProfile } from "./shipScanEvents";
 import { TRANSPORT_WINDOW_SECONDS } from "./transports";
 import { FIXTURE_RACE, WIRING_BUCKET_COUNT, bucketOf, editCaptain, installPiece, seatOfficer, withAwayTeam, withBuckets, withFacilityLevel, withHomeworld, wiringBase } from "./wiring/probes";
-import { withV1Museum, withoutGuests } from "./firstRunsGoldens.fixture";
+import { goldenJson, withV1Museum, withoutGuests } from "./firstRunsGoldens.fixture"; // gear wear: goldenJson puts the retired durability back
 import { asPreG2NamesDispatch } from "./awayTeamTestFixtures";
 
 function fnv(s: string): string {
@@ -45,7 +45,7 @@ function fnv(s: string): string {
   }
   return h.toString(16);
 }
-const hash = (v: unknown): string => fnv(JSON.stringify(v));
+const hash = (v: unknown): string => fnv(goldenJson(v));
 // A state without the variant's own input, so an inert source reads the baseline.
 // Relics v2 R2-1: the Museum v2 record in its v1 form (withV1Museum), as these were captured.
 // The inert racials (0.14.0): the probes' fixture race (probes.ts FIXTURE_RACE) moved from the Spacer to the Belter

@@ -25,7 +25,30 @@ export function fnv(s: string): string {
   return h.toString(16);
 }
 
-export const hash = (v: unknown): string => fnv(JSON.stringify(v));
+// GEAR WEAR (0.14.0, design 2026-10-16 section 6): the JSON every golden hashes, with the retired per-piece
+// `durability` put back. The field never dropped (every mint wrote durability = durabilityMax right after
+// durabilityMax, and nothing lowered it); gear wear deletes it (per-mille `condition` replaces it, absent = pristine).
+// For any EquipmentInstance-shaped object (durabilityMax + implicitStats) with no `durability` AND no `condition`,
+// the replacer writes `durability: durabilityMax` back in its old place, so a pristine piece serializes exactly as it
+// did before the swap and every golden captured before it keeps proving that nothing else moved (the stateHash /
+// withoutRunCounts precedent). A no-op on a piece that still carries the field. A WORN piece (a `condition`) is left
+// as it is, so real wear moves a golden. Pure.
+function goldenReplacer(this: unknown, _key: string, value: unknown): unknown {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return value;
+  const v = value as Record<string, unknown>;
+  if (!("durabilityMax" in v) || !("implicitStats" in v) || "durability" in v || "condition" in v) return value;
+  const out: Record<string, unknown> = {};
+  for (const [k, x] of Object.entries(v)) {
+    out[k] = x;
+    if (k === "durabilityMax") out.durability = x;
+  }
+  return out;
+}
+export function goldenJson(v: unknown): string {
+  return JSON.stringify(v, goldenReplacer);
+}
+
+export const hash = (v: unknown): string => fnv(goldenJson(v));
 
 // The whole state hashed WITHOUT the fields later slices add on purpose: SF-1's run counters (`runCounts`, plan
 // section 3.3) and G2-1's stored `homeworld` (the G2-0 withoutG2State precedent). A no-op today; it keeps every

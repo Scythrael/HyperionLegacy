@@ -130,6 +130,7 @@ import { OVERTIME_STEP_RATE } from "../processSpeed";
 import { SHORT_RANGE_TEMPLATES, SHORT_RANGE_TEMPLATE_KEYS } from "../shortRange";
 import { GAS_STUDY_USES, GIANT_CLASSES, NEBULA_KINDS, type GasStudyUse } from "../gasGiantContent";
 import { effectFieldsOf } from "./fieldRoles";
+import { REPAIR_RATES, REPAIR_RATE_BONUSES, USE_WEAR_FLOOR, WEAR_EFFICIENCY, WEAR_SOURCES, wearEfficiency } from "../gearWear";
 import {
   CONDITION_LINES,
   CONDITION_LINE_IDS,
@@ -191,9 +192,11 @@ export type WiringSystem =
   | "expedition"
   | "relic"
   | "mission"
-  | "salvage";
+  | "salvage"
+  // Gear wear (0.14.0, design 2026-10-16 section 9): the wear sources, repair contexts and efficiency consumers.
+  | "wear";
 
-export const WIRING_SYSTEMS: readonly WiringSystem[] = ["captain", "fleetAdmiral", "facility", "ship", "crew", "away", "expedition", "relic", "mission", "salvage"];
+export const WIRING_SYSTEMS: readonly WiringSystem[] = ["captain", "fleetAdmiral", "facility", "ship", "crew", "away", "expedition", "relic", "mission", "salvage", "wear"];
 
 export type WiringStatus =
   | { kind: "live" }
@@ -321,6 +324,10 @@ export const CATALOGS = {
   GRENADE_CARRY_PER_LINE,
   // G1-4: the short-range template catalog (its rolls, work and pay are live through the cycle engine).
   SHORT_RANGE_TEMPLATES,
+  WEAR_SOURCES,
+  REPAIR_RATES,
+  REPAIR_RATE_BONUSES,
+  WEAR_EFFICIENCY,
 } as const;
 export type Catalogs = typeof CATALOGS;
 
@@ -403,6 +410,13 @@ const SCIENCE_LINE_SWAP = "Science gear line swap (D26): Science gear rolls fiel
 // but no player reaches a deeper tier until the console offers it, so the tier-gated sources wait on G2-6.
 const G2_6_PICKER = "G2-6 (the region picker: G2-2 built every tier's candidates, the console offers Tier I until then)";
 const PILOT_CUNNING = "pending user decision (officerStats.ts CUNNING_PENDING_SEATS)";
+// Gear wear (0.14.0, design docs/plans/2026-10-16-gear-wear-design.md section 11) owners: step 3 wires the use wear
+// sources, the repair contexts and the economy / ground efficiency; step 4 the combat half (battle wear, the
+// true-condition pools, shield / plating / pod efficiency); step 5 the UI and the optional paid repair. Each step
+// flips its entries live in the same commit.
+const GEAR_WEAR_STEP_3 = "gear wear step 3 (use wear sources, repair contexts and settling at events)";
+const GEAR_WEAR_STEP_4 = "gear wear step 4 (combat: true-condition pools, battle wear, reactor and FTL from the installed piece)";
+const GEAR_WEAR_STEP_5 = "gear wear step 5 (UI: condition bars, the care line, Quick gear repair and Overtime for credits)";
 // The user's T3 deferrals (capture 2026-10-15 section 3: "Move all five (Recommended)").
 const T3 = "capture 2026-10-15 section 3 T3 (moved to 0.14.x)";
 // G1-4: the guest quarters sources and the short-range template catalog are LIVE at mission:shortRange (the cycle
@@ -3382,14 +3396,14 @@ const AUDIT_ROWS: readonly { id: string; system: WiringSystem; claim: string; st
   { id: "ship:audit:statRatios", system: "ship", claim: "Variety statRatios: an unlisted key keeps weight 1, so Hauler Hold rolls massReduction more than Prospector Hold (B11)", status: pending("WR-7, OC-D6") },
   { id: "ship:audit:favorsSpec", system: "ship", claim: "Variety favorsSpec (no reader)", status: pending("WR-7, OC-D5") },
   { id: "ship:audit:slotPowerDraw", system: "ship", claim: "SLOT_BASE_PHYSICALS powerDraw: a crafted piece draws its slot's power from the ship's budget", status: LIVE },
-  { id: "ship:audit:slotDurability", system: "ship", claim: "SLOT_BASE_PHYSICALS durability for economy, defense, crew, sensor and member pieces (never read)", status: pending("WR-8, OC-D14") },
+  { id: "ship:audit:slotDurability", system: "ship", claim: "SLOT_BASE_PHYSICALS durability for economy, defense, crew, sensor and member pieces (never read)", status: pending(GEAR_WEAR_STEP_3) },
   { id: "ship:audit:reactorCoreNet", system: "ship", claim: "A crafted Reactor Core is net negative: its output only raises the power budget (no install gate or penalty before EM-2 / EM-3, the hull's own output covers every loadout), and its mass drags speed and fuel (B10)", status: pending("E-MOD EM-4 (unused reactor power speeds the drive, P3)") },
   { id: "ship:audit:arrayCharacter", system: "ship", claim: "ARRAY_CHARACTER: \"Focused: faster\" while its net rate is 0.78x; no Bio-Resonance line (B12)", status: pending("WR-7, OC-D11") },
   { id: "ship:audit:hullDescriptions", system: "ship", claim: "Hull descriptions (Aurora, Eir, Orion) claim what the engine does not do", status: pending("WR-7, OC-D13 (heavy cruiser wording: SF-6)") },
   { id: "ship:audit:combatPositions", system: "ship", claim: "Weapon and drone range, stance (incl. the patrol stance the player picks), BAND_*, enemy stance, speed and position: every ship spawns at 0 (B3)", status: pending("WR-8, OC-D9") },
   { id: "ship:audit:ftlSpeedPenalty", system: "ship", claim: "FTL_SPEED_PENALTY (depends on position)", status: pending("WR-8, OC-D9") },
   { id: "ship:audit:torpedoArmorPen", system: "ship", claim: "Torpedo armorPen (enemy armor is 0)", status: pending("WR-8, OC-D12") },
-  { id: "ship:audit:qualityDurabilityMax", system: "ship", claim: "qualityDurabilityMax for the reactor and FTL (always quality 0)", status: pending("WR-8, OC-D14") },
+  { id: "ship:audit:qualityDurabilityMax", system: "ship", claim: "qualityDurabilityMax for the reactor and FTL (always quality 0)", status: pending(GEAR_WEAR_STEP_4) },
   { id: "ship:audit:particleTraceDetector", system: "ship", claim: "particleTraceDetector (hard 0, bridge.ts:960)", status: { kind: "deferred", owner: "CP-15 (patrol cloak detection)", userRef: `${T3}: patrol cloak detection` } },
   { id: "ship:audit:rapidChargeAfterAmbush", system: "ship", claim: "rapidChargeAfterAmbush (nothing sets it)", status: pending("WR-8, OC-D12") },
   { id: "ship:audit:inCombatReplenishPercent", system: "ship", claim: "inCombatReplenishPercent (nothing sets it)", status: pending("WR-8, OC-D12") },
@@ -3404,7 +3418,7 @@ const AUDIT_ROWS: readonly { id: string; system: WiringSystem; claim: string; st
   { id: "ship:audit:inertDescriptors", system: "ship", claim: "The vs-Drones triangle column, status persistence between battles, ResolveOptions.objective, TargetingPolicy.escortShare, builtInBays, frameHp, the DoT rng", status: pending("WR-8, OC-D12") },
   { id: "ship:audit:statusColor", system: "ship", claim: "Status color (no reader)", status: pending("WR-11 (use in the combat view or delete; no call)") },
   { id: "ship:audit:partialCombat", system: "ship", claim: "Ambush opener (expedition cloaked events only), precharge (Ground Ops only), enemy mitigation (players only), evasion (Evasive Command only), drone replenish (between waves only)", status: pending("WR-8, OC-D9 / OC-D12") },
-  { id: "ship:audit:podDurability", system: "ship", claim: "DRONE_POD_BASE_DURABILITY (pods never wear) and QUALITY_DURABILITY_BONUS on non-weapons", status: pending("WR-8, OC-D14") },
+  { id: "ship:audit:podDurability", system: "ship", claim: "DRONE_POD_BASE_DURABILITY (pods never wear) and QUALITY_DURABILITY_BONUS on non-weapons", status: pending(GEAR_WEAR_STEP_4) },
   // E. Crew
   { id: "crew:audit:enlisted", system: "crew", claim: "The crew rank enlisted flag (never read)", status: pending("WR-9, OC-E11") },
   { id: "crew:audit:thirdBuff", system: "crew", claim: "buffCountForRank 3 (only gates the exclusive pick)", status: pending("WR-9, OC-E12") },
@@ -3427,7 +3441,7 @@ const AUDIT_ROWS: readonly { id: string; system: WiringSystem; claim: string; st
   { id: "away:audit:quickDraw", system: "away", claim: "Quick Draw only reorders teammates (the team already acts first)", status: pending("WR-10, OC-F5") },
   { id: "away:audit:scienceRank", system: "away", claim: "Science member rank \"nudges magnitude\" (fieldwork never reads it)", status: pending("WR-10, OC-F7") },
   { id: "away:audit:fieldDeviceEffectiveness", system: "away", claim: "fieldDevice effectiveness (both values 1; the specialist check is always false)", status: pending("FK-7") },
-  { id: "away:audit:memberSlotPhysicals", system: "away", claim: "Member slot physicals (mass, powerDraw, durability)", status: pending("WR-8, OC-D14") },
+  { id: "away:audit:memberSlotPhysicals", system: "away", claim: "Member slot physicals (mass, powerDraw, durability)", status: pending(`WR-8, OC-D14 (durability: ${GEAR_WEAR_STEP_3})`) },
   // Field Kits FKR-7: the Injury Kit's share (a fight's `treated`) sums on the member's trip treatment and the run's bay
   // divides that member's cures by it (auditRowWiring below).
   { id: "away:audit:treatmentShare", system: "away", claim: "An Injury Kit shortens the treated member's medical bay time (treatmentShare)", status: LIVE },
@@ -3473,6 +3487,9 @@ const AUDIT_ROWS: readonly { id: string; system: WiringSystem; claim: string; st
   { id: "salvage:audit:achievementBoost", system: "salvage", claim: "achievementBoost (always 0)", status: pending("OC-C4") },
   { id: "salvage:audit:affixCountBranches", system: "salvage", claim: "affixCount derelict / luminous / constellar (unreachable rarities)", status: pending("WR-11, OC-J4") },
   { id: "salvage:audit:ascension", system: "salvage", claim: "ascension (always none)", status: pending("OC-C4") },
+  // K. Gear wear (0.14.0): the user's "Free auto + paid rush" and credit sinks "Quick gear repair" plus Overtime.
+  { id: "wear:audit:quickGearRepair", system: "wear", claim: "Quick gear repair: an optional instant gear repair for credits; the free automatic repair stays the default", status: pending(GEAR_WEAR_STEP_5) },
+  { id: "wear:audit:gearRepairOvertime", system: "wear", claim: "Overtime on gear repair: pay credits to speed a ship's gear recovery by a set percent (never doubling, never instant)", status: pending(GEAR_WEAR_STEP_5) },
 ];
 
 function auditEntries(): WiringEntry[] {
@@ -3927,6 +3944,7 @@ function build(): readonly WiringEntry[] {
     ...gasStudyEntries(),
     ...auditEntries(),
     ...speedSeamEntries(),
+    ...wearEntries(),
   ]
     .map((e) => (ALLOW_LIST_REASONS[e.id] ? { ...e, reason: ALLOW_LIST_REASONS[e.id] } : e))
     .flatMap((e) => shortRangeSwept([e]));
@@ -4002,6 +4020,76 @@ function gasStudyEntries(): WiringEntry[] {
       if (owner === undefined) continue;
       out.push(entry({ id: `expedition:NEBULA_KINDS:${k.id}:${field}`, system: "expedition", source: { catalog: "NEBULA_KINDS", key: `${k.id}:${field}` }, claim: `${k.name}: its ${field}`, status: pending(owner) }));
     }
+  }
+  return out;
+}
+
+// ============================================================================
+// gear wear (0.14.0, design docs/plans/2026-10-16-gear-wear-design.md section 9; build order steps 1 and 2)
+// ============================================================================
+
+function wearEntries(): WiringEntry[] {
+  const out: WiringEntry[] = [];
+  // The sign convention (the registry's curve math, curveExpected): a magnitude is SIGNED so the curve lands on the
+  // expected value. A wear source (linearAbsolute, down) is minus its raw per-mille; an efficiency consumer
+  // (linearRelative, down) is efficiency(floor) - 1, also negative; a repair context or bonus (up) is positive.
+  // One entry per wear source (kind x source): the piece's condition goes down by the catalog's raw per-mille on a
+  // TOUGHNESS_REFERENCE piece (the fixture's durabilityMax), the headroom factor at full condition being 1.
+  for (const w of WEAR_SOURCES) {
+    out.push(
+      entry({
+        id: `wear:WEAR_SOURCES:${w.id}`,
+        system: "wear",
+        source: { catalog: "WEAR_SOURCES", key: w.id },
+        claim: `${w.slot} wears by ${w.by}, ${w.event}${w.mode === "use" ? " (use stops at the use floor)" : " (battle can go below the floor, never breaks)"}`,
+        direction: "down",
+        magnitude: (c) => -(c.WEAR_SOURCES.find((x) => x.id === w.id)?.raw ?? 0),
+        status: pending(w.mode === "use" ? GEAR_WEAR_STEP_3 : GEAR_WEAR_STEP_4),
+      }),
+    );
+  }
+  // One entry per repair context: N minutes there from a known worn condition raises it by rate x N.
+  for (const ctx of Object.keys(REPAIR_RATES) as (keyof typeof REPAIR_RATES)[]) {
+    out.push(
+      entry({
+        id: `wear:REPAIR_RATES:${ctx}`,
+        system: "wear",
+        source: { catalog: "REPAIR_RATES", key: ctx },
+        claim: `Gear recovers on its own, free, at ${REPAIR_RATES[ctx]} per-mille a minute (${ctx})`,
+        direction: "up",
+        magnitude: (c) => c.REPAIR_RATES[ctx],
+        status: pending(GEAR_WEAR_STEP_3),
+      }),
+    );
+  }
+  // The two hull repair bonuses lift every gear repair rate too (no new sources).
+  for (const bonus of REPAIR_RATE_BONUSES) {
+    out.push(
+      entry({
+        id: `wear:REPAIR_RATE_BONUSES:${bonus}`,
+        system: "wear",
+        source: { catalog: "REPAIR_RATE_BONUSES", key: bonus },
+        claim: `The ${bonus} hull repair bonus also speeds every gear repair rate`,
+        direction: "up",
+        curve: { kind: "linearRelative" },
+        status: pending(GEAR_WEAR_STEP_3),
+      }),
+    );
+  }
+  // One entry per efficiency consumer: the piece at the use floor scales its own lines by efficiency(floor).
+  for (const c of WEAR_EFFICIENCY) {
+    out.push(
+      entry({
+        id: `wear:WEAR_EFFICIENCY:${c.id}`,
+        system: "wear",
+        source: { catalog: "WEAR_EFFICIENCY", key: c.id },
+        claim: `A worn ${c.slot} piece scales its ${c.reads} on the gentle wear curve (never below 75%)`,
+        direction: "down",
+        curve: { kind: "linearRelative" },
+        magnitude: () => wearEfficiency(USE_WEAR_FLOOR) - 1,
+        status: pending(c.combat ? GEAR_WEAR_STEP_4 : GEAR_WEAR_STEP_3),
+      }),
+    );
   }
   return out;
 }

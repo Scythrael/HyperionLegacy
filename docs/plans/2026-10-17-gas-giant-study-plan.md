@@ -389,3 +389,32 @@ ancient entries (open call 13); nothing else can move without leaving a false He
   Sensor Array in 0.14.0; Annihilation Core moves to 0.14.x with the burn.
 - **Call 12 timings:** "Proposed (Recommended)": giant study 30 min (probe faster), nebula sweep 2 h, data study 20 min.
 - ALL gas giant calls answered.
+
+## USER ANSWERS (2026-10-21): GG-1 [PROPOSAL] picks
+
+- **Nebula kinds:** "Approve (Recommended)": Molecular cloud, Emission nebula, Planetary nebula, Supernova remnant.
+- **Canister sell values:** "Approve (Recommended)": Hydrogen 200, Methane 200, Ammonia 450, Deuterium 450, Helium-3
+  1,000, Antimatter Containment Cell 2,500.
+- **Deuterium Canister recipe (verbatim):** "Give it a use. Make it craftable into Deuterium Cannisters and give it a use.
+  Perhaps as part of a reactor blueprint." (Supersedes the multiple-choice pick "Hide until it has a use".) The 10 Ice
+  to 1 Canister recipe stays visible and the canister gets a reactor-blueprint use now; which blueprint is asked next.
+- **Class weights + shared glyph (verbatim):** "Yes. One shared glyph for the 5 cannisters. Eventually we can tweak the
+  graphics to make each a little different overall." Class roll weights I 4, II 2, III 2, IV 1, V 1, Ice 3, Brown dwarf 1
+  approved; one shared canister glyph now; FUTURE: distinct canister graphics (logged in SUGGESTIONS.md).
+
+## USER DATADUMP (2026-10-21, verbatim): reactor fuel in every core recipe
+
+"There should be some sort of material like deuterium in all cores. After all, the tech before antimatter reactors (which
+would likely be a high-tier tech later on, which is honestly where antimatter canisters could ultimately be used over a
+burn option. But the burn option might be useful as well. We'll see on that one. Might be a tech only available with
+antimatter reactors that can have an overburn option in exchange for extra canisters or something. But I digress. All
+reactor core crafting recipes should ultimately require something like this since that makes sense."
+
+Reading (to confirm by multiple choice): every Reactor Core crafting recipe takes a fuel canister input (a ladder by
+tier); Antimatter Containment Cells are the fuel of a future high-tier ANTIMATTER REACTOR tech; an "overburn" option
+(extra canisters for a boost) may be a feature of antimatter reactors, alongside or instead of the T3 burn (0.14.x;
+undecided, "We'll see on that one"). Existing crafted reactors are untouched (recipes only). Because Deuterium Ice has
+no source today, the Deuterium Skim run (Material Lines L8 / ML-6) must land with this so no core recipe is blocked.
+
+Also 2026-10-21: SF-3 ramp: "Fade Weak + build SI gear (Recommended)" and "Smooth the last steps (Recommended)"
+(recorded in the safe-first-runs plan).
