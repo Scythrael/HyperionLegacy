@@ -442,3 +442,13 @@ them would move progression balance.
 2. Cometary Ice Harvest gate: "Open from day one": like the Local Asteroid and Lunar Mine runs; the no-wall walker counts it.
 3. Helium-3 in 0.14.0: "Resonance Sensor Array": it takes 1 Helium-3 Canister; reactors take it in the balancing patch.
 4. Old Deuterium Ice stock: "Keep sell price + refine use": hint rewritten (T8).
+
+**Group B (realism fixes):**
+5. ML-2 amendments: "All four (Recommended)": Prospector Hold Frame 2 + Ti Ingot 1 + Reclaimed Alloy 2; Ablative Plating
+   Frame 2 + Ti Ingot 1 + (fiber layer, see 6); Composite Plating swaps Reclaimed Alloy for (fiber, see 6); Capacitor
+   Bank keeps today's recipe.
+6. Fiber and carbon: "Biofiber + Resin Distillate" (NOT the recommendation): two new refined items: [PROPOSAL names
+   accepted] Biofiber (refined from Fibrous Biomass) for armor, suits and plating; Resin Distillate (from Volatile Resin)
+   for seals, toxins and explosives. Ratios and which recipes take them asked next.
+7. Three wrong ground rows: "Fix now (Recommended)".
+8. Power Coupling: "3 Wafers + 1 Ti Ingot (Recommended)".
