@@ -44,6 +44,7 @@ import { getSeniorStaffBonusById } from "./seniorStaffBonuses";
 import { withEm1Off } from "./emodEm1Switch.fixture";
 import { goldenJson, withV1Museum } from "./firstRunsGoldens.fixture"; // gear wear: goldenJson puts the retired durability back
 import { GG1_ADDED_ENTRY_IDS } from "./gasStudyGoldens.fixture";
+import { RX_ADDED_ENTRY_IDS } from "./reactorFuelGoldens.fixture";
 
 // ===== shared helpers =====
 
@@ -599,8 +600,11 @@ const REGISTRY_BEFORE_GEAR_WEAR = "60d00075";
 // Gas Giant Study GG-1 only ADDS entries (gasStudyGoldens.fixture.ts), so every read-back leaves them out unless
 // `keepGg1` (the one check that reproduces GG-1's own pin with gear wear read back).
 type Back = { readonly sf3?: boolean; readonly fkr9?: boolean; readonly racials?: boolean; readonly g14?: boolean; readonly fkr7?: boolean; readonly fkr6?: boolean; readonly g13?: boolean; readonly gw?: boolean; readonly keepGg1?: boolean };
+// The reactor fuel ladder (0.14.0) only ADDS entries (reactorFuelGoldens.fixture.ts), after every pin here was taken:
+// every read-back and the snapshot leave them out (reactorFuelGoldens.test.ts pins them with their statuses).
+const BEFORE_RX = WIRING_REGISTRY.filter((e) => !RX_ADDED_ENTRY_IDS.has(e.id));
 function rowsBack(back: Back): unknown[][] {
-  return WIRING_REGISTRY.filter(
+  return BEFORE_RX.filter(
     (e) =>
       !(!back.keepGg1 && GG1_ADDED_ENTRY_IDS.has(e.id)) &&
       !(back.fkr9 && FKR9_SHOWN_IDS.has(e.id)) &&
@@ -685,8 +689,8 @@ describe("EM-0 goldens (re-pinned by EM-1 where named)", () => {
   }
 
   it("registry: the wiring registry snapshot and the E-MOD owned rows", () => {
-    const snapshot = hash(WIRING_REGISTRY.map((e) => [e.id, e.status, e.contexts, e.probe ?? null]));
-    const emod = WIRING_REGISTRY.filter((e) => e.status.kind !== "live" && "owner" in e.status && /E-MOD/.test(e.status.owner)).map((e) => e.id).sort();
+    const snapshot = hash(BEFORE_RX.map((e) => [e.id, e.status, e.contexts, e.probe ?? null]));
+    const emod = BEFORE_RX.filter((e) => e.status.kind !== "live" && "owner" in e.status && /E-MOD/.test(e.status.owner)).map((e) => e.id).sort();
     pinned("registry", [snapshot, ...emod]);
     // The two latest moves, merged together: with GG-1 left out the snapshot is gear wear's own pin; with gear wear read
     // back and GG-1 kept it is GG-1's own pin; with both undone it is the merged feat pin before either.

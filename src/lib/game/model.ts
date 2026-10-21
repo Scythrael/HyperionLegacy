@@ -19,6 +19,9 @@ import type { CraftLine, CraftOrder, CraftLineKind, CraftLineMode } from "./allo
 import { QUALITY_TIERS } from "./inventory";
 // E-CREW 0.14.0 (Task 21): the Constitution ramp leaf (imports only diminishing.ts; no cycle).
 import { constitutionRamp, RAMP_SECONDS_PER_TICK } from "./constitutionRamp";
+// Reactor fuel ladder (0.14.0, capture 2026-10-21): the fuel every Reactor Core blueprint takes (a leaf with no
+// imports, so no cycle).
+import { reactorCoreFuel } from "./reactorTech";
 // Combat 0.13.0 (Phase 9b.5a): the persisted Patrol mission shape (PatrolMissionState,
 // below) carries a player-chosen combat STANCE and the carry-state DRONE squadrons.
 // Both types live in the combat/ layer. Imported TYPE-ONLY (erased at compile time)
@@ -478,6 +481,18 @@ export interface MissionDef {
 // Every entry's cargoCapacity divides evenly by extractionRatePerTick (90/1 = 90) --
 // keep this true for any future entry too, or update requiredTicksForPhase's
 // extracting case to handle a smaller final tick.
+// [PROVISIONAL] The Cometary Ice Harvest's numbers (reactor fuel ladder, 0.14.0), the user's to tune: a 40-tick hop out
+// and back (between the Local Asteroid's 25 and the Salvage run's 45), a 25% Titanium Ore strike and a 1% Iridium
+// strike per extraction tick, and 40 credits a cycle. The haul is the ship's own hold, like every mission's (on a
+// General Freighter's 90: about 67 Deuterium Ice, so six or seven Deuterium Canisters, 22 Titanium Ore and one Iridium
+// Ore a cycle).
+export const COMETARY_ICE_HARVEST_NUMBERS = {
+  transitTicks: 40,
+  titaniumChance: 0.25,
+  iridiumChance: 0.01,
+  creditsPerCycle: 40,
+} as const;
+
 export const MISSIONS: Record<
   | "localFuelRun"
   | "shortOreRun"
@@ -494,7 +509,10 @@ export const MISSIONS: Record<
   // "transport"). Same widen-the-union + force-a-BASE_XP_PER_TICK-entry contract as the surveys
   // above. They are the credit COST-IN / REWARD-OUT loop, NOT a loot run (see MissionDef.missionType).
   | "frontierSupplyRun"
-  | "colonySupplyLift",
+  | "colonySupplyLift"
+  // Reactor fuel ladder (0.14.0, capture docs/plans/2026-10-21-reactor-fuel-and-recipe-realism-capture.md section 5):
+  // the Tier I Cometary Ice Harvest, the Deuterium Ice source every Reactor Core blueprint's fuel comes from.
+  | "cometIceHarvest",
   MissionDef
 > = {
   // Fuel-sourcing RESTRUCTURE (2026-07-15): the fuel BOOTSTRAP mission, FIRST in the
@@ -750,6 +768,35 @@ export const MISSIONS: Record<
     requiresCaptainLevel: 5, // above the Frontier run's 3 (progression nudge)
     requiresCargoCapacity: 90,
   },
+  // --- Cometary Ice Harvest (0.14.0, reactor fuel ladder; capture 2026-10-21 sections 1 and 5) ---
+  // The user: "don't make it the same mission as before. Make it a mission that can provide additional resources as
+  // well, with deuterium as one of the more common items", and the approved concept "Cometary Ice Harvest
+  // (Recommended)": mine a passing comet's ice, Deuterium Ice common, plus Titanium Ore and a rare chance of Iridium,
+  // Tier I. NOT the retired Local Deuterium Skim (localFuelRun stays hidden): an ordinary mining run with a real
+  // transit, no fuel role. Its ice refines 10:1 into the Deuterium Canister every Reactor Core blueprint takes
+  // (reactorTech.ts), so no core ever waits on an expedition. Gathering cannot be lost, so its first run (like every
+  // gathering run's) is safe by construction (safe first runs SF-5).
+  //
+  // The triad: Deuterium Ice is the guaranteed common floor (the auto-stop gate); the UNCOMMON tier strikes the comet's
+  // dust crust for Titanium Ore, a common-rarity ore riding the uncommon slot by design (the one listed exception to
+  // the loot-triad rarity rule, model.test.ts); the rare tier is Iridium. Every number is
+  // COMETARY_ICE_HARVEST_NUMBERS [PROVISIONAL].
+  cometIceHarvest: {
+    label: "Cometary Ice Harvest",
+    transitOutTicks: COMETARY_ICE_HARVEST_NUMBERS.transitTicks,
+    transitBackTicks: COMETARY_ICE_HARVEST_NUMBERS.transitTicks,
+    unloadTicks: 8,
+    extractionRatePerTick: 1,
+    cargoCapacity: 90, // divides evenly by rate 1 (overwritten by the hull hold, like every mission: WR-11)
+    uncommonChance: COMETARY_ICE_HARVEST_NUMBERS.titaniumChance,
+    rareChance: COMETARY_ICE_HARVEST_NUMBERS.iridiumChance,
+    lootTable: { common: "deuteriumIce", uncommon: "commonOre", rare: "rareMaterial" },
+    primaryMaterial: "deuteriumIce", // == lootTable.common (section 3.4 auto-stop)
+    tier: "I",
+    fleetAdminXpPerTick: 1, // INTEGER, see MissionDef's closed-form parity trap
+    creditsPerCycle: COMETARY_ICE_HARVEST_NUMBERS.creditsPerCycle,
+    unlockLevel: 1, // available from a fresh save, like every Tier I mining run (no capability gate either)
+  },
 };
 
 export type MissionKey = keyof typeof MISSIONS;
@@ -805,6 +852,9 @@ export const BASE_XP_PER_TICK: Record<MissionKey, number> = {
   // credit margin, not XP. Kept integer deliberately so they add no new fractional-rate parity surface.
   frontierSupplyRun: 1,
   colonySupplyLift: 1,
+  // Reactor fuel ladder (0.14.0): the Cometary Ice Harvest at the shortOreRun anchor, an INTEGER rate (no new
+  // fractional-rate parity surface).
+  cometIceHarvest: 1,
 };
 
 // --- Combat factions (Combat 0.13.0, design §S14) ----------------------------
@@ -9046,6 +9096,10 @@ export interface ItemDef {
   // (Deuterium Ice, orphaned by fuel-to-reach); widening it to live goods is a later, balance-
   // gated decision. The value is DERIVED from the item's prior worth (see deuteriumIce).
   sellValue?: number;
+  // RETIRED STOCK (0.14.0): set only on an item the game no longer uses for anything but the Sell counter. The Sell
+  // shelf tags exactly these rows "Retired" (quartermaster.ts isRetiredStock). No item carries it today: Deuterium Ice
+  // and the canisters all have a crafting use. Static catalog data, never saved.
+  retired?: true;
 }
 
 // Launch item registry, REAL entries only, same "no placeholders" discipline as
@@ -9063,8 +9117,14 @@ const EM8_PRECURSOR_LENS = "EM-8 (the Precursor Lens special module is crafted w
 const GG5_DATA_STUDY = "GG-5 (the Research Lab study lane studies it into a +12% boost on the next project of its family)";
 const GG5_ANCIENT_STUDY = "GG-5 (the Research Lab study lane decodes the next ancient entry from it)";
 // Gas Giant Study GG-1 (values approved by the user 2026-10-21): credits per canister at the Quartermaster's Sell counter.
-// The Deuterium Canister anchors the scale: ten Deuterium Ice (40 cr each) refine into one, so it sells a little above
-// the 400 cr of ice it took; the Standard band sells under it and each band up roughly doubles.
+// Deuterium Ice at the Quartermaster's Sell counter, credits per unit. User 2026-10-21 (merge batch answers, "Comet
+// economy bug": "Cut ice to ~4 credits (Recommended)"): a crafting input, not a money run. It was 40 (the retired Fuel
+// Depot's 50 ice -> 100 fuel at 20 cr), which made the open-from-day-one Cometary Ice Harvest a 2,700-credit run.
+export const DEUTERIUM_ICE_SELL_VALUE = 4;
+
+// The Deuterium Canister anchors the scale (450 cr); the Standard band sells under it and each band up roughly doubles.
+// It was set when ten Deuterium Ice sold for 400 cr; ice is now a cheap crafting input (DEUTERIUM_ICE_SELL_VALUE), so
+// the refine adds most of the value.
 export const GAS_CANISTER_SELL_VALUE = {
   hydrogenCanister: 200,
   methaneCanister: 200,
@@ -9122,6 +9182,7 @@ export const ITEMS: Record<string, ItemDef> = {
     flavor: "Scarce, dense, and prized, the payoff that makes the long ore runs worth the fuel.",
   },
   // --- Dedicated fuel ore (Fuel-sourcing RESTRUCTURE 2026-07-15) ---------------
+  // (History below; since 0.14.0 it is the Cometary Ice Harvest's common drop and the Deuterium Canister's input.)
   // The fleet's FTL fuel SOURCE, now its OWN item (id `deuteriumIce`) rather than a
   // relabeled `commonOre`. This is the ONLY thing the Fuel Depot refines into fuel
   // (processFuelPipelines, tick.ts): mine it on the free `localFuelRun` mission ->
@@ -9136,15 +9197,14 @@ export const ITEMS: Record<string, ItemDef> = {
     subCategory: "volatiles",
     tier: 1,
     rarity: "common",
-    // The guaranteed (and ONLY) drop of the localFuelRun mission, a common-tier ore.
-    // Gas Giant Study GG-1: it now refines into a Deuterium Canister (REFINE_RECIPES.refineDeuteriumCanister).
-    unlockHint: "Skimmed from the retired Local Deuterium Skim run; refine it into Deuterium Canisters or sell it at the Quartermaster.",
+    // The common floor of the Cometary Ice Harvest (reactor fuel ladder, 0.14.0; the retired localFuelRun was its old
+    // source). Gas Giant Study GG-1: it refines into a Deuterium Canister (REFINE_RECIPES.refineDeuteriumCanister), the
+    // fuel every Reactor Core blueprint takes.
+    unlockHint: "Harvested from a passing comet on the Cometary Ice Harvest run. Refine it into Deuterium Canisters for Reactor Core blueprints; raw ice fetches only a few credits at the Quartermaster.",
     // ML-1: the flavor no longer tells the player to cook it down at the Fuel Depot (that pipeline retired in 0.13.6).
-    flavor: "Deuterium-laced water ice cracked from a local field, heavy hydrogen the fleet no longer burns for fuel.",
-    // DEPRECATED by fuel-to-reach (0.13.6): the skim run + the Fuel Depot that consumed this are
-    // retired, so any stockpile is now dead stock. Sellable at the Quartermaster to recoup its old
-    // worth: the Fuel Depot refined 50 ice -> 100 fuel and fuel was 20 cr/unit, so 1 ice = 2 fuel = 40 cr. TUNABLE.
-    sellValue: 40,
+    // Reactor fuel ladder (0.14.0): it comes off a comet now and ends up as reactor fuel, never FTL fuel.
+    flavor: "Deuterium-laced water ice cut from a passing comet: common, bulky, and worth little until it is pressed into reactor fuel.",
+    sellValue: DEUTERIUM_ICE_SELL_VALUE,
   },
   // --- Refined / crafted goods (Refinery / Fabricator output) ---
   // ITEM-MERGE (0.11.0 Task A1): the duplicate `refinedMaterial` ("Refined Material")
@@ -9585,7 +9645,7 @@ export const ITEMS: Record<string, ItemDef> = {
     tier: 1,
     rarity: "uncommon",
     unlockHint: "Refined at the Refinery from Deuterium Ice.",
-    flavor: "Heavy hydrogen, pressed into a canister. The old ice stock finally has somewhere to go.",
+    flavor: "Heavy hydrogen pressed out of comet ice and sealed under pressure: the fuel charge every fusion Reactor Core is built around.",
     sellValue: GAS_CANISTER_SELL_VALUE.deuteriumCanister,
   },
   helium3Canister: {
@@ -10260,7 +10320,8 @@ export const BLUEPRINTS: Record<string, BlueprintDef> = {
     researchCreditCost: 1700,
     craftDurationTicks: 320,
     equipmentOutput: { slotType: "reactorCore", varietyKey: "highOutputCore" },
-    // Max-output reactor: heavy couplings mounted on a full structural assembly.
+    // Max-output reactor: heavy couplings mounted on a full structural assembly (its fuel charge is appended below the
+    // table, withReactorFuel).
     recipe: { inputs: { powerCoupling: 3, structuralAssembly: 1 } },
     flavor: "A brute of a reactor wound for raw output, bolted to a sub-structure so it does not shake loose.",
     unlockHint: "Researched at the Research Lab (needs a higher tier); crafted at the Fabricator later.",
@@ -10273,7 +10334,7 @@ export const BLUEPRINTS: Record<string, BlueprintDef> = {
     researchCreditCost: 850,
     craftDurationTicks: 160,
     equipmentOutput: { slotType: "reactorCore", varietyKey: "efficientCore" },
-    // Light, low-draw core: couplings + a wafer-dense regulator stack.
+    // Light, low-draw core: couplings + a wafer-dense regulator stack (fuel appended below the table, withReactorFuel).
     recipe: { inputs: { powerCoupling: 2, polysilicateWafer: 3 } },
     flavor: "A lean, quiet core that gives up peak output for a featherweight, low-draw fit.",
     unlockHint: "Researched at the Research Lab; crafted at the Fabricator once equipment fabrication comes online.",
@@ -10286,7 +10347,8 @@ export const BLUEPRINTS: Record<string, BlueprintDef> = {
     researchCreditCost: 850,
     craftDurationTicks: 160,
     equipmentOutput: { slotType: "reactorCore", varietyKey: "balancedCore" },
-    // The middle reactor (the reactor slot's DEFAULT variety): couplings + wafers + titanium brace.
+    // The middle reactor (the reactor slot's DEFAULT variety): couplings + wafers + titanium brace (fuel appended below
+    // the table, withReactorFuel).
     recipe: { inputs: { powerCoupling: 2, polysilicateWafer: 2, titaniumIngot: 1 } },
     flavor: "A dependable middle-of-the-road core, enough output, sensible mass, nothing to prove.",
     unlockHint: "Researched at the Research Lab; crafted at the Fabricator once equipment fabrication comes online.",
@@ -11328,6 +11390,18 @@ export const BLUEPRINTS: Record<string, BlueprintDef> = {
     unlockHint: "Researched at the Research Lab (needs a higher lab tier); crafted at the Fabricator. A field kit a squad member carries.",
   },
 };
+
+// Reactor fuel ladder (0.14.0; user 2026-10-21: "All reactor core crafting recipes should ultimately require something
+// like this"): every Reactor Core blueprint's recipe carries its fuel, DERIVED from its variety's tech tier and its own
+// blueprint tier (reactorTech.ts reactorCoreFuel: today Deuterium Canisters, 1 at tier I and 2 at tier II, the user's
+// 1 / 1 / 2), appended AFTER its other inputs (salvage rounds per input in recipe order, so the older lines keep their
+// draws). One place, so a new core can never ship unfueled and no count is written twice.
+function withReactorFuel(bp: BlueprintDef): BlueprintDef {
+  const out = bp.equipmentOutput;
+  if (out?.slotType !== "reactorCore") return bp;
+  return { ...bp, recipe: { ...bp.recipe, inputs: { ...bp.recipe.inputs, ...reactorCoreFuel(out.varietyKey, bp.tier) } } };
+}
+for (const key of Object.keys(BLUEPRINTS)) BLUEPRINTS[key] = withReactorFuel(BLUEPRINTS[key]);
 
 // Exploration 0.14.0 (E4d): the blueprints a relic's FIRST FIND unlocks (requiresRelicDiscovery ===
 // relicId), in BLUEPRINTS declaration order. Empty for a relic that gates nothing (most relics, and the

@@ -93,3 +93,35 @@ Reading: a possible reactor tier ABOVE antimatter: zero-point energy (theoretica
 singularity reactors are NOT the route for power. Separately, a future WEAPON idea: a weaponized black hole /
 singularity (incredibly destructive). Both are far-future content, not 0.14.0. The reactor foundation keeps tiers as
 data so a fourth tier can be added without redesign.
+
+## 7. Carry note: the reactor fuel ladder slice (built 2026-10-21, on feat c6e1d52)
+
+Built per sections 1 and 5 and the recipe realism audit's USER ANSWERS Group A (calls 1 to 4) and its section 4.3 ladder:
+- **Fuel in every core** (model.ts BLUEPRINTS, reactorTech.ts reactorCoreFuel): Balanced Core 1, Efficient Core 1,
+  High-Output Core 2 Deuterium Canisters, appended last to each recipe (the ladder reads them by blueprint tier: tier I
+  one canister, tier II two). The Standard-Issue core and every crafted core players hold are untouched. Helium-3 is in
+  no reactor (Group A call 3), so no switch is needed and nothing is walled.
+- **Cometary Ice Harvest** (MISSIONS.cometIceHarvest, Tier I, open from day one with no captain level or hold gate):
+  Deuterium Ice common, Titanium Ore on the uncommon roll (a common-rarity ore in the uncommon slot, the one listed
+  exception in model.test.ts), Iridium Ore rare. Numbers in COMETARY_ICE_HARVEST_NUMBERS [PROVISIONAL]: 40-tick hop out
+  and back, 25% Titanium, 1% Iridium, 40 credits a cycle (haul = the hull's hold). SVG comet glyph (icons.ts `comet`,
+  ICON_SEMANTICS subject, ui/missionIcons.ts) on its mission row. Deuterium Ice hint and flavor rewritten (audit T8);
+  its 40 cr sell price kept. Help: Missions, Fuel, Ship Systems and Quartermaster lines.
+- **Reactor tech foundation** (reactorTech.ts): REACTOR_TECH_TIERS as data (fusion, Deuterium-Helium-3 fusion,
+  antimatter-catalyzed fusion, antimatter; a zero-point tier is a new row), REACTOR_FUEL_LADDER, REACTOR_VARIETY_TECH
+  (all three varieties fusion), HULL_TIER_REACTOR_REQUIREMENT (empty) with requiredReactorTech / meetsReactorRequirement.
+  shipPowerBudget gains reactorTech, requiredReactorTech and reactorTechMet (true on every ship today; a test table
+  proves the seam).
+- **Registry**: fusion tiers I and II and the three variety tags live (probe content:reactorFuel, one Fabricator craft's
+  spend); the fusion tier III+ rung, the three higher tiers' fuel and SHIP_SEAMS:hullReactorRequirement are seams
+  owned by the balancing patch. No pending entry added beyond the comet's cargoCapacity (WR-11, like every mission).
+- [PROPOSAL] for the user: fusion tier III+ at 3 Deuterium Canisters; Deuterium-Helium-3 fusion 1 Deuterium + 1 Helium-3;
+  antimatter-catalyzed fusion 2 Helium-3 + 1 cell and antimatter 3 cells (the audit's amounts); requirement rows hold
+  from their hull tier up.
+- For GG-7: the Resonance Sensor Array takes 1 Helium-3 Canister (note in the gas giant plan GG-7). For the ML-2 slice:
+  it re-authors the Efficient and High-Output recipes; the fuel is appended by model.ts withReactorFuel (derived from
+  each core's tier), so ML-2 writes the other inputs only.
+- Review follow-ups (2026-10-21): Deuterium Ice sells for 4 cr (DEUTERIUM_ICE_SELL_VALUE; user "Cut ice to ~4
+  credits"), its hint and flavor say it is worth little raw; the canister stays 450 and its flavor no longer calls the
+  ice "old stock". The Sell shelf's "Retired" tag now reads the optional ItemDef.retired (quartermaster.ts
+  isRetiredStock; no item sets it today), and its empty-state and wallet lines no longer promise retired stock.

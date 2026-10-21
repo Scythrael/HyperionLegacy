@@ -391,6 +391,11 @@ export const ICON_PATHS = {
   // Antimatter Containment Cell: a cell frame (two end plates on two posts) holding a charge that touches nothing,
   // so it reads as a magnetic bottle rather than a gas cylinder.
   antimatterCell: ["M4.5 3.5h15", "M4.5 20.5h15", "M7 3.5v17", "M17 3.5v17", "M12 9.5a2.5 2.5 0 1 0 0 5 2.5 2.5 0 0 0 0-5z"],
+
+  // Reactor fuel ladder (0.14.0): the Cometary Ice Harvest mission. A comet: a round nucleus at the upper right and three
+  // streaks of tail flaring away to the lower left, the middle one longest. The streaks leave the nucleus at its two
+  // side tangents and its trailing edge, 3 units apart, so they stay three lines at 16 px.
+  comet: ["M16.5 4.5a3 3 0 1 0 0 6 3 3 0 0 0 0-6z", "M14.4 9.6L4 20", "M14.4 5.4L8.6 11.2", "M18.6 9.6L12.8 15.4"],
 } as const satisfies Record<string, readonly string[]>;
 
 /**

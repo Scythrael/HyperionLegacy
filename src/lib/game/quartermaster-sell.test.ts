@@ -16,10 +16,11 @@
 import { describe, it, expect } from "vitest";
 import Decimal from "break_infinity.js";
 import { freshState, ITEMS, type GameState } from "./model";
-import { canSell, sellItem, sellableInventory } from "./quartermaster";
+import { canSell, isRetiredStock, sellItem, sellableInventory } from "./quartermaster";
 
-// Deuterium Ice is the only item flagged sellable in 0.13.6 (deprecated by fuel-to-reach).
-const ICE_VALUE = 40;
+// Deuterium Ice was the first item flagged sellable (0.13.6). Its price, 40 then, is 4 since the user's 2026-10-21 call
+// ("Cut ice to ~4 credits"): a crafting input, not a money run (model.ts DEUTERIUM_ICE_SELL_VALUE).
+const ICE_VALUE = 4;
 
 function stocked(ice: number, ore: number, credits = 1000): GameState {
   const base = freshState();
@@ -35,7 +36,7 @@ function stocked(ice: number, ore: number, credits = 1000): GameState {
 }
 
 describe("Quartermaster sell: the sellable-flag guard", () => {
-  it("Deuterium Ice carries the derived sellValue (40 cr/unit); commonOre carries none", () => {
+  it("Deuterium Ice carries its sellValue (4 cr/unit); commonOre carries none", () => {
     expect(ITEMS.deuteriumIce.sellValue).toBe(ICE_VALUE);
     expect(ITEMS.commonOre.sellValue).toBeUndefined();
   });
@@ -81,9 +82,9 @@ describe("Quartermaster sell: the math + immutability", () => {
     const result = sellItem(state, "deuteriumIce", new Decimal(30));
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    expect(result.credited.toNumber()).toBe(30 * ICE_VALUE); // 1200
+    expect(result.credited.toNumber()).toBe(30 * ICE_VALUE); // 120
     expect(result.unitsSold.toNumber()).toBe(30);
-    expect(result.next.credits.toNumber()).toBe(1000 + 1200);
+    expect(result.next.credits.toNumber()).toBe(1000 + 30 * ICE_VALUE);
     expect(result.next.inventory.deuteriumIce.reduce((s, b) => s + b.toNumber(), 0)).toBe(70);
     // input untouched
     expect(state.credits.toNumber()).toBe(1000);
@@ -95,7 +96,7 @@ describe("Quartermaster sell: the math + immutability", () => {
     const result = sellItem(state, "deuteriumIce", new Decimal(250));
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    expect(result.next.credits.toNumber()).toBe(250 * ICE_VALUE); // 10000
+    expect(result.next.credits.toNumber()).toBe(250 * ICE_VALUE); // 1000
     expect(result.next.inventory.deuteriumIce.reduce((s, b) => s + b.toNumber(), 0)).toBe(0);
   });
 });
@@ -121,5 +122,31 @@ describe("Quartermaster sell: the bound", () => {
     // input untouched on refusal
     expect(state.credits.toNumber()).toBe(500);
     expect(state.inventory.deuteriumIce[0].toNumber()).toBe(100);
+  });
+});
+
+// 0.14.0 (reactor fuel ladder review): the shelf's "Retired" tag reads ItemDef.retired, never every row. Deuterium Ice and
+// the canisters have crafting uses, so nothing sellable today is retired.
+describe("Quartermaster sell: the Retired tag", () => {
+  it("no item is retired today, so no shelf row is tagged", () => {
+    expect(Object.keys(ITEMS).filter(isRetiredStock)).toEqual([]);
+    expect(isRetiredStock("deuteriumIce")).toBe(false);
+    expect(isRetiredStock("deuteriumCanister")).toBe(false);
+    expect(isRetiredStock("noSuchItem")).toBe(false);
+    const state: GameState = { ...stocked(10, 0), inventory: { ...stocked(10, 0).inventory, deuteriumCanister: [new Decimal(2)] } };
+    const shelf = sellableInventory(state);
+    expect(shelf.map((e) => e.itemId)).toEqual(expect.arrayContaining(["deuteriumIce", "deuteriumCanister"]));
+    expect(shelf.every((e) => e.retired === false)).toBe(true);
+  });
+
+  it("an item flagged retired is tagged on the shelf", () => {
+    ITEMS.wiringRetiredProbe = { ...ITEMS.deuteriumIce, label: "Retired Probe", retired: true };
+    try {
+      expect(isRetiredStock("wiringRetiredProbe")).toBe(true);
+      const state: GameState = { ...stocked(0, 0), inventory: { ...stocked(0, 0).inventory, wiringRetiredProbe: [new Decimal(1)] } };
+      expect(sellableInventory(state).find((e) => e.itemId === "wiringRetiredProbe")?.retired).toBe(true);
+    } finally {
+      delete ITEMS.wiringRetiredProbe;
+    }
   });
 });

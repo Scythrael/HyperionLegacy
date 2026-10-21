@@ -130,6 +130,7 @@ import { ENEMY_RANKS, ENEMY_RANK_IDS } from "../enemyRanks";
 import { OVERTIME_STEP_RATE } from "../processSpeed";
 import { SHORT_RANGE_TEMPLATES, SHORT_RANGE_TEMPLATE_KEYS } from "../shortRange";
 import { GAS_STUDY_USES, GIANT_CLASSES, NEBULA_KINDS, type GasStudyUse } from "../gasGiantContent";
+import { REACTOR_FUEL_LADDER, REACTOR_TECH_TIERS, REACTOR_VARIETY_TECH, reactorFuelRung } from "../reactorTech";
 import { effectFieldsOf } from "./fieldRoles";
 import { REPAIR_RATES, REPAIR_RATE_BONUSES, USE_WEAR_FLOOR, WEAR_EFFICIENCY, WEAR_SOURCES, wearEfficiency } from "../gearWear";
 import {
@@ -330,6 +331,8 @@ export const CATALOGS = {
   REPAIR_RATES,
   REPAIR_RATE_BONUSES,
   WEAR_EFFICIENCY,
+  // The reactor fuel ladder (0.14.0, reactorTech.ts): the fuel each Reactor Core blueprint takes.
+  REACTOR_FUEL_LADDER,
 } as const;
 export type Catalogs = typeof CATALOGS;
 
@@ -3961,6 +3964,7 @@ function build(): readonly WiringEntry[] {
     ...medicalEntries(),
     ...prospectingEntries(),
     ...gasStudyEntries(),
+    ...reactorTechEntries(),
     ...auditEntries(),
     ...speedSeamEntries(),
     ...wearEntries(),
@@ -4040,6 +4044,97 @@ function gasStudyEntries(): WiringEntry[] {
       out.push(entry({ id: `expedition:NEBULA_KINDS:${k.id}:${field}`, system: "expedition", source: { catalog: "NEBULA_KINDS", key: `${k.id}:${field}` }, claim: `${k.name}: its ${field}`, status: pending(owner) }));
     }
   }
+  return out;
+}
+
+// ============================================================================
+// Reactor tech foundation + the reactor fuel ladder (0.14.0, reactorTech.ts; capture
+// docs/plans/2026-10-21-reactor-fuel-and-recipe-realism-capture.md sections 1 to 6)
+// ============================================================================
+// Live: each fuel rung some Reactor Core blueprint reads today (fusion tiers I and II), and each Reactor Core variety's
+// tech tag (the tag picks the ladder its blueprint's fuel comes from), both measured by one Fabricator craft (the
+// canisters it spends). Every rung no blueprint reads yet (the larger fusion cores, the three higher tech tiers) and the
+// hull tier power generation requirement are SEAMS the user asked to be built now for the balancing patch (audit Group
+// A: Helium-3 goes in no reactor in 0.14.0). A rung goes live, probe and all, by itself the moment a blueprint reads it.
+
+const REACTOR_BALANCING_REF =
+  "capture 2026-10-21 (user): \"Probably a requirement of power generation on T7 ships. Which likely won't appear until at least the balancing patch\"; foundation \"Data model + hooks (Recommended)\", no new reactors in 0.14.0; recipe realism audit Group A call 3: Helium-3 \"reactors take it in the balancing patch\"";
+
+function reactorCoreBlueprints(): string[] {
+  return Object.keys(BLUEPRINTS).filter((k) => BLUEPRINTS[k].equipmentOutput?.slotType === "reactorCore");
+}
+
+function reactorTechEntries(): WiringEntry[] {
+  const out: WiringEntry[] = [];
+  const cores = reactorCoreBlueprints();
+  const varietyOf = (bp: string): string => BLUEPRINTS[bp].equipmentOutput!.varietyKey;
+  for (const t of REACTOR_TECH_TIERS) {
+    t.fuelLadder.forEach((rung, i) => {
+      const upTo = t.fuelLadder[i + 1]?.fromBlueprintTier ?? Infinity;
+      const readers = cores.filter((k) => REACTOR_VARIETY_TECH[varietyOf(k)] === t.id && BLUEPRINTS[k].tier >= rung.fromBlueprintTier && BLUEPRINTS[k].tier < upTo);
+      const fuel = Object.keys(rung.fuel);
+      const common = {
+        id: `facility:REACTOR_TECH_TIERS:${t.id}:fuel:${i}`,
+        system: "facility" as const,
+        source: { catalog: "REACTOR_TECH_TIERS", key: `${t.id}:fuel:${i}` },
+        claim: `${t.label} Reactor Core blueprints from tier ${rung.fromBlueprintTier} take ${fuel.map((f) => `${rung.fuel[f]} ${f}`).join(" and ")} per craft`,
+      };
+      if (readers.length > 0) {
+        const item = fuel[0];
+        out.push(
+          entry({
+            ...common,
+            probe: `content:reactorFuel:${readers[0]}:${item}` as ProbeId,
+            contexts: ["craft"],
+            direction: "none",
+            curve: { kind: "equals" },
+            magnitude: (c) => c.REACTOR_FUEL_LADDER[t.id][i].fuel[item] ?? 0,
+            note: `one Fabricator craft of ${readers[0]}: the ${item} it spends (read by ${readers.join(", ")})`,
+          }),
+        );
+      } else {
+        out.push(entry({ ...common, status: { kind: "seam", owner: "balancing patch", userRef: REACTOR_BALANCING_REF } }));
+      }
+    });
+  }
+  for (const variety of Object.keys(REACTOR_VARIETY_TECH)) {
+    const tech = REACTOR_VARIETY_TECH[variety];
+    const bp = cores.find((k) => varietyOf(k) === variety);
+    const common = {
+      id: `facility:REACTOR_VARIETY_TECH:${variety}`,
+      system: "facility" as const,
+      source: { catalog: "REACTOR_VARIETY_TECH", key: variety },
+      claim: `A ${variety} Reactor Core is ${tech} tech, so its blueprint burns its tier's ${tech} fuel`,
+    };
+    if (bp === undefined) {
+      out.push(entry({ ...common, status: pending("a Reactor Core blueprint of this variety (none crafts it yet)") }));
+      continue;
+    }
+    const rung = reactorFuelRung(tech, BLUEPRINTS[bp].tier);
+    const index = REACTOR_TECH_TIERS.find((x) => x.id === tech)!.fuelLadder.indexOf(rung);
+    const item = Object.keys(rung.fuel)[0];
+    out.push(
+      entry({
+        ...common,
+        probe: `content:reactorFuel:${bp}:${item}` as ProbeId,
+        contexts: ["craft"],
+        direction: "none",
+        curve: { kind: "equals" },
+        magnitude: (c) => c.REACTOR_FUEL_LADDER[tech][index].fuel[item] ?? 0,
+        note: `one Fabricator craft of ${bp}: the ${item} it spends`,
+      }),
+    );
+  }
+  out.push(
+    entry({
+      id: "ship:SHIP_SEAMS:hullReactorRequirement",
+      system: "ship",
+      source: { catalog: "SHIP_SEAMS", key: "hullReactorRequirement" },
+      claim: "A hull's tier can require a reactor tech for its power generation (reactorTech.ts HULL_TIER_REACTOR_REQUIREMENT, read by shipPowerBudget.reactorTechMet)",
+      status: { kind: "seam", owner: "balancing patch", userRef: REACTOR_BALANCING_REF },
+      note: "no requirement is active in 0.14.0 (the table is empty); reactorTech.test.ts proves the seam on a test table",
+    }),
+  );
   return out;
 }
 
