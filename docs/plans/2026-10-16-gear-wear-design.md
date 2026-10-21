@@ -318,6 +318,22 @@ Expected to move, each moved hash explained in its commit:
 6. Forward hook only (not built): the Annihilation Core's antimatter burn becomes one large FTL + reactor wear event,
    and its "maintenance period" (user) is simply the home repair. Stays 0.14.x.
 
+**Carry note, steps 1 and 2 (built 2026-10-20).** Goldens first (`gearWearGoldens.test.ts`, crafted quality-3 gear:
+five mission Repeat runs, a destroyer and a carrier Repeat patrol with the replay, a Ground Ops expedition with crafted
+member gear, a Shipyard repair with a spare), captured on the pre-edit engine; none moves. `gearWear.ts` holds the
+catalogs (`WEAR_SOURCES`, `REPAIR_RATES`, `REPAIR_RATE_BONUSES`, `WEAR_EFFICIENCY`) and the pure helpers (efficiency,
+toughness, `useWear`, battle wear, settle, `pieceStartDurability`), all binding the USER ANSWERS below: use floor 60%,
+75% at zero, TRUE condition in combat (no start floor; section 4.4's 70% start floor is superseded), training runs
+take no wear, implants slow, free auto repair plus a paid rush, hull damage separate. Every raw rate and repair rate is
+[PROVISIONAL] (the first pass above, for the step 3 sim tune). `EquipmentInstance.durability` is gone (`condition` /
+`conditionAt` optional, absent = pristine); MIGRATIONS[69] step 4 and every load run `dropRetiredDurabilityV70`
+(the gear and an in-flight expedition's frozen battle gear). The goldens hash through `goldenJson`
+(firstRunsGoldens.fixture.ts), which puts the retired field back on a pristine piece, so the field swap moved no pin.
+Registry: a `wear` system, one pending entry per catalog row (owners: step 3 use and repair, step 4 battle and combat
+efficiency), two step 5 audit rows (Quick gear repair, Overtime on gear repair), and the four old OC-D14 durability
+audit rows now name steps 3 and 4. For step 3: G1-4's short-range cycle engine leaves a `shortRangeCycleWear` seam
+owned by this engine.
+
 ## 12. OPEN CALLS (multiple-choice ready; recommended first)
 
 - **OC-W1, condition storage.** (a) Per-mille `condition` plus an anchor; retire `durability` (Recommended). (b)

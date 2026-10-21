@@ -13,7 +13,7 @@ import { CLEARING_SITE_CATALOG, POI_CATALOG, PLANET_TYPES, groundSiteLabel, pois
 import { generateEncounter } from "./gambit";
 import { plainAwayMember, withoutAffixes, withoutShipEvents } from "./awayTeamTestFixtures";
 // SF-1: the claimed state hashes without the run counters (a claim writes them), absent before SF-1.
-import { withoutRunCounts } from "./firstRunsGoldens.fixture";
+import { withoutRunCounts, goldenJson } from "./firstRunsGoldens.fixture";
 
 function fnv(s: string): string {
   let h = 0x811c9dc5;
@@ -103,11 +103,11 @@ describe("pre-clearing runs resolve exactly as before (goldens captured BEFORE t
       const { state, region } = build();
       const d = dispatch(state, region);
       const exp = withoutClearing(d.exp);
-      const hashes = [T0 + 5000, T0 + 20000, T0 + 60000, T0 + 150000, T0 + 400000].map((t) => fnv(JSON.stringify(advanceExpedition(exp, t))));
+      const hashes = [T0 + 5000, T0 + 20000, T0 + 60000, T0 + 150000, T0 + 400000].map((t) => fnv(goldenJson(advanceExpedition(exp, t))));
       const done = advanceExpedition(exp, T0 + 2_000_000);
       hashes.push(done.phase);
       const claimed = done.phase === "complete" ? claimExpedition({ ...d.next, expeditions: [done] }, done.id) : null;
-      hashes.push(claimed ? fnv(JSON.stringify(withoutRunCounts(claimed.next))) : "unclaimed");
+      hashes.push(claimed ? fnv(goldenJson(withoutRunCounts(claimed.next))) : "unclaimed");
       expect(hashes).toEqual(GOLDEN[name]);
     });
   }

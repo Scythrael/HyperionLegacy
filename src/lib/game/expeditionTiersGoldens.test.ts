@@ -24,6 +24,7 @@
 // an EVENT-BOUNDARY chain (t - 1, t, t + 1 at every phase anchor, step record, log line and ship leg).
 
 import { describe, expect, it } from "vitest";
+import { goldenJson } from "./firstRunsGoldens.fixture"; // gear wear: hashes with the retired durability put back
 import Decimal from "break_infinity.js";
 import {
   freshState,
@@ -58,7 +59,7 @@ function fnv(s: string): string {
   return h.toString(16);
 }
 
-const hash = (v: unknown): string => fnv(JSON.stringify(v));
+const hash = (v: unknown): string => fnv(goldenJson(v));
 
 const T0 = 100_000;
 const FINAL = T0 + 2_000_000;

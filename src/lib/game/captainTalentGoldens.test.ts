@@ -13,6 +13,7 @@
 // Whole-state hashes leave out `fuel` and `runCounts`, exactly like wiringGoldens.test.ts.
 
 import { describe, expect, it } from "vitest";
+import { goldenJson } from "./firstRunsGoldens.fixture"; // gear wear: hashes with the retired durability put back
 import Decimal from "break_infinity.js";
 import { MISSIONS, freshState, type AwayMember, type GameState, type MissionKey, type SecondaryTalentKey } from "./model";
 import { canDispatch, dispatchCaptainOnMission, economyTick, shipRangeLightYears } from "./tick";
@@ -27,7 +28,7 @@ function fnv(s: string): string {
   }
   return h.toString(16);
 }
-const hash = (v: unknown): string => fnv(JSON.stringify(v));
+const hash = (v: unknown): string => fnv(goldenJson(v));
 const hashState = (s: GameState): string => hash({ ...s, fuel: undefined, runCounts: undefined });
 
 function lcg(seed: number): () => number {

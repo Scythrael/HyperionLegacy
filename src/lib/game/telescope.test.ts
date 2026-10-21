@@ -449,7 +449,6 @@ describe("the ship's lift changes only what is shown", () => {
       mass: 0,
       powerDraw: 0,
       durabilityMax: 100,
-      durability: 100,
       fittedToShipId: "ship-1",
       moduleVariant: "sensorBalanced",
     };

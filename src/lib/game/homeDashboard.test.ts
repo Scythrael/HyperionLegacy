@@ -974,7 +974,6 @@ describe("buildHomeDashboard: an in-flight salvage row (Unit 4.6)", () => {
           mass: 0,
           powerDraw: 0,
           durabilityMax: 100,
-          durability: 100,
           fittedToShipId: null,
         },
       ],

@@ -21,7 +21,7 @@
 
 import { describe, expect, it } from "vitest";
 // SF-1: whole states hash without the run counters (withoutRunCounts).
-import { withoutRunCounts } from "./firstRunsGoldens.fixture";
+import { withoutRunCounts, goldenJson } from "./firstRunsGoldens.fixture";
 import Decimal from "break_infinity.js";
 import {
   freshState,
@@ -63,7 +63,7 @@ function fnv(s: string): string {
 }
 
 // SF-1: whole states hash without the run counters (withoutRunCounts), so the pre-SF-1 captures stay byte-identical.
-const hash = (v: unknown): string => fnv(JSON.stringify(withoutRunCounts(v)));
+const hash = (v: unknown): string => fnv(goldenJson(withoutRunCounts(v)));
 
 function lcg(seed: number): () => number {
   let s = seed >>> 0;

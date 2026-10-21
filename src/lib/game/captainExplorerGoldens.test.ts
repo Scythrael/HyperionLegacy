@@ -19,6 +19,7 @@
 // a node moves, each with its reason beside it, and the baseline ("none") never moves.
 
 import { describe, expect, it } from "vitest";
+import { goldenJson } from "./firstRunsGoldens.fixture"; // gear wear: hashes with the retired durability put back
 import { PATROLS, type GameState, type SecondaryTalentKey } from "./model";
 import { dispatchCaptainOnMission, dispatchCaptainOnPatrol, economyTick, installMissingCombatBaselines, startRelicStudy } from "./tick";
 import { advanceExpedition, claimExpedition, expeditionCandidates, startExpedition } from "./expedition";
@@ -42,7 +43,7 @@ function fnv(s: string): string {
   }
   return h.toString(16);
 }
-const hash = (v: unknown): string => fnv(JSON.stringify(v));
+const hash = (v: unknown): string => fnv(goldenJson(v));
 // A state without the captains' secondary nodes (the variant's own input), so an inert node reads the baseline.
 const hashState = (s: GameState): string => hash({ ...s, captains: s.captains.map((c) => ({ ...c, unlockedSecondaryTalents: [] })) });
 

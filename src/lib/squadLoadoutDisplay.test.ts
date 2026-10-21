@@ -41,7 +41,7 @@ function member(id: string, teamType: AwayTeamType, shipId: string | null): Away
 function piece(id: string, slotType: EquipmentSlotType, moduleVariant: string, overrides: Partial<EquipmentInstance> = {}): EquipmentInstance {
   return {
     id, slotType, moduleVariant, rarity: "standard", ascension: "none", quality: 2, iLevel: 10, blueprintKey: "bp-test",
-    implicitStats: {}, rolledStats: {}, mass: 0, powerDraw: 0, durabilityMax: 100, durability: 100, fittedToShipId: null,
+    implicitStats: {}, rolledStats: {}, mass: 0, powerDraw: 0, durabilityMax: 100, fittedToShipId: null,
     ...overrides,
   };
 }

@@ -82,6 +82,7 @@ import {
 } from "../expedition";
 import { activityRelicFindBonus, resolveExpeditionActivity, resolveScanEncounter, type GambitLogEvent } from "../gambit";
 import { fieldworkEffect } from "../fieldwork";
+import { pieceCondition } from "../gearWear";
 import { applyExpeditionInjuries, applyGroundOpsInjuries } from "../injuries";
 import { groundTeamBaySeconds } from "../groundOps";
 import { SHIP_EVENT_DRAW_UNITS, SHIP_EVENT_WEIGHTS, boardingRepelChance, resolveShipScanEventFromDraws, shipEventDraws } from "../shipScanEvents";
@@ -249,7 +250,7 @@ export function outcome(s: GameState): string {
       mission: c.mission === null ? null : c.mission.kind === "patrol" ? pick(c.mission, PATROL_OUTCOME_KEYS) : pick(c.mission, MISSION_OUTCOME_KEYS),
     })),
     ships: s.ships.map((sh) => pick(sh, SHIP_OUTCOME_KEYS)),
-    shipGear: s.equipment.filter((e) => !e.fittedToMemberId && !isMemberSlotType(e.slotType)).map((e) => [e.id, e.fittedToShipId, e.durability]),
+    shipGear: s.equipment.filter((e) => !e.fittedToMemberId && !isMemberSlotType(e.slotType)).map((e) => [e.id, e.fittedToShipId, pieceCondition(e)]),
     injuries: s.awayMembers.map((m) => [m.id, m.injuredUntilSeconds, m.injuredAtSeconds]),
     expeditions: s.expeditions.map(expeditionOutcome),
   });
@@ -634,7 +635,6 @@ function gearPiece(slotType: MemberSlotType, varietyKey: string, wearer: string,
     mass: 0,
     powerDraw: 0,
     durabilityMax: 100,
-    durability: 100,
     fittedToShipId: null,
     fittedToMemberId: wearer,
   };

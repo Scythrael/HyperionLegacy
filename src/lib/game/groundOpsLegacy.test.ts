@@ -17,7 +17,7 @@ import { freshState, type AwayMember, type Expedition, type GameState } from "./
 import { advanceExpedition, claimExpedition, expeditionCandidates, startExpedition } from "./expedition";
 import { asV67GroundState, plainAwayMember, withSlottedAwayTeams, withoutGroundOps } from "./awayTeamTestFixtures";
 // SF-1: the claimed state hashes without the run counters (a claim writes them), absent before SF-1.
-import { withoutRunCounts } from "./firstRunsGoldens.fixture";
+import { withoutRunCounts, goldenJson } from "./firstRunsGoldens.fixture";
 
 function fnv(s: string): string {
   let h = 0x811c9dc5;
@@ -110,7 +110,7 @@ describe("legacy runs (no groundOps) stay byte-identical across the GO-7b switch
     it(`${c.name}: one call == 997 s chunks, checkpoints and claim match the pre-switch capture`, { timeout: 120_000 }, () => {
       const { state, exp } = c.build();
       expect("groundOps" in exp).toBe(false);
-      const hashes = CHECKPOINTS.map((t) => fnv(JSON.stringify(advanceExpedition(exp, t))));
+      const hashes = CHECKPOINTS.map((t) => fnv(goldenJson(advanceExpedition(exp, t))));
       const done = advanceExpedition(exp, END);
       expect(done.phase).toBe("complete");
       c.check(done);
@@ -119,7 +119,7 @@ describe("legacy runs (no groundOps) stay byte-identical across the GO-7b switch
       expect(claimed.success).toBe(true);
       // Squads SQ-1 (v68): the claim hash reads the state as v67 held it (asV67GroundState strips exactly the
       // team kinds, the added empty pair and the telescope seed), so the capture still proves nothing else moved.
-      hashes.push(fnv(JSON.stringify(withoutRunCounts(asV67GroundState(claimed.next)))));
+      hashes.push(fnv(goldenJson(withoutRunCounts(asV67GroundState(claimed.next)))));
       expect(hashes).toEqual(GOLDEN[c.name]);
     });
   }

@@ -46,6 +46,8 @@ import { makeSquadron, type DroneRole, type DroneSquadron } from "./drones";
 import { qualityDurabilityMax, type DurableSystem } from "./durability";
 // WR-5b (0.14.0): the commanding captain's Tactician fold (absent mods = a no-op).
 import { applyCaptainCombat, applyCaptainDrones } from "./captainEdge";
+// Gear wear (0.14.0): a weapon opens its pool at the piece's TRUE condition (user W3), read through one pure helper.
+import { pieceStartDurability } from "../gearWear";
 
 // Default stance for a bridged ship (design S6): Balanced (fight at Medium range)
 // until the mission layer sets a real per-dispatch stance (player-chosen) or the
@@ -217,9 +219,11 @@ export function weaponInstanceFromGear(
 		effectSlots: [...template.effectSlots],
 		cooldownAccumulator: 0,
 		// Durability from the piece (its ceiling was quality-scaled at mint). A fresh combat
-		// weapon opens at the piece's current durability; cross-wave wear is layered on later
-		// by the patrol carry-state (applyCarriedSystemDurability), never here.
-		durability: piece.durability,
+		// weapon opens at the piece's CONDITION (gear wear, user W3 "True condition": durabilityMax
+		// x condition / 1000, exactly durabilityMax while pristine, which is what the retired
+		// `durability` field always held); cross-wave wear is layered on later by the patrol
+		// carry-state (applyCarriedSystemDurability), never here.
+		durability: pieceStartDurability(piece),
 		durabilityMax: piece.durabilityMax,
 		quality: piece.quality,
 	};

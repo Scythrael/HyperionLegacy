@@ -51,7 +51,6 @@ function makeEquip(over: Partial<EquipmentInstance> & { id: string }): Equipment
     mass: over.mass ?? 0,
     powerDraw: over.powerDraw ?? 0,
     durabilityMax: over.durabilityMax ?? 100,
-    durability: over.durability ?? 100,
     fittedToShipId: over.fittedToShipId ?? null,
   };
 }

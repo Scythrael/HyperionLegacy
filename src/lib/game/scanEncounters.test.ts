@@ -85,7 +85,6 @@ function tool(id: string, variety: string, wearer: string): EquipmentInstance {
     mass: 0,
     powerDraw: 0,
     durabilityMax: 100,
-    durability: 100,
     fittedToShipId: null,
     fittedToMemberId: wearer,
   };
@@ -544,7 +543,6 @@ describe("review hardening", () => {
       mass: 0,
       powerDraw: 0,
       durabilityMax: 110,
-      durability: 110,
       fittedToShipId: "ship-1",
       moduleVariant: "bridgeBalancedCommand",
     };

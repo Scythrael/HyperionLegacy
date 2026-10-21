@@ -19,6 +19,7 @@
 // the state is pinned.
 
 import { describe, expect, it } from "vitest";
+import { goldenJson } from "./firstRunsGoldens.fixture"; // gear wear: hashes with the retired durability put back
 import Decimal from "break_infinity.js";
 import {
   FACILITIES,
@@ -68,7 +69,7 @@ function fnv(s: string): string {
   return h.toString(16);
 }
 
-const hash = (v: unknown): string => fnv(JSON.stringify(v));
+const hash = (v: unknown): string => fnv(goldenJson(v));
 // A whole state, without the retired fuel stockpile (see the header).
 // SF-1: nor the run counters (`runCounts`, seeded by freshState, written by a claim and a patrol), absent before SF-1.
 const hashState = (s: GameState): string => hash({ ...s, fuel: undefined, runCounts: undefined });

@@ -449,7 +449,6 @@ export function generateEquipment(a: {
     mass,
     powerDraw,
     durabilityMax,
-    durability: durabilityMax, // fresh piece starts at full durability
     fittedToShipId: null, // spare in the pool until a later fitting task assigns it
   };
   // A slot whose per-variety EFFECT is catalog-resolved persists WHICH variety it rolled, so the
@@ -572,7 +571,6 @@ export function generateWeapon(a: {
     mass: WEAPON_BASE_MASS,
     powerDraw: template.powerDraw, // the weapon's reactor draw (design S10), from its def
     durabilityMax,
-    durability: durabilityMax, // fresh weapon starts at full durability
     fittedToShipId: null, // spare in the pool until the install path (Unit 1.3+) assigns it
   };
 }
@@ -688,7 +686,6 @@ export function generateDronePod(a: {
     mass: DRONE_POD_BASE_MASS,
     powerDraw: DRONE_POD_BASE_POWER_DRAW,
     durabilityMax,
-    durability: durabilityMax, // fresh pod starts at full durability
     fittedToShipId: null, // spare in the pool until the install path (Unit 2.1b+) assigns it
   };
 }

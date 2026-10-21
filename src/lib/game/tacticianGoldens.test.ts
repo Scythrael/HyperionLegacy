@@ -15,6 +15,7 @@
 // its commit says.
 
 import { describe, expect, it } from "vitest";
+import { goldenJson } from "./firstRunsGoldens.fixture"; // gear wear: hashes with the retired durability put back
 import Decimal from "break_infinity.js";
 import { freshState, type EquipmentInstance, type GameState, type PatrolMissionState, type SecondaryTalentKey } from "./model";
 import { dispatchCaptainOnPatrol, economyTick, installMissingCombatBaselines, shipRepairDurationTicks, shipyardRepairSpeedBonus } from "./tick";
@@ -35,7 +36,7 @@ function fnv(s: string): string {
   }
   return h.toString(16);
 }
-const hash = (v: unknown): string => fnv(JSON.stringify(v));
+const hash = (v: unknown): string => fnv(goldenJson(v));
 
 function seededRng(seed: number): () => number {
   let x = seed >>> 0;
