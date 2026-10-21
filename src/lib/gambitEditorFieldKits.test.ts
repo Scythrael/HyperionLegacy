@@ -22,6 +22,7 @@ import {
   installedGrenadeName,
   normalizeEditorRule,
   ruleHints,
+  installedGrenadeFuse,
   ruleNeedsKit,
   ruleTakesRank,
   ruleTakesReserve,
@@ -115,7 +116,19 @@ describe("rule hints", () => {
       "Skips when no kit of that kind is left.",
     ]);
     expect(ruleHints({ target: "allyDowned", action: "useItem", params: { kitId: "injuryKit" } }, { medic: true, grenade: null }, true)).toEqual(["Skips when no kit of that kind is left."]);
-    expect(ruleHints({ target: "foeLargestGroup", action: "throwGrenade" }, plain, true)).toEqual(["Skips when no charge is left, or after this battle's throw."]);
+    // Timed grenades (user 2026-10-21): the hint names the installed grenade's fuse (the Impact Grenade, the default,
+    // detonates on contact; Stun and Toxin are timed).
+    expect(ruleHints({ target: "foeLargestGroup", action: "throwGrenade" }, plain, true)).toEqual([
+      "Skips when no charge is left, or after this battle's throw.",
+      "Impact Grenade: detonates on contact, the turn it is thrown.",
+    ]);
+    for (const name of ["Stun Grenade", "Toxin Grenade"]) {
+      expect(ruleHints({ target: "foeLargestGroup", action: "throwGrenade" }, { medic: false, grenade: name }, true)).toEqual([
+        "Skips when no charge is left, or after this battle's throw.",
+        `${name}: a timed fuse. It detonates at the start of this member's next turn, on the foes of that group still there (some may move clear first).`,
+      ]);
+    }
+    expect(installedGrenadeFuse("Med Kit")).toBeNull();
     expect(ruleHints({ target: "foeLargestGroup", action: "throwGrenade" }, { medic: false, grenade: null }, true)).toEqual([
       "No grenade installed in the Tool slot: this rule never fires.",
     ]);

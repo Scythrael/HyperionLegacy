@@ -65,12 +65,16 @@ export function chargesLeftFor(member: Pick<SnapshotMember, "memberId" | "gear">
 
 // Arm a Field Kits fight's fresh squad (see the header): each named member's grenade passive is taken off its on-hit
 // rolls, and a member wearing a grenade gets its throw (GroundCombatant.grenade). `members` = the fielded members'
-// snapshots; `chargesLeft` = memberId -> charges left this objective (absent = full). No draw. Mutates the fresh list
-// it is handed and returns it.
+// snapshots; `chargesLeft` = memberId -> charges left this objective (absent = full). `timedFuses` (TIMED GRENADES, user
+// 2026-10-21; fieldKits.ts timedFusesLive: a run stamped with catalog 2 or later): a grenade with a fuse (the Stun and
+// Toxin Grenades) is armed with it, so its throw primes and detonates at the start of the thrower's next turn; off
+// (a catalog 1 run, in flight before the fuse) every grenade detonates on contact as before. No draw. Mutates the
+// fresh list it is handed and returns it.
 export function withThrownGrenades(
   team: GroundCombatant[],
   members: readonly SnapshotMember[],
   chargesLeft?: Readonly<Record<string, number>>,
+  timedFuses = false,
 ): GroundCombatant[] {
   for (const c of team) {
     if (c.memberId === undefined) continue;
@@ -86,6 +90,7 @@ export function withThrownGrenades(
     if (!worn) continue;
     const own = saboteurGrenadeMult(isSaboteur(m));
     const chance = worn.grenade.statusChance ?? memberStatusChance(m);
+    const fuse = timedFuses ? worn.grenade.fuse : undefined;
     c.grenade = {
       status: worn.grenade.status,
       statusPermille: Math.max(0, Math.min(1000, Math.round(chance * own * 1000))),
@@ -93,6 +98,7 @@ export function withThrownGrenades(
       charges: chargesLeftFor(m, chargesLeft),
       perBattle: worn.grenade.charges.perBattle,
       used: 0,
+      ...(fuse ? { fuse: { movedClearPermille: Math.max(0, Math.min(1000, Math.round(fuse.movedClearChance * 1000))) } } : {}),
     };
   }
   return team;

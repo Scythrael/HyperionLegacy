@@ -60,8 +60,9 @@ import { REPAIR_RATES, REPAIR_RATE_BONUSES, WEAR_EFFICIENCY, WEAR_SOURCES } from
 import { SHORT_RANGE_TEMPLATES } from "../shortRange";
 import { GAS_STUDY_USES, GIANT_CLASSES, NEBULA_KINDS } from "../gasGiantContent";
 
-// Field Kits FKR-5: the sources each grenade carries (its GrenadeTraits, as the registry measures them).
-export const GRENADE_FIELDS = ["charges", "perBattle", "blast", "status"] as const;
+// Field Kits FKR-5: the sources each grenade carries (its GrenadeTraits, as the registry measures them). Timed grenades
+// (user 2026-10-21): its fuse (the turns from the throw to the blast) and, on a timed one, the moved-clear chance.
+export const GRENADE_FIELDS = ["charges", "perBattle", "blast", "status", "fuse", "movedClear"] as const;
 
 export interface EffectSource {
   readonly catalog: string;

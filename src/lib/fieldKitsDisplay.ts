@@ -9,7 +9,7 @@
 //     rows. Per team: the "Top up from the Quartermaster at launch" toggle with its cost preview (remembered on the
 //     team, never blocks a launch). The Warehouse stock left after the launch, the Science / Survey ghost lines.
 //   - IN THE RUN (runSuppliesView, runCardLine): per Security member, the free set left, the extras and grenade charges
-//     left, and their condition with its bay time; the objective's "Final fight: Elite" chip; the one-line summary on
+//     left (with the grenade's fuse: timed grenades, user 2026-10-21), and their condition with its bay time; the objective's "Final fight: Elite" chip; the one-line summary on
 //     the expedition card.
 //   - THE CLAIM (claimKitsView): "Kits home" and what the run used.
 //   - LOGISTICS + QUARTERMASTER (fieldKitStockRows, fieldKitShopRows): the stock view and the kit sale rows.
@@ -26,6 +26,7 @@ import type {
   ExpeditionActivity,
   GambitProgram,
   GameState,
+  GrenadeTraits,
   GroundTeamKind,
   GroundTeamRun,
   ShipInstance,
@@ -35,6 +36,7 @@ import { GRENADE_CARRY_PER_LINE, memberVariety } from "./game/model";
 import {
   CONDITION_LINES,
   FIELD_KITS,
+  FIELD_KITS_CATALOG_VERSION,
   FIELD_KITS_RUNS_LIVE,
   FIELD_KIT_IDS,
   FIELD_KIT_PRICES,
@@ -45,6 +47,7 @@ import {
   fieldKitsLive,
   freeBasicFirstAid,
   kitClears,
+  timedFusesLive,
   type FieldKitId,
 } from "./game/fieldKits";
 import {
@@ -61,7 +64,7 @@ import {
 } from "./game/fieldKitsRun";
 import { chargesLeftFor } from "./game/fieldKitsGrenades";
 import { pieceCarryLines, snapshotMembers, toolCharges } from "./game/awayTeam";
-import { GAMBIT_STATUSES, shipSupportHeads } from "./game/gambit";
+import { GAMBIT_STATUSES, shipSupportHeads, type GambitLogEvent } from "./game/gambit";
 import { fieldKitsFightProgram, memberGambitProgram } from "./game/memberGambits";
 import { deployableGroundTeams, groundTeamName, type GroundTeamReadiness } from "./game/groundTeams";
 import { shipGroundTeams } from "./game/groundTeamSlots";
@@ -200,6 +203,41 @@ export function grenadeReserve(program: GambitProgram): { count: number; forText
   return { count, forText: elite ? "an Elite or a Boss" : "a Boss" };
 }
 
+// ===== Timed grenades (user 2026-10-21: "Impact Grenade is the default and explodes on contact; Stun and Toxin grenades
+// detonate at the start of the thrower's next turn (enemies may move out of a cluster first)") =====
+
+export const CONTACT_FUSE_TEXT = "Detonates on contact";
+export const TIMED_FUSE_TEXT = "Timed fuse: detonates at the start of the thrower's next turn; foes may move clear first";
+
+// How a grenade detonates on a run: timed only when it carries a fuse AND the run reads fuses (fieldKits.ts
+// timedFusesLive: a catalog 1 run, in flight before the fuse, detonates every grenade on contact). Pure.
+export function grenadeFuseText(grenade: Pick<GrenadeTraits, "fuse">, timedFuses: boolean): string {
+  return timedFuses && grenade.fuse ? TIMED_FUSE_TEXT : CONTACT_FUSE_TEXT;
+}
+
+// The battle log's two fuse lines, or null for any other event: a timed throw ("Security primes a grenade at enemy
+// Bruiser: it detonates at the start of their next turn") and its detonation ("Security's grenade detonates: 2 hit,
+// 1 moved clear: -34 HP, affliction applied, 1 DOWNED"). `who` and `target` are the readout's names for the actor and
+// the target. Pure.
+export function fuseLogLine(ev: GambitLogEvent, who: string, target: string): string | null {
+  if (ev.action === "throwGrenade" && ev.primed) {
+    return `${who} primes a grenade${target ? ` at ${target}` : ""}: it detonates at the start of their next turn`;
+  }
+  if (ev.action !== "grenadeDetonates") return null;
+  const b = ev.blast ?? { hit: 0, movedClear: 0, missed: 0, downed: 0, afflicted: 0 };
+  const reach: string[] = [];
+  if (b.hit > 0) reach.push(`${b.hit} hit`);
+  if (b.movedClear > 0) reach.push(`${b.movedClear} moved clear`);
+  if (b.missed > 0) reach.push(`${b.missed} missed`);
+  const tail: string[] = [];
+  if (ev.hpDelta && ev.hpDelta < 0) tail.push(`${ev.hpDelta} HP`);
+  if (b.afflicted > 0) tail.push("affliction applied");
+  if (b.downed > 0) tail.push(`${b.downed} DOWNED`);
+  const head = `${who}'s grenade detonates${target ? ` on the ${target} group` : ""}`;
+  if (reach.length === 0) return `${head}: nobody left in reach`;
+  return tail.length > 0 ? `${head}: ${reach.join(", ")}: ${tail.join(", ")}` : `${head}: ${reach.join(", ")}`;
+}
+
 // ===== The free set =====
 
 export interface FreeSetView {
@@ -234,6 +272,7 @@ export interface PackToolView {
   carry: number; // charges its carry capacity lines add
   chargesText: string | null; // "5 charges (4 + 1 carry)"; null for a tool without charges
   note: string; // "1 throw per battle · program keeps 1 for an Elite or a Boss", "No charges: works every battle"
+  fuseText: string | null; // a grenade's fuse on the run this dispatch makes (grenadeFuseText); null for any other tool
 }
 
 export interface PackKitRowView {
@@ -321,10 +360,10 @@ function wornTool(state: Pick<GameState, "equipment">, memberId: string): Equipm
 
 // The installed tool line of one member. Pure.
 export function packToolView(piece: EquipmentInstance | undefined, program: GambitProgram): PackToolView {
-  if (!piece) return { name: "No tool installed", glyph: "tool", base: 0, carry: 0, chargesText: null, note: "Install a grenade in the Tool slot to throw one." };
+  if (!piece) return { name: "No tool installed", glyph: "tool", base: 0, carry: 0, chargesText: null, note: "Install a grenade in the Tool slot to throw one.", fuseText: null };
   const grenade = memberVariety(piece.slotType, piece.moduleVariant ?? "")?.member.grenade;
   const name = memberPieceName(piece);
-  if (!grenade) return { name, glyph: "tool", base: 0, carry: 0, chargesText: null, note: "No charges: works every battle." };
+  if (!grenade) return { name, glyph: "tool", base: 0, carry: 0, chargesText: null, note: "No charges: works every battle.", fuseText: null };
   const base = grenade.charges.perObjective;
   const carry = pieceCarryLines(piece) * GRENADE_CARRY_PER_LINE;
   const perBattle = grenade.charges.perBattle;
@@ -336,6 +375,8 @@ export function packToolView(piece: EquipmentInstance | undefined, program: Gamb
     carry,
     chargesText: `${base + carry} charges${carry > 0 ? ` (${base} + ${carry} carry)` : ""}`,
     note: `${perBattle} throw${perBattle === 1 ? "" : "s"} per battle${programNote ? ` · ${programNote}` : ""}`,
+    // The dispatch makes a run on today's catalog (fieldKitsRun.ts fieldKitsStamp), so its fuse is the one it will use.
+    fuseText: grenadeFuseText(grenade, timedFusesLive({ fieldKits: { catalog: FIELD_KITS_CATALOG_VERSION } })),
   };
 }
 
@@ -594,6 +635,7 @@ export interface RunSupplyRowView {
   freeTotal: number;
   extras: RunExtraView[];
   charges: { left: number; total: number } | null;
+  fuseNote: string | null; // a grenade's fuse on THIS run (grenadeFuseText: a catalog 1 run reads "on contact"); null otherwise
   toolNote: string | null; // "Med Kit: no charges"
   conditions: RunConditionView[];
   healthText: string; // "Healthy", "72 of 90 HP", "Downed"
@@ -667,6 +709,7 @@ function runTeamView(exp: Expedition, ship: ShipInstance | null | undefined, tea
     const total = snap ? toolCharges(snap) : 0;
     const toolPiece = snap?.gear.find((g) => g.slotType === "memberTool");
     const toolLabel = toolPiece ? memberVariety(toolPiece.slotType, toolPiece.varietyKey)?.label ?? null : null;
+    const worn = toolPiece ? memberVariety(toolPiece.slotType, toolPiece.varietyKey)?.member.grenade : undefined;
     if (total > 0 && snap) {
       const keep = grenadeReserve(runProgramOf(snap.gambit));
       if (keep) reserveNotes.push(`${memberName}'s program keeps ${keep.count} grenade charge${keep.count === 1 ? "" : "s"} for ${keep.forText}`);
@@ -683,6 +726,7 @@ function runTeamView(exp: Expedition, ship: ShipInstance | null | undefined, tea
       freeTotal: free,
       extras,
       charges: total > 0 && snap ? { left: chargesLeftFor(snap, team.charges), total } : null,
+      fuseNote: total > 0 && worn ? grenadeFuseText(worn, timedFusesLive(exp)) : null,
       toolNote: total === 0 && toolLabel ? `${toolLabel}: no charges` : null,
       conditions: memberConditions(exp, team, id),
       healthText,

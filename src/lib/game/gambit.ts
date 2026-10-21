@@ -263,6 +263,9 @@ export const SUPPLY_CACHE_SALT = 0x4cf5ad43;
 // E-CREW (Task 16): Neural Backup's revive roll. Its OWN stream (the battle's seed ^ this salt), never a
 // draw on the battle's shared stream, so adding the implant shifts no other roll in any battle.
 export const NEURAL_BACKUP_SALT = 0x2f6e9c31;
+// Timed grenades (user 2026-10-21): the "moved clear" roll of each foe a primed grenade would hit. Its OWN stream (the
+// battle's seed ^ this salt, drawn in detonation order), never a draw on the battle's shared stream.
+export const GRENADE_FUSE_SALT = 0x6d1f4a3b;
 
 // ============================================================================
 // Enemy roles + role behaviors
@@ -471,7 +474,10 @@ export interface BattleKitRules {
   apply(kit: FieldKitId, actor: GroundCombatant, target: GroundCombatant, statusId?: GambitStatusId): void;
 }
 
-// Field Kits FKR-5: a combatant's grenade for one battle (see GroundCombatant.grenade).
+// Field Kits FKR-5: a combatant's grenade for one battle (see GroundCombatant.grenade). Timed grenades (user 2026-10-21):
+// `fuse` present = a TIMED grenade (armed only on a catalog 2 run, fieldKitsGrenades.ts withThrownGrenades): its throw
+// PRIMES it and it detonates at the start of the thrower's next turn (resolveGroundBattle), each foe still in the target's
+// group first rolling `movedClearPermille` to move clear. Absent = it detonates on contact, the turn it is thrown.
 export interface ThrownGrenade {
   readonly status: GambitStatusId;
   readonly statusPermille: number;
@@ -479,6 +485,22 @@ export interface ThrownGrenade {
   readonly charges: number;
   readonly perBattle: number;
   readonly used: number;
+  readonly fuse?: { readonly movedClearPermille: number };
+}
+
+// Timed grenades: one PRIMED grenade waiting for its detonation (BattleState.fuses). `round` = the 0-based round it was
+// thrown in; it detonates at the thrower's slot in a later round (the next one). The blast reads the cluster it was
+// thrown at (`side` + `groupTag`, the target first while it stands) and the thrower AS IT THREW (`thrower`, a copy taken
+// at the throw: its aim and power left the hand then, so a thrower downed or Blinded before the detonation changes
+// nothing).
+export interface PrimedGrenade {
+  readonly throwerId: string;
+  readonly round: number;
+  readonly targetId: string;
+  readonly side: GroundCombatant["side"];
+  readonly groupTag: string;
+  readonly grenade: ThrownGrenade;
+  readonly thrower: GroundCombatant;
 }
 
 // Field Kits FKR-5 (FK11 "skip it"): can this combatant throw a grenade right now? It needs one with a charge left this
@@ -1116,6 +1138,55 @@ function rollNormalHitAffliction(actor: GroundCombatant, target: GroundCombatant
   if (rng.chance(a.permille, 1000)) tryApplyStatus(target, a.id, rng);
 }
 
+// Timed grenades (user 2026-10-21; fuse ruling "1 round later (Recommended)": "Stun and Toxin grenades detonate at the
+// start of the thrower's next turn (enemies may move out of a cluster first)"). A primed grenade going off, IN PLACE.
+// Ground fights have no positions, so the CLUSTER is the group it was thrown at (its side and group tag): it RE-FORMS by
+// the detonation, so a foe downed before it goes off is not hit, and each foe still standing (the target first while it
+// stands, then the rest in id order) rolls to MOVE CLEAR on `clear` (the battle's own fuse stream, GRENADE_FUSE_SALT;
+// ThrownGrenade.fuse.movedClearPermille). A foe that stayed takes the blast exactly as a grenade on contact does, on
+// the fight stream: the throw's hit check (strikeHitChance of the thrower as it threw), the damage roll at powerMult,
+// then on a body still standing the debuff's chance roll and its resist roll. Logs one "grenadeDetonates" event when a
+// log sink is attached (observation only).
+function detonateGrenade(f: PrimedGrenade, state: BattleState, rng: Rng, clear: Rng): void {
+  const g = f.grenade;
+  const movedClear = g.fuse?.movedClearPermille ?? 0;
+  const cluster = state.combatants
+    .filter((c) => !c.downed && c.side === f.side && c.groupTag === f.groupTag)
+    .sort((a, b) => (a.id === f.targetId ? -1 : b.id === f.targetId ? 1 : a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+  const tally = { hit: 0, movedClear: 0, missed: 0, downed: 0, afflicted: 0 };
+  let dealt = 0;
+  for (const body of cluster) {
+    if (body.downed) continue;
+    if (movedClear > 0 && clear.chance(movedClear, 1000)) {
+      tally.movedClear += 1;
+      continue;
+    }
+    if (!rng.chance(Math.round(strikeHitChance(f.thrower, body) * 1000), 1000)) {
+      tally.missed += 1;
+      continue;
+    }
+    tally.hit += 1;
+    const before = body.hp;
+    dealDamage(body, rollDamage(f.thrower, body, rng, g.powerMult));
+    dealt += before - body.hp;
+    if (body.downed) tally.downed += 1;
+    else if (g.statusPermille > 0 && rng.chance(g.statusPermille, 1000) && tryApplyStatus(body, g.status, rng)) tally.afflicted += 1;
+  }
+  if (!state.log) return;
+  const target = state.combatants.find((c) => c.id === f.targetId);
+  const ev: GambitLogEvent = { round: state.round + 1, side: f.thrower.side, role: f.thrower.role, action: "grenadeDetonates", blast: tally };
+  if (f.thrower.memberId) ev.memberId = f.thrower.memberId;
+  if (target) {
+    ev.targetSide = target.side;
+    ev.targetRole = target.role;
+    if (target.memberId) ev.targetMemberId = target.memberId;
+  }
+  if (dealt > 0) ev.hpDelta = -dealt;
+  if (tally.afflicted > 0) ev.statusApplied = true;
+  if (tally.downed > 0) ev.downed = true;
+  state.log.push(ev);
+}
+
 // Apply a resolved rule's action. Mutates the working battle clone (combatants + battle state) in place.
 // Returns whether the action DID something (used only for readability; the resolver already committed to
 // this rule). Unknown/illegal actions are treated as hold.
@@ -1166,6 +1237,22 @@ function applyAction(
       if (!target || !actor.grenade) return;
       const g = actor.grenade;
       actor.grenade = { ...g, used: g.used + 1 };
+      // Timed grenades (user 2026-10-21): a fused grenade (Stun, Toxin on a catalog 2 run) only PRIMES here: the charge
+      // and the battle's throw are spent now, nothing is drawn, and it detonates at the start of the thrower's next turn
+      // (detonateGrenade, from resolveGroundBattle).
+      if (g.fuse) {
+        const fuses = state.fuses ?? (state.fuses = []);
+        fuses.push({
+          throwerId: actor.id,
+          round: state.round,
+          targetId: target.id,
+          side: target.side,
+          groupTag: target.groupTag,
+          grenade: g,
+          thrower: { ...actor, statuses: actor.statuses.map((s) => ({ ...s })) },
+        });
+        return;
+      }
       const blast = [
         target,
         ...state.combatants
@@ -1263,7 +1350,10 @@ export interface GambitLogEvent {
   // "hold" == no rule matched this round. "neuralBackup" (E-CREW Task 16) == the Neural Backup roll on the
   // first ally downed: the actor is the wearer, the target the downed ally, hpDelta the HP they came back
   // with, `missed` when the roll failed.
-  action: GambitActionId | "hold" | "neuralBackup";
+  // "grenadeDetonates" (timed grenades, user 2026-10-21) == a primed grenade going off at the start of the thrower's
+  // next turn: the actor is the thrower, the target the foe it was thrown at, hpDelta the damage it dealt over the whole
+  // cluster, `blast` the cluster's tally.
+  action: GambitActionId | "hold" | "neuralBackup" | "grenadeDetonates";
   targetSide?: "team" | "enemy";
   targetRole?: GroundRole;
   targetMemberId?: string; // E-CREW (Task 13): the target named member, when the target is one
@@ -1272,6 +1362,12 @@ export interface GambitLogEvent {
   missed?: boolean; // an offensive strike that missed (no hp change, target still up)
   statusApplied?: boolean; // the action put a new status on the target (suppress/analyze/brace/shield/...)
   statusCleared?: boolean; // a cure/useItem cleansed a debuff off the target
+  // Timed grenades: a throw that PRIMED a fused grenade (it detonates at the start of the thrower's next turn; the
+  // "grenadeDetonates" event follows). Absent on every other event.
+  primed?: boolean;
+  // Timed grenades: a detonation's cluster, body by body: hit, moved clear before it went off, missed (the throw's own
+  // hit check), downed by it, and whether its debuff landed on anyone.
+  blast?: { hit: number; movedClear: number; missed: number; downed: number; afflicted: number };
 }
 
 // The mutable per-battle state the interpreter reads + writes. GENERIC over combatants, so a future
@@ -1287,6 +1383,9 @@ export interface BattleState {
   // kits (GroundCombatant.kits) spends them through these. Absent: Use Item spends the team kit as before.
   kitRules?: BattleKitRules;
   pendingKitId?: FieldKitId; // the kitId a firing Use Item rule names (threaded per-eval, like pendingCureStatusId)
+  // Timed grenades (user 2026-10-21): the grenades primed and not yet detonated, in throw order. Created by the first
+  // timed throw (only a catalog 2 run arms one), so every other battle never carries it.
+  fuses?: PrimedGrenade[];
 }
 
 
@@ -1422,6 +1521,7 @@ function fireRule(
   const downedBefore = target ? target.downed : false;
   const statusesBefore = target ? target.statuses.length : 0;
   const debuffRoundsBefore = target ? debuffRounds(target) : 0;
+  const fusesBefore = state.fuses?.length ?? 0;
   state.pendingCureStatusId = rule.params?.statusId;
   state.pendingKitId = rule.params?.kitId;
   applyAction(rule.action, actor, target, rng, state);
@@ -1429,6 +1529,17 @@ function fireRule(
   state.pendingKitId = undefined;
   const ev: GambitLogEvent = { round: state.round + 1, side: actor.side, role: actor.role, action: rule.action };
   if (actor.memberId) ev.memberId = actor.memberId;
+  // Timed grenades: a throw that primed a fused grenade did nothing to the target yet (the detonation is logged later).
+  if (rule.action === "throwGrenade" && (state.fuses?.length ?? 0) > fusesBefore) {
+    ev.primed = true;
+    if (target) {
+      ev.targetSide = target.side;
+      ev.targetRole = target.role;
+      if (target.memberId) ev.targetMemberId = target.memberId;
+    }
+    state.log.push(ev);
+    return;
+  }
   if (target) {
     ev.targetSide = target.side;
     ev.targetRole = target.role;
@@ -1643,6 +1754,21 @@ export function resolveGroundBattle(
     return out;
   };
 
+  // Timed grenades (user 2026-10-21): the primed grenades due at `actor`'s slot (thrown in an earlier round) detonate, in
+  // throw order. Each foe's "moved clear" roll comes from the battle's own fuse stream (reviveSeed ^ GRENADE_FUSE_SALT),
+  // opened at the first detonation, so the fight stream never carries it. A battle that ends first never detonates
+  // what it primed (the charge was spent at the throw).
+  let fuseStream: Rng | null = null;
+  const detonateDue = (actor: GroundCombatant): void => {
+    const due = state.fuses!.filter((f) => f.throwerId === actor.id && f.round < state.round);
+    if (due.length === 0) return;
+    state.fuses = state.fuses!.filter((f) => !due.includes(f));
+    for (const f of due) {
+      if (!fuseStream) fuseStream = makeRng((reviveSeed ^ GRENADE_FUSE_SALT) >>> 0);
+      detonateGrenade(f, state, rng, fuseStream);
+    }
+  };
+
   while (state.round < MAX_ROUNDS) {
     // Fixed acting order: team first (by id), then enemies (by id). Stable => deterministic. On the
     // opening round a First Strike member (Quick Draw) acts ahead of the rest of the team.
@@ -1654,6 +1780,9 @@ export function resolveGroundBattle(
     });
 
     for (const actor of order) {
+      // Timed grenades: the thrower's primed grenades go off at the START of its next turn, before it acts and whether
+      // or not it can (downed, stunned or afraid: the fuse burns regardless). Only a catalog 2 run primes one.
+      if (state.fuses && state.fuses.length > 0) detonateDue(actor);
       if (actor.downed) continue;
       // Stun: skip the action (the stun still ticks down at end of round).
       if (hasStatus(actor, "stun")) continue;

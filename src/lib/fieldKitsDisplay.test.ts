@@ -26,6 +26,10 @@ import {
   fieldKitStockRows,
   finalFightChip,
   freeSetView,
+  CONTACT_FUSE_TEXT,
+  TIMED_FUSE_TEXT,
+  fuseLogLine,
+  grenadeFuseText,
   grenadeProgramNote,
   kitCountText,
   kitEffectText,
@@ -218,6 +222,11 @@ describe("dispatch packing (FKR-9)", () => {
     expect(impact).toMatchObject({ name: "Impact Grenade", glyph: "grenade", base: 4, carry: 1, chargesText: "5 charges (4 + 1 carry)" });
     expect(impact.note).toBe("1 throw per battle · program keeps 1 for an Elite or a Boss");
     expect(member(v, "member-2").tool.note).toBe("1 throw per battle · no rule in the program throws it");
+    // Timed grenades (user 2026-10-21): today's dispatch is a catalog 2 run, so the Stun Grenade's fuse is timed and the
+    // Impact Grenade (the default) detonates on contact; a tool without charges has no fuse line.
+    expect(impact.fuseText).toBe(CONTACT_FUSE_TEXT);
+    expect(member(v, "member-2").tool.fuseText).toBe(TIMED_FUSE_TEXT);
+    expect(member(v, "member-3").tool.fuseText).toBeNull();
     expect(member(v, "member-3").tool).toMatchObject({ name: "Med Kit", chargesText: null, note: "No charges: works every battle." });
     expect(member(v, "member-4").tool.name).toBe("No tool installed");
   });
@@ -344,6 +353,11 @@ describe("in the run (FKR-9)", () => {
     expect(r1).toMatchObject({ freeLeft: free - 1, charges: { left: 3, total: 5 } });
     expect(r1.extras.find((e) => e.kit === "firstAidKit")).toMatchObject({ left: 0, packed: 1 });
     expect(r2.charges).toEqual({ left: 2, total: 2 });
+    // Timed grenades: this run is stamped with today's catalog (2), so member-2's Stun Grenade reads its timed fuse; a
+    // run in flight on catalog 1 reads every grenade on contact.
+    expect(r1.fuseNote).toBe(CONTACT_FUSE_TEXT);
+    expect(r2.fuseNote).toBe(TIMED_FUSE_TEXT);
+    expect(runSuppliesView({ ...exp, fieldKits: { ...exp.fieldKits!, catalog: 1 } }, s.ships[0], s.awayMembers)[0].rows[1].fuseNote).toBe(CONTACT_FUSE_TEXT);
     expect(r2.conditions).toEqual([{ key: "brokenBone", glyph: "boneBroken", text: "Broken Bone", bayText: expect.stringMatching(/^bay .+ after this objective$/) }]);
     expect(r3.conditions).toEqual([{ key: "fracture", glyph: "boneFracture", text: "Fracture, splinted", bayText: "no bay time" }]);
     expect(r3).toMatchObject({ toolNote: "Med Kit: no charges", charges: null, healthText: "40 of 90 HP", medic: true });
@@ -448,5 +462,36 @@ describe("Logistics stock and Quartermaster sales (FKR-10)", () => {
     if (bought.ok) expect(fieldKitStockRows(bought.next)[0].owned).toBe(3);
     expect(shopQtyMax({ owned: 3, cap: 10 })).toBe(7);
     expect(shopQtyMax({ owned: 10, cap: 10 })).toBe(1);
+  });
+});
+
+describe("timed grenades: the fuse words and the battle log lines (user 2026-10-21)", () => {
+  it("a grenade reads timed only with a fuse on a run that reads fuses", () => {
+    expect(grenadeFuseText({ fuse: { movedClearChance: 0.2 } }, true)).toBe(TIMED_FUSE_TEXT);
+    expect(grenadeFuseText({ fuse: { movedClearChance: 0.2 } }, false)).toBe(CONTACT_FUSE_TEXT);
+    expect(grenadeFuseText({}, true)).toBe(CONTACT_FUSE_TEXT);
+  });
+
+  it("the primed throw and the detonation get their own lines; every other event gets none", () => {
+    expect(fuseLogLine({ round: 1, side: "team", role: "security", action: "throwGrenade", primed: true }, "Security", "enemy Bruiser")).toBe(
+      "Security primes a grenade at enemy Bruiser: it detonates at the start of their next turn",
+    );
+    expect(fuseLogLine({ round: 1, side: "team", role: "security", action: "throwGrenade", hpDelta: -20 }, "Security", "enemy Bruiser")).toBeNull();
+    expect(fuseLogLine({ round: 1, side: "team", role: "security", action: "attack" }, "Security", "enemy Bruiser")).toBeNull();
+    const det = { round: 2, side: "team" as const, role: "security" as const, action: "grenadeDetonates" as const };
+    expect(fuseLogLine({ ...det, hpDelta: -34, blast: { hit: 2, movedClear: 1, missed: 0, downed: 1, afflicted: 1 } }, "Security", "enemy Bruiser")).toBe(
+      "Security's grenade detonates on the enemy Bruiser group: 2 hit, 1 moved clear: -34 HP, affliction applied, 1 DOWNED",
+    );
+    expect(fuseLogLine({ ...det, blast: { hit: 0, movedClear: 2, missed: 0, downed: 0, afflicted: 0 } }, "Security", "enemy Bruiser")).toBe(
+      "Security's grenade detonates on the enemy Bruiser group: 2 moved clear",
+    );
+    expect(fuseLogLine({ ...det, blast: { hit: 0, movedClear: 0, missed: 0, downed: 0, afflicted: 0 } }, "Security", "")).toBe("Security's grenade detonates: nobody left in reach");
+  });
+
+  it("text rules: no em dash, no double hyphen, no 'task' in the fuse words", () => {
+    for (const t of [CONTACT_FUSE_TEXT, TIMED_FUSE_TEXT]) {
+      expect(t).not.toMatch(DASHES);
+      expect(t).not.toMatch(/\btask\b/i);
+    }
   });
 });

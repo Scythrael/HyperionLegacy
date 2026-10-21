@@ -5,9 +5,9 @@
 // grenadiers: Impact on member-1, Stun on member-2, Toxin on member-4, a program that throws at the largest group):
 //   - CATALOG 1 (the in-flight run): two real fights (records AND battle logs) and the whole run's ground operations.
 //     Must stay byte-identical across the fuse.
-//   - CATALOG 2 stamped by hand: identical to catalog 1 today (the engine reads any catalog the same before the fuse);
-//     the fuse MOVES it on purpose (Stun and Toxin now detonate at the start of the thrower's next turn) and must be
-//     named there.
+//   - CATALOG 2 stamped by hand: identical to catalog 1 before the fuse (the engine read any catalog the same); the fuse
+//     MOVED it on purpose (Stun and Toxin now detonate at the start of the thrower's next turn), named at
+//     FUSE_MOVED_PINS.
 //   - IMPACT ONLY on catalog 2: the Impact Grenade is the default and detonates on contact, so a squad whose only
 //     grenade is an Impact Grenade must stay byte-identical across the fuse even on the new catalog.
 
@@ -141,6 +141,15 @@ const PRE_FUSE_IMPACT_PINS: Readonly<Record<number, FusePin>> = {
   [0x51f3]: { fights: "c8cd0f85", logs: "b08504a7", run: "aaaf9bbd" },
 };
 
+// MOVED AT THE FUSE, named: on catalog 2 the Stun (member-2) and Toxin (member-4) throws prime and detonate at the start
+// of the thrower's next turn, on the foes of the target's group still standing that did not move clear (their own fuse
+// stream), so the fights, their logs (the "primed" throw and the "grenadeDetonates" line) and the whole run move. The
+// catalog 1 pins above (the run in flight) and the Impact-only pins did not move. Re-pinned on the fuse commit.
+const FUSE_MOVED_PINS: Readonly<Record<number, FusePin>> = {
+  [0xc4a2]: { fights: "8d41a541", logs: "eeb06573", run: "bbf12561" },
+  [0x51f3]: { fights: "f8973571", logs: "cd3b7cff", run: "6cde560a" },
+};
+
 // The members who threw in the two pinned fights (the pins must cover a Stun and a Toxin throw, not only the Impact).
 function throwersOf(seed: number, catalog: number): string[] {
   const exp = stampedRun(crewed(seed, ALL_THREE), catalog, ["enemyColony", "derelictOutpost"], { ...CALM, combat: 3 });
@@ -159,8 +168,11 @@ describe("timed grenades goldens: what a stamped run's grenades did before the f
       expect(fusePin(seed, 1, ALL_THREE)).toEqual(PRE_FUSE_PINS[seed]);
       expect(throwersOf(seed, 1)).toEqual(["member-1", "member-2", "member-4"]);
     });
-    it(`seed ${seed.toString(16)}: a catalog 2 run with all three grenades equals catalog 1 before the fuse`, { timeout: 120_000 }, () => {
-      expect(fusePin(seed, 2, ALL_THREE)).toEqual(PRE_FUSE_PINS[seed]);
+    it(`seed ${seed.toString(16)}: a catalog 2 run with all three grenades MOVED on purpose at the fuse (named below)`, { timeout: 120_000 }, () => {
+      const got = fusePin(seed, 2, ALL_THREE);
+      expect(got.fights).not.toBe(PRE_FUSE_PINS[seed].fights);
+      expect(got.logs).not.toBe(PRE_FUSE_PINS[seed].logs);
+      expect(got).toEqual(FUSE_MOVED_PINS[seed]);
     });
     it(`seed ${seed.toString(16)}: a catalog 2 run with Impact Grenades only (contact, unchanged by the fuse)`, { timeout: 120_000 }, () => {
       expect(fusePin(seed, 2, IMPACT_ONLY)).toEqual(PRE_FUSE_IMPACT_PINS[seed]);
