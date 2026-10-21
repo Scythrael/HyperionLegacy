@@ -172,7 +172,11 @@ const GOLDEN: Record<string, string | string[]> = {
   // (91429198) is unchanged, every replay and the final state moved. The final state moved again with B4 (the
   // tactical officer's promotion counters: crewHours and shipsDestroyed).
   patrol: ["91429198", "5f21282d", "3402127c", "f524ed0a", "13cbd93d", "50366cbe", "f3e19edd", "1c64af86", "cc2a99b", "4d58a986"],
-  rungs: "9928b877",
+  // Re-pinned by G1-6 (SHORT_RANGE_BOARD_LIVE): Mission Control gains the two Short-Range board rungs, so its level 1
+  // and 2 lines read the completion and credit gates and level 3 is the new top. With Mission Control cut back to its
+  // founding rung the pre-flip capture (rungsBeforeG16) reproduces exactly, so the board rungs are the only cause.
+  rungs: "5394692d",
+  rungsBeforeG16: "9928b877",
   utility: [
     "f3df2ef8", "3b01c657", "217dee49", "4f69bf08", "5bdee672", "8074aed9", "e1d54513", "a15fe684",
     "b16f813d", "126b521b", "db034e3c", "94bea692", "91ad5cc1", "1ea09a48", "83b5cc39",
@@ -271,16 +275,29 @@ describe("WR-4 pre-fix goldens", () => {
     let inv = poor.inventory;
     for (const id of Object.keys(ITEMS)) inv = addItemQuality(inv, id, new Decimal(1e12), 0);
     const wealthy: GameState = { ...poor, credits: new Decimal(1e15), fleetAdminLevel: 99, inventory: inv };
-    const out: string[] = [];
-    for (const [key, def] of Object.entries(FACILITIES)) {
-      for (let level = 0; level <= def.upgrades.length; level++) {
-        const a = canBuildFacilityUpgrade(withFacilityLevel(poor, key, level), key);
-        const b = canBuildFacilityUpgrade(withFacilityLevel(wealthy, key, level), key);
-        out.push(`${key}:${level}:${a.ok ? "ok" : a.reason}|${b.ok ? "ok" : b.reason}`);
+    const lines = (): string[] => {
+      const out: string[] = [];
+      for (const [key, def] of Object.entries(FACILITIES)) {
+        for (let level = 0; level <= def.upgrades.length; level++) {
+          const a = canBuildFacilityUpgrade(withFacilityLevel(poor, key, level), key);
+          const b = canBuildFacilityUpgrade(withFacilityLevel(wealthy, key, level), key);
+          out.push(`${key}:${level}:${a.ok ? "ok" : a.reason}|${b.ok ? "ok" : b.reason}`);
+        }
       }
-    }
+      return out;
+    };
+    const out = lines();
     expect(out.some((l) => l.endsWith("|ok"))).toBe(true);
     expect(hash(out)).toEqual(GOLDEN.rungs);
+    // G1-6's only cause: Mission Control cut back to its founding rung reproduces the pre-flip capture.
+    const mc = FACILITIES.missionControl;
+    const board = mc.upgrades;
+    try {
+      FACILITIES.missionControl = { ...mc, upgrades: board.slice(0, 1) };
+      expect(hash(lines())).toEqual(GOLDEN.rungsBeforeG16);
+    } finally {
+      FACILITIES.missionControl = mc;
+    }
   });
 
   it("utility: the Damage Control and Pathfinder Suite readers", () => {

@@ -615,12 +615,21 @@ type Back = { readonly sf3?: boolean; readonly fkr9?: boolean; readonly racials?
 // grenades (user 2026-10-21) only ADD entries too (fieldKitsFuse.fixture.ts, pinned with their statuses in
 // fieldKitsFuse.test.ts) and are left out the same way.
 // Relics v2 R2-2 the same (its five audit rows, relicBlanks.fixture.ts; relicBlanks.test.ts pins them).
+// G1-6 (SHORT_RANGE_BOARD_LIVE, the board UI) came after every pin here too: the two Mission Control board rungs it put
+// in FACILITIES (each enumerates as a facility rung entry) and G1-3's audit row, which it flipped pending -> live with
+// its own check (the 50-completion gate). Every read-back and the snapshot leave the rungs out and read the row as it
+// stood (G16_ROW_BEFORE); "G1-6 is the only cause" below proves that is the whole move.
 // The Quartermaster Standard-Issue member lines and the D26 line swap (0.14.0) came after every pin here too: every
 // read-back and the snapshot read them back (siMemberGearRegistry.fixture.ts siReadBack: the added entries left out,
 // the nine retired combat lines restored in place; shortRangeGoldens.test.ts `registry:si` pins them).
+const G16_ADDED_IDS: ReadonlySet<string> = new Set<string>(["facility:FACILITIES:missionControl:1", "facility:FACILITIES:missionControl:2"]);
+const G16_ROW_BEFORE = { kind: "pending", owner: "G1-6 (flips SHORT_RANGE_BOARD_LIVE with the board UI; the rungs then enumerate as facility rung entries on the shortRangeSlots probe)" } as const;
 const BEFORE_RX: WiringEntry[] = siReadBack(
   WIRING_REGISTRY.filter(
-    (e) => !RX_ADDED_ENTRY_IDS.has(e.id) && !FUSE_ADDED_ENTRY_IDS.has(e.id) && !R2_2_ADDED_ENTRY_IDS.has(e.id),
+    (e) =>
+      !RX_ADDED_ENTRY_IDS.has(e.id) && !FUSE_ADDED_ENTRY_IDS.has(e.id) && !R2_2_ADDED_ENTRY_IDS.has(e.id) && !G16_ADDED_IDS.has(e.id),
+  ).map((e) =>
+    e.id === G13_ROW ? { ...e, status: G16_ROW_BEFORE as (typeof WIRING_REGISTRY)[number]["status"], contexts: [], probe: undefined } : e,
   ),
   (e) => e.id,
   (row) => ({ id: row[0], status: row[1], contexts: row[2], probe: row[3] ?? undefined }) as unknown as WiringEntry,
@@ -762,6 +771,21 @@ describe("EM-0 goldens (re-pinned by EM-1 where named)", () => {
   it("registry: FKR-6 and G1-3's audit row are the only causes of its snapshot move", () => {
     expect(hash(registryRowsBack(false))).toBe(REGISTRY_BEFORE_FKR6);
     expect(hash(registryRowsBack(true))).toBe(REGISTRY_BEFORE_G13);
+  });
+  // G1-6: the live registry (the reactor fuel additions left out) is the pinned snapshot's rows plus exactly the two
+  // board rungs (in FACILITIES order, right after the founding rung) and G1-3's audit row live with its gate check.
+  it("registry: G1-6 (the board goes live) is the only cause of its move", () => {
+    // Merged onto feat (0.14.0 integration): the slices BEFORE_RX holds apart (the timed grenades, R2-2, the SI read-back)
+    // are held apart here the same way, so the comparison sees G1-6's move alone.
+    const live = WIRING_REGISTRY.filter((e) => !RX_ADDED_ENTRY_IDS.has(e.id) && !FUSE_ADDED_ENTRY_IDS.has(e.id) && !R2_2_ADDED_ENTRY_IDS.has(e.id));
+    const rung = live.filter((e) => G16_ADDED_IDS.has(e.id)).map((e) => [e.id, e.status, e.contexts, e.probe ?? null]);
+    expect(rung).toEqual([...G16_ADDED_IDS].map((id) => [id, { kind: "live" }, ["mission:shortRange"], "shortRangeSlots"]));
+    const row = live.find((e) => e.id === G13_ROW)!;
+    expect([row.status, row.contexts, row.probe]).toEqual([{ kind: "live" }, ["facility"], "missionControlBuildable"]);
+    const rest = siReadBack(live.filter((e) => !G16_ADDED_IDS.has(e.id) && e.id !== G13_ROW).map((e) => e.id), (id) => id, (r) => r[0]);
+    expect(rest).toEqual(BEFORE_RX.filter((e) => e.id !== G13_ROW).map((e) => e.id));
+    const ids = live.map((e) => e.id);
+    expect(ids.indexOf("facility:FACILITIES:missionControl:1")).toBe(ids.indexOf("facility:FACILITIES:missionControl:0") + 1);
   });
 });
 

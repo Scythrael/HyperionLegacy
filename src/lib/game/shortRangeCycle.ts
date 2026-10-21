@@ -34,13 +34,14 @@
 // PURE: no clock, no shared economy rng (the material rounding draws on the roll's own SHORT_RANGE_OUTPUT_SALT stream,
 // Motherlode on the captain's private stream), no state mutation.
 
-import { type CaptainState, type GameState, type RunCounts, type ShipInstance, type ShortRangeMissionState, type ShortRangePhase } from "./model";
+import { ITEMS, type CaptainState, type GameState, type RunCounts, type ShipInstance, type ShortRangeMissionState, type ShortRangePhase } from "./model";
 import { SHORT_RANGE_OUTPUT_SALT, SHORT_RANGE_TEMPLATES, shortRangeCycleReward, wholeUnits, type ShortRangeCyclePlan, type ShortRangeRoll } from "./shortRange";
 import { shortRangeSlotById, startShortRangeCycle } from "./shortRangeBoard";
 import { effectiveShipStats, shipMissionOutputBonus } from "./crewOverlay";
 import { captainMotherlodeChance, captainTransportTerms, motherlodeSeed } from "./captainSecondaryEffects";
 import { countShortRangeCycleComplete } from "./runDifficulty";
 import { makeRng } from "./combat/rng";
+import { formatNumber } from "./format";
 
 // The float-snap epsilon of a phase boundary (tickCaptainMission's MISSION_TICK_EPSILON).
 const TICK_EPSILON = 1e-9;
@@ -108,6 +109,45 @@ export function shortRangeDepartureHold(
   const load = shortRangeLoadToPay(mission.roll, captain);
   if (load > 0 && credits < load) return "credits";
   return null;
+}
+
+// The player's words for a run waiting at the departure gate (G1-6, the signed-off board mockup; user 2026-10-21 "Yes,
+// calm status line": waiting is a calm status, never a warning). `text` is the board card's full line, `line` the one
+// row Home and the Operations Overview show. Null when the run is not waiting (it has left, or leaves next tick). Read
+// through shortRangeDepartureHold, the very gate the engine acts on, so the words cannot disagree with the engine.
+// `credits` and `atCap` as shortRangeDepartureHold takes them. Pure.
+export interface ShortRangeWaitText {
+  hold: ShortRangeDepartureHold;
+  text: string;
+  line: string;
+}
+export function shortRangeWaitText(
+  mission: Pick<ShortRangeMissionState, "roll" | "phase" | "phaseProgressTicks">,
+  captain: CaptainState | null | undefined,
+  credits: number,
+  atCap: (itemId: string) => boolean,
+): ShortRangeWaitText | null {
+  if (shortRangeHasDeparted(mission)) return null;
+  const hold = shortRangeDepartureHold(mission, captain, credits, atCap);
+  if (hold === null) return null;
+  const reward = SHORT_RANGE_TEMPLATES[mission.roll.template].reward;
+  if (hold === "warehouse") {
+    const item = reward.kind === "pickup" ? ITEMS[reward.material]?.label ?? reward.material : "its cargo";
+    return {
+      hold,
+      text: `Waiting for Warehouse room: ${item} is at its cap. It leaves on its own once there is room. Nothing is lost while it waits.`,
+      line: `Waiting at home for Warehouse room for ${item}; leaves on its own`,
+    };
+  }
+  const load = formatNumber(Math.round(shortRangeLoadToPay(mission.roll, captain)));
+  const loadCost = reward.kind === "supplyLoop" ? (mission.roll.units ?? 0) * reward.supplyCostPerUnit[mission.roll.tier] : 0;
+  const margin = formatNumber(shortRangeDropOffMargin(mission.roll, loadCost, captainTransportTerms(captain).marginBonus));
+  const have = formatNumber(Math.floor(Math.max(0, credits)));
+  return {
+    hold,
+    text: `Waiting for the ${load} credit load (the fleet has ${have}). It leaves on its own once the credits are there; the load comes back on delivery with a ${margin} credit margin. Nothing is lost while it waits.`,
+    line: `Waiting at home for its ${load} credit load; leaves on its own`,
+  };
 }
 
 // ===== the gear wear seam =====

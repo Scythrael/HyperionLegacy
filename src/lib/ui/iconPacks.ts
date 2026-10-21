@@ -182,6 +182,9 @@ export const ICON_SEMANTICS: Record<IconName, IconSemantic> = {
   // ML-2 recipe realism (0.14.0): each glyph names one refined good (Biofiber, Resin Distillate).
   biofiber: "subject",
   resinDistillate: "subject",
+  // Short-Range Missions (0.14.0 G1-6): the hop names the mission type (Home rows), the mast names one job.
+  shortRange: "subject",
+  commBooster: "subject",
 
   // ACTION: something the player does. Should stay recognisable as that action.
   salvage: "action",

@@ -29,6 +29,7 @@ import {
   EQUIPMENT_SLOTS,
   EQUIPMENT_STORAGE_RUNGS,
   FACILITIES,
+  MISSION_CONTROL_UNLOCK_COMPLETIONS,
   GENERAL_QUARTERS_GUEST_PERK,
   GRENADE_CARRY_PER_LINE,
   HOMEWORLD_TALENTS,
@@ -1608,8 +1609,9 @@ function facilityRungEntries(): WiringEntry[] {
         out.push(entry({ ...common, probe: "shipBuildTicks", contexts: ["shipyard"], direction: "down", curve: { kind: "divisor" }, magnitude: (c) => num("buildSpeedMult")(c) - 1 }));
       else if ("addShipyardBays" in eff) out.push(entry({ ...common, probe: "shipyardBays", contexts: ["shipyard"], magnitude: num("addShipyardBays") }));
       else if ("addSalvageSlots" in eff) out.push(entry({ ...common, probe: "salvageLanes", contexts: ["salvage"], magnitude: num("addSalvageSlots") }));
-      // G1-3: a Mission Control board rung opens one short-range slot (enumerated once SHORT_RANGE_BOARD_LIVE puts the
-      // rungs in FACILITIES, G1-6; until then facility:audit:missionControlUnlock names them).
+      // G1-3: a Mission Control board rung opens one short-range slot. G1-6 flipped SHORT_RANGE_BOARD_LIVE, so both rungs
+      // are in FACILITIES and enumerate here (facility:FACILITIES:missionControl:1 and :2); the level 2 rung's
+      // completion gate is facility:audit:missionControlUnlock's check.
       else if ("addShortRangeSlot" in eff) out.push(entry({ ...common, probe: "shortRangeSlots", contexts: ["mission:shortRange"], magnitude: () => 1 }));
       else if ("telescope" in eff) {
         const t = eff.telescope as { detail: number; reachTier: number };
@@ -3490,8 +3492,10 @@ const AUDIT_ROWS: readonly { id: string; system: WiringSystem; claim: string; st
   // C. Facilities, items, fuel
   { id: "facility:audit:fuelAutoBuy", system: "facility", claim: "The mission fuel budget and credit auto-buy plumbing (FUEL_CREDITS_PER_UNIT, REFUEL_PENALTY_TICKS, refuelDelayTicks): unreachable since 0.13.6 (an infinite fuel budget). (B5's Buy Fuel, tank and refinery are gone, WR-4.)", status: pending("S4-A02 (the fuel-economy cleanup: remove or keep, a user call)") },
   { id: "facility:audit:requiresResearch", system: "facility", claim: "The requiresResearch rung gate (B1 fixed in WR-4: it checks the researched blueprint; no rung lists one yet)", status: pending("OC-C4") },
-  { id: "facility:audit:requiresFacilityLevels", system: "facility", claim: "requiresFacilityLevels / requiresMissionCompletions rung gates (correct, no rung uses them)", status: pending("WR-4, OC-C4") },
-  { id: "facility:audit:missionControlUnlock", system: "facility", claim: "MISSION_CONTROL_UNLOCK_COMPLETIONS 50 and the Mission Control board rungs (MISSION_CONTROL_BOARD_RUNGS, G1-3: a Tier II short-range slot at level 2 behind the 50-completion gate, a fourth at level 3), hidden until SHORT_RANGE_BOARD_LIVE", status: pending("G1-6 (flips SHORT_RANGE_BOARD_LIVE with the board UI; the rungs then enumerate as facility rung entries on the shortRangeSlots probe)") },
+  { id: "facility:audit:requiresFacilityLevels", system: "facility", claim: "requiresFacilityLevels rung gate (correct, no rung uses it); its twin requiresMissionCompletions is live on the Short-Range board's level 2 rung (G1-6, facility:audit:missionControlUnlock)", status: pending("WR-4, OC-C4") },
+  // G1-6 flipped SHORT_RANGE_BOARD_LIVE: the board rungs are in FACILITIES (each enumerates as a facility rung entry on
+  // the shortRangeSlots probe), and this row checks their 50-completion gate (auditRowWiring).
+  { id: "facility:audit:missionControlUnlock", system: "facility", claim: "MISSION_CONTROL_UNLOCK_COMPLETIONS 50: the Mission Control board rung that opens the Tier II short-range slot (MISSION_CONTROL_BOARD_RUNGS[0], level 2) waits on 50 completions of each ore run", status: LIVE },
   { id: "facility:audit:itemEquipStats", system: "facility", claim: "ItemDef.equipStats (no item fills it)", status: pending("WR-4, OC-C4") },
   { id: "facility:audit:precursorCircuit", system: "facility", claim: "Precursor Circuit: salvage drops it, nothing consumes it", status: pending("WR-10, OC-J3") },
   // D. Ship
@@ -3616,7 +3620,23 @@ function auditEntries(): WiringEntry[] {
 function auditRowWiring(): Readonly<Record<string, Partial<EntryInput>>> {
   const emitter = (draw: number): Transform => (s) => installPiece(s, { slotType: "shieldEmitters", powerDraw: draw });
   const torpedo = (draw: number): Transform => (s) => installPiece(s, { slotType: "weapon", weaponType: "concussionTorpedo", powerDraw: draw });
+  // G1-6: a level 1 Mission Control with credits to spare and N completions of each ore run.
+  const playedOreRuns = (n: number): Transform => (s) => ({
+    ...s,
+    credits: new Decimal(1e9),
+    lifetimeStats: { ...s.lifetimeStats, missionsCompleted: { ...s.lifetimeStats.missionsCompleted, shortOreRun: new Decimal(n), longOreRun: new Decimal(n) } },
+  });
   return {
+    // G1-6 (SHORT_RANGE_BOARD_LIVE): the board's level 2 rung opens once each ore run has MISSION_CONTROL_UNLOCK_COMPLETIONS
+    // completions; one fewer keeps it shut.
+    "facility:audit:missionControlUnlock": {
+      probe: "missionControlBuildable",
+      contexts: ["facility"],
+      curve: { kind: "gate" },
+      magnitude: () => 1,
+      on: playedOreRuns(MISSION_CONTROL_UNLOCK_COMPLETIONS),
+      off: playedOreRuns(MISSION_CONTROL_UNLOCK_COMPLETIONS - 1),
+    },
     // Field Kits FKR-7: one Injury Kit's share on a member's trip treatment divides their Broken Bone bay time.
     "away:audit:treatmentShare": {
       probe: "content:runTreatment",

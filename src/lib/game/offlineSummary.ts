@@ -126,13 +126,19 @@ function tallyCell(value: Decimal | undefined): Decimal {
 function missionTypeLabel(missionId: string): string {
   if (Object.prototype.hasOwnProperty.call(MISSIONS, missionId)) return "Gathering";
   if (Object.prototype.hasOwnProperty.call(PATROLS, missionId)) return "Combat";
+  // G1-6 (the recap line of the signed-off board mockup): a delivered short-range cycle counts under
+  // `shortRange:<template>` (tick.ts), so the recap names its own type instead of "Other".
+  if (missionId.startsWith(SHORT_RANGE_TALLY_PREFIX)) return "Short-Range";
   return "Other";
 }
 
+// The lifetime tally's key prefix of a delivered short-range cycle (tick.ts economyTick's short-range arm).
+const SHORT_RANGE_TALLY_PREFIX = "shortRange:";
+
 // Fixed render order for the per-type rows so the modal is deterministic regardless of the
-// tally's key-iteration order. Combat first (the headline of a combat session), then Gathering,
-// then the Other catch-all last.
-const MISSION_TYPE_ORDER = ["Combat", "Gathering", "Other"] as const;
+// tally's key-iteration order. Combat first (the headline of a combat session), then Gathering, then
+// Short-Range (G1-6), then the Other catch-all last.
+const MISSION_TYPE_ORDER = ["Combat", "Gathering", "Short-Range", "Other"] as const;
 
 // Reconstruct the GROSS xp EARNED across a level span from two leftover-xp snapshots.
 //

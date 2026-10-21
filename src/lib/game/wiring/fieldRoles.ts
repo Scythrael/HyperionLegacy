@@ -182,7 +182,9 @@ export const FIELD_ROLES: Readonly<Record<string, Readonly<Record<string, FieldR
     effect: "effect",
   },
   FACILITIES: { label: "display", upgrades: "effect" },
-  FACILITY_UPGRADES: { materials: "gate", credits: "gate", durationTicks: "gate", requiresFleetAdminLevel: "gate", requiresHomeworldTalents: "gate", effect: "effect" },
+  // G1-6: requiresMissionCompletions (the Short-Range board rung at Mission Control level 2, the kept 50-completion
+  // hook) is a gate.
+  FACILITY_UPGRADES: { materials: "gate", credits: "gate", durationTicks: "gate", requiresFleetAdminLevel: "gate", requiresHomeworldTalents: "gate", requiresMissionCompletions: "gate", effect: "effect" },
   REFINE_RECIPES: { input: "effect", output: "effect", durationTicks: "effect" },
   BLUEPRINTS: {
     key: "identity",

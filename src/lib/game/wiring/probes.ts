@@ -67,6 +67,7 @@ import {
 } from "../model";
 import {
   canBuildShip,
+  canBuildFacilityUpgrade,
   canDispatch,
   startLine,
   startResearch,
@@ -1291,6 +1292,8 @@ export const PROBES = {
   salvageLanes: { label: "salvageSlotCount", read: (s) => salvageSlotCount(s) },
   // G1-3: the short-range board's slot count (shortRangeBoard.ts, derived from the Mission Control level).
   shortRangeSlots: { label: "shortRangeBoardSlots (count)", read: (s) => shortRangeBoardSlots(s).length },
+  // G1-6: whether the next Mission Control rung can be built now (1) or not (0): the board rung's completion gate.
+  missionControlBuildable: { label: "canBuildFacilityUpgrade(missionControl).ok (1 / 0)", read: (s) => (canBuildFacilityUpgrade(s, "missionControl").ok ? 1 : 0) },
   missionsUnlocked: { label: "missions unlocked (count)", read: (s) => (Object.keys(MISSIONS) as MissionKey[]).filter((k) => missionUnlocked(s, k)).length },
   telescopeReach: { label: "telescopeReading.reachTier", read: (s) => telescopeReading(s).reachTier },
   telescopeDetail: { label: "telescopeReading.detail", read: (s) => telescopeReading(s).detail },
