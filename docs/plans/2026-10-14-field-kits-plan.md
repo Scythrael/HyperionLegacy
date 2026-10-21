@@ -1106,3 +1106,14 @@ Reading (this reshapes FK-1, FK-4, FK-5, FK-6, FK-8, FK-9):
   18 "No Fracture bay time (Recommended)". => ALL Field Kits open calls are now answered.
 - **Stun and Fear (2026-10-17):** "Yes, both clear them (Recommended)": Stun and Fear are basic debuffs; a First Aid Kit
   and the free Cure clear them (confirms FKR-2's provisional pick).
+
+## USER ANSWERS (2026-10-20): FKR-9 packing mockup v1 (https://claude.ai/artifact/4kB9DT4sC5vGh1Dbs3FLYF)
+
+- **Steppers:** "Per member (Recommended)": one stepper per kit per member, packs pre-filled.
+- **Top-up toggle:** "Per team at dispatch (Recommended)": in the dispatch side rail, remembered per team.
+- **In-run readout:** "Both (Recommended)": a one-line summary on the expedition card plus the full table in the detail
+  view.
+- **Short and unusable kits:** "Quiet notes for both (Recommended)": a soft "N short" note per kit when top-up is off, and
+  one dim "needs Medical Training" line under non-medics.
+- The mockup is signed off by these answers; FKR-9/10 build to it. New glyphs it proposes (grenade, offense / defense /
+  debuff role glyphs, home mark) need the 16/28/56 px review in icons.ts + ICON_SEMANTICS before shipping.
