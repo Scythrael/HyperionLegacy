@@ -14870,14 +14870,14 @@
                    Refinery's locked rail slot does). -->
               {#if activeQuartermasterSubTab === "requisition"}
                 <Panel>
-                  <!-- 0.13.6 green-text pass: the intro + the "floor, not an upgrade" clarification
+                  <!-- 0.13.6 green-text pass: the intro + the "floor" clarification (0.14.0: the away-team kit carries real stats)
                        (no numbers, deliberately: the magnitudes are tunable data) collapse into ONE
                        `?` on the title. The rows + the one-at-a-time note below stay visible. -->
                   <div class="panel-title">
                     REQUISITION
                     <HelpTip
                       label="How Requisition works"
-                      text="Standard-Issue patterns, issued free. Take one and it lands in your spare systems, ready to install from a ship's Ship Systems screen, or on an away-team member of the matching squad. A Standard-Issue piece is the floor, not an upgrade: it fills a slot so a ship can fly and a crew member is not working bare-handed, and it is always the weakest version of that system. Crafted systems are the real gains."
+                      text="Standard-Issue patterns, issued free. Take one and it lands in your spare systems, ready to install from a ship's Ship Systems screen, or on an away-team member of the matching squad. A Standard-Issue piece is the floor: it fills a slot so a ship can fly, and the away-team kit gives a crew member a modest start, but it is always the weakest version of that piece. Crafted gear brings the real gains."
                     />
                   </div>
 

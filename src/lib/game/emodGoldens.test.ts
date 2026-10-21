@@ -39,7 +39,8 @@ import { effectiveShipStats } from "./crewOverlay";
 import { advanceExpedition, claimExpedition, expeditionCandidates, startExpedition } from "./expedition";
 import { shipEventsLive } from "./shipScanEvents";
 import { asPreVoyageDispatch, plainAwayMember, withSlottedAwayTeams } from "./awayTeamTestFixtures";
-import { WIRING_REGISTRY } from "./wiring/registry";
+import { WIRING_REGISTRY, type WiringEntry } from "./wiring/registry";
+import { siReadBack } from "./siMemberGearRegistry.fixture";
 import { getSeniorStaffBonusById } from "./seniorStaffBonuses";
 import { withEm1Off } from "./emodEm1Switch.fixture";
 import { goldenJson, withV1Museum } from "./firstRunsGoldens.fixture"; // gear wear: goldenJson puts the retired durability back
@@ -605,7 +606,14 @@ type Back = { readonly sf3?: boolean; readonly fkr9?: boolean; readonly racials?
 // every read-back and the snapshot leave them out (reactorFuelGoldens.test.ts pins them with their statuses). The timed
 // grenades (user 2026-10-21) only ADD entries too (fieldKitsFuse.fixture.ts, pinned with their statuses in
 // fieldKitsFuse.test.ts) and are left out the same way.
-const BEFORE_RX = WIRING_REGISTRY.filter((e) => !RX_ADDED_ENTRY_IDS.has(e.id) && !FUSE_ADDED_ENTRY_IDS.has(e.id));
+// The Quartermaster Standard-Issue member lines and the D26 line swap (0.14.0) came after every pin here too: every
+// read-back and the snapshot read them back (siMemberGearRegistry.fixture.ts siReadBack: the added entries left out,
+// the nine retired combat lines restored in place; shortRangeGoldens.test.ts `registry:si` pins them).
+const BEFORE_RX: WiringEntry[] = siReadBack(
+  WIRING_REGISTRY.filter((e) => !RX_ADDED_ENTRY_IDS.has(e.id) && !FUSE_ADDED_ENTRY_IDS.has(e.id)),
+  (e) => e.id,
+  (row) => ({ id: row[0], status: row[1], contexts: row[2], probe: row[3] ?? undefined }) as unknown as WiringEntry,
+);
 function rowsBack(back: Back): unknown[][] {
   return BEFORE_RX.filter(
     (e) =>

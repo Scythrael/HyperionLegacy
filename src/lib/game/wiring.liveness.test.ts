@@ -6,7 +6,7 @@
 //      move), with the same owner, except where a user decision since names a new one (the Spacer ramp: T3).
 
 import { describe, it, expect } from "vitest";
-import { ENTRIES, FIELD_KITS_GEAR_LINES } from "./wiring/liveness.testkit";
+import { D26_GEAR_LINES, ENTRIES, FIELD_KITS_GEAR_LINES } from "./wiring/liveness.testkit";
 import { CP_3, WIRING_REGISTRY } from "./wiring/registry";
 
 // The PENDING_IN_RELEASE allow-list of no-dead-stats.test.ts as it stood when WR-1 moved it (id -> phase).
@@ -66,8 +66,10 @@ describe("wiring registry parity with the no-dead-stats liveness level", () => {
     expect(registryIds).toEqual(testkitIds);
     // 149 at the move, + the 25 hidden Prospecting gear lines, + Field Kits FKR-5's grenade lines (all live; 5 once
     // FIELD_KITS_PLAYER_LIVE, 3 until then: the Stun and Toxin carry lines wait for FKR-7)
-    expect(testkitIds.length).toBe(149 + 25 + FIELD_KITS_GEAR_LINES);
-    expect(liveness.filter(isProspectingDeferral)).toHaveLength(25);
+    // The D26 line swap (0.14.0, user 2026-10-21): 9 lines retire (2 of them the Hazard Suit's Prospecting ARM / HP),
+    // 3 Science lines arrive (D26_GEAR_LINES); 23 Prospecting lines remain.
+    expect(testkitIds.length).toBe(149 + 25 + FIELD_KITS_GEAR_LINES + D26_GEAR_LINES);
+    expect(liveness.filter(isProspectingDeferral)).toHaveLength(23);
   });
 
   it("every liveness entry that is not live was on the old allow-list, with the same owner (or a user deferral)", () => {

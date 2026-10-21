@@ -7,13 +7,16 @@
 //   - the stall count and the lost fights never fall as the curve rises (both crews);
 //   - the weakest launchable crew finishes run 2 at least 95% of the time.
 // The plan's [PROVISIONAL] nominal targets (full rank 1 completes 95%, wins 90% of its Vault and Subterranean sites at
-// full strength) are REPORTED, not asserted: the user's 2026-10-16 ruling makes comfortable nominal Tier I a full team
-// wearing the first Quartermaster set, whose stats are not built yet (model.ts STANDARD_ISSUE_IMPLICIT_MAGNITUDE 0).
+// full strength) are REPORTED for the bare crews: the user's 2026-10-16 ruling makes comfortable nominal Tier I a full
+// team wearing the first Quartermaster set, and they are ASSERTED on that team (the rank1si row, below).
 // Measured (SF-3 review build: Weak fades, the climb ends at run 12): at full strength (run 12) full rank 1 with no gear
 // completes 125 of 200 runs and wins 231 of its 365 Vault and Subterranean objectives (every hold a Challenging or
 // harder Vault or Subterranean final: the FKR-1 Elite and Boss leads); run 11 completes 181 and wins 341 of 366. The D18
 // minimum completes run 2 on 195 of 200; its own breaking point is run 6 to 7 (stalls 97 to 175 of 200), where the
 // faded strength first outgrows two rank 1 members with no gear, not a step in the curve (0.43 to 0.51 of nominal).
+// The Quartermaster set (0.14.0, the rank1si row; the targets are now ASSERTED on it): the same team in Standard-Issue
+// gear completes 193 of 200 at full strength (run 12) and wins 356 of 365 Vault and Subterranean objectives; run 11
+// 193 and 357 of 366; runs 2 to 9 finish every run and every vault.
 
 import { describe, expect, it } from "vitest";
 import { SWEEP } from "./firstRunsGoldens.fixture";
@@ -21,7 +24,8 @@ import { rampRun, rampSeed, tally, type RampTally } from "./safeFirstRamp.fixtur
 
 const SEEDS = 200;
 const KS = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
-const CREWS = ["d18", "rank1"] as const;
+// rank1si (0.14.0): the full rank 1 crew wearing the Quartermaster's Standard-Issue set (firstRunsGoldens.fixture.ts).
+const CREWS = ["d18", "rank1", "rank1si"] as const;
 
 // Measured on this build: per curve position (completed 0 to 9), "stalled/anyLost/lostFights/vaultWon:vaultSites".
 const TABLE: Record<(typeof CREWS)[number], string[]> = {
@@ -35,10 +39,15 @@ const TABLE: Record<(typeof CREWS)[number], string[]> = {
     "0/63/192/376:376", "0/89/386/369:369", "4/119/928/364:369", "6/145/2483/361:369", "19/164/4178/341:366",
     "75/179/5426/231:365",
   ],
+  rank1si: [
+    "0/0/0/383:383", "0/1/1/381:381", "0/2/3/380:380", "0/8/10/380:380", "0/17/22/378:378",
+    "0/39/58/376:376", "0/56/171/369:369", "0/96/438/369:369", "4/117/788/365:369", "7/134/1851/357:366",
+    "7/161/3526/356:365",
+  ],
 };
 
 const cell = (t: RampTally): string => `${t.stalled}/${t.anyLost}/${t.lostFights}/${t.vaultWon}:${t.vaultSites}`;
-const measured: Record<string, RampTally[]> = { d18: [], rank1: [] };
+const measured: Record<string, RampTally[]> = { d18: [], rank1: [], rank1si: [] };
 
 describe.runIf(SWEEP)("SF-3 the sweep (gated): 200 Tier I seeds per curve position", () => {
   for (const crew of CREWS) {
@@ -61,5 +70,15 @@ describe.runIf(SWEEP)("SF-3 the sweep (gated): 200 Tier I seeds per curve positi
       }
     }
     expect(measured.d18[0].stalled / SEEDS).toBeLessThanOrEqual(0.05);
+  });
+
+  // The plan's nominal Tier I targets, now that the Quartermaster set is built (user 2026-10-16 "Full team + upgrade"):
+  // at full strength a full rank 1 team in the Standard-Issue set completes at least 95% of its runs and wins at least
+  // 90% of its Vault and Subterranean objectives.
+  it("the nominal targets: a full rank 1 team in the Standard-Issue set at full strength", () => {
+    const full = measured.rank1si[KS.length - 1];
+    expect(full).toBeDefined();
+    expect((SEEDS - full.stalled) / SEEDS).toBeGreaterThanOrEqual(0.95);
+    expect(full.vaultWon / full.vaultSites).toBeGreaterThanOrEqual(0.9);
   });
 });

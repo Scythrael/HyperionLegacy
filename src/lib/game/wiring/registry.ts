@@ -52,6 +52,10 @@ import {
   SI_EMITTER_RECHARGE,
   SI_PLATING_HP,
   SLOT_BASE_PHYSICALS,
+  STANDARD_ISSUE_MEMBER_POINTS,
+  STANDARD_ISSUE_MEMBER_SHARES,
+  standardIssueMemberLines,
+  generateStandardIssue,
   SUBSPACE_TELESCOPE_FACILITY_KEY,
   SUBSPACE_TELESCOPE_LEVELS,
   TRANSIT_BERTH_RUNGS,
@@ -295,6 +299,9 @@ export const CATALOGS = {
   EQUIPMENT_SLOTS,
   AWAY_TRAITS,
   GEAR_POINT_BUMP,
+  // 0.14.0: the Quartermaster Standard-Issue member lines (their points and slot-role shares).
+  STANDARD_ISSUE_MEMBER_POINTS,
+  STANDARD_ISSUE_MEMBER_SHARES,
   GAMBIT_STATUSES,
   MISSIONS,
   PATROLS,
@@ -409,7 +416,6 @@ function pending(owner: string, contexts?: readonly ContextId[]): WiringStatus {
 // pools + exclusive pool live, design 6.2)", was split into CP-1 to CP-4; CP-2 and the inert-racials slice (0.14.0,
 // user "everything wired" 2026-10-20) took the rest live. Exported for the liveness parity test (the renamed owner).
 export const CP_3 = "Complement plan CP-3 (Ground Ops complement consumers: Security, Medical, exclusive pool)";
-const SCIENCE_LINE_SWAP = "Science gear line swap (D26): Science gear rolls fieldwork/hazard/find lines instead";
 // Expedition Tiers G2-2 (plan 2026-10-14 G2-2: "the console still shows Tier I only (G2-6 adds the picker); a hidden
 // region is reachable by tests only"): every tier's candidates are built and tested (expeditionTierCandidates.test.ts),
 // but no player reaches a deeper tier until the console offers it, so the tier-gated sources wait on G2-6.
@@ -730,24 +736,24 @@ export function memberRollableKeys(slotType: MemberSlotType, variety: { implicit
   return new Set([...(variety.implicitStats ?? slot.implicitStats), ...(variety.affixPool ?? slot.affixPool).map((a) => a.stat)]);
 }
 
-const GEAR_PENDING: Readonly<Record<string, string>> = {
-  "gear:science:sidearm:groundPower": SCIENCE_LINE_SWAP,
-  "gear:science:sidearm:groundAccuracy": SCIENCE_LINE_SWAP,
-  "gear:science:sidearm:groundStatusChance": SCIENCE_LINE_SWAP,
-  "gear:science:fieldSuit:groundArmor": SCIENCE_LINE_SWAP,
-  "gear:science:fieldSuit:groundHp": SCIENCE_LINE_SWAP,
-  "gear:science:hazardSuit:groundArmor": SCIENCE_LINE_SWAP,
-  "gear:science:hazardSuit:groundHp": SCIENCE_LINE_SWAP,
-};
+// A member gear line still waiting on a named owner, by entry id. Empty since the D26 line swap (user 2026-10-21 "Give
+// them Science lines"): the Sidearm, Field Suit and Hazard Suit no longer roll the combat lines that never acted for
+// Science, so the seven SCIENCE_LINE_SWAP entries are gone and their Science lines are live.
+const GEAR_PENDING: Readonly<Record<string, string>> = {};
 
 function wearerOf(team: AwayTeamType): string {
   return team === "science" ? WIRING_SCIENCE_ID : WIRING_SECURITY_ID;
 }
 
 // The seam a member line moves, by squad and key.
-function gearSeam(team: AwayTeamType, key: MemberGroundStatKey): { probe: ProbeId; curve: Curve; magnitude: (c: Catalogs) => number; context: ContextId; tolerance?: number } | null {
-  const N = GEAR_TEST_POINTS;
-  const bump = (c: Catalogs, k: MemberGroundStatKey) => N * c.GEAR_POINT_BUMP[GROUND_STAT_MEMBER_STAT[k]!];
+// `points` (0.14.0): the line's points as the catalog reads them (the Standard-Issue entries pass their own line's
+// value); absent, the GEAR_TEST_POINTS test piece.
+function gearSeam(
+  team: AwayTeamType,
+  key: MemberGroundStatKey,
+  points: (c: Catalogs) => number = () => GEAR_TEST_POINTS,
+): { probe: ProbeId; curve: Curve; magnitude: (c: Catalogs) => number; context: ContextId; tolerance?: number } | null {
+  const bump = (c: Catalogs, k: MemberGroundStatKey) => points(c) * c.GEAR_POINT_BUMP[GROUND_STAT_MEMBER_STAT[k]!];
   if (team === "security") {
     switch (key) {
       case "groundHp":
@@ -761,7 +767,7 @@ function gearSeam(team: AwayTeamType, key: MemberGroundStatKey): { probe: ProbeI
       case "groundStatusChance":
         return { probe: "secInflictPermille", curve: { kind: "chanceAbsolute" }, magnitude: (c) => bump(c, key) * 1000, context: "ground", tolerance: 1 };
       case "groundStatusResist":
-        return { probe: "secPoisonResist", curve: { kind: "chanceAbsolute" }, magnitude: () => N * STATUS_RESIST_PER_POINT * 1000, context: "ground", tolerance: 1 };
+        return { probe: "secPoisonResist", curve: { kind: "chanceAbsolute" }, magnitude: (c) => points(c) * STATUS_RESIST_PER_POINT * 1000, context: "ground", tolerance: 1 };
       case "groundHazardResist":
         return { probe: "secTaskHazardResist", curve: { kind: "linearAbsolute" }, magnitude: (c) => bump(c, key), context: "fieldwork" };
       // Field Kits FKR-5 (FK11 "+1 carry capacity"): one more grenade charge per objective, read on a Field Kits
@@ -786,9 +792,9 @@ function gearSeam(team: AwayTeamType, key: MemberGroundStatKey): { probe: ProbeI
       case "groundHazardResist":
         return { probe: "fieldHazardResist", curve: { kind: "linearAbsolute" }, magnitude: (c) => bump(c, key), context: "fieldwork" };
       case "groundOrganicsYield":
-        return { probe: "fieldYieldOrganics", curve: { kind: "diminishing", knee: FIELDWORK_YIELD_KNEE, base: 1 }, magnitude: () => N * FIELDWORK_YIELD_PER_POINT, context: "fieldwork" };
+        return { probe: "fieldYieldOrganics", curve: { kind: "diminishing", knee: FIELDWORK_YIELD_KNEE, base: 1 }, magnitude: (c) => points(c) * FIELDWORK_YIELD_PER_POINT, context: "fieldwork" };
       case "groundVaultYield":
-        return { probe: "fieldYieldVault", curve: { kind: "diminishing", knee: FIELDWORK_YIELD_KNEE, base: 1 }, magnitude: () => N * FIELDWORK_YIELD_PER_POINT, context: "fieldwork" };
+        return { probe: "fieldYieldVault", curve: { kind: "diminishing", knee: FIELDWORK_YIELD_KNEE, base: 1 }, magnitude: (c) => points(c) * FIELDWORK_YIELD_PER_POINT, context: "fieldwork" };
       case "groundHp":
       case "groundPower":
       case "groundArmor":
@@ -869,10 +875,74 @@ function gearEntries(): WiringEntry[] {
               on: (s) => withPair(wearPiece(s, wearer, slotType, v.key, { [key]: GEAR_TEST_POINTS })),
               off: (s) => withPair(wearPiece(s, wearer, slotType, v.key, {})),
               status: owner
-                ? pending(owner, owner === SCIENCE_LINE_SWAP ? ["ground"] : undefined)
+                ? pending(owner)
                 : live
                   ? LIVE
                   : pending("WR-1 follow-up: no seam probe for this squad and line"),
+            }),
+          );
+        }
+      }
+    }
+  }
+  return out;
+}
+
+// 0.14.0: the Quartermaster Standard-Issue member lines (model.ts STANDARD_ISSUE_MEMBER_SHARES). Each line of each
+// issued variety is measured on the REAL issued piece (generateStandardIssue) worn by the squad's member: ON keeps only
+// that line as issued, OFF is the piece as a pre-change build issued it (every line 0), so the entry reads the line's
+// own catalog points through the same seam its crafted twin moves (gearSeam). Prospecting's rows are deferred with the
+// squad, like their crafted lines.
+function wearStandardIssue(s: GameState, memberId: string, slotType: MemberSlotType, varietyKey: string, keep: string | null): GameState {
+  const minted = generateStandardIssue({ slotType, varietyKey, fittedToShipId: null, allocateId: () => `wiring-si-${memberId}-${slotType}` });
+  const implicitStats = Object.fromEntries(Object.entries(minted.implicitStats).map(([k, v]) => [k, k === keep ? v : 0]));
+  const piece = { ...minted, implicitStats, fittedToMemberId: memberId };
+  return { ...s, equipment: [...s.equipment.filter((e) => e.id !== piece.id), piece] };
+}
+
+function standardIssueEntries(): WiringEntry[] {
+  const out: WiringEntry[] = [];
+  for (const slotType of MEMBER_SLOT_TYPES) {
+    for (const v of EQUIPMENT_SLOTS[slotType].varieties) {
+      const shares = STANDARD_ISSUE_MEMBER_SHARES[v.key];
+      if (!v.member || shares === undefined) continue;
+      for (const team of v.member.teamTypes) {
+        for (const stat of Object.keys(shares) as MemberGroundStatKey[]) {
+          const id = `si:${team}:${v.key}:${stat}`;
+          const source = { catalog: "STANDARD_ISSUE_MEMBER_SHARES", key: `${slotType}:${v.key}:${team}:${stat}` };
+          const claim = `Standard-Issue ${v.label} (${slotType}) ${stat} on ${team}`;
+          if (team === "prospecting") {
+            out.push(
+              entry({
+                id,
+                system: "away",
+                source,
+                claim,
+                status: PROSPECTING_DEFERRED,
+                reason: "hidden with the Prospecting squad until the prospecting quests patch: no Prospecting member deploys in 0.14.0",
+              }),
+            );
+            continue;
+          }
+          const points = (c: Catalogs) => Math.round(c.STANDARD_ISSUE_MEMBER_POINTS * (c.STANDARD_ISSUE_MEMBER_SHARES[v.key]?.[stat] ?? 0));
+          const seam = gearSeam(team, stat, points);
+          const wearer = wearerOf(team);
+          out.push(
+            entry({
+              id,
+              system: "away",
+              source,
+              claim,
+              probe: seam?.probe,
+              contexts: seam ? [seam.context] : [],
+              curve: seam?.curve ?? { kind: "linearAbsolute" },
+              magnitude: seam?.magnitude ?? (() => 0),
+              tolerance: seam?.tolerance,
+              base: () => withAwayTeam(wiringBase()),
+              on: (s) => wearStandardIssue(s, wearer, slotType, v.key, stat),
+              off: (s) => wearStandardIssue(s, wearer, slotType, v.key, null),
+              status: seam ? LIVE : pending("WR-1 follow-up: no seam probe for this squad and line"),
+              note: `the issued piece carries ${standardIssueMemberLines(v.key)[stat] ?? 0} points of this line`,
             }),
           );
         }
@@ -3749,21 +3819,12 @@ function speedSeamEntries(): WiringEntry[] {
 // ============================================================================
 
 const OFFICER_DORMANT = "dormant by design until its system lands (crewOverlay.ts OFFICER_BONUSES_PENDING_IN_RELEASE)";
-const SCIENCE_NEVER_FIGHTS = "Science never fights (D2)";
-const SIDEARM_TOOL = "Science never fights (D2); the Sidearm becomes a tool";
 const ALLOW_LIST_REASONS: Readonly<Record<string, string>> = {
   ...Object.fromEntries(Object.keys(OFFICER_BONUSES_PENDING_IN_RELEASE).map((k) => [`officer:${k}`, OFFICER_DORMANT])),
   "crew:crew.counterInfiltration": "Counter-Infiltration: resists enemy debuffs (Security pool)",
   "crew:crew.awayTeamProtection": "Away-Team Protection: squad HP (Security pool)",
   "crew:crew.triage": "Triage: squad healing (Medical pool)",
   "crew:crew.preventCrewLoss": "Prevent a Crew Loss: shorter injuries (exclusive pool)",
-  "gear:science:sidearm:groundPower": SIDEARM_TOOL,
-  "gear:science:sidearm:groundAccuracy": SIDEARM_TOOL,
-  "gear:science:sidearm:groundStatusChance": SIDEARM_TOOL,
-  "gear:science:fieldSuit:groundArmor": SCIENCE_NEVER_FIGHTS,
-  "gear:science:fieldSuit:groundHp": SCIENCE_NEVER_FIGHTS,
-  "gear:science:hazardSuit:groundArmor": SCIENCE_NEVER_FIGHTS,
-  "gear:science:hazardSuit:groundHp": SCIENCE_NEVER_FIGHTS,
   "facet:pilot:cunning": "the Flight Deck has no over-delivery of its own yet (design section 7 names none)",
 };
 
@@ -3966,6 +4027,7 @@ function build(): readonly WiringEntry[] {
     ...racialEntries(),
     ...facetEntries(),
     ...gearEntries(),
+    ...standardIssueEntries(),
     ...AWAY_TRAITS.map(traitEntry),
     ...groundEffectEntries(),
     ...captainTalentEntries(),

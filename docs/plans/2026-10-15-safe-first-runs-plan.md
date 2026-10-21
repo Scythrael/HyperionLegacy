@@ -742,6 +742,33 @@ the "Training run" chip from `isTrainingRun`, the run log (no UI renders `ground
 - **Run 10 to 11 cliff:** "Smooth the last steps (Recommended)": spread the final climb over runs 9 to 12 and let affixes
   and ambushes reach full strength one run later.
 
+## SI GEAR CARRY NOTE (2026-10-21, built on 0dca5f2; goldens first in da7e6b5)
+
+**What the Quartermaster's member set is now.** Every Standard-Issue member piece carries `points` stat points (model.ts
+`STANDARD_ISSUE_MEMBER_GEAR`, 12, **[PROVISIONAL]**), split by slot role (`STANDARD_ISSUE_MEMBER_SHARES`): Pulse Rifle
+power 6 + accuracy 6, Ballistic Weave armor 7 + HP 5, Med Kit HP 12, Flora Scanner organics yield 6 + fieldwork 6, the
+three hidden Prospecting pieces their signature pairs 6 + 6. A full Security kit: +6% power, +2.4% accuracy, +17.5%
+armor, +17% HP per member. Quality-less ordinary implicit lines, so every consumer reads them unchanged. Implants keep no
+free floor (user: "Keep this as is."). **The Science Sidearm and Field Suit carry no lines [PROVISIONAL]:** every line
+they roll is inert for Science until the D26 line swap (wiring SCIENCE_LINE_SWAP), and a free fieldwork line would out-do
+the crafted Field Suits that roll none.
+- **Held pieces:** `withStandardIssueMemberLines` is the mint's last step AND runs on every load (save.ts
+  `withStandardIssueMemberLinesV70`, the withHomeworldV70 posture; no SAVE_VERSION move), so a piece issued before gains
+  the lines, a re-load is a no-op, crafted / dev / ship pieces are untouched, and an in-flight run keeps its frozen roster.
+- **Crafted stays above it [PROVISIONAL rule]:** crafted iLevel follows crafting level (iL 1 at level 1 = 2 points), so
+  sizing alone could not keep crafted Tier 1 better. itemgen.ts `craftedItemLevelFloor` (derived from the points: iL 7,
+  a 14 point weakest budget) floors member-gear crafts (Fabricator, inspect, preview, per-blueprint readout). Proved for
+  every member variety and affix pick (siMemberGear.test.ts). Points 0 turns it off.
+- **Wiring:** 13 `si:` entries (7 live through the gear seams on the real issued piece, 6 Prospecting deferred).
+
+**Measured.** SF-3 ramp at full strength (temp merge of this branch onto 7c0b991, `rampRun` with the `rank1si` crew,
+200 seeds): a full rank 1 Orion team in the set completes **193 of 200** runs (96.5%) and wins **356 of 365** Vault /
+Subterranean objectives (97.5%); bare: 125 / 200 and 231 / 365. Runs 2 to 8: 200 / 200 with every vault won; run 9: 197
+and 366 / 369; run 10: 194 and 361 / 368. SF-3's own sweep is unchanged (bare crews). Without SF-3 (`npm run
+test:sweep:si`): SF-0 method 20 to 36 of 60 finished, vault 38 to 68 of 108; full strength 77 to 106 of 200, vault 144 to
+211 of 365. The fade-Weak / smoothing change does not move the full-strength numbers (its factor is 1 at full ramp).
+On merge: add a `rank1si` row to safeFirstRamp.sweep.test.ts (the fixture crew exists).
+
 ## SF-3 CARRY NOTE (2026-10-20, built on a678241; goldens first in 23448d2)
 
 **What an ordinary run is now.** `buildExpedition` writes `Expedition.difficulty` on EVERY new expedition: the training
@@ -822,3 +849,33 @@ and gw; `registry` re-pinned 1d8ae09b to bd1e2f48 (read back, 1d8ae09b).
 - **Science gear (D26):** "Give them Science lines (Recommended)": Sidearm relic find + fieldwork; Field Suit fieldwork +
   hazard resist; drop armor and HP from the Hazard Suit's extra rolls per the review; old crafted pieces get dead lines
   remapped on load so nothing is useless.
+
+## SI GEAR REVIEW CARRY NOTE (2026-10-21, on the merge of feat d553614)
+
+**Built per the review answers above.**
+- **Budget floor** (replaces the item level 7 floor, which is gone): model.ts `craftedMemberFloorImplicits`, applied by
+  itemgen.ts `generateEquipment` to every crafted (blueprinted) member piece after its roll: each signature line at
+  least the free piece's value of that variety, then the total (signature + rolled, carry lines excluded) at least the
+  free set's 12, the shortfall spread over the signature lines. Item level, quality, rarity, affix picks and rng draws
+  are untouched (Archive score, salvage time, keep-best ranking as before). `previewCraftOutcome` shows the floored
+  range; the Crafting panel's per-tier and per-blueprint readouts are plain `computeItemLevel` again and agree.
+- **D26 Science lines**: Sidearm `groundRelicFind` + `groundFieldwork`, Field Suit `groundFieldwork` +
+  `groundHazardResist` (own signature lines and pools, the Prospecting tools' pattern); Hazard Suit pool hazard resist
+  only. The 7 pending SCIENCE_LINE_SWAP entries and the Hazard Suit's two Prospecting ARM / HP lines retire (the lines no
+  longer roll); 3 new Science entries are live with probes. Held pieces: save.ts `withStandardIssueMemberLinesV70` now
+  also runs `withScienceLineSwap` (every load, idempotent), moving a pre-swap Sidearm's / Field Suit's combat lines
+  points for points (`SCIENCE_LINE_REMAP` **[PROVISIONAL]**: power to fieldwork, accuracy and status chance to relic
+  find, armor and HP to hazard resist). The Hazard Suit keeps old ARM / HP (Prospecting `digSafety` still reads them;
+  **flag:** no new Prospecting gear rolls ARM / HP now, so dig safety has no gear source until the quests patch).
+- **SI Science pieces**: Sidearm relic find 6 + fieldwork 6, Field Suit fieldwork 6 + hazard resist 6.
+- **Quality**: `STANDARD_ISSUE_MEMBER_POINTS` is a plain const; the golden switch lives only in
+  siMemberGearSwitch.fixture.ts (it empties the share table and restores the pre-swap varieties). The load raise only
+  RAISES lines. The strict `isStandardIssueMemberPiece` (quality 0, item level 1, no rolled lines) keeps dev and test
+  blueprint-less pieces out.
+- **Sweeps**: safeFirstRamp.sweep.test.ts gains the `rank1si` row and asserts the targets on it. Full strength (run 12
+  since the SF-3 review): 193 of 200 complete, 356 of 365 Vault / Subterranean won; run 11: 193 and 357 of 366; runs 2
+  to 9 every run and every vault. The stale sim ablation expectation (homelandDefenseHub "dead") now reads "moves".
+- **Goldens**: siMemberGearGoldens BEFORE re-captured on feat d553614 itself (identical to the switched-off reading),
+  Sidearm and Field Suit crafts added; registry chains read the change back through siMemberGearRegistry.fixture.ts
+  (added entries out, retired rows restored in place), so every earlier pin reproduces; gearWearGoldens' crafted-gear
+  expedition is built with the pre-swap catalog (its Science member wears a Sidearm and Field Suit).
