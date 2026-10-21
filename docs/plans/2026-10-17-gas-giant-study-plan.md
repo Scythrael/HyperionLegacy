@@ -314,6 +314,13 @@ crafted golden moves); the special blueprints per open call 11 with their stats 
 boosts the nebula sweep (never a gate). Tests: every canister has a consumer (dead-stock test), each special
 blueprint's effect in the registry.
 
+**Note for GG-7 from the reactor fuel ladder slice (2026-10-21).** Recipe realism audit Group A call 3 (user):
+Helium-3 goes in NO Reactor Core in 0.14.0 ("reactors take it in the balancing patch"); its 0.14.0 consumer is the
+**Resonance Sensor Array: 1 Helium-3 Canister** (audit section 9: Photonic Gel 2 + Wafer 2 + Coupling 1 + Helium-3
+Canister 1 [PROPOSAL]). That blueprint does not exist yet, so GG-7 builds it with the Helium-3 input. The reactor ladder
+(reactorTech.ts) already carries the Deuterium-Helium-3 fusion, antimatter-catalyzed fusion and antimatter tiers as
+balancing patch seams; GG-7 adds no reactor. The Deuterium Canister's reactor use is live (every Reactor Core recipe).
+
 ### GG-8: Help, registry close-out, QA sheet
 
 Help topics: gas giants and nebulae, the Galileo-Class Probe, Gas Storage Canisters, research data and the lab lane,

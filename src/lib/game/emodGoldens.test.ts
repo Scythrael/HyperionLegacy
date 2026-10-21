@@ -45,6 +45,7 @@ import { withEm1Off } from "./emodEm1Switch.fixture";
 import { goldenJson, withV1Museum } from "./firstRunsGoldens.fixture"; // gear wear: goldenJson puts the retired durability back
 import { GG1_ADDED_ENTRY_IDS } from "./gasStudyGoldens.fixture";
 import { FUSE_ADDED_ENTRY_IDS } from "./fieldKitsFuse.fixture";
+import { RX_ADDED_ENTRY_IDS } from "./reactorFuelGoldens.fixture";
 
 // ===== shared helpers =====
 
@@ -413,10 +414,8 @@ const GOLDEN: Record<string, unknown> = {
   // out reproduces 9deacec7, and reading back all three reproduces 60d00075 (asserted below).
   // Re-pinned by safe first runs SF-3 (1d8ae09b -> bd1e2f48): Weak's two rank entries flip pending -> live with their
   // probe and the ground context (the difficulty curve places Weak); read back (SF3_BEFORE) the snapshot is 1d8ae09b.
-  // Re-pinned by the timed grenades (user 2026-10-21; bd1e2f48 to b41c83f9): it only ADDS entries (each grenade's fuse
-  // and moved-clear chance, fieldKitsFuse.fixture.ts); left out, the snapshot is bd1e2f48 (asserted below).
   registry: [
-    "b41c83f9",
+    "bd1e2f48",
     "relic:RELICS:precursorLens",
     "ship:audit:reactorCoreNet",
   ],
@@ -601,14 +600,16 @@ const GW_BEFORE: Readonly<Record<string, string>> = Object.fromEntries(
 const REGISTRY_BEFORE_GEAR_WEAR = "60d00075";
 // Gas Giant Study GG-1 only ADDS entries (gasStudyGoldens.fixture.ts), so every read-back leaves them out unless
 // `keepGg1` (the one check that reproduces GG-1's own pin with gear wear read back).
-// The timed grenades only ADD entries too (fieldKitsFuse.fixture.ts): every read-back leaves them out, like GG-1's.
-const REGISTRY_BEFORE_FUSE = "bd1e2f48";
 type Back = { readonly sf3?: boolean; readonly fkr9?: boolean; readonly racials?: boolean; readonly g14?: boolean; readonly fkr7?: boolean; readonly fkr6?: boolean; readonly g13?: boolean; readonly gw?: boolean; readonly keepGg1?: boolean };
+// The reactor fuel ladder (0.14.0) only ADDS entries (reactorFuelGoldens.fixture.ts), after every pin here was taken:
+// every read-back and the snapshot leave them out (reactorFuelGoldens.test.ts pins them with their statuses). The timed
+// grenades (user 2026-10-21) only ADD entries too (fieldKitsFuse.fixture.ts, pinned with their statuses in
+// fieldKitsFuse.test.ts) and are left out the same way.
+const BEFORE_RX = WIRING_REGISTRY.filter((e) => !RX_ADDED_ENTRY_IDS.has(e.id) && !FUSE_ADDED_ENTRY_IDS.has(e.id));
 function rowsBack(back: Back): unknown[][] {
-  return WIRING_REGISTRY.filter(
+  return BEFORE_RX.filter(
     (e) =>
       !(!back.keepGg1 && GG1_ADDED_ENTRY_IDS.has(e.id)) &&
-      !FUSE_ADDED_ENTRY_IDS.has(e.id) &&
       !(back.fkr9 && FKR9_SHOWN_IDS.has(e.id)) &&
       !(back.racials && RACIALS_ADDED_IDS.has(e.id)) &&
       !(back.g14 && G14_ADDED_IDS.has(e.id)) &&
@@ -691,11 +692,9 @@ describe("EM-0 goldens (re-pinned by EM-1 where named)", () => {
   }
 
   it("registry: the wiring registry snapshot and the E-MOD owned rows", () => {
-    const snapshot = hash(WIRING_REGISTRY.map((e) => [e.id, e.status, e.contexts, e.probe ?? null]));
-    const emod = WIRING_REGISTRY.filter((e) => e.status.kind !== "live" && "owner" in e.status && /E-MOD/.test(e.status.owner)).map((e) => e.id).sort();
+    const snapshot = hash(BEFORE_RX.map((e) => [e.id, e.status, e.contexts, e.probe ?? null]));
+    const emod = BEFORE_RX.filter((e) => e.status.kind !== "live" && "owner" in e.status && /E-MOD/.test(e.status.owner)).map((e) => e.id).sort();
     pinned("registry", [snapshot, ...emod]);
-    // The timed grenades: their added entries left out (every read-back below leaves them out), the snapshot is SF-3's.
-    expect(hash(rowsBack({ keepGg1: true }))).toBe(REGISTRY_BEFORE_FUSE);
     // The two latest moves, merged together: with GG-1 left out the snapshot is gear wear's own pin; with gear wear read
     // back and GG-1 kept it is GG-1's own pin; with both undone it is the merged feat pin before either.
     // (Safe first runs SF-3's two flips are read back in each: sf3.)

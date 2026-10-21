@@ -1972,6 +1972,19 @@ function readContent(id: string, s: GameState): number {
       for (let i = 0; i < bp.craftDurationTicks + 2; i += 1) after = economyTick(after, 1, () => 0.5);
       return heldOf(after, out) - before;
     }
+    case "reactorFuel": {
+      // Reactor fuel ladder (0.14.0): one Fabricator craft of Reactor Core blueprint `a` at its tier, researched and
+      // holding its recipe's inputs: how much of fuel item `b` the craft spends at start (reactorTech.ts, the fuel the
+      // recipe carries). -1 when the craft is refused.
+      const bp = BLUEPRINTS[a];
+      let ready: GameState = { ...withFacilityLevel(s, "fabricator", Math.max(1, bp.tier)), researchedBlueprints: [...s.researchedBlueprints, a] };
+      for (const [item, qty] of Object.entries(bp.recipe.inputs)) ready = holding(ready, item, new Decimal(qty));
+      const before = heldOf(ready, b);
+      const r = startLine(ready, "fabricate", a, { kind: "batch", remaining: 1 });
+      if (!r.started) return -1;
+      const after = economyTick(r.next, 1, () => 0.5);
+      return before - heldOf(after, b);
+    }
     case "affix": {
       // An objective carrying one instance of affix `a` at rank `b` (alignment `d`), read by the hook `c`'s reader.
       const alignment = (d ?? "negative") as AffixAlignment;

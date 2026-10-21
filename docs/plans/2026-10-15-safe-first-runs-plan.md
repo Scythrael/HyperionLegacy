@@ -813,3 +813,12 @@ seeds 42 and 336 of each explorer (the Field Kits enemy inflictors); per OC-1 ("
 guards now skip `withFieldKitsGuard` (groundFight.ts), and the 500-seed proof passes again. Registry: SF3_SLICE beside
 FKR9_SLICE, GW_SLICE and GG1_SLICE in every shortRangeGoldens registryPin call; emodGoldens reads back sf3 beside fkr9
 and gw; `registry` re-pinned 1d8ae09b to bd1e2f48 (read back, 1d8ae09b).
+
+## USER ANSWERS (2026-10-21): Standard-Issue member gear review
+
+- **Crafted vs SI:** "Floor the stat budget (Recommended)": crafted member gear always rolls at least the free set's total
+  and each signature line at least the free piece's value; item level, Archive score and salvage stay as they are (the
+  builder's item level 7 floor is replaced).
+- **Science gear (D26):** "Give them Science lines (Recommended)": Sidearm relic find + fieldwork; Field Suit fieldwork +
+  hazard resist; drop armor and HP from the Hazard Suit's extra rolls per the review; old crafted pieces get dead lines
+  remapped on load so nothing is useless.

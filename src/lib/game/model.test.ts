@@ -29,6 +29,7 @@ import {
   effectiveMissionDef,
   ITEMS,
   BASE_XP_PER_TICK,
+  COMETARY_ICE_HARVEST_NUMBERS,
   FACTIONS,
   PATROLS,
   FUEL_CREDITS_PER_UNIT,
@@ -311,7 +312,7 @@ describe("MISSIONS, launch set", () => {
   // (the 2 ore runs, keys unchanged, + salvageWreckage + forageFlora). This test's
   // per-field assertions on the 2 ore runs are unchanged (anti-regression); the
   // count assertion was updated 2 -> 4 and the title made honest.
-  it("has exactly 9 missions with the specified tick counts and cargo/extraction values", () => {
+  it("has exactly 10 missions with the specified tick counts and cargo/extraction values", () => {
     // Fuel-sourcing RESTRUCTURE (2026-07-15): grew 4 -> 5 with the free localFuelRun
     // bootstrap (asserted in its own describe block above). The ore-run per-field
     // assertions below are unchanged (anti-regression).
@@ -319,7 +320,8 @@ describe("MISSIONS, launch set", () => {
     // (surveyMineralAnomaly / surveyStellarPhenomena), asserted in their own block below.
     // Exploration 0.14.0 (E1b): grew 7 -> 9 with the two TRANSPORT / supply runs
     // (frontierSupplyRun / colonySupplyLift), asserted in their own block below.
-    expect(Object.keys(MISSIONS)).toHaveLength(9);
+    // Reactor fuel ladder (0.14.0): grew 9 -> 10 with the Tier I Cometary Ice Harvest (its own block below).
+    expect(Object.keys(MISSIONS)).toHaveLength(10);
 
     expect(MISSIONS.shortOreRun.transitOutTicks).toBe(25);
     expect(MISSIONS.shortOreRun.transitBackTicks).toBe(25);
@@ -385,7 +387,8 @@ describe("MISSIONS, per-mission loot triads (Mission Rework Task 1)", () => {
     | "surveyMineralAnomaly"
     | "surveyStellarPhenomena"
     | "frontierSupplyRun"
-    | "colonySupplyLift",
+    | "colonySupplyLift"
+    | "cometIceHarvest",
     { common: string; uncommon: string; rare: string }
   > = {
     // Fuel-sourcing RESTRUCTURE: the fuel bootstrap yields Deuterium Ice ONLY. Its
@@ -409,12 +412,19 @@ describe("MISSIONS, per-mission loot triads (Mission Rework Task 1)", () => {
     // deposit anything at runtime.
     frontierSupplyRun: { common: "commonOre", uncommon: "uncommonMaterial", rare: "rareMaterial" },
     colonySupplyLift: { common: "commonOre", uncommon: "uncommonMaterial", rare: "rareMaterial" },
+    // Reactor fuel ladder (0.14.0, user 2026-10-21 "Cometary Ice Harvest (Recommended)"): Deuterium Ice common, plus
+    // Titanium Ore and a rare chance of Iridium.
+    cometIceHarvest: { common: "deuteriumIce", uncommon: "commonOre", rare: "rareMaterial" },
   };
+  // The ONE exception to the rarity rule below: the Cometary Ice Harvest's second drop is Titanium Ore, a common-rarity
+  // ore the user named for the run ("plus Titanium Ore"), riding the uncommon slot on purpose (model.ts cometIceHarvest).
+  const UNCOMMON_SLOT_RARITY: Partial<Record<keyof typeof EXPECTED_TRIADS, string>> = { cometIceHarvest: "common" };
 
-  it("all 9 mission keys exist (fuel bootstrap + 2 ore runs + salvage + forage + 2 surveys + 2 transports)", () => {
+  it("all 10 mission keys exist (fuel bootstrap + 2 ore runs + salvage + forage + 2 surveys + 2 transports + the comet run)", () => {
     expect(Object.keys(MISSIONS).sort()).toEqual(
       [
         "colonySupplyLift",
+        "cometIceHarvest",
         "forageFlora",
         "frontierSupplyRun",
         "localFuelRun",
@@ -443,7 +453,7 @@ describe("MISSIONS, per-mission loot triads (Mission Rework Task 1)", () => {
       expect(ITEMS[triad.uncommon], `${key}.uncommon (${triad.uncommon}) exists`).toBeDefined();
       expect(ITEMS[triad.rare], `${key}.rare (${triad.rare}) exists`).toBeDefined();
       expect(ITEMS[triad.common].rarity).toBe("common");
-      expect(ITEMS[triad.uncommon].rarity).toBe("uncommon");
+      expect(ITEMS[triad.uncommon].rarity, key).toBe(UNCOMMON_SLOT_RARITY[key] ?? "uncommon");
       expect(ITEMS[triad.rare].rarity).toBe("rare");
     }
   });
@@ -580,9 +590,39 @@ describe("MISSIONS, per-mission loot triads (Mission Rework Task 1)", () => {
     const miningKeys = (Object.keys(MISSIONS) as (keyof typeof MISSIONS)[]).filter(
       (k) => k !== "localFuelRun" && MISSIONS[k].missionType !== "survey" && MISSIONS[k].missionType !== "transport",
     );
-    expect(miningKeys.sort()).toEqual(["forageFlora", "longOreRun", "salvageWreckage", "shortOreRun"].sort());
+    expect(miningKeys.sort()).toEqual(["cometIceHarvest", "forageFlora", "longOreRun", "salvageWreckage", "shortOreRun"].sort());
     // Disjoint + together-with-localFuelRun exhaustive (no mission is both or neither).
     expect(explorationKeys.length + miningKeys.length + 1).toBe(Object.keys(MISSIONS).length);
+  });
+
+  // Reactor fuel ladder (0.14.0, capture docs/plans/2026-10-21-reactor-fuel-and-recipe-realism-capture.md section 5):
+  // the Cometary Ice Harvest, a NEW Tier I mining run (not the retired Local Deuterium Skim), every number read from
+  // COMETARY_ICE_HARVEST_NUMBERS [PROVISIONAL].
+  it("the Cometary Ice Harvest: a Tier I mining run, Deuterium Ice the common floor, its numbers from one constant", () => {
+    const m = MISSIONS.cometIceHarvest;
+    expect(m.label).toBe("Cometary Ice Harvest");
+    expect(m.tier).toBe("I");
+    expect(m.missionType).toBeUndefined();
+    expect(m.unlockLevel).toBe(1);
+    expect(m.requiresCaptainLevel).toBeUndefined();
+    expect(m.requiresCargoCapacity).toBeUndefined();
+    expect(m.primaryMaterial).toBe("deuteriumIce");
+    expect(m.transitOutTicks).toBe(COMETARY_ICE_HARVEST_NUMBERS.transitTicks);
+    expect(m.transitBackTicks).toBe(COMETARY_ICE_HARVEST_NUMBERS.transitTicks);
+    expect(m.transitOutTicks).toBeGreaterThan(0); // a real hop, unlike the skim's 0
+    expect(m.cargoCapacity).toBe(90);
+    expect(m.cargoCapacity % m.extractionRatePerTick).toBe(0);
+    expect(m.uncommonChance).toBe(COMETARY_ICE_HARVEST_NUMBERS.titaniumChance);
+    expect(m.rareChance).toBe(COMETARY_ICE_HARVEST_NUMBERS.iridiumChance);
+    expect(m.creditsPerCycle).toBe(COMETARY_ICE_HARVEST_NUMBERS.creditsPerCycle);
+    // "deuterium as one of the more common items": the ice floor is the run's largest share by far.
+    expect(1 - m.uncommonChance - m.rareChance).toBeGreaterThan(0.5);
+    expect(m.rareChance).toBeLessThan(m.uncommonChance);
+    expect(Number.isInteger(m.fleetAdminXpPerTick)).toBe(true);
+    expect(Number.isInteger(BASE_XP_PER_TICK.cometIceHarvest)).toBe(true);
+    // Not the retired skim: a different key and label; the skim stays as it was (hidden by the UI).
+    expect(MISSIONS.localFuelRun.label).toBe("Local Deuterium Skim");
+    expect(m.label).not.toBe(MISSIONS.localFuelRun.label);
   });
 });
 

@@ -102,10 +102,14 @@
 //                  study uses, every giant class and nebula kind field, the canister sell values, the research data
 //                  reserves and the Deuterium Canister recipe. No existing entry moved: GG1_SLICE rides in every
 //                  registryPin call, so the base pin and every cause pin are unchanged.
-// ADDED BY the timed grenades (user 2026-10-21): new entries only, held apart like GG-1's (FUSE_SLICE, the ids from
+// ADDED BY the timed grenades (user 2026-10-21): new entries only, held apart by FUSE_SLICE (the ids from
 //                  fieldKitsFuse.fixture.ts, pinned with their statuses in fieldKitsFuse.test.ts): each grenade's fuse
-//                  and moved-clear chance. No existing entry moved: FUSE_SLICE rides in every registryPin call, so the
-//                  base pin and every cause pin are unchanged.
+//                  and moved-clear chance. No existing entry moved: registryPin always applies FUSE_SLICE (as it does
+//                  RX_SLICE), so the base pin and every cause pin are unchanged.
+// ADDED BY the reactor fuel ladder (0.14.0: the fuel rungs, the core variety tech tags, the hull reactor requirement
+//                  seam and the Cometary Ice Harvest's per-field rows): new entries only, held apart by RX_SLICE (the ids
+//                  from reactorFuelGoldens.fixture.ts, pinned with their statuses in reactorFuelGoldens.test.ts), which
+//                  registryPin always applies, so the base pin and every cause pin are unchanged.
 // ADDED BY G1-1: `guests:<hull>` (guest quarters bare and with each quarters variety, the Guest Wing last) and
 // `stats:<hull>:guestWing` (every other stat with a Guest Wing installed). The sheets hash through withoutGuests, so
 // the stats pins keep proving no other stat moved (the transport hulls now carry base guest quarters).
@@ -131,6 +135,7 @@ import { hash, onHull, withCrew, withV1Museum, withoutGuests } from "./firstRuns
 import { asPreG2NamesDispatch } from "./awayTeamTestFixtures";
 import { GG1_ADDED_ENTRY_IDS } from "./gasStudyGoldens.fixture";
 import { FUSE_ADDED_ENTRY_IDS } from "./fieldKitsFuse.fixture";
+import { RX_ADDED_ENTRY_IDS } from "./reactorFuelGoldens.fixture";
 // CP-8 / OC-11: the test switch that proves the auto-crew pause is the only thing that moved the fleet pin.
 vi.mock("./crewLock", async (io) => (await import("./complementOc11Switch.fixture")).oc11CrewLockMock(io));
 import { withOc11Off } from "./complementOc11Switch.fixture";
@@ -541,7 +546,10 @@ const GW_SLICE: RegistrySlice = { added: new Set(WIRING_REGISTRY.filter((e) => e
 // unchanged; the test "SF-3 is the only cause" proves the flips are the whole move.
 const SF3_FLIPPED_LIVE: ReadonlySet<string> = new Set<string>(["expedition:ENEMY_RANKS:weak", "expedition:ENEMY_RANKS:weak:hp"]);
 const SF3_SLICE: RegistrySlice = { flipped: SF3_FLIPPED_LIVE, was: "pending" };
-function registryPin(...slices: readonly RegistrySlice[]): [number, string] {
+// The reactor fuel ladder's additions (0.14.0), held apart in EVERY pin (all of them were taken before it).
+const RX_SLICE: RegistrySlice = { added: RX_ADDED_ENTRY_IDS };
+function registryPin(...given: readonly RegistrySlice[]): [number, string] {
+  const slices = [RX_SLICE, FUSE_SLICE, ...given];
   const lines = WIRING_REGISTRY.filter((e) => !slices.some((sl) => sl.added?.has(e.id))).map((e) => {
     const flip = slices.find((sl) => sl.flipped?.has(e.id));
     return `${e.id}|${flip ? (flip.was ?? "pending") : e.status.kind}`;
@@ -719,11 +727,11 @@ const R2_1_SLICE: RegistrySlice = { added: new Set(WIRING_REGISTRY.filter((e) =>
 
 describe("G1-0 golden 5: the wiring registry's ids and statuses", () => {
   it("the entries outside the G1 additions, hashed in registry order", () => {
-    pin("registry", registryPin(FUSE_SLICE, GW_SLICE, G1_SLICE, SF3_SLICE, GG1_SLICE, ML1_SLICE, R2_1_SLICE));
+    pin("registry", registryPin(GW_SLICE, G1_SLICE, SF3_SLICE, GG1_SLICE, ML1_SLICE, R2_1_SLICE));
   });
   it("safe first runs SF-3 is the only cause of its registry move (Weak's two entries flip live)", () => {
     expect(WIRING_REGISTRY.filter((e) => SF3_FLIPPED_LIVE.has(e.id)).map((e) => e.status.kind)).toEqual(["live", "live"]);
-    expect(registryPin(FUSE_SLICE, GW_SLICE, G1_SLICE, GG1_SLICE, ML1_SLICE, R2_1_SLICE)).not.toEqual(registryPin(FUSE_SLICE, GW_SLICE, G1_SLICE, SF3_SLICE, GG1_SLICE, ML1_SLICE, R2_1_SLICE));
+    expect(registryPin(GW_SLICE, G1_SLICE, GG1_SLICE, ML1_SLICE, R2_1_SLICE)).not.toEqual(registryPin(GW_SLICE, G1_SLICE, SF3_SLICE, GG1_SLICE, ML1_SLICE, R2_1_SLICE));
   });
   // FKR-9 / FKR-10: the switch-on's three re-shown entries held apart and its two audit flips read back as pending, the
   // lines hash to the pin from before it, so those are the only move.
@@ -731,20 +739,20 @@ describe("G1-0 golden 5: the wiring registry's ids and statuses", () => {
     expect(FIELD_KITS_PLAYER_LIVE).toBe(true);
     expect(WIRING_REGISTRY.filter((e) => FKR9_FLIPPED_LIVE.has(e.id)).map((e) => e.status.kind)).toEqual(["live", "live"]);
     expect(WIRING_REGISTRY.filter((e) => FKR5_HIDDEN_UNTIL_FKR7.has(e.id))).toHaveLength(FKR5_HIDDEN_UNTIL_FKR7.size);
-    expect(registryPin(FUSE_SLICE, FKR9_SLICE, GW_SLICE, G1_SLICE, SF3_SLICE, GG1_SLICE, ML1_SLICE, R2_1_SLICE)).toEqual(REGISTRY_BEFORE_FKR9);
+    expect(registryPin(FKR9_SLICE, GW_SLICE, G1_SLICE, SF3_SLICE, GG1_SLICE, ML1_SLICE, R2_1_SLICE)).toEqual(REGISTRY_BEFORE_FKR9);
   });
   // The inert racials: their eight flips read back (seven pending, the Spacer deferred) and their one audit row left
   // out, the lines hash to the pin from before them, so those are the only move.
   it("the inert racials are the only cause of their registry move", () => {
     expect(WIRING_REGISTRY.filter((e) => RACIALS_WIRED_IDS.has(e.id) || e.id === "racial:spacer").map((e) => e.status.kind)).toEqual(Array(RACIALS_WIRED_IDS.size + 1).fill("live"));
-    expect(registryPin(FUSE_SLICE, FKR9_SLICE, GW_SLICE, G1_SLICE, SF3_SLICE, GG1_SLICE, ML1_SLICE, R2_1_SLICE, RACIALS_SLICE, RACIALS_SPACER_SLICE)).toEqual(REGISTRY_FKR7_PIN);
-    expect(registryPin(FUSE_SLICE, FKR9_SLICE, GW_SLICE, G1_SLICE, SF3_SLICE, GG1_SLICE, ML1_SLICE, R2_1_SLICE, RACIALS_SLICE, RACIALS_SPACER_SLICE, FKR7_SLICE)).toEqual(REGISTRY_BEFORE_RACIALS);
+    expect(registryPin(FKR9_SLICE, GW_SLICE, G1_SLICE, SF3_SLICE, GG1_SLICE, ML1_SLICE, R2_1_SLICE, RACIALS_SLICE, RACIALS_SPACER_SLICE)).toEqual(REGISTRY_FKR7_PIN);
+    expect(registryPin(FKR9_SLICE, GW_SLICE, G1_SLICE, SF3_SLICE, GG1_SLICE, ML1_SLICE, R2_1_SLICE, RACIALS_SLICE, RACIALS_SPACER_SLICE, FKR7_SLICE)).toEqual(REGISTRY_BEFORE_RACIALS);
   });
   // FKR-5 and G2-3 moved the pin (see the header); with their entries held apart and the Explosives flip read back as
   // pending, the registry hashes exactly as the feat base before them.
   it("FKR-7 is the only cause of its registry move", () => {
-    expect(registryPin(FUSE_SLICE, FKR9_SLICE, GW_SLICE, G1_SLICE, SF3_SLICE, GG1_SLICE, ML1_SLICE, R2_1_SLICE, FKR7_SLICE)).toEqual(REGISTRY_RACIALS_PIN);
-    expect(registryPin(FUSE_SLICE, FKR9_SLICE, GW_SLICE, G1_SLICE, SF3_SLICE, GG1_SLICE, ML1_SLICE, R2_1_SLICE, FKR7_SLICE, RACIALS_SLICE, RACIALS_SPACER_SLICE)).toEqual(REGISTRY_BEFORE_FKR7);
+    expect(registryPin(FKR9_SLICE, GW_SLICE, G1_SLICE, SF3_SLICE, GG1_SLICE, ML1_SLICE, R2_1_SLICE, FKR7_SLICE)).toEqual(REGISTRY_RACIALS_PIN);
+    expect(registryPin(FKR9_SLICE, GW_SLICE, G1_SLICE, SF3_SLICE, GG1_SLICE, ML1_SLICE, R2_1_SLICE, FKR7_SLICE, RACIALS_SLICE, RACIALS_SPACER_SLICE)).toEqual(REGISTRY_BEFORE_FKR7);
     expect(WIRING_REGISTRY.filter((e) => FKR7_FLIPPED_LIVE.has(e.id)).map((e) => e.status.kind)).toEqual(Array(FKR7_FLIPPED_LIVE.size).fill("live"));
     expect(WIRING_REGISTRY.filter((e) => FKR7_ADDED_ENTRY_IDS.has(e.id)).map((e) => `${e.id}|${e.status.kind}`)).toEqual([
       "away:FREE_BASIC_SET:firstAidKit:crew|live",
@@ -753,27 +761,27 @@ describe("G1-0 golden 5: the wiring registry's ids and statuses", () => {
     ]);
   });
   it("FKR-6 is the only cause of its registry move", () => {
-    expect(registryPin(FUSE_SLICE, FKR9_SLICE, GW_SLICE, G1_SLICE, SF3_SLICE, GG1_SLICE, R2_1_SLICE, EM1_SLICE, ML1_SLICE, FKR6_SLICE, FKR7_SLICE, RACIALS_SLICE, RACIALS_SPACER_SLICE)).toEqual(REGISTRY_BEFORE_FKR6);
+    expect(registryPin(FKR9_SLICE, GW_SLICE, G1_SLICE, SF3_SLICE, GG1_SLICE, R2_1_SLICE, EM1_SLICE, ML1_SLICE, FKR6_SLICE, FKR7_SLICE, RACIALS_SLICE, RACIALS_SPACER_SLICE)).toEqual(REGISTRY_BEFORE_FKR6);
     expect(WIRING_REGISTRY.filter((e) => FKR6_ADDED_ENTRY_IDS.has(e.id) || FKR6_FLIPPED_LIVE.has(e.id)).map((e) => e.status.kind)).toEqual(
       Array(FKR6_ADDED_ENTRY_IDS.size + FKR6_FLIPPED_LIVE.size).fill("live"),
     );
   });
   it("FKR-5 and G2-3 are the only causes of the registry move", () => {
-    expect(registryPin(FUSE_SLICE, FKR9_SLICE, GW_SLICE, G1_SLICE, SF3_SLICE, GG1_SLICE, ML1_SLICE, FKR5_SLICE, G23_SLICE, R2_1_SLICE, EM1_SLICE, FKR6_SLICE, FKR7_SLICE, RACIALS_SLICE, RACIALS_SPACER_SLICE)).toEqual(REGISTRY_BEFORE_FKR5_G23);
+    expect(registryPin(FKR9_SLICE, GW_SLICE, G1_SLICE, SF3_SLICE, GG1_SLICE, ML1_SLICE, FKR5_SLICE, G23_SLICE, R2_1_SLICE, EM1_SLICE, FKR6_SLICE, FKR7_SLICE, RACIALS_SLICE, RACIALS_SPACER_SLICE)).toEqual(REGISTRY_BEFORE_FKR5_G23);
   });
   // E-MOD EM-1: the seven power entries it wires flip pending -> live (the count and the order hold). With those seven
   // read as pending again the lines hash to the pin from before EM-1, so the flips are the only move.
   it("EM-1 is the only cause of its registry move", () => {
     expect(WIRING_REGISTRY.filter((e) => EM1_WIRED_IDS.has(e.id)).map((e) => e.status.kind)).toEqual(Array(EM1_WIRED_IDS.size).fill("live"));
     expect(WIRING_REGISTRY.filter((e) => EM1_ADDED_ENTRY_IDS.has(e.id))).toHaveLength(EM1_ADDED_ENTRY_IDS.size);
-    expect(registryPin(FUSE_SLICE, FKR9_SLICE, GW_SLICE, G1_SLICE, SF3_SLICE, GG1_SLICE, ML1_SLICE, R2_1_SLICE, EM1_SLICE, FKR6_SLICE, FKR7_SLICE, RACIALS_SLICE, RACIALS_SPACER_SLICE)).toEqual(REGISTRY_BEFORE_EM1);
+    expect(registryPin(FKR9_SLICE, GW_SLICE, G1_SLICE, SF3_SLICE, GG1_SLICE, ML1_SLICE, R2_1_SLICE, EM1_SLICE, FKR6_SLICE, FKR7_SLICE, RACIALS_SLICE, RACIALS_SPACER_SLICE)).toEqual(REGISTRY_BEFORE_EM1);
   });
   // WR-6: the nine placeholder entries it wires flip pending -> live (the count and the order hold). With those nine
   // read as pending again (and the later slices held apart) the lines hash to the pin from before WR-6, so the flips
   // are the only move.
   it("WR-6 is the only cause of the registry move", () => {
     expect(WIRING_REGISTRY.filter((e) => WR6_WIRED_IDS.has(e.id)).map((e) => e.status.kind)).toEqual(Array(WR6_WIRED_IDS.size).fill("live"));
-    expect(registryPin(FUSE_SLICE, FKR9_SLICE, GW_SLICE, G1_SLICE, SF3_SLICE, GG1_SLICE, ML1_SLICE, FKR5_SLICE, G23_SLICE, WR6_SLICE, R2_1_SLICE, EM1_SLICE, FKR6_SLICE, FKR7_SLICE, RACIALS_SLICE, RACIALS_SPACER_SLICE)).toEqual(REGISTRY_BEFORE_WR6);
+    expect(registryPin(FKR9_SLICE, GW_SLICE, G1_SLICE, SF3_SLICE, GG1_SLICE, ML1_SLICE, FKR5_SLICE, G23_SLICE, WR6_SLICE, R2_1_SLICE, EM1_SLICE, FKR6_SLICE, FKR7_SLICE, RACIALS_SLICE, RACIALS_SPACER_SLICE)).toEqual(REGISTRY_BEFORE_WR6);
   });
   it("Field Kits FKR-5: the added entries and the one flipped, each with its status", () => {
     const added = WIRING_REGISTRY.filter((e) => FKR5_ADDED_ENTRY_IDS.has(e.id));
