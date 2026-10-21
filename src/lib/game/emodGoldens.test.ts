@@ -45,6 +45,7 @@ import { withEm1Off } from "./emodEm1Switch.fixture";
 import { goldenJson, withV1Museum } from "./firstRunsGoldens.fixture"; // gear wear: goldenJson puts the retired durability back
 import { GG1_ADDED_ENTRY_IDS } from "./gasStudyGoldens.fixture";
 import { RX_ADDED_ENTRY_IDS } from "./reactorFuelGoldens.fixture";
+import { R2_2_ADDED_ENTRY_IDS } from "./relicBlanks.fixture";
 
 // ===== shared helpers =====
 
@@ -602,7 +603,8 @@ const REGISTRY_BEFORE_GEAR_WEAR = "60d00075";
 type Back = { readonly sf3?: boolean; readonly fkr9?: boolean; readonly racials?: boolean; readonly g14?: boolean; readonly fkr7?: boolean; readonly fkr6?: boolean; readonly g13?: boolean; readonly gw?: boolean; readonly keepGg1?: boolean };
 // The reactor fuel ladder (0.14.0) only ADDS entries (reactorFuelGoldens.fixture.ts), after every pin here was taken:
 // every read-back and the snapshot leave them out (reactorFuelGoldens.test.ts pins them with their statuses).
-const BEFORE_RX = WIRING_REGISTRY.filter((e) => !RX_ADDED_ENTRY_IDS.has(e.id));
+// Relics v2 R2-2 the same (its five audit rows, relicBlanks.fixture.ts; relicBlanks.test.ts pins them).
+const BEFORE_RX = WIRING_REGISTRY.filter((e) => !RX_ADDED_ENTRY_IDS.has(e.id) && !R2_2_ADDED_ENTRY_IDS.has(e.id));
 function rowsBack(back: Back): unknown[][] {
   return BEFORE_RX.filter(
     (e) =>

@@ -19,7 +19,7 @@ import { topUpAtLaunch } from "./quartermaster";
 import { advanceExpedition, claimExpedition, startExpedition } from "./expedition";
 import { groundCrewClearOdds, groundOpsAssignIdle, groundOpsBodyScanned, initGroundTasks } from "./groundOps";
 import { itemTotal } from "./inventory";
-import { asPreCurveDispatch, plainAwayMember, withoutFieldKits } from "./awayTeamTestFixtures";
+import { asPreCurveDispatch, plainAwayMember, withoutFieldKits, withoutRelicBlanks } from "./awayTeamTestFixtures";
 import { hash, stateHash } from "./firstRunsGoldens.fixture";
 
 const T0 = 100_000;
@@ -105,7 +105,8 @@ const HAND_KITS: readonly Record<string, Record<string, number>>[] = [
 function stampedRun(state: GameState, pois: string[], risk: BodyRiskGrades, hazard = 0.2): Expedition {
   const res = startExpedition(state, "ship-1", 1, "cand-0");
   if (!res.success || !res.expedition) throw new Error(`dispatch refused: ${res.reason}`);
-  const d = withoutFieldKits(res.expedition);
+  // Relics v2 R2-2: pinned on the record as dispatched before R2-2 (withoutRelicBlanks: no relic blanks flag).
+  const d = withoutRelicBlanks(withoutFieldKits(res.expedition));
   const body: ExpeditionBody = {
     id: "body-1",
     planetType: "terrestrial",

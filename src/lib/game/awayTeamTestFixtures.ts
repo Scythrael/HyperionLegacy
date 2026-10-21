@@ -140,10 +140,31 @@ export function withoutFieldKitsStamp(exp: Expedition): Expedition {
 // A dispatch result turned into the run it was before the Field Kits switch-on (withoutFieldKitsStamp on the returned
 // expedition and every expedition in `next`). Every earlier "as pre-X dispatch" helper composes it (a run dispatched
 // before ranks, SF-2, G2-2, G2-3, SQ-4 or GO-7b was a run before the switch too). A refusal is returned unchanged. Pure.
-export function asPreFieldKitsDispatch<R extends { next: GameState; expedition?: Expedition }>(res: R): R {
+// Relics v2 R2-2 also: a run before the Field Kits switch-on was a run before R2-2 (withoutRelicBlanks).
+export function asPreFieldKitsDispatch<R extends { next: GameState; expedition?: Expedition }>(raw: R): R {
+  const res = asPreRelicBlanksDispatch(raw);
   if (!res.expedition) return res;
   const next = res.next.expeditions.some((e) => "fieldKits" in e) ? { ...res.next, expeditions: res.next.expeditions.map(withoutFieldKitsStamp) } : res.next;
   return { ...res, expedition: withoutFieldKitsStamp(res.expedition), next };
+}
+
+// Relics v2 R2-2: the dispatch record WITHOUT its relic blanks flag (`Expedition.relicBlanks`), i.e. the record the same
+// dispatch made before R2-2: a run in flight at the update. The flag is the ONE key a dispatch adds (a blank's stamps
+// appear only once the run rolls a relic), and a run without it rolls and stores its tokens exactly as before. A record
+// without the flag is returned as it is. Every other key keeps its order. Pure: a shallow copy.
+export function withoutRelicBlanks(exp: Expedition): Expedition {
+  if (!("relicBlanks" in exp)) return exp;
+  const rest = { ...exp };
+  delete rest.relicBlanks;
+  return rest;
+}
+
+// R2-2: a dispatch result turned into the run it was before R2-2 (withoutRelicBlanks on the returned expedition and every
+// expedition in `next`). A refusal is returned unchanged. Pure.
+export function asPreRelicBlanksDispatch<R extends { next: GameState; expedition?: Expedition }>(res: R): R {
+  if (!res.expedition) return res;
+  const next = res.next.expeditions.some((e) => "relicBlanks" in e) ? { ...res.next, expeditions: res.next.expeditions.map(withoutRelicBlanks) } : res.next;
+  return { ...res, expedition: withoutRelicBlanks(res.expedition), next };
 }
 
 // Field Kits FKR-1 (enemy ranks): the run WITHOUT its enemy ranks flag (`Expedition.enemyRanks`), i.e. the run the

@@ -7393,8 +7393,10 @@ export interface ExpeditionRelicToken {
   quality: number; // 0..5 quality bucket from the salvage tier (reuses the 0-5 quality system)
   unidentified: true; // always true this phase: E4 owns identification/research/museum
   studySpeed?: number; // WR-5c Preservationist: the study of this relic runs (1 + this) faster; absent = 0
-  // Relics v2 R2-1 (DORMANT; plan 2026-10-17 section 3.2): stamped at the roll from R2-2 on. Absent = Tier I and a
-  // culture derived at read time (R2-2 / R2-6), so every token rolled before Relics v2 reads exactly as it did.
+  // Relics v2 (plan 2026-10-17 section 3.2): stamped at the roll by R2-2 on a run that carries the blanks flag
+  // (Expedition.relicBlanks): the run's region tier and the culture of the body it came from (relicBlanks.ts
+  // relicBlankStamp). Absent = Tier I and a culture derived at read time, so every token rolled before R2-2 (and every
+  // token of a run in flight at the update) reads exactly as it did.
   regionTier?: RegionTier;
   cultureId?: string;
 }
@@ -7424,12 +7426,16 @@ export interface RelicVaultToken {
   id: string; // the ExpeditionRelicToken id ("<expeditionId>-relic-<activityId>"), unique per token
   tier: EquipmentRarity; // the rolled rarity tier; skews WHICH relic the study reveals (relics.ts)
   quality: number; // 0..5 quality bucket carried from the reward roll (provenance; no effect yet)
-  setId: RelicSetId; // the set this token identifies WITHIN
-  poiId: string; // the PoI the finding came from (expeditionContent.ts POI_CATALOG id)
+  // The set this token identifies WITHIN (v1 identification), routed off its PoI at deposit. Relics v2 R2-2: OPTIONAL. A
+  // blank with no site (a short-range blank, a planet completion blank, a grant) has neither a set nor a PoI; its study
+  // identifies over the general pool by band (relicBlanks.ts identifyGeneralRelic). Every expedition deposit still
+  // writes both, so a sited blank identifies exactly as before.
+  setId?: RelicSetId;
+  poiId?: string; // the PoI the finding came from (expeditionContent.ts POI_CATALOG id); absent = no site (see setId)
   studySpeed?: number; // WR-5c Preservationist (carried from the token): the study runs (1 + this) faster; absent = 0
-  // Relics v2 R2-1 (DORMANT; plan 2026-10-17 section 3.2): all optional, read with a default, nothing writes them
-  // until R2-2. regionTier absent = Tier I; cultureId absent = derived at read time from the token id (R2-2 / R2-6);
-  // source absent = "expedition". (setId stays required until R2-2 mints the first token that does not need it.)
+  // Relics v2 (plan 2026-10-17 section 3.2): all optional, read with a default (relicBlanks.ts vaultTokenRegionTier /
+  // vaultTokenCultureId / vaultTokenSource). R2-2 writes them on every blank a new run (or a hook) mints. regionTier
+  // absent = Tier I; cultureId absent = derived at read time from the token id; source absent = "expedition".
   regionTier?: RegionTier;
   cultureId?: string;
   source?: RelicVaultTokenSource;
@@ -7899,6 +7905,12 @@ export interface Expedition {
   // read from it. Absent on every run dispatched before G2-3: the fixed pre-G2-3 legs (expedition.ts
   // TRANSIT_SECONDS, the retired shakedown's SHAKEDOWN_TRANSIT_SECONDS), byte-identically. Optional, no SAVE bump.
   voyage?: ExpeditionVoyage;
+  // Relics v2 R2-2 (plan 2026-10-17 section 4 R2-2): the RELIC BLANKS flag, stamped at dispatch with
+  // relicBlanks.ts RELIC_BLANKS_VERSION. Its PRESENCE makes the run's relic tokens carry their blank stamps (the run's
+  // region tier and the body's culture) and roll their rarity on the tier's blank table (Tier I is today's table
+  // exactly; user call 13 "Better rarity only"). A run without it (in flight at the update) rolls and stores its
+  // tokens byte-identically. Optional, no SAVE bump.
+  relicBlanks?: { version: number };
 }
 
 // Expedition Tiers G2-3 (user G5 + G21, 2026-10-16): a run's voyage. `tier` sets the nominal hours (tiers are

@@ -87,7 +87,7 @@ describe("R2-1 catalog: the general pool is today's 17 relics by band (user call
     expect([...fed].sort()).toEqual([...MUSEUM_STATS].sort());
   });
 
-  it("[PROVISIONAL] RELIC_TYPE_STATS is the plan's rule: index 1 = the set's per-copy stat, index k = its k-piece stat", () => {
+  it("RELIC_TYPE_STATS (user-approved 2026-10-20) is the plan's rule: index 1 = the set's per-copy stat, index k = its k-piece stat", () => {
     const rule: Record<string, { stat: MuseumStat; share: number }[]> = {};
     for (const set of RELIC_SETS) {
       set.relicIds.forEach((id, i) => {
@@ -217,7 +217,7 @@ describe("R2-1 catalog: exceptional relics (user calls 5, 6, 7)", () => {
     }
   });
 
-  it("[PROVISIONAL] values: a piece is +3% at Tier I rising to +15% at Tier VII; a full set is five pieces; every stat a Museum stat, all 14 fed", () => {
+  it("the approved values (2026-10-20): a piece is +3% at Tier I rising to +15% at Tier VII; a full set is five pieces; every stat a Museum stat, all 14 fed", () => {
     expect(EXCEPTIONAL_PIECE_VALUE).toEqual({ 1: 0.03, 2: 0.05, 3: 0.07, 4: 0.09, 5: 0.11, 6: 0.13, 7: 0.15 });
     const fed = new Set<MuseumStat>();
     for (const set of EXCEPTIONAL_SETS) {

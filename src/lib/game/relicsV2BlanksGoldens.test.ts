@@ -12,7 +12,8 @@ import { describe, it, expect } from "vitest";
 import type { Expedition, ExpeditionFinding, GameState, RegionTier } from "./model";
 import { advanceExpedition, claimExpedition, makeExpeditionSeed, startExpedition } from "./expedition";
 import { hash, onHull, withCrew, SWEEP_END } from "./firstRunsGoldens.fixture";
-import { asExpeditionVeteran } from "./awayTeamTestFixtures";
+import { asExpeditionVeteran, withoutRelicBlanks } from "./awayTeamTestFixtures";
+import { cultureForBody } from "./relicBlanks";
 
 const SEEDS = [11, 23, 37] as const;
 const TIERS: readonly RegionTier[] = [1, 4, 7];
@@ -44,14 +45,59 @@ const PRE_R2_2: Readonly<Record<string, { phase: string; run: string; finds: rea
   "7:37": { phase: "activities", run: "93b65529", finds: ["body-1-act-0 buriedVault standard 0", "body-2-act-0 derelictOutpost standard 0", "body-2-act-1 derelictOutpost standard 0", "body-3-act-3 derelictOutpost standard 0", "body-3-act-1 crashedShip standard 0", "body-4-act-1 xenoFloraBloom standard 0", "body-4-act-2 buriedVault standard 0", "body-4-act-3 derelictOutpost standard 0", "body-4-act-4 buriedVault standard 0", "body-5-act-1 caveNetwork standard 0", "body-5-act-3 caveNetwork standard 0", "body-5-act-7 caveNetwork augmented 1", "body-5-act-5 geothermalChamber augmented 1", "body-5-act-0 mineralOutcrop augmented 1", "body-5-act-4 mineralOutcrop standard 0", "body-5-act-2 buriedVault standard 0"] },
 };
 
+// R2-2: the finished run as the pre-R2-2 engine stored it: no relic blanks flag, and every relic token without the
+// blank stamps R2-2 appends (regionTier, cultureId; appended last, so dropping them restores the key order). Pure.
+function asPreR2_2Run(done: Expedition): Expedition {
+  const plain = withoutRelicBlanks(done);
+  return {
+    ...plain,
+    findings: plain.findings.map((f) => {
+      if (!f.relic) return f;
+      const relic = { ...f.relic } as Record<string, unknown>;
+      delete relic.regionTier;
+      delete relic.cultureId;
+      return { ...f, relic: relic as unknown as ExpeditionFinding["relic"] };
+    }),
+  };
+}
+
+// MOVED AT R2-2, named (user call 13 "Better rarity only"): above Tier I a blank's rarity reads the tier's blank table
+// (relicBlanks.ts RELIC_BLANK_WEIGHTS), so these finds came out rarer. The same tokens, the same PoIs, the same count
+// (the chance never moved); only the rarity and quality of the listed rows, and so the run hash. Re-pinned on R2-2.
+// Every moved row moved UP (Tier VII seed 23: four rows, standard to augmented and augmented to stellar; seed 37: four
+// rows, one augmented to radiant). Tier IV's three runs drew no row the shift changes (their low hazard ceilings keep
+// most draws standard), so they read exactly as before.
+const pre7 = (seed: number, moves: Readonly<Record<number, string>>): readonly string[] => PRE_R2_2[`7:${seed}`].finds.map((r, i) => moves[i] ?? r);
+const R2_2_MOVED: Readonly<Record<string, { run: string; finds: readonly string[] }>> = {
+  "7:23": {
+    run: "de857e2b",
+    finds: pre7(23, { 5: "body-2-act-5 derelictOutpost augmented 1", 8: "body-2-act-0 geothermalChamber stellar 3", 9: "body-2-act-3 caveNetwork augmented 1", 11: "body-3-act-3 crashedShip augmented 1" }),
+  },
+  "7:37": {
+    run: "263f6543",
+    finds: pre7(37, { 2: "body-2-act-1 derelictOutpost augmented 1", 10: "body-5-act-3 caveNetwork augmented 1", 11: "body-5-act-7 caveNetwork radiant 4", 14: "body-5-act-4 mineralOutcrop augmented 1" }),
+  },
+};
+
 describe("R2-2 golden 7: fresh dispatches' relic finds by tier", () => {
   for (const tier of TIERS) {
     for (const seed of SEEDS) {
       it(`Tier ${tier}, seed ${seed}`, () => {
         const { done } = finished(seed, tier);
-        const pin = PRE_R2_2[`${tier}:${seed}`];
-        expect({ phase: done.phase, finds: relicRows(done) }).toEqual({ phase: pin.phase, finds: pin.finds });
-        expect(hash(done)).toBe(pin.run);
+        const pin = { ...PRE_R2_2[`${tier}:${seed}`], ...R2_2_MOVED[`${tier}:${seed}`] };
+        const pre = asPreR2_2Run(done);
+        // The chance is untouched at every tier: the same tokens at the same PoIs, in the same order.
+        const site = (r: string) => r.split(" ").slice(0, 2).join(" ");
+        expect(relicRows(pre).map(site)).toEqual(PRE_R2_2[`${tier}:${seed}`].finds.map(site));
+        expect({ phase: pre.phase, finds: relicRows(pre), run: hash(pre) }).toEqual({ phase: pin.phase, finds: pin.finds, run: pin.run });
+        // Tier I is the pre-R2-2 run exactly.
+        if (tier === 1) expect(R2_2_MOVED[`${tier}:${seed}`]).toBeUndefined();
+        // Every blank carries the run's tier and its body's culture.
+        for (const f of done.findings.filter((x) => x.relic)) {
+          const bodyIndex = done.bodies.findIndex((b) => b.activities.some((a) => f.relic!.id.endsWith(`-relic-${a.id}`)));
+          expect(bodyIndex, f.relic!.id).toBeGreaterThanOrEqual(0);
+          expect({ regionTier: f.relic!.regionTier, cultureId: f.relic!.cultureId }).toEqual({ regionTier: tier, cultureId: cultureForBody(done.seed, bodyIndex, tier) });
+        }
       });
     }
   }
@@ -63,7 +109,15 @@ describe("R2-2 golden 8: the Tier I claims' vault", () => {
     const held = { ...state, gameTimeSeconds: done.phaseAnchorSeconds, expeditions: state.expeditions.map((e) => (e.id === done.id ? done : e)) };
     const claim = claimExpedition(held, done.id);
     expect(claim.success).toBe(true);
-    return claim.next.relicVault;
+    // R2-2: every deposited blank keeps the stamps its finding carried (Tier I, its body's culture), appended last;
+    // without them the vault is the pre-R2-2 one exactly.
+    const finds = new Map(done.findings.filter((f) => f.relic).map((f) => [f.relic!.id, f.relic!]));
+    return claim.next.relicVault.map((t) => {
+      const { regionTier, cultureId, ...rest } = t;
+      expect({ regionTier, cultureId }, t.id).toEqual({ regionTier: 1, cultureId: finds.get(t.id)!.cultureId });
+      expect(Object.keys(t).slice(-2)).toEqual(["regionTier", "cultureId"]);
+      return rest;
+    });
   };
   const tok = (act: string, setId: string, poiId: string) => ({ id: `expedition-1-relic-expedition-1-${act}`, tier: "standard", quality: 0, setId, poiId });
   it("seed 11", () => {

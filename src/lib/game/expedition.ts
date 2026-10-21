@@ -125,6 +125,7 @@ import {
 } from "./groundOps";
 // Field Kits FKR-1: the enemy ranks catalog version a new run is stamped with (enemyRanks.ts is pure, no cycle).
 import { ENEMY_RANKS_VERSION, isTrainingRun } from "./enemyRanks";
+import { RELIC_BLANKS_VERSION } from "./relicBlanks";
 // Field Kits FKR-7: the runs switch, the flag, and the dispatch / claim plumbing (fieldKitsRun.ts never imports this).
 import { FIELD_KITS_RUNS_LIVE, fieldKitsLive } from "./fieldKits";
 import { fieldKitsStamp, planDispatchPacks, returnCarriedExtras, settleDispatchPacks, withDispatchPacks } from "./fieldKitsRun";
@@ -1301,7 +1302,14 @@ export function startExpedition(
   // it flies (Expedition.voyage), so a later drive, crew or homeworld change never reshapes it.
   const homeworld = stateHomeworld(state);
   const built = buildExpedition(state, ship, captainId, seed, anomalyOptIn, number, gen, risk, undefined, fieldKitsRuns);
-  const expedition: Expedition = { ...built, region: regionStampOf(cand), voyage: candidateVoyage(state, ship, cand, isTrainingRun(built), homeworld) };
+  // Relics v2 R2-2: and the relic blanks flag (its relic tokens carry the region tier and the body's culture, and roll
+  // their rarity on the tier's blank table; Tier I's is today's).
+  const expedition: Expedition = {
+    ...built,
+    region: regionStampOf(cand),
+    voyage: candidateVoyage(state, ship, cand, isTrainingRun(built), homeworld),
+    relicBlanks: { version: RELIC_BLANKS_VERSION },
+  };
   // Field Kits FKR-7: the packs leave stock (lowest quality first) and a top-up's credits are spent: the SAME plan
   // buildExpedition packed (planDispatchPacks is pure on the same inputs). A run without flag 2 settles nothing.
   const packed = fieldKitsLive(built)
@@ -2470,7 +2478,8 @@ export function depositExpeditionFindings(state: GameState, findings: readonly E
       const setId = relicSetForPoi(f.poiId);
       if (setId !== null && f.poiId !== undefined) {
         // WR-5c: a Preservationist token keeps its study speed in the vault (absent otherwise, the pre-WR-5c token).
-        const studySpeed = f.relic.studySpeed;
+        // Relics v2 R2-2: a stamped blank keeps its region tier and culture (absent on a token from before R2-2).
+        const { studySpeed, regionTier, cultureId } = f.relic;
         vaultAdds.push({
           id: f.relic.id,
           tier: f.relic.tier,
@@ -2478,6 +2487,8 @@ export function depositExpeditionFindings(state: GameState, findings: readonly E
           setId,
           poiId: f.poiId,
           ...(studySpeed !== undefined && studySpeed > 0 ? { studySpeed } : {}),
+          ...(regionTier !== undefined ? { regionTier } : {}),
+          ...(cultureId !== undefined ? { cultureId } : {}),
         });
         touched = true;
       }
