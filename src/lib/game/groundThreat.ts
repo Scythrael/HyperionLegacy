@@ -54,6 +54,8 @@ import { threatAssessment, type ThreatAssessment, type ThreatTier } from "./comb
 import { hasCover, type GroundCover } from "./affixes";
 import { isTrainingRun, ranksLive } from "./enemyRanks";
 import { rampedStampOf } from "./runDifficulty";
+import { fieldKitsLive } from "./fieldKits";
+import { fightSuppliesAfter } from "./fieldKitsBattle";
 
 // ===== Constants =====
 
@@ -138,6 +140,11 @@ export function groundThreatSampleFights(
   // Members downed earlier in THIS sample (the sit-out list grows as the sample goes).
   const downed: string[] = [];
   let sampleTeams: readonly GroundFightTeam[] = teams;
+  // Field Kits FKR-6 (FK12 "Yes, count packs"): on a Field Kits run the sample spends supplies the way the run will
+  // (FKR-7): each fight starts with the charges, free basics and extras the earlier fights left. Every other run's
+  // teams never change here, so its sample reads exactly as before.
+  const kits = fieldKitsLive(exp);
+  let supplied: readonly GroundFightTeam[] = teams;
   for (let j = cleared; j < total; j += 1) {
     const record = resolveTaskFightOnSeed(
       exp,
@@ -155,9 +162,16 @@ export function groundThreatSampleFights(
     fights.push(record);
     if (record.outcome !== "win") return { win: false, fights };
     carry = record.memberEnd;
+    if (kits) {
+      const next = supplied.map((t) => fightSuppliesAfter(t, record, exp.roster?.security));
+      if (next.some((t, i) => t !== supplied[i])) {
+        supplied = next;
+        sampleTeams = downed.length > 0 ? supplied.map((t) => ({ ...t, downedThisTask: [...(t.downedThisTask ?? []), ...downed] })) : supplied;
+      }
+    }
     if (record.downedMemberIds.length > 0) {
       downed.push(...record.downedMemberIds);
-      sampleTeams = teams.map((t) => ({ ...t, downedThisTask: [...(t.downedThisTask ?? []), ...downed] }));
+      sampleTeams = supplied.map((t) => ({ ...t, downedThisTask: [...(t.downedThisTask ?? []), ...downed] }));
     }
   }
   return { win: true, fights };
@@ -179,9 +193,11 @@ const EXP_KEY_FIELDS = {
   squadFearResist: true,
   hazardResist: true,
   teamKit: true,
-} as const satisfies Record<Exclude<keyof ThreatExp, "enemyRanks" | "difficulty" | "explorerCaptain">, true>;
+} as const satisfies Record<Exclude<keyof ThreatExp, "enemyRanks" | "difficulty" | "explorerCaptain" | "fieldKits">, true>;
+// Field Kits FKR-5: a team's grenade charges (`charges`) are read only on a Field Kits run, so they are keyed with the
+// Field Kits tag below, never here (every other key reads exactly as before). FKR-6: so are its kits (`basics`, `kits`).
 const TEAM_KEY_FIELDS = { securityIds: true, downedThisTask: true, securityShare: true } as const satisfies Record<
-  keyof GroundFightTeam,
+  Exclude<keyof GroundFightTeam, "charges" | "basics" | "kits">,
   true
 >;
 const TASK_KEY_FIELDS = { id: true, poiId: true, fightCount: true, pointsCleared: true, fightPoints: true } as const satisfies Record<
@@ -231,6 +247,11 @@ export function groundThreatOddsKey(
   const curve = stamp ? [["curve", stamp.ramp, stamp.tier]] : [];
   // WR-5c: the captain's Away-Team Doctrine shapes the squad (taskFightTeam), tagged and appended only when present.
   const doctrine = exp.explorerCaptain?.squadPowerMult !== undefined ? [["doctrine", exp.explorerCaptain.squadPowerMult]] : [];
+  // Field Kits FKR-4: a Field Kits run's conditions and inflictors shape the read (with the task's grade: Neurotoxin from
+  // Challenging), tagged and appended only on such a run.
+  // FKR-5: with each team's grenade charges left this objective (the throws the squad can still make). FKR-6 (FK12): and
+  // each team's kits (the free basics and the extras left), so packing better reads better odds.
+  const kits = fieldKitsLive(exp) ? [["fieldKits", exp.fieldKits?.catalog, task.difficulty, teams.map((t) => [t.charges, t.basics, t.kits])]] : [];
   return JSON.stringify(
     // Squads SQ-4: the body's risk shapes the read, so it is part of the key: its flora the fights (groundFight.ts
     // withFloraToxins), its combat and fauna an unstamped task's fight count (taskFightTotal). Absent risk: "u".
@@ -249,6 +270,7 @@ export function groundThreatOddsKey(
       ...ranked,
       ...curve,
       ...doctrine,
+      ...kits,
     ],
     keyReplacer,
   );

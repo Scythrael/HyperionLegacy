@@ -9,7 +9,7 @@
 //   - Discovery Instinct: survey missions' rare-drop odds (the relic roll was already live, Task 15);
 //   - Fleet Triage + Morale Anchor: the away team's healing / first aid and Fear resist, frozen on the
 //     Expedition at dispatch;
-//   - Reactor Overdrive: still dormant, listed in OFFICER_BONUSES_PENDING_IN_RELEASE (E-MOD).
+//   - Reactor Overdrive: the ship's net power draw (E-MOD EM-1: crew.powerEfficiency, netPowerDraw).
 // NEUTRALITY: with no officer, patrol, mission, repair and expedition replays are byte-identical to the
 // code BEFORE Task 20 (golden hashes captured before the change).
 
@@ -46,6 +46,7 @@ import {
   officerCombatMods,
   officerMissionOutputBonus,
   officerRepairSpeedBonus,
+  netPowerDraw,
   shipCrewContribution,
 } from "./crewOverlay";
 import { CREW_STAT_KEYS } from "./crewBuffs";
@@ -55,14 +56,14 @@ import { snapshotAwayRoster } from "./awayTeam";
 import { makeRng } from "./combat/rng";
 import { itemTotal } from "./inventory";
 // Ground Ops GO-1: whole-state goldens hash without the new, inert ground-team slots (captured before them).
-import { asLegacyDispatch, withSlottedAwayTeams, withoutGroundSquadState } from "./awayTeamTestFixtures";
+import { asLegacyDispatch, asPreG2NamesDispatch, withSlottedAwayTeams, withoutGroundSquadState } from "./awayTeamTestFixtures";
 // SF-1: whole states hash without the run counters (seeded by freshState, written by a patrol), absent before SF-1.
 import { withoutRunCounts } from "./firstRunsGoldens.fixture";
 
 // Ground Ops (GO-7b): this file pins LEGACY expedition runs (goldens captured before Ground Ops): every dispatch
 // slots the members in hire order (dispatch reads the slotted ground teams) and resolves without the groundOps
 // flag (asLegacyDispatch), exactly the record the pre-switch dispatch produced.
-const legacyStart: typeof startExpedition = (state, ...rest) => asLegacyDispatch(startExpedition(withSlottedAwayTeams(state), ...rest));
+const legacyStart: typeof startExpedition = (state, ...rest) => asPreG2NamesDispatch(asLegacyDispatch(startExpedition(withSlottedAwayTeams(state), ...rest)));
 
 // ===== fixtures =====
 
@@ -708,14 +709,23 @@ describe("away-team bonuses (Fleet Triage, Morale Anchor)", () => {
 // ============================================================================
 // The audit: every rollable officer bonus has a live consumer, or is pending in this release
 // ============================================================================
+// E-MOD EM-1: a fresh state whose ship-1 carries a cargo bay drawing power (Standard Issue draws none).
+const POWERED_DRAW = 40;
+function poweredFresh(): GameState {
+  const base = freshState();
+  return { ...base, equipment: base.equipment.map((e) => (e.fittedToShipId === "ship-1" && e.slotType === "cargoBay" ? { ...e, powerDraw: POWERED_DRAW } : e)) };
+}
+
 describe("every officer bonus is live (or pending in this release)", () => {
-  it("Reactor Overdrive is the only pending bonus, waiting on the E-MOD power budget", () => {
-    expect(OFFICER_BONUSES_PENDING_IN_RELEASE).toEqual({ "officer.powerEfficiencyMult": "E-MOD power budget" });
-    const base = freshState();
+  it("no bonus is pending: Reactor Overdrive went live with the E-MOD power budget (EM-1)", () => {
+    expect(OFFICER_BONUSES_PENDING_IN_RELEASE).toEqual({});
+    const base = poweredFresh();
     const s = { ...base, officers: [officerWith("eng.overdrive")] };
-    // It still lands on crew.powerEfficiency (shared with the Engineering division) for E-MOD to read.
+    // It lands on crew.powerEfficiency (shared with the Engineering division) and cuts the net draw.
     expect(shipCrewContribution(s, s.ships[0])[CREW_STAT_KEYS.powerEfficiency]).toBeCloseTo(0.1, 12);
-    expect(effectiveShipStats(s, s.ships[0])).toEqual(effectiveShipStats(base, base.ships[0]));
+    expect(effectiveShipStats(base, base.ships[0]).powerDraw).toBe(POWERED_DRAW);
+    expect(effectiveShipStats(s, s.ships[0]).powerDraw).toBe(netPowerDraw(POWERED_DRAW, 0.1));
+    expect(effectiveShipStats(s, s.ships[0]).powerDraw).toBeLessThan(POWERED_DRAW);
   });
 
   it("each other bonus changes at least one derived value vs no officer", () => {
@@ -734,10 +744,11 @@ describe("every officer bonus is live (or pending in this release)", () => {
         fear: exp.squadFearResist ?? 0,
       });
     };
-    const baseline = shipValues(freshState());
+    // E-MOD EM-1: on a ship drawing power, so Reactor Overdrive's net-draw cut shows too.
+    const baseline = shipValues(poweredFresh());
     for (const def of SENIOR_STAFF_BONUSES) {
       if (OFFICER_BONUSES_PENDING_IN_RELEASE[def.statKey]) continue;
-      const s = { ...freshState(), officers: [officerWith(def.id)] };
+      const s = { ...poweredFresh(), officers: [officerWith(def.id)] };
       expect(shipValues(s), def.label).not.toBe(baseline);
     }
   });

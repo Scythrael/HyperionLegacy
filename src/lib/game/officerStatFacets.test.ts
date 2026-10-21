@@ -4,6 +4,9 @@
 // byte-identically to the code BEFORE Task 21 (golden hashes captured before the change).
 
 import { describe, it, expect } from "vitest";
+// E-MOD EM-1: sheets pinned before the power budget engine are hashed with it switched off (emodGoldens.test.ts pins
+// the power numbers and proves the switch reproduces its own capture), so these pins keep proving nothing else moved.
+import { withEm1Off } from "./emodEm1Switch.fixture";
 import Decimal from "break_infinity.js";
 import {
   freshState,
@@ -73,10 +76,12 @@ import { LY_PER_TICK } from "./fuel";
 import { equippedFor } from "./equipment";
 import { itemTotal } from "./inventory";
 // Ground Ops GO-1: whole-state goldens hash without the new, inert ground-team slots (captured before them).
-import { asLegacyDispatch, withSlottedAwayTeams, withoutGroundSquadState } from "./awayTeamTestFixtures";
+import { asLegacyDispatch, asPreG2NamesDispatch, withSlottedAwayTeams, withoutGroundSquadState } from "./awayTeamTestFixtures";
 // SF-1: whole states hash without the run counters (seeded by freshState, written by a patrol), absent before SF-1.
-import { withoutRunCounts } from "./firstRunsGoldens.fixture";
+import { withoutGuests, withoutRunCounts } from "./firstRunsGoldens.fixture";
 import { withCp2Off } from "./complementCp2Switch.fixture";
+// The inert racials (0.14.0): the Spacer key restored and the drone / survey sources zeroed (racialsSwitch.fixture.ts).
+import { withRacialsOff } from "./racialsSwitch.fixture";
 import { activityRelicFindBonus, generateEncounter, softenAmbush } from "./gambit";
 import { applyExpeditionInjuries, injuryRecoverySeconds } from "./injuries";
 import {
@@ -102,7 +107,7 @@ import {
 // Ground Ops (GO-7b): this file pins LEGACY expedition runs (goldens captured before Ground Ops): every dispatch
 // slots the members in hire order (dispatch reads the slotted ground teams) and resolves without the groundOps
 // flag (asLegacyDispatch), exactly the record the pre-switch dispatch produced.
-const legacyStart: typeof startExpedition = (state, ...rest) => asLegacyDispatch(startExpedition(withSlottedAwayTeams(state), ...rest));
+const legacyStart: typeof startExpedition = (state, ...rest) => asPreG2NamesDispatch(asLegacyDispatch(startExpedition(withSlottedAwayTeams(state), ...rest)));
 
 // ===== fixtures =====
 
@@ -235,11 +240,28 @@ function runTicks(s: GameState, n: number, rng: () => number): GameState {
 }
 
 // Every golden scenario's hashes for one bridge stat assignment.
+function sheetHash(statsFor: (seat: SeniorStaffSeat) => OfficerStats | undefined): string {
+  const sheet = withCrew(freshState(), bridge(statsFor));
+  // G1-1: the sheet hash strips guest quarters (withoutGuests), so this pin keeps proving no other stat moved.
+  return fnv(JSON.stringify([withoutGuests(withEm1Off(() => effectiveShipStats(sheet, sheet.ships[0]))), shipCrewContribution(sheet, sheet.ships[0])]));
+}
+
+// The inert racials (0.14.0) "turn it off": every scenario with the racials switched off (inside `inner`, another
+// switch). The sheet hashes the crew MAP, where the drone and survey keys always sat, so it restores only the Spacer
+// key (droneAndSurvey false); every run zeroes the drone and survey sources too.
+function racialsOffHashes(
+  statsFor: (seat: SeniorStaffSeat) => OfficerStats | undefined,
+  inner: (run: () => Record<string, string | string[]>) => Record<string, string | string[]> = (run) => run(),
+): Record<string, string | string[]> {
+  const all = withRacialsOff(() => inner(() => scenarioHashes(statsFor)));
+  const sheet = withRacialsOff(() => inner(() => ({ sheet: sheetHash(statsFor) })), { droneAndSurvey: false }).sheet;
+  return { ...all, sheet };
+}
+
 function scenarioHashes(statsFor: (seat: SeniorStaffSeat) => OfficerStats | undefined): Record<string, string | string[]> {
   const officers = () => bridge(statsFor);
   const out: Record<string, string | string[]> = {};
-  const sheet = withCrew(freshState(), officers());
-  out.sheet = fnv(JSON.stringify([effectiveShipStats(sheet, sheet.ships[0]), shipCrewContribution(sheet, sheet.ships[0])]));
+  out.sheet = sheetHash(statsFor);
   for (const key of ["shortOreRun", "surveyMineralAnomaly", "frontierSupplyRun"] as MissionKey[]) {
     out[`mission:${key}`] = fnv(JSON.stringify(withoutRunCounts(withoutGroundSquadState(runTicks(missionState(key, officers()), 700, lcg(0xbeef))))));
   }
@@ -442,28 +464,79 @@ const GOLDEN_STATLESS_CP2_OFF: Record<string, string | string[]> = {
   "mission:frontierSupplyRun": "ed683ce9",
 };
 
+// The inert racials (0.14.0) re-pin what they move here: the complement carries a Spacer Fast Departure bucket (its
+// racial is the sweeping transit speed now: the sheet, the missions' legs and the expedition voyages), a Belter
+// Operations bucket (Deck Handling's replenish: the carrier patrol's frozen record, replays and state) and a Vael
+// Science bucket (Survey Aptitude's scan speed: the expeditions). The destroyer and battleship patrols and the repair
+// do not move (no drone screen; no transit or scan). With the racials switched off every scenario reproduces
+// GOLDEN_NEUTRAL / GOLDEN_STATLESS (the pins before them).
+// (The Short Ore Run's whole transit ticks do not change at this lift, so that pin holds. The carrier's replays move:
+// its squadrons carry the frozen Deck Handling, deckHandlingPpm, and bank its replenish.)
+const RACIALS_CARRIER_REPLAYS = ["36a079f5", "79086bfe", "8a562598", "1255745a", "9c005698", "da742a87", "213ff866", "85d7de42"];
+const RACIALS_NEUTRAL: Record<string, string | string[]> = {
+  ...GOLDEN_NEUTRAL,
+  sheet: "290732ef",
+  "mission:surveyMineralAnomaly": "35ea9b71",
+  "mission:frontierSupplyRun": "50e9c6c7",
+  "patrol:carrier:dispatch": "6fc22017",
+  "patrol:carrier:state": "96d9813e",
+  "patrol:carrier:replays": RACIALS_CARRIER_REPLAYS,
+  expedition: [
+    "bb004bc4/25b5beb7/a1bc9cbc",
+    "e0b9853b/4b4a7548/6ac12a6e",
+    "2e8d0a00/1e1ee02f/a1bc9cbc",
+    "62678269/f19fb769/a1bc9cbc",
+    "20ea9c6a/d0d45313/e8b897b6",
+    "2f269cca/ae64fe1/a1bc9cbc",
+    "70cab237/ad8c595b/a1bc9cbc",
+    "8d3abfb3/d9a668d0/a1bc9cbc",
+  ],
+};
+const RACIALS_STATLESS: Record<string, string | string[]> = {
+  ...GOLDEN_STATLESS,
+  sheet: "290732ef",
+  "mission:surveyMineralAnomaly": "3fff3e9b",
+  "mission:frontierSupplyRun": "1064e341",
+  "patrol:carrier:dispatch": "6fc22017",
+  "patrol:carrier:state": "dfe9e30",
+  "patrol:carrier:replays": RACIALS_CARRIER_REPLAYS,
+  expedition: [
+    "bb004bc4/25b5beb7/a1bc9cbc",
+    "e0b9853b/4b4a7548/6ac12a6e",
+    "2e8d0a00/1e1ee02f/a1bc9cbc",
+    "62678269/f19fb769/a1bc9cbc",
+    "20ea9c6a/d0d45313/e8b897b6",
+    "2f269cca/ae64fe1/a1bc9cbc",
+    "70cab237/ad8c595b/a1bc9cbc",
+    "8d3abfb3/d9a668d0/a1bc9cbc",
+  ],
+};
+
 describe("neutrality: an all-10 bridge = byte-identical to before Task 21 (golden)", () => {
   it("a full bridge at 10/10/10/10 (sheet, missions, patrols + replays, repair, expeditions)", { timeout: 120_000 }, () => {
-    expect(scenarioHashes(() => NEUTRAL)).toEqual(GOLDEN_NEUTRAL);
+    expect(scenarioHashes(() => NEUTRAL)).toEqual(RACIALS_NEUTRAL);
+    expect(racialsOffHashes(() => NEUTRAL)).toEqual(GOLDEN_NEUTRAL);
   });
 
   it("the same bridge with stat-less officers (absent = neutral)", { timeout: 120_000 }, () => {
-    expect(scenarioHashes(() => undefined)).toEqual(GOLDEN_STATLESS);
+    expect(scenarioHashes(() => undefined)).toEqual(RACIALS_STATLESS);
+    expect(racialsOffHashes(() => undefined)).toEqual(GOLDEN_STATLESS);
   });
 
   it("CP-2 turn it off: both bridges with the CP-2 effects switched off are the pre-CP-2 capture", { timeout: 240_000 }, () => {
-    expect(withCp2Off(() => scenarioHashes(() => NEUTRAL))).toEqual(GOLDEN_NEUTRAL_CP2_OFF);
-    expect(withCp2Off(() => scenarioHashes(() => undefined))).toEqual(GOLDEN_STATLESS_CP2_OFF);
+    // Captured before the inert racials too, so they are switched off as well.
+    expect(racialsOffHashes(() => NEUTRAL, (run) => withCp2Off(run))).toEqual(GOLDEN_NEUTRAL_CP2_OFF);
+    expect(racialsOffHashes(() => undefined, (run) => withCp2Off(run))).toEqual(GOLDEN_STATLESS_CP2_OFF);
     // The sheet's one remaining difference is the Pilot's transit key name (same value): renamed back, it is the
     // pre-CP-2 capture.
     const sheet = withCrew(freshState(), bridge(() => NEUTRAL));
-    const renamed = withCp2Off(() => {
+    const renamed = withRacialsOff(() => withCp2Off(() => {
       const map = { ...shipCrewContribution(sheet, sheet.ships[0]) };
       expect(map[CREW_STAT_KEYS.transitOutSpeed]).toBeUndefined();
       const out: Record<string, number> = {};
       for (const [k, v] of Object.entries(map)) out[k === OFFICER_TRANSIT_KEY ? CREW_STAT_KEYS.transitOutSpeed : k] = v;
-      return fnv(JSON.stringify([effectiveShipStats(sheet, sheet.ships[0]), out]));
-    });
+      return fnv(JSON.stringify([withoutGuests(withEm1Off(() => effectiveShipStats(sheet, sheet.ships[0]))), out]));
+    }), { droneAndSurvey: false });
     expect(renamed).toBe(SHEET_CP2_OFF_PRE);
   });
 });

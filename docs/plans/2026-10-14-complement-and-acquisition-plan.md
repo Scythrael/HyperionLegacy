@@ -293,6 +293,32 @@ uses (expedition `rampScience` / `rampReturn`, patrol relaunch), never a new sam
 **Tests:** a carrier with the key replenishes faster, a non-carrier is unchanged; replay parity; ramp at 0 hours is
 exactly zero. Remove droneHandling, belter, spacer.
 
+**Carry note (2026-10-20, the four inert racials wired: CP-4's replenish consumer + CP-3's Survey Aptitude piece; user
+"everything wired", merge-batch answers "Relics v2 constants and Spacer" and "Spacer bonus"):** the racials share
+their division's pool key, so each consumer lights the buff and the racial together. Deck Handling + Belter
+(`crew.droneHandling`, OC-1): `crewOverlay.ts shipDeckHandling` is frozen per patrol cycle on
+`PatrolMissionState.deckHandling` (dispatch and each relaunch, beside `captainCombat`; written only when > 0 and the
+cycle fields a drone screen) and `combat/bridge.ts applyDeckHandling` seeds every squadron with it in parts per
+million (`deckHandlingPpm`). The rate is not rounded: `droneDefense.ts replenishUnits` banks the extra progress in
+integer ppm (`replenishCarryPpm`) and pays whole units, only on ticks a drone is recovering, and a relaunch carries
+the bank into the next cycle (`PatrolMissionState.replenishCarryStart`, which the replay seeds too), so one Belter
+crewman acts over a long Repeat patrol (review, 2026-10-20). **For the user:** CP-4 says "between waves"; the
+in-combat replenish module banks Deck Handling the same way (`resolveBattle`), so it acts there too (no content sets
+that module yet). Survey
+Aptitude + Vael / Outer-Colony (`crew.surveyAptitude`, OC-4): `shipSurveyAptitude` joins the expedition's
+`scanSpeedBonus` at dispatch. Spacer ("+Transit speed"): its racial moved off the sourceless `crew.endurance` onto
+`crewBuffs.ts TRANSIT_SPEED_KEY` (the Pilot's sweeping key, `transitSpeedMult`: both mission legs and the G2-3
+voyage), same 0.05 / 0.0005 magnitudes; Senior Staff shows it as "Transit Speed". Fix in passing: `carriesCrewKey`
+now sees the commanding captain's race (WR-6 OC-A43), so a Stheni / Belter / Vael captain alone passes the guard.
+Registry: crew droneHandling + surveyAptitude, racials belter / outerColony / vael / spacer and the Science and
+Flight Deck quarters wings are live; the four Ground Ops keys and the Security / Medical wings now name CP-3 (not
+"E-CREW Task 23"). `FIXTURE_RACE` is the Belter (only a carrier's drone screen reads it); the no-dead-stats battery
+gained a carrier patrol dispatch probe; `simPlayer.test.ts` proves dead-choice detection on a synthetic cosmetic
+choice. Goldens: `racialsGoldens.test.ts` (captured first) plus the moved complement / facet / registry pins, each
+reproduced with `racialsSwitch.fixture.ts withRacialsOff`. NOT built (still CP-4 / CP-3): the Flight Deck Integrity
+facet on replenish below half hull, the Spacer long-haul ramp (0.14.x, T3; kept visible as the deferred registry row
+`crew:audit:spacerLongHaulRamp`), and CP-3's four Ground Ops consumers.
+
 ### CP-5: Per-hull complement caps and division mixes (Task 24)
 
 **Files:** `model.ts` (`ShipTypeDef.complementCap?`, `complementDivisionWeights?`), `commandStructure.ts` (read the
@@ -380,6 +406,22 @@ mode (the UI offers to switch it to manual first). No crew created or destroyed.
 **Determinism:** RNG-free; picks applied in the given order. **Save:** none. **Tests:** division and inclusive rank caps
 hold; partial fill; pool round trip; locked and auto refusals are same-ref.
 
+**Carry note (2026-10-19, CP-7 landed, commit "feat(0.14.0): crew transfer engine (CP-7)"):** built in a NEW module
+`crewTransfer.ts`, not `crew.ts`: the quarters bonus lives in `crewModules.ts`, which imports `seniorStaff.ts`, which
+imports `crew.ts`, so `crew.ts` asking it would close an import cycle. API: `CREW_POOL` ("pool"),
+`canTransferCrew(state, from, to, picks)` (order: `noPicks` for an empty list or a count that is not a whole number
+of at least 1, `sameEndpoint`, then source before target `noShip`, `onMission` = `shipCrewLocked`, `autoCrew` = OC-7
+"Manual ships only", a fresh ship with no complement reads as auto), `transferCrew` returning `{ next, gate, results,
+moved }` (one result row per pick: requested, moved, `limitedBy` "targetFull" | "sourceShort" | null; `next` is the
+SAME ref on a refusal or when nothing moved), `crewTransferBlockText` / `crewTransferGateText` (the lock names the
+mission or expedition) / `crewTransferShortfallText`, and `crewTransferRoom` (the picker's "up to N" per row). The
+target's occupancy = its bulk plus every notable assigned to it, its quarters bonus via `quartersCapacityBonus`; the
+pool has no cap. Over cap (OC-6) the target takes nothing and the source can still give. Only bulk moves; notables
+never move here (CP-8). No App handler (the plan names none; CP-10 adds `doTransferCrew`). No goldens moved (a new
+action nothing calls yet). Not this slice: OC-11 "Pause while out" (auto-fill on a locked passive ship) is still
+unbuilt in `resolveCrew`; CP-5 per-hull caps are not built yet, transfer reads whatever `commandStructureForHull`
+returns, so it picks them up unchanged.
+
 ### CP-8: Graduate, notable cap, manifest generator, auto-fill counts notables (Task 26 engine)
 
 **Files:** `crew.ts` (`canGraduate` / `graduateStandout(state, shipId, signatureKey)`, `manifestRows(state, shipId,
@@ -396,6 +438,32 @@ hash(shipId, signatureKey), i)`, never stored.
 for a save with no assigned notables (none can exist before this slice; CP-0 golden). **Save:** none (notables and
 `nextNotableId` already persist). **Tests:** count drops by one and the notable appears with the same buffs; cap
 refusal; manifest is pure and stable across calls; a passive ship with an assigned notable never exceeds its caps.
+
+**Carry note (2026-10-19, CP-8 + OC-11 landed, commits "test(0.14.0): OC-11 goldens for passive ships that are out
+(CP-8)" then "feat(0.14.0): graduate, notable cap, manifest, auto-crew counts notables and pauses while out (CP-8)"):**
+built in a NEW module `crewGraduation.ts`, not `crew.ts` (the lock lives in `crewLock.ts`, which imports
+`equipment.ts`; `crew.ts` stays the dependency-free primitives). API: `canGraduate` / `graduateStandout(state, shipId,
+signatureKey)` returning `{ next, gate, notable }` (order `noShip`, `onMission` = `shipCrewLocked`, `noBucket`,
+`notableCap`; either complement mode; same ref on a refusal), `graduateBlockText` / `graduateGateText` (names the
+mission or expedition), `nextGraduateIdentity` (the name the confirm shows before committing), `canSendBackNotable` /
+`sendBackNotable` (OC-9: unassign, the record keeps its name; `noNotable`, `notAboard`, `onMission`) with texts, and
+`manifestRows(state, shipId, offset, limit)` returning `{ rows, total }` (bulk only, bucket order, row i of a bucket
+= `generateCrewIdentity(race, manifestSeed(shipId, key), i)`; notables are not rows, they carry their own names).
+Names seed from FNV-1a of the signature key with two new odd salts, `NOTABLE_NAME_SALT` and `MANIFEST_NAME_SALT`,
+registered in `salts.test.ts`; no shared stream. `model.ts NOTABLE_CREW_CAP` = 50 fleet-wide (OC-8 answered, not
+provisional), assigned or not. Identity only (user 2026-10-16): the notable keeps its bucket's signature, so the crew
+map is unchanged by a graduation. `crew.ts notableSignature` is the shared helper. `resolveCrew`: (B23) every notable
+assigned to a passive ship is seeded into the auto-crew occupancy and stripped back out (the applyRoster step (c)
+rule; no notable aboard = the old fill); (OC-11, "Pause while out") `if (mode !== "passive" || shipCrewLocked(state,
+ship.id)) return ship;`, so a ship out on a mission, patrol or unclaimed expedition fills on the first tick after it
+is free. Wiring: `crew:audit:notables` is live (sheetUnload: the notable carries one crewmember's share, 20 / 19 of
+the 19 left) plus `crew:audit:notableIdentityOnly` (a move of 0 against the ship before graduating). Goldens moved
+ONLY by OC-11, each reproduced with the pause switched off (`complementOc11Switch.fixture.ts withOc11Off`, a test
+mock of `shipCrewLocked`): the three CP-0 mission runs (the mission ship no longer boards window 1's crew mid-run;
+the CP-1 and CP-2 proofs run unchanged inside the switch), `wiringGoldens` lunarMine, and the new OC-11 expedition and
+patrol pins; the OC-11 home control and every other golden did not move. Stale "DORMANT" notable comments fixed in
+`model.ts` and `personnelRosters.ts`. No App handler (CP-9 adds `doGraduate`); the notable marquee is CP-9 UI; the
+Academy promotion is SUGGESTIONS only. Not built: a way to assign an unassigned notable outside `applyRoster`.
 
 ### CP-9: Complement table, graduate modal, manifest (Tasks 25 / 26 UI part 1)
 
@@ -430,6 +498,7 @@ rung; inputs are existing components only. No Material Lines dependency.
 **Determinism:** the mint rides the existing generation path (stamping already done). **Save:** none. **Tests:** each
 blueprint mints its variant; a fresh save can research and craft a Wide-Beam Array with no relic; the archive gains
 15 rows (patch notes must say completion % drops, the Task 10 precedent).
+CP-11 also owns a Guest Wing blueprint (G1-1 added the variety, `quartersGuestWing`; review 2026-10-19).
 
 ### CP-12: Bridge and Crew Quarters tiles (Task 28 UI)
 

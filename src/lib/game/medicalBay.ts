@@ -31,8 +31,9 @@
 //
 // PERKS: memberPerksFor(race) is the racial physical perk table (D24); awayTeam.ts snapshotMember freezes
 // it onto SnapshotMember.perks at dispatch. Stoneskin (Ossir) makes injuries last 25% longer in the bay; its
-// in-battle half ("land 25% less often") arrives with Task 16b, which also brings Fracture, Hemorrhage,
-// Concussion, Neurotoxin and Blindness (only Bleed and Poison exist in battle today).
+// in-battle half ("land 25% less often", and 25% longer in battle) is Field Kits FKR-4's (gambit.ts
+// STONESKIN_BATTLE_RESIST, a Field Kits run only), which also brings Fracture, Broken Bone, Shattered Bone, Hemorrhage,
+// Concussion, Neurotoxin and Blindness into battle.
 //
 // Module graph: model.ts <- medicalBay.ts (imports model.ts types only). PURE: no state, no randomness.
 
@@ -62,7 +63,10 @@ export const GROUND_CONDITIONS: Readonly<Record<string, GroundConditionDef>> = {
   neurotoxin: { id: "neurotoxin", label: "Neurotoxin", cls: "ailment", cureSeconds: 300 }, // 16b
   hemorrhage: { id: "hemorrhage", label: "Hemorrhage", cls: "injury", cureSeconds: 300 }, // 16b
   concussion: { id: "concussion", label: "Concussion", cls: "injury", cureSeconds: 900 }, // 16b
-  fracture: { id: "fracture", label: "Fracture", cls: "injury", cureSeconds: 1800 }, // 16b
+  fracture: { id: "fracture", label: "Fracture", cls: "injury", cureSeconds: 1800 }, // 16b (user N11: 30 minutes)
+  // Field Kits FKR-4: the bone line's heavier ranks (user N11 "30m / 1h / 2h"). A Shattered Bone is the bay's alone.
+  brokenBone: { id: "brokenBone", label: "Broken Bone", cls: "injury", cureSeconds: 3600 },
+  shatteredBone: { id: "shatteredBone", label: "Shattered Bone", cls: "injury", cureSeconds: 7200 },
   downed: { id: "downed", label: "Downed", cls: "injury", cureSeconds: 1200 }, // D9: a downed member is injured [PROVISIONAL class]
 };
 

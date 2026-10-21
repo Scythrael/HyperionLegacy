@@ -247,6 +247,29 @@ export function countPatrolDispatch(counts: RunCounts): RunCounts {
   return { ...counts, patrol: { ...counts.patrol, dispatched: counts.patrol.dispatched + 1 } };
 }
 
+// One short-range cycle START of `template` (G1-3: the first cycle at dispatch; G1-4: every later cycle start). The
+// whole job re-rolls each cycle, so a template's training run is decided by THIS count (isFirstRun: dispatched === 0),
+// bumped per cycle start of that template, never per slot dispatch. Pure.
+export function countShortRangeCycleStart(counts: RunCounts, template: string): RunCounts {
+  const prev = counts.shortRange[template] ?? { dispatched: 0, completed: 0 };
+  return { ...counts, shortRange: { ...counts.shortRange, [template]: { ...prev, dispatched: prev.dispatched + 1 } } };
+}
+
+// G1-4: a cycle start that never left home (recalled while it waited at the departure gate, recallCaptain) was never
+// flown, so its start is taken back: the template keeps its training run. Never below 0. Pure.
+export function uncountShortRangeCycleStart(counts: RunCounts, template: string): RunCounts {
+  const prev = counts.shortRange[template];
+  if (prev === undefined || prev.dispatched === 0) return counts;
+  return { ...counts, shortRange: { ...counts.shortRange, [template]: { ...prev, dispatched: prev.dispatched - 1 } } };
+}
+
+// G1-4: one DELIVERED short-range cycle of `template` on the curve (SF5: completed runs only, the training run
+// excluded, so the caller skips a training cycle). Pure.
+export function countShortRangeCycleComplete(counts: RunCounts, template: string): RunCounts {
+  const prev = counts.shortRange[template] ?? { dispatched: 0, completed: 0 };
+  return { ...counts, shortRange: { ...counts.shortRange, [template]: { ...prev, completed: prev.completed + 1 } } };
+}
+
 // Won patrol routes (economyTick, beside lifetimeStats.missionsCompleted). SF-4 leaves the training cycle's route out.
 // Zero or junk routes return the SAME counts. Pure.
 export function countPatrolRoutes(counts: RunCounts, routes: number): RunCounts {

@@ -33,6 +33,7 @@ import {
 import { AFFIX_DEFS, escalationAt } from "../affixes";
 import { ENEMY_RANK_IDS } from "../enemyRanks";
 import { CONDITION_LINES, CONDITION_LINE_IDS, FIELD_KIT_BLUEPRINT, FIELD_KIT_IDS, FREE_BASIC_SET, KIT_CATEGORY_RULES } from "../fieldKits";
+import { GRENADE_IDS } from "../fieldKitsGrenades";
 import { SENIOR_STAFF_BONUSES } from "../seniorStaffBonuses";
 import { CREW_PROFESSION_BUFFS, SECOND_LEVEL_EXCLUSIVE } from "../crewBuffs";
 import { CREW_RACES } from "../crewRaces";
@@ -44,7 +45,7 @@ import { AWAY_TRAITS } from "../awayTraits";
 import { PROSPECTING_BLUEPRINTS, PROSPECTING_SPEC_BASE, PROSPECTING_USES } from "../prospecting";
 import { GAMBIT_PRESETS, GAMBIT_STATUSES } from "../gambit";
 import { GROUND_CONDITIONS } from "../medicalBay";
-import { MUSEUM_STATS, RELIC_SETS, RELICS } from "../relics";
+import { EXCEPTIONAL_SETS, MUSEUM_STATS, RELIC_SETS, RELIC_TYPES, RELICS } from "../relics";
 import { BRIDGE_MODULES, QUARTERS_MODULES } from "../crewModules";
 import { SENSOR_ARRAYS } from "../sensorArrays";
 import { POI_CATALOG, PLANET_TYPES } from "../expeditionContent";
@@ -55,6 +56,10 @@ import { STATUS_EFFECT_DEFS } from "../combat/statusEffects";
 import { DRONE_POD_AFFIX_POOL, DRONE_POD_IMPLICIT_STAT, WEAPON_AFFIX_POOL, WEAPON_IMPLICIT_STAT } from "../itemgen";
 import { AFFIX_ALIGNED_HOOKS, AFFIX_HOOK_KEYS, GAMBIT_ACTIONS, GAMBIT_SELECTORS } from "./probes";
 import { FIELD_ROLES, effectFieldsOf } from "./fieldRoles";
+import { SHORT_RANGE_TEMPLATES } from "../shortRange";
+
+// Field Kits FKR-5: the sources each grenade carries (its GrenadeTraits, as the registry measures them).
+export const GRENADE_FIELDS = ["charges", "perBattle", "blast", "status"] as const;
 
 export interface EffectSource {
   readonly catalog: string;
@@ -99,6 +104,7 @@ const FIELD_CATALOGS: Readonly<Record<string, Readonly<Record<string, object>>>>
   SENSOR_ARRAYS: Object.fromEntries(SENSOR_ARRAYS.map((a) => [a.id, a])),
   ITEMS,
   SUBSPACE_TELESCOPE_LEVELS: Object.fromEntries(SUBSPACE_TELESCOPE_LEVELS.map((r) => [String(r.level), r])),
+  SHORT_RANGE_TEMPLATES,
 };
 
 function fieldSources(catalog: string, defs: Readonly<Record<string, object>>): EffectSource[] {
@@ -172,6 +178,9 @@ export function enumerateEffectSources(): EffectSource[] {
   add("MUSEUM_STATS", MUSEUM_STATS);
   add("RELIC_SETS", RELIC_SETS.flatMap((s) => s.tiers.map((t) => `${s.id}:${t.pieces}`)));
   add("RELICS", RELICS.map((r) => r.id));
+  // Relics v2 R2-1 (dormant): every general type, and every exceptional piece and full-set bonus
+  add("RELIC_TYPES", RELIC_TYPES.map((t) => t.id));
+  add("EXCEPTIONAL_SETS", EXCEPTIONAL_SETS.flatMap((s) => [...s.pieces.map((p) => `${s.id}:${p.id}`), `${s.id}:full`]));
   // missions, expedition content, salvage
   add("PATROLS", Object.keys(PATROLS));
   // the ground objective affixes: every rank of every hook (an alignment-dependent hook once per alignment the
@@ -197,6 +206,8 @@ export function enumerateEffectSources(): EffectSource[] {
   // the field kit items (Field Kits FKR-3): each kit blueprint's craft and each kit's Quartermaster price
   add("BLUEPRINTS", FIELD_KIT_IDS.map((id) => `${FIELD_KIT_BLUEPRINT[id]}:craft`));
   add("FIELD_KIT_PRICES", FIELD_KIT_IDS);
+  // the grenade family (Field Kits FKR-5): each grenade's charges per objective, throws per battle, blast and debuff
+  add("GRENADES", GRENADE_IDS.flatMap((k) => GRENADE_FIELDS.map((f) => `${k}:${f}`)));
   add("POI_CATALOG", POI_CATALOG.map((p) => p.id));
   add("SALVAGE_LOOT_POOLS", Object.keys(SALVAGE_LOOT_POOLS));
   // the data catalogs, field by field
@@ -230,6 +241,8 @@ export function classifiedCatalogDefs(): Record<string, Readonly<Record<string, 
     STATUS_EFFECT_DEFS,
     RELIC_SETS: keyed(RELIC_SETS, (d) => d.id),
     RELICS: keyed(RELICS, (d) => d.id),
+    RELIC_TYPES: keyed(RELIC_TYPES, (d) => d.id),
+    EXCEPTIONAL_SETS: keyed(EXCEPTIONAL_SETS, (d) => d.id),
     PATROLS,
     POI_CATALOG: keyed(POI_CATALOG, (d) => d.id),
     EQUIPMENT_SLOTS,

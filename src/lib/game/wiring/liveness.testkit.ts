@@ -21,9 +21,11 @@
 //                          every squad the variety's teamTypes list (effect pieces balanced by an inert filler line).
 //   facet:<seat>:<stat>    every officer stat facet per seat, in a full bridge + complement context.
 //
-// THE PROBES are real consumers only (the ship stat sheet, reach, Shipyard repair, ship battles, the expedition's
-// readers, battles, injuries and whole run + claim on both engines, mission cycles and a Repeat patrol through
-// economyTick, a patrol defeat repair, the ship scan events), compared through ALLOW-LISTS of consequence fields.
+// THE PROBES are real consumers only (the ship stat sheet, the sheet of a ship drawing power (E-MOD EM-1), reach, Shipyard repair, ship battles, the expedition's
+// readers, battles, a Field Kits run's objective fights (FKR-4, flag 2 stamped by hand), injuries and whole run +
+// claim on both engines, mission cycles and a Repeat patrol through
+// economyTick, a carrier patrol dispatch (its drone screen), a patrol defeat repair, the ship scan events), compared
+// through ALLOW-LISTS of consequence fields.
 // A NaN or Infinity in any fingerprint throws. Magnitudes are deliberately exaggerated (bonus x5, stats at 70,
 // 60-point gear lines, 400-head buckets): this level is about WIRING; the registry's sensitivity level
 // (wiring.sensitivity.test.ts) checks direction and magnitude at real values.
@@ -54,10 +56,12 @@ import {
   type MissionKey,
   type OfficerStats,
   type PatrolMissionState,
+  type ShortRangeMissionState,
   type SeniorStaffOfficer,
   type SeniorStaffSeat,
   type ShipInstance,
   type ShipTypeKey,
+  FIELD_KITS_PLAYER_LIVE,
 } from "../model";
 import {
   dispatchCaptainOnPatrol,
@@ -84,6 +88,8 @@ import { activityRelicFindBonus, resolveExpeditionActivity, resolveScanEncounter
 import { fieldworkEffect } from "../fieldwork";
 import { applyExpeditionInjuries, applyGroundOpsInjuries } from "../injuries";
 import { groundTeamBaySeconds } from "../groundOps";
+import { resolveTaskFight, taskFightTeam } from "../groundFight";
+import { FIELD_KITS_CATALOG_VERSION } from "../fieldKits";
 import { SHIP_EVENT_DRAW_UNITS, SHIP_EVENT_WEIGHTS, boardingRepelChance, resolveShipScanEventFromDraws, shipEventDraws } from "../shipScanEvents";
 import { withSlottedAwayTeams, withoutGroundOps } from "../awayTeamTestFixtures";
 import { effectiveShipStats, officerCombatMods } from "../crewOverlay";
@@ -216,7 +222,7 @@ const STATE_OUTCOME_KEYS: readonly (keyof GameState)[] = [
   "activeProcesses",
   "archive",
   "relicVault",
-  "relicMuseum",
+  "museumV2",
   "relicDiscovered",
   "crewPool",
 ];
@@ -239,14 +245,28 @@ const PATROL_OUTCOME_KEYS: readonly (keyof PatrolMissionState)[] = [
   "limpDamage",
   "routesCompletedThisRun",
 ];
+// G1-3: a short-range run's outcome is its slot, frozen job and plan, and where it is in the cycle.
+const SHORT_RANGE_OUTCOME_KEYS: readonly (keyof ShortRangeMissionState)[] = ["slotId", "roll", "plan", "phase", "phaseProgressTicks", "recalled"];
 const SHIP_OUTCOME_KEYS: readonly (keyof ShipInstance)[] = ["id", "typeKey", "damaged", "repairDamage"];
+
+function missionOutcome(m: CaptainState["mission"]): unknown {
+  if (m === null) return null;
+  switch (m.kind) {
+    case "extraction":
+      return pick(m, MISSION_OUTCOME_KEYS);
+    case "patrol":
+      return pick(m, PATROL_OUTCOME_KEYS);
+    case "shortRange":
+      return pick(m, SHORT_RANGE_OUTCOME_KEYS);
+  }
+}
 
 export function outcome(s: GameState): string {
   return fp({
     state: pick(s, STATE_OUTCOME_KEYS),
     captains: s.captains.map((c) => ({
       ...pick(c, CAPTAIN_OUTCOME_KEYS),
-      mission: c.mission === null ? null : c.mission.kind === "patrol" ? pick(c.mission, PATROL_OUTCOME_KEYS) : pick(c.mission, MISSION_OUTCOME_KEYS),
+      mission: missionOutcome(c.mission),
     })),
     ships: s.ships.map((sh) => pick(sh, SHIP_OUTCOME_KEYS)),
     shipGear: s.equipment.filter((e) => !e.fittedToMemberId && !isMemberSlotType(e.slotType)).map((e) => [e.id, e.fittedToShipId, e.durability]),
@@ -283,6 +303,31 @@ export function shipScaffold(typeKey?: ShipTypeKey): GameState {
 
 function probeSheet(t: Transform): string {
   const s = t(shipScaffold());
+  return fp(effectiveShipStats(s, shipOf(s)));
+}
+
+// E-MOD EM-1: the same sheet on a ship carrying a powered piece (Standard Issue draws nothing, so a power-efficiency
+// cut shows only where something draws power).
+const POWERED_DRAW = 1000;
+function probePoweredSheet(t: Transform): string {
+  const s0 = shipScaffold();
+  const powered: EquipmentInstance = {
+    id: "equip-90100",
+    slotType: "cargoBay",
+    rarity: "standard",
+    ascension: "none",
+    quality: 0,
+    iLevel: 10,
+    blueprintKey: null,
+    implicitStats: {},
+    rolledStats: {},
+    mass: 0,
+    powerDraw: POWERED_DRAW,
+    durabilityMax: 100,
+    durability: 100,
+    fittedToShipId: SHIP_ID,
+  };
+  const s = t({ ...s0, equipment: [...s0.equipment.filter((e) => !(e.fittedToShipId === SHIP_ID && e.slotType === "cargoBay")), powered] });
   return fp(effectiveShipStats(s, shipOf(s)));
 }
 
@@ -389,6 +434,35 @@ function probeExpeditionBattles(t: Transform): string {
         });
       });
       return { scans, tasks };
+    }),
+  );
+}
+
+// Field Kits FKR-4: a FIELD KITS run's objective fights (flag 2 stamped by hand on the dispatched run: FKR-7 stamps it at
+// dispatch), where the enemy inflictors (Fear from Swarm and hostile garrisons, a Bruiser's heavy-hit Fracture and
+// Concussion, a Striker's Hemorrhage and flash grenade, a Caster's Neurotoxin from Challenging) roll against the squad's
+// resists: each fight's record and battle log on a swarm cave, a hostile fortification and a derelict outpost, at two
+// fight numbers and two grades.
+const FIELD_KITS_PROBE_SITES = ["caveNetwork", "enemyFortification", "derelictOutpost"];
+function probeFieldKitsFights(t: Transform): string {
+  return fp(
+    dispatches(t).map(({ exp }) => {
+      const run: Expedition = { ...exp, fieldKits: { catalog: FIELD_KITS_CATALOG_VERSION } };
+      const ops = run.groundOps!;
+      const teams = ops.teams.map((team, i) => ({ securityIds: team.securityIds, downedThisTask: [], securityShare: ops.factors.securityShare[i] ?? 0 }));
+      const body = syntheticBody("terrestrial", 0.4);
+      const fights = FIELD_KITS_PROBE_SITES.flatMap((poiId, i) =>
+        [0, 1].flatMap((fightCount) =>
+          [2, 4].map((difficulty) => {
+            const log: GambitLogEvent[] = [];
+            const task = { id: `probe-fk-${poiId}`, poiId, fightCount, pointsCleared: 0, difficulty, fightPoints: [0.5] };
+            return [resolveTaskFight(run, teams, body, task, i, undefined, log), log];
+          }),
+        ),
+      );
+      // Field Kits FKR-5: the squad as such a fight arms it (each worn grenade's throw and its charges per objective).
+      const armed = taskFightTeam(run, teams, { id: "probe-fk-armed", fightCount: 0 }).map((c) => [c.memberId, c.grenade]);
+      return { fights, armed };
     }),
   );
 }
@@ -502,6 +576,15 @@ function probePatrol(t: Transform): string {
   return outcome(s);
 }
 
+// The inert racials go live (0.14.0): a CARRIER's patrol dispatch, the cycle record it freezes and the drone screen it
+// seeds (Deck Handling and the Belter racial speed the screen's replenish; the destroyer patrol above fields none).
+function probeCarrierPatrolDispatch(t: Transform): string {
+  const s0 = installMissingCombatBaselines(t(shipScaffold("carrier")));
+  const r = dispatchCaptainOnPatrol(s0, 1, "crimsonReaverSweep", "balanced", false);
+  if (!r.success) throw new Error(`carrier patrol dispatch refused: ${r.reason}`);
+  return outcome(r.next);
+}
+
 // A patrol cycle that ends in DEFEAT: the ship limps home and the Shipyard repairs it (Engineering's Cunning
 // free repair tick is decided at dispatch and spent here).
 function probePatrolDefeatRepair(t: Transform): string {
@@ -526,15 +609,18 @@ export interface Probe {
 // Cheapest first: a live effect stops at its first moving probe; a dead one runs them all.
 export const PROBES: readonly Probe[] = [
   { name: "ship stats", run: probeSheet },
+  { name: "ship stats drawing power", run: probePoweredSheet },
   { name: "reach", run: probeReach },
   { name: "repair time", run: probeRepair },
   { name: "ship battle", run: probeShipBattle },
   { name: "expedition readers", run: probeExpeditionReaders },
   { name: "injury recovery", run: probeInjuries },
   { name: "expedition battles", run: probeExpeditionBattles },
+  { name: "field kits fights", run: probeFieldKitsFights },
   { name: "expedition run + claim", run: probeExpeditionRun },
   { name: "mission cycles", run: probeMissions },
   { name: "patrol run", run: probePatrol },
+  { name: "carrier patrol dispatch", run: probeCarrierPatrolDispatch },
   { name: "patrol defeat repair", run: probePatrolDefeatRepair },
   { name: "ship scan events", run: probeShipScanEvents },
 ];
@@ -589,8 +675,10 @@ function crewEntry(def: CrewBuffDef, profession: CrewProfession): StatEntry {
   };
 }
 
-// CP-2: the bucket a lifting buff or racial is read beside (Efficient Unloading, a Spacer crew: its race lifts nothing).
-const LIFTED: CrewBucket = { ...bucket("operations", "spacer", "ops.unloadSpeed", null) };
+// CP-2: the bucket a lifting buff or racial is read beside (Efficient Unloading). Both states of a variant carry it,
+// so its race adds the same thing to each: a Belter crew (its racial acts only on a carrier's drone screen; the Spacer,
+// the old choice, went live on the transit speed in 0.14.0).
+const LIFTED: CrewBucket = { ...bucket("operations", "belter", "ops.unloadSpeed", null) };
 function withLifted(t: Transform): Transform {
   return (s0) => {
     const s = t(s0);
@@ -819,5 +907,9 @@ export function liveVia(entry: StatEntry): string | null {
 // The entry counts by category (the coverage test pins them; a new catalog entry changes one).
 // Prospecting squads (hidden): gear 74 -> 99, the 25 Prospecting lines (eight Prospecting-only varieties plus the
 // shared Hazard Suit and Environmental Adaptation worn by Prospecting), every one deferred to the quests patch.
-export const EXPECTED_COUNTS = { officer: 16, crew: 21, racial: 10, gear: 99, facet: 28 };
+// Field Kits FKR-5: gear 99 -> 104, the Impact Grenade's power and accuracy lines and the carry capacity line on all
+// three grenades, every one live. Until FIELD_KITS_PLAYER_LIVE (FKR-7) the Stun and Toxin Grenades craft from their
+// pre-FKR-5 pools, so their two carry lines are not rollable yet: 102.
+export const FIELD_KITS_GEAR_LINES = FIELD_KITS_PLAYER_LIVE ? 5 : 3;
+export const EXPECTED_COUNTS = { officer: 16, crew: 21, racial: 10, gear: 99 + FIELD_KITS_GEAR_LINES, facet: 28 };
 

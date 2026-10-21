@@ -13,7 +13,9 @@
 import Decimal from "break_infinity.js";
 import {
   BLUEPRINTS,
+  DEFAULT_MEMBER_GAMBIT,
   EQUIPMENT_SLOTS,
+  FIELD_KITS_DEFAULT_GRENADE_RULES,
   MEMBER_SLOT_TYPES,
   MISSIONS,
   PATROLS,
@@ -57,6 +59,9 @@ import {
   type SnapshotMember,
   type MemberPerkId,
   type PatrolMissionState,
+  type ShortRangeMissionState,
+  type ShortRangePhase,
+  withGeneralMuseumRecord,
 } from "../model";
 import {
   canBuildShip,
@@ -88,10 +93,12 @@ import {
   shipRepairDurationTicks,
   shipyardBayCount,
   startProcess,
+  resolveProcesses,
   shipyardRepairSpeedBonus,
   tierCap,
   xpPerTick,
 } from "../tick";
+import { TRANSPORT_WINDOW_SECONDS } from "../transports";
 import { OVERTIME_PROCESS_KINDS, buyOvertime } from "../processSpeed";
 import { combatHullTypeOf, shipToCombatant } from "../combat/bridge";
 import type { Combatant, CombatWeapon } from "../combat/types";
@@ -100,6 +107,7 @@ import type { WeaponId } from "../combat/weapons";
 import { resolveBattle } from "../combat/resolveBattle";
 import { makeWeaponInstance } from "../combat/weapons";
 import { makeSquadron } from "../combat/drones";
+import { replenishUnits } from "../combat/droneDefense";
 import { generateEnemyWave } from "../combat/enemyWave";
 import type { PirateHullId } from "../combat/enemyHulls";
 import { STATUS_EFFECT_DEFS, activeStatDelta, applyEffect, tickEffects } from "../combat/statusEffects";
@@ -133,9 +141,14 @@ import {
   resolveTarget,
   strikeHitChance,
   tickEndOfRound,
+  applyBoneHit,
+  statusResistPermille,
   type BattleState,
   type GroundCombatant,
 } from "../gambit";
+import { FIELD_KITS, FIELD_KITS_CATALOG_VERSION, type FieldKitId } from "../fieldKits";
+import { withThrownGrenades } from "../fieldKitsGrenades";
+import { FIELD_KITS_BATTLE, withFieldKitsDefaultProgram } from "../fieldKitsBattle";
 import { fieldworkEffect, fieldworkHazardResist, fieldworkSpeedMult } from "../fieldwork";
 import { taskSecurityHazardResist } from "../groundTasks";
 import { awayRecruitCandidates, snapshotMembers } from "../awayTeam";
@@ -144,16 +157,21 @@ import { applyExpeditionInjuries, injuryRecoverySeconds, shipInjuryFactors } fro
 import { boardingRepelChance, buildShipCombatant, snapshotShipEventProfile } from "../shipScanEvents";
 import { shipsWithMemberAutoSlotted } from "../groundTeamSlots";
 import { equippedFor } from "../equipment";
-import { effectiveShipStats, officerCombatMods, officerRepairSpeedBonus, shipCrewContribution, shipMissionOutputBonus, shipRepairSpeedBonus } from "../crewOverlay";
+import { effectiveShipStats, officerCombatMods, officerRepairSpeedBonus, resolveCrew, shipCrewContribution, shipMissionOutputBonus, shipRepairSpeedBonus } from "../crewOverlay";
 import { departmentFacet, seatFacet } from "../officerStats";
 import { RELICS, museumBonuses, type MuseumStat } from "../relics";
-import { salvageSalvagedMaterial, salvageShip, salvageTalentBonus, salvageYieldMult } from "../salvage";
+import { hullTeardownFraction, salvageSalvagedMaterial, salvageShip, salvageTalentBonus, salvageYieldMult } from "../salvage";
 import { alertResetSeconds, escalationAt, extraBattleChance, longRangeCover, maxExtraBattles } from "../affixes";
-import { ENEMY_RANKS_VERSION, type EnemyRank } from "../enemyRanks";
+import { ENEMY_RANK_IDS, ENEMY_RANKS_VERSION, type EnemyRank } from "../enemyRanks";
 import { taskFightGuard, taskFightTeam } from "../groundFight";
-import { sellItem } from "../quartermaster";
+import { buyFieldKits, sellItem } from "../quartermaster";
+// Field Kits FKR-7: the run plumbing (the free basic set at an objective start, the bay share).
+import { fieldKitsStamp, refreshObjectiveSupplies } from "../fieldKitsRun";
+import { groundTeamBaySeconds } from "../groundOps";
 import { retirementExpMultiplier } from "../captainRetirement";
 import { transitBerthCount } from "../berths";
+import { shortRangeBoardSlots, startShortRangeCycle } from "../shortRangeBoard";
+import { rollShortRangeJob, shortRangeCycleReward, shortRangeShipRatings, type ShortRangeCyclePlan, type ShortRangeRoll, type ShortRangeTemplateKey } from "../shortRange";
 import { telescopeReading } from "../telescope";
 import { getSeniorStaffBonusById } from "../seniorStaffBonuses";
 import { CREW_STAT_KEYS } from "../crewBuffs";
@@ -179,6 +197,7 @@ export const CONTEXT_IDS = [
   "mission:extraction",
   "mission:survey",
   "mission:transport",
+  "mission:shortRange", // G1: a short-range mission cycle (the G1-4 cycle engine, shortRangeCycle.ts)
   "patrol", // ship battles (patrols and the Ground Ops ship events build the same combatant)
   "shipyard", // Shipyard repair, builds, bays
   "expedition:groundOps", // a run dispatched since GO-7b (every new run)
@@ -243,9 +262,9 @@ export function editCaptain(s: GameState, over: Partial<CaptainState>): GameStat
 }
 
 // Seat one officer on ship-1 carrying `bonusIds` at their catalog magnitude (an ensign stores the base magnitude).
-// CP-2: the default race is the Spacer, whose racial (crew.endurance) has no 0.14.0 consumer (deferred to 0.14.x), so
-// a fixture officer moves nothing through its race. The Earth-born racial (the old default) is Crew Effectiveness,
-// live since CP-2, which would lift every complement buff the fixture also carries.
+// The default race is FIXTURE_RACE (the Belter: its racial acts only on a carrier's patrol drone screen), so a fixture
+// officer moves nothing else through its race. The Earth-born racial (the first default) is Crew Effectiveness, live
+// since CP-2, which would lift every complement buff the fixture also carries.
 export function seatOfficer(
   s: GameState,
   seat: SeniorStaffSeat,
@@ -289,9 +308,11 @@ export function overtimeOneStep(s: GameState): GameState {
 
 export const WIRING_BUCKET_COUNT = 20; // a real-sized complement bucket (standard rarity, Crewman rank)
 
-// CP-2: the race fixture crew and officers carry unless a test names one: the Spacer, whose racial has no consumer in
-// 0.14.0 (the long-haul ramp is deferred to 0.14.x), so a bucket's race never lifts the buff under test.
-export const FIXTURE_RACE: CrewRace = "spacer";
+// CP-2: the race fixture crew and officers carry unless a test names one, chosen so a bucket's race never lifts the
+// buff under test. Every racial acts since 0.14.0 (user "everything wired" 2026-10-20), so this is the Belter, whose
+// racial (Deck Handling) acts only on a carrier's patrol drone screen: no other probe reads it, and the Deck Handling
+// probes compare two states that both carry it. (The Spacer, the CP-2 choice, now lifts the transit speed.)
+export const FIXTURE_RACE: CrewRace = "belter";
 
 export function bucketOf(profession: CrewProfession, buff1Id: string, count = WIRING_BUCKET_COUNT, race: CrewRace = FIXTURE_RACE): CrewBucket {
   return { profession, rarity: "standard", rank: 1, race, buff1Id, buff2Id: null, count };
@@ -327,8 +348,9 @@ export function withFacilityLevel(s: GameState, key: string, level: number): Gam
   return { ...s, facilities: { ...s.facilities, [key]: { level } } };
 }
 
+// Relics v2 R2-1: the record is the Tier I general record (museumV2.general["1"], where the v1 copies live).
 export function withMuseum(s: GameState, record: Readonly<Record<string, number>>): GameState {
-  return { ...s, relicMuseum: { ...record } };
+  return withGeneralMuseumRecord(s, record);
 }
 
 export function withHomeworld(s: GameState, keys: readonly string[]): GameState {
@@ -547,6 +569,18 @@ function battleDrones(s: GameState, ctx: ContextId): DroneSquadron[] {
   return ctx === "shipEvent" ? battleCombatant(s, ctx).drones : dispatchedPatrol(s).playerDrones;
 }
 
+// 0.14.0 (CP-4): the banked between-wave replenish of the dispatched cycle's first squadron, every drone destroyed, as a
+// share of the plain rate. 0 when the cycle fields no squadron.
+export const REPLENISH_PROBE_TICKS = 100_000;
+function patrolReplenishShare(s: GameState): number {
+  const first = dispatchedPatrol(s).playerDrones[0];
+  if (!first || first.droneReplenishRate <= 0) return 0;
+  const sq: DroneSquadron = { ...first, drones: first.drones.map((d) => ({ ...d, alive: false })) };
+  let units = 0;
+  for (let t = 0; t < REPLENISH_PROBE_TICKS; t++) units += replenishUnits(sq);
+  return units / (REPLENISH_PROBE_TICKS * first.droneReplenishRate);
+}
+
 // WR-5b: the mean damage of 1,000 raw-100 projectiles from the combatant's first weapon (Alpha Strike's opening shot
 // spent, unless `opening`), at a target `above` half hull or below it, through the seam fireWeapon calls.
 const SHOT_RAW = 100;
@@ -600,33 +634,125 @@ function deliveryTick(s: GameState, draw: number, over: Partial<CaptainState> = 
 }
 
 // WR-5a (Motherlode): the share of MOTHERLODE_BATCH real deliveries (captain 1's lifetime Motherlode counter at 0 to
-// MOTHERLODE_BATCH - 1) whose 10 Titanium Ore landed doubled.
+// MOTHERLODE_BATCH - 1) whose 10 Titanium Ore landed doubled. G1-4: at mission:shortRange, real Supply Pickup
+// deliveries (the training roll's units of Titanium Ore).
 const MOTHERLODE_BATCH = 1000;
-function motherlodeRate(s: GameState): number {
+function motherlodeRate(s: GameState, ctx?: ContextId): number {
+  const shortRange = ctx === "mission:shortRange";
+  const units = shortRange ? shortRangeJobRoll(s, "supplyPickup").units ?? 0 : 10;
   let doubled = 0;
   for (let i = 0; i < MOTHERLODE_BATCH; i++) {
-    const { before, after } = deliveryTick(s, 0.999999, { motherlodeCycles: i });
-    if (heldOf(after, "commonOre") - heldOf(before, "commonOre") > 10) doubled++;
+    const { before, after } = shortRange ? shortRangeDeliveryTick(s, 0.999999, { motherlodeCycles: i }) : deliveryTick(s, 0.999999, { motherlodeCycles: i });
+    if (heldOf(after, "commonOre") - heldOf(before, "commonOre") > units) doubled++;
   }
   return doubled / MOTHERLODE_BATCH;
 }
 
-function deliveredQuality(s: GameState, draw: number): number {
-  const { before, after } = deliveryTick(s, draw);
+// == short-range missions (G1-4, the cycle engine shortRangeCycle.ts) ==
+
+// The first cycle index on short-range slot 0 (Tier I) whose roll is `template`, on `s`'s counters (a fresh save: the
+// template's training run, its smallest roll).
+const SHORT_RANGE_PROBE_SLOT = { id: 0, tier: 1 as const };
+function shortRangeJobIndex(s: GameState, template: ShortRangeTemplateKey): number {
+  for (let i = 0; i < 2000; i++) if (rollShortRangeJob(s, SHORT_RANGE_PROBE_SLOT, i).template === template) return i;
+  throw new Error(`wiring: no ${template} roll on slot 0`);
+}
+export function shortRangeJobRoll(s: GameState, template: ShortRangeTemplateKey): ShortRangeRoll {
+  return rollShortRangeJob(s, SHORT_RANGE_PROBE_SLOT, shortRangeJobIndex(s, template));
+}
+
+// Captain 1 flying that roll on ship-1, its cycle started through the board's own seam (startShortRangeCycle), at the
+// start of `phase`. Recalled unless `repeat`: the run ends after its one delivered cycle.
+export function onShortRangeJob(s: GameState, template: ShortRangeTemplateKey, phase: ShortRangePhase = "transitOut", repeat = false): GameState {
+  const start = startShortRangeCycle(s, shipOf(s), SHORT_RANGE_PROBE_SLOT, shortRangeJobIndex(s, template));
+  const mission: ShortRangeMissionState = { kind: "shortRange", slotId: 0, roll: start.roll, plan: start.plan, phase, phaseProgressTicks: 0, recalled: !repeat };
+  return { ...editCaptain(s, { mission } as Partial<CaptainState>), runCounts: start.runCounts };
+}
+
+function shortRangeMissionOf(s: GameState): ShortRangeMissionState {
+  const m = captainOf(s).mission;
+  if (m === null || m.kind !== "shortRange") throw new Error("wiring: captain 1 is not on a short-range run");
+  return m;
+}
+
+// One whole short-range cycle of `template` from its departure to its delivery (economyTick, every draw common).
+function shortRangeCycle(s: GameState, template: ShortRangeTemplateKey): { before: GameState; after: GameState } {
+  const before = onShortRangeJob(s, template);
+  return { before, after: economyTick(before, shortRangeMissionOf(before).plan.totalTicks, () => 0.5) };
+}
+
+// The training cycle of `template` on the bare wiring fixture: its roll, its plan and what it pays (the registry's
+// short-range template magnitudes read these).
+export function shortRangeTrainingCycle(template: ShortRangeTemplateKey): { roll: ShortRangeRoll; plan: ShortRangeCyclePlan; credits: number } {
+  const s = wiringBase();
+  const m = shortRangeMissionOf(onShortRangeJob(s, template));
+  return { roll: m.roll, plan: m.plan, credits: shortRangeCycleReward(m.roll, effectiveShipStats(s, shipOf(s))).credits };
+}
+
+// The last tick of a Supply Pickup's home turnaround, then that tick (economyTick, every draw `draw`).
+function shortRangeDeliveryTick(s: GameState, draw: number, over: Partial<CaptainState> = {}): { before: GameState; after: GameState } {
+  const on = onShortRangeJob(s, "supplyPickup", "unloading");
+  const m = shortRangeMissionOf(on);
+  const before = editCaptain(on, { ...over, mission: { ...m, phaseProgressTicks: m.plan.unloadTicks - 1 } } as Partial<CaptainState>);
+  return { before, after: economyTick(before, 1, () => draw) };
+}
+
+// The mission output share one short-range cycle applied to its pay: a Telescope Repair's credits over the reward
+// table's (shortRangeCycleReward), minus one.
+function shortRangeOutputShare(s: GameState): number {
+  const { before, after } = shortRangeCycle(s, "telescopeRepair");
+  const base = shortRangeCycleReward(shortRangeMissionOf(before).roll, effectiveShipStats(before, shipOf(before))).credits;
+  return (Number(after.credits) - Number(before.credits)) / base - 1;
+}
+
+// The ticks the engine spends on site in one cycle of `template` (stepped one tick at a time from the site's start).
+function shortRangeOnSiteTicks(s: GameState, template: ShortRangeTemplateKey): number {
+  let at = onShortRangeJob(s, template, "onSite");
+  for (let t = 1; t < 10_000; t++) {
+    at = economyTick(at, 1, () => 0.5);
+    if (shortRangeMissionOf(at).phase !== "onSite") return t;
+  }
+  return -1;
+}
+
+// The primary size a template's training roll carries (people, units or scan points), from the cycle-start seam.
+function shortRangePrimarySize(s: GameState, template: ShortRangeTemplateKey): number {
+  const roll = shortRangeMissionOf(onShortRangeJob(s, template)).roll;
+  return roll.guests ?? roll.units ?? roll.scan ?? -1;
+}
+
+function shortRangeContentValue(s: GameState, field: string, template: ShortRangeTemplateKey): number {
+  switch (field) {
+    case "rolls":
+      return shortRangePrimarySize(s, template);
+    case "work":
+      return shortRangeOnSiteTicks(s, template);
+    case "reward": {
+      const { before, after } = shortRangeCycle(s, template);
+      return Number(after.credits) - Number(before.credits);
+    }
+    default:
+      throw new Error(`no short-range field probe for ${field}`);
+  }
+}
+
+function deliveredQuality(s: GameState, draw: number, ctx?: ContextId): number {
+  const { before, after } = ctx === "mission:shortRange" ? shortRangeDeliveryTick(s, draw) : deliveryTick(s, draw);
   const buckets = after.inventory.commonOre ?? [];
   const was = before.inventory.commonOre ?? [];
   for (let q = buckets.length - 1; q >= 0; q -= 1) if (Number(buckets[q] ?? 0) > Number(was[q] ?? 0)) return q;
   return -1;
 }
 
-// The largest constant draw whose delivery still climbs to quality 1 (the deposit's first-climb threshold).
-function deliveryQualityThreshold(s: GameState): number {
+// The largest constant draw whose delivery still climbs to quality 1 (the deposit's first-climb threshold). G1-4: at
+// mission:shortRange, a Supply Pickup's delivery.
+function deliveryQualityThreshold(s: GameState, ctx?: ContextId): number {
   let lo = 0;
   let hi = 1;
-  if (deliveredQuality(s, 1e-12) < 1) return 0;
+  if (deliveredQuality(s, 1e-12, ctx) < 1) return 0;
   for (let i = 0; i < 44; i++) {
     const mid = (lo + hi) / 2;
-    if (deliveredQuality(s, mid) >= 1) lo = mid;
+    if (deliveredQuality(s, mid, ctx) >= 1) lo = mid;
     else hi = mid;
   }
   return lo;
@@ -711,13 +837,40 @@ function withoutInflictPieces(s: GameState): GameState {
 }
 
 // A hull torn down at the Salvage Bay (a second hull, so the last-hull guard never refuses): what it gave back.
-function teardownRecovered(s: GameState): number {
+// What a hull teardown of a copy of ship-1 gives back (components plus credits) at the middle band draw.
+export function teardownRecovered(s: GameState): number {
   const spare: ShipInstance = { ...shipOf(s), id: "wiring-teardown", assignedCaptainId: null };
   const held = { ...s, ships: [...s.ships, spare] };
   const r = salvageShip(held, spare.id, () => 0.5);
   if (!r.ok) return -1;
   const items = Object.keys(SHIP_TYPES[spare.typeKey].buildRecipe.components);
   return items.reduce((a, k) => a + heldOf(r.next, k) - heldOf(held, k), 0) + Number(r.next.credits) - Number(held.credits);
+}
+
+// WR-6: Works Directorate measured where it pays: 1,000 Fabricator blank jobs started through the real seam (each its
+// own process number), all resolved; the share that delivered a second blank.
+const FABRICATOR_SAMPLE_JOBS = 1000;
+const FABRICATOR_SAMPLE_KEY = "wiring-blank";
+function fabricatorBonusShare(s: GameState): number {
+  let st: GameState = { ...s, activeProcesses: [], blanks: {} };
+  for (let i = 0; i < FABRICATOR_SAMPLE_JOBS; i++) {
+    const r = startProcess(st, "fabricateJob", {}, 1, { type: "addBlank", blueprintKey: FABRICATOR_SAMPLE_KEY });
+    if (!r.started) return -1;
+    st = r.next;
+  }
+  const done = resolveProcesses(st, 1, () => 0.5).next;
+  const blanks = Number(done.blanks[FABRICATOR_SAMPLE_KEY] ?? 0);
+  return (blanks - FABRICATOR_SAMPLE_JOBS) / FABRICATOR_SAMPLE_JOBS;
+}
+
+// WR-6: the crew one transport window delivers into the fleet (the pool and every complement it auto-fills).
+function crewHeads(s: GameState): number {
+  const count = (buckets: readonly { count: number }[]) => buckets.reduce((a, b) => a + b.count, 0);
+  return count(s.crewPool) + s.ships.reduce((a, sh) => a + count(sh.complement?.buckets ?? []), 0);
+}
+function transportCrewDelivered(s: GameState): number {
+  const due: GameState = { ...s, lastTransportWindow: 0, gameTimeSeconds: TRANSPORT_WINDOW_SECONDS };
+  return crewHeads(resolveCrew(due)) - crewHeads(due);
 }
 
 // The loot tier one salvaged material gives a Fleet Admiral past every loot-tier threshold, the draw at the top.
@@ -782,6 +935,16 @@ function runTaskMember(s: GameState, memberId: string): GroundCombatant | undefi
   return taskFightTeam(run, teams, { id: "wiring-task", fightCount: 0 }).find((c) => c.memberId === memberId);
 }
 
+// Field Kits FKR-4: the same member on a FIELD KITS run (flag 2 stamped by hand: FKR-7 stamps it at dispatch), where a
+// task fight stamps the squad's Field Kits battle traits (fieldKitsConditions.ts withFieldKitsTeam: Stoneskin).
+function runFieldKitsTaskMember(s: GameState, memberId: string): GroundCombatant | undefined {
+  const run: Expedition = { ...dispatchRun(readyForRun(s)), fieldKits: { catalog: FIELD_KITS_CATALOG_VERSION } };
+  const ops = run.groundOps;
+  if (!ops) return undefined;
+  const teams = ops.teams.map((t, i) => ({ securityIds: t.securityIds, downedThisTask: [], securityShare: ops.factors.securityShare[i] ?? 0 }));
+  return taskFightTeam(run, teams, { id: "wiring-task", fightCount: 0 }).find((c) => c.memberId === memberId);
+}
+
 // A relic the dispatched run recovers (the first seed whose roll hits on a hazard-1 Buried Vault), brought home by the
 // claim's deposit and studied at a Research Lab: the study's duration in ticks. -1 when no seed hits (never: the
 // hazard-1 chance is 75% before any bonus).
@@ -801,8 +964,9 @@ function runRelicStudyTicks(s: GameState): number {
 
 // The first officer aboard ship-1 (the fixture seats one), after 600 economyTick seconds of a Short Ore Run: its
 // crewHours (the promotion counter every run feeds). -1 when the mission cannot dispatch or no officer sits aboard.
-function missionCrewHours(s: GameState): number {
-  const r = dispatchCaptainOnMission(s, WIRING_CAPTAIN_ID, "shortOreRun");
+function missionCrewHours(s: GameState, ctx?: ContextId): number {
+  // G1-4: at mission:shortRange, 600 s of a short-range run (a Telescope Repair, on Repeat).
+  const r = ctx === "mission:shortRange" ? { success: true, next: onShortRangeJob(s, "telescopeRepair", "transitOut", true) } : dispatchCaptainOnMission(s, WIRING_CAPTAIN_ID, "shortOreRun");
   if (!r.success) return -1;
   let after = r.next;
   for (let t = 0; t < 600; t++) after = economyTick(after, 1, () => 0.5);
@@ -860,6 +1024,11 @@ const sheet = (s: GameState) => effectiveShipStats(s, shipOf(s));
 // yet) that context's whole consumer, the Ground Ops run or the patrol cycle.
 const sheetAt = (read: (s: GameState) => number) => (s: GameState, ctx: ContextId) =>
   ctx === "expedition:groundOps" ? groundOpsRunDigest(s) : ctx === "patrol" ? patrolDigest(s) : read(s);
+// Expedition Tiers G2-3: the leg speed a Ground Ops dispatch of ship-1 froze on its voyage (-1 without one).
+const voyageSpeed = (s: GameState, leg: "out" | "back"): number => {
+  const v = dispatchRun(readyForRun(s)).voyage;
+  return v ? (leg === "out" ? v.outboundSpeed : v.returnSpeed) : -1;
+};
 const sci = () => WIRING_SCIENCE_ID;
 // The research probe reads a long project, so one museum step moves it by many ticks (well above its rounding).
 const RESEARCH_PROBE_SCALE = 1000;
@@ -868,10 +1037,16 @@ const sec = () => WIRING_SECURITY_ID;
 export const PROBES = {
   // == the ship stat sheet ==
   sheetCargo: { label: "effectiveShipStats.cargoCapacity (Ground Ops / patrol: the run / cycle digest)", read: sheetAt((s) => sheet(s).cargoCapacity) },
-  sheetTransit: { label: "effectiveShipStats.transitSpeedMult (Ground Ops / patrol: the run / cycle digest)", read: sheetAt((s) => sheet(s).transitSpeedMult) },
-  // CP-2 (OC-E5): each mission leg's own speed (effectiveMissionDef divides that leg by it).
-  sheetOutLeg: { label: "outboundLegSpeed(effectiveShipStats): the outbound leg's speed", read: (s) => outboundLegSpeed(sheet(s)) },
-  sheetBackLeg: { label: "returnLegSpeed(effectiveShipStats): the return leg's speed", read: (s) => returnLegSpeed(sheet(s)) },
+  // Expedition Tiers G2-3: at Ground Ops, the outbound leg speed the run's voyage froze (voyage.ts: each leg's seconds
+  // divide by it); the patrol reads its whole cycle digest.
+  sheetTransit: {
+    label: "effectiveShipStats.transitSpeedMult (Ground Ops: the voyage's frozen outbound speed; patrol: the cycle digest)",
+    read: (s, ctx) => (ctx === "expedition:groundOps" ? voyageSpeed(s, "out") : ctx === "patrol" ? patrolDigest(s) : sheet(s).transitSpeedMult),
+  },
+  // CP-2 (OC-E5): each mission leg's own speed (effectiveMissionDef divides that leg by it). G2-3: at Ground Ops, the
+  // voyage's frozen speed on that leg.
+  sheetOutLeg: { label: "outboundLegSpeed(effectiveShipStats): the outbound leg's speed (Ground Ops: the voyage's)", read: (s, ctx) => (ctx === "expedition:groundOps" ? voyageSpeed(s, "out") : outboundLegSpeed(sheet(s))) },
+  sheetBackLeg: { label: "returnLegSpeed(effectiveShipStats): the return leg's speed (Ground Ops: the voyage's)", read: (s, ctx) => (ctx === "expedition:groundOps" ? voyageSpeed(s, "back") : returnLegSpeed(sheet(s))) },
   sheetYield: { label: "effectiveShipStats.extractionYieldMult", read: (s) => sheet(s).extractionYieldMult },
   sheetUnload: {
     label: "unload speed: effectiveShipStats.unloadSpeedMult (missions) / groundOps.factors.offloadMult (Ground Ops)",
@@ -880,6 +1055,12 @@ export const PROBES = {
   sheetEngineEff: { label: "effectiveShipStats.engineEfficiency (Ground Ops: the run digest)", read: sheetAt((s) => sheet(s).engineEfficiency) },
   sheetFuelCapacity: { label: "effectiveShipStats.fuelCapacity (Ground Ops: the run digest)", read: sheetAt((s) => sheet(s).fuelCapacity) },
   sheetSensors: { label: "effectiveShipStats.sensors (patrol: the cycle digest)", read: sheetAt((s) => sheet(s).sensors) },
+  // G1-1: guest quarters on the sheet. At mission:shortRange it reads the short-range cycle's passenger capacity, which
+  // does not exist until G1-4 (the cycle engine): 0 there, so a guest source stays flat at that claimed context.
+  sheetGuestQuarters: {
+    label: "effectiveShipStats.colonistCapacity (mission:shortRange: the guest quarters a short-range sheet judges, shortRangeShipRatings)",
+    read: (s, ctx) => (ctx === "mission:shortRange" ? shortRangeShipRatings(s, shipOf(s), 1).guests : sheet(s).colonistCapacity ?? 0),
+  },
   sheetMass: { label: "effectiveShipStats.mass", read: (s) => sheet(s).mass },
   sheetPowerOutput: { label: "effectiveShipStats.powerOutput", read: (s) => sheet(s).powerOutput },
   sheetPowerDraw: { label: "effectiveShipStats.powerDraw", read: (s) => sheet(s).powerDraw },
@@ -924,21 +1105,24 @@ export const PROBES = {
     },
   },
   missionOutputBonus: {
-    label: "shipMissionOutputBonus (the share economyTick applies to mission deliveries and to patrol wave loot)",
-    read: (s) => shipMissionOutputBonus(s, shipOf(s)),
+    label: "shipMissionOutputBonus (the share economyTick applies to mission deliveries and to patrol wave loot; mission:shortRange: the share one delivered short-range cycle applied)",
+    read: (s, ctx) => (ctx === "mission:shortRange" ? shortRangeOutputShare(s) : shipMissionOutputBonus(s, shipOf(s))),
   },
   missionCycleOutput: { label: "one whole shortOreRun cycle (economyTick): the credits and Titanium Ore delivered", read: (s) => cycleOutput(s) },
   missionOreQuality: { label: "one whole shortOreRun cycle (economyTick): the quality of the ore delivered", read: (s) => cycleOreQuality(s) },
   // == the captain secondary tree (WR-5a) ==
   deliveryQualityClimb: {
-    label: "economyTick's mission deposit: the largest constant draw whose delivered ore still climbs to quality 1 (shortOreRun)",
-    read: (s) => deliveryQualityThreshold(s),
+    label: "economyTick's mission deposit: the largest constant draw whose delivered ore still climbs to quality 1 (shortOreRun; mission:shortRange: a Supply Pickup)",
+    read: (s, ctx) => deliveryQualityThreshold(s, ctx),
   },
-  motherlodeRate: { label: "economyTick deliveries: the share of 1,000 real shortOreRun deliveries (lifetime counter 0 to 999) whose haul landed doubled", read: (s) => motherlodeRate(s) },
+  motherlodeRate: {
+    label: "economyTick deliveries: the share of 1,000 real deliveries whose haul landed doubled, lifetime counter 0 to 999 (shortOreRun; mission:shortRange: a Supply Pickup)",
+    read: (s, ctx) => motherlodeRate(s, ctx),
+  },
   transportCycleCredits: {
-    label: "one whole frontierSupplyRun cycle (economyTick): the net credits it delivered",
-    read: (s) => {
-      const { before, after } = oneCycle(s, "frontierSupplyRun");
+    label: "one whole frontierSupplyRun cycle (economyTick): the net credits it delivered (mission:shortRange: one Supply Drop-off cycle)",
+    read: (s, ctx) => {
+      const { before, after } = ctx === "mission:shortRange" ? shortRangeCycle(s, "supplyDropOff") : oneCycle(s, "frontierSupplyRun");
       return Number(after.credits) - Number(before.credits);
     },
   },
@@ -1040,6 +1224,10 @@ export const PROBES = {
     label: "the first squadron's droneReplenishRate: the patrol cycle's seed / the ship-event combatant",
     read: (s, ctx) => battleDrones(s, ctx)[0]?.droneReplenishRate ?? 0,
   },
+  // 0.14.0 (CP-4, OC-1): the between-wave replenish a patrol cycle's first squadron really pays, through the consumer
+  // (droneDefense.ts replenishUnits, Deck Handling banked), as a share of its plain rate over REPLENISH_PROBE_TICKS
+  // ticks with every drone down: 1 + deckHandling, within one banked unit over the span.
+  patrolReplenishShare: { label: "replenishUnits over a long recovery / (ticks x droneReplenishRate): 1 + Deck Handling", read: (s) => patrolReplenishShare(s) },
   battleDroneSquadrons: { label: "the squadron count: the patrol cycle's seed / the ship-event combatant", read: (s, ctx) => battleDrones(s, ctx).length },
   patrolRewardMult: {
     label: "patrolWaveRewardMult(0, the dispatched cycle's captainCombat): a won wave's loot and credit factor",
@@ -1100,6 +1288,8 @@ export const PROBES = {
   researchSlots: { label: "researchSlotCount", read: (s) => researchSlotCount(s) },
   fabricateSlots: { label: "fabricateSlotCount", read: (s) => fabricateSlotCount(s) },
   salvageLanes: { label: "salvageSlotCount", read: (s) => salvageSlotCount(s) },
+  // G1-3: the short-range board's slot count (shortRangeBoard.ts, derived from the Mission Control level).
+  shortRangeSlots: { label: "shortRangeBoardSlots (count)", read: (s) => shortRangeBoardSlots(s).length },
   missionsUnlocked: { label: "missions unlocked (count)", read: (s) => (Object.keys(MISSIONS) as MissionKey[]).filter((k) => missionUnlocked(s, k)).length },
   telescopeReach: { label: "telescopeReading.reachTier", read: (s) => telescopeReading(s).reachTier },
   telescopeDetail: { label: "telescopeReading.detail", read: (s) => telescopeReading(s).detail },
@@ -1119,8 +1309,23 @@ export const PROBES = {
   queueDepthShipyard: { label: "queueDepth(shipyard)", read: (s) => queueDepth(s, "shipyard") },
   craftingIlevelBonus: { label: "craftingItemLevelBonus", read: (s) => craftingItemLevelBonus(s) },
   salvageTalentYield: {
-    label: "salvageTalentBonus.yieldBonus (recycle fraction) / salvage:teardown: what a hull teardown gives back",
-    read: (s, ctx) => (ctx === "salvage:teardown" ? teardownRecovered(s) : salvageTalentBonus(s).yieldBonus),
+    // WR-6: the teardown reads hullTeardownFraction at the middle band draw (what salvageShip recovers from); the
+    // realized refund that fraction drives is teardownRecovered (wiringPlaceholderTalents.test.ts).
+    label: "salvageTalentBonus.yieldBonus (recycle fraction) / salvage:teardown: hullTeardownFraction at the middle band draw",
+    read: (s, ctx) => (ctx === "salvage:teardown" ? hullTeardownFraction(s, 0.5) : salvageTalentBonus(s).yieldBonus),
+  },
+  // == WR-6: the Homeworld hubs ==
+  fabricatorBonusShare: {
+    label: "the share of 1,000 real Fabricator jobs (startProcess, then resolveProcesses) delivering a second blank",
+    read: (s) => fabricatorBonusShare(s),
+  },
+  patrolShieldPool: {
+    label: "the dispatched patrol cycle's full shield pool (playerShield, from the frozen captain combat record)",
+    read: (s) => dispatchedPatrol(s).playerShield,
+  },
+  transportCrewDelivered: {
+    label: "crew one transport window delivers (resolveCrew: the pool plus every complement)",
+    read: (s) => transportCrewDelivered(s),
   },
   salvageTalentCeiling: {
     label: "salvageTalentBonus.ceilingBonus / salvage:topTier: the loot tier (its quality rung) a top Fleet Admiral rolls at the top draw",
@@ -1184,7 +1389,7 @@ export const PROBES = {
   runRelicTierCeiling: { label: "relicTierCeiling: the dispatched run's tier ceiling on a hazard-0 objective", read: (s) => relicTierCeiling(0, dispatchRun(s).explorerCaptain?.relicTierLift) },
   runRelicStudyTicks: { label: "startRelicStudy: the duration of a relic the dispatched run recovers, brought home and studied", read: (s) => runRelicStudyTicks(s) },
   crewMapCargo: { label: "shipCrewContribution[crew.effectiveCargo]", read: (s) => shipCrewContribution(s, shipOf(s))[CREW_STAT_KEYS.effectiveCargo] ?? 0 },
-  missionCrewHours: { label: "economyTick: an officer's crewHours after 600 s of a Short Ore Run", read: (s) => missionCrewHours(s) },
+  missionCrewHours: { label: "economyTick: an officer's crewHours after 600 s of a Short Ore Run (mission:shortRange: of a short-range run)", read: (s, ctx) => missionCrewHours(s, ctx) },
   claimObjectives: { label: "claimExpedition: an officer's personnelAchievement after a run with one objective done", read: (s) => claimedObjectives(s) },
   officerBoard: { label: "seniorStaffCandidates (count)", read: (s) => seniorStaffCandidates(s).length },
   recruitBoard: { label: "awayRecruitCandidates (count)", read: (s) => awayRecruitCandidates(s).length },
@@ -1213,6 +1418,35 @@ export const PROBES = {
     read: (s, ctx) => (memberCombatant(ctx === "ground:noInflict" ? withoutInflictPieces(s) : s, sec())?.onHitStatuses ?? []).reduce((a, x) => a + x.permille, 0),
   },
   secPoisonResist: { label: "Security combatant poison resist permille", read: (s) => memberCombatant(s, sec())?.resists?.poison ?? 0 },
+  // Field Kits FKR-4: the resists a Field Kits run's inflictors roll against (gambit.ts statusResistPermille).
+  secFearResist: { label: "Security combatant fear resist permille", read: (s) => memberCombatant(s, sec())?.resists?.fear ?? 0 },
+  secConcussionResist: {
+    label: "Security combatant Concussion resist roll permille (statusResistPermille: Cortex Shield's stun resist covers it)",
+    read: (s) => {
+      const c = memberCombatant(s, sec());
+      return c ? statusResistPermille(c, "concussion") : 0;
+    },
+  },
+  runSecFearResist: {
+    label: "the dispatched run's Security member in a Field Kits objective fight: fear resist (fraction; Morale Anchor folds in)",
+    read: (s) => (runFieldKitsTaskMember(s, sec())?.resists?.fear ?? 0) / 1000,
+  },
+  runSecStoneskinResist: {
+    label: "the dispatched run's Security member in a Field Kits objective fight: a physical status's resist roll (permille, Fracture)",
+    read: (s) => {
+      const c = runFieldKitsTaskMember(s, sec());
+      return c ? statusResistPermille(c, "fracture") : 0;
+    },
+  },
+  // Field Kits FKR-5: a Field Kits objective fight arms the member's worn grenade (fieldKitsGrenades.ts withThrownGrenades).
+  runSecGrenadeCharges: {
+    label: "the dispatched run's Security member in a Field Kits objective fight: grenade charges left (full at an objective's start)",
+    read: (s) => runFieldKitsTaskMember(s, sec())?.grenade?.charges ?? 0,
+  },
+  runSecGrenadePower: {
+    label: "the dispatched run's Security member in a Field Kits objective fight: the grenade blast's power multiplier",
+    read: (s) => runFieldKitsTaskMember(s, sec())?.grenade?.powerMult ?? 0,
+  },
   secGuardBelow: { label: "Security combatant guardBelow", read: (s) => memberCombatant(s, sec())?.guardBelow ?? 0 },
   secFirstStrike: { label: "Security combatant firstStrike (0/1)", read: (s) => (memberCombatant(s, sec())?.firstStrike ? 1 : 0) },
   secFirstAid: { label: "firstAidEffectiveness(Security combatant)", read: (s) => firstAidEffectiveness(memberCombatant(s, sec()) ?? { medic: false }) },
@@ -1354,11 +1588,26 @@ const ACTION_TARGET: Readonly<Record<GambitActionId, GambitTargetSelector>> = {
   analyze: "foeNearest",
   secureObjective: "self",
   takeCover: "self",
+  flashGrenade: "foeHighestThreat",
+  throwGrenade: "foeLargestGroup",
 };
 export const GAMBIT_ACTIONS = Object.keys(ACTION_TARGET) as GambitActionId[];
 
+// Field Kits FKR-5: a thrown grenade needs a thrower carrying one (a Field Kits fight arms it), so its scenario arms the
+// actor with an Impact Grenade's throw (one charge, one throw) facing a group of two.
+function throwScenario(): BattleState {
+  const grenade = { status: "concussion" as GambitStatusId, statusPermille: 300, powerMult: 1.5, charges: 1, perBattle: 1, used: 0 };
+  return battle([gc("a1", "team", { grenade }), gc("e1", "enemy", { hp: 100, hpMax: 100 }), gc("e2", "enemy", { hp: 100, hpMax: 100 })]);
+}
+
+// Field Kits FKR-4: the flash grenade is an ENEMY action (a Striker's, one per battle), so its scenario puts a Striker
+// carrying one first, facing the squad.
+function flashScenario(): BattleState {
+  return battle([gc("e0", "enemy", { role: "striker", flashGrenades: 1 }), gc("a1", "team"), gc("a2", "team", { threat: 20 })]);
+}
+
 function actionChange(action: GambitActionId): number {
-  const before = actionScenario();
+  const before = action === "flashGrenade" ? flashScenario() : action === "throwGrenade" ? throwScenario() : actionScenario();
   const after = cloneBattle(before);
   evaluateAndAct([{ target: ACTION_TARGET[action], action }], after.combatants[0], after, makeRng(0x5eed));
   return battleChange(before, after);
@@ -1374,7 +1623,9 @@ function selectorScenario(): BattleState {
   const e2 = gc("e2", "enemy", { hp: 30, threat: 20, role: "healer", groupTag: "b" });
   applyStatus(e2, "suppressed");
   const e3 = gc("e3", "enemy", { hp: 20, threat: 8, role: "caster", groupTag: "b" });
-  return battle([a1, a2, e1, e2, e3]);
+  // Field Kits FKR-6: a downed ally (no other selector sees it).
+  const a3 = gc("a3", "team", { hp: 0, downed: true });
+  return battle([a1, a2, e1, e2, e3, a3]);
 }
 const SELECTOR_PICK: Readonly<Record<GambitTargetSelector, { pick: string; params?: GambitRule["params"] }>> = {
   foeNearest: { pick: "e1" },
@@ -1394,6 +1645,7 @@ const SELECTOR_PICK: Readonly<Record<GambitTargetSelector, { pick: string; param
   selfHasStatus: { pick: "a1", params: { statusId: "weakened" } },
   openingRound: { pick: "e1" },
   outnumbered: { pick: "e1" },
+  allyDowned: { pick: "a3" },
 };
 export const GAMBIT_SELECTORS = Object.keys(SELECTOR_PICK) as GambitTargetSelector[];
 
@@ -1417,7 +1669,8 @@ function strikeDamage(attackerStatus: GambitStatusId | null, targetStatus: Gambi
 function groundStatusValue(id: GambitStatusId, on: boolean): number {
   const def = GAMBIT_STATUSES[id];
   switch (def.effect) {
-    case "dotDamage": {
+    case "dotDamage":
+    case "dotTurnLoss": {
       const c = gc("e1", "enemy", { hp: 100, hpMax: 100 });
       if (on) applyStatus(c, id);
       const st = battle([c]);
@@ -1429,10 +1682,24 @@ function groundStatusValue(id: GambitStatusId, on: boolean): number {
       return strikeDamage(on ? id : null, null);
     case "damageTakenDown":
       return strikeDamage(null, on ? id : null);
-    case "accuracyDown": {
+    case "accuracyDown":
+    case "powerAccuracyDown": {
       const c = gc("a1", "team", { accuracy: 0.9 });
       if (on) applyStatus(c, id);
       return strikeHitChance(c, {});
+    }
+    case "turnLoss":
+    case "mayFallBack": {
+      // Field Kits FKR-4: a CHANCE to lose the turn (Concussion, Fear) moves the fight stream itself, so one seed can
+      // read either way: the squad's hp lost summed over a batch of battles where the foe opens with it vs not.
+      let lost = 0;
+      for (let seed = 1; seed <= 32; seed += 1) {
+        const team = [gc("a1", "team", { hp: 60, hpMax: 60, power: 20 })];
+        const foe = gc("e1", "enemy", { hp: 30, hpMax: 30, power: 10 });
+        if (on) applyStatus(foe, id);
+        lost += team[0].hpMax - resolveGroundBattle(team, [foe], 0, makeRng(seed * 0x9e3779b1)).teamHpRemaining;
+      }
+      return lost;
     }
     case "skipTurn": {
       // The squad's hp lost over one battle when the foe opens stunned vs not.
@@ -1544,6 +1811,30 @@ function missionFieldValue(s: GameState, field: string, key: MissionKey): number
   }
 }
 
+// Field Kits FKR-5: the grenade probes' reference thrower (power 1000, so a blast's rounding is a rounding step), the
+// foes' hp (no blast downs one) and the thrower's own status chance (a Stun or Toxin Grenade's debuff lands at it).
+const GRENADE_PROBE_HP = 1_000_000;
+const GRENADE_PROBE_STATUS_CHANCE = 0.25;
+function armedThrower(varietyKey: string, statusChance: number): GroundCombatant {
+  const m: SnapshotMember = {
+    memberId: "wiring-thrower",
+    teamType: "security",
+    spec: "offense",
+    rank: 1,
+    rankFactor: 1,
+    traits: [],
+    groundStats: { statusChance },
+    resists: {},
+    implants: [],
+    gear: [{ pieceId: "wiring-grenade", slotType: "memberTool", varietyKey, points: 0 }],
+    gambit: [],
+    effects: [],
+  };
+  const c = gc("a1", "team", { memberId: m.memberId, power: 1000 });
+  withThrownGrenades([c], [m]);
+  return c;
+}
+
 // The content probe dispatcher.
 function readContent(id: string, s: GameState): number {
   const [, family, a, b, c, d] = id.split(":");
@@ -1617,6 +1908,8 @@ function readContent(id: string, s: GameState): number {
     }
     case "mission":
       return missionFieldValue(s, a, b as MissionKey);
+    case "shortRange":
+      return shortRangeContentValue(s, a, b as ShortRangeTemplateKey);
     case "loadoutSlots":
       return loadoutSlotDefsForShipType(a as ShipTypeKey).filter((d) => d.slotType === b).length;
     case "groundTeams":
@@ -1673,6 +1966,98 @@ function readContent(id: string, s: GameState): number {
       const e = escalationAt(on ? 1 : 0) as unknown as Record<string, number>;
       return e[a];
     }
+    case "bone": {
+      // Field Kits FKR-4: the bone hits (gambit.ts applyBoneHit, the hit a Bruiser's heavy hit lands) a fresh combatant
+      // takes to hold bone condition `a`: its severity rank (Fracture first, then one rank worse per hit).
+      if (!on) return 0;
+      const c = gc("a1", "team");
+      for (let hits = 1; hits <= 10; hits += 1) {
+        applyBoneHit(c);
+        if (c.statuses.some((x) => x.id === a)) return hits;
+      }
+      return -1;
+    }
+    case "fieldKitsCure": {
+      // Field Kits FKR-4 (FK2 "Basic debuffs only"): a medic's Cure on an ally holding a Poison, plus (on) a serious
+      // condition (a Concussion): the statuses the ally still holds after it (the serious one stays).
+      const actor = gc("a1", "team", { medic: true });
+      const ally = gc("a2", "team");
+      applyStatus(ally, "poison");
+      if (on) applyStatus(ally, "concussion");
+      const st = battle([actor, ally, gc("e1", "enemy")]);
+      evaluateAndAct([{ target: "allyHasStatus", action: "cure" }], actor, st, makeRng(0x5eed));
+      return ally.statuses.length;
+    }
+    case "grenade": {
+      // Field Kits FKR-5: grenade variety `a`, armed on a reference thrower the way a Field Kits fight arms it
+      // (fieldKitsGrenades.ts withThrownGrenades), field `b`:
+      //   charges   : the charges it brings to an objective (off: no grenade worn, 0);
+      //   perBattle : the throws one whole battle lets it make, with charges to spare and a program that throws every
+      //               turn it can (off: no grenade, 0);
+      //   blast     : the hp one throw takes off a foe with no armor (off: the same throw at power x1);
+      //   status    : the bodies its debuff lands on over a batch of throws at a group of two (off: the debuff chance 0).
+      if (b === "charges") return on ? (armedThrower(a, 0).grenade?.charges ?? 0) : 0;
+      if (b === "perBattle") {
+        if (!on) return 0;
+        const thrower = armedThrower(a, 0);
+        if (!thrower.grenade) return -1;
+        thrower.grenade = { ...thrower.grenade, charges: 99 };
+        thrower.hp = thrower.hpMax = GRENADE_PROBE_HP;
+        thrower.program = [{ target: "foeNearest", action: "throwGrenade" }, { target: "foeNearest", action: "attack" }];
+        const foe = gc("e1", "enemy", { hp: GRENADE_PROBE_HP, hpMax: GRENADE_PROBE_HP });
+        return resolveGroundBattle([thrower], [foe], 0, makeRng(0x5eed)).chargesUsed?.[thrower.memberId!] ?? 0;
+      }
+      if (b === "blast") {
+        const thrower = armedThrower(a, 0);
+        if (!thrower.grenade) return -1;
+        thrower.grenade = { ...thrower.grenade, statusPermille: 0, ...(on ? {} : { powerMult: 1 }) };
+        const foe = gc("e1", "enemy", { hp: GRENADE_PROBE_HP, hpMax: GRENADE_PROBE_HP });
+        evaluateAndAct([{ target: "foeNearest", action: "throwGrenade" }], thrower, battle([thrower, foe]), makeRng(0x5eed));
+        return GRENADE_PROBE_HP - foe.hp;
+      }
+      let afflicted = 0;
+      for (let seed = 1; seed <= 64; seed += 1) {
+        const thrower = armedThrower(a, GRENADE_PROBE_STATUS_CHANCE);
+        if (!thrower.grenade) return -1;
+        const status = thrower.grenade.status;
+        if (!on) thrower.grenade = { ...thrower.grenade, statusPermille: 0 };
+        const foes = [gc("e1", "enemy", { hp: GRENADE_PROBE_HP, hpMax: GRENADE_PROBE_HP }), gc("e2", "enemy", { hp: GRENADE_PROBE_HP, hpMax: GRENADE_PROBE_HP })];
+        evaluateAndAct([{ target: "foeLargestGroup", action: "throwGrenade" }], thrower, battle([thrower, ...foes]), makeRng(Math.imul(seed, 0x9e3779b1) >>> 0));
+        afflicted += foes.filter((f) => f.statuses.some((x) => x.id === status)).length;
+      }
+      return afflicted;
+    }
+    case "kit":
+      return kitProbe(a as FieldKitId, on);
+    case "kitPrice": {
+      // Field Kits FKR-7: the credits one Quartermaster sale of kit `a` takes (quartermaster.ts buyFieldKits, the price the
+      // launch top-up charges too); off: no sale, 0.
+      if (!on) return 0;
+      const r = buyFieldKits(s, a, 1);
+      if (!r.ok) throw new Error(`kit price probe: the sale of ${a} was refused (${r.reason})`);
+      return s.credits.minus(r.next.credits).toNumber();
+    }
+    case "freeBasic":
+      return freeBasicProbe(s, a as FieldKitId, b, on);
+    case "runTreatment": {
+      // Field Kits FKR-7: a member's Broken Bone bay time on a Ground Ops run (groundOps.ts groundTeamBaySeconds, the bay
+      // step's reader, no care) with (on) the share one Injury Kit records on the team's trip treatment, or none.
+      const id = "wiring-treated";
+      const exp = {
+        roster: { security: [], science: [] },
+        groundOps: { factors: { medicalShare: 0, rapidRecoveryShare: 0, officerFacetShare: 0, injurySteady: 0 } },
+      } as unknown as Parameters<typeof groundTeamBaySeconds>[0];
+      const team = { securityIds: [id], scienceIds: [], conditions: { [id]: ["brokenBone"] }, ...(on ? { treatment: { [id]: FIELD_KITS.injuryKit.treatmentShare ?? 0 } } : {}) };
+      return groundTeamBaySeconds(exp, team)[id];
+    }
+    case "kitCategory":
+      return kitCategoryProbe(a, on);
+    case "rankCondition":
+      return rankConditionProbe(on ? (a as EnemyRank) : undefined);
+    case "bossReserve":
+      return bossReserveProbe(on);
+    case "fieldKitsDefault":
+      return fieldKitsDefaultProbe(on);
     case "enemyRank": {
       // Field Kits FKR-1: the guard of a REAL task fight (groundFight.ts taskFightGuard, the list resolveTaskFightOnSeed
       // fields) at the fight point the placement leads with rank `a`: an objective of the grade and point
@@ -1691,6 +2076,159 @@ function readContent(id: string, s: GameState): number {
     default:
       throw new Error(`unknown content probe ${id}`);
   }
+}
+
+// == Field Kits FKR-6: kits in battle, rank conditions, the Boss reserve, the Field Kits default program ==
+
+// A battle state with the Field Kits kit rules (a Field Kits run's battle), and a member carrying `n` of `kit`.
+function kitBattle(combatants: GroundCombatant[]): BattleState {
+  return { ...battle(combatants, 0), kitRules: FIELD_KITS_BATTLE };
+}
+function packed(c: GroundCombatant, kit: FieldKitId, n: number): GroundCombatant {
+  c.kits = { basics: {}, extras: n > 0 ? { [kit]: n } : {}, basicsUsed: {}, extrasUsed: {} };
+  return c;
+}
+const ZERO_CARE = { medicalShare: 0, rapidRecoveryShare: 0, officerFacetShare: 0, injurySteady: 0 };
+
+// Kit `kit`'s effect through Use Item rules (on: the actor carries the kits; off: none, so the rule never fires):
+//   firstAidKit : the hp an afflicted ally gains from one use at effectiveness 1 (an untrained hand x a Fleet Triage of
+//                 2; the heal rides the cleanse);
+//   antitoxin   : the conditions one use removes from a Poisoned ally (a Medical Training hand);
+//   combatStim  : the Inspired rounds one use grants at effectiveness 1;
+//   splint      : the allies two uses treat (a Fracture splinted, a Broken Bone turned into a Fracture);
+//   traumaKit   : the conditions two uses clear (Hemorrhage, Neurotoxin, Concussion and a Fracture on one ally, a Broken
+//                 Bone on another);
+//   injuryKit   : a downed ally's Broken Bone bay time with the share one use records (the medical bay divisor).
+function kitProbe(kit: FieldKitId, on: boolean): number {
+  const n = on ? 2 : 0;
+  const use = (actor: GroundCombatant, st: BattleState, target: GambitRule["target"], times = 1) => {
+    for (let i = 0; i < times; i += 1) evaluateAndAct([{ target, params: { kitId: kit }, action: "useItem" }], actor, st, makeRng(0x5eed));
+  };
+  switch (kit) {
+    case "firstAidKit": {
+      const actor = packed(gc("a1", "team", { careMult: 2 }), kit, n);
+      const ally = gc("a2", "team", { hp: 50, hpMax: 200 });
+      applyStatus(ally, "weakened");
+      use(actor, kitBattle([actor, ally, gc("e1", "enemy")]), "allyHasStatus");
+      return ally.hp - 50;
+    }
+    case "antitoxin": {
+      const actor = packed(gc("a1", "team", { medic: true }), kit, n);
+      const ally = gc("a2", "team");
+      applyStatus(ally, "poison");
+      use(actor, kitBattle([actor, ally, gc("e1", "enemy")]), "allyHasStatus");
+      return 1 - ally.statuses.length;
+    }
+    case "combatStim": {
+      const actor = packed(gc("a1", "team", { careMult: 2 }), kit, n);
+      use(actor, kitBattle([actor, gc("e1", "enemy")]), "self");
+      return actor.statuses.find((x) => x.id === "inspired")?.remaining ?? 0;
+    }
+    case "splint": {
+      const actor = packed(gc("a1", "team", { medic: true }), kit, n);
+      const a2 = gc("a2", "team");
+      const a3 = gc("a3", "team");
+      applyBoneHit(a2);
+      applyBoneHit(a3);
+      applyBoneHit(a3);
+      const before = [a2, a3].map((c) => JSON.stringify(c.statuses));
+      use(actor, kitBattle([actor, a2, a3, gc("e1", "enemy")]), "allyHasStatus", 2);
+      return [a2, a3].filter((c, i) => JSON.stringify(c.statuses) !== before[i]).length;
+    }
+    case "traumaKit": {
+      const actor = packed(gc("a1", "team", { medic: true }), kit, n);
+      const a2 = gc("a2", "team", { hp: 20 });
+      for (const id of ["hemorrhage", "neurotoxin", "concussion"] as const) applyStatus(a2, id);
+      applyBoneHit(a2);
+      const a3 = gc("a3", "team");
+      applyBoneHit(a3);
+      applyBoneHit(a3);
+      const held = a2.statuses.length + a3.statuses.length;
+      use(actor, kitBattle([actor, a2, a3, gc("e1", "enemy")]), "allyHasStatus", 2);
+      return held - a2.statuses.length - a3.statuses.length;
+    }
+    case "injuryKit": {
+      const actor = packed(gc("a1", "team", { medic: true }), kit, n);
+      const ally = gc("a2", "team", { memberId: "wiring-downed", hp: 0, downed: true });
+      use(actor, kitBattle([actor, ally, gc("e1", "enemy")]), "allyDowned");
+      return conditionCureSeconds(GROUND_CONDITIONS.brokenBone, [], ZERO_CARE, ally.injuryTreated ?? 0);
+    }
+  }
+}
+
+// Field Kits FKR-7: the free basic set (fieldKits.ts FREE_BASIC_SET) a Security member holds of kit `kit` as their crew
+// lands on an objective (fieldKitsRun.ts refreshObjectiveSupplies on the run's stamp, fieldKitsStamp, frozen off the
+// fixture ship's Medical and Operations headcount):
+//   base : on, a ship with no support crew (the set's base); off, a run stamped with no free set (0);
+//   crew : on, a ship with FREE_BASIC_PROBE_HEADS Medical crew; off, none (the D23 crew curve's rise).
+const FREE_BASIC_PROBE_HEADS = 16;
+function freeBasicProbe(s: GameState, kit: FieldKitId, part: string, on: boolean): number {
+  const heads = part === "crew" && on ? FREE_BASIC_PROBE_HEADS : 0;
+  const buckets = heads > 0 ? [{ profession: "medical" as const, rarity: "standard" as const, rank: 1 as const, race: "earthBorn" as const, buff1Id: "med.triage", buff2Id: null, count: heads }] : [];
+  const fixture: GameState = { ...editShip(s, { complement: { buckets, mode: "passive" } }), notableCrew: [] };
+  const stamp = part === "base" && !on ? { catalog: FIELD_KITS_CATALOG_VERSION } : fieldKitsStamp(fixture, shipOf(fixture));
+  const team = { securityIds: ["wiring-member"] } as unknown as Parameters<typeof refreshObjectiveSupplies>[1][number];
+  refreshObjectiveSupplies({ fieldKits: stamp }, [team]);
+  return team.basics?.["wiring-member"]?.[kit] ?? 0;
+}
+
+// Kit category `cat`'s rule (on: a Medical Training hand; off: an untrained one):
+//   firstAid        : the hp one First Aid Kit restores (a large Fleet Triage keeps the rounding out of the ratio);
+//   advancedMedical : the Splints that fire on a Fractured ally (the gate).
+function kitCategoryProbe(cat: string, on: boolean): number {
+  if (cat === "firstAid") {
+    const actor = packed(gc("a1", "team", { medic: on, careMult: 100 }), "firstAidKit", 1);
+    const ally = gc("a2", "team", { hp: 1, hpMax: 100_000 });
+    applyStatus(ally, "weakened");
+    evaluateAndAct([{ target: "allyHasStatus", params: { kitId: "firstAidKit" }, action: "useItem" }], actor, kitBattle([actor, ally, gc("e1", "enemy")]), makeRng(0x5eed));
+    return ally.hp - 1;
+  }
+  if (cat === "advancedMedical") {
+    const actor = packed(gc("a1", "team", { medic: on }), "splint", 1);
+    const ally = gc("a2", "team");
+    applyBoneHit(ally);
+    evaluateAndAct([{ target: "allyHasStatus", params: { kitId: "splint" }, action: "useItem" }], actor, kitBattle([actor, ally, gc("e1", "enemy")]), makeRng(0x5eed));
+    return actor.kits?.extrasUsed.splint ?? 0;
+  }
+  throw new Error(`kit category ${cat} has no battle probe`);
+}
+
+// A rank condition (on: "target is <rank> or stronger"; off: no condition): how many of a lineup of one enemy per rank
+// (Weak to Boss) the rule attacks.
+function rankConditionProbe(minRank: EnemyRank | undefined): number {
+  let fires = 0;
+  for (const rank of ENEMY_RANK_IDS) {
+    const actor = gc("a1", "team");
+    const foe = gc("e1", "enemy", { rank, hp: 1000, hpMax: 1000 });
+    evaluateAndAct([{ target: "foeNearest", ...(minRank ? { params: { minRank } } : {}), action: "attack" }], actor, battle([actor, foe]), makeRng(0x5eed));
+    if (foe.hp < 1000) fires += 1;
+  }
+  return fires;
+}
+
+// The Boss reserve (on: the Field Kits default's "keep N for a Boss" on a throw rule; off: none): the charges a thrower
+// with two left, throwing every turn it can, spends over a whole battle against a Normal foe.
+function bossReserveProbe(on: boolean): number {
+  const keep = FIELD_KITS_DEFAULT_GRENADE_RULES.find((r) => r.params?.reserveForBoss !== undefined)?.params?.reserveForBoss;
+  const thrower = gc("a1", "team", { memberId: "wiring-thrower", hp: GRENADE_PROBE_HP, hpMax: GRENADE_PROBE_HP });
+  thrower.grenade = { status: "concussion", statusPermille: 0, powerMult: 1, charges: 2, perBattle: 99, used: 0 };
+  thrower.program = [
+    { target: "foeNearest", ...(on && keep !== undefined ? { params: { reserveForBoss: keep } } : {}), action: "throwGrenade" },
+    { target: "foeNearest", action: "attack" },
+  ];
+  const foe = gc("e1", "enemy", { hp: GRENADE_PROBE_HP, hpMax: GRENADE_PROBE_HP });
+  return resolveGroundBattle([thrower], [foe], 0, makeRng(0x5eed)).chargesUsed?.[thrower.memberId!] ?? 0;
+}
+
+// The Field Kits default program (on: a Field Kits fight swaps it in for a member on D19's default; off: D19's own): the
+// grenades a member on the default, armed with an Impact Grenade, throws in one battle against a group of two.
+function fieldKitsDefaultProbe(on: boolean): number {
+  const thrower = armedThrower("impactGrenade", 0);
+  thrower.program = DEFAULT_MEMBER_GAMBIT.map((r) => ({ ...r }));
+  thrower.hp = thrower.hpMax = GRENADE_PROBE_HP;
+  if (on) withFieldKitsDefaultProgram([thrower]);
+  const foes = [gc("e1", "enemy", { hp: GRENADE_PROBE_HP, hpMax: GRENADE_PROBE_HP }), gc("e2", "enemy", { hp: GRENADE_PROBE_HP, hpMax: GRENADE_PROBE_HP })];
+  return resolveGroundBattle([thrower], foes, 0, makeRng(0x5eed)).chargesUsed?.[thrower.memberId!] ?? 0;
 }
 
 // Field Kits FKR-1: the fight each placed rank is probed on (grade 1 Simple .. 5 Deadly, the 0-based fight point of a

@@ -6,7 +6,7 @@
 //   2. offline == live: advancing each look's span in one tick() call, in 997 s chunks, or one second at a time
 //      gives the same report;
 //   3. a known-live choice moves its outcome (a Prospector talent: the gathered Titanium Ore);
-//   4. a known-inert choice is flagged dead (a Homeworld placeholder hub, "No bonus yet");
+//   4. an inert choice is flagged dead (a synthetic one: no selectable choice is inert since 0.14.0);
 //   5. the newcomer baseline's first expedition, characterized as it is TODAY: not safe, with exactly why (Safe
 //      First Runs SF-2 flips it; that slice updates these pins and says so);
 //   6. the newcomer archetype plays the real new game (General Freighter, board hires, the Quartermaster kit,
@@ -26,11 +26,13 @@ const withoutMode = (r: SimReport): Omit<SimReport, "advance"> => {
 
 describe("WR-2 simulated player: determinism and offline == live", () => {
   // SF-2: the training run flies the regular transit now (no 30 minute shakedown), so the run is longer to simulate.
+  // Expedition Tiers G2-3: a Tier I voyage is about 2 hours each way (not 6), so inside the horizon the first run
+  // comes home, is claimed, and a second one launches.
   it("the same policy and seed give the same report (allAuto, seed 0)", { timeout: 60_000 }, () => {
     const a = simulate(ALL_AUTO, { seed: 0 });
     const b = simulate(ALL_AUTO, { seed: 0 });
     expect(b).toEqual(a);
-    expect(a.actions.map((x) => x.action)).toEqual(["fieldWeakestCrew", "dispatch:shortOreRun", "recall", "patrol:crimsonReaverSweep", "launchExpedition"]);
+    expect(a.actions.map((x) => x.action)).toEqual(["fieldWeakestCrew", "dispatch:shortOreRun", "recall", "patrol:crimsonReaverSweep", "launchExpedition", "claim", "launchExpedition"]);
   });
 
   it("one tick() call, 997 s chunks and 1 s ticks per look give the same report", () => {
@@ -53,12 +55,27 @@ describe("WR-2 choice ablation: a live choice moves, an inert one is dead", () =
     expect(r.verdicts[0].surprise).toBe(false);
   });
 
-  it("Homeworld placeholder hub Homeland Defense ('No bonus yet') moves nothing and is flagged dead", () => {
-    const e = wiringEntry("fleetAdmiral:HOMEWORLD_TALENTS:homelandDefenseHub")!;
-    expect(e.status.kind).toBe("pending");
+  // WR-6 wired the Homeworld placeholder hubs, E-MOD EM-1 the Martian racial, and the inert-racials slice (0.14.0, user
+  // "everything wired") the last four races, so no selectable choice is inert any more. The dead-choice detection is
+  // proven on a SYNTHETIC choice instead: the Belter racial's entry with its transform swapped for a purely cosmetic
+  // edit (renaming the ship, which no engine reader reads), still marked pending so a dead verdict is no surprise.
+  it("a synthetic inert choice (a cosmetic ship rename) moves nothing and is flagged dead", () => {
+    const belter = wiringEntry("racial:belter")!;
+    expect(belter.status.kind).toBe("live");
+    const rename = (s: Parameters<typeof belter.on>[0]) => ({ ...s, ships: s.ships.map((sh) => (sh.id === "ship-1" ? { ...sh, name: "Synthetic Inert" } : sh)) });
+    const e = { ...belter, id: "synthetic:inertRename", status: { kind: "pending" as const, owner: "synthetic fixture" }, on: rename };
     const r = ablateChoices([e], { seeds: [0], horizonSeconds: 1800 });
     expect(r.verdicts[0].verdict).toBe("dead");
     expect(r.verdicts[0].moved).toEqual([]);
+    expect(r.verdicts[0].surprise).toBe(false);
+  });
+
+  it("WR-6: the former placeholder hub Home Guard moves the patrol (its shield pool)", () => {
+    const e = wiringEntry("fleetAdmiral:HOMEWORLD_TALENTS:homelandDefenseHub")!;
+    expect(e.status.kind).toBe("live");
+    const r = ablateChoices([e], { seeds: [0], horizonSeconds: 1800 });
+    expect(r.verdicts[0].verdict).toBe("moves");
+    expect(r.verdicts[0].moved).toContain("patrol:shieldLeft");
   });
 
   it("scripted([choice]) applies the choice to the start and nothing else", () => {

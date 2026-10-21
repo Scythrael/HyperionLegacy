@@ -244,6 +244,8 @@ export interface SystemTelescopeReading {
 // WR-5c: `captain` is the commanding captain's sight (captainExplorerEffects.ts captainTelescopeSight): Foreknowledge
 // adds `lift` whole levels on top of the ship's lift, Deep Scan (`full`) reads at the top detail; both only in range
 // (a blind launch stays blind) and never past Forecast. The default is no sight (the pre-WR-5c reading).
+// Expedition Tiers G2-2: `distanceLy` is the candidate's own distance (expedition.ts tierCandidateSystems: a famous
+// system's real one, measured from the homeworld); the default is the drawn one (systemDistanceLy).
 export function readSystem(
   reading: TelescopeReading,
   seed: number,
@@ -251,9 +253,9 @@ export function readSystem(
   preview: { profile: ExpeditionRiskProfile; bodies: readonly BodyRiskGrades[] },
   homeworld: HomeworldPlacement = PROVISIONAL_HOMEWORLD,
   captain: { readonly lift: number; readonly full: boolean } = { lift: 0, full: false },
+  distanceLy: number = systemDistanceLy(seed, preview.profile.tier, homeworld),
 ): SystemTelescopeReading {
   const regionTier = preview.profile.tier;
-  const distanceLy = systemDistanceLy(seed, regionTier, homeworld);
   const inRange = reading.reachTier > 0 && distanceLy <= reading.rangeLy;
   const telescopeDetail: TelescopeDetail = inRange ? reading.detail : 0;
   const shipLifted = inRange && shipSensorPower >= TELESCOPE_SHIP_LIFT_SENSORS ? toDetail(telescopeDetail + TELESCOPE_SHIP_LIFT) : telescopeDetail;

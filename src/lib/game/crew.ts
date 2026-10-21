@@ -13,7 +13,7 @@
 // list or bucket in place. That keeps these safe to call from the tick (live and offline share
 // one path) and trivial to unit-test.
 
-import type { CrewBucket, CrewRace, CrewSignature } from "./model";
+import type { CrewBucket, CrewRace, CrewSignature, NotableCrewMember } from "./model";
 import { getCrewBuffById } from "./crewBuffs";
 import { CREW_RACES, CREW_GENDERS } from "./crewRaces";
 import { crewRarityMultiplier } from "./crewRarity";
@@ -28,6 +28,12 @@ import { makeRng } from "./combat/rng";
 // because a real buff id is never empty, so a null-buff2 bucket never collides with a real-buff2 one.
 export function signatureKey(sig: CrewSignature): string {
   return [sig.profession, sig.rarity, String(sig.rank), sig.race, sig.buff1Id, sig.buff2Id ?? ""].join("|");
+}
+
+// The signature a notable crew member carries (the bucket it graduated from). A notable assigned to a ship holds ONE
+// complement slot of exactly this signature (its rank and division) on top of the fungible bulk. Pure.
+export function notableSignature(n: NotableCrewMember): CrewSignature {
+  return { profession: n.profession, rarity: n.rarity, rank: n.rank, race: n.race, buff1Id: n.buff1Id, buff2Id: n.buff2Id };
 }
 
 // Returns true when two signatures are the same bucket identity.

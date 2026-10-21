@@ -766,3 +766,13 @@ not built yet. **Flag for the user:** the Weak low end ends in one step between 
 `expeditionTiersGoldens` `display:launch` Level 8 of cand-0 and cand-2 (the forecast reads the gentler run). Every
 other golden unchanged: fixtures strip the ordinary stamp with `withoutCurve` / `asPreCurveDispatch` (folded into
 `withoutEnemyRanks` and `withoutFieldKits`, since a run from before FKR-1 is from before SF-3).
+
+**Merged with feat at adb41c6 (2026-10-20).** One curve source: G1's short-range span share already reads
+runDifficulty.ts `rampEnemyScale`; SF-3's Tier I training gate applies to EXPEDITIONS only, so a short-range template
+keeps its training run at any tier (G1 plan: a Tier II slot's training run takes that tier's smallest roll). Goldens
+captured before SF-3 strip the ordinary stamp at dispatch (`asPreCurveDispatch`, composed with `asPreG2NamesDispatch`
+where both apply): groundOpsAffixes / Outcroppings / Risk, placeholderTalentGoldens, racialsGoldens, fieldKitsRun and
+its goldens' switch-off row, voyageGoldens tier4 (`withoutCurve`). rampGoldens dispatches through
+`asPreG2NamesDispatch` (no region, no voyage), as does the ramp sweep fixture, so the SF-3 pins and the measured table hold. Registry: Weak's two flips are held
+apart by `SF3_SLICE` (shortRangeGoldens, every registryPin call, the ML-1 pattern) and `sf3` in emodGoldens `rowsBack`;
+emodGoldens `registry` re-pinned 60d00075 to 9a8ecb9c (read back, 60d00075).

@@ -55,7 +55,7 @@
     EquipmentSlotType,
     ShipDerivedStats,
   } from "./game/model";
-  import { SHIP_TYPES, EQUIPMENT_SLOTS, shipDerivedStats, isSparePiece, pieceVarietyDef, shipDisplayLabel, outboundLegSpeed, returnLegSpeed } from "./game/model";
+  import { SHIP_TYPES, EQUIPMENT_SLOTS, shipDerivedStats, isSparePiece, pieceVarietyDef, shipDisplayLabel, outboundLegSpeed, returnLegSpeed, guestQuartersShown } from "./game/model";
   import { LY_PER_TICK } from "./game/fuel";
   // WR-4 (OC-C1): the Fuel Depot's fleet reach, so the Range row matches the dispatch gates (tick.ts shipReachDef).
   import { fleetReachBonus } from "./game/tick";
@@ -506,6 +506,11 @@
       { label: "Power Output", base: base.powerOutput, fitted: fit.powerOutput, kind: "flat" },
       { label: "Power Draw", base: base.powerDraw, fitted: fit.powerDraw, kind: "flat" },
       { label: "Mass", base: base.mass, fitted: fit.mass, kind: "flat" },
+      // G1-1: guest quarters, only when either loadout has some (a ship with none never shows the row), and only once
+      // Short-Range Missions are in (model.ts GUEST_QUARTERS_DISPLAY_LIVE, user 2026-10-19).
+      ...(guestQuartersShown(base.colonistCapacity ?? 0) || guestQuartersShown(fit.colonistCapacity ?? 0)
+        ? [{ label: "Guest Quarters", base: base.colonistCapacity ?? 0, fitted: fit.colonistCapacity ?? 0, kind: "flat" as const }]
+        : []),
     ];
   }
   // 0.14.0 crew C-4c readout descriptors: ONE list per economy stat the readout shows, so the
@@ -525,6 +530,8 @@
     { key: "powerOutput", label: "Power Output", kind: "flat", get: (s) => s.powerOutput },
     { key: "powerDraw", label: "Power Draw", kind: "flat", get: (s) => s.powerDraw },
     { key: "mass", label: "Mass", kind: "flat", get: (s) => s.mass },
+    // G1-1 (Short-Range Missions): the berths passengers ride in; shown only when non-zero (readoutRows below).
+    { key: "guestQuarters", label: "Guest Quarters", kind: "flat", get: (s) => s.colonistCapacity ?? 0 },
   ];
   // Plain-language definition per stat for the (i) affordance: what it does + how it affects play,
   // one sentence each (US English, first-pass). Keyed by StatDescriptor.key.
@@ -535,9 +542,10 @@
     outLeg: "The ship's speed on the outbound leg of a mission: FTL Speed plus the Fast Departure crew aboard.",
     backLeg: "The ship's speed on the return leg of a mission: FTL Speed plus the Fast Return crew aboard.",
     range: "How far the ship can travel before it must turn back, in light-years; more range reaches farther destinations. The Fuel Depot extends it for the whole fleet.",
-    powerOutput: "Total power the reactor supplies to the ship; it needs to cover everything the installed systems draw.",
-    powerDraw: "Total power the installed systems consume; keep it at or under power output. Lower is better.",
+    powerOutput: "Total power the ship supplies: the hull's own generation plus any crafted Reactor Core. It needs to cover everything the installed systems draw.",
+    powerDraw: "Total power the installed systems consume, after any power efficiency from Engineering crew, Reactor Overdrive or Martian crew. Keep it at or under power output. Lower is better.",
     mass: "The ship's combined mass from its hull and installed systems; lower mass is generally easier to move.",
+    guestQuarters: "Berths for passengers such as refugees, separate from the crew and the cargo hold. Passenger runs need enough of them for everyone aboard.",
   };
   // The economy readout rows: base (bare hull), gear (gear-only fold), and effective (crew-inclusive)
   // for each stat. The row VALUE shows `effective`; the inline "(...)" note stays the GEAR delta
@@ -552,7 +560,11 @@
           base: d.get(baseStats),
           gear: d.get(fitStats),
           effective: d.get(effectiveStats),
-        })).filter((r) => (r.key !== "outLeg" && r.key !== "backLeg") || Math.abs(r.effective - effectiveStats.transitSpeedMult) > 1e-9)
+        }))
+          .filter((r) => (r.key !== "outLeg" && r.key !== "backLeg") || Math.abs(r.effective - effectiveStats.transitSpeedMult) > 1e-9)
+          // G1-1: Guest Quarters (and its (i) definition) shows only on a ship that has some, once Short-Range Missions
+          // are in (model.ts GUEST_QUARTERS_DISPLAY_LIVE, user 2026-10-19).
+          .filter((r) => r.key !== "guestQuarters" || guestQuartersShown(r.effective))
       : ([] as ReadoutRow[]);
   // CP-2: the two complement-fed shares that are not ship-sheet stats (each shown only when non-zero): the repair
   // speed-up every repair divides by (Damage Control, Mission Turnaround, Rapid Recovery, Veteran Instincts) and the

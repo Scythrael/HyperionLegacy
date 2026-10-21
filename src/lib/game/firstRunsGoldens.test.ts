@@ -57,7 +57,7 @@ import { combatHullTypeOf, defaultSystemDurabilityForHull, foldedPlayerDefense, 
 import { battleRating, DEFAULT_SAMPLES } from "./combat/rating";
 import { threatAssessment } from "./combat/threatAssessment";
 import { CREW_NAMES, hash, onHull, runOutcome, stateHash, SWEEP, SWEEP_END, withCrew, type CrewName, type RunOutcome } from "./firstRunsGoldens.fixture";
-import { asPreRanksDispatch } from "./awayTeamTestFixtures";
+import { asPreG2Candidate, asPreG2NamesDispatch, asPreRanksDispatch } from "./awayTeamTestFixtures";
 import { isTrainingRun } from "./enemyRanks";
 
 // ===== shared helpers =====
@@ -400,8 +400,11 @@ const GOLDEN: Record<string, unknown> = {
     "unknownSite:0.65:n=2/2/2/3:hp=158/158/158/210:910e3ce6", "unknownSite:0.9:n=2/2/2/3:hp=178/178/178/236:79db530a",
     "unknownSite:1:n=2/2/2/3:hp=187/187/187/248:a435ab2a",
   ],
+  // Moved by the G2-2 review (user 2026-10-19, "Next list for veterans"): this save is a VETERAN (two expeditions
+  // flown before v70), so its dispatch stamps `wolf359List: 3` (its next Tier I list holds Wolf 359). Only the claimed
+  // state's hash moves (was "a830e43c"); golden 7 proves that state without the key still hashes to the old value.
   "old:v69": [
-    "92c29f65", "patrol:won:14", "2150f1b6", "80ce239", "expedition:complete", "a4fc1f4f", "bbbd0b9e", "a830e43c",
+    "92c29f65", "patrol:won:14", "2150f1b6", "80ce239", "expedition:complete", "a4fc1f4f", "bbbd0b9e", "c3a94416",
   ],
   // Re-pinned by WR-4 (B14): turn order by side, then input order (the player side first) moves the forecast wins.
   "patrol:forecast": [
@@ -771,7 +774,7 @@ const FIRST_HULLS: ShipTypeKey[] = ["generalFreighter", "orion", "aurora", "eir"
 
 // Field Kits FKR-1: the run as dispatched before enemy ranks (the flag off), so every SF-0 pin keeps its capture.
 function sweepRun(state: GameState, cand: string): { exp: Expedition; done: Expedition; claimed: GameState | null; next: GameState } {
-  const res = asPreRanksDispatch(startExpedition(state, "ship-1", 1, cand));
+  const res = asPreG2NamesDispatch(asPreRanksDispatch(startExpedition(state, "ship-1", 1, cand)));
   if (!res.success || !res.expedition) throw new Error(`dispatch refused: ${res.reason}`);
   const done = advanceExpedition(res.expedition, SWEEP_END);
   let claimed: GameState | null = null;
@@ -802,9 +805,9 @@ describe("SF-0 golden 4: the first expedition of the three fresh-save candidates
 
   it("the three candidates every new save is offered: systems, bodies and hazards", () => {
     const cands = expeditionCandidates(withCrew(onHull("orion"), "d18"), "ship-1");
-    const exps = CANDS.map((c) => startExpedition(withCrew(onHull("orion"), "d18"), "ship-1", 1, c).expedition!);
+    const exps = CANDS.map((c) => asPreG2NamesDispatch(startExpedition(withCrew(onHull("orion"), "d18"), "ship-1", 1, c)).expedition!);
     pin("first:systems", exps.map((e) => `${e.systemName}: ${e.bodies.map((b) => `${b.planetType} ${b.hazard}`).join(", ")}`));
-    pin("first:candidates", hash(cands));
+    pin("first:candidates", hash(cands.map((c) => asPreG2Candidate(c)))); // G2-2: as offered before G2-2 (ids, names)
   });
 
   // At telescope Level 5 (the founding telescope reads no per-body detail, so its launch view is empty).
@@ -816,7 +819,7 @@ describe("SF-0 golden 4: the first expedition of the three fresh-save candidates
       for (const c of expeditionCandidates(s, "ship-1")) {
         const view = expeditionLaunchView(s, "ship-1", c);
         expect(view.demand).not.toBeNull();
-        out.push(`${hull}:${c.id}:${hash(view)}`);
+        out.push(`${hull}:${asPreG2Candidate(c).id}:${hash(view)}`); // G2-2: the pre-G2 id (cand-1-0 reads cand-0)
       }
     }
     pin("first:launch", out);
@@ -827,7 +830,7 @@ describe("SF-0 golden 4: the first expedition of the three fresh-save candidates
   // EVENT-BOUNDARY chain (t - 1, t, t + 1 at every phase anchor, step record, log line and ship leg of the one-call run).
   it("offline == live: one call == 997 s chunks == the event-boundary chain on the D18 Orion's first run", () => {
     const H = 250_000;
-    const exp = asPreRanksDispatch(startExpedition(withCrew(onHull("orion"), "d18"), "ship-1", 1, "cand-1")).expedition!; // FKR-1: flag off
+    const exp = asPreG2NamesDispatch(asPreRanksDispatch(startExpedition(withCrew(onHull("orion"), "d18"), "ship-1", 1, "cand-1"))).expedition!; // FKR-1: flag off
     const frozen = structuredClone(exp);
     const one = advanceExpedition(exp, H);
     let e = exp;
@@ -942,6 +945,10 @@ describe("SF-0 golden 7: an old save (v69, expeditions and a patrol already flow
       `expedition:${run.done.phase}`, hash(run.exp), hash(run.done), run.claimed === null ? "unclaimed" : stateHash(run.claimed),
     ];
     pin("old:v69", out);
+    // G2-2 review: the veteran's one Wolf 359 stamp is the only change to the claimed state.
+    expect(run.claimed?.wolf359List).toBe(3);
+    const { wolf359List: _stamp, ...unstamped } = run.claimed!;
+    expect(stateHash(unstamped as GameState)).toBe("a830e43c");
   });
 });
 

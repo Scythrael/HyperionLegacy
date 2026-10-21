@@ -21,7 +21,9 @@ import {
   difficultyGradeOf,
   difficultyName,
   difficultyWeight,
-  expeditionRegion,
+  TIER_I_REGION,
+  TIER_HAUL_MULT,
+  tierHaulMult,
   floraWorkMult,
   generateRiskProfile,
   generatedTaskNeeds,
@@ -61,8 +63,12 @@ describe("SQ-4 the factors and the scale (user #11)", () => {
     expect(hazardGrade(Number.NaN)).toBe(0);
   });
 
-  it("today every candidate is Tier I outside enemy territory (G2 supplies the regions) [PROVISIONAL]", () => {
-    expect(expeditionRegion(12345)).toEqual({ tier: 1, enemyTerritory: false });
+  it("G2-2: the previews default to Tier I outside enemy territory; the tier haul multiplier is the user's ladder (G16)", () => {
+    expect(TIER_I_REGION).toEqual({ tier: 1, enemyTerritory: false });
+    expect(Object.values(TIER_HAUL_MULT)).toEqual([1, 1.25, 1.5, 1.8, 2.2, 2.7, 3.3]);
+    expect(tierHaulMult(undefined)).toBe(1);
+    expect(tierHaulMult({ tier: 5 })).toBe(2.2);
+    expect(tierHaulMult({ tier: 9 as never })).toBe(1);
   });
 });
 

@@ -54,6 +54,8 @@ import {
 import { formatCountdown } from "./format";
 // Prospecting squads (hidden): the unlock gate on the Claim and Dig kinds. prospecting.ts imports model.ts only.
 import { squadTypeUnlocked } from "./prospecting";
+// Field Kits FKR-7: the kit ids a pack preference may name (fieldKits.ts never imports this module).
+import { FIELD_KIT_IDS, type FieldKitId } from "./fieldKits";
 
 // The size readers live in model.ts (freshState seeds the starting hull with them, and model.ts must not
 // import this module); the slot primitives live in groundTeamSlots.ts (awayTeam.ts needs them). Re-exported
@@ -575,6 +577,53 @@ export function setGroundTeamHelp(state: GameState, shipId: string, teamIndex: n
   const team = teamAt(teams, teamIndex);
   if (!team || team.helpOthers === on) return state;
   team.helpOthers = on;
+  return withShipTeams(state, shipId, teams);
+}
+
+// ============================================================================
+// Field Kits FKR-7: the per-member pack preference and the Quartermaster top-up (engine; the dispatch UI is FKR-9)
+// ============================================================================
+//
+// Both only shape the NEXT dispatch (fieldKitsRun.ts planDispatchPacks reads them; a run in flight keeps what it
+// packed), so, like the help toggle, they are allowed while the ship is out. A pack is per MEMBER (FK4 "One per
+// member"): a Security member slotted in the team. Refuses (SAME state) for an unknown ship, team index or member, and
+// returns the SAME state when nothing would change. Pure.
+
+// Set `memberId`'s pack preference on `shipId`'s team `teamIndex`: kit -> count (whole counts of 1 or more of the
+// known kits are kept; `{}` packs nothing), or null to go back to the default (N16 "1 of each usable kit").
+export function setMemberPack(state: GameState, shipId: string, teamIndex: number, memberId: string, pack: Partial<Record<FieldKitId, number>> | null): GameState {
+  const ship = state.ships.find((s) => s.id === shipId);
+  if (!ship) return state;
+  const teams = writableTeams(state, ship);
+  const team = teamAt(teams, teamIndex);
+  if (!team || !team.security.includes(memberId)) return state;
+  const packs = { ...(team.packs ?? {}) };
+  if (pack === null) {
+    if (!Object.prototype.hasOwnProperty.call(packs, memberId)) return state;
+    delete packs[memberId];
+  } else {
+    const clean: Partial<Record<FieldKitId, number>> = {};
+    for (const id of FIELD_KIT_IDS) {
+      const n = pack[id];
+      if (typeof n === "number" && Number.isFinite(n) && n >= 1) clean[id] = Math.floor(n);
+    }
+    if (JSON.stringify(packs[memberId]) === JSON.stringify(clean)) return state;
+    packs[memberId] = clean;
+  }
+  if (Object.keys(packs).length > 0) team.packs = packs;
+  else delete team.packs;
+  return withShipTeams(state, shipId, teams);
+}
+
+// Set `shipId`'s team `teamIndex` "Top up from the Quartermaster at launch" toggle (absent = off, the default).
+export function setGroundTeamTopUp(state: GameState, shipId: string, teamIndex: number, on: boolean): GameState {
+  const ship = state.ships.find((s) => s.id === shipId);
+  if (!ship) return state;
+  const teams = writableTeams(state, ship);
+  const team = teamAt(teams, teamIndex);
+  if (!team || (team.topUp === true) === on) return state;
+  if (on) team.topUp = true;
+  else delete team.topUp;
   return withShipTeams(state, shipId, teams);
 }
 

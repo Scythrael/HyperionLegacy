@@ -127,6 +127,9 @@ import {
 // Safe first runs SF-2: the training run stamp's one read (no affixes, no ambushes, the backstop).
 import { isTrainingRun } from "./enemyRanks";
 import { rampedChance, runRampOf } from "./runDifficulty";
+// Field Kits FKR-7: the flag (flag 2) and the run plumbing (the per-objective refresh, the fight spends, the bay share).
+import { fieldKitsLive } from "./fieldKits";
+import { freshBasicsFor, refreshObjectiveSupplies, spendFightSupplies } from "./fieldKitsRun";
 
 // Safe first runs SF-2 (user SF12): the log line of a training run's lost fight whose guards fell back (the backstop).
 export const TRAINING_FELL_BACK_TEXT = "The guards fell back. Training run: no setback.";
@@ -375,6 +378,14 @@ export function snapshotAwayRosterForTeams(
 //   scaled down in groundFight.ts and its odds read Guaranteed (groundThreat.ts). A run without the stamp is exactly
 //   as before.
 //
+// FIELD KITS (FKR-7; fieldKitsRun.ts; a run stamped with flag 2 only, fieldKits.ts fieldKitsLive): as a crew LANDS on an
+//   objective (every objective start and every trip) each Security member's free basic set refills and every grenade
+//   charge resets to full; each fight's spends (charges, basics, the extras packed at dispatch) come off the team's
+//   run, won or lost, so an objective's fights share one set of supplies; the Injury Kit shares a fight records add up
+//   on the treated member's trip treatment, which shortens that member's bay time only, and clear when the team is
+//   healed. The fight's side carries the supplies (fightTeamOf); an odds read for an objective not yet started reads
+//   what the crew would land with. A run without the flag never reads or writes any of it.
+//
 // DETERMINISM: two salts here, GROUND_AMBUSH_SALT (the ambush roll, keyed by the task and its ambushes) and
 // AUTO_ASSIGN_SALT (GO-7d's Auto-assign randomly, keyed by the run's edit count). A task
 // fight rolls on its keyed stream (groundFight.ts), the haul on the task's reward stream and the relic on its
@@ -533,13 +544,22 @@ function teamPos(ops: GroundOpsState, team: GroundTeamRun): number {
 }
 
 // The team as a task fight's side: its Security members, the task's sit-out list (none for a fresh read), its
-// Security share.
-function fightTeamOf(ops: GroundOpsState, team: GroundTeamRun, fresh = false): GroundFightTeam {
-  return {
+// Security share. Field Kits FKR-7 (a Field Kits run only): the supplies it carries into the fight, its grenade
+// charges, free basics and extras left (fieldKitsRun.ts); a FRESH read (an odds read for an objective not yet
+// started) carries what it would land with: full charges, a fresh free basic set, its extras left. Every other run's
+// side is exactly as before.
+function fightTeamOf(exp: Pick<Expedition, "fieldKits">, ops: GroundOpsState, team: GroundTeamRun, fresh = false): GroundFightTeam {
+  const side: GroundFightTeam = {
     securityIds: team.securityIds,
     downedThisTask: fresh ? [] : team.downedThisTask,
     securityShare: ops.factors.securityShare[teamPos(ops, team)] ?? 0,
   };
+  if (!fieldKitsLive(exp)) return side;
+  const basics = fresh ? freshBasicsFor(exp, team.securityIds) : team.basics;
+  if (!fresh && team.charges) side.charges = team.charges;
+  if (basics) side.basics = basics;
+  if (team.kits) side.kits = team.kits;
+  return side;
 }
 
 // Squads SQ-6 (the telescope's FORECAST, display only): the threat tier of the crew `teamIndices` (deployed team
@@ -562,7 +582,7 @@ export function groundCrewClearOdds(exp: Expedition, teamIndices: readonly numbe
     if (!team) return null;
     crew.push(team);
   }
-  return groundTaskClearOdds(exp, crew.map((team) => fightTeamOf(ops, team, true)), ref.body, ref.task, ref.flatIndex, undefined, undefined, 0, taskCover(ref.task));
+  return groundTaskClearOdds(exp, crew.map((team) => fightTeamOf(exp, ops, team, true)), ref.body, ref.task, ref.flatIndex, undefined, undefined, 0, taskCover(ref.task));
 }
 
 // AF-2 (Rocky Outcroppings): the objective's cover against long-range attacks (affixes.ts longRangeCover), or
@@ -808,7 +828,7 @@ export function groundOpsLogText(exp: Pick<Expedition, "bodies">, entry: GroundO
 // How many of the threat samples `teams` (fresh: full HP, nobody sitting out) clear `ref` in one go (the
 // display odds' stream, groundThreat.ts; a read never shifts a real fight). Pure.
 function freshWins(exp: Expedition, ops: GroundOpsState, teams: readonly GroundTeamRun[], ref: GroundTaskRef): number {
-  return groundTaskClearOdds(exp, teams.map((team) => fightTeamOf(ops, team, true)), ref.body, ref.task, ref.flatIndex, undefined, undefined, 0, taskCover(ref.task))
+  return groundTaskClearOdds(exp, teams.map((team) => fightTeamOf(exp, ops, team, true)), ref.body, ref.task, ref.flatIndex, undefined, undefined, 0, taskCover(ref.task))
     .wins;
 }
 
@@ -1085,7 +1105,7 @@ function stageOn(ops: GroundOpsState, team: GroundTeamRun, ref: GroundTaskRef, t
 // The task a helper borrows (see groundOpsAssignIdle pass 2), or null. Pure (the odds read is memoized).
 // AF-1: never a HELD objective, and the floor reads the objective's alert at `t` (its escalated fights).
 function borrowableTask(exp: Expedition, ops: GroundOpsState, helper: GroundTeamRun, t: number): GroundTaskRef | null {
-  const side = [fightTeamOf(ops, helper, true)];
+  const side = [fightTeamOf(exp, ops, helper, true)];
   for (const owner of ops.teams) {
     if (owner === helper) continue;
     for (const id of owner.queue) {
@@ -1247,6 +1267,9 @@ function landOnTask(exp: Expedition, ops: GroundOpsState, team: GroundTeamRun, r
     const from = task.progress ?? 0;
     if (strikes.length > 0) team.reinforcementsAt = strikes.map((f) => from + (1 - from) * f);
   }
+  // Field Kits FKR-7 (a Field Kits run only): the crew lands with fresh supplies, every objective and every trip (user
+  // N12, group 7 "Free, every objective"): each Security member's free basic set refilled, every grenade charge full.
+  refreshObjectiveSupplies(exp, crewOf(ops, team));
   beginOnTask(exp, ops, team, ref, t);
 }
 
@@ -1447,7 +1470,7 @@ function startFight(
   const alert = alertLevelAt(ref.task, t);
   const record = resolveTaskFight(
     exp,
-    crew.map((member) => fightTeamOf(ops, member)),
+    crew.map((member) => fightTeamOf(exp, ops, member)),
     ref.body,
     ref.task,
     ref.flatIndex,
@@ -1500,6 +1523,9 @@ function finishFight(exp: Expedition, ops: GroundOpsState, team: GroundTeamRun, 
     const owner = memberTeam(crew, id);
     if (!owner.downedThisTask.includes(id)) owner.downedThisTask.push(id);
   }
+  // Field Kits FKR-7 (a Field Kits run only): what the fight spent comes off each crew team's supplies, won or lost
+  // (charges, free basics, extras), and its Injury Kit shares go on the treated member's trip treatment.
+  spendFightSupplies(exp, crew, record, (id) => memberTeam(crew, id));
   const task = ref.task;
   const surprise: Partial<GroundStepRecord> = {
     ...(record.surprise ? { surprise: true as const } : {}),
@@ -1717,9 +1743,11 @@ export function groundTaskFindingId(exp: Pick<Expedition, "id">, taskId: string,
 // The bay seconds of every team member for the conditions gathered on this trip (medicalBay.ts on the run's
 // frozen care; a member's perks from the roster snapshot). A member with none reads 0. Pure (the bay card,
 // GO-14, reads it too).
+// Field Kits FKR-7: a member's Injury Kit share this trip (GroundTeamRun.treatment, only a Field Kits run's fights
+// write it; absent = 0) shortens that member's cures (medicalBay.ts treatmentShare), and only theirs.
 export function groundTeamBaySeconds(
   exp: Pick<Expedition, "roster" | "groundOps">,
-  team: Pick<GroundTeamRun, "securityIds" | "scienceIds" | "conditions">,
+  team: Pick<GroundTeamRun, "securityIds" | "scienceIds" | "conditions" | "treatment">,
 ): Record<string, number> {
   const out: Record<string, number> = {};
   const ops = exp.groundOps;
@@ -1729,7 +1757,8 @@ export function groundTeamBaySeconds(
   for (const id of [...team.securityIds, ...team.scienceIds]) {
     if (Object.prototype.hasOwnProperty.call(out, id)) continue;
     const perks = snapshots.find((m) => m.memberId === id)?.perks ?? [];
-    out[id] = memberBaySeconds(team.conditions[id] ?? [], perks, care);
+    const treated = team.treatment && Object.prototype.hasOwnProperty.call(team.treatment, id) ? team.treatment[id] : 0;
+    out[id] = memberBaySeconds(team.conditions[id] ?? [], perks, care, Number.isFinite(treated) && treated > 0 ? treated : 0);
   }
   return out;
 }
@@ -1754,11 +1783,13 @@ function startBay(exp: Expedition, ops: GroundOpsState, team: GroundTeamRun, t: 
   moveTo(ops, team, "reload", t, t + RELOAD_BASE_SECONDS / ops.factors.reloadMult, rec);
 }
 
-// Everyone healed: the trip's conditions, the task's downed list and the in-task carry are cleared. Mutates.
+// Everyone healed: the trip's conditions, the task's downed list and the in-task carry are cleared (Field Kits FKR-7:
+// and the trip's Injury Kit treatment, which the bay just read; absent on every other run). Mutates.
 function healTeam(team: GroundTeamRun): void {
   team.conditions = {};
   team.downedThisTask = [];
   delete team.carry;
+  delete team.treatment;
 }
 
 function finishBay(ops: GroundOpsState, team: GroundTeamRun, t: number): void {

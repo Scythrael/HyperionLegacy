@@ -8,6 +8,7 @@ import type { GameState, ShipTypeKey } from "./model";
 import { advanceExpedition, makeExpeditionSeed, startExpedition } from "./expedition";
 import { onHull, runOutcome, SWEEP_END, VAULT_SITES, withCrew, type CrewName } from "./firstRunsGoldens.fixture";
 import { runCountsOf } from "./runDifficulty";
+import { asPreG2NamesDispatch } from "./awayTeamTestFixtures";
 
 // The sweep seeds: the save's expedition seed set to makeExpeditionSeed(RAMP_SEED_BASE, i), candidate 0 dispatched
 // (the section 2.5 B method).
@@ -34,7 +35,9 @@ export interface RampOutcome {
 // `seed` (undefined: freshState's, the three fresh candidates), and advance it with no player action. Pure.
 export function rampRun(hull: ShipTypeKey, crew: CrewName, completed: number, seed: number | undefined, cand = "cand-0"): RampOutcome {
   const state = afterTraining(withCrew(onHull(hull, seed), crew), completed);
-  const res = startExpedition(state, "ship-1", 1, cand);
+  // Merged with G2-2 / G2-3: dispatched as before G2-2 (no region, no voyage: the fixed pre-G2-3 legs), so the measured
+  // curve table keeps measuring the curve alone (the voyage's timing moved a few stalled runs' lost-fight counts by 1).
+  const res = asPreG2NamesDispatch(startExpedition(state, "ship-1", 1, cand));
   if (!res.success || !res.expedition) throw new Error(`dispatch refused: ${res.reason}`);
   const done = advanceExpedition(res.expedition, SWEEP_END);
   const o = runOutcome(done);

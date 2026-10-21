@@ -4,7 +4,8 @@
 // the weakest crew that can launch (OC-1, OC-2): one guard per fight at FIRST_RUN_ENEMY_SCALE of its strength with the
 // hazard read as 0, no affixes, no ambushes, ship events that fire and always pass (SF8), and the backstop (a lost
 // fight still clears its point, "The guards fell back. Training run: no setback.", SF12). The 30 minute shakedown is
-// retired (group 3): the training run flies TUTORIAL_TRANSIT_SECONDS, equal to the regular transit for now.
+// retired (group 3): the training run flies TUTORIAL_TRANSIT_SECONDS, equal to the regular transit for now (G2-3: the
+// Tier I nominal its voyage flies).
 //
 // Here: the stamp and the transit, each profile effect against the same run without the stamp (never vacuous), the
 // backstop with a crew that cannot win (incl. a wipe and its recovery leg, and offline == live on it), the forecast
@@ -33,7 +34,8 @@ import { FIRST_RUN_ENEMY_SCALE, FIRST_RUN_MAX_ENEMIES } from "./runDifficulty";
 import { TELESCOPE_DETAIL } from "./telescope";
 import { generateRiskProfile } from "./riskFactors";
 import { BOARDING_ATTEMPT_CHANCE, SHIP_EVENT_DRAW_UNITS, chanceUnits, resolveShipScanEventFromDraws, type ShipEventDraws } from "./shipScanEvents";
-import { asExpeditionVeteran, withoutSafeFirstRuns } from "./awayTeamTestFixtures";
+import { asExpeditionVeteran, withoutSafeFirstRuns, withoutVoyage } from "./awayTeamTestFixtures";
+import { tierNominalSeconds } from "./voyage";
 import { SWEEP_END } from "./firstRunsGoldens.fixture";
 import { installMissingCombatBaselines } from "./tick";
 import {
@@ -111,9 +113,15 @@ describe("SF-2 the training run: the first expedition from an explorer, stamped 
       expect(exp.difficulty).toEqual({ version: 1, firstRun: true, ramp: 0, tier: 1 });
       expect(isTrainingRun(exp)).toBe(true);
       expect(exp.shakedown).toBe(false);
-      expect(TUTORIAL_TRANSIT_SECONDS).toBe(TRANSIT_SECONDS);
+      // G2-3: the training run's nominal is its own constant, equal to the Tier I nominal, so it flies exactly the
+      // voyage the same system would give an ordinary run of this ship (the veteran's dispatch of the same candidate).
+      expect(TUTORIAL_TRANSIT_SECONDS).toBe(tierNominalSeconds(1));
+      const ordinary = dispatched(asExpeditionVeteran(provingState(hull, D18))).exp;
+      // SF-3: an ordinary run carries the curve stamp (a veteran reads full strength).
+      expect(ordinary.difficulty).toEqual({ version: 1, firstRun: false, ramp: 1, tier: 1 });
+      expect(exp.voyage).toEqual(ordinary.voyage);
       const scanFrom = leaves(exp, "transit");
-      expect(scanFrom - exp.phaseAnchorSeconds).toBe(TUTORIAL_TRANSIT_SECONDS + (advanceExpedition(exp, scanFrom).anomalyCharted ? ANOMALY_EXTRA_SECONDS : 0));
+      expect(scanFrom - exp.phaseAnchorSeconds).toBe(exp.voyage!.outboundSeconds + (advanceExpedition(exp, scanFrom).anomalyCharted ? exp.voyage!.anomalySeconds : 0));
     });
   }
 
@@ -121,8 +129,16 @@ describe("SF-2 the training run: the first expedition from an explorer, stamped 
     const { exp } = dispatched(provingState("generalFreighter", D18));
     expect(exp.difficulty).toEqual(ORDINARY_FLOOR); // SF-3: an ordinary run, on the curve's floor
     expect(exp.shakedown).toBe(false);
+    // G2-3: its voyage (a Tier I system: the 2 hour nominal, placed in the band, at the freighter's own speed).
     const scanFrom = leaves(exp, "transit");
-    expect(scanFrom - exp.phaseAnchorSeconds).toBe(TRANSIT_SECONDS + (advanceExpedition(exp, scanFrom).anomalyCharted ? ANOMALY_EXTRA_SECONDS : 0));
+    expect(scanFrom - exp.phaseAnchorSeconds).toBe(exp.voyage!.outboundSeconds + (advanceExpedition(exp, scanFrom).anomalyCharted ? exp.voyage!.anomalySeconds : 0));
+  });
+
+  it("a training run dispatched before G2-3 (the stamp, no voyage) keeps the transit it flew then (the regular 6 hours)", () => {
+    const legacy = withoutVoyage(dispatched(provingState("orion", D18)).exp);
+    expect(isTrainingRun(legacy)).toBe(true);
+    const scanFrom = leaves(legacy, "transit");
+    expect(scanFrom - legacy.phaseAnchorSeconds).toBe(TRANSIT_SECONDS + (advanceExpedition(legacy, scanFrom).anomalyCharted ? ANOMALY_EXTRA_SECONDS : 0));
   });
 
   // End to end: a save whose General Freighter flew (and claimed) the account's first expedition still gets its

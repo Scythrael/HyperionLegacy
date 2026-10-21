@@ -215,11 +215,45 @@ records (empty, one copy, a full set, a ladder level, 1000 copies); a v69 save h
 in-flight study, migrated and ticked to completion, hashed through `stateHash`. Commit
 `test(0.14.0): pre-relics-v2 goldens (R2-0)`.
 
+**R2-0 carry note (2026-10-20, built on a9caa06):** `src/lib/game/relicsV2Goldens.test.ts`, 15 tests, as planned. The
+`rollRelicToken` fixture runs are the G2-0 `PRE_G2_STORED_RUNS` (the flagged run yields six relic findings, the legacy
+run none), so a grid of 64 seeds x 5 hazards x 5 PoIs x 2 find bonuses x 2 captains pins the roll as well (2,920 hits).
+Golden 6 is a v69 save with two vault tokens, four museum types and a stellar study in flight (1,168 ticks), migrated
+with fixed entropy and ticked through `stateHash`, plus one call == 1 s steps.
+
 ### R2-1: Catalog, data model, migration (engine, dormant)
 Section 3 shapes; `RELIC_TYPES` Tier I; band and exceptional odds tables; the `MIGRATIONS[69]` step; wiring
 registry entries (dormant until R2-3 reads them, registered as seams). Tests: catalog asserts (unique ids, bands
 non-empty, weights positive, every stat in `MUSEUM_STATS`); migration (museum moved, `relicMuseum` gone, discovered
 untouched, fresh == migrated); every R2-0 golden unchanged.
+
+**R2-1 carry note (2026-10-20):**
+- Catalog (end of `relics.ts`): `RELIC_TYPES` is built FROM `RELICS` (ids, names, flavors cannot drift), bands
+  4 / 5 / 4 / 4; `RELIC_BAND_ODDS` reads Tier I straight from `RELIC_RARITY_WEIGHTS_BY_TIER` and interpolates to the
+  Tier IV and VII anchors; `EXCEPTIONAL_PER_100K` is computed (Tier VII radiant 5,722); `EXCEPTIONAL_SET_SIZES` gives
+  **14** sets and 54 pieces (call 5's sizes; "12" anywhere is a miscount), ids `exc-t<tier>-<a|b|c>` and
+  `exc-t<tier>-<x>-p<n>`, every label `[PROPOSAL] ...`; `RELIC_SOFT_CAP` 1000; `CULTURE_ROSTER` 42 placeholder ids
+  `culture-t<tier>-<n>`, no display names; `CULTURE_STUDY_POINTS` 10.
+- [PROVISIONAL], one constant each: `RELIC_TYPE_STATS` (the plan's old-position rule, test-asserted),
+  `RELIC_TYPE_WEIGHT` 1, `RELIC_BAND_ODDS_ANCHORS` (the rows the plan did not give: augmented and stellar at IV and VII,
+  radiant at IV), `EXCEPTIONAL_PIECE_VALUE` (3% to 15% linear), `EXCEPTIONAL_FULL_SET_MULT` 5,
+  `EXCEPTIONAL_PIECE_STAT_CYCLE` (pieces cycle the 14 Museum stats; a full set lands on its first piece's stat). R2-5's
+  content sheet should present the last three with the names.
+- Model: `museumV2: MuseumV2` REPLACES `relicMuseum` and is required, not optional as 3.2 says (it replaces a required
+  field and the migration always writes it); freshState puts it at the old key position. Read and write only through
+  `model.ts` `generalMuseumRecord` / `museumV2WithGeneral` / `withGeneralMuseumRecord`. Token `regionTier`,
+  `cultureId`, `source`, the effect's `v?: 2` and `relicQueue?` are optional and unwritten. `setId` stays REQUIRED
+  until R2-2 mints the first token without it (the Research panel and the dashboard read it).
+- Migration: `withMuseumV2V70` appended to `MIGRATIONS[69]` and also run after the loop on every load (a pre-R2-1 v70
+  dev save still holds `relicMuseum`). Frozen, idempotent (same reference), key position kept, counts sanitized.
+- Goldens: no value moved. Every whole-state golden helper now hashes through `withV1Museum`
+  (`firstRunsGoldens.fixture.ts`: `museumV2` shown as the v1 `relicMuseum` at its key position, only while it holds
+  nothing v1 could not), including `stateHash` and `withoutRunCounts`; the G1-0 registry golden leaves out the new
+  `relic:RELIC_TYPES:*` / `relic:EXCEPTIONAL_SETS:*` entries.
+- Wiring: 17 + 68 new entries, all `pending` (owners R2-4, and R2-4 + R2-5); six constants listed in
+  `UNREAD_CONSTANTS` with their owning slice; the Debug panel lists both catalogs as unmeasured (dormant).
+- Left to their slices: `MUSEUM_V2_PER_COPY` / `MUSEUM_V2_KNEE` (R2-4), lanes by Lab level (R2-3), `cultureFor` and the
+  new salts (R2-2 / R2-3). No `[PROPOSAL]` label may reach player text: R2-7 / R2-8 take the signed-off names.
 
 ### R2-2: Blanks by tier, sources, hooks (engine)
 `rollRelicToken` keeps its two draws (chance, then rarity) and reads the run's tier (`exp.risk?.tier ?? 1`): Tier I
@@ -344,3 +378,30 @@ names; (A) on call 2 keeps that near 54 + 42. Dependencies: G2-2 for real tiers 
 (safe first runs), Lab tiers 3 to 7 (complement plan; lanes read whatever level exists), the ledger (decided, unowned),
 15b for the ancient-data feed, G1 and G7 as callers of the two seams. Could move to 0.14.x without leaving anything
 inert: culture names (finds keep their "Relic Sample" codes, honest Help), the R2-8 culture detail view.
+
+## USER ANSWERS (2026-10-19)
+
+- **Call 1 today's relics:** "Become Tier I pool (Recommended)": the 17 relics become Tier I's general pool by band
+  (4 / 5 / 4 / 4); ids, names, flavors and first-find unlocks kept; the set ladder retired.
+- **Call 2 general pools:** "Same types, scaled per tier (Recommended)".
+- **Call 3 soft cap:** "1000 per tier (Recommended)".
+- **Call 4 past the cap:** "Keep counting, show it (Recommended)".
+- Note on call 14: G1's short-range relic rate was already answered on the short-range plan (2026-10-19: rare, per
+  hour, Tier I 0.08x and Tier II 0.15x of the expedition rate); call 14 now only asks whether other missions drop too.
+- **Call 5 set sizes:** "Growing sets, 54 pieces (Recommended)".
+- **Call 6 exceptional odds:** "0.25% to 1.5%, x1.25/tier (Recommended)".
+- **Call 7 duplicates:** "Prefer missing pieces (Recommended)".
+- **Call 8 identify vs name:** "Type on identify, name via culture (Recommended)".
+- **Call 9 cultures:** "Tied to source planet (Recommended)": +1 study point per identified find plus 15b ancient data;
+  named at 10; ONE Cultures tab also serves 15b's special blueprints.
+- **Call 10 culture names:** "Curated roster, 42 names (Recommended)": 6 per tier on a sign-off sheet.
+- **Call 11 Precursor:** "Umbrella word (Recommended)".
+- **Call 12 identification:** "Free, queued, lanes by Lab (Recommended)": 10 minutes x rarity, lanes I 1, III 2, V 3,
+  VII 4, no Lab gate per tier.
+- **Call 13 blank rarity:** "Better rarity only (Recommended)": relic chance and haul multiplier untouched.
+- **Call 14 other drops:** "Short-Range only (Recommended)": mining, salvage and patrols stay relic-free.
+- **Call 15 planet 100% bonus:** "Relics owns the roll (Recommended)": G3 owns it, G7 calls it.
+- **Calls 16 + 17:** "Every set + site bias (Recommended)": every exceptional set completion is a ledger event; a
+  relic's source site doubles the weight of its old set's types.
+- ALL 17 calls answered. Still open: the name sign-offs (exceptional set names, 42 culture names), presented as a
+  sign-off sheet before R2-8.
