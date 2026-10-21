@@ -281,12 +281,21 @@ export function settleCondition(condition: number, anchorSeconds: number, nowSec
   return Math.min(CONDITION_FULL, c + Math.floor((ratePerMinute * elapsed) / 60));
 }
 
-// A piece settled to `nowSeconds` at `ratePerMinute` (repair folded in, the anchor moved). A pristine piece is
-// returned as it is (the same reference). Pure.
+// A piece settled to `nowSeconds` at `ratePerMinute` (repair folded in, the anchor moved). The anchor advances only by
+// the time the whole per-mille gained actually used (gained x 60 / rate), so the leftover fraction carries to the next
+// settle: many short settles give exactly what one long settle gives (offline == live), and a settle cadence shorter
+// than one per-mille's worth of time still repairs. With no gain the piece is returned as it is (the same reference);
+// back at full both fields are removed. A pristine piece is returned as it is. Pure.
 export function settlePiece<T extends EquipmentInstance>(piece: T, nowSeconds: number, ratePerMinute: number): T {
   if (piece.condition === undefined) return piece;
-  const anchor = piece.conditionAt ?? nowSeconds;
-  return withPieceCondition(piece, settleCondition(pieceCondition(piece), anchor, nowSeconds, ratePerMinute), nowSeconds);
+  const before = pieceCondition(piece);
+  // A worn piece with no anchor (a hand-edited save) starts recovering from now.
+  if (piece.conditionAt === undefined) return withPieceCondition(piece, before, nowSeconds);
+  const anchor = piece.conditionAt;
+  const after = settleCondition(before, anchor, nowSeconds, ratePerMinute);
+  if (after === before) return piece;
+  const gained = after - before;
+  return withPieceCondition(piece, after, anchor + (gained * 60) / ratePerMinute);
 }
 
 // The durability a piece's combat pool OPENS at (user W3 "True condition": its real condition, no raised start floor):

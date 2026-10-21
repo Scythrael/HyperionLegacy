@@ -3975,6 +3975,9 @@ function prospectingEntries(): WiringEntry[] {
 
 function wearEntries(): WiringEntry[] {
   const out: WiringEntry[] = [];
+  // The sign convention (the registry's curve math, curveExpected): a magnitude is SIGNED so the curve lands on the
+  // expected value. A wear source (linearAbsolute, down) is minus its raw per-mille; an efficiency consumer
+  // (linearRelative, down) is efficiency(floor) - 1, also negative; a repair context or bonus (up) is positive.
   // One entry per wear source (kind x source): the piece's condition goes down by the catalog's raw per-mille on a
   // TOUGHNESS_REFERENCE piece (the fixture's durabilityMax), the headroom factor at full condition being 1.
   for (const w of WEAR_SOURCES) {
@@ -3985,7 +3988,7 @@ function wearEntries(): WiringEntry[] {
         source: { catalog: "WEAR_SOURCES", key: w.id },
         claim: `${w.slot} wears by ${w.by}, ${w.event}${w.mode === "use" ? " (use stops at the use floor)" : " (battle can go below the floor, never breaks)"}`,
         direction: "down",
-        magnitude: (c) => c.WEAR_SOURCES.find((x) => x.id === w.id)?.raw ?? 0,
+        magnitude: (c) => -(c.WEAR_SOURCES.find((x) => x.id === w.id)?.raw ?? 0),
         status: pending(w.mode === "use" ? GEAR_WEAR_STEP_3 : GEAR_WEAR_STEP_4),
       }),
     );
@@ -3998,6 +4001,7 @@ function wearEntries(): WiringEntry[] {
         system: "wear",
         source: { catalog: "REPAIR_RATES", key: ctx },
         claim: `Gear recovers on its own, free, at ${REPAIR_RATES[ctx]} per-mille a minute (${ctx})`,
+        direction: "up",
         magnitude: (c) => c.REPAIR_RATES[ctx],
         status: pending(GEAR_WEAR_STEP_3),
       }),
@@ -4011,6 +4015,7 @@ function wearEntries(): WiringEntry[] {
         system: "wear",
         source: { catalog: "REPAIR_RATE_BONUSES", key: bonus },
         claim: `The ${bonus} hull repair bonus also speeds every gear repair rate`,
+        direction: "up",
         curve: { kind: "linearRelative" },
         status: pending(GEAR_WEAR_STEP_3),
       }),

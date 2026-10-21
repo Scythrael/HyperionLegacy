@@ -326,7 +326,7 @@ toughness, `useWear`, battle wear, settle, `pieceStartDurability`), all binding 
 75% at zero, TRUE condition in combat (no start floor; section 4.4's 70% start floor is superseded), training runs
 take no wear, implants slow, free auto repair plus a paid rush, hull damage separate. Every raw rate and repair rate is
 [PROVISIONAL] (the first pass above, for the step 3 sim tune). `EquipmentInstance.durability` is gone (`condition` /
-`conditionAt` optional, absent = pristine); MIGRATIONS[69] step 4 and every load run `dropRetiredDurabilityV70`
+`conditionAt` optional, absent = pristine); MIGRATIONS[69] step 5 and every load run `dropRetiredDurabilityV70`
 (the gear and an in-flight expedition's frozen battle gear). The goldens hash through `goldenJson`
 (firstRunsGoldens.fixture.ts), which puts the retired field back on a pristine piece, so the field swap moved no pin.
 Registry: a `wear` system, one pending entry per catalog row (owners: step 3 use and repair, step 4 battle and combat

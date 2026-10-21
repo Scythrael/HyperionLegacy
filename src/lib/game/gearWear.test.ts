@@ -200,6 +200,49 @@ describe("gear wear: repair is automatic, free and closed form (user Free auto +
   });
 });
 
+describe("gear wear: settling keeps the leftover time (offline == live)", () => {
+  // Settle a piece every `step` seconds from `t0` to `t1` (the last step lands exactly on t1).
+  function settleEvery(p: EquipmentInstance, t0: number, t1: number, step: number, rate: number): EquipmentInstance {
+    let out = p;
+    for (let t = t0 + step; t < t1; t += step) out = settlePiece(out, t, rate);
+    return settlePiece(out, t1, rate);
+  }
+
+  it("many short settles equal one long settle, at every cadence and rate", () => {
+    const worn = withPieceCondition(piece(), 300, 0);
+    for (const rate of Object.values(REPAIR_RATES)) {
+      for (const span of [7, 59, 600, 1234, 5000]) {
+        const once = settlePiece(worn, span, rate);
+        for (const step of [1, 3, 7, 13, 29, 61]) {
+          const many = settleEvery(worn, 0, span, step, rate);
+          expect(pieceCondition(many), `rate ${rate} span ${span} step ${step}`).toBe(pieceCondition(once));
+          expect(many.conditionAt, `rate ${rate} span ${span} step ${step}`).toBe(once.conditionAt);
+        }
+      }
+    }
+  });
+
+  it("a settle cadence below one per-mille's worth of time still repairs (2 per minute underway, every 10 s)", () => {
+    const worn = withPieceCondition(piece(), 600, 0);
+    const after = settleEvery(worn, 0, 600, 10, REPAIR_RATES.underway);
+    expect(pieceCondition(after)).toBe(600 + REPAIR_RATES.underway * 10);
+    // One 10 s settle gains nothing yet and keeps the anchor (the same reference): the time is not lost.
+    const tenSeconds = settlePiece(worn, 10, REPAIR_RATES.underway);
+    expect(tenSeconds).toBe(worn);
+  });
+
+  it("the anchor advances only by the time the gain used; a worn piece with no anchor starts from now", () => {
+    const worn = withPieceCondition(piece(), 600, 0);
+    const p = settlePiece(worn, 45, 2); // 1.5 per-mille earned, 1 taken
+    expect(pieceCondition(p)).toBe(601);
+    expect(p.conditionAt).toBe(30);
+    const anchorless = piece({ condition: 500 });
+    const anchored = settlePiece(anchorless, 900, 40);
+    expect(anchored.condition).toBe(500);
+    expect(anchored.conditionAt).toBe(900);
+  });
+});
+
 describe("gear wear: pieceStartDurability (user W3 True condition)", () => {
   it("a pristine piece opens at exactly durabilityMax (what the retired durability field always held)", () => {
     expect(pieceStartDurability(piece({ durabilityMax: 137 }))).toBe(137);
