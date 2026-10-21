@@ -12,10 +12,11 @@
 // every other member, the ships and the account-level pair (state.gambitPrograms, inert since D19) keep their
 // references.
 //
-// Imports model.ts, gambit.ts and groundTeamSlots.ts only.
+// Imports model.ts, gambit.ts, groundTeamSlots.ts and (FKR-10, the runs switch) fieldKits.ts only.
 
 import type { AwayMember, GambitProgram, GambitRule, GameState } from "./model";
-import { DEFAULT_MEMBER_GAMBIT, groundSquadSize } from "./model";
+import { DEFAULT_MEMBER_GAMBIT, FIELD_KITS_DEFAULT_MEMBER_GAMBIT, groundSquadSize } from "./model";
+import { FIELD_KITS_RUNS_LIVE } from "./fieldKits";
 import { GAMBIT_PRESETS, gambitPresetPrograms, type GambitPreset } from "./gambit";
 import { cleanShipGroundTeams, findGroundSlot } from "./groundTeamSlots";
 
@@ -53,6 +54,17 @@ export function memberHasOwnGambit(member: Pick<AwayMember, "gambit">): boolean 
 export function memberGambitProgram(member: Pick<AwayMember, "gambit" | "teamType">): GambitProgram {
   if (Array.isArray(member.gambit)) return cloneProgram(member.gambit);
   return member.teamType === "security" ? cloneProgram(DEFAULT_MEMBER_GAMBIT) : [];
+}
+
+// Field Kits FKR-10 ("FKR-10 shows the Field Kits default in the editor", FKR-6 carry): the program the editor SHOWS and
+// EDITS for a member. Their own, else, once kits are live in runs (fieldKits.ts FIELD_KITS_RUNS_LIVE), the Field Kits
+// default they actually fight with (model.ts FIELD_KITS_DEFAULT_MEMBER_GAMBIT, swapped in at the fight for a member on
+// D19's default), so a first edit copies what they fight with and never silently drops the grenade rules. While kits
+// are off it is memberGambitProgram exactly. The snapshot keeps reading memberGambitProgram (D19's default), so a
+// dispatch record never moves. Always a fresh copy. Pure.
+export function memberEditableProgram(member: Pick<AwayMember, "gambit" | "teamType">, kitsLive: boolean = FIELD_KITS_RUNS_LIVE): GambitProgram {
+  if (!Array.isArray(member.gambit) && member.teamType === "security" && kitsLive) return cloneProgram(FIELD_KITS_DEFAULT_MEMBER_GAMBIT);
+  return memberGambitProgram(member);
 }
 
 // The preset whose Security program the member's OWN program matches, else null (the default is not a preset,
@@ -95,7 +107,7 @@ function securityMember(state: GameState, memberId: string): AwayMember | null {
 export function setMemberGambitRule(state: GameState, memberId: string, index: number, rule: GambitRule): GameState {
   const m = securityMember(state, memberId);
   if (!m) return state;
-  const program = memberGambitProgram(m);
+  const program = memberEditableProgram(m);
   if (!Number.isInteger(index) || index < 0 || index >= program.length) return state;
   if (gambitRuleEquals(program[index], rule)) return state;
   program[index] = cloneRule(rule);
@@ -106,14 +118,14 @@ export function setMemberGambitRule(state: GameState, memberId: string, index: n
 export function addMemberGambitRule(state: GameState, memberId: string, rule: GambitRule): GameState {
   const m = securityMember(state, memberId);
   if (!m) return state;
-  return writeMemberGambit(state, memberId, [...memberGambitProgram(m), cloneRule(rule)]);
+  return writeMemberGambit(state, memberId, [...memberEditableProgram(m), cloneRule(rule)]);
 }
 
 // REMOVE: drop rule `index`. Pure.
 export function removeMemberGambitRule(state: GameState, memberId: string, index: number): GameState {
   const m = securityMember(state, memberId);
   if (!m) return state;
-  const program = memberGambitProgram(m);
+  const program = memberEditableProgram(m);
   if (!Number.isInteger(index) || index < 0 || index >= program.length) return state;
   return writeMemberGambit(state, memberId, program.filter((_, i) => i !== index));
 }
@@ -122,7 +134,7 @@ export function removeMemberGambitRule(state: GameState, memberId: string, index
 export function moveMemberGambitRule(state: GameState, memberId: string, index: number, dir: "up" | "down"): GameState {
   const m = securityMember(state, memberId);
   if (!m) return state;
-  const program = memberGambitProgram(m);
+  const program = memberEditableProgram(m);
   const target = dir === "up" ? index - 1 : index + 1;
   if (!Number.isInteger(index) || index < 0 || index >= program.length || target < 0 || target >= program.length) return state;
   [program[index], program[target]] = [program[target], program[index]];

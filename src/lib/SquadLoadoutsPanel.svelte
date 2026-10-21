@@ -21,8 +21,8 @@
   // container queries, ONE DOM: on a narrow panel the cards stack and each kit list folds after two slots
   // behind a "Show all" toggle.
   //
-  // FIELD KITS HOOK: SquadLoadoutKit.consumables (Task 16b's Squad Kit slot) stays HIDDEN here. Field Kits now
-  // uses per-member kits; when it ships, a kit row gains its consumables line in kitSlotView.
+  // FIELD KITS (FKR-10): a Security kit row shows its pack (SquadLoadoutKit.consumables, the member's per-member kits,
+  // squadLoadoutDisplay.ts packLineText), and the save preview gains a Pack column, once kits are live in runs.
   // ============================================================================
 
   import { tick } from "svelte";
@@ -270,7 +270,7 @@
               <div class="sl-tablewrap" role="region" aria-label="What gets saved" tabindex="0">
                 <table>
                   <thead>
-                    <tr><th scope="col">Slot</th><th scope="col">Member now</th><th scope="col">Armor</th><th scope="col">Weapon</th><th scope="col">Tool</th><th scope="col">Implants</th></tr>
+                    <tr><th scope="col">Slot</th><th scope="col">Member now</th><th scope="col">Armor</th><th scope="col">Weapon</th><th scope="col">Tool</th><th scope="col">Implants</th>{#if preview.rows.some((r) => r.pack !== null)}<th scope="col">Pack</th>{/if}</tr>
                   </thead>
                   <tbody>
                     {#each preview.rows as row (`${row.teamType}-${row.slotIndex}`)}
@@ -281,6 +281,7 @@
                         <td class:empty={row.weapon === null}>{row.weapon ?? "none"}</td>
                         <td class:empty={row.tool === null}>{row.tool ?? "none"}</td>
                         <td>{row.implants}</td>
+                        {#if preview.rows.some((r) => r.pack !== null)}<td class:empty={row.pack === null}>{row.pack ? row.pack.replace(/^Pack: /, "") : "none"}</td>{/if}
                       </tr>
                     {/each}
                   </tbody>
@@ -366,7 +367,7 @@
             {#each c.slots as k, i (`${k.teamType}-${k.slotIndex}`)}
               <li class="sl-slot" class:fold={i >= 2} class:empty={k.empty}>
                 <span class="sl-slot-who {k.teamType}">{k.label}</span>
-                <span class="sl-slot-gear">{k.gear}{#if k.extra} <i>{k.extra}</i>{/if}</span>
+                <span class="sl-slot-gear">{k.gear}{#if k.extra} <i>{k.extra}</i>{/if}{#if k.pack}<span class="sl-slot-pack">{k.pack}</span>{/if}</span>
               </li>
             {/each}
           </ul>
@@ -832,6 +833,12 @@
   }
   .sl-slot-gear i {
     margin-left: 6px;
+  }
+  /* Field Kits FKR-10: the Security kit's pack, its own line under the gear. */
+  .sl-slot-pack {
+    display: block;
+    font-size: var(--text-2xs);
+    color: var(--color-text-dim);
   }
   .sl-fold-btn {
     display: none;

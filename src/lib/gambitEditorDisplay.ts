@@ -6,14 +6,18 @@
 // fallbacks, the program labels, the copy target and every empty-state line live here as pure functions over
 // the tested engine (memberGambits.ts, groundTeams.ts). The component only draws and routes clicks.
 
-import type { GambitProgram, GameState, GroundTeamKind } from "./game/model";
-import { DEFAULT_GAMBIT_PROGRAMS, groundSquadSize, groundTeamCount } from "./game/model";
+import type { EnemyRank, GambitActionId, GambitProgram, GambitRule, GambitStatusId, GambitTargetSelector, GameState, GroundTeamKind } from "./game/model";
+import { DEFAULT_GAMBIT_PROGRAMS, groundSquadSize, groundTeamCount, memberVariety } from "./game/model";
+import { GAMBIT_STATUSES, isActionLegalForRole } from "./game/gambit";
+import { FIELD_KITS, FIELD_KITS_RUNS_LIVE, FIELD_KIT_IDS, FIELD_KIT_STATUS_IDS, KIT_CATEGORY_RULES, severityOf, CONDITION_LINES, type FieldKitId } from "./game/fieldKits";
+import { LEGACY_USE_ITEM_KIT } from "./game/fieldKitsBattle";
+import { hasMedicalTraining } from "./game/awayTraits";
 import { squadsOfType, teamKindName } from "./game/groundComposition";
 import { cleanShipGroundTeams, groundTeamName } from "./game/groundTeams";
 import {
   gambitProgramEquals,
   matchedMemberPreset,
-  memberGambitProgram,
+  memberEditableProgram,
   memberHasOwnGambit,
   memberSecuritySquadmates,
   squadmatesCopyWouldChange,
@@ -55,6 +59,10 @@ export interface GambitMemberEditView {
   copyTargets: string[]; // names of the squadmates a copy would actually change
   copyLabel: string;
   copyBlockedText: string | null; // why the copy is off, or null
+  // Field Kits FKR-10: the facts the rule hints read (Medical Training gates Advanced Medical kits; a throw needs a
+  // grenade installed in the Tool slot).
+  medic: boolean;
+  grenade: string | null; // the installed grenade's name, or null
 }
 
 export interface GambitEditorView {
@@ -162,7 +170,7 @@ export function gambitEditorView(state: GameState, pick: GambitEditorPick): Gamb
     member: {
       id: m.id,
       name: m.name,
-      program: memberGambitProgram(m),
+      program: memberEditableProgram(m),
       programLabel: programLabel(m),
       presetId: matchedMemberPreset(m)?.id ?? null,
       hasOwn: memberHasOwnGambit(m),
@@ -176,6 +184,190 @@ export function gambitEditorView(state: GameState, pick: GambitEditorPick): Gamb
           : copyTargets.length === 0
             ? "Everyone in this squad already runs it."
             : null,
+      medic: hasMedicalTraining(m),
+      grenade: installedGrenadeName(state, m.id),
     },
   };
+}
+
+// ============================================================================
+// Field Kits FKR-10: the editor's vocabulary and rule hints (moved here from GambitEditorPanel.svelte so they are
+// tested: SELECTOR_LABEL / ACTION_LABEL exhaustive by type, the offered lists checked against them).
+// ============================================================================
+
+// The installed grenade's name on `memberId` (the member's Tool slot), or null. Pure.
+export function installedGrenadeName(state: Pick<GameState, "equipment">, memberId: string): string | null {
+  const piece = state.equipment.find((e) => e.fittedToMemberId === memberId && e.slotType === "memberTool");
+  const variety = piece ? memberVariety(piece.slotType, piece.moduleVariant ?? "") : undefined;
+  return variety?.member.grenade ? variety.label : null;
+}
+
+// The target dropdown, grouped. "Ally: downed" joins the Ally group with the Field Kits pass (it fires only as a Use
+// Item, the Injury Kit's target); while kits are off it stays out (editorSelectorGroups).
+const SELECTOR_GROUPS: readonly { label: string; ids: readonly GambitTargetSelector[] }[] = [
+  {
+    label: "Foe",
+    ids: ["foeNearest", "foeFarthest", "foeHighestHp", "foeLowestHp", "foeHighestThreat", "foeIsHealer", "foeIsCaster", "foeHasStatus", "foeLargestGroup"],
+  },
+  { label: "Ally / Self", ids: ["allyLowestHp", "allyHpBelow", "allyHasStatus", "allyDowned", "self", "selfHpBelow", "selfHasStatus"] },
+  { label: "Conditions", ids: ["openingRound", "outnumbered"] },
+];
+export function editorSelectorGroups(kitsLive: boolean = FIELD_KITS_RUNS_LIVE): { label: string; ids: GambitTargetSelector[] }[] {
+  return SELECTOR_GROUPS.map((g) => ({ label: g.label, ids: g.ids.filter((id) => kitsLive || id !== "allyDowned") }));
+}
+
+export const SELECTOR_LABEL: Readonly<Record<GambitTargetSelector, string>> = {
+  foeNearest: "Foe: nearest",
+  foeFarthest: "Foe: farthest",
+  foeHighestHp: "Foe: highest HP",
+  foeLowestHp: "Foe: lowest HP",
+  foeHighestThreat: "Foe: highest threat",
+  foeIsHealer: "Foe: is healer",
+  foeIsCaster: "Foe: is caster",
+  foeHasStatus: "Foe: has status",
+  foeLargestGroup: "Foe: largest group",
+  allyLowestHp: "Ally: lowest HP",
+  allyHpBelow: "Ally: HP below",
+  allyHasStatus: "Ally: has status",
+  allyDowned: "Ally: downed",
+  self: "Self",
+  selfHpBelow: "Self: HP below",
+  selfHasStatus: "Self: has status",
+  openingRound: "Opening round",
+  outnumbered: "Outnumbered",
+};
+
+export const ACTION_LABEL: Readonly<Record<GambitActionId, string>> = {
+  attack: "Attack",
+  suppress: "Suppress",
+  taunt: "Taunt",
+  execute: "Execute",
+  brace: "Brace",
+  cure: "Cure",
+  aidHeal: "Aid Heal",
+  shieldAlly: "Shield Ally",
+  analyze: "Analyze",
+  secureObjective: "Secure Objective",
+  takeCover: "Take Cover",
+  useItem: "Use Item",
+  throwGrenade: "Throw Grenade",
+  fallBack: "Fall Back",
+  hold: "Hold",
+  // Field Kits FKR-4: an enemy-only action (never legal for Security, so never offered).
+  flashGrenade: "Flash Grenade",
+};
+
+// The action dropdown in a stable order, FILTERED to Security's legal set, so a rule can never pick an action a
+// Security member cannot perform. Throw Grenade sits after Use Item, offered once kits are live in runs.
+const ACTION_ORDER: readonly GambitActionId[] = [
+  "attack",
+  "suppress",
+  "taunt",
+  "execute",
+  "brace",
+  "cure",
+  "aidHeal",
+  "shieldAlly",
+  "analyze",
+  "secureObjective",
+  "takeCover",
+  "useItem",
+  "throwGrenade",
+  "fallBack",
+  "hold",
+];
+export function editorActions(kitsLive: boolean = FIELD_KITS_RUNS_LIVE): GambitActionId[] {
+  return ACTION_ORDER.filter((a) => isActionLegalForRole("security", a) && (kitsLive || a !== "throwGrenade"));
+}
+
+// Every status the status picker offers, the Field Kits conditions included once kits are live in runs. Pure.
+export function editorStatuses(kitsLive: boolean = FIELD_KITS_RUNS_LIVE): GambitStatusId[] {
+  return (Object.keys(GAMBIT_STATUSES) as GambitStatusId[]).filter((id) => kitsLive || !(FIELD_KIT_STATUS_IDS as readonly string[]).includes(id));
+}
+
+// A status's picker label: a severity rank reads its place on its line ("Broken Bone (severity 2 of 3)"). Pure.
+export function statusOptionLabel(id: GambitStatusId): string {
+  const label = GAMBIT_STATUSES[id]?.label ?? id;
+  const sev = severityOf(id);
+  return sev ? `${label} (severity ${sev.rank} of ${CONDITION_LINES[sev.line].length})` : label;
+}
+
+// The Use Item kit picker: every kit; a rule with no kit spends a First Aid Kit (call 15, "Means First Aid Kit").
+export const KIT_OPTIONS: readonly { id: FieldKitId; label: string }[] = FIELD_KIT_IDS.map((id) => ({ id, label: FIELD_KITS[id].label }));
+export const DEFAULT_RULE_KIT: FieldKitId = LEGACY_USE_ITEM_KIT;
+
+// The rank condition picker (group 7 "Rank rules + reserve"): "" = any target.
+export const RANK_OPTIONS: readonly { value: "" | EnemyRank; label: string }[] = [
+  { value: "", label: "Any rank" },
+  { value: "elite", label: "Target is Elite or stronger" },
+  { value: "boss", label: "Target is a Boss" },
+];
+// The "Keep N for a Boss" stepper's ceiling (a UI bound; the engine reads any whole count).
+export const RESERVE_MAX = 9;
+
+const HAS_STATUS_SELECTORS: readonly GambitTargetSelector[] = ["foeHasStatus", "allyHasStatus", "selfHasStatus"];
+const HP_THRESHOLD_SELECTORS: readonly GambitTargetSelector[] = ["allyHpBelow", "selfHpBelow"];
+
+export function ruleNeedsThreshold(rule: Pick<GambitRule, "target">): boolean {
+  return HP_THRESHOLD_SELECTORS.includes(rule.target);
+}
+export function ruleNeedsStatus(rule: Pick<GambitRule, "target" | "action">): boolean {
+  return HAS_STATUS_SELECTORS.includes(rule.target) || rule.action === "cure" || rule.action === "useItem";
+}
+// Whether the status picker may offer "Any debuff": every case except foeHasStatus (it must name a status).
+export function ruleStatusAllowsAny(rule: Pick<GambitRule, "target">): boolean {
+  return rule.target !== "foeHasStatus";
+}
+// The kit picker shows on a Use Item rule once kits are live in runs.
+export function ruleNeedsKit(rule: Pick<GambitRule, "action">, kitsLive: boolean = FIELD_KITS_RUNS_LIVE): boolean {
+  return kitsLive && rule.action === "useItem";
+}
+// The rank condition shows on a rule that targets a foe (an ally or a condition reads Normal, so it would never fire).
+export function ruleTakesRank(rule: Pick<GambitRule, "target">, kitsLive: boolean = FIELD_KITS_RUNS_LIVE): boolean {
+  return kitsLive && rule.target.startsWith("foe");
+}
+// The Boss reserve shows on a rule that spends something: a throw (charges) or a Use Item (that kit).
+export function ruleTakesReserve(rule: Pick<GambitRule, "action">, kitsLive: boolean = FIELD_KITS_RUNS_LIVE): boolean {
+  return kitsLive && (rule.action === "throwGrenade" || rule.action === "useItem");
+}
+
+// A rule with only the params it needs, so a stored rule stays minimal (and matches the preset shapes): the HP
+// threshold on an HP selector, the status where one is read (foeHasStatus defaults to the first status), and (Field
+// Kits) the kit on a Use Item, the rank condition on a foe target, the reserve (1 or more) on a spending rule. Pure.
+export function normalizeEditorRule(rule: GambitRule, kitsLive: boolean = FIELD_KITS_RUNS_LIVE): GambitRule {
+  const params: NonNullable<GambitRule["params"]> = {};
+  if (ruleNeedsThreshold(rule)) params.hpThreshold = rule.params?.hpThreshold ?? 0.5;
+  if (ruleNeedsStatus(rule)) {
+    if (rule.params?.statusId) params.statusId = rule.params.statusId;
+    else if (rule.target === "foeHasStatus") params.statusId = editorStatuses(kitsLive)[0];
+  }
+  if (ruleNeedsKit(rule, kitsLive) && rule.params?.kitId) params.kitId = rule.params.kitId;
+  if (ruleTakesRank(rule, kitsLive) && rule.params?.minRank) params.minRank = rule.params.minRank;
+  const keep = rule.params?.reserveForBoss;
+  if (ruleTakesReserve(rule, kitsLive) && typeof keep === "number" && Number.isFinite(keep) && keep >= 1) params.reserveForBoss = Math.min(RESERVE_MAX, Math.floor(keep));
+  return Object.keys(params).length > 0 ? { target: rule.target, action: rule.action, params } : { target: rule.target, action: rule.action };
+}
+
+// The quiet hints under a rule (FKR-10): what keeps it from firing for THIS member. Pure.
+export function ruleHints(rule: GambitRule, member: Pick<GambitMemberEditView, "medic" | "grenade">, kitsLive: boolean = FIELD_KITS_RUNS_LIVE): string[] {
+  if (!kitsLive) return [];
+  const out: string[] = [];
+  if (rule.action === "useItem") {
+    const kit = rule.params?.kitId ?? DEFAULT_RULE_KIT;
+    if (KIT_CATEGORY_RULES[FIELD_KITS[kit].category].requiresMedicalTraining && !member.medic) out.push("Fires only for a member with Medical Training.");
+    out.push("Skips when no kit of that kind is left.");
+  }
+  if (rule.action === "throwGrenade") {
+    out.push(member.grenade ? "Skips when no charge is left, or after this battle's throw." : "No grenade installed in the Tool slot: this rule never fires.");
+  }
+  if (rule.target === "allyDowned" && rule.action !== "useItem") out.push("Ally: downed fires only for Use Item (the Injury Kit's target).");
+  return out;
+}
+
+// What the built-in default does, for the "Use default" line. Once kits are live in runs a member on the default
+// throws grenades too (FIELD_KITS_DEFAULT_MEMBER_GAMBIT, user N15 and "Save for Elite or Boss"). Pure.
+export function defaultProgramText(kitsLive: boolean = FIELD_KITS_RUNS_LIVE): string {
+  return kitsLive
+    ? "full targeting, attack and defense, grenades at the largest group (one charge kept for an Elite or a Boss), no automatic kit use"
+    : "full targeting, attack and defense, no automatic kit use";
 }

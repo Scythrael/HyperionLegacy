@@ -301,7 +301,7 @@ export function withoutFieldKits(exp: Expedition): Expedition {
       ...ops,
       teams: ops.teams.map((t) => {
         const team = { ...t } as Record<string, unknown>;
-        for (const k of ["kits", "treatment", "basics", "charges"]) delete team[k];
+        for (const k of ["kits", "treatment", "basics", "charges", "packed"]) delete team[k];
         if (t.pendingFight) {
           const fight = { ...t.pendingFight } as Record<string, unknown>;
           for (const k of ["kitsUsed", "treated", "basicsUsed", "chargesUsed", "ranks"]) delete fight[k];

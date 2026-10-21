@@ -167,6 +167,13 @@ export const ICON_SEMANTICS: Record<IconName, IconSemantic> = {
   kitSplint: "subject",
   kitTrauma: "subject",
   kitInjury: "subject",
+  // Field Kits pack screen (0.14.0 FKR-9): the grenade names a thrown tool, the role marks name a Security spec and
+  // the home mark names where returning kits go.
+  grenade: "subject",
+  roleOffense: "subject",
+  roleDefense: "subject",
+  roleDebuff: "subject",
+  home: "subject",
 
   // ACTION: something the player does. Should stay recognisable as that action.
   salvage: "action",

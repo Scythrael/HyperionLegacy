@@ -8122,6 +8122,10 @@ export interface GroundTeamRun {
   basics?: Record<string, Partial<Record<FieldKitId, number>>>;
   charges?: Record<string, number>;
   treatment?: Record<string, number>;
+  // Field Kits FKR-9 (the pack screen's run readout and claim line, DISPLAY ONLY: resolution never reads it): memberId ->
+  // the extras that member PACKED at dispatch, written beside `kits` and never changed, so the readout can show "1 of 2"
+  // and the claim can say what the run used (packed minus what comes home). Absent = nothing packed (every other run).
+  packed?: Record<string, Partial<Record<FieldKitId, number>>>;
 }
 
 // GO-7b: one finished step on a team's timeline, DISPLAY ONLY (the timeline UI, GO-14): resolution never reads
