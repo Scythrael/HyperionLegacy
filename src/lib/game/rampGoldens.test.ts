@@ -62,6 +62,14 @@ function rows(state: GameState): string[] {
 //                      Boss leads of Challenging and harder objectives.
 //   ramp:veteran:*     a veteran reads full strength: the same outcome lines as c9 (the ceiling only).
 //   ramp:freighter:*   a new save's freighter run is an ordinary run with no completed run behind it: run 2's floor.
+// RE-PINNED BY THE SF-3 REVIEW (user 2026-10-21 "Fade Weak", "Smooth the last steps"), c5 and c9 only (c0, veteran
+// and freighter unchanged: the floor and full strength read the same numbers):
+//   ramp:orion:*:c5    run 7: unled enemies x0.82 (Weak fading) where they stood at a flat x0.7, and the stamp carries
+//                      the odds' lagging position (oddsRamp): the D18 minimum holds one more Subterranean objective on
+//                      cand-0 and cand-1, rank 1 loses one more fight on cand-0 and still finishes all three.
+//   ramp:orion:*:c9    run 11 is no longer full strength (0.93, unled enemies x0.97, odds at run 10's 0.79): rank 1 now
+//                      finishes all three candidates (cand-0 Subterranean and cand-2 Vault finals won); the D18 minimum
+//                      is unchanged apart from a few send-backs and 2 less hull wear on cand-2.
 const GOLDEN: Record<string, unknown> = {
   "ramp:orion:d18:c0": [
     "baeff32f",
@@ -75,26 +83,26 @@ const GOLDEN: Record<string, unknown> = {
     "cand-2 complete 9/9 lost:1 sent:0 stuck:none hull:0 setbacks:0 boarded:0 vault:1",
   ],
   "ramp:orion:d18:c5": [
-    "bf0c319c",
-    "d75b0ae2",
-    "cand-0 activities 3/11 lost:40 sent:514 stuck:derelictOutpost+geothermalChamber+derelictOutpost+geothermalChamber+mineralOutcrop+subterraneanCivilization+mineralOutcrop+mineralOutcrop hull:0 setbacks:0 boarded:0 vault:2",
-    "1e73bae5",
-    "6869f552",
-    "cand-1 activities 10/11 lost:40 sent:472 stuck:subterraneanCivilization hull:0 setbacks:1 boarded:3 vault:2",
-    "a9269594",
-    "2964ba50",
-    "cand-2 activities 7/9 lost:40 sent:575 stuck:buriedVault+geothermalChamber hull:0 setbacks:1 boarded:11 vault:1",
+    "18c1ce14",
+    "b422fdec",
+    "cand-0 activities 2/11 lost:40 sent:545 stuck:derelictOutpost+geothermalChamber+derelictOutpost+geothermalChamber+mineralOutcrop+subterraneanCivilization+mineralOutcrop+mineralOutcrop+subterraneanCivilization hull:0 setbacks:0 boarded:0 vault:2",
+    "e27be221",
+    "527b9ce9",
+    "cand-1 activities 9/11 lost:40 sent:579 stuck:subterraneanCivilization+subterraneanCivilization hull:0 setbacks:1 boarded:3 vault:2",
+    "eb01ecb0",
+    "11e140b2",
+    "cand-2 activities 7/9 lost:40 sent:570 stuck:buriedVault+geothermalChamber hull:0 setbacks:1 boarded:11 vault:1",
   ],
   "ramp:orion:d18:c9": [
-    "6f924faa",
-    "7491f3dd",
+    "142bab2c",
+    "d6ab446a",
     "cand-0 activities 1/11 lost:40 sent:583 stuck:derelictOutpost+geothermalChamber+derelictOutpost+geothermalChamber+mineralOutcrop+subterraneanCivilization+mineralOutcrop+mineralOutcrop+crashedShip+subterraneanCivilization hull:0 setbacks:0 boarded:0 vault:2",
-    "cff1f1f5",
-    "835dbca7",
-    "cand-1 activities 7/10 lost:40 sent:582 stuck:geothermalChamber+subterraneanCivilization+subterraneanCivilization hull:0 setbacks:2 boarded:3 vault:2",
-    "49eb2484",
-    "58060378",
-    "cand-2 activities 7/9 lost:40 sent:551 stuck:buriedVault+geothermalChamber hull:14 setbacks:2 boarded:11 vault:1",
+    "1b81a061",
+    "db3f9036",
+    "cand-1 activities 7/10 lost:40 sent:581 stuck:geothermalChamber+subterraneanCivilization+subterraneanCivilization hull:0 setbacks:2 boarded:3 vault:2",
+    "dc2078",
+    "24003c84",
+    "cand-2 activities 7/9 lost:40 sent:572 stuck:buriedVault+geothermalChamber hull:12 setbacks:2 boarded:11 vault:1",
   ],
   "ramp:orion:rank1:c0": [
     "1364d0e6",
@@ -108,26 +116,26 @@ const GOLDEN: Record<string, unknown> = {
     "cand-2 complete 9/9 lost:0 sent:0 stuck:none hull:0 setbacks:0 boarded:0 vault:1",
   ],
   "ramp:orion:rank1:c5": [
-    "fb9fc09f",
-    "81623cb5",
-    "cand-0 complete 11/11 lost:1 sent:0 stuck:none hull:0 setbacks:0 boarded:0 vault:2",
-    "381d99e2",
-    "969d5f14",
+    "11b641d7",
+    "dd792e1a",
+    "cand-0 complete 11/11 lost:2 sent:0 stuck:none hull:0 setbacks:0 boarded:0 vault:2",
+    "a7dcdffe",
+    "308fa1ae",
     "cand-1 complete 11/11 lost:0 sent:0 stuck:none hull:0 setbacks:1 boarded:3 vault:2",
-    "e2e94f61",
-    "fbcc9711",
+    "10c7ee5d",
+    "3ce55b8",
     "cand-2 complete 9/9 lost:0 sent:0 stuck:none hull:0 setbacks:1 boarded:11 vault:1",
   ],
   "ramp:orion:rank1:c9": [
-    "1d21395",
-    "bb0a209a",
-    "cand-0 activities 10/11 lost:41 sent:69 stuck:subterraneanCivilization hull:0 setbacks:0 boarded:0 vault:2",
-    "56dc6b72",
-    "1df5a205",
-    "cand-1 complete 10/10 lost:39 sent:0 stuck:none hull:0 setbacks:2 boarded:3 vault:2",
-    "1257e791",
-    "33c2b445",
-    "cand-2 activities 8/9 lost:40 sent:569 stuck:buriedVault hull:14 setbacks:2 boarded:11 vault:1",
+    "ba8e526f",
+    "c78adbe7",
+    "cand-0 complete 11/11 lost:40 sent:0 stuck:none hull:0 setbacks:0 boarded:0 vault:2",
+    "3939a83e",
+    "b557931c",
+    "cand-1 complete 10/10 lost:5 sent:0 stuck:none hull:0 setbacks:2 boarded:3 vault:2",
+    "f145c005",
+    "ddb77cc",
+    "cand-2 complete 9/9 lost:39 sent:0 stuck:none hull:12 setbacks:2 boarded:11 vault:1",
   ],
   "ramp:veteran:orion:rank1": [
     "7ccbdad2",

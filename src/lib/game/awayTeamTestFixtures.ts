@@ -13,7 +13,7 @@ import { makeRng } from "./combat/rng";
 import { V67_GROUND_TEAM_COUNT, emptyGroundTeams, shipsWithMemberAutoSlotted } from "./groundTeams";
 import { byIdNumber } from "./awayTeam";
 import { NEUTRAL_SHIP_EVENT_PROFILE } from "./groundOps";
-import { N_FULL, runCountsOf } from "./runDifficulty";
+import { runCountsOf } from "./runDifficulty";
 
 // Ground Operations (GO-1, and the GO-7c multi-team tests): register a SYNTHETIC hull under `key` in the
 // shared SHIP_TYPES table, cloned from the General Freighter with the given `awayTeams` (undefined = a hull
@@ -275,12 +275,16 @@ export function asPreG2NamesDispatch<R extends { next: GameState; expedition?: E
 }
 
 // Safe first runs SF-2: `state` as a save whose expedition training run is behind it and whose curve reads full
-// strength (runDifficulty.ts: veteran, training done, N_FULL completed), so its next expedition from ANY hull is an
+// strength (runDifficulty.ts: veteran, training done, VETERAN_FIXTURE_COMPLETED completed), so its next expedition from ANY hull is an
 // ordinary run, exactly as before SF-2 (apart from the retired shakedown length). Tests that pin nominal play on an
 // explorer from a fresh save go through this. Pure.
+// The completed count the fixture writes: the curve's N_FULL when SF-2 pinned it (10). A veteran reads full strength
+// whatever the count, so the SF-3 review's longer curve (N_FULL 11) leaves this pinned value, and every golden that
+// hashes the counters, as they were.
+const VETERAN_FIXTURE_COMPLETED = 10;
 export function asExpeditionVeteran(state: GameState): GameState {
   const counts = runCountsOf(state);
-  return { ...state, runCounts: { ...counts, expedition: { completed: N_FULL, trainingDone: true, veteran: true } } };
+  return { ...state, runCounts: { ...counts, expedition: { completed: VETERAN_FIXTURE_COMPLETED, trainingDone: true, veteran: true } } };
 }
 
 // Field Kits (FK-3, docs/plans/2026-10-14-field-kits-plan.md section 3): the run WITHOUT its Field Kits fields, i.e.

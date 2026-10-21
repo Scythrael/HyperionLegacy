@@ -22,7 +22,7 @@ import { generateEncounter } from "./gambit";
 import { groundThreatOddsKey } from "./groundThreat";
 import { rollObjectiveAffixes } from "./affixes";
 import { generateRiskProfile } from "./riskFactors";
-import { EARLY_CURVE_RANK, ENEMY_RANKS, ENEMY_RANKS_VERSION, curveBaseRank } from "./enemyRanks";
+import { EARLY_CURVE_RANK, EARLY_CURVE_WEAK_UNTIL, ENEMY_RANKS, ENEMY_RANKS_VERSION, curveBaseFactor, curveBaseRank } from "./enemyRanks";
 import {
   N_FULL,
   RAMP_FLOOR,
@@ -30,6 +30,7 @@ import {
   encounterHazard,
   rampEnemyScale,
   rampFraction,
+  rampOddsFraction,
   rampedChance,
   rampedPassChance,
   rampedStampOf,
@@ -52,6 +53,13 @@ import { afterTraining, rampRun, rampSeed, tally } from "./safeFirstRamp.fixture
 
 type Stamp = NonNullable<Expedition["difficulty"]>;
 const stampAt = (ramp: number, tier: Stamp["tier"] = 1): Stamp => ({ version: 1, firstRun: false, ramp, tier });
+// The stamp a real Tier I dispatch writes after `completed` runs (SF-3 review: the odds' own position, one run behind,
+// stored only where it differs from the enemy curve's).
+const dispatchStampAt = (completed: number): Stamp => {
+  const ramp = rampFraction(completed);
+  const oddsRamp = rampOddsFraction(completed);
+  return { ...stampAt(ramp), ...(oddsRamp !== ramp ? { oddsRamp } : {}) };
+};
 
 function dispatch(state: GameState, cand = "cand-0"): { next: GameState; exp: Expedition } {
   const res = startExpedition(state, "ship-1", 1, cand);
@@ -86,11 +94,11 @@ const WORST: Record<string, ShipEventDraws> = {
 // ===== the stamp =====
 
 describe("SF-3 the stamp: every ordinary run carries its curve position and tier", () => {
-  it("the curve's anchors through real dispatches: run 2 at 35%, run 6 about 54%, run 9 about 80%, full from run 11", () => {
+  it("the curve's anchors through real dispatches: run 2 at 35%, run 6 about 54%, run 9 about 80%, full from run 12", () => {
     const strength = (completed: number): number => {
       const { exp } = dispatch(orionAfter(completed));
       const stamp = rampedStampOf(exp)!;
-      expect(exp.difficulty).toEqual(stampAt(rampFraction(completed)));
+      expect(exp.difficulty).toEqual(dispatchStampAt(completed));
       expect(exp.id).toBe(`expedition-${completed + 2}`); // the run number on the curve
       return rampEnemyScale(stamp.ramp);
     };
@@ -104,6 +112,12 @@ describe("SF-3 the stamp: every ordinary run carries its curve position and tier
     // Strictly rising between, never faster than the step before it would allow an exponential.
     const all = Array.from({ length: N_FULL }, (_, c) => rampEnemyScale(rampFraction(c)));
     for (let c = 1; c < all.length; c += 1) expect(all[c]).toBeGreaterThan(all[c - 1]);
+    // SF-3 review "Smooth the last steps": the climb after run 9 (runs 10, 11, 12) is even, each step no larger than
+    // the ease-in's last (run 8 to 9); the odds reach full strength one run later (run 13).
+    for (let c = 8; c < all.length; c += 1) expect(all[c] - all[c - 1], `run ${c + 2}`).toBeLessThanOrEqual(all[7] - all[6] + 1e-12);
+    expect(rampOddsFraction(N_FULL - 1)).toBeLessThan(1);
+    expect(rampOddsFraction(N_FULL)).toBe(1);
+    for (let c = 1; c < N_FULL + 2; c += 1) expect(rampOddsFraction(c)).toBe(rampFraction(c - 1));
   });
 
   it("a veteran's run reads full strength; the training run keeps its own stamp; a run from before SF-3 has none", () => {
@@ -181,11 +195,21 @@ describe("SF-3 the guard on the curve: strength, the tier hazard ceiling, Weak o
     }
   });
 
-  it("the curve's low end fields Weak enemies (x0.7 after the curve's strength); a placed lead keeps its rank; the rest of the curve is Normal", () => {
+  it("Weak fades out (SF-3 review): unled enemies x(0.7 + 0.3 x ramp) after the curve's strength, named Weak below the midpoint; a placed lead keeps its rank", () => {
     expect(EARLY_CURVE_RANK).toBe("weak");
-    // The low end: runs 2 to 7 (curve strength at most Weak's multiplier).
+    // The factor: Weak's x0.7 at the floor, rising with every run, exactly 1 at full strength; no step between runs.
+    const factors = Array.from({ length: N_FULL + 2 }, (_, c) => curveBaseFactor({ difficulty: stampAt(rampFraction(c)) }));
+    expect(factors[0]).toBe(ENEMY_RANKS.weak.mult);
+    factors.forEach((f, c) => expect(f, `run ${c + 2}`).toBeCloseTo(c >= N_FULL - 1 ? 1 : ENEMY_RANKS.weak.mult + (1 - ENEMY_RANKS.weak.mult) * rampFraction(c), 12));
+    for (let c = 1; c < N_FULL; c += 1) expect(factors[c] - factors[c - 1], `run ${c + 2}`).toBeLessThan(0.05);
+    expect(factors[N_FULL - 1]).toBe(1);
+    expect(curveBaseFactor({})).toBe(1);
+    expect(curveBaseFactor({ difficulty: { version: 1, firstRun: true, ramp: 0, tier: 1 } })).toBe(1);
+    // The name: Weak on runs 2 to 7 (ramp below EARLY_CURVE_WEAK_UNTIL, the factor below 0.85), Normal from run 8; the
+    // nearest run sits well clear of the line (no rounding near-tie).
     const bases = Array.from({ length: N_FULL + 2 }, (_, c) => curveBaseRank({ difficulty: stampAt(rampFraction(c)) }));
-    expect(bases).toEqual(["weak", "weak", "weak", "weak", "weak", "weak", "normal", "normal", "normal", "normal", "normal", "normal"]);
+    expect(bases).toEqual(["weak", "weak", "weak", "weak", "weak", "weak", "normal", "normal", "normal", "normal", "normal", "normal", "normal"]);
+    for (let c = 0; c < N_FULL; c += 1) expect(Math.abs(rampFraction(c) - EARLY_CURVE_WEAK_UNTIL), `run ${c + 2}`).toBeGreaterThan(0.04);
     expect(curveBaseRank({ difficulty: { version: 1, firstRun: true, ramp: 0, tier: 1 } })).toBe("normal");
     expect(curveBaseRank({})).toBe("normal");
     expect(curveBaseRank({ difficulty: stampAt(1, 2) })).toBe("normal");
@@ -203,9 +227,20 @@ describe("SF-3 the guard on the curve: strength, the tier hazard ceiling, Weak o
         const final = taskFightGuard({ ...floor, ...RANKED }, hot, task(poi, 3, 2), seed);
         expect(final.filter((e) => e.rank === "elite")).toHaveLength(1);
         expect(final.filter((e) => e.rank === "weak")).toHaveLength(final.length - 1);
-        // Past the low end every unled enemy is Normal (exactly the unranked guard).
+        // Surprise and reinforcement fights are unled: their enemies take the run's base too (REINFORCEMENT_RANK N5).
+        for (const kind of ["surprise", "reinforcement"] as const) {
+          expect(taskFightGuard({ ...floor, ...RANKED }, hot, task(poi, 5, 2), seed, 0, kind).every((e) => e.rank === "weak"), kind).toBe(true);
+        }
+        // Past the name line every unled enemy reads Normal at its faded factor; at full strength exactly the unranked guard.
         const later = { hazardResist: 0, difficulty: stampAt(rampFraction(6)) };
-        expect(taskFightGuard({ ...later, ...RANKED }, hot, task(poi, 1, 2), seed).map((e) => e.power)).toEqual(taskFightGuard(later, hot, task(poi, 1, 2), seed).map((e) => e.power));
+        const laterRanked = taskFightGuard({ ...later, ...RANKED }, hot, task(poi, 1, 2), seed);
+        const laterPlain = taskFightGuard(later, hot, task(poi, 1, 2), seed);
+        laterRanked.forEach((e, i) => {
+          expect(e.rank).toBe("normal");
+          expect(e.power).toBeCloseTo(laterPlain[i].power * curveBaseFactor(later), 9);
+        });
+        const full = { hazardResist: 0, difficulty: stampAt(1) };
+        expect(taskFightGuard({ ...full, ...RANKED }, hot, task(poi, 1, 2), seed).map((e) => e.power)).toEqual(taskFightGuard(full, hot, task(poi, 1, 2), seed).map((e) => e.power));
       }
     }
   });
@@ -270,7 +305,9 @@ describe("SF-3 the odds on the curve: the affix roll, ambushes, ship events (x r
       const forced = generateRiskProfile(exp.seed, { tier: 4, enemyTerritory: false }, exp.bodies);
       const tierFour: Expedition = { ...exp, risk: forced.profile, bodies: exp.bodies.map((b, i) => ({ ...b, risk: forced.bodies[i] })) };
       const nominal = scanned(withoutCurve(tierFour));
-      const ramp = rampFraction(4);
+      // SF-3 review: ambushes read the odds' own position (one run behind the enemy curve).
+      const ramp = rampOddsFraction(4);
+      expect(tierFour.difficulty?.oddsRamp).toBe(ramp);
       const ramped = scanned(tierFour);
       const floor = scanned({ ...tierFour, difficulty: stampAt(0) });
       const full = scanned({ ...tierFour, difficulty: stampAt(1) });
@@ -403,6 +440,9 @@ describe("SF-3 the sample: difficulty rises with the curve and never falls", () 
 // Per curve position (completed 0, 3, 6, 9): stalled / runs with a lost fight / lost fights / Vault and Subterranean
 // objectives won : held.
 const SAMPLE_PINS: Record<string, string[]> = {
-  d18: ["0/4/83/19:19", "4/9/228/12:19", "10/10/400/0:19", "10/10/400/0:19"],
-  rank1: ["0/0/0/19:19", "0/0/0/19:19", "0/5/14/19:19", "3/10/303/13:19"],
+  // Re-measured by the SF-3 review (Weak fades, the climb ends at run 12): d18 run 5 lost fights 228 to 247 (its
+  // ordinary enemies x0.76 now, x0.7 before); rank 1 run 8 lost 14 to 7 and run 11 stalls 3 to 0 (run 11 is no longer
+  // full strength).
+  d18: ["0/4/83/19:19", "4/9/247/12:19", "10/10/400/0:19", "10/10/400/0:19"],
+  rank1: ["0/0/0/19:19", "0/0/0/19:19", "0/4/7/19:19", "0/9/212/19:19"],
 };

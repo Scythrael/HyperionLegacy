@@ -126,7 +126,7 @@ import {
 } from "./affixes";
 // Safe first runs SF-2: the training run stamp's one read (no affixes, no ambushes, the backstop).
 import { isTrainingRun } from "./enemyRanks";
-import { rampedChance, runRampOf } from "./runDifficulty";
+import { rampedChance, runOddsRampOf } from "./runDifficulty";
 // Field Kits FKR-7: the flag (flag 2) and the run plumbing (the per-objective refresh, the fight spends, the bay share).
 import { fieldKitsLive } from "./fieldKits";
 import { freshBasicsFor, refreshObjectiveSupplies, spendFightSupplies } from "./fieldKitsRun";
@@ -716,7 +716,8 @@ export function initGroundTasks(exp: Expedition, bodyIndex: number): void {
   const catalog = runAffixCatalog(exp.risk);
   const training = isTrainingRun(exp);
   // Safe first runs SF-3: an ordinary run's curve position (1 = full strength, every run without the stamp).
-  const ramp = runRampOf(exp);
+  // (SF-3 review: the odds' own position, one run behind the enemy curve.)
+  const ramp = runOddsRampOf(exp);
   for (let k = 0; k < body.activities.length; k += 1) {
     const task = body.activities[k];
     if (isGroundTask(task)) continue;

@@ -34,8 +34,8 @@
 // FIRST_RUN_MAX_ENEMIES). Same seed, same draws.
 // SF-3: every OTHER run dispatched since SF-3 carries an ordinary stamp (runDifficulty.ts rampedStampOf): its guard
 // reads the body's hazard at most the tier's ceiling (encounterHazard: Tier I 0.1, Tier II 0.5, the vault fix) and the
-// curve's enemy strength (rampEnemyScale; full strength reads no profile), and on the curve's low end its unled
-// enemies are Weak (enemyRanks.ts curveBaseRank). Same seed, same draws. A run without the stamp is exactly as before.
+// curve's enemy strength (rampEnemyScale; full strength reads no profile), and its unled enemies take the faded Weak
+// factor (enemyRanks.ts curveBaseFactor, named by curveBaseRank). Same seed, same draws. A run without the stamp is exactly as before.
 //
 // Module graph: model (types), combat/rng, gambit, medicalBay, relics, groundTasks, riskFactors, affixes, enemyRanks,
 // runDifficulty; never expedition.ts.
@@ -70,6 +70,7 @@ import { teamSnapshotMembers } from "./groundTasks";
 import { FLORA_POISON_PERMILLE_PER_GRADE, bodyFloraGrade } from "./riskFactors";
 import { escalationAt, hasCover, type GroundCover } from "./affixes";
 import {
+  curveBaseFactor,
   curveBaseRank,
   fightLeadRank,
   fightRankContext,
@@ -365,14 +366,14 @@ export function taskFightGuard(
   const base = curveBaseRank(exp);
   const profile = training ? { scale: FIRST_RUN_ENEMY_SCALE, maxEnemies: FIRST_RUN_MAX_ENEMIES } : ramped ? rampedProfile(ramped.ramp) : undefined;
   const enemies = withEscalation(withFloraToxins(generateEncounter(seed, hazard, task.poiId, profile), bodyFloraGrade(body)), alertLevel);
-  if (ranksLive(exp)) withEnemyRanks(enemies, fightLeadRank(fightRankContext(exp, task, task.fightPoints?.length ?? 0, kind)), base);
+  if (ranksLive(exp)) withEnemyRanks(enemies, fightLeadRank(fightRankContext(exp, task, task.fightPoints?.length ?? 0, kind)), base, curveBaseFactor(exp));
   // Field Kits FKR-4: the enemy inflictors, last (a Field Kits run only; fieldKitsConditions.ts; no draw).
   if (fieldKitsLive(exp)) withFieldKitsGuard(enemies, { grade: task.difficulty, poiId: task.poiId });
   return enemies;
 }
 
 // Safe first runs SF-3: an ordinary run's guard profile on the curve: the curve's enemy strength (runDifficulty.ts
-// rampEnemyScale), no enemy cap. The ranks multiply after it (enemyRanks.ts: the curve's low end fields Weak enemies).
+// rampEnemyScale), no enemy cap. The ranks multiply after it (enemyRanks.ts: the faded Weak factor on unled enemies).
 // Full strength reads no profile at all (the guard exactly as before). Pure.
 function rampedProfile(ramp: number): EncounterProfile | undefined {
   const scale = rampEnemyScale(ramp);

@@ -7225,12 +7225,14 @@ export function freshRunCounts(): RunCounts {
   };
 }
 // A run's difficulty, frozen at dispatch (runDifficulty.ts runDifficultyAt): the training run, else the curve position
-// `ramp` in [0, 1] (1 = nominal), at the run's tier.
+// `ramp` in [0, 1] (1 = nominal), at the run's tier. `oddsRamp` (safe first runs SF-3 review): an ordinary expedition's
+// affix roll and ambush position when it lags `ramp` (absent = `ramp`).
 export interface RunDifficultyStamp {
   version: 1;
   firstRun: boolean;
   ramp: number;
   tier: RegionTier;
+  oddsRamp?: number;
 }
 // The hostile sites a risk-aware body may hold (user words "an enemy colony", "an enemy fortification", names
 // approved for now, #12). Not discovery PoIs: they never appear in the planet-type pools.

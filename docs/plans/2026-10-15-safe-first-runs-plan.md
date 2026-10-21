@@ -776,3 +776,23 @@ its goldens' switch-off row, voyageGoldens tier4 (`withoutCurve`). rampGoldens d
 `asPreG2NamesDispatch` (no region, no voyage), as does the ramp sweep fixture, so the SF-3 pins and the measured table hold. Registry: Weak's two flips are held
 apart by `SF3_SLICE` (shortRangeGoldens, every registryPin call, the ML-1 pattern) and `sf3` in emodGoldens `rowsBack`;
 emodGoldens `registry` re-pinned 60d00075 to 9a8ecb9c (read back, 60d00075).
+
+**SF-3 review applied (2026-10-21, user "Fade Weak" and "Smooth the last steps").**
+- The curve (runDifficulty.ts `rampFraction`; G1's short-range share reads the same one): the SF4 ease-in unchanged to
+  run 9 (`RAMP_EASE_SPAN` 9, `RAMP_EASE_UNTIL` 7), then even steps to full at run 12 (`N_FULL` 11). Enemy strength per
+  run 2 to 12: 0.35, 0.37, 0.42, 0.48, 0.54, 0.62, 0.70, 0.80, 0.86, 0.93, 1.00 (no step after run 9 larger than the
+  run 8 to 9 step). The affix roll and the ambush chance read the curve one run behind (`RAMP_ODDS_LAG` 1,
+  `rampOddsFraction`, stored as `difficulty.oddsRamp` only where it differs from `ramp`): full from run 13. Ship-event
+  checks and hull wear stay on the enemy curve.
+- Weak fades: every unled enemy on an ordinary run takes `curveBaseFactor` = 0.7 + 0.3 x ramp (enemyRanks.ts; the
+  ranks still multiply after the curve's strength), so an ordinary enemy stands at 0.25, 0.27, 0.31, 0.36, 0.43, 0.51,
+  0.61, 0.72, 0.81, 0.90, 1.00 of nominal on runs 2 to 12. It is NAMED Weak while ramp is below
+  `EARLY_CURVE_WEAK_UNTIL` 0.5 [PROVISIONAL] (the factor below the Weak / Normal midpoint: runs 2 to 7; run 8 sits at
+  0.54, clear of the line, so no near-tie decides the name), Normal from run 8. Surprise and reinforcement fights are
+  unled, so their enemies take the run's base too (REINFORCEMENT_RANK N5 = no lead, the run's base).
+- Measured (`npm run test:sweep:ramp`, 200 seeds each; stalled runs, Vault / Subterranean won of held): D18 minimum run
+  2: 5 stalled, 377 of 383; run 7: 175, 8 of 376; run 8: 176, 0; run 10: 184, 0; run 11 and 12: 187, 0. Full rank 1
+  run 2: 0, 383 of 383; run 7: 0, 376 of 376; run 8: 0, 369 of 369; run 10: 6, 361 of 369; run 11: 19, 341 of 366; run
+  12: 75, 231 of 365. The fixture `asExpeditionVeteran` keeps its pinned completed count 10 (a veteran reads full
+  strength regardless). Goldens moved: rampGoldens c5 and c9 (named in its header), the default sample pins and the
+  sweep table (re-measured, named in each file).

@@ -46,9 +46,9 @@ function withCounts(state: GameState, counts: RunCounts): GameState {
   return { ...state, runCounts: counts };
 }
 
-describe("SF-1: the gentle curve (user SF4 \"Slow start\": run 2 at 35%, run 6 about 54%, run 9 about 80%, full from run 11)", () => {
+describe("SF-1: the gentle curve (user SF4 \"Slow start\": run 2 at 35%, run 6 about 54%, run 9 about 80%; the SF-3 review spreads the last climb over runs 9 to 12)", () => {
   it("is 0 after no completed runs, 1 from N_FULL - 1 completed runs on, strictly increasing between", () => {
-    expect(N_FULL).toBe(10);
+    expect(N_FULL).toBe(11);
     expect(RAMP_EXPONENT).toBe(1.5);
     expect(rampFraction(0)).toBe(0);
     expect(rampFraction(N_FULL - 1)).toBe(1);
@@ -66,10 +66,14 @@ describe("SF-1: the gentle curve (user SF4 \"Slow start\": run 2 at 35%, run 6 a
     }
   });
 
-  it("reads the plan's table as enemy strength: run 2 (0 completed after training) to run 11", () => {
+  it("reads the plan's table as enemy strength: run 2 (0 completed after training) to run 12", () => {
     // Run r has r - 2 completed runs behind it (runs 2 to r - 1; the training run never counts, user SF5).
     const strength = Array.from({ length: N_FULL }, (_, c) => Math.round(rampEnemyScale(rampFraction(c)) * 100) / 100);
-    expect(strength).toEqual([0.35, 0.37, 0.42, 0.48, 0.54, 0.62, 0.7, 0.8, 0.89, 1]);
+    // SF4's anchors (run 2, 6, 9) unchanged; the SF-3 review's even climb: run 10 0.86, run 11 0.93, run 12 full.
+    expect(strength).toEqual([0.35, 0.37, 0.42, 0.48, 0.54, 0.62, 0.7, 0.8, 0.86, 0.93, 1]);
+    // No step after run 9 is larger than the ease-in's last (run 8 to 9): no wall at the top.
+    const steps = strength.slice(1).map((v, i) => v - strength[i]);
+    for (let c = 7; c < steps.length; c++) expect(steps[c], `step ${c}`).toBeLessThanOrEqual(steps[6] + 1e-9);
     expect(RAMP_FLOOR).toBe(0.35);
     expect(rampEnemyScale(0)).toBe(RAMP_FLOOR);
     expect(rampEnemyScale(1)).toBe(1);
@@ -205,7 +209,8 @@ describe("SF-1: the stamp a dispatch would write (consumed by SF-2 to SF-4)", ()
   it("after the training run the curve follows completed runs; Tier II reads full strength", () => {
     const done: RunCounts = { ...freshRunCounts(), expedition: { completed: 4, trainingDone: true, veteran: false } };
     const s = withCounts(freshState(), done);
-    expect(runDifficultyAt(s, "expedition", 1, "orion")).toEqual({ version: 1, firstRun: false, ramp: rampFraction(4), tier: 1 });
+    // SF-3 review: the odds (affix roll, ambushes) one run behind the enemy curve.
+    expect(runDifficultyAt(s, "expedition", 1, "orion")).toEqual({ version: 1, firstRun: false, ramp: rampFraction(4), tier: 1, oddsRamp: rampFraction(3) });
     expect(runDifficultyAt(s, "expedition", 2, "orion")).toEqual({ version: 1, firstRun: false, ramp: 1, tier: 2 });
   });
 

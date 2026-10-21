@@ -19,8 +19,9 @@
 // groundFight.ts, no affixes or ambushes and the fell-back backstop in groundOps.ts, pass-only ship events, Guaranteed
 // odds, expedition.ts TUTORIAL_TRANSIT_SECONDS). SF-3 stamps EVERY other new expedition with its curve position and
 // tier (an ORDINARY run, rampedStampOf) and applies the curve: its guards at rampEnemyScale on the hazard at most
-// TIER_ENCOUNTER_HAZARD_CEILING (groundFight.ts), Weak enemies on the curve's low end (enemyRanks.ts EARLY_CURVE_RANK),
-// the affix roll and ambush chances x ramp (groundOps.ts, affixes.ts), the ship-event checks' fail chance, hull wear
+// TIER_ENCOUNTER_HAZARD_CEILING (groundFight.ts), the faded Weak factor on unled enemies (enemyRanks.ts
+// curveBaseFactor), the affix roll and ambush chances x the odds ramp, one run behind (groundOps.ts, affixes.ts,
+// rampOddsFraction), the ship-event checks' fail chance, hull wear
 // and battle enemy on the curve (shipScanEvents.ts); at full strength every number is exactly the unstamped one apart
 // from the hazard ceiling. SF-4 the patrol; G1 the short-range missions (keyed per template).
 
@@ -39,9 +40,18 @@ export type RunType = "expedition" | "patrol" | "shortRange";
 
 // ===== the curve =====
 
-// [PROVISIONAL] The curve is full (nominal) once this many runs have been flown after the training run: runs 2 to 10
-// ramp, run 11 is full (user SF4 "full from run 11").
-export const N_FULL = 10;
+// [PROVISIONAL] The curve is full (nominal) once N_FULL - 1 runs have been flown after the training run: runs 2 to 11
+// ramp, run 12 is full. User SF4 "full from run 11", then the SF-3 review (2026-10-21, "Smooth the last steps"): the
+// final climb is spread over runs 9 to 12 so no single run is a wall.
+export const N_FULL = 11;
+// The ease-in's span and its end (completed runs): the SF4 slow start ((c / RAMP_EASE_SPAN) ^ RAMP_EXPONENT, the
+// anchors run 2 at 35%, run 6 about 54%, run 9 about 80%, unchanged) up to RAMP_EASE_UNTIL completed runs (run 9), then
+// an even climb to full at N_FULL - 1 (runs 10, 11, 12: about 86%, 93%, 100%), each step smaller than the ease-in's last.
+export const RAMP_EASE_SPAN = 9;
+export const RAMP_EASE_UNTIL = 7;
+// The SF-3 review (2026-10-21): the affix roll and the ambush chance reach full strength this many runs AFTER the
+// enemy curve (their own curve position is the enemy curve's RAMP_ODDS_LAG runs earlier; full from run 13).
+export const RAMP_ODDS_LAG = 1;
 // [PROVISIONAL] Enemy strength on the first ramped run (run 2), as a fraction of nominal (user SF4 "run 2 at 35%").
 export const RAMP_FLOOR = 0.35;
 // The ease-in power (user SF4 "Slow start"): polynomial, so the curve can never become exponential.
@@ -61,11 +71,23 @@ function wholeCount(n: number): number {
   return Number.isFinite(n) && n > 0 ? Math.floor(n) : 0;
 }
 
-// The curve position f in [0, 1] after `completed` runs (the training run excluded): 0 on the first ramped run,
-// ((completed) / (N_FULL - 1)) ^ RAMP_EXPONENT between, 1 from N_FULL - 1 completed runs on. Pure.
+// The curve position f in [0, 1] after `completed` runs (the training run excluded): 0 on the first ramped run, the
+// ease-in (completed / RAMP_EASE_SPAN) ^ RAMP_EXPONENT up to RAMP_EASE_UNTIL, then even steps to 1 at N_FULL - 1
+// completed runs, 1 from there on. Pure.
 export function rampFraction(completed: number): number {
-  const t = Math.min(1, wholeCount(completed) / (N_FULL - 1));
-  return t >= 1 ? 1 : Math.pow(t, RAMP_EXPONENT);
+  const c = wholeCount(completed);
+  if (c >= N_FULL - 1) return 1;
+  const ease = (n: number): number => Math.pow(n / RAMP_EASE_SPAN, RAMP_EXPONENT);
+  if (c <= RAMP_EASE_UNTIL) return ease(c);
+  const from = ease(RAMP_EASE_UNTIL);
+  return from + ((1 - from) * (c - RAMP_EASE_UNTIL)) / (N_FULL - 1 - RAMP_EASE_UNTIL);
+}
+
+// The curve position the affix roll and the ambush chance read after `completed` runs: the enemy curve RAMP_ODDS_LAG
+// runs earlier (0 until then), so they reach full strength one run after the enemies (SF-3 review). Pure.
+export function rampOddsFraction(completed: number): number {
+  const c = wholeCount(completed);
+  return c < RAMP_ODDS_LAG ? 0 : rampFraction(c - RAMP_ODDS_LAG);
 }
 
 // The ramp a run at `tier` reads after `completed` runs: the curve at Tier I, full strength above it. Pure.
@@ -97,22 +119,32 @@ export function encounterHazard(rawHazard: number, tier: RegionTier): number {
 
 // ===== SF-3: a stored run on the curve =====
 
-// The ORDINARY run's stamp (every expedition dispatched since SF-3 that is not the training run): the curve position
-// and the region tier it was dispatched at, read strictly (a missing or malformed stamp, or the training run, reads
-// null: the run plays exactly as it did before SF-3). The ramp is clamped to [0, 1] and the tier to I..VII. Pure.
+// The ORDINARY run's stamp (every expedition dispatched since SF-3 that is not the training run): the curve position,
+// the region tier it was dispatched at and (when it lags the enemy curve) the odds' own position, read strictly (a
+// missing or malformed stamp, or the training run, reads null: the run plays exactly as it did before SF-3). The ramps
+// are clamped to [0, 1] and the tier to I..VII. Pure.
 export function rampedStampOf(exp: Pick<Expedition, "difficulty">): RunDifficultyStamp | null {
   const d: unknown = exp.difficulty;
   if (!d || typeof d !== "object") return null;
   const s = d as Partial<RunDifficultyStamp>;
   if (s.version !== 1 || s.firstRun !== false || typeof s.ramp !== "number" || !Number.isFinite(s.ramp)) return null;
   const tier = typeof s.tier === "number" && Number.isInteger(s.tier) ? (Math.max(1, Math.min(7, s.tier)) as RegionTier) : 1;
-  return { version: 1, firstRun: false, ramp: Math.max(0, Math.min(1, s.ramp)), tier };
+  const clamp = (n: number): number => Math.max(0, Math.min(1, n));
+  const odds = typeof s.oddsRamp === "number" && Number.isFinite(s.oddsRamp) ? { oddsRamp: clamp(s.oddsRamp) } : {};
+  return { version: 1, firstRun: false, ramp: clamp(s.ramp), tier, ...odds };
 }
 
-// The curve position a run's odds read (the affix roll, the ambush chance, the ship-event checks and hull wear): the
-// stamp's ramp on an ordinary run, 1 (nominal) on a run without one. Pure.
+// The curve position a run's ship events read (the checks' fail chance and hull wear): the stamp's ramp on an ordinary
+// run, 1 (nominal) on a run without one. Pure.
 export function runRampOf(exp: Pick<Expedition, "difficulty">): number {
   return rampedStampOf(exp)?.ramp ?? 1;
+}
+
+// The curve position a run's affix roll and ambush chance read (SF-3 review: one run behind the enemy curve): the
+// stamp's oddsRamp, else its ramp, 1 (nominal) on a run without a stamp. Pure.
+export function runOddsRampOf(exp: Pick<Expedition, "difficulty">): number {
+  const stamp = rampedStampOf(exp);
+  return stamp ? (stamp.oddsRamp ?? stamp.ramp) : 1;
 }
 
 // A chance on the curve: `chance` x `ramp`, exactly `chance` at full strength (so a nominal run reads the same
@@ -229,8 +261,12 @@ export function runDifficultyAt(state: GameState, type: RunType, tier: RegionTie
   const firstRun = (type !== "expedition" || tier <= RAMP_MAX_TIER) && isFirstRun(state, type, key);
   const c = runCountsOf(state);
   const veteran = type === "expedition" ? c.expedition.veteran : type === "patrol" ? c.patrol.veteran : false;
-  const ramp = firstRun ? 0 : veteran ? 1 : runRamp(completedRuns(state, type, key), tier);
-  return { version: 1, firstRun, ramp, tier };
+  const completed = completedRuns(state, type, key);
+  const ramp = firstRun ? 0 : veteran ? 1 : runRamp(completed, tier);
+  // SF-3 review: an ordinary expedition's affix roll and ambushes lag the enemy curve by RAMP_ODDS_LAG runs, stored
+  // only where they differ from `ramp` (so a veteran or Tier II+ run, and every other run type, stores what it did).
+  const oddsRamp = type === "expedition" && !firstRun && !veteran && tier <= RAMP_MAX_TIER ? rampOddsFraction(completed) : ramp;
+  return { version: 1, firstRun, ramp, tier, ...(oddsRamp !== ramp ? { oddsRamp } : {}) };
 }
 
 // The claim rule (claimExpedition): a recalled run changes nothing (a recalled training run carries over; a recalled
