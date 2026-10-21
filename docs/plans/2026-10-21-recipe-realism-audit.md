@@ -463,3 +463,13 @@ them would move progression balance.
     device (having voltaic weapon specific components, for example). So yeah, the foundation is in place to build what
     we need. So 0.16.0 is fine." Reading: Plasma Cannon and Point-Defense Array fixed in 0.16.0, where the balancing
     patch creates device-type-specific crafted components (e.g. voltaic weapon components) on today's foundation.
+11. Impact Grenade and Combat Stim, verbatim: "Impact grenade could be the default grenade type as it basically explodes
+    on contact with a surface, versus a timed detonation which other units could have? Perhaps they take a few ticks to
+    explode." Reading: recipes kept; NEW mechanic idea: the Impact Grenade is the default grenade (detonates on
+    contact, same round); other grenades (Stun, Toxin) are timed and detonate a few ticks after the throw. Follow-up
+    calls asked.
+12. Text fixes T1 to T8: "Apply all (Recommended)".
+
+**Group D (planned content):**
+13. CP-11 crew modules: "Component mixes (Recommended)"; Medical Quarters takes 1 Purified Biomass.
+14. Canisters in Lab tier 3+ modules: "Approve (Recommended)": Quarters Ammonia and Hydrogen; Sensors Hydrogen and Methane.
