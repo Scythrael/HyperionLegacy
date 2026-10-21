@@ -910,5 +910,9 @@ export function liveVia(entry: StatEntry): string | null {
 // three grenades, every one live. Until FIELD_KITS_PLAYER_LIVE (FKR-7) the Stun and Toxin Grenades craft from their
 // pre-FKR-5 pools, so their two carry lines are not rollable yet: 102.
 export const FIELD_KITS_GEAR_LINES = FIELD_KITS_PLAYER_LIVE ? 5 : 3;
-export const EXPECTED_COUNTS = { officer: 16, crew: 21, racial: 10, gear: 99 + FIELD_KITS_GEAR_LINES, facet: 28 };
+// The D26 line swap (user 2026-10-21 "Give them Science lines"): the Sidearm's power / accuracy / status chance, the
+// Field Suit's and the Hazard Suit's armor / HP (Science and, for the Hazard Suit, Prospecting) retire (9 lines); the
+// Sidearm's relic find + fieldwork and the Field Suit's hazard resist arrive (3): net -6.
+export const D26_GEAR_LINES = -6;
+export const EXPECTED_COUNTS = { officer: 16, crew: 21, racial: 10, gear: 99 + FIELD_KITS_GEAR_LINES + D26_GEAR_LINES, facet: 28 };
 

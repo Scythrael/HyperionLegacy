@@ -473,3 +473,5 @@ them would move progression balance.
 **Group D (planned content):**
 13. CP-11 crew modules: "Component mixes (Recommended)"; Medical Quarters takes 1 Purified Biomass.
 14. Canisters in Lab tier 3+ modules: "Approve (Recommended)": Quarters Ammonia and Hydrogen; Sensors Hydrogen and Methane.
+- ML-2 readings (2026-10-21): "Approve both (Recommended)": Hazard Suit seal and Toxin Grenade take 1 Resin Distillate;
+  Biofiber and Resin Distillate tagged "Uncommon (Recommended)".

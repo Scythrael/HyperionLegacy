@@ -7,9 +7,9 @@
 // the tested engine (memberGambits.ts, groundTeams.ts). The component only draws and routes clicks.
 
 import type { EnemyRank, GambitActionId, GambitProgram, GambitRule, GambitStatusId, GambitTargetSelector, GameState, GroundTeamKind } from "./game/model";
-import { DEFAULT_GAMBIT_PROGRAMS, groundSquadSize, groundTeamCount, memberVariety } from "./game/model";
+import { DEFAULT_GAMBIT_PROGRAMS, EQUIPMENT_SLOTS, groundSquadSize, groundTeamCount, memberVariety } from "./game/model";
 import { GAMBIT_STATUSES, isActionLegalForRole } from "./game/gambit";
-import { FIELD_KITS, FIELD_KITS_RUNS_LIVE, FIELD_KIT_IDS, FIELD_KIT_STATUS_IDS, KIT_CATEGORY_RULES, severityOf, CONDITION_LINES, type FieldKitId } from "./game/fieldKits";
+import { FIELD_KITS, FIELD_KITS_CATALOG_VERSION, FIELD_KITS_RUNS_LIVE, FIELD_KIT_IDS, FIELD_KIT_STATUS_IDS, KIT_CATEGORY_RULES, severityOf, CONDITION_LINES, timedFusesLive, type FieldKitId } from "./game/fieldKits";
 import { LEGACY_USE_ITEM_KIT } from "./game/fieldKitsBattle";
 import { hasMedicalTraining } from "./game/awayTraits";
 import { squadsOfType, teamKindName } from "./game/groundComposition";
@@ -202,6 +202,19 @@ export function installedGrenadeName(state: Pick<GameState, "equipment">, member
   return variety?.member.grenade ? variety.label : null;
 }
 
+// Timed grenades (user 2026-10-21): the fuse hint for the grenade named `grenadeName` (installedGrenadeName's label), on
+// a run dispatched today: "Stun Grenade: a timed fuse, ..." or "Impact Grenade: detonates on contact, ...". Null for a
+// name that is no grenade. Pure.
+export function installedGrenadeFuse(grenadeName: string): string | null {
+  const v = EQUIPMENT_SLOTS.memberTool.varieties.find((x) => x.label === grenadeName && x.member?.grenade);
+  const grenade = v?.member?.grenade;
+  if (!grenade) return null;
+  const timed = grenade.fuse !== undefined && timedFusesLive({ fieldKits: { catalog: FIELD_KITS_CATALOG_VERSION } });
+  return timed
+    ? `${grenadeName}: a timed fuse. It detonates at the start of this member's next turn, on the foes of that group still there (some may move clear first).`
+    : `${grenadeName}: detonates on contact, the turn it is thrown.`;
+}
+
 // The target dropdown, grouped. "Ally: downed" joins the Ally group with the Field Kits pass (it fires only as a Use
 // Item, the Injury Kit's target); while kits are off it stays out (editorSelectorGroups).
 const SELECTOR_GROUPS: readonly { label: string; ids: readonly GambitTargetSelector[] }[] = [
@@ -359,6 +372,9 @@ export function ruleHints(rule: GambitRule, member: Pick<GambitMemberEditView, "
   }
   if (rule.action === "throwGrenade") {
     out.push(member.grenade ? "Skips when no charge is left, or after this battle's throw." : "No grenade installed in the Tool slot: this rule never fires.");
+    // Timed grenades (user 2026-10-21): the installed grenade's fuse on a run dispatched today (catalog 2).
+    const fuse = member.grenade ? installedGrenadeFuse(member.grenade) : null;
+    if (fuse) out.push(fuse);
   }
   if (rule.target === "allyDowned" && rule.action !== "useItem") out.push("Ally: downed fires only for Use Item (the Injury Kit's target).");
   return out;

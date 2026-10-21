@@ -102,10 +102,18 @@
 //                  study uses, every giant class and nebula kind field, the canister sell values, the research data
 //                  reserves and the Deuterium Canister recipe. No existing entry moved: GG1_SLICE rides in every
 //                  registryPin call, so the base pin and every cause pin are unchanged.
+// ADDED BY the timed grenades (user 2026-10-21): new entries only, held apart by FUSE_SLICE (the ids from
+//                  fieldKitsFuse.fixture.ts, pinned with their statuses in fieldKitsFuse.test.ts): each grenade's fuse
+//                  and moved-clear chance. No existing entry moved: registryPin always applies FUSE_SLICE (as it does
+//                  RX_SLICE), so the base pin and every cause pin are unchanged.
 // ADDED BY the reactor fuel ladder (0.14.0: the fuel rungs, the core variety tech tags, the hull reactor requirement
 //                  seam and the Cometary Ice Harvest's per-field rows): new entries only, held apart by RX_SLICE (the ids
 //                  from reactorFuelGoldens.fixture.ts, pinned with their statuses in reactorFuelGoldens.test.ts), which
 //                  registryPin always applies, so the base pin and every cause pin are unchanged.
+// MOVED BY the Quartermaster Standard-Issue member lines and the D26 line swap (0.14.0): the `si:` entries and three
+//                  Science lines added, the nine retired combat lines removed; registryPin always reads them back
+//                  (siReadBack, like RX_SLICE), so the base pin and every cause pin are unchanged; `registry:si` pins
+//                  the added entries with their statuses and the retired ids.
 // MOVED BY ML-2 (the Material Lines recipe rework + the recipe realism audit): `registry:ml1` only. The seven ML-1 recipe
 //                  entries flip pending -> live (refineRecipeOffered offers them once their outputs have blueprint
 //                  consumers) and the six ML-2 reserves are gone (each good has its consumer); only the Precursor
@@ -138,7 +146,9 @@ import { hash, onHull, withCrew, withV1Museum, withoutGuests } from "./firstRuns
 import { ML2_ADDED_ENTRY_IDS, ml2LinesBack } from "./ml2RecipeGoldens.fixture";
 import { asPreG2NamesDispatch } from "./awayTeamTestFixtures";
 import { GG1_ADDED_ENTRY_IDS } from "./gasStudyGoldens.fixture";
+import { FUSE_ADDED_ENTRY_IDS } from "./fieldKitsFuse.fixture";
 import { RX_ADDED_ENTRY_IDS } from "./reactorFuelGoldens.fixture";
+import { isSiAdded, SI_RETIRED, siReadBack } from "./siMemberGearRegistry.fixture";
 // CP-8 / OC-11: the test switch that proves the auto-crew pause is the only thing that moved the fleet pin.
 vi.mock("./crewLock", async (io) => (await import("./complementOc11Switch.fixture")).oc11CrewLockMock(io));
 import { withOc11Off } from "./complementOc11Switch.fixture";
@@ -349,6 +359,39 @@ const GOLDEN: Record<string, unknown> = {
   "registry": [1223, "8ba89020"],
   // Gear wear steps 1 and 2: the 41 pending `wear` entries (held apart from every other registry pin by GW_SLICE).
   "registry:gearWear": [41, "b8143ac4"],
+  // The Quartermaster Standard-Issue member lines and the D26 line swap (0.14.0): read back in every registry pin
+  // (siReadBack); the added entries with their statuses, then the retired ids.
+  "registry:si": [
+    "gear:science:fieldSuit:groundHazardResist|live",
+    "gear:science:sidearm:groundFieldwork|live",
+    "gear:science:sidearm:groundRelicFind|live",
+    "si:security:ballisticWeave:groundArmor|live",
+    "si:security:ballisticWeave:groundHp|live",
+    "si:science:fieldSuit:groundFieldwork|live",
+    "si:science:fieldSuit:groundHazardResist|live",
+    "si:prospecting:excavatorSuit:groundHazardResist|deferred",
+    "si:prospecting:excavatorSuit:groundFieldwork|deferred",
+    "si:security:pulseRifle:groundPower|live",
+    "si:security:pulseRifle:groundAccuracy|live",
+    "si:science:sidearm:groundRelicFind|live",
+    "si:science:sidearm:groundFieldwork|live",
+    "si:prospecting:plasmaCutter:groundOreYield|deferred",
+    "si:prospecting:plasmaCutter:groundFieldwork|deferred",
+    "si:security:medKit:groundHp|live",
+    "si:science:floraScanner:groundOrganicsYield|live",
+    "si:science:floraScanner:groundFieldwork|live",
+    "si:prospecting:assayScanner:groundOreGrade|deferred",
+    "si:prospecting:assayScanner:groundFieldwork|deferred",
+    "retired:gear:science:fieldSuit:groundHp",
+    "retired:gear:science:fieldSuit:groundArmor",
+    "retired:gear:science:hazardSuit:groundHp",
+    "retired:gear:science:hazardSuit:groundArmor",
+    "retired:gear:prospecting:hazardSuit:groundHp",
+    "retired:gear:prospecting:hazardSuit:groundArmor",
+    "retired:gear:science:sidearm:groundPower",
+    "retired:gear:science:sidearm:groundAccuracy",
+    "retired:gear:science:sidearm:groundStatusChance",
+  ],
   // Re-pinned by ML-2: the seven recipes live, the six ML-2 reserves gone (ML1_PIN_BEFORE_ML2 is the ML-1 capture).
   "registry:ml1": [
     "facility:REFINE_RECIPES:refineFerriteIngot|live",
@@ -534,6 +577,8 @@ type RegistrySlice = { readonly added?: ReadonlySet<string>; readonly flipped?: 
 const G1_SLICE: RegistrySlice = { added: G1_ADDED_ENTRY_IDS };
 const ML1_SLICE: RegistrySlice = { added: ML1_ADDED_ENTRY_IDS };
 const GG1_SLICE: RegistrySlice = { added: GG1_ADDED_ENTRY_IDS };
+// Timed grenades (user 2026-10-21): the fuse's added entries (fieldKitsFuse.fixture.ts), held apart like GG-1's.
+const FUSE_SLICE: RegistrySlice = { added: FUSE_ADDED_ENTRY_IDS };
 const FKR5_SLICE: RegistrySlice = { added: new Set([...FKR5_ADDED_ENTRY_IDS, ...FKR5_RULINGS_ADDED]), flipped: FKR5_FLIPPED_LIVE, was: "pending" };
 const G23_SLICE: RegistrySlice = { added: G23_ADDED_ENTRY_IDS };
 const FKR6_SLICE: RegistrySlice = { added: FKR6_ADDED_ENTRY_IDS, flipped: FKR6_FLIPPED_LIVE, was: "pending" };
@@ -553,11 +598,15 @@ const SF3_SLICE: RegistrySlice = { flipped: SF3_FLIPPED_LIVE, was: "pending" };
 const RX_SLICE: RegistrySlice = { added: RX_ADDED_ENTRY_IDS };
 // ML-2's two new entries (the Biofiber and Resin Distillate refines), held apart in EVERY pin (all were taken before it).
 const ML2_SLICE: RegistrySlice = { added: ML2_ADDED_ENTRY_IDS };
+// The Quartermaster Standard-Issue member lines and the D26 line swap (0.14.0): read back in EVERY pin (all of them were
+// taken before it) through siReadBack (siMemberGearRegistry.fixture.ts: the `si:` entries and the three new Science
+// lines left out, the nine retired combat lines restored in place); `registry:si` pins the added and retired ids.
 function registryPin(...given: readonly RegistrySlice[]): [number, string] {
-  const slices = [RX_SLICE, ML2_SLICE, ...given];
-  const lines = WIRING_REGISTRY.filter((e) => !slices.some((sl) => sl.added?.has(e.id))).map((e) => {
+  const slices = [RX_SLICE, FUSE_SLICE, ML2_SLICE, ...given];
+  const rows = siReadBack(WIRING_REGISTRY.map((e) => ({ id: e.id, kind: e.status.kind as string })), (r) => r.id, (row) => ({ id: row[0], kind: row[1].kind as string }));
+  const lines = rows.filter((e) => !slices.some((sl) => sl.added?.has(e.id))).map((e) => {
     const flip = slices.find((sl) => sl.flipped?.has(e.id));
-    return `${e.id}|${flip ? (flip.was ?? "pending") : e.status.kind}`;
+    return `${e.id}|${flip ? (flip.was ?? "pending") : e.kind}`;
   });
   return [lines.length, hash(lines)];
 }
@@ -806,6 +855,12 @@ describe("G1-0 golden 5: the wiring registry's ids and statuses", () => {
     expect(added.length).toBeGreaterThan(30);
     expect(added.every((l) => l.endsWith("|pending"))).toBe(true);
     pin("registry:gearWear", [added.length, hash(added)]);
+  });
+  it("Quartermaster Standard-Issue member lines and the D26 swap: the added entries with their statuses, and the retired ids", () => {
+    const added = WIRING_REGISTRY.filter((e) => isSiAdded(e.id)).map((e) => `${e.id}|${e.status.kind}`);
+    expect(added.every((l) => (l.startsWith("si:prospecting:") ? l.endsWith("|deferred") : l.endsWith("|live")))).toBe(true);
+    for (const { row } of SI_RETIRED) expect(WIRING_REGISTRY.some((e) => e.id === row[0]), row[0]).toBe(false);
+    pin("registry:si", [...added, ...SI_RETIRED.map(({ row }) => `retired:${row[0]}`)]);
   });
   it("ML-1: the added entries, each with its status", () => {
     const added = WIRING_REGISTRY.filter((e) => ML1_ADDED_ENTRY_IDS.has(e.id)).map((e) => `${e.id}|${e.status.kind}`);

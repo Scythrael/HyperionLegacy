@@ -47,6 +47,7 @@ import {
   isMemberSlotType,
   isStandardIssueBaseline,
   memberVariety,
+  standardIssueMemberLines,
   spareEquipmentCount,
   type AwayMember,
   type AwayTeamType,
@@ -525,7 +526,7 @@ describe("E-CREW Task 9: the away-team member Standard-Issue kit", () => {
     }
   });
 
-  it("each mints a stat-neutral Standard-Issue baseline stamped with its variety", () => {
+  it("each mints a Standard-Issue baseline stamped with its variety, carrying its Standard-Issue lines", () => {
     for (const k of KIT) {
       const state = { ...emptyPoolState(), gameTimeSeconds: 77 };
       const result = requisitionStandardIssue(state, k.slot, k.teamType);
@@ -540,11 +541,12 @@ describe("E-CREW Task 9: the away-team member Standard-Issue kit", () => {
       expect(piece.fittedToShipId).toBeNull();
       expect(piece.fittedToMemberId ?? null).toBeNull(); // a spare worn by nobody
       expect(piece.rolledStats).toEqual({});
-      // The variety's own signature lines (or the slot's), every one at the floor magnitude.
+      // The variety's own signature lines (or the slot's) at the floor magnitude, overlaid by the Quartermaster set's
+      // real lines (0.14.0, model.ts STANDARD_ISSUE_MEMBER_POINTS).
       const variety = memberVariety(k.slot, k.variety)!;
       const keys = variety.implicitStats ?? EQUIPMENT_SLOTS[k.slot]!.implicitStats;
-      expect(Object.keys(piece.implicitStats).sort()).toEqual([...keys].sort());
-      for (const v of Object.values(piece.implicitStats)) expect(v).toBe(0);
+      const expected: Record<string, number> = { ...Object.fromEntries(keys.map((key) => [key, 0])), ...standardIssueMemberLines(k.variety) };
+      expect(piece.implicitStats).toEqual(expected);
       expect(piece.graceStartedAtGameSeconds).toBe(77);
       // Byte-identical to the shared generator told the same variety (minus the grace stamp).
       const reference = generateStandardIssue({

@@ -394,7 +394,12 @@ export const FIELD_KIT_PRICES: Readonly<Record<FieldKitId, number>> = Object.fro
 
 // The catalog version a Field Kits run is stamped with (Expedition.fieldKits.catalog, FKR-7). Bump it when a kit's
 // numbers or coverage change, and keep the old version's rules for runs stamped with it.
-export const FIELD_KITS_CATALOG_VERSION = 1;
+//   1: FKR-7 to FKR-10 (every grenade detonates on contact, the turn it is thrown).
+//   2: TIMED GRENADES (user 2026-10-21): the Stun and Toxin Grenades carry a fuse (model.ts GrenadeTraits.fuse) and
+//      detonate at the start of the thrower's next turn; the Impact Grenade still detonates on contact.
+export const FIELD_KITS_CATALOG_VERSION = 2;
+// The first catalog whose grenades read their fuse (timedFusesLive).
+export const TIMED_FUSES_CATALOG = 2;
 
 // THE RUNS SWITCH (FKR-7; user 2026-10-20 "Hide until kits are live"). On, a new dispatch stamps flag 2 (with the frozen
 // free basic set), packs each Security member from stock, buys a team's top-up shortfall and brings the unused extras
@@ -411,4 +416,11 @@ export const FIELD_KITS_RUNS_LIVE = true;
 export function fieldKitsLive(exp: Pick<Expedition, "fieldKits">): boolean {
   const v = exp.fieldKits?.catalog;
   return typeof v === "number" && v >= 1;
+}
+
+// Do this run's timed grenades (Stun, Toxin) keep their fuse? Only a run stamped with catalog 2 or later: a catalog 1 run,
+// in flight before the fuse, detonates every grenade on contact and resolves byte-identically. Pure.
+export function timedFusesLive(exp: Pick<Expedition, "fieldKits">): boolean {
+  const v = exp.fieldKits?.catalog;
+  return typeof v === "number" && v >= TIMED_FUSES_CATALOG;
 }

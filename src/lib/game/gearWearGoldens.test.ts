@@ -43,6 +43,7 @@ import { officerRepairSpeedBonus } from "./crewOverlay";
 import { advanceExpedition, claimExpedition, expeditionCandidates, startExpedition } from "./expedition";
 import { asPreRanksDispatch, asPreSafeFirstRunsDispatch, plainAwayMember, withSlottedAwayTeams } from "./awayTeamTestFixtures";
 import { hash, stateHash } from "./firstRunsGoldens.fixture";
+import { withSiMemberGearOff } from "./siMemberGearSwitch.fixture";
 
 // ===== shared helpers =====
 
@@ -212,7 +213,10 @@ describe("gear wear step 1 goldens (captured before any wear engine edit)", () =
     });
   }
 
-  it("expedition: a crafted Orion and members in crafted member gear, Ground Ops through claim", () => {
+  // The D26 line swap (0.14.0, Standard-Issue member gear review) changed the Science Sidearm's and Field Suit's lines,
+  // which this fixture's Science member wears: it is built with the pre-swap catalog (siMemberGearSwitch.fixture.ts),
+  // so the pin keeps proving gear wear moved nothing (siMemberGearGoldens.test.ts pins the swap's own moves).
+  it("expedition: a crafted Orion and members in crafted member gear, Ground Ops through claim", () => withSiMemberGearOff(() => {
     const squad: AwayMember[] = [
       { ...plainAwayMember("member-1", "security", "ship-1"), rank: 3 },
       { ...plainAwayMember("member-2", "security", "ship-1"), rank: 2 },
@@ -233,7 +237,7 @@ describe("gear wear step 1 goldens (captured before any wear engine edit)", () =
     const claim = claimExpedition({ ...s, expeditions: [done], gameTimeSeconds: 2_000_000 }, done.id);
     expect(claim.success).toBe(true);
     pin("expedition", [hash(res.expedition), stateHash(s), hash(done), stateHash(claim.next)]);
-  });
+  }));
 
   it("repair: a damaged crafted destroyer's Shipyard repair, a crafted spare in storage, run to completion", () => {
     const base = craftedLoadout(onHull(freshState(), "destroyer"));

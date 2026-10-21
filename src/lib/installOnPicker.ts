@@ -14,7 +14,7 @@
 
 import type { EquipmentInstance, GameState } from "./game/model";
 import { SHIP_TYPES, isMemberSlotType, shipDisplayLabels } from "./game/model";
-import type { EquipFitBlockReason } from "./game/equipment";
+import type { EquipFitRefusal } from "./game/equipment";
 import { canFitToMember, installTargetsFor, memberPieceInSlot, memberSlotPieces, uniqueWearer } from "./game/memberEquipment";
 import { crewRankLabel } from "./game/crewRank";
 import { SQUAD_META, awayTargetLabel } from "./awayTeamDisplay";
@@ -56,7 +56,7 @@ function usable(r: InstallOnRow): number {
 export function buildInstallOnRows(
   s: GameState,
   pieceId: string,
-  shipReasonText: (reason: EquipFitBlockReason) => string
+  shipReasonText: (refusal: EquipFitRefusal) => string
 ): InstallOnRow[] {
   const labels = shipDisplayLabels(s.ships);
   const piece: EquipmentInstance | undefined = s.equipment.find((e) => e.id === pieceId);
@@ -73,7 +73,7 @@ export function buildInstallOnRows(
         label,
         sub: hull !== "" && !label.startsWith(hull) ? hull : "",
         ok: t.ok,
-        reason: t.ok || t.reason === undefined ? "" : sentenceCase(shipReasonText(t.reason)),
+        reason: t.ok || t.refusal === undefined ? "" : sentenceCase(shipReasonText(t.refusal)),
         replace: [],
       };
     }

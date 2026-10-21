@@ -506,11 +506,11 @@ describe("wiring (design section 8): every Prospecting source is deferred to the
       "away:audit:sharedHazardGear",
       "away:audit:prospectingDigSafety",
     ]) deferred(id);
-    // The Hazard Suit's ARM / HP lines on a Prospecting wearer point at the dig-safety value.
-    for (const key of ["groundArmor", "groundHp"]) {
-      const e = WIRING_REGISTRY.find((x) => x.id === `gear:prospecting:hazardSuit:${key}`)!;
-      deferred(e.id);
-      expect(e.note).toContain("digSafety");
+    // The D26 review (user 2026-10-21) dropped ARM / HP from the Hazard Suit's rolls, so it no longer registers them for
+    // any squad; the dig-safety reading itself stays (prospectingCrewStats reads any ARM / HP a Prospecting member
+    // carries, e.g. on a Hazard Suit crafted before the review: prospecting digSafety test above).
+    for (const team of ["science", "prospecting"]) {
+      for (const key of ["groundArmor", "groundHp"]) expect(WIRING_REGISTRY.some((x) => x.id === `gear:${team}:hazardSuit:${key}`), `${team} ${key}`).toBe(false);
     }
   });
 
@@ -520,7 +520,8 @@ describe("wiring (design section 8): every Prospecting source is deferred to the
     for (const use of PROSPECTING_USES) deferred(`away:PROSPECTING_USES:${use}`);
     for (const id of ["strongBack", "assayersEye", "tireless", "rockhound", "deepVein"]) deferred(`away:AWAY_TRAITS:${id}`);
     const lines = WIRING_REGISTRY.filter((e) => e.id.startsWith("gear:prospecting:"));
-    expect(lines).toHaveLength(25);
+    // 25 before the D26 review dropped the Hazard Suit's ARM / HP.
+    expect(lines).toHaveLength(23);
     for (const e of lines) deferred(e.id);
     // Steady keeps its live Science entry.
     expect(WIRING_REGISTRY.find((e) => e.id === "away:AWAY_TRAITS:steady")!.status.kind).toBe("live");

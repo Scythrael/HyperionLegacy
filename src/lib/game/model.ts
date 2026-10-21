@@ -2121,11 +2121,20 @@ export interface MemberVarietyTraits {
 //                 other grenade types").
 //   statusChance: that debuff's fixed chance; absent = the thrower's statusChance (THE STATUS-CHANCE RULE, so the
 //                 grenade's groundStatusChance line keeps its meaning).
+//   fuse:         TIMED GRENADES (user 2026-10-21, recipe realism audit call 11: "Impact grenade could be the default
+//                 grenade type as it basically explodes on contact with a surface, versus a timed detonation which
+//                 other units could have?"; fuse ruling "1 round later (Recommended)"). Present = a TIMED fuse: thrown on
+//                 the thrower's action, it detonates at the start of the thrower's NEXT turn, on whoever of the target's
+//                 group is still there (gambit.ts; each foe may move clear first at `movedClearChance`). Absent = it
+//                 detonates on contact, the turn it is thrown (the Impact Grenade, the default grenade). Only a run
+//                 stamped with Field Kits catalog 2 or later reads it (fieldKits.ts timedFusesLive); a catalog 1 run (in
+//                 flight before the fuse) detonates every grenade on contact, exactly as before.
 export interface GrenadeTraits {
   readonly charges: { readonly perObjective: number; readonly perBattle: number };
   readonly powerMult: number;
   readonly status: GambitStatusId;
   readonly statusChance?: number;
+  readonly fuse?: { readonly movedClearChance: number };
 }
 
 // Field Kits FKR-5 (user N4 "Grenades only": Impact 4, Stun 2, Toxin 2, 1 throw per battle; FK11 "a plain grenade
@@ -2145,6 +2154,15 @@ export const GRENADE_CARRY_PER_LINE = 1;
 // The Impact Grenade's Fabricator recipe (user 2026-10-20 "Approve"; the Stun Grenade's tier 1 band, a titanium casing
 // in place of one wafer): 1 Titanium Ingot + 1 Polysilicate Wafer + 1 Power Coupling, researched for 700 credits.
 export const IMPACT_GRENADE_RECIPE: Readonly<Record<string, number>> = { titaniumIngot: 1, polysilicateWafer: 1, powerCoupling: 1 };
+// Timed grenades (GrenadeTraits.fuse): the chance that each foe of the target's group MOVES CLEAR of a primed Stun or
+// Toxin Grenade before it detonates (the user: "enemies may move out of a cluster first"). Ground fights have no
+// positions, so a cluster is the target's group (its group tag): a foe downed before the detonation is not hit, and each
+// foe still standing rolls this once (its own keyed stream, gambit.ts GRENADE_FUSE_SALT) and is not hit when it moved
+// clear. User 2026-10-21 "20%, lone targets can't dodge": one in five, for GROUPS; a lone target (the only foe of its
+// group still standing at the detonation) never rolls and always takes the blast.
+export const GRENADE_FUSE_MOVED_CLEAR_CHANCE = 0.2;
+// The timed fuse the Stun and Toxin Grenades carry (GrenadeTraits.fuse).
+export const TIMED_GRENADE_FUSE: NonNullable<GrenadeTraits["fuse"]> = { movedClearChance: GRENADE_FUSE_MOVED_CLEAR_CHANCE };
 
 // THE ONE SWITCH for the Field Kits pieces a player could reach before FKR-7 wires kits into runs (user 2026-10-20
 // "Hide until kits are live"). While false: the Impact Grenade blueprint stays out of BLUEPRINTS (so out of Research,
@@ -2671,12 +2689,20 @@ export const EQUIPMENT_SLOTS: Record<string, EquipmentSlotDef> = {
         implicitStats: ["groundPower", "groundStatusChance"],
         statRatios: { groundStatusChance: 0.5, groundPower: 0.4, groundAccuracy: 0.1 },
       },
-      // Sidearm: the Science party's self-defense piece (Science does fieldwork, not battles).
+      // Sidearm: the Science party's self-defense piece. Science never fights (D2), so its lines are SCIENCE lines (D26
+      // "SWAP THE LINES"; user 2026-10-21 "Give them Science lines": relic find + fieldwork), the Prospecting tools'
+      // pattern: its own signature lines and pool, never the slot's combat lines. Pieces crafted before the swap have
+      // their combat lines remapped on load (save.ts withScienceLineSwapV70, SCIENCE_LINE_REMAP below).
       {
         key: "sidearm",
         label: "Sidearm",
         member: { teamTypes: ["science"], weaponRange: "short" },
-        statRatios: { groundPower: 0.45, groundAccuracy: 0.45, groundStatusChance: 0.1 },
+        implicitStats: ["groundRelicFind", "groundFieldwork"],
+        affixPool: [
+          { stat: "groundRelicFind", weight: 3 },
+          { stat: "groundFieldwork", weight: 3 },
+        ],
+        statRatios: { groundRelicFind: 0.5, groundFieldwork: 0.5 },
       },
       // Prospecting weapons (HIDDEN with the squad; design 2026-10-16 section 5, user "A cutting tool"): a WORK
       // implement whose "offense" is offense against rock (YIELD). No damage, no weaponRange: Prospecting never
@@ -2752,17 +2778,19 @@ export const EQUIPMENT_SLOTS: Record<string, EquipmentSlotDef> = {
         implicitStats: ["groundArmor", "groundHp"],
         statRatios: { groundArmor: 0.5, groundHp: 0.4, groundHazardResist: 0.1 },
       },
-      // Field Suit: the Science party's working suit, light protection that helps the work.
+      // Field Suit: the Science party's working suit, protection that helps the work. D26 (user 2026-10-21 "Give them
+      // Science lines"): fieldwork + hazard resist, its own signature lines and pool (armor and HP never acted for
+      // Science); pieces crafted before have their armor / HP remapped on load (SCIENCE_LINE_REMAP below).
       {
         key: "fieldSuit",
         label: "Field Suit",
         member: { teamTypes: ["science"] },
+        implicitStats: ["groundFieldwork", "groundHazardResist"],
         affixPool: [
           { stat: "groundFieldwork", weight: 3 },
-          { stat: "groundArmor", weight: 2 },
-          { stat: "groundHp", weight: 2 },
+          { stat: "groundHazardResist", weight: 2 },
         ],
-        statRatios: { groundFieldwork: 0.5, groundArmor: 0.3, groundHp: 0.2 },
+        statRatios: { groundFieldwork: 0.6, groundHazardResist: 0.4 },
       },
       // Hazard Suit: Science, cuts the hazard slowdown on a hostile body. Prospecting shares it (user 2026-10-16:
       // "Hazard gear + Steady"); adding a squad to teamTypes changes no roll, and the worn-by line names only
@@ -2771,13 +2799,11 @@ export const EQUIPMENT_SLOTS: Record<string, EquipmentSlotDef> = {
         key: "hazardSuit",
         label: "Hazard Suit",
         member: { teamTypes: ["science", "prospecting"] },
+        // D26 review (user 2026-10-21): armor and HP dropped from its extra rolls (they never acted for Science). A piece
+        // crafted before keeps them: on a Prospecting wearer they still feed prospecting.ts digSafety.
         implicitStats: ["groundHazardResist"],
-        affixPool: [
-          { stat: "groundHazardResist", weight: 4 },
-          { stat: "groundArmor", weight: 2 },
-          { stat: "groundHp", weight: 2 },
-        ],
-        statRatios: { groundHazardResist: 0.6, groundArmor: 0.2, groundHp: 0.2 },
+        affixPool: [{ stat: "groundHazardResist", weight: 4 }],
+        statRatios: { groundHazardResist: 1 },
       },
       // Excavator Suit (Prospecting, HIDDEN): the Standard-Issue work suit, hazard defense first, FIELD second.
       {
@@ -2820,6 +2846,8 @@ export const EQUIPMENT_SLOTS: Record<string, EquipmentSlotDef> = {
             charges: { perObjective: GRENADE_CHARGES_SPECIALIZED, perBattle: GRENADE_THROWS_PER_BATTLE },
             powerMult: SPECIALIZED_GRENADE_POWER_MULT,
             status: "stun",
+            // Timed grenades (user 2026-10-21): detonates at the start of the thrower's next turn.
+            fuse: TIMED_GRENADE_FUSE,
           },
         },
         implicitStats: ["groundStatusChance"],
@@ -2837,6 +2865,8 @@ export const EQUIPMENT_SLOTS: Record<string, EquipmentSlotDef> = {
             charges: { perObjective: GRENADE_CHARGES_SPECIALIZED, perBattle: GRENADE_THROWS_PER_BATTLE },
             powerMult: SPECIALIZED_GRENADE_POWER_MULT,
             status: "poison",
+            // Timed grenades (user 2026-10-21): detonates at the start of the thrower's next turn.
+            fuse: TIMED_GRENADE_FUSE,
           },
         },
         implicitStats: ["groundStatusChance"],
@@ -2847,7 +2877,8 @@ export const EQUIPMENT_SLOTS: Record<string, EquipmentSlotDef> = {
       // power, 30% Concussion (N6). It has NO passive groundEffect: its blast fires only when thrown, on a Field Kits
       // run; on any other run a worn one acts only through its stat lines, like any worn piece. Its blueprint is its
       // only source and stays hidden until FIELD_KITS_PLAYER_LIVE (FKR-7), so no player holds one before then. Its
-      // lines raise the wearer's power and aim, which the blast reads; the carry capacity line adds a charge.
+      // lines raise the wearer's power and aim, which the blast reads; the carry capacity line adds a charge. Timed
+      // grenades (user 2026-10-21): it is the DEFAULT grenade and carries no fuse, so it detonates on contact.
       {
         key: "impactGrenade",
         label: "Impact Grenade",
@@ -9028,6 +9059,12 @@ function consumedOutsideRefinery(): ReadonlySet<string> {
   return out;
 }
 
+// TEST HOOK (ML-2): drop the cache so the next read rebuilds it. The tables are static in play; only a test that swaps
+// blueprint recipes for its duration (ml2RecipeGoldens.fixture.ts withPreMl2Recipes) calls this, on entry and on restore.
+export function resetRefineConsumerCacheForTest(): void {
+  consumedOutsideRefineryCache = null;
+}
+
 // Item taxonomy (Ship Production Economy epic, 2026-07-11 facility-framework
 // design §7). The category ladder is the forward-compat spine the whole epic
 // climbs: raw loot -> refined -> minor/major components -> ship modules/systems.
@@ -9407,15 +9444,15 @@ export const ITEMS: Record<string, ItemDef> = {
     tier: 1,
     rarity: "uncommon",
     unlockHint: "Refined from Fibrous Biomass at the Refinery.",
-    // Recipe realism (Group B call 6, "Biofiber + Resin Distillate"): Purified Biomass stays the food and medical feedstock;
-    // fiber goes to Biofiber and resin agents to Resin Distillate (text fix T4 in that form).
+    // Recipe realism (Group B call 6): Purified Biomass stays the food and medical feedstock; fiber goes to Biofiber
+    // and resin agents to Resin Distillate (text fix T4 in that form).
     flavor: "Raw flora rendered down to a clean, stable food and medical feedstock, no volatility left.",
   },
   // --- Material Lines (ML-1, 0.14.0): the seven July-approved refined goods (July section 12, re-confirmed by the
   // user 2026-10-19, L1 "Build as named"). Each is produced by its MATERIAL_LINE_RECIPE_NUMBERS row (above REFINE_RECIPES),
   // and the Refinery offers that recipe only once its output has a use (refineRecipeOffered).
-  // ML-2 put them into the cargo, FTL, reactor, utility, shield and plating blueprints (L2, user 2026-10-19; plan ML-2)
-  // and the Biocatalyst into the Refinery-Feed Rig, so none is reserved any more. Rarity is display only (the E-MAT strawman: ingots, circuit and compounds uncommon; plate, catalyst and biocatalyst rare).
+  // ML-2 put them into the cargo, FTL, reactor, utility, shield and plating blueprints (L2; plan ML-2), so none is
+  // reserved any more. Rarity is display only (E-MAT: ingots, circuit, compounds uncommon; plate, catalysts rare).
   ferriteIngot: {
     label: "Ferrite Ingot",
     category: "refined",
@@ -11574,6 +11611,9 @@ export const SLOT_BASE_PHYSICALS: Record<
 // IDENTICALLY pre/post migration. The magnitude is a single TUNABLE knob: the actual
 // baseline power is a device-check-stage decision made WHEN the fold-in curves are
 // tuned and the (mockup-gated) equipment UI ships, deliberately deferred to here.
+// 0.14.0: the away-team MEMBER baselines are the exception. Their signature lines start here at 0 and then take
+// the Quartermaster set's real stats (STANDARD_ISSUE_MEMBER_POINTS, below generateStandardIssue); ship baselines
+// are untouched.
 export const STANDARD_ISSUE_IMPLICIT_MAGNITUDE = 0;
 
 // The fixed item level stamped on every Standard-Issue baseline. WHY a floor CONST (not a
@@ -11679,7 +11719,168 @@ export function generateStandardIssue(a: {
   if (isMemberSlotType(a.slotType) || varietyHasOwnIdentity(variety)) {
     piece.moduleVariant = varietyKey;
   }
-  return piece;
+  // 0.14.0: an away-team MEMBER baseline carries its real Standard-Issue lines (STANDARD_ISSUE_MEMBER_POINTS below).
+  // The SAME transform re-stats a held piece on every load (save.ts), so a minted and a migrated piece never differ.
+  return withStandardIssueMemberLines(piece);
+}
+
+// ============================================================================
+// QUARTERMASTER STANDARD-ISSUE MEMBER GEAR: real stats (0.14.0)
+// ============================================================================
+// User rulings (docs/plans/2026-10-15-safe-first-runs-plan.md, USER ANSWERS):
+//   - 2026-10-16 "Tier I after the first run": comfortable Tier I = a FULL away team wearing the Quartermaster's
+//     first Standard-Issue set ("Full team + upgrade").
+//   - 2026-10-16 "Standard-Issue stats", verbatim: "Each piece of gear gets stats. Similar to ship systems. Except
+//     with far fewer slots. [...] Weapon provides offensive stats. Armor provides defensive stats. Kit provides
+//     utility and potentially stats associated with that based on the role the tool is designed for."
+//   - 2026-10-16 "Member slots": "Implants X1/X2 depending on racial. Keep this as is." The free set covers Armor,
+//     Weapon and Tool; implants have no Standard-Issue floor (REQUISITION_CATALOGUE.implant is null).
+//   - 2026-10-21 "Fade Weak + build SI gear": about +15% squad power in the SF-3 sim meets both nominal Tier I
+//     targets (a full rank 1 team completes 95% of runs and wins 90% of its Vault / Subterranean sites).
+//   - 2026-10-21 review: "Floor the stat budget" (crafted member gear always rolls at least the free set's total and
+//     each signature line at least the free piece's value; item level, Archive score and salvage stay as they are)
+//     and "Give them Science lines" (D26: the Sidearm and Field Suit roll Science lines, so their free pieces carry
+//     real stats too).
+//
+// HOW A PIECE'S LINES ARE SET. Every Standard-Issue member piece carries STANDARD_ISSUE_MEMBER_POINTS stat points
+// (quality-less: no quality, rarity or item-level roll, the same on every piece), split over its SLOT ROLE's lines by
+// the shares below. The lines are ordinary implicit lines on the instance, so every existing consumer reads them
+// unchanged (the roster snapshot at dispatch: battle hp / power / armor / accuracy, fieldwork, finds, hazard; the
+// tooltips). Points convert through awayTeam.ts GEAR_POINT_BUMP like any crafted line. A full Security kit (Pulse
+// Rifle + Ballistic Weave + Med Kit) at 12 points: +6% power, +2.4% accuracy, +17.5% armor and +17% HP per member.
+//
+// ⚠️ [PROVISIONAL] the points (user 2026-10-21 asked for "about +15% squad power"; 12 is the smallest even split whose
+// full set meets both targets with margin on the SF-3 ramp at full strength: 193 of 200 runs complete, 356 of 365
+// Vault / Subterranean objectives won; 10 points reaches exactly 190 of 200).
+export const STANDARD_ISSUE_MEMBER_POINTS = 12;
+
+// The SLOT-ROLE shares per issued variety (the Quartermaster's per-squad rows, quartermaster.ts REQUISITION_CATALOGUE),
+// each a subset of the lines its variety can roll, and each a line its squad's consumers READ (everything wired):
+//   Weapon = offense, Armor = defense, Tool = the line of the role it is built for.
+//   Security: Pulse Rifle     power + accuracy (its two signature lines)
+//             Ballistic Weave armor + HP (the suit's defensive lines; its accuracy lean stays a crafted roll)
+//             Med Kit         HP (its signature line; the heal itself still needs Medical Training, D20)
+//   Science (D26, Science never fights, so its "offense" and "defense" are the work):
+//             Sidearm         relic find + fieldwork (its two signature lines since the line swap)
+//             Field Suit      fieldwork + hazard resist (its two signature lines since the line swap)
+//             Flora Scanner   organics yield + fieldwork (its survey role, on its tuned bodies)
+//   Prospecting (hidden with the squad): each piece's two signature lines, YIELD / hazard / GRADE plus FIELD.
+// Shares sum to 1 per row. A variety absent here mints with its zero signature lines.
+export const STANDARD_ISSUE_MEMBER_SHARES: Readonly<Record<string, Readonly<Partial<Record<MemberGroundStatKey, number>>>>> = {
+  pulseRifle: { groundPower: 0.5, groundAccuracy: 0.5 },
+  ballisticWeave: { groundArmor: 0.6, groundHp: 0.4 },
+  medKit: { groundHp: 1 },
+  sidearm: { groundRelicFind: 0.5, groundFieldwork: 0.5 },
+  fieldSuit: { groundFieldwork: 0.5, groundHazardResist: 0.5 },
+  floraScanner: { groundOrganicsYield: 0.5, groundFieldwork: 0.5 },
+  plasmaCutter: { groundOreYield: 0.5, groundFieldwork: 0.5 },
+  excavatorSuit: { groundHazardResist: 0.5, groundFieldwork: 0.5 },
+  assayScanner: { groundOreGrade: 0.5, groundFieldwork: 0.5 },
+};
+
+// The Standard-Issue lines of member variety `varietyKey` (whole points, only the nonzero ones), {} for a variety with
+// no row. Pure.
+export function standardIssueMemberLines(varietyKey: string): Record<string, number> {
+  const shares = STANDARD_ISSUE_MEMBER_SHARES[varietyKey];
+  const out: Record<string, number> = {};
+  if (shares === undefined) return out;
+  for (const [stat, share] of Object.entries(shares)) {
+    const v = Math.round(STANDARD_ISSUE_MEMBER_POINTS * (share ?? 0));
+    if (v > 0) out[stat] = v;
+  }
+  return out;
+}
+
+// The free set's per-piece total: the most points any issued piece carries (12; 0 with no rows). The crafted budget
+// floor's total (craftedMemberFloorImplicits). Derived from the table, never a second number. Pure.
+export function standardIssueMemberTotal(): number {
+  let best = 0;
+  for (const key of Object.keys(STANDARD_ISSUE_MEMBER_SHARES)) {
+    best = Math.max(best, Object.values(standardIssueMemberLines(key)).reduce((n, v) => n + v, 0));
+  }
+  return best;
+}
+
+// Is `piece` a Quartermaster-issued Standard-Issue MEMBER piece, exactly as the generator mints it? Stricter than
+// isStandardIssueBaseline (blueprint-less + standard rarity): also the quality-0 floor, the fixed STANDARD_ISSUE_ILEVEL,
+// no rolled lines and a stamped variety, so a dev-minted or test standard piece with no blueprint (any other item level,
+// quality or rolled line) is never re-statted as if it were free gear. Pure.
+export function isStandardIssueMemberPiece(piece: EquipmentInstance): boolean {
+  return (
+    isMemberSlotType(piece.slotType) &&
+    isStandardIssueBaseline(piece) &&
+    piece.quality === 0 &&
+    piece.iLevel === STANDARD_ISSUE_ILEVEL &&
+    piece.moduleVariant !== undefined &&
+    Object.keys(piece.rolledStats ?? {}).length === 0
+  );
+}
+
+// `piece` carrying its Standard-Issue member lines: a Quartermaster-issued member piece (isStandardIssueMemberPiece)
+// has each catalog line RAISED to the catalog value (never lowered: a line already above it keeps its value); anything
+// else, or a piece already at or above every line, is returned AS IS (the same reference). Used by the mint above and
+// by save.ts on every load, so a piece held since before the stats gains them and a re-load is a no-op. Never touches
+// rolledStats, mass, durability or any other field. Pure.
+export function withStandardIssueMemberLines(piece: EquipmentInstance): EquipmentInstance {
+  if (!isStandardIssueMemberPiece(piece)) return piece;
+  const lines = standardIssueMemberLines(piece.moduleVariant!);
+  const raise = Object.entries(lines).filter(([stat, v]) => (piece.implicitStats[stat] ?? 0) < v);
+  if (raise.length === 0) return piece;
+  return { ...piece, implicitStats: { ...piece.implicitStats, ...Object.fromEntries(raise) } };
+}
+
+// THE CRAFTED BUDGET FLOOR (user 2026-10-21 "Floor the stat budget"): a CRAFTED member piece of variety `varietyKey`
+// (its signature lines `implicit`, its rolled affix points totalling `rolledPoints`) always carries at least the free
+// set's total points and each signature line at least the free piece's value of that variety:
+//   1. every signature line the variety's free piece also carries is raised to at least that value;
+//   2. if the piece's total (signature + rolled) is still below standardIssueMemberTotal(), the shortfall is added to
+//      the signature lines, evenly, the remainder to the first.
+// Only magnitudes move: item level, quality, rarity, the affix picks and the rng draws are untouched, so the Archive
+// score, salvage time and keep-best auto-salvage read the piece as before. Returns the (possibly) raised signature
+// lines; the input is not mutated. Pure. Called by itemgen.ts generateEquipment (the mint) and previewCraftOutcome.
+export function craftedMemberFloorImplicits(varietyKey: string, implicit: Readonly<Record<string, number>>, rolledPoints: number): Record<string, number> {
+  const out: Record<string, number> = { ...implicit };
+  const free = standardIssueMemberLines(varietyKey);
+  for (const stat of Object.keys(out)) if (free[stat] !== undefined && out[stat] < free[stat]) out[stat] = free[stat];
+  const keys = Object.keys(out);
+  const total = keys.reduce((n, k) => n + out[k], 0) + rolledPoints;
+  const short = standardIssueMemberTotal() - total;
+  if (short > 0 && keys.length > 0) {
+    const each = Math.floor(short / keys.length);
+    keys.forEach((k, i) => (out[k] += each + (i === 0 ? short - each * keys.length : 0)));
+  }
+  return out;
+}
+
+// D26 LINE SWAP FOR HELD PIECES (user 2026-10-21 "old crafted pieces get dead lines remapped on load so nothing is
+// useless"): the combat lines a Science Sidearm or Field Suit rolled before the swap, and the Science line each moves
+// to, points for points (an implicit line stays implicit, a rolled one rolled; a target the piece already carries adds
+// up). [PROVISIONAL] the pairing: the Sidearm's power to fieldwork and its accuracy and status chance to relic find; the
+// Field Suit's armor and HP (its defense) to hazard resist. The Hazard Suit keeps any armor / HP it rolled before (on
+// a Prospecting wearer they feed prospecting.ts digSafety); its new crafts no longer roll them.
+export const SCIENCE_LINE_REMAP: Readonly<Record<string, Readonly<Record<string, MemberGroundStatKey>>>> = {
+  sidearm: { groundPower: "groundFieldwork", groundAccuracy: "groundRelicFind", groundStatusChance: "groundRelicFind" },
+  fieldSuit: { groundArmor: "groundHazardResist", groundHp: "groundHazardResist" },
+};
+
+// `piece` with its pre-swap combat lines moved (SCIENCE_LINE_REMAP), or the same reference when it has none (every
+// other piece, and a swapped piece on a re-load). Any blueprint, rarity or quality. Pure.
+export function withScienceLineSwap(piece: EquipmentInstance): EquipmentInstance {
+  const remap = piece.moduleVariant === undefined || !isMemberSlotType(piece.slotType) ? undefined : SCIENCE_LINE_REMAP[piece.moduleVariant];
+  if (remap === undefined) return piece;
+  const move = (lines: Record<string, number>): Record<string, number> | null => {
+    if (!Object.keys(lines).some((k) => k in remap)) return null;
+    const out: Record<string, number> = {};
+    for (const [k, v] of Object.entries(lines)) {
+      const to = remap[k] ?? k;
+      out[to] = (out[to] ?? 0) + v;
+    }
+    return out;
+  };
+  const implicitStats = move(piece.implicitStats);
+  const rolledStats = move(piece.rolledStats ?? {});
+  if (implicitStats === null && rolledStats === null) return piece;
+  return { ...piece, implicitStats: implicitStats ?? piece.implicitStats, rolledStats: rolledStats ?? piece.rolledStats };
 }
 
 // The ONE shared "fit a ship out with its baseline floor" helper (Omega 4, DRY):

@@ -15,6 +15,8 @@
 
 import { describe, expect, it } from "vitest";
 import { hash } from "./firstRunsGoldens.fixture";
+import { BLUEPRINTS, isMemberSlotType } from "./model";
+import { withSiMemberGearOff } from "./siMemberGearSwitch.fixture";
 import {
   ML2_GOLDEN,
   ML2_NEW_REFINES,
@@ -97,6 +99,17 @@ const AFTER = {
   ],
 };
 
+// The seven away-team pieces as the Standard-Issue member gear change rolls them (its move, read back above).
+const AFTER_SI_INSPECT = [
+  ["ballisticWeaveBp", "58e491ae"],
+  ["fieldSuitBp", "dfbab3d2"],
+  ["hazardSuitBp", "f18b729d"],
+  ["toxinGrenadeBp", "da18e5e4"],
+  ["medKitBp", "ced37d40"],
+  ["atmoProbeBp", "7aeedb55"],
+  ["archaeoScannerBp", "2f3d6b95"],
+];
+
 const drawsOf = (rows: unknown): string[] => (rows as [string, string][]).map(([k, v]) => `${k}:${v.split(":")[1]}`);
 
 describe("ML-2 goldens: the capture, read back, and ML-2's moves", () => {
@@ -118,8 +131,19 @@ describe("ML-2 goldens: the capture, read back, and ML-2's moves", () => {
     expect(now).toEqual(AFTER.fabricate);
   });
 
-  it("inspect: the piece each reworked equipment blank rolls is unchanged", () => {
-    expect(ML2_REWORKED.filter(isEquipment).map((k) => [k, hash(inspected(k).equipment.at(-1))])).toEqual(ML2_GOLDEN.inspect);
+  // ML-2 moves no inspected piece (a roll never reads its recipe). The Standard-Issue member gear change merged after the
+  // capture (feat 8c4e439: the crafted budget floor and the D26 Science lines) lifts the seven away-team pieces; with it
+  // switched off (withSiMemberGearOff) every piece reads the capture, and the ship pieces never moved.
+  it("inspect: the piece each reworked equipment blank rolls is unchanged by ML-2", () => {
+    const rows = () => ML2_REWORKED.filter(isEquipment).map((k) => [k, hash(inspected(k).equipment.at(-1))]);
+    expect(withSiMemberGearOff(rows)).toEqual(ML2_GOLDEN.inspect);
+    expect(withPreMl2Recipes(() => withSiMemberGearOff(rows))).toEqual(ML2_GOLDEN.inspect);
+    const now = rows();
+    const isMember = (k: string) => isMemberSlotType(BLUEPRINTS[k].equipmentOutput!.slotType);
+    now.forEach(([k, h], i) => {
+      if (!isMember(k as string)) expect(h, k as string).toBe(ML2_GOLDEN.inspect[i][1]);
+    });
+    expect(now.filter(([k]) => isMember(k as string))).toEqual(AFTER_SI_INSPECT);
   });
 
   it("salvage: the old recipes reproduce the capture; the new ones give back the new inputs", () => {

@@ -26,6 +26,7 @@ import {
   SECONDARY_CAPTAIN_TALENTS,
   SHIP_DOCKS_RUNGS,
   SHIP_TYPES,
+  STANDARD_ISSUE_MEMBER_SHARES,
   SUBSPACE_TELESCOPE_LEVELS,
   TRANSIT_BERTH_RUNGS,
   type MemberSlotType,
@@ -61,8 +62,9 @@ import { SHORT_RANGE_TEMPLATES } from "../shortRange";
 import { GAS_STUDY_USES, GIANT_CLASSES, NEBULA_KINDS } from "../gasGiantContent";
 import { REACTOR_TECH_TIERS, REACTOR_VARIETY_TECH } from "../reactorTech";
 
-// Field Kits FKR-5: the sources each grenade carries (its GrenadeTraits, as the registry measures them).
-export const GRENADE_FIELDS = ["charges", "perBattle", "blast", "status"] as const;
+// Field Kits FKR-5: the sources each grenade carries (its GrenadeTraits, as the registry measures them). Timed grenades
+// (user 2026-10-21): its fuse (the turns from the throw to the blast) and, on a timed one, the moved-clear chance.
+export const GRENADE_FIELDS = ["charges", "perBattle", "blast", "status", "fuse", "movedClear"] as const;
 
 export interface EffectSource {
   readonly catalog: string;
@@ -144,6 +146,15 @@ export function enumerateEffectSources(): EffectSource[] {
     for (const v of EQUIPMENT_SLOTS[slotType].varieties) {
       if (!v.member) continue;
       for (const team of v.member.teamTypes) add("EQUIPMENT_SLOTS.member", memberLines(slotType, v).map((k) => `${slotType}:${v.key}:${team}:${k}`));
+    }
+  }
+  // 0.14.0: the Quartermaster's Standard-Issue member lines (model.ts STANDARD_ISSUE_MEMBER_SHARES), one source per
+  // (slot, variety, squad, line).
+  for (const slotType of MEMBER_SLOT_TYPES) {
+    for (const v of EQUIPMENT_SLOTS[slotType].varieties) {
+      const shares = STANDARD_ISSUE_MEMBER_SHARES[v.key];
+      if (!v.member || shares === undefined) continue;
+      for (const team of v.member.teamTypes) add("STANDARD_ISSUE_MEMBER_SHARES", Object.keys(shares).map((k) => `${slotType}:${v.key}:${team}:${k}`));
     }
   }
   add("AWAY_TRAITS", AWAY_TRAITS.map((t) => t.id));

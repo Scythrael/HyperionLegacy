@@ -22,6 +22,7 @@ import {
   type GameState,
   type HomeworldTalentKey,
   generalMuseumRecord,
+  isStandardIssueBaseline,
   withGeneralMuseumRecord,
 } from "../model";
 import { MUSEUM_COPY_LADDER, RELIC_SETS, museumBonuses, type MuseumStat } from "../relics";
@@ -262,6 +263,16 @@ const ADAPTERS: Readonly<Record<string, Adapter>> = {
     const memberId = MEMBER_OF_TEAM[team];
     if (!memberId) return NOT_OWNED;
     const match = (e: EquipmentInstance) => e.fittedToMemberId === memberId && e.slotType === slotType && e.moduleVariant === variant;
+    if (!v.equipment.some((e) => match(e) && hasLine(e, line))) return NOT_OWNED;
+    return owned(dropLine(v, match, line));
+  },
+  // 0.14.0: a Quartermaster Standard-Issue member line, owned when the measured member wears that issued piece.
+  STANDARD_ISSUE_MEMBER_SHARES: (_e, v, key) => {
+    const [slotType, variant, team, line] = key.split(":");
+    const memberId = MEMBER_OF_TEAM[team];
+    if (!memberId) return NOT_OWNED;
+    const match = (e: EquipmentInstance) =>
+      e.fittedToMemberId === memberId && e.slotType === slotType && e.moduleVariant === variant && isStandardIssueBaseline(e);
     if (!v.equipment.some((e) => match(e) && hasLine(e, line))) return NOT_OWNED;
     return owned(dropLine(v, match, line));
   },

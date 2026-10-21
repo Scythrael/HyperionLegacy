@@ -434,8 +434,10 @@
     // unfitEquipmentInstance uninstalls the exact piece (economy never-empty restore,
     // combat allow-empty). The dev harness below still uses the by-slotType unfitEquipment.
     unfitEquipmentInstance,
-    type EquipFitBlockReason,
+    type EquipFitRefusal,
   } from "./lib/game/equipment";
+  // E-MOD EM-2: the power install gate's refusal text (one wording everywhere) and the Armory check-out's shortfall.
+  import { overPowerReasonText } from "./lib/game/shipPower";
   // Crew 0.14.0 (phase 4a): the pure SENIOR STAFF engine, wired by the do* handlers below.
   // hire/fire/assign/unassign each take + return a whole GameState; promoteOfficer takes +
   // returns a single officer, so its handler splices the result back into state.officers.
@@ -565,6 +567,7 @@
     moveNotableUp,
     moveNotableDown,
     applyRoster,
+    rosterLoadoutPowerShortfall,
     canApplyRoster,
     rosterApplyGateText,
     toggleNotableFavorite,
@@ -1027,7 +1030,7 @@
   import {
     loadoutCap, canCreateLoadout, createLoadout, renameLoadout, deleteLoadout,
     loadoutSlotDefsForShipType, installIntoLoadout, uninstallFromLoadout, loadoutInstallCandidates,
-    checkOutLoadout, checkInLoadout, type LoadoutSlotDef,
+    checkOutLoadout, checkInLoadout, loadoutCheckOutPowerShortfall, type LoadoutSlotDef,
     // Ground Ops GO-17 UI: the ground team (squad) loadout lifecycle.
     createGroundTeamLoadout, applyGroundTeamLoadout, checkInGroundTeamLoadout, renameGroundTeamLoadout,
     deleteGroundTeamLoadout, type GroundLoadoutResult,
@@ -5031,8 +5034,8 @@
   // why a fit is disabled instead of throwing or printing a bare enum. Total over
   // EquipFitBlockReason (a switch, no default) so a new reason token surfaces as a
   // compile error here rather than a silent "" (Omega 8 / 14).
-  function devFitReasonText(reason: EquipFitBlockReason): string {
-    switch (reason) {
+  function devFitReasonText(refusal: EquipFitRefusal): string {
+    switch (refusal.reason) {
       case "noInstance":
         return "piece no longer exists";
       case "noShip":
@@ -5064,6 +5067,9 @@
       // 0.13.9: the system this install would move out belongs to a checked-out loadout.
       case "occupantInLoadout":
         return "the installed system belongs to a checked-out loadout (check that loadout in at the Armory first)";
+      // E-MOD EM-2: the install would leave the ship over its power budget.
+      case "overPower":
+        return overPowerReasonText(refusal.powerShortfall);
     }
   }
 
@@ -5091,7 +5097,7 @@
   function devFitEquipment(shipId: string, instanceId: string) {
     const gate = canFitEquipment(state, shipId, instanceId);
     if (!gate.ok) {
-      pushLog(`[DEV] Cannot install ${instanceId}: ${devFitReasonText(gate.reason)}.`);
+      pushLog(`[DEV] Cannot install ${instanceId}: ${devFitReasonText(gate)}.`);
       return;
     }
     state = fitEquipment(state, shipId, instanceId);
@@ -5187,7 +5193,7 @@
   function installSystem(shipId: string, instanceId: string, replacingInstanceId?: string) {
     const gate = canFitEquipment(state, shipId, instanceId, replacingInstanceId);
     if (!gate.ok) {
-      pushLog(`Cannot install system: ${devFitReasonText(gate.reason)}.`);
+      pushLog(`Cannot install system: ${devFitReasonText(gate)}.`);
       return;
     }
     // 0.13.9: name the pieces by their player-facing labels, never the raw instance ids
@@ -6016,6 +6022,9 @@
   // same-ref no-op on a missing roster/ship or a roster carrying no people, so we skip the log/save.
   // CP-6: it also refuses WHOLE while a ship involved is crew-locked; that refusal is logged.
   function doApplyRoster(rosterId: string, shipId: string) {
+    // E-MOD EM-2: a linked loadout the power gate keeps in the Armory is named in the log (the rest still applies).
+    const powerShort = canApplyRoster(state, rosterId, shipId).ok ? rosterLoadoutPowerShortfall(state, rosterId, shipId) : 0;
+    if (powerShort > 0) pushLog(`Roster "${rosterName(rosterId)}": its linked loadout stayed in the Armory, it ${overPowerReasonText(powerShort)}.`);
     const next = applyRoster(state, rosterId, shipId);
     if (next === state) {
       const why = rosterApplyGateText(state, canApplyRoster(state, rosterId, shipId));
@@ -7336,6 +7345,12 @@
   $: if (armoryCheckoutShips.length > 0 && !armoryCheckoutShips.some((s) => s.id === armoryCheckoutSelId)) {
     armoryCheckoutSelId = armoryCheckoutShips[0].id;
   }
+  // E-MOD EM-2: the power the picked check-out still needs (0 = the power gate lets it through). Shown under the
+  // dropdown as the refusal reason before the player taps Check out.
+  $: armoryCheckoutPowerShort =
+    selectedLoadout !== null && armoryCheckoutSelId !== null
+      ? loadoutCheckOutPowerShortfall(state, selectedLoadout.id, armoryCheckoutSelId)
+      : 0;
   // The ship-type options for a new loadout (every player hull type, labeled).
   const ARMORY_SHIP_TYPE_OPTIONS = Object.entries(SHIP_TYPES)
     .map(([key, def]) => ({ key, label: (def as { label?: string }).label ?? key }))
@@ -7447,7 +7462,14 @@
   function doArmoryCheckOut(shipId: string) {
     if (selectedLoadoutId === null) return;
     const next = checkOutLoadout(state, selectedLoadoutId, shipId);
-    if (next === state) { pushLog("Cannot check that loadout out to that ship right now (wrong type, already equipped, or on a mission)."); return; }
+    if (next === state) {
+      // E-MOD EM-2: name the power refusal; every other refusal keeps its old line.
+      const short = loadoutCheckOutPowerShortfall(state, selectedLoadoutId, shipId);
+      pushLog(short > 0
+        ? `Cannot check that loadout out: it ${overPowerReasonText(short)}.`
+        : "Cannot check that loadout out to that ship right now (wrong type, already equipped, or on a mission).");
+      return;
+    }
     state = next;
     doSave();
   }
@@ -14850,14 +14872,14 @@
                    Refinery's locked rail slot does). -->
               {#if activeQuartermasterSubTab === "requisition"}
                 <Panel>
-                  <!-- 0.13.6 green-text pass: the intro + the "floor, not an upgrade" clarification
+                  <!-- 0.13.6 green-text pass: the intro + the "floor" clarification (0.14.0: the away-team kit carries real stats)
                        (no numbers, deliberately: the magnitudes are tunable data) collapse into ONE
                        `?` on the title. The rows + the one-at-a-time note below stay visible. -->
                   <div class="panel-title">
                     REQUISITION
                     <HelpTip
                       label="How Requisition works"
-                      text="Standard-Issue patterns, issued free. Take one and it lands in your spare systems, ready to install from a ship's Ship Systems screen, or on an away-team member of the matching squad. A Standard-Issue piece is the floor, not an upgrade: it fills a slot so a ship can fly and a crew member is not working bare-handed, and it is always the weakest version of that system. Crafted systems are the real gains."
+                      text="Standard-Issue patterns, issued free. Take one and it lands in your spare systems, ready to install from a ship's Ship Systems screen, or on an away-team member of the matching squad. A Standard-Issue piece is the floor: it fills a slot so a ship can fly, and the away-team kit gives a crew member a modest start, but it is always the weakest version of that piece. Crafted gear brings the real gains."
                     />
                   </div>
 
@@ -15192,10 +15214,14 @@
                           <option value={s.id}>{armoryCheckoutOptionLabel(state, fleetShipLabels, s)}</option>
                         {/each}
                       </select>
-                      <button class="buy-btn" style="flex:none; white-space:nowrap;" on:click={() => { if (armoryCheckoutSelId !== null) doArmoryCheckOut(armoryCheckoutSelId); }}>Check out</button>
+                      <button class="buy-btn" style="flex:none; white-space:nowrap;" disabled={armoryCheckoutPowerShort > 0} title={armoryCheckoutPowerShort > 0 ? `This loadout ${overPowerReasonText(armoryCheckoutPowerShort)}` : undefined} on:click={() => { if (armoryCheckoutSelId !== null) doArmoryCheckOut(armoryCheckoutSelId); }}>Check out</button>
                     {/if}
                     <button class="buy-btn" style="flex:none; white-space:nowrap;" on:click={() => (loadoutDeletePending = selectedLoadout.id)}>Delete loadout</button>
                   </div>
+                  <!-- E-MOD EM-2: the power refusal, named before the tap (the mockup's refusal wording). -->
+                  {#if armoryCheckoutShips.length > 0 && armoryCheckoutPowerShort > 0}
+                    <div class="armory-caution" role="alert">Can't check out to that ship: this loadout {overPowerReasonText(armoryCheckoutPowerShort)}.</div>
+                  {/if}
                 {/if}
 
                 <!-- Slots, grouped -->
@@ -19404,7 +19430,7 @@
                     <button
                       class="dev-btn"
                       disabled={!gate.ok}
-                      title={gate.ok ? `Install ${spare.id}` : devFitReasonText(gate.reason)}
+                      title={gate.ok ? `Install ${spare.id}` : devFitReasonText(gate)}
                       on:click={() => devFitEquipment(ship.id, spare.id)}
                     >Install {spare.id}{gate.ok ? "" : " (blocked)"}</button>
                   {/each}

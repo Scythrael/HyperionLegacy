@@ -11,7 +11,7 @@
 // it back after the rework.
 
 import Decimal from "break_infinity.js";
-import { BLUEPRINTS, REFINE_RECIPES, SHIP_TYPES, freshState, type GameState } from "./model";
+import { BLUEPRINTS, REFINE_RECIPES, SHIP_TYPES, freshState, resetRefineConsumerCacheForTest, type GameState } from "./model";
 import { economyTick, inspectBlank, startLine } from "./tick";
 import { salvageEquipment } from "./salvage";
 import { hash, stateHash } from "./firstRunsGoldens.fixture";
@@ -280,14 +280,18 @@ export function ml2LinesBack(lines: readonly string[]): string[] {
 }
 
 // Runs `fn` with every reworked blueprint's inputs set back to PRE_ML2_RECIPES, then restores them. BLUEPRINTS is
-// static data, so this is the honest way to show the old recipes reproduce the capture.
+// static data, so this is the honest way to show the old recipes reproduce the capture. The Refinery's consumer cache
+// (model.ts consumedOutsideRefinery, read by refineRecipeOffered) is dropped on entry and on restore, so neither side
+// ever reads a cache built from the other side's recipes.
 export function withPreMl2Recipes<T>(fn: () => T): T {
   const saved = ML2_REWORKED.map((k) => [k, BLUEPRINTS[k]] as const);
   try {
     for (const k of ML2_REWORKED) BLUEPRINTS[k] = { ...BLUEPRINTS[k], recipe: { ...BLUEPRINTS[k].recipe, inputs: { ...PRE_ML2_RECIPES[k] } } };
+    resetRefineConsumerCacheForTest();
     return fn();
   } finally {
     for (const [k, bp] of saved) BLUEPRINTS[k] = bp;
+    resetRefineConsumerCacheForTest();
   }
 }
 

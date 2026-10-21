@@ -55,7 +55,7 @@ import type { AwayMember, EquipmentInstance, GameState, MemberSlotType, MemberVa
 import { isMemberSlotType, isUninstalledPiece, memberVariety, startAutoSalvageGrace } from "./model";
 // Imported from reservation.ts (the type-only leaf), the same way equipment.ts does, never from salvage.ts.
 import { salvageReservedInstanceIds } from "./reservation";
-import { canFitEquipment, type EquipFitBlockReason } from "./equipment";
+import { canFitEquipment, type EquipFitRefusal } from "./equipment";
 import { implantSlotsFor, shipCrewLocked } from "./awayTeam";
 
 // ============================================================================
@@ -436,7 +436,9 @@ export function unfitFromMember(state: GameState, memberId: string, pieceId: str
 // O(targets x pool). Call it ONCE when a picker opens, never in a per-row reactive statement over the
 // Warehouse list. Pure.
 export type InstallTarget =
-  | { kind: "ship"; shipId: string; ok: boolean; reason?: EquipFitBlockReason }
+  // E-MOD EM-2: a refused ship target carries the whole refused verdict (its reason, and for overPower the power it
+  // still needs), so the picker can name the number.
+  | { kind: "ship"; shipId: string; ok: boolean; refusal?: EquipFitRefusal }
   | { kind: "member"; memberId: string; ok: boolean; reason?: MemberFitBlockReason };
 
 export function installTargetsFor(state: GameState, pieceId: string): InstallTarget[] {
@@ -454,6 +456,6 @@ export function installTargetsFor(state: GameState, pieceId: string): InstallTar
     const gate = canFitEquipment(state, s.id, pieceId);
     return gate.ok
       ? { kind: "ship", shipId: s.id, ok: true }
-      : { kind: "ship", shipId: s.id, ok: false, reason: gate.reason };
+      : { kind: "ship", shipId: s.id, ok: false, refusal: gate };
   });
 }

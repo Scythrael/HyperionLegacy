@@ -664,7 +664,7 @@ describe("installTargetsFor", () => {
       if (t.kind !== "ship") throw new Error("ship gear listed a member");
       const gate = canFitEquipment(s, t.shipId, "cargo");
       expect(t.ok).toBe(gate.ok);
-      expect(t.reason).toBe(gate.ok ? undefined : gate.reason);
+      expect(t.refusal).toEqual(gate.ok ? undefined : gate);
     }
     expect(targets.map((t) => t.ok)).toEqual([false, true]);
   });
