@@ -39,6 +39,7 @@ import {
   checkInGroundTeamLoadout,
   checkInLoadout,
   checkOutLoadout,
+  loadoutCheckOutPowerShortfall,
   groundTeamWornLoadout,
 } from "./armory";
 import { SHIP_TYPES, groundTeamCount, type ShipTypeKey } from "./model";
@@ -496,6 +497,21 @@ function withLinkedLoadout(state: GameState, roster: PersonnelRoster, shipId: st
   }
   const out = checkOutLoadout(next, linkedId, shipId);
   return out === next ? state : out;
+}
+
+// E-MOD EM-2: the power the roster's linked loadout still needs on this ship (0 = it checks out, or it is refused or
+// skipped for another reason). Mirrors withLinkedLoadout's steps exactly (the ship's current loadout checked in
+// first), so the Personnel apply can say why the gear stayed in the Armory. Pure.
+export function rosterLoadoutPowerShortfall(state: GameState, rosterId: string, shipId: string): number {
+  const roster = state.personnelRosters.find((r) => r.id === rosterId);
+  const linkedId = roster?.linkedLoadoutId ?? null;
+  if (linkedId === null) return 0;
+  const linked = state.loadouts.find((l) => l.id === linkedId);
+  if (linked === undefined || linked.checkedOutToShipId !== null) return 0;
+  const current = state.loadouts.find((l) => l.checkedOutToShipId === shipId);
+  const next = current === undefined ? state : checkInLoadout(state, current.id);
+  if (current !== undefined && next === state) return 0;
+  return loadoutCheckOutPowerShortfall(next, linkedId, shipId);
 }
 
 // GO-17 UI: put each team's linked GROUND TEAM loadout on that team of the ship, in team order, the ship

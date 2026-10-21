@@ -103,6 +103,9 @@ import {
 // would close an equipment <-> salvage import cycle. reservation.ts is the type-only
 // leaf both sides depend on instead.
 import { salvageReservedInstanceIds } from "./reservation";
+// E-MOD EM-2: the power install gate's reading. shipPower.ts imports this module back (equippedFor, MULTI_SLOT_TYPES);
+// both sides only call each other inside functions, never at module load, so the cycle is safe.
+import { installPowerShortfallBetween } from "./shipPower";
 
 // The slot-type partitions the fit gate (canFitEquipment) and the mutators read. Sets (not arrays)
 // for O(1) membership; typed to EquipmentSlotType so a slot rename is a compile error.
@@ -249,7 +252,19 @@ export type EquipFitBlockReason =
   // (committedToLoadoutId set). Moving it to storage would leave it committed while its loadout still
   // reads as checked out to this ship, a half-broken loadout; unfitEquipmentInstance refuses the same
   // move. Distinct from committedToLoadout, which is about the INCOMING spare. Check the loadout in first.
-  | "occupantInLoadout";
+  | "occupantInLoadout"
+  // E-MOD EM-2 (0.14.0, user answers P1 / P2 2026-10-17): the install would leave the ship drawing more power than
+  // it supplies (hull base + Reactor Core, net draw after power efficiency; PRISTINE values, never wear). Checked
+  // LAST, after every capacity check. The refusal carries the shortfall (EquipFitRefusal.powerShortfall) so every
+  // surface can say "needs N more power" (overPowerReasonText, shipPower.ts). Uninstalling is never blocked.
+  | "overPower";
+
+// A refused install: the reason, and for overPower the power it still needs. Every reason-text switch takes this
+// whole object so the overPower case can name its number (TypeScript narrows on `reason`).
+export type EquipFitRefusal =
+  | { ok: false; reason: Exclude<EquipFitBlockReason, "overPower"> }
+  | { ok: false; reason: "overPower"; powerShortfall: number };
+export type EquipFitVerdict = { ok: true } | EquipFitRefusal;
 
 // ----------------------------------------------------------------------------
 // equippedFor
@@ -304,7 +319,7 @@ export function fittedInSlot(
 export function onMissionLock(
   state: GameState,
   shipId: string
-): { ok: true } | { ok: false; reason: EquipFitBlockReason } {
+): { ok: true } | { ok: false; reason: "noShip" | "onMission" } {
   const ship = state.ships.find((s) => s.id === shipId);
   if (!ship) return { ok: false, reason: "noShip" };
 
@@ -351,7 +366,7 @@ export function pieceEquipRequirement(instance: EquipmentInstance): EquipRequire
 // slot's equipRequirement, hull first then captain (hullSpec / captainSpec /
 // captainSpecParked) -> the piece being moved out is not held by a checked-out loadout
 // (replaceTargetInvalid / occupantInLoadout, 0.13.9) -> weapon hardpoint capacity (hardpointsFull,
-// weapon only).
+// weapon only) -> drone bay capacity (baysFull) -> the power budget (overPower, E-MOD EM-2).
 //
 // 0.13.9 TARGETED SWAP (optional replacingInstanceId): on a MULTI slot (weapon / droneBay) the
 // loadout board's Swap names the exact installed piece being replaced. It must be a piece of the
@@ -366,7 +381,7 @@ export function canFitEquipment(
   shipId: string,
   instanceId: string,
   replacingInstanceId?: string
-): { ok: true } | { ok: false; reason: EquipFitBlockReason } {
+): EquipFitVerdict {
   // --- Identity: the equipment piece must exist. Found by id (the pool is a flat
   // list keyed by the stable EquipmentInstance.id, like every other id lookup here).
   const instance = state.equipment.find((e) => e.id === instanceId);
@@ -536,6 +551,17 @@ export function canFitEquipment(
     if (otherPods >= cap) return { ok: false, reason: "baysFull" };
   }
 
+  // POWER BUDGET (E-MOD EM-2, plan section 4 EM-2; user answers P1 / P2 2026-10-17): checked LAST, after every
+  // capacity check, so a full hardpoint reads as hardpointsFull and only an otherwise-legal install reads as a power
+  // refusal. The ship is read as the install would really leave it (applyFit: a singleton's occupant moves out, a
+  // targeted swap's outgoing piece leaves, the crew's power efficiency read with any bridge or quarters swap), on
+  // PRISTINE values only (equipmentStatMods never reads wear). Exact-equal fits. A ship already over budget (P2) may
+  // still take an install that does not make it worse (shipPower.ts POWER_GATE_ALLOWS_NON_WORSENING_INSTALL,
+  // [PROVISIONAL]). Under P1 no live loadout reaches the boundary (emodEm2Goldens.test.ts), and the fast path skips the
+  // crew fold whenever the gross draw already fits.
+  const shortfall = installPowerShortfallBetween(state, applyFit(state, shipId, instanceId, replacingInstanceId), shipId);
+  if (shortfall > 0) return { ok: false, reason: "overPower", powerShortfall: shortfall };
+
   return { ok: true };
 }
 
@@ -583,8 +609,13 @@ export function fitEquipment(
     // a caller/log can recover it from the message.
     throw new Error(`fitEquipment blocked: ${gate.reason}`);
   }
+  return applyFit(state, shipId, instanceId, replacingInstanceId);
+}
 
-  // gate.ok guarantees the instance exists; resolve its slotType so we know how to install it.
+// The install transition itself, UNGATED: fitEquipment runs it after the gate, and the gate's power check (E-MOD EM-2)
+// reads the ship as this transition would leave it, so the check and the install can never disagree on which pieces
+// move. The caller guarantees the instance exists.
+function applyFit(state: GameState, shipId: string, instanceId: string, replacingInstanceId: string | undefined): GameState {
   const incoming = state.equipment.find((e) => e.id === instanceId)!;
   const slotType = incoming.slotType;
 

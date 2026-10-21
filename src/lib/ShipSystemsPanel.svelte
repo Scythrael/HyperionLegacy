@@ -64,7 +64,9 @@
   // source of truth for the number, no drift between the input's maxlength and the
   // validation the save runs.
   import { MAX_CAPTAIN_NAME } from "./game/captainName";
-  import type { EquipFitBlockReason } from "./game/equipment";
+  import type { EquipFitRefusal } from "./game/equipment";
+  // E-MOD EM-2: the power gate's refusal wording and the over-budget warning (P2: never evict, a warning chip).
+  import { overBudgetNotice, overPowerReasonText } from "./game/shipPower";
   import { equippedFor, fittedInSlot, canFitEquipment } from "./game/equipment";
   // The combat-loadout read helpers. combatHullTypeOf resolves the hull's combat class
   // (now non-null for every hull); computeCombatReadout folds the installed combat
@@ -543,7 +545,7 @@
     backLeg: "The ship's speed on the return leg of a mission: FTL Speed plus the Fast Return crew aboard.",
     range: "How far the ship can travel before it must turn back, in light-years; more range reaches farther destinations. The Fuel Depot extends it for the whole fleet.",
     powerOutput: "Total power the ship supplies: the hull's own generation plus any crafted Reactor Core. It needs to cover everything the installed systems draw.",
-    powerDraw: "Total power the installed systems consume, after any power efficiency from Engineering crew, Reactor Overdrive or Martian crew. Keep it at or under power output. Lower is better.",
+    powerDraw: "Total power the installed systems consume, after any power efficiency from Engineering crew, Reactor Overdrive or Martian crew. It must stay at or under power output: an install that would push it over is refused. Lower is better.",
     mass: "The ship's combined mass from its hull and installed systems; lower mass is generally easier to move.",
     guestQuarters: "Berths for passengers such as refugees, separate from the crew and the cargo hold. Passenger runs need enough of them for everyone aboard.",
   };
@@ -638,6 +640,9 @@
   //     nonzero frame armor; no emitter means 0 shields, an emitter being the shield source), surfaced
   //     in the Defensive readout, not a banner.
   $: reactorMissing = ship !== null && fittedBySlot["reactorCore"] == null;
+  // E-MOD EM-2 (user answer P2, 2026-10-17): the ship draws more power than it supplies (an officer left, a Reactor
+  // Core came off). Nothing is evicted; this warning names the shortfall and its cause. null while in budget.
+  $: powerNotice = ship !== null ? overBudgetNotice(safeState, shipId) : null;
   $: noWeaponInstalled = combatReadout ? combatReadout.missingRequired.includes("weapon") : false;
 
   // Drone reads (carrier-only). hasDroneBays gates the whole drone strip + the DRONES
@@ -913,8 +918,8 @@
 
   // Human-readable text for a blocked-install reason. Total over EquipFitBlockReason
   // (a switch, no default) so a new token surfaces as a compile error here.
-  function reasonText(reason: EquipFitBlockReason): string {
-    switch (reason) {
+  function reasonText(refusal: EquipFitRefusal): string {
+    switch (refusal.reason) {
       case "noInstance":
         return "system no longer exists";
       case "noShip":
@@ -946,6 +951,9 @@
       // 0.13.9: the system this install would move out belongs to a checked-out loadout.
       case "occupantInLoadout":
         return "the installed system belongs to a checked-out loadout (check that loadout in at the Armory first)";
+      // E-MOD EM-2: the install would leave the ship over its power budget.
+      case "overPower":
+        return overPowerReasonText(refusal.powerShortfall);
     }
   }
 
@@ -1440,6 +1448,14 @@
         <span><strong>No weapon installed:</strong> this ship cannot return fire in combat. You can still dispatch it.</span>
       </div>
     {/if}
+    <!-- E-MOD EM-2 (user answer P2): the over-budget warning, its own line beside the readiness banner above. Never
+         evicts and never blocks dispatch (power gates installs only); names the shortfall and where it comes from. -->
+    {#if powerNotice !== null}
+      <div class="ss-advisory" role="status">
+        <span class="ss-advisory-dot" aria-hidden="true"></span>
+        <span><strong>{powerNotice.chip}:</strong> {powerNotice.cause}</span>
+      </div>
+    {/if}
 
     <div class="ss-main" class:embedded>
       <!-- LEFT: the loadout board (0.13.2 Unit 4, Layout C). Function-grouped slots, each
@@ -1757,7 +1773,7 @@
                         class:sel={installCandidateId === spare.id}
                         class:blocked={!gate.ok}
                         aria-pressed={installCandidateId === spare.id}
-                        aria-label={`${spareLabel(spare)}: ${spare.rarity} grade, iL ${spare.iLevel}.${gate.ok ? "" : " Cannot install: " + reasonText(gate.reason) + "."} Compare.`}
+                        aria-label={`${spareLabel(spare)}: ${spare.rarity} grade, iL ${spare.iLevel}.${gate.ok ? "" : " Cannot install: " + reasonText(gate) + "."} Compare.`}
                         on:click={() => selectCandidate(spare.id)}
                         on:mouseenter={(e) => hoverTip(spare, e.currentTarget)}
                         on:mouseleave={hoverOut}
@@ -1822,9 +1838,9 @@
                       <button
                         class="ss-act ss-act-install ss-install-commit"
                         disabled={!gate.ok || shipDamaged}
-                        title={gate.ok ? undefined : reasonText(gate.reason)}
+                        title={gate.ok ? undefined : reasonText(gate)}
                         on:click={() => handleInstall(installCandidate.id)}
-                      >{gate.ok ? (replacingId !== undefined ? "Swap" : "Install") : "Blocked: " + reasonText(gate.reason)}</button>
+                      >{gate.ok ? (replacingId !== undefined ? "Swap" : "Install") : "Blocked: " + reasonText(gate)}</button>
                     </div>
                   {:else}
                     <p class="ss-note ss-note-dim ss-compare-empty">Select a system to compare it with what is installed.</p>

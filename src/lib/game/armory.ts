@@ -30,6 +30,8 @@ import { salvageReservedInstanceIds } from "./reservation";
 // its fitment changed. Checkout / check-in reuse it so a loadout can never be swapped mid-mission (the
 // user's balance-loophole guard). One-way import (equipment.ts does not import armory.ts), no cycle.
 import { onMissionLock, pieceEquipRequirement } from "./equipment";
+// E-MOD EM-2: the power install gate, read on the ship as the check-out would leave it.
+import { installPowerShortfallBetween } from "./shipPower";
 // Ground team loadouts (GO-17): the crew lock, the slot reader, the member wear rules. None of these modules
 // imports armory.ts (only personnelRosters.ts and the UI do), so no cycle.
 import { shipCrewLocked } from "./awayTeam";
@@ -259,7 +261,26 @@ export function uninstallFromLoadout(state: GameState, loadoutId: string, slotKe
 // the ship's prior MANUAL gear (fitted but uncommitted, including Standard-Issue baselines) returns to
 // the spare pool, and the loadout's committed systems become fitted to the ship so equippedFor() reads
 // the loadout's set unchanged. Atomic: all of that lands in the one new state.
+//
+// E-MOD EM-2 (user answers P1 / P2 2026-10-17): also refused when the WHOLE set, the loadout's own Reactor Core
+// included, would leave the ship over its power budget (the same gate canFitEquipment applies, read on the ship as
+// the check-out would leave it, pristine values; [PROVISIONAL] a ship already over budget may take a set that does
+// not make it worse). loadoutCheckOutPowerShortfall names the power still needed, for the refusal text.
 export function checkOutLoadout(state: GameState, loadoutId: string, shipId: string): GameState {
+  const next = checkOutTransition(state, loadoutId, shipId);
+  if (next === state) return state;
+  return installPowerShortfallBetween(state, next, shipId) > 0 ? state : next;
+}
+
+// The power a check-out still needs (0 = the power gate lets it through, or the check-out is refused for another
+// reason, or is a no-op). The Armory and the roster apply show it as "needs N more power". Pure.
+export function loadoutCheckOutPowerShortfall(state: GameState, loadoutId: string, shipId: string): number {
+  const next = checkOutTransition(state, loadoutId, shipId);
+  return next === state ? 0 : installPowerShortfallBetween(state, next, shipId);
+}
+
+// The check-out itself, every rule but the power gate (same-ref no-op on a refusal).
+function checkOutTransition(state: GameState, loadoutId: string, shipId: string): GameState {
   const loadout = state.loadouts.find((l) => l.id === loadoutId);
   if (loadout === undefined || loadout.checkedOutToShipId !== null) return state;
   const ship = state.ships.find((s) => s.id === shipId);

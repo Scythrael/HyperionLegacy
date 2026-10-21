@@ -10,11 +10,10 @@
 //   - canFitByPower(reactorOutput, currentDraw, candidateDraw): would adding one
 //     more drawing system still fit under the reactor.
 //
-// ⚠️ SEAM (integration phase, NOT this patch): the FIT-TIME UI gate that CALLS
-// canFitByPower (blocking an over-budget install) is the integration phase, along
-// with real per-ship reactor numbers (design S10 also has reactorTier gating
-// equip/module tiers, forward). Here we ship only the datum (CombatWeapon.
-// powerDraw) + these pure helpers, unit tested.
+// E-MOD EM-2 (0.14.0): the install gate is live. It reads the whole ship (hull base
+// output + Reactor Core, net draw after power efficiency) through shipPower.ts and
+// refuses in equipment.ts canFitEquipment (reason overPower), with this file's
+// boundary rule (exact-equal fits). canFitByPower stays the one-candidate form.
 //
 // Integer math throughout (design S0.4): powerDraw and powerOutput are whole
 // numbers, so the budget is exact and drift-proof. The boundary rule is

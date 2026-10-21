@@ -374,6 +374,32 @@ output is refused). Uninstall is NEVER blocked and nothing is ever evicted (call
 boundary (exact-equal installs); a census proves no current maximum loadout is refused under P1 (a); wear never read.
 UI: refusal text through the existing reason switch (exhaustive).
 
+*Carry note (EM-2 built 2026-10-21, on 624b0c5).* Goldens first: `emodEm2Goldens.test.ts` pins every install path
+(hand install piece by piece, the reactor swap back to Standard Issue, the item-side Install on... targets, the Armory
+check-out, a gear-only roster's linked loadout) for the heaviest crafted loadout on every hull, bare and with the
+power crew; every verdict reads ok and no pin moved with the gate (the P1 census: no live loadout is refused; every
+piece's intrinsic draw is minted from SLOT_BASE_PHYSICALS / WEAPON_DEFS / DRONE_POD_BASE_POWER_DRAW, none of which has
+ever been raised in git history, and rolled powerDrawReduction only lowers it, so no older piece draws more than the
+census). Built: `canFitEquipment` returns `overPower` LAST (after hardpointsFull / baysFull), reading the ship as the
+install would really leave it (`applyFit`, the same transition fitEquipment runs) through
+`shipPower.ts installPowerShortfallBetween` (pristine values; a fast path skips the crew fold whenever the gross draw
+fits, so every live ship pays nothing); the refusal carries `powerShortfall` (`EquipFitRefusal`), and every reason
+switch now takes the refusal (App `devFitReasonText`, ShipSystemsPanel `reasonText`, `buildInstallOnRows`), all reading
+`overPowerReasonText` ("needs N more power. Install a stronger Reactor Core or remove a powered system", the mockup's
+wording). `checkOutLoadout` refuses a whole set over budget (the loadout's own Reactor Core counts, the ship's manual
+gear goes to storage so its core does not); `loadoutCheckOutPowerShortfall` feeds the Armory's inline refusal line and
+log; `rosterLoadoutPowerShortfall` names it in the roster apply log (the rest of the roster still applies). Uninstall is
+never blocked and nothing is evicted (P2): `overBudgetNotice` is the Ship Systems warning ("Over budget by N", the cause
+from the ship as it is). **[PROVISIONAL] `POWER_GATE_ALLOWS_NON_WORSENING_INSTALL` (shipPower.ts):** on a ship already
+over budget, an install that does not make the shortfall worse passes (a bridge, an equal swap, a stronger but still
+short Reactor Core); its "needs N" is what the install adds. Off = every install that ends over budget is refused.
+Power efficiency now moves the verdict (powerInstallGate.test.ts: a 90 draw on an 85 hull is refused bare, passes with
+one Overdrive officer, with Power Discipline, and the Martian racial cuts the candidate draw). **Honest scope:** under
+P1 no crafted loadout reaches the boundary today, so the gate and the efficiency sources first bind in play when
+modules (EM-5) and Class II+ drives (G2-4) add draw. **For EM-3 (after WR-8):** the warning's strength line ("Weapons
+and shield recharge at X%") joins `overBudgetNotice` with the penalty; freeze `powerSupplyPercent` from
+`shipPowerTotals` (pristine output vs net draw).
+
 **EM-3 Combat over-budget penalty.** `powerSupplyPercent` frozen at battle build from pristine output vs net draw;
 multiplies weapon damage and shield recharge beside `reactorDamagePercent` (call P6). 100 when in budget, so every
 golden holds unless a ship is over budget. Runs AFTER WR-8 (shared bridge.ts and patrol goldens). Tests: replay parity;
