@@ -11243,6 +11243,9 @@ export const SLOT_BASE_PHYSICALS: Record<
 // IDENTICALLY pre/post migration. The magnitude is a single TUNABLE knob: the actual
 // baseline power is a device-check-stage decision made WHEN the fold-in curves are
 // tuned and the (mockup-gated) equipment UI ships, deliberately deferred to here.
+// 0.14.0: the away-team MEMBER baselines are the exception. Their signature lines start here at 0 and then take
+// the Quartermaster set's real stats (STANDARD_ISSUE_MEMBER_GEAR, below generateStandardIssue); ship baselines
+// are untouched.
 export const STANDARD_ISSUE_IMPLICIT_MAGNITUDE = 0;
 
 // The fixed item level stamped on every Standard-Issue baseline. WHY a floor CONST (not a
@@ -11348,7 +11351,89 @@ export function generateStandardIssue(a: {
   if (isMemberSlotType(a.slotType) || varietyHasOwnIdentity(variety)) {
     piece.moduleVariant = varietyKey;
   }
-  return piece;
+  // 0.14.0: an away-team MEMBER baseline carries its real Standard-Issue lines (STANDARD_ISSUE_MEMBER_GEAR below).
+  // The SAME transform re-stats a held piece on every load (save.ts), so a minted and a migrated piece never differ.
+  return withStandardIssueMemberLines(piece);
+}
+
+// ============================================================================
+// QUARTERMASTER STANDARD-ISSUE MEMBER GEAR: real stats (0.14.0)
+// ============================================================================
+// User rulings (docs/plans/2026-10-15-safe-first-runs-plan.md, USER ANSWERS):
+//   - 2026-10-16 "Tier I after the first run": comfortable Tier I = a FULL away team wearing the Quartermaster's
+//     first Standard-Issue set ("Full team + upgrade").
+//   - 2026-10-16 "Standard-Issue stats", verbatim: "Each piece of gear gets stats. Similar to ship systems. Except
+//     with far fewer slots. [...] Weapon provides offensive stats. Armor provides defensive stats. Kit provides
+//     utility and potentially stats associated with that based on the role the tool is designed for."
+//   - 2026-10-16 "Member slots": "Implants X1/X2 depending on racial. Keep this as is." The free set covers Armor,
+//     Weapon and Tool; implants have no Standard-Issue floor (REQUISITION_CATALOGUE.implant is null).
+//   - 2026-10-21 "Fade Weak + build SI gear": about +15% squad power in the SF-3 sim meets both nominal Tier I
+//     targets (a full rank 1 team completes 95% of runs and wins 90% of its Vault / Subterranean sites).
+//
+// HOW A PIECE'S LINES ARE SET. Every Standard-Issue member piece carries `points` stat points (quality-less: no
+// quality, rarity or item-level roll, the same on every piece), split over its SLOT ROLE's lines by the shares below.
+// The lines are ordinary implicit lines on the instance, so every existing consumer reads them unchanged (the roster
+// snapshot at dispatch: battle hp / power / armor / accuracy, fieldwork, finds, hazard; the tooltips). Points convert
+// through awayTeam.ts GEAR_POINT_BUMP like any crafted line. A full Security kit (Pulse Rifle + Ballistic Weave + Med
+// Kit) at 12 points: +6% power, +2.4% accuracy, +17.5% armor and +17% HP per member.
+//
+// ALWAYS BELOW CRAFTED. A crafted member piece mints at least at craftedItemLevelFloor (itemgen.ts): the smallest
+// item level whose Quality 0 Standard budget exceeds these points, so every crafted piece, at any crafting level and
+// in every tier, out-points the free one (siMemberGear.test.ts proves it for every variety and every affix pick; a
+// grenade whose affix rolled the +1 carry line holds at least the same effect points plus that extra charge).
+//
+// ⚠️ [PROVISIONAL] `points` (user 2026-10-21 asked for "about +15% squad power"; 12 is the smallest even split whose
+// full set meets both targets with margin in the SF-3 sweep at full strength: 193 of 200 runs complete, 356 of 365
+// Vault / Subterranean objectives won; 10 points reaches exactly 190 of 200). Mutable ONLY for the golden switch
+// (siMemberGearSwitch.fixture.ts sets it to 0: every piece then mints and loads exactly as before this change).
+export const STANDARD_ISSUE_MEMBER_GEAR: { points: number } = { points: 12 };
+
+// The SLOT-ROLE shares per issued variety (the Quartermaster's per-squad rows, quartermaster.ts REQUISITION_CATALOGUE),
+// each a subset of the lines its variety can roll, and each a line its squad's consumers READ (everything wired):
+//   Weapon = offense, Armor = defense, Tool = the line of the role it is built for.
+//   Security: Pulse Rifle   power + accuracy (its two signature lines)
+//             Ballistic Weave armor + HP (the suit's defensive lines; its accuracy lean stays a crafted roll)
+//             Med Kit       HP (its signature line; the heal itself still needs Medical Training, D20)
+//   Science:  Flora Scanner organics yield + fieldwork (its survey role, on its tuned bodies)
+//             Sidearm, Field Suit: NO lines. Science never fights (D2), so every line those two can roll except the
+//             Field Suit's fieldwork affix is inert until the D26 line swap (wiring SCIENCE_LINE_SWAP) gives Science
+//             weapons and suits fieldwork / hazard / find lines; a free fieldwork line would out-do every crafted Field
+//             Suit that rolls none. They stay stat-neutral floors until then.
+//   Prospecting (hidden with the squad): each piece's two signature lines, YIELD / hazard / GRADE plus FIELD.
+// Shares sum to 1 per row. A variety absent here mints with its zero signature lines, as before.
+export const STANDARD_ISSUE_MEMBER_SHARES: Readonly<Record<string, Readonly<Partial<Record<MemberGroundStatKey, number>>>>> = {
+  pulseRifle: { groundPower: 0.5, groundAccuracy: 0.5 },
+  ballisticWeave: { groundArmor: 0.6, groundHp: 0.4 },
+  medKit: { groundHp: 1 },
+  floraScanner: { groundOrganicsYield: 0.5, groundFieldwork: 0.5 },
+  plasmaCutter: { groundOreYield: 0.5, groundFieldwork: 0.5 },
+  excavatorSuit: { groundHazardResist: 0.5, groundFieldwork: 0.5 },
+  assayScanner: { groundOreGrade: 0.5, groundFieldwork: 0.5 },
+};
+
+// The Standard-Issue lines of member variety `varietyKey` (whole points, only the nonzero ones), {} for a variety with
+// no row or while `points` is 0. Pure.
+export function standardIssueMemberLines(varietyKey: string): Record<string, number> {
+  const shares = STANDARD_ISSUE_MEMBER_SHARES[varietyKey];
+  const out: Record<string, number> = {};
+  if (shares === undefined) return out;
+  for (const [stat, share] of Object.entries(shares)) {
+    const v = Math.round(STANDARD_ISSUE_MEMBER_GEAR.points * (share ?? 0));
+    if (v > 0) out[stat] = v;
+  }
+  return out;
+}
+
+// `piece` carrying its Standard-Issue member lines: a genuine Standard-Issue MEMBER baseline (the strict
+// isStandardIssueBaseline, never a dev / crafted / loot piece) gets each line set to the catalog value; anything
+// else, or a piece already carrying them, is returned AS IS (the same reference). Used by the mint above and by
+// save.ts on every load, so a piece held since before this change gains the lines and a re-load is a no-op. Never
+// touches rolledStats, mass, durability or any other field. Pure.
+export function withStandardIssueMemberLines(piece: EquipmentInstance): EquipmentInstance {
+  if (!isMemberSlotType(piece.slotType) || !isStandardIssueBaseline(piece) || piece.moduleVariant === undefined) return piece;
+  const lines = standardIssueMemberLines(piece.moduleVariant);
+  const stale = Object.entries(lines).some(([stat, v]) => piece.implicitStats[stat] !== v);
+  return stale ? { ...piece, implicitStats: { ...piece.implicitStats, ...lines } } : piece;
 }
 
 // The ONE shared "fit a ship out with its baseline floor" helper (Omega 4, DRY):

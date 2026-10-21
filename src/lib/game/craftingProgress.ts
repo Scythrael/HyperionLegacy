@@ -438,6 +438,8 @@ export function craftedItemLevelReadout(a: {
   blueprintTier: number;
   achievementBoost?: number;
   faTalentBonus?: number;
+  // 0.14.0: one blueprint's mint floor (itemgen.ts craftedItemLevelFloor for its output slot); absent for a tier row.
+  floor?: number;
 }): CraftedItemLevelReadout {
   const ceiling = itemLevelCeilingForTier(a.blueprintTier);
   const iLevel = computeItemLevel({
@@ -445,6 +447,7 @@ export function craftedItemLevelReadout(a: {
     achievementBoost: a.achievementBoost ?? 0,
     faTalentBonus: a.faTalentBonus ?? 0,
     itemTierCap: ceiling,
+    floor: a.floor,
   });
   return { iLevel, ceiling, atCeiling: iLevel >= ceiling };
 }

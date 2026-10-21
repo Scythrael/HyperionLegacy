@@ -34,6 +34,7 @@ import {
   PRODUCIBLE_EQUIPMENT_RARITIES,
   rarityIndex,
   SLOT_BASE_PHYSICALS,
+  STANDARD_ISSUE_MEMBER_GEAR,
   isMemberSlotType,
   varietyHasOwnIdentity,
   type BlueprintDef,
@@ -207,13 +208,31 @@ export const QUALITY_DURABILITY_BONUS = 0.2;
 // achievement and FA-talent boosts, all ADDITIVE, then CLAMPED to the tier cap so
 // a piece can never out-level the content tier it drops in. Pure arithmetic.
 // ============================================================================
+// 0.14.0: an optional `floor` (craftedItemLevelFloor below, for away-team member gear) lifts a low result up to it,
+// never past the tier cap. Absent: the formula above, unchanged.
 export function computeItemLevel(a: {
   craftingLevel: number;
   achievementBoost: number;
   faTalentBonus: number;
   itemTierCap: number;
+  floor?: number;
 }): number {
-  return Math.min(a.craftingLevel + a.achievementBoost + a.faTalentBonus, a.itemTierCap);
+  const level = Math.min(a.craftingLevel + a.achievementBoost + a.faTalentBonus, a.itemTierCap);
+  return a.floor === undefined ? level : Math.max(level, Math.min(a.floor, a.itemTierCap));
+}
+
+// The lowest item level a CRAFTED away-team member piece mints at (0.14.0), so crafted gear stays above the free
+// Quartermaster Standard-Issue set at every crafting level and in every tier: the smallest item level whose Quality
+// 0 Standard budget (computeBudget, the weakest craft) exceeds the Standard-Issue points (model.ts
+// STANDARD_ISSUE_MEMBER_GEAR, 12 points: item level 7, a 14 point budget). Without the floor a crafting level 1 to
+// 6 craft would carry 2 to 12 points, no more than the free piece. undefined for every ship slot (no floor; their
+// Standard-Issue pieces carry no budget), and for member gear while the Standard-Issue points are 0. Derived, never a
+// second number: it moves with the points. Pure.
+export function craftedItemLevelFloor(slotType: string): number | undefined {
+  if (!isMemberSlotType(slotType) || STANDARD_ISSUE_MEMBER_GEAR.points <= 0) return undefined;
+  let level = 1;
+  while (computeBudget(level, 0, 0) <= STANDARD_ISSUE_MEMBER_GEAR.points) level += 1;
+  return level;
 }
 
 // ============================================================================
@@ -833,6 +852,7 @@ export function previewCraftOutcome(
     achievementBoost: opts.achievementBoost ?? 0,
     faTalentBonus: opts.faTalentBonus ?? 0,
     itemTierCap: blueprint.tier * EQUIPMENT_ILEVEL_CAP_PER_TIER,
+    floor: craftedItemLevelFloor(slotType), // 0.14.0: the same member-gear floor the Fabricator mint applies
   });
 
   const rarities = PRODUCIBLE_EQUIPMENT_RARITIES;

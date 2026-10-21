@@ -300,10 +300,11 @@ export const REQUISITION_CATALOGUE: RequisitionCatalogue = {
   // crewman takes the SAME baseline"). One free Armor / Weapon / Tool per squad type, the anti-softlock
   // floor once member gear matters: a squad whose gear was salvaged can always be kitted out again.
   //
-  // WHY THESE VARIETIES. A Standard-Issue piece's stat lines sit at the floor magnitude (0), so the
-  // variety contributes no numbers; what it DOES contribute is its fixed catalog behavior (weapon range,
-  // ground effect, encounter dial, planet tuning). So each row names the variety whose behavior is the
-  // most basic for its squad, keeping specialties a crafted reward:
+  // WHY THESE VARIETIES. A Standard-Issue member piece carries the Quartermaster set's modest, quality-less
+  // stat lines by slot role (0.14.0, model.ts STANDARD_ISSUE_MEMBER_GEAR: weapon offense, armor defense, tool
+  // its role line; always below crafted gear); the variety also contributes its fixed catalog behavior
+  // (weapon range, ground effect, encounter dial, planet tuning). So each row names the variety whose
+  // behavior is the most basic for its squad, keeping specialties a crafted reward:
   //   Security armor   Ballistic Weave  the LIGHT suit (the Hardsuit is the heavy upgrade). No effect.
   //   Security weapon  Pulse Rifle      the squad's standard long gun with NO ground effect (the
   //                                     Scattergun's group hit and the Baton's stun are specialties).
@@ -631,7 +632,8 @@ function mintForRow(
       });
     case "member":
       // The same generator the ship's economy floors use, told which variety to mint: the implicit lines
-      // sit at the floor magnitude and the variety is stamped as moduleVariant (see generateStandardIssue).
+      // carry the Standard-Issue member set's values (0.14.0) and the variety is stamped as moduleVariant
+      // (see generateStandardIssue).
       // It lands as a spare worn by nobody, exactly as a ship baseline lands installed on nothing.
       return generateStandardIssue({ slotType, varietyKey: mint.varietyKey, fittedToShipId: null, allocateId });
   }

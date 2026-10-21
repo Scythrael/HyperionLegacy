@@ -27,6 +27,7 @@ import { REQUISITION_ENTRIES, requisitionEntriesFor, requisitionStandardIssue } 
 import { deserialize, migrate, serialize } from "./save";
 import { asExpeditionVeteran } from "./awayTeamTestFixtures";
 import { goldenJson, onHull, runOutcome, SWEEP_END, withCrew, withoutRunCounts, fnv } from "./firstRunsGoldens.fixture";
+import { withSiMemberGearOff } from "./siMemberGearSwitch.fixture";
 
 const hash = (v: unknown): string => fnv(goldenJson(withoutRunCounts(v)));
 // Five of the SF-3 sweep's seeds (makeExpeditionSeed(0x1234567, i), the section 2.5 B method), so the runs carry
@@ -135,7 +136,27 @@ export const BEFORE: Readonly<Record<string, string>> = {
   ship: "f0246bf0",
 };
 
-const GOLDEN: Readonly<Record<string, string>> = { ...BEFORE };
+// After the engine edit. Every move, and why (nothing else may move):
+const GOLDEN: Readonly<Record<string, string>> = {
+  ...BEFORE,
+  // The issued member pieces carry their Standard-Issue lines (model.ts STANDARD_ISSUE_MEMBER_GEAR).
+  mint: "2653e289",
+  // The frozen roster converts those lines (power, accuracy, armor, HP, fieldwork, organics yield).
+  snapshot: "8ad68461",
+  // The same crew, stronger: more objectives done and fewer lost fights on every seed (nominal Tier I, full hazard).
+  "run:nominal": "3c60fb03 8/10:43 7/7:32 5/5:37 15/15:39 10/13:40",
+  // The training run already clears everything; only the frozen roster's lines (and the fights they shape) move.
+  "run:training": "cb21de25 12/12:0 7/7:0 5/5:0 15/15:0 13/13:0",
+  // This fixture dispatches on the current code (the kit carries its lines). The pre-change in-flight run is proved
+  // unmoved below, with the dispatch made on the switched-off kit and the load on the live code.
+  inflight: "5a49e17",
+  // The crafted member floor (itemgen.ts craftedItemLevelFloor): crafting level 1 now mints at item level 7. Level 10
+  // is above the floor and does not move.
+  "crafted:pulseRifleBp:1": "277d14a1",
+  "crafted:ballisticWeaveBp:1": "6cf361df",
+  "preview:pulseRifleBp:1": "fa1713dc",
+  "preview:ballisticWeaveBp:1": "7cc1bb19",
+};
 
 describe("Standard-Issue member gear goldens", () => {
   it("mint and snapshot", () => {
@@ -158,5 +179,36 @@ describe("Standard-Issue member gear goldens", () => {
   it("controls: a bare crew and the ship rows", () => {
     expect(bareRunNominal()).toBe(GOLDEN.bare);
     expect(shipMint()).toBe(GOLDEN.ship);
+  });
+});
+
+// ===== the "turn it off" proof =====
+// With the Standard-Issue points switched to 0 (siMemberGearSwitch.fixture.ts) every fixture reproduces its capture
+// from before the change, so the stats (and the crafted floor they derive) are the ONLY thing the change moved.
+describe("Standard-Issue member gear: switched off, every fixture reproduces its pre-change capture", () => {
+  it("every fixture", () => {
+    withSiMemberGearOff(() => {
+      expect(siMint()).toBe(BEFORE.mint);
+      expect(siSnapshot()).toBe(BEFORE.snapshot);
+      expect(siRunNominal()).toBe(BEFORE["run:nominal"]);
+      expect(siRunTraining()).toBe(BEFORE["run:training"]);
+      expect(siInflight().exp).toBe(BEFORE.inflight);
+      for (const [bp, level] of CRAFTED_CASES) {
+        expect(siCrafted(bp, level), `${bp}:${level}`).toBe(BEFORE[`crafted:${bp}:${level}`]);
+        expect(siPreview(bp, level), `${bp}:${level}`).toBe(BEFORE[`preview:${bp}:${level}`]);
+      }
+      expect(bareRunNominal()).toBe(BEFORE.bare);
+      expect(shipMint()).toBe(BEFORE.ship);
+    });
+  });
+
+  it("an in-flight run from before the change plays out byte-identically, and its held kit gains the lines on load", () => {
+    // Kitted and dispatched as a pre-change build did (every Standard-Issue line 0), then saved, loaded and advanced
+    // on the live code: the run is the pre-change capture, while the loaded save's pieces now carry their lines.
+    const { exp, equipment } = siInflight(() => withSiMemberGearOff(() => asExpeditionVeteran(kitted())));
+    expect(exp).toBe(BEFORE.inflight);
+    const rifles = equipment.filter((p) => p.moduleVariant === "pulseRifle");
+    expect(rifles.length).toBeGreaterThan(0);
+    for (const p of rifles) expect(p.implicitStats).toEqual({ groundPower: 6, groundAccuracy: 6 });
   });
 });

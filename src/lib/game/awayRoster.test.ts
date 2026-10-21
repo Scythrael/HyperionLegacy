@@ -21,6 +21,7 @@ import { describe, it, expect } from "vitest";
 import {
   freshState,
   generateStandardIssue,
+  STANDARD_ISSUE_MEMBER_GEAR,
   type AwayMember,
   type AwayTeamType,
   type EquipmentInstance,
@@ -35,6 +36,7 @@ import {
   STATUS_RESIST_CAP,
 } from "./awayTeam";
 import { rankMagnitudeFactor } from "./crewRank";
+import { withSiMemberGearOff } from "./siMemberGearSwitch.fixture";
 import { advanceExpedition, expeditionCandidates, makeExpeditionSeed, startExpedition } from "./expedition";
 import {
   applyStatus,
@@ -196,13 +198,23 @@ describe("snapshotAwayRoster: member power (gear conversion + traits)", () => {
     ]);
   });
 
-  it("a Standard-Issue baseline converts to no bump at all", () => {
+  // 0.14.0: the Quartermaster's Standard-Issue set carries real lines (model.ts STANDARD_ISSUE_MEMBER_GEAR), which
+  // convert like any crafted line. Switched off, a baseline converts to no bump at all, as before.
+  it("a Standard-Issue baseline converts its Standard-Issue lines (none with the stats switched off)", () => {
     let n = 900;
-    const si = generateStandardIssue({ slotType: "memberWeapon", fittedToShipId: null, allocateId: () => `equip-${n++}`, varietyKey: "pulseRifle" });
-    const s = withRoster([member("member-1", "security")], [{ ...si, fittedToMemberId: "member-1" }]);
+    const mint = () => generateStandardIssue({ slotType: "memberWeapon", fittedToShipId: null, allocateId: () => `equip-${n++}`, varietyKey: "pulseRifle" });
+    const s = withRoster([member("member-1", "security")], [{ ...mint(), fittedToMemberId: "member-1" }]);
     const [m] = snapshotAwayRoster(s, ship(s)).security;
-    for (const v of Object.values(m.groundStats)) expect(v).toBe(0);
-    expect(m.gear[0].points).toBe(0);
+    const points = STANDARD_ISSUE_MEMBER_GEAR.points;
+    expect(m.groundStats.power).toBeCloseTo((points / 2) * GEAR_POINT_BUMP.power, 10);
+    expect(m.groundStats.accuracy).toBeCloseTo((points / 2) * GEAR_POINT_BUMP.accuracy, 10);
+    expect(m.gear[0].points).toBe(points);
+    withSiMemberGearOff(() => {
+      const off = withRoster([member("member-1", "security")], [{ ...mint(), fittedToMemberId: "member-1" }]);
+      const [z] = snapshotAwayRoster(off, ship(off)).security;
+      for (const v of Object.values(z.groundStats)) expect(v).toBe(0);
+      expect(z.gear[0].points).toBe(0);
+    });
   });
 });
 

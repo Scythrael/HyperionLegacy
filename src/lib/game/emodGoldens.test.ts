@@ -396,8 +396,10 @@ const GOLDEN: Record<string, unknown> = {
   // FKR-7 alone reproduces c844bd4, and reading back all three reproduces 30489b98 (asserted below).
   // Re-pinned by gear wear steps 1 and 2 (60d00075 -> 48a843b0): the `wear` system's 41 pending entries added and the
   // four OC-D14 durability audit rows re-owned; read back (`gw`), the snapshot is 60d00075 (asserted below).
+  // Re-pinned by the Quartermaster Standard-Issue member lines (48a843b0 -> be071560): 13 `si:` entries added, nothing
+  // else; every read-back leaves them out, and with nothing else read back the rows hash to 48a843b0 (asserted below).
   registry: [
-    "48a843b0",
+    "be071560",
     "relic:RELICS:precursorLens",
     "ship:audit:reactorCoreNet",
   ],
@@ -551,9 +553,13 @@ const GW_BEFORE: Readonly<Record<string, string>> = Object.fromEntries(
 );
 const REGISTRY_BEFORE_GEAR_WEAR = "60d00075";
 type Back = { readonly racials?: boolean; readonly g14?: boolean; readonly fkr7?: boolean; readonly fkr6?: boolean; readonly g13?: boolean; readonly gw?: boolean };
+// The Quartermaster Standard-Issue member lines (0.14.0) are additions only (the `si:` entries) and newer than every
+// slice below, so every read-back leaves them out; with nothing else read back the rows hash to the pin before them.
+const REGISTRY_BEFORE_SI = "48a843b0";
 function rowsBack(back: Back): unknown[][] {
   return WIRING_REGISTRY.filter(
     (e) =>
+      !e.id.startsWith("si:") &&
       !(back.racials && RACIALS_ADDED_IDS.has(e.id)) &&
       !(back.g14 && G14_ADDED_IDS.has(e.id)) &&
       !(back.fkr7 && FKR7_ADDED_IDS.has(e.id)) &&
@@ -634,6 +640,7 @@ describe("EM-0 goldens (re-pinned by EM-1 where named)", () => {
     const snapshot = hash(WIRING_REGISTRY.map((e) => [e.id, e.status, e.contexts, e.probe ?? null]));
     const emod = WIRING_REGISTRY.filter((e) => e.status.kind !== "live" && "owner" in e.status && /E-MOD/.test(e.status.owner)).map((e) => e.id).sort();
     pinned("registry", [snapshot, ...emod]);
+    expect(hash(rowsBack({}))).toBe(REGISTRY_BEFORE_SI);
     // Gear wear steps 1 and 2 are the only cause of its latest move: with them read back, the snapshot before them.
     expect(hash(rowsBack({ gw: true }))).toBe(REGISTRY_BEFORE_GEAR_WEAR);
     // With the later moves read back (FKR-6 and G1-3, the test below) and ML-1's entries left out: the snapshot before ML-1.
