@@ -32,12 +32,12 @@ import {
 import { dispatchCaptainOnMission, dispatchCaptainOnPatrol, economyTick, installMissingCombatBaselines, itemCap, recallCaptain, startProcess } from "./tick";
 import { itemTotal } from "./inventory";
 import { RELIC_SETS } from "./relics";
-import { advanceExpedition, claimExpedition, expeditionCandidates, startExpedition } from "./expedition";
+import { advanceExpedition, claimExpedition, expeditionCandidates } from "./expedition";
 import { applyGroundOpsInjuries } from "./injuries";
 import { dispatchCaptainOnShortRange } from "./shortRangeBoard";
 import { resolveCrew } from "./crewOverlay";
 import { editShip, installPiece, wiringBase } from "./wiring/probes";
-import { asLegacyDispatch, asPreCurveDispatch, ensureMinimumAwayTeam, plainAwayMember, withSlottedAwayTeams } from "./awayTeamTestFixtures";
+import { asLegacyDispatch, asPreCurveDispatch, ensureMinimumAwayTeam, plainAwayMember, withSlottedAwayTeams, dispatchPastPropulsion } from "./awayTeamTestFixtures";
 import {
   OVERTIME_CREDITS_PER_MINUTE,
   OVERTIME_MAX_STEPS,
@@ -501,7 +501,7 @@ describe("time skip: an expedition finishes at once with the findings its run wo
   const legacyRun = () => {
     const ready = ensureMinimumAwayTeam(freshState(), "ship-1");
     const cands = expeditionCandidates(ready, "ship-1");
-    const r = asLegacyDispatch(startExpedition(ready, "ship-1", 1, cands[0].id, true));
+    const r = asLegacyDispatch(dispatchPastPropulsion(ready, "ship-1", 1, cands[0].id, true));
     expect(r.success).toBe(true);
     return r.next;
   };
@@ -528,7 +528,7 @@ describe("time skip: an expedition finishes at once with the findings its run wo
     const cands = expeditionCandidates(ready, "ship-1");
     // Safe first runs SF-3: pinned on the run as dispatched before the curve (a new save's first ordinary run sits at the
     // curve's floor, gentle enough to finish).
-    const r = asPreCurveDispatch(startExpedition(ready, "ship-1", 1, cands[0].id, true));
+    const r = asPreCurveDispatch(dispatchPastPropulsion(ready, "ship-1", 1, cands[0].id, true));
     expect(canApplyTimeSkip(r.next, { kind: "expedition", id: r.next.expeditions[0].id })).toEqual({ ok: false, reason: "cannotFinish" });
     expect(canApplyTimeSkip(freshState(), { kind: "expedition", id: "expedition-9" })).toEqual({ ok: false, reason: "notFound" });
   });
@@ -541,7 +541,7 @@ describe("time skip: a Ground Ops expedition finishes now and its claim matches 
   const START = 5000; // the skip happens with the game clock well past 0
   const dispatched = (seed: number): GameState | null => {
     const s = withSlottedAwayTeams({ ...freshState(), gameTimeSeconds: START, awayMembers: SQUAD.map((m) => ({ ...m })), nextAwayMemberId: 100, expeditionSeed: seed });
-    const r = startExpedition(s, "ship-1", 1, expeditionCandidates(s, "ship-1")[0].id);
+    const r = dispatchPastPropulsion(s, "ship-1", 1, expeditionCandidates(s, "ship-1")[0].id);
     return r.success && r.next.expeditions[0]?.groundOps ? r.next : null;
   };
   // Normal play: the run advanced on its own clock to its natural end E, claimed at E.

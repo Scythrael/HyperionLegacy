@@ -24,8 +24,7 @@ import {
   expeditionCandidates,
   expeditionLaunchView,
   makeExpeditionSeed,
-  startExpedition,
-} from "./expedition";
+  } from "./expedition";
 import { TRAINING_FELL_BACK_TEXT, groundOpsLogText } from "./groundOps";
 import { generateEncounter } from "./gambit";
 import { isTrainingRun } from "./enemyRanks";
@@ -34,7 +33,7 @@ import { FIRST_RUN_ENEMY_SCALE, FIRST_RUN_MAX_ENEMIES } from "./runDifficulty";
 import { TELESCOPE_DETAIL } from "./telescope";
 import { generateRiskProfile } from "./riskFactors";
 import { BOARDING_ATTEMPT_CHANCE, SHIP_EVENT_DRAW_UNITS, chanceUnits, resolveShipScanEventFromDraws, type ShipEventDraws } from "./shipScanEvents";
-import { asExpeditionVeteran, withoutSafeFirstRuns, withoutVoyage } from "./awayTeamTestFixtures";
+import { asExpeditionVeteran, withoutSafeFirstRuns, withoutVoyage, dispatchPastPropulsion } from "./awayTeamTestFixtures";
 import { tierNominalSeconds } from "./voyage";
 import { SWEEP_END } from "./firstRunsGoldens.fixture";
 import { installMissingCombatBaselines } from "./tick";
@@ -56,7 +55,7 @@ import {
 const ORDINARY_FLOOR: NonNullable<Expedition["difficulty"]> = { version: 1, firstRun: false, ramp: 0, tier: 1 };
 
 function dispatched(state: GameState, cand = "cand-0"): { next: GameState; exp: Expedition } {
-  const res = startExpedition(state, "ship-1", 1, cand);
+  const res = dispatchPastPropulsion(state, "ship-1", 1, cand);
   expect(res.success, String(res.reason)).toBe(true);
   return { next: res.next, exp: res.expedition! };
 }

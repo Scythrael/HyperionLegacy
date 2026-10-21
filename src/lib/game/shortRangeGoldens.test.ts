@@ -119,7 +119,6 @@ import Decimal from "break_infinity.js";
 import { EQUIPMENT_SLOTS, FIELD_KITS_PLAYER_LIVE, MISSIONS, SHIP_TYPES, type EquipmentInstance, type EquipmentRarity, type GameState, type ShipDerivedStats, type ShipTypeKey, type ShortRangeMissionState } from "./model";
 import { startShortRangeCycle } from "./shortRangeBoard";
 import { dispatchCaptainOnMission, dispatchCaptainOnPatrol, economyTick, installMissingCombatBaselines, mintBuiltShip } from "./tick";
-import { startExpedition } from "./expedition";
 import { effectiveShipStats } from "./crewOverlay";
 import { generateEquipment } from "./itemgen";
 import { buildHomeDashboard } from "./homeDashboard";
@@ -128,9 +127,10 @@ import { deserialize, migrate, serialize, type SaveFile } from "./save";
 import { WIRING_REGISTRY } from "./wiring/registry";
 import { bucketOf, withBuckets } from "./wiring/probes";
 import { hash, onHull, withCrew, withV1Museum, withoutGuests } from "./firstRunsGoldens.fixture";
-import { asPreG2NamesDispatch } from "./awayTeamTestFixtures";
+import { asPreG2NamesDispatch, dispatchPastPropulsion } from "./awayTeamTestFixtures";
 import { GG1_ADDED_ENTRY_IDS } from "./gasStudyGoldens.fixture";
 import { RX_ADDED_ENTRY_IDS } from "./reactorFuelGoldens.fixture";
+import { G2_4_ADDED_ENTRY_IDS, G2_4_FLIPPED_BEFORE } from "./propulsionRecallGoldens.fixture";
 // CP-8 / OC-11: the test switch that proves the auto-crew pause is the only thing that moved the fleet pin.
 vi.mock("./crewLock", async (io) => (await import("./complementOc11Switch.fixture")).oc11CrewLockMock(io));
 import { withOc11Off } from "./complementOc11Switch.fixture";
@@ -230,7 +230,7 @@ function mixedFleet(): GameState {
     ],
   });
   // G2-2: the dispatch as it was before G2-2 (the console names and region fields stripped), so the pins hold.
-  const exp = asPreG2NamesDispatch(startExpedition(fleet, "ship-1", 1, "cand-0"));
+  const exp = asPreG2NamesDispatch(dispatchPastPropulsion(fleet, "ship-1", 1, "cand-0"));
   if (!exp.success) throw new Error(`expedition refused: ${exp.reason}`);
   const mission = dispatchCaptainOnMission(exp.next, 2, "shortOreRun");
   if (!mission.success) throw new Error(`mission refused: ${mission.reason}`);
@@ -541,8 +541,12 @@ const SF3_FLIPPED_LIVE: ReadonlySet<string> = new Set<string>(["expedition:ENEMY
 const SF3_SLICE: RegistrySlice = { flipped: SF3_FLIPPED_LIVE, was: "pending" };
 // The reactor fuel ladder's additions (0.14.0), held apart in EVERY pin (all of them were taken before it).
 const RX_SLICE: RegistrySlice = { added: RX_ADDED_ENTRY_IDS };
+// Expedition Tiers G2-4 / G2-5 (after every pin here): their added entries and their flips, held apart the same way.
+const G2_4_PENDING_FLIPS: RegistrySlice = { flipped: new Set(Object.keys(G2_4_FLIPPED_BEFORE).filter((id) => G2_4_FLIPPED_BEFORE[id].kind === "pending")), was: "pending" };
+const G2_4_SEAM_FLIPS: RegistrySlice = { flipped: new Set(Object.keys(G2_4_FLIPPED_BEFORE).filter((id) => G2_4_FLIPPED_BEFORE[id].kind === "seam")), was: "seam" };
+const G2_4_SLICES: readonly RegistrySlice[] = [{ added: G2_4_ADDED_ENTRY_IDS }, G2_4_PENDING_FLIPS, G2_4_SEAM_FLIPS];
 function registryPin(...given: readonly RegistrySlice[]): [number, string] {
-  const slices = [RX_SLICE, ...given];
+  const slices = [RX_SLICE, ...G2_4_SLICES, ...given];
   const lines = WIRING_REGISTRY.filter((e) => !slices.some((sl) => sl.added?.has(e.id))).map((e) => {
     const flip = slices.find((sl) => sl.flipped?.has(e.id));
     return `${e.id}|${flip ? (flip.was ?? "pending") : e.status.kind}`;

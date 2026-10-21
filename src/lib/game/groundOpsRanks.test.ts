@@ -17,7 +17,7 @@ import { groundTaskClearOdds, groundThreatOddsKey } from "./groundThreat";
 import { resistedHazard } from "./relics";
 import { bodyFloraGrade } from "./riskFactors";
 import { EARLIER_FIGHT_LEAD, ENEMY_RANKS_VERSION, FINAL_FIGHT_LEAD, isTrainingRun, withEnemyRanks } from "./enemyRanks";
-import { asExpeditionVeteran, plainAwayMember, withoutCurve, withoutEnemyRanks, withoutFieldKits } from "./awayTeamTestFixtures";
+import { asExpeditionVeteran, plainAwayMember, withoutCurve, withoutEnemyRanks, withoutFieldKits, dispatchPastPropulsion } from "./awayTeamTestFixtures";
 import { onHull, withCrew } from "./firstRunsGoldens.fixture";
 import { wiringEntry } from "./wiring/registry";
 
@@ -71,7 +71,7 @@ function oneTeam(rank: number): GameState {
 // A real dispatch turned into a run whose window opened at T0 with ONE body just scanned (fieldKitsGoldens handRun,
 // affix catalog 2), WITHOUT the flag (FKR-0's run). `ranked` puts the flag back on: the stamped twin.
 function handRun(state: GameState, pois: string[], risk: BodyRiskGrades, ranked: boolean): Expedition {
-  const res = startExpedition(state, "ship-1", 1, "cand-0");
+  const res = dispatchPastPropulsion(state, "ship-1", 1, "cand-0");
   if (!res.success || !res.expedition) throw new Error(`dispatch refused: ${res.reason}`);
   expect(res.expedition.enemyRanks).toEqual(RANKED); // a run dispatched today is ranked
   const d = withoutFieldKits(res.expedition);
@@ -192,7 +192,7 @@ function expectPlaced(fight: GroundFightRecord, task: ExpeditionActivity, traini
 
 describe("FKR-1 the flag: stamped at dispatch on new runs only", () => {
   it("startExpedition stamps Expedition.enemyRanks with the catalog version; withoutEnemyRanks takes exactly that key off", () => {
-    const res = startExpedition(crewed(0x51ed), "ship-1", 1, expeditionCandidates(crewed(0x51ed), "ship-1")[0].id);
+    const res = dispatchPastPropulsion(crewed(0x51ed), "ship-1", 1, expeditionCandidates(crewed(0x51ed), "ship-1")[0].id);
     const exp = res.expedition!;
     expect(exp.enemyRanks).toEqual({ version: ENEMY_RANKS_VERSION });
     expect(res.next.expeditions[0].enemyRanks).toEqual({ version: ENEMY_RANKS_VERSION });
@@ -303,7 +303,7 @@ describe("FKR-1 the guard a fight fields, and Weak placed by SF-3", () => {
 
 describe("FKR-1 the training run fields no Elite or Boss", () => {
   it("SEAM, flipped at SF-2: a fresh save's first explorer run is stamped as the training run and reads as one", () => {
-    const exp = startExpedition(withCrew(onHull("orion"), "d18"), "ship-1", 1, "cand-0").expedition!;
+    const exp = dispatchPastPropulsion(withCrew(onHull("orion"), "d18"), "ship-1", 1, "cand-0").expedition!;
     expect(exp.shakedown).toBe(false); // SF-2 retired the 30 minute shakedown
     expect(exp.difficulty).toEqual({ version: 1, firstRun: true, ramp: 0, tier: 1 });
     expect(isTrainingRun(exp)).toBe(true);
@@ -325,7 +325,7 @@ describe("FKR-1 the training run fields no Elite or Boss", () => {
     const END = 3_000_000;
     let ranksSeen = 0;
     for (const cand of ["cand-0", "cand-1", "cand-2"]) {
-      const exp = startExpedition(withCrew(onHull("orion"), "rank1"), "ship-1", 1, cand).expedition!;
+      const exp = dispatchPastPropulsion(withCrew(onHull("orion"), "rank1"), "ship-1", 1, cand).expedition!;
       expect(exp.enemyRanks).toEqual(RANKED);
       const asTraining = training(exp);
       const unranked = training(withoutEnemyRanks(exp));
@@ -388,7 +388,7 @@ describe("FKR-1 whole ranked runs: every stored fight is placed by the rule", ()
     let fights = 0;
     for (const seed of [0x51ed, 0x2b0b5e7, 0x6ade5]) {
       // Safe first runs SF-3: a veteran's run (full strength: no Weak low end; that placement is safeFirstRamp.test.ts').
-      const exp = startExpedition(asExpeditionVeteran(crewed(seed)), "ship-1", 1, "cand-0").expedition!;
+      const exp = dispatchPastPropulsion(asExpeditionVeteran(crewed(seed)), "ship-1", 1, "cand-0").expedition!;
       for (const { fight, task } of runFights(exp, T0 + 400_000)) {
         expectPlaced(fight, task);
         fights += 1;

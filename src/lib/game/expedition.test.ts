@@ -47,7 +47,7 @@ import {
   MIN_SECURITY_MEMBERS,
   MIN_SCIENCE_MEMBERS,
 } from "./expedition";
-import { asLegacyDispatch, ensureMinimumAwayTeam, plainAwayMember, withMinimumAwayTeam, withSlottedAwayTeams } from "./awayTeamTestFixtures";
+import { asLegacyDispatch, ensureMinimumAwayTeam, plainAwayMember, withMinimumAwayTeam, withSlottedAwayTeams, dispatchPastPropulsion } from "./awayTeamTestFixtures";
 import { tick } from "./tick";
 import { famousSystem } from "./starCatalog";
 import { migrate, type SaveFile } from "./save";
@@ -140,7 +140,7 @@ function makeExpedition(over: Partial<Expedition> = {}): Expedition {
 function dispatch(s: GameState, shipId = "ship-1", captainId = 1, idx = 0, anomalyOptIn = true) {
   const ready = ensureMinimumAwayTeam(s, shipId);
   const cands = expeditionCandidates(ready, shipId);
-  return asLegacyDispatch(startExpedition(ready, shipId, captainId, cands[idx]?.id ?? `cand-${idx}`, anomalyOptIn));
+  return asLegacyDispatch(dispatchPastPropulsion(ready, shipId, captainId, cands[idx]?.id ?? `cand-${idx}`, anomalyOptIn));
 }
 
 // ============================================================================
@@ -759,7 +759,7 @@ describe("E2c dispatch — commit a chosen candidate; the launch MATCHES its pre
   it("the committed expedition's system + bodies match the previewed candidate exactly", () => {
     const s = ensureMinimumAwayTeam(shipWithSensors(SENSOR_REVEAL_RELIC)); // full reveal so we can compare bodies
     const cand = expeditionCandidates(s, "ship-1")[1]; // choose the SECOND candidate
-    const res = startExpedition(s, "ship-1", 1, cand.id);
+    const res = dispatchPastPropulsion(s, "ship-1", 1, cand.id);
     expect(res.success).toBe(true);
     const exp = res.expedition!;
     // The launched expedition uses the candidate's own seed, so its identity + bodies match the preview.
@@ -776,7 +776,7 @@ describe("E2c dispatch — commit a chosen candidate; the launch MATCHES its pre
   it("dispatch ADVANCES expeditionSeed so the next candidate list is a fresh set", () => {
     const s = ensureMinimumAwayTeam(freshState());
     const before = expeditionCandidates(s, "ship-1").map((c) => c.seed);
-    const res = startExpedition(s, "ship-1", 1, "cand-0");
+    const res = dispatchPastPropulsion(s, "ship-1", 1, "cand-0");
     expect(res.success).toBe(true);
     expect(res.next.expeditionSeed).toBe(advanceExpeditionSeed(s.expeditionSeed));
     const after = expeditionCandidates(res.next, "ship-1").map((c) => c.seed);
@@ -785,15 +785,15 @@ describe("E2c dispatch — commit a chosen candidate; the launch MATCHES its pre
 
   it("rejects an unknown candidate id (same-ref state), and still enforces the ship/captain guards", () => {
     const s = ensureMinimumAwayTeam(freshState());
-    const bad = startExpedition(s, "ship-1", 1, "cand-nope");
+    const bad = dispatchPastPropulsion(s, "ship-1", 1, "cand-nope");
     expect(bad.success).toBe(false);
     expect(bad.reason).toBe("noSuchCandidate");
     expect(bad.next).toBe(s);
     // The pre-existing guards fire BEFORE the candidate lookup.
-    expect(startExpedition(s, "ship-1", 999, "cand-0").reason).toBe("captainNotAssigned");
-    expect(startExpedition(s, "ship-nope", 1, "cand-0").reason).toBe("noSuchShip");
-    const first = startExpedition(s, "ship-1", 1, "cand-0");
-    expect(startExpedition(first.next, "ship-1", 1, "cand-0").reason).toBe("shipAlreadyOnExpedition");
+    expect(dispatchPastPropulsion(s, "ship-1", 999, "cand-0").reason).toBe("captainNotAssigned");
+    expect(dispatchPastPropulsion(s, "ship-nope", 1, "cand-0").reason).toBe("noSuchShip");
+    const first = dispatchPastPropulsion(s, "ship-1", 1, "cand-0");
+    expect(dispatchPastPropulsion(first.next, "ship-1", 1, "cand-0").reason).toBe("shipAlreadyOnExpedition");
   });
 });
 
@@ -804,7 +804,7 @@ describe("D18: an expedition needs at least 1 Security + 1 Science away-team mem
   function launchWith(members: ReturnType<typeof plainAwayMember>[], gameTimeSeconds = 0) {
     // Ground Ops (GO-7b): dispatch reads the slotted ground teams; slot the members in hire order.
     const s: GameState = withSlottedAwayTeams({ ...freshState(), gameTimeSeconds, awayMembers: members });
-    return { s, res: startExpedition(s, "ship-1", 1, "cand-0") };
+    return { s, res: dispatchPastPropulsion(s, "ship-1", 1, "cand-0") };
   }
   const sec = (id = "member-1") => plainAwayMember(id, "security", "ship-1");
   const sci = (id = "member-2") => plainAwayMember(id, "science", "ship-1");
@@ -864,9 +864,9 @@ describe("D18: an expedition needs at least 1 Security + 1 Science away-team mem
 
   it("the older guards report first: a bad candidate, captain or ship is named before the away team", () => {
     const s = freshState(); // no away team
-    expect(startExpedition(s, "ship-1", 1, "cand-nope").reason).toBe("noSuchCandidate");
-    expect(startExpedition(s, "ship-1", 999, "cand-0").reason).toBe("captainNotAssigned");
-    expect(startExpedition(s, "ship-nope", 1, "cand-0").reason).toBe("noSuchShip");
+    expect(dispatchPastPropulsion(s, "ship-1", 1, "cand-nope").reason).toBe("noSuchCandidate");
+    expect(dispatchPastPropulsion(s, "ship-1", 999, "cand-0").reason).toBe("captainNotAssigned");
+    expect(dispatchPastPropulsion(s, "ship-nope", 1, "cand-0").reason).toBe("noSuchShip");
   });
 
   it("the refusal has player text that names both squads and where to hire", () => {
@@ -901,8 +901,8 @@ describe("E2c anomaly opt-in — the toggle gates whether the mid-transit chart 
   });
 
   it("startExpedition stores the opt-in flag from dispatch", () => {
-    const optIn = startExpedition(ensureMinimumAwayTeam(freshState()), "ship-1", 1, "cand-0", true).expedition!;
-    const optOut = startExpedition(ensureMinimumAwayTeam(freshState()), "ship-1", 1, "cand-0", false).expedition!;
+    const optIn = dispatchPastPropulsion(ensureMinimumAwayTeam(freshState()), "ship-1", 1, "cand-0", true).expedition!;
+    const optOut = dispatchPastPropulsion(ensureMinimumAwayTeam(freshState()), "ship-1", 1, "cand-0", false).expedition!;
     expect(optIn.anomalyOptIn).toBe(true);
     expect(optOut.anomalyOptIn).toBe(false);
   });

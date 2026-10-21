@@ -3975,8 +3975,9 @@ export interface EquipmentStatMods {
 // each drive class above I, so deep reach competes with weapons and modules for the hull's power.
 export const DRIVE_CLASS_POWER_DRAW_MULT = 1.6;
 
-// An installed FTL drive's class: its blueprint's driveClass (G2-4 authors the classed blueprints), Class I when the
-// piece has no blueprint (Standard Issue, a legacy piece) or the blueprint names none. Pure.
+// An installed FTL drive's class: its blueprint's driveClass (G2-4's DRIVE_CLASS_BLUEPRINTS), Class I when the piece has
+// no blueprint (Standard Issue, a legacy piece) or the blueprint names none. THE drive class source: the power fold
+// below and the voyage (propulsion.ts shipDriveClass, which adds the hull's base class) both read it. Pure.
 export function ftlDriveClass(piece: Pick<EquipmentInstance, "blueprintKey">): number {
   const cls = piece.blueprintKey ? BLUEPRINTS[piece.blueprintKey]?.driveClass : undefined;
   return cls !== undefined && cls > 1 ? Math.floor(cls) : 1;
@@ -10038,7 +10039,8 @@ export interface BlueprintDef {
   // fabricate craftable and visible in the UI, mirroring how weapons landed in Unit 1.2b.
   droneOutput?: { role: DroneRole };
   // E-MOD EM-1 (user P5 2026-10-19 "x1.6 per class"): an FTL drive blueprint's drive class, 1 (Class I) to 7. G2-4
-  // authors the Class II to VII drive blueprints and their gates; absent reads Class I, which every drive is today.
+  // authors the Class II to VII drive blueprints (DRIVE_CLASS_BLUEPRINTS) and their gates (propulsion.ts); absent reads
+  // Class I.
   // The power fold (equipmentStatMods) multiplies an installed drive's draw by DRIVE_CLASS_POWER_DRAW_MULT per class
   // above I the moment a blueprint sets this (ftlDriveClass), so G2-4 must NOT bake the class into powerDraw at mint.
   driveClass?: number;
@@ -10144,6 +10146,53 @@ export const FIELD_KITS_HIDDEN_BLUEPRINTS: Readonly<Record<string, BlueprintDef>
     unlockHint: "Researched at the Research Lab; crafted at the Fabricator. Away-team gear, worn by a squad member.",
   },
 };
+
+// Expedition Tiers G2-4 (user G3 2026-10-16: "A combination of higher tier ships and better drive blueprints/stats/
+// etc."; G20 "Class IV drive", Roman numerals): the CLASSED FTL DRIVES, one Balanced-ratio blueprint per Class II to
+// VII (plan G2-4: "one per class at first, Balanced ratios"). Class N sits on blueprint tier N; the minted piece reads
+// its class back through ftlDriveClass (blueprintKey), which also draws x1.6 power per class above I (E-MOD EM-1),
+// never baked into powerDraw here. [PROPOSAL recipes and costs] after the recipe realism audit section 4.2: a base of
+// Coupling 3 + Wafer 3 + Titanium Ingot 2 (the audit's field coils, Cobalt Coil 2, wait for ML-2, which lifts the Cobalt
+// Coil's reserve with the FTL recipe rework); Class III to V add 1 / 2 / 3 Deuterium Canisters (ML L9 / GG call 7
+// "Drives + Lab blueprints"); Class VI and VII add 1 / 2 Antimatter Containment Cells. The balancing patch owns the
+// amounts.
+// A row joins BLUEPRINTS only once BOTH the Research Lab and the Fabricator tracks reach its tier
+// (drivesWithinFacilityReach): today both stop below tier 3, so only Class II is researchable; Class III to VII wait on
+// the Lab and Fabricator rungs of complement OC-15 ("Add tiers 3-7 now") and join with no other change. Until then
+// the dispatch says "None can be built yet" for those tiers (propulsion.ts driveClassUnavailable).
+const DRIVE_CLASS_BASE_RECIPE = { powerCoupling: 3, polysilicateWafer: 3, titaniumIngot: 2 } as const;
+function classedDriveBlueprint(driveClass: 2 | 3 | 4 | 5 | 6 | 7, cost: { ticks: number; credits: number; craft: number }, extra: Record<string, number>): BlueprintDef {
+  const numeral = ["", "I", "II", "III", "IV", "V", "VI", "VII"][driveClass];
+  return {
+    key: `class${numeral}DriveBp`,
+    label: `Class ${numeral} Drive Blueprint`,
+    tier: driveClass,
+    researchDurationTicks: cost.ticks,
+    researchCreditCost: cost.credits,
+    craftDurationTicks: cost.craft,
+    equipmentOutput: { slotType: "ftlDrive", varietyKey: "balancedDrive" },
+    driveClass,
+    recipe: { inputs: { ...DRIVE_CLASS_BASE_RECIPE, ...extra } },
+    flavor: `A Class ${numeral} field generator: a deeper fold of space per jump, and the reactor feels every one of them.`,
+    unlockHint: "Researched at the Research Lab (needs a higher lab tier); crafted at the Fabricator; installed in a ship's FTL Drive slot.",
+  };
+}
+export const DRIVE_CLASS_BLUEPRINTS: readonly BlueprintDef[] = [
+  classedDriveBlueprint(2, { ticks: 140, credits: 2_400, craft: 360 }, {}),
+  classedDriveBlueprint(3, { ticks: 200, credits: 6_000, craft: 480 }, { deuteriumCanister: 1 }),
+  classedDriveBlueprint(4, { ticks: 260, credits: 12_000, craft: 600 }, { deuteriumCanister: 2 }),
+  classedDriveBlueprint(5, { ticks: 320, credits: 24_000, craft: 720 }, { deuteriumCanister: 3 }),
+  classedDriveBlueprint(6, { ticks: 400, credits: 48_000, craft: 900 }, { deuteriumCanister: 3, antimatterCell: 1 }),
+  classedDriveBlueprint(7, { ticks: 480, credits: 96_000, craft: 1_080 }, { deuteriumCanister: 3, antimatterCell: 2 }),
+];
+// The classed drives whose tier BOTH facility tracks reach (a level-N facility serves tier N; a track's top level is
+// its rung count), keyed for BLUEPRINTS' spread. Hoisted: BLUEPRINTS below spreads it. Pure over the static tables.
+export function drivesWithinFacilityReach(): Readonly<Record<string, BlueprintDef>> {
+  const top = Math.min(FACILITIES.research?.upgrades.length ?? 0, FACILITIES.fabricator?.upgrades.length ?? 0);
+  const out: Record<string, BlueprintDef> = {};
+  for (const bp of DRIVE_CLASS_BLUEPRINTS) if (bp.tier <= top) out[bp.key] = bp;
+  return out;
+}
 
 export const BLUEPRINTS: Record<string, BlueprintDef> = {
   frameSegmentBp: {
@@ -10310,6 +10359,9 @@ export const BLUEPRINTS: Record<string, BlueprintDef> = {
     flavor: "An even-tempered drive splitting the difference between speed and thrift, the safe default.",
     unlockHint: "Researched at the Research Lab; crafted at the Fabricator once equipment fabrication comes online.",
   },
+  // Expedition Tiers G2-4: the classed FTL drives the facility tracks reach (DRIVE_CLASS_BLUEPRINTS above; Class II
+  // today), right after the Class I drives.
+  ...drivesWithinFacilityReach(),
 
   // --- REACTOR CORE (power: couplings + wafers, top core on a structural spine) ---
   highOutputCoreBp: {

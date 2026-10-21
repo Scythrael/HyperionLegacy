@@ -6,7 +6,8 @@
 // rather than the gate. The members are plain: rank 1, no traits, no gear, no own program.
 
 import { SHIP_TYPES, type AwayMember, type AwayTeamType, type Expedition, type GameState, type ShipGroundTeam, type ShipTypeDef, type ShipTypeKey } from "./model";
-import { BANKED_SYSTEMS, SYSTEM_SALT, expeditionAwayTeamCheck, type ExpeditionCandidate } from "./expedition";
+import { BANKED_SYSTEMS, SYSTEM_SALT, expeditionAwayTeamCheck, startExpedition, type ExpeditionCandidate, type ExpeditionDispatchResult } from "./expedition";
+import { FIELD_KITS_RUNS_LIVE } from "./fieldKits";
 import { PROVISIONAL_HOMEWORLD, type HomeworldPlacement } from "./galaxy";
 import { systemDistanceLy } from "./telescope";
 import { makeRng } from "./combat/rng";
@@ -506,4 +507,20 @@ export function ensureMinimumAwayTeam(state: GameState, shipId = "ship-1"): Game
   const ship = state.ships.find((s) => s.id === shipId);
   if (!ship || expeditionAwayTeamCheck(state, ship).ok) return state;
   return withMinimumAwayTeam(state, shipId);
+}
+
+// Expedition Tiers G2-4: the PRE-G2-4 DISPATCH (startExpedition with its propulsion gates off: no explorer-hull,
+// drive class, frontier sensor or reach check). For the tests that fly the starting General Freighter, a Class I drive
+// to a deeper tier, or a ship short of reach to measure something else: the record is exactly what a gated dispatch of
+// a ship that passes would write (the gates only refuse; they never change a launched record). The gates' own tests
+// call startExpedition.
+export function dispatchPastPropulsion(
+  state: GameState,
+  shipId: string,
+  captainId: number,
+  candidateId: string,
+  anomalyOptIn = true,
+  fieldKitsRuns: boolean = FIELD_KITS_RUNS_LIVE,
+): ExpeditionDispatchResult {
+  return startExpedition(state, shipId, captainId, candidateId, anomalyOptIn, fieldKitsRuns, false);
 }

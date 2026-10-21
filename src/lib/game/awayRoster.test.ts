@@ -66,7 +66,7 @@ import {
   type GambitProgram,
   type SnapshotMember,
 } from "./model";
-import { asLegacyDispatch, withSlottedAwayTeams } from "./awayTeamTestFixtures";
+import { asLegacyDispatch, withSlottedAwayTeams, dispatchPastPropulsion } from "./awayTeamTestFixtures";
 
 // ===== fixtures =====
 
@@ -283,7 +283,7 @@ describe("snapshotAwayRoster: purity", () => {
 describe("startExpedition stores the roster (D18: and refuses without the minimum team)", () => {
   function launch(s: GameState) {
     const cand = expeditionCandidates(s, "ship-1")[0];
-    const res = startExpedition(s, "ship-1", 1, cand.id);
+    const res = dispatchPastPropulsion(s, "ship-1", 1, cand.id);
     expect(res.success).toBe(true);
     return res.next.expeditions[res.next.expeditions.length - 1];
   }
@@ -292,7 +292,7 @@ describe("startExpedition stores the roster (D18: and refuses without the minimu
   // A ship with no roster can no longer launch, so they now assert the refusal.
   it("a ship with no roster is refused (needsAwayTeam)", () => {
     const s = freshState();
-    const res = startExpedition(s, "ship-1", 1, expeditionCandidates(s, "ship-1")[0].id);
+    const res = dispatchPastPropulsion(s, "ship-1", 1, expeditionCandidates(s, "ship-1")[0].id);
     expect(res.success).toBe(false);
     expect(res.reason).toBe("needsAwayTeam");
     expect(res.next).toBe(s);
@@ -303,7 +303,7 @@ describe("startExpedition stores the roster (D18: and refuses without the minimu
       member("member-1", "security", { injuredUntilSeconds: 99_999 }),
       member("member-2", "science", { injuredUntilSeconds: 99_999 }),
     ]);
-    const res = startExpedition(s, "ship-1", 1, expeditionCandidates(s, "ship-1")[0].id);
+    const res = dispatchPastPropulsion(s, "ship-1", 1, expeditionCandidates(s, "ship-1")[0].id);
     expect(res.reason).toBe("needsAwayTeam");
   });
 
@@ -553,7 +553,7 @@ describe("D19: the built-in default member program", () => {
     // A legacy run (asLegacyDispatch): it must reach "complete" with a lone plain member, which only the legacy
     // evacuation path guarantees (a Ground Ops run holds a task it cannot win, user Q4).
     const run = (s: GameState) => {
-      const res = asLegacyDispatch(startExpedition(s, "ship-1", 1, expeditionCandidates(s, "ship-1")[0].id));
+      const res = asLegacyDispatch(dispatchPastPropulsion(s, "ship-1", 1, expeditionCandidates(s, "ship-1")[0].id));
       expect(res.success).toBe(true);
       return advanceExpedition(res.expedition!, 1_000_000);
     };

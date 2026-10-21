@@ -5,6 +5,7 @@
 // node, own ship only, frozen at dispatch, offline == live, and the text.
 
 import { describe, expect, it } from "vitest";
+import { dispatchPastPropulsion } from "./awayTeamTestFixtures";
 import { SECONDARY_CAPTAIN_TALENTS, SENIOR_STAFF_ROSTER_BASE, type GameState, type SecondaryTalentKey, type ShipInstance } from "./model";
 import {
   candidateBoardSize,
@@ -21,7 +22,7 @@ import {
 } from "./captainExplorerEffects";
 import { describeSecondaryTalentEffect, secondaryTalentEffectText } from "./captainSecondaryEffects";
 import { effectiveShipStats, officerMissionOutputBonus } from "./crewOverlay";
-import { discoveryOddsPermille, expeditionCandidates, rollBodyDiscoveries, scanRatePerSecond, startExpedition } from "./expedition";
+import { discoveryOddsPermille, expeditionCandidates, rollBodyDiscoveries, scanRatePerSecond } from "./expedition";
 import { dispatchCaptainOnMission, economyTick, tick } from "./tick";
 import { relicChancePermille, relicTierCeiling, rollRelicToken } from "./gambit";
 import { readSystem, telescopeReading, TELESCOPE_DETAIL } from "./telescope";
@@ -101,7 +102,7 @@ describe("WR-5c Survey & Sensors", () => {
 
   it("frozen at dispatch: a node learned after the dispatch never reaches the run in flight (the run reads its record)", () => {
     const s0 = withAwayTeam(wiringBase());
-    const res = startExpedition(s0, "ship-1", 1, expeditionCandidates(s0, "ship-1")[0].id);
+    const res = dispatchPastPropulsion(s0, "ship-1", 1, expeditionCandidates(s0, "ship-1")[0].id);
     expect(res.success).toBe(true);
     const later = own(res.next, "surveySensors2");
     expect(later.expeditions[0]).toEqual(res.next.expeditions[0]);

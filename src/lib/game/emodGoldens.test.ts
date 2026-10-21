@@ -36,15 +36,16 @@ import { replayPatrol } from "./combat/patrolReplay";
 import { WEAPON_DEFS } from "./combat/weapons";
 import { DRONE_POD_BASE_POWER_DRAW, generateDronePod, generateEquipment, generateWeapon } from "./itemgen";
 import { effectiveShipStats } from "./crewOverlay";
-import { advanceExpedition, claimExpedition, expeditionCandidates, startExpedition } from "./expedition";
+import { advanceExpedition, claimExpedition, expeditionCandidates } from "./expedition";
 import { shipEventsLive } from "./shipScanEvents";
-import { asPreVoyageDispatch, plainAwayMember, withSlottedAwayTeams } from "./awayTeamTestFixtures";
+import { asPreVoyageDispatch, plainAwayMember, withSlottedAwayTeams, dispatchPastPropulsion } from "./awayTeamTestFixtures";
 import { WIRING_REGISTRY } from "./wiring/registry";
 import { getSeniorStaffBonusById } from "./seniorStaffBonuses";
 import { withEm1Off } from "./emodEm1Switch.fixture";
 import { goldenJson, withV1Museum } from "./firstRunsGoldens.fixture"; // gear wear: goldenJson puts the retired durability back
 import { GG1_ADDED_ENTRY_IDS } from "./gasStudyGoldens.fixture";
 import { RX_ADDED_ENTRY_IDS } from "./reactorFuelGoldens.fixture";
+import { G2_4_ADDED_ENTRY_IDS, G2_4_FLIPPED_BEFORE } from "./propulsionRecallGoldens.fixture";
 
 // ===== shared helpers =====
 
@@ -261,7 +262,7 @@ function groundOpsRun(seed: number): string[] {
   const s = withSlottedAwayTeams({ ...s0, awayMembers: SQUAD.map((m) => ({ ...m })), nextAwayMemberId: 100, expeditionSeed: seed });
   // G2-3 (merged after EM-0's capture): the run as dispatched before the voyage engine (asPreVoyageDispatch, the feat
   // precedent), so it flies the fixed legs EM-0 pinned.
-  const res = asPreVoyageDispatch(startExpedition(s, SHIP, 1, expeditionCandidates(s, SHIP)[0].id));
+  const res = asPreVoyageDispatch(dispatchPastPropulsion(s, SHIP, 1, expeditionCandidates(s, SHIP)[0].id));
   if (!res.success || !res.expedition) throw new Error(`dispatch refused: ${res.reason}`);
   const exp = res.expedition;
   expect(shipEventsLive(exp)).toBe(true);
@@ -602,7 +603,11 @@ const REGISTRY_BEFORE_GEAR_WEAR = "60d00075";
 type Back = { readonly sf3?: boolean; readonly fkr9?: boolean; readonly racials?: boolean; readonly g14?: boolean; readonly fkr7?: boolean; readonly fkr6?: boolean; readonly g13?: boolean; readonly gw?: boolean; readonly keepGg1?: boolean };
 // The reactor fuel ladder (0.14.0) only ADDS entries (reactorFuelGoldens.fixture.ts), after every pin here was taken:
 // every read-back and the snapshot leave them out (reactorFuelGoldens.test.ts pins them with their statuses).
-const BEFORE_RX = WIRING_REGISTRY.filter((e) => !RX_ADDED_ENTRY_IDS.has(e.id));
+// Expedition Tiers G2-4 / G2-5 come after every pin too: their added entries are left out and their flips read back
+// (propulsionRecallGoldens.fixture.ts).
+const BEFORE_RX = WIRING_REGISTRY.filter((e) => !RX_ADDED_ENTRY_IDS.has(e.id) && !G2_4_ADDED_ENTRY_IDS.has(e.id)).map((e) =>
+  e.id in G2_4_FLIPPED_BEFORE ? { ...e, status: G2_4_FLIPPED_BEFORE[e.id], contexts: [], probe: undefined } : e,
+);
 function rowsBack(back: Back): unknown[][] {
   return BEFORE_RX.filter(
     (e) =>

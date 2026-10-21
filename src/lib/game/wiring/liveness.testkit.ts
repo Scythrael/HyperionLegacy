@@ -90,7 +90,7 @@ import { pieceCondition } from "../gearWear";
 import { applyExpeditionInjuries, applyGroundOpsInjuries } from "../injuries";
 import { groundTeamBaySeconds } from "../groundOps";
 import { resolveTaskFight, taskFightTeam } from "../groundFight";
-import { FIELD_KITS_CATALOG_VERSION } from "../fieldKits";
+import { FIELD_KITS_CATALOG_VERSION, FIELD_KITS_RUNS_LIVE } from "../fieldKits";
 import { SHIP_EVENT_DRAW_UNITS, SHIP_EVENT_WEIGHTS, boardingRepelChance, resolveShipScanEventFromDraws, shipEventDraws } from "../shipScanEvents";
 import { withSlottedAwayTeams, withoutGroundOps } from "../awayTeamTestFixtures";
 import { effectiveShipStats, officerCombatMods } from "../crewOverlay";
@@ -387,7 +387,8 @@ export function dispatches(t: Transform): { state: GameState; exp: Expedition }[
   const scaffold = withSlottedAwayTeams(t({ ...shipScaffold(), awayMembers: ROSTER.map((m) => ({ ...m })), nextAwayMemberId: 100 }));
   return EXPEDITION_SEEDS.map((seed) => {
     const s = { ...scaffold, expeditionSeed: seed };
-    const res = startExpedition(s, SHIP_ID, 1, expeditionCandidates(s, SHIP_ID)[0].id);
+    // G2-4: the pre-G2-4 dispatch (the scaffold flies the starting freighter; probes.ts dispatchRun).
+    const res = startExpedition(s, SHIP_ID, 1, expeditionCandidates(s, SHIP_ID)[0].id, true, FIELD_KITS_RUNS_LIVE, false);
     if (!res.success || !res.expedition) throw new Error(`expedition dispatch refused: ${res.reason}`);
     return { state: res.next, exp: res.expedition };
   });

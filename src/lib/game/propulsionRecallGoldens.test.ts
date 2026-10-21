@@ -17,7 +17,7 @@ import { BLUEPRINTS, freshState, type AwayMember, type Expedition, type GameStat
 import { advanceExpedition, advanceExpeditionSeed, claimExpedition, expeditionCandidates, startExpedition } from "./expedition";
 import { applyTimeSkip } from "./processSpeed";
 import { installMissingCombatBaselines } from "./tick";
-import { asExpeditionVeteran, plainAwayMember } from "./awayTeamTestFixtures";
+import { asExpeditionVeteran, dispatchPastPropulsion, plainAwayMember } from "./awayTeamTestFixtures";
 import { PRE_G2_4_STORED_RUNS } from "./propulsionRecallGoldens.fixture";
 import { goldenJson } from "./firstRunsGoldens.fixture";
 
@@ -159,8 +159,10 @@ describe("G2-4 / G2-5 goldens first: voyage-era in-flight runs keep resolving by
       expectRunParity(stored(name));
     });
 
+    // G2-4: the freighter's Tier IV run is refused by a player's dispatch now (not an explorer; a Class I drive), so both
+    // are compared through the pre-G2-4 dispatch (the gates only refuse; a launched record is unchanged).
     it(`${name}: the same dispatch made today is the stored record`, () => {
-      const res = startExpedition(CASES[name].crew(), "ship-1", 1, CASES[name].candidate);
+      const res = dispatchPastPropulsion(CASES[name].crew(), "ship-1", 1, CASES[name].candidate);
       expect(res.success).toBe(true);
       expect(JSON.parse(JSON.stringify(res.expedition))).toEqual(stored(name));
     });
@@ -168,18 +170,32 @@ describe("G2-4 / G2-5 goldens first: voyage-era in-flight runs keep resolving by
 });
 
 describe("G2-4 goldens first: a veteran Aurora at every tier, and the blueprint catalog", () => {
+  // G2-4 (named moves): the pinned hashes are the pre-G2-4 dispatch (dispatchPastPropulsion), unchanged. A player's
+  // dispatch of the Class I Aurora now launches Tier I exactly as before and is refused deeper: Tier II with
+  // driveClassTooLow (a Class II drive can be built), Tiers III to VII with driveClassUnavailable (no Class III or better
+  // drive is served by the facility tracks yet), the state untouched. The candidate lists do not move.
   it("the cand-0 dispatch result and the candidate list of each tier I to VII", () => {
     const state = { ...asExpeditionVeteran(onHull(crewedForRecall(2), "aurora")), credits: new Decimal(1_000_000) };
     const out: string[] = [];
     for (const tier of [1, 2, 3, 4, 5, 6, 7] as const) {
-      const res = startExpedition(state, "ship-1", 1, `cand-${tier}-0`);
+      const res = dispatchPastPropulsion(state, "ship-1", 1, `cand-${tier}-0`);
       out.push(`${tier}:${res.success ? "ok" : res.reason}:${hash({ ...res, next: res.success ? res.next.expeditions : null })}`);
       out.push(`${tier}:list:${hash(expeditionCandidates(state, "ship-1", tier))}`);
+      const gated = startExpedition(state, "ship-1", 1, `cand-${tier}-0`);
+      if (tier === 1) expect(gated).toEqual(res);
+      else {
+        expect(gated.reason, `tier ${tier}`).toBe(tier === 2 ? "driveClassTooLow" : "driveClassUnavailable");
+        expect(gated.next).toBe(state);
+      }
     }
     expect(out).toEqual(GOLDEN_TIERS);
   });
 
+  // G2-4 (named move): the Class II Drive Blueprint joins the catalog right after the Class I drives; the other keys
+  // hash as before, in order.
   it("the blueprint catalog's keys", () => {
-    expect(hash(Object.keys(BLUEPRINTS))).toBe(GOLDEN_CATALOG);
+    const keys = Object.keys(BLUEPRINTS);
+    expect(keys.slice(keys.indexOf("balancedDriveBp") + 1, keys.indexOf("balancedDriveBp") + 2)).toEqual(["classIIDriveBp"]);
+    expect(hash(keys.filter((k) => k !== "classIIDriveBp"))).toBe(GOLDEN_CATALOG);
   });
 });

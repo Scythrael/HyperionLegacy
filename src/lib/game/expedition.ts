@@ -59,7 +59,7 @@ import type {
   SnapshotMember,
   PromotionObjectiveKind,
 } from "./model";
-import { commandingCaptain, memberVariety } from "./model";
+import { SHIP_TYPES, commandingCaptain, memberVariety } from "./model";
 import { makeRng, type Rng } from "./combat/rng";
 import { installedSensorArray, sensorArrayEffect, sensorArrayRelicFindBonus } from "./sensorArrays";
 // E4d: the relic-unlocked Pathfinder Suite's expedition effect (a pure leaf over the installed pieces).
@@ -150,7 +150,9 @@ import {
 } from "./riskFactors";
 import type { BodyRiskGrades, ExpeditionRegionStamp, ExpeditionRiskProfile, ExpeditionVoyage, GroundTaskNeeds, GroundTeamKind, RegionTier } from "./model";
 // Expedition Tiers G2-3: the voyage engine (pure; imports model and galaxy types only, so no cycle).
-import { STANDARD_DRIVE_CLASS, planVoyage, voyageOf } from "./voyage";
+import { planVoyage, voyageOf } from "./voyage";
+// Expedition Tiers G2-4: the drive class, the reach gate and frontier sensors.
+import { expeditionTierGates, reachCheck, shipDriveClass, type ExpeditionGateDetail } from "./propulsion";
 // Squads SQ-5: the Subspace Telescope's reading of each candidate (display only; a run never reads it).
 import { TELESCOPE_DETAIL, blindLaunchCount, readSystem, stateHomeworld, systemDistanceLy, telescopeLevel, telescopeReading, type HomeworldPlacement } from "./telescope";
 // Expedition Tiers G2-2: the region ladder, the enemy sectors and the star catalog (pure; neither imports this module).
@@ -460,18 +462,30 @@ function clampPermille(fraction: number): number {
 //   shipDamaged:              Ground Ops GO-8 review (user, 2026-10-14: "Must be repaired first", the patrol rule):
 //                             the ship is damaged or under Shipyard repair (expeditionShipDamaged). The detail line
 //                             with the repair's countdown is expeditionShipRepairText.
+//   notExplorer / driveClassUnavailable / driveClassTooLow / frontierSensors / outOfReach:
+//                             Expedition Tiers G2-4 (propulsion.ts): the hull is not an explorer (user 2026-10-16: no
+//                             non-explorer hull reaches any expedition system), the region's drive class cannot be
+//                             built yet or the ship's is too low, its sensors are below the region's frontier
+//                             threshold, or the system's round trip is beyond the ship's reach. The refusal carries
+//                             the numbers (ExpeditionDispatchResult.gate; propulsion.ts expeditionGateText).
 export type ExpeditionDispatchBlockReason =
   | "noSuchShip"
   | "captainNotAssigned"
   | "shipAlreadyOnExpedition"
   | "shipDamaged"
+  | "notExplorer"
   | "noSuchCandidate"
+  | "driveClassUnavailable"
+  | "driveClassTooLow"
+  | "frontierSensors"
+  | "outOfReach"
   | "needsAwayTeam";
 
 export interface ExpeditionDispatchResult {
   next: GameState;
   success: boolean;
   reason?: ExpeditionDispatchBlockReason; // set only on failure
+  gate?: ExpeditionGateDetail; // G2-4: set only on a propulsion refusal (the numbers its text names)
   expedition?: Expedition; // set only on success
 }
 
@@ -491,6 +505,17 @@ export function expeditionDispatchBlockText(reason: ExpeditionDispatchBlockReaso
       return "Select a target system";
     case "needsAwayTeam":
       return "Needs a ground team with at least 1 Security and 1 Science member slotted and ready: set it up on the ship's Away Team tab";
+    // G2-4: the short forms; the refusal's `gate` gives the full line with its numbers (propulsion.ts expeditionGateText).
+    case "notExplorer":
+      return "This hull cannot reach any expedition system. Expeditions need an explorer hull.";
+    case "driveClassUnavailable":
+      return "Needs a higher drive class. None can be built yet.";
+    case "driveClassTooLow":
+      return "Needs a higher drive class for this region";
+    case "frontierSensors":
+      return "Needs stronger sensors to chart this region";
+    case "outOfReach":
+      return "Beyond this ship's reach";
   }
 }
 
@@ -704,9 +729,10 @@ function regionStampOf(cand: CandidateSystem): ExpeditionRegionStamp {
 }
 
 // Expedition Tiers G2-3: the voyage a dispatch of `ship` to `cand` freezes (voyage.ts planVoyage): the candidate's
-// tier and distance inside its tier's band from the homeworld, the ship's drive class (Class I for every drive until
-// G2-4) and its stat sheet (each leg at its own speed); `training` = the training run (its own nominal). Exported for
-// the console's transit row (G2-6) so it shows exactly what a launch would fly. Pure: a fresh object.
+// tier and distance inside its tier's band from the homeworld, the ship's drive class (G2-4: propulsion.ts
+// shipDriveClass, the hull's base class plus its installed drive's, the same ftlDriveClass the power draw reads) and its
+// stat sheet (each leg at its own speed); `training` = the training run (its own nominal). Exported for the console's
+// transit row (G2-6) so it shows exactly what a launch would fly. Pure: a fresh object.
 export function candidateVoyage(
   state: GameState,
   ship: ShipInstance,
@@ -718,10 +744,41 @@ export function candidateVoyage(
     tier: cand.tier,
     distanceLy: cand.distanceLy,
     band: homeworld.regionBandsLy[cand.tier] ?? homeworld.regionBandsLy[1],
-    driveClass: STANDARD_DRIVE_CLASS,
+    driveClass: shipDriveClass(state, ship),
     stats: effectiveShipStats(state, ship),
     training,
   });
+}
+
+// Expedition Tiers G2-4: the reach check of a dispatch of `ship` to `cand` (propulsion.ts reachCheck): the round trip
+// to it (2 x its distance from the homeworld) against the ship's deep-space reach on the voyage it would fly there (its
+// ordinary voyage: the training run flies the same Tier I nominal today, voyage.ts TUTORIAL_TRANSIT_SECONDS). The
+// console's reach row (G2-6) reads exactly what the gate reads. Pure.
+export function candidateReach(
+  state: GameState,
+  ship: ShipInstance,
+  cand: Pick<CandidateSystem, "tier" | "distanceLy">,
+  homeworld: HomeworldPlacement = stateHomeworld(state),
+): { roundTripLy: number; reachLy: number; met: boolean } {
+  const voyage = candidateVoyage(state, ship, cand, false, homeworld);
+  return reachCheck(state, ship, cand.distanceLy, voyage.outboundSeconds + voyage.returnSeconds);
+}
+
+// Expedition Tiers G2-4: the first propulsion gate `ship` fails for `cand` (the tier's gates, propulsion.ts
+// expeditionTierGates: explorer hull, drive class, frontier sensors; then this system's reach), or null when it may
+// launch there. A blind launch (beyond the telescope) is never refused here (SQ-7). Pure.
+export function expeditionSystemGate(
+  state: GameState,
+  ship: ShipInstance,
+  cand: Pick<CandidateSystem, "tier" | "distanceLy">,
+  homeworld: HomeworldPlacement = stateHomeworld(state),
+): ExpeditionGateDetail | null {
+  const gates = expeditionTierGates(state, ship, cand.tier);
+  if (gates.first) return gates.first;
+  const reach = candidateReach(state, ship, cand, homeworld);
+  if (reach.met) return null;
+  const { tier, driveClass, driveClassNeeded, sensors, sensorsNeeded } = gates;
+  return { reason: "outOfReach", tier, driveClass, driveClassNeeded, sensors, sensorsNeeded, roundTripLy: reach.roundTripLy, reachLy: reach.reachLy };
 }
 
 // A throwaway system for a preview at `seed` in `region` (the forecast's simulated launch; no candidate name is
@@ -1276,6 +1333,11 @@ export function startExpedition(
   // Field Kits FKR-7: the runs switch (fieldKits.ts FIELD_KITS_RUNS_LIVE, off); the tests pass true to dispatch a Field
   // Kits run the way the switch will.
   fieldKitsRuns: boolean = FIELD_KITS_RUNS_LIVE,
+  // Expedition Tiers G2-4: the propulsion gates (explorer hull, drive class, frontier sensors, reach), always on for a
+  // player. false is the PRE-G2-4 DISPATCH, for the test fixtures and wiring probes that fly the starting freighter to
+  // measure something else (awayTeamTestFixtures.ts dispatchPastPropulsion): every record it writes is the one a
+  // gated dispatch of a ship that passes would write.
+  propulsionGates: boolean = true,
 ): ExpeditionDispatchResult {
   const ship = state.ships.find((s) => s.id === shipId);
   if (!ship) return { next: state, success: false, reason: "noSuchShip" };
@@ -1284,10 +1346,19 @@ export function startExpedition(
     return { next: state, success: false, reason: "shipAlreadyOnExpedition" };
   // GO-8 review (user, 2026-10-14): a damaged ship, or one in a Shipyard repair bay, is repaired first.
   if (expeditionShipDamaged(state, ship)) return { next: state, success: false, reason: "shipDamaged" };
+  // G2-4 (user 2026-10-16): no non-explorer hull reaches any expedition system, Tier I included.
+  if (propulsionGates && SHIP_TYPES[ship.typeKey]?.spec !== "explorer") {
+    return { next: state, success: false, reason: "notExplorer", gate: expeditionTierGates(state, ship, 1).first ?? undefined };
+  }
 
   // The candidate (the console's ids, without building every reading: SQ-6's forecast builds runs). G2-2: any tier's.
   const cand = candidateSystemById(state, candidateId);
   if (cand === null) return { next: state, success: false, reason: "noSuchCandidate" };
+  // G2-4: the region's drive class and frontier sensors, then this system's reach (propulsion.ts).
+  if (propulsionGates) {
+    const gate = expeditionSystemGate(state, ship, cand);
+    if (gate) return { next: state, success: false, reason: gate.reason, gate };
+  }
   // D18: no minimum away team (1 Security + 1 Science, ready), no expedition.
   if (!expeditionAwayTeamCheck(state, ship).ok) return { next: state, success: false, reason: "needsAwayTeam" };
 

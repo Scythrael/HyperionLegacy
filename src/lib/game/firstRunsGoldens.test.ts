@@ -46,7 +46,7 @@ import {
   type PatrolMissionState,
   type ShipTypeKey,
 } from "./model";
-import { advanceExpedition, advanceExpeditionSeed, claimExpedition, expeditionCandidates, expeditionLaunchView, startExpedition } from "./expedition";
+import { advanceExpedition, advanceExpeditionSeed, claimExpedition, expeditionCandidates, expeditionLaunchView } from "./expedition";
 import { deserialize, migrate, serialize, type SaveFile } from "./save";
 import { canDispatch, dispatchCaptainOnMission, dispatchCaptainOnPatrol, economyTick } from "./tick";
 import { awayRecruitCandidates } from "./awayTeam";
@@ -57,7 +57,7 @@ import { combatHullTypeOf, defaultSystemDurabilityForHull, foldedPlayerDefense, 
 import { battleRating, DEFAULT_SAMPLES } from "./combat/rating";
 import { threatAssessment } from "./combat/threatAssessment";
 import { CREW_NAMES, hash, onHull, runOutcome, stateHash, SWEEP, SWEEP_END, withCrew, type CrewName, type RunOutcome } from "./firstRunsGoldens.fixture";
-import { asPreG2Candidate, asPreG2NamesDispatch, asPreRanksDispatch } from "./awayTeamTestFixtures";
+import { asPreG2Candidate, asPreG2NamesDispatch, asPreRanksDispatch, dispatchPastPropulsion } from "./awayTeamTestFixtures";
 import { isTrainingRun } from "./enemyRanks";
 
 // ===== shared helpers =====
@@ -782,7 +782,7 @@ const FIRST_HULLS: ShipTypeKey[] = ["generalFreighter", "orion", "aurora", "eir"
 
 // Field Kits FKR-1: the run as dispatched before enemy ranks (the flag off), so every SF-0 pin keeps its capture.
 function sweepRun(state: GameState, cand: string): { exp: Expedition; done: Expedition; claimed: GameState | null; next: GameState } {
-  const res = asPreG2NamesDispatch(asPreRanksDispatch(startExpedition(state, "ship-1", 1, cand)));
+  const res = asPreG2NamesDispatch(asPreRanksDispatch(dispatchPastPropulsion(state, "ship-1", 1, cand)));
   if (!res.success || !res.expedition) throw new Error(`dispatch refused: ${res.reason}`);
   const done = advanceExpedition(res.expedition, SWEEP_END);
   let claimed: GameState | null = null;
@@ -813,7 +813,7 @@ describe("SF-0 golden 4: the first expedition of the three fresh-save candidates
 
   it("the three candidates every new save is offered: systems, bodies and hazards", () => {
     const cands = expeditionCandidates(withCrew(onHull("orion"), "d18"), "ship-1");
-    const exps = CANDS.map((c) => asPreG2NamesDispatch(startExpedition(withCrew(onHull("orion"), "d18"), "ship-1", 1, c)).expedition!);
+    const exps = CANDS.map((c) => asPreG2NamesDispatch(dispatchPastPropulsion(withCrew(onHull("orion"), "d18"), "ship-1", 1, c)).expedition!);
     pin("first:systems", exps.map((e) => `${e.systemName}: ${e.bodies.map((b) => `${b.planetType} ${b.hazard}`).join(", ")}`));
     pin("first:candidates", hash(cands.map((c) => asPreG2Candidate(c)))); // G2-2: as offered before G2-2 (ids, names)
   });
@@ -838,7 +838,7 @@ describe("SF-0 golden 4: the first expedition of the three fresh-save candidates
   // EVENT-BOUNDARY chain (t - 1, t, t + 1 at every phase anchor, step record, log line and ship leg of the one-call run).
   it("offline == live: one call == 997 s chunks == the event-boundary chain on the D18 Orion's first run", () => {
     const H = 250_000;
-    const exp = asPreG2NamesDispatch(asPreRanksDispatch(startExpedition(withCrew(onHull("orion"), "d18"), "ship-1", 1, "cand-1"))).expedition!; // FKR-1: flag off
+    const exp = asPreG2NamesDispatch(asPreRanksDispatch(dispatchPastPropulsion(withCrew(onHull("orion"), "d18"), "ship-1", 1, "cand-1"))).expedition!; // FKR-1: flag off
     const frozen = structuredClone(exp);
     const one = advanceExpedition(exp, H);
     let e = exp;
