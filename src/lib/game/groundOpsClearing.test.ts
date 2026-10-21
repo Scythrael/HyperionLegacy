@@ -5,13 +5,13 @@
 
 import { describe, expect, it } from "vitest";
 import { freshState, type AwayMember, type Expedition, type GameState, type ShipGroundTeam } from "./model";
-import { TRANSIT_SECONDS, advanceExpedition, claimExpedition, startExpedition, systemTaskPreview } from "./expedition";
+import { TRANSIT_SECONDS, advanceExpedition, claimExpedition, systemTaskPreview } from "./expedition";
 import { CLEARING_SITE_RULES, bodyRiskGrades, generateRiskProfile, isClearingSiteId, type ExpeditionRegion } from "./riskFactors";
 import { riskFightPointCount } from "./groundTasks";
 import { groundOpsLogText } from "./groundOps";
 import { CLEARING_SITE_CATALOG, POI_CATALOG, PLANET_TYPES, groundSiteLabel, poisForPlanetType } from "./expeditionContent";
 import { generateEncounter } from "./gambit";
-import { asPreG2NamesDispatch, plainAwayMember, withoutAffixes, withoutShipEvents } from "./awayTeamTestFixtures";
+import { asPreG2NamesDispatch, plainAwayMember, withoutAffixes, withoutShipEvents, dispatchPastPropulsion } from "./awayTeamTestFixtures";
 // SF-1: the claimed state hashes without the run counters (a claim writes them), absent before SF-1.
 import { withoutRunCounts, goldenJson } from "./firstRunsGoldens.fixture";
 
@@ -73,7 +73,7 @@ export function withoutClearing(exp: Expedition): Expedition {
 
 // Dispatch candidate 0, optionally on a forced region (the risk replaced before any body scans).
 function dispatch(state: GameState, region?: ExpeditionRegion, candidateId = "cand-0"): { next: GameState; exp: Expedition } {
-  const res = asPreG2NamesDispatch(startExpedition(state, "ship-1", 1, candidateId));
+  const res = asPreG2NamesDispatch(dispatchPastPropulsion(state, "ship-1", 1, candidateId));
   expect(res.success, String(res.reason)).toBe(true);
   let exp = res.expedition!;
   if (region) {

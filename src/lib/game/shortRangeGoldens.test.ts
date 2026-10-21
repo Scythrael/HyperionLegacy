@@ -134,7 +134,6 @@ import Decimal from "break_infinity.js";
 import { EQUIPMENT_SLOTS, FIELD_KITS_PLAYER_LIVE, MISSIONS, SHIP_TYPES, type EquipmentInstance, type EquipmentRarity, type GameState, type ShipDerivedStats, type ShipTypeKey, type ShortRangeMissionState } from "./model";
 import { startShortRangeCycle } from "./shortRangeBoard";
 import { dispatchCaptainOnMission, dispatchCaptainOnPatrol, economyTick, installMissingCombatBaselines, mintBuiltShip } from "./tick";
-import { startExpedition } from "./expedition";
 import { effectiveShipStats } from "./crewOverlay";
 import { generateEquipment } from "./itemgen";
 import { buildHomeDashboard } from "./homeDashboard";
@@ -144,12 +143,13 @@ import { WIRING_REGISTRY } from "./wiring/registry";
 import { bucketOf, withBuckets } from "./wiring/probes";
 import { hash, onHull, withCrew, withV1Museum, withoutGuests } from "./firstRunsGoldens.fixture";
 import { ML2_ADDED_ENTRY_IDS, ml2LinesBack } from "./ml2RecipeGoldens.fixture";
-import { asPreG2NamesDispatch } from "./awayTeamTestFixtures";
+import { asPreG2NamesDispatch, dispatchPastPropulsion } from "./awayTeamTestFixtures";
 import { GG1_ADDED_ENTRY_IDS } from "./gasStudyGoldens.fixture";
 import { FUSE_ADDED_ENTRY_IDS } from "./fieldKitsFuse.fixture";
 import { RX_ADDED_ENTRY_IDS } from "./reactorFuelGoldens.fixture";
 import { isSiAdded, SI_RETIRED, siReadBack } from "./siMemberGearRegistry.fixture";
 import { R2_2_ADDED_ENTRY_IDS } from "./relicBlanks.fixture";
+import { G2_4_ADDED_ENTRY_IDS, G2_4_FLIPPED_BEFORE } from "./propulsionRecallGoldens.fixture";
 // CP-8 / OC-11: the test switch that proves the auto-crew pause is the only thing that moved the fleet pin.
 vi.mock("./crewLock", async (io) => (await import("./complementOc11Switch.fixture")).oc11CrewLockMock(io));
 import { withOc11Off } from "./complementOc11Switch.fixture";
@@ -249,7 +249,7 @@ function mixedFleet(): GameState {
     ],
   });
   // G2-2: the dispatch as it was before G2-2 (the console names and region fields stripped), so the pins hold.
-  const exp = asPreG2NamesDispatch(startExpedition(fleet, "ship-1", 1, "cand-0"));
+  const exp = asPreG2NamesDispatch(dispatchPastPropulsion(fleet, "ship-1", 1, "cand-0"));
   if (!exp.success) throw new Error(`expedition refused: ${exp.reason}`);
   const mission = dispatchCaptainOnMission(exp.next, 2, "shortOreRun");
   if (!mission.success) throw new Error(`mission refused: ${mission.reason}`);
@@ -597,6 +597,10 @@ const SF3_FLIPPED_LIVE: ReadonlySet<string> = new Set<string>(["expedition:ENEMY
 const SF3_SLICE: RegistrySlice = { flipped: SF3_FLIPPED_LIVE, was: "pending" };
 // The reactor fuel ladder's additions (0.14.0), held apart in EVERY pin (all of them were taken before it).
 const RX_SLICE: RegistrySlice = { added: RX_ADDED_ENTRY_IDS };
+// Expedition Tiers G2-4 / G2-5 (after every pin here): their added entries and their flips, held apart the same way.
+const G2_4_PENDING_FLIPS: RegistrySlice = { flipped: new Set(Object.keys(G2_4_FLIPPED_BEFORE).filter((id) => G2_4_FLIPPED_BEFORE[id].kind === "pending")), was: "pending" };
+const G2_4_SEAM_FLIPS: RegistrySlice = { flipped: new Set(Object.keys(G2_4_FLIPPED_BEFORE).filter((id) => G2_4_FLIPPED_BEFORE[id].kind === "seam")), was: "seam" };
+const G2_4_SLICES: readonly RegistrySlice[] = [{ added: G2_4_ADDED_ENTRY_IDS }, G2_4_PENDING_FLIPS, G2_4_SEAM_FLIPS];
 // G1-6 (SHORT_RANGE_BOARD_LIVE, the board UI), after every pin here too: the two Mission Control board rungs it put in
 // FACILITIES (each a facility rung entry) and G1-3's audit row, flipped pending -> live with its gate check. Held apart
 // in EVERY pin (the RX_SLICE pattern); "G1-6 is the only cause" below proves that is the whole move.
@@ -611,7 +615,7 @@ const ML2_SLICE: RegistrySlice = { added: ML2_ADDED_ENTRY_IDS };
 // taken before it) through siReadBack (siMemberGearRegistry.fixture.ts: the `si:` entries and the three new Science
 // lines left out, the nine retired combat lines restored in place); `registry:si` pins the added and retired ids.
 function registryPin(...given: readonly RegistrySlice[]): [number, string] {
-  const slices = [RX_SLICE, FUSE_SLICE, ML2_SLICE, R2_2_SLICE, G16_SLICE, ...given];
+  const slices = [RX_SLICE, FUSE_SLICE, ML2_SLICE, R2_2_SLICE, G16_SLICE, ...G2_4_SLICES, ...given];
   const rows = siReadBack(WIRING_REGISTRY.map((e) => ({ id: e.id, kind: e.status.kind as string })), (r) => r.id, (row) => ({ id: row[0], kind: row[1].kind as string }));
   const lines = rows.filter((e) => !slices.some((sl) => sl.added?.has(e.id))).map((e) => {
     const flip = slices.find((sl) => sl.flipped?.has(e.id));

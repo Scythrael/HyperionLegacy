@@ -44,10 +44,10 @@ import { FIELD_KITS_CATALOG_VERSION, SABOTEUR_GRENADE_BONUS } from "./fieldKits"
 import { generateEquipment, rolledLineValue } from "./itemgen";
 import { resolveTaskFight, taskFightTeam, type GroundFightTeam } from "./groundFight";
 import { groundThreatOddsKey } from "./groundThreat";
-import { advanceExpedition, startExpedition } from "./expedition";
+import { advanceExpedition } from "./expedition";
 import { groundOpsAssignIdle, groundOpsBodyScanned, initGroundTasks } from "./groundOps";
 import { makeRng } from "./combat/rng";
-import { plainAwayMember, withoutFieldKits } from "./awayTeamTestFixtures";
+import { plainAwayMember, withoutFieldKits, dispatchPastPropulsion } from "./awayTeamTestFixtures";
 
 const KITS = { catalog: FIELD_KITS_CATALOG_VERSION };
 
@@ -378,7 +378,7 @@ function crewed(expeditionSeed: number, program?: GambitProgram): GameState {
 }
 
 function handRun(state: GameState, pois: string[], risk: BodyRiskGrades, kits: boolean, hazard = 0.2): Expedition {
-  const res = startExpedition(state, "ship-1", 1, "cand-0");
+  const res = dispatchPastPropulsion(state, "ship-1", 1, "cand-0");
   if (!res.success || !res.expedition) throw new Error(`dispatch refused: ${res.reason}`);
   const d = withoutFieldKits(res.expedition);
   const body: ExpeditionBody = {

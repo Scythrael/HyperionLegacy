@@ -55,11 +55,11 @@ import {
 import { CONDITION_LINES, FIELD_KITS_CATALOG_VERSION, FIELD_KIT_STATUS_IDS, fieldKitsLive } from "./fieldKits";
 import { resolveTaskFight, taskFightGuard, taskFightTeam, type GroundFightTeam } from "./groundFight";
 import { GROUND_CONDITIONS, memberBaySeconds } from "./medicalBay";
-import { advanceExpedition, startExpedition } from "./expedition";
+import { advanceExpedition } from "./expedition";
 import { groundOpsAssignIdle, groundOpsBodyScanned, initGroundTasks } from "./groundOps";
 import { groundThreatOddsKey } from "./groundThreat";
 import { makeRng } from "./combat/rng";
-import { plainAwayMember, withoutFieldKits } from "./awayTeamTestFixtures";
+import { plainAwayMember, withoutFieldKits, dispatchPastPropulsion } from "./awayTeamTestFixtures";
 
 const KITS = { catalog: FIELD_KITS_CATALOG_VERSION };
 const NO_CARE = { medicalShare: 0, rapidRecoveryShare: 0, officerFacetShare: 0, injurySteady: 0 };
@@ -439,7 +439,7 @@ function crewed(expeditionSeed: number, over: (m: AwayMember) => AwayMember = (m
 // A real dispatch turned into a run whose window opened at T0 with ONE body just scanned (fieldKitsGoldens handRun),
 // with the Field Kits flag stamped by hand when `kits` (FKR-7 stamps it at dispatch).
 function handRun(state: GameState, pois: string[], risk: BodyRiskGrades, kits: boolean, hazard = 0.1): Expedition {
-  const res = startExpedition(state, "ship-1", 1, "cand-0");
+  const res = dispatchPastPropulsion(state, "ship-1", 1, "cand-0");
   if (!res.success || !res.expedition) throw new Error(`dispatch refused: ${res.reason}`);
   const d = withoutFieldKits(res.expedition);
   const body: ExpeditionBody = {

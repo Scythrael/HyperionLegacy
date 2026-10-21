@@ -25,7 +25,7 @@ import { goldenJson } from "./firstRunsGoldens.fixture"; // gear wear: hashes wi
 import { withEm1Off } from "./emodEm1Switch.fixture";
 import { PATROLS, type GameState, type SecondaryTalentKey } from "./model";
 import { dispatchCaptainOnMission, dispatchCaptainOnPatrol, economyTick, installMissingCombatBaselines, startRelicStudy } from "./tick";
-import { advanceExpedition, claimExpedition, expeditionCandidates, startExpedition } from "./expedition";
+import { advanceExpedition, claimExpedition, expeditionCandidates } from "./expedition";
 import { effectiveShipStats } from "./crewOverlay";
 import { withV1Museum, withoutGuests } from "./firstRunsGoldens.fixture";
 import { seniorStaffCandidates } from "./seniorStaff";
@@ -36,7 +36,7 @@ import { WIRING_BUCKET_COUNT, bucketOf, editCaptain, installPiece, seatOfficer, 
 // captured. SF-2 retired the 30 minute shakedown on expedition 1 (asPreSafeFirstRunsDispatch puts it back). CP-2
 // moved the fixture default race from Earth-born to Spacer and made the Earth-born racial act, so the fixture names
 // Earth-born and reads under withCp2Off (that racial at 0). Nothing else differs from the WR-5c tip's capture.
-import { asPreG2Candidate, asPreG2NamesDispatch, asPreSafeFirstRunsDispatch } from "./awayTeamTestFixtures";
+import { asPreG2Candidate, asPreG2NamesDispatch, asPreSafeFirstRunsDispatch, dispatchPastPropulsion } from "./awayTeamTestFixtures";
 import { withCp2Off } from "./complementCp2Switch.fixture";
 
 function fnv(s: string): string {
@@ -106,7 +106,7 @@ function readVariantLive(key: SecondaryTalentKey | null): Record<string, string>
   const sheet = hash(withoutGuests(withEm1Off(() => effectiveShipStats(s0, ship))));
   const candidates = expeditionCandidates(s0, "ship-1");
   const cands = hash(candidates.map((c) => asPreG2Candidate(c))); // G2-2: as offered before G2-2 (ids, names)
-  const res = asPreG2NamesDispatch(asPreSafeFirstRunsDispatch(startExpedition(s0, "ship-1", 1, candidates[0].id)));
+  const res = asPreG2NamesDispatch(asPreSafeFirstRunsDispatch(dispatchPastPropulsion(s0, "ship-1", 1, candidates[0].id)));
   if (!res.success || !res.expedition) throw new Error(`dispatch refused: ${res.reason}`);
   const dispatch = hash(res.expedition);
   const end = 3_000_000;

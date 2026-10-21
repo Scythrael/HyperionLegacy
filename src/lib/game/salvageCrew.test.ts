@@ -24,7 +24,7 @@ import type {
   SeniorStaffOfficer,
 } from "./model";
 import { advanceExpedition, claimExpedition, expeditionCandidates, orphanExpeditions, startExpedition } from "./expedition";
-import { asLegacyDispatch, plainAwayMember, withMinimumAwayTeam } from "./awayTeamTestFixtures";
+import { asLegacyDispatch, plainAwayMember, withMinimumAwayTeam, dispatchPastPropulsion } from "./awayTeamTestFixtures";
 import { emptyGroundTeams, shipGroundTeams } from "./groundTeams";
 import { migrate, serialize, deserialize, repairOrphanedShipRefsV69, SAVE_VERSION, type SaveFile } from "./save";
 import { totalCrew } from "./crew";
@@ -106,7 +106,7 @@ function shipOrder(shipId: string): QueuedOrder {
 // legacy run (no ground ops) so advanceExpedition alone carries it to "complete" for the claim cases.
 function onExpedition(): GameState {
   const s = crewedFleet();
-  const launched = asLegacyDispatch(startExpedition(s, "ship-1", 1, expeditionCandidates(s, "ship-1")[0].id));
+  const launched = asLegacyDispatch(dispatchPastPropulsion(s, "ship-1", 1, expeditionCandidates(s, "ship-1")[0].id));
   expect(launched.success).toBe(true);
   return launched.next;
 }

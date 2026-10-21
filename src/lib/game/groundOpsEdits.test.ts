@@ -17,7 +17,7 @@ import {
   type GroundTeamRun,
   type ShipGroundTeam,
 } from "./model";
-import { advanceExpedition, canEditGroundOps, claimExpedition, editGroundOps, expeditionCandidates, startExpedition } from "./expedition";
+import { advanceExpedition, canEditGroundOps, claimExpedition, editGroundOps, expeditionCandidates } from "./expedition";
 import {
   AUTO_ASSIGN_SALT,
   RETURN_SECONDS,
@@ -36,7 +36,7 @@ import {
   type GroundOpsEditBlockReason,
   type GroundTaskRef,
 } from "./groundOps";
-import { asPreCurveDispatch, plainAwayMember, withoutGroundOps, withSlottedAwayTeams } from "./awayTeamTestFixtures";
+import { asPreCurveDispatch, plainAwayMember, withoutGroundOps, withSlottedAwayTeams, dispatchPastPropulsion } from "./awayTeamTestFixtures";
 
 // ===== fixtures =====
 
@@ -77,7 +77,7 @@ function oneTeamRun(poiIds: string[], opts: { members?: AwayMember[]; securitySt
     awayMembers: (opts.members ?? SQUAD).map((m) => ({ ...m })),
     nextAwayMemberId: 100,
   });
-  const res = asPreCurveDispatch(startExpedition(s, "ship-1", 1, expeditionCandidates(s, "ship-1")[0].id));
+  const res = asPreCurveDispatch(dispatchPastPropulsion(s, "ship-1", 1, expeditionCandidates(s, "ship-1")[0].id));
   if (!res.success || !res.expedition) throw new Error(`dispatch refused: ${res.reason}`);
   const d = res.expedition;
   const exp: Expedition = structuredClone({
@@ -132,7 +132,7 @@ function twoTeamRun(
   opts: { help?: [boolean, boolean]; securityStrength?: number; seed?: number; manual?: (e: Expedition) => void } = {},
 ): Expedition {
   const s = compState(kinds, opts.help ?? [false, false]);
-  const res = asPreCurveDispatch(startExpedition(s, "ship-1", 1, expeditionCandidates(s, "ship-1")[0].id));
+  const res = asPreCurveDispatch(dispatchPastPropulsion(s, "ship-1", 1, expeditionCandidates(s, "ship-1")[0].id));
   if (!res.success || !res.expedition) throw new Error(`dispatch refused: ${res.reason}`);
   const d = res.expedition;
   const body = scannedBody(
@@ -714,7 +714,7 @@ describe("GO-7d EDIT PARITY: one call to T + edit + one call to the end == chunk
   it("a REAL dispatched run edited while the ship still scans (and once in transit)", { timeout: 120_000 }, () => {
     const SQ: AwayMember[] = [member("member-1", "security", { rank: 3 }), member("member-2", "security", { rank: 2, traits: ["fieldMedic"] }), member("member-11", "science")];
     const s = withSlottedAwayTeams({ ...freshState(), awayMembers: SQ.map((m) => ({ ...m })), nextAwayMemberId: 100, expeditionSeed: 0x0a13bd4 });
-    const res = asPreCurveDispatch(startExpedition(s, "ship-1", 1, expeditionCandidates(s, "ship-1")[0].id));
+    const res = asPreCurveDispatch(dispatchPastPropulsion(s, "ship-1", 1, expeditionCandidates(s, "ship-1")[0].id));
     const exp = res.expedition!;
     // In transit: only the help toggle has anything to change.
     const inTransit = edited(exp, 10, { kind: "setHelp", teamIndex: 0, on: true });

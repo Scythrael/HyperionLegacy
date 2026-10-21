@@ -24,7 +24,7 @@
 // facility upgrades; expeditions are excluded by user ruling 2026-10-20 ("No, not expeditions"): a voyage keeps its
 // frozen legs.
 //
-// Module graph: model (types + the leg speed readers), galaxy (types). Imported by expedition.ts.
+// Module graph: model (types + the leg speed readers), galaxy (types). Imported by expedition.ts and propulsion.ts.
 
 import { outboundLegSpeed, returnLegSpeed, type ExpeditionVoyage, type RegionTier, type ShipDerivedStats } from "./model";
 import type { RegionBandLy } from "./galaxy";
@@ -41,15 +41,14 @@ export const VOYAGE_BAND_SCALE_PERMILLE: Readonly<{ near: number; far: number }>
 // The charted anomaly's detour: 25% of the outbound leg (user 2026-10-20 "25% of outbound"; the pre-G2-3 detour was a
 // flat hour on a 6 hour leg). Not distance flown (user G14).
 export const VOYAGE_ANOMALY_DETOUR_PERMILLE = 250;
-// Every ship's drive class until G2-4 (drive classes on FTL drives and hulls, user G3) gives drives a class: Class I.
-export const STANDARD_DRIVE_CLASS = 1;
 // Safe first runs SF-2 (user, group 3): the TRAINING RUN's nominal one-way time (runDifficulty.ts
 // isTrainingExpedition: the first expedition from an explorer). Its own constant, set EQUAL to the Tier I nominal for
 // now (the training run is a Tier I run, so it flies exactly what that system would): the tutorial patch shortens it
 // (about 5 seconds, the story beats carrying the trip). The floor never lengthens it past itself.
 export const TUTORIAL_TRANSIT_SECONDS = TIER_TRANSIT_HOURS[1] * 3_600;
 
-// The minimum drive class a tier asks for (G2-4's tier gate: the installed drive's class >= the region tier). Pure.
+// The minimum drive class a tier asks for (G2-4's tier gate, propulsion.ts: the ship's drive class >= the region tier).
+// Pure.
 export function tierMinimumDriveClass(tier: RegionTier): number {
   return tier;
 }
@@ -70,8 +69,8 @@ export function voyageBandScalePermille(distanceLy: number, band: RegionBandLy):
   return near + Math.round((far - near) * at);
 }
 
-// How many times a leg halves: the drive classes above the tier's minimum (never negative: G2-4 refuses a drive
-// below it). Pure.
+// How many times a leg halves: the drive classes above the tier's minimum (never negative: propulsion.ts refuses a
+// class below it; a run dispatched before G2-4 at Class I to a deeper tier flies the tier's nominal). Pure.
 export function voyageClassSteps(tier: RegionTier, driveClass: number): number {
   const steps = Math.floor(driveClass) - tierMinimumDriveClass(tier);
   return Number.isFinite(steps) && steps > 0 ? steps : 0;

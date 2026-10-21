@@ -10,9 +10,9 @@
 
 import { describe, it, expect } from "vitest";
 import type { Expedition, ExpeditionFinding, GameState, RegionTier } from "./model";
-import { advanceExpedition, claimExpedition, makeExpeditionSeed, startExpedition } from "./expedition";
+import { advanceExpedition, claimExpedition, makeExpeditionSeed } from "./expedition";
 import { hash, onHull, withCrew, SWEEP_END } from "./firstRunsGoldens.fixture";
-import { asExpeditionVeteran, asPreRelicBlanksRun } from "./awayTeamTestFixtures";
+import { asExpeditionVeteran, asPreRelicBlanksRun, dispatchPastPropulsion } from "./awayTeamTestFixtures";
 import { cultureForBody } from "./relicBlanks";
 import { FIELD_KITS_CATALOG_VERSION } from "./fieldKits";
 
@@ -24,7 +24,9 @@ function crewed(seed: number): GameState {
 }
 
 function finished(seed: number, tier: RegionTier): { state: GameState; done: Expedition } {
-  const res = startExpedition(crewed(seed), "ship-1", 1, `cand-${tier}-0`);
+  // G2-4 (merged after this capture) gates an Eir off Tiers IV and VII (a Class I drive): the pre-G2-4 dispatch, which
+  // writes the record a gated dispatch of a passing ship would (dispatchPastPropulsion).
+  const res = dispatchPastPropulsion(crewed(seed), "ship-1", 1, `cand-${tier}-0`);
   if (!res.success || !res.expedition) throw new Error(`dispatch refused: ${seed} ${tier} ${res.reason}`);
   return { state: res.next, done: advanceExpedition(res.expedition, res.next.gameTimeSeconds + SWEEP_END) };
 }

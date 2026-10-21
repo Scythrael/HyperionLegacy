@@ -2241,8 +2241,15 @@ describe("Equipment BLUEPRINTS (0.11.0 Task 18)", () => {
   ];
   const EQUIP_BP_COUNT = 52 + (FIELD_KITS_PLAYER_LIVE ? 1 : 0);
 
-  // Every equipment blueprint = a BLUEPRINTS entry carrying `equipmentOutput`.
-  const equipmentBlueprints = Object.values(BLUEPRINTS).filter((bp) => bp.equipmentOutput);
+  // Every equipment blueprint = a BLUEPRINTS entry carrying `equipmentOutput`. Expedition Tiers G2-4: a CLASSED drive
+  // (driveClass set: the Class II Drive today) is a class line on a Class I variety, counted apart (its own test below).
+  const equipmentBlueprints = Object.values(BLUEPRINTS).filter((bp) => bp.equipmentOutput && bp.driveClass === undefined);
+
+  it("G2-4: the classed drives the facility tracks serve are in BLUEPRINTS (Class II today), each a Balanced FTL drive", () => {
+    const classed = Object.values(BLUEPRINTS).filter((bp) => bp.driveClass !== undefined);
+    expect(classed.map((bp) => [bp.key, bp.driveClass, bp.tier])).toEqual([["classIIDriveBp", 2, 2]]);
+    for (const bp of classed) expect(bp.equipmentOutput).toEqual({ slotType: "ftlDrive", varietyKey: "balancedDrive" });
+  });
 
   it("defines exactly 52 equipment blueprints (53 once the Impact Grenade's is live), one per (equipmentOutput slot × variety)", () => {
     expect(equipmentBlueprints).toHaveLength(EQUIP_BP_COUNT);

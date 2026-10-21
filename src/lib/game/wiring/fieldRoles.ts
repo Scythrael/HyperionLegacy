@@ -201,6 +201,7 @@ export const FIELD_ROLES: Readonly<Record<string, Readonly<Record<string, FieldR
     equipmentOutput: "effect",
     weaponOutput: "effect",
     droneOutput: "effect",
+    driveClass: "effect", // Expedition Tiers G2-4: the drive's class (propulsion.ts shipDriveClass; EM-1's x1.6 power draw)
   },
   QUARTERS_MODULES: {
     id: "identity",

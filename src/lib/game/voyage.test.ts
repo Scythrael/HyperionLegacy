@@ -10,9 +10,8 @@
 
 import { describe, expect, it } from "vitest";
 import { freshState, type AwayMember, type Expedition, type GameState, type RegionTier, type ShipDerivedStats, type ShipGroundTeam } from "./model";
-import { ANOMALY_CHECK_FRACTION, TRANSIT_SECONDS, advanceExpedition, candidateSystemById, candidateVoyage, returnDurationSeconds, startExpedition } from "./expedition";
+import { ANOMALY_CHECK_FRACTION, TRANSIT_SECONDS, advanceExpedition, candidateSystemById, candidateVoyage, returnDurationSeconds } from "./expedition";
 import {
-  STANDARD_DRIVE_CLASS,
   TIER_TRANSIT_HOURS,
   TUTORIAL_TRANSIT_SECONDS,
   VOYAGE_ANOMALY_DETOUR_PERMILLE,
@@ -26,11 +25,12 @@ import {
   voyageOf,
 } from "./voyage";
 import { REGION_TIERS, stateHomeworld } from "./galaxy";
+import { shipDriveClass } from "./propulsion";
 import { applyTimeSkip } from "./processSpeed";
 import { constitutionRamp } from "./constitutionRamp";
 import { FIELD_REPAIR_DAMAGE_SHARE } from "./groundOps";
 import { effectiveShipStats } from "./crewOverlay";
-import { asExpeditionVeteran, plainAwayMember } from "./awayTeamTestFixtures";
+import { asExpeditionVeteran, plainAwayMember, dispatchPastPropulsion } from "./awayTeamTestFixtures";
 import { bucketOf, dispatchRun, seatOfficer, wiringBase, withBuckets } from "./wiring/probes";
 
 const T0 = 100_000;
@@ -62,7 +62,7 @@ function crewed(seed?: number): GameState {
 }
 
 function dispatch(state: GameState, tier: RegionTier, slot = 0): Expedition {
-  const res = startExpedition(state, "ship-1", 1, `cand-${tier}-${slot}`);
+  const res = dispatchPastPropulsion(state, "ship-1", 1, `cand-${tier}-${slot}`);
   expect(res.success, String(res.reason)).toBe(true);
   return res.expedition!;
 }
@@ -216,7 +216,7 @@ describe("G2-3 a dispatch stamps its voyage and the run flies it", () => {
       const exp = dispatch(state, tier);
       const ship = state.ships[0];
       const band = stateHomeworld(state).regionBandsLy[tier];
-      expect(exp.voyage).toEqual(planVoyage({ tier, distanceLy: cand.distanceLy, band, driveClass: STANDARD_DRIVE_CLASS, stats: effectiveShipStats(state, ship), training: false }));
+      expect(exp.voyage).toEqual(planVoyage({ tier, distanceLy: cand.distanceLy, band, driveClass: shipDriveClass(state, ship), stats: effectiveShipStats(state, ship), training: false }));
       expect(exp.voyage).toEqual(candidateVoyage(state, ship, cand, false));
       expect(exp.voyage!.distanceLy).toBe(exp.region!.distanceLy);
       expect(exp.voyage!.driveClass).toBe(1);

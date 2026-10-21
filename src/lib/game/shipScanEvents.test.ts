@@ -13,11 +13,10 @@ import {
   expeditionLaunchView,
   expeditionShipRepairText,
   scanRatePerSecond,
-  startExpedition,
-} from "./expedition";
+  } from "./expedition";
 import { formatCountdown } from "./format";
 import { scanClockToTime } from "./groundOps";
-import { asPreCurveDispatch, plainAwayMember, withoutGroundOps, withoutShipEvents, withSlottedAwayTeams } from "./awayTeamTestFixtures";
+import { asPreCurveDispatch, plainAwayMember, withoutGroundOps, withoutShipEvents, withSlottedAwayTeams, dispatchPastPropulsion } from "./awayTeamTestFixtures";
 import { economyTick, processShipRepairs } from "./tick";
 import {
   BOARDING_ATTEMPT_CHANCE,
@@ -58,7 +57,7 @@ function crewed(expeditionSeed: number): GameState {
 }
 function dispatch(expeditionSeed: number): { next: GameState; exp: Expedition } {
   const s = crewed(expeditionSeed);
-  const res = asPreCurveDispatch(startExpedition(s, "ship-1", 1, expeditionCandidates(s, "ship-1")[0].id));
+  const res = asPreCurveDispatch(dispatchPastPropulsion(s, "ship-1", 1, expeditionCandidates(s, "ship-1")[0].id));
   if (!res.success || !res.expedition) throw new Error(`dispatch refused: ${res.reason}`);
   return { next: res.next, exp: res.expedition };
 }
@@ -350,7 +349,7 @@ describe("GO-9 boarding attempts (D26: crew.boardingDefense and the Ossir racial
       assignedShipId: "ship-1",
     };
     const s2 = { ...s, officers: [ossir] } as unknown as GameState;
-    const res = asPreCurveDispatch(startExpedition(s2, "ship-1", 1, expeditionCandidates(s2, "ship-1")[0].id));
+    const res = asPreCurveDispatch(dispatchPastPropulsion(s2, "ship-1", 1, expeditionCandidates(s2, "ship-1")[0].id));
     expect(res.expedition!.groundOps!.shipEventProfile.boardingDefense).toBeGreaterThan(0);
   });
 
@@ -430,7 +429,7 @@ describe("GO-8 review (user, 2026-10-14: \"Must be repaired first\", the patrol 
   const cand = (s: GameState) => expeditionCandidates(s, "ship-1")[0].id;
 
   it("damaged and waiting for a bay: refused with the SAME state, said plainly", () => {
-    const res = asPreCurveDispatch(startExpedition(hurt, "ship-1", 1, cand(hurt)));
+    const res = asPreCurveDispatch(dispatchPastPropulsion(hurt, "ship-1", 1, cand(hurt)));
     expect(res).toMatchObject({ success: false, reason: "shipDamaged" });
     expect(res.next).toBe(hurt);
     expect(expeditionDispatchBlockText("shipDamaged")).toBe("Ship is damaged, repair it first");
@@ -442,19 +441,19 @@ describe("GO-8 review (user, 2026-10-14: \"Must be repaired first\", the patrol 
     const repairing = processShipRepairs(hurt);
     const proc = repairing.activeProcesses.find((p) => p.kind === "shipRepair")!;
     expect(proc).toBeDefined();
-    expect(startExpedition(repairing, "ship-1", 1, cand(repairing)).reason).toBe("shipDamaged");
+    expect(dispatchPastPropulsion(repairing, "ship-1", 1, cand(repairing)).reason).toBe("shipDamaged");
     const secs = proc.remainingTicks * repairing.tickDurationSeconds;
     expect(expeditionShipRepairText(repairing, repairing.ships[0])).toBe(`Repairing: ready in ${formatCountdown(secs)}`);
     // A repair process alone (the flag already cleared by hand) still holds the ship.
     const flagOff = { ...repairing, ships: repairing.ships.map((s) => ({ ...s, damaged: undefined })) };
-    expect(startExpedition(flagOff, "ship-1", 1, cand(flagOff)).reason).toBe("shipDamaged");
+    expect(dispatchPastPropulsion(flagOff, "ship-1", 1, cand(flagOff)).reason).toBe("shipDamaged");
   });
 
   it("once repaired the ship launches again; the candidate list and the launch view still read while it waits", () => {
     let s = processShipRepairs(hurt);
     for (let i = 0; i < 5000 && (s.ships[0].damaged || s.activeProcesses.some((p) => p.kind === "shipRepair")); i++) s = economyTick(s, 1, () => 0.5);
     expect(s.ships[0].damaged).toBeUndefined();
-    expect(startExpedition(s, "ship-1", 1, cand(s)).success).toBe(true);
+    expect(dispatchPastPropulsion(s, "ship-1", 1, cand(s)).success).toBe(true);
     // Display paths on the blocked ship: no throw, a full candidate list, a launch view.
     const list = expeditionCandidates(hurt, "ship-1");
     expect(list.length).toBeGreaterThan(0);

@@ -34,9 +34,9 @@ import { CREW_RACES } from "./crewRaces";
 import { diminishing } from "./diminishing";
 import { dispatchCaptainOnMission, dispatchCaptainOnPatrol, economyTick, installMissingCombatBaselines, processShipRepairs, shipRepairDurationTicks, tick } from "./tick";
 import { equippedFor } from "./equipment";
-import { expeditionCandidates, startExpedition } from "./expedition";
+import { expeditionCandidates } from "./expedition";
 import { getSeniorStaffBonusById } from "./seniorStaffBonuses";
-import { withSlottedAwayTeams, plainAwayMember } from "./awayTeamTestFixtures";
+import { withSlottedAwayTeams, plainAwayMember, dispatchPastPropulsion } from "./awayTeamTestFixtures";
 import { MUSEUM_COPY_LADDER, museumBonusesFromRecord, RELIC_SETS } from "./relics";
 
 // ===== fixtures =====
@@ -132,7 +132,7 @@ describe("Damage Control and Mission Turnaround speed every repair", () => {
     const squad = [plainAwayMember("member-1", "security", "ship-1"), plainAwayMember("member-11", "science", "ship-1")];
     const withSquad = (s: GameState) => withSlottedAwayTeams({ ...s, awayMembers: squad, nextAwayMemberId: 100, expeditionSeed: 0x1234 });
     const dispatch = (s: GameState) => {
-      const r = startExpedition(s, "ship-1", 1, expeditionCandidates(s, "ship-1")[0].id);
+      const r = dispatchPastPropulsion(s, "ship-1", 1, expeditionCandidates(s, "ship-1")[0].id);
       expect(r.success).toBe(true);
       return r;
     };

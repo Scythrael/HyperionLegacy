@@ -57,6 +57,7 @@ import {
   STANDARD_ISSUE_MEMBER_SHARES,
   standardIssueMemberLines,
   generateStandardIssue,
+  driveClassPowerDraw,
   SUBSPACE_TELESCOPE_FACILITY_KEY,
   SUBSPACE_TELESCOPE_LEVELS,
   TRANSIT_BERTH_RUNGS,
@@ -85,7 +86,7 @@ import {
 import Decimal from "break_infinity.js";
 import { diminishing } from "../diminishing";
 import { secondaryTalentEffectText } from "../captainSecondaryEffects";
-import { buyHomeworldTalent, describeCaptainTalentEffect } from "../tick";
+import { buyHomeworldTalent, describeCaptainTalentEffect, installMissingCombatBaselines } from "../tick";
 import type { CaptainPrimaryMultKind } from "../captainPrimaryEffects";
 import { combatHullTypeOf, hullDefenseComposition } from "../combat/bridge";
 import { SENIOR_STAFF_BONUSES, type SeniorStaffBonusDef } from "../seniorStaffBonuses";
@@ -99,6 +100,8 @@ import { DEPARTMENT_OF_SEAT, OFFICER_STAT_NEUTRAL, XO_DEPARTMENT_SHARE, officerS
 import { CREW_EFFECTIVENESS_KNEE, OFFICER_BONUSES_PENDING_IN_RELEASE, POWER_EFFICIENCY_KNEE } from "../crewOverlay";
 import { patrolCycleOneRampHours } from "../tick";
 import { constitutionRamp } from "../constitutionRamp";
+import { DRIVE_CLASS_REACH_MULT } from "../propulsion";
+import { voyageClassSteps } from "../voyage";
 import { AWAY_TRAITS, type AwayTraitDef } from "../awayTraits";
 import { FIRST_AID_TRAINED_EFFECTIVENESS, FIRST_AID_UNTRAINED_EFFECTIVENESS, GAMBIT_PRESETS, GAMBIT_STATUSES, STONESKIN_BATTLE_RESIST } from "../gambit";
 import { applyMemberGambitPreset } from "../memberGambits";
@@ -163,6 +166,7 @@ import {
   editMember,
   identity,
   installPiece,
+  editShip,
   seatOfficer,
   wearPiece,
   wiringBase,
@@ -421,6 +425,7 @@ export const CP_3 = "Complement plan CP-3 (Ground Ops complement consumers: Secu
 // region is reachable by tests only"): every tier's candidates are built and tested (expeditionTierCandidates.test.ts),
 // but no player reaches a deeper tier until the console offers it, so the tier-gated sources wait on G2-6.
 const G2_6_PICKER = "G2-6 (the region picker: G2-2 built every tier's candidates, the console offers Tier I until then)";
+const G2_6_RECALL = "G2-6 (the recall button, its one confirm and the Resume cards: G2-5 built the engine)";
 const PILOT_CUNNING = "pending user decision (officerStats.ts CUNNING_PENDING_SEATS)";
 // Gear wear (0.14.0, design docs/plans/2026-10-16-gear-wear-design.md section 11) owners: step 3 wires the use wear
 // sources, the repair contexts and the economy / ground efficiency; step 4 the combat half (battle wear, the
@@ -3576,7 +3581,20 @@ const AUDIT_ROWS: readonly { id: string; system: WiringSystem; claim: string; st
   // Expedition Tiers G2-3: the voyage engine reaches every tier and every drive class (voyage.test.ts proves the ladder,
   // the band scale and the halving); no player reaches a deeper tier until the picker, nor a class above I until G2-4.
   { id: "expedition:audit:voyageDeepTiers", system: "expedition", claim: "The voyage ladder above Tier I: TIER_TRANSIT_HOURS II 4 h, III 8 h, IV 12 h, V 24 h, VI 72 h, VII 168 h", status: pending(G2_6_PICKER) },
-  { id: "expedition:audit:voyageDriveClass", system: "expedition", claim: "A voyage leg halves per drive class above the tier's minimum (voyage.ts voyageClassSteps): every drive is Class I (STANDARD_DRIVE_CLASS)", status: pending("G2-4 (drive classes on FTL drives and hulls, user G3)") },
+  // Expedition Tiers G2-4 (propulsion.ts): a Class II drive is researchable, installable and halves a Tier I leg today;
+  // the deep-space reach reads its class at every launch; no hull but an explorer launches. The tier gates themselves
+  // (drive class and frontier sensors per tier) only refuse at Tier II and deeper, which no player picks until G2-6.
+  { id: "expedition:audit:voyageDriveClass", system: "expedition", claim: "A voyage leg halves per drive class above the tier's minimum (voyage.ts voyageClassSteps; the ship's class: propulsion.ts shipDriveClass)", status: LIVE },
+  { id: "expedition:audit:deepSpaceReach", system: "expedition", claim: "Deep-space reach: the gear-inclusive range x DRIVE_CLASS_REACH_MULT by drive class x the Engineering long-haul ramp, against the round trip (outOfReach)", status: LIVE },
+  { id: "expedition:audit:explorerHullGate", system: "expedition", claim: "Only an explorer hull launches an expedition, Tier I included (notExplorer)", status: LIVE },
+  { id: "expedition:audit:driveClassTierGate", system: "expedition", claim: "A tier asks for a drive class at least its own number (driveClassTooLow, driveClassUnavailable)", status: pending(G2_6_PICKER) },
+  { id: "expedition:audit:frontierSensors", system: "expedition", claim: "Frontier sensors to attempt a tier: FRONTIER_SENSORS I 0, II 10, III 20, IV 30, V 40, VI 55, VII 65 (frontierSensors)", status: pending(G2_6_PICKER) },
+  { id: "expedition:audit:hullBaseDriveClass", system: "expedition", claim: "A hull's base drive class from its tier (propulsion.ts hullBaseDriveClass): every explorer built today is Class I", status: { kind: "seam", owner: "the first tier 3 explorer hull (none is built yet)", userRef: "G2 OC-3 (user 2026-10-16): \"A combination of higher tier ships and better drive blueprints/stats/etc.\"" } },
+  // Expedition Tiers G2-5: the recall and the resumable systems are built in the engine (expeditionRecall.test.ts proves
+  // the 1:1 times, the closing window and the resume); no player can recall or resume until G2-6's console.
+  { id: "expedition:audit:recall", system: "expedition", claim: "Recall: home in the outbound time flown (the detour not counted), or after arrival the window closes, one shared pickup, then the full return leg; finished work comes home", status: pending(G2_6_RECALL) },
+  { id: "expedition:audit:resumableSystems", system: "expedition", claim: "A recalled system with charted bodies stays open to resume by any explorer (scans done, objectives keep progress, the trip flown again) until finished or abandoned; one recalled before anything was charted is an ordinary candidate again", status: pending(G2_6_RECALL) },
+  { id: "facility:audit:heldDriveClasses", system: "facility", claim: "The Class III to VII Drive Blueprints (DRIVE_CLASS_BLUEPRINTS) join BLUEPRINTS once the Research Lab and Fabricator tracks reach their tiers", status: pending("complement OC-15 (Research Lab and Fabricator rungs 3 to 7; user 2026-10-16 \"Add tiers 3-7 now\")") },
   { id: "expedition:audit:anomalySensors", system: "expedition", claim: "ANOMALY_CHANCE_PERMILLE: \"if sensors detect one\" (sensors not read)", status: pending("WR-11, OC-G3") },
   { id: "expedition:audit:relicSignature", system: "expedition", claim: "Foreknowledge relicSignature (the UI never reads it)", status: pending("WR-11 (delete or render; no call)") },
   { id: "expedition:audit:blindLaunch", system: "expedition", claim: "The blind launch path (a candidate past the telescope's reach: a deeper tier)", status: pending(G2_6_PICKER) },
@@ -3674,6 +3692,38 @@ function auditRowWiring(): Readonly<Record<string, Partial<EntryInput>>> {
       on: emitter(SLOT_BASE_PHYSICALS.shieldEmitters.powerDraw),
       off: emitter(0),
     },
+    // Expedition Tiers G2-4: an Orion's Tier I outbound leg with a Class II drive installed is half its Class I leg
+    // (whole seconds: one rounding step).
+    "expedition:audit:voyageDriveClass": {
+      probe: "voyageOutbound",
+      contexts: ["expedition:groundOps"],
+      direction: "down",
+      curve: { kind: "divisor" },
+      magnitude: () => 2 ** voyageClassSteps(1, 2) - 1,
+      base: () => wiringBase("orion"),
+      on: classedDrive("classIIDriveBp"),
+      off: classedDrive("balancedDriveBp"),
+      tolerance: 1,
+    },
+    // G2-4: the same Orion's reach on that voyage, Class II over Class I (the drives carry no range lines here).
+    "expedition:audit:deepSpaceReach": {
+      probe: "expeditionReach",
+      contexts: ["expedition:groundOps"],
+      curve: { kind: "linearRelative" },
+      magnitude: () => DRIVE_CLASS_REACH_MULT[2] / DRIVE_CLASS_REACH_MULT[1] - 1,
+      base: () => wiringBase("orion"),
+      on: classedDrive("classIIDriveBp"),
+      off: classedDrive("balancedDriveBp"),
+    },
+    // G2-4: the starting General Freighter is refused, the same save on an Orion launches.
+    "expedition:audit:explorerHullGate": {
+      probe: "expeditionLaunchAllowed",
+      contexts: ["expedition:groundOps"],
+      curve: { kind: "gate" },
+      magnitude: () => 1,
+      on: (s) => installMissingCombatBaselines(editShip(s, { typeKey: "orion" })),
+      off: identity,
+    },
     "ship:audit:weaponPowerDraw": {
       probe: "sheetPowerDraw",
       contexts: ["sheet"],
@@ -3686,18 +3736,30 @@ function auditRowWiring(): Readonly<Record<string, Partial<EntryInput>>> {
   };
 }
 
-// E-MOD EM-1: the drive class draw seam G2-4's classed drives call (every drive is Class I until then).
+// E-MOD EM-1: the drive class draw. Expedition Tiers G2-4 made it live: the Class II Drive Blueprint (researchable at
+// Lab tier 2) draws x1.6 its slot's base draw, rounded up, on the sheet.
 function emodAuditEntries(): WiringEntry[] {
+  const draw = SLOT_BASE_PHYSICALS.ftlDrive.powerDraw;
   return [
     entry({
       id: "ship:SHIP_SEAMS:driveClassPowerDraw",
       system: "ship",
       source: { catalog: "SHIP_SEAMS", key: "driveClassPowerDraw" },
       claim: "An FTL drive draws x1.6 power per drive class above I (DRIVE_CLASS_POWER_DRAW_MULT)",
-      status: { kind: "seam", owner: "G2-4 (the Class II to VII drive blueprints)", userRef: "E-MOD P5 (user 2026-10-19): \"x1.6 per class (Recommended)\"" },
-      note: "every drive is Class I until G2-4; shipPower.test.ts proves the multiplier on a classed blueprint",
+      probe: "sheetPowerDraw",
+      contexts: ["sheet"],
+      curve: { kind: "linearAbsolute" },
+      magnitude: (c) => driveClassPowerDraw(c.SLOT_BASE_PHYSICALS.ftlDrive.powerDraw, 2) - c.SLOT_BASE_PHYSICALS.ftlDrive.powerDraw,
+      base: bareHull,
+      on: classedDrive("classIIDriveBp", draw),
+      off: classedDrive("balancedDriveBp", draw),
     }),
   ];
+}
+
+// Expedition Tiers G2-4: ship-1 with an FTL drive of blueprint `blueprintKey` installed (no stat lines, `powerDraw`).
+function classedDrive(blueprintKey: string, powerDraw: number = SLOT_BASE_PHYSICALS.ftlDrive.powerDraw): Transform {
+  return (s) => installPiece(s, { slotType: "ftlDrive", blueprintKey, powerDraw });
 }
 
 // Field Kits FKR-4: the audit row FKR-4 resolves, now live with its own check.
