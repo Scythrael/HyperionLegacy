@@ -49,6 +49,7 @@ import { telescopeReadingAtLevel } from "./telescope";
 import { telescopeCardView, telescopeMapView } from "../telescopeCardDisplay";
 import { asPreG2Candidate as asPreG2CandidateFixture, asPreG2NamesDispatch, asPreRanksDispatch, asPreSafeFirstRunsDispatch, plainAwayMember, withSlottedAwayTeams } from "./awayTeamTestFixtures";
 import { PRE_G2_STORED_RUNS } from "./expeditionTiersGoldens.fixture";
+import { PRE_RX_MISSION_KEYS } from "./reactorFuelGoldens.fixture";
 import { withV1Museum } from "./firstRunsGoldens.fixture";
 
 // ===== shared helpers =====
@@ -504,7 +505,8 @@ describe("G2-0 golden 4: reach and eligibility for every hull x every mission an
         const state = reachState(hull, boost);
         const ship = state.ships.find((sh) => sh.id === "ship-1")!;
         const rows: unknown[] = [shipRangeLightYears(state, ship)];
-        for (const [key, m] of Object.entries(MISSIONS)) {
+        // Reactor fuel ladder (0.14.0): the missions before the Cometary Ice Harvest (reactorFuelGoldens pins its rows).
+        for (const [key, m] of PRE_RX_MISSION_KEYS.map((k) => [k, MISSIONS[k]] as const)) {
           const gate = canDispatch(state, ship.assignedCaptainId!, key as MissionKey);
           if (!gate.ok && gate.reason === "fuelCapacity") refusedOnReach += 1;
           rows.push([key, shipReachesRoundTrip(state, ship, m.transitOutTicks, m.transitBackTicks), shipTripRangeLightYears(state, ship, m.transitOutTicks + m.transitBackTicks), gate]);

@@ -1086,6 +1086,8 @@
   // Gas Giant Study GG-1: the canisters' SVG glyphs, and the study items still waiting on a source (kept off the shelves).
   import { gasCanisterIcon } from "./lib/ui/gasStudyIcons";
   import { gasStudySourcePending } from "./lib/game/gasGiantContent";
+  // Reactor fuel ladder (0.14.0): a gathering mission's own SVG glyph (the Cometary Ice Harvest's comet).
+  import { missionIcon } from "./lib/ui/missionIcons";
   // GO-10: the shared threat tier chip (SVG tier dot, HelpTip bubble), used by the patrol card + dispatch popup.
   import ThreatChip from "./lib/ui/ThreatChip.svelte";
   import type { IconName } from "./lib/ui/icons";
@@ -17077,10 +17079,13 @@
                   {@const marginPct = Math.round(supplyTerms.margin * 1000) / 10}
                   {#if unlocked}
                     {@const expanded = expandedMissionKey === missionKey}
+                    {@const ownGlyph = missionIcon(missionKey)}
                     <div class="mpane-wrap">
                       <div class="mpane">
                         <div class="mpane-id">
-                          <span class="mpane-glyph" aria-hidden="true">🚀</span>
+                          <!-- Reactor fuel ladder (0.14.0): a mission with its own SVG glyph (missionIcons.ts) draws it;
+                               the others keep the shared row glyph until their surface is redrawn. -->
+                          <span class="mpane-glyph" aria-hidden="true">{#if ownGlyph}<Icon name={ownGlyph} size={22} />{:else}🚀{/if}</span>
                           <div class="mpane-idcol">
                             <div class="mpane-name">{missionDef.label}</div>
                             <!-- Captain-XP/tick via the shared xpPerTick helper, tucked under

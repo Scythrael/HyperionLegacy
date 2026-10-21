@@ -170,6 +170,8 @@ export const ICON_SEMANTICS: Record<IconName, IconSemantic> = {
   // Gas Giant Study (0.14.0 GG-1): a canister glyph names one stored gas (or the antimatter cell).
   gasCanister: "subject",
   antimatterCell: "subject",
+  // Reactor fuel ladder (0.14.0): the comet names the Cometary Ice Harvest mission.
+  comet: "subject",
 
   // ACTION: something the player does. Should stay recognisable as that action.
   salvage: "action",

@@ -15,7 +15,8 @@
 import { describe, expect, it } from "vitest";
 import { goldenJson, withV1Museum } from "./firstRunsGoldens.fixture"; // gear wear: goldenJson puts the retired durability back
 import Decimal from "break_infinity.js";
-import { MISSIONS, freshState, type AwayMember, type GameState, type MissionKey, type SecondaryTalentKey } from "./model";
+import { freshState, type AwayMember, type GameState, type MissionKey, type SecondaryTalentKey } from "./model";
+import { PRE_RX_MISSION_KEYS } from "./reactorFuelGoldens.fixture";
 import { canDispatch, dispatchCaptainOnMission, economyTick, shipRangeLightYears } from "./tick";
 import { expeditionCandidates, startExpedition } from "./expedition";
 import { asPreG2NamesDispatch, asPreRanksDispatch, asPreSafeFirstRunsDispatch, plainAwayMember, withSlottedAwayTeams } from "./awayTeamTestFixtures";
@@ -80,7 +81,8 @@ function extractionCase(nodes: readonly SecondaryTalentKey[]): string[] {
 
 function logisticsCase(nodes: readonly SecondaryTalentKey[]): string[] {
   const s = owning(nodes);
-  const gates = (Object.keys(MISSIONS) as MissionKey[]).map((k) => {
+  // Reactor fuel ladder (0.14.0): the missions before the Cometary Ice Harvest (reactorFuelGoldens pins its own rows).
+  const gates = PRE_RX_MISSION_KEYS.map((k) => {
     const r = canDispatch(s, 1, k);
     return `${k}:${r.ok ? "ok" : r.reason}`;
   });

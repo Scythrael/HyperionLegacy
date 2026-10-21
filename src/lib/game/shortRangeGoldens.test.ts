@@ -94,6 +94,10 @@
 //                  study uses, every giant class and nebula kind field, the canister sell values, the research data
 //                  reserves and the Deuterium Canister recipe. No existing entry moved: GG1_SLICE rides in every
 //                  registryPin call, so the base pin and every cause pin are unchanged.
+// ADDED BY the reactor fuel ladder (0.14.0: the fuel rungs, the core variety tech tags, the hull reactor requirement
+//                  seam and the Cometary Ice Harvest's per-field rows): new entries only, held apart by RX_SLICE (the ids
+//                  from reactorFuelGoldens.fixture.ts, pinned with their statuses in reactorFuelGoldens.test.ts), which
+//                  registryPin always applies, so the base pin and every cause pin are unchanged.
 // ADDED BY G1-1: `guests:<hull>` (guest quarters bare and with each quarters variety, the Guest Wing last) and
 // `stats:<hull>:guestWing` (every other stat with a Guest Wing installed). The sheets hash through withoutGuests, so
 // the stats pins keep proving no other stat moved (the transport hulls now carry base guest quarters).
@@ -118,6 +122,7 @@ import { bucketOf, withBuckets } from "./wiring/probes";
 import { hash, onHull, withCrew, withV1Museum, withoutGuests } from "./firstRunsGoldens.fixture";
 import { asPreG2NamesDispatch } from "./awayTeamTestFixtures";
 import { GG1_ADDED_ENTRY_IDS } from "./gasStudyGoldens.fixture";
+import { RX_ADDED_ENTRY_IDS } from "./reactorFuelGoldens.fixture";
 // CP-8 / OC-11: the test switch that proves the auto-crew pause is the only thing that moved the fleet pin.
 vi.mock("./crewLock", async (io) => (await import("./complementOc11Switch.fixture")).oc11CrewLockMock(io));
 import { withOc11Off } from "./complementOc11Switch.fixture";
@@ -516,7 +521,10 @@ const FKR7_SLICE: RegistrySlice = { added: FKR7_ADDED_ENTRY_IDS, flipped: FKR7_F
 // audit rows stay pending, so their lines hash the same. GW_SLICE rides in every registryPin call (the ML1_SLICE
 // precedent), so the base pin and every cause pin are unchanged; `registry:gearWear` pins the additions.
 const GW_SLICE: RegistrySlice = { added: new Set(WIRING_REGISTRY.filter((e) => e.id.startsWith("wear:")).map((e) => e.id)) };
-function registryPin(...slices: readonly RegistrySlice[]): [number, string] {
+// The reactor fuel ladder's additions (0.14.0), held apart in EVERY pin (all of them were taken before it).
+const RX_SLICE: RegistrySlice = { added: RX_ADDED_ENTRY_IDS };
+function registryPin(...given: readonly RegistrySlice[]): [number, string] {
+  const slices = [RX_SLICE, ...given];
   const lines = WIRING_REGISTRY.filter((e) => !slices.some((sl) => sl.added?.has(e.id))).map((e) => {
     const flip = slices.find((sl) => sl.flipped?.has(e.id));
     return `${e.id}|${flip ? (flip.was ?? "pending") : e.status.kind}`;

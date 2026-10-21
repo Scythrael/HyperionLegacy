@@ -136,6 +136,9 @@ export const CONTENT_CATALOGS: ReadonlySet<string> = new Set([
   "REPAIR_RATES",
   "REPAIR_RATE_BONUSES",
   "WEAR_EFFICIENCY",
+  // Reactor fuel ladder (0.14.0): the fuel each Reactor Core recipe takes, and each core variety's tech tier.
+  "REACTOR_TECH_TIERS",
+  "REACTOR_VARIETY_TECH",
 ]);
 
 // Sources the panel does not judge ownership of, each with why (a NEW catalog must join a list: the test fails).
