@@ -186,3 +186,7 @@ shaded surplus; over-budget flag on this screen; one-line Active rule text).
   II 24, III 62, IV 68, V 105, VI 200, VII 240; Class II drive recipe 3 Power Coupling + 3 Wafer + 2 Titanium Ingot.
 - Note for the quests patch: no Prospecting gear rolls Armor / HP any more, so dig safety has no gear source; old Hazard
   Suits keep their lines.
+- LY_PER_TICK not rescaled (G2-4 deviation; reach multipliers carry the deep-space scale): "Approve (Recommended)".
+- Recalled-before-arrival candidates: "No limit, refresh normally (Recommended)": an ordinary candidate again.
+- Relics v2 R2-3 tier boost: "Only one boost (Recommended)": the rarer blank IS the tier boost; identification uses the
+  blank's own rarity, no second band-odds boost.
