@@ -107,6 +107,12 @@ function line(o: RunOutcome): string {
 //   lines:first:* (gated)     the readable lines of the same runs.
 // The section 2.5 B sweep (firstRunsGoldens.sweep.test.ts) stays the pre-SF-2 NOMINAL Tier I record (dispatched as
 // before SF-2), the baseline SF-3's ramp is measured against; SF-2's proof sweep is safeFirstExpedition.sweep.test.ts.
+//
+// SAFE FIRST RUNS SF-3 moved NOTHING here: sweepRun dispatches through asPreRanksDispatch, and a run from before FKR-1
+// is from before SF-3's ordinary curve stamp too (awayTeamTestFixtures.ts withoutEnemyRanks drops it), so the
+// freighter, later and old-save rows stay the pre-SF-3 record. The runs AS THE GAME NOW DISPATCHES THEM (the curve,
+// the Tier I hazard ceiling, Weak on the low end) are pinned in rampGoldens.test.ts, captured before SF-3 and re-pinned
+// by it with every move named.
 const GOLDEN: Record<string, unknown> = {
   "board:summary": [
     "security:4:2", "science:3:2", "security:1:1", "security:1:1", "security:1:1", "security:3:2", "science:4:2",
@@ -256,6 +262,14 @@ const GOLDEN: Record<string, unknown> = {
     "prospectorRunner:refused:cargo", "prospectorMiner:refused:fuelCapacity", "destroyer:refused:cargo",
     "battleship:refused:cargo", "carrier:refused:cargo", "orion:296", "a3dde4a3", "11d3ef3c", "aurora:250", "a3dde4a3",
     "9fac7ed5", "eir:441", "a3dde4a3", "d979f329",
+  ],
+  // ADDED BY the reactor fuel ladder (0.14.0): the new Tier I Cometary Ice Harvest, flown by every hull (no capability
+  // gate) and delivered without a defeat (gathering cannot be lost: its first run is safe). Every earlier key unchanged.
+  "gather:cometIceHarvest": [
+    "generalFreighter:179", "9c5f859f", "b4fa3ce7", "prospectorHauler:297", "9c5f859f", "df15f4fe",
+    "prospectorRunner:121", "9c5f859f", "51277a52", "prospectorMiner:179", "9c5f859f", "201c8dba", "destroyer:96",
+    "9c5f859f", "7986696f", "battleship:161", "9c5f859f", "bc7ec67b", "carrier:129", "9c5f859f", "76a0455",
+    "orion:206", "9c5f859f", "9bb2008", "aurora:172", "9c5f859f", "6c80e869", "eir:331", "9c5f859f", "2aa271c8",
   ],
   "first:generalFreighter:d18": [
     "47d11304", "4cb86809", "unclaimed", "91f28891", "4a1da812", "unclaimed", "d9bf4fd6", "37454deb", "unclaimed",

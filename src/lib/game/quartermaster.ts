@@ -722,9 +722,10 @@ export const ECONOMY_FLOOR_SLOTS: readonly string[] = Object.keys(DEFAULT_EQUIPM
 //     else can be sold, EVER: canSell returns notSellable for any item without one, and
 //     sellItem refuses to write. That hard guard is the whole safety story, so a locked or
 //     simply-not-sellable good can never be liquidated even as the catalogue grows.
-//   - Only DEPRECATED stock carries a sellValue today (Deuterium Ice, orphaned by
-//     fuel-to-reach). Widening "sellable" to live goods reopens the sell-side price /
-//     economy balance pass the file header flags, and stays a later decision.
+//   - Deuterium Ice (0.13.6) and the Gas Storage Canisters (0.14.0 GG-1) carry a sellValue. Widening
+//     "sellable" further reopens the sell-side price / economy balance pass the file header flags.
+//   - A row is tagged "Retired" only when its ItemDef says so (`retired`, isRetiredStock): no item
+//     is retired today, since every sellable item also has a crafting use.
 //
 // PURE + IMMUTABLE, same posture as requisition: sellItem is a PLAYER ACTION resolved in
 // its own transform, never a tick branch, so it does not touch the offline==live parity gate.
@@ -740,6 +741,13 @@ export interface SellableEntry {
   subCategory?: RawSubCategory;
   owned: Decimal;    // total held across quality buckets
   unitValue: number; // credits per unit (ItemDef.sellValue)
+  retired: boolean;  // the shelf's "Retired" tag (isRetiredStock)
+}
+
+// Whether an item is RETIRED stock (ItemDef.retired): kept only for the Sell counter, so its shelf row wears the
+// "Retired" tag. An unknown id is not. Pure.
+export function isRetiredStock(itemId: string): boolean {
+  return ITEMS[itemId]?.retired === true;
 }
 
 // Typed refusal, mirroring RequisitionBlockReason. `notSellable` is the load-bearing guard.
@@ -764,6 +772,7 @@ export function sellableInventory(state: GameState): SellableEntry[] {
       subCategory: def.subCategory,
       owned,
       unitValue: def.sellValue,
+      retired: isRetiredStock(itemId),
     });
   }
   return out;

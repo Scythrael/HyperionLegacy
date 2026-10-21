@@ -19,6 +19,9 @@ import type { CraftLine, CraftOrder, CraftLineKind, CraftLineMode } from "./allo
 import { QUALITY_TIERS } from "./inventory";
 // E-CREW 0.14.0 (Task 21): the Constitution ramp leaf (imports only diminishing.ts; no cycle).
 import { constitutionRamp, RAMP_SECONDS_PER_TICK } from "./constitutionRamp";
+// Reactor fuel ladder (0.14.0, capture 2026-10-21): the fuel every Reactor Core blueprint takes (a leaf with no
+// imports, so no cycle).
+import { reactorCoreFuel } from "./reactorTech";
 // Combat 0.13.0 (Phase 9b.5a): the persisted Patrol mission shape (PatrolMissionState,
 // below) carries a player-chosen combat STANCE and the carry-state DRONE squadrons.
 // Both types live in the combat/ layer. Imported TYPE-ONLY (erased at compile time)
@@ -478,6 +481,18 @@ export interface MissionDef {
 // Every entry's cargoCapacity divides evenly by extractionRatePerTick (90/1 = 90) --
 // keep this true for any future entry too, or update requiredTicksForPhase's
 // extracting case to handle a smaller final tick.
+// [PROVISIONAL] The Cometary Ice Harvest's numbers (reactor fuel ladder, 0.14.0), the user's to tune: a 40-tick hop out
+// and back (between the Local Asteroid's 25 and the Salvage run's 45), a 25% Titanium Ore strike and a 1% Iridium
+// strike per extraction tick, and 40 credits a cycle. The haul is the ship's own hold, like every mission's (on a
+// General Freighter's 90: about 67 Deuterium Ice, so six or seven Deuterium Canisters, 22 Titanium Ore and one Iridium
+// Ore a cycle).
+export const COMETARY_ICE_HARVEST_NUMBERS = {
+  transitTicks: 40,
+  titaniumChance: 0.25,
+  iridiumChance: 0.01,
+  creditsPerCycle: 40,
+} as const;
+
 export const MISSIONS: Record<
   | "localFuelRun"
   | "shortOreRun"
@@ -494,7 +509,10 @@ export const MISSIONS: Record<
   // "transport"). Same widen-the-union + force-a-BASE_XP_PER_TICK-entry contract as the surveys
   // above. They are the credit COST-IN / REWARD-OUT loop, NOT a loot run (see MissionDef.missionType).
   | "frontierSupplyRun"
-  | "colonySupplyLift",
+  | "colonySupplyLift"
+  // Reactor fuel ladder (0.14.0, capture docs/plans/2026-10-21-reactor-fuel-and-recipe-realism-capture.md section 5):
+  // the Tier I Cometary Ice Harvest, the Deuterium Ice source every Reactor Core blueprint's fuel comes from.
+  | "cometIceHarvest",
   MissionDef
 > = {
   // Fuel-sourcing RESTRUCTURE (2026-07-15): the fuel BOOTSTRAP mission, FIRST in the
@@ -750,6 +768,35 @@ export const MISSIONS: Record<
     requiresCaptainLevel: 5, // above the Frontier run's 3 (progression nudge)
     requiresCargoCapacity: 90,
   },
+  // --- Cometary Ice Harvest (0.14.0, reactor fuel ladder; capture 2026-10-21 sections 1 and 5) ---
+  // The user: "don't make it the same mission as before. Make it a mission that can provide additional resources as
+  // well, with deuterium as one of the more common items", and the approved concept "Cometary Ice Harvest
+  // (Recommended)": mine a passing comet's ice, Deuterium Ice common, plus Titanium Ore and a rare chance of Iridium,
+  // Tier I. NOT the retired Local Deuterium Skim (localFuelRun stays hidden): an ordinary mining run with a real
+  // transit, no fuel role. Its ice refines 10:1 into the Deuterium Canister every Reactor Core blueprint takes
+  // (reactorTech.ts), so no core ever waits on an expedition. Gathering cannot be lost, so its first run (like every
+  // gathering run's) is safe by construction (safe first runs SF-5).
+  //
+  // The triad: Deuterium Ice is the guaranteed common floor (the auto-stop gate); the UNCOMMON tier strikes the comet's
+  // dust crust for Titanium Ore, a common-rarity ore riding the uncommon slot by design (the one listed exception to
+  // the loot-triad rarity rule, model.test.ts); the rare tier is Iridium. Every number is
+  // COMETARY_ICE_HARVEST_NUMBERS [PROVISIONAL].
+  cometIceHarvest: {
+    label: "Cometary Ice Harvest",
+    transitOutTicks: COMETARY_ICE_HARVEST_NUMBERS.transitTicks,
+    transitBackTicks: COMETARY_ICE_HARVEST_NUMBERS.transitTicks,
+    unloadTicks: 8,
+    extractionRatePerTick: 1,
+    cargoCapacity: 90, // divides evenly by rate 1 (overwritten by the hull hold, like every mission: WR-11)
+    uncommonChance: COMETARY_ICE_HARVEST_NUMBERS.titaniumChance,
+    rareChance: COMETARY_ICE_HARVEST_NUMBERS.iridiumChance,
+    lootTable: { common: "deuteriumIce", uncommon: "commonOre", rare: "rareMaterial" },
+    primaryMaterial: "deuteriumIce", // == lootTable.common (section 3.4 auto-stop)
+    tier: "I",
+    fleetAdminXpPerTick: 1, // INTEGER, see MissionDef's closed-form parity trap
+    creditsPerCycle: COMETARY_ICE_HARVEST_NUMBERS.creditsPerCycle,
+    unlockLevel: 1, // available from a fresh save, like every Tier I mining run (no capability gate either)
+  },
 };
 
 export type MissionKey = keyof typeof MISSIONS;
@@ -805,6 +852,9 @@ export const BASE_XP_PER_TICK: Record<MissionKey, number> = {
   // credit margin, not XP. Kept integer deliberately so they add no new fractional-rate parity surface.
   frontierSupplyRun: 1,
   colonySupplyLift: 1,
+  // Reactor fuel ladder (0.14.0): the Cometary Ice Harvest at the shortOreRun anchor, an INTEGER rate (no new
+  // fractional-rate parity surface).
+  cometIceHarvest: 1,
 };
 
 // --- Combat factions (Combat 0.13.0, design §S14) ----------------------------
@@ -2100,8 +2150,9 @@ export const IMPACT_GRENADE_RECIPE: Readonly<Record<string, number>> = { titaniu
 // "Hide until kits are live"). While false: the Impact Grenade blueprint stays out of BLUEPRINTS (so out of Research,
 // the Fabricator and the Archive; it waits in FIELD_KITS_HIDDEN_BLUEPRINTS), and a NEW Stun or Toxin Grenade craft rolls
 // from its pre-FKR-5 pool (no +1 Carry Capacity line), exactly as before FKR-5. Pieces already minted keep their
-// lines. FKR-7 flips it to true: the blueprint merges in and the two pools gain the carry line (GRENADE_CRAFT_POOLS).
-export const FIELD_KITS_PLAYER_LIVE = false;
+// lines. FKR-9 / FKR-10 flipped it to true with fieldKits.ts FIELD_KITS_RUNS_LIVE (user 2026-10-20 "Yes, with the pack
+// screen"): the blueprint merges in and the two pools gain the carry line (GRENADE_CRAFT_POOLS).
+export const FIELD_KITS_PLAYER_LIVE = true;
 
 // The Stun and Toxin Grenades' craft pools: `base` as before FKR-5, `carry` with FKR-5's +1 Carry Capacity line (FK11;
 // pool weight 1, variety share 0.15 [PROPOSAL: a "possibly" line, about one Standard craft in four], the other two
@@ -2895,10 +2946,13 @@ export const EQUIPMENT_SLOTS: Record<string, EquipmentSlotDef> = {
         ],
         statRatios: { groundVaultYield: 0.6, groundRelicFind: 0.4 },
       },
-      // Atmo Probe: orbital fieldwork on a gas giant (no surface to land on).
+      // Galileo-Class Probe (Gas Giant Study GG-1; the user's name, 2026-10-08): orbital fieldwork on a gas giant (no
+      // surface to land on). The id stays `atmoProbe` and the ratios hold (call 6 "Reuse lines"), so saves and crafted
+      // rolls do not move; GG-3 reads its three lines on a giant (fieldwork = study speed, hazard resist = crush
+      // rating, relic find = ancient data odds).
       {
         key: "atmoProbe",
-        label: "Atmo Probe",
+        label: "Galileo-Class Probe",
         member: { teamTypes: ["science"], planetTypes: ["gasGiant"] },
         statRatios: { groundFieldwork: 0.6, groundHazardResist: 0.3, groundRelicFind: 0.1 },
       },
@@ -7236,12 +7290,14 @@ export function freshRunCounts(): RunCounts {
   };
 }
 // A run's difficulty, frozen at dispatch (runDifficulty.ts runDifficultyAt): the training run, else the curve position
-// `ramp` in [0, 1] (1 = nominal), at the run's tier.
+// `ramp` in [0, 1] (1 = nominal), at the run's tier. `oddsRamp` (safe first runs SF-3 review): an ordinary expedition's
+// affix roll and ambush position when it lags `ramp` (absent = `ramp`).
 export interface RunDifficultyStamp {
   version: 1;
   firstRun: boolean;
   ramp: number;
   tier: RegionTier;
+  oddsRamp?: number;
 }
 // The hostile sites a risk-aware body may hold (user words "an enemy colony", "an enemy fortification", names
 // approved for now, #12). Not discovery PoIs: they never appear in the planet-type pools.
@@ -8133,6 +8189,10 @@ export interface GroundTeamRun {
   basics?: Record<string, Partial<Record<FieldKitId, number>>>;
   charges?: Record<string, number>;
   treatment?: Record<string, number>;
+  // Field Kits FKR-9 (the pack screen's run readout and claim line, DISPLAY ONLY: resolution never reads it): memberId ->
+  // the extras that member PACKED at dispatch, written beside `kits` and never changed, so the readout can show "1 of 2"
+  // and the claim can say what the run used (packed minus what comes home). Absent = nothing packed (every other run).
+  packed?: Record<string, Partial<Record<FieldKitId, number>>>;
 }
 
 // GO-7b: one finished step on a team's timeline, DISPLAY ONLY (the timeline UI, GO-14): resolution never reads
@@ -8910,6 +8970,14 @@ export const REFINE_RECIPES: Record<string, RefineRecipeDef> = {
     durationTicks: 20,
   },
   ...materialLineRecipes(),
+  // Gas Giant Study GG-1 (user 2026-10-08: "Deuterium Ice would fit this as well. Processed into a canister-stored
+  // version"): the old ice stock refines into a Deuterium Canister. [PROPOSAL] 10:1 at 20 ticks (the uncommon refines'
+  // length, one the speed rungs keep at an exact crafting XP per tick).
+  refineDeuteriumCanister: {
+    input: { deuteriumIce: new Decimal(10) },
+    output: { itemId: "deuteriumCanister", amount: new Decimal(1) },
+    durationTicks: 20,
+  },
 };
 
 // ML-1 review (the user's "everything wired, nothing inert player-reachable" rule; the field kits precedent "Hide
@@ -8970,9 +9038,19 @@ function consumedOutsideRefinery(): ReadonlySet<string> {
 // six medical and stim kits, fieldKits.ts FIELD_KITS; grenades and field devices stay installed tools, user FK1).
 // Crafted at the Fabricator, stored by warehouse tier like any item, and quality-free (user call 16, "Ignore
 // quality"): a kit works the same from any quality bucket.
+//
+// "gasCanister" and "researchData" (Gas Giant Study GG-1, 0.14.0; plan docs/plans/2026-10-17-gas-giant-study-plan.md
+// section 3.1): the user's "Gas Storage Canisters" warehouse category (six canisters, each in its quality band,
+// ItemDef.band) and the typed research data a ship's study returns (eight families plus the Ancient Data Fragment,
+// studied in the Research Lab's lane, GG-5). The content tables live in gasGiantContent.ts.
 export type ItemCategory =
   | "raw" | "refined" | "minorComponent" | "majorComponent" | "shipModule" | "shipSystem"
-  | "salvagedMaterial" | "fieldKit";
+  | "salvagedMaterial" | "fieldKit" | "gasCanister" | "researchData";
+
+// Gas Giant Study GG-1 (user 2026-10-09: "2 standard, 2 augmented, 1 stellar and 1 radiant"): the quality band a gas
+// canister belongs to. A property of the ITEM (which gas it is), separate from the quality bucket every deposit rolls.
+// The study's band draw files a canister by it (GG-3); static catalog data, never saved.
+export type ItemBand = "standard" | "augmented" | "stellar" | "radiant";
 
 // Rarity is forward room for the UI's rarity-color reveal (design §7). Every
 // tier of the union is valid today; Phase 1's seeds only reach "rare".
@@ -9007,6 +9085,8 @@ export interface ItemDef {
   // consumer lands, and the sink test (materialLines.test.ts) fails if a reserved item gains a consumer while still
   // marked, or if any item without one is unmarked. Static catalog data, never saved.
   reserved?: string;
+  // Gas Giant Study GG-1: the quality band of a gas canister (ItemBand); absent on every other item.
+  band?: ItemBand;
   // FORWARD (not populated this pass): only shipModule/shipSystem items ever
   // carry equip stats; every Phase 1 seed leaves this undefined.
   equipStats?: Record<string, number>;
@@ -9016,6 +9096,10 @@ export interface ItemDef {
   // (Deuterium Ice, orphaned by fuel-to-reach); widening it to live goods is a later, balance-
   // gated decision. The value is DERIVED from the item's prior worth (see deuteriumIce).
   sellValue?: number;
+  // RETIRED STOCK (0.14.0): set only on an item the game no longer uses for anything but the Sell counter. The Sell
+  // shelf tags exactly these rows "Retired" (quartermaster.ts isRetiredStock). No item carries it today: Deuterium Ice
+  // and the canisters all have a crafting use. Static catalog data, never saved.
+  retired?: true;
 }
 
 // Launch item registry, REAL entries only, same "no placeholders" discipline as
@@ -9029,6 +9113,26 @@ export interface ItemDef {
 // ML-1: the owners named by ItemDef.reserved (each becomes a pending wiring registry entry with this text as owner).
 const ML2_RECIPE_REWORK = "ML-2 (Material Lines recipe rework: the cargo, FTL, reactor, utility, shield and plating blueprints)";
 const EM8_PRECURSOR_LENS = "EM-8 (the Precursor Lens special module is crafted with it)";
+// Gas Giant Study GG-1: the owners of the research data reserves (the Research Lab's study lane, GG-5).
+const GG5_DATA_STUDY = "GG-5 (the Research Lab study lane studies it into a +12% boost on the next project of its family)";
+const GG5_ANCIENT_STUDY = "GG-5 (the Research Lab study lane decodes the next ancient entry from it)";
+// Gas Giant Study GG-1 (values approved by the user 2026-10-21): credits per canister at the Quartermaster's Sell counter.
+// Deuterium Ice at the Quartermaster's Sell counter, credits per unit. User 2026-10-21 (merge batch answers, "Comet
+// economy bug": "Cut ice to ~4 credits (Recommended)"): a crafting input, not a money run. It was 40 (the retired Fuel
+// Depot's 50 ice -> 100 fuel at 20 cr), which made the open-from-day-one Cometary Ice Harvest a 2,700-credit run.
+export const DEUTERIUM_ICE_SELL_VALUE = 4;
+
+// The Deuterium Canister anchors the scale (450 cr); the Standard band sells under it and each band up roughly doubles.
+// It was set when ten Deuterium Ice sold for 400 cr; ice is now a cheap crafting input (DEUTERIUM_ICE_SELL_VALUE), so
+// the refine adds most of the value.
+export const GAS_CANISTER_SELL_VALUE = {
+  hydrogenCanister: 200,
+  methaneCanister: 200,
+  ammoniaCanister: 450,
+  deuteriumCanister: 450,
+  helium3Canister: 1_000,
+  antimatterCell: 2_500,
+} as const;
 
 export const ITEMS: Record<string, ItemDef> = {
   // --- Raw loot (mission extraction output; keyed as LootMaterialKey) ---
@@ -9078,6 +9182,7 @@ export const ITEMS: Record<string, ItemDef> = {
     flavor: "Scarce, dense, and prized, the payoff that makes the long ore runs worth the fuel.",
   },
   // --- Dedicated fuel ore (Fuel-sourcing RESTRUCTURE 2026-07-15) ---------------
+  // (History below; since 0.14.0 it is the Cometary Ice Harvest's common drop and the Deuterium Canister's input.)
   // The fleet's FTL fuel SOURCE, now its OWN item (id `deuteriumIce`) rather than a
   // relabeled `commonOre`. This is the ONLY thing the Fuel Depot refines into fuel
   // (processFuelPipelines, tick.ts): mine it on the free `localFuelRun` mission ->
@@ -9092,14 +9197,14 @@ export const ITEMS: Record<string, ItemDef> = {
     subCategory: "volatiles",
     tier: 1,
     rarity: "common",
-    // The guaranteed (and ONLY) drop of the localFuelRun mission, a common-tier ore.
-    unlockHint: "Skimmed from the retired Local Deuterium Skim run; sell any you hold at the Quartermaster.",
+    // The common floor of the Cometary Ice Harvest (reactor fuel ladder, 0.14.0; the retired localFuelRun was its old
+    // source). Gas Giant Study GG-1: it refines into a Deuterium Canister (REFINE_RECIPES.refineDeuteriumCanister), the
+    // fuel every Reactor Core blueprint takes.
+    unlockHint: "Harvested from a passing comet on the Cometary Ice Harvest run. Refine it into Deuterium Canisters for Reactor Core blueprints; raw ice fetches only a few credits at the Quartermaster.",
     // ML-1: the flavor no longer tells the player to cook it down at the Fuel Depot (that pipeline retired in 0.13.6).
-    flavor: "Deuterium-laced water ice cracked from a local field, heavy hydrogen the fleet no longer burns for fuel.",
-    // DEPRECATED by fuel-to-reach (0.13.6): the skim run + the Fuel Depot that consumed this are
-    // retired, so any stockpile is now dead stock. Sellable at the Quartermaster to recoup its old
-    // worth: the Fuel Depot refined 50 ice -> 100 fuel and fuel was 20 cr/unit, so 1 ice = 2 fuel = 40 cr. TUNABLE.
-    sellValue: 40,
+    // Reactor fuel ladder (0.14.0): it comes off a comet now and ends up as reactor fuel, never FTL fuel.
+    flavor: "Deuterium-laced water ice cut from a passing comet: common, bulky, and worth little until it is pressed into reactor fuel.",
+    sellValue: DEUTERIUM_ICE_SELL_VALUE,
   },
   // --- Refined / crafted goods (Refinery / Fabricator output) ---
   // ITEM-MERGE (0.11.0 Task A1): the duplicate `refinedMaterial` ("Refined Material")
@@ -9496,6 +9601,162 @@ export const ITEMS: Record<string, ItemDef> = {
     unlockHint: "Crafted at the Fabricator after research.",
     flavor: "A stabilizer cuff for a downed squadmate that shortens their stay in the medical bay. Needs a trained hand.",
   },
+
+  // Gas Storage Canisters (Gas Giant Study GG-1, 0.14.0; user 2026-10-19 call 5 "Proposed mapping").
+  // The six canisters by band: Standard Hydrogen and Methane, Augmented Ammonia and Deuterium, Stellar Helium-3,
+  // Radiant the Antimatter Containment Cell ("Not a gas, but it will require its own specialized container"). Every
+  // one sells at the Quartermaster (call 7: "also sellable"); their recipe uses are GG-7's (the G2 drive classes and
+  // the Lab tier 3 to 7 blueprints). Until GG-3 wires the study reward, only the Deuterium Canister has a source (the
+  // Refinery, from Deuterium Ice); the other five stay off the shelves (gasGiantContent.ts GAS_STUDY_SOURCE_PENDING).
+  hydrogenCanister: {
+    label: "Hydrogen Canister",
+    category: "gasCanister",
+    band: "standard",
+    tier: 1,
+    rarity: "common",
+    unlockHint: "Collected when a ship studies a gas giant or sweeps a nebula on an expedition.",
+    flavor: "The bulk of every giant, pumped down to a few hundred atmospheres. The cheapest thing in the canister rack.",
+    sellValue: GAS_CANISTER_SELL_VALUE.hydrogenCanister,
+  },
+  methaneCanister: {
+    label: "Methane Canister",
+    category: "gasCanister",
+    band: "standard",
+    tier: 1,
+    rarity: "common",
+    unlockHint: "Collected when a ship studies a gas giant or sweeps a nebula on an expedition.",
+    flavor: "The gas that paints Uranus and Neptune blue, skimmed from the upper haze.",
+    sellValue: GAS_CANISTER_SELL_VALUE.methaneCanister,
+  },
+  ammoniaCanister: {
+    label: "Ammonia Canister",
+    category: "gasCanister",
+    band: "augmented",
+    tier: 1,
+    rarity: "uncommon",
+    unlockHint: "Collected when a ship studies a gas giant or sweeps a nebula on an expedition.",
+    flavor: "Drawn from the top cloud deck, where ammonia ice hangs in pale bands.",
+    sellValue: GAS_CANISTER_SELL_VALUE.ammoniaCanister,
+  },
+  deuteriumCanister: {
+    label: "Deuterium Canister",
+    category: "gasCanister",
+    band: "augmented",
+    tier: 1,
+    rarity: "uncommon",
+    unlockHint: "Refined at the Refinery from Deuterium Ice.",
+    flavor: "Heavy hydrogen pressed out of comet ice and sealed under pressure: the fuel charge every fusion Reactor Core is built around.",
+    sellValue: GAS_CANISTER_SELL_VALUE.deuteriumCanister,
+  },
+  helium3Canister: {
+    label: "Helium-3 Canister",
+    category: "gasCanister",
+    band: "stellar",
+    tier: 1,
+    rarity: "rare",
+    unlockHint: "Collected when a ship studies a gas giant or sweeps a nebula on an expedition.",
+    flavor: "A trace isotope sifted from tons of helium, the classic dream fuel of fusion engineers.",
+    sellValue: GAS_CANISTER_SELL_VALUE.helium3Canister,
+  },
+  antimatterCell: {
+    label: "Antimatter Containment Cell",
+    category: "gasCanister",
+    band: "radiant",
+    tier: 1,
+    rarity: "epic",
+    unlockHint: "Collected when a ship studies a gas giant on an expedition (trapped in its magnetic field).",
+    flavor: "A few nanograms of antiprotons held off the walls by a magnetic bottle. Not a gas, so it needs its own container.",
+    sellValue: GAS_CANISTER_SELL_VALUE.antimatterCell,
+  },
+
+  // Research Data (Gas Giant Study GG-1; user 2026-10-19 call 9 "Your six + 2, +12%").
+  // One item per research family: the user's six (Propulsion, Defense, Weapons, Systems, Field, Hull Design) plus
+  // Materials and Sensors. The Research Lab's study lane (GG-5, call 8 "Auto when idle") studies each held item into
+  // a +12% boost on the next project of its family (D23 stacking) and rarely a recipe (5%). Until GG-5 lands nothing
+  // studies them (the `reserved` marker) and until GG-3 nothing returns them, so they stay out of every list.
+  propulsionData: {
+    label: "Propulsion Data",
+    category: "researchData",
+    tier: 1,
+    rarity: "uncommon",
+    unlockHint: "Returned by a ship's study of a gas giant or a nebula on an expedition.",
+    flavor: "Pressure, flow and burn readings from the deep atmosphere, the raw stuff of better drives.",
+    reserved: GG5_DATA_STUDY,
+  },
+  defenseData: {
+    label: "Defense Data",
+    category: "researchData",
+    tier: 1,
+    rarity: "uncommon",
+    unlockHint: "Returned by a ship's study of a gas giant or a nebula on an expedition.",
+    flavor: "How the probe hull held up under the crush, logged strain by strain.",
+    reserved: GG5_DATA_STUDY,
+  },
+  weaponsData: {
+    label: "Weapons Data",
+    category: "researchData",
+    tier: 1,
+    rarity: "uncommon",
+    unlockHint: "Returned by a ship's study of a gas giant or a nebula on an expedition.",
+    flavor: "Lightning, plasma and charged winds measured at close range. Somebody will find a use for it.",
+    reserved: GG5_DATA_STUDY,
+  },
+  systemsData: {
+    label: "Systems Data",
+    category: "researchData",
+    tier: 1,
+    rarity: "uncommon",
+    unlockHint: "Returned by a ship's study of a gas giant or a nebula on an expedition.",
+    flavor: "Telemetry from every subsystem that kept the probe talking on its way down.",
+    reserved: GG5_DATA_STUDY,
+  },
+  fieldData: {
+    label: "Field Data",
+    category: "researchData",
+    tier: 1,
+    rarity: "uncommon",
+    unlockHint: "Returned by a ship's study of a gas giant or a nebula on an expedition.",
+    flavor: "Corrosion, heat and gravity loads, the conditions away-team gear has to survive.",
+    reserved: GG5_DATA_STUDY,
+  },
+  hullDesignData: {
+    label: "Hull Design Data",
+    category: "researchData",
+    tier: 1,
+    rarity: "uncommon",
+    unlockHint: "Returned by a ship's study of a gas giant or a nebula on an expedition.",
+    flavor: "Shear and buffeting profiles at every altitude, the numbers a hull architect loses sleep over.",
+    reserved: GG5_DATA_STUDY,
+  },
+  materialsData: {
+    label: "Materials Data",
+    category: "researchData",
+    tier: 1,
+    rarity: "uncommon",
+    unlockHint: "Returned by a ship's study of a gas giant or a nebula on an expedition.",
+    flavor: "Spectra of metallic hydrogen, silicate rain and stranger things that only form under that much pressure.",
+    reserved: GG5_DATA_STUDY,
+  },
+  sensorsData: {
+    label: "Sensors Data",
+    category: "researchData",
+    tier: 1,
+    rarity: "uncommon",
+    unlockHint: "Returned by a ship's study of a gas giant or a nebula on an expedition.",
+    flavor: "Calibration sweeps taken through storms that blind ordinary instruments.",
+    reserved: GG5_DATA_STUDY,
+  },
+  // The ancient data (user 2026-10-19 call 10 "One lane"): a data type whose study decodes the next ancient entry
+  // (GG-5); some entries unlock special blueprints. No culture name in 0.14.0 text: names come with G3 Relics v2.
+  ancientDataFragment: {
+    label: "Ancient Data Fragment",
+    category: "researchData",
+    tier: 1,
+    rarity: "rare",
+    unlockHint: "Sometimes recovered by a deep probe dive during a ship's study of a gas giant.",
+    flavor: "A shard of a record far older than the fleet, pulled from something that sank into the clouds long ago.",
+    reserved: GG5_ANCIENT_STUDY,
+  },
 };
 
 // ============================================================================
@@ -9859,6 +10120,12 @@ export function blueprintMintsEquipmentInstance(bp: BlueprintDef): boolean {
 // Higher tiers (equipment / modules / ship systems) are DEFERRED until the Fabricator +
 // ship-systems phases define them (design §5), no placeholder tiers here.
 //
+// The hidden blueprints the catalog shows under the switch (`live` overrides it: the wiring probe reads both states
+// through this one reader, so its off side is the real off state). Hoisted: BLUEPRINTS below spreads it. Pure.
+export function fieldKitsShownBlueprints(live: boolean = FIELD_KITS_PLAYER_LIVE): Readonly<Record<string, BlueprintDef>> {
+  return live ? FIELD_KITS_HIDDEN_BLUEPRINTS : {};
+}
+
 // Field Kits FKR-5: the blueprints kept OUT of BLUEPRINTS until FIELD_KITS_PLAYER_LIVE (user 2026-10-20 "Hide until
 // kits are live"): the Research list, Fabricator, Archive and their completion totals read BLUEPRINTS whole and have no
 // hidden-entry rule (the PROSPECTING_BLUEPRINTS pattern). FKR-7 flips the switch and BLUEPRINTS spreads them in.
@@ -10053,7 +10320,8 @@ export const BLUEPRINTS: Record<string, BlueprintDef> = {
     researchCreditCost: 1700,
     craftDurationTicks: 320,
     equipmentOutput: { slotType: "reactorCore", varietyKey: "highOutputCore" },
-    // Max-output reactor: heavy couplings mounted on a full structural assembly.
+    // Max-output reactor: heavy couplings mounted on a full structural assembly (its fuel charge is appended below the
+    // table, withReactorFuel).
     recipe: { inputs: { powerCoupling: 3, structuralAssembly: 1 } },
     flavor: "A brute of a reactor wound for raw output, bolted to a sub-structure so it does not shake loose.",
     unlockHint: "Researched at the Research Lab (needs a higher tier); crafted at the Fabricator later.",
@@ -10066,7 +10334,7 @@ export const BLUEPRINTS: Record<string, BlueprintDef> = {
     researchCreditCost: 850,
     craftDurationTicks: 160,
     equipmentOutput: { slotType: "reactorCore", varietyKey: "efficientCore" },
-    // Light, low-draw core: couplings + a wafer-dense regulator stack.
+    // Light, low-draw core: couplings + a wafer-dense regulator stack (fuel appended below the table, withReactorFuel).
     recipe: { inputs: { powerCoupling: 2, polysilicateWafer: 3 } },
     flavor: "A lean, quiet core that gives up peak output for a featherweight, low-draw fit.",
     unlockHint: "Researched at the Research Lab; crafted at the Fabricator once equipment fabrication comes online.",
@@ -10079,7 +10347,8 @@ export const BLUEPRINTS: Record<string, BlueprintDef> = {
     researchCreditCost: 850,
     craftDurationTicks: 160,
     equipmentOutput: { slotType: "reactorCore", varietyKey: "balancedCore" },
-    // The middle reactor (the reactor slot's DEFAULT variety): couplings + wafers + titanium brace.
+    // The middle reactor (the reactor slot's DEFAULT variety): couplings + wafers + titanium brace (fuel appended below
+    // the table, withReactorFuel).
     recipe: { inputs: { powerCoupling: 2, polysilicateWafer: 2, titaniumIngot: 1 } },
     flavor: "A dependable middle-of-the-road core, enough output, sensible mass, nothing to prove.",
     unlockHint: "Researched at the Research Lab; crafted at the Fabricator once equipment fabrication comes online.",
@@ -10757,8 +11026,8 @@ export const BLUEPRINTS: Record<string, BlueprintDef> = {
     unlockHint: "Researched at the Research Lab (needs a higher lab tier); crafted at the Fabricator. Away-team gear, worn by a squad member.",
   },
   // Field Kits FKR-5: the Impact Grenade (FIELD_KITS_HIDDEN_BLUEPRINTS), merged in here, in this place, only once
-  // FIELD_KITS_PLAYER_LIVE is true (FKR-7).
-  ...(FIELD_KITS_PLAYER_LIVE ? FIELD_KITS_HIDDEN_BLUEPRINTS : {}),
+  // FIELD_KITS_PLAYER_LIVE is true (FKR-9 / FKR-10 flipped it), through the one reader fieldKitsShownBlueprints.
+  ...fieldKitsShownBlueprints(),
   medKitBp: {
     key: "medKitBp",
     label: "Med Kit Blueprint",
@@ -10852,7 +11121,7 @@ export const BLUEPRINTS: Record<string, BlueprintDef> = {
   },
   atmoProbeBp: {
     key: "atmoProbeBp",
-    label: "Atmo Probe Blueprint",
+    label: "Galileo-Class Probe Blueprint",
     tier: 2,
     researchDurationTicks: 120,
     researchCreditCost: 1600,
@@ -10860,7 +11129,8 @@ export const BLUEPRINTS: Record<string, BlueprintDef> = {
     equipmentOutput: { slotType: "memberTool", varietyKey: "atmoProbe" },
     // A frame-built drop probe with wafer sensors and a coupling.
     recipe: { inputs: { polysilicateWafer: 2, frameSegment: 1, powerCoupling: 1 } },
-    flavor: "Dropped into a gas giant's bands on a long tether. What comes back up is worth the wait.",
+    // Gas Giant Study GG-1 [PROPOSAL flavor] (design section 5).
+    flavor: "Hardened against the crush and the acid. It keeps talking long after Galileo would have gone quiet.",
     unlockHint: "Researched at the Research Lab (needs a higher lab tier); crafted at the Fabricator. Away-team gear, worn by a squad member.",
   },
 
@@ -11120,6 +11390,18 @@ export const BLUEPRINTS: Record<string, BlueprintDef> = {
     unlockHint: "Researched at the Research Lab (needs a higher lab tier); crafted at the Fabricator. A field kit a squad member carries.",
   },
 };
+
+// Reactor fuel ladder (0.14.0; user 2026-10-21: "All reactor core crafting recipes should ultimately require something
+// like this"): every Reactor Core blueprint's recipe carries its fuel, DERIVED from its variety's tech tier and its own
+// blueprint tier (reactorTech.ts reactorCoreFuel: today Deuterium Canisters, 1 at tier I and 2 at tier II, the user's
+// 1 / 1 / 2), appended AFTER its other inputs (salvage rounds per input in recipe order, so the older lines keep their
+// draws). One place, so a new core can never ship unfueled and no count is written twice.
+function withReactorFuel(bp: BlueprintDef): BlueprintDef {
+  const out = bp.equipmentOutput;
+  if (out?.slotType !== "reactorCore") return bp;
+  return { ...bp, recipe: { ...bp.recipe, inputs: { ...bp.recipe.inputs, ...reactorCoreFuel(out.varietyKey, bp.tier) } } };
+}
+for (const key of Object.keys(BLUEPRINTS)) BLUEPRINTS[key] = withReactorFuel(BLUEPRINTS[key]);
 
 // Exploration 0.14.0 (E4d): the blueprints a relic's FIRST FIND unlocks (requiresRelicDiscovery ===
 // relicId), in BLUEPRINTS declaration order. Empty for a relic that gates nothing (most relics, and the

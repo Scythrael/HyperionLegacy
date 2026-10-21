@@ -19,6 +19,8 @@ import { describe, expect, it } from "vitest";
 import Decimal from "break_infinity.js";
 import {
   BLUEPRINTS,
+  FIELD_KITS_HIDDEN_BLUEPRINTS,
+  FIELD_KITS_PLAYER_LIVE,
   ITEMS,
   REFINE_RECIPES,
   freshState,
@@ -32,6 +34,8 @@ import { generateEquipment } from "./itemgen";
 import { addItemQuality } from "./inventory";
 import type { CraftLineMode } from "./allocation";
 import { goldenJson, withV1Museum } from "./firstRunsGoldens.fixture"; // gear wear: goldenJson puts the retired durability back
+import { gasStudyItemIds } from "./gasGiantContent";
+import { GG1_RECIPE } from "./gasStudyGoldens.fixture";
 
 // ===== shared helpers =====
 
@@ -226,13 +230,22 @@ describe("ML-0 Material Lines pre-change goldens", () => {
       const census: Record<string, number> = {};
       for (const [, d] of items) census[`items.${d.category}`] = (census[`items.${d.category}`] ?? 0) + 1;
       census.refineRecipes = recipes.length;
-      census.blueprints = Object.keys(BLUEPRINTS).length;
+      // Field Kits FKR-9 / FKR-10 (the switch-on, model.ts FIELD_KITS_PLAYER_LIVE): the Impact Grenade blueprint
+      // (FIELD_KITS_HIDDEN_BLUEPRINTS) merges into BLUEPRINTS, the ONE named move of this count (78 to 79). Counted apart
+      // so the census keeps proving nothing else moved.
+      census.blueprints = Object.keys(BLUEPRINTS).filter((k) => !(k in FIELD_KITS_HIDDEN_BLUEPRINTS)).length;
       return census;
     };
-    expect(count(Object.entries(ITEMS), Object.keys(REFINE_RECIPES))).toEqual(GOLDEN.census);
+    for (const k of Object.keys(FIELD_KITS_HIDDEN_BLUEPRINTS)) expect(BLUEPRINTS[k], k).toBe(FIELD_KITS_PLAYER_LIVE ? FIELD_KITS_HIDDEN_BLUEPRINTS[k] : undefined);
+    // Gas Giant Study GG-1 added its fifteen items (two new categories) and the Deuterium Canister recipe after ML-1;
+    // held apart here (gasGiantContent.test.ts pins them), the catalog is the ML-1 capture.
+    const gg1 = new Set(gasStudyItemIds());
+    const items = Object.entries(ITEMS).filter(([id]) => !gg1.has(id));
+    const recipes = Object.keys(REFINE_RECIPES).filter((k) => k !== GG1_RECIPE);
+    expect(count(items, recipes)).toEqual(GOLDEN.census);
     // ML-1's proof: without its seven items and seven recipes the catalog is the ML-0 capture.
-    const preItems = Object.entries(ITEMS).filter(([id]) => !ML1_ITEM_IDS.includes(id));
-    const preRecipes = Object.keys(REFINE_RECIPES).filter((k) => !ML1_RECIPE_KEYS.includes(k));
+    const preItems = items.filter(([id]) => !ML1_ITEM_IDS.includes(id));
+    const preRecipes = recipes.filter((k) => !ML1_RECIPE_KEYS.includes(k));
     expect(count(preItems, preRecipes)).toEqual(ML0_CENSUS);
   });
 });

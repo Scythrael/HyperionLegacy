@@ -57,6 +57,7 @@
 import type { AffixAlignment, AffixId, ExpeditionActivity, ExpeditionPlanetType, ObjectiveAffix, ObjectiveAlert, RegionTier } from "./model";
 import { makeRng, type Rng } from "./combat/rng";
 import { diminishing } from "./diminishing";
+import { rampedChance } from "./runDifficulty";
 import { AFFIX_CATALOG_VERSION, BASE_DIFFICULTY_TIER, DIFFICULTY_NAMES, difficultyGradeOf } from "./riskFactors";
 
 export type { AffixAlignment, AffixId, ObjectiveAffix, ObjectiveAlert };
@@ -431,6 +432,9 @@ export interface AffixRollInput {
   combat: boolean; // the objective holds at least one fight point
   catalog?: number; // the run's affix catalog version (AF-2; riskFactors.ts runAffixCatalog); default the current one
   planetType?: ExpeditionPlanetType; // the body's (the per-context weight hook's context; AF-2 follow-up)
+  // Safe first runs SF-3: the run's curve position (runDifficulty.ts runRampOf): the ROLL chance (never a required
+  // affix) x ramp, exactly the pool's chance at full strength. Absent = full strength.
+  ramp?: number;
 }
 
 // The affixes an objective is stamped with: every REQUIRED affix of its pool, then at most AFFIX_MAX_ROLLED rolled
@@ -445,7 +449,7 @@ export function rollObjectiveAffixes(input: AffixRollInput): ObjectiveAffix[] {
   const target: AffixTarget = input.combat ? "combatObjective" : "calmObjective";
   const pool = affixPool(input.tier, input.difficulty, input.difficultyTier, target, catalog, input.planetType);
   const rng: Rng = makeRng(affixRollSeed(input.seed, input.bodyIndex, input.taskIndex));
-  const hit = rng.nextInt(AFFIX_DRAW_UNITS) < affixChanceUnits(pool.rollChance);
+  const hit = rng.nextInt(AFFIX_DRAW_UNITS) < affixChanceUnits(rampedChance(pool.rollChance, input.ramp ?? 1));
   const pick = drawWeighted(rng, pool.entries.map((e) => e.weight));
   const drawn = new Map<AffixId, ObjectiveAffix>();
   for (const id of catalogAffixes(catalog)) {

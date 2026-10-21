@@ -22,6 +22,7 @@
 
 import {
   BLUEPRINTS,
+  FIELD_KITS_HIDDEN_BLUEPRINTS,
   CAPTAIN_RACIAL_SCALE,
   CAPTAIN_SPEC_BONUS,
   CAPTAIN_TALENTS,
@@ -132,6 +133,9 @@ import { AFFIX_DEFS, ESCALATION_ENEMIES_PER_LEVEL, HEIGHTENED_SENSES_KNEE, HEIGH
 import { ENEMY_RANKS, ENEMY_RANK_IDS } from "../enemyRanks";
 import { OVERTIME_STEP_RATE } from "../processSpeed";
 import { SHORT_RANGE_TEMPLATES, SHORT_RANGE_TEMPLATE_KEYS } from "../shortRange";
+import { GAS_STUDY_USES, GIANT_CLASSES, NEBULA_KINDS, type GasStudyUse } from "../gasGiantContent";
+import { REACTOR_FUEL_LADDER, REACTOR_TECH_TIERS, REACTOR_VARIETY_TECH, reactorFuelRung } from "../reactorTech";
+import { effectFieldsOf } from "./fieldRoles";
 import { REPAIR_RATES, REPAIR_RATE_BONUSES, USE_WEAR_FLOOR, WEAR_EFFICIENCY, WEAR_SOURCES, wearEfficiency } from "../gearWear";
 import {
   CONDITION_LINES,
@@ -175,6 +179,7 @@ import {
   GAMBIT_ACTIONS,
   GAMBIT_SELECTORS,
   sourceOn,
+  FIELD_KITS_SWITCH_PROBE_STOCK,
   type ContextId,
   type ProbeId,
   type Transform,
@@ -333,6 +338,8 @@ export const CATALOGS = {
   REPAIR_RATES,
   REPAIR_RATE_BONUSES,
   WEAR_EFFICIENCY,
+  // The reactor fuel ladder (0.14.0, reactorTech.ts): the fuel each Reactor Core blueprint takes.
+  REACTOR_FUEL_LADDER,
 } as const;
 export type Catalogs = typeof CATALOGS;
 
@@ -3085,8 +3092,8 @@ function affixEntries(): WiringEntry[] {
 
 // Every rank's ONE multiplier (user N1: HP and power alike; heal follows), read on a REAL task fight's guard
 // (groundFight.ts taskFightGuard) at a fight point the placement leads with that rank: the lead's power and its HP on a
-// ranked run are its unranked values x the multiplier (HP within one rounding step). Weak is pending: SF-3 places it
-// on the difficulty curve (user 2026-10-16 "Use them on the curve"), so no fight fields it yet.
+// ranked run are its unranked values x the multiplier (HP within one rounding step). Weak (safe first runs SF-3, user
+// 2026-10-16 "Use them on the curve") is read on the difficulty curve's low end: an ordinary run at the curve's floor.
 function enemyRankEntries(): WiringEntry[] {
   return ENEMY_RANK_IDS.flatMap((rank) =>
     (["power", "hp"] as const).map((stat) => {
@@ -3097,7 +3104,6 @@ function enemyRankEntries(): WiringEntry[] {
         source: { catalog: "ENEMY_RANKS", key: stat === "hp" ? `${rank}:hp` : rank },
         claim: `${ENEMY_RANKS[rank].label} enemy rank: its ${stat === "hp" ? "HP" : "power"} takes the rank multiplier`,
       };
-      if (rank === "weak") return entry({ ...shared, status: pending("SF-3 (the difficulty curve places Weak enemies)") });
       return entry({
         ...shared,
         probe: `content:enemyRank:${rank}:${stat}`,
@@ -3529,10 +3535,10 @@ const AUDIT_ROWS: readonly { id: string; system: WiringSystem; claim: string; st
   { id: "away:audit:sharedHazardGear", system: "away", claim: "The Hazard Suit and Environmental Adaptation worn by Prospecting (shared hazard gear)", status: PROSPECTING_DEFERRED },
   { id: "away:audit:prospectingDigSafety", system: "away", claim: "Dig safety: a Prospecting crew's Armor and HP cut cave-in and retreat injuries (prospectingCrewStats digSafety, DIG_SAFETY_KNEE)", status: PROSPECTING_DEFERRED },
   // Field Kits FKR-5 review ruling (user 2026-10-20 "Hide until kits are live"): model.ts FIELD_KITS_PLAYER_LIVE.
-  // FKR-7 kept both switches off: kits are wired into runs, but no player can see or change a pack until the dispatch
-  // pack UI (FKR-9, user mockup sign-off) and the Quartermaster sale rows (FKR-10) land; both flip together then.
-  { id: "away:audit:fieldKitsHiddenPieces", system: "away", claim: "Hidden until kits are live (FIELD_KITS_PLAYER_LIVE): the Impact Grenade blueprint (FIELD_KITS_HIDDEN_BLUEPRINTS, out of Research, the Fabricator and the Archive) and the +1 Carry Capacity line on new Stun and Toxin Grenade crafts", status: pending("FKR-9 / FKR-10 (flip FIELD_KITS_PLAYER_LIVE with FIELD_KITS_RUNS_LIVE once the pack UI ships)") },
-  { id: "away:audit:fieldKitsRunsSwitch", system: "away", claim: "Field Kits in runs (fieldKits.ts FIELD_KITS_RUNS_LIVE): a new dispatch stamps flag 2, packs each member from stock, buys a top-up team's shortfall, and the unused extras come home at claim", status: pending("FKR-9 / FKR-10 (the per-member pack UI and the Quartermaster kit sale rows; flips with FIELD_KITS_PLAYER_LIVE)") },
+  // FKR-7 kept both switches off; FKR-9 / FKR-10 flipped both with the pack screen (user 2026-10-20 "Yes, with the pack
+  // screen"): live in place with their own checks (auditRowWiring below).
+  { id: "away:audit:fieldKitsHiddenPieces", system: "away", claim: "Hidden until kits are live (FIELD_KITS_PLAYER_LIVE): the Impact Grenade blueprint (FIELD_KITS_HIDDEN_BLUEPRINTS, out of Research, the Fabricator and the Archive) and the +1 Carry Capacity line on new Stun and Toxin Grenade crafts", status: LIVE },
+  { id: "away:audit:fieldKitsRunsSwitch", system: "away", claim: "Field Kits in runs (fieldKits.ts FIELD_KITS_RUNS_LIVE): a new dispatch stamps flag 2, packs each member from stock, buys a top-up team's shortfall, and the unused extras come home at claim", status: LIVE },
   { id: "away:audit:statusPicker", system: "away", claim: "Status picker entries that never match (only six of nine statuses can fire)", status: pending("FK-9 + WR-10") },
   { id: "away:audit:fieldRepairOrder", system: "away", claim: "Player-ordered field repair (engine only, no UI)", status: pending("WR-10, OC-F14") },
   { id: "away:audit:legacyOnly", system: "away", claim: "Legacy-only: MAX_BATTLE_ATTEMPTS, EVAC_REWARD_FRACTION, ENCOUNTER_DROP_SCALE, scan ground battles, softenAmbush, the flat 2 h injury", status: pending("OC-G1") },
@@ -3592,6 +3598,24 @@ function auditRowWiring(): Readonly<Record<string, Partial<EntryInput>>> {
       magnitude: (c) => c.FIELD_KITS.injuryKit.treatmentShare ?? 0,
       on: sourceOn,
       tolerance: 1,
+    },
+    // Field Kits FKR-9 / FKR-10: the runs switch: a real Launch (the console's default argument) packs a member's
+    // default pack from the Warehouse; with kits off it packs nothing.
+    "away:audit:fieldKitsRunsSwitch": {
+      probe: "content:fieldKitsRunsSwitch",
+      contexts: ["expedition:groundOps"],
+      curve: { kind: "gate" },
+      magnitude: () => FIELD_KITS_SWITCH_PROBE_STOCK,
+      on: sourceOn,
+    },
+    // Field Kits FKR-9 / FKR-10: the hidden pieces are reachable: the Impact Grenade blueprint merged into BLUEPRINTS and
+    // the carry line in the Stun and Toxin Grenade craft pools.
+    "away:audit:fieldKitsHiddenPieces": {
+      probe: "content:fieldKitsHiddenPieces",
+      contexts: ["research", "craft"],
+      curve: { kind: "gate" },
+      magnitude: () => Object.keys(FIELD_KITS_HIDDEN_BLUEPRINTS).length + 2,
+      on: sourceOn,
     },
     "ship:audit:slotPowerDraw": {
       probe: "sheetPowerDraw",
@@ -4016,6 +4040,8 @@ function build(): readonly WiringEntry[] {
     ...crewScalarEntries(),
     ...medicalEntries(),
     ...prospectingEntries(),
+    ...gasStudyEntries(),
+    ...reactorTechEntries(),
     ...auditEntries(),
     ...speedSeamEntries(),
     ...wearEntries(),
@@ -4043,6 +4069,149 @@ function prospectingEntries(): WiringEntry[] {
   for (const use of PROSPECTING_USES) {
     out.push(entry({ id: `away:PROSPECTING_USES:${use}`, system: "away", source: { catalog: "PROSPECTING_USES", key: use }, claim: useClaim[use] ?? use, status: PROSPECTING_DEFERRED }));
   }
+  return out;
+}
+
+// Gas Giant Study GG-1 (data only; plan docs/plans/2026-10-17-gas-giant-study-plan.md section 3.5): every effect the
+// study's content configures, pending on the slice that reads it. The study's engine uses (GAS_STUDY_USES, owners in
+// gasGiantContent.ts), each giant class's roll weight and mass band (GG-2: the class roll), its physics inputs and
+// band odds and item weights (GG-3: the study reward and the probe's depth factor), and each nebula kind's band odds
+// and item weights (GG-4: the nebula sweep). A slice flips its entries live, with a probe, in the commit that wires
+// them. The items' own reserves and sell values register with the other ITEMS rows (recipeAndBlueprintEntries).
+function gasStudyEntries(): WiringEntry[] {
+  const out: WiringEntry[] = [];
+  const useSystem: Readonly<Record<GasStudyUse, WiringSystem>> = {
+    classRoll: "expedition",
+    studyReward: "expedition",
+    probeDive: "away",
+    nebulaSweep: "expedition",
+    labLane: "facility",
+    canisterRecipes: "facility",
+  };
+  for (const use of Object.keys(GAS_STUDY_USES) as GasStudyUse[]) {
+    const system = useSystem[use];
+    out.push(entry({ id: `${system}:GAS_STUDY_USES:${use}`, system, source: { catalog: "GAS_STUDY_USES", key: use }, claim: GAS_STUDY_USES[use], status: pending(GAS_STUDY_USES[use]) }));
+  }
+  // The slice that reads each effect field. A field with no owner here gets NO entry (never a fallback owner), so the
+  // completeness test ("every enumerated source has a registry entry") fails until it is given one.
+  const classOwner: Readonly<Record<string, string>> = {
+    weight: GAS_STUDY_USES.classRoll,
+    massMinMilliJ: GAS_STUDY_USES.classRoll,
+    massMaxMilliJ: GAS_STUDY_USES.classRoll,
+    radiusModel: GAS_STUDY_USES.probeDive,
+    inflation: GAS_STUDY_USES.probeDive,
+    bandOdds: GAS_STUDY_USES.studyReward,
+    itemWeights: GAS_STUDY_USES.studyReward,
+  };
+  const kindOwner: Readonly<Record<string, string>> = {
+    bandOdds: GAS_STUDY_USES.nebulaSweep,
+    itemWeights: GAS_STUDY_USES.nebulaSweep,
+  };
+  for (const c of GIANT_CLASSES) {
+    for (const field of effectFieldsOf("GIANT_CLASSES")) {
+      const owner = classOwner[field];
+      if (owner === undefined) continue;
+      out.push(entry({ id: `expedition:GIANT_CLASSES:${c.id}:${field}`, system: "expedition", source: { catalog: "GIANT_CLASSES", key: `${c.id}:${field}` }, claim: `${c.name}: its ${field}`, status: pending(owner) }));
+    }
+  }
+  for (const k of NEBULA_KINDS) {
+    for (const field of effectFieldsOf("NEBULA_KINDS")) {
+      const owner = kindOwner[field];
+      if (owner === undefined) continue;
+      out.push(entry({ id: `expedition:NEBULA_KINDS:${k.id}:${field}`, system: "expedition", source: { catalog: "NEBULA_KINDS", key: `${k.id}:${field}` }, claim: `${k.name}: its ${field}`, status: pending(owner) }));
+    }
+  }
+  return out;
+}
+
+// ============================================================================
+// Reactor tech foundation + the reactor fuel ladder (0.14.0, reactorTech.ts; capture
+// docs/plans/2026-10-21-reactor-fuel-and-recipe-realism-capture.md sections 1 to 6)
+// ============================================================================
+// Live: each fuel rung some Reactor Core blueprint reads today (fusion tiers I and II), and each Reactor Core variety's
+// tech tag (the tag picks the ladder its blueprint's fuel comes from), both measured by one Fabricator craft (the
+// canisters it spends). Every rung no blueprint reads yet (the larger fusion cores, the three higher tech tiers) and the
+// hull tier power generation requirement are SEAMS the user asked to be built now for the balancing patch (audit Group
+// A: Helium-3 goes in no reactor in 0.14.0). A rung goes live, probe and all, by itself the moment a blueprint reads it.
+
+const REACTOR_BALANCING_REF =
+  "capture 2026-10-21 (user): \"Probably a requirement of power generation on T7 ships. Which likely won't appear until at least the balancing patch\"; foundation \"Data model + hooks (Recommended)\", no new reactors in 0.14.0; recipe realism audit Group A call 3: Helium-3 \"reactors take it in the balancing patch\"";
+
+function reactorCoreBlueprints(): string[] {
+  return Object.keys(BLUEPRINTS).filter((k) => BLUEPRINTS[k].equipmentOutput?.slotType === "reactorCore");
+}
+
+function reactorTechEntries(): WiringEntry[] {
+  const out: WiringEntry[] = [];
+  const cores = reactorCoreBlueprints();
+  const varietyOf = (bp: string): string => BLUEPRINTS[bp].equipmentOutput!.varietyKey;
+  for (const t of REACTOR_TECH_TIERS) {
+    t.fuelLadder.forEach((rung, i) => {
+      const upTo = t.fuelLadder[i + 1]?.fromBlueprintTier ?? Infinity;
+      const readers = cores.filter((k) => REACTOR_VARIETY_TECH[varietyOf(k)] === t.id && BLUEPRINTS[k].tier >= rung.fromBlueprintTier && BLUEPRINTS[k].tier < upTo);
+      const fuel = Object.keys(rung.fuel);
+      const common = {
+        id: `facility:REACTOR_TECH_TIERS:${t.id}:fuel:${i}`,
+        system: "facility" as const,
+        source: { catalog: "REACTOR_TECH_TIERS", key: `${t.id}:fuel:${i}` },
+        claim: `${t.label} Reactor Core blueprints from tier ${rung.fromBlueprintTier} take ${fuel.map((f) => `${rung.fuel[f]} ${f}`).join(" and ")} per craft`,
+      };
+      if (readers.length > 0) {
+        const item = fuel[0];
+        out.push(
+          entry({
+            ...common,
+            probe: `content:reactorFuel:${readers[0]}:${item}` as ProbeId,
+            contexts: ["craft"],
+            direction: "none",
+            curve: { kind: "equals" },
+            magnitude: (c) => c.REACTOR_FUEL_LADDER[t.id][i].fuel[item] ?? 0,
+            note: `one Fabricator craft of ${readers[0]}: the ${item} it spends (read by ${readers.join(", ")})`,
+          }),
+        );
+      } else {
+        out.push(entry({ ...common, status: { kind: "seam", owner: "balancing patch", userRef: REACTOR_BALANCING_REF } }));
+      }
+    });
+  }
+  for (const variety of Object.keys(REACTOR_VARIETY_TECH)) {
+    const tech = REACTOR_VARIETY_TECH[variety];
+    const bp = cores.find((k) => varietyOf(k) === variety);
+    const common = {
+      id: `facility:REACTOR_VARIETY_TECH:${variety}`,
+      system: "facility" as const,
+      source: { catalog: "REACTOR_VARIETY_TECH", key: variety },
+      claim: `A ${variety} Reactor Core is ${tech} tech, so its blueprint burns its tier's ${tech} fuel`,
+    };
+    if (bp === undefined) {
+      out.push(entry({ ...common, status: pending("a Reactor Core blueprint of this variety (none crafts it yet)") }));
+      continue;
+    }
+    const rung = reactorFuelRung(tech, BLUEPRINTS[bp].tier);
+    const index = REACTOR_TECH_TIERS.find((x) => x.id === tech)!.fuelLadder.indexOf(rung);
+    const item = Object.keys(rung.fuel)[0];
+    out.push(
+      entry({
+        ...common,
+        probe: `content:reactorFuel:${bp}:${item}` as ProbeId,
+        contexts: ["craft"],
+        direction: "none",
+        curve: { kind: "equals" },
+        magnitude: (c) => c.REACTOR_FUEL_LADDER[tech][index].fuel[item] ?? 0,
+        note: `one Fabricator craft of ${bp}: the ${item} it spends`,
+      }),
+    );
+  }
+  out.push(
+    entry({
+      id: "ship:SHIP_SEAMS:hullReactorRequirement",
+      system: "ship",
+      source: { catalog: "SHIP_SEAMS", key: "hullReactorRequirement" },
+      claim: "A hull's tier can require a reactor tech for its power generation (reactorTech.ts HULL_TIER_REACTOR_REQUIREMENT, read by shipPowerBudget.reactorTechMet)",
+      status: { kind: "seam", owner: "balancing patch", userRef: REACTOR_BALANCING_REF },
+      note: "no requirement is active in 0.14.0 (the table is empty); reactorTech.test.ts proves the seam on a test table",
+    }),
+  );
   return out;
 }
 

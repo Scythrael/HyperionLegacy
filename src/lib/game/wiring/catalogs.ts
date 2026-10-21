@@ -59,6 +59,8 @@ import { AFFIX_ALIGNED_HOOKS, AFFIX_HOOK_KEYS, GAMBIT_ACTIONS, GAMBIT_SELECTORS 
 import { FIELD_ROLES, effectFieldsOf } from "./fieldRoles";
 import { REPAIR_RATES, REPAIR_RATE_BONUSES, WEAR_EFFICIENCY, WEAR_SOURCES } from "../gearWear";
 import { SHORT_RANGE_TEMPLATES } from "../shortRange";
+import { GAS_STUDY_USES, GIANT_CLASSES, NEBULA_KINDS } from "../gasGiantContent";
+import { REACTOR_TECH_TIERS, REACTOR_VARIETY_TECH } from "../reactorTech";
 
 // Field Kits FKR-5: the sources each grenade carries (its GrenadeTraits, as the registry measures them).
 export const GRENADE_FIELDS = ["charges", "perBattle", "blast", "status"] as const;
@@ -107,6 +109,9 @@ const FIELD_CATALOGS: Readonly<Record<string, Readonly<Record<string, object>>>>
   ITEMS,
   SUBSPACE_TELESCOPE_LEVELS: Object.fromEntries(SUBSPACE_TELESCOPE_LEVELS.map((r) => [String(r.level), r])),
   SHORT_RANGE_TEMPLATES,
+  // Gas Giant Study GG-1: the giant classes and nebula kinds, field by field.
+  GIANT_CLASSES: Object.fromEntries(GIANT_CLASSES.map((c) => [c.id, c])),
+  NEBULA_KINDS: Object.fromEntries(NEBULA_KINDS.map((k) => [k.id, k])),
 };
 
 function fieldSources(catalog: string, defs: Readonly<Record<string, object>>): EffectSource[] {
@@ -156,6 +161,8 @@ export function enumerateEffectSources(): EffectSource[] {
   add("PROSPECTING_SPEC_BASE", Object.keys(PROSPECTING_SPEC_BASE));
   add("PROSPECTING_BLUEPRINTS", Object.keys(PROSPECTING_BLUEPRINTS));
   add("PROSPECTING_USES", PROSPECTING_USES);
+  // Gas Giant Study (GG-1 data, the engine uses wired by GG-2 to GG-7)
+  add("GAS_STUDY_USES", Object.keys(GAS_STUDY_USES));
   add(
     "MEMBER_GROUND_EFFECTS",
     [...new Set(MEMBER_SLOT_TYPES.flatMap((st) => EQUIPMENT_SLOTS[st].varieties.map((v) => v.member?.groundEffect?.kind).filter((k): k is NonNullable<typeof k> => k !== undefined)))],
@@ -226,6 +233,10 @@ export function enumerateEffectSources(): EffectSource[] {
   add("WEAR_EFFICIENCY", WEAR_EFFICIENCY.map((c) => c.id));
   add("POI_CATALOG", POI_CATALOG.map((p) => p.id));
   add("SALVAGE_LOOT_POOLS", Object.keys(SALVAGE_LOOT_POOLS));
+  // the reactor tech foundation (0.14.0, reactorTech.ts): every rung of every tech tier's fuel ladder, and each Reactor
+  // Core variety's tech tag (the hull tier power requirement is a SHIP_SEAMS entry)
+  add("REACTOR_TECH_TIERS", REACTOR_TECH_TIERS.flatMap((t) => t.fuelLadder.map((_, i) => `${t.id}:fuel:${i}`)));
+  add("REACTOR_VARIETY_TECH", Object.keys(REACTOR_VARIETY_TECH));
   // the data catalogs, field by field
   for (const [catalog, defs] of Object.entries(FIELD_CATALOGS)) out.push(...fieldSources(catalog, defs));
   return out;

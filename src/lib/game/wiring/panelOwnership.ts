@@ -137,6 +137,9 @@ export const CONTENT_CATALOGS: ReadonlySet<string> = new Set([
   "REPAIR_RATES",
   "REPAIR_RATE_BONUSES",
   "WEAR_EFFICIENCY",
+  // Reactor fuel ladder (0.14.0): the fuel each Reactor Core recipe takes, and each core variety's tech tier.
+  "REACTOR_TECH_TIERS",
+  "REACTOR_VARIETY_TECH",
 ]);
 
 // Sources the panel does not judge ownership of, each with why (a NEW catalog must join a list: the test fails).
@@ -153,6 +156,10 @@ export const UNMEASURED_CATALOGS: Readonly<Record<string, string>> = {
   PROSPECTING_USES: "hidden until the prospecting quests patch",
   RELIC_TYPES: "dormant until Relics v2 R2-4 (copies per tier; R2-8 brings the Museum v2 page)",
   EXCEPTIONAL_SETS: "dormant until Relics v2 R2-5 (exceptional pieces are not found before then)",
+  // Gas Giant Study GG-1: data only until the study engine reads it (GG-2 to GG-7).
+  GAS_STUDY_USES: "pending the gas giant study engine (GG-2 to GG-7)",
+  GIANT_CLASSES: "data only until the giant class roll and the study reward (GG-2, GG-3)",
+  NEBULA_KINDS: "data only until the nebula sweep (GG-4)",
 };
 
 const shipOf = (s: GameState) => s.ships.find((sh) => sh.id === PANEL_SHIP_ID);

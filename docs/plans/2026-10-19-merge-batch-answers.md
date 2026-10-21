@@ -124,3 +124,14 @@ section 5.A captain nodes). Kept in their own file so the parallel integrator's 
   27 = 4, 41 = 5, 57 = 6, diminishing, no cap.
 - **Short-Range engine rules (G1-4):** "Approve all (Recommended)": extraction-roll talents out of scope for short-range;
   one log entry per run end; a recall while still at home ends at once and returns the training run.
+
+## 2026-10-21 calls
+
+- **Comet economy bug:** "Cut ice to ~4 credits (Recommended)": Deuterium Ice sells for about 4 credits (a crafting
+  input, not a money run); the Deuterium Canister still sells for 450.
+- **Training run vs Field Kits conditions:** "Approve (Recommended)": the training run's enemies skip the field kits
+  conditions; ordinary runs unchanged.
+- **Timed grenades fuse:** "1 round later (Recommended)": Impact Grenade is the default and explodes on contact; Stun and
+  Toxin grenades detonate at the start of the thrower's next turn (enemies may move out of a cluster first).
+- **Mockups to start now:** all four: Short-Range board; Expedition dispatch console; gas giant study screens; Relics v2
+  culture view + Material Lines Refinery layout + Modules row and power bar.

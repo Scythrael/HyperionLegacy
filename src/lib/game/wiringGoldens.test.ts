@@ -24,6 +24,7 @@ import Decimal from "break_infinity.js";
 // OC-11 (CP-8): the switch that proves the auto-crew pause is the only thing it moved here (see the lunarMine pin).
 vi.mock("./crewLock", async (io) => (await import("./complementOc11Switch.fixture")).oc11CrewLockMock(io));
 import { withOc11Off } from "./complementOc11Switch.fixture";
+import { PRE_RX_MISSION_KEYS } from "./reactorFuelGoldens.fixture";
 import {
   FACILITIES,
   ITEMS,
@@ -95,7 +96,8 @@ function seededRng(seed = 0x12345678): () => number {
 }
 
 const HULLS = Object.keys(SHIP_TYPES) as ShipTypeKey[];
-const MISSION_KEYS = Object.keys(MISSIONS) as MissionKey[];
+// Reactor fuel ladder (0.14.0): the missions before the Cometary Ice Harvest (reactorFuelGoldens pins its own rows).
+const MISSION_KEYS: readonly MissionKey[] = PRE_RX_MISSION_KEYS;
 
 function rich(s: GameState): GameState {
   return { ...s, credits: new Decimal(1_000_000) };

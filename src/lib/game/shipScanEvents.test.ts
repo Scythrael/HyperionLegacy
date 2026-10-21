@@ -17,7 +17,7 @@ import {
 } from "./expedition";
 import { formatCountdown } from "./format";
 import { scanClockToTime } from "./groundOps";
-import { plainAwayMember, withSlottedAwayTeams, withoutGroundOps, withoutShipEvents } from "./awayTeamTestFixtures";
+import { asPreCurveDispatch, plainAwayMember, withoutGroundOps, withoutShipEvents, withSlottedAwayTeams } from "./awayTeamTestFixtures";
 import { economyTick, processShipRepairs } from "./tick";
 import {
   BOARDING_ATTEMPT_CHANCE,
@@ -58,7 +58,7 @@ function crewed(expeditionSeed: number): GameState {
 }
 function dispatch(expeditionSeed: number): { next: GameState; exp: Expedition } {
   const s = crewed(expeditionSeed);
-  const res = startExpedition(s, "ship-1", 1, expeditionCandidates(s, "ship-1")[0].id);
+  const res = asPreCurveDispatch(startExpedition(s, "ship-1", 1, expeditionCandidates(s, "ship-1")[0].id));
   if (!res.success || !res.expedition) throw new Error(`dispatch refused: ${res.reason}`);
   return { next: res.next, exp: res.expedition };
 }
@@ -350,7 +350,7 @@ describe("GO-9 boarding attempts (D26: crew.boardingDefense and the Ossir racial
       assignedShipId: "ship-1",
     };
     const s2 = { ...s, officers: [ossir] } as unknown as GameState;
-    const res = startExpedition(s2, "ship-1", 1, expeditionCandidates(s2, "ship-1")[0].id);
+    const res = asPreCurveDispatch(startExpedition(s2, "ship-1", 1, expeditionCandidates(s2, "ship-1")[0].id));
     expect(res.expedition!.groundOps!.shipEventProfile.boardingDefense).toBeGreaterThan(0);
   });
 
@@ -430,7 +430,7 @@ describe("GO-8 review (user, 2026-10-14: \"Must be repaired first\", the patrol 
   const cand = (s: GameState) => expeditionCandidates(s, "ship-1")[0].id;
 
   it("damaged and waiting for a bay: refused with the SAME state, said plainly", () => {
-    const res = startExpedition(hurt, "ship-1", 1, cand(hurt));
+    const res = asPreCurveDispatch(startExpedition(hurt, "ship-1", 1, cand(hurt)));
     expect(res).toMatchObject({ success: false, reason: "shipDamaged" });
     expect(res.next).toBe(hurt);
     expect(expeditionDispatchBlockText("shipDamaged")).toBe("Ship is damaged, repair it first");
