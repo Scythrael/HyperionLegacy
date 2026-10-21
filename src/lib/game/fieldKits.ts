@@ -395,6 +395,14 @@ export const FIELD_KIT_PRICES: Readonly<Record<FieldKitId, number>> = Object.fro
 // numbers or coverage change, and keep the old version's rules for runs stamped with it.
 export const FIELD_KITS_CATALOG_VERSION = 1;
 
+// THE RUNS SWITCH (FKR-7; user 2026-10-20 "Hide until kits are live"). On, a new dispatch stamps flag 2 (with the frozen
+// free basic set), packs each Security member from stock, buys a team's top-up shortfall and brings the unused extras
+// home at claim (expedition.ts startExpedition, fieldKitsRun.ts). It stays OFF until the dispatch pack UI (FKR-9, which
+// needs the user's mockup sign-off) and the Quartermaster sale rows (FKR-10) land: a player could not see or change a
+// pack, and the plumbing would spend stock and credits behind their back. Off, every dispatch is byte-identical to
+// FKR-6's (fieldKitsRunGoldens.test.ts). It flips together with model.ts FIELD_KITS_PLAYER_LIVE.
+export const FIELD_KITS_RUNS_LIVE = false;
+
 // Is `exp` a Field Kits run (flag 2: Expedition.fieldKits stamped with a known catalog version)? The ONE read of the
 // flag (FKR-4's conditions and inflictors, fieldKitsConditions.ts; the later slices read it too). A run without it
 // fights byte-identically. Pure.

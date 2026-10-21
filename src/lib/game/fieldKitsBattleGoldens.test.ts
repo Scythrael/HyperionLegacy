@@ -138,6 +138,16 @@ const FKR6_MOVED_PINS: Partial<Record<keyof typeof FKR5_STAMPED_PINS, { fights: 
   triage: { fights: "f255b27a", run: "32c10f40" },
 };
 
+// MOVED AT FKR-7, named (fieldKitsRun.ts): a stamped run's grenade charges now carry from fight to fight within an
+// objective (they reset only as the crew lands), so the two programs that THROW spend their charges down across an
+// objective's fights instead of starting every fight full (FKR-5's "until then every fight starts full"). Each single
+// fight (a fresh squad) is unchanged; only the whole run moves. Decapitate and Triage throw nothing, and a run stamped
+// by hand carries no free basic set, so theirs stay put. Re-pinned on FKR-7.
+const FKR7_MOVED_RUNS: Partial<Record<keyof typeof FKR5_STAMPED_PINS, string>> = {
+  throw: "61fe73e6",
+  default: "adb2d182",
+};
+
 describe("FKR-6 goldens: what a stamped run's fights did at FKR-5", () => {
   const cases: [keyof typeof FKR5_STAMPED_PINS, GambitProgram | undefined, number][] = [
     ["throw", THROW, 0xc4a2],
@@ -147,14 +157,13 @@ describe("FKR-6 goldens: what a stamped run's fights did at FKR-5", () => {
   ];
   for (const [name, prog, seed] of cases) {
     const moved = FKR6_MOVED_PINS[name];
-    it(`${name}: two fights and a whole stamped run ${moved ? "MOVED on purpose at FKR-6" : "unchanged from FKR-5"}`, { timeout: 120_000 }, () => {
+    const run7 = FKR7_MOVED_RUNS[name];
+    it(`${name}: two fights and a whole stamped run ${moved ? "MOVED on purpose at FKR-6" : "unchanged from FKR-5"}${run7 ? ", the run MOVED on purpose at FKR-7" : ""}`, { timeout: 120_000 }, () => {
       const got = pin(prog, seed);
-      if (moved) {
-        expect(got.fights).not.toBe(FKR5_STAMPED_PINS[name].fights);
-        expect(got).toEqual(moved);
-      } else {
-        expect(got).toEqual(FKR5_STAMPED_PINS[name]);
-      }
+      const before = moved ?? FKR5_STAMPED_PINS[name];
+      if (moved) expect(got.fights).not.toBe(FKR5_STAMPED_PINS[name].fights);
+      if (run7) expect(run7).not.toBe(before.run);
+      expect(got).toEqual(run7 ? { ...before, run: run7 } : before);
     });
   }
 });

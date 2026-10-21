@@ -3063,7 +3063,7 @@ function fieldKitEntries(): WiringEntry[] {
       probe: `content:kit:${id}`,
       contexts: ["ground"],
       on: sourceOn,
-      ...(def.treatmentShare !== undefined ? { tolerance: 1, note: "the battle records the share; FKR-7 routes it into the run's medical bay" } : {}),
+      ...(def.treatmentShare !== undefined ? { tolerance: 1, note: "the battle records the share; FKR-7 sums it on the member's trip treatment, which the run's medical bay reads" } : {}),
     });
   });
   for (const cat of Object.keys(KIT_CATEGORY_RULES) as KitCategory[]) {
@@ -3156,20 +3156,41 @@ function fieldKitEntries(): WiringEntry[] {
       ),
     );
   }
+  // Field Kits FKR-7: the free basic set, refilled as a crew lands on an objective (every objective and every trip),
+  // frozen at dispatch off the ship's Medical and Operations headcount (fieldKitsRun.ts). Its base is read verbatim; the
+  // crew's D23 curve (FREE_BASIC_CURVE_KNEE, whole kits) is its own entry: a ship with Medical crew lands more kits.
   for (const id of Object.keys(FREE_BASIC_SET) as FieldKitId[]) {
     out.push(
       entry({
         id: `away:FREE_BASIC_SET:${id}`,
         system: "away",
         source: { catalog: "FREE_BASIC_SET", key: id },
-        claim: `Free basic set: every member starts each objective with ${FIELD_KITS[id].label} supplies, more with Medical and Operations crew`,
-        curve: { kind: "diminishing", knee: FREE_BASIC_CURVE_KNEE, base: FREE_BASIC_SET[id]?.base ?? 0 },
+        claim: `Free basic set: every member starts each objective with ${FIELD_KITS[id].label} supplies`,
+        curve: { kind: "equals" },
         magnitude: (c) => c.FREE_BASIC_SET[id]?.base ?? 0,
-        status: pending("FKR-7 (the per-objective free basic set, refreshed each objective and reload)"),
+        probe: `content:freeBasic:${id}:base`,
+        contexts: ["ground"],
+        on: sourceOn,
       }),
     );
+    if (FREE_BASIC_SET[id]?.crewCurve) {
+      out.push(
+        entry({
+          id: `away:FREE_BASIC_SET:${id}:crew`,
+          system: "away",
+          source: { catalog: "FREE_BASIC_SET", key: `${id}:crew` },
+          claim: `Free basic set: more ${FIELD_KITS[id].label} supplies with Medical and Operations crew (diminishing, knee ${FREE_BASIC_CURVE_KNEE} kits)`,
+          curve: { kind: "event", metric: "free kits a member lands with, 16 Medical crew vs none" },
+          magnitude: () => 1,
+          probe: `content:freeBasic:${id}:crew`,
+          contexts: ["ground"],
+          on: sourceOn,
+        }),
+      );
+    }
   }
-  // FKR-3: the Quartermaster price of each kit (N13, 3x material value). Nothing sells kits until FKR-7.
+  // FKR-3: the Quartermaster price of each kit (N13, 3x material value). FKR-7: the Quartermaster's kit sale charges it
+  // (quartermaster.ts buyFieldKits), and so does a dispatch's top-up (fieldKitsRun.ts planDispatchPacks).
   for (const id of FIELD_KIT_IDS) {
     out.push(
       entry({
@@ -3180,7 +3201,9 @@ function fieldKitEntries(): WiringEntry[] {
         direction: "none",
         curve: { kind: "equals" },
         magnitude: (c) => c.FIELD_KIT_PRICES[id],
-        status: pending("FKR-7 (Quartermaster kit sales and the off-by-default launch top-up charge the price)"),
+        probe: `content:kitPrice:${id}`,
+        contexts: ["facility"],
+        on: sourceOn,
       }),
     );
   }
@@ -3403,7 +3426,9 @@ const AUDIT_ROWS: readonly { id: string; system: WiringSystem; claim: string; st
   { id: "away:audit:scienceRank", system: "away", claim: "Science member rank \"nudges magnitude\" (fieldwork never reads it)", status: pending("WR-10, OC-F7") },
   { id: "away:audit:fieldDeviceEffectiveness", system: "away", claim: "fieldDevice effectiveness (both values 1; the specialist check is always false)", status: pending("FK-7") },
   { id: "away:audit:memberSlotPhysicals", system: "away", claim: "Member slot physicals (mass, powerDraw, durability)", status: pending("WR-8, OC-D14") },
-  { id: "away:audit:treatmentShare", system: "away", claim: "treatmentShare (always 0)", status: pending("FK-5 / FK-6") },
+  // Field Kits FKR-7: the Injury Kit's share (a fight's `treated`) sums on the member's trip treatment and the run's bay
+  // divides that member's cures by it (auditRowWiring below).
+  { id: "away:audit:treatmentShare", system: "away", claim: "An Injury Kit shortens the treated member's medical bay time (treatmentShare)", status: LIVE },
   { id: "away:audit:memberFallOutcome", system: "away", claim: "memberFallOutcome (the Safety Interlock hook, one branch)", status: pending("OC-F13") },
   { id: "away:audit:prospectingTeam", system: "away", claim: "The Prospecting squad type: built (specs, traits, YIELD / GRADE, recruits, gear, slots), hidden until a quest step unlocks it per save", status: PROSPECTING_DEFERRED },
   { id: "away:audit:prospectingUnlock", system: "away", claim: "The per-save Prospecting unlock (GameState.prospectingSquadsUnlocked, unlockProspectingSquads): nothing sets it in 0.14.0", status: PROSPECTING_DEFERRED },
@@ -3414,7 +3439,10 @@ const AUDIT_ROWS: readonly { id: string; system: WiringSystem; claim: string; st
   { id: "away:audit:sharedHazardGear", system: "away", claim: "The Hazard Suit and Environmental Adaptation worn by Prospecting (shared hazard gear)", status: PROSPECTING_DEFERRED },
   { id: "away:audit:prospectingDigSafety", system: "away", claim: "Dig safety: a Prospecting crew's Armor and HP cut cave-in and retreat injuries (prospectingCrewStats digSafety, DIG_SAFETY_KNEE)", status: PROSPECTING_DEFERRED },
   // Field Kits FKR-5 review ruling (user 2026-10-20 "Hide until kits are live"): model.ts FIELD_KITS_PLAYER_LIVE.
-  { id: "away:audit:fieldKitsHiddenPieces", system: "away", claim: "Hidden until kits are live (FIELD_KITS_PLAYER_LIVE): the Impact Grenade blueprint (FIELD_KITS_HIDDEN_BLUEPRINTS, out of Research, the Fabricator and the Archive) and the +1 Carry Capacity line on new Stun and Toxin Grenade crafts", status: pending("FKR-7 (flips FIELD_KITS_PLAYER_LIVE when kits are wired into runs)") },
+  // FKR-7 kept both switches off: kits are wired into runs, but no player can see or change a pack until the dispatch
+  // pack UI (FKR-9, user mockup sign-off) and the Quartermaster sale rows (FKR-10) land; both flip together then.
+  { id: "away:audit:fieldKitsHiddenPieces", system: "away", claim: "Hidden until kits are live (FIELD_KITS_PLAYER_LIVE): the Impact Grenade blueprint (FIELD_KITS_HIDDEN_BLUEPRINTS, out of Research, the Fabricator and the Archive) and the +1 Carry Capacity line on new Stun and Toxin Grenade crafts", status: pending("FKR-9 / FKR-10 (flip FIELD_KITS_PLAYER_LIVE with FIELD_KITS_RUNS_LIVE once the pack UI ships)") },
+  { id: "away:audit:fieldKitsRunsSwitch", system: "away", claim: "Field Kits in runs (fieldKits.ts FIELD_KITS_RUNS_LIVE): a new dispatch stamps flag 2, packs each member from stock, buys a top-up team's shortfall, and the unused extras come home at claim", status: pending("FKR-9 / FKR-10 (the per-member pack UI and the Quartermaster kit sale rows; flips with FIELD_KITS_PLAYER_LIVE)") },
   { id: "away:audit:statusPicker", system: "away", claim: "Status picker entries that never match (only six of nine statuses can fire)", status: pending("FK-9 + WR-10") },
   { id: "away:audit:fieldRepairOrder", system: "away", claim: "Player-ordered field repair (engine only, no UI)", status: pending("WR-10, OC-F14") },
   { id: "away:audit:legacyOnly", system: "away", claim: "Legacy-only: MAX_BATTLE_ATTEMPTS, EVAC_REWARD_FRACTION, ENCOUNTER_DROP_SCALE, scan ground battles, softenAmbush, the flat 2 h injury", status: pending("OC-G1") },
@@ -3462,6 +3490,16 @@ function auditRowWiring(): Readonly<Record<string, Partial<EntryInput>>> {
   const emitter = (draw: number): Transform => (s) => installPiece(s, { slotType: "shieldEmitters", powerDraw: draw });
   const torpedo = (draw: number): Transform => (s) => installPiece(s, { slotType: "weapon", weaponType: "concussionTorpedo", powerDraw: draw });
   return {
+    // Field Kits FKR-7: one Injury Kit's share on a member's trip treatment divides their Broken Bone bay time.
+    "away:audit:treatmentShare": {
+      probe: "content:runTreatment",
+      contexts: ["medbay"],
+      direction: "down",
+      curve: { kind: "divisor" },
+      magnitude: (c) => c.FIELD_KITS.injuryKit.treatmentShare ?? 0,
+      on: sourceOn,
+      tolerance: 1,
+    },
     "ship:audit:slotPowerDraw": {
       probe: "sheetPowerDraw",
       contexts: ["sheet"],

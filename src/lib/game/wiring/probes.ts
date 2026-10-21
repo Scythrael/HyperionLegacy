@@ -146,7 +146,7 @@ import {
   type BattleState,
   type GroundCombatant,
 } from "../gambit";
-import { FIELD_KITS_CATALOG_VERSION, type FieldKitId } from "../fieldKits";
+import { FIELD_KITS, FIELD_KITS_CATALOG_VERSION, type FieldKitId } from "../fieldKits";
 import { withThrownGrenades } from "../fieldKitsGrenades";
 import { FIELD_KITS_BATTLE, withFieldKitsDefaultProgram } from "../fieldKitsBattle";
 import { fieldworkEffect, fieldworkHazardResist, fieldworkSpeedMult } from "../fieldwork";
@@ -164,7 +164,10 @@ import { hullTeardownFraction, salvageSalvagedMaterial, salvageShip, salvageTale
 import { alertResetSeconds, escalationAt, extraBattleChance, longRangeCover, maxExtraBattles } from "../affixes";
 import { ENEMY_RANK_IDS, ENEMY_RANKS_VERSION, type EnemyRank } from "../enemyRanks";
 import { taskFightGuard, taskFightTeam } from "../groundFight";
-import { sellItem } from "../quartermaster";
+import { buyFieldKits, sellItem } from "../quartermaster";
+// Field Kits FKR-7: the run plumbing (the free basic set at an objective start, the bay share).
+import { fieldKitsStamp, refreshObjectiveSupplies } from "../fieldKitsRun";
+import { groundTeamBaySeconds } from "../groundOps";
 import { retirementExpMultiplier } from "../captainRetirement";
 import { transitBerthCount } from "../berths";
 import { shortRangeBoardSlots, startShortRangeCycle } from "../shortRangeBoard";
@@ -2026,6 +2029,27 @@ function readContent(id: string, s: GameState): number {
     }
     case "kit":
       return kitProbe(a as FieldKitId, on);
+    case "kitPrice": {
+      // Field Kits FKR-7: the credits one Quartermaster sale of kit `a` takes (quartermaster.ts buyFieldKits, the price the
+      // launch top-up charges too); off: no sale, 0.
+      if (!on) return 0;
+      const r = buyFieldKits(s, a, 1);
+      if (!r.ok) throw new Error(`kit price probe: the sale of ${a} was refused (${r.reason})`);
+      return s.credits.minus(r.next.credits).toNumber();
+    }
+    case "freeBasic":
+      return freeBasicProbe(s, a as FieldKitId, b, on);
+    case "runTreatment": {
+      // Field Kits FKR-7: a member's Broken Bone bay time on a Ground Ops run (groundOps.ts groundTeamBaySeconds, the bay
+      // step's reader, no care) with (on) the share one Injury Kit records on the team's trip treatment, or none.
+      const id = "wiring-treated";
+      const exp = {
+        roster: { security: [], science: [] },
+        groundOps: { factors: { medicalShare: 0, rapidRecoveryShare: 0, officerFacetShare: 0, injurySteady: 0 } },
+      } as unknown as Parameters<typeof groundTeamBaySeconds>[0];
+      const team = { securityIds: [id], scienceIds: [], conditions: { [id]: ["brokenBone"] }, ...(on ? { treatment: { [id]: FIELD_KITS.injuryKit.treatmentShare ?? 0 } } : {}) };
+      return groundTeamBaySeconds(exp, team)[id];
+    }
     case "kitCategory":
       return kitCategoryProbe(a, on);
     case "rankCondition":
@@ -2127,6 +2151,22 @@ function kitProbe(kit: FieldKitId, on: boolean): number {
       return conditionCureSeconds(GROUND_CONDITIONS.brokenBone, [], ZERO_CARE, ally.injuryTreated ?? 0);
     }
   }
+}
+
+// Field Kits FKR-7: the free basic set (fieldKits.ts FREE_BASIC_SET) a Security member holds of kit `kit` as their crew
+// lands on an objective (fieldKitsRun.ts refreshObjectiveSupplies on the run's stamp, fieldKitsStamp, frozen off the
+// fixture ship's Medical and Operations headcount):
+//   base : on, a ship with no support crew (the set's base); off, a run stamped with no free set (0);
+//   crew : on, a ship with FREE_BASIC_PROBE_HEADS Medical crew; off, none (the D23 crew curve's rise).
+const FREE_BASIC_PROBE_HEADS = 16;
+function freeBasicProbe(s: GameState, kit: FieldKitId, part: string, on: boolean): number {
+  const heads = part === "crew" && on ? FREE_BASIC_PROBE_HEADS : 0;
+  const buckets = heads > 0 ? [{ profession: "medical" as const, rarity: "standard" as const, rank: 1 as const, race: "earthBorn" as const, buff1Id: "med.triage", buff2Id: null, count: heads }] : [];
+  const fixture: GameState = { ...editShip(s, { complement: { buckets, mode: "passive" } }), notableCrew: [] };
+  const stamp = part === "base" && !on ? { catalog: FIELD_KITS_CATALOG_VERSION } : fieldKitsStamp(fixture, shipOf(fixture));
+  const team = { securityIds: ["wiring-member"] } as unknown as Parameters<typeof refreshObjectiveSupplies>[1][number];
+  refreshObjectiveSupplies({ fieldKits: stamp }, [team]);
+  return team.basics?.["wiring-member"]?.[kit] ?? 0;
 }
 
 // Kit category `cat`'s rule (on: a Medical Training hand; off: an untrained one):

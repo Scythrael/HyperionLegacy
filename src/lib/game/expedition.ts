@@ -125,6 +125,9 @@ import {
 } from "./groundOps";
 // Field Kits FKR-1: the enemy ranks catalog version a new run is stamped with (enemyRanks.ts is pure, no cycle).
 import { ENEMY_RANKS_VERSION, isTrainingRun } from "./enemyRanks";
+// Field Kits FKR-7: the runs switch, the flag, and the dispatch / claim plumbing (fieldKitsRun.ts never imports this).
+import { FIELD_KITS_RUNS_LIVE, fieldKitsLive } from "./fieldKits";
+import { fieldKitsStamp, planDispatchPacks, returnCarriedExtras, settleDispatchPacks, withDispatchPacks } from "./fieldKitsRun";
 // E-CREW (Task 16): the claim turns the run's downed members into injuries (pure; imports model types,
 // crewOverlay and crewBuffs only, never this module, so no cycle). GO-7b: a Ground Ops run brings home the
 // members still in the medical bay instead (applyGroundOpsInjuries).
@@ -1270,6 +1273,9 @@ export function startExpedition(
   captainId: number,
   candidateId: string,
   anomalyOptIn: boolean = true,
+  // Field Kits FKR-7: the runs switch (fieldKits.ts FIELD_KITS_RUNS_LIVE, off); the tests pass true to dispatch a Field
+  // Kits run the way the switch will.
+  fieldKitsRuns: boolean = FIELD_KITS_RUNS_LIVE,
 ): ExpeditionDispatchResult {
   const ship = state.ships.find((s) => s.id === shipId);
   if (!ship) return { next: state, success: false, reason: "noSuchShip" };
@@ -1294,8 +1300,13 @@ export function startExpedition(
   // G2-2: the run freezes where it went (Expedition.region), so it never re-reads the homeworld. G2-3: and how long
   // it flies (Expedition.voyage), so a later drive, crew or homeworld change never reshapes it.
   const homeworld = stateHomeworld(state);
-  const built = buildExpedition(state, ship, captainId, seed, anomalyOptIn, number, gen, risk);
+  const built = buildExpedition(state, ship, captainId, seed, anomalyOptIn, number, gen, risk, undefined, fieldKitsRuns);
   const expedition: Expedition = { ...built, region: regionStampOf(cand), voyage: candidateVoyage(state, ship, cand, isTrainingRun(built), homeworld) };
+  // Field Kits FKR-7: the packs leave stock (lowest quality first) and a top-up's credits are spent: the SAME plan
+  // buildExpedition packed (planDispatchPacks is pure on the same inputs). A run without flag 2 settles nothing.
+  const packed = fieldKitsLive(built)
+    ? settleDispatchPacks(state, planDispatchPacks(state, ship, built.groundOps?.teams ?? [], built.roster?.security ?? []))
+    : state;
   // Squads SQ-6 (user, SQ-5 call (b)): count a BLIND launch (beyond the telescope's range: the same reading the
   // candidate showed), so the future "go in blind" achievement can award retroactively. Never read by a run.
   const blind = readSystem(telescopeReading(state, homeworld), seed, expedition.sensorPower, risk, homeworld, undefined, cand.distanceLy).blind;
@@ -1304,7 +1315,7 @@ export function startExpedition(
 
   return {
     next: {
-      ...state,
+      ...packed,
       expeditions: [...state.expeditions, expedition],
       nextExpeditionId: number + 1,
       // Safe first runs SF-1 (review): the counters as they read BEFORE this dispatch. A state without stored counters
@@ -1334,6 +1345,7 @@ function buildExpedition(
   gen: { systemId: string; systemName: string; bodies: ExpeditionBody[] },
   risk: { profile: ExpeditionRiskProfile; bodies: BodyRiskGrades[] },
   idOverride?: string,
+  fieldKitsRuns: boolean = FIELD_KITS_RUNS_LIVE,
 ): Expedition {
   const shipId = ship.id;
   const id = idOverride ?? `expedition-${number}`;
@@ -1391,6 +1403,9 @@ function buildExpedition(
   // team slotted in hire order snapshots exactly what the pre-GO-7b snapshotAwayRoster did.
   const groundSnapshot = snapshotGroundOps(state, ship, { recoveryTurnaround, quickRecovery, injurySteady });
   const roster = snapshotAwayRosterForTeams(state, ship, groundSnapshot.teams);
+  // Field Kits FKR-7 (behind fieldKits.ts FIELD_KITS_RUNS_LIVE): each deploying Security member's pack, from stock and a
+  // top-up team's purchases (fieldKitsRun.ts planDispatchPacks; startExpedition settles the same plan).
+  if (fieldKitsRuns) withDispatchPacks(groundSnapshot.teams, planDispatchPacks(state, ship, groundSnapshot.teams, roster.security));
   // Squads SQ-4: the RISK PROFILE's presence (with each body's grades) is the risk-aware flag the ground tasks
   // stamp from.
   const bodies = gen.bodies.map((b, i) => ({ ...b, risk: risk.bodies[i] }));
@@ -1463,6 +1478,10 @@ function buildExpedition(
     // Field Kits FKR-1: the enemy ranks flag (enemyRanks.ts), stamped with the rank catalog's version, so a run in
     // flight at the update (no flag) keeps fielding every enemy at Normal.
     enemyRanks: { version: ENEMY_RANKS_VERSION },
+    // Field Kits FKR-7: the FIELD KITS flag (flag 2) with the frozen free basic set (fieldKitsRun.ts fieldKitsStamp),
+    // only behind fieldKits.ts FIELD_KITS_RUNS_LIVE (off until the pack UI lands), so every dispatch until then stores
+    // exactly the FKR-6 record and a run in flight at the update (no flag) keeps fighting as before.
+    ...(fieldKitsRuns ? { fieldKits: fieldKitsStamp(state, ship) } : {}),
     // WR-5c: the commanding captain's run-frozen explorer nodes (Field Science, Away-Team Doctrine, Preservationist,
     // Relic Hunter, Drillmaster), only when it owns one (captainExplorerEffects.ts explorerCaptainRun).
     ...(explorer ? { explorerCaptain: explorer } : {}),
@@ -2519,7 +2538,9 @@ export function claimExpedition(state: GameState, expeditionId: string): Expedit
   if (!exp) return { next: state, success: false, reason: "notFound" };
   if (exp.phase !== "complete") return { next: state, success: false, reason: "notComplete" };
   const removed: GameState = { ...state, expeditions: state.expeditions.filter((e) => e.id !== expeditionId) };
-  const deposited = depositExpeditionFindings(removed, exp.findings);
+  // Field Kits FKR-7: the extras the run still carries come home, even over the warehouse cap (call 17); the SAME state
+  // for a run that carries none (every run without flag 2).
+  const deposited = depositExpeditionFindings(returnCarriedExtras(removed, exp), exp.findings);
   // Ground Ops (GO-7b): a flagged run brings home the members still in the medical bay with the time they have
   // left (never the flat 2h); a legacy run keeps Task 16's injuries.
   const { next: home, injuries } = exp.groundOps ? applyGroundOpsInjuries(deposited, exp) : applyExpeditionInjuries(deposited, exp);
