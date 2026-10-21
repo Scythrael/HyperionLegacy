@@ -3327,8 +3327,14 @@ export interface ShortRangeMissionState {
   // the cycle and stops"). Set by recallCaptain, or at dispatch for a single run.
   recalled: boolean;
   // 0.14.0 SPEED SEAM (ProcessSpeed, the extraction arm's field): the time skip flags THIS cycle; the cycle engine
-  // (G1-4, the seam adapter) runs it through to its delivery. The next cycle is a fresh object without it.
+  // (G1-4, shortRangeCycle.ts) runs it through to its delivery. The next cycle is a fresh object without it.
   speed?: ProcessSpeed;
+  // G1-4 (user 2026-10-20 "At cycle start"): the working capital a Supply Drop-off paid as THIS cycle left home (its
+  // supplies, after the captain's Trade discount). Written only on a paid cycle; the delivery returns the full load
+  // value plus the margin. Absent on every other job and before departure.
+  loadPaid?: number;
+  // G1-4: the cycles this run has delivered (the run's completion log entry counts them). Absent until the first.
+  cyclesThisRun?: number;
 }
 
 // The board's per-slot cycle cursor (GameState.shortRangeBoard): slot id -> the cycle index its NEXT roll reads
@@ -5082,8 +5088,9 @@ export const MISSION_CONTROL_UNLOCK_COMPLETIONS = 50;
 // shortRangeBoardSlots reads this table directly, so the slot ladder is live (and tested) at every level now.
 // G1-6 flips the flag with the board UI (its Mission Control card text then names the slot).
 export const SHORT_RANGE_BOARD_LIVE = false;
-// [PROVISIONAL] every cost, duration and the fourth slot's tier (Tier II) await the user. The level 1 -> 2 rung is the
-// reserved completion-gated template kept for exactly this (MISSION_CONTROL_UNLOCK_COMPLETIONS of each ore run).
+// Every cost, duration and the fourth slot's tier (Tier II) approved 2026-10-20 (user "Approve (Recommended)":
+// docs/plans/2026-10-19-merge-batch-answers.md). The level 1 -> 2 rung is the reserved completion-gated template kept
+// for exactly this (MISSION_CONTROL_UNLOCK_COMPLETIONS of each ore run).
 export const MISSION_CONTROL_BOARD_RUNGS: readonly FacilityUpgradeDef[] = [
   {
     materials: {},
@@ -6193,7 +6200,9 @@ export type CompletionSalvageSubject =
 // it is the VIEW table and by definition must cover every RENDERABLE entry. That split is
 // deliberate and is not a contradiction: one table is about rendering, the others are about
 // processes.
-export type CompletionLogKind = TimedProcessKind | "patrolRun";
+// G1-4: "shortRangeRun", one entry per short-range RUN when it ends (the patrol precedent: one entry per run, its
+// `iterations` the cycles delivered), never one per cycle, so a board on Repeat cannot evict the rest of the log.
+export type CompletionLogKind = TimedProcessKind | "patrolRun" | "shortRangeRun";
 
 export interface CompletionLogEntry {
   id: string;               // "done-N", minted from state.nextCompletionLogId (mirrors "proc-N" / "q-N")

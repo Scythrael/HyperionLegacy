@@ -146,6 +146,7 @@ import { GRENADES, GRENADE_IDS } from "../fieldKitsGrenades";
 import {
   WIRING_SCIENCE_ID,
   WIRING_SECURITY_ID,
+  shortRangeTrainingCycle,
   bucketOf,
   combatBase,
   editCaptain,
@@ -316,6 +317,8 @@ export const CATALOGS = {
   FIELD_KIT_PRICES,
   GRENADES,
   GRENADE_CARRY_PER_LINE,
+  // G1-4: the short-range template catalog (its rolls, work and pay are live through the cycle engine).
+  SHORT_RANGE_TEMPLATES,
 } as const;
 export type Catalogs = typeof CATALOGS;
 
@@ -400,11 +403,8 @@ const G2_6_PICKER = "G2-6 (the region picker: G2-2 built every tier's candidates
 const PILOT_CUNNING = "pending user decision (officerStats.ts CUNNING_PENDING_SEATS)";
 // The user's T3 deferrals (capture 2026-10-15 section 3: "Move all five (Recommended)").
 const T3 = "capture 2026-10-15 section 3 T3 (moved to 0.14.x)";
-// G1-1: every guest quarters source moves the sheet now; the short-range passenger jobs that read it land in G1-4.
-const G1_GUESTS = "G1-4 (the short-range passenger jobs read guest quarters)";
-// G1-2: the short-range template catalog. Its rolls, work and rewards act in the pure engine (shortRange.ts, tested
-// there), but no game path flies a short-range cycle until the cycle engine lands.
-const G1_CYCLE = "G1-4 (the short-range cycle engine flies the rolls, times the work and pays the rewards)";
+// G1-4: the guest quarters sources and the short-range template catalog are LIVE at mission:shortRange (the cycle
+// engine, shortRangeCycle.ts): see the guest quarters entries, missionEntries and SHORT_RANGE_SWEEP below.
 
 // Prospecting squads (0.14.0, built HIDDEN; design docs/plans/2026-10-16-prospecting-squads-design.md section 8):
 // every Prospecting source is deferred to the prospecting quests patch, the user-approved exception to "no
@@ -1790,7 +1790,8 @@ const LINE_SEAMS: Readonly<Record<string, LineSeam | null>> = {
   sensors: { probe: "sheetSensors", contexts: ["sheet"], curve: { kind: "linearAbsolute" }, magnitude: () => LINE_POINTS },
   // G1-1: a guest line is stored in berths and adds them flat. Measured on an Orion (an explorer: the General quarters
   // perk would multiply both readings, which is its own entry, ship:SHIP_SEAMS:generalQuartersGuestPerk).
-  colonistCapacity: { probe: "sheetGuestQuarters", contexts: ["sheet"], curve: { kind: "linearAbsolute" }, magnitude: () => LINE_POINTS, base: () => wiringBase("orion") },
+  // G1-4: and the guest quarters a short-range sheet judges (mission:shortRange, shortRangeShipRatings).
+  colonistCapacity: { probe: "sheetGuestQuarters", contexts: ["sheet", "mission:shortRange"], curve: { kind: "linearAbsolute" }, magnitude: () => LINE_POINTS, base: () => wiringBase("orion") },
   // Expedition Tiers G2-3: the voyage flies each leg at the ship's own speed on it (the run freezes it).
   engineEfficiency: { probe: "sheetEngineEff", contexts: ["sheet"], curve: { kind: "linearAbsolute" }, magnitude: () => percent("engineEfficiency") },
   extractionYieldMult: { probe: "sheetYield", contexts: ["sheet"], curve: { kind: "linearRelative" }, magnitude: () => percent("extractionYieldMult") },
@@ -1934,7 +1935,6 @@ function shipLineEntries(): WiringEntry[] {
       engineEfficiency: pending("G2-4 (no expedition range gate)", ["expedition:groundOps"]),
       sensors: { kind: "deferred", owner: "CP-15 (patrol cloak detection)", userRef: `${T3}: patrol cloak detection`, contexts: ["patrol"] },
       repairSpeed: pending("WR-7, OC-D10 (not Ground Ops field repair)", ["expedition:groundOps"]),
-      colonistCapacity: pending(G1_GUESTS, ["mission:shortRange"]),
     };
     return entry({
       ...common,
@@ -2091,13 +2091,12 @@ function hullEntries(): WiringEntry[] {
       out.push(
         hullEntry(hull, "colonistCapacity", {
           probe: "sheetGuestQuarters",
-          contexts: ["sheet"],
+          contexts: ["sheet", "mission:shortRange"],
           magnitude: (c) => c.SHIP_TYPES[hull].colonistCapacity ?? 0,
           base: () => {
             const s = wiringBase(hull);
             return { ...s, equipment: s.equipment.filter((e) => e.fittedToShipId !== "ship-1") };
           },
-          status: pending(G1_GUESTS, ["mission:shortRange"]),
         }),
       );
     }
@@ -2111,12 +2110,11 @@ function hullEntries(): WiringEntry[] {
       source: { catalog: "SHIP_SEAMS", key: "generalQuartersGuestPerk" },
       claim: "General Quarters: guest quarters +10% for passenger runs",
       probe: "sheetGuestQuarters",
-      contexts: ["sheet"],
+      contexts: ["sheet", "mission:shortRange"],
       curve: { kind: "linearRelative" },
       magnitude: () => GENERAL_QUARTERS_GUEST_PERK,
       on: (s) => installPiece(s, { slotType: "quarters", moduleVariant: "quartersUtilitarian" }),
       tolerance: 0.5, // whole berths
-      status: pending(G1_GUESTS, ["mission:shortRange"]),
     }),
   );
   out.push(
@@ -2571,7 +2569,11 @@ function missionEntries(): WiringEntry[] {
       }),
     );
   }
-  // G1-2: every effect field of every short-range template, pending the cycle engine (G1-4).
+  // G1-2 + G1-4: every effect field of every short-range template, LIVE through the cycle engine (shortRangeCycle.ts),
+  // each read on the template's training cycle on the bare wiring fixture (probes.ts shortRangeTrainingCycle):
+  //   rolls   the training roll's primary size (people, units or scan points) is its span's smallest (SF: smallest roll)
+  //   work    the ticks economyTick spends on site equal the cycle plan's (shortRangeCyclePlan reads `work`)
+  //   reward  the credits one delivered cycle pays equal the reward table's (shortRangeCycleReward reads `reward`)
   for (const key of SHORT_RANGE_TEMPLATE_KEYS) {
     const def = SHORT_RANGE_TEMPLATES[key];
     for (const field of ["rolls", "work", "reward"] as const) {
@@ -2581,7 +2583,18 @@ function missionEntries(): WiringEntry[] {
           system: "mission",
           source: { catalog: "SHORT_RANGE_TEMPLATES", key: `${key}:${field}` },
           claim: `${def.label} ${field}`,
-          status: pending(G1_CYCLE),
+          probe: `content:shortRange:${field}:${key}` as ProbeId,
+          contexts: ["mission:shortRange"],
+          direction: "none",
+          curve: { kind: "equals" },
+          magnitude: (c) => {
+            if (field === "rolls") {
+              const spans = c.SHORT_RANGE_TEMPLATES[key].rolls[1];
+              return (spans.guests ?? spans.units ?? spans.scan ?? [-1])[0];
+            }
+            const training = shortRangeTrainingCycle(key);
+            return field === "work" ? training.plan.onSiteTicks : training.credits;
+          },
         }),
       );
     }
@@ -3753,8 +3766,83 @@ export const FLAT_UNCONTROLLED: Readonly<Record<string, string>> = {
   "salvageTalentCeiling@salvage:topTier": "the pool's top tier is the clamp: nothing can raise the tier a top Fleet Admiral rolls",
   "candidateTopTier@expedition:groundOps": "the console offers Tier I candidates until G2-6 adds the region picker (G2-2 built every tier): nothing raises the offered region tier",
   "missionOreQuality@mission:extraction": "nothing raises mined ore quality today (this line would be the first source)",
-  "sheetGuestQuarters@mission:shortRange": "no short-range cycle exists until G1-4, so nothing reads guest quarters there yet",
 };
+
+// ============================================================================
+// G1-4: the mission:shortRange sweep (plan 4 G1-4: every entry whose claim covers missions gains mission:shortRange,
+// or an explicit outOfScope with its reason; wiring.completeness.test.ts holds every mission-claim entry to it)
+// ============================================================================
+
+const SR_CONTEXT: ContextId = "mission:shortRange";
+// The sources a short-range cycle reads, LIVE there through their own probe's mission:shortRange branch (probes.ts):
+// the ship's mission output share on the pay, the officers' promotion hours out, the captain's Trade margin on a
+// drop-off, Assayer on a delivered haul's quality, Motherlode on a delivered haul, and the transit berths its home
+// turnaround occupies.
+const SHORT_RANGE_SWEEP_LIVE: ReadonlySet<string> = new Set([
+  "officer:officer.shipOutputMult",
+  "crew:crew.crewOutputMult",
+  "captain:SECONDARY_CAPTAIN_TALENTS:commandCrew2",
+  "captain:SECONDARY_CAPTAIN_TALENTS:commandCrew5:officers",
+  "captain:SECONDARY_CAPTAIN_TALENTS:commandCrew3",
+  "captain:SECONDARY_CAPTAIN_TALENTS:trade1",
+  "captain:SECONDARY_CAPTAIN_TALENTS:trade3",
+  "captain:SECONDARY_CAPTAIN_TALENTS:extraction4",
+  "captain:SECONDARY_CAPTAIN_TALENTS:extraction5",
+  ...TRANSIT_BERTH_RUNGS.map((_, i) => `facility:TRANSIT_BERTH_RUNGS:${i}`),
+]);
+// The mission-claim sources a short-range cycle has nothing for, and why. [PROPOSAL, the user's to confirm: the
+// extraction-roll talents stay with extraction missions.]
+const NO_EXTRACTING = "a short-range job has no extracting phase or ore rolls: it pays its rolled job (shortRange.ts shortRangeCycleReward)";
+const SHORT_RANGE_SWEEP_OUT_OF_SCOPE: Readonly<Record<string, string>> = {
+  "officer:officer.rareFindMult": "a short-range survey's yield is its scan size and Sensors, with no rare-tier roll to raise (short-range relics are G1-5's)",
+  "crew:crew.rareFindChance": "a short-range survey's yield is its scan size and Sensors, with no rare-tier roll to raise (short-range relics are G1-5's)",
+  "captain:CAPTAIN_TALENTS:prospectorHub": NO_EXTRACTING,
+  "captain:CAPTAIN_TALENTS:prospectorBulkExtraction": NO_EXTRACTING,
+  "captain:CAPTAIN_TALENTS:prospectorRefinedExtraction": NO_EXTRACTING,
+  "captain:CAPTAIN_TALENTS:prospectorKeenEyeI": NO_EXTRACTING,
+  "captain:CAPTAIN_TALENTS:prospectorKeenEyeII": NO_EXTRACTING,
+  "captain:CAPTAIN_TALENTS:prospectorLuckyStrikeI": NO_EXTRACTING,
+  "captain:CAPTAIN_TALENTS:prospectorLuckyStrikeII": NO_EXTRACTING,
+  "captain:CAPTAIN_SPEC_BONUS:resourcefulness": NO_EXTRACTING,
+  "captain:SECONDARY_CAPTAIN_TALENTS:extraction2": "Deep Veins raises the extraction roll's find chances; a short-range job draws no find roll",
+  "captain:SECONDARY_CAPTAIN_TALENTS:extraction3": "Efficient Haul shortens the extracting phase; a short-range cycle has none",
+  "captain:SECONDARY_CAPTAIN_TALENTS:logistics4": "missions have no load phase (D26 points Efficient Stowage at the Ground Ops reload)",
+  "captain:SECONDARY_CAPTAIN_TALENTS:trade2": "measured on its own entry at the drop-off's own load (captain:SECONDARY_CAPTAIN_TALENTS:trade2:shortRange)",
+  "fleetAdmiral:HOMEWORLD_TALENTS:fleetLogisticsHub": NO_EXTRACTING,
+  "fleetAdmiral:HOMEWORLD_TALENTS:fleetLogisticsYield": NO_EXTRACTING,
+  "facility:FACILITIES:missionControl:0": "the short-range board's two base slots need no Mission Control level; its later slots are the MISSION_CONTROL_BOARD_RUNGS (addShortRangeSlot)",
+  "ship:gearLine:materialQualityChance": "a Prospecting Rig's ore quality is an extraction line; a short-range pickup's ore takes the deposit's own quality roll",
+  "relic:MUSEUM_STATS:rareMaterialChance": NO_EXTRACTING,
+};
+function withShortRangeScope(e: WiringEntry): WiringEntry {
+  if (SHORT_RANGE_SWEEP_LIVE.has(e.id)) return { ...e, contexts: [...e.contexts, SR_CONTEXT] };
+  const reason = SHORT_RANGE_SWEEP_OUT_OF_SCOPE[e.id];
+  return reason ? { ...e, outOfScope: [...(e.outOfScope ?? []), { context: SR_CONTEXT, reason }] } : e;
+}
+// Shrewd Negotiator on a short-range drop-off: the discount saved is the discount x THAT job's load (the training
+// drop-off's smallest units x its tier's supply cost), so it is its own entry beside the supply-run one.
+function trade2ShortRangeEntry(main: WiringEntry): WiringEntry {
+  return {
+    ...main,
+    id: `${main.id}:shortRange`,
+    source: { catalog: main.source.catalog, key: `${main.source.key}:shortRange` },
+    contexts: [SR_CONTEXT],
+    outOfScope: undefined,
+    magnitude: (c) => {
+      const e = c.SECONDARY_CAPTAIN_TALENTS.trade2.effect;
+      const drop = c.SHORT_RANGE_TEMPLATES.supplyDropOff;
+      const load = drop.reward.kind === "supplyLoop" ? (drop.rolls[1].units?.[0] ?? 0) * drop.reward.supplyCostPerUnit[1] : 0;
+      return (e.type === "statMult" ? e.mult : 0) * load;
+    },
+    note: "one Supply Drop-off cycle's net credits: the load bought at the discount, sold at full value",
+  };
+}
+function shortRangeSwept(entries: readonly WiringEntry[]): WiringEntry[] {
+  return entries.flatMap((e) => {
+    const scoped = withShortRangeScope(e);
+    return e.id === "captain:SECONDARY_CAPTAIN_TALENTS:trade2" ? [scoped, trade2ShortRangeEntry(e)] : [scoped];
+  });
+}
 
 // ============================================================================
 // The registry
@@ -3794,7 +3882,9 @@ function build(): readonly WiringEntry[] {
     ...prospectingEntries(),
     ...auditEntries(),
     ...speedSeamEntries(),
-  ].map((e) => (ALLOW_LIST_REASONS[e.id] ? { ...e, reason: ALLOW_LIST_REASONS[e.id] } : e));
+  ]
+    .map((e) => (ALLOW_LIST_REASONS[e.id] ? { ...e, reason: ALLOW_LIST_REASONS[e.id] } : e))
+    .flatMap((e) => shortRangeSwept([e]));
 }
 
 // Prospecting squads (hidden): the role bases, the hidden blueprints and the three later uses, each deferred to

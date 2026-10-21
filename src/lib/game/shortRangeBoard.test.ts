@@ -382,10 +382,13 @@ describe("G1-3 the widened mission union at every consumer", () => {
     expect(r?.durationTicks).toBe(missionOf(s).plan.transitOutTicks);
   });
 
-  it("the economy tick holds a short-range run still until the cycle engine (G1-4): no crash, no progress", () => {
+  // G1-4 replaced the hold-still arm with the cycle engine (shortRangeCycle.test.ts covers it in full).
+  it("the economy tick advances a short-range run through the cycle engine (G1-4)", () => {
     const s = dispatched();
     const next = economyTick(s, 10);
-    expect(missionOf(next)).toEqual(missionOf(s));
+    // (A drop-off also records the load it paid as it left: loadPaid.)
+    const { loadPaid: _paid, ...moved } = missionOf(next);
+    expect(moved).toEqual({ ...missionOf(s), phaseProgressTicks: 10 });
   });
 });
 

@@ -34,6 +34,9 @@ import { itemTotal } from "./inventory";
 import { RELIC_SETS } from "./relics";
 import { advanceExpedition, claimExpedition, expeditionCandidates, startExpedition } from "./expedition";
 import { applyGroundOpsInjuries } from "./injuries";
+import { dispatchCaptainOnShortRange } from "./shortRangeBoard";
+import { resolveCrew } from "./crewOverlay";
+import { editShip, installPiece, wiringBase } from "./wiring/probes";
 import { asLegacyDispatch, ensureMinimumAwayTeam, plainAwayMember, withSlottedAwayTeams } from "./awayTeamTestFixtures";
 import {
   OVERTIME_CREDITS_PER_MINUTE,
@@ -404,6 +407,55 @@ describe("time skip: a mission cycle runs through to its delivery on the next ti
     expect(canApplyTimeSkip(freshState(), { kind: "run", captainId: 1 })).toEqual({ ok: false, reason: "notFound" });
     const once = applyTimeSkip(mission(), { kind: "run", captainId: 1 }).next;
     expect(canApplyTimeSkip(once, { kind: "run", captainId: 1 })).toEqual({ ok: false, reason: "alreadySkipped" });
+  });
+});
+
+// G1-4: a short-range cycle is a mission cycle too (the run ref); the cycle engine honors the flag (shortRangeCycle.ts).
+describe("time skip: a short-range cycle runs through to its delivery on the next tick (G1-4)", () => {
+  // A crewed Eir with a sensor array meets the Tier I sheet (shortRangeBoard.test.ts); slot 0's next roll.
+  const qualified = (): GameState => {
+    const eir = resolveCrew({ ...editShip(wiringBase(), { typeKey: "eir" }), gameTimeSeconds: 6 * 3600 });
+    return installPiece(eir, { slotType: "sensor", moduleVariant: "sensorBalanced", implicitStats: { sensors: 20 } });
+  };
+  const run = (s: GameState = qualified()): GameState => {
+    const r = dispatchCaptainOnShortRange(s, 1, 0);
+    expect(r.success).toBe(true);
+    return r.next;
+  };
+  const planOf = (s: GameState) => {
+    const m = s.captains[0].mission;
+    if (m === null || m.kind !== "shortRange") throw new Error("not on a short-range run");
+    return m;
+  };
+  const outcome = (s: GameState) => ({ captain: s.captains[0], inventory: s.inventory, credits: s.credits.toString(), stats: s.lifetimeStats, board: s.shortRangeBoard });
+
+  it("the skip plus one tick equals the cycle played out plus one tick (the same pay, XP and next roll)", () => {
+    const s = stepped(run(), 5);
+    const m = planOf(s);
+    const left = m.plan.totalTicks - 5;
+    const skipped = applyTimeSkip(s, { kind: "run", captainId: 1 });
+    expect(skipped.applied).toBe(true);
+    const after = economyTick(skipped.next, 1, RNG);
+    expect(outcome(after)).toEqual(outcome(economyTick(s, left + 1, RNG)));
+    expect(planOf(after).speed).toBeUndefined(); // the next cycle runs at normal speed
+  });
+
+  it("a skip on a cycle waiting at home for its load waits with it, then runs through once it can leave", () => {
+    let s = run();
+    // Find a drop-off roll on slot 0 and wait at home without credits.
+    while (planOf(s).roll.template !== "supplyDropOff") s = stepped(s, planOf(s).plan.totalTicks);
+    s = { ...s, credits: new Decimal(0) };
+    const skipped = applyTimeSkip(s, { kind: "run", captainId: 1 }).next;
+    const waited = economyTick(skipped, 1, RNG);
+    expect(planOf(waited).phaseProgressTicks).toBe(0);
+    expect(planOf(waited).speed?.instantComplete).toBe(true);
+    const funded = economyTick({ ...waited, credits: new Decimal(1_000_000) }, 1, RNG);
+    expect(planOf(funded).roll.cycleIndex).toBe(planOf(s).roll.cycleIndex + 1);
+  });
+
+  it("after the skip, one catch-up call equals the same span stepped (offline == live)", () => {
+    const skipped = applyTimeSkip(stepped(run(), 30), { kind: "run", captainId: 1 }).next;
+    same(economyTick(skipped, 400, RNG), stepped(skipped, 400));
   });
 });
 
