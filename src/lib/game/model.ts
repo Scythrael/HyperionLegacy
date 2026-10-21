@@ -2158,7 +2158,8 @@ export const IMPACT_GRENADE_RECIPE: Readonly<Record<string, number>> = { titaniu
 // Toxin Grenade before it detonates (the user: "enemies may move out of a cluster first"). Ground fights have no
 // positions, so a cluster is the target's group (its group tag): a foe downed before the detonation is not hit, and each
 // foe still standing rolls this once (its own keyed stream, gambit.ts GRENADE_FUSE_SALT) and is not hit when it moved
-// clear. [PROVISIONAL: the user named the behavior, not the chance; one in five.]
+// clear. User 2026-10-21 "20%, lone targets can't dodge": one in five, for GROUPS; a lone target (the only foe of its
+// group still standing at the detonation) never rolls and always takes the blast.
 export const GRENADE_FUSE_MOVED_CLEAR_CHANCE = 0.2;
 // The timed fuse the Stun and Toxin Grenades carry (GrenadeTraits.fuse).
 export const TIMED_GRENADE_FUSE: NonNullable<GrenadeTraits["fuse"]> = { movedClearChance: GRENADE_FUSE_MOVED_CLEAR_CHANCE };

@@ -408,7 +408,8 @@
       return ev.missed ? `Neural Backup fails to revive ${ally}` : `Neural Backup revives ${ally}: +${ev.hpDelta ?? 0} HP`;
     }
     // Timed grenades (user 2026-10-21): a primed throw and its detonation read as their own lines (fieldKitsDisplay.ts).
-    const fuse = fuseLogLine(ev, who, ev.targetRole ? `${ev.targetSide === "enemy" ? "enemy " : ""}${roleName(ev.targetRole)}` : "");
+    const thrower = ev.memberId ? state.awayMembers.find((m) => m.id === ev.memberId)?.name : undefined;
+    const fuse = fuseLogLine(ev, who, ev.targetRole ? `${ev.targetSide === "enemy" ? "enemy " : ""}${roleName(ev.targetRole)}` : "", thrower);
     if (fuse) return fuse;
     const verb = EVENT_VERB[ev.action] ?? ev.action;
     let line = `${who} ${verb}`;

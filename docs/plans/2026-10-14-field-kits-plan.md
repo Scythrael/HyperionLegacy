@@ -641,9 +641,19 @@ run reads "Detonates on contact"), the editor's Throw Grenade hint names the ins
 (`installedGrenadeFuse`). Wiring: new LIVE `away:GRENADES:<grenade>:fuse` x3 (equals: Stun / Toxin 1 turn, Impact 0
 witnessed by its siblings; probe a whole battle, catalog 2 arming vs catalog 1) and `away:GRENADES:{stun,toxin}Grenade:
 movedClear` (event over 64 detonations), `impactGrenade:movedClear` not applicable. Goldens MOVED, named: the catalog 2
-all-three pins (`FUSE_MOVED_PINS`); EM-0 `registry` bd1e2f48 to b41c83f9 (added entries only, `fieldKitsFuse.fixture.ts`
-left out reproduces it); G1-0 golden 5 holds `FUSE_SLICE` apart in every pin (no pin moved). Unchanged: every catalog 1
-and Impact-only pin, every flag-less golden.
+all-three pins (`FUSE_MOVED_PINS`). The registry pins hold the added entries apart (`fieldKitsFuse.fixture.ts`): the
+EM-0 snapshot leaves them out like the reactor fuel ladder's (stays bd1e2f48), G1-0 golden 5's `registryPin` always
+applies `FUSE_SLICE` (no pin moved). Unchanged: every catalog 1 and Impact-only pin, every flag-less golden.
+**Timed grenade review rulings (user 2026-10-21, merge-batch answers "Timed grenade review calls"), built:** "Refund
+it": a grenade still primed when the fight ends (a clear, a wipe, or a throw in the round cap's last round) is refunded
+in `resolveGroundBattle` summarize (taken off `used` before `chargesUsed`) and logs a `grenadeRefunded` line ("... never
+went off: the fight ended first, so its charge comes back"). "20%, lone targets can't dodge": the 0.2 moved-clear chance
+is no longer provisional and applies to GROUPS only; a lone foe (the only one of its group standing at the detonation)
+never rolls. "Keep instant": the enemy flash grenade stays instant (noted at gambit.ts's flashGrenade case). Review
+asks: the `blast` and `status` probes arm the reference thrower as catalog 2 does and measure a timed grenade's
+detonation (`probes.ts catalog2Throw`); salts.test.ts names `gambit.ts GRENADE_FUSE_SALT`; the log names the thrower
+("detonates at the start of Vale's next turn"). Moved, named: seed 51f3's catalog 2 fight pins (a lone Stun target no
+longer moves clear).
 
 #### FKR-11: Help, wiring and no-dead-stats close-out, QA sheet
 

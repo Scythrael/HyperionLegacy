@@ -8,13 +8,14 @@
 // Kits catalog 2 arms a fuse; catalog 1, in flight before it, detonates on contact; a new dispatch stamps 2), the
 // prime (the charge and the battle's throw spent at once, nothing hit), the detonation at the START of the thrower's
 // next turn (before it acts, whether or not it can), the cluster re-forming (a foe downed first is not hit, each foe
-// still standing may move clear on its own keyed stream), a fight won before the fuse burns down, and the log lines.
+// still standing may move clear on its own keyed stream, a lone one never), a fight that ends before the fuse burns down
+// (the charge refunded), and the log lines.
 // The whole-run pins (catalog 1 byte-identical, catalog 2 moved and named, Impact-only unchanged) are
 // fieldKitsFuseGoldens.test.ts; offline == live on a catalog 2 throwing run is fieldKitsCharges.test.ts.
 
 import { describe, expect, it } from "vitest";
 import { GRENADE_FUSE_MOVED_CLEAR_CHANCE, TIMED_GRENADE_FUSE, type EquipmentInstance, type GambitProgram, type SnapshotMember } from "./model";
-import { GRENADE_FUSE_SALT, NEURAL_BACKUP_SALT, resolveGroundBattle, type GambitLogEvent, type GroundCombatant, type ThrownGrenade } from "./gambit";
+import { GRENADE_FUSE_SALT, MAX_ROUNDS, NEURAL_BACKUP_SALT, resolveGroundBattle, type GambitLogEvent, type GroundCombatant, type ThrownGrenade } from "./gambit";
 import { snapshotMember } from "./awayTeam";
 import { GRENADES, withThrownGrenades } from "./fieldKitsGrenades";
 import { FIELD_KITS_CATALOG_VERSION, TIMED_FUSES_CATALOG, timedFusesLive } from "./fieldKits";
@@ -224,13 +225,42 @@ describe("timed grenades: prime, then detonate at the start of the thrower's nex
     expect(det.statusApplied).toBe(true);
   });
 
-  it("a fight won before the fuse burns down never detonates; the throw's charge stays spent", () => {
+  it("a fight won before the fuse burns down never detonates and REFUNDS the charge (user 2026-10-21 \"Refund it\")", () => {
     const a2 = gc("a2", "team", { memberId: "member-2", power: 1000, program: [{ target: "foeNearest", action: "attack" }] });
     const { result, log } = fight([thrower(stun(0)), a2], [foe("e1", { hp: 1, hpMax: 1 })]);
     expect(result.result).toBe("win");
     expect(result.rounds).toBe(0);
     expect(detonations(log)).toHaveLength(0);
-    expect(result.chargesUsed).toEqual({ "member-1": 1 });
+    expect(result.chargesUsed).toBeUndefined();
+    const refunded = log.filter((e) => e.action === "grenadeRefunded");
+    expect(refunded).toHaveLength(1);
+    expect(refunded[0]).toMatchObject({ round: 1, memberId: "member-1", targetSide: "enemy" });
+  });
+
+  it("a throw in the round cap's last round is refunded too, with its log line", () => {
+    // Stunned through round 39, the thrower first acts (and throws) in round 40, the last: the fight hits the cap first.
+    const a1 = thrower(stun(0), { statuses: [{ id: "stun", remaining: MAX_ROUNDS - 1, magnitude: 1 }] });
+    const { result, log } = fight([a1], [foe("e1"), foe("e2")]);
+    expect(result.result).toBe("loss");
+    expect(result.rounds).toBe(MAX_ROUNDS);
+    expect(log.find((e) => e.action === "throwGrenade")).toMatchObject({ round: MAX_ROUNDS, primed: true });
+    expect(detonations(log)).toHaveLength(0);
+    expect(log.filter((e) => e.action === "grenadeRefunded").map((e) => e.round)).toEqual([MAX_ROUNDS]);
+    expect(result.chargesUsed).toBeUndefined();
+    // Without a log sink the refund is the same.
+    expect(resolveGroundBattle([thrower(stun(0), { statuses: [{ id: "stun", remaining: MAX_ROUNDS - 1, magnitude: 1 }] })], [foe("e1"), foe("e2")], 0, makeRng(7), undefined, 11)).toEqual(result);
+  });
+
+  it("a LONE target never moves clear (user 2026-10-21 \"20%, lone targets can't dodge\"); a group still can", () => {
+    // Certain to move clear in a group, yet the only foe of its group always takes the blast.
+    const lone = fight([thrower(stun(1000))], [foe("e1")]);
+    expect(detonations(lone.log)[0].blast).toEqual({ hit: 1, movedClear: 0, missed: 0, downed: 0, afflicted: 0 });
+    // A group of two at the throw, one finished before the detonation: the survivor stands alone, so it is hit.
+    const a2 = gc("a2", "team", { memberId: "member-2", power: 1000, program: [{ target: "foeLowestHp", action: "attack" }] });
+    const reformed = fight([thrower(stun(1000)), a2], [foe("e1", { hp: 1, hpMax: BIG }), foe("e2")]);
+    expect(detonations(reformed.log)[0].blast).toEqual({ hit: 1, movedClear: 0, missed: 0, downed: 0, afflicted: 0 });
+    // Two still standing: both may move clear.
+    expect(detonations(fight([thrower(stun(1000))], [foe("e1"), foe("e2")]).log)[0].blast?.movedClear).toBe(2);
   });
 
   it("logging is observation only: the same battle with and without a log sink", () => {

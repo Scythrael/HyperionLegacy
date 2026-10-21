@@ -473,8 +473,19 @@ describe("timed grenades: the fuse words and the battle log lines (user 2026-10-
   });
 
   it("the primed throw and the detonation get their own lines; every other event gets none", () => {
+    expect(fuseLogLine({ round: 1, side: "team", role: "security", action: "throwGrenade", primed: true }, "Security", "enemy Bruiser", "Vale")).toBe(
+      "Security primes a grenade at enemy Bruiser: it detonates at the start of Vale's next turn",
+    );
+    // Without the thrower's name the role stands in.
     expect(fuseLogLine({ round: 1, side: "team", role: "security", action: "throwGrenade", primed: true }, "Security", "enemy Bruiser")).toBe(
-      "Security primes a grenade at enemy Bruiser: it detonates at the start of their next turn",
+      "Security primes a grenade at enemy Bruiser: it detonates at the start of Security's next turn",
+    );
+    // A grenade the fight ended before (user 2026-10-21 "Refund it").
+    expect(fuseLogLine({ round: 1, side: "team", role: "security", action: "grenadeRefunded" }, "Security", "enemy Bruiser", "Vale")).toBe(
+      "Vale's grenade never went off: the fight ended first, so its charge comes back",
+    );
+    expect(fuseLogLine({ round: 2, side: "team", role: "security", action: "grenadeDetonates", blast: { hit: 1, movedClear: 0, missed: 0, downed: 0, afflicted: 0 } }, "Security", "", "Vale")).toBe(
+      "Vale's grenade detonates: 1 hit",
     );
     expect(fuseLogLine({ round: 1, side: "team", role: "security", action: "throwGrenade", hpDelta: -20 }, "Security", "enemy Bruiser")).toBeNull();
     expect(fuseLogLine({ round: 1, side: "team", role: "security", action: "attack" }, "Security", "enemy Bruiser")).toBeNull();

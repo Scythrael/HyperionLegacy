@@ -145,9 +145,13 @@ const PRE_FUSE_IMPACT_PINS: Readonly<Record<number, FusePin>> = {
 // of the thrower's next turn, on the foes of the target's group still standing that did not move clear (their own fuse
 // stream), so the fights, their logs (the "primed" throw and the "grenadeDetonates" line) and the whole run move. The
 // catalog 1 pins above (the run in flight) and the Impact-only pins did not move. Re-pinned on the fuse commit.
+// MOVED AGAIN at the review rulings (user 2026-10-21 "20%, lone targets can't dodge"), named: seed 51f3's two pinned
+// fights (f8973571 / cd3b7cff before) detonate member-2's Stun Grenade on a LONE foe, which no longer rolls to move
+// clear, so the fights and logs move; its whole run and seed c4a2 did not. "Refund it" moves neither: no pinned fight
+// ends with a grenade still primed (checked on the review commit).
 const FUSE_MOVED_PINS: Readonly<Record<number, FusePin>> = {
   [0xc4a2]: { fights: "8d41a541", logs: "eeb06573", run: "bbf12561" },
-  [0x51f3]: { fights: "f8973571", logs: "cd3b7cff", run: "6cde560a" },
+  [0x51f3]: { fights: "fa3e009f", logs: "aa76e479", run: "6cde560a" },
 };
 
 // The members who threw in the two pinned fights (the pins must cover a Stun and a Toxin throw, not only the Impact).
