@@ -10,7 +10,7 @@ import Decimal from "break_infinity.js";
 import { type CaptainState, type GameState, type ShortRangeMissionState } from "./model";
 import { SHORT_RANGE_TEMPLATES, SHORT_RANGE_TEMPLATE_KEYS, rollShortRangeJob, shortRangeCycleReward, type ShortRangeTemplateKey } from "./shortRange";
 import { dispatchCaptainOnShortRange, isWellFormedShortRangeMission, shortRangeBoardSlots, shortRangeNextCycle } from "./shortRangeBoard";
-import { shortRangeCycleWear, shortRangeDepartureHold, shortRangeHasDeparted, shortRangeLoadToPay, tickCaptainShortRange } from "./shortRangeCycle";
+import { shortRangeCycleWear, shortRangeDepartureHold, shortRangeDropOffMargin, shortRangeHasDeparted, shortRangeLoadToPay, tickCaptainShortRange } from "./shortRangeCycle";
 import { dispatchCaptainOnMission, dispatchCaptainOnPatrol, economyTick, installMissingCombatBaselines, itemCap, mintBuiltShip, recallCaptain } from "./tick";
 import { effectiveShipStats, resolveCrew, shipMissionOutputBonus } from "./crewOverlay";
 import { runCountsOf, uncountShortRangeCycleStart } from "./runDifficulty";
@@ -202,6 +202,32 @@ describe("G1-4 the departure gate: a drop-off pays its load as it leaves; it idl
     expect(missionOf(left).loadPaid).toBe(load);
     const done = stepped(s0, m.plan.totalTicks);
     expect(Number(done.credits) - Number(s0.credits)).toBeCloseTo(expectedCredits(s0, m), 6);
+  });
+
+  it("the drop-off margin rounds once after the Trade bonus: no bonus is the reward table's, any bonus never pays less", () => {
+    const roll = missionOf(onJob(qualified(), "supplyDropOff")).roll;
+    const stats = effectiveShipStats(qualified(), shipOf(qualified()));
+    const bonuses = [0, 1e-9, 1e-6, 0.001, 0.01, 0.05, 0.1, 0.25, 0.5, 1];
+    for (let units = 1; units <= 40; units++) {
+      const r = { ...roll, units };
+      const base = shortRangeCycleReward(r, stats);
+      expect(shortRangeDropOffMargin(r, base.loadCost, 0), `units ${units}`).toBe(base.credits);
+      let prev = -Infinity;
+      for (const bonus of bonuses) {
+        const margin = shortRangeDropOffMargin(r, base.loadCost, bonus);
+        expect(margin, `units ${units} bonus ${bonus}`).toBeGreaterThanOrEqual(base.credits);
+        expect(margin, `units ${units} bonus ${bonus}`).toBeGreaterThanOrEqual(prev);
+        expect(Number.isInteger(margin)).toBe(true);
+        prev = margin;
+      }
+    }
+    // The case the old split rounding got wrong: a 0.6 credit margin rounds to 1 bare, and a tiny bonus paid 0.6.
+    const one = { ...roll, units: 1 };
+    const oneBase = shortRangeCycleReward(one, stats);
+    expect(oneBase.loadCost * 0.2).toBeCloseTo(0.6, 9);
+    expect(shortRangeDropOffMargin(one, oneBase.loadCost, 1e-6)).toBe(1);
+    // Every other job has no margin.
+    expect(shortRangeDropOffMargin(missionOf(onJob(qualified(), "telescopeRepair")).roll, 100, 0.5)).toBe(0);
   });
 
   it("with too few credits the cycle waits at home (no progress, no XP, nothing paid), then leaves once it can", () => {

@@ -85,6 +85,13 @@ export function shortRangeLoadToPay(roll: ShortRangeRoll, captain: CaptainState 
   return discount === 0 ? cost : cost * (1 - discount);
 }
 
+// What a delivered Supply Drop-off earns as its margin: the load's value x the template's margin x (1 + the captain's
+// Trade bonus), rounded ONCE at the end, so with no bonus it is exactly the reward table's rounded margin and any bonus
+// >= 0 never pays less than none (rounding before or only on one side could). 0 for every other job. Pure.
+export function shortRangeDropOffMargin(roll: ShortRangeRoll, loadCost: number, marginBonus: number): number {
+  return Math.round(loadCost * marginOf(roll) * (1 + Math.max(0, marginBonus)));
+}
+
 // Why a cycle that has not left home is waiting at the departure gate, or null when it can leave now:
 //   "warehouse"  a Supply Pickup whose material is at its Warehouse cap (`atCap`, the materialAtCap seam)
 //   "credits"    a Supply Drop-off whose load the fleet cannot pay (`credits` is the balance it may draw on)
@@ -266,7 +273,7 @@ export function tickCaptainShortRange(input: ShortRangeTickInput): ShortRangeTic
     let returned = 0;
     if (rewardDefOf(roll).kind === "supplyLoop") {
       const paid = mission.loadPaid;
-      const margin = marginBonus === 0 ? base.credits : base.loadCost * marginOf(roll) * (1 + marginBonus);
+      const margin = shortRangeDropOffMargin(roll, base.loadCost, marginBonus);
       returned = paid === undefined ? 0 : paid;
       earned = margin + (paid === undefined ? 0 : base.loadCost - paid);
     }

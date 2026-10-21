@@ -837,7 +837,7 @@ export type FieldKitBuyBlockReason =
   | "noSuchKit" // not one of the six kits
   | "noneRequested" // qty is not a whole number of 1 or more
   | "insufficientCredits" // qty x price exceeds the balance
-  | "overCap"; // the warehouse would go over its cap [PROPOSAL: a purchase never overfills; returning kits may, call 17]
+  | "overCap"; // the warehouse would go over its cap (approved 2026-10-20: a purchase never overfills; returning kits may, call 17)
 
 // The gate. Pure.
 export function canBuyFieldKits(state: GameState, kit: string, qty: number): { ok: true; cost: number } | { ok: false; reason: FieldKitBuyBlockReason } {

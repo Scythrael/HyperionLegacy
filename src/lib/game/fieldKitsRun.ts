@@ -59,8 +59,8 @@ export function defaultMemberPack(medic: boolean): KitCounts {
 }
 
 // The pack a member WANTS for the next dispatch: their stored preference (ShipGroundTeam.packs; an empty one packs
-// nothing), else the default, either way only the kits they can use [PROPOSAL: a kit the member cannot use is never
-// packed or bought, so stock and credits never go on a kit that cannot fire]. Pure.
+// nothing), else the default, either way only the kits they can use (approved 2026-10-20: a kit the member cannot use is never
+// packed or bought, so stock and credits never go on a kit that cannot fire). Pure.
 export function memberPackPreference(team: Pick<ShipGroundTeam, "packs"> | undefined, memberId: string, medic: boolean): KitCounts {
   const stored = team?.packs && hasOwn(team.packs, memberId) ? team.packs[memberId] : undefined;
   if (!stored) return defaultMemberPack(medic);

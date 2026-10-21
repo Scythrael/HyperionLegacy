@@ -173,6 +173,22 @@ describe("FKR-7 packs (FK4 per member, N16 default)", () => {
     expect(memberPackPreference(team, "c", false)).toEqual(defaultMemberPack(false));
   });
 
+  it("a stored pack whose every count is bad falls back to the default; a stored {} still packs nothing", () => {
+    const packs = {
+      "member-1": { firstAidKit: 0, splint: "two", antitoxin: Number.NaN, combatStim: -1 },
+      "member-2": {},
+      "member-3": { splint: 2.7, combatStim: 0 },
+    } as unknown as ShipGroundTeam["packs"];
+    const team = shipGroundTeams(crewed({ teams: [{ packs }] }).ships[0])[0];
+    expect(team.packs).toEqual({ "member-2": {}, "member-3": { splint: 2 } });
+    expect(memberPackPreference(team, "member-1", true)).toEqual(defaultMemberPack(true));
+    expect(memberPackPreference(team, "member-2", true)).toEqual({});
+    expect(memberPackPreference(team, "member-3", true)).toEqual({ splint: 2 });
+    // Every member's pack bad: no preference is kept at all.
+    const allBad = { "member-1": { firstAidKit: 0 } } as unknown as ShipGroundTeam["packs"];
+    expect(shipGroundTeams(crewed({ teams: [{ packs: allBad }] }).ships[0])[0].packs).toBeUndefined();
+  });
+
   it("dispatch deducts EXACTLY the packs, from stock in team then slot order, lowest quality first", () => {
     const s = crewed({ stock: { firstAidKit: [4], antitoxin: [1, 9], splint: [1], injuryKit: [3] } });
     const res = dispatch(s);

@@ -3852,7 +3852,11 @@ const SHORT_RANGE_SWEEP_OUT_OF_SCOPE: Readonly<Record<string, string>> = {
   "ship:gearLine:materialQualityChance": "a Prospecting Rig's ore quality is an extraction line; a short-range pickup's ore takes the deposit's own quality roll",
   "relic:MUSEUM_STATS:rareMaterialChance": NO_EXTRACTING,
 };
+// The Trade margin talents pay a drop-off's margin in whole credits (shortRangeCycle.ts shortRangeDropOffMargin rounds
+// once after the bonus), so at mission:shortRange their outcome is an integer: one rounding step of tolerance.
+const SHORT_RANGE_WHOLE_CREDITS: ReadonlySet<string> = new Set(["captain:SECONDARY_CAPTAIN_TALENTS:trade1", "captain:SECONDARY_CAPTAIN_TALENTS:trade3"]);
 function withShortRangeScope(e: WiringEntry): WiringEntry {
+  if (SHORT_RANGE_WHOLE_CREDITS.has(e.id)) return { ...e, contexts: [...e.contexts, SR_CONTEXT], tolerance: Math.max(e.tolerance ?? 0, 0.5) };
   if (SHORT_RANGE_SWEEP_LIVE.has(e.id)) return { ...e, contexts: [...e.contexts, SR_CONTEXT] };
   const reason = SHORT_RANGE_SWEEP_OUT_OF_SCOPE[e.id];
   return reason ? { ...e, outOfScope: [...(e.outOfScope ?? []), { context: SR_CONTEXT, reason }] } : e;

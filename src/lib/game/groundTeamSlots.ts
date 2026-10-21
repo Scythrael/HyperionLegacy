@@ -85,15 +85,20 @@ export function shipGroundTeams(ship: Pick<ShipInstance, "typeKey" | "groundTeam
   });
 }
 
-// A stored pack preference as a fresh copy: memberId -> kit -> a whole count of 1 or more (a bad entry dropped), or
-// undefined when nothing usable is stored. Pure.
+// A stored pack preference as a fresh copy: memberId -> kit -> a whole count of 1 or more (a bad entry dropped; a pack
+// left with no good entry dropped too, so that member packs the default), or undefined when nothing usable is stored.
+// Pure.
 function storedPacks(raw: unknown): ShipGroundTeam["packs"] {
   if (!isRecord(raw)) return undefined;
   let out: NonNullable<ShipGroundTeam["packs"]> | undefined;
   for (const [memberId, pack] of Object.entries(raw)) {
     if (!isRecord(pack)) continue;
     const counts: Record<string, number> = {};
-    for (const [kit, n] of Object.entries(pack)) if (typeof n === "number" && Number.isFinite(n) && n >= 1) counts[kit] = Math.floor(n);
+    const entries = Object.entries(pack);
+    for (const [kit, n] of entries) if (typeof n === "number" && Number.isFinite(n) && n >= 1) counts[kit] = Math.floor(n);
+    // A stored `{}` is the player's "pack nothing"; a pack whose every count is bad was never a choice, so it is dropped
+    // and the member packs the default (N16).
+    if (entries.length > 0 && Object.keys(counts).length === 0) continue;
     out ??= {};
     out[memberId] = counts;
   }
