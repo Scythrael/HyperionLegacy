@@ -28,6 +28,9 @@ import { shipPowerBudget } from "./shipPower";
 import { hash, onHull, stateHash } from "./firstRunsGoldens.fixture";
 import { PRE_RX_MISSION_KEYS, RX_ADDED_ENTRY_IDS, RX_NEW_MISSIONS } from "./reactorFuelGoldens.fixture";
 import { reactorCoreFuel } from "./reactorTech";
+// ML-2 re-authored the Efficient and High-Output Cores' other inputs (ml2RecipeGoldens pins that move); with them put
+// back (withPreMl2Recipes) the recipe and salvage checks below read this slice's capture exactly.
+import { withPreMl2Recipes } from "./ml2RecipeGoldens.fixture";
 import { WIRING_REGISTRY } from "./wiring/registry";
 import { shipReachesRoundTrip, shipTripRangeLightYears } from "./tick";
 
@@ -155,7 +158,7 @@ const withoutKey = (o: Record<string, number>, key: string): Record<string, numb
 
 describe("RX-0 goldens: reactor recipes, crafted reactors, power budget and the mission catalog", () => {
   it("recipes: every Reactor Core recipe is the capture plus its ladder fuel, appended last", () => {
-    const now = REACTOR_BPS.map((k) => [k, BLUEPRINTS[k].tier, BLUEPRINTS[k].equipmentOutput!.varietyKey, BLUEPRINTS[k].recipe.inputs] as const);
+    const now = withPreMl2Recipes(() => REACTOR_BPS.map((k) => [k, BLUEPRINTS[k].tier, BLUEPRINTS[k].equipmentOutput!.varietyKey, BLUEPRINTS[k].recipe.inputs] as const));
     const captured = GOLDEN.recipes as [string, number, string, Record<string, number>][];
     expect(now.map(([k, tier, variety]) => [k, tier, variety])).toEqual(captured.map(([k, tier, variety]) => [k, tier, variety]));
     now.forEach(([k, tier, variety, inputs], i) => {
@@ -170,7 +173,7 @@ describe("RX-0 goldens: reactor recipes, crafted reactors, power budget and the 
   });
 
   it("salvage: the capture with the canister column dropped, and the canister column itself", () => {
-    const rows = salvageRows();
+    const rows = withPreMl2Recipes(salvageRows);
     expect(rows.map(([k, bands]) => [k, bands.map((b) => (typeof b === "string" ? b : withoutKey(b, "deuteriumCanister")))])).toEqual(GOLDEN.salvage);
     expect(rows.map(([k, bands]) => [k, bands.map((b) => (typeof b === "string" ? b : b.deuteriumCanister))])).toEqual(AFTER.salvageCanister);
   });

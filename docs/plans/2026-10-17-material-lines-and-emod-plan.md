@@ -302,6 +302,32 @@ raws), distinct input maps per slot, the "intended spread" test updated, in-flig
 off its stored effect; an active line on a reworked recipe waits, no throw, no negative bucket, resumes when stocked).
 Goldens: only fabricate goldens on reworked blueprints move. Patch note: active lines on reworked recipes may wait.
 
+> **Carry note (ML-2 built 2026-10-21, with the recipe realism audit, on feat 624b0c5).** Built per L2 / L11 and the
+> audit's USER ANSWERS Groups A to D (`2026-10-21-recipe-realism-audit.md`). 20 blueprint rows changed: cargo, FTL,
+> reactor (other inputs only; `withReactorFuel` still appends the canisters), utility, Recharge Array and plating per
+> E-MAT 3c / 3d with the four audit amendments (Prospector Hold Frame 2 + Ti 1 + Reclaimed Alloy 2; Ablative Plating
+> Frame 2 + Ti 1 + Biofiber 2; Composite Plating with Biofiber 1 for the Reclaimed Alloy; Capacitor Bank unchanged);
+> Power Coupling Wafer 3 + Ti 1; Toxin Grenade Ti 1 + Coupling 1 + Resin Distillate 1; Med Kit Wafer 1 + Ti 1 +
+> Purified Biomass 2; Archaeo-Scanner Wafer 4 + Coupling 1; Ballistic Weave Ti 1 + Wafer 1 + Biofiber 2; Field Suit
+> Ti 1 + Wafer 2 + Biofiber 1; Hazard Suit Ti 3 + Wafer 2 + Resin Distillate 1 (its seal); Galileo-Class Probe Wafer 2
+> + Coupling 1 + Ti 2. New refined goods `biofiber` and `resinDistillate` (`refineBiofiber` 5:1, `refineResinDistillate`
+> 3:1, 20 ticks, `RECIPE_REALISM_REFINE_NUMBERS`), SVG glyphs `biofiber` / `resinDistillate` (icons.ts, ICON_SEMANTICS,
+> ui/refinedIcons.ts; Warehouse Refined shelf after the Biocatalyst, and the offline recap rows). Text fixes T1 to T8
+> (T8 was already done by the reactor fuel slice; T4 in the form call 6 (c) leaves it: "food and medical"). The six ML-1
+> `reserved` markers dropped in this commit (`ML2_RECIPE_REWORK` retired); every ML-1 recipe is offered and its registry
+> entry live by itself; only the Precursor Circuit (EM-8) stays reserved. Calls 15 and 16: the ladder seam was already
+> built (reactorTech.ts) and its realism guard (every core carries its fuel) is reactorTech.test.ts; ML-2 adds the
+> others (materialLinesMl2.test.ts: fabrics take Biofiber, seals and agents Resin Distillate, Purified Biomass stays
+> food and medical, no strut in an implant) plus the no-wall walker, distinct maps (implants excepted: shared Wafer +
+> Coupling stacks predate ML-2) and the in-flight rules. Goldens: `ml2RecipeGoldens` (captured first, own commit) moves
+> only the 20 rows, their crafts (draw counts unchanged) and their salvage refunds; `withPreMl2Recipes` reproduces every
+> capture; inspected pieces unchanged. Registry: `ml2RowsBack` / `ml2LinesBack` read the move back for emodGoldens
+> (bd1e2f48 -> cfe349ea) and shortRangeGoldens (`registry:ml1` re-pinned; base pin unchanged). No save step.
+> **Patch note lines:** "Recipes now make physical sense: ablative plating and away-team armor are woven from the new
+> Biofiber, seals and toxin grenades use the new Resin Distillate, and many ship systems now use Material Lines goods.
+> Gear you already crafted keeps every stat. A standing craft line on a changed recipe waits until you have the new
+> materials, then carries on." and "Salvaging a piece gives back parts of its current recipe."
+
 **ML-3 Material quality on delivery (OC-D2).** Fold `materialQualityChance` into `materialQuality`. In economyTick's
 per-captain merge, for a ship with `materialQuality > 0`: `climb = floor(delta x p)`, plus 1 if
 `makeRng(seed ^ MATERIAL_QUALITY_SALT ^ captainKey ^ cycle)() < frac(delta x p)` (call L4 a). At the fold the existing

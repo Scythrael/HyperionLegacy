@@ -207,3 +207,87 @@ export function reworkedRows(): [string, string][] {
   return ML2_REWORKED.map((k) => [k, hash(BLUEPRINTS[k].recipe)]);
 }
 
+// ===== the read-back (added by ML-2 itself) =====
+
+// Every reworked blueprint's inputs as they stood at 624b0c5, in their old key order (the Reactor Cores with their
+// withReactorFuel canisters appended). withPreMl2Recipes puts them back, so every ML-2 move can be shown to be the
+// recipe change alone: under them each reworked row, craft and salvage reproduces ML2_GOLDEN.
+export const PRE_ML2_RECIPES: Readonly<Record<string, Readonly<Record<string, number>>>> = {
+  powerCouplingBp: { polysilicateWafer: 4 },
+  prospectorHoldBp: { frameSegment: 2, titaniumIngot: 3 },
+  haulerHoldBp: { frameSegment: 3, structuralAssembly: 1 },
+  sprintDriveBp: { powerCoupling: 2, polysilicateWafer: 3 },
+  economyDriveBp: { powerCoupling: 2, titaniumIngot: 3 },
+  highOutputCoreBp: { powerCoupling: 3, structuralAssembly: 1, deuteriumCanister: 2 },
+  efficientCoreBp: { powerCoupling: 2, polysilicateWafer: 3, deuteriumCanister: 1 },
+  surveyRigBp: { powerCoupling: 2, polysilicateWafer: 2 },
+  refineryFeedRigBp: { titaniumIngot: 5 },
+  rechargeArrayBp: { powerCoupling: 2, polysilicateWafer: 3 },
+  reinforcedPlatingBp: { titaniumIngot: 3, frameSegment: 1 },
+  ablativePlatingBp: { titaniumIngot: 2, frameSegment: 2 },
+  compositePlatingBp: { titaniumIngot: 3, frameSegment: 2, structuralAssembly: 1 },
+  ballisticWeaveBp: { titaniumIngot: 3, polysilicateWafer: 1 },
+  fieldSuitBp: { titaniumIngot: 2, polysilicateWafer: 2 },
+  hazardSuitBp: { titaniumIngot: 3, polysilicateWafer: 2, frameSegment: 1 },
+  toxinGrenadeBp: { polysilicateWafer: 3, powerCoupling: 1, titaniumIngot: 1 },
+  medKitBp: { polysilicateWafer: 2, titaniumIngot: 1 },
+  atmoProbeBp: { polysilicateWafer: 2, frameSegment: 1, powerCoupling: 1 },
+  archaeoScannerBp: { polysilicateWafer: 4, frameSegment: 1 },
+};
+
+// The two Refinery recipes and the two refined goods ML-2 adds (the recipe realism audit's Biofiber and Resin
+// Distillate; new keys only), held apart from the untouched table and the earlier censuses.
+export const ML2_NEW_REFINES: ReadonlySet<string> = new Set(["refineBiofiber", "refineResinDistillate"]);
+export const ML2_NEW_ITEMS: ReadonlySet<string> = new Set(["biofiber", "resinDistillate"]);
+
+// ===== the wiring registry (the golden files that pin it: shortRangeGoldens, emodGoldens) =====
+
+// ML-2's whole registry move, captured against the registry at 624b0c5: the two new refines' entries are ADDED; the
+// seven ML-1 recipe entries flip pending -> live with their content probes (refineRecipeOffered offers them now); the
+// six ML-1 reserve entries are GONE (each good has its consumer, so no reserve is built). Nothing else moved.
+export const ML2_ADDED_ENTRY_IDS: ReadonlySet<string> = new Set([...ML2_NEW_REFINES].map((k) => `facility:REFINE_RECIPES:${k}`));
+export const ML2_LIFTED_RECIPE_IDS: ReadonlySet<string> = new Set(
+  ["refineFerriteIngot", "refineReclaimedCircuit", "refineIridiumCatalyst", "synthCobaltCoil", "synthOsmiumPlate", "synthPhotonicGel", "synthBiocatalyst"].map(
+    (k) => `facility:REFINE_RECIPES:${k}`,
+  ),
+);
+export const ML2_DROPPED_RESERVE_IDS: readonly string[] = ["reclaimedCircuit", "iridiumCatalyst", "cobaltCoil", "osmiumPlate", "photonicGel", "biocatalyst"].map(
+  (id) => `facility:ITEMS:${id}:reserved`,
+);
+// The pending owner every one of those entries named before ML-2 (model.ts ML2_RECIPE_REWORK, retired by ML-2).
+const ML2_OWNER_BEFORE = "ML-2 (Material Lines recipe rework: the cargo, FTL, reactor, utility, shield and plating blueprints)";
+// The dropped reserves sat together, just before the Precursor Circuit's (EM-8), which stays.
+const ML2_RESERVES_SAT_BEFORE = "facility:ITEMS:precursorCircuit:reserved";
+
+// Registry snapshot rows ([id, status, contexts, probe], registry order) with ML-2 read back: its added entries left out,
+// its lifted recipes pending again, its dropped reserves back in place. Every pin taken before ML-2 reads through it.
+export function ml2RowsBack(rows: readonly (readonly unknown[])[]): unknown[][] {
+  const out: unknown[][] = [];
+  for (const r of rows) {
+    const id = r[0] as string;
+    if (ML2_ADDED_ENTRY_IDS.has(id)) continue;
+    if (id === ML2_RESERVES_SAT_BEFORE) for (const d of ML2_DROPPED_RESERVE_IDS) out.push([d, { kind: "pending", owner: ML2_OWNER_BEFORE }, [], null]);
+    out.push(ML2_LIFTED_RECIPE_IDS.has(id) ? [id, { kind: "pending", owner: ML2_OWNER_BEFORE }, [], null] : [...r]);
+  }
+  return out;
+}
+
+// The same read-back on `${id}|${status kind}` lines (shortRangeGoldens' registry pins).
+export function ml2LinesBack(lines: readonly string[]): string[] {
+  return ml2RowsBack(lines.map((l) => [l.slice(0, l.lastIndexOf("|")), l.slice(l.lastIndexOf("|") + 1)])).map(
+    (r) => `${r[0] as string}|${typeof r[1] === "string" ? r[1] : (r[1] as { kind: string }).kind}`,
+  );
+}
+
+// Runs `fn` with every reworked blueprint's inputs set back to PRE_ML2_RECIPES, then restores them. BLUEPRINTS is
+// static data, so this is the honest way to show the old recipes reproduce the capture.
+export function withPreMl2Recipes<T>(fn: () => T): T {
+  const saved = ML2_REWORKED.map((k) => [k, BLUEPRINTS[k]] as const);
+  try {
+    for (const k of ML2_REWORKED) BLUEPRINTS[k] = { ...BLUEPRINTS[k], recipe: { ...BLUEPRINTS[k].recipe, inputs: { ...PRE_ML2_RECIPES[k] } } };
+    return fn();
+  } finally {
+    for (const [k, bp] of saved) BLUEPRINTS[k] = bp;
+  }
+}
+

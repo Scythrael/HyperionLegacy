@@ -24,6 +24,8 @@
 // steps 1 and 2 (merged later) retired the stored durability: hashes go through goldenJson, which puts it back.
 
 import { describe, expect, it } from "vitest";
+// ML-2 (recipe realism) added two refined goods and their two refines after GG-1: held apart from the census below.
+import { ML2_NEW_ITEMS, ML2_NEW_REFINES } from "./ml2RecipeGoldens.fixture";
 import Decimal from "break_infinity.js";
 import {
   BLUEPRINTS,
@@ -322,7 +324,7 @@ describe("GG-0 golden 5: the item census", () => {
   };
 
   it("item ids, counts by category, refine recipes and blueprint count (GG-1's additions held apart)", () => {
-    const before = census(Object.keys(ITEMS).filter((id) => !gg1.has(id)), Object.keys(REFINE_RECIPES).filter((k) => k !== GG1_RECIPE));
+    const before = census(Object.keys(ITEMS).filter((id) => !gg1.has(id) && !ML2_NEW_ITEMS.has(id)), Object.keys(REFINE_RECIPES).filter((k) => k !== GG1_RECIPE && !ML2_NEW_REFINES.has(k)));
     expect({ items: hash(before.ids), byCategory: before.byCategory, refineRecipes: before.refineRecipes, blueprints: Object.keys(BLUEPRINTS).filter((k) => !(k in FIELD_KITS_HIDDEN_BLUEPRINTS)).length }).toEqual(CENSUS_GOLDEN);
     // Field Kits FKR-9 / FKR-10 (the switch-on): the hidden Impact Grenade blueprint merges in, the one named move of the
     // blueprint count (78 to 79), counted apart as in materialLinesGoldens.test.ts.

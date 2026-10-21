@@ -8929,10 +8929,18 @@ const MATERIAL_LINE_RECIPE_NUMBERS: Readonly<Record<string, { input: Record<stri
   synthBiocatalyst: { input: { purifiedBiomass: 2, exoticSporeCluster: 1 }, output: "biocatalyst", ticks: 20 },
 };
 
+// ML-2 with the recipe realism audit (Group B call 6, user 2026-10-21 "Biofiber + Resin Distillate"; follow-up ratios
+// "5:1 and 3:1 (Recommended)", 20 ticks each): fiber for plating and armor, a distilled resin for seals and grenade
+// agents. 20 ticks keeps the speed rung's crafting XP per tick exact (the WR-4 rule).
+const RECIPE_REALISM_REFINE_NUMBERS: Readonly<Record<string, { input: Record<string, number>; output: string; ticks: number }>> = {
+  refineBiofiber: { input: { fibrousBiomass: 5 }, output: "biofiber", ticks: 20 },
+  refineResinDistillate: { input: { volatileResin: 3 }, output: "resinDistillate", ticks: 20 },
+};
+
 // Built once at module load; REFINE_RECIPES spreads it after its hand-written rows.
 function materialLineRecipes(): Record<string, RefineRecipeDef> {
   const out: Record<string, RefineRecipeDef> = {};
-  for (const [key, r] of Object.entries(MATERIAL_LINE_RECIPE_NUMBERS)) {
+  for (const [key, r] of [...Object.entries(MATERIAL_LINE_RECIPE_NUMBERS), ...Object.entries(RECIPE_REALISM_REFINE_NUMBERS)]) {
     out[key] = {
       input: Object.fromEntries(Object.entries(r.input).map(([id, n]) => [id, new Decimal(n)])),
       output: { itemId: r.output, amount: new Decimal(1) },
@@ -9110,8 +9118,8 @@ export interface ItemDef {
 // the storage/inventory keys alongside), do NOT seed those forward items until
 // their phase. The model.test.ts drift guard asserts every live storage key has
 // an entry here, so this table cannot silently fall out of sync with storage.
-// ML-1: the owners named by ItemDef.reserved (each becomes a pending wiring registry entry with this text as owner).
-const ML2_RECIPE_REWORK = "ML-2 (Material Lines recipe rework: the cargo, FTL, reactor, utility, shield and plating blueprints)";
+// ML-1: the owners named by ItemDef.reserved (each becomes a pending wiring registry entry with this text as owner). ML-2
+// gave its six goods their blueprints and dropped their markers in the same commit.
 const EM8_PRECURSOR_LENS = "EM-8 (the Precursor Lens special module is crafted with it)";
 // Gas Giant Study GG-1: the owners of the research data reserves (the Research Lab's study lane, GG-5).
 const GG5_DATA_STUDY = "GG-5 (the Research Lab study lane studies it into a +12% boost on the next project of its family)";
@@ -9256,7 +9264,8 @@ export const ITEMS: Record<string, ItemDef> = {
     tier: 1,
     rarity: "common",
     unlockHint: "Mined on the Lunar Mine Contract.",
-    flavor: "A tough, iron-rich structural alloy drawn from the lunar seams, plentiful once the mining contract opens up.",
+    // Recipe realism text fix T5: an ore, not an alloy (lunar iron is real: ilmenite and native iron grains).
+    flavor: "A tough, iron-rich ore drawn from the lunar seams, plentiful once the mining contract opens up.",
   },
   cobaltOre: {
     label: "Cobalt Ore",
@@ -9398,14 +9407,15 @@ export const ITEMS: Record<string, ItemDef> = {
     tier: 1,
     rarity: "uncommon",
     unlockHint: "Refined from Fibrous Biomass at the Refinery.",
-    flavor: "Raw flora rendered down to a clean, stable feedstock, no volatility left.",
+    // Recipe realism (Group B call 6, "Biofiber + Resin Distillate"): Purified Biomass stays the food and medical feedstock;
+    // fiber goes to Biofiber and resin agents to Resin Distillate (text fix T4 in that form).
+    flavor: "Raw flora rendered down to a clean, stable food and medical feedstock, no volatility left.",
   },
   // --- Material Lines (ML-1, 0.14.0): the seven July-approved refined goods (July section 12, re-confirmed by the
   // user 2026-10-19, L1 "Build as named"). Each is produced by its MATERIAL_LINE_RECIPE_NUMBERS row (above REFINE_RECIPES),
   // and the Refinery offers that recipe only once its output has a use (refineRecipeOffered).
-  // Ferrite Ingot feeds the Osmium Plate compound today; the other six are RESERVED for ML-2, the recipe rework that
-  // puts them into the cargo, FTL, reactor, utility, shield and plating blueprints (L2, user 2026-10-19). Rarity is
-  // display only (the E-MAT strawman: ingots, circuit and compounds uncommon; plate, catalyst and biocatalyst rare).
+  // ML-2 put them into the cargo, FTL, reactor, utility, shield and plating blueprints (L2, user 2026-10-19; plan ML-2)
+  // and the Biocatalyst into the Refinery-Feed Rig, so none is reserved any more. Rarity is display only (the E-MAT strawman: ingots, circuit and compounds uncommon; plate, catalyst and biocatalyst rare).
   ferriteIngot: {
     label: "Ferrite Ingot",
     category: "refined",
@@ -9421,7 +9431,6 @@ export const ITEMS: Record<string, ItemDef> = {
     rarity: "uncommon",
     unlockHint: "Refined from Salvaged Circuitry at the Refinery.",
     flavor: "Scorched wreck boards stripped, cleaned and re-traced into a circuit the fleet can trust.",
-    reserved: ML2_RECIPE_REWORK,
   },
   iridiumCatalyst: {
     label: "Iridium Catalyst",
@@ -9429,8 +9438,8 @@ export const ITEMS: Record<string, ItemDef> = {
     tier: 1,
     rarity: "rare",
     unlockHint: "Refined from Iridium Ore at the Refinery.",
-    flavor: "A few grams of iridium drawn into a fine catalytic mesh, the spark a high-output core is built around.",
-    reserved: ML2_RECIPE_REWORK,
+    // Recipe realism text fix T2: both real uses, a catalyst and the heat-proof cladding that holds a reactor's fuel.
+    flavor: "A few grams of iridium drawn into a fine mesh: a catalyst, and the heat-proof cladding that holds a high-output core's fuel.",
   },
   cobaltCoil: {
     label: "Cobalt Coil",
@@ -9438,8 +9447,8 @@ export const ITEMS: Record<string, ItemDef> = {
     tier: 1,
     rarity: "uncommon",
     unlockHint: "Compounded from Cobalt Ore and a Titanium Ingot at the Refinery.",
-    flavor: "Cobalt wire wound tight around a titanium core, the field coil that drives and emitters run on.",
-    reserved: ML2_RECIPE_REWORK,
+    // Recipe realism text fix T1 (titanium is not magnetic: the cobalt is the core).
+    flavor: "A cobalt magnetic core in a titanium housing, the field coil drives and emitters run on.",
   },
   osmiumPlate: {
     label: "Osmium Plate",
@@ -9448,7 +9457,6 @@ export const ITEMS: Record<string, ItemDef> = {
     rarity: "rare",
     unlockHint: "Compounded from Osmium Ore and Ferrite Ingots at the Refinery.",
     flavor: "Osmium pressed into a ferrite backing, a plate so dense it seems to pull at the hand that lifts it.",
-    reserved: ML2_RECIPE_REWORK,
   },
   photonicGel: {
     label: "Photonic Gel",
@@ -9457,7 +9465,6 @@ export const ITEMS: Record<string, ItemDef> = {
     rarity: "uncommon",
     unlockHint: "Compounded from a Polysilicate Wafer and Volatile Resin at the Refinery.",
     flavor: "Luminous resin set into a wafer lattice, a gel that carries light the way wire carries current.",
-    reserved: ML2_RECIPE_REWORK,
   },
   biocatalyst: {
     label: "Biocatalyst",
@@ -9466,7 +9473,26 @@ export const ITEMS: Record<string, ItemDef> = {
     rarity: "rare",
     unlockHint: "Compounded from Purified Biomass and an Exotic Spore Cluster at the Refinery.",
     flavor: "A living culture grown from spores on a clean biomass bed, it quickens any process it touches.",
-    reserved: ML2_RECIPE_REWORK,
+  },
+  // Recipe realism audit (Group B call 6, user 2026-10-21 "Biofiber + Resin Distillate"; follow-up "Switch to them":
+  // ratios "5:1 and 3:1", 20 ticks each, RECIPE_REALISM_REFINE_NUMBERS): two refined goods so fabrics and resin agents
+  // have a real input. Biofiber: Ablative and Composite Plating, Ballistic Weave and the Field Suit. Resin Distillate: the
+  // seals (Hazard Suit) and the Toxin Grenade (explosives later, 0.16.0). Rarity is display only.
+  biofiber: {
+    label: "Biofiber",
+    category: "refined",
+    tier: 1,
+    rarity: "uncommon",
+    unlockHint: "Refined from Fibrous Biomass at the Refinery. Woven into ablative plating and away-team armor.",
+    flavor: "Plant fiber spun and carbonized into a tough, light weave, the same trick that made the first carbon fiber.",
+  },
+  resinDistillate: {
+    label: "Resin Distillate",
+    category: "refined",
+    tier: 1,
+    rarity: "uncommon",
+    unlockHint: "Distilled from Volatile Resin at the Refinery. Used for seals and grenade agents.",
+    flavor: "Volatile sap boiled down to a clear, stable distillate: it seals a suit, or fills a canister you throw.",
   },
 
   // COMPONENTS, future Fabricator outputs (refined stock assembled into parts).
@@ -9476,7 +9502,8 @@ export const ITEMS: Record<string, ItemDef> = {
     tier: 1,
     rarity: "uncommon",
     unlockHint: "Fabricated from refined materials at the Fabricator.",
-    flavor: "A single load-bearing strut, one of many that skeleton a hull together.",
+    // Recipe realism text fix T3: tools and drones use it too.
+    flavor: "A standard strut, cut to size for anything from a hull to a tool chassis.",
   },
   powerCoupling: {
     label: "Power Coupling",
@@ -9484,7 +9511,8 @@ export const ITEMS: Record<string, ItemDef> = {
     tier: 1,
     rarity: "uncommon",
     unlockHint: "Fabricated from refined materials at the Fabricator.",
-    flavor: "A shielded junction that ties a reactor line into the systems it feeds.",
+    // Recipe realism (audit call 8): silicon power electronics in a titanium housing.
+    flavor: "Silicon power electronics in a titanium housing, the shielded junction that ties a reactor line into the systems it feeds.",
   },
   structuralAssembly: {
     label: "Structural Assembly",
@@ -10140,7 +10168,9 @@ export const FIELD_KITS_HIDDEN_BLUEPRINTS: Readonly<Record<string, BlueprintDef>
     craftDurationTicks: 150,
     equipmentOutput: { slotType: "memberTool", varietyKey: "impactGrenade" },
     recipe: { inputs: { ...IMPACT_GRENADE_RECIPE } },
-    flavor: "Pull the pin, throw, and let the blast do the arguing.",
+    // Recipe realism text fix T7 (call 11, recipe kept): the blast is the Coupling's stored charge, dumped at once on
+    // contact (the default grenade: it goes off when it hits, where the Stun and Toxin grenades are timed).
+    flavor: "It bursts on contact: the coupling dumps its whole stored charge at once, and the blast does the arguing.",
     unlockHint: "Researched at the Research Lab; crafted at the Fabricator. Away-team gear, worn by a squad member.",
   },
 };
@@ -10165,8 +10195,10 @@ export const BLUEPRINTS: Record<string, BlueprintDef> = {
     researchDurationTicks: 60,
     researchCreditCost: 600,
     craftDurationTicks: 120, // tier-1 first-pass (tunable)
-    // Electronics junction <- electronics substrate. Polysilicate Wafer is the refined substrate.
-    recipe: { inputs: { polysilicateWafer: 4 }, outputItem: "powerCoupling", outputQty: 1 },
+    // Recipe realism (audit call 8, user 2026-10-21 "3 Wafers + 1 Ti Ingot"): silicon power electronics in a metal
+    // housing. Same count; a common input replaces an uncommon one. Only the Coupling's own recipe moves: every hull,
+    // blueprint and rung that takes Couplings is untouched.
+    recipe: { inputs: { polysilicateWafer: 3, titaniumIngot: 1 }, outputItem: "powerCoupling", outputQty: 1 },
     flavor: "Wiring diagrams for the shielded junctions that tie a reactor line into the systems it feeds.",
     unlockHint: "Researched at the Research Lab; crafted at the Fabricator once it comes online.",
   },
@@ -10234,8 +10266,9 @@ export const BLUEPRINTS: Record<string, BlueprintDef> = {
     researchCreditCost: 700,
     craftDurationTicks: 150,
     equipmentOutput: { slotType: "cargoBay", varietyKey: "prospectorHold" },
-    // Prospector-leaning hold: a light frame stuffed with titanium bracing for volume.
-    recipe: { inputs: { frameSegment: 2, titaniumIngot: 3 } },
+    // Prospector-leaning hold: a light frame with recovered-alloy panels for volume. ML-2 as amended by the recipe
+    // realism audit (call 5, user 2026-10-21 "All four"): E-MAT's biomass hold replaced by light Reclaimed Alloy panels.
+    recipe: { inputs: { frameSegment: 2, titaniumIngot: 1, reclaimedAlloy: 2 } },
     flavor: "A cavernous prospector's hold, all volume and light bracing, built to swallow a survey haul.",
     unlockHint: "Researched at the Research Lab; crafted at the Fabricator once equipment fabrication comes online.",
   },
@@ -10263,8 +10296,9 @@ export const BLUEPRINTS: Record<string, BlueprintDef> = {
     researchCreditCost: 1600,
     craftDurationTicks: 320,
     equipmentOutput: { slotType: "cargoBay", varietyKey: "haulerHold" },
-    // Max-capacity hold: a full structural assembly (tier-2 spine) reinforced with extra framing.
-    recipe: { inputs: { frameSegment: 3, structuralAssembly: 1 } },
+    // Max-capacity hold: a full structural assembly (tier-2 spine) plated in heavy ferrite and recovered alloy. ML-2
+    // (E-MAT 3c; L11 "Approve all three": the Structural Assembly stays on the Hauler Hold).
+    recipe: { inputs: { structuralAssembly: 1, ferriteIngot: 2, reclaimedAlloy: 2 } },
     flavor: "A freighter-grade hold braced on a full sub-structure, heavy, and it hauls like it.",
     unlockHint: "Researched at the Research Lab (needs a higher tier); crafted at the Fabricator later.",
   },
@@ -10278,8 +10312,9 @@ export const BLUEPRINTS: Record<string, BlueprintDef> = {
     researchCreditCost: 800,
     craftDurationTicks: 160,
     equipmentOutput: { slotType: "ftlDrive", varietyKey: "sprintDrive" },
-    // Speed drive: power couplings feeding a wafer-dense control stack.
-    recipe: { inputs: { powerCoupling: 2, polysilicateWafer: 3 } },
+    // Speed drive: power couplings feeding high-field cobalt coils. ML-2 (E-MAT 3c; L11: differentiated from the
+    // Efficient Core, which no longer shares its recipe).
+    recipe: { inputs: { powerCoupling: 2, cobaltCoil: 2 } },
     flavor: "A hair-trigger FTL drive tuned for the fastest transit the fleet can light off.",
     unlockHint: "Researched at the Research Lab; crafted at the Fabricator once equipment fabrication comes online.",
   },
@@ -10291,9 +10326,9 @@ export const BLUEPRINTS: Record<string, BlueprintDef> = {
     researchCreditCost: 800,
     craftDurationTicks: 160,
     equipmentOutput: { slotType: "ftlDrive", varietyKey: "economyDrive" },
-    // Long-haul drive: couplings + titanium bulk for a fuel-sipping regulator.
-    // (ITEM-MERGE 0.11.0 Task A1: `refinedMaterial: 3` repointed 1:1 to titaniumIngot.)
-    recipe: { inputs: { powerCoupling: 2, titaniumIngot: 3 } },
+    // Long-haul drive: couplings + reclaimed control circuitry for a fuel-sipping regulator (thrift comes from control,
+    // not metal). ML-2 (E-MAT 3c).
+    recipe: { inputs: { powerCoupling: 2, reclaimedCircuit: 3 } },
     flavor: "A patient long-haul drive that sips fuel, the runabout's choice for the deep runs.",
     unlockHint: "Researched at the Research Lab; crafted at the Fabricator once equipment fabrication comes online.",
   },
@@ -10320,10 +10355,11 @@ export const BLUEPRINTS: Record<string, BlueprintDef> = {
     researchCreditCost: 1700,
     craftDurationTicks: 320,
     equipmentOutput: { slotType: "reactorCore", varietyKey: "highOutputCore" },
-    // Max-output reactor: heavy couplings mounted on a full structural assembly (its fuel charge is appended below the
-    // table, withReactorFuel).
-    recipe: { inputs: { powerCoupling: 3, structuralAssembly: 1 } },
-    flavor: "A brute of a reactor wound for raw output, bolted to a sub-structure so it does not shake loose.",
+    // Max-output reactor: heavy couplings, an iridium-clad fuel assembly and dense osmium shielding (its fuel charge is
+    // appended below the table, withReactorFuel). ML-2 (E-MAT 3c; L11: the Structural Assembly is dropped here). Kept
+    // tier 2: its rare Iridium Catalyst and Osmium Plate gate it now, and its tier sets its two-canister fuel rung.
+    recipe: { inputs: { powerCoupling: 3, iridiumCatalyst: 1, osmiumPlate: 1 } },
+    flavor: "A brute of a reactor wound for raw output, its fuel clad in iridium and its core walled in osmium.",
     unlockHint: "Researched at the Research Lab (needs a higher tier); crafted at the Fabricator later.",
   },
   efficientCoreBp: {
@@ -10334,8 +10370,9 @@ export const BLUEPRINTS: Record<string, BlueprintDef> = {
     researchCreditCost: 850,
     craftDurationTicks: 160,
     equipmentOutput: { slotType: "reactorCore", varietyKey: "efficientCore" },
-    // Light, low-draw core: couplings + a wafer-dense regulator stack (fuel appended below the table, withReactorFuel).
-    recipe: { inputs: { powerCoupling: 2, polysilicateWafer: 3 } },
+    // Light, low-draw core: couplings, one confinement coil and reclaimed regulator circuitry (fuel appended below the
+    // table, withReactorFuel). ML-2 (E-MAT 3c; L11: differentiated from the Sprint Drive).
+    recipe: { inputs: { powerCoupling: 2, cobaltCoil: 1, reclaimedCircuit: 2 } },
     flavor: "A lean, quiet core that gives up peak output for a featherweight, low-draw fit.",
     unlockHint: "Researched at the Research Lab; crafted at the Fabricator once equipment fabrication comes online.",
   },
@@ -10376,8 +10413,8 @@ export const BLUEPRINTS: Record<string, BlueprintDef> = {
     researchCreditCost: 900,
     craftDurationTicks: 170,
     equipmentOutput: { slotType: "specUtility", varietyKey: "surveyRig" },
-    // Sensor-heavy rig: couplings powering a dense wafer sensor array.
-    recipe: { inputs: { powerCoupling: 2, polysilicateWafer: 2 } },
+    // Sensor-heavy rig: couplings powering photonic-gel optics. ML-2 (E-MAT 3c).
+    recipe: { inputs: { powerCoupling: 2, photonicGel: 2 } },
     flavor: "A wide-eyed survey rig that finds the rich seams faster, if not always the fullest.",
     unlockHint: "Researched at the Research Lab; crafted at the Fabricator once equipment fabrication comes online.",
   },
@@ -10389,11 +10426,10 @@ export const BLUEPRINTS: Record<string, BlueprintDef> = {
     researchCreditCost: 900,
     craftDurationTicks: 170,
     equipmentOutput: { slotType: "specUtility", varietyKey: "refineryFeedRig" },
-    // Material-quality rig: titanium bulk for a cleaner-feedstock sorter.
-    // (ITEM-MERGE 0.11.0 Task A1: the old `refinedMaterial: 3` was folded into this
-    // recipe's existing `titaniumIngot: 2`, so 3 + 2 = 5, preserving total input units.)
-    recipe: { inputs: { titaniumIngot: 5 } },
-    flavor: "A sorting rig that hand-picks the cleanest ore, so the Refinery gets a better feed.",
+    // Material-quality rig: a bioleaching pre-treatment (microbes upgrading ore is real mining) in a titanium housing.
+    // ML-2 (E-MAT 3c: the Biocatalyst ties the rig to the quality stat it carries); flavor per audit text fix T6.
+    recipe: { inputs: { titaniumIngot: 2, biocatalyst: 2 } },
+    flavor: "A bioleaching rig that seeds fresh ore with a living culture, so the Refinery gets a cleaner, richer feed.",
     unlockHint: "Researched at the Research Lab; crafted at the Fabricator once equipment fabrication comes online.",
   },
 
@@ -10652,7 +10688,9 @@ export const BLUEPRINTS: Record<string, BlueprintDef> = {
     researchCreditCost: 900,
     craftDurationTicks: 170,
     equipmentOutput: { slotType: "shieldEmitters", varietyKey: "rechargeArray" },
-    recipe: { inputs: { powerCoupling: 2, polysilicateWafer: 3 } },
+    // ML-2 (E-MAT 3d): cobalt field coils for the fast cycle. (The Capacitor Bank keeps today's recipe: recipe realism
+    // audit call 5, an armor plate does not belong in a capacitor.)
+    recipe: { inputs: { powerCoupling: 2, polysilicateWafer: 1, cobaltCoil: 2 } },
     flavor: "A fast-cycling emitter tuned to bring the screen back up between volleys: less raw capacity, quicker recovery.",
     unlockHint: "Researched at the Research Lab; crafted at the Fabricator once it comes online.",
   },
@@ -10678,8 +10716,9 @@ export const BLUEPRINTS: Record<string, BlueprintDef> = {
     researchCreditCost: 850,
     craftDurationTicks: 160,
     equipmentOutput: { slotType: "hullPlating", varietyKey: "reinforcedPlating" },
-    recipe: { inputs: { titaniumIngot: 3, frameSegment: 1 } },
-    flavor: "Straightforward structural armor: thick titanium over a braced frame, more hull to grind through, plain and tough.",
+    // ML-2 (E-MAT 3d): iron armor. Ferrite comes off the Lunar Mine, open from day one, so the anchor never walls.
+    recipe: { inputs: { ferriteIngot: 2, titaniumIngot: 1, frameSegment: 1 } },
+    flavor: "Straightforward structural armor: thick ferrite over a braced frame, more hull to grind through, plain and tough.",
     unlockHint: "Researched at the Research Lab; crafted at the Fabricator once it comes online.",
   },
   ablativePlatingBp: {
@@ -10690,7 +10729,9 @@ export const BLUEPRINTS: Record<string, BlueprintDef> = {
     researchCreditCost: 900,
     craftDurationTicks: 170,
     equipmentOutput: { slotType: "hullPlating", varietyKey: "ablativePlating" },
-    recipe: { inputs: { titaniumIngot: 2, frameSegment: 2 } },
+    // Recipe realism (audit call 5 + the Biofiber follow-up, user 2026-10-21): metal does not ablate. Real ablators are
+    // carbon composites, so a Biofiber layer over a metal backing.
+    recipe: { inputs: { frameSegment: 2, titaniumIngot: 1, biofiber: 2 } },
     flavor: "A sacrificial energy-shedding layer: it boils away under fire to spare the hull beneath, trading mass for a burn buffer.",
     unlockHint: "Researched at the Research Lab; crafted at the Fabricator once it comes online.",
   },
@@ -10702,7 +10743,9 @@ export const BLUEPRINTS: Record<string, BlueprintDef> = {
     researchCreditCost: 1700,
     craftDurationTicks: 320,
     equipmentOutput: { slotType: "hullPlating", varietyKey: "compositePlating" },
-    recipe: { inputs: { titaniumIngot: 3, frameSegment: 2, structuralAssembly: 1 } },
+    // ML-2 (E-MAT 3d) as amended by the recipe realism audit (call 5 + the Biofiber follow-up): an osmium kinetic layer
+    // and a Biofiber ablative layer on the hull structure.
+    recipe: { inputs: { titaniumIngot: 1, frameSegment: 2, structuralAssembly: 1, osmiumPlate: 1, biofiber: 1 } },
     flavor: "A layered composite: hull, ablative shedding, and kinetic dampening married into one plate that answers every damage type.",
     unlockHint: "Researched at the Research Lab (needs a higher lab tier); crafted at the Fabricator once it comes online.",
   },
@@ -10953,8 +10996,9 @@ export const BLUEPRINTS: Record<string, BlueprintDef> = {
     researchCreditCost: 700,
     craftDurationTicks: 150,
     equipmentOutput: { slotType: "memberArmor", varietyKey: "ballisticWeave" },
-    // Woven titanium fiber over a wafer-thin sensor lining.
-    recipe: { inputs: { titaniumIngot: 3, polysilicateWafer: 1 } },
+    // Recipe realism (audit call 9, user 2026-10-21 "Fix now", Biofiber where a fabric belongs): real body armor is
+    // woven fiber with a hard insert, so a Biofiber weave, one titanium insert and a wafer-thin sensor lining.
+    recipe: { inputs: { titaniumIngot: 1, polysilicateWafer: 1, biofiber: 2 } },
     flavor: "Light layered armor that turns a round without slowing the wearer's aim.",
     unlockHint: "Researched at the Research Lab; crafted at the Fabricator. Away-team gear, worn by a squad member.",
   },
@@ -10979,8 +11023,8 @@ export const BLUEPRINTS: Record<string, BlueprintDef> = {
     researchCreditCost: 700,
     craftDurationTicks: 150,
     equipmentOutput: { slotType: "memberArmor", varietyKey: "fieldSuit" },
-    // A titanium-ribbed suit with wafer instrument panels.
-    recipe: { inputs: { titaniumIngot: 2, polysilicateWafer: 2 } },
+    // A titanium-ribbed Biofiber suit with wafer instrument panels (recipe realism audit call 9: the padding is fabric).
+    recipe: { inputs: { titaniumIngot: 1, polysilicateWafer: 2, biofiber: 1 } },
     flavor: "A working suit with sample pouches, sensor cuffs, and just enough padding for a bad landing.",
     unlockHint: "Researched at the Research Lab; crafted at the Fabricator. Away-team gear, worn by a squad member.",
   },
@@ -10992,8 +11036,9 @@ export const BLUEPRINTS: Record<string, BlueprintDef> = {
     researchCreditCost: 1600,
     craftDurationTicks: 300,
     equipmentOutput: { slotType: "memberArmor", varietyKey: "hazardSuit" },
-    // A sealed titanium shell on a frame segment, with wafer environmental controls.
-    recipe: { inputs: { titaniumIngot: 3, polysilicateWafer: 2, frameSegment: 1 } },
+    // A sealed titanium shell with wafer environmental controls. Recipe realism (audit call 9): the seal layer replaces
+    // the strut, and seals take Resin Distillate (the Group B follow-up, user 2026-10-21).
+    recipe: { inputs: { titaniumIngot: 3, polysilicateWafer: 2, resinDistillate: 1 } },
     flavor: "Sealed against heat, cold, and air that would rather you did not breathe it.",
     unlockHint: "Researched at the Research Lab (needs a higher lab tier); crafted at the Fabricator. Away-team gear, worn by a squad member.",
   },
@@ -11020,8 +11065,9 @@ export const BLUEPRINTS: Record<string, BlueprintDef> = {
     researchCreditCost: 1600,
     craftDurationTicks: 300,
     equipmentOutput: { slotType: "memberTool", varietyKey: "toxinGrenade" },
-    // A titanium canister, wafer dispersal, and a coupling trigger.
-    recipe: { inputs: { polysilicateWafer: 3, powerCoupling: 1, titaniumIngot: 1 } },
+    // Recipe realism (audit call 7, user 2026-10-21 "Fix now"): a grenade with no agent was wrong. A distilled resin
+    // agent (the Group B follow-up: the Toxin Grenade takes Resin Distillate) in a titanium canister, on a coupling trigger.
+    recipe: { inputs: { titaniumIngot: 1, powerCoupling: 1, resinDistillate: 1 } },
     flavor: "A canister of something that lingers. Throw it, then stand upwind.",
     unlockHint: "Researched at the Research Lab (needs a higher lab tier); crafted at the Fabricator. Away-team gear, worn by a squad member.",
   },
@@ -11036,8 +11082,9 @@ export const BLUEPRINTS: Record<string, BlueprintDef> = {
     researchCreditCost: 700,
     craftDurationTicks: 150,
     equipmentOutput: { slotType: "memberTool", varietyKey: "medKit" },
-    // Wafer diagnostics in a titanium case.
-    recipe: { inputs: { polysilicateWafer: 2, titaniumIngot: 1 } },
+    // Recipe realism (audit call 7): wafer diagnostics in a titanium case, with Purified Biomass for the dressings and
+    // stims (the First Aid Kit's own materials; Purified Biomass stays the food and medical feedstock).
+    recipe: { inputs: { polysilicateWafer: 1, titaniumIngot: 1, purifiedBiomass: 2 } },
     flavor: "Field dressings, stims, and a diagnostic wand. Keeps a downed friend in the fight.",
     unlockHint: "Researched at the Research Lab; crafted at the Fabricator. Away-team gear, worn by a squad member.",
   },
@@ -11127,8 +11174,9 @@ export const BLUEPRINTS: Record<string, BlueprintDef> = {
     researchCreditCost: 1600,
     craftDurationTicks: 300,
     equipmentOutput: { slotType: "memberTool", varietyKey: "atmoProbe" },
-    // A frame-built drop probe with wafer sensors and a coupling.
-    recipe: { inputs: { polysilicateWafer: 2, frameSegment: 1, powerCoupling: 1 } },
+    // A drop probe in a titanium pressure shell (it has a crush rating), with wafer sensors and a coupling. Recipe
+    // realism (audit call 9): the shell replaces the strut; ids and stat ratios unchanged (GG call 6).
+    recipe: { inputs: { polysilicateWafer: 2, powerCoupling: 1, titaniumIngot: 2 } },
     // Gas Giant Study GG-1 [PROPOSAL flavor] (design section 5).
     flavor: "Hardened against the crush and the acid. It keeps talking long after Galileo would have gone quiet.",
     unlockHint: "Researched at the Research Lab (needs a higher lab tier); crafted at the Fabricator. Away-team gear, worn by a squad member.",
@@ -11247,8 +11295,9 @@ export const BLUEPRINTS: Record<string, BlueprintDef> = {
     researchCreditCost: 2000,
     craftDurationTicks: 320,
     equipmentOutput: { slotType: "implant", varietyKey: "archaeoScanner" },
-    // A wafer sensor lattice on a frame segment.
-    recipe: { inputs: { polysilicateWafer: 4, frameSegment: 1 } },
+    // A wafer sensor lattice on a coupling. Recipe realism (audit call 7): a load-bearing strut in an eye implant was
+    // wrong; the coupling powers the overlay.
+    recipe: { inputs: { polysilicateWafer: 4, powerCoupling: 1 } },
     flavor: "A retinal overlay that flags the shapes ancient builders left behind.",
     unlockHint: "Researched at the Research Lab (needs a higher lab tier); crafted at the Fabricator. Away-team gear, worn by a squad member.",
   },
