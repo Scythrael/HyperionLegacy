@@ -151,14 +151,33 @@ export function planDispatchPacks(
   return { packs, fromStock, bought, cost };
 }
 
-// The deploying teams' runs with their packs written (GroundTeamRun.kits, a team with no packed member left as it is).
-// Mutates the fresh snapshot teams it is handed and returns them.
+// The deploying teams' runs with their packs written (GroundTeamRun.kits, a team with no packed member left as it is),
+// plus FKR-9's display record of the same packs (GroundTeamRun.packed, never spent). Mutates the fresh snapshot teams it
+// is handed and returns them.
 export function withDispatchPacks(teams: GroundTeamRun[], plan: DispatchPackPlan): GroundTeamRun[] {
   for (const team of teams) {
     const packs = plan.packs[team.index];
-    if (packs && Object.keys(packs).length > 0) team.kits = structuredClone(packs) as Record<string, KitCounts>;
+    if (packs && Object.keys(packs).length > 0) {
+      team.kits = structuredClone(packs) as Record<string, KitCounts>;
+      team.packed = structuredClone(packs) as Record<string, KitCounts>;
+    }
   }
   return teams;
+}
+
+// What the run SPENT of its packed extras (packed minus what is still carried), summed per kit; nothing for a run that
+// packed nothing. Basics never count (they are free and refill). Pure.
+export function usedExtras(exp: Pick<Expedition, "groundOps">): KitCounts {
+  const out: KitCounts = {};
+  for (const team of exp.groundOps?.teams ?? []) {
+    for (const [memberId, pack] of Object.entries(team.packed ?? {})) {
+      for (const id of FIELD_KIT_IDS) {
+        const used = whole(pack[id]) - whole(team.kits?.[memberId]?.[id]);
+        if (used > 0) out[id] = (out[id] ?? 0) + used;
+      }
+    }
+  }
+  return out;
 }
 
 // The state after the dispatch settles its packs: the stock leaves the warehouse (lowest quality first) and the

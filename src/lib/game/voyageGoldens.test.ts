@@ -16,7 +16,7 @@ import { freshState, type AwayMember, type Expedition, type GameState, type Ship
 import { advanceExpedition, advanceExpeditionSeed, claimExpedition, startExpedition } from "./expedition";
 import { applyTimeSkip } from "./processSpeed";
 import { installMissingCombatBaselines } from "./tick";
-import { asExpeditionVeteran, plainAwayMember, withoutCurve } from "./awayTeamTestFixtures";
+import { asPreFieldKitsDispatch, asExpeditionVeteran, plainAwayMember, withoutCurve } from "./awayTeamTestFixtures";
 import { PRE_G2_3_STORED_RUNS } from "./voyageGoldens.fixture";
 import { goldenJson, withV1Museum } from "./firstRunsGoldens.fixture"; // gear wear: goldenJson puts the retired durability back
 
@@ -152,7 +152,7 @@ describe("G2-3 goldens first: pre-voyage in-flight runs keep their timing", () =
     });
 
     it(`${name}: the same dispatch made today, without its voyage, is the stored record`, () => {
-      const res = startExpedition(CASES[name].crew(), "ship-1", 1, CASES[name].candidate);
+      const res = asPreFieldKitsDispatch(startExpedition(CASES[name].crew(), "ship-1", 1, CASES[name].candidate));
       expect(res.success).toBe(true);
       // Gear wear: the stored record is a pre-wear save (its frozen battle gear still carries the retired `durability`,
       // which migrate drops on load); goldenJson puts the field back on today's pristine pieces to compare like for like.

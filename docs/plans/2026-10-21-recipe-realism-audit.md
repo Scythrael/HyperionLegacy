@@ -434,3 +434,11 @@ them would move progression balance.
     fusion (Helium-3 plus a cell), antimatter reactors on cells (Recommended). (b) Adjust a band.
 16. **Build order.** (a) One data slice inside ML-2 (same blueprint rows), after GG-1 and the Cometary Ice Harvest,
     with the realism guard test (Recommended). (b) A separate slice after ML-2.
+
+## USER ANSWERS (2026-10-21)
+
+**Group A (reactor fuel), all Recommended:**
+1. Deuterium per core: "1 / 1 / 2": Balanced 1, Efficient 1, High-Output 2 Deuterium Canisters.
+2. Cometary Ice Harvest gate: "Open from day one": like the Local Asteroid and Lunar Mine runs; the no-wall walker counts it.
+3. Helium-3 in 0.14.0: "Resonance Sensor Array": it takes 1 Helium-3 Canister; reactors take it in the balancing patch.
+4. Old Deuterium Ice stock: "Keep sell price + refine use": hint rewritten (T8).

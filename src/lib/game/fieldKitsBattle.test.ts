@@ -407,11 +407,12 @@ describe("the default program on a Field Kits run (N15: throws, keeping one for 
 });
 
 describe("presets and rule equality", () => {
-  it("Triage stays the pre-kit program until kits are live (FIELD_KITS_PLAYER_LIVE, FKR-7); its kit rules wait behind the switch", () => {
+  it("Triage hands out its explicit kit rules now that kits are live (FIELD_KITS_PLAYER_LIVE, flipped at FKR-9 / FKR-10)", () => {
     const triage = GAMBIT_PRESETS.find((p) => p.id === "triage")!.programs.security;
-    expect(FIELD_KITS_PLAYER_LIVE).toBe(false);
-    expect(triage.some((r) => r.params?.kitId !== undefined)).toBe(false);
-    expect(triage.filter((r) => r.action === "useItem")).toEqual([{ target: "allyHasStatus", action: "useItem" }]);
+    expect(FIELD_KITS_PLAYER_LIVE).toBe(true);
+    // Call 15 (user 2026-10-17): the serious conditions first (Trauma Kit, Splint), then Antitoxin, then the First Aid Kit.
+    expect(triage.filter((r) => r.action === "useItem").map((r) => r.params?.kitId)).toEqual(["traumaKit", "splint", "antitoxin", "firstAidKit"]);
+    expect(triage.filter((r) => r.action === "useItem" && r.params?.kitId === undefined)).toEqual([]);
   });
   it("gambitRuleEquals reads the kit, rank condition and reserve params", () => {
     const r: GambitRule = { target: "foeNearest", action: "throwGrenade" };

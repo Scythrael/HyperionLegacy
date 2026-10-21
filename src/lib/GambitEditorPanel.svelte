@@ -27,15 +27,39 @@
   // ============================================================================
 
   import type {
+    EnemyRank,
     GameState,
     GambitRule,
     GambitTargetSelector,
     GambitActionId,
     GambitStatusId,
   } from "./game/model";
-  import { GAMBIT_PRESETS, GAMBIT_STATUSES, isActionLegalForRole, validateGambitProgram } from "./game/gambit";
-  import { FIELD_KIT_STATUS_IDS } from "./game/fieldKits";
-  import { ACCOUNT_PAIR_NOTICE, accountPairNoticeShown, gambitEditorView } from "./gambitEditorDisplay";
+  import type { FieldKitId } from "./game/fieldKits";
+  import { GAMBIT_PRESETS, validateGambitProgram } from "./game/gambit";
+  import {
+    ACCOUNT_PAIR_NOTICE,
+    ACTION_LABEL,
+    DEFAULT_RULE_KIT,
+    KIT_OPTIONS,
+    RANK_OPTIONS,
+    RESERVE_MAX,
+    SELECTOR_LABEL,
+    accountPairNoticeShown,
+    defaultProgramText,
+    editorActions,
+    editorSelectorGroups,
+    editorStatuses,
+    gambitEditorView,
+    normalizeEditorRule,
+    ruleHints,
+    ruleNeedsKit,
+    ruleNeedsStatus,
+    ruleNeedsThreshold,
+    ruleStatusAllowsAny,
+    ruleTakesRank,
+    ruleTakesReserve,
+    statusOptionLabel,
+  } from "./gambitEditorDisplay";
   import { nameList } from "./groundTeamDisplay";
   import Icon from "./ui/Icon.svelte";
   import TeamBadge from "./ui/TeamBadge.svelte";
@@ -85,123 +109,21 @@
     pickMemberId = null;
   }
 
-  // Static vocabulary (readable labels, grouped for the dropdowns)
-  const SELECTOR_GROUPS: { label: string; ids: GambitTargetSelector[] }[] = [
-    {
-      label: "Foe",
-      ids: [
-        "foeNearest",
-        "foeFarthest",
-        "foeHighestHp",
-        "foeLowestHp",
-        "foeHighestThreat",
-        "foeIsHealer",
-        "foeIsCaster",
-        "foeHasStatus",
-        "foeLargestGroup",
-      ],
-    },
-    { label: "Ally / Self", ids: ["allyLowestHp", "allyHpBelow", "allyHasStatus", "self", "selfHpBelow", "selfHasStatus"] },
-    { label: "Conditions", ids: ["openingRound", "outnumbered"] },
-  ];
-  const SELECTOR_LABEL: Record<GambitTargetSelector, string> = {
-    foeNearest: "Foe: nearest",
-    foeFarthest: "Foe: farthest",
-    foeHighestHp: "Foe: highest HP",
-    foeLowestHp: "Foe: lowest HP",
-    foeHighestThreat: "Foe: highest threat",
-    foeIsHealer: "Foe: is healer",
-    foeIsCaster: "Foe: is caster",
-    foeHasStatus: "Foe: has status",
-    foeLargestGroup: "Foe: largest group",
-    allyLowestHp: "Ally: lowest HP",
-    allyHpBelow: "Ally: HP below",
-    allyHasStatus: "Ally: has status",
-    self: "Self",
-    selfHpBelow: "Self: HP below",
-    selfHasStatus: "Self: has status",
-    openingRound: "Opening round",
-    outnumbered: "Outnumbered",
-    // Field Kits FKR-6: the Injury Kit's target. Not in SELECTOR_GROUPS yet: the editor's Field Kits pass (FKR-10)
-    // offers it with the kit picker; no fight a player can launch carries kits before then.
-    allyDowned: "Ally: downed",
-  };
-
-  // The full action list in a stable order, FILTERED to Security's legal set (isActionLegalForRole), so a rule
-  // can never pick an action a Security member cannot perform.
-  const ALL_ACTIONS: GambitActionId[] = [
-    "attack",
-    "suppress",
-    "taunt",
-    "execute",
-    "brace",
-    "cure",
-    "aidHeal",
-    "shieldAlly",
-    "analyze",
-    "secureObjective",
-    "takeCover",
-    "useItem",
-    "fallBack",
-    "hold",
-  ];
-  const ACTION_LABEL: Record<GambitActionId, string> = {
-    attack: "Attack",
-    suppress: "Suppress",
-    taunt: "Taunt",
-    execute: "Execute",
-    brace: "Brace",
-    cure: "Cure",
-    aidHeal: "Aid Heal",
-    shieldAlly: "Shield Ally",
-    analyze: "Analyze",
-    secureObjective: "Secure Objective",
-    takeCover: "Take Cover",
-    useItem: "Use Item",
-    fallBack: "Fall Back",
-    hold: "Hold",
-    // Field Kits FKR-4: an enemy-only action (never legal for Security, so never offered).
-    flashGrenade: "Flash Grenade",
-    // Field Kits FKR-5: legal for Security, but the editor offers it with the Field Kits pass (FKR-10, its "Skips when no
-    // charge is left" hint); no fight a player can launch arms a grenade before then.
-    throwGrenade: "Throw Grenade",
-  };
-  // Field Kits FKR-4: the Field Kits conditions stay out of the picker until the editor's Field Kits pass (FKR-10) offers
-  // them with their severity; no fight a player can launch inflicts them before then.
-  const ALL_STATUSES: GambitStatusId[] = (Object.keys(GAMBIT_STATUSES) as GambitStatusId[]).filter(
-    (id) => !(FIELD_KIT_STATUS_IDS as readonly string[]).includes(id),
-  );
-  const LEGAL_ACTIONS = ALL_ACTIONS.filter((a) => isActionLegalForRole("security", a));
+  // Static vocabulary (readable labels, grouped for the dropdowns). Field Kits FKR-10: the lists, labels, predicates and
+  // the rule normalizer live in gambitEditorDisplay.ts (tested): "Ally: downed", Throw Grenade, the kit picker, the
+  // rank condition, the "Keep N for a Boss" stepper and the Field Kits conditions with their severity.
+  const SELECTOR_GROUPS = editorSelectorGroups();
+  const LEGAL_ACTIONS = editorActions();
+  const ALL_STATUSES: GambitStatusId[] = editorStatuses();
 
   // A sensible default for a freshly added rule.
   const NEW_RULE: GambitRule = { target: "foeNearest", action: "attack" };
 
-  // Predicates (which controls a rule needs)
-  const HAS_STATUS_SELECTORS: GambitTargetSelector[] = ["foeHasStatus", "allyHasStatus", "selfHasStatus"];
-  const HP_THRESHOLD_SELECTORS: GambitTargetSelector[] = ["allyHpBelow", "selfHpBelow"];
-  function needsThreshold(rule: GambitRule): boolean {
-    return HP_THRESHOLD_SELECTORS.includes(rule.target);
-  }
-  function needsStatus(rule: GambitRule): boolean {
-    return HAS_STATUS_SELECTORS.includes(rule.target) || rule.action === "cure" || rule.action === "useItem";
-  }
-  // Whether the status picker may offer "(any debuff)": every status-needing case except foeHasStatus (which
-  // must name a concrete status to match a foe).
-  function statusAllowsAny(rule: GambitRule): boolean {
-    return rule.target !== "foeHasStatus";
-  }
-
-  // Strip params the rule no longer needs, so a stored rule stays minimal (and matches the preset shapes).
+  const needsThreshold = ruleNeedsThreshold;
+  const needsStatus = ruleNeedsStatus;
+  const statusAllowsAny = ruleStatusAllowsAny;
   function normalizeRule(rule: GambitRule): GambitRule {
-    const params: { hpThreshold?: number; statusId?: GambitStatusId } = {};
-    if (needsThreshold(rule)) params.hpThreshold = rule.params?.hpThreshold ?? 0.5;
-    if (needsStatus(rule)) {
-      if (rule.params?.statusId) params.statusId = rule.params.statusId;
-      // foeHasStatus MUST name a concrete status to match a foe (an "any" foe-status is inert); default it.
-      else if (rule.target === "foeHasStatus") params.statusId = ALL_STATUSES[0];
-    }
-    const hasParams = Object.keys(params).length > 0;
-    return hasParams ? { target: rule.target, action: rule.action, params } : { target: rule.target, action: rule.action };
+    return normalizeEditorRule(rule);
   }
 
   // Derived reads
@@ -229,6 +151,18 @@
   function onStatusChange(index: number, value: string): void {
     patchRule(index, { params: { statusId: value === "" ? undefined : (value as GambitStatusId) } });
   }
+  // Field Kits FKR-10: the kit a Use Item spends, the rank condition, the Boss reserve.
+  function onKitChange(index: number, value: string): void {
+    patchRule(index, { params: { kitId: value === DEFAULT_RULE_KIT ? undefined : (value as FieldKitId) } });
+  }
+  function onRankChange(index: number, value: string): void {
+    patchRule(index, { params: { minRank: value === "" ? undefined : (value as EnemyRank) } });
+  }
+  function onReserveStep(index: number, delta: number): void {
+    const current = program[index]?.params?.reserveForBoss ?? 0;
+    const next = Math.max(0, Math.min(RESERVE_MAX, current + delta));
+    patchRule(index, { params: { reserveForBoss: next === 0 ? undefined : next } });
+  }
 
   // Display helpers.
   function thresholdPct(rule: GambitRule): number {
@@ -236,6 +170,12 @@
   }
   function statusValue(rule: GambitRule): string {
     return rule.params?.statusId ?? "";
+  }
+  function kitValue(rule: GambitRule): string {
+    return rule.params?.kitId ?? DEFAULT_RULE_KIT;
+  }
+  function reserveValue(rule: GambitRule): number {
+    return rule.params?.reserveForBoss ?? 0;
   }
 </script>
 
@@ -372,7 +312,20 @@
                 >
                   {#if statusAllowsAny(rule)}<option value="">Any debuff</option>{/if}
                   {#each ALL_STATUSES as sid}
-                    <option value={sid}>{GAMBIT_STATUSES[sid].label}</option>
+                    <option value={sid}>{statusOptionLabel(sid)}</option>
+                  {/each}
+                </select>
+              {/if}
+              {#if ruleTakesRank(rule)}
+                <!-- Field Kits FKR-10: the rank condition (group 7 "Rank rules + reserve"). -->
+                <select
+                  class="ge-select ge-param"
+                  aria-label={`Rule ${i + 1} rank condition`}
+                  value={rule.params?.minRank ?? ""}
+                  on:change={(e) => onRankChange(i, e.currentTarget.value)}
+                >
+                  {#each RANK_OPTIONS as opt (opt.value)}
+                    <option value={opt.value}>{opt.label}</option>
                   {/each}
                 </select>
               {/if}
@@ -398,6 +351,29 @@
                   <option value={a}>{ACTION_LABEL[a]}</option>
                 {/each}
               </select>
+              {#if ruleNeedsKit(rule)}
+                <!-- Field Kits FKR-10: the kit a Use Item spends from the member's own carried kits. -->
+                <select
+                  class="ge-select ge-param"
+                  aria-label={`Rule ${i + 1} kit`}
+                  value={kitValue(rule)}
+                  on:change={(e) => onKitChange(i, e.currentTarget.value)}
+                >
+                  {#each KIT_OPTIONS as k (k.id)}
+                    <option value={k.id}>{k.label}</option>
+                  {/each}
+                </select>
+              {/if}
+              {#if ruleTakesReserve(rule)}
+                <!-- Field Kits FKR-10: "Keep N for a Boss" (0 = spend freely). -->
+                <div class="ge-param ge-reserve" role="group" aria-label={`Rule ${i + 1} keep for a Boss`}>
+                  <span class="ge-reserve-label">Keep for a Boss</span>
+                  <!-- aria-disabled keeps focus on the stepper at 0 and at the ceiling (a disabled button drops it). -->
+                  <button type="button" aria-label={`Rule ${i + 1}: keep one fewer for a Boss`} aria-disabled={reserveValue(rule) === 0} on:click={() => reserveValue(rule) > 0 && onReserveStep(i, -1)}>&minus;</button>
+                  <output aria-live="polite">{reserveValue(rule)}</output>
+                  <button type="button" aria-label={`Rule ${i + 1}: keep one more for a Boss`} aria-disabled={reserveValue(rule) >= RESERVE_MAX} on:click={() => reserveValue(rule) < RESERVE_MAX && onReserveStep(i, 1)}>+</button>
+                </div>
+              {/if}
             </div>
 
             <!-- ROW CONTROLS -->
@@ -406,6 +382,14 @@
               <button type="button" aria-label={`Move rule ${i + 1} down`} disabled={i === program.length - 1} on:click={() => member && onMoveRule(member.id, i, "down")}><Icon name="chevronDown" size={14} /></button>
               <button type="button" class="ge-remove" aria-label={`Remove rule ${i + 1}`} on:click={() => member && onRemoveRule(member.id, i)}><Icon name="close" size={14} /></button>
             </div>
+            {#if member}
+              {@const hints = ruleHints(rule, member)}
+              {#if hints.length > 0}
+                <ul class="ge-hints">
+                  {#each hints as h (h)}<li>{h}</li>{/each}
+                </ul>
+              {/if}
+            {/if}
           </div>
         {/each}
       </div>
@@ -455,8 +439,8 @@
         <button type="button" class="ge-action-btn" disabled={!member.hasOwn} on:click={() => member && onReset(member.id)}>Use default</button>
         <span class="ge-note">
           {member.hasOwn
-            ? "Back to the built-in default: full targeting, attack and defense, no automatic kit use."
-            : `${member.name} runs the built-in default: full targeting, attack and defense, no automatic kit use.`}
+            ? `Back to the built-in default: ${defaultProgramText()}.`
+            : `${member.name} runs the built-in default: ${defaultProgramText()}.`}
         </span>
       </div>
     </div>
@@ -671,6 +655,50 @@
   }
   .ge-param {
     margin-top: 4px;
+  }
+  /* Field Kits FKR-10: the "Keep for a Boss" stepper (the Quartermaster stepper idiom, 32 px targets). */
+  .ge-reserve {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: var(--text-2xs);
+    color: var(--color-text-secondary);
+  }
+  .ge-reserve-label {
+    margin-right: auto;
+  }
+  .ge-reserve button {
+    width: 32px;
+    height: 30px;
+    display: grid;
+    place-items: center;
+    background: none;
+    color: var(--color-accent);
+    border: 1px solid rgba(var(--color-accent-rgb), 0.4);
+    border-radius: var(--corner);
+    cursor: pointer;
+    font: inherit;
+    font-size: var(--text-sm);
+  }
+  .ge-reserve button[aria-disabled="true"] {
+    color: var(--color-text-dim);
+    opacity: 0.5;
+    cursor: default;
+  }
+  .ge-reserve output {
+    min-width: 18px;
+    text-align: center;
+    font-family: var(--font-mono);
+    color: var(--color-text-primary);
+  }
+  /* The quiet hints under a rule: a full-width line in the wrapping row. */
+  .ge-hints {
+    flex: 1 1 100%;
+    margin: 0;
+    padding: 0 0 0 18px;
+    font-size: var(--text-2xs);
+    color: var(--color-text-dim);
+    line-height: 1.4;
   }
   .ge-thresh {
     display: flex;

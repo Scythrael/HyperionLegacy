@@ -1,7 +1,7 @@
 // gambitEditorDisplay.test.ts: the GO-16 per-member gambit editor's picker and readouts (Ground Operations
 // 0.14.0, absorbs E-CREW Task 17's editor).
 import { describe, expect, it } from "vitest";
-import { DEFAULT_GAMBIT_PROGRAMS, DEFAULT_MEMBER_GAMBIT, freshState } from "./game/model";
+import { DEFAULT_GAMBIT_PROGRAMS, FIELD_KITS_DEFAULT_MEMBER_GAMBIT, freshState } from "./game/model";
 import type { AwayMember, Expedition, GameState, ShipGroundTeam } from "./game/model";
 import { applyMemberGambitPreset, addMemberGambitRule } from "./game/memberGambits";
 import { renameGroundTeam } from "./game/groundTeams";
@@ -79,7 +79,8 @@ describe("gambitEditorView", () => {
     expect(v.squads.map((q) => q.label)).toEqual(["Security squad"]);
     expect(v.squads[0].members.map((m) => m.name)).toEqual(["Grokk", "Ossra"]);
     expect(v.member?.id).toBe("member-1");
-    expect(v.member?.program).toEqual(DEFAULT_MEMBER_GAMBIT);
+    // Field Kits FKR-10 (named move): a default member shows the Field Kits default they fight with once kits are live.
+    expect(v.member?.program).toEqual(FIELD_KITS_DEFAULT_MEMBER_GAMBIT);
     expect(v.member?.programLabel).toBe("Default");
     expect(v.member?.hasOwn).toBe(false);
   });

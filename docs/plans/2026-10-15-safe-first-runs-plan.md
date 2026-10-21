@@ -804,3 +804,12 @@ emodGoldens `registry` re-pinned 60d00075 to 9a8ecb9c (read back, 60d00075).
   12: 75, 231 of 365. The fixture `asExpeditionVeteran` keeps its pinned completed count 10 (a veteran reads full
   strength regardless). Goldens moved: rampGoldens c5 and c9 (named in its header), the default sample pins and the
   sweep table (re-measured, named in each file).
+
+**Merged with feat at 900d613 (FKR-9 / FKR-10, kits switched on; 2026-10-21).** `asPreCurveDispatch` composes
+`asPreFieldKitsDispatch` (a run before SF-3 was a run before the switch-on), and the ramp goldens and sweep fixture go
+through `asPreG2NamesDispatch`, which composes it too, so every SF-3 pin and the measured sweep table are unchanged and
+still comparable (kits off). With kits on, the SF-2 training proof sweep lost one fight for the D18 minimum crew on
+seeds 42 and 336 of each explorer (the Field Kits enemy inflictors); per OC-1 ("no lost fights") a training run's
+guards now skip `withFieldKitsGuard` (groundFight.ts), and the 500-seed proof passes again. Registry: SF3_SLICE beside
+FKR9_SLICE, GW_SLICE and GG1_SLICE in every shortRangeGoldens registryPin call; emodGoldens reads back sf3 beside fkr9
+and gw; `registry` re-pinned 1d8ae09b to bd1e2f48 (read back, 1d8ae09b).

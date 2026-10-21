@@ -368,7 +368,9 @@ export function taskFightGuard(
   const enemies = withEscalation(withFloraToxins(generateEncounter(seed, hazard, task.poiId, profile), bodyFloraGrade(body)), alertLevel);
   if (ranksLive(exp)) withEnemyRanks(enemies, fightLeadRank(fightRankContext(exp, task, task.fightPoints?.length ?? 0, kind)), base, curveBaseFactor(exp));
   // Field Kits FKR-4: the enemy inflictors, last (a Field Kits run only; fieldKitsConditions.ts; no draw).
-  if (fieldKitsLive(exp)) withFieldKitsGuard(enemies, { grade: task.difficulty, poiId: task.poiId });
+  // Safe first runs (OC-1 "no lost fights"): a training run's guards carry no Field Kits inflictors (with kits switched
+  // on, FKR-9 / FKR-10, the inflicted conditions cost the D18 minimum crew a fight on 2 of 500 seeds per explorer).
+  if (fieldKitsLive(exp) && !training) withFieldKitsGuard(enemies, { grade: task.difficulty, poiId: task.poiId });
   return enemies;
 }
 

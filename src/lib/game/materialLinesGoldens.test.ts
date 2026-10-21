@@ -19,6 +19,8 @@ import { describe, expect, it } from "vitest";
 import Decimal from "break_infinity.js";
 import {
   BLUEPRINTS,
+  FIELD_KITS_HIDDEN_BLUEPRINTS,
+  FIELD_KITS_PLAYER_LIVE,
   ITEMS,
   REFINE_RECIPES,
   freshState,
@@ -228,9 +230,13 @@ describe("ML-0 Material Lines pre-change goldens", () => {
       const census: Record<string, number> = {};
       for (const [, d] of items) census[`items.${d.category}`] = (census[`items.${d.category}`] ?? 0) + 1;
       census.refineRecipes = recipes.length;
-      census.blueprints = Object.keys(BLUEPRINTS).length;
+      // Field Kits FKR-9 / FKR-10 (the switch-on, model.ts FIELD_KITS_PLAYER_LIVE): the Impact Grenade blueprint
+      // (FIELD_KITS_HIDDEN_BLUEPRINTS) merges into BLUEPRINTS, the ONE named move of this count (78 to 79). Counted apart
+      // so the census keeps proving nothing else moved.
+      census.blueprints = Object.keys(BLUEPRINTS).filter((k) => !(k in FIELD_KITS_HIDDEN_BLUEPRINTS)).length;
       return census;
     };
+    for (const k of Object.keys(FIELD_KITS_HIDDEN_BLUEPRINTS)) expect(BLUEPRINTS[k], k).toBe(FIELD_KITS_PLAYER_LIVE ? FIELD_KITS_HIDDEN_BLUEPRINTS[k] : undefined);
     // Gas Giant Study GG-1 added its fifteen items (two new categories) and the Deuterium Canister recipe after ML-1;
     // held apart here (gasGiantContent.test.ts pins them), the catalog is the ML-1 capture.
     const gg1 = new Set(gasStudyItemIds());

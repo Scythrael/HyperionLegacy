@@ -2100,8 +2100,9 @@ export const IMPACT_GRENADE_RECIPE: Readonly<Record<string, number>> = { titaniu
 // "Hide until kits are live"). While false: the Impact Grenade blueprint stays out of BLUEPRINTS (so out of Research,
 // the Fabricator and the Archive; it waits in FIELD_KITS_HIDDEN_BLUEPRINTS), and a NEW Stun or Toxin Grenade craft rolls
 // from its pre-FKR-5 pool (no +1 Carry Capacity line), exactly as before FKR-5. Pieces already minted keep their
-// lines. FKR-7 flips it to true: the blueprint merges in and the two pools gain the carry line (GRENADE_CRAFT_POOLS).
-export const FIELD_KITS_PLAYER_LIVE = false;
+// lines. FKR-9 / FKR-10 flipped it to true with fieldKits.ts FIELD_KITS_RUNS_LIVE (user 2026-10-20 "Yes, with the pack
+// screen"): the blueprint merges in and the two pools gain the carry line (GRENADE_CRAFT_POOLS).
+export const FIELD_KITS_PLAYER_LIVE = true;
 
 // The Stun and Toxin Grenades' craft pools: `base` as before FKR-5, `carry` with FKR-5's +1 Carry Capacity line (FK11;
 // pool weight 1, variety share 0.15 [PROPOSAL: a "possibly" line, about one Standard craft in four], the other two
@@ -8138,6 +8139,10 @@ export interface GroundTeamRun {
   basics?: Record<string, Partial<Record<FieldKitId, number>>>;
   charges?: Record<string, number>;
   treatment?: Record<string, number>;
+  // Field Kits FKR-9 (the pack screen's run readout and claim line, DISPLAY ONLY: resolution never reads it): memberId ->
+  // the extras that member PACKED at dispatch, written beside `kits` and never changed, so the readout can show "1 of 2"
+  // and the claim can say what the run used (packed minus what comes home). Absent = nothing packed (every other run).
+  packed?: Record<string, Partial<Record<FieldKitId, number>>>;
 }
 
 // GO-7b: one finished step on a team's timeline, DISPLAY ONLY (the timeline UI, GO-14): resolution never reads
@@ -10055,6 +10060,12 @@ export function blueprintMintsEquipmentInstance(bp: BlueprintDef): boolean {
 // Higher tiers (equipment / modules / ship systems) are DEFERRED until the Fabricator +
 // ship-systems phases define them (design §5), no placeholder tiers here.
 //
+// The hidden blueprints the catalog shows under the switch (`live` overrides it: the wiring probe reads both states
+// through this one reader, so its off side is the real off state). Hoisted: BLUEPRINTS below spreads it. Pure.
+export function fieldKitsShownBlueprints(live: boolean = FIELD_KITS_PLAYER_LIVE): Readonly<Record<string, BlueprintDef>> {
+  return live ? FIELD_KITS_HIDDEN_BLUEPRINTS : {};
+}
+
 // Field Kits FKR-5: the blueprints kept OUT of BLUEPRINTS until FIELD_KITS_PLAYER_LIVE (user 2026-10-20 "Hide until
 // kits are live"): the Research list, Fabricator, Archive and their completion totals read BLUEPRINTS whole and have no
 // hidden-entry rule (the PROSPECTING_BLUEPRINTS pattern). FKR-7 flips the switch and BLUEPRINTS spreads them in.
@@ -10953,8 +10964,8 @@ export const BLUEPRINTS: Record<string, BlueprintDef> = {
     unlockHint: "Researched at the Research Lab (needs a higher lab tier); crafted at the Fabricator. Away-team gear, worn by a squad member.",
   },
   // Field Kits FKR-5: the Impact Grenade (FIELD_KITS_HIDDEN_BLUEPRINTS), merged in here, in this place, only once
-  // FIELD_KITS_PLAYER_LIVE is true (FKR-7).
-  ...(FIELD_KITS_PLAYER_LIVE ? FIELD_KITS_HIDDEN_BLUEPRINTS : {}),
+  // FIELD_KITS_PLAYER_LIVE is true (FKR-9 / FKR-10 flipped it), through the one reader fieldKitsShownBlueprints.
+  ...fieldKitsShownBlueprints(),
   medKitBp: {
     key: "medKitBp",
     label: "Med Kit Blueprint",

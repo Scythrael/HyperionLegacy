@@ -22,6 +22,7 @@
 
 import {
   BLUEPRINTS,
+  FIELD_KITS_HIDDEN_BLUEPRINTS,
   CAPTAIN_RACIAL_SCALE,
   CAPTAIN_SPEC_BONUS,
   CAPTAIN_TALENTS,
@@ -173,6 +174,7 @@ import {
   GAMBIT_ACTIONS,
   GAMBIT_SELECTORS,
   sourceOn,
+  FIELD_KITS_SWITCH_PROBE_STOCK,
   type ContextId,
   type ProbeId,
   type Transform,
@@ -3454,10 +3456,10 @@ const AUDIT_ROWS: readonly { id: string; system: WiringSystem; claim: string; st
   { id: "away:audit:sharedHazardGear", system: "away", claim: "The Hazard Suit and Environmental Adaptation worn by Prospecting (shared hazard gear)", status: PROSPECTING_DEFERRED },
   { id: "away:audit:prospectingDigSafety", system: "away", claim: "Dig safety: a Prospecting crew's Armor and HP cut cave-in and retreat injuries (prospectingCrewStats digSafety, DIG_SAFETY_KNEE)", status: PROSPECTING_DEFERRED },
   // Field Kits FKR-5 review ruling (user 2026-10-20 "Hide until kits are live"): model.ts FIELD_KITS_PLAYER_LIVE.
-  // FKR-7 kept both switches off: kits are wired into runs, but no player can see or change a pack until the dispatch
-  // pack UI (FKR-9, user mockup sign-off) and the Quartermaster sale rows (FKR-10) land; both flip together then.
-  { id: "away:audit:fieldKitsHiddenPieces", system: "away", claim: "Hidden until kits are live (FIELD_KITS_PLAYER_LIVE): the Impact Grenade blueprint (FIELD_KITS_HIDDEN_BLUEPRINTS, out of Research, the Fabricator and the Archive) and the +1 Carry Capacity line on new Stun and Toxin Grenade crafts", status: pending("FKR-9 / FKR-10 (flip FIELD_KITS_PLAYER_LIVE with FIELD_KITS_RUNS_LIVE once the pack UI ships)") },
-  { id: "away:audit:fieldKitsRunsSwitch", system: "away", claim: "Field Kits in runs (fieldKits.ts FIELD_KITS_RUNS_LIVE): a new dispatch stamps flag 2, packs each member from stock, buys a top-up team's shortfall, and the unused extras come home at claim", status: pending("FKR-9 / FKR-10 (the per-member pack UI and the Quartermaster kit sale rows; flips with FIELD_KITS_PLAYER_LIVE)") },
+  // FKR-7 kept both switches off; FKR-9 / FKR-10 flipped both with the pack screen (user 2026-10-20 "Yes, with the pack
+  // screen"): live in place with their own checks (auditRowWiring below).
+  { id: "away:audit:fieldKitsHiddenPieces", system: "away", claim: "Hidden until kits are live (FIELD_KITS_PLAYER_LIVE): the Impact Grenade blueprint (FIELD_KITS_HIDDEN_BLUEPRINTS, out of Research, the Fabricator and the Archive) and the +1 Carry Capacity line on new Stun and Toxin Grenade crafts", status: LIVE },
+  { id: "away:audit:fieldKitsRunsSwitch", system: "away", claim: "Field Kits in runs (fieldKits.ts FIELD_KITS_RUNS_LIVE): a new dispatch stamps flag 2, packs each member from stock, buys a top-up team's shortfall, and the unused extras come home at claim", status: LIVE },
   { id: "away:audit:statusPicker", system: "away", claim: "Status picker entries that never match (only six of nine statuses can fire)", status: pending("FK-9 + WR-10") },
   { id: "away:audit:fieldRepairOrder", system: "away", claim: "Player-ordered field repair (engine only, no UI)", status: pending("WR-10, OC-F14") },
   { id: "away:audit:legacyOnly", system: "away", claim: "Legacy-only: MAX_BATTLE_ATTEMPTS, EVAC_REWARD_FRACTION, ENCOUNTER_DROP_SCALE, scan ground battles, softenAmbush, the flat 2 h injury", status: pending("OC-G1") },
@@ -3517,6 +3519,24 @@ function auditRowWiring(): Readonly<Record<string, Partial<EntryInput>>> {
       magnitude: (c) => c.FIELD_KITS.injuryKit.treatmentShare ?? 0,
       on: sourceOn,
       tolerance: 1,
+    },
+    // Field Kits FKR-9 / FKR-10: the runs switch: a real Launch (the console's default argument) packs a member's
+    // default pack from the Warehouse; with kits off it packs nothing.
+    "away:audit:fieldKitsRunsSwitch": {
+      probe: "content:fieldKitsRunsSwitch",
+      contexts: ["expedition:groundOps"],
+      curve: { kind: "gate" },
+      magnitude: () => FIELD_KITS_SWITCH_PROBE_STOCK,
+      on: sourceOn,
+    },
+    // Field Kits FKR-9 / FKR-10: the hidden pieces are reachable: the Impact Grenade blueprint merged into BLUEPRINTS and
+    // the carry line in the Stun and Toxin Grenade craft pools.
+    "away:audit:fieldKitsHiddenPieces": {
+      probe: "content:fieldKitsHiddenPieces",
+      contexts: ["research", "craft"],
+      curve: { kind: "gate" },
+      magnitude: () => Object.keys(FIELD_KITS_HIDDEN_BLUEPRINTS).length + 2,
+      on: sourceOn,
     },
     "ship:audit:slotPowerDraw": {
       probe: "sheetPowerDraw",

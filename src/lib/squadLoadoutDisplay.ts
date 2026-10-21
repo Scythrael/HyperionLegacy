@@ -28,6 +28,8 @@ import { crewLockText, crewLockTextAmong } from "./game/crewLock";
 import { memberWornIndex } from "./game/memberEquipment";
 import { memberPieceName } from "./awayGearDisplay";
 import { SQUAD_TYPE_NAME } from "./groundTeamDisplay";
+import { FIELD_KITS_RUNS_LIVE } from "./game/fieldKits";
+import { kitListText } from "./fieldKitsDisplay";
 
 // --- The tab header ------------------------------------------------------------------------------------
 
@@ -99,6 +101,19 @@ export interface KitSlotView {
   gear: string; // "Ballistic Weave, Pulse Rifle, Stun Grenade", or "Empty kit"
   extra: string | null; // "+1 implant" / "+2 implants", null when none
   empty: boolean; // the kit holds nothing
+  // Field Kits FKR-10 (user S14 "the kit slot holds per-member kits once Field Kits ships"): a Security kit's pack, "Pack:
+  // 2 First Aid Kits, 1 Antitoxin" / "Pack: default kits" / "Pack: no extra kits"; null for Science or while kits are off.
+  pack: string | null;
+}
+
+// The pack line of a Security kit (or a team member's stored preference): its kits, the default when there is none
+// (N16 "1 of each usable kit", the loadout then leaves the member's preference as it is), nothing for an empty record.
+// Null while kits are not live in runs. Pure.
+export function packLineText(consumables: Readonly<Record<string, number>> | undefined, kitsLive: boolean = FIELD_KITS_RUNS_LIVE): string | null {
+  if (!kitsLive) return null;
+  if (consumables === undefined) return "Pack: default kits";
+  const list = kitListText(consumables);
+  return `Pack: ${list || "no extra kits"}`;
 }
 
 // One kit's summary line. An empty kit reads "Empty kit" (user S14: empty slots save empty kits). Pure.
@@ -113,6 +128,7 @@ export function kitSlotView(state: GameState, teamType: GroundSquadType, slotInd
     gear: empty ? "Empty kit" : names.length === 0 ? "No armor, weapon or tool" : names.join(", "),
     extra: implants === 0 ? null : `+${implants} implant${implants === 1 ? "" : "s"}`,
     empty,
+    pack: teamType === "security" ? packLineText(kit.consumables) : null,
   };
 }
 
@@ -257,6 +273,7 @@ export interface SavePreviewRow {
   weapon: string | null;
   tool: string | null;
   implants: number;
+  pack: string | null; // Field Kits FKR-10: the Security member's pack the save keeps (packLineText); null otherwise
 }
 
 export interface SavePreviewSkip {
@@ -296,7 +313,9 @@ export function savePreview(state: GameState, shipId: string, teamIndex: number)
     team[teamType].forEach((memberId, slotIndex) => {
       const label = kitSlotLabel(teamType, slotIndex);
       const member = memberId === null ? undefined : state.awayMembers.find((m) => m.id === memberId);
-      const row: SavePreviewRow = { teamType, slotIndex, label, member: member?.name ?? null, armor: null, weapon: null, tool: null, implants: 0 };
+      const stored = member && teamType === "security" ? shipGroundTeams(ship)[teamIndex]?.packs?.[member.id] : undefined;
+      const pack = member && teamType === "security" ? packLineText(stored as Record<string, number> | undefined) : null;
+      const row: SavePreviewRow = { teamType, slotIndex, label, member: member?.name ?? null, armor: null, weapon: null, tool: null, implants: 0, pack };
       for (const p of member ? worn.get(member.id) ?? [] : []) {
         if (p.committedToLoadoutId !== undefined || p.locked === true) {
           const why = p.committedToLoadoutId !== undefined ? "committedElsewhere" : "locked";
