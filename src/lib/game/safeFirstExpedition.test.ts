@@ -50,6 +50,9 @@ import {
 
 // ===== helpers =====
 
+// Safe first runs SF-3: the stamp of an ordinary Tier I run with no completed run behind it (run 2, the curve's floor).
+const ORDINARY_FLOOR: NonNullable<Expedition["difficulty"]> = { version: 1, firstRun: false, ramp: 0, tier: 1 };
+
 function dispatched(state: GameState, cand = "cand-0"): { next: GameState; exp: Expedition } {
   const res = startExpedition(state, "ship-1", 1, cand);
   expect(res.success, String(res.reason)).toBe(true);
@@ -116,7 +119,7 @@ describe("SF-2 the training run: the first expedition from an explorer, stamped 
 
   it("a General Freighter's first run is NOT the training run (not an explorer) and flies the regular transit (the shakedown is retired)", () => {
     const { exp } = dispatched(provingState("generalFreighter", D18));
-    expect(exp.difficulty).toBeUndefined();
+    expect(exp.difficulty).toEqual(ORDINARY_FLOOR); // SF-3: an ordinary run, on the curve's floor
     expect(exp.shakedown).toBe(false);
     const scanFrom = leaves(exp, "transit");
     expect(scanFrom - exp.phaseAnchorSeconds).toBe(TRANSIT_SECONDS + (advanceExpedition(exp, scanFrom).anomalyCharted ? ANOMALY_EXTRA_SECONDS : 0));
@@ -126,7 +129,7 @@ describe("SF-2 the training run: the first expedition from an explorer, stamped 
   // training run on its first EXPLORER expedition (the freighter's run counts on the curve, not as the training run).
   it("a freighter flies the first expedition and claims it; the save's first explorer expedition is still the training run", { timeout: 60_000 }, () => {
     const first = dispatched(provingState("generalFreighter", { name: "rank6", crew: "rank6" }), "cand-1");
-    expect(first.exp.difficulty).toBeUndefined();
+    expect(first.exp.difficulty).toEqual(ORDINARY_FLOOR); // SF-3: an ordinary run, on the curve's floor
     const done = advanceExpedition(first.exp, SWEEP_END);
     expect(done.phase).toBe("complete");
     const claim = claimExpedition({ ...first.next, gameTimeSeconds: done.phaseAnchorSeconds, expeditions: [done] }, done.id);
@@ -140,11 +143,11 @@ describe("SF-2 the training run: the first expedition from an explorer, stamped 
     expect(proof.done.difficulty).toEqual({ version: 1, firstRun: true, ramp: 0, tier: 1 });
   });
 
-  it("a veteran save (or one whose training run is claimed) flies an ordinary run: no stamp", () => {
-    expect(dispatched(asExpeditionVeteran(provingState("orion", D18))).exp.difficulty).toBeUndefined();
+  it("a veteran save (or one whose training run is claimed) flies an ordinary run: the curve's stamp (SF-3)", () => {
+    expect(dispatched(asExpeditionVeteran(provingState("orion", D18))).exp.difficulty).toEqual({ ...ORDINARY_FLOOR, ramp: 1 });
     const s = provingState("eir", D18);
     const trained = { ...s, runCounts: { ...s.runCounts!, expedition: { completed: 0, trainingDone: true, veteran: false } } };
-    expect(dispatched(trained).exp.difficulty).toBeUndefined();
+    expect(dispatched(trained).exp.difficulty).toEqual(ORDINARY_FLOOR);
   });
 
   it("a run in flight from before SF-2 (the shakedown stored, no stamp) keeps its 30 minute transit", () => {
@@ -162,7 +165,7 @@ describe("SF-2 the training run: the first expedition from an explorer, stamped 
     const at = { ...next, gameTimeSeconds: done.phaseAnchorSeconds };
     const claimed = claimExpedition({ ...at, expeditions: [done] }, done.id);
     expect(claimed.next.runCounts!.expedition).toEqual({ completed: 0, trainingDone: true, veteran: false });
-    expect(dispatched(claimed.next).exp.difficulty).toBeUndefined();
+    expect(dispatched(claimed.next).exp.difficulty).toEqual(ORDINARY_FLOOR); // SF-3: run 2, the curve's floor
     // G2-5's recall marker (read by shape until it lands): the training run carries over to the next dispatch.
     const recalled = claimExpedition({ ...at, expeditions: [{ ...done, recall: { at: done.phaseAnchorSeconds } } as Expedition] }, done.id);
     expect(recalled.success).toBe(true);

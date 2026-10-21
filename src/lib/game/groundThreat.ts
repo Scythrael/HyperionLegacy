@@ -53,6 +53,7 @@ import { bodyFloraGrade } from "./riskFactors";
 import { threatAssessment, type ThreatAssessment, type ThreatTier } from "./combat/threatAssessment";
 import { hasCover, type GroundCover } from "./affixes";
 import { isTrainingRun, ranksLive } from "./enemyRanks";
+import { rampedStampOf } from "./runDifficulty";
 
 // ===== Constants =====
 
@@ -224,6 +225,10 @@ export function groundThreatOddsKey(
   // Field Kits FKR-1: a ranked run's ranks shape the read (the catalog version, the objective's grade, the training
   // run stamp), tagged and appended only on a ranked run.
   const ranked = ranksLive(exp) ? [["ranks", exp.enemyRanks?.version, task.difficulty, isTrainingRun(exp)]] : [];
+  // Safe first runs SF-3: an ordinary run's curve stamp shapes the guard (its strength, the tier's hazard ceiling and the
+  // low end's Weak base rank), tagged and appended only on a stamped run.
+  const stamp = rampedStampOf(exp);
+  const curve = stamp ? [["curve", stamp.ramp, stamp.tier]] : [];
   // WR-5c: the captain's Away-Team Doctrine shapes the squad (taskFightTeam), tagged and appended only when present.
   const doctrine = exp.explorerCaptain?.squadPowerMult !== undefined ? [["doctrine", exp.explorerCaptain.squadPowerMult]] : [];
   return JSON.stringify(
@@ -242,6 +247,7 @@ export function groundThreatOddsKey(
       ...escalation,
       ...covered,
       ...ranked,
+      ...curve,
       ...doctrine,
     ],
     keyReplacer,

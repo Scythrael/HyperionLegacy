@@ -230,12 +230,12 @@ describe("SF-1: the engine writes the counters", () => {
     const trained = claimExpedition({ ...first.next, expeditions: [advanceExpedition(first.expedition!, 3_000_000)] }, first.expedition!.id);
     expect(trained.success).toBe(true);
     expect(runCountsOf(trained.next).expedition).toEqual({ completed: 0, trainingDone: true, veteran: false });
-    // An ordinary run (training done, no stamp). A full rank-3 Eir finishes every fresh candidate (plan section 2.5
-    // A), so the run reaches its claim.
+    // An ordinary run (training done; SF-3: the curve's stamp, run 2 at the floor). A full rank-3 Eir finishes every
+    // fresh candidate (plan section 2.5 A), so the run reaches its claim.
     const ordinary = { ...crewed, runCounts: { ...crewed.runCounts!, expedition: { completed: 0, trainingDone: true, veteran: false } } };
     const res = startExpedition(ordinary, "ship-1", 1, "cand-1");
     expect(res.success).toBe(true);
-    expect(res.expedition!.difficulty).toBeUndefined();
+    expect(res.expedition!.difficulty).toEqual({ version: 1, firstRun: false, ramp: 0, tier: 1 });
     expect(res.next.runCounts).toEqual(ordinary.runCounts); // dispatch writes no counter
     const done = advanceExpedition(res.expedition!, 3_000_000);
     expect(done.phase).toBe("complete");

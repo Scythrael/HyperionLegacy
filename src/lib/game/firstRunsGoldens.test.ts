@@ -107,6 +107,12 @@ function line(o: RunOutcome): string {
 //   lines:first:* (gated)     the readable lines of the same runs.
 // The section 2.5 B sweep (firstRunsGoldens.sweep.test.ts) stays the pre-SF-2 NOMINAL Tier I record (dispatched as
 // before SF-2), the baseline SF-3's ramp is measured against; SF-2's proof sweep is safeFirstExpedition.sweep.test.ts.
+//
+// SAFE FIRST RUNS SF-3 moved NOTHING here: sweepRun dispatches through asPreRanksDispatch, and a run from before FKR-1
+// is from before SF-3's ordinary curve stamp too (awayTeamTestFixtures.ts withoutEnemyRanks drops it), so the
+// freighter, later and old-save rows stay the pre-SF-3 record. The runs AS THE GAME NOW DISPATCHES THEM (the curve,
+// the Tier I hazard ceiling, Weak on the low end) are pinned in rampGoldens.test.ts, captured before SF-3 and re-pinned
+// by it with every move named.
 const GOLDEN: Record<string, unknown> = {
   "board:summary": [
     "security:4:2", "science:3:2", "security:1:1", "security:1:1", "security:1:1", "security:3:2", "science:4:2",

@@ -733,3 +733,36 @@ For later slices: SF-3 writes the stamp on ramped runs and generalizes groundFig
 `runEnemyScale` / `runMaxEnemies` / `encounterHazard` (the hazard 0 and the backstop stay training only). SF-6 shows
 the "Training run" chip from `isTrainingRun`, the run log (no UI renders `groundOpsLogText` yet), and the retired
 "shakedown run" label in ExpeditionPanel.svelte (legacy in-flight runs only now). SF-4 adds the patrol stamp.
+
+## SF-3 CARRY NOTE (2026-10-20, built on a678241; goldens first in 23448d2)
+
+**What an ordinary run is now.** `buildExpedition` writes `Expedition.difficulty` on EVERY new expedition: the training
+run's stamp (SF-2) or an ordinary one `{ version 1, firstRun false, ramp, tier }` (runDifficulty.ts `runDifficultyAt`;
+read strictly by `rampedStampOf`, `runRampOf`). The training run is Tier I only now (SF6: a Tier II+ dispatch is never
+the training run and reads full strength). The curve is SF-1's `rampFraction` (SF4 slow start: run 2 at 35%, run 6
+about 54%, run 9 about 80%, full from run 11; completed runs only, training excluded); `rampEnemyScale` is exactly 1 at
+full strength. What reads the ordinary stamp, no new draw on any stream:
+1. Guards (groundFight.ts `taskFightGuard`): hazard `encounterHazard` (SF7 ceilings Tier I 0.1, Tier II 0.5, Tier III+
+   raw; scans and the risk grade keep the raw hazard), the curve's strength as an `EncounterProfile` (no enemy cap; full
+   strength reads no profile), and on the curve's LOW END every unled enemy is Weak (enemyRanks.ts `EARLY_CURVE_RANK`
+   [PROVISIONAL], `curveBaseRank`: runs whose curve strength is at or below Weak's own x0.7, i.e. runs 2 to 7). Ranks
+   multiply after the curve (field kits plan rule), so a run-2 ordinary enemy stands at 0.35 x 0.7; a placed lead
+   (Elite / Boss / Strong) keeps its rank.
+2. Affix roll chance x ramp (affixes.ts, required affixes always) and the ambush chance x ramp (groundOps.ts).
+3. Ship events (shipScanEvents.ts): each check's FAIL chance x ramp (`rampedPassChance`), hull wear x ramp (none at the
+   floor), the battle enemy at the curve's strength on the capped hazard.
+4. Threat odds memo key appends `["curve", ramp, tier]` on stamped runs only.
+Wiring: `expedition:ENEMY_RANKS:weak` (+ `:hp`) live (probe on an ordinary run at the curve's floor).
+
+**Measured (gated `npm run test:sweep:ramp`, 200 seeds x 10 curve positions x {D18 minimum, full rank 1}).** Stall
+count and lost fights never fall as the curve rises; the D18 minimum completes run 2 on 195 of 200. The plan's nominal
+targets (rank 1 completes 95%, wins 90% of Vault / Subterranean at full strength) are REPORTED, not asserted: measured
+125 / 200 and 231 / 365 (every hold a Challenging+ Vault or Subterranean final with its FKR-1 Elite / Boss lead); the
+user's 2026-10-16 ruling makes comfortable nominal Tier I a full team in the Quartermaster's first set, whose stats are
+not built yet. **Flag for the user:** the Weak low end ends in one step between run 7 (ordinary enemy 0.62 x 0.7 =
+0.43) and run 8 (0.70 x 1): D18 Vault / Subterranean wins 182 to 0 and rank 1 lost fights 96 to 673 across that step.
+
+**Goldens.** `rampGoldens.test.ts` (captured pre-SF-3 in 23448d2) re-pinned with every move named in its header;
+`expeditionTiersGoldens` `display:launch` Level 8 of cand-0 and cand-2 (the forecast reads the gentler run). Every
+other golden unchanged: fixtures strip the ordinary stamp with `withoutCurve` / `asPreCurveDispatch` (folded into
+`withoutEnemyRanks` and `withoutFieldKits`, since a run from before FKR-1 is from before SF-3).

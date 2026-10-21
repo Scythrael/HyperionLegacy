@@ -209,7 +209,11 @@ const GOLDEN: Record<string, string[]> = {
     "af03b8bf", "e7eb36d1", "7b34ec3a", "L8:7fb6e44e", "82735f", "3fc57679", "f5ddbd0a", "risk:6aeb78c",
     "risk:1686e1ad", "risk:d66c6828",
   ],
-  "display:launch": ["b4d99ab5", "25f32e71", "8105e2b", "a44bfe48", "8f8520b2", "b956de0c"],
+  // Re-pinned by safe first runs SF-3 (Level 8 of cand-0 and cand-2 only; was a44bfe48, b956de0c): the launch forecast
+  // is built on the run the dispatch would make, and this new save's first ordinary run now sits on the difficulty
+  // curve's floor (enemies at 0.35 of nominal, Weak on the low end, the Tier I hazard ceiling 0.1), so its Forecast
+  // detail odds read the gentler run. Level 5 shows no odds and is unchanged.
+  "display:launch": ["b4d99ab5", "25f32e71", "8105e2b", "6964ecd8", "8f8520b2", "2de1df4"],
   "display:telescope": [
     "cffd5b3a", "164e7dfc", "363ef743", "25ad175f", "7f465550", "2b693a80", "c730d797", "dbf9821d", "a7cf78e7",
     "card1:76ff8458", "map1:d0521360", "card8:945210e7", "map8:7ffc445a",
@@ -420,7 +424,8 @@ describe("G2-1 golden 3 with the homeworld: only the light-years move", () => {
     const out: string[] = [];
     for (const level of [5, 8]) {
       const state = homed(atLevel(level, crewed(2)));
-      const shared = withoutG2State(state);
+      // Safe first runs SF-3: the launch forecast reads the run counters (the curve), so the twin keeps them.
+      const shared = { ...withoutG2State(state), runCounts: state.runCounts };
       const sharedCands = expeditionCandidates(shared, "ship-1");
       expeditionCandidates(state, "ship-1").forEach((c, i) => {
         const view = expeditionLaunchView(state, "ship-1", c);

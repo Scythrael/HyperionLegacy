@@ -35,7 +35,7 @@ import {
 import { HELPER_MIN_TIER, groundTaskClearOdds, groundTaskThreat } from "./groundThreat";
 import { tierAtLeast } from "./combat/threatAssessment";
 import { segmentCount, taskFullHaul, taskWorkSeconds } from "./groundTasks";
-import { plainAwayMember, registerSyntheticHull, withSlottedAwayTeams, withoutRisk } from "./awayTeamTestFixtures";
+import { asPreCurveDispatch, plainAwayMember, registerSyntheticHull, withoutRisk, withSlottedAwayTeams } from "./awayTeamTestFixtures";
 
 // ===== fixtures =====
 
@@ -102,7 +102,7 @@ interface Setup {
 // and its tasks planned (or hand-queued), the teams deployed (the moment a body completes in a real run).
 function opsRun(setup: Setup): Expedition {
   const s = trioState(setup.help);
-  const res = startExpedition(s, "ship-1", 1, expeditionCandidates(s, "ship-1")[0].id);
+  const res = asPreCurveDispatch(startExpedition(s, "ship-1", 1, expeditionCandidates(s, "ship-1")[0].id));
   if (!res.success || !res.expedition) throw new Error(`dispatch refused: ${res.reason}`);
   const dispatched = res.expedition;
   const body: ExpeditionBody = {
@@ -535,7 +535,7 @@ describe("GO-7c PARITY: one big advance == 997 s chunks == 1 s chunks", () => {
 
   it("a REAL dispatched 3-team run (overlap with the scan, the default plan per body) over the first 2 hours of the window", { timeout: 180_000 }, () => {
     const s = { ...trioState([false, false, true]), expeditionSeed: 0x0a13bd4 };
-    const res = startExpedition(s, "ship-1", 1, expeditionCandidates(s, "ship-1")[0].id);
+    const res = asPreCurveDispatch(startExpedition(s, "ship-1", 1, expeditionCandidates(s, "ship-1")[0].id));
     expect(res.success).toBe(true);
     // Squads SQ-4: pinned as the run this dispatch made BEFORE the risk factors (withoutRisk), so its GO-7c
     // scenario (all three teams working today's content) stays what it tests.

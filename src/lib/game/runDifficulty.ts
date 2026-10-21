@@ -17,8 +17,12 @@
 // SF-1 changed NO behavior. SF-2 stamps the expedition TRAINING RUN (runDifficultyAt in expedition.ts buildExpedition,
 // written only when firstRun is true) and applies its profile (FIRST_RUN_ENEMY_SCALE and FIRST_RUN_MAX_ENEMIES in
 // groundFight.ts, no affixes or ambushes and the fell-back backstop in groundOps.ts, pass-only ship events, Guaranteed
-// odds, expedition.ts TUTORIAL_TRANSIT_SECONDS); SF-3 the ramp and the hazard ceiling (and the stamp on ramped runs);
-// SF-4 the patrol; G1 the short-range missions (keyed per template).
+// odds, expedition.ts TUTORIAL_TRANSIT_SECONDS). SF-3 stamps EVERY other new expedition with its curve position and
+// tier (an ORDINARY run, rampedStampOf) and applies the curve: its guards at rampEnemyScale on the hazard at most
+// TIER_ENCOUNTER_HAZARD_CEILING (groundFight.ts), Weak enemies on the curve's low end (enemyRanks.ts EARLY_CURVE_RANK),
+// the affix roll and ambush chances x ramp (groundOps.ts, affixes.ts), the ship-event checks' fail chance, hull wear
+// and battle enemy on the curve (shipScanEvents.ts); at full strength every number is exactly the unstamped one apart
+// from the hazard ceiling. SF-4 the patrol; G1 the short-range missions (keyed per template).
 
 import {
   SHIP_TYPES,
@@ -69,9 +73,10 @@ export function runRamp(completed: number, tier: RegionTier): number {
   return tier > RAMP_MAX_TIER ? 1 : rampFraction(completed);
 }
 
-// Enemy strength (a multiplier on nominal HP, power and heal) at curve position `ramp`. Pure.
+// Enemy strength (a multiplier on nominal HP, power and heal) at curve position `ramp`: exactly 1 at full strength.
+// Pure.
 export function rampEnemyScale(ramp: number): number {
-  return RAMP_FLOOR + (1 - RAMP_FLOOR) * ramp;
+  return ramp >= 1 ? 1 : RAMP_FLOOR + (1 - RAMP_FLOOR) * ramp;
 }
 
 // A run's enemy strength from its stamp: the training run's own scale, else the curve. Pure.
@@ -88,6 +93,38 @@ export function runMaxEnemies(stamp: Pick<RunDifficultyStamp, "firstRun">): numb
 export function encounterHazard(rawHazard: number, tier: RegionTier): number {
   const ceiling = TIER_ENCOUNTER_HAZARD_CEILING[tier];
   return ceiling === undefined ? rawHazard : Math.min(rawHazard, ceiling);
+}
+
+// ===== SF-3: a stored run on the curve =====
+
+// The ORDINARY run's stamp (every expedition dispatched since SF-3 that is not the training run): the curve position
+// and the region tier it was dispatched at, read strictly (a missing or malformed stamp, or the training run, reads
+// null: the run plays exactly as it did before SF-3). The ramp is clamped to [0, 1] and the tier to I..VII. Pure.
+export function rampedStampOf(exp: Pick<Expedition, "difficulty">): RunDifficultyStamp | null {
+  const d: unknown = exp.difficulty;
+  if (!d || typeof d !== "object") return null;
+  const s = d as Partial<RunDifficultyStamp>;
+  if (s.version !== 1 || s.firstRun !== false || typeof s.ramp !== "number" || !Number.isFinite(s.ramp)) return null;
+  const tier = typeof s.tier === "number" && Number.isInteger(s.tier) ? (Math.max(1, Math.min(7, s.tier)) as RegionTier) : 1;
+  return { version: 1, firstRun: false, ramp: Math.max(0, Math.min(1, s.ramp)), tier };
+}
+
+// The curve position a run's odds read (the affix roll, the ambush chance, the ship-event checks and hull wear): the
+// stamp's ramp on an ordinary run, 1 (nominal) on a run without one. Pure.
+export function runRampOf(exp: Pick<Expedition, "difficulty">): number {
+  return rampedStampOf(exp)?.ramp ?? 1;
+}
+
+// A chance on the curve: `chance` x `ramp`, exactly `chance` at full strength (so a nominal run reads the same
+// number, bit for bit). Pure.
+export function rampedChance(chance: number, ramp: number): number {
+  return ramp >= 1 ? chance : chance * Math.max(0, ramp);
+}
+
+// A pass chance on the curve: the FAIL chance (1 - pass) x `ramp`, so a check gets harder as the curve rises and is
+// exactly `pass` at full strength. Pure.
+export function rampedPassChance(pass: number, ramp: number): number {
+  return ramp >= 1 ? pass : 1 - (1 - pass) * Math.max(0, ramp);
 }
 
 // ===== the counters =====
@@ -182,11 +219,14 @@ export function isFirstRun(state: GameState, type: RunType, key?: string): boole
   return key !== undefined && (c.shortRange[key]?.dispatched ?? 0) === 0;
 }
 
-// The difficulty stamp a dispatch of `type` at `tier` writes now (SF-2 to SF-4 write it; SF-1 only computes it): the
-// training run, else the curve position (a veteran reads full strength). Frozen on the run so an in-flight run never
-// changes. Pure.
+// The difficulty stamp a dispatch of `type` at `tier` writes now (SF-2 the training run, SF-3 every other expedition,
+// SF-4 the patrol): the training run, else the curve position (a veteran reads full strength). SF-3 (user SF6 "Tier I
+// only"): an EXPEDITION above RAMP_MAX_TIER is never the training run and reads full strength from its first run there
+// (the tier is the step; Tier II and up are not safe), so the expedition training run waits for a Tier I run. Other
+// run types keep their own first-run rule (G1: a short-range template's first roll is its training run at any tier,
+// taking that tier's smallest roll). Frozen on the run so an in-flight run never changes. Pure.
 export function runDifficultyAt(state: GameState, type: RunType, tier: RegionTier, key?: string): RunDifficultyStamp {
-  const firstRun = isFirstRun(state, type, key);
+  const firstRun = (type !== "expedition" || tier <= RAMP_MAX_TIER) && isFirstRun(state, type, key);
   const c = runCountsOf(state);
   const veteran = type === "expedition" ? c.expedition.veteran : type === "patrol" ? c.patrol.veteran : false;
   const ramp = firstRun ? 0 : veteran ? 1 : runRamp(completedRuns(state, type, key), tier);

@@ -1174,9 +1174,9 @@ function buildExpedition(
   // Squads SQ-4: the RISK PROFILE's presence (with each body's grades) is the risk-aware flag the ground tasks
   // stamp from.
   const bodies = gen.bodies.map((b, i) => ({ ...b, risk: risk.bodies[i] }));
-  // Safe first runs SF-2: the training run's stamp, from stored state only (the counters and the runs out).
-  const trainingStamp = runDifficultyAt(state, "expedition", risk.profile.tier, ship.typeKey);
-  const training = trainingStamp.firstRun;
+  // Safe first runs SF-2 / SF-3: the run's difficulty stamp, from stored state only (the counters and the runs out):
+  // the training run's, else the curve position and the region tier this run is dispatched at.
+  const difficulty = runDifficultyAt(state, "expedition", risk.profile.tier, ship.typeKey);
   // WR-5c: the commanding captain's run-frozen explorer nodes (undefined without them).
   const explorer = explorerCaptainRun(commandingCaptain(state, ship));
 
@@ -1194,10 +1194,11 @@ function buildExpedition(
     // Safe first runs SF-2: the 30 minute shakedown is retired (user, group 3); the training run below flies the
     // tutorial transit instead.
     shakedown: false,
-    // Safe first runs SF-2: the TRAINING RUN's stamp (runDifficulty.ts runDifficultyAt), written only on the training
-    // run (the first expedition from an explorer; SF-3 stamps the ramped runs), so every other run stores exactly the
-    // record it did. The forecast's throwaway run is built here too, so the launch view reads the same profile.
-    ...(training ? { difficulty: trainingStamp } : {}),
+    // Safe first runs SF-2 / SF-3: the difficulty stamp (runDifficulty.ts runDifficultyAt) on EVERY new run: the training
+    // run's (the first expedition from an explorer) or an ordinary run's curve position (ramp) and tier, which its
+    // guards, affix roll, ambushes and ship events read (a run in flight from before SF-3 has none and plays as it
+    // did). The forecast's throwaway run is built here too, so the launch view reads the same profile.
+    difficulty,
     bodies,
     anomalyResolved: false,
     anomalyCharted: false,
