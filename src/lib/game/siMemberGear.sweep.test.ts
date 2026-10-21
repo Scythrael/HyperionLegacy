@@ -6,8 +6,8 @@
 //   full : 200 of the SF-3 sweep's seeds (makeExpeditionSeed(0x1234567, i)) on a veteran save at full strength.
 // Each cell is "complete/runs, runs with a lost fight, lost fights, Vault and Subterranean objectives won:held", pinned.
 // The plan's nominal targets (a full rank 1 team completes 95% of runs and wins 90% of its Vault / Subterranean sites)
-// are read on the SF-3 ramp at full strength (safeFirstRamp.sweep.test.ts, once SF-3 is merged); this file proves the
-// set's direction on the pre-ramp record: the kit never makes a row worse, and it finishes more runs and sites.
+// are asserted on the SF-3 ramp at full strength (safeFirstRamp.sweep.test.ts, the rank1si row); this file proves the
+// set's direction on both records: the kit never makes a row worse, and it finishes more runs and sites.
 
 import { describe, expect, it } from "vitest";
 import type { Expedition } from "./model";
@@ -51,14 +51,15 @@ function fullRun(seed: number, crew: CrewName): Expedition {
   return advanceExpedition(res.expedition, SWEEP_END);
 }
 
-// Measured on this build (before SF-3's ramp: raw hazard on nominal Tier I). The SF-0 bare row is the section 2.5 B
-// table's Orion rank 1 row (40 of 60 stalled). In words: the set takes the SF-0 row from 20 to 36 finished runs of 60
-// and its Vault / Subterranean wins from 38 to 68 of 108; at full strength, from 77 to 106 of 200 and 144 to 211 of 365.
+// Measured on this build (SF-3's ramp merged: a veteran save reads full strength, the Tier I hazard ceiling and kits).
+// The SF-0 bare row is the section 2.5 B table's Orion rank 1 row (40 of 60 stalled). In words: the set takes the SF-0
+// row from 20 to 36 finished runs of 60 and its Vault / Subterranean wins from 38 to 68 of 108; at full strength from
+// 122 to 193 of 200 finished and 227 to 356 of 365 sites won (the plan's 95% / 90% targets: 96.5% / 97.5%).
 const TABLE: Record<string, string> = {
   "sf0:rank1": "20/60 56 2118 38:108",
-  "sf0:rank1si": "36/60 52 1691 68:108",
-  "full:rank1": "77/200 183 8386 144:365",
-  "full:rank1si": "106/200 171 6482 211:365",
+  "sf0:rank1si": "36/60 52 1690 68:108",
+  "full:rank1": "122/200 176 5508 227:365",
+  "full:rank1si": "193/200 155 3727 356:365",
 };
 
 const measured: Record<string, Tally> = {};

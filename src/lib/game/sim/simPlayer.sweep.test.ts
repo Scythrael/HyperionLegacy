@@ -31,7 +31,8 @@ describe.runIf(SIM_FULL)("WR-2 gated: the full choice ablation", () => {
     expect(Object.values(r.counts).reduce((a, b) => a + b, 0)).toBe(choices.length);
     const by = new Map(r.verdicts.map((v) => [v.id, v]));
     expect(by.get("captain:CAPTAIN_TALENTS:prospectorHub")?.verdict).toBe("moves");
-    expect(by.get("fleetAdmiral:HOMEWORLD_TALENTS:homelandDefenseHub")?.verdict).toBe("dead");
+    // WR-6 took the Home Guard hub live (it raises the patrol shield pool), so the ablation sees it move.
+    expect(by.get("fleetAdmiral:HOMEWORLD_TALENTS:homelandDefenseHub")?.verdict).toBe("moves");
   }, 3_600_000);
 });
 

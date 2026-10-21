@@ -5,7 +5,7 @@
 import LZString from "lz-string";
 import Decimal from "break_infinity.js";
 import { QUALITY_TIERS } from "./inventory";
-import { type GameState, type MissionPhase, type ShortRangeMissionState, freshCaptains, freshLifetimeStats, requiredTicksForPhase, MISSIONS, SHIP_TYPES, seedStandardIssueForShip, STANDARD_ISSUE_ILEVEL, SI_PLATING_HP, SI_EMITTER_CAP, SI_EMITTER_RECHARGE, isStandardIssueBaseline, withStandardIssueMemberLines, AUTO_SALVAGE_RARITIES_NONE, AUTO_SALVAGE_GRACE_SECONDS_DEFAULT, SENIOR_STAFF_DEFAULT_SEED, SENIOR_STAFF_ROSTER_BASE, EXPEDITION_DEFAULT_SEED, DEFAULT_GAMBIT_PROGRAMS, RELIC_DEFAULT_SEED, awayRecruitSeedFrom } from "./model";
+import { type GameState, type MissionPhase, type ShortRangeMissionState, freshCaptains, freshLifetimeStats, requiredTicksForPhase, MISSIONS, SHIP_TYPES, seedStandardIssueForShip, STANDARD_ISSUE_ILEVEL, SI_PLATING_HP, SI_EMITTER_CAP, SI_EMITTER_RECHARGE, isStandardIssueBaseline, withStandardIssueMemberLines, withScienceLineSwap, AUTO_SALVAGE_RARITIES_NONE, AUTO_SALVAGE_GRACE_SECONDS_DEFAULT, SENIOR_STAFF_DEFAULT_SEED, SENIOR_STAFF_ROSTER_BASE, EXPEDITION_DEFAULT_SEED, DEFAULT_GAMBIT_PROGRAMS, RELIC_DEFAULT_SEED, awayRecruitSeedFrom } from "./model";
 // E-CREW (Task 2): the v64->v65 step backfills each officer's stats through the officer stat roll
 // (a neutral stub until Task 19, the real seeded roll since). Task 19's v65->v66 step re-rolls the
 // stub-era neutral lines through the same roll. One-way import: seniorStaff.ts is a pure leaf over
@@ -2829,20 +2829,23 @@ export function dropRetiredDurabilityV70(state: any): any {
   return { ...state, ...(equipment === state.equipment ? {} : { equipment }), ...(expeditions === state.expeditions ? {} : { expeditions }) };
 }
 
-// 0.14.0 Quartermaster Standard-Issue member gear: every held Standard-Issue MEMBER piece carries the set's real
-// lines (model.ts STANDARD_ISSUE_MEMBER_GEAR), set by the SAME transform the mint uses (withStandardIssueMemberLines),
-// so a piece issued before the stats existed (every line 0) gains them on its next load and is then identical to a
-// freshly issued one. Runs on EVERY load, like withHomeworldV70: a save already at v70 never runs MIGRATIONS[69]
-// again, and the pieces only exist on 0.14.0 builds. Idempotent (an up-to-date piece is the same reference; nothing
-// to change returns the same state). Touches state.equipment only: an in-flight run's frozen roster keeps the lines
-// it launched with, so it plays out byte-identically. Crafted, dev and ship pieces are never touched (the strict
-// isStandardIssueBaseline + member slot test).
+// 0.14.0 member gear, two every-load value fixes in one pass over state.equipment (the withHomeworldV70 posture: a save
+// already at v70 never runs MIGRATIONS[69] again, and these pieces only exist on 0.14.0 builds):
+//   1. the D26 line swap (model.ts withScienceLineSwap): a Science Sidearm or Field Suit crafted before the swap has its
+//      inert combat lines moved, points for points, onto the Science lines it rolls now, so nothing is useless;
+//   2. the Quartermaster set's real lines (withStandardIssueMemberLines, the SAME transform the mint uses): a
+//      Quartermaster-issued member piece held since before the stats has each line RAISED to the catalog value
+//      (never lowered), so it reads like a freshly issued one.
+// Idempotent (an up-to-date piece is the same reference; nothing to change returns the same state). Touches
+// state.equipment only: an in-flight run's frozen roster keeps the lines it launched with, so it plays out
+// byte-identically. Crafted, dev and ship pieces are never re-statted (the strict isStandardIssueMemberPiece); only a
+// Sidearm or Field Suit is ever remapped.
 export function withStandardIssueMemberLinesV70(state: any): any {
   if (!state || typeof state !== "object" || !Array.isArray(state.equipment)) return state;
   let changed = false;
   const equipment = state.equipment.map((piece: any) => {
     if (!piece || typeof piece !== "object" || !piece.implicitStats || typeof piece.implicitStats !== "object") return piece;
-    const next = withStandardIssueMemberLines(piece);
+    const next = withStandardIssueMemberLines(withScienceLineSwap(piece));
     if (next !== piece) changed = true;
     return next;
   });
@@ -2932,7 +2935,7 @@ export function migrate(save: SaveFile, homeworldEntropy?: number): GameState {
   state = withMuseumV2V70(state);
   // Gear wear: the same every-load posture for the retired per-piece `durability` (identity once it is gone).
   state = dropRetiredDurabilityV70(state);
-  // Quartermaster Standard-Issue member gear (0.14.0): a piece issued before the set had stats gains them.
+  // Member gear (0.14.0): old Science Sidearms / Field Suits get the D26 lines; Standard-Issue pieces gain their stats.
   state = withStandardIssueMemberLinesV70(state);
   // Hydrate the SHAPE first (Decimals, quality buckets), THEN reconcile any over-cap stack
   // down to its warehouse cap. clampInventoryToCaps needs the hydrated Decimal inventory +

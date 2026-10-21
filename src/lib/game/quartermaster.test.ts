@@ -542,7 +542,7 @@ describe("E-CREW Task 9: the away-team member Standard-Issue kit", () => {
       expect(piece.fittedToMemberId ?? null).toBeNull(); // a spare worn by nobody
       expect(piece.rolledStats).toEqual({});
       // The variety's own signature lines (or the slot's) at the floor magnitude, overlaid by the Quartermaster set's
-      // real lines (0.14.0, model.ts STANDARD_ISSUE_MEMBER_GEAR).
+      // real lines (0.14.0, model.ts STANDARD_ISSUE_MEMBER_POINTS).
       const variety = memberVariety(k.slot, k.variety)!;
       const keys = variety.implicitStats ?? EQUIPMENT_SLOTS[k.slot]!.implicitStats;
       const expected: Record<string, number> = { ...Object.fromEntries(keys.map((key) => [key, 0])), ...standardIssueMemberLines(k.variety) };

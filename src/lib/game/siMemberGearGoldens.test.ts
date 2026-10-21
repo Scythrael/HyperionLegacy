@@ -7,14 +7,14 @@
 //   snapshot    : the roster a full rank 1 Orion crew in the Standard-Issue set freezes at dispatch.
 //   run:*       : that crew's nominal Tier I run (a veteran save) and its training run, advanced to the SF-0 horizon.
 //   inflight    : that crew dispatched, saved and loaded mid-run, then advanced (an in-flight run must not move).
-//   crafted:*   : a crafted Pulse Rifle and Ballistic Weave inspected at crafting level 1 and 10, and the Fabricator's
-//                 preview of each at those levels.
+//   crafted:*   : a crafted Pulse Rifle, Ballistic Weave, Sidearm and Field Suit inspected at crafting level 1 and 10,
+//                 and the Fabricator's preview of each at those levels.
 //   bare        : the same rank 1 crew wearing nothing (the control: no Standard-Issue piece, nothing may move).
 //   ship        : every SHIP requisition row's issued piece (the control: ship Standard-Issue is untouched).
 //
-// The engine commit re-pins ONLY what the Standard-Issue stats move (GOLDEN), each with its reason beside it, and
-// proves the move with the stats switched off (siMemberGearSwitch.fixture.ts): every fixture then reproduces its
-// capture (BEFORE).
+// The engine commits re-pin ONLY what the Standard-Issue stats, the crafted budget floor and the D26 line swap move
+// (GOLDEN), each with its reason beside it, and prove the move with all three switched off (siMemberGearSwitch.fixture.ts):
+// every fixture then reproduces its capture (BEFORE).
 
 import { describe, expect, it } from "vitest";
 import Decimal from "break_infinity.js";
@@ -115,11 +115,17 @@ export const CRAFTED_CASES: readonly (readonly [string, number])[] = [
   ["pulseRifleBp", 10],
   ["ballisticWeaveBp", 1],
   ["ballisticWeaveBp", 10],
+  // The D26 review's two Science pieces (their lines swapped), captured on feat d553614 before the review's edit.
+  ["sidearmBp", 1],
+  ["sidearmBp", 10],
+  ["fieldSuitBp", 1],
+  ["fieldSuitBp", 10],
 ];
 
 // Captured on 0dca5f2, before the engine edit. Re-pinned at the merge of feat (SF-3 ramp, FKR-9 / FKR-10 kits on):
 // the four run fixtures (run:*, inflight, bare) read the merged base (an ordinary run now carries the ramp stamp and
-// kits), captured with the Standard-Issue stats switched off; nothing else moved.
+// kits). Every value here, the Sidearm and Field Suit rows included, re-captured on feat d553614 itself (the code
+// before the review's edit) and identical to the switched-off reading.
 export const BEFORE: Readonly<Record<string, string>> = {
   mint: "84619c25",
   snapshot: "afbc5b2f",
@@ -134,6 +140,14 @@ export const BEFORE: Readonly<Record<string, string>> = {
   "preview:pulseRifleBp:10": "c0ff6430",
   "preview:ballisticWeaveBp:1": "9f928a43",
   "preview:ballisticWeaveBp:10": "480fabfc",
+  "crafted:sidearmBp:1": "efb0ac5e",
+  "crafted:sidearmBp:10": "667661db",
+  "crafted:fieldSuitBp:1": "d99c3b55",
+  "crafted:fieldSuitBp:10": "91184ad5",
+  "preview:sidearmBp:1": "97846806",
+  "preview:sidearmBp:10": "51bcd20b",
+  "preview:fieldSuitBp:1": "332d6b81",
+  "preview:fieldSuitBp:10": "2236015c",
   bare: "5889aae0 9/10:40 7/7:9 5/5:6 15/15:39 10/13:40",
   ship: "f0246bf0",
 };
@@ -141,23 +155,34 @@ export const BEFORE: Readonly<Record<string, string>> = {
 // After the engine edit. Every move, and why (nothing else may move):
 const GOLDEN: Readonly<Record<string, string>> = {
   ...BEFORE,
-  // The issued member pieces carry their Standard-Issue lines (model.ts STANDARD_ISSUE_MEMBER_GEAR).
-  mint: "2653e289",
-  // The frozen roster converts those lines (power, accuracy, armor, HP, fieldwork, organics yield).
-  snapshot: "8ad68461",
-  // The same crew, stronger: more objectives done and fewer lost fights on every seed (nominal Tier I, full hazard).
-  "run:nominal": "dd1f1de4 10/10:39 7/7:2 5/5:0 15/15:29 13/13:37",
+  // The issued member pieces carry their Standard-Issue lines (model.ts STANDARD_ISSUE_MEMBER_POINTS); the Sidearm and
+  // Field Suit their D26 Science lines (relic find + fieldwork, fieldwork + hazard resist).
+  mint: "bd9efd59",
+  // The frozen roster converts those lines (power, accuracy, armor, HP, fieldwork, relic find, hazard, organics).
+  snapshot: "bb8c0c87",
+  // The same crew, stronger: more objectives done and fewer lost fights on every seed (nominal Tier I at full strength).
+  "run:nominal": "db90032a 10/10:39 7/7:2 5/5:0 15/15:29 13/13:37",
   // The training run already clears everything; only the frozen roster's lines (and the fights they shape) move.
-  "run:training": "b54d7f7 12/12:0 7/7:0 5/5:0 15/15:0 13/13:0",
+  "run:training": "750f133f 12/12:0 7/7:0 5/5:0 15/15:0 13/13:0",
   // This fixture dispatches on the current code (the kit carries its lines). The pre-change in-flight run is proved
   // unmoved below, with the dispatch made on the switched-off kit and the load on the live code.
-  inflight: "e986a7b9",
-  // The crafted member floor (itemgen.ts craftedItemLevelFloor): crafting level 1 now mints at item level 7. Level 10
-  // is above the floor and does not move.
-  "crafted:pulseRifleBp:1": "277d14a1",
-  "crafted:ballisticWeaveBp:1": "6cf361df",
-  "preview:pulseRifleBp:1": "fa1713dc",
-  "preview:ballisticWeaveBp:1": "7cc1bb19",
+  inflight: "3bce9027",
+  // The crafted budget floor (model.ts craftedMemberFloorImplicits): a crafting level 1 roll is lifted to the free
+  // set's total and the free piece's signature values (item level unchanged); the previews show the same floor.
+  "crafted:pulseRifleBp:1": "4bfd75d3",
+  "crafted:ballisticWeaveBp:1": "58e491ae",
+  "preview:pulseRifleBp:1": "a29db5e8",
+  "preview:ballisticWeaveBp:1": "75c0d841",
+  // The D26 line swap (and at level 1 the floor): the Sidearm and Field Suit roll their Science lines.
+  "crafted:sidearmBp:1": "e8505f9e",
+  "crafted:sidearmBp:10": "69db3e6e",
+  "crafted:fieldSuitBp:1": "dfbab3d2",
+  "crafted:fieldSuitBp:10": "f22af574",
+  "preview:sidearmBp:1": "b361c263",
+  "preview:sidearmBp:10": "ea261ad9",
+  "preview:fieldSuitBp:1": "381be8ee",
+  "preview:fieldSuitBp:10": "729d3cbe",
+  // Unmoved: the level 10 rifle and weave (above the floor), the bare crew and the ship rows.
 };
 
 describe("Standard-Issue member gear goldens", () => {
@@ -185,8 +210,9 @@ describe("Standard-Issue member gear goldens", () => {
 });
 
 // ===== the "turn it off" proof =====
-// With the Standard-Issue points switched to 0 (siMemberGearSwitch.fixture.ts) every fixture reproduces its capture
-// from before the change, so the stats (and the crafted floor they derive) are the ONLY thing the change moved.
+// With the Standard-Issue share table emptied and the pre-D26 Science lines restored (siMemberGearSwitch.fixture.ts)
+// every fixture reproduces its capture from before the change, so the stats, the crafted floor (its total is 0 with no
+// rows) and the line swap are the ONLY things the change moved.
 describe("Standard-Issue member gear: switched off, every fixture reproduces its pre-change capture", () => {
   it("every fixture", () => {
     withSiMemberGearOff(() => {

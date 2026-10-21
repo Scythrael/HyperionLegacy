@@ -636,7 +636,7 @@
   import Toggle from "./lib/Toggle.svelte";
   import MultiSelect from "./lib/MultiSelect.svelte";
   import { initIconPack } from "./lib/ui/iconPacks";
-  import { craftedItemLevelFloor, generateEquipment } from "./lib/game/itemgen";
+  import { generateEquipment } from "./lib/game/itemgen";
   import { pieceCondition } from "./lib/game/gearWear";
   // [DEV] combat-gear mint (Debug tab only): the dev-only helper that mints a REAL
   // crafted EquipmentInstance off a blueprint at a CHOSEN quality / iLevel / rarity
@@ -12439,7 +12439,6 @@
                                   craftingLevel: state.craftingLevel,
                                   blueprintTier: xpBp.tier,
                                   faTalentBonus: craftingItemLevelBonus(state),
-                                  floor: xpBp.equipmentOutput ? craftedItemLevelFloor(xpBp.equipmentOutput.slotType) : undefined,
                                 })}
                                 <div class="cfg-line cfg-line-dim">
                                   Mints at iLevel {iLevel.iLevel} of {iLevel.ceiling} (Tier {xpBp.tier} ceiling){#if iLevel.atCeiling}{" "}· at the ceiling, more crafting levels do not raise this tier{/if}

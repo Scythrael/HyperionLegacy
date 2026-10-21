@@ -34,7 +34,7 @@ import {
   PRODUCIBLE_EQUIPMENT_RARITIES,
   rarityIndex,
   SLOT_BASE_PHYSICALS,
-  STANDARD_ISSUE_MEMBER_GEAR,
+  craftedMemberFloorImplicits,
   isMemberSlotType,
   varietyHasOwnIdentity,
   type BlueprintDef,
@@ -208,31 +208,13 @@ export const QUALITY_DURABILITY_BONUS = 0.2;
 // achievement and FA-talent boosts, all ADDITIVE, then CLAMPED to the tier cap so
 // a piece can never out-level the content tier it drops in. Pure arithmetic.
 // ============================================================================
-// 0.14.0: an optional `floor` (craftedItemLevelFloor below, for away-team member gear) lifts a low result up to it,
-// never past the tier cap. Absent: the formula above, unchanged.
 export function computeItemLevel(a: {
   craftingLevel: number;
   achievementBoost: number;
   faTalentBonus: number;
   itemTierCap: number;
-  floor?: number;
 }): number {
-  const level = Math.min(a.craftingLevel + a.achievementBoost + a.faTalentBonus, a.itemTierCap);
-  return a.floor === undefined ? level : Math.max(level, Math.min(a.floor, a.itemTierCap));
-}
-
-// The lowest item level a CRAFTED away-team member piece mints at (0.14.0), so crafted gear stays above the free
-// Quartermaster Standard-Issue set at every crafting level and in every tier: the smallest item level whose Quality
-// 0 Standard budget (computeBudget, the weakest craft) exceeds the Standard-Issue points (model.ts
-// STANDARD_ISSUE_MEMBER_GEAR, 12 points: item level 7, a 14 point budget). Without the floor a crafting level 1 to
-// 6 craft would carry 2 to 12 points, no more than the free piece. undefined for every ship slot (no floor; their
-// Standard-Issue pieces carry no budget), and for member gear while the Standard-Issue points are 0. Derived, never a
-// second number: it moves with the points. Pure.
-export function craftedItemLevelFloor(slotType: string): number | undefined {
-  if (!isMemberSlotType(slotType) || STANDARD_ISSUE_MEMBER_GEAR.points <= 0) return undefined;
-  let level = 1;
-  while (computeBudget(level, 0, 0) <= STANDARD_ISSUE_MEMBER_GEAR.points) level += 1;
-  return level;
+  return Math.min(a.craftingLevel + a.achievementBoost + a.faTalentBonus, a.itemTierCap);
 }
 
 // ============================================================================
@@ -470,6 +452,18 @@ export function generateEquipment(a: {
   const powerDraw = Math.max(0, basePhysicals.powerDraw - powerDrawReduction);
   delete rolledStats.massReduction;
   delete rolledStats.powerDrawReduction;
+
+  // --- 0.14.0: the crafted budget floor for away-team MEMBER gear ----------------
+  // (user 2026-10-21 "Floor the stat budget"; model.ts craftedMemberFloorImplicits): a crafted member piece always
+  // carries at least the free Standard-Issue set's total points, and each signature line at least the free piece's
+  // value. Only the signature magnitudes can rise: the item level, quality, rarity, affix picks and every rng draw
+  // above are untouched (so the stream, the Archive score, salvage time and keep-best ranking read as before). A
+  // grenade's carry line is a charge count, not points, so it is left out of the total (awayTeam.ts pieceTotalPoints).
+  // A blueprint-less piece (Standard-Issue, dev) is not crafted and is never floored.
+  if (isMemberSlotType(a.slotType) && a.blueprintKey !== null) {
+    const rolledPoints = Object.entries(rolledStats).reduce((n, [k, v]) => (k === "groundCarryCapacity" ? n : n + v), 0);
+    Object.assign(implicitStats, craftedMemberFloorImplicits(a.varietyKey, implicitStats, rolledPoints));
+  }
 
   // --- Durability: quality-scaled, starts full -------------------------------
   const durabilityMax = Math.round(basePhysicals.durability * (1 + a.quality * QUALITY_DURABILITY_BONUS));
@@ -852,7 +846,6 @@ export function previewCraftOutcome(
     achievementBoost: opts.achievementBoost ?? 0,
     faTalentBonus: opts.faTalentBonus ?? 0,
     itemTierCap: blueprint.tier * EQUIPMENT_ILEVEL_CAP_PER_TIER,
-    floor: craftedItemLevelFloor(slotType), // 0.14.0: the same member-gear floor the Fabricator mint applies
   });
 
   const rarities = PRODUCIBLE_EQUIPMENT_RARITIES;
@@ -864,11 +857,35 @@ export function previewCraftOutcome(
   // Implicit ranges: min at the low corner (q0, lowest rarity), max at the high corner. Both
   // corners computed with the mint's own primitives, so the range is exact, not modeled.
   const implicitCount = implicitStatKeys.length;
-  const implicit: CraftStatRange[] = implicitStatKeys.map((stat) => ({
+  let implicit: CraftStatRange[] = implicitStatKeys.map((stat) => ({
     stat,
     min: previewImplicitMagnitude(slotType, stat, iLevel, qualityMin, loIdx, implicitCount),
     max: previewImplicitMagnitude(slotType, stat, iLevel, qualityMax, hiIdx, implicitCount),
   }));
+  // 0.14.0: an away-team member blueprint's corners carry the mint's crafted budget floor (model.ts
+  // craftedMemberFloorImplicits): each range spans both roll-space corners (a Standard roll's picks at the low one, the
+  // most picks at the high one), each with and without the carry line when the pool has it (a charge, not points, so
+  // the floor fills more). So the preview stays a true range where the floor lifts a low-level craft.
+  if (outputKind === "equipment" && isMemberSlotType(slotType) && varietyKey !== null) {
+    const vk = varietyKey;
+    const rolledAt = (quality: number, rarityIdx: number, picksWanted: number, carryPicked: boolean): number => {
+      const picks = Math.min(picksWanted, affixPoolTable.length);
+      if (picks === 0) return 0;
+      const each = Math.round(budgetShares(computeBudget(iLevel, quality, rarityIdx)).affixShare / picks);
+      return each * (carryPicked ? picks - 1 : picks);
+    };
+    const hasCarry = affixPoolTable.some((e) => e.stat === "groundCarryCapacity");
+    const carryCases = hasCarry ? [false, true] : [false];
+    const corners = [
+      { raw: Object.fromEntries(implicit.map((r) => [r.stat, r.min])), quality: qualityMin, rarityIdx: loIdx, picks: affixCount("standard", () => 0.5) },
+      { raw: Object.fromEntries(implicit.map((r) => [r.stat, r.max])), quality: qualityMax, rarityIdx: hiIdx, picks: affixCount(rarities[rarities.length - 1], () => 0) },
+    ].flatMap((c) => carryCases.map((carry) => craftedMemberFloorImplicits(vk, c.raw, rolledAt(c.quality, c.rarityIdx, c.picks, carry))));
+    implicit = implicit.map((r) => ({
+      stat: r.stat,
+      min: Math.min(...corners.map((c) => c[r.stat])),
+      max: Math.max(...corners.map((c) => c[r.stat])),
+    }));
+  }
 
   // Affix COUNT range across the producible bands, using the REAL affixCount with its two rng
   // extremes (augmented is the only band that draws: rng>=0.25 -> 2, rng<0.25 -> 3).

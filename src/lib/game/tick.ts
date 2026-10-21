@@ -292,7 +292,7 @@ import { rollWaveLoot, type PatrolLootTable } from "./combat/patrolLoot";
 // crafted piece's level (clamped by the blueprint-tier cap), generateEquipment rolls the whole
 // EquipmentInstance from an INJECTED seeded rng (so the mint is offline==live reproducible), and
 // EQUIPMENT_ILEVEL_CAP_PER_TIER is the first-pass per-tier level ceiling the mint feeds in.
-import { computeItemLevel, craftedItemLevelFloor, generateEquipment, generateWeapon, generateDronePod, EQUIPMENT_ILEVEL_CAP_PER_TIER } from "./itemgen";
+import { computeItemLevel, generateEquipment, generateWeapon, generateDronePod, EQUIPMENT_ILEVEL_CAP_PER_TIER } from "./itemgen";
 // ITEM LIFECYCLE 0.13.6: the seeded PRNG for the INSPECT roll. inspectBlank rolls off a stream
 // seeded from the save's inspectSeed + the blueprint key (NOT the fleet's threaded tick rng), so
 // the roll is a pure function of the save (reload-identical, server-reverifiable later).
@@ -11054,8 +11054,6 @@ function mintCraftedPiece(args: {
     achievementBoost: 0, // RESERVED (design section 6.5): no achievement system yet
     faTalentBonus,
     itemTierCap: bp.tier * EQUIPMENT_ILEVEL_CAP_PER_TIER,
-    // 0.14.0: crafted away-team gear never mints below the free Standard-Issue set (itemgen.ts). Draws nothing.
-    floor: bp.equipmentOutput !== undefined ? craftedItemLevelFloor(bp.equipmentOutput.slotType) : undefined,
   });
   if (bp.equipmentOutput !== undefined) {
     const minted = generateEquipment({
@@ -11510,8 +11508,6 @@ export function resolveProcesses(
           // talent investment mints above itemTierCap (locked decision, design §14 item 1).
           faTalentBonus: craftingItemLevelBonus(state),
           itemTierCap: bp.tier * EQUIPMENT_ILEVEL_CAP_PER_TIER, // first-pass per-tier cap (itemgen.ts)
-          // 0.14.0: crafted away-team gear never mints below the free Standard-Issue set (itemgen.ts). Draws nothing.
-          floor: craftedItemLevelFloor(eqOut.slotType),
         });
         // Capture the id NOW so the allocateId closure mints the SAME "equip-N" the counter names,
         // then advance the counter (never reused), the id scheme freshState documents.

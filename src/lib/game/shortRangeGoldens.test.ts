@@ -106,9 +106,10 @@
 //                  seam and the Cometary Ice Harvest's per-field rows): new entries only, held apart by RX_SLICE (the ids
 //                  from reactorFuelGoldens.fixture.ts, pinned with their statuses in reactorFuelGoldens.test.ts), which
 //                  registryPin always applies, so the base pin and every cause pin are unchanged.
-// ADDED BY the Quartermaster Standard-Issue member lines (0.14.0): the `si:` entries, held apart by SI_SLICE, which
-//                  registryPin always applies (like RX_SLICE), so the base pin and every cause pin are unchanged;
-//                  `registry:si` pins the additions with their statuses.
+// MOVED BY the Quartermaster Standard-Issue member lines and the D26 line swap (0.14.0): the `si:` entries and three
+//                  Science lines added, the nine retired combat lines removed; registryPin always reads them back
+//                  (siReadBack, like RX_SLICE), so the base pin and every cause pin are unchanged; `registry:si` pins
+//                  the added entries with their statuses and the retired ids.
 // ADDED BY G1-1: `guests:<hull>` (guest quarters bare and with each quarters variety, the Guest Wing last) and
 // `stats:<hull>:guestWing` (every other stat with a Guest Wing installed). The sheets hash through withoutGuests, so
 // the stats pins keep proving no other stat moved (the transport hulls now carry base guest quarters).
@@ -134,6 +135,7 @@ import { hash, onHull, withCrew, withV1Museum, withoutGuests } from "./firstRuns
 import { asPreG2NamesDispatch } from "./awayTeamTestFixtures";
 import { GG1_ADDED_ENTRY_IDS } from "./gasStudyGoldens.fixture";
 import { RX_ADDED_ENTRY_IDS } from "./reactorFuelGoldens.fixture";
+import { isSiAdded, SI_RETIRED, siReadBack } from "./siMemberGearRegistry.fixture";
 // CP-8 / OC-11: the test switch that proves the auto-crew pause is the only thing that moved the fleet pin.
 vi.mock("./crewLock", async (io) => (await import("./complementOc11Switch.fixture")).oc11CrewLockMock(io));
 import { withOc11Off } from "./complementOc11Switch.fixture";
@@ -344,14 +346,22 @@ const GOLDEN: Record<string, unknown> = {
   "registry": [1223, "8ba89020"],
   // Gear wear steps 1 and 2: the 41 pending `wear` entries (held apart from every other registry pin by GW_SLICE).
   "registry:gearWear": [41, "b8143ac4"],
-  // The Quartermaster Standard-Issue member lines (0.14.0): held apart from every other registry pin by SI_SLICE.
+  // The Quartermaster Standard-Issue member lines and the D26 line swap (0.14.0): read back in every registry pin
+  // (siReadBack); the added entries with their statuses, then the retired ids.
   "registry:si": [
+    "gear:science:fieldSuit:groundHazardResist|live",
+    "gear:science:sidearm:groundFieldwork|live",
+    "gear:science:sidearm:groundRelicFind|live",
     "si:security:ballisticWeave:groundArmor|live",
     "si:security:ballisticWeave:groundHp|live",
+    "si:science:fieldSuit:groundFieldwork|live",
+    "si:science:fieldSuit:groundHazardResist|live",
     "si:prospecting:excavatorSuit:groundHazardResist|deferred",
     "si:prospecting:excavatorSuit:groundFieldwork|deferred",
     "si:security:pulseRifle:groundPower|live",
     "si:security:pulseRifle:groundAccuracy|live",
+    "si:science:sidearm:groundRelicFind|live",
+    "si:science:sidearm:groundFieldwork|live",
     "si:prospecting:plasmaCutter:groundOreYield|deferred",
     "si:prospecting:plasmaCutter:groundFieldwork|deferred",
     "si:security:medKit:groundHp|live",
@@ -359,6 +369,15 @@ const GOLDEN: Record<string, unknown> = {
     "si:science:floraScanner:groundFieldwork|live",
     "si:prospecting:assayScanner:groundOreGrade|deferred",
     "si:prospecting:assayScanner:groundFieldwork|deferred",
+    "retired:gear:science:fieldSuit:groundHp",
+    "retired:gear:science:fieldSuit:groundArmor",
+    "retired:gear:science:hazardSuit:groundHp",
+    "retired:gear:science:hazardSuit:groundArmor",
+    "retired:gear:prospecting:hazardSuit:groundHp",
+    "retired:gear:prospecting:hazardSuit:groundArmor",
+    "retired:gear:science:sidearm:groundPower",
+    "retired:gear:science:sidearm:groundAccuracy",
+    "retired:gear:science:sidearm:groundStatusChance",
   ],
   "registry:ml1": [
     "facility:REFINE_RECIPES:refineFerriteIngot|pending",
@@ -560,14 +579,15 @@ const SF3_FLIPPED_LIVE: ReadonlySet<string> = new Set<string>(["expedition:ENEMY
 const SF3_SLICE: RegistrySlice = { flipped: SF3_FLIPPED_LIVE, was: "pending" };
 // The reactor fuel ladder's additions (0.14.0), held apart in EVERY pin (all of them were taken before it).
 const RX_SLICE: RegistrySlice = { added: RX_ADDED_ENTRY_IDS };
-// The Quartermaster Standard-Issue member lines (0.14.0): additions only (one `si:` entry per issued line), held apart
-// in EVERY pin like RX_SLICE (all of them were taken before it); `registry:si` pins the additions.
-const SI_SLICE: RegistrySlice = { added: new Set(WIRING_REGISTRY.filter((e) => e.id.startsWith("si:")).map((e) => e.id)) };
+// The Quartermaster Standard-Issue member lines and the D26 line swap (0.14.0): read back in EVERY pin (all of them were
+// taken before it) through siReadBack (siMemberGearRegistry.fixture.ts: the `si:` entries and the three new Science
+// lines left out, the nine retired combat lines restored in place); `registry:si` pins the added and retired ids.
 function registryPin(...given: readonly RegistrySlice[]): [number, string] {
-  const slices = [RX_SLICE, SI_SLICE, ...given];
-  const lines = WIRING_REGISTRY.filter((e) => !slices.some((sl) => sl.added?.has(e.id))).map((e) => {
+  const slices = [RX_SLICE, ...given];
+  const rows = siReadBack(WIRING_REGISTRY.map((e) => ({ id: e.id, kind: e.status.kind as string })), (r) => r.id, (row) => ({ id: row[0], kind: row[1].kind as string }));
+  const lines = rows.filter((e) => !slices.some((sl) => sl.added?.has(e.id))).map((e) => {
     const flip = slices.find((sl) => sl.flipped?.has(e.id));
-    return `${e.id}|${flip ? (flip.was ?? "pending") : e.status.kind}`;
+    return `${e.id}|${flip ? (flip.was ?? "pending") : e.kind}`;
   });
   return [lines.length, hash(lines)];
 }
@@ -817,10 +837,11 @@ describe("G1-0 golden 5: the wiring registry's ids and statuses", () => {
     expect(added.every((l) => l.endsWith("|pending"))).toBe(true);
     pin("registry:gearWear", [added.length, hash(added)]);
   });
-  it("Quartermaster Standard-Issue member lines: the added entries, each with its status", () => {
-    const added = WIRING_REGISTRY.filter((e) => SI_SLICE.added!.has(e.id)).map((e) => `${e.id}|${e.status.kind}`);
+  it("Quartermaster Standard-Issue member lines and the D26 swap: the added entries with their statuses, and the retired ids", () => {
+    const added = WIRING_REGISTRY.filter((e) => isSiAdded(e.id)).map((e) => `${e.id}|${e.status.kind}`);
     expect(added.every((l) => (l.startsWith("si:prospecting:") ? l.endsWith("|deferred") : l.endsWith("|live")))).toBe(true);
-    pin("registry:si", added);
+    for (const { row } of SI_RETIRED) expect(WIRING_REGISTRY.some((e) => e.id === row[0]), row[0]).toBe(false);
+    pin("registry:si", [...added, ...SI_RETIRED.map(({ row }) => `retired:${row[0]}`)]);
   });
   it("ML-1: the added entries, each with its status", () => {
     const added = WIRING_REGISTRY.filter((e) => ML1_ADDED_ENTRY_IDS.has(e.id)).map((e) => `${e.id}|${e.status.kind}`);

@@ -39,7 +39,8 @@ import { effectiveShipStats } from "./crewOverlay";
 import { advanceExpedition, claimExpedition, expeditionCandidates, startExpedition } from "./expedition";
 import { shipEventsLive } from "./shipScanEvents";
 import { asPreVoyageDispatch, plainAwayMember, withSlottedAwayTeams } from "./awayTeamTestFixtures";
-import { WIRING_REGISTRY } from "./wiring/registry";
+import { WIRING_REGISTRY, type WiringEntry } from "./wiring/registry";
+import { siReadBack } from "./siMemberGearRegistry.fixture";
 import { getSeniorStaffBonusById } from "./seniorStaffBonuses";
 import { withEm1Off } from "./emodEm1Switch.fixture";
 import { goldenJson, withV1Museum } from "./firstRunsGoldens.fixture"; // gear wear: goldenJson puts the retired durability back
@@ -602,9 +603,14 @@ const REGISTRY_BEFORE_GEAR_WEAR = "60d00075";
 type Back = { readonly sf3?: boolean; readonly fkr9?: boolean; readonly racials?: boolean; readonly g14?: boolean; readonly fkr7?: boolean; readonly fkr6?: boolean; readonly g13?: boolean; readonly gw?: boolean; readonly keepGg1?: boolean };
 // The reactor fuel ladder (0.14.0) only ADDS entries (reactorFuelGoldens.fixture.ts), after every pin here was taken:
 // every read-back and the snapshot leave them out (reactorFuelGoldens.test.ts pins them with their statuses).
-// The Quartermaster Standard-Issue member lines (0.14.0, the `si:` entries) are the same: additions after every pin
-// here, left out of every read-back and the snapshot (shortRangeGoldens.test.ts `registry:si` pins them).
-const BEFORE_RX = WIRING_REGISTRY.filter((e) => !RX_ADDED_ENTRY_IDS.has(e.id) && !e.id.startsWith("si:"));
+// The Quartermaster Standard-Issue member lines and the D26 line swap (0.14.0) came after every pin here too: every
+// read-back and the snapshot read them back (siMemberGearRegistry.fixture.ts siReadBack: the added entries left out,
+// the nine retired combat lines restored in place; shortRangeGoldens.test.ts `registry:si` pins them).
+const BEFORE_RX: WiringEntry[] = siReadBack(
+  WIRING_REGISTRY.filter((e) => !RX_ADDED_ENTRY_IDS.has(e.id)),
+  (e) => e.id,
+  (row) => ({ id: row[0], status: row[1], contexts: row[2], probe: row[3] ?? undefined }) as unknown as WiringEntry,
+);
 function rowsBack(back: Back): unknown[][] {
   return BEFORE_RX.filter(
     (e) =>

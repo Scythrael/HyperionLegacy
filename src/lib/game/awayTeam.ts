@@ -606,7 +606,7 @@ export function reassignAwayMember(state: GameState, memberId: string, shipId: s
 // member's own base value (0.01 = +1%), ADDED to every other same-stat bump (traits), the STACKING RULE.
 // statusChance and the status resist are CHANCES with no base value worth scaling, so their bump IS the
 // chance, in absolute terms (0.005 per point: 20 points = 10 percentage points).
-// A Standard-Issue MEMBER baseline (0.14.0) carries the Quartermaster set's real lines (model.ts STANDARD_ISSUE_MEMBER_GEAR),
+// A Standard-Issue MEMBER baseline (0.14.0) carries the Quartermaster set's real lines (model.ts STANDARD_ISSUE_MEMBER_POINTS),
 // which convert here like any crafted line; with the set switched off every line is 0 and converts to no bump.
 // FIRST-PASS TUNABLE: every coefficient. Reference point: an iLevel 10 Standard-rarity quality 0 piece
 // has a 20 point budget, so a crafted rifle carries about 10 power points (+10% power).

@@ -301,8 +301,8 @@ export const REQUISITION_CATALOGUE: RequisitionCatalogue = {
   // floor once member gear matters: a squad whose gear was salvaged can always be kitted out again.
   //
   // WHY THESE VARIETIES. A Standard-Issue member piece carries the Quartermaster set's modest, quality-less
-  // stat lines by slot role (0.14.0, model.ts STANDARD_ISSUE_MEMBER_GEAR: weapon offense, armor defense, tool
-  // its role line; always below crafted gear); the variety also contributes its fixed catalog behavior
+  // stat lines by slot role (0.14.0, model.ts STANDARD_ISSUE_MEMBER_POINTS: weapon offense, armor defense, tool
+  // its role line; a crafted piece always rolls at least as much); the variety also adds its fixed catalog behavior
   // (weapon range, ground effect, encounter dial, planet tuning). So each row names the variety whose
   // behavior is the most basic for its squad, keeping specialties a crafted reward:
   //   Security armor   Ballistic Weave  the LIGHT suit (the Hardsuit is the heavy upgrade). No effect.

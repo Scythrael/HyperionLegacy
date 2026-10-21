@@ -849,3 +849,33 @@ and gw; `registry` re-pinned 1d8ae09b to bd1e2f48 (read back, 1d8ae09b).
 - **Science gear (D26):** "Give them Science lines (Recommended)": Sidearm relic find + fieldwork; Field Suit fieldwork +
   hazard resist; drop armor and HP from the Hazard Suit's extra rolls per the review; old crafted pieces get dead lines
   remapped on load so nothing is useless.
+
+## SI GEAR REVIEW CARRY NOTE (2026-10-21, on the merge of feat d553614)
+
+**Built per the review answers above.**
+- **Budget floor** (replaces the item level 7 floor, which is gone): model.ts `craftedMemberFloorImplicits`, applied by
+  itemgen.ts `generateEquipment` to every crafted (blueprinted) member piece after its roll: each signature line at
+  least the free piece's value of that variety, then the total (signature + rolled, carry lines excluded) at least the
+  free set's 12, the shortfall spread over the signature lines. Item level, quality, rarity, affix picks and rng draws
+  are untouched (Archive score, salvage time, keep-best ranking as before). `previewCraftOutcome` shows the floored
+  range; the Crafting panel's per-tier and per-blueprint readouts are plain `computeItemLevel` again and agree.
+- **D26 Science lines**: Sidearm `groundRelicFind` + `groundFieldwork`, Field Suit `groundFieldwork` +
+  `groundHazardResist` (own signature lines and pools, the Prospecting tools' pattern); Hazard Suit pool hazard resist
+  only. The 7 pending SCIENCE_LINE_SWAP entries and the Hazard Suit's two Prospecting ARM / HP lines retire (the lines no
+  longer roll); 3 new Science entries are live with probes. Held pieces: save.ts `withStandardIssueMemberLinesV70` now
+  also runs `withScienceLineSwap` (every load, idempotent), moving a pre-swap Sidearm's / Field Suit's combat lines
+  points for points (`SCIENCE_LINE_REMAP` **[PROVISIONAL]**: power to fieldwork, accuracy and status chance to relic
+  find, armor and HP to hazard resist). The Hazard Suit keeps old ARM / HP (Prospecting `digSafety` still reads them;
+  **flag:** no new Prospecting gear rolls ARM / HP now, so dig safety has no gear source until the quests patch).
+- **SI Science pieces**: Sidearm relic find 6 + fieldwork 6, Field Suit fieldwork 6 + hazard resist 6.
+- **Quality**: `STANDARD_ISSUE_MEMBER_POINTS` is a plain const; the golden switch lives only in
+  siMemberGearSwitch.fixture.ts (it empties the share table and restores the pre-swap varieties). The load raise only
+  RAISES lines. The strict `isStandardIssueMemberPiece` (quality 0, item level 1, no rolled lines) keeps dev and test
+  blueprint-less pieces out.
+- **Sweeps**: safeFirstRamp.sweep.test.ts gains the `rank1si` row and asserts the targets on it. Full strength (run 12
+  since the SF-3 review): 193 of 200 complete, 356 of 365 Vault / Subterranean won; run 11: 193 and 357 of 366; runs 2
+  to 9 every run and every vault. The stale sim ablation expectation (homelandDefenseHub "dead") now reads "moves".
+- **Goldens**: siMemberGearGoldens BEFORE re-captured on feat d553614 itself (identical to the switched-off reading),
+  Sidearm and Field Suit crafts added; registry chains read the change back through siMemberGearRegistry.fixture.ts
+  (added entries out, retired rows restored in place), so every earlier pin reproduces; gearWearGoldens' crafted-gear
+  expedition is built with the pre-swap catalog (its Science member wears a Sidearm and Field Suit).

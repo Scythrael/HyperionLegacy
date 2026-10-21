@@ -52,7 +52,7 @@ import {
   SI_EMITTER_RECHARGE,
   SI_PLATING_HP,
   SLOT_BASE_PHYSICALS,
-  STANDARD_ISSUE_MEMBER_GEAR,
+  STANDARD_ISSUE_MEMBER_POINTS,
   STANDARD_ISSUE_MEMBER_SHARES,
   standardIssueMemberLines,
   generateStandardIssue,
@@ -300,7 +300,7 @@ export const CATALOGS = {
   AWAY_TRAITS,
   GEAR_POINT_BUMP,
   // 0.14.0: the Quartermaster Standard-Issue member lines (their points and slot-role shares).
-  STANDARD_ISSUE_MEMBER_GEAR,
+  STANDARD_ISSUE_MEMBER_POINTS,
   STANDARD_ISSUE_MEMBER_SHARES,
   GAMBIT_STATUSES,
   MISSIONS,
@@ -416,7 +416,6 @@ function pending(owner: string, contexts?: readonly ContextId[]): WiringStatus {
 // pools + exclusive pool live, design 6.2)", was split into CP-1 to CP-4; CP-2 and the inert-racials slice (0.14.0,
 // user "everything wired" 2026-10-20) took the rest live. Exported for the liveness parity test (the renamed owner).
 export const CP_3 = "Complement plan CP-3 (Ground Ops complement consumers: Security, Medical, exclusive pool)";
-const SCIENCE_LINE_SWAP = "Science gear line swap (D26): Science gear rolls fieldwork/hazard/find lines instead";
 // Expedition Tiers G2-2 (plan 2026-10-14 G2-2: "the console still shows Tier I only (G2-6 adds the picker); a hidden
 // region is reachable by tests only"): every tier's candidates are built and tested (expeditionTierCandidates.test.ts),
 // but no player reaches a deeper tier until the console offers it, so the tier-gated sources wait on G2-6.
@@ -737,15 +736,10 @@ export function memberRollableKeys(slotType: MemberSlotType, variety: { implicit
   return new Set([...(variety.implicitStats ?? slot.implicitStats), ...(variety.affixPool ?? slot.affixPool).map((a) => a.stat)]);
 }
 
-const GEAR_PENDING: Readonly<Record<string, string>> = {
-  "gear:science:sidearm:groundPower": SCIENCE_LINE_SWAP,
-  "gear:science:sidearm:groundAccuracy": SCIENCE_LINE_SWAP,
-  "gear:science:sidearm:groundStatusChance": SCIENCE_LINE_SWAP,
-  "gear:science:fieldSuit:groundArmor": SCIENCE_LINE_SWAP,
-  "gear:science:fieldSuit:groundHp": SCIENCE_LINE_SWAP,
-  "gear:science:hazardSuit:groundArmor": SCIENCE_LINE_SWAP,
-  "gear:science:hazardSuit:groundHp": SCIENCE_LINE_SWAP,
-};
+// A member gear line still waiting on a named owner, by entry id. Empty since the D26 line swap (user 2026-10-21 "Give
+// them Science lines"): the Sidearm, Field Suit and Hazard Suit no longer roll the combat lines that never acted for
+// Science, so the seven SCIENCE_LINE_SWAP entries are gone and their Science lines are live.
+const GEAR_PENDING: Readonly<Record<string, string>> = {};
 
 function wearerOf(team: AwayTeamType): string {
   return team === "science" ? WIRING_SCIENCE_ID : WIRING_SECURITY_ID;
@@ -881,7 +875,7 @@ function gearEntries(): WiringEntry[] {
               on: (s) => withPair(wearPiece(s, wearer, slotType, v.key, { [key]: GEAR_TEST_POINTS })),
               off: (s) => withPair(wearPiece(s, wearer, slotType, v.key, {})),
               status: owner
-                ? pending(owner, owner === SCIENCE_LINE_SWAP ? ["ground"] : undefined)
+                ? pending(owner)
                 : live
                   ? LIVE
                   : pending("WR-1 follow-up: no seam probe for this squad and line"),
@@ -930,7 +924,7 @@ function standardIssueEntries(): WiringEntry[] {
             );
             continue;
           }
-          const points = (c: Catalogs) => Math.round(c.STANDARD_ISSUE_MEMBER_GEAR.points * (c.STANDARD_ISSUE_MEMBER_SHARES[v.key]?.[stat] ?? 0));
+          const points = (c: Catalogs) => Math.round(c.STANDARD_ISSUE_MEMBER_POINTS * (c.STANDARD_ISSUE_MEMBER_SHARES[v.key]?.[stat] ?? 0));
           const seam = gearSeam(team, stat, points);
           const wearer = wearerOf(team);
           out.push(
@@ -3797,21 +3791,12 @@ function speedSeamEntries(): WiringEntry[] {
 // ============================================================================
 
 const OFFICER_DORMANT = "dormant by design until its system lands (crewOverlay.ts OFFICER_BONUSES_PENDING_IN_RELEASE)";
-const SCIENCE_NEVER_FIGHTS = "Science never fights (D2)";
-const SIDEARM_TOOL = "Science never fights (D2); the Sidearm becomes a tool";
 const ALLOW_LIST_REASONS: Readonly<Record<string, string>> = {
   ...Object.fromEntries(Object.keys(OFFICER_BONUSES_PENDING_IN_RELEASE).map((k) => [`officer:${k}`, OFFICER_DORMANT])),
   "crew:crew.counterInfiltration": "Counter-Infiltration: resists enemy debuffs (Security pool)",
   "crew:crew.awayTeamProtection": "Away-Team Protection: squad HP (Security pool)",
   "crew:crew.triage": "Triage: squad healing (Medical pool)",
   "crew:crew.preventCrewLoss": "Prevent a Crew Loss: shorter injuries (exclusive pool)",
-  "gear:science:sidearm:groundPower": SIDEARM_TOOL,
-  "gear:science:sidearm:groundAccuracy": SIDEARM_TOOL,
-  "gear:science:sidearm:groundStatusChance": SIDEARM_TOOL,
-  "gear:science:fieldSuit:groundArmor": SCIENCE_NEVER_FIGHTS,
-  "gear:science:fieldSuit:groundHp": SCIENCE_NEVER_FIGHTS,
-  "gear:science:hazardSuit:groundArmor": SCIENCE_NEVER_FIGHTS,
-  "gear:science:hazardSuit:groundHp": SCIENCE_NEVER_FIGHTS,
   "facet:pilot:cunning": "the Flight Deck has no over-delivery of its own yet (design section 7 names none)",
 };
 
