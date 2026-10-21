@@ -14988,13 +14988,13 @@
                   <div class="qm-wallet">
                     <span class="qm-wallet-label">Wallet</span>
                     <span class="qm-wallet-bal">{formatNumber(state.credits)} <small>cr</small></span>
-                    <span class="qm-wallet-hint">Sell surplus and retired stock for credits, whenever you like.</span>
+                    <span class="qm-wallet-hint">Sell surplus stock for credits, whenever you like.</span>
                   </div>
 
                   {#if sellSections.length === 0}
                     <div class="warehouse-stub">
                       <div class="warehouse-stub-glyph">🪙</div>
-                      <p>Nothing to sell right now. Retired stock and surplus you can part with will appear here.</p>
+                      <p>Nothing to sell right now. Anything you hold that the Quartermaster buys will appear here.</p>
                     </div>
                   {:else}
                     {#each sellSections as section (section.label)}
@@ -15017,9 +15017,10 @@
                                    truncates, the tag never shrinks. -->
                               <span class="qm-name-line">
                                 <span class="home-l1">{entry.label}</span>
-                                <!-- The "why can I sell this" cue: everything sellable in 0.13.6 is
-                                     retired stock, so the tag is unconditional for now. -->
-                                <span class="qm-retire-tag">Retired</span>
+                                <!-- The "why can I sell this" cue, only on stock the game truly retired
+                                     (ItemDef.retired, quartermaster.ts isRetiredStock). Deuterium Ice and the
+                                     canisters have crafting uses, so they wear no tag. -->
+                                {#if entry.retired}<span class="qm-retire-tag">Retired</span>{/if}
                               </span>
                               <span class="home-l2">
                                 <span class="home-meta">owned {formatNumber(entry.owned)}</span>

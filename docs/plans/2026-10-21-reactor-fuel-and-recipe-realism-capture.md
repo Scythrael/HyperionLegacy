@@ -119,6 +119,9 @@ Built per sections 1 and 5 and the recipe realism audit's USER ANSWERS Group A (
   antimatter-catalyzed fusion 2 Helium-3 + 1 cell and antimatter 3 cells (the audit's amounts); requirement rows hold
   from their hull tier up.
 - For GG-7: the Resonance Sensor Array takes 1 Helium-3 Canister (note in the gas giant plan GG-7). For the ML-2 slice:
-  it re-authors the Efficient and High-Output recipes; keep `...reactorCoreFuel(variety, tier)` last in each.
-- Follow-up seen, not changed: the Quartermaster Sell shelf tags every row "Retired", now untrue for Deuterium Ice and
-  the canisters (App.svelte qm-retire-tag).
+  it re-authors the Efficient and High-Output recipes; the fuel is appended by model.ts withReactorFuel (derived from
+  each core's tier), so ML-2 writes the other inputs only.
+- Review follow-ups (2026-10-21): Deuterium Ice sells for 4 cr (DEUTERIUM_ICE_SELL_VALUE; user "Cut ice to ~4
+  credits"), its hint and flavor say it is worth little raw; the canister stays 450 and its flavor no longer calls the
+  ice "old stock". The Sell shelf's "Retired" tag now reads the optional ItemDef.retired (quartermaster.ts
+  isRetiredStock; no item sets it today), and its empty-state and wallet lines no longer promise retired stock.

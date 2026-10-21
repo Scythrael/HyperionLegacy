@@ -14,6 +14,7 @@ import {
   MISSIONS,
   REFINE_RECIPES,
   SHIP_TYPES,
+  refineRecipeOffered,
   freshState,
   type GameState,
   type ShipTypeKey,
@@ -109,8 +110,10 @@ describe("the reactor fuel ladder: every Reactor Core recipe takes its tier's fu
     const dayOneDrops = new Set(dayOne.flatMap((k) => Object.values(MISSIONS[k].lootTable)));
     for (const bp of CORES) {
       for (const fuel of Object.keys(BLUEPRINTS[bp].recipe.inputs).filter((k) => FUEL_ITEMS.has(k))) {
-        const refines = Object.values(REFINE_RECIPES).filter((r) => r.output.itemId === fuel);
-        expect(refines.some((r) => Object.keys(r.input).every((i) => dayOneDrops.has(i))), `${bp} ${fuel}`).toBe(true);
+        // The refine must be one the Refinery OFFERS (refineRecipeOffered: its output leads somewhere), not just exist.
+        const refines = Object.entries(REFINE_RECIPES).filter(([key, r]) => r.output.itemId === fuel && refineRecipeOffered(key));
+        expect(refines.length, `${bp} ${fuel}: an offered refine`).toBeGreaterThan(0);
+        expect(refines.some(([, r]) => Object.keys(r.input).every((i) => dayOneDrops.has(i))), `${bp} ${fuel}`).toBe(true);
       }
     }
   });

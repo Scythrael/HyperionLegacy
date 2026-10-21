@@ -9096,6 +9096,10 @@ export interface ItemDef {
   // (Deuterium Ice, orphaned by fuel-to-reach); widening it to live goods is a later, balance-
   // gated decision. The value is DERIVED from the item's prior worth (see deuteriumIce).
   sellValue?: number;
+  // RETIRED STOCK (0.14.0): set only on an item the game no longer uses for anything but the Sell counter. The Sell
+  // shelf tags exactly these rows "Retired" (quartermaster.ts isRetiredStock). No item carries it today: Deuterium Ice
+  // and the canisters all have a crafting use. Static catalog data, never saved.
+  retired?: true;
 }
 
 // Launch item registry, REAL entries only, same "no placeholders" discipline as
@@ -9113,8 +9117,14 @@ const EM8_PRECURSOR_LENS = "EM-8 (the Precursor Lens special module is crafted w
 const GG5_DATA_STUDY = "GG-5 (the Research Lab study lane studies it into a +12% boost on the next project of its family)";
 const GG5_ANCIENT_STUDY = "GG-5 (the Research Lab study lane decodes the next ancient entry from it)";
 // Gas Giant Study GG-1 (values approved by the user 2026-10-21): credits per canister at the Quartermaster's Sell counter.
-// The Deuterium Canister anchors the scale: ten Deuterium Ice (40 cr each) refine into one, so it sells a little above
-// the 400 cr of ice it took; the Standard band sells under it and each band up roughly doubles.
+// Deuterium Ice at the Quartermaster's Sell counter, credits per unit. User 2026-10-21 (merge batch answers, "Comet
+// economy bug": "Cut ice to ~4 credits (Recommended)"): a crafting input, not a money run. It was 40 (the retired Fuel
+// Depot's 50 ice -> 100 fuel at 20 cr), which made the open-from-day-one Cometary Ice Harvest a 2,700-credit run.
+export const DEUTERIUM_ICE_SELL_VALUE = 4;
+
+// The Deuterium Canister anchors the scale (450 cr); the Standard band sells under it and each band up roughly doubles.
+// It was set when ten Deuterium Ice sold for 400 cr; ice is now a cheap crafting input (DEUTERIUM_ICE_SELL_VALUE), so
+// the refine adds most of the value.
 export const GAS_CANISTER_SELL_VALUE = {
   hydrogenCanister: 200,
   methaneCanister: 200,
@@ -9190,14 +9200,11 @@ export const ITEMS: Record<string, ItemDef> = {
     // The common floor of the Cometary Ice Harvest (reactor fuel ladder, 0.14.0; the retired localFuelRun was its old
     // source). Gas Giant Study GG-1: it refines into a Deuterium Canister (REFINE_RECIPES.refineDeuteriumCanister), the
     // fuel every Reactor Core blueprint takes.
-    unlockHint: "Harvested from a passing comet on the Cometary Ice Harvest run; refine it into Deuterium Canisters for Reactor Core blueprints, or sell it at the Quartermaster.",
+    unlockHint: "Harvested from a passing comet on the Cometary Ice Harvest run. Refine it into Deuterium Canisters for Reactor Core blueprints; raw ice fetches only a few credits at the Quartermaster.",
     // ML-1: the flavor no longer tells the player to cook it down at the Fuel Depot (that pipeline retired in 0.13.6).
     // Reactor fuel ladder (0.14.0): it comes off a comet now and ends up as reactor fuel, never FTL fuel.
-    flavor: "Deuterium-laced water ice cut from a passing comet, heavy hydrogen pressed into canisters to fuel the fleet's reactors.",
-    // Sellable since fuel-to-reach (0.13.6) retired the skim run and the Fuel Depot that consumed it: the Depot refined
-    // 50 ice -> 100 fuel and fuel was 20 cr/unit, so 1 ice = 2 fuel = 40 cr. TUNABLE. It has a use again (the
-    // Deuterium Canister) and a source again (the Cometary Ice Harvest); the price is kept.
-    sellValue: 40,
+    flavor: "Deuterium-laced water ice cut from a passing comet: common, bulky, and worth little until it is pressed into reactor fuel.",
+    sellValue: DEUTERIUM_ICE_SELL_VALUE,
   },
   // --- Refined / crafted goods (Refinery / Fabricator output) ---
   // ITEM-MERGE (0.11.0 Task A1): the duplicate `refinedMaterial` ("Refined Material")
@@ -9638,7 +9645,7 @@ export const ITEMS: Record<string, ItemDef> = {
     tier: 1,
     rarity: "uncommon",
     unlockHint: "Refined at the Refinery from Deuterium Ice.",
-    flavor: "Heavy hydrogen, pressed into a canister. The old ice stock finally has somewhere to go.",
+    flavor: "Heavy hydrogen pressed out of comet ice and sealed under pressure: the fuel charge every fusion Reactor Core is built around.",
     sellValue: GAS_CANISTER_SELL_VALUE.deuteriumCanister,
   },
   helium3Canister: {
@@ -10313,9 +10320,9 @@ export const BLUEPRINTS: Record<string, BlueprintDef> = {
     researchCreditCost: 1700,
     craftDurationTicks: 320,
     equipmentOutput: { slotType: "reactorCore", varietyKey: "highOutputCore" },
-    // Max-output reactor: heavy couplings mounted on a full structural assembly, and its fuel charge (reactorTech.ts
-    // fuel ladder, user 2026-10-21: "All reactor core crafting recipes should ultimately require something like this").
-    recipe: { inputs: { powerCoupling: 3, structuralAssembly: 1, ...reactorCoreFuel("highOutputCore", 2) } },
+    // Max-output reactor: heavy couplings mounted on a full structural assembly (its fuel charge is appended below the
+    // table, withReactorFuel).
+    recipe: { inputs: { powerCoupling: 3, structuralAssembly: 1 } },
     flavor: "A brute of a reactor wound for raw output, bolted to a sub-structure so it does not shake loose.",
     unlockHint: "Researched at the Research Lab (needs a higher tier); crafted at the Fabricator later.",
   },
@@ -10327,8 +10334,8 @@ export const BLUEPRINTS: Record<string, BlueprintDef> = {
     researchCreditCost: 850,
     craftDurationTicks: 160,
     equipmentOutput: { slotType: "reactorCore", varietyKey: "efficientCore" },
-    // Light, low-draw core: couplings + a wafer-dense regulator stack, and its fuel charge (the fuel ladder).
-    recipe: { inputs: { powerCoupling: 2, polysilicateWafer: 3, ...reactorCoreFuel("efficientCore", 1) } },
+    // Light, low-draw core: couplings + a wafer-dense regulator stack (fuel appended below the table, withReactorFuel).
+    recipe: { inputs: { powerCoupling: 2, polysilicateWafer: 3 } },
     flavor: "A lean, quiet core that gives up peak output for a featherweight, low-draw fit.",
     unlockHint: "Researched at the Research Lab; crafted at the Fabricator once equipment fabrication comes online.",
   },
@@ -10340,9 +10347,9 @@ export const BLUEPRINTS: Record<string, BlueprintDef> = {
     researchCreditCost: 850,
     craftDurationTicks: 160,
     equipmentOutput: { slotType: "reactorCore", varietyKey: "balancedCore" },
-    // The middle reactor (the reactor slot's DEFAULT variety): couplings + wafers + titanium brace, and its fuel charge
-    // (the fuel ladder).
-    recipe: { inputs: { powerCoupling: 2, polysilicateWafer: 2, titaniumIngot: 1, ...reactorCoreFuel("balancedCore", 1) } },
+    // The middle reactor (the reactor slot's DEFAULT variety): couplings + wafers + titanium brace (fuel appended below
+    // the table, withReactorFuel).
+    recipe: { inputs: { powerCoupling: 2, polysilicateWafer: 2, titaniumIngot: 1 } },
     flavor: "A dependable middle-of-the-road core, enough output, sensible mass, nothing to prove.",
     unlockHint: "Researched at the Research Lab; crafted at the Fabricator once equipment fabrication comes online.",
   },
@@ -11383,6 +11390,18 @@ export const BLUEPRINTS: Record<string, BlueprintDef> = {
     unlockHint: "Researched at the Research Lab (needs a higher lab tier); crafted at the Fabricator. A field kit a squad member carries.",
   },
 };
+
+// Reactor fuel ladder (0.14.0; user 2026-10-21: "All reactor core crafting recipes should ultimately require something
+// like this"): every Reactor Core blueprint's recipe carries its fuel, DERIVED from its variety's tech tier and its own
+// blueprint tier (reactorTech.ts reactorCoreFuel: today Deuterium Canisters, 1 at tier I and 2 at tier II, the user's
+// 1 / 1 / 2), appended AFTER its other inputs (salvage rounds per input in recipe order, so the older lines keep their
+// draws). One place, so a new core can never ship unfueled and no count is written twice.
+function withReactorFuel(bp: BlueprintDef): BlueprintDef {
+  const out = bp.equipmentOutput;
+  if (out?.slotType !== "reactorCore") return bp;
+  return { ...bp, recipe: { ...bp.recipe, inputs: { ...bp.recipe.inputs, ...reactorCoreFuel(out.varietyKey, bp.tier) } } };
+}
+for (const key of Object.keys(BLUEPRINTS)) BLUEPRINTS[key] = withReactorFuel(BLUEPRINTS[key]);
 
 // Exploration 0.14.0 (E4d): the blueprints a relic's FIRST FIND unlocks (requiresRelicDiscovery ===
 // relicId), in BLUEPRINTS declaration order. Empty for a relic that gates nothing (most relics, and the
