@@ -62,3 +62,21 @@ is a data-model and seam slice (tiers, fuel per tier, a per-hull-tier power-gene
 2. Recipe realism pass: audit-first in 0.14.0, or audit now and changes in the balancing patch.
 3. Reactor ladder foundation: what the transitional tech is called and which real or theorized science each tier follows.
 4. Overburn vs the 0.14.x burn: kept open per the user.
+
+## 5. USER ANSWERS (2026-10-21)
+
+- **New mission:** "Cometary Ice Harvest (Recommended)": [PROPOSAL name accepted] mine a passing comet's ice: Deuterium Ice
+  common, plus Titanium Ore and a rare chance of Iridium. Tier I.
+- **Recipe realism pass (verbatim):** "1. Definitely." = audit now, fix in 0.14.0: a full audit doc (every recipe, realism
+  verdict, proposed fix, what happens to items players already hold), signed off in small groups, then build; no item
+  ever becomes useless. Plus, verbatim: "Also note that our QA will be running deep. I'm actually going to consider adding
+  in 2 options. Each playing to their own strengths. You're an all-rounder and are amazing at everything. But in
+  combination with ChatGPT's ability to quickly browse things as a human would to find things we might miss from that
+  perspective, Gemini will be doing a read-only simulating pass across the codebase at the same time. Neither allowed to
+  make a single change to the code. But both could provide incredible insights into things not working properly, or not
+  working as intended. Everything being wired in important, but if the thing wired in is malfunctioning, that's equally
+  important."
+- **Transitional reactor tech:** "Antimatter-catalyzed fusion (Recommended)". Ladder: fusion, antimatter-catalyzed fusion,
+  antimatter.
+- **Foundation scope:** "Data model + hooks (Recommended)": reactor tech tiers, fuel per tier, a per-hull-tier
+  power-generation requirement seam (Tier VII = antimatter later), wired and tested; no new reactors in 0.14.0.
