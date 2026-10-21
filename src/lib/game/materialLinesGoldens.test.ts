@@ -32,6 +32,8 @@ import { generateEquipment } from "./itemgen";
 import { addItemQuality } from "./inventory";
 import type { CraftLineMode } from "./allocation";
 import { withV1Museum } from "./firstRunsGoldens.fixture";
+import { gasStudyItemIds } from "./gasGiantContent";
+import { GG1_RECIPE } from "./gasStudyGoldens.fixture";
 
 // ===== shared helpers =====
 
@@ -229,10 +231,15 @@ describe("ML-0 Material Lines pre-change goldens", () => {
       census.blueprints = Object.keys(BLUEPRINTS).length;
       return census;
     };
-    expect(count(Object.entries(ITEMS), Object.keys(REFINE_RECIPES))).toEqual(GOLDEN.census);
+    // Gas Giant Study GG-1 added its fifteen items (two new categories) and the Deuterium Canister recipe after ML-1;
+    // held apart here (gasGiantContent.test.ts pins them), the catalog is the ML-1 capture.
+    const gg1 = new Set(gasStudyItemIds());
+    const items = Object.entries(ITEMS).filter(([id]) => !gg1.has(id));
+    const recipes = Object.keys(REFINE_RECIPES).filter((k) => k !== GG1_RECIPE);
+    expect(count(items, recipes)).toEqual(GOLDEN.census);
     // ML-1's proof: without its seven items and seven recipes the catalog is the ML-0 capture.
-    const preItems = Object.entries(ITEMS).filter(([id]) => !ML1_ITEM_IDS.includes(id));
-    const preRecipes = Object.keys(REFINE_RECIPES).filter((k) => !ML1_RECIPE_KEYS.includes(k));
+    const preItems = items.filter(([id]) => !ML1_ITEM_IDS.includes(id));
+    const preRecipes = recipes.filter((k) => !ML1_RECIPE_KEYS.includes(k));
     expect(count(preItems, preRecipes)).toEqual(ML0_CENSUS);
   });
 });

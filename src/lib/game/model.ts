@@ -2884,10 +2884,13 @@ export const EQUIPMENT_SLOTS: Record<string, EquipmentSlotDef> = {
         ],
         statRatios: { groundVaultYield: 0.6, groundRelicFind: 0.4 },
       },
-      // Atmo Probe: orbital fieldwork on a gas giant (no surface to land on).
+      // Galileo-Class Probe (Gas Giant Study GG-1; the user's name, 2026-10-08): orbital fieldwork on a gas giant (no
+      // surface to land on). The id stays `atmoProbe` and the ratios hold (call 6 "Reuse lines"), so saves and crafted
+      // rolls do not move; GG-3 reads its three lines on a giant (fieldwork = study speed, hazard resist = crush
+      // rating, relic find = ancient data odds).
       {
         key: "atmoProbe",
-        label: "Atmo Probe",
+        label: "Galileo-Class Probe",
         member: { teamTypes: ["science"], planetTypes: ["gasGiant"] },
         statRatios: { groundFieldwork: 0.6, groundHazardResist: 0.3, groundRelicFind: 0.1 },
       },
@@ -8899,6 +8902,14 @@ export const REFINE_RECIPES: Record<string, RefineRecipeDef> = {
     durationTicks: 20,
   },
   ...materialLineRecipes(),
+  // Gas Giant Study GG-1 (user 2026-10-08: "Deuterium Ice would fit this as well. Processed into a canister-stored
+  // version"): the old ice stock refines into a Deuterium Canister. [PROPOSAL] 10:1 at 20 ticks (the uncommon refines'
+  // length, one the speed rungs keep at an exact crafting XP per tick).
+  refineDeuteriumCanister: {
+    input: { deuteriumIce: new Decimal(10) },
+    output: { itemId: "deuteriumCanister", amount: new Decimal(1) },
+    durationTicks: 20,
+  },
 };
 
 // ML-1 review (the user's "everything wired, nothing inert player-reachable" rule; the field kits precedent "Hide
@@ -8959,9 +8970,19 @@ function consumedOutsideRefinery(): ReadonlySet<string> {
 // six medical and stim kits, fieldKits.ts FIELD_KITS; grenades and field devices stay installed tools, user FK1).
 // Crafted at the Fabricator, stored by warehouse tier like any item, and quality-free (user call 16, "Ignore
 // quality"): a kit works the same from any quality bucket.
+//
+// "gasCanister" and "researchData" (Gas Giant Study GG-1, 0.14.0; plan docs/plans/2026-10-17-gas-giant-study-plan.md
+// section 3.1): the user's "Gas Storage Canisters" warehouse category (six canisters, each in its quality band,
+// ItemDef.band) and the typed research data a ship's study returns (eight families plus the Ancient Data Fragment,
+// studied in the Research Lab's lane, GG-5). The content tables live in gasGiantContent.ts.
 export type ItemCategory =
   | "raw" | "refined" | "minorComponent" | "majorComponent" | "shipModule" | "shipSystem"
-  | "salvagedMaterial" | "fieldKit";
+  | "salvagedMaterial" | "fieldKit" | "gasCanister" | "researchData";
+
+// Gas Giant Study GG-1 (user 2026-10-09: "2 standard, 2 augmented, 1 stellar and 1 radiant"): the quality band a gas
+// canister belongs to. A property of the ITEM (which gas it is), separate from the quality bucket every deposit rolls.
+// The study's band draw files a canister by it (GG-3); static catalog data, never saved.
+export type ItemBand = "standard" | "augmented" | "stellar" | "radiant";
 
 // Rarity is forward room for the UI's rarity-color reveal (design §7). Every
 // tier of the union is valid today; Phase 1's seeds only reach "rare".
@@ -8996,6 +9017,8 @@ export interface ItemDef {
   // consumer lands, and the sink test (materialLines.test.ts) fails if a reserved item gains a consumer while still
   // marked, or if any item without one is unmarked. Static catalog data, never saved.
   reserved?: string;
+  // Gas Giant Study GG-1: the quality band of a gas canister (ItemBand); absent on every other item.
+  band?: ItemBand;
   // FORWARD (not populated this pass): only shipModule/shipSystem items ever
   // carry equip stats; every Phase 1 seed leaves this undefined.
   equipStats?: Record<string, number>;
@@ -9018,6 +9041,20 @@ export interface ItemDef {
 // ML-1: the owners named by ItemDef.reserved (each becomes a pending wiring registry entry with this text as owner).
 const ML2_RECIPE_REWORK = "ML-2 (Material Lines recipe rework: the cargo, FTL, reactor, utility, shield and plating blueprints)";
 const EM8_PRECURSOR_LENS = "EM-8 (the Precursor Lens special module is crafted with it)";
+// Gas Giant Study GG-1: the owners of the research data reserves (the Research Lab's study lane, GG-5).
+const GG5_DATA_STUDY = "GG-5 (the Research Lab study lane studies it into a +12% boost on the next project of its family)";
+const GG5_ANCIENT_STUDY = "GG-5 (the Research Lab study lane decodes the next ancient entry from it)";
+// Gas Giant Study GG-1 [PROPOSAL values, the user tunes them]: credits per canister at the Quartermaster's Sell counter.
+// The Deuterium Canister anchors the scale: ten Deuterium Ice (40 cr each) refine into one, so it sells a little above
+// the 400 cr of ice it took; the Standard band sells under it and each band up roughly doubles.
+export const GAS_CANISTER_SELL_VALUE = {
+  hydrogenCanister: 200,
+  methaneCanister: 200,
+  ammoniaCanister: 450,
+  deuteriumCanister: 450,
+  helium3Canister: 1_000,
+  antimatterCell: 2_500,
+} as const;
 
 export const ITEMS: Record<string, ItemDef> = {
   // --- Raw loot (mission extraction output; keyed as LootMaterialKey) ---
@@ -9082,7 +9119,8 @@ export const ITEMS: Record<string, ItemDef> = {
     tier: 1,
     rarity: "common",
     // The guaranteed (and ONLY) drop of the localFuelRun mission, a common-tier ore.
-    unlockHint: "Skimmed from the retired Local Deuterium Skim run; sell any you hold at the Quartermaster.",
+    // Gas Giant Study GG-1: it now refines into a Deuterium Canister (REFINE_RECIPES.refineDeuteriumCanister).
+    unlockHint: "Skimmed from the retired Local Deuterium Skim run; refine it into Deuterium Canisters or sell it at the Quartermaster.",
     // ML-1: the flavor no longer tells the player to cook it down at the Fuel Depot (that pipeline retired in 0.13.6).
     flavor: "Deuterium-laced water ice cracked from a local field, heavy hydrogen the fleet no longer burns for fuel.",
     // DEPRECATED by fuel-to-reach (0.13.6): the skim run + the Fuel Depot that consumed this are
@@ -9484,6 +9522,162 @@ export const ITEMS: Record<string, ItemDef> = {
     rarity: "uncommon",
     unlockHint: "Crafted at the Fabricator after research.",
     flavor: "A stabilizer cuff for a downed squadmate that shortens their stay in the medical bay. Needs a trained hand.",
+  },
+
+  // Gas Storage Canisters (Gas Giant Study GG-1, 0.14.0; user 2026-10-19 call 5 "Proposed mapping").
+  // The six canisters by band: Standard Hydrogen and Methane, Augmented Ammonia and Deuterium, Stellar Helium-3,
+  // Radiant the Antimatter Containment Cell ("Not a gas, but it will require its own specialized container"). Every
+  // one sells at the Quartermaster (call 7: "also sellable"); their recipe uses are GG-7's (the G2 drive classes and
+  // the Lab tier 3 to 7 blueprints). Until GG-3 wires the study reward, only the Deuterium Canister has a source (the
+  // Refinery, from Deuterium Ice); the other five stay off the shelves (gasGiantContent.ts GAS_STUDY_SOURCE_PENDING).
+  hydrogenCanister: {
+    label: "Hydrogen Canister",
+    category: "gasCanister",
+    band: "standard",
+    tier: 1,
+    rarity: "common",
+    unlockHint: "Collected when a ship studies a gas giant or sweeps a nebula on an expedition.",
+    flavor: "The bulk of every giant, pumped down to a few hundred atmospheres. The cheapest thing in the canister rack.",
+    sellValue: GAS_CANISTER_SELL_VALUE.hydrogenCanister,
+  },
+  methaneCanister: {
+    label: "Methane Canister",
+    category: "gasCanister",
+    band: "standard",
+    tier: 1,
+    rarity: "common",
+    unlockHint: "Collected when a ship studies a gas giant or sweeps a nebula on an expedition.",
+    flavor: "The gas that paints Uranus and Neptune blue, skimmed from the upper haze.",
+    sellValue: GAS_CANISTER_SELL_VALUE.methaneCanister,
+  },
+  ammoniaCanister: {
+    label: "Ammonia Canister",
+    category: "gasCanister",
+    band: "augmented",
+    tier: 1,
+    rarity: "uncommon",
+    unlockHint: "Collected when a ship studies a gas giant or sweeps a nebula on an expedition.",
+    flavor: "Drawn from the top cloud deck, where ammonia ice hangs in pale bands.",
+    sellValue: GAS_CANISTER_SELL_VALUE.ammoniaCanister,
+  },
+  deuteriumCanister: {
+    label: "Deuterium Canister",
+    category: "gasCanister",
+    band: "augmented",
+    tier: 1,
+    rarity: "uncommon",
+    unlockHint: "Refined at the Refinery from Deuterium Ice.",
+    flavor: "Heavy hydrogen, pressed into a canister. The old ice stock finally has somewhere to go.",
+    sellValue: GAS_CANISTER_SELL_VALUE.deuteriumCanister,
+  },
+  helium3Canister: {
+    label: "Helium-3 Canister",
+    category: "gasCanister",
+    band: "stellar",
+    tier: 1,
+    rarity: "rare",
+    unlockHint: "Collected when a ship studies a gas giant or sweeps a nebula on an expedition.",
+    flavor: "A trace isotope sifted from tons of helium, the classic dream fuel of fusion engineers.",
+    sellValue: GAS_CANISTER_SELL_VALUE.helium3Canister,
+  },
+  antimatterCell: {
+    label: "Antimatter Containment Cell",
+    category: "gasCanister",
+    band: "radiant",
+    tier: 1,
+    rarity: "epic",
+    unlockHint: "Collected when a ship studies a gas giant on an expedition (trapped in its magnetic field).",
+    flavor: "A few nanograms of antiprotons held off the walls by a magnetic bottle. Not a gas, so it needs its own container.",
+    sellValue: GAS_CANISTER_SELL_VALUE.antimatterCell,
+  },
+
+  // Research Data (Gas Giant Study GG-1; user 2026-10-19 call 9 "Your six + 2, +12%").
+  // One item per research family: the user's six (Propulsion, Defense, Weapons, Systems, Field, Hull Design) plus
+  // Materials and Sensors. The Research Lab's study lane (GG-5, call 8 "Auto when idle") studies each held item into
+  // a +12% boost on the next project of its family (D23 stacking) and rarely a recipe (5%). Until GG-5 lands nothing
+  // studies them (the `reserved` marker) and until GG-3 nothing returns them, so they stay out of every list.
+  propulsionData: {
+    label: "Propulsion Data",
+    category: "researchData",
+    tier: 1,
+    rarity: "uncommon",
+    unlockHint: "Returned by a ship's study of a gas giant or a nebula on an expedition.",
+    flavor: "Pressure, flow and burn readings from the deep atmosphere, the raw stuff of better drives.",
+    reserved: GG5_DATA_STUDY,
+  },
+  defenseData: {
+    label: "Defense Data",
+    category: "researchData",
+    tier: 1,
+    rarity: "uncommon",
+    unlockHint: "Returned by a ship's study of a gas giant or a nebula on an expedition.",
+    flavor: "How the probe hull held up under the crush, logged strain by strain.",
+    reserved: GG5_DATA_STUDY,
+  },
+  weaponsData: {
+    label: "Weapons Data",
+    category: "researchData",
+    tier: 1,
+    rarity: "uncommon",
+    unlockHint: "Returned by a ship's study of a gas giant or a nebula on an expedition.",
+    flavor: "Lightning, plasma and charged winds measured at close range. Somebody will find a use for it.",
+    reserved: GG5_DATA_STUDY,
+  },
+  systemsData: {
+    label: "Systems Data",
+    category: "researchData",
+    tier: 1,
+    rarity: "uncommon",
+    unlockHint: "Returned by a ship's study of a gas giant or a nebula on an expedition.",
+    flavor: "Telemetry from every subsystem that kept the probe talking on its way down.",
+    reserved: GG5_DATA_STUDY,
+  },
+  fieldData: {
+    label: "Field Data",
+    category: "researchData",
+    tier: 1,
+    rarity: "uncommon",
+    unlockHint: "Returned by a ship's study of a gas giant or a nebula on an expedition.",
+    flavor: "Corrosion, heat and gravity loads, the conditions away-team gear has to survive.",
+    reserved: GG5_DATA_STUDY,
+  },
+  hullDesignData: {
+    label: "Hull Design Data",
+    category: "researchData",
+    tier: 1,
+    rarity: "uncommon",
+    unlockHint: "Returned by a ship's study of a gas giant or a nebula on an expedition.",
+    flavor: "Shear and buffeting profiles at every altitude, the numbers a hull architect loses sleep over.",
+    reserved: GG5_DATA_STUDY,
+  },
+  materialsData: {
+    label: "Materials Data",
+    category: "researchData",
+    tier: 1,
+    rarity: "uncommon",
+    unlockHint: "Returned by a ship's study of a gas giant or a nebula on an expedition.",
+    flavor: "Spectra of metallic hydrogen, silicate rain and stranger things that only form under that much pressure.",
+    reserved: GG5_DATA_STUDY,
+  },
+  sensorsData: {
+    label: "Sensors Data",
+    category: "researchData",
+    tier: 1,
+    rarity: "uncommon",
+    unlockHint: "Returned by a ship's study of a gas giant or a nebula on an expedition.",
+    flavor: "Calibration sweeps taken through storms that blind ordinary instruments.",
+    reserved: GG5_DATA_STUDY,
+  },
+  // The ancient data (user 2026-10-19 call 10 "One lane"): a data type whose study decodes the next ancient entry
+  // (GG-5); some entries unlock special blueprints. No culture name in 0.14.0 text: names come with G3 Relics v2.
+  ancientDataFragment: {
+    label: "Ancient Data Fragment",
+    category: "researchData",
+    tier: 1,
+    rarity: "rare",
+    unlockHint: "Sometimes recovered by a deep probe dive during a ship's study of a gas giant.",
+    flavor: "A shard of a record far older than the fleet, pulled from something that sank into the clouds long ago.",
+    reserved: GG5_ANCIENT_STUDY,
   },
 };
 
@@ -10841,7 +11035,7 @@ export const BLUEPRINTS: Record<string, BlueprintDef> = {
   },
   atmoProbeBp: {
     key: "atmoProbeBp",
-    label: "Atmo Probe Blueprint",
+    label: "Galileo-Class Probe Blueprint",
     tier: 2,
     researchDurationTicks: 120,
     researchCreditCost: 1600,
@@ -10849,7 +11043,8 @@ export const BLUEPRINTS: Record<string, BlueprintDef> = {
     equipmentOutput: { slotType: "memberTool", varietyKey: "atmoProbe" },
     // A frame-built drop probe with wafer sensors and a coupling.
     recipe: { inputs: { polysilicateWafer: 2, frameSegment: 1, powerCoupling: 1 } },
-    flavor: "Dropped into a gas giant's bands on a long tether. What comes back up is worth the wait.",
+    // Gas Giant Study GG-1 [PROPOSAL flavor] (design section 5).
+    flavor: "Hardened against the crush and the acid. It keeps talking long after Galileo would have gone quiet.",
     unlockHint: "Researched at the Research Lab (needs a higher lab tier); crafted at the Fabricator. Away-team gear, worn by a squad member.",
   },
 

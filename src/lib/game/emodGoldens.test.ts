@@ -43,6 +43,7 @@ import { WIRING_REGISTRY } from "./wiring/registry";
 import { getSeniorStaffBonusById } from "./seniorStaffBonuses";
 import { withEm1Off } from "./emodEm1Switch.fixture";
 import { withV1Museum } from "./firstRunsGoldens.fixture";
+import { GG1_ADDED_ENTRY_IDS } from "./gasStudyGoldens.fixture";
 
 // ===== shared helpers =====
 
@@ -394,8 +395,11 @@ const GOLDEN: Record<string, unknown> = {
   // Re-pinned at the merge of FKR-7 into feat (c844bd4 / 3c94e7d1 -> 60d00075): the three moves together, nothing else.
   // Reading back every slice but one reproduces that slice's own pin (b5c9178b, 80e62647, 3c94e7d1), reading back
   // FKR-7 alone reproduces c844bd4, and reading back all three reproduces 30489b98 (asserted below).
+  // Re-pinned by Gas Giant Study GG-1 (60d00075 -> c86ecfb4): it only ADDS entries (the study uses, the giant class and
+  // nebula kind fields, the canister sell values, the research data reserves, the Deuterium Canister recipe); with them
+  // left out the snapshot is 60d00075 (REGISTRY_BEFORE_GG1, asserted below) and every read-back leaves them out too.
   registry: [
-    "60d00075",
+    "c86ecfb4",
     "relic:RELICS:precursorLens",
     "ship:audit:reactorCoreNet",
   ],
@@ -539,12 +543,16 @@ const REGISTRY_RACIALS_PIN = "b5c9178b";
 const REGISTRY_G14_PIN = "80e62647";
 const REGISTRY_FKR7_PIN = "3c94e7d1";
 const REGISTRY_BEFORE_FKR7_MERGE = "c844bd4";
+// The snapshot before Gas Giant Study GG-1 (feat adb41c6).
+const REGISTRY_BEFORE_GG1 = "60d00075";
 
 // Which later moves a read-back undoes. Each slice's rows are disjoint from every other slice's.
+// Gas Giant Study GG-1 only ADDS entries (gasStudyGoldens.fixture.ts), so every read-back leaves them out.
 type Back = { readonly racials?: boolean; readonly g14?: boolean; readonly fkr7?: boolean; readonly fkr6?: boolean; readonly g13?: boolean };
 function rowsBack(back: Back): unknown[][] {
   return WIRING_REGISTRY.filter(
     (e) =>
+      !GG1_ADDED_ENTRY_IDS.has(e.id) &&
       !(back.racials && RACIALS_ADDED_IDS.has(e.id)) &&
       !(back.g14 && G14_ADDED_IDS.has(e.id)) &&
       !(back.fkr7 && FKR7_ADDED_IDS.has(e.id)) &&
@@ -622,6 +630,9 @@ describe("EM-0 goldens (re-pinned by EM-1 where named)", () => {
     const snapshot = hash(WIRING_REGISTRY.map((e) => [e.id, e.status, e.contexts, e.probe ?? null]));
     const emod = WIRING_REGISTRY.filter((e) => e.status.kind !== "live" && "owner" in e.status && /E-MOD/.test(e.status.owner)).map((e) => e.id).sort();
     pinned("registry", [snapshot, ...emod]);
+    // Gas Giant Study GG-1 only added entries: with them left out (and nothing read back) the snapshot is the merged
+    // feat pin before it, so they are its only cause.
+    expect(hash(rowsBack({}))).toBe(REGISTRY_BEFORE_GG1);
     // With the later moves read back (FKR-6 and G1-3, the test below) and ML-1's entries left out: the snapshot before ML-1.
     const beforeMl1 = hash(registryRowsBack(true).filter((r) => !ML1_ENTRY_IDS.has(r[0] as string)));
     expect(beforeMl1).toBe(REGISTRY_BEFORE_ML1);

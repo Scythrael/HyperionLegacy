@@ -219,7 +219,8 @@ const MEMBER_CATALOG: Record<string, string[]> = {
   memberTool: [
     // Field Kits FKR-5: the user-named Impact Grenade (FK11) after the two specialized grenades.
     "Stun Grenade", "Toxin Grenade", "Impact Grenade", "Med Kit", "Shroud Emitter", "Lure Beacon",
-    "Flora Scanner", "Thermal Rig", "Core Drill", "Decryptor", "Atmo Probe",
+    // Gas Giant Study GG-1: the Atmo Probe is the user's Galileo-Class Probe (id `atmoProbe` kept).
+    "Flora Scanner", "Thermal Rig", "Core Drill", "Decryptor", "Galileo-Class Probe",
     "Assay Scanner", "Seismic Mapper",
   ],
   implant: [

@@ -128,6 +128,8 @@ import { AFFIX_DEFS, ESCALATION_ENEMIES_PER_LEVEL, HEIGHTENED_SENSES_KNEE, HEIGH
 import { ENEMY_RANKS, ENEMY_RANK_IDS } from "../enemyRanks";
 import { OVERTIME_STEP_RATE } from "../processSpeed";
 import { SHORT_RANGE_TEMPLATES, SHORT_RANGE_TEMPLATE_KEYS } from "../shortRange";
+import { GAS_STUDY_USES, GIANT_CLASSES, NEBULA_KINDS, type GasStudyUse } from "../gasGiantContent";
+import { effectFieldsOf } from "./fieldRoles";
 import {
   CONDITION_LINES,
   CONDITION_LINE_IDS,
@@ -3922,6 +3924,7 @@ function build(): readonly WiringEntry[] {
     ...crewScalarEntries(),
     ...medicalEntries(),
     ...prospectingEntries(),
+    ...gasStudyEntries(),
     ...auditEntries(),
     ...speedSeamEntries(),
   ]
@@ -3947,6 +3950,49 @@ function prospectingEntries(): WiringEntry[] {
   };
   for (const use of PROSPECTING_USES) {
     out.push(entry({ id: `away:PROSPECTING_USES:${use}`, system: "away", source: { catalog: "PROSPECTING_USES", key: use }, claim: useClaim[use] ?? use, status: PROSPECTING_DEFERRED }));
+  }
+  return out;
+}
+
+// Gas Giant Study GG-1 (data only; plan docs/plans/2026-10-17-gas-giant-study-plan.md section 3.5): every effect the
+// study's content configures, pending on the slice that reads it. The study's engine uses (GAS_STUDY_USES, owners in
+// gasGiantContent.ts), each giant class's roll weight and mass band (GG-2: the class roll), its physics inputs and
+// band odds and item weights (GG-3: the study reward and the probe's depth factor), and each nebula kind's band odds
+// and item weights (GG-4: the nebula sweep). A slice flips its entries live, with a probe, in the commit that wires
+// them. The items' own reserves and sell values register with the other ITEMS rows (recipeAndBlueprintEntries).
+function gasStudyEntries(): WiringEntry[] {
+  const out: WiringEntry[] = [];
+  const useSystem: Readonly<Record<GasStudyUse, WiringSystem>> = {
+    classRoll: "expedition",
+    studyReward: "expedition",
+    probeDive: "away",
+    nebulaSweep: "expedition",
+    labLane: "facility",
+    canisterRecipes: "facility",
+  };
+  for (const use of Object.keys(GAS_STUDY_USES) as GasStudyUse[]) {
+    const system = useSystem[use];
+    out.push(entry({ id: `${system}:GAS_STUDY_USES:${use}`, system, source: { catalog: "GAS_STUDY_USES", key: use }, claim: GAS_STUDY_USES[use], status: pending(GAS_STUDY_USES[use]) }));
+  }
+  const classOwner: Readonly<Record<string, string>> = {
+    weight: GAS_STUDY_USES.classRoll,
+    massMinMilliJ: GAS_STUDY_USES.classRoll,
+    massMaxMilliJ: GAS_STUDY_USES.classRoll,
+    radiusModel: GAS_STUDY_USES.probeDive,
+    inflation: GAS_STUDY_USES.probeDive,
+    bandOdds: GAS_STUDY_USES.studyReward,
+    itemWeights: GAS_STUDY_USES.studyReward,
+  };
+  for (const c of GIANT_CLASSES) {
+    for (const field of effectFieldsOf("GIANT_CLASSES")) {
+      const owner = classOwner[field] ?? `GG-1 follow-up: GIANT_CLASSES.${field} has no owning slice`;
+      out.push(entry({ id: `expedition:GIANT_CLASSES:${c.id}:${field}`, system: "expedition", source: { catalog: "GIANT_CLASSES", key: `${c.id}:${field}` }, claim: `${c.name}: its ${field}`, status: pending(owner) }));
+    }
+  }
+  for (const k of NEBULA_KINDS) {
+    for (const field of effectFieldsOf("NEBULA_KINDS")) {
+      out.push(entry({ id: `expedition:NEBULA_KINDS:${k.id}:${field}`, system: "expedition", source: { catalog: "NEBULA_KINDS", key: `${k.id}:${field}` }, claim: `${k.name}: its ${field}`, status: pending(GAS_STUDY_USES.nebulaSweep) }));
+    }
   }
   return out;
 }

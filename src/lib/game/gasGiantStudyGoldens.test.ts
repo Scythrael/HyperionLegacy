@@ -13,7 +13,8 @@
 //   4. lab    : startResearch durations for five blueprints, with and without a museum research-speed bonus (GG-5
 //               adds the data boost on top of this seam; with no banked boost the numbers must not move).
 //   5. census : the item census (ids and counts by category), the refine recipe ids and the blueprint count. GG-1
-//               adds items, so this is the one golden GG-1 moves (explained at the pin).
+//               adds items and a recipe, so this is the one golden GG-1 moves: they are held apart and pinned on
+//               their own (explained at the pin).
 // Plus offline == live parity on both runs: one call == 997 s chunks == 1 s steps over the 600 s around arrival.
 //
 // Merged with feat/crew-0.14.0 adb41c6 after the capture: G2-2 renamed the candidates (`cand-<slot>` became
@@ -49,6 +50,8 @@ import {
 } from "./expedition";
 import { resolveShipScanEvent } from "./shipScanEvents";
 import { startResearch } from "./tick";
+import { gasStudyItemIds } from "./gasGiantContent";
+import { GG1_RECIPE } from "./gasStudyGoldens.fixture";
 import { asPreG2Candidate, asPreG2NamesDispatch, asPreRanksDispatch, plainAwayMember, withoutG2NamesState } from "./awayTeamTestFixtures";
 import { withV1Museum } from "./firstRunsGoldens.fixture";
 
@@ -214,6 +217,31 @@ const CENSUS_GOLDEN = {
   blueprints: 78,
 };
 
+// What GG-1 added (held apart above, so the merge pin keeps proving nothing else moved): fifteen items in ITEMS order
+// at the end of the table (six Gas Storage Canisters, eight research data items, the Ancient Data Fragment; two new
+// categories) and one Refinery recipe at the end of REFINE_RECIPES (Deuterium Ice into a Deuterium Canister).
+const GG1_CENSUS = {
+  items: [
+    "hydrogenCanister",
+    "methaneCanister",
+    "ammoniaCanister",
+    "deuteriumCanister",
+    "helium3Canister",
+    "antimatterCell",
+    "propulsionData",
+    "defenseData",
+    "weaponsData",
+    "systemsData",
+    "fieldData",
+    "hullDesignData",
+    "materialsData",
+    "sensorsData",
+    "ancientDataFragment",
+  ],
+  byCategory: { gasCanister: 6, researchData: 9 } as Record<string, number>,
+  refineRecipes: ["refineDeuteriumCanister"],
+};
+
 describe("GG-0 golden 1: a Ground Ops run on a system with a gas giant", () => {
   it("candidate 2: candidate, task preview, launch view, scan draws, dispatch, timeline, run, claim and deposits", () => {
     const { out, planetTypes } = captureRun("cand-1-2");
@@ -279,14 +307,24 @@ describe("GG-0 golden 4: startResearch durations, with and without the museum", 
 });
 
 describe("GG-0 golden 5: the item census", () => {
-  it("item ids, counts by category, refine recipes and blueprint count", () => {
+  const gg1 = new Set(gasStudyItemIds());
+  const census = (ids: string[], recipes: string[]) => {
     const byCategory: Record<string, number> = {};
-    for (const item of Object.values(ITEMS)) byCategory[item.category] = (byCategory[item.category] ?? 0) + 1;
-    expect({
-      items: hash(Object.keys(ITEMS)),
-      byCategory,
-      refineRecipes: Object.keys(REFINE_RECIPES),
-      blueprints: Object.keys(BLUEPRINTS).length,
-    }).toEqual(CENSUS_GOLDEN);
+    for (const id of ids) byCategory[ITEMS[id].category] = (byCategory[ITEMS[id].category] ?? 0) + 1;
+    return { ids, byCategory, refineRecipes: recipes };
+  };
+
+  it("item ids, counts by category, refine recipes and blueprint count (GG-1's additions held apart)", () => {
+    const before = census(Object.keys(ITEMS).filter((id) => !gg1.has(id)), Object.keys(REFINE_RECIPES).filter((k) => k !== GG1_RECIPE));
+    expect({ items: hash(before.ids), byCategory: before.byCategory, refineRecipes: before.refineRecipes, blueprints: Object.keys(BLUEPRINTS).length }).toEqual(CENSUS_GOLDEN);
+  });
+
+  it("GG-1's additions: fifteen items appended in order and the one recipe appended", () => {
+    const keys = Object.keys(ITEMS);
+    expect(keys.slice(keys.length - GG1_CENSUS.items.length)).toEqual(GG1_CENSUS.items);
+    const recipes = Object.keys(REFINE_RECIPES);
+    expect(recipes.slice(recipes.length - 1)).toEqual(GG1_CENSUS.refineRecipes);
+    const added = census(GG1_CENSUS.items, GG1_CENSUS.refineRecipes);
+    expect({ items: added.ids, byCategory: added.byCategory, refineRecipes: added.refineRecipes }).toEqual(GG1_CENSUS);
   });
 });

@@ -2,7 +2,7 @@
 //
 // Covers:
 //   - the spec -> PoI mapping is one exhaustive partition of the PoI catalog;
-//   - a planet-tuned tool (Flora Scanner, Thermal Rig, Atmo Probe) helps only on its planet types;
+//   - a planet-tuned tool (Flora Scanner, Thermal Rig, Galileo-Class Probe) helps only on its planet types;
 //   - a spec match raises the matching PoI's yield and no other's;
 //   - the Hazard Suit / groundHazardResist cuts the scan hazard slowdown;
 //   - groundRelicFind raises the relic odds;
@@ -298,7 +298,7 @@ describe("planet-tuned tools help only on their planet types", () => {
     expect(fieldworkHazardResist(e, "toxic")).toBe(0);
   });
 
-  it("an Atmo Probe works only on gas giants (and gas giant fieldwork runs without one)", () => {
+  it("a Galileo-Class Probe works only on gas giants (and gas giant fieldwork runs without one)", () => {
     const probe = piece("equip-903", "memberTool", "atmoProbe", "member-2", { groundFieldwork: 20 });
     const gg = effectFor([SCI()], [probe], "gasGiant", "caveNetwork");
     expect(gg.speedMult).toBeGreaterThan(1);
