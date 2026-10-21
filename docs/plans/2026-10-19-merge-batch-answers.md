@@ -142,3 +142,17 @@ section 5.A captain nodes). Kept in their own file so the parallel integrator's 
 - Expedition dispatch console (G2-6): https://claude.ai/artifact/AnWvt9kfqAUJo1sCMkTpMC
 - Gas giant study v3 (GG-6): https://claude.ai/artifact/RR2pwa3wQmTGPm2ZHQeGEN
 - Relics v2 + Refinery + Modules (R2-8, ML-7, EM-10): https://claude.ai/artifact/6Pat4nwfbWzsUsqKUdMpKo
+
+## Mockup sign-off (2026-10-21, verbatim): "I approve all 4 mockups as is. They all look excellent!"
+
+All four mockups above are signed off AS DRAWN: every open question on each page resolves to the option shown (as
+drawn). Recorded picks so far: G1-6 (pre-pick + one-tap Send; Home shows waiting slots; job types collapsed on the board;
+Repeat toggle on by default; shortRange and commBooster glyphs approved); G2-6 (tabs with the map as the alternative;
+dimmed preview of locked tiers; resumables in their own region; a pre-arrival recall returns the system to ordinary
+candidates; "None can be built yet" wording; Launch in a bar under the candidates; the four new glyphs drive / reach /
+recall / resume approved for icons.ts review); GG-6 (as drawn: decode the next entry of the fragment's own culture; data
+study as its own Research Lab tab; oldest held data first; no research-data warehouse shelf; nebula sweep on the ship
+lane); R2-8 / ML-7 / EM-10 (as drawn: shelves by rarity band per tier; hatched past-cap bar; culture samples under each
+type; inline reveal card; compounds with their main raw's line; no "more recipes" note; per-quality chips visible;
+"Use best materials" starts lowest-first; spec utility as a tile in the Modules row; one power bar with hatched cut and
+shaded surplus; over-budget flag on this screen; one-line Active rule text).
