@@ -2089,8 +2089,9 @@ export const IMPACT_GRENADE_RECIPE: Readonly<Record<string, number>> = { titaniu
 // "Hide until kits are live"). While false: the Impact Grenade blueprint stays out of BLUEPRINTS (so out of Research,
 // the Fabricator and the Archive; it waits in FIELD_KITS_HIDDEN_BLUEPRINTS), and a NEW Stun or Toxin Grenade craft rolls
 // from its pre-FKR-5 pool (no +1 Carry Capacity line), exactly as before FKR-5. Pieces already minted keep their
-// lines. FKR-7 flips it to true: the blueprint merges in and the two pools gain the carry line (GRENADE_CRAFT_POOLS).
-export const FIELD_KITS_PLAYER_LIVE = false;
+// lines. FKR-9 / FKR-10 flipped it to true with fieldKits.ts FIELD_KITS_RUNS_LIVE (user 2026-10-20 "Yes, with the pack
+// screen"): the blueprint merges in and the two pools gain the carry line (GRENADE_CRAFT_POOLS).
+export const FIELD_KITS_PLAYER_LIVE = true;
 
 // The Stun and Toxin Grenades' craft pools: `base` as before FKR-5, `carry` with FKR-5's +1 Carry Capacity line (FK11;
 // pool weight 1, variety share 0.15 [PROPOSAL: a "possibly" line, about one Standard craft in four], the other two

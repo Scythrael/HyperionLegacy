@@ -394,8 +394,12 @@ const GOLDEN: Record<string, unknown> = {
   // Re-pinned at the merge of FKR-7 into feat (c844bd4 / 3c94e7d1 -> 60d00075): the three moves together, nothing else.
   // Reading back every slice but one reproduces that slice's own pin (b5c9178b, 80e62647, 3c94e7d1), reading back
   // FKR-7 alone reproduces c844bd4, and reading back all three reproduces 30489b98 (asserted below).
+  // Re-pinned by Field Kits FKR-9 / FKR-10, the switch-on (60d00075 -> 9deacec7): FIELD_KITS_PLAYER_LIVE brings back
+  // FKR-5's three hidden entries (the Impact Grenade blueprint, the Stun and Toxin carry lines) and the hidden pieces and
+  // runs switch audit rows go live with their probes and contexts; read back (FKR9_SHOWN_IDS, FKR9_BEFORE) the snapshot is
+  // 60d00075, and every earlier read-back holds FKR-9 apart too. The E-MOD rows hold.
   registry: [
-    "60d00075",
+    "9deacec7",
     "relic:RELICS:precursorLens",
     "ship:audit:reactorCoreNet",
   ],
@@ -532,6 +536,20 @@ const FKR7_BEFORE: Readonly<Record<string, string>> = {
 };
 const REGISTRY_BEFORE_FKR7 = "30489b98";
 
+// Field Kits FKR-9 / FKR-10 (the switch-on): the three FKR-5 entries the switch shows again (absent before it), and the two
+// audit rows it flipped pending -> live as they stood before it (status, no contexts, no probe). The snapshot before it
+// is REGISTRY_BEFORE_FKR9 (the FKR-7 merge pin).
+const FKR9_SHOWN_IDS: ReadonlySet<string> = new Set<string>([
+  "gear:security:stunGrenade:groundCarryCapacity",
+  "gear:security:toxinGrenade:groundCarryCapacity",
+  "facility:BLUEPRINTS:impactGrenadeBp",
+]);
+const FKR9_BEFORE: Readonly<Record<string, string>> = {
+  "away:audit:fieldKitsHiddenPieces": "FKR-9 / FKR-10 (flip FIELD_KITS_PLAYER_LIVE with FIELD_KITS_RUNS_LIVE once the pack UI ships)",
+  "away:audit:fieldKitsRunsSwitch": "FKR-9 / FKR-10 (the per-member pack UI and the Quartermaster kit sale rows; flips with FIELD_KITS_PLAYER_LIVE)",
+};
+const REGISTRY_BEFORE_FKR9 = "60d00075";
+
 // The pins each of the three latest slices left on its own branch (the inert racials on feat, G1-4 and FKR-7 on theirs),
 // each from 30489b98, and feat's pin after G1-4 merged (before FKR-7). Merged, reading back only the OTHER slices
 // reproduces each one.
@@ -541,10 +559,11 @@ const REGISTRY_FKR7_PIN = "3c94e7d1";
 const REGISTRY_BEFORE_FKR7_MERGE = "c844bd4";
 
 // Which later moves a read-back undoes. Each slice's rows are disjoint from every other slice's.
-type Back = { readonly racials?: boolean; readonly g14?: boolean; readonly fkr7?: boolean; readonly fkr6?: boolean; readonly g13?: boolean };
+type Back = { readonly fkr9?: boolean; readonly racials?: boolean; readonly g14?: boolean; readonly fkr7?: boolean; readonly fkr6?: boolean; readonly g13?: boolean };
 function rowsBack(back: Back): unknown[][] {
   return WIRING_REGISTRY.filter(
     (e) =>
+      !(back.fkr9 && FKR9_SHOWN_IDS.has(e.id)) &&
       !(back.racials && RACIALS_ADDED_IDS.has(e.id)) &&
       !(back.g14 && G14_ADDED_IDS.has(e.id)) &&
       !(back.fkr7 && FKR7_ADDED_IDS.has(e.id)) &&
@@ -554,6 +573,8 @@ function rowsBack(back: Back): unknown[][] {
       ? [e.id, ...RACIALS_BEFORE[e.id]]
       : back.fkr7 && e.id in FKR7_BEFORE
         ? [e.id, { kind: "pending", owner: FKR7_BEFORE[e.id] }, [], null]
+        : back.fkr9 && e.id in FKR9_BEFORE
+          ? [e.id, { kind: "pending", owner: FKR9_BEFORE[e.id] }, [], null]
         : back.fkr6 && e.id in FKR6_BEFORE
           ? [e.id, { kind: "pending", owner: FKR6_BEFORE[e.id] }, [], null]
           : back.g13 && e.id === G13_ROW
@@ -567,7 +588,7 @@ function rowsBack(back: Back): unknown[][] {
 // The registry snapshot rows with the inert racials, G1-4, FKR-7 and FKR-6 read back (FKR-6's added entries left out,
 // its flips as they stood) and, when `g13Back`, G1-3's audit row with its old owner.
 function registryRowsBack(g13Back: boolean): unknown[][] {
-  return rowsBack({ racials: true, g14: true, fkr7: true, fkr6: true, g13: g13Back });
+  return rowsBack({ fkr9: true, racials: true, g14: true, fkr7: true, fkr6: true, g13: g13Back });
 }
 
 function pinned(name: string, value: unknown): void {
@@ -626,19 +647,24 @@ describe("EM-0 goldens (re-pinned by EM-1 where named)", () => {
     const beforeMl1 = hash(registryRowsBack(true).filter((r) => !ML1_ENTRY_IDS.has(r[0] as string)));
     expect(beforeMl1).toBe(REGISTRY_BEFORE_ML1);
   });
+  // Field Kits FKR-9 / FKR-10 (the switch-on): its three re-shown entries left out and its two audit flips read back, the
+  // snapshot is the pin before it.
+  it("registry: Field Kits FKR-9 / FKR-10 (the switch-on) is the only cause of its snapshot move", () => {
+    expect(hash(rowsBack({ fkr9: true }))).toBe(REGISTRY_BEFORE_FKR9);
+  });
   // The three latest moves, merged together: each cause test also undoes the other slices' changes.
   it("registry: the inert racials are the only cause of their snapshot move", () => {
-    expect(hash(rowsBack({ g14: true, fkr7: true }))).toBe(REGISTRY_RACIALS_PIN);
-    expect(hash(rowsBack({ g14: true, fkr7: true, racials: true }))).toBe(REGISTRY_BEFORE_RACIALS);
+    expect(hash(rowsBack({ fkr9: true, g14: true, fkr7: true }))).toBe(REGISTRY_RACIALS_PIN);
+    expect(hash(rowsBack({ fkr9: true, g14: true, fkr7: true, racials: true }))).toBe(REGISTRY_BEFORE_RACIALS);
   });
   it("registry: G1-4 (the short-range cycle engine) is the only cause of its snapshot move", () => {
-    expect(hash(rowsBack({ racials: true, fkr7: true }))).toBe(REGISTRY_G14_PIN);
-    expect(hash(rowsBack({ racials: true, fkr7: true, g14: true }))).toBe(REGISTRY_BEFORE_G14);
+    expect(hash(rowsBack({ fkr9: true, racials: true, fkr7: true }))).toBe(REGISTRY_G14_PIN);
+    expect(hash(rowsBack({ fkr9: true, racials: true, fkr7: true, g14: true }))).toBe(REGISTRY_BEFORE_G14);
   });
   it("registry: Field Kits FKR-7 is the only cause of its snapshot move", () => {
-    expect(hash(rowsBack({ fkr7: true }))).toBe(REGISTRY_BEFORE_FKR7_MERGE);
-    expect(hash(rowsBack({ racials: true, g14: true }))).toBe(REGISTRY_FKR7_PIN);
-    expect(hash(rowsBack({ racials: true, g14: true, fkr7: true }))).toBe(REGISTRY_BEFORE_FKR7);
+    expect(hash(rowsBack({ fkr9: true, fkr7: true }))).toBe(REGISTRY_BEFORE_FKR7_MERGE);
+    expect(hash(rowsBack({ fkr9: true, racials: true, g14: true }))).toBe(REGISTRY_FKR7_PIN);
+    expect(hash(rowsBack({ fkr9: true, racials: true, g14: true, fkr7: true }))).toBe(REGISTRY_BEFORE_FKR7);
   });
   it("registry: FKR-6 and G1-3's audit row are the only causes of its snapshot move", () => {
     expect(hash(registryRowsBack(false))).toBe(REGISTRY_BEFORE_FKR6);

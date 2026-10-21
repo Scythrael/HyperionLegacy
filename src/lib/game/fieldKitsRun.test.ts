@@ -140,12 +140,23 @@ function placedRun(state: GameState, pois: string[], risk: BodyRiskGrades = { ..
 }
 
 describe("FKR-7 the switch and the stamp", () => {
-  it("the runs switch stays OFF until the pack UI lands (FKR-9 / FKR-10); off, a dispatch stamps nothing and packs nothing", () => {
-    expect(FIELD_KITS_RUNS_LIVE).toBe(false);
+  it("the runs switch is ON since the pack screen (FKR-9 / FKR-10): the default Launch stamps and packs; off, nothing", () => {
+    expect(FIELD_KITS_RUNS_LIVE).toBe(true);
     const s = crewed({ stock: { firstAidKit: [9] }, credits: 5000, teams: [{ topUp: true }] });
+    // The console's Launch leaves the switch argument out: the default is the switch.
+    const live = startExpedition(s, "ship-1", 1, "cand-0");
+    expect(live.success).toBe(true);
+    expect(live.expedition!.fieldKits?.catalog).toBe(FIELD_KITS_CATALOG_VERSION);
+    expect(held(live.next, "firstAidKit")).toBeLessThan(9);
+    // FKR-9: the dispatch keeps a display copy of each team's packs (never spent).
+    for (const t of live.expedition!.groundOps!.teams) expect(t.packed).toEqual(t.kits);
+    // Off (a test's explicit false), a dispatch still stamps nothing and packs nothing.
     const res = dispatch(s, false);
     expect("fieldKits" in res.expedition!).toBe(false);
-    for (const t of res.expedition!.groundOps!.teams) expect("kits" in t).toBe(false);
+    for (const t of res.expedition!.groundOps!.teams) {
+      expect("kits" in t).toBe(false);
+      expect("packed" in t).toBe(false);
+    }
     expect(held(res.next, "firstAidKit")).toBe(9);
     expect(res.next.credits.eq(5000)).toBe(true);
   });
