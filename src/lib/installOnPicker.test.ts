@@ -39,7 +39,7 @@ function piece(id: string, slotType: EquipmentSlotType, moduleVariant: string | 
   };
 }
 
-const shipReason = (r: string): string => `ship refused: ${r}`;
+const shipReason = (r: { reason: string }): string => `ship refused: ${r.reason}`;
 
 function state(equipment: EquipmentInstance[], awayMembers: AwayMember[]): GameState {
   return { ...freshState(), equipment, awayMembers };

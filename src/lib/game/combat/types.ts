@@ -168,8 +168,9 @@ export interface CombatWeapon {
 	// POWER DRAW (design S10). The reactor load this weapon places on the ship. A
 	// loadout's total draw must fit under the reactor's powerOutput (see
 	// combat/power.ts powerBudget / canFitByPower). Integer, first-pass + tunable.
-	// ⚠️ SEAM: the FIT-TIME gate that calls canFitByPower is the integration phase;
-	// here it is just the per-weapon datum + the pure budget helpers.
+	// E-MOD EM-2 (0.14.0): the install gate reads it through shipPower.ts (the whole
+	// ship's output vs net draw, on the installed piece's own powerDraw), in
+	// equipment.ts canFitEquipment (reason overPower).
 	powerDraw: number;
 
 	// AMBUSH ELIGIBILITY (design S7 / Phase 6). Whether this weapon may fire in an

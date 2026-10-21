@@ -37,7 +37,7 @@ import type {
   SeniorStaffOfficer,
 } from "./model";
 import { rarityIndex, SHIP_TYPES } from "./model";
-import { equippedFor } from "./equipment";
+import { equippedFor } from "./equipmentQueries";
 import { officerRankMagnitudeFactor } from "./seniorStaff";
 
 // ============================================================================

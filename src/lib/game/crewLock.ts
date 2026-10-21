@@ -14,7 +14,7 @@
 // Pure: reads state, returns verdicts or new states, never mutates an input. No draws, no clock.
 
 import type { GameState, ShipComplement } from "./model";
-import { onMissionLock } from "./equipment";
+import { onMissionLock } from "./equipmentQueries";
 
 // Whether a ship's crew is LOCKED right now (design section 5.6, S1-62). Two sources, both existing state:
 //   - the captain is on a mission or patrol: equipment.ts onMissionLock, the SAME guard that locks gear
