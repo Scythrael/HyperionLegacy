@@ -22,6 +22,10 @@
 //   - an extraction mission or a patrol: tickCaptainMission / tickCaptainPatrol read speed.instantComplete and run
 //     the CURRENT cycle or route through to its end inside the next tick without spending that tick's own time (the
 //     same rolls, cargo, waves and XP the time would have produced). A new cycle or route is built without it.
+//   - a short-range cycle (G1-4, the same "run" ref): tickCaptainShortRange (shortRangeCycle.ts) reads the flag the
+//     same way and runs the current cycle through to its delivery (the same pay and XP); the next cycle is a fresh
+//     roll without it. A cycle that is waiting at home (its load unpaid, its Warehouse full) or for a transit berth
+//     keeps the flag and runs through the moment it moves again, so the skip never invents an outcome.
 //   - an expedition: advanced to its own completion at once (advanceExpedition is a pure function of elapsed time
 //     and the run's seed, so the findings are the ones the run would have produced) and stamped.
 // Without a speed record every process, mission, patrol and expedition is byte-identical to before this seam.

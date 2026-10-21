@@ -14,7 +14,7 @@
 //   - buildRelicReveal: the card's view model, from that record + the post-completion state.
 
 import type { CompletionLogEntry, GameState, RelicSetId, EquipmentRarity } from "./game/model";
-import { blueprintsUnlockedByRelic } from "./game/model";
+import { blueprintsUnlockedByRelic, generalMuseumRecord } from "./game/model";
 import { getRelicById, getRelicSetById, relicCopies, setCompletion, type RelicRarity } from "./game/relics";
 
 export interface RelicReveal {
@@ -86,7 +86,7 @@ export function buildRelicReveal(
   const def = getRelicById(relicId);
   if (!def) return null;
   const set = getRelicSetById(def.setId);
-  const museum = state.relicMuseum ?? {};
+  const museum = generalMuseumRecord(state);
   return {
     recordId: record.id,
     relicId,

@@ -29,3 +29,15 @@ counters and the training-run rule, enemy ranks). Four systems ADDED to the plan
 squads (built hidden); Overtime and credit sinks; tutorial hooks (time skip, grant, expedite seam). User chose to show
 the honest 57% with the note "The plan grew by four systems since the last update, so the percentage dipped even
 though a lot got built."
+
+## 2026-10-19 (v7): 30 systems, 16 done, 10 building, 4 designed = 70%
+
+Done (16): the v6 fourteen plus Squad Loadouts (engine + screen merged) and Prospecting squads (built hidden, merged).
+Building (10): wiring framework (WR-1 to WR-5 and the Debug Wiring panel built; WR-6 to WR-12 left); safe first runs
+(SF-0 to SF-2 merged, SF-3 building); crew complement (CP-0 to CP-2, CP-6, CP-7 built); expedition tiers (G2-1, G2-2);
+Field Kits (FKR-0 to FKR-4); short-range missions (G1-0, G1-1); gas giant study (GG-0, GG-1 building); gear wear
+(steps 1 to 2 building); Overtime and credit sinks (speed seam merged, UI left); tutorial hooks (time skip, grant,
+expedite seam in the speed seam; tutorial wiring left).
+Designed (4): Relics v2; completion tracking; Material Lines; universal modules (E-MOD).
+Note shown on the card: "Still in production: once building wraps, a full QA pass begins, more in-depth than any
+before it."

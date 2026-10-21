@@ -184,6 +184,13 @@ export interface DroneSquadron {
 	// in-combat replenish module (Combatant.inCombatReplenishPercent) uses x% of it
 	// DURING battle. FIRST-PASS + TUNABLE.
 	droneReplenishRate: number;
+	// 0.14.0 (complement plan CP-4, OC-1 "Faster drone replenish"): the patrol cycle's frozen Deck Handling (the Flight
+	// Deck buff + the Belter racial) in PARTS PER MILLION of droneReplenishRate (bridge.ts applyDeckHandling), and the
+	// banked remainder of the extra progress it has not yet paid out (droneDefense.ts replenishUnits). Integer banking,
+	// so any amount above zero acts over a long patrol. OPTIONAL: absent on every squadron without Deck Handling, which
+	// then replenishes exactly as before.
+	deckHandlingPpm?: number;
+	replenishCarryPpm?: number;
 
 	// Time between volleys, in deci-seconds (integer fixed-point). Attack fires
 	// FAST (short cooldown), defense/support fire SLOW.

@@ -859,6 +859,42 @@ registry is imported lazily so production bundles do not carry it.
 **UI:** dev-only table; one DOM, readable at 375 px. A text sketch is in OC-K1 (whether the user wants a mockup first).
 Commit `feat(0.14.0): Debug Wiring panel shows every bonus's live contribution (WR-3)`.
 
+#### WR-3 carry note (built 2026-10-19; one commit, UI and a pure helper only, no engine change, no golden moved)
+
+**Built:** `src/lib/wiringPanelDisplay.ts` (the view model: the measuring pass, verdicts, filters, groups, text) +
+`wiringPanelDisplay.test.ts` (20 tests); `src/lib/game/wiring/panelOwnership.ts` (the per-catalog ownership readers
+and the probe view; beside the registry because it is keyed by catalog NAME, and the completeness test's unread-constant
+scan skips that folder, so naming `FIELD_KIT_PRICES` there never counts as reading the constant); a "WIRING (dev-only)" panel in App.svelte's Debug tab under
+the DEBUG PANEL (OC-K1: "Simple table, no mockup"). "Measure this save" takes a snapshot of `state` and measures every
+entry (1,170 today) in slices with a progress line; filters: system, Show (All / Owned / Owned but contributing nothing
+/ Pending incl. partial / Deferred, held, seam) and a search on id, source and claim. Columns: Source (id, claim, probe,
+catalog magnitude), Owned (+ verdict), Status (live / partial / pending / deferred / held / seam chip with owner and
+user ref), Contexts (live, "not yet", out of scope), Contribution (now vs without), Expected. At 640 px and below
+each row stacks into a labeled card (same DOM). No glyphs.
+
+**Lazy:** the helper imports the registry and probes as types only; `loadWiringDeps` imports them dynamically. Checked
+with builds: a preview build emits `registry` (96 kB) and `probes` (45 kB) chunks, loaded on the button; a production
+build carries neither (DEV_MODE is a build constant, the panel is dead code). A pass on a new game takes about 10 ms.
+
+**How it measures (deviations from "probe(save) vs off(save)", all because the registry's transforms are FIXTURE
+transforms):** the probes read ship-1, captain 1 and the fixture members, so the panel measures those subjects: ship-1,
+captain 1, and the first Security and Science member aboard ship-1, aliased to `member-901` / `member-902` in a probe
+view (`wiringProbeView`, never written back). Ownership and "without" come from one reader per player-choice catalog
+(27: talents, nodes, Homeworld, officers, complement buffs, rarity, rank, racials, facets, traits, member and ship gear
+lines, modules, arrays, Museum stats, relics, set tiers, rungs): "without" removes just that source (the bonus zeroed,
+the line dropped, the node unbought), where `off` would seat a blank fixture officer, empty the whole Museum, or be the
+identity. Rung tracks are measured as the rung's own step (the entry's on vs off on the save). Content catalogs (missions,
+enemies, POIs, recipes...) read "content"; derived or seam rows read "n/a" with a reason; hull data and one-time grants
+(captain slots) are owned but "not measurable here". Expected is shown only where the registry magnitude is what the save
+owns (talents, nodes, Homeworld, rungs, traits): elsewhere it is the fixture's (20 gear points, a 20-head bucket, an
+ensign), and an additive stack can read "off curve" without a broken wire. A test fails when a new catalog is not
+classified.
+
+**Readings:** a new game owns 21 (the starting facility and telescope rungs, Standard Issue lines, hull data) and
+"contributing nothing" is EMPTY (the section 7 QA line holds). On a sample save, Inspiring Leader reads "contributing
+nothing" when the complement carries no cargo buff: its registry probe is the crew map's cargo slot, so it is the
+probe's view, not a dead wire (the same seamOnly shape WR-2 reports). No [PROVISIONAL] or [PROPOSAL] values.
+
 ### WR-4: Bugs and seams (engine fixes with clear answers, text fixes)
 
 **Goldens first** (`wiringGoldens.test.ts`: mission dispatch at ore cap incl. transports, a Shipyard repair, a
@@ -1125,6 +1161,52 @@ tacticianHub, explorerHub, the tactical / science spec bonuses, the captain raci
 fleetLogisticsSalvage on hull teardown (OC-B1, B16 wording); industryHub, homelandDefenseHub, citizenryHub (OC-B2,
 OC-B3). **Save impact:** Homeworld talents exist on main; production players who own those hubs gain their effect at
 0.14.0 (patch notes). Goldens first.
+
+#### WR-6 carry note (built 2026-10-19; two commits: goldens, then the wiring; no SAVE bump)
+
+**Built:** `captainPrimaryEffects.ts` (`captainPrimaryMult`: the hubs and specs as their own x (1 + m) factors);
+new effect types `weaponDamageMult` / `scanRateMult` / `relicFindMult` (captain) and `fabricatorBonusOutput` /
+`patrolShieldMult` / `transportCrewBonus` (Homeworld); no node carries `none` any more. Tests:
+`wiringPlaceholderTalents.test.ts` (14), goldens `placeholderTalentGoldens.test.ts` (captured first).
+- tacticianHub Combat Readiness and the tactical spec: weapon damage, folded into the frozen captain combat record
+  beside Weapons Drill (patrols per cycle, Ground Ops ship events at dispatch).
+- explorerHub Survey Doctrine: `captainScanRateMult` beside Cartographer. Science spec: `relicFindMult` beside Field
+  Science (both frozen at dispatch).
+- Captain race: the commanding captain's racial joins the crew map at the officer magnitude (not scaled by the bridge
+  module or Mentor), Earth-born included in the Crew Effectiveness lift.
+- Salvage Operations: `hullTeardownFraction` adds its yield to a hull teardown; text says "percentage points" (B16).
+  Its +1 tier reach stays WR-11 (OC-J1).
+- Works Directorate: a Fabricator job's extra output (a second blank, or the material output twice) is rolled when
+  the job STARTS (`startProcess`, `WORKS_DIRECTORATE_SALT`, keyed by the process number) and stamped
+  (`TimedProcess.bonusOutput`), so a job in flight never changes and offline == live. Its text names the Refinery gate.
+- Home Guard: patrol shield pool and recharge, folded into the patrol cycle's frozen record at dispatch and relaunch
+  (`patrolCaptainCombatMods`); ship events do not read it. Civic Charter: `transportBatchSize` (13), which adds crew
+  and never rerolls the first 12.
+- Text: spec and category cards and the hub flavors name only live effects; stale DORMANT comments fixed in passing.
+
+**Sizes (confirmed by the user 2026-10-19, docs/plans/2026-10-19-merge-batch-answers.md; no longer provisional):**
+`TACTICIAN_HUB_WEAPON_DAMAGE` 0.05 (OC-A40), `EXPLORER_HUB_SCAN_RATE` 0.05 (OC-A41), `TACTICAL_SPEC_WEAPON_DAMAGE`
+0.01 and `SCIENCE_SPEC_RELIC_FIND` 0.01 (OC-A42; "combat damage" built as weapon damage), `CAPTAIN_RACIAL_SCALE` 1
+(OC-A43), and the sizes the user did not name for OC-B2 / OC-B3: `WORKS_DIRECTORATE_BONUS_CHANCE` 0.05,
+`HOME_GUARD_PATROL_SHIELD` 0.05, `CIVIC_CHARTER_TRANSPORT_CREW` 1.
+
+**Registry:** the 9 WR-6 entries are live (13 sensitivity checks across their contexts); new probes `fabricatorBonusShare`,
+`patrolShieldPool`, `transportCrewDelivered`; the teardown context reads `hullTeardownFraction`. The registry throws
+if a node or spec ever goes back to a placeholder. The Debug panel reads captain race ownership. simPlayer.test.ts's
+"inert hub is dead" example moved to the Martian racial; Home Guard is pinned moving (`patrol:shieldLeft`).
+
+**Goldens moved:** only `placeholderTalentGoldens.test.ts`, each source's own columns (reasons in MOVES); no other
+golden in the suite moved. **For WR-12:** Help text and the 0.14.0 patch note (production owners of the hubs and
+tactical / science specs gain their effects).
+
+**Integration follow-up (2026-10-19, after the CP-8 and WR-6 merges):** the [PROVISIONAL] tags on the eight sizes above
+dropped (user 2026-10-19, all Recommended). The Works Directorate roll is now keyed by the save's seed as well as the
+process number (`worksDirectorateSeed`: the homeworld seed, the only per-save seed that differs between players, 0
+without one), so job N no longer rolls identically in every save; no production save carries a stamped job yet, and
+the only golden that moved is WR-6's own `industryHub` craft column. **Patch notes (WR-12) must tell current players
+who own industryHub (Works Directorate), the Tactician or Explorer hubs (Combat Readiness, Survey Doctrine), the
+tactical or science specs, Homeland Defense (Home Guard) or Citizenry (Civic Charter) that those now have real
+effects.**
 
 ### WR-7: Ship systems (non-combat)
 

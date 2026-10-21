@@ -6,8 +6,8 @@
 //      move), with the same owner, except where a user decision since names a new one (the Spacer ramp: T3).
 
 import { describe, it, expect } from "vitest";
-import { ENTRIES } from "./wiring/liveness.testkit";
-import { WIRING_REGISTRY } from "./wiring/registry";
+import { ENTRIES, FIELD_KITS_GEAR_LINES } from "./wiring/liveness.testkit";
+import { CP_3, WIRING_REGISTRY } from "./wiring/registry";
 
 // The PENDING_IN_RELEASE allow-list of no-dead-stats.test.ts as it stood when WR-1 moved it (id -> phase).
 const ALLOW_LIST_AT_THE_MOVE: Readonly<Record<string, string>> = {
@@ -42,6 +42,15 @@ const ALLOW_LIST_AT_THE_MOVE: Readonly<Record<string, string>> = {
   "facet:pilot:cunning": "pending user decision (officerStats.ts CUNNING_PENDING_SEATS)",
 };
 
+// The owners renamed since the move: E-CREW Task 23 was split into the complement plan's CP-1 to CP-4, and the four
+// Ground Ops consumers still pending belong to CP-3 (inert-racials slice, 0.14.0: the registry still named the task).
+const OWNER_SINCE_THE_MOVE: Readonly<Record<string, string>> = {
+  "crew:crew.counterInfiltration": CP_3,
+  "crew:crew.awayTeamProtection": CP_3,
+  "crew:crew.triage": CP_3,
+  "crew:crew.preventCrewLoss": CP_3,
+};
+
 // Prospecting squads (0.14.0, built HIDDEN; user group 4, 2026-10-16): the 25 Prospecting gear lines came AFTER the
 // move, each deferred to the prospecting quests patch on the user's word (no Prospecting member deploys in 0.14.0).
 const PROSPECTING_OWNER = "prospecting quests patch";
@@ -55,7 +64,9 @@ describe("wiring registry parity with the no-dead-stats liveness level", () => {
     const registryIds = liveness.map((e) => e.id).sort();
     const testkitIds = ENTRIES.map((e) => e.id).sort();
     expect(registryIds).toEqual(testkitIds);
-    expect(testkitIds.length).toBe(149 + 25); // 149 at the move, + the 25 hidden Prospecting gear lines
+    // 149 at the move, + the 25 hidden Prospecting gear lines, + Field Kits FKR-5's grenade lines (all live; 5 once
+    // FIELD_KITS_PLAYER_LIVE, 3 until then: the Stun and Toxin carry lines wait for FKR-7)
+    expect(testkitIds.length).toBe(149 + 25 + FIELD_KITS_GEAR_LINES);
     expect(liveness.filter(isProspectingDeferral)).toHaveLength(25);
   });
 
@@ -65,7 +76,7 @@ describe("wiring registry parity with the no-dead-stats liveness level", () => {
       if (isProspectingDeferral(e)) continue; // the user's deferral, after the move (above)
       const before = ALLOW_LIST_AT_THE_MOVE[e.id];
       expect(before, `${e.id} is not live in the registry but was live under no-dead-stats`).toBeDefined();
-      if (e.status.kind === "pending") expect(e.status.owner, e.id).toBe(before);
+      if (e.status.kind === "pending") expect(e.status.owner, e.id).toBe(OWNER_SINCE_THE_MOVE[e.id] ?? before);
       if (e.status.kind === "deferred") {
         expect(e.status.owner, e.id).toBe(before);
         expect(e.status.userRef.length, `${e.id}: a deferral names the user's words`).toBeGreaterThan(0);
@@ -79,11 +90,20 @@ describe("wiring registry parity with the no-dead-stats liveness level", () => {
       expect(e.reason, `${e.id}: the old PENDING_IN_RELEASE reason is missing`).toBeDefined();
       expect(e.reason!.length, e.id).toBeGreaterThan(10);
     }
-    expect(liveness.find((e) => e.id === "officer:officer.crewRetention")?.reason).toContain("nothing inflicts Fear yet");
+    // Field Kits FKR-4: Morale Anchor and Cortex Shield's resist went live once a Field Kits run's enemies inflict Fear
+    // and Concussion, so their old reasons are gone with their pending status.
+    for (const id of ["officer:officer.crewRetention", "gear:security:cortexShield:groundStatusResist"]) {
+      const e = liveness.find((x) => x.id === id)!;
+      expect(e.status.kind, id).toBe("live");
+      expect(e.reason, id).toBeUndefined();
+    }
   });
 
-  it("the Spacer long-haul ramp is deferred past 0.14.0 on the user's word (capture 2026-10-15 T3)", () => {
-    const spacer = liveness.find((e) => e.id === "racial:spacer")!;
-    expect(spacer.status.kind).toBe("deferred");
+  // The Spacer racial went live on the transit speed (user 2026-10-20 "+Transit speed"), so no race is inert; its
+  // long-haul ramp (crew.endurance) stays 0.14.x (capture 2026-10-15 T3) and has no source in 0.14.0.
+  it("every racial is live (user 2026-10-20: no selectable race does nothing)", () => {
+    const racials = liveness.filter((e) => e.id.startsWith("racial:"));
+    expect(racials.length).toBe(10);
+    for (const e of racials) expect(e.status.kind, e.id).toBe("live");
   });
 });

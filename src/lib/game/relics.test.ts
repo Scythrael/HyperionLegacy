@@ -23,6 +23,8 @@ import {
   type EquipmentInstance,
   type RelicVaultToken,
   type RelicSetId,
+  generalMuseumRecord,
+  emptyMuseumV2,
 } from "./model";
 import {
   RELICS,
@@ -369,11 +371,11 @@ describe("RELIC STUDY: Research identifies a vault token on its own lane", () =>
     const s = withVault([token("t1", "deepEarth", "augmented")]);
     const a = studyFirst(s);
     const b = studyFirst(s);
-    expect(a.relicMuseum).toEqual(b.relicMuseum); // deterministic replay
-    const ids = Object.keys(a.relicMuseum);
+    expect(generalMuseumRecord(a)).toEqual(generalMuseumRecord(b)); // deterministic replay
+    const ids = Object.keys(generalMuseumRecord(a));
     expect(ids).toHaveLength(1);
     expect(getRelicById(ids[0])!.setId).toBe("deepEarth");
-    expect(a.relicMuseum[ids[0]]).toBe(1);
+    expect(generalMuseumRecord(a)[ids[0]]).toBe(1);
     expect(a.relicDiscovered).toEqual(ids);
     expect(relicStudiesInFlight(a)).toHaveLength(0);
     // The relic matches the pure keyed derivation, and the completion log names it.
@@ -388,16 +390,16 @@ describe("RELIC STUDY: Research identifies a vault token on its own lane", () =>
     let s = withVault(Array.from({ length: 30 }, (_, i) => token(`t${i}`, "xenobiology")));
     const order: string[] = [];
     while (s.relicVault.length > 0) {
-      const before = new Set(Object.keys(s.relicMuseum));
+      const before = new Set(Object.keys(generalMuseumRecord(s)));
       s = studyFirst(s);
-      for (const id of Object.keys(s.relicMuseum)) if (!before.has(id)) order.push(id);
+      for (const id of Object.keys(generalMuseumRecord(s))) if (!before.has(id)) order.push(id);
     }
-    const copies = Object.values(s.relicMuseum).reduce((a, b) => a + b, 0);
+    const copies = Object.values(generalMuseumRecord(s)).reduce((a, b) => a + b, 0);
     expect(copies).toBe(30);
-    expect(Object.values(s.relicMuseum).some((c) => c > 1)).toBe(true); // repeats really happened
+    expect(Object.values(generalMuseumRecord(s)).some((c) => c > 1)).toBe(true); // repeats really happened
     expect(new Set(s.relicDiscovered).size).toBe(s.relicDiscovered.length); // never duplicated
     expect(s.relicDiscovered).toEqual(order); // ordered by first find
-    expect([...s.relicDiscovered].sort()).toEqual(Object.keys(s.relicMuseum).sort());
+    expect([...s.relicDiscovered].sort()).toEqual(Object.keys(generalMuseumRecord(s)).sort());
   });
 
   it("tier skew: radiant tokens reveal far more rare/capstone relics than standard tokens", () => {
@@ -437,7 +439,7 @@ describe("RELIC STUDY: Research identifies a vault token on its own lane", () =>
     let live = seed();
     for (let i = 0; i < SPAN; i++) live = economyTick(live, 1, RNG);
     const snap = (st: GameState) => ({
-      relicMuseum: st.relicMuseum,
+      relicMuseum: generalMuseumRecord(st),
       relicDiscovered: st.relicDiscovered,
       relicVault: st.relicVault,
       activeProcesses: st.activeProcesses,
@@ -446,7 +448,7 @@ describe("RELIC STUDY: Research identifies a vault token on its own lane", () =>
     });
     expect(snap(offline)).toEqual(snap(live));
     // Non-vacuous: the study completed and FA XP was lumped (research-like XP policy).
-    expect(Object.values(offline.relicMuseum).reduce((a, b) => a + b, 0)).toBe(1);
+    expect(Object.values(generalMuseumRecord(offline)).reduce((a, b) => a + b, 0)).toBe(1);
     expect(relicStudiesInFlight(offline)).toHaveLength(0);
     expect(offline.fleetAdminXp.gt(0) || offline.fleetAdminLevel > 1).toBe(true);
   });
@@ -500,7 +502,7 @@ describe("MUSEUM MATH: copy ladder, bottleneck tiers, bonuses", () => {
 
 // ============================================================================
 describe("ADDITIVE-NEUTRAL: an empty (or idle) relic store is byte-identical on the tick path", () => {
-  const RELIC_KEYS = ["relicVault", "relicMuseum", "relicDiscovered", "relicSeed", "nextRelicStudyIndex"] as const;
+  const RELIC_KEYS = ["relicVault", "museumV2", "relicDiscovered", "relicSeed", "nextRelicStudyIndex"] as const;
   const strip = (s: GameState): GameState => {
     const out: any = { ...s };
     for (const k of RELIC_KEYS) delete out[k];
@@ -520,7 +522,7 @@ describe("ADDITIVE-NEUTRAL: an empty (or idle) relic store is byte-identical on 
   it("resolveProcesses with no study completing never even re-keys the relic fields", () => {
     const s = strip(freshState());
     const out = resolveProcesses({ ...s, activeProcesses: [] }, 10).next;
-    expect("relicMuseum" in out).toBe(false);
+    expect("museumV2" in out).toBe(false);
   });
 });
 
@@ -531,7 +533,9 @@ describe("SAVE migration v62 -> v63 seeds the relic store", () => {
     for (const k of ["relicVault", "relicMuseum", "relicDiscovered", "relicSeed", "nextRelicStudyIndex"]) delete s[k];
     const migrated: any = migrate({ version: 62, created_at: 0, last_saved_at: 0, game_time_seconds: 0, state: s } as SaveFile);
     expect(migrated.relicVault).toEqual([]);
-    expect(migrated.relicMuseum).toEqual({});
+    // Relics v2 R2-1: the chain continues to v70, whose step moves the (empty) v1 museum into museumV2.
+    expect("relicMuseum" in migrated).toBe(false);
+    expect(migrated.museumV2).toEqual(emptyMuseumV2());
     expect(migrated.relicDiscovered).toEqual([]);
     expect(migrated.relicSeed).toBe(RELIC_DEFAULT_SEED);
     expect(migrated.nextRelicStudyIndex).toBe(1);
@@ -541,7 +545,8 @@ describe("SAVE migration v62 -> v63 seeds the relic store", () => {
     const s: any = { ...freshState(), relicVault: [token("t1", "shipwright")], relicMuseum: { hullRivet: 3 }, relicDiscovered: ["hullRivet"], relicSeed: 42, nextRelicStudyIndex: 9 };
     const migrated: any = migrate({ version: 62, created_at: 0, last_saved_at: 0, game_time_seconds: 0, state: s } as SaveFile);
     expect(migrated.relicVault).toEqual(s.relicVault);
-    expect(migrated.relicMuseum).toEqual({ hullRivet: 3 });
+    expect("relicMuseum" in migrated).toBe(false);
+    expect(generalMuseumRecord(migrated)).toEqual({ hullRivet: 3 });
     expect(migrated.relicDiscovered).toEqual(["hullRivet"]);
     expect(migrated.relicSeed).toBe(42);
     expect(migrated.nextRelicStudyIndex).toBe(9);

@@ -276,6 +276,28 @@ same object), each source moves the stat by its catalog magnitude, guests never 
 quarters roll pins move (named). **UI:** the stat line on the Ship Systems tile and stat breakdown reuses the existing
 line pattern (no mockup), unless open call 6 adds the variety (its tile then rides G1-6's sign-off).
 
+**Carry note (G1-0 + G1-1, built 2026-10-19 on `a678241`):**
+- G1-0 lives in `shortRangeGoldens.test.ts` (fleet 6 h, Home + Ships views, stats per hull x quarters variety,
+  quarters gen at 50 seeds, registry ids and statuses, a v69 load). Re-capture with `G1_CAPTURE=<path>` (writes JSON).
+  A slice that adds registry entries lists them in `G1_ADDED_ENTRY_IDS` so the base pin keeps proving nothing moved.
+  Sheet goldens everywhere hash through `withoutGuests` (firstRunsGoldens.fixture.ts); guest values pin as `guests:*`.
+- Guest quarters reads `effectiveShipStats(...).colonistCapacity ?? 0` (whole berths; absent = 0). Sources: hull base
+  `HULL_GUEST_QUARTERS` (model.ts) [PROVISIONAL]; the quarters affix (appended, `GUEST_QUARTERS_AFFIX_WEIGHT` 2
+  [PROVISIONAL]); the Guest Wing (`quartersGuestWing`, signature line only, crew capacity `GUEST_WING_CREW_CAPACITY` 4
+  [PROVISIONAL]); lines are stored in berths (`GUEST_QUARTERS_PER_POINT` 4 [PROVISIONAL], itemgen.ts); the General
+  perk `GENERAL_QUARTERS_GUEST_PERK` 0.1 (model.ts, any quarters module on a General hull, whole total, rounded).
+  Calibration for G1-2's sheets: a Freighter with a derelict iL10 Guest Wing reads (20 + 40) x 1.1 = 66, an Orion 80,
+  an Eir 120; a guest affix at iL10 standard is 24 berths.
+- Wiring: 6 guest entries are `pending` G1-4 at the new context `mission:shortRange` (live at `sheet`);
+  `sheetGuestQuarters` reads 0 there and `FLAT_UNCONTROLLED` says why. G1-4 points that probe at the cycle, flips
+  them live and removes the FLAT_UNCONTROLLED line. The Guest Wing's crew-effect entry is `notApplicable` (boost 0).
+- For G1-2: the sheet now has SIX categories, Range, Cargo, Guest quarters, Sensors, Engineering and **Security** (user
+  2026-10-19: the seventh template, Prisoner Transport, reads Guest quarters + the ship's Security crew strength; every
+  tier sheet gains a Security row, small at Tier I). Section 3.6's `ShortRangeCategory` and `ShortRangeTemplateKey`
+  widen accordingly (the template key is still to name, [PROPOSAL]).
+- Elsewhere: CP-11 must add a Guest Wing blueprint (no module has one yet); CP-12's quarters tile reuses the SVG
+  `guestWing` glyph (icons.ts, `varietySvgIcon`); CP-13 may absorb the General perk into its hull-family catalog.
+
 ### G1-2: Templates, sheets and the roll (pure engine)
 
 `shortRange.ts`: the catalog, sheets, `rollShortRangeJob`, the training and ramp rules, `shortRangeCyclePlan`, sheet
@@ -285,6 +307,35 @@ training roll is the minimum, ramp monotone in completed runs and flat at Tier I
 mission fold (transit, unload, Constitution, Fast Departure / Return) identically to `effectiveMissionDef` on a
 matching def. **UI:** none.
 
+**Carry note (G1-2, built 2026-10-19 on `1c512fc`):**
+- `shortRange.ts` is pure; nothing in the game calls it yet. Seven templates (`SHORT_RANGE_TEMPLATE_KEYS`, a FROZEN
+  draw order); the seventh key is `prisonerTransport` (user 2026-10-20 "Approve"), label "Prisoner Transport". Six categories, one
+  sheet per tier (`SHORT_RANGE_SHEETS`, exactly the largest roll); every number (user 2026-10-20 "Approve") in one named constant
+  (`SHORT_RANGE_TEMPLATES`, `SHORT_RANGE_SHEETS`, `SHORT_RANGE_CREW_RATING`, `SHORT_RANGE_WORK`).
+- Range is in the game's real lightyears: the mockup's distances x LY_PER_TICK (Tier I 15 to 45 ly one way, sheet 90;
+  Tier II 30 to 65, sheet 130), so the mockup's transit ticks hold and a General Freighter (100 ly) reaches Tier I but
+  not Tier II. The 3.3 table's 180 / 260 were in the mockup's scale.
+- Engineering and Security ratings: `shortRangeCrewRating(shipDivisionStrength(...))`, 2 x log2(1 + strength / 2).
+  `shipDivisionStrength` (gambit.ts) is the away team's own Security / Science sum, now shared (deriveAwayTeam reads
+  it; identical numbers); Engineering adds the engineering-seat officer. A 6 h crewed Freighter rates about 3.7 / 1.2.
+- The roll: `rollShortRangeJob(state, slot, cycleIndex)`, six draws always. The training run is decided per drawn
+  template by `runDifficultyAt(state, "shortRange", tier, template)`, i.e. `runCounts.shortRange[template].dispatched
+  === 0`: with the whole job re-rolling, **G1-3/G1-4 must bump `dispatched` per cycle START of that template** (not
+  per slot dispatch), and two slots may both draw an untried template at once (both are training runs). The ramp
+  applies to the distance and every size (`spanTop`, share = `rampEnemyScale(ramp)`); a training run at a Tier II
+  slot takes that tier's smallest roll.
+- `shortRangeCyclePlan(roll, stats, engineeringRating)`: model.ts's folds are now shared helpers
+  (`scaledUnloadTicks`, `outboundLegTicks`, `returnLegTicks`, `fullHoldUnloadTicksFor`; effectiveMissionDef reads
+  them, byte-identical). No orders tick; the Constitution ramp reads transit out + on site. Every job has a home
+  turnaround (Supply Pickup unloads its units; the rest take the 3-tick floor).
+- `shortRangeCycleReward(roll, stats)`: credits, the drop-off's `loadCost` (G1-4: spend at the cycle start, the
+  working-capital idle), materials (pickup: `commonOre` x units; survey: `rareMaterial`, stochastic whole units on
+  `SHORT_RANGE_ROUNDING_SALT`), integer XP per active tick. Base credits per hour (reference ship at the sheet, full
+  strength): Tier I 1,050 to 1,260, Tier II 1,050 to 1,260; Prisoner Transport 1.20x Refugee Relocation.
+- Wiring: `SHORT_RANGE_TEMPLATES` is classified (fieldRoles) and enumerated (catalogs); 21 entries
+  `mission:SHORT_RANGE_TEMPLATES:<key>:<rolls|work|reward>` are `pending` owner G1-4 (in `G1_ADDED_ENTRY_IDS`, so
+  `registry:g1` moved by exactly these). G1-4 flips them live with a cycle probe. Salts registered in salts.test.ts.
+
 ### G1-3: Board, dispatch, recall (engine)
 
 Derived slots (open call 8), `canDispatchShortRange` with one block reason per short category plus the captain-mission
@@ -292,6 +343,38 @@ reasons (busy, no ship, needs repair, crew lock), `dispatchCaptainOnShortRange`,
 `runCounts.shortRange[template].dispatched`, the widened union with every exhaustive consumer handled (shipsOutOnRuns,
 crew lock, salvage safety, assign-ship guard, berths, homeDashboard, sim player, save hydration). **Tests:** each
 gate, same-ref on refusal, union exhaustiveness compile, a hand-edited bad roll loads safely. **UI:** none.
+
+**Carry note (G1-3, built 2026-10-20 on `e1d6d06`):**
+- `shortRangeBoard.ts` is the board and dispatch. Slots: `SHORT_RANGE_BASE_SLOT_TIERS` [1, 1], then one slot per
+  reached `MISSION_CONTROL_BOARD_RUNGS` rung (model.ts; rung i opens at Mission Control level i + 2). The level 1 -> 2
+  rung is the kept completion-gated template (`MISSION_CONTROL_UNLOCK_COMPLETIONS` of shortOreRun and longOreRun) and
+  opens the Tier II slot; the level 2 -> 3 rung opens the fourth. [PROVISIONAL] costs (2,500 and 6,000 credits, 120 and
+  240 ticks) and the fourth slot's tier (Tier II). The rungs join `FACILITIES.missionControl` only when
+  `SHORT_RANGE_BOARD_LIVE` (false; the FIELD_KITS_PLAYER_LIVE precedent), so FACILITIES, the sim and every pin are
+  unchanged. **G1-6 flips it**, and then: the App Mission Control card's "Unlocks the missions gated at level N" line
+  must name the slot instead; the registry already classifies `addShortRangeSlot` (probe `shortRangeSlots`, context
+  `mission:shortRange`); `facility:audit:missionControlUnlock` (pending G1-6) then retires.
+- The mission arm (`ShortRangeMissionState`, model.ts) freezes the roll AND its `plan` (`shortRangeCyclePlan`) at each
+  cycle start, so berths and readouts read the plan, never re-derive it. `startShortRangeCycle(state, ship, slot,
+  cycleIndex)` is THE cycle-start seam: it rolls against the counters as they stand, freezes the plan and returns
+  `runCounts` with `countShortRangeCycleStart` (runDifficulty.ts) applied. **G1-4 must call it at every later cycle
+  start** (bumping `dispatched` per template start; two slots can both start an untried template). G1-4 also writes
+  `GameState.shortRangeBoard.nextCycle[slot]` on a delivered cycle (G1-3 only reads it, `shortRangeNextCycle`).
+- Dispatch spends nothing (the drop-off's working capital is G1-4's delivered-cycle settlement, as for supply runs).
+  `repeat` false starts the run recalled (one cycle). Recall (`recallCaptain`) only sets `recalled`: G1-4 ends the run
+  when that cycle's home turnaround completes. The `speed` field is on the arm (the time skip can flag it); G1-4's
+  ticker honors `instantComplete`.
+- Gate order: noCaptain, noSlot, busy, slotTaken, noShip, needsRepair, crewLocked (an expedition: `shipCrewLocked`),
+  then every short category (`short`, sheet order; `reason` is the first). `shortRangeBlockText` has the words.
+- economyTick routes `kind: "shortRange"` to a hold-still arm (no progress) for G1-4 to replace with
+  `tickCaptainShortRange`. Berths: "unloading" occupies a berth; a run is held when `transitBack` progress reaches
+  `plan.transitBackTicks` (G1-4's hold must bank there and never gate the unload phase: the softlock proof).
+- Consumers handled: crew lock, gear lock, salvage, ship swap and shipsOutOnRuns (all `mission !== null`); berths;
+  recall; the liveness outcome; Ships roster status `shortRange` ("On short-range mission"); Home in-progress row
+  (`rowForShortRange`, per-phase from the plan, not navigable until G1-6 sets its jump); ship and captain status lines
+  and the recall log (App). NOT yet: the Operations Overview in-progress card and its "No missions in progress" line
+  (G1-6). Save: a malformed run (unknown template, bad plan or phase) ends at load with no reward (console warning); a
+  malformed board is dropped. No SAVE step.
 
 ### G1-4: The cycle engine (engine)
 
@@ -302,6 +385,45 @@ landed (none on training), the time-skip seam adapter if the seam has landed. Re
 every mission-claim entry (23 today) or an explicit `outOfScope` with reason; the guest quarters entries go `live`.
 **Tests:** offline == live (one call, 997 s chunks, 1 s steps) over 20 cycles, idle and resume, recall, the training
 run's chip flag and smallest roll, neutrality goldens unchanged. **UI:** none.
+
+**Carry note (G1-4, built 2026-10-20 on `047b133`):**
+- `shortRangeCycle.ts` is the cycle engine; economyTick's "shortRange" arm calls `tickCaptainShortRange` and folds it
+  through the extraction arm's accumulators (credits, the one deposit fold with Assayer, XP via foldXpLevelUps,
+  lifetimeStats, officer mission credit). Counters and the board cursor thread across captains in captain order.
+- Every cycle start goes through `startShortRangeCycle` (whole-job re-roll, `dispatched` per template start); a
+  delivery bumps `completed` unless it was the training run (SF5) and writes `shortRangeBoard.nextCycle[slot]`.
+- The departure gate (`shortRangeDepartureHold`): a drop-off pays `shortRangeLoadToPay` (Trade discount applied) as
+  it leaves, stored as `loadPaid`; the delivery returns it plus the margin. Too few credits, or a pickup whose Titanium
+  Ore is at its cap: the cycle waits at home, no XP, no stop reason, and leaves on its own. Dispatch still spends
+  nothing (the first tick pays). G1-6's waiting line should read `shortRangeDepartureHold`.
+- Recall: a run that has left finishes the cycle; a run still at home (`!shortRangeHasDeparted`) ends AT ONCE in
+  `recallCaptain` (its cycle start is taken back, `uncountShortRangeCycleStart`, so the template keeps its training
+  run). `recallCaptain` gained an optional `nowMs` for that log entry: G1-6's recall button should pass the clock.
+- Completion log: ONE `shortRangeRun` entry per run end (`iterations` = cycles delivered, subject `slot-<id>`), the
+  patrol precedent, never per cycle. Home renders "Completed, Short-Range Missions" / "N missions completed, recalled";
+  the row is not navigable and the `shortRange` icon hint needs its glyph in G1-6.
+- Time skip: honored (the cycle runs through to delivery); a waiting or berth-held cycle keeps the flag.
+- Gear wear is not merged: `shortRangeCycleWear` is the seam (none on training, W9), owner the gear wear engine.
+- Registry: the 21 template entries and the six guest quarters sources are live at `mission:shortRange`; the sweep
+  (`SHORT_RANGE_SWEEP_LIVE` / `SHORT_RANGE_SWEEP_OUT_OF_SCOPE`, registry.ts) covers every mission-claim entry, held by
+  a completeness test. `trade2:shortRange` is a new entry. Output share on credits is exact (fractional, like a
+  transport's margin); on materials whole units on `SHORT_RANGE_OUTPUT_SALT`.
+- `SHORT_RANGE_BOARD_LIVE` stays false; the guest quarters display stays hidden (G1-6 flips both).
+- Parity class to log (merge review 2026-10-20; production-safe because `loopClock.ts` steps `economyTick(state, 1)`,
+  so every live and offline call covers at most one cycle boundary): three call-constants are read once per
+  economyTick call, so a single call spanning many cycles can differ from 1 s steps. (1) The transit berth budget is
+  per call (`berthBudgetRemaining`, shared with the Long Ore Run's per-call `berthBudget`), so berths a delivery frees
+  are not re-offered inside the same call. (2) The pickup gate's `atCap` reads the INCOMING state
+  (`materialAtCap(state, itemId)`, tick.ts ~4283), so Warehouse room freed or filled inside the call is not seen.
+  (3) A drop-off waiting on credits does not see income earned elsewhere in the same call (its balance is the
+  incoming credits plus its own deliveries). All three only matter for multi-cycle single calls; the 20-cycle parity
+  test passes because its fixtures never hit these edges. Fix only if a caller ever feeds economyTick a multi-cycle dt.
+- Behavior change at the merge with the inert racials (by design): the Spacer racial's transit speed key now shortens
+  short-range legs (the frozen plan's transit ticks read the sheet's transit speed, like any other transit bonus).
+- Review follow-up (2026-10-20): a drop-off's margin rounds ONCE after the captain's Trade bonus
+  (`shortRangeDropOffMargin`), so any bonus >= 0 pays at least the bare margin (the old split rounding could pay a
+  tiny bonus less than none). The Trade 1 / Trade 3 wiring entries carry a 0.5 credit tolerance for it
+  (`SHORT_RANGE_WHOLE_CREDITS`, registry.ts); the tolerance is per entry, so their transport check shares it.
 
 ### G1-5: Relic drops (engine; after G3 Relics v2) [open call 11]
 
@@ -432,3 +554,11 @@ Material Lines and universal modules ahead of G1 in the build order.
 - **Prisoner Transport reward:** "Higher credits (Recommended)": about 20% more credits per hour than refugee
   relocation, still in the Tier II band.
 - All 18 calls answered, plus the prisoner transport details.
+
+## USER ANSWERS (2026-10-20)
+
+- **Load cost timing (G1-3 review contradiction):** "At cycle start (Recommended)": supply jobs pay their load cost when a
+  cycle starts, like today's supply runs; if the player cannot afford it the slot idles and resumes on its own (never a
+  failure). G1-4 implements this; the G1-3 carry note's "settled when the cycle delivers" is superseded.
+- **Board rungs:** approved as built (docs/plans/2026-10-19-merge-batch-answers.md); the "[PROVISIONAL] await the user"
+  text at model.ts MISSION_CONTROL_BOARD_RUNGS becomes "approved 2026-10-20" in G1-4.

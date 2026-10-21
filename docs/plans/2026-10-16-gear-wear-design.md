@@ -332,7 +332,10 @@ take no wear, implants slow, free auto repair plus a paid rush, hull damage sepa
 Registry: a `wear` system, one pending entry per catalog row (owners: step 3 use and repair, step 4 battle and combat
 efficiency), two step 5 audit rows (Quick gear repair, Overtime on gear repair), and the four old OC-D14 durability
 audit rows now name steps 3 and 4. For step 3: G1-4's short-range cycle engine leaves a `shortRangeCycleWear` seam
-owned by this engine.
+owned by this engine (hauls, light-years, minutes underway, surveys; none on training), and the Material Lines answer
+M9 "Slowly underway (Recommended)" binds E-MOD special module wear when those modules exist. At the merge of feat
+(adb41c6) the step 1 goldens were re-captured on adb41c6's pre-wear engine and the merged tree reproduces them byte
+for byte; the registry pins hold the `wear` additions apart (shortRangeGoldens GW_SLICE, emodGoldens `gw` read-back).
 
 ## 12. OPEN CALLS (multiple-choice ready; recommended first)
 

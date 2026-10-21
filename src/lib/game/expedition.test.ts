@@ -49,6 +49,7 @@ import {
 } from "./expedition";
 import { asLegacyDispatch, ensureMinimumAwayTeam, plainAwayMember, withMinimumAwayTeam, withSlottedAwayTeams } from "./awayTeamTestFixtures";
 import { tick } from "./tick";
+import { famousSystem } from "./starCatalog";
 import { migrate, type SaveFile } from "./save";
 import {
   PLANET_TYPES,
@@ -156,8 +157,9 @@ describe("startExpedition — dispatch shapes a valid expedition", () => {
     expect(exp.anomalyResolved).toBe(false);
     expect(exp.anomalyCharted).toBe(false);
     expect(exp.findings).toEqual([]);
-    expect(BANKED_SYSTEMS.some((sys) => sys.id === exp.targetSystemId)).toBe(true);
-    expect(exp.systemName).toBe(BANKED_SYSTEMS.find((sys) => sys.id === exp.targetSystemId)!.name);
+    // G2-2: a star catalog name (banked names retired, user G9): a Local Bubble catalog code or a real Tier I star.
+    expect(/^LB-\d{4}$/.test(exp.systemName) || famousSystem(exp.targetSystemId)?.tier === 1).toBe(true);
+    expect(BANKED_SYSTEMS.some((sys) => sys.id === exp.targetSystemId)).toBe(false);
     // 1..3 bodies, each a generic (size, hazard, empty discovery/activity) record.
     expect(exp.bodies.length).toBeGreaterThanOrEqual(BODY_COUNT_MIN);
     expect(exp.bodies.length).toBeLessThanOrEqual(BODY_COUNT_MAX);
@@ -667,11 +669,12 @@ describe("E2c expeditionCandidates — a stable, deterministic candidate list", 
     const cands = expeditionCandidates(s, "ship-1");
     expect(cands).toHaveLength(EXPEDITION_CANDIDATE_COUNT);
     cands.forEach((c, i) => {
-      expect(c.id).toBe(`cand-${i}`);
+      // G2-2: Tier I ids read cand-1-<slot>; the seeds are the pre-G2 ones; star catalog names (user G9).
+      expect(c.id).toBe(`cand-1-${i}`);
       expect(c.index).toBe(i);
       expect(c.seed).toBe(makeExpeditionSeed(s.expeditionSeed, i));
-      expect(BANKED_SYSTEMS.some((sys) => sys.id === c.systemId)).toBe(true);
-      expect(c.systemName).toBe(BANKED_SYSTEMS.find((sys) => sys.id === c.systemId)!.name);
+      expect(BANKED_SYSTEMS.some((sys) => sys.id === c.systemId)).toBe(false);
+      expect(/^LB-\d{4}$/.test(c.systemName) || famousSystem(c.systemId)?.tier === 1).toBe(true);
     });
   });
 

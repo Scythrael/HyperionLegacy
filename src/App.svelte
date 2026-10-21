@@ -84,7 +84,7 @@
   // card, rendered inline below the Ship Systems bay grid when a tile is selected.
   // equipmentRarityColor (its module-context export) is the SINGLE rarity->color
   // source the bay TILES also read, so tile border/dot and the tooltip never drift.
-  import EquipmentTooltip, { equipmentRarityColor, equipmentIcon, blueprintIcon, type ItemTooltipSubject } from "./lib/EquipmentTooltip.svelte";
+  import EquipmentTooltip, { equipmentRarityColor, equipmentIcon, equipmentSvgIcon, blueprintIcon, type ItemTooltipSubject } from "./lib/EquipmentTooltip.svelte";
   // Radial Skill Web (Task 11b, minimal buildable integration), the pannable
   // fog-of-war talent web that REPLACES the old depth-row talent panels in
   // BOTH the Captain Talents and Homeworld Talents sub-tabs below. It owns its
@@ -190,6 +190,8 @@
     // show a recipe/upgrade the backend would reject on a data mismatch.
     FACILITIES,
     REFINE_RECIPES,
+    // ML-1: the Refinery lists only the recipes it offers (the same check canStartLine reads).
+    refineRecipeOffered,
     ITEMS,
     // Display-only phase-label maps (0.13.1 DRY consolidation): the mission +
     // patrol phase readouts. FORMERLY file-local consts here AND mirrored in
@@ -376,7 +378,27 @@
     // E-CREW Task 7: the member-slot predicate that keeps ship-only lists (the dev per-ship
     // install rows) from offering away-team gear for a ship.
     isMemberSlotType,
+    // Relics v2 R2-1: the Tier I general record (where the v1 museum copies live) and its write, for the dev museum.
+    generalMuseumRecord,
+    withGeneralMuseumRecord,
   } from "./lib/game/model";
+  // WR-3: the Debug Wiring panel's view model (the registry itself loads lazily inside it; types only here).
+  import {
+    loadWiringDeps,
+    measureWiring,
+    groupWiringRows,
+    wiringTotals,
+    wiringSubjectsText,
+    contributionText,
+    expectedText,
+    OWNERSHIP_LABEL,
+    VERDICT_LABEL,
+    SYSTEM_LABEL,
+    WIRING_VIEW_OPTIONS,
+    type WiringRow,
+    type WiringView,
+  } from "./lib/wiringPanelDisplay";
+  import type { WiringSystem } from "./lib/game/wiring/registry";
   // Home dashboard (0.13.1). JumpTarget is the destination union that types
   // jumpToActivity's single argument (below), so the one nav-dispatch entry point stays in
   // lockstep with the pure model's Section-8 destinations, adding a destination there forces
@@ -729,13 +751,8 @@
   } from "./lib/game/salvage";
   import {
     tick,
-    // Phase 2 (Task A3, docs/plans/phase2-tick-map.md): the shared per-span
-    // economy body. The live poll loop below now calls THIS, the exact same
-    // function tick()'s offline catch-up runs, instead of hand-mirroring the
-    // per-captain mission / passiveTrickle / loot / resolveProcesses / credits /
-    // applyFleetAdminXp math inline, which is precisely the surface that used to
-    // drift between the two paths (ship stats, bonus-roll, credits, all logged).
-    economyTick,
+    // (economyTick, the shared per-span economy body, is no longer imported here: since HOTFIX
+    // 0.13.10 the live poll reaches it through runPollEconomy in src/lib/game/loopClock.ts.)
     tickCaptainMission,
     dispatchCaptainOnMission,
     recallCaptain,
@@ -990,6 +1007,8 @@
   // missions through. The two mission-timing popups now read it (they read the bare equipment fold before,
   // which omitted crew and the museum, so the shown times disagreed with the flown ones).
   import { effectiveShipStats } from "./lib/game/crewOverlay";
+  // G1-3: a short-range run's display name (its current job) for the status rows and the recall log.
+  import { shortRangeMissionLabel } from "./lib/game/shortRangeBoard";
   // Crafted Blanks 0.13.7: the display order for a bulk inspect-reveal (rarity -> quality -> iLevel).
   import { sortRolledPieces } from "./lib/game/inspectSort";
   // ITEM LIFECYCLE 0.13.6 (Armory, Phase 3): the loadout lifecycle, pure over GameState.
@@ -1112,6 +1131,16 @@
   // into a quality bucket (dev-grant handler uses quality 0). See src/lib/game/inventory.ts.
   import { itemTotal, addItemQuality, QUALITY_TIERS } from "./lib/game/inventory";
   import { summarizeOfflineProgress, type OfflineSummary } from "./lib/game/offlineSummary";
+  // HOTFIX 0.13.10: the live loop's clock (whole cycles from real time, leftover carried forward,
+  // large gaps paid by the same catch-up a reload runs). See src/lib/game/loopClock.ts.
+  import {
+    planPoll,
+    runPollEconomy,
+    paidThroughMs,
+    startLoopClock,
+    awayRecapSpan,
+    type LoopClock,
+  } from "./lib/game/loopClock";
   import { formatNumber, formatDuration, formatClock } from "./lib/game/format";
   import { deriveStatistics } from "./lib/game/statistics";
   import { saveToLocalStorage, loadFromLocalStorage, clearSave, downloadRawSave, downloadLiveSave, importRawSave, hasRawSave, exportRawSave } from "./lib/game/save";
@@ -1324,11 +1353,13 @@
   let corruptRawSave = "";
 
   // While-You-Were-Away offline summary (Combat 0.13.0, Phase 13, design Section 17).
-  // A PLAIN let (never a reactive `$:`), set imperatively ONCE in onMount on the
-  // successful-load + offline-advanced path. Holds the pure before/after diff of the
+  // A PLAIN let (never a reactive `$:`), set imperatively in onMount on the
+  // successful-load + offline-advanced path (and by welcomeBack, below). Holds the pure before/after diff of the
   // pre-tick and post-tick GameState snapshots (see offlineSummary.ts); null keeps the
-  // modal closed. It is set exactly once at load and only cleared by the Continue
-  // button, so it never re-triggers a render off `state` (no side-effecting reactive).
+  // modal closed. It is set at load and only cleared by the Continue button, so it
+  // never re-triggers a render off `state` (no side-effecting reactive). Since HOTFIX
+  // 0.13.10 it is ALSO set imperatively by the live loop's welcomeBack, when the player
+  // returns to a hidden tab or wakes a sleeping device after a long absence.
   let offlineSummary: OfflineSummary | null = null;
   // The smallest absence (in real seconds) that is worth interrupting the player with a
   // modal. Below this the welcome-back LOG line still fires, but a full modal for a few
@@ -1379,7 +1410,6 @@
   let speed = 1;
   let logEntries: string[] = [];
   let activeCaptainIndex = 0;
-  let paused = false;
 
   // Outer bottom nav (Task 1, Phase 4; split from 5 to 6 tabs in the UI
   // Redesign, Task 7, see docs/plans/2026-07-07-ui-redesign-plan.md), no
@@ -1866,6 +1896,7 @@
     idle: "Idle",
     repairing: "Repairing",
     gathering: "Gathering",
+    shortRange: "On short-range mission",
     patrol: "On patrol",
     expedition: "On expedition",
   };
@@ -3101,7 +3132,24 @@
 
   let tickHandle: ReturnType<typeof setInterval>;
   let saveHandle: ReturnType<typeof setInterval>;
-  let lastPollTime = Date.now();
+  // The live loop's clock (HOTFIX 0.13.10): the current cycle's start with any leftover carried
+  // forward, the previous poll's time for the fleet clock, and the pause flag. Driven ONLY by
+  // planPoll (src/lib/game/loopClock.ts); replaces the old lastPollTime / paused pair.
+  let loopClock: LoopClock = { cycleStartMs: Date.now(), lastPollMs: Date.now(), paused: false };
+
+  // Return-from-away recap (HOTFIX 0.13.10, the user chose "Same as offline"): when the tab is
+  // hidden we remember the state and the time, and when it is shown again the time away is paid
+  // and, past AWAY_SUMMARY_MIN_SECONDS, the same "While you were away" summary a reload shows is
+  // raised from the pure before/after diff. Loop bookkeeping only; no markup reads it.
+  let awayFrom: { atMs: number; snapshot: GameState } | null = null;
+  // Two minutes (user decision, 2026-10-16): "If the tab is idle in the background, or minimized,
+  // or something to that end, we want to make sure that progress is not lost." The progress is
+  // paid either way; this only gates the recap modal, so a quick tab flip raises nothing.
+  const AWAY_SUMMARY_MIN_SECONDS = 120;
+  // What the OPEN recap covers (its before snapshot, span and when it was shown), so a later
+  // recap extends it instead of replacing it (see awayRecapSpan). Set wherever offlineSummary is,
+  // cleared by dismissOfflineSummary. Loop bookkeeping only; no markup reads it.
+  let offlineSummaryBasis: { before: GameState; secondsAway: number; shownAtMs: number } | null = null;
 
   // Fleet-wide tick cycle (collapsed from a per-captain-id-keyed map during
   // the UI Redesign, Task 4, see docs/plans/2026-07-07-ui-redesign-plan.md
@@ -3161,7 +3209,11 @@
     // failure through the store ONLY when the persisted-state changes, so the
     // SavePersistWarning banner raises on the first failure and clears itself the
     // moment writes recover.
-    const persisted = saveToLocalStorage(state, createdAt);
+    //
+    // HOTFIX 0.13.10: stamp how far the economy is PAID (the loop's cycle start), not the write
+    // time. A hidden tab closed between throttled polls, and the leftover under one bar cycle, are
+    // then paid by the next load's offline catch-up instead of being lost. Now while paused.
+    const persisted = saveToLocalStorage(state, createdAt, paidThroughMs(loopClock, Date.now()));
     if (persisted !== lastSavePersisted) {
       lastSavePersisted = persisted;
       savePersistFailed.set(!persisted);
@@ -3302,12 +3354,18 @@
     registerLiveSaveExporter(() => downloadLiveSave(state, createdAt));
 
     const loadedSave = loadFromLocalStorage();
+    // Where the economy is paid through once loading finishes (HOTFIX 0.13.10): the catch-up's
+    // end on a successful load, otherwise now. The loop clock starts HERE (see below).
+    let paidThroughAtLoadMs: number | null = null;
     if (loadedSave) {
       createdAt = loadedSave.createdAt;
       // Captured ONCE and reused for both the span and the catch-up's clock anchor, so the
       // two can never disagree by the few milliseconds two Date.now() calls would differ by.
       const returnedAtMs = Date.now();
       const offlineSeconds = Math.max(0, (returnedAtMs - loadedSave.lastSavedAt) / 1000);
+      // A span of 5 s or less is not caught up below, so the economy is then paid only through the
+      // save itself; the first poll pays that short span instead (never later than now).
+      paidThroughAtLoadMs = offlineSeconds > 5 ? returnedAtMs : Math.min(loadedSave.lastSavedAt, returnedAtMs);
       // ⚠️ INVARIANT: the offline advance is this ONE deterministic call. offline == live
       // hinges on it being byte-identical to the live loop, so we ONLY read state around it
       // (the pre-tick snapshot is loadedSave.state, the post-tick snapshot is `state`) and
@@ -3342,7 +3400,10 @@
         // pop over a corrupt save or a fresh game.
         if (offlineSeconds >= OFFLINE_SUMMARY_MIN_SECONDS) {
           const summary = summarizeOfflineProgress(beforeSnapshot, state, offlineSeconds);
-          if (summary.hasContent) offlineSummary = summary;
+          if (summary.hasContent) {
+            offlineSummary = summary;
+            offlineSummaryBasis = { before: beforeSnapshot, secondsAway: offlineSeconds, shownAtMs: returnedAtMs };
+          }
         }
       }
     } else if (hasRawSave()) {
@@ -3361,8 +3422,12 @@
     } else {
       pushLog("New save initialized.");
     }
-    lastPollTime = Date.now();
-    cycle = { barCycleStart: lastPollTime, nowTick: lastPollTime };
+    // ⚠️ HOTFIX 0.13.10: start from where the reload catch-up PAID THROUGH, not from now. The
+    // catch-up takes real time to compute; starting the clock after it would leave those seconds
+    // unpaid (and a save right after load would stamp past them). The first poll pays them, once.
+    const loopStartMs = paidThroughAtLoadMs ?? Date.now();
+    loopClock = startLoopClock(loopStartMs);
+    cycle = { barCycleStart: loopStartMs, nowTick: loopStartMs };
 
     // Tick-bar loop, checks the ONE shared fleet-wide cycle's progress every
     // 100ms, firing tickCaptainMission (Phase 3a) for EVERY mission captain
@@ -3391,136 +3456,123 @@
     // callback can drop an intervening update (lost update). Introduce an `await` inside
     // this callback, or between a handler's `const { next } = ...` and its `state = next`,
     // and all three of those bug classes reopen at once. Verified sound 2026-07-29.
-    tickHandle = setInterval(() => {
+    //
+    // ⚠️ HOTFIX 0.13.10, WHOLE CYCLES FROM REAL TIME, NEVER DISCARDED. This poll used to grant ONE
+    // cycle per completion and then reset the cycle start to `now`, throwing the overshoot away,
+    // so every late timer cost real progress: background tabs (throttled to 1 Hz, then once a
+    // minute), sleeping laptops and frozen mobile tabs lost most of their time, and the hidden
+    // tab's autosave stamped the save as current so a reload never recovered it. planPoll
+    // (src/lib/game/loopClock.ts) now counts every whole cycle since the cycle start and carries
+    // the leftover forward. A normal poll (a cycle or two) is stepped live exactly as before; a
+    // large gap is paid by tick(), the very catch-up a reload runs, offline cap included. The
+    // pause rules and the speed rule are unchanged and live in planPoll too, where they are tested.
+    const pollGameLoop = () => {
       const now = Date.now();
       // Consume the completed frame from the PREVIOUS poll. Cleared here, at the very top and
       // before any early return, so a pause or a speed change cannot strand the bar at 100%.
       barCompletedFrame = false;
 
-      if (speed === 0) {
-        paused = true;
-        lastPollTime = now; // freeze the fleet clock too while paused
-        return;
-      }
+      const polled = planPoll(loopClock, now, state.tickDurationSeconds, speed);
+      loopClock = polled.clock;
+      const plan = polled.plan;
 
-      if (paused) {
-        // Resuming: discard the paused wall-clock gap entirely for the fleet
-        // clock AND the shared cycle, rather than letting it read as elapsed
+      // Paused (speed 0): the poll clock is frozen and nothing advances.
+      if (plan.kind === "paused") return;
+
+      if (plan.kind === "resumed") {
+        // Resuming: the paused wall-clock gap is discarded entirely for the fleet clock AND the
+        // shared cycle (planPoll restarted both at `now`), rather than letting it read as elapsed
         // time (which would fire unearned progress on resume).
-        lastPollTime = now;
-        cycle.barCycleStart = now;
-        paused = false;
+        cycle.barCycleStart = loopClock.cycleStartMs;
         return;
       }
 
-      const realElapsedSeconds = (now - lastPollTime) / 1000;
-      lastPollTime = now;
-      state = { ...state, gameTimeSeconds: state.gameTimeSeconds + realElapsedSeconds * speed };
-
-      // barSeconds/progress computed ONCE per poll now, from the fleet-wide
-      // state.tickDurationSeconds, not per-captain (there's only one cycle
-      // to check now, not a map keyed by captain id).
-      const barSeconds = Math.max(1, state.tickDurationSeconds / speed);
+      // The continuous fleet clock this poll ends on. It is applied AFTER the economy is paid, so the
+      // economy steps from the pre-poll clock exactly like offline tick() does: 0.14.0's crew transports
+      // key on gameTimeSeconds, and paying a catch-up from an already-advanced clock would deliver a
+      // whole gap's transports at its first step (live and offline would then disagree).
+      const liveClockSeconds = state.gameTimeSeconds + plan.realElapsedSeconds * speed;
       cycle.nowTick = now;
-      const progress = (now - cycle.barCycleStart) / 1000 / barSeconds;
 
-      // Phase 2 (Task A3, docs/plans/phase2-tick-map.md): the live poll's economy
-      // is now a SINGLE call to the shared economyTick, the EXACT same per-span
-      // body offline catch-up (tick()) runs. This REPLACES the hand-mirrored
-      // economy that used to live inline right here: the per-captain mission loop
-      // (its 8-field `bonuses` build + ship-stat resolution + tickCaptainMission +
-      // accumulate), the passiveTrickle loop, the loot -> addToInventory fold, the
-      // mission/lifetimeStats fold, resolveProcesses, the credits award, and the
-      // final applyFleetAdminXp pass. Centralizing ALL of it in economyTick is what
-      // makes live play and offline catch-up drift-proof BY CONSTRUCTION, those
-      // were two hand-mirrored copies of the same math and historically drifted
-      // (ship stats, bonus-roll, credits, every incident logged). economyTick
-      // internally does loot-THEN-process where this loop used to do
-      // process-then-loot, but per the A1 map those are commutative (pure Decimal
-      // addition), so the economy RESULT is identical, we are NOT preserving the
-      // old internal order, we are replacing it with economyTick's.
-      if (progress >= 1) {
-        const gameSecondsThisCycle = barSeconds * speed;
-        // Same deltaSeconds -> ticksElapsed conversion tick() uses (divide by the
-        // fleet's shared tickDurationSeconds), so the live loop's mission cadence
-        // stays identical to the offline catch-up path's, the whole point of
-        // routing both through economyTick.
-        const ticksElapsed = gameSecondsThisCycle / state.tickDurationSeconds;
+      // Phase 2 (Task A3, docs/plans/phase2-tick-map.md): the live poll's economy is the shared
+      // economyTick, the EXACT same per-span body offline catch-up (tick()) runs, which is what
+      // makes live play and offline catch-up drift-proof BY CONSTRUCTION. runPollEconomy keeps
+      // the two load-bearing rules this loop always had: it STEPS per whole tick (never one big
+      // multi-tick economyTick call, which would check the storage cap and refill refine orders
+      // only once across the span), and it hands back this loop's own gameTimeSeconds (the fleet
+      // clock advanced just above off real time), discarding economyTick's bump so the fleet
+      // clock is never double counted. At production speed one poll owes exactly one cycle of
+      // one tick, so the steady case is a single economyTick(state, 1), as it always was.
+      if (plan.mode !== "none") {
+        const ticksElapsed = plan.cycles * plan.ticksPerCycle;
 
-        // ⚠️ ticksElapsed > 0 GUARD (REQUIRED): economyTick has NO internal
-        // non-positive guard, that guard lived in tick() (`if (deltaSeconds <= 0)
-        // return state;`), the function economyTick was extracted out of. Inside
-        // this `progress >= 1` block ticksElapsed is always strictly positive today
-        // (barSeconds is floored at 1, speed is non-zero here, speed === 0 returns
-        // early at the top of this callback, and tickDurationSeconds > 0), so this
-        // guard is belt-and-suspenders. It is kept as hard insurance regardless:
-        // economyTick would otherwise happily advance a zero/negative span, and any
-        // future change to the cycle gating must not be able to silently feed it one.
+        // ⚠️ ticksElapsed > 0 GUARD (REQUIRED, belt-and-suspenders): economyTick has NO internal
+        // non-positive guard, so no future change to the cycle gating may feed it an empty span.
         if (ticksElapsed > 0) {
-          // ⚠️ gameTimeSeconds PRESERVATION (load-bearing, NON-economy concern):
-          // this live loop advances gameTimeSeconds CONTINUOUSLY off real elapsed
-          // time on EVERY poll (the `gameTimeSeconds: state.gameTimeSeconds +
-          // realElapsedSeconds * speed` reassignment near the top of this callback),
-          // deliberately decoupled from the cycle cadence for a smooth fleet clock.
-          // economyTick, HOWEVER, ALSO advances gameTimeSeconds, by this cycle's
-          // deltaSeconds, because it owns that increment on the offline path. The
-          // OLD inline economy here never touched gameTimeSeconds, so letting
-          // economyTick's bump through would DOUBLE-count the fleet clock (once at
-          // the top of this poll, once inside economyTick), a regression. So we
-          // capture the live value BEFORE the call and restore it AFTER: economyTick's
-          // full economy result is kept, its gameTimeSeconds bump alone is discarded.
-          // This is a pure no-op for the economy, gameTimeSeconds is display-only
-          // bookkeeping that NOTHING in economyTick's math reads (see economyTick's
-          // own header in tick.ts).
-          const liveGameTimeSeconds = state.gameTimeSeconds;
+          const beforeEconomy = state;
 
-
-          // ⚠️ STEP per whole tick, exactly like the offline tick() path, do NOT hand
-          // economyTick one big multi-tick span. economyTick's auto-stop cap-check and
-          // refine-order refill each run ONCE per call, so a single economyTick(state, N)
-          // for N>1 would evaluate the storage cap only once across the whole span --
-          // under-enforcing caps and under-producing refine throughput versus offline
-          // catch-up (which steps, see tick()). At production speed (1x, tickDuration 1s)
-          // ticksElapsed is always exactly 1, so this is a single-iteration no-op that
-          // matches the old one-shot call identically; it only diverges (correctly) at
-          // DEV_MODE fast-forward speeds where ticksElapsed > 1. Mirror of tick(): whole
-          // steps first, then a trailing fractional remainder. rng is omitted (defaults
-          // to Math.random), same as the old single call.
-          //
-          // ⚠️ 0.13.3 Unit 4.4b: the LIVE half of the injected completion clock. Every step
-          // of this poll is stamped with ONE Date.now() captured here, which is exact at
-          // production speed (ticksElapsed is exactly 1, so one poll IS one tick) and is a
-          // deliberate, documented simplification at DEV fast-forward speeds, where several
-          // ticks are batched into one poll and therefore share a stamp. Reading the clock
-          // HERE rather than inside economyTick is the whole point: the tick stays a pure
-          // function of its arguments, so an offline catch-up handed a reconstructed
-          // schedule produces the identical log to this loop.
+          // ⚠️ 0.13.3 Unit 4.4b: the LIVE half of the injected completion clock. Every step of a
+          // live poll is stamped with ONE Date.now() captured here (exact at production speed,
+          // where one poll IS one tick); a catch-up uses it as the END of its reconstructed
+          // schedule, exactly like the reload path. Reading the clock HERE rather than inside
+          // economyTick keeps the tick a pure function of its arguments.
           const completionClockMs = Date.now();
-          let stepped = state;
-          const wholeSteps = Math.floor(ticksElapsed);
-          for (let i = 0; i < wholeSteps; i++) {
-            stepped = economyTick(stepped, 1, Math.random, completionClockMs);
-          }
-          const frac = ticksElapsed - wholeSteps;
-          if (frac > 0) {
-            stepped = economyTick(stepped, frac, Math.random, completionClockMs);
-          }
-          // Restore the live fleet clock: economyTick bumped gameTimeSeconds on every
-          // step above, but this loop owns that clock continuously off real elapsed time
-          // (top of the poll). Discard economyTick's bumps, keep its full economy result.
-          state = { ...stepped, gameTimeSeconds: liveGameTimeSeconds };
+          state = runPollEconomy(state, plan, Math.random, completionClockMs);
 
+          // A large gap seen while the tab is VISIBLE (a sleep the browser never reported as
+          // hidden) gets its recap here. A gap paid while hidden is recapped by the visibility
+          // handler instead, once, over the whole time away.
+          if (plan.mode === "catchUp" && awayFrom === null && !document.hidden) {
+            welcomeBack(beforeEconomy, plan.realElapsedSeconds);
+          }
         }
 
-        // Reset once for the whole fleet, not per-captain, there's only one
-        // shared cycle now. (Poll-lag overshoot past the boundary is discarded --
-        // same as always.)
-        cycle.barCycleStart = now;
-        // ⚠️ Raised in the SAME poll that resets the cycle, which is the whole point: without it
-        // the reset above is the reason the last tenth is never rendered. The next poll clears it.
+        // The cycle start carries the leftover forward (planPoll), so a late poll never costs
+        // time. Once for the whole fleet: there is one shared cycle.
+        cycle.barCycleStart = loopClock.cycleStartMs;
+        // ⚠️ Raised in the SAME poll that starts the next cycle, which is the whole point: without
+        // it the last tenth of the bar is never rendered. The next poll clears it.
         barCompletedFrame = true;
       }
-    }, 100);
+      state = { ...state, gameTimeSeconds: liveClockSeconds };
+    };
+
+    // "Same as offline" recap for a return from a long absence (HOTFIX 0.13.10): the same log
+    // line pattern and the same "While you were away" modal the reload path raises, built from
+    // the same pure before/after diff. Skipped for short absences, while paused (nothing ran) and
+    // while the corrupt-save recovery modal is up (never stacked over it). A recap still open from
+    // earlier is EXTENDED, never replaced: the new one starts from the open one's snapshot and
+    // spans both absences (awayRecapSpan), so no reported gains are lost.
+    const welcomeBack = (before: GameState, secondsAway: number) => {
+      if (loopClock.paused || saveCorruptModalOpen || secondsAway < AWAY_SUMMARY_MIN_SECONDS) return;
+      pushLog(`Welcome back. Advanced ${formatNumber(secondsAway)}s while away.`);
+      const nowMs = Date.now();
+      const span = awayRecapSpan(offlineSummary !== null ? offlineSummaryBasis : null, before, secondsAway, nowMs);
+      const summary = summarizeOfflineProgress(span.before, state, span.secondsAway);
+      if (summary.hasContent) {
+        offlineSummary = summary;
+        offlineSummaryBasis = { before: span.before, secondsAway: span.secondsAway, shownAtMs: nowMs };
+      }
+    };
+
+    tickHandle = setInterval(pollGameLoop, 100);
+
+    // Pay what is owed the moment the tab is shown again rather than up to a throttled timer
+    // period later, and recap the whole hidden stretch once. Hiding only remembers where we were.
+    const onVisibilityChange = () => {
+      if (document.hidden) {
+        if (awayFrom === null) awayFrom = { atMs: Date.now(), snapshot: state };
+        return;
+      }
+      pollGameLoop();
+      const away = awayFrom;
+      awayFrom = null;
+      if (away !== null) welcomeBack(away.snapshot, (Date.now() - away.atMs) / 1000);
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    // A tab opened in the background never fires a "hidden" change, so start the away clock here;
+    // the first time it is shown, the hidden stretch is recapped like any other.
+    if (document.hidden) awayFrom = { atMs: Date.now(), snapshot: state };
 
     // Autosave every 30s, tech spec §6.
     saveHandle = setInterval(doSave, 30000);
@@ -3540,7 +3592,10 @@
 
     const onUnload = () => doSave();
     window.addEventListener("beforeunload", onUnload);
-    return () => window.removeEventListener("beforeunload", onUnload);
+    return () => {
+      window.removeEventListener("beforeunload", onUnload);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+    };
   });
 
   onDestroy(() => {
@@ -3571,12 +3626,17 @@
         missionLabel = MISSIONS[captain.mission.missionKey].label;
       } else if (captain.mission.kind === "patrol") {
         missionLabel = PATROLS[captain.mission.patrolKey].label;
+      } else {
+        // G1-3: a short-range run names its current job.
+        missionLabel = shortRangeMissionLabel(captain.mission);
       }
     }
+    const finishesCycle = captain.mission !== null && captain.mission.kind === "shortRange";
     const { next, success } = recallCaptain(state, captainId);
     if (!success) return;
     state = next;
-    pushLog(`[${captain.label}] Recall ordered, returning to base from: ${missionLabel}.`);
+    // G1-3: a short-range recall finishes the current cycle first (tick.ts recallCaptain), so the log says so.
+    pushLog(finishesCycle ? `[${captain.label}] Recall ordered: ${missionLabel} stops after this cycle.` : `[${captain.label}] Recall ordered, returning to base from: ${missionLabel}.`);
     doSave();
   }
 
@@ -4492,6 +4552,7 @@
     // gate on hasContent, so pressing the button always shows what that duration produced (an
     // empty recap = nothing was running), giving clear QA feedback that the trigger fired.
     offlineSummary = summarizeOfflineProgress(before, state, secondsAway);
+    offlineSummaryBasis = { before, secondsAway, shownAtMs: Date.now() };
     pushLog(`[DEV] Simulated ${hours}h offline for the whole fleet.`);
   }
 
@@ -4638,7 +4699,7 @@
     const set = RELIC_SETS.find((s) => s.id === devMuseumSet);
     if (!set) return;
     const n = Math.max(1, Math.floor(devMuseumCopies));
-    const museum: Record<string, number> = { ...(state.relicMuseum ?? {}) };
+    const museum: Record<string, number> = { ...generalMuseumRecord(state) };
     let discovered = [...(state.relicDiscovered ?? [])];
     set.relicIds.forEach((rid, i) => {
       const last = i === set.relicIds.length - 1;
@@ -4651,7 +4712,7 @@
       museum[rid] = copies;
       if (!discovered.includes(rid)) discovered.push(rid);
     });
-    state = { ...state, relicMuseum: museum, relicDiscovered: discovered };
+    state = { ...withGeneralMuseumRecord(state, museum), relicDiscovered: discovered };
     pushLog(`[DEV] ${set.label} museum set to ${devMuseumMode} ${n} copies.`);
   }
 
@@ -4808,6 +4869,48 @@
   function devToggleSavePersistBanner() {
     savePersistFailed.update((shown) => !shown);
   }
+
+  // [DEV] WR-3 Wiring panel (Debug tab only).
+  // Every wiring registry entry on the CURRENT save: owned or not, its status, its contexts and its live
+  // contribution (the seam probe on the save vs the save without the source). Measured on demand, never per tick:
+  // the registry and its probes load lazily (wiringPanelDisplay.ts loadWiringDeps), so the app bundle does not carry
+  // them, and the pass is pure (it reads a snapshot of `state` and writes nothing). All logic is in
+  // wiringPanelDisplay.ts (tested); this block only holds the panel's filters and the last snapshot.
+  let wiringRows: WiringRow[] = [];
+  let wiringSystems: readonly WiringSystem[] = [];
+  let wiringBusy = false;
+  let wiringProgress = "";
+  let wiringError = "";
+  let wiringSubjects = "";
+  let wiringSystemFilter: WiringSystem | "all" = "all";
+  let wiringView: WiringView = "all";
+  let wiringSearch = "";
+
+  async function devMeasureWiring() {
+    if (wiringBusy) return;
+    wiringBusy = true;
+    wiringError = "";
+    wiringProgress = "Loading the registry...";
+    try {
+      const deps = await loadWiringDeps();
+      const snapshot = state;
+      wiringSubjects = wiringSubjectsText(snapshot);
+      wiringSystems = deps.systems;
+      wiringRows = await measureWiring(snapshot, deps, {
+        onProgress: (done, total) => (wiringProgress = `Measuring ${done} / ${total}...`),
+      });
+      wiringProgress = "";
+    } catch (err) {
+      wiringError = err instanceof Error ? err.message : String(err);
+      wiringProgress = "";
+    } finally {
+      wiringBusy = false;
+    }
+  }
+
+  $: wiringGroups = groupWiringRows(wiringRows, wiringSystems, { system: wiringSystemFilter, view: wiringView, search: wiringSearch });
+  $: wiringSummary = wiringTotals(wiringRows);
+  $: wiringShownCount = wiringGroups.reduce((n, g) => n + g.rows.length, 0);
 
   // --- [DEV] Combat 0.13.0 test battle (Debug tab only) --------------------
   // Runs the REAL combat engine on the player's current ship vs a hardcoded pirate
@@ -5019,6 +5122,7 @@
   // already ran + persisted at load). Clearing the field to null closes the modal.
   function dismissOfflineSummary() {
     offlineSummary = null;
+    offlineSummaryBasis = null;
   }
   // The current CaptainState for the open combat view, re-resolved from state each
   // render, or null when the view should auto-close via the {#if combatViewCaptain
@@ -7669,7 +7773,7 @@
     cfgQty = 1;
     if (kind === "refine") {
       cfgTier = 1; // REFINE_RECIPES carry no tier -> a single synthetic "Tier 1"
-      cfgRecipeKey = Object.keys(REFINE_RECIPES)[0] ?? "";
+      cfgRecipeKey = Object.keys(REFINE_RECIPES).filter(refineRecipeOffered)[0] ?? "";
     } else {
       const tiers = availableFabricateTiers;
       cfgTier = tiers[0] ?? 1;
@@ -11555,7 +11659,7 @@
                           <label style="display: inline-flex; align-items: center; gap: 6px;">
                             Item
                             <select class="modal-input" bind:value={cfgRecipeKey} aria-label="Item">
-                              {#each Object.keys(REFINE_RECIPES) as rk}
+                              {#each Object.keys(REFINE_RECIPES).filter(refineRecipeOffered) as rk}
                                 <option value={rk}>{ITEMS[REFINE_RECIPES[rk].output.itemId]?.label ?? rk}</option>
                               {/each}
                             </select>
@@ -13602,7 +13706,8 @@
                              {@const} itself, so the compiler records them as dependencies.
                              See the stale-derivation trap note on systemSalvageState. -->
                         {@const salvageState = systemSalvageState(bayInFlightInstances, bayReservations, piece.id)}
-                        {@const memberIc = memberSlotIcon(piece.slotType)}
+                        <!-- G1-1: a variety with an SVG glyph (the Guest Wing) draws it here like a member piece. -->
+                        {@const memberIc = memberSlotIcon(piece.slotType) ?? equipmentSvgIcon(piece)}
                         <!-- The ship tiles' title convention ("Standard-Issue baseline" / "radiant · Q5"),
                              led by a member piece's variety name ("Ballistic Weave · Standard-Issue baseline"). -->
                         {@const shipTitle = isBaseline ? "Standard-Issue baseline" : `${piece.rarity} · Q${piece.quality}`}
@@ -15203,6 +15308,8 @@
                     {#each group.pieces as piece (piece.id)}
                       {@const isBaseline = piece.blueprintKey === null}
                       {@const baseTitle = isBaseline ? "Standard-Issue baseline" : `${piece.rarity} · Q${piece.quality}`}
+                      <!-- G1-1: a variety with an SVG glyph (the Guest Wing) draws it in place of the emoji. -->
+                      {@const svgIc = equipmentSvgIcon(piece)}
                       <button
                         type="button"
                         class="systems-tile"
@@ -15217,7 +15324,7 @@
                         on:click={() => (selectedShipSpareId = selectedShipSpareId === piece.id ? null : piece.id)}
                       >
                         <span class="systems-tile-dot"></span>
-                        <span class="systems-tile-ic">{equipmentIcon(piece)}</span>
+                        <span class="systems-tile-ic">{#if svgIc !== null}<Icon name={svgIc} />{:else}{equipmentIcon(piece)}{/if}</span>
                         <span class="systems-tile-il">iL {piece.iLevel}</span>
                         {#if piece.locked === true}
                           <span class="sb-tile-lock" aria-hidden="true">🔒</span>
@@ -15946,7 +16053,9 @@
                 ? "Idle"
                 : assignedCaptain.mission.kind === "extraction"
                   ? `On mission: ${MISSIONS[assignedCaptain.mission.missionKey].label}`
-                  : `On patrol: ${PATROLS[assignedCaptain.mission.patrolKey].label}`}
+                  : assignedCaptain.mission.kind === "shortRange"
+                    ? `On short-range mission: ${shortRangeMissionLabel(assignedCaptain.mission)}`
+                    : `On patrol: ${PATROLS[assignedCaptain.mission.patrolKey].label}`}
         <!-- 0.13.6: if an Armory loadout is checked out to this hull, its install screen is
              read-only (edited in the Armory). Resolve it once so the panel can lock + name it. -->
         {@const shipLoadout = state.loadouts.find((l) => l.checkedOutToShipId === ship.id) ?? null}
@@ -16299,6 +16408,8 @@
                       <span class="cprow-val">On mission · {MISSIONS[captain.mission.missionKey].label}</span>
                     {:else if captain.mission.kind === "patrol"}
                       <span class="cprow-val up">On patrol · {PATROLS[captain.mission.patrolKey].label}</span>
+                    {:else if captain.mission.kind === "shortRange"}
+                      <span class="cprow-val">On short-range mission · {shortRangeMissionLabel(captain.mission)}</span>
                     {/if}
                   </span>
                 </span>
@@ -16484,6 +16595,8 @@
                 Assignment: On mission · {MISSIONS[activeCaptain.mission.missionKey].label}
               {:else if activeCaptain.mission.kind === "patrol"}
                 Assignment: On patrol · {PATROLS[activeCaptain.mission.patrolKey].label}
+              {:else if activeCaptain.mission.kind === "shortRange"}
+                Assignment: On short-range mission · {shortRangeMissionLabel(activeCaptain.mission)}
               {/if}
             </div>
             <div class="research-cost">Ship: {overviewShip === null ? "None · Unassigned" : overviewShip.name ? `${shipDisplayLabel(state, overviewShip)} · ${SHIP_TYPES[overviewShip.typeKey]?.label ?? overviewShip.typeKey}` : shipDisplayLabel(state, overviewShip)}</div>
@@ -17637,7 +17750,7 @@
                    the SAME formatter the source panels use, so the clock can't drift. An
                    extraction reports PER-PHASE time, so it reads "... in phase". -->
               {#if row.remainingTicks !== null && row.durationTicks !== null}
-                <span class="home-eta">{remainingReadout(row.remainingTicks, row.durationTicks, showTickCounts, state.tickDurationSeconds)}{row.kind === "extraction" ? " in phase" : ""}</span>
+                <span class="home-eta">{remainingReadout(row.remainingTicks, row.durationTicks, showTickCounts, state.tickDurationSeconds)}{row.kind === "extraction" || row.kind === "shortRange" ? " in phase" : ""}</span>
               {/if}
             </span>
             {#if row.combat !== null}
@@ -18855,6 +18968,103 @@
               {$savePersistFailed ? "Hide save-persist banner" : "Preview save-persist banner"}
             </button>
           </div>
+        </Panel>
+
+        <!-- [DEV] WR-3 Wiring panel: every wiring registry entry on this save (see devMeasureWiring and
+             wiringPanelDisplay.ts). Same {#if DEV_MODE && activeSystemSubTab === "debug"} gate as the DEBUG PANEL,
+             inside the existing tab scroll area. A plain table at desktop width; each row stacks into a labeled card
+             at phone width (one DOM, CSS only). -->
+        <Panel class="dev-panel">
+          <div class="panel-title dev-title">WIRING (dev-only)</div>
+          <div class="dev-row">
+            <button class="dev-btn" on:click={devMeasureWiring} disabled={wiringBusy}>
+              {wiringRows.length ? "Measure again" : "Measure this save"}
+            </button>
+            {#if wiringProgress}<span class="dev-readout-text">{wiringProgress}</span>{/if}
+            {#if wiringError}<span class="dev-readout-text wiring-bad">Failed: {wiringError}</span>{/if}
+          </div>
+          {#if wiringRows.length}
+            <p class="wiring-lead">
+              A snapshot of the save when measured. {wiringSubjects} Contribution reads the entry's seam probe on the
+              save vs the same save without the source; Expected is the entry's curve at its catalog magnitude, shown
+              only where that magnitude is what the save owns.
+            </p>
+            <p class="wiring-lead">
+              {wiringSummary.entries} entries: {wiringSummary.byStatus.live} live, {wiringSummary.byStatus.pending} pending,
+              {wiringSummary.byStatus.deferred} deferred, {wiringSummary.byStatus.held} held, {wiringSummary.byStatus.seam} seam.
+              Owned here: {wiringSummary.owned}; contributing: {wiringSummary.contributing}; contributing nothing:
+              {wiringSummary.nothing}.
+            </p>
+            <div class="dev-row">
+              <label class="wiring-field">
+                <span class="dev-label">System</span>
+                <select class="dev-btn" bind:value={wiringSystemFilter}>
+                  <option value="all">All systems</option>
+                  {#each wiringSystems as sys (sys)}<option value={sys}>{SYSTEM_LABEL[sys]}</option>{/each}
+                </select>
+              </label>
+              <label class="wiring-field">
+                <span class="dev-label">Show</span>
+                <select class="dev-btn" bind:value={wiringView}>
+                  {#each WIRING_VIEW_OPTIONS as opt (opt.key)}<option value={opt.key}>{opt.label}</option>{/each}
+                </select>
+              </label>
+              <label class="wiring-field">
+                <span class="dev-label">Search</span>
+                <input class="dev-btn wiring-search" type="search" bind:value={wiringSearch} placeholder="id, source or claim" />
+              </label>
+            </div>
+            <p class="wiring-lead">{wiringShownCount} shown.</p>
+            {#each wiringGroups as group (group.system)}
+              <details class="wiring-group" open={wiringShownCount <= 80}>
+                <summary>
+                  {SYSTEM_LABEL[group.system]}: {group.rows.length} entries, {group.owned} owned, {group.contributing} contributing,
+                  {group.nothing} contributing nothing
+                </summary>
+                <div class="wiring-scroll"><table class="wiring-table">
+                  <thead>
+                    <tr><th>Source</th><th>Owned</th><th>Status</th><th>Contexts</th><th>Contribution (now vs without)</th><th>Expected</th></tr>
+                  </thead>
+                  <tbody>
+                    {#each group.rows as row (row.id)}
+                      <tr class:wiring-row-bad={row.verdict === "nothing" || row.verdict === "error"}>
+                        <td data-label="Source">
+                          <div class="wiring-id">{row.id}</div>
+                          <div class="wiring-sub">{row.claim}</div>
+                          {#if row.probe}<div class="wiring-sub">probe {row.probe}{row.magnitude !== null ? `, catalog m ${row.magnitude}` : ""}</div>{/if}
+                          {#if row.note}<div class="wiring-sub">{row.note}</div>{/if}
+                        </td>
+                        <td data-label="Owned">
+                          {OWNERSHIP_LABEL[row.ownership]}
+                          {#if VERDICT_LABEL[row.verdict]}<div class="wiring-verdict" class:wiring-good={row.verdict === "contributing"} class:wiring-bad={row.verdict === "nothing" || row.verdict === "error"}>{VERDICT_LABEL[row.verdict]}</div>{/if}
+                          {#if row.ownershipNote}<div class="wiring-sub">{row.ownershipNote}</div>{/if}
+                        </td>
+                        <td data-label="Status">
+                          <span class="wiring-chip" class:wiring-chip-live={row.status.kind === "live"} class:wiring-chip-pending={row.status.kind === "pending"} class:wiring-chip-seam={row.status.kind === "seam"}>{row.status.label}</span>
+                          {#if row.status.detail}<div class="wiring-sub">{row.status.detail}</div>{/if}
+                        </td>
+                        <td data-label="Contexts">
+                          {row.liveContexts.length ? row.liveContexts.join(", ") : "none live"}
+                          {#if row.pendingContexts.length}<div class="wiring-sub">not yet: {row.pendingContexts.join(", ")}</div>{/if}
+                          {#each row.outOfScope as o (o.context)}<div class="wiring-sub">out of scope: {o.context} ({o.reason})</div>{/each}
+                        </td>
+                        <td data-label="Contribution">
+                          {#each row.readings as r (r.context)}
+                            <div class:wiring-bad={r.error !== undefined}>{row.readings.length > 1 ? `${r.context}: ` : ""}{contributionText(r)}</div>
+                          {:else}<span class="wiring-sub">n/a</span>{/each}
+                        </td>
+                        <td data-label="Expected">
+                          {#each row.readings as r (r.context)}
+                            <div>{row.readings.length > 1 ? `${r.context}: ` : ""}{expectedText(r)}</div>
+                          {:else}<span class="wiring-sub">n/a</span>{/each}
+                        </td>
+                      </tr>
+                    {/each}
+                  </tbody>
+                </table></div>
+              </details>
+            {/each}
+          {/if}
         </Panel>
 
         <!-- [DEV] Equipment 0.11.0 test harness (device-check checkpoint). NOT the
@@ -20099,7 +20309,7 @@
          Section 17). Reuses the SAME shared .modal-backdrop + focusTrap idiom every
          other modal uses (Escape closes via dismissOfflineSummary, focus trapped +
          restored, aria-modal dialog). DISPLAY ONLY: it reads the pure before/after
-         diff (offlineSummary, set once in onMount) and mutates no game state, so
+         diff (offlineSummary, set on load and on a return from a long absence) and mutates no game state, so
          opening/closing is side-effect free. Each section renders ONLY when its part
          of the diff is non-empty, so the modal is never padded with empty rows.
          Copy is sentence case throughout (no ALL CAPS, no exclamation marks). -->
@@ -21266,6 +21476,38 @@
   .dev-title { color: var(--color-warning) !important; }
   .dev-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
   .dev-label { font-size: var(--text-xs); color: var(--color-text-secondary); width: 78px; }
+  /* WR-3 Wiring panel (dev-only). A plain table at desktop width that scrolls inside its own box rather than
+     widening the page; at phone width every row stacks into a labeled card (each cell names its column through
+     data-label), so the same DOM reads at 375 px. */
+  .wiring-lead { font-size: var(--text-xs); color: var(--color-text-secondary); margin: 0 0 8px; }
+  .wiring-field { display: flex; align-items: center; gap: 6px; }
+  .wiring-search { min-width: 0; width: 180px; }
+  .wiring-group { margin-bottom: 8px; border: 1px solid var(--color-border); padding: 4px 8px; }
+  .wiring-group > summary { cursor: pointer; font-size: var(--text-sm); color: var(--color-text-primary); padding: 4px 0; }
+  .wiring-scroll { overflow-x: auto; }
+  .wiring-table { width: 100%; border-collapse: collapse; font-size: var(--text-xs); }
+  .wiring-table th { text-align: left; color: var(--color-text-secondary); font-weight: normal; padding: 4px 6px; border-bottom: 1px solid var(--color-border); }
+  .wiring-table td { vertical-align: top; padding: 4px 6px; border-bottom: 1px solid var(--color-border); overflow-wrap: anywhere; min-width: 80px; }
+  .wiring-table td:first-child { min-width: 220px; }
+  .wiring-id { color: var(--color-text-primary); }
+  .wiring-sub { color: var(--color-text-dim); }
+  .wiring-good { color: var(--color-success); }
+  .wiring-bad { color: var(--color-danger); }
+  .wiring-row-bad td:first-child { box-shadow: inset 3px 0 0 var(--color-danger); }
+  .wiring-chip { display: inline-block; padding: 0 6px; border: 1px solid var(--color-border-strong); color: var(--color-text-secondary); }
+  .wiring-chip-live { color: var(--color-success); border-color: var(--color-success); }
+  .wiring-chip-pending { color: var(--color-warning); border-color: var(--color-warning); }
+  .wiring-chip-seam { color: var(--color-accent-bright); border-color: var(--color-accent); }
+  @media (max-width: 640px) {
+    .wiring-table, .wiring-table tbody, .wiring-table tr, .wiring-table td { display: block; width: 100%; }
+    .wiring-table thead { display: none; }
+    .wiring-table tr { border-bottom: 1px solid var(--color-border-strong); padding: 6px 0; }
+    .wiring-table td { border-bottom: none; padding: 2px 0; min-width: 0; }
+    .wiring-table td:first-child { min-width: 0; }
+    .wiring-table td::before { content: attr(data-label); display: block; color: var(--color-text-secondary); font-size: var(--text-2xs); }
+    .wiring-search { width: 100%; }
+    .wiring-field { flex: 1 1 100%; }
+  }
   /* .opt-section-title was REMOVED in 0.13.5. It was a sub-heading INSIDE one settings panel, which
      made a section a rule drawn across a continuous surface. Sections are their own panels now
      (.settings-section below), so each carries the shared .panel-title and its own border, and the

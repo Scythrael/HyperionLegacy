@@ -125,8 +125,8 @@ export function retireCaptain(state: GameState, captainId: number): GameState {
     secondaryPoints: (captain.secondaryPoints ?? 0) + 1,
     // The SECONDARY tree PERSISTS untouched (a fresh cloned array so the input is never shared).
     unlockedSecondaryTalents: [...captain.unlockedSecondaryTalents],
-    // XO SUCCESSION: the captaincy takes on the Executive officer's IDENTITY. `race` is identity DATA
-    // only today (the captain RACIAL-BONUS application is a documented FOLLOW-ON, E-CAP set).
+    // XO SUCCESSION: the captaincy takes on the Executive officer's IDENTITY, race included; since WR-6
+    // the captain carries that race's racial on the ship it commands (seniorStaff.ts captainRacialBonus).
     label: xo.name,
     race: xo.race,
   };

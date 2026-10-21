@@ -18,9 +18,12 @@
 // key out of the capture is what lets these pins prove the retirement changes nothing else. Every other field of
 // the state is pinned.
 
-import { describe, expect, it } from "vitest";
-import { goldenJson } from "./firstRunsGoldens.fixture"; // gear wear: hashes with the retired durability put back
+import { describe, expect, it, vi } from "vitest";
+import { goldenJson, withV1Museum } from "./firstRunsGoldens.fixture"; // gear wear: goldenJson puts the retired durability back
 import Decimal from "break_infinity.js";
+// OC-11 (CP-8): the switch that proves the auto-crew pause is the only thing it moved here (see the lunarMine pin).
+vi.mock("./crewLock", async (io) => (await import("./complementOc11Switch.fixture")).oc11CrewLockMock(io));
+import { withOc11Off } from "./complementOc11Switch.fixture";
 import {
   FACILITIES,
   ITEMS,
@@ -54,7 +57,7 @@ import { generateEquipment } from "./itemgen";
 import { damageControlEffect, pathfinderEffect, DAMAGE_CONTROL_SUITE_KEY, PATHFINDER_SUITE_KEY } from "./utilityGear";
 import { addItemQuality } from "./inventory";
 import { advanceExpedition, claimExpedition, expeditionCandidates, startExpedition } from "./expedition";
-import { asPreRanksDispatch, asPreSafeFirstRunsDispatch, plainAwayMember, withSlottedAwayTeams } from "./awayTeamTestFixtures";
+import { asPreG2NamesDispatch, asPreRanksDispatch, asPreSafeFirstRunsDispatch, plainAwayMember, withSlottedAwayTeams } from "./awayTeamTestFixtures";
 import { seatOfficer, withFacilityLevel } from "./wiring/probes";
 import { withCp2Off } from "./complementCp2Switch.fixture";
 
@@ -72,7 +75,8 @@ function fnv(s: string): string {
 const hash = (v: unknown): string => fnv(goldenJson(v));
 // A whole state, without the retired fuel stockpile (see the header).
 // SF-1: nor the run counters (`runCounts`, seeded by freshState, written by a claim and a patrol), absent before SF-1.
-const hashState = (s: GameState): string => hash({ ...s, fuel: undefined, runCounts: undefined });
+// Relics v2 R2-1: the Museum v2 record in its v1 form (withV1Museum), as these were captured.
+const hashState = (s: GameState): string => hash({ ...withV1Museum(s), fuel: undefined, runCounts: undefined });
 
 function lcg(seed: number): () => number {
   let s = seed >>> 0;
@@ -189,7 +193,9 @@ const GOLDEN: Record<string, string | string[]> = {
   // Re-pinned by CP-2 (WR-4 8e6c6c4c): the passive mission ship takes transport crew mid-run whose Earth-born racials
   // and Crew Effectiveness now lift its other complement buffs; with the CP-2 effects switched off the run
   // reproduces 8e6c6c4c (LUNAR_MINE_CP2_OFF).
-  lunarMine: "77bdfad2",
+  // Re-pinned by OC-11 (CP-8, "Pause while out", CP-2 77bdfad2): the mission ship is out when the transport lands, so
+  // its crew wait in the pool; with the pause switched off the run reproduces 77bdfad2 (LUNAR_MINE_OC11_OFF).
+  lunarMine: "d1069f5d",
   // Re-pinned by WR-4 (B4, OC-E10): the seated officer's promotion counters (crewHours while out, then the claim's
   // personnelAchievement); the dispatch record and the resolved run are unchanged.
   expedition: ["1fc7c9e6", "1dae182b", "1f818423", "a991930"],
@@ -197,6 +203,8 @@ const GOLDEN: Record<string, string | string[]> = {
 
 // The WR-4 capture of the Lunar Mine run (before CP-2), reproduced with the CP-2 effects switched off.
 const LUNAR_MINE_CP2_OFF = "8e6c6c4c";
+// The CP-2 pin (before OC-11), reproduced with the OC-11 pause switched off.
+const LUNAR_MINE_OC11_OFF = "77bdfad2";
 
 describe("WR-4 pre-fix goldens", () => {
   it("dispatch: every mission's gate at the ore cap, then every allowed mission run 300 s", () => {
@@ -318,8 +326,10 @@ describe("WR-4 pre-fix goldens", () => {
     expect(r.success).toBe(true);
     const s = runTicks(r.next, 2000, lcg(0x10a1));
     expect(hashState(s)).toEqual(GOLDEN.lunarMine);
-    // CP-2's "turn it off" proof: its switched effects are the only thing it moved here.
-    expect(withCp2Off(() => hashState(runTicks(r.next, 2000, lcg(0x10a1))))).toEqual(LUNAR_MINE_CP2_OFF);
+    // OC-11's proof: with the pause switched off the mission ship boards its transport crew mid-run again (the CP-2 pin).
+    expect(withOc11Off(() => hashState(runTicks(r.next, 2000, lcg(0x10a1))))).toEqual(LUNAR_MINE_OC11_OFF);
+    // CP-2's "turn it off" proof: its switched effects are the only thing it moved here (captured with the ship crewed).
+    expect(withOc11Off(() => withCp2Off(() => hashState(runTicks(r.next, 2000, lcg(0x10a1)))))).toEqual(LUNAR_MINE_CP2_OFF);
   });
 
   it("expedition: a Ground Ops run with a seated officer, through claim", () => {
@@ -331,7 +341,7 @@ describe("WR-4 pre-fix goldens", () => {
     const s0 = seatOfficer(withSlottedAwayTeams({ ...freshState(), awayMembers: squad, nextAwayMemberId: 100, expeditionSeed: 0x1234 }), "science", ["sci.discovery"], { race: "earthBorn" });
     // Field Kits FKR-1: the run as dispatched before enemy ranks (the flag off), so it keeps its capture. Safe first
     // runs SF-2: and before SF-2 (the retired 30 minute shakedown on expedition 1).
-    const res = asPreSafeFirstRunsDispatch(asPreRanksDispatch(startExpedition(s0, "ship-1", 1, expeditionCandidates(s0, "ship-1")[0].id)));
+    const res = asPreG2NamesDispatch(asPreSafeFirstRunsDispatch(asPreRanksDispatch(startExpedition(s0, "ship-1", 1, expeditionCandidates(s0, "ship-1")[0].id))));
     if (!res.success || !res.expedition) throw new Error(`dispatch refused: ${res.reason}`);
     expect(res.expedition.groundOps).toBeDefined();
     // The run advanced through the live tick (the officer rides it), then claimed.

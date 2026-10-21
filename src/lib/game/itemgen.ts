@@ -30,6 +30,7 @@
 
 import {
   EQUIPMENT_SLOTS,
+  GRENADE_CARRY_PER_LINE,
   PRODUCIBLE_EQUIPMENT_RARITIES,
   rarityIndex,
   SLOT_BASE_PHYSICALS,
@@ -94,6 +95,28 @@ export const RARITY_MULT = 1.15;
 // the remaining (1 - this) goes to the rolled affix lines. At 0.5 the guaranteed
 // signature stat and the variable affixes get an even half each. TUNABLE.
 export const IMPLICIT_BUDGET_SHARE = 0.5;
+
+// G1-1 (Short-Range Missions, 0.14.0): GUEST QUARTERS BERTHS per budget point. A guest line (`colonistCapacity`, the
+// Crew Quarters affix and the Guest Wing's signature) is stored in BERTHS, so the tooltip prints the number the ship
+// gets and the fold (model.ts equipmentStatMods) sums it as is. A budget point buys this many berths because a
+// passenger job counts heads in the dozens (the plan's Tier I sheet asks 60), where a sensor or cargo point is a
+// point. [PROVISIONAL] first pass (no number was asked): at iLevel 10, standard, quality 0, a Guest Wing's signature
+// is 10 points = 40 berths and a guest affix 5 points = 20 berths. Applied by guestLineValue, at mint and in the
+// craft preview, so the two never disagree.
+export const GUEST_QUARTERS_PER_POINT = 4;
+
+// A rolled line's stored value from its budget points: guest quarters convert to berths, every other line keeps its
+// points. Pure.
+export function guestLineValue(stat: string, points: number): number {
+  return stat === "colonistCapacity" ? points * GUEST_QUARTERS_PER_POINT : points;
+}
+
+// Field Kits FKR-5: a grenade's +1 CARRY CAPACITY line (groundCarryCapacity, FK11) is a COUNT, not budget points: it
+// is stored as GRENADE_CARRY_PER_LINE whatever the piece's budget, so the tooltip reads "+1" and awayTeam.ts toolCharges
+// adds one charge per line. Every other line is guestLineValue's (points, or berths for a guest line). Pure.
+export function rolledLineValue(stat: string, points: number): number {
+  return stat === "groundCarryCapacity" ? GRENADE_CARRY_PER_LINE : guestLineValue(stat, points);
+}
 
 // ----------------------------------------------------------------------------
 // Combat-defense rework (HYBRID model): crafted DEFENSIVE-implicit magnitudes.
@@ -401,7 +424,7 @@ export function generateEquipment(a: {
         CRAFTED_DEFENSE_RECHARGE_BASE, CRAFTED_DEFENSE_RECHARGE_PER_LEVEL, a.iLevel, a.quality, rarityIdx,
       );
     } else {
-      implicitStats[stat] = implicitEach;
+      implicitStats[stat] = rolledLineValue(stat, implicitEach); // G1-1: a guest line is stored in berths (FKR-5: a carry line as a count)
     }
   }
 
@@ -415,7 +438,7 @@ export function generateEquipment(a: {
   // wantAffixes), so the affix share is spread evenly across the lines that exist.
   const affixEach = rolledStatKeys.length > 0 ? Math.round(affixShare / rolledStatKeys.length) : 0;
   for (const stat of rolledStatKeys) {
-    rolledStats[stat] = affixEach;
+    rolledStats[stat] = rolledLineValue(stat, affixEach); // G1-1: a guest line is stored in berths (FKR-5: a carry line as a count)
   }
 
   // --- Fold massReduction / powerDrawReduction into the physicals -------------
@@ -762,7 +785,7 @@ function previewImplicitMagnitude(
     return craftedDefensiveImplicit(CRAFTED_DEFENSE_RECHARGE_BASE, CRAFTED_DEFENSE_RECHARGE_PER_LEVEL, iLevel, quality, rarityIdx);
   }
   const { implicitShare } = budgetShares(computeBudget(iLevel, quality, rarityIdx));
-  return Math.round(implicitShare / implicitCount);
+  return guestLineValue(stat, Math.round(implicitShare / implicitCount)); // G1-1: the same berth conversion as the mint
 }
 
 export function previewCraftOutcome(

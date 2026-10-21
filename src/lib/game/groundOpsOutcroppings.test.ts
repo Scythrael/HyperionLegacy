@@ -21,7 +21,7 @@ import {
 } from "./model";
 import { advanceExpedition, claimExpedition, startExpedition } from "./expedition";
 import { AFFIX_CATALOG_VERSION, BASE_DIFFICULTY_TIER, generateRiskProfile, runAffixCatalog, type ExpeditionRegion } from "./riskFactors";
-import { plainAwayMember, withoutAffixCatalog } from "./awayTeamTestFixtures";
+import { asPreG2NamesDispatch, plainAwayMember, withoutAffixCatalog } from "./awayTeamTestFixtures";
 import {
   AFFIX_DEFS,
   ALERT_RESET_TEXT,
@@ -103,7 +103,7 @@ function crewed(expeditionSeed: number, kinds: "gg" | "ss" = "gg", rank = 6): Ga
 
 // Dispatch candidate 0, optionally on a forced region (the risk replaced before any body scans).
 function dispatch(state: GameState, region?: ExpeditionRegion): { next: GameState; exp: Expedition } {
-  const res = startExpedition(state, "ship-1", 1, "cand-0");
+  const res = asPreG2NamesDispatch(startExpedition(state, "ship-1", 1, "cand-0"));
   expect(res.success, String(res.reason)).toBe(true);
   let exp = res.expedition!;
   if (region) {
@@ -520,7 +520,7 @@ interface Setup {
 // A dispatched run turned into an affix-aware run whose window opened at T0 with body 0 (carrying `risk`) just
 // scanned: its tasks stamped through the real path, then planned, then the teams pick.
 function affixRun(setup: Setup): Expedition {
-  const res = startExpedition(oneTeam(setup.rank ?? 1), "ship-1", 1, "cand-0");
+  const res = asPreG2NamesDispatch(startExpedition(oneTeam(setup.rank ?? 1), "ship-1", 1, "cand-0"));
   if (!res.success || !res.expedition) throw new Error(`dispatch refused: ${res.reason}`);
   const d = res.expedition;
   const body: ExpeditionBody = {

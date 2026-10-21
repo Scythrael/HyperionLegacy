@@ -54,20 +54,61 @@ export const hash = (v: unknown): string => fnv(goldenJson(v));
 // section 3.3) and G2-1's stored `homeworld` (the G2-0 withoutG2State precedent). A no-op today; it keeps every
 // whole-state golden byte-identical across those additions, so only a real behavior change moves one. Pure.
 export function stateHash(state: GameState): string {
-  const rest = { ...state } as Record<string, unknown>;
+  const rest = { ...withV1Museum(state) } as Record<string, unknown>;
   delete rest.runCounts;
   delete rest.homeworld;
   return hash(rest);
+}
+
+// Relics v2 R2-1: a state with its Museum v2 record shown in the v1 form every whole-state golden captured before
+// R2-1 holds: `museumV2` replaced, AT ITS KEY POSITION, by `relicMuseum` = its Tier I general record (where the
+// v69 -> v70 step moved the v1 copies). Only when the record holds nothing a v1 museum could not (no tier but I, no
+// exceptional piece, frozen snapshot, culture or completed set); any real v2 data is returned as it is, so it moves the
+// golden. Also how a test writes the save a pre-R2-1 build wrote (v69). Pure: a shallow copy.
+export function withV1Museum<T>(value: T): T {
+  if (!value || typeof value !== "object" || !("museumV2" in value)) return value;
+  const m = (value as { museumV2?: unknown }).museumV2 as Record<string, unknown> | undefined;
+  const empty = (x: unknown) => !!x && typeof x === "object" && Object.keys(x).length === 0;
+  const general = (m?.general ?? {}) as Record<string, unknown>;
+  const v1Only =
+    !!m &&
+    Object.keys(general).every((k) => k === "1") &&
+    empty(m.exceptional) &&
+    empty(m.frozen) &&
+    empty(m.cultures) &&
+    empty(m.culturesNamed) &&
+    empty(m.setsCompleted);
+  if (!v1Only) return value;
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(value)) {
+    if (k === "museumV2") out.relicMuseum = general["1"] ?? {};
+    else out[k] = v;
+  }
+  return out as T;
 }
 
 // SF-1: a value WITHOUT the run counters (`runCounts`, runDifficulty.ts): freshState seeds them, a claim and a patrol
 // dispatch or won route write them. Every whole-state golden captured before SF-1 hashes through this, so it keeps
 // proving that nothing else moved (the stateHash precedent above). Any other value is returned as it is. Pure: a
 // shallow copy.
-export function withoutRunCounts<T>(value: T): T {
+// Relics v2 R2-1: it also shows the Museum v2 record in its v1 form (withV1Museum above), for the same reason: every
+// whole-state golden that hashes through it was captured with the v1 `relicMuseum`.
+export function withoutRunCounts<T>(input: T): T {
+  const value = withV1Museum(input);
   if (!value || typeof value !== "object" || !("runCounts" in value)) return value;
   const rest = { ...value } as Record<string, unknown>;
   delete rest.runCounts;
+  return rest as T;
+}
+
+// G1-1 (Short-Range Missions): a ship stat sheet WITHOUT guest quarters (the optional `colonistCapacity` G1-1 makes
+// live: the transport hulls' base berths and every guest line). Every sheet golden captured before G1-1 hashes through
+// this, so it keeps proving that no OTHER stat moved; the guest quarters values have their own pins
+// (shortRangeGoldens.test.ts `guests:*`). Any other value is returned as it is. Pure: a shallow copy.
+export function withoutGuests<T>(stats: T): T {
+  if (!stats || typeof stats !== "object" || !("colonistCapacity" in stats)) return stats;
+  const rest = { ...stats } as Record<string, unknown>;
+  delete rest.colonistCapacity;
   return rest as T;
 }
 

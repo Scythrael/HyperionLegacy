@@ -46,6 +46,7 @@ import { makeSquadron, type DroneRole, type DroneSquadron } from "./drones";
 import { qualityDurabilityMax, type DurableSystem } from "./durability";
 // WR-5b (0.14.0): the commanding captain's Tactician fold (absent mods = a no-op).
 import { applyCaptainCombat, applyCaptainDrones } from "./captainEdge";
+import { REPLENISH_PPM } from "./droneDefense";
 // Gear wear (0.14.0): a weapon opens its pool at the piece's TRUE condition (user W3), read through one pure helper.
 import { pieceStartDurability } from "../gearWear";
 
@@ -600,17 +601,44 @@ export function defaultDronesForHull(hullType: CombatHullType, idPrefix: string)
 // instances), mutating nothing.
 // WR-5b (0.14.0): `captainCombat` is the cycle's frozen captain record: its drone nodes (Squadron Tactics, Wing
 // Commander, Wolfpack) shape the seeded screen (combat/captainEdge.ts applyCaptainDrones). Absent = unchanged.
+// 0.14.0 (CP-4, OC-1): `deckHandling` is the cycle's frozen Deck Handling (PatrolMissionState.deckHandling), folded
+// after the captain's nodes (applyDeckHandling). Absent or 0 = unchanged.
 export function installedDronesForPatrol(
   installedGear: EquipmentInstance[],
   idPrefix: string,
   captainCombat?: CaptainCombatMods,
+  deckHandling?: number,
 ): DroneSquadron[] {
-  return applyCaptainDrones(
-    installedGear
-      .filter((piece) => piece.slotType === "droneBay")
-      .map((pod, index) => squadronFromPod(pod, `${idPrefix}-${pod.droneRole}${index}`)),
-    captainCombat,
+  return applyDeckHandling(
+    applyCaptainDrones(
+      installedGear
+        .filter((piece) => piece.slotType === "droneBay")
+        .map((pod, index) => squadronFromPod(pod, `${idPrefix}-${pod.droneRole}${index}`)),
+      captainCombat,
+    ),
+    deckHandling,
   );
+}
+
+// 0.14.0 (complement plan CP-4, OC-1 "Faster drone replenish"): the crew's Deck Handling (Flight Deck buff + Belter
+// racial) on a patrol cycle's seeded squadrons, as parts per million of the replenish rate (deckHandlingPpm). The
+// rate itself is untouched: the between-wave replenish banks the extra progress (droneDefense.ts replenishUnits) and
+// the in-combat replenish banks it the same way (resolveBattle), so any amount above zero acts, x (1 + deckHandling)
+// over time. Replenishment only, never drone damage or hit points (D12). Fresh squadrons are returned (the input is
+// never mutated); absent, under one part per million, or no squadron returns the list itself. Pure.
+// 0.14.0 (CP-4): the Deck Handling bank a relaunch carries into its new cycle (PatrolMissionState.replenishCarryStart,
+// squadron by squadron in seed order: the same installed pods seed the same list), so a small amount keeps banking
+// across a long Repeat patrol instead of starting from 0 each cycle. Only a squadron with Deck Handling takes one.
+// Fresh squadrons; absent or all-zero returns the list itself. Pure.
+export function withReplenishCarry(squadrons: DroneSquadron[], carries: readonly number[] | undefined): DroneSquadron[] {
+  if (!carries || !carries.some((c) => c > 0)) return squadrons;
+  return squadrons.map((sq, i) => ((carries[i] ?? 0) > 0 && (sq.deckHandlingPpm ?? 0) > 0 ? { ...sq, replenishCarryPpm: carries[i] } : sq));
+}
+
+export function applyDeckHandling(squadrons: DroneSquadron[], deckHandling: number | undefined): DroneSquadron[] {
+  const ppm = Math.round((deckHandling ?? 0) * REPLENISH_PPM);
+  if (!(ppm > 0) || squadrons.length === 0) return squadrons;
+  return squadrons.map((sq) => ({ ...sq, deckHandlingPpm: ppm }));
 }
 
 // defaultSystemDurabilityForHull: build a combat hull's FULL (no-wear) per-system durability

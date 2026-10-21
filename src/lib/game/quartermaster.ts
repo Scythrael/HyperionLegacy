@@ -98,6 +98,13 @@ import { salvageReservedInstanceIds } from "./reservation";
 import { pieceWearableBy } from "./memberEquipment";
 // Prospecting squads (hidden): the unlock gate on Prospecting's rows. prospecting.ts imports model.ts only.
 import { squadTypeUnlocked } from "./prospecting";
+// Field Kits FKR-7: the kit sales and the launch top-up. quartermaster.ts is a leaf consumer (nothing in the engine
+// imports it), so these imports cannot cycle.
+import { FIELD_KIT_IDS, FIELD_KIT_PRICES, type FieldKitId } from "./fieldKits";
+import { planDispatchPacks } from "./fieldKitsRun";
+import { deployableGroundTeams } from "./groundTeams";
+import { snapshotMembers } from "./awayTeam";
+import { addToInventory, itemCap } from "./tick";
 
 // ----------------------------------------------------------------------------
 // RequisitionMint: HOW one catalogue row mints its baseline.
@@ -813,4 +820,66 @@ export function sellBlockText(reason: SellBlockReason): string {
     case "insufficient":
       return "You do not hold that many to sell.";
   }
+}
+
+// ============================================================================
+// FIELD KIT SALES (Field Kits FKR-7; credit sinks pass USER ANSWERS "Quartermaster sells + top-up (Recommended)";
+// N13 "3x material value"). The Quartermaster SELLS the six kits for credits at fieldKits.ts FIELD_KIT_PRICES (it never
+// buys them back: a kit's ItemDef carries no sellValue). Two ways in:
+//   - buyFieldKits: the player buys kits into the warehouse (the sale rows are FKR-10's UI).
+//   - topUpAtLaunch: what a dispatch's "Top up from the Quartermaster at launch" teams would buy right now: each
+//     member's shortfall against their pack, as credits allow (fieldKitsRun.ts planDispatchPacks, the same plan the
+//     dispatch settles; the toggle and its cost preview are FKR-9's UI). Never blocks a launch.
+// PURE + IMMUTABLE, a PLAYER ACTION in its own transform like sellItem: never a tick branch.
+// ============================================================================
+
+export type FieldKitBuyBlockReason =
+  | "noSuchKit" // not one of the six kits
+  | "noneRequested" // qty is not a whole number of 1 or more
+  | "insufficientCredits" // qty x price exceeds the balance
+  | "overCap"; // the warehouse would go over its cap (approved 2026-10-20: a purchase never overfills; returning kits may, call 17)
+
+// The gate. Pure.
+export function canBuyFieldKits(state: GameState, kit: string, qty: number): { ok: true; cost: number } | { ok: false; reason: FieldKitBuyBlockReason } {
+  if (!(FIELD_KIT_IDS as readonly string[]).includes(kit)) return { ok: false, reason: "noSuchKit" };
+  if (!Number.isInteger(qty) || qty < 1) return { ok: false, reason: "noneRequested" };
+  const cost = qty * FIELD_KIT_PRICES[kit as FieldKitId];
+  if (state.credits.lt(cost)) return { ok: false, reason: "insufficientCredits" };
+  if (itemTotal(state.inventory, kit).plus(qty).gt(itemCap(state, kit))) return { ok: false, reason: "overCap" };
+  return { ok: true, cost };
+}
+
+export type FieldKitBuyResult = { ok: true; next: GameState; cost: number } | { ok: false; reason: FieldKitBuyBlockReason };
+
+// Buy `qty` of `kit` for qty x its price: the credits leave the balance, the kits land in the warehouse (kits ignore
+// quality, call 16: the base bucket). On a refusal it writes nothing. Pure.
+export function buyFieldKits(state: GameState, kit: string, qty: number): FieldKitBuyResult {
+  const gate = canBuyFieldKits(state, kit, qty);
+  if (!gate.ok) return gate;
+  const added = addToInventory(state.inventory, state.discovered, kit, new Decimal(qty), itemCap(state, kit));
+  return { ok: true, next: { ...state, credits: state.credits.minus(gate.cost), inventory: added.inventory, discovered: added.discovered }, cost: gate.cost };
+}
+
+export function fieldKitBuyBlockText(reason: FieldKitBuyBlockReason): string {
+  switch (reason) {
+    case "noSuchKit":
+      return "The Quartermaster does not sell that.";
+    case "noneRequested":
+      return "Enter how many to buy.";
+    case "insufficientCredits":
+      return "Not enough credits.";
+    case "overCap":
+      return "Not enough warehouse space.";
+  }
+}
+
+// What the next dispatch of `shipId` would buy at the Quartermaster for its top-up teams (kit -> count) and what it
+// would cost, read off the ship's deploying teams now; nothing for a ship with no top-up team or nothing short. Pure.
+export function topUpAtLaunch(state: GameState, shipId: string): { bought: Partial<Record<FieldKitId, number>>; cost: number } {
+  const ship = state.ships.find((s) => s.id === shipId);
+  if (!ship) return { bought: {}, cost: 0 };
+  const deploying = deployableGroundTeams(state, shipId).teams.filter((t) => t.deploys);
+  const teams = deploying.map((t) => ({ index: t.index, securityIds: t.security.map((m) => m.id) }));
+  const plan = planDispatchPacks(state, ship, teams, snapshotMembers(state, deploying.flatMap((t) => t.security)));
+  return { bought: { ...plan.bought }, cost: plan.cost };
 }

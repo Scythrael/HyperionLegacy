@@ -6238,7 +6238,7 @@ describe("deserialize, whitespace tolerance (import robustness hardening)", () =
   });
 });
 
-// ============================================================================
+// =====================================================================
 // E-CREW Task 2 (v64 -> v65): the DORMANT away-team roster + squad loadout containers, the away
 // recruit seed, and the officer stat backfill (docs/plans/2026-10-02-crew-made-real-e-crew-design.md
 // section 4). Nothing reads the new data yet, so the migration is a pure additive backfill.
@@ -6938,9 +6938,9 @@ describe("the v66 -> v67 and v67 -> v68 steps are FROZEN (SQ-1 review: they neve
 });
 
 // GEAR WEAR (0.14.0, design 2026-10-16 section 6; user W1 "0-1000 condition": per-mille condition replaces the
-// unused durability field): MIGRATIONS[69] step 4 and the every-load pass delete the retired `durability` from every
+// unused durability field): MIGRATIONS[69] step 5 and the every-load pass delete the retired `durability` from every
 // stored EquipmentInstance and write nothing else, so every existing piece loads at full condition.
-describe("gear wear: the retired per-piece durability field (v69 -> v70 step 4, and every load)", () => {
+describe("gear wear: the retired per-piece durability field (v69 -> v70 step 5, and every load)", () => {
   // The pre-wear shape: every stored piece carries durability = durabilityMax (what every mint wrote).
   const withDurability = (list: any[]): any[] => list.map((e) => ({ ...e, durability: e.durabilityMax }));
   const rawState = (): any => {
@@ -6996,5 +6996,23 @@ describe("gear wear: the retired per-piece durability field (v69 -> v70 step 4, 
         expect(e.condition, `v${version} ${e.id}`).toBeUndefined();
       }
     }
+  });
+});
+
+// HOTFIX 0.13.10: a save stamps how far the economy is PAID, not merely when it was written, so
+// the reload-time offline catch-up pays exactly the unpaid remainder (closing a hidden tab, or the
+// leftover under one bar cycle, then loses nothing). No schema change: the same last_saved_at.
+describe("serialize: last_saved_at can be stamped with the paid-through time", () => {
+  it("uses the given savedAtMs", () => {
+    const save = deserialize(serialize(freshState(), 1000, 1_700_000_123_456));
+    expect(save?.last_saved_at).toBe(1_700_000_123_456);
+    expect(save?.created_at).toBe(1000);
+  });
+
+  it("defaults to the current time when no stamp is given", () => {
+    const before = Date.now();
+    const save = deserialize(serialize(freshState(), 1000));
+    expect(save?.last_saved_at).toBeGreaterThanOrEqual(before);
+    expect(save?.last_saved_at).toBeLessThanOrEqual(Date.now());
   });
 });

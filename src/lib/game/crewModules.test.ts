@@ -78,9 +78,10 @@ function staffShip(s: GameState, shipId: string, buckets: CrewBucket[]): GameSta
 }
 
 function bucket(profession: CrewProfession, buff1Id: string, count: number, rank: CrewBucket["rank"] = 1): CrewBucket {
-  // CP-2: a Spacer crew (its racial, crew.endurance, has no 0.14.0 consumer), so the race lifts nothing the module
-  // tests measure. (The Earth-born racial is Crew Effectiveness, which lifts every other complement buff since CP-2.)
-  return { profession, rarity: "standard", rank, race: "spacer", buff1Id, buff2Id: null, count };
+  // A Belter crew (its racial acts only on a carrier's patrol drone screen; the Spacer, the CP-2 choice, lifts the
+  // transit speed since 0.14.0), so the race lifts nothing the module tests measure. (The Earth-born racial is Crew
+  // Effectiveness, which lifts every other complement buff since CP-2.)
+  return { profession, rarity: "standard", rank, race: "belter", buff1Id, buff2Id: null, count };
 }
 
 function officer(overrides: Partial<SeniorStaffOfficer> = {}): SeniorStaffOfficer {
@@ -105,12 +106,12 @@ const ship1 = (s: GameState): ShipInstance => s.ships.find((sh) => sh.id === "sh
 
 // ============================================================================
 describe("module catalogs", () => {
-  it("QUARTERS_MODULES has 9 (6 division + 3 general), ids unique and == the quarters slot varieties", () => {
-    expect(QUARTERS_MODULES).toHaveLength(9);
+  it("QUARTERS_MODULES has 10 (6 division + 3 general + the G1-1 Guest Wing), ids unique and == the quarters slot varieties", () => {
+    expect(QUARTERS_MODULES).toHaveLength(10);
     const divisions = QUARTERS_MODULES.filter((m) => m.kind === "division");
     const general = QUARTERS_MODULES.filter((m) => m.kind === "general");
     expect(divisions).toHaveLength(6);
-    expect(general).toHaveLength(3);
+    expect(general).toHaveLength(4);
     // One division module per complement profession.
     expect(divisions.map((m) => m.division).sort()).toEqual([...CREW_PROFESSIONS].sort());
     // Exactly one Efficient module scales its capacity; no other does.
@@ -362,7 +363,14 @@ describe("additive-neutrality + economy-neutrality", () => {
     const withMod = withModule(s, { ...gen, fittedToShipId: "ship-1" });
     // No crew + no officers -> crew map empty -> overlay is a no-op; module stat lines are unfolded
     // and its mass is 0, so the economy fold is unchanged too.
-    expect(effectiveShipStats(withMod, ship1(withMod))).toEqual(bare);
+    // G1-1 (named move): guest quarters is the one quarters line that folds, and a quarters module on a General
+    // hull carries the General quarters perk, so ONLY colonistCapacity moves (the Freighter's 20 base berths plus
+    // any guest affix, times 1.1); every other stat is byte-identical.
+    const { colonistCapacity: guestsWith, ...restWith } = effectiveShipStats(withMod, ship1(withMod));
+    const { colonistCapacity: guestsBare, ...restBare } = bare;
+    expect(restWith).toEqual(restBare);
+    expect(guestsBare).toBe(20);
+    expect(guestsWith).toBe(Math.round((20 + (gen.rolledStats.colonistCapacity ?? 0)) * 1.1));
   });
 });
 

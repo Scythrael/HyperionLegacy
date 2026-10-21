@@ -20,6 +20,7 @@
 // so the field swap itself is invisible here and only a real behavior change can move a pin.
 
 import { describe, expect, it } from "vitest";
+import { writeFileSync } from "node:fs";
 import {
   EQUIPMENT_SLOTS,
   freshState,
@@ -133,15 +134,19 @@ function wearAll(s: GameState, member: AwayMember, seed: number): GameState {
 
 // ===== the goldens =====
 
+// Re-pinned at the merge of feat/crew-0.14.0 (adb41c6): re-captured with GW_CAPTURE on adb41c6's engine, BEFORE any
+// wear edit, and the merged tree (steps 1 and 2 in) reproduces that capture byte for byte, so the wear code moved
+// nothing. What moved since the a678241 capture is feat's own slices between the two (the mission states from 2,400 s,
+// the two patrols' final states, the expedition's dispatch, mid-run and done records); the repair pin did not move.
 const GOLDEN: Record<string, string[]> = {
-  "mission:shortOreRun": ["21b85cb7", "1200:fb90fbb2", "2400:84e7ec9d", "3600:4ce3c5ad"],
-  "mission:longOreRun": ["38dbe313", "1200:5978da09", "2400:b8f8f679", "3600:cd05a7f2"],
-  "mission:forageFlora": ["f95fa7c8", "1200:fbe20294", "2400:a5fda394", "3600:fffba8a3"],
-  "mission:salvageWreckage": ["9bcbc254", "1200:4a39fc85", "2400:b934f919", "3600:9e3410fb"],
-  "mission:surveyStellarPhenomena": ["9207f56", "1200:df63ecd7", "2400:d3d7a3fc", "3600:660b4b5c"],
-  "patrol:destroyer": ["df281090", "2ad61e28", "67264ecd", "77d4b235", "5e7e8bd2", "f99c2b34", "35f5a476", "4f7f026a", "9901051b", "relaunches:171", "5c245b54"],
-  "patrol:carrier": ["f2dbd51e", "7ff99f8c", "c1929171", "58b10189", "138a5918", "143f8846", "ed7acf50", "d4ad7090", "ab2b97d9", "relaunches:109", "b21fc3e9"],
-  "expedition": ["3528347b", "df930ab1", "841cd367", "43e5954"],
+  "mission:shortOreRun": ["21b85cb7", "1200:fb90fbb2", "2400:1db8ec6f", "3600:4887c289"],
+  "mission:longOreRun": ["38dbe313", "1200:5978da09", "2400:d997959c", "3600:5b482d7d"],
+  "mission:forageFlora": ["f95fa7c8", "1200:fbe20294", "2400:e3c516bb", "3600:e2c76d7d"],
+  "mission:salvageWreckage": ["9bcbc254", "1200:4a39fc85", "2400:5c45765f", "3600:d9a1be9f"],
+  "mission:surveyStellarPhenomena": ["9207f56", "1200:df63ecd7", "2400:5988ea16", "3600:6e640802"],
+  "patrol:destroyer": ["df281090", "2ad61e28", "67264ecd", "77d4b235", "5e7e8bd2", "f99c2b34", "35f5a476", "4f7f026a", "9901051b", "relaunches:171", "a89174c6"],
+  "patrol:carrier": ["f2dbd51e", "7ff99f8c", "c1929171", "58b10189", "138a5918", "143f8846", "ed7acf50", "d4ad7090", "ab2b97d9", "relaunches:109", "86e16f3d"],
+  "expedition": ["4eaa82ad", "8f7e452f", "659f1289", "43e5954"],
   "repair": ["176", "965b8aa9", "a10053e8"],
 };
 
@@ -151,7 +156,15 @@ const PATROL_FIXTURES: readonly [ShipTypeKey, PatrolKey][] = [
   ["carrier", "crimsonReaverWarband"],
 ];
 
+// GW_CAPTURE = an output path: record every pin instead of asserting, and write them there (the G1_CAPTURE pattern),
+// so a slice that moves a pin on purpose can re-capture on the engine before it and diff the record.
+const CAPTURE = Boolean(import.meta.env.GW_CAPTURE);
+const captured: Record<string, string[]> = {};
 function pin(key: string, value: string[]): void {
+  if (CAPTURE) {
+    captured[key] = value;
+    return;
+  }
   expect(value, key).toEqual(GOLDEN[key]);
 }
 
@@ -238,5 +251,11 @@ describe("gear wear step 1 goldens (captured before any wear engine edit)", () =
     const done = runTicks(started, ticks + 2, lcg(0x2e9a));
     expect(done.ships[0].damaged).toBeUndefined();
     pin("repair", [String(ticks), hash(started.activeProcesses), stateHash(done)]);
+  });
+});
+
+describe.runIf(CAPTURE)("gear wear capture (GW_CAPTURE = an output path): write the goldens there", () => {
+  it("writes", () => {
+    writeFileSync(String(import.meta.env.GW_CAPTURE), JSON.stringify(captured, null, 2));
   });
 });

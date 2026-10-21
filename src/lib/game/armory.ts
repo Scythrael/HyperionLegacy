@@ -36,6 +36,9 @@ import { shipCrewLocked } from "./awayTeam";
 import { cleanShipGroundTeams, GROUND_SQUAD_TYPES, type GroundSquadType } from "./groundTeamSlots";
 import { DEFAULT_GROUND_TEAM_KIND } from "./groundComposition";
 import { memberSlotCapacity, memberWornIndex, pieceWearableBy } from "./memberEquipment";
+// Field Kits FKR-7: a loadout's per-member pack lands as that member's pack preference (groundTeams.ts never imports
+// this module).
+import { setMemberPack } from "./groundTeams";
 
 // The base loadout count (design: a FLAT 25, talent-expandable). Derived through loadoutCap, the ONE
 // reader, so a future loadout-count talent adds to it in exactly one place (content-driven rule).
@@ -517,6 +520,10 @@ export function createGroundTeamLoadout(
         else kit.implants.push(p.id);
         commit.add(p.id);
       }
+      // Field Kits FKR-7 (FK4 "One per member"): the member's pack preference rides in the kit (a member on the
+      // default carries no key, so a loadout saved with no preference keeps its exact shape).
+      const pack = teamType === "security" ? where.team.packs?.[memberId] : undefined;
+      if (pack) kit.consumables = { ...pack } as Record<string, number>;
       return kit;
     });
   const loadout: GroundTeamLoadout = {
@@ -568,6 +575,8 @@ export function applyGroundTeamLoadout(
   const members = new Map(state.awayMembers.map((m) => [m.id, m] as const));
   const skipped: GroundLoadoutSkip[] = [];
   let pieces = 0;
+  // Field Kits FKR-7: the packs the loadout's Security kits carry, for the members now in those slots.
+  const packs: Record<string, Record<string, number>> = {};
   for (const teamType of GROUND_SQUAD_TYPES) {
     const slots = where.team[teamType];
     loadout[teamType].forEach((kit, slotIndex) => {
@@ -583,13 +592,17 @@ export function applyGroundTeamLoadout(
         for (const e of entries) skip(e.pieceId, "emptySlot");
         return;
       }
+      if (teamType === "security" && kit.consumables) packs[member.id] = { ...kit.consumables };
       pieces += installKit(pool, member, entries, loadout.id, skip, state.gameTimeSeconds);
     });
   }
+  // A kit with no pack leaves the member's preference as it is; a kit with one sets it (setMemberPack's cleaning).
+  let withPacks = state;
+  for (const [memberId, pack] of Object.entries(packs)) withPacks = setMemberPack(withPacks, shipId, teamIndex, memberId, pack);
   return {
     ok: true,
     next: {
-      ...state,
+      ...withPacks,
       equipment: state.equipment.map((e) => pool.get(e.id) ?? e),
       squadLoadouts: state.squadLoadouts.map((l) => (l.id === loadoutId ? { ...l, checkedOutTo: { shipId, teamIndex } } : l)),
     },

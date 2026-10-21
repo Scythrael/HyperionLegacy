@@ -320,6 +320,47 @@ win rate, a member's bay seconds); removes their `no-dead-stats` entries in the 
 **Staging:** do not deploy between FKR-4 and FKR-7 (flag 2 is not stamped yet; nothing is visible, but the window
 is unreviewed as a whole). Commit `feat(0.14.0): Field Kits conditions, severity and enemy inflictors (FKR-4)`.
 
+**FKR-4 carry (2026-10-19, done):** committed as `feat(0.14.0): Field Kits conditions, severity and enemy inflictors
+(FKR-4)`. Behind flag 2: `Expedition.fieldKits: { catalog }` is typed here and read ONLY through `fieldKits.ts
+fieldKitsLive`; FKR-7 stamps it, so no player run moves yet (tests stamp it by hand). `model.ts`: GambitStatusId gains
+the seven conditions, GambitActionId the enemy-only `flashGrenade`. `gambit.ts`: rows at FK13 (Hemorrhage 12 x4,
+Neurotoxin 5 x4 plus `NEUROTOXIN_TURN_LOSS` 0.25, Concussion 0.35 x3, Blindness x0.25 for 2 or 3 rounds rolled on the
+fight stream, Fracture x0.8 and [PROPOSAL] Broken Bone x0.7, Shattered Bone x0.6 on power AND accuracy;
+`BONE_CONDITION_ROUNDS` 10000 so a bone condition rides every fight's carry until treated or bayed); `BONE_LINE` +
+`applyBoneHit` (a bone hit starts at Fracture and worsens one rank, N10); `turnLossPermille` (independent chances, one
+draw only while one is held); `BASIC_DEBUFFS` now lives here (fieldKits.ts re-exports it, `CONDITION_LINES` reads
+`BONE_LINE`) and Cure and the team kit's Use Item never touch a SERIOUS condition (`isSeriousCondition`: every debuff
+before Field Kits is basic, so old fights cure exactly as before; an any-debuff Cure or Use Item looks past an ally whose
+only debuffs are serious, so a fractured squadmate never blocks the medic); `statusResistPermille` (FK6: a stun resist covers
+Concussion, `RESIST_ALSO_FROM`; D24: Stoneskin folds `STONESKIN_BATTLE_RESIST` 0.25 into a physical status's roll, a
+physical status being the bay's injury class, and one that lands lasts ceil(x1.25)). New `fieldKitsConditions.ts`
+stamps the inflictors post-generation, after ranks, no draw: Bruisers `heavyHit` (`HEAVY_HIT_FRACTION` 0.25: Fracture
+and Concussion, both through the resist roll), Strikers `executeAfflicts` Hemorrhage (a landed low-HP Execute on a
+target still standing) and one flash grenade (`FLASH_GRENADE_RULE` leads their program, target foeHighestThreat
+[PROPOSAL]), Casters' Poison becomes Neurotoxin from grade 3 (N14), Swarm and every hostile-site enemy Fear on a
+landed attack (`FEAR_ON_HIT_PERMILLE` 200 [PROVISIONAL]); `withFieldKitsTeam` stamps Stoneskin on Ossir members.
+`groundFight.ts` (two one-line calls: taskFightTeam, taskFightGuard; TaskFightExp gains `fieldKits`),
+`groundThreat.ts` (the key appends `["fieldKits", catalog, grade]` on a flagged run only), `medicalBay.ts`
+(`brokenBone` 3600 s, `shatteredBone` 7200 s, N11). UI: the editor's status picker hides the seven conditions until
+FKR-10; ACTION_LABEL / the log verb name the flash grenade. Wiring: LIVE now: Morale Anchor (`runSecFearResist`), Iron
+Will (`secFearResist`), Cortex Shield's resist line (`secConcussionResist`), GAMBIT_STATUSES fear and the seven,
+GAMBIT_ACTIONS flashGrenade, every GROUND_CONDITIONS row but Bleed, CONDITION_LINES x3 (`content:bone`), the new
+`away:MEMBER_PERKS:stoneskin:battle` (`runSecStoneskinResist`) and `away:audit:fieldKitsCure` (`content:fieldKitsCure`);
+the Stoneskin bay entry keeps only OC-G1's legacy context pending; the liveness testkit gains a "field kits fights"
+probe so no-dead-stats sees Morale Anchor and Cortex Shield live (their allow-list reasons are gone). STILL PENDING:
+the Bleed status and its bay row (owner: a user call, FK7 names no enemy that inflicts Bleed). Goldens: every FK-3,
+FKR-0, SF-0, G2-0 and later hash unchanged (no new golden commit: FKR-0 already pins the flag-less runs). Tests:
+`fieldKitsConditions.test.ts` (26, incl. a stamped Deadly run's parity); `medicalBay.test.ts` and
+`wiring.liveness.test.ts` updated for the two bay rows and the two flipped liveness entries. Observation for the balance pass: against a
+strong squad on a calm body a Bruiser rarely reaches the heavy-hit line (a quarter of a member's max HP); hazardous
+bodies and Elite or Boss leads do.
+**FKR-4 review rulings (user 2026-10-19).** Bleed: a Striker's landed NORMAL hit (an attack, or an Execute on a target
+not yet wounded) may inflict Bleed (`normalHitAfflicts`, `BLEED_ON_HIT_PERMILLE` 150 [PROVISIONAL: the user named the
+inflictor, not the chance], one chance roll then the resist roll on the fight stream, the Fear style); Hemorrhage
+stays the low-HP Execute's. The Bleed status and its bay row are LIVE (nothing pending in the bay rows now).
+`FEAR_ON_HIT_PERMILLE` 200 ("20% per landed hit") and `FLASH_GRENADE_RULE` foeHighestThreat ("Squad's biggest
+threat") are user-confirmed.
+
 #### FKR-5: Tool charges, the carry capacity line, the grenade family (data + engine, behind flag 2)
 
 **Files:** `model.ts` (`charges` on the grenade varieties; new variety `impactGrenade` with its blueprint and
@@ -339,6 +380,50 @@ new affix line changes NEW grenade crafts only (existing instances keep their li
 grenade bonus (OC-F4's grenade half), each live with a sensitivity check. **Save:** optional fields; none.
 Commit `feat(0.14.0): grenade charges, carry capacity and the Impact Grenade (FKR-5)`.
 
+**FKR-5 carry (2026-10-19, done):** committed as `feat(0.14.0): grenade charges, carry capacity and the Impact Grenade
+(FKR-5)`. Behind flag 2 (read only through `fieldKitsLive`; FKR-7 stamps it), so no flag-less run moves. `model.ts`:
+`MemberVarietyTraits.grenade` (`GrenadeTraits`: `charges { perObjective, perBattle }`, `powerMult`, `status`, optional
+fixed `statusChance`; the plan's `ToolVariety.charges` lives here) on the three grenades at N4 / N6 (Impact 4, Stun 2,
+Toxin 2, 1 throw per battle; Impact x1.5 group blast, 30% Concussion); the new **Impact Grenade** variety (Security
+tool, NO passive groundEffect, implicit groundPower, affixes groundAccuracy + carry) and `impactGrenadeBp` (tier 1, 60
+ticks, 700 credits, craft 150, `IMPACT_GRENADE_RECIPE` (user 2026-10-20 "Approve") 1 Titanium Ingot + 1 Polysilicate Wafer + 1 Power
+Coupling); the carry line is `groundCarryCapacity` (not the plan's `toolCarryCapacity`: every ground key carries the
+`ground` prefix, member-gear.test.ts), in all three grenade pools (weight 1, variety share 0.15 [PROPOSAL], other
+shares lowered to keep each sum 1), minted as `GRENADE_CARRY_PER_LINE` (1) whatever the budget (itemgen.ts
+`rolledLineValue`); `GambitActionId` gains `throwGrenade`; `GroundFightRecord.chargesUsed?` and
+`SnapshotGearPiece.carry?` (both written only when nonzero). `awayTeam.ts`: `pieceCarryLines`, `pieceToolCharges`,
+`memberGrenade`, `toolCharges(member)` (base + carry lines; 0 for the Med Kit, Shroud, Lure); the carry line never
+counts toward a piece's effect points. New `fieldKitsGrenades.ts`: `GRENADES` / `GRENADE_IDS` (read from the
+varieties), `withThrownGrenades` (a Field Kits fight's squad: the grenade's passive on-hit comes off, a Shock Baton's
+stays; each grenadier is armed with its throw, charges = `GroundFightTeam.charges[member]` else full, Saboteur x1.06 on
+its own blast AND debuff chance), `chargesLeftFor`, `passiveInflictStatuses`. `gambit.ts`: `GroundCombatant.grenade`
+(`ThrownGrenade`), `canThrowGrenade`, `memberStatusChance` (extracted, byte-identical), `throwGrenade` legal for
+Security; it fires only with a charge and a throw left (FK11 "skip it": the next rule acts) and blasts the target plus
+every standing foe of its group in id order: per body a hit check (`strikeHitChance`, the flash grenade's), the damage
+roll at `powerMult`, then on a standing body the debuff chance roll and the resist roll, all on the fight stream;
+`GroundBattleResult.chargesUsed`. Stun / Toxin blasts are `SPECIALIZED_GRENADE_POWER_MULT` 0.5 (user 2026-10-20 "Half
+damage") and their debuff lands at the thrower's status chance [PROPOSAL: the
+status-chance rule, so their groundStatusChance line keeps its meaning]. `groundFight.ts`: `GroundFightTeam.charges?`
+(FKR-7 passes `GroundTeamRun.charges`), the arming beside FKR-4's Stoneskin, the record's `chargesUsed`.
+`groundThreat.ts`: the Field Kits key tag appends each team's charges (unflagged keys unchanged). UI: ACTION_LABEL
+"Throw Grenade" (not offered in the editor until FKR-10), the log verb, the tooltip's "Carry Capacity" (+1). No wear
+(gear wear has not landed: a throw is never a wear source, charges never wear). **Not done here, on purpose:** the
+default program's throw (N15, needs FKR-6's Boss reserve), so a stamped run on the default program arms grenades but
+throws none; the per-objective charge bookkeeping across fights (FKR-7 writes `GroundTeamRun.charges`, subtracts
+`chargesUsed`; until then every fight starts full); the threat sample threading charges between its fights (FKR-6).
+Wiring: LIVE `gear:security:impactGrenade:{groundPower,groundAccuracy,groundCarryCapacity}` and the carry line on Stun
+and Toxin (probe `runSecGrenadeCharges`, gate +1), `away:GRENADES:<grenade>:{charges,perBattle,blast,status}` x3
+(content `grenade` probes on an armed reference thrower), `away:GAMBIT_ACTIONS:throwGrenade`, `facility:BLUEPRINTS:
+impactGrenadeBp`, and `away:KIT_CATEGORY_RULES:explosives` flipped pending -> live (probe `runSecGrenadePower`,
+Saboteur's x1.06); `GRENADES` joins CATALOGS, CONTENT_CATALOGS and the catalog walk; `GRENADE_IDS` in UNREAD_CONSTANTS;
+liveness counts gear 99 -> 104 (the five new lines, all live; the field kits fights probe also fingerprints the armed
+squad). Goldens: **MOVED, named:** FKR-0 (4) `craftedRolls` (four of six pieces: Stun seeds 3 and 27, Toxin 2 and 27;
+the pool gained the carry line) with a proof test that the FKR-0 pools reproduce the FKR-0 hashes exactly. Held apart
+(no pin moved): G1-0 golden 5's base registry pin (FKR-5's 19 added ids and its one flip read back, still 1181 /
+74fa057) and the Prospecting hidden `wearers` pin (the Impact Grenade checked to read like its siblings). Every FK-3,
+FKR-0 whole-run, SF-0, G2-0 and later hash unchanged. Tests: `fieldKitsCharges.test.ts` (23, incl. a stamped throwing
+run's parity one call == 997 s == 1 s).
+
 #### FKR-6: Kits in battle, rank conditions and reserves (engine, behind flag 2)
 
 **Files:** as FK-5 (`gambit.ts`, `groundFight.ts`, `groundThreat.ts`), plus `GambitRuleParams.minRank` /
@@ -357,6 +442,40 @@ per open call N8. Threat odds simulate with the team's current kits and charges 
 Injury Kit `treatmentShare`) live with a sensitivity check; the gambit status picker row (FK-9 + WR-10) moves to
 partial or live as its statuses become reachable. **Save:** none.
 Commit `feat(0.14.0): kits in battle, rank conditions and Boss reserves (FKR-6)`.
+
+**FKR-6 carry (2026-10-20, done):** goldens first (`fieldKitsBattleGoldens.test.ts`, FKR-5's stamped fights on
+e1d6d06), then `feat(0.14.0): kits in battle, rank conditions and Boss reserves (FKR-6)`. Behind flag 2 only; every
+flag-less golden unchanged. New pure `fieldKitsBattle.ts`: `FIELD_KITS_BATTLE` (the kit rules, injected into
+`resolveGroundBattle` because fieldKits.ts imports gambit.ts), `kitUsable` / `applyKit` (First Aid Kit and Antitoxin at
+the first aid cut, the heal riding the cleanse; Combat Stim Inspired 2 rounds x effectiveness, at least 1;
+Splint heals a Fracture in 3 rounds or turns a Broken Bone into a Fracture; Trauma Kit clears its list in one use;
+Injury Kit on a DOWNED ally once per battle, its 0.5 share on the record), `withFieldKitPacks` (every fielded member
+carries `GroundFightTeam.basics` + `.kits`, absent = none), `withFieldKitsDefaultProgram`, `fightSuppliesAfter`
+(charges, basics and extras left after a fight: the threat samples use it now, FKR-7's `finishFight` should too),
+`LEGACY_USE_ITEM_KIT` (call 15). `gambit.ts`: `GroundCombatant.kits` / `.injuryTreated`, `spendKit` (a free basic
+first, then an extra), selector `allyDowned` (fires only as a Field Kits Use Item), `kitFires` (the kit
+gate, the need, the look-past), rank conditions `params.minRank` on the resolved target (read on EVERY run: an unranked
+foe and an ally read Normal; no stored program carries one), `params.reserveForBoss` (`breaksReserve`: a foe target
+lifts it when it is a Boss; a kit's ally target while a Boss stands among the foes), `GroundBattleResult` /
+`GroundFightRecord` `basicsUsed` / `kitsUsed` / `treated`; Triage's explicit kit rules wait behind
+`FIELD_KITS_PLAYER_LIVE`. `model.ts`: `FIELD_KITS_DEFAULT_GRENADE_RULES` (N15's "largest
+group, keep 1 for a Boss" plus "throw the kept one at an Elite or a Boss") and `FIELD_KITS_DEFAULT_MEMBER_GAMBIT` (swapped in on a Field Kits
+fight for a member whose program IS D19's default; still no Use Item). `groundFight.ts memberEndConditions`: a
+splinted Fracture is no bay condition (call 18). `groundThreat.ts`: the samples spend supplies fight by fight and the
+Field Kits key lists each team's basics and kits (FK12). `memberGambits.ts gambitRuleEquals` reads the three new
+params. Editor: `SELECTOR_LABEL.allyDowned` only (not offered until FKR-10). Wiring: `away:FIELD_KITS:<kit>` x6 and
+`away:KIT_CATEGORY_RULES:{firstAid,advancedMedical}` LIVE (probes `content:kit:*`, `content:kitCategory:*`; the
+Injury Kit through the bay divisor), new LIVE `away:GAMBIT_SELECTORS:allyDowned`, `away:GAMBIT_PROGRAMS:{minRank:elite,
+minRank:boss,reserveForBoss,fieldKitsDefault}`. Goldens MOVED, named: G1-0 golden 5 `registry` 1201 e6523a6f -> 1206
+120f6d8b (FKR6_SLICE reproduces e6523a6f); the stamped `default` and `triage` pins (N15, call 15); FKR-5's "default
+program throws none" test now expects the throw. **For FKR-7:** pass `GroundTeamRun.basics` / `.kits` / `.charges`
+through the fight's team, subtract the record's spends with `fightSuppliesAfter`, sum `treated` into
+`GroundTeamRun.treatment` and the bay's `treatmentShare`; FKR-10 shows the Field Kits default in the editor.
+**FKR-6 review rulings (user 2026-10-20, merge-batch answers "Spacer bonus, FKR-6 and G1-3 picks"):** "Save for
+Elite or Boss": the default's kept grenade goes on an Elite or a Boss (`minRank: "elite"`; the stamped `default` pin
+did not move). "Approve all": basics before extras, Combat Stim rounds scale with skill (min 1), "on a Boss" = while a
+Boss stands, one Injury Kit per downed member per battle, Triage's kit rules as built (tags dropped). Hardening:
+`enemyRanks.ts rankAtLeast` never throws on an unknown rank or condition from a stored save (never met / reads Normal).
 
 #### FKR-7: Run plumbing: flag 2, per-member packs, per-objective refresh, stock, Quartermaster (engine)
 
@@ -378,7 +497,60 @@ top-up off by default buys nothing; on, it buys the shortfall and charges the li
 basics and charges reset each objective; parity one call == 997 s == 1 s with packs, a Reinforcing alert and a joint
 crew; an Injury Kit shortens only that member's bay time. **Wiring:** `FIELD_KIT_PRICES` and the free-basics curve
 flip live. **Save:** optional fields; none.
+**Hidden pieces (user 2026-10-20 "Hide until kits are live"):** flip `model.ts` `FIELD_KITS_PLAYER_LIVE` to true. That
+merges `FIELD_KITS_HIDDEN_BLUEPRINTS` (the Impact Grenade blueprint) into `BLUEPRINTS` (Research, Fabricator, Archive)
+and gives new Stun and Toxin crafts the +1 Carry Capacity line (`GRENADE_CRAFT_POOLS.carry`); FKR-0 (4) `craftedRolls`
+then reads FKR-5's capture, the G1-0 `registry` pin moves (the three hidden FKR-5 entries return), and the
+`away:audit:fieldKitsHiddenPieces` row closes.
 Commit `feat(0.14.0): per-member packs, per-objective supplies and Quartermaster kits (FKR-7)`.
+
+**FKR-7 carry (2026-10-20, done; engine only, NOTHING player-reachable moves):** goldens first
+(`fieldKitsRunGoldens.test.ts` on 047b133: a switch-off real dispatch holding stock, credits, packs and a top-up, to its
+claim; a run stamped by hand with hand-placed extras; its unstamped twin), then `feat(0.14.0): per-member packs,
+per-objective supplies and Quartermaster kits (FKR-7)`. **Both switches stay OFF:** FKR-9's pack UI (needs the user's
+mockup sign-off) is not built, so per the "Hide until kits are live" ruling kits are NOT live yet. New
+`fieldKits.ts FIELD_KITS_RUNS_LIVE = false` gates the dispatch stamp; `model.ts FIELD_KITS_PLAYER_LIVE` stays false (the
+Impact Grenade blueprint and the Stun / Toxin carry line stay hidden); both flip together at FKR-9 / FKR-10 (wiring audit
+rows `away:audit:fieldKitsRunsSwitch` (new) and `away:audit:fieldKitsHiddenPieces`, both pending FKR-9 / FKR-10).
+`startExpedition(..., anomalyOptIn, fieldKitsRuns = FIELD_KITS_RUNS_LIVE)`: tests pass true. New pure `fieldKitsRun.ts`:
+`fieldKitsStamp` (flag 2 = `{ catalog, freeBasics }`, the free set frozen on `gambit.ts shipSupportHeads`, the legacy team
+kit's headcount), `memberHasMedicalTraining`, `defaultMemberPack` (N16), `memberPackPreference` (a stored preference wins;
+approved 2026-10-20: a kit the member cannot use is never packed or bought), `planDispatchPacks` (stock first in team then slot
+order, then each top-up team's shortfall bought member by member as credits allow; never refuses),
+`withDispatchPacks` / `settleDispatchPacks` (stock leaves lowest quality first; credits spent), `refreshObjectiveSupplies`
+(as a crew LANDS: every objective start and every trip, basics refilled, charges deleted = full), `spendFightSupplies`
+(FKR-6's `fightSuppliesAfter` per crew team, won or lost; `treated` summed on `GroundTeamRun.treatment`),
+`carriedExtras` / `returnCarriedExtras` (claim: over the cap allowed, call 17; base bucket, call 16). `groundOps.ts`:
+`fightTeamOf(exp, ...)` carries charges / basics / kits on a flagged run (a fresh odds read: full charges, a fresh free
+set, the extras left; FK12), `landOnTask` refreshes, `finishFight` spends, `groundTeamBaySeconds` reads `treatment` (only
+that member), `healTeam` clears it. `model.ts`: `GroundTeamRun.kits / basics / charges / treatment`, `ShipGroundTeam.packs`
+/ `topUp?: true`, `Expedition.fieldKits.freeBasics`; `groundTeamSlots.ts shipGroundTeams` keeps packs / topUp.
+`groundTeams.ts setMemberPack` / `setGroundTeamTopUp` (allowed while the ship is out, like the help toggle).
+`armory.ts`: `SquadLoadoutKit.consumables` written from the member's pack at create and applied back as the slot member's
+preference (no preference, no key: FKR-0 (5) unchanged). `quartermaster.ts`: `canBuyFieldKits` / `buyFieldKits` (price x
+qty; refusals noSuchKit, noneRequested, insufficientCredits, overCap (approved 2026-10-20): a purchase never overfills, a
+return may) and `topUpAtLaunch(state, shipId)` (the dispatch's purchase preview for FKR-9). Wiring: LIVE
+`facility:FIELD_KIT_PRICES:<kit>` x6 (probe `content:kitPrice`), `away:FREE_BASIC_SET:firstAidKit` (equals its base,
+`content:freeBasic:firstAidKit:base`) + new `...:crew` (event, 16 Medical crew land more kits), `away:audit:treatmentShare`
+(divisor, `content:runTreatment`); `FIELD_KITS_CATALOG_VERSION` and `FIELD_KIT_PRICES` left UNREAD_CONSTANTS. Goldens
+MOVED, named: FKR-6's stamped `throw` and `default` whole runs (charges now carry between an objective's fights; each
+single fight unchanged), FKR-7's stamped-by-hand run and claim (the hand extras are read and spent, the rest come home),
+the G1-0 golden 5 `registry` 1217 a4b86d24 -> 1219 422b9c70 (FKR7_SLICE reproduces it) and the EM-0 `registry` snapshot
+30489b98 -> 3c94e7d1 (FKR7_BEFORE reproduces it). Unchanged: the switch-off dispatch and claim, every flag-less golden.
+Tests: `fieldKitsRun.test.ts` (19: stamp, packs, lowest quality first, top-up off / on / credit-limited, refresh,
+spends, bay share for that member only, whole run (spent never return, over cap), parity one call == 997 s == 1 s with
+packs + Reinforcing + a joint crew, save round trip, the sale, the loadout round trip). Prices as in FKR-3's follow-up
+(Antitoxin 60 on 1 Purified Biomass + 1 Titanium Ingot, Splint 95). **For FKR-9 / FKR-10:** flip both switches in the
+same commit as the pack UI; the stamped real runs then move (that is the point) and the switch-off golden becomes the
+"switch on" proof.
+
+**FKR-7 user approvals (2026-10-20, docs/plans/2026-10-19-merge-batch-answers.md):** kits switch on WITH the pack
+screen (`FIELD_KITS_RUNS_LIVE` and `FIELD_KITS_PLAYER_LIVE` flip together in FKR-9/10, still 0.14.0); the free First
+Aid Kit curve as built (Medical + Operations headcount 0-4 = 1, 5 = 2, 15 = 3, 27 = 4, 41 = 5, 57 = 6, diminishing, no
+cap); and the packing and cap rules (a kit a member cannot use is never packed or bought; a Quartermaster purchase is
+refused over the warehouse cap, kits coming home may go over it). Their [PROPOSAL] tags are dropped here and in the
+code. Review follow-up: a stored pack whose every count is bad now falls back to the default pack (a stored `{}` still
+packs nothing), and the stale `FIELD_KIT_PRICES` comment says the Quartermaster reads it.
 
 #### FKR-8: Field devices roll per use (engine)
 
@@ -982,3 +1154,14 @@ Reading (this reshapes FK-1, FK-4, FK-5, FK-6, FK-8, FK-9):
   18 "No Fracture bay time (Recommended)". => ALL Field Kits open calls are now answered.
 - **Stun and Fear (2026-10-17):** "Yes, both clear them (Recommended)": Stun and Fear are basic debuffs; a First Aid Kit
   and the free Cure clear them (confirms FKR-2's provisional pick).
+
+## USER ANSWERS (2026-10-20): FKR-9 packing mockup v1 (https://claude.ai/artifact/4kB9DT4sC5vGh1Dbs3FLYF)
+
+- **Steppers:** "Per member (Recommended)": one stepper per kit per member, packs pre-filled.
+- **Top-up toggle:** "Per team at dispatch (Recommended)": in the dispatch side rail, remembered per team.
+- **In-run readout:** "Both (Recommended)": a one-line summary on the expedition card plus the full table in the detail
+  view.
+- **Short and unusable kits:** "Quiet notes for both (Recommended)": a soft "N short" note per kit when top-up is off, and
+  one dim "needs Medical Training" line under non-medics.
+- The mockup is signed off by these answers; FKR-9/10 build to it. New glyphs it proposes (grenade, offense / defense /
+  debuff role glyphs, home mark) need the 16/28/56 px review in icons.ts + ICON_SEMANTICS before shipping.

@@ -54,6 +54,7 @@ import {
 	availableDefenders,
 	replenishDrones,
 	supportCleanse,
+	REPLENISH_PPM,
 } from "./droneDefense";
 import type { Defender } from "./droneDefense";
 import { makeStreams, type Rng } from "./rng";
@@ -2351,12 +2352,17 @@ export function resolveBattle(
 				// Bank fixed-point progress: rate (per second) * pct% * dt (deci-seconds).
 				// Divisor 100 (percent) * TENTHS_PER_SECOND (per-second -> per-tick) keeps
 				// it exact integer, releasing whole progress units and carrying the rest.
+				// 0.14.0 (CP-4, OC-1): a squadron with Deck Handling banks in parts per million too, so its
+				// rate x (1 + deckHandling) releases exact whole units; without it the original bank, unchanged.
 				const key = `${self.id}:${squadron.id}`;
+				const ppm = squadron.deckHandlingPpm ?? 0;
+				const scale = ppm > 0 ? REPLENISH_PPM + ppm : 1;
+				const unit = 100 * TENTHS_PER_SECOND * (ppm > 0 ? REPLENISH_PPM : 1);
 				const banked =
 					(droneReplenishBank.get(key) ?? 0) +
-					squadron.droneReplenishRate * pct * DT_DECISEC;
-				const units = Math.floor(banked / (100 * TENTHS_PER_SECOND));
-				droneReplenishBank.set(key, banked - units * 100 * TENTHS_PER_SECOND);
+					squadron.droneReplenishRate * pct * DT_DECISEC * scale;
+				const units = Math.floor(banked / unit);
+				droneReplenishBank.set(key, banked - units * unit);
 				if (units > 0) {
 					const restored = replenishDrones(squadron, units);
 					// LOG-ONLY: narrate a drone coming back online mid-fight.

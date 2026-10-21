@@ -269,6 +269,32 @@ in/out; multi-input deducts all atomically and refuses when any is short; alloca
 salvaged item has a sink or a typed reserve (extended to every producible refined item); every refined input is
 producible. Neutral: no golden moves (new keys only). UI: Refinery list only (grouping waits for ML-7).
 
+> **Carry note (ML-0 + ML-1 built 2026-10-20).** ML-0: `materialLinesGoldens.test.ts` pins the six gathering runs
+> (stepped == one offline `tick()`, with the shared-stream draw count), a refine line, a fabricate line, an equipment
+> blank + inspect, a Prospector Miner with a crafted Refinery-Feed Rig on the Local Asteroid run (ML-3's seam), and the
+> census. ML-1: the 7 items and 7 recipes as named (keys `refineFerriteIngot`, `refineReclaimedCircuit`,
+> `refineIridiumCatalyst`, `synthCobaltCoil`, `synthOsmiumPlate`, `synthPhotonicGel`, `synthBiocatalyst`), every
+> ratio and duration in ONE table, `MATERIAL_LINE_RECIPE_NUMBERS` (model.ts; compounds run 20 ticks because 40 breaks
+> the speed rung XP rule; the user approved the numbers as built, 2026-10-20). `ItemDef.reserved` is live: field role `effect`, one pending registry
+> entry `facility:ITEMS:<id>:reserved` per reserve (owner = the marker). Reserved now: Reclaimed Circuit, Iridium
+> Catalyst, Cobalt Coil, Osmium Plate, Photonic Gel, Biocatalyst (owner ML-2) and Precursor Circuit (owner EM-8).
+> **ML-2 and EM-8 must drop the marker in the same commit that adds the consumer** (materialLines.test.ts fails while
+> an item is both reserved and consumed). Ferrite Ingot already feeds the Osmium Plate. Stale text fixed: Damaged
+> Reactor Housing hint, Deuterium Ice flavor (its hint was already honest), Intact Data Core hint (the Neural Backup
+> consumes it). Reclaimed Alloy retagged uncommon (L11). Goldens: only the ML-0 census moved (refined 5 to 12, recipes
+> 4 to 11; the test proves removing the ML-1 rows reproduces ML-0). `shortRangeGoldens` holds the 14 new registry
+> entries apart (`registry:ml1`), so its base pin is unchanged.
+> **Review fix (2026-10-20, "nothing inert player-reachable"):** `refineRecipeOffered(key)` (model.ts) is the ONE
+> check canStartLine, the Refinery dropdown and the dashboard's idle-refinery scan read. A recipe is hidden while its
+> output is reserved or only feeds hidden recipes, so all seven ML-1 recipes are hidden today (Ferrite Ingot only feeds
+> the reserved Osmium Plate) and each comes on offer by itself when ML-2 / EM-8 drop the marker. Their registry
+> entries (`facility:REFINE_RECIPES:<key>`) read pending (owner ML-2, no probe) while hidden and turn live with their
+> content probe by themselves; ML-2 re-pins `shortRangeGoldens` `registry:ml1` when they do. **ML-2 note:** the
+> seven recipes, and so the six E-MAT orphan raws' Refinery sinks (all but Scrap Alloy), first become player-reachable
+> in ML-2. **Patch note line (L11):** "Reclaimed Alloy is now tagged uncommon (it refines from common Scrap Alloy)."
+> Rarity also feeds the Salvage Bay confirm prompt's tier (App.svelte `salvageTargetNeedsConfirm`), but material
+> salvage takes salvaged materials only, so nothing a player does changes beyond the color and the reward chips.
+
 **ML-2 Recipe rework (data).** Per call L2 (a): cargo, FTL, reactor, utility, shields, plating per E-MAT 3c and 3d with
 today's items, Sprint Drive vs Efficient Core differentiated (L11), Hauler Hold / High-Output Core Structural Assembly
 rule (L11). Tests: no-wall walker (every slot keeps a non-relic variety whose full tree bottoms out in Asteroid + Lunar
@@ -320,6 +346,26 @@ Discipline, Martian) on a D23 curve, `reactorSurplus`, `shipPowerBudget`. Remove
 `powerOutput`, `powerDrawReduction`, `ship:audit:slotPowerDraw`, `ship:audit:weaponPowerDraw`); Task 22's
 `PENDING_IN_RELEASE` loses its three E-MOD entries. Tests: each source moves `sheetPowerDraw`; neutrality (no officer,
 no Martian, Standard-Issue gear) byte-identical; integer exactness. Save: none.
+
+*Carry note (EM-0 and EM-1 built 2026-10-20, on a9caa06).* EM-0 is `emodGoldens.test.ts` (512 to 2,048 sheets per
+hull, the census, 20 patrols, 2 Ground Ops runs, 2 missions, the registry). The census reads 83 for the Freighter (it
+installs no utility; section 2.2 said 85), the rest as section 2.2; `basePowerOutput` takes the option (a) values.
+EM-1 moved only the sheets (output + hull base; draw cut by efficiency) and the registry; every patrol, mission and
+Ground Ops pin held. Golden files that pinned a sheet earlier hash it inside `withEm1Off`
+(`emodEm1Switch.fixture.ts`), which reproduces every EM-0 capture. Built: `netPowerDraw` in `crewOverlay.ts`
+(`ceil(gross / (1 + diminishing(e, POWER_EFFICIENCY_KNEE)))`, folded in `applyCrewOverlay`; knee 0.25,
+user confirmed 2026-10-20: one Overdrive officer about 8%, e 0.5 about 24%); `DRIVE_CLASS_POWER_DRAW_MULT` 1.6 with `ftlDriveClass` reading
+an optional `BlueprintDef.driveClass` (absent = Class I; G2-4 sets it and must not bake the class into `powerDraw` at
+mint; if OC-3's hull-tier class should also draw, G2-4 extends `ftlDriveClass`); `shipPower.ts shipPowerBudget(state,
+shipId, { piece, replacingInstanceId }?)` with `reactorSurplus` (EM-2 gates on its `overBudget`, EM-3 freezes its
+output and draw, EM-4 reads `reactorSurplus`). Registry: Overdrive, Power Discipline, Martian, the powerOutput and
+powerDrawReduction lines, the slot and weapon draw rows LIVE; each hull's `basePowerOutput` and the drive class seam
+added; `ship:audit:reactorCoreNet` now owned by EM-4. UI: the Power Output / Power Draw (i) texts and the Overdrive
+description only (the power bar waits for the EM-10 mockup). **For G2-4:** the voyage class (G2-3 hard-codes
+`driveClass: STANDARD_DRIVE_CLASS` at expedition.ts ~718) and the power draw must read ONE drive class source,
+`ftlDriveClass`. **For the release:** Overdrive, Power Discipline and Martian show LIVE, but a lower draw changes nothing
+until the install gate and the combat penalty read it, so EM-2 and EM-3 must land in 0.14.0. Integration (2026-10-20):
+`MULTI_SLOT_TYPES` is exported from equipment.ts and shipPower.ts reuses it (EM-5 adds `module` there once).
 
 **EM-2 Install gate.** `canFitEquipment` gains `overPower` (pristine values only, never wear), checked after capacity;
 the same check on every install path: hand install, item-side install, Armory loadout check-out (whole-set budget
@@ -498,3 +544,38 @@ Sets in 0.14.x). The power budget itself should not move: seven registry rows an
   budget binds on modules and higher drive classes. **P3 surplus:** "Speeds the drive (Recommended)" (supersedes the
   "faster shield recharge" example in the first answer). **M2 scope:** "Power + all 5 types, small roster
   (Recommended)": salvage-only module loop to 0.14.x. **P6 penalty:** "sqrt curve, floor 60% (Recommended)".
+
+## USER ANSWERS (2026-10-19)
+
+- **P4 power efficiency:** "Cuts net draw (Recommended)": Overdrive, Power Discipline and Martian cut the ship's net
+  draw on a diminishing curve.
+- **L9 Deuterium consumers:** answered through gas giant call 7 ("Drives + Lab blueprints"): Deuterium feeds Class III+
+  FTL drives; whether the High-Output Core also takes it is asked with L8.
+- **P5 drive draw:** "x1.6 per class (Recommended)".
+- **M3 Active auto-cast:** "One preset rule (Recommended)".
+- **M4 trigger set:** "Original proposal (Recommended)" (the earlier "Something else" was a misclick, user
+  2026-10-19): combat battle start, incoming ambush, after ambush, on hit, per combat tick, below a hull threshold;
+  outside combat per mission cycle and per body scanned.
+- **M5 uniqueness:** "Unique effects only (Recommended)".
+- **M6 v1 roster:** "Approve all (Recommended)": the eight rows in section 5 call 12 as named, with those effects.
+- **M7 recipes:** "Material Lines items (Recommended)".
+- **M8 duplicates:** "One per ship (Recommended)"; the Precursor Lens one per ship too.
+- **M9 module wear:** "Slowly underway (Recommended)".
+- **L1 items:** "Build as named (Recommended)": the 7 July-approved items and 7 remaining recipes.
+- **L8 early Deuterium:** "Deuterium Skim mining run (Recommended)": Local Deuterium Skim returns as an ordinary Tier I
+  mining run (no fuel role). With L9 (via GG call 7): Deuterium feeds Class III+ FTL drives and the High-Output Core.
+- **L2 recipe scope:** "Six economy/defense slots (Recommended)": cargo, FTL, reactor, utility, shields, plating now;
+  weapons and drones wait for 0.16.0; bridge, quarters, sensors keep CP-11's components.
+- **L4 per-unit chance:** "Expected count + 1 roll (Recommended)".
+- **L5 spending stock:** "Toggle, lowest-first default (Recommended)".
+- **L7 crafted gear inherits quality:** "Yes, gear too (Recommended)": quality blanks, one step appended to v70.
+- **L6 carry formula:** "Weighted average + climb (Recommended)".
+- **L3 Cobalt gate:** "Accept level 4 (Recommended)".
+- **L10 rarity cap:** "Skip it (Recommended)".
+- **L11 small data calls:** "Approve all three (Recommended)": Sprint Drive vs Efficient Core as in E-MAT 3c;
+  Structural Assembly kept on Hauler Hold, dropped on High-Output Core; Reclaimed Alloy retagged uncommon.
+- **X1 OC-D2 owner:** "Material Lines builds it (Recommended)": ML-3 builds it; WR-7 drops the row.
+- ALL Material Lines and E-MOD calls answered (2026-10-19).
+- **ML-1 recipe numbers (2026-10-20):** "Approve (Recommended)": MATERIAL_LINE_RECIPE_NUMBERS as built (Ferrite 20:1
+  12 ticks; Circuitry 5:1 and Iridium 3:1 20 ticks; Cobalt Coil 3 Cobalt + 1 Titanium Ingot; Osmium Plate 2 Osmium +
+  2 Ferrite Ingot; Photonic Gel 1 Wafer + 3 Resin; Biocatalyst 2 Purified Biomass + 1 Spore; compounds 20 ticks).

@@ -20,10 +20,14 @@
 
 import { describe, expect, it } from "vitest";
 import { goldenJson } from "./firstRunsGoldens.fixture"; // gear wear: hashes with the retired durability put back
+// E-MOD EM-1: sheets pinned before the power budget engine are hashed with it switched off (emodGoldens.test.ts pins
+// the power numbers and proves the switch reproduces its own capture), so these pins keep proving nothing else moved.
+import { withEm1Off } from "./emodEm1Switch.fixture";
 import { PATROLS, type GameState, type SecondaryTalentKey } from "./model";
 import { dispatchCaptainOnMission, dispatchCaptainOnPatrol, economyTick, installMissingCombatBaselines, startRelicStudy } from "./tick";
 import { advanceExpedition, claimExpedition, expeditionCandidates, startExpedition } from "./expedition";
 import { effectiveShipStats } from "./crewOverlay";
+import { withV1Museum, withoutGuests } from "./firstRunsGoldens.fixture";
 import { seniorStaffCandidates } from "./seniorStaff";
 import { awayRecruitCandidates } from "./awayTeam";
 import { WIRING_BUCKET_COUNT, bucketOf, editCaptain, installPiece, seatOfficer, withAwayTeam, withBuckets, withFacilityLevel, wiringBase } from "./wiring/probes";
@@ -32,7 +36,7 @@ import { WIRING_BUCKET_COUNT, bucketOf, editCaptain, installPiece, seatOfficer, 
 // captured. SF-2 retired the 30 minute shakedown on expedition 1 (asPreSafeFirstRunsDispatch puts it back). CP-2
 // moved the fixture default race from Earth-born to Spacer and made the Earth-born racial act, so the fixture names
 // Earth-born and reads under withCp2Off (that racial at 0). Nothing else differs from the WR-5c tip's capture.
-import { asPreSafeFirstRunsDispatch } from "./awayTeamTestFixtures";
+import { asPreG2Candidate, asPreG2NamesDispatch, asPreSafeFirstRunsDispatch } from "./awayTeamTestFixtures";
 import { withCp2Off } from "./complementCp2Switch.fixture";
 
 function fnv(s: string): string {
@@ -45,7 +49,8 @@ function fnv(s: string): string {
 }
 const hash = (v: unknown): string => fnv(goldenJson(v));
 // A state without the captains' secondary nodes (the variant's own input), so an inert node reads the baseline.
-const hashState = (s: GameState): string => hash({ ...s, captains: s.captains.map((c) => ({ ...c, unlockedSecondaryTalents: [] })) });
+// Relics v2 R2-1: the Museum v2 record in its v1 form (withV1Museum), as these were captured.
+const hashState = (s: GameState): string => hash({ ...withV1Museum(s), captains: s.captains.map((c) => ({ ...c, unlockedSecondaryTalents: [] })) });
 
 function lcg(seed: number): () => number {
   let s = seed >>> 0;
@@ -97,10 +102,11 @@ export function readVariant(key: SecondaryTalentKey | null): Record<string, stri
 function readVariantLive(key: SecondaryTalentKey | null): Record<string, string> {
   const s0 = own(fixture(), key);
   const ship = s0.ships.find((sh) => sh.id === "ship-1")!;
-  const sheet = hash(effectiveShipStats(s0, ship));
+  // G1-1: the sheet hash strips guest quarters (withoutGuests), so this pin keeps proving no other stat moved.
+  const sheet = hash(withoutGuests(withEm1Off(() => effectiveShipStats(s0, ship))));
   const candidates = expeditionCandidates(s0, "ship-1");
-  const cands = hash(candidates);
-  const res = asPreSafeFirstRunsDispatch(startExpedition(s0, "ship-1", 1, candidates[0].id));
+  const cands = hash(candidates.map((c) => asPreG2Candidate(c))); // G2-2: as offered before G2-2 (ids, names)
+  const res = asPreG2NamesDispatch(asPreSafeFirstRunsDispatch(startExpedition(s0, "ship-1", 1, candidates[0].id)));
   if (!res.success || !res.expedition) throw new Error(`dispatch refused: ${res.reason}`);
   const dispatch = hash(res.expedition);
   const end = 3_000_000;

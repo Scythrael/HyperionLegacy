@@ -10,7 +10,7 @@
   // relics 1-K, five level pips on the doubling copy ladder, the next threshold or the BOTTLENECK relic
   // holding the tier back, the tier's live bonus, and the LOCKED state).
   //
-  // POSTURE (mirrors ExpeditionPanel / GambitEditorPanel): PURE PRESENTATION. It reads state.relicMuseum /
+  // POSTURE (mirrors ExpeditionPanel / GambitEditorPanel): PURE PRESENTATION. It reads the Tier I museum record (generalMuseumRecord) /
   // state.relicDiscovered through the relics.ts readers (setTierLevels, setCompletion, relicCopies,
   // setTierBonus, setPerCopyBonus), so every number on screen is the engine's own number. It has no
   // actions and never mutates state.
@@ -20,7 +20,7 @@
   // EVERY GRAPHIC IS SVG via <Icon> (user hard requirement): glyphs come from ui/relicIcons.ts.
   // ============================================================================
 
-  import type { GameState } from "./game/model";
+  import { generalMuseumRecord, type GameState } from "./game/model";
   import {
     RELIC_SETS,
     MUSEUM_COPY_LADDER,
@@ -52,7 +52,7 @@
   export let state: GameState;
 
   // --- Derived reads ----------------------------------------------------------
-  $: museum = state.relicMuseum ?? {};
+  $: museum = generalMuseumRecord(state);
   $: discovered = new Set(state.relicDiscovered ?? []);
   $: totalRelics = RELIC_SETS.reduce((n, s) => n + s.relicIds.length, 0);
   $: discoveredCount = RELIC_SETS.reduce((n, s) => n + s.relicIds.filter((rid) => isDiscovered(rid, museum, discovered)).length, 0);

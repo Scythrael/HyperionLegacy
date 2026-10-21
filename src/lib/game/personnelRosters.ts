@@ -387,9 +387,9 @@ export function canApplyRoster(state: GameState, rosterId: string, shipId: strin
 // are capped against the new gear. CAPS still come from the TARGET SHIP's real caps
 // (commandStructureForHull(ship.typeKey) + quartersCapacityBonus), which then reflect that gear.
 //
-// ⚠️ DORMANT overlay: assigning a notable sets its assignedShipId but does NOT yet feed ship stats;
-// folding an assigned notable's contribution into the crew overlay is a documented FOLLOW-ON, so this
-// stays additive-neutral (no roster applied => byte-identical).
+// The overlay: an assigned notable feeds ship stats like one crew of its signature (GL-1 folds it in
+// crewOverlay.ts rawShipCrewContribution), and the tick's auto-crew (resolveCrew) seeds the same
+// notable occupancy as step (c), so a passive ship never fills past its caps around its notables (CP-8).
 export function applyRoster(state: GameState, rosterId: string, shipId: string): GameState {
   if (!canApplyRoster(state, rosterId, shipId).ok) return state; // CP-6: refuse whole (same ref)
   const roster = state.personnelRosters.find((r) => r.id === rosterId);

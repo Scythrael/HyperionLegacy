@@ -66,6 +66,13 @@ import { FLORA_POISON_PERMILLE_PER_GRADE, bodyFloraGrade } from "./riskFactors";
 import { escalationAt, hasCover, type GroundCover } from "./affixes";
 import { fightLeadRank, fightRankContext, isTrainingRun, rankedEnemies, ranksLive, withEnemyRanks, type RankedFightKind } from "./enemyRanks";
 import { FIRST_RUN_ENEMY_SCALE, FIRST_RUN_MAX_ENEMIES } from "./runDifficulty";
+// Field Kits FKR-4: the flag and the inflictors (a Field Kits run only).
+import { SPLINT_HEAL_ROUNDS, fieldKitsLive, type FieldKitId } from "./fieldKits";
+import { withFieldKitsGuard, withFieldKitsTeam } from "./fieldKitsConditions";
+// Field Kits FKR-5: the squad's thrown grenades and their charges (a Field Kits run only).
+import { withThrownGrenades } from "./fieldKitsGrenades";
+// Field Kits FKR-6: kits in battle, the Field Kits default program (a Field Kits run only).
+import { FIELD_KITS_BATTLE, withFieldKitPacks, withFieldKitsDefaultProgram, type MemberKitCounts } from "./fieldKitsBattle";
 
 // ===== Constants =====
 
@@ -84,6 +91,15 @@ export interface GroundFightTeam {
   securityIds: readonly string[];
   downedThisTask?: readonly string[];
   securityShare: number;
+  // Field Kits FKR-5: memberId -> the grenade charges that member has left this objective (FKR-7 keeps the count on
+  // the team's run and passes it here). A member without an entry starts the fight with full charges
+  // (fieldKitsGrenades.ts chargesLeftFor). Read only on a Field Kits run.
+  charges?: Readonly<Record<string, number>>;
+  // Field Kits FKR-6: memberId -> the kits that member carries into the fight: `basics` = the objective's free basic
+  // set left, `kits` = the extras they packed, left (FKR-7 keeps both on the team's run, GroundTeamRun.basics / .kits,
+  // and passes them here). A member without an entry carries none. Read only on a Field Kits run.
+  basics?: Readonly<Record<string, Readonly<Partial<Record<FieldKitId, number>>>>>;
+  kits?: Readonly<Record<string, Readonly<Partial<Record<FieldKitId, number>>>>>;
 }
 
 // The fight record types (GroundMemberCarry, GroundMemberEnd, GroundFightRecord) live in model.ts since GO-7b
@@ -95,7 +111,8 @@ export type { GroundFightRecord, GroundMemberCarry, GroundMemberEnd } from "./mo
 const hasOwn = (o: object, k: string): boolean => Object.prototype.hasOwnProperty.call(o, k);
 
 // Is `id` a battle status that PERSISTS past the battle: a battle status the medical bay cures (Poison,
-// Bleed today; Field Kits 16b adds more)? Own keys only, so "toString" is never one. Pure.
+// Bleed; Field Kits FKR-4 adds the bone line, Hemorrhage, Neurotoxin, Concussion and Blindness, which only a Field Kits
+// run's fights inflict)? Own keys only, so "toString" is never one. Pure.
 export function isCarriedStatus(id: string): boolean {
   return hasOwn(GROUND_CONDITIONS, id) && hasOwn(GAMBIT_STATUSES, id);
 }
@@ -103,10 +120,16 @@ export function isCarriedStatus(id: string): boolean {
 // The bay conditions on a team combatant at a battle's end: "health" when below max HP (a downed member
 // always is), each remaining persisting status (isCarriedStatus) once, in status order, and "downed" when
 // downed. Every id is a GROUND_CONDITIONS key. Pure.
+// Field Kits FKR-6 (call 18, user 2026-10-17 "No Fracture bay time"): a Fracture healing from a Splint (SPLINT_HEAL_ROUNDS
+// rounds left or fewer; an unsplinted one rides gambit.ts BONE_CONDITION_ROUNDS) is no bay condition: it still carries
+// into the objective's next fight and heals there. Only a Field Kits run's fights inflict a Fracture.
 export function memberEndConditions(c: Pick<GroundCombatant, "hp" | "hpMax" | "statuses" | "downed">): string[] {
   const out: string[] = [];
   if (c.downed || c.hp < c.hpMax) out.push("health");
-  for (const s of c.statuses) if (isCarriedStatus(s.id) && !out.includes(s.id)) out.push(s.id);
+  for (const s of c.statuses) {
+    if (s.id === "fracture" && s.remaining <= SPLINT_HEAL_ROUNDS) continue;
+    if (isCarriedStatus(s.id) && !out.includes(s.id)) out.push(s.id);
+  }
   if (c.downed) out.push("downed");
   return out;
 }
@@ -141,7 +164,7 @@ function carriedStatuses(statuses: readonly GroundStatus[] | undefined): GroundS
 // clamped to [1, hpMax] (a standing member is never fielded at 0; a non-finite HP is ignored), with its
 // persisting statuses only. GO-6's threat samples build their squads here too. Pure.
 export function taskFightTeam(
-  exp: Pick<Expedition, "id" | "roster" | "securityStrength" | "squadTriage" | "squadFearResist" | "explorerCaptain">,
+  exp: Pick<Expedition, "id" | "roster" | "securityStrength" | "squadTriage" | "squadFearResist" | "explorerCaptain" | "fieldKits">,
   teams: readonly GroundFightTeam[],
   task: Pick<ExpeditionActivity, "id" | "fightCount">,
   carried?: Readonly<Record<string, GroundMemberCarry>>,
@@ -160,6 +183,15 @@ export function taskFightTeam(
     // WR-5c: the captain's Away-Team Doctrine, frozen at dispatch (absent = unchanged).
     powerMult: exp.explorerCaptain?.squadPowerMult,
   });
+  // Field Kits FKR-4: Stoneskin's battle half (a Field Kits run only; fieldKitsConditions.ts). FKR-5: the thrown
+  // grenades with each member's charges left this objective (fieldKitsGrenades.ts), in place of their passive on-hit.
+  // FKR-6: the Field Kits default program (N15) and each member's own kits (their free basics and extras left).
+  if (fieldKitsLive(exp)) {
+    withFieldKitsTeam(team, members);
+    withThrownGrenades(team, members, teamCharges(teams));
+    withFieldKitsDefaultProgram(team);
+    withFieldKitPacks(team, teamKitCounts(teams, (t) => t.basics), teamKitCounts(teams, (t) => t.kits));
+  }
   if (!carried) return team;
   for (const c of team) {
     const id = c.memberId;
@@ -169,6 +201,29 @@ export function taskFightTeam(
     c.statuses = carriedStatuses(carry.statuses);
   }
   return team;
+}
+
+// Field Kits FKR-5: the fight's charges left, merged over its teams (each member sits on one team). Undefined when no
+// team carries a count, so every member starts with full charges. Pure.
+function teamCharges(teams: readonly GroundFightTeam[]): Record<string, number> | undefined {
+  let out: Record<string, number> | undefined;
+  for (const t of teams) {
+    if (!t.charges) continue;
+    out = { ...(out ?? {}), ...t.charges };
+  }
+  return out;
+}
+
+// Field Kits FKR-6: one kind of the fight's kit counts (basics or extras), merged over its teams (each member sits on
+// one team). Undefined when no team carries any. Pure.
+function teamKitCounts(teams: readonly GroundFightTeam[], of: (t: GroundFightTeam) => MemberKitCounts | undefined): MemberKitCounts | undefined {
+  let out: Record<string, Readonly<Partial<Record<FieldKitId, number>>>> | undefined;
+  for (const t of teams) {
+    const counts = of(t);
+    if (!counts) continue;
+    out = { ...(out ?? {}), ...counts };
+  }
+  return out;
 }
 
 // Squads SQ-4 (design 5.3): FLORA raises the Poison chance in a body's fights. Every guard's attack gains
@@ -272,7 +327,7 @@ export type RankedFightTask = Pick<ExpeditionActivity, "id" | "poiId" | "fightCo
 // must widen this type first (TypeScript then flags the memo's key list until it is listed too).
 export type TaskFightExp = Pick<
   Expedition,
-  "id" | "roster" | "securityStrength" | "squadTriage" | "squadFearResist" | "hazardResist" | "teamKit" | "enemyRanks" | "difficulty" | "explorerCaptain"
+  "id" | "roster" | "securityStrength" | "squadTriage" | "squadFearResist" | "hazardResist" | "teamKit" | "enemyRanks" | "difficulty" | "explorerCaptain" | "fieldKits"
 >;
 
 // THE GUARD a task fight fields on a given stream seed, as fresh combatants: generateEncounter on the body's hazard
@@ -282,7 +337,7 @@ export type TaskFightExp = Pick<
 // one enemy at FIRST_RUN_ENEMY_SCALE of its strength; same seed, same draws); every other run's guard is exactly as
 // before. Pure.
 export function taskFightGuard(
-  exp: Pick<TaskFightExp, "hazardResist" | "enemyRanks" | "difficulty">,
+  exp: Pick<TaskFightExp, "hazardResist" | "enemyRanks" | "difficulty" | "fieldKits">,
   body: Pick<ExpeditionBody, "hazard" | "risk">,
   task: RankedFightTask,
   seed: number,
@@ -294,6 +349,8 @@ export function taskFightGuard(
   const profile = training ? { scale: FIRST_RUN_ENEMY_SCALE, maxEnemies: FIRST_RUN_MAX_ENEMIES } : undefined;
   const enemies = withEscalation(withFloraToxins(generateEncounter(seed, hazard, task.poiId, profile), bodyFloraGrade(body)), alertLevel);
   if (ranksLive(exp)) withEnemyRanks(enemies, fightLeadRank(fightRankContext(exp, task, task.fightPoints?.length ?? 0, kind)));
+  // Field Kits FKR-4: the enemy inflictors, last (a Field Kits run only; fieldKitsConditions.ts; no draw).
+  if (fieldKitsLive(exp)) withFieldKitsGuard(enemies, { grade: task.difficulty, poiId: task.poiId });
   return enemies;
 }
 
@@ -324,7 +381,8 @@ export function resolveTaskFightOnSeed(
   }
   const enemies = taskFightGuard(exp, body, task, seed, alertLevel, kind);
   withCover(team, enemies, cover, exp.roster?.security);
-  const result = resolveGroundBattle(team, enemies, exp.teamKit, makeRng(seed), logSink, seed);
+  // Field Kits FKR-6: a Field Kits run's battle spends each member's own kits (the team kit is never read there).
+  const result = resolveGroundBattle(team, enemies, exp.teamKit, makeRng(seed), logSink, seed, fieldKitsLive(exp) ? FIELD_KITS_BATTLE : undefined);
 
   // resolveGroundBattle reports the 0-based round a fight ENDED in (or MAX_ROUNDS at the cap, after
   // MAX_ROUNDS full rounds); the record counts rounds fought.
@@ -347,6 +405,12 @@ export function resolveTaskFightOnSeed(
     memberEnd,
   };
   if (result.neuralBackup) record.neuralBackup = { ...result.neuralBackup };
+  // Field Kits FKR-5: the charges each member threw (a Field Kits run's fight in which someone threw, only).
+  if (result.chargesUsed) record.chargesUsed = { ...result.chargesUsed };
+  // Field Kits FKR-6: the kits each member spent and the Injury Kit shares (a Field Kits run's fight where it happened).
+  if (result.basicsUsed) record.basicsUsed = structuredClone(result.basicsUsed);
+  if (result.kitsUsed) record.kitsUsed = structuredClone(result.kitsUsed);
+  if (result.treated) record.treated = { ...result.treated };
   const ranks = rankedEnemies(enemies);
   if (ranks) record.ranks = ranks;
   return record;

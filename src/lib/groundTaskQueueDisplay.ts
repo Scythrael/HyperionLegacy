@@ -34,6 +34,7 @@ import { groundTeamDefaultName, groundTeamName, groundTeamShortLabel } from "./g
 import { getPlanetTypeById, groundSiteLabel } from "./game/expeditionContent";
 import { DIFFICULTY_NAMES, difficultyName, difficultyWeight, storedDifficulty } from "./game/riskFactors";
 import type { ThreatAssessment } from "./game/combat/threatAssessment";
+import { bodyLetter } from "./game/starCatalog";
 import { objectiveAffixesView, type ObjectiveAffixesView } from "./objectiveAffixDisplay";
 
 // ===== Fixed words (the user's, where quoted in the plan) =====
@@ -56,6 +57,13 @@ const ROMAN: readonly string[] = ["I", "II", "III", "IV", "V", "VI", "VII", "VII
 // A body's numeral by position (1 = I), the astronomer's way of naming a system's bodies. Pure.
 export function bodyNumeral(index: number): string {
   return ROMAN[index] ?? String(index + 1);
+}
+
+// A body's designation within its run: Expedition Tiers G2-2 names a run's bodies from the star catalog's way, b, c,
+// d (starCatalog.ts bodyLetter; the run carries its region stamp); a run dispatched before G2-2 keeps its Roman
+// numerals. Pure.
+export function bodyDesignation(exp: Pick<Expedition, "region">, index: number): string {
+  return exp.region ? bodyLetter(index) : bodyNumeral(index);
 }
 
 // "1st", "2nd", "3rd", "4th", "11th", "22nd". Pure.
@@ -525,10 +533,10 @@ export function taskName(task: Pick<ExpeditionActivity, "poiId">): string {
   return groundSiteLabel(task.poiId) ?? task.poiId;
 }
 
-// The body's title: the system's name, the body's numeral and its planet type. Pure.
-export function bodyTitle(exp: Pick<Expedition, "systemName">, body: Pick<ExpeditionBody, "planetType">, bodyIndex: number): string {
+// The body's title: the system's name, the body's designation (bodyDesignation) and its planet type. Pure.
+export function bodyTitle(exp: Pick<Expedition, "systemName" | "region">, body: Pick<ExpeditionBody, "planetType">, bodyIndex: number): string {
   const type = getPlanetTypeById(body.planetType)?.label ?? body.planetType;
-  return `${exp.systemName} ${bodyNumeral(bodyIndex)} · ${type}`;
+  return `${exp.systemName} ${bodyDesignation(exp, bodyIndex)} · ${type}`;
 }
 
 // A finished objective keeps its pills but no alert (nothing is left to retry). Pure.

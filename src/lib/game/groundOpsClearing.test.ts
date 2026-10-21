@@ -11,7 +11,7 @@ import { riskFightPointCount } from "./groundTasks";
 import { groundOpsLogText } from "./groundOps";
 import { CLEARING_SITE_CATALOG, POI_CATALOG, PLANET_TYPES, groundSiteLabel, poisForPlanetType } from "./expeditionContent";
 import { generateEncounter } from "./gambit";
-import { plainAwayMember, withoutAffixes, withoutShipEvents } from "./awayTeamTestFixtures";
+import { asPreG2NamesDispatch, plainAwayMember, withoutAffixes, withoutShipEvents } from "./awayTeamTestFixtures";
 // SF-1: the claimed state hashes without the run counters (a claim writes them), absent before SF-1.
 import { withoutRunCounts, goldenJson } from "./firstRunsGoldens.fixture";
 
@@ -72,8 +72,8 @@ export function withoutClearing(exp: Expedition): Expedition {
 }
 
 // Dispatch candidate 0, optionally on a forced region (the risk replaced before any body scans).
-function dispatch(state: GameState, region?: ExpeditionRegion): { next: GameState; exp: Expedition } {
-  const res = startExpedition(state, "ship-1", 1, "cand-0");
+function dispatch(state: GameState, region?: ExpeditionRegion, candidateId = "cand-0"): { next: GameState; exp: Expedition } {
+  const res = asPreG2NamesDispatch(startExpedition(state, "ship-1", 1, candidateId));
   expect(res.success, String(res.reason)).toBe(true);
   let exp = res.expedition!;
   if (region) {
@@ -179,7 +179,7 @@ describe("clearing tasks: stamping and planning", () => {
     let seen = 0;
     let two = 0;
     for (let k = 0; k < 20; k++) {
-      const d = dispatch(crewed(seedAt(k)), TIER4E);
+      const d = dispatch(crewed(seedAt(k)), TIER4E, "cand-4-0"); // G2-2: the Tier IV candidate (its bodies grow with the tier)
       const scanned = advanceExpedition(d.exp, SCANNED_AT);
       for (const { task, body } of clearingTasks(scanned)) {
         seen += 1;

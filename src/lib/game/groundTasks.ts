@@ -15,7 +15,7 @@
 // roll whichever engine resolves it. Module graph: model, fieldwork, relics, gambit; never expedition.ts
 // (expedition.ts imports this module for ACTIVITY_SECONDS, and GO-7's groundOps.ts sits between them).
 
-import type { BodyRiskGrades, Expedition, ExpeditionActivity, ExpeditionBody, SnapshotMember } from "./model";
+import type { BodyRiskGrades, Expedition, ExpeditionActivity, ExpeditionBody, ExpeditionRegionStamp, SnapshotMember } from "./model";
 import type { ExpeditionPoiId } from "./expeditionContent";
 import { fieldworkEffect, fieldworkHazardResist, fieldworkSpeedMult } from "./fieldwork";
 import { resistedHazard } from "./relics";
@@ -31,6 +31,7 @@ import {
   floraWorkMult,
   isClearingSiteId,
   isHostileSiteId,
+  tierHaulMult,
   toRiskGrade,
 } from "./riskFactors";
 
@@ -257,9 +258,11 @@ export function taskWorkSeconds(
 // team set banking it. segmentHaul splits it across the task's segments. For one team holding the whole
 // roster it equals the legacy win haul exactly. Squads SQ-4 (user #6, "The greater the risk, the greater the
 // reward"): `riskBonus` (riskFactors.ts riskRewardBonus of the task's difficulty) scales the haul by (1 + it) on
-// the SAME draws; 0, every unrated task, leaves the roll exactly as before. Pure.
+// the SAME draws; 0, every unrated task, leaves the roll exactly as before. Expedition Tiers G2-2 (user G16): the
+// tier of the run's region stamp (Expedition.region, written since G2-2) multiplies it too (riskFactors.ts
+// tierHaulMult: Tier I x1); a run without the stamp (dispatched before G2-2) rolls exactly as before. Pure.
 export function taskFullHaul(
-  exp: Pick<Expedition, "seed" | "roster" | "scienceStrength">,
+  exp: Pick<Expedition, "seed" | "roster" | "scienceStrength"> & { region?: Pick<ExpeditionRegionStamp, "tier"> },
   teams: readonly GroundTaskTeam[],
   body: Pick<ExpeditionBody, "planetType" | "hazard">,
   poiId: string,
@@ -267,6 +270,8 @@ export function taskFullHaul(
   riskBonus: number = 0,
 ): TaskHaul {
   const yieldMult = fieldworkEffect(taskFieldworkRun(exp, teams), body.planetType, poiId).yieldMult;
-  const scale = riskBonus > 0 && Number.isFinite(riskBonus) ? yieldMult * (1 + riskBonus) : yieldMult;
+  const risked = riskBonus > 0 && Number.isFinite(riskBonus) ? yieldMult * (1 + riskBonus) : yieldMult;
+  const tier = tierHaulMult(exp.region);
+  const scale = tier !== 1 ? risked * tier : risked;
   return rollHaul(taskRewardSeed(exp, flatIndex), body.planetType, body.hazard, scale);
 }

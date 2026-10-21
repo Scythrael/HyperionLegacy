@@ -15,7 +15,7 @@
 // its commit says.
 
 import { describe, expect, it } from "vitest";
-import { goldenJson } from "./firstRunsGoldens.fixture"; // gear wear: hashes with the retired durability put back
+import { goldenJson, withV1Museum } from "./firstRunsGoldens.fixture"; // gear wear: goldenJson puts the retired durability back
 import Decimal from "break_infinity.js";
 import { freshState, type EquipmentInstance, type GameState, type PatrolMissionState, type SecondaryTalentKey } from "./model";
 import { dispatchCaptainOnPatrol, economyTick, installMissingCombatBaselines, shipRepairDurationTicks, shipyardRepairSpeedBonus } from "./tick";
@@ -87,7 +87,7 @@ function patrolRow(s0: GameState): string[] {
     if (i === 12 || i === 25) out.push(hash(replayPatrol(s, s.captains[0])));
     if ((s.captains[0].mission as PatrolMissionState | null) === null) break;
   }
-  out.push(hash({ ...s, runCounts: undefined }));
+  out.push(hash({ ...withV1Museum(s), runCounts: undefined })); // R2-1: the museum in its v1 form, as captured
   return out;
 }
 
