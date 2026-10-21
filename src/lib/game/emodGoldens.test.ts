@@ -47,6 +47,8 @@ import { goldenJson, withV1Museum } from "./firstRunsGoldens.fixture"; // gear w
 import { GG1_ADDED_ENTRY_IDS } from "./gasStudyGoldens.fixture";
 import { FUSE_ADDED_ENTRY_IDS } from "./fieldKitsFuse.fixture";
 import { RX_ADDED_ENTRY_IDS } from "./reactorFuelGoldens.fixture";
+// ML-2 (the Material Lines recipe rework + the recipe realism audit): its registry move, read back by ml2RowsBack.
+import { ml2RowsBack } from "./ml2RecipeGoldens.fixture";
 
 // ===== shared helpers =====
 
@@ -415,8 +417,11 @@ const GOLDEN: Record<string, unknown> = {
   // out reproduces 9deacec7, and reading back all three reproduces 60d00075 (asserted below).
   // Re-pinned by safe first runs SF-3 (1d8ae09b -> bd1e2f48): Weak's two rank entries flip pending -> live with their
   // probe and the ground context (the difficulty curve places Weak); read back (SF3_BEFORE) the snapshot is 1d8ae09b.
+  // Re-pinned by ML-2 (bd1e2f48 -> cfe349ea): the seven ML-1 recipe entries flip pending -> live with their content
+  // probes, the six ML-1 reserve entries are gone (each good has its blueprint consumer) and the two new refines
+  // (Biofiber, Resin Distillate) join; read back (ml2RowsBack, inside every rowsBack too) the snapshot is bd1e2f48.
   registry: [
-    "bd1e2f48",
+    "cfe349ea",
     "relic:RELICS:precursorLens",
     "ship:audit:reactorCoreNet",
   ],
@@ -451,6 +456,8 @@ const EM0: Record<string, unknown> = {
   ],
 };
 
+// The registry snapshot before ML-2 (the SF-3 pin).
+const REGISTRY_BEFORE_ML2 = "bd1e2f48";
 // The registry snapshot before Material Lines ML-1, and the 14 entries ML-1 added (its recipes and its reserves).
 const REGISTRY_BEFORE_ML1 = "452c9676";
 const ML1_ENTRY_IDS: ReadonlySet<string> = new Set<string>([
@@ -615,6 +622,10 @@ const BEFORE_RX: WiringEntry[] = siReadBack(
   (row) => ({ id: row[0], status: row[1], contexts: row[2], probe: row[3] ?? undefined }) as unknown as WiringEntry,
 );
 function rowsBack(back: Back): unknown[][] {
+  // Every pin here was taken before ML-2, so its move is always read back.
+  return ml2RowsBack(rowsBackBeforeMl2(back));
+}
+function rowsBackBeforeMl2(back: Back): unknown[][] {
   return BEFORE_RX.filter(
     (e) =>
       !(!back.keepGg1 && GG1_ADDED_ENTRY_IDS.has(e.id)) &&
@@ -700,7 +711,10 @@ describe("EM-0 goldens (re-pinned by EM-1 where named)", () => {
   }
 
   it("registry: the wiring registry snapshot and the E-MOD owned rows", () => {
-    const snapshot = hash(BEFORE_RX.map((e) => [e.id, e.status, e.contexts, e.probe ?? null]));
+    const rows = BEFORE_RX.map((e) => [e.id, e.status, e.contexts, e.probe ?? null]);
+    const snapshot = hash(rows);
+    // ML-2 read back: the SF-3 pin before it.
+    expect(hash(ml2RowsBack(rows))).toBe(REGISTRY_BEFORE_ML2);
     const emod = BEFORE_RX.filter((e) => e.status.kind !== "live" && "owner" in e.status && /E-MOD/.test(e.status.owner)).map((e) => e.id).sort();
     pinned("registry", [snapshot, ...emod]);
     // The two latest moves, merged together: with GG-1 left out the snapshot is gear wear's own pin; with gear wear read

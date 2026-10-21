@@ -396,6 +396,16 @@ export const ICON_PATHS = {
   // streaks of tail flaring away to the lower left, the middle one longest. The streaks leave the nucleus at its two
   // side tangents and its trailing edge, 3 units apart, so they stay three lines at 16 px.
   comet: ["M16.5 4.5a3 3 0 1 0 0 6 3 3 0 0 0 0-6z", "M14.4 9.6L4 20", "M14.4 5.4L8.6 11.2", "M18.6 9.6L12.8 15.4"],
+
+  // ML-2 recipe realism (0.14.0, audit Group B call 6): the two new refined goods.
+  // Biofiber: two strands twisted into one braided fiber, crossing three times across the grid, so it reads as a cord
+  // (not `ingot` or `wafer`, the other refined goods, and not a wave: the strands cross). The lobes run the full 12
+  // units of height; a flatter braid turned to a smudge at 16 px (reviewed at 16, 28 and 56 px).
+  biofiber: ["M3 6c3 0 3 12 6 12s3-12 6-12 3 12 6 12", "M3 18c3 0 3-12 6-12s3 12 6 12 3-12 6-12"],
+  // Resin Distillate: a test tube with its fill line and one drop falling into it (the distillate). A tube, not a flask,
+  // so it stays apart from `research`; the drop is small and sits over the mouth, apart from `kitAntitoxin`. The tube
+  // is 8 units wide so it does not read as a thin line at 16 px.
+  resinDistillate: ["M8 10h8v7.5a4 4 0 0 1-8 0z", "M8 14.5h8", "M12 2.5c1.2 1.5 2 2.6 2 3.5a2 2 0 0 1-4 0c0-.9.8-2 2-3.5z"],
 } as const satisfies Record<string, readonly string[]>;
 
 /**

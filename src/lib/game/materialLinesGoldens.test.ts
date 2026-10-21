@@ -36,6 +36,7 @@ import type { CraftLineMode } from "./allocation";
 import { goldenJson, withV1Museum } from "./firstRunsGoldens.fixture"; // gear wear: goldenJson puts the retired durability back
 import { gasStudyItemIds } from "./gasGiantContent";
 import { GG1_RECIPE } from "./gasStudyGoldens.fixture";
+import { ML2_NEW_ITEMS, ML2_NEW_REFINES } from "./ml2RecipeGoldens.fixture";
 
 // ===== shared helpers =====
 
@@ -240,9 +241,13 @@ describe("ML-0 Material Lines pre-change goldens", () => {
     // Gas Giant Study GG-1 added its fifteen items (two new categories) and the Deuterium Canister recipe after ML-1;
     // held apart here (gasGiantContent.test.ts pins them), the catalog is the ML-1 capture.
     const gg1 = new Set(gasStudyItemIds());
-    const items = Object.entries(ITEMS).filter(([id]) => !gg1.has(id));
-    const recipes = Object.keys(REFINE_RECIPES).filter((k) => k !== GG1_RECIPE);
+    // ML-2 (the recipe realism audit) added two refined goods (Biofiber, Resin Distillate) and their two refines after
+    // GG-1: held apart the same way, and pinned here as the only addition.
+    const items = Object.entries(ITEMS).filter(([id]) => !gg1.has(id) && !ML2_NEW_ITEMS.has(id));
+    const recipes = Object.keys(REFINE_RECIPES).filter((k) => k !== GG1_RECIPE && !ML2_NEW_REFINES.has(k));
     expect(count(items, recipes)).toEqual(GOLDEN.census);
+    expect([...ML2_NEW_ITEMS].map((id) => ITEMS[id]?.category)).toEqual(["refined", "refined"]);
+    expect([...ML2_NEW_REFINES].every((k) => REFINE_RECIPES[k] !== undefined)).toBe(true);
     // ML-1's proof: without its seven items and seven recipes the catalog is the ML-0 capture.
     const preItems = items.filter(([id]) => !ML1_ITEM_IDS.includes(id));
     const preRecipes = recipes.filter((k) => !ML1_RECIPE_KEYS.includes(k));
