@@ -10,7 +10,7 @@ import { describe, expect, it } from "vitest";
 import { freshState, type AwayMember, type Expedition } from "./model";
 import { advanceExpedition, expeditionCandidates, expeditionPhaseFraction, scanRatePerSecond, startExpedition } from "./expedition";
 import { IN_SYSTEM_LEG_SECONDS, groundShipPosition, scanClockAt, scanClockToTime } from "./groundOps";
-import { plainAwayMember, withSlottedAwayTeams, withoutEnemyRanks, withoutGroundOps, withoutShipEvents } from "./awayTeamTestFixtures";
+import { asPreFieldKitsDispatch, plainAwayMember, withSlottedAwayTeams, withoutEnemyRanks, withoutGroundOps, withoutShipEvents } from "./awayTeamTestFixtures";
 import { deserialize, migrate, serialize, type SaveFile } from "./save";
 
 const member = (id: string, teamType: AwayMember["teamType"], over: Partial<AwayMember> = {}): AwayMember => ({
@@ -30,7 +30,7 @@ const TWO_HOURS = 7200;
 
 function dispatch(): Expedition {
   const s = withSlottedAwayTeams({ ...freshState(), awayMembers: SQUAD.map((m) => ({ ...m })), nextAwayMemberId: 100, expeditionSeed: SEED });
-  const res = startExpedition(s, "ship-1", 1, expeditionCandidates(s, "ship-1")[0].id);
+  const res = asPreFieldKitsDispatch(startExpedition(s, "ship-1", 1, expeditionCandidates(s, "ship-1")[0].id));
   if (!res.success || !res.expedition) throw new Error(`dispatch refused: ${res.reason}`);
   // Field Kits FKR-1: and before enemy ranks, so the seed's pinned scenarios (late wipes, a recovery leg) hold.
   return withoutShipEvents(withoutEnemyRanks(res.expedition));
@@ -188,7 +188,7 @@ describe("GO-7b PARITY: one big advance == 997 s chunks == 1 s chunks", () => {
 
   it("a save mid-run (in a recovery leg, a team mid-step) reloads and resolves identically", { timeout: 120_000 }, () => {
     const s = withSlottedAwayTeams({ ...freshState(), awayMembers: SQUAD.map((m) => ({ ...m })), nextAwayMemberId: 100, expeditionSeed: SEED });
-    const res = startExpedition(s, "ship-1", 1, expeditionCandidates(s, "ship-1")[0].id);
+    const res = asPreFieldKitsDispatch(startExpedition(s, "ship-1", 1, expeditionCandidates(s, "ship-1")[0].id));
     const exp = withoutShipEvents(withoutEnemyRanks(res.expedition!)); // FKR-1: before enemy ranks (see dispatch)
     const open = windowOpen(exp);
     const leg = advanceExpedition(exp, open + TWO_HOURS).groundOps!.shipLegs[0];

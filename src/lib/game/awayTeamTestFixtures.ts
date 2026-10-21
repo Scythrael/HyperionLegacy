@@ -123,6 +123,29 @@ export function withoutAffixes(raw: Expedition): Expedition {
   };
 }
 
+// Field Kits FKR-9 / FKR-10 (the switch-on, fieldKits.ts FIELD_KITS_RUNS_LIVE): the dispatch record WITHOUT its Field
+// Kits stamp (`Expedition.fieldKits`, flag 2), i.e. the record the same dispatch made while the switch was off: a run in
+// flight at the update. A dispatch with no kit stock and no top-up packs nothing (no team `kits`, the state's stock and
+// credits untouched), so the stamp is the ONE key that differs and the run then resolves exactly as before. A dispatch
+// that DID pack (a team carries `kits`) is not a pre-switch record, so this throws rather than hide the move. A record
+// without the stamp is returned as it is. Every other key keeps its order. Pure: a shallow copy.
+export function withoutFieldKitsStamp(exp: Expedition): Expedition {
+  if (!("fieldKits" in exp)) return exp;
+  if ((exp.groundOps?.teams ?? []).some((t) => t.kits !== undefined)) throw new Error(`withoutFieldKitsStamp: ${exp.id} packed kits at dispatch`);
+  const rest = { ...exp };
+  delete rest.fieldKits;
+  return rest;
+}
+
+// A dispatch result turned into the run it was before the Field Kits switch-on (withoutFieldKitsStamp on the returned
+// expedition and every expedition in `next`). Every earlier "as pre-X dispatch" helper composes it (a run dispatched
+// before ranks, SF-2, G2-2, G2-3, SQ-4 or GO-7b was a run before the switch too). A refusal is returned unchanged. Pure.
+export function asPreFieldKitsDispatch<R extends { next: GameState; expedition?: Expedition }>(res: R): R {
+  if (!res.expedition) return res;
+  const next = res.next.expeditions.some((e) => "fieldKits" in e) ? { ...res.next, expeditions: res.next.expeditions.map(withoutFieldKitsStamp) } : res.next;
+  return { ...res, expedition: withoutFieldKitsStamp(res.expedition), next };
+}
+
 // Field Kits FKR-1 (enemy ranks): the run WITHOUT its enemy ranks flag (`Expedition.enemyRanks`), i.e. the run the
 // same dispatch produced before FKR-1: every enemy Normal. Only the flag is stamped at dispatch (a fight's record
 // `ranks` appears only once a ranked run fights), so a dispatch record loses just that key. A run without the flag is
@@ -146,7 +169,8 @@ export function withoutEnemyRanksState(state: GameState): GameState {
 // expedition in `next` lose the enemy ranks flag (withoutEnemyRanks). Tests that pin a real dispatch's pre-rank
 // trajectory (a seed picked for a wipe, a reinforcement, a stall) dispatch through this. A refusal is returned
 // unchanged. Pure.
-export function asPreRanksDispatch<R extends { next: GameState; expedition?: Expedition }>(res: R): R {
+export function asPreRanksDispatch<R extends { next: GameState; expedition?: Expedition }>(raw: R): R {
+  const res = asPreFieldKitsDispatch(raw);
   if (!res.expedition) return res;
   return { ...res, expedition: withoutEnemyRanks(res.expedition), next: withoutEnemyRanksState(res.next) };
 }
@@ -175,7 +199,8 @@ export function withoutSafeFirstRunsState(state: GameState): GameState {
 
 // Safe first runs SF-2: a dispatch result turned into the run it was before SF-2 (withoutSafeFirstRuns on the
 // returned expedition and every expedition in `next`). A refusal is returned unchanged. Pure.
-export function asPreSafeFirstRunsDispatch<R extends { next: GameState; expedition?: Expedition }>(res: R): R {
+export function asPreSafeFirstRunsDispatch<R extends { next: GameState; expedition?: Expedition }>(raw: R): R {
+  const res = asPreFieldKitsDispatch(raw);
   if (!res.expedition) return res;
   return { ...res, expedition: withoutSafeFirstRuns(res.expedition), next: withoutSafeFirstRunsState(res.next) };
 }
@@ -210,7 +235,8 @@ export function withoutVoyage(exp: Expedition): Expedition {
 
 // G2-3: a dispatch result turned into the run it was before G2-3 (withoutVoyage on the returned expedition and every
 // expedition in `next`). A refusal is returned unchanged. Pure.
-export function asPreVoyageDispatch<R extends { next: GameState; expedition?: Expedition }>(res: R): R {
+export function asPreVoyageDispatch<R extends { next: GameState; expedition?: Expedition }>(raw: R): R {
+  const res = asPreFieldKitsDispatch(raw);
   if (!res.expedition) return res;
   return { ...res, expedition: withoutVoyage(res.expedition), next: { ...res.next, expeditions: res.next.expeditions.map(withoutVoyage) } };
 }
@@ -240,7 +266,8 @@ export function asPreG2Candidate(c: ExpeditionCandidate, home: HomeworldPlacemen
 
 // G2-2: a dispatch result turned into the run it was before G2-2 (withoutG2Names on the returned expedition and every
 // expedition in `next`). A refusal is returned unchanged. Pure.
-export function asPreG2NamesDispatch<R extends { next: GameState; expedition?: Expedition }>(res: R): R {
+export function asPreG2NamesDispatch<R extends { next: GameState; expedition?: Expedition }>(raw: R): R {
+  const res = asPreFieldKitsDispatch(raw);
   if (!res.expedition) return res;
   return { ...res, expedition: withoutG2Names(res.expedition), next: withoutG2NamesState(res.next) };
 }
@@ -327,7 +354,8 @@ export function withoutAffixCatalog(raw: Expedition): Expedition {
 
 // A dispatch result whose expedition (and every expedition in `next`) lost its risk profile: the pre-SQ-4 flagged
 // dispatch. A refusal is returned unchanged. Pure.
-export function asPreRiskDispatch<R extends { next: GameState; expedition?: Expedition }>(res: R): R {
+export function asPreRiskDispatch<R extends { next: GameState; expedition?: Expedition }>(raw: R): R {
+  const res = asPreFieldKitsDispatch(raw);
   if (!res.expedition) return res;
   return {
     ...res,
@@ -340,7 +368,8 @@ export function asPreRiskDispatch<R extends { next: GameState; expedition?: Expe
 // returned expedition and every expedition in `next` lose their groundOps flag. Tests that pin legacy behavior
 // (the activities-phase battles, retries, evacuation, Task 16 injuries) dispatch through this. A refusal is
 // returned unchanged. Pure.
-export function asLegacyDispatch<R extends { next: GameState; expedition?: Expedition }>(res: R): R {
+export function asLegacyDispatch<R extends { next: GameState; expedition?: Expedition }>(raw: R): R {
+  const res = asPreFieldKitsDispatch(raw);
   if (!res.expedition) return res;
   return {
     ...res,
