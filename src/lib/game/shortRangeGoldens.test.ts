@@ -17,6 +17,8 @@
 //   5. registry : the wiring registry's ids and statuses (hash and count), with the entries a G1 slice adds held
 //                 apart (G1_ADDED_ENTRY_IDS), so the base pin proves no existing entry moved.
 //   6. old save : a v69 save of the same fleet through deserialize + migrate, its state and every ship's stats.
+//   7. beside   : (G1-4) the same fleet with a short-range run added, the OTHER runs' state hashed every hour, captured
+//                 while the run still held still (G1-3), so the cycle engine provably leaves every other run as it was.
 // Already pinned elsewhere and covered by the same rule: one delivered cycle for every MISSIONS key x every hull
 // (firstRunsGoldens.test.ts `gather:*`) and the SF-0 old save (`old:v69` there).
 //
@@ -73,6 +75,20 @@
 //                  Science and Flight Deck quarters wings) and one audit row joins (the Spacer long-haul ramp, deferred
 //                  to 0.14.x). With RACIALS_SLICE and RACIALS_SPACER_SLICE read back registryPin reproduces a4b86d24,
 //                  and every earlier proof chain passes them too.
+// MOVED BY G1-4 (the cycle engine): `registry:g1` only. The six guest quarters sources and the 21 short-range template
+//                  entries flip pending -> live (the cycle reads them at mission:shortRange), and one entry is added,
+//                  `captain:SECONDARY_CAPTAIN_TALENTS:trade2:shortRange` (Shrewd Negotiator at the drop-off's own load).
+//                  The mission:shortRange sweep only adds contexts and outOfScope reasons, which the ids-and-statuses
+//                  pins do not read, so the base `registry` pin and every cause pin are unchanged. Golden 7 (below)
+//                  proves the engine leaves every other run byte-identical.
+// MOVED BY FKR-7 (the Field Kits run plumbing): registry 1217 a4b86d24 -> 1219 422b9c70: FKR-7 adds 2 entries (the free
+//                  basic set's crew curve, live; the runs switch's audit row, pending FKR-9 / FKR-10) and flips 8 pending
+//                  -> live (the free basic set's base, the six Quartermaster kit prices, the Injury Kit's bay treatment
+//                  row). Held apart through FKR7_SLICE, the registry hashes exactly as FKR-6's pin.
+// MOVED AT the merge of FKR-7 into feat (after the inert racials and G1-4): `registry` 1218 942844f9 / 1219 422b9c70 ->
+//                  1220 ee493e11, the two moves together and nothing else: reading back FKR7_SLICE alone reproduces the
+//                  racials' 942844f9, the racial slices alone FKR-7's 422b9c70, and both a4b86d24. Every earlier proof
+//                  chain holds the racial slices and FKR7_SLICE apart.
 // ADDED BY G1-1: `guests:<hull>` (guest quarters bare and with each quarters variety, the Guest Wing last) and
 // `stats:<hull>:guestWing` (every other stat with a Guest Wing installed). The sheets hash through withoutGuests, so
 // the stats pins keep proving no other stat moved (the transport hulls now carry base guest quarters).
@@ -83,7 +99,8 @@ import { describe, expect, it, vi } from "vitest";
 import { withEm1Off } from "./emodEm1Switch.fixture";
 import { writeFileSync } from "node:fs";
 import Decimal from "break_infinity.js";
-import { EQUIPMENT_SLOTS, FIELD_KITS_PLAYER_LIVE, MISSIONS, SHIP_TYPES, type EquipmentInstance, type EquipmentRarity, type GameState, type ShipDerivedStats, type ShipTypeKey } from "./model";
+import { EQUIPMENT_SLOTS, FIELD_KITS_PLAYER_LIVE, MISSIONS, SHIP_TYPES, type EquipmentInstance, type EquipmentRarity, type GameState, type ShipDerivedStats, type ShipTypeKey, type ShortRangeMissionState } from "./model";
+import { startShortRangeCycle } from "./shortRangeBoard";
 import { dispatchCaptainOnMission, dispatchCaptainOnPatrol, economyTick, installMissingCombatBaselines, mintBuiltShip } from "./tick";
 import { startExpedition } from "./expedition";
 import { effectiveShipStats } from "./crewOverlay";
@@ -302,7 +319,7 @@ const GOLDEN: Record<string, unknown> = {
     "50:quartersFlightDeckWing:stellar:q2:iL31:{\"crewStations\":57}:{\"colonistCapacity\":76,\"crewStations\":19}:m0:quartersFlightDeckWing",
     "pool:[{\"stat\":\"crewStations\",\"weight\":5},{\"stat\":\"crewEfficiency\",\"weight\":2},{\"stat\":\"massReduction\",\"weight\":1},{\"stat\":\"colonistCapacity\",\"weight\":2}]",
   ],
-  "registry": [1218, "942844f9"],
+  "registry": [1220, "ee493e11"],
   "registry:ml1": [
     "facility:REFINE_RECIPES:refineFerriteIngot|pending",
     "facility:REFINE_RECIPES:refineReclaimedCircuit|pending",
@@ -319,10 +336,12 @@ const GOLDEN: Record<string, unknown> = {
     "facility:ITEMS:biocatalyst:reserved|pending",
     "facility:ITEMS:precursorCircuit:reserved|pending",
   ],
-  "registry:g1": ["ship:gearLine:colonistCapacity|pending", "ship:SHIP_TYPES:generalFreighter:colonistCapacity|pending", "ship:SHIP_TYPES:orion:colonistCapacity|pending", "ship:SHIP_TYPES:aurora:colonistCapacity|pending", "ship:SHIP_TYPES:eir:colonistCapacity|pending", "ship:SHIP_SEAMS:generalQuartersGuestPerk|pending", "ship:QUARTERS_MODULES:quartersGuestWing|live", "ship:QUARTERS_MODULES:quartersGuestWing:capacity|pending",
-    // G1-2: the short-range template catalog, pending the cycle engine (G1-4).
-    "mission:SHORT_RANGE_TEMPLATES:refugeeRelocation:rolls|pending", "mission:SHORT_RANGE_TEMPLATES:refugeeRelocation:work|pending", "mission:SHORT_RANGE_TEMPLATES:refugeeRelocation:reward|pending", "mission:SHORT_RANGE_TEMPLATES:supplyDropOff:rolls|pending", "mission:SHORT_RANGE_TEMPLATES:supplyDropOff:work|pending", "mission:SHORT_RANGE_TEMPLATES:supplyDropOff:reward|pending", "mission:SHORT_RANGE_TEMPLATES:supplyPickup:rolls|pending", "mission:SHORT_RANGE_TEMPLATES:supplyPickup:work|pending", "mission:SHORT_RANGE_TEMPLATES:supplyPickup:reward|pending", "mission:SHORT_RANGE_TEMPLATES:phenomenonSurvey:rolls|pending", "mission:SHORT_RANGE_TEMPLATES:phenomenonSurvey:work|pending", "mission:SHORT_RANGE_TEMPLATES:phenomenonSurvey:reward|pending", "mission:SHORT_RANGE_TEMPLATES:telescopeRepair:rolls|pending", "mission:SHORT_RANGE_TEMPLATES:telescopeRepair:work|pending", "mission:SHORT_RANGE_TEMPLATES:telescopeRepair:reward|pending", "mission:SHORT_RANGE_TEMPLATES:commBoosterBuild:rolls|pending", "mission:SHORT_RANGE_TEMPLATES:commBoosterBuild:work|pending", "mission:SHORT_RANGE_TEMPLATES:commBoosterBuild:reward|pending", "mission:SHORT_RANGE_TEMPLATES:prisonerTransport:rolls|pending", "mission:SHORT_RANGE_TEMPLATES:prisonerTransport:work|pending", "mission:SHORT_RANGE_TEMPLATES:prisonerTransport:reward|pending"],
+  "registry:g1": ["captain:SECONDARY_CAPTAIN_TALENTS:trade2:shortRange|live", "ship:gearLine:colonistCapacity|live", "ship:SHIP_TYPES:generalFreighter:colonistCapacity|live", "ship:SHIP_TYPES:orion:colonistCapacity|live", "ship:SHIP_TYPES:aurora:colonistCapacity|live", "ship:SHIP_TYPES:eir:colonistCapacity|live", "ship:SHIP_SEAMS:generalQuartersGuestPerk|live", "ship:QUARTERS_MODULES:quartersGuestWing|live", "ship:QUARTERS_MODULES:quartersGuestWing:capacity|pending",
+    // G1-2: the short-range template catalog; G1-4 flipped every one live (the cycle engine reads it).
+    "mission:SHORT_RANGE_TEMPLATES:refugeeRelocation:rolls|live", "mission:SHORT_RANGE_TEMPLATES:refugeeRelocation:work|live", "mission:SHORT_RANGE_TEMPLATES:refugeeRelocation:reward|live", "mission:SHORT_RANGE_TEMPLATES:supplyDropOff:rolls|live", "mission:SHORT_RANGE_TEMPLATES:supplyDropOff:work|live", "mission:SHORT_RANGE_TEMPLATES:supplyDropOff:reward|live", "mission:SHORT_RANGE_TEMPLATES:supplyPickup:rolls|live", "mission:SHORT_RANGE_TEMPLATES:supplyPickup:work|live", "mission:SHORT_RANGE_TEMPLATES:supplyPickup:reward|live", "mission:SHORT_RANGE_TEMPLATES:phenomenonSurvey:rolls|live", "mission:SHORT_RANGE_TEMPLATES:phenomenonSurvey:work|live", "mission:SHORT_RANGE_TEMPLATES:phenomenonSurvey:reward|live", "mission:SHORT_RANGE_TEMPLATES:telescopeRepair:rolls|live", "mission:SHORT_RANGE_TEMPLATES:telescopeRepair:work|live", "mission:SHORT_RANGE_TEMPLATES:telescopeRepair:reward|live", "mission:SHORT_RANGE_TEMPLATES:commBoosterBuild:rolls|live", "mission:SHORT_RANGE_TEMPLATES:commBoosterBuild:work|live", "mission:SHORT_RANGE_TEMPLATES:commBoosterBuild:reward|live", "mission:SHORT_RANGE_TEMPLATES:prisonerTransport:rolls|live", "mission:SHORT_RANGE_TEMPLATES:prisonerTransport:work|live", "mission:SHORT_RANGE_TEMPLATES:prisonerTransport:reward|live"],
   "old": ["aa94ddcd", "817862c7", "4ac62731", "d9a483c6"],
+  // G1-4 golden 7, captured on 047b133 (the short-range run held still there): the OTHER runs beside it.
+  "fleet:shortRange:others": ["5329673d", "29572349", "388259d2", "c32245d1", "3c38a24b", "f9fe2b3a", "4bcd2925"],
 };
 
 // The G1-0 record of golden 4 (captured on a678241), with the pool it was drawn from, kept for golden 4b.
@@ -401,6 +420,8 @@ const G1_ADDED_ENTRY_IDS: ReadonlySet<string> = new Set<string>([
   ...["refugeeRelocation", "supplyDropOff", "supplyPickup", "phenomenonSurvey", "telescopeRepair", "commBoosterBuild", "prisonerTransport"].flatMap((k) =>
     ["rolls", "work", "reward"].map((f) => `mission:SHORT_RANGE_TEMPLATES:${k}:${f}`),
   ),
+  // G1-4: Shrewd Negotiator on a short-range drop-off (its own load, so its own entry beside the supply-run one).
+  "captain:SECONDARY_CAPTAIN_TALENTS:trade2:shortRange",
 ]);
 // The registry entries ML-1 adds (new ids only): its seven Refinery recipes and its seven typed reserves.
 const ML1_ADDED_ENTRY_IDS: ReadonlySet<string> = new Set<string>([
@@ -455,6 +476,21 @@ const FKR6_FLIPPED_LIVE: ReadonlySet<string> = new Set<string>([
   "away:KIT_CATEGORY_RULES:advancedMedical",
 ]);
 const REGISTRY_BEFORE_FKR6 = [1201, "e6523a6f"];
+// Field Kits FKR-7 (the run plumbing), held apart by the cause checks: the 2 entries it ADDS (the free basic set's crew
+// curve, the runs switch's audit row, pending FKR-9 / FKR-10) and the 8 it FLIPS pending -> live (the free basic set's
+// base, the six Quartermaster kit prices, the Injury Kit's bay treatment row). The pin before it is REGISTRY_BEFORE_FKR7
+// (FKR-6's). The hidden pieces row only changed its owner (FKR-9 / FKR-10), so its status kind hashes the same.
+const FKR7_ADDED_ENTRY_IDS: ReadonlySet<string> = new Set<string>(["away:FREE_BASIC_SET:firstAidKit:crew", "away:audit:fieldKitsRunsSwitch"]);
+const FKR7_FLIPPED_LIVE: ReadonlySet<string> = new Set<string>([
+  "away:FREE_BASIC_SET:firstAidKit",
+  ...["firstAidKit", "antitoxin", "combatStim", "splint", "traumaKit", "injuryKit"].map((k) => `facility:FIELD_KIT_PRICES:${k}`),
+  "away:audit:treatmentShare",
+]);
+const REGISTRY_BEFORE_FKR7 = [1217, "a4b86d24"];
+// The pins the inert racials (on feat) and FKR-7 (on its branch) each left, both from REGISTRY_BEFORE_FKR7. Merged,
+// reading back only the OTHER slice reproduces each one.
+const REGISTRY_RACIALS_PIN = [1218, "942844f9"];
+const REGISTRY_FKR7_PIN = [1219, "422b9c70"];
 
 // The ONE exclusion helper every registry pin goes through. Each slice names the entries it ADDED (stripped) and the
 // entries it FLIPPED (read back as their earlier status), so a pin taken before that slice is reproduced exactly and
@@ -465,6 +501,7 @@ const ML1_SLICE: RegistrySlice = { added: ML1_ADDED_ENTRY_IDS };
 const FKR5_SLICE: RegistrySlice = { added: new Set([...FKR5_ADDED_ENTRY_IDS, ...FKR5_RULINGS_ADDED]), flipped: FKR5_FLIPPED_LIVE, was: "pending" };
 const G23_SLICE: RegistrySlice = { added: G23_ADDED_ENTRY_IDS };
 const FKR6_SLICE: RegistrySlice = { added: FKR6_ADDED_ENTRY_IDS, flipped: FKR6_FLIPPED_LIVE, was: "pending" };
+const FKR7_SLICE: RegistrySlice = { added: FKR7_ADDED_ENTRY_IDS, flipped: FKR7_FLIPPED_LIVE, was: "pending" };
 function registryPin(...slices: readonly RegistrySlice[]): [number, string] {
   const lines = WIRING_REGISTRY.filter((e) => !slices.some((sl) => sl.added?.has(e.id))).map((e) => {
     const flip = slices.find((sl) => sl.flipped?.has(e.id));
@@ -649,32 +686,42 @@ describe("G1-0 golden 5: the wiring registry's ids and statuses", () => {
   // out, the lines hash to the pin from before them, so those are the only move.
   it("the inert racials are the only cause of their registry move", () => {
     expect(WIRING_REGISTRY.filter((e) => RACIALS_WIRED_IDS.has(e.id) || e.id === "racial:spacer").map((e) => e.status.kind)).toEqual(Array(RACIALS_WIRED_IDS.size + 1).fill("live"));
-    expect(registryPin(G1_SLICE, ML1_SLICE, R2_1_SLICE, RACIALS_SLICE, RACIALS_SPACER_SLICE)).toEqual(REGISTRY_BEFORE_RACIALS);
+    expect(registryPin(G1_SLICE, ML1_SLICE, R2_1_SLICE, RACIALS_SLICE, RACIALS_SPACER_SLICE)).toEqual(REGISTRY_FKR7_PIN);
+    expect(registryPin(G1_SLICE, ML1_SLICE, R2_1_SLICE, RACIALS_SLICE, RACIALS_SPACER_SLICE, FKR7_SLICE)).toEqual(REGISTRY_BEFORE_RACIALS);
   });
   // FKR-5 and G2-3 moved the pin (see the header); with their entries held apart and the Explosives flip read back as
   // pending, the registry hashes exactly as the feat base before them.
-  it("FKR-6 is the only cause of the latest registry move", () => {
-    expect(registryPin(G1_SLICE, R2_1_SLICE, EM1_SLICE, ML1_SLICE, FKR6_SLICE, RACIALS_SLICE, RACIALS_SPACER_SLICE)).toEqual(REGISTRY_BEFORE_FKR6);
+  it("FKR-7 is the only cause of its registry move", () => {
+    expect(registryPin(G1_SLICE, ML1_SLICE, R2_1_SLICE, FKR7_SLICE)).toEqual(REGISTRY_RACIALS_PIN);
+    expect(registryPin(G1_SLICE, ML1_SLICE, R2_1_SLICE, FKR7_SLICE, RACIALS_SLICE, RACIALS_SPACER_SLICE)).toEqual(REGISTRY_BEFORE_FKR7);
+    expect(WIRING_REGISTRY.filter((e) => FKR7_FLIPPED_LIVE.has(e.id)).map((e) => e.status.kind)).toEqual(Array(FKR7_FLIPPED_LIVE.size).fill("live"));
+    expect(WIRING_REGISTRY.filter((e) => FKR7_ADDED_ENTRY_IDS.has(e.id)).map((e) => `${e.id}|${e.status.kind}`)).toEqual([
+      "away:FREE_BASIC_SET:firstAidKit:crew|live",
+      "away:audit:fieldKitsRunsSwitch|pending",
+    ]);
+  });
+  it("FKR-6 is the only cause of its registry move", () => {
+    expect(registryPin(G1_SLICE, R2_1_SLICE, EM1_SLICE, ML1_SLICE, FKR6_SLICE, FKR7_SLICE, RACIALS_SLICE, RACIALS_SPACER_SLICE)).toEqual(REGISTRY_BEFORE_FKR6);
     expect(WIRING_REGISTRY.filter((e) => FKR6_ADDED_ENTRY_IDS.has(e.id) || FKR6_FLIPPED_LIVE.has(e.id)).map((e) => e.status.kind)).toEqual(
       Array(FKR6_ADDED_ENTRY_IDS.size + FKR6_FLIPPED_LIVE.size).fill("live"),
     );
   });
   it("FKR-5 and G2-3 are the only causes of the registry move", () => {
-    expect(registryPin(G1_SLICE, ML1_SLICE, FKR5_SLICE, G23_SLICE, R2_1_SLICE, EM1_SLICE, FKR6_SLICE, RACIALS_SLICE, RACIALS_SPACER_SLICE)).toEqual(REGISTRY_BEFORE_FKR5_G23);
+    expect(registryPin(G1_SLICE, ML1_SLICE, FKR5_SLICE, G23_SLICE, R2_1_SLICE, EM1_SLICE, FKR6_SLICE, FKR7_SLICE, RACIALS_SLICE, RACIALS_SPACER_SLICE)).toEqual(REGISTRY_BEFORE_FKR5_G23);
   });
   // E-MOD EM-1: the seven power entries it wires flip pending -> live (the count and the order hold). With those seven
   // read as pending again the lines hash to the pin from before EM-1, so the flips are the only move.
   it("EM-1 is the only cause of its registry move", () => {
     expect(WIRING_REGISTRY.filter((e) => EM1_WIRED_IDS.has(e.id)).map((e) => e.status.kind)).toEqual(Array(EM1_WIRED_IDS.size).fill("live"));
     expect(WIRING_REGISTRY.filter((e) => EM1_ADDED_ENTRY_IDS.has(e.id))).toHaveLength(EM1_ADDED_ENTRY_IDS.size);
-    expect(registryPin(G1_SLICE, ML1_SLICE, R2_1_SLICE, EM1_SLICE, FKR6_SLICE, RACIALS_SLICE, RACIALS_SPACER_SLICE)).toEqual(REGISTRY_BEFORE_EM1);
+    expect(registryPin(G1_SLICE, ML1_SLICE, R2_1_SLICE, EM1_SLICE, FKR6_SLICE, FKR7_SLICE, RACIALS_SLICE, RACIALS_SPACER_SLICE)).toEqual(REGISTRY_BEFORE_EM1);
   });
   // WR-6: the nine placeholder entries it wires flip pending -> live (the count and the order hold). With those nine
   // read as pending again (and the later slices held apart) the lines hash to the pin from before WR-6, so the flips
   // are the only move.
   it("WR-6 is the only cause of the registry move", () => {
     expect(WIRING_REGISTRY.filter((e) => WR6_WIRED_IDS.has(e.id)).map((e) => e.status.kind)).toEqual(Array(WR6_WIRED_IDS.size).fill("live"));
-    expect(registryPin(G1_SLICE, ML1_SLICE, FKR5_SLICE, G23_SLICE, WR6_SLICE, R2_1_SLICE, EM1_SLICE, FKR6_SLICE, RACIALS_SLICE, RACIALS_SPACER_SLICE)).toEqual(REGISTRY_BEFORE_WR6);
+    expect(registryPin(G1_SLICE, ML1_SLICE, FKR5_SLICE, G23_SLICE, WR6_SLICE, R2_1_SLICE, EM1_SLICE, FKR6_SLICE, FKR7_SLICE, RACIALS_SLICE, RACIALS_SPACER_SLICE)).toEqual(REGISTRY_BEFORE_WR6);
   });
   it("Field Kits FKR-5: the added entries and the one flipped, each with its status", () => {
     const added = WIRING_REGISTRY.filter((e) => FKR5_ADDED_ENTRY_IDS.has(e.id));
@@ -702,6 +749,56 @@ describe("G1-0 golden 6: an old save (v69) of the mixed fleet through migrate", 
     const save = deserialize(serialize(held, 0)) as SaveFile;
     const state = migrate({ ...save, version: 69 });
     pin("old", [g1StateHash(state), ...state.ships.map((sh) => statsHash(withEm1Off(() => effectiveShipStats(state, sh))))]);
+  });
+});
+
+// ===== G1-4 golden 7: a short-range run beside the mixed fleet =====
+
+// The mixed fleet plus a fourth captain (id 4) flying a General Freighter on short-range slot 0, its first cycle started
+// through the board's own cycle-start seam (startShortRangeCycle; the sheet gate is the dispatch's, not the cycle's).
+const SR_CAPTAIN_ID = 4;
+function fleetWithShortRange(): { s: GameState; shipId: string } {
+  const base = mixedFleet();
+  const minted = mintBuiltShip(base, "generalFreighter");
+  const captain = { ...base.captains[0], id: SR_CAPTAIN_ID, label: "Fourth", level: 10, mission: null };
+  const s: GameState = {
+    ...base,
+    ships: minted.ships.map((sh) => (sh.id === minted.shipId ? { ...sh, assignedCaptainId: SR_CAPTAIN_ID } : sh)),
+    nextShipId: minted.nextShipId,
+    equipment: minted.equipment,
+    nextEquipmentId: minted.nextEquipmentId,
+    captains: [...base.captains, captain],
+  };
+  const ship = s.ships.find((sh) => sh.id === minted.shipId)!;
+  const start = startShortRangeCycle(s, ship, { id: 0, tier: 1 }, 0);
+  const mission: ShortRangeMissionState = { kind: "shortRange", slotId: 0, roll: start.roll, plan: start.plan, phase: "transitOut", phaseProgressTicks: 0, recalled: false };
+  return { s: { ...s, captains: s.captains.map((c) => (c.id === SR_CAPTAIN_ID ? { ...c, mission } : c)), runCounts: start.runCounts }, shipId: minted.shipId };
+}
+
+// Everything the OTHER runs own: their captains, the expedition, their ships, the timed processes and the officers on
+// their ships. A short-range run's own rewards (credits, the Warehouse, XP, lifetime totals, counters) are left out.
+function othersHash(s: GameState, shipId: string): string {
+  return hash({
+    captains: s.captains.filter((c) => c.id !== SR_CAPTAIN_ID),
+    expeditions: s.expeditions,
+    ships: s.ships.filter((sh) => sh.id !== shipId),
+    activeProcesses: s.activeProcesses,
+    officers: s.officers.filter((o) => o.assignedShipId !== shipId),
+  });
+}
+
+describe("G1-4 golden 7: a short-range run beside the mixed fleet leaves every other run byte-identical", () => {
+  it("the other runs' state every hour for six hours", () => {
+    let { s, shipId } = fleetWithShortRange();
+    const hours = [othersHash(s, shipId)];
+    for (let h = 1; h <= 6; h++) {
+      s = economyTick(s, HOUR, RNG);
+      hours.push(othersHash(s, shipId));
+    }
+    expect(s.captains[1].mission).not.toBeNull();
+    expect(s.captains[2].mission).not.toBeNull();
+    expect(s.expeditions.length).toBe(1);
+    pin("fleet:shortRange:others", hours);
   });
 });
 

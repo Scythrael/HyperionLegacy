@@ -22,7 +22,7 @@
 //   - SABOTEUR (FK10, "Own grenades only"): +6% on the Saboteur's OWN grenade throws, never squad-wide, no stacking.
 //
 // The user confirmed N8, N9, N10, N11, N12, the basic list (Stun and Fear included) and the Injury Kit share on
-// 2026-10-17; [PROPOSAL] marks the numbers the user has not named (the free basic curve's shape). DETERMINISM: pure; the only draw is fieldDevicePercent's, on FIELD_DEVICE_SALT (registered in
+// 2026-10-17, and the free basic curve's shape on 2026-10-20. DETERMINISM: pure; the only draw is fieldDevicePercent's, on FIELD_DEVICE_SALT (registered in
 // salts.test.ts). Module graph: model (types), gambit (first aid constants), diminishing, combat/rng.
 
 import { BLUEPRINTS, type AwayRosterSnapshot, type AwayTraitId, type Expedition, type GambitStatusId } from "./model";
@@ -253,7 +253,8 @@ export const FREE_BASIC_SET: Readonly<Partial<Record<FieldKitId, FreeBasicDef>>>
   firstAidKit: { base: FREE_BASIC_FIRST_AID_PER_MEMBER, crewCurve: true },
 };
 
-// The crew curve (its use is the user's N12; its two numbers are a [PROPOSAL], the user never named them): support heads
+// The crew curve (its use is the user's N12; its numbers approved by the user 2026-10-20: headcount 0-4 = 1 kit, 5 = 2,
+// 15 = 3, 27 = 4, 41 = 5, 57 = 6, diminishing, no cap): support heads
 // (Medical + Operations headcount, as gambit.ts's team kit counts them) per kit at the curve's linear start, and the D23
 // knee in kits. diminishing(heads / 8, 4): 8 heads add about 0.9 kit, 16 about 1.7, 32 about 2.9, 80 about 5.8; it keeps rising without a ceiling (D23, FK3 "the cap of 8
 // becomes a D23 diminishing curve").
@@ -383,8 +384,8 @@ function priceOf(kit: FieldKitId): number {
 }
 
 // The Quartermaster's price per kit in credits [PROVISIONAL, N13's rule on proposed worths]: First Aid Kit 60,
-// Antitoxin 60, Combat Stim 150, Splint 95, Trauma Kit 660, Injury Kit 420. Nothing reads it until FKR-7 (kit sales
-// and the off-by-default launch top-up); its wiring entries are pending with that owner.
+// Antitoxin 60, Combat Stim 150, Splint 95, Trauma Kit 660, Injury Kit 420. Read by the Quartermaster's kit sale and
+// the off-by-default launch top-up (quartermaster.ts, FKR-7); its wiring entries are live.
 export const FIELD_KIT_PRICES: Readonly<Record<FieldKitId, number>> = Object.fromEntries(
   FIELD_KIT_IDS.map((id) => [id, priceOf(id)]),
 ) as Record<FieldKitId, number>;
@@ -394,6 +395,14 @@ export const FIELD_KIT_PRICES: Readonly<Record<FieldKitId, number>> = Object.fro
 // The catalog version a Field Kits run is stamped with (Expedition.fieldKits.catalog, FKR-7). Bump it when a kit's
 // numbers or coverage change, and keep the old version's rules for runs stamped with it.
 export const FIELD_KITS_CATALOG_VERSION = 1;
+
+// THE RUNS SWITCH (FKR-7; user 2026-10-20 "Hide until kits are live"). On, a new dispatch stamps flag 2 (with the frozen
+// free basic set), packs each Security member from stock, buys a team's top-up shortfall and brings the unused extras
+// home at claim (expedition.ts startExpedition, fieldKitsRun.ts). It stays OFF until the dispatch pack UI (FKR-9, which
+// needs the user's mockup sign-off) and the Quartermaster sale rows (FKR-10) land: a player could not see or change a
+// pack, and the plumbing would spend stock and credits behind their back. Off, every dispatch is byte-identical to
+// FKR-6's (fieldKitsRunGoldens.test.ts). It flips together with model.ts FIELD_KITS_PLAYER_LIVE.
+export const FIELD_KITS_RUNS_LIVE = false;
 
 // Is `exp` a Field Kits run (flag 2: Expedition.fieldKits stamped with a known catalog version)? The ONE read of the
 // flag (FKR-4's conditions and inflictors, fieldKitsConditions.ts; the later slices read it too). A run without it

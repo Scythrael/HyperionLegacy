@@ -13,7 +13,8 @@
 // - Home unload occupies a transit berth on the captain-mission rules (call 18): berths.ts reads the frozen plan.
 // - Recall finishes the current cycle, then stops (tick.ts recallCaptain).
 //
-// NOT here: the cycle itself (phases, re-roll at each cycle start, rewards, XP, idles: G1-4) and every screen (G1-6).
+// NOT here: the cycle itself (phases, re-roll at each cycle start, rewards, XP, idles: G1-4, shortRangeCycle.ts) and
+// every screen (G1-6).
 //
 // Pure: every function reads state and returns verdicts or new states; no draws outside the roll's own stream, no
 // clock, never the shared economy rng.
@@ -78,7 +79,7 @@ export function isWellFormedShortRangeBoard(v: unknown): v is ShortRangeBoardSta
 }
 
 // The cycle index a slot's NEXT roll reads (0 for a slot that never delivered, and for any save without a board).
-// Advanced only by a delivered cycle (G1-4). Pure.
+// Advanced only by a delivered cycle (G1-4, shortRangeCycle.ts). Pure.
 export function shortRangeNextCycle(state: Pick<GameState, "shortRangeBoard">, slotId: number): number {
   const board = state.shortRangeBoard;
   if (!isWellFormedShortRangeBoard(board)) return 0;
@@ -210,7 +211,8 @@ export interface ShortRangeDispatchResult {
 // returns the SAME state with the reason and every short category. On success the first cycle starts
 // (startShortRangeCycle: the roll at the slot's next cycle index, its frozen plan, one more cycle start of the drawn
 // template), the mission begins its outbound leg, and any stale wall-stop reason is cleared (dispatchCaptainOnMission's
-// rule). Spends nothing: a drop-off's working capital is settled by the cycle engine (G1-4), as a supply run's is.
+// rule). Spends nothing itself: a drop-off pays its load as the cycle leaves home, at the cycle engine's departure gate
+// on the next tick (G1-4, user 2026-10-20 "At cycle start"), and waits there while the fleet cannot pay.
 // `repeat` false flies one cycle and stops (the run starts recalled); the default runs until recalled. Pure.
 export function dispatchCaptainOnShortRange(state: GameState, captainId: number, slotId: number, repeat: boolean = true): ShortRangeDispatchResult {
   const gate = canDispatchShortRange(state, captainId, slotId);
@@ -268,5 +270,8 @@ export function isWellFormedShortRangeMission(m: unknown): m is ShortRangeMissio
   if (!d || typeof d !== "object" || typeof d.firstRun !== "boolean" || !isFiniteNonNegative(d.ramp)) return false;
   const p = s.plan as Record<string, unknown> | null | undefined;
   if (!p || typeof p !== "object" || !PLAN_KEYS.every((k) => isFiniteNonNegative(p[k]))) return false;
+  // G1-4: the cycle engine's optional fields (the load a drop-off paid, the cycles this run delivered).
+  if (s.loadPaid !== undefined && !isFiniteNonNegative(s.loadPaid)) return false;
+  if (s.cyclesThisRun !== undefined && !isWholeCount(s.cyclesThisRun)) return false;
   return true;
 }

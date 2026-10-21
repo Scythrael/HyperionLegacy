@@ -386,6 +386,45 @@ every mission-claim entry (23 today) or an explicit `outOfScope` with reason; th
 **Tests:** offline == live (one call, 997 s chunks, 1 s steps) over 20 cycles, idle and resume, recall, the training
 run's chip flag and smallest roll, neutrality goldens unchanged. **UI:** none.
 
+**Carry note (G1-4, built 2026-10-20 on `047b133`):**
+- `shortRangeCycle.ts` is the cycle engine; economyTick's "shortRange" arm calls `tickCaptainShortRange` and folds it
+  through the extraction arm's accumulators (credits, the one deposit fold with Assayer, XP via foldXpLevelUps,
+  lifetimeStats, officer mission credit). Counters and the board cursor thread across captains in captain order.
+- Every cycle start goes through `startShortRangeCycle` (whole-job re-roll, `dispatched` per template start); a
+  delivery bumps `completed` unless it was the training run (SF5) and writes `shortRangeBoard.nextCycle[slot]`.
+- The departure gate (`shortRangeDepartureHold`): a drop-off pays `shortRangeLoadToPay` (Trade discount applied) as
+  it leaves, stored as `loadPaid`; the delivery returns it plus the margin. Too few credits, or a pickup whose Titanium
+  Ore is at its cap: the cycle waits at home, no XP, no stop reason, and leaves on its own. Dispatch still spends
+  nothing (the first tick pays). G1-6's waiting line should read `shortRangeDepartureHold`.
+- Recall: a run that has left finishes the cycle; a run still at home (`!shortRangeHasDeparted`) ends AT ONCE in
+  `recallCaptain` (its cycle start is taken back, `uncountShortRangeCycleStart`, so the template keeps its training
+  run). `recallCaptain` gained an optional `nowMs` for that log entry: G1-6's recall button should pass the clock.
+- Completion log: ONE `shortRangeRun` entry per run end (`iterations` = cycles delivered, subject `slot-<id>`), the
+  patrol precedent, never per cycle. Home renders "Completed, Short-Range Missions" / "N missions completed, recalled";
+  the row is not navigable and the `shortRange` icon hint needs its glyph in G1-6.
+- Time skip: honored (the cycle runs through to delivery); a waiting or berth-held cycle keeps the flag.
+- Gear wear is not merged: `shortRangeCycleWear` is the seam (none on training, W9), owner the gear wear engine.
+- Registry: the 21 template entries and the six guest quarters sources are live at `mission:shortRange`; the sweep
+  (`SHORT_RANGE_SWEEP_LIVE` / `SHORT_RANGE_SWEEP_OUT_OF_SCOPE`, registry.ts) covers every mission-claim entry, held by
+  a completeness test. `trade2:shortRange` is a new entry. Output share on credits is exact (fractional, like a
+  transport's margin); on materials whole units on `SHORT_RANGE_OUTPUT_SALT`.
+- `SHORT_RANGE_BOARD_LIVE` stays false; the guest quarters display stays hidden (G1-6 flips both).
+- Parity class to log (merge review 2026-10-20; production-safe because `loopClock.ts` steps `economyTick(state, 1)`,
+  so every live and offline call covers at most one cycle boundary): three call-constants are read once per
+  economyTick call, so a single call spanning many cycles can differ from 1 s steps. (1) The transit berth budget is
+  per call (`berthBudgetRemaining`, shared with the Long Ore Run's per-call `berthBudget`), so berths a delivery frees
+  are not re-offered inside the same call. (2) The pickup gate's `atCap` reads the INCOMING state
+  (`materialAtCap(state, itemId)`, tick.ts ~4283), so Warehouse room freed or filled inside the call is not seen.
+  (3) A drop-off waiting on credits does not see income earned elsewhere in the same call (its balance is the
+  incoming credits plus its own deliveries). All three only matter for multi-cycle single calls; the 20-cycle parity
+  test passes because its fixtures never hit these edges. Fix only if a caller ever feeds economyTick a multi-cycle dt.
+- Behavior change at the merge with the inert racials (by design): the Spacer racial's transit speed key now shortens
+  short-range legs (the frozen plan's transit ticks read the sheet's transit speed, like any other transit bonus).
+- Review follow-up (2026-10-20): a drop-off's margin rounds ONCE after the captain's Trade bonus
+  (`shortRangeDropOffMargin`), so any bonus >= 0 pays at least the bare margin (the old split rounding could pay a
+  tiny bonus less than none). The Trade 1 / Trade 3 wiring entries carry a 0.5 credit tolerance for it
+  (`SHORT_RANGE_WHOLE_CREDITS`, registry.ts); the tolerance is per entry, so their transport check shares it.
+
 ### G1-5: Relic drops (engine; after G3 Relics v2) [open call 11]
 
 Per-hour chance on its own salt, lowest-tier pool from G3, the token through the existing Research Lab identify path.

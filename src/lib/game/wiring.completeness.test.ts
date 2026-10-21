@@ -194,6 +194,22 @@ describe("wiring completeness: every entry is well formed", () => {
       for (const c of Object.keys(e.flatChecks ?? {})) expect(claimed.includes(c as never), `${e.id}: a flat check at ${c}, which it does not claim`).toBe(true);
     }
   });
+  // G1-4 (plan 4 G1-4): every entry whose claim covers missions also covers the short-range cycle, live there or with
+  // an explicit outOfScope reason. The per-def MISSIONS content (one captain-mission def's own fields) is its own
+  // catalog's, as the short-range templates' content is SHORT_RANGE_TEMPLATES'.
+  it("every mission-claim entry covers mission:shortRange (live, still pending there, or out of scope with a reason)", () => {
+    const MISSION_CONTEXTS = new Set<string>(["mission:extraction", "mission:survey", "mission:transport"]);
+    const claimed = (e: WiringEntry): string[] => [
+      ...e.contexts,
+      ...(e.status.kind === "pending" || e.status.kind === "deferred" ? e.status.contexts ?? [] : []),
+      ...(e.outOfScope ?? []).map((o) => o.context),
+    ];
+    const missionClaims = WIRING_REGISTRY.filter((e) => e.source.catalog !== "MISSIONS" && claimed(e).some((c) => MISSION_CONTEXTS.has(c)));
+    expect(missionClaims.length, "the sweep sees the mission-claim entries").toBeGreaterThan(30);
+    const uncovered = missionClaims.filter((e) => !claimed(e).includes("mission:shortRange")).map((e) => e.id);
+    expect(uncovered, "add mission:shortRange to these entries' contexts, or an outOfScope reason (registry.ts SHORT_RANGE_SWEEP)").toEqual([]);
+    for (const e of WIRING_REGISTRY) for (const o of e.outOfScope ?? []) expect(o.reason.length, `${e.id} @ ${o.context}`).toBeGreaterThan(10);
+  });
   it("every magnitude reads a finite number from the catalogs", () => {
     for (const e of WIRING_REGISTRY) expect(Number.isFinite(e.magnitude(CATALOGS)), e.id).toBe(true);
   });

@@ -1201,6 +1201,9 @@ const COMPLETION_KIND_VIEW: Record<
   // ⚠️ A patrol does not happen AT a facility, so its source names the console that dispatches
   // and recalls it rather than inventing a location. Same principle as the jumpTarget beside it.
   patrolRun:               { verb: "Patrolled",   icon: "patrol",     source: "Battlespace",    jumpTarget: "combat" },
+  // G1-4: a short-range run that ended (recalled; its cycles delivered are the entry's iterations). The board lives at
+  // Mission Control's slots; the row is not navigable until G1-6 gives the board its tab (the in-progress row's rule).
+  shortRangeRun:           { verb: "Completed",   icon: "shortRange", source: "Mission Control", jumpTarget: null },
 };
 
 // 0.13.4 Phase 2 Unit 2.2 (design §6.2): the EXHAUSTIVE wording table for patrol endings.
@@ -1248,6 +1251,8 @@ function completionSubjectLabel(entry: CompletionLogEntry, state: GameState): st
   // patrol has since been retired from the registry, which is the same degradation every other
   // lookup here uses and is exactly the state a missionKeyRetired entry is reporting.
   if (entry.kind === "patrolRun") return PATROLS[key]?.label ?? key;
+  // G1-4: a short-range run is named by its kind (its subject key is the board slot, not a catalog key).
+  if (entry.kind === "shortRangeRun") return "Short-Range Missions";
   switch (entry.reward) {
     case "blueprint":
     case "systems":
@@ -1366,6 +1371,11 @@ function completionDetail(entry: CompletionLogEntry): string | null {
     const routes = entry.iterations === 1 ? "1 route" : `${entry.iterations} routes`;
     const flown = entry.iterations === 0 ? "no routes completed" : routes;
     return reason !== null ? `${flown}, ${reason}` : flown;
+  }
+  // G1-4: a short-range run's detail is how many missions it delivered (zero is real: recalled before the first).
+  if (entry.kind === "shortRangeRun") {
+    if (entry.iterations === 0) return "no missions completed, recalled";
+    return `${entry.iterations === 1 ? "1 mission" : `${entry.iterations} missions`} completed, recalled`;
   }
   // 0.13.7 Crafted Blanks: a fabricate now deposits an UNINSPECTED blank, not a usable system, and
   // the primary line ("Fabricated, Balanced Hold") reads by process kind and cannot say so. The

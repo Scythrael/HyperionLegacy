@@ -59,6 +59,8 @@ import {
   type SnapshotMember,
   type MemberPerkId,
   type PatrolMissionState,
+  type ShortRangeMissionState,
+  type ShortRangePhase,
   withGeneralMuseumRecord,
 } from "../model";
 import {
@@ -144,7 +146,7 @@ import {
   type BattleState,
   type GroundCombatant,
 } from "../gambit";
-import { FIELD_KITS_CATALOG_VERSION, type FieldKitId } from "../fieldKits";
+import { FIELD_KITS, FIELD_KITS_CATALOG_VERSION, type FieldKitId } from "../fieldKits";
 import { withThrownGrenades } from "../fieldKitsGrenades";
 import { FIELD_KITS_BATTLE, withFieldKitsDefaultProgram } from "../fieldKitsBattle";
 import { fieldworkEffect, fieldworkHazardResist, fieldworkSpeedMult } from "../fieldwork";
@@ -162,10 +164,14 @@ import { hullTeardownFraction, salvageSalvagedMaterial, salvageShip, salvageTale
 import { alertResetSeconds, escalationAt, extraBattleChance, longRangeCover, maxExtraBattles } from "../affixes";
 import { ENEMY_RANK_IDS, ENEMY_RANKS_VERSION, type EnemyRank } from "../enemyRanks";
 import { taskFightGuard, taskFightTeam } from "../groundFight";
-import { sellItem } from "../quartermaster";
+import { buyFieldKits, sellItem } from "../quartermaster";
+// Field Kits FKR-7: the run plumbing (the free basic set at an objective start, the bay share).
+import { fieldKitsStamp, refreshObjectiveSupplies } from "../fieldKitsRun";
+import { groundTeamBaySeconds } from "../groundOps";
 import { retirementExpMultiplier } from "../captainRetirement";
 import { transitBerthCount } from "../berths";
-import { shortRangeBoardSlots } from "../shortRangeBoard";
+import { shortRangeBoardSlots, startShortRangeCycle } from "../shortRangeBoard";
+import { rollShortRangeJob, shortRangeCycleReward, shortRangeShipRatings, type ShortRangeCyclePlan, type ShortRangeRoll, type ShortRangeTemplateKey } from "../shortRange";
 import { telescopeReading } from "../telescope";
 import { getSeniorStaffBonusById } from "../seniorStaffBonuses";
 import { CREW_STAT_KEYS } from "../crewBuffs";
@@ -191,7 +197,7 @@ export const CONTEXT_IDS = [
   "mission:extraction",
   "mission:survey",
   "mission:transport",
-  "mission:shortRange", // G1: a short-range mission cycle (G1-4 builds the cycle; until then nothing reads there)
+  "mission:shortRange", // G1: a short-range mission cycle (the G1-4 cycle engine, shortRangeCycle.ts)
   "patrol", // ship battles (patrols and the Ground Ops ship events build the same combatant)
   "shipyard", // Shipyard repair, builds, bays
   "expedition:groundOps", // a run dispatched since GO-7b (every new run)
@@ -628,33 +634,125 @@ function deliveryTick(s: GameState, draw: number, over: Partial<CaptainState> = 
 }
 
 // WR-5a (Motherlode): the share of MOTHERLODE_BATCH real deliveries (captain 1's lifetime Motherlode counter at 0 to
-// MOTHERLODE_BATCH - 1) whose 10 Titanium Ore landed doubled.
+// MOTHERLODE_BATCH - 1) whose 10 Titanium Ore landed doubled. G1-4: at mission:shortRange, real Supply Pickup
+// deliveries (the training roll's units of Titanium Ore).
 const MOTHERLODE_BATCH = 1000;
-function motherlodeRate(s: GameState): number {
+function motherlodeRate(s: GameState, ctx?: ContextId): number {
+  const shortRange = ctx === "mission:shortRange";
+  const units = shortRange ? shortRangeJobRoll(s, "supplyPickup").units ?? 0 : 10;
   let doubled = 0;
   for (let i = 0; i < MOTHERLODE_BATCH; i++) {
-    const { before, after } = deliveryTick(s, 0.999999, { motherlodeCycles: i });
-    if (heldOf(after, "commonOre") - heldOf(before, "commonOre") > 10) doubled++;
+    const { before, after } = shortRange ? shortRangeDeliveryTick(s, 0.999999, { motherlodeCycles: i }) : deliveryTick(s, 0.999999, { motherlodeCycles: i });
+    if (heldOf(after, "commonOre") - heldOf(before, "commonOre") > units) doubled++;
   }
   return doubled / MOTHERLODE_BATCH;
 }
 
-function deliveredQuality(s: GameState, draw: number): number {
-  const { before, after } = deliveryTick(s, draw);
+// == short-range missions (G1-4, the cycle engine shortRangeCycle.ts) ==
+
+// The first cycle index on short-range slot 0 (Tier I) whose roll is `template`, on `s`'s counters (a fresh save: the
+// template's training run, its smallest roll).
+const SHORT_RANGE_PROBE_SLOT = { id: 0, tier: 1 as const };
+function shortRangeJobIndex(s: GameState, template: ShortRangeTemplateKey): number {
+  for (let i = 0; i < 2000; i++) if (rollShortRangeJob(s, SHORT_RANGE_PROBE_SLOT, i).template === template) return i;
+  throw new Error(`wiring: no ${template} roll on slot 0`);
+}
+export function shortRangeJobRoll(s: GameState, template: ShortRangeTemplateKey): ShortRangeRoll {
+  return rollShortRangeJob(s, SHORT_RANGE_PROBE_SLOT, shortRangeJobIndex(s, template));
+}
+
+// Captain 1 flying that roll on ship-1, its cycle started through the board's own seam (startShortRangeCycle), at the
+// start of `phase`. Recalled unless `repeat`: the run ends after its one delivered cycle.
+export function onShortRangeJob(s: GameState, template: ShortRangeTemplateKey, phase: ShortRangePhase = "transitOut", repeat = false): GameState {
+  const start = startShortRangeCycle(s, shipOf(s), SHORT_RANGE_PROBE_SLOT, shortRangeJobIndex(s, template));
+  const mission: ShortRangeMissionState = { kind: "shortRange", slotId: 0, roll: start.roll, plan: start.plan, phase, phaseProgressTicks: 0, recalled: !repeat };
+  return { ...editCaptain(s, { mission } as Partial<CaptainState>), runCounts: start.runCounts };
+}
+
+function shortRangeMissionOf(s: GameState): ShortRangeMissionState {
+  const m = captainOf(s).mission;
+  if (m === null || m.kind !== "shortRange") throw new Error("wiring: captain 1 is not on a short-range run");
+  return m;
+}
+
+// One whole short-range cycle of `template` from its departure to its delivery (economyTick, every draw common).
+function shortRangeCycle(s: GameState, template: ShortRangeTemplateKey): { before: GameState; after: GameState } {
+  const before = onShortRangeJob(s, template);
+  return { before, after: economyTick(before, shortRangeMissionOf(before).plan.totalTicks, () => 0.5) };
+}
+
+// The training cycle of `template` on the bare wiring fixture: its roll, its plan and what it pays (the registry's
+// short-range template magnitudes read these).
+export function shortRangeTrainingCycle(template: ShortRangeTemplateKey): { roll: ShortRangeRoll; plan: ShortRangeCyclePlan; credits: number } {
+  const s = wiringBase();
+  const m = shortRangeMissionOf(onShortRangeJob(s, template));
+  return { roll: m.roll, plan: m.plan, credits: shortRangeCycleReward(m.roll, effectiveShipStats(s, shipOf(s))).credits };
+}
+
+// The last tick of a Supply Pickup's home turnaround, then that tick (economyTick, every draw `draw`).
+function shortRangeDeliveryTick(s: GameState, draw: number, over: Partial<CaptainState> = {}): { before: GameState; after: GameState } {
+  const on = onShortRangeJob(s, "supplyPickup", "unloading");
+  const m = shortRangeMissionOf(on);
+  const before = editCaptain(on, { ...over, mission: { ...m, phaseProgressTicks: m.plan.unloadTicks - 1 } } as Partial<CaptainState>);
+  return { before, after: economyTick(before, 1, () => draw) };
+}
+
+// The mission output share one short-range cycle applied to its pay: a Telescope Repair's credits over the reward
+// table's (shortRangeCycleReward), minus one.
+function shortRangeOutputShare(s: GameState): number {
+  const { before, after } = shortRangeCycle(s, "telescopeRepair");
+  const base = shortRangeCycleReward(shortRangeMissionOf(before).roll, effectiveShipStats(before, shipOf(before))).credits;
+  return (Number(after.credits) - Number(before.credits)) / base - 1;
+}
+
+// The ticks the engine spends on site in one cycle of `template` (stepped one tick at a time from the site's start).
+function shortRangeOnSiteTicks(s: GameState, template: ShortRangeTemplateKey): number {
+  let at = onShortRangeJob(s, template, "onSite");
+  for (let t = 1; t < 10_000; t++) {
+    at = economyTick(at, 1, () => 0.5);
+    if (shortRangeMissionOf(at).phase !== "onSite") return t;
+  }
+  return -1;
+}
+
+// The primary size a template's training roll carries (people, units or scan points), from the cycle-start seam.
+function shortRangePrimarySize(s: GameState, template: ShortRangeTemplateKey): number {
+  const roll = shortRangeMissionOf(onShortRangeJob(s, template)).roll;
+  return roll.guests ?? roll.units ?? roll.scan ?? -1;
+}
+
+function shortRangeContentValue(s: GameState, field: string, template: ShortRangeTemplateKey): number {
+  switch (field) {
+    case "rolls":
+      return shortRangePrimarySize(s, template);
+    case "work":
+      return shortRangeOnSiteTicks(s, template);
+    case "reward": {
+      const { before, after } = shortRangeCycle(s, template);
+      return Number(after.credits) - Number(before.credits);
+    }
+    default:
+      throw new Error(`no short-range field probe for ${field}`);
+  }
+}
+
+function deliveredQuality(s: GameState, draw: number, ctx?: ContextId): number {
+  const { before, after } = ctx === "mission:shortRange" ? shortRangeDeliveryTick(s, draw) : deliveryTick(s, draw);
   const buckets = after.inventory.commonOre ?? [];
   const was = before.inventory.commonOre ?? [];
   for (let q = buckets.length - 1; q >= 0; q -= 1) if (Number(buckets[q] ?? 0) > Number(was[q] ?? 0)) return q;
   return -1;
 }
 
-// The largest constant draw whose delivery still climbs to quality 1 (the deposit's first-climb threshold).
-function deliveryQualityThreshold(s: GameState): number {
+// The largest constant draw whose delivery still climbs to quality 1 (the deposit's first-climb threshold). G1-4: at
+// mission:shortRange, a Supply Pickup's delivery.
+function deliveryQualityThreshold(s: GameState, ctx?: ContextId): number {
   let lo = 0;
   let hi = 1;
-  if (deliveredQuality(s, 1e-12) < 1) return 0;
+  if (deliveredQuality(s, 1e-12, ctx) < 1) return 0;
   for (let i = 0; i < 44; i++) {
     const mid = (lo + hi) / 2;
-    if (deliveredQuality(s, mid) >= 1) lo = mid;
+    if (deliveredQuality(s, mid, ctx) >= 1) lo = mid;
     else hi = mid;
   }
   return lo;
@@ -866,8 +964,9 @@ function runRelicStudyTicks(s: GameState): number {
 
 // The first officer aboard ship-1 (the fixture seats one), after 600 economyTick seconds of a Short Ore Run: its
 // crewHours (the promotion counter every run feeds). -1 when the mission cannot dispatch or no officer sits aboard.
-function missionCrewHours(s: GameState): number {
-  const r = dispatchCaptainOnMission(s, WIRING_CAPTAIN_ID, "shortOreRun");
+function missionCrewHours(s: GameState, ctx?: ContextId): number {
+  // G1-4: at mission:shortRange, 600 s of a short-range run (a Telescope Repair, on Repeat).
+  const r = ctx === "mission:shortRange" ? { success: true, next: onShortRangeJob(s, "telescopeRepair", "transitOut", true) } : dispatchCaptainOnMission(s, WIRING_CAPTAIN_ID, "shortOreRun");
   if (!r.success) return -1;
   let after = r.next;
   for (let t = 0; t < 600; t++) after = economyTick(after, 1, () => 0.5);
@@ -959,8 +1058,8 @@ export const PROBES = {
   // G1-1: guest quarters on the sheet. At mission:shortRange it reads the short-range cycle's passenger capacity, which
   // does not exist until G1-4 (the cycle engine): 0 there, so a guest source stays flat at that claimed context.
   sheetGuestQuarters: {
-    label: "effectiveShipStats.colonistCapacity (mission:shortRange: no cycle reads it until G1-4)",
-    read: (s, ctx) => (ctx === "mission:shortRange" ? 0 : sheet(s).colonistCapacity ?? 0),
+    label: "effectiveShipStats.colonistCapacity (mission:shortRange: the guest quarters a short-range sheet judges, shortRangeShipRatings)",
+    read: (s, ctx) => (ctx === "mission:shortRange" ? shortRangeShipRatings(s, shipOf(s), 1).guests : sheet(s).colonistCapacity ?? 0),
   },
   sheetMass: { label: "effectiveShipStats.mass", read: (s) => sheet(s).mass },
   sheetPowerOutput: { label: "effectiveShipStats.powerOutput", read: (s) => sheet(s).powerOutput },
@@ -1006,21 +1105,24 @@ export const PROBES = {
     },
   },
   missionOutputBonus: {
-    label: "shipMissionOutputBonus (the share economyTick applies to mission deliveries and to patrol wave loot)",
-    read: (s) => shipMissionOutputBonus(s, shipOf(s)),
+    label: "shipMissionOutputBonus (the share economyTick applies to mission deliveries and to patrol wave loot; mission:shortRange: the share one delivered short-range cycle applied)",
+    read: (s, ctx) => (ctx === "mission:shortRange" ? shortRangeOutputShare(s) : shipMissionOutputBonus(s, shipOf(s))),
   },
   missionCycleOutput: { label: "one whole shortOreRun cycle (economyTick): the credits and Titanium Ore delivered", read: (s) => cycleOutput(s) },
   missionOreQuality: { label: "one whole shortOreRun cycle (economyTick): the quality of the ore delivered", read: (s) => cycleOreQuality(s) },
   // == the captain secondary tree (WR-5a) ==
   deliveryQualityClimb: {
-    label: "economyTick's mission deposit: the largest constant draw whose delivered ore still climbs to quality 1 (shortOreRun)",
-    read: (s) => deliveryQualityThreshold(s),
+    label: "economyTick's mission deposit: the largest constant draw whose delivered ore still climbs to quality 1 (shortOreRun; mission:shortRange: a Supply Pickup)",
+    read: (s, ctx) => deliveryQualityThreshold(s, ctx),
   },
-  motherlodeRate: { label: "economyTick deliveries: the share of 1,000 real shortOreRun deliveries (lifetime counter 0 to 999) whose haul landed doubled", read: (s) => motherlodeRate(s) },
+  motherlodeRate: {
+    label: "economyTick deliveries: the share of 1,000 real deliveries whose haul landed doubled, lifetime counter 0 to 999 (shortOreRun; mission:shortRange: a Supply Pickup)",
+    read: (s, ctx) => motherlodeRate(s, ctx),
+  },
   transportCycleCredits: {
-    label: "one whole frontierSupplyRun cycle (economyTick): the net credits it delivered",
-    read: (s) => {
-      const { before, after } = oneCycle(s, "frontierSupplyRun");
+    label: "one whole frontierSupplyRun cycle (economyTick): the net credits it delivered (mission:shortRange: one Supply Drop-off cycle)",
+    read: (s, ctx) => {
+      const { before, after } = ctx === "mission:shortRange" ? shortRangeCycle(s, "supplyDropOff") : oneCycle(s, "frontierSupplyRun");
       return Number(after.credits) - Number(before.credits);
     },
   },
@@ -1287,7 +1389,7 @@ export const PROBES = {
   runRelicTierCeiling: { label: "relicTierCeiling: the dispatched run's tier ceiling on a hazard-0 objective", read: (s) => relicTierCeiling(0, dispatchRun(s).explorerCaptain?.relicTierLift) },
   runRelicStudyTicks: { label: "startRelicStudy: the duration of a relic the dispatched run recovers, brought home and studied", read: (s) => runRelicStudyTicks(s) },
   crewMapCargo: { label: "shipCrewContribution[crew.effectiveCargo]", read: (s) => shipCrewContribution(s, shipOf(s))[CREW_STAT_KEYS.effectiveCargo] ?? 0 },
-  missionCrewHours: { label: "economyTick: an officer's crewHours after 600 s of a Short Ore Run", read: (s) => missionCrewHours(s) },
+  missionCrewHours: { label: "economyTick: an officer's crewHours after 600 s of a Short Ore Run (mission:shortRange: of a short-range run)", read: (s, ctx) => missionCrewHours(s, ctx) },
   claimObjectives: { label: "claimExpedition: an officer's personnelAchievement after a run with one objective done", read: (s) => claimedObjectives(s) },
   officerBoard: { label: "seniorStaffCandidates (count)", read: (s) => seniorStaffCandidates(s).length },
   recruitBoard: { label: "awayRecruitCandidates (count)", read: (s) => awayRecruitCandidates(s).length },
@@ -1806,6 +1908,8 @@ function readContent(id: string, s: GameState): number {
     }
     case "mission":
       return missionFieldValue(s, a, b as MissionKey);
+    case "shortRange":
+      return shortRangeContentValue(s, a, b as ShortRangeTemplateKey);
     case "loadoutSlots":
       return loadoutSlotDefsForShipType(a as ShipTypeKey).filter((d) => d.slotType === b).length;
     case "groundTeams":
@@ -1925,6 +2029,27 @@ function readContent(id: string, s: GameState): number {
     }
     case "kit":
       return kitProbe(a as FieldKitId, on);
+    case "kitPrice": {
+      // Field Kits FKR-7: the credits one Quartermaster sale of kit `a` takes (quartermaster.ts buyFieldKits, the price the
+      // launch top-up charges too); off: no sale, 0.
+      if (!on) return 0;
+      const r = buyFieldKits(s, a, 1);
+      if (!r.ok) throw new Error(`kit price probe: the sale of ${a} was refused (${r.reason})`);
+      return s.credits.minus(r.next.credits).toNumber();
+    }
+    case "freeBasic":
+      return freeBasicProbe(s, a as FieldKitId, b, on);
+    case "runTreatment": {
+      // Field Kits FKR-7: a member's Broken Bone bay time on a Ground Ops run (groundOps.ts groundTeamBaySeconds, the bay
+      // step's reader, no care) with (on) the share one Injury Kit records on the team's trip treatment, or none.
+      const id = "wiring-treated";
+      const exp = {
+        roster: { security: [], science: [] },
+        groundOps: { factors: { medicalShare: 0, rapidRecoveryShare: 0, officerFacetShare: 0, injurySteady: 0 } },
+      } as unknown as Parameters<typeof groundTeamBaySeconds>[0];
+      const team = { securityIds: [id], scienceIds: [], conditions: { [id]: ["brokenBone"] }, ...(on ? { treatment: { [id]: FIELD_KITS.injuryKit.treatmentShare ?? 0 } } : {}) };
+      return groundTeamBaySeconds(exp, team)[id];
+    }
     case "kitCategory":
       return kitCategoryProbe(a, on);
     case "rankCondition":
@@ -2026,6 +2151,22 @@ function kitProbe(kit: FieldKitId, on: boolean): number {
       return conditionCureSeconds(GROUND_CONDITIONS.brokenBone, [], ZERO_CARE, ally.injuryTreated ?? 0);
     }
   }
+}
+
+// Field Kits FKR-7: the free basic set (fieldKits.ts FREE_BASIC_SET) a Security member holds of kit `kit` as their crew
+// lands on an objective (fieldKitsRun.ts refreshObjectiveSupplies on the run's stamp, fieldKitsStamp, frozen off the
+// fixture ship's Medical and Operations headcount):
+//   base : on, a ship with no support crew (the set's base); off, a run stamped with no free set (0);
+//   crew : on, a ship with FREE_BASIC_PROBE_HEADS Medical crew; off, none (the D23 crew curve's rise).
+const FREE_BASIC_PROBE_HEADS = 16;
+function freeBasicProbe(s: GameState, kit: FieldKitId, part: string, on: boolean): number {
+  const heads = part === "crew" && on ? FREE_BASIC_PROBE_HEADS : 0;
+  const buckets = heads > 0 ? [{ profession: "medical" as const, rarity: "standard" as const, rank: 1 as const, race: "earthBorn" as const, buff1Id: "med.triage", buff2Id: null, count: heads }] : [];
+  const fixture: GameState = { ...editShip(s, { complement: { buckets, mode: "passive" } }), notableCrew: [] };
+  const stamp = part === "base" && !on ? { catalog: FIELD_KITS_CATALOG_VERSION } : fieldKitsStamp(fixture, shipOf(fixture));
+  const team = { securityIds: ["wiring-member"] } as unknown as Parameters<typeof refreshObjectiveSupplies>[1][number];
+  refreshObjectiveSupplies({ fieldKits: stamp }, [team]);
+  return team.basics?.["wiring-member"]?.[kit] ?? 0;
 }
 
 // Kit category `cat`'s rule (on: a Medical Training hand; off: an untrained one):

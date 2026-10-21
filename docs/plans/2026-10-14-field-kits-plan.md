@@ -504,6 +504,54 @@ then reads FKR-5's capture, the G1-0 `registry` pin moves (the three hidden FKR-
 `away:audit:fieldKitsHiddenPieces` row closes.
 Commit `feat(0.14.0): per-member packs, per-objective supplies and Quartermaster kits (FKR-7)`.
 
+**FKR-7 carry (2026-10-20, done; engine only, NOTHING player-reachable moves):** goldens first
+(`fieldKitsRunGoldens.test.ts` on 047b133: a switch-off real dispatch holding stock, credits, packs and a top-up, to its
+claim; a run stamped by hand with hand-placed extras; its unstamped twin), then `feat(0.14.0): per-member packs,
+per-objective supplies and Quartermaster kits (FKR-7)`. **Both switches stay OFF:** FKR-9's pack UI (needs the user's
+mockup sign-off) is not built, so per the "Hide until kits are live" ruling kits are NOT live yet. New
+`fieldKits.ts FIELD_KITS_RUNS_LIVE = false` gates the dispatch stamp; `model.ts FIELD_KITS_PLAYER_LIVE` stays false (the
+Impact Grenade blueprint and the Stun / Toxin carry line stay hidden); both flip together at FKR-9 / FKR-10 (wiring audit
+rows `away:audit:fieldKitsRunsSwitch` (new) and `away:audit:fieldKitsHiddenPieces`, both pending FKR-9 / FKR-10).
+`startExpedition(..., anomalyOptIn, fieldKitsRuns = FIELD_KITS_RUNS_LIVE)`: tests pass true. New pure `fieldKitsRun.ts`:
+`fieldKitsStamp` (flag 2 = `{ catalog, freeBasics }`, the free set frozen on `gambit.ts shipSupportHeads`, the legacy team
+kit's headcount), `memberHasMedicalTraining`, `defaultMemberPack` (N16), `memberPackPreference` (a stored preference wins;
+approved 2026-10-20: a kit the member cannot use is never packed or bought), `planDispatchPacks` (stock first in team then slot
+order, then each top-up team's shortfall bought member by member as credits allow; never refuses),
+`withDispatchPacks` / `settleDispatchPacks` (stock leaves lowest quality first; credits spent), `refreshObjectiveSupplies`
+(as a crew LANDS: every objective start and every trip, basics refilled, charges deleted = full), `spendFightSupplies`
+(FKR-6's `fightSuppliesAfter` per crew team, won or lost; `treated` summed on `GroundTeamRun.treatment`),
+`carriedExtras` / `returnCarriedExtras` (claim: over the cap allowed, call 17; base bucket, call 16). `groundOps.ts`:
+`fightTeamOf(exp, ...)` carries charges / basics / kits on a flagged run (a fresh odds read: full charges, a fresh free
+set, the extras left; FK12), `landOnTask` refreshes, `finishFight` spends, `groundTeamBaySeconds` reads `treatment` (only
+that member), `healTeam` clears it. `model.ts`: `GroundTeamRun.kits / basics / charges / treatment`, `ShipGroundTeam.packs`
+/ `topUp?: true`, `Expedition.fieldKits.freeBasics`; `groundTeamSlots.ts shipGroundTeams` keeps packs / topUp.
+`groundTeams.ts setMemberPack` / `setGroundTeamTopUp` (allowed while the ship is out, like the help toggle).
+`armory.ts`: `SquadLoadoutKit.consumables` written from the member's pack at create and applied back as the slot member's
+preference (no preference, no key: FKR-0 (5) unchanged). `quartermaster.ts`: `canBuyFieldKits` / `buyFieldKits` (price x
+qty; refusals noSuchKit, noneRequested, insufficientCredits, overCap (approved 2026-10-20): a purchase never overfills, a
+return may) and `topUpAtLaunch(state, shipId)` (the dispatch's purchase preview for FKR-9). Wiring: LIVE
+`facility:FIELD_KIT_PRICES:<kit>` x6 (probe `content:kitPrice`), `away:FREE_BASIC_SET:firstAidKit` (equals its base,
+`content:freeBasic:firstAidKit:base`) + new `...:crew` (event, 16 Medical crew land more kits), `away:audit:treatmentShare`
+(divisor, `content:runTreatment`); `FIELD_KITS_CATALOG_VERSION` and `FIELD_KIT_PRICES` left UNREAD_CONSTANTS. Goldens
+MOVED, named: FKR-6's stamped `throw` and `default` whole runs (charges now carry between an objective's fights; each
+single fight unchanged), FKR-7's stamped-by-hand run and claim (the hand extras are read and spent, the rest come home),
+the G1-0 golden 5 `registry` 1217 a4b86d24 -> 1219 422b9c70 (FKR7_SLICE reproduces it) and the EM-0 `registry` snapshot
+30489b98 -> 3c94e7d1 (FKR7_BEFORE reproduces it). Unchanged: the switch-off dispatch and claim, every flag-less golden.
+Tests: `fieldKitsRun.test.ts` (19: stamp, packs, lowest quality first, top-up off / on / credit-limited, refresh,
+spends, bay share for that member only, whole run (spent never return, over cap), parity one call == 997 s == 1 s with
+packs + Reinforcing + a joint crew, save round trip, the sale, the loadout round trip). Prices as in FKR-3's follow-up
+(Antitoxin 60 on 1 Purified Biomass + 1 Titanium Ingot, Splint 95). **For FKR-9 / FKR-10:** flip both switches in the
+same commit as the pack UI; the stamped real runs then move (that is the point) and the switch-off golden becomes the
+"switch on" proof.
+
+**FKR-7 user approvals (2026-10-20, docs/plans/2026-10-19-merge-batch-answers.md):** kits switch on WITH the pack
+screen (`FIELD_KITS_RUNS_LIVE` and `FIELD_KITS_PLAYER_LIVE` flip together in FKR-9/10, still 0.14.0); the free First
+Aid Kit curve as built (Medical + Operations headcount 0-4 = 1, 5 = 2, 15 = 3, 27 = 4, 41 = 5, 57 = 6, diminishing, no
+cap); and the packing and cap rules (a kit a member cannot use is never packed or bought; a Quartermaster purchase is
+refused over the warehouse cap, kits coming home may go over it). Their [PROPOSAL] tags are dropped here and in the
+code. Review follow-up: a stored pack whose every count is bad now falls back to the default pack (a stored `{}` still
+packs nothing), and the stale `FIELD_KIT_PRICES` comment says the Quartermaster reads it.
+
 #### FKR-8: Field devices roll per use (engine)
 
 As FK-7 (section 4) with the Codebreaker answer built (+6% on the roll, anyone on the expedition) and no device

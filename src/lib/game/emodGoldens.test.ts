@@ -384,8 +384,18 @@ const GOLDEN: Record<string, unknown> = {
   // Deck wings), the four still-pending Ground Ops crew keys and the Security and Medical wings name their owner CP-3
   // (was "E-CREW Task 23" / "CP-3, CP-4"), and one audit row joins (the Spacer long-haul ramp, deferred). Read back
   // (RACIALS_BEFORE, RACIALS_ADDED_IDS) the snapshot is 30489b98, and every earlier read-back holds; the E-MOD rows hold.
+  // Re-pinned by G1-4 on its own branch (30489b98 -> 80e62647): the short-range cycle engine flipped the six guest
+  // quarters sources and the 21 template fields live at mission:shortRange, added
+  // captain:SECONDARY_CAPTAIN_TALENTS:trade2:shortRange, and gave 17 mission-claim entries the mission:shortRange
+  // context; read back (g14Back) the snapshot is 30489b98.
+  // Re-pinned at the merge of G1-4 into feat (b5c9178b / 80e62647 -> c844bd4): the two moves together, nothing else.
+  // Re-pinned by Field Kits FKR-7 on its own branch (30489b98 -> 3c94e7d1): it added 2 entries, flipped 8 pending -> live
+  // and re-owned the hidden pieces row (FKR-9 / FKR-10); with those read back (FKR7_BEFORE) the snapshot is 30489b98.
+  // Re-pinned at the merge of FKR-7 into feat (c844bd4 / 3c94e7d1 -> 60d00075): the three moves together, nothing else.
+  // Reading back every slice but one reproduces that slice's own pin (b5c9178b, 80e62647, 3c94e7d1), reading back
+  // FKR-7 alone reproduces c844bd4, and reading back all three reproduces 30489b98 (asserted below).
   registry: [
-    "b5c9178b",
+    "60d00075",
     "relic:RELICS:precursorLens",
     "ship:audit:reactorCoreNet",
   ],
@@ -475,20 +485,89 @@ const RACIALS_BEFORE: Readonly<Record<string, readonly unknown[]>> = {
   "ship:QUARTERS_MODULES:quartersFlightDeckWing": [{ "kind": "pending", "owner": "CP-3, CP-4 (the flightDeck division's dead keys; its live keys move)", "contexts": ["patrol"]}, ["sheet"], "sheetUnload"],
 };
 
-// The registry snapshot rows with the inert racials read back, then (unless `racialsOnly`) FKR-6 read back too (its
-// added entries left out, its flips as they stood) and, when `g13Back`, G1-3's audit row with its old owner.
-function registryRowsBack(g13Back: boolean, racialsOnly = false): unknown[][] {
-  return WIRING_REGISTRY.filter((e) => !RACIALS_ADDED_IDS.has(e.id) && (racialsOnly || !FKR6_ADDED_IDS.has(e.id))).map((e) =>
-    e.id in RACIALS_BEFORE
+// G1-4 (the short-range cycle engine): the one entry it added, the 27 it flipped pending -> live (the six guest
+// quarters sources, read at the sheet then, and the 21 template fields, with no probe then), and the entries its
+// mission:shortRange sweep gave that context (their status and probe unchanged). The snapshot before it: G14_BEFORE.
+const G14_ADDED_IDS: ReadonlySet<string> = new Set<string>(["captain:SECONDARY_CAPTAIN_TALENTS:trade2:shortRange"]);
+const G14_GUEST_IDS: ReadonlySet<string> = new Set<string>([
+  "ship:gearLine:colonistCapacity",
+  "ship:SHIP_TYPES:generalFreighter:colonistCapacity",
+  "ship:SHIP_TYPES:orion:colonistCapacity",
+  "ship:SHIP_TYPES:aurora:colonistCapacity",
+  "ship:SHIP_TYPES:eir:colonistCapacity",
+  "ship:SHIP_SEAMS:generalQuartersGuestPerk",
+]);
+const G14_GUESTS_OWNER = "G1-4 (the short-range passenger jobs read guest quarters)";
+const G14_CYCLE_OWNER = "G1-4 (the short-range cycle engine flies the rolls, times the work and pays the rewards)";
+const G14_SWEPT_IDS: ReadonlySet<string> = new Set<string>([
+  "officer:officer.shipOutputMult",
+  "crew:crew.crewOutputMult",
+  "captain:SECONDARY_CAPTAIN_TALENTS:commandCrew2",
+  "captain:SECONDARY_CAPTAIN_TALENTS:commandCrew5:officers",
+  "captain:SECONDARY_CAPTAIN_TALENTS:commandCrew3",
+  "captain:SECONDARY_CAPTAIN_TALENTS:trade1",
+  "captain:SECONDARY_CAPTAIN_TALENTS:trade3",
+  "captain:SECONDARY_CAPTAIN_TALENTS:extraction4",
+  "captain:SECONDARY_CAPTAIN_TALENTS:extraction5",
+  ...Array.from({ length: 8 }, (_, i) => `facility:TRANSIT_BERTH_RUNGS:${i}`),
+]);
+const REGISTRY_BEFORE_G14 = "30489b98";
+function g14Back(e: (typeof WIRING_REGISTRY)[number]): unknown[] {
+  if (e.id.startsWith("mission:SHORT_RANGE_TEMPLATES:")) return [e.id, { kind: "pending", owner: G14_CYCLE_OWNER }, [], null];
+  if (G14_GUEST_IDS.has(e.id)) return [e.id, { kind: "pending", owner: G14_GUESTS_OWNER, contexts: ["mission:shortRange"] }, ["sheet"], e.probe ?? null];
+  if (G14_SWEPT_IDS.has(e.id)) return [e.id, e.status, e.contexts.filter((c) => c !== "mission:shortRange"), e.probe ?? null];
+  return [e.id, e.status, e.contexts, e.probe ?? null];
+}
+
+// Field Kits FKR-7 (the run plumbing): the 2 entries it added, and the 9 rows it moved as they stood before it: the 8 it
+// flipped pending -> live (status, no contexts, no probe) and the hidden pieces row's owner (still pending). The
+// snapshot before it is REGISTRY_BEFORE_FKR7 (the FKR-6 re-pin).
+const FKR7_ADDED_IDS: ReadonlySet<string> = new Set<string>(["away:FREE_BASIC_SET:firstAidKit:crew", "away:audit:fieldKitsRunsSwitch"]);
+const FKR7_PRICE = "FKR-7 (Quartermaster kit sales and the off-by-default launch top-up charge the price)";
+const FKR7_BEFORE: Readonly<Record<string, string>> = {
+  "away:FREE_BASIC_SET:firstAidKit": "FKR-7 (the per-objective free basic set, refreshed each objective and reload)",
+  ...Object.fromEntries(["firstAidKit", "antitoxin", "combatStim", "splint", "traumaKit", "injuryKit"].map((k) => [`facility:FIELD_KIT_PRICES:${k}`, FKR7_PRICE])),
+  "away:audit:treatmentShare": "FK-5 / FK-6",
+  "away:audit:fieldKitsHiddenPieces": "FKR-7 (flips FIELD_KITS_PLAYER_LIVE when kits are wired into runs)",
+};
+const REGISTRY_BEFORE_FKR7 = "30489b98";
+
+// The pins each of the three latest slices left on its own branch (the inert racials on feat, G1-4 and FKR-7 on theirs),
+// each from 30489b98, and feat's pin after G1-4 merged (before FKR-7). Merged, reading back only the OTHER slices
+// reproduces each one.
+const REGISTRY_RACIALS_PIN = "b5c9178b";
+const REGISTRY_G14_PIN = "80e62647";
+const REGISTRY_FKR7_PIN = "3c94e7d1";
+const REGISTRY_BEFORE_FKR7_MERGE = "c844bd4";
+
+// Which later moves a read-back undoes. Each slice's rows are disjoint from every other slice's.
+type Back = { readonly racials?: boolean; readonly g14?: boolean; readonly fkr7?: boolean; readonly fkr6?: boolean; readonly g13?: boolean };
+function rowsBack(back: Back): unknown[][] {
+  return WIRING_REGISTRY.filter(
+    (e) =>
+      !(back.racials && RACIALS_ADDED_IDS.has(e.id)) &&
+      !(back.g14 && G14_ADDED_IDS.has(e.id)) &&
+      !(back.fkr7 && FKR7_ADDED_IDS.has(e.id)) &&
+      !(back.fkr6 && FKR6_ADDED_IDS.has(e.id)),
+  ).map((e) =>
+    back.racials && e.id in RACIALS_BEFORE
       ? [e.id, ...RACIALS_BEFORE[e.id]]
-      : racialsOnly
-        ? [e.id, e.status, e.contexts, e.probe ?? null]
-        : e.id in FKR6_BEFORE
+      : back.fkr7 && e.id in FKR7_BEFORE
+        ? [e.id, { kind: "pending", owner: FKR7_BEFORE[e.id] }, [], null]
+        : back.fkr6 && e.id in FKR6_BEFORE
           ? [e.id, { kind: "pending", owner: FKR6_BEFORE[e.id] }, [], null]
-          : g13Back && e.id === G13_ROW
+          : back.g13 && e.id === G13_ROW
             ? [e.id, G13_ROW_BEFORE, e.contexts, e.probe ?? null]
-            : [e.id, e.status, e.contexts, e.probe ?? null],
+            : back.g14
+              ? g14Back(e)
+              : [e.id, e.status, e.contexts, e.probe ?? null],
   );
+}
+
+// The registry snapshot rows with the inert racials, G1-4, FKR-7 and FKR-6 read back (FKR-6's added entries left out,
+// its flips as they stood) and, when `g13Back`, G1-3's audit row with its old owner.
+function registryRowsBack(g13Back: boolean): unknown[][] {
+  return rowsBack({ racials: true, g14: true, fkr7: true, fkr6: true, g13: g13Back });
 }
 
 function pinned(name: string, value: unknown): void {
@@ -547,8 +626,19 @@ describe("EM-0 goldens (re-pinned by EM-1 where named)", () => {
     const beforeMl1 = hash(registryRowsBack(true).filter((r) => !ML1_ENTRY_IDS.has(r[0] as string)));
     expect(beforeMl1).toBe(REGISTRY_BEFORE_ML1);
   });
-  it("registry: the inert racials are the only cause of the latest snapshot move", () => {
-    expect(hash(registryRowsBack(false, true))).toBe(REGISTRY_BEFORE_RACIALS);
+  // The three latest moves, merged together: each cause test also undoes the other slices' changes.
+  it("registry: the inert racials are the only cause of their snapshot move", () => {
+    expect(hash(rowsBack({ g14: true, fkr7: true }))).toBe(REGISTRY_RACIALS_PIN);
+    expect(hash(rowsBack({ g14: true, fkr7: true, racials: true }))).toBe(REGISTRY_BEFORE_RACIALS);
+  });
+  it("registry: G1-4 (the short-range cycle engine) is the only cause of its snapshot move", () => {
+    expect(hash(rowsBack({ racials: true, fkr7: true }))).toBe(REGISTRY_G14_PIN);
+    expect(hash(rowsBack({ racials: true, fkr7: true, g14: true }))).toBe(REGISTRY_BEFORE_G14);
+  });
+  it("registry: Field Kits FKR-7 is the only cause of its snapshot move", () => {
+    expect(hash(rowsBack({ fkr7: true }))).toBe(REGISTRY_BEFORE_FKR7_MERGE);
+    expect(hash(rowsBack({ racials: true, g14: true }))).toBe(REGISTRY_FKR7_PIN);
+    expect(hash(rowsBack({ racials: true, g14: true, fkr7: true }))).toBe(REGISTRY_BEFORE_FKR7);
   });
   it("registry: FKR-6 and G1-3's audit row are the only causes of its snapshot move", () => {
     expect(hash(registryRowsBack(false))).toBe(REGISTRY_BEFORE_FKR6);

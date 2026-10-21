@@ -1799,6 +1799,17 @@ function divisionStrengthOf(state: GameState, ship: ShipInstance, all: ReturnTyp
   return strength;
 }
 
+// The ship's SUPPORT headcount: its Medical plus Operations crew (complement buckets plus assigned notables), the
+// branches that stock cures and stims. The legacy team kit reads it below; Field Kits FKR-7 freezes the free basic set
+// on it at dispatch (fieldKits.ts freeBasicSet). Pure.
+export function shipSupportHeads(state: GameState, ship: ShipInstance): number {
+  return supportHeadsOf(crewBucketsOf(state, ship));
+}
+
+function supportHeadsOf(all: ReturnType<typeof crewBucketsOf>): number {
+  return professionHeadcount(all, "medical") + professionHeadcount(all, "operations");
+}
+
 export function deriveAwayTeam(state: GameState, ship: ShipInstance): AwayTeamSnapshot {
   const all = crewBucketsOf(state, ship);
   // Officers assigned to this ship add strength by seat (DIVISION_STRENGTH_SEATS).
@@ -1807,7 +1818,7 @@ export function deriveAwayTeam(state: GameState, ship: ShipInstance): AwayTeamSn
 
   // Team kit: a base plus a share of the ship's medical + operations crew (the support branches that
   // stock cures/stims). Clamped to a sane max.
-  const supportHeads = professionHeadcount(all, "medical") + professionHeadcount(all, "operations");
+  const supportHeads = supportHeadsOf(all);
   const teamKit = Math.min(
     TEAM_KIT_MAX,
     TEAM_KIT_BASE + TEAM_KIT_PER_MEDICAL * Math.floor(supportHeads / TEAM_KIT_MEDICAL_DIVISOR),

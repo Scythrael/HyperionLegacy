@@ -251,6 +251,9 @@ export const SHORT_RANGE_PHENOMENA: readonly string[] = [
 export const SHORT_RANGE_BOARD_SALT = 0x51a7e0b5;
 export const SHORT_RANGE_ROLL_SALT = 0x2f6c9d83;
 export const SHORT_RANGE_ROUNDING_SALT = 0x7d3b16e9;
+// G1-4: the delivered materials' whole-unit stream under the ship's mission output share (Command Presence and the
+// complement's Crew Output Multiplier), keyed off the roll's own seed (shortRangeCycle.ts).
+export const SHORT_RANGE_OUTPUT_SALT = 0x4b9e2c57;
 // The board seed of a save with no stored homeworld (the EXPEDITION_DEFAULT_SEED precedent).
 export const SHORT_RANGE_DEFAULT_SEED = 0x0c1a55e5;
 // The slot mix in the roll seed (odd, so distinct slots land on distinct streams).
@@ -506,8 +509,9 @@ export interface ShortRangeCycleReward {
   fleetAdminXpPerTick: number; // integer, per active tick
 }
 
-// A whole number from `x`: its floor, plus one with the fractional part's chance (one draw). Pure w.r.t. the rng.
-function wholeUnits(x: number, rng: Rng): number {
+// A whole number from `x`: its floor, plus one with the fractional part's chance (one draw, always taken). Pure w.r.t.
+// the rng. Shared with the cycle engine (shortRangeCycle.ts), which rounds a boosted haul the same way.
+export function wholeUnits(x: number, rng: Rng): number {
   const whole = Math.floor(x);
   return whole + (rng.next() < x - whole ? 1 : 0);
 }

@@ -1598,6 +1598,14 @@ export interface ShipGroundTeam {
   // type"; cleared the first time the player confirms or changes this team's kind (SQ-2 / SQ-7). It still
   // reads and deploys as Ground (user: the migrated second pair defaults to Ground). Absent = no prompt.
   kindPending?: true;
+  // Field Kits FKR-7 (FK4 "One per member"): memberId -> the kits that Security member packs for the NEXT dispatch (their
+  // pack preference; a member without an entry packs the default, N16 "1 of each usable kit"). Absent = every member on
+  // the default. Optional + absent-safe: no SAVE_VERSION bump.
+  packs?: Record<string, Partial<Record<FieldKitId, number>>>;
+  // Field Kits FKR-7 (credit sinks pass "Quartermaster sells + top-up"): "Top up from the Quartermaster at launch". On, a
+  // dispatch BUYS each member's shortfall against their pack at the Quartermaster's price, as credits allow; it never
+  // blocks a launch. Stored only when on (absent = off, the default).
+  topUp?: true;
 }
 
 // The first away-team entry of `teamType` on a hull (every squad of a type shares that entry's `size`).
@@ -3327,8 +3335,14 @@ export interface ShortRangeMissionState {
   // the cycle and stops"). Set by recallCaptain, or at dispatch for a single run.
   recalled: boolean;
   // 0.14.0 SPEED SEAM (ProcessSpeed, the extraction arm's field): the time skip flags THIS cycle; the cycle engine
-  // (G1-4, the seam adapter) runs it through to its delivery. The next cycle is a fresh object without it.
+  // (G1-4, shortRangeCycle.ts) runs it through to its delivery. The next cycle is a fresh object without it.
   speed?: ProcessSpeed;
+  // G1-4 (user 2026-10-20 "At cycle start"): the working capital a Supply Drop-off paid as THIS cycle left home (its
+  // supplies, after the captain's Trade discount). Written only on a paid cycle; the delivery returns the full load
+  // value plus the margin. Absent on every other job and before departure.
+  loadPaid?: number;
+  // G1-4: the cycles this run has delivered (the run's completion log entry counts them). Absent until the first.
+  cyclesThisRun?: number;
 }
 
 // The board's per-slot cycle cursor (GameState.shortRangeBoard): slot id -> the cycle index its NEXT roll reads
@@ -5082,8 +5096,9 @@ export const MISSION_CONTROL_UNLOCK_COMPLETIONS = 50;
 // shortRangeBoardSlots reads this table directly, so the slot ladder is live (and tested) at every level now.
 // G1-6 flips the flag with the board UI (its Mission Control card text then names the slot).
 export const SHORT_RANGE_BOARD_LIVE = false;
-// [PROVISIONAL] every cost, duration and the fourth slot's tier (Tier II) await the user. The level 1 -> 2 rung is the
-// reserved completion-gated template kept for exactly this (MISSION_CONTROL_UNLOCK_COMPLETIONS of each ore run).
+// Every cost, duration and the fourth slot's tier (Tier II) approved 2026-10-20 (user "Approve (Recommended)":
+// docs/plans/2026-10-19-merge-batch-answers.md). The level 1 -> 2 rung is the reserved completion-gated template kept
+// for exactly this (MISSION_CONTROL_UNLOCK_COMPLETIONS of each ore run).
 export const MISSION_CONTROL_BOARD_RUNGS: readonly FacilityUpgradeDef[] = [
   {
     materials: {},
@@ -6193,7 +6208,9 @@ export type CompletionSalvageSubject =
 // it is the VIEW table and by definition must cover every RENDERABLE entry. That split is
 // deliberate and is not a contradiction: one table is about rendering, the others are about
 // processes.
-export type CompletionLogKind = TimedProcessKind | "patrolRun";
+// G1-4: "shortRangeRun", one entry per short-range RUN when it ends (the patrol precedent: one entry per run, its
+// `iterations` the cycles delivered), never one per cycle, so a board on Repeat cannot evict the rest of the log.
+export type CompletionLogKind = TimedProcessKind | "patrolRun" | "shortRangeRun";
 
 export interface CompletionLogEntry {
   id: string;               // "done-N", minted from state.nextCompletionLogId (mirrors "proc-N" / "q-N")
@@ -6942,9 +6959,11 @@ export interface SquadLoadoutKit {
   weapon: string | null;
   tool: string | null;
   implants: string[];
-  // Ground Ops GO-17: the slot E-CREW Task 16b's Squad Kit fills (stackable Field Kit consumables, item key ->
-  // count) [PROVISIONAL shape: 16b owns the kits and may reshape it]. ABSENT = none; nothing writes or reads
-  // it yet, so it needs no SAVE_VERSION bump (optional + absent-safe, the Task 12-14 precedent).
+  // Ground Ops GO-17: the slot E-CREW Task 16b's Squad Kit fills (stackable Field Kit consumables, kit id -> count).
+  // Field Kits FKR-7 (FK4 "One per member"): the member's PACK. createGroundTeamLoadout writes the slotted member's pack
+  // preference (ShipGroundTeam.packs) here; applyGroundTeamLoadout writes it back as that slot's member's preference.
+  // ABSENT = the loadout carries no pack (the member's preference is left as it is). Optional + absent-safe: no
+  // SAVE_VERSION bump (the Task 12-14 precedent).
   consumables?: Record<string, number>;
 }
 
@@ -7793,7 +7812,10 @@ export interface Expedition {
   // at dispatch with the kit catalog's version (fieldKits.ts FIELD_KITS_CATALOG_VERSION) from FKR-7. Its PRESENCE turns
   // on the Field Kits conditions in the run's ground fights (fieldKits.ts fieldKitsLive: enemy inflictors, the bone
   // line, Stoneskin's battle half); a run without it fights byte-identically. Optional, no SAVE bump.
-  fieldKits?: { catalog: number };
+  // FKR-7: `freeBasics` = the free basic set every Security member starts each objective with (fieldKits.ts
+  // freeBasicSet on the ship's Medical and Operations headcount), frozen at dispatch so the run reads only stored
+  // values. Absent = none (a run stamped by hand). Stamped only behind fieldKits.ts FIELD_KITS_RUNS_LIVE.
+  fieldKits?: { catalog: number; freeBasics?: Partial<Record<FieldKitId, number>> };
   // 0.14.0 SPEED SEAM (ProcessSpeed): a STAMP only. processSpeed.ts applyTimeSkip advances the run to its own
   // completion at once (its phase anchors land at its natural end) and marks it; nothing in the engine reads it.
   speed?: ProcessSpeed;
@@ -8087,6 +8109,19 @@ export interface GroundTeamRun {
   // Objective affixes (AF-1): the current work step ends where the next reinforcement STRIKES (set at its start, like
   // `ambushed`); at its end the crew fights the reinforcement fight there. Cleared at idle.
   reinforcing?: true;
+  // Field Kits FKR-7 (a Field Kits run only, fieldKits.ts fieldKitsLive; every other run never writes them):
+  //   kits      : memberId -> the EXTRAS that Security member still carries (their pack, taken from stock at dispatch;
+  //               spent ones never come back, the rest come home at claim). Written at dispatch, members with a pack only.
+  //   basics    : memberId -> this objective's FREE basic set left (Expedition.fieldKits.freeBasics), refreshed as the
+  //               crew lands on an objective (every objective start and every trip, user N12).
+  //   charges   : memberId -> the grenade charges left this objective; cleared as the crew lands (absent = full,
+  //               fieldKitsGrenades.ts chargesLeftFor; group 7 "Free, every objective").
+  //   treatment : memberId -> the Injury Kit share this trip (the fight records' `treated`, summed), read by the
+  //               medical bay (medicalBay.ts treatmentShare) and cleared when the team is healed.
+  kits?: Record<string, Partial<Record<FieldKitId, number>>>;
+  basics?: Record<string, Partial<Record<FieldKitId, number>>>;
+  charges?: Record<string, number>;
+  treatment?: Record<string, number>;
 }
 
 // GO-7b: one finished step on a team's timeline, DISPLAY ONLY (the timeline UI, GO-14): resolution never reads
