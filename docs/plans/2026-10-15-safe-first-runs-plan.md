@@ -733,3 +733,11 @@ For later slices: SF-3 writes the stamp on ramped runs and generalizes groundFig
 `runEnemyScale` / `runMaxEnemies` / `encounterHazard` (the hazard 0 and the backstop stay training only). SF-6 shows
 the "Training run" chip from `isTrainingRun`, the run log (no UI renders `groundOpsLogText` yet), and the retired
 "shakedown run" label in ExpeditionPanel.svelte (legacy in-flight runs only now). SF-4 adds the patrol stamp.
+
+## USER ANSWERS (2026-10-21): SF-3 review
+
+- **Weak and the ramp:** "Fade Weak + build SI gear (Recommended)": ordinary enemies x(0.7 + 0.3 x ramp) so Weak fades out
+  smoothly (no run 7 to 8 jump; Weak's multiplier still acts), AND build the Quartermaster Standard-Issue member gear stats
+  next (about +15% squad power in the sim meets both Tier I targets: 97% completion, 98% vault wins).
+- **Run 10 to 11 cliff:** "Smooth the last steps (Recommended)": spread the final climb over runs 9 to 12 and let affixes
+  and ambushes reach full strength one run later.

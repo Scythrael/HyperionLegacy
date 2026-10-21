@@ -1151,6 +1151,18 @@ see KNOWN_ISSUES.md for actual bugs/gaps; this file is for not-yet-scoped future
   is a projection of the sim" pattern as fuel-runway / XP parity). Do NOT build any event-log or
   animation machinery in 0.13.0; just do not paint the resolver into a corner.
 
+- **Beyond antimatter: zero-point energy reactors + a singularity weapon -> far future (user 2026-10-21).** Verbatim in
+  docs/plans/2026-10-21-reactor-fuel-and-recipe-realism-capture.md section 6. Reactor ladder after 0.14.0's foundation:
+  fusion, antimatter-catalyzed fusion, antimatter, then possibly ZERO-POINT ENERGY ("incredibly theoretical... not even
+  sure how we'd be able to make it work"). Contained-singularity power (the Romulan route) is explicitly NOT wanted for
+  reactors. Separate WEAPON idea: "a weaponized black hole or something similar to their singularity drives. That'd be
+  an incredibly destructive weapon." Design later (tier, cost, how destruction is bounded so it fits "peace is the
+  product"); the reactor foundation keeps tiers as data so a fourth tier needs no redesign.
+
+- **Distinct gas canister graphics -> later polish (user 2026-10-21).** "Eventually we can tweak the graphics to make each
+  a little different overall." 0.14.0 ships one shared SVG glyph for the five gas canisters (Hydrogen, Methane, Ammonia,
+  Deuterium, Helium-3); a later pass gives each its own variant (icons.ts + ICON_SEMANTICS, 16/28/56 px review).
+
 - **Ground teams visual: planet view + animated ground fight replay -> AFTER 0.14.0 (user 2026-10-19).** User asked:
   "Is there a visual for this system when someone is getting into battle to see what their ground teams are doing on
   the planet and so forth? Both running around, as well as in-battle?" Answer at the time: no; 0.14.0 shows team

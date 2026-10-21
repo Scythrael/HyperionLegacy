@@ -60,7 +60,6 @@ function moduleInstance(
     mass: 0,
     powerDraw: 0,
     durabilityMax: 110,
-    durability: 110,
     fittedToShipId: "ship-1",
     moduleVariant,
     ...overrides,

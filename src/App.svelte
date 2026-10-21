@@ -637,6 +637,7 @@
   import MultiSelect from "./lib/MultiSelect.svelte";
   import { initIconPack } from "./lib/ui/iconPacks";
   import { generateEquipment } from "./lib/game/itemgen";
+  import { pieceCondition } from "./lib/game/gearWear";
   // [DEV] combat-gear mint (Debug tab only): the dev-only helper that mints a REAL
   // crafted EquipmentInstance off a blueprint at a CHOSEN quality / iLevel / rarity
   // (the QA path for conjuring a q4 / q5 weapon / emitter / plating / drone pod that
@@ -1094,6 +1095,9 @@
   // never tooltip actions, per the 0.13.2 display-only-tooltip rule.
   import Icon from "./lib/ui/Icon.svelte";
   import { fieldKitBlueprintIcon, fieldKitIcon } from "./lib/ui/fieldKitIcons";
+  // Gas Giant Study GG-1: the canisters' SVG glyphs, and the study items still waiting on a source (kept off the shelves).
+  import { gasCanisterIcon } from "./lib/ui/gasStudyIcons";
+  import { gasStudySourcePending } from "./lib/game/gasGiantContent";
   // GO-10: the shared threat tier chip (SVG tier dot, HelpTip bubble), used by the patrol card + dispatch popup.
   import ThreatChip from "./lib/ui/ThreatChip.svelte";
   import type { IconName } from "./lib/ui/icons";
@@ -2058,7 +2062,8 @@
     | "refined"
     | "components"
     | "salvaged"
-    | "fieldKit";
+    | "fieldKit"
+    | "gasCanister";
 
   // Section display order (mockup order). The four raw sub-category sections
   // first, then Refined, then Components, then Salvaged Materials last (salvaged
@@ -2071,6 +2076,8 @@
     { key: "recoveredTech", label: "Recovered Tech" },
     { key: "refined", label: "Refined" },
     { key: "components", label: "Components" },
+    // Gas Giant Study GG-1: the user's "Gas Storage Canisters" warehouse category (2026-10-08).
+    { key: "gasCanister", label: "Gas Storage Canisters" },
     { key: "salvaged", label: "Salvaged Materials" },
     // Field Kits FKR-3: the crafted kits' stock view (every kit is a tier 1 shelf item, model.ts ITEMS).
     { key: "fieldKit", label: "Field Kits" },
@@ -2095,6 +2102,8 @@
         return item.category === "salvagedMaterial";
       case "fieldKit":
         return item.category === "fieldKit";
+      case "gasCanister":
+        return item.category === "gasCanister";
     }
   }
 
@@ -2108,6 +2117,9 @@
       const item = ITEMS[id];
       if (item.tier !== tier) continue;
       if (!itemInMaterialsSection(item, key)) continue;
+      // Gas Giant Study GG-1: a study item with no source yet stays off the shelf (no tile points at a study that
+      // does not run yet); GG-3 / GG-4 give each its source and it appears.
+      if (gasStudySourcePending(id)) continue;
       out.push({ id, ...item });
     }
     return out;
@@ -2211,6 +2223,11 @@
       // Field Kits FKR-3: a kit draws its own SVG glyph (fieldKitIcons.ts fieldKitIcon) wherever one is listed, so
       // this emoji placeholder set stays out of it.
       case "fieldKit":
+        return "";
+      // Gas Giant Study GG-1: a canister draws its own SVG glyph (gasStudyIcons.ts gasCanisterIcon); research data
+      // reaches no list before its screen (GG-6), which brings its glyph.
+      case "gasCanister":
+      case "researchData":
         return "";
     }
   }
@@ -4284,13 +4301,11 @@
   //
   // ⚠️ CACHE-VALIDITY CONTRACT (Unit 2.4 review): this memo is correct ONLY while (a) the
   // PATROLS defs are static consts (a def retune mid-session would not bust the key) AND (b)
-  // an EquipmentInstance id fully determines its combat stats. Today (b) holds AND gear
-  // durability is constant (never drops this patch), so the durability digest is a no-op.
-  // But resolveBattle reads piece.durability and this epic is heading toward PERSISTENT
-  // on-gear durability (see model.ts "never drops this patch" / weapons-as-gear notes): once
-  // a worn/repaired weapon keeps its id but changes stats, an id-only key would go STALE.
-  // Folding the durability digest into the signature NOW is cheap forward insurance so that
-  // day cannot silently show a wrong band.
+  // an EquipmentInstance id fully determines its combat stats. Gear wear (0.14.0) breaks (b) on
+  // purpose: a worn or repaired piece keeps its id while its condition (and so its combat pool,
+  // gearWear.ts pieceStartDurability) changes, so an id-only key would go STALE. The condition
+  // digest in the signature busts it; while no wear source is wired every piece reads pristine
+  // and the digest never changes the key.
   //
   // The `state` arg is passed so the calling {@const} statically depends on `state` and
   // thus re-runs when a gear install/uninstall reassigns it (that is what lets the readout
@@ -4328,14 +4343,12 @@
     // TIGHT memo signature: everything that changes the forecast, and nothing that does
     // not. Gear ids capture install/uninstall (crafted pieces are immutable once minted,
     // so an id list identifies the loadout TODAY); stance + ship + patrol complete it. The
-    // trailing per-gear DURABILITY digest is forward insurance (see the header's cache-
-    // validity contract): durability is constant this patch so it never changes the key
-    // now, but once on-gear durability persists (0.12.0 weapons-as-gear), a worn/repaired
-    // piece keeps its id while its combat stats change, and only this digest would bust the
-    // stale cache. Cheap to include now, no behavior change today.
+    // trailing per-gear CONDITION digest (gear wear, see the header's cache-validity
+    // contract): a worn or repaired piece keeps its id while its combat pool changes, and only
+    // this digest busts the stale cache.
     const gearIds = installedGear.map((g) => g.id).join(",");
-    const durabilityDigest = installedGear.map((g) => g.durability).join(",");
-    const signature = `${patrolKey}::${ship.id}::${stance}::${gearIds}::${durabilityDigest}`;
+    const conditionDigest = installedGear.map((g) => pieceCondition(g)).join(",");
+    const signature = `${patrolKey}::${ship.id}::${stance}::${gearIds}::${conditionDigest}`;
     const cached = patrolForecastCache.get(patrolKey);
     if (cached && cached.signature === signature) return cached.value;
 
@@ -9746,7 +9759,8 @@
   // Discovered / total across the whole catalog (the 100%-completion checklist,
   // design §3.2). A simple count pair for the Overview readout.
   $: warehouseDiscoveredCount = Object.keys(ITEMS).filter((id) => state.discovered.includes(id)).length;
-  $: warehouseTotalCount = Object.keys(ITEMS).length;
+  // Gas Giant Study GG-1: the study items with no source yet are not counted (nothing can discover them before GG-3).
+  $: warehouseTotalCount = Object.keys(ITEMS).filter((id) => !gasStudySourcePending(id)).length;
 
   // ---- Mission Rework (Task 8 UI) reactive derivations ------------------------
   // All read live `state`, so every readout below (dispatch gate, fuel gauge,
@@ -15869,8 +15883,9 @@
                                non-danger fill) while materialAtCap is still false and it still accepts
                                stock. Only a genuinely capped item (atCap) shows 100%. -->
                           <span class="warehouse-pct">{atCap ? 100 : Math.floor(pct)}%</span>
-                          {@const kitIc = fieldKitIcon(item.id)}
-                          <!-- Field Kits FKR-3: a kit wears its own SVG glyph (fieldKitIcons.ts); the rest keep the category glyph. -->
+                          {@const kitIc = fieldKitIcon(item.id) ?? gasCanisterIcon(item.id)}
+                          <!-- Field Kits FKR-3: a kit wears its own SVG glyph (fieldKitIcons.ts), and so does a gas canister (GG-1,
+                               gasStudyIcons.ts); the rest keep the category glyph. -->
                           <span class="warehouse-glyph">{#if kitIc !== null}<Icon name={kitIc} />{:else}{warehouseCategoryGlyph(item.category)}{/if}</span>
                           <span class="warehouse-ct">{formatNumber(count)}</span>
                         {:else}
@@ -20564,7 +20579,7 @@
                 <div class="offline-summary-row">
                   <span class="offline-summary-row-label">
                     {#if ITEMS[mat.itemId]}
-                      {@const kitIc = fieldKitIcon(mat.itemId)}
+                      {@const kitIc = fieldKitIcon(mat.itemId) ?? gasCanisterIcon(mat.itemId)}
                       <span class="offline-summary-item-icon" aria-hidden="true">{#if kitIc !== null}<Icon name={kitIc} />{:else}{warehouseCategoryGlyph(ITEMS[mat.itemId].category)}{/if}</span>
                       {ITEMS[mat.itemId].label}
                     {:else}

@@ -174,6 +174,9 @@ export const ICON_SEMANTICS: Record<IconName, IconSemantic> = {
   roleDefense: "subject",
   roleDebuff: "subject",
   home: "subject",
+  // Gas Giant Study (0.14.0 GG-1): a canister glyph names one stored gas (or the antimatter cell).
+  gasCanister: "subject",
+  antimatterCell: "subject",
 
   // ACTION: something the player does. Should stay recognisable as that action.
   salvage: "action",

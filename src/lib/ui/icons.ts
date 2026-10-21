@@ -385,6 +385,12 @@ export const ICON_PATHS = {
   // Home: a house with eaves over its walls and a narrow door (kits coming home at claim). Kept apart from
   // `warehouse` (walls flush with a wide roof, a wide roll-up door with a band) by the overhang and the door.
   home: ["M4 11l8-7 8 7", "M6 9.5V20h12V9.5", "M10 20v-5h4v5"],
+  // Gas Giant Study (0.14.0 GG-1): the Gas Storage Canisters.
+  // Gas canister: a domed gas cylinder with a label band, its valve neck and handwheel on top (the five gases).
+  gasCanister: ["M8 10a4 4 0 0 1 8 0v10a1 1 0 0 1-1 1H9a1 1 0 0 1-1-1z", "M8 14.5h8", "M12 6V3.5", "M9.5 3.5h5"],
+  // Antimatter Containment Cell: a cell frame (two end plates on two posts) holding a charge that touches nothing,
+  // so it reads as a magnetic bottle rather than a gas cylinder.
+  antimatterCell: ["M4.5 3.5h15", "M4.5 20.5h15", "M7 3.5v17", "M17 3.5v17", "M12 9.5a2.5 2.5 0 1 0 0 5 2.5 2.5 0 0 0 0-5z"],
 } as const satisfies Record<string, readonly string[]>;
 
 /**

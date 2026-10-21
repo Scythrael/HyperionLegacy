@@ -50,7 +50,6 @@ function quarters(guests: number, variety = "quartersUtilitarian", where: "rolle
     mass: 0,
     powerDraw: 0,
     durabilityMax: 110,
-    durability: 110,
     fittedToShipId: "ship-g",
   };
 }

@@ -278,6 +278,9 @@
     shipModule: "Ship Module",
     shipSystem: "Ship System",
     salvagedMaterial: "Salvaged Material",
+    // Gas Giant Study GG-1.
+    gasCanister: "Gas Storage Canister",
+    researchData: "Research Data",
   };
   const SUBCATEGORY_LABEL: Record<string, string> = {
     oresMetals: "Ores & Metals",

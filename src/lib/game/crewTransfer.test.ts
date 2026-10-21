@@ -132,7 +132,6 @@ function quartersOn(s: GameState, shipId: string, moduleVariant: string): GameSt
     mass: 0,
     powerDraw: 0,
     durabilityMax: 110,
-    durability: 110,
     fittedToShipId: shipId,
     moduleVariant,
   };

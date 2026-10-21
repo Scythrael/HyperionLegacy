@@ -4279,7 +4279,6 @@ describe("Equipment fold, closed-form + both-path parity (Task 14)", () => {
     mass: over.mass ?? 0,
     powerDraw: over.powerDraw ?? 0,
     durabilityMax: over.durabilityMax ?? 100,
-    durability: over.durability ?? 100,
     fittedToShipId: over.fittedToShipId ?? null,
   });
 

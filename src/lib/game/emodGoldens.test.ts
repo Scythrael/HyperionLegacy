@@ -42,7 +42,8 @@ import { asPreVoyageDispatch, plainAwayMember, withSlottedAwayTeams } from "./aw
 import { WIRING_REGISTRY } from "./wiring/registry";
 import { getSeniorStaffBonusById } from "./seniorStaffBonuses";
 import { withEm1Off } from "./emodEm1Switch.fixture";
-import { withV1Museum } from "./firstRunsGoldens.fixture";
+import { goldenJson, withV1Museum } from "./firstRunsGoldens.fixture"; // gear wear: goldenJson puts the retired durability back
+import { GG1_ADDED_ENTRY_IDS } from "./gasStudyGoldens.fixture";
 
 // ===== shared helpers =====
 
@@ -57,7 +58,7 @@ function fnv(s: string): string {
 
 // Relics v2 R2-1 (merged after EM-0's capture): whole states hash with the Museum v2 record in its v1 form
 // (withV1Museum, the feat precedent), as EM-0 captured them.
-const hash = (v: unknown): string => fnv(JSON.stringify(withV1Museum(v)));
+const hash = (v: unknown): string => fnv(goldenJson(withV1Museum(v)));
 
 function lcg(seed: number): () => number {
   let s = seed >>> 0;
@@ -398,8 +399,19 @@ const GOLDEN: Record<string, unknown> = {
   // FKR-5's three hidden entries (the Impact Grenade blueprint, the Stun and Toxin carry lines) and the hidden pieces and
   // runs switch audit rows go live with their probes and contexts; read back (FKR9_SHOWN_IDS, FKR9_BEFORE) the snapshot is
   // 60d00075, and every earlier read-back holds FKR-9 apart too. The E-MOD rows hold.
+  // Re-pinned by gear wear steps 1 and 2 (60d00075 -> 48a843b0): the `wear` system's 41 pending entries added and the
+  // four OC-D14 durability audit rows re-owned; read back (`gw`), the snapshot is 60d00075 (asserted below).
+  // Re-pinned by Gas Giant Study GG-1 on its own branch (60d00075 -> c86ecfb4): it only ADDS entries (the study uses,
+  // the giant class and nebula kind fields, the canister sell values, the research data reserves, the Deuterium
+  // Canister recipe); left out, the snapshot is 60d00075.
+  // Re-pinned at the merge of gear wear into the GG-1 branch (48a843b0 / c86ecfb4 -> fca48c3f): the two moves together,
+  // nothing else. With GG-1 left out the snapshot is gear wear's 48a843b0, with gear wear read back and GG-1 kept it is
+  // GG-1's c86ecfb4, and with both it is 60d00075 (asserted below).
+  // Re-pinned at the merge of feat (gear wear steps 1 and 2, GG-1) into FKR-9 / FKR-10 (9deacec7 / fca48c3f -> 1d8ae09b):
+  // the moves together, nothing else. Reading back FKR-9 reproduces fca48c3f, reading back gear wear and leaving GG-1
+  // out reproduces 9deacec7, and reading back all three reproduces 60d00075 (asserted below).
   registry: [
-    "9deacec7",
+    "1d8ae09b",
     "relic:RELICS:precursorLens",
     "ship:audit:reactorCoreNet",
   ],
@@ -557,19 +569,38 @@ const REGISTRY_RACIALS_PIN = "b5c9178b";
 const REGISTRY_G14_PIN = "80e62647";
 const REGISTRY_FKR7_PIN = "3c94e7d1";
 const REGISTRY_BEFORE_FKR7_MERGE = "c844bd4";
+// GG-1 on its own branch and gear wear steps 1 and 2 on feat, each from 60d00075.
+const REGISTRY_GG1_PIN = "c86ecfb4";
+const REGISTRY_GEAR_WEAR_PIN = "48a843b0";
+// The two pins the merge of feat into FKR-9 / FKR-10 joined: feat's (gear wear + GG-1) and FKR-9's own (the switch-on).
+const REGISTRY_FEAT_BEFORE_FKR9_MERGE = "fca48c3f";
+const REGISTRY_FKR9_PIN = "9deacec7";
 
 // Which later moves a read-back undoes. Each slice's rows are disjoint from every other slice's.
-type Back = { readonly fkr9?: boolean; readonly racials?: boolean; readonly g14?: boolean; readonly fkr7?: boolean; readonly fkr6?: boolean; readonly g13?: boolean };
+// Gear wear steps 1 and 2 (0.14.0): the `wear` system's entries it added (all pending) and the four OC-D14 durability
+// audit rows it re-owned (still pending, now naming gear wear steps 3 and 4), read back as they stood. `gw` rides in
+// every read-back below, so each earlier pin keeps proving its own slice was its only move.
+const GW_BEFORE: Readonly<Record<string, string>> = Object.fromEntries(
+  ["ship:audit:slotDurability", "ship:audit:qualityDurabilityMax", "ship:audit:podDurability", "away:audit:memberSlotPhysicals"].map((id) => [id, "WR-8, OC-D14"]),
+);
+const REGISTRY_BEFORE_GEAR_WEAR = "60d00075";
+// Gas Giant Study GG-1 only ADDS entries (gasStudyGoldens.fixture.ts), so every read-back leaves them out unless
+// `keepGg1` (the one check that reproduces GG-1's own pin with gear wear read back).
+type Back = { readonly fkr9?: boolean; readonly racials?: boolean; readonly g14?: boolean; readonly fkr7?: boolean; readonly fkr6?: boolean; readonly g13?: boolean; readonly gw?: boolean; readonly keepGg1?: boolean };
 function rowsBack(back: Back): unknown[][] {
   return WIRING_REGISTRY.filter(
     (e) =>
+      !(!back.keepGg1 && GG1_ADDED_ENTRY_IDS.has(e.id)) &&
       !(back.fkr9 && FKR9_SHOWN_IDS.has(e.id)) &&
       !(back.racials && RACIALS_ADDED_IDS.has(e.id)) &&
       !(back.g14 && G14_ADDED_IDS.has(e.id)) &&
       !(back.fkr7 && FKR7_ADDED_IDS.has(e.id)) &&
-      !(back.fkr6 && FKR6_ADDED_IDS.has(e.id)),
+      !(back.fkr6 && FKR6_ADDED_IDS.has(e.id)) &&
+      !(back.gw && e.id.startsWith("wear:")),
   ).map((e) =>
-    back.racials && e.id in RACIALS_BEFORE
+    back.gw && e.id in GW_BEFORE
+      ? [e.id, { kind: "pending", owner: GW_BEFORE[e.id] }, e.contexts, e.probe ?? null]
+      : back.racials && e.id in RACIALS_BEFORE
       ? [e.id, ...RACIALS_BEFORE[e.id]]
       : back.fkr7 && e.id in FKR7_BEFORE
         ? [e.id, { kind: "pending", owner: FKR7_BEFORE[e.id] }, [], null]
@@ -588,7 +619,7 @@ function rowsBack(back: Back): unknown[][] {
 // The registry snapshot rows with the inert racials, G1-4, FKR-7 and FKR-6 read back (FKR-6's added entries left out,
 // its flips as they stood) and, when `g13Back`, G1-3's audit row with its old owner.
 function registryRowsBack(g13Back: boolean): unknown[][] {
-  return rowsBack({ fkr9: true, racials: true, g14: true, fkr7: true, fkr6: true, g13: g13Back });
+  return rowsBack({ fkr9: true, gw: true, racials: true, g14: true, fkr7: true, fkr6: true, g13: g13Back });
 }
 
 function pinned(name: string, value: unknown): void {
@@ -643,6 +674,15 @@ describe("EM-0 goldens (re-pinned by EM-1 where named)", () => {
     const snapshot = hash(WIRING_REGISTRY.map((e) => [e.id, e.status, e.contexts, e.probe ?? null]));
     const emod = WIRING_REGISTRY.filter((e) => e.status.kind !== "live" && "owner" in e.status && /E-MOD/.test(e.status.owner)).map((e) => e.id).sort();
     pinned("registry", [snapshot, ...emod]);
+    // The two latest moves, merged together: with GG-1 left out the snapshot is gear wear's own pin; with gear wear read
+    // back and GG-1 kept it is GG-1's own pin; with both undone it is the merged feat pin before either.
+    expect(hash(rowsBack({ fkr9: true }))).toBe(REGISTRY_GEAR_WEAR_PIN);
+    // The merge with FKR-9 / FKR-10: FKR-9 read back and GG-1 kept is feat's merged pin; gear wear read back and GG-1
+    // left out is FKR-9's own pin.
+    expect(hash(rowsBack({ fkr9: true, keepGg1: true }))).toBe(REGISTRY_FEAT_BEFORE_FKR9_MERGE);
+    expect(hash(rowsBack({ gw: true }))).toBe(REGISTRY_FKR9_PIN);
+    expect(hash(rowsBack({ fkr9: true, gw: true, keepGg1: true }))).toBe(REGISTRY_GG1_PIN);
+    expect(hash(rowsBack({ fkr9: true, gw: true }))).toBe(REGISTRY_BEFORE_GEAR_WEAR);
     // With the later moves read back (FKR-6 and G1-3, the test below) and ML-1's entries left out: the snapshot before ML-1.
     const beforeMl1 = hash(registryRowsBack(true).filter((r) => !ML1_ENTRY_IDS.has(r[0] as string)));
     expect(beforeMl1).toBe(REGISTRY_BEFORE_ML1);
@@ -650,21 +690,21 @@ describe("EM-0 goldens (re-pinned by EM-1 where named)", () => {
   // Field Kits FKR-9 / FKR-10 (the switch-on): its three re-shown entries left out and its two audit flips read back, the
   // snapshot is the pin before it.
   it("registry: Field Kits FKR-9 / FKR-10 (the switch-on) is the only cause of its snapshot move", () => {
-    expect(hash(rowsBack({ fkr9: true }))).toBe(REGISTRY_BEFORE_FKR9);
+    expect(hash(rowsBack({ gw: true, fkr9: true }))).toBe(REGISTRY_BEFORE_FKR9);
   });
   // The three latest moves, merged together: each cause test also undoes the other slices' changes.
   it("registry: the inert racials are the only cause of their snapshot move", () => {
-    expect(hash(rowsBack({ fkr9: true, g14: true, fkr7: true }))).toBe(REGISTRY_RACIALS_PIN);
-    expect(hash(rowsBack({ fkr9: true, g14: true, fkr7: true, racials: true }))).toBe(REGISTRY_BEFORE_RACIALS);
+    expect(hash(rowsBack({ fkr9: true, gw: true, g14: true, fkr7: true }))).toBe(REGISTRY_RACIALS_PIN);
+    expect(hash(rowsBack({ fkr9: true, gw: true, g14: true, fkr7: true, racials: true }))).toBe(REGISTRY_BEFORE_RACIALS);
   });
   it("registry: G1-4 (the short-range cycle engine) is the only cause of its snapshot move", () => {
-    expect(hash(rowsBack({ fkr9: true, racials: true, fkr7: true }))).toBe(REGISTRY_G14_PIN);
-    expect(hash(rowsBack({ fkr9: true, racials: true, fkr7: true, g14: true }))).toBe(REGISTRY_BEFORE_G14);
+    expect(hash(rowsBack({ fkr9: true, gw: true, racials: true, fkr7: true }))).toBe(REGISTRY_G14_PIN);
+    expect(hash(rowsBack({ fkr9: true, gw: true, racials: true, fkr7: true, g14: true }))).toBe(REGISTRY_BEFORE_G14);
   });
   it("registry: Field Kits FKR-7 is the only cause of its snapshot move", () => {
-    expect(hash(rowsBack({ fkr9: true, fkr7: true }))).toBe(REGISTRY_BEFORE_FKR7_MERGE);
-    expect(hash(rowsBack({ fkr9: true, racials: true, g14: true }))).toBe(REGISTRY_FKR7_PIN);
-    expect(hash(rowsBack({ fkr9: true, racials: true, g14: true, fkr7: true }))).toBe(REGISTRY_BEFORE_FKR7);
+    expect(hash(rowsBack({ fkr9: true, gw: true, fkr7: true }))).toBe(REGISTRY_BEFORE_FKR7_MERGE);
+    expect(hash(rowsBack({ fkr9: true, gw: true, racials: true, g14: true }))).toBe(REGISTRY_FKR7_PIN);
+    expect(hash(rowsBack({ fkr9: true, gw: true, racials: true, g14: true, fkr7: true }))).toBe(REGISTRY_BEFORE_FKR7);
   });
   it("registry: FKR-6 and G1-3's audit row are the only causes of its snapshot move", () => {
     expect(hash(registryRowsBack(false))).toBe(REGISTRY_BEFORE_FKR6);

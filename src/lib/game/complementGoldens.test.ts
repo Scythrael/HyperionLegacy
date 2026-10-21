@@ -29,7 +29,7 @@ import { withEm1Off } from "./emodEm1Switch.fixture";
 vi.mock("./crewLock", async (io) => (await import("./complementOc11Switch.fixture")).oc11CrewLockMock(io));
 import { withOc11Off } from "./complementOc11Switch.fixture";
 // SF-1: whole states hash without the run counters (withoutRunCounts).
-import { withoutGuests, withoutRunCounts } from "./firstRunsGoldens.fixture";
+import { goldenJson, withoutGuests, withoutRunCounts } from "./firstRunsGoldens.fixture";
 import Decimal from "break_infinity.js";
 import {
   freshState,
@@ -74,7 +74,7 @@ function fnv(s: string): string {
 }
 
 // SF-1: whole states hash without the run counters (withoutRunCounts), so the pre-SF-1 captures stay byte-identical.
-const hash = (v: unknown): string => fnv(JSON.stringify(withoutRunCounts(v)));
+const hash = (v: unknown): string => fnv(goldenJson(withoutRunCounts(v)));
 
 function lcg(seed: number): () => number {
   let s = seed >>> 0;
