@@ -99,7 +99,7 @@
   // Field Kits FKR-9 (the signed-off packing mockup, USER ANSWERS 2026-10-20): per-member packing at dispatch with the
   // per-team Quartermaster top-up, the in-run supplies readout (card line + detail table) and the claim's kit line.
   // Every display decision is in fieldKitsDisplay.ts (tested); the pack and the toggle route to the host's do* handlers.
-  import { claimKitsView, dispatchPackView, runCardLine, runSuppliesView, steppedPack, type PackSourceView } from "./fieldKitsDisplay";
+  import { claimKitsView, dispatchPackView, fuseLogLine, runCardLine, runSuppliesView, steppedPack, type PackSourceView } from "./fieldKitsDisplay";
   import type { FieldKitId } from "./game/fieldKits";
 
   // --- Props ------------------------------------------------------------------
@@ -407,6 +407,10 @@
       const ally = roleName(ev.targetRole ?? "security");
       return ev.missed ? `Neural Backup fails to revive ${ally}` : `Neural Backup revives ${ally}: +${ev.hpDelta ?? 0} HP`;
     }
+    // Timed grenades (user 2026-10-21): a primed throw and its detonation read as their own lines (fieldKitsDisplay.ts).
+    const thrower = ev.memberId ? state.awayMembers.find((m) => m.id === ev.memberId)?.name : undefined;
+    const fuse = fuseLogLine(ev, who, ev.targetRole ? `${ev.targetSide === "enemy" ? "enemy " : ""}${roleName(ev.targetRole)}` : "", thrower);
+    if (fuse) return fuse;
     const verb = EVENT_VERB[ev.action] ?? ev.action;
     let line = `${who} ${verb}`;
     if (ev.targetRole) line += ` ${ev.targetSide === "enemy" ? "enemy " : ""}${roleName(ev.targetRole)}`;
@@ -672,6 +676,7 @@
                           {r.charges.left} of {r.charges.total}
                         </span>
                       {/if}
+                      {#if r.fuseNote}<span class="fk-dim">{r.fuseNote}</span>{/if}
                       {#if r.toolNote}<span class="fk-dim">{r.toolNote}</span>{/if}
                       {#if r.extras.length === 0 && !r.charges && !r.toolNote}<span class="fk-dim">None packed</span>{/if}
                     </span>
@@ -1121,6 +1126,7 @@
                             {/if}
                             {#if m.tool.chargesText}<span>{m.tool.chargesText}</span>{/if}
                             <span class="fk-tool-note">{m.tool.note}</span>
+                            {#if m.tool.fuseText}<span class="fk-tool-note">{m.tool.fuseText}</span>{/if}
                           </div>
                           <div class="fk-kits">
                             <div class="fk-kit">

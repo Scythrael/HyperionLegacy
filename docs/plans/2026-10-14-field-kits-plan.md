@@ -616,6 +616,45 @@ Field Kits default), the Triage preset test, the FKR-7 switch test. In flight: e
 `asPreFieldKitsDispatch` and is unchanged; FKR-7's switch-off dispatch is now the in-flight proof, the switch-on Launch
 its own test. Left for FKR-11: `away:audit:statusPicker` (owner "FK-9 + WR-10") is untouched.
 
+**Timed grenades carry (2026-10-21, done; user idea in `2026-10-21-recipe-realism-audit.md` USER ANSWERS call 11,
+fuse ruling "1 round later (Recommended)" in `2026-10-19-merge-batch-answers.md` "2026-10-21 calls"):** goldens first
+(`test(0.14.0): pre-fuse timed grenade goldens`, on f566e22: `fieldKitsFuseGoldens.test.ts`, a stamped run with Impact,
+Stun and Toxin throws at two seeds, fights + battle logs + whole run, on catalog 1 and on an Impact-only catalog 2 run;
+`fieldKitsBattleGoldens` and FKR-7's stamped-by-hand run now stamp catalog 1 as a literal), then the fuse. Data:
+`model.ts GrenadeTraits.fuse` (`TIMED_GRENADE_FUSE` on the Stun and Toxin Grenades; the Impact Grenade, the default, has
+none and detonates on contact); `GRENADE_FUSE_MOVED_CLEAR_CHANCE` 0.2 [PROVISIONAL]. Flag: `FIELD_KITS_CATALOG_VERSION`
+1 to 2 (new dispatches stamp 2), `TIMED_FUSES_CATALOG` 2, `fieldKits.ts timedFusesLive`; `withThrownGrenades(...,
+timedFuses)` arms `ThrownGrenade.fuse` only on catalog 2, so a catalog 1 run in flight resolves byte-identically.
+Engine (`gambit.ts`): a fused throw spends its charge and throw and PRIMES (`BattleState.fuses`, a copy of the thrower
+as it threw); at the thrower's slot in the next round, before it acts and whether or not it can (downed, stunned),
+`detonateGrenade` hits the target's group as it is THEN: no positions exist, so "moving out of a cluster" is the group
+re-forming: a foe downed first is not hit, and each foe still standing (target first, then id order) rolls "moved
+clear" on its own stream (`GRENADE_FUSE_SALT` 0x6d1f4a3b, the battle seed, registered via salts.test.ts's module
+collection); the rest take the contact blast's exact rolls on the fight stream. A fight won first never detonates (the
+charge stays spent). Log: the throw reads `primed`, a new `grenadeDetonates` event carries the cluster tally. Enemy
+Strikers' flash grenade stays INSTANT (my call: the user's ruling names only Stun and Toxin, and FKR-4 built it as an
+enemy action with its own hit check). Training run: unchanged rules (its guards skip the Field Kits inflictors, SF-2's
+proof green). UI: `fieldKitsDisplay.ts fuseLogLine` (the battle log's "primes a grenade ... detonates at the start of
+their next turn" and "'s grenade detonates on the ... group: 2 hit, 1 moved clear: ..." lines), `grenadeFuseText` on
+the dispatch tool line (`PackToolView.fuseText`) and the in-run supplies row (`RunSupplyRowView.fuseNote`: a catalog 1
+run reads "Detonates on contact"), the editor's Throw Grenade hint names the installed grenade's fuse
+(`installedGrenadeFuse`). Wiring: new LIVE `away:GRENADES:<grenade>:fuse` x3 (equals: Stun / Toxin 1 turn, Impact 0
+witnessed by its siblings; probe a whole battle, catalog 2 arming vs catalog 1) and `away:GRENADES:{stun,toxin}Grenade:
+movedClear` (event over 64 detonations), `impactGrenade:movedClear` not applicable. Goldens MOVED, named: the catalog 2
+all-three pins (`FUSE_MOVED_PINS`). The registry pins hold the added entries apart (`fieldKitsFuse.fixture.ts`): the
+EM-0 snapshot leaves them out like the reactor fuel ladder's (stays bd1e2f48), G1-0 golden 5's `registryPin` always
+applies `FUSE_SLICE` (no pin moved). Unchanged: every catalog 1 and Impact-only pin, every flag-less golden.
+**Timed grenade review rulings (user 2026-10-21, merge-batch answers "Timed grenade review calls"), built:** "Refund
+it": a grenade still primed when the fight ends (a clear, a wipe, or a throw in the round cap's last round) is refunded
+in `resolveGroundBattle` summarize (taken off `used` before `chargesUsed`) and logs a `grenadeRefunded` line ("... never
+went off: the fight ended first, so its charge comes back"). "20%, lone targets can't dodge": the 0.2 moved-clear chance
+is no longer provisional and applies to GROUPS only; a lone foe (the only one of its group standing at the detonation)
+never rolls. "Keep instant": the enemy flash grenade stays instant (noted at gambit.ts's flashGrenade case). Review
+asks: the `blast` and `status` probes arm the reference thrower as catalog 2 does and measure a timed grenade's
+detonation (`probes.ts catalog2Throw`); salts.test.ts names `gambit.ts GRENADE_FUSE_SALT`; the log names the thrower
+("detonates at the start of Vale's next turn"). Moved, named: seed 51f3's catalog 2 fight pins (a lone Stun target no
+longer moves clear).
+
 #### FKR-11: Help, wiring and no-dead-stats close-out, QA sheet
 
 As FK-10 (section 4), plus Help lines for charges and the carry line, enemy ranks (and that training runs field no
