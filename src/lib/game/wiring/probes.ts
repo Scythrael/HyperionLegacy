@@ -16,6 +16,8 @@ import {
   DEFAULT_MEMBER_GAMBIT,
   EQUIPMENT_SLOTS,
   FIELD_KITS_DEFAULT_GRENADE_RULES,
+  fieldKitsShownBlueprints,
+  grenadeCraftPool,
   MEMBER_SLOT_TYPES,
   MISSIONS,
   PATROLS,
@@ -166,7 +168,7 @@ import { ENEMY_RANK_IDS, ENEMY_RANKS_VERSION, type EnemyRank } from "../enemyRan
 import { taskFightGuard, taskFightTeam } from "../groundFight";
 import { buyFieldKits, sellItem } from "../quartermaster";
 // Field Kits FKR-7: the run plumbing (the free basic set at an objective start, the bay share).
-import { fieldKitsStamp, refreshObjectiveSupplies } from "../fieldKitsRun";
+import { carriedExtras, fieldKitsStamp, refreshObjectiveSupplies } from "../fieldKitsRun";
 import { groundTeamBaySeconds } from "../groundOps";
 import { retirementExpMultiplier } from "../captainRetirement";
 import { transitBerthCount } from "../berths";
@@ -2068,6 +2070,31 @@ function readContent(id: string, s: GameState): number {
       const lead = guard.reduce((best, e) => (e.power > best.power ? e : best));
       return b === "hp" ? lead.hp : lead.power;
     }
+    case "fieldKitsRunsSwitch": {
+      // Field Kits FKR-9 / FKR-10 (the switch-on): the extras a REAL Launch packs. On: startExpedition with its DEFAULT
+      // runs switch (fieldKits.ts FIELD_KITS_RUNS_LIVE, the argument the dispatch console's Launch leaves out) for a crew
+      // whose Warehouse holds FIELD_KITS_SWITCH_PROBE_STOCK First Aid Kits; off: the same launch with kits off. The
+      // extras the run carries (each member's default pack holds one First Aid Kit, so the stock is the limit).
+      const ready = withAwayTeam({ ...s, inventory: { ...s.inventory, firstAidKit: [new Decimal(FIELD_KITS_SWITCH_PROBE_STOCK)] } });
+      const cand = expeditionCandidates(ready, WIRING_SHIP_ID)[0];
+      const res = on ? startExpedition(ready, WIRING_SHIP_ID, WIRING_CAPTAIN_ID, cand.id) : startExpedition(ready, WIRING_SHIP_ID, WIRING_CAPTAIN_ID, cand.id, true, false);
+      if (!res.success || !res.expedition) throw new Error(`field kits switch probe: dispatch refused (${res.reason})`);
+      return Object.values(carriedExtras(res.expedition)).reduce((n, x) => n + (x ?? 0), 0);
+    }
+    case "fieldKitsHiddenPieces": {
+      // Field Kits FKR-9 / FKR-10 (model.ts FIELD_KITS_PLAYER_LIVE): the pieces kept hidden until kits went live that a
+      // player can now reach: each FIELD_KITS_HIDDEN_BLUEPRINTS blueprint in BLUEPRINTS (Research, the Fabricator, the
+      // Archive), and each of the Stun and Toxin Grenades whose craft pool rolls the +1 Carry Capacity line. Both sides
+      // run the same readers the build uses: on, the switched-on catalog (the shown blueprints found in BLUEPRINTS, the
+      // varieties' real craft pools); off, the same readers with the switch off (model.ts fieldKitsShownBlueprints(false),
+      // grenadeCraftPool(key, false)), the state a player saw before kits went live.
+      const shown = fieldKitsShownBlueprints(on);
+      const merged = Object.keys(shown).filter((k) => BLUEPRINTS[k] === shown[k]).length;
+      const tool = EQUIPMENT_SLOTS.memberTool.varieties;
+      const poolOf = (key: "stunGrenade" | "toxinGrenade") => (on ? tool.find((v) => v.key === key)?.affixPool : grenadeCraftPool(key, false).affixPool) ?? [];
+      const carry = (["stunGrenade", "toxinGrenade"] as const).filter((key) => poolOf(key).some((a) => a.stat === "groundCarryCapacity")).length;
+      return merged + carry;
+    }
     default:
       throw new Error(`unknown content probe ${id}`);
   }
@@ -2157,6 +2184,8 @@ function kitProbe(kit: FieldKitId, on: boolean): number {
 //   base : on, a ship with no support crew (the set's base); off, a run stamped with no free set (0);
 //   crew : on, a ship with FREE_BASIC_PROBE_HEADS Medical crew; off, none (the D23 crew curve's rise).
 const FREE_BASIC_PROBE_HEADS = 16;
+// Field Kits FKR-9 / FKR-10: the First Aid Kits the runs switch probe's Warehouse holds (one per wiring Security member).
+export const FIELD_KITS_SWITCH_PROBE_STOCK = 1;
 function freeBasicProbe(s: GameState, kit: FieldKitId, part: string, on: boolean): number {
   const heads = part === "crew" && on ? FREE_BASIC_PROBE_HEADS : 0;
   const buckets = heads > 0 ? [{ profession: "medical" as const, rarity: "standard" as const, rank: 1 as const, race: "earthBorn" as const, buff1Id: "med.triage", buff2Id: null, count: heads }] : [];

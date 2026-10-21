@@ -364,6 +364,27 @@ export const ICON_PATHS = {
   rankElite: ["M12 2.5l8.5 4.9v9.7L12 22l-8.5-4.9V7.4z", "M8.5 12l3.5-3.5 3.5 3.5", "M8.5 16l3.5-3.5 3.5 3.5"],
   rankBoss: ["M12 2.5l8.5 4.9v9.7L12 22l-8.5-4.9V7.4z", "M7.5 15.5v-6l2.5 2.5 2-3.5 2 3.5 2.5-2.5v6z"],
 
+  // Field Kits pack screen (0.14.0 FKR-9, the signed-off packing mockup's new glyphs). Reviewed at 16 / 28 / 56 px.
+  // Grenade: a round body, the fuze cap on top, the safety lever (spoon) running off to the right and the pull ring
+  // hanging off the cap's left side. The mockup's ring (r 1.5, its edge 0.3 units clear of the cap) closed into a dot
+  // at 16px and floated loose of the cap; this ring is r 2.25 (a 2.75 unit hole, about 1.8px at 16px) and overlaps
+  // the cap's left leg, so it reads as a ring hooked on the pin at every size. The cap's legs stop where they meet
+  // the body's curve, so the cap never cuts into it.
+  grenade: ["M11 9a6 6 0 1 0 0 12 6 6 0 0 0 0-12z", "M9 9.4V6h4v3.4", "M13 6h2.5l3 4.5", "M6 2.75a2.25 2.25 0 1 0 0 4.5 2.25 2.25 0 0 0 0-4.5z"],
+  // The three Security specs (model.ts SecuritySpec), the role mark on a member's pack card and run readout.
+  // Offense: one sword on the diagonal (an outlined blade with its tip up and right, a cross guard, the grip). One
+  // blade, so it never reads as `fightPoint` (two crossed swords); the mockup's crosshair was `riskCombat` without
+  // its dot, the same shape at 16px, so it was redrawn.
+  roleOffense: ["M20 4l-1 4-8.5 8.5-3-3L16 5z", "M5 13l6 6", "M8 16l-4 4"],
+  // Defense: the heater shield split down the middle (a heraldic half). The mockup's plain shield IS `security`
+  // (the squad), so the center line keeps the spec apart from the squad at every size.
+  roleDefense: ["M12 3l8 3v6c0 4.5-3.4 8-8 9-4.6-1-8-4.5-8-9V6z", "M12 3v18"],
+  // Debuff: a trend line falling to a down-right arrowhead (the target's numbers going down). The mockup's drop with
+  // an arrow sat beside `kitAntitoxin` (a drop with a cross) and the two blurred together at 16px.
+  roleDebuff: ["M3 6.5l6 6 4-4 7.5 7.5", "M20.5 10v6h-6"],
+  // Home: a house with eaves over its walls and a narrow door (kits coming home at claim). Kept apart from
+  // `warehouse` (walls flush with a wide roof, a wide roll-up door with a band) by the overhang and the door.
+  home: ["M4 11l8-7 8 7", "M6 9.5V20h12V9.5", "M10 20v-5h4v5"],
   // Gas Giant Study (0.14.0 GG-1): the Gas Storage Canisters.
   // Gas canister: a domed gas cylinder with a label band, its valve neck and handwheel on top (the five gases).
   gasCanister: ["M8 10a4 4 0 0 1 8 0v10a1 1 0 0 1-1 1H9a1 1 0 0 1-1-1z", "M8 14.5h8", "M12 6V3.5", "M9.5 3.5h5"],

@@ -24,7 +24,7 @@ import { advanceExpedition, claimExpedition, expeditionCandidates, startExpediti
 import { effectiveShipStats, shipCrewContribution } from "./crewOverlay";
 import { CREW_STAT_KEYS } from "./crewBuffs";
 import { seatOfficer } from "./wiring/probes";
-import { plainAwayMember, withSlottedAwayTeams } from "./awayTeamTestFixtures";
+import { asPreFieldKitsDispatch, plainAwayMember, withSlottedAwayTeams } from "./awayTeamTestFixtures";
 import { goldenJson, withoutRunCounts } from "./firstRunsGoldens.fixture"; // gear wear: goldenJson puts the retired durability back
 import { withRacialsOff } from "./racialsSwitch.fixture";
 
@@ -115,7 +115,7 @@ const SQUAD: AwayMember[] = [
 function racialsRun(officers: readonly [SeniorStaffSeat, CrewRace][], buckets: readonly CrewBucket[], seed: number): { exp: Expedition; out: string[] } {
   const s0 = withSlottedAwayTeams({ ...freshState(), awayMembers: SQUAD.map((m) => ({ ...m })), nextAwayMemberId: 100, expeditionSeed: seed });
   const s = crewed(s0, officers, buckets);
-  const res = startExpedition(s, "ship-1", 1, expeditionCandidates(s, "ship-1")[0].id);
+  const res = asPreFieldKitsDispatch(startExpedition(s, "ship-1", 1, expeditionCandidates(s, "ship-1")[0].id));
   if (!res.success || !res.expedition) throw new Error(`dispatch refused: ${res.reason}`);
   const exp = res.expedition;
   const done = advanceExpedition(exp, 2_000_000);

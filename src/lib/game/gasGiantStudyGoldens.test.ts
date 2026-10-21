@@ -27,6 +27,7 @@ import { describe, expect, it } from "vitest";
 import Decimal from "break_infinity.js";
 import {
   BLUEPRINTS,
+  FIELD_KITS_HIDDEN_BLUEPRINTS,
   ITEMS,
   REFINE_RECIPES,
   RESEARCH_FACILITY_KEY,
@@ -318,7 +319,10 @@ describe("GG-0 golden 5: the item census", () => {
 
   it("item ids, counts by category, refine recipes and blueprint count (GG-1's additions held apart)", () => {
     const before = census(Object.keys(ITEMS).filter((id) => !gg1.has(id)), Object.keys(REFINE_RECIPES).filter((k) => k !== GG1_RECIPE));
-    expect({ items: hash(before.ids), byCategory: before.byCategory, refineRecipes: before.refineRecipes, blueprints: Object.keys(BLUEPRINTS).length }).toEqual(CENSUS_GOLDEN);
+    expect({ items: hash(before.ids), byCategory: before.byCategory, refineRecipes: before.refineRecipes, blueprints: Object.keys(BLUEPRINTS).filter((k) => !(k in FIELD_KITS_HIDDEN_BLUEPRINTS)).length }).toEqual(CENSUS_GOLDEN);
+    // Field Kits FKR-9 / FKR-10 (the switch-on): the hidden Impact Grenade blueprint merges in, the one named move of the
+    // blueprint count (78 to 79), counted apart as in materialLinesGoldens.test.ts.
+    for (const k of Object.keys(FIELD_KITS_HIDDEN_BLUEPRINTS)) expect(BLUEPRINTS[k], k).toBe(FIELD_KITS_HIDDEN_BLUEPRINTS[k]);
   });
 
   it("GG-1's additions: fifteen items appended in order and the one recipe appended", () => {

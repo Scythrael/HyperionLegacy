@@ -13,7 +13,9 @@
 import { describe, expect, it } from "vitest";
 import Decimal from "break_infinity.js";
 import { freshState, type AwayMember, type BodyRiskGrades, type EquipmentInstance, type Expedition, type ExpeditionBody, type GambitProgram, type GameState, type ShipGroundTeam } from "./model";
-import { FIELD_KITS_CATALOG_VERSION } from "./fieldKits";
+import { FIELD_KITS_CATALOG_VERSION, FIELD_KITS_RUNS_LIVE } from "./fieldKits";
+import { carriedExtras } from "./fieldKitsRun";
+import { topUpAtLaunch } from "./quartermaster";
 import { advanceExpedition, claimExpedition, startExpedition } from "./expedition";
 import { groundCrewClearOdds, groundOpsAssignIdle, groundOpsBodyScanned, initGroundTasks } from "./groundOps";
 import { itemTotal } from "./inventory";
@@ -162,9 +164,12 @@ const UNSTAMPED_TWIN_PINS = { run: "65e15d57", odds: "fae5feaa", claim: "ceb4d88
 const FKR7_MOVED_STAMPED: Partial<Record<keyof typeof STAMPED_PINS, string>> = { run: "47822be2", claim: "af9b5caf" };
 
 describe("FKR-7 goldens: what dispatch, the run and the claim did at FKR-6", () => {
+  // FKR-9 / FKR-10 (the switch-on): this pin is now the IN-FLIGHT proof. The dispatch the switch-off engine made (the
+  // record a save holds at the update: no stamp, nothing packed) resolves and claims byte-identically under the
+  // switched-on engine. The same Launch made today is the SWITCH ON test below.
   it("SWITCH OFF: a real dispatch holding stock, credits, packs and a top-up deducts nothing, stamps nothing, claims as before", { timeout: 120_000 }, () => {
     const state = crewed(SWITCH_OFF_SEED);
-    const res = startExpedition(state, "ship-1", 1, "cand-0");
+    const res = startExpedition(state, "ship-1", 1, "cand-0", true, false);
     expect(res.success).toBe(true);
     const exp = res.expedition!;
     expect("fieldKits" in exp).toBe(false);
@@ -175,6 +180,34 @@ describe("FKR-7 goldens: what dispatch, the run and the claim did at FKR-6", () 
     const claimed = claimExpedition({ ...res.next, expeditions: [done] }, done.id);
     expect(claimed.success).toBe(true);
     expect({ dispatch: stateHash(res.next), claim: stateHash(claimed.next) }).toEqual(SWITCH_OFF_PINS);
+  });
+
+  it("SWITCH ON (FKR-9 / FKR-10): the same Launch today stamps flag 2, packs from stock, buys Alpha's top-up and claims the leftovers home", { timeout: 120_000 }, () => {
+    const state = crewed(SWITCH_OFF_SEED);
+    expect(FIELD_KITS_RUNS_LIVE).toBe(true);
+    const topUp = topUpAtLaunch(state, "ship-1");
+    const res = startExpedition(state, "ship-1", 1, "cand-0");
+    expect(res.success).toBe(true);
+    const exp = res.expedition!;
+    expect(exp.fieldKits?.catalog).toBe(FIELD_KITS_CATALOG_VERSION);
+    // Stock left the Warehouse (every kit the pack preferences and defaults asked for, as far as stock went) and the
+    // top-up's purchases cost exactly the preview the dispatch screen shows.
+    const packed = carriedExtras(exp);
+    for (const kit of ["firstAidKit", "splint", "antitoxin", "injuryKit"] as const) {
+      const bought = topUp.bought[kit] ?? 0;
+      expect(itemTotal(res.next.inventory, kit).toNumber(), kit).toBe(itemTotal(state.inventory, kit).toNumber() - ((packed[kit] ?? 0) - bought));
+    }
+    expect(state.credits.minus(res.next.credits).toNumber()).toBe(topUp.cost);
+    expect(topUp.cost).toBeGreaterThan(0);
+    // The run resolves to its claim; what comes home is what the teams still carry.
+    const done = advanceExpedition(exp, FINAL * 4);
+    expect(done.phase).toBe("complete");
+    const home = carriedExtras(done);
+    const claimed = claimExpedition({ ...res.next, expeditions: [done] }, done.id);
+    expect(claimed.success).toBe(true);
+    for (const kit of ["firstAidKit", "splint", "antitoxin", "injuryKit"] as const) {
+      expect(itemTotal(claimed.next.inventory, kit).toNumber(), kit).toBe(itemTotal(res.next.inventory, kit).toNumber() + (home[kit] ?? 0));
+    }
   });
 
   it("STAMPED BY HAND: the run with hand-placed extras MOVED on purpose at FKR-7 (named below)", { timeout: 120_000 }, () => {

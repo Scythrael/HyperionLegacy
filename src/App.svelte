@@ -483,6 +483,9 @@
     previewGroundTeamKind,
     renameGroundTeam,
     setGroundTeamHelp,
+    // Field Kits FKR-9: the per-member pack preference and the team's Quartermaster top-up toggle.
+    setMemberPack,
+    setGroundTeamTopUp,
     setGroundTeamKind,
     slotMember,
     swapGroundMembers,
@@ -587,7 +590,16 @@
     sellItem,
     sellBlockText,
     type SellableEntry,
+    // Field Kits FKR-10: the kit sale (the Purchase tab) and the dispatch's top-up preview (the launch log).
+    buyFieldKits,
+    fieldKitBuyBlockText,
+    topUpAtLaunch,
   } from "./lib/game/quartermaster";
+  // Field Kits FKR-9 / FKR-10: the kit screens' display decisions (tested in fieldKitsDisplay.test.ts) and the runs
+  // switch (the Logistics Consumables spot becomes the Field Kits stock once kits are live in runs).
+  import { claimKitsView, fieldKitShopRows, fieldKitStockRows, kitCountText, kitListText, shopQtyMax } from "./lib/fieldKitsDisplay";
+  import { FIELD_KITS_RUNS_LIVE, FIELD_KITS, type FieldKitId } from "./lib/game/fieldKits";
+  import { carriedExtras } from "./lib/game/fieldKitsRun";
   // 0.13.4 Phase 4: the transit-berth read model. The console reads the SAME module the engine
   // does, so the two can never disagree about how many berths exist or who is waiting.
   import {
@@ -2001,7 +2013,9 @@
   // Combat 1.0 (BUG-U2): "Weapons" dropped, they are now craftable + real and show in the Ship
   // Systems bay above (BUG-U1), so a "coming soon" chip for them is stale. Modules + Consumables
   // remain genuine reserved families with no engine yet.
-  const LOGISTICS_RESERVED_GOODS: string[] = ["Modules", "Consumables"];
+  // Field Kits FKR-10 (call 14 "The reserved Consumables spot"): once kits are live in runs, Consumables graduates to the
+  // Field Kits stock panel on the Ship Equipment tab, so only Modules stays reserved.
+  const LOGISTICS_RESERVED_GOODS: string[] = FIELD_KITS_RUNS_LIVE ? ["Modules"] : ["Modules", "Consumables"];
 
   // The warehouse TIERS that have their own facility + cap system today (design
   // §3.1: each tier is its own facility). Drives the Upgrade tab's per-tier
@@ -5477,6 +5491,27 @@
     doSave();
   }
 
+  // Field Kits FKR-9: a member's pack preference for the next dispatch (kit -> count; null = back to the default, N16).
+  // Allowed while the ship is out: it only shapes the next launch (groundTeams.ts setMemberPack).
+  function doSetMemberPack(shipId: string, teamIndex: number, memberId: string, pack: Partial<Record<FieldKitId, number>> | null) {
+    const next = setMemberPack(state, shipId, teamIndex, memberId, pack);
+    if (next === state) return; // unknown ship / team / member, or nothing would change
+    state = next;
+    // No log line per stepper press (review 2026-10-21): the launch log names what was packed, once.
+    doSave();
+  }
+
+  // Field Kits FKR-9: a team's "Top up from the Quartermaster at launch" toggle (remembered on the team; never blocks a
+  // launch; groundTeams.ts setGroundTeamTopUp).
+  function doSetTeamTopUp(shipId: string, teamIndex: number, on: boolean) {
+    const next = setGroundTeamTopUp(state, shipId, teamIndex, on);
+    if (next === state) return; // unknown ship / team, or already set
+    state = next;
+    const team = groundTeamLabel(shipId, teamIndex);
+    pushLog(on ? `${team} will top up its kits from the Quartermaster at launch.` : `${team} packs only what the Warehouse holds.`);
+    doSave();
+  }
+
   function doSetGroundTeamHelp(shipId: string, teamIndex: number, on: boolean) {
     const next = setGroundTeamHelp(state, shipId, teamIndex, on);
     if (next === state) return; // unknown ship / team, or already set
@@ -5674,6 +5709,8 @@
   // relic system to route later. NONE of this runs on the tick, so with no expedition the tick path is
   // byte-identical to before (resolveExpeditions is a same-ref no-op on an empty expeditions array).
   function doStartExpedition(shipId: string, captainId: number, candidateId: string, anomalyOptIn: boolean) {
+    // Field Kits FKR-9: what the launch's top-up teams buy (the same plan the dispatch settles), for the log.
+    const topUp = topUpAtLaunch(state, shipId);
     const { next, success, expedition, reason } = startExpedition(state, shipId, captainId, candidateId, anomalyOptIn);
     if (!success || next === state) {
       // D18: the panel disables Launch for a known refusal, so this only fires on a race; say why anyway.
@@ -5682,12 +5719,19 @@
     }
     state = next;
     pushLog(`[${devShipLabel(shipId)}] Expedition launched to ${expedition?.systemName ?? "the frontier"}.`);
+    const packed = expedition?.fieldKits ? kitListText(carriedExtras(expedition)) : "";
+    if (packed) pushLog(`[${devShipLabel(shipId)}] Packed extras: ${packed}.`);
+    if (expedition?.fieldKits && topUp.cost > 0) {
+      pushLog(`[${devShipLabel(shipId)}] Topped up at the Quartermaster: ${kitListText(topUp.bought)} for ${formatNumber(topUp.cost)} credits.`);
+    }
     doSave();
   }
 
   function doClaimExpedition(expeditionId: string) {
     // Capture the system name before the claim removes the expedition (for the log line).
     const exp = state.expeditions.find((e) => e.id === expeditionId) ?? null;
+    // Field Kits FKR-9: the claim's kit line (read before the claim removes the run).
+    const kits = exp ? claimKitsView(exp) : null;
     const { next, success, findings, injuries } = claimExpedition(state, expeditionId);
     if (!success || next === state) return;
     // E-CREW Task 16: name the members who came home injured (read off the pre-claim roster for names).
@@ -5706,6 +5750,7 @@
     if (injuredText.length > 0) {
       pushLog(`[${exp ? devShipLabel(exp.shipId) : "Expedition"}] Came home injured: ${injuredText.join(", ")}.`);
     }
+    if (kits) pushLog(`[${exp ? devShipLabel(exp.shipId) : "Expedition"}] ${kits.homeText}.`);
     doSave();
   }
 
@@ -7667,6 +7712,31 @@
     // Drop the form entry so the row re-defaults to the new (reduced) owned amount.
     delete sellQty[itemId];
     sellQty = sellQty;
+    doSave();
+  }
+
+  // ── QUARTERMASTER PURCHASE: field kits (Field Kits FKR-10) ─────────────────
+  // Per-kit, unsubmitted quantity for the Purchase rows (a form value, never on GameState, like sellQty). An absent entry
+  // reads 1.
+  let buyQty: Partial<Record<FieldKitId, number>> = {};
+  const FIELD_KITS_ORDER_COUNT = Object.keys(FIELD_KITS).length;
+  function buyQtyFor(kit: FieldKitId): number {
+    return Math.max(1, buyQty[kit] ?? 1);
+  }
+  function buyStepQty(kit: FieldKitId, delta: number, max: number) {
+    buyQty[kit] = clampWholeQty(buyQtyFor(kit) + delta, max);
+    buyQty = buyQty;
+  }
+  function doBuyFieldKits(kit: FieldKitId, qty: number) {
+    const result = buyFieldKits(state, kit, qty);
+    if (!result.ok) {
+      pushLog(`Cannot buy ${FIELD_KITS[kit].label}: ${fieldKitBuyBlockText(result.reason)}`);
+      return;
+    }
+    state = result.next;
+    pushLog(`Bought ${kitCountText(kit, qty)} for ${formatNumber(result.cost)} credits.`);
+    delete buyQty[kit];
+    buyQty = buyQty;
     doSave();
   }
 
@@ -14764,7 +14834,8 @@
                 tabs={[
                   { key: "requisition", label: "Requisition" },
                   { key: "sell", label: "Sell" },
-                  { key: "purchase", label: "Coming Soon!", locked: true },
+                  // Field Kits FKR-10 (credit sinks pass "Quartermaster sells + top-up"): Purchase sells the six kits.
+                  FIELD_KITS_RUNS_LIVE ? { key: "purchase", label: "Purchase" } : { key: "purchase", label: "Coming Soon!", locked: true },
                 ]}
                 active={activeQuartermasterSubTab}
                 onSelect={(key) => (activeQuartermasterSubTab = key as QuartermasterSubTab)}
@@ -14838,6 +14909,67 @@
                   <p class="cq-note">
                     The counter issues one spare of each pattern at a time. Install it and the counter will issue another.
                   </p>
+                </Panel>
+              {/if}
+
+              {#if activeQuartermasterSubTab === "purchase" && FIELD_KITS_RUNS_LIVE}
+                <!-- PURCHASE (Field Kits FKR-10; credit sinks pass "Quartermaster sells + top-up"; N13 "3x material value").
+                     The six field kits for credits, the Sell tab's row pattern (a -/+ stepper flanking the quantity, then
+                     the action). The gate is the engine's own (quartermaster.ts canBuyFieldKits via fieldKitShopRows), so
+                     the disabled state and the refusal never diverge; the reason is a persistent note under the row. A
+                     purchase never overfills the Warehouse (approved 2026-10-20); kits coming home from a run may. -->
+                <Panel>
+                  <div class="panel-title">
+                    PURCHASE
+                    <HelpTip
+                      label="How Purchase works"
+                      text="The Quartermaster sells field kits for credits. They land in the Warehouse, where each Security member's pack draws on them at launch. A team can also top up from here automatically at launch: switch it on in the expedition dispatch. Unused extras come home at claim; free kits refill every objective and are never sold."
+                    />
+                  </div>
+                  <div class="qm-wallet">
+                    <span class="qm-wallet-label">Wallet</span>
+                    <span class="qm-wallet-bal">{formatNumber(state.credits)} <small>cr</small></span>
+                    <span class="qm-wallet-hint">Field kits for your away teams. Advanced Medical kits need a member with Medical Training.</span>
+                  </div>
+                  <div class="home-sec-hd qm-sell-shelf">
+                    <span class="home-sec-h">Field Kits</span>
+                    <span class="home-sec-count">{FIELD_KITS_ORDER_COUNT}</span>
+                    <span class="home-sec-rule"></span>
+                  </div>
+                  <div class="cq-list">
+                    {#each fieldKitShopRows(state, (kit) => buyQtyFor(kit)) as row (row.kit)}
+                      <div class="cq-row">
+                        <div class="cq-body">
+                          <span class="qm-name-line">
+                            <span class="qm-kit-ic"><Icon name={row.glyph} size={16} /></span>
+                            <span class="home-l1">{row.label}</span>
+                          </span>
+                          <span class="home-l2"><span class="home-meta">in stock {row.text}</span></span>
+                          <span class="home-l2"><span class="home-meta qm-unit-price">{row.priceText}</span></span>
+                          <span class="cq-state">{row.effect}</span>
+                          <span class="cq-state">{row.totalText}</span>
+                          {#if row.blockText}<span class="cq-state">{row.blockText}</span>{/if}
+                        </div>
+                        <div class="cq-ctl qm-sell-ctl">
+                          <div class="qm-stepper">
+                            <button type="button" aria-label={`Buy one fewer ${row.label}`} disabled={row.qty <= 1} on:click={() => buyStepQty(row.kit, -1, shopQtyMax(row))}>&minus;</button>
+                            <input
+                              type="number"
+                              min="1"
+                              max={shopQtyMax(row)}
+                              step="1"
+                              aria-label={`Quantity of ${row.label} to buy`}
+                              value={row.qty}
+                              on:input={(e) => { buyQty[row.kit] = clampWholeQty(e.currentTarget.valueAsNumber, shopQtyMax(row)); buyQty = buyQty; }}
+                            />
+                            <button type="button" aria-label={`Buy one more ${row.label}`} disabled={row.qty >= shopQtyMax(row)} on:click={() => buyStepQty(row.kit, 1, shopQtyMax(row))}>+</button>
+                          </div>
+                          <button class="buy-btn" disabled={!row.canBuy} on:click={() => doBuyFieldKits(row.kit, row.qty)}>Buy</button>
+                        </div>
+                      </div>
+                    {/each}
+                  </div>
+                  <p class="cq-note">Purchases never go over the Warehouse cap. Kits coming home from a run may.</p>
                 </Panel>
               {/if}
 
@@ -15380,6 +15512,32 @@
                 <button class="dev-btn" on:click={() => (selectedShipSpareId = null)}>Cancel</button>
               </svelte:fragment>
             </ActionModal>
+          {/if}
+
+          {#if FIELD_KITS_RUNS_LIVE}
+            <!-- FIELD KITS (Field Kits FKR-10, call 14 "The reserved Consumables spot"): the kit stock in the place the
+                 Consumables marker held, the materials tile idiom (glyph, name, count of cap). Crafted at the
+                 Fabricator, bought at the Quartermaster's Purchase tab, packed per member at dispatch. -->
+            <Panel>
+              <div class="warehouse-tier-head">
+                <span class="warehouse-tier-label awg-group-label"><Icon name="kitFirstAid" size={12} /> Field Kits</span>
+                <span class="warehouse-tier-line"></span>
+                <span class="warehouse-tier-cap">consumables</span>
+              </div>
+              <ul class="fk-stock-grid">
+                {#each fieldKitStockRows(state) as row (row.kit)}
+                  <li class="fk-stock-tile" class:empty={row.owned === 0}>
+                    <span class="fk-stock-ic"><Icon name={row.glyph} size={20} /></span>
+                    <span class="fk-stock-body">
+                      <span class="fk-stock-name">{row.label}</span>
+                      <span class="fk-stock-n">{row.text}</span>
+                      <span class="fk-stock-eff">{row.effect}</span>
+                    </span>
+                  </li>
+                {/each}
+              </ul>
+              <p class="cq-note">Craft kits at the Fabricator or buy them at the Quartermaster. Each Security member packs their own at dispatch; unused extras come home at claim.</p>
+            </Panel>
           {/if}
 
           <!-- RESERVED product families (0.12.0 Console, CN3a). The old locked
@@ -17325,7 +17483,15 @@
           <span class="home-sec-count">{state.expeditions.length}</span>
           <span class="home-sec-rule"></span>
         </div>
-        <ExpeditionPanel {state} onStart={doStartExpedition} onClaim={doClaimExpedition} onSetComposition={doApplyComposition} onEditGroundOps={doEditGroundOps} />
+        <ExpeditionPanel
+          {state}
+          onStart={doStartExpedition}
+          onClaim={doClaimExpedition}
+          onSetComposition={doApplyComposition}
+          onEditGroundOps={doEditGroundOps}
+          onSetMemberPack={doSetMemberPack}
+          onSetTeamTopUp={doSetTeamTopUp}
+        />
         <!-- Exploration 0.14.0 (E3b): the AWAY-TEAM GAMBITS editor, right under the console so it is
              discoverable from dispatch (the console's dispatch view points here). Since Ground Operations
              GO-16 it edits ONE Security member's own program, picked by ship, ground team and member, via the
@@ -23431,6 +23597,27 @@
      tag never shrinks, so it can no longer be clipped to "Retire..." on a narrow mobile row. */
   .qm-name-line { display: flex; align-items: center; gap: 6px; min-width: 0; }
   .qm-name-line .home-l1 { flex: 0 1 auto; }
+  /* Field Kits FKR-10: the Purchase row's kit glyph, and the Logistics Field Kits stock tiles (one DOM: they wrap to one
+     column at phone width). */
+  .qm-kit-ic { flex: 0 0 auto; display: inline-flex; color: var(--color-accent); }
+  .fk-stock-grid {
+    list-style: none; margin: 8px 0 0; padding: 0;
+    display: grid; gap: 8px;
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, 240px), 1fr));
+  }
+  .fk-stock-tile {
+    display: flex; gap: 10px; align-items: flex-start; min-width: 0;
+    padding: 9px 11px;
+    border: 1px solid rgba(var(--color-accent-rgb), 0.18);
+    background: rgba(var(--color-accent-rgb), 0.04);
+    border-radius: var(--corner);
+  }
+  .fk-stock-tile.empty { opacity: 0.7; }
+  .fk-stock-ic { flex: 0 0 auto; color: var(--color-accent); margin-top: 1px; }
+  .fk-stock-body { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+  .fk-stock-name { font-size: var(--text-sm); color: var(--color-text-primary); }
+  .fk-stock-n { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--color-text-secondary); }
+  .fk-stock-eff { font-size: var(--text-2xs); color: var(--color-text-dim); line-height: 1.4; }
   .qm-retire-tag {
     flex: 0 0 auto;
     font-family: var(--font-mono); font-size: var(--text-2xs); letter-spacing: 0.08em; text-transform: uppercase;

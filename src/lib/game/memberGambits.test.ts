@@ -1,7 +1,10 @@
 // memberGambits.test.ts: the per-member gambit program actions behind the GO-16 editor (Ground Operations
 // 0.14.0, absorbs E-CREW Task 17's editor). Every action is pure and refuses by returning the SAME state.
 import { describe, expect, it } from "vitest";
-import { DEFAULT_MEMBER_GAMBIT, freshState } from "./model";
+import { DEFAULT_MEMBER_GAMBIT, FIELD_KITS_DEFAULT_MEMBER_GAMBIT, freshState } from "./model";
+// Field Kits FKR-10 (named move): once kits are live in runs a default member's first edit copies the Field Kits default they
+// fight with (memberGambits.ts memberEditableProgram), not D19's; the snapshot still reads D19's default.
+const EDIT_BASE = FIELD_KITS_DEFAULT_MEMBER_GAMBIT;
 import type { AwayMember, GambitProgram, GameState, ShipGroundTeam } from "./model";
 import { GAMBIT_PRESETS } from "./gambit";
 import { snapshotMember } from "./awayTeam";
@@ -95,9 +98,9 @@ describe("rule edits", () => {
     const s = crew();
     const next = setMemberGambitRule(s, "member-1", 0, { target: "foeNearest", action: "attack" });
     const g = byId(next, "member-1").gambit as GambitProgram;
-    expect(g.length).toBe(DEFAULT_MEMBER_GAMBIT.length);
+    expect(g.length).toBe(EDIT_BASE.length);
     expect(g[0]).toEqual({ target: "foeNearest", action: "attack" });
-    expect(g.slice(1)).toEqual(DEFAULT_MEMBER_GAMBIT.slice(1));
+    expect(g.slice(1)).toEqual(EDIT_BASE.slice(1));
     // only that member changed; the others keep their references
     expect(byId(next, "member-2")).toBe(byId(s, "member-2"));
     expect(next.ships).toBe(s.ships);
@@ -124,10 +127,10 @@ describe("rule edits", () => {
     expect(setMemberGambitRule(s, "member-1", 99, rule)).toBe(s);
     expect(removeMemberGambitRule(s, "member-1", -1)).toBe(s);
     expect(moveMemberGambitRule(s, "member-1", 0, "up")).toBe(s);
-    expect(moveMemberGambitRule(s, "member-1", DEFAULT_MEMBER_GAMBIT.length - 1, "down")).toBe(s);
+    expect(moveMemberGambitRule(s, "member-1", EDIT_BASE.length - 1, "down")).toBe(s);
     expect(addMemberGambitRule(s, "member-11", rule)).toBe(s);
     // setting a rule to what it already is changes nothing
-    expect(setMemberGambitRule(s, "member-1", 0, { ...DEFAULT_MEMBER_GAMBIT[0] })).toBe(s);
+    expect(setMemberGambitRule(s, "member-1", 0, { ...EDIT_BASE[0] })).toBe(s);
   });
 
   it("stores a deep copy: mutating the passed rule later changes nothing stored", () => {

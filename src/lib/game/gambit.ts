@@ -621,6 +621,12 @@ const TRIAGE_FIELD_KITS_PROGRAM: GambitProgram = [
   { target: "foeNearest", action: "attack" },
 ];
 
+// Field Kits FKR-9 / FKR-10 review (user rule 2026-10-21, "a wired thing that misbehaves is a bug"): the Security programs a
+// preset handed out BEFORE its current one, which still read as that preset (memberGambits.ts matchedMemberPreset). A
+// member who applied Triage before kits went live holds TRIAGE_PROGRAM; the switch-on swapped the preset, and without
+// this their program would silently relabel "Custom". Empty while kits are off (nothing was swapped).
+export const GAMBIT_PRESET_EARLIER_PROGRAMS: Readonly<Record<string, readonly GambitProgram[]>> = FIELD_KITS_PLAYER_LIVE ? { triage: [TRIAGE_PROGRAM] } : {};
+
 // E-CREW (Task 13): rewritten for SECURITY ONLY (design D16: "the six preset titles stay"). Science never
 // enters a battle, so every preset's Science program is empty and nothing executes one. Each Security
 // program runs PER MEMBER; a member with none runs DEFAULT_MEMBER_GAMBIT (D19), which is not a preset.
