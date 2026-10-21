@@ -131,6 +131,11 @@ export const CONTENT_CATALOGS: ReadonlySet<string> = new Set([
   "GRENADES",
   "GROUND_CONDITIONS",
   "SPEED_SEAM",
+  // Gear wear (0.14.0): the wear sources, repair rates and bonuses and efficiency consumers every piece plays by.
+  "WEAR_SOURCES",
+  "REPAIR_RATES",
+  "REPAIR_RATE_BONUSES",
+  "WEAR_EFFICIENCY",
 ]);
 
 // Sources the panel does not judge ownership of, each with why (a NEW catalog must join a list: the test fails).

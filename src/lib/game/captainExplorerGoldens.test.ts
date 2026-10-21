@@ -19,6 +19,7 @@
 // a node moves, each with its reason beside it, and the baseline ("none") never moves.
 
 import { describe, expect, it } from "vitest";
+import { goldenJson } from "./firstRunsGoldens.fixture"; // gear wear: hashes with the retired durability put back
 // E-MOD EM-1: sheets pinned before the power budget engine are hashed with it switched off (emodGoldens.test.ts pins
 // the power numbers and proves the switch reproduces its own capture), so these pins keep proving nothing else moved.
 import { withEm1Off } from "./emodEm1Switch.fixture";
@@ -46,7 +47,7 @@ function fnv(s: string): string {
   }
   return h.toString(16);
 }
-const hash = (v: unknown): string => fnv(JSON.stringify(v));
+const hash = (v: unknown): string => fnv(goldenJson(v));
 // A state without the captains' secondary nodes (the variant's own input), so an inert node reads the baseline.
 // Relics v2 R2-1: the Museum v2 record in its v1 form (withV1Museum), as these were captured.
 const hashState = (s: GameState): string => hash({ ...withV1Museum(s), captains: s.captains.map((c) => ({ ...c, unlockedSecondaryTalents: [] })) });

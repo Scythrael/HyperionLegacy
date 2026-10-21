@@ -41,7 +41,6 @@ function piece(over: Partial<EquipmentInstance> & { slotType: EquipmentInstance[
     mass: 0,
     powerDraw: 0,
     durabilityMax: 100,
-    durability: 100,
     fittedToShipId: SHIP,
     ...over,
   } as EquipmentInstance;

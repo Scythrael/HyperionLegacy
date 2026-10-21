@@ -410,4 +410,5 @@ export const SYSTEM_LABEL: Readonly<Record<WiringSystem, string>> = {
   relic: "Relics and the Museum",
   mission: "Missions and patrols",
   salvage: "Salvage",
+  wear: "Gear wear",
 };

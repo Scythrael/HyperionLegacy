@@ -31,7 +31,7 @@ import { dispatchCaptainOnMission, economyTick, inspectBlank, installMissingComb
 import { generateEquipment } from "./itemgen";
 import { addItemQuality } from "./inventory";
 import type { CraftLineMode } from "./allocation";
-import { withV1Museum } from "./firstRunsGoldens.fixture";
+import { goldenJson, withV1Museum } from "./firstRunsGoldens.fixture"; // gear wear: goldenJson puts the retired durability back
 
 // ===== shared helpers =====
 
@@ -46,7 +46,7 @@ function fnv(s: string): string {
 
 // Relics v2 R2-1: a state hashes with its Museum v2 record in the v1 form (withV1Museum), as these were captured;
 // any other value passes through unchanged.
-const hash = (v: unknown): string => fnv(JSON.stringify(withV1Museum(v)));
+const hash = (v: unknown): string => fnv(goldenJson(withV1Museum(v)));
 
 // A seeded stream that also counts its draws (the shared-stream draw count ML-3 must keep identical).
 function countedLcg(seed: number): { rng: () => number; draws: () => number } {

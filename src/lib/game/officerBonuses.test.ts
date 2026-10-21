@@ -58,7 +58,7 @@ import { itemTotal } from "./inventory";
 // Ground Ops GO-1: whole-state goldens hash without the new, inert ground-team slots (captured before them).
 import { asLegacyDispatch, asPreG2NamesDispatch, withSlottedAwayTeams, withoutGroundSquadState } from "./awayTeamTestFixtures";
 // SF-1: whole states hash without the run counters (seeded by freshState, written by a patrol), absent before SF-1.
-import { withoutRunCounts } from "./firstRunsGoldens.fixture";
+import { withoutRunCounts, goldenJson } from "./firstRunsGoldens.fixture";
 
 // Ground Ops (GO-7b): this file pins LEGACY expedition runs (goldens captured before Ground Ops): every dispatch
 // slots the members in hire order (dispatch reads the slotted ground teams) and resolves without the groundOps
@@ -195,7 +195,7 @@ describe("neutrality: no officer = byte-identical to before Task 20 (golden)", (
   it("extraction, survey and transport runs through economyTick", () => {
     for (const key of ["shortOreRun", "surveyMineralAnomaly", "frontierSupplyRun"] as MissionKey[]) {
       const s = runTicks(missionState(key), 700, lcg(0xbeef));
-      expect(fnv(JSON.stringify(withoutRunCounts(withoutGroundSquadState(s)))), key).toBe(GOLDEN[`mission:${key}`]);
+      expect(fnv(goldenJson(withoutRunCounts(withoutGroundSquadState(s)))), key).toBe(GOLDEN[`mission:${key}`]);
     }
   });
 
@@ -204,13 +204,13 @@ describe("neutrality: no officer = byte-identical to before Task 20 (golden)", (
       const r = dispatchCaptainOnPatrol(patrolState(typeKey), 1, "crimsonReaverSweep", "balanced", true);
       expect(r.success).toBe(true);
       let s = r.next;
-      expect(fnv(JSON.stringify(s.captains[0].mission))).toBe(GOLDEN[`patrol:${typeKey}:dispatch`]);
+      expect(fnv(goldenJson(s.captains[0].mission))).toBe(GOLDEN[`patrol:${typeKey}:dispatch`]);
       const replays: string[] = [];
       for (let i = 0; i < 1200; i++) {
         s = economyTick(s, 1, () => 0.5);
-        if (i % 150 === 0) replays.push(fnv(JSON.stringify(replayPatrol(s, s.captains[0]))));
+        if (i % 150 === 0) replays.push(fnv(goldenJson(replayPatrol(s, s.captains[0]))));
       }
-      expect(fnv(JSON.stringify(withoutRunCounts(withoutGroundSquadState(s))))).toBe(GOLDEN[`patrol:${typeKey}:state`]);
+      expect(fnv(goldenJson(withoutRunCounts(withoutGroundSquadState(s))))).toBe(GOLDEN[`patrol:${typeKey}:state`]);
       expect(replays).toEqual(GOLDEN[`patrol:${typeKey}:replays`]);
     }
   });
@@ -221,7 +221,7 @@ describe("neutrality: no officer = byte-identical to before Task 20 (golden)", (
       ...base,
       ships: base.ships.map((sh) => (sh.id === "ship-1" ? { ...sh, typeKey: "destroyer" as ShipTypeKey, damaged: true, repairDamage: 437 } : sh)),
     };
-    expect(fnv(JSON.stringify(processShipRepairs(installMissingCombatBaselines(s)).activeProcesses))).toBe(GOLDEN.repair);
+    expect(fnv(goldenJson(processShipRepairs(installMissingCombatBaselines(s)).activeProcesses))).toBe(GOLDEN.repair);
   });
 
   it("expeditions: the dispatch record, the resolved run and the claim injuries", () => {
@@ -233,7 +233,7 @@ describe("neutrality: no officer = byte-identical to before Task 20 (golden)", (
       expect(res.success).toBe(true);
       const done = advanceExpedition(res.expedition!, 1_000_000);
       const claimed = claimExpedition({ ...res.next, expeditions: [done] }, done.id);
-      runs.push(fnv(JSON.stringify(res.expedition)) + "/" + fnv(JSON.stringify(done)) + "/" + fnv(JSON.stringify(claimed.next.awayMembers)));
+      runs.push(fnv(goldenJson(res.expedition)) + "/" + fnv(goldenJson(done)) + "/" + fnv(goldenJson(claimed.next.awayMembers)));
     }
     expect(runs).toEqual(GOLDEN.expedition);
   });

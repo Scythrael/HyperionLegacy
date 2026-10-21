@@ -18,7 +18,7 @@ import { applyTimeSkip } from "./processSpeed";
 import { installMissingCombatBaselines } from "./tick";
 import { asExpeditionVeteran, plainAwayMember } from "./awayTeamTestFixtures";
 import { PRE_G2_3_STORED_RUNS } from "./voyageGoldens.fixture";
-import { withV1Museum } from "./firstRunsGoldens.fixture";
+import { goldenJson, withV1Museum } from "./firstRunsGoldens.fixture"; // gear wear: goldenJson puts the retired durability back
 
 function fnv(s: string): string {
   let h = 0x811c9dc5;
@@ -28,7 +28,7 @@ function fnv(s: string): string {
   }
   return h.toString(16);
 }
-const hash = (v: unknown): string => fnv(JSON.stringify(v));
+const hash = (v: unknown): string => fnv(goldenJson(v));
 
 const T0 = 100_000;
 const FINAL = T0 + 3_000_000;
@@ -154,7 +154,9 @@ describe("G2-3 goldens first: pre-voyage in-flight runs keep their timing", () =
     it(`${name}: the same dispatch made today, without its voyage, is the stored record`, () => {
       const res = startExpedition(CASES[name].crew(), "ship-1", 1, CASES[name].candidate);
       expect(res.success).toBe(true);
-      expect(withoutVoyage(res.expedition!)).toEqual(stored(name));
+      // Gear wear: the stored record is a pre-wear save (its frozen battle gear still carries the retired `durability`,
+      // which migrate drops on load); goldenJson puts the field back on today's pristine pieces to compare like for like.
+      expect(JSON.parse(goldenJson(withoutVoyage(res.expedition!)))).toEqual(stored(name));
     });
   }
 });

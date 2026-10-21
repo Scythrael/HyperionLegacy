@@ -625,6 +625,7 @@
   import MultiSelect from "./lib/MultiSelect.svelte";
   import { initIconPack } from "./lib/ui/iconPacks";
   import { generateEquipment } from "./lib/game/itemgen";
+  import { pieceCondition } from "./lib/game/gearWear";
   // [DEV] combat-gear mint (Debug tab only): the dev-only helper that mints a REAL
   // crafted EquipmentInstance off a blueprint at a CHOSEN quality / iLevel / rarity
   // (the QA path for conjuring a q4 / q5 weapon / emitter / plating / drone pod that
@@ -4270,13 +4271,11 @@
   //
   // ⚠️ CACHE-VALIDITY CONTRACT (Unit 2.4 review): this memo is correct ONLY while (a) the
   // PATROLS defs are static consts (a def retune mid-session would not bust the key) AND (b)
-  // an EquipmentInstance id fully determines its combat stats. Today (b) holds AND gear
-  // durability is constant (never drops this patch), so the durability digest is a no-op.
-  // But resolveBattle reads piece.durability and this epic is heading toward PERSISTENT
-  // on-gear durability (see model.ts "never drops this patch" / weapons-as-gear notes): once
-  // a worn/repaired weapon keeps its id but changes stats, an id-only key would go STALE.
-  // Folding the durability digest into the signature NOW is cheap forward insurance so that
-  // day cannot silently show a wrong band.
+  // an EquipmentInstance id fully determines its combat stats. Gear wear (0.14.0) breaks (b) on
+  // purpose: a worn or repaired piece keeps its id while its condition (and so its combat pool,
+  // gearWear.ts pieceStartDurability) changes, so an id-only key would go STALE. The condition
+  // digest in the signature busts it; while no wear source is wired every piece reads pristine
+  // and the digest never changes the key.
   //
   // The `state` arg is passed so the calling {@const} statically depends on `state` and
   // thus re-runs when a gear install/uninstall reassigns it (that is what lets the readout
@@ -4314,14 +4313,12 @@
     // TIGHT memo signature: everything that changes the forecast, and nothing that does
     // not. Gear ids capture install/uninstall (crafted pieces are immutable once minted,
     // so an id list identifies the loadout TODAY); stance + ship + patrol complete it. The
-    // trailing per-gear DURABILITY digest is forward insurance (see the header's cache-
-    // validity contract): durability is constant this patch so it never changes the key
-    // now, but once on-gear durability persists (0.12.0 weapons-as-gear), a worn/repaired
-    // piece keeps its id while its combat stats change, and only this digest would bust the
-    // stale cache. Cheap to include now, no behavior change today.
+    // trailing per-gear CONDITION digest (gear wear, see the header's cache-validity
+    // contract): a worn or repaired piece keeps its id while its combat pool changes, and only
+    // this digest busts the stale cache.
     const gearIds = installedGear.map((g) => g.id).join(",");
-    const durabilityDigest = installedGear.map((g) => g.durability).join(",");
-    const signature = `${patrolKey}::${ship.id}::${stance}::${gearIds}::${durabilityDigest}`;
+    const conditionDigest = installedGear.map((g) => pieceCondition(g)).join(",");
+    const signature = `${patrolKey}::${ship.id}::${stance}::${gearIds}::${conditionDigest}`;
     const cached = patrolForecastCache.get(patrolKey);
     if (cached && cached.signature === signature) return cached.value;
 

@@ -92,6 +92,12 @@ import {
 //      the same v1 math (R2-4 changes the math, not this step). Vault tokens and in-flight studies are untouched (their
 //      new fields are optional). See withMuseumV2V70, which migrate ALSO runs after the loop on every load, so a save
 //      already at v70 from a build before R2-1 moves its museum too.
+//   5. Gear wear (design 2026-10-16 section 6; user W1 "0-1000 condition": per-mille condition replaces the unused
+//      durability field): delete the retired `durability` from every EquipmentInstance. It never dropped (always equal
+//      to durabilityMax), so nothing is lost; nothing else is written (an absent `condition` already means pristine),
+//      so every existing piece loads at full condition. See dropRetiredDurabilityV70, which migrate ALSO runs after the
+//      loop on every load (the withHomeworldV70 precedent), so a save already at v70 from a build before this step
+//      sheds the field too.
 export const SAVE_VERSION = 70;
 export const SAVE_KEY = "fleet_admiral_save";
 
@@ -2595,7 +2601,9 @@ const MIGRATIONS: Record<number, Migration> = {
   // 2. Safe first runs SF-1: the run counters, derived from the save's history (withRunCountsV70).
   // 3. Expedition Tiers G2-1: the per-save homeworld seed, from the injected entropy (withHomeworldV70).
   // 4. Relics v2 R2-1: the v1 museum copies move into museumV2.general["1"] (withMuseumV2V70).
-  69: (state: any, ctx: MigrationContext): any => withMuseumV2V70(withHomeworldV70(withRunCountsV70(dropRetiredFuelV70(state)), ctx.homeworldEntropy)),
+  // 5. Gear wear: the retired per-piece `durability` field (dropRetiredDurabilityV70).
+  69: (state: any, ctx: MigrationContext): any =>
+    dropRetiredDurabilityV70(withMuseumV2V70(withHomeworldV70(withRunCountsV70(dropRetiredFuelV70(state)), ctx.homeworldEntropy))),
 };
 
 // The v69 -> v70 WR-4 step: drop `fuel` and every `fuelRefineJob` process (its addFuel output names a field that no
@@ -2775,6 +2783,52 @@ export function withMuseumV2V70(state: any): any {
   return out;
 }
 
+// The v69 -> v70 gear wear step: delete `durability` from every EquipmentInstance the save stores: the gear itself
+// (state.equipment) and the deep copies an in-flight expedition froze at dispatch (GO-8,
+// expeditions[].groundOps.shipEventProfile.battle.installedGear). The field never dropped (every mint set it to
+// durabilityMax and nothing lowered it), so deleting it loses nothing, and an absent `condition` (gearWear.ts
+// pieceCondition) reads pristine: every existing piece loads at full condition and an in-flight run fights exactly as
+// it was dispatched. Nothing else is written. FROZEN: reads only the raw save. Idempotent, and identity for a save
+// with no such field (the SAME reference), which is why migrate can run it on every load. Hardened: a non-object
+// state, a non-array list or a junk entry (not an object) passes through untouched.
+function hasRetiredDurability(e: any): boolean {
+  return !!e && typeof e === "object" && Object.prototype.hasOwnProperty.call(e, "durability");
+}
+// A piece list without the field, the SAME array when no entry carries it. Pure.
+function piecesWithoutDurability(list: unknown): unknown {
+  if (!Array.isArray(list) || !list.some(hasRetiredDurability)) return list;
+  return list.map((e: any) => {
+    if (!hasRetiredDurability(e)) return e;
+    const { durability: _retired, ...rest } = e;
+    return rest;
+  });
+}
+// One expedition with its frozen battle gear cleaned, the SAME object when there is nothing to clean. Pure.
+function expeditionWithoutDurability(x: any): any {
+  const battle = x && typeof x === "object" ? x.groundOps?.shipEventProfile?.battle : undefined;
+  if (!battle || typeof battle !== "object") return x;
+  const installedGear = piecesWithoutDurability(battle.installedGear);
+  if (installedGear === battle.installedGear) return x;
+  return {
+    ...x,
+    groundOps: {
+      ...x.groundOps,
+      shipEventProfile: { ...x.groundOps.shipEventProfile, battle: { ...battle, installedGear } },
+    },
+  };
+}
+export function dropRetiredDurabilityV70(state: any): any {
+  if (!state || typeof state !== "object") return state;
+  const equipment = piecesWithoutDurability(state.equipment);
+  let expeditions: unknown = state.expeditions;
+  if (Array.isArray(state.expeditions)) {
+    const cleaned = state.expeditions.map(expeditionWithoutDurability);
+    if (cleaned.some((x: any, i: number) => x !== state.expeditions[i])) expeditions = cleaned;
+  }
+  if (equipment === state.equipment && expeditions === state.expeditions) return state;
+  return { ...state, ...(equipment === state.equipment ? {} : { equipment }), ...(expeditions === state.expeditions ? {} : { expeditions }) };
+}
+
 // The entropy migrate falls back to when its caller passes none (tests and tools that load a save directly): a
 // deterministic mix of the save's own creation time, so such a load is reproducible and two players' saves still
 // differ. The game's load path always passes a real draw (loadFromLocalStorage). Pure.
@@ -2856,6 +2910,8 @@ export function migrate(save: SaveFile, homeworldEntropy?: number): GameState {
   // Relics v2 R2-1: the same for the museum. A dev or QA save at v70 from a build before R2-1 still holds the v1
   // `relicMuseum`, which nothing reads any more; withMuseumV2V70 is idempotent (the SAME reference once moved).
   state = withMuseumV2V70(state);
+  // Gear wear: the same every-load posture for the retired per-piece `durability` (identity once it is gone).
+  state = dropRetiredDurabilityV70(state);
   // Hydrate the SHAPE first (Decimals, quality buckets), THEN reconcile any over-cap stack
   // down to its warehouse cap. clampInventoryToCaps needs the hydrated Decimal inventory +
   // the facility levels (both present after hydrateDecimals) to resolve each item's cap. It

@@ -1845,9 +1845,20 @@ export interface EquipmentInstance {
   rolledStats: Record<string, number>;    // the varying affixes rolled on top of the implicits
   mass: number;                           // intrinsic; drags speed stats, fought by propulsion (later fold-in task)
   powerDraw: number;                      // intrinsic; must fit within the reactor's Power Output (later fitting task)
+  // The piece's TOUGHNESS (gear wear 0.14.0, gearWear.ts): every wear amount scales by 100 / durabilityMax, and it is
+  // the size of the piece's combat pool. Quality-scaled at mint (itemgen.ts QUALITY_DURABILITY_BONUS).
   durabilityMax: number;
-  durability: number;                     // never drops this patch; combat drives loss in 0.12.0
-  fittedToShipId: string | null;          // null = on no ship. THE ship-install authority (mirrors ShipInstance.assignedCaptainId); "spare?" is isSparePiece
+  // GEAR WEAR (0.14.0, design docs/plans/2026-10-16-gear-wear-design.md section 6; user W1 "0-1000 condition"): the
+  // piece's condition, an integer PER-MILLE 0..1000. ABSENT = 1000, pristine: every minted and migrated piece, and a
+  // piece repaired back to full (gearWear.ts withPieceCondition removes both fields), so a pristine piece serializes
+  // exactly as before wear existed. Read it through gearWear.ts pieceCondition. It replaces the retired `durability`
+  // field (always equal to durabilityMax; MIGRATIONS[69] deletes it); combat opens a pool at pieceStartDurability.
+  // Optional + additive.
+  condition?: number;
+  // The game time (state.gameTimeSeconds) the condition was last settled at (gearWear.ts settlePiece): repair is
+  // closed form from this anchor. Absent with `condition`.
+  conditionAt?: number;
+  fittedToShipId: string | null;         // null = on no ship. THE ship-install authority (mirrors ShipInstance.assignedCaptainId); "spare?" is isSparePiece
   // ITEM LIFECYCLE 0.13.6 (Armory, Phase 3; DORMANT until the Armory build wires it). The THIRD
   // fitment state: a system COMMITTED into a loadout carries the loadout's id here, which excludes it
   // from the free spare pool AND the manual-install picker (isSparePiece below requires no
@@ -11328,8 +11339,7 @@ export function generateStandardIssue(a: {
     rolledStats: {}, // NO affixes: the deliberate "minimal neutral form" (see the note above)
     mass: 0, // stat-neutral floor (see STANDARD_ISSUE_IMPLICIT_MAGNITUDE note): drags nothing
     powerDraw: 0, // stat-neutral floor: draws nothing against the reactor budget
-    durabilityMax: basePhysicals.durability, // reserved value; durability never lost in 0.11.0, does not feed shipDerivedStats
-    durability: basePhysicals.durability, // fresh piece starts at full durability
+    durabilityMax: basePhysicals.durability, // toughness (gear wear): a fresh piece is pristine (no condition field)
     fittedToShipId: a.fittedToShipId,
   };
   // The same stamping rule generateEquipment applies (itemgen.ts): every member piece, and any variety with
@@ -11575,7 +11585,6 @@ export function generateCombatStandardIssue(a: {
     mass: 0, // economy-neutral (see the note): drags nothing through MASS_SPEED_DRAG
     powerDraw: 0, // economy-neutral: draws nothing against the reactor budget
     durabilityMax: durabilityBase,
-    durability: durabilityBase, // fresh piece starts at full durability
     fittedToShipId: a.fittedToShipId,
   };
   // weaponType lives ONLY on a weapon piece (the guard above proves it is defined here).

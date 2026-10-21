@@ -320,7 +320,6 @@ describe("ship repair timed process", () => {
       mass: 0,
       powerDraw: 0,
       durabilityMax: 100,
-      durability: 100,
       fittedToShipId: "ship-1",
     };
     const ship: ShipInstance = { id: "ship-1", typeKey: "destroyer", assignedCaptainId: null, damaged: true }; // NO capture
