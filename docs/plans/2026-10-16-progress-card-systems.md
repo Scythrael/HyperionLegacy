@@ -41,3 +41,12 @@ expedite seam in the speed seam; tutorial wiring left).
 Designed (4): Relics v2; completion tracking; Material Lines; universal modules (E-MOD).
 Note shown on the card: "Still in production: once building wraps, a full QA pass begins, more in-depth than any
 before it."
+
+## 2026-10-21 (v8): 32 systems, 16 done, 14 building, 2 designed = 72%
+
+Done (16): unchanged from v7. Building (14): the v7 ten (wiring WR-1 to WR-6; safe first runs SF-0 to SF-3; complement
+CP-0 to CP-2, CP-6 to CP-8 and the racials; expedition tiers G2-1 to G2-3; Field Kits FKR-0 to FKR-10, live for players,
+FKR-11 close-out left; short-range G1-0 to G1-4; gas giant GG-0 to GG-1; gear wear steps 1 to 2; Overtime and credit
+sinks; tutorial hooks) plus Relics v2 (R2-0 to R2-1), Material Lines (ML-0 to ML-1), universal modules / power (EM-0 to
+EM-1) and the NEW reactor fuel ladder and tech foundation (built, awaiting one balance call). Designed (2): completion
+tracking; the NEW recipe realism pass (audit signed off in groups). Two systems added since v7, noted on the card.
