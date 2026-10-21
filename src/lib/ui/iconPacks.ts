@@ -179,6 +179,9 @@ export const ICON_SEMANTICS: Record<IconName, IconSemantic> = {
   antimatterCell: "subject",
   // Reactor fuel ladder (0.14.0): the comet names the Cometary Ice Harvest mission.
   comet: "subject",
+  // Short-Range Missions (0.14.0 G1-6): the hop names the mission type (Home rows), the mast names one job.
+  shortRange: "subject",
+  commBooster: "subject",
 
   // ACTION: something the player does. Should stay recognisable as that action.
   salvage: "action",

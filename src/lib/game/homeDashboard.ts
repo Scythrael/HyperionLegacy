@@ -81,7 +81,10 @@ import {
   canStartLine,
   canBuildShip,
   canBuildFacilityUpgrade,
+  materialAtCap,
 } from "./tick";
+// G1-6: the calm waiting line of a short-range run (the engine's own departure gate, worded once).
+import { shortRangeWaitText } from "./shortRangeCycle";
 
 // The queue's OWN pure view model (Crafting 0.13.3, Unit 4.6). The board learns about
 // QUEUED orders by asking the module that already answers every queue question, exactly as
@@ -144,7 +147,10 @@ export type JumpTarget =
   // Exploration 0.14.0 (E4c): the Research facility's RELICS sub-tab (the relic vault + study lane +
   // identification reveal). A relic study runs at the Research facility but on its OWN lane, so its rows
   // land on the Relics sub-tab rather than on the blueprint-research list the "research" target opens.
-  | "relics";
+  | "relics"
+  // Short-Range Missions (0.14.0 G1-6): the Operations "Short-Range" tab (the board), where a short-range run is
+  // dispatched, followed and recalled, so its in-progress and completed rows land there.
+  | "shortRange";
 
 // Which FLAVOR of in-progress row this is. Drives how the UI reads the optional
 // fields: a "patrol" row is the only kind that carries `combat` (and has a null ETA,
@@ -722,24 +728,27 @@ function rowForExtraction(
 
 // G1-3: the ActivityRow for a captain flying a SHORT-RANGE board slot. Like an extraction row it reports PER-PHASE
 // progress and time, read from the cycle plan frozen on the run (the same lengths the cycle engine advances on), and
-// its phase line goes through missionPhaseStatus so a run held for a transit berth says so. Not navigable until the
-// board has its own Operations tab (G1-6 sets the jump).
+// its phase line goes through missionPhaseStatus so a run held for a transit berth says so.
+// G1-6: the row opens the Short-Range tab, and a run WAITING at home (its Supply Drop-off load unaffordable, or its
+// pickup's Warehouse shelf full) reads as a calm status line with no countdown (user 2026-10-21 "Yes, calm status
+// line"; the words are the engine's own departure gate, shortRangeWaitText), never a warning.
 function rowForShortRange(captain: CaptainState, mission: ShortRangeMissionState, state: GameState): ActivityRow {
   const plan = mission.plan;
   const requiredTicks = Math.max(
     1,
     mission.phase === "transitOut" ? plan.transitOutTicks : mission.phase === "onSite" ? plan.onSiteTicks : mission.phase === "transitBack" ? plan.transitBackTicks : plan.unloadTicks,
   );
+  const wait = shortRangeWaitText(mission, captain, Math.max(0, state.credits.toNumber()), (id) => materialAtCap(state, id));
   return {
     id: `shortRange-${captain.id}`,
     icon: "shortRange",
     primaryLabel: `${captain.label}, ${shortRangeMissionLabel(mission)}`,
-    secondaryLabel: missionPhaseStatus(state, captain),
+    secondaryLabel: wait !== null ? wait.line : missionPhaseStatus(state, captain),
     kind: "shortRange",
-    progress: Math.min(1, mission.phaseProgressTicks / requiredTicks),
-    remainingTicks: Math.max(0, Math.ceil(requiredTicks - mission.phaseProgressTicks)),
-    durationTicks: Math.ceil(requiredTicks),
-    jumpTarget: null,
+    progress: wait !== null ? 0 : Math.min(1, mission.phaseProgressTicks / requiredTicks),
+    remainingTicks: wait !== null ? null : Math.max(0, Math.ceil(requiredTicks - mission.phaseProgressTicks)),
+    durationTicks: wait !== null ? null : Math.ceil(requiredTicks),
+    jumpTarget: "shortRange",
     combat: null,
   };
 }
@@ -1201,9 +1210,9 @@ const COMPLETION_KIND_VIEW: Record<
   // ⚠️ A patrol does not happen AT a facility, so its source names the console that dispatches
   // and recalls it rather than inventing a location. Same principle as the jumpTarget beside it.
   patrolRun:               { verb: "Patrolled",   icon: "patrol",     source: "Battlespace",    jumpTarget: "combat" },
-  // G1-4: a short-range run that ended (recalled; its cycles delivered are the entry's iterations). The board lives at
-  // Mission Control's slots; the row is not navigable until G1-6 gives the board its tab (the in-progress row's rule).
-  shortRangeRun:           { verb: "Completed",   icon: "shortRange", source: "Mission Control", jumpTarget: null },
+  // G1-4: a short-range run that ended (recalled; its cycles delivered are the entry's iterations). G1-6: the board has
+  // its own Operations tab, so the row opens it, and its source names that tab.
+  shortRangeRun:           { verb: "Completed",   icon: "shortRange", source: "Short-Range Missions", jumpTarget: "shortRange" },
 };
 
 // 0.13.4 Phase 2 Unit 2.2 (design §6.2): the EXHAUSTIVE wording table for patrol endings.

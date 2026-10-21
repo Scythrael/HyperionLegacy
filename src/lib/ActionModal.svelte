@@ -13,6 +13,9 @@
   export let onClose: () => void;
   // The dialog's accessible name; defaults to the visible title.
   export let ariaLabel: string = title;
+  // A WIDE card on desktop (920px instead of 540px) for a two-column body (G1-6: the Short-Range dispatch popup's
+  // picker beside its sheet, as the signed-off mockup draws it). Mobile is the same bottom sheet either way.
+  export let wide: boolean = false;
 
   // Portal to <body> so the modal escapes any transformed / overflow-clipped ancestor (the same
   // reason the install flow portals). Safe on destroy whether or not Svelte already detached it.
@@ -27,7 +30,7 @@
      users dismiss with Escape (the focusTrap on the dialog) or the header close button, and every
      real control lives inside the dialog. -->
 <div class="am-backdrop" use:portal on:click|self={onClose}>
-  <div class="am-dialog" role="dialog" aria-modal="true" aria-label={ariaLabel} use:focusTrap={onClose}>
+  <div class="am-dialog" class:am-wide={wide} role="dialog" aria-modal="true" aria-label={ariaLabel} use:focusTrap={onClose}>
     <div class="am-head">
       <span class="am-title">{title}</span>
       <button class="am-close" on:click={onClose} aria-label="Close">&times;</button>
@@ -71,6 +74,7 @@
       border-radius: var(--corner);
       box-shadow: 0 18px 50px rgba(0, 0, 0, 0.6);
     }
+    .am-dialog.am-wide { max-width: 920px; }
   }
   .am-head {
     flex: 0 0 auto;

@@ -31,6 +31,7 @@ import {
   dispatchCaptainOnShortRange,
   isWellFormedShortRangeBoard,
   isWellFormedShortRangeMission,
+  setShortRangeRepeat,
   shortRangeBlockText,
   shortRangeBoardSlots,
   shortRangeMissionLabel,
@@ -318,6 +319,37 @@ describe("G1-3 recall: finishes the current cycle, then stops", () => {
       expect(r.success).toBe(true);
       expect(missionOf(r.next)).toEqual({ ...missionOf(s), recalled: true });
     }
+  });
+});
+
+// ===== the Repeat toggle (G1-6) =====
+
+describe("G1-6 the Repeat toggle: off finishes this cycle, on takes it back; never ends a run at home", () => {
+  it("off flags the run like a single run; on clears it; nothing else moves", () => {
+    const s = withMission(dispatched(), { phase: "onSite", phaseProgressTicks: 3 });
+    const off = setShortRangeRepeat(s, WIRING_CAPTAIN_ID, false);
+    expect(off.success).toBe(true);
+    expect(missionOf(off.next)).toEqual({ ...missionOf(s), recalled: true });
+    const on = setShortRangeRepeat(off.next, WIRING_CAPTAIN_ID, true);
+    expect(on.success).toBe(true);
+    expect(missionOf(on.next)).toEqual(missionOf(s));
+  });
+
+  it("a run still at home set to stop keeps its cycle (unlike Recall, which ends it at once)", () => {
+    const s = dispatched();
+    const off = setShortRangeRepeat(s, WIRING_CAPTAIN_ID, false);
+    expect(off.success).toBe(true);
+    expect(missionOf(off.next).phase).toBe("transitOut");
+    expect(off.next.runCounts).toBe(s.runCounts);
+  });
+
+  it("the same setting, an idle captain or an unknown captain returns the SAME state", () => {
+    const s = dispatched();
+    expect(setShortRangeRepeat(s, WIRING_CAPTAIN_ID, true)).toEqual({ next: s, success: false });
+    expect(setShortRangeRepeat(s, WIRING_CAPTAIN_ID, true).next).toBe(s);
+    const idle = qualified();
+    expect(setShortRangeRepeat(idle, WIRING_CAPTAIN_ID, false).next).toBe(idle);
+    expect(setShortRangeRepeat(s, 999, false).next).toBe(s);
   });
 });
 
