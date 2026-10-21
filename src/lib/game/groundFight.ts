@@ -82,7 +82,7 @@ import {
 } from "./enemyRanks";
 import { FIRST_RUN_ENEMY_SCALE, FIRST_RUN_MAX_ENEMIES, encounterHazard, rampEnemyScale, rampedStampOf } from "./runDifficulty";
 // Field Kits FKR-4: the flag and the inflictors (a Field Kits run only).
-import { SPLINT_HEAL_ROUNDS, fieldKitsLive, type FieldKitId } from "./fieldKits";
+import { SPLINT_HEAL_ROUNDS, fieldKitsLive, timedFusesLive, type FieldKitId } from "./fieldKits";
 import { withFieldKitsGuard, withFieldKitsTeam } from "./fieldKitsConditions";
 // Field Kits FKR-5: the squad's thrown grenades and their charges (a Field Kits run only).
 import { withThrownGrenades } from "./fieldKitsGrenades";
@@ -199,11 +199,12 @@ export function taskFightTeam(
     powerMult: exp.explorerCaptain?.squadPowerMult,
   });
   // Field Kits FKR-4: Stoneskin's battle half (a Field Kits run only; fieldKitsConditions.ts). FKR-5: the thrown
-  // grenades with each member's charges left this objective (fieldKitsGrenades.ts), in place of their passive on-hit.
+  // grenades with each member's charges left this objective (fieldKitsGrenades.ts), in place of their passive on-hit;
+  // on a catalog 2 run (timed grenades, user 2026-10-21) the Stun and Toxin Grenades keep their fuse.
   // FKR-6: the Field Kits default program (N15) and each member's own kits (their free basics and extras left).
   if (fieldKitsLive(exp)) {
     withFieldKitsTeam(team, members);
-    withThrownGrenades(team, members, teamCharges(teams));
+    withThrownGrenades(team, members, teamCharges(teams), timedFusesLive(exp));
     withFieldKitsDefaultProgram(team);
     withFieldKitPacks(team, teamKitCounts(teams, (t) => t.basics), teamKitCounts(teams, (t) => t.kits));
   }

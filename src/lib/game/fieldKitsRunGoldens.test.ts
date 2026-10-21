@@ -125,7 +125,8 @@ function stampedRun(state: GameState, pois: string[], risk: BodyRiskGrades, haza
     scanStepCursor: Math.max(0, (d.encounterSteps ?? 1) - 1),
     groundOps: { ...d.groundOps!, startedAt: T0 },
     risk: { version: 1, tier: 1, enemyTerritory: false, system: { combat: risk.combat, fauna: risk.fauna, flora: risk.flora }, difficultyTier: 1, affixCatalog: 2 },
-    fieldKits: { catalog: FIELD_KITS_CATALOG_VERSION },
+    // Catalog 1 as a literal (timed grenades, 2026-10-21): the Stun and Toxin throws here stay the pre-fuse run.
+    fieldKits: { catalog: 1 },
   });
   exp.groundOps!.teams.forEach((t, i) => {
     (t as unknown as Record<string, unknown>).kits = structuredClone(HAND_KITS[i] ?? {});

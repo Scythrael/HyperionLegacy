@@ -615,3 +615,9 @@ Sets in 0.14.x). The power budget itself should not move: seven registry rows an
 - **ML-1 recipe numbers (2026-10-20):** "Approve (Recommended)": MATERIAL_LINE_RECIPE_NUMBERS as built (Ferrite 20:1
   12 ticks; Circuitry 5:1 and Iridium 3:1 20 ticks; Cobalt Coil 3 Cobalt + 1 Titanium Ingot; Osmium Plate 2 Osmium +
   2 Ferrite Ingot; Photonic Gel 1 Wafer + 3 Resin; Biocatalyst 2 Purified Biomass + 1 Spore; compounds 20 ticks).
+- **EM-2 non-worsening installs (2026-10-21):** "Allow non-worsening (Recommended)": on a ship already over budget, an
+  install that does not raise the shortfall still goes through (so a player can always climb out). Review follow-ups for
+  the builder: the refusal must show the WHOLE shortfall (after-install draw minus output), not only the increment; the
+  Power Draw help text must describe this rule truthfully; roster apply judges the fully applied roster (its officers and
+  crew included); the warning names the cause; the Armory Check out button disables when refused; drop the duplicate
+  reason/refusal field; consider moving equippedFor + MULTI_SLOT_TYPES to a leaf module to break the import cycle.

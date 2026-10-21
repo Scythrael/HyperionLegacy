@@ -2121,11 +2121,20 @@ export interface MemberVarietyTraits {
 //                 other grenade types").
 //   statusChance: that debuff's fixed chance; absent = the thrower's statusChance (THE STATUS-CHANCE RULE, so the
 //                 grenade's groundStatusChance line keeps its meaning).
+//   fuse:         TIMED GRENADES (user 2026-10-21, recipe realism audit call 11: "Impact grenade could be the default
+//                 grenade type as it basically explodes on contact with a surface, versus a timed detonation which
+//                 other units could have?"; fuse ruling "1 round later (Recommended)"). Present = a TIMED fuse: thrown on
+//                 the thrower's action, it detonates at the start of the thrower's NEXT turn, on whoever of the target's
+//                 group is still there (gambit.ts; each foe may move clear first at `movedClearChance`). Absent = it
+//                 detonates on contact, the turn it is thrown (the Impact Grenade, the default grenade). Only a run
+//                 stamped with Field Kits catalog 2 or later reads it (fieldKits.ts timedFusesLive); a catalog 1 run (in
+//                 flight before the fuse) detonates every grenade on contact, exactly as before.
 export interface GrenadeTraits {
   readonly charges: { readonly perObjective: number; readonly perBattle: number };
   readonly powerMult: number;
   readonly status: GambitStatusId;
   readonly statusChance?: number;
+  readonly fuse?: { readonly movedClearChance: number };
 }
 
 // Field Kits FKR-5 (user N4 "Grenades only": Impact 4, Stun 2, Toxin 2, 1 throw per battle; FK11 "a plain grenade
@@ -2145,6 +2154,15 @@ export const GRENADE_CARRY_PER_LINE = 1;
 // The Impact Grenade's Fabricator recipe (user 2026-10-20 "Approve"; the Stun Grenade's tier 1 band, a titanium casing
 // in place of one wafer): 1 Titanium Ingot + 1 Polysilicate Wafer + 1 Power Coupling, researched for 700 credits.
 export const IMPACT_GRENADE_RECIPE: Readonly<Record<string, number>> = { titaniumIngot: 1, polysilicateWafer: 1, powerCoupling: 1 };
+// Timed grenades (GrenadeTraits.fuse): the chance that each foe of the target's group MOVES CLEAR of a primed Stun or
+// Toxin Grenade before it detonates (the user: "enemies may move out of a cluster first"). Ground fights have no
+// positions, so a cluster is the target's group (its group tag): a foe downed before the detonation is not hit, and each
+// foe still standing rolls this once (its own keyed stream, gambit.ts GRENADE_FUSE_SALT) and is not hit when it moved
+// clear. User 2026-10-21 "20%, lone targets can't dodge": one in five, for GROUPS; a lone target (the only foe of its
+// group still standing at the detonation) never rolls and always takes the blast.
+export const GRENADE_FUSE_MOVED_CLEAR_CHANCE = 0.2;
+// The timed fuse the Stun and Toxin Grenades carry (GrenadeTraits.fuse).
+export const TIMED_GRENADE_FUSE: NonNullable<GrenadeTraits["fuse"]> = { movedClearChance: GRENADE_FUSE_MOVED_CLEAR_CHANCE };
 
 // THE ONE SWITCH for the Field Kits pieces a player could reach before FKR-7 wires kits into runs (user 2026-10-20
 // "Hide until kits are live"). While false: the Impact Grenade blueprint stays out of BLUEPRINTS (so out of Research,
@@ -2820,6 +2838,8 @@ export const EQUIPMENT_SLOTS: Record<string, EquipmentSlotDef> = {
             charges: { perObjective: GRENADE_CHARGES_SPECIALIZED, perBattle: GRENADE_THROWS_PER_BATTLE },
             powerMult: SPECIALIZED_GRENADE_POWER_MULT,
             status: "stun",
+            // Timed grenades (user 2026-10-21): detonates at the start of the thrower's next turn.
+            fuse: TIMED_GRENADE_FUSE,
           },
         },
         implicitStats: ["groundStatusChance"],
@@ -2837,6 +2857,8 @@ export const EQUIPMENT_SLOTS: Record<string, EquipmentSlotDef> = {
             charges: { perObjective: GRENADE_CHARGES_SPECIALIZED, perBattle: GRENADE_THROWS_PER_BATTLE },
             powerMult: SPECIALIZED_GRENADE_POWER_MULT,
             status: "poison",
+            // Timed grenades (user 2026-10-21): detonates at the start of the thrower's next turn.
+            fuse: TIMED_GRENADE_FUSE,
           },
         },
         implicitStats: ["groundStatusChance"],
@@ -2847,7 +2869,8 @@ export const EQUIPMENT_SLOTS: Record<string, EquipmentSlotDef> = {
       // power, 30% Concussion (N6). It has NO passive groundEffect: its blast fires only when thrown, on a Field Kits
       // run; on any other run a worn one acts only through its stat lines, like any worn piece. Its blueprint is its
       // only source and stays hidden until FIELD_KITS_PLAYER_LIVE (FKR-7), so no player holds one before then. Its
-      // lines raise the wearer's power and aim, which the blast reads; the carry capacity line adds a charge.
+      // lines raise the wearer's power and aim, which the blast reads; the carry capacity line adds a charge. Timed
+      // grenades (user 2026-10-21): it is the DEFAULT grenade and carries no fuse, so it detonates on contact.
       {
         key: "impactGrenade",
         label: "Impact Grenade",
