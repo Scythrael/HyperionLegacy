@@ -9853,6 +9853,12 @@ export function blueprintMintsEquipmentInstance(bp: BlueprintDef): boolean {
 // Higher tiers (equipment / modules / ship systems) are DEFERRED until the Fabricator +
 // ship-systems phases define them (design §5), no placeholder tiers here.
 //
+// The hidden blueprints the catalog shows under the switch (`live` overrides it: the wiring probe reads both states
+// through this one reader, so its off side is the real off state). Hoisted: BLUEPRINTS below spreads it. Pure.
+export function fieldKitsShownBlueprints(live: boolean = FIELD_KITS_PLAYER_LIVE): Readonly<Record<string, BlueprintDef>> {
+  return live ? FIELD_KITS_HIDDEN_BLUEPRINTS : {};
+}
+
 // Field Kits FKR-5: the blueprints kept OUT of BLUEPRINTS until FIELD_KITS_PLAYER_LIVE (user 2026-10-20 "Hide until
 // kits are live"): the Research list, Fabricator, Archive and their completion totals read BLUEPRINTS whole and have no
 // hidden-entry rule (the PROSPECTING_BLUEPRINTS pattern). FKR-7 flips the switch and BLUEPRINTS spreads them in.
@@ -10751,8 +10757,8 @@ export const BLUEPRINTS: Record<string, BlueprintDef> = {
     unlockHint: "Researched at the Research Lab (needs a higher lab tier); crafted at the Fabricator. Away-team gear, worn by a squad member.",
   },
   // Field Kits FKR-5: the Impact Grenade (FIELD_KITS_HIDDEN_BLUEPRINTS), merged in here, in this place, only once
-  // FIELD_KITS_PLAYER_LIVE is true (FKR-7).
-  ...(FIELD_KITS_PLAYER_LIVE ? FIELD_KITS_HIDDEN_BLUEPRINTS : {}),
+  // FIELD_KITS_PLAYER_LIVE is true (FKR-9 / FKR-10 flipped it), through the one reader fieldKitsShownBlueprints.
+  ...fieldKitsShownBlueprints(),
   medKitBp: {
     key: "medKitBp",
     label: "Med Kit Blueprint",

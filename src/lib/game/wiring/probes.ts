@@ -16,7 +16,8 @@ import {
   DEFAULT_MEMBER_GAMBIT,
   EQUIPMENT_SLOTS,
   FIELD_KITS_DEFAULT_GRENADE_RULES,
-  FIELD_KITS_HIDDEN_BLUEPRINTS,
+  fieldKitsShownBlueprints,
+  grenadeCraftPool,
   MEMBER_SLOT_TYPES,
   MISSIONS,
   PATROLS,
@@ -2085,11 +2086,15 @@ function readContent(id: string, s: GameState): number {
     case "fieldKitsHiddenPieces": {
       // Field Kits FKR-9 / FKR-10 (model.ts FIELD_KITS_PLAYER_LIVE): the pieces kept hidden until kits went live that a
       // player can now reach: each FIELD_KITS_HIDDEN_BLUEPRINTS blueprint in BLUEPRINTS (Research, the Fabricator, the
-      // Archive), and each of the Stun and Toxin Grenades whose craft pool rolls the +1 Carry Capacity line. Off: none.
-      if (!on) return 0;
-      const merged = Object.keys(FIELD_KITS_HIDDEN_BLUEPRINTS).filter((k) => BLUEPRINTS[k] === FIELD_KITS_HIDDEN_BLUEPRINTS[k]).length;
+      // Archive), and each of the Stun and Toxin Grenades whose craft pool rolls the +1 Carry Capacity line. Both sides
+      // run the same readers the build uses: on, the switched-on catalog (the shown blueprints found in BLUEPRINTS, the
+      // varieties' real craft pools); off, the same readers with the switch off (model.ts fieldKitsShownBlueprints(false),
+      // grenadeCraftPool(key, false)), the state a player saw before kits went live.
+      const shown = fieldKitsShownBlueprints(on);
+      const merged = Object.keys(shown).filter((k) => BLUEPRINTS[k] === shown[k]).length;
       const tool = EQUIPMENT_SLOTS.memberTool.varieties;
-      const carry = ["stunGrenade", "toxinGrenade"].filter((key) => tool.find((v) => v.key === key)?.affixPool?.some((a) => a.stat === "groundCarryCapacity")).length;
+      const poolOf = (key: "stunGrenade" | "toxinGrenade") => (on ? tool.find((v) => v.key === key)?.affixPool : grenadeCraftPool(key, false).affixPool) ?? [];
+      const carry = (["stunGrenade", "toxinGrenade"] as const).filter((key) => poolOf(key).some((a) => a.stat === "groundCarryCapacity")).length;
       return merged + carry;
     }
     default:

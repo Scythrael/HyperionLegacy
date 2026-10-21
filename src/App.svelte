@@ -599,6 +599,7 @@
   // switch (the Logistics Consumables spot becomes the Field Kits stock once kits are live in runs).
   import { claimKitsView, fieldKitShopRows, fieldKitStockRows, kitCountText, kitListText, shopQtyMax } from "./lib/fieldKitsDisplay";
   import { FIELD_KITS_RUNS_LIVE, FIELD_KITS, type FieldKitId } from "./lib/game/fieldKits";
+  import { carriedExtras } from "./lib/game/fieldKitsRun";
   // 0.13.4 Phase 4: the transit-berth read model. The console reads the SAME module the engine
   // does, so the two can never disagree about how many berths exist or who is waiting.
   import {
@@ -5483,9 +5484,7 @@
     const next = setMemberPack(state, shipId, teamIndex, memberId, pack);
     if (next === state) return; // unknown ship / team / member, or nothing would change
     state = next;
-    const name = state.awayMembers.find((m) => m.id === memberId)?.name ?? memberId;
-    const list = pack === null ? "" : kitListText(pack);
-    pushLog(pack === null ? `${name} packs the default kits again (from the next launch).` : `${name} packs ${list || "no extra kits"} (from the next launch).`);
+    // No log line per stepper press (review 2026-10-21): the launch log names what was packed, once.
     doSave();
   }
 
@@ -5707,6 +5706,8 @@
     }
     state = next;
     pushLog(`[${devShipLabel(shipId)}] Expedition launched to ${expedition?.systemName ?? "the frontier"}.`);
+    const packed = expedition?.fieldKits ? kitListText(carriedExtras(expedition)) : "";
+    if (packed) pushLog(`[${devShipLabel(shipId)}] Packed extras: ${packed}.`);
     if (expedition?.fieldKits && topUp.cost > 0) {
       pushLog(`[${devShipLabel(shipId)}] Topped up at the Quartermaster: ${kitListText(topUp.bought)} for ${formatNumber(topUp.cost)} credits.`);
     }

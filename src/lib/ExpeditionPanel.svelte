@@ -1133,9 +1133,11 @@
                                 <Icon name={k.glyph} size={16} />
                                 <span class="fk-kit-name">{k.label}<span class="fk-kit-note" class:short={k.quiet}>{k.note}</span></span>
                                 <span class="fk-step" role="group" aria-label="{k.label} extras for {m.name}">
-                                  <button type="button" aria-label="One fewer {k.label} for {m.name}" disabled={!k.canLess} on:click={() => stepPack(team.index, m.id, m.pack, k.kit, -1)}>&minus;</button>
+                                  <!-- aria-disabled, not disabled: a button that disables itself at 0 or 9 drops keyboard focus to
+                                       the page; this one keeps focus and the press is a no-op (steppedPack clamps). -->
+                                  <button type="button" aria-label="One fewer {k.label} for {m.name}" aria-disabled={!k.canLess} on:click={() => k.canLess && stepPack(team.index, m.id, m.pack, k.kit, -1)}>&minus;</button>
                                   <output aria-live="polite">{k.want}</output>
-                                  <button type="button" aria-label="One more {k.label} for {m.name}" disabled={!k.canMore} on:click={() => stepPack(team.index, m.id, m.pack, k.kit, 1)}>+</button>
+                                  <button type="button" aria-label="One more {k.label} for {m.name}" aria-disabled={!k.canMore} on:click={() => k.canMore && stepPack(team.index, m.id, m.pack, k.kit, 1)}>+</button>
                                 </span>
                               </div>
                             {/each}
@@ -1151,8 +1153,8 @@
                     {/if}
                   </div>
                 {/each}
-                {#each packView.ghosts as g (g)}
-                  <div class="fk-ghost"><Icon name="team" size={14} /> <span>{g}</span></div>
+                {#each packView.ghosts as g (g.index)}
+                  <div class="fk-ghost"><Icon name="team" size={14} /> <span>{g.text}</span></div>
                 {/each}
               </div>
 
@@ -2479,7 +2481,7 @@
     font-size: var(--text-sm);
     cursor: pointer;
   }
-  .fk-step button:disabled {
+  .fk-step button[aria-disabled="true"] {
     color: var(--color-text-dim);
     opacity: 0.5;
     cursor: default;
@@ -2756,8 +2758,17 @@
       gap: 10px;
       align-items: center;
     }
+    /* The column labels stay for screen readers (the visual column head is aria-hidden): visually hidden, not gone. */
     .fk-lbl {
-      display: none;
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      margin: -1px;
+      padding: 0;
+      overflow: hidden;
+      clip: rect(0 0 0 0);
+      white-space: nowrap;
+      border: 0;
     }
   }
   .fk-claim {

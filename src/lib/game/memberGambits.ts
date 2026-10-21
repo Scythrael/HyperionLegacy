@@ -17,7 +17,7 @@
 import type { AwayMember, GambitProgram, GambitRule, GameState } from "./model";
 import { DEFAULT_MEMBER_GAMBIT, FIELD_KITS_DEFAULT_MEMBER_GAMBIT, groundSquadSize } from "./model";
 import { FIELD_KITS_RUNS_LIVE } from "./fieldKits";
-import { GAMBIT_PRESETS, gambitPresetPrograms, type GambitPreset } from "./gambit";
+import { GAMBIT_PRESETS, GAMBIT_PRESET_EARLIER_PROGRAMS, gambitPresetPrograms, type GambitPreset } from "./gambit";
 import { cleanShipGroundTeams, findGroundSlot } from "./groundTeamSlots";
 
 function cloneRule(r: GambitRule): GambitRule {
@@ -63,8 +63,20 @@ export function memberGambitProgram(member: Pick<AwayMember, "gambit" | "teamTyp
 // are off it is memberGambitProgram exactly. The snapshot keeps reading memberGambitProgram (D19's default), so a
 // dispatch record never moves. Always a fresh copy. Pure.
 export function memberEditableProgram(member: Pick<AwayMember, "gambit" | "teamType">, kitsLive: boolean = FIELD_KITS_RUNS_LIVE): GambitProgram {
-  if (!Array.isArray(member.gambit) && member.teamType === "security" && kitsLive) return cloneProgram(FIELD_KITS_DEFAULT_MEMBER_GAMBIT);
-  return memberGambitProgram(member);
+  const program = memberGambitProgram(member);
+  return kitsLive && member.teamType === "security" ? cloneProgram(fieldKitsFightProgram(program)) : program;
+}
+
+// THE ONE READ of the program a Security member fights with on a Field Kits run (FKR-6 N15, review 2026-10-21): a program
+// EQUAL to D19's default (stored as their own or not) is swapped for the Field Kits default, which throws grenades and
+// keeps one for an Elite or a Boss; any other program is the member's own. The fight (fieldKitsBattle.ts
+// withFieldKitsDefaultProgram), the editor (memberEditableProgram) and the dispatch readout (fieldKitsDisplay.ts) all call
+// this, so what the player sees is what fights. The swap is a fresh copy; any other program comes back as it is. Pure.
+export function fieldKitsFightProgram(program: readonly GambitRule[]): GambitProgram {
+  // The copy keeps each rule's own key order (the fight's clone before this helper), so a fight is byte-identical.
+  return gambitProgramEquals(program, DEFAULT_MEMBER_GAMBIT)
+    ? FIELD_KITS_DEFAULT_MEMBER_GAMBIT.map((r) => (r.params ? { ...r, params: { ...r.params } } : { ...r }))
+    : (program as GambitProgram);
 }
 
 // The preset whose Security program the member's OWN program matches, else null (the default is not a preset,
@@ -72,7 +84,10 @@ export function memberEditableProgram(member: Pick<AwayMember, "gambit" | "teamT
 export function matchedMemberPreset(member: Pick<AwayMember, "gambit">): GambitPreset | null {
   if (!Array.isArray(member.gambit)) return null;
   const own = member.gambit;
-  return GAMBIT_PRESETS.find((p) => gambitProgramEquals(p.programs.security, own)) ?? null;
+  // FKR-9 / FKR-10 review: a program a preset handed out before its current one still reads as that preset (the
+  // pre-kits Triage, gambit.ts GAMBIT_PRESET_EARLIER_PROGRAMS), so no player sees their preset silently relabeled.
+  const earlier = (id: string) => (GAMBIT_PRESET_EARLIER_PROGRAMS[id] ?? []).some((p) => gambitProgramEquals(p, own));
+  return GAMBIT_PRESETS.find((p) => gambitProgramEquals(p.programs.security, own) || earlier(p.id)) ?? null;
 }
 
 // `state` with Security member `memberId`'s program replaced by `program` (null = clear back to the default).

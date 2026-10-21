@@ -368,9 +368,10 @@
                 <!-- Field Kits FKR-10: "Keep N for a Boss" (0 = spend freely). -->
                 <div class="ge-param ge-reserve" role="group" aria-label={`Rule ${i + 1} keep for a Boss`}>
                   <span class="ge-reserve-label">Keep for a Boss</span>
-                  <button type="button" aria-label={`Rule ${i + 1}: keep one fewer for a Boss`} disabled={reserveValue(rule) === 0} on:click={() => onReserveStep(i, -1)}>&minus;</button>
+                  <!-- aria-disabled keeps focus on the stepper at 0 and at the ceiling (a disabled button drops it). -->
+                  <button type="button" aria-label={`Rule ${i + 1}: keep one fewer for a Boss`} aria-disabled={reserveValue(rule) === 0} on:click={() => reserveValue(rule) > 0 && onReserveStep(i, -1)}>&minus;</button>
                   <output aria-live="polite">{reserveValue(rule)}</output>
-                  <button type="button" aria-label={`Rule ${i + 1}: keep one more for a Boss`} disabled={reserveValue(rule) >= RESERVE_MAX} on:click={() => onReserveStep(i, 1)}>+</button>
+                  <button type="button" aria-label={`Rule ${i + 1}: keep one more for a Boss`} aria-disabled={reserveValue(rule) >= RESERVE_MAX} on:click={() => reserveValue(rule) < RESERVE_MAX && onReserveStep(i, 1)}>+</button>
                 </div>
               {/if}
             </div>
@@ -679,7 +680,7 @@
     font: inherit;
     font-size: var(--text-sm);
   }
-  .ge-reserve button:disabled {
+  .ge-reserve button[aria-disabled="true"] {
     color: var(--color-text-dim);
     opacity: 0.5;
     cursor: default;

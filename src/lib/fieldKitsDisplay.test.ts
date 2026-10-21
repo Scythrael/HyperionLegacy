@@ -12,6 +12,8 @@ import { createGroundTeamLoadout } from "./game/armory";
 import { plainAwayMember } from "./game/awayTeamTestFixtures";
 import { FIELD_KITS_RUNS_LIVE as FIELD_KITS_LIVE_NOW } from "./game/fieldKits";
 import { kitSlotView, packLineText, savePreview } from "./squadLoadoutDisplay";
+import { renameGroundTeam } from "./game/groundTeams";
+import { DEFAULT_MEMBER_GAMBIT, FIELD_KITS_DEFAULT_MEMBER_GAMBIT } from "./game/model";
 import {
   NEEDS_MEDICAL_TRAINING_TEXT,
   PACK_STEPPER_MAX,
@@ -19,6 +21,8 @@ import {
   dispatchPackView,
   enemyRoleWord,
   fieldKitShopRows,
+  fieldKitsProgramOf,
+  objectiveLine,
   fieldKitStockRows,
   finalFightChip,
   freeSetView,
@@ -231,10 +235,27 @@ describe("dispatch packing (FKR-9)", () => {
     const v = view(crewed({ teams: [{}, { kind: "survey", security: [], science: SCI.slice(3, 6) }] }));
     expect(v.teams.map((t) => t.index)).toEqual([0]);
     expect(v.teams[0].scienceNote).toMatch(/^Science squad \(.+\): does the fieldwork and never fights, so it packs nothing\.$/);
-    expect(v.ghosts).toEqual(["Bravo · Survey team: no Security members, nothing to pack."]);
+    expect(v.ghosts).toEqual([{ index: 1, text: "Bravo · Survey team: no Security members, nothing to pack." }]);
     const injured = crewed();
     injured.awayMembers = injured.awayMembers.map((m) => (m.id === "member-4" ? { ...m, injuredUntilSeconds: injured.gameTimeSeconds + 600 } : m));
-    expect(view(injured).ghosts).toEqual(["Bravo is not deploying this launch, so it packs nothing."]);
+    expect(view(injured).ghosts).toEqual([{ index: 1, text: "Bravo is not deploying this launch, so it packs nothing." }]);
+  });
+
+  it("ghost lines are keyed by team index: two teams may share a name (renameGroundTeam allows it)", () => {
+    let s = crewed();
+    s = renameGroundTeam(s, "ship-1", 0, "Twin");
+    s = renameGroundTeam(s, "ship-1", 1, "Twin");
+    s = { ...s, awayMembers: s.awayMembers.map((m) => (m.id === "member-1" || m.id === "member-4" ? { ...m, injuredUntilSeconds: s.gameTimeSeconds + 600 } : m)) };
+    const ghosts = view(s).ghosts;
+    expect(ghosts.map((g) => g.text)).toEqual(["Twin is not deploying this launch, so it packs nothing.", "Twin is not deploying this launch, so it packs nothing."]);
+    expect(new Set(ghosts.map((g) => g.index)).size).toBe(ghosts.length);
+  });
+
+  it("the dispatch tool note reads the program the member fights with (a stored copy of D19's default throws too)", () => {
+    const s = crewed();
+    s.awayMembers = s.awayMembers.map((m) => (m.id === "member-1" ? { ...m, gambit: DEFAULT_MEMBER_GAMBIT.map((r) => ({ ...r, ...(r.params ? { params: { ...r.params } } : {}) })) } : m));
+    expect(member(view(s), "member-1").tool.note).toBe("1 throw per battle · program keeps 1 for an Elite or a Boss");
+    expect(fieldKitsProgramOf(s.awayMembers.find((m) => m.id === "member-1")!)).toEqual(FIELD_KITS_DEFAULT_MEMBER_GAMBIT);
   });
 
   it("text rules: no em dash, no double hyphen, no 'task' in any line", () => {
@@ -359,6 +380,29 @@ describe("in the run (FKR-9)", () => {
       expect(() => runCardLine(at, s.ships[0])).not.toThrow();
       for (const str of strings(v)) expect(str).not.toMatch(DASHES);
     }
+  });
+});
+
+describe("the detail header's objective line (the mockup's Objective N of M)", () => {
+  const exp = {
+    bodies: [
+      {
+        activities: [
+          { id: "a", poiId: "derelictOutpost", status: "done" },
+          { id: "b", poiId: "ancientRuins", status: "active" },
+          { id: "c", poiId: "crashedShip", status: "queued" },
+          { id: "d", poiId: "caveNetwork", status: "skipped" },
+          { id: "x", poiId: "buriedVault", status: "active" },
+        ],
+      },
+    ],
+  } as unknown as Expedition;
+  const act = (id: string) => exp.bodies[0].activities.find((a) => a.id === id)!;
+  it("counts the team's own objectives (skipped left out), the current one after the finished ones", () => {
+    expect(objectiveLine(exp, { queue: ["a", "b", "c", "d"], taskId: "b" }, act("b"))).toBe("Objective 2 of 3: Ancient Ruins");
+    expect(objectiveLine(exp, { queue: ["a", "b", "c", "d"], taskId: "x", borrowed: true }, act("x"))).toMatch(/^Helping on /);
+    expect(objectiveLine(exp, { queue: ["a", "b", "c"] }, null)).toBe("Between objectives · 1 of 3 done");
+    expect(objectiveLine(exp, { queue: [] }, null)).toBe("Between objectives");
   });
 });
 

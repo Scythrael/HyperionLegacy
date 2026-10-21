@@ -31,7 +31,7 @@ import type {
   ShipInstance,
   SnapshotMember,
 } from "./game/model";
-import { DEFAULT_MEMBER_GAMBIT, FIELD_KITS_DEFAULT_MEMBER_GAMBIT, GRENADE_CARRY_PER_LINE, memberVariety } from "./game/model";
+import { GRENADE_CARRY_PER_LINE, memberVariety } from "./game/model";
 import {
   CONDITION_LINES,
   FIELD_KITS,
@@ -62,7 +62,7 @@ import {
 import { chargesLeftFor } from "./game/fieldKitsGrenades";
 import { pieceCarryLines, snapshotMembers, toolCharges } from "./game/awayTeam";
 import { GAMBIT_STATUSES, shipSupportHeads } from "./game/gambit";
-import { gambitProgramEquals, memberHasOwnGambit } from "./game/memberGambits";
+import { fieldKitsFightProgram, memberGambitProgram } from "./game/memberGambits";
 import { deployableGroundTeams, groundTeamName, type GroundTeamReadiness } from "./game/groundTeams";
 import { shipGroundTeams } from "./game/groundTeamSlots";
 import { teamKindName } from "./game/groundComposition";
@@ -177,8 +177,8 @@ export function specLabel(spec: string): string {
 
 // The program a member fights with on a Field Kits run: their own, else the Field Kits default (groundFight.ts swaps it
 // in for a member on D19's default). Pure.
-export function fieldKitsProgramOf(member: Pick<AwayMember, "gambit">): GambitProgram {
-  return memberHasOwnGambit(member) && member.gambit ? member.gambit : FIELD_KITS_DEFAULT_MEMBER_GAMBIT;
+export function fieldKitsProgramOf(member: Pick<AwayMember, "gambit" | "teamType">): GambitProgram {
+  return fieldKitsFightProgram(memberGambitProgram(member));
 }
 
 // What a program does with grenades, as a note: "program keeps 1 for an Elite or a Boss", "no rule throws it", or ""
@@ -295,10 +295,17 @@ export interface PackStockRowView {
   text: string; // "3 of 5 left", "None in stock"
 }
 
+// A team that packs nothing, keyed by its ship team index (team names need not be unique: renameGroundTeam allows two
+// "Alpha"s).
+export interface PackGhostView {
+  index: number;
+  text: string;
+}
+
 export interface DispatchPackView {
   free: FreeSetView;
   teams: PackTeamView[];
-  ghosts: string[]; // teams that pack nothing, and why
+  ghosts: PackGhostView[]; // teams that pack nothing, and why
   stock: PackStockRowView[];
   readyText: string; // "Packs ready" / "Packs ready · top-up buys 3 at launch"
   stockNote: string;
@@ -369,7 +376,7 @@ export function dispatchPackView(state: GameState, shipId: string, runsLive: boo
   const real = planDispatchPacks(state, ship, packTeams, snaps);
   const free = freeSetView(shipSupportHeads(state, ship));
   const credits = Math.max(0, state.credits.toNumber());
-  const ghosts: string[] = [];
+  const ghosts: PackGhostView[] = [];
 
   const teams: PackTeamView[] = deploying.map((t) => {
     const stored = shipTeams[t.index];
@@ -481,7 +488,7 @@ export function dispatchPackView(state: GameState, shipId: string, runsLive: boo
   for (const t of check.teams) {
     if (deploying.includes(t)) continue;
     if (!t.staffed) continue;
-    ghosts.push(ghostText(t));
+    ghosts.push({ index: t.index, text: ghostText(t) });
   }
 
   const boughtAll = kitTotal(real.bought);
@@ -681,7 +688,7 @@ function runTeamView(exp: Expedition, ship: ShipInstance | null | undefined, tea
       healthText,
     };
   });
-  const objectiveText = task ? `Objective: ${taskName(task)}` : team.step === "idle" ? "Between objectives" : "Not on an objective";
+  const objectiveText = objectiveLine(exp, team, task);
   const refresh = `At the next objective the free set refills to ${free} each and every grenade resets to full. Extras carry on until used.`;
   return {
     index: team.index,
@@ -697,7 +704,24 @@ function runTeamView(exp: Expedition, ship: ShipInstance | null | undefined, tea
 // The program a snapshotted member fights with on a Field Kits run: a snapshot on D19's default is swapped for the Field
 // Kits default (groundFight.ts, fieldKitsBattle.ts withFieldKitsDefaultProgram). Pure.
 export function runProgramOf(program: GambitProgram): GambitProgram {
-  return gambitProgramEquals(program, DEFAULT_MEMBER_GAMBIT) ? FIELD_KITS_DEFAULT_MEMBER_GAMBIT : program;
+  return fieldKitsFightProgram(program);
+}
+
+// The detail header's objective line (the mockup's "Objective 2 of 4: Collapsed Relay"): the team's own objectives
+// (its queue, skipped ones left out), the one it is on counted after the ones it finished. A borrowed objective (a
+// helper on another team's) reads "Helping on"; between objectives, how many of its own are done. Pure.
+export function objectiveLine(
+  exp: Pick<Expedition, "bodies">,
+  team: Pick<GroundTeamRun, "queue" | "taskId" | "borrowed">,
+  task: Pick<ExpeditionActivity, "poiId"> | null,
+): string {
+  const own = team.queue.map((id) => taskOf(exp, id)).filter((t): t is ExpeditionActivity => t !== null && t.status !== "skipped");
+  const done = own.filter((t) => t.status === "done").length;
+  if (task && team.taskId && !team.borrowed && own.some((t) => t.id === team.taskId)) {
+    return `Objective ${Math.min(own.length, done + 1)} of ${own.length}: ${taskName(task)}`;
+  }
+  if (task) return `Helping on ${taskName(task)}`;
+  return own.length > 0 ? `Between objectives · ${done} of ${own.length} done` : "Between objectives";
 }
 
 // Every deployed team's supplies readout on a Field Kits run, ascending team index; [] on any other run. Pure.

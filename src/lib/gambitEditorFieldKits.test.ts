@@ -5,7 +5,10 @@ import { describe, expect, it } from "vitest";
 import { DEFAULT_MEMBER_GAMBIT, FIELD_KITS_DEFAULT_MEMBER_GAMBIT, freshState, type AwayMember, type GambitActionId, type GambitTargetSelector, type GameState } from "./game/model";
 import { GAMBIT_STATUSES, isActionLegalForRole } from "./game/gambit";
 import { FIELD_KIT_IDS, FIELD_KIT_STATUS_IDS } from "./game/fieldKits";
-import { memberEditableProgram, memberGambitProgram, setMemberGambitRule } from "./game/memberGambits";
+import { fieldKitsFightProgram, matchedMemberPreset, memberEditableProgram, memberGambitProgram, setMemberGambitRule } from "./game/memberGambits";
+import { GAMBIT_PRESETS, GAMBIT_PRESET_EARLIER_PROGRAMS, type GroundCombatant } from "./game/gambit";
+import { withFieldKitsDefaultProgram } from "./game/fieldKitsBattle";
+import { fieldKitsProgramOf } from "./fieldKitsDisplay";
 import {
   ACTION_LABEL,
   DEFAULT_RULE_KIT,
@@ -124,6 +127,36 @@ describe("rule hints", () => {
   it("the default program's words name the grenade rules once kits are live", () => {
     expect(defaultProgramText(false)).toBe("full targeting, attack and defense, no automatic kit use");
     expect(defaultProgramText(true)).toMatch(/grenades at the largest group \(one charge kept for an Elite or a Boss\)/);
+  });
+});
+
+describe("one source of truth for the program a member fights with (review 2026-10-21)", () => {
+  it("a stored copy of D19's default: the fight, the editor and the dispatch read the Field Kits default alike", () => {
+    const stored = DEFAULT_MEMBER_GAMBIT.map((r) => (r.params ? { ...r, params: { ...r.params } } : { ...r }));
+    const member = { teamType: "security" as const, gambit: stored };
+    expect(fieldKitsFightProgram(stored)).toEqual(FIELD_KITS_DEFAULT_MEMBER_GAMBIT);
+    expect(memberEditableProgram(member, true)).toEqual(FIELD_KITS_DEFAULT_MEMBER_GAMBIT);
+    expect(fieldKitsProgramOf(member)).toEqual(FIELD_KITS_DEFAULT_MEMBER_GAMBIT);
+    const team = withFieldKitsDefaultProgram([{ program: stored } as unknown as GroundCombatant]);
+    expect(team[0].program).toEqual(FIELD_KITS_DEFAULT_MEMBER_GAMBIT);
+    // Any other program is the member's own, the same reference in the fight.
+    const own = [{ target: "foeNearest" as const, action: "attack" as const }];
+    expect(fieldKitsFightProgram(own)).toBe(own);
+  });
+
+  it("a member who applied Triage before kits went live still reads Triage (not Custom)", () => {
+    const preKits = [
+      { target: "allyHasStatus" as const, action: "cure" as const },
+      { target: "allyHpBelow" as const, params: { hpThreshold: 0.75 }, action: "aidHeal" as const },
+      { target: "allyHasStatus" as const, action: "useItem" as const },
+      { target: "foeLowestHp" as const, action: "execute" as const },
+      { target: "foeNearest" as const, action: "attack" as const },
+    ];
+    expect(GAMBIT_PRESET_EARLIER_PROGRAMS.triage).toEqual([preKits]);
+    expect(matchedMemberPreset({ gambit: preKits })?.id).toBe("triage");
+    const current = GAMBIT_PRESETS.find((p) => p.id === "triage")!.programs.security;
+    expect(matchedMemberPreset({ gambit: current })?.id).toBe("triage");
+    expect(matchedMemberPreset({ gambit: preKits.slice(1) })).toBeNull();
   });
 });
 

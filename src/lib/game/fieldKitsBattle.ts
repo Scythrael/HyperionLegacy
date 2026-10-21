@@ -36,11 +36,10 @@
 // fieldKitsGrenades (the charges), memberGambits (program equality).
 
 import type { GambitProgram, GambitStatusId, GroundFightRecord, GroundStatus, SnapshotMember } from "./model";
-import { DEFAULT_MEMBER_GAMBIT, FIELD_KITS_DEFAULT_MEMBER_GAMBIT } from "./model";
 import { GAMBIT_STATUSES, applyStatus, hasStatus, type BattleKitRules, type CombatantKits, type GroundCombatant } from "./gambit";
 import { FIELD_KITS, FIELD_KIT_IDS, canUseKit, kitEffectiveness, kitTreatment, type FieldKitId } from "./fieldKits";
 import { chargesLeftFor } from "./fieldKitsGrenades";
-import { gambitProgramEquals } from "./memberGambits";
+import { fieldKitsFightProgram } from "./memberGambits";
 
 const hasOwn = (o: object, k: string): boolean => Object.prototype.hasOwnProperty.call(o, k);
 
@@ -149,13 +148,10 @@ export function withFieldKitPacks(team: GroundCombatant[], basics?: MemberKitCou
 // Boss) in a Field Kits fight. A member with a program of their own keeps it. Mutates the fresh list, returns it.
 export function withFieldKitsDefaultProgram(team: GroundCombatant[]): GroundCombatant[] {
   for (const c of team) {
-    if (c.program && gambitProgramEquals(c.program, DEFAULT_MEMBER_GAMBIT)) c.program = cloneProgram(FIELD_KITS_DEFAULT_MEMBER_GAMBIT);
+    // The one shared read (memberGambits.ts fieldKitsFightProgram): the editor and the dispatch readout show the same.
+    if (c.program) c.program = fieldKitsFightProgram(c.program);
   }
   return team;
-}
-
-function cloneProgram(p: readonly GambitProgram[number][]): GambitProgram {
-  return p.map((r) => (r.params ? { ...r, params: { ...r.params } } : { ...r }));
 }
 
 // ===== Supplies across an objective's fights =====
