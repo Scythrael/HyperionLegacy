@@ -38,13 +38,14 @@ import {
   applyGroundTeamLoadout,
   checkInGroundTeamLoadout,
   checkInLoadout,
-  checkOutLoadout,
-  loadoutCheckOutPowerShortfall,
+  checkOutLoadoutBeforePowerGate,
   groundTeamWornLoadout,
 } from "./armory";
 import { SHIP_TYPES, groundTeamCount, type ShipTypeKey } from "./model";
 // CP-6: the one crew lock (a leaf module, no cycle).
 import { crewLockReason, crewLockText, shipCrewLocked } from "./crewLock";
+// E-MOD EM-2: the power install gate, judged on the fully applied roster.
+import { installPowerShortfall, powerShortfall, shipPowerTotals } from "./shipPower";
 
 // The pure-signature view of a notable, for cap math + occupancy bookkeeping. A notable occupies ONE
 // complement slot of exactly this signature (its rank/division). Pure.
@@ -391,15 +392,46 @@ export function canApplyRoster(state: GameState, rosterId: string, shipId: strin
 // The overlay: an assigned notable feeds ship stats like one crew of its signature (GL-1 folds it in
 // crewOverlay.ts rawShipCrewContribution), and the tick's auto-crew (resolveCrew) seeds the same
 // notable occupancy as step (c), so a passive ship never fills past its caps around its notables (CP-8).
+//
+// E-MOD EM-2 (power install gate): the linked loadout is judged on the FULLY applied roster, its officers and crew
+// included (their power efficiency counts), against the same roster applied without the loadout. When the gate refuses,
+// the roster is applied again WITHOUT the loadout: the people still land, the gear stays in the Armory
+// (rosterLoadoutPowerShortfall names the power it needs).
 export function applyRoster(state: GameState, rosterId: string, shipId: string): GameState {
   if (!canApplyRoster(state, rosterId, shipId).ok) return state; // CP-6: refuse whole (same ref)
+  const full = applyRosterSteps(state, rosterId, shipId, true);
+  return rosterLoadoutRefused(state, rosterId, shipId, full) > 0 ? applyRosterSteps(state, rosterId, shipId, false) : full;
+}
+
+// The power the linked loadout still needs on the fully applied roster (0 = it lands, or there is nothing to judge:
+// no link, or the loadout did not check out for another reason). Pure.
+function rosterLoadoutRefused(state: GameState, rosterId: string, shipId: string, full: GameState): number {
+  const linkedId = state.personnelRosters.find((r) => r.id === rosterId)?.linkedLoadoutId ?? null;
+  if (linkedId === null) return 0;
+  const landed = full.loadouts.find((l) => l.id === linkedId)?.checkedOutToShipId === shipId;
+  const wasOn = state.loadouts.find((l) => l.id === linkedId)?.checkedOutToShipId === shipId;
+  if (!landed || wasOn) return 0;
+  const after = shipPowerTotals(full, shipId);
+  if (powerShortfall(after) === 0) return 0; // in budget: the roster without the loadout is never built
+  return installPowerShortfall(shipPowerTotals(applyRosterSteps(state, rosterId, shipId, false), shipId), after);
+}
+
+// E-MOD EM-2: the power the roster's linked loadout needs on this ship, judged exactly as applyRoster judges it (the
+// fully applied roster against the roster without the loadout). 0 = it lands, or nothing applies. Pure.
+export function rosterLoadoutPowerShortfall(state: GameState, rosterId: string, shipId: string): number {
+  if (!canApplyRoster(state, rosterId, shipId).ok) return 0;
+  return rosterLoadoutRefused(state, rosterId, shipId, applyRosterSteps(state, rosterId, shipId, true));
+}
+
+// The roster's steps (a) to (c) below, with or without the linked ship loadout. The caller has run canApplyRoster.
+function applyRosterSteps(state: GameState, rosterId: string, shipId: string, withLoadout: boolean): GameState {
   const roster = state.personnelRosters.find((r) => r.id === rosterId);
   if (roster === undefined) return state;
   const ship = state.ships.find((s) => s.id === shipId);
   if (ship === undefined) return state;
 
   // S4-CP39: the linked loadout's GEAR lands first, so the people below are capped against the new gear.
-  let next = withLinkedLoadout(state, roster, shipId);
+  let next = withLoadout ? withLinkedLoadout(state, roster, shipId) : state;
   // GO-17 UI: then each team's linked squad loadout (gear only, so it never touches the caps below).
   next = withLinkedSquadLoadouts(next, roster, shipId);
   if (!roster.includePeople) return next; // no people to apply (a gear-only roster still brings its loadout)
@@ -495,23 +527,9 @@ function withLinkedLoadout(state: GameState, roster: PersonnelRoster, shipId: st
     next = checkInLoadout(next, current.id);
     if (next === state) return state; // the current one could not come off (on a mission)
   }
-  const out = checkOutLoadout(next, linkedId, shipId);
+  // EM-2: the power gate is judged by applyRoster on the fully applied roster, not here.
+  const out = checkOutLoadoutBeforePowerGate(next, linkedId, shipId);
   return out === next ? state : out;
-}
-
-// E-MOD EM-2: the power the roster's linked loadout still needs on this ship (0 = it checks out, or it is refused or
-// skipped for another reason). Mirrors withLinkedLoadout's steps exactly (the ship's current loadout checked in
-// first), so the Personnel apply can say why the gear stayed in the Armory. Pure.
-export function rosterLoadoutPowerShortfall(state: GameState, rosterId: string, shipId: string): number {
-  const roster = state.personnelRosters.find((r) => r.id === rosterId);
-  const linkedId = roster?.linkedLoadoutId ?? null;
-  if (linkedId === null) return 0;
-  const linked = state.loadouts.find((l) => l.id === linkedId);
-  if (linked === undefined || linked.checkedOutToShipId !== null) return 0;
-  const current = state.loadouts.find((l) => l.checkedOutToShipId === shipId);
-  const next = current === undefined ? state : checkInLoadout(state, current.id);
-  if (current !== undefined && next === state) return 0;
-  return loadoutCheckOutPowerShortfall(next, linkedId, shipId);
 }
 
 // GO-17 UI: put each team's linked GROUND TEAM loadout on that team of the ship, in team order, the ship

@@ -388,17 +388,27 @@ switch now takes the refusal (App `devFitReasonText`, ShipSystemsPanel `reasonTe
 `overPowerReasonText` ("needs N more power. Install a stronger Reactor Core or remove a powered system", the mockup's
 wording). `checkOutLoadout` refuses a whole set over budget (the loadout's own Reactor Core counts, the ship's manual
 gear goes to storage so its core does not); `loadoutCheckOutPowerShortfall` feeds the Armory's inline refusal line and
-log; `rosterLoadoutPowerShortfall` names it in the roster apply log (the rest of the roster still applies). Uninstall is
+log; the roster apply judges the gate on the FULLY applied roster (its officers and crew included) against the same
+roster without the loadout, and re-runs without the loadout when it fails (`rosterLoadoutPowerShortfall` names it in
+the log; the people still land). Uninstall is
 never blocked and nothing is evicted (P2): `overBudgetNotice` is the Ship Systems warning ("Over budget by N", the cause
-from the ship as it is). **[PROVISIONAL] `POWER_GATE_ALLOWS_NON_WORSENING_INSTALL` (shipPower.ts):** on a ship already
-over budget, an install that does not make the shortfall worse passes (a bridge, an equal swap, a stronger but still
-short Reactor Core); its "needs N" is what the install adds. Off = every install that ends over budget is refused.
+from the ship as it is, named like the mockup: no Engineering officer aboard, or no efficiency source, then the
+supply side). **`POWER_GATE_ALLOWS_NON_WORSENING_INSTALL` (shipPower.ts), user ruling 2026-10-21 "Allow non-worsening
+(Recommended)":** on a ship already over budget, an install that does not make the shortfall worse passes (a bridge,
+an equal swap, a stronger but still short Reactor Core); a refusal always names the WHOLE shortfall after the install
+(10 over plus a 3-draw install: "needs 13 more power"). The Armory Check out button is disabled while its refusal
+line shows. Review follow-ups (2026-10-21): `equippedFor`, `MULTI_SLOT_TYPES` and `onMissionLock` moved to the leaf
+`equipmentQueries.ts` (re-exported from equipment.ts), so equipment.ts -> shipPower.ts is one-way with no import
+cycle; `InstallTarget`'s ship row carries only `refusal`.
 Power efficiency now moves the verdict (powerInstallGate.test.ts: a 90 draw on an 85 hull is refused bare, passes with
 one Overdrive officer, with Power Discipline, and the Martian racial cuts the candidate draw). **Honest scope:** under
 P1 no crafted loadout reaches the boundary today, so the gate and the efficiency sources first bind in play when
 modules (EM-5) and Class II+ drives (G2-4) add draw. **For EM-3 (after WR-8):** the warning's strength line ("Weapons
 and shield recharge at X%") joins `overBudgetNotice` with the penalty; freeze `powerSupplyPercent` from
-`shipPowerTotals` (pristine output vs net draw).
+`shipPowerTotals` (pristine output vs net draw). **Note:** `shipPowerTotals().draw` is the GROSS draw whenever the
+ship is within budget (the fast path skips the crew fold); it is the net draw only when the ship is over. That is
+exact for a percent that is 100 in budget, but anything that needs the in-budget net draw must read
+`shipPowerBudget` instead.
 
 **EM-3 Combat over-budget penalty.** `powerSupplyPercent` frozen at battle build from pristine output vs net draw;
 multiplies weapon damage and shield recharge beside `reactorDamagePercent` (call P6). 100 when in budget, so every

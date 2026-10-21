@@ -11,7 +11,7 @@ import { installMissingCombatBaselines } from "./tick";
 import { canFitEquipment, fitEquipment, unfitEquipmentInstance } from "./equipment";
 import { installTargetsFor } from "./memberEquipment";
 import { checkOutLoadout, createLoadout, installIntoLoadout, loadoutCheckOutPowerShortfall } from "./armory";
-import { applyRoster, createRoster, rosterLoadoutPowerShortfall } from "./personnelRosters";
+import { applyRoster, assignSeat, createRoster, rosterLoadoutPowerShortfall } from "./personnelRosters";
 import { unassignOfficer } from "./seniorStaff";
 import {
   POWER_GATE_ALLOWS_NON_WORSENING_INSTALL,
@@ -116,13 +116,15 @@ describe("EM-2: the reactor swap and the Reactor Core's own output", () => {
     const notice = overBudgetNotice(s, SHIP)!;
     expect(notice.shortfall).toBe(29);
     expect(notice.chip).toBe("Over budget by 29");
-    expect(notice.cause).toContain(`against ${BASE} output (the hull's own ${BASE}, with no Reactor Core power)`);
+    expect(notice.cause).toBe(
+      `No power efficiency (no Engineering officer aboard, and no Power Discipline or Martian crew). No Reactor Core power: the hull's own ${BASE} only, against a draw of ${BASE + 29}. Nothing was switched off or removed. Install a stronger Reactor Core or remove a powered system to clear it.`,
+    );
     expect(notice.cause).toContain("Install a stronger Reactor Core or remove a powered system");
     expect(overBudgetNotice(loaded(), SHIP)).toBeNull();
   });
 });
 
-describe("EM-2: a ship already over budget (P2) [PROVISIONAL rule: an install that does not make it worse passes]", () => {
+describe("EM-2: a ship already over budget (P2; user ruling 2026-10-21: an install that does not make it worse passes)", () => {
   const over = () => shipWith([piece("hold", { slotType: "cargoBay", powerDraw: BASE + 10 })], [
     piece("bridge", { slotType: "bridge", powerDraw: 0 }),
     piece("hotter", { slotType: "cargoBay", powerDraw: BASE + 15 }),
@@ -135,18 +137,22 @@ describe("EM-2: a ship already over budget (P2) [PROVISIONAL rule: an install th
     expect(POWER_GATE_ALLOWS_NON_WORSENING_INSTALL).toBe(true);
   });
 
-  it("an unpowered or equal install passes; a hotter one is refused by what it adds; any stronger core passes", () => {
+  it("an unpowered or equal install passes; a hotter one is refused with the whole shortfall; any stronger core passes", () => {
     expect(verdict(over(), "bridge")).toBe("ok");
     expect(verdict(over(), "same")).toBe("ok");
-    expect(verdict(over(), "hotter")).toBe("overPower:5");
+    // The refusal names the WHOLE shortfall after the install (10 over, plus 5 more draw: needs 15), never the increment.
+    expect(verdict(over(), "hotter")).toBe("overPower:15");
     expect(verdict(over(), "weakCore")).toBe("ok");
     expect(verdict(over(), "bigCore")).toBe("ok");
   });
 
   it("the rule as a pure function, both settings", () => {
+    // The review example: 10 over, a 3-draw install: refused, and it needs 13, not 3.
     const before = { output: 85, draw: 95 };
-    expect(installPowerShortfall(before, { output: 85, draw: 100 })).toBe(5);
-    expect(installPowerShortfall(before, { output: 85, draw: 100 }, false)).toBe(15);
+    expect(installPowerShortfall(before, { output: 85, draw: 98 })).toBe(13);
+    expect(installPowerShortfall(before, { output: 85, draw: 98 }, false)).toBe(13);
+    expect(installPowerShortfall(before, { output: 85, draw: 95 })).toBe(0);
+    expect(installPowerShortfall(before, { output: 85, draw: 90 })).toBe(0);
     expect(installPowerShortfall(before, { output: 85, draw: 95 }, false)).toBe(10);
     expect(installPowerShortfall(before, { output: 85, draw: 85 }, false)).toBe(0);
     expect(installPowerShortfall({ output: 85, draw: 0 }, { output: 85, draw: 86 })).toBe(1);
@@ -180,11 +186,15 @@ describe("EM-2: power efficiency moves the verdict (Reactor Overdrive, Power Dis
     const left = unassignOfficer(installed, crewed.officers.find((o) => o.assignedShipId === SHIP)!.id);
     expect(left.equipment.find((e) => e.id === "hot")!.fittedToShipId).toBe(SHIP);
     expect(overBudgetNotice(left, SHIP)!.chip).toBe("Over budget by 5");
+    expect(overBudgetNotice(left, SHIP)!.cause).toMatch(/^No power efficiency \(no Engineering officer aboard/);
+    // An Engineering officer without an efficiency bonus is named as such.
+    const plainEngineer = seatOfficer(left, "engineering", [], { id: "plain-eng" });
+    expect(overBudgetNotice(plainEngineer, SHIP)!.cause).toMatch(/^No power efficiency \(no Reactor Overdrive, Power Discipline or Martian crew aboard\)/);
     // An overrun the crew's cut cannot cover names the cut in the cause.
     const stillOver = withBuckets(shipWith([piece("hotter", { slotType: "cargoBay", powerDraw: 120 })]), [bucketOf("engineering", "eng.power", 200)]);
     const t = shipPowerTotals(stillOver, SHIP);
     expect(t.draw).toBeLessThan(120);
-    expect(overBudgetNotice(stillOver, SHIP)!.cause).toContain(`draw ${t.draw} after power efficiency (120 before) against ${BASE} output`);
+    expect(overBudgetNotice(stillOver, SHIP)!.cause).toMatch(new RegExp(`^Power efficiency cuts the draw from 120 to ${t.draw}, not enough\\.`));
   });
 });
 
@@ -217,7 +227,7 @@ describe("EM-2: every install path carries the same gate", () => {
   it("item side: Install on... carries the refusal and its number", () => {
     const s = shipWith([], [hotHold]);
     const [t] = installTargetsFor(s, "hotHold");
-    expect(t).toMatchObject({ kind: "ship", ok: false, reason: "overPower", refusal: { reason: "overPower", powerShortfall: BASE + 31 - BASE } });
+    expect(t).toEqual({ kind: "ship", shipId: SHIP, ok: false, refusal: { ok: false, reason: "overPower", powerShortfall: 31 } });
     const [row] = buildInstallOnRows(s, "hotHold", (r) => (r.reason === "overPower" ? overPowerReasonText(r.powerShortfall) : r.reason));
     expect(row.reason).toBe("Needs 31 more power. Install a stronger Reactor Core or remove a powered system");
   });
@@ -248,5 +258,38 @@ describe("EM-2: every install path carries the same gate", () => {
     const ok = createRoster(fits.s, { name: "Gear", linkedLoadoutId: fits.id, includePeople: false });
     expect(rosterLoadoutPowerShortfall(ok.next, ok.rosterId!, SHIP)).toBe(0);
     expect(applyRoster(ok.next, ok.rosterId!, SHIP).loadouts.find((l) => l.id === fits.id)!.checkedOutToShipId).toBe(SHIP);
+  });
+
+  // The review fix: the gate is judged on the FULLY applied roster, its officers included.
+  function rosterWithOverdrive(holdDraw: number): { s: GameState; rosterId: string; loadoutId: string } {
+    const hot = piece("rosterHold", { slotType: "cargoBay", powerDraw: holdDraw });
+    const seated = seatOfficer(shipWith([], [hot]), "engineering", ["eng.overdrive"], { id: "roster-eng" });
+    const parked = { ...seated, officers: seated.officers.map((o) => (o.id === "roster-eng" ? { ...o, assignedShipId: null } : o)) };
+    const lo = loadout(parked, { hold: "rosterHold" });
+    const made = createRoster(lo.s, { name: "Crew + gear", linkedLoadoutId: lo.id, includePeople: true });
+    const s = assignSeat(made.next, made.rosterId!, "engineering", "roster-eng");
+    return { s, rosterId: made.rosterId!, loadoutId: lo.id };
+  }
+
+  it("roster apply: a loadout that fits only with the roster's own Overdrive officer lands", () => {
+    // 90 draw on the 85 hull: refused for the ship as it stands (no officer), fits once the roster's officer is aboard.
+    const r = rosterWithOverdrive(90);
+    expect(loadoutCheckOutPowerShortfall(r.s, r.loadoutId, SHIP)).toBe(5);
+    expect(rosterLoadoutPowerShortfall(r.s, r.rosterId, SHIP)).toBe(0);
+    const out = applyRoster(r.s, r.rosterId, SHIP);
+    expect(out.loadouts.find((l) => l.id === r.loadoutId)!.checkedOutToShipId).toBe(SHIP);
+    expect(out.officers.find((o) => o.id === "roster-eng")!.assignedShipId).toBe(SHIP);
+    expect(overBudgetNotice(out, SHIP)).toBeNull();
+  });
+
+  it("roster apply: a loadout too hot even with the officer stays in the Armory, and the people still land", () => {
+    const r = rosterWithOverdrive(120);
+    const short = rosterLoadoutPowerShortfall(r.s, r.rosterId, SHIP);
+    expect(short).toBeGreaterThan(0);
+    expect(short).toBeLessThan(120 - BASE); // judged with the officer's cut, the whole shortfall after the apply
+    const out = applyRoster(r.s, r.rosterId, SHIP);
+    expect(out.loadouts.find((l) => l.id === r.loadoutId)!.checkedOutToShipId).toBeNull();
+    expect(out.officers.find((o) => o.id === "roster-eng")!.assignedShipId).toBe(SHIP);
+    expect(out.equipment.find((e) => e.id === "rosterHold")!.fittedToShipId).toBeNull();
   });
 });

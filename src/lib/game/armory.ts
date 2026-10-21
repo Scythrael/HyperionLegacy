@@ -264,8 +264,8 @@ export function uninstallFromLoadout(state: GameState, loadoutId: string, slotKe
 //
 // E-MOD EM-2 (user answers P1 / P2 2026-10-17): also refused when the WHOLE set, the loadout's own Reactor Core
 // included, would leave the ship over its power budget (the same gate canFitEquipment applies, read on the ship as
-// the check-out would leave it, pristine values; [PROVISIONAL] a ship already over budget may take a set that does
-// not make it worse). loadoutCheckOutPowerShortfall names the power still needed, for the refusal text.
+// the check-out would leave it, pristine values; a ship already over budget may take a set that does not make it
+// worse, user ruling 2026-10-21). loadoutCheckOutPowerShortfall names the power still needed, for the refusal text.
 export function checkOutLoadout(state: GameState, loadoutId: string, shipId: string): GameState {
   const next = checkOutTransition(state, loadoutId, shipId);
   if (next === state) return state;
@@ -277,6 +277,14 @@ export function checkOutLoadout(state: GameState, loadoutId: string, shipId: str
 export function loadoutCheckOutPowerShortfall(state: GameState, loadoutId: string, shipId: string): number {
   const next = checkOutTransition(state, loadoutId, shipId);
   return next === state ? 0 : installPowerShortfallBetween(state, next, shipId);
+}
+
+// The check-out with every rule BUT the power gate, for a caller that judges the gate itself on a LATER state: the
+// roster apply (personnelRosters.ts) lands its officers and crew after the gear, so it judges the gate on the fully
+// applied roster (their power efficiency included) and re-runs without the loadout when it fails. Every other caller
+// uses checkOutLoadout. Same-ref no-op on a refusal. Pure.
+export function checkOutLoadoutBeforePowerGate(state: GameState, loadoutId: string, shipId: string): GameState {
+  return checkOutTransition(state, loadoutId, shipId);
 }
 
 // The check-out itself, every rule but the power gate (same-ref no-op on a refusal).

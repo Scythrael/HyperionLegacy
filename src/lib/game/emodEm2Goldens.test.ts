@@ -149,7 +149,7 @@ function reactorSwapBack(s0: GameState): { verdict: string; state: GameState } {
 }
 
 function itemSide(s: GameState): string[] {
-  return crafted(s).map((p) => installTargetsFor(s, p.id).map((t) => `${t.kind === "ship" ? t.shipId : "member"}:${t.ok ? "ok" : t.reason}`).join(","));
+  return crafted(s).map((p) => installTargetsFor(s, p.id).map((t) => `${t.kind === "ship" ? t.shipId : "member"}:${t.ok ? "ok" : t.kind === "ship" ? t.refusal?.reason : t.reason}`).join(","));
 }
 
 function armoryLoadout(s0: GameState): { state: GameState; loadoutId: string } {

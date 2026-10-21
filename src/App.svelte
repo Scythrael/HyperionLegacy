@@ -15212,7 +15212,7 @@
                           <option value={s.id}>{armoryCheckoutOptionLabel(state, fleetShipLabels, s)}</option>
                         {/each}
                       </select>
-                      <button class="buy-btn" style="flex:none; white-space:nowrap;" on:click={() => { if (armoryCheckoutSelId !== null) doArmoryCheckOut(armoryCheckoutSelId); }}>Check out</button>
+                      <button class="buy-btn" style="flex:none; white-space:nowrap;" disabled={armoryCheckoutPowerShort > 0} title={armoryCheckoutPowerShort > 0 ? `This loadout ${overPowerReasonText(armoryCheckoutPowerShort)}` : undefined} on:click={() => { if (armoryCheckoutSelId !== null) doArmoryCheckOut(armoryCheckoutSelId); }}>Check out</button>
                     {/if}
                     <button class="buy-btn" style="flex:none; white-space:nowrap;" on:click={() => (loadoutDeletePending = selectedLoadout.id)}>Delete loadout</button>
                   </div>

@@ -545,7 +545,7 @@
     backLeg: "The ship's speed on the return leg of a mission: FTL Speed plus the Fast Return crew aboard.",
     range: "How far the ship can travel before it must turn back, in light-years; more range reaches farther destinations. The Fuel Depot extends it for the whole fleet.",
     powerOutput: "Total power the ship supplies: the hull's own generation plus any crafted Reactor Core. It needs to cover everything the installed systems draw.",
-    powerDraw: "Total power the installed systems consume, after any power efficiency from Engineering crew, Reactor Overdrive or Martian crew. It must stay at or under power output: an install that would push it over is refused. Lower is better.",
+    powerDraw: "Total power the installed systems consume, after any power efficiency from Engineering crew, Reactor Overdrive or Martian crew. An install that would put it over power output is refused. If the ship is already over (an officer left or a Reactor Core came off), nothing is removed and only installs that would make it worse are refused. Lower is better.",
     mass: "The ship's combined mass from its hull and installed systems; lower mass is generally easier to move.",
     guestQuarters: "Berths for passengers such as refugees, separate from the crew and the cargo hold. Passenger runs need enough of them for everyone aboard.",
   };

@@ -103,8 +103,12 @@ import {
 // would close an equipment <-> salvage import cycle. reservation.ts is the type-only
 // leaf both sides depend on instead.
 import { salvageReservedInstanceIds } from "./reservation";
-// E-MOD EM-2: the power install gate's reading. shipPower.ts imports this module back (equippedFor, MULTI_SLOT_TYPES);
-// both sides only call each other inside functions, never at module load, so the cycle is safe.
+// E-MOD EM-2 review: the pure queries every reader needs (equippedFor, MULTI_SLOT_TYPES, onMissionLock) live in the
+// LEAF module equipmentQueries.ts and are re-exported here, so shipPower.ts and the crew fold read them without
+// importing this file: equipment.ts -> shipPower.ts is one-way, no import cycle.
+import { MULTI_SLOT_TYPES, equippedFor, onMissionLock } from "./equipmentQueries";
+export { MULTI_SLOT_TYPES, equippedFor, onMissionLock } from "./equipmentQueries";
+// E-MOD EM-2: the power install gate's reading (one-way: shipPower.ts never imports this file).
 import { installPowerShortfallBetween } from "./shipPower";
 
 // The slot-type partitions the fit gate (canFitEquipment) and the mutators read. Sets (not arrays)
@@ -147,8 +151,6 @@ const CATALOG_SINGLETON_SLOTS: ReadonlySet<EquipmentSlotType> = new Set<Equipmen
   "quarters",
   "sensor",
 ]);
-// Exported for the power budget reader (shipPower.ts), so its candidate swap follows the same slot rule.
-export const MULTI_SLOT_TYPES: ReadonlySet<EquipmentSlotType> = new Set<EquipmentSlotType>(["weapon", "droneBay"]);
 
 // ----------------------------------------------------------------------------
 // captainBranchToShipSpec
@@ -267,15 +269,6 @@ export type EquipFitRefusal =
 export type EquipFitVerdict = { ok: true } | EquipFitRefusal;
 
 // ----------------------------------------------------------------------------
-// equippedFor
-// ----------------------------------------------------------------------------
-// Every equipment piece currently FITTED to the given ship, read straight off the
-// fittedToShipId authority. PURE: filters the immutable pool, returns a fresh array.
-export function equippedFor(state: GameState, shipId: string): EquipmentInstance[] {
-  return state.equipment.filter((e) => e.fittedToShipId === shipId);
-}
-
-// ----------------------------------------------------------------------------
 // fittedInSlot
 // ----------------------------------------------------------------------------
 // The single piece occupying the given ship's given slot, or null when that slot
@@ -291,49 +284,6 @@ export function fittedInSlot(
   return (
     state.equipment.find((e) => e.fittedToShipId === shipId && e.slotType === slotType) ?? null
   );
-}
-
-// ----------------------------------------------------------------------------
-// onMissionLock (shared guard, exported)
-// ----------------------------------------------------------------------------
-// The shared "is this ship editable / mutable right now?" guard, factored out
-// (Omega 4, DRY) so canFitEquipment and unfitEquipment apply the IDENTICAL lock.
-// EXPORTED as of ship-salvage (0.11.0): salvage.ts's salvageShip reuses this exact
-// on-mission guard to BLOCK tearing apart a hull whose captain is out on a mission,
-// so the fitment lock and the salvage lock can never drift apart (one source of truth
-// for "this ship's captain is busy in flight").
-// Two failure modes, in order: the ship must exist (noShip), and its assigned
-// captain must NOT be on an active mission (onMission).
-//
-// The on-mission rule MIRRORS assignShipToCaptain's swap lock EXACTLY
-// (tick.ts ~line 2053: `if (captain.mission !== null) return ...fail`): you cannot
-// change a hull mid-mission, and for the same closed-form reason you cannot change
-// its FITMENT mid-mission either. A PARKED ship (assignedCaptainId null) has no
-// captain and so no lock, it is freely editable. A captain whose mission has
-// resolved to null (idle, or recalled-and-cycle-completed) is likewise unlocked;
-// note recall only takes effect at the end of the current cycle (recallCaptain sets
-// mission.recalled but leaves mission !== null), so a recalled-but-still-flying
-// captain remains locked here, exactly as it is for a ship swap.
-//
-// PURE: reads state, returns a verdict, mutates nothing.
-export function onMissionLock(
-  state: GameState,
-  shipId: string
-): { ok: true } | { ok: false; reason: "noShip" | "onMission" } {
-  const ship = state.ships.find((s) => s.id === shipId);
-  if (!ship) return { ok: false, reason: "noShip" };
-
-  // Parked hull (no captain) -> no lock. Otherwise resolve the flying captain and
-  // apply the same mission !== null lock the ship-swap uses.
-  if (ship.assignedCaptainId !== null) {
-    const captain = state.captains.find((c) => c.id === ship.assignedCaptainId);
-    // A captain genuinely on an active mission blocks fitment. (If the id somehow
-    // resolves to no captain, treat it as unlocked, there is no active mission to
-    // protect, same permissive stance the swap code takes for a stale link.)
-    if (captain && captain.mission !== null) return { ok: false, reason: "onMission" };
-  }
-
-  return { ok: true };
 }
 
 // ----------------------------------------------------------------------------
@@ -556,8 +506,8 @@ export function canFitEquipment(
   // refusal. The ship is read as the install would really leave it (applyFit: a singleton's occupant moves out, a
   // targeted swap's outgoing piece leaves, the crew's power efficiency read with any bridge or quarters swap), on
   // PRISTINE values only (equipmentStatMods never reads wear). Exact-equal fits. A ship already over budget (P2) may
-  // still take an install that does not make it worse (shipPower.ts POWER_GATE_ALLOWS_NON_WORSENING_INSTALL,
-  // [PROVISIONAL]). Under P1 no live loadout reaches the boundary (emodEm2Goldens.test.ts), and the fast path skips the
+  // still take an install that does not make it worse (shipPower.ts POWER_GATE_ALLOWS_NON_WORSENING_INSTALL, user
+  // ruling 2026-10-21); a refusal names the WHOLE shortfall after the install. Under P1 no live loadout reaches the boundary (emodEm2Goldens.test.ts), and the fast path skips the
   // crew fold whenever the gross draw already fits.
   const shortfall = installPowerShortfallBetween(state, applyFit(state, shipId, instanceId, replacingInstanceId), shipId);
   if (shortfall > 0) return { ok: false, reason: "overPower", powerShortfall: shortfall };

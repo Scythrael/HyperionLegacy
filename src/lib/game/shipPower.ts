@@ -26,7 +26,7 @@
 import type { EquipmentInstance, GameState } from "./model";
 import { BLUEPRINTS, DEFAULT_EQUIPMENT_VARIETY, SHIP_TYPES, equipmentStatMods } from "./model";
 import { HULL_TIER_REACTOR_REQUIREMENT, REACTOR_VARIETY_TECH, meetsReactorRequirement, requiredReactorTech, type ReactorTechId } from "./reactorTech";
-import { MULTI_SLOT_TYPES, equippedFor } from "./equipment";
+import { MULTI_SLOT_TYPES, equippedFor } from "./equipmentQueries";
 import { netPowerDraw, shipCrewContribution } from "./crewOverlay";
 import { CREW_STAT_KEYS } from "./crewBuffs";
 import { powerBudget, type PowerBudget } from "./combat/power";
@@ -110,24 +110,26 @@ export function powerShortfall(t: ShipPowerTotals): number {
   return Math.max(0, t.draw - t.output);
 }
 
-// [PROVISIONAL] (one answer missing; the plan's text is "installing over budget is refused"). On a ship that is ALREADY
-// over budget (P2: an officer left, a Reactor Core was removed; nothing is ever evicted), an install that does not make
-// the shortfall WORSE is allowed (a bridge, an equal swap, a stronger but not yet sufficient Reactor Core), so the
-// player is never forced to strip systems before installing anything at all. False = every install that leaves the
-// ship over budget is refused. Read by installPowerShortfall below.
+// The non-worsening rule (user ruling 2026-10-21, "Allow non-worsening (Recommended)"). On a ship that is ALREADY over
+// budget (P2: an officer left, a Reactor Core was removed; nothing is ever evicted), an install that does not make the
+// shortfall WORSE is allowed (a bridge, an equal swap, a stronger but not yet sufficient Reactor Core), so the player
+// is never forced to strip systems before installing anything at all. False = every install that leaves the ship over
+// budget is refused. Read by installPowerShortfall below.
 export const POWER_GATE_ALLOWS_NON_WORSENING_INSTALL = true;
 
-// The power an install still needs: 0 = the install passes the power gate. `after` is the ship as the install would
-// leave it. A ship that ends in budget always passes. Otherwise the shortfall the install itself adds (or, with the
-// provisional rule off, the whole shortfall after it): exactly the "needs N more power" of the refusal. Pure.
+// The gate's verdict as a number: 0 = the install passes; otherwise the WHOLE shortfall the ship would have after the
+// install (net draw minus output), the honest "needs N more power" (user ruling 2026-10-21: never only the increment;
+// a ship 10 over taking a 3-draw install needs 13). A ship that ends in budget always passes; with the non-worsening
+// rule on, so does one whose shortfall does not grow. `after` is the ship as the install would leave it. Pure.
 export function installPowerShortfall(
   before: ShipPowerTotals,
   after: ShipPowerTotals,
   allowNonWorsening: boolean = POWER_GATE_ALLOWS_NON_WORSENING_INSTALL,
 ): number {
   const afterShort = powerShortfall(after);
-  if (afterShort === 0 || !allowNonWorsening) return afterShort;
-  return Math.max(0, afterShort - powerShortfall(before));
+  if (afterShort === 0) return 0;
+  if (allowNonWorsening && afterShort <= powerShortfall(before)) return 0;
+  return afterShort;
 }
 
 // The gate over two states: the ship now (`before`) and as the install would leave it (`after`). The before state
@@ -162,12 +164,25 @@ export function overBudgetNotice(state: GameState, shipId: string): OverBudgetNo
   const mods = equipmentStatMods(equippedFor(state, shipId));
   const base = SHIP_TYPES[ship.typeKey].basePowerOutput;
   const gross = mods.totalPowerDraw;
-  const drawText = gross > t.draw ? `${t.draw} after power efficiency (${gross} before)` : `${t.draw}`;
-  const supply = mods.powerOutput > 0 ? `the hull's ${base} plus ${mods.powerOutput} from the Reactor Core` : `the hull's own ${base}, with no Reactor Core power`;
+  // The cause, named like the signed-off mockup ("No power efficiency (the Engineering officer was reassigned)"): the
+  // efficiency side first (an Engineering officer gone, or no efficiency source aboard), then the supply side.
+  const engineer = state.officers.some((o) => o.assignedShipId === shipId && o.seat === "engineering");
+  const efficiency =
+    gross > t.draw
+      ? `Power efficiency cuts the draw from ${gross} to ${t.draw}, not enough`
+      : shipPowerEfficiency(state, shipId) > 0
+        ? "The power efficiency aboard is too small to cut a whole point of draw"
+        : engineer
+          ? "No power efficiency (no Reactor Overdrive, Power Discipline or Martian crew aboard)"
+          : "No power efficiency (no Engineering officer aboard, and no Power Discipline or Martian crew)";
+  const supply =
+    mods.powerOutput > 0
+      ? `Hull ${base} plus Reactor Core ${mods.powerOutput} supply ${t.output}`
+      : `No Reactor Core power: the hull's own ${base} only`;
   return {
     shortfall,
     chip: `Over budget by ${shortfall}`,
-    cause: `The installed systems draw ${drawText} against ${t.output} output (${supply}). Nothing was switched off or removed. Install a stronger Reactor Core or remove a powered system to clear it.`,
+    cause: `${efficiency}. ${supply}, against a draw of ${t.draw}. Nothing was switched off or removed. Install a stronger Reactor Core or remove a powered system to clear it.`,
   };
 }
 
