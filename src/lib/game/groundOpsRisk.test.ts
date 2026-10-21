@@ -8,7 +8,7 @@
 
 import { describe, expect, it } from "vitest";
 // SF-1: the claimed state hashes without the run counters (a claim writes them), absent before SF-1.
-import { withoutRunCounts } from "./firstRunsGoldens.fixture";
+import { withoutRunCounts, goldenJson } from "./firstRunsGoldens.fixture";
 import {
   freshState,
   type AwayMember,
@@ -217,13 +217,13 @@ describe("SQ-4 the gate: a flagged run without a risk profile resolves byte-iden
       expect(res.success).toBe(true);
       expect(res.expedition!.risk).toBeDefined(); // a run dispatched today IS risk-aware
       const exp = withoutRisk(res.expedition!);
-      const hashes = [5000, 20000, 60000, 150000, 400000].map((t) => fnv(JSON.stringify(advanceExpedition(exp, t))));
+      const hashes = [5000, 20000, 60000, 150000, 400000].map((t) => fnv(goldenJson(advanceExpedition(exp, t))));
       const done = advanceExpedition(exp, 2_000_000);
       hashes.push(done.phase);
       // No task of the run carries a risk-aware stamp.
       for (const task of done.bodies.flatMap((b) => b.activities)) expect(task.difficulty).toBeUndefined();
       const claimed = claimExpedition({ ...res.next, expeditions: [done] }, done.id);
-      hashes.push(fnv(JSON.stringify(withoutRunCounts(claimed.next))));
+      hashes.push(fnv(goldenJson(withoutRunCounts(claimed.next))));
       expect(hashes).toEqual(GOLDEN[name]);
     });
   }

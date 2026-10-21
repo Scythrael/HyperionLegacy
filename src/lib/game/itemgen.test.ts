@@ -418,7 +418,7 @@ describe("generateEquipment", () => {
     expect(item.blueprintKey).toBeNull();
     expect(item.fittedToShipId).toBeNull();
     expect(item.ascension).toBe("none");
-    expect(item.durability).toBe(item.durabilityMax);
+    expect(item.condition).toBeUndefined(); // gear wear: a fresh piece is pristine (no condition)
   });
 
   it("mints every craftable shield-emitter + hull-plating variety as a valid, non-empty piece (Combat 1.0 defense gear)", () => {
@@ -440,7 +440,7 @@ describe("generateEquipment", () => {
         rng: mulberry32(11), allocateId: idAllocator(),
       });
       expect(item.slotType, `${varietyKey} slotType`).toBe(slotType);
-      expect(item.durability, `${varietyKey} durability`).toBe(item.durabilityMax);
+      expect(item.condition, `${varietyKey} durability`).toBeUndefined(); // gear wear: a fresh piece is pristine (no condition)
       // A crafted defensive piece carries real, positive stats (better than the +0 Standard-Issue floor).
       const total = [...Object.values(item.implicitStats), ...Object.values(item.rolledStats)].reduce((a, b) => a + b, 0);
       expect(total, `${varietyKey} has positive stats`).toBeGreaterThan(0);
@@ -755,7 +755,7 @@ describe("generateWeapon: crafted-weapon minting (Combat 1.0 Unit 1.2)", () => {
     // powerDraw comes straight off the weapon def (the reactor bite is a type property).
     expect(w.powerDraw).toBe(WEAPON_DEFS.railgun.powerDraw);
     // A fresh weapon starts at full, quality-scaled durability off the template ceiling.
-    expect(w.durability).toBe(w.durabilityMax);
+    expect(w.condition).toBeUndefined(); // gear wear: a fresh piece is pristine (no condition)
     expect(w.durabilityMax).toBe(
       Math.round(WEAPON_DEFS.railgun.durabilityMax * (1 + 2 * QUALITY_DURABILITY_BONUS)),
     );
@@ -857,7 +857,7 @@ describe("generateDronePod: crafted-drone-pod minting (Combat 1.0 Unit 2.1a)", (
     // powerDraw is the pod's first-pass flat base (a hangar bay running a squadron draws power).
     expect(p.powerDraw).toBe(DRONE_POD_BASE_POWER_DRAW);
     // A fresh pod starts at full, quality-scaled durability off the pod base ceiling.
-    expect(p.durability).toBe(p.durabilityMax);
+    expect(p.condition).toBeUndefined(); // gear wear: a fresh piece is pristine (no condition)
     expect(p.durabilityMax).toBe(
       Math.round(DRONE_POD_BASE_DURABILITY * (1 + 2 * QUALITY_DURABILITY_BONUS)),
     );

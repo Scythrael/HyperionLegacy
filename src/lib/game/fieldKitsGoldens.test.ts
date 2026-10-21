@@ -44,7 +44,7 @@ import { applyGroundTeamLoadout, checkInGroundTeamLoadout, createGroundTeamLoado
 import { deserialize, migrate, serialize } from "./save";
 import { asPreG2NamesDispatch, plainAwayMember, withSlottedAwayTeams, withoutAffixes, withoutFieldKits, withoutFieldKitsState, withoutGroundOps, withoutRisk, withoutSafeFirstRuns } from "./awayTeamTestFixtures";
 // SF-1: whole states hash without the run counters (seeded by freshState, written by a claim), absent before SF-1.
-import { withoutRunCounts } from "./firstRunsGoldens.fixture";
+import { withoutRunCounts, goldenJson } from "./firstRunsGoldens.fixture";
 
 // ===== shared helpers =====
 
@@ -213,7 +213,6 @@ function tool(id: string, variety: string, wearer: string): EquipmentInstance {
     mass: 0,
     powerDraw: 0,
     durabilityMax: 100,
-    durability: 100,
     fittedToShipId: null,
     fittedToMemberId: wearer,
   };
@@ -509,11 +508,11 @@ function wholeRunSuites(tag: string, fixtures: Record<string, Fixture>, golden: 
         expect(withoutFieldKits(exp)).toEqual(exp);
         expect("fieldKits" in exp).toBe(false);
         expect("enemyRanks" in exp).toBe(false);
-        const hashes = [...CHECKPOINTS, ...(f.extraAt ?? [])].map((t) => fnv(JSON.stringify(advanceExpedition(exp, t))));
+        const hashes = [...CHECKPOINTS, ...(f.extraAt ?? [])].map((t) => fnv(goldenJson(advanceExpedition(exp, t))));
         // The mid-run checkpoints: their offsets are pinned too, then the state at each.
         const mid = midRunPoints(exp);
         if (exp.groundOps) expect(mid.length).toBeGreaterThan(0);
-        for (const t of mid) hashes.push(`@${t - T0}`, fnv(JSON.stringify(advanceExpedition(exp, t))));
+        for (const t of mid) hashes.push(`@${t - T0}`, fnv(goldenJson(advanceExpedition(exp, t))));
         const done = advanceExpedition(exp, FINAL);
         f.check?.(done, exp);
         hashes.push(done.phase);
@@ -521,8 +520,8 @@ function wholeRunSuites(tag: string, fixtures: Record<string, Fixture>, golden: 
         if (claimed) expect(claimed.success).toBe(true);
         // FKR-0: the claim hashes through the state twin (identity today; FKR-7's team packs / top-up come off).
         if (claimed) expect(withoutFieldKitsState(claimed.next)).toEqual(claimed.next);
-        hashes.push(claimed ? fnv(JSON.stringify(withoutRunCounts(withoutFieldKitsState(claimed.next)))) : "unclaimed");
-        if (rollsBoundaries(exp)) hashes.push(fnv(JSON.stringify(boundaryReads(exp))));
+        hashes.push(claimed ? fnv(goldenJson(withoutRunCounts(withoutFieldKitsState(claimed.next)))) : "unclaimed");
+        if (rollsBoundaries(exp)) hashes.push(fnv(goldenJson(boundaryReads(exp))));
         expect(hashes).toEqual(golden[name]);
       });
     }
@@ -587,7 +586,7 @@ describe("FK-3 an Ossir member taking Bleed (Stoneskin's battle half lands in FK
     expect(struck.length).toBeGreaterThan(0);
     const strikeDamage = struck.reduce((sum, ev) => sum - (ev.hpDelta ?? 0), 0);
     expect(ossir.hpMax - ossir.hp).toBeGreaterThan(strikeDamage);
-    const hash = fnv(JSON.stringify({ result, squad, guards, log }));
+    const hash = fnv(goldenJson({ result, squad, guards, log }));
     expect(hash).toBe(GOLDEN.ossirBattle[0]);
   });
 });
@@ -601,7 +600,7 @@ describe("FK-3 the threat odds of three objectives", () => {
     const teams: GroundFightTeam[] = [{ securityIds: team0.securityIds, securityShare: exp.groundOps!.factors.securityShare[0] }];
     const reads = tasksOf(exp).map((task, k) => [groundTaskClearOdds(exp, teams, exp.bodies[0], task, k), groundThreatOddsKey(exp, teams, exp.bodies[0], task, k, 32)]);
     expect(reads.length).toBe(3);
-    const hash = fnv(JSON.stringify(reads));
+    const hash = fnv(goldenJson(reads));
     expect(hash).toBe(GOLDEN.threat[0]);
   });
 });
@@ -726,7 +725,7 @@ describe("FKR-0 (1) a grenade wearer's fight: today's passive on-hit inflict", (
       const record = resolveTaskFight(exp, teams, exp.bodies[0], task, 0, undefined, log, alertLevelAt(task, T0), taskCover(task));
       // The wearer's strikes put the status on a guard at least once (the passive roll FKR-5 replaces on flagged runs).
       expect(log.some((ev) => ev.side === "team" && ev.memberId === "member-1" && ev.statusApplied === true)).toBe(true);
-      expect([fnv(JSON.stringify({ record, log, squad }))]).toEqual(FKR0_GOLDEN[key]);
+      expect([fnv(goldenJson({ record, log, squad }))]).toEqual(FKR0_GOLDEN[key]);
     });
   }
 });
@@ -781,7 +780,7 @@ describe("FKR-0 (2) final fights: each graded objective's last fight point", () 
       const finals = tasksOf(exp).map((t, k) => pointFight(exp, teams, k, t.fightPoints!.length - 1));
       // Deadly objectives carry Reinforcing (required from Deadly, AF-1).
       for (const [k, t] of tasksOf(exp).entries()) if (t.difficulty === 5) expect(t.affixes?.some((a) => a.id === "reinforcing"), `${k}`).toBe(true);
-      expect(finals.map((f) => fnv(JSON.stringify(f)))).toEqual(FKR0_GOLDEN[`finalFights${which}`]);
+      expect(finals.map((f) => fnv(goldenJson(f)))).toEqual(FKR0_GOLDEN[`finalFights${which}`]);
     });
   }
 
@@ -795,7 +794,7 @@ describe("FKR-0 (2) final fights: each graded objective's last fight point", () 
     // The garrison's six roles (two Bruisers, two Strikers, a Caster, a Healer) on every point, plus any hazard extra.
     for (const f of fights) expect(f.enemies.length).toBeGreaterThanOrEqual(6);
     const final = fights[4];
-    expect([...fights.map((f) => fnv(JSON.stringify(f))), `final:${final.record.outcome}:${final.enemies.length}`]).toEqual(FKR0_GOLDEN.fortification);
+    expect([...fights.map((f) => fnv(goldenJson(f))), `final:${final.record.outcome}:${final.enemies.length}`]).toEqual(FKR0_GOLDEN.fortification);
   });
 });
 
@@ -828,7 +827,7 @@ describe("FKR-0 (2) AF-1 Reinforcing: every reinforcement fight's enemy list on 
       });
       // affixCat2 holds an ESCALATED reinforcement fight (alert 1: an extra copied enemy, open call N5's target).
       if (name === "affixCat2") expect(out.some((f) => f.alert > 0 && f.enemies.length > 3)).toBe(true);
-      expect(out.map((f) => fnv(JSON.stringify(f)))).toEqual(FKR0_GOLDEN[key]);
+      expect(out.map((f) => fnv(goldenJson(f)))).toEqual(FKR0_GOLDEN[key]);
     });
   }
 });
@@ -860,7 +859,7 @@ describe("FKR-0 (3) the threat odds at each difficulty grade 1 to 5", () => {
       const out: string[] = [];
       for (const [label, side] of ODDS_SIDES) {
         const reads = gradeOdds(gradeRun(which, side), side, 32);
-        out.push(`${label}: ${reads.map((r) => `${r.grade}:${r.odds.wins}`).join(" ")}`, fnv(JSON.stringify(reads)));
+        out.push(`${label}: ${reads.map((r) => `${r.grade}:${r.odds.wins}`).join(" ")}`, fnv(goldenJson(reads)));
       }
       expect(out).toEqual(FKR0_GOLDEN[`odds${which}`]);
     });
@@ -890,7 +889,7 @@ function inspectGrenades(): EquipmentInstance[] {
 
 describe("FKR-0 (4) one crafted roll of each grenade variety at three seeds (moved at FKR-5 on purpose)", () => {
   it("inspecting a Stun Grenade and a Toxin Grenade blank at each seed mints the captured pieces", () => {
-    expect(inspectGrenades().map((p) => fnv(JSON.stringify(p)))).toEqual(FKR0_GOLDEN.craftedRolls);
+    expect(inspectGrenades().map((p) => fnv(goldenJson(p)))).toEqual(FKR0_GOLDEN.craftedRolls);
   });
 
   // MOVED BY FKR-5 (Field Kits tool charges; FK11 "+1 carry capacity"): both grenade pools gained the carry capacity
@@ -917,10 +916,10 @@ describe("FKR-0 (4) one crafted roll of each grenade variety at three seeds (mov
   it("FKR-5: the base pools are the FKR-0 tables, and with them the same seeds mint the FKR-0 pieces exactly", () => {
     expect(grenadeCraftPool("stunGrenade", false)).toEqual(fkr0Pools.stunGrenade);
     expect(grenadeCraftPool("toxinGrenade", false)).toEqual(fkr0Pools.toxinGrenade);
-    expect(withGrenadePools(false, () => inspectGrenades().map((p) => fnv(JSON.stringify(p))))).toEqual(FKR0_CRAFTED_ROLLS);
+    expect(withGrenadePools(false, () => inspectGrenades().map((p) => fnv(goldenJson(p))))).toEqual(FKR0_CRAFTED_ROLLS);
   });
   it("FKR-5: with the carry pools (FIELD_KITS_PLAYER_LIVE on) the same seeds mint the moved FKR-5 pieces exactly", () => {
-    expect(withGrenadePools(true, () => inspectGrenades().map((p) => fnv(JSON.stringify(p))))).toEqual(FKR5_CRAFTED_ROLLS);
+    expect(withGrenadePools(true, () => inspectGrenades().map((p) => fnv(goldenJson(p))))).toEqual(FKR5_CRAFTED_ROLLS);
   });
 });
 
@@ -948,7 +947,7 @@ describe("FKR-0 (5) a squad loadout round trip with `consumables` absent", () =>
     expect(file).not.toBeNull();
     const loaded = migrate(file!);
     expect(loaded.squadLoadouts).toEqual(applied.next.squadLoadouts);
-    expect(stages.map((s) => fnv(JSON.stringify(withoutRunCounts(withoutFieldKitsState(s)))))).toEqual(FKR0_GOLDEN.loadout);
+    expect(stages.map((s) => fnv(goldenJson(withoutRunCounts(withoutFieldKitsState(s)))))).toEqual(FKR0_GOLDEN.loadout);
   });
 });
 

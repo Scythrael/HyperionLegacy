@@ -34,6 +34,7 @@ import { buildHomeDashboard } from "./homeDashboard";
 import { addItemQuality, itemTotal } from "./inventory";
 import { allocatedItem } from "./allocation";
 import { WIRING_REGISTRY } from "./wiring/registry";
+import { gasStudySourcePending } from "./gasGiantContent";
 
 // The seven recipes as the user approved them (July section 12 / E-MAT 3b): key -> inputs and output.
 const ML1_RECIPES: Record<string, { inputs: string[]; output: string }> = {
@@ -245,7 +246,9 @@ describe("ML-1 review: a recipe that leads nowhere yet is not offered", () => {
 
 // ===== the standing sink rule (E-MAT test strategy 4, extended to every producible refined item) =====
 
-const SINK_CATEGORIES: readonly ItemCategory[] = ["raw", "salvagedMaterial", "refined", "minorComponent", "majorComponent"];
+// Gas Giant Study GG-1: the Gas Storage Canisters (sold at the Quartermaster; GG-7 adds their recipes) and the research
+// data (reserved for GG-5's lab lane) follow the same rule.
+const SINK_CATEGORIES: readonly ItemCategory[] = ["raw", "salvagedMaterial", "refined", "minorComponent", "majorComponent", "gasCanister", "researchData"];
 // Field kits are consumed by squads in the field (fieldKits.ts, their own FKR registry entries), not by a recipe.
 
 function consumers(): Map<string, string[]> {
@@ -302,11 +305,14 @@ describe("ML-1 sink rule: every material has a consumer or a typed reserve", () 
     expect(bad).toEqual([]);
   });
 
-  it("a reserve names the slice that wires it, and its item is really produced today", () => {
+  // Gas Giant Study GG-1: a study item whose source is still pending (gasStudySourcePending: the research data, until
+  // GG-3's study reward) is not produced yet; the warehouse keeps it off its shelves and its source is a pending
+  // registry entry (GAS_STUDY_USES), so it counts as produced by that slice.
+  it("a reserve names the slice that wires it, and its item is really produced today (or its gas study source is pending)", () => {
     for (const [id, d] of Object.entries(ITEMS)) {
       if (d.reserved === undefined) continue;
       expect(d.reserved, id).toMatch(/^(ML|EM|GG|WR|CP|G\d)-\d/);
-      expect(made.has(id), `${id} has a configured producer`).toBe(true);
+      expect(made.has(id) || gasStudySourcePending(id), `${id} has a configured producer`).toBe(true);
     }
   });
 

@@ -79,7 +79,6 @@ function piece(overrides: Partial<EquipmentInstance> = {}): EquipmentInstance {
     mass: 0,
     powerDraw: 0,
     durabilityMax: 100,
-    durability: 100,
     fittedToShipId: null,
     ...overrides,
   };
@@ -219,7 +218,8 @@ const MEMBER_CATALOG: Record<string, string[]> = {
   memberTool: [
     // Field Kits FKR-5: the user-named Impact Grenade (FK11) after the two specialized grenades.
     "Stun Grenade", "Toxin Grenade", "Impact Grenade", "Med Kit", "Shroud Emitter", "Lure Beacon",
-    "Flora Scanner", "Thermal Rig", "Core Drill", "Decryptor", "Atmo Probe",
+    // Gas Giant Study GG-1: the Atmo Probe is the user's Galileo-Class Probe (id `atmoProbe` kept).
+    "Flora Scanner", "Thermal Rig", "Core Drill", "Decryptor", "Galileo-Class Probe",
     "Assay Scanner", "Seismic Mapper",
   ],
   implant: [
@@ -486,7 +486,7 @@ describe("member gear generation", () => {
         expect(p.mass, where).toBe(0);
         expect(p.powerDraw, where).toBe(0);
         expect(p.fittedToShipId, where).toBeNull();
-        expect(p.durability, where).toBe(p.durabilityMax);
+        expect(p.condition, where).toBeUndefined(); // gear wear: a fresh piece is pristine (no condition)
         const implicitKeys = Object.keys(p.implicitStats);
         expect(implicitKeys.sort(), where).toEqual([...(v.implicitStats ?? EQUIPMENT_SLOTS[slotType].implicitStats)].sort());
         for (const k of [...implicitKeys, ...Object.keys(p.rolledStats)]) expect(GROUND.has(k), `${where} ${k}`).toBe(true);

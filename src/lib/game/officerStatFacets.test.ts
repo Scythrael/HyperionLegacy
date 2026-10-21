@@ -78,7 +78,7 @@ import { itemTotal } from "./inventory";
 // Ground Ops GO-1: whole-state goldens hash without the new, inert ground-team slots (captured before them).
 import { asLegacyDispatch, asPreG2NamesDispatch, withSlottedAwayTeams, withoutGroundSquadState } from "./awayTeamTestFixtures";
 // SF-1: whole states hash without the run counters (seeded by freshState, written by a patrol), absent before SF-1.
-import { withoutGuests, withoutRunCounts } from "./firstRunsGoldens.fixture";
+import { goldenJson, withoutGuests, withoutRunCounts } from "./firstRunsGoldens.fixture";
 import { withCp2Off } from "./complementCp2Switch.fixture";
 // The inert racials (0.14.0): the Spacer key restored and the drone / survey sources zeroed (racialsSwitch.fixture.ts).
 import { withRacialsOff } from "./racialsSwitch.fixture";
@@ -243,7 +243,7 @@ function runTicks(s: GameState, n: number, rng: () => number): GameState {
 function sheetHash(statsFor: (seat: SeniorStaffSeat) => OfficerStats | undefined): string {
   const sheet = withCrew(freshState(), bridge(statsFor));
   // G1-1: the sheet hash strips guest quarters (withoutGuests), so this pin keeps proving no other stat moved.
-  return fnv(JSON.stringify([withoutGuests(withEm1Off(() => effectiveShipStats(sheet, sheet.ships[0]))), shipCrewContribution(sheet, sheet.ships[0])]));
+  return fnv(goldenJson([withoutGuests(withEm1Off(() => effectiveShipStats(sheet, sheet.ships[0]))), shipCrewContribution(sheet, sheet.ships[0])]));
 }
 
 // The inert racials (0.14.0) "turn it off": every scenario with the racials switched off (inside `inner`, another
@@ -263,19 +263,19 @@ function scenarioHashes(statsFor: (seat: SeniorStaffSeat) => OfficerStats | unde
   const out: Record<string, string | string[]> = {};
   out.sheet = sheetHash(statsFor);
   for (const key of ["shortOreRun", "surveyMineralAnomaly", "frontierSupplyRun"] as MissionKey[]) {
-    out[`mission:${key}`] = fnv(JSON.stringify(withoutRunCounts(withoutGroundSquadState(runTicks(missionState(key, officers()), 700, lcg(0xbeef))))));
+    out[`mission:${key}`] = fnv(goldenJson(withoutRunCounts(withoutGroundSquadState(runTicks(missionState(key, officers()), 700, lcg(0xbeef))))));
   }
   for (const typeKey of ["destroyer", "carrier", "battleship"] as ShipTypeKey[]) {
     const r = dispatchCaptainOnPatrol(patrolState(typeKey, officers()), 1, "crimsonReaverSweep", "balanced", true);
     expect(r.success).toBe(true);
     let s = r.next;
-    out[`patrol:${typeKey}:dispatch`] = fnv(JSON.stringify(s.captains[0].mission));
+    out[`patrol:${typeKey}:dispatch`] = fnv(goldenJson(s.captains[0].mission));
     const replays: string[] = [];
     for (let i = 0; i < 1200; i++) {
       s = economyTick(s, 1, () => 0.5);
-      if (i % 150 === 0) replays.push(fnv(JSON.stringify(replayPatrol(s, s.captains[0]))));
+      if (i % 150 === 0) replays.push(fnv(goldenJson(replayPatrol(s, s.captains[0]))));
     }
-    out[`patrol:${typeKey}:state`] = fnv(JSON.stringify(withoutRunCounts(withoutGroundSquadState(s))));
+    out[`patrol:${typeKey}:state`] = fnv(goldenJson(withoutRunCounts(withoutGroundSquadState(s))));
     out[`patrol:${typeKey}:replays`] = replays;
   }
   const base = installMissingCombatBaselines(withCrew(freshState(), officers()));
@@ -283,7 +283,7 @@ function scenarioHashes(statsFor: (seat: SeniorStaffSeat) => OfficerStats | unde
     ...base,
     ships: base.ships.map((sh) => (sh.id === "ship-1" ? { ...sh, typeKey: "destroyer" as ShipTypeKey, damaged: true, repairDamage: 437 } : sh)),
   };
-  out.repair = fnv(JSON.stringify(processShipRepairs(installMissingCombatBaselines(damaged)).activeProcesses));
+  out.repair = fnv(goldenJson(processShipRepairs(installMissingCombatBaselines(damaged)).activeProcesses));
   const s0: GameState = { ...withCrew(freshState(), officers()), awayMembers: ROSTER, nextAwayMemberId: 100 };
   const runs: string[] = [];
   for (let i = 0; i < 8; i++) {
@@ -292,7 +292,7 @@ function scenarioHashes(statsFor: (seat: SeniorStaffSeat) => OfficerStats | unde
     expect(res.success).toBe(true);
     const done = advanceExpedition(res.expedition!, 1_000_000);
     const claimed = claimExpedition({ ...res.next, expeditions: [done] }, done.id);
-    runs.push(fnv(JSON.stringify(res.expedition)) + "/" + fnv(JSON.stringify(done)) + "/" + fnv(JSON.stringify(claimed.next.awayMembers)));
+    runs.push(fnv(goldenJson(res.expedition)) + "/" + fnv(goldenJson(done)) + "/" + fnv(goldenJson(claimed.next.awayMembers)));
   }
   out.expedition = runs;
   return out;
@@ -535,7 +535,7 @@ describe("neutrality: an all-10 bridge = byte-identical to before Task 21 (golde
       expect(map[CREW_STAT_KEYS.transitOutSpeed]).toBeUndefined();
       const out: Record<string, number> = {};
       for (const [k, v] of Object.entries(map)) out[k === OFFICER_TRANSIT_KEY ? CREW_STAT_KEYS.transitOutSpeed : k] = v;
-      return fnv(JSON.stringify([withoutGuests(withEm1Off(() => effectiveShipStats(sheet, sheet.ships[0]))), out]));
+      return fnv(goldenJson([withoutGuests(withEm1Off(() => effectiveShipStats(sheet, sheet.ships[0]))), out]));
     }), { droneAndSurvey: false });
     expect(renamed).toBe(SHEET_CP2_OFF_PRE);
   });

@@ -70,7 +70,6 @@ function piece(id: string, slotType: MemberSlotType, variety: string, wearer: st
     mass: 0,
     powerDraw: 0,
     durabilityMax: 100,
-    durability: 100,
     fittedToShipId: null,
     fittedToMemberId: wearer,
   };

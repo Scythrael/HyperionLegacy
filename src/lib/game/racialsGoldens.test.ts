@@ -25,7 +25,7 @@ import { effectiveShipStats, shipCrewContribution } from "./crewOverlay";
 import { CREW_STAT_KEYS } from "./crewBuffs";
 import { seatOfficer } from "./wiring/probes";
 import { asPreCurveDispatch, plainAwayMember, withSlottedAwayTeams } from "./awayTeamTestFixtures";
-import { withoutRunCounts } from "./firstRunsGoldens.fixture";
+import { goldenJson, withoutRunCounts } from "./firstRunsGoldens.fixture"; // gear wear: goldenJson puts the retired durability back
 import { withRacialsOff } from "./racialsSwitch.fixture";
 
 function fnv(s: string): string {
@@ -36,7 +36,7 @@ function fnv(s: string): string {
   }
   return h.toString(16);
 }
-const hash = (v: unknown): string => fnv(JSON.stringify(withoutRunCounts(v)));
+const hash = (v: unknown): string => fnv(goldenJson(withoutRunCounts(v)));
 
 function lcg(seed: number): () => number {
   let s = seed >>> 0;

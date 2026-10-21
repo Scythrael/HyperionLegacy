@@ -193,7 +193,7 @@ describe("combat-defense fix: patrol carry-state seeds from the installed-gear f
       ...state,
       equipment: state.equipment.map((e) =>
         e.fittedToShipId === "ship-1" && e.slotType === "weapon"
-          ? { ...e, quality: 5, durability: 200, durabilityMax: 200 }
+          ? { ...e, quality: 5, durabilityMax: 200 }
           : e,
       ),
     };

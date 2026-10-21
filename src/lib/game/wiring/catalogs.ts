@@ -56,7 +56,9 @@ import { STATUS_EFFECT_DEFS } from "../combat/statusEffects";
 import { DRONE_POD_AFFIX_POOL, DRONE_POD_IMPLICIT_STAT, WEAPON_AFFIX_POOL, WEAPON_IMPLICIT_STAT } from "../itemgen";
 import { AFFIX_ALIGNED_HOOKS, AFFIX_HOOK_KEYS, GAMBIT_ACTIONS, GAMBIT_SELECTORS } from "./probes";
 import { FIELD_ROLES, effectFieldsOf } from "./fieldRoles";
+import { REPAIR_RATES, REPAIR_RATE_BONUSES, WEAR_EFFICIENCY, WEAR_SOURCES } from "../gearWear";
 import { SHORT_RANGE_TEMPLATES } from "../shortRange";
+import { GAS_STUDY_USES, GIANT_CLASSES, NEBULA_KINDS } from "../gasGiantContent";
 
 // Field Kits FKR-5: the sources each grenade carries (its GrenadeTraits, as the registry measures them).
 export const GRENADE_FIELDS = ["charges", "perBattle", "blast", "status"] as const;
@@ -105,6 +107,9 @@ const FIELD_CATALOGS: Readonly<Record<string, Readonly<Record<string, object>>>>
   ITEMS,
   SUBSPACE_TELESCOPE_LEVELS: Object.fromEntries(SUBSPACE_TELESCOPE_LEVELS.map((r) => [String(r.level), r])),
   SHORT_RANGE_TEMPLATES,
+  // Gas Giant Study GG-1: the giant classes and nebula kinds, field by field.
+  GIANT_CLASSES: Object.fromEntries(GIANT_CLASSES.map((c) => [c.id, c])),
+  NEBULA_KINDS: Object.fromEntries(NEBULA_KINDS.map((k) => [k.id, k])),
 };
 
 function fieldSources(catalog: string, defs: Readonly<Record<string, object>>): EffectSource[] {
@@ -145,6 +150,8 @@ export function enumerateEffectSources(): EffectSource[] {
   add("PROSPECTING_SPEC_BASE", Object.keys(PROSPECTING_SPEC_BASE));
   add("PROSPECTING_BLUEPRINTS", Object.keys(PROSPECTING_BLUEPRINTS));
   add("PROSPECTING_USES", PROSPECTING_USES);
+  // Gas Giant Study (GG-1 data, the engine uses wired by GG-2 to GG-7)
+  add("GAS_STUDY_USES", Object.keys(GAS_STUDY_USES));
   add(
     "MEMBER_GROUND_EFFECTS",
     [...new Set(MEMBER_SLOT_TYPES.flatMap((st) => EQUIPMENT_SLOTS[st].varieties.map((v) => v.member?.groundEffect?.kind).filter((k): k is NonNullable<typeof k> => k !== undefined)))],
@@ -208,6 +215,11 @@ export function enumerateEffectSources(): EffectSource[] {
   add("FIELD_KIT_PRICES", FIELD_KIT_IDS);
   // the grenade family (Field Kits FKR-5): each grenade's charges per objective, throws per battle, blast and debuff
   add("GRENADES", GRENADE_IDS.flatMap((k) => GRENADE_FIELDS.map((f) => `${k}:${f}`)));
+  // gear wear (0.14.0, steps 1 and 2): every wear source, repair context, repair bonus and efficiency consumer
+  add("WEAR_SOURCES", WEAR_SOURCES.map((w) => w.id));
+  add("REPAIR_RATES", Object.keys(REPAIR_RATES));
+  add("REPAIR_RATE_BONUSES", REPAIR_RATE_BONUSES);
+  add("WEAR_EFFICIENCY", WEAR_EFFICIENCY.map((c) => c.id));
   add("POI_CATALOG", POI_CATALOG.map((p) => p.id));
   add("SALVAGE_LOOT_POOLS", Object.keys(SALVAGE_LOOT_POOLS));
   // the data catalogs, field by field

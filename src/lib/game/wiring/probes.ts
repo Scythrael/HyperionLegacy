@@ -336,7 +336,6 @@ export function installPiece(s: GameState, over: Omit<Partial<EquipmentInstance>
     mass: 0,
     powerDraw: 0,
     durabilityMax: 100,
-    durability: 100,
     fittedToShipId: WIRING_SHIP_ID,
     ...over,
   } as EquipmentInstance;
@@ -412,7 +411,6 @@ export function wearPiece(
     mass: 0,
     powerDraw: 0,
     durabilityMax: 100,
-    durability: 100,
     fittedToShipId: null,
     fittedToMemberId: memberId,
   } as EquipmentInstance;
