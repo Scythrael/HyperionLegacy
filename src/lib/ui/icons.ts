@@ -363,6 +363,13 @@ export const ICON_PATHS = {
   rankStrong: ["M12 2.5l8.5 4.9v9.7L12 22l-8.5-4.9V7.4z", "M8.5 14l3.5-3.5 3.5 3.5"],
   rankElite: ["M12 2.5l8.5 4.9v9.7L12 22l-8.5-4.9V7.4z", "M8.5 12l3.5-3.5 3.5 3.5", "M8.5 16l3.5-3.5 3.5 3.5"],
   rankBoss: ["M12 2.5l8.5 4.9v9.7L12 22l-8.5-4.9V7.4z", "M7.5 15.5v-6l2.5 2.5 2-3.5 2 3.5 2.5-2.5v6z"],
+
+  // Gas Giant Study (0.14.0 GG-1): the Gas Storage Canisters.
+  // Gas canister: a domed gas cylinder with a label band, its valve neck and handwheel on top (the five gases).
+  gasCanister: ["M8 10a4 4 0 0 1 8 0v10a1 1 0 0 1-1 1H9a1 1 0 0 1-1-1z", "M8 14.5h8", "M12 6V3.5", "M9.5 3.5h5"],
+  // Antimatter Containment Cell: a cell frame (two end plates on two posts) holding a charge that touches nothing,
+  // so it reads as a magnetic bottle rather than a gas cylinder.
+  antimatterCell: ["M4.5 3.5h15", "M4.5 20.5h15", "M7 3.5v17", "M17 3.5v17", "M12 9.5a2.5 2.5 0 1 0 0 5 2.5 2.5 0 0 0 0-5z"],
 } as const satisfies Record<string, readonly string[]>;
 
 /**

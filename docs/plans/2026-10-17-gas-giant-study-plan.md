@@ -234,6 +234,28 @@ the Materials section, the Refinery recipe, sell values, Galileo relabel, glyphs
 unique ids, every item has `unlockHint` and flavor, every class and kind has odds summing to 100, physics table
 spot-checks (Jupiter mass 1 gives density ~1.33), the recipe. Goldens: only the census moves (explained).
 
+**GG-1 carry note (built 2026-10-20, on feat adb41c6).** Built: `gasGiantContent.ts` (GIANT_CLASSES, NEBULA_KINDS,
+physics, item ids, GAS_STUDY_USES with GG owners, GAS_STUDY_SOURCE_PENDING); 15 ITEMS rows (categories `gasCanister`,
+`researchData`; `ItemDef.band`); the Materials section "Gas Storage Canisters" with SVG `gasCanister` / `antimatterCell`
+glyphs (gasStudyIcons.ts); `refineDeuteriumCanister` (Deuterium Ice x10, 20 ticks, offered: its output sells);
+canister sell values (GAS_CANISTER_SELL_VALUE); the Galileo-Class Probe relabel (id, ratios kept). Wiring: canisters are
+sellable (live); the nine data items carry `reserved` (GG-5); the fourteen sourceless items stay off the warehouse
+shelves and out of its catalog count until GG-3 / GG-4 empty GAS_STUDY_SOURCE_PENDING; every class and kind field and
+every study use is a pending registry entry owned by GG-2 to GG-7. Left for later slices: `researchFamilyOf` (GG-5),
+the timings constants (GG-3 to GG-5), the data and probe glyphs (GG-6, with their screens), Help (GG-8).
+[PROPOSAL] picks for the user: the band odds and item weights (v2 mockup), the 10:1 Deuterium recipe, rarities by
+band (common, uncommon, rare, epic), all items at warehouse tier 1, item flavor texts, the probe flavor. Approved
+2026-10-21 (tags dropped): the four nebula kinds, the sell values (200 / 200 / 450 / 450 / 1,000 / 2,500), the class
+roll weights, one shared glyph for the five gases. The Deuterium Canister recipe stays visible; its Reactor Core use
+is its own slice.
+For GG-2: the plan's "inner bodies lean hot" class bias (Sudarsky IV and V on inner bodies, cold classes outer, read
+off the body's index, never a new shared draw) is NOT in GG-1's data; GG-2's class roll owns it.
+For GG-6: research data has no warehouse shelf section yet (and no glyph); the items are hidden until GG-3 gives them a
+source, so GG-6 adds their section (or the lab tab list) with its glyphs.
+Goldens: GG-0's run, risk and lab pins hold through the pre-G2 helpers; the census holds GG-1's additions apart and
+pins them; the registry pins (G1-0 golden 5, EM-0) hold GG-1's added entries apart (gasStudyGoldens.fixture.ts) and
+the EM-0 snapshot re-pins 60d00075 -> c86ecfb4 for those additions only.
+
 ### GG-2: Orbital bodies lose ground objectives (engine)
 
 Behind `exp.study`: `assignDiscoveriesAndActivities` returns no PoIs for an orbital body and adds one study entry;
