@@ -173,3 +173,16 @@ shaded surplus; over-budget flag on this screen; one-line Active rule text).
 - R2-2 relic blanks by tier (worktree-agent-a5102d2e70f9ddf8c): was adding the registry-additions pin.
 - EM-2 install gate (worktree-agent-a61ef58ebc7a78f74): built and reviewed; needs the follow-ups recorded in the Material
   Lines / E-MOD plan ("EM-2 non-worsening installs") before merge.
+
+## 2026-10-21 calls (late)
+
+- ML-2 salvage windfall (salvage returns the current recipe; five old pieces salvage above their old cost, one time):
+  "Accept the windfall (Recommended)".
+- Old Science Sidearm / Field Suit line remap on load (power to fieldwork; accuracy and status chance to relic find; armor
+  and HP to hazard resist): "Approve (Recommended)".
+- Lab / Fabricator tier 3+ rungs (complement plan OC-15 Lab tiers) so Class III+ drives and Tiers III+ are reachable:
+  "Build them in 0.14.0 (Recommended)". NEW SLICE, owner to assign (was unowned).
+- G2-4 picks: "Approve (Recommended)": hull base drive class = hull tier minus 1 (never below I); reach multipliers I 4,
+  II 24, III 62, IV 68, V 105, VI 200, VII 240; Class II drive recipe 3 Power Coupling + 3 Wafer + 2 Titanium Ingot.
+- Note for the quests patch: no Prospecting gear rolls Armor / HP any more, so dig safety has no gear source; old Hazard
+  Suits keep their lines.
