@@ -315,6 +315,121 @@ describe("GG-0 golden 4: startResearch durations, with and without the museum", 
   });
 });
 
+// ===== GG-2 / GG-3 capture (taken on feat f85ef73, BEFORE the orbital body and study leg engine edits) =====
+//
+// A sweep over every region tier (I to VII), every candidate slot and two save seeds, crewed as above. Each system
+// is classified by whether it holds an orbital-only body (expeditionContent.ts PLANET_TYPES orbitalOnly: the gas
+// giant). GG-2 and GG-3 act ONLY on orbital bodies, so:
+//   - a system WITHOUT one must stay byte-identical as a whole: its risk preview, its task preview, the dispatch
+//     record, the finished run, its findings and the claim's deposits;
+//   - a system WITH one must keep every NON-orbital body as drawn: its risk grades and its previewed objectives
+//     (discovery and stamping are keyed by the body, never by a shared stream). Its later bodies' fights and hauls
+//     key off the task's flat index across bodies, which the giant's dropped objectives shift, and its timeline
+//     waits on the study, so the run past the preview is pinned by the GG-2 / GG-3 goldens, not here.
+const SWEEP_SAVE_SEEDS = [0x51f15e, 0x2b7c0d3] as const;
+const SWEEP_TIERS = [1, 2, 3, 4, 5, 6, 7] as const;
+
+function sweepState(saveSeed: number): GameState {
+  return { ...crewed(), expeditionSeed: saveSeed };
+}
+
+function isOrbitalType(planetType: string): boolean {
+  return planetType === "gasGiant";
+}
+
+// One system of the sweep: [candidate id, "plain" | "orbital", ...hashes]. Pure (every run is a throwaway).
+function sweepRow(saveSeed: number, tier: number, slot: number): string[] {
+  const state = sweepState(saveSeed);
+  const id = `cand-${tier}-${slot}`;
+  const cand = expeditionCandidates(state, "ship-1", tier as 1).find((c) => c.id === id)!;
+  expect(cand, id).toBeDefined();
+  const risk = expeditionRiskPreview(cand.seed, cand.region);
+  const res = startExpedition(state, "ship-1", 1, id);
+  if (!res.success || !res.expedition) throw new Error(`dispatch refused: ${res.reason}`);
+  const exp = res.expedition;
+  const preview = systemTaskPreview(cand.seed, exp.scanParams, cand.region);
+  const orbital = exp.bodies.map((b) => isOrbitalType(b.planetType));
+  if (!orbital.some(Boolean)) {
+    const done = advanceExpedition(exp, FINAL * 4);
+    expect(done.phase, id).toBe("complete");
+    const claim = claimExpedition({ ...res.next, expeditions: [done] }, done.id);
+    expect(claim.success).toBe(true);
+    const deposits = { inventory: claim.next.inventory, credits: claim.next.credits.toString(), relicVault: claim.next.relicVault ?? null };
+    return [id, "plain", hash(risk), hash(preview), hash(exp), hash(done), hash(done.findings), hash(deposits)];
+  }
+  const keptRisk = risk.bodies.filter((_, i) => !orbital[i]);
+  const keptTasks = preview.tasks.filter((t) => !orbital[t.bodyIndex]);
+  // The dispatch record apart from the orbital bodies' risk grades (GG-2 drops a hostile site or a clearing objective
+  // there, every draw kept): with GG-2's stamps taken off it must read exactly this.
+  const record = { ...exp, bodies: exp.bodies.map((b, i) => (orbital[i] ? { ...b, risk: undefined } : b)) };
+  return [id, "orbital", hash(keptRisk), hash(keptTasks), hash(record)];
+}
+
+// Per system: "<kind> <hash of the row's hashes>", keyed "<save seed>:<candidate id>".
+const SWEEP_GOLDEN: Record<string, string> = {
+  "51f15e:cand-1-0": "orbital d0d07a19",
+  "51f15e:cand-1-1": "plain cf85dddd",
+  "51f15e:cand-1-2": "plain e1429ff4",
+  "51f15e:cand-2-0": "plain 54f37fa9",
+  "51f15e:cand-2-1": "plain fb8bb00",
+  "51f15e:cand-2-2": "plain 5ba02e31",
+  "51f15e:cand-3-0": "orbital c247c108",
+  "51f15e:cand-3-1": "plain 3e28f3bb",
+  "51f15e:cand-3-2": "plain 7d6472fe",
+  "51f15e:cand-4-0": "orbital 893b3376",
+  "51f15e:cand-4-1": "plain 347bc07c",
+  "51f15e:cand-4-2": "plain 7e4b81b6",
+  "51f15e:cand-5-0": "orbital 728b7307",
+  "51f15e:cand-5-1": "plain 94d099a1",
+  "51f15e:cand-5-2": "orbital 7bf06dca",
+  "51f15e:cand-6-0": "plain 93bf9879",
+  "51f15e:cand-6-1": "orbital 5b5951f2",
+  "51f15e:cand-6-2": "plain f98d60c4",
+  "51f15e:cand-7-0": "orbital 7585349d",
+  "51f15e:cand-7-1": "plain 344b2471",
+  "51f15e:cand-7-2": "plain 6e6bd62e",
+  "2b7c0d3:cand-1-0": "plain af41749d",
+  "2b7c0d3:cand-1-1": "plain da9a5b3f",
+  "2b7c0d3:cand-1-2": "plain 2ff41081",
+  "2b7c0d3:cand-2-0": "plain 8aebc7c8",
+  "2b7c0d3:cand-2-1": "orbital 950f18c0",
+  "2b7c0d3:cand-2-2": "plain 646cbee3",
+  "2b7c0d3:cand-3-0": "plain 377b355d",
+  "2b7c0d3:cand-3-1": "orbital 4afed3c2",
+  "2b7c0d3:cand-3-2": "plain 3afe1577",
+  "2b7c0d3:cand-4-0": "orbital 9c6ccc40",
+  "2b7c0d3:cand-4-1": "plain cc495368",
+  "2b7c0d3:cand-4-2": "plain 85a3c56a",
+  "2b7c0d3:cand-5-0": "plain 402efb49",
+  "2b7c0d3:cand-5-1": "plain 3d0131c1",
+  "2b7c0d3:cand-5-2": "orbital 5915a06c",
+  "2b7c0d3:cand-6-0": "plain 715448f8",
+  "2b7c0d3:cand-6-1": "plain 2bc60129",
+  "2b7c0d3:cand-6-2": "plain 5d31f80c",
+  "2b7c0d3:cand-7-0": "plain 648f505f",
+  "2b7c0d3:cand-7-1": "plain bf7bdbc3",
+  "2b7c0d3:cand-7-2": "plain 386fe812",
+};
+
+describe("GG-2 / GG-3 capture: every tier's systems, the plain ones whole and the orbital ones off the giant", () => {
+  it("two save seeds x seven tiers x three slots", () => {
+    const rows: Record<string, string> = {};
+    for (const saveSeed of SWEEP_SAVE_SEEDS) {
+      for (const tier of SWEEP_TIERS) {
+        for (let slot = 0; slot < 3; slot++) {
+          const [id, kind, ...hashes] = sweepRow(saveSeed, tier, slot);
+          rows[`${saveSeed.toString(16)}:${id}`] = `${kind} ${hash(hashes)}`;
+        }
+      }
+    }
+    const kinds = Object.values(rows).map((r) => r.split(" ")[0]);
+    // Neither half is vacuous.
+    expect(kinds.filter((k) => k === "plain").length).toBeGreaterThan(5);
+    expect(kinds.filter((k) => k === "orbital").length).toBeGreaterThan(5);
+    expect(rows).toEqual(SWEEP_GOLDEN);
+  });
+});
+
 describe("GG-0 golden 5: the item census", () => {
   const gg1 = new Set(gasStudyItemIds());
   const census = (ids: string[], recipes: string[]) => {
