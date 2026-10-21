@@ -121,15 +121,16 @@ describe("G1-3 board: slots from Mission Control upgrades (call 8)", () => {
     expect(shortRangeBoardSlots({ facilities: {} })).toHaveLength(2);
   });
 
-  it("the level 1 -> 2 rung is the kept 50-completion hook; the rungs stay out of FACILITIES until the board is live", () => {
+  it("the level 1 -> 2 rung is the kept 50-completion hook; G1-6 put the rungs in FACILITIES with the board", () => {
     expect(MISSION_CONTROL_BOARD_RUNGS).toHaveLength(2);
     expect(MISSION_CONTROL_BOARD_RUNGS[0].requiresMissionCompletions).toEqual({
       shortOreRun: MISSION_CONTROL_UNLOCK_COMPLETIONS,
       longOreRun: MISSION_CONTROL_UNLOCK_COMPLETIONS,
     });
     expect(MISSION_CONTROL_BOARD_RUNGS.map((r) => r.effect)).toEqual([{ addShortRangeSlot: 2 }, { addShortRangeSlot: 2 }]);
-    expect(SHORT_RANGE_BOARD_LIVE).toBe(false);
-    expect(FACILITIES.missionControl.upgrades).toHaveLength(1); // the founding rung only: no player builds a hidden slot
+    expect(SHORT_RANGE_BOARD_LIVE).toBe(true);
+    // The founding rung, then both board rungs: the slots a player can build are the slots the board shows.
+    expect(FACILITIES.missionControl.upgrades.slice(1)).toEqual([...MISSION_CONTROL_BOARD_RUNGS]);
   });
 
   it("the wiring probe reads the slot count (the registry's rung entries use it once the rungs are live)", () => {

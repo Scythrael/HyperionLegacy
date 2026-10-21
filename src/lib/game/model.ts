@@ -1121,8 +1121,8 @@ export const HULL_GUEST_QUARTERS = { generalFreighter: 20, orion: 40, aurora: 40
 // G1-1 review (user 2026-10-19, "Hide until Short-Range"): the Ship Systems "Guest Quarters" rows (the stat readout,
 // its (i) definition, the install compare) and the hull card's line stay hidden until Short-Range Missions are in, so
 // no player meets a stat nothing they can do uses yet. The stat itself is live (shipDerivedStats folds it). The
-// G1-4 / G1-6 slice that puts passenger runs in front of the player flips this to true.
-export const GUEST_QUARTERS_DISPLAY_LIVE = false;
+// G1-4 / G1-6 slice that puts passenger runs in front of the player flips this to true: G1-6 did (2026-10-21).
+export const GUEST_QUARTERS_DISPLAY_LIVE = true;
 // Does a Ship Systems row or hull card line show `berths` guest quarters: only once the display is live (above), and
 // only when there are some. `live` is for the tests. Pure.
 export function guestQuartersShown(berths: number, live: boolean = GUEST_QUARTERS_DISPLAY_LIVE): boolean {
@@ -5159,8 +5159,8 @@ export const MISSION_CONTROL_UNLOCK_COMPLETIONS = 50;
 // they join FACILITIES.missionControl only once SHORT_RANGE_BOARD_LIVE is true, so no player can build an upgrade
 // whose slot no screen shows yet, and every facility reader, the sim and the registry are unchanged until then.
 // shortRangeBoardSlots reads this table directly, so the slot ladder is live (and tested) at every level now.
-// G1-6 flips the flag with the board UI (its Mission Control card text then names the slot).
-export const SHORT_RANGE_BOARD_LIVE = false;
+// G1-6 flipped the flag with the board UI (2026-10-21); the Mission Control card names the slot each rung opens.
+export const SHORT_RANGE_BOARD_LIVE = true;
 // Every cost, duration and the fourth slot's tier (Tier II) approved 2026-10-20 (user "Approve (Recommended)":
 // docs/plans/2026-10-19-merge-batch-answers.md). The level 1 -> 2 rung is the reserved completion-gated template kept
 // for exactly this (MISSION_CONTROL_UNLOCK_COMPLETIONS of each ore run).

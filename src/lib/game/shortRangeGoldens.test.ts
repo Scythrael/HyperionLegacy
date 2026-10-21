@@ -541,8 +541,14 @@ const SF3_FLIPPED_LIVE: ReadonlySet<string> = new Set<string>(["expedition:ENEMY
 const SF3_SLICE: RegistrySlice = { flipped: SF3_FLIPPED_LIVE, was: "pending" };
 // The reactor fuel ladder's additions (0.14.0), held apart in EVERY pin (all of them were taken before it).
 const RX_SLICE: RegistrySlice = { added: RX_ADDED_ENTRY_IDS };
+// G1-6 (SHORT_RANGE_BOARD_LIVE, the board UI), after every pin here too: the two Mission Control board rungs it put in
+// FACILITIES (each a facility rung entry) and G1-3's audit row, flipped pending -> live with its gate check. Held apart
+// in EVERY pin (the RX_SLICE pattern); "G1-6 is the only cause" below proves that is the whole move.
+const G16_ADDED_ENTRY_IDS: ReadonlySet<string> = new Set<string>(["facility:FACILITIES:missionControl:1", "facility:FACILITIES:missionControl:2"]);
+const G16_FLIPPED_LIVE: ReadonlySet<string> = new Set<string>(["facility:audit:missionControlUnlock"]);
+const G16_SLICE: RegistrySlice = { added: G16_ADDED_ENTRY_IDS, flipped: G16_FLIPPED_LIVE, was: "pending" };
 function registryPin(...given: readonly RegistrySlice[]): [number, string] {
-  const slices = [RX_SLICE, ...given];
+  const slices = [RX_SLICE, G16_SLICE, ...given];
   const lines = WIRING_REGISTRY.filter((e) => !slices.some((sl) => sl.added?.has(e.id))).map((e) => {
     const flip = slices.find((sl) => sl.flipped?.has(e.id));
     return `${e.id}|${flip ? (flip.was ?? "pending") : e.status.kind}`;
@@ -783,6 +789,11 @@ describe("G1-0 golden 5: the wiring registry's ids and statuses", () => {
     expect(added.every((e) => e.status.kind === "live")).toBe(true);
     if (!FIELD_KITS_PLAYER_LIVE) for (const id of FKR5_RULINGS_ADDED) expect(WIRING_REGISTRY.find((e) => e.id === id)?.status.kind, id).toBe("pending");
     for (const id of FKR5_FLIPPED_LIVE) expect(WIRING_REGISTRY.find((e) => e.id === id)?.status.kind, id).toBe("live");
+  });
+  it("G1-6 (the board goes live) is the only cause of its registry move: two rung entries in, one audit row live", () => {
+    const lines = WIRING_REGISTRY.filter((e) => G16_ADDED_ENTRY_IDS.has(e.id) || G16_FLIPPED_LIVE.has(e.id)).map((e) => `${e.id}|${e.status.kind}`);
+    expect(lines).toEqual(["facility:FACILITIES:missionControl:1|live", "facility:FACILITIES:missionControl:2|live", "facility:audit:missionControlUnlock|live"]);
+    // registryPin holds these apart in every pin, and every pin above still reproduces its capture, so nothing else moved.
   });
   it("G1-1: the added entries, each with its status", () => {
     const added = WIRING_REGISTRY.filter((e) => G1_ADDED_ENTRY_IDS.has(e.id)).map((e) => `${e.id}|${e.status.kind}`);
