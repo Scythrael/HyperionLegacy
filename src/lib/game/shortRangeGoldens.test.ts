@@ -102,6 +102,10 @@
 //                  study uses, every giant class and nebula kind field, the canister sell values, the research data
 //                  reserves and the Deuterium Canister recipe. No existing entry moved: GG1_SLICE rides in every
 //                  registryPin call, so the base pin and every cause pin are unchanged.
+// ADDED BY the timed grenades (user 2026-10-21): new entries only, held apart by FUSE_SLICE (the ids from
+//                  fieldKitsFuse.fixture.ts, pinned with their statuses in fieldKitsFuse.test.ts): each grenade's fuse
+//                  and moved-clear chance. No existing entry moved: registryPin always applies FUSE_SLICE (as it does
+//                  RX_SLICE), so the base pin and every cause pin are unchanged.
 // ADDED BY the reactor fuel ladder (0.14.0: the fuel rungs, the core variety tech tags, the hull reactor requirement
 //                  seam and the Cometary Ice Harvest's per-field rows): new entries only, held apart by RX_SLICE (the ids
 //                  from reactorFuelGoldens.fixture.ts, pinned with their statuses in reactorFuelGoldens.test.ts), which
@@ -134,6 +138,7 @@ import { bucketOf, withBuckets } from "./wiring/probes";
 import { hash, onHull, withCrew, withV1Museum, withoutGuests } from "./firstRunsGoldens.fixture";
 import { asPreG2NamesDispatch } from "./awayTeamTestFixtures";
 import { GG1_ADDED_ENTRY_IDS } from "./gasStudyGoldens.fixture";
+import { FUSE_ADDED_ENTRY_IDS } from "./fieldKitsFuse.fixture";
 import { RX_ADDED_ENTRY_IDS } from "./reactorFuelGoldens.fixture";
 import { isSiAdded, SI_RETIRED, siReadBack } from "./siMemberGearRegistry.fixture";
 // CP-8 / OC-11: the test switch that proves the auto-crew pause is the only thing that moved the fleet pin.
@@ -562,6 +567,8 @@ type RegistrySlice = { readonly added?: ReadonlySet<string>; readonly flipped?: 
 const G1_SLICE: RegistrySlice = { added: G1_ADDED_ENTRY_IDS };
 const ML1_SLICE: RegistrySlice = { added: ML1_ADDED_ENTRY_IDS };
 const GG1_SLICE: RegistrySlice = { added: GG1_ADDED_ENTRY_IDS };
+// Timed grenades (user 2026-10-21): the fuse's added entries (fieldKitsFuse.fixture.ts), held apart like GG-1's.
+const FUSE_SLICE: RegistrySlice = { added: FUSE_ADDED_ENTRY_IDS };
 const FKR5_SLICE: RegistrySlice = { added: new Set([...FKR5_ADDED_ENTRY_IDS, ...FKR5_RULINGS_ADDED]), flipped: FKR5_FLIPPED_LIVE, was: "pending" };
 const G23_SLICE: RegistrySlice = { added: G23_ADDED_ENTRY_IDS };
 const FKR6_SLICE: RegistrySlice = { added: FKR6_ADDED_ENTRY_IDS, flipped: FKR6_FLIPPED_LIVE, was: "pending" };
@@ -583,7 +590,7 @@ const RX_SLICE: RegistrySlice = { added: RX_ADDED_ENTRY_IDS };
 // taken before it) through siReadBack (siMemberGearRegistry.fixture.ts: the `si:` entries and the three new Science
 // lines left out, the nine retired combat lines restored in place); `registry:si` pins the added and retired ids.
 function registryPin(...given: readonly RegistrySlice[]): [number, string] {
-  const slices = [RX_SLICE, ...given];
+  const slices = [RX_SLICE, FUSE_SLICE, ...given];
   const rows = siReadBack(WIRING_REGISTRY.map((e) => ({ id: e.id, kind: e.status.kind as string })), (r) => r.id, (row) => ({ id: row[0], kind: row[1].kind as string }));
   const lines = rows.filter((e) => !slices.some((sl) => sl.added?.has(e.id))).map((e) => {
     const flip = slices.find((sl) => sl.flipped?.has(e.id));

@@ -3224,6 +3224,34 @@ function fieldKitEntries(): WiringEntry[] {
         curve: { kind: "event", metric: "bodies its debuff lands on over 64 throws at a group of two" },
         magnitude: () => 1,
       }),
+      // Timed grenades (user 2026-10-21; fuse ruling "1 round later"): the turns from the throw to the blast on a run
+      // that reads fuses (catalog 2), against the same grenade armed on contact (catalog 1). A timed grenade reads 1, the
+      // Impact Grenade (the default, on contact) 0 (its witness: a timed sibling on the same reader).
+      entry({
+        ...shared("fuse"),
+        claim: g.fuse
+          ? `${label}: a timed fuse, it detonates at the start of the thrower's next turn`
+          : `${label}: detonates on contact, the turn it is thrown`,
+        direction: g.fuse ? "up" : "none",
+        curve: { kind: "equals" },
+        magnitude: (c) => (c.GRENADES[k].fuse ? 1 : 0),
+      }),
+      g.fuse
+        ? entry({
+            ...shared("movedClear"),
+            claim: `${label}: before it detonates, each foe of the target's group may move clear and is not hit`,
+            curve: { kind: "event", metric: "foes that moved clear over 64 detonations at a group of two" },
+            magnitude: () => 1,
+          })
+        : entry({
+            ...shared("movedClear"),
+            probe: undefined,
+            contexts: [],
+            claim: `${label}: no fuse, so no foe moves clear`,
+            direction: "none",
+            curve: { kind: "equals" },
+            notApplicable: "detonates on contact: there is no fuse for a foe to move clear of",
+          }),
     );
   }
   for (const line of CONDITION_LINE_IDS) {

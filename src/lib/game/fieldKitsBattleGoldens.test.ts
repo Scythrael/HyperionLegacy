@@ -15,14 +15,15 @@
 import { describe, expect, it } from "vitest";
 import { freshState, type AwayMember, type BodyRiskGrades, type EquipmentInstance, type Expedition, type ExpeditionBody, type GambitProgram, type GameState, type ShipGroundTeam } from "./model";
 import { gambitPresetPrograms } from "./gambit";
-import { FIELD_KITS_CATALOG_VERSION } from "./fieldKits";
 import { resolveTaskFight, type GroundFightTeam } from "./groundFight";
 import { advanceExpedition, startExpedition } from "./expedition";
 import { groundOpsAssignIdle, groundOpsBodyScanned, initGroundTasks } from "./groundOps";
 import { plainAwayMember, withoutFieldKits } from "./awayTeamTestFixtures";
 import { hash } from "./firstRunsGoldens.fixture";
 
-const KITS = { catalog: FIELD_KITS_CATALOG_VERSION };
+// Field Kits catalog 1, pinned as a literal (timed grenades, 2026-10-21): these runs throw Stun and Toxin Grenades, and
+// catalog 2 gives those a fuse, so the pins stay the catalog 1 run (a run in flight before the fuse), byte-identical.
+const KITS = { catalog: 1 };
 const T0 = 100_000;
 const SEC = ["member-1", "member-2", "member-3", "member-4", "member-5", "member-6"];
 const SCI = ["member-11", "member-12", "member-13", "member-14", "member-15", "member-16"];

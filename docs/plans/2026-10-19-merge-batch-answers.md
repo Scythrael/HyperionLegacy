@@ -135,3 +135,41 @@ section 5.A captain nodes). Kept in their own file so the parallel integrator's 
   Toxin grenades detonate at the start of the thrower's next turn (enemies may move out of a cluster first).
 - **Mockups to start now:** all four: Short-Range board; Expedition dispatch console; gas giant study screens; Relics v2
   culture view + Material Lines Refinery layout + Modules row and power bar.
+
+## Mockups published 2026-10-21 (awaiting sign-off)
+
+- Short-Range board (G1-6): https://claude.ai/artifact/HhEA9ARvKjjfAhbnZBSdg3
+- Expedition dispatch console (G2-6): https://claude.ai/artifact/AnWvt9kfqAUJo1sCMkTpMC
+- Gas giant study v3 (GG-6): https://claude.ai/artifact/RR2pwa3wQmTGPm2ZHQeGEN
+- Relics v2 + Refinery + Modules (R2-8, ML-7, EM-10): https://claude.ai/artifact/6Pat4nwfbWzsUsqKUdMpKo
+
+## Mockup sign-off (2026-10-21, verbatim): "I approve all 4 mockups as is. They all look excellent!"
+
+All four mockups above are signed off AS DRAWN: every open question on each page resolves to the option shown (as
+drawn). Recorded picks so far: G1-6 (pre-pick + one-tap Send; Home shows waiting slots; job types collapsed on the board;
+Repeat toggle on by default; shortRange and commBooster glyphs approved); G2-6 (tabs with the map as the alternative;
+dimmed preview of locked tiers; resumables in their own region; a pre-arrival recall returns the system to ordinary
+candidates; "None can be built yet" wording; Launch in a bar under the candidates; the four new glyphs drive / reach /
+recall / resume approved for icons.ts review); GG-6 (as drawn: decode the next entry of the fragment's own culture; data
+study as its own Research Lab tab; oldest held data first; no research-data warehouse shelf; nebula sweep on the ship
+lane); R2-8 / ML-7 / EM-10 (as drawn: shelves by rarity band per tier; hatched past-cap bar; culture samples under each
+type; inline reveal card; compounds with their main raw's line; no "more recipes" note; per-quality chips visible;
+"Use best materials" starts lowest-first; spec utility as a tile in the Modules row; one power bar with hatched cut and
+shaded surplus; over-budget flag on this screen; one-line Active rule text).
+
+## Timed grenade review calls (2026-10-21, all Recommended)
+
+- Fight ends before detonation: "Refund it": the charge comes back; the log says the fight ended before it went off
+  (also for a final-round throw).
+- Moved clear: "20%, lone targets can't dodge": GRENADE_FUSE_MOVED_CLEAR_CHANCE 0.2 for groups; a lone target always gets hit.
+- Enemy flash grenade: "Keep instant".
+
+## Session limit hit 2026-10-21 (resets 11:30am PT): builders to resume by message (work saved in their worktrees)
+
+- SI member gear (worktree-agent-a0c138af05f2fe43b): was writing its carry note after the budget-floor + Science lines fixes.
+- G1-6 Short-Range board UI (worktree-agent-a2e17115cd2c2d705): was adding a registry probe.
+- G2-4 + G2-5 drives and recall (worktree-agent-a3054ed1c11c3e8a6): was retiring STANDARD_DRIVE_CLASS in voyage.ts / expedition.ts.
+- ML-2 recipe rework + realism (worktree-agent-aa99b63d3da94ac06): was about to run full gates.
+- R2-2 relic blanks by tier (worktree-agent-a5102d2e70f9ddf8c): was adding the registry-additions pin.
+- EM-2 install gate (worktree-agent-a61ef58ebc7a78f74): built and reviewed; needs the follow-ups recorded in the Material
+  Lines / E-MOD plan ("EM-2 non-worsening installs") before merge.

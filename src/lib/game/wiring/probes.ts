@@ -146,6 +146,7 @@ import {
   applyBoneHit,
   statusResistPermille,
   type BattleState,
+  type GambitLogEvent,
   type GroundCombatant,
 } from "../gambit";
 import { FIELD_KITS, FIELD_KITS_CATALOG_VERSION, type FieldKitId } from "../fieldKits";
@@ -1815,7 +1816,7 @@ function missionFieldValue(s: GameState, field: string, key: MissionKey): number
 // foes' hp (no blast downs one) and the thrower's own status chance (a Stun or Toxin Grenade's debuff lands at it).
 const GRENADE_PROBE_HP = 1_000_000;
 const GRENADE_PROBE_STATUS_CHANCE = 0.25;
-function armedThrower(varietyKey: string, statusChance: number): GroundCombatant {
+function armedThrower(varietyKey: string, statusChance: number, timedFuses = false): GroundCombatant {
   const m: SnapshotMember = {
     memberId: "wiring-thrower",
     teamType: "security",
@@ -1831,8 +1832,45 @@ function armedThrower(varietyKey: string, statusChance: number): GroundCombatant
     effects: [],
   };
   const c = gc("a1", "team", { memberId: m.memberId, power: 1000 });
-  withThrownGrenades([c], [m]);
+  withThrownGrenades([c], [m], undefined, timedFuses);
   return c;
+}
+
+// Timed grenades (user 2026-10-21): ONE throw of an armed reference thrower at `foes` (who only hold), to its blast, the
+// way a catalog 2 fight resolves it: a grenade on contact blasts on the throw itself (evaluateAndAct at the largest
+// group); a timed one primes and goes off at the start of the thrower's next turn (a whole battle, the thrower holding
+// after its throw; `fuseSeed` keys the moved-clear stream). Returns the bodies its debuff landed on; the foes keep the
+// damage. Mutates the combatants it is handed.
+function catalog2Throw(thrower: GroundCombatant, foes: GroundCombatant[], seed: number, fuseSeed: number): number {
+  const rule = { target: "foeLargestGroup" as const, action: "throwGrenade" as const };
+  if (!thrower.grenade?.fuse) {
+    const status = thrower.grenade?.status;
+    evaluateAndAct([rule], thrower, battle([thrower, ...foes]), makeRng(seed));
+    return foes.filter((f) => f.statuses.some((x) => x.id === status)).length;
+  }
+  const hold = { target: "self" as const, action: "hold" as const };
+  thrower.hp = thrower.hpMax = GRENADE_PROBE_HP;
+  thrower.program = [rule, hold];
+  for (const f of foes) f.program = [hold];
+  const log: GambitLogEvent[] = [];
+  resolveGroundBattle([thrower], foes, 0, makeRng(seed), log, fuseSeed);
+  return log.find((e) => e.action === "grenadeDetonates")?.blast?.afflicted ?? 0;
+}
+
+// Timed grenades (user 2026-10-21): one whole battle of a reference thrower (armed as a catalog 2 fight arms it when
+// `timedFuses`, else on contact as catalog 1) that throws once at a group of foes who only hold, with its log. The
+// thrower's debuff is off (only the blast is read); `fuseSeed` keys the battle's moved-clear stream.
+function grenadeFuseBattle(varietyKey: string, timedFuses: boolean, foes: number, fuseSeed: number, movedClearOff = false): GambitLogEvent[] | null {
+  const thrower = armedThrower(varietyKey, 0, timedFuses);
+  if (!thrower.grenade) return null;
+  thrower.grenade = { ...thrower.grenade, statusPermille: 0, ...(movedClearOff && thrower.grenade.fuse ? { fuse: { movedClearPermille: 0 } } : {}) };
+  thrower.hp = thrower.hpMax = GRENADE_PROBE_HP;
+  thrower.program = [{ target: "foeLargestGroup", action: "throwGrenade" }, { target: "self", action: "hold" }];
+  const hold = [{ target: "self" as const, action: "hold" as const }];
+  const group = Array.from({ length: foes }, (_, i) => gc(`e${i + 1}`, "enemy", { hp: GRENADE_PROBE_HP, hpMax: GRENADE_PROBE_HP, program: hold }));
+  const log: GambitLogEvent[] = [];
+  resolveGroundBattle([thrower], group, 0, makeRng(0x5eed), log, fuseSeed);
+  return log;
 }
 
 // The content probe dispatcher.
@@ -2010,6 +2048,25 @@ function readContent(id: string, s: GameState): number {
       //   blast     : the hp one throw takes off a foe with no armor (off: the same throw at power x1);
       //   status    : the bodies its debuff lands on over a batch of throws at a group of two (off: the debuff chance 0).
       if (b === "charges") return on ? (armedThrower(a, 0).grenade?.charges ?? 0) : 0;
+      if (b === "fuse") {
+        // Timed grenades: the turns from the throw to the blast, armed as a catalog 2 fight arms it (off: as catalog 1,
+        // every grenade on contact).
+        const log = grenadeFuseBattle(a, on, 1, 1);
+        const thrown = log?.find((e) => e.action === "throwGrenade");
+        if (!log || !thrown) return -1;
+        const blast = thrown.primed ? log.find((e) => e.action === "grenadeDetonates") : thrown;
+        return blast ? blast.round - thrown.round : -1;
+      }
+      if (b === "movedClear") {
+        // Timed grenades: the foes that moved clear over 64 detonations at a group of two (off: a moved-clear chance of 0).
+        let moved = 0;
+        for (let seed = 1; seed <= 64; seed += 1) {
+          const log = grenadeFuseBattle(a, true, 2, Math.imul(seed, 0x9e3779b1) >>> 0, !on);
+          if (!log) return -1;
+          moved += log.find((e) => e.action === "grenadeDetonates")?.blast?.movedClear ?? 0;
+        }
+        return moved;
+      }
       if (b === "perBattle") {
         if (!on) return 0;
         const thrower = armedThrower(a, 0);
@@ -2020,23 +2077,24 @@ function readContent(id: string, s: GameState): number {
         const foe = gc("e1", "enemy", { hp: GRENADE_PROBE_HP, hpMax: GRENADE_PROBE_HP });
         return resolveGroundBattle([thrower], [foe], 0, makeRng(0x5eed)).chargesUsed?.[thrower.memberId!] ?? 0;
       }
+      // Timed grenades (user 2026-10-21): blast and status arm the reference thrower as a catalog 2 fight arms it (what a
+      // new run fights with), so they measure a timed grenade's DETONATION and the Impact Grenade's contact blast
+      // (catalog2Throw).
       if (b === "blast") {
-        const thrower = armedThrower(a, 0);
+        const thrower = armedThrower(a, 0, true);
         if (!thrower.grenade) return -1;
         thrower.grenade = { ...thrower.grenade, statusPermille: 0, ...(on ? {} : { powerMult: 1 }) };
         const foe = gc("e1", "enemy", { hp: GRENADE_PROBE_HP, hpMax: GRENADE_PROBE_HP });
-        evaluateAndAct([{ target: "foeNearest", action: "throwGrenade" }], thrower, battle([thrower, foe]), makeRng(0x5eed));
+        catalog2Throw(thrower, [foe], 0x5eed, 1);
         return GRENADE_PROBE_HP - foe.hp;
       }
       let afflicted = 0;
       for (let seed = 1; seed <= 64; seed += 1) {
-        const thrower = armedThrower(a, GRENADE_PROBE_STATUS_CHANCE);
+        const thrower = armedThrower(a, GRENADE_PROBE_STATUS_CHANCE, true);
         if (!thrower.grenade) return -1;
-        const status = thrower.grenade.status;
         if (!on) thrower.grenade = { ...thrower.grenade, statusPermille: 0 };
         const foes = [gc("e1", "enemy", { hp: GRENADE_PROBE_HP, hpMax: GRENADE_PROBE_HP }), gc("e2", "enemy", { hp: GRENADE_PROBE_HP, hpMax: GRENADE_PROBE_HP })];
-        evaluateAndAct([{ target: "foeLargestGroup", action: "throwGrenade" }], thrower, battle([thrower, ...foes]), makeRng(Math.imul(seed, 0x9e3779b1) >>> 0));
-        afflicted += foes.filter((f) => f.statuses.some((x) => x.id === status)).length;
+        afflicted += catalog2Throw(thrower, foes, Math.imul(seed, 0x9e3779b1) >>> 0, seed);
       }
       return afflicted;
     }

@@ -108,6 +108,7 @@ describe("salt registry (GO-4)", () => {
       "gambit.ts SCAN_DROP_SALT",
       "gambit.ts SUPPLY_CACHE_SALT",
       "gambit.ts NEURAL_BACKUP_SALT",
+      "gambit.ts GRENADE_FUSE_SALT",
       "groundFight.ts GROUND_FIGHT_SALT",
       "groundThreat.ts GROUND_THREAT_SALT",
       "groundOps.ts GROUND_AMBUSH_SALT",

@@ -45,6 +45,7 @@ import { getSeniorStaffBonusById } from "./seniorStaffBonuses";
 import { withEm1Off } from "./emodEm1Switch.fixture";
 import { goldenJson, withV1Museum } from "./firstRunsGoldens.fixture"; // gear wear: goldenJson puts the retired durability back
 import { GG1_ADDED_ENTRY_IDS } from "./gasStudyGoldens.fixture";
+import { FUSE_ADDED_ENTRY_IDS } from "./fieldKitsFuse.fixture";
 import { RX_ADDED_ENTRY_IDS } from "./reactorFuelGoldens.fixture";
 
 // ===== shared helpers =====
@@ -602,12 +603,14 @@ const REGISTRY_BEFORE_GEAR_WEAR = "60d00075";
 // `keepGg1` (the one check that reproduces GG-1's own pin with gear wear read back).
 type Back = { readonly sf3?: boolean; readonly fkr9?: boolean; readonly racials?: boolean; readonly g14?: boolean; readonly fkr7?: boolean; readonly fkr6?: boolean; readonly g13?: boolean; readonly gw?: boolean; readonly keepGg1?: boolean };
 // The reactor fuel ladder (0.14.0) only ADDS entries (reactorFuelGoldens.fixture.ts), after every pin here was taken:
-// every read-back and the snapshot leave them out (reactorFuelGoldens.test.ts pins them with their statuses).
+// every read-back and the snapshot leave them out (reactorFuelGoldens.test.ts pins them with their statuses). The timed
+// grenades (user 2026-10-21) only ADD entries too (fieldKitsFuse.fixture.ts, pinned with their statuses in
+// fieldKitsFuse.test.ts) and are left out the same way.
 // The Quartermaster Standard-Issue member lines and the D26 line swap (0.14.0) came after every pin here too: every
 // read-back and the snapshot read them back (siMemberGearRegistry.fixture.ts siReadBack: the added entries left out,
 // the nine retired combat lines restored in place; shortRangeGoldens.test.ts `registry:si` pins them).
 const BEFORE_RX: WiringEntry[] = siReadBack(
-  WIRING_REGISTRY.filter((e) => !RX_ADDED_ENTRY_IDS.has(e.id)),
+  WIRING_REGISTRY.filter((e) => !RX_ADDED_ENTRY_IDS.has(e.id) && !FUSE_ADDED_ENTRY_IDS.has(e.id)),
   (e) => e.id,
   (row) => ({ id: row[0], status: row[1], contexts: row[2], probe: row[3] ?? undefined }) as unknown as WiringEntry,
 );

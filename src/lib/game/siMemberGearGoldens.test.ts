@@ -126,12 +126,14 @@ export const CRAFTED_CASES: readonly (readonly [string, number])[] = [
 // the four run fixtures (run:*, inflight, bare) read the merged base (an ordinary run now carries the ramp stamp and
 // kits). Every value here, the Sidearm and Field Suit rows included, re-captured on feat d553614 itself (the code
 // before the review's edit) and identical to the switched-off reading.
+// Re-pinned at the merge of feat d0ebb36 (the timed Stun and Toxin Grenades): the four run fixtures' hashes only (the
+// runs carry kits; every outcome line is unchanged), re-captured on d0ebb36 itself.
 export const BEFORE: Readonly<Record<string, string>> = {
   mint: "84619c25",
   snapshot: "afbc5b2f",
-  "run:nominal": "8b6657c6 9/10:40 7/7:9 5/5:6 15/15:39 10/13:40",
-  "run:training": "5da7a359 12/12:0 7/7:0 5/5:0 15/15:0 13/13:0",
-  inflight: "bc03f936",
+  "run:nominal": "9dadd721 9/10:40 7/7:9 5/5:6 15/15:39 10/13:40",
+  "run:training": "10f5c5d8 12/12:0 7/7:0 5/5:0 15/15:0 13/13:0",
+  inflight: "3c587fcb",
   "crafted:pulseRifleBp:1": "512c1b55",
   "crafted:pulseRifleBp:10": "e1fdde45",
   "crafted:ballisticWeaveBp:1": "b7a8c81c",
@@ -148,7 +150,7 @@ export const BEFORE: Readonly<Record<string, string>> = {
   "preview:sidearmBp:10": "51bcd20b",
   "preview:fieldSuitBp:1": "332d6b81",
   "preview:fieldSuitBp:10": "2236015c",
-  bare: "5889aae0 9/10:40 7/7:9 5/5:6 15/15:39 10/13:40",
+  bare: "342dfbcf 9/10:40 7/7:9 5/5:6 15/15:39 10/13:40",
   ship: "f0246bf0",
 };
 
@@ -161,12 +163,12 @@ const GOLDEN: Readonly<Record<string, string>> = {
   // The frozen roster converts those lines (power, accuracy, armor, HP, fieldwork, relic find, hazard, organics).
   snapshot: "bb8c0c87",
   // The same crew, stronger: more objectives done and fewer lost fights on every seed (nominal Tier I at full strength).
-  "run:nominal": "db90032a 10/10:39 7/7:2 5/5:0 15/15:29 13/13:37",
+  "run:nominal": "6e6e14d7 10/10:39 7/7:2 5/5:0 15/15:29 13/13:37",
   // The training run already clears everything; only the frozen roster's lines (and the fights they shape) move.
-  "run:training": "750f133f 12/12:0 7/7:0 5/5:0 15/15:0 13/13:0",
+  "run:training": "2cf38766 12/12:0 7/7:0 5/5:0 15/15:0 13/13:0",
   // This fixture dispatches on the current code (the kit carries its lines). The pre-change in-flight run is proved
   // unmoved below, with the dispatch made on the switched-off kit and the load on the live code.
-  inflight: "3bce9027",
+  inflight: "718d5532",
   // The crafted budget floor (model.ts craftedMemberFloorImplicits): a crafting level 1 roll is lifted to the free
   // set's total and the free piece's signature values (item level unchanged); the previews show the same floor.
   "crafted:pulseRifleBp:1": "4bfd75d3",
