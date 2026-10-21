@@ -8,6 +8,9 @@
 //   board10 : all ten fresh board candidates hired.
 //   rankR   : 6 Security + 6 Science members of rank R, slotted across both teams in hire order (team 0 first, to
 //             its squad sizes: an Eir's 4-seat Security squads take 4 + 2).
+//   rank1si : rank1, every member wearing the Quartermaster's free Standard-Issue Armor, Weapon and Tool (the user's
+//             2026-10-16 "full team + Quartermaster Standard-Issue set"), drawn and installed through the real
+//             requisition and install transforms. Not in CREW_NAMES (the SF-0 tables predate it).
 // Never imported by app code.
 
 import { freshState, type AwayMember, type Expedition, type GameState, type ShipTypeKey } from "./model";
@@ -15,6 +18,8 @@ import { installMissingCombatBaselines } from "./tick";
 import { awayRecruitCandidates, hireAwayMember } from "./awayTeam";
 import { groundOpsStuckTaskIds } from "./groundOps";
 import { plainAwayMember, withSlottedAwayTeams } from "./awayTeamTestFixtures";
+import { requisitionStandardIssue } from "./quartermaster";
+import { canFitToMember, fitToMember } from "./memberEquipment";
 
 export function fnv(s: string): string {
   let h = 0x811c9dc5;
@@ -134,7 +139,7 @@ export function onHull(hull: ShipTypeKey, expeditionSeed?: number): GameState {
   });
 }
 
-export type CrewName = "d18" | "board2" | "board10" | "rank1" | "rank3" | "rank6";
+export type CrewName = "d18" | "board2" | "board10" | "rank1" | "rank3" | "rank6" | "rank1si";
 export const CREW_NAMES: readonly CrewName[] = ["d18", "board2", "board10", "rank1", "rank3", "rank6"];
 
 function rankCrew(state: GameState, rank: number): GameState {
@@ -153,6 +158,23 @@ function boardCrew(state: GameState, all: boolean): GameState {
   return s;
 }
 
+// The Quartermaster's free Standard-Issue Armor, Weapon and Tool for every member aboard, each drawn through
+// requisitionStandardIssue and installed with fitToMember (the sim's kitCrewFromQuartermaster, inlined here so the
+// golden fixtures do not import the sim). Throws on any refusal. Pure.
+export function withStandardIssueKit(state: GameState): GameState {
+  let s = state;
+  for (const member of state.awayMembers) {
+    for (const slot of ["memberArmor", "memberWeapon", "memberTool"] as const) {
+      const req = requisitionStandardIssue(s, slot, member.teamType);
+      if (!req.minted) throw new Error(`requisition refused: ${slot} for ${member.id} (${req.reason})`);
+      const gate = canFitToMember(req.next, member.id, req.minted.id);
+      if (!gate.ok) throw new Error(`install refused: ${slot} on ${member.id} (${gate.reason})`);
+      s = fitToMember(req.next, member.id, req.minted.id);
+    }
+  }
+  return s;
+}
+
 // `state` with the named crew aboard ship-1 (see the header). Pure.
 export function withCrew(state: GameState, crew: CrewName): GameState {
   switch (crew) {
@@ -168,6 +190,8 @@ export function withCrew(state: GameState, crew: CrewName): GameState {
       return rankCrew(state, 3);
     case "rank6":
       return rankCrew(state, 6);
+    case "rank1si":
+      return withStandardIssueKit(rankCrew(state, 1));
   }
 }
 
