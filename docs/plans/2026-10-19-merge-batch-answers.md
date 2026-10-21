@@ -163,3 +163,13 @@ shaded surplus; over-budget flag on this screen; one-line Active rule text).
   (also for a final-round throw).
 - Moved clear: "20%, lone targets can't dodge": GRENADE_FUSE_MOVED_CLEAR_CHANCE 0.2 for groups; a lone target always gets hit.
 - Enemy flash grenade: "Keep instant".
+
+## Session limit hit 2026-10-21 (resets 11:30am PT): builders to resume by message (work saved in their worktrees)
+
+- SI member gear (worktree-agent-a0c138af05f2fe43b): was writing its carry note after the budget-floor + Science lines fixes.
+- G1-6 Short-Range board UI (worktree-agent-a2e17115cd2c2d705): was adding a registry probe.
+- G2-4 + G2-5 drives and recall (worktree-agent-a3054ed1c11c3e8a6): was retiring STANDARD_DRIVE_CLASS in voyage.ts / expedition.ts.
+- ML-2 recipe rework + realism (worktree-agent-aa99b63d3da94ac06): was about to run full gates.
+- R2-2 relic blanks by tier (worktree-agent-a5102d2e70f9ddf8c): was adding the registry-additions pin.
+- EM-2 install gate (worktree-agent-a61ef58ebc7a78f74): built and reviewed; needs the follow-ups recorded in the Material
+  Lines / E-MOD plan ("EM-2 non-worsening installs") before merge.
