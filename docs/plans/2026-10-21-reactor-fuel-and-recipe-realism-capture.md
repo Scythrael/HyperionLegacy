@@ -80,3 +80,16 @@ is a data-model and seam slice (tiers, fuel per tier, a per-hull-tier power-gene
   antimatter.
 - **Foundation scope:** "Data model + hooks (Recommended)": reactor tech tiers, fuel per tier, a per-hull-tier
   power-generation requirement seam (Tier VII = antimatter later), wired and tested; no new reactors in 0.14.0.
+
+## 6. USER DATADUMP (2026-10-21, verbatim): beyond antimatter
+
+"Though, I do have another idea. Though it's incredibly theoretical in nature, and I'm not even sure how we'd be able to
+make it work, but I know of a reactor tech that could work for the next tier above antimatter. Zero-point Energy.
+Romulans even use a miniature singularity and contain it within their ships. I don't think I want to go that route.
+However, imagine a weaponized black hole or something similar to their singularity drives. That'd be an incredibly
+destructive weapon."
+
+Reading: a possible reactor tier ABOVE antimatter: zero-point energy (theoretical; open how it works). Contained
+singularity reactors are NOT the route for power. Separately, a future WEAPON idea: a weaponized black hole /
+singularity (incredibly destructive). Both are far-future content, not 0.14.0. The reactor foundation keeps tiers as
+data so a fourth tier can be added without redesign.
