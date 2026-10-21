@@ -562,3 +562,10 @@ Material Lines and universal modules ahead of G1 in the build order.
   failure). G1-4 implements this; the G1-3 carry note's "settled when the cycle delivers" is superseded.
 - **Board rungs:** approved as built (docs/plans/2026-10-19-merge-batch-answers.md); the "[PROVISIONAL] await the user"
   text at model.ts MISSION_CONTROL_BOARD_RUNGS becomes "approved 2026-10-20" in G1-4.
+
+## USER ANSWERS (2026-10-21): G1-6 board mockup (https://claude.ai/artifact/HhEA9ARvKjjfAhbnZBSdg3)
+
+- Free slot: "Pre-pick + one-tap Send (Recommended)".
+- Home rows: "Yes, calm status line (Recommended)": waiting slots show on Home too.
+- Job types list: "Collapsed on the board (Recommended)".
+- Repeat toggle: "Keep it, on by default (Recommended)".
