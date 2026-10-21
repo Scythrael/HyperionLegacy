@@ -3580,6 +3580,12 @@ const AUDIT_ROWS: readonly { id: string; system: WiringSystem; claim: string; st
   { id: "expedition:audit:shipEventProfileFields", system: "expedition", claim: "ShipEventProfile evasion and shieldCapacity (frozen, never read)", status: pending("WR-11, OC-G5") },
   { id: "expedition:audit:planetComments", system: "expedition", claim: "Planet comments: Ocean slower work, Frozen best relic survival, Toxic hardened team", status: pending("OC-G6") },
   { id: "expedition:audit:legacyFallbacks", system: "expedition", claim: "FIGHT_POINTS_DEFAULT / MIN, SURVEY_AMBUSH_CHANCE (old runs only)", status: pending("OC-G1") },
+  // H. Relics v2 R2-2 (relicBlanks.ts): live on every new run at Tier I; the rest waits for the slice that reaches it.
+  { id: "relic:audit:blankTiers", system: "relic", claim: "Relic blanks above Tier I: RELIC_BLANK_WEIGHTS II to VII (a deeper find rolls rarer on the same chance, user call 13 \"Better rarity only\")", status: pending(G2_6_PICKER) },
+  { id: "relic:audit:blankCulture", system: "relic", claim: "A blank's culture (cultureForBody, stamped on every new run's relic): the culture study reads it", status: pending("Relics v2 R2-6 (cultures: study points and the name reveal)") },
+  { id: "relic:audit:shortRangeBlanks", system: "relic", claim: "Short-range relic drops (rollShortRangeRelicBlanks: per hour, Tier I 0.08x and Tier II 0.15x of the expedition rate)", status: pending("G1-5 (wires the hook into a delivered short-range cycle)") },
+  { id: "relic:audit:completionBlank", system: "relic", claim: "The planet 100% bonus roll (planetCompletionRelicBlank: one extra blank, one rarity step up)", status: pending("G7 (calls the hook when a planet is fully completed)") },
+  { id: "relic:audit:generalPick", system: "relic", claim: "A blank with no set identifies over the general pool by band, with the site bias (identifyGeneralRelic)", status: pending("G1-5 and G7 (the first callers that mint a blank with no set); R2-3 builds identification v2 on the same pick") },
   // I. Missions, patrols, factions
   { id: "mission:audit:unusedFactions", system: "mission", claim: "voidJackals, ironVultures, ashenCorsairs and Faction.id (no patrol references them)", status: pending("WR-11, OC-I2") },
   // J. Salvage and item generation
@@ -3807,7 +3813,7 @@ function speedSeamEntries(): WiringEntry[] {
       id: "fleetAdmiral:SPEED_SEAM:grant",
       system: "fleetAdmiral",
       source: { catalog: "SPEED_SEAM", key: "grant" },
-      claim: "Grant hook: items, credits, gear and a hull, with a log line",
+      claim: "Grant hook: items, credits, gear, a hull and relics (a general relic by type and tier, the first Tier I exceptional piece), with a log line",
       status: { kind: "seam", owner: "the tutorial / quests patch", userRef: TUTORIAL_HOOKS },
       note: "processSpeed.test.ts proves it",
     }),

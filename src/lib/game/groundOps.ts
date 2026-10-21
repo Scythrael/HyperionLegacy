@@ -93,6 +93,7 @@ import { HELPER_MIN_TIER, groundTaskClearOdds, groundTaskThreat } from "./ground
 import { threatAssessment, tierAtLeast, type ThreatAssessment } from "./combat/threatAssessment";
 import { groundSiteLabel } from "./expeditionContent";
 import { activityRelicFindBonus, rollRelicToken, taskRelicSeed } from "./gambit";
+import { relicBlankStamp } from "./relicBlanks";
 import { fieldworkEffect } from "./fieldwork";
 // Squads SQ-3: team squads by kind (composition math) and the ambush roll's private stream.
 import { DEFAULT_GROUND_TEAM_KIND, isGroundTeamKind, scienceSquadsOf, securitySquadsOf } from "./groundComposition";
@@ -1726,6 +1727,8 @@ function offloadFindings(exp: Expedition, ops: GroundOpsState, team: GroundTeamR
       riskBonus > 0 ? find + riskBonus : find,
       // WR-5c: the captain's Field Science, Relic Hunter and Preservationist, frozen at dispatch (absent = unchanged).
       exp.explorerCaptain,
+      // Relics v2 R2-2: the blank stamp (the run's region tier, the body's culture) on a run with the R2-2 flag only.
+      relicBlankStamp(exp, ref.bodyIndex),
     );
   }
   exp.findings.push(finding);

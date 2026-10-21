@@ -557,7 +557,9 @@ function labelForProcess(
     // Exploration 0.14.0 (E4a): a relic study at the Research facility. Named by the token's SET (the
     // relic itself is unknown until the study completes, which is the point of studying it).
     case "relicStudy": {
-      const setLabel = effect.type === "identifyRelic" ? getRelicSetById(effect.token.setId)?.label ?? effect.token.setId : null;
+      // Relics v2 R2-2: a blank with no set (no site) reads "General".
+      const setId = effect.type === "identifyRelic" ? effect.token.setId : undefined;
+      const setLabel = effect.type !== "identifyRelic" ? null : setId === undefined ? "General" : getRelicSetById(setId)?.label ?? setId;
       return {
         // E4c: the relic glyph (SVG, App's HOME_ICON_NAME) + the Relics sub-tab, where the study runs.
         icon: "relic",

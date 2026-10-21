@@ -49,6 +49,7 @@ import { FUSE_ADDED_ENTRY_IDS } from "./fieldKitsFuse.fixture";
 import { RX_ADDED_ENTRY_IDS } from "./reactorFuelGoldens.fixture";
 // ML-2 (the Material Lines recipe rework + the recipe realism audit): its registry move, read back by ml2RowsBack.
 import { ml2RowsBack } from "./ml2RecipeGoldens.fixture";
+import { R2_2_ADDED_ENTRY_IDS } from "./relicBlanks.fixture";
 
 // ===== shared helpers =====
 
@@ -613,11 +614,14 @@ type Back = { readonly sf3?: boolean; readonly fkr9?: boolean; readonly racials?
 // every read-back and the snapshot leave them out (reactorFuelGoldens.test.ts pins them with their statuses). The timed
 // grenades (user 2026-10-21) only ADD entries too (fieldKitsFuse.fixture.ts, pinned with their statuses in
 // fieldKitsFuse.test.ts) and are left out the same way.
+// Relics v2 R2-2 the same (its five audit rows, relicBlanks.fixture.ts; relicBlanks.test.ts pins them).
 // The Quartermaster Standard-Issue member lines and the D26 line swap (0.14.0) came after every pin here too: every
 // read-back and the snapshot read them back (siMemberGearRegistry.fixture.ts siReadBack: the added entries left out,
 // the nine retired combat lines restored in place; shortRangeGoldens.test.ts `registry:si` pins them).
 const BEFORE_RX: WiringEntry[] = siReadBack(
-  WIRING_REGISTRY.filter((e) => !RX_ADDED_ENTRY_IDS.has(e.id) && !FUSE_ADDED_ENTRY_IDS.has(e.id)),
+  WIRING_REGISTRY.filter(
+    (e) => !RX_ADDED_ENTRY_IDS.has(e.id) && !FUSE_ADDED_ENTRY_IDS.has(e.id) && !R2_2_ADDED_ENTRY_IDS.has(e.id),
+  ),
   (e) => e.id,
   (row) => ({ id: row[0], status: row[1], contexts: row[2], probe: row[3] ?? undefined }) as unknown as WiringEntry,
 );

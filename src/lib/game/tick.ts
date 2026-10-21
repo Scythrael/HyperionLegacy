@@ -192,6 +192,7 @@ import {
 // Exploration 0.14.0 (Phase E4a): the relic catalog's pure identification roll + study constants.
 // relics.ts imports only model/expeditionContent TYPES + the leaf PRNG, so this adds no import cycle.
 import { identifyRelic, relicStudySeed, relicStudyDurationTicks, RELIC_STUDY_LANES, museumBonuses } from "./relics";
+import { identifyGeneralRelic, vaultTokenRegionTier } from "./relicBlanks";
 // Crafting 0.13.3 (Phase 2 Unit 2.1): the DERIVED salvage-reservation predicate the
 // enqueue gate consults so one target cannot be queued twice (design section 7.3).
 // Implemented in reservation.ts (a leaf both this file and equipment.ts can depend on
@@ -8046,8 +8047,13 @@ export function startRelicStudy(
 // effect's own fields), so it is chunking-independent and reload-stable; it is the ONE derivation both the
 // resolver branch and the completion-log record call, so the two can never disagree. Returns null for an
 // unknown set (a tampered save).
+// Relics v2 R2-2: a blank with NO set (a short-range, completion or grant blank: no site) identifies over the general
+// pool by band on the same keyed seed (relicBlanks.ts identifyGeneralRelic, its region tier's band odds). Every sited
+// blank keeps the v1 roll above exactly.
 export function identifyStudiedRelic(state: GameState, token: RelicVaultToken, studyIndex: number): string | null {
-  return identifyRelic(token.setId, token.tier, relicStudySeed(state.relicSeed ?? RELIC_DEFAULT_SEED, studyIndex, token.id));
+  const seed = relicStudySeed(state.relicSeed ?? RELIC_DEFAULT_SEED, studyIndex, token.id);
+  if (token.setId === undefined) return identifyGeneralRelic(vaultTokenRegionTier(token), token.tier, token.poiId, seed);
+  return identifyRelic(token.setId, token.tier, seed);
 }
 
 // ============================================================================

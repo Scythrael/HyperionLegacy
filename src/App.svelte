@@ -5773,7 +5773,8 @@
     const { next, started } = startRelicStudy(state, tokenId);
     if (!started || next === state) return;
     state = next;
-    const setLabel = token ? getRelicSetById(token.setId)?.label ?? token.setId : "unknown set";
+    // Relics v2 R2-2: a blank with no set (no site) reads "General".
+    const setLabel = token ? (token.setId === undefined ? "General" : getRelicSetById(token.setId)?.label ?? token.setId) : "unknown set";
     pushLog(`Relic study started → ${token ? token.tier.charAt(0).toUpperCase() + token.tier.slice(1) : ""} ${setLabel} relic.`);
     doSave();
   }
