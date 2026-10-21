@@ -367,3 +367,15 @@ ancient entries (open call 13); nothing else can move without leaving a false He
   Sensor Array in 0.14.0; Annihilation Core moves to 0.14.x with the burn.
 - **Call 12 timings:** "Proposed (Recommended)": giant study 30 min (probe faster), nebula sweep 2 h, data study 20 min.
 - ALL gas giant calls answered.
+
+## USER ANSWERS (2026-10-21): GG-1 [PROPOSAL] picks
+
+- **Nebula kinds:** "Approve (Recommended)": Molecular cloud, Emission nebula, Planetary nebula, Supernova remnant.
+- **Canister sell values:** "Approve (Recommended)": Hydrogen 200, Methane 200, Ammonia 450, Deuterium 450, Helium-3
+  1,000, Antimatter Containment Cell 2,500.
+- **Deuterium Canister recipe (verbatim):** "Give it a use. Make it craftable into Deuterium Cannisters and give it a use.
+  Perhaps as part of a reactor blueprint." (Supersedes the multiple-choice pick "Hide until it has a use".) The 10 Ice
+  to 1 Canister recipe stays visible and the canister gets a reactor-blueprint use now; which blueprint is asked next.
+- **Class weights + shared glyph (verbatim):** "Yes. One shared glyph for the 5 cannisters. Eventually we can tweak the
+  graphics to make each a little different overall." Class roll weights I 4, II 2, III 2, IV 1, V 1, Ice 3, Brown dwarf 1
+  approved; one shared canister glyph now; FUTURE: distinct canister graphics (logged in SUGGESTIONS.md).

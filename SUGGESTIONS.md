@@ -1151,6 +1151,10 @@ see KNOWN_ISSUES.md for actual bugs/gaps; this file is for not-yet-scoped future
   is a projection of the sim" pattern as fuel-runway / XP parity). Do NOT build any event-log or
   animation machinery in 0.13.0; just do not paint the resolver into a corner.
 
+- **Distinct gas canister graphics -> later polish (user 2026-10-21).** "Eventually we can tweak the graphics to make each
+  a little different overall." 0.14.0 ships one shared SVG glyph for the five gas canisters (Hydrogen, Methane, Ammonia,
+  Deuterium, Helium-3); a later pass gives each its own variant (icons.ts + ICON_SEMANTICS, 16/28/56 px review).
+
 - **Ground teams visual: planet view + animated ground fight replay -> AFTER 0.14.0 (user 2026-10-19).** User asked:
   "Is there a visual for this system when someone is getting into battle to see what their ground teams are doing on
   the planet and so forth? Both running around, as well as in-battle?" Answer at the time: no; 0.14.0 shows team
