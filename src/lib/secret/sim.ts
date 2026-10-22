@@ -4,8 +4,8 @@
 // The player: starts at 18:00 with a 90-minute session and checks back at 22:00 for 20 minutes,
 // then every day at 08:00, 12:30, 18:00 and 22:00 for 20 minutes ("steady"). "light" checks in
 // twice a day for 15 minutes; "keen" plays longer at first and checks in six times a day. Offline
-// gaps run through the real catch-up (advanceTo), with a smaller exact window to keep the test
-// fast; catchUp.test.ts proves coarse catch-up never pays less, so this is a fair stand-in.
+// gaps run through the real catch-up (advanceTo) with the shipping exact window, exactly as the
+// game pays them.
 //
 // Every 3 minutes in a session (and once more on leaving) the player: buys skills in the listed
 // order when affordable; takes Fleet Prestige if it at least doubles Augment Points (or is the
@@ -16,7 +16,7 @@
 
 import { freshSecretState, type SecretState } from "./state";
 import { stepMut, buyOverclockMut, buyTierMut, buySkill, canBuySkill, captainGain, fleetGain, prestigeceptionGain, doCaptain, doFleet, doPrestigeception, effectiveExponent, hasSkill } from "./engine";
-import { advanceTo } from "./catchUp";
+import { advanceTo, EXACT_BOUND_SECONDS } from "./catchUp";
 import { SKILLS, type MilestoneId } from "./config";
 
 export type SimProfile = "steady" | "light" | "keen";
@@ -24,24 +24,25 @@ export type SimProfile = "steady" | "light" | "keen";
 const H = 3600;
 const START_MS = Date.UTC(2026, 9, 22, 18, 0, 0);
 
-export function sessions(profile: SimProfile, days: number): [number, number][] {
+// shiftHours moves every daily check-in later (the first evening stays put): a robustness check.
+export function sessions(profile: SimProfile, days: number, shiftHours = 0): [number, number][] {
   const out: [number, number][] = [];
   if (profile === "steady") {
     out.push([0, 90 * 60], [4 * H, 20 * 60]);
     for (let d = 1; d <= days; d++) {
-      const midnight = d * 24 * H - 18 * H;
+      const midnight = d * 24 * H - 18 * H + shiftHours * H;
       for (const h of [8, 12.5, 18, 22]) out.push([midnight + h * H, 20 * 60]);
     }
   } else if (profile === "light") {
     out.push([0, 90 * 60]);
     for (let d = 1; d <= days; d++) {
-      const midnight = d * 24 * H - 18 * H;
+      const midnight = d * 24 * H - 18 * H + shiftHours * H;
       for (const h of [8, 20]) out.push([midnight + h * H, 15 * 60]);
     }
   } else {
     out.push([0, 150 * 60], [4 * H, 30 * 60]);
     for (let d = 1; d <= days; d++) {
-      const midnight = d * 24 * H - 18 * H;
+      const midnight = d * 24 * H - 18 * H + shiftHours * H;
       for (const h of [7, 10, 13, 16, 19, 22]) out.push([midnight + h * H, 20 * 60]);
     }
   }
@@ -79,7 +80,7 @@ function decide(s: SecretState, atMs: number): SecretState {
   return s;
 }
 
-export function simulatePlayer(opts: { profile?: SimProfile; days: number; exactBoundSeconds?: number; stopAfterLongDays?: number }): SimResult {
+export function simulatePlayer(opts: { profile?: SimProfile; days: number; exactBoundSeconds?: number; stopAfterLongDays?: number; shiftHours?: number; stopAfterFinale?: boolean }): SimResult {
   const t0 = performance.now();
   const profile = opts.profile ?? "steady";
   let s = freshSecretState(START_MS);
@@ -107,9 +108,9 @@ export function simulatePlayer(opts: { profile?: SimProfile; days: number; exact
     for (const def of SKILLS) if (hasSkill(s, def.id)) mark(`skill:${def.id}`);
   };
   let nextSample = 0;
-  for (const [start, length] of sessions(profile, opts.days)) {
+  for (const [start, length] of sessions(profile, opts.days, opts.shiftHours ?? 0)) {
     if (sec() < start) {
-      s = advanceTo(s, START_MS + start * 1000, { exactBoundSeconds: opts.exactBoundSeconds ?? 600 }).state;
+      s = advanceTo(s, START_MS + start * 1000, { exactBoundSeconds: opts.exactBoundSeconds ?? EXACT_BOUND_SECONDS }).state;
       watch();
     }
     const end = start + length;
@@ -128,6 +129,7 @@ export function simulatePlayer(opts: { profile?: SimProfile; days: number; exact
       samples.push([nextSample, effectiveExponent(s.bestOre)]);
       nextSample += 6 * H;
     }
+    if (opts.stopAfterFinale && events.finale !== undefined) break;
     if (events.long !== undefined && sec() > events.long + (opts.stopAfterLongDays ?? 8) * 24 * H) break;
   }
   return { events, final: s, wallMs: performance.now() - t0, samples };

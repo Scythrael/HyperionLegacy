@@ -88,7 +88,7 @@ export const OVERDRIVE_POWER = 1.05; // Overdrive: Ore production ^1.05
 
 export const FINALE_EXPONENT = 777777;
 export const LONG_EXPONENT = 1000000;
-export const SOFT_SCALE = 82;
+export const SOFT_SCALE = 58;
 export const SOFT_BETA = 0.5;
 
 // ---------------------------------------------------------------------------

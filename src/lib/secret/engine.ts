@@ -63,6 +63,44 @@ const ONE = new Decimal(1);
 const LOG_FLOOR_BASE = Math.log10(OC_FLOOR_BASE);
 const LOG_FLOOR_STEP = Math.log10(OC_FLOOR_STEP);
 
+// 10^x as a Decimal, built straight from mantissa and exponent. The step function runs tens of
+// thousands of times per catch-up, and this is several times cheaper than Decimal.pow's general
+// path for the same result (a double's precision on x, which Decimal.pow has too).
+export function pow10(x: number): Decimal {
+  if (!Number.isFinite(x)) return x > 0 ? Decimal.pow(10, x) : ZERO;
+  const e = Math.floor(x);
+  return Decimal.fromMantissaExponent_noNormalize(Math.pow(10, x - e), e);
+}
+
+// base^n for a plain positive base: an exact double while it stays below 1e300, pow10 beyond.
+function powNumber(base: number, n: number): Decimal {
+  const x = Math.log10(base) * n;
+  return x < 300 ? new Decimal(Math.pow(base, n)) : pow10(x);
+}
+
+// base^power for a positive Decimal base, through its log.
+function powPositive(base: Decimal, power: number): Decimal {
+  return base.lte(0) ? ZERO : pow10(base.log10() * power);
+}
+
+// The geometric series every Max buy needs: how many items starting at 10^firstLog, each
+// 10^ratioLog times the last, are affordable with `left`, and what they cost. Exact closed form with one
+// check for float rounding at the top end.
+function affordSeries(left: Decimal, firstLog: number, ratioLog: number, maxCount: number): { count: number; cost: Decimal } {
+  if (maxCount <= 0 || left.lte(0)) return { count: 0, cost: ZERO };
+  const ratio = Math.pow(10, ratioLog);
+  const first = pow10(firstLog);
+  const costOf = (n: number) => pow10(firstLog + ratioLog * n).sub(first).div(ratio - 1);
+  let n = Math.floor(left.mul(ratio - 1).div(first).add(1).log10() / ratioLog);
+  n = Math.max(0, Math.min(n, maxCount));
+  let cost = n > 0 ? costOf(n) : ZERO;
+  while (n > 0 && cost.gt(left)) {
+    n -= 1;
+    cost = n > 0 ? costOf(n) : ZERO;
+  }
+  return { count: n, cost };
+}
+
 // ---------------------------------------------------------------------------
 // The effective scale
 // ---------------------------------------------------------------------------
@@ -91,7 +129,7 @@ export function effectiveExponent(raw: Decimal): number {
 export function displayOre(raw: Decimal): Decimal {
   const x = rawExponent(raw);
   if (x <= FINALE_EXPONENT) return raw;
-  return Decimal.pow(10, softenExponent(x));
+  return pow10(softenExponent(x));
 }
 
 // Ore per second as the player sees it (the chain rule through the softening curve).
@@ -116,12 +154,12 @@ export function autoActive(s: SecretState, id: SkillId): boolean {
 
 // Captain Points x Augment Points: multiplies every generator and speeds the Overclock clock.
 export function prestigeMultiplier(s: SecretState): Decimal {
-  return s.captainPoints.add(1).pow(CP_POW).mul(s.augmentPoints.add(1).pow(AP_POW));
+  return powPositive(s.captainPoints.add(1), CP_POW).mul(powPositive(s.augmentPoints.add(1), AP_POW));
 }
 
 // Dream Points: multiply the Captain and Augment Points earned per prestige.
 export function gainMultiplier(s: SecretState): Decimal {
-  return s.dreamPoints.add(1).pow(DP_POW);
+  return powPositive(s.dreamPoints.add(1), DP_POW);
 }
 
 export function tenBonusFactor(s: SecretState): number {
@@ -130,11 +168,11 @@ export function tenBonusFactor(s: SecretState): number {
 
 // The output multiplier one tier gets from its own tens bought.
 export function tenMultiplier(s: SecretState, tier: number): Decimal {
-  return Decimal.pow(tenBonusFactor(s), Math.floor(s.bought[tier] / 10));
+  return powNumber(tenBonusFactor(s), Math.floor(s.bought[tier] / 10));
 }
 
 export function overclockMultiplier(s: SecretState): Decimal {
-  return Decimal.pow(OC_FACTOR, s.overclock);
+  return powNumber(OC_FACTOR, s.overclock);
 }
 
 // Everything multiplying one tier's rate, for display.
@@ -159,7 +197,7 @@ export type BuyMode = "one" | "ten" | "max";
 
 function priceAtTen(tier: number, tenIndex: number): Decimal {
   const def = TIERS[tier];
-  return Decimal.pow(10, def.baseCostLog10 + def.costStepLog10 * tenIndex);
+  return pow10(def.baseCostLog10 + def.costStepLog10 * tenIndex);
 }
 
 // The price of the next single unit of a tier (flat within the current ten).
@@ -190,15 +228,9 @@ export function buyTierMut(s: SecretState, tier: number, budget: Decimal, maxCou
 
   fill(10 - (b % 10));
   if (b % 10 === 0 && count < maxCount && left.gt(0)) {
-    const step = Math.pow(10, TIERS[tier].costStepLog10);
-    const first = priceAtTen(tier, b / 10).mul(10);
-    let tens = Math.floor(Decimal.affordGeometricSeries(left, first, step, 0).toNumber());
-    tens = Math.max(0, Math.min(tens, Math.floor((maxCount - count) / 10)));
-    let cost = tens > 0 ? Decimal.sumGeometricSeries(tens, first, step, 0) : ZERO;
-    while (tens > 0 && cost.gt(left)) {
-      tens -= 1;
-      cost = tens > 0 ? Decimal.sumGeometricSeries(tens, first, step, 0) : ZERO;
-    }
+    const def = TIERS[tier];
+    const firstLog = 1 + def.baseCostLog10 + def.costStepLog10 * (b / 10); // a whole ten costs 10 units
+    const { count: tens, cost } = affordSeries(left, firstLog, def.costStepLog10, Math.floor((maxCount - count) / 10));
     if (tens > 0) {
       left = left.sub(cost);
       b += 10 * tens;
@@ -231,7 +263,7 @@ function overclockFlatPrice(s: SecretState): Decimal {
 }
 
 function overclockFloorPrice(level: number): Decimal {
-  return Decimal.pow(10, LOG_FLOOR_BASE + LOG_FLOOR_STEP * level);
+  return pow10(LOG_FLOOR_BASE + LOG_FLOOR_STEP * level);
 }
 
 // The price of the next Overclock level.
@@ -269,14 +301,8 @@ export function buyOverclockMut(s: SecretState, budget: Decimal, maxCount = Infi
     }
   }
   if (count < maxCount && left.gt(0)) {
-    const first = overclockFloorPrice(s.overclock + count);
-    let n = Math.floor(Decimal.affordGeometricSeries(left, first, OC_FLOOR_STEP, 0).toNumber());
-    n = Math.max(0, Math.min(n, maxCount - count));
-    let cost = n > 0 ? Decimal.sumGeometricSeries(n, first, OC_FLOOR_STEP, 0) : ZERO;
-    while (n > 0 && cost.gt(left)) {
-      n -= 1;
-      cost = n > 0 ? Decimal.sumGeometricSeries(n, first, OC_FLOOR_STEP, 0) : ZERO;
-    }
+    const firstLog = LOG_FLOOR_BASE + LOG_FLOOR_STEP * (s.overclock + count);
+    const { count: n, cost } = affordSeries(left, firstLog, LOG_FLOOR_STEP, maxCount === Infinity ? Number.MAX_SAFE_INTEGER : maxCount - count);
     if (n > 0) {
       left = left.sub(cost);
       count += n;
@@ -385,7 +411,7 @@ export function prestigeceptionGain(s: SecretState): Decimal {
 }
 
 function resetRunMut(s: SecretState): void {
-  s.ore = hasSkill(s, "headStart") ? Decimal.pow(10, HEAD_START_LOG10) : new Decimal(START_ORE);
+  s.ore = hasSkill(s, "headStart") ? pow10(HEAD_START_LOG10) : new Decimal(START_ORE);
   s.bought = new Array(TIER_COUNT).fill(0);
   s.owned = Array.from({ length: TIER_COUNT }, () => ZERO);
   s.overclock = 0;
@@ -461,18 +487,20 @@ function meetsTarget(gain: Decimal, have: Decimal, pct: number): boolean {
   return gain.gt(0) && gain.gte(have.mul(pct / 100));
 }
 
-function autoPrestigeMut(s: SecretState, atMs: number): void {
-  if (autoActive(s, "autoPc") && meetsTarget(prestigeceptionGain(s), s.dreamPoints, s.autoTarget.pc)) {
-    doPrestigeceptionMut(s, atMs);
-    return;
-  }
-  if (autoActive(s, "autoFleet") && meetsTarget(fleetGain(s), s.augmentPoints, s.autoTarget.fleet)) {
-    doFleetMut(s, atMs);
-    return;
-  }
-  if (autoActive(s, "autoCaptain") && meetsTarget(captainGain(s), s.captainPoints, s.autoTarget.captain)) {
-    doCaptainMut(s, atMs);
-  }
+type AutoLayerDue = "pc" | "fleet" | "captain" | null;
+
+// Which automatic prestige has reached its target (top layer first), if any.
+function dueAutoPrestige(s: SecretState): AutoLayerDue {
+  if (autoActive(s, "autoPc") && meetsTarget(prestigeceptionGain(s), s.dreamPoints, s.autoTarget.pc)) return "pc";
+  if (autoActive(s, "autoFleet") && meetsTarget(fleetGain(s), s.augmentPoints, s.autoTarget.fleet)) return "fleet";
+  if (autoActive(s, "autoCaptain") && meetsTarget(captainGain(s), s.captainPoints, s.autoTarget.captain)) return "captain";
+  return null;
+}
+
+function firePrestigeMut(s: SecretState, layer: AutoLayerDue, atMs: number): void {
+  if (layer === "pc") doPrestigeceptionMut(s, atMs);
+  else if (layer === "fleet") doFleetMut(s, atMs);
+  else if (layer === "captain") doCaptainMut(s, atMs);
 }
 
 // ---------------------------------------------------------------------------
@@ -562,8 +590,13 @@ function ensureRecoverableMut(s: SecretState): void {
 
 // productionDt lets a coarse catch-up step produce a little longer than the time it books (its
 // fairness margin) without moving the run clock, the peaks or the prestige checks off real time.
+// An automatic prestige that reached its target by the START of a step fires at the END of it, after
+// that step's production. So every run gets one full step past its target, and since a catch-up
+// step is never shorter than a live one, a catch-up never cuts a run shorter than live play would
+// (catchUp.test.ts: never pays less).
 export function stepMut(s: SecretState, dt: number, atMs: number, productionDt: number = dt): void {
   ensureRecoverableMut(s);
+  const due = dueAutoPrestige(s);
   autoBuyMut(s);
   produceMut(s, productionDt);
   s.runSeconds += dt;
@@ -571,7 +604,7 @@ export function stepMut(s: SecretState, dt: number, atMs: number, productionDt: 
   if (s.ore.gt(s.fleetPeak)) s.fleetPeak = s.ore;
   if (s.ore.gt(s.pcPeak)) s.pcPeak = s.ore;
   if (s.ore.gt(s.bestOre)) s.bestOre = s.ore;
-  autoPrestigeMut(s, atMs);
+  firePrestigeMut(s, due, atMs);
   checkMilestonesMut(s, atMs);
 }
 
