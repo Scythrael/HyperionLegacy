@@ -66,3 +66,15 @@ rows, warehouse tokens, relic blanks decoupled, 5th salvage ceiling row, set-com
 Still open (next round): legendary budget step (+20% doc vs 1.15 code vs per-rarity table), secondaries (Stellar and
 up, would change live pieces), Derelict meaning, crew multiplier rows above Stellar, relic blanks at legendary tiers,
 quality on ships and field kits, Constellar color (red doc vs rose code).
+
+## USER ANSWERS (2026-10-22), round 2
+
+5. Budget step: "Per-rarity table (Recommended)" (each rarity gets a tunable row: power, affix count, extras;
+   legendaries start at the design's +20% over Radiant; live tiers stay exactly as they are).
+6. Secondaries: "Legendary and up only (Recommended)" (only Luminous/Constellar get them; live Stellar and Radiant gear
+   unchanged).
+7. Crew tiers: "Yes, same for both (Recommended)" (add multiplier rows Radiant to Constellar so higher crew are always
+   stronger; Luminous and Constellar crew share one value; the cap stays at Stellar until the user raises it).
+8. Constellar color: "Keep rose" (#f472b6).
+
+Still open: Derelict meaning; relic blanks at legendary tiers; quality on ships and field kits.
