@@ -879,3 +879,8 @@ and gw; `registry` re-pinned 1d8ae09b to bd1e2f48 (read back, 1d8ae09b).
   Sidearm and Field Suit crafts added; registry chains read the change back through siMemberGearRegistry.fixture.ts
   (added entries out, retired rows restored in place), so every earlier pin reproduces; gearWearGoldens' crafted-gear
   expedition is built with the pre-swap catalog (its Science member wears a Sidearm and Field Suit).
+
+## USER ANSWERS (2026-10-21): SF-4 pacing
+
+- Patrol ramp pacing: "One step per patrol run (Recommended)": each dispatched patrol (however many routes it repeats)
+  is one curve step, so the ramp lasts about 10 patrol runs like expeditions; NOT one step per won route as first built.
