@@ -242,8 +242,15 @@ export function overclockPrice(s: SecretState): Decimal {
 // Buys up to maxCount levels with at most `budget` Ore. Mutates s. Returns levels bought.
 // Levels whose floor is below the income price cost the flat income price; above that the floor's
 // geometric series applies.
+// Overclock only speeds up a stack that is producing. Refusing it while nothing is owned or there is
+// no income yet means the starting (or post-reset) Ore can never be sunk into Overclock with no
+// generator left to buy, which used to soft-lock a fresh game at 0 Ore.
+export function canOverclock(s: SecretState): boolean {
+  return s.lastIncome.gt(0) && s.owned.some((d) => d.gt(0));
+}
+
 export function buyOverclockMut(s: SecretState, budget: Decimal, maxCount = Infinity): number {
-  if (budget.lte(0) || maxCount <= 0) return 0;
+  if (budget.lte(0) || maxCount <= 0 || !canOverclock(s)) return 0;
   let left = Decimal.min(budget, s.ore);
   let count = 0;
   const flat = overclockFlatPrice(s);
@@ -548,7 +555,13 @@ export function checkMilestonesMut(s: SecretState, atMs: number): void {
 // The step: auto-buy, produce, track peaks, auto-prestige, milestones
 // ---------------------------------------------------------------------------
 
+// The no-dead-end invariant: an empty stack always has at least enough Ore for a Mining Laser.
+function ensureRecoverableMut(s: SecretState): void {
+  if (s.owned.every((d) => d.lte(0)) && s.ore.lt(unitPrice(s, 0))) s.ore = new Decimal(START_ORE);
+}
+
 export function stepMut(s: SecretState, dt: number, atMs: number): void {
+  ensureRecoverableMut(s);
   autoBuyMut(s);
   produceMut(s, dt);
   s.runSeconds += dt;

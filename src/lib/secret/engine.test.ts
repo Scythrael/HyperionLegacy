@@ -140,14 +140,36 @@ describe("Overclock", () => {
   it("Max buys at a flat price within one purchase", () => {
     const s = richState(42);
     s.lastIncome = new Decimal("1e40");
+    s.owned[0] = new Decimal(1);
     const price = overclockPrice(s);
     const t = buyOverclock(s, "max");
     expect(t.overclock).toBe(Math.floor(s.ore.div(price).toNumber()));
   });
 
+  it("a fresh game cannot spend its starting Ore on Overclock (no soft-lock)", () => {
+    const s = freshSecretState(0);
+    expect(buyOverclock(s, "one").overclock).toBe(0);
+    expect(buyOverclock(s, "max").ore.eq(10)).toBe(true);
+    // with a generator owned but no income yet, still refused
+    const t = buyTier(s, 0, "one");
+    t.ore = new Decimal(100);
+    expect(buyOverclock(t, "max").overclock).toBe(0);
+  });
+
+  it("a stack with nothing owned and too little Ore is topped back up to the starting Ore", () => {
+    const s = freshSecretState(0);
+    s.ore = new Decimal(3);
+    const t = step(s, 1, 0);
+    expect(t.ore.eq(10)).toBe(true);
+    // and the player can always buy a Mining Laser again
+    expect(buyTier(t, 0, "one").bought[0]).toBe(1);
+  });
+
   it("buying Overclock right after a reset is bounded by the floor", () => {
     const s = richState(10);
-    s.lastIncome = new Decimal(0);
+    s.owned[0] = new Decimal(1);
+    s.bought[0] = 1;
+    s.lastIncome = new Decimal(1);
     const t = buyOverclock(s, "max");
     const bound = Math.log(1e10 / OC_FLOOR_BASE) / Math.log(OC_FLOOR_STEP);
     expect(t.overclock).toBeGreaterThan(0);
@@ -157,6 +179,7 @@ describe("Overclock", () => {
   it("one buys a single level", () => {
     const s = richState(60);
     s.lastIncome = new Decimal("1e40");
+    s.owned[0] = new Decimal(1);
     expect(buyOverclock(s, "one").overclock).toBe(1);
   });
 });
