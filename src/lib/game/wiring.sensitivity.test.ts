@@ -76,8 +76,9 @@ describe("wiring sensitivity: every claimed context that does not move yet stays
     // guard only asserts the sweep is not vacuous; lower it again as more sources go live. Lowered from 15 when the
     // four inert racials went live (0.14.0: Belter, Vael, Outer-Colony, Spacer with Deck Handling and Survey Aptitude),
     // leaving 13. Lowered from 10 at the D26 line swap (0.14.0: the seven Science combat lines retired, their Science
-    // lines live), leaving 6.
-    expect(flatChecks.filter(({ e }) => e.contexts.length === 0).length).toBeGreaterThan(5);
+    // lines live), leaving 6. Lowered from 5 at Material Lines ML-3 (0.14.0: materialQualityChance went live on
+    // mission deliveries, OC-D2), leaving 5.
+    expect(flatChecks.filter(({ e }) => e.contexts.length === 0).length).toBeGreaterThan(4);
   });
   for (const { e, ctx } of flatChecks) {
     const owner = e.status.kind === "pending" || e.status.kind === "deferred" ? e.status.owner : "";

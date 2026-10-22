@@ -297,6 +297,8 @@ import { computeItemLevel, generateEquipment, generateWeapon, generateDronePod, 
 // seeded from the save's inspectSeed + the blueprint key (NOT the fleet's threaded tick rng), so
 // the roll is a pure function of the save (reload-identical, server-reverifiable later).
 import { makeRng } from "./combat/rng";
+// Material Lines ML-3 + ML-4: the delivery climb (private keyed stream) and the craft quality carry.
+import { climbedQuality, deliveryClimbUnits, materialQualityStream } from "./materialQuality";
 // E-CREW 0.14.0 (Task 21): the Constitution ramp's tick length for mission-def hours.
 import { RAMP_SECONDS_PER_TICK } from "./constitutionRamp";
 // Crafting 0.13.3 (Phase 3 Unit 3.2): the WEIGHTED crafting-XP award for a completed
@@ -4055,6 +4057,10 @@ export function economyTick(
   // below grades that share with the bonus and the rest without it, both off the SAME recorded draws (rollQuality is
   // draw-count invariant), so no draw is added. Empty without the node, so the fold rolls exactly as before.
   const assayerDelivered = new Map<string, { amount: Decimal; bonus: number }>();
+  // Material Lines ML-3 (OC-D2): per item, the units this call's deliveries climbed one quality step (a ship with a
+  // material quality line), split into the share an Assayer captain delivered (graded with its bonus) and the rest.
+  // Empty without a rig line, so the fold below deposits exactly as before.
+  const climbDelivered = new Map<string, { plain: Decimal; assayer: Decimal }>();
   // Safe first runs SF-1: the patrol routes WON this call, fleet-wide (the patrol curve, runDifficulty.ts
   // countPatrolRoutes), folded once into runCounts below. A pure additive count, so one big call and many small ones
   // accrue the identical total.
@@ -4525,6 +4531,27 @@ export function economyTick(
         assayerDelivered.set(key, { amount: (prev?.amount ?? new Decimal(0)).plus(delta[key]), bonus: Math.max(prev?.bonus ?? 0, qualityBonus) });
       }
     }
+    // Material Lines ML-3 (OC-D2, L4): a ship with a material quality line climbs part of this delivery one quality
+    // step: floor(amount x p) units per item plus one keyed rounding roll each, off the captain's PRIVATE stream
+    // (never the shared rng, so the shared draw count is the same with or without a rig). The climbed units ride
+    // to the deposit fold below, split by whether this captain's share is graded with Assayer's bonus. The
+    // lifetime counter steps once per delivery that rolled, so no delivery of a career shares a roll.
+    let deliveredCaptain = updated;
+    const climbChance = shipStats?.materialQuality ?? 0;
+    if (climbChance > 0) {
+      const delivered = Object.keys(delta).filter((key) => delta[key].gt(0)).sort();
+      if (delivered.length > 0) {
+        const cycle = updated.materialQualityCycles ?? 0;
+        const roll = materialQualityStream(captain.id, cycle);
+        for (const key of delivered) {
+          const climbed = deliveryClimbUnits(delta[key], climbChance, roll);
+          if (!climbed.gt(0)) continue;
+          const prev = climbDelivered.get(key) ?? { plain: new Decimal(0), assayer: new Decimal(0) };
+          climbDelivered.set(key, qualityBonus > 0 ? { ...prev, assayer: prev.assayer.plus(climbed) } : { ...prev, plain: prev.plain.plus(climbed) });
+        }
+        deliveredCaptain = { ...updated, materialQualityCycles: cycle + 1 };
+      }
+    }
     fleetAdminXpDelta += captainFleetAdminXpDelta;
     creditsDelta += captainCreditsDelta;
     // Task 7: fold THIS captain's lifetime-stat delta into the fleet-wide
@@ -4542,7 +4569,7 @@ export function economyTick(
         shipMissionCompletions.set(ship.id, (shipMissionCompletions.get(ship.id) ?? 0) + cyc.toNumber());
       }
     }
-    return updated;
+    return deliveredCaptain;
   });
 
   // passiveTrickle (Homeworld Talent economyTrickle): flat fleet-wide
@@ -4636,14 +4663,30 @@ export function economyTick(
     // stream aligned. Re-gating this draw on the post-clamp delta would skip it only on the
     // capped path and silently desync offline loot rng from live.
     const assayer = assayerDelivered.get(key);
+    // Material Lines ML-3 (OC-D2): the units of this item that climbed, if any. A share deposits its climbed units
+    // FIRST at one step above its rolled quality (Q5 stays Q5), then the rest at the rolled quality, so a cap clamp
+    // trims ordinary units. With nothing climbed it is the single deposit it always was.
+    const climb = climbDelivered.get(key);
+    const depositShare = (share: Decimal, quality: number, climbed: Decimal | undefined): void => {
+      const up = climbed !== undefined && climbed.gt(0) ? Decimal.min(climbed, share) : null;
+      if (up !== null) {
+        const lifted = addToInventory(inventory, discovered, key, up, itemCap(state, key), climbedQuality(quality));
+        inventory = lifted.inventory;
+        discovered = lifted.discovered;
+        const rest = share.minus(up);
+        if (!rest.gt(0)) return;
+        share = rest;
+      }
+      const added = addToInventory(inventory, discovered, key, share, itemCap(state, key), quality);
+      inventory = added.inventory;
+      discovered = added.discovered;
+    };
     if (assayer === undefined || !amount.gt(0)) {
       const quality = amount.gt(0) ? rollQuality(rng) : 0;
       // Warehouse cap clamp: the deposit is bounded at this item's cap (itemCap), so a
       // cycle completing while just-under-cap lands AT the cap instead of overshooting.
       // Below cap this is byte-identical to the old unclamped add (min is a no-op).
-      const added = addToInventory(inventory, discovered, key, amount, itemCap(state, key), quality);
-      inventory = added.inventory;
-      discovered = added.discovered;
+      depositShare(amount, quality, amount.gt(0) ? climb?.plain : undefined);
       continue;
     }
     // WR-5a (Assayer, own deliveries only): ONE roll's draws, recorded, grade the rest of the item plainly and are
@@ -4659,14 +4702,8 @@ export function economyTick(
     let at = 0;
     const assayerQuality = rollQuality(() => draws[at++], assayer.bonus);
     const rest = amount.minus(assayer.amount);
-    const own = addToInventory(inventory, discovered, key, assayer.amount, itemCap(state, key), assayerQuality);
-    inventory = own.inventory;
-    discovered = own.discovered;
-    if (rest.gt(0)) {
-      const added = addToInventory(inventory, discovered, key, rest, itemCap(state, key), plainQuality);
-      inventory = added.inventory;
-      discovered = added.discovered;
-    }
+    depositShare(assayer.amount, assayerQuality, climb?.assayer);
+    if (rest.gt(0)) depositShare(rest, plainQuality, climb?.plain);
   }
 
   // Phase 1, Task 9: the post-mission fleet state, missions, passiveTrickle, and

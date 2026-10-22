@@ -17,6 +17,8 @@ import type { CraftLine, CraftOrder, CraftLineKind, CraftLineMode } from "./allo
 // than each hard-coding 5/6. inventory.ts imports nothing from this file, so this value
 // import creates NO cycle (unlike the CraftLine type-only import above).
 import { QUALITY_TIERS } from "./inventory";
+// Material Lines ML-3: the rig line's per-unit climb chance (a leaf module: it imports nothing from model.ts).
+import { materialQualityClimbChance } from "./materialQuality";
 // E-CREW 0.14.0 (Task 21): the Constitution ramp leaf (imports only diminishing.ts; no cycle).
 import { constitutionRamp, RAMP_SECONDS_PER_TICK } from "./constitutionRamp";
 // Reactor fuel ladder (0.14.0, capture 2026-10-21): the fuel every Reactor Core blueprint takes (a leaf with no
@@ -2526,9 +2528,9 @@ export const EQUIPMENT_SLOTS: Record<string, EquipmentSlotDef> = {
   // the capacity principle. The implicitStats / affixPool below exist only so a module is a well-formed,
   // budgeted piece of gear (physicals, durability, iLevel) that mints through the shared generation
   // path; crewStations / crewEfficiency are the honest signature keys for these slots (both are in
-  // LIVE_STAT_KEYS but, like materialQualityChance, are NOT folded by equipmentStatMods, so installing
-  // a module leaves shipDerivedStats byte-identical and only the crew overlay reacts; `sensors` is the
-  // exception that graduated to a real fold in Exploration 0.14.0 E1a). Each
+  // LIVE_STAT_KEYS but are NOT folded by equipmentStatMods, so installing a module leaves
+  // shipDerivedStats byte-identical and only the crew overlay reacts; `sensors` (Exploration 0.14.0 E1a)
+  // and `materialQualityChance` (Material Lines ML-3) are the keys that graduated to a real fold). Each
   // variety's `key` IS a module-catalog id (the generation path stamps it onto the instance as
   // moduleVariant); statRatios are empty because a module's power is catalog-driven, not budget-biased.
   //
@@ -3265,12 +3267,12 @@ export const LIVE_STAT_KEYS = [
   // Crew 0.14.0 (Phase 1b): the two CREW-MODULE signature keys, activated from the reserved
   // vocabulary when the bridge + quarters slots were defined. crewStations (quarters signature =
   // crew capacity) + crewEfficiency (quarters affix + bridge signature = crew comfort / officer
-  // output). LIVE means "a slot references them" (the drift guard fences that); like
-  // materialQualityChance they are NOT folded by equipmentStatMods, because a crew
+  // output). LIVE means "a slot references them" (the drift guard fences that); they are NOT
+  // folded by equipmentStatMods, because a crew
   // module's real effect is catalog-driven (crewModules.ts), scaled per the capacity principle,
   // not read off these budget lines. Installing a module therefore leaves shipDerivedStats
-  // byte-identical; only the crew overlay reacts. (`sensors` is the LIVE key that DOES fold now,
-  // as of Exploration 0.14.0 E1a; see equipmentStatMods + ShipDerivedStats.sensors.)
+  // byte-identical; only the crew overlay reacts. (`sensors`, as of Exploration 0.14.0 E1a, and
+  // `materialQualityChance`, as of Material Lines ML-3, are LIVE keys that DO fold; see equipmentStatMods.)
   "crewStations",
   "crewEfficiency",
   // Exploration 0.14.0 (E4d): the relic-unlocked utility items' stat lines. LIVE (a slot variety
@@ -3894,6 +3896,11 @@ export interface ShipDerivedStats {
   // Guests are not crew (no complement, no crew stations) and never substitute for the hold: only the passenger
   // jobs read it (the short-range cycle, G1-4).
   colonistCapacity?: number;
+  // Material Lines ML-3 (OC-D2, user 2026-10-15 "Chance to upgrade a unit"): the chance each unit this ship delivers
+  // climbs one quality step (materialQuality.ts materialQualityClimbChance of the installed materialQualityChance
+  // points; the Prospecting Rig family). economyTick's deposit fold reads it. OPTIONAL and written only when above 0,
+  // so every ship without a rig line keeps the same stats object.
+  materialQuality?: number;
 }
 
 // CP-2 (OC-E5): a ship's speed on each mission leg: the sweeping transitSpeedMult times that leg's own complement
@@ -3991,8 +3998,9 @@ export function plusToPercent(plus: number, B: number, r: number): number {
 // `sensors` is FOLDED as a FLAT additive total (Exploration 0.14.0 E1a): it is a raw
 // point sum (NOT a percent-curve stat), consumed by survey-mission yield in tick.ts, so
 // a fitted Sensor Array now moves ShipDerivedStats.sensors. `materialQualityChance`
-// stays RESERVED (its consumer is still deferred, design §5/§11), so summing it here
-// would be dead data and it falls through the default case untouched. massReduction /
+// (Material Lines ML-3, OC-D2) sums raw into percentPlus.materialQualityChance, written only
+// when a piece carries it; shipDerivedStats turns it into ShipDerivedStats.materialQuality,
+// the per-unit chance a delivered unit climbs one quality step. massReduction /
 // powerDrawReduction are folded into the mass / power NET totals rather than surfaced as
 // their own lines.
 export interface EquipmentStatMods {
@@ -4093,10 +4101,15 @@ export function equipmentStatMods(pieces: EquipmentInstance[]): EquipmentStatMod
           case "groundVaultYield":
           case "groundCarryCapacity":
             break;
-          // RESERVED (materialQualityChance) + any unknown key: intentionally ignored this
-          // patch (its consumer is still deferred). No silent surprise: the fold simply does
-          // not read it. (`sensors` USED to live here too; it graduated to the flat case above
-          // when its survey-yield consumer went live in Exploration 0.14.0 E1a.)
+          // Material Lines ML-3 (OC-D2): the rig's material quality points, summed raw (shipDerivedStats turns them
+          // into the per-unit climb chance). Written only when a piece carries the line, so every other fold
+          // returns the same percentPlus shape as before.
+          case "materialQualityChance":
+            percentPlus.materialQualityChance = (percentPlus.materialQualityChance ?? 0) + value;
+            break;
+          // Any unknown key: intentionally ignored. No silent surprise: the fold simply does not read it.
+          // (`sensors` and `materialQualityChance` USED to fall here; each graduated to its own case when its
+          // consumer went live: sensors in Exploration 0.14.0 E1a, material quality in Material Lines ML-3.)
           default:
             break;
         }
@@ -4225,6 +4238,9 @@ export function shipDerivedStats(
   engineEfficiency -= MASS_EFF_DRAG * mods.totalMass;
   if (engineEfficiency < ENGINE_EFF_FLOOR) engineEfficiency = ENGINE_EFF_FLOOR;
 
+  // (6) Material Lines ML-3: the per-unit climb chance of the installed material quality lines (absent without any).
+  const materialQuality = materialQualityClimbChance(mods.percentPlus.materialQualityChance ?? 0);
+
   // (5) Power: the hull's own output plus the installed lines (E-MOD EM-1).
   return {
     cargoCapacity,
@@ -4237,6 +4253,7 @@ export function shipDerivedStats(
     powerDraw: mods.totalPowerDraw,
     sensors,
     ...(colonistCapacity > 0 ? { colonistCapacity } : {}),
+    ...(materialQuality > 0 ? { materialQuality } : {}),
   };
 }
 
@@ -4498,6 +4515,10 @@ export interface CaptainState {
   // (a recall + redispatch never replays a roll). OPTIONAL, written only once a cycle has rolled (absent = 0,
   // no SAVE_VERSION bump).
   motherlodeCycles?: number;
+  // Material Lines ML-3 (OC-D2): this captain's LIFETIME count of deliveries that rolled a material quality climb
+  // (a ship with a rig line). It keys each delivery's private rounding roll (materialQuality.ts materialQualitySeed),
+  // the Motherlode rule. OPTIONAL, written only once a delivery has rolled (absent = 0, no SAVE_VERSION bump).
+  materialQualityCycles?: number;
 }
 
 // WR-5a / WR-5b / WR-5c (0.14.0, OC-A2 "own ship"): the captain who commands `ship` (ship.assignedCaptainId), or

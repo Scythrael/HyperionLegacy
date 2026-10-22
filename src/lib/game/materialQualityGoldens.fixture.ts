@@ -9,6 +9,7 @@ import { generateEquipment } from "./itemgen";
 import { addItemQuality } from "./inventory";
 import type { CraftLineMode } from "./allocation";
 import { stateHash } from "./firstRunsGoldens.fixture";
+import { MATERIAL_QUALITY_CURVE } from "./materialQuality";
 
 // A seeded stream that also counts its draws (the shared-stream draw count neither slice may change).
 export function countedLcg(seed: number): { rng: () => number; draws: () => number } {
@@ -134,6 +135,34 @@ export function stripCarry(s: GameState): GameState {
       return { ...p, effect: effect as typeof p.effect };
     }),
   };
+}
+
+// ML-3's "turn it off" switch: the climb chance curve at 0 points per point for one call (restored after), so a run
+// inside it is the pre-ML-3 run exactly (no climb, no private roll, no counter written).
+export function withMaterialQualityOff<T>(run: () => T): T {
+  const saved = MATERIAL_QUALITY_CURVE.perPoint;
+  try {
+    MATERIAL_QUALITY_CURVE.perPoint = 0;
+    return run();
+  } finally {
+    MATERIAL_QUALITY_CURVE.perPoint = saved;
+  }
+}
+
+// ===== the wiring registry (the golden files that pin it: shortRangeGoldens, emodGoldens) =====
+
+// ML-3's whole registry move: the rig line's entry flips pending -> live with the mission:extraction context (its
+// probe, missionOreQuality, it already named). Nothing else moved.
+export const ML3_FLIPPED_LIVE: ReadonlySet<string> = new Set(["ship:gearLine:materialQualityChance"]);
+const ML3_BEFORE = {
+  status: { kind: "pending", owner: "WR-7, OC-D2 (rolls on every Prospecting Rig, read by nothing)", contexts: ["mission:extraction"] },
+  contexts: [] as string[],
+};
+
+// Registry snapshot rows ([id, status, contexts, probe], registry order) with ML-3 read back. Every pin taken before
+// ML-3 reads through it.
+export function ml3RowsBack(rows: readonly (readonly unknown[])[]): unknown[][] {
+  return rows.map((r) => (ML3_FLIPPED_LIVE.has(r[0] as string) ? [r[0], ML3_BEFORE.status, ML3_BEFORE.contexts, r[3]] : [...r]));
 }
 
 export const MIXED_ORE = { commonOre: [30, 30, 40] };

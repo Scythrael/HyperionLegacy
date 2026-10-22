@@ -17,7 +17,7 @@
 import { describe, expect, it } from "vitest";
 import { enqueueOrder } from "./tick";
 import { stateHash } from "./firstRunsGoldens.fixture";
-import { MIXED_INGOT, MIXED_ORE, craftStateQ, lineQ, rigFleet, rigRun, steppedQ, stripCarry } from "./materialQualityGoldens.fixture";
+import { MIXED_INGOT, MIXED_ORE, craftStateQ, lineQ, rigFleet, rigRun, steppedQ, stripCarry, withMaterialQualityOff } from "./materialQualityGoldens.fixture";
 
 const ML34_GOLDEN = {
   refineMixed: "c43a66c9:5",
@@ -26,6 +26,14 @@ const ML34_GOLDEN = {
   queued: "48881028:3",
   rigAssayer: "70acbd33:1104",
   rigSalvage: "e3ca4f2a:819",
+};
+
+// Re-pinned by ML-3 (by design: the rig's climb lifts part of each delivery one quality step and the captain's
+// lifetime counter steps; the shared draw count is unchanged). ML34_GOLDEN above stays the pre-change capture, and
+// the rig's climb chance at 0 (withMaterialQualityOff) reproduces it (asserted below).
+const ML3_RIG = {
+  rigAssayer: "87121346:1104",
+  rigSalvage: "c057cdeb:819",
 };
 
 describe("ML-3 + ML-4 pre-change goldens", () => {
@@ -61,10 +69,12 @@ describe("ML-3 + ML-4 pre-change goldens", () => {
   });
 
   it("rigAssayer: a Refinery-Feed Rig ship flown by an Assayer captain on the Local Asteroid run", () => {
-    expect(rigRun(rigFleet(["extraction4"]), "shortOreRun", 0x7eb)).toEqual(ML34_GOLDEN.rigAssayer);
+    expect(rigRun(rigFleet(["extraction4"]), "shortOreRun", 0x7eb)).toEqual(ML3_RIG.rigAssayer);
+    expect(withMaterialQualityOff(() => rigRun(rigFleet(["extraction4"]), "shortOreRun", 0x7eb))).toEqual(ML34_GOLDEN.rigAssayer);
   });
 
   it("rigSalvage: a Refinery-Feed Rig ship on Salvage Wreckage", () => {
-    expect(rigRun(rigFleet(), "salvageWreckage", 0x7ed)).toEqual(ML34_GOLDEN.rigSalvage);
+    expect(rigRun(rigFleet(), "salvageWreckage", 0x7ed)).toEqual(ML3_RIG.rigSalvage);
+    expect(withMaterialQualityOff(() => rigRun(rigFleet(), "salvageWreckage", 0x7ed))).toEqual(ML34_GOLDEN.rigSalvage);
   });
 });

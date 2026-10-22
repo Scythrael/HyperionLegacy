@@ -338,6 +338,29 @@ folds to 0; the old "materialQualityChance stays reserved" assertion is replaced
 Goldens: only rig-ship states move. UI: the rig tooltip line becomes a real "+X% chance per unit to arrive one quality
 higher" (text, no mockup).
 
+> **Carry note (ML-3 built 2026-10-21, on feat f85ef73).** Goldens first: `materialQualityGoldens.test.ts` (own
+> commit) pins a Refinery-Feed Rig ship under an Assayer captain on the Local Asteroid run and on Salvage Wreckage
+> (plus the ML-4 craft captures). Built in `materialQuality.ts`: `materialQualityClimbChance(points)` =
+> `diminishing(points x 0.01, 0.25)` (D23, the shared unbounded curve rather than an asymptotic PERCENT_STAT_CURVES
+> entry; a probability, so 1 at most), **`MATERIAL_QUALITY_CURVE` [PROVISIONAL]** (no answer names the numbers: 10
+> points about 8.5%, 20 about 15%, 30 about 21%); `equipmentStatMods` sums the line into
+> `percentPlus.materialQualityChance` (written only when a piece carries it) and `shipDerivedStats` writes the optional
+> `ShipDerivedStats.materialQuality` only when above 0. economyTick's per-captain merge climbs `floor(amount x p)`
+> units per delivered item plus one rounding draw each (sorted item order) on
+> `makeRng(FNV(captainId|materialQuality|cycle) ^ MATERIAL_QUALITY_SALT)` (salt registered in salts.test.ts), keyed on
+> the new lifetime counter `CaptainState.materialQualityCycles` (optional, written only once a delivery rolled; the
+> Motherlode rule, no save step). The deposit fold deposits each share's climbed units FIRST at `min(5, q + 1)`, then
+> the rest at `q`; the Assayer's own share climbs from its own graded quality. No shared draw added (draw counts
+> unchanged in every capture). Goldens moved: only rig-ship states (ML-0 `rig`, ML-3 `rigAssayer` / `rigSalvage`), each
+> reproduced by `withMaterialQualityOff` (the curve at 0 points per point); the registry snapshots (emodGoldens
+> cfe349ea -> c89e7c59, read back by `ml3RowsBack`; shortRangeGoldens unchanged through `ML3_SLICE`). Registry:
+> `ship:gearLine:materialQualityChance` LIVE on mission:extraction (probe `missionOreQuality`, now the delivered ore's
+> average quality); the FLAT_UNCONTROLLED excuse is gone; the wiring plan's WR-7 row is struck (X1). UI: the item
+> tooltip's detail line "+X% chance per unit to arrive one quality higher" (`ui/materialQualityText.ts`). Short-range
+> pickups keep their own deposit roll (the registry's existing outOfScope reason). **Patch note line:** "Refinery-Feed
+> Rigs (and every Prospecting Rig's Material Quality line) now work: each unit a mission delivers has a chance to
+> arrive one quality higher."
+
 **ML-4 Quality carries into crafts.** `startProcess` variant reports the unit-weighted consumed quality; effects stamp
 `inputQuality`; completion = `min(5, carried + rollQuality(rng, craftQualityBonus))` (same call, same draw count;
 call L6). `materialPreference` per order with `removeItemHighestFirst` (call L5). Tests: a best-first line on q2 stock

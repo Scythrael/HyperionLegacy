@@ -1210,7 +1210,8 @@ effects.**
 
 ### WR-7: Ship systems (non-combat)
 
-materialQualityChance (OC-D2), crewStations / crewEfficiency lines (OC-D3), moduleSlots (OC-D4), favorsSpec (OC-D5),
+~~materialQualityChance (OC-D2)~~ (dropped from WR-7: Material Lines X1, user 2026-10-19 "Material Lines builds it";
+BUILT in ML-3, 2026-10-21), crewStations / crewEfficiency lines (OC-D3), moduleSlots (OC-D4), favorsSpec (OC-D5),
 statRatios (OC-D6, B11), quarters capacity with CP-5 (OC-D7), cargo / transit / fuel scope on expeditions and patrols
 with G2-3 / G2-4 (OC-D8), DC repairSpeed in Ground Ops field repair (OC-D10), array cadence vs coverage (OC-D11, B12),
 hull description truth (OC-D13), `sensorEffectScale`. The power budget (OC-D1) is wired here ONLY if the user puts it
