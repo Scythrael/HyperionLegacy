@@ -18,8 +18,8 @@ import { describe, expect, it } from "vitest";
 import { gearWearOffInThisFile } from "./gearWearSwitch.fixture";
 gearWearOffInThisFile();
 import { freshState, type AwayMember, type Expedition, type GameState } from "./model";
-import { advanceExpedition, claimExpedition, expeditionCandidates, startExpedition } from "./expedition";
-import { asPreG2NamesDispatch, asV67GroundState, plainAwayMember, withSlottedAwayTeams, withoutGroundOps } from "./awayTeamTestFixtures";
+import { advanceExpedition, claimExpedition, expeditionCandidates } from "./expedition";
+import { asPreG2NamesDispatch, asV67GroundState, plainAwayMember, withSlottedAwayTeams, withoutGroundOps, dispatchPastPropulsion } from "./awayTeamTestFixtures";
 // SF-1: the claimed state hashes without the run counters (a claim writes them), absent before SF-1.
 import { withoutRunCounts, goldenJson } from "./firstRunsGoldens.fixture";
 
@@ -45,7 +45,7 @@ function squad(security: number, science: number): AwayMember[] {
 
 function dispatch(seed: number, members: AwayMember[]): { state: GameState; exp: Expedition } {
   const s = withSlottedAwayTeams({ ...freshState(), awayMembers: members, nextAwayMemberId: 100, expeditionSeed: seed, gameTimeSeconds: START });
-  const res = asPreG2NamesDispatch(startExpedition(s, "ship-1", 1, expeditionCandidates(s, "ship-1")[0].id));
+  const res = asPreG2NamesDispatch(dispatchPastPropulsion(s, "ship-1", 1, expeditionCandidates(s, "ship-1")[0].id));
   if (!res.success || !res.expedition) throw new Error(`dispatch refused: ${res.reason}`);
   return { state: res.next, exp: withoutGroundOps(res.expedition) };
 }

@@ -73,8 +73,8 @@ import {
   museumResearchDurationTicks,
 } from "./tick";
 import { salvageShip, salvageYieldMult } from "./salvage";
-import { startExpedition, expeditionCandidates, advanceExpedition, resolveExpeditions } from "./expedition";
-import { ensureMinimumAwayTeam } from "./awayTeamTestFixtures";
+import { expeditionCandidates, advanceExpedition, resolveExpeditions } from "./expedition";
+import { ensureMinimumAwayTeam, dispatchPastPropulsion } from "./awayTeamTestFixtures";
 import { deriveAwayTeam, rollRelicToken } from "./gambit";
 import { migrate, type SaveFile } from "./save";
 
@@ -465,7 +465,7 @@ describe("EXPEDITION: museum bonuses snapshotted at dispatch", () => {
   const dispatch = (base: GameState) => {
     const s = ensureMinimumAwayTeam(base);
     const cand = expeditionCandidates(s, "ship-1")[0];
-    return startExpedition(s, "ship-1", 1, cand.id);
+    return dispatchPastPropulsion(s, "ship-1", 1, cand.id);
   };
   const scienceShip = (s: GameState) => withComplement(s, [bucket({ profession: "science", buff1Id: "ops.unloadSpeed", count: 20 })]);
 
@@ -688,7 +688,7 @@ describe("SAVE migration v63 -> v64 backfills the expedition museum snapshot", (
   // A v63-shaped state with one in-flight expedition lacking the three E4b fields.
   function dispatch63(): any {
     const s = ensureMinimumAwayTeam(freshState());
-    const exp: any = { ...startExpedition(s, "ship-1", 1, expeditionCandidates(s, "ship-1")[0].id).expedition! };
+    const exp: any = { ...dispatchPastPropulsion(s, "ship-1", 1, expeditionCandidates(s, "ship-1")[0].id).expedition! };
     delete exp.scanSpeedBonus;
     delete exp.relicFindBonus;
     delete exp.hazardResist;

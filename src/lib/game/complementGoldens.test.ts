@@ -51,7 +51,7 @@ import {
 } from "./model";
 import { dispatchCaptainOnMission, dispatchCaptainOnPatrol, economyTick, installMissingCombatBaselines, processShipRepairs, shipRepairDurationTicks, tick } from "./tick";
 import { replayPatrol } from "./combat/patrolReplay";
-import { advanceExpedition, claimExpedition, expeditionCandidates, startExpedition } from "./expedition";
+import { advanceExpedition, claimExpedition, expeditionCandidates } from "./expedition";
 import { effectiveShipStats, officerRepairSpeedBonus, shipCrewContribution } from "./crewOverlay";
 import { equippedFor } from "./equipment";
 import { CREW_PROFESSION_BUFFS, SECOND_LEVEL_EXCLUSIVE } from "./crewBuffs";
@@ -64,7 +64,7 @@ import { CREW_PROFESSIONS, commandStructureForHull, complementTotalCap, division
 import { totalCrew } from "./crew";
 import { TRANSPORT_BATCH_SIZE, TRANSPORT_WINDOW_SECONDS, transportBatch } from "./transports";
 import { FIELD_REPAIR_DAMAGE_SHARE } from "./groundOps";
-import { asLegacyDispatch, asPreG2NamesDispatch, asPreRanksDispatch, asPreSafeFirstRunsDispatch, plainAwayMember, withSlottedAwayTeams } from "./awayTeamTestFixtures";
+import { asLegacyDispatch, asPreG2NamesDispatch, asPreRanksDispatch, asPreSafeFirstRunsDispatch, plainAwayMember, withSlottedAwayTeams, dispatchPastPropulsion } from "./awayTeamTestFixtures";
 
 // ===== shared helpers =====
 
@@ -175,7 +175,7 @@ const FINAL = 2_000_000;
 
 function expeditionRun(roster: AwayMember[], seed: number, legacy: boolean, preDamage: boolean): { exp: Expedition; done: Expedition; claimed: GameState } {
   const s = withSlottedAwayTeams({ ...freshState(), awayMembers: roster.map((m) => ({ ...m })), nextAwayMemberId: 100, expeditionSeed: seed });
-  const started = asPreG2NamesDispatch(startExpedition(s, "ship-1", 1, expeditionCandidates(s, "ship-1")[0].id));
+  const started = asPreG2NamesDispatch(dispatchPastPropulsion(s, "ship-1", 1, expeditionCandidates(s, "ship-1")[0].id));
   // Field Kits FKR-1: the Ground Ops runs as dispatched before enemy ranks (the flag off), so they keep their capture.
   // Safe first runs SF-2: and before SF-2 (the retired 30 minute shakedown on expedition 1; asLegacyDispatch does both).
   const res = legacy ? asLegacyDispatch(started) : asPreSafeFirstRunsDispatch(asPreRanksDispatch(started));
@@ -508,7 +508,7 @@ function oc11Expedition(): { out: GameState; claimedNext: GameState } {
   const s = withSlottedAwayTeams({ ...freshState(), awayMembers: MEDIC_SQUAD.map((m) => ({ ...m })), nextAwayMemberId: 100, expeditionSeed: 0x1234, gameTimeSeconds: OC11_START });
   // The CP-0 Ground Ops dispatch shape (before enemy ranks and the safe first run), so the run reaches claim. G2-2 (merged
   // alongside CP-8): the console names and region fields stripped too, so the pins captured before G2-2 hold.
-  const res = asPreG2NamesDispatch(asPreSafeFirstRunsDispatch(asPreRanksDispatch(startExpedition(s, "ship-1", 1, expeditionCandidates(s, "ship-1")[0].id))));
+  const res = asPreG2NamesDispatch(asPreSafeFirstRunsDispatch(asPreRanksDispatch(dispatchPastPropulsion(s, "ship-1", 1, expeditionCandidates(s, "ship-1")[0].id))));
   if (!res.success || !res.expedition) throw new Error(`dispatch refused: ${res.reason}`);
   const out = offlineAndLive(res.next, () => lcg(0x0c11));
   expect(out.expeditions).toHaveLength(1);

@@ -41,6 +41,8 @@ import { memberSlotCapacity, memberWornIndex, pieceWearableBy } from "./memberEq
 // Field Kits FKR-7: a loadout's per-member pack lands as that member's pack preference (groundTeams.ts never imports
 // this module).
 import { setMemberPack } from "./groundTeams";
+// E-MOD EM-5: the module slot rules and the switch that keeps the module slots hidden (the leaf catalog; no cycle).
+import { MODULE_SLOT_SHARING_TYPES, UNIVERSAL_MODULES_LIVE, hasModuleOfVariant } from "./shipModules";
 
 // The base loadout count (design: a FLAT 25, talent-expandable). Derived through loadoutCap, the ONE
 // reader, so a future loadout-count talent adds to it in exactly one place (content-driven rule).
@@ -139,11 +141,15 @@ export type LoadoutSlotDef = {
   key: string; // stable key in Loadout.slots ("cargoBay", "weapon0", "droneBay1", ...)
   slotType: EquipmentSlotType;
   index: number | null; // 0-based index for a MULTI slot (weapon / droneBay); null for a singleton
-  group: "offense" | "defense" | "systems";
+  group: "offense" | "defense" | "systems" | "modules";
   label: string;
 };
 
-export function loadoutSlotDefsForShipType(shipTypeKey: ShipTypeKey): LoadoutSlotDef[] {
+// E-MOD EM-5: a loadout offers one module slot per SHIP_TYPES[hull].moduleSlots ("module0", "module1", ...) once the
+// module slot is shown (shipModules.ts UNIVERSAL_MODULES_LIVE; `modulesLive` is the tests' hook). The hull's Spec
+// Utility shares that count (user M1), so installIntoLoadout refuses a piece that would overfill it; the slot set
+// itself stays the hull's, like the weapon hardpoints.
+export function loadoutSlotDefsForShipType(shipTypeKey: ShipTypeKey, modulesLive: boolean = UNIVERSAL_MODULES_LIVE): LoadoutSlotDef[] {
   const def = SHIP_TYPES[shipTypeKey];
   const defs: LoadoutSlotDef[] = [];
   const hardpoints = def?.weaponHardpoints ?? 0;
@@ -165,7 +171,27 @@ export function loadoutSlotDefsForShipType(shipTypeKey: ShipTypeKey): LoadoutSlo
   if (def !== undefined && def.spec !== "general") {
     defs.push({ key: "specUtility", slotType: "specUtility", index: null, group: "systems", label: "Spec Utility" });
   }
+  if (modulesLive) {
+    const slots = def?.moduleSlots ?? 0;
+    for (let i = 0; i < slots; i++) {
+      defs.push({ key: `module${i}`, slotType: "module", index: i, group: "modules", label: `Module ${i + 1}` });
+    }
+  }
   return defs;
+}
+
+// E-MOD EM-5: would committing `inst` into `slotKey` break the module rules inside the loadout? The shared module
+// slots (the modules plus the Spec Utility, user M1) must stay within the hull's moduleSlots, and one module of a kind per set
+// (user M8). The piece already in `slotKey` (swapped out) never counts. Pure.
+export function loadoutModuleRuleBroken(state: GameState, loadout: Loadout, slotKey: string, inst: EquipmentInstance): boolean {
+  if (!MODULE_SLOT_SHARING_TYPES.has(inst.slotType)) return false;
+  const others = Object.entries(loadout.slots)
+    .filter(([k, id]) => k !== slotKey && id !== null && id !== inst.id)
+    .map(([, id]) => state.equipment.find((e) => e.id === id))
+    .filter((e): e is EquipmentInstance => e !== undefined);
+  if (inst.slotType === "module" && hasModuleOfVariant(others, inst.moduleVariant)) return true;
+  const shared = others.filter((e) => MODULE_SLOT_SHARING_TYPES.has(e.slotType)).length;
+  return shared + 1 > (SHIP_TYPES[loadout.shipTypeKey]?.moduleSlots ?? 0);
 }
 
 // The Armory install picker's candidate list for one slot type: free spares (isSparePiece: on no ship
@@ -217,6 +243,8 @@ export function installIntoLoadout(
   // hull it can never be installed on by hand.
   const hullReq = pieceEquipRequirement(inst)?.hullSpec;
   if (hullReq !== undefined && SHIP_TYPES[loadout.shipTypeKey]?.spec !== hullReq) return state;
+  // E-MOD EM-5: the shared module slots and one module of a kind per set (the rules canFitEquipment applies on a ship).
+  if (loadoutModuleRuleBroken(state, loadout, slotKey, inst)) return state;
   const prevId = loadout.slots[slotKey] ?? null;
   const equipment = state.equipment.map((e) => {
     if (e.id === instanceId) return { ...e, committedToLoadoutId: loadoutId };
@@ -296,6 +324,8 @@ function checkOutTransition(state: GameState, loadoutId: string, shipId: string)
   if (state.loadouts.some((l) => l.checkedOutToShipId === shipId)) return state; // ship already loadout-driven
   if (!onMissionLock(state, shipId).ok) return state; // no mid-mission swap
   const committedIds = new Set(Object.values(loadout.slots).filter((v): v is string => v !== null));
+  // E-MOD EM-5 (S2): a set that moves a module on or off the ship waits while the ship is out (an expedition too).
+  if (shipCrewLocked(state, shipId) && state.equipment.some((e) => e.slotType === "module" && (committedIds.has(e.id) || e.fittedToShipId === shipId))) return state;
   const equipment = state.equipment.map((e) => {
     if (committedIds.has(e.id)) return { ...e, fittedToShipId: shipId }; // the loadout's set -> onto the ship
     // Prior MANUAL gear -> back to the spare pool, with its auto-salvage grace window RESTARTED
@@ -318,6 +348,8 @@ export function checkInLoadout(state: GameState, loadoutId: string): GameState {
   if (loadout === undefined || loadout.checkedOutToShipId === null) return state;
   if (!onMissionLock(state, loadout.checkedOutToShipId).ok) return state; // no mid-mission un-equip
   const committedIds = new Set(Object.values(loadout.slots).filter((v): v is string => v !== null));
+  // E-MOD EM-5 (S2): a set carrying a module stays aboard while the ship is out (an expedition too).
+  if (shipCrewLocked(state, loadout.checkedOutToShipId) && state.equipment.some((e) => e.slotType === "module" && committedIds.has(e.id))) return state;
   const equipment =
     committedIds.size === 0
       ? state.equipment

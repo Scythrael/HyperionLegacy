@@ -26,7 +26,6 @@ import {
   expeditionLaunchView,
   expeditionRiskPreview,
   makeExpeditionSeed,
-  startExpedition,
   systemTaskPreview,
   tierCandidateSystems,
   wolf359ListAfterDispatch,
@@ -35,7 +34,7 @@ import { ENEMY_SECTOR_WIDTH_PERMILLE, REGION_TIERS, homeworldPlacement, inEnemyS
 import { FAMOUS_SYSTEMS, REGION_CODES, WOLF_359_ID, famousSystem, famousSystemFrom } from "./starCatalog";
 import { TIER_HAUL_MULT, TIER_I_REGION } from "./riskFactors";
 import { taskFullHaul } from "./groundTasks";
-import { asExpeditionVeteran, plainAwayMember } from "./awayTeamTestFixtures";
+import { asExpeditionVeteran, plainAwayMember, dispatchPastPropulsion } from "./awayTeamTestFixtures";
 import { bodyDesignation, bodyTitle } from "../groundTaskQueueDisplay";
 import { nearestFirst, runRegionText } from "../expeditionDispatchDisplay";
 import { taskNeedsOf } from "./groundOps";
@@ -105,7 +104,7 @@ describe("G2-2 candidates per region tier", () => {
     const before = lists(state);
     expect(lists({ ...state, gameTimeSeconds: state.gameTimeSeconds + 86_400 })).toEqual(before);
     expect(lists(state)).toEqual(before);
-    const res = startExpedition(state, "ship-1", 1, "cand-5-1");
+    const res = dispatchPastPropulsion(state, "ship-1", 1, "cand-5-1");
     expect(res.success).toBe(true);
     expect(res.next.expeditionSeed).toBe(advanceExpeditionSeed(state.expeditionSeed));
     const after = lists({ ...res.next, expeditions: [] });
@@ -116,9 +115,9 @@ describe("G2-2 candidates per region tier", () => {
     const state = crewed(seedOf(5));
     for (let i = 0; i < 3; i++) expect(candidateSystemById(state, `cand-${i}`)).toEqual(candidateSystemById(state, `cand-1-${i}`));
     for (const bad of ["cand-3", "cand-8-0", "cand-0-0", "cand-1-3", "cand-x", "cand--1", "cand-01", "cand-1-01"]) expect(candidateSystemById(state, bad)).toBeNull();
-    expect(startExpedition(state, "ship-1", 1, "cand-1-3").reason).toBe("noSuchCandidate");
-    const a = startExpedition(state, "ship-1", 1, "cand-0").expedition!;
-    const b = startExpedition(state, "ship-1", 1, "cand-1-0").expedition!;
+    expect(dispatchPastPropulsion(state, "ship-1", 1, "cand-1-3").reason).toBe("noSuchCandidate");
+    const a = dispatchPastPropulsion(state, "ship-1", 1, "cand-0").expedition!;
+    const b = dispatchPastPropulsion(state, "ship-1", 1, "cand-1-0").expedition!;
     expect(a).toEqual(b);
   });
 
@@ -127,7 +126,7 @@ describe("G2-2 candidates per region tier", () => {
       for (let k = 0; k < 16; k++) {
         const state = crewed(seedOf(k * 7 + tier), seedOf(k + 40));
         const cand = expeditionCandidates(state, "ship-1", tier)[k % 3];
-        const exp = startExpedition(state, "ship-1", 1, cand.id).expedition!;
+        const exp = dispatchPastPropulsion(state, "ship-1", 1, cand.id).expedition!;
         const preview = expeditionRiskPreview(cand.seed, cand.region);
         expect(exp.seed).toBe(cand.seed);
         expect(exp.systemName).toBe(cand.systemName);
@@ -157,7 +156,7 @@ describe("G2-2 candidates per region tier", () => {
       for (let k = 0; k < 4; k++) {
         const state = crewed(seedOf(k * 11 + tier * 3), seedOf(k + 70));
         const cand = expeditionCandidates(state, "ship-1", tier)[0];
-        const exp = startExpedition(state, "ship-1", 1, cand.id).expedition!;
+        const exp = dispatchPastPropulsion(state, "ship-1", 1, cand.id).expedition!;
         const preview = systemTaskPreview(cand.seed, exp.scanParams, cand.region);
         expect(preview.tier).toBe(tier);
         let e: Expedition = exp;
@@ -288,7 +287,7 @@ describe("G2-2 names, real stars and Wolf 359", () => {
       expect(list.filter((c) => c.systemId === WOLF_359_ID).length).toBe(1);
       // Never forced into a deeper tier.
       for (const tier of REGION_TIERS.slice(1)) expect(tierCandidateSystems(state, tier).some((c) => c.famousId === WOLF_359_ID)).toBe(false);
-      const exp = startExpedition(state, "ship-1", 1, wolf.id).expedition!;
+      const exp = dispatchPastPropulsion(state, "ship-1", 1, wolf.id).expedition!;
       expect(exp.systemName).toBe("Wolf 359");
       expect(exp.risk!.tier).toBe(1);
     }
@@ -306,7 +305,7 @@ describe("G2-2 names, real stars and Wolf 359", () => {
     const hasWolf = (st: GameState): boolean => tierCandidateSystems(st, 1).some((c) => c.famousId === WOLF_359_ID);
     // Dispatch from Tier I slot 1 (never the guaranteed slot), then free the ship for the next dispatch.
     const dispatch = (st: GameState): GameState => {
-      const res = startExpedition(st, "ship-1", 1, "cand-1-1");
+      const res = dispatchPastPropulsion(st, "ship-1", 1, "cand-1-1");
       if (!res.success) throw new Error(`dispatch refused: ${res.reason}`);
       return { ...res.next, expeditions: [] };
     };
@@ -392,7 +391,7 @@ describe("G2-2 bodies per tier and the tier haul", () => {
   });
 
   it("a deeper tier's haul is the Tier I haul times the tier's multiplier, on the same draws (user G16)", () => {
-    const exp = startExpedition(crewed(seedOf(2)), "ship-1", 1, "cand-1-0").expedition!;
+    const exp = dispatchPastPropulsion(crewed(seedOf(2)), "ship-1", 1, "cand-1-0").expedition!;
     const body = { planetType: "terrestrial" as const, hazard: 0.2 };
     const t = exp.groundOps!.teams[0];
     const teams = [{ securityIds: t.securityIds, scienceIds: t.scienceIds, scienceShare: 1 }];
@@ -409,7 +408,7 @@ describe("G2-2 bodies per tier and the tier haul", () => {
   });
 
   it("on a real run: a Tier III stamp brings home more than the same run stamped Tier I, on the same timeline", () => {
-    const exp = startExpedition(crewed(seedOf(12)), "ship-1", 1, "cand-3-0").expedition!;
+    const exp = dispatchPastPropulsion(crewed(seedOf(12)), "ship-1", 1, "cand-3-0").expedition!;
     const FINAL = T0 + 2_000_000;
     const deep = advanceExpedition(exp, FINAL);
     const near = advanceExpedition({ ...exp, region: { ...exp.region!, tier: 1 } }, FINAL);
@@ -424,7 +423,7 @@ describe("G2-2 bodies per tier and the tier haul", () => {
 describe("G2-2 offline == live on deeper-tier runs", () => {
   for (const id of ["cand-3-1", "cand-7-2"]) {
     it(`${id}: one call == 997 s chunks (the region stamp, the bodies and the tier haul)`, { timeout: 60_000 }, () => {
-      const exp = startExpedition(crewed(seedOf(21)), "ship-1", 1, id).expedition!;
+      const exp = dispatchPastPropulsion(crewed(seedOf(21)), "ship-1", 1, id).expedition!;
       const end = T0 + 2_000_000;
       const one = advanceExpedition(exp, end);
       let e = exp;
@@ -437,7 +436,7 @@ describe("G2-2 offline == live on deeper-tier runs", () => {
 
 describe("G2-2 display", () => {
   it("a stamped run letters its bodies b, c, d; a pre-G2 run keeps Roman numerals; the header names its region", () => {
-    const exp = startExpedition(crewed(seedOf(4)), "ship-1", 1, "cand-1-0").expedition!;
+    const exp = dispatchPastPropulsion(crewed(seedOf(4)), "ship-1", 1, "cand-1-0").expedition!;
     expect(exp.region).toBeDefined();
     expect([0, 1, 2].map((i) => bodyDesignation(exp, i))).toEqual(["b", "c", "d"]);
     expect(bodyTitle(exp, { planetType: "terrestrial" }, 1)).toBe(`${exp.systemName} c · Terrestrial`);

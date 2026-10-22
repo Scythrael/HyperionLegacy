@@ -81,6 +81,7 @@ import { crewRarityMultiplier } from "./crewRarity";
 import { rankMagnitudeFactor } from "./crewRank";
 // E4a: the PoI -> relic-set single source of truth (pure data; imports no engine module, so no cycle).
 import { RELIC_BEARING_POIS, isRelicBearingPoi, museumBonuses, resistedHazard } from "./relics";
+import { relicBlankCeiling, relicBlankStamp, rollBlankRarity, type RelicBlankStamp } from "./relicBlanks";
 // E-CREW Task 15: the Science party's fieldwork (pure; imports only model + content, so no cycle).
 import { fieldworkEffect, type FieldworkEffect } from "./fieldwork";
 // E-CREW 0.14.0 (Task 21): the Constitution ramp (a pure leaf; no cycle).
@@ -2372,6 +2373,10 @@ function pickWeighted<T extends { weight: number }>(rng: Rng, items: T[]): T {
 // multiply"), Relic Hunter's `relicTierLift` raises the hazard ceiling by whole tiers (still never past the pool's
 // top), and Preservationist's `relicStudySpeed` is stamped on the token it rolls. Absent, the roll is the pre-WR-5c
 // roll bit for bit (the same draws, the same thresholds, the same token).
+// Relics v2 R2-2: `blank` is the run's blank stamp (relicBlanks.ts relicBlankStamp: the region tier and the body's
+// culture), passed only by a run carrying the R2-2 flag. The rarity draw then reads the tier's blank table (Tier I's is
+// the ladder above, so a Tier I draw is unchanged) and the token carries the stamp. The CHANCE draw never reads it (user
+// call 13 "Better rarity only"). Absent, the roll and the token are the pre-R2-2 ones bit for bit.
 export function rollRelicToken(
   seed: number,
   hazard: number,
@@ -2379,16 +2384,15 @@ export function rollRelicToken(
   relicId: string,
   findBonus: number = 0,
   captain?: ExplorerCaptainRun,
+  blank?: RelicBlankStamp,
 ): ExpeditionRelicToken | null {
   if (!isRelicBearingPoi(poiId)) return null;
   const rng = makeRng(seed >>> 0);
   const chance = relicChancePermille(hazard, findBonus, captain?.relicFindMult);
   if (!rng.chance(chance, 1000)) return null;
   // REUSE the salvage tier ladder: hazard sets how far up the ordered tiers the roll can reach.
-  const pool = SALVAGE_LOOT_POOLS.intactReactorCore;
   const ceiling = relicTierCeiling(hazard, captain?.relicTierLift);
-  const eligible = pool.slice(0, ceiling + 1);
-  const tier = pickWeighted(rng, eligible);
+  const tier = blank ? rollBlankRarity(rng, blank.tier, ceiling) : pickWeighted(rng, SALVAGE_LOOT_POOLS.intactReactorCore.slice(0, ceiling + 1));
   const studySpeed = captain?.relicStudySpeed;
   return {
     id: relicId,
@@ -2396,6 +2400,7 @@ export function rollRelicToken(
     quality: tier.quality,
     unidentified: true,
     ...(studySpeed !== undefined && studySpeed > 0 && Number.isFinite(studySpeed) ? { studySpeed } : {}),
+    ...(blank ? { regionTier: blank.tier, cultureId: blank.cultureId } : {}),
   };
 }
 
@@ -2411,10 +2416,9 @@ export function relicChancePermille(hazard: number, findBonus: number = 0, findM
 
 // The highest tier index of the relic tier pool a roll can reach: the hazard's share of the ladder, + the captain's
 // Relic Hunter lift, never past the top. Pure (rollRelicToken's ceiling; the wiring probe reads it).
+// Relics v2 R2-2: the formula lives in relicBlanks.ts relicBlankCeiling (the completion bonus roll reads it too).
 export function relicTierCeiling(hazard: number, tierLift?: number): number {
-  const pool = SALVAGE_LOOT_POOLS.intactReactorCore;
-  const lift = tierLift !== undefined && Number.isFinite(tierLift) ? Math.max(0, Math.floor(tierLift)) : 0;
-  return Math.min(pool.length - 1, Math.max(0, Math.round(hazard * (pool.length - 1))) + lift);
+  return relicBlankCeiling(hazard, tierLift);
 }
 
 // Roll the full material + credit haul for a task, seeded. Materials are planet-type flavored; credits
@@ -2563,6 +2567,9 @@ export function resolveExpeditionActivity(
         activity.poiId,
         relicId,
         activityRelicFindBonus(exp, fw, hoursOut),
+        undefined,
+        // Relics v2 R2-2: the blank stamp (only a run with the R2-2 flag; a legacy run never has one).
+        relicBlankStamp(exp, exp.bodies.findIndex((b) => b.id === body.id)),
       );
       return {
         finding: {

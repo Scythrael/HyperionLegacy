@@ -5,7 +5,7 @@
 //   1. The full choice ablation: every player choice in the wiring registry, allAuto with and without it.
 //   2. The first-run batch: allAuto and newcomer over six seeds (the three fresh-save candidates twice), the Safe
 //      First Runs assertions: since SF-2 allAuto's first expedition (an Orion's: the training run) is safe on every
-//      seed; the newcomer's (a General Freighter's) is an ordinary run.
+//      seed; the newcomer's General Freighter is refused since G2-4 (no explorer hull), so it launches none.
 //   3. offline == live at full length: one tick() call, 997 s chunks and 1 s ticks per look, both policies.
 
 import { describe, expect, it } from "vitest";
@@ -50,13 +50,13 @@ describe.runIf(SIM_FULL)("WR-2 gated: the first-run batch (Safe First Runs)", ()
       );
       for (const r of reports) {
         expect(r.gather?.defeat).toBe(false);
-        // CURRENT BEHAVIOR for the newcomer (a General Freighter), flipped by G2: only explorers will reach
-        // expedition systems, so its launch becomes a refusal and its run is "not the training run" (the training
-        // run is the first expedition FROM AN EXPLORER, SF-2).
-        expect(r.expeditions.length).toBeGreaterThan(0);
+        // Flipped by G2-4 (user 2026-10-16: only explorers reach expedition systems): the newcomer's General
+        // Freighter is refused (notExplorer), so it launches none; the explorer path it lacks is documented on
+        // policies.ts NEWCOMER. allAuto (an Orion) still launches on every seed.
+        if (policy === NEWCOMER) expect([r.expeditions.length, r.expeditionRefusal]).toEqual([0, "notExplorer"]);
+        else expect(r.expeditions.length).toBeGreaterThan(0);
       }
-      // SF-2: the explorer's first expedition is the training run, safe on every seed (before SF-2: none was). The
-      // newcomer's freighter flies an ordinary run (not an explorer), so nothing is claimed for it here.
+      // SF-2: the explorer's first expedition is the training run, safe on every seed (before SF-2: none was).
       if (policy === ALL_AUTO) expect(reports.map((r) => r.firstExpedition)).toEqual(reports.map(() => ({ verdict: "safe", safe: true, reasons: [] })));
     }, 600_000);
   }

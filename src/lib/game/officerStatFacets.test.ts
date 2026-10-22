@@ -61,7 +61,6 @@ import {
   rampedEncounterEvasion,
   returnDurationSeconds,
   scanRatePerSecond,
-  startExpedition,
   TRANSIT_SECONDS,
 } from "./expedition";
 import {
@@ -80,7 +79,7 @@ import { LY_PER_TICK } from "./fuel";
 import { equippedFor } from "./equipment";
 import { itemTotal } from "./inventory";
 // Ground Ops GO-1: whole-state goldens hash without the new, inert ground-team slots (captured before them).
-import { asLegacyDispatch, asPreG2NamesDispatch, withSlottedAwayTeams, withoutGroundSquadState } from "./awayTeamTestFixtures";
+import { asLegacyDispatch, asPreG2NamesDispatch, withSlottedAwayTeams, withoutGroundSquadState, dispatchPastPropulsion } from "./awayTeamTestFixtures";
 // SF-1: whole states hash without the run counters (seeded by freshState, written by a patrol), absent before SF-1.
 import { goldenJson, withoutGuests, withoutRunCounts } from "./firstRunsGoldens.fixture";
 import { withCp2Off } from "./complementCp2Switch.fixture";
@@ -111,7 +110,7 @@ import {
 // Ground Ops (GO-7b): this file pins LEGACY expedition runs (goldens captured before Ground Ops): every dispatch
 // slots the members in hire order (dispatch reads the slotted ground teams) and resolves without the groundOps
 // flag (asLegacyDispatch), exactly the record the pre-switch dispatch produced.
-const legacyStart: typeof startExpedition = (state, ...rest) => asPreG2NamesDispatch(asLegacyDispatch(startExpedition(withSlottedAwayTeams(state), ...rest)));
+const legacyStart: typeof dispatchPastPropulsion = (state, ...rest) => asPreG2NamesDispatch(asLegacyDispatch(dispatchPastPropulsion(withSlottedAwayTeams(state), ...rest)));
 
 // ===== fixtures =====
 

@@ -121,6 +121,9 @@
 //                  ML-2's two new entries (the Biofiber and Resin Distillate refines) are held apart by ML2_SLICE, which
 //                  registryPin always applies, so the base pin and every cause pin are unchanged. The ML-1 pin is read
 //                  back (ml2LinesBack) to its capture.
+// MOVED BY ML-3 (material quality on delivery, OC-D2): nothing pinned here. The rig line's entry flips pending -> live;
+//                  ML3_SLICE reads it back as pending in every registryPin call, so the base pin and every cause pin
+//                  are unchanged.
 // ADDED BY G1-1: `guests:<hull>` (guest quarters bare and with each quarters variety, the Guest Wing last) and
 // `stats:<hull>:guestWing` (every other stat with a Guest Wing installed). The sheets hash through withoutGuests, so
 // the stats pins keep proving no other stat moved (the transport hulls now carry base guest quarters).
@@ -140,7 +143,6 @@ import Decimal from "break_infinity.js";
 import { EQUIPMENT_SLOTS, FIELD_KITS_PLAYER_LIVE, MISSIONS, SHIP_TYPES, type EquipmentInstance, type EquipmentRarity, type GameState, type ShipDerivedStats, type ShipTypeKey, type ShortRangeMissionState } from "./model";
 import { startShortRangeCycle } from "./shortRangeBoard";
 import { dispatchCaptainOnMission, dispatchCaptainOnPatrol, economyTick, installMissingCombatBaselines, mintBuiltShip } from "./tick";
-import { startExpedition } from "./expedition";
 import { effectiveShipStats } from "./crewOverlay";
 import { generateEquipment } from "./itemgen";
 import { buildHomeDashboard } from "./homeDashboard";
@@ -150,11 +152,17 @@ import { WIRING_REGISTRY } from "./wiring/registry";
 import { bucketOf, withBuckets } from "./wiring/probes";
 import { hash, onHull, withCrew, withV1Museum, withoutGuests } from "./firstRunsGoldens.fixture";
 import { ML2_ADDED_ENTRY_IDS, ml2LinesBack } from "./ml2RecipeGoldens.fixture";
-import { asPreG2NamesDispatch } from "./awayTeamTestFixtures";
+import { ML3_FLIPPED_LIVE } from "./materialQualityGoldens.fixture";
+import { asPreG2NamesDispatch, dispatchPastPropulsion } from "./awayTeamTestFixtures";
 import { GG1_ADDED_ENTRY_IDS } from "./gasStudyGoldens.fixture";
 import { FUSE_ADDED_ENTRY_IDS } from "./fieldKitsFuse.fixture";
 import { RX_ADDED_ENTRY_IDS } from "./reactorFuelGoldens.fixture";
+import { OC15_ADDED_ENTRY_IDS } from "./labFabricatorTiers.fixture";
 import { isSiAdded, SI_RETIRED, siReadBack } from "./siMemberGearRegistry.fixture";
+// E-MOD EM-5: its two module wear rows, held apart from the gear wear pin.
+import { EM5_ADDED_ENTRY_IDS } from "./emodEm5Registry.fixture";
+import { R2_2_ADDED_ENTRY_IDS } from "./relicBlanks.fixture";
+import { G2_4_ADDED_ENTRY_IDS, G2_4_FLIPPED_BEFORE } from "./propulsionRecallGoldens.fixture";
 // CP-8 / OC-11: the test switch that proves the auto-crew pause is the only thing that moved the fleet pin.
 vi.mock("./crewLock", async (io) => (await import("./complementOc11Switch.fixture")).oc11CrewLockMock(io));
 import { withOc11Off } from "./complementOc11Switch.fixture";
@@ -254,7 +262,7 @@ function mixedFleet(): GameState {
     ],
   });
   // G2-2: the dispatch as it was before G2-2 (the console names and region fields stripped), so the pins hold.
-  const exp = asPreG2NamesDispatch(startExpedition(fleet, "ship-1", 1, "cand-0"));
+  const exp = asPreG2NamesDispatch(dispatchPastPropulsion(fleet, "ship-1", 1, "cand-0"));
   if (!exp.success) throw new Error(`expedition refused: ${exp.reason}`);
   const mission = dispatchCaptainOnMission(exp.next, 2, "shortOreRun");
   if (!mission.success) throw new Error(`mission refused: ${mission.reason}`);
@@ -368,8 +376,9 @@ const GOLDEN: Record<string, unknown> = {
   // Gear wear step 3 (2026-10-21): the 41 `wear` entries with their statuses and live contexts (every use source,
   // repair context and bonus live, eleven efficiency consumers live; the battle sources, the combat consumers, the
   // reactor's output and the drive's engine efficiency pending), plus ship:audit:slotDurability (live) and
-  // ship:audit:slotDurabilityDefense (added, pending step 4).
-  "registry:gearWear:step3": [43, "949bcd5d"],
+  // ship:audit:slotDurabilityDefense (added, pending step 4). Re-pinned at the merge with feat (EM-5): its two module
+  // rows joined (the use source wired live by step 3, the combat consumer pending step 4): 43 -> 45 rows.
+  "registry:gearWear:step3": [45, "d4db10f5"],
   // The Quartermaster Standard-Issue member lines and the D26 line swap (0.14.0): read back in every registry pin
   // (siReadBack); the added entries with their statuses, then the retired ids.
   "registry:si": [
@@ -614,13 +623,31 @@ const SF3_FLIPPED_LIVE: ReadonlySet<string> = new Set<string>(["expedition:ENEMY
 const SF3_SLICE: RegistrySlice = { flipped: SF3_FLIPPED_LIVE, was: "pending" };
 // The reactor fuel ladder's additions (0.14.0), held apart in EVERY pin (all of them were taken before it).
 const RX_SLICE: RegistrySlice = { added: RX_ADDED_ENTRY_IDS };
+// Expedition Tiers G2-4 / G2-5 (after every pin here): their added entries and their flips, held apart the same way.
+const G2_4_PENDING_FLIPS: RegistrySlice = { flipped: new Set(Object.keys(G2_4_FLIPPED_BEFORE).filter((id) => G2_4_FLIPPED_BEFORE[id].kind === "pending")), was: "pending" };
+const G2_4_SEAM_FLIPS: RegistrySlice = { flipped: new Set(Object.keys(G2_4_FLIPPED_BEFORE).filter((id) => G2_4_FLIPPED_BEFORE[id].kind === "seam")), was: "seam" };
+const G2_4_SLICES: readonly RegistrySlice[] = [{ added: G2_4_ADDED_ENTRY_IDS }, G2_4_PENDING_FLIPS, G2_4_SEAM_FLIPS];
+// G1-6 (SHORT_RANGE_BOARD_LIVE, the board UI), after every pin here too: the two Mission Control board rungs it put in
+// FACILITIES (each a facility rung entry) and G1-3's audit row, flipped pending -> live with its gate check. Held apart
+// in EVERY pin (the RX_SLICE pattern); "G1-6 is the only cause" below proves that is the whole move.
+const G16_ADDED_ENTRY_IDS: ReadonlySet<string> = new Set<string>(["facility:FACILITIES:missionControl:1", "facility:FACILITIES:missionControl:2"]);
+const G16_FLIPPED_LIVE: ReadonlySet<string> = new Set<string>(["facility:audit:missionControlUnlock"]);
+const G16_SLICE: RegistrySlice = { added: G16_ADDED_ENTRY_IDS, flipped: G16_FLIPPED_LIVE, was: "pending" };
+// Relics v2 R2-2's five audit rows, held apart in EVERY pin the same way (relicBlanks.test.ts pins them).
+const R2_2_SLICE: RegistrySlice = { added: R2_2_ADDED_ENTRY_IDS };
 // ML-2's two new entries (the Biofiber and Resin Distillate refines), held apart in EVERY pin (all were taken before it).
 const ML2_SLICE: RegistrySlice = { added: ML2_ADDED_ENTRY_IDS };
+// The OC-15 Lab and Fabricator tier rungs (0.14.0): one added entry per new rung, held apart in EVERY pin the same way
+// (labFabricatorTiers.test.ts pins them live).
+const OC15_SLICE: RegistrySlice = { added: OC15_ADDED_ENTRY_IDS };
+// ML-3 (material quality on delivery, OC-D2): the rig line's entry it FLIPPED pending -> live, read back as pending in
+// EVERY pin (all were taken before it); the test "ML-3 is the only cause" proves the flip is the whole move.
+const ML3_SLICE: RegistrySlice = { flipped: ML3_FLIPPED_LIVE, was: "pending" };
 // The Quartermaster Standard-Issue member lines and the D26 line swap (0.14.0): read back in EVERY pin (all of them were
 // taken before it) through siReadBack (siMemberGearRegistry.fixture.ts: the `si:` entries and the three new Science
 // lines left out, the nine retired combat lines restored in place); `registry:si` pins the added and retired ids.
 function registryPin(...given: readonly RegistrySlice[]): [number, string] {
-  const slices = [RX_SLICE, FUSE_SLICE, ML2_SLICE, ...given];
+  const slices = [RX_SLICE, FUSE_SLICE, ML2_SLICE, OC15_SLICE, R2_2_SLICE, G16_SLICE, ...G2_4_SLICES, ML3_SLICE, ...given];
   const rows = siReadBack(WIRING_REGISTRY.map((e) => ({ id: e.id, kind: e.status.kind as string })), (r) => r.id, (row) => ({ id: row[0], kind: row[1].kind as string }));
   const lines = rows.filter((e) => !slices.some((sl) => sl.added?.has(e.id))).map((e) => {
     const flip = slices.find((sl) => sl.flipped?.has(e.id));
@@ -801,6 +828,9 @@ describe("G1-0 golden 5: the wiring registry's ids and statuses", () => {
   it("the entries outside the G1 additions, hashed in registry order", () => {
     pin("registry", registryPin(GW_SLICE, G1_SLICE, SF3_SLICE, GG1_SLICE, ML1_SLICE, R2_1_SLICE));
   });
+  it("ML-3 is the only cause of its registry move (the rig line's entry flips live)", () => {
+    expect(WIRING_REGISTRY.filter((e) => ML3_FLIPPED_LIVE.has(e.id)).map((e) => e.status.kind)).toEqual(["live"]);
+  });
   it("safe first runs SF-3 is the only cause of its registry move (Weak's two entries flip live)", () => {
     expect(WIRING_REGISTRY.filter((e) => SF3_FLIPPED_LIVE.has(e.id)).map((e) => e.status.kind)).toEqual(["live", "live"]);
     expect(registryPin(GW_SLICE, G1_SLICE, GG1_SLICE, ML1_SLICE, R2_1_SLICE)).not.toEqual(registryPin(GW_SLICE, G1_SLICE, SF3_SLICE, GG1_SLICE, ML1_SLICE, R2_1_SLICE));
@@ -863,6 +893,11 @@ describe("G1-0 golden 5: the wiring registry's ids and statuses", () => {
     if (!FIELD_KITS_PLAYER_LIVE) for (const id of FKR5_RULINGS_ADDED) expect(WIRING_REGISTRY.find((e) => e.id === id)?.status.kind, id).toBe("pending");
     for (const id of FKR5_FLIPPED_LIVE) expect(WIRING_REGISTRY.find((e) => e.id === id)?.status.kind, id).toBe("live");
   });
+  it("G1-6 (the board goes live) is the only cause of its registry move: two rung entries in, one audit row live", () => {
+    const lines = WIRING_REGISTRY.filter((e) => G16_ADDED_ENTRY_IDS.has(e.id) || G16_FLIPPED_LIVE.has(e.id)).map((e) => `${e.id}|${e.status.kind}`);
+    expect(lines).toEqual(["facility:FACILITIES:missionControl:1|live", "facility:FACILITIES:missionControl:2|live", "facility:audit:missionControlUnlock|live"]);
+    // registryPin holds these apart in every pin, and every pin above still reproduces its capture, so nothing else moved.
+  });
   it("G1-1: the added entries, each with its status", () => {
     const added = WIRING_REGISTRY.filter((e) => G1_ADDED_ENTRY_IDS.has(e.id)).map((e) => `${e.id}|${e.status.kind}`);
     expect(added.length).toBe(G1_ADDED_ENTRY_IDS.size);
@@ -870,7 +905,8 @@ describe("G1-0 golden 5: the wiring registry's ids and statuses", () => {
   });
   it("gear wear steps 1 and 2: the added entries, each with its status (all pending; step 3 read back)", () => {
     // Step 3's flips read back (gearWearRegistry.fixture.ts), the step 2 pin reproduces: step 3 moved only its own rows.
-    const added = WIRING_REGISTRY.filter((e) => e.id.startsWith("wear:"))
+    // E-MOD EM-5's two module wear rows (emodEm5Registry.fixture.ts) are held apart: they came after this pin.
+    const added = WIRING_REGISTRY.filter((e) => e.id.startsWith("wear:") && !EM5_ADDED_ENTRY_IDS.has(e.id))
       .map((e) => gw3EntryBack(e)!)
       .map((e) => `${e.id}|${e.status.kind}`);
     expect(added.length).toBeGreaterThan(30);

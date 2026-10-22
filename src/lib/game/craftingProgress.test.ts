@@ -90,15 +90,17 @@ function processOf(kind: TimedProcessKind, durationTicks: number, effect: TimedP
   return { id: "p-1", kind, remainingTicks: durationTicks, durationTicks, effect };
 }
 
-// A fully upgraded facility state, so the worked proof measures the CEILING of each
-// production route rather than an arbitrary mid-game level. Levels come from the track
-// lengths, so appending a rung moves the proof automatically.
-function maxedFacilities() {
+// The facility state the worked proof prices: the Refinery fully upgraded and the Fabricator at
+// level 3, FIX B's three craft lines, the design 6.4 assumption for the tier-2 destination. Since
+// OC-15 the Fabricator climbs on to tier VII with one more slot per rung; those rungs only widen
+// the fabricate route's lead, which THE REQUIREMENT below also checks at the full track.
+const DESIGN_FABRICATOR_LEVEL = 3;
+function maxedFacilities(fabricatorLevel = DESIGN_FABRICATOR_LEVEL) {
   return {
     ...freshState(),
     facilities: {
       refinery: { level: FACILITIES.refinery.upgrades.length },
-      [FABRICATOR_FACILITY_KEY]: { level: FACILITIES[FABRICATOR_FACILITY_KEY].upgrades.length },
+      [FABRICATOR_FACILITY_KEY]: { level: fabricatorLevel },
     },
   };
 }
@@ -509,6 +511,9 @@ describe("design 6.4: bulk refining cannot outpace meaningful crafting", () => {
 
     // Time: fabricating must be at least several times faster than refining.
     expect(fabricateRate / refineRate).toBeGreaterThanOrEqual(8);
+    // ...and still at the Fabricator's full OC-15 track (more craft slots, the same refine lines).
+    const full = maxedFacilities(FACILITIES[FABRICATOR_FACILITY_KEY].upgrades.length);
+    expect(fabricateSlotCount(full) * craftingXpPerTick(fabricateSubject(T2_EQUIPMENT_BP))).toBeGreaterThanOrEqual(fabricateRate);
 
     // Materials: the refining road must exceed the warehouse ore cap by an order of
     // magnitude, so it is blocked by physics and not only by patience.

@@ -42,6 +42,8 @@
   // expedition.ts engine (candidates + foreknowledge + phase readers), routes Launch / Claim to the
   // do* handlers below (which own startExpedition / claimExpedition + doSave + pushLog).
   import ExpeditionPanel from "./lib/ExpeditionPanel.svelte";
+  // Short-Range Missions 0.14.0 (G1-6): the Operations "Short-Range" tab (the board, its dispatch popup).
+  import ShortRangePanel from "./lib/ShortRangePanel.svelte";
   // Squads SQ-7.4: the Subspace Telescope Facilities card (its words and galaxy map are telescopeCardDisplay.ts).
   import TelescopeMap from "./lib/TelescopeMap.svelte";
   import { telescopeCardView, telescopeMapView } from "./lib/telescopeCardDisplay";
@@ -381,6 +383,9 @@
     // Relics v2 R2-1: the Tier I general record (where the v1 museum copies live) and its write, for the dev museum.
     generalMuseumRecord,
     withGeneralMuseumRecord,
+    // OC-15: the Lab / Fabricator tier readers the Upgrades panels show.
+    labTier,
+    fabricatorTier,
   } from "./lib/game/model";
   // WR-3: the Debug Wiring panel's view model (the registry itself loads lazily inside it; types only here).
   import {
@@ -438,6 +443,7 @@
   } from "./lib/game/equipment";
   // E-MOD EM-2: the power install gate's refusal text (one wording everywhere) and the Armory check-out's shortfall.
   import { overPowerReasonText } from "./lib/game/shipPower";
+  import { duplicateModuleReasonText, moduleSlotsFullReasonText } from "./lib/game/shipModules";
   // Crew 0.14.0 (phase 4a): the pure SENIOR STAFF engine, wired by the do* handlers below.
   // hire/fire/assign/unassign each take + return a whole GameState; promoteOfficer takes +
   // returns a single officer, so its handler splices the result back into state.officers.
@@ -1023,7 +1029,12 @@
   // which omitted crew and the museum, so the shown times disagreed with the flown ones).
   import { effectiveShipStats } from "./lib/game/crewOverlay";
   // G1-3: a short-range run's display name (its current job) for the status rows and the recall log.
-  import { shortRangeMissionLabel } from "./lib/game/shortRangeBoard";
+  // G1-6: the board's dispatch and its Repeat toggle (pure engine fns behind the do* handlers below).
+  import { shortRangeMissionLabel, dispatchCaptainOnShortRange, setShortRangeRepeat, shortRangeBoardSlots } from "./lib/game/shortRangeBoard";
+  import { shortRangeHasDeparted } from "./lib/game/shortRangeCycle";
+  import { SHORT_RANGE_BOARD_LIVE } from "./lib/game/model";
+  // G1-6: the Overview's short-range card and the Mission Control card's slot line (tested display decisions).
+  import { shortRangeRunView, missionControlRungSlotText } from "./lib/shortRangeBoardDisplay";
   // Crafted Blanks 0.13.7: the display order for a bulk inspect-reveal (rarity -> quality -> iLevel).
   import { sortRolledPieces } from "./lib/game/inspectSort";
   // ITEM LIFECYCLE 0.13.6 (Armory, Phase 3): the loadout lifecycle, pure over GameState.
@@ -1102,6 +1113,8 @@
   import { gasCanisterIcon } from "./lib/ui/gasStudyIcons";
   // ML-2 recipe realism: Biofiber and Resin Distillate wear their own SVG glyphs (refinedIcons.ts).
   import { refinedItemIcon } from "./lib/ui/refinedIcons";
+  // Material Lines ML-4: the "Use best materials" switch's note.
+  import { bestMaterialsNote } from "./lib/ui/materialQualityText";
   import { gasStudySourcePending } from "./lib/game/gasGiantContent";
   // Reactor fuel ladder (0.14.0): a gathering mission's own SVG glyph (the Cometary Ice Harvest's comet).
   import { missionIcon } from "./lib/ui/missionIcons";
@@ -1981,7 +1994,9 @@
   // the new TRANSPORT / supply runs), no longer a locked reserved slot. Routing is by
   // MissionDef.missionType (survey | transport) so exploration content is grouped by what it IS, not
   // by tier. Gathering now shows ONLY extraction/mining missions again.
-  type OperationsTab = "overview" | "gathering" | "exploration" | "missionControl" | "combat";
+  // Short-Range Missions 0.14.0 (G1-6): "shortRange" is the board's own tab beside Exploration (user 2026-10-17 "Own
+  // Operations tab (Recommended)"), shown once SHORT_RANGE_BOARD_LIVE.
+  type OperationsTab = "overview" | "gathering" | "exploration" | "shortRange" | "missionControl" | "combat";
   let activeOperationsTab: OperationsTab = "overview";
 
   // ---- Warehouse facility view (Phase 2, Group C; 0.11.2 Task 9 restructure) --
@@ -2625,6 +2640,9 @@
   let cfgTier = 1;
   let cfgRecipeKey = "";
   let cfgQty = 1;
+  // Material Lines ML-4 (L5): the order's "Use best materials" toggle. Starts OFF (lowest quality first) every time a
+  // configurator opens (mockup sign-off 2026-10-21: it does not remember the last choice).
+  let cfgBestMaterials = false;
 
   // Crafting Allocation Redesign (Task C4): the Start-confirmation handshake, REUSED from the
   // retired refine-order flow. When the player clicks a configurator's Start AND
@@ -2636,7 +2654,7 @@
   // Cancel fully refunds. Same "state near the modal flag" pattern as deleteModalOpen.
   let refineConfirmModalOpen = false;
   let refineConfirmDontShowAgain = false;
-  let pendingLineStart: { kind: CraftLineKind; recipeKey: string; mode: CraftLineMode } | null = null;
+  let pendingLineStart: { kind: CraftLineKind; recipeKey: string; mode: CraftLineMode; best: boolean } | null = null;
 
   // Ship assign/swap picker modals (Ships, Stats Foundation, Task 11 UI) --
   // mirrors the Fleet Operations mission popup's missionPopupKey/
@@ -3668,12 +3686,47 @@
         missionLabel = shortRangeMissionLabel(captain.mission);
       }
     }
-    const finishesCycle = captain.mission !== null && captain.mission.kind === "shortRange";
-    const { next, success } = recallCaptain(state, captainId);
+    const shortRange = captain.mission !== null && captain.mission.kind === "shortRange" ? captain.mission : null;
+    // G1-4 carry note: recallCaptain takes the clock for the run-end log entry a short-range run still at home writes.
+    const { next, success } = recallCaptain(state, captainId, Date.now());
     if (!success) return;
     state = next;
-    // G1-3: a short-range recall finishes the current cycle first (tick.ts recallCaptain), so the log says so.
-    pushLog(finishesCycle ? `[${captain.label}] Recall ordered: ${missionLabel} stops after this cycle.` : `[${captain.label}] Recall ordered, returning to base from: ${missionLabel}.`);
+    // G1-3: a short-range recall finishes the current cycle first (tick.ts recallCaptain), so the log says so. G1-4: a
+    // run that has not left home yet ends at once and spends nothing.
+    if (shortRange !== null) {
+      pushLog(
+        shortRangeHasDeparted(shortRange)
+          ? `[${captain.label}] Recall ordered: ${missionLabel} stops after this cycle.`
+          : `[${captain.label}] Recalled at home: the ${missionLabel} run ends now, nothing spent.`,
+      );
+    } else {
+      pushLog(`[${captain.label}] Recall ordered, returning to base from: ${missionLabel}.`);
+    }
+    doSave();
+  }
+
+  // Short-Range Missions 0.14.0 (G1-6): put a captain and their hull on a board slot (the board's one-tap Send and the
+  // dispatch popup). The do* pattern: the pure engine fn, the same-reference guard on a refusal, then state, log, save.
+  function doDispatchShortRange(captainId: number, slotId: number, repeat: boolean) {
+    const captain = state.captains.find((c) => c.id === captainId);
+    if (!captain) return;
+    const r = dispatchCaptainOnShortRange(state, captainId, slotId, repeat);
+    if (!r.success || r.next === state) return;
+    state = r.next;
+    const mission = state.captains.find((c) => c.id === captainId)?.mission;
+    const label = mission && mission.kind === "shortRange" ? shortRangeMissionLabel(mission) : "Short-Range Mission";
+    pushLog(`[${captain.label}] Dispatched to Short-Range slot ${slotId + 1}: ${label}${repeat ? ", repeating until recalled" : ", one cycle"}.`);
+    doSave();
+  }
+
+  // G1-6: the board card's Repeat toggle (off: this cycle is the last; on: keep re-rolling).
+  function doSetShortRangeRepeat(captainId: number, repeat: boolean) {
+    const captain = state.captains.find((c) => c.id === captainId);
+    if (!captain) return;
+    const r = setShortRangeRepeat(state, captainId, repeat);
+    if (!r.success || r.next === state) return;
+    state = r.next;
+    pushLog(repeat ? `[${captain.label}] Repeat on: the short-range slot keeps running.` : `[${captain.label}] Repeat off: the short-range run stops after this cycle.`);
     doSave();
   }
 
@@ -3701,6 +3754,8 @@
       // Operations bucket: the two captain-mission arms both live under the Ops tab.
       case "gathering":
       case "combat":
+      // G1-6: the Short-Range board is an Operations tab too.
+      case "shortRange":
         return "fleetOperations";
       // Facilities bucket: every foundry console (research / refinery / fabricator /
       // shipyard / fuel depot) and the facilities overview all live under the Facilities tab.
@@ -3739,6 +3794,10 @@
         break;
       case "combat":
         activeOperationsTab = "combat";
+        break;
+      // G1-6: a short-range run's in-progress and completed rows open its board.
+      case "shortRange":
+        activeOperationsTab = "shortRange";
         break;
       // Facilities bucket: the console view + the specific foundry facility + its action
       // sub-tab. (The tab itself is set above; Home is a different program than the dashboard
@@ -3877,6 +3936,7 @@
       case "facilities":
       case "gathering":
       case "combat":
+      case "shortRange":
         return null;
       default: {
         const _exhaustive: never = target;
@@ -3999,6 +4059,8 @@
     salvage: "salvage",
     // Exploration 0.14.0 (E4c): relic study rows (in flight + identified) wear the relic glyph.
     relic: "relic",
+    // Short-Range Missions 0.14.0 (G1-6): a short-range run's in-progress and completed rows wear the hop glyph.
+    shortRange: "shortRange",
   };
 
   // The registry icon for a hint, or null when the sweep has not reached it yet.
@@ -5070,6 +5132,11 @@
       // E-MOD EM-2: the install would leave the ship over its power budget.
       case "overPower":
         return overPowerReasonText(refusal.powerShortfall);
+      // E-MOD EM-5: the shared module slots are full, or this module is already aboard.
+      case "moduleSlotsFull":
+        return moduleSlotsFullReasonText();
+      case "duplicateModule":
+        return duplicateModuleReasonText();
     }
   }
 
@@ -5773,7 +5840,8 @@
     const { next, started } = startRelicStudy(state, tokenId);
     if (!started || next === state) return;
     state = next;
-    const setLabel = token ? getRelicSetById(token.setId)?.label ?? token.setId : "unknown set";
+    // Relics v2 R2-2: a blank with no set (no site) reads "General".
+    const setLabel = token ? (token.setId === undefined ? "General" : getRelicSetById(token.setId)?.label ?? token.setId) : "unknown set";
     pushLog(`Relic study started → ${token ? token.tier.charAt(0).toUpperCase() + token.tier.slice(1) : ""} ${setLabel} relic.`);
     doSave();
   }
@@ -7883,6 +7951,7 @@
   function openConfigurator(kind: CraftLineKind, slotIndex: number) {
     openConfig = { kind, slotIndex };
     cfgQty = 1;
+    cfgBestMaterials = false; // ML-4: lowest quality first, every time
     if (kind === "refine") {
       cfgTier = 1; // REFINE_RECIPES carry no tier -> a single synthetic "Tier 1"
       cfgRecipeKey = Object.keys(REFINE_RECIPES).filter(refineRecipeOffered)[0] ?? "";
@@ -7911,13 +7980,14 @@
   // refineConfirmEnabled is on, stash the pending line + open the modal (Confirm commits);
   // otherwise commit straight away. `mode` is the batch/continuous run-mode (the configurator
   // only builds batch; continuous is engine-supported but not surfaced by this UI).
-  function doStartLine(kind: CraftLineKind, recipeKey: string, mode: CraftLineMode) {
+  // ML-4: `best` is the configurator's "Use best materials" toggle (carried through the confirm).
+  function doStartLine(kind: CraftLineKind, recipeKey: string, mode: CraftLineMode, best = false) {
     if (refineConfirmEnabled) {
-      pendingLineStart = { kind, recipeKey, mode };
+      pendingLineStart = { kind, recipeKey, mode, best };
       refineConfirmDontShowAgain = false; // fresh checkbox each time the modal opens
       refineConfirmModalOpen = true;
     } else {
-      commitStartLine(kind, recipeKey, mode);
+      commitStartLine(kind, recipeKey, mode, best);
     }
   }
 
@@ -7950,8 +8020,8 @@
     return bp.label.replace(/ Blueprint$/, "");
   }
 
-  function commitStartLine(kind: CraftLineKind, recipeKey: string, mode: CraftLineMode) {
-    const { next, started } = startLine(state, kind, recipeKey, mode);
+  function commitStartLine(kind: CraftLineKind, recipeKey: string, mode: CraftLineMode, best = false) {
+    const { next, started } = startLine(state, kind, recipeKey, mode, best ? "best" : undefined);
     if (!started) return;
     state = next;
     // Task 19: an EQUIPMENT blueprint logs its minted piece's SYSTEM name (slot + variety); it
@@ -7969,7 +8039,7 @@
         ? equipmentOutputLabel(eqOut)
         : ITEMS[outputId]?.label ?? outputId;
     const verb = kind === "refine" ? "Refine" : "Fabricate";
-    const desc = mode.kind === "batch" ? `×${mode.remaining}` : "continuous";
+    const desc = (mode.kind === "batch" ? `×${mode.remaining}` : "continuous") + (best ? ", best materials" : "");
     pushLog(`${verb} line started (${desc}) → [${outputLabel}].`);
     closeConfigurator();
     doSave();
@@ -7984,7 +8054,7 @@
       refineConfirmEnabled = false;
       saveRefineConfirmEnabled(false);
     }
-    commitStartLine(pendingLineStart.kind, pendingLineStart.recipeKey, pendingLineStart.mode);
+    commitStartLine(pendingLineStart.kind, pendingLineStart.recipeKey, pendingLineStart.mode, pendingLineStart.best);
     refineConfirmModalOpen = false;
     pendingLineStart = null;
   }
@@ -8080,9 +8150,11 @@
     facility: QueueFacilityKey,
     kind: CraftLineKind,
     recipeKey: string,
-    mode: CraftLineMode
+    mode: CraftLineMode,
+    best = false
   ) {
-    const order: QueuedOrder = { type: "craftLine", kind, recipeKey, mode };
+    // ML-4: the "Use best materials" toggle rides on the queued order (written only when on).
+    const order: QueuedOrder = { type: "craftLine", kind, recipeKey, mode, ...(best ? { materialPreference: "best" as const } : {}) };
     const { next, queued } = enqueueOrder(state, facility, order);
     // A refusal returns the SAME state ref (depth full / wrong facility), so this is a clean
     // no-op. The button's own disabled state already mirrors canEnqueueOrder, so reaching
@@ -9866,14 +9938,14 @@
   // Lab level (0 = not built; freshState seeds 1) + its parallel-project slot count
   // (derived from levels reached; parallels refinerySlots). researchSlotCount reads
   // state directly, so it's reactive here.
-  $: researchLevel = state.facilities[RESEARCH_FACILITY_KEY]?.level ?? 0;
+  $: researchLevel = labTier(state);
   $: researchSlots = researchSlotCount(state);
   // The research projects currently in flight (kind "researchProject"). Their count
   // vs researchSlots is the free-slot gate (enforced in canResearch); each also
   // renders a progress row in the Overview sub-tab.
   $: activeResearchProjects = state.activeProcesses.filter((p) => p.kind === "researchProject");
 
-  // Next Research Lab UPGRADE rung (upgrades[level]; caps at length 2 today).
+  // Next Research Lab UPGRADE rung (upgrades[level]; the track ends at LAB_FABRICATOR_TOP_TIER, OC-15).
   // researchMaxed is an EXPLICIT length check (same noUncheckedIndexedAccess
   // reasoning as refineryMaxed) so nextResearchUpgrade stays non-undefined-typed in
   // the {:else} branch. The upgrade check + in-flight process mirror the Refinery's.
@@ -9915,14 +9987,14 @@
   // Fabricator level (0 = not built; freshState seeds 1) + its parallel-craft slot count
   // (derived from levels reached; parallels researchSlots). fabricateSlotCount reads state
   // directly, so it's reactive here.
-  $: fabricatorLevel = state.facilities[FABRICATOR_FACILITY_KEY]?.level ?? 0;
+  $: fabricatorLevel = fabricatorTier(state);
   $: fabricateSlots = fabricateSlotCount(state);
   // The fabricate jobs currently in flight (kind "fabricateJob"). Their count vs
   // fabricateSlots is the free-slot gate (enforced in canFabricate); each also renders a
   // progress row in the Overview sub-tab.
   $: activeFabricateJobs = state.activeProcesses.filter((p) => p.kind === "fabricateJob");
 
-  // Next Fabricator UPGRADE rung (upgrades[level]; caps at length 2 today). fabricatorMaxed
+  // Next Fabricator UPGRADE rung (upgrades[level]; ends at LAB_FABRICATOR_TOP_TIER). fabricatorMaxed
   // is an EXPLICIT length check (same noUncheckedIndexedAccess reasoning as researchMaxed)
   // so nextFabricatorUpgrade stays non-undefined-typed in the {:else} branch. The upgrade
   // check + in-flight process mirror the Research Lab's.
@@ -10052,6 +10124,10 @@
   // tier-3 blueprint later makes the clause reappear on its own with no code change.
   $: maxBlueprintTier = Object.values(BLUEPRINTS).reduce((max, bp) => Math.max(max, bp.tier), 0);
   $: fabricatorUnlocksNextTier = fabricatorLevel + 1 <= maxBlueprintTier;
+  // The Research Lab's twin (OC-15): its tier rungs III to VII exist before every tier has a blueprint (the classed
+  // drives, gas giant specials and top modules land in their own slices), so its grant line names a tier only when
+  // that tier has a blueprint, and otherwise names the research slot alone.
+  $: researchUnlocksNextTier = researchLevel + 1 <= maxBlueprintTier;
 
   // ── The CRAFTING LEVEL readout (Crafting 0.13.3, Phase 4 Unit 4.5) ──
   // The state-dependent half of the panel. Everything binds to craftingProgress.ts and
@@ -11814,12 +11890,20 @@
                           </div>
                         {/each}
 
+                        <!-- Material Lines ML-4 (L5, the signed-off Refinery mockup's order switch): which stock this
+                             order spends first. Starts off (lowest quality first) every time the form opens. The
+                             switch's own aria-label names it, so the visible title is aria-hidden (read once). -->
+                        <div class="dev-row" style="margin-top: 8px; align-items: center; gap: 8px;">
+                          <Toggle label="Use best materials" checked={cfgBestMaterials} on:change={(e) => (cfgBestMaterials = e.detail)} />
+                          <span><b aria-hidden="true">Use best materials</b><br /><span class="research-cost">{bestMaterialsNote(cfgBestMaterials)}</span></span>
+                        </div>
+
                         <div class="dev-row" style="margin-top: 8px;">
                           <button
                             class="buy-btn"
                             disabled={!gate.ok}
                             title={gate.ok ? undefined : startLineBlockText(gate.reason)}
-                            on:click={() => doStartLine("refine", cfgRecipeKey, { kind: "batch", remaining: Math.floor(cfgQty) })}
+                            on:click={() => doStartLine("refine", cfgRecipeKey, { kind: "batch", remaining: Math.floor(cfgQty) }, cfgBestMaterials)}
                           >
                             Refine · ×{Math.max(1, Math.floor(cfgQty))}
                           </button>
@@ -11846,7 +11930,7 @@
                             disabled={queueCtl.blockText !== "" && !queueCtl.queueFullOnly}
                             on:click={() => queueCtl.queueFullOnly
                               ? openQueueFullNotice("refinery")
-                              : doEnqueueLine("refinery", "refine", cfgRecipeKey, { kind: "batch", remaining: Math.floor(cfgQty) })}
+                              : doEnqueueLine("refinery", "refine", cfgRecipeKey, { kind: "batch", remaining: Math.floor(cfgQty) }, cfgBestMaterials)}
                           >
                             Add to queue · ×{Math.max(1, Math.floor(cfgQty))}
                           </button>
@@ -12333,6 +12417,9 @@
                              picked something (or on a save naming a retired key), which is what the
                              {#if xpBp} guard down there is for. -->
                         {@const xpBp = BLUEPRINTS[cfgRecipeKey]}
+                        <!-- Material Lines ML-4: only a stackable output carries the consumed quality today (an
+                             equipment blank keeps it once quality blanks land, ML-5), so the switch shows for those. -->
+                        {@const bestOffered = xpBp !== undefined && !blueprintMintsEquipmentInstance(xpBp)}
                         <div class="mission-card" style="margin-top: 10px;">
                           <div class="research-name">{#if isQueueOpener}<Icon name="queue" size={12} /> Queue · configure an order{:else}<Icon name="fabricator" size={12} /> Line {slotIndex + 1} · configure a craft{/if}</div>
 
@@ -12471,12 +12558,20 @@
                             </div>
                           {/if}
 
+                          <!-- Material Lines ML-4 (L5): the order switch, as on the Refinery's form. -->
+                          {#if bestOffered}
+                            <div class="dev-row" style="margin-top: 8px; align-items: center; gap: 8px;">
+                              <Toggle label="Use best materials" checked={cfgBestMaterials} on:change={(e) => (cfgBestMaterials = e.detail)} />
+                              <span><b aria-hidden="true">Use best materials</b><br /><span class="research-cost">{bestMaterialsNote(cfgBestMaterials)}</span></span>
+                            </div>
+                          {/if}
+
                           <div class="dev-row" style="margin-top: 8px;">
                             <button
                               class="buy-btn"
                               disabled={!gate.ok}
                               title={gate.ok ? undefined : startLineBlockText(gate.reason, BLUEPRINTS[cfgRecipeKey])}
-                              on:click={() => doStartLine("fabricate", cfgRecipeKey, { kind: "batch", remaining: Math.floor(cfgQty) })}
+                              on:click={() => doStartLine("fabricate", cfgRecipeKey, { kind: "batch", remaining: Math.floor(cfgQty) }, bestOffered && cfgBestMaterials)}
                             >
                               Fabricate · ×{Math.max(1, Math.floor(cfgQty))}
                             </button>
@@ -12504,7 +12599,7 @@
                               disabled={queueCtl.blockText !== "" && !queueCtl.queueFullOnly}
                               on:click={() => queueCtl.queueFullOnly
                                 ? openQueueFullNotice("fabricator")
-                                : doEnqueueLine("fabricator", "fabricate", cfgRecipeKey, { kind: "batch", remaining: Math.floor(cfgQty) })}
+                                : doEnqueueLine("fabricator", "fabricate", cfgRecipeKey, { kind: "batch", remaining: Math.floor(cfgQty) }, bestOffered && cfgBestMaterials)}
                             >
                               Add to queue · ×{Math.max(1, Math.floor(cfgQty))}
                             </button>
@@ -12542,7 +12637,7 @@
 
             {#if activeFabricatorSubTab === "upgrades"}
               <!-- UPGRADES, the Fabricator's finite tier/slot track
-                   (FACILITIES.fabricator.upgrades[level]; caps at length 2 today). Each
+                   (FACILITIES.fabricator.upgrades[level]; ends at tier VII, OC-15). Each
                    next rung grants a craft slot AND unlocks the next blueprint tier for
                    fabrication. Cost is CREDITS (materials are the per-craft cost, not the
                    upgrade cost), so the credits gate leads; the materials loop is kept
@@ -12949,7 +13044,7 @@
 
             {#if activeResearchSubTab === "upgrades"}
               <!-- UPGRADES, the Research Lab's finite tier/slot track
-                   (FACILITIES.research.upgrades[level]; caps at length 2 today). Each
+                   (FACILITIES.research.upgrades[level]; ends at tier VII, OC-15). Each
                    next rung grants a research slot AND unlocks the next blueprint tier.
                    Cost is CREDITS (the design's long-term sink), not materials, so the
                    credits gate leads the readiness rows; materials loop is kept (empty
@@ -12972,7 +13067,7 @@
                        whitespace-only text at a block boundary, which Svelte would trim) so
                        the " · " separator renders. -->
                   <div class="research-cost">
-                    {#if "addResearchSlots" in eff}Grants: +{eff.addResearchSlots} research slot{eff.addResearchSlots === 1 ? "" : "s"} · unlocks Tier {researchLevel + 1} blueprints{:else}Grants: unlocks Tier {researchLevel + 1} blueprints{/if}
+                    {#if "addResearchSlots" in eff}Grants: +{eff.addResearchSlots} research slot{eff.addResearchSlots === 1 ? "" : "s"}{#if researchUnlocksNextTier}{" "}· unlocks Tier {researchLevel + 1} blueprints{/if}{:else}Grants: unlocks Tier {researchLevel + 1} blueprints{/if}
                   </div>
                   <div class="research-cost">Duration: {durationReadout(nextResearchUpgrade.durationTicks, showTickCounts, state.tickDurationSeconds)}</div>
 
@@ -15225,11 +15320,12 @@
                 {/if}
 
                 <!-- Slots, grouped -->
-                {#each ["offense", "defense", "systems"] as grp (grp)}
+                <!-- E-MOD EM-5: "modules" holds the module slots, present only once modules are shown (UNIVERSAL_MODULES_LIVE). -->
+                {#each ["offense", "defense", "systems", "modules"] as grp (grp)}
                   {@const groupSlots = armorySlotDefs.filter((d) => d.group === grp)}
                   {#if groupSlots.length > 0}
                     <div class="warehouse-tier-head" style="margin-top:8px;">
-                      <span class="warehouse-tier-label">{grp === "offense" ? "Offense" : grp === "defense" ? "Defense" : "Systems"}</span>
+                      <span class="warehouse-tier-label">{grp === "offense" ? "Offense" : grp === "defense" ? "Defense" : grp === "modules" ? "Modules" : "Systems"}</span>
                       <span class="warehouse-tier-line"></span>
                     </div>
                     {#each groupSlots as def (def.key)}
@@ -17082,6 +17178,8 @@
           { key: "gathering", label: "Gathering" },
           { key: "combat", label: "Combat Patrols" },
           { key: "exploration", label: "Exploration" },
+          // G1-6: the Short-Range board, beside Exploration (shown once the board is live).
+          ...(SHORT_RANGE_BOARD_LIVE ? [{ key: "shortRange", label: "Short-Range" }] : []),
           { key: "missionControl", label: "Mission Control" },
           { key: "battlespacePve", label: "Battlespace (PvE)", locked: true },
           { key: "battlespacePvp", label: "Battlespace (PvP)", locked: true },
@@ -17413,9 +17511,10 @@
       {#if activeOperationsTab === "overview"}
         {@const gatheringCaptains = state.captains.filter((c) => extractionMissionOf(c) !== null)}
         {@const patrolCaptains = state.captains.filter((c) => c.mission !== null && c.mission.kind === "patrol")}
+        {@const shortRangeCaptains = state.captains.filter((c) => c.mission !== null && c.mission.kind === "shortRange")}
       <div class="tab-scroll-area">
-        {#if gatheringCaptains.length === 0 && patrolCaptains.length === 0}
-          <p class="prestige-text">No missions in progress. Dispatch a captain from the Gathering or Combat Patrols tab.</p>
+        {#if gatheringCaptains.length === 0 && patrolCaptains.length === 0 && shortRangeCaptains.length === 0}
+          <p class="prestige-text">No missions in progress. Dispatch a captain from the Gathering{SHORT_RANGE_BOARD_LIVE ? ", Combat Patrols or Short-Range tab" : " or Combat Patrols tab"}.</p>
         {/if}
         {#if gatheringCaptains.length > 0}
           <!-- 0.13.6 spacing pass: section headers on Ops/Combat now use the shared home-sec-hd
@@ -17439,6 +17538,43 @@
           {#each patrolCaptains as captain (captain.id)}
             {@render patrolInProgressCard(captain)}
           {/each}
+        {/if}
+        {#if shortRangeCaptains.length > 0}
+          <!-- Short-Range Missions 0.14.0 (G1-6, the signed-off board mockup's "In progress elsewhere"): each run as one
+               card with the board's own words (shortRangeBoardDisplay.ts shortRangeRunView). A run waiting at home reads
+               as a calm status line with no countdown (user 2026-10-21 "Yes, calm status line"), never a warning. -->
+          <div class="home-sec-hd">
+            <span class="home-sec-h">Short-Range</span>
+            <span class="home-sec-count">{shortRangeCaptains.length}</span>
+            <span class="home-sec-rule"></span>
+          </div>
+          {#each shortRangeCaptains as captain (captain.id)}
+            {@const run = shortRangeRunView(state, captain)}
+            {#if run !== null}
+              {@const cur = run.phases[run.phaseIndex]}
+              <div class="mission-card">
+                <div class="research-name"><Icon name={run.job.icon} size="1em" /> {captain.label}, {run.job.label}</div>
+                {#if run.hold !== null}
+                  <div class="research-cost">Slot {run.slotId + 1}, {run.shipLabel}. {run.holdLine}</div>
+                {:else}
+                  <div class="research-cost">Slot {run.slotId + 1}, {run.shipLabel}. {run.phaseLabel}. Cycle {run.cycleNumber}{#if run.recalled}, the last cycle{:else}, re-rolls in {durationReadout(run.cycleRemainingTicks, showTickCounts, state.tickDurationSeconds)}{/if}</div>
+                  <div class="research-bar-track">
+                    <div class="research-bar-fill" style="width:{cur.done * 100}%"></div>
+                  </div>
+                  <div class="research-readout">{remainingReadout(run.phaseRemainingTicks, Math.ceil(cur.ticks), showTickCounts, state.tickDurationSeconds)} in phase</div>
+                {/if}
+                <div class="patrol-card-actions">
+                  <button class="dev-btn" on:click={() => (activeOperationsTab = "shortRange")}>Open board</button>
+                  {#if run.recalled && run.hold === null}
+                    <p class="prestige-text mission-recalled-text">Recall ordered, docking after this cycle.</p>
+                  {:else}
+                    <button class="recall-btn" on:click={() => doRecallCaptain(captain.id)}>Recall Captain</button>
+                  {/if}
+                </div>
+              </div>
+            {/if}
+          {/each}
+          <p class="research-cost">Transit berths at home: {transitBerthsFree(state)} of {transitBerthCount(state)} free. Unloading at home takes a berth, same rules as captain missions.</p>
         {/if}
       </div>
       {/if}
@@ -17750,6 +17886,25 @@
            internal structure and are deferred to the combat build, 0.13.0, per the
            design doc). Nothing renders here until that content exists. -->
 
+      {#if activeOperationsTab === "shortRange" && SHORT_RANGE_BOARD_LIVE}
+      <!-- Short-Range Missions 0.14.0 (G1-6): the BOARD (ShortRangePanel.svelte, built to the signed-off mockup). Actions
+           bubble up to the do* handlers (doDispatchShortRange / doRecallCaptain / doSetShortRangeRepeat), and a locked
+           slot's "Go to Mission Control" lands on the Mission Control upgrade that opens it. -->
+      <div class="tab-scroll-area">
+        <ShortRangePanel
+          {state}
+          {showTickCounts}
+          onDispatch={doDispatchShortRange}
+          onRecall={doRecallCaptain}
+          onSetRepeat={doSetShortRangeRepeat}
+          onOpenMissionControl={() => {
+            activeOperationsTab = "missionControl";
+            activeMissionControlSubTab = "upgrades";
+          }}
+        />
+      </div>
+      {/if}
+
       {#if activeOperationsTab === "missionControl"}
       <!-- Mission Control (mission-unlock facility). Moved VERBATIM here from the
            Facilities tab (0.11.2 nav restructure, Task 5); in the 0.12.0 "Console"
@@ -17806,9 +17961,16 @@
                 {/if}
 
                 <p class="research-status" style="margin-top: 10px; color: var(--color-text-secondary);">
-                  All current missions are available. Future missions will unlock here
-                  as new content is added.
+                  <!-- G1-6 review: a maxed Mission Control promises nothing further here. -->
+                  {#if missionControlMaxed}All current missions are available.{:else}All current missions are available. Future missions will unlock here
+                  as new content is added.{/if}
                 </p>
+                {#if SHORT_RANGE_BOARD_LIVE}
+                  <!-- G1-6: the board's slots grow with this facility (two from the start, then one per upgrade). -->
+                  <p class="research-status" style="margin-top: 6px; color: var(--color-text-secondary);">
+                    Short-Range board: {shortRangeBoardSlots(state).length} slots open. Each upgrade opens one more (Upgrades tab).
+                  </p>
+                {/if}
               </Panel>
             {/if}
 
@@ -17821,17 +17983,24 @@
                   <!-- USER REVISION 2026-07-14: Mission Control caps at its current
                        content (the unlock UPGRADE is deferred until future missions
                        exist, see model.ts FACILITIES.missionControl). This is the
-                       standard maxed state the Refinery/Warehouse tracks show; the note
-                       flags that a future unlock rung re-appears here with new content. -->
+                       standard maxed state the Refinery/Warehouse tracks show. G1-6 review: the old
+                       "Future missions will unlock here" note is gone (a maxed track promises nothing). -->
                   <p class="research-status">Fully upgraded.</p>
-                  <p class="research-status" style="margin-top: 6px; color: var(--color-text-secondary);">
-                    Future missions will unlock here as new content is added.
-                  </p>
                 {:else}
                   <div class="research-name">Next: Level {missionControlLevel} → {missionControlLevel + 1}</div>
+                  <!-- G1-6: a Short-Range board rung names the slot it opens (shortRangeBoardDisplay.ts
+                       missionControlRungSlotText); any other rung keeps the mission-unlock line. -->
+                  {@const rungSlotText = missionControlRungSlotText(nextMissionControlUpgrade.effect, shortRangeBoardSlots(state).length + 1)}
                   <div class="research-cost">
-                    Unlocks the missions gated at level {missionControlLevel + 1} · Duration: {durationReadout(nextMissionControlUpgrade.durationTicks, showTickCounts, state.tickDurationSeconds)}
+                    {rungSlotText ?? `Unlocks the missions gated at level ${missionControlLevel + 1}`} · Duration: {durationReadout(nextMissionControlUpgrade.durationTicks, showTickCounts, state.tickDurationSeconds)}
                   </div>
+                  <!-- G1-6: the board rungs cost credits (the Fabricator card's credit row; canBuildFacilityUpgrade gates it). -->
+                  {#if nextMissionControlUpgrade.credits !== undefined}
+                    {@const met = state.credits.gte(nextMissionControlUpgrade.credits)}
+                    <div class="research-cost" style="color: {met ? 'var(--color-success)' : 'var(--color-danger)'}">
+                      {#if met}<Icon name="check" size={12} />{:else}<Icon name="warning" size={12} />{/if} Cost: ◈ {formatNumber(nextMissionControlUpgrade.credits)} (have {formatNumber(state.credits)})
+                    </div>
+                  {/if}
 
                   <!-- Material readiness ([Item]: have / need, ✅/❌), same idiom as
                        the Refinery/Warehouse upgrade tabs. -->
@@ -19304,7 +19473,8 @@
                the base-vs-fitted delta below is obvious. -->
           <div class="dev-row">
             <span class="dev-label">Grant slot</span>
-            {#each Object.keys(EQUIPMENT_SLOTS) as slotKey}
+            <!-- E-MOD EM-5: a slot with no varieties yet (the module slot until EM-7) has nothing to grant. -->
+            {#each Object.keys(EQUIPMENT_SLOTS).filter((k) => EQUIPMENT_SLOTS[k].varieties.length > 0) as slotKey}
               <button
                 class="dev-btn"
                 class:active={devEqSlot === slotKey}
@@ -19413,7 +19583,8 @@
                    spare as a Fit button (disabled + reasoned when canFit blocks).
                    SHIP slots only: the away-team member slots (isMemberSlotType) are worn
                    by members, never installed on a hull. -->
-              {#each Object.keys(EQUIPMENT_SLOTS).filter((k) => !isMemberSlotType(k)) as slotKey}
+              <!-- E-MOD EM-5: a slot with no varieties (the module slot until EM-7) has no piece to list. -->
+              {#each Object.keys(EQUIPMENT_SLOTS).filter((k) => !isMemberSlotType(k) && EQUIPMENT_SLOTS[k].varieties.length > 0) as slotKey}
                 {@const slot = slotKey as EquipmentSlotType}
                 {@const fitted = fittedInSlot(state, ship.id, slot)}
                 {@const matchingSpares = state.equipment.filter((e) => isUninstalledPiece(e) && e.slotType === slot)}
@@ -20540,7 +20711,7 @@
         <p class="offline-summary-lead">You were away for {formatDuration(sum.secondsAway, 1)}. Here is what your fleet got done.</p>
 
         <div class="offline-summary-scroll">
-          <!-- Missions completed, broken down by type (Combat / Gathering / Other). One row per
+          <!-- Missions completed, broken down by type (Combat / Gathering / Short-Range / Other). One row per
                type that saw a completion; the pure diff already summed the per-mission tallies
                into their type and emitted them in a fixed order. -->
           {#if sum.missionsByType.length > 0}

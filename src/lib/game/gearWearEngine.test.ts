@@ -97,11 +97,11 @@ describe("gear wear step 3: the use wear sources (each kind its own way, at its 
   it("an expedition's training run is never stamped (W9); an ordinary run is, and comes home with its ship's and members' use", () => {
     // The training run is an explorer's first expedition (safe first runs SF-2).
     const ready = withAwayTeam(installPiece(wiringBase("orion"), { slotType: "reactorCore", durabilityMax: 100 }));
-    const train = startExpedition(ready, WIRING_SHIP_ID, 1, expeditionCandidates(ready, WIRING_SHIP_ID)[0].id);
+    const train = startExpedition(ready, WIRING_SHIP_ID, 1, expeditionCandidates(ready, WIRING_SHIP_ID)[0].id, true, undefined, false);
     expect(train.expedition?.difficulty?.firstRun).toBe(true);
     expect(train.expedition?.gearWear).toBeUndefined();
     const ordinary = afterExpeditionTraining(ready);
-    const res = startExpedition(ordinary, WIRING_SHIP_ID, 1, expeditionCandidates(ordinary, WIRING_SHIP_ID)[0].id);
+    const res = startExpedition(ordinary, WIRING_SHIP_ID, 1, expeditionCandidates(ordinary, WIRING_SHIP_ID)[0].id, true, undefined, false);
     expect(res.expedition?.gearWear).toEqual({ version: 1, dispatchedAt: ordinary.gameTimeSeconds });
     const done = advanceExpedition(res.expedition!, res.expedition!.phaseAnchorSeconds + 1e9);
     const home: GameState = { ...res.next, gameTimeSeconds: done.phaseAnchorSeconds, expeditions: [done] };
@@ -269,7 +269,7 @@ describe("gear wear step 3: the save carries every stamp and tally", () => {
 
   it("an ordinary expedition's stamp and its ground tally round-trip", () => {
     const ready = afterExpeditionTraining(withAwayTeam(wiringBase()));
-    const res = startExpedition(ready, WIRING_SHIP_ID, 1, expeditionCandidates(ready, WIRING_SHIP_ID)[0].id);
+    const res = startExpedition(ready, WIRING_SHIP_ID, 1, expeditionCandidates(ready, WIRING_SHIP_ID)[0].id, true, undefined, false);
     const mid = advanceExpedition(res.expedition!, res.expedition!.phaseAnchorSeconds + 200_000);
     const s: GameState = { ...res.next, gameTimeSeconds: res.expedition!.phaseAnchorSeconds + 200_000, expeditions: [mid] };
     const back = migrate(deserialize(serialize(s, 0, 0))!);
@@ -294,7 +294,7 @@ describe("gear wear step 3: the section 3.4 targets the provisional raws were tu
   it("an ordinary expedition comes home with its gear 80% or better (its time slices against the upkeep)", () => {
     const ready = afterExpeditionTraining(withAwayTeam(installPiece(seatOfficer(wiringBase(), "operations", []), { slotType: "reactorCore", durabilityMax: 100 })));
     for (let c = 0; c < 3; c++) {
-      const res = startExpedition(ready, WIRING_SHIP_ID, 1, expeditionCandidates(ready, WIRING_SHIP_ID)[c].id);
+      const res = startExpedition(ready, WIRING_SHIP_ID, 1, expeditionCandidates(ready, WIRING_SHIP_ID)[c].id, true, undefined, false);
       const done = advanceExpedition(res.expedition!, res.expedition!.phaseAnchorSeconds + 1e9);
       const home: GameState = { ...res.next, gameTimeSeconds: done.phaseAnchorSeconds, expeditions: [done] };
       const events = emptyWearEvents();

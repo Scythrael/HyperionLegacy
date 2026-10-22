@@ -22,8 +22,8 @@ import Decimal from "break_infinity.js";
 import { freshState, type AwayMember, type GameState, type MissionKey, type SecondaryTalentKey } from "./model";
 import { PRE_RX_MISSION_KEYS } from "./reactorFuelGoldens.fixture";
 import { canDispatch, dispatchCaptainOnMission, economyTick, shipRangeLightYears } from "./tick";
-import { expeditionCandidates, startExpedition } from "./expedition";
-import { asPreG2NamesDispatch, asPreRanksDispatch, asPreSafeFirstRunsDispatch, plainAwayMember, withSlottedAwayTeams } from "./awayTeamTestFixtures";
+import { expeditionCandidates } from "./expedition";
+import { asPreG2NamesDispatch, asPreRanksDispatch, asPreSafeFirstRunsDispatch, plainAwayMember, withSlottedAwayTeams, dispatchPastPropulsion } from "./awayTeamTestFixtures";
 
 function fnv(s: string): string {
   let h = 0x811c9dc5;
@@ -73,7 +73,7 @@ function groundOpsRecord(s: GameState): string {
   const squad: AwayMember[] = [plainAwayMember("member-1", "security", "ship-1"), plainAwayMember("member-11", "science", "ship-1")];
   const s0 = withSlottedAwayTeams({ ...s, awayMembers: squad, nextAwayMemberId: 100, expeditionSeed: 0x1234 });
   // Safe first runs SF-2: as dispatched before SF-2 (no training stamp, the retired 30 minute shakedown on expedition 1).
-  const res = asPreG2NamesDispatch(asPreSafeFirstRunsDispatch(asPreRanksDispatch(startExpedition(s0, "ship-1", 1, expeditionCandidates(s0, "ship-1")[0].id))));
+  const res = asPreG2NamesDispatch(asPreSafeFirstRunsDispatch(asPreRanksDispatch(dispatchPastPropulsion(s0, "ship-1", 1, expeditionCandidates(s0, "ship-1")[0].id))));
   if (!res.success || !res.expedition) throw new Error(`dispatch refused: ${res.reason}`);
   return hash(res.expedition);
 }

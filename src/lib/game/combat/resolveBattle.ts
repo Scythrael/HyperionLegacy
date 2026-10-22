@@ -344,6 +344,20 @@ function steadyUnderFire(c: Combatant): NonNullable<Combatant["underFire"]> | un
 	return c.underFire !== undefined && c.hull * 2 < c.hullMax ? c.underFire : undefined;
 }
 
+// E-MOD EM-5: the summed weapon-damage lift of `c`'s Conditional modules whose state holds right now (the named pool
+// strictly below its fraction of the maximum; a pool with no maximum never qualifies). 0 with none. A pure read of the
+// live state: no draw, so the combat stream schedule never changes.
+function moduleConditionalDamage(c: Combatant): number {
+	const mods = c.moduleConditionals;
+	if (mods === undefined) return 0;
+	let lift = 0;
+	for (const m of mods) {
+		const [cur, max] = m.pool === "hull" ? [c.hull, c.hullMax] : [c.shield, c.shieldMax];
+		if (max > 0 && cur < max * m.fraction) lift += m.weaponDamage;
+	}
+	return lift;
+}
+
 // True when `c` is steady under fire with a non-zero weapon-damage extra (fireWeapon's per-projectile check).
 function attackerSteady(c: Combatant): boolean {
 	const steady = steadyUnderFire(c);
@@ -910,6 +924,12 @@ export function fireWeapon(
 		// (checked per projectile, so a shot that drops it below half lifts the rest). Whole points; no draw.
 		if (attackerSteady(self)) {
 			raw = Math.round(raw * (1 + self.underFire!.weaponDamage));
+		}
+		// E-MOD EM-5: the attacker's Conditional modules (Last Stand style: below a hull threshold), checked per projectile
+		// like the line above, so a shot that drops the hull below the threshold lifts the rest. Whole points; no draw.
+		if (self.moduleConditionals !== undefined) {
+			const lift = moduleConditionalDamage(self);
+			if (lift !== 0) raw = Math.round(raw * (1 + lift));
 		}
 		// WR-5b: the attacker's captain edges (Weapons Drill, Overcharge, Alpha Strike), banked whole points; no draw.
 		raw = captainProjectileDamage(self.captainEdge, weapon, target, raw);

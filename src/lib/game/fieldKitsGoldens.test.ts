@@ -33,7 +33,7 @@ import { gearWearOffInThisFile } from "./gearWearSwitch.fixture";
 gearWearOffInThisFile();
 import Decimal from "break_infinity.js";
 import { EQUIPMENT_SLOTS, FIELD_KITS_PLAYER_LIVE, freshState, grenadeCraftPool, type AwayMember, type BodyRiskGrades, type EquipmentInstance, type Expedition, type ExpeditionActivity, type ExpeditionBody, type GameState, type GroundStepRecord, type ShipGroundTeam } from "./model";
-import { advanceExpedition, claimExpedition, expeditionCandidates, scanEncounterChance, scanStepRoll, shipScanEventChance, squadEncounterBias, fieldDeviceEffectiveness, startExpedition } from "./expedition";
+import { advanceExpedition, claimExpedition, expeditionCandidates, scanEncounterChance, scanStepRoll, shipScanEventChance, squadEncounterBias, fieldDeviceEffectiveness } from "./expedition";
 import { bodyFloraGrade, generateRiskProfile, type ExpeditionRegion } from "./riskFactors";
 import { groundOpsAssignIdle, groundOpsBodyScanned, initGroundTasks, taskCover } from "./groundOps";
 import { alertLevelAt, rollReinforcements, type ObjectiveAffix } from "./affixes";
@@ -46,7 +46,7 @@ import { resistedHazard } from "./relics";
 import { inspectBlank } from "./tick";
 import { applyGroundTeamLoadout, checkInGroundTeamLoadout, createGroundTeamLoadout } from "./armory";
 import { deserialize, migrate, serialize } from "./save";
-import { asPreG2NamesDispatch, plainAwayMember, withSlottedAwayTeams, withoutAffixes, withoutFieldKits, withoutFieldKitsState, withoutGroundOps, withoutRisk, withoutSafeFirstRuns } from "./awayTeamTestFixtures";
+import { asPreG2NamesDispatch, plainAwayMember, withSlottedAwayTeams, withoutAffixes, withoutFieldKits, withoutFieldKitsState, withoutGroundOps, withoutRisk, withoutSafeFirstRuns, dispatchPastPropulsion } from "./awayTeamTestFixtures";
 // SF-1: whole states hash without the run counters (seeded by freshState, written by a claim), absent before SF-1.
 import { withoutRunCounts, goldenJson } from "./firstRunsGoldens.fixture";
 
@@ -107,7 +107,7 @@ function crewed(expeditionSeed: number, kinds: "gg" | "ss" = "gg", rank = 6, equ
 
 // Dispatch candidate 0, optionally on a forced region (the risk replaced before any body scans).
 function dispatch(state: GameState, region?: ExpeditionRegion): { next: GameState; exp: Expedition } {
-  const res = asPreG2NamesDispatch(startExpedition(state, "ship-1", 1, expeditionCandidates(state, "ship-1")[0].id));
+  const res = asPreG2NamesDispatch(dispatchPastPropulsion(state, "ship-1", 1, expeditionCandidates(state, "ship-1")[0].id));
   if (!res.success || !res.expedition) throw new Error(`dispatch refused: ${res.reason}`);
   // Safe first runs SF-2: the run as dispatched before SF-2 (the retired 30 minute shakedown on expedition 1).
   let exp = withoutFieldKits(withoutSafeFirstRuns(res.expedition));
@@ -153,7 +153,7 @@ interface HandSetup {
 // tasks stamped through the real path, then planned, then the teams pick (the groundOpsAffixes / Outcroppings
 // pattern).
 function handRun(setup: HandSetup): { next: GameState; exp: Expedition } {
-  const res = asPreG2NamesDispatch(startExpedition(setup.state, "ship-1", 1, "cand-0"));
+  const res = asPreG2NamesDispatch(dispatchPastPropulsion(setup.state, "ship-1", 1, "cand-0"));
   if (!res.success || !res.expedition) throw new Error(`dispatch refused: ${res.reason}`);
   const d = withoutFieldKits(withoutSafeFirstRuns(res.expedition)); // SF-2: as dispatched before SF-2 (see dispatch)
   const body: ExpeditionBody = {

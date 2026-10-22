@@ -305,6 +305,9 @@ export function shipPieceUseRaw(piece: EquipmentInstance, w: ShipUseWear): numbe
       return w.crewed ? useWearRaw("bridge:minutesCrewed", w.minutesUnderway) : 0;
     case "quarters":
       return w.crewed ? useWearRaw("quarters:minutesCrewed", w.minutesUnderway) : 0;
+    // E-MOD EM-5 (user M9 "Slowly underway"): a universal module wears by time underway, crew or not.
+    case "module":
+      return useWearRaw("module:minutesUnderway", w.minutesUnderway);
     case "sensor":
       return useWearRaw("sensor:surveyCycle", w.surveys) + useWearRaw("sensor:bodyScanned", w.bodiesScanned);
     case "specUtility":

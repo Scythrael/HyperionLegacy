@@ -16,7 +16,7 @@ import {
   type GroundStepRecord,
   type GroundTeamRun,
 } from "./model";
-import { advanceExpedition, claimExpedition, expeditionCandidates, expeditionDispatchBlockText, expeditionPhaseFraction, startExpedition } from "./expedition";
+import { advanceExpedition, claimExpedition, expeditionCandidates, expeditionDispatchBlockText, expeditionPhaseFraction } from "./expedition";
 import {
   DEPLOY_SECONDS,
   GROUND_HISTORY_CAP,
@@ -38,7 +38,7 @@ import {
 } from "./groundOps";
 import { fightPointFractions, segmentHaul, taskFullHaul, taskWorkSeconds } from "./groundTasks";
 import { resolveTaskFight, taskFightSeconds } from "./groundFight";
-import { asPreSafeFirstRunsDispatch, plainAwayMember, registerSyntheticHull, withSlottedAwayTeams } from "./awayTeamTestFixtures";
+import { asPreSafeFirstRunsDispatch, plainAwayMember, registerSyntheticHull, withSlottedAwayTeams, dispatchPastPropulsion } from "./awayTeamTestFixtures";
 import type { ShipTypeKey } from "./model";
 
 // ===== fixtures =====
@@ -103,7 +103,7 @@ function opsRun(setup: Setup): { state: GameState; exp: Expedition } {
   if (setup.state) s = setup.state(s);
   // Safe first runs SF-2: the run as dispatched before SF-2 (the 30 minute shakedown legs these timings were written
   // around; withoutSafeFirstRuns).
-  const res = asPreSafeFirstRunsDispatch(startExpedition(s, "ship-1", 1, expeditionCandidates(s, "ship-1")[0].id));
+  const res = asPreSafeFirstRunsDispatch(dispatchPastPropulsion(s, "ship-1", 1, expeditionCandidates(s, "ship-1")[0].id));
   if (!res.success || !res.expedition) throw new Error(`dispatch refused: ${res.reason}`);
   const dispatched = res.expedition;
   const body: ExpeditionBody = {
@@ -174,13 +174,13 @@ describe("GO-7b dispatch: slotted ground teams, no automatic stand-ins", () => {
       ...s0,
       ships: s0.ships.map((sh) => ({ ...sh, groundTeams: sh.groundTeams!.map((t) => ({ ...t, security: t.security.map(() => null) })) })),
     };
-    const res = startExpedition(unslotted, "ship-1", 1, expeditionCandidates(unslotted, "ship-1")[0].id);
+    const res = dispatchPastPropulsion(unslotted, "ship-1", 1, expeditionCandidates(unslotted, "ship-1")[0].id);
     expect(res.success).toBe(false);
     expect(res.reason).toBe("needsAwayTeam");
     expect(expeditionDispatchBlockText("needsAwayTeam")).toBe(
       "Needs a ground team with at least 1 Security and 1 Science member slotted and ready: set it up on the ship's Away Team tab",
     );
-    const ok = startExpedition(s0, "ship-1", 1, expeditionCandidates(s0, "ship-1")[0].id);
+    const ok = dispatchPastPropulsion(s0, "ship-1", 1, expeditionCandidates(s0, "ship-1")[0].id);
     expect(ok.success).toBe(true);
     expect(ok.expedition!.groundOps!.teams.map((t) => [t.securityIds, t.scienceIds])).toEqual([[["member-1"], ["member-11"]]]);
   });

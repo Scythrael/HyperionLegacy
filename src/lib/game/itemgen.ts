@@ -48,6 +48,8 @@ import {
 // reports the quality RANGE a craft can roll, so it reads this rather than hardcoding 5. inventory.ts
 // does not import itemgen, so this adds no cycle.
 import { QUALITY_TIERS } from "./inventory";
+// E-MOD EM-5: a universal module's draw is its catalog def's (the leaf catalog; no cycle).
+import { universalModuleDef } from "./shipModules";
 // Combat 1.0 (Unit 1.2): the weapon roster templates + id union. generateWeapon (below) mints a
 // crafted weapon by rolling power lines off a base WEAPON_DEF. This is a safe one-way import:
 // combat/weapons imports only combat/types + combat/statusEffects, never itemgen, so no cycle.
@@ -361,6 +363,14 @@ export function budgetShares(budget: number): { implicitShare: number; affixShar
 // durabilityMax scales with quality (see QUALITY_DURABILITY_BONUS); a fresh piece
 // starts at full durability.
 // ============================================================================
+// E-MOD EM-5: a universal module variety's base draw, from its catalog def. Every module variety is a catalog id
+// (shipModules.test.ts), so a miss is a data error and throws, like generateEquipment's other guards.
+function moduleBaseDraw(varietyKey: string): number {
+  const def = universalModuleDef(varietyKey);
+  if (def === undefined) throw new Error(`generateEquipment: module variety "${varietyKey}" has no UNIVERSAL_MODULES def`);
+  return def.powerDraw;
+}
+
 export function generateEquipment(a: {
   slotType: EquipmentSlotType;
   varietyKey: string;
@@ -449,7 +459,10 @@ export function generateEquipment(a: {
   const massReduction = rolledStats.massReduction ?? 0;
   const powerDrawReduction = rolledStats.powerDrawReduction ?? 0;
   const mass = Math.max(0, basePhysicals.mass - massReduction);
-  const powerDraw = Math.max(0, basePhysicals.powerDraw - powerDrawReduction);
+  // E-MOD EM-5 (plan section 3.3, "powerDraw: per def"): a universal module draws its catalog def's power, not a slot
+  // default (each module's draw is part of what it is). Every other slot keeps its SLOT_BASE_PHYSICALS draw.
+  const baseDraw = a.slotType === "module" ? moduleBaseDraw(a.varietyKey) : basePhysicals.powerDraw;
+  const powerDraw = Math.max(0, baseDraw - powerDrawReduction);
   delete rolledStats.massReduction;
   delete rolledStats.powerDrawReduction;
 
@@ -504,10 +517,13 @@ export function generateEquipment(a: {
   //     its variety overrides any table: the member install gate, the tool readers, the unique-equipped
   //     rule and the battle all read the variety's `member` traits (MemberVarietyTraits), resolved from
   //     moduleVariant through pieceVarietyDef.
+  //   - E-MOD EM-5 (0.14.0): a UNIVERSAL MODULE (module) stores its UNIVERSAL_MODULES id; its effect, the one-per-ship
+  //     rule and its draw are all read from the catalog through it (shipModules.ts).
   if (
     a.slotType === "bridge" ||
     a.slotType === "quarters" ||
     a.slotType === "sensor" ||
+    a.slotType === "module" ||
     isMemberSlotType(a.slotType) ||
     varietyHasOwnIdentity(variety)
   ) {

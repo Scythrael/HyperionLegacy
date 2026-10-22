@@ -24,11 +24,11 @@ import Decimal from "break_infinity.js";
 import { freshState, type AwayMember, type CrewBucket, type CrewRace, type Expedition, type GameState, type PatrolMissionState, type SeniorStaffSeat, type ShipTypeKey } from "./model";
 import { dispatchCaptainOnMission, dispatchCaptainOnPatrol, economyTick, installMissingCombatBaselines } from "./tick";
 import { replayPatrol } from "./combat/patrolReplay";
-import { advanceExpedition, claimExpedition, expeditionCandidates, startExpedition } from "./expedition";
+import { advanceExpedition, claimExpedition, expeditionCandidates } from "./expedition";
 import { effectiveShipStats, shipCrewContribution } from "./crewOverlay";
 import { CREW_STAT_KEYS } from "./crewBuffs";
 import { seatOfficer } from "./wiring/probes";
-import { asPreCurveDispatch, plainAwayMember, withSlottedAwayTeams } from "./awayTeamTestFixtures";
+import { asPreCurveDispatch, plainAwayMember, withSlottedAwayTeams, dispatchPastPropulsion } from "./awayTeamTestFixtures";
 import { goldenJson, withoutRunCounts } from "./firstRunsGoldens.fixture"; // gear wear: goldenJson puts the retired durability back
 import { withRacialsOff } from "./racialsSwitch.fixture";
 
@@ -121,7 +121,7 @@ function racialsRun(officers: readonly [SeniorStaffSeat, CrewRace][], buckets: r
   const s = crewed(s0, officers, buckets);
   // Safe first runs SF-3: pinned on the run as dispatched before the curve (asPreCurveDispatch: a new save's ordinary run
   // now sits on the curve's floor).
-  const res = asPreCurveDispatch(startExpedition(s, "ship-1", 1, expeditionCandidates(s, "ship-1")[0].id));
+  const res = asPreCurveDispatch(dispatchPastPropulsion(s, "ship-1", 1, expeditionCandidates(s, "ship-1")[0].id));
   if (!res.success || !res.expedition) throw new Error(`dispatch refused: ${res.reason}`);
   const exp = res.expedition;
   const done = advanceExpedition(exp, 2_000_000);

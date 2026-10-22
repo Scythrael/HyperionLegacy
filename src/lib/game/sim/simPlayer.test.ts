@@ -122,11 +122,9 @@ describe("WR-2 newcomer archetype: the real new game", () => {
     expect(r.gather?.defeat).toBe(false);
     expect(r.gather?.deliveries).toBeGreaterThan(0);
     expect(r.patrol?.refusal).toBeNull();
-    // CURRENT BEHAVIOR, flipped by G2: the freighter launches an expedition today. User rules since WR-2: the
-    // training run is the first expedition FROM AN EXPLORER, and only explorers reach expedition systems (G2's reach
-    // gate), so this launch is "not the training run" and G2 makes it a refusal. SF-2 retired the account's 30 minute
-    // shakedown, so this first launch is an ordinary run.
-    expect(r.expeditions.length).toBe(1);
-    expect(r.expeditions[0].shakedown).toBe(false);
+    // Flipped by G2-4 (user 2026-10-16: no non-explorer hull reaches any expedition system): the newcomer's starting
+    // freighter is refused, so no expedition launches (why the sim gives it no explorer path: policies.ts NEWCOMER).
+    expect(r.expeditions.length).toBe(0);
+    expect(r.expeditionRefusal).toBe("notExplorer");
   });
 });

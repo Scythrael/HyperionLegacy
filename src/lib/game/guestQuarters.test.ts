@@ -216,9 +216,16 @@ describe("G1-1 guest quarters: guests are not crew and not cargo", () => {
 // User 2026-10-19 ("Hide until Short-Range"): the Ship Systems row, its (i) definition and the hull card line stay
 // hidden until Short-Range Missions are in; the G1-4 / G1-6 slice flips GUEST_QUARTERS_DISPLAY_LIVE.
 describe("G1-1 guest quarters: hidden from the player until Short-Range Missions", () => {
-  it("the display is off today, so no ship shows the row, whatever its berths", () => {
-    expect(GUEST_QUARTERS_DISPLAY_LIVE).toBe(false);
-    for (const k of HULLS) expect(guestQuartersShown(shipDerivedStats(hull(k), [quarters(500, "quartersElite")]).colonistCapacity ?? 0), k).toBe(false);
+  // G1-6 put the board in front of the player and flipped the display live: a ship with berths shows the row, a ship
+  // with none never does (a zero is never shown).
+  it("the display is live since G1-6: a ship with guest quarters shows the row, one with none does not", () => {
+    expect(GUEST_QUARTERS_DISPLAY_LIVE).toBe(true);
+    for (const k of HULLS) {
+      const berths = shipDerivedStats(hull(k), [quarters(500, "quartersElite")]).colonistCapacity ?? 0;
+      expect(guestQuartersShown(berths), k).toBe(berths > 0);
+    }
+    expect(guestQuartersShown(HULL_GUEST_QUARTERS.eir)).toBe(true);
+    expect(guestQuartersShown(0)).toBe(false);
   });
   it("once live, the row shows only on a ship that has some", () => {
     expect(guestQuartersShown(HULL_GUEST_QUARTERS.eir, true)).toBe(true);

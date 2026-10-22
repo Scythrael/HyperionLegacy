@@ -67,6 +67,7 @@ import {
 } from "../model";
 import {
   canBuildShip,
+  canBuildFacilityUpgrade,
   canDispatch,
   startLine,
   startResearch,
@@ -117,6 +118,9 @@ import { makeRng } from "../combat/rng";
 import { wearProbeDef, type WearProbeId } from "./wearProbes";
 import {
   advanceExpedition,
+  candidateReach,
+  candidateSystemById,
+  candidateVoyage,
   claimExpedition,
   depositExpeditionFindings,
   discoveryOddsPermille,
@@ -150,7 +154,7 @@ import {
   type GambitLogEvent,
   type GroundCombatant,
 } from "../gambit";
-import { FIELD_KITS, FIELD_KITS_CATALOG_VERSION, type FieldKitId } from "../fieldKits";
+import { FIELD_KITS, FIELD_KITS_CATALOG_VERSION, FIELD_KITS_RUNS_LIVE, type FieldKitId } from "../fieldKits";
 import { withThrownGrenades } from "../fieldKitsGrenades";
 import { FIELD_KITS_BATTLE, withFieldKitsDefaultProgram } from "../fieldKitsBattle";
 import { fieldworkEffect, fieldworkHazardResist, fieldworkSpeedMult } from "../fieldwork";
@@ -456,11 +460,14 @@ function bestOverPlanets(f: (p: ExpeditionPlanetType) => number): number {
 // == expeditions ==
 
 // Dispatch ship-1 on its first candidate (the away team must be aboard). The run's frozen record is what every
-// expedition consumer reads, so most expedition probes read it or a consumer of it.
+// expedition consumer reads, so most expedition probes read it or a consumer of it. Expedition Tiers G2-4: the
+// PRE-G2-4 dispatch (propulsion gates off): ship-1 is the starting General Freighter, which a player can no longer send
+// on an expedition (not an explorer), and the probes measure what the run reads, never the hull gate (propulsion's own
+// probes read it). The record is what a gated dispatch of a ship that passes would write.
 export function dispatchRun(s: GameState): Expedition {
   const ready = s.awayMembers.some((m) => m.assignedShipId === WIRING_SHIP_ID) ? s : withAwayTeam(s);
   const cand = expeditionCandidates(ready, WIRING_SHIP_ID)[0];
-  const res = startExpedition(ready, WIRING_SHIP_ID, WIRING_CAPTAIN_ID, cand.id);
+  const res = startExpedition(ready, WIRING_SHIP_ID, WIRING_CAPTAIN_ID, cand.id, true, FIELD_KITS_RUNS_LIVE, false);
   if (!res.success || !res.expedition) throw new Error(`wiring dispatch refused: ${res.reason}`);
   return res.expedition;
 }
@@ -890,10 +897,13 @@ function cycleOutput(s: GameState): number {
 }
 
 // One whole shortOreRun cycle: the QUALITY of the ore it delivered (quality rung x units, summed).
+// Material Lines ML-3: the delivered ore's average quality, quality-weighted units over units (the draws are pinned
+// at 0.999999, so the delivery's own roll lands Q0 and the reading is the share of units that climbed a step).
 function cycleOreQuality(s: GameState): number {
   const { before, after } = oneCycle(s, "shortOreRun");
   const weighted = (g: GameState) => (g.inventory.commonOre ?? []).reduce((a, q, i) => a + i * Number(q), 0);
-  return weighted(after) - weighted(before);
+  const units = heldOf(after, "commonOre") - heldOf(before, "commonOre");
+  return units > 0 ? (weighted(after) - weighted(before)) / units : 0;
 }
 
 // How many blueprints a top-level Research Lab can start (the relic-gated ones count once their relic is found).
@@ -981,7 +991,7 @@ function missionCrewHours(s: GameState, ctx?: ContextId): number {
 function claimedObjectives(s: GameState): number {
   const ready = readyForRun(s);
   const cand = expeditionCandidates(ready, WIRING_SHIP_ID)[0];
-  const res = startExpedition(ready, WIRING_SHIP_ID, WIRING_CAPTAIN_ID, cand.id);
+  const res = startExpedition(ready, WIRING_SHIP_ID, WIRING_CAPTAIN_ID, cand.id, true, FIELD_KITS_RUNS_LIVE, false); // G2-4: see dispatchRun
   if (!res.success || !res.expedition) return -1;
   const exp = res.expedition;
   const done: Expedition = {
@@ -1031,6 +1041,12 @@ const voyageSpeed = (s: GameState, leg: "out" | "back"): number => {
   const v = dispatchRun(readyForRun(s)).voyage;
   return v ? (leg === "out" ? v.outboundSpeed : v.returnSpeed) : -1;
 };
+// Expedition Tiers G2-4: ship-1's Tier I candidate 0 on the save's current list.
+const tierOneCandidate = (s: GameState) => {
+  const cand = candidateSystemById(s, "cand-1-0");
+  if (!cand) throw new Error("wiring fixture: no Tier I candidate");
+  return cand;
+};
 const sci = () => WIRING_SCIENCE_ID;
 // The research probe reads a long project, so one museum step moves it by many ticks (well above its rounding).
 const RESEARCH_PROBE_SCALE = 1000;
@@ -1049,6 +1065,20 @@ export const PROBES = {
   // voyage's frozen speed on that leg.
   sheetOutLeg: { label: "outboundLegSpeed(effectiveShipStats): the outbound leg's speed (Ground Ops: the voyage's)", read: (s, ctx) => (ctx === "expedition:groundOps" ? voyageSpeed(s, "out") : outboundLegSpeed(sheet(s))) },
   sheetBackLeg: { label: "returnLegSpeed(effectiveShipStats): the return leg's speed (Ground Ops: the voyage's)", read: (s, ctx) => (ctx === "expedition:groundOps" ? voyageSpeed(s, "back") : returnLegSpeed(sheet(s))) },
+  // Expedition Tiers G2-4 (propulsion.ts): what a Tier I dispatch of ship-1 to cand-1-0 would fly and reach (pure
+  // reads of the console readers the gate and the launch use), and whether a real launch there is allowed.
+  voyageOutbound: {
+    label: "candidateVoyage(cand-1-0).outboundSeconds: the outbound leg a launch freezes (halved per drive class above the tier's)",
+    read: (s) => candidateVoyage(s, shipOf(s), tierOneCandidate(s), false).outboundSeconds,
+  },
+  expeditionReach: {
+    label: "candidateReach(cand-1-0).reachLy: the ship's deep-space reach on that voyage (range x drive class multiplier x Engineering)",
+    read: (s) => candidateReach(s, shipOf(s), tierOneCandidate(s)).reachLy,
+  },
+  expeditionLaunchAllowed: {
+    label: "startExpedition(cand-1-0) succeeds (1) or is refused (0), with the minimum away team aboard",
+    read: (s) => (startExpedition(withAwayTeam(s), WIRING_SHIP_ID, WIRING_CAPTAIN_ID, "cand-1-0").success ? 1 : 0),
+  },
   sheetYield: { label: "effectiveShipStats.extractionYieldMult", read: (s) => sheet(s).extractionYieldMult },
   sheetUnload: {
     label: "unload speed: effectiveShipStats.unloadSpeedMult (missions) / groundOps.factors.offloadMult (Ground Ops)",
@@ -1111,7 +1141,7 @@ export const PROBES = {
     read: (s, ctx) => (ctx === "mission:shortRange" ? shortRangeOutputShare(s) : shipMissionOutputBonus(s, shipOf(s))),
   },
   missionCycleOutput: { label: "one whole shortOreRun cycle (economyTick): the credits and Titanium Ore delivered", read: (s) => cycleOutput(s) },
-  missionOreQuality: { label: "one whole shortOreRun cycle (economyTick): the quality of the ore delivered", read: (s) => cycleOreQuality(s) },
+  missionOreQuality: { label: "one whole shortOreRun cycle (economyTick): the average quality of the ore delivered (quality-weighted units over units)", read: (s) => cycleOreQuality(s) },
   // == the captain secondary tree (WR-5a) ==
   deliveryQualityClimb: {
     label: "economyTick's mission deposit: the largest constant draw whose delivered ore still climbs to quality 1 (shortOreRun; mission:shortRange: a Supply Pickup)",
@@ -1292,6 +1322,8 @@ export const PROBES = {
   salvageLanes: { label: "salvageSlotCount", read: (s) => salvageSlotCount(s) },
   // G1-3: the short-range board's slot count (shortRangeBoard.ts, derived from the Mission Control level).
   shortRangeSlots: { label: "shortRangeBoardSlots (count)", read: (s) => shortRangeBoardSlots(s).length },
+  // G1-6: whether the next Mission Control rung can be built now (1) or not (0): the board rung's completion gate.
+  missionControlBuildable: { label: "canBuildFacilityUpgrade(missionControl).ok (1 / 0)", read: (s) => (canBuildFacilityUpgrade(s, "missionControl").ok ? 1 : 0) },
   missionsUnlocked: { label: "missions unlocked (count)", read: (s) => (Object.keys(MISSIONS) as MissionKey[]).filter((k) => missionUnlocked(s, k)).length },
   telescopeReach: { label: "telescopeReading.reachTier", read: (s) => telescopeReading(s).reachTier },
   telescopeDetail: { label: "telescopeReading.detail", read: (s) => telescopeReading(s).detail },
@@ -2152,7 +2184,10 @@ function readContent(id: string, s: GameState): number {
       // extras the run carries (each member's default pack holds one First Aid Kit, so the stock is the limit).
       const ready = withAwayTeam({ ...s, inventory: { ...s.inventory, firstAidKit: [new Decimal(FIELD_KITS_SWITCH_PROBE_STOCK)] } });
       const cand = expeditionCandidates(ready, WIRING_SHIP_ID)[0];
-      const res = on ? startExpedition(ready, WIRING_SHIP_ID, WIRING_CAPTAIN_ID, cand.id) : startExpedition(ready, WIRING_SHIP_ID, WIRING_CAPTAIN_ID, cand.id, true, false);
+      // G2-4: past the propulsion gates (see dispatchRun); the runs switch is the argument under test.
+      const res = on
+        ? startExpedition(ready, WIRING_SHIP_ID, WIRING_CAPTAIN_ID, cand.id, true, FIELD_KITS_RUNS_LIVE, false)
+        : startExpedition(ready, WIRING_SHIP_ID, WIRING_CAPTAIN_ID, cand.id, true, false, false);
       if (!res.success || !res.expedition) throw new Error(`field kits switch probe: dispatch refused (${res.reason})`);
       return Object.values(carriedExtras(res.expedition)).reduce((n, x) => n + (x ?? 0), 0);
     }

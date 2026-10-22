@@ -20,7 +20,7 @@ import {
   type GroundTeamRun,
   type ShipGroundTeam,
 } from "./model";
-import { advanceExpedition, expeditionCandidates, startExpedition } from "./expedition";
+import { advanceExpedition, expeditionCandidates } from "./expedition";
 import {
   DEPLOY_SECONDS,
   IN_SYSTEM_LEG_SECONDS,
@@ -41,7 +41,7 @@ import {
 } from "./groundOps";
 import { deployableGroundTeams } from "./groundTeams";
 import { taskFieldworkRun, taskFullHaul, taskWorkSeconds } from "./groundTasks";
-import { asPreCurveDispatch, plainAwayMember, withoutRisk } from "./awayTeamTestFixtures";
+import { asPreCurveDispatch, plainAwayMember, withoutRisk, dispatchPastPropulsion } from "./awayTeamTestFixtures";
 
 // ===== fixtures =====
 
@@ -123,7 +123,7 @@ function surveyTask(id: string, poiId: string, needs: GroundTaskNeeds, ambushCha
 // and its tasks planned (or hand-queued): the moment a body completes in a real run.
 function squadRun(setup: Setup): Expedition {
   const s = compState(setup.kinds, setup.help);
-  const res = asPreCurveDispatch(startExpedition(s, "ship-1", 1, expeditionCandidates(s, "ship-1")[0].id));
+  const res = asPreCurveDispatch(dispatchPastPropulsion(s, "ship-1", 1, expeditionCandidates(s, "ship-1")[0].id));
   if (!res.success || !res.expedition) throw new Error(`dispatch refused: ${res.reason}`);
   const d = res.expedition;
   const body: ExpeditionBody = {
@@ -548,7 +548,7 @@ describe("SQ-3 PARITY: one big advance == 997 s chunks == 1 s chunks", () => {
 
   it("a REAL dispatched Strike + Survey run (pre-SQ-4 stamping): every task needs { 1, 1 }, so every task goes to the pair; big == 997 s", { timeout: 180_000 }, () => {
     const s = { ...compState(["strike", "survey"]), expeditionSeed: 0x0a13bd4 };
-    const res = asPreCurveDispatch(startExpedition(s, "ship-1", 1, expeditionCandidates(s, "ship-1")[0].id));
+    const res = asPreCurveDispatch(dispatchPastPropulsion(s, "ship-1", 1, expeditionCandidates(s, "ship-1")[0].id));
     expect(res.success).toBe(true);
     // Squads SQ-4: the run as dispatched before the risk factors (withoutRisk); risk-aware runs: groundOpsRisk.test.ts.
     const exp = withoutRisk(res.expedition!);

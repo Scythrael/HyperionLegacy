@@ -34,8 +34,7 @@ import {
   activityDurationSeconds,
   advanceExpedition,
   expeditionCandidates,
-  startExpedition,
-} from "./expedition";
+  } from "./expedition";
 import { snapshotAwayRoster, FIELDWORK_YIELD_PER_POINT, GEAR_POINT_BUMP } from "./awayTeam";
 import {
   CREW_FIELDWORK_KNEE,
@@ -62,7 +61,7 @@ import { effectiveHazardResist } from "./relics";
 import { POI_CATALOG, PLANET_TYPES } from "./expeditionContent";
 import { shipCrewContribution } from "./crewOverlay";
 import { CREW_STAT_KEYS } from "./crewBuffs";
-import { asLegacyDispatch, withSlottedAwayTeams } from "./awayTeamTestFixtures";
+import { asLegacyDispatch, withSlottedAwayTeams, dispatchPastPropulsion } from "./awayTeamTestFixtures";
 
 // ===== fixtures =====
 
@@ -398,11 +397,11 @@ describe("relic odds: groundRelicFind and the crew rare find", () => {
   it("dispatch freezes the crew rare find (Discovery Instinct folded with the Science division) once", () => {
     const s = withRoster([SEC(), SCI()]);
     const rollup = (st: GameState): number => shipCrewContribution(st, st.ships[0])[CREW_STAT_KEYS.rareFindChance] ?? 0;
-    const none = startExpedition(s, "ship-1", 1, expeditionCandidates(s, "ship-1")[0].id);
+    const none = dispatchPastPropulsion(s, "ship-1", 1, expeditionCandidates(s, "ship-1")[0].id);
     expect(none.success).toBe(true);
     expect(none.expedition!.crewRareFind).toBe(rollup(s));
     const withOfficer = { ...s, officers: [scienceOfficer()] };
-    const res = startExpedition(withOfficer, "ship-1", 1, expeditionCandidates(withOfficer, "ship-1")[0].id);
+    const res = dispatchPastPropulsion(withOfficer, "ship-1", 1, expeditionCandidates(withOfficer, "ship-1")[0].id);
     expect(res.success).toBe(true);
     // Exactly the crew rollup (which already carries the officer bonus), never officer + rollup twice.
     expect(res.expedition!.crewRareFind).toBeCloseTo(rollup(withOfficer), 12);
@@ -739,7 +738,7 @@ describe("DETERMINISM + offline == live with a real Science roster", () => {
     const s = { ...base, expeditionSeed: 0x51ed270b };
     // A legacy run (asLegacyDispatch): this pins the Task 15 activities-phase pace; the Ground Ops timeline has
     // its own parity suite (groundOpsParity.test.ts).
-    const res = asLegacyDispatch(startExpedition(s, "ship-1", 1, expeditionCandidates(s, "ship-1")[0].id));
+    const res = asLegacyDispatch(dispatchPastPropulsion(s, "ship-1", 1, expeditionCandidates(s, "ship-1")[0].id));
     expect(res.success).toBe(true);
     const BIG = 1_000_000;
     const big = advanceExpedition(res.expedition!, BIG);

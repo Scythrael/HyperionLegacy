@@ -338,11 +338,69 @@ folds to 0; the old "materialQualityChance stays reserved" assertion is replaced
 Goldens: only rig-ship states move. UI: the rig tooltip line becomes a real "+X% chance per unit to arrive one quality
 higher" (text, no mockup).
 
+> **Carry note (ML-3 built 2026-10-21, on feat f85ef73).** Goldens first: `materialQualityGoldens.test.ts` (own
+> commit) pins a Refinery-Feed Rig ship under an Assayer captain on the Local Asteroid run and on Salvage Wreckage
+> (plus the ML-4 craft captures). Built in `materialQuality.ts`: `materialQualityClimbChance(points)` =
+> `diminishing(points x 0.01, 0.25)` (D23, the shared unbounded curve rather than an asymptotic PERCENT_STAT_CURVES
+> entry; a probability, so 1 at most), **`MATERIAL_QUALITY_CURVE` [PROVISIONAL]** (no answer names the numbers: 10
+> points about 8.5%, 20 about 15%, 30 about 21%); `equipmentStatMods` sums the line into
+> `percentPlus.materialQualityChance` (written only when a piece carries it) and `shipDerivedStats` writes the optional
+> `ShipDerivedStats.materialQuality` only when above 0. economyTick's per-captain merge climbs `floor(amount x p)`
+> units per delivered item plus one rounding draw each (sorted item order) on
+> `makeRng(FNV(captainId|materialQuality|cycle) ^ MATERIAL_QUALITY_SALT)` (salt registered in salts.test.ts), keyed on
+> the new lifetime counter `CaptainState.materialQualityCycles` (optional, written only once a delivery rolled; the
+> Motherlode rule, no save step). The deposit fold deposits each share's climbed units FIRST at `min(5, q + 1)`, then
+> the rest at `q`; the Assayer's own share climbs from its own graded quality. No shared draw added (draw counts
+> unchanged in every capture). Goldens moved: only rig-ship states (ML-0 `rig`, ML-3 `rigAssayer` / `rigSalvage`), each
+> reproduced by `withMaterialQualityOff` (the curve at 0 points per point); the registry snapshots (emodGoldens
+> cfe349ea -> c89e7c59, read back by `ml3RowsBack`; shortRangeGoldens unchanged through `ML3_SLICE`). Registry:
+> `ship:gearLine:materialQualityChance` LIVE on mission:extraction (probe `missionOreQuality`, now the delivered ore's
+> average quality); the FLAT_UNCONTROLLED excuse is gone; the wiring plan's WR-7 row is struck (X1). UI: the item
+> tooltip's detail line "+X% chance per unit to arrive one quality higher" (`ui/materialQualityText.ts`). Short-range
+> pickups keep their own deposit roll (the registry's existing outOfScope reason). **Patch note line:** "Refinery-Feed
+> Rigs (and every Prospecting Rig's Material Quality line) now work: each unit a mission delivers has a chance to
+> arrive one quality higher."
+> **Review follow-ups (2026-10-21, merged with feat 5b5011a).** (a) The climb seed is now keyed by the save's own seed
+> too, the plan's `seed ^ MATERIAL_QUALITY_SALT ^ captain ^ cycle`: `materialQualitySeed(saveSeed, captainId, cycle)` =
+> `saveSeed ^ salt ^ FNV(captainId|materialQuality|cycle)`, the save seed being the homeworld seed
+> (`worksDirectorateSaveSeed`, the Works Directorate precedent), so delivery N of captain 1 does not climb alike in
+> every save. No live save has these draws yet; every golden fixture has no homeworld seed (0), so no pin moved (a
+> seeded-save test proves the key is read). (b) **Reading of L4 for the user to confirm:** "one keyed rounding roll
+> per delivery" is built as ONE private stream per delivery that takes ONE draw per delivered ITEM (sorted item
+> order), because each item has its own leftover fraction (a Salvage Wreckage delivery of three items takes three
+> draws on that one stream). The alternative is one draw shared by every item of the delivery (its items would round
+> up or down together). (c) The switch's visible title is aria-hidden (the switch's own label names it once). (d) The
+> rig tooltip also shows the ship's combined chance when two installed pieces carry the line ("Ship total, 2 pieces:
+> +Y% per unit (the points add, then diminish)", `shipMaterialQualityText`, Ship Systems passes the ship's pieces);
+> today only one Prospecting Rig installs per ship, so it first shows once more than one slot carries the line.
+
 **ML-4 Quality carries into crafts.** `startProcess` variant reports the unit-weighted consumed quality; effects stamp
 `inputQuality`; completion = `min(5, carried + rollQuality(rng, craftQualityBonus))` (same call, same draw count;
 call L6). `materialPreference` per order with `removeItemHighestFirst` (call L5). Tests: a best-first line on q2 stock
 lands at 2 or more; absent `inputQuality` resolves byte-identically; lowest-first default byte-identical; reservation
 stays total-based (allocation.ts untouched). UI: the toggle needs the ML-7 mockup.
+
+> **Carry note (ML-4 built 2026-10-21, after ML-3).** Goldens: `materialQualityGoldens.test.ts` `refineMixed` /
+> `fabMixed` moved by design (c43a66c9 -> a653ebe5, bd8b3770 -> 44bb89ca; draw counts unchanged); stripping every
+> job's stamp as the run goes (`stripCarry`) reproduces both captures; `inFlight` (a job started without a stamp) and
+> `queued` held. Built: `startProcess` takes an optional `materialPreference`; a refineJob / fabricateJob whose effect
+> is `addItem` tallies what it consumes with `drawQualityTally` (inventory.ts, the same walk as the deduct) and
+> stamps `inputQuality` = `carriedQuality` (floor of the unit-weighted average, materialQuality.ts) only when above 0;
+> completion = `craftOutputQuality(inputQuality, rollQuality(rng, craftQualityBonus))` (same call, same draws). "best"
+> drains through the new `removeItemHighestFirst`. `materialPreference?: "best"` (absent = lowest) on `CraftLine`,
+> `CraftOrder` (mirrored onto joined lanes) and the queued `craftLine` order (carried at promotion); `startLine` takes it
+> as a fifth argument. allocation.ts gained only the type field; reservation math is untouched (total-based, tested).
+> UI (the signed-off Refinery mockup's order switch, wired now so the field is player-reachable): a `Toggle` "Use best
+> materials" on the Refinery and Fabricator configurators with the mockup's two notes (`bestMaterialsNote`), OFF
+> every time the form opens (sign-off: no memory), carried through the confirm modal and Add to queue; the log says
+> ", best materials". The Fabricator shows it only for stackable outputs (`bestOffered`). No save step. **For ML-5:**
+> blanks carry nothing yet: extend `carries` in startProcess to `addBlank` (stamp `inputQuality` on it), bucket the
+> blank on completion, drop the `bestOffered` guard so equipment blueprints show the switch, and pass the blank's
+> quality into `mintCraftedPiece` at inspect. **For ML-7:** the switch is in place (restyle freely); still yours: the
+> "This order uses" per-quality breakdown and the "Carried quality: average X = QN, then the roll" readout (the engine
+> walk is `drawQualityTally`), grouping, per-quality chips, Help. **Patch note line:** "Material quality now carries
+> into what you craft: an order's output starts from the average quality of what it used. Turn on Use best
+> materials on an order to spend your highest quality stock first."
 
 **ML-5 Quality blanks (call L7 a).** Blanks become quality buckets; inspect consumes the highest quality first and
 passes it to `mintCraftedPiece` (carry + climb); inspect seed derivation and draw order unchanged, so reload-before-
@@ -452,6 +510,34 @@ strictly faster); Standard-Issue reactor = byte-identical.
 Armory / salvage / Archive / item-side install support, S2 out-of-ship lock. Hull descriptions made true (OC-D13: "most
 module slots"). Tests: cap per hull; neutrality (no module = same object); each passive moves its value; each
 conditional fires only in its state.
+
+*Carry note (EM-5 built 2026-10-21, on f85ef73).* Goldens first: `emodEm5Goldens.test.ts` (install verdicts for every
+hull with and without the Spec Utility, the player combatant Standard Issue and fully crafted, every slot and variety's
+mint, the Armory slot set); none moved. Built: `EquipmentSlotType` `module`, a MULTI slot (`MULTI_SLOT_TYPES` in
+equipmentQueries.ts); `EQUIPMENT_SLOTS.module` (no signature line, no affix pool: rarity and quality act through
+`moduleEffectScale`, which moved to model.ts and is re-exported by crewModules.ts); `SLOT_BASE_PHYSICALS.module` mass 0,
+durability 100, its draw the def's (`UniversalModuleDef.powerDraw`, applied at mint, itemgen.ts). The leaf catalog
+`shipModules.ts`: the types for Passive, Proc, Conditional, Active, Set and Special, the M4 trigger union, the M1 rule
+(`MODULE_SLOT_SHARING_TYPES`: module + specUtility share `moduleSlots`), `validateUniversalModuleCatalog` (refuses a
+category or key with no engine yet, and a second module on one Passive / Conditional key until it has a D23 curve).
+`UNIVERSAL_MODULES` is EMPTY (the roster is EM-7's, the Lens EM-8's). Install gate: `duplicateModule` (M8), then
+`moduleSlotsFull` (a module, or a Spec Utility into an EMPTY slot), then `overPower`; S2 for modules only: a module
+cannot be installed or removed while `shipCrewLocked` (an expedition included), the other slots keep `onMissionLock`
+(S2 for them is still unbuilt). Engines: Passive `powerOutput` folds into `equipmentStatMods.modulePowerOutput` (the
+sheet, `shipPowerTotals`, `shipPowerBudget.moduleOutput`; `reactorOutput` and `reactorSurplus` stay the reactor's);
+Passive `hullIntegrity` and Conditional `weaponDamage` (hull or shield below a fraction, per projectile, no draw) in
+`bridge.ts applyModuleCombat`, so every fold that passes installed gear (patrol, replay, ship events) reads them.
+Armory: `module0..n` slots and `loadoutModuleRuleBroken` (cap + one per set); check-out / check-in honor S2 when a
+module moves. Wear (M9): `module:minutesUnderway` (raw 2) and `module:effect`, pending on gear wear steps 3 / 4 like
+every slot. **The switch:** `UNIVERSAL_MODULES_LIVE = false` (shipModules.ts) hides the Armory module slots; the
+engine is live. **For EM-7:** flip the switch in the commit that adds the first module blueprint (shipModules.test.ts
+asserts the switch equals "a module blueprint exists"), add each def to BOTH `UNIVERSAL_MODULES` and
+`EQUIPMENT_SLOTS.module.varieties`, add the catalog to the wiring registry with probes (sheetPowerOutput,
+combatHullMax, a below-threshold damage probe), flip the hulls' `moduleSlots` entries live (owner text names EM-7), and
+make the Aurora description true (OC-D13). **For EM-6:** add each new effect key and category to `MODULE_ENGINE_KEYS`
+with its engine. **For EM-10:** the `onMission` reason text says "captain is on a mission"; a module on an expedition
+needs the crew-lock wording. Registry: two wear rows added and every hull's `moduleSlots` re-owned to EM-7 (still
+pending); `emodEm5Registry.fixture.ts em5ReadBack` reads both back for emodGoldens and shortRangeGoldens. No save step.
 
 **EM-6 Proc and Active engine (the Combat 1.1 active-ability engine).** The trigger taxonomy (call M4) at fixed points
 in the step loop; private salted streams; Actives auto-cast by their preset rule (call M3). Frozen per patrol cycle;

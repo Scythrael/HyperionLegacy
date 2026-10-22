@@ -1,0 +1,96 @@
+// ML-3 + ML-4 (0.14.0, plan docs/plans/2026-10-17-material-lines-and-emod-plan.md section 4 "ML-3 Material quality on
+// delivery (OC-D2)" and "ML-4 Quality carries into crafts"): golden hashes captured on feat/crew-0.14.0 (f85ef73)
+// BEFORE either slice touches the engine (the ML-0 / CP-0 pattern). Each capture is the whole state (stateHash) plus
+// the number of draws the run took from the SHARED injected rng, which neither slice may change.
+//
+//   refineMixed  : a refine line (Titanium Ore into Titanium Ingot) on stock spread over Q0 to Q2. ML-4 MOVES it by
+//                  design (the carried quality lifts the output); stripping every job's carried quality as the run
+//                  goes reproduces the capture (the consumption, lowest-first, is unchanged).
+//   fabMixed     : a material fabricate line (Frame Segment) on Titanium Ingot stock at Q0 and Q3. Same as above.
+//   inFlight     : a refine job already IN FLIGHT when the slice lands (started without a carried quality), on mixed
+//                  stock, completing. Must HOLD: an in-flight job resolves exactly as it was started.
+//   queued       : a queued refine order on Q0 stock, promoted by the tick and run through. Must HOLD.
+//   rigAssayer   : a Prospector Miner with a crafted Refinery-Feed Rig, flown by a captain who owns Assayer, on the
+//                  Local Asteroid run. ML-3 MOVES it (the rig's climb); the rig's climb chance at 0 reproduces it.
+//   rigSalvage   : the same rig on Salvage Wreckage (several delivered items per cycle). ML-3 moves it the same way.
+
+import { describe, expect, it } from "vitest";
+// GEAR WEAR step 3: this file's pins were captured before the use wear engine; it runs with the use sources off
+// (gearWearSwitch.fixture.ts), so they keep proving nothing else moved. gearWearGoldens.test.ts pins the wear.
+import { gearWearOffInThisFile } from "./gearWearSwitch.fixture";
+gearWearOffInThisFile();
+import { enqueueOrder } from "./tick";
+import { stateHash } from "./firstRunsGoldens.fixture";
+import { MIXED_INGOT, MIXED_ORE, craftStateQ, lineQ, rigFleet, rigRun, steppedQ, stripCarry, withMaterialQualityOff } from "./materialQualityGoldens.fixture";
+
+const ML34_GOLDEN = {
+  refineMixed: "c43a66c9:5",
+  fabMixed: "bd8b3770:2",
+  inFlight: "fd35919d:1",
+  queued: "48881028:3",
+  rigAssayer: "70acbd33:1104",
+  rigSalvage: "e3ca4f2a:819",
+};
+
+// Re-pinned by ML-3 (by design: the rig's climb lifts part of each delivery one quality step and the captain's
+// lifetime counter steps; the shared draw count is unchanged). ML34_GOLDEN above stays the pre-change capture, and
+// the rig's climb chance at 0 (withMaterialQualityOff) reproduces it (asserted below).
+// Re-pinned by ML-4 (by design: each job stamps the unit-weighted average quality it consumed, rounded down, and its
+// output lands that much higher; the consumption itself, lowest-first, and the shared draw count are unchanged).
+// Stripping every job's carried quality as the run goes (stripCarry) reproduces ML34_GOLDEN (asserted below).
+const ML4_CRAFT = {
+  refineMixed: "a653ebe5:5",
+  fabMixed: "44bb89ca:2",
+};
+
+const ML3_RIG = {
+  rigAssayer: "87121346:1104",
+  rigSalvage: "c057cdeb:819",
+};
+
+describe("ML-3 + ML-4 pre-change goldens", () => {
+  it("refineMixed: a refine line on Q0 to Q2 stock", () => {
+    const s0 = lineQ(craftStateQ(MIXED_ORE, []), "refine", "refineCommonOre", { kind: "batch", remaining: 5 });
+    const { state, draws } = steppedQ(s0, 80, 0x2e3);
+    expect(state.refineLines).toHaveLength(0);
+    expect(`${stateHash(state)}:${draws}`).toEqual(ML4_CRAFT.refineMixed);
+    const off = steppedQ(s0, 80, 0x2e3, stripCarry);
+    expect(`${stateHash(off.state)}:${off.draws}`).toEqual(ML34_GOLDEN.refineMixed);
+  });
+
+  it("fabMixed: a material fabricate line on Q0 and Q3 stock", () => {
+    const s0 = lineQ(craftStateQ(MIXED_INGOT, ["frameSegmentBp"]), "fabricate", "frameSegmentBp", { kind: "batch", remaining: 2 });
+    const { state, draws } = steppedQ(s0, 300, 0xfad);
+    expect(state.fabricateLines).toHaveLength(0);
+    expect(`${stateHash(state)}:${draws}`).toEqual(ML4_CRAFT.fabMixed);
+    const off = steppedQ(s0, 300, 0xfad, stripCarry);
+    expect(`${stateHash(off.state)}:${off.draws}`).toEqual(ML34_GOLDEN.fabMixed);
+  });
+
+  it("inFlight: a refine job started before the slice completes as it was started", () => {
+    const s0 = lineQ(craftStateQ({ commonOre: [10, 0, 20] }, []), "refine", "refineCommonOre", { kind: "batch", remaining: 1 });
+    const started = stripCarry(steppedQ(s0, 1, 0x1f1).state);
+    expect(started.activeProcesses).toHaveLength(1);
+    const { state, draws } = steppedQ(started, 40, 0x1f3);
+    expect(state.activeProcesses).toHaveLength(0);
+    expect(`${stateHash(state)}:${draws}`).toEqual(ML34_GOLDEN.inFlight);
+  });
+
+  it("queued: a queued refine order on Q0 stock, promoted and run through", () => {
+    const q = enqueueOrder(craftStateQ({ commonOre: [60] }, []), "refinery", { type: "craftLine", kind: "refine", recipeKey: "refineCommonOre", mode: { kind: "batch", remaining: 3 } });
+    expect(q.queued).toBe(true);
+    const { state, draws } = steppedQ(q.next, 60, 0x3a7);
+    expect(state.processQueue).toHaveLength(0);
+    expect(`${stateHash(state)}:${draws}`).toEqual(ML34_GOLDEN.queued);
+  });
+
+  it("rigAssayer: a Refinery-Feed Rig ship flown by an Assayer captain on the Local Asteroid run", () => {
+    expect(rigRun(rigFleet(["extraction4"]), "shortOreRun", 0x7eb)).toEqual(ML3_RIG.rigAssayer);
+    expect(withMaterialQualityOff(() => rigRun(rigFleet(["extraction4"]), "shortOreRun", 0x7eb))).toEqual(ML34_GOLDEN.rigAssayer);
+  });
+
+  it("rigSalvage: a Refinery-Feed Rig ship on Salvage Wreckage", () => {
+    expect(rigRun(rigFleet(), "salvageWreckage", 0x7ed)).toEqual(ML3_RIG.rigSalvage);
+    expect(withMaterialQualityOff(() => rigRun(rigFleet(), "salvageWreckage", 0x7ed))).toEqual(ML34_GOLDEN.rigSalvage);
+  });
+});

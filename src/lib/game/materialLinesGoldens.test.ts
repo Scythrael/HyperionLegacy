@@ -41,6 +41,7 @@ import { goldenJson, withV1Museum } from "./firstRunsGoldens.fixture"; // gear w
 import { gasStudyItemIds } from "./gasGiantContent";
 import { GG1_RECIPE } from "./gasStudyGoldens.fixture";
 import { ML2_NEW_ITEMS, ML2_NEW_REFINES } from "./ml2RecipeGoldens.fixture";
+import { withMaterialQualityOff } from "./materialQualityGoldens.fixture";
 
 // ===== shared helpers =====
 
@@ -143,7 +144,10 @@ const GOLDEN = {
   refine: "fd293beb:3",
   fabricate: "42704bb2:2",
   inspect: ["9c3d1516:0", "3dea091e", "d3741ac8"],
-  rig: "39a58762:1097",
+  // Re-pinned by ML-3 (by design: this is the seam it turns on; the rig's climb lifts part of each delivery one
+  // quality step, the shared draw count is unchanged). The ML-0 capture is ML0_RIG; the rig's climb chance at 0
+  // (withMaterialQualityOff) reproduces it (asserted below).
+  rig: "6de7833e:1097",
   // Re-pinned by ML-1 (by design: its data adds the seven July-approved refined goods, refined 5 -> 12, and their
   // seven Refinery recipes, 4 -> 11). Every other golden above held unchanged through ML-1 (new keys only). The
   // pre-ML-1 capture is ML0_CENSUS; removing the ML-1 rows reproduces it (asserted below).
@@ -158,6 +162,9 @@ const GOLDEN = {
     blueprints: 78,
   } as Record<string, number>,
 };
+
+// The ML-0 rig capture (before ML-3).
+const ML0_RIG = "39a58762:1097";
 
 // The ML-0 census (before ML-1), and what ML-1 added.
 const ML0_CENSUS: Record<string, number> = { ...GOLDEN.census, "items.refined": 5, refineRecipes: 4 };
@@ -228,6 +235,9 @@ describe("ML-0 Material Lines pre-change goldens", () => {
     expect(run.offlineHash).toBe(run.hash);
     expect(run.offlineDraws).toBe(run.draws);
     expect(`${run.hash}:${run.draws}`).toEqual(GOLDEN.rig);
+    // ML-3's proof: with the climb chance at 0 the run is the ML-0 capture.
+    const off = withMaterialQualityOff(() => bothWays(r.next, 0x7e9));
+    expect(`${off.hash}:${off.draws}`).toEqual(ML0_RIG);
   });
 
   it("census: the item catalog by category, the Refinery recipes and the blueprints", () => {
@@ -238,7 +248,7 @@ describe("ML-0 Material Lines pre-change goldens", () => {
       // Field Kits FKR-9 / FKR-10 (the switch-on, model.ts FIELD_KITS_PLAYER_LIVE): the Impact Grenade blueprint
       // (FIELD_KITS_HIDDEN_BLUEPRINTS) merges into BLUEPRINTS, the ONE named move of this count (78 to 79). Counted apart
       // so the census keeps proving nothing else moved.
-      census.blueprints = Object.keys(BLUEPRINTS).filter((k) => !(k in FIELD_KITS_HIDDEN_BLUEPRINTS)).length;
+      census.blueprints = Object.keys(BLUEPRINTS).filter((k) => !(k in FIELD_KITS_HIDDEN_BLUEPRINTS) && BLUEPRINTS[k].driveClass === undefined).length; // G2-4: the classed drives held apart
       return census;
     };
     for (const k of Object.keys(FIELD_KITS_HIDDEN_BLUEPRINTS)) expect(BLUEPRINTS[k], k).toBe(FIELD_KITS_PLAYER_LIVE ? FIELD_KITS_HIDDEN_BLUEPRINTS[k] : undefined);

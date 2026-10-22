@@ -41,9 +41,9 @@ import { replayPatrol } from "./combat/patrolReplay";
 import { WEAPON_DEFS } from "./combat/weapons";
 import { DRONE_POD_BASE_POWER_DRAW, generateDronePod, generateEquipment, generateWeapon } from "./itemgen";
 import { effectiveShipStats } from "./crewOverlay";
-import { advanceExpedition, claimExpedition, expeditionCandidates, startExpedition } from "./expedition";
+import { advanceExpedition, claimExpedition, expeditionCandidates } from "./expedition";
 import { shipEventsLive } from "./shipScanEvents";
-import { asPreVoyageDispatch, plainAwayMember, withSlottedAwayTeams } from "./awayTeamTestFixtures";
+import { asPreVoyageDispatch, plainAwayMember, withSlottedAwayTeams, dispatchPastPropulsion } from "./awayTeamTestFixtures";
 import { WIRING_REGISTRY, type WiringEntry } from "./wiring/registry";
 import { siReadBack } from "./siMemberGearRegistry.fixture";
 import { getSeniorStaffBonusById } from "./seniorStaffBonuses";
@@ -52,8 +52,15 @@ import { goldenJson, withV1Museum } from "./firstRunsGoldens.fixture"; // gear w
 import { GG1_ADDED_ENTRY_IDS } from "./gasStudyGoldens.fixture";
 import { FUSE_ADDED_ENTRY_IDS } from "./fieldKitsFuse.fixture";
 import { RX_ADDED_ENTRY_IDS } from "./reactorFuelGoldens.fixture";
+import { OC15_ADDED_ENTRY_IDS } from "./labFabricatorTiers.fixture";
 // ML-2 (the Material Lines recipe rework + the recipe realism audit): its registry move, read back by ml2RowsBack.
 import { ml2RowsBack } from "./ml2RecipeGoldens.fixture";
+// E-MOD EM-5 (the module slot): its registry move, read back by em5ReadBack.
+import { em5ReadBack } from "./emodEm5Registry.fixture";
+import { R2_2_ADDED_ENTRY_IDS } from "./relicBlanks.fixture";
+import { G2_4_ADDED_ENTRY_IDS, G2_4_FLIPPED_BEFORE } from "./propulsionRecallGoldens.fixture";
+// ML-3 (Material Lines: material quality on delivery, OC-D2): its registry move, read back by ml3RowsBack.
+import { ml3RowsBack } from "./materialQualityGoldens.fixture";
 
 // ===== shared helpers =====
 
@@ -270,7 +277,7 @@ function groundOpsRun(seed: number): string[] {
   const s = withSlottedAwayTeams({ ...s0, awayMembers: SQUAD.map((m) => ({ ...m })), nextAwayMemberId: 100, expeditionSeed: seed });
   // G2-3 (merged after EM-0's capture): the run as dispatched before the voyage engine (asPreVoyageDispatch, the feat
   // precedent), so it flies the fixed legs EM-0 pinned.
-  const res = asPreVoyageDispatch(startExpedition(s, SHIP, 1, expeditionCandidates(s, SHIP)[0].id));
+  const res = asPreVoyageDispatch(dispatchPastPropulsion(s, SHIP, 1, expeditionCandidates(s, SHIP)[0].id));
   if (!res.success || !res.expedition) throw new Error(`dispatch refused: ${res.reason}`);
   const exp = res.expedition;
   expect(shipEventsLive(exp)).toBe(true);
@@ -425,8 +432,10 @@ const GOLDEN: Record<string, unknown> = {
   // Re-pinned by ML-2 (bd1e2f48 -> cfe349ea): the seven ML-1 recipe entries flip pending -> live with their content
   // probes, the six ML-1 reserve entries are gone (each good has its blueprint consumer) and the two new refines
   // (Biofiber, Resin Distillate) join; read back (ml2RowsBack, inside every rowsBack too) the snapshot is bd1e2f48.
+  // Re-pinned by ML-3 (cfe349ea -> c89e7c59): the rig line's entry (ship:gearLine:materialQualityChance) flips
+  // pending -> live on mission:extraction; read back (ml3RowsBack, inside every rowsBack too) the snapshot is cfe349ea.
   registry: [
-    "cfe349ea",
+    "c89e7c59",
     "relic:RELICS:precursorLens",
     "ship:audit:reactorCoreNet",
   ],
@@ -463,6 +472,7 @@ const EM0: Record<string, unknown> = {
 
 // The registry snapshot before ML-2 (the SF-3 pin).
 const REGISTRY_BEFORE_ML2 = "bd1e2f48";
+const REGISTRY_BEFORE_ML3 = "cfe349ea";
 // The registry snapshot before Material Lines ML-1, and the 14 entries ML-1 added (its recipes and its reserves).
 const REGISTRY_BEFORE_ML1 = "452c9676";
 const ML1_ENTRY_IDS: ReadonlySet<string> = new Set<string>([
@@ -618,18 +628,41 @@ type Back = { readonly sf3?: boolean; readonly fkr9?: boolean; readonly racials?
 // every read-back and the snapshot leave them out (reactorFuelGoldens.test.ts pins them with their statuses). The timed
 // grenades (user 2026-10-21) only ADD entries too (fieldKitsFuse.fixture.ts, pinned with their statuses in
 // fieldKitsFuse.test.ts) and are left out the same way.
+// Relics v2 R2-2 the same (its five audit rows, relicBlanks.fixture.ts; relicBlanks.test.ts pins them).
+// G1-6 (SHORT_RANGE_BOARD_LIVE, the board UI) came after every pin here too: the two Mission Control board rungs it put
+// in FACILITIES (each enumerates as a facility rung entry) and G1-3's audit row, which it flipped pending -> live with
+// its own check (the 50-completion gate). Every read-back and the snapshot leave the rungs out and read the row as it
+// stood (G16_ROW_BEFORE); "G1-6 is the only cause" below proves that is the whole move.
 // The Quartermaster Standard-Issue member lines and the D26 line swap (0.14.0) came after every pin here too: every
 // read-back and the snapshot read them back (siMemberGearRegistry.fixture.ts siReadBack: the added entries left out,
 // the nine retired combat lines restored in place; shortRangeGoldens.test.ts `registry:si` pins them).
+// Expedition Tiers G2-4 / G2-5 come after every pin too: their added entries are left out and their flips read back
+// (propulsionRecallGoldens.fixture.ts).
+// The OC-15 Lab and Fabricator tier rungs (labFabricatorTiers.fixture.ts) only ADD entries too, left out the same way
+// (labFabricatorTiers.test.ts pins them live).
+const G16_ADDED_IDS: ReadonlySet<string> = new Set<string>(["facility:FACILITIES:missionControl:1", "facility:FACILITIES:missionControl:2"]);
+const G16_ROW_BEFORE = { kind: "pending", owner: "G1-6 (flips SHORT_RANGE_BOARD_LIVE with the board UI; the rungs then enumerate as facility rung entries on the shortRangeSlots probe)" } as const;
+// E-MOD EM-5 came after every pin here: its two module wear rows are left out and the hulls' moduleSlots entries read
+// with their old owner (emodEm5Registry.fixture.ts em5ReadBack; shipModules.test.ts pins the move itself).
 // Gear wear step 3 came after every pin here too: its registry move is read back first (gearWearRegistry.fixture.ts).
 const BEFORE_RX: WiringEntry[] = siReadBack(
-  gw3RegistryBack(WIRING_REGISTRY).filter((e) => !RX_ADDED_ENTRY_IDS.has(e.id) && !FUSE_ADDED_ENTRY_IDS.has(e.id)),
+  em5ReadBack(gw3RegistryBack(WIRING_REGISTRY)).filter(
+    (e) =>
+      !RX_ADDED_ENTRY_IDS.has(e.id) && !FUSE_ADDED_ENTRY_IDS.has(e.id) && !R2_2_ADDED_ENTRY_IDS.has(e.id) && !G16_ADDED_IDS.has(e.id) &&
+      !G2_4_ADDED_ENTRY_IDS.has(e.id) && !OC15_ADDED_ENTRY_IDS.has(e.id),
+  ).map((e) =>
+    e.id === G13_ROW
+      ? { ...e, status: G16_ROW_BEFORE as (typeof WIRING_REGISTRY)[number]["status"], contexts: [], probe: undefined }
+      : e.id in G2_4_FLIPPED_BEFORE
+        ? { ...e, status: G2_4_FLIPPED_BEFORE[e.id], contexts: [], probe: undefined }
+        : e,
+  ),
   (e) => e.id,
   (row) => ({ id: row[0], status: row[1], contexts: row[2], probe: row[3] ?? undefined }) as unknown as WiringEntry,
 );
 function rowsBack(back: Back): unknown[][] {
-  // Every pin here was taken before ML-2, so its move is always read back.
-  return ml2RowsBack(rowsBackBeforeMl2(back));
+  // Every pin here was taken before ML-2 (and ML-3), so their moves are always read back.
+  return ml2RowsBack(ml3RowsBack(rowsBackBeforeMl2(back)));
 }
 function rowsBackBeforeMl2(back: Back): unknown[][] {
   return BEFORE_RX.filter(
@@ -719,8 +752,9 @@ describe("EM-0 goldens (re-pinned by EM-1 where named)", () => {
   it("registry: the wiring registry snapshot and the E-MOD owned rows", () => {
     const rows = BEFORE_RX.map((e) => [e.id, e.status, e.contexts, e.probe ?? null]);
     const snapshot = hash(rows);
-    // ML-2 read back: the SF-3 pin before it.
-    expect(hash(ml2RowsBack(rows))).toBe(REGISTRY_BEFORE_ML2);
+    // ML-3 read back: the ML-2 pin before it; ML-2 read back too: the SF-3 pin before that.
+    expect(hash(ml3RowsBack(rows))).toBe(REGISTRY_BEFORE_ML3);
+    expect(hash(ml2RowsBack(ml3RowsBack(rows)))).toBe(REGISTRY_BEFORE_ML2);
     const emod = BEFORE_RX.filter((e) => e.status.kind !== "live" && "owner" in e.status && /E-MOD/.test(e.status.owner)).map((e) => e.id).sort();
     pinned("registry", [snapshot, ...emod]);
     // The two latest moves, merged together: with GG-1 left out the snapshot is gear wear's own pin; with gear wear read
@@ -764,6 +798,24 @@ describe("EM-0 goldens (re-pinned by EM-1 where named)", () => {
   it("registry: FKR-6 and G1-3's audit row are the only causes of its snapshot move", () => {
     expect(hash(registryRowsBack(false))).toBe(REGISTRY_BEFORE_FKR6);
     expect(hash(registryRowsBack(true))).toBe(REGISTRY_BEFORE_G13);
+  });
+  // G1-6: the live registry (the reactor fuel additions left out) is the pinned snapshot's rows plus exactly the two
+  // board rungs (in FACILITIES order, right after the founding rung) and G1-3's audit row live with its gate check.
+  it("registry: G1-6 (the board goes live) is the only cause of its move", () => {
+    // Merged onto feat (0.14.0 integration): the slices BEFORE_RX holds apart (the timed grenades, R2-2, the SI read-back)
+    // and G2-4's additions are held apart here the same way, so the comparison sees G1-6's move alone. E-MOD EM-5's move is
+    // read back first (em5ReadBack), as BEFORE_RX does.
+    const live = em5ReadBack(gw3RegistryBack(WIRING_REGISTRY)).filter(
+      (e) => !RX_ADDED_ENTRY_IDS.has(e.id) && !FUSE_ADDED_ENTRY_IDS.has(e.id) && !R2_2_ADDED_ENTRY_IDS.has(e.id) && !G2_4_ADDED_ENTRY_IDS.has(e.id) && !OC15_ADDED_ENTRY_IDS.has(e.id),
+    );
+    const rung = live.filter((e) => G16_ADDED_IDS.has(e.id)).map((e) => [e.id, e.status, e.contexts, e.probe ?? null]);
+    expect(rung).toEqual([...G16_ADDED_IDS].map((id) => [id, { kind: "live" }, ["mission:shortRange"], "shortRangeSlots"]));
+    const row = live.find((e) => e.id === G13_ROW)!;
+    expect([row.status, row.contexts, row.probe]).toEqual([{ kind: "live" }, ["facility"], "missionControlBuildable"]);
+    const rest = siReadBack(live.filter((e) => !G16_ADDED_IDS.has(e.id) && e.id !== G13_ROW).map((e) => e.id), (id) => id, (r) => r[0]);
+    expect(rest).toEqual(BEFORE_RX.filter((e) => e.id !== G13_ROW).map((e) => e.id));
+    const ids = live.map((e) => e.id);
+    expect(ids.indexOf("facility:FACILITIES:missionControl:1")).toBe(ids.indexOf("facility:FACILITIES:missionControl:0") + 1);
   });
 });
 

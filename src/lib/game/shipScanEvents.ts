@@ -158,7 +158,8 @@ export function shipEventsLive(exp: Pick<Expedition, "groundOps">): boolean {
 }
 
 // The installed slot types a ship's battle reads (shipToCombatant). Every other installed piece is left out.
-const COMBAT_SLOT_TYPES: ReadonlySet<string> = new Set(["weapon", "shieldEmitters", "hullPlating", "droneBay"]);
+// E-MOD EM-5: the universal modules too (a module listing "shipEvent" acts here; the rest are skipped by the fold).
+const COMBAT_SLOT_TYPES: ReadonlySet<string> = new Set(["weapon", "shieldEmitters", "hullPlating", "droneBay", "module"]);
 
 // The frozen profile at dispatch (groundOps.ts snapshotGroundOps writes it). Pure: fresh, JSON-safe data.
 export function snapshotShipEventProfile(state: GameState, ship: ShipInstance): ShipEventProfile {
@@ -204,6 +205,7 @@ export function buildShipCombatant(id: string, battle: ShipEventBattle, hoursOut
     installedGear: battle.installedGear,
     officerCombat: officerCombatModsFromProfile(battle.officerCombat, hoursOut),
     captainCombat: battle.captainCombat,
+    moduleContext: "shipEvent", // E-MOD EM-5: only modules listing ship events act here
   });
   if (hullDamage > 0) c.hull = Math.max(1, c.hullMax - Math.round(hullDamage));
   return c;

@@ -20,10 +20,10 @@ import { freshState, type AwayMember, type BodyRiskGrades, type EquipmentInstanc
 import { FIELD_KITS_CATALOG_VERSION, FIELD_KITS_RUNS_LIVE } from "./fieldKits";
 import { carriedExtras } from "./fieldKitsRun";
 import { topUpAtLaunch } from "./quartermaster";
-import { advanceExpedition, claimExpedition, startExpedition } from "./expedition";
+import { advanceExpedition, claimExpedition } from "./expedition";
 import { groundCrewClearOdds, groundOpsAssignIdle, groundOpsBodyScanned, initGroundTasks } from "./groundOps";
 import { itemTotal } from "./inventory";
-import { asPreCurveDispatch, plainAwayMember, withoutFieldKits } from "./awayTeamTestFixtures";
+import { asPreCurveDispatch, plainAwayMember, withoutFieldKits, withoutRelicBlanks, dispatchPastPropulsion } from "./awayTeamTestFixtures";
 import { hash, stateHash } from "./firstRunsGoldens.fixture";
 
 const T0 = 100_000;
@@ -107,9 +107,10 @@ const HAND_KITS: readonly Record<string, Record<string, number>>[] = [
 
 // A dispatched run placed on one scanned body with `pois`, flag 2 stamped by hand and HAND_KITS on its teams.
 function stampedRun(state: GameState, pois: string[], risk: BodyRiskGrades, hazard = 0.2): Expedition {
-  const res = startExpedition(state, "ship-1", 1, "cand-0");
+  const res = dispatchPastPropulsion(state, "ship-1", 1, "cand-0");
   if (!res.success || !res.expedition) throw new Error(`dispatch refused: ${res.reason}`);
-  const d = withoutFieldKits(res.expedition);
+  // Relics v2 R2-2: pinned on the record as dispatched before R2-2 (withoutRelicBlanks: no relic blanks flag).
+  const d = withoutRelicBlanks(withoutFieldKits(res.expedition));
   const body: ExpeditionBody = {
     id: "body-1",
     planetType: "terrestrial",
@@ -176,7 +177,7 @@ describe("FKR-7 goldens: what dispatch, the run and the claim did at FKR-6", () 
     const state = crewed(SWITCH_OFF_SEED);
     // Safe first runs SF-3: pinned on the run as dispatched before the curve (asPreCurveDispatch: a new save's ordinary run
     // now sits on the curve's floor).
-    const res = asPreCurveDispatch(startExpedition(state, "ship-1", 1, "cand-0", true, false));
+    const res = asPreCurveDispatch(dispatchPastPropulsion(state, "ship-1", 1, "cand-0", true, false));
     expect(res.success).toBe(true);
     const exp = res.expedition!;
     expect("fieldKits" in exp).toBe(false);
@@ -193,7 +194,7 @@ describe("FKR-7 goldens: what dispatch, the run and the claim did at FKR-6", () 
     const state = crewed(SWITCH_OFF_SEED);
     expect(FIELD_KITS_RUNS_LIVE).toBe(true);
     const topUp = topUpAtLaunch(state, "ship-1");
-    const res = startExpedition(state, "ship-1", 1, "cand-0");
+    const res = dispatchPastPropulsion(state, "ship-1", 1, "cand-0");
     expect(res.success).toBe(true);
     const exp = res.expedition!;
     expect(exp.fieldKits?.catalog).toBe(FIELD_KITS_CATALOG_VERSION);

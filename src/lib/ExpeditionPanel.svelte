@@ -74,6 +74,7 @@
     RISK_METER_STEPS,
     candidateRegionText,
     createInputCache,
+    dispatchGateLine,
     dispatchTeamsView,
     expandedLaunchView,
     launchViewInputs,
@@ -223,6 +224,9 @@
   // Ground Ops GO-8 review (user, 2026-10-14: "Must be repaired first", the patrol rule): a damaged ship, or one in a
   // Shipyard repair bay, cannot launch; the line says when it is ready. Null when it can launch.
   $: shipRepairLine = chosenShip && !chosenExpedition ? expeditionShipRepairText(state, chosenShip) : null;
+  // Expedition Tiers G2-4 (D18): the propulsion gates startExpedition enforces (explorer hull, drive class, frontier
+  // sensors, reach), so Launch is off with the reason shown. Null when they pass (expeditionDispatchDisplay.ts).
+  $: gateLine = chosenShip && !chosenExpedition ? dispatchGateLine(state, chosenShip, selectedCandidateId) : null;
   // Ground Ops (GO-7b, user 2026-10-12): no automatic stand-ins, so the block lists what each ground team waits on
   // ("Alpha: Grokk returns to duty in 12m"). Squads SQ-1: groundWaitTeams leaves out a team nobody is slotted
   // into (every hull fields 2 teams now; the empty pair would only add noise).
@@ -812,11 +816,13 @@
           <button
             type="button"
             class="exp-btn primary"
-            disabled={!selectedCandidate || !chosenCaptain || needsAwayTeam || shipRepairLine !== null}
+            disabled={!selectedCandidate || !chosenCaptain || needsAwayTeam || shipRepairLine !== null || gateLine !== null}
             title={!chosenCaptain
               ? expeditionDispatchBlockText("captainNotAssigned")
               : shipRepairLine !== null
                 ? `${expeditionDispatchBlockText("shipDamaged")}. ${shipRepairLine}`
+              : gateLine !== null
+                ? gateLine
               : !selectedCandidate
                 ? expeditionDispatchBlockText("noSuchCandidate")
                 : needsAwayTeam
@@ -832,6 +838,10 @@
             {expeditionDispatchBlockText("shipDamaged")}.
             <span class="exp-block-counts">{shipRepairLine}.</span>
           </div>
+        {/if}
+        {#if gateLine !== null}
+          <!-- G2-4 (D18): the propulsion gate Launch is off for, shown, not only in the hover title. -->
+          <div class="exp-block" role="status">{gateLine}</div>
         {/if}
         {#if needsAwayTeam && teamsView?.blockText}
           <!-- D18 + GO-12: the ship-level reason Launch is off (not only in a hover title); each team's own wait, with

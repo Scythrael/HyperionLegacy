@@ -25,7 +25,7 @@ import { bayCareFrom } from "./medicalBay";
 import { effectiveShipStats, shipCrewContribution } from "./crewOverlay";
 import { CREW_STAT_KEYS } from "./crewBuffs";
 import { startExpedition, expeditionCandidates } from "./expedition";
-import { plainAwayMember, registerSyntheticHull } from "./awayTeamTestFixtures";
+import { plainAwayMember, registerSyntheticHull, dispatchPastPropulsion } from "./awayTeamTestFixtures";
 
 const NOW = 50_000;
 const NO_FACETS = {};
@@ -344,7 +344,7 @@ describe("GO-7b: startExpedition writes the ground ops record (the flag)", () =>
   it("the stored record is the dispatch snapshot plus an empty timeline, and the roster is the teams' union", () => {
     const s = basic();
     const candidate = expeditionCandidates(s, "ship-1")[0];
-    const res = startExpedition(s, "ship-1", ship1(s).assignedCaptainId as number, candidate.id);
+    const res = dispatchPastPropulsion(s, "ship-1", ship1(s).assignedCaptainId as number, candidate.id);
     expect(res.success).toBe(true);
     const exp = res.expedition!;
     const snap = snapshotGroundOps(s, ship1(s), exp);

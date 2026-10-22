@@ -13,8 +13,7 @@ import {
   expeditionCandidates,
   orderFieldRepair,
   scanRatePerSecond,
-  startExpedition,
-} from "./expedition";
+  } from "./expedition";
 import {
   FIELD_REPAIR_DAMAGE_SHARE,
   FIELD_REPAIR_PLANET_TYPES,
@@ -30,7 +29,7 @@ import {
   shipLegsInOrder,
 } from "./groundOps";
 import { shipRepairDurationTicks } from "./tick";
-import { asPreCurveDispatch, plainAwayMember, withoutGroundOps, withoutShipEvents, withSlottedAwayTeams } from "./awayTeamTestFixtures";
+import { asPreCurveDispatch, plainAwayMember, withoutGroundOps, withoutShipEvents, withSlottedAwayTeams, dispatchPastPropulsion } from "./awayTeamTestFixtures";
 
 const member = (id: string, teamType: AwayMember["teamType"], over: Partial<AwayMember> = {}): AwayMember => ({
   ...plainAwayMember(id, teamType, "ship-1"),
@@ -46,7 +45,7 @@ const MEDIC_SQUAD: AwayMember[] = [member("member-1", "security", { rank: 3 }), 
 
 function dispatch(expeditionSeed = SEED, squad: AwayMember[] = SQUAD): { next: GameState; exp: Expedition } {
   const s = withSlottedAwayTeams({ ...freshState(), awayMembers: squad.map((m) => ({ ...m })), nextAwayMemberId: 100, expeditionSeed });
-  const res = asPreCurveDispatch(startExpedition(s, "ship-1", 1, expeditionCandidates(s, "ship-1")[0].id));
+  const res = asPreCurveDispatch(dispatchPastPropulsion(s, "ship-1", 1, expeditionCandidates(s, "ship-1")[0].id));
   if (!res.success || !res.expedition) throw new Error(`dispatch refused: ${res.reason}`);
   return { next: res.next, exp: res.expedition };
 }

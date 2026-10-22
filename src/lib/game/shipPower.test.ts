@@ -147,10 +147,15 @@ describe("EM-1: an FTL drive draws x1.6 per class above I (P5)", () => {
     expect(driveClassPowerDraw(5, 2)).toBe(8); // exactly 8, no float creep
   });
 
-  it("every drive today is Class I (no blueprint names a class), so the fold is unchanged", () => {
-    for (const [key, bp] of Object.entries(BLUEPRINTS)) expect(bp.driveClass, key).toBeUndefined();
+  // Expedition Tiers G2-4: the Class II Drive Blueprint is the one classed drive the facility tracks serve today; every
+  // other drive (the three Class I blueprints, Standard Issue) still folds its own draw.
+  // OC-15 (both facility tracks reach tier VII): the Class III to VII drives are served too, each its own class.
+  it("every drive but the classed drives (Class II to VII) is Class I, so their fold is unchanged", () => {
+    const classed: Record<string, number> = { classIIDriveBp: 2, classIIIDriveBp: 3, classIVDriveBp: 4, classVDriveBp: 5, classVIDriveBp: 6, classVIIDriveBp: 7 };
+    for (const [key, bp] of Object.entries(BLUEPRINTS)) expect(bp.driveClass, key).toBe(classed[key]);
     expect(ftlDriveClass({ blueprintKey: null })).toBe(1);
     expect(ftlDriveClass({ blueprintKey: "balancedDriveBp" })).toBe(1);
+    expect(ftlDriveClass({ blueprintKey: "classIIDriveBp" })).toBe(2);
   });
 
   it("the moment a drive blueprint carries a class, its installed drive's draw grows on the sheet", () => {

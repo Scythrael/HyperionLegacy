@@ -197,10 +197,12 @@ const REWORKED_SET: ReadonlySet<string> = new Set(ML2_REWORKED);
 
 // The recipe table rows ML-2 must not touch: every blueprint it does not rework, every Refinery recipe except the
 // `added` ones (a later slice's new keys, held apart), every hull build. And the reworked rows.
+// Expedition Tiers G2-4 (merged onto feat after ML-2): its Class II to VII drive blueprints (driveClass set) are new
+// keys too, held apart the same way (the materialLinesGoldens.test.ts precedent).
 export function untouchedRows(added: ReadonlySet<string> = new Set()): string[] {
   return recipeTable().filter((r) => {
     const [kind, key] = r.split(":");
-    return kind === "bp" ? !REWORKED_SET.has(key) : kind === "refine" ? !added.has(key) : true;
+    return kind === "bp" ? !REWORKED_SET.has(key) && BLUEPRINTS[key].driveClass === undefined : kind === "refine" ? !added.has(key) : true;
   });
 }
 export function reworkedRows(): [string, string][] {

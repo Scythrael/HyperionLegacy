@@ -61,7 +61,7 @@ import { getRelicById } from "./relics";
 const SHIP_SLOT_TYPES: EquipmentSlotType[] = [
   "cargoBay", "ftlDrive", "reactorCore", "specUtility",
   "shieldEmitters", "hullPlating", "weapon", "droneBay",
-  "bridge", "quarters", "thrusters", "sensor", "propellantTanks",
+  "bridge", "quarters", "thrusters", "sensor", "propellantTanks", "module", // E-MOD EM-5: the universal module slot
 ];
 
 // A minimal piece; overrides set the fields under test.

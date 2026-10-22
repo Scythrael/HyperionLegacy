@@ -17,11 +17,16 @@ import type { CraftLine, CraftOrder, CraftLineKind, CraftLineMode } from "./allo
 // than each hard-coding 5/6. inventory.ts imports nothing from this file, so this value
 // import creates NO cycle (unlike the CraftLine type-only import above).
 import { QUALITY_TIERS } from "./inventory";
+// Material Lines ML-3: the rig line's per-unit climb chance (a leaf module: it imports nothing from model.ts).
+import { materialQualityClimbChance, type MaterialPreference } from "./materialQuality";
 // E-CREW 0.14.0 (Task 21): the Constitution ramp leaf (imports only diminishing.ts; no cycle).
 import { constitutionRamp, RAMP_SECONDS_PER_TICK } from "./constitutionRamp";
 // Reactor fuel ladder (0.14.0, capture 2026-10-21): the fuel every Reactor Core blueprint takes (a leaf with no
 // imports, so no cycle).
 import { reactorCoreFuel } from "./reactorTech";
+// E-MOD EM-5 (0.14.0): the universal module catalog leaf (imports only types; no cycle), read by equipmentStatMods for
+// a Passive module's power output.
+import { modulePowerOutput } from "./shipModules";
 // Combat 0.13.0 (Phase 9b.5a): the persisted Patrol mission shape (PatrolMissionState,
 // below) carries a player-chosen combat STANCE and the carry-state DRONE squadrons.
 // Both types live in the combat/ layer. Imported TYPE-ONLY (erased at compile time)
@@ -151,7 +156,10 @@ export interface ShipTypeDef {
   //                     fuelNeeded for the formula this feeds.
   fuelCapacity: number;
   engineEfficiency: number;
-  moduleSlots: number;              // POPULATED but INERT this pass (no module system yet)
+  // E-MOD EM-5: the hull's SHARED module slots, read by the install gate (equipment.ts moduleSlotsFull) and the Armory:
+  // it caps the universal modules AND the specUtility piece together (user M1 "Separate counts"); the bridge, quarters
+  // and sensor keep their own slots. The module slot itself stays hidden until EM-7 (shipModules.ts UNIVERSAL_MODULES_LIVE).
+  moduleSlots: number;
   equipmentSlots: number;           // forward bucket; counts finalized with equipment/reactor design
   // --- Combat / defense base stats (Ship Systems UI, 0.11.0) ---------------------
   // ⚠️ FIRST-PASS TUNABLE launch placeholders, and INERT this pass: combat behavior
@@ -1121,8 +1129,8 @@ export const HULL_GUEST_QUARTERS = { generalFreighter: 20, orion: 40, aurora: 40
 // G1-1 review (user 2026-10-19, "Hide until Short-Range"): the Ship Systems "Guest Quarters" rows (the stat readout,
 // its (i) definition, the install compare) and the hull card's line stay hidden until Short-Range Missions are in, so
 // no player meets a stat nothing they can do uses yet. The stat itself is live (shipDerivedStats folds it). The
-// G1-4 / G1-6 slice that puts passenger runs in front of the player flips this to true.
-export const GUEST_QUARTERS_DISPLAY_LIVE = false;
+// G1-4 / G1-6 slice that puts passenger runs in front of the player flips this to true: G1-6 did (2026-10-21).
+export const GUEST_QUARTERS_DISPLAY_LIVE = true;
 // Does a Ship Systems row or hull card line show `berths` guest quarters: only once the display is live (above), and
 // only when there are some. `live` is for the tests. Pure.
 export function guestQuartersShown(berths: number, live: boolean = GUEST_QUARTERS_DISPLAY_LIVE): boolean {
@@ -1793,6 +1801,10 @@ export type EquipmentSlotType =
   | "hullPlating"
   | "weapon"
   | "droneBay"
+  // E-MOD EM-5 (0.14.0): the UNIVERSAL MODULE slot (H.1 accessories), a MULTI slot like weapon / droneBay, capped by
+  // SHIP_TYPES[hull].moduleSlots TOGETHER with the specUtility piece (user M1 "Separate counts"; shipModules.ts).
+  // Mints through EQUIPMENT_SLOTS.module (varieties = UNIVERSAL_MODULES ids) with its catalog id as moduleVariant.
+  | "module"
   // RESERVED (defined, no consumer yet, forward hooks):
   | "bridge"
   | "quarters"
@@ -2043,6 +2055,25 @@ export function rarityIndex(rarity: EquipmentRarity): number {
     case "constellar":
       return 5;
   }
+}
+
+// The catalog-driven module EFFECT scale (Crew 0.14.0 Phase 1b), shared by the crew modules, the sensor arrays and the
+// universal modules (E-MOD EM-5). MOVED here from crewModules.ts (which re-exports all three, so every importer keeps
+// working) so the equipment fold (equipmentStatMods, below) can scale a universal module's power output without a
+// model -> crewModules import cycle.
+//
+// Per-rarity-step and per-quality-rung growth of a module's EFFECT (NOT its capacity, except the Efficient quarters
+// module). Referenced to "standard" == the neutral base: a standard, quality-0 module reads scale 1.0 (so its catalog
+// magnitude is used as-is), and a rarer / higher-quality module amplifies it. FIRST-PASS TUNABLE.
+export const MODULE_RARITY_STEP = 0.12; // +12% effect per rarity band above standard
+export const MODULE_QUALITY_STEP = 0.06; // +6% effect per quality rung
+
+// The multiplicative effect scale for a module of the given rarity/quality. Monotonic non-decreasing in both (steps
+// are >= 0). standard/q0 == 1.0. derelict clamps to the standard base (no negative step). Pure arithmetic.
+export function moduleEffectScale(rarity: EquipmentRarity, quality: number): number {
+  const rarityStep = Math.max(0, rarityIndex(rarity) - rarityIndex("standard"));
+  const q = Math.max(0, quality);
+  return (1 + rarityStep * MODULE_RARITY_STEP) * (1 + q * MODULE_QUALITY_STEP);
 }
 
 // ============================================================================
@@ -2526,9 +2557,9 @@ export const EQUIPMENT_SLOTS: Record<string, EquipmentSlotDef> = {
   // the capacity principle. The implicitStats / affixPool below exist only so a module is a well-formed,
   // budgeted piece of gear (physicals, durability, iLevel) that mints through the shared generation
   // path; crewStations / crewEfficiency are the honest signature keys for these slots (both are in
-  // LIVE_STAT_KEYS but, like materialQualityChance, are NOT folded by equipmentStatMods, so installing
-  // a module leaves shipDerivedStats byte-identical and only the crew overlay reacts; `sensors` is the
-  // exception that graduated to a real fold in Exploration 0.14.0 E1a). Each
+  // LIVE_STAT_KEYS but are NOT folded by equipmentStatMods, so installing a module leaves
+  // shipDerivedStats byte-identical and only the crew overlay reacts; `sensors` (Exploration 0.14.0 E1a)
+  // and `materialQualityChance` (Material Lines ML-3) are the keys that graduated to a real fold). Each
   // variety's `key` IS a module-catalog id (the generation path stamps it onto the instance as
   // moduleVariant); statRatios are empty because a module's power is catalog-driven, not budget-biased.
   //
@@ -2624,6 +2655,20 @@ export const EQUIPMENT_SLOTS: Record<string, EquipmentSlotDef> = {
       // CRAFTABLE array: its blueprint (bioResonanceArrayBp) is discovery-gated by the Leviathan Scale.
       { key: "sensorBioResonance", label: "Bio-Resonance Array", statRatios: {} },
     ],
+  },
+  // E-MOD EM-5 (0.14.0, plan docs/plans/2026-10-17-material-lines-and-emod-plan.md section 3.3): the UNIVERSAL MODULE
+  // slot, the accessory layer (H.1). Each variety `key` IS a UNIVERSAL_MODULES catalog id (shipModules.ts; the test
+  // holds the two lists equal); the generation path stamps it onto the instance as moduleVariant, and the module's
+  // effect is catalog-driven (its def, scaled by moduleEffectScale), so the slot carries NO signature line and NO affix
+  // pool: rarity and quality act through the effect scale, and M5 ("unique effects only") keeps generic gear lines off
+  // modules. The piece's power draw is its def's (itemgen.ts). The varieties arrive with the v1 roster (EM-7) and the
+  // Precursor Lens (EM-8); until then the slot is hidden (shipModules.ts UNIVERSAL_MODULES_LIVE).
+  module: {
+    slotType: "module",
+    label: "Module",
+    implicitStats: [],
+    affixPool: [],
+    varieties: [],
   },
   // ==========================================================================================
   // E-CREW 0.14.0 (Task 7): AWAY-TEAM MEMBER GEAR (design D3/D4, section 5.4; names exactly as the
@@ -3265,12 +3310,12 @@ export const LIVE_STAT_KEYS = [
   // Crew 0.14.0 (Phase 1b): the two CREW-MODULE signature keys, activated from the reserved
   // vocabulary when the bridge + quarters slots were defined. crewStations (quarters signature =
   // crew capacity) + crewEfficiency (quarters affix + bridge signature = crew comfort / officer
-  // output). LIVE means "a slot references them" (the drift guard fences that); like
-  // materialQualityChance they are NOT folded by equipmentStatMods, because a crew
+  // output). LIVE means "a slot references them" (the drift guard fences that); they are NOT
+  // folded by equipmentStatMods, because a crew
   // module's real effect is catalog-driven (crewModules.ts), scaled per the capacity principle,
   // not read off these budget lines. Installing a module therefore leaves shipDerivedStats
-  // byte-identical; only the crew overlay reacts. (`sensors` is the LIVE key that DOES fold now,
-  // as of Exploration 0.14.0 E1a; see equipmentStatMods + ShipDerivedStats.sensors.)
+  // byte-identical; only the crew overlay reacts. (`sensors`, as of Exploration 0.14.0 E1a, and
+  // `materialQualityChance`, as of Material Lines ML-3, are LIVE keys that DO fold; see equipmentStatMods.)
   "crewStations",
   "crewEfficiency",
   // Exploration 0.14.0 (E4d): the relic-unlocked utility items' stat lines. LIVE (a slot variety
@@ -3912,6 +3957,11 @@ export interface ShipDerivedStats {
   // Guests are not crew (no complement, no crew stations) and never substitute for the hold: only the passenger
   // jobs read it (the short-range cycle, G1-4).
   colonistCapacity?: number;
+  // Material Lines ML-3 (OC-D2, user 2026-10-15 "Chance to upgrade a unit"): the chance each unit this ship delivers
+  // climbs one quality step (materialQuality.ts materialQualityClimbChance of the installed materialQualityChance
+  // points; the Prospecting Rig family). economyTick's deposit fold reads it. OPTIONAL and written only when above 0,
+  // so every ship without a rig line keeps the same stats object.
+  materialQuality?: number;
 }
 
 // CP-2 (OC-E5): a ship's speed on each mission leg: the sweeping transitSpeedMult times that leg's own complement
@@ -4009,8 +4059,9 @@ export function plusToPercent(plus: number, B: number, r: number): number {
 // `sensors` is FOLDED as a FLAT additive total (Exploration 0.14.0 E1a): it is a raw
 // point sum (NOT a percent-curve stat), consumed by survey-mission yield in tick.ts, so
 // a fitted Sensor Array now moves ShipDerivedStats.sensors. `materialQualityChance`
-// stays RESERVED (its consumer is still deferred, design §5/§11), so summing it here
-// would be dead data and it falls through the default case untouched. massReduction /
+// (Material Lines ML-3, OC-D2) sums raw into percentPlus.materialQualityChance, written only
+// when a piece carries it; shipDerivedStats turns it into ShipDerivedStats.materialQuality,
+// the per-unit chance a delivered unit climbs one quality step. massReduction /
 // powerDrawReduction are folded into the mass / power NET totals rather than surfaced as
 // their own lines.
 export interface EquipmentStatMods {
@@ -4019,13 +4070,18 @@ export interface EquipmentStatMods {
   totalMass: number;
   totalPowerDraw: number;
   powerOutput: number;
+  // E-MOD EM-5: the installed Passive modules' power output (shipModules.ts modulePowerOutput), whole points. Kept apart
+  // from `powerOutput` (the Reactor Core lines) so the budget can name the reactor's own share (shipPower.ts
+  // reactorOutput / reactorSurplus); every output total adds both. 0 with no such module.
+  modulePowerOutput: number;
 }
 // E-MOD EM-1 (S4-A03; user P5 2026-10-19 "x1.6 per class (Recommended)"): an FTL drive's power draw grows x1.6 for
 // each drive class above I, so deep reach competes with weapons and modules for the hull's power.
 export const DRIVE_CLASS_POWER_DRAW_MULT = 1.6;
 
-// An installed FTL drive's class: its blueprint's driveClass (G2-4 authors the classed blueprints), Class I when the
-// piece has no blueprint (Standard Issue, a legacy piece) or the blueprint names none. Pure.
+// An installed FTL drive's class: its blueprint's driveClass (G2-4's DRIVE_CLASS_BLUEPRINTS), Class I when the piece has
+// no blueprint (Standard Issue, a legacy piece) or the blueprint names none. THE drive class source: the power fold
+// below and the voyage (propulsion.ts shipDriveClass, which adds the hull's base class) both read it. Pure.
 export function ftlDriveClass(piece: Pick<EquipmentInstance, "blueprintKey">): number {
   const cls = piece.blueprintKey ? BLUEPRINTS[piece.blueprintKey]?.driveClass : undefined;
   return cls !== undefined && cls > 1 ? Math.floor(cls) : 1;
@@ -4111,10 +4167,15 @@ export function equipmentStatMods(pieces: EquipmentInstance[]): EquipmentStatMod
           case "groundVaultYield":
           case "groundCarryCapacity":
             break;
-          // RESERVED (materialQualityChance) + any unknown key: intentionally ignored this
-          // patch (its consumer is still deferred). No silent surprise: the fold simply does
-          // not read it. (`sensors` USED to live here too; it graduated to the flat case above
-          // when its survey-yield consumer went live in Exploration 0.14.0 E1a.)
+          // Material Lines ML-3 (OC-D2): the rig's material quality points, summed raw (shipDerivedStats turns them
+          // into the per-unit climb chance). Written only when a piece carries the line, so every other fold
+          // returns the same percentPlus shape as before.
+          case "materialQualityChance":
+            percentPlus.materialQualityChance = (percentPlus.materialQualityChance ?? 0) + value;
+            break;
+          // Any unknown key: intentionally ignored. No silent surprise: the fold simply does not read it.
+          // (`sensors` and `materialQualityChance` USED to fall here; each graduated to its own case when its
+          // consumer went live: sensors in Exploration 0.14.0 E1a, material quality in Material Lines ML-3.)
           default:
             break;
         }
@@ -4128,6 +4189,8 @@ export function equipmentStatMods(pieces: EquipmentInstance[]): EquipmentStatMod
     totalMass: Math.max(0, grossMass - massReduction),
     totalPowerDraw: Math.max(0, grossPowerDraw - powerDrawReduction),
     powerOutput,
+    // E-MOD EM-5: a module carries no stat lines (EQUIPMENT_SLOTS.module); its output is its catalog def's, scaled.
+    modulePowerOutput: modulePowerOutput(pieces, (p) => moduleEffectScale(p.rarity, p.quality)),
   };
 }
 
@@ -4189,8 +4252,8 @@ function foldGuestQuarters(ship: ShipInstance, pieces: EquipmentInstance[], base
 //   4. MASS penalty (mass-vs-thrust): heavier fitments drag transitSpeedMult
 //      (multiplicative, stays positive) and engineEfficiency (subtractive, can go
 //      below baseline), clamped at ENGINE_EFF_FLOOR.
-//   5. POWER: output = the hull's base + every powerOutput line; draw = the pieces' draw (an FTL drive at
-//      its class). The crew's power efficiency cuts the draw later, in the crew overlay (E-MOD EM-1).
+//   5. POWER: output = the hull's base + every powerOutput line + every Passive module's output (E-MOD EM-5); draw =
+//      the pieces' draw (an FTL drive at its class, a module at its def's draw). The crew's power efficiency cuts the draw later, in the crew overlay (E-MOD EM-1).
 //
 // The optional `pieces` param DEFAULTS to [] so shipDerivedStats(ship) reproduces
 // the bare-hull projection EXACTLY (equipmentStatMods([]) is all-zero -> every
@@ -4243,6 +4306,9 @@ export function shipDerivedStats(
   engineEfficiency -= MASS_EFF_DRAG * mods.totalMass;
   if (engineEfficiency < ENGINE_EFF_FLOOR) engineEfficiency = ENGINE_EFF_FLOOR;
 
+  // (6) Material Lines ML-3: the per-unit climb chance of the installed material quality lines (absent without any).
+  const materialQuality = materialQualityClimbChance(mods.percentPlus.materialQualityChance ?? 0);
+
   // (5) Power: the hull's own output plus the installed lines (E-MOD EM-1).
   return {
     cargoCapacity,
@@ -4251,10 +4317,11 @@ export function shipDerivedStats(
     engineEfficiency,
     fuelCapacity,
     mass: mods.totalMass,
-    powerOutput: base.powerOutput + mods.powerOutput,
+    powerOutput: base.powerOutput + mods.powerOutput + mods.modulePowerOutput, // E-MOD EM-5: + Passive module output
     powerDraw: mods.totalPowerDraw,
     sensors,
     ...(colonistCapacity > 0 ? { colonistCapacity } : {}),
+    ...(materialQuality > 0 ? { materialQuality } : {}),
   };
 }
 
@@ -4516,6 +4583,10 @@ export interface CaptainState {
   // (a recall + redispatch never replays a roll). OPTIONAL, written only once a cycle has rolled (absent = 0,
   // no SAVE_VERSION bump).
   motherlodeCycles?: number;
+  // Material Lines ML-3 (OC-D2): this captain's LIFETIME count of deliveries that rolled a material quality climb
+  // (a ship with a rig line). It keys each delivery's private rounding roll (materialQuality.ts materialQualitySeed),
+  // the Motherlode rule. OPTIONAL, written only once a delivery has rolled (absent = 0, no SAVE_VERSION bump).
+  materialQualityCycles?: number;
 }
 
 // WR-5a / WR-5b / WR-5c (0.14.0, OC-A2 "own ship"): the captain who commands `ship` (ship.assignedCaptainId), or
@@ -4611,7 +4682,12 @@ export type TimedProcessKind = "refineJob" | "facilityUpgrade" | "fuelRefineJob"
 // FacilityKey union) so a later facility needs no type change here, forward-loose
 // on purpose, same reasoning as inventory's `Record<string, Decimal>` key type.
 export type ProcessEffect =
-  | { type: "addItem"; itemId: string; amount: Decimal }
+  // Material Lines ML-4 (L6, user 2026-10-19 "Weighted average + climb"): `inputQuality` is the unit-weighted
+  // average quality of everything the job consumed, rounded down (materialQuality.ts carriedQuality), stamped by
+  // startProcess on a refine or fabricate job only when above 0. The output lands at min(5, inputQuality + the
+  // usual roll). ABSENT = 0, so every job in flight before ML-4 (and every job on Q0 stock) resolves exactly as
+  // before. A plain number: it rides hydrateDecimals's effect spread, no migration.
+  | { type: "addItem"; itemId: string; amount: Decimal; inputQuality?: number }
   | { type: "facilityLevelUp"; facility: string }
   // Research (Task R3, design §3): a completed research project unlocks its blueprint by
   // adding `key` to state.researchedBlueprints (resolveProcesses, idempotent, no dup).
@@ -5208,8 +5284,8 @@ export const MISSION_CONTROL_UNLOCK_COMPLETIONS = 50;
 // they join FACILITIES.missionControl only once SHORT_RANGE_BOARD_LIVE is true, so no player can build an upgrade
 // whose slot no screen shows yet, and every facility reader, the sim and the registry are unchanged until then.
 // shortRangeBoardSlots reads this table directly, so the slot ladder is live (and tested) at every level now.
-// G1-6 flips the flag with the board UI (its Mission Control card text then names the slot).
-export const SHORT_RANGE_BOARD_LIVE = false;
+// G1-6 flipped the flag with the board UI (2026-10-21); the Mission Control card names the slot each rung opens.
+export const SHORT_RANGE_BOARD_LIVE = true;
 // Every cost, duration and the fourth slot's tier (Tier II) approved 2026-10-20 (user "Approve (Recommended)":
 // docs/plans/2026-10-19-merge-batch-answers.md). The level 1 -> 2 rung is the reserved completion-gated template kept
 // for exactly this (MISSION_CONTROL_UNLOCK_COMPLETIONS of each ore run).
@@ -5279,6 +5355,49 @@ function buildSubspaceTelescopeUpgrades(): FacilityUpgradeDef[] {
     effect: { telescope: { reachTier: row.reachTier, detail: row.detail } },
     ...(row.fleetAdminLevel > 0 ? { requiresFleetAdminLevel: row.fleetAdminLevel } : {}),
   }));
+}
+
+// Research Lab and Fabricator tiers III to VII (complement plan OC-15).
+// User 2026-10-16 (OC-15): "Add tiers 3-7 now (Recommended)": the Research Lab gains levels 3 to 7 in 0.14.0 (drive
+// classes II to VII, top modules); user 2026-10-21: "Build them in 0.14.0 (Recommended)". The Fabricator is the Lab's
+// direct clone (a level-derived tier gate plus a summed slot grant), so it climbs the same ladder: a tier N blueprint
+// needs Lab level N to research and Fabricator level N to craft.
+//
+// ONE TABLE, one row per tier: the rung that REACHES that level, on both tracks. Every rung is real the moment it is
+// built: it grants one more slot (research or craft, the pattern every rung of both tracks has always carried), and
+// it opens that tier's blueprints. Tier III to VII content rides this ladder by its blueprint `tier` alone: the
+// classed drives (G2-4, Class N on tier N, joining BLUEPRINTS once both tracks reach the tier), the gas giant special
+// blueprints (GG-7), the top crew modules (CP-11 Flag Command / Elite Quarters, EM-7), and the identification lanes
+// Relics v2 reads off the Lab level (R2-3: I 1, III 2, V 3, VII 4) through labTier.
+//
+// The Fabricator's tier III row is the rung it already had (Crafting 0.13.3 FIX B, its third craft line), unchanged:
+// 20,000 credits / 240 ticks / FA 6. Each later row steps credits x2.5 and the FA gate +3 (the Shipyard's and the
+// Subspace Telescope's strides) and lengthens on the telescope's duration ladder.
+// APPROVED (user 2026-10-21, "Costs OK, +1 slot each (Recommended)"): every credits / ticks / FA number and the
+// one-slot grant per rung, as built (the balancing patch may retune). Costs are credits plus an FA gate only, the gates both Upgrades panels show (no
+// materials, no talent gates: a gate the card cannot show is a trap).
+export interface LabFabricatorTierRungDef {
+  tier: number;            // the level this row REACHES on both tracks (3 .. 7)
+  credits: number;
+  durationTicks: number;
+  fleetAdminLevel: number; // FA gate
+  researchSlots: number;   // the Lab rung's slot grant
+  fabricateSlots: number;  // the Fabricator rung's slot grant
+}
+export const LAB_FABRICATOR_TIER_RUNGS: readonly LabFabricatorTierRungDef[] = [
+  { tier: 3, credits: 20_000, durationTicks: 240, fleetAdminLevel: 6, researchSlots: 1, fabricateSlots: 1 },
+  { tier: 4, credits: 50_000, durationTicks: 420, fleetAdminLevel: 9, researchSlots: 1, fabricateSlots: 1 },
+  { tier: 5, credits: 125_000, durationTicks: 720, fleetAdminLevel: 12, researchSlots: 1, fabricateSlots: 1 },
+  { tier: 6, credits: 300_000, durationTicks: 1_200, fleetAdminLevel: 15, researchSlots: 1, fabricateSlots: 1 },
+  { tier: 7, credits: 750_000, durationTicks: 1_800, fleetAdminLevel: 18, researchSlots: 1, fabricateSlots: 1 },
+];
+// The highest blueprint tier either track serves (both tracks end on the table's last row).
+export const LAB_FABRICATOR_TOP_TIER = LAB_FABRICATOR_TIER_RUNGS[LAB_FABRICATOR_TIER_RUNGS.length - 1].tier;
+function labTierRung(row: LabFabricatorTierRungDef): FacilityUpgradeDef {
+  return { materials: {}, credits: new Decimal(row.credits), durationTicks: row.durationTicks, effect: { addResearchSlots: row.researchSlots }, requiresFleetAdminLevel: row.fleetAdminLevel };
+}
+function fabricatorTierRung(row: LabFabricatorTierRungDef): FacilityUpgradeDef {
+  return { materials: {}, credits: new Decimal(row.credits), durationTicks: row.durationTicks, effect: { addFabricateSlots: row.fabricateSlots }, requiresFleetAdminLevel: row.fleetAdminLevel };
 }
 
 export const FACILITIES: Record<string, FacilityDef> = {
@@ -5434,8 +5553,8 @@ export const FACILITIES: Record<string, FacilityDef> = {
       // [1] Level 1 -> 2: the REAL upgrade rung. Reaching level 2 unlocks TIER-2
       // blueprints (blueprintResearchable: tier 2 <= level 2) AND grants a 2nd research
       // slot (researchSlotCount sums to 2). Gated on CREDITS (the design's long-term
-      // sink, NO materials) + a modest FA-level prereq. Track ENDS here (finite; only
-      // tiers 1-2 exist). ⚠️ FIRST-PASS TUNABLE credits/duration/FA-level.
+      // sink, NO materials) + a modest FA-level prereq. ⚠️ FIRST-PASS TUNABLE
+      // credits/duration/FA-level.
       {
         materials: {}, // locked design #3: NO materials on research costs
         credits: new Decimal(5000), // the tier-2 unlock's credit sink (tunable)
@@ -5443,6 +5562,9 @@ export const FACILITIES: Record<string, FacilityDef> = {
         effect: { addResearchSlots: 1 },
         requiresFleetAdminLevel: 3, // modest gate, mirrors the Refinery's FA-level idiom (tunable)
       },
+      // [2..6] Levels 3 to 7 (OC-15): one rung per row of LAB_FABRICATOR_TIER_RUNGS, each a research slot plus
+      // that tier's blueprints. The track ENDS at LAB_FABRICATOR_TOP_TIER.
+      ...LAB_FABRICATOR_TIER_RUNGS.map(labTierRung),
     ],
   },
   // --- Fabricator (Phase 4, F1, design §1) -----------------------------------
@@ -5460,8 +5582,10 @@ export const FACILITIES: Record<string, FacilityDef> = {
   //     TIER unlock is level-derived (not summed), the same way the Research Lab derives
   //     researchable tiers from its level.
   //
-  // TRACK LENGTH: THREE rungs (levels 1, 2 and 3), matching the Refinery's three
-  // parallel production lines.
+  // TRACK LENGTH: SEVEN rungs (levels 1 to 7). Levels 1 to 3 matched the Refinery's three
+  // parallel production lines (FIX B below); levels 4 to 7 are the OC-15 tier rungs
+  // (LAB_FABRICATOR_TIER_RUNGS, user 2026-10-16 / 2026-10-21), each a craft slot plus
+  // that tier's blueprints.
   //
   // ⚠️ REVISED IN CRAFTING 0.13.3 (Unit 3.1b, FIX B), OWNER BALANCE CALL. This block
   // used to read "NO rung beyond tier 2, adding one would be a placeholder that unlocks
@@ -5476,8 +5600,8 @@ export const FACILITIES: Record<string, FacilityDef> = {
   // tier gate is `tier <= level`, so a level-3 Fabricator simply clears both existing
   // tiers with room to spare, exactly as a level-4 Refinery clears its recipes).
   //
-  // Still FINITE and still additive: a future blueprint tier extends the track by one
-  // more rung, mirroring the Research Lab / Refinery / Warehouse tracks.
+  // Still FINITE and still additive: OC-15 extended it to tier VII, one rung per tier, on
+  // the same table as the Research Lab's tier rungs.
   //
   // COST MODEL, upgrade rungs cost CREDITS (the OPTIONAL `credits` FacilityUpgradeDef
   // field, the SAME gate the Research rungs use), NOT materials (materials are the CRAFT
@@ -5511,10 +5635,11 @@ export const FACILITIES: Record<string, FacilityDef> = {
         requiresFleetAdminLevel: 3, // modest gate, mirrors the Research Lab's idiom (tunable)
       },
       // [2] Level 2 -> 3: the THIRD craft line (Crafting 0.13.3 Unit 3.1b, FIX B, owner
-      // balance call). Grants a 3rd { addFabricateSlots } so fabricateSlotCount tops out
-      // at 3, the SAME ceiling the Refinery's three addRefineSlots rungs reach. Unlocks
-      // no blueprint tier (none beyond 2 exists), which is fine: the tier gate is
-      // `tier <= level`, so this is headroom, not a broken promise. Track ENDS here.
+      // balance call). Grants a 3rd { addFabricateSlots }, the SAME count the Refinery's
+      // three addRefineSlots rungs reach, and (since OC-15) opens tier III blueprints.
+      // Since OC-15 it is LAB_FABRICATOR_TIER_RUNGS' tier III row, generated with the
+      // rows after it (the values below are that row's, unchanged; labFabricatorTiersGoldens
+      // golden 1 proves the rung byte-identical).
       //
       // SCALING, taken from the SHAPE of how the REFINERY's third slot rung steps over
       // its second, so the two production facilities read as one system rather than two:
@@ -5544,13 +5669,11 @@ export const FACILITIES: Record<string, FacilityDef> = {
       // ⚠️ FIRST-PASS TUNABLE, like every number on this track. The owner has said a
       // dedicated balance pass (post-exploration, around 0.16.0) will retune everything,
       // time inflation included, so these are a coherent starting point and not a verdict.
-      {
-        materials: {},
-        credits: new Decimal(20000), // 4x rung [1], mirroring the Refinery's third-rung cost step
-        durationTicks: 240, // 2x rung [1], mirroring the Refinery's third-rung duration step
-        effect: { addFabricateSlots: 1 },
-        requiresFleetAdminLevel: 6, // +3 over rung [1], mirroring the Refinery's third-rung FA step
-      },
+      //   credits 20000 (4x rung [1], the Refinery's third-rung cost step), duration 240
+      //   (2x rung [1]), FA 6 (+3 over rung [1]).
+      // [3..6] Levels 4 to 7 (OC-15): the table's later rows. The track ENDS at
+      // LAB_FABRICATOR_TOP_TIER.
+      ...LAB_FABRICATOR_TIER_RUNGS.map(fabricatorTierRung),
     ],
   },
   // --- Shipyard (Phase 5, Task S1, design §2) --------------------------------
@@ -5895,7 +6018,9 @@ export type SalvageOrderMode = Extract<CraftLineMode, { kind: "batch" }>;
 // Both arms are PLAIN STRINGS, keeping the no-Decimal guarantee below intact: they ride
 // hydrateDecimals's spread verbatim and need no revive branch and no migration.
 export type QueuedOrder =
-  | { type: "craftLine"; kind: CraftLineKind; recipeKey: string; mode: CraftLineMode }
+  // Material Lines ML-4 (L5): `materialPreference` "best" = the order's "Use best materials" toggle (highest quality
+  // stock first), carried onto the line at promotion. Written only when on; absent = lowest-first. A plain string.
+  | { type: "craftLine"; kind: CraftLineKind; recipeKey: string; mode: CraftLineMode; materialPreference?: MaterialPreference }
   | { type: "salvage"; target: SalvageTargetRef; mode: SalvageOrderMode }
   | { type: "research"; blueprintKey: string }
   | { type: "shipBuild"; typeKey: string };
@@ -7442,8 +7567,10 @@ export interface ExpeditionRelicToken {
   quality: number; // 0..5 quality bucket from the salvage tier (reuses the 0-5 quality system)
   unidentified: true; // always true this phase: E4 owns identification/research/museum
   studySpeed?: number; // WR-5c Preservationist: the study of this relic runs (1 + this) faster; absent = 0
-  // Relics v2 R2-1 (DORMANT; plan 2026-10-17 section 3.2): stamped at the roll from R2-2 on. Absent = Tier I and a
-  // culture derived at read time (R2-2 / R2-6), so every token rolled before Relics v2 reads exactly as it did.
+  // Relics v2 (plan 2026-10-17 section 3.2): stamped at the roll by R2-2 on a run that carries the blanks flag
+  // (Expedition.relicBlanks): the run's region tier and the culture of the body it came from (relicBlanks.ts
+  // relicBlankStamp). Absent = Tier I and a culture derived at read time, so every token rolled before R2-2 (and every
+  // token of a run in flight at the update) reads exactly as it did.
   regionTier?: RegionTier;
   cultureId?: string;
 }
@@ -7473,12 +7600,16 @@ export interface RelicVaultToken {
   id: string; // the ExpeditionRelicToken id ("<expeditionId>-relic-<activityId>"), unique per token
   tier: EquipmentRarity; // the rolled rarity tier; skews WHICH relic the study reveals (relics.ts)
   quality: number; // 0..5 quality bucket carried from the reward roll (provenance; no effect yet)
-  setId: RelicSetId; // the set this token identifies WITHIN
-  poiId: string; // the PoI the finding came from (expeditionContent.ts POI_CATALOG id)
+  // The set this token identifies WITHIN (v1 identification), routed off its PoI at deposit. Relics v2 R2-2: OPTIONAL. A
+  // blank with no site (a short-range blank, a planet completion blank, a grant) has neither a set nor a PoI; its study
+  // identifies over the general pool by band (relicBlanks.ts identifyGeneralRelic). Every expedition deposit still
+  // writes both, so a sited blank identifies exactly as before.
+  setId?: RelicSetId;
+  poiId?: string; // the PoI the finding came from (expeditionContent.ts POI_CATALOG id); absent = no site (see setId)
   studySpeed?: number; // WR-5c Preservationist (carried from the token): the study runs (1 + this) faster; absent = 0
-  // Relics v2 R2-1 (DORMANT; plan 2026-10-17 section 3.2): all optional, read with a default, nothing writes them
-  // until R2-2. regionTier absent = Tier I; cultureId absent = derived at read time from the token id (R2-2 / R2-6);
-  // source absent = "expedition". (setId stays required until R2-2 mints the first token that does not need it.)
+  // Relics v2 (plan 2026-10-17 section 3.2): all optional, read with a default (relicBlanks.ts vaultTokenRegionTier /
+  // vaultTokenCultureId / vaultTokenSource). R2-2 writes them on every blank a new run (or a hook) mints. regionTier
+  // absent = Tier I; cultureId absent = derived at read time from the token id; source absent = "expedition".
   regionTier?: RegionTier;
   cultureId?: string;
   source?: RelicVaultTokenSource;
@@ -7953,6 +8084,58 @@ export interface Expedition {
   // read from it. Absent on every run dispatched before G2-3: the fixed pre-G2-3 legs (expedition.ts
   // TRANSIT_SECONDS, the retired shakedown's SHAKEDOWN_TRANSIT_SECONDS), byte-identically. Optional, no SAVE bump.
   voyage?: ExpeditionVoyage;
+  // Relics v2 R2-2 (plan 2026-10-17 section 4 R2-2): the RELIC BLANKS flag, stamped at dispatch with
+  // relicBlanks.ts RELIC_BLANKS_VERSION. Its PRESENCE makes the run's relic tokens carry their blank stamps (the run's
+  // region tier and the body's culture) and roll their rarity on the tier's blank table (Tier I is today's table
+  // exactly; user call 13 "Better rarity only"). A run without it (in flight at the update) rolls and stores its
+  // tokens byte-identically. Optional, no SAVE bump.
+  relicBlanks?: { version: number };
+  // Expedition Tiers G2-5: the player's RECALL (expedition.ts recallExpedition), written only by it: the run turned for
+  // home at `atSeconds` and flies the frozen `returnSeconds` (any pickup included). Absent = never recalled, and every
+  // reader is exactly as before. Optional, no SAVE bump.
+  recall?: ExpeditionRecall;
+  // Expedition Tiers G2-5: a RESUMED system (user G12 "Resumable"): the run was dispatched to a held system
+  // (GameState.heldSystems) and its first `scannedBodies` bodies were charted before (their scans stay done, their
+  // objectives keep their progress). Absent on every other run. Optional, no SAVE bump.
+  resume?: { version: 1; heldId: string; scannedBodies: number };
+}
+
+// Expedition Tiers G2-5 (user #7 "Based on distance traveled 1:1"; G13 one confirm with the return time; G14 detour
+// time is not distance flown): a recalled run. `phaseAtRecall` is where it turned; `flownSeconds` the outbound time
+// flown toward the system (in transit only, the detour not counted); `pickupSeconds` the shared in-system pickup of the
+// teams on a surface (0 when none was down); `returnSeconds` the whole way home from `atSeconds` (the pickup, then the
+// return leg at the Flight Deck ramp of the time out so far). `held` names the GameState.heldSystems record the recall
+// left (absent when none: a legacy run, or a finished system). Plain data.
+export interface ExpeditionRecall {
+  version: 1;
+  atSeconds: number;
+  phaseAtRecall: "transit" | "scanning" | "activities";
+  flownSeconds?: number;
+  pickupSeconds: number;
+  returnSeconds: number;
+  held?: string;
+}
+
+// Expedition Tiers G2-5: a system a recall left behind (GameState.heldSystems). Signed-off dispatch mockup (2026-10-21,
+// "as drawn"): a system recalled BEFORE anything was charted returns to being an ORDINARY CANDIDATE (`kind`
+// "candidate": its identity only, offered again among its tier's candidates and launched fresh); a system with charted
+// bodies is RESUMABLE (`kind` "resume", user G12: "Any explorer" resumes it, it stays open "Until finished" or abandoned,
+// "Pick up where you left off": finished scans stay done, objectives keep their progress, the trip is flown again). A
+// resume record carries the run's bodies (scans, discoveries, objectives with their progress; nothing assigned) and its
+// risk profile. Plain data.
+export interface HeldSystem {
+  version: 1;
+  id: string; // "held-<expeditionId>"
+  kind: "candidate" | "resume";
+  fromExpeditionId: string;
+  heldAt: number;
+  seed: number;
+  systemId: string;
+  systemName: string;
+  famousId: string | null;
+  region: ExpeditionRegionStamp;
+  risk?: ExpeditionRiskProfile;
+  bodies?: ExpeditionBody[];
 }
 
 // Expedition Tiers G2-3 (user G5 + G21, 2026-10-16): a run's voyage. `tier` sets the nominal hours (tiers are
@@ -8349,6 +8532,13 @@ export interface GroundOpsState {
   // (Expedition.gearWear), read when the run comes home (gearWearEngine.ts). Resolution never reads it. Absent until
   // the first count, and on every run without the stamp, so such a run keeps its exact shape.
   wearTally?: Record<string, GroundWearTally>;
+  // Expedition Tiers G2-5: the instant the player RECALLED the ship and the window closed (groundOps.ts
+  // closeGroundOps; endedAt is the same instant). Absent on every run nobody recalled.
+  recalledAt?: number;
+  // Expedition Tiers G2-5: a RESUMED run's scan clock starts past the bodies already charted (Expedition.resume): the
+  // clock seconds those bodies take on this run, so the window's startedAt sits that far before it opened and the
+  // next body is scanned from the moment it opens. Absent on every other run.
+  scanClockSkip?: number;
 }
 
 // GO-7c: one line of the ground operations log (groundOps.ts groundOpsLogText words it): a task nobody deployed
@@ -8837,6 +9027,10 @@ export interface GameState {
   // after the first run holds Wolf 359 by WOLF_359_LIST_AFTER_DISPATCHES), so a save that is not a veteran never
   // carries the key. A plain number: no SAVE bump, hydrateDecimals carries it through its `...state` spread.
   wolf359List?: number;
+  // Expedition Tiers G2-5: the systems recalls left behind (HeldSystem: ordinary candidates again, or resumable),
+  // oldest first. OPTIONAL: absent until the first recall that leaves one, so every save keeps its exact shape. Plain
+  // data: no SAVE bump, hydrateDecimals carries it through its `...state` spread.
+  heldSystems?: HeldSystem[];
   // Safe first runs SF-1: the per-type run counters (RunCounts above; rules in runDifficulty.ts). freshState seeds
   // freshRunCounts(); save v70 derives them for an older save from its history (veterans). Written by claimExpedition,
   // dispatchCaptainOnPatrol and economyTick's patrol fold. OPTIONAL: absent (a dev save at v70 from before SF-1) reads
@@ -10144,7 +10338,8 @@ export interface BlueprintDef {
   // fabricate craftable and visible in the UI, mirroring how weapons landed in Unit 1.2b.
   droneOutput?: { role: DroneRole };
   // E-MOD EM-1 (user P5 2026-10-19 "x1.6 per class"): an FTL drive blueprint's drive class, 1 (Class I) to 7. G2-4
-  // authors the Class II to VII drive blueprints and their gates; absent reads Class I, which every drive is today.
+  // authors the Class II to VII drive blueprints (DRIVE_CLASS_BLUEPRINTS) and their gates (propulsion.ts); absent reads
+  // Class I.
   // The power fold (equipmentStatMods) multiplies an installed drive's draw by DRIVE_CLASS_POWER_DRAW_MULT per class
   // above I the moment a blueprint sets this (ftlDriveClass), so G2-4 must NOT bake the class into powerDraw at mint.
   driveClass?: number;
@@ -10252,6 +10447,53 @@ export const FIELD_KITS_HIDDEN_BLUEPRINTS: Readonly<Record<string, BlueprintDef>
     unlockHint: "Researched at the Research Lab; crafted at the Fabricator. Away-team gear, worn by a squad member.",
   },
 };
+
+// Expedition Tiers G2-4 (user G3 2026-10-16: "A combination of higher tier ships and better drive blueprints/stats/
+// etc."; G20 "Class IV drive", Roman numerals): the CLASSED FTL DRIVES, one Balanced-ratio blueprint per Class II to
+// VII (plan G2-4: "one per class at first, Balanced ratios"). Class N sits on blueprint tier N; the minted piece reads
+// its class back through ftlDriveClass (blueprintKey), which also draws x1.6 power per class above I (E-MOD EM-1),
+// never baked into powerDraw here. [PROPOSAL recipes and costs] after the recipe realism audit section 4.2: a base of
+// Coupling 3 + Wafer 3 + Titanium Ingot 2 (the audit's field coils, Cobalt Coil 2, wait for ML-2, which lifts the Cobalt
+// Coil's reserve with the FTL recipe rework); Class III to V add 1 / 2 / 3 Deuterium Canisters (ML L9 / GG call 7
+// "Drives + Lab blueprints"); Class VI and VII add 1 / 2 Antimatter Containment Cells. The balancing patch owns the
+// amounts.
+// A row joins BLUEPRINTS only once BOTH the Research Lab and the Fabricator tracks reach its tier
+// (drivesWithinFacilityReach). Since complement OC-15 ("Add tiers 3-7 now") both tracks reach tier VII, so Class II to
+// VII are all served (before it only Class II was, and the dispatch said "None can be built yet" for Tiers III to VII:
+// propulsion.ts driveClassUnavailable, which still names a class no served blueprint gives).
+const DRIVE_CLASS_BASE_RECIPE = { powerCoupling: 3, polysilicateWafer: 3, titaniumIngot: 2 } as const;
+function classedDriveBlueprint(driveClass: 2 | 3 | 4 | 5 | 6 | 7, cost: { ticks: number; credits: number; craft: number }, extra: Record<string, number>): BlueprintDef {
+  const numeral = ["", "I", "II", "III", "IV", "V", "VI", "VII"][driveClass];
+  return {
+    key: `class${numeral}DriveBp`,
+    label: `Class ${numeral} Drive Blueprint`,
+    tier: driveClass,
+    researchDurationTicks: cost.ticks,
+    researchCreditCost: cost.credits,
+    craftDurationTicks: cost.craft,
+    equipmentOutput: { slotType: "ftlDrive", varietyKey: "balancedDrive" },
+    driveClass,
+    recipe: { inputs: { ...DRIVE_CLASS_BASE_RECIPE, ...extra } },
+    flavor: `A Class ${numeral} field generator: a deeper fold of space per jump, and the reactor feels every one of them.`,
+    unlockHint: "Researched at the Research Lab (needs a higher lab tier); crafted at the Fabricator; installed in a ship's FTL Drive slot.",
+  };
+}
+export const DRIVE_CLASS_BLUEPRINTS: readonly BlueprintDef[] = [
+  classedDriveBlueprint(2, { ticks: 140, credits: 2_400, craft: 360 }, {}),
+  classedDriveBlueprint(3, { ticks: 200, credits: 6_000, craft: 480 }, { deuteriumCanister: 1 }),
+  classedDriveBlueprint(4, { ticks: 260, credits: 12_000, craft: 600 }, { deuteriumCanister: 2 }),
+  classedDriveBlueprint(5, { ticks: 320, credits: 24_000, craft: 720 }, { deuteriumCanister: 3 }),
+  classedDriveBlueprint(6, { ticks: 400, credits: 48_000, craft: 900 }, { deuteriumCanister: 3, antimatterCell: 1 }),
+  classedDriveBlueprint(7, { ticks: 480, credits: 96_000, craft: 1_080 }, { deuteriumCanister: 3, antimatterCell: 2 }),
+];
+// The classed drives whose tier BOTH facility tracks reach (a level-N facility serves tier N; a track's top level is
+// its rung count), keyed for BLUEPRINTS' spread. Hoisted: BLUEPRINTS below spreads it. Pure over the static tables.
+export function drivesWithinFacilityReach(): Readonly<Record<string, BlueprintDef>> {
+  const top = Math.min(FACILITIES.research?.upgrades.length ?? 0, FACILITIES.fabricator?.upgrades.length ?? 0);
+  const out: Record<string, BlueprintDef> = {};
+  for (const bp of DRIVE_CLASS_BLUEPRINTS) if (bp.tier <= top) out[bp.key] = bp;
+  return out;
+}
 
 export const BLUEPRINTS: Record<string, BlueprintDef> = {
   frameSegmentBp: {
@@ -10423,6 +10665,9 @@ export const BLUEPRINTS: Record<string, BlueprintDef> = {
     flavor: "An even-tempered drive splitting the difference between speed and thrift, the safe default.",
     unlockHint: "Researched at the Research Lab; crafted at the Fabricator once equipment fabrication comes online.",
   },
+  // Expedition Tiers G2-4: the classed FTL drives the facility tracks reach (DRIVE_CLASS_BLUEPRINTS above; Class II
+  // today), right after the Class I drives.
+  ...drivesWithinFacilityReach(),
 
   // --- REACTOR CORE (power: couplings + wafers, top core on a structural spine) ---
   highOutputCoreBp: {
@@ -10523,11 +10768,12 @@ export const BLUEPRINTS: Record<string, BlueprintDef> = {
   // unit only makes them research -> fabricate craftable and visible in the UI.
   //
   // TIER = 1 or 2 ONLY. `tier` gates the RESEARCH LAB level required to research the blueprint
-  // (canResearch: bp.tier > research level -> tierLocked), and the Research Lab caps at level 2
-  // (FACILITIES.research has 2 rungs), so a tier-3 weapon blueprint would be permanently un-
+  // (canResearch: bp.tier > research level -> tierLocked), and the Research Lab capped at level 2
+  // when these were tiered, so a tier-3 weapon blueprint would have been permanently un-
   // researchable, and thus permanently un-craftable. The three basic family staples are tier 1;
   // the heavier / higher-impact weapons are tier 2 (matching structuralAssemblyBp / the tier-2
-  // equipment lines). A later level-3 Research Lab rung can re-tier upward.
+  // equipment lines). OC-15 has since raised both tracks to tier VII, so re-tiering upward is
+  // now a balancing call, not a reachability one.
   //
   // ⚠️ FIRST-PASS TUNABLE ⚠️ every tier / cost / duration / input amount below is a launch
   // placeholder in the SAME spirit as the material + equipment blueprints above (and the weapon
@@ -10670,8 +10916,8 @@ export const BLUEPRINTS: Record<string, BlueprintDef> = {
   // no bridge fold); this unit only makes them research -> fabricate craftable and visible in the UI.
   //
   // TIER = 1 or 2 ONLY, for the SAME reason as the weapon blueprints: `tier` gates the RESEARCH LAB
-  // level required to research the blueprint, and the Research Lab caps at level 2, so a tier-3 pod
-  // would be permanently un-researchable, thus permanently un-craftable. Attack (the entry role) is
+  // level required to research the blueprint, and the Research Lab capped at level 2 when these were
+  // tiered (OC-15 has since raised it to VII), so a tier-3 pod would have been un-researchable. Attack (the entry role) is
   // tier 1; the more specialized defense + support roles are tier 2.
   //
   // RECIPES are electronics-heavy (design S8: a drone squadron is a swarm of small sensor-and-
@@ -10736,7 +10982,7 @@ export const BLUEPRINTS: Record<string, BlueprintDef> = {
   // so they auto-appear in Research (the UIs enumerate Object.keys(BLUEPRINTS)) and
   // mint a named, variety-resolved crafted piece, NOT a separate weapon/drone table.
   //
-  // TIER = 1 or 2 ONLY (the Research Lab caps at level 2, same constraint as the
+  // TIER = 1 or 2 ONLY (the Research Lab capped at level 2 before OC-15, same constraint as the
   // weapon/drone blueprints): the two workhorse varieties per slot are T1, the premium
   // capacity/composite variety is T2.
   //
@@ -10837,11 +11083,11 @@ export const BLUEPRINTS: Record<string, BlueprintDef> = {
   //
   // TIER = 2 (NOT the hulls' own tier-3 combat rank): this `tier` field gates the RESEARCH
   // LAB level required to research the blueprint (canResearch: bp.tier > research level ->
-  // tierLocked). The Research Lab caps at level 2 today (FACILITIES.research has 2 rungs), so
-  // a tier-3 blueprint would be permanently un-researchable, and thus its hull permanently
-  // un-buildable. Tier 2 keeps these reachable at the Lab's current ceiling, and it is the
-  // heaviest researchable tier (matching structuralAssemblyBp / the tier-2 equipment lines).
-  // When a later phase adds a level-3 Research Lab rung, these can be re-tiered upward.
+  // tierLocked). The Research Lab capped at level 2 when these were tiered (OC-15 has since raised
+  // it to VII), so a tier-3 blueprint would have been permanently un-researchable, and thus its
+  // hull permanently un-buildable. Tier 2 kept them reachable at the Lab's old ceiling and matches
+  // structuralAssemblyBp / the tier-2 equipment lines. The Lab now reaches tier VII (OC-15), so
+  // re-tiering these upward is a balancing call, not a reachability one.
   //
   // recipe.inputs is EMPTY (nothing is fabricated); the credit + duration cost is paid at the
   // Research Lab. ⚠️ FIRST-PASS TUNABLE ⚠️ tier / researchDurationTicks / researchCreditCost
@@ -10884,9 +11130,9 @@ export const BLUEPRINTS: Record<string, BlueprintDef> = {
   // choices, mirroring the battleship / carrier split.
   //
   // TIER = 2, for the SAME reason as the warship hull blueprints: `tier` gates the Research Lab
-  // LEVEL required (canResearch: bp.tier > level -> tierLocked), and the Lab caps at level 2
-  // today (FACILITIES.research has 2 rungs), so a tier-3 blueprint would be permanently
-  // un-researchable and its hull permanently un-buildable. Tier 2 keeps them reachable now.
+  // LEVEL required (canResearch: bp.tier > level -> tierLocked), and the Lab capped at level 2
+  // when these were tiered (OC-15 has since raised it to VII), so a tier-3 blueprint would have
+  // been un-researchable and its hull un-buildable. Tier 2 keeps them reachable early.
   //
   // ⚠️ E0 PLACEHOLDER GATE ONLY. The REAL discovery-gated acquisition (finding an explorer hull
   // out in the field) is a later phase (E4 research). This blueprint gate keeps the explorers
@@ -11587,7 +11833,7 @@ export const DEFAULT_EQUIPMENT_VARIETY: Record<string, string> = {
 // unaffected.
 export const SLOT_BASE_PHYSICALS: Record<
   | "cargoBay" | "ftlDrive" | "reactorCore" | "specUtility" | "shieldEmitters" | "hullPlating" | "bridge" | "quarters" | "sensor"
-  | "memberArmor" | "memberWeapon" | "memberTool" | "implant",
+  | "module" | "memberArmor" | "memberWeapon" | "memberTool" | "implant",
   { mass: number; powerDraw: number; durability: number }
 > = {
   cargoBay: { mass: 10, powerDraw: 2, durability: 100 },
@@ -11611,6 +11857,10 @@ export const SLOT_BASE_PHYSICALS: Record<
   // balance follow-on, tuned when the consumer lands, NOT here. durability is a sensible reserved base
   // (never lost this patch, does not feed shipDerivedStats). FIRST-PASS TUNABLE.
   sensor: { mass: 0, powerDraw: 0, durability: 100 },
+  // E-MOD EM-5 (plan section 3.3: "mass 0, powerDraw per def, durability 100"): a module drags nothing through the mass
+  // fold; its REAL draw is its catalog def's (UniversalModuleDef.powerDraw, applied at mint by itemgen.ts), so the slot
+  // default here is 0 and never reaches a piece. durability is its wear toughness (gearWear.ts module rows).
+  module: { mass: 0, powerDraw: 0, durability: 100 },
   // Combat 1.0 (Unit 1.1): base physicals for the two defensive combat slots. A shield emitter
   // draws real power (an active deflector); hull plating is heavy + passive (0 draw) with the
   // highest base durability (it is armor). FIRST-PASS TUNABLE. Read only when a combat piece is
@@ -12657,16 +12907,17 @@ export const SALVAGE_BAY_FACILITY_KEY = "salvageBay";
 // for the raw "subspaceTelescope" literal SQ-1 already seeds at level 1 (freshState + SAVE v68).
 export const SUBSPACE_TELESCOPE_FACILITY_KEY = "subspaceTelescope";
 
-// The Research facility's LEVEL, read DEFENSIVELY (absent facility -> 0). R1 has no
-// research facility, so this returns 0 until R2 seeds it at level 1, meaning tier-1
-// blueprints are NOT researchable in R1 alone and become researchable the moment R2's
-// seed lands, with NO change to blueprintResearchable. This duplicates tick.ts's private
-// facilityLevel() logic ON PURPOSE: model.ts must NOT import tick.ts (tick.ts imports
-// model.ts; the reverse is a circular dependency). CONSOLIDATION CANDIDATE (Omega 4):
-// once R2 formalizes the research facility, a single exported facilityLevel() could live
-// in model.ts and tick.ts import it, flagged, not done now (out of R1's additive scope).
-function researchFacilityLevel(state: GameState): number {
+// OC-15: the highest blueprint tier the Research Lab / the Fabricator serves right now (its level, 0 when absent;
+// a level-N facility researches / crafts tier N and below, up to LAB_FABRICATOR_TOP_TIER). The ONE public reader for
+// everything gated on the Lab or Fabricator tier outside the blueprint gates themselves (Relics v2 R2-3's
+// identification lanes, the gas giant data study, propulsion's drive classes), so none of them reads the raw key.
+// Read DEFENSIVELY (absent facility -> 0). Duplicates tick.ts's private facilityLevel() ON PURPOSE: model.ts must NOT
+// import tick.ts (tick.ts imports model.ts; the reverse is a circular dependency).
+export function labTier(state: GameState): number {
   return state.facilities[RESEARCH_FACILITY_KEY]?.level ?? 0;
+}
+export function fabricatorTier(state: GameState): number {
+  return state.facilities[FABRICATOR_FACILITY_KEY]?.level ?? 0;
 }
 
 // Is a research PROJECT for `key` currently in flight? R3 adds the research-project
@@ -12702,7 +12953,7 @@ export function blueprintResearchable(state: GameState, key: string): boolean {
   if (blueprintUnlocked(state, key)) return false; // already researched
   if (researchInProgress(state, key)) return false; // a project is already unlocking it
   if (blueprintRelicLocked(state, key)) return false; // E4d: its relic has not been discovered yet
-  return bp.tier <= researchFacilityLevel(state); // tier gated by the research-facility level
+  return bp.tier <= labTier(state); // tier gated by the research-facility level
 }
 
 // Open-ended (levels can climb indefinitely), a formula, not a finite table

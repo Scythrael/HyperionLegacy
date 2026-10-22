@@ -24,7 +24,7 @@ import {
   type RegionTier,
   type ShipGroundTeam,
 } from "./model";
-import { advanceExpedition, claimExpedition, startExpedition } from "./expedition";
+import { advanceExpedition, claimExpedition } from "./expedition";
 import { generateRiskProfile, type ExpeditionRegion } from "./riskFactors";
 import {
   DEPLOY_SECONDS,
@@ -50,7 +50,7 @@ import {
 import { resolveTaskFight, withEscalation } from "./groundFight";
 import { generateEncounter } from "./gambit";
 import { groundThreatOddsKey } from "./groundThreat";
-import { asPreCurveDispatch, asPreG2NamesDispatch, plainAwayMember, withoutAffixes, withoutEnemyRanks } from "./awayTeamTestFixtures";
+import { asPreCurveDispatch, asPreG2NamesDispatch, plainAwayMember, withoutAffixes, withoutEnemyRanks, dispatchPastPropulsion } from "./awayTeamTestFixtures";
 import { deserialize, migrate, serialize, type SaveFile } from "./save";
 
 function fnv(s: string): string {
@@ -92,7 +92,7 @@ function crewed(expeditionSeed: number, kinds: "gg" | "ss" = "gg", rank = 6): Ga
 
 // Dispatch candidate 0, optionally on a forced region (the risk replaced before any body scans).
 function dispatch(state: GameState, region?: ExpeditionRegion): { next: GameState; exp: Expedition } {
-  const res = asPreCurveDispatch(asPreG2NamesDispatch(startExpedition(state, "ship-1", 1, "cand-0")));
+  const res = asPreCurveDispatch(asPreG2NamesDispatch(dispatchPastPropulsion(state, "ship-1", 1, "cand-0")));
   expect(res.success, String(res.reason)).toBe(true);
   // Field Kits FKR-1: the run as dispatched before enemy ranks, so the seeds picked here keep their scenarios.
   let exp = withoutEnemyRanks(res.expedition!);
@@ -175,7 +175,7 @@ interface Setup {
 // A dispatched run turned into an affix-aware run whose window opened at T0 with body 0 (carrying `risk`) just
 // scanned: its tasks stamped through the real path, then planned, then the teams pick.
 function affixRun(setup: Setup): Expedition {
-  const res = asPreCurveDispatch(asPreG2NamesDispatch(startExpedition(setup.state ?? oneTeam(), "ship-1", 1, "cand-0")));
+  const res = asPreCurveDispatch(asPreG2NamesDispatch(dispatchPastPropulsion(setup.state ?? oneTeam(), "ship-1", 1, "cand-0")));
   if (!res.success || !res.expedition) throw new Error(`dispatch refused: ${res.reason}`);
   const d = res.expedition;
   const body: ExpeditionBody = {
@@ -590,7 +590,7 @@ describe("AF-1 a save mid-alert reloads and resolves identically", () => {
     expect(task.difficultyScore).toBe(8);
     expect(task.visits).toBeGreaterThan(1);
     expect(task.alert!.level).toBeGreaterThan(0);
-    const res = asPreCurveDispatch(asPreG2NamesDispatch(startExpedition(oneTeam(), "ship-1", 1, "cand-0")));
+    const res = asPreCurveDispatch(asPreG2NamesDispatch(dispatchPastPropulsion(oneTeam(), "ship-1", 1, "cand-0")));
     const state = { ...res.next, gameTimeSeconds: at, expeditions: [mid] };
     const loaded = migrate(deserialize(serialize(state, 0)) as SaveFile);
     expect(loaded.expeditions[0]).toEqual(mid);

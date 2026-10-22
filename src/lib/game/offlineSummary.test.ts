@@ -95,6 +95,22 @@ describe("summarizeOfflineProgress", () => {
     expect(summary.hasContent).toBe(true);
   });
 
+  it("G1-6: delivered short-range cycles recap as their own type, between Gathering and Other", () => {
+    const { before, after } = twoFreshStates();
+    before.lifetimeStats.missionsCompleted = { "shortRange:refugeeRelocation": new Decimal(1) };
+    after.lifetimeStats.missionsCompleted = {
+      "shortRange:refugeeRelocation": new Decimal(4), // +3
+      "shortRange:supplyPickup": new Decimal(2), // +2
+      shortOreRun: new Decimal(1), // +1 Gathering
+      legacyGhostRun: new Decimal(1), // +1 Other
+    };
+    expect(summarizeOfflineProgress(before, after, 900).missionsByType).toEqual([
+      { type: "Gathering", count: 1 },
+      { type: "Short-Range", count: 5 },
+      { type: "Other", count: 1 },
+    ]);
+  });
+
   it("reports a captain's gross xp earned across level-ups, plus levels gained", () => {
     const { before, after } = twoFreshStates();
     // freshState seeds captain id 1 at level 1, xp 0. Model a level-up to 3 with 40 xp leftover.

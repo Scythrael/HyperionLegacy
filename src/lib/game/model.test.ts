@@ -83,6 +83,7 @@ import { ROLE_TEMPLATE, type DroneRole } from "./combat/drones";
 // Combat 1.0 (Unit 1.3/1.4): the per-hull default loadout, to build the Standard-Issue baseline spec
 // (combat-defense rework: the defensive magnitudes are now the FIXED SI-gear dials, not a frame split).
 import { COMBAT_DEFAULT_LOADOUT } from "./combat/bridge";
+import { UNIVERSAL_MODULES } from "./shipModules";
 import { itemTotal } from "./inventory"; // Task 9a: read item TOTAL across quality buckets
 import { PIRATE_HULLS } from "./combat/enemyHulls"; // Combat 0.13.0: PATROLS.hullPool ids are validated against this roster
 
@@ -1480,7 +1481,7 @@ describe("equipmentStatMods (the aggregator)", () => {
     expect(mods.totalPowerDraw).toBe(11); // 14 gross - 3 reduction
   });
 
-  it("takes powerOutput from the reactor implicit, FOLDS sensors (E1a), and IGNORES still-reserved stats", () => {
+  it("takes powerOutput from the reactor implicit, FOLDS sensors (E1a) and material quality (ML-3)", () => {
     const pieces = [
       makeEquip({ id: "r", slotType: "reactorCore", implicitStats: { powerOutput: 50 } }),
       makeEquip({ id: "u", slotType: "specUtility", implicitStats: { extractionYieldMult: 5 }, rolledStats: { sensors: 9, materialQualityChance: 9 } }),
@@ -1491,9 +1492,12 @@ describe("equipmentStatMods (the aggregator)", () => {
     // Exploration 0.14.0 (E1a): `sensors` now FOLDS as a flat point-sum (its survey-yield
     // consumer went live), so it lands in the flat bucket rather than being ignored.
     expect(mods.flat.sensors).toBe(9);
-    // materialQualityChance is STILL reserved: it must NOT leak into any folded bucket.
+    // Material Lines ML-3 (OC-D2): materialQualityChance sums raw into percentPlus (the climb chance is derived from it
+    // by shipDerivedStats), never into the flat bucket.
     expect((mods.flat as Record<string, number>).materialQualityChance).toBeUndefined();
-    expect((mods.percentPlus as Record<string, number>).materialQualityChance).toBeUndefined();
+    expect((mods.percentPlus as Record<string, number>).materialQualityChance).toBe(9);
+    // A loadout without the line keeps the old percentPlus shape (the key is absent, not 0).
+    expect("materialQualityChance" in equipmentStatMods([pieces[0]]).percentPlus).toBe(false);
   });
 
   it("returns all-zero mods for an empty loadout (the fold identity)", () => {
@@ -2049,7 +2053,12 @@ describe("EQUIPMENT_SLOTS live-slot definitions (0.11.0 Task 2)", () => {
     // Prospecting squads (hidden, 2026-10-16): +3 weapons, +1 armor, +2 tools, +2 implants.
     // Field Kits FKR-5: +1 tool, the Impact Grenade.
     memberWeapon: 7, memberArmor: 5, memberTool: 13, implant: 15,
+    // E-MOD EM-5: the universal module slot carries one variety per UNIVERSAL_MODULES def (empty until EM-7).
+    module: UNIVERSAL_MODULES.length,
   };
+  // E-MOD EM-5: the module slot's effect is catalog-driven (shipModules.ts), so it alone carries no signature line and
+  // no affix pool (M5: unique effects only, no generic gear lines).
+  const CATALOG_ONLY_SLOTS = new Set<string>(["module"]);
   // E-CREW 0.14.0 (Task 7): member slots draw ONLY from the GROUND vocabulary, ship slots ONLY from the
   // ship allow-set above, so a ground line can never land on a ship slot (or a ship line on member gear).
   const GROUND_STAT_KEYS = new Set<string>(MEMBER_GROUND_STAT_KEYS);
@@ -2059,6 +2068,8 @@ describe("EQUIPMENT_SLOTS live-slot definitions (0.11.0 Task 2)", () => {
     expect(Object.keys(EQUIPMENT_SLOTS).sort()).toEqual(
       [
         "cargoBay", "ftlDrive", "reactorCore", "specUtility", "shieldEmitters", "hullPlating", "bridge", "quarters", "sensor",
+        // E-MOD EM-5: the universal module slot.
+        "module",
         // E-CREW 0.14.0 (Task 7): away-team member gear.
         "memberWeapon", "memberArmor", "memberTool", "implant",
       ].sort(),
@@ -2075,8 +2086,13 @@ describe("EQUIPMENT_SLOTS live-slot definitions (0.11.0 Task 2)", () => {
       expect(slot.varieties.length).toBe(EXPECTED_VARIETY_COUNT[key] ?? 3);
       // Both stat lists must be present (a slot with no signature or no roll pool
       // is a data error, not a valid launch state).
-      expect(slot.implicitStats.length).toBeGreaterThan(0);
-      expect(slot.affixPool.length).toBeGreaterThan(0);
+      if (CATALOG_ONLY_SLOTS.has(key)) {
+        expect(slot.implicitStats).toEqual([]);
+        expect(slot.affixPool).toEqual([]);
+      } else {
+        expect(slot.implicitStats.length).toBeGreaterThan(0);
+        expect(slot.affixPool.length).toBeGreaterThan(0);
+      }
       // E-CREW Task 7: the vocabulary this slot may draw from (ground keys for member slots).
       const allowed = allowedFor(key);
       // E4d: a variety's OWN implicit / affix overrides are fenced by the same vocabulary rules.
@@ -2241,8 +2257,17 @@ describe("Equipment BLUEPRINTS (0.11.0 Task 18)", () => {
   ];
   const EQUIP_BP_COUNT = 52 + (FIELD_KITS_PLAYER_LIVE ? 1 : 0);
 
-  // Every equipment blueprint = a BLUEPRINTS entry carrying `equipmentOutput`.
-  const equipmentBlueprints = Object.values(BLUEPRINTS).filter((bp) => bp.equipmentOutput);
+  // Every equipment blueprint = a BLUEPRINTS entry carrying `equipmentOutput`. Expedition Tiers G2-4: a CLASSED drive
+  // (driveClass set: the Class II Drive today) is a class line on a Class I variety, counted apart (its own test below).
+  const equipmentBlueprints = Object.values(BLUEPRINTS).filter((bp) => bp.equipmentOutput && bp.driveClass === undefined);
+
+  // FLIPPED BY OC-15 (both facility tracks reach tier VII): Class II to VII are served (it was Class II only).
+  it("G2-4: the classed drives the facility tracks serve are in BLUEPRINTS (Class II to VII since OC-15), each a Balanced FTL drive", () => {
+    const classed = Object.values(BLUEPRINTS).filter((bp) => bp.driveClass !== undefined);
+    const numerals = ["II", "III", "IV", "V", "VI", "VII"];
+    expect(classed.map((bp) => [bp.key, bp.driveClass, bp.tier])).toEqual(numerals.map((n, i) => [`class${n}DriveBp`, i + 2, i + 2]));
+    for (const bp of classed) expect(bp.equipmentOutput).toEqual({ slotType: "ftlDrive", varietyKey: "balancedDrive" });
+  });
 
   it("defines exactly 52 equipment blueprints (53 once the Impact Grenade's is live), one per (equipmentOutput slot × variety)", () => {
     expect(equipmentBlueprints).toHaveLength(EQUIP_BP_COUNT);

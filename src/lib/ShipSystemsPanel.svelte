@@ -67,6 +67,7 @@
   import type { EquipFitRefusal } from "./game/equipment";
   // E-MOD EM-2: the power gate's refusal wording and the over-budget warning (P2: never evict, a warning chip).
   import { overBudgetNotice, overPowerReasonText } from "./game/shipPower";
+  import { duplicateModuleReasonText, moduleSlotsFullReasonText } from "./game/shipModules";
   import { equippedFor, fittedInSlot, canFitEquipment } from "./game/equipment";
   // The combat-loadout read helpers. combatHullTypeOf resolves the hull's combat class
   // (now non-null for every hull); computeCombatReadout folds the installed combat
@@ -954,6 +955,11 @@
       // E-MOD EM-2: the install would leave the ship over its power budget.
       case "overPower":
         return overPowerReasonText(refusal.powerShortfall);
+      // E-MOD EM-5: the shared module slots are full, or this module is already aboard.
+      case "moduleSlotsFull":
+        return moduleSlotsFullReasonText();
+      case "duplicateModule":
+        return duplicateModuleReasonText();
     }
   }
 
@@ -1999,7 +2005,7 @@
       on:pointerenter={cancelTipHide}
       on:pointerleave={scheduleTipHide}
     >
-      <EquipmentTooltip piece={tipPiece} />
+      <EquipmentTooltip piece={tipPiece} shipPieces={fittedPieces} />
     </div>
   {/if}
 

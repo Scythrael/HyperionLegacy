@@ -159,7 +159,7 @@ function shortRangeCycleEvent(s: GameState, sourceId: string): UseEvent {
 function expeditionHomeEvent(s: GameState): UseEvent {
   const ready = afterExpeditionTraining(s.awayMembers.some((m) => m.assignedShipId === WIRING_SHIP_ID) ? s : withAwayTeam(s));
   const cand = expeditionCandidates(ready, WIRING_SHIP_ID)[0];
-  const res = startExpedition(ready, WIRING_SHIP_ID, 1, cand.id);
+  const res = startExpedition(ready, WIRING_SHIP_ID, 1, cand.id, true, undefined, false);
   if (!res.success || !res.expedition) throw new Error(`wear probe: dispatch refused: ${res.reason}`);
   const exp = res.expedition;
   const done = advanceExpedition(exp, exp.phaseAnchorSeconds + 1e9);
@@ -197,6 +197,7 @@ function unitsOf(sourceId: string, ship: readonly ShipUseWear[], member: readonl
     case "ftlDrive:distance":
       return sum(ship, (w) => w.lightYears);
     case "reactorCore:minutesRunning":
+    case "module:minutesUnderway":
     case "bridge:minutesCrewed":
     case "quarters:minutesCrewed":
       return sum(ship, (w) => w.minutesUnderway);
@@ -310,7 +311,7 @@ export function inShipyardBay(s: GameState): GameState {
 export function onFieldRepairLeg(s: GameState): GameState {
   const ready = s.awayMembers.some((m) => m.assignedShipId === WIRING_SHIP_ID) ? s : withAwayTeam(s);
   const cand = expeditionCandidates(ready, WIRING_SHIP_ID)[0];
-  const res = startExpedition(ready, WIRING_SHIP_ID, 1, cand.id);
+  const res = startExpedition(ready, WIRING_SHIP_ID, 1, cand.id, true, undefined, false);
   if (!res.success || !res.expedition) throw new Error(`wear probe: dispatch refused: ${res.reason}`);
   const t = res.next.gameTimeSeconds;
   const exp = res.expedition;

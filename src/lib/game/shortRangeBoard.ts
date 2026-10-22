@@ -241,6 +241,22 @@ export function dispatchCaptainOnShortRange(state: GameState, captainId: number,
   return { next: { ...state, captains, runCounts: start.runCounts }, success: true };
 }
 
+// ===== the Repeat toggle (G1-6) =====
+
+// The board card's Repeat toggle (user 2026-10-21 "Keep it, on by default"): `repeat` false lets the current cycle
+// finish and then ends the run (the run reads recalled, exactly what a single run starts as); `repeat` true takes that
+// back, so the slot keeps re-rolling. Unlike recallCaptain it never ends a run that has not left home: a waiting run
+// set to stop still flies its one cycle. A captain not flying a short-range run, or a run already at that setting,
+// returns the SAME state (success false). Pure.
+export function setShortRangeRepeat(state: GameState, captainId: number, repeat: boolean): { next: GameState; success: boolean } {
+  const idx = state.captains.findIndex((c) => c.id === captainId);
+  const mission = idx === -1 ? null : state.captains[idx].mission;
+  if (mission === null || mission.kind !== "shortRange" || mission.recalled === !repeat) return { next: state, success: false };
+  const captains = [...state.captains];
+  captains[idx] = { ...captains[idx], mission: { ...mission, recalled: !repeat } };
+  return { next: { ...state, captains }, success: true };
+}
+
 // ===== readers =====
 
 // The run's display name: its current job's template label. Pure.

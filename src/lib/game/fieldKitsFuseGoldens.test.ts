@@ -19,9 +19,9 @@ gearWearOffInThisFile();
 import { freshState, type AwayMember, type BodyRiskGrades, type EquipmentInstance, type Expedition, type ExpeditionBody, type GambitProgram, type GameState, type ShipGroundTeam } from "./model";
 import type { GambitLogEvent } from "./gambit";
 import { resolveTaskFight, type GroundFightTeam } from "./groundFight";
-import { advanceExpedition, startExpedition } from "./expedition";
+import { advanceExpedition } from "./expedition";
 import { groundOpsAssignIdle, groundOpsBodyScanned, initGroundTasks } from "./groundOps";
-import { plainAwayMember, withoutFieldKits } from "./awayTeamTestFixtures";
+import { dispatchPastPropulsion, plainAwayMember, withoutFieldKits } from "./awayTeamTestFixtures";
 import { hash } from "./firstRunsGoldens.fixture";
 
 const T0 = 100_000;
@@ -77,7 +77,9 @@ function crewed(expeditionSeed: number, grenadiers: Readonly<Record<string, stri
 
 // A dispatched run placed on one scanned body with `pois`, Field Kits stamped by hand with `catalog`.
 function stampedRun(state: GameState, catalog: number, pois: string[], risk: BodyRiskGrades): Expedition {
-  const res = startExpedition(state, "ship-1", 1, "cand-0");
+  // G2-4 (merged after this capture) refuses the non-explorer hull these fixtures fly: the pre-G2-4 dispatch, which
+  // writes the record a gated dispatch of a passing ship would (dispatchPastPropulsion).
+  const res = dispatchPastPropulsion(state, "ship-1", 1, "cand-0");
   if (!res.success || !res.expedition) throw new Error(`dispatch refused: ${res.reason}`);
   const d = withoutFieldKits(res.expedition);
   const body: ExpeditionBody = {

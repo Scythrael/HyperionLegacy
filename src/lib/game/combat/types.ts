@@ -282,6 +282,12 @@ export interface Combatant {
 	// added to its evasion. Post-draw integer scaling only (never a draw), so the draw schedule is
 	// unchanged. OPTIONAL: absent (enemies, ratings, an all-10 bridge) leaves the battle byte-identical.
 	underFire?: { weaponDamage: number; shieldRecharge: number; evasion: number };
+	// E-MOD EM-5 (0.14.0): the ship's installed CONDITIONAL universal modules (shipModules.ts moduleConditionals, folded
+	// by bridge.ts applyModuleCombat). While the named pool (hull or shield) is strictly BELOW `fraction` of its maximum,
+	// each landed weapon projectile's damage is multiplied by (1 + weaponDamage). Post-draw integer scaling only (never a
+	// draw), so the draw schedule is unchanged. OPTIONAL: absent (enemies, a ship with no such module) leaves the battle
+	// byte-identical.
+	moduleConditionals?: readonly { pool: "hull" | "shield"; fraction: number; weaponDamage: number }[];
 	// WR-5b (0.14.0): the commanding captain's battle-time Tactician edges (see CaptainCombatEdge) and Bulwark's
 	// charges (a hit that would take the hull to 0 or below leaves it at 1 and spends one; combat/captainEdge.ts
 	// landHullDamage). OPTIONAL: absent on enemies and on a ship whose captain owns none, so the battle is unchanged.

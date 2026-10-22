@@ -18,9 +18,9 @@ import { describe, expect, it } from "vitest";
 import { gearWearOffInThisFile } from "./gearWearSwitch.fixture";
 gearWearOffInThisFile();
 import type { Expedition, GameState } from "./model";
-import { advanceExpedition, startExpedition } from "./expedition";
+import { advanceExpedition } from "./expedition";
 import { hash, onHull, runOutcome, SWEEP_END, withCrew, type CrewName, type RunOutcome } from "./firstRunsGoldens.fixture";
-import { asExpeditionVeteran, asPreG2NamesDispatch } from "./awayTeamTestFixtures";
+import { asExpeditionVeteran, asPreG2NamesDispatch, dispatchPastPropulsion } from "./awayTeamTestFixtures";
 import { runCountsOf } from "./runDifficulty";
 
 const CANDS = ["cand-0", "cand-1", "cand-2"];
@@ -38,7 +38,7 @@ function afterTraining(state: GameState, completed: number): GameState {
 function run(state: GameState, cand: string): { exp: Expedition; done: Expedition } {
   // Merged with G2-2 / G2-3 (region names, the voyage): dispatched as before G2-2 (the banked name, no region, no
   // voyage), so the fixed pre-G2-3 legs fly and these pins keep proving only SF-3 moved them.
-  const res = asPreG2NamesDispatch(startExpedition(state, "ship-1", 1, cand));
+  const res = asPreG2NamesDispatch(dispatchPastPropulsion(state, "ship-1", 1, cand));
   if (!res.success || !res.expedition) throw new Error(`dispatch refused: ${res.reason}`);
   return { exp: res.expedition, done: advanceExpedition(res.expedition, SWEEP_END) };
 }

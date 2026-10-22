@@ -30,13 +30,12 @@ import type {
   GameState,
   ShipInstance,
   EquipmentInstance,
-  EquipmentRarity,
   ShipSpec,
   CrewProfession,
   SeniorStaffSeat,
   SeniorStaffOfficer,
 } from "./model";
-import { rarityIndex, SHIP_TYPES } from "./model";
+import { SHIP_TYPES, moduleEffectScale } from "./model";
 import { equippedFor } from "./equipmentQueries";
 import { officerRankMagnitudeFactor } from "./seniorStaff";
 import { viewPieceEfficiency } from "./gearWear";
@@ -45,22 +44,9 @@ import { viewPieceEfficiency } from "./gearWear";
 // Rarity/quality effect scale (shared by both module kinds)
 // ============================================================================
 
-// Per-rarity-step and per-quality-rung growth of a module's EFFECT (NOT its capacity, except the
-// Efficient module). Referenced to "standard" == the neutral base: a standard, quality-0 module reads
-// scale 1.0 (so its catalog magnitude is used as-is), and a rarer / higher-quality module amplifies
-// it. FIRST-PASS TUNABLE.
-export const MODULE_RARITY_STEP = 0.12; // +12% effect per rarity band above standard
-export const MODULE_QUALITY_STEP = 0.06; // +6% effect per quality rung
-
-// The multiplicative effect scale for a module of the given rarity/quality. Monotonic non-decreasing
-// in both (steps are >= 0). standard/q0 == 1.0. derelict clamps to the standard base (no negative
-// step), which is fine: the module generator rarely mints derelict and a below-1 scale is undesirable
-// here. Pure arithmetic.
-export function moduleEffectScale(rarity: EquipmentRarity, quality: number): number {
-  const rarityStep = Math.max(0, rarityIndex(rarity) - rarityIndex("standard"));
-  const q = Math.max(0, quality);
-  return (1 + rarityStep * MODULE_RARITY_STEP) * (1 + q * MODULE_QUALITY_STEP);
-}
+// moduleEffectScale and its two steps MOVED to model.ts (E-MOD EM-5: the universal modules' power output folds in
+// equipmentStatMods there, which cannot import this file). Re-exported here unchanged, so every importer keeps working.
+export { MODULE_RARITY_STEP, MODULE_QUALITY_STEP, moduleEffectScale } from "./model";
 
 // ============================================================================
 // Quarters modules (10): 6 division-focused + 3 general + the Guest Wing (G1-1)
