@@ -3326,7 +3326,13 @@
     window.addEventListener("beforeunload", onUnload);
     // 0.13.11: the secret game's own runtime (own state, own save, own 1 s ticker), started after
     // the main load and catch-up above. It never touches `state` or pollGameLoop.
-    const stopSecret = startSecretRuntime();
+    // Guarded on top of the runtime's own guards: nothing in the secret game may break startup.
+    let stopSecret: () => void = () => {};
+    try {
+      stopSecret = startSecretRuntime();
+    } catch {
+      // The main game runs on; the secret game simply is not running this session.
+    }
     return () => {
       stopSecret();
       window.removeEventListener("beforeunload", onUnload);
@@ -7933,7 +7939,11 @@
   function resetSave() {
     // 0.13.11: Delete Save and Debug "Reset save" also wipe the secret game's own save, so its
     // recorded milestones never carry into a fresh game (user, builder check Q3).
-    wipeSecretGame();
+    try {
+      wipeSecretGame();
+    } catch {
+      // Never let the secret game block a Delete Save.
+    }
     clearSave();
     // Seed the fresh starter's weak Standard-Issue combat set (see newGame rationale at
     // the initial `state` declaration): a reset game's hull is dispatchable like a new one.

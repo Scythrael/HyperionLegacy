@@ -8,7 +8,7 @@
   //
   // Every number the player sees goes through the effective scale (engine.displayOre and
   // friends), which is the raw value up to e777,777 and the softened one above it.
-  import { onMount } from "svelte";
+  import { onMount, tick } from "svelte";
   import Decimal from "break_infinity.js";
   import { focusTrap } from "./focusTrap";
   import Icon from "./ui/Icon.svelte";
@@ -21,6 +21,7 @@
     buyTier,
     overclockPrice,
     buyOverclock,
+    canOverclock,
     tierMultiplier,
     isTierUnlocked,
     captainGain,
@@ -53,6 +54,7 @@
   } from "./secret/config";
   import type { SecretState, AutoLayer } from "./secret/state";
   import { formatSecret, formatExponent } from "./secret/format";
+  import { tabKeyTarget, overlayClosesOn } from "./secret/overlayKeys";
 
   export let onClose: () => void;
 
@@ -65,9 +67,45 @@
   ];
   let tab: Tab = "generators";
 
+  let root: HTMLDivElement | null = null;
+  let closeButton: HTMLButtonElement | null = null;
+  let keepGoing: HTMLButtonElement | null = null;
+  const tabButtons: Record<string, HTMLButtonElement | null> = {};
+
+  // The panel is portaled to <body> after it renders, and moving a node drops its focus, so focus
+  // is placed here, after mount, rather than trusting the focus trap's mount-time move.
+  function focusInside(): void {
+    (keepGoing ?? closeButton ?? root)?.focus();
+  }
+
   onMount(() => {
     catchUpSecretNow();
+    void tick().then(focusInside);
+    // Anything underneath (a main-game window opening on its own, for example) that takes focus
+    // while this is the top layer gets it taken straight back. Nothing in the main game changes.
+    const onFocusIn = (event: FocusEvent) => {
+      const target = event.target as Node | null;
+      if (root && target && !root.contains(target)) focusInside();
+    };
+    document.addEventListener("focusin", onFocusIn);
+    return () => document.removeEventListener("focusin", onFocusIn);
   });
+
+  // Escape closes it from anywhere: it is the top layer while open.
+  function onWindowKeydown(event: KeyboardEvent): void {
+    if (overlayClosesOn(event)) {
+      event.preventDefault();
+      onClose();
+    }
+  }
+
+  function onTabKeydown(event: KeyboardEvent, index: number): void {
+    const target = tabKeyTarget(index, event.key, TABS.length);
+    if (target === null) return;
+    event.preventDefault();
+    tab = TABS[target].key;
+    tabButtons[tab]?.focus();
+  }
 
   $: s = $secretGame;
   $: busy = $secretCatchingUp;
@@ -75,13 +113,25 @@
   $: goal = bestE < FINALE_EXPONENT ? FINALE_EXPONENT : bestE < LONG_EXPONENT ? LONG_EXPONENT : null;
   $: goalPct = goal === null ? 100 : Math.max(0, Math.min(100, (bestE / goal) * 100));
   $: celebration = s.milestones.finale !== undefined && !s.finaleSeen ? "finale" : s.milestones.long !== undefined && !s.longSeen ? "long" : null;
+  // A celebration that appears mid-play takes focus onto its "Keep going" button.
+  let shownCelebration: string | null = null;
+  $: if (celebration !== shownCelebration) {
+    shownCelebration = celebration;
+    if (celebration) void tick().then(() => keepGoing?.focus());
+  }
+  // The goal bar moves at every check-in: alongside the best-ever bar, a thin second bar follows
+  // the current run back up (a reset drops Ore, so the best can sit still for a while).
+  $: runE = effectiveExponent(s.ore);
+  $: runPct = bestE <= 0 ? 0 : Math.max(0, Math.min(100, (runE / bestE) * 100));
+  $: canOc = canOverclock(s);
   $: ore = s.ore;
   $: cg = captainGain(s);
   $: fg = fleetGain(s);
   $: pg = prestigeceptionGain(s);
 
   const fmt = (d: Decimal) => formatSecret(displayOre(d));
-  const pctLabel = (p: number) => (p >= 10 ? p.toFixed(1) : p.toFixed(2));
+  // Three decimals: past the finale a check-in moves the bar by small steps, and they should show.
+  const pctLabel = (p: number) => p.toFixed(3);
 
   function buy(tier: number, mode: BuyMode): void {
     secretAct((x) => buyTier(x, tier, mode));
@@ -126,8 +176,10 @@
   }
 </script>
 
+<svelte:window on:keydown={onWindowKeydown} />
+
 <div class="sg-backdrop" use:portal>
-  <div class="sg" role="dialog" aria-modal="true" aria-labelledby="sg-title" use:focusTrap={onClose}>
+  <div class="sg" role="dialog" aria-modal="true" aria-labelledby="sg-title" tabindex="-1" bind:this={root} use:focusTrap={onClose}>
     <header class="sg-head">
       <div class="sg-titles">
         <div class="sg-title" id="sg-title">{COPY.title}</div>
@@ -137,7 +189,7 @@
         <b class="num">{fmt(ore)}</b>
         <span>Ore · <span class="num">+{formatSecret(displayIncome(s))}</span>/s</span>
       </div>
-      <button class="sg-close" type="button" aria-label="Close" on:click={onClose}><Icon name="close" size={18} /></button>
+      <button class="sg-close" type="button" aria-label="Close" bind:this={closeButton} on:click={onClose}><Icon name="close" size={18} /></button>
     </header>
 
     <div class="sg-goal">
@@ -158,6 +210,10 @@
       >
         <i style={`width:${goalPct}%`}></i>
       </div>
+      <div class="sg-run-row">
+        <span>This run: <span class="num">{formatExponent(Math.floor(runE))}</span> Ore</span><span class="num">{runPct.toFixed(1)}% of your best</span>
+      </div>
+      <div class="sg-track sg-track-run" aria-hidden="true"><i style={`width:${runPct}%`}></i></div>
     </div>
 
     {#if busy}
@@ -170,7 +226,7 @@
         <h2>{COPY.finaleTitle}</h2>
         <p>{COPY.finaleBody}</p>
         <p class="muted">{COPY.finaleAfter}</p>
-        <button class="sg-btn primary" type="button" on:click={() => dismissCelebration("finale")}>Keep going</button>
+        <button class="sg-btn primary" type="button" bind:this={keepGoing} disabled={busy} on:click={() => dismissCelebration("finale")}>Keep going</button>
       </section>
     {:else if celebration === "long"}
       <section class="sg-celebrate" aria-live="polite">
@@ -178,23 +234,28 @@
         <h2>{COPY.longTitle}</h2>
         <p>{COPY.longBody}</p>
         <p class="muted">{COPY.longAfter}</p>
-        <button class="sg-btn primary" type="button" on:click={() => dismissCelebration("long")}>Keep going</button>
+        <button class="sg-btn primary" type="button" bind:this={keepGoing} disabled={busy} on:click={() => dismissCelebration("long")}>Keep going</button>
       </section>
     {:else}
       <div class="sg-tabs" role="tablist" aria-label="Secret game sections">
-        {#each TABS as t}
+        {#each TABS as t, i}
           <button
             type="button"
             role="tab"
+            id={`sg-tab-${t.key}`}
             class="sg-tab"
             class:on={tab === t.key}
             aria-selected={tab === t.key}
+            aria-controls="sg-panel"
+            tabindex={tab === t.key ? 0 : -1}
+            bind:this={tabButtons[t.key]}
             on:click={() => (tab = t.key)}
+            on:keydown={(e) => onTabKeydown(e, i)}
           >{t.label}</button>
         {/each}
       </div>
 
-      <div class="sg-body" role="tabpanel">
+      <div class="sg-body" role="tabpanel" id="sg-panel" aria-labelledby={`sg-tab-${tab}`}>
         {#if tab === "generators"}
           <div class="sg-section-name">GENERATOR STACK</div>
           {#each TIERS as t, i}
@@ -226,8 +287,8 @@
           <div class="sg-oc">
             <span>Overclock ×{OC_FACTOR} per level · level <span class="num">{formatSecret(s.overclock)}</span></span>
             <span class="buys">
-              <button class="sg-btn" type="button" disabled={busy || ore.lt(overclockPrice(s))} on:click={() => secretAct((x) => buyOverclock(x, "one"))}>Overclock<span class="num">{fmt(overclockPrice(s))}</span></button>
-              <button class="sg-btn primary" type="button" disabled={busy || ore.lt(overclockPrice(s))} on:click={() => secretAct((x) => buyOverclock(x, "max"))}>Max</button>
+              <button class="sg-btn" type="button" disabled={busy || !canOc || ore.lt(overclockPrice(s))} on:click={() => secretAct((x) => buyOverclock(x, "one"))}>Overclock<span class="num">{fmt(overclockPrice(s))}</span></button>
+              <button class="sg-btn primary" type="button" disabled={busy || !canOc || ore.lt(overclockPrice(s))} on:click={() => secretAct((x) => buyOverclock(x, "max"))}>Max</button>
             </span>
           </div>
         {:else if tab === "prestige"}
@@ -279,7 +340,7 @@
                 {#if hasSkill(s, l.skill)}
                   <label class="auto-row">
                     <span>{SKILLS.find((d) => d.id === autoSkill(l.layer))?.name}: when the gain is at least</span>
-                    <select value={s.autoTarget[l.layer]} on:change={(e) => targetChange(l.layer, e)}>
+                    <select value={s.autoTarget[l.layer]} disabled={busy} on:change={(e) => targetChange(l.layer, e)}>
                       {#each AUTO_TARGET_CHOICES as pct}<option value={pct}>{pct}% of what you have</option>{/each}
                     </select>
                   </label>
@@ -302,6 +363,7 @@
                       class="sg-btn"
                       type="button"
                       aria-pressed={autoActive(s, d.id)}
+                      disabled={busy}
                       on:click={() => secretAct((x) => setAuto(x, d.id, !autoActive(x, d.id)))}
                     >{skillOwnedLabel(d.id, s)}</button>
                   {:else}
@@ -336,6 +398,12 @@
 
 <style>
   .sg-backdrop {
+    /* The Fleet and Prestigeception hues: the mockup's violet and rose, mixed with the player's
+       accent so they shift with the theme while keeping the look. */
+    --sg-fleet: color-mix(in oklab, #b57bff 70%, var(--color-accent));
+    --sg-fleet-border: color-mix(in srgb, var(--sg-fleet) 50%, transparent);
+    --sg-pc: color-mix(in oklab, #f472b6 70%, var(--color-accent));
+    --sg-pc-border: color-mix(in srgb, var(--sg-pc) 50%, transparent);
     position: fixed;
     inset: 0;
     z-index: 2000;
@@ -351,7 +419,12 @@
   .sg {
     width: min(860px, 100%);
     min-width: 0;
-    background: linear-gradient(180deg, rgba(14, 28, 42, 0.96), rgba(8, 16, 26, 0.97));
+    /* Theme-derived: the deep panel tones tinted by the player's accent, so it re-hues per theme. */
+    background: linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--color-bg-mid) 88%, rgb(var(--color-accent-rgb)) 6%),
+      color-mix(in srgb, var(--color-bg-deep) 94%, rgb(var(--color-accent-rgb)) 3%)
+    );
     border: 1px solid var(--color-border-strong);
     border-radius: var(--corner);
     box-shadow: 0 30px 80px rgba(0, 0, 0, 0.65);
@@ -443,6 +516,21 @@
     border: 1px solid var(--color-border);
     border-radius: var(--corner);
     overflow: hidden;
+  }
+  .sg-run-row {
+    display: flex;
+    justify-content: space-between;
+    gap: var(--space-4);
+    margin-top: 6px;
+    font-size: var(--text-xs);
+    color: var(--color-text-dim);
+  }
+  .sg-track-run {
+    height: 3px;
+    margin-top: 3px;
+  }
+  .sg-track-run i {
+    opacity: 0.6;
   }
   .sg-track i {
     display: block;
@@ -632,14 +720,16 @@
     color: var(--color-warning);
   }
   .layer.fleet {
-    border-color: rgba(160, 32, 240, 0.45);
+    border-color: var(--sg-fleet-border);
   }
-  .layer.fleet h3,
+  .layer.fleet h3 {
+    color: var(--sg-fleet);
+  }
   .layer.pc h3 {
-    color: #c58cff;
+    color: var(--sg-pc);
   }
   .layer.pc {
-    border-color: rgba(244, 114, 182, 0.45);
+    border-color: var(--sg-pc-border);
   }
   .kv {
     display: grid;
@@ -697,8 +787,8 @@
     min-width: 0;
   }
   .node.own {
-    border-color: rgba(160, 32, 240, 0.6);
-    background: rgba(160, 32, 240, 0.1);
+    border-color: var(--sg-fleet-border);
+    background: color-mix(in srgb, var(--sg-fleet) 10%, transparent);
   }
   .node .sg-btn {
     white-space: normal;
@@ -783,6 +873,15 @@
     .split,
     .nodes {
       grid-template-columns: 1fr;
+    }
+  }
+  @media (max-width: 480px) {
+    .ms {
+      grid-template-columns: 22px minmax(0, 1fr);
+    }
+    .ms .rw {
+      grid-column: 2;
+      text-align: left;
     }
   }
   @media (max-width: 760px) {

@@ -15,6 +15,8 @@ const FILES = [
   "src/lib/secret/testStates.ts",
   "src/lib/secret/testStorage.ts",
   "src/lib/secret/testReport.ts",
+  "src/lib/secret/simReport.ts",
+  "src/lib/secret/overlayKeys.ts",
   "src/lib/EnterCodeModal.svelte",
   "src/lib/SecretGameOverlay.svelte",
   "docs/plans/2026-10-22-hotfix-0.13.11-secret-generator-plan.md",

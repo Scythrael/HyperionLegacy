@@ -67,7 +67,7 @@
 
 <svelte:window on:keydown={onKeydown} />
 
-<ActionModal title="ENTER CODE" ariaLabel="Enter code" {onClose}>
+<ActionModal title="ENTER CODE" ariaLabel="Enter code" iconClose {onClose}>
   <div class="ec">
     <form class="ec-section" on:submit|preventDefault={redeem}>
       <div class="ec-label" id="ec-gift-label">GIFT CODE</div>
