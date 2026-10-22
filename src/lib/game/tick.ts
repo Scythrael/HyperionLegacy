@@ -76,6 +76,7 @@ import {
   type CaptainStopReason,
   type CaptainMissionState,
   type PatrolMissionState,
+  type PatrolDifficultyStamp,
   type ShortRangeMissionState,
   type RunCounts,
   type OfficerCombatMods,
@@ -185,14 +186,19 @@ import {
   // Exploration 0.14.0 (Phase E4a): the persisted unidentified-relic token a relicStudy carries.
   type RelicVaultToken,
   RELIC_DEFAULT_SEED,
-  // Relics v2 R2-1: the Tier I general record (where the v1 copies live) and its write.
-  generalMuseumRecord,
-  museumV2WithGeneral,
+  // Relics v2 R2-3: the Museum v2 record a relic study deposits into (relicIdentify.ts applyRelicIdentification).
+  type MuseumV2,
+  type RegionTierKey,
+  emptyMuseumV2,
+  // OC-15: THE Research Lab tier reader (R2-3's lanes read it).
+  labTier,
 } from "./model";
 // Exploration 0.14.0 (Phase E4a): the relic catalog's pure identification roll + study constants.
 // relics.ts imports only model/expeditionContent TYPES + the leaf PRNG, so this adds no import cycle.
-import { identifyRelic, relicStudySeed, relicStudyDurationTicks, RELIC_STUDY_LANES, museumBonuses } from "./relics";
-import { identifyGeneralRelic, vaultTokenRegionTier } from "./relicBlanks";
+import { identifyRelic, relicStudySeed, relicStudyDurationTicks, museumBonuses } from "./relics";
+import { identifyGeneralRelic, vaultTokenCultureId, vaultTokenRegionTier } from "./relicBlanks";
+// Relics v2 R2-3: identification v2 (the keyed three-draw roll and its deposit) and the lanes by Lab level.
+import { RELIC_STUDY_VERSION, applyRelicIdentification, identifyRelicV2, relicIdentificationId, relicStudyLanesAt } from "./relicIdentify";
 // Crafting 0.13.3 (Phase 2 Unit 2.1): the DERIVED salvage-reservation predicate the
 // enqueue gate consults so one target cannot be queued twice (design section 7.3).
 // Implemented in reservation.ts (a leaf both this file and equipment.ts can depend on
@@ -249,7 +255,6 @@ import type { WeaponId } from "./combat/weapons";
 // Combat 1.0 (Unit 2.3a): DroneRole types the per-hull Standard-Issue drone-pod roles the same
 // seeder + installMissingCombatBaselines build (type-only, no runtime coupling).
 import type { DroneRole } from "./combat/drones";
-import { planWaveSchedule, patrolWaveParams } from "./combat/waveSchedule";
 // Combat 0.13.0 (Phase 12b-1 review): the pure per-wave seed derivation + its four salt
 // constants now live in their own dependency-free combat/ leaf (waveSeed.ts) so the
 // DISPLAY-ONLY patrol replay imports them DOWN from a leaf instead of UP from this live
@@ -326,6 +331,9 @@ import { craftingXpAwardForProcess } from "./craftingProgress";
 // expedition crew lock) rather than re-reading captain.mission itself, so a queued teardown is
 // refused by exactly the rule salvageShip will apply at completion.
 import { equippedFor } from "./equipment";
+// S1 (user 2026-10-17 "Lock it"): the captain lock reads the one crew lock (crewLock.ts is a leaf: it imports only
+// equipmentQueries.ts and model types, so no cycle).
+import { captainMoveLock } from "./crewLock";
 // 0.13.4 Phase 3: the transit-berth read model. The engine reads berths.ts so it and the
 // console can never disagree about how many berths exist, who holds one, or who is waiting.
 import { transitBerthsFree } from "./berths";
@@ -422,7 +430,9 @@ import { itemTotal, addItemQuality, removeItemLowestFirst, removeItemHighestFirs
 // scope; server-side moderation in 0.14.0 plugs into the same signature.
 import { validateCaptainName } from "./captainName";
 // Safe first runs SF-1: the run counters (runDifficulty.ts imports model.ts only, so no cycle).
-import { countPatrolDispatch, countPatrolRoutes, runCountsOf, uncountShortRangeCycleStart } from "./runDifficulty";
+import { countPatrolDispatch, countPatrolRuns, isTrainingPatrol, nextPatrolCycleDifficulty, patrolDifficultyAt, runCountsOf, uncountShortRangeCycleStart } from "./runDifficulty";
+// Safe first runs SF-4: a patrol cycle's difficulty profile (the training cycle, the curve), shared with the replay.
+import { patrolCycleEnemies, patrolCycleWaveTicks, patrolWaveBreaksOff, patrolWaveEnemyParams } from "./combat/patrolProfile";
 // G1-4: the short-range cycle engine and the board's stored-cursor shape check.
 import { shortRangeHasDeparted, tickCaptainShortRange } from "./shortRangeCycle";
 import { isWellFormedShortRangeBoard } from "./shortRangeBoard";
@@ -1396,7 +1406,8 @@ function completionYieldFor(
   levels: CompletionLevelView,
   mintedPieces: number,
   salvage: SalvageEffectOutcome | null,
-  state: GameState
+  state: GameState,
+  relicId?: string | null
 ): CompletionYield {
   const empty: CompletionYield = {
     reward: policy.reward === "byEffect" ? "nothing" : policy.reward,
@@ -1457,14 +1468,14 @@ function completionYieldFor(
     case "clearShipDamage":
       return { ...empty, reward: "repair", subjectKey: effect.shipId };
     case "identifyRelic": {
-      // Exploration 0.14.0 (Phase E4a): the subject is the IDENTIFIED relic id. Re-derived here through
-      // the SAME pure keyed roll the resolver branch applied (identifyStudiedRelic), so the record names
-      // exactly the relic that landed; it draws from its own keyed stream, never the tick's rng. An
-      // unknown set (a tampered save) identified nothing and records "nothing".
-      const relicId = identifyStudiedRelic(state, effect.token, effect.studyIndex);
-      return relicId === null
+      // Exploration 0.14.0 (Phase E4a): the subject is the IDENTIFIED relic id. Relics v2 R2-3: handed in by the
+      // resolver (the id its time-ordered chain deposited: a v2 reveal depends on the Museum at completion, so it is
+      // never re-derived here); a caller without one re-derives the roll. An unknown set (a tampered save)
+      // identified nothing and records "nothing".
+      const id = relicId !== undefined ? relicId : identifyStudiedRelic(state, effect.token, effect.studyIndex, effect.v);
+      return id === null
         ? { ...empty, reward: "nothing", subjectKey: effect.token.id, stale: true }
-        : { ...empty, reward: "relic", pieces: 1, subjectKey: relicId };
+        : { ...empty, reward: "relic", pieces: 1, subjectKey: id };
     }
     case "salvageResolve": {
       // The subject is the TARGET's own id, so the Salvage Bay can find the newest record
@@ -1576,13 +1587,14 @@ function recordCompletion(args: {
   levels: CompletionLevelView;
   mintedPieces: number;
   salvage: SalvageEffectOutcome | null;
+  relicId?: string | null; // Relics v2 R2-3: the id a completing relic study identified (the resolver's chain)
   acc: CompletionLogState;
 }): CompletionLogState {
-  const { process, state, nowMs, levels, mintedPieces, salvage, acc } = args;
+  const { process, state, nowMs, levels, mintedPieces, salvage, relicId, acc } = args;
   const policy = PROCESS_COMPLETION_LOG[process.kind];
   if (!policy.logged) return acc;
 
-  const contribution = completionYieldFor(process, policy, levels, mintedPieces, salvage, state);
+  const contribution = completionYieldFor(process, policy, levels, mintedPieces, salvage, state, relicId);
   const startedAtMs = completionStartedAtMs(nowMs, process, state.tickDurationSeconds);
 
   // A line-backed iteration folds; everything else is a batch of one and emits now.
@@ -3016,6 +3028,10 @@ interface PatrolTickResult {
   // WR-4 (B4, OC-E10 "shipsDestroyed from patrol and ship-event kills"): the enemy ships this call's wave battles
   // destroyed (won and lost waves alike), so economyTick credits the officers aboard. 0 on a no-op call.
   enemiesDestroyed: number;
+  // Safe first runs SF-4: the patrol RUNS this call that count on the patrol curve (runCounts.patrol.completed). User
+  // 2026-10-21 "One step per patrol run": a run counts once, when it wins its FIRST route (however many routes a Repeat
+  // run flies after it); the training run never counts (user SF5 "Completed runs only, minus the tutorial run").
+  curveRunsCompleted: number;
 }
 
 // tickCaptainPatrol: advance ONE captain's patrol by `ticksElapsed` route ticks. PURE
@@ -3109,6 +3125,7 @@ export function tickCaptainPatrol(
     endRoutesCompleted: 0,
     lifetimeStatsDelta: emptyMissionLifetimeStatsDelta(),
     enemiesDestroyed: 0,
+    curveRunsCompleted: 0,
   };
   // Only the patrol arm advances here; idle / extraction / a sub-tick call is a no-op.
   if (!captain.mission || captain.mission.kind !== "patrol" || ticksElapsed <= 0) return noOp;
@@ -3195,6 +3212,8 @@ export function tickCaptainPatrol(
   // cyclesCompleted: a single offline call can complete MANY routes (repeat-dispatch relaunch),
   // so this counts each one and feeds the missionsCompleted lifetime tally below.
   let routesCompleted = 0;
+  // Safe first runs SF-4: the runs this call counts on the patrol curve (one per run, at its first won route).
+  let curveRunsCompleted = 0;
   // WR-4 (B4): enemy ships destroyed in this call's wave battles (each wave resolves exactly once, however the span
   // is chunked, so this is closed-form like the loot).
   let enemiesDestroyed = 0;
@@ -3315,14 +3334,15 @@ export function tickCaptainPatrol(
 
       // ENEMY team: deterministic from the ENEMY-salt derivation. idPrefix = faction id +
       // wave index (traceable + disjoint across waves, enemyWave.ts's contract).
-      const enemies = generateEnemyWave(
-        deriveWaveSeed(mission.masterSeed, waveIndex, WAVE_ENEMY_SEED_SALT),
-        {
-          hullPool: def.hullPool,
-          enemyCountMin: def.enemyCountMin,
-          enemyCountMax: def.enemyCountMax,
-          idPrefix: `${mission.factionId}-w${waveIndex}`,
-        },
+      // Safe first runs SF-4: through the cycle's difficulty profile (combat/patrolProfile.ts, the SAME leaf the replay
+      // and the forecast read): the training cycle's one lightest enemy, a ramped cycle's enemies at the curve's
+      // strength; no stamp = the route's own params and the unscaled team, exactly as before.
+      const enemies = patrolCycleEnemies(
+        generateEnemyWave(
+          deriveWaveSeed(mission.masterSeed, waveIndex, WAVE_ENEMY_SEED_SALT),
+          patrolWaveEnemyParams(def, mission, `${mission.factionId}-w${waveIndex}`),
+        ),
+        mission,
       );
 
       // BATTLE: the BATTLE-salt derivation (distinct from the enemy seed above).
@@ -3336,6 +3356,13 @@ export function tickCaptainPatrol(
 
       // WR-4 (B4): every enemy this wave's battle destroyed counts toward the officers' shipsDestroyed.
       enemiesDestroyed += finalCombatants.filter((c) => c.team === "enemy" && !c.alive).length;
+      // Safe first runs SF-4: the carry-state this wave was entered with, for the training cycle's backstop below.
+      const preWave = {
+        hull: mission.playerHull,
+        shield: mission.playerShield,
+        drones: mission.playerDrones,
+        durability: mission.playerSystemDurability,
+      };
       // Read the player's POST-battle state BY ID (finalCombatants is in TURN order: by side,
       // then input order). Carry hull/shield/drones forward (attrition; hull never regens).
       const p = finalCombatants.find((c) => c.id === playerId);
@@ -3390,6 +3417,15 @@ export function tickCaptainPatrol(
         fleetAdminXpAwarded += loot.fleetAdminXp;
         captainXpAwarded += loot.captainXp;
         // CONTINUE: the patrol proceeds (later waves and/or transitBack still ahead).
+      } else if (patrolWaveBreaksOff(mission)) {
+        // Safe first runs SF-4, THE BACKSTOP (the training cycle only; OC-1 "Finish 100%, no setbacks"): the wave
+        // breaks off. No defeat, no limp home, no damage (the ship keeps the carry-state it entered the wave with)
+        // and no loot for the wave; the patrol flies on to its next wave and home. Never reached on any other cycle.
+        mission.playerHull = preWave.hull;
+        mission.playerShield = preWave.shield;
+        mission.playerDrones = preWave.drones;
+        mission.playerSystemDurability = preWave.durability;
+        mission.nextWaveIndex = waveIndex + 1;
       } else {
         // DEFEAT (Combat 0.13.0, Phase 11, design S13): the patrol does NOT end instantly.
         // The wreck must LIMP HOME first (2x the return leg), so instead of ending we switch
@@ -3448,6 +3484,10 @@ export function tickCaptainPatrol(
       // A full route flown + player alive = one patrol COMPLETED (won). Count it (win-only: a
       // defeat broke out above and never reaches here), keyed into missionsCompleted below.
       routesCompleted += 1;
+      // Safe first runs SF-4 (user 2026-10-21 "One step per patrol run"): the run's FIRST won route counts the run once
+      // on the curve, unless it is the training cycle's (SF5). routesThisRun is the stored per-run count, so the rule
+      // reads the same however the span is chunked (offline == live).
+      if (routesThisRun === 0 && !isTrainingPatrol(mission)) curveRunsCompleted += 1;
       // 0.13.4 Phase 2: the same completion, accumulated PER RUN. Incremented here (beside the
       // per-call counter) rather than at the ending, because a repeat-dispatch run completes
       // many routes and only the last one coincides with an ending.
@@ -3521,6 +3561,9 @@ export function tickCaptainPatrol(
               officerEffects.returnConstitution ?? 0,
               hoursOut + ((def.transitOutTicks + def.rollWindowTicks) * (officerEffects.secondsPerTick ?? 1)) / 3600,
             ),
+            // Safe first runs SF-4: the new cycle's difficulty, from this cycle's stamp alone (the training cycle
+            // hands over the curve's floor; a ramped cycle keeps its stamp, one step per patrol run; none stays none).
+            difficulty: nextPatrolCycleDifficulty(mission.difficulty),
           });
           // The new cycle's frozen bonuses may differ from the old one's: re-fold the carry pools so the
           // between-wave regen and the limp damage read the SAME fold as this cycle's wave combatants.
@@ -3661,6 +3704,7 @@ export function tickCaptainPatrol(
     // field meaning "routes in the run that just finished" rather than "routes so far".
     endRoutesCompleted: endReason === null ? 0 : routesThisRun,
     enemiesDestroyed,
+    curveRunsCompleted,
   };
 }
 
@@ -4062,10 +4106,10 @@ export function economyTick(
   // material quality line), split into the share an Assayer captain delivered (graded with its bonus) and the rest.
   // Empty without a rig line, so the fold below deposits exactly as before.
   const climbDelivered = new Map<string, { plain: Decimal; assayer: Decimal }>();
-  // Safe first runs SF-1: the patrol routes WON this call, fleet-wide (the patrol curve, runDifficulty.ts
-  // countPatrolRoutes), folded once into runCounts below. A pure additive count, so one big call and many small ones
+  // Safe first runs SF-1 / SF-4: the patrol runs counted this call, fleet-wide (the patrol curve, runDifficulty.ts
+  // countPatrolRuns), folded once into runCounts below. A pure additive count, so one big call and many small ones
   // accrue the identical total.
-  let patrolRoutesWon = 0;
+  let patrolCurveRuns = 0;
   // 0.13.4 Phase 3 Unit 3.2: the shared TRANSIT-BERTH budget for this whole call, threaded
   // exactly like fuelBudgetRemaining / creditsBudgetRemaining above it: computed ONCE from the
   // incoming state, then drawn down as each captain claims, so a later captain in this same map
@@ -4250,8 +4294,9 @@ export function economyTick(
         // shared foldLifetimeStatsDelta seam the extraction arm uses (~110 lines below), so
         // combat loot/bounty/XP count toward lifetime totals exactly like extraction loot.
         lifetimeStats = foldLifetimeStatsDelta(lifetimeStats, patrolResult.lifetimeStatsDelta);
-        // Safe first runs SF-1: the same won routes count on the patrol curve (runCounts, folded below).
-        patrolRoutesWon += Object.values(patrolResult.lifetimeStatsDelta.missionsCompleted).reduce((sum, d) => sum + d.toNumber(), 0);
+        // Safe first runs SF-4: the patrol runs counted on the patrol curve (runCounts, folded below): one per run, at its
+        // first won route, the training run excluded (curveRunsCompleted, user 2026-10-21 "One step per patrol run").
+        patrolCurveRuns += patrolResult.curveRunsCompleted;
         // Crew 0.14.0 ("CREW GOES LIVE"): record this patrol's completed ROUTES against its ship so the
         // officers aboard get missionsCompleted credit (promotion gates). routesCompleted lives in the
         // patrol's lifetimeStatsDelta.missionsCompleted, keyed by patrolKey; sum its (single) value.
@@ -4784,11 +4829,11 @@ export function economyTick(
     // fold above uses). If no captain was on a mission this call, `lifetimeStats`
     // is still the original state.lifetimeStats reference, an exact no-op.
     lifetimeStats,
-    // Safe first runs SF-1: the won patrol routes on the patrol curve. Untouched (the same reference) when no route
-    // was won this call.
+    // Safe first runs SF-1 / SF-4: the patrol runs counted on the patrol curve. Untouched (the same reference) when no
+    // run counted this call.
     // G1-4: plus the short-range cycle starts and deliveries (threaded through the captain map above). Untouched when
     // neither moved.
-    ...(patrolRoutesWon > 0 || srCountsAfter !== null ? { runCounts: countPatrolRoutes(srCountsAfter ?? runCountsOf(state), patrolRoutesWon) } : {}),
+    ...(patrolCurveRuns > 0 || srCountsAfter !== null ? { runCounts: countPatrolRuns(srCountsAfter ?? runCountsOf(state), patrolCurveRuns) } : {}),
     // G1-4: the board's cycle cursor, written only when a short-range cycle was delivered this call.
     ...(srCursorAfter !== null ? { shortRangeBoard: { version: 1 as const, nextCycle: { ...srCursorAfter } } } : {}),
   };
@@ -5442,6 +5487,9 @@ function freshPatrolMission(args: {
   // 0.14.0 (CP-4): a relaunch's carried Deck Handling bank, squadron by squadron (bridge.ts withReplenishCarry). Stored
   // as replenishCarryStart only when one is > 0, so the display replay seeds the same bank.
   replenishCarry?: readonly number[];
+  // Safe first runs SF-4: the cycle's difficulty (runDifficulty.ts patrolDifficultyAt at dispatch,
+  // nextPatrolCycleDifficulty at a relaunch). Stored only when present (absent = full strength, the record as before).
+  difficulty?: PatrolDifficultyStamp;
 }): PatrolMissionState {
   const { patrolKey, stance, masterSeed, repeatDispatch, shipDef, hullType, installedGear, officerCombat, captainCombat } = args;
   const deckHandling = args.deckHandling ?? 0;
@@ -5476,6 +5524,7 @@ function freshPatrolMission(args: {
     ...(replenishCarryStart.some((c) => c > 0) ? { replenishCarryStart } : {}),
     ...(freeRepairTicks > 0 ? { freeRepairTicks } : {}),
     ...(returnCutTicks > 0 ? { returnCutTicks } : {}),
+    ...(args.difficulty ? { difficulty: args.difficulty } : {}),
     kind: "patrol",
     patrolKey,
     factionId: def.factionId, // pin the fought faction (def could be retuned mid-flight)
@@ -5486,7 +5535,8 @@ function freshPatrolMission(args: {
     // Resolve the wave schedule NOW: a pure function of the master seed + def params, so it
     // is stable across save/load and reproducible offline==live (see PatrolMissionState
     // .waveTicks for the wave-plan-now rationale).
-    waveTicks: planWaveSchedule(masterSeed, patrolWaveParams(def)),
+    // Safe first runs SF-4: through the cycle's profile (the training cycle keeps the first waves of this schedule).
+    waveTicks: patrolCycleWaveTicks(masterSeed, def, { difficulty: args.difficulty }),
     nextWaveIndex: 0,
     wavesWon: 0,
     wavesLost: 0,
@@ -5906,6 +5956,9 @@ export function dispatchCaptainOnPatrol(
     returnCutTicks,
     // 0.14.0 (CP-4, OC-1 "Faster drone replenish"): freeze the crew's Deck Handling onto the first cycle (0 = none).
     deckHandling: shipDeckHandling(state, ship),
+    // Safe first runs SF-4: the save's one safe patrol, or the curve at the patrol runs counted so far (read BEFORE this
+    // dispatch is counted; absent at full strength).
+    difficulty: patrolDifficultyAt(state),
   });
 
   const captains = [...state.captains];
@@ -6117,7 +6170,13 @@ export function renameShip(
 //     property that guarantee depends on, OR
 //   - the target ship is already flown by a DIFFERENT captain (assignedCaptainId
 //     is non-null and not this captain), you can't poach another captain's
-//     hull; it must be parked first.
+//     hull; it must be parked first, OR
+//   - S1 (docs/plans/2026-10-17-small-calls-answers.md, user 2026-10-17 "Lock it
+//     (Recommended)": no captain moves onto or off a ship that is out): the
+//     captain's current ship or the target is crew-locked (crewLock.ts
+//     captainMoveLock: a mission, a patrol, a short-range run, or an expedition
+//     until it is claimed). An expedition leaves captain.mission null, so the
+//     mission check above never saw it; the crew lock does.
 //
 // ORDERING IS SUBTLE, read before touching the .map() below. We assign the
 // TARGET ship first (its branch wins), THEN park any *different* hull the
@@ -6143,6 +6202,7 @@ export function assignShipToCaptain(
   if (ship.assignedCaptainId !== null && ship.assignedCaptainId !== captainId) {
     return { next: state, success: false };
   }
+  if (captainMoveLock(state, captainId, shipId) !== null) return { next: state, success: false }; // S1
 
   // ORDER MATTERS (see header comment): the target-assign branch is listed
   // FIRST so it wins for the self-reassign case; the park branch only fires on a
@@ -8037,11 +8097,12 @@ export type RelicStudyBlockReason =
   | "noFacility" // the Research facility is not built (level 0)
   | "noSlot"; // every relic-study lane is busy
 
-// How many relic studies the Research facility can run at once: RELIC_STUDY_LANES once the facility is
-// built (level >= 1), else 0. Its OWN lane count, independent of researchSlotCount. FIRST-PASS TUNABLE
-// (1 lane); a later Research rung can grow it the way addResearchSlots grows research.
+// How many relic studies the Research Lab runs at once (Relics v2 R2-3, user call 12 "lanes by Lab": Lab I 1, III 2,
+// V 3, VII 4; relicIdentify.ts RELIC_STUDY_LANES_BY_LAB), read through the ONE Lab tier reader (model.ts labTier,
+// OC-15). 0 before the Lab is built. Its OWN lanes, independent of researchSlotCount. Lab I and II read 1, the pre-R2-3
+// count.
 export function relicStudySlotCount(state: GameState): number {
-  return facilityLevel(state, RESEARCH_FACILITY_KEY) >= 1 ? RELIC_STUDY_LANES : 0;
+  return relicStudyLanesAt(labTier(state));
 }
 
 // The relicStudy processes currently in flight, in activeProcesses order. Pure reader (the E4c UI + the
@@ -8051,22 +8112,35 @@ export function relicStudiesInFlight(state: GameState): TimedProcess[] {
 }
 
 // The single relic-study gate. Pure predicate; mirrors canResearch's typed-reason shape. Gate order:
-// identity (notFound) -> facility (noFacility) -> concurrency (noSlot).
+// identity (notFound) -> facility (noFacility) -> concurrency (noSlot). No gate per region tier (call 12): any Lab level
+// identifies any tier's blank.
 export function canStartRelicStudy(
   state: GameState,
   vaultTokenId: string
 ): { ok: true } | { ok: false; reason: RelicStudyBlockReason } {
   if (!(state.relicVault ?? []).some((t) => t.id === vaultTokenId)) return { ok: false, reason: "notFound" };
-  if (facilityLevel(state, RESEARCH_FACILITY_KEY) < 1) return { ok: false, reason: "noFacility" };
+  if (labTier(state) < 1) return { ok: false, reason: "noFacility" };
   if (relicStudiesInFlight(state).length >= relicStudySlotCount(state)) return { ok: false, reason: "noSlot" };
   return { ok: true };
 }
 
+// The study duration of `token` started against a Museum holding `museumV2`: 10 minutes times the blank's rarity
+// (relicStudyDurationTicks, call 12), shortened by the museum's researchSpeed (E4b, start-time only) and the token's own
+// Preservationist speed (WR-5c, its own x (1 + s) factor on the speed, OC-A1 "Always multiply"; absent = the museum's
+// speed alone, bit for bit). THE duration seam: a player start and a queue start both read it at the start. Pure.
+export function relicStudyDurationFor(state: GameState, museumV2: MuseumV2, token: RelicVaultToken): number {
+  const museumSpeed = museumBonuses(museumV2 === state.museumV2 ? state : { ...state, museumV2 }).researchSpeed;
+  const own = token.studySpeed !== undefined && token.studySpeed > 0 && Number.isFinite(token.studySpeed) ? token.studySpeed : 0;
+  const speed = own > 0 ? (1 + Math.max(0, museumSpeed)) * (1 + own) - 1 : museumSpeed;
+  return museumResearchDurationTicks(relicStudyDurationTicks(token.tier), speed);
+}
+
 // START a relic study: a thin wrapper over canStartRelicStudy (the single source of truth for every
 // gate). On a block: the SAME state reference + started:false + the reason. On ok: removes the token from
-// the vault, stamps the next study index (nextRelicStudyIndex, then advanced), and pushes a "relicStudy"
-// TimedProcess (duration scaled by the token's tier, relicStudyDurationTicks) whose identifyRelic effect
-// carries the token + its index. No material or credit inputs (first-pass: a study costs TIME only).
+// the vault (and from the identification queue, if it was waiting there), stamps the next study index
+// (nextRelicStudyIndex, then advanced), and pushes a "relicStudy" TimedProcess (relicStudyDurationFor) whose
+// identifyRelic effect carries the token, its index and the v2 stamp (R2-3: `v: 2`, so it identifies through
+// identification v2). Free (call 12): no material or credit inputs.
 export function startRelicStudy(
   state: GameState,
   vaultTokenId: string
@@ -8076,37 +8150,242 @@ export function startRelicStudy(
   const vault = state.relicVault ?? [];
   const token = vault.find((t) => t.id === vaultTokenId)!; // gate.ok guarantees presence
   const studyIndex = state.nextRelicStudyIndex ?? 1;
+  const queue = state.relicQueue;
   const afterVault: GameState = {
     ...state,
     relicVault: vault.filter((t) => t.id !== vaultTokenId),
     nextRelicStudyIndex: studyIndex + 1,
+    ...(queue !== undefined && queue.includes(vaultTokenId) ? { relicQueue: queue.filter((id) => id !== vaultTokenId) } : {}),
   };
-  // E4b: the museum's researchSpeed shortens the study too (start-time only, the shared seam).
-  // WR-5c: a token recovered under a Preservationist captain carries its own study speed, its own x (1 + s) factor on
-  // the speed (OC-A1 "Always multiply"); absent, the museum's speed alone, bit for bit.
-  const museumSpeed = museumBonuses(state).researchSpeed;
-  const own = token.studySpeed !== undefined && token.studySpeed > 0 && Number.isFinite(token.studySpeed) ? token.studySpeed : 0;
-  const speed = own > 0 ? (1 + Math.max(0, museumSpeed)) * (1 + own) - 1 : museumSpeed;
-  const durationTicks = museumResearchDurationTicks(relicStudyDurationTicks(token.tier), speed);
-  return startProcess(afterVault, "relicStudy", {}, durationTicks, {
+  return startProcess(afterVault, "relicStudy", {}, relicStudyDurationFor(state, state.museumV2, token), {
     type: "identifyRelic",
     token: { ...token },
     studyIndex,
+    v: RELIC_STUDY_VERSION,
   });
 }
 
-// The relic a completed study reveals: the KEYED roll identifyRelic(setId, tier, relicStudySeed(
+// ============================================================================
+// Relics v2 R2-3: the IDENTIFICATION QUEUE (user call 12 "Free, queued, lanes by Lab")
+// ============================================================================
+//
+// state.relicQueue holds vault token ids in order. A queued token STAYS in the vault (consume at start, the study's
+// own convention) until a lane takes it. The next queued blank starts the moment a lane frees, also while the player
+// is away: resolveProcesses starts it at the completion tick inside the same call (resolveRelicStudies below), so one
+// big offline resolve lands where live steps do. Player actions pump the queue too (a free lane never waits on a
+// queued blank). A queued id whose token has left the vault is dropped when it reaches the head.
+
+export type RelicQueueBlockReason = "notFound" | "alreadyQueued";
+
+// The queue (absent = empty). Pure.
+export function relicQueueOf(state: Pick<GameState, "relicQueue">): readonly string[] {
+  return state.relicQueue ?? [];
+}
+
+// Start queued blanks while a lane is free (FIFO; stale ids dropped). The SAME state when nothing changes. Pure.
+export function pumpRelicQueue(state: GameState): GameState {
+  let s = state;
+  while (relicQueueOf(s).length > 0 && relicStudiesInFlight(s).length < relicStudySlotCount(s)) {
+    const head = relicQueueOf(s)[0];
+    const started = startRelicStudy(s, head);
+    // startRelicStudy removes a started id from the queue; a stale id (its token gone) is dropped here.
+    s = started.started ? started.next : { ...s, relicQueue: relicQueueOf(s).slice(1) };
+  }
+  return s;
+}
+
+// QUEUE one vault blank for identification (appended), then pump: with a free lane it starts at once. On a block: the
+// SAME state + the reason. Pure.
+export function queueRelicStudy(state: GameState, vaultTokenId: string): { next: GameState; queued: boolean; reason?: RelicQueueBlockReason } {
+  if (!(state.relicVault ?? []).some((t) => t.id === vaultTokenId)) return { next: state, queued: false, reason: "notFound" };
+  if (relicQueueOf(state).includes(vaultTokenId)) return { next: state, queued: false, reason: "alreadyQueued" };
+  return { next: pumpRelicQueue({ ...state, relicQueue: [...relicQueueOf(state), vaultTokenId] }), queued: true };
+}
+
+// QUEUE every vault blank not already queued, in vault order (the mockup's "Queue all"), then pump. Returns how many
+// were added. The SAME state when there is nothing to add. Pure.
+export function queueAllRelicStudies(state: GameState): { next: GameState; queued: number } {
+  const queue = relicQueueOf(state);
+  const add = (state.relicVault ?? []).map((t) => t.id).filter((id) => !queue.includes(id));
+  if (add.length === 0) return { next: state, queued: 0 };
+  return { next: pumpRelicQueue({ ...state, relicQueue: [...queue, ...add] }), queued: add.length };
+}
+
+// REMOVE a blank from the queue (it stays in the vault). The SAME state when it is not queued. Pure.
+export function unqueueRelicStudy(state: GameState, vaultTokenId: string): GameState {
+  const queue = relicQueueOf(state);
+  if (!queue.includes(vaultTokenId)) return state;
+  return { ...state, relicQueue: queue.filter((id) => id !== vaultTokenId) };
+}
+
+// MOVE a queued blank one place toward the head (-1) or the tail (+1). The SAME state at an end or when not queued.
+// Pure.
+export function moveRelicQueueEntry(state: GameState, vaultTokenId: string, direction: -1 | 1): GameState {
+  const queue = [...relicQueueOf(state)];
+  const i = queue.indexOf(vaultTokenId);
+  const j = i + direction;
+  if (i < 0 || j < 0 || j >= queue.length) return state;
+  [queue[i], queue[j]] = [queue[j], queue[i]];
+  return { ...state, relicQueue: queue };
+}
+
+// The relic a completed v1 study reveals: the KEYED roll identifyRelic(setId, tier, relicStudySeed(
 // relicSeed, studyIndex, tokenId)). A pure function of stored values (the save's fixed relicSeed + the
-// effect's own fields), so it is chunking-independent and reload-stable; it is the ONE derivation both the
-// resolver branch and the completion-log record call, so the two can never disagree. Returns null for an
-// unknown set (a tampered save).
+// effect's own fields), so it is chunking-independent and reload-stable. Returns null for an unknown set (a
+// tampered save).
 // Relics v2 R2-2: a blank with NO set (a short-range, completion or grant blank: no site) identifies over the general
 // pool by band on the same keyed seed (relicBlanks.ts identifyGeneralRelic, its region tier's band odds). Every sited
 // blank keeps the v1 roll above exactly.
-export function identifyStudiedRelic(state: GameState, token: RelicVaultToken, studyIndex: number): string | null {
+// Relics v2 R2-3: without `v` this is the v1 roll (a study started before R2-3). A v2 study (`v: 2`) reveals through
+// identifyRelicV2, which also reads the Museum's exceptional copies at completion (`museum`, default the state's). The
+// UI's reveal observer calls it as a HINT only; the completion record the resolver wrote is authoritative.
+export function identifyStudiedRelic(
+  state: GameState,
+  token: RelicVaultToken,
+  studyIndex: number,
+  v?: number,
+  museum: MuseumV2 = state.museumV2
+): string | null {
+  if (v === RELIC_STUDY_VERSION) return relicIdentificationId(identifyRelicV2(state.relicSeed, museum, token, studyIndex));
   const seed = relicStudySeed(state.relicSeed ?? RELIC_DEFAULT_SEED, studyIndex, token.id);
   if (token.setId === undefined) return identifyGeneralRelic(vaultTokenRegionTier(token), token.tier, token.poiId, seed);
   return identifyRelic(token.setId, token.tier, seed);
+}
+
+// What one completed relic study deposits, against the Museum and registry as they stand at its completion. A v2 study:
+// identification v2 (a general type at its region tier with a culture point and find, or an exceptional piece).
+// A v1 study (in flight at the update): the v1 roll exactly as dispatched, one copy in its token's REGION TIER record
+// (R2-3: a v1 study of a Tier II blank lands in Tier II, not Tier I; a pre-R2-2 token reads Tier I, so every pre-R2-2
+// study lands where it always did) and no culture point (the v1 roll never had one). Returns the identified id (null:
+// a tampered save, nothing lands) and the new records. Pure.
+function depositRelicStudy(
+  state: GameState,
+  effect: Extract<ProcessEffect, { type: "identifyRelic" }>,
+  museum: MuseumV2,
+  discovered: string[]
+): { relicId: string | null; museum: MuseumV2; discovered: string[] } {
+  if (effect.v === RELIC_STUDY_VERSION) {
+    const outcome = identifyRelicV2(state.relicSeed, museum, effect.token, effect.studyIndex);
+    const cultureId = outcome.kind === "general" ? vaultTokenCultureId(state, effect.token) : null;
+    const landed = applyRelicIdentification(museum, discovered, outcome, cultureId);
+    return { relicId: relicIdentificationId(outcome), museum: landed.museum, discovered: landed.discovered };
+  }
+  const relicId = identifyStudiedRelic(state, effect.token, effect.studyIndex);
+  if (relicId === null) return { relicId, museum, discovered };
+  const key = String(vaultTokenRegionTier(effect.token)) as RegionTierKey;
+  const record = museum.general[key] ?? {};
+  return {
+    relicId,
+    museum: { ...museum, general: { ...museum.general, [key]: { ...record, [relicId]: (record[relicId] ?? 0) + 1 } } },
+    discovered: discovered.includes(relicId) ? discovered : [...discovered, relicId],
+  };
+}
+
+// What resolveRelicStudies hands the resolver: the identified id of every relic study that was in flight and
+// completed this call (keyed by process id; the resolver records it at its array position, as before), the studies a
+// queue START launched and completed inside this call (in completion order), the started studies still running at
+// the end (in start order), and the records they wrote.
+interface RelicStudyChain {
+  completed: Map<string, string | null>;
+  chained: { process: TimedProcess; relicId: string | null }[];
+  survivors: TimedProcess[];
+  museum: MuseumV2;
+  discovered: string[];
+  deposited: boolean; // a study completed: museum + registry are written back
+  queueTouched: boolean; // a queue start (or a stale drop) happened: vault, queue and the two counters are written back
+  vault: RelicVaultToken[];
+  queue: string[];
+  nextRelicStudyIndex: number;
+  nextProcessId: number;
+}
+
+// THE RELIC STUDY CHAIN over one resolve window of `ticksElapsed` (R2-3, plan "the queue starts the next queued token
+// at the completion tick inside resolveProcesses (closed-form chain, so one big offline resolve equals live steps)").
+// An event walk in TIME order over every study completing in the window (at its remaining ticks) and every Research
+// Lab level-up completing in it (a new lane), grouped by the instant they happen. At each instant the Lab rises first,
+// the studies deposit in activeProcesses order (the order a live step resolves same-tick completions in), and the
+// queue then starts blanks into the free lanes, each with the duration read at that instant (relicStudyDurationFor).
+// A started study that finishes inside the window completes in the same walk. A v2 reveal reads the Museum at
+// completion (call 7), so completions run in TIME order here, never array order: one call, 997 s chunks and 1 s steps
+// land the identical Museum. Nothing here draws from the tick's rng. Returns null when no study completes and the queue
+// starts nothing (the resolver then writes none of these fields: byte-identical). Pure.
+function resolveRelicStudies(state: GameState, ticksElapsed: number): RelicStudyChain | null {
+  const queue0 = state.relicQueue ?? [];
+  const inFlight: { process: TimedProcess; at: number; order: number; chained: boolean }[] = [];
+  const labUps: number[] = [];
+  state.activeProcesses.forEach((p, order) => {
+    const at = Math.max(0, p.remainingTicks);
+    if (p.effect.type === "identifyRelic") inFlight.push({ process: p, at, order, chained: false });
+    else if (p.effect.type === "facilityLevelUp" && p.effect.facility === RESEARCH_FACILITY_KEY && p.remainingTicks - ticksElapsed <= MISSION_TICK_EPSILON) labUps.push(at);
+  });
+  const completesInWindow = inFlight.some((f) => f.process.remainingTicks - ticksElapsed <= MISSION_TICK_EPSILON);
+  if (!completesInWindow && queue0.length === 0) return null;
+  labUps.sort((a, b) => a - b);
+
+  let level = labTier(state);
+  let museum = state.museumV2 ?? emptyMuseumV2();
+  let discovered = state.relicDiscovered ?? [];
+  let vault = state.relicVault ?? [];
+  const queue = [...queue0];
+  let nextRelicStudyIndex = state.nextRelicStudyIndex ?? 1;
+  let nextProcessId = state.nextProcessId;
+  let order = state.activeProcesses.length;
+  let deposited = false;
+  let queueTouched = false;
+  const completed = new Map<string, string | null>();
+  const chained: { process: TimedProcess; relicId: string | null }[] = [];
+
+  const pump = (at: number) => {
+    while (queue.length > 0 && inFlight.length < relicStudyLanesAt(level)) {
+      const id = queue.shift()!;
+      queueTouched = true;
+      const token = vault.find((t) => t.id === id);
+      if (!token) continue; // stale: its token left the vault
+      vault = vault.filter((t) => t.id !== id);
+      const durationTicks = relicStudyDurationFor(state, museum, token);
+      const process: TimedProcess = {
+        id: `proc-${nextProcessId}`,
+        kind: "relicStudy",
+        remainingTicks: durationTicks,
+        durationTicks,
+        effect: { type: "identifyRelic", token: { ...token }, studyIndex: nextRelicStudyIndex, v: RELIC_STUDY_VERSION },
+      };
+      nextProcessId += 1;
+      nextRelicStudyIndex += 1;
+      inFlight.push({ process, at: at + durationTicks, order: order++, chained: true });
+    }
+  };
+
+  pump(0);
+  for (;;) {
+    let t = Infinity;
+    for (const f of inFlight) t = Math.min(t, f.at);
+    if (labUps.length > 0) t = Math.min(t, labUps[0]);
+    if (!(t - ticksElapsed <= MISSION_TICK_EPSILON)) break;
+    while (labUps.length > 0 && labUps[0] - t <= MISSION_TICK_EPSILON) {
+      labUps.shift();
+      level += 1;
+    }
+    const now = inFlight.filter((f) => f.at - t <= MISSION_TICK_EPSILON).sort((a, b) => a.order - b.order);
+    for (const f of now) {
+      inFlight.splice(inFlight.indexOf(f), 1);
+      if (f.process.effect.type !== "identifyRelic") continue; // unreachable: only identifyRelic studies are walked
+      const landed = depositRelicStudy(state, f.process.effect, museum, discovered);
+      museum = landed.museum;
+      discovered = landed.discovered;
+      deposited = true;
+      if (f.chained) chained.push({ process: f.process, relicId: landed.relicId });
+      else completed.set(f.process.id, landed.relicId);
+    }
+    pump(t);
+  }
+
+  if (!deposited && !queueTouched) return null;
+  const survivors = inFlight
+    .filter((f) => f.chained)
+    .sort((a, b) => a.order - b.order)
+    .map((f) => ({ ...f.process, remainingTicks: f.at - ticksElapsed }));
+  return { completed, chained, survivors, museum, discovered, deposited, queueTouched, vault, queue, nextRelicStudyIndex, nextProcessId };
 }
 
 // ============================================================================
@@ -11366,9 +11645,12 @@ export function resolveProcesses(
   // completing relicStudy (the identifyRelic branch). Seeded from the incoming state, so a call that
   // completes no study returns them value-identical (and a pre-E4 shape reads as empty).
   // Relics v2 R2-1: the v1 copies live in the Tier I general record (museumV2.general["1"]); a v1 study writes there.
-  let relicMuseum: Readonly<Record<string, number>> = generalMuseumRecord(state);
-  let relicDiscovered: string[] = state.relicDiscovered ?? [];
-  let relicStudyCompleted = false; // gates the write-back so a no-study call never even re-keys the fields
+  // Relics v2 R2-3: every study completing in this call, and every queued blank a freed lane starts, is resolved up
+  // front by the time-ordered chain (resolveRelicStudies), because a v2 reveal reads the Museum at completion and a
+  // queue start lands at its completion tick. The loop below only RECORDS an in-flight study's completion at its array
+  // position (the log order is unchanged) and awards its XP; the chain's own completions and survivors are added after
+  // the loop. null = no study completed and the queue started nothing: none of the relic fields are written back.
+  const relicChain = resolveRelicStudies(state, ticksElapsed);
   // Exploration 0.14.0 (Phase E4b): the museum's craftingQuality fraction, read ONCE per resolve off the
   // INCOMING state (a call-constant: a relic study completing below in THIS call grows the museum only
   // for the NEXT call). Every production quality roll in this call (refine/fabricate addItem + the
@@ -11423,6 +11705,9 @@ export function resolveProcesses(
     //                 no-op on a stale target (which the log records as a stale entry).
     let mintedPieces = 0;
     let salvageOutcome: SalvageEffectOutcome | null = null;
+    // Relics v2 R2-3: the id a completing relic study identified (from the chain), for its record. undefined for
+    // every other process.
+    let relicRecordId: string | null | undefined;
     if (process.effect.type === "addItem") {
       // Quality roll at production (Task 9b): a completed refine/fabricate job rolls ONE
       // quality tier for its whole output amount, which then lands in that tier's bucket via
@@ -11835,18 +12120,11 @@ export function resolveProcesses(
     } else if (process.effect.type === "identifyRelic") {
       // Exploration 0.14.0 (Phase E4a): a completed RELIC STUDY identifies its token and deposits ONE
       // museum copy. The token left the vault at START (startRelicStudy), so there is nothing to consume
-      // here. The roll is KEYED (identifyStudiedRelic: relicSeed + a fixed salt + the study's stamped index
-      // + the token id), never the tick's threaded rng, so it draws NOTHING from that stream: the existing
-      // draw order is untouched and one big offline resolve identifies the identical relic as many small
-      // live steps (chunking-independent by construction). FIRST FIND: the first copy of a relic type is
-      // appended to the discovered registry exactly once (guarded on includes). An unknown set (a tampered
-      // save) identifies nothing and the process simply drops.
-      const relicId = identifyStudiedRelic(state, process.effect.token, process.effect.studyIndex);
-      relicStudyCompleted = true;
-      if (relicId !== null) {
-        relicMuseum = { ...relicMuseum, [relicId]: (relicMuseum[relicId] ?? 0) + 1 };
-        if (!relicDiscovered.includes(relicId)) relicDiscovered = [...relicDiscovered, relicId];
-      }
+      // here. The roll is KEYED (relicSeed + a fixed salt + the study's stamped index + the token id), never the
+      // tick's threaded rng, so it draws NOTHING from that stream. Relics v2 R2-3: the deposit itself already
+      // happened in the time-ordered chain above (resolveRelicStudies: a v2 reveal reads the Museum at completion);
+      // this branch only carries its identified id to the record below (null: a tampered save identified nothing).
+      relicRecordId = relicChain?.completed.get(process.id) ?? null;
     } else {
       // facilityLevelUp: bump the target facility on a FRESH facilities map
       // (immutable). An absent facility starts from level 0 (grow-on-demand, same
@@ -11913,8 +12191,31 @@ export function resolveProcesses(
       levels: { facilities, equipmentStorageLevel, shipStorageCapacity, transitBerthLevel },
       mintedPieces,
       salvage: salvageOutcome,
+      relicId: relicRecordId,
       acc: completionAcc,
     });
+  }
+
+  // Relics v2 R2-3: the studies a queue start launched AND finished inside this call (a long offline span), recorded
+  // and awarded in completion order after every in-flight completion (in 1 s live steps there are none: a started
+  // study takes at least a tick), and the started studies still running, appended after the survivors in start order
+  // (where a live step's start appends them).
+  if (relicChain !== null) {
+    for (const { process, relicId } of relicChain.chained) {
+      if (PROCESS_XP_AWARDS[process.kind].fleetAdmin) fleetAdminXpDelta += FLEET_ADMIN_XP_PER_DURATION_TICK * process.durationTicks;
+      if (PROCESS_XP_AWARDS[process.kind].crafting) craftingXpDelta += craftingXpAwardForProcess(process);
+      completionAcc = recordCompletion({
+        process,
+        state,
+        nowMs,
+        levels: { facilities, equipmentStorageLevel, shipStorageCapacity, transitBerthLevel },
+        mintedPieces: 0,
+        salvage: null,
+        relicId,
+        acc: completionAcc,
+      });
+    }
+    stillActive.push(...relicChain.survivors);
   }
 
   return {
@@ -11971,7 +12272,12 @@ export function resolveProcesses(
       // study completed this call (conditional spread), so every call that completes no study lands
       // byte-identical to before this phase, key set included. Relics v2 R2-1: the copies go back into the Tier I
       // general record (museumV2WithGeneral keeps every other part and the record's key position).
-      ...(relicStudyCompleted ? { museumV2: museumV2WithGeneral(state.museumV2, relicMuseum), relicDiscovered } : {}),
+      // Relics v2 R2-3: written back by the chain (resolveRelicStudies); a v1 study lands in its token's region tier.
+      ...(relicChain?.deposited ? { museumV2: relicChain.museum, relicDiscovered: relicChain.discovered } : {}),
+      // R2-3: a queue start (or a stale queued id dropped) moves the vault, the queue and the two id counters.
+      ...(relicChain?.queueTouched
+        ? { relicVault: relicChain.vault, relicQueue: relicChain.queue, nextRelicStudyIndex: relicChain.nextRelicStudyIndex, nextProcessId: relicChain.nextProcessId }
+        : {}),
       // CP-6 review: a completed hull teardown's loadout + people writes (absent when none completed).
       ...(salvageWrites ?? {}),
     },

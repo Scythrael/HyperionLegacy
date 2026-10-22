@@ -35,6 +35,8 @@ import * as crewGraduation from "./crewGraduation";
 import * as shortRange from "./shortRange";
 import * as relicBlanks from "./relicBlanks";
 import * as materialQuality from "./materialQuality";
+import * as relicIdentify from "./relicIdentify";
+import * as gasGiantStudy from "./gasGiantStudy";
 
 // The modules whose salts must be distinct AND odd.
 const MODULES: Record<string, Record<string, unknown>> = {
@@ -66,6 +68,10 @@ const MODULES: Record<string, Record<string, unknown>> = {
   "relicBlanks.ts": relicBlanks,
   // Material Lines ML-3: the delivery climb's private rounding roll (MATERIAL_QUALITY_SALT).
   "materialQuality.ts": materialQuality,
+  // Relics v2 R2-3: the identification v2 roll.
+  "relicIdentify.ts": relicIdentify,
+  // Gas Giant Study GG-2 / GG-3: the giant profile roll and the study reward roll.
+  "gasGiantStudy.ts": gasGiantStudy,
 };
 
 // Legacy salts checked for DISTINCTNESS only. model.ts AWAY_RECRUIT_SEED_SALT (0x5a17c0de) predates the odd
@@ -148,6 +154,7 @@ describe("salt registry (GO-4)", () => {
       "relicBlanks.ts RELIC_CULTURE_SALT",
       "relicBlanks.ts RELIC_SHORT_RANGE_SALT",
       "relicBlanks.ts RELIC_COMPLETION_SALT",
+      "relicIdentify.ts RELIC_IDENTIFY_V2_SALT",
     ]) {
       expect(names).toContain(expected);
     }

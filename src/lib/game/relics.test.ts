@@ -35,7 +35,6 @@ import {
   MUSEUM_PER_COPY_BONUS,
   MUSEUM_TIER_LEVEL_BONUS,
   MUSEUM_CAPSTONE_MAGNITUDE,
-  RELIC_STUDY_LANES,
   getRelicById,
   getRelicSetById,
   relicSetForPoi,
@@ -77,6 +76,7 @@ import {
 import { POI_CATALOG } from "./expeditionContent";
 import { itemTotal } from "./inventory";
 import { migrate, type SaveFile } from "./save";
+import { startV1RelicStudy } from "./relicStudyV1.fixture";
 
 // --- fixtures ----------------------------------------------------------------
 
@@ -139,9 +139,11 @@ function token(id: string, setId: RelicSetId, tier: RelicVaultToken["tier"] = "s
 }
 
 // Start + fully resolve ONE relic study on the first vault token. Returns the post-completion state.
+// Relics v2 R2-3: started as a v1 study (no `v` stamp), so these tests keep pinning the v1 path an in-flight study
+// resolves through; identification v2 is covered in relicIdentify.test.ts.
 function studyFirst(s: GameState): GameState {
   const tokenId = s.relicVault[0].id;
-  const started = startRelicStudy(s, tokenId);
+  const started = startV1RelicStudy(s, tokenId);
   expect(started.started).toBe(true);
   const proc = started.next.activeProcesses.find((p) => p.kind === "relicStudy")!;
   return resolveProcesses(started.next, proc.remainingTicks, () => 0).next;
@@ -232,8 +234,12 @@ describe("PoI -> relic set: ONE source of truth for the reward roll AND the fore
       expect(fk.relicSignature).toBe(fk.relicSets!.length > 0);
       // Commit this candidate and run it to completion; derive the sets from its real discoveries.
       // A legacy run (asLegacyDispatch) always completes; the discoveries are the same on either engine.
-      const res = asLegacyDispatch(dispatchPastPropulsion(s, "ship-1", 1, cand.id));
-      const done = advanceExpedition(res.expedition!, 10_000_000);
+      const raw = dispatchPastPropulsion(s, "ship-1", 1, cand.id);
+      const res = asLegacyDispatch(raw);
+      // Gas Giant Study GG-2: the committed run keeps its study stamp (asLegacyDispatch takes it off with the other
+      // later stamps), so a gas giant sources no relic set in the preview and none in the run.
+      const study = raw.expedition!.study;
+      const done = advanceExpedition(study ? { ...res.expedition!, study } : res.expedition!, 10_000_000);
       expect(done.phase).toBe("complete");
       const found = new Set<RelicSetId>();
       for (const b of done.bodies) for (const d of b.discoveries) found.add(relicSetForPoi(d.poiId)!);
@@ -336,13 +342,14 @@ describe("CLAIM DEPOSIT: findings land in inventory / credits / the relic vault"
 describe("RELIC STUDY: Research identifies a vault token on its own lane", () => {
   const withVault = (tokens: RelicVaultToken[]): GameState => ({ ...freshState(), relicVault: tokens });
 
-  it("gates: notFound, noFacility, noSlot (one lane first-pass)", () => {
+  it("gates: notFound, noFacility, noSlot (one lane at Lab I and II)", () => {
     const s = withVault([token("t1", "precursor"), token("t2", "precursor")]);
     expect(canStartRelicStudy(s, "nope")).toEqual({ ok: false, reason: "notFound" });
     const noLab = { ...s, facilities: { ...s.facilities, research: { level: 0 } } };
     expect(relicStudySlotCount(noLab)).toBe(0);
     expect(canStartRelicStudy(noLab, "t1")).toEqual({ ok: false, reason: "noFacility" });
-    expect(relicStudySlotCount(s)).toBe(RELIC_STUDY_LANES);
+    expect(relicStudySlotCount(s)).toBe(1);
+    expect(relicStudySlotCount({ ...s, facilities: { ...s.facilities, research: { level: 2 } } })).toBe(1);
     const first = startRelicStudy(s, "t1");
     expect(first.started).toBe(true);
     expect(canStartRelicStudy(first.next, "t2")).toEqual({ ok: false, reason: "noSlot" });
@@ -361,7 +368,7 @@ describe("RELIC STUDY: Research identifies a vault token on its own lane", () =>
     expect(procs).toHaveLength(1);
     expect(procs[0].durationTicks).toBe(relicStudyDurationTicks("radiant"));
     expect(relicStudyDurationTicks("radiant")).toBeGreaterThan(relicStudyDurationTicks("standard"));
-    expect(procs[0].effect).toEqual({ type: "identifyRelic", token: s.relicVault[0], studyIndex: 1 });
+    expect(procs[0].effect).toEqual({ type: "identifyRelic", token: s.relicVault[0], studyIndex: 1, v: 2 }); // R2-3: the v2 stamp
     // Its OWN lane: blueprint research is still startable while the study runs.
     expect(canResearch(next, "frameSegmentBp")).toEqual({ ok: true });
   });

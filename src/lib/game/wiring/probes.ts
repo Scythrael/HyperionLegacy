@@ -18,6 +18,7 @@ import {
   FIELD_KITS_DEFAULT_GRENADE_RULES,
   fieldKitsShownBlueprints,
   grenadeCraftPool,
+  ITEMS,
   MEMBER_SLOT_TYPES,
   MISSIONS,
   PATROLS,
@@ -64,7 +65,12 @@ import {
   type ShortRangeMissionState,
   type ShortRangePhase,
   withGeneralMuseumRecord,
+  emptyMuseumV2,
+  RELIC_DEFAULT_SEED,
+  type RelicVaultToken,
 } from "../model";
+// Relics v2 R2-3: identification v2 (the expected reveals the probe below is checked against).
+import { applyRelicIdentification, identifyRelicV2 } from "../relicIdentify";
 import {
   canBuildShip,
   canBuildFacilityUpgrade,
@@ -97,6 +103,7 @@ import {
   shipyardBayCount,
   startProcess,
   resolveProcesses,
+  relicStudySlotCount,
   shipyardRepairSpeedBonus,
   tierCap,
   xpPerTick,
@@ -194,6 +201,18 @@ import { addItemQuality, itemTotal } from "../inventory";
 import { GROUND_CONDITIONS, conditionCureSeconds } from "../medicalBay";
 import { loadoutSlotDefsForShipType } from "../armory";
 import { gambitProgramEquals } from "../memberGambits";
+// Gas Giant Study GG-2 / GG-3: the study engine and its content.
+import {
+  GALILEO_VARIETY,
+  GIANT_MASS_STEPS,
+  giantDepthFactor,
+  giantMassAt,
+  isOrbitalPlanetType,
+  rollGiantProfile,
+  rollStudyReward,
+  studyCanisterScale,
+} from "../gasGiantStudy";
+import { GAS_CANISTER_IDS, GIANT_CLASSES, canistersInBand, type GiantClassDef, type GiantClassId } from "../gasGiantContent";
 
 // ============================================================================
 // Contexts (every context a claim can cover; plan section 3.2)
@@ -954,6 +973,57 @@ function runFieldKitsTaskMember(s: GameState, memberId: string): GroundCombatant
   if (!ops) return undefined;
   const teams = ops.teams.map((t, i) => ({ securityIds: t.securityIds, downedThisTask: [], securityShare: ops.factors.securityShare[i] ?? 0 }));
   return taskFightTeam(run, teams, { id: "wiring-task", fightCount: 0 }).find((c) => c.memberId === memberId);
+}
+
+// Relics v2 R2-3: the identification v2 probe's studies: RELIC_V2_PROBE_STUDIES radiant Tier I blanks with no site, ids
+// "wiring-relic-v2-<n>", studied one after another from study index 1 on the default relic seed and an empty Museum (so
+// the expected reveals are a pure function of these constants).
+export const RELIC_V2_PROBE_STUDIES = 600;
+function relicV2ProbeToken(n: number): RelicVaultToken {
+  return { id: `wiring-relic-v2-${n}`, tier: "radiant", quality: 0 };
+}
+
+// The exceptional copies those studies land when every one reveals through identification v2 (relicIdentify.ts
+// identifyRelicV2 and applyRelicIdentification, run in order against the growing Museum). The registry's magnitude for
+// relic:audit:identifyV2. Pure.
+export function relicV2ProbeExpectedExceptional(): number {
+  let museum = emptyMuseumV2();
+  let discovered: string[] = [];
+  for (let n = 0; n < RELIC_V2_PROBE_STUDIES; n++) {
+    const outcome = identifyRelicV2(RELIC_DEFAULT_SEED, museum, relicV2ProbeToken(n), n + 1);
+    ({ museum, discovered } = applyRelicIdentification(museum, discovered, outcome, null));
+  }
+  return Object.values(museum.exceptional).reduce((a, b) => a + b, 0);
+}
+
+// Relics v2 R2-3 content probes ("content:relic:<a>"):
+//   exceptionalReveals  the exceptional copies the Museum holds after the probe's studies, each STARTED by the player's
+//                       start (startRelicStudy, a Lab I) and RESOLVED by the real resolver (resolveProcesses). On = the
+//                       study as started (the v2 stamp); off = the same study with the stamp removed (the v1 roll,
+//                       which never reveals an exceptional piece).
+//   lanes               the relic studies a Research Lab runs at once (relicStudySlotCount): on = Lab VII, off = Lab I.
+function relicContentProbe(kind: string, on: boolean, s: GameState): number {
+  if (kind === "lanes") return relicStudySlotCount(withFacilityLevel(s, "research", on ? 7 : 1));
+  if (kind !== "exceptionalReveals") throw new Error(`unknown relic content probe ${kind}`);
+  let cur: GameState = { ...withFacilityLevel(s, "research", 1), relicSeed: RELIC_DEFAULT_SEED, nextRelicStudyIndex: 1, museumV2: emptyMuseumV2(), relicVault: [], relicQueue: [] };
+  for (let n = 0; n < RELIC_V2_PROBE_STUDIES; n++) {
+    const token = relicV2ProbeToken(n);
+    const r = startRelicStudy({ ...cur, relicVault: [token] }, token.id);
+    if (!r.started) throw new Error(`relic v2 probe: study refused (${r.reason})`);
+    const started = on
+      ? r.next
+      : {
+          ...r.next,
+          activeProcesses: r.next.activeProcesses.map((p) => {
+            if (p.effect.type !== "identifyRelic") return p;
+            const { v: _v, ...v1 } = p.effect;
+            return { ...p, effect: v1 };
+          }),
+        };
+    const proc = started.activeProcesses.find((p) => p.kind === "relicStudy")!;
+    cur = resolveProcesses(started, proc.remainingTicks, () => 0).next;
+  }
+  return Object.values(cur.museumV2.exceptional).reduce((a, b) => a + b, 0);
 }
 
 // A relic the dispatched run recovers (the first seed whose roll hits on a hazard-1 Buried Vault), brought home by the
@@ -1773,6 +1843,135 @@ function planetFinds(s: GameState, planet: ExpeditionPlanetType, kind: "landmark
   return n;
 }
 
+// Gas Giant Study GG-2: the ground objectives on a dispatched run's bodies all turned into `planet` (an orbital-only
+// type), scanned to the end, over a seed batch. ON the run is stamped `study` (as a dispatch to a system with such a
+// body stamps it), so the orbital bodies get none; OFF the stamp is taken away (a run dispatched before GG-2), so
+// they get the ground objectives they had.
+function orbitalObjectives(s: GameState, planet: ExpeditionPlanetType, study: boolean): number {
+  let n = 0;
+  for (const seed of [0x1111, 0x2222, 0x3333, 0x4444]) {
+    const exp0 = dispatchRun({ ...s, expeditionSeed: seed });
+    const { study: _stamp, ...unstamped } = exp0;
+    let run: Expedition = { ...(study ? { ...unstamped, study: 1 as const } : unstamped), bodies: exp0.bodies.map((b) => ({ ...b, planetType: planet })) };
+    let t = run.phaseAnchorSeconds;
+    for (let i = 0; i < 400 && !run.bodies.every((b) => b.scanned); i++) {
+      t += 3600;
+      run = advanceExpedition(run, t);
+    }
+    for (const b of run.bodies) n += b.activities.length;
+  }
+  return n;
+}
+
+// Gas Giant Study: the save seeds the study probes search for a first candidate whose system holds an orbital body.
+const STUDY_PROBE_SEEDS = [0x51f15e, 0x1111, 0x2222, 0x3333, 0x4444, 0x5555, 0x6666, 0x7777, 0x8888, 0x9999] as const;
+
+// A run dispatched from `s` (the away team aboard) to the first candidate system, over the seed batch, that holds an
+// orbital body; throws when none does (so a probe never passes on an empty fixture).
+function studyRun(s: GameState): Expedition {
+  for (const seed of STUDY_PROBE_SEEDS) {
+    const run = dispatchRun({ ...s, expeditionSeed: seed });
+    if (run.bodies.some((b) => isOrbitalPlanetType(b.planetType))) return run;
+  }
+  throw new Error("wiring: no study probe seed reaches a system with an orbital body");
+}
+
+// A GAS_STUDY_USES use, read through its consumer (ON the use as built, OFF its effect taken away).
+//   classRoll: the orbital bodies of a dispatched study run that carry a giant profile (OFF: the profile taken away).
+function gasStudyUseValue(s: GameState, use: string, on: boolean): number {
+  switch (use) {
+    case "classRoll": {
+      const run = studyRun(readyForRun(s));
+      return on ? run.bodies.filter((b) => isOrbitalPlanetType(b.planetType) && b.giant !== undefined).length : 0;
+    }
+    case "studyReward": {
+      // The whole study run (OFF: its stamp taken away, a run dispatched before GG-2) until every body is scanned and
+      // every study is done; the canisters its "study" findings carry.
+      const dispatched = studyRun(readyForRun(s));
+      const { study: _stamp, ...unstamped } = dispatched;
+      let run: Expedition = on ? dispatched : unstamped;
+      const settled = (r: Expedition): boolean => r.bodies.every((b) => b.scanned) && (r.groundOps?.studyLegs ?? []).every((l) => l.done);
+      for (let t = run.phaseAnchorSeconds + 3600; t < run.phaseAnchorSeconds + 4_000_000 && !settled(run); t += 3600) run = advanceExpedition(run, t);
+      let n = 0;
+      for (const f of run.findings) if (f.source === "study") for (const id of GAS_CANISTER_IDS) n += f.materials?.[id] ?? 0;
+      return n;
+    }
+    case "probeDive": {
+      // A reference Galileo (20 points at the variety's ratios) on the Science member vs none: the study's canister
+      // haul scale (the dive x the tier haul), x100.
+      const ready = readyForRun(s);
+      const run = studyRun(on ? wearPiece(ready, WIRING_SCIENCE_ID, "memberTool", GALILEO_VARIETY, { groundFieldwork: 12, groundHazardResist: 6, groundRelicFind: 2 }) : ready);
+      const i = run.bodies.findIndex((b) => isOrbitalPlanetType(b.planetType));
+      return 100 * studyCanisterScale(run, i);
+    }
+    default:
+      return 0;
+  }
+}
+
+// A synthetic study run of one giant of `classId` at `seed` (the reward roll reads the profile, the region and the
+// roster; no probe aboard).
+function syntheticStudy(classId: GiantClassId, seed: number): Parameters<typeof rollStudyReward>[0] {
+  const def = GIANT_CLASSES.find((c) => c.id === classId)!;
+  return {
+    id: "wiring-study",
+    seed,
+    systemName: "LB-0001",
+    region: { version: 1, tier: 1, enemyTerritory: false, bearing: 0, distanceLy: 10 },
+    roster: { security: [], science: [] },
+    bodies: [{ ...syntheticBody("gasGiant", 0.1), scanned: true, giant: { classId, massMilliJ: giantMassAt(def, Math.floor(GIANT_MASS_STEPS / 2)) } }],
+  };
+}
+
+// The canisters of `pick` over a batch of studies of `classId`, the reward rolled with `classes`.
+function studyBatchCount(classId: GiantClassId, classes: readonly GiantClassDef[], pick: (id: string) => boolean): number {
+  let n = 0;
+  for (let seed = 1; seed <= 300; seed += 1) {
+    const mats = rollStudyReward(syntheticStudy(classId, seed * 0x9e3779b1), 0, 0, classes).materials ?? {};
+    for (const [id, q] of Object.entries(mats)) if (pick(id) && (GAS_CANISTER_IDS as readonly string[]).includes(id)) n += q;
+  }
+  return n;
+}
+
+// A GIANT_CLASSES field, read through its consumer.
+//   weight: how often the class roll picks the class over a body batch (OFF: its weight zeroed);
+//   massMinMilliJ / massMaxMilliJ: the mass roll's first / last step (equals the band's end).
+function giantClassFieldValue(classId: GiantClassId, field: string, on: boolean): number {
+  const def = GIANT_CLASSES.find((c) => c.id === classId)!;
+  switch (field) {
+    case "weight": {
+      const classes = on ? GIANT_CLASSES : GIANT_CLASSES.map((c) => (c.id === classId ? { ...c, weight: 0 } : c));
+      let n = 0;
+      for (let seed = 1; seed <= 200; seed += 1) for (let i = 0; i < 3; i += 1) if (rollGiantProfile(seed * 0x9e3779b1, i, 3, classes).classId === classId) n += 1;
+      return n;
+    }
+    case "massMinMilliJ":
+      return giantMassAt(def, 0);
+    case "massMaxMilliJ":
+      return giantMassAt(def, GIANT_MASS_STEPS - 1);
+    case "radiusModel":
+    case "inflation": {
+      const off = field === "radiusModel" ? { ...def, radiusModel: "giant" as const } : { ...def, inflation: 1 };
+      const profile = { classId, massMilliJ: giantMassAt(def, Math.floor(GIANT_MASS_STEPS / 2)) };
+      return 1000 * giantDepthFactor(profile, on ? GIANT_CLASSES : GIANT_CLASSES.map((c) => (c.id === classId ? off : c)));
+    }
+    case "bandOdds": {
+      const flat = { standard: 100, augmented: 0, stellar: 0, radiant: 0 };
+      const classes = on ? GIANT_CLASSES : GIANT_CLASSES.map((c) => (c.id === classId ? { ...c, bandOdds: flat } : c));
+      return studyBatchCount(classId, classes, (id) => ITEMS[id]?.band !== "standard");
+    }
+    case "itemWeights": {
+      const standard = canistersInBand("standard");
+      const heaviest = standard.reduce((a, b) => (def.itemWeights[b] > def.itemWeights[a] ? b : a), standard[0]);
+      const even = Object.fromEntries(GAS_CANISTER_IDS.map((id) => [id, 1])) as GiantClassDef["itemWeights"];
+      const classes = on ? GIANT_CLASSES : GIANT_CLASSES.map((c) => (c.id === classId ? { ...c, itemWeights: even } : c));
+      return studyBatchCount(classId, classes, (id) => id === heaviest);
+    }
+    default:
+      return 0;
+  }
+}
+
 // == missions ==
 
 // Run one whole mission cycle from dispatch with every draw common (economyTick).
@@ -1917,6 +2116,8 @@ function readContent(id: string, s: GameState): number {
       const escort = () => (a === "attack" ? [] : [makeSquadron("attack", undefined, 0, "p-d1")]);
       return duelScore(() => [], () => (on ? [makeSquadron(a as DroneRole, undefined, 0, "p-d0"), ...escort()] : escort()), true);
     }
+    case "relic":
+      return relicContentProbe(a, on, s);
     case "pirate": {
       const e = generateEnemyWave(1, { hullPool: [a as PirateHullId], enemyCountMin: 1, enemyCountMax: 1, idPrefix: "wiring" })[0];
       return b === "shieldCapacity"
@@ -1963,6 +2164,12 @@ function readContent(id: string, s: GameState): number {
       return planetTypeHazard(a);
     case "planetBias":
       return planetFinds(s, a as ExpeditionPlanetType, b as "landmark" | "underground", on);
+    case "orbitalOnly":
+      return orbitalObjectives(s, a as ExpeditionPlanetType, on);
+    case "gasStudy":
+      return gasStudyUseValue(s, a, on);
+    case "giantClass":
+      return giantClassFieldValue(a as GiantClassId, b, on);
     case "lootPool": {
       // One salvage of the material: the item it gave is one of the pool's configured drops.
       const held = holding(s, a, new Decimal(1));

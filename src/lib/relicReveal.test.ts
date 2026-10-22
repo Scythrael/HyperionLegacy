@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import { freshState, generalMuseumRecord, withGeneralMuseumRecord, type CompletionLogEntry, type GameState, type RelicVaultToken, type RelicSetId } from "./game/model";
 import { RELIC_SETS, getRelicById } from "./game/relics";
 import { startRelicStudy, resolveProcesses, identifyStudiedRelic } from "./game/tick";
+import { startV1RelicStudy } from "./game/relicStudyV1.fixture";
 import { buildRelicReveal, pickRelicStudyRecord, unseenRelicStudyRecords } from "./relicReveal";
 
 // Exploration 0.14.0 (E4c): the identification-reveal OBSERVER's decision surface. App.svelte watches a
@@ -89,10 +90,10 @@ describe("buildRelicReveal", () => {
     expect(buildRelicReveal(freshState(), record("done-1", null), false, null)).toBeNull();
   });
 
-  it("end to end: a real study's completion record is the one the observer picks, and it names the museum copy", () => {
+  it("end to end (a v1 study): a real study's completion record is the one the observer picks, and it names the museum copy", () => {
     const s: GameState = { ...freshState(), relicVault: [token("t1", "xenobiology", "stellar")] };
     const seen = new Set((s.completionLog ?? []).map((e) => e.id));
-    const started = startRelicStudy(s, "t1");
+    const started = startV1RelicStudy(s, "t1");
     expect(started.started).toBe(true);
     const proc = started.next.activeProcesses.find((p) => p.kind === "relicStudy")!;
     const after = resolveProcesses(started.next, proc.remainingTicks, () => 0).next;
@@ -105,5 +106,24 @@ describe("buildRelicReveal", () => {
     expect(reveal.copyNumber).toBe(1);
     expect(reveal.firstFind).toBe(true);
     expect(after.relicDiscovered).toContain(reveal.relicId);
+  });
+
+  // Relics v2 R2-3: a NEW study is a v2 study; the observer's hint passes its `v`, and the record names the Tier I
+  // general type that landed (the reveal card for other tiers and exceptional pieces is R2-7's UI).
+  it("end to end (a v2 study): the record the observer picks names the general type that landed", () => {
+    const s: GameState = { ...freshState(), relicVault: [token("t1", "xenobiology", "stellar")] };
+    const seen = new Set((s.completionLog ?? []).map((e) => e.id));
+    const started = startRelicStudy(s, "t1");
+    expect(started.started).toBe(true);
+    const proc = started.next.activeProcesses.find((p) => p.kind === "relicStudy")!;
+    const effect = proc.effect.type === "identifyRelic" ? proc.effect : null;
+    expect(effect?.v).toBe(2);
+    const expected = identifyStudiedRelic(started.next, effect!.token, effect!.studyIndex, effect!.v);
+    const after = resolveProcesses(started.next, proc.remainingTicks, () => 0).next;
+    const rec = pickRelicStudyRecord(unseenRelicStudyRecords(after.completionLog, seen), expected)!;
+    expect(rec.subjectKey).toBe(expected);
+    const reveal = buildRelicReveal(after, rec, true, "stellar")!;
+    expect(reveal.relicId).toBe(expected);
+    expect(generalMuseumRecord(after)[reveal.relicId]).toBe(1);
   });
 });

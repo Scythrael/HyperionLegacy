@@ -109,13 +109,13 @@ export const MUSEUM_CAPSTONE_MAGNITUDE = 2;
 // FIRST-PASS TUNABLE relic study (identification) constants
 // ============================================================================
 
-// Concurrent relic studies the Research facility runs on its OWN lane (separate from blueprint research,
-// so studying never blocks a research project). 1 lane first-pass; TUNABLE (a later Research rung could
-// add lanes the way addResearchSlots does).
-export const RELIC_STUDY_LANES = 1;
+// Concurrent relic studies: Relics v2 R2-3 replaced the single first-pass lane with lanes by Research Lab level
+// (relicIdentify.ts RELIC_STUDY_LANES_BY_LAB, user call 12: Lab I 1, III 2, V 3, VII 4), still separate from
+// blueprint research so studying never blocks a research project.
 
 // The base study duration (ticks; 1 tick == 1 second at the default cadence), scaled by the token's
-// rarity tier: a rarer relic takes longer to read. TUNABLE.
+// rarity tier: a rarer relic takes longer to read (user call 12 "10 minutes x rarity": standard 10 min,
+// augmented 15, stellar 20, radiant 30).
 export const RELIC_STUDY_BASE_TICKS = 600; // ~10 min IRL for a standard relic
 export const RELIC_STUDY_TIER_MULT: Readonly<Record<EquipmentRarity, number>> = {
   derelict: 1,

@@ -266,6 +266,23 @@ study" and no squad needs for it. Registry `orbitalOnly` to live. Tests: no PoI,
 orbital body over 64 seeds and Tiers I to VII; non-orbital bodies byte-identical to GG-0; preview == run; field repair
 never targets an orbital body; run with `study` deleted == GG-0 golden.
 
+**GG-2 carry note (built 2026-10-21, on feat f85ef73).** New engine module `gasGiantStudy.ts`. `Expedition.study: 1` is
+stamped ONLY on a system holding an orbital-only body (studyStampFor), so every other dispatch record is byte-identical;
+each orbital body freezes `ExpeditionBody.giant` (rollGiantProfile on GIANT_PROFILE_SALT: draw 1 class, draw 2 mass,
+log-uniform over GIANT_MASS_STEPS integer steps). On a stamped run `assignDiscoveriesAndActivities` gives an orbital body
+nothing (no PoI, site, clearing or sensor ghost find); `scanStepRoll` drops its supply cache (draw 2 kept; draw 1, the
+ship event, unchanged). `bodyRiskGrades` never places a hostile site or clearing objective on an orbital body (all seven
+draws kept; previews and new dispatches only, a run in flight keeps its stored grades). Previews: `SystemTaskPreview.
+studies`, `TaskDemand.shipStudies` (text "1 ship study, no squad needed"), `LaunchForecast.studies`, each written only
+when present. Registry: PLANET_TYPES gasGiant:orbitalOnly, GAS_STUDY_USES classRoll and the classes' weight / mass band
+fields live with probes. Kept, not retired (deviation, for in-flight identity): gasGiant stays in the PoI planetWeights
+and `MATERIAL_BY_PLANET_TYPE.gasGiant` stays, read only by a run dispatched before GG-2. [PROVISIONAL] GIANT_ZONE_LEAN
+(inner x3 hot / x2 warm, outer x2 cold; middle = the approved weights). Goldens: the pre-GG-2/GG-3 sweep (42 systems,
+Tiers I to VII) holds; strip helpers gained withoutStudy (asPreFieldKitsDispatch composes it, so every pre-GG-2 run
+golden holds); the gas giant candidate's previews moved on purpose (G2-0 display:candidates / display:launch, G2-1
+candidates, SF-0 first:launch, GG-0 golden 1's first three, WR-5c surveySensors4 / 5 cands), each named at its pin.
+For GG-6: `scanTrackDisplay.ts` still lists a gas giant's possible ground finds from poisForPlanetType (display).
+
 ### GG-3: The study leg and its reward (engine)
 
 The study leg starts when its body's scan completes (the ship holds orbit), lasts `STUDY_BASE_SECONDS` **[PROPOSAL
@@ -277,6 +294,40 @@ Galileo among deployed Science members, frozen at dispatch (one probe per dive) 
 study legs (`checkRunEnd`). Exposes `studyDiveEvents(exp)` for the wear build. Tests: reward determinism, odds within
 tolerance over 2,000 studies per class, probe on the D23 curve (never capped, monotone), no probe still pays, safe
 first runs still cannot be lost, pickups wait for the leg, parity (one call == 997 s == 1 s).
+
+**GG-3 carry note (built 2026-10-21, on GG-2).** `GroundOpsState.studyLegs` (GroundStudyLeg): groundOpsBodyScanned
+schedules one per orbital body of a study run at its scan completion (or when the ship is free); it joins
+shipLegsInOrder, so the scan clock pauses for it (scanBodyIndex = the next body, null after the last), a recovery or
+repair leg queues behind it, and checkRunEnd waits for it. Its end is a window event (after a repair's, before a scan
+event or a team step at the same instant): `rollStudyReward` pushes one `"study"` finding. An ordinary return that
+would dock inside a study stored when it began docks at the study's end (studyPickupAt); a return begun before the
+study was stored docks on time (deviation from the v3 timeline sample, where the Strike team also waits through the
+next giant's SCAN: only a study holds the ship). Length `studySeconds` = 1800 / fieldworkSpeedMult on the body, floor 60.
+Reward draw order on GAS_STUDY_SALT: data 400, family (uniform over 8), readout 150, fragment, base 4..8, per-mille
+chance rounding of base x (1 + dive) x tierHaulMult, then band and gas per canister. Probe: `studyProbe` = the best
+`atmoProbe` on the frozen Science roster (hazard line, then relic line); ratings against GALILEO_REFERENCE_LINES.
+Claim: `survey` readouts append to `GameState.surveyLog`. GAS_STUDY_SOURCE_PENDING is now empty (every study item has a
+source). groundOpsProgress counts each study at weight 1. Readers for GG-6: `groundShipPosition` kind "study",
+`studyCanisterRange` (the "8 to 17 canisters" line), `studySeconds`, `studyProbe`, `giantDepthFactor`,
+`ancientFragmentPermille`; shipNowText got a minimal "Holding orbit: studying ..." line (the study lane is GG-6).
+Seam: `studyDiveEvents` (registry `away:GAS_STUDY_SEAM:probeDiveWear`, owner gear wear step 3). Registry live:
+GAS_STUDY_USES studyReward / probeDive and the classes' radiusModel / inflation / bandOdds / itemWeights (probes in
+wiring/probes.ts). [PROVISIONAL]: GALILEO_REFERENCE_LINES (iLevel 10 Standard q0: hazard 0.06, relic 0.02),
+ANCIENT_FRAGMENT_BASE_PERMILLE 12 / ANCIENT_PROBE_LIFT 2.5 / ANCIENT_PROBE_KNEE 2 (about 1.5% from orbit at Tier II, 4%
+with the reference probe; the tier lift reuses TIER_HAUL_MULT). [PROPOSAL] from the plan, kept: STUDY_MIN_SECONDS 60,
+canisters 4 to 8, dive 0.5 x depth x rating at knee 2, one probe per dive, a uniform data family.
+
+**GG-2 / GG-3 merge note (2026-10-21, onto feat with G2-4 / G2-5, R2-2, R2-3, SF-4).** Review fix: a recall
+(G2-5) during a study left the giant unstudied for good on the resumed trip, and a giant studied on the first trip
+read 0 in the resumed run's progress. Now a held body carries `studied` (resume record only, expedition.ts
+heldBodies) when its study finished; `openResumedGroundOps` studies every charted giant without it from the window's
+opening; `groundOpsProgress` counts a `studied` giant whole; and a system whose only unfinished work is a study stays
+resumable (systemUnfinished). Tests: gasGiantStudyResume.test.ts (parity included). Goldens: every GG pin reproduces
+(the captures go through dispatchPastPropulsion and asPreRelicBlanksDispatch); moved at the merge, named at their pins:
+propulsionRecallGoldens Tier VI dispatch and relicsV2BlanksGoldens Tier VII seed 11 (a gas giant whose risk grades held
+a hostile site or a clearing objective, which GG-2 drops and no strip can rebuild). Kept as built (for the user): a
+pickup waits only while the ship is on a study; the v3 mockup also showed the Strike team waiting through the next
+giant's scan, and a return that began before a study was stored docks on time.
 
 ### GG-4: Nebulae (engine)
 

@@ -581,6 +581,17 @@
   } from "./lib/game/personnelRosters";
   // CP-6: the one crew lock (the accurate lock words, and the complement mode toggle's engine fn).
   import { canSetComplementMode, complementModeBlockText, crewLockText, crewLockTextAmong, setComplementMode } from "./lib/game/crewLock";
+  // S1 / S2 (user 2026-10-17, both "Lock it"): the gear lock and the captain lock read the same crew lock, and these
+  // name the real reason (a mission, a patrol, a short-range run, or an expedition until it is claimed).
+  import {
+    captainMoveLock,
+    captainMoveLockText,
+    captainShipLocked,
+    crewLockReason,
+    shipCrewLocked,
+    shipGearLockHint,
+    shipGearLockReasonText,
+  } from "./lib/game/crewLock";
   // Quartermaster 0.13.3.1: the free Standard-Issue counter. REQUISITION_ENTRIES is the
   // DERIVED row list (built from the total REQUISITION_CATALOGUE Record over
   // EquipmentSlotType), so this console renders whatever slots have a Standard-Issue floor
@@ -713,6 +724,9 @@
   } from "./lib/game/shipRoster";
   import { threatAssessment, type ThreatAssessment } from "./lib/game/combat/threatAssessment";
   import { resolvePatrolWaves } from "./lib/game/combat/patrolReplay";
+  // Safe first runs SF-4: the difficulty a patrol dispatched now flies (the save's one safe patrol, or the curve), so
+  // the Threat Assessment forecasts the fight the dispatch will actually write.
+  import { patrolDifficultyAt } from "./lib/game/runDifficulty";
   // salvageShip(state, shipId) breaks down a whole HULL from the Ships roster for a
   // fraction of its build cost. Its SUCCESS branch carries a { next, recovered,
   // creditsRecovered } shape (SalvageShipResult, credits are unique to the ship path);
@@ -4417,7 +4431,10 @@
     // this digest busts the stale cache.
     const gearIds = installedGear.map((g) => g.id).join(",");
     const conditionDigest = installedGear.map((g) => pieceCondition(g)).join(",");
-    const signature = `${patrolKey}::${ship.id}::${stance}::${gearIds}::${conditionDigest}`;
+    // SF-4: the difficulty a dispatch would stamp now (absent at full strength), part of the key so the band moves
+    // when the safe patrol is spent or the curve climbs.
+    const difficulty = patrolDifficultyAt(state);
+    const signature = `${patrolKey}::${ship.id}::${stance}::${gearIds}::${conditionDigest}::${JSON.stringify(difficulty ?? null)}`;
     const cached = patrolForecastCache.get(patrolKey);
     if (cached && cached.signature === signature) return cached.value;
 
@@ -4483,6 +4500,7 @@
         startShield: startDefense.shieldMax,
         startDrones,
         startSystemDurability,
+        difficulty,
       });
       // A full-patrol WIN = survived every scheduled wave (never limped home defeated).
       if (!result.defeated) wins += 1;
@@ -5103,7 +5121,7 @@
       case "noShip":
         return "ship no longer exists";
       case "onMission":
-        return "captain is on a mission (install locked)";
+        return shipGearLockReasonText(refusal.lock);
       case "hullSpec":
         return "wrong hull type for this piece";
       case "captainSpec":
@@ -5291,6 +5309,12 @@
   // RE-INSTALLABLE spare and the slot is left empty. Nothing is destroyed or minted, so a
   // uninstalled system is never lost (the install picker re-offers it). Persists the change.
   function uninstallSystem(shipId: string, instanceId: string) {
+    // S2: a ship that is out keeps its gear; say why in the player's words (the engine throws a bare token).
+    const gearLock = crewLockReason(state, shipId);
+    if (gearLock !== null) {
+      pushLog(`Cannot uninstall system: ${shipGearLockReasonText(gearLock)}.`);
+      return;
+    }
     try {
       const name = systemNameById(instanceId);
       state = unfitEquipmentInstance(state, shipId, instanceId);
@@ -5882,6 +5906,7 @@
   type WatchedRelicStudy = {
     token: RelicVaultToken | null;
     studyIndex: number | null;
+    v: number | undefined; // Relics v2 R2-3: the study's version stamp (2 = identification v2), for the hint below
     discoveredAtStart: Set<string>;
     seenRecordIds: Set<string>;
   };
@@ -5896,6 +5921,7 @@
       watchedRelicStudies.set(p.id, {
         token: p.effect.type === "identifyRelic" ? p.effect.token : null,
         studyIndex: p.effect.type === "identifyRelic" ? p.effect.studyIndex : null,
+        v: p.effect.type === "identifyRelic" ? p.effect.v : undefined,
         discoveredAtStart: new Set(state.relicDiscovered ?? []),
         seenRecordIds: new Set(log.filter((e) => e.kind === "relicStudy").map((e) => e.id)),
       });
@@ -5907,7 +5933,7 @@
       watchedRelicStudies.delete(id);
       const unseen = unseenRelicStudyRecords(log, watched.seenRecordIds).filter((e) => !claimed.has(e.id));
       const expected =
-        watched.token !== null && watched.studyIndex !== null ? identifyStudiedRelic(state, watched.token, watched.studyIndex) : null;
+        watched.token !== null && watched.studyIndex !== null ? identifyStudiedRelic(state, watched.token, watched.studyIndex, watched.v) : null;
       const record = pickRelicStudyRecord(unseen, expected);
       if (record === null || record.subjectKey === null) continue;
       claimed.add(record.id);
@@ -7390,7 +7416,7 @@
     return loadoutInstallCandidates(state, slot.slotType);
   })();
   // Ships this loadout can check out to: matching type + no loadout already checked out to them.
-  // (On-mission ships are still listed; checkOutLoadout refuses and the handler explains why.)
+  // (Ships that are out are still listed; S2: checkOutLoadout refuses and the caution line names why.)
   $: armoryCheckoutShips = selectedLoadout === null ? [] : state.ships.filter(
     (s) => s.typeKey === selectedLoadout!.shipTypeKey && !state.loadouts.some((l) => l.checkedOutToShipId === s.id)
   );
@@ -7415,6 +7441,8 @@
   }
   // E-MOD EM-2: the power the picked check-out still needs (0 = the power gate lets it through). Shown under the
   // dropdown as the refusal reason before the player taps Check out.
+  // S2: why the picked ship's gear is locked (it is out), or null when it is home.
+  $: armoryCheckoutLock = armoryCheckoutSelId === null ? null : crewLockReason(state, armoryCheckoutSelId);
   $: armoryCheckoutPowerShort =
     selectedLoadout !== null && armoryCheckoutSelId !== null
       ? loadoutCheckOutPowerShortfall(state, selectedLoadout.id, armoryCheckoutSelId)
@@ -7531,11 +7559,14 @@
     if (selectedLoadoutId === null) return;
     const next = checkOutLoadout(state, selectedLoadoutId, shipId);
     if (next === state) {
-      // E-MOD EM-2: name the power refusal; every other refusal keeps its old line.
+      // E-MOD EM-2: name the power refusal; S2: name the gear lock (the ship is out); else the old line.
       const short = loadoutCheckOutPowerShortfall(state, selectedLoadoutId, shipId);
+      const gearLock = crewLockReason(state, shipId);
       pushLog(short > 0
         ? `Cannot check that loadout out: it ${overPowerReasonText(short)}.`
-        : "Cannot check that loadout out to that ship right now (wrong type, already equipped, or on a mission).");
+        : gearLock !== null
+          ? `Cannot check that loadout out: ${shipGearLockReasonText(gearLock)}.`
+          : "Cannot check that loadout out to that ship right now (wrong type, or already equipped).");
       return;
     }
     state = next;
@@ -7543,7 +7574,13 @@
   }
   function doArmoryCheckIn(id: string) {
     const next = checkInLoadout(state, id);
-    if (next === state) { pushLog("Cannot check that loadout in while its ship is on a mission."); return; }
+    if (next === state) {
+      // S2: the worn ship is out (or gone): name the real reason.
+      const shipId = state.loadouts.find((l) => l.id === id)?.checkedOutToShipId ?? null;
+      const gearLock = shipId === null ? null : crewLockReason(state, shipId);
+      pushLog(gearLock !== null ? `Cannot check that loadout in: ${shipGearLockReasonText(gearLock)}.` : "Cannot check that loadout in right now.");
+      return;
+    }
     state = next;
     doSave();
   }
@@ -9358,7 +9395,12 @@
     const captain = state.captains.find((c) => c.id === captainId);
     const ship = state.ships.find((s) => s.id === shipId);
     const { next, success } = assignShipToCaptain(state, captainId, shipId);
-    if (!success) return;
+    if (!success) {
+      // S1: name the crew lock when it is the cause (the other refusals are filtered out of the pickers).
+      const lock = captainMoveLock(state, captainId, shipId);
+      if (lock !== null) pushLog(`Cannot move that captain: ${captainMoveLockText(lock.reason)}.`);
+      return;
+    }
     state = next;
     if (captain && ship) {
       pushLog(`[${captain.label}] Now flying: ${shipDisplayLabel(state, ship)}.`);
@@ -15286,14 +15328,20 @@
                 <!-- Check-out / check-in -->
                 {#if lockedOut}
                   {@const coShip = state.ships.find((s) => s.id === selectedLoadout.checkedOutToShipId)}
+                  {@const coLock = coShip ? crewLockReason(state, coShip.id) : null}
                   <!-- Checked-out state (user polish 2026-09-18): a small "In Use: {ship}" on the left,
                        the Check in button pushed right so it sits beneath the BR pill, and the
                        edit-locked hint in a small yellow caution box. -->
                   <div class="armory-locked-row">
                     <span class="armory-inuse">In Use: {coShip ? fleetShipLabels.get(coShip.id) ?? shipBaseLabel(coShip) : "a ship"}</span>
-                    <button class="buy-btn" on:click={() => doArmoryCheckIn(selectedLoadout.id)}>Check in</button>
+                    <!-- S2: a loadout worn by a ship that is out stays on it until the ship is home. -->
+                    <button class="buy-btn" disabled={coLock !== null} title={coLock === null ? undefined : shipGearLockHint(coLock)} on:click={() => doArmoryCheckIn(selectedLoadout.id)}>Check in</button>
                   </div>
-                  <div class="armory-caution">Check in to edit this loadout.</div>
+                  {#if coLock !== null}
+                    <div class="armory-caution" role="status"><Icon name="lock" /> {shipGearLockHint(coLock)}.</div>
+                  {:else}
+                    <div class="armory-caution">Check in to edit this loadout.</div>
+                  {/if}
                 {:else}
                   <!-- Available state (user 2026-09-18): pick an eligible ship from a dropdown, then a
                        Check out button to its right (instead of one button per ship). Delete stays at
@@ -15309,12 +15357,15 @@
                           <option value={s.id}>{armoryCheckoutOptionLabel(state, fleetShipLabels, s)}</option>
                         {/each}
                       </select>
-                      <button class="buy-btn" style="flex:none; white-space:nowrap;" disabled={armoryCheckoutPowerShort > 0} title={armoryCheckoutPowerShort > 0 ? `This loadout ${overPowerReasonText(armoryCheckoutPowerShort)}` : undefined} on:click={() => { if (armoryCheckoutSelId !== null) doArmoryCheckOut(armoryCheckoutSelId); }}>Check out</button>
+                      <button class="buy-btn" style="flex:none; white-space:nowrap;" disabled={armoryCheckoutPowerShort > 0 || armoryCheckoutLock !== null} title={armoryCheckoutLock !== null ? shipGearLockHint(armoryCheckoutLock) : armoryCheckoutPowerShort > 0 ? `This loadout ${overPowerReasonText(armoryCheckoutPowerShort)}` : undefined} on:click={() => { if (armoryCheckoutSelId !== null) doArmoryCheckOut(armoryCheckoutSelId); }}>Check out</button>
                     {/if}
                     <button class="buy-btn" style="flex:none; white-space:nowrap;" on:click={() => (loadoutDeletePending = selectedLoadout.id)}>Delete loadout</button>
                   </div>
                   <!-- E-MOD EM-2: the power refusal, named before the tap (the mockup's refusal wording). -->
-                  {#if armoryCheckoutShips.length > 0 && armoryCheckoutPowerShort > 0}
+                  {#if armoryCheckoutShips.length > 0 && armoryCheckoutLock !== null}
+                    <!-- S2: the picked ship is out, so its gear is locked until it is home. -->
+                    <div class="armory-caution" role="status"><Icon name="lock" /> Can't check out to that ship: {shipGearLockReasonText(armoryCheckoutLock)}.</div>
+                  {:else if armoryCheckoutShips.length > 0 && armoryCheckoutPowerShort > 0}
                     <div class="armory-caution" role="alert">Can't check out to that ship: this loadout {overPowerReasonText(armoryCheckoutPowerShort)}.</div>
                   {/if}
                 {/if}
@@ -16202,9 +16253,12 @@
         {@const assignedCaptain = ship.assignedCaptainId === null
           ? null
           : state.captains.find((c) => c.id === ship.assignedCaptainId) ?? null}
-        {@const onMission = assignedCaptain !== null && assignedCaptain.mission !== null}
-        {@const parkedShips = state.ships.filter((s) => s.assignedCaptainId === null)}
-        {@const idleCaptains = state.captains.filter((c) => c.mission === null)}
+        <!-- S1 (user 2026-10-17 "Lock it"): no captain moves onto or off a ship that is out (the one crew lock: a
+             mission, a patrol, a short-range run, or an expedition until it is claimed). shipLock names why; the
+             pickers list only the captains and parked ships a move could really use. -->
+        {@const shipLock = crewLockReason(state, ship.id)}
+        {@const parkedShips = state.ships.filter((s) => s.assignedCaptainId === null && !shipCrewLocked(state, s.id))}
+        {@const idleCaptains = state.captains.filter((c) => c.mission === null && !captainShipLocked(state, c.id))}
         <!-- CP-6: the engine's salvage lock (a captain mission, or an expedition until it is claimed). -->
         {@const salvageLock = salvageShipLockReason(state, ship.id)}
         <!-- 0.13.3 Unit 0.1: the captain this board will return to, or null when the player
@@ -16271,14 +16325,14 @@
           {#if assignedCaptain === null}
             <button
               class="dev-btn"
-              disabled={idleCaptains.length === 0}
-              title={idleCaptains.length === 0 ? "No idle captain, recall one first" : undefined}
+              disabled={idleCaptains.length === 0 || shipLock !== null}
+              title={shipLock !== null ? captainMoveLockText(shipLock) : idleCaptains.length === 0 ? "No idle captain, recall one first" : undefined}
               on:click={() => openAssignPicker(ship.id)}
             >
               Assign Captain
             </button>
-          {:else if onMission}
-            <button class="dev-btn" disabled title="On a mission, recall first">
+          {:else if shipLock !== null}
+            <button class="dev-btn" disabled title={captainMoveLockText(shipLock)}>
               Assign Captain
             </button>
           {:else}
@@ -16972,14 +17026,16 @@
                same recall-first lock the Docks Swap uses) and the Ship Systems ↗
                loadout nav (unchanged navigate-to-loadout, disabled with no hull). -->
           {@const shipTabShip = state.ships.find((s) => s.assignedCaptainId === activeCaptain.id) ?? null}
+          <!-- S1: the captain's ship is out (a mission, a patrol, a short-range run, or an expedition until claimed). -->
+          {@const shipTabLock = shipTabShip === null ? null : crewLockReason(state, shipTabShip.id)}
           <Panel>
             <div class="panel-title">SHIP</div>
             <div class="research-cost">Assigned: {shipTabShip === null ? "No ship assigned" : shipTabShip.name ? `${shipDisplayLabel(state, shipTabShip)} · ${SHIP_TYPES[shipTabShip.typeKey]?.label ?? shipTabShip.typeKey}` : shipDisplayLabel(state, shipTabShip)}</div>
             <div class="dev-row" style="margin-top: 10px;">
               <button
                 class="dev-btn"
-                disabled={activeCaptain.mission !== null}
-                title={activeCaptain.mission !== null ? "On a mission, recall first" : undefined}
+                disabled={activeCaptain.mission !== null || shipTabLock !== null}
+                title={shipTabLock !== null ? captainMoveLockText(shipTabLock) : activeCaptain.mission !== null ? "On a mission, recall first" : undefined}
                 on:click={() => openSwapPicker(activeCaptain.id)}
               >
                 Swap ship
@@ -19556,7 +19612,7 @@
           {#each state.ships as ship (ship.id)}
             {@const shipDef = SHIP_TYPES[ship.typeKey]}
             {@const assignedCaptain = ship.assignedCaptainId !== null ? state.captains.find((c) => c.id === ship.assignedCaptainId) ?? null : null}
-            {@const onMission = assignedCaptain !== null && assignedCaptain.mission !== null}
+            {@const devGearLock = crewLockReason(state, ship.id)}
             {@const baseStats = shipDerivedStats(ship, [])}
             {@const fitStats = shipDerivedStats(ship, equippedFor(state, ship.id))}
             {@const statRows = [
@@ -19575,7 +19631,7 @@
                 <span class="dev-readout-text">
                   {shipDef?.label ?? ship.typeKey} ({ship.id}) ·
                   {assignedCaptain ? assignedCaptain.label : "parked"}
-                  {#if onMission}· ON MISSION (install locked){/if}
+                  {#if devGearLock !== null}· {shipGearLockReasonText(devGearLock).toUpperCase()}{/if}
                 </span>
               </div>
 
@@ -20087,7 +20143,8 @@
          only reach this modal with at least one idle captain), but it's kept in
          case a captain got dispatched between opening and rendering. -->
     {@const pickerShip = state.ships.find((s) => s.id === assignPickerShipId) ?? null}
-    {@const idleCaptains = state.captains.filter((c) => c.mission === null)}
+    <!-- S1: a captain whose ship is out cannot leave it. -->
+    {@const idleCaptains = state.captains.filter((c) => c.mission === null && !captainShipLocked(state, c.id))}
     <ActionModal title={`Assign hull${pickerShip ? ` · ${shipDisplayLabel(state, pickerShip)}` : ""}`} ariaLabel="Assign hull to captain" onClose={closeShipPickers}>
         <p class="modal-instruction">Assign this hull to a captain. Their current ship parks.</p>
         {#if idleCaptains.length === 0}
@@ -20121,7 +20178,8 @@
          captain's current hull parks and P becomes assigned. Same modal idiom as
          the Assign picker above, just listing ships. -->
     {@const swapCaptain = state.captains.find((c) => c.id === swapPickerCaptainId) ?? null}
-    {@const parkedShips = state.ships.filter((s) => s.assignedCaptainId === null)}
+    <!-- S1: a parked ship that is out (an expedition from before S1) takes no captain until it is claimed. -->
+    {@const parkedShips = state.ships.filter((s) => s.assignedCaptainId === null && !shipCrewLocked(state, s.id))}
     <ActionModal title={`Swap hull${swapCaptain ? ` · ${swapCaptain.label}` : ""}`} ariaLabel="Swap hull for captain" onClose={closeShipPickers}>
         <p class="modal-instruction">Choose a parked ship for this captain. Their current hull parks.</p>
         {#if parkedShips.length === 0}

@@ -26,10 +26,11 @@ import { SHIP_TYPES, startAutoSalvageGrace, isSparePiece, isUninstalledPiece, me
 // be committed to a loadout, mirroring canFitEquipment. reservation.ts imports only model/inventory,
 // so no cycle.
 import { salvageReservedInstanceIds } from "./reservation";
-// The SHARED on-mission lock (equipment.ts): a ship whose captain is on an active mission cannot have
-// its fitment changed. Checkout / check-in reuse it so a loadout can never be swapped mid-mission (the
-// user's balance-loophole guard). One-way import (equipment.ts does not import armory.ts), no cycle.
-import { onMissionLock, pieceEquipRequirement } from "./equipment";
+// The SHARED gear lock (equipment.ts shipGearLock, S2 "Lock it", user 2026-10-17): a ship that is out (a mission,
+// a patrol, a short-range run, or an expedition until it is claimed) cannot have its gear changed. Checkout /
+// check-in reuse it so a loadout can never be swapped while the ship is out (the user's balance-loophole guard).
+// One-way import (equipment.ts does not import armory.ts), no cycle.
+import { pieceEquipRequirement, shipGearLock } from "./equipment";
 // E-MOD EM-2: the power install gate, read on the ship as the check-out would leave it.
 import { installPowerShortfallBetween } from "./shipPower";
 // Ground team loadouts (GO-17): the crew lock, the slot reader, the member wear rules. None of these modules
@@ -285,7 +286,8 @@ export function uninstallFromLoadout(state: GameState, loadoutId: string, slotKe
 // Check a loadout OUT to a ship: the ship flies that set, and its own install screen locks (edit the
 // loadout in the Armory instead). Refused (same-ref no-op) unless: the loadout + ship exist; the
 // loadout is pinned to the ship's type; the loadout is not already checked out; the ship has no OTHER
-// loadout checked out; and the ship is not on a mission (the no-mid-mission-swap guard). On checkout,
+// loadout checked out; and the ship is not out (shipGearLock, S2: a mission, a patrol, a short-range run, or an
+// expedition until it is claimed). On checkout,
 // the ship's prior MANUAL gear (fitted but uncommitted, including Standard-Issue baselines) returns to
 // the spare pool, and the loadout's committed systems become fitted to the ship so equippedFor() reads
 // the loadout's set unchanged. Atomic: all of that lands in the one new state.
@@ -322,7 +324,7 @@ function checkOutTransition(state: GameState, loadoutId: string, shipId: string)
   const ship = state.ships.find((s) => s.id === shipId);
   if (ship === undefined || ship.typeKey !== loadout.shipTypeKey) return state; // type must match the pin
   if (state.loadouts.some((l) => l.checkedOutToShipId === shipId)) return state; // ship already loadout-driven
-  if (!onMissionLock(state, shipId).ok) return state; // no mid-mission swap
+  if (shipGearLock(state, shipId) !== null) return state; // S2: no swap while the ship is out
   const committedIds = new Set(Object.values(loadout.slots).filter((v): v is string => v !== null));
   // E-MOD EM-5 (S2): a set that moves a module on or off the ship waits while the ship is out (an expedition too).
   if (shipCrewLocked(state, shipId) && state.equipment.some((e) => e.slotType === "module" && (committedIds.has(e.id) || e.fittedToShipId === shipId))) return state;
@@ -341,12 +343,12 @@ function checkOutTransition(state: GameState, loadoutId: string, shipId: string)
 
 // Check a loadout back IN (un-equip it from its ship). The ship's slots go empty (uninstall restores
 // nothing, per the allow-empty rule); the loadout's systems stay committed to the loadout, just no
-// longer fitted. Refused while the ship is on a mission. Same-ref no-op if the loadout is missing or
-// already available.
+// longer fitted. Refused while the ship is out (shipGearLock, S2) or gone. Same-ref no-op if the loadout is
+// missing or already available.
 export function checkInLoadout(state: GameState, loadoutId: string): GameState {
   const loadout = state.loadouts.find((l) => l.id === loadoutId);
   if (loadout === undefined || loadout.checkedOutToShipId === null) return state;
-  if (!onMissionLock(state, loadout.checkedOutToShipId).ok) return state; // no mid-mission un-equip
+  if (shipGearLock(state, loadout.checkedOutToShipId) !== null) return state; // S2: no un-equip while the ship is out
   const committedIds = new Set(Object.values(loadout.slots).filter((v): v is string => v !== null));
   // E-MOD EM-5 (S2): a set carrying a module stays aboard while the ship is out (an expedition too).
   if (shipCrewLocked(state, loadout.checkedOutToShipId) && state.equipment.some((e) => e.slotType === "module" && committedIds.has(e.id))) return state;

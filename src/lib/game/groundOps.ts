@@ -55,6 +55,7 @@ import {
   type GroundOpsState,
   type GroundRepairLeg,
   type GroundShipLeg,
+  type GroundStudyLeg,
   type GroundTaskNeeds,
   type GroundTeamKind,
   type GroundStepKind,
@@ -131,11 +132,13 @@ import { rampedChance, runOddsRampOf } from "./runDifficulty";
 // Field Kits FKR-7: the flag (flag 2) and the run plumbing (the per-objective refresh, the fight spends, the bay share).
 import { fieldKitsLive } from "./fieldKits";
 import { freshBasicsFor, refreshObjectiveSupplies, spendFightSupplies } from "./fieldKitsRun";
+// Gas Giant Study GG-3: the ship's study of an orbital body (gasGiantStudy.ts never imports this module).
+import { isStudyBody, rollStudyReward, studySeconds } from "./gasGiantStudy";
 
 // Safe first runs SF-2 (user SF12): the log line of a training run's lost fight whose guards fell back (the backstop).
 export const TRAINING_FELL_BACK_TEXT = "The guards fell back. Training run: no setback.";
 
-export type { GroundOpsFactors, GroundOpsLogEntry, GroundOpsState, GroundRepairLeg, GroundShipLeg, GroundStepKind, GroundStepRecord, GroundTaskNeeds, GroundTeamRun, ShipEventProfile };
+export type { GroundOpsFactors, GroundOpsLogEntry, GroundOpsState, GroundRepairLeg, GroundShipLeg, GroundStepKind, GroundStepRecord, GroundStudyLeg, GroundTaskNeeds, GroundTeamRun, ShipEventProfile };
 
 // What snapshotGroundOps returns; GO-7b wraps it into the stored GroundOpsState.
 export interface GroundOpsSnapshot {
@@ -455,23 +458,27 @@ export function cloneGroundOps(ops: GroundOpsState): GroundOpsState {
 
 // ===== The scan clock (see the header) =====
 
-// Every leg the ship flies (recovery legs, and GO-8b's field repairs), in start order (legs never overlap). The
-// stored recovery list itself when the run has no repair (the same array). Pure.
-export function shipLegsInOrder(ops: Pick<GroundOpsState, "shipLegs" | "repairLegs">): readonly (GroundShipLeg | GroundRepairLeg)[] {
-  const repairs = ops.repairLegs;
-  if (!repairs || repairs.length === 0) return ops.shipLegs;
-  return [...ops.shipLegs, ...repairs].sort((a, b) => a.startsAt - b.startsAt);
+// Every leg the ship flies (recovery legs, GO-8b's field repairs and Gas Giant Study GG-3's studies), in start order
+// (legs never overlap). The stored recovery list itself when the run has neither a repair nor a study (the same
+// array). Pure.
+export type GroundShipAnyLeg = GroundShipLeg | GroundRepairLeg | GroundStudyLeg;
+type LegLists = Pick<GroundOpsState, "shipLegs" | "repairLegs" | "studyLegs">;
+export function shipLegsInOrder(ops: LegLists): readonly GroundShipAnyLeg[] {
+  const repairs = ops.repairLegs ?? [];
+  const studies = ops.studyLegs ?? [];
+  if (repairs.length === 0 && studies.length === 0) return ops.shipLegs;
+  return [...ops.shipLegs, ...repairs, ...studies].sort((a, b) => a.startsAt - b.startsAt);
 }
 
 // When the ship is free of every leg it has been given (the latest leg end), or null when it has none. Pure.
-export function shipFreeAt(ops: Pick<GroundOpsState, "shipLegs" | "repairLegs">): number | null {
+export function shipFreeAt(ops: LegLists): number | null {
   let free: number | null = null;
   for (const leg of shipLegsInOrder(ops)) if (free === null || leg.endsAt > free) free = leg.endsAt;
   return free;
 }
 
 // The absolute time of scan clock `c` (seconds of scan time since the window opened). Pure.
-export function scanClockToTime(ops: Pick<GroundOpsState, "startedAt" | "shipLegs" | "repairLegs">, c: number): number {
+export function scanClockToTime(ops: Pick<GroundOpsState, "startedAt" | "shipLegs" | "repairLegs" | "studyLegs">, c: number): number {
   const start = ops.startedAt ?? 0;
   let shift = 0;
   for (const leg of shipLegsInOrder(ops)) {
@@ -483,7 +490,7 @@ export function scanClockToTime(ops: Pick<GroundOpsState, "startedAt" | "shipLeg
 }
 
 // The scan clock at absolute time `t`: seconds since the window opened, minus every leg's overlap. Pure.
-export function scanClockAt(ops: Pick<GroundOpsState, "startedAt" | "shipLegs" | "repairLegs">, t: number): number {
+export function scanClockAt(ops: Pick<GroundOpsState, "startedAt" | "shipLegs" | "repairLegs" | "studyLegs">, t: number): number {
   const start = ops.startedAt ?? 0;
   let away = 0;
   for (const leg of shipLegsInOrder(ops)) {
@@ -496,15 +503,19 @@ export function scanClockAt(ops: Pick<GroundOpsState, "startedAt" | "shipLegs" |
 
 // Where the ship is at `t` (display, GO-14): scanning a body, away on a recovery leg, or holding station once
 // the scan is done. Reads the stored legs and the bodies' scanned latches. Pure.
-// GO-8b: or on a FIELD REPAIR (flying to its site, repairing, flying back).
+// GO-8b: or on a FIELD REPAIR (flying to its site, repairing, flying back). Gas Giant Study GG-3: or holding orbit on a
+// STUDY of an orbital body.
 export type GroundShipPosition =
   | { kind: "scanning"; bodyIndex: number }
   | { kind: "recovery"; leg: GroundShipLeg }
   | { kind: "repair"; leg: GroundRepairLeg }
+  | { kind: "study"; leg: GroundStudyLeg }
   | { kind: "holding" };
 export function groundShipPosition(exp: Pick<Expedition, "groundOps" | "bodies">, t: number): GroundShipPosition {
   const repair = exp.groundOps?.repairLegs?.find((l) => l.startsAt <= t && t < l.endsAt);
   if (repair) return { kind: "repair", leg: repair };
+  const study = exp.groundOps?.studyLegs?.find((l) => l.startsAt <= t && t < l.endsAt);
+  if (study) return { kind: "study", leg: study };
   const leg = exp.groundOps?.shipLegs.find((l) => l.startsAt <= t && t < l.endsAt);
   if (leg) return { kind: "recovery", leg };
   const scanning = exp.bodies.findIndex((b) => !b.scanned);
@@ -956,6 +967,9 @@ export function groundOpsBodyScanned(exp: Expedition, bodyIndex: number, t: numb
   }
   initGroundTasks(exp, bodyIndex);
   planNewTasks(exp, bodyIndex, t);
+  // Gas Giant Study GG-3: an orbital body of a study run (no ground objective, GG-2) is studied by the ship, from now.
+  const body = exp.bodies[bodyIndex];
+  if (body && isStudyBody(exp, body)) scheduleStudyLeg(exp, bodyIndex, t);
 }
 
 // ===== The window loop =====
@@ -982,7 +996,10 @@ export function advanceGroundOpsWindow(exp: Expedition, now: number, driver: Gro
     const tRepair = repair ? repair.endsAt : null;
     // AF-1: an objective's alert lapsing (null on every run without an alert, so the order below is unchanged).
     const tAlert = nextAlertReset(exp);
-    const t = [tScan, tTeam, tRepair, tAlert].reduce<number | null>((a, b) => (b === null ? a : a === null ? b : Math.min(a, b)), null);
+    // Gas Giant Study GG-3: a study's end (absent on every run without one, so the order below is unchanged).
+    const study = nextStudyEnd(ops);
+    const tStudy = study ? study.endsAt : null;
+    const t = [tScan, tTeam, tRepair, tAlert, tStudy].reduce<number | null>((a, b) => (b === null ? a : a === null ? b : Math.min(a, b)), null);
     if (t === null || t > now + EVENT_EPS) return;
     if (tAlert === t) {
       // At one instant an alert's reset goes first: housekeeping (the pure alert level already reads 0 from this
@@ -991,6 +1008,9 @@ export function advanceGroundOpsWindow(exp: Expedition, now: number, driver: Gro
     } else if (repair && tRepair === t) {
       // At one instant a repair's end goes first (the ship is whole again before the next scan event can hurt it).
       finishFieldRepair(ops, repair);
+    } else if (study && tStudy === t) {
+      // Then a study's end: its reward lands before the scan resumes and before a team docks at this instant.
+      finishStudy(exp, study);
     } else if (tScan !== null && (tTeam === null || tScan <= tTeam)) {
       driver.processScanEvent(exp);
     } else {
@@ -1154,6 +1174,8 @@ function checkRunEnd(exp: Expedition, t: number): void {
   if (!ops.teams.every((team) => team.step === "idle" || team.step === "bay" || team.step === "reload")) return;
   // GO-8b: the ship heads home only once its field repair is done.
   if (nextRepairEnd(ops)) return;
+  // Gas Giant Study GG-3: and once every study is done.
+  if (nextStudyEnd(ops)) return;
   ops.endedAt = t;
 }
 
@@ -1246,6 +1268,12 @@ export function openResumedGroundOps(exp: Expedition, charted: number, t: number
   if (!ops) return;
   for (const team of ops.teams) if (team.step === "idle") team.stepStartedAt = t;
   for (let i = 0; i < Math.min(charted, exp.bodies.length); i += 1) planNewTasks(exp, i, t);
+  // Gas Giant Study GG-3 x G2-5: a charted giant whose study the recall cut short is studied now (from the window's
+  // opening, one after another); one studied on an earlier trip (`studied`) is not studied again.
+  for (let i = 0; i < Math.min(charted, exp.bodies.length); i += 1) {
+    const body = exp.bodies[i];
+    if (isStudyBody(exp, body) && body.studied !== true) scheduleStudyLeg(exp, i, t);
+  }
   groundOpsAssignIdle(exp, t);
   checkRunEnd(exp, t);
 }
@@ -1760,9 +1788,10 @@ export function groundLegTeams(leg: Pick<GroundShipLeg, "teamIndex" | "teamIndic
 }
 
 // Back to the ship. A team waiting on a RECOVERY LEG returns when the ship arrives; anything else is an ordinary
-// RETURN_SECONDS shuttle. Mutates.
+// RETURN_SECONDS shuttle. Gas Giant Study GG-3 (mockup v3, "Pickup waits for the ship"): a shuttle that would dock
+// while the ship holds orbit on a study waits for that study to end (studyPickupAt). Mutates.
 function startReturn(ops: GroundOpsState, team: GroundTeamRun, t: number, leg: GroundShipLeg | null, rec: Partial<GroundStepRecord> = {}): void {
-  moveTo(ops, team, "return", t, leg ? leg.arrivesAt : t + RETURN_SECONDS, rec);
+  moveTo(ops, team, "return", t, leg ? leg.arrivesAt : studyPickupAt(ops, t + RETURN_SECONDS), rec);
 }
 
 // Aboard: offload when the trip banked something not yet offloaded [PROVISIONAL: else straight to the bay]. A
@@ -2462,6 +2491,61 @@ export function maybeAutoFieldRepair(exp: Expedition, t: number): GroundRepairLe
   return scheduleFieldRepair(exp, t, false);
 }
 
+// ============================================================================
+// Gas Giant Study GG-3: THE SHIP'S STUDY of an orbital body (gasGiantStudy.ts holds the rules)
+// ============================================================================
+//
+// When an orbital body of a study run finishes its scan (groundOpsBodyScanned) the ship holds orbit there for the
+// study (STUDY LEG, GroundStudyLeg): it starts then, or when the ship is free of a leg under way (legs never overlap),
+// and lasts gasGiantStudy.ts studySeconds. While the scan still has bodies to go the scan clock pauses for it (the
+// next body waits, scanBodyIndex); the teams keep working the scanned bodies; an ordinary pickup that would dock during
+// it waits for its end (studyPickupAt), and a wiped team's recovery leg queues behind it like any leg. At its end the
+// window latches `done` and the reward lands (gasGiantStudy.ts rollStudyReward: one "study" finding). The window does
+// not close before every study is done. Stored when it starts, so every later time is a pure function of stored
+// values (offline == live).
+
+// The earliest study not yet finished, or null. Pure.
+function nextStudyEnd(ops: GroundOpsState): GroundStudyLeg | null {
+  let best: GroundStudyLeg | null = null;
+  for (const leg of ops.studyLegs ?? []) if (!leg.done && (best === null || leg.endsAt < best.endsAt)) best = leg;
+  return best;
+}
+
+// Store the study of orbital body `bodyIndex`, its scan complete at `t`. Returns the leg. Mutates the working clone.
+export function scheduleStudyLeg(exp: Expedition, bodyIndex: number, t: number): GroundStudyLeg | null {
+  const ops = exp.groundOps;
+  const body = exp.bodies[bodyIndex];
+  if (!ops || !body) return null;
+  if ((ops.studyLegs ?? []).some((l) => l.bodyIndex === bodyIndex)) return null; // one study per body
+  const free = shipFreeAt(ops);
+  const startsAt = free !== null && free > t ? free : t;
+  const scanning = exp.bodies.findIndex((b) => !b.scanned);
+  const leg: GroundStudyLeg = {
+    kind: "study",
+    bodyIndex,
+    scanBodyIndex: scanning >= 0 ? scanning : null,
+    startsAt,
+    endsAt: startsAt + studySeconds(exp, body),
+  };
+  (ops.studyLegs ??= []).push(leg);
+  return leg;
+}
+
+// A study ends: latched done, and its reward found. Mutates the working clone.
+function finishStudy(exp: Expedition, leg: GroundStudyLeg): void {
+  leg.done = true;
+  exp.findings.push(rollStudyReward(exp, leg.bodyIndex, leg.endsAt));
+}
+
+// When a shuttle that would dock at `landing` actually docks: at the end of the study that holds the ship then (one
+// that started before `landing` and ends after it), else at `landing`. Legs never overlap, so one pass in start order
+// settles it. Exactly `landing` on a run without a study. Pure.
+export function studyPickupAt(ops: Pick<GroundOpsState, "studyLegs">, landing: number): number {
+  let at = landing;
+  for (const leg of ops.studyLegs ?? []) if (leg.startsAt < at && at < leg.endsAt) at = leg.endsAt;
+  return at;
+}
+
 // ===== Readers (display + the UI flag) =====
 
 // Is `task` STUCK (user Q4: hold and flag): it hit GROUND_STUCK_LOSSES losses in a row (now, or before it went to
@@ -2542,15 +2626,26 @@ export function groundTaskProgressAt(exp: Pick<Expedition, "groundOps">, task: E
 // (done or skipped counts whole, others their interpolated progress), each weighted by its difficulty's completion
 // weight (Squads SQ-4, design section 4: sum(weight x progress) / sum(weight); riskFactors.ts difficultyWeight, 1
 // for an unrated task, so a run before SQ-4 reads the plain mean as before). 0 before any task exists. Pure.
-export function groundOpsProgress(exp: Pick<Expedition, "groundOps" | "bodies">, now: number): number {
+// Gas Giant Study GG-3 (plan section 2: the study counts as its body's one objective): on a study run each orbital body
+// adds its STUDY at weight 1 (0 until it starts, then its elapsed share, 1 once done), so a run with no ground
+// objective still shows its progress. Every other run reads exactly as before.
+export function groundOpsProgress(exp: Pick<Expedition, "groundOps" | "bodies" | "study">, now: number): number {
   let total = 0;
   let sum = 0;
-  for (const body of exp.bodies) {
+  exp.bodies.forEach((body, i) => {
     for (const task of body.activities) {
       const w = difficultyWeight(task.difficulty);
       total += w;
       sum += w * (task.done || task.status === "skipped" ? 1 : groundTaskProgressAt(exp, task, now));
     }
-  }
+    if (!isStudyBody(exp, body)) return;
+    const leg = exp.groundOps?.studyLegs?.find((l) => l.bodyIndex === i);
+    total += 1;
+    // G2-5: a resumed run's giant studied on an earlier trip counts whole.
+    if (!leg && body.studied === true) sum += 1;
+    if (!leg) return;
+    const span = leg.endsAt - leg.startsAt;
+    sum += leg.done ? 1 : span > 0 ? Math.max(0, Math.min(1, (now - leg.startsAt) / span)) : 1;
+  });
   return total > 0 ? Math.max(0, Math.min(1, sum / total)) : 0;
 }

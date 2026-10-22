@@ -15,7 +15,7 @@ import {
   completedRuns,
   countClaimedExpedition,
   countPatrolDispatch,
-  countPatrolRoutes,
+  countPatrolRuns,
   encounterHazard,
   isFirstRun,
   isTrainingExpedition,
@@ -184,16 +184,16 @@ describe("SF-1: the claim rule (user SF5 completed runs minus the training run; 
   });
 
   it("patrol routes add on; zero or junk routes change nothing", () => {
-    expect(countPatrolRoutes(counts, 3).patrol.completed).toBe(3);
-    expect(countPatrolRoutes(counts, 0)).toBe(counts);
-    expect(countPatrolRoutes(counts, Number.NaN)).toBe(counts);
+    expect(countPatrolRuns(counts, 3).patrol.completed).toBe(3);
+    expect(countPatrolRuns(counts, 0)).toBe(counts);
+    expect(countPatrolRuns(counts, Number.NaN)).toBe(counts);
   });
 
   it("is pure: the input counts are never mutated", () => {
     const before = structuredClone(counts);
     countClaimedExpedition(counts, run({ difficulty: training }));
     countPatrolDispatch(counts);
-    countPatrolRoutes(counts, 2);
+    countPatrolRuns(counts, 2);
     expect(counts).toEqual(before);
   });
 });
@@ -279,17 +279,24 @@ describe("SF-1: the engine writes the counters", () => {
     expect(again.next).toBe(r.next);
   });
 
-  it("each won patrol route counts on the patrol curve, the same in one call or one tick at a time", () => {
+  // SF-4: the save's first patrol is the training cycle, whose route stays off the curve (SF5 "minus the tutorial run").
+  it("each patrol RUN counts once on the patrol curve (the training run excepted), the same in one call or one tick at a time", () => {
+    // SF-4, user 2026-10-21 "One step per patrol run": a Repeat run is one step however many routes it wins.
+    const flown = (s: GameState) => {
+      const r = dispatchCaptainOnPatrol(s, 1, "crimsonReaverSweep", "balanced", true);
+      expect(r.success).toBe(true);
+      const big = economyTick(r.next, 400, RNG);
+      let stepped = r.next;
+      for (let i = 0; i < 400; i++) stepped = economyTick(stepped, 1, RNG);
+      const won = Number(big.lifetimeStats.missionsCompleted.crimsonReaverSweep ?? new Decimal(0));
+      expect(won).toBeGreaterThan(1);
+      expect(runCountsOf(stepped).patrol).toEqual(runCountsOf(big).patrol);
+      return runCountsOf(big).patrol;
+    };
     const s = onHull("destroyer");
-    const r = dispatchCaptainOnPatrol(s, 1, "crimsonReaverSweep", "balanced", true);
-    expect(r.success).toBe(true);
-    const big = economyTick(r.next, 400, RNG);
-    let stepped = r.next;
-    for (let i = 0; i < 400; i++) stepped = economyTick(stepped, 1, RNG);
-    const won = Number(big.lifetimeStats.missionsCompleted.crimsonReaverSweep ?? new Decimal(0));
-    expect(won).toBeGreaterThan(0);
-    expect(runCountsOf(big).patrol).toEqual({ dispatched: 1, completed: won, veteran: false });
-    expect(runCountsOf(stepped).patrol).toEqual(runCountsOf(big).patrol);
+    expect(flown(s)).toEqual({ dispatched: 1, completed: 0, veteran: false });
+    const second = { ...s, runCounts: { ...runCountsOf(s), patrol: { dispatched: 1, completed: 0, veteran: false } } };
+    expect(flown(second)).toEqual({ dispatched: 2, completed: 1, veteran: false });
   });
 
   it("a tick with no won route leaves the counters as they were (the same reference)", () => {

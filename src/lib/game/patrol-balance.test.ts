@@ -59,6 +59,7 @@ import { resolvePatrolWaves } from "./combat/patrolReplay";
 import { threatAssessment } from "./combat/threatAssessment";
 import { generateWeapon, generateEquipment, generateDronePod } from "./itemgen";
 import type { WeaponId } from "./combat/weapons";
+import { asPatrolVeteran } from "./awayTeamTestFixtures";
 
 const PATROL_KEY = "crimsonReaverSweep";
 const DEF = PATROLS[PATROL_KEY];
@@ -80,9 +81,11 @@ const COMBAT_HULLS: ShipTypeKey[] = ["destroyer", "battleship", "carrier"];
 // A fresh state whose one starting captain (id 1) flies `typeKey` and whose patrol
 // master-seed counter starts at `seed`, so the NEXT dispatch pins that master seed.
 // Fuel/credits topped up so a shortfall never confounds the combat measurement.
-// (Same shape as patrol-tick.test.ts's helper.)
+// (Same shape as patrol-tick.test.ts's helper.) Safe first runs SF-4: a PATROL VETERAN (asPatrolVeteran), so every
+// patrol here is the route at full strength (never the safe first patrol or the curve) and the numbers stay the
+// balance contract they always were (plan section 4 SF-4: "patrol-balance.test.ts runs as a veteran").
 function patrolState(typeKey: ShipTypeKey, seed: number): GameState {
-  const base = freshState();
+  const base = asPatrolVeteran(freshState());
   // Combat 1.0 (Unit 1.3): seed the combat baseline the retype skipped so a fabricated combat hull
   // clears the new empty-required-slot dispatch blocker (economy hull -> no-op).
   return installMissingCombatBaselines({
