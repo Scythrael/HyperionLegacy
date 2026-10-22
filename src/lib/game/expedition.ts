@@ -784,6 +784,19 @@ export function expeditionSystemGate(
   return { reason: "outOfReach", tier, driveClass, driveClassNeeded, sensors, sensorsNeeded, roundTripLy: reach.roundTripLy, reachLy: reach.reachLy };
 }
 
+// Expedition Tiers G2-4 (D18 "Launch can never offer a dispatch the engine would refuse"): the propulsion refusal
+// startExpedition would give `ship` for `candidateId`, in its order (a non-explorer hull first, whatever the
+// candidate; then the candidate's tier gates and reach, a held system's included), or null when the propulsion gates
+// pass. An unknown candidate reads null (startExpedition refuses it as noSuchCandidate). The console disables Launch
+// on it and shows propulsion.ts expeditionGateText. Pure.
+export function expeditionDispatchGate(state: GameState, ship: ShipInstance, candidateId: string | null): ExpeditionGateDetail | null {
+  if (SHIP_TYPES[ship.typeKey]?.spec !== "explorer") return expeditionTierGates(state, ship, 1).first;
+  if (candidateId === null) return null;
+  const held = heldSystemById(state, candidateId);
+  const cand = held ? heldCandidateSystem(held) : candidateSystemById(state, candidateId);
+  return cand ? expeditionSystemGate(state, ship, cand) : null;
+}
+
 // A throwaway system for a preview at `seed` in `region` (the forecast's simulated launch; no candidate name is
 // needed there). Pure.
 function previewSystem(seed: number, region: ExpeditionRegion): { systemId: string; systemName: string; bodies: ExpeditionBody[] } {

@@ -149,7 +149,7 @@
       {/if}
     </dl>
     <div class="sr-btnrow">
-      <span class="sr-toggle"><Toggle checked={!run.recalled} label="Repeat until recalled" on:change={(e) => onSetRepeat(run.captainId, e.detail)} />Repeat</span>
+      <span class="sr-toggle"><Toggle checked={!run.recalled} label="Repeat until recalled" on:change={(e) => onSetRepeat(run.captainId, e.detail)} /></span>
       <span class="sr-spacer"></span>
       {#if run.recalled && run.hold === null}
         <span class="sr-dim sr-xs">Stops after this cycle</span>

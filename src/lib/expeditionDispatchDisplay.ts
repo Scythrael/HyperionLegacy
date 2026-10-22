@@ -15,7 +15,8 @@
 // No game rule lives here: every gate, grade and outcome is read from the engine.
 
 import type { Expedition, GameState, GroundTeamKind, ShipInstance } from "./game/model";
-import type { ExpeditionCandidate } from "./game/expedition";
+import { expeditionDispatchGate, type ExpeditionCandidate } from "./game/expedition";
+import { expeditionGateText } from "./game/propulsion";
 import { squadsOfType, teamKindLabel, teamKindName } from "./game/groundComposition";
 import { getPlanetTypeById } from "./game/expeditionContent";
 import {
@@ -42,6 +43,19 @@ import type { ThreatAssessment } from "./game/combat/threatAssessment";
 import type { IconName } from "./ui/icons";
 import { nameList } from "./groundTeamDisplay";
 import { forecastAffixPills, type AffixPillView } from "./objectiveAffixDisplay";
+
+// ============================================================================
+// G2-4: the propulsion gate line (Launch off when the engine would refuse)
+// ============================================================================
+
+// D18 "Launch can never offer a dispatch the engine would refuse": the line naming why the propulsion gates refuse
+// `ship` for the selected candidate (a non-explorer hull, a drive class too low or unbuildable, frontier sensors short,
+// out of reach), read from the engine (expedition.ts expeditionDispatchGate, propulsion.ts expeditionGateText), or
+// null when they pass. The console disables Launch while it is set and shows it. The full console is G2-6.
+export function dispatchGateLine(state: GameState, ship: ShipInstance, candidateId: string | null): string | null {
+  const gate = expeditionDispatchGate(state, ship, candidateId);
+  return gate ? expeditionGateText(gate) : null;
+}
 
 // ============================================================================
 // GO-12: the dispatch strip (which ground teams deploy)

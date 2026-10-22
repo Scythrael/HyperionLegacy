@@ -386,12 +386,14 @@ scale, the class halving, `planVoyage`, `voyageOf`). For later slices:
 **G2-4 carry note (built 2026-10-21, on top of 624b0c5).** New pure `src/lib/game/propulsion.ts`. For later slices:
 - Drive class: `shipDriveClass(state, ship)` = `hullBaseDriveClass(hull)` + (the installed FTL drive's `ftlDriveClass` - 1),
   at most VII. ONE source (EM-1 carry note): the voyage (`candidateVoyage`, which replaced `STANDARD_DRIVE_CLASS`) and the
-  power fold (x1.6 per class) both read `ftlDriveClass`; the hull base never draws. **[PROPOSAL]** hull base = tier - 1,
-  never below I (every explorer today is Class I; the tier 3 warships read II but are not explorers).
+  power fold (x1.6 per class) both read `ftlDriveClass`; the hull base never draws. Hull base = tier - 1, never below I
+  (user 2026-10-21, "Approve (Recommended)", 2026-10-19-merge-batch-answers.md "2026-10-21 calls (late)"; every explorer
+  today is Class I; the tier 3 warships read II but are not explorers).
 - Blueprints: `model.ts DRIVE_CLASS_BLUEPRINTS` (Class II to VII, Balanced variety, tier = class, `driveClass` set).
   `drivesWithinFacilityReach` spreads a row into BLUEPRINTS only when BOTH the Research Lab and the Fabricator tracks
-  reach its tier: today Class II only (Lab tops at 2). **[PROPOSAL recipes / costs]**: Coupling 3 + Wafer 3 + Ti Ingot 2
-  (the audit's Cobalt Coil waits for ML-2, which owns that reserve); III to V + Deuterium 1 / 2 / 3; VI and VII + 1 / 2
+  reach its tier: today Class II only (Lab tops at 2). Class II recipe Power Coupling 3 + Wafer 3 + Titanium Ingot 2
+  (user 2026-10-21, "Approve (Recommended)", same answers section; the audit's Cobalt Coil waits for ML-2, which owns
+  that reserve). **[PROPOSAL recipes / costs]** for the rest: III to V + Deuterium 1 / 2 / 3; VI and VII + 1 / 2
   Antimatter Cells. The crafted piece reads "Balanced Drive (Class II)" (craftQueue.ts).
 - Gates (startExpedition, in order after shipDamaged): `notExplorer` (before the candidate), then for the candidate
   `driveClassUnavailable` / `driveClassTooLow`, `frontierSensors`, `outOfReach`; the refusal carries `gate`
@@ -399,8 +401,9 @@ scale, the class halving, `planVoyage`, `voyageOf`). For later slices:
   `expeditionTierGates(state, ship, tier)` (every gate, met or not, plus the first unmet: the tab state) and
   `expeditionSystemGate` / `candidateReach` (the reach bar). Class III to VII read "None can be built yet" until the
   complement OC-15 Lab and Fabricator rungs exist (registry `facility:audit:heldDriveClasses`).
-- Reach **[PROPOSAL]** `DRIVE_CLASS_REACH_MULT` I 4, II 24, III 62, IV 68, V 105, VI 200, VII 240 on today's
-  `shipTripRangeLightYears` (the Engineering ramp on the voyage's own round trip). **Deviation:** `LY_PER_TICK` is NOT
+- Reach `DRIVE_CLASS_REACH_MULT` I 4, II 24, III 62, IV 68, V 105, VI 200, VII 240 (user 2026-10-21, "Approve
+  (Recommended)", same answers section) on today's `shipTripRangeLightYears` (the Engineering ramp on the voyage's own
+  round trip). **Deviation:** `LY_PER_TICK` is NOT
   rescaled (G1-2's approved short-range 90 / 130 ly and its transit ticks are in today's units); the deep-space scale
   lives in the multiplier, so no mission, patrol or short-range number moved.
 - Test seam: `startExpedition(..., propulsionGates = true)`; `awayTeamTestFixtures.ts dispatchPastPropulsion` is the
@@ -409,7 +412,12 @@ scale, the class halving, `planVoyage`, `voyageOf`). For later slices:
   golden 4 `reach:expedition` (pins the pre-G2-4 dispatch; the gated one equals it for the explorers and refuses the
   seven other hulls), the Aurora's Tier II to VII dispatch (refused), the blueprint keys (+ classIIDriveBp), the census
   counts (classed drives held apart), the registry pins (`G2_4_ADDED_ENTRY_IDS`, `G2_4_FLIPPED_BEFORE` held apart), the
-  newcomer sim (its freighter no longer launches, as the test foretold).
+  newcomer sim (its freighter no longer launches, as the test foretold; it gets no explorer path for now, since the
+  research, Shipyard build and crew move it needs are a new speedrun policy for the balance pass: `sim/policies.ts`
+  NEWCOMER says why; allAuto's Orion keeps the expedition coverage).
+- Console (integration follow-up): `expedition.ts expeditionDispatchGate` (the same propulsion refusal startExpedition
+  gives, in its order) feeds `expeditionDispatchDisplay.ts dispatchGateLine`; ExpeditionPanel disables Launch on it and
+  shows `expeditionGateText` (D18). The full gates console stays G2-6.
 - Registry: `ship:SHIP_SEAMS:driveClassPowerDraw`, `expedition:audit:voyageDriveClass` LIVE; new LIVE
   `deepSpaceReach`, `explorerHullGate`; new pending G2-6 `driveClassTierGate`, `frontierSensors`; seam
   `hullBaseDriveClass` (the first tier 3 explorer). The G2-2 / G2-3 rows re-owned to G2-6 stay with G2-6.

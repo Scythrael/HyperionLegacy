@@ -17919,8 +17919,9 @@
                 {/if}
 
                 <p class="research-status" style="margin-top: 10px; color: var(--color-text-secondary);">
-                  All current missions are available. Future missions will unlock here
-                  as new content is added.
+                  <!-- G1-6 review: a maxed Mission Control promises nothing further here. -->
+                  {#if missionControlMaxed}All current missions are available.{:else}All current missions are available. Future missions will unlock here
+                  as new content is added.{/if}
                 </p>
                 {#if SHORT_RANGE_BOARD_LIVE}
                   <!-- G1-6: the board's slots grow with this facility (two from the start, then one per upgrade). -->
@@ -17940,12 +17941,9 @@
                   <!-- USER REVISION 2026-07-14: Mission Control caps at its current
                        content (the unlock UPGRADE is deferred until future missions
                        exist, see model.ts FACILITIES.missionControl). This is the
-                       standard maxed state the Refinery/Warehouse tracks show; the note
-                       flags that a future unlock rung re-appears here with new content. -->
+                       standard maxed state the Refinery/Warehouse tracks show. G1-6 review: the old
+                       "Future missions will unlock here" note is gone (a maxed track promises nothing). -->
                   <p class="research-status">Fully upgraded.</p>
-                  <p class="research-status" style="margin-top: 6px; color: var(--color-text-secondary);">
-                    Future missions will unlock here as new content is added.
-                  </p>
                 {:else}
                   <div class="research-name">Next: Level {missionControlLevel} → {missionControlLevel + 1}</div>
                   <!-- G1-6: a Short-Range board rung names the slot it opens (shortRangeBoardDisplay.ts

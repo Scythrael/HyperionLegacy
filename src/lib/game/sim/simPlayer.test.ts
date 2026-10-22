@@ -123,7 +123,8 @@ describe("WR-2 newcomer archetype: the real new game", () => {
     expect(r.gather?.deliveries).toBeGreaterThan(0);
     expect(r.patrol?.refusal).toBeNull();
     // Flipped by G2-4 (user 2026-10-16: no non-explorer hull reaches any expedition system): the newcomer's starting
-    // freighter is refused, so no expedition launches.
+    // freighter is refused, so no expedition launches (why the sim gives it no explorer path: policies.ts NEWCOMER).
     expect(r.expeditions.length).toBe(0);
+    expect(r.expeditionRefusal).toBe("notExplorer");
   });
 });
