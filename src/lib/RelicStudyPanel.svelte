@@ -61,7 +61,7 @@
 
   // --- Derived reads ----------------------------------------------------------
   function setOrder(t: RelicVaultToken): number {
-    const i = RELIC_SET_IDS.indexOf(t.setId);
+    const i = t.setId === undefined ? -1 : RELIC_SET_IDS.indexOf(t.setId);
     return i < 0 ? RELIC_SET_IDS.length : i;
   }
   // The vault, rarest tier first (the mockup's order), then by set, then by arrival (stable sort).
@@ -88,8 +88,19 @@
   function tierLabel(tier: EquipmentRarity): string {
     return tier.charAt(0).toUpperCase() + tier.slice(1);
   }
-  function poiLabel(id: string): string {
-    return groundSiteLabel(id) ?? id;
+  // Where a blank came from: its site, else (Relics v2 R2-2: a blank with no site) its source.
+  function sourceLabel(t: RelicVaultToken): string {
+    if (t.poiId !== undefined) return groundSiteLabel(t.poiId) ?? t.poiId;
+    switch (t.source) {
+      case "shortRange":
+        return "a short-range mission";
+      case "completion":
+        return "a fully surveyed planet";
+      case "grant":
+        return "a reward";
+      default:
+        return "an expedition";
+    }
   }
   function blockText(reason: RelicStudyBlockReason): string {
     switch (reason) {
@@ -182,7 +193,7 @@
           <span class="rs-sel-glyph"><Icon name="relic" size={22} /></span>
           <span class="rs-sel-text">
             <span class="rs-sel-name">{tierLabel(selected.tier)} {relicSetShortLabel(selected.setId)} relic</span>
-            <span class="rs-sel-sub">From {poiLabel(selected.poiId)} · study time {formatDuration(studyTicks(selected.tier))}</span>
+            <span class="rs-sel-sub">From {sourceLabel(selected)} · study time {formatDuration(studyTicks(selected.tier))}</span>
           </span>
           <button
             type="button"

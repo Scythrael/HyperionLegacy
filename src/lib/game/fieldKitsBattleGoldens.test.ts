@@ -16,9 +16,9 @@ import { describe, expect, it } from "vitest";
 import { freshState, type AwayMember, type BodyRiskGrades, type EquipmentInstance, type Expedition, type ExpeditionBody, type GambitProgram, type GameState, type ShipGroundTeam } from "./model";
 import { gambitPresetPrograms } from "./gambit";
 import { resolveTaskFight, type GroundFightTeam } from "./groundFight";
-import { advanceExpedition, startExpedition } from "./expedition";
+import { advanceExpedition } from "./expedition";
 import { groundOpsAssignIdle, groundOpsBodyScanned, initGroundTasks } from "./groundOps";
-import { plainAwayMember, withoutFieldKits } from "./awayTeamTestFixtures";
+import { plainAwayMember, withoutFieldKits, dispatchPastPropulsion } from "./awayTeamTestFixtures";
 import { hash } from "./firstRunsGoldens.fixture";
 
 // Field Kits catalog 1, pinned as a literal (timed grenades, 2026-10-21): these runs throw Stun and Toxin Grenades, and
@@ -78,7 +78,7 @@ function crewed(expeditionSeed: number, program?: GambitProgram): GameState {
 
 // A dispatched run placed on one scanned body with `pois`, flag 2 stamped by hand (FKR-7 stamps it at dispatch).
 function stampedRun(state: GameState, pois: string[], risk: BodyRiskGrades, hazard = 0.2): Expedition {
-  const res = startExpedition(state, "ship-1", 1, "cand-0");
+  const res = dispatchPastPropulsion(state, "ship-1", 1, "cand-0");
   if (!res.success || !res.expedition) throw new Error(`dispatch refused: ${res.reason}`);
   const d = withoutFieldKits(res.expedition);
   const body: ExpeditionBody = {

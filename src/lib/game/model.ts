@@ -1121,8 +1121,8 @@ export const HULL_GUEST_QUARTERS = { generalFreighter: 20, orion: 40, aurora: 40
 // G1-1 review (user 2026-10-19, "Hide until Short-Range"): the Ship Systems "Guest Quarters" rows (the stat readout,
 // its (i) definition, the install compare) and the hull card's line stay hidden until Short-Range Missions are in, so
 // no player meets a stat nothing they can do uses yet. The stat itself is live (shipDerivedStats folds it). The
-// G1-4 / G1-6 slice that puts passenger runs in front of the player flips this to true.
-export const GUEST_QUARTERS_DISPLAY_LIVE = false;
+// G1-4 / G1-6 slice that puts passenger runs in front of the player flips this to true: G1-6 did (2026-10-21).
+export const GUEST_QUARTERS_DISPLAY_LIVE = true;
 // Does a Ship Systems row or hull card line show `berths` guest quarters: only once the display is live (above), and
 // only when there are some. `live` is for the tests. Pure.
 export function guestQuartersShown(berths: number, live: boolean = GUEST_QUARTERS_DISPLAY_LIVE): boolean {
@@ -4006,8 +4006,9 @@ export interface EquipmentStatMods {
 // each drive class above I, so deep reach competes with weapons and modules for the hull's power.
 export const DRIVE_CLASS_POWER_DRAW_MULT = 1.6;
 
-// An installed FTL drive's class: its blueprint's driveClass (G2-4 authors the classed blueprints), Class I when the
-// piece has no blueprint (Standard Issue, a legacy piece) or the blueprint names none. Pure.
+// An installed FTL drive's class: its blueprint's driveClass (G2-4's DRIVE_CLASS_BLUEPRINTS), Class I when the piece has
+// no blueprint (Standard Issue, a legacy piece) or the blueprint names none. THE drive class source: the power fold
+// below and the voyage (propulsion.ts shipDriveClass, which adds the hull's base class) both read it. Pure.
 export function ftlDriveClass(piece: Pick<EquipmentInstance, "blueprintKey">): number {
   const cls = piece.blueprintKey ? BLUEPRINTS[piece.blueprintKey]?.driveClass : undefined;
   return cls !== undefined && cls > 1 ? Math.floor(cls) : 1;
@@ -5190,8 +5191,8 @@ export const MISSION_CONTROL_UNLOCK_COMPLETIONS = 50;
 // they join FACILITIES.missionControl only once SHORT_RANGE_BOARD_LIVE is true, so no player can build an upgrade
 // whose slot no screen shows yet, and every facility reader, the sim and the registry are unchanged until then.
 // shortRangeBoardSlots reads this table directly, so the slot ladder is live (and tested) at every level now.
-// G1-6 flips the flag with the board UI (its Mission Control card text then names the slot).
-export const SHORT_RANGE_BOARD_LIVE = false;
+// G1-6 flipped the flag with the board UI (2026-10-21); the Mission Control card names the slot each rung opens.
+export const SHORT_RANGE_BOARD_LIVE = true;
 // Every cost, duration and the fourth slot's tier (Tier II) approved 2026-10-20 (user "Approve (Recommended)":
 // docs/plans/2026-10-19-merge-batch-answers.md). The level 1 -> 2 rung is the reserved completion-gated template kept
 // for exactly this (MISSION_CONTROL_UNLOCK_COMPLETIONS of each ore run).
@@ -7471,8 +7472,10 @@ export interface ExpeditionRelicToken {
   quality: number; // 0..5 quality bucket from the salvage tier (reuses the 0-5 quality system)
   unidentified: true; // always true this phase: E4 owns identification/research/museum
   studySpeed?: number; // WR-5c Preservationist: the study of this relic runs (1 + this) faster; absent = 0
-  // Relics v2 R2-1 (DORMANT; plan 2026-10-17 section 3.2): stamped at the roll from R2-2 on. Absent = Tier I and a
-  // culture derived at read time (R2-2 / R2-6), so every token rolled before Relics v2 reads exactly as it did.
+  // Relics v2 (plan 2026-10-17 section 3.2): stamped at the roll by R2-2 on a run that carries the blanks flag
+  // (Expedition.relicBlanks): the run's region tier and the culture of the body it came from (relicBlanks.ts
+  // relicBlankStamp). Absent = Tier I and a culture derived at read time, so every token rolled before R2-2 (and every
+  // token of a run in flight at the update) reads exactly as it did.
   regionTier?: RegionTier;
   cultureId?: string;
 }
@@ -7502,12 +7505,16 @@ export interface RelicVaultToken {
   id: string; // the ExpeditionRelicToken id ("<expeditionId>-relic-<activityId>"), unique per token
   tier: EquipmentRarity; // the rolled rarity tier; skews WHICH relic the study reveals (relics.ts)
   quality: number; // 0..5 quality bucket carried from the reward roll (provenance; no effect yet)
-  setId: RelicSetId; // the set this token identifies WITHIN
-  poiId: string; // the PoI the finding came from (expeditionContent.ts POI_CATALOG id)
+  // The set this token identifies WITHIN (v1 identification), routed off its PoI at deposit. Relics v2 R2-2: OPTIONAL. A
+  // blank with no site (a short-range blank, a planet completion blank, a grant) has neither a set nor a PoI; its study
+  // identifies over the general pool by band (relicBlanks.ts identifyGeneralRelic). Every expedition deposit still
+  // writes both, so a sited blank identifies exactly as before.
+  setId?: RelicSetId;
+  poiId?: string; // the PoI the finding came from (expeditionContent.ts POI_CATALOG id); absent = no site (see setId)
   studySpeed?: number; // WR-5c Preservationist (carried from the token): the study runs (1 + this) faster; absent = 0
-  // Relics v2 R2-1 (DORMANT; plan 2026-10-17 section 3.2): all optional, read with a default, nothing writes them
-  // until R2-2. regionTier absent = Tier I; cultureId absent = derived at read time from the token id (R2-2 / R2-6);
-  // source absent = "expedition". (setId stays required until R2-2 mints the first token that does not need it.)
+  // Relics v2 (plan 2026-10-17 section 3.2): all optional, read with a default (relicBlanks.ts vaultTokenRegionTier /
+  // vaultTokenCultureId / vaultTokenSource). R2-2 writes them on every blank a new run (or a hook) mints. regionTier
+  // absent = Tier I; cultureId absent = derived at read time from the token id; source absent = "expedition".
   regionTier?: RegionTier;
   cultureId?: string;
   source?: RelicVaultTokenSource;
@@ -7977,6 +7984,58 @@ export interface Expedition {
   // read from it. Absent on every run dispatched before G2-3: the fixed pre-G2-3 legs (expedition.ts
   // TRANSIT_SECONDS, the retired shakedown's SHAKEDOWN_TRANSIT_SECONDS), byte-identically. Optional, no SAVE bump.
   voyage?: ExpeditionVoyage;
+  // Relics v2 R2-2 (plan 2026-10-17 section 4 R2-2): the RELIC BLANKS flag, stamped at dispatch with
+  // relicBlanks.ts RELIC_BLANKS_VERSION. Its PRESENCE makes the run's relic tokens carry their blank stamps (the run's
+  // region tier and the body's culture) and roll their rarity on the tier's blank table (Tier I is today's table
+  // exactly; user call 13 "Better rarity only"). A run without it (in flight at the update) rolls and stores its
+  // tokens byte-identically. Optional, no SAVE bump.
+  relicBlanks?: { version: number };
+  // Expedition Tiers G2-5: the player's RECALL (expedition.ts recallExpedition), written only by it: the run turned for
+  // home at `atSeconds` and flies the frozen `returnSeconds` (any pickup included). Absent = never recalled, and every
+  // reader is exactly as before. Optional, no SAVE bump.
+  recall?: ExpeditionRecall;
+  // Expedition Tiers G2-5: a RESUMED system (user G12 "Resumable"): the run was dispatched to a held system
+  // (GameState.heldSystems) and its first `scannedBodies` bodies were charted before (their scans stay done, their
+  // objectives keep their progress). Absent on every other run. Optional, no SAVE bump.
+  resume?: { version: 1; heldId: string; scannedBodies: number };
+}
+
+// Expedition Tiers G2-5 (user #7 "Based on distance traveled 1:1"; G13 one confirm with the return time; G14 detour
+// time is not distance flown): a recalled run. `phaseAtRecall` is where it turned; `flownSeconds` the outbound time
+// flown toward the system (in transit only, the detour not counted); `pickupSeconds` the shared in-system pickup of the
+// teams on a surface (0 when none was down); `returnSeconds` the whole way home from `atSeconds` (the pickup, then the
+// return leg at the Flight Deck ramp of the time out so far). `held` names the GameState.heldSystems record the recall
+// left (absent when none: a legacy run, or a finished system). Plain data.
+export interface ExpeditionRecall {
+  version: 1;
+  atSeconds: number;
+  phaseAtRecall: "transit" | "scanning" | "activities";
+  flownSeconds?: number;
+  pickupSeconds: number;
+  returnSeconds: number;
+  held?: string;
+}
+
+// Expedition Tiers G2-5: a system a recall left behind (GameState.heldSystems). Signed-off dispatch mockup (2026-10-21,
+// "as drawn"): a system recalled BEFORE anything was charted returns to being an ORDINARY CANDIDATE (`kind`
+// "candidate": its identity only, offered again among its tier's candidates and launched fresh); a system with charted
+// bodies is RESUMABLE (`kind` "resume", user G12: "Any explorer" resumes it, it stays open "Until finished" or abandoned,
+// "Pick up where you left off": finished scans stay done, objectives keep their progress, the trip is flown again). A
+// resume record carries the run's bodies (scans, discoveries, objectives with their progress; nothing assigned) and its
+// risk profile. Plain data.
+export interface HeldSystem {
+  version: 1;
+  id: string; // "held-<expeditionId>"
+  kind: "candidate" | "resume";
+  fromExpeditionId: string;
+  heldAt: number;
+  seed: number;
+  systemId: string;
+  systemName: string;
+  famousId: string | null;
+  region: ExpeditionRegionStamp;
+  risk?: ExpeditionRiskProfile;
+  bodies?: ExpeditionBody[];
 }
 
 // Expedition Tiers G2-3 (user G5 + G21, 2026-10-16): a run's voyage. `tier` sets the nominal hours (tiers are
@@ -8355,6 +8414,13 @@ export interface GroundOpsState {
   // GO-7c: the run's ground operations LOG, DISPLAY ONLY (resolution never reads it); absent until a line is
   // written, so a run without one keeps its exact shape.
   log?: GroundOpsLogEntry[];
+  // Expedition Tiers G2-5: the instant the player RECALLED the ship and the window closed (groundOps.ts
+  // closeGroundOps; endedAt is the same instant). Absent on every run nobody recalled.
+  recalledAt?: number;
+  // Expedition Tiers G2-5: a RESUMED run's scan clock starts past the bodies already charted (Expedition.resume): the
+  // clock seconds those bodies take on this run, so the window's startedAt sits that far before it opened and the
+  // next body is scanned from the moment it opens. Absent on every other run.
+  scanClockSkip?: number;
 }
 
 // GO-7c: one line of the ground operations log (groundOps.ts groundOpsLogText words it): a task nobody deployed
@@ -8843,6 +8909,10 @@ export interface GameState {
   // after the first run holds Wolf 359 by WOLF_359_LIST_AFTER_DISPATCHES), so a save that is not a veteran never
   // carries the key. A plain number: no SAVE bump, hydrateDecimals carries it through its `...state` spread.
   wolf359List?: number;
+  // Expedition Tiers G2-5: the systems recalls left behind (HeldSystem: ordinary candidates again, or resumable),
+  // oldest first. OPTIONAL: absent until the first recall that leaves one, so every save keeps its exact shape. Plain
+  // data: no SAVE bump, hydrateDecimals carries it through its `...state` spread.
+  heldSystems?: HeldSystem[];
   // Safe first runs SF-1: the per-type run counters (RunCounts above; rules in runDifficulty.ts). freshState seeds
   // freshRunCounts(); save v70 derives them for an older save from its history (veterans). Written by claimExpedition,
   // dispatchCaptainOnPatrol and economyTick's patrol fold. OPTIONAL: absent (a dev save at v70 from before SF-1) reads
@@ -10150,7 +10220,8 @@ export interface BlueprintDef {
   // fabricate craftable and visible in the UI, mirroring how weapons landed in Unit 1.2b.
   droneOutput?: { role: DroneRole };
   // E-MOD EM-1 (user P5 2026-10-19 "x1.6 per class"): an FTL drive blueprint's drive class, 1 (Class I) to 7. G2-4
-  // authors the Class II to VII drive blueprints and their gates; absent reads Class I, which every drive is today.
+  // authors the Class II to VII drive blueprints (DRIVE_CLASS_BLUEPRINTS) and their gates (propulsion.ts); absent reads
+  // Class I.
   // The power fold (equipmentStatMods) multiplies an installed drive's draw by DRIVE_CLASS_POWER_DRAW_MULT per class
   // above I the moment a blueprint sets this (ftlDriveClass), so G2-4 must NOT bake the class into powerDraw at mint.
   driveClass?: number;
@@ -10258,6 +10329,53 @@ export const FIELD_KITS_HIDDEN_BLUEPRINTS: Readonly<Record<string, BlueprintDef>
     unlockHint: "Researched at the Research Lab; crafted at the Fabricator. Away-team gear, worn by a squad member.",
   },
 };
+
+// Expedition Tiers G2-4 (user G3 2026-10-16: "A combination of higher tier ships and better drive blueprints/stats/
+// etc."; G20 "Class IV drive", Roman numerals): the CLASSED FTL DRIVES, one Balanced-ratio blueprint per Class II to
+// VII (plan G2-4: "one per class at first, Balanced ratios"). Class N sits on blueprint tier N; the minted piece reads
+// its class back through ftlDriveClass (blueprintKey), which also draws x1.6 power per class above I (E-MOD EM-1),
+// never baked into powerDraw here. [PROPOSAL recipes and costs] after the recipe realism audit section 4.2: a base of
+// Coupling 3 + Wafer 3 + Titanium Ingot 2 (the audit's field coils, Cobalt Coil 2, wait for ML-2, which lifts the Cobalt
+// Coil's reserve with the FTL recipe rework); Class III to V add 1 / 2 / 3 Deuterium Canisters (ML L9 / GG call 7
+// "Drives + Lab blueprints"); Class VI and VII add 1 / 2 Antimatter Containment Cells. The balancing patch owns the
+// amounts.
+// A row joins BLUEPRINTS only once BOTH the Research Lab and the Fabricator tracks reach its tier
+// (drivesWithinFacilityReach). Since complement OC-15 ("Add tiers 3-7 now") both tracks reach tier VII, so Class II to
+// VII are all served (before it only Class II was, and the dispatch said "None can be built yet" for Tiers III to VII:
+// propulsion.ts driveClassUnavailable, which still names a class no served blueprint gives).
+const DRIVE_CLASS_BASE_RECIPE = { powerCoupling: 3, polysilicateWafer: 3, titaniumIngot: 2 } as const;
+function classedDriveBlueprint(driveClass: 2 | 3 | 4 | 5 | 6 | 7, cost: { ticks: number; credits: number; craft: number }, extra: Record<string, number>): BlueprintDef {
+  const numeral = ["", "I", "II", "III", "IV", "V", "VI", "VII"][driveClass];
+  return {
+    key: `class${numeral}DriveBp`,
+    label: `Class ${numeral} Drive Blueprint`,
+    tier: driveClass,
+    researchDurationTicks: cost.ticks,
+    researchCreditCost: cost.credits,
+    craftDurationTicks: cost.craft,
+    equipmentOutput: { slotType: "ftlDrive", varietyKey: "balancedDrive" },
+    driveClass,
+    recipe: { inputs: { ...DRIVE_CLASS_BASE_RECIPE, ...extra } },
+    flavor: `A Class ${numeral} field generator: a deeper fold of space per jump, and the reactor feels every one of them.`,
+    unlockHint: "Researched at the Research Lab (needs a higher lab tier); crafted at the Fabricator; installed in a ship's FTL Drive slot.",
+  };
+}
+export const DRIVE_CLASS_BLUEPRINTS: readonly BlueprintDef[] = [
+  classedDriveBlueprint(2, { ticks: 140, credits: 2_400, craft: 360 }, {}),
+  classedDriveBlueprint(3, { ticks: 200, credits: 6_000, craft: 480 }, { deuteriumCanister: 1 }),
+  classedDriveBlueprint(4, { ticks: 260, credits: 12_000, craft: 600 }, { deuteriumCanister: 2 }),
+  classedDriveBlueprint(5, { ticks: 320, credits: 24_000, craft: 720 }, { deuteriumCanister: 3 }),
+  classedDriveBlueprint(6, { ticks: 400, credits: 48_000, craft: 900 }, { deuteriumCanister: 3, antimatterCell: 1 }),
+  classedDriveBlueprint(7, { ticks: 480, credits: 96_000, craft: 1_080 }, { deuteriumCanister: 3, antimatterCell: 2 }),
+];
+// The classed drives whose tier BOTH facility tracks reach (a level-N facility serves tier N; a track's top level is
+// its rung count), keyed for BLUEPRINTS' spread. Hoisted: BLUEPRINTS below spreads it. Pure over the static tables.
+export function drivesWithinFacilityReach(): Readonly<Record<string, BlueprintDef>> {
+  const top = Math.min(FACILITIES.research?.upgrades.length ?? 0, FACILITIES.fabricator?.upgrades.length ?? 0);
+  const out: Record<string, BlueprintDef> = {};
+  for (const bp of DRIVE_CLASS_BLUEPRINTS) if (bp.tier <= top) out[bp.key] = bp;
+  return out;
+}
 
 export const BLUEPRINTS: Record<string, BlueprintDef> = {
   frameSegmentBp: {
@@ -10429,6 +10547,9 @@ export const BLUEPRINTS: Record<string, BlueprintDef> = {
     flavor: "An even-tempered drive splitting the difference between speed and thrift, the safe default.",
     unlockHint: "Researched at the Research Lab; crafted at the Fabricator once equipment fabrication comes online.",
   },
+  // Expedition Tiers G2-4: the classed FTL drives the facility tracks reach (DRIVE_CLASS_BLUEPRINTS above; Class II
+  // today), right after the Class I drives.
+  ...drivesWithinFacilityReach(),
 
   // --- REACTOR CORE (power: couplings + wafers, top core on a structural spine) ---
   highOutputCoreBp: {

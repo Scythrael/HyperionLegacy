@@ -274,7 +274,11 @@ export function craftLineOutputLabel(kind: CraftLineKind, recipeKey: string): st
   // An equipment blueprint likewise mints an instance; it is named by the slot and
   // variety it fills (App.svelte equipmentOutputLabel).
   if (bp.equipmentOutput !== undefined) {
-    return equipmentVarietyLabel(bp.equipmentOutput.slotType, bp.equipmentOutput.varietyKey);
+    const label = equipmentVarietyLabel(bp.equipmentOutput.slotType, bp.equipmentOutput.varietyKey);
+    // Expedition Tiers G2-4: a classed FTL drive names its class (user G20: "Class IV drive", Roman numerals), so a
+    // Class II Balanced Drive never reads as the Class I one.
+    const cls = bp.driveClass !== undefined && bp.driveClass > 1 ? Math.floor(bp.driveClass) : 1;
+    return cls > 1 ? `${label} (Class ${["I", "II", "III", "IV", "V", "VI", "VII"][cls - 1] ?? cls})` : label;
   }
   // Otherwise it is a MATERIAL blueprint, named by the stackable item it outputs.
   const outputItem = bp.recipe.outputItem;

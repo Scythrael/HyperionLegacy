@@ -78,8 +78,8 @@ import { damageControlBeforeWave } from "./combat/patrolWave";
 import { resolvePatrolWaves, replayPatrol } from "./combat/patrolReplay";
 import { combatHullTypeOf, foldedPlayerDefense, defaultSystemDurabilityForHull } from "./combat/bridge";
 import { installedSensorArray, sensorArrayEffect, sensorArrayRelicFindBonus, getSensorArrayById, SENSOR_ARRAYS } from "./sensorArrays";
-import { startExpedition, expeditionCandidates, resolveExpeditions, advanceExpedition, expeditionGearBonuses } from "./expedition";
-import { ensureMinimumAwayTeam } from "./awayTeamTestFixtures";
+import { expeditionCandidates, resolveExpeditions, advanceExpedition, expeditionGearBonuses } from "./expedition";
+import { ensureMinimumAwayTeam, dispatchPastPropulsion } from "./awayTeamTestFixtures";
 import { rollRelicToken } from "./gambit";
 import { effectiveShipStats } from "./crewOverlay";
 import { buildRelicReveal, researchUnlockedByFind } from "../relicReveal";
@@ -610,7 +610,7 @@ describe("E4d expedition gear: Pathfinder Suite + Bio-Resonance Array feed the d
   const dispatch = (base: GameState) => {
     const s = ensureMinimumAwayTeam(base);
     const cand = expeditionCandidates(s, "ship-1")[0];
-    return startExpedition(s, "ship-1", 1, cand.id);
+    return dispatchPastPropulsion(s, "ship-1", 1, cand.id);
   };
   // NOTE: the snapshot reads whatever is installed; these fixtures place the piece straight onto ship-1 (the
   // install GATE is covered above), so the snapshot math is tested in isolation from hull rules.

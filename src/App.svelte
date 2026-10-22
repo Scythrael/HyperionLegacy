@@ -42,6 +42,8 @@
   // expedition.ts engine (candidates + foreknowledge + phase readers), routes Launch / Claim to the
   // do* handlers below (which own startExpedition / claimExpedition + doSave + pushLog).
   import ExpeditionPanel from "./lib/ExpeditionPanel.svelte";
+  // Short-Range Missions 0.14.0 (G1-6): the Operations "Short-Range" tab (the board, its dispatch popup).
+  import ShortRangePanel from "./lib/ShortRangePanel.svelte";
   // Squads SQ-7.4: the Subspace Telescope Facilities card (its words and galaxy map are telescopeCardDisplay.ts).
   import TelescopeMap from "./lib/TelescopeMap.svelte";
   import { telescopeCardView, telescopeMapView } from "./lib/telescopeCardDisplay";
@@ -1026,7 +1028,12 @@
   // which omitted crew and the museum, so the shown times disagreed with the flown ones).
   import { effectiveShipStats } from "./lib/game/crewOverlay";
   // G1-3: a short-range run's display name (its current job) for the status rows and the recall log.
-  import { shortRangeMissionLabel } from "./lib/game/shortRangeBoard";
+  // G1-6: the board's dispatch and its Repeat toggle (pure engine fns behind the do* handlers below).
+  import { shortRangeMissionLabel, dispatchCaptainOnShortRange, setShortRangeRepeat, shortRangeBoardSlots } from "./lib/game/shortRangeBoard";
+  import { shortRangeHasDeparted } from "./lib/game/shortRangeCycle";
+  import { SHORT_RANGE_BOARD_LIVE } from "./lib/game/model";
+  // G1-6: the Overview's short-range card and the Mission Control card's slot line (tested display decisions).
+  import { shortRangeRunView, missionControlRungSlotText } from "./lib/shortRangeBoardDisplay";
   // Crafted Blanks 0.13.7: the display order for a bulk inspect-reveal (rarity -> quality -> iLevel).
   import { sortRolledPieces } from "./lib/game/inspectSort";
   // ITEM LIFECYCLE 0.13.6 (Armory, Phase 3): the loadout lifecycle, pure over GameState.
@@ -1984,7 +1991,9 @@
   // the new TRANSPORT / supply runs), no longer a locked reserved slot. Routing is by
   // MissionDef.missionType (survey | transport) so exploration content is grouped by what it IS, not
   // by tier. Gathering now shows ONLY extraction/mining missions again.
-  type OperationsTab = "overview" | "gathering" | "exploration" | "missionControl" | "combat";
+  // Short-Range Missions 0.14.0 (G1-6): "shortRange" is the board's own tab beside Exploration (user 2026-10-17 "Own
+  // Operations tab (Recommended)"), shown once SHORT_RANGE_BOARD_LIVE.
+  type OperationsTab = "overview" | "gathering" | "exploration" | "shortRange" | "missionControl" | "combat";
   let activeOperationsTab: OperationsTab = "overview";
 
   // ---- Warehouse facility view (Phase 2, Group C; 0.11.2 Task 9 restructure) --
@@ -3671,12 +3680,47 @@
         missionLabel = shortRangeMissionLabel(captain.mission);
       }
     }
-    const finishesCycle = captain.mission !== null && captain.mission.kind === "shortRange";
-    const { next, success } = recallCaptain(state, captainId);
+    const shortRange = captain.mission !== null && captain.mission.kind === "shortRange" ? captain.mission : null;
+    // G1-4 carry note: recallCaptain takes the clock for the run-end log entry a short-range run still at home writes.
+    const { next, success } = recallCaptain(state, captainId, Date.now());
     if (!success) return;
     state = next;
-    // G1-3: a short-range recall finishes the current cycle first (tick.ts recallCaptain), so the log says so.
-    pushLog(finishesCycle ? `[${captain.label}] Recall ordered: ${missionLabel} stops after this cycle.` : `[${captain.label}] Recall ordered, returning to base from: ${missionLabel}.`);
+    // G1-3: a short-range recall finishes the current cycle first (tick.ts recallCaptain), so the log says so. G1-4: a
+    // run that has not left home yet ends at once and spends nothing.
+    if (shortRange !== null) {
+      pushLog(
+        shortRangeHasDeparted(shortRange)
+          ? `[${captain.label}] Recall ordered: ${missionLabel} stops after this cycle.`
+          : `[${captain.label}] Recalled at home: the ${missionLabel} run ends now, nothing spent.`,
+      );
+    } else {
+      pushLog(`[${captain.label}] Recall ordered, returning to base from: ${missionLabel}.`);
+    }
+    doSave();
+  }
+
+  // Short-Range Missions 0.14.0 (G1-6): put a captain and their hull on a board slot (the board's one-tap Send and the
+  // dispatch popup). The do* pattern: the pure engine fn, the same-reference guard on a refusal, then state, log, save.
+  function doDispatchShortRange(captainId: number, slotId: number, repeat: boolean) {
+    const captain = state.captains.find((c) => c.id === captainId);
+    if (!captain) return;
+    const r = dispatchCaptainOnShortRange(state, captainId, slotId, repeat);
+    if (!r.success || r.next === state) return;
+    state = r.next;
+    const mission = state.captains.find((c) => c.id === captainId)?.mission;
+    const label = mission && mission.kind === "shortRange" ? shortRangeMissionLabel(mission) : "Short-Range Mission";
+    pushLog(`[${captain.label}] Dispatched to Short-Range slot ${slotId + 1}: ${label}${repeat ? ", repeating until recalled" : ", one cycle"}.`);
+    doSave();
+  }
+
+  // G1-6: the board card's Repeat toggle (off: this cycle is the last; on: keep re-rolling).
+  function doSetShortRangeRepeat(captainId: number, repeat: boolean) {
+    const captain = state.captains.find((c) => c.id === captainId);
+    if (!captain) return;
+    const r = setShortRangeRepeat(state, captainId, repeat);
+    if (!r.success || r.next === state) return;
+    state = r.next;
+    pushLog(repeat ? `[${captain.label}] Repeat on: the short-range slot keeps running.` : `[${captain.label}] Repeat off: the short-range run stops after this cycle.`);
     doSave();
   }
 
@@ -3704,6 +3748,8 @@
       // Operations bucket: the two captain-mission arms both live under the Ops tab.
       case "gathering":
       case "combat":
+      // G1-6: the Short-Range board is an Operations tab too.
+      case "shortRange":
         return "fleetOperations";
       // Facilities bucket: every foundry console (research / refinery / fabricator /
       // shipyard / fuel depot) and the facilities overview all live under the Facilities tab.
@@ -3742,6 +3788,10 @@
         break;
       case "combat":
         activeOperationsTab = "combat";
+        break;
+      // G1-6: a short-range run's in-progress and completed rows open its board.
+      case "shortRange":
+        activeOperationsTab = "shortRange";
         break;
       // Facilities bucket: the console view + the specific foundry facility + its action
       // sub-tab. (The tab itself is set above; Home is a different program than the dashboard
@@ -3880,6 +3930,7 @@
       case "facilities":
       case "gathering":
       case "combat":
+      case "shortRange":
         return null;
       default: {
         const _exhaustive: never = target;
@@ -4002,6 +4053,8 @@
     salvage: "salvage",
     // Exploration 0.14.0 (E4c): relic study rows (in flight + identified) wear the relic glyph.
     relic: "relic",
+    // Short-Range Missions 0.14.0 (G1-6): a short-range run's in-progress and completed rows wear the hop glyph.
+    shortRange: "shortRange",
   };
 
   // The registry icon for a hint, or null when the sweep has not reached it yet.
@@ -5776,7 +5829,8 @@
     const { next, started } = startRelicStudy(state, tokenId);
     if (!started || next === state) return;
     state = next;
-    const setLabel = token ? getRelicSetById(token.setId)?.label ?? token.setId : "unknown set";
+    // Relics v2 R2-2: a blank with no set (no site) reads "General".
+    const setLabel = token ? (token.setId === undefined ? "General" : getRelicSetById(token.setId)?.label ?? token.setId) : "unknown set";
     pushLog(`Relic study started → ${token ? token.tier.charAt(0).toUpperCase() + token.tier.slice(1) : ""} ${setLabel} relic.`);
     doSave();
   }
@@ -17089,6 +17143,8 @@
           { key: "gathering", label: "Gathering" },
           { key: "combat", label: "Combat Patrols" },
           { key: "exploration", label: "Exploration" },
+          // G1-6: the Short-Range board, beside Exploration (shown once the board is live).
+          ...(SHORT_RANGE_BOARD_LIVE ? [{ key: "shortRange", label: "Short-Range" }] : []),
           { key: "missionControl", label: "Mission Control" },
           { key: "battlespacePve", label: "Battlespace (PvE)", locked: true },
           { key: "battlespacePvp", label: "Battlespace (PvP)", locked: true },
@@ -17420,9 +17476,10 @@
       {#if activeOperationsTab === "overview"}
         {@const gatheringCaptains = state.captains.filter((c) => extractionMissionOf(c) !== null)}
         {@const patrolCaptains = state.captains.filter((c) => c.mission !== null && c.mission.kind === "patrol")}
+        {@const shortRangeCaptains = state.captains.filter((c) => c.mission !== null && c.mission.kind === "shortRange")}
       <div class="tab-scroll-area">
-        {#if gatheringCaptains.length === 0 && patrolCaptains.length === 0}
-          <p class="prestige-text">No missions in progress. Dispatch a captain from the Gathering or Combat Patrols tab.</p>
+        {#if gatheringCaptains.length === 0 && patrolCaptains.length === 0 && shortRangeCaptains.length === 0}
+          <p class="prestige-text">No missions in progress. Dispatch a captain from the Gathering{SHORT_RANGE_BOARD_LIVE ? ", Combat Patrols or Short-Range tab" : " or Combat Patrols tab"}.</p>
         {/if}
         {#if gatheringCaptains.length > 0}
           <!-- 0.13.6 spacing pass: section headers on Ops/Combat now use the shared home-sec-hd
@@ -17446,6 +17503,43 @@
           {#each patrolCaptains as captain (captain.id)}
             {@render patrolInProgressCard(captain)}
           {/each}
+        {/if}
+        {#if shortRangeCaptains.length > 0}
+          <!-- Short-Range Missions 0.14.0 (G1-6, the signed-off board mockup's "In progress elsewhere"): each run as one
+               card with the board's own words (shortRangeBoardDisplay.ts shortRangeRunView). A run waiting at home reads
+               as a calm status line with no countdown (user 2026-10-21 "Yes, calm status line"), never a warning. -->
+          <div class="home-sec-hd">
+            <span class="home-sec-h">Short-Range</span>
+            <span class="home-sec-count">{shortRangeCaptains.length}</span>
+            <span class="home-sec-rule"></span>
+          </div>
+          {#each shortRangeCaptains as captain (captain.id)}
+            {@const run = shortRangeRunView(state, captain)}
+            {#if run !== null}
+              {@const cur = run.phases[run.phaseIndex]}
+              <div class="mission-card">
+                <div class="research-name"><Icon name={run.job.icon} size="1em" /> {captain.label}, {run.job.label}</div>
+                {#if run.hold !== null}
+                  <div class="research-cost">Slot {run.slotId + 1}, {run.shipLabel}. {run.holdLine}</div>
+                {:else}
+                  <div class="research-cost">Slot {run.slotId + 1}, {run.shipLabel}. {run.phaseLabel}. Cycle {run.cycleNumber}{#if run.recalled}, the last cycle{:else}, re-rolls in {durationReadout(run.cycleRemainingTicks, showTickCounts, state.tickDurationSeconds)}{/if}</div>
+                  <div class="research-bar-track">
+                    <div class="research-bar-fill" style="width:{cur.done * 100}%"></div>
+                  </div>
+                  <div class="research-readout">{remainingReadout(run.phaseRemainingTicks, Math.ceil(cur.ticks), showTickCounts, state.tickDurationSeconds)} in phase</div>
+                {/if}
+                <div class="patrol-card-actions">
+                  <button class="dev-btn" on:click={() => (activeOperationsTab = "shortRange")}>Open board</button>
+                  {#if run.recalled && run.hold === null}
+                    <p class="prestige-text mission-recalled-text">Recall ordered, docking after this cycle.</p>
+                  {:else}
+                    <button class="recall-btn" on:click={() => doRecallCaptain(captain.id)}>Recall Captain</button>
+                  {/if}
+                </div>
+              </div>
+            {/if}
+          {/each}
+          <p class="research-cost">Transit berths at home: {transitBerthsFree(state)} of {transitBerthCount(state)} free. Unloading at home takes a berth, same rules as captain missions.</p>
         {/if}
       </div>
       {/if}
@@ -17757,6 +17851,25 @@
            internal structure and are deferred to the combat build, 0.13.0, per the
            design doc). Nothing renders here until that content exists. -->
 
+      {#if activeOperationsTab === "shortRange" && SHORT_RANGE_BOARD_LIVE}
+      <!-- Short-Range Missions 0.14.0 (G1-6): the BOARD (ShortRangePanel.svelte, built to the signed-off mockup). Actions
+           bubble up to the do* handlers (doDispatchShortRange / doRecallCaptain / doSetShortRangeRepeat), and a locked
+           slot's "Go to Mission Control" lands on the Mission Control upgrade that opens it. -->
+      <div class="tab-scroll-area">
+        <ShortRangePanel
+          {state}
+          {showTickCounts}
+          onDispatch={doDispatchShortRange}
+          onRecall={doRecallCaptain}
+          onSetRepeat={doSetShortRangeRepeat}
+          onOpenMissionControl={() => {
+            activeOperationsTab = "missionControl";
+            activeMissionControlSubTab = "upgrades";
+          }}
+        />
+      </div>
+      {/if}
+
       {#if activeOperationsTab === "missionControl"}
       <!-- Mission Control (mission-unlock facility). Moved VERBATIM here from the
            Facilities tab (0.11.2 nav restructure, Task 5); in the 0.12.0 "Console"
@@ -17813,9 +17926,16 @@
                 {/if}
 
                 <p class="research-status" style="margin-top: 10px; color: var(--color-text-secondary);">
-                  All current missions are available. Future missions will unlock here
-                  as new content is added.
+                  <!-- G1-6 review: a maxed Mission Control promises nothing further here. -->
+                  {#if missionControlMaxed}All current missions are available.{:else}All current missions are available. Future missions will unlock here
+                  as new content is added.{/if}
                 </p>
+                {#if SHORT_RANGE_BOARD_LIVE}
+                  <!-- G1-6: the board's slots grow with this facility (two from the start, then one per upgrade). -->
+                  <p class="research-status" style="margin-top: 6px; color: var(--color-text-secondary);">
+                    Short-Range board: {shortRangeBoardSlots(state).length} slots open. Each upgrade opens one more (Upgrades tab).
+                  </p>
+                {/if}
               </Panel>
             {/if}
 
@@ -17828,17 +17948,24 @@
                   <!-- USER REVISION 2026-07-14: Mission Control caps at its current
                        content (the unlock UPGRADE is deferred until future missions
                        exist, see model.ts FACILITIES.missionControl). This is the
-                       standard maxed state the Refinery/Warehouse tracks show; the note
-                       flags that a future unlock rung re-appears here with new content. -->
+                       standard maxed state the Refinery/Warehouse tracks show. G1-6 review: the old
+                       "Future missions will unlock here" note is gone (a maxed track promises nothing). -->
                   <p class="research-status">Fully upgraded.</p>
-                  <p class="research-status" style="margin-top: 6px; color: var(--color-text-secondary);">
-                    Future missions will unlock here as new content is added.
-                  </p>
                 {:else}
                   <div class="research-name">Next: Level {missionControlLevel} → {missionControlLevel + 1}</div>
+                  <!-- G1-6: a Short-Range board rung names the slot it opens (shortRangeBoardDisplay.ts
+                       missionControlRungSlotText); any other rung keeps the mission-unlock line. -->
+                  {@const rungSlotText = missionControlRungSlotText(nextMissionControlUpgrade.effect, shortRangeBoardSlots(state).length + 1)}
                   <div class="research-cost">
-                    Unlocks the missions gated at level {missionControlLevel + 1} · Duration: {durationReadout(nextMissionControlUpgrade.durationTicks, showTickCounts, state.tickDurationSeconds)}
+                    {rungSlotText ?? `Unlocks the missions gated at level ${missionControlLevel + 1}`} · Duration: {durationReadout(nextMissionControlUpgrade.durationTicks, showTickCounts, state.tickDurationSeconds)}
                   </div>
+                  <!-- G1-6: the board rungs cost credits (the Fabricator card's credit row; canBuildFacilityUpgrade gates it). -->
+                  {#if nextMissionControlUpgrade.credits !== undefined}
+                    {@const met = state.credits.gte(nextMissionControlUpgrade.credits)}
+                    <div class="research-cost" style="color: {met ? 'var(--color-success)' : 'var(--color-danger)'}">
+                      {#if met}<Icon name="check" size={12} />{:else}<Icon name="warning" size={12} />{/if} Cost: ◈ {formatNumber(nextMissionControlUpgrade.credits)} (have {formatNumber(state.credits)})
+                    </div>
+                  {/if}
 
                   <!-- Material readiness ([Item]: have / need, ✅/❌), same idiom as
                        the Refinery/Warehouse upgrade tabs. -->
@@ -20547,7 +20674,7 @@
         <p class="offline-summary-lead">You were away for {formatDuration(sum.secondsAway, 1)}. Here is what your fleet got done.</p>
 
         <div class="offline-summary-scroll">
-          <!-- Missions completed, broken down by type (Combat / Gathering / Other). One row per
+          <!-- Missions completed, broken down by type (Combat / Gathering / Short-Range / Other). One row per
                type that saw a completion; the pure diff already summed the per-mission tallies
                into their type and emitted them in a fixed order. -->
           {#if sum.missionsByType.length > 0}

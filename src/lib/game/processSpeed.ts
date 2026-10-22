@@ -41,7 +41,11 @@ import {
   SHIP_DOCKS_BASE,
   SHIP_TYPES,
   blueprintKind,
+  emptyMuseumV2,
+  generalMuseumRecord,
+  museumV2WithGeneral,
   type GameState,
+  type RegionTier,
   type ShipTypeKey,
   type TimedProcess,
   type TimedProcessKind,
@@ -49,6 +53,8 @@ import {
 import { addToInventory, itemCap, mintBuiltShip } from "./tick";
 import { advanceExpedition } from "./expedition";
 import { itemTotal } from "./inventory";
+import { exceptionalSetsOfTier, getRelicTypeById } from "./relics";
+import { regionTierNumeral } from "./galaxy";
 
 // What a speed action points at: an in-flight timed process (by its "proc-N" id), a captain's current extraction
 // cycle or patrol route, or an expedition (by its "expedition-N" id).
@@ -235,14 +241,31 @@ export function applyTimeSkip(state: GameState, ref: ProcessRef): { next: GameSt
 
 // What a grant gives. Every amount is a positive whole number. `gear` is counted in UNINSPECTED pieces of a gear
 // blueprint (the same blank a Fabricator craft deposits; inspecting one rolls it), so a grant makes no draws.
+// Relics v2 R2-2 (plan R2-2; safe first runs USER ANSWERS group 3: the tutorial "will reward ... at least one or two
+// general relics, and the very first exceptional relic"): `relics` grants IDENTIFIED relics straight to the Museum v2
+// record, with their first finds: a general relic of a given type and region tier (`count` copies), or the first Tier I
+// exceptional piece the save does not hold yet. No draws either.
+export type GrantRelic = { kind: "general"; typeId: string; tier: RegionTier; count: number } | { kind: "firstExceptional" };
+
 export interface GrantBundle {
   credits?: number;
   items?: Readonly<Record<string, number>>;
   gear?: Readonly<Record<string, number>>;
   hullType?: ShipTypeKey;
+  relics?: readonly GrantRelic[];
 }
 
-export type GrantBlockReason = "empty" | "badAmount" | "unknownItem" | "unknownGear" | "unknownHull" | "docksFull" | "storageFull";
+export type GrantBlockReason = "empty" | "badAmount" | "unknownItem" | "unknownGear" | "unknownHull" | "docksFull" | "storageFull" | "unknownRelic" | "relicHeld";
+
+const GRANT_REGION_TIERS: ReadonlySet<number> = new Set([1, 2, 3, 4, 5, 6, 7]);
+
+// The first Tier I exceptional piece `state` holds no copy of, in catalog order, or null when it holds them all. Pure.
+function firstMissingExceptional(state: Pick<GameState, "museumV2">, taken: ReadonlySet<string> = new Set()): string | null {
+  for (const set of exceptionalSetsOfTier(1)) {
+    for (const piece of set.pieces) if (!((state.museumV2?.exceptional?.[piece.id] ?? 0) > 0) && !taken.has(piece.id)) return piece.id;
+  }
+  return null;
+}
 
 const GEAR_BLUEPRINT_KINDS = new Set(["equipment", "weapon", "drone"]);
 const validAmount = (n: number): boolean => Number.isInteger(n) && n > 0;
@@ -251,17 +274,28 @@ const validAmount = (n: number): boolean => Number.isInteger(n) && n > 0;
 export function canGrant(state: GameState, bundle: GrantBundle): { ok: true } | { ok: false; reason: GrantBlockReason } {
   const items = Object.entries(bundle.items ?? {});
   const gear = Object.entries(bundle.gear ?? {});
-  if (bundle.credits === undefined && items.length === 0 && gear.length === 0 && bundle.hullType === undefined) return { ok: false, reason: "empty" };
+  const relics = bundle.relics ?? [];
+  if (bundle.credits === undefined && items.length === 0 && gear.length === 0 && bundle.hullType === undefined && relics.length === 0) return { ok: false, reason: "empty" };
   if (bundle.credits !== undefined && !validAmount(bundle.credits)) return { ok: false, reason: "badAmount" };
   if ([...items, ...gear].some(([, n]) => !validAmount(n))) return { ok: false, reason: "badAmount" };
+  if (relics.some((r) => r.kind === "general" && !validAmount(r.count))) return { ok: false, reason: "badAmount" };
   if (items.some(([id]) => !(id in ITEMS))) return { ok: false, reason: "unknownItem" };
   if (gear.some(([key]) => !(key in BLUEPRINTS) || !GEAR_BLUEPRINT_KINDS.has(blueprintKind(BLUEPRINTS[key])))) return { ok: false, reason: "unknownGear" };
+  if (relics.some((r) => (r.kind === "general" ? !getRelicTypeById(r.typeId) || !GRANT_REGION_TIERS.has(r.tier) : r.kind !== "firstExceptional"))) return { ok: false, reason: "unknownRelic" };
+  // Every first exceptional asked for must find a Tier I piece the save does not hold (two in one bundle take two).
+  const taken = new Set<string>();
+  for (const r of relics) {
+    if (r.kind !== "firstExceptional") continue;
+    const piece = firstMissingExceptional(state, taken);
+    if (piece === null) return { ok: false, reason: "relicHeld" };
+    taken.add(piece);
+  }
   if (bundle.hullType !== undefined) {
     if (!(bundle.hullType in SHIP_TYPES)) return { ok: false, reason: "unknownHull" };
     if (state.ships.length >= state.shipStorageCapacity) return { ok: false, reason: "docksFull" };
   }
   // Items only, and every one already at its storage cap: nothing would arrive, so refuse rather than log an empty gift.
-  const onlyItems = bundle.credits === undefined && gear.length === 0 && bundle.hullType === undefined;
+  const onlyItems = bundle.credits === undefined && gear.length === 0 && bundle.hullType === undefined && relics.length === 0;
   if (onlyItems && items.every(([id]) => itemTotal(state.inventory, id).gte(itemCap(state, id)))) return { ok: false, reason: "storageFull" };
   return { ok: true };
 }
@@ -311,6 +345,33 @@ export function grant(
     next = { ...next, ships: minted.ships, nextShipId: minted.nextShipId, equipment: minted.equipment, nextEquipmentId: minted.nextEquipmentId };
     const label = SHIP_TYPES[bundle.hullType].label;
     parts.push(`${/^[AEIOU]/i.test(label) ? "an" : "a"} ${label}`);
+  }
+
+  // Relics v2 R2-2: identified relics land in the Museum v2 record (a general relic at its region tier, an exceptional
+  // piece as one copy) and append their first find. The exceptional piece's name awaits the user's sign-off sheet, so
+  // the line says "an exceptional relic".
+  const relics = bundle.relics ?? [];
+  if (relics.length > 0) {
+    let museum = next.museumV2 ?? emptyMuseumV2();
+    let relicDiscovered = next.relicDiscovered ?? [];
+    const find = (id: string) => {
+      if (!relicDiscovered.includes(id)) relicDiscovered = [...relicDiscovered, id];
+    };
+    for (const r of relics) {
+      if (r.kind === "general") {
+        const record = generalMuseumRecord({ museumV2: museum }, r.tier);
+        museum = museumV2WithGeneral(museum, { ...record, [r.typeId]: (record[r.typeId] ?? 0) + r.count }, r.tier);
+        find(r.typeId);
+        // "1 Tier I Glyph Tablet relic", "2 Tier II Heart of the Archive relics" (the plural on "relic", never the name).
+        parts.push(counted(r.count, `Tier ${regionTierNumeral(r.tier)} ${getRelicTypeById(r.typeId)!.label} relic`));
+      } else {
+        const piece = firstMissingExceptional({ museumV2: museum })!;
+        museum = { ...museum, exceptional: { ...museum.exceptional, [piece]: 1 } };
+        find(piece);
+        parts.push("an exceptional relic");
+      }
+    }
+    next = { ...next, museumV2: museum, relicDiscovered };
   }
 
   const head = reason.trim().replace(/[.!?]+$/, "");

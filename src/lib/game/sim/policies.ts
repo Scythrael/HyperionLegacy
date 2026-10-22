@@ -11,9 +11,16 @@
 //   newcomer : the SUGGESTIONS archetype "dispatches whatever is available, upgrades whatever is cheapest", on the
 //              REAL fresh save (the General Freighter): hires the board's lowest-rank Security and Science, draws
 //              the Quartermaster's Standard-Issue kit for them, buys the cheapest talents and facility rungs it can,
-//              gathers longer, patrols once, then flies expeditions. CURRENT BEHAVIOR, flipped by G2: only explorers
-//              will reach expedition systems, so the freighter's launch is "not the training run" (the training run
-//              is the first expedition from an explorer) and becomes a refusal.
+//              gathers longer, patrols once, then tries expeditions. Since G2-4 (user 2026-10-16: no non-explorer
+//              hull reaches any expedition system) the freighter's launch is refused (notExplorer), so it flies none.
+//              NO EXPLORER PATH (0.14.0 integration review, documented instead of built): reaching an explorer is
+//              not one action. It is a Research Lab at tier 2 and the Orion Hull Blueprint (5,000 credits, 280
+//              ticks), a Shipyard, the Fabricator chain for the hull's components (10 Frame Segments, 8 Power
+//              Couplings, 3 Structural Assemblies, from refined goods), the build (4,200 credits, 1,000 ticks), then
+//              the captain and the crew moved to the new ship. The sim has no research, refine, craft, ship build or
+//              reassign action, and this newcomer earns about 1,500 credits in its 2 hour gathering phase (seed 0,
+//              most of it spent on cheapest rungs), so the path would be a new speedrun policy, which the WR-2 carry
+//              note gives the balance pass. Expedition coverage stays with allAuto (an Orion from the start).
 //   scripted : any policy plus a list of choices applied to the start (a talent node, an officer bonus, a gear line,
 //              a module, a facility rung, a museum record). The ablation runs scripted([choice]) against allAuto.
 

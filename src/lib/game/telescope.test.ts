@@ -28,8 +28,7 @@ import {
   expeditionCandidates,
   expeditionLaunchView,
   expeditionRiskPreview,
-  startExpedition,
-} from "./expedition";
+  } from "./expedition";
 import {
   PROVISIONAL_HOMEWORLD,
   REGION_TIER_NAMES,
@@ -49,7 +48,7 @@ import {
   telescopeReadingAtLevel,
 } from "./telescope";
 import { buildHomeDashboard } from "./homeDashboard";
-import { plainAwayMember } from "./awayTeamTestFixtures";
+import { plainAwayMember, dispatchPastPropulsion } from "./awayTeamTestFixtures";
 import { groundOpsStuck, groundOpsStuckTaskIds } from "./groundOps";
 
 const TELESCOPE = FACILITIES[SUBSPACE_TELESCOPE_FACILITY_KEY];
@@ -402,7 +401,7 @@ describe("the candidate carries the telescope reading", () => {
       const s = atLevel(level, crewedState());
       const cand = expeditionCandidates(s, "ship-1")[0];
       expect(cand.telescope.blind).toBe(level === 0);
-      const res = startExpedition(s, "ship-1", 1, cand.id);
+      const res = dispatchPastPropulsion(s, "ship-1", 1, cand.id);
       expect(res.success, `dispatch at level ${level}: ${res.reason}`).toBe(true);
       expect(blindLaunchCount(res.next), `blind launch counted at level ${level}`).toBe(level === 0 ? 1 : 0);
       const now: string[] = [JSON.stringify(strip(res.next))];
@@ -473,7 +472,7 @@ describe("the ship's lift changes only what is shown", () => {
       const view = expeditionLaunchView(s, "ship-1", cand); // what the expanded card asks for (SQ-6 follow-up 2)
       if (cand.telescope.detail >= TELESCOPE_DETAIL.recommendation) expect(view.recommendation).not.toBeNull();
       if (cand.telescope.detail >= TELESCOPE_DETAIL.forecast) expect(view.forecast).not.toBeNull();
-      const res = startExpedition(s, "ship-1", 1, cand.id);
+      const res = dispatchPastPropulsion(s, "ship-1", 1, cand.id);
       expect(res.success, `dispatch at level ${level}: ${res.reason}`).toBe(true);
       const now: string[] = [JSON.stringify(strip(res.next))];
       for (const t of CHECKPOINTS) now.push(JSON.stringify(advanceExpedition(res.expedition!, t)));

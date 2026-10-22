@@ -14,6 +14,8 @@
 //     by the generic canBuildFacilityUpgrade gate, proven here via a test-only
 //     fixture facility, so re-adding an unlock rung when future missions land is a
 //     pure data change (no engine work).
+//     G1-6 (0.14.0, Short-Range Missions): exactly that data change landed. The completion-gated rung is back as the
+//     Short-Range board's Tier II slot, plus a level 2 -> 3 rung (a fourth slot); see the second describe below.
 //   - the freshState seed (missionControl level 1) that keeps every mission available
 //     from game start (the no-soft-lock / no-regression guarantee).
 //   - the belt-and-suspenders dispatch guard in dispatchCaptainOnMission (retained for
@@ -30,7 +32,7 @@ import {
   missionUnlocked,
   dispatchCaptainOnMission,
 } from "./tick";
-import { freshState, FACILITIES } from "./model";
+import { freshState, FACILITIES, MISSION_CONTROL_BOARD_RUNGS, MISSION_CONTROL_UNLOCK_COMPLETIONS, SHORT_RANGE_BOARD_LIVE } from "./model";
 
 describe("missionControl, fresh state seed + level-derived unlocks (USER REVISION: all 4 default)", () => {
   it("freshState seeds missionControl at level 1 (established from game start, no soft-lock)", () => {
@@ -45,19 +47,38 @@ describe("missionControl, fresh state seed + level-derived unlocks (USER REVISIO
   });
 });
 
-describe("missionControl, track caps at level 1 (unlock UPGRADE deferred, no placeholder rung)", () => {
-  it("FACILITIES.missionControl has exactly 1 rung (the lone founding rung, no live unlock rung)", () => {
-    expect(FACILITIES.missionControl.upgrades).toHaveLength(1);
+// Short-Range Missions 0.14.0 (G1-6 flips SHORT_RANGE_BOARD_LIVE): the track no longer caps at level 1. The kept
+// completion-gated level 1 -> 2 rung is back as the Short-Range board's Tier II slot (MISSION_CONTROL_BOARD_RUNGS[0],
+// 50 completions of each ore run), followed by the level 2 -> 3 rung (a fourth slot). Neither unlocks a mission; each
+// opens one board slot (shortRangeBoard.ts shortRangeBoardSlots), so no rung is a placeholder.
+describe("missionControl, the founding rung then the Short-Range board rungs (G1-6)", () => {
+  it("FACILITIES.missionControl is the founding rung plus the two board rungs", () => {
+    expect(SHORT_RANGE_BOARD_LIVE).toBe(true);
+    expect(FACILITIES.missionControl.upgrades).toHaveLength(1 + MISSION_CONTROL_BOARD_RUNGS.length);
+    expect(FACILITIES.missionControl.upgrades.slice(1)).toEqual([...MISSION_CONTROL_BOARD_RUNGS]);
   });
 
-  it("no mission-control rung declares requiresMissionCompletions (the completion-gated unlock is deferred)", () => {
-    for (const rung of FACILITIES.missionControl.upgrades) {
-      expect(rung.requiresMissionCompletions).toBeUndefined();
-    }
+  it("only the level 1 -> 2 rung declares requiresMissionCompletions (the kept 50-completion hook)", () => {
+    const gated = FACILITIES.missionControl.upgrades.map((r) => r.requiresMissionCompletions);
+    expect(gated).toEqual([undefined, { shortOreRun: MISSION_CONTROL_UNLOCK_COMPLETIONS, longOreRun: MISSION_CONTROL_UNLOCK_COMPLETIONS }, undefined]);
   });
 
-  it("a level-1 missionControl is fully upgraded (no next rung, caps at current content)", () => {
+  it("a level-1 missionControl's next rung waits on the completions, then on the credits", () => {
     const state = freshState(); // level 1 == the seed
+    const result = canBuildFacilityUpgrade(state, "missionControl");
+    expect(result.ok).toBe(false);
+    expect(result.reason).toMatch(/completions/);
+    const played = {
+      ...state,
+      lifetimeStats: { ...state.lifetimeStats, missionsCompleted: { shortOreRun: new Decimal(50), longOreRun: new Decimal(50) } },
+    };
+    expect(canBuildFacilityUpgrade({ ...played, credits: new Decimal(0) }, "missionControl").ok).toBe(false);
+    expect(canBuildFacilityUpgrade({ ...played, credits: new Decimal(1e6) }, "missionControl").ok).toBe(true);
+  });
+
+  it("level 3 is fully upgraded (the board's four slots)", () => {
+    const state = { ...freshState(), credits: new Decimal(1e9) };
+    state.facilities = { ...state.facilities, missionControl: { level: 3 } };
     const result = canBuildFacilityUpgrade(state, "missionControl");
     expect(result.ok).toBe(false);
     expect(result.reason).toMatch(/fully upgraded/);

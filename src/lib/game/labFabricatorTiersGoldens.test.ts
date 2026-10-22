@@ -61,7 +61,9 @@ describe("OC-15 golden 1: the existing rungs of both tracks", () => {
 
 describe("OC-15 golden 2: slots, researchable keys and fabricate reasons at today's levels", () => {
   it("Lab 0 to 2 x Fabricator 0 to 3", () => {
-    const keys = Object.keys(BLUEPRINTS).sort();
+    // Merged with G2-4 (0.14.0 integration): its classed drive blueprints (driveClass set, Class II to VII) came after
+    // this capture and are held apart, the census precedent; every other key reads as captured.
+    const keys = Object.keys(BLUEPRINTS).filter((k) => BLUEPRINTS[k].driveClass === undefined).sort();
     const rows: string[] = [];
     for (let lab = 0; lab <= 2; lab++) {
       for (let fab = 0; fab <= 3; fab++) {
