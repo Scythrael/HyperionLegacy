@@ -38,7 +38,7 @@ import { DRONE_POD_BASE_POWER_DRAW, generateDronePod, generateEquipment, generat
 import { effectiveShipStats } from "./crewOverlay";
 import { advanceExpedition, claimExpedition, expeditionCandidates, startExpedition } from "./expedition";
 import { shipEventsLive } from "./shipScanEvents";
-import { asPreVoyageDispatch, plainAwayMember, withSlottedAwayTeams } from "./awayTeamTestFixtures";
+import { asPreVoyageDispatch, plainAwayMember, withSlottedAwayTeams, asPrePatrolCurveDispatch } from "./awayTeamTestFixtures";
 import { WIRING_REGISTRY, type WiringEntry } from "./wiring/registry";
 import { siReadBack } from "./siMemberGearRegistry.fixture";
 import { getSeniorStaffBonusById } from "./seniorStaffBonuses";
@@ -240,7 +240,7 @@ const ROUTES: PatrolKey[] = ["crimsonReaverSweep", "crimsonReaverWarband"];
 
 function patrolRun(hull: ShipTypeKey, route: PatrolKey): string[] {
   const st = powerFixture(hull);
-  const r = dispatchCaptainOnPatrol(st, 1, route, "balanced", true);
+  const r = asPrePatrolCurveDispatch(dispatchCaptainOnPatrol(st, 1, route, "balanced", true));
   if (!r.success) return [`refused:${r.reason}`];
   let s = r.next;
   const out = [hash(s.captains[0].mission)];

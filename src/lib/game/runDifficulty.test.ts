@@ -279,7 +279,8 @@ describe("SF-1: the engine writes the counters", () => {
     expect(again.next).toBe(r.next);
   });
 
-  it("each won patrol route counts on the patrol curve, the same in one call or one tick at a time", () => {
+  // SF-4: the save's first patrol is the training cycle, whose route stays off the curve (SF5 "minus the tutorial run").
+  it("each won patrol route counts on the patrol curve (the training cycle's excepted), the same in one call or one tick at a time", () => {
     const s = onHull("destroyer");
     const r = dispatchCaptainOnPatrol(s, 1, "crimsonReaverSweep", "balanced", true);
     expect(r.success).toBe(true);
@@ -288,7 +289,7 @@ describe("SF-1: the engine writes the counters", () => {
     for (let i = 0; i < 400; i++) stepped = economyTick(stepped, 1, RNG);
     const won = Number(big.lifetimeStats.missionsCompleted.crimsonReaverSweep ?? new Decimal(0));
     expect(won).toBeGreaterThan(0);
-    expect(runCountsOf(big).patrol).toEqual({ dispatched: 1, completed: won, veteran: false });
+    expect(runCountsOf(big).patrol).toEqual({ dispatched: 1, completed: won - 1, veteran: false });
     expect(runCountsOf(stepped).patrol).toEqual(runCountsOf(big).patrol);
   });
 

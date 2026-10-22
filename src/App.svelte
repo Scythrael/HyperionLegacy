@@ -707,6 +707,9 @@
   } from "./lib/game/shipRoster";
   import { threatAssessment, type ThreatAssessment } from "./lib/game/combat/threatAssessment";
   import { resolvePatrolWaves } from "./lib/game/combat/patrolReplay";
+  // Safe first runs SF-4: the difficulty a patrol dispatched now flies (the save's one safe patrol, or the curve), so
+  // the Threat Assessment forecasts the fight the dispatch will actually write.
+  import { patrolDifficultyAt } from "./lib/game/runDifficulty";
   // salvageShip(state, shipId) breaks down a whole HULL from the Ships roster for a
   // fraction of its build cost. Its SUCCESS branch carries a { next, recovered,
   // creditsRecovered } shape (SalvageShipResult, credits are unique to the ship path);
@@ -4355,7 +4358,10 @@
     // this digest busts the stale cache.
     const gearIds = installedGear.map((g) => g.id).join(",");
     const conditionDigest = installedGear.map((g) => pieceCondition(g)).join(",");
-    const signature = `${patrolKey}::${ship.id}::${stance}::${gearIds}::${conditionDigest}`;
+    // SF-4: the difficulty a dispatch would stamp now (absent at full strength), part of the key so the band moves
+    // when the safe patrol is spent or the curve climbs.
+    const difficulty = patrolDifficultyAt(state);
+    const signature = `${patrolKey}::${ship.id}::${stance}::${gearIds}::${conditionDigest}::${JSON.stringify(difficulty ?? null)}`;
     const cached = patrolForecastCache.get(patrolKey);
     if (cached && cached.signature === signature) return cached.value;
 
@@ -4421,6 +4427,7 @@
         startShield: startDefense.shieldMax,
         startDrones,
         startSystemDurability,
+        difficulty,
       });
       // A full-patrol WIN = survived every scheduled wave (never limped home defeated).
       if (!result.defeated) wins += 1;

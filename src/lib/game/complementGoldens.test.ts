@@ -60,7 +60,7 @@ import { CREW_PROFESSIONS, commandStructureForHull, complementTotalCap, division
 import { totalCrew } from "./crew";
 import { TRANSPORT_BATCH_SIZE, TRANSPORT_WINDOW_SECONDS, transportBatch } from "./transports";
 import { FIELD_REPAIR_DAMAGE_SHARE } from "./groundOps";
-import { asLegacyDispatch, asPreG2NamesDispatch, asPreRanksDispatch, asPreSafeFirstRunsDispatch, plainAwayMember, withSlottedAwayTeams } from "./awayTeamTestFixtures";
+import { asLegacyDispatch, asPreG2NamesDispatch, asPreRanksDispatch, asPreSafeFirstRunsDispatch, plainAwayMember, withSlottedAwayTeams, asPrePatrolCurveDispatch } from "./awayTeamTestFixtures";
 
 // ===== shared helpers =====
 
@@ -347,7 +347,7 @@ describe("CP-0 pre-complement goldens", () => {
   it("patrol: a Repeat patrol on a carrier, relaunched, with the display replay", () => {
     const base = freshState();
     const st = installMissingCombatBaselines({ ...base, credits: new Decimal(100000), ships: base.ships.map((sh) => ({ ...sh, typeKey: "carrier" as ShipTypeKey })) });
-    const r = dispatchCaptainOnPatrol(st, 1, "crimsonReaverSweep", "balanced", true);
+    const r = asPrePatrolCurveDispatch(dispatchCaptainOnPatrol(st, 1, "crimsonReaverSweep", "balanced", true));
     expect(r.success).toBe(true);
     let s = r.next;
     const out = [hash(s.captains[0].mission)];
@@ -517,7 +517,7 @@ function oc11Expedition(): { out: GameState; claimedNext: GameState } {
 function oc11Patrol(): GameState {
   const base = freshState();
   const st = installMissingCombatBaselines({ ...base, credits: new Decimal(100000), gameTimeSeconds: OC11_START, ships: base.ships.map((sh) => ({ ...sh, typeKey: "carrier" as ShipTypeKey })) });
-  const r = dispatchCaptainOnPatrol(st, 1, "crimsonReaverSweep", "balanced", true);
+  const r = asPrePatrolCurveDispatch(dispatchCaptainOnPatrol(st, 1, "crimsonReaverSweep", "balanced", true));
   expect(r.success).toBe(true);
   const out = offlineAndLive(r.next, () => () => 0.5);
   expect(out.captains[0].mission).not.toBeNull();

@@ -56,7 +56,7 @@ import { snapshotAwayRoster } from "./awayTeam";
 import { makeRng } from "./combat/rng";
 import { itemTotal } from "./inventory";
 // Ground Ops GO-1: whole-state goldens hash without the new, inert ground-team slots (captured before them).
-import { asLegacyDispatch, asPreG2NamesDispatch, withSlottedAwayTeams, withoutGroundSquadState } from "./awayTeamTestFixtures";
+import { asLegacyDispatch, asPreG2NamesDispatch, withSlottedAwayTeams, withoutGroundSquadState, asPrePatrolCurveDispatch } from "./awayTeamTestFixtures";
 // SF-1: whole states hash without the run counters (seeded by freshState, written by a patrol), absent before SF-1.
 import { withoutRunCounts, goldenJson } from "./firstRunsGoldens.fixture";
 
@@ -201,7 +201,7 @@ describe("neutrality: no officer = byte-identical to before Task 20 (golden)", (
 
   it("patrols (live loop + relaunches + the display replay)", () => {
     for (const typeKey of ["destroyer", "carrier", "battleship"] as ShipTypeKey[]) {
-      const r = dispatchCaptainOnPatrol(patrolState(typeKey), 1, "crimsonReaverSweep", "balanced", true);
+      const r = asPrePatrolCurveDispatch(dispatchCaptainOnPatrol(patrolState(typeKey), 1, "crimsonReaverSweep", "balanced", true));
       expect(r.success).toBe(true);
       let s = r.next;
       expect(fnv(goldenJson(s.captains[0].mission))).toBe(GOLDEN[`patrol:${typeKey}:dispatch`]);
@@ -241,7 +241,7 @@ describe("neutrality: no officer = byte-identical to before Task 20 (golden)", (
   it("a ship whose officers carry only non-combat bonuses freezes NO combat record", () => {
     const s = patrolState("destroyer", [officerWith("ops.cargoExpand")]);
     expect(officerCombatMods(s, s.ships[0])).toBeUndefined();
-    const r = dispatchCaptainOnPatrol(s, 1, "crimsonReaverSweep", "balanced", false);
+    const r = asPrePatrolCurveDispatch(dispatchCaptainOnPatrol(s, 1, "crimsonReaverSweep", "balanced", false));
     expect("officerCombat" in patrolOf(r.next)).toBe(false);
   });
 });
@@ -284,7 +284,7 @@ describe("ship-battle bonuses (Weapons, Shield, Evasive Command; Inspiring Leade
     const folded = foldedPlayerDefense(SHIP_TYPES.destroyer, equippedFor(s, "ship-1"), officerCombatMods(s, s.ships[0]));
     expect(folded.shieldMax).toBe(c.shieldMax);
     // The patrol seeds its wave-1 shield from the same fold.
-    const r = dispatchCaptainOnPatrol(s, 1, "crimsonReaverSweep", "balanced", false);
+    const r = asPrePatrolCurveDispatch(dispatchCaptainOnPatrol(s, 1, "crimsonReaverSweep", "balanced", false));
     expect(patrolOf(r.next).playerShield).toBe(c.shieldMax);
   });
 
@@ -333,7 +333,7 @@ describe("ship-battle bonuses (Weapons, Shield, Evasive Command; Inspiring Leade
 
   it("a patrol FREEZES the cycle's officer bonuses at dispatch; reseating mid-cycle changes neither the fight nor the replay", () => {
     const s = destroyer([officerWith("tac.weaponCommand"), officerWith("pilot.evasion", "pilot", "officer-2")]);
-    const r = dispatchCaptainOnPatrol(s, 1, "crimsonReaverSweep", "balanced", false);
+    const r = asPrePatrolCurveDispatch(dispatchCaptainOnPatrol(s, 1, "crimsonReaverSweep", "balanced", false));
     expect(patrolOf(r.next).officerCombat).toEqual({ weaponDamage: 0.1, shield: 0, hull: 0, evasion: 0.1 });
     // Live: keep the officers seated. Reseated: both officers leave the ship right after dispatch.
     let live = r.next;
@@ -353,14 +353,14 @@ describe("ship-battle bonuses (Weapons, Shield, Evasive Command; Inspiring Leade
   });
 
   it("the officer bonuses change the fight (vs the same patrol without them)", () => {
-    const off = dispatchCaptainOnPatrol(destroyer([]), 1, "crimsonReaverSweep", "balanced", false).next;
-    const on = dispatchCaptainOnPatrol(
+    const off = asPrePatrolCurveDispatch(dispatchCaptainOnPatrol(destroyer([]), 1, "crimsonReaverSweep", "balanced", false)).next;
+    const on = asPrePatrolCurveDispatch(dispatchCaptainOnPatrol(
       destroyer([officerWith("tac.weaponCommand"), officerWith("pilot.evasion", "pilot", "officer-2")]),
       1,
       "crimsonReaverSweep",
       "balanced",
       false,
-    ).next;
+    )).next;
     const a = replayPatrol(off, off.captains[0]);
     const b = replayPatrol(on, on.captains[0]);
     expect(JSON.stringify(b.waves.map((w) => w.log))).not.toBe(JSON.stringify(a.waves.map((w) => w.log)));
@@ -369,7 +369,7 @@ describe("ship-battle bonuses (Weapons, Shield, Evasive Command; Inspiring Leade
   it("a repeat-dispatch RELAUNCH freezes the officers seated at the relaunch", () => {
     // Dispatched with no officer; an officer is seated mid-cycle. The current cycle keeps fighting without
     // the bonus, the NEXT cycle (the relaunch) carries it.
-    const r = dispatchCaptainOnPatrol(destroyer([]), 1, "crimsonReaverSweep", "balanced", true);
+    const r = asPrePatrolCurveDispatch(dispatchCaptainOnPatrol(destroyer([]), 1, "crimsonReaverSweep", "balanced", true));
     let s: GameState = { ...r.next, officers: [officerWith("tac.shieldCommand")] };
     expect(patrolOf(s).officerCombat).toBeUndefined();
     const firstSeed = patrolOf(s).masterSeed;
@@ -382,7 +382,7 @@ describe("ship-battle bonuses (Weapons, Shield, Evasive Command; Inspiring Leade
     const s = destroyer([officerWith("tac.weaponCommand"), officerWith("tac.shieldCommand", "tactical", "officer-2")]);
     // Two tactical bonuses on one seat type would be refused by assignOfficerToShip; this fixture seats them
     // directly to stress the fold, which is legal input to the pure functions.
-    const r = dispatchCaptainOnPatrol(s, 1, "crimsonReaverSweep", "balanced", true);
+    const r = asPrePatrolCurveDispatch(dispatchCaptainOnPatrol(s, 1, "crimsonReaverSweep", "balanced", true));
     const captain = r.next.captains[0];
     const ship = r.next.ships[0];
     const gear = equippedFor(r.next, "ship-1");
@@ -566,7 +566,7 @@ describe("Command Presence (mission output)", () => {
 
   it("grows a patrol's loot and bounty, in whole units", () => {
     const run = (officers: SeniorStaffOfficer[]) => {
-      let s = dispatchCaptainOnPatrol(patrolState("destroyer", officers), 1, "crimsonReaverSweep", "balanced", false).next;
+      let s = asPrePatrolCurveDispatch(dispatchCaptainOnPatrol(patrolState("destroyer", officers), 1, "crimsonReaverSweep", "balanced", false)).next;
       for (let i = 0; i < 400; i++) s = economyTick(s, 1, () => 0.5);
       return s;
     };
