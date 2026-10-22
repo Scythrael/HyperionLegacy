@@ -5,6 +5,7 @@ import { advanceTo, createCatchUp, EXACT_BOUND_SECONDS, MAX_CATCHUP_STEPS } from
 import { serializeSecret, freshSecretState, type SecretState } from "./state";
 import { effectiveExponent } from "./engine";
 import { earlyManualState, midAutoState, postPrestigeceptionState, pastFinaleState, live } from "./testStates";
+import { simulatePlayer } from "./sim";
 
 const H = 3600;
 
@@ -15,8 +16,10 @@ beforeAll(() => {
     mid: midAutoState(),
     postPc: postPrestigeceptionState(),
     pastFinale: pastFinaleState(),
+    // The reviewer's case: the steady player's state on day 2, whose long gaps cross the finale.
+    day2: simulatePlayer({ profile: "steady", days: 2, stopAfterLongDays: 0 }).final,
   };
-}, 60000);
+}, 120000);
 
 describe("short gaps match live exactly", () => {
   for (const gap of [1, 59, 3600, EXACT_BOUND_SECONDS]) {
@@ -42,55 +45,93 @@ function progressAtLeast(a: SecretState, b: SecretState): boolean {
   return a.captainPoints.gte(b.captainPoints);
 }
 
-describe("long gaps never pay less than live", () => {
-  const cases: [string, number][] = [];
-  for (const name of ["early", "mid", "postPc", "pastFinale"]) for (const gap of [EXACT_BOUND_SECONDS + 1, 10 * H, 2 * 24 * H]) cases.push([name, gap]);
-  cases.push(["mid", 7 * 24 * H]);
-  for (const [name, gap] of cases) {
-    it(`${name} state, ${(gap / H).toFixed(1)} h away`, () => {
-      const s = states[name];
-      const coarse = advanceTo(s, s.lastTickAt + gap * 1000);
-      expect(coarse.mode).toBe("coarse");
-      const l = live(s, gap);
-      const c = coarse.state;
-      expect(c.lastTickAt).toBe(l.lastTickAt);
-      // best Ore ever, on the scale the player sees and is paid by
-      const eL = effectiveExponent(l.bestOre);
-      const eC = effectiveExponent(c.bestOre);
-      const e0 = effectiveExponent(s.bestOre);
-      expect(eC).toBeGreaterThanOrEqual(eL - 1e-9 * Math.max(1, eL));
-      // The sane bound above: never more than live play would have reached by staying open twice as
-      // long. (Auto prestiges fire at slightly different moments at different step sizes, and in a
-      // loop of automatic resets that compounds, so the bound is stated in time rather than in Ore.)
-      // Checked on the gaps up to 10 hours, where a doubled live run stays quick to compute.
-      if (gap <= 10 * H) {
-        const generous = effectiveExponent(live(s, gap * 2).bestOre);
-        expect(eC).toBeLessThanOrEqual(generous + 1e-9 * Math.max(1, generous));
+// Live checkpoints for one state, computed in ONE continuous 1-second run (live play is
+// deterministic, so live(s, x) then more seconds equals live(s, x + more)).
+function liveCheckpoints(s: SecretState, at: number[]): Map<number, SecretState> {
+  const out = new Map<number, SecretState>();
+  let cur = s;
+  let done = 0;
+  for (const x of [...new Set(at)].sort((p, q) => p - q)) {
+    cur = live(cur, x - done);
+    done = x;
+    out.set(x, cur);
+  }
+  return out;
+}
+
+const D = 24 * H;
+const GAPS: Record<string, number[]> = {
+  early: [EXACT_BOUND_SECONDS + 1, 10 * H, 2 * D, 3 * D],
+  mid: [EXACT_BOUND_SECONDS + 1, 10 * H, 2 * D, 3 * D, 7 * D],
+  postPc: [EXACT_BOUND_SECONDS + 1, 10 * H, 2 * D, 3 * D],
+  pastFinale: [EXACT_BOUND_SECONDS + 1, 10 * H, 2 * D, 3 * D],
+  day2: [EXACT_BOUND_SECONDS + 1, 10 * H, 2 * D, 3 * D],
+};
+// The sane bound above: never more than live play would reach by staying open longer. Twice the
+// gap up to 10 hours, half again the gap beyond (where live runs are long to compute).
+const generousGap = (gap: number) => (gap <= 10 * H ? gap * 2 : Math.round(gap * 1.5));
+
+describe("long gaps never pay less than live, and never more than live in a longer stay", () => {
+  for (const [name, gaps] of Object.entries(GAPS)) {
+    describe(`${name} state`, () => {
+      let checkpoints: Map<number, SecretState>;
+      beforeAll(() => {
+        checkpoints = liveCheckpoints(states[name], [...gaps, ...gaps.map(generousGap)]);
+      }, 300000);
+      for (const gap of gaps) {
+        it(`${(gap / H).toFixed(1)} h away`, () => {
+          const s = states[name];
+          const coarse = advanceTo(s, s.lastTickAt + gap * 1000);
+          expect(coarse.mode).toBe("coarse");
+          expect(coarse.steps).toBeLessThanOrEqual(MAX_CATCHUP_STEPS);
+          const l = checkpoints.get(gap)!;
+          const c = coarse.state;
+          expect(c.lastTickAt).toBe(l.lastTickAt);
+          const eL = effectiveExponent(l.bestOre);
+          const eC = effectiveExponent(c.bestOre);
+          const e0 = effectiveExponent(s.bestOre);
+          expect(eC).toBeGreaterThanOrEqual(eL - 1e-9 * Math.max(1, eL));
+          const generous = effectiveExponent(checkpoints.get(generousGap(gap))!.bestOre);
+          expect(eC).toBeLessThanOrEqual(generous + 1e-9 * Math.max(1, generous));
+          expect(progressAtLeast(c, l)).toBe(true);
+          expect(c.dreamPoints.gte(l.dreamPoints)).toBe(true);
+          if (l.milestones.finale !== undefined) expect(c.milestones.finale).toBeDefined();
+          // with no resets in the window, the run itself (Ore, Overclock, owned) is comparable too
+          const noReset = c.captainCount === s.captainCount && l.captainCount === s.captainCount && c.fleetTotal === s.fleetTotal && l.fleetTotal === s.fleetTotal && c.pcCount === s.pcCount && l.pcCount === s.pcCount;
+          if (noReset) {
+            expect(effectiveExponent(c.ore)).toBeGreaterThanOrEqual(effectiveExponent(l.ore) - 1e-9 * Math.max(1, effectiveExponent(l.ore)));
+            expect(c.overclock).toBeGreaterThanOrEqual(l.overclock);
+            for (let k = 0; k < 8; k++) expect(c.owned[k].gte(l.owned[k].mul(1 - 1e-9))).toBe(true);
+          }
+          report(`[parity] ${name} ${(gap / H).toFixed(1)}h: live e${eL.toFixed(1)} coarse e${eC.toFixed(1)} bound e${generous.toFixed(1)} (start e${e0.toFixed(1)}) steps ${coarse.steps} noReset ${noReset}`);
+        }, 60000);
       }
-      expect(progressAtLeast(c, l)).toBe(true);
-      expect(c.dreamPoints.gte(l.dreamPoints)).toBe(true);
-      // with no resets in the window, the run itself (Ore, Overclock, owned) is comparable too
-      const noReset = c.captainCount === s.captainCount && l.captainCount === s.captainCount && c.fleetTotal === s.fleetTotal && l.fleetTotal === s.fleetTotal && c.pcCount === s.pcCount && l.pcCount === s.pcCount;
-      if (noReset) {
-        expect(effectiveExponent(c.ore)).toBeGreaterThanOrEqual(effectiveExponent(l.ore) - 1e-9 * Math.max(1, effectiveExponent(l.ore)));
-        expect(c.overclock).toBeGreaterThanOrEqual(l.overclock);
-        for (let k = 0; k < 8; k++) expect(c.owned[k].gte(l.owned[k].mul(1 - 1e-9))).toBe(true);
-      }
-      report(`[parity] ${name} ${(gap / H).toFixed(1)}h: live e${eL.toFixed(1)} coarse e${eC.toFixed(1)} (start e${e0.toFixed(1)}) steps ${coarse.steps} noReset ${noReset}`);
-    }, 60000);
+    });
   }
 });
 
 describe("catch-up stays fast", () => {
-  it("a 30-day gap stays fast", () => {
+  it("a 30-day gap stays fast and never blocks: bounded steps, 8 ms slices", () => {
     const s = states.mid;
+    const job = createCatchUp(s, s.lastTickAt + 30 * 24 * H * 1000);
     const t0 = performance.now();
-    const r = advanceTo(s, s.lastTickAt + 30 * 24 * H * 1000);
+    let slices = 0;
+    let longest = 0;
+    for (;;) {
+      const a = performance.now();
+      const finished = job.runFor(8);
+      longest = Math.max(longest, performance.now() - a);
+      slices += 1;
+      if (finished) break;
+    }
     const ms = performance.now() - t0;
-    report(`[perf] 30-day catch-up: ${r.steps} steps in ${ms.toFixed(0)} ms`);
+    const r = job.result();
+    report(`[perf] 30-day catch-up: ${r.steps} steps, ${ms.toFixed(0)} ms of work over ${slices} slices, longest slice ${longest.toFixed(1)} ms`);
     expect(r.steps).toBeLessThanOrEqual(MAX_CATCHUP_STEPS);
-    expect(ms).toBeLessThan(1500);
-  });
+    expect(ms).toBeLessThan(5000);
+    expect(longest).toBeLessThan(25);
+    expect(serializeSecret(r.state)).toBe(serializeSecret(advanceTo(s, s.lastTickAt + 30 * 24 * H * 1000).state));
+  }, 60000);
 
   it("a full exact window stays fast too", () => {
     const s = states.pastFinale;
@@ -99,7 +140,7 @@ describe("catch-up stays fast", () => {
     const ms = performance.now() - t0;
     report(`[perf] 6-hour exact catch-up: ${r.steps} steps in ${ms.toFixed(0)} ms`);
     expect(ms).toBeLessThan(1500);
-  });
+  }, 60000);
 });
 
 describe("sliced catch-up", () => {

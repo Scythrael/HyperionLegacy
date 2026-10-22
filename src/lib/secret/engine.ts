@@ -560,10 +560,12 @@ function ensureRecoverableMut(s: SecretState): void {
   if (s.owned.every((d) => d.lte(0)) && s.ore.lt(unitPrice(s, 0))) s.ore = new Decimal(START_ORE);
 }
 
-export function stepMut(s: SecretState, dt: number, atMs: number): void {
+// productionDt lets a coarse catch-up step produce a little longer than the time it books (its
+// fairness margin) without moving the run clock, the peaks or the prestige checks off real time.
+export function stepMut(s: SecretState, dt: number, atMs: number, productionDt: number = dt): void {
   ensureRecoverableMut(s);
   autoBuyMut(s);
-  produceMut(s, dt);
+  produceMut(s, productionDt);
   s.runSeconds += dt;
   if (s.ore.gt(s.runPeak)) s.runPeak = s.ore;
   if (s.ore.gt(s.fleetPeak)) s.fleetPeak = s.ore;
