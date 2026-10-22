@@ -71,6 +71,9 @@ import type { DroneSquadron } from "./drones";
 // depends only on rng.ts, never on types.ts, so this import cannot loop.
 import type { DurableSystem, SystemCondition } from "./durability";
 
+// E-MOD EM-6: the frozen combat proc shape (shipModules.ts, a leaf of types only). TYPE ONLY, zero runtime cycle.
+import type { ModuleCombatProc } from "../shipModules";
+
 // A single weapon mounted on a combatant.
 //
 // This is the REAL Phase 3 weapon model (it replaced the Phase 2 flat-`yield`
@@ -288,6 +291,12 @@ export interface Combatant {
 	// draw), so the draw schedule is unchanged. OPTIONAL: absent (enemies, a ship with no such module) leaves the battle
 	// byte-identical.
 	moduleConditionals?: readonly { pool: "hull" | "shield"; fraction: number; weaponDamage: number }[];
+	// E-MOD EM-6 (0.14.0): the ship's installed PROC and ACTIVE universal modules for combat (shipModules.ts
+	// moduleCombatProcs, folded by bridge.ts applyModuleCombat), in module id order. resolveBattle fires each from its
+	// trigger point (battle start, incoming ambush, after ambush, on hit, per combat tick, below a hull threshold) on
+	// the combatant's OWN private stream (shipModules.ts moduleProcSeed), never the combat stream. OPTIONAL: absent
+	// (enemies, a ship with no such module) takes no draw and leaves the battle byte-identical.
+	moduleProcs?: readonly ModuleCombatProc[];
 	// WR-5b (0.14.0): the commanding captain's battle-time Tactician edges (see CaptainCombatEdge) and Bulwark's
 	// charges (a hit that would take the hull to 0 or below leaves it at 1 and spends one; combat/captainEdge.ts
 	// landHullDamage). OPTIONAL: absent on enemies and on a ship whose captain owns none, so the battle is unchanged.
@@ -540,6 +549,13 @@ export interface CombatEvent {
 	// narration: it READS systemCondition (no RNG, no mutation) and NEVER gates a
 	// shot, so offline stays byte-identical and this cannot move an outcome.
 	systemConditions?: SystemConditionPip[];
+
+	// E-MOD EM-6 "moduleProc" events (under generateLog only, like every event): the universal module that fired (its
+	// catalog id, the flavor layer binds its label as {module}) and the effect it applied ("arcDamage": `damage` dealt
+	// to targetId; "shieldRestore": `damage` is the shield restored to the actor, targetId === actorId). shieldAfter /
+	// hullAfter are the affected ship's pools, so the replay fold stays truthful.
+	moduleId?: string;
+	moduleEffect?: "arcDamage" | "shieldRestore";
 }
 
 // One durable system's condition pip for the combat view (Phase 12b Unit B1). A

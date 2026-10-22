@@ -33,6 +33,8 @@ import {
   // (one seeded draw, Standard..Radiant) + the rarity type generateEquipment consumes.
   rollCraftedRarity,
   type EquipmentRarity,
+  // E-MOD EM-6: a module piece's rarity and quality scale (the mission-cycle modules).
+  moduleEffectScale,
   MISSIONS,
   BASE_XP_PER_TICK,
   // Combat 0.13.0 (Phase 9b.5a): the patrol content table + its shapes, for patrol
@@ -300,6 +302,8 @@ import { computeItemLevel, generateEquipment, generateWeapon, generateDronePod, 
 import { makeRng } from "./combat/rng";
 // Material Lines ML-3 + ML-4: the delivery climb (private keyed stream) and the craft quality carry.
 import { carriedQuality, climbedQuality, craftOutputQuality, deliveryClimbUnits, materialQualityStream, type ConsumedQuality, type MaterialPreference } from "./materialQuality";
+// E-MOD EM-6: the mission-cycle module trigger (its frozen procs, the private stream, the bonus haul).
+import { bonusHaulUnits, moduleCycleProcs, moduleCycleSeed, rollModuleChance, type ModuleCycleProc } from "./shipModules";
 // E-CREW 0.14.0 (Task 21): the Constitution ramp's tick length for mission-def hours.
 import { RAMP_SECONDS_PER_TICK } from "./constitutionRamp";
 // Crafting 0.13.3 (Phase 3 Unit 3.2): the WEIGHTED crafting-XP award for a completed
@@ -1937,6 +1941,13 @@ export function tickCaptainMission(
     motherlodeChance?: number;
     transportMarginBonus?: number;
     transportSupplyDiscount?: number;
+    // E-MOD EM-6 (the mission-cycle trigger): the ship's installed mission-cycle modules (shipModules.ts
+    // moduleCycleProcs, in module id order) and the save's own seed their stream mixes in. A call-constant: a module
+    // cannot move while its ship is out (equipment.ts moduleLockedOut), so the pieces read at the call ARE the run's
+    // frozen set. Each delivered non-transport cycle rolls every proc once on ONE private stream (moduleCycleSeed of the
+    // captain's LIFETIME CaptainState.moduleCycles, which then steps); a landed bonusHaul adds its fraction of the
+    // cycle's common haul. Absent / empty = no stream, no draw, the exact pre-EM-6 arithmetic.
+    moduleCycle?: { saveSeed: number; procs: readonly ModuleCycleProc[] };
   } = {},
   // The assigned ship's three derived stats (cargoCapacity, transitSpeedMult,
   // extractionYieldMult), or null for "no ship modifier", the default, which
@@ -2254,6 +2265,9 @@ export function tickCaptainMission(
   // WR-5a: Motherlode (a call-constant chance) and the captain's lifetime roll counter, advanced in delivery order.
   const motherlodeChance = Math.max(0, bonuses.motherlodeChance ?? 0);
   let motherlodeCycles: number | undefined = captain.motherlodeCycles;
+  // E-MOD EM-6: the mission-cycle modules (a call-constant) and the captain's lifetime module counter.
+  const moduleCycle = bonuses.moduleCycle !== undefined && bonuses.moduleCycle.procs.length > 0 ? bonuses.moduleCycle : null;
+  let moduleCycles: number | undefined = captain.moduleCycles;
 
   // E-CREW 0.14.0 (Task 20): Command Presence's output share, a CALL-CONSTANT like the bonuses above (it is
   // read off the ship's seated officers by economyTick, which never reseats mid-call), applied at each
@@ -2468,9 +2482,22 @@ export function tickCaptainMission(
           motherlode = makeRng(motherlodeSeed(captain.id, motherlodeCycles ?? 0)).next() < motherlodeChance;
           motherlodeCycles = (motherlodeCycles ?? 0) + 1;
         }
-        const haul = motherlode
+        let haul = motherlode
           ? { commonOre: found.commonOre.times(2), uncommonMaterial: found.uncommonMaterial.times(2), rareMaterial: found.rareMaterial.times(2) }
           : found;
+        // E-MOD EM-6 (the mission-cycle trigger): each mission-cycle module rolls once for this delivered non-transport
+        // cycle, in module id order, on ONE private stream keyed on the captain's lifetime module counter (which then
+        // steps, so no cycle of a career shares a key); a landed bonusHaul grows the cycle's COMMON material by its
+        // fraction (after Motherlode, before Command Presence and Operations' bonus, so their shares grow it too).
+        if (moduleCycle !== null && missionDef.missionType !== "transport") {
+          const stream = makeRng(moduleCycleSeed(moduleCycle.saveSeed, captain.id, moduleCycles ?? 0));
+          moduleCycles = (moduleCycles ?? 0) + 1;
+          for (const proc of moduleCycle.procs) {
+            if (!rollModuleChance(stream, proc.chanceUnits)) continue;
+            const bonus = bonusHaulUnits(haul.commonOre.toNumber(), proc.fraction);
+            if (bonus > 0) haul = { ...haul, commonOre: haul.commonOre.plus(bonus) };
+          }
+        }
         // Exploration 0.14.0 (Phase E1b): TRANSPORT missions deposit NO extraction loot (a transport
         // is a pure credit loop, not a mining run). The cargo still ACCUMULATED during extracting (the
         // roll loop above is untouched, so the seeded rng stream stays byte-aligned live and offline),
@@ -2747,6 +2774,8 @@ export function tickCaptainMission(
       ...(cunningCycles !== undefined ? { cunningCycles } : {}),
       // WR-5a: the lifetime Motherlode counter, written only once a cycle has rolled.
       ...(motherlodeCycles !== undefined ? { motherlodeCycles } : {}),
+      // E-MOD EM-6: the lifetime module-cycle counter, written only once a cycle has rolled.
+      ...(moduleCycles !== undefined ? { moduleCycles } : {}),
     },
     homePlanetDelta,
     fleetAdminXpDelta,
@@ -4476,6 +4505,8 @@ export function economyTick(
       motherlodeChance: captainMotherlodeChance(captain),
       transportMarginBonus: tradeTerms.marginBonus,
       transportSupplyDiscount: tradeTerms.supplyDiscount,
+      // E-MOD EM-6: the ship's mission-cycle modules (undefined without one: no stream, no draw).
+      moduleCycle: ship ? missionCycleModulesFor(state, ship.id) : undefined,
     };
     // rng passed explicitly (rather than omitted) since bonuses is positional
     // arg 4, omitting arg 3 here would pass bonuses AS rng. rng is economyTick's
@@ -6239,6 +6270,16 @@ const WORKS_DIRECTORATE_DENOMINATOR = 10_000;
 export function worksDirectorateSaveSeed(state: Pick<GameState, "homeworld">): number {
   const seed = state.homeworld?.seed;
   return typeof seed === "number" && Number.isFinite(seed) ? seed >>> 0 : 0;
+}
+
+// E-MOD EM-6 (the mission-cycle trigger): the mission-cycle modules installed on `shipId`, with the save's own seed for
+// their stream (tickCaptainMission's bonuses.moduleCycle), or undefined when the ship carries none (every ship today):
+// then tickCaptainMission takes no module draw at all. Pure.
+export function missionCycleModulesFor(state: GameState, shipId: string): { saveSeed: number; procs: ModuleCycleProc[] } | undefined {
+  const pieces = equippedFor(state, shipId);
+  if (!pieces.some((p) => p.slotType === "module")) return undefined;
+  const procs = moduleCycleProcs(pieces, (p) => moduleEffectScale(p.rarity, p.quality));
+  return procs.length > 0 ? { saveSeed: worksDirectorateSaveSeed(state), procs } : undefined;
 }
 
 // The keyed stream seed of the Fabricator job minted as process number `processNumber` in the save keyed by

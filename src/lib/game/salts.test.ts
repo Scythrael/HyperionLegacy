@@ -35,6 +35,7 @@ import * as crewGraduation from "./crewGraduation";
 import * as shortRange from "./shortRange";
 import * as relicBlanks from "./relicBlanks";
 import * as materialQuality from "./materialQuality";
+import * as shipModules from "./shipModules";
 
 // The modules whose salts must be distinct AND odd.
 const MODULES: Record<string, Record<string, unknown>> = {
@@ -66,6 +67,8 @@ const MODULES: Record<string, Record<string, unknown>> = {
   "relicBlanks.ts": relicBlanks,
   // Material Lines ML-3: the delivery climb's private rounding roll (MATERIAL_QUALITY_SALT).
   "materialQuality.ts": materialQuality,
+  // E-MOD EM-6: the Proc and Active engine's private streams (battle, mission cycle, body scan).
+  "shipModules.ts": shipModules,
 };
 
 // Legacy salts checked for DISTINCTNESS only. model.ts AWAY_RECRUIT_SEED_SALT (0x5a17c0de) predates the odd

@@ -59,7 +59,9 @@ import type {
   SnapshotMember,
   PromotionObjectiveKind,
 } from "./model";
-import { SHIP_TYPES, commandingCaptain, memberVariety } from "./model";
+import { SHIP_TYPES, commandingCaptain, memberVariety, moduleEffectScale } from "./model";
+// E-MOD EM-6: the body-scanned module trigger (its frozen procs and private stream).
+import { moduleScanProcs, moduleScanSeed, rollModuleChance } from "./shipModules";
 import { makeRng, type Rng } from "./combat/rng";
 import { installedSensorArray, sensorArrayEffect, sensorArrayRelicFindBonus } from "./sensorArrays";
 // E4d: the relic-unlocked Pathfinder Suite's expedition effect (a pure leaf over the installed pieces).
@@ -1523,6 +1525,8 @@ function buildExpedition(
   const difficulty = runDifficultyAt(state, "expedition", risk.profile.tier, ship.typeKey);
   // WR-5c: the commanding captain's run-frozen explorer nodes (undefined without them).
   const explorer = explorerCaptainRun(commandingCaptain(state, ship));
+  // E-MOD EM-6: the ship's body-scan modules, frozen here (empty without one, so nothing is written).
+  const scanProcs = moduleScanProcs(equippedFor(state, shipId), (p) => moduleEffectScale(p.rarity, p.quality));
 
   const expedition: Expedition = {
     id,
@@ -1595,6 +1599,8 @@ function buildExpedition(
     // WR-5c: the commanding captain's run-frozen explorer nodes (Field Science, Away-Team Doctrine, Preservationist,
     // Relic Hunter, Drillmaster), only when it owns one (captainExplorerEffects.ts explorerCaptainRun).
     ...(explorer ? { explorerCaptain: explorer } : {}),
+    // E-MOD EM-6: the body-scanned modules (assignDiscoveriesAndActivities), only when the ship carries one.
+    ...(scanProcs.length > 0 ? { moduleScanProcs: scanProcs } : {}),
   };
   return expedition;
 }
@@ -1820,6 +1826,26 @@ function assignDiscoveriesAndActivities(
     if (pool.length === 0) continue;
     const poi = pickWeightedPoi(ghost, pool).poi;
     discoveries.push({ id: `${exp.id}-${body.id}-disc-${discoveries.length}`, kind: surface ? "landmark" : "underground", poiId: poi.id });
+  }
+  // E-MOD EM-6 (the body-scanned trigger): each frozen body-scan module (Expedition.moduleScanProcs, module id order)
+  // rolls its chance as the body completes, on ONE private stream per body (shipModules.ts moduleScanSeed), never the
+  // body's discovery stream, so every discovery above is untouched; a landed extraDiscovery adds `count` discoveries,
+  // last, each drawn like the ghost's (the pool when both have candidates, then the site). A run without the field
+  // (every run today) takes no draw here.
+  const scanProcs = exp.moduleScanProcs;
+  if (scanProcs !== undefined && scanProcs.length > 0) {
+    const stream = makeRng(moduleScanSeed(exp.seed, bodyIndex));
+    for (const proc of scanProcs) {
+      if (!rollModuleChance(stream, proc.chanceUnits)) continue;
+      for (let k = 0; k < proc.count; k++) {
+        const both = pools.surface.length > 0 && pools.underground.length > 0;
+        const surface = both ? stream.nextInt(2) === 0 : pools.surface.length > 0;
+        const pool = surface ? pools.surface : pools.underground;
+        if (pool.length === 0) continue;
+        const poi = pickWeightedPoi(stream, pool).poi;
+        discoveries.push({ id: `${exp.id}-${body.id}-disc-${discoveries.length}`, kind: surface ? "landmark" : "underground", poiId: poi.id });
+      }
+    }
   }
   body.discoveries = discoveries;
   body.activities = discoveries.map((d, k) => ({

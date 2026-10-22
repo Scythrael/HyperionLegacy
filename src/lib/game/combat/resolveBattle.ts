@@ -57,7 +57,9 @@ import {
 	REPLENISH_PPM,
 } from "./droneDefense";
 import type { Defender } from "./droneDefense";
-import { makeStreams, type Rng } from "./rng";
+import { makeRng, makeStreams, type Rng } from "./rng";
+// E-MOD EM-6 (0.14.0): the Proc and Active engine's rules and private streams (a leaf of types only).
+import { MODULE_ARC_FAMILY, moduleProcReady, moduleProcSeed, rollModuleChance, type ModuleCombatTriggerKind, type ModuleProcClock } from "../shipModules";
 import {
 	applyEffect,
 	tickEffects,
@@ -1364,6 +1366,138 @@ function tiebreakByHullPercent(
 }
 
 // ---------------------------------------------------------------------------
+// E-MOD EM-6 (0.14.0, plan docs/plans/2026-10-17-material-lines-and-emod-plan.md section 4 EM-6): THE PROC AND
+// ACTIVE ENGINE (the Combat 1.1 active-ability engine, design section 10's bounded trigger taxonomy as the user set it
+// in M4, 2026-10-19). A combatant's installed Procs and Actives (Combatant.moduleProcs, bridge.ts) fire from six
+// FIXED points: battle start (before the first tick and before any ambush opener), incoming ambush (the ambushed
+// party, before the opening salvo), after ambush (the ambushed party, after a salvo fired), on hit (the ship took a
+// connecting weapon shot or drone volley, the ambush salvo included), and once per tick after status effects: per
+// combat tick, then below a hull threshold (strictly below its fraction of the pool).
+//
+// THE RULE (user M3, "One preset rule", no editor): a proc fires when its trigger point is reached, its rule holds
+// (once per battle: not yet fired; a cooldown: that many ticks since it last fired) and its effect would do something
+// (an arc needs a living target: the attacker for on hit and the ambush points, else the ship's current target; a
+// shield restore needs missing shields), and then its chance lands. An Active is a proc that always casts (no chance).
+// A failed chance spends nothing, so a once-per-battle proc keeps trying at its next trigger.
+//
+// DETERMINISM: each carrier rolls on its OWN private stream, makeRng(moduleProcSeed(battle seed, turn index)), never
+// the combat stream; a certain chance takes no draw. Every draw and every effect runs whether or not the log is built
+// (only the log pushes and their cosmetic flavor picks are gated), so offline == live == the display replay. A battle
+// with no module anywhere builds no engine (makeModuleEngine returns null) and every trigger point is a no-op, so it
+// is byte-identical to before EM-6 (emodEm6Goldens.test.ts).
+// ---------------------------------------------------------------------------
+interface ModuleEngine {
+	// Fire every proc of `carrier` on trigger `kind` at tick `t` (0 for the opening points). `attacker` is the ship
+	// that struck (on hit) or ambushed (the ambush points).
+	fire(carrier: Combatant, kind: ModuleCombatTriggerKind, t: number, attacker?: Combatant): void;
+}
+
+function makeModuleEngine(
+	combatants: Combatant[],
+	seed: number,
+	cosmetic: Rng,
+	generateLog: boolean,
+	log: CombatEvent[],
+): ModuleEngine | null {
+	const runtime = new Map<string, { rng: Rng; clocks: ModuleProcClock[] }>();
+	combatants.forEach((c, index) => {
+		const procs = c.moduleProcs;
+		if (procs === undefined || procs.length === 0) return;
+		runtime.set(c.id, { rng: makeRng(moduleProcSeed(seed, index)), clocks: procs.map(() => ({ fired: false, lastTick: undefined })) });
+	});
+	if (runtime.size === 0) return null;
+	return {
+		fire(carrier, kind, t, attacker) {
+			const rt = runtime.get(carrier.id);
+			if (rt === undefined) return;
+			const procs = carrier.moduleProcs!;
+			const round = Math.floor(t / TENTHS_PER_SECOND);
+			for (let i = 0; i < procs.length; i++) {
+				const proc = procs[i];
+				if (proc.trigger !== kind) continue;
+				// A ship killed by an earlier proc's backlash (never today) or by the hit itself fires nothing.
+				if (!carrier.alive) return;
+				if (kind === "hullBelow" && !(carrier.hull < carrier.hullMax * (proc.hullBelowFraction ?? 0))) continue;
+				const clock = rt.clocks[i];
+				if (!moduleProcReady(proc, clock, t)) continue;
+				if (proc.effect === "arcDamage") {
+					const target = attacker ?? selectTarget(carrier, combatants);
+					if (target === undefined || !target.alive || proc.amount <= 0) continue;
+					if (!rollModuleChance(rt.rng, proc.chanceUnits)) continue;
+					clock.fired = true;
+					clock.lastTick = t;
+					// One EW-family hit through the shared mitigation pipeline (shields, resists, armor, Bulwark).
+					const res = applyProjectileDamage(target, MODULE_ARC_FAMILY, 0, 0, proc.amount);
+					let killed = false;
+					if (target.hull <= 0 && target.alive) {
+						target.alive = false;
+						killed = true;
+					}
+					if (generateLog) {
+						log.push(
+							attachFlavor(
+								{
+									tDeciSec: t,
+									round,
+									type: "moduleProc",
+									actorId: carrier.id,
+									targetId: target.id,
+									damage: res.dealt,
+									result: "arcDamage",
+									shieldAfter: target.shield,
+									hullAfter: target.hull,
+									shieldDamage: res.shieldDealt,
+									hullDamage: res.hullDealt,
+									moduleId: proc.moduleId,
+									moduleEffect: "arcDamage",
+									family: MODULE_ARC_FAMILY,
+								},
+								cosmetic,
+							),
+						);
+						if (killed) {
+							log.push(
+								attachFlavor(
+									{ tDeciSec: t, round, type: "destroyed", actorId: carrier.id, targetId: target.id, result: "destroyed", shieldAfter: target.shield, hullAfter: target.hull },
+									cosmetic,
+								),
+							);
+						}
+					}
+				} else {
+					const restore = Math.min(Math.floor((carrier.shieldMax * proc.amount) / 1000), carrier.shieldMax - carrier.shield);
+					if (!(restore > 0)) continue;
+					if (!rollModuleChance(rt.rng, proc.chanceUnits)) continue;
+					clock.fired = true;
+					clock.lastTick = t;
+					carrier.shield += restore;
+					if (generateLog) {
+						log.push(
+							attachFlavor(
+								{
+									tDeciSec: t,
+									round,
+									type: "moduleProc",
+									actorId: carrier.id,
+									targetId: carrier.id,
+									damage: restore,
+									result: "shieldRestore",
+									shieldAfter: carrier.shield,
+									hullAfter: carrier.hull,
+									moduleId: proc.moduleId,
+									moduleEffect: "shieldRestore",
+								},
+								cosmetic,
+							),
+						);
+					}
+				}
+			}
+		},
+	};
+}
+
+// ---------------------------------------------------------------------------
 // AMBUSH OPENER (design S7, Phase 6). Resolve the ambusher's free opening salvo
 // before the main loop: it strikes HULL DIRECTLY (shields not up yet) with the
 // ambusher's ambush-eligible weapons only, and stuns the target's return fire.
@@ -1392,6 +1526,8 @@ function resolveAmbushOpener(
 	// pure narration record; only written under generateLog, only read by the phase
 	// derivation, never gates a shot.
 	hasFired: Set<string>,
+	// E-MOD EM-6: the battle's module engine (null without a module anywhere: every call below is skipped).
+	modules: ModuleEngine | null = null,
 ): void {
 	// The ambusher must exist + be alive to open. An unknown/dead id is a caller
 	// mistake we tolerate silently (no opener) rather than throw mid-battle.
@@ -1413,6 +1549,9 @@ function resolveAmbushOpener(
 		detected = combat.chance(target.particleTraceDetector, 100);
 	}
 
+	// E-MOD EM-6: the ambushed party's incoming-ambush procs, before the salvo lands (an arc strikes the ambusher).
+	if (modules !== null) modules.fire(target, "incomingAmbush", 0, ambusher);
+
 	// Fire each AMBUSH-ELIGIBLE weapon once. Heavy weapons (Concussion Torpedo,
 	// ambushEligible false) are BARRED (design S7: a hull-direct torpedo is a delete
 	// button). Hull-direct unless the target detected + shielded up. Track whether
@@ -1422,6 +1561,9 @@ function resolveAmbushOpener(
 	const bypassShields = !detected;
 	let firedOpener = false;
 	for (const weapon of ambusher.weapons) {
+		// E-MOD EM-6: an ambusher a module arc destroyed fires no more of its salvo. Without a module the ambusher is
+		// always alive here (the opener passes no drone screen, so nothing can strike back), so this never skips.
+		if (!ambusher.alive) break;
 		if (!weapon.ambushEligible) continue;
 		// PHASE 12b UNIT B1: an offline (depleted) weapon cannot fire the opener either.
 		// Moot at battle start (systems ship full), but consistent with the fire loop.
@@ -1482,7 +1624,12 @@ function resolveAmbushOpener(
 				);
 			}
 		}
+		// E-MOD EM-6: the ambushed party's on-hit procs (a connecting opener shot), after the shot is narrated.
+		if (modules !== null && shot.projectilesHit > 0) modules.fire(target, "onHit", 0, ambusher);
 	}
+
+	// E-MOD EM-6: the ambushed party's after-ambush procs, once a salvo actually fired.
+	if (modules !== null && firedOpener) modules.fire(target, "afterAmbush", 0, ambusher);
 
 	// RETURN-FIRE DELAY (design S7). A detected ambush (shields up, not caught
 	// unaware) or a fizzled one (no eligible weapon fired) imposes NO delay.
@@ -1740,6 +1887,14 @@ export function resolveBattle(
 		}
 	}
 
+	// E-MOD EM-6: the battle's Proc and Active engine (null when no combatant carries one: every trigger point below
+	// is then skipped, the battle byte-identical to before), and the battle-start point: before the first tick and
+	// before any ambush opener.
+	const modules = makeModuleEngine(combatants, seed, cosmetic, generateLog, log);
+	if (modules !== null) {
+		for (const c of combatants) modules.fire(c, "battleStart", 0);
+	}
+
 	// PHASE 6 AMBUSH return-fire delay (design S7). Maps a combatant id -> the tick
 	// at or after which it may FIRE (its weapons hold until then). Default (absent)
 	// = 0 = fire from tick 1 (no delay). Only an ambushed target gets a positive
@@ -1760,6 +1915,7 @@ export function resolveBattle(
 			log,
 			returnFireReadyTick,
 			hasFired,
+			modules,
 		);
 	}
 
@@ -2179,6 +2335,9 @@ export function resolveBattle(
 						}
 					}
 				}
+				// E-MOD EM-6: the struck ship's on-hit procs (a connecting shot), after the shot is narrated. An arc that
+				// destroys this attacker ends its salvo at the liveness check above.
+				if (modules !== null && shot.projectilesHit > 0) modules.fire(target, "onHit", t, self);
 			}
 
 				// PHASE C2: DRONE SQUADRONS (design S8, Phase 7a OFFENSE). Each squadron
@@ -2353,6 +2512,8 @@ export function resolveBattle(
 							);
 						}
 					}
+					// E-MOD EM-6: the struck ship's on-hit procs (a connecting volley), after the volley is narrated.
+					if (modules !== null && volley.dronesHit > 0) modules.fire(target, "onHit", t, self);
 				}
 		}
 
@@ -2473,6 +2634,16 @@ export function resolveBattle(
 						cosmetic,
 					),
 				);
+			}
+		}
+
+		// E-MOD EM-6 PHASE D2: every living carrier's per-combat-tick procs, then its below-a-hull-threshold procs, after
+		// status effects and before the objective (so an arc kill decides the battle this tick). Skipped without a module.
+		if (modules !== null) {
+			for (const self of combatants) {
+				if (!self.alive) continue;
+				modules.fire(self, "combatTick", t);
+				modules.fire(self, "hullBelow", t);
 			}
 		}
 
