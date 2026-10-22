@@ -11,7 +11,7 @@ import {
   markCodesTabSeen,
   CODES_SEEN_KEY,
 } from "./runtime";
-import { SECRET_SAVE_KEY, deserializeSecret, freshSecretState, serializeSecret } from "./state";
+import { SECRET_SAVE_KEY, SECRET_BACKUP_KEY, deserializeSecret, freshSecretState, serializeSecret, type SecretState } from "./state";
 import { buyTier } from "./engine";
 import { installMemoryStorage, installBlockedStorage, restoreStorage } from "./testStorage";
 
@@ -90,8 +90,58 @@ describe("secret runtime", () => {
   });
 });
 
+describe("guards", () => {
+  it("a secret-game error never escapes and never leaves the catch-up stuck", () => {
+    installMemoryStorage();
+    stop = startSecretRuntime();
+    secretAct((s) => buyTier(s, 0, "one"));
+    const good = get(secretGame);
+    // An action that throws is refused and the state is kept.
+    expect(secretAct(() => {
+      throw new Error("boom");
+    })).toBe(false);
+    expect(get(secretGame)).toBe(good);
+    // A state that makes the step throw: the tick and the sliced catch-up both recover.
+    secretAct((s) => ({ ...s, owned: null as unknown as SecretState["owned"] }));
+    expect(() => vi.advanceTimersByTime(3000)).not.toThrow();
+    devFastForwardSecret(3600);
+    expect(() => vi.advanceTimersByTime(100)).not.toThrow();
+    expect(get(secretCatchingUp)).toBe(false);
+  });
+
+  it("refuses actions while a sliced catch-up runs instead of forcing it through", () => {
+    installMemoryStorage();
+    stop = startSecretRuntime();
+    secretAct((s) => buyTier(s, 0, "one"));
+    devFastForwardSecret(6 * 3600);
+    expect(get(secretCatchingUp)).toBe(true);
+    expect(secretAct((s) => buyTier(s, 0, "one"))).toBe(false);
+    vi.advanceTimersByTime(1000);
+    expect(get(secretCatchingUp)).toBe(false);
+    expect(secretAct((s) => buyTier(s, 0, "max"))).toBe(true);
+  });
+
+  it("never overwrites a save from a newer version, and keeps a corrupt one under the backup key", () => {
+    const data = installMemoryStorage();
+    const future = JSON.stringify({ v: 7, fromTheFuture: true });
+    data.set(SECRET_SAVE_KEY, future);
+    stop = startSecretRuntime();
+    secretAct((s) => buyTier(s, 0, "one"));
+    vi.advanceTimersByTime(31000);
+    stop();
+    stop = null;
+    expect(data.get(SECRET_SAVE_KEY)).toBe(future);
+    expect(data.get(SECRET_BACKUP_KEY)).toBe(future);
+    data.set(SECRET_SAVE_KEY, "{corrupt");
+    stop = startSecretRuntime();
+    secretAct((s) => buyTier(s, 0, "one"));
+    expect(data.get(SECRET_BACKUP_KEY)).toBe("{corrupt");
+    expect(deserializeSecret(data.get(SECRET_SAVE_KEY) ?? null, 0)?.bought[0]).toBe(1);
+  });
+});
+
 describe("the NEW tag flag", () => {
-  it("is not seen until marked, and survives blocked storage as not seen", () => {
+  it("is not seen until marked; blocked storage hides the tag (design section 3)", () => {
     const data = installMemoryStorage();
     expect(codesTabSeen()).toBe(false);
     markCodesTabSeen();
@@ -99,7 +149,7 @@ describe("the NEW tag flag", () => {
     expect(data.get(CODES_SEEN_KEY)).toBe("1");
     restoreStorage();
     installBlockedStorage();
-    expect(codesTabSeen()).toBe(false);
+    expect(codesTabSeen()).toBe(true);
     expect(() => markCodesTabSeen()).not.toThrow();
   });
 });
