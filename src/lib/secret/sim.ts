@@ -1,0 +1,141 @@
+// sim.ts: the steady-player pacing simulation for the secret game (0.13.11). TESTS ONLY: the app
+// never imports this file. sim.test.ts pins the planned playtime with it (design section 7).
+//
+// The player: starts at 18:00 with a 90-minute session and checks back at 22:00 for 20 minutes,
+// then every day at 08:00, 12:30, 18:00 and 22:00 for 20 minutes ("steady"). "light" checks in
+// twice a day for 15 minutes; "keen" plays longer at first and checks in six times a day. Offline
+// gaps run through the real catch-up (advanceTo), with a smaller exact window to keep the test
+// fast; catchUp.test.ts proves coarse catch-up never pays less, so this is a fair stand-in.
+//
+// Every 3 minutes in a session (and once more on leaving) the player: buys skills in the listed
+// order when affordable; takes Fleet Prestige if it at least doubles Augment Points (or is the
+// first); else Prestigeception if it at least doubles Dream Points (or is the first); else, until
+// Auto Captain is owned, Captain Prestige if it at least doubles Captain Points (holding off when
+// the first Fleet is within reach); then, until auto-buyers cover it, Overclock Max with half the
+// Ore and Max on every tier, highest first. Auto targets stay at their 100% default.
+
+import { freshSecretState, type SecretState } from "./state";
+import { stepMut, buyOverclockMut, buyTierMut, buySkill, canBuySkill, captainGain, fleetGain, prestigeceptionGain, doCaptain, doFleet, doPrestigeception, effectiveExponent, hasSkill } from "./engine";
+import { advanceTo } from "./catchUp";
+import { SKILLS, type MilestoneId } from "./config";
+
+export type SimProfile = "steady" | "light" | "keen";
+
+const H = 3600;
+const START_MS = Date.UTC(2026, 9, 22, 18, 0, 0);
+
+export function sessions(profile: SimProfile, days: number): [number, number][] {
+  const out: [number, number][] = [];
+  if (profile === "steady") {
+    out.push([0, 90 * 60], [4 * H, 20 * 60]);
+    for (let d = 1; d <= days; d++) {
+      const midnight = d * 24 * H - 18 * H;
+      for (const h of [8, 12.5, 18, 22]) out.push([midnight + h * H, 20 * 60]);
+    }
+  } else if (profile === "light") {
+    out.push([0, 90 * 60]);
+    for (let d = 1; d <= days; d++) {
+      const midnight = d * 24 * H - 18 * H;
+      for (const h of [8, 20]) out.push([midnight + h * H, 15 * 60]);
+    }
+  } else {
+    out.push([0, 150 * 60], [4 * H, 30 * 60]);
+    for (let d = 1; d <= days; d++) {
+      const midnight = d * 24 * H - 18 * H;
+      for (const h of [7, 10, 13, 16, 19, 22]) out.push([midnight + h * H, 20 * 60]);
+    }
+  }
+  return out;
+}
+
+export interface SimResult {
+  events: Record<string, number>; // seconds from the start
+  final: SecretState;
+  wallMs: number;
+  samples: [number, number][]; // [seconds, best effective exponent] every 6 hours
+}
+
+function decide(s: SecretState, atMs: number): SecretState {
+  for (const def of SKILLS) {
+    if (hasSkill(s, def.id)) continue;
+    if (!canBuySkill(s, def.id)) {
+      if (def.requires && !hasSkill(s, def.requires)) continue;
+      break;
+    }
+    s = buySkill(s, def.id, atMs);
+  }
+  const fg = fleetGain(s);
+  const pg = prestigeceptionGain(s);
+  const cg = captainGain(s);
+  if (fg.gt(0) && (s.augmentPoints.eq(0) || fg.gte(s.augmentPoints))) s = doFleet(s, atMs);
+  else if (pg.gt(0) && (s.dreamPoints.eq(0) || pg.gte(s.dreamPoints))) s = doPrestigeception(s, atMs);
+  else if (!hasSkill(s, "autoCaptain") && cg.gt(0) && (s.captainPoints.eq(0) || cg.gte(s.captainPoints)) && !(s.fleetTotal === 0 && effectiveExponent(s.fleetPeak) >= 250)) {
+    s = doCaptain(s, atMs);
+  }
+  if (!(hasSkill(s, "autoBuyLow") && hasSkill(s, "autoOverclock"))) {
+    buyOverclockMut(s, s.ore.mul(0.5));
+    for (let k = s.tiersUnlocked - 1; k >= 0; k--) buyTierMut(s, k, s.ore);
+  }
+  return s;
+}
+
+export function simulatePlayer(opts: { profile?: SimProfile; days: number; exactBoundSeconds?: number; stopAfterLongDays?: number }): SimResult {
+  const t0 = performance.now();
+  const profile = opts.profile ?? "steady";
+  let s = freshSecretState(START_MS);
+  const events: Record<string, number> = {};
+  const samples: [number, number][] = [];
+  const sec = () => (s.lastTickAt - START_MS) / 1000;
+  const mark = (name: string) => {
+    if (!(name in events)) events[name] = sec();
+  };
+  // Milestone-backed events use the exact moment the engine recorded (also inside offline gaps);
+  // the rest are noticed by the player the next time the simulation looks.
+  const FROM_MILESTONES: [string, MilestoneId][] = [
+    ["captain1", "firstCaptain"], ["googol", "googol"], ["fleet1", "firstFleet"], ["e1000", "e1000"],
+    ["singularity", "singularity"], ["pc1", "firstPc"], ["e100000", "e100k"], ["finale", "finale"], ["long", "long"],
+  ];
+  const watch = () => {
+    for (const [name, id] of FROM_MILESTONES) {
+      const at = s.milestones[id];
+      if (at !== undefined && !(name in events)) events[name] = (at - START_MS) / 1000;
+    }
+    const e = effectiveExponent(s.bestOre);
+    if (s.fleetTotal >= 6) mark("fleet6");
+    if (e >= 10000) mark("e10000");
+    if (e >= 900000) mark("e900000");
+    for (const def of SKILLS) if (hasSkill(s, def.id)) mark(`skill:${def.id}`);
+  };
+  let nextSample = 0;
+  for (const [start, length] of sessions(profile, opts.days)) {
+    if (sec() < start) {
+      s = advanceTo(s, START_MS + start * 1000, { exactBoundSeconds: opts.exactBoundSeconds ?? 600 }).state;
+      watch();
+    }
+    const end = start + length;
+    let nextDecision = sec();
+    while (sec() < end) {
+      if (sec() >= nextDecision) {
+        s = decide(s, s.lastTickAt);
+        nextDecision += 180;
+      }
+      stepMut(s, 1, s.lastTickAt + 1000);
+      s.lastTickAt += 1000;
+      watch();
+    }
+    s = decide(s, s.lastTickAt);
+    while (sec() >= nextSample) {
+      samples.push([nextSample, effectiveExponent(s.bestOre)]);
+      nextSample += 6 * H;
+    }
+    if (events.long !== undefined && sec() > events.long + (opts.stopAfterLongDays ?? 8) * 24 * H) break;
+  }
+  return { events, final: s, wallMs: performance.now() - t0, samples };
+}
+
+export function bestExponentAt(r: SimResult, seconds: number): number {
+  let best = 0;
+  for (const [t, e] of r.samples) if (t <= seconds) best = e;
+  return best;
+}
+

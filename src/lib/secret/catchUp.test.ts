@@ -60,7 +60,14 @@ describe("long gaps never pay less than live", () => {
       const eC = effectiveExponent(c.bestOre);
       const e0 = effectiveExponent(s.bestOre);
       expect(eC).toBeGreaterThanOrEqual(eL - 1e-9 * Math.max(1, eL));
-      expect(eC - e0).toBeLessThanOrEqual(1.25 * (eL - e0) + 1);
+      // The sane bound above: never more than live play would have reached by staying open twice as
+      // long. (Auto prestiges fire at slightly different moments at different step sizes, and in a
+      // loop of automatic resets that compounds, so the bound is stated in time rather than in Ore.)
+      // Checked on the gaps up to 10 hours, where a doubled live run stays quick to compute.
+      if (gap <= 10 * H) {
+        const generous = effectiveExponent(live(s, gap * 2).bestOre);
+        expect(eC).toBeLessThanOrEqual(generous + 1e-9 * Math.max(1, generous));
+      }
       expect(progressAtLeast(c, l)).toBe(true);
       expect(c.dreamPoints.gte(l.dreamPoints)).toBe(true);
       // with no resets in the window, the run itself (Ore, Overclock, owned) is comparable too

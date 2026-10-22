@@ -27,7 +27,7 @@ export const MIN_COARSE_DT = 5;
 export const COARSE_TAIL_SECONDS = 120;
 // Each coarse step simulates this much extra time (1%). Coarse steps already track live closely;
 // the margin is what turns "about the same" into "never less" (catchUp.test.ts).
-export const COARSE_GENEROSITY = 0.01;
+export const COARSE_GENEROSITY = 0.03;
 export const MAX_CATCHUP_STEPS = Math.max(EXACT_BOUND_SECONDS, MAX_COARSE_STEPS + COARSE_TAIL_SECONDS);
 
 export interface AdvanceResult {

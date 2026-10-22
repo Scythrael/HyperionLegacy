@@ -69,7 +69,7 @@ export const PRESTIGECEPTION_AT = 10000; // e10,000 Ore
 // Captain Points earned = CP_SCALE x gainMultiplier x (exponent / 60). Each point speeds the stack:
 // multiplier (1 + CP)^CP_POW, unbounded, concave (D23: diminishing returns, never a cap).
 export const CP_SCALE = 186;
-export const CP_POW = 0.2;
+export const CP_POW = 0.195;
 // Augment Points earned = AP_SCALE x gainMultiplier x (exponent / 308). Multiplier (1 + AP)^AP_POW.
 export const AP_SCALE = 40;
 export const AP_POW = 0.178;
@@ -88,7 +88,7 @@ export const OVERDRIVE_POWER = 1.05; // Overdrive: Ore production ^1.05
 
 export const FINALE_EXPONENT = 777777;
 export const LONG_EXPONENT = 1000000;
-export const SOFT_SCALE = 36;
+export const SOFT_SCALE = 82;
 export const SOFT_BETA = 0.5;
 
 // ---------------------------------------------------------------------------
