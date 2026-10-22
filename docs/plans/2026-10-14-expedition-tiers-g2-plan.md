@@ -695,3 +695,7 @@ names in game text (the Wolf 359 nod stays original).
 - **G20 wording:** ""Class IV drive" (Recommended)": roman numerals, no "warp".
 - **G21 + G14 time:** "Tiers set the time (Recommended)": tiers are difficulty; distance shifts time only within a
   tier; detour time is not distance flown on recall.
+
+## USER ANSWER (2026-10-22): G2-6 drive glyph
+
+"Keep the upright one" (the builder redrew the mockup drive glyph upright because sideways it read as a loudspeaker). G2-6 merged as 62fbf39.
