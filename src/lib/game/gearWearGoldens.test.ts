@@ -224,7 +224,7 @@ describe("gear wear step 1 goldens (captured before any wear engine edit)", () =
     const mission: ShortRangeMissionState = { kind: "shortRange", slotId: slot.id, roll: start.roll, plan: start.plan, phase: "transitOut", phaseProgressTicks: 0, recalled: false };
     const r = { next: { ...s0, captains: s0.captains.map((c, i) => (i === 0 ? { ...c, mission } : c)), runCounts: start.runCounts } };
     const out = [hash(r.next.captains[0].mission)];
-    let s = r.next;
+    let s: GameState = r.next;
     const rng = lcg(0x5e3a);
     for (const mark of [1200, 2400, 3600]) {
       s = runTicks(s, 1200, rng);
