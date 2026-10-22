@@ -122,6 +122,7 @@ import {
   blueprintMintsEquipmentInstance,
   blueprintUnlocked,
   blueprintRelicLocked, // Exploration 0.14.0 (E4d): the discovery-gated research lock
+  blueprintDecodeLocked, // Gas Giant Study GG-5: the decode-gated research lock
   // Equipment 0.11.0 Task B1: the spare-storage-cap seam. equipmentAtCap is the
   // equipment twin of materialAtCap, consulted by both fabricate gates below to refuse
   // STARTING a new equipment craft when the spare pool is full.
@@ -201,6 +202,25 @@ import { identifyRelic, relicStudySeed, relicStudyDurationTicks, museumBonuses, 
 import { identifyGeneralRelic, vaultTokenCultureId, vaultTokenRegionTier } from "./relicBlanks";
 // Relics v2 R2-3: identification v2 (the keyed three-draw roll and its deposit) and the lanes by Lab level.
 import { RELIC_STUDY_VERSION, applyRelicIdentification, identifyRelicV2, relicIdentificationId, relicStudyLanesAt } from "./relicIdentify";
+// Gas Giant Study GG-5: the Research Lab's data study lane (dataStudy.ts imports neither this file nor expedition.ts).
+import { ANCIENT_DATA_FRAGMENT_ID } from "./gasGiantContent";
+import {
+  DATA_STUDY_TICKS,
+  dataStudiesInFlight,
+  dataStudyLaneCount,
+  dataStudyPaused,
+  dataStudyRecipeCandidates,
+  feedCultureData,
+  heldAfterStart,
+  heldDataQueue,
+  legacyFragmentCulture,
+  researchBoostSpeed,
+  researchBoostsBanked,
+  researchFamilyOf,
+  researchFamilyOfDataItem,
+  rollDataStudyRecipe,
+  withBoostsSpent,
+} from "./dataStudy";
 // Crafting 0.13.3 (Phase 2 Unit 2.1): the DERIVED salvage-reservation predicate the
 // enqueue gate consults so one target cannot be queued twice (design section 7.3).
 // Implemented in reservation.ts (a leaf both this file and equipment.ts can depend on
@@ -1138,6 +1158,8 @@ const PROCESS_XP_AWARDS: Record<TimedProcessKind, { fleetAdmin: boolean; craftin
   // WHY NO CRAFTING XP: a study identifies a found object; it produces nothing, and the crafting axis is
   // reserved for production (the same reason researchProject is crafting-false).
   relicStudy:              { fleetAdmin: true,  crafting: false },
+  // Gas Giant Study GG-5: a Lab study like the relic study (free, finite: one per held data item).
+  dataStudy:               { fleetAdmin: true,  crafting: false },
 };
 
 // ============================================================================
@@ -1220,6 +1242,10 @@ const PROCESS_COMPLETION_LOG: Record<TimedProcessKind, CompletionLogPolicy> = {
   // so a batch of one; logged (revealing WHICH relic it was is the payoff the player wants to see), and
   // its honest shape is "relic" with the identified relic id as the subject.
   relicStudy:              { logged: true, batched: false, reward: "relic" },
+  // Gas Giant Study GG-5: a data study is a one-shot (one held item in); "byEffect": a study that learned a recipe
+  // grants a "blueprint" (the blueprint as the subject), any other records the item studied ("nothing" granted beyond
+  // the boost or the decoded entry, which the Research Lab's data study tab shows: GG-6).
+  dataStudy:               { logged: true, batched: false, reward: "byEffect" },
 };
 
 // What ONE completed iteration contributed, before it is either emitted on its own or
@@ -1479,7 +1505,8 @@ function completionYieldFor(
   mintedPieces: number,
   salvage: SalvageEffectOutcome | null,
   state: GameState,
-  relicId?: string | null
+  relicId?: string | null,
+  dataLearned?: string | null
 ): CompletionYield {
   const empty: CompletionYield = {
     reward: policy.reward === "byEffect" ? "nothing" : policy.reward,
@@ -1501,6 +1528,9 @@ function completionYieldFor(
       return { ...empty, reward: "materials", items: [{ itemId: effect.itemId, amount: completedOutputAmount(process).toString() }], subjectKey: effect.itemId };
     case "unlockBlueprint":
       return { ...empty, reward: "blueprint", subjectKey: effect.key };
+    case "studyData":
+      // Gas Giant Study GG-5: the recipe a study learned (the resolver hands it in), else the item it studied.
+      return dataLearned ? { ...empty, reward: "blueprint", subjectKey: dataLearned } : { ...empty, reward: "nothing", subjectKey: effect.itemId };
     case "addShip":
       return { ...empty, reward: "hull", subjectKey: effect.typeKey };
     case "addEquipment":
@@ -1660,13 +1690,14 @@ function recordCompletion(args: {
   mintedPieces: number;
   salvage: SalvageEffectOutcome | null;
   relicId?: string | null; // Relics v2 R2-3: the id a completing relic study identified (the resolver's chain)
+  dataLearned?: string | null; // Gas Giant Study GG-5: the recipe a completing data study learned (null: none)
   acc: CompletionLogState;
 }): CompletionLogState {
-  const { process, state, nowMs, levels, mintedPieces, salvage, relicId, acc } = args;
+  const { process, state, nowMs, levels, mintedPieces, salvage, relicId, dataLearned, acc } = args;
   const policy = PROCESS_COMPLETION_LOG[process.kind];
   if (!policy.logged) return acc;
 
-  const contribution = completionYieldFor(process, policy, levels, mintedPieces, salvage, state, relicId);
+  const contribution = completionYieldFor(process, policy, levels, mintedPieces, salvage, state, relicId, dataLearned);
   const startedAtMs = completionStartedAtMs(nowMs, process, state.tickDurationSeconds);
 
   // A line-backed iteration folds; everything else is a batch of one and emits now.
@@ -5145,7 +5176,11 @@ export function economyTick(
   // hull is damaged. Living HERE inside economyTick is what makes repair auto-start identically
   // live (App.svelte per bar) and offline (tick() steps economyTick(_,1) per tick), the
   // one-seam offline==live guarantee, exactly like processFuelPipelines.
-  const postRepairState = processShipRepairs(postFuelState);
+  const postRepairStateRaw = processShipRepairs(postFuelState);
+  // Gas Giant Study GG-5: the Research Lab's data study lane starts held data while a lane is free (call 8, "Auto
+  // when idle"), at this same per-tick seam (offline == live by construction). Draws no rng; the SAME state with no
+  // held research data, so every save without any is byte-identical.
+  const postRepairState = processDataStudyLane(postRepairStateRaw);
 
   // applyFleetAdminXp wraps the final state, it runs AFTER BOTH the captain loop
   // (mission FA XP) and resolveProcesses (process FA XP) have contributed to
@@ -8161,6 +8196,7 @@ export type ResearchBlockReason =
   | "alreadyResearched"
   | "inProgress"
   | "undiscovered"
+  | "undecoded" // Gas Giant Study GG-5: its ancient entry is not decoded yet (BlueprintDef.requiresDecode)
   | "tierLocked"
   | "noSlot"
   | "credits";
@@ -8210,6 +8246,11 @@ export function canResearch(
   // locked until its relic's FIRST FIND (state.relicDiscovered). Ungated blueprints (all pre-E4d content)
   // read false here, so their gate order and reasons are byte-identical.
   if (blueprintRelicLocked(state, blueprintKey)) return { ok: false, reason: "undiscovered" };
+
+  // --- Decode gate (Gas Giant Study GG-5, user call 10): a blueprint carrying requiresDecode stays locked until some
+  // culture has decoded that many ancient entries. No blueprint carries it yet (GG-7's special blueprints will), so
+  // every gate order and reason is byte-identical.
+  if (blueprintDecodeLocked(state, blueprintKey)) return { ok: false, reason: "undecoded" };
 
   // --- Tier unlock: the research facility's level must have reached the blueprint's tier
   // (blueprintResearchable reads the SAME level >= tier relation; here it's its own reason so
@@ -8269,7 +8310,18 @@ export function startResearch(
   // credit spend + the process push land in the SAME transition (atomic start, the design
   // §4 posture materials/upgrade-credits already use). >= 0 guaranteed by canResearch's
   // credits gate (gate.ok above).
-  const afterCredits = { ...state, credits: state.credits.minus(cost) };
+  // Gas Giant Study GG-5 (user call 9): the project uses EVERY boost banked for its research family (the Research Lab's
+  // data studies): the museum's duration / (1 + researchBoostSpeed(n)), decided once here at start like the museum's
+  // speed, and the boosts are spent. With none banked the duration and the state are exactly as before.
+  const family = researchFamilyOf(bp);
+  const boosts = researchBoostsBanked(state, family);
+  const spentBoosts = boosts > 0 ? withBoostsSpent(state.researchBoosts, family) : state.researchBoosts;
+  const afterCredits: GameState = { ...state, credits: state.credits.minus(cost) };
+  if (boosts > 0) {
+    if (spentBoosts === undefined) delete afterCredits.researchBoosts;
+    else afterCredits.researchBoosts = spentBoosts;
+  }
+  const museumTicks = museumResearchDurationTicks(bp.researchDurationTicks, museumBonuses(state).researchSpeed);
   // No MATERIAL inputs (locked design #3: research costs TIME + CREDITS, not materials), so
   // the inputs map is empty, startProcess's gate/deduct loops no-op over it. It pushes the
   // "researchProject" TimedProcess (remainingTicks = researchDurationTicks) whose completion
@@ -8280,7 +8332,7 @@ export function startResearch(
     afterCredits,
     "researchProject",
     {},
-    museumResearchDurationTicks(bp.researchDurationTicks, museumBonuses(state).researchSpeed),
+    boosts > 0 ? museumResearchDurationTicks(museumTicks, researchBoostSpeed(boosts)) : museumTicks,
     {
       type: "unlockBlueprint",
       key: blueprintKey,
@@ -8459,6 +8511,49 @@ export function moveRelicQueueEntry(state: GameState, vaultTokenId: string, dire
   if (i < 0 || j < 0 || j >= queue.length) return state;
   [queue[i], queue[j]] = [queue[j], queue[i]];
   return { ...state, relicQueue: queue };
+}
+
+// ============================================================================
+// Gas Giant Study GG-5: THE DATA STUDY LANE (user call 8 "Auto when idle", with a pause toggle; rules in dataStudy.ts)
+// ============================================================================
+//
+// When the lane is idle and not paused it starts the OLDEST held research data item (dataStudy.ts heldDataQueue): the
+// item leaves the inventory at start (consume at start, the relic study's convention), its arrival entry leaves
+// GameState.dataStudyHeld, the next index is stamped, and a "dataStudy" TimedProcess of DATA_STUDY_TICKS runs on the
+// Lab's own lane (never blocking research or relic identification). Called once per whole tick inside economyTick
+// (after resolveProcesses, so a lane freed by a completion this tick restarts this tick), so offline (tick() steps
+// economyTick(_, 1)) equals live by construction. Draws nothing. The SAME state when nothing starts.
+
+// Start the lane's next study (the queue's head), or return the SAME state when there is none. Pure.
+function startNextDataStudy(state: GameState): GameState {
+  const head = heldDataQueue(state)[0];
+  if (!head) return state;
+  const studyIndex = state.dataStudyIndex ?? 1;
+  const cultureId = head.itemId === ANCIENT_DATA_FRAGMENT_ID ? (head.cultureId ?? legacyFragmentCulture(state, studyIndex)) : undefined;
+  const started = startProcess(state, "dataStudy", { [head.itemId]: new Decimal(1) }, DATA_STUDY_TICKS, {
+    type: "studyData",
+    itemId: head.itemId,
+    studyIndex,
+    ...(cultureId !== undefined ? { cultureId } : {}),
+  });
+  if (!started.started) return state;
+  const held = heldAfterStart(state, head, started.next.inventory);
+  const next: GameState = { ...started.next, dataStudyIndex: studyIndex + 1 };
+  if (held === undefined) delete next.dataStudyHeld;
+  else next.dataStudyHeld = held;
+  return next;
+}
+
+// The lane's per-tick pass: start held data while a lane is free (and the lane is on). Pure.
+export function processDataStudyLane(state: GameState): GameState {
+  if (dataStudyPaused(state)) return state;
+  let s = state;
+  while (dataStudiesInFlight(s).length < dataStudyLaneCount(s)) {
+    const next = startNextDataStudy(s);
+    if (next === s) break;
+    s = next;
+  }
+  return s;
 }
 
 // The relic a completed v1 study reveals: the KEYED roll identifyRelic(setId, tier, relicStudySeed(
@@ -11913,8 +12008,21 @@ export function resolveProcesses(
   // Survivors are rebuilt in original order, so activeProcesses ordering is stable
   // across both chunkings (the parity test compares the arrays deep-equal).
   const stillActive: TimedProcess[] = [];
+  // Gas Giant Study GG-5: what completing DATA STUDIES write (dataStudy.ts): the banked boosts, the decoded entries and
+  // the study points per culture (folded into the Museum v2 record at the write-back, after the relic chain's), each
+  // seeded from the incoming state and written back ONLY when a data study completed this call (byte-identical
+  // otherwise). The lane's pause holds a running study where it is (call 8: "Pause holds the queue; nothing is lost").
+  let researchBoosts = state.researchBoosts;
+  let ancientDecoded = state.ancientDecoded;
+  const culturePoints: Record<string, number> = {};
+  let dataStudyLanded = false;
+  const dataPaused = dataStudyPaused(state);
 
   for (const process of state.activeProcesses) {
+    if (dataPaused && process.kind === "dataStudy") {
+      stillActive.push(process);
+      continue;
+    }
     const remainingTicks = process.remainingTicks - ticksElapsed;
     if (remainingTicks > MISSION_TICK_EPSILON) {
       // Not done, keep it with its decremented countdown. A later resolve picks
@@ -11939,6 +12047,8 @@ export function resolveProcesses(
     // Relics v2 R2-3: the id a completing relic study identified (from the chain), for its record. undefined for
     // every other process.
     let relicRecordId: string | null | undefined;
+    // Gas Giant Study GG-5: the recipe a completing data study learned (null: none), for its record.
+    let dataLearned: string | null = null;
     if (process.effect.type === "addItem") {
       // Quality roll at production (Task 9b): a completed refine/fabricate job rolls ONE
       // quality tier for its whole output amount, which then lands in that tier's bucket via
@@ -12348,6 +12458,35 @@ export function resolveProcesses(
       // and only on the success path. So a salvage completing inside one long offline span
       // draws exactly what the same salvage draws stepped live (⚠️ the behavioral proof is
       // the offline==live parity test in salvage.test.ts).
+    } else if (process.effect.type === "studyData") {
+      // Gas Giant Study GG-5: a completed DATA STUDY (dataStudy.ts). The item left the inventory at START. An Ancient
+      // Data Fragment decodes the next entry of its own culture and gives that culture one study point; any other
+      // research data banks one boost for its family and rolls the recipe chance on its own keyed stream (never the
+      // tick's rng), reading the running researched set and Lab level, so one big resolve equals live steps.
+      const effect = process.effect;
+      dataStudyLanded = true;
+      if (effect.itemId === ANCIENT_DATA_FRAGMENT_ID) {
+        const cultureId = effect.cultureId ?? legacyFragmentCulture(state, effect.studyIndex);
+        ancientDecoded = { ...(ancientDecoded ?? {}), [cultureId]: ((ancientDecoded ?? {})[cultureId] ?? 0) + 1 };
+        culturePoints[cultureId] = (culturePoints[cultureId] ?? 0) + 1;
+      } else {
+        const family = researchFamilyOfDataItem(effect.itemId);
+        if (family !== null) {
+          researchBoosts = { ...(researchBoosts ?? {}), [family]: ((researchBoosts ?? {})[family] ?? 0) + 1 };
+          const candidates = dataStudyRecipeCandidates(
+            {
+              researchedBlueprints,
+              labTier: facilities[RESEARCH_FACILITY_KEY]?.level ?? 0,
+              relicDiscovered: relicChain?.deposited ? relicChain.discovered : (state.relicDiscovered ?? []),
+              ancientDecoded,
+              activeProcesses: state.activeProcesses,
+            },
+            family,
+          );
+          dataLearned = rollDataStudyRecipe(state.relicSeed, effect.studyIndex, candidates);
+          if (dataLearned !== null && !researchedBlueprints.includes(dataLearned)) researchedBlueprints = [...researchedBlueprints, dataLearned];
+        }
+      }
     } else if (process.effect.type === "identifyRelic") {
       // Exploration 0.14.0 (Phase E4a): a completed RELIC STUDY identifies its token and deposits ONE
       // museum copy. The token left the vault at START (startRelicStudy), so there is nothing to consume
@@ -12423,6 +12562,7 @@ export function resolveProcesses(
       mintedPieces,
       salvage: salvageOutcome,
       relicId: relicRecordId,
+      dataLearned,
       acc: completionAcc,
     });
   }
@@ -12511,6 +12651,18 @@ export function resolveProcesses(
         : {}),
       // CP-6 review: a completed hull teardown's loadout + people writes (absent when none completed).
       ...(salvageWrites ?? {}),
+      // Gas Giant Study GG-5: a completed data study's boosts, decoded entries and culture study points (on the Museum
+      // the relic chain left), written only when one completed.
+      ...(dataStudyLanded && researchBoosts !== undefined ? { researchBoosts } : {}),
+      ...(dataStudyLanded && ancientDecoded !== undefined ? { ancientDecoded } : {}),
+      ...(Object.keys(culturePoints).length > 0
+        ? {
+            museumV2: Object.entries(culturePoints).reduce(
+              (m, [cultureId, points]) => feedCultureData(m, cultureId, points),
+              relicChain?.deposited ? relicChain.museum : state.museumV2,
+            ),
+          }
+        : {}),
     },
     fleetAdminXpDelta,
     craftingXpDelta,

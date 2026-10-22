@@ -146,7 +146,9 @@ import { AFFIX_DEFS, ESCALATION_ENEMIES_PER_LEVEL, HEIGHTENED_SENSES_KNEE, HEIGH
 import { ENEMY_RANKS, ENEMY_RANK_IDS } from "../enemyRanks";
 import { OVERTIME_STEP_RATE } from "../processSpeed";
 import { SHORT_RANGE_TEMPLATES, SHORT_RANGE_TEMPLATE_KEYS } from "../shortRange";
-import { GAS_STUDY_USES, GIANT_CLASSES, NEBULA_KINDS, type GasStudyUse } from "../gasGiantContent";
+import { GAS_STUDY_USES, GIANT_CLASSES, NEBULA_KINDS, RESEARCH_FAMILIES, type GasStudyUse } from "../gasGiantContent";
+// Gas Giant Study GG-5: the Research Lab's data study lane.
+import { DATA_STUDY_RECIPE_PERMILLE, RESEARCH_BOOST_PER, isResearchDataItem } from "../dataStudy";
 import { REACTOR_FUEL_LADDER, REACTOR_TECH_TIERS, REACTOR_VARIETY_TECH, reactorFuelRung } from "../reactorTech";
 import { effectFieldsOf } from "./fieldRoles";
 import { REPAIR_RATES, REPAIR_RATE_BONUSES, TOUGHNESS_REFERENCE, USE_WEAR_FLOOR, WEAR_EFFICIENCY, WEAR_SOURCES, wearEfficiency } from "../gearWear";
@@ -3109,6 +3111,23 @@ function contentEntries(): WiringEntry[] {
   // ML-1: an item produced today whose consumer a later slice wires (ItemDef.reserved names it). Pending until that
   // slice adds the consumer and drops the marker (materialLines.test.ts fails while both are true).
   for (const [id, item] of Object.entries(ITEMS)) {
+    // Gas Giant Study GG-5 built the research data's consumer (the Research Lab's data study lane) and dropped their
+    // markers: each row is live now, read through the lane (the units it studied; OFF: the lane paused). The row keeps
+    // its id (and its place); its source is the lane's consumer (DATA_STUDY consume:<item>), the marker being gone.
+    if (item.reserved === undefined && isResearchDataItem(id)) {
+      out.push(
+        entry({
+          ...base("facility", "DATA_STUDY", `consume:${id}`, `${item.label} is produced and has a consumer`),
+          id: `facility:ITEMS:${id}:reserved`,
+          probe: `content:dataStudy:consume:${id}`,
+          contexts: ["research"],
+          curve: { kind: "event", metric: `units of ${item.label} the Research Lab's data study lane studies` },
+          magnitude: () => 1,
+          on: sourceOn,
+        }),
+      );
+      continue;
+    }
     if (item.reserved === undefined) continue;
     out.push(
       entry({
@@ -4395,6 +4414,23 @@ function gasStudyEntries(): WiringEntry[] {
       base: () => withAwayTeam(wiringBase()),
       on: sourceOn,
     },
+    //   labLane (GG-5): the Research Lab's data study lane banks a boost from one held research data item (OFF: paused).
+    labLane: {
+      probe: "content:dataStudy:lane",
+      contexts: ["research"],
+      curve: { kind: "event", metric: "boosts banked by one study of Propulsion Data on the Research Lab's lane" },
+      magnitude: () => 1,
+      on: sourceOn,
+    },
+    //   nebulaSweep (GG-4): a run to a system with a nebula brings home its sweep's canisters (OFF: the stamp taken away).
+    nebulaSweep: {
+      probe: "content:gasStudy:nebulaSweep",
+      contexts: ["expedition:groundOps"],
+      curve: { kind: "event", metric: "canisters the nebula sweep of a whole run returns" },
+      magnitude: () => 1,
+      base: () => withAwayTeam(wiringBase()),
+      on: sourceOn,
+    },
   };
   for (const use of Object.keys(GAS_STUDY_USES) as GasStudyUse[]) {
     const system = useSystem[use];
@@ -4484,7 +4520,22 @@ function gasStudyEntries(): WiringEntry[] {
     for (const field of effectFieldsOf("NEBULA_KINDS")) {
       const owner = kindOwner[field];
       if (owner === undefined) continue;
-      out.push(entry({ id: `expedition:NEBULA_KINDS:${k.id}:${field}`, system: "expedition", source: { catalog: "NEBULA_KINDS", key: `${k.id}:${field}` }, claim: `${k.name}: its ${field}`, status: pending(owner) }));
+      // GG-4 built the sweep: both fields go live, each read through a batch of sweep rewards of the kind (the canisters
+      // above Standard with its odds vs all Standard; its heaviest gas of an uneven band with its weights vs even).
+      const metric = field === "bandOdds" ? `${k.name} canisters above Standard over a sweep batch, its odds vs all Standard` : `${k.name}'s heaviest gas of an uneven band over a sweep batch, its weights vs even`;
+      out.push(
+        entry({
+          id: `expedition:NEBULA_KINDS:${k.id}:${field}`,
+          system: "expedition",
+          source: { catalog: "NEBULA_KINDS", key: `${k.id}:${field}` },
+          claim: `${k.name}: its ${field}`,
+          probe: `content:nebulaKind:${k.id}:${field}`,
+          contexts: ["expedition:groundOps"],
+          curve: { kind: "event", metric },
+          magnitude: () => 1,
+          on: sourceOn,
+        }),
+      );
     }
   }
   // GG-3: the probe dive (gasGiantStudy.ts studyDiveEvents): one event per finished study with a Galileo aboard. Gear
@@ -4504,6 +4555,55 @@ function gasStudyEntries(): WiringEntry[] {
       off: (s) => ({ ...s, equipment: s.equipment.filter((e) => e.id !== WEAR_DIVE_PROBE_ID) }),
       tolerance: 1,
       note: "one fieldwork step on the probe (gear wear design 3.1, user 2026-10-16: \"sensors by scans, tools by fieldwork\"); gasGiantStudyLeg.test.ts proves the events",
+    }),
+  );
+  // GG-5: the lab lane's effects (dataStudy.ts), each live with its probe: one banked boost per research family (the
+  // ticks it saves on the family's first blueprint), the recipe chance, and the Ancient Data Fragment's decode.
+  for (const family of RESEARCH_FAMILIES) {
+    out.push(
+      entry({
+        id: `facility:DATA_STUDY:boost:${family}`,
+        system: "facility",
+        source: { catalog: "DATA_STUDY", key: `boost:${family}` },
+        claim: `A banked ${family} data boost speeds the next ${family} research project by ${Math.round(RESEARCH_BOOST_PER * 100)}% (D23 stacking)`,
+        probe: `content:dataStudy:boost:${family}`,
+        contexts: ["research"],
+        curve: { kind: "event", metric: `research ticks one banked boost saves on the first ${family} blueprint` },
+        magnitude: () => 1,
+        on: sourceOn,
+      }),
+    );
+  }
+  out.push(
+    entry({
+      id: "facility:DATA_STUDY:recipeChance",
+      system: "facility",
+      source: { catalog: "DATA_STUDY", key: "recipeChance" },
+      claim: `A data study learns a recipe of its family at ${DATA_STUDY_RECIPE_PERMILLE / 10}%`,
+      probe: "content:dataStudy:recipe",
+      contexts: ["research"],
+      curve: { kind: "event", metric: "recipes learned over 400 study rolls with a candidate waiting" },
+      magnitude: () => 1,
+      on: sourceOn,
+    }),
+    entry({
+      id: "facility:DATA_STUDY:ancientDecode",
+      system: "facility",
+      source: { catalog: "DATA_STUDY", key: "ancientDecode" },
+      claim: "An Ancient Data Fragment's study decodes the next entry of its own culture (and gives it a study point)",
+      probe: "content:dataStudy:decode",
+      contexts: ["research"],
+      curve: { kind: "event", metric: "entries one Ancient Data Fragment study decodes" },
+      magnitude: () => 1,
+      on: sourceOn,
+    }),
+    entry({
+      id: "facility:DATA_STUDY_SEAM:decodeGate",
+      system: "facility",
+      source: { catalog: "DATA_STUDY_SEAM", key: "decodeGate" },
+      claim: "A special blueprint opens once an ancient entry is decoded (BlueprintDef.requiresDecode)",
+      status: { kind: "seam", owner: "GG-7 (the special blueprints carry requiresDecode)", userRef: "user call 10 (2026-10-19, \"One lane\"): some entries unlock special blueprints" },
+      note: "gasGiantDataStudy.test.ts proves the gate on a fixture blueprint",
     }),
   );
   return out;

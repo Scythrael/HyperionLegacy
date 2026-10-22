@@ -39,6 +39,7 @@ import { compositionLabel, compositionSquads, securitySquadsOf, squadsOfType, va
 import { DIFFICULTY_NAMES, SAFE_NEEDS_MAX_TIER, difficultyWeight, hostileSiteFieldable, isHostileSiteId } from "./riskFactors";
 import { TELESCOPE_DETAIL, type SystemTelescopeReading } from "./telescope";
 import { groundSiteLabel } from "./expeditionContent";
+import type { NebulaKindId } from "./gasGiantContent";
 import { THREAT_TIER_ORDER, threatAssessment, type ThreatAssessment, type ThreatTier } from "./combat/threatAssessment";
 
 // ===== The task preview =====
@@ -60,6 +61,9 @@ export interface SystemTaskPreview {
   // Gas Giant Study GG-2: the ORBITAL bodies the ship studies (body indices, ascending): no ground objective and no
   // squad need there. Written only when the system holds one, so every other preview keeps its exact shape.
   studies?: number[];
+  // Gas Giant Study GG-4: the system's NEBULA (the ship sweeps it after the bodies; no squad). Written only when the
+  // system holds one.
+  nebula?: NebulaKindId;
 }
 
 // The preview as THIS HULL can meet it (SQ-6 review Minor 1): a hostile site no valid composition of the hull can
@@ -111,6 +115,8 @@ export interface TaskDemand {
   // Gas Giant Study GG-2: the ship studies the system holds (one per orbital body; no squad needed). Written only when
   // there is one.
   shipStudies?: number;
+  // GG-4: the nebula sweep the system holds (no squad needed). Written only when there is one.
+  nebulaSweep?: 1;
 }
 
 export function taskDemand(preview: SystemTaskPreview): TaskDemand {
@@ -132,6 +138,7 @@ export function taskDemand(preview: SystemTaskPreview): TaskDemand {
     maxSecurity,
     maxScience,
     ...(preview.studies && preview.studies.length > 0 ? { shipStudies: preview.studies.length } : {}),
+    ...(preview.nebula ? { nebulaSweep: 1 as const } : {}),
   };
 }
 
@@ -149,7 +156,10 @@ export function taskDemandText(d: TaskDemand): string {
   if (d.twoSecurityTasks > 0) parts.push(heavy(d.twoSecurityTasks, d.maxSecurity, "Security"));
   if (d.twoScienceTasks > 0) parts.push(heavy(d.twoScienceTasks, d.maxScience, "Science"));
   // Gas Giant Study GG-2 (mockup v3 "Studies need no squad").
-  if (d.shipStudies !== undefined && d.shipStudies > 0) parts.push(`${plural(d.shipStudies, "ship study", "ship studies")}, no squad needed`);
+  // GG-4 (mockup v3 "2 ship studies · 1 nebula sweep · Studies need no squad").
+  const studies = d.shipStudies !== undefined && d.shipStudies > 0 ? plural(d.shipStudies, "ship study", "ship studies") : null;
+  const sweep = d.nebulaSweep === 1 ? "1 nebula sweep" : null;
+  if (studies || sweep) parts.push(`${[studies, sweep].filter((s) => s !== null).join(" and ")}, no squad needed`);
   return parts.join("; ");
 }
 
@@ -483,6 +493,8 @@ export interface LaunchForecast {
   // Gas Giant Study GG-2: the ship studies the run would make (one per orbital body; never a squad's work, never
   // unfinished). Written only when there is one.
   studies?: number;
+  // GG-4: the nebula the ship would sweep after the bodies (never a squad's work). Written only when there is one.
+  nebula?: NebulaKindId;
 }
 
 // "7 objectives: 3 Simple, 2 Standard, 2 Challenging" (zero grades left out). Pure.

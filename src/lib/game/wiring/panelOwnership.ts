@@ -157,10 +157,13 @@ export const UNMEASURED_CATALOGS: Readonly<Record<string, string>> = {
   PROSPECTING_BLUEPRINTS: "hidden until the prospecting quests patch",
   PROSPECTING_USES: "hidden until the prospecting quests patch",
   // Gas Giant Study: the engine (gasGiantStudy.ts) reads the classes on a run, never off a ship the panel owns.
-  GAS_STUDY_USES: "the gas giant study engine's uses (GG-2 and GG-3 live, GG-4 to GG-7 pending): read on a run, no owner reader",
+  GAS_STUDY_USES: "the gas giant study engine's uses (GG-2 to GG-5 live, GG-7 pending): read on a run or by the Research Lab, no owner reader",
   GIANT_CLASSES: "read by the giant class roll and the study reward on a run (GG-2, GG-3): no owner reader in the panel",
-  NEBULA_KINDS: "data only until the nebula sweep (GG-4)",
+  NEBULA_KINDS: "read by the nebula sweep's reward on a run (GG-4): no owner reader in the panel",
   GAS_STUDY_SEAM: "a framework seam (the probe dive, read by gear wear step 3): nothing to own",
+  // GG-5: the Research Lab's data study lane is account-level (the Lab, the banked boosts), never a ship's.
+  DATA_STUDY: "the Research Lab's data study lane (GG-5): account-level, no ship owner reader",
+  DATA_STUDY_SEAM: "a framework seam (the decode gate, read by GG-7's special blueprints): nothing to own",
 };
 
 const shipOf = (s: GameState) => s.ships.find((sh) => sh.id === PANEL_SHIP_ID);

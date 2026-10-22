@@ -59,7 +59,8 @@ import { AFFIX_ALIGNED_HOOKS, AFFIX_HOOK_KEYS, GAMBIT_ACTIONS, GAMBIT_SELECTORS 
 import { FIELD_ROLES, effectFieldsOf } from "./fieldRoles";
 import { REPAIR_RATES, REPAIR_RATE_BONUSES, WEAR_EFFICIENCY, WEAR_SOURCES } from "../gearWear";
 import { SHORT_RANGE_TEMPLATES } from "../shortRange";
-import { GAS_STUDY_USES, GIANT_CLASSES, NEBULA_KINDS } from "../gasGiantContent";
+import { GAS_STUDY_USES, GIANT_CLASSES, NEBULA_KINDS, RESEARCH_FAMILIES } from "../gasGiantContent";
+import { DATA_STUDY_ITEM_IDS } from "../dataStudy";
 import { REACTOR_TECH_TIERS, REACTOR_VARIETY_TECH } from "../reactorTech";
 
 // Field Kits FKR-5: the sources each grenade carries (its GrenadeTraits, as the registry measures them). Timed grenades
@@ -164,6 +165,9 @@ export function enumerateEffectSources(): EffectSource[] {
   add("PROSPECTING_USES", PROSPECTING_USES);
   // Gas Giant Study (GG-1 data, the engine uses wired by GG-2 to GG-7)
   add("GAS_STUDY_USES", Object.keys(GAS_STUDY_USES));
+  // GG-5: the Research Lab's data study lane: the eight family boosts, the recipe chance, the fragment's decode, and
+  // the lane consuming each research data item.
+  add("DATA_STUDY", [...RESEARCH_FAMILIES.map((f) => `boost:${f}`), "recipeChance", "ancientDecode", ...DATA_STUDY_ITEM_IDS.map((id) => `consume:${id}`)]);
   add(
     "MEMBER_GROUND_EFFECTS",
     [...new Set(MEMBER_SLOT_TYPES.flatMap((st) => EQUIPMENT_SLOTS[st].varieties.map((v) => v.member?.groundEffect?.kind).filter((k): k is NonNullable<typeof k> => k !== undefined)))],
