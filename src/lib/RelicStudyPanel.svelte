@@ -140,7 +140,7 @@
 
       {#if vault.length === 0 && studies.length === 0}
         <p class="rs-empty">
-          No unidentified relics. Away teams recover them on expeditions; claim a finished expedition and its relics land here.
+          No unidentified relics. Away teams recover them on expeditions; claim a finished expedition and its relics land here. Short-Range Missions find one now and then, too.
         </p>
       {:else}
         <div class="rs-vault">

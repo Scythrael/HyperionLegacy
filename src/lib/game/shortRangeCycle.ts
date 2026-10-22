@@ -22,6 +22,14 @@
 // - Recall finishes the current cycle, then the run ends (recallCaptain marks it; a run that has not left home yet
 //   ends at once there, and its cycle start is taken back so the template keeps its training run).
 // - No failure state: a ship that met the sheet at dispatch always completes (call 9).
+// - G1-5 relic drops (call 11 "Rare, per hour (Recommended)": lowest-tier unidentified relics, a chance per HOUR of
+//   mission time, Tier I 0.08x and Tier II 0.15x the expedition rate): each delivered cycle of a flagged run (the
+//   relicBlanks stamp, written at dispatch) rolls relicBlanks.ts rollShortRangeRelicBlanks on the cycle's own seed for
+//   its planned length (the frozen plan's total ticks), so the expected finds are linear in mission time and a short
+//   cycle repeated fast earns no more per hour than a long one. The training run follows the same rule: the guaranteed
+//   tutorial drops (safe first runs, group 3: "one or two general relics, and the very first exceptional relic") belong
+//   to the tutorial patch's grant seam, not to this roll. The blanks go to the vault (tick.ts), named in the run's
+//   completion entry and the offline recap.
 //
 // THE PARITY ARGUMENT. Everything a cycle reads is frozen at its start (the roll and its plan) or is a constant of the
 // call (the ship's stats, its crew's output share, the captain's terms); the counters and the board cursor are
@@ -34,13 +42,14 @@
 // PURE: no clock, no shared economy rng (the material rounding draws on the roll's own SHORT_RANGE_OUTPUT_SALT stream,
 // Motherlode on the captain's private stream), no state mutation.
 
-import { ITEMS, type CaptainState, type GameState, type RunCounts, type ShipInstance, type ShortRangeMissionState, type ShortRangePhase } from "./model";
+import { ITEMS, type CaptainState, type GameState, type RelicVaultToken, type RunCounts, type ShipInstance, type ShortRangeMissionState, type ShortRangePhase } from "./model";
 import { SHORT_RANGE_OUTPUT_SALT, SHORT_RANGE_TEMPLATES, shortRangeCycleReward, wholeUnits, type ShortRangeCyclePlan, type ShortRangeRoll } from "./shortRange";
 import { shortRangeSlotById, startShortRangeCycle } from "./shortRangeBoard";
 import { effectiveShipStats, shipMissionOutputBonus } from "./crewOverlay";
 import { captainMotherlodeChance, captainTransportTerms, motherlodeSeed } from "./captainSecondaryEffects";
 import { countShortRangeCycleComplete } from "./runDifficulty";
 import { makeRng } from "./combat/rng";
+import { rollShortRangeRelicBlanks } from "./relicBlanks";
 import { formatNumber } from "./format";
 
 // The float-snap epsilon of a phase boundary (tickCaptainMission's MISSION_TICK_EPSILON).
@@ -174,6 +183,49 @@ export function shortRangeCycleWear(roll: ShortRangeRoll, plan: ShortRangeCycleP
   };
 }
 
+// ===== relic drops (G1-5) =====
+
+// The relic blanks one delivered cycle of a flagged run finds: rollShortRangeRelicBlanks on the cycle's own roll seed
+// (a pure function of the frozen roll and plan, so offline == live by construction), for the cycle's planned mission
+// time in seconds, at the slot's tier. Ids `sr-<slot>-<cycle>-relic-<n>`: the board cursor only advances on a delivered
+// cycle, so a slot never delivers the same cycle index twice. None for a run without the G1-5 flag. Pure.
+export function shortRangeCycleRelics(
+  mission: Pick<ShortRangeMissionState, "roll" | "plan" | "slotId" | "relicBlanks">,
+  secondsPerTick: number,
+): RelicVaultToken[] {
+  if (mission.relicBlanks === undefined) return [];
+  const roll = mission.roll;
+  const seconds = mission.plan.totalTicks * (Number.isFinite(secondsPerTick) && secondsPerTick > 0 ? secondsPerTick : 1);
+  return rollShortRangeRelicBlanks(roll.seed, roll.tier, seconds, `sr-${mission.slotId}-${roll.cycleIndex}`);
+}
+
+// One relic blank a run found this call, with the whole tick of the call it was delivered on (1 = the call's first
+// tick). economyTick orders every captain's finds by that tick, then captain order, so the vault reads the same
+// however the span is cut (1 s steps deliver each tick's finds in captain order).
+export interface ShortRangeRelicFind {
+  token: RelicVaultToken;
+  atTick: number;
+}
+
+// The vault after this call's finds: `finds` (captain order, each captain's in delivery order) sorted by the tick they
+// landed on (a stable sort keeps captain order inside a tick), appended to the incoming vault. A find whose id is
+// already taken (a vault token, or one a relic study in flight carries: only possible after a hand-edited or dropped
+// board reset the cursor) takes the next free `-<n>` suffix, so the Relics tab's keyed list never sees a duplicate.
+// Pure: a pure function of the incoming state and the finds.
+export function shortRangeVaultDeposit(state: Pick<GameState, "relicVault" | "activeProcesses">, finds: readonly ShortRangeRelicFind[]): RelicVaultToken[] {
+  const vault = state.relicVault ?? [];
+  const taken = new Set<string>(vault.map((t) => t.id));
+  for (const p of state.activeProcesses ?? []) if (p.effect.type === "identifyRelic") taken.add(p.effect.token.id);
+  const out = [...vault];
+  for (const { token } of [...finds].sort((a, b) => a.atTick - b.atTick)) {
+    let id = token.id;
+    for (let n = 2; taken.has(id); n++) id = `${token.id}-${n}`;
+    taken.add(id);
+    out.push(id === token.id ? token : { ...token, id });
+  }
+  return out;
+}
+
 // ===== the cycle loop =====
 
 export interface ShortRangeTickInput {
@@ -201,7 +253,8 @@ export interface ShortRangeTickResult {
   completedByTemplate: Readonly<Record<string, number>>; // delivered cycles per template this call
   runCounts: RunCounts; // the same reference when nothing changed
   nextCycle: Readonly<Record<number, number>>; // the same reference when nothing changed
-  ended: { slotId: number; cycles: number } | null; // the run ended this call (recalled): the completion log entry
+  ended: { slotId: number; cycles: number; relics: number } | null; // the run ended this call (recalled): the completion log entry
+  relics: readonly ShortRangeRelicFind[]; // G1-5: the relic blanks delivered cycles found, in delivery order
 }
 
 // Advance one captain's short-range run by `ticksElapsed`. See the header for the rules and the parity argument.
@@ -221,6 +274,7 @@ export function tickCaptainShortRange(input: ShortRangeTickInput): ShortRangeTic
     runCounts: input.runCounts,
     nextCycle: input.nextCycle,
     ended: null,
+    relics: [],
   };
   const startMission = captain.mission;
   // A run always flies a hull (the crew lock keeps it aboard); a hull-less one holds still rather than guessing stats.
@@ -254,6 +308,7 @@ export function tickCaptainShortRange(input: ShortRangeTickInput): ShortRangeTic
   const completedByTemplate: Record<string, number> = {};
   const materials: Record<string, number> = {};
   let ended: ShortRangeTickResult["ended"] = null;
+  const relics: ShortRangeRelicFind[] = [];
 
   // 0.14.0 SPEED SEAM (processSpeed.ts applyTimeSkip): while the CURRENT cycle carries speed.instantComplete, each
   // phase is applied whole without spending the call's own ticks, so the cycle runs through to its delivery inside
@@ -342,10 +397,15 @@ export function tickCaptainShortRange(input: ShortRangeTickInput): ShortRangeTic
     if (!roll.difficulty.firstRun) runCounts = countShortRangeCycleComplete(runCounts, roll.template);
     nextCycle = { ...nextCycle, [mission.slotId]: roll.cycleIndex + 1 };
     const cycles = (mission.cyclesThisRun ?? 0) + 1;
+    // G1-5: the relic blanks this cycle found (a flagged run only), stamped with the call's whole tick it landed on.
+    const found = shortRangeCycleRelics(mission, state.tickDurationSeconds);
+    const atTick = Math.max(1, Math.ceil(ticksElapsed - remaining - TICK_EPSILON));
+    for (const token of found) relics.push({ token, atTick });
+    const relicsThisRun = (mission.relicsThisRun ?? 0) + found.length;
     const slot = shortRangeSlotById(state, mission.slotId);
     // Recall finishes the cycle, then the run ends. A slot that no longer exists (a hand-edited save) ends the same way.
     if (mission.recalled || slot === null) {
-      ended = { slotId: mission.slotId, cycles };
+      ended = { slotId: mission.slotId, cycles, relics: relicsThisRun };
       mission = null;
       break;
     }
@@ -362,6 +422,9 @@ export function tickCaptainShortRange(input: ShortRangeTickInput): ShortRangeTic
       phaseProgressTicks: 0,
       recalled: false,
       cyclesThisRun: cycles,
+      // G1-5: the run's relic flag and its finds so far ride every later cycle (absent on a run without the flag).
+      ...(mission.relicBlanks !== undefined ? { relicBlanks: mission.relicBlanks } : {}),
+      ...(relicsThisRun > 0 ? { relicsThisRun } : {}),
     };
   }
 
@@ -379,6 +442,7 @@ export function tickCaptainShortRange(input: ShortRangeTickInput): ShortRangeTic
     runCounts,
     nextCycle,
     ended,
+    relics,
   };
 }
 

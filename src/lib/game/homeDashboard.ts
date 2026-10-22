@@ -1384,9 +1384,12 @@ function completionDetail(entry: CompletionLogEntry): string | null {
     return reason !== null ? `${flown}, ${reason}` : flown;
   }
   // G1-4: a short-range run's detail is how many missions it delivered (zero is real: recalled before the first).
+  // G1-5: and the unidentified relics its cycles found, in the expedition claim line's words.
   if (entry.kind === "shortRangeRun") {
-    if (entry.iterations === 0) return "no missions completed, recalled";
-    return `${entry.iterations === 1 ? "1 mission" : `${entry.iterations} missions`} completed, recalled`;
+    const found = entry.relicsFound ?? 0;
+    const relics = found > 0 ? `, ${found} unidentified relic${found === 1 ? "" : "s"} to the vault` : "";
+    if (entry.iterations === 0) return `no missions completed, recalled${relics}`;
+    return `${entry.iterations === 1 ? "1 mission" : `${entry.iterations} missions`} completed, recalled${relics}`;
   }
   // 0.13.7 Crafted Blanks: a fabricate now deposits an UNINSPECTED blank, not a usable system, and
   // the primary line ("Fabricated, Balanced Hold") reads by process kind and cannot say so. The

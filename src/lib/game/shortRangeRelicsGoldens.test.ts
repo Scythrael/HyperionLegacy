@@ -16,6 +16,7 @@ import { dispatchCaptainOnShortRange } from "./shortRangeBoard";
 import { economyTick, recallCaptain } from "./tick";
 import { resolveCrew } from "./crewOverlay";
 import { hash } from "./firstRunsGoldens.fixture";
+import { asPreRelicDispatch, withoutShortRangeRelics } from "./shortRangeRelics.fixture";
 import { WIRING_CAPTAIN_ID, editShip, installPiece, wiringBase } from "./wiring/probes";
 
 const RNG = (): number => 0.5;
@@ -34,40 +35,6 @@ function dispatched(slotId: number, repeat = true): GameState {
   const r = dispatchCaptainOnShortRange(qualified(), WIRING_CAPTAIN_ID, slotId, repeat);
   expect(r.success, String(r.reason)).toBe(true);
   return r.next;
-}
-
-// A run as a pre-G1-5 build dispatched it: no relic stamp on the mission. Pure; a no-op before G1-5.
-export function asPreRelicDispatch(s: GameState): GameState {
-  return {
-    ...s,
-    captains: s.captains.map((c) => {
-      if (c.mission === null || c.mission.kind !== "shortRange" || !("relicBlanks" in c.mission)) return c;
-      const m = { ...c.mission } as Record<string, unknown>;
-      delete m.relicBlanks;
-      return { ...c, mission: m as unknown as typeof c.mission };
-    }),
-  };
-}
-
-// The state with every short-range relic find taken out (see the header). Pure; a no-op before G1-5.
-export function withoutShortRangeRelics(s: GameState): GameState {
-  const out = asPreRelicDispatch(s);
-  return {
-    ...out,
-    captains: out.captains.map((c) => {
-      if (c.mission === null || c.mission.kind !== "shortRange" || !("relicsThisRun" in c.mission)) return c;
-      const m = { ...c.mission } as Record<string, unknown>;
-      delete m.relicsThisRun;
-      return { ...c, mission: m as unknown as typeof c.mission };
-    }),
-    relicVault: (out.relicVault ?? []).filter((t) => t.source !== "shortRange"),
-    completionLog: (out.completionLog ?? []).map((e) => {
-      if (!("relicsFound" in e)) return e;
-      const rest = { ...e } as Record<string, unknown>;
-      delete rest.relicsFound;
-      return rest as unknown as typeof e;
-    }),
-  };
 }
 
 // Advance `hours` in one-hour economyTick calls (a lone captain: one call equals 1 s steps, shortRangeCycle.test.ts).
