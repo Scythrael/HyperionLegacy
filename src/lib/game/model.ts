@@ -3771,7 +3771,7 @@ export interface PatrolMissionState {
 }
 
 // Safe first runs SF-4: a patrol cycle's difficulty stamp: the run stamp (RunDifficultyStamp, tier I: patrols are
-// Tier I content) plus `completed`, the won routes on the curve this cycle's ramp was read at, so a relaunch reads the
+// Tier I content) plus `completed`, the patrol runs on the curve this cycle's ramp was read at, so a relaunch reads the
 // next position from the stored mission alone (offline == live; another captain's wins count at the next dispatch).
 export interface PatrolDifficultyStamp extends RunDifficultyStamp {
   completed: number;
@@ -7441,7 +7441,8 @@ export type RegionTier = 1 | 2 | 3 | 4 | 5 | 6 | 7;
 // in runDifficulty.ts): the per-type RUN COUNTERS on GameState.runCounts. Plain numbers and booleans (no Decimals).
 // - expedition.completed: claimed runs that were not recalled, the training run excluded (the curve's input).
 // - expedition.trainingDone: the training run (the first expedition from an explorer) was claimed, not recalled.
-// - patrol.dispatched: patrol dispatches (the first is the one safe patrol); patrol.completed: won patrol routes.
+// - patrol.dispatched: patrol dispatches (the first is the one safe patrol); patrol.completed: patrol runs on the curve
+//   (SF-4, user 2026-10-21 "One step per patrol run": a run counts once it wins a route; the training run excluded).
 // - veteran: the save flew this type before 0.14.0 (save v70): no training run, the curve at full strength.
 // - shortRange: per G1 template (G1 is not built; its contract, plan SF-5).
 export interface RunCounts {

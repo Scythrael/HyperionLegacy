@@ -10,6 +10,9 @@
 //   census   : every hull's maximum crafted power draw (the P1 census), read from the data, pinned as numbers.
 //   patrol   : a Repeat patrol for every combat hull on both routes, with a crafted Reactor Core and shield emitters
 //              and the power-efficiency crew aboard: the dispatch record, the display replay every 150 s, the state.
+//              SF-4 merge (user 2026-10-21 "One step per patrol run"): the 11 rows whose run wins more than one route
+//              re-pinned on their final state hash only: runCounts.patrol.completed counts the run once, not once per
+//              won route (with the per-route count line restored every old value reproduces); the fight is unchanged.
 //   groundOps: two Ground Ops runs (ship events live) on an Orion with the same power fixture, through claim.
 //   mission  : two captain missions on a General Freighter with a crafted Reactor Core and the power crew, 700 s.
 //   registry : the wiring registry snapshot (id, status, contexts, probe) and the E-MOD owned rows by name.
@@ -341,25 +344,25 @@ const GOLDEN: Record<string, unknown> = {
     aurora: 50,
     eir: 50,
   },
-  "patrol:generalFreighter:crimsonReaverSweep": ["a22d953b", "f1303262", "af09e57d", "809c791a", "1ffcda88", "70660f1d"],
+  "patrol:generalFreighter:crimsonReaverSweep": ["a22d953b", "f1303262", "af09e57d", "809c791a", "1ffcda88", "707e22fe"],
   "patrol:generalFreighter:crimsonReaverWarband": ["14716665", "58ebce7c", "919e12e7"],
-  "patrol:prospectorHauler:crimsonReaverSweep": ["f395dca2", "ec1b3baa", "dcd441c5", "a6ff3d60", "423f1dbb", "ca698ddb"],
+  "patrol:prospectorHauler:crimsonReaverSweep": ["f395dca2", "ec1b3baa", "dcd441c5", "a6ff3d60", "423f1dbb", "9933f234"],
   "patrol:prospectorHauler:crimsonReaverWarband": ["f7018a80", "1b6a04f", "984eba0d"],
-  "patrol:prospectorRunner:crimsonReaverSweep": ["35304b07", "2683c11c", "540ed873"],
+  "patrol:prospectorRunner:crimsonReaverSweep": ["35304b07", "2683c11c", "e8ba53ff"],
   "patrol:prospectorRunner:crimsonReaverWarband": ["bb3f0839", "9706551a", "396a7d72"],
-  "patrol:prospectorMiner:crimsonReaverSweep": ["2c976c41", "91a3b4b3", "4cfe9f19"],
+  "patrol:prospectorMiner:crimsonReaverSweep": ["2c976c41", "91a3b4b3", "bc79b4c5"],
   "patrol:prospectorMiner:crimsonReaverWarband": ["20145f43", "df5c4593", "6494466d"],
-  "patrol:destroyer:crimsonReaverSweep": ["e212a0f4", "fecb657", "fd943642", "3225234d", "83b5d80", "93285f1c"],
+  "patrol:destroyer:crimsonReaverSweep": ["e212a0f4", "fecb657", "fd943642", "3225234d", "83b5d80", "fd01ff75"],
   "patrol:destroyer:crimsonReaverWarband": ["29d6046", "9ca2efb", "56b823a3"],
-  "patrol:battleship:crimsonReaverSweep": ["7db855f4", "deeaf137", "db94168b", "2a94260e", "c4051625", "51fc5daf"],
-  "patrol:battleship:crimsonReaverWarband": ["3ec73e1a", "e7f6f494", "32566222"],
-  "patrol:carrier:crimsonReaverSweep": ["50c62cd6", "45416125", "101ffd89", "3addcf00", "8259b08a", "5215f06f"],
+  "patrol:battleship:crimsonReaverSweep": ["7db855f4", "deeaf137", "db94168b", "2a94260e", "c4051625", "88f94b88"],
+  "patrol:battleship:crimsonReaverWarband": ["3ec73e1a", "e7f6f494", "61f5e0a8"],
+  "patrol:carrier:crimsonReaverSweep": ["50c62cd6", "45416125", "101ffd89", "3addcf00", "8259b08a", "491e92c8"],
   "patrol:carrier:crimsonReaverWarband": ["a0e384dc", "b90af1b3", "58bc8525"],
-  "patrol:orion:crimsonReaverSweep": ["8e12b325", "c286e23", "6d758b62", "843374d", "c5a0241e", "c019397e"],
+  "patrol:orion:crimsonReaverSweep": ["8e12b325", "c286e23", "6d758b62", "843374d", "c5a0241e", "b2f24457"],
   "patrol:orion:crimsonReaverWarband": ["97101bc3", "e062c2f6", "af0fc738"],
-  "patrol:aurora:crimsonReaverSweep": ["79bb80eb", "c977f577", "f1f71c85", "a82997dd", "f9405ee8", "23b8ff0b"],
+  "patrol:aurora:crimsonReaverSweep": ["79bb80eb", "c977f577", "f1f71c85", "a82997dd", "f9405ee8", "352183a4"],
   "patrol:aurora:crimsonReaverWarband": ["d2b521ad", "7b0b391e", "48dd8d1d"],
-  "patrol:eir:crimsonReaverSweep": ["6d0d415d", "7c3e0da4", "9f779576", "71997d4c", "331458c0", "f0a51103"],
+  "patrol:eir:crimsonReaverSweep": ["6d0d415d", "7c3e0da4", "9f779576", "71997d4c", "331458c0", "ea8ba22c"],
   "patrol:eir:crimsonReaverWarband": ["746ba2fb", "ccd52ab", "7a6f8887"],
   "groundOps:1234": ["e396d8dd", "42027928", "17b9a694"],
   "groundOps:5678": ["49bebe7a", "f370042b", "8deed810"],

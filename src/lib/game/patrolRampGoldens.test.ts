@@ -114,6 +114,9 @@ function forecast(state: GameState, key: PatrolKey): string {
 //                      Sweep on (was lost at tick 10) and every Warband relaunches; the relaunched cycles climb the curve
 //                      (the destroyer's and carrier's Warbands now fly four cycles; the Runner's and Orion's lose the
 //                      floor cycle at tick 38). The counters: the training route never counts (Sweep 3 of 4 routes).
+//                      SF-4 MERGE (user 2026-10-21 "One step per patrol run"): a Repeat run keeps ONE curve position
+//                      for every route, so the training run's later cycles all fly the floor (no climb) and the run
+//                      counts nothing (the counters read completed 0, was 3); every relaunch hash after the first moved.
 //   counts:destroyer   the training route is off the curve (completed 0 after the first patrol, was 1), and the second
 //                      patrol at the floor now wins the Warband.
 //   forecast           the card forecasts the dispatch's own profile: Guaranteed on a fresh save (the training cycle),
@@ -242,26 +245,26 @@ const GOLDEN: Record<string, unknown> = {
     "b6b37c6e",
   ],
   "repeat:prospectorRunner": [
-    "crimsonReaverSweep:relaunch@14:d57555c2,relaunch@28:484aed8f,relaunch@42:72e833e3,relaunch@56:a4f5f475",
-    "{\"dispatched\":1,\"completed\":3,\"veteran\":false}",
+    "crimsonReaverSweep:relaunch@14:d57555c2,relaunch@28:f7ed7432,relaunch@42:c3520bd1,relaunch@56:2b0b73e3",
+    "{\"dispatched\":1,\"completed\":0,\"veteran\":false}",
     "crimsonReaverWarband:relaunch@22:ccb5e217,end@38:damaged:dd06458",
     "{\"dispatched\":1,\"completed\":0,\"veteran\":false}",
   ],
   "repeat:destroyer": [
-    "crimsonReaverSweep:relaunch@14:f0981ffd,relaunch@28:ccfc92fa,relaunch@42:d021b7a4,relaunch@56:270bca7c",
-    "{\"dispatched\":1,\"completed\":3,\"veteran\":false}",
-    "crimsonReaverWarband:relaunch@22:4ab039c4,relaunch@44:f36f6204,relaunch@66:c148fbfe,relaunch@88:5874f8d2",
-    "{\"dispatched\":1,\"completed\":3,\"veteran\":false}",
+    "crimsonReaverSweep:relaunch@14:f0981ffd,relaunch@28:bca9db2d,relaunch@42:bfacfaf6,relaunch@56:c57b937e",
+    "{\"dispatched\":1,\"completed\":0,\"veteran\":false}",
+    "crimsonReaverWarband:relaunch@22:4ab039c4,relaunch@44:d0ab4325,relaunch@66:6581ddc8,relaunch@88:fea94f80",
+    "{\"dispatched\":1,\"completed\":0,\"veteran\":false}",
   ],
   "repeat:carrier": [
-    "crimsonReaverSweep:relaunch@14:508ac4d5,relaunch@28:be183e15,relaunch@42:41bf0a7c,relaunch@56:cbd7a3ea",
-    "{\"dispatched\":1,\"completed\":3,\"veteran\":false}",
-    "crimsonReaverWarband:relaunch@22:653d1be6,relaunch@44:453085d5,relaunch@66:8c7353ba,relaunch@88:93fd14fc",
-    "{\"dispatched\":1,\"completed\":3,\"veteran\":false}",
+    "crimsonReaverSweep:relaunch@14:508ac4d5,relaunch@28:629760e6,relaunch@42:4511fb52,relaunch@56:d82aa7b8",
+    "{\"dispatched\":1,\"completed\":0,\"veteran\":false}",
+    "crimsonReaverWarband:relaunch@22:653d1be6,relaunch@44:f7e7c9c0,relaunch@66:526cb10,relaunch@88:94c6a5e",
+    "{\"dispatched\":1,\"completed\":0,\"veteran\":false}",
   ],
   "repeat:orion": [
-    "crimsonReaverSweep:relaunch@14:557dcd54,relaunch@28:6aa3150d,relaunch@42:273d6bfb,relaunch@56:b2c82c93",
-    "{\"dispatched\":1,\"completed\":3,\"veteran\":false}",
+    "crimsonReaverSweep:relaunch@14:557dcd54,relaunch@28:41a1dc4a,relaunch@42:382e08f5,relaunch@56:8c3870f5",
+    "{\"dispatched\":1,\"completed\":0,\"veteran\":false}",
     "crimsonReaverWarband:relaunch@22:29c1bc99,end@38:damaged:77152b3a",
     "{\"dispatched\":1,\"completed\":0,\"veteran\":false}",
   ],

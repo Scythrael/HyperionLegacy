@@ -54,7 +54,8 @@ describe("SF-4 the rules: the stamp a patrol dispatch writes", () => {
     expect(patrolDifficultyAt(asVeteran(patrolBase("destroyer", 1)))).toBeUndefined();
   });
 
-  it("a relaunch climbs one step per won cycle from the stamp alone: the training cycle hands over the floor, the top stores none", () => {
+  it("a relaunch keeps the run's one curve position from the stamp alone (one step per patrol run): the training cycle hands over the floor", () => {
+    // User 2026-10-21 "One step per patrol run": every route of a Repeat run flies the run's own position.
     let stamp = patrolDifficultyAt(patrolBase("destroyer", 1));
     const seen: (number | null)[] = [];
     for (let i = 0; i < N_FULL + 2; i++) {
@@ -62,7 +63,12 @@ describe("SF-4 the rules: the stamp a patrol dispatch writes", () => {
       seen.push(stamp ? stamp.completed : null);
       if (stamp) expect(stamp.ramp).toBe(rampFraction(stamp.completed));
     }
-    expect(seen).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, null, null, null]);
+    expect(seen).toEqual(Array.from({ length: N_FULL + 2 }, () => 0));
+    for (const c of [0, 4, N_FULL - 2]) {
+      const ramped = patrolDifficultyAt(onPatrolCurve(patrolBase("destroyer", 1), c))!;
+      expect(nextPatrolCycleDifficulty(ramped)).toEqual(ramped);
+      expect(nextPatrolCycleDifficulty(nextPatrolCycleDifficulty(ramped))).toEqual(ramped);
+    }
     expect(nextPatrolCycleDifficulty(undefined)).toBeUndefined();
     expect(nextPatrolCycleDifficulty({ version: 2 } as never)).toBeUndefined();
   });
@@ -178,7 +184,8 @@ describe("SF-4 offline == live", () => {
     }
   });
 
-  it("the cycles of a Repeat run climb the curve one step per won route, and the counters match the won routes minus the training one", () => {
+  it("a Repeat run is ONE curve step however many routes it flies (user 2026-10-21 \"One step per patrol run\"); the training run counts none", () => {
+    // The training run: its later cycles fly the floor, and none of its routes counts (SF5).
     const r = dispatchCaptainOnPatrol(patrolBase("battleship", 5), 1, "crimsonReaverSweep", "balanced", true);
     let s = r.next;
     const stamps: (number | null)[] = [patrolOf(s)!.difficulty!.firstRun ? -1 : null];
@@ -187,10 +194,26 @@ describe("SF-4 offline == live", () => {
       const m = patrolOf(s)!;
       stamps.push(m.difficulty ? m.difficulty.completed : null);
     }
-    expect(stamps).toEqual([-1, 0, 1, 2, 3]);
+    expect(stamps).toEqual([-1, 0, 0, 0, 0]);
     expect(patrolOf(s)!.routesCompletedThisRun).toBe(4);
-    expect(runCountsOf(s).patrol).toEqual({ dispatched: 1, completed: 3, veteran: false });
+    expect(runCountsOf(s).patrol).toEqual({ dispatched: 1, completed: 0, veteran: false });
     expect(s.lifetimeStats.missionsCompleted.crimsonReaverSweep?.toNumber()).toBe(4);
+    // A later run at curve position 2: every cycle keeps position 2, and the run counts ONCE, at its first won route.
+    const later = dispatchCaptainOnPatrol(onPatrolCurve(patrolBase("battleship", 5), 2), 1, "crimsonReaverSweep", "balanced", true);
+    let t = later.next;
+    const positions: (number | null)[] = [patrolOf(t)!.difficulty!.completed];
+    const counted: number[] = [];
+    for (let cycle = 0; cycle < 4; cycle++) {
+      t = economyTick(t, routeTicks("crimsonReaverSweep"), RNG);
+      const m = patrolOf(t)!;
+      positions.push(m.difficulty ? m.difficulty.completed : null);
+      counted.push(runCountsOf(t).patrol.completed);
+    }
+    expect(positions).toEqual([2, 2, 2, 2, 2]);
+    expect(counted).toEqual([3, 3, 3, 3]);
+    expect(patrolOf(t)!.routesCompletedThisRun).toBe(4);
+    // The same span in ONE call lands the same count (offline == live).
+    expect(runCountsOf(economyTick(later.next, 4 * routeTicks("crimsonReaverSweep"), RNG)).patrol.completed).toBe(3);
   });
 
   it("an in-flight patrol from before SF-4 (no stamp) relaunches without one: the new cycle is the pre-SF-4 cycle", () => {
@@ -203,7 +226,7 @@ describe("SF-4 offline == live", () => {
     expect(next.phase).toBe("transitOut");
     expect("difficulty" in next).toBe(false);
     expect(isTrainingPatrol(next)).toBe(false);
-    expect(res.curveRoutesCompleted).toBe(1);
+    expect(res.curveRunsCompleted).toBe(1);
   });
 });
 

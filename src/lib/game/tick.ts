@@ -425,7 +425,7 @@ import { itemTotal, addItemQuality, removeItemLowestFirst, removeItemHighestFirs
 // scope; server-side moderation in 0.14.0 plugs into the same signature.
 import { validateCaptainName } from "./captainName";
 // Safe first runs SF-1: the run counters (runDifficulty.ts imports model.ts only, so no cycle).
-import { countPatrolDispatch, countPatrolRoutes, isTrainingPatrol, nextPatrolCycleDifficulty, patrolDifficultyAt, runCountsOf, uncountShortRangeCycleStart } from "./runDifficulty";
+import { countPatrolDispatch, countPatrolRuns, isTrainingPatrol, nextPatrolCycleDifficulty, patrolDifficultyAt, runCountsOf, uncountShortRangeCycleStart } from "./runDifficulty";
 // Safe first runs SF-4: a patrol cycle's difficulty profile (the training cycle, the curve), shared with the replay.
 import { patrolCycleEnemies, patrolCycleWaveTicks, patrolWaveBreaksOff, patrolWaveEnemyParams } from "./combat/patrolProfile";
 // G1-4: the short-range cycle engine and the board's stored-cursor shape check.
@@ -3021,10 +3021,10 @@ interface PatrolTickResult {
   // WR-4 (B4, OC-E10 "shipsDestroyed from patrol and ship-event kills"): the enemy ships this call's wave battles
   // destroyed (won and lost waves alike), so economyTick credits the officers aboard. 0 on a no-op call.
   enemiesDestroyed: number;
-  // Safe first runs SF-4: the routes WON this call that count on the patrol curve (runCounts.patrol.completed): every
-  // completed route except the training cycle's (user SF5 "Completed runs only, minus the tutorial run"). The same
-  // per-route count as missionsCompleted otherwise, so an unstamped patrol reports exactly its won routes.
-  curveRoutesCompleted: number;
+  // Safe first runs SF-4: the patrol RUNS this call that count on the patrol curve (runCounts.patrol.completed). User
+  // 2026-10-21 "One step per patrol run": a run counts once, when it wins its FIRST route (however many routes a Repeat
+  // run flies after it); the training run never counts (user SF5 "Completed runs only, minus the tutorial run").
+  curveRunsCompleted: number;
 }
 
 // tickCaptainPatrol: advance ONE captain's patrol by `ticksElapsed` route ticks. PURE
@@ -3118,7 +3118,7 @@ export function tickCaptainPatrol(
     endRoutesCompleted: 0,
     lifetimeStatsDelta: emptyMissionLifetimeStatsDelta(),
     enemiesDestroyed: 0,
-    curveRoutesCompleted: 0,
+    curveRunsCompleted: 0,
   };
   // Only the patrol arm advances here; idle / extraction / a sub-tick call is a no-op.
   if (!captain.mission || captain.mission.kind !== "patrol" || ticksElapsed <= 0) return noOp;
@@ -3205,8 +3205,8 @@ export function tickCaptainPatrol(
   // cyclesCompleted: a single offline call can complete MANY routes (repeat-dispatch relaunch),
   // so this counts each one and feeds the missionsCompleted lifetime tally below.
   let routesCompleted = 0;
-  // Safe first runs SF-4: the same routes minus the training cycle's (the patrol curve's count).
-  let curveRoutesCompleted = 0;
+  // Safe first runs SF-4: the runs this call counts on the patrol curve (one per run, at its first won route).
+  let curveRunsCompleted = 0;
   // WR-4 (B4): enemy ships destroyed in this call's wave battles (each wave resolves exactly once, however the span
   // is chunked, so this is closed-form like the loot).
   let enemiesDestroyed = 0;
@@ -3477,8 +3477,10 @@ export function tickCaptainPatrol(
       // A full route flown + player alive = one patrol COMPLETED (won). Count it (win-only: a
       // defeat broke out above and never reaches here), keyed into missionsCompleted below.
       routesCompleted += 1;
-      // Safe first runs SF-4: on the curve unless it was the training cycle's route (SF5).
-      if (!isTrainingPatrol(mission)) curveRoutesCompleted += 1;
+      // Safe first runs SF-4 (user 2026-10-21 "One step per patrol run"): the run's FIRST won route counts the run once
+      // on the curve, unless it is the training cycle's (SF5). routesThisRun is the stored per-run count, so the rule
+      // reads the same however the span is chunked (offline == live).
+      if (routesThisRun === 0 && !isTrainingPatrol(mission)) curveRunsCompleted += 1;
       // 0.13.4 Phase 2: the same completion, accumulated PER RUN. Incremented here (beside the
       // per-call counter) rather than at the ending, because a repeat-dispatch run completes
       // many routes and only the last one coincides with an ending.
@@ -3553,7 +3555,7 @@ export function tickCaptainPatrol(
               hoursOut + ((def.transitOutTicks + def.rollWindowTicks) * (officerEffects.secondsPerTick ?? 1)) / 3600,
             ),
             // Safe first runs SF-4: the new cycle's difficulty, from this cycle's stamp alone (the training cycle
-            // hands over the curve's floor, a won ramped cycle one step up; none stays none).
+            // hands over the curve's floor; a ramped cycle keeps its stamp, one step per patrol run; none stays none).
             difficulty: nextPatrolCycleDifficulty(mission.difficulty),
           });
           // The new cycle's frozen bonuses may differ from the old one's: re-fold the carry pools so the
@@ -3695,7 +3697,7 @@ export function tickCaptainPatrol(
     // field meaning "routes in the run that just finished" rather than "routes so far".
     endRoutesCompleted: endReason === null ? 0 : routesThisRun,
     enemiesDestroyed,
-    curveRoutesCompleted,
+    curveRunsCompleted,
   };
 }
 
@@ -4097,10 +4099,10 @@ export function economyTick(
   // material quality line), split into the share an Assayer captain delivered (graded with its bonus) and the rest.
   // Empty without a rig line, so the fold below deposits exactly as before.
   const climbDelivered = new Map<string, { plain: Decimal; assayer: Decimal }>();
-  // Safe first runs SF-1: the patrol routes WON this call, fleet-wide (the patrol curve, runDifficulty.ts
-  // countPatrolRoutes), folded once into runCounts below. A pure additive count, so one big call and many small ones
+  // Safe first runs SF-1 / SF-4: the patrol runs counted this call, fleet-wide (the patrol curve, runDifficulty.ts
+  // countPatrolRuns), folded once into runCounts below. A pure additive count, so one big call and many small ones
   // accrue the identical total.
-  let patrolRoutesWon = 0;
+  let patrolCurveRuns = 0;
   // 0.13.4 Phase 3 Unit 3.2: the shared TRANSIT-BERTH budget for this whole call, threaded
   // exactly like fuelBudgetRemaining / creditsBudgetRemaining above it: computed ONCE from the
   // incoming state, then drawn down as each captain claims, so a later captain in this same map
@@ -4285,9 +4287,9 @@ export function economyTick(
         // shared foldLifetimeStatsDelta seam the extraction arm uses (~110 lines below), so
         // combat loot/bounty/XP count toward lifetime totals exactly like extraction loot.
         lifetimeStats = foldLifetimeStatsDelta(lifetimeStats, patrolResult.lifetimeStatsDelta);
-        // Safe first runs SF-1: the same won routes count on the patrol curve (runCounts, folded below). SF-4: minus the
-        // training cycle's route (curveRoutesCompleted).
-        patrolRoutesWon += patrolResult.curveRoutesCompleted;
+        // Safe first runs SF-4: the patrol runs counted on the patrol curve (runCounts, folded below): one per run, at its
+        // first won route, the training run excluded (curveRunsCompleted, user 2026-10-21 "One step per patrol run").
+        patrolCurveRuns += patrolResult.curveRunsCompleted;
         // Crew 0.14.0 ("CREW GOES LIVE"): record this patrol's completed ROUTES against its ship so the
         // officers aboard get missionsCompleted credit (promotion gates). routesCompleted lives in the
         // patrol's lifetimeStatsDelta.missionsCompleted, keyed by patrolKey; sum its (single) value.
@@ -4820,11 +4822,11 @@ export function economyTick(
     // fold above uses). If no captain was on a mission this call, `lifetimeStats`
     // is still the original state.lifetimeStats reference, an exact no-op.
     lifetimeStats,
-    // Safe first runs SF-1: the won patrol routes on the patrol curve. Untouched (the same reference) when no route
-    // was won this call.
+    // Safe first runs SF-1 / SF-4: the patrol runs counted on the patrol curve. Untouched (the same reference) when no
+    // run counted this call.
     // G1-4: plus the short-range cycle starts and deliveries (threaded through the captain map above). Untouched when
     // neither moved.
-    ...(patrolRoutesWon > 0 || srCountsAfter !== null ? { runCounts: countPatrolRoutes(srCountsAfter ?? runCountsOf(state), patrolRoutesWon) } : {}),
+    ...(patrolCurveRuns > 0 || srCountsAfter !== null ? { runCounts: countPatrolRuns(srCountsAfter ?? runCountsOf(state), patrolCurveRuns) } : {}),
     // G1-4: the board's cycle cursor, written only when a short-range cycle was delivered this call.
     ...(srCursorAfter !== null ? { shortRangeBoard: { version: 1 as const, nextCycle: { ...srCursorAfter } } } : {}),
   };
@@ -5947,7 +5949,7 @@ export function dispatchCaptainOnPatrol(
     returnCutTicks,
     // 0.14.0 (CP-4, OC-1 "Faster drone replenish"): freeze the crew's Deck Handling onto the first cycle (0 = none).
     deckHandling: shipDeckHandling(state, ship),
-    // Safe first runs SF-4: the save's one safe patrol, or the curve at the won routes so far (read BEFORE this
+    // Safe first runs SF-4: the save's one safe patrol, or the curve at the patrol runs counted so far (read BEFORE this
     // dispatch is counted; absent at full strength).
     difficulty: patrolDifficultyAt(state),
   });

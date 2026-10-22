@@ -125,6 +125,9 @@ function line(o: RunOutcome): string {
 //                     at 0.35 of nominal on the route's own waves): won everywhere but the Runner, Miner and explorers'
 //                     Warband (lost at tick 16).
 //   patrol:repeat     the first cycle is the training cycle, the relaunched one the curve's floor.
+//                     RE-PINNED AGAIN at the SF-4 merge (user 2026-10-21 "One step per patrol run"): the training run
+//                     counts no route on the curve (runCounts.patrol.completed stays 0 through the run), so every
+//                     second-cycle state hash moved; the cycles fought are unchanged (the floor either way).
 //   patrol:forecast   (gated) the card forecasts the dispatch's own profile: every hull and route reads Guaranteed on a
 //                     fresh save (the training cycle cannot be lost).
 // Unchanged: the closed-form pair (now the training Orion Sweep and a VETERAN Runner's lost, limping Warband), the
@@ -213,25 +216,25 @@ const GOLDEN: Record<string, unknown> = {
     "cad0779e", "a6fff670",
   ],
   "patrol:repeat": [
-    "generalFreighter:crimsonReaverSweep:relaunch@14:e5306b13,relaunch@28:5718cce4",
+    "generalFreighter:crimsonReaverSweep:relaunch@14:e5306b13,relaunch@28:2578b1a9",
     "generalFreighter:crimsonReaverWarband:relaunch@22:a54da55c,end@40:48fbc319",
-    "prospectorHauler:crimsonReaverSweep:relaunch@14:a0d3be46,relaunch@28:4027a9c7",
-    "prospectorHauler:crimsonReaverWarband:relaunch@22:b6fa7735,relaunch@44:6b7a8d4d",
-    "prospectorRunner:crimsonReaverSweep:relaunch@14:d57555c2,relaunch@28:484aed8f",
+    "prospectorHauler:crimsonReaverSweep:relaunch@14:a0d3be46,relaunch@28:5774e52e",
+    "prospectorHauler:crimsonReaverWarband:relaunch@22:b6fa7735,relaunch@44:cbe4db62",
+    "prospectorRunner:crimsonReaverSweep:relaunch@14:d57555c2,relaunch@28:f7ed7432",
     "prospectorRunner:crimsonReaverWarband:relaunch@22:ccb5e217,end@38:dd06458",
-    "prospectorMiner:crimsonReaverSweep:relaunch@14:e416353e,relaunch@28:6c63f21d",
+    "prospectorMiner:crimsonReaverSweep:relaunch@14:e416353e,relaunch@28:a6f419ea",
     "prospectorMiner:crimsonReaverWarband:relaunch@22:af45d285,end@38:3c5fe3ad",
-    "destroyer:crimsonReaverSweep:relaunch@14:f0981ffd,relaunch@28:ccfc92fa",
-    "destroyer:crimsonReaverWarband:relaunch@22:4ab039c4,relaunch@44:f36f6204",
-    "battleship:crimsonReaverSweep:relaunch@14:6ef5a77a,relaunch@28:44bdc2d",
-    "battleship:crimsonReaverWarband:relaunch@22:5565aaa9,relaunch@44:890a6f2f",
-    "carrier:crimsonReaverSweep:relaunch@14:508ac4d5,relaunch@28:be183e15",
-    "carrier:crimsonReaverWarband:relaunch@22:653d1be6,relaunch@44:453085d5",
-    "orion:crimsonReaverSweep:relaunch@14:557dcd54,relaunch@28:6aa3150d",
+    "destroyer:crimsonReaverSweep:relaunch@14:f0981ffd,relaunch@28:bca9db2d",
+    "destroyer:crimsonReaverWarband:relaunch@22:4ab039c4,relaunch@44:d0ab4325",
+    "battleship:crimsonReaverSweep:relaunch@14:6ef5a77a,relaunch@28:fdaa6a0c",
+    "battleship:crimsonReaverWarband:relaunch@22:5565aaa9,relaunch@44:ae10bb58",
+    "carrier:crimsonReaverSweep:relaunch@14:508ac4d5,relaunch@28:629760e6",
+    "carrier:crimsonReaverWarband:relaunch@22:653d1be6,relaunch@44:f7e7c9c0",
+    "orion:crimsonReaverSweep:relaunch@14:557dcd54,relaunch@28:41a1dc4a",
     "orion:crimsonReaverWarband:relaunch@22:29c1bc99,end@38:77152b3a",
-    "aurora:crimsonReaverSweep:relaunch@14:9653a4aa,relaunch@28:56dd0441",
+    "aurora:crimsonReaverSweep:relaunch@14:9653a4aa,relaunch@28:7e73d9a8",
     "aurora:crimsonReaverWarband:relaunch@22:63b39fcd,end@38:1b95d1d1",
-    "eir:crimsonReaverSweep:relaunch@14:a932f642,relaunch@28:900e269",
+    "eir:crimsonReaverSweep:relaunch@14:a932f642,relaunch@28:13c4af12",
     "eir:crimsonReaverWarband:relaunch@22:803db37d,end@38:903e03bf",
   ],
   "gather:localFuelRun": [

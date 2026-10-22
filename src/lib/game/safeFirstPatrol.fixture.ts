@@ -29,7 +29,7 @@ export function patrolBase(hull: ShipTypeKey, seed: number): GameState {
   return { ...onHull(hull), nextPatrolSeed: seed, credits: new Decimal(100_000) };
 }
 
-// `state` with its one safe patrol behind it and `completed` won routes on the curve (not a veteran). Pure.
+// `state` with its one safe patrol behind it and `completed` patrol runs on the curve (not a veteran). Pure.
 export function onPatrolCurve(state: GameState, completed: number): GameState {
   const counts = runCountsOf(state);
   return { ...state, runCounts: { ...counts, patrol: { dispatched: 1, completed, veteran: false } } };

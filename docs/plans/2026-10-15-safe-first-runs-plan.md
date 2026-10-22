@@ -934,3 +934,20 @@ the patrol card and any `brokeOff` wording.
 
 - Patrol ramp pacing: "One step per patrol run (Recommended)": each dispatched patrol (however many routes it repeats)
   is one curve step, so the ramp lasts about 10 patrol runs like expeditions; NOT one step per won route as first built.
+
+## SF-4 MERGE NOTE (2026-10-21, the pacing answer built at the merge)
+
+- **One step per patrol run:** `tickCaptainPatrol` reports `curveRunsCompleted`: a run counts ONCE, at its first won
+  route (`routesCompletedThisRun` is still 0), unless it is the training cycle's; economyTick folds it with
+  `countPatrolRuns` (was `countPatrolRoutes`). `nextPatrolCycleDifficulty` keeps a ramped cycle's stamp unchanged at a
+  Repeat relaunch (the run's one position), and the training cycle still hands over the floor, so the training run's
+  later routes fly where the next patrol starts and count nothing. A relaunch still reads the stored stamp alone, and the
+  count reads stored per-run state, so one call == chunks == 1 s steps (tested in safeFirstPatrol.test.ts and
+  runDifficulty.test.ts). A run lost on its first route counts nothing (SF5 "completed runs only").
+- **Veterans:** the v70 migration's `patrol.completed` (won routes) is left as is: a veteran plays at full strength, so
+  the number never moves a curve.
+- **Goldens moved, named in each header:** SF-4's own (patrolRampGoldens `repeat:*`, firstRunsGoldens `patrol:repeat`);
+  captainExplorerGoldens `patrol` (baseline, commandCrew2 / 3 / 5) and emodGoldens' 11 multi-route patrol rows move only
+  through `runCounts.patrol.completed` in the hashed state (with the per-route count line restored every old value
+  reproduced). racialsWired's Belter replenish test now dispatches as a patrol veteran (at the floor no drone is lost).
+  `npm run test:sweep:patrol` green.

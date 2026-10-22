@@ -131,6 +131,9 @@ function readVariantLive(key: SecondaryTalentKey | null): Record<string, string>
 }
 
 // ===== the goldens (captured before WR-5c) =====
+// SF-4 merge (user 2026-10-21 "One step per patrol run"): the `patrol` hash of the baseline and of commandCrew2 / 3 / 5
+// re-pinned. The only move is runCounts.patrol.completed in the hashed state (a run counts once, not once per won route;
+// with the per-route count line restored every old value reproduces); the patrol flown is byte-identical.
 
 const BASELINE: Record<string, string> = {
   sheet: "7cabdac1",
@@ -140,7 +143,7 @@ const BASELINE: Record<string, string> = {
   claim: "8cf7de8a",
   study: "600",
   mission: "c3e1866b",
-  patrol: "b8afc1be",
+  patrol: "6e711db",
   boards: "10/10",
 };
 
@@ -173,14 +176,14 @@ const MOVES: Partial<Record<SecondaryTalentKey, Record<string, string>>> = {
   commandCrew1: { sheet: "fedf8bdf", dispatch: "8d3b7c34", done: "e499ab1d", mission: "95bf1cc" },
   // Mentor: every officer bonus x1.05 (the sheet's yield and cargo, the run's Discovery Instinct, the mission's
   // Command Presence, the patrol's Weapons and Shield Command).
-  commandCrew2: { sheet: "869097d4", dispatch: "1cc6be51", done: "61085ea4", mission: "9423023e", patrol: "9ecd4efc" },
+  commandCrew2: { sheet: "869097d4", dispatch: "1cc6be51", done: "61085ea4", mission: "9423023e", patrol: "d5ceb989" },
   // Drillmaster: every promotion counter increment x1.08 (the mission's and patrol's hours and cycles, the claim's
   // objectives), and explorerCaptain.promotionMult 1.08 frozen on the run.
-  commandCrew3: { dispatch: "9b88a3dc", done: "d1053e03", claim: "85cdad0e", mission: "365aba7b", patrol: "3c5fd0b1" },
+  commandCrew3: { dispatch: "9b88a3dc", done: "d1053e03", claim: "85cdad0e", mission: "365aba7b", patrol: "528fd482" },
   // Recruiter: both boards 10 x 1.08 = 10.8, rounded up to 11.
   commandCrew4: { boards: "11/11" },
   // Legendary Captain: the complement AND the officers x1.10 (everything Inspiring Leader and Mentor move).
-  commandCrew5: { sheet: "32c2c065", dispatch: "ba74462f", done: "877c44c6", mission: "716140ba", patrol: "f35b43d5" },
+  commandCrew5: { sheet: "32c2c065", dispatch: "ba74462f", done: "877c44c6", mission: "716140ba", patrol: "3219b4ae" },
 };
 
 describe("WR-5c goldens: the explorer secondary nodes (captured before wiring; each move explained above)", () => {
