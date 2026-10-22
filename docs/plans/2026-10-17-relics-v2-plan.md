@@ -534,3 +534,10 @@ Notes for the build: compounding is allowed INSIDE the minigame (it is sealed fr
 governs the main game); the minigame pacing sim must be re-run with realistic relic counts so the finale stays 3 to 5
 days and e1,000,000 about a month for a player WITHOUT relics, and the boost is reported for typical relic counts;
 the past-cap count also stays recorded for Endless Mode. New 0.14.0 slice: "R2-10 relic boosts in the minigame".
+CORRECTION (user, 2026-10-22, verbatim): "Yes! Sorry. That's what I meant. Relics will never affect the main game after
+1k, but the same thing occurs there too. Diminishing returns. Then eventually, you'll get new bonuses that are balanced
+around the scaling this provides!"
+So: past 1000 per tier, relics never help the main game (the freeze stays). The relic boost INTO THE MINIGAME also
+follows diminishing returns (a D23-style concave, uncapped curve), NOT compounding; this supersedes the "compounding is
+allowed inside the minigame" note above for relic boosts (the minigame's own Overclock still compounds as built).
+Future minigame bonuses get balanced around the scaling relics provide (later content).
