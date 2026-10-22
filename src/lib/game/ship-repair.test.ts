@@ -59,6 +59,7 @@ import {
   resolveProcesses,
   installMissingCombatBaselines,
 } from "./tick";
+import { asPrePatrolCurveDispatch } from "./awayTeamTestFixtures";
 
 const PATROL_KEY = "crimsonReaverSweep";
 const DEF = PATROLS[PATROL_KEY];
@@ -81,7 +82,7 @@ function patrolState(typeKey: ShipTypeKey, seed: number): GameState {
 }
 
 function dispatch(state: GameState, repeat: boolean): GameState {
-  const r = dispatchCaptainOnPatrol(state, 1, PATROL_KEY, "balanced", repeat);
+  const r = asPrePatrolCurveDispatch(dispatchCaptainOnPatrol(state, 1, PATROL_KEY, "balanced", repeat));
   expect(r.success).toBe(true);
   return r.next;
 }
@@ -244,7 +245,7 @@ describe("damaged hull blocks re-dispatch", () => {
 
   it("dispatchCaptainOnPatrol is a same-ref no-op with the needsRepair reason", () => {
     const state = damagedIdle();
-    const r = dispatchCaptainOnPatrol(state, 1, PATROL_KEY, "balanced", false);
+    const r = asPrePatrolCurveDispatch(dispatchCaptainOnPatrol(state, 1, PATROL_KEY, "balanced", false));
     expect(r.success).toBe(false);
     expect(r.reason).toBe("needsRepair");
     expect(r.next).toBe(state); // untouched

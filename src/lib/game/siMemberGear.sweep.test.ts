@@ -54,12 +54,15 @@ function fullRun(seed: number, crew: CrewName): Expedition {
 // Measured on this build (SF-3's ramp merged: a veteran save reads full strength, the Tier I hazard ceiling and kits).
 // The SF-0 bare row is the section 2.5 B table's Orion rank 1 row (40 of 60 stalled). In words: the set takes the SF-0
 // row from 20 to 36 finished runs of 60 and its Vault / Subterranean wins from 38 to 68 of 108; at full strength from
-// 122 to 193 of 200 finished and 227 to 356 of 365 sites won (the plan's 95% / 90% targets: 96.5% / 97.5%).
+// 121 to 193 of 200 finished and 226 to 355 of 365 sites won (the plan's 95% / 90% targets: 96.5% / 97.3%).
 const TABLE: Record<string, string> = {
   "sf0:rank1": "20/60 56 2118 38:108",
   "sf0:rank1si": "36/60 52 1690 68:108",
-  "full:rank1": "122/200 176 5508 227:365",
-  "full:rank1si": "193/200 155 3727 356:365",
+  // Re-measured at Gas Giant Study GG-2 / GG-3 (were 122/200 176 5508 227:365 and 193/200 155 3727 356:365): the
+  // seeds whose system holds a gas giant now study it from the ship (no ground objectives there, the scan pausing for
+  // the study), so those runs' later fights land at other hours; the set's direction holds on every cell.
+  "full:rank1": "121/200 176 5483 226:365",
+  "full:rank1si": "193/200 155 3742 355:365",
 };
 
 const measured: Record<string, Tally> = {};

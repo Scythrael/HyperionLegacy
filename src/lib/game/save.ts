@@ -79,6 +79,9 @@ import {
 //      expeditions claimed = nextExpeditionId - 1 - the runs still out (any dispatch = veteran); patrols dispatched =
 //      nextPatrolSeed - 1 (at least 1 when a route was ever won; any = veteran), completed = the won routes. A save that
 //      never launched an expedition DOES get the training run (exploration is new in 0.14.0). See withRunCountsV70.
+//      Safe first runs SF-4 adds NOTHING here: PatrolMissionState.difficulty is optional and ABSENT MEANS FULL STRENGTH
+//      (written only on the safe first patrol and on cycles below the top of the curve), so an in-flight patrol from
+//      an older save flies and relaunches exactly as before, and a veteran never gets a stamp.
 //   3. Expedition Tiers G2-1 (plan 2026-10-14 section 3 G2-1; user G2 "Random for everyone"): the per-save HOMEWORLD
 //      (`homeworld`, model.ts HomeworldState: { version: 1, seed }). Each existing save gets its OWN random seed from
 //      the entropy migrate is given (loadFromLocalStorage passes a Web Crypto draw, homeworldEntropy.ts); the placement

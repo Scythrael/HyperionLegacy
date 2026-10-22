@@ -37,6 +37,7 @@ import {
 import { defaultSystemDurabilityForHull } from "./bridge";
 import { capturePlayerSystemDurability } from "./patrolWave";
 import type { CombatEvent } from "./types";
+import { asPrePatrolCurveDispatch } from "../awayTeamTestFixtures";
 
 const PATROL_KEY = "crimsonReaverSweep";
 // A constant rng so any incidental economyTick draw is identical across compared paths
@@ -59,7 +60,7 @@ function patrolState(typeKey: ShipTypeKey, seed: number): GameState {
 }
 
 function dispatch(state: GameState, repeat: boolean): GameState {
-  const r = dispatchCaptainOnPatrol(state, 1, PATROL_KEY, "balanced", repeat);
+  const r = asPrePatrolCurveDispatch(dispatchCaptainOnPatrol(state, 1, PATROL_KEY, "balanced", repeat));
   expect(r.success).toBe(true);
   return r.next;
 }
@@ -319,7 +320,7 @@ describe("defeat-path parity through the PUBLIC entry (replayPatrol)", () => {
   const DEFEAT_SEED = 2; // first of many; 4, 5, 6, 7, 9, 10, 11, 12 and 14 also defeat.
 
   function dispatchDefeat(): GameState {
-    const r = dispatchCaptainOnPatrol(patrolState("destroyer", DEFEAT_SEED), 1, DEFEAT_PATROL, "balanced", false);
+    const r = asPrePatrolCurveDispatch(dispatchCaptainOnPatrol(patrolState("destroyer", DEFEAT_SEED), 1, DEFEAT_PATROL, "balanced", false));
     expect(r.success).toBe(true);
     return r.next;
   }

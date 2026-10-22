@@ -383,3 +383,5 @@ for byte; the registry pins hold the `wear` additions apart (shortRangeGoldens G
   at each cycle start, so worn gear shows from cycle 2 (section 10); expeditions stay frozen at dispatch.
 - First-pass rates: "Approve (Recommended)": hold 8 per cycle, drive 2 per 10 ly, reactor and crew modules 4 a minute,
   utility fire 8, survey 12, implants 2.5 a minute, the 5-minute expedition slice.
+- Universal module wear: "4 a minute (Recommended)": modules wear by time underway at the crew-module rate (2 never
+  outran the 2-a-minute upkeep).

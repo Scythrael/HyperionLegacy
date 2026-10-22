@@ -57,7 +57,8 @@ import { combatHullTypeOf, defaultSystemDurabilityForHull, foldedPlayerDefense, 
 import { battleRating, DEFAULT_SAMPLES } from "./combat/rating";
 import { threatAssessment } from "./combat/threatAssessment";
 import { CREW_NAMES, hash, onHull, runOutcome, stateHash, SWEEP, SWEEP_END, withCrew, type CrewName, type RunOutcome } from "./firstRunsGoldens.fixture";
-import { asPreG2Candidate, asPreG2NamesDispatch, asPreRanksDispatch, dispatchPastPropulsion } from "./awayTeamTestFixtures";
+import { asPreG2Candidate, asPreG2NamesDispatch, asPreRanksDispatch, dispatchPastPropulsion, asPatrolVeteran } from "./awayTeamTestFixtures";
+import { patrolDifficultyAt } from "./runDifficulty";
 import { isTrainingRun } from "./enemyRanks";
 
 // ===== shared helpers =====
@@ -113,6 +114,26 @@ function line(o: RunOutcome): string {
 // freighter, later and old-save rows stay the pre-SF-3 record. The runs AS THE GAME NOW DISPATCHES THEM (the curve,
 // the Tier I hazard ceiling, Weak on the low end) are pinned in rampGoldens.test.ts, captured before SF-3 and re-pinned
 // by it with every move named.
+//
+// RE-PINNED BY SAFE FIRST RUNS SF-4 (the moves, each on purpose; every other key here is unchanged):
+//   patrol:<hull>     a fresh save's first patrol (seeds 1 AND 2: each row is a fresh save) is now the TRAINING CYCLE
+//                     (PatrolMissionState.difficulty stamped): the first 2 waves of its own schedule, each 1 Raider, a
+//                     lost wave breaking off: every row is won (Sweep at 14 ticks, Warband at 22; was lost on the
+//                     Runner and Miner Sweep at seed 1, on the Warband at seed 1 for the freighter, Runner, Miner and
+//                     explorers, and at seed 2 for every hull but the battleship), so every route now has its "second"
+//                     row. The second patrol is the curve's FLOOR (enemies
+//                     at 0.35 of nominal on the route's own waves): won everywhere but the Runner, Miner and explorers'
+//                     Warband (lost at tick 16).
+//   patrol:repeat     the first cycle is the training cycle, the relaunched one the curve's floor.
+//                     RE-PINNED AGAIN at the SF-4 merge (user 2026-10-21 "One step per patrol run"): the training run
+//                     counts no route on the curve (runCounts.patrol.completed stays 0 through the run), so every
+//                     second-cycle state hash moved; the cycles fought are unchanged (the floor either way).
+//   patrol:forecast   (gated) the card forecasts the dispatch's own profile: every hull and route reads Guaranteed on a
+//                     fresh save (the training cycle cannot be lost).
+// Unchanged: the closed-form pair (now the training Orion Sweep and a VETERAN Runner's lost, limping Warband), the
+// 200-seed WINS table (dispatched as a patrol veteran: the nominal record the top of the curve equals), gather:*,
+// guards and old:v69 (a veteran: no stamp). The curve's own pins are patrolRampGoldens.test.ts (captured before SF-4)
+// and safeFirstPatrol.sweep.test.ts.
 const GOLDEN: Record<string, unknown> = {
   "board:summary": [
     "security:4:2", "science:3:2", "security:1:1", "security:1:1", "security:1:1", "security:3:2", "science:4:2",
@@ -125,86 +146,96 @@ const GOLDEN: Record<string, unknown> = {
   // relaunches on it; the freighter and the runner lose Warband seed 1 later (tick 23, was 20; tick 20, was 16).
   // Every other win, loss and relaunch tick is as before.
   "patrol:generalFreighter": [
-    "crimsonReaverSweep:1:won:14", "894fdcae", "f603498f", "b2f38143", "d906373f", "619f0aa1", "second:won:14",
-    "78db202f", "47bf5f7c", "crimsonReaverSweep:2:won:14", "78db202f", "d0a063cd", "b2f38143", "d906373f", "a247a79e",
-    "crimsonReaverWarband:1:lost:23", "4213eee4", "1a749a44", "701a58f1", "9e7bd12c", "c3731d85",
-    "crimsonReaverWarband:2:lost:16", "36a28cca", "7d2f6f3d", "701a58f1", "9e7bd12c", "fea4cc5a",
+    "crimsonReaverSweep:1:won:14", "da397d6f", "d1a44363", "b2f38143", "d906373f", "619f0aa1", "second:won:14",
+    "9bcf9987", "47bf5f7c", "crimsonReaverSweep:2:won:14", "9513f580", "d0a063cd", "b2f38143", "d906373f",
+    "a247a79e", "crimsonReaverWarband:1:won:22", "2f7ce1c3", "a10774bd", "b2f38143", "cad0779e", "d4df3066",
+    "second:won:22", "cbeb0462", "87340c43", "crimsonReaverWarband:2:won:22", "4839a6b0", "e1cae927", "b2f38143",
+    "cad0779e", "fc73981",
   ],
   "patrol:prospectorHauler": [
-    "crimsonReaverSweep:1:won:14", "26da28a9", "13a0e65f", "9d03d00b", "d906373f", "44d412c5", "second:won:14",
-    "dffae6a0", "eb8605e0", "crimsonReaverSweep:2:won:14", "dffae6a0", "5b0c2091", "9d03d00b", "d906373f", "b3aefbee",
-    "crimsonReaverWarband:1:won:22", "e98455fb", "6a4da60d", "9d03d00b", "cad0779e", "7503e6ee", "second:lost:16",
-    "5d562ccd", "7c716451", "crimsonReaverWarband:2:lost:16", "5d562ccd", "2ba17e8d", "8539ed3f", "9e7bd12c",
-    "1ebf5a98",
+    "crimsonReaverSweep:1:won:14", "eb7c9ce0", "4b700f67", "9d03d00b", "d906373f", "44d412c5", "second:won:14",
+    "15096638", "eb8605e0", "crimsonReaverSweep:2:won:14", "2da7b9f", "5b0c2091", "9d03d00b", "d906373f", "b3aefbee",
+    "crimsonReaverWarband:1:won:22", "c95a941c", "2a06071d", "9d03d00b", "cad0779e", "7d25bde", "second:won:22",
+    "5bbc8085", "d0056853", "crimsonReaverWarband:2:won:22", "9d9af88f", "cce2b05", "9d03d00b", "cad0779e",
+    "1632e275",
   ],
   "patrol:prospectorRunner": [
-    "crimsonReaverSweep:1:lost:10", "7a2a52c9", "24b128ff", "e1360e3a", "b9abbd11", "3458dee6",
-    "crimsonReaverSweep:2:won:14", "4be00ff0", "bcd29e6f", "c4afd62a", "d906373f", "8d243886",
-    "crimsonReaverWarband:1:lost:20", "254c266f", "c001d6c9", "e1360e3a", "9e7bd12c", "7542ef9a",
-    "crimsonReaverWarband:2:lost:16", "814a58cd", "df452afd", "e1360e3a", "9e7bd12c", "92dadd8",
+    "crimsonReaverSweep:1:won:14", "c38b9630", "ce5d0293", "c4afd62a", "d906373f", "9a22f569", "second:won:14",
+    "ac686298", "d49be24c", "crimsonReaverSweep:2:won:14", "47bc7413", "bcd29e6f", "c4afd62a", "d906373f",
+    "8d243886", "crimsonReaverWarband:1:won:22", "f650790c", "b80aad1", "c4afd62a", "cad0779e", "a67c3ea0",
+    "second:lost:16", "ce930375", "a8227127", "crimsonReaverWarband:2:won:22", "b000efa3", "f431921f", "c4afd62a",
+    "cad0779e", "78f8a799",
   ],
   "patrol:prospectorMiner": [
-    "crimsonReaverSweep:1:lost:10", "2bf09384", "1f40a647", "4a78733f", "b9abbd11", "e7fd04bd",
-    "crimsonReaverSweep:2:won:14", "1b079aa1", "e5733243", "3e9366f7", "d906373f", "e66648bd",
-    "crimsonReaverWarband:1:lost:20", "73831be6", "19ddf77d", "4a78733f", "9e7bd12c", "445177ad",
-    "crimsonReaverWarband:2:lost:16", "385f8ab0", "923a96dd", "4a78733f", "9e7bd12c", "7fdd4323",
+    "crimsonReaverSweep:1:won:14", "60b554e1", "8bee8e17", "3e9366f7", "d906373f", "837945dc", "second:won:14",
+    "9a205e99", "22b0962b", "crimsonReaverSweep:2:won:14", "6c2d59a2", "e5733243", "3e9366f7", "d906373f",
+    "e66648bd", "crimsonReaverWarband:1:won:22", "aab746b5", "fbc5965f", "3e9366f7", "cad0779e", "18b92631",
+    "second:lost:16", "ed937268", "1649f03c", "crimsonReaverWarband:2:won:22", "ceaab0f2", "384e6bb", "3e9366f7",
+    "cad0779e", "6ade3dec",
   ],
   "patrol:destroyer": [
-    "crimsonReaverSweep:1:won:14", "c614f4e", "92e2290b", "6ad9f46c", "d906373f", "d4055219", "second:won:14",
-    "612de50b", "a69e92e8", "crimsonReaverSweep:2:won:14", "612de50b", "8a5edc7f", "6ad9f46c", "d906373f", "63ce63c0",
-    "crimsonReaverWarband:1:won:22", "6993bb20", "d63f0205", "6ad9f46c", "cad0779e", "94a165d6", "second:lost:16",
-    "ceb37f8a", "7b09766a", "crimsonReaverWarband:2:lost:16", "ceb37f8a", "dfb6b4dd", "44b4c6b5", "9e7bd12c",
-    "c94abb2d",
+    "crimsonReaverSweep:1:won:14", "7a61e94b", "6d9c823f", "6ad9f46c", "d906373f", "d4055219", "second:won:14",
+    "10580e63", "a69e92e8", "crimsonReaverSweep:2:won:14", "53e59d2c", "8a5edc7f", "6ad9f46c", "d906373f",
+    "63ce63c0", "crimsonReaverWarband:1:won:22", "b26e2aaf", "c730354f", "6ad9f46c", "cad0779e", "b04a712",
+    "second:won:22", "488980a2", "45bec8dd", "crimsonReaverWarband:2:won:22", "74db9b9c", "5df1019f", "6ad9f46c",
+    "cad0779e", "659a3091",
   ],
   "patrol:battleship": [
-    "crimsonReaverSweep:1:won:14", "233cf766", "f450532b", "c6dba9cb", "d906373f", "6a6e81a4", "second:won:14",
-    "292269d9", "668e43f9", "crimsonReaverSweep:2:won:14", "292269d9", "14f63e6b", "c6dba9cb", "d906373f", "d36aa39d",
-    "crimsonReaverWarband:1:won:22", "518735a0", "2f3d1b47", "c6dba9cb", "cad0779e", "394499f3", "second:won:22",
-    "e41c4bc2", "3ebebf2", "crimsonReaverWarband:2:won:22", "e41c4bc2", "1f696f91", "c6dba9cb", "cad0779e",
-    "acde418a",
+    "crimsonReaverSweep:1:won:14", "dd08c199", "a0f0018b", "c6dba9cb", "d906373f", "6a6e81a4", "second:won:14",
+    "b9136de1", "668e43f9", "crimsonReaverSweep:2:won:14", "3a7bb48c", "14f63e6b", "c6dba9cb", "d906373f",
+    "d36aa39d", "crimsonReaverWarband:1:won:22", "6807bb1d", "b943700f", "c6dba9cb", "cad0779e", "27b6783b",
+    "second:won:22", "60f4526a", "82db7a3c", "crimsonReaverWarband:2:won:22", "fef704fc", "148430a7", "c6dba9cb",
+    "cad0779e", "8febd782",
   ],
   "patrol:carrier": [
-    "crimsonReaverSweep:1:won:14", "d5718c2f", "2a9583d7", "ea909677", "d906373f", "9554bb6e", "second:won:14",
-    "e9a099c5", "d5d094bf", "crimsonReaverSweep:2:won:14", "e9a099c5", "36e5dcc1", "ea909677", "d906373f", "89e39fc9",
-    "crimsonReaverWarband:1:won:22", "47f02015", "fe21761f", "ea909677", "cad0779e", "15006abb", "second:lost:17",
-    "95fd3dd4", "6b9aa894", "crimsonReaverWarband:2:lost:17", "95fd3dd4", "5a573127", "73109288", "9e7bd12c",
-    "950bcb53",
+    "crimsonReaverSweep:1:won:14", "da5b27d2", "b05cbf43", "ea909677", "d906373f", "9554bb6e", "second:won:14",
+    "ec7ddb1d", "d5d094bf", "crimsonReaverSweep:2:won:14", "fe0142d6", "36e5dcc1", "ea909677", "d906373f",
+    "89e39fc9", "crimsonReaverWarband:1:won:22", "cb34089e", "d4878337", "ea909677", "cad0779e", "83ccd623",
+    "second:won:22", "c8d16a2c", "7eb1c780", "crimsonReaverWarband:2:won:22", "f5bf3f66", "c451f3db", "ea909677",
+    "cad0779e", "9eadf440",
   ],
   "patrol:orion": [
-    "crimsonReaverSweep:1:won:14", "35ea9697", "34c59cd", "c75858d4", "d906373f", "9f06f3dd", "second:won:14",
-    "3e13cff2", "e43faea4", "crimsonReaverSweep:2:won:14", "3e13cff2", "25efb35", "c75858d4", "d906373f", "97d18578",
-    "crimsonReaverWarband:1:lost:20", "69062df5", "d2b7b6fd", "6619cb48", "9e7bd12c", "20b8680",
-    "crimsonReaverWarband:2:lost:16", "ba65b5fb", "c8a597ad", "6619cb48", "9e7bd12c", "b6b37c6e",
+    "crimsonReaverSweep:1:won:14", "c0cd5832", "ecf336bd", "c75858d4", "d906373f", "9f06f3dd", "second:won:14",
+    "ce36d4a", "e43faea4", "crimsonReaverSweep:2:won:14", "86b9a9d9", "25efb35", "c75858d4", "d906373f", "97d18578",
+    "crimsonReaverWarband:1:won:22", "28e7811e", "a68dc25b", "c75858d4", "cad0779e", "63bfa796", "second:lost:16",
+    "f154a2f3", "3ef058ad", "crimsonReaverWarband:2:won:22", "9e4d44e9", "697397f7", "c75858d4", "cad0779e",
+    "91ceb875",
   ],
   "patrol:aurora": [
-    "crimsonReaverSweep:1:won:14", "6ac4f480", "22d0d86d", "62b89a6f", "d906373f", "511447be", "second:won:14",
-    "14b5f02d", "5ab34d1d", "crimsonReaverSweep:2:won:14", "14b5f02d", "a77da1dd", "62b89a6f", "d906373f", "6a87fd45",
-    "crimsonReaverWarband:1:lost:20", "3c51a286", "db5eccb5", "def772e7", "9e7bd12c", "e97d0cbd",
-    "crimsonReaverWarband:2:lost:16", "7e5bc7d4", "6d6203cd", "def772e7", "9e7bd12c", "621942ab",
+    "crimsonReaverSweep:1:won:14", "d8be966d", "c604260d", "62b89a6f", "d906373f", "511447be", "second:won:14",
+    "ab375435", "5ab34d1d", "crimsonReaverSweep:2:won:14", "62b1f23a", "a77da1dd", "62b89a6f", "d906373f",
+    "6a87fd45", "crimsonReaverWarband:1:won:22", "fa6f4a9", "c13f483", "62b89a6f", "cad0779e", "a89096c1",
+    "second:lost:16", "f52f979c", "77057370", "crimsonReaverWarband:2:won:22", "b3838e4a", "87b530ed", "62b89a6f",
+    "cad0779e", "826d73ca",
   ],
   "patrol:eir": [
-    "crimsonReaverSweep:1:won:14", "da45804", "c39acad", "ffdca63b", "d906373f", "ef5f54b8", "second:won:14",
-    "e91372d5", "8a6c62bb", "crimsonReaverSweep:2:won:14", "e91372d5", "2de6f1ab", "ffdca63b", "d906373f", "aa5a7369",
-    "crimsonReaverWarband:1:lost:20", "abe6f092", "734c54a5", "7ddb5b8d", "9e7bd12c", "d9543d0b",
-    "crimsonReaverWarband:2:lost:16", "31fd4d70", "4286587d", "7ddb5b8d", "9e7bd12c", "c7fc8fe9",
+    "crimsonReaverSweep:1:won:14", "6bf43f15", "8669d3fd", "ffdca63b", "d906373f", "ef5f54b8", "second:won:14",
+    "6b3bb8bd", "8a6c62bb", "crimsonReaverSweep:2:won:14", "5b44bc6e", "2de6f1ab", "ffdca63b", "d906373f",
+    "aa5a7369", "crimsonReaverWarband:1:won:22", "e1ba0679", "c3f3c0e5", "ffdca63b", "cad0779e", "45896f69",
+    "second:lost:16", "5d2dfdb8", "ea15d5b2", "crimsonReaverWarband:2:won:22", "780c56be", "110d42cb", "ffdca63b",
+    "cad0779e", "a6fff670",
   ],
   "patrol:repeat": [
-    "generalFreighter:crimsonReaverSweep:relaunch@14:4bc91d37,relaunch@28:c1f5b4c5",
-    "generalFreighter:crimsonReaverWarband:end@23:c3731d85",
-    "prospectorHauler:crimsonReaverSweep:relaunch@14:d10962a,relaunch@28:ae3c32da",
-    "prospectorHauler:crimsonReaverWarband:relaunch@22:3a9daf11,end@38:51a2bb8e",
-    "prospectorRunner:crimsonReaverSweep:end@10:3458dee6", "prospectorRunner:crimsonReaverWarband:end@20:7542ef9a",
-    "prospectorMiner:crimsonReaverSweep:end@10:e7fd04bd", "prospectorMiner:crimsonReaverWarband:end@20:445177ad",
-    "destroyer:crimsonReaverSweep:relaunch@14:afcac89,relaunch@28:c96cc621",
-    "destroyer:crimsonReaverWarband:relaunch@22:f2452ff4,end@38:db558c17",
-    "battleship:crimsonReaverSweep:relaunch@14:82a0abce,relaunch@28:b23cf248",
-    "battleship:crimsonReaverWarband:relaunch@22:a2f451dd,end@39:4c6aa502",
-    "carrier:crimsonReaverSweep:relaunch@14:a3d137e9,relaunch@28:d833511a",
-    "carrier:crimsonReaverWarband:relaunch@22:86753956,end@38:5d7605b4",
-    "orion:crimsonReaverSweep:relaunch@14:89404b40,relaunch@28:f576fffe", "orion:crimsonReaverWarband:end@20:20b8680",
-    "aurora:crimsonReaverSweep:relaunch@14:b3307526,relaunch@28:ece65b0c",
-    "aurora:crimsonReaverWarband:end@20:e97d0cbd", "eir:crimsonReaverSweep:relaunch@14:d82c1ef6,relaunch@28:ceb5ece",
-    "eir:crimsonReaverWarband:end@20:d9543d0b",
+    "generalFreighter:crimsonReaverSweep:relaunch@14:e5306b13,relaunch@28:2578b1a9",
+    "generalFreighter:crimsonReaverWarband:relaunch@22:a54da55c,end@40:48fbc319",
+    "prospectorHauler:crimsonReaverSweep:relaunch@14:a0d3be46,relaunch@28:5774e52e",
+    "prospectorHauler:crimsonReaverWarband:relaunch@22:b6fa7735,relaunch@44:cbe4db62",
+    "prospectorRunner:crimsonReaverSweep:relaunch@14:d57555c2,relaunch@28:f7ed7432",
+    "prospectorRunner:crimsonReaverWarband:relaunch@22:ccb5e217,end@38:dd06458",
+    "prospectorMiner:crimsonReaverSweep:relaunch@14:e416353e,relaunch@28:a6f419ea",
+    "prospectorMiner:crimsonReaverWarband:relaunch@22:af45d285,end@38:3c5fe3ad",
+    "destroyer:crimsonReaverSweep:relaunch@14:f0981ffd,relaunch@28:bca9db2d",
+    "destroyer:crimsonReaverWarband:relaunch@22:4ab039c4,relaunch@44:d0ab4325",
+    "battleship:crimsonReaverSweep:relaunch@14:6ef5a77a,relaunch@28:fdaa6a0c",
+    "battleship:crimsonReaverWarband:relaunch@22:5565aaa9,relaunch@44:ae10bb58",
+    "carrier:crimsonReaverSweep:relaunch@14:508ac4d5,relaunch@28:629760e6",
+    "carrier:crimsonReaverWarband:relaunch@22:653d1be6,relaunch@44:f7e7c9c0",
+    "orion:crimsonReaverSweep:relaunch@14:557dcd54,relaunch@28:41a1dc4a",
+    "orion:crimsonReaverWarband:relaunch@22:29c1bc99,end@38:77152b3a",
+    "aurora:crimsonReaverSweep:relaunch@14:9653a4aa,relaunch@28:7e73d9a8",
+    "aurora:crimsonReaverWarband:relaunch@22:63b39fcd,end@38:1b95d1d1",
+    "eir:crimsonReaverSweep:relaunch@14:a932f642,relaunch@28:13c4af12",
+    "eir:crimsonReaverWarband:relaunch@22:803db37d,end@38:903e03bf",
   ],
   "gather:localFuelRun": [
     "generalFreighter:99", "aa03a7cf", "50bfa0ed", "prospectorHauler:197", "aa03a7cf", "a7a3225c",
@@ -348,9 +379,12 @@ const GOLDEN: Record<string, unknown> = {
     "Calliope Reach: toxic 0.9, gasGiant 0.1",
   ],
   "first:candidates": "8207442a",
+  // Re-pinned by Gas Giant Study GG-2 (cand-2 only, Calliope Reach with its gas giant; was 8105e2b): the giant's
+  // ground objectives leave the demand and the recommendation, which count its one ship study instead (G2-0
+  // display:launch moved the same way).
   "first:launch": [
-    "generalFreighter:cand-0:b4d99ab5", "generalFreighter:cand-1:25f32e71", "generalFreighter:cand-2:8105e2b",
-    "orion:cand-0:b4d99ab5", "orion:cand-1:25f32e71", "orion:cand-2:8105e2b",
+    "generalFreighter:cand-0:b4d99ab5", "generalFreighter:cand-1:25f32e71", "generalFreighter:cand-2:839d60ba",
+    "orion:cand-0:b4d99ab5", "orion:cand-1:25f32e71", "orion:cand-2:839d60ba",
   ],
   "first:parity": "271fa153",
   "later:orion:d18:2": [
@@ -416,26 +450,26 @@ const GOLDEN: Record<string, unknown> = {
   ],
   // Re-pinned by WR-4 (B14): turn order by side, then input order (the player side first) moves the forecast wins.
   "patrol:forecast": [
-    "generalFreighter:crimsonReaverSweep:{\"rating\":1310,\"wins\":63,\"tier\":\"likely\"}",
-    "generalFreighter:crimsonReaverWarband:{\"rating\":1310,\"wins\":2,\"tier\":\"extreme\"}",
+    "generalFreighter:crimsonReaverSweep:{\"rating\":1310,\"wins\":64,\"tier\":\"guaranteed\"}",
+    "generalFreighter:crimsonReaverWarband:{\"rating\":1310,\"wins\":64,\"tier\":\"guaranteed\"}",
     "prospectorHauler:crimsonReaverSweep:{\"rating\":1558,\"wins\":64,\"tier\":\"guaranteed\"}",
-    "prospectorHauler:crimsonReaverWarband:{\"rating\":1558,\"wins\":2,\"tier\":\"extreme\"}",
-    "prospectorRunner:crimsonReaverSweep:{\"rating\":766,\"wins\":37,\"tier\":\"dice\"}",
-    "prospectorRunner:crimsonReaverWarband:{\"rating\":766,\"wins\":0,\"tier\":\"impossible\"}",
-    "prospectorMiner:crimsonReaverSweep:{\"rating\":942,\"wins\":37,\"tier\":\"dice\"}",
-    "prospectorMiner:crimsonReaverWarband:{\"rating\":942,\"wins\":0,\"tier\":\"impossible\"}",
+    "prospectorHauler:crimsonReaverWarband:{\"rating\":1558,\"wins\":64,\"tier\":\"guaranteed\"}",
+    "prospectorRunner:crimsonReaverSweep:{\"rating\":766,\"wins\":64,\"tier\":\"guaranteed\"}",
+    "prospectorRunner:crimsonReaverWarband:{\"rating\":766,\"wins\":64,\"tier\":\"guaranteed\"}",
+    "prospectorMiner:crimsonReaverSweep:{\"rating\":942,\"wins\":64,\"tier\":\"guaranteed\"}",
+    "prospectorMiner:crimsonReaverWarband:{\"rating\":942,\"wins\":64,\"tier\":\"guaranteed\"}",
     "destroyer:crimsonReaverSweep:{\"rating\":1967,\"wins\":64,\"tier\":\"guaranteed\"}",
-    "destroyer:crimsonReaverWarband:{\"rating\":1967,\"wins\":11,\"tier\":\"extreme\"}",
+    "destroyer:crimsonReaverWarband:{\"rating\":1967,\"wins\":64,\"tier\":\"guaranteed\"}",
     "battleship:crimsonReaverSweep:{\"rating\":3386,\"wins\":64,\"tier\":\"guaranteed\"}",
-    "battleship:crimsonReaverWarband:{\"rating\":3386,\"wins\":52,\"tier\":\"likely\"}",
+    "battleship:crimsonReaverWarband:{\"rating\":3386,\"wins\":64,\"tier\":\"guaranteed\"}",
     "carrier:crimsonReaverSweep:{\"rating\":3138,\"wins\":64,\"tier\":\"guaranteed\"}",
-    "carrier:crimsonReaverWarband:{\"rating\":3138,\"wins\":39,\"tier\":\"worthy\"}",
-    "orion:crimsonReaverSweep:{\"rating\":1464,\"wins\":60,\"tier\":\"likely\"}",
-    "orion:crimsonReaverWarband:{\"rating\":1464,\"wins\":0,\"tier\":\"impossible\"}",
-    "aurora:crimsonReaverSweep:{\"rating\":1348,\"wins\":60,\"tier\":\"likely\"}",
-    "aurora:crimsonReaverWarband:{\"rating\":1348,\"wins\":0,\"tier\":\"impossible\"}",
-    "eir:crimsonReaverSweep:{\"rating\":1380,\"wins\":57,\"tier\":\"likely\"}",
-    "eir:crimsonReaverWarband:{\"rating\":1380,\"wins\":0,\"tier\":\"impossible\"}",
+    "carrier:crimsonReaverWarband:{\"rating\":3138,\"wins\":64,\"tier\":\"guaranteed\"}",
+    "orion:crimsonReaverSweep:{\"rating\":1464,\"wins\":64,\"tier\":\"guaranteed\"}",
+    "orion:crimsonReaverWarband:{\"rating\":1464,\"wins\":64,\"tier\":\"guaranteed\"}",
+    "aurora:crimsonReaverSweep:{\"rating\":1348,\"wins\":64,\"tier\":\"guaranteed\"}",
+    "aurora:crimsonReaverWarband:{\"rating\":1348,\"wins\":64,\"tier\":\"guaranteed\"}",
+    "eir:crimsonReaverSweep:{\"rating\":1380,\"wins\":64,\"tier\":\"guaranteed\"}",
+    "eir:crimsonReaverWarband:{\"rating\":1380,\"wins\":64,\"tier\":\"guaranteed\"}",
   ],
   "lines:first:generalFreighter:d18": [
     "cand-0 activities 1/11 lost:40 sent:584 stuck:derelictOutpost+geothermalChamber+derelictOutpost+geothermalChamber+mineralOutcrop+subterraneanCivilization+mineralOutcrop+mineralOutcrop+crashedShip+subterraneanCivilization hull:0 setbacks:0 boarded:0 vault:2",
@@ -643,8 +677,8 @@ function patrolOnce(state: GameState, key: PatrolKey): { record: unknown; replay
 }
 
 // The Threat Assessment band the patrol dispatch card shows: App.svelte patrolForecastFor's sweep mirrored exactly
-// (FORECAST_SEED 0x5a4d + i over DEFAULT_SAMPLES, the installed gear, the folded start pools, the battle rating).
-// null for a hull the card shows no readout for (combatHullTypeOf null).
+// (FORECAST_SEED 0x5a4d + i over DEFAULT_SAMPLES, the installed gear, the folded start pools, the battle rating; since
+// SF-4 the difficulty a dispatch would stamp now). null for a hull the card shows no readout for (combatHullTypeOf null).
 function patrolForecast(state: GameState, key: PatrolKey): { rating: number; wins: number; tier: string } | null {
   const ship = state.ships[0];
   const hullType = combatHullTypeOf(ship.typeKey);
@@ -661,6 +695,7 @@ function patrolForecast(state: GameState, key: PatrolKey): { rating: number; win
     const result = resolvePatrolWaves({
       playerId: ship.id, stats: shipDef, hullType, stance: "balanced", installedGear, masterSeed: 0x5a4d + i, factionId: def.factionId, def,
       startHull: startDefense.hullMax, startShield: startDefense.shieldMax, startDrones, startSystemDurability,
+      difficulty: patrolDifficultyAt(state),
     });
     if (!result.defeated) wins += 1;
   }
@@ -712,10 +747,13 @@ describe("SF-0 golden 2: patrols", () => {
     pin("patrol:repeat", out);
   });
 
-  it("closed form: one economyTick call == 1 s ticks over a won (Orion Sweep) and a lost, limping (Runner Warband) first patrol", () => {
-    for (const [hull, key] of [["orion", "crimsonReaverSweep"], ["prospectorRunner", "crimsonReaverWarband"]] as [ShipTypeKey, PatrolKey][]) {
-      const start = dispatchCaptainOnPatrol(patrolBase(hull, 1), 1, key, "balanced", false).next;
-      const { end, ticks } = patrolOnce(patrolBase(hull, 1), key);
+  // SF-4: a fresh save's first patrol is the training cycle (never lost), so the lost, limping case is a veteran's.
+  it("closed form: one economyTick call == 1 s ticks over a won (Orion Sweep, the training cycle) and a lost, limping (a veteran Runner's Warband) patrol", () => {
+    for (const [hull, key, veteran] of [["orion", "crimsonReaverSweep", false], ["prospectorRunner", "crimsonReaverWarband", true]] as [ShipTypeKey, PatrolKey, boolean][]) {
+      const from = veteran ? asPatrolVeteran(patrolBase(hull, 1)) : patrolBase(hull, 1);
+      const start = dispatchCaptainOnPatrol(from, 1, key, "balanced", false).next;
+      const { end, ticks, won } = patrolOnce(from, key);
+      expect(won).toBe(!veteran);
       // The patrol-tick.test.ts parity gate's scope: the mission carry-state, the ship, the seed counter, the tank.
       const big = economyTick(start, ticks, RNG);
       expect(big.captains).toEqual(end.captains);
@@ -992,7 +1030,10 @@ describe.runIf(SWEEP)("SF-0 measurement tables (gated): forecast bands, the 200-
         const span = def.transitOutTicks + def.rollWindowTicks + 3 * def.transitBackTicks + 4;
         let n = 0;
         for (let seed = 0; seed < 200; seed++) {
-          const r = dispatchCaptainOnPatrol(patrolBase(hull, seed), 1, key, "balanced", false);
+          // SF-4: dispatched as a PATROL VETERAN, so this stays the section 2.5 E NOMINAL record (the route at full
+          // strength, which the top of the patrol curve equals: safeFirstPatrol.sweep.test.ts CURVE_WINS); a fresh
+          // save's first patrol is now the training cycle (proven in safeFirstPatrol).
+          const r = dispatchCaptainOnPatrol(asPatrolVeteran(patrolBase(hull, seed)), 1, key, "balanced", false);
           expect(r.success).toBe(true);
           const end = economyTick(r.next, span, RNG);
           if (patrolOf(end) === null && end.ships[0].damaged !== true) n += 1;

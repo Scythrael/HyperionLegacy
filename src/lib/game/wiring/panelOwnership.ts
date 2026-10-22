@@ -156,10 +156,11 @@ export const UNMEASURED_CATALOGS: Readonly<Record<string, string>> = {
   PROSPECTING_USES: "hidden until the prospecting quests patch",
   RELIC_TYPES: "dormant until Relics v2 R2-4 (copies per tier; R2-8 brings the Museum v2 page)",
   EXCEPTIONAL_SETS: "dormant until Relics v2 R2-5 (exceptional pieces are not found before then)",
-  // Gas Giant Study GG-1: data only until the study engine reads it (GG-2 to GG-7).
-  GAS_STUDY_USES: "pending the gas giant study engine (GG-2 to GG-7)",
-  GIANT_CLASSES: "data only until the giant class roll and the study reward (GG-2, GG-3)",
+  // Gas Giant Study: the engine (gasGiantStudy.ts) reads the classes on a run, never off a ship the panel owns.
+  GAS_STUDY_USES: "the gas giant study engine's uses (GG-2 and GG-3 live, GG-4 to GG-7 pending): read on a run, no owner reader",
+  GIANT_CLASSES: "read by the giant class roll and the study reward on a run (GG-2, GG-3): no owner reader in the panel",
   NEBULA_KINDS: "data only until the nebula sweep (GG-4)",
+  GAS_STUDY_SEAM: "a framework seam (the probe dive, read by gear wear step 3): nothing to own",
 };
 
 const shipOf = (s: GameState) => s.ships.find((sh) => sh.id === PANEL_SHIP_ID);

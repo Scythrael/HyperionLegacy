@@ -33,7 +33,8 @@ import {
 import { relicTierCeiling, rollRelicToken, taskRelicSeed } from "./gambit";
 import { taskFullHaul } from "./groundTasks";
 import { makeExpeditionSeed, startExpedition } from "./expedition";
-import { economyTick, identifyStudiedRelic, startRelicStudy, tick } from "./tick";
+import { economyTick, identifyStudiedRelic, tick } from "./tick";
+import { startV1RelicStudy } from "./relicStudyV1.fixture";
 import { canGrant, grant } from "./processSpeed";
 import { deserialize, migrate, serialize, type SaveFile } from "./save";
 import { makeRng } from "./combat/rng";
@@ -330,11 +331,12 @@ describe("R2-2: a blank with no set identifies over the general pool", () => {
     expect(RELIC_TYPES.length).toBe(17);
   });
 
-  it("a setless blank's study identifies through it, deposits a copy and its first find (offline == live)", () => {
+  // R2-3: a v1 study (one in flight at the update); a NEW study identifies through identification v2 (relicIdentify.ts).
+  it("a setless blank's v1 study identifies through it, deposits a copy and its first find (offline == live)", () => {
     const token: RelicVaultToken = { id: "sr-1-relic-0", tier: "standard", quality: 0, regionTier: 1, cultureId: "culture-t1-2", source: "shortRange" };
     const s0: GameState = withRelicBlanks(freshState(), [token]);
     expect(s0.relicVault.map((t) => t.id)).toEqual(["sr-1-relic-0"]);
-    const started = startRelicStudy(s0, token.id);
+    const started = startV1RelicStudy(s0, token.id);
     expect(started.started).toBe(true);
     const proc = started.next.activeProcesses.find((p) => p.kind === "relicStudy")!;
     const effect = proc.effect as { type: "identifyRelic"; token: RelicVaultToken; studyIndex: number };
@@ -390,7 +392,7 @@ describe("R2-2: the wiring registry additions (every registry pin holds them apa
       "relic:audit:blankCulture|pending|Relics v2 R2-6 (cultures: study points and the name reveal)",
       "relic:audit:shortRangeBlanks|live|",
       "relic:audit:completionBlank|pending|G7 (calls the hook when a planet is fully completed)",
-      "relic:audit:generalPick|pending|R2-3 (identification v2 on the same pick: the site bias needs a sited blank on it; G1-5's short-range blanks already identify by band, with no site)",
+      "relic:audit:generalPick|pending|Relics v2 R2-3 follow-up (retire the v1 setless branch of identifyStudiedRelic: identification v2, relic:audit:identifyV2, studies every new blank, G1-5's short-range blanks included, so no study reaches this pick)",
     ]);
   });
 });

@@ -306,6 +306,35 @@ by Lab level (OC-12); the queue starts the next queued token at the completion t
 keep reading the duration seam at start. Tests: draw count fixed; outputs pure in stored values; v1 in-flight study
 resolves to its R2-0 golden; queue parity (1 call == 997 s chunks == 1 s steps) across a ten-token chain; lane cap.
 
+**R2-3 carry note (2026-10-21, built on 5b5011a):**
+- New module `relicIdentify.ts`: `rollRelicIdentification(rng, input)` draws exactly three integers (the check out of
+  100,000 at `EXCEPTIONAL_PER_100K[tier][band]`; the piece or the band; the type or an unused draw), keyed by
+  `relicStudyV2Seed` (salt `RELIC_IDENTIFY_V2_SALT`); `identifyRelicV2` reads the Museum's exceptional copies at
+  completion (call 7: missing pieces first; all held = a duplicate, counted, no stat); `applyRelicIdentification`
+  deposits (a general type at its region tier, +1 culture point and find on the blank's culture, first find; an
+  exceptional piece, first find, its set appended to `setsCompleted` once; the ledger event stays R2-5's).
+- "Only one boost" read as: identification uses the blank's own rarity row of the band odds (`RELIC_IDENTIFY_BAND_TIER`
+  1, the v1 skew 60/30/9/1 ...) at every tier; the tier acts only through the rarer blank and the exceptional chance
+  (call 6's x1.25 per tier). Same seed and rarity at Tier I and VII reveal the same general type (tested).
+- Lanes: `RELIC_STUDY_LANES_BY_LAB` (I 1, III 2, V 3, VII 4) read through OC-15's `model.ts labTier`; Lab I and II stay 1.
+- Queue (tick.ts): `queueRelicStudy`, `queueAllRelicStudies`, `unqueueRelicStudy`, `moveRelicQueueEntry`,
+  `pumpRelicQueue`; queued blanks stay in the vault until a lane takes them; `startRelicStudy` stamps `v: 2` and takes a
+  queued blank out of the queue. Inside `resolveProcesses`, `resolveRelicStudies` walks every study completion and every
+  Lab level-up in the window in TIME order (deposits, then queue starts at that instant, durations read then), so one
+  resolve, 997 s chunks and 1 s steps land the same state (one big resolve keeps the resolver's array-order LOG
+  convention when another kind completes beside the chain). Records carry the chain's id (`recordCompletion` relicId).
+- v1 studies (no `v`) keep the v1 roll exactly; R2-3 fixes their deposit to the token's region tier (pre-R2-2 tokens
+  read Tier I, so nothing in flight moves). `identifyStudiedRelic(state, token, index, v?, museum?)`; App passes `v` to
+  its reveal hint (the reveal card for Tier II+ and exceptional pieces is R2-7).
+- Not yet acting (owners already registered): Tier II+ general copies and exceptional pieces add no stat until R2-4's
+  museum math reads them; culture names R2-6.
+- Wiring: rows `relic:audit:identifyV2` LIVE (probe `content:relic:exceptionalReveals`, 600 real starts and resolves
+  against the v1 roll), `relic:audit:identifyLanes` LIVE (`content:relic:lanes`, Lab VII vs Lab I),
+  `relic:audit:identifyQueue` pending R2-7 (no UI). `RELIC_TYPES` band / siteSet / weight are now effect fields;
+  `EXCEPTIONAL_PER_100K` left the unread list. Pins hold the three rows apart (`relicIdentify.fixture.ts`).
+- Goldens: `relicsV2IdentifyGoldens.test.ts` (goldens-first commit; `startV1RelicStudy` fixture). Moved, named: golden 2
+  (v1 Tier II / VII blanks now land in "2" / "7") and golden 4 (lanes at Lab III to VII). Every R2-0 golden unchanged.
+
 ### R2-4: Museum math v2 (engine)
 `museumBonusesFromRecord` becomes the per-tier curve: for each tier and stat, `diminishing(copies x PER_COPY[tier],
 KNEE)`, summed over tiers; exceptional pieces and full sets add flat values (they do not stack: OC-7). Soft cap: when

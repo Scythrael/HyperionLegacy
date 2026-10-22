@@ -5,7 +5,7 @@
 // through withMinimumAwayTeam so it keeps testing what it tested before (sensors, museum, relics, phases)
 // rather than the gate. The members are plain: rank 1, no traits, no gear, no own program.
 
-import { SHIP_TYPES, type AwayMember, type AwayTeamType, type Expedition, type ExpeditionFinding, type GameState, type ShipGroundTeam, type ShipTypeDef, type ShipTypeKey } from "./model";
+import { SHIP_TYPES, type AwayMember, type AwayTeamType, type Expedition, type ExpeditionFinding, type GameState, type ShipGroundTeam, type ShipTypeDef, type ShipTypeKey, PATROLS, type PatrolMissionState } from "./model";
 import { BANKED_SYSTEMS, SYSTEM_SALT, expeditionAwayTeamCheck, startExpedition, type ExpeditionCandidate, type ExpeditionDispatchResult } from "./expedition";
 import { FIELD_KITS_RUNS_LIVE } from "./fieldKits";
 import { PROVISIONAL_HOMEWORLD, type HomeworldPlacement } from "./galaxy";
@@ -15,6 +15,7 @@ import { V67_GROUND_TEAM_COUNT, emptyGroundTeams, shipsWithMemberAutoSlotted } f
 import { byIdNumber } from "./awayTeam";
 import { NEUTRAL_SHIP_EVENT_PROFILE } from "./groundOps";
 import { runCountsOf } from "./runDifficulty";
+import { planWaveSchedule, patrolWaveParams } from "./combat/waveSchedule";
 
 // Ground Operations (GO-1, and the GO-7c multi-team tests): register a SYNTHETIC hull under `key` in the
 // shared SHIP_TYPES table, cloned from the General Freighter with the given `awayTeams` (undefined = a hull
@@ -142,8 +143,10 @@ export function withoutFieldKitsStamp(exp: Expedition): Expedition {
 // expedition and every expedition in `next`). Every earlier "as pre-X dispatch" helper composes it (a run dispatched
 // before ranks, SF-2, G2-2, G2-3, SQ-4 or GO-7b was a run before the switch too). A refusal is returned unchanged. Pure.
 // Relics v2 R2-2 also: a run before the Field Kits switch-on was a run before R2-2 (withoutRelicBlanks).
+// Gas Giant Study GG-2 (merged after the switch-on): a run before the switch-on is a run before GG-2 too, so this also
+// takes the study stamp off (withoutStudy).
 export function asPreFieldKitsDispatch<R extends { next: GameState; expedition?: Expedition }>(raw: R): R {
-  const res = asPreRelicBlanksDispatch(raw);
+  const res = asPreStudyDispatch(asPreRelicBlanksDispatch(raw));
   if (!res.expedition) return res;
   const next = res.next.expeditions.some((e) => "fieldKits" in e) ? { ...res.next, expeditions: res.next.expeditions.map(withoutFieldKitsStamp) } : res.next;
   return { ...res, expedition: withoutFieldKitsStamp(res.expedition), next };
@@ -183,6 +186,38 @@ export function asPreRelicBlanksDispatch<R extends { next: GameState; expedition
   if (!res.expedition) return res;
   const next = res.next.expeditions.some((e) => "relicBlanks" in e) ? { ...res.next, expeditions: res.next.expeditions.map(withoutRelicBlanks) } : res.next;
   return { ...res, expedition: withoutRelicBlanks(res.expedition), next };
+}
+
+// Gas Giant Study GG-2 (docs/plans/2026-10-17-gas-giant-study-plan.md GG-2): the dispatch record WITHOUT its study stamp
+// (`Expedition.study`) and its orbital bodies' giant profiles (`ExpeditionBody.giant`), i.e. the record the same
+// dispatch made before GG-2: a run in flight at the update, whose gas giant gets its ground objectives as dispatched.
+// GG-2 also stopped placing a hostile site or a clearing objective on an orbital body (draws kept); a record whose
+// orbital body would have carried one is not a pre-GG-2 record, which this cannot rebuild, so a golden pinned on such a
+// seed moves (and names it). A record without the stamp is returned as it is. Every other key keeps its order. Pure.
+export function withoutStudy(exp: Expedition): Expedition {
+  if (!("study" in exp)) return exp;
+  const rest = { ...exp, bodies: exp.bodies.map((b) => (b.giant === undefined ? b : withoutGiant(b))) };
+  delete rest.study;
+  return rest;
+}
+
+function withoutGiant<B extends { giant?: unknown }>(body: B): B {
+  const rest = { ...body };
+  delete rest.giant;
+  return rest;
+}
+
+// A whole state with every expedition through withoutStudy. Identity when no run carries the stamp. Pure.
+export function withoutStudyState(state: GameState): GameState {
+  if (!state.expeditions.some((e) => "study" in e)) return state;
+  return { ...state, expeditions: state.expeditions.map(withoutStudy) };
+}
+
+// GG-2: a dispatch result turned into the run it was before GG-2 (withoutStudy on the returned expedition and every
+// expedition in `next`). A refusal is returned unchanged. Pure.
+export function asPreStudyDispatch<R extends { next: GameState; expedition?: Expedition }>(res: R): R {
+  if (!res.expedition) return res;
+  return { ...res, expedition: withoutStudy(res.expedition), next: withoutStudyState(res.next) };
 }
 
 // Field Kits FKR-1 (enemy ranks): the run WITHOUT its enemy ranks flag (`Expedition.enemyRanks`), i.e. the run the
@@ -353,6 +388,31 @@ const VETERAN_FIXTURE_COMPLETED = 10;
 export function asExpeditionVeteran(state: GameState): GameState {
   const counts = runCountsOf(state);
   return { ...state, runCounts: { ...counts, expedition: { completed: VETERAN_FIXTURE_COMPLETED, trainingDone: true, veteran: true } } };
+}
+
+// Safe first runs SF-4: `state` as a save that flew patrols before 0.14.0 (save v70's veteran derivation: no safe
+// patrol, the curve at full strength), so its next patrol is dispatched and fought exactly as before SF-4. Tests that
+// pin NOMINAL patrol play from a fresh save go through this. Pure.
+export function asPatrolVeteran(state: GameState): GameState {
+  const counts = runCountsOf(state);
+  return { ...state, runCounts: { ...counts, patrol: { ...counts.patrol, veteran: true } } };
+}
+
+// Safe first runs SF-4: a patrol cycle as it was dispatched before SF-4: no difficulty stamp and the route's whole wave
+// schedule (every other key, and its order, untouched). Identity on an unstamped cycle. Pure.
+export function withoutPatrolCurve(m: PatrolMissionState): PatrolMissionState {
+  if (m.difficulty === undefined) return m;
+  const { difficulty: _stamp, ...rest } = m;
+  return { ...rest, waveTicks: planWaveSchedule(m.masterSeed, patrolWaveParams(PATROLS[m.patrolKey])) };
+}
+
+// Safe first runs SF-4: a patrol dispatch result turned into the one it was before SF-4 (withoutPatrolCurve on every
+// patrol in `next`), so a golden captured before SF-4 keeps proving only its own slice moved it: an unstamped cycle
+// relaunches unstamped and every won route counts, exactly the pre-SF-4 loop. A refusal is returned unchanged. Pure.
+export function asPrePatrolCurveDispatch<R extends { next: GameState }>(raw: R): R {
+  if (!raw.next.captains.some((c) => c.mission?.kind === "patrol" && c.mission.difficulty !== undefined)) return raw;
+  const captains = raw.next.captains.map((c) => (c.mission?.kind === "patrol" ? { ...c, mission: withoutPatrolCurve(c.mission) } : c));
+  return { ...raw, next: { ...raw.next, captains } };
 }
 
 // Field Kits (FK-3, docs/plans/2026-10-14-field-kits-plan.md section 3): the run WITHOUT its Field Kits fields, i.e.

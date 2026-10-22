@@ -78,8 +78,8 @@ import { damageControlBeforeWave } from "./combat/patrolWave";
 import { resolvePatrolWaves, replayPatrol } from "./combat/patrolReplay";
 import { combatHullTypeOf, foldedPlayerDefense, defaultSystemDurabilityForHull } from "./combat/bridge";
 import { installedSensorArray, sensorArrayEffect, sensorArrayRelicFindBonus, getSensorArrayById, SENSOR_ARRAYS } from "./sensorArrays";
-import { expeditionCandidates, resolveExpeditions, advanceExpedition, expeditionGearBonuses } from "./expedition";
-import { ensureMinimumAwayTeam, dispatchPastPropulsion } from "./awayTeamTestFixtures";
+import { expeditionCandidates, resolveExpeditions, advanceExpedition, expeditionGearBonuses, startExpedition } from "./expedition";
+import { ensureMinimumAwayTeam, dispatchPastPropulsion, asPrePatrolCurveDispatch } from "./awayTeamTestFixtures";
 import { rollRelicToken } from "./gambit";
 import { effectiveShipStats } from "./crewOverlay";
 import { buildRelicReveal, researchUnlockedByFind } from "../relicReveal";
@@ -479,7 +479,7 @@ describe("E4d Damage Control Suite: between-wave hull regen", () => {
     return s;
   }
   function dispatch(s: GameState): GameState {
-    const r = dispatchCaptainOnPatrol(s, 1, PATROL_KEY, "balanced", false);
+    const r = asPrePatrolCurveDispatch(dispatchCaptainOnPatrol(s, 1, PATROL_KEY, "balanced", false));
     expect(r.success).toBe(true);
     return r.next;
   }

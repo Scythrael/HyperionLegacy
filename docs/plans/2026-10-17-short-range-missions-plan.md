@@ -455,7 +455,9 @@ expedition relic line).
   vault". The Help Relics paragraph and the empty vault line now mention short-range finds.
 - Wiring: `relic:audit:shortRangeBlanks` is LIVE in place (probe `content:shortRangeRelics`: a Tier I and a Tier II cycle
   of `SHORT_RANGE_RELIC_PROBE_HOURS` 200 find 8 + 15 blanks with the flag, none without). `relic:audit:generalPick`
-  stays pending, owner now R2-3 (the site bias needs a sited blank on that pick; short-range blanks have no site). The
+  stays pending, owner now an R2-3 follow-up: after the merge with R2-3 every new study (short-range blanks included)
+  identifies through identification v2 (`relic:audit:identifyV2`, live), so the v1 setless branch of
+  `identifyStudiedRelic` (`identifyGeneralRelic`) is reached by no study and is for retiring. The
   two short-range out-of-scope reasons for rareFindMult / rareFindChance now say the relic rate is call 11's fixed rate.
 - Reading for the user: no find bonus (rare-find talents, Science relic find) raises the short-range rate; call 11 is
   a fixed fraction of `EXPEDITION_RELIC_BLANKS_PER_HOUR` (still [PROVISIONAL] 0.5 from R2-2).
