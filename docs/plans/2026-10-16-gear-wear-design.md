@@ -376,3 +376,12 @@ for byte; the registry pins hold the `wear` additions apart (shortRangeGoldens G
 - **Credit sinks:** "Short pass now (Recommended)": inventory credit sources and sinks, propose healthy sinks for
   approval (planning doc dispatched 2026-10-16).
 - **W1 storage:** "0-1000 condition (Recommended)": per-mille condition replaces the unused durability field.
+
+## USER ANSWERS (2026-10-21): step 3
+
+- Freeze rule: "Re-read each cycle (Recommended)": Repeat captain missions and short-range runs re-read gear condition
+  at each cycle start, so worn gear shows from cycle 2 (section 10); expeditions stay frozen at dispatch.
+- First-pass rates: "Approve (Recommended)": hold 8 per cycle, drive 2 per 10 ly, reactor and crew modules 4 a minute,
+  utility fire 8, survey 12, implants 2.5 a minute, the 5-minute expedition slice.
+- Universal module wear: "4 a minute (Recommended)": modules wear by time underway at the crew-module rate (2 never
+  outran the 2-a-minute upkeep).
