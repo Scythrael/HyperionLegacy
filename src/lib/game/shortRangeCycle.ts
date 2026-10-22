@@ -262,6 +262,11 @@ export interface ShortRangeTickResult {
   endedAtTicks: number | null;
   ended: { slotId: number; cycles: number; relics: number } | null; // the run ended this call (recalled): the completion log entry
   relics: readonly ShortRangeRelicFind[]; // G1-5: the relic blanks delivered cycles found, in delivery order
+  // G1-5 review follow-up: each delivered cycle that found relics while the run goes on (the completion log's find
+  // line, so a live Repeat run's finds show before it is recalled), in delivery order. A cycle that ends the run is not
+  // listed: the run's own completion entry names its finds.
+  // `atTick`: the call's whole tick the cycle was delivered on (the vault's ShortRangeRelicFind tick).
+  relicCycles: { slotId: number; cycles: number; relics: number; atTick: number }[];
 }
 
 // Advance one captain's short-range run by `ticksElapsed`. See the header for the rules and the parity argument.
@@ -284,6 +289,7 @@ export function tickCaptainShortRange(input: ShortRangeTickInput): ShortRangeTic
     wear: [],
     endedAtTicks: null,
     relics: [],
+    relicCycles: [],
   };
   const startMission = captain.mission;
   // A run always flies a hull (the crew lock keeps it aboard); a hull-less one holds still rather than guessing stats.
@@ -327,6 +333,7 @@ export function tickCaptainShortRange(input: ShortRangeTickInput): ShortRangeTic
   const wear: ShortRangeTickResult["wear"] = [];
   let endedAtTicks: number | null = null;
   const relics: ShortRangeRelicFind[] = [];
+  const relicCycles: ShortRangeTickResult["relicCycles"] = [];
 
   // 0.14.0 SPEED SEAM (processSpeed.ts applyTimeSkip): while the CURRENT cycle carries speed.instantComplete, each
   // phase is applied whole without spending the call's own ticks, so the cycle runs through to its delivery inside
@@ -434,6 +441,7 @@ export function tickCaptainShortRange(input: ShortRangeTickInput): ShortRangeTic
       mission = null;
       break;
     }
+    if (found.length > 0) relicCycles.push({ slotId: mission.slotId, cycles, relics: found.length, atTick });
     // THE NEXT CYCLE START: the whole job re-rolls at the slot's next cycle index against the counters as they stand
     // now (this call's earlier starts and deliveries included), through the board's one cycle-start seam. GEAR WEAR
     // step 3: the new cycle re-reads its gear (its stamp re-frozen at this instant), and its plan and pay fold it.
@@ -475,6 +483,7 @@ export function tickCaptainShortRange(input: ShortRangeTickInput): ShortRangeTic
     wear,
     endedAtTicks,
     relics,
+    relicCycles,
   };
 }
 

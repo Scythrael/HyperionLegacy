@@ -453,6 +453,13 @@ expedition relic line).
   Home reads "N missions completed, recalled, K unidentified relics to the vault" (also for a recall at home).
   `OfflineSummary.relicsFound` (vault ids new since the snapshot) and the recap row "Unidentified relics, +K to the
   vault". The Help Relics paragraph and the empty vault line now mention short-range finds.
+- Review follow-up (2026-10-22, the UI line "the completion line names the relic"): a live Repeat run's finds no longer
+  wait for its recall. Each delivered cycle that finds relics while the run goes on writes one completion entry of the new
+  kind `shortRangeRelicFind` (`relicsFound`, `iterations` the run's cycle; Home: "Found, N unidentified relics", "to the
+  vault, on mission K of the run", opening the Relics tab); a cycle that ends the run writes none (the run's own entry
+  names its finds). Finds are rare (per hour), so this cannot flood the 50-entry log. The call's finds and run ends append
+  in the order of the whole tick each landed on (`appendShortRangeLog`), so the log reads the same however the span is
+  cut. The board card adds a quiet line, "Found N unidentified relics this run, in the vault." (`ShortRangeRunView.relicLine`).
 - Wiring: `relic:audit:shortRangeBlanks` is LIVE in place (probe `content:shortRangeRelics`: a Tier I and a Tier II cycle
   of `SHORT_RANGE_RELIC_PROBE_HOURS` 200 find 8 + 15 blanks with the flag, none without). `relic:audit:generalPick`
   stays pending, owner now an R2-3 follow-up: after the merge with R2-3 every new study (short-range blanks included)

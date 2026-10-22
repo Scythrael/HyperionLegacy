@@ -1215,6 +1215,8 @@ const COMPLETION_KIND_VIEW: Record<
   // G1-4: a short-range run that ended (recalled; its cycles delivered are the entry's iterations). G1-6: the board has
   // its own Operations tab, so the row opens it, and its source names that tab.
   shortRangeRun:           { verb: "Completed",   icon: "shortRange", source: "Short-Range Missions", jumpTarget: "shortRange" },
+  // G1-5 review follow-up: relics a live run's cycle found (they went to the vault), so the row opens the Relics tab.
+  shortRangeRelicFind:     { verb: "Found",       icon: "relic",      source: "Short-Range Missions", jumpTarget: "relics" },
 };
 
 // 0.13.4 Phase 2 Unit 2.2 (design §6.2): the EXHAUSTIVE wording table for patrol endings.
@@ -1264,6 +1266,11 @@ function completionSubjectLabel(entry: CompletionLogEntry, state: GameState): st
   if (entry.kind === "patrolRun") return PATROLS[key]?.label ?? key;
   // G1-4: a short-range run is named by its kind (its subject key is the board slot, not a catalog key).
   if (entry.kind === "shortRangeRun") return "Short-Range Missions";
+  // G1-5 review follow-up: a find line is named by what it found (the expedition claim line's words).
+  if (entry.kind === "shortRangeRelicFind") {
+    const n = entry.relicsFound ?? 0;
+    return `${n} unidentified relic${n === 1 ? "" : "s"}`;
+  }
   switch (entry.reward) {
     case "blueprint":
     case "systems":
@@ -1391,6 +1398,8 @@ function completionDetail(entry: CompletionLogEntry): string | null {
     if (entry.iterations === 0) return `no missions completed, recalled${relics}`;
     return `${entry.iterations === 1 ? "1 mission" : `${entry.iterations} missions`} completed, recalled${relics}`;
   }
+  // G1-5 review follow-up: where a live run's find went, and which of its missions found it.
+  if (entry.kind === "shortRangeRelicFind") return `to the vault, on mission ${entry.iterations} of the run`;
   // 0.13.7 Crafted Blanks: a fabricate now deposits an UNINSPECTED blank, not a usable system, and
   // the primary line ("Fabricated, Balanced Hold") reads by process kind and cannot say so. The
   // detail carries the honesty. A batch keeps its run count, still worded as blanks ("3 blanks"),

@@ -719,7 +719,8 @@ export function shortRangeTrainingCycle(template: ShortRangeTemplateKey): { roll
 }
 
 // G1-5 (short-range relic drops): the planned length of the cycle the relic probe flies, in hours. Long enough that
-// each tier's expected finds are whole numbers (rollShortRangeRelicBlanks rolls no chance on a zero remainder):
+// each tier's expected finds are whole numbers, so the count is exact (rollShortRangeRelicBlanks still takes its
+// remainder chance draw, which on a zero remainder can never land):
 // Tier I 0.04 an hour x 200 = 8, Tier II 0.075 x 200 = 15.
 export const SHORT_RANGE_RELIC_PROBE_HOURS = 200;
 

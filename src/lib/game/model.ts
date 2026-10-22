@@ -6478,7 +6478,9 @@ export type CompletionSalvageSubject =
 // processes.
 // G1-4: "shortRangeRun", one entry per short-range RUN when it ends (the patrol precedent: one entry per run, its
 // `iterations` the cycles delivered), never one per cycle, so a board on Repeat cannot evict the rest of the log.
-export type CompletionLogKind = TimedProcessKind | "patrolRun" | "shortRangeRun";
+// G1-5 review follow-up: "shortRangeRelicFind", one entry per delivered cycle that found relics while its run goes on
+// (rare, a per-hour chance), so a live Repeat run's finds show before it is recalled.
+export type CompletionLogKind = TimedProcessKind | "patrolRun" | "shortRangeRun" | "shortRangeRelicFind";
 
 export interface CompletionLogEntry {
   id: string;               // "done-N", minted from state.nextCompletionLogId (mirrors "proc-N" / "q-N")
@@ -6520,7 +6522,8 @@ export interface CompletionLogEntry {
   // written before this field existed, so every read is presence-checked.
   salvageSubject?: CompletionSalvageSubject;
   // G1-5: the unidentified relics a short-range run found over its cycles (they went to the vault as each cycle was
-  // delivered). Written only on a "shortRangeRun" entry that found at least one; absent everywhere else.
+  // delivered). Written only on a "shortRangeRun" entry that found at least one, and on every "shortRangeRelicFind"
+  // entry (the relics that one cycle found); absent everywhere else.
   relicsFound?: number;
 }
 

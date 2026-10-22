@@ -1357,6 +1357,56 @@ function appendPatrolCompletions(
 // G1-5: the relic blanks the run found (each went to the vault as its cycle was delivered) are named on the entry
 // (`relicsFound`, written only when there were any), the way a claimed expedition's log line names its relics.
 // A same-reference no-op with no ending. Pure.
+// G1-5 review follow-up (plan G1-5 UI: "the completion line names the relic"): ONE entry per delivered cycle that found
+// relics while its run goes on, so a live Repeat run's finds read in the log at once rather than only when it is
+// recalled. Relic finds are rare (a per-hour chance), so this cannot flood the 50-entry log the way a per-cycle line
+// would. A cycle that ends the run writes none: the run's own entry (appendShortRangeRunEndings) names its finds.
+// `iterations` is the run's cycle that found them. An empty list returns the state by reference (byte-identical).
+function appendShortRangeRelicFinds(state: GameState, finds: readonly { slotId: number; cycles: number; relics: number }[], nowMs: number): GameState {
+  if (finds.length === 0) return state;
+  let log = state.completionLog ?? [];
+  let nextId = state.nextCompletionLogId ?? 1;
+  for (const find of finds) {
+    log = pushCompletionEntry(log, {
+      id: `done-${nextId}`,
+      kind: "shortRangeRelicFind",
+      reward: "nothing",
+      atMs: nowMs,
+      startedAtMs: nowMs,
+      iterations: find.cycles,
+      items: [],
+      pieces: 0,
+      subjectKey: `slot-${find.slotId}`,
+      level: null,
+      fuelAmount: null,
+      creditsAmount: null,
+      stale: false,
+      relicsFound: find.relics,
+    });
+    nextId += 1;
+  }
+  return { ...state, completionLog: log, nextCompletionLogId: nextId };
+}
+
+// G1-5 review follow-up: this call's short-range log lines, the live finds and the run ends, in the order of the whole
+// tick each landed on (a stable sort: captain order inside a tick, and a tick's finds before its ends, exactly as 1 s
+// steps append them), so the log reads the same however the span is cut (offline == live). No lines: the state by
+// reference.
+function appendShortRangeLog(
+  state: GameState,
+  finds: readonly { slotId: number; cycles: number; relics: number; atTick: number }[],
+  endings: readonly { slotId: number; cycles: number; relics: number; atTick: number }[],
+  nowMs: number
+): GameState {
+  if (finds.length === 0 && endings.length === 0) return state;
+  const lines = [...finds.map((f) => ({ end: false, line: f })), ...endings.map((e) => ({ end: true, line: e }))].sort(
+    (a, b) => a.line.atTick - b.line.atTick || Number(a.end) - Number(b.end)
+  );
+  let out = state;
+  for (const { end, line } of lines) out = end ? appendShortRangeRunEndings(out, [line], nowMs) : appendShortRangeRelicFinds(out, [line], nowMs);
+  return out;
+}
+
 function appendShortRangeRunEndings(state: GameState, endings: readonly { slotId: number; cycles: number; relics: number }[], nowMs: number): GameState {
   if (endings.length === 0) return state;
   let log = state.completionLog ?? [];
@@ -4238,6 +4288,11 @@ export function economyTick(
   // G1-5: the relic blanks short-range cycles found this call, in captain order (each captain's in delivery order),
   // deposited into the vault ordered by the whole tick each landed on (shortRangeVaultDeposit).
   const shortRangeRelics: ShortRangeRelicFind[] = [];
+  // G1-5 review follow-up: the cycles that found relics while their run goes on (each one find line in the log) and
+  // the ends above, each with the call's whole tick it landed on, so the log reads in that order however the span is
+  // cut (appendShortRangeLog; the vault's shortRangeVaultDeposit rule).
+  const shortRangeRelicCycles: { captainId: number; slotId: number; cycles: number; relics: number; atTick: number }[] = [];
+  const shortRangeEndTicks: number[] = [];
   const captains = state.captains.map((captain) => {
     if (captain.mission === null) return captain;
     // UNKNOWN-KEY INERT GUARD (fix: a removed/renamed mission/patrol key hard-crashed every tick,
@@ -4487,8 +4542,12 @@ export function economyTick(
           for (const w of sr.wear) pushShipWear(wearEvents, srShip.id, state.gameTimeSeconds + w.atTicks * state.tickDurationSeconds, shortRangeWear(w.events, crewed));
         }
         if (srShip && sr.endedAtTicks !== null) wearEvents.runEnds.set(srShip.id, state.gameTimeSeconds + sr.endedAtTicks * state.tickDurationSeconds);
-        if (sr.ended !== null) shortRangeEndings.push({ captainId: captain.id, ...sr.ended });
+        if (sr.ended !== null) {
+          shortRangeEndings.push({ captainId: captain.id, ...sr.ended });
+          shortRangeEndTicks.push(Math.max(1, Math.ceil((sr.endedAtTicks ?? ticksElapsed) - 1e-9)));
+        }
         for (const find of sr.relics) shortRangeRelics.push(find);
+        for (const c of sr.relicCycles) shortRangeRelicCycles.push({ captainId: captain.id, ...c });
         return srCaptain;
       }
       default:
@@ -5022,7 +5081,12 @@ export function economyTick(
   // (there is one clock per tick), so no readout can tell them apart by time anyway, and the
   // log is chronological by append order.
   // G1-4: and the short-range runs that ended, after the patrol endings (the same single allocator, in turn).
-  const postProcessState = appendShortRangeRunEndings(appendPatrolCompletions(postProcessStateRaw, patrolEndings, nowMs), shortRangeEndings, nowMs);
+  const postProcessState = appendShortRangeLog(
+    appendPatrolCompletions(postProcessStateRaw, patrolEndings, nowMs),
+    shortRangeRelicCycles,
+    shortRangeEndings.map((e, i) => ({ ...e, atTick: shortRangeEndTicks[i] })),
+    nowMs
+  );
 
   // Crafting 0.13.3 (Phase 1 Unit 1.4, design §5.5): promote WAITING queued orders into
   // real running work, at THE one correct seam: AFTER resolveProcesses (so a facility

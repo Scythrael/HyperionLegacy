@@ -17,6 +17,7 @@ import { economyTick, recallCaptain, startRelicStudy } from "./tick";
 import { resolveCrew } from "./crewOverlay";
 import { runCountsOf } from "./runDifficulty";
 import { buildHomeDashboard } from "./homeDashboard";
+import { shortRangeBoardView } from "../shortRangeBoardDisplay";
 import { summarizeOfflineProgress } from "./offlineSummary";
 import { deserialize, migrate, serialize } from "./save";
 import { WIRING_CAPTAIN_ID, editShip, installPiece, shipOf, wiringBase, withFacilityLevel } from "./wiring/probes";
@@ -309,6 +310,40 @@ describe("G1-5 the completion log, the offline recap, the save and the vault", (
     // An unflagged run: the entry carries no relic field at all.
     const plain = recallCaptain(economyTick(asPreRelicDispatch(s0), missionOf(s0).plan.totalTicks, RNG), WIRING_CAPTAIN_ID, 0).next;
     expect("relicsFound" in plain.completionLog!.at(-1)!).toBe(false);
+  });
+
+  it("a live Repeat run's finding cycle writes its own find line at once; Home names the relics and the board card says so", () => {
+    const base = qualified();
+    const idx = dropIndex(base, 0);
+    const s0 = dispatchAt(base, 0, idx);
+    const found = shortRangeCycleRelics(missionOf(s0), 1).length;
+    const before = s0.completionLog?.length ?? 0;
+    const delivered = economyTick(s0, missionOf(s0).plan.totalTicks, RNG);
+    // The run goes on (Repeat), and the cycle that found the relics logged them already.
+    expect(missionOf(delivered).relicsThisRun).toBe(found);
+    expect(delivered.completionLog!.length).toBe(before + 1);
+    const entry = delivered.completionLog!.at(-1)!;
+    expect(entry).toMatchObject({ kind: "shortRangeRelicFind", iterations: 1, relicsFound: found, subjectKey: "slot-0" });
+    const row = buildHomeDashboard(delivered).recentlyCompleted.find((x) => x.id === entry.id);
+    const noun = `${found} unidentified relic${found === 1 ? "" : "s"}`;
+    expect(row).toMatchObject({ primaryLabel: `Found, ${noun}`, source: "Short-Range Missions", secondaryLabel: "to the vault, on mission 1 of the run", jumpTarget: "relics" });
+    const card = shortRangeBoardView(delivered).cards.find((c) => c.slotId === 0);
+    expect(card?.kind === "run" ? card.run.relicLine : null).toBe(`Found ${noun} this run, in the vault.`);
+    // Before any find the card has no relic line.
+    const fresh = shortRangeBoardView(s0).cards.find((c) => c.slotId === 0);
+    expect(fresh?.kind === "run" ? fresh.run.relicLine : "absent").toBeNull();
+  });
+
+  it("a cycle that ends the run writes no find line (the run's own entry names its finds); an unflagged run writes none", () => {
+    const base = qualified();
+    const idx = dropIndex(base, 0);
+    const s0 = dispatchAt(base, 0, idx);
+    const before = s0.completionLog?.length ?? 0;
+    const recalled = recallCaptain(economyTick(s0, 1, RNG), WIRING_CAPTAIN_ID, 0).next;
+    const done = economyTick(recalled, missionOf(s0).plan.totalTicks - 1, RNG);
+    expect(done.completionLog!.slice(before).map((e) => e.kind)).toEqual(["shortRangeRun"]);
+    const plain = economyTick(asPreRelicDispatch(s0), missionOf(s0).plan.totalTicks, RNG);
+    expect((plain.completionLog ?? []).some((e) => e.kind === "shortRangeRelicFind")).toBe(false);
   });
 
   it("the offline recap counts the relics that reached the vault while away", () => {
