@@ -35,6 +35,8 @@ import type {
 } from "./model";
 import { makeRng, type Rng } from "./combat/rng";
 import { diminishing } from "./diminishing";
+// Gas Giant Study GG-2: which bodies are orbital-only (pure content; expeditionContent.ts imports model types only).
+import { getPlanetTypeById } from "./expeditionContent";
 
 export type { BodyRiskGrades, ClearingSiteId, ExpeditionRiskProfile, HostileSiteId, RegionTier, RiskGrade, SystemRiskGrades };
 
@@ -222,6 +224,9 @@ export function systemRiskGrades(seed: number, region: ExpeditionRegion): System
 // One body's grades (see the header). Draws, always all seven in this order: the combat, fauna and flora jitters,
 // the fortification and colony rolls, then (Squads SQ-6 follow-up, appended so the first five are untouched) the
 // Clear the Hostiles and Secure the Landing Zone rolls. Pure.
+// Gas Giant Study GG-2 (D22, OC-G2): an ORBITAL-ONLY body (the gas giant: nothing to land on) places no hostile site
+// and no clearing objective; all seven draws are still taken ("draw kept, value unused"), so every other body and
+// every later roll read exactly as before. A run in flight keeps the grades it stored at dispatch.
 export function bodyRiskGrades(
   seed: number,
   region: ExpeditionRegion,
@@ -241,17 +246,18 @@ export function bodyRiskGrades(
     flora: lifeless || FLORALESS_PLANET_TYPES.includes(body.planetType) ? 0 : flora,
     hazard: hazardGrade(body.hazard),
   };
+  const orbital = getPlanetTypeById(body.planetType)?.orbitalOnly === true;
   for (const site of HOSTILE_ROLL_ORDER) {
     const rule = HOSTILE_SITE_RULES[site];
     const hit = rng.chance(rule.permilleByCombat[combat] ?? 0, 1000);
-    if (hit && out.site === undefined && region.tier >= rule.minTier) out.site = site;
+    if (hit && !orbital && out.site === undefined && region.tier >= rule.minTier) out.site = site;
   }
   const clearing: ClearingSiteId[] = [];
   for (const id of CLEARING_ROLL_ORDER) {
     const rule = CLEARING_SITE_RULES[id];
     if (rng.chance(rule.permilleByGrade[out[rule.driver]] ?? 0, 1000)) clearing.push(id);
   }
-  if (clearing.length > 0) out.clearing = clearing;
+  if (clearing.length > 0 && !orbital) out.clearing = clearing;
   return out;
 }
 

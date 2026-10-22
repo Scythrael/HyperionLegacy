@@ -36,7 +36,8 @@ import { buildHomeDashboard } from "./homeDashboard";
 import { addItemQuality, itemTotal } from "./inventory";
 import { allocatedItem } from "./allocation";
 import { WIRING_REGISTRY } from "./wiring/registry";
-import { gasStudySourcePending } from "./gasGiantContent";
+import { GIANT_CLASSES, gasStudySourcePending } from "./gasGiantContent";
+import { rollStudyReward } from "./gasGiantStudy";
 
 // The seven recipes as the user approved them (July section 12 / E-MAT 3b): key -> inputs and output.
 const ML1_RECIPES: Record<string, { inputs: string[]; output: string }> = {
@@ -301,6 +302,19 @@ function producers(): Set<string> {
     }
   };
   walk(SALVAGE_LOOT_POOLS);
+  // Gas Giant Study GG-3: what a ship study of a gas giant really returns (gasGiantStudy.ts rollStudyReward, the engine's
+  // own roll over a batch of giants of every class at every tier).
+  for (let seed = 1; seed <= 3000; seed += 1) {
+    const classId = GIANT_CLASSES[seed % GIANT_CLASSES.length].id;
+    const exp = {
+      id: "ml-study",
+      seed: seed * 0x9e3779b1,
+      systemName: "LB-0001",
+      region: { version: 1 as const, tier: ((seed % 7) + 1) as 1, enemyTerritory: false, bearing: 0, distanceLy: 10 },
+      bodies: [{ id: "b", planetType: "gasGiant" as const, scanTotal: 1, scanProgress: 1, hazard: 0, scanned: true, discoveries: [], activities: [], giant: { classId, massMilliJ: GIANT_CLASSES[seed % GIANT_CLASSES.length].massMinMilliJ } }],
+    };
+    for (const id of Object.keys(rollStudyReward(exp, 0, 0).materials ?? {})) out.add(id);
+  }
   return out;
 }
 

@@ -10,6 +10,9 @@
 //   census   : every hull's maximum crafted power draw (the P1 census), read from the data, pinned as numbers.
 //   patrol   : a Repeat patrol for every combat hull on both routes, with a crafted Reactor Core and shield emitters
 //              and the power-efficiency crew aboard: the dispatch record, the display replay every 150 s, the state.
+//              SF-4 merge (user 2026-10-21 "One step per patrol run"): the 11 rows whose run wins more than one route
+//              re-pinned on their final state hash only: runCounts.patrol.completed counts the run once, not once per
+//              won route (with the per-route count line restored every old value reproduces); the fight is unchanged.
 //   groundOps: two Ground Ops runs (ship events live) on an Orion with the same power fixture, through claim.
 //   mission  : two captain missions on a General Freighter with a crafted Reactor Core and the power crew, 700 s.
 //   registry : the wiring registry snapshot (id, status, contexts, probe) and the E-MOD owned rows by name.
@@ -43,13 +46,13 @@ import { DRONE_POD_BASE_POWER_DRAW, generateDronePod, generateEquipment, generat
 import { effectiveShipStats } from "./crewOverlay";
 import { advanceExpedition, claimExpedition, expeditionCandidates } from "./expedition";
 import { shipEventsLive } from "./shipScanEvents";
-import { asPreVoyageDispatch, plainAwayMember, withSlottedAwayTeams, dispatchPastPropulsion } from "./awayTeamTestFixtures";
+import { asPreVoyageDispatch, plainAwayMember, withSlottedAwayTeams, dispatchPastPropulsion, asPrePatrolCurveDispatch } from "./awayTeamTestFixtures";
 import { WIRING_REGISTRY, type WiringEntry } from "./wiring/registry";
 import { siReadBack } from "./siMemberGearRegistry.fixture";
 import { getSeniorStaffBonusById } from "./seniorStaffBonuses";
 import { withEm1Off } from "./emodEm1Switch.fixture";
 import { goldenJson, withV1Museum } from "./firstRunsGoldens.fixture"; // gear wear: goldenJson puts the retired durability back
-import { GG1_ADDED_ENTRY_IDS } from "./gasStudyGoldens.fixture";
+import { GG1_ADDED_ENTRY_IDS, GG_STUDY_ADDED_ENTRY_IDS, GG_STUDY_FLIPPED_BEFORE } from "./gasStudyGoldens.fixture";
 import { FUSE_ADDED_ENTRY_IDS } from "./fieldKitsFuse.fixture";
 import { RX_ADDED_ENTRY_IDS } from "./reactorFuelGoldens.fixture";
 import { OC15_ADDED_ENTRY_IDS } from "./labFabricatorTiers.fixture";
@@ -58,6 +61,7 @@ import { ml2RowsBack } from "./ml2RecipeGoldens.fixture";
 // E-MOD EM-5 (the module slot): its registry move, read back by em5ReadBack.
 import { em5ReadBack } from "./emodEm5Registry.fixture";
 import { R2_2_ADDED_ENTRY_IDS } from "./relicBlanks.fixture";
+import { R2_3_ADDED_ENTRY_IDS } from "./relicIdentify.fixture"; // R2-3: its three audit rows, held apart the same way
 import { G2_4_ADDED_ENTRY_IDS, G2_4_FLIPPED_BEFORE } from "./propulsionRecallGoldens.fixture";
 // ML-3 (Material Lines: material quality on delivery, OC-D2): its registry move, read back by ml3RowsBack.
 import { ml3RowsBack } from "./materialQualityGoldens.fixture";
@@ -252,7 +256,7 @@ const ROUTES: PatrolKey[] = ["crimsonReaverSweep", "crimsonReaverWarband"];
 
 function patrolRun(hull: ShipTypeKey, route: PatrolKey): string[] {
   const st = powerFixture(hull);
-  const r = dispatchCaptainOnPatrol(st, 1, route, "balanced", true);
+  const r = asPrePatrolCurveDispatch(dispatchCaptainOnPatrol(st, 1, route, "balanced", true));
   if (!r.success) return [`refused:${r.reason}`];
   let s = r.next;
   const out = [hash(s.captains[0].mission)];
@@ -346,25 +350,25 @@ const GOLDEN: Record<string, unknown> = {
     aurora: 50,
     eir: 50,
   },
-  "patrol:generalFreighter:crimsonReaverSweep": ["a22d953b", "f1303262", "af09e57d", "809c791a", "1ffcda88", "70660f1d"],
+  "patrol:generalFreighter:crimsonReaverSweep": ["a22d953b", "f1303262", "af09e57d", "809c791a", "1ffcda88", "707e22fe"],
   "patrol:generalFreighter:crimsonReaverWarband": ["14716665", "58ebce7c", "919e12e7"],
-  "patrol:prospectorHauler:crimsonReaverSweep": ["f395dca2", "ec1b3baa", "dcd441c5", "a6ff3d60", "423f1dbb", "ca698ddb"],
+  "patrol:prospectorHauler:crimsonReaverSweep": ["f395dca2", "ec1b3baa", "dcd441c5", "a6ff3d60", "423f1dbb", "9933f234"],
   "patrol:prospectorHauler:crimsonReaverWarband": ["f7018a80", "1b6a04f", "984eba0d"],
-  "patrol:prospectorRunner:crimsonReaverSweep": ["35304b07", "2683c11c", "540ed873"],
+  "patrol:prospectorRunner:crimsonReaverSweep": ["35304b07", "2683c11c", "e8ba53ff"],
   "patrol:prospectorRunner:crimsonReaverWarband": ["bb3f0839", "9706551a", "396a7d72"],
-  "patrol:prospectorMiner:crimsonReaverSweep": ["2c976c41", "91a3b4b3", "4cfe9f19"],
+  "patrol:prospectorMiner:crimsonReaverSweep": ["2c976c41", "91a3b4b3", "bc79b4c5"],
   "patrol:prospectorMiner:crimsonReaverWarband": ["20145f43", "df5c4593", "6494466d"],
-  "patrol:destroyer:crimsonReaverSweep": ["e212a0f4", "fecb657", "fd943642", "3225234d", "83b5d80", "93285f1c"],
+  "patrol:destroyer:crimsonReaverSweep": ["e212a0f4", "fecb657", "fd943642", "3225234d", "83b5d80", "fd01ff75"],
   "patrol:destroyer:crimsonReaverWarband": ["29d6046", "9ca2efb", "56b823a3"],
-  "patrol:battleship:crimsonReaverSweep": ["7db855f4", "deeaf137", "db94168b", "2a94260e", "c4051625", "51fc5daf"],
-  "patrol:battleship:crimsonReaverWarband": ["3ec73e1a", "e7f6f494", "32566222"],
-  "patrol:carrier:crimsonReaverSweep": ["50c62cd6", "45416125", "101ffd89", "3addcf00", "8259b08a", "5215f06f"],
+  "patrol:battleship:crimsonReaverSweep": ["7db855f4", "deeaf137", "db94168b", "2a94260e", "c4051625", "88f94b88"],
+  "patrol:battleship:crimsonReaverWarband": ["3ec73e1a", "e7f6f494", "61f5e0a8"],
+  "patrol:carrier:crimsonReaverSweep": ["50c62cd6", "45416125", "101ffd89", "3addcf00", "8259b08a", "491e92c8"],
   "patrol:carrier:crimsonReaverWarband": ["a0e384dc", "b90af1b3", "58bc8525"],
-  "patrol:orion:crimsonReaverSweep": ["8e12b325", "c286e23", "6d758b62", "843374d", "c5a0241e", "c019397e"],
+  "patrol:orion:crimsonReaverSweep": ["8e12b325", "c286e23", "6d758b62", "843374d", "c5a0241e", "b2f24457"],
   "patrol:orion:crimsonReaverWarband": ["97101bc3", "e062c2f6", "af0fc738"],
-  "patrol:aurora:crimsonReaverSweep": ["79bb80eb", "c977f577", "f1f71c85", "a82997dd", "f9405ee8", "23b8ff0b"],
+  "patrol:aurora:crimsonReaverSweep": ["79bb80eb", "c977f577", "f1f71c85", "a82997dd", "f9405ee8", "352183a4"],
   "patrol:aurora:crimsonReaverWarband": ["d2b521ad", "7b0b391e", "48dd8d1d"],
-  "patrol:eir:crimsonReaverSweep": ["6d0d415d", "7c3e0da4", "9f779576", "71997d4c", "331458c0", "f0a51103"],
+  "patrol:eir:crimsonReaverSweep": ["6d0d415d", "7c3e0da4", "9f779576", "71997d4c", "331458c0", "ea8ba22c"],
   "patrol:eir:crimsonReaverWarband": ["746ba2fb", "ccd52ab", "7a6f8887"],
   "groundOps:1234": ["e396d8dd", "42027928", "17b9a694"],
   "groundOps:5678": ["49bebe7a", "f370042b", "8deed810"],
@@ -645,17 +649,22 @@ const G16_ROW_BEFORE = { kind: "pending", owner: "G1-6 (flips SHORT_RANGE_BOARD_
 // E-MOD EM-5 came after every pin here: its two module wear rows are left out and the hulls' moduleSlots entries read
 // with their old owner (emodEm5Registry.fixture.ts em5ReadBack; shipModules.test.ts pins the move itself).
 // Gear wear step 3 came after every pin here too: its registry move is read back first (gearWearRegistry.fixture.ts).
+// Gas Giant Study GG-2 / GG-3 came after every pin here as well: the entries they FLIPPED pending -> live (the gas giant's
+// orbitalOnly row and the GG-1 study entries they wired; gasStudyGoldens.fixture.ts) read back as they stood (pending
+// on their owner, no live context, no probe) in every read-back and the snapshot; GG-3's added probe dive seam is left out.
 const BEFORE_RX: WiringEntry[] = siReadBack(
   em5ReadBack(gw3RegistryBack(WIRING_REGISTRY)).filter(
     (e) =>
-      !RX_ADDED_ENTRY_IDS.has(e.id) && !FUSE_ADDED_ENTRY_IDS.has(e.id) && !R2_2_ADDED_ENTRY_IDS.has(e.id) && !G16_ADDED_IDS.has(e.id) &&
-      !G2_4_ADDED_ENTRY_IDS.has(e.id) && !OC15_ADDED_ENTRY_IDS.has(e.id),
+      !RX_ADDED_ENTRY_IDS.has(e.id) && !FUSE_ADDED_ENTRY_IDS.has(e.id) && !R2_2_ADDED_ENTRY_IDS.has(e.id) && !R2_3_ADDED_ENTRY_IDS.has(e.id) && !G16_ADDED_IDS.has(e.id) &&
+      !G2_4_ADDED_ENTRY_IDS.has(e.id) && !OC15_ADDED_ENTRY_IDS.has(e.id) && !GG_STUDY_ADDED_ENTRY_IDS.has(e.id),
   ).map((e) =>
     e.id === G13_ROW
       ? { ...e, status: G16_ROW_BEFORE as (typeof WIRING_REGISTRY)[number]["status"], contexts: [], probe: undefined }
       : e.id in G2_4_FLIPPED_BEFORE
         ? { ...e, status: G2_4_FLIPPED_BEFORE[e.id], contexts: [], probe: undefined }
-        : e,
+        : GG_STUDY_FLIPPED_BEFORE.has(e.id)
+          ? ({ ...e, status: GG_STUDY_FLIPPED_BEFORE.get(e.id)!, contexts: [], probe: undefined } as WiringEntry)
+          : e,
   ),
   (e) => e.id,
   (row) => ({ id: row[0], status: row[1], contexts: row[2], probe: row[3] ?? undefined }) as unknown as WiringEntry,
@@ -804,9 +813,9 @@ describe("EM-0 goldens (re-pinned by EM-1 where named)", () => {
   it("registry: G1-6 (the board goes live) is the only cause of its move", () => {
     // Merged onto feat (0.14.0 integration): the slices BEFORE_RX holds apart (the timed grenades, R2-2, the SI read-back)
     // and G2-4's additions are held apart here the same way, so the comparison sees G1-6's move alone. E-MOD EM-5's move is
-    // read back first (em5ReadBack), as BEFORE_RX does.
+    // read back first (em5ReadBack), as BEFORE_RX does; Gas Giant Study GG-3's added seam is held apart too.
     const live = em5ReadBack(gw3RegistryBack(WIRING_REGISTRY)).filter(
-      (e) => !RX_ADDED_ENTRY_IDS.has(e.id) && !FUSE_ADDED_ENTRY_IDS.has(e.id) && !R2_2_ADDED_ENTRY_IDS.has(e.id) && !G2_4_ADDED_ENTRY_IDS.has(e.id) && !OC15_ADDED_ENTRY_IDS.has(e.id),
+      (e) => !RX_ADDED_ENTRY_IDS.has(e.id) && !FUSE_ADDED_ENTRY_IDS.has(e.id) && !R2_2_ADDED_ENTRY_IDS.has(e.id) && !R2_3_ADDED_ENTRY_IDS.has(e.id) && !G2_4_ADDED_ENTRY_IDS.has(e.id) && !OC15_ADDED_ENTRY_IDS.has(e.id) && !GG_STUDY_ADDED_ENTRY_IDS.has(e.id),
     );
     const rung = live.filter((e) => G16_ADDED_IDS.has(e.id)).map((e) => [e.id, e.status, e.contexts, e.probe ?? null]);
     expect(rung).toEqual([...G16_ADDED_IDS].map((id) => [id, { kind: "live" }, ["mission:shortRange"], "shortRangeSlots"]));

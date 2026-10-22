@@ -59,7 +59,7 @@ import { resolveShipScanEvent } from "./shipScanEvents";
 import { startResearch } from "./tick";
 import { gasStudyItemIds } from "./gasGiantContent";
 import { GG1_RECIPE } from "./gasStudyGoldens.fixture";
-import { asPreG2Candidate, asPreG2NamesDispatch, asPreRanksDispatch, plainAwayMember, withoutG2NamesState, dispatchPastPropulsion } from "./awayTeamTestFixtures";
+import { asPreG2Candidate, asPreG2NamesDispatch, asPreRanksDispatch, plainAwayMember, withoutG2NamesState, dispatchPastPropulsion, withoutStudy, asPreRelicBlanksDispatch } from "./awayTeamTestFixtures";
 import { goldenJson, withV1Museum } from "./firstRunsGoldens.fixture";
 
 // ===== shared helpers =====
@@ -184,8 +184,14 @@ function expectParity(exp: Expedition): void {
 // named in expeditionTiersGoldens display:launch (a44bfe48 -> 6964ecd8, b956de0c -> 2de1df4): the forecast is built on
 // the run the dispatch would make, and this new save's first ordinary run now sits on the difficulty curve's floor, so
 // its Forecast detail odds read the gentler run. The dispatch itself is pinned as before the ranks (and so before SF-3).
+// GG-2 (orbital bodies lose ground objectives): the giant row's candidate, task preview and launch view moved on
+// purpose (were f5ddbd0a, e375bf74, 2de1df4): every preview is built on the run a dispatch would make NOW, and that run
+// gives the gas giant no ground objective (so no relic set at Level 8, no task, no squad need) and one ship study. The
+// candidate and the launch view equal G2-0's own moves (expeditionTiersGoldens display:candidates L8 cand-2 157c763c,
+// display:launch 3ad67e95). The dispatch and everything after it are pinned as dispatched before GG-2 (the strip
+// helpers take the study stamp off: asPreFieldKitsDispatch composes withoutStudy), so they hold.
 const GOLDEN: Record<string, readonly string[]> = {
-  giant: ["f5ddbd0a", "e375bf74", "2de1df4", "4ac8a0a7", "44d0a224", "93b332c5", "f23b02ce", "e8b83c3e", "d95c0baf", "a6f5bf49", "9a143f7", "661f503f"],
+  giant: ["157c763c", "8e03ab11", "3ad67e95", "4ac8a0a7", "44d0a224", "93b332c5", "f23b02ce", "e8b83c3e", "d95c0baf", "a6f5bf49", "9a143f7", "661f503f"],
   plain: ["82735f", "61454ce6", "6964ecd8", "81d9393c", "394ef6cb", "ffa69009", "5a7a918b", "52c3393d", "2dc0e5cf", "5d234ce9", "8b1199fc", "174e7996"],
   risk: ["6b5a19c0", "9c9d2b43", "31ca5738"],
 };
@@ -315,6 +321,195 @@ describe("GG-0 golden 4: startResearch durations, with and without the museum", 
     const museum = ticks(true);
     museum.forEach((t, i) => expect(t).toBeLessThan(plain[i]));
     expect(museum).toEqual(LAB_GOLDEN.museum);
+  });
+});
+
+// ===== GG-2 / GG-3 capture (taken on feat f85ef73, BEFORE the orbital body and study leg engine edits) =====
+//
+// A sweep over every region tier (I to VII), every candidate slot and two save seeds, crewed as above. Each system
+// is classified by whether it holds an orbital-only body (expeditionContent.ts PLANET_TYPES orbitalOnly: the gas
+// giant). GG-2 and GG-3 act ONLY on orbital bodies, so:
+//   - a system WITHOUT one must stay byte-identical as a whole: its risk preview, its task preview, the dispatch
+//     record, the finished run, its findings and the claim's deposits;
+//   - a system WITH one must keep every NON-orbital body as drawn: its risk grades and its previewed objectives
+//     (discovery and stamping are keyed by the body, never by a shared stream). Its later bodies' fights and hauls
+//     key off the task's flat index across bodies, which the giant's dropped objectives shift, and its timeline
+//     waits on the study, so the run past the preview is pinned by the GG-2 / GG-3 goldens, not here.
+const SWEEP_SAVE_SEEDS = [0x51f15e, 0x2b7c0d3] as const;
+const SWEEP_TIERS = [1, 2, 3, 4, 5, 6, 7] as const;
+
+function sweepState(saveSeed: number): GameState {
+  return { ...crewed(), expeditionSeed: saveSeed };
+}
+
+function isOrbitalType(planetType: string): boolean {
+  return planetType === "gasGiant";
+}
+
+// One system of the sweep: [candidate id, "plain" | "orbital", ...hashes]. Pure (every run is a throwaway).
+function sweepRow(saveSeed: number, tier: number, slot: number): string[] {
+  const state = sweepState(saveSeed);
+  const id = `cand-${tier}-${slot}`;
+  const cand = expeditionCandidates(state, "ship-1", tier as 1).find((c) => c.id === id)!;
+  expect(cand, id).toBeDefined();
+  const risk = expeditionRiskPreview(cand.seed, cand.region);
+  // On feat, G2-4 and Relics v2 R2-2 landed before this slice: the pre-G2-4 dispatch (dispatchPastPropulsion) without
+  // the R2-2 relic blanks flag (asPreRelicBlanksDispatch), here and in the GG-3 captures below, so every pin reproduces.
+  const res = asPreRelicBlanksDispatch(dispatchPastPropulsion(state, "ship-1", 1, id));
+  if (!res.success || !res.expedition) throw new Error(`dispatch refused: ${res.reason}`);
+  const exp = res.expedition;
+  const preview = systemTaskPreview(cand.seed, exp.scanParams, cand.region);
+  const orbital = exp.bodies.map((b) => isOrbitalType(b.planetType));
+  if (!orbital.some(Boolean)) {
+    const done = advanceExpedition(exp, FINAL * 4);
+    expect(done.phase, id).toBe("complete");
+    const claim = claimExpedition({ ...res.next, expeditions: [done] }, done.id);
+    expect(claim.success).toBe(true);
+    const deposits = { inventory: claim.next.inventory, credits: claim.next.credits.toString(), relicVault: claim.next.relicVault ?? null };
+    return [id, "plain", hash(risk), hash(preview), hash(exp), hash(done), hash(done.findings), hash(deposits)];
+  }
+  const keptRisk = risk.bodies.filter((_, i) => !orbital[i]);
+  const keptTasks = preview.tasks.filter((t) => !orbital[t.bodyIndex]);
+  // The dispatch record apart from the orbital bodies' risk grades (GG-2 drops a hostile site or a clearing objective
+  // there, every draw kept): with GG-2's stamps taken off it must read exactly this.
+  // GG-2: the stamps come off through withoutStudy (the study flag and the giant profiles).
+  const bare = withoutStudy(exp);
+  const record = { ...bare, bodies: bare.bodies.map((b, i) => (orbital[i] ? { ...b, risk: undefined } : b)) };
+  return [id, "orbital", hash(keptRisk), hash(keptTasks), hash(record)];
+}
+
+// Per system: "<kind> <hash of the row's hashes>", keyed "<save seed>:<candidate id>".
+const SWEEP_GOLDEN: Record<string, string> = {
+  "51f15e:cand-1-0": "orbital d0d07a19",
+  "51f15e:cand-1-1": "plain cf85dddd",
+  "51f15e:cand-1-2": "plain e1429ff4",
+  "51f15e:cand-2-0": "plain 54f37fa9",
+  "51f15e:cand-2-1": "plain fb8bb00",
+  "51f15e:cand-2-2": "plain 5ba02e31",
+  "51f15e:cand-3-0": "orbital c247c108",
+  "51f15e:cand-3-1": "plain 3e28f3bb",
+  "51f15e:cand-3-2": "plain 7d6472fe",
+  "51f15e:cand-4-0": "orbital 893b3376",
+  "51f15e:cand-4-1": "plain 347bc07c",
+  "51f15e:cand-4-2": "plain 7e4b81b6",
+  "51f15e:cand-5-0": "orbital 728b7307",
+  "51f15e:cand-5-1": "plain 94d099a1",
+  "51f15e:cand-5-2": "orbital 7bf06dca",
+  "51f15e:cand-6-0": "plain 93bf9879",
+  "51f15e:cand-6-1": "orbital 5b5951f2",
+  "51f15e:cand-6-2": "plain f98d60c4",
+  "51f15e:cand-7-0": "orbital 7585349d",
+  "51f15e:cand-7-1": "plain 344b2471",
+  "51f15e:cand-7-2": "plain 6e6bd62e",
+  "2b7c0d3:cand-1-0": "plain af41749d",
+  "2b7c0d3:cand-1-1": "plain da9a5b3f",
+  "2b7c0d3:cand-1-2": "plain 2ff41081",
+  "2b7c0d3:cand-2-0": "plain 8aebc7c8",
+  "2b7c0d3:cand-2-1": "orbital 950f18c0",
+  "2b7c0d3:cand-2-2": "plain 646cbee3",
+  "2b7c0d3:cand-3-0": "plain 377b355d",
+  "2b7c0d3:cand-3-1": "orbital 4afed3c2",
+  "2b7c0d3:cand-3-2": "plain 3afe1577",
+  "2b7c0d3:cand-4-0": "orbital 9c6ccc40",
+  "2b7c0d3:cand-4-1": "plain cc495368",
+  "2b7c0d3:cand-4-2": "plain 85a3c56a",
+  "2b7c0d3:cand-5-0": "plain 402efb49",
+  "2b7c0d3:cand-5-1": "plain 3d0131c1",
+  "2b7c0d3:cand-5-2": "orbital 5915a06c",
+  "2b7c0d3:cand-6-0": "plain 715448f8",
+  "2b7c0d3:cand-6-1": "plain 2bc60129",
+  "2b7c0d3:cand-6-2": "plain 5d31f80c",
+  "2b7c0d3:cand-7-0": "plain 648f505f",
+  "2b7c0d3:cand-7-1": "plain bf7bdbc3",
+  "2b7c0d3:cand-7-2": "plain 386fe812",
+};
+
+describe("GG-2 / GG-3 capture: every tier's systems, the plain ones whole and the orbital ones off the giant", () => {
+  it("two save seeds x seven tiers x three slots", () => {
+    const rows: Record<string, string> = {};
+    for (const saveSeed of SWEEP_SAVE_SEEDS) {
+      for (const tier of SWEEP_TIERS) {
+        for (let slot = 0; slot < 3; slot++) {
+          const [id, kind, ...hashes] = sweepRow(saveSeed, tier, slot);
+          rows[`${saveSeed.toString(16)}:${id}`] = `${kind} ${hash(hashes)}`;
+        }
+      }
+    }
+    const kinds = Object.values(rows).map((r) => r.split(" ")[0]);
+    // Neither half is vacuous.
+    expect(kinds.filter((k) => k === "plain").length).toBeGreaterThan(5);
+    expect(kinds.filter((k) => k === "orbital").length).toBeGreaterThan(5);
+    expect(rows).toEqual(SWEEP_GOLDEN);
+  });
+});
+
+// ===== GG-3 capture (taken on GG-2, a7dc7bc, BEFORE the study leg) =====
+//
+// Three study runs (the GG-0 giant, and the sweep's Tier I and Tier III giants of save seed 0x51f15e), dispatched as
+// GG-2 dispatches them (the stamp and the giant profiles): the dispatch record and every body's discoveries once the
+// whole system is scanned. GG-3 adds the study leg AFTER dispatch (nothing new is frozen) and never touches a
+// discovery, so both must hold; the finished run moves (the study's pause, the waiting pickups, the reward) and is
+// pinned by GG-3's own goldens.
+const GG3_RUNS: readonly [number | null, string][] = [
+  [null, "cand-1-2"],
+  [0x51f15e, "cand-1-0"],
+  [0x51f15e, "cand-3-0"],
+];
+// [dispatch record, discoveries of body 0, body 1, ...]; "741638a5" is an orbital body's empty list.
+const GG3_CAPTURE_GOLDEN: Record<string, readonly string[]> = {
+  "fresh:cand-1-2": ["8fe892cf", "2c20d8bf", "741638a5"],
+  "51f15e:cand-1-0": ["6f78d7a6", "ac027c80", "741638a5", "57eeb0dc"],
+  "51f15e:cand-3-0": ["c636e9f1", "741638a5", "8b22c88e", "7218468"],
+};
+
+describe("GG-3 capture: a study run's dispatch record and discoveries", () => {
+  it("three study runs", () => {
+    const out: Record<string, readonly string[]> = {};
+    for (const [saveSeed, id] of GG3_RUNS) {
+      const state = saveSeed === null ? crewed() : sweepState(saveSeed);
+      const res = asPreRelicBlanksDispatch(dispatchPastPropulsion(state, "ship-1", 1, id));
+      if (!res.success || !res.expedition) throw new Error(`dispatch refused: ${res.reason}`);
+      const exp = res.expedition;
+      expect(exp.study, id).toBe(1);
+      let run = exp;
+      for (let t = exp.phaseAnchorSeconds + 600; t < FINAL && !run.bodies.every((b) => b.scanned); t += 600) run = advanceExpedition(run, t);
+      expect(run.bodies.every((b) => b.scanned), id).toBe(true);
+      out[`${saveSeed === null ? "fresh" : saveSeed.toString(16)}:${id}`] = [hash(exp), ...run.bodies.map((b) => hash(b.discoveries))];
+    }
+    expect(out).toEqual(GG3_CAPTURE_GOLDEN);
+  });
+});
+
+// ===== GG-3 golden: the same three study runs finished (pinned on GG-3) =====
+// [the study legs, the study findings, the finished run, the claim's deposits and Survey Log]. The dispatch records and
+// discoveries above hold; these are the study's own shape: each leg from its giant's scan for studySeconds, its reward
+// at its end, the pickups that waited, the run closing after it.
+const GG3_GOLDEN: Record<string, readonly string[]> = {
+  "fresh:cand-1-2": ["c906c018", "111554b9", "542bc1f7", "8edbba12"],
+  "51f15e:cand-1-0": ["7189397f", "757af5b5", "10deb434", "3642df2c"],
+  "51f15e:cand-3-0": ["7e67d1d", "2aa22d47", "900dea14", "ae902878"],
+};
+
+describe("GG-3 golden: the three study runs, finished and claimed", () => {
+  it("study legs, study findings, the finished run, the claim", () => {
+    const out: Record<string, readonly string[]> = {};
+    for (const [saveSeed, id] of GG3_RUNS) {
+      const state = saveSeed === null ? crewed() : sweepState(saveSeed);
+      const res = asPreRelicBlanksDispatch(dispatchPastPropulsion(state, "ship-1", 1, id));
+      if (!res.success || !res.expedition) throw new Error(`dispatch refused: ${res.reason}`);
+      const done = advanceExpedition(res.expedition, FINAL * 2);
+      expect(done.phase, id).toBe("complete");
+      const claim = claimExpedition({ ...res.next, expeditions: [done] }, done.id);
+      expect(claim.success).toBe(true);
+      const deposits = { inventory: claim.next.inventory, credits: claim.next.credits.toString(), surveyLog: claim.next.surveyLog ?? null };
+      out[`${saveSeed === null ? "fresh" : saveSeed.toString(16)}:${id}`] = [
+        hash(done.groundOps?.studyLegs ?? null),
+        hash(done.findings.filter((f) => f.source === "study")),
+        hash(done),
+        hash(deposits),
+      ];
+    }
+    expect(out).toEqual(GG3_GOLDEN);
   });
 });
 

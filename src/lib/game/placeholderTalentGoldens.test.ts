@@ -39,7 +39,7 @@ import { CLOAKED_VESSEL_HULL, buildShipCombatant, snapshotShipEventProfile } fro
 import { TRANSPORT_WINDOW_SECONDS } from "./transports";
 import { FIXTURE_RACE, WIRING_BUCKET_COUNT, bucketOf, editCaptain, installPiece, seatOfficer, withAwayTeam, withBuckets, withFacilityLevel, withHomeworld, wiringBase } from "./wiring/probes";
 import { goldenJson, withV1Museum, withoutGuests } from "./firstRunsGoldens.fixture"; // gear wear: goldenJson puts the retired durability back
-import { asPreCurveDispatch, asPreG2NamesDispatch, dispatchPastPropulsion } from "./awayTeamTestFixtures";
+import { asPreCurveDispatch, asPreG2NamesDispatch, dispatchPastPropulsion, asPrePatrolCurveDispatch } from "./awayTeamTestFixtures";
 
 function fnv(s: string): string {
   let h = 0x811c9dc5;
@@ -203,7 +203,7 @@ export function readWr6Variant(v: Wr6Variant): Record<string, string> {
   if (!m.success) throw new Error("the golden mission was refused");
   const mission = hashState(runTicks(m.next, 900, lcg(0x6c1)));
 
-  const p = dispatchCaptainOnPatrol(own(patrolFixture(), v), 1, "crimsonReaverWarband", "balanced", true);
+  const p = asPrePatrolCurveDispatch(dispatchCaptainOnPatrol(own(patrolFixture(), v), 1, "crimsonReaverWarband", "balanced", true));
   if (!p.success) throw new Error(`the golden patrol was refused: ${p.reason}`);
   const patrolDispatch = hash(p.next.captains[0].mission as PatrolMissionState);
   const patrol = hashState(runTicks(p.next, 900, lcg(0x6c2)));

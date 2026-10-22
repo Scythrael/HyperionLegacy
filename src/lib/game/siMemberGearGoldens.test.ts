@@ -29,7 +29,7 @@ import { inspectBlank } from "./tick";
 import { previewCraftOutcome } from "./itemgen";
 import { REQUISITION_ENTRIES, requisitionEntriesFor, requisitionStandardIssue } from "./quartermaster";
 import { deserialize, migrate, serialize } from "./save";
-import { asExpeditionVeteran, asPreRelicBlanksRun } from "./awayTeamTestFixtures";
+import { asExpeditionVeteran, asPreRelicBlanksRun, asPreStudyDispatch } from "./awayTeamTestFixtures";
 import { goldenJson, onHull, runOutcome, SWEEP_END, withCrew, withoutRunCounts, fnv } from "./firstRunsGoldens.fixture";
 import { withSiMemberGearOff } from "./siMemberGearSwitch.fixture";
 
@@ -63,9 +63,12 @@ export function siSnapshot(): string {
 }
 
 // One run per seed: the finished runs' hash, then each run's "objectives done/total:lost fights".
+// Gas Giant Study GG-2 (merged after this capture): the fourth seed's system holds a gas giant, so each run is
+// dispatched as before GG-2 (asPreStudyDispatch: no study stamp, the giant keeps its ground objectives), which keeps
+// these pins about the Standard-Issue gear alone; the gas giant study goldens pin the new shape.
 function runsOf(build: (seed: number) => GameState): string {
   const done = SEEDS.map((seed) => {
-    const res = startExpedition(build(seed), "ship-1", 1, "cand-0");
+    const res = asPreStudyDispatch(startExpedition(build(seed), "ship-1", 1, "cand-0"));
     if (!res.success || !res.expedition) throw new Error(`dispatch refused: ${res.reason}`);
     return advanceExpedition(res.expedition, SWEEP_END);
   });

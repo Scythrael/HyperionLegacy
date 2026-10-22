@@ -372,6 +372,14 @@ patrol records no use event yet; its ship's worn gear settles underway as the pa
 battle sources and the DC Suite are yours. For EM-5 / EM-7 (M9 "Slowly underway"): a special module wears through
 `shipPieceUseRaw` like the crew modules (minutes underway). **Merged with feat 3306bda:** EM-5's module source is
 wired that way now (live; its rate set to the approved crew module rate, 4 a minute, since 2 never outran the upkeep).
+**Review follow-ups (merged with feat bc25a23):** the expedition reach gate reads the PRISTINE voyage (candidateReach;
+the flown voyage keeps the worn view); a GO-8b field repair leg settles at the field rate as the run comes home, in
+event order with the run's own wear (fieldWindows, settleScheduled), so it repairs that wear in real play; GG-3's
+probe dive seam is live (each dive is one fieldwork step on the probe that dove); a time-skipped expedition comes home
+at the skip with its wear and repairs on its timeline laid back to end then (processSpeed.ts, expeditionHomeNow);
+other in-call context switches (a patrol ending, a bay) settle at the call's starting context, exact at production's
+one-tick calls. gearWearReview.test.ts proves each, and that the 31 use-wear-off golden files' kinds of run gain only
+the wear fields with wear on.
 
 ## 12. OPEN CALLS (multiple-choice ready; recommended first)
 
@@ -419,3 +427,5 @@ wired that way now (live; its rate set to the approved crew module rate, 4 a min
   at each cycle start, so worn gear shows from cycle 2 (section 10); expeditions stay frozen at dispatch.
 - First-pass rates: "Approve (Recommended)": hold 8 per cycle, drive 2 per 10 ly, reactor and crew modules 4 a minute,
   utility fire 8, survey 12, implants 2.5 a minute, the 5-minute expedition slice.
+- Universal module wear: "4 a minute (Recommended)": modules wear by time underway at the crew-module rate (2 never
+  outran the 2-a-minute upkeep).

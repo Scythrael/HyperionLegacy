@@ -33,19 +33,27 @@
 //
 // THE REPAIR CONTEXTS (gearWear.ts REPAIR_RATES, lifted by the hull repair's own speed bonuses), by where the piece is
 // (member gear follows its member's ship; a spare or an Armory piece not checked out is at home):
-//   fieldRepair : its ship is set down on a GO-8b field repair leg (arrived, not yet repaired)
+//   fieldRepair : its ship is set down on a GO-8b field repair leg (arrived, not yet repaired), settled as the run
+//                 comes home, in event order with the wear the run took (so a leg repairs that run's own wear)
 //   underway    : its ship is out on any run (crew upkeep, slow)
 //   shipyardBay : its ship sits in a Shipyard repair bay (the hull repair process)
 //   home        : anywhere else
 //
 // SETTLING AND PARITY (design 7). Repair is closed form from a piece's anchor (gearWear.ts settlePiece carries the
-// leftover fraction, so many short settles equal one long one at the same rate). Each call: a piece at home, in a bay
-// or on a field repair leg settles to the call's end at that context's rate; a piece UNDERWAY settles at the
+// leftover fraction, so many short settles equal one long one at the same rate). Each call: a piece at home or in a bay
+// settles to the call's end at that context's rate; a piece UNDERWAY (an expedition's field legs included) settles at the
 // underway rate only up to each of its run's events (the event's own instant: a delivery, the run coming home), takes
 // the event, and, when its run ended within the call, settles the rest of the call at its new context's rate. Every
 // event carries its exact instant, so one call, chunks and 1 s steps leave every piece identical (offline == live:
 // tick.ts tick steps economyTick(state, 1), the same as live play). No draws anywhere: plain arithmetic on outcomes
 // the game already computed.
+//
+// CONTEXT SWITCHES INSIDE ONE CALL: a run's own end (a mission's last delivery, a short-range run's, an expedition
+// coming home) is split at its instant (runEnds), and an expedition's field repair legs are split exactly at their
+// edges as the run comes home (fieldWindows, settleScheduled). Every other switch inside a call (a patrol ending, a hull
+// entering or leaving a Shipyard bay) settles the whole call at the context the call STARTED in. Production never
+// makes a call longer than one tick (live play and tick.ts tick both step economyTick(state, 1)), so that is exact at
+// a tick's grain; only a test's single multi-tick call sees the difference.
 //
 // IN-FLIGHT RUNS: a captain mission, short-range run or expedition dispatched before step 3 carries no stamp, so it
 // reads its gear as it always did and records no wear event. A pristine save with no event is returned as the SAME
@@ -83,6 +91,7 @@ import {
   type RepairRateBonus,
 } from "./gearWear";
 import type { ShortRangeWearEvents } from "./shortRangeCycle";
+import { studyDiveEvents } from "./gasGiantStudy";
 
 // ============================================================================
 // The switch, the stamps and the run sheet
@@ -180,6 +189,16 @@ export interface MemberUseWear {
   groundFights: number; // the member weapon
   fieldworkSteps: number; // the member tool
   minutesOnGround: number; // the implant (user W10: the slowest source)
+  // Gas Giant Study GG-3 (gasGiantStudy.ts studyDiveEvents): ONE probe dive of this piece (a Galileo-Class Probe, a
+  // member tool), one fieldwork step's use on that piece alone. Absent on every other event.
+  divePieceId?: string;
+}
+
+// A span of a run in which its ship repaired at the FIELD REPAIR rate instead of the underway one: a GO-8b leg, from
+// the ship setting down (arrivesAt) to the repair done (repairedAt).
+export interface RepairWindow {
+  from: number;
+  to: number;
 }
 
 export interface TimedWear<W> {
@@ -192,10 +211,37 @@ export interface GearWearEvents {
   members: Map<string, TimedWear<MemberUseWear>[]>;
   // shipId -> the instant its run ended within the call (the last delivery of a run that stopped, an expedition home)
   runEnds: Map<string, number>;
+  // shipId -> the field repair windows of an expedition that came home within the call (its pieces settle at the field
+  // rate inside them, in order with the run's wear)
+  fieldWindows: Map<string, RepairWindow[]>;
 }
 
 export function emptyWearEvents(): GearWearEvents {
-  return { ships: new Map(), members: new Map(), runEnds: new Map() };
+  return { ships: new Map(), members: new Map(), runEnds: new Map(), fieldWindows: new Map() };
+}
+
+// An expedition's field repair windows (each GO-8b leg the ship set down on, clipped to `upTo`), in time order. Pure.
+export function expeditionFieldWindows(exp: Pick<Expedition, "groundOps">, upTo: number): RepairWindow[] {
+  return (exp.groundOps?.repairLegs ?? [])
+    .map((leg) => ({ from: leg.arrivesAt, to: Math.min(leg.repairedAt, upTo) }))
+    .filter((w) => w.to > w.from)
+    .sort((a, b) => a.from - b.from);
+}
+
+// Settle `piece` to `t` at `rate`, except inside `windows`, where it settles at `windowRate`: split at each window edge
+// past its anchor, so a field repair acts on exactly the span the ship was set down. Pure.
+export function settleScheduled(piece: EquipmentInstance, t: number, rate: number, windows: readonly RepairWindow[] | undefined, windowRate: number): EquipmentInstance {
+  if (!windows || windows.length === 0 || piece.condition === undefined) return settlePiece(piece, t, rate);
+  let p = piece;
+  for (const w of windows) {
+    const cursor = p.conditionAt ?? t;
+    if (p.condition === undefined || w.from >= t) break;
+    if (w.to <= cursor) continue;
+    if (w.from > cursor) p = settlePiece(p, w.from, rate);
+    if (p.condition === undefined) break;
+    p = settlePiece(p, Math.min(w.to, t), windowRate);
+  }
+  return settlePiece(p, t, rate);
 }
 
 export function pushShipWear(events: GearWearEvents, shipId: string, at: number, wear: ShipUseWear): void {
@@ -287,23 +333,53 @@ export function expeditionWear(exp: Expedition, crewed: boolean): { ship: TimedW
       }
     }
   }
+  // Gas Giant Study GG-3: each probe dive wears the probe that dove, at the dive's end (studyDiveEvents).
+  for (const dive of studyDiveEvents(exp)) {
+    const list = members.get(dive.memberId) ?? [];
+    list.push({ at: dive.at, wear: { groundFights: 0, fieldworkSteps: 0, minutesOnGround: 0, divePieceId: dive.pieceId } });
+    members.set(dive.memberId, list);
+  }
+  for (const list of members.values()) list.sort((a, b) => a.at - b.at);
   return { ship, members };
 }
 
 // The expeditions that came home within the call (complete in `after`, not in `before`), their use recorded (each
-// event at its instant; the run ended at its completion anchor). Pure on the two states; writes only into `events`.
-export function recordExpeditionWear(before: GameState, after: GameState, events: GearWearEvents): void {
+// event at its instant), the instant each came home (its completion anchor) and its field repair windows, so its
+// pieces settle in event order through the whole run. `shift` moves every instant (a time-skipped run, processSpeed.ts,
+// finishes on its own clock ahead of the game's: its timeline is laid back so it ends now). Pure on the two states;
+// writes only into `events`.
+export function recordExpeditionWear(before: GameState, after: GameState, events: GearWearEvents, shift: number = 0): void {
   for (const exp of after.expeditions) {
-    if (exp.phase !== "complete" || !exp.gearWear) continue;
+    if (exp.phase !== "complete") continue;
     const prior = before.expeditions.find((e) => e.id === exp.id);
     if (!prior || prior.phase === "complete") continue;
+    const home = exp.phaseAnchorSeconds;
+    events.runEnds.set(exp.shipId, home + shift);
+    const windows = expeditionFieldWindows(exp, home).map((w) => ({ from: w.from + shift, to: w.to + shift }));
+    if (windows.length > 0) events.fieldWindows.set(exp.shipId, windows);
     const ship = after.ships.find((s) => s.id === exp.shipId);
     const wear = expeditionWear(exp, ship ? shipCrewAboard(after, ship) : false);
     if (!wear) continue;
-    for (const ev of wear.ship) pushShipWear(events, exp.shipId, ev.at, ev.wear);
-    for (const [id, list] of wear.members) for (const ev of list) pushMemberWear(events, id, ev.at, ev.wear);
-    events.runEnds.set(exp.shipId, exp.phaseAnchorSeconds);
+    for (const ev of wear.ship) pushShipWear(events, exp.shipId, ev.at + shift, ev.wear);
+    for (const [id, list] of wear.members) for (const ev of list) pushMemberWear(events, id, ev.at + shift, ev.wear);
   }
+}
+
+// A TIME-SKIPPED expedition (processSpeed.ts applyTimeSkip: the run finished on its own clock, at its natural end E,
+// while the game clock stays at now) comes home now: its use wear and its field repairs apply in event order, its
+// timeline laid back by E - now so it ends at the skip, exactly as if it had come home on a tick. `before` holds the
+// run in flight, `after` holds it finished. Pure.
+export function expeditionHomeNow(before: GameState, after: GameState, expeditionId: string): GameState {
+  const exp = after.expeditions.find((e) => e.id === expeditionId);
+  if (!exp || exp.phase !== "complete") return after;
+  const events = emptyWearEvents();
+  recordExpeditionWear(
+    { ...before, expeditions: before.expeditions.filter((e) => e.id === expeditionId) },
+    { ...after, expeditions: [exp] },
+    events,
+    after.gameTimeSeconds - exp.phaseAnchorSeconds,
+  );
+  return resolveGearWear(before, after, events);
 }
 
 // ============================================================================
@@ -345,6 +421,7 @@ export function shipPieceUseRaw(piece: EquipmentInstance, w: ShipUseWear): numbe
 
 // The raw per-mille a member piece takes from one use event. Member armor wears by battle only (step 4). Pure.
 export function memberPieceUseRaw(piece: EquipmentInstance, w: MemberUseWear): number {
+  if (w.divePieceId !== undefined) return w.divePieceId === piece.id ? useWearRaw("memberTool:fieldworkStep", 1) : 0;
   switch (piece.slotType) {
     case "memberWeapon":
       return useWearRaw("memberWeapon:groundFight", w.groundFights);
@@ -377,7 +454,7 @@ export function applyUseWear(piece: EquipmentInstance, raw: number, at: number):
 export interface RepairContextIndex {
   readonly out: ReadonlySet<string>; // ships out on a run (a captain mission, a patrol, a short-range run, an expedition)
   readonly bay: ReadonlySet<string>; // ships in a Shipyard repair bay
-  readonly field: ReadonlySet<string>; // ships set down on a field repair leg
+  readonly field: ReadonlySet<string>; // ships set down on a field repair leg right now (readouts; the pass reads windows)
   readonly memberShip: ReadonlyMap<string, string | null>; // member id -> the ship they are assigned to
 }
 
@@ -390,6 +467,9 @@ export function repairContextIndex(state: GameState): RepairContextIndex {
     const captain = state.captains.find((c) => c.id === ship.assignedCaptainId);
     if (captain && captain.mission !== null) out.add(ship.id);
   }
+  // A ship on an expedition is underway for the whole run, its field repair legs included: those settle at the field
+  // rate when the run comes home, in event order with its wear (fieldWindows), never call by call, so a leg repairs
+  // the run's own wear however the span is chunked.
   const field = new Set<string>();
   for (const exp of state.expeditions) {
     if (exp.phase === "complete") continue;
@@ -410,11 +490,11 @@ function pieceShipId(index: RepairContextIndex, piece: EquipmentInstance): strin
   return null;
 }
 
-// A piece's repair context (design 5.1). Pure.
+// A piece's repair context for the call-by-call pass (design 5.1): an expedition's field repair legs are underway here
+// and settle at the field rate as the run comes home (settleScheduled with its windows). Pure.
 export function pieceRepairContext(index: RepairContextIndex, piece: EquipmentInstance): RepairContext {
   const shipId = pieceShipId(index, piece);
   if (shipId === null) return "home";
-  if (index.field.has(shipId)) return "fieldRepair";
   if (index.out.has(shipId)) return "underway";
   if (index.bay.has(shipId)) return "shipyardBay";
   return "home";
@@ -459,7 +539,11 @@ export function livePieceCondition(state: GameState, piece: EquipmentInstance): 
   if (piece.condition === undefined) return pieceCondition(piece);
   const index = repairContextIndex(state);
   const context = pieceRepairContext(index, piece);
-  return pieceCondition(settlePiece(piece, state.gameTimeSeconds, pieceRepairRate(state, index, piece, context)));
+  const shipId = pieceShipId(index, piece);
+  const exp = shipId === null ? undefined : state.expeditions.find((e) => e.shipId === shipId && e.phase !== "complete");
+  const windows = exp ? expeditionFieldWindows(exp, state.gameTimeSeconds) : undefined;
+  const rate = pieceRepairRate(state, index, piece, context);
+  return pieceCondition(settleScheduled(piece, state.gameTimeSeconds, rate, windows, pieceRepairRate(state, index, piece, "fieldRepair")));
 }
 
 // ============================================================================
@@ -486,15 +570,24 @@ export function resolveGearWear(before: GameState, after: GameState, events: Gea
     // Underway with no event and still out: settled only at its run's events.
     if (shipWear === undefined && memberWear === undefined && context === "underway" && contextAfter === "underway") return piece;
     const rate = pieceRepairRate(before, index, piece, context, bonuses);
+    // An expedition that came home: its field repair legs, at the field rate, in order with its wear.
+    const shipId = pieceShipId(index, piece);
+    const windows = shipId !== null ? events?.fieldWindows.get(shipId) : undefined;
+    const fieldRate = windows ? pieceRepairRate(before, index, piece, "fieldRepair", bonuses) : rate;
     let p = piece;
-    for (const ev of shipWear ?? []) p = applyUseWear(settlePiece(p, ev.at, rate), shipPieceUseRaw(p, ev.wear), ev.at);
-    for (const ev of memberWear ?? []) p = applyUseWear(settlePiece(p, ev.at, rate), memberPieceUseRaw(p, ev.wear), ev.at);
+    // Ship and member events in one time order (a member's dive lands mid-run, between its ship's slices).
+    const timed: { at: number; raw: (x: EquipmentInstance) => number }[] = [
+      ...(shipWear ?? []).map((ev) => ({ at: ev.at, raw: (x: EquipmentInstance) => shipPieceUseRaw(x, ev.wear) })),
+      ...(memberWear ?? []).map((ev) => ({ at: ev.at, raw: (x: EquipmentInstance) => memberPieceUseRaw(x, ev.wear) })),
+    ];
+    timed.sort((a, b) => a.at - b.at);
+    for (const ev of timed) p = applyUseWear(settleScheduled(p, ev.at, rate, windows, fieldRate), ev.raw(p), ev.at);
     if (context === "underway") {
       if (contextAfter !== "underway") {
-        // The run ended within the call: underway up to the instant it ended, then the new context to the call's end.
-        const shipId = piece.fittedToShipId ?? (piece.fittedToMemberId ? index.memberShip.get(piece.fittedToMemberId) ?? null : null);
+        // The run ended within the call: underway (and its field legs) up to the instant it ended, then the new
+        // context to the call's end.
         const end = Math.min(now, (shipId !== null ? events?.runEnds.get(shipId) : undefined) ?? now);
-        p = settlePiece(p, end, rate);
+        p = settleScheduled(p, end, rate, windows, fieldRate);
         p = settlePiece(p, now, pieceRepairRate(before, index, piece, contextAfter, bonuses));
       }
     } else {

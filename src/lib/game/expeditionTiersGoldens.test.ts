@@ -216,16 +216,22 @@ const GOLDEN: Record<string, string[]> = {
   "fresh:regular:cand-0": ["ffa69009", "5a7a918b", "5d234ce9", "9bb3228a", "676725c6", "52c3393d", "62735fe0"],
   "fresh:regular:cand-1": ["689ff5a4", "7aac9305", "a239956b", "c5e2e95e", "4fda7266", "f8c60fa", "86e5cdc7"],
   "fresh:regular:cand-2": ["93b332c5", "f23b02ce", "a6f5bf49", "e0952b74", "ee5ca826", "e8b83c3e", "7f5f0fd3"],
+  // Re-pinned by Gas Giant Study GG-2 (cand-2, the gas giant system, at Levels 5 and 8 only, and the two list hashes
+  // that hold it; was L5:e7403ea0 / 7b34ec3a and L8:7fb6e44e / f5ddbd0a): from Level 5 the reading shows the task
+  // demand and at Level 8 the relic sets, and the giant now previews no ground objective (so no relic set) and one ship
+  // study. Every other candidate, level and risk preview is unchanged.
   "display:candidates": [
-    "L0:3d3c8b21", "62bcf2ed", "30626891", "4cf0ac35", "L1:8207442a", "27f0464d", "e0f76335", "cf6db03a", "L5:e7403ea0",
-    "af03b8bf", "e7eb36d1", "7b34ec3a", "L8:7fb6e44e", "82735f", "3fc57679", "f5ddbd0a", "risk:6aeb78c",
+    "L0:3d3c8b21", "62bcf2ed", "30626891", "4cf0ac35", "L1:8207442a", "27f0464d", "e0f76335", "cf6db03a", "L5:b7676c2",
+    "af03b8bf", "e7eb36d1", "326c1c2c", "L8:b0a7d44c", "82735f", "3fc57679", "157c763c", "risk:6aeb78c",
     "risk:1686e1ad", "risk:d66c6828",
   ],
   // Re-pinned by safe first runs SF-3 (Level 8 of cand-0 and cand-2 only; was a44bfe48, b956de0c): the launch forecast
   // is built on the run the dispatch would make, and this new save's first ordinary run now sits on the difficulty
   // curve's floor (enemies at 0.35 of nominal, Weak on the low end, the Tier I hazard ceiling 0.1), so its Forecast
   // detail odds read the gentler run. Level 5 shows no odds and is unchanged.
-  "display:launch": ["b4d99ab5", "25f32e71", "8105e2b", "6964ecd8", "8f8520b2", "2de1df4"],
+  // Re-pinned by Gas Giant Study GG-2 (cand-2 at Levels 5 and 8 only; was 8105e2b, 2de1df4): the gas giant's ground
+  // objectives leave the demand, the recommendation and the forecast, which count its one ship study instead.
+  "display:launch": ["b4d99ab5", "25f32e71", "839d60ba", "6964ecd8", "8f8520b2", "3ad67e95"],
   "display:telescope": [
     "cffd5b3a", "164e7dfc", "363ef743", "25ad175f", "7f465550", "2b693a80", "c730d797", "dbf9821d", "a7cf78e7",
     "card1:76ff8458", "map1:d0521360", "card8:945210e7", "map8:7ffc445a",
@@ -428,7 +434,9 @@ function changedPaths(a: unknown, b: unknown, path = ""): string[] {
 const G2_1_HOMEWORLD_SEED = 0x6a09e667;
 const homed = (s: GameState): GameState => ({ ...s, homeworld: { version: 1, seed: G2_1_HOMEWORLD_SEED } });
 const G2_1_GOLDEN: Record<string, string[]> = {
-  candidates: ["e196a0e6", "dfc8c538", "c7a61767", "7f6fe5b1"],
+  // Re-pinned by Gas Giant Study GG-2 (Levels 5 and 8 only; was c7a61767, 7f6fe5b1): the gas giant system's task
+  // demand and relic sets, as in golden 3 above.
+  candidates: ["e196a0e6", "dfc8c538", "45ea79e9", "7d2ec80f"],
   card: ["51c2886e", "e64670ea"],
 };
 

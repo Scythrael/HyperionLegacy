@@ -111,7 +111,7 @@ export interface ShortRangeCycleStart {
 // folds, the crew's unload speed, Sensors and the Engineering rating), and count one more cycle start of the drawn
 // template. Dispatch calls it for the first cycle; G1-4's cycle engine calls it for every later one, so the training
 // run and the counters can never disagree. GEAR WEAR step 3: `wear` is the run's stamp (gearWearEngine.ts
-// runWearStamp), so the plan reads the gear the run froze at dispatch; without one (a run from before step 3, a
+// runWearStamp at dispatch, projectRunStamp at each later cycle start), so the plan reads the gear the cycle froze; without one (a run from before step 3, a
 // preview) it reads the stored sheet. Pure.
 export function startShortRangeCycle(state: GameState, ship: ShipInstance, slot: ShortRangeSlotRef, cycleIndex: number, wear?: RunWearStamp): ShortRangeCycleStart {
   const roll = rollShortRangeJob(state, slot, cycleIndex);

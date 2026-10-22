@@ -16,6 +16,8 @@
 import {
   EQUIPMENT_SLOTS,
   MISSIONS,
+  SUBSPACE_TELESCOPE_FACILITY_KEY,
+  freshState,
   effectiveMissionDef,
   missionPhaseTicks,
   type AwayTeamType,
@@ -45,6 +47,7 @@ import {
 } from "../gearWearEngine";
 import type { ShortRangeTemplateKey } from "../shortRange";
 import { PATHFINDER_SUITE_KEY } from "../utilityGear";
+import { GALILEO_VARIETY, studyDiveEvents } from "../gasGiantStudy";
 import {
   WIRING_SCIENCE_ID,
   WIRING_SECURITY_ID,
@@ -56,6 +59,7 @@ import {
   onShortRangeJob,
   shipOf,
   withAwayTeam,
+  wiringMember,
   type ContextId,
   type ProbeDef,
 } from "./probes";
@@ -272,6 +276,9 @@ export function wearProbeDef(id: WearProbeId): ProbeDef {
   if (id === "wear:condition") {
     return { label: "the condition of the fixture's worn piece (per-mille)", read: (s) => conditionOfWorn(s) };
   }
+  if (id === "wear:dive") {
+    return { label: "the condition one probe dive takes off a Galileo-Class Probe (gasGiantStudy.ts studyDiveEvents)", read: (s) => divePerUnit(s) };
+  }
   if (id === "wear:repairGain") {
     return { label: "the condition the repair added to the fixture's worn piece (per-mille)", read: (s) => conditionOfWorn(s) - WEAR_FIXTURE_CONDITION };
   }
@@ -294,11 +301,90 @@ function conditionOfWorn(s: GameState): number {
   return worn ? pieceCondition(worn) : CONDITION_FULL;
 }
 
+// ===== the probe dive (Gas Giant Study GG-3's seam, gasGiantStudy.ts studyDiveEvents) =====
+
+// The probe dive fixture's Galileo-Class Probe (a member tool) and the system the GG fixtures fly: a fresh save's
+// candidate 2, whose body 1 is the gas giant.
+export const WEAR_DIVE_PROBE_ID = "wiring-galileo";
+const DIVE_GIANT_CANDIDATE = "cand-1-2";
+const DIVE_SEC = ["member-1", "member-2", "member-3"];
+const DIVE_SCI = ["member-11", "member-12", "member-13"];
+
+// Ship-1 with one Ground team of rank 10 members, the telescope at Level 8, its training run behind it, and a Galileo
+// (20 points at the variety's ratios, at the TOUGHNESS_REFERENCE) on the first Science member. Pure.
+export function diveFixture(): GameState {
+  const base = freshState();
+  const member = (id: string, teamType: AwayTeamType) => ({ ...wiringMember(id, teamType), rank: 10 }) as unknown as GameState["awayMembers"][number];
+  const s: GameState = {
+    ...base,
+    nextExpeditionId: 2,
+    facilities: { ...base.facilities, [SUBSPACE_TELESCOPE_FACILITY_KEY]: { level: 8 } },
+    awayMembers: [...DIVE_SEC.map((id) => member(id, "security")), ...DIVE_SCI.map((id) => member(id, "science"))],
+    nextAwayMemberId: 100,
+    ships: base.ships.map((sh) => ({ ...sh, groundTeams: [{ kind: "ground", security: DIVE_SEC, science: DIVE_SCI, helpOthers: false }, ...(sh.groundTeams ?? []).slice(1)] })),
+  };
+  const probe = {
+    id: WEAR_DIVE_PROBE_ID,
+    slotType: "memberTool",
+    moduleVariant: GALILEO_VARIETY,
+    rarity: "standard",
+    ascension: "none",
+    quality: 0,
+    iLevel: 10,
+    blueprintKey: null,
+    implicitStats: { groundFieldwork: 12, groundHazardResist: 6, groundRelicFind: 2 },
+    rolledStats: {},
+    mass: 0,
+    powerDraw: 0,
+    durabilityMax: 100,
+    fittedToShipId: null,
+    fittedToMemberId: DIVE_SCI[0],
+  } as unknown as EquipmentInstance;
+  return afterExpeditionTraining({ ...s, equipment: [...s.equipment, probe] });
+}
+
+// What one probe dive took off the Galileo (negative), through the engine's own homecoming: the real run, finished,
+// read at its FIRST dive (the run comes home at that instant, its other studies and its tally left out, so the dive is
+// the tool's only use and no upkeep runs after it). 0 without the probe or a dive.
+function divePerUnit(s: GameState): number {
+  const probe = s.equipment.find((e) => e.id === WEAR_DIVE_PROBE_ID);
+  if (!probe) return 0;
+  const res = startExpedition(s, WIRING_SHIP_ID, 1, DIVE_GIANT_CANDIDATE, true, undefined, false);
+  if (!res.success || !res.expedition) throw new Error(`wear probe: dive dispatch refused: ${res.reason}`);
+  const done = advanceExpedition(res.expedition, res.expedition.phaseAnchorSeconds + 4_000_000);
+  const first = studyDiveEvents(done)[0];
+  if (!first || !done.groundOps) return 0;
+  const leg = done.groundOps.studyLegs!.find((l) => l.done && l.endsAt === first.at)!;
+  const edited: Expedition = {
+    ...done,
+    phaseAnchorSeconds: first.at,
+    groundOps: { ...done.groundOps, studyLegs: [leg], wearTally: {}, startedAt: first.at, endedAt: first.at },
+  };
+  const before: GameState = { ...res.next, gameTimeSeconds: first.at - 1 };
+  const finished: GameState = { ...res.next, gameTimeSeconds: first.at, expeditions: res.next.expeditions.map((e) => (e.id === edited.id ? edited : e)) };
+  const events = emptyWearEvents();
+  recordExpeditionWear(before, finished, events);
+  const worn = resolveGearWear(before, finished, events).equipment.find((e) => e.id === WEAR_DIVE_PROBE_ID)!;
+  return -(CONDITION_FULL - pieceCondition(worn));
+}
+
 // The repair context fixtures' "N minutes there" (the registry's on transform), through the engine's pass. Pure.
 export function wearRepairMinutes(s: GameState, offRun: boolean): GameState {
   const later = { ...s, gameTimeSeconds: s.gameTimeSeconds + WEAR_REPAIR_MINUTES * 60 };
   const after = offRun ? editCaptain(later, { mission: null } as Partial<CaptainState>) : later;
   return resolveGearWear(s, after, null);
+}
+
+// The field repair fixture's run comes home WEAR_REPAIR_MINUTES in, still set down on its leg: through the engine's own
+// homecoming (recordExpeditionWear, resolveGearWear), which settles the leg at the field rate in event order. Pure.
+export function fieldRepairHome(s: GameState): GameState {
+  const exp = s.expeditions.find((e) => e.shipId === WIRING_SHIP_ID && e.phase !== "complete");
+  if (!exp) return s;
+  const home = s.gameTimeSeconds + WEAR_REPAIR_MINUTES * 60;
+  const finished: GameState = { ...s, gameTimeSeconds: home, expeditions: s.expeditions.map((e) => (e.id === exp.id ? { ...e, phase: "complete" as const, phaseAnchorSeconds: home } : e)) };
+  const events = emptyWearEvents();
+  recordExpeditionWear(s, finished, events);
+  return resolveGearWear(s, finished, events);
 }
 
 // Ship-1 in a Shipyard repair bay (a damaged hull its auto-start put in a bay). Pure.

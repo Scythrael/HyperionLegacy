@@ -40,7 +40,7 @@ import { WIRING_BUCKET_COUNT, bucketOf, editCaptain, installPiece, seatOfficer, 
 // captured. SF-2 retired the 30 minute shakedown on expedition 1 (asPreSafeFirstRunsDispatch puts it back). CP-2
 // moved the fixture default race from Earth-born to Spacer and made the Earth-born racial act, so the fixture names
 // Earth-born and reads under withCp2Off (that racial at 0). Nothing else differs from the WR-5c tip's capture.
-import { asPreG2Candidate, asPreG2NamesDispatch, asPreSafeFirstRunsDispatch, dispatchPastPropulsion } from "./awayTeamTestFixtures";
+import { asPreG2Candidate, asPreG2NamesDispatch, asPreSafeFirstRunsDispatch, dispatchPastPropulsion, asPrePatrolCurveDispatch } from "./awayTeamTestFixtures";
 import { withCp2Off } from "./complementCp2Switch.fixture";
 
 function fnv(s: string): string {
@@ -126,7 +126,7 @@ function readVariantLive(key: SecondaryTalentKey | null): Record<string, string>
   if (!m.success) throw new Error("the golden mission was refused");
   const mission = hashState(runTicks(m.next, 900, lcg(0x5c1)));
 
-  const p = dispatchCaptainOnPatrol(own(patrolFixture(), key), 1, Object.keys(PATROLS)[0], "balanced", true);
+  const p = asPrePatrolCurveDispatch(dispatchCaptainOnPatrol(own(patrolFixture(), key), 1, Object.keys(PATROLS)[0], "balanced", true));
   if (!p.success) throw new Error("the golden patrol was refused");
   const patrol = hashState(runTicks(p.next, 900, lcg(0x5c2)));
 
@@ -135,6 +135,9 @@ function readVariantLive(key: SecondaryTalentKey | null): Record<string, string>
 }
 
 // ===== the goldens (captured before WR-5c) =====
+// SF-4 merge (user 2026-10-21 "One step per patrol run"): the `patrol` hash of the baseline and of commandCrew2 / 3 / 5
+// re-pinned. The only move is runCounts.patrol.completed in the hashed state (a run counts once, not once per won route;
+// with the per-route count line restored every old value reproduces); the patrol flown is byte-identical.
 
 const BASELINE: Record<string, string> = {
   sheet: "7cabdac1",
@@ -144,7 +147,7 @@ const BASELINE: Record<string, string> = {
   claim: "8cf7de8a",
   study: "600",
   mission: "c3e1866b",
-  patrol: "b8afc1be",
+  patrol: "6e711db",
   boards: "10/10",
 };
 
@@ -158,10 +161,14 @@ const MOVES: Partial<Record<SecondaryTalentKey, Record<string, string>>> = {
   // Anomaly Sense: captainDiscoveryMult 1.05 in the frozen scan params; every attempt's odds rise, the claim is unchanged.
   surveySensors3: { dispatch: "313d4b5", done: "639b9be8" },
   // Foreknowledge: each candidate reads one telescope detail level higher (display only; the run is untouched).
-  surveySensors4: { cands: "cb1aeb4e" },
+  // Gas Giant Study GG-2 (was cb1aeb4e): the lifted detail shows the task demand, and the gas giant system (candidate
+  // 2) previews no ground objective on its giant and one ship study there; nothing else in the list moved.
+  surveySensors4: { cands: "c4de8bec" },
   // Deep Scan: the candidates read in full (top detail, every foreknowledge field), and captainSureFinds 1 rides the
   // frozen scan params (each body's first attempt finds something).
-  surveySensors5: { cands: "e58c409c", dispatch: "791e6e4b", done: "fc8f8b2a" },
+  // Gas Giant Study GG-2 (was e58c409c): the full reading shows the task demand and the relic sets, and the gas giant
+  // system (candidate 2) previews no ground objective (so no relic set) on its giant and one ship study there.
+  surveySensors5: { cands: "a3d66e04", dispatch: "791e6e4b", done: "fc8f8b2a" },
   // Expedition Lead: the frozen Security and Science strengths x1.05; the squads fight and work harder, the haul moves.
   expeditionRelics1: { dispatch: "c215cfaa", done: "9ecdc4fc", claim: "69e6fd30" },
   // Field Science: explorerCaptain.relicFindMult 1.05 on the run; this seed's relic rolls land the same.
@@ -177,14 +184,14 @@ const MOVES: Partial<Record<SecondaryTalentKey, Record<string, string>>> = {
   commandCrew1: { sheet: "fedf8bdf", dispatch: "8d3b7c34", done: "e499ab1d", mission: "95bf1cc" },
   // Mentor: every officer bonus x1.05 (the sheet's yield and cargo, the run's Discovery Instinct, the mission's
   // Command Presence, the patrol's Weapons and Shield Command).
-  commandCrew2: { sheet: "869097d4", dispatch: "1cc6be51", done: "61085ea4", mission: "9423023e", patrol: "9ecd4efc" },
+  commandCrew2: { sheet: "869097d4", dispatch: "1cc6be51", done: "61085ea4", mission: "9423023e", patrol: "d5ceb989" },
   // Drillmaster: every promotion counter increment x1.08 (the mission's and patrol's hours and cycles, the claim's
   // objectives), and explorerCaptain.promotionMult 1.08 frozen on the run.
-  commandCrew3: { dispatch: "9b88a3dc", done: "d1053e03", claim: "85cdad0e", mission: "365aba7b", patrol: "3c5fd0b1" },
+  commandCrew3: { dispatch: "9b88a3dc", done: "d1053e03", claim: "85cdad0e", mission: "365aba7b", patrol: "528fd482" },
   // Recruiter: both boards 10 x 1.08 = 10.8, rounded up to 11.
   commandCrew4: { boards: "11/11" },
   // Legendary Captain: the complement AND the officers x1.10 (everything Inspiring Leader and Mentor move).
-  commandCrew5: { sheet: "32c2c065", dispatch: "ba74462f", done: "877c44c6", mission: "716140ba", patrol: "f35b43d5" },
+  commandCrew5: { sheet: "32c2c065", dispatch: "ba74462f", done: "877c44c6", mission: "716140ba", patrol: "3219b4ae" },
 };
 
 describe("WR-5c goldens: the explorer secondary nodes (captured before wiring; each move explained above)", () => {

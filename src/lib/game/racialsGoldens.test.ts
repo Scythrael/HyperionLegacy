@@ -28,7 +28,7 @@ import { advanceExpedition, claimExpedition, expeditionCandidates } from "./expe
 import { effectiveShipStats, shipCrewContribution } from "./crewOverlay";
 import { CREW_STAT_KEYS } from "./crewBuffs";
 import { seatOfficer } from "./wiring/probes";
-import { asPreCurveDispatch, plainAwayMember, withSlottedAwayTeams, dispatchPastPropulsion } from "./awayTeamTestFixtures";
+import { asPreCurveDispatch, plainAwayMember, withSlottedAwayTeams, dispatchPastPropulsion, asPrePatrolCurveDispatch } from "./awayTeamTestFixtures";
 import { goldenJson, withoutRunCounts } from "./firstRunsGoldens.fixture"; // gear wear: goldenJson puts the retired durability back
 import { withRacialsOff } from "./racialsSwitch.fixture";
 
@@ -89,7 +89,7 @@ function racialsPatrol(): { out: string[]; drones: number; relaunches: number; r
     BELTER,
     BELTER_CREW,
   );
-  const r = dispatchCaptainOnPatrol(st, 1, "crimsonReaverSweep", "balanced", true);
+  const r = asPrePatrolCurveDispatch(dispatchCaptainOnPatrol(st, 1, "crimsonReaverSweep", "balanced", true));
   if (!r.success) throw new Error(`patrol refused: ${r.reason}`);
   let s = r.next;
   const first = s.captains[0].mission as PatrolMissionState;

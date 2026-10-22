@@ -79,7 +79,7 @@ import { LY_PER_TICK } from "./fuel";
 import { equippedFor } from "./equipment";
 import { itemTotal } from "./inventory";
 // Ground Ops GO-1: whole-state goldens hash without the new, inert ground-team slots (captured before them).
-import { asLegacyDispatch, asPreG2NamesDispatch, withSlottedAwayTeams, withoutGroundSquadState, dispatchPastPropulsion } from "./awayTeamTestFixtures";
+import { asLegacyDispatch, asPreG2NamesDispatch, withSlottedAwayTeams, withoutGroundSquadState, dispatchPastPropulsion, asPrePatrolCurveDispatch } from "./awayTeamTestFixtures";
 // SF-1: whole states hash without the run counters (seeded by freshState, written by a patrol), absent before SF-1.
 import { goldenJson, withoutGuests, withoutRunCounts } from "./firstRunsGoldens.fixture";
 import { withCp2Off } from "./complementCp2Switch.fixture";
@@ -269,7 +269,7 @@ function scenarioHashes(statsFor: (seat: SeniorStaffSeat) => OfficerStats | unde
     out[`mission:${key}`] = fnv(goldenJson(withoutRunCounts(withoutGroundSquadState(runTicks(missionState(key, officers()), 700, lcg(0xbeef))))));
   }
   for (const typeKey of ["destroyer", "carrier", "battleship"] as ShipTypeKey[]) {
-    const r = dispatchCaptainOnPatrol(patrolState(typeKey, officers()), 1, "crimsonReaverSweep", "balanced", true);
+    const r = asPrePatrolCurveDispatch(dispatchCaptainOnPatrol(patrolState(typeKey, officers()), 1, "crimsonReaverSweep", "balanced", true));
     expect(r.success).toBe(true);
     let s = r.next;
     out[`patrol:${typeKey}:dispatch`] = fnv(goldenJson(s.captains[0].mission));
@@ -618,8 +618,8 @@ describe("facet value and departments", () => {
     for (const key of ["shortOreRun", "surveyMineralAnomaly", "frontierSupplyRun"] as MissionKey[]) {
       expect(outcomeJson(runTicks(missionState(key, low), 400, lcg(11)))).toBe(outcomeJson(runTicks(missionState(key, neutral), 400, lcg(11))));
     }
-    let a = dispatchCaptainOnPatrol(patrolState("destroyer", low), 1, "crimsonReaverSweep", "balanced", true).next;
-    let b = dispatchCaptainOnPatrol(patrolState("destroyer", neutral), 1, "crimsonReaverSweep", "balanced", true).next;
+    let a = asPrePatrolCurveDispatch(dispatchCaptainOnPatrol(patrolState("destroyer", low), 1, "crimsonReaverSweep", "balanced", true)).next;
+    let b = asPrePatrolCurveDispatch(dispatchCaptainOnPatrol(patrolState("destroyer", neutral), 1, "crimsonReaverSweep", "balanced", true)).next;
     for (let i = 0; i < 400; i++) {
       a = economyTick(a, 1, () => 0.5);
       b = economyTick(b, 1, () => 0.5);
@@ -788,7 +788,7 @@ describe("Integrity: the department's battle buffs gain the facet below half hul
     const fought = (m: PatrolMissionState) => m.wavesWon + m.wavesLost;
     let checked = 0;
     for (let seed = 1; seed <= 60 && checked === 0; seed++) {
-      let s = dispatchCaptainOnPatrol({ ...patrolState("destroyer", officers), nextPatrolSeed: seed }, 1, "crimsonReaverWarband", "balanced", false).next;
+      let s = asPrePatrolCurveDispatch(dispatchCaptainOnPatrol({ ...patrolState("destroyer", officers), nextPatrolSeed: seed }, 1, "crimsonReaverWarband", "balanced", false)).next;
       const frozen = (s.captains[0].mission as PatrolMissionState).officerCombat!;
       expect(frozen.underFire).toBeDefined();
       const total = (s.captains[0].mission as PatrolMissionState).waveTicks.length;
@@ -898,7 +898,7 @@ describe("Cunning: per-mission over-delivery", () => {
     const seeds: number[] = [];
     const rolls: boolean[] = [];
     for (let i = 0; i < 40; i++) {
-      const next = dispatchCaptainOnPatrol(s, 1, "crimsonReaverSweep", "balanced", false).next;
+      const next = asPrePatrolCurveDispatch(dispatchCaptainOnPatrol(s, 1, "crimsonReaverSweep", "balanced", false)).next;
       const m = next.captains[0].mission as PatrolMissionState;
       seeds.push(m.masterSeed);
       rolls.push(m.freeRepairTicks === CUNNING_FREE_REPAIR_TICKS);
@@ -947,14 +947,14 @@ describe("Cunning: per-mission over-delivery", () => {
     let seen = { hit: false, miss: false };
     for (let seed = 1; seed < 200 && !(seen.hit && seen.miss); seed++) {
       const s = { ...patrolState("destroyer", bridgeWith({ engineering: { cunning: 28 } })), nextPatrolSeed: seed };
-      const m = dispatchCaptainOnPatrol(s, 1, "crimsonReaverSweep", "balanced", false).next.captains[0].mission as PatrolMissionState;
+      const m = asPrePatrolCurveDispatch(dispatchCaptainOnPatrol(s, 1, "crimsonReaverSweep", "balanced", false)).next.captains[0].mission as PatrolMissionState;
       const proc = cunningProc(seed, "engineering", departmentFacet(s, s.ships[0], "engineering", "cunning"));
       expect(m.freeRepairTicks).toBe(proc ? CUNNING_FREE_REPAIR_TICKS : undefined);
       seen = { hit: seen.hit || proc, miss: seen.miss || !proc };
     }
     expect(seen).toEqual({ hit: true, miss: true });
     // A limping cycle carrying the tick reports it, economyTick stamps it, and the repair runs one tick shorter.
-    const r = dispatchCaptainOnPatrol(patrolState("destroyer", []), 1, "crimsonReaverSweep", "balanced", false).next;
+    const r = asPrePatrolCurveDispatch(dispatchCaptainOnPatrol(patrolState("destroyer", []), 1, "crimsonReaverSweep", "balanced", false)).next;
     const limping: PatrolMissionState = {
       ...(r.captains[0].mission as PatrolMissionState),
       phase: "limpingHome",
@@ -973,7 +973,7 @@ describe("Cunning: per-mission over-delivery", () => {
     expect(t.ships.find((sh) => sh.id === "ship-1")!.damaged).toBeFalsy();
     expect(t.ships.find((sh) => sh.id === "ship-1")!.freeRepairTicks).toBeUndefined();
     // A relaunch rolls the new cycle on its own masterSeed.
-    const rr = dispatchCaptainOnPatrol(patrolState("destroyer", []), 1, "crimsonReaverSweep", "balanced", true).next;
+    const rr = asPrePatrolCurveDispatch(dispatchCaptainOnPatrol(patrolState("destroyer", []), 1, "crimsonReaverSweep", "balanced", true)).next;
     let c = rr.captains[0];
     const firstSeed = (c.mission as PatrolMissionState).masterSeed;
     const gear = equippedFor(rr, "ship-1");
@@ -1043,7 +1043,7 @@ describe("Constitution: long-haul ramp and shorter turnaround", () => {
     const ship = s.ships[0];
     const profile = officerCombatProfile(s, ship);
     expect(officerCombatModsFromProfile(profile, 0)).toEqual(officerCombatMods(s, ship));
-    const r = dispatchCaptainOnPatrol(s, 1, "crimsonReaverSweep", "balanced", true);
+    const r = asPrePatrolCurveDispatch(dispatchCaptainOnPatrol(s, 1, "crimsonReaverSweep", "balanced", true));
     // CP-2 (OC-E13, B17): the first cycle ramps too, at its own mid-route sample (it used to freeze the bare 0.1).
     const first = (r.next.captains[0].mission as PatrolMissionState).officerCombat!;
     expect(first).toEqual(officerCombatModsFromProfile(profile, patrolCycleOneRampHours(PATROLS.crimsonReaverSweep, s.tickDurationSeconds)));
@@ -1072,7 +1072,7 @@ describe("Constitution: long-haul ramp and shorter turnaround", () => {
       officer("tactical", ["tac.weaponCommand", "tac.shieldCommand"], { integrity: 25, constitution: 28 }, "o1"),
       officer("engineering", ["eng.rangeMaster", "any.inspiringLeader"], { cunning: 28, constitution: 20, integrity: 20 }, "o2"),
     ];
-    const r = dispatchCaptainOnPatrol(patrolState("destroyer", officers), 1, "crimsonReaverSweep", "balanced", true);
+    const r = asPrePatrolCurveDispatch(dispatchCaptainOnPatrol(patrolState("destroyer", officers), 1, "crimsonReaverSweep", "balanced", true));
     const ship = r.next.ships[0];
     const gear = equippedFor(r.next, "ship-1");
     const effects = { relaunchCombatProfile: officerCombatProfile(r.next, ship), secondsPerTick: 60, freeRepairChance: 0.5 };
@@ -1215,7 +1215,7 @@ describe("per-seat Integrity and Constitution rows", () => {
     expect(patrolReturnCutTicks(def, 0, 100)).toBe(0);
     expect(patrolReturnCutTicks(def, 0.18, 0)).toBe(0);
     expect(patrolReturnCutTicks(def, 0.18, 100)).toBeGreaterThan(0);
-    const r = dispatchCaptainOnPatrol(patrolState("destroyer", []), 1, "crimsonReaverSweep", "balanced", true);
+    const r = asPrePatrolCurveDispatch(dispatchCaptainOnPatrol(patrolState("destroyer", []), 1, "crimsonReaverSweep", "balanced", true));
     const gear = equippedFor(r.next, "ship-1");
     const effects = { secondsPerTick: 36000, returnConstitution: 0.18 };
     let c = r.next.captains[0];
@@ -1252,7 +1252,7 @@ describe("per-seat Integrity and Constitution rows", () => {
     expect(officerCombatMods(both, both.ships[0])!.underFire!.shield).toBeCloseTo((1.11 / 1.1) * 1.1 - 1, 12);
     const c = shipToCombatant({ id: "ship-1", team: "player", stats: SHIP_TYPES.destroyer, hullType: combatHullTypeOf("destroyer")!, officerCombat: officerCombatMods(eng, eng.ships[0]) });
     expect(c.underFire!.shieldRecharge).toBeCloseTo(0.1, 12);
-    expect(dispatchCaptainOnPatrol(eng, 1, "crimsonReaverSweep", "balanced", false).next.captains[0].mission).toHaveProperty("officerCombat.underFire");
+    expect(asPrePatrolCurveDispatch(dispatchCaptainOnPatrol(eng, 1, "crimsonReaverSweep", "balanced", false)).next.captains[0].mission).toHaveProperty("officerCombat.underFire");
   });
 
   it("Engineering Constitution: better fuel efficiency on a long voyage lets the ship reach further on it", () => {
@@ -1345,7 +1345,7 @@ describe("per-seat Integrity and Constitution rows", () => {
     }
     for (const [k, v] of Object.entries(big.homePlanetDelta)) expect((loot[k] ?? new Decimal(0)).toNumber(), k).toBeCloseTo(v.toNumber(), 9);
     expect(JSON.stringify(c.mission)).toBe(JSON.stringify(big.captain.mission));
-    const r = dispatchCaptainOnPatrol(patrolState("destroyer", bridgeWith({ engineering: { integrity: 25, constitution: 25 }, pilot: { constitution: 25 } })), 1, "crimsonReaverSweep", "balanced", true);
+    const r = asPrePatrolCurveDispatch(dispatchCaptainOnPatrol(patrolState("destroyer", bridgeWith({ engineering: { integrity: 25, constitution: 25 }, pilot: { constitution: 25 } })), 1, "crimsonReaverSweep", "balanced", true));
     const ship = r.next.ships[0];
     const gear = equippedFor(r.next, "ship-1");
     const effects = {

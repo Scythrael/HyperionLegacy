@@ -143,8 +143,11 @@ import { REACTOR_FUEL_LADDER, REACTOR_TECH_TIERS, REACTOR_VARIETY_TECH, reactorF
 import { effectFieldsOf } from "./fieldRoles";
 import { REPAIR_RATES, REPAIR_RATE_BONUSES, TOUGHNESS_REFERENCE, USE_WEAR_FLOOR, WEAR_EFFICIENCY, WEAR_SOURCES, wearEfficiency } from "../gearWear";
 import {
+  WEAR_DIVE_PROBE_ID,
   WEAR_FIXTURE_CONDITION,
   WEAR_REPAIR_MINUTES,
+  diveFixture,
+  fieldRepairHome,
   inShipyardBay,
   memberVarietyFor,
   onFieldRepairLeg,
@@ -198,10 +201,12 @@ import {
   GAMBIT_SELECTORS,
   sourceOn,
   FIELD_KITS_SWITCH_PROBE_STOCK,
+  relicV2ProbeExpectedExceptional,
   type ContextId,
   type ProbeId,
   type Transform,
 } from "./probes";
+import { relicStudyLanesAt } from "../relicIdentify";
 
 // ============================================================================
 // Types (plan section 3.2)
@@ -358,6 +363,8 @@ export const CATALOGS = {
   WEAR_EFFICIENCY,
   // The reactor fuel ladder (0.14.0, reactorTech.ts): the fuel each Reactor Core blueprint takes.
   REACTOR_FUEL_LADDER,
+  // Gas Giant Study GG-2 / GG-3: the giant classes the class roll and the study reward read.
+  GIANT_CLASSES,
 } as const;
 export type Catalogs = typeof CATALOGS;
 
@@ -3002,7 +3009,15 @@ function contentEntries(): WiringEntry[] {
       out.push(
         entry({
           ...base("expedition", "PLANET_TYPES", `${p.id}:orbitalOnly`, `${p.label}: "no surface landing; finds are satellite ops"`),
-          status: pending("gas giant study 15b + OC-G2 (teams land and fight there, B21)"),
+          // Gas Giant Study GG-2 (D22, OC-G2): live. A study run's orbital body gets no ground objective (the ship
+          // studies it instead): the objectives on the run's bodies, all of this type, with the study stamp vs without.
+          probe: `content:orbitalOnly:${p.id}`,
+          contexts: ["expedition:groundOps"],
+          direction: "down",
+          curve: { kind: "event", metric: `ground objectives on ${p.label} bodies of a study run vs the same run unstamped` },
+          magnitude: () => 1,
+          base: () => withAwayTeam(wiringBase()),
+          on: sourceOn,
         }),
       );
     }
@@ -3635,6 +3650,10 @@ const AUDIT_ROWS: readonly { id: string; system: WiringSystem; claim: string; st
   { id: "relic:audit:blankCulture", system: "relic", claim: "A blank's culture (cultureForBody, stamped on every new run's relic): the culture study reads it", status: pending("Relics v2 R2-6 (cultures: study points and the name reveal)") },
   { id: "relic:audit:shortRangeBlanks", system: "relic", claim: "Short-range relic drops (rollShortRangeRelicBlanks: per hour, Tier I 0.08x and Tier II 0.15x of the expedition rate)", status: pending("G1-5 (wires the hook into a delivered short-range cycle)") },
   { id: "relic:audit:completionBlank", system: "relic", claim: "The planet 100% bonus roll (planetCompletionRelicBlank: one extra blank, one rarity step up)", status: pending("G7 (calls the hook when a planet is fully completed)") },
+  // Relics v2 R2-3 (relicIdentify.ts; the queue in tick.ts): every new study identifies through identification v2.
+  { id: "relic:audit:identifyV2", system: "relic", claim: "Identification v2: a new study reveals an exceptional piece at EXCEPTIONAL_PER_100K (user call 6), preferring the pieces the Museum lacks (call 7); else a general type on the blank's own rarity band odds (\"Only one boost\") with the site bias", status: LIVE },
+  { id: "relic:audit:identifyLanes", system: "relic", claim: "Relic-study lanes by Research Lab tier (RELIC_STUDY_LANES_BY_LAB: Lab I 1, III 2, V 3, VII 4; user call 12)", status: LIVE },
+  { id: "relic:audit:identifyQueue", system: "relic", claim: "The identification queue: the next queued blank starts the moment a lane frees, also while away (tick.ts queueRelicStudy / resolveRelicStudies)", status: pending("Relics v2 R2-7 (the Identification tab: feed, queue, reorder; the engine queue is built and tested)") },
   { id: "relic:audit:generalPick", system: "relic", claim: "A blank with no set identifies over the general pool by band, with the site bias (identifyGeneralRelic)", status: pending("G1-5 and G7 (the first callers that mint a blank with no set); R2-3 builds identification v2 on the same pick") },
   // I. Missions, patrols, factions
   { id: "mission:audit:unusedFactions", system: "mission", claim: "voidJackals, ironVultures, ashenCorsairs and Faction.id (no patrol references them)", status: pending("WR-11, OC-I2") },
@@ -3716,6 +3735,22 @@ function auditRowWiring(): Readonly<Record<string, Partial<EntryInput>>> {
     },
     // Field Kits FKR-9 / FKR-10: the hidden pieces are reachable: the Impact Grenade blueprint merged into BLUEPRINTS and
     // the carry line in the Stun and Toxin Grenade craft pools.
+    // Relics v2 R2-3: the reveals a real study start and resolve land, against the v1 roll (no exceptional piece).
+    "relic:audit:identifyV2": {
+      probe: "content:relic:exceptionalReveals",
+      contexts: ["research"],
+      curve: { kind: "gate" },
+      magnitude: () => relicV2ProbeExpectedExceptional(),
+      on: sourceOn,
+    },
+    // Relics v2 R2-3: Lab VII runs three more relic studies at once than Lab I.
+    "relic:audit:identifyLanes": {
+      probe: "content:relic:lanes",
+      contexts: ["research"],
+      curve: { kind: "gate" },
+      magnitude: () => relicStudyLanesAt(7) - relicStudyLanesAt(1),
+      on: sourceOn,
+    },
     "away:audit:fieldKitsHiddenPieces": {
       probe: "content:fieldKitsHiddenPieces",
       contexts: ["research", "craft"],
@@ -4241,10 +4276,89 @@ function gasStudyEntries(): WiringEntry[] {
     labLane: "facility",
     canisterRecipes: "facility",
   };
+  // The uses a built slice has taken live, each with its probe (the rest stay pending on their owner).
+  //   classRoll (GG-2): a dispatch to a system with an orbital body freezes a giant profile on it.
+  const liveUse: Partial<Record<GasStudyUse, Partial<EntryInput>>> = {
+    classRoll: {
+      probe: "content:gasStudy:classRoll",
+      contexts: ["expedition:groundOps"],
+      curve: { kind: "event", metric: "orbital bodies of a dispatched study run carrying a giant profile" },
+      magnitude: () => 1,
+      base: () => withAwayTeam(wiringBase()),
+      on: sourceOn,
+    },
+    //   studyReward (GG-3): a study run's claim brings home the canisters of its studies (OFF: the same run unstamped).
+    studyReward: {
+      probe: "content:gasStudy:studyReward",
+      contexts: ["expedition:groundOps"],
+      curve: { kind: "event", metric: "canisters the studies of a whole study run return" },
+      magnitude: () => 1,
+      base: () => withAwayTeam(wiringBase()),
+      on: sourceOn,
+    },
+    //   probeDive (GG-3): a Science member's Galileo dives: the study's canister haul scale x100 with it vs without.
+    probeDive: {
+      probe: "content:gasStudy:probeDive",
+      contexts: ["expedition:groundOps"],
+      curve: { kind: "event", metric: "the study's canister haul scale x100 with a reference Galileo aboard vs none" },
+      magnitude: () => 1,
+      base: () => withAwayTeam(wiringBase()),
+      on: sourceOn,
+    },
+  };
   for (const use of Object.keys(GAS_STUDY_USES) as GasStudyUse[]) {
     const system = useSystem[use];
-    out.push(entry({ id: `${system}:GAS_STUDY_USES:${use}`, system, source: { catalog: "GAS_STUDY_USES", key: use }, claim: GAS_STUDY_USES[use], status: pending(GAS_STUDY_USES[use]) }));
+    const live = liveUse[use];
+    out.push(
+      entry({
+        id: `${system}:GAS_STUDY_USES:${use}`,
+        system,
+        source: { catalog: "GAS_STUDY_USES", key: use },
+        claim: GAS_STUDY_USES[use],
+        ...(live ?? { status: pending(GAS_STUDY_USES[use]) }),
+      }),
+    );
   }
+  // A giant class's field a built slice reads, live with its probe (content:giantClass:<class>:<field>), else null.
+  //   weight (GG-2): the class roll picks the class more often with its weight than with it zeroed.
+  //   massMinMilliJ / massMaxMilliJ (GG-2): the mass roll's first and last steps are the band's ends.
+  const liveClassField = (c: (typeof GIANT_CLASSES)[number], field: string): Partial<EntryInput> | null => {
+    const probe = `content:giantClass:${c.id}:${field}` as const;
+    switch (field) {
+      case "weight":
+        return { probe, contexts: ["expedition:groundOps"], curve: { kind: "event", metric: `${c.name} rolls over a body batch with its weight vs zeroed` }, magnitude: () => 1, on: sourceOn };
+      case "massMinMilliJ":
+      case "massMaxMilliJ":
+        return {
+          probe,
+          contexts: ["expedition:groundOps"],
+          direction: "none",
+          curve: { kind: "equals" },
+          magnitude: (cfg) => {
+            const def = cfg.GIANT_CLASSES.find((x) => x.id === c.id)!;
+            return field === "massMinMilliJ" ? def.massMinMilliJ : def.massMaxMilliJ;
+          },
+        };
+      // GG-3, the probe's depth factor (gravity^0.4 from the radius model and the heat inflation), x1000 at the band's
+      // middle step: with the class's own model vs the plain giant curve, with its inflation vs none.
+      case "radiusModel":
+        return c.radiusModel === "giant"
+          ? { probe: undefined, contexts: [], notApplicable: "the plain giant radius curve is the baseline the other models are read against" }
+          : { probe, contexts: ["expedition:groundOps"], direction: "up", curve: { kind: "event", metric: `${c.name}'s depth factor x1000, its own radius model vs the giant curve` }, magnitude: () => 1, on: sourceOn };
+      case "inflation":
+        return c.inflation === 1
+          ? { probe: undefined, contexts: [], notApplicable: "no heat inflation (x1)" }
+          : { probe, contexts: ["expedition:groundOps"], direction: "down", curve: { kind: "event", metric: `${c.name}'s depth factor x1000 with its inflation vs none` }, magnitude: () => 1, on: sourceOn };
+      // GG-3, the study reward over a batch of studies of this class: the canisters above the Standard band with the
+      // class's odds vs all Standard; the class's heaviest Standard gas with its weights vs even weights.
+      case "bandOdds":
+        return { probe, contexts: ["expedition:groundOps"], curve: { kind: "event", metric: `${c.name} canisters above Standard over a study batch, its odds vs all Standard` }, magnitude: () => 1, on: sourceOn };
+      case "itemWeights":
+        return { probe, contexts: ["expedition:groundOps"], curve: { kind: "event", metric: `${c.name}'s heaviest Standard gas over a study batch, its weights vs even` }, magnitude: () => 1, on: sourceOn };
+      default:
+        return null;
+    }
+  };
   // The slice that reads each effect field. A field with no owner here gets NO entry (never a fallback owner), so the
   // completeness test ("every enumerated source has a registry entry") fails until it is given one.
   const classOwner: Readonly<Record<string, string>> = {
@@ -4264,7 +4378,16 @@ function gasStudyEntries(): WiringEntry[] {
     for (const field of effectFieldsOf("GIANT_CLASSES")) {
       const owner = classOwner[field];
       if (owner === undefined) continue;
-      out.push(entry({ id: `expedition:GIANT_CLASSES:${c.id}:${field}`, system: "expedition", source: { catalog: "GIANT_CLASSES", key: `${c.id}:${field}` }, claim: `${c.name}: its ${field}`, status: pending(owner) }));
+      const live = liveClassField(c, field);
+      out.push(
+        entry({
+          id: `expedition:GIANT_CLASSES:${c.id}:${field}`,
+          system: "expedition",
+          source: { catalog: "GIANT_CLASSES", key: `${c.id}:${field}` },
+          claim: `${c.name}: its ${field}`,
+          ...(live ?? { status: pending(owner) }),
+        }),
+      );
     }
   }
   for (const k of NEBULA_KINDS) {
@@ -4274,6 +4397,25 @@ function gasStudyEntries(): WiringEntry[] {
       out.push(entry({ id: `expedition:NEBULA_KINDS:${k.id}:${field}`, system: "expedition", source: { catalog: "NEBULA_KINDS", key: `${k.id}:${field}` }, claim: `${k.name}: its ${field}`, status: pending(owner) }));
     }
   }
+  // GG-3: the probe dive (gasGiantStudy.ts studyDiveEvents): one event per finished study with a Galileo aboard. Gear
+  // wear step 3 wires it LIVE: each dive is one fieldwork step's use on the probe that dove (gearWearEngine.ts
+  // expeditionWear), measured on the real run read at its first dive (wiring/wearProbes.ts divePerUnit).
+  out.push(
+    entry({
+      id: "away:GAS_STUDY_SEAM:probeDiveWear",
+      system: "away",
+      source: { catalog: "GAS_STUDY_SEAM", key: "probeDiveWear" },
+      claim: "Each finished study with a Galileo-Class Probe aboard is one probe dive (the probe's use wear)",
+      probe: "wear:dive" as ProbeId,
+      contexts: ["expedition:groundOps"],
+      direction: "down",
+      magnitude: (c) => -(c.WEAR_SOURCES.find((w) => w.id === "memberTool:fieldworkStep")?.raw ?? 0),
+      base: () => diveFixture(),
+      off: (s) => ({ ...s, equipment: s.equipment.filter((e) => e.id !== WEAR_DIVE_PROBE_ID) }),
+      tolerance: 1,
+      note: "one fieldwork step on the probe (gear wear design 3.1, user 2026-10-16: \"sensors by scans, tools by fieldwork\"); gasGiantStudyLeg.test.ts proves the events",
+    }),
+  );
   return out;
 }
 
@@ -4459,10 +4601,10 @@ function wearEntries(): WiringEntry[] {
   }
   // One entry per repair context: WEAR_REPAIR_MINUTES there from a known worn condition raises it by rate x minutes
   // (the engine's pass, gearWearEngine.ts resolveGearWear; integer rates, so exact).
-  const REPAIR_FIXTURE: Readonly<Record<keyof typeof REPAIR_RATES, { context: ContextId; base: () => GameState; offRun: boolean; note: string }>> = {
+  const REPAIR_FIXTURE: Readonly<Record<keyof typeof REPAIR_RATES, { context: ContextId; base: () => GameState; offRun: boolean; home?: boolean; note: string }>> = {
     home: { context: "fleet", base: () => wornCargoFixture(), offRun: false, note: "ship-1 docked, on no run" },
     shipyardBay: { context: "shipyard", base: () => inShipyardBay(wornCargoFixture()), offRun: false, note: "ship-1 in a Shipyard repair bay (its hull repair process)" },
-    fieldRepair: { context: "expedition:groundOps", base: () => onFieldRepairLeg(wornCargoFixture()), offRun: false, note: "ship-1 set down on a GO-8b field repair leg" },
+    fieldRepair: { context: "expedition:groundOps", base: () => onFieldRepairLeg(wornCargoFixture()), offRun: false, home: true, note: "ship-1 set down on a GO-8b field repair leg for the whole span, settled as the run comes home (in event order with its wear)" },
     underway: { context: "fleet", base: () => onMission(wornCargoFixture(), "shortOreRun", "transitOut"), offRun: true, note: "a run's upkeep, settled as the run comes home (a piece underway settles only at its run's events)" },
   };
   for (const ctx of Object.keys(REPAIR_RATES) as (keyof typeof REPAIR_RATES)[]) {
@@ -4478,7 +4620,7 @@ function wearEntries(): WiringEntry[] {
         direction: "up",
         magnitude: (c) => c.REPAIR_RATES[ctx] * WEAR_REPAIR_MINUTES,
         base: f.base,
-        on: (s) => wearRepairMinutes(s, f.offRun),
+        on: (s) => (f.home ? fieldRepairHome(s) : wearRepairMinutes(s, f.offRun)),
         note: f.note,
       }),
     );

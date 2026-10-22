@@ -10,7 +10,7 @@
 // when it freezes, offline == live, and the captain's racial passing the crew-key guard.
 
 import { describe, expect, it } from "vitest";
-import { dispatchPastPropulsion } from "./awayTeamTestFixtures";
+import { asPatrolVeteran, dispatchPastPropulsion } from "./awayTeamTestFixtures";
 import { freshState, outboundLegSpeed, returnLegSpeed, type CaptainState, type CrewBucket, type GameState, type PatrolMissionState } from "./model";
 import { dispatchCaptainOnPatrol, economyTick, tick } from "./tick";
 import { replayPatrol } from "./combat/patrolReplay";
@@ -78,7 +78,9 @@ describe("Belter + Deck Handling: a patrol cycle's drones replenish faster", () 
   it("ONE Belter crewman moves the replenish over a long Repeat patrol (the bank carries across relaunches)", () => {
     const one = [bucket("flightDeck", "belter", "flight.transitOut", 1)];
     const run = (s0: GameState) => {
-      let s = dispatched(s0, true);
+      // SF-4 (one step per patrol run): a fresh save's Repeat run would stay at the curve's floor, where no drone is
+      // lost; a patrol veteran flies the full-strength fight this replenish test is about.
+      let s = dispatched(asPatrolVeteran(s0), true);
       let prev = patrolOf(s).playerDrones.map((sq) => sq.replenishCarryPpm ?? 0);
       let paid = 0;
       let carriedOver = false;

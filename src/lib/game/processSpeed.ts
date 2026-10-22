@@ -52,6 +52,7 @@ import {
 } from "./model";
 import { addToInventory, itemCap, mintBuiltShip } from "./tick";
 import { advanceExpedition } from "./expedition";
+import { expeditionHomeNow } from "./gearWearEngine";
 import { itemTotal } from "./inventory";
 import { exceptionalSetsOfTier, getRelicTypeById } from "./relics";
 import { regionTierNumeral } from "./galaxy";
@@ -225,7 +226,10 @@ function timeSkipResult(state: GameState, ref: ProcessRef): { ok: true; next: Ga
   // reads the run's own stored times (its medical bay ends) as at E (injuries.ts applyGroundOpsInjuries).
   const offset = done.phaseAnchorSeconds - state.gameTimeSeconds;
   const stamped = { ...done, speed: { ...done.speed, instantComplete: true as const, ...(offset > 0 ? { clockOffsetSeconds: offset } : {}) } };
-  return { ok: true, next: { ...state, expeditions: state.expeditions.map((e) => (e.id === exp.id ? stamped : e)) } };
+  const next = { ...state, expeditions: state.expeditions.map((e) => (e.id === exp.id ? stamped : e)) };
+  // GEAR WEAR step 3: the run comes home NOW, so its use wear and field repairs apply now, in event order on its own
+  // timeline laid back to end at the skip (gearWearEngine.ts expeditionHomeNow); the tick never sees it come home.
+  return { ok: true, next: expeditionHomeNow(state, next, exp.id) };
 }
 
 // Finish a process for free: a timed process on the next tick, a mission cycle or patrol route through to its end on
