@@ -50,3 +50,25 @@ FKR-11 close-out left; short-range G1-0 to G1-4; gas giant GG-0 to GG-1; gear we
 sinks; tutorial hooks) plus Relics v2 (R2-0 to R2-1), Material Lines (ML-0 to ML-1), universal modules / power (EM-0 to
 EM-1) and the NEW reactor fuel ladder and tech foundation (built, awaiting one balance call). Designed (2): completion
 tracking; the NEW recipe realism pass (audit signed off in groups). Two systems added since v7, noted on the card.
+
+## 2026-10-22 (v9): road to release; build 32 systems, 17 done, 14 building, 1 designed = 75% built, 53% to release
+
+User (2026-10-22): "please generate a new progress report... These are likely going to be a thing. Also, let's build
+in all of the polish steps. QA and everything into the report as well. Just note that QA is going to be much much much
+much more involved than ever before this time. It usually takes hours overall. I'm envisioning a number of passes.
+Multiple agents doing multiple things, a round of fixes, then another round of QA, then more fixes. Multiple times
+through. So what was hours may become a week in comparison."
+
+New headline (the card now covers the whole road): to-release % = 0.70 x build % + 0.10 x polish % + 0.18 x QA % +
+0.02 x release %. Stage weights [PROPOSAL, user may retune]: Building 70, Polish 10, QA rounds 18, Release 2. Build %
+keeps the old rule, (done + building / 2) / total. Polish = cross-cutting passes not inside any one system's close-out
+slice (balance pass, Help review, phone layouts, visual touch-ups, patch notes). QA rounds = QA round, fixes, QA round,
+fixes, repeated until clean; testers per round are several in parallel (agents playing desktop and phone, code readers
+checking behavior not just wiring, plus the planned external reviewers in [[2026-10-21-reactor-fuel-and-recipe-realism-capture]]).
+Release = final staging check and promotion. Suggested QA % rule for later cards: each finished QA round plus its fixes
+counts as one step of a planned three, extended if more rounds are needed.
+
+Done (17): the v8 sixteen plus reactor fuel ladder and reactor tech foundation (with Cometary Ice Harvest; ice price
+answered). Building (14): the v8 fourteen minus reactor, plus the recipe realism pass (built recipes fixed in the ML-2
+merge; planned recipes follow their own builds). Designed (1): completion tracking. Card shows 53% to release, 75%
+built, with a note that the drop from 72% is the new scope of the number, not lost work.
