@@ -53,7 +53,7 @@
   import RelicStudyPanel from "./lib/RelicStudyPanel.svelte";
   import MuseumPanel from "./lib/MuseumPanel.svelte";
   // The pure dispatch + claim engine fns the Expedition Console's do* handlers call (expedition.ts).
-  import { startExpedition, claimExpedition, summarizeExpeditionFindings, expeditionDispatchBlockText, canEditGroundOps, editGroundOps } from "./lib/game/expedition";
+  import { startExpedition, claimExpedition, summarizeExpeditionFindings, expeditionDispatchBlockText, canEditGroundOps, editGroundOps, recallExpedition, recallPreview, recallBlockText, abandonHeldSystem, canAbandonHeldSystem, heldSystems } from "./lib/game/expedition";
   // Ground Operations GO-13: the queue screen's live edits (assign, reorder, skip, re-queue, Default plan,
   // Auto-assign), their refusal words and log lines.
   import { groundOpsEditBlockText, type GroundOpsEdit } from "./lib/game/groundOps";
@@ -618,6 +618,8 @@
   // Field Kits FKR-9 / FKR-10: the kit screens' display decisions (tested in fieldKitsDisplay.test.ts) and the runs
   // switch (the Logistics Consumables spot becomes the Field Kits stock once kits are live in runs).
   import { claimKitsView, fieldKitShopRows, fieldKitStockRows, kitCountText, kitListText, shopQtyMax } from "./lib/fieldKitsDisplay";
+  // Expedition Tiers G2-6: the console's voyage span ("1h 52m", "3d") for the recall log line.
+  import { voyageSpanText } from "./lib/expeditionConsoleDisplay";
   import { FIELD_KITS_RUNS_LIVE, FIELD_KITS, type FieldKitId } from "./lib/game/fieldKits";
   import { carriedExtras } from "./lib/game/fieldKitsRun";
   // 0.13.4 Phase 4: the transit-berth read model. The console reads the SAME module the engine
@@ -5814,14 +5816,14 @@
   // opt-in; claim removes a complete expedition and hands back its (E2c placeholder) findings for the E4
   // relic system to route later. NONE of this runs on the tick, so with no expedition the tick path is
   // byte-identical to before (resolveExpeditions is a same-ref no-op on an empty expeditions array).
-  function doStartExpedition(shipId: string, captainId: number, candidateId: string, anomalyOptIn: boolean) {
+  function doStartExpedition(shipId: string, captainId: number, candidateId: string, anomalyOptIn: boolean): boolean {
     // Field Kits FKR-9: what the launch's top-up teams buy (the same plan the dispatch settles), for the log.
     const topUp = topUpAtLaunch(state, shipId);
     const { next, success, expedition, reason } = startExpedition(state, shipId, captainId, candidateId, anomalyOptIn);
     if (!success || next === state) {
       // D18: the panel disables Launch for a known refusal, so this only fires on a race; say why anyway.
       if (reason) pushLog(`[${devShipLabel(shipId)}] Expedition not launched: ${expeditionDispatchBlockText(reason)}.`);
-      return;
+      return false;
     }
     state = next;
     pushLog(`[${devShipLabel(shipId)}] Expedition launched to ${expedition?.systemName ?? "the frontier"}.`);
@@ -5830,6 +5832,36 @@
     if (expedition?.fieldKits && topUp.cost > 0) {
       pushLog(`[${devShipLabel(shipId)}] Topped up at the Quartermaster: ${kitListText(topUp.bought)} for ${formatNumber(topUp.cost)} credits.`);
     }
+    doSave();
+    return true;
+  }
+
+  // Expedition Tiers G2-6 (user #7 "1:1", G13 one confirm): RECALL a run home after the console's one confirm. The pure
+  // engine fn (recallExpedition: a refusal is the SAME state), then doSave + pushLog. The log names the time home and
+  // what the recall left (a resumable system, or a candidate again).
+  function doRecallExpedition(expeditionId: string) {
+    const exp = state.expeditions.find((e) => e.id === expeditionId) ?? null;
+    const preview = recallPreview(state, expeditionId);
+    const label = `[${exp ? devShipLabel(exp.shipId) : "Expedition"}]`;
+    if (!preview.ok) {
+      pushLog(`${label} Recall refused: ${recallBlockText(preview.reason)}.`);
+      return;
+    }
+    const next = recallExpedition(state, expeditionId);
+    if (next === state) return;
+    state = next;
+    const name = exp?.systemName ?? "the system";
+    const left = preview.preview.held === "resume" ? ` ${name} stays open to resume.` : preview.preview.held === "candidate" ? ` ${name} is a candidate again.` : "";
+    pushLog(`${label} Recalled from ${name}: home in ${voyageSpanText(preview.preview.returnSeconds)}.${left}`);
+    doSave();
+  }
+
+  // Expedition Tiers G2-6 (user G12, "Until finished" or abandoned): let a resumable system go after its one confirm.
+  function doAbandonHeldSystem(heldId: string) {
+    if (!canAbandonHeldSystem(state, heldId)) return;
+    const name = heldSystems(state).find((h) => h.id === heldId)?.systemName ?? "the system";
+    state = abandonHeldSystem(state, heldId);
+    pushLog(`Abandoned ${name}: its saved progress is let go.`);
     doSave();
   }
 
@@ -17725,6 +17757,8 @@
           onEditGroundOps={doEditGroundOps}
           onSetMemberPack={doSetMemberPack}
           onSetTeamTopUp={doSetTeamTopUp}
+          onRecall={doRecallExpedition}
+          onAbandonHeld={doAbandonHeldSystem}
         />
         <!-- Exploration 0.14.0 (E3b): the AWAY-TEAM GAMBITS editor, right under the console so it is
              discoverable from dispatch (the console's dispatch view points here). Since Ground Operations

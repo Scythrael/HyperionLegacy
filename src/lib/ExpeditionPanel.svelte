@@ -102,6 +102,33 @@
   // Every display decision is in fieldKitsDisplay.ts (tested); the pack and the toggle route to the host's do* handlers.
   import { claimKitsView, dispatchPackView, fuseLogLine, runCardLine, runSuppliesView, steppedPack, type PackSourceView } from "./fieldKitsDisplay";
   import type { FieldKitId } from "./game/fieldKits";
+  // Expedition Tiers G2-6 (the signed-off dispatch console mockup, user 2026-10-21 "approve as is"): the region picker
+  // (Tier I to VII tabs, the small map as the alternative), the candidate and resume cards, the launch bar and the
+  // recall confirm. Every display decision is in expeditionConsoleDisplay.ts (tested); recall and abandon route to the
+  // host's do* handlers.
+  import type { RegionTier } from "./game/model";
+  import {
+    candidateCardView,
+    candidatesHeading,
+    consoleDefaultTier,
+    isTrainingDispatch,
+    launchBarView,
+    lockedTierView,
+    nextTier,
+    preselectCandidateId,
+    recallClaimView,
+    recallConfirmView,
+    recalledStepperView,
+    regionMapView,
+    regionTabsView,
+    resumeCardsView,
+    shipPropulsionView,
+    tierFactsView,
+    trainingRunNote,
+    type CandidateCardView,
+  } from "./expeditionConsoleDisplay";
+  import { loadLastExpeditionTier, loadRegionMapOpen, saveLastExpeditionTier, saveRegionMapOpen } from "./expeditionConsolePreference";
+  import { recallBlockText, recallPreview } from "./game/expedition";
 
   // --- Props ------------------------------------------------------------------
   // `state` is the whole GameState (read-only here). The callbacks route every side effect
@@ -109,7 +136,8 @@
   export let state: GameState;
   // Launch: dispatch the chosen ship + its captain on the chosen candidate, with the anomaly
   // opt-in. Host: startExpedition -> doSave -> pushLog.
-  export let onStart: (shipId: string, captainId: number, candidateId: string, anomalyOptIn: boolean) => void;
+  // G2-6: returns true when the expedition launched (the console then remembers the region).
+  export let onStart: (shipId: string, captainId: number, candidateId: string, anomalyOptIn: boolean) => boolean | void;
   // Claim: collect a COMPLETE expedition's findings. Host: claimExpedition -> doSave -> pushLog.
   export let onClaim: (expeditionId: string) => void;
   // Squads SQ-7 section 7.2: "Set composition" on the telescope's recommendation. Host: applyComposition -> doSave ->
@@ -123,6 +151,10 @@
   // doSetTeamTopUp). Both shape the NEXT dispatch only.
   export let onSetMemberPack: (shipId: string, teamIndex: number, memberId: string, pack: Partial<Record<FieldKitId, number>> | null) => void = () => {};
   export let onSetTeamTopUp: (shipId: string, teamIndex: number, on: boolean) => void = () => {};
+  // Expedition Tiers G2-6: recall a run home (after its one confirm) and let a resumable system go (after its one
+  // confirm). Host: recallExpedition / abandonHeldSystem -> doSave -> pushLog (doRecallExpedition, doAbandonHeldSystem).
+  export let onRecall: (expeditionId: string) => void = () => {};
+  export let onAbandonHeld: (heldId: string) => void = () => {};
 
   // --- Local UI state ---------------------------------------------------------
   // The ship whose console is open. null until the first eligible ship defaults in below.
@@ -133,6 +165,13 @@
   let anomalyOptIn = true;
   // The blind launch confirm (user #7: "this is truly unknown territory. Are you sure you wish to go?") is open.
   let confirmBlind = false;
+  // G2-6: the region tab the player picked (null = the zero-click default: the region last launched to when this ship
+  // can attempt it), the remembered region, whether the small map is open, and the recall / abandon confirms.
+  let pickedTier: RegionTier | null = null;
+  let rememberedTier: RegionTier | null = loadLastExpeditionTier();
+  let mapOpen = loadRegionMapOpen();
+  let confirmRecall = false;
+  let abandonId: string | null = null;
 
   // --- Static display metadata ------------------------------------------------
   const HAZARD_LABEL: Record<HazardTier, string> = {
@@ -203,13 +242,49 @@
   $: chosenExpedition = chosenShipId ? expeditionByShip.get(chosenShipId) ?? null : null;
 
   // DISPATCH-view derives (only meaningful when the chosen ship has no active expedition).
-  // G2-2: nearest first (user G11, "Region, then 3 nearest"); the region picker is G2-6, so Tier I for now.
-  $: candidates = chosenShip && !chosenExpedition ? nearestFirst(expeditionCandidates(state, chosenShip.id)) : [];
-  // Default / repair the selected candidate when the list (or ship) changes.
-  $: if (candidates.length > 0 && (selectedCandidateId === null || !candidates.some((c) => c.id === selectedCandidateId))) {
-    selectedCandidateId = candidates[0].id;
+  // G2-6: the REGION PICKER (user G11 "Region, then 3 nearest"; the signed-off mockup's tabs). A new ship opens on the
+  // zero-click default again.
+  let tierShipId: string | null = null;
+  $: if (chosenShipId !== tierShipId) {
+    tierShipId = chosenShipId;
+    pickedTier = null;
+    // A confirm opened for another ship never reopens on its own later (review fix).
+    confirmRecall = false;
+    abandonId = null;
+  }
+  $: tabs = chosenShip && !chosenExpedition ? regionTabsView(state, chosenShip) : [];
+  $: activeTier = pickedTier ?? consoleDefaultTier(tabs, rememberedTier);
+  $: activeTab = tabs.find((t) => t.tier === activeTier) ?? null;
+  $: tierReady = activeTab?.ready === true;
+  $: facts = chosenShip && !chosenExpedition ? tierFactsView(state, activeTier) : null;
+  $: propulsion = chosenShip && !chosenExpedition ? shipPropulsionView(state, chosenShip, activeTier) : null;
+  $: lockedView = chosenShip && activeTab && !activeTab.ready ? lockedTierView(state, chosenShip, activeTier, activeTab.gates) : null;
+  $: regionMap = mapOpen && chosenShip && !chosenExpedition ? regionMapView(state, chosenShip, tabs, activeTier) : null;
+  // G2-2: nearest first. A locked tier offers no candidates (its panel previews them dimmed instead).
+  $: candidates = chosenShip && !chosenExpedition && tierReady ? nearestFirst(expeditionCandidates(state, chosenShip.id, activeTier)) : [];
+  $: scopeLevel = telescopeLevel(state);
+  // The card rows (transit at this ship's drive, the reach bar, the gates), from the engine (expeditionConsoleDisplay.ts).
+  $: cards = chosenShip ? candidates.map((c) => candidateCardView(state, chosenShip!, c, scopeLevel)) : [];
+  $: cardOf = new Map<string, CandidateCardView>(cards.map((c) => [c.id, c]));
+  // G2-5 / G2-6 (user G12): the region's resumable systems, at the top of its own region. A LOCKED region lists them
+  // too (dimmed, with the gate this ship fails, Abandon still offered), so its tab's resume count always has its cards.
+  $: resumeCards = chosenShip && !chosenExpedition ? resumeCardsView(state, chosenShip, activeTier) : [];
+  $: pickableResumes = tierReady ? resumeCards : [];
+  // Default / repair the selected candidate when the list (or ship, or region) changes: the nearest this ship can
+  // launch to (the zero-click path), else the nearest.
+  $: if ((cards.length > 0 || pickableResumes.length > 0) && (selectedCandidateId === null || (!cardOf.has(selectedCandidateId) && !pickableResumes.some((r) => r.id === selectedCandidateId)))) {
+    selectedCandidateId = preselectCandidateId(cards) ?? pickableResumes[0]?.id ?? null;
   }
   $: selectedCandidate = candidates.find((c) => c.id === selectedCandidateId) ?? null;
+  $: selectedResume = pickableResumes.find((r) => r.id === selectedCandidateId) ?? null;
+  $: launchBar = launchBarView(
+    selectedResume
+      ? { name: selectedResume.name, outboundSeconds: selectedResume.outboundSeconds, resume: true }
+      : selectedCandidate && cardOf.get(selectedCandidate.id)
+        ? { name: selectedCandidate.systemName, outboundSeconds: cardOf.get(selectedCandidate.id)!.outboundSeconds, resume: false }
+        : null,
+  );
+  $: trainingNote = chosenShip && !chosenExpedition && tierReady && activeTier === 1 && isTrainingDispatch(state, chosenShip, 1) ? trainingRunNote(state, shipName(chosenShip.id)) : null;
   $: chosenArray = chosenShip ? installedSensorArray(state, chosenShip) : null;
   $: chosenSensors = chosenShip ? Math.round(effectiveShipStats(state, chosenShip).sensors) : 0;
   $: chosenCaptain = chosenShipId ? captainOf(chosenShipId) : null;
@@ -234,8 +309,7 @@
   // the time left), plus the ship-level reason when it cannot launch.
   $: teamsView = chosenTeamCheck ? dispatchTeamsView(chosenTeamCheck.ground, now) : null;
 
-  // SQ-7 section 7.2: the telescope level (the blind range line) and the selected candidate's telescope block.
-  $: scopeLevel = telescopeLevel(state);
+  // SQ-7 section 7.2: the selected candidate's telescope block (the telescope level, scopeLevel, is read above).
   $: selectedBlock = selectedCandidate ? telescopeBlockView(selectedCandidate, scopeLevel) : null;
   // The LAZY launch view (recommendation + forecast): only for the expanded (selected) candidate, only from detail 4,
   // and only when an input that shapes it changes (expeditionDispatchDisplay.ts launchViewInputs), so a tick that just
@@ -268,6 +342,20 @@
   $: packView = chosenShip && !chosenExpedition ? dispatchPackView(state, chosenShip.id) : null;
   $: supplies = chosenExpedition ? runSuppliesView(chosenExpedition, chosenShip, state.awayMembers) : [];
   $: claimKits = chosenExpedition && chosenExpedition.phase === "complete" ? claimKitsView(chosenExpedition) : null;
+  // G2-6 (user G13): Recall is offered while the run is out (transit, scanning, activities; the stored phase is current
+  // every tick); its one confirm reads the engine's recallPreview live. A recalled run's stepper and claim lines.
+  $: canRecall = chosenExpedition !== null && (chosenExpedition.phase === "transit" || chosenExpedition.phase === "scanning" || chosenExpedition.phase === "activities");
+  $: recallView = confirmRecall && chosenExpedition ? recallConfirmView(state, chosenExpedition, shipName(chosenExpedition.shipId)) : null;
+  $: recallRefusal = confirmRecall && chosenExpedition && recallView === null ? (() => { const r = recallPreview(state, chosenExpedition!.id); return r.ok ? null : recallBlockText(r.reason); })() : null;
+  $: recalledSteps = chosenExpedition ? recalledStepperView(chosenExpedition, now) : null;
+  $: recallClaim = chosenExpedition ? recallClaimView(state, chosenExpedition) : null;
+  // The resume card the abandon confirm names.
+  // The card it names went away (abandoned, launched, another region): the confirm closes for good.
+  function dropStaleAbandon(list: readonly { id: string }[]): void {
+    if (abandonId !== null && !list.some((r) => r.id === abandonId)) abandonId = null;
+  }
+  $: dropStaleAbandon(resumeCards);
+  $: abandonCard = abandonId !== null ? resumeCards.find((r) => r.id === abandonId) ?? null : null;
 
   // --- Display helpers --------------------------------------------------------
   function shipName(shipId: string): string {
@@ -451,9 +539,11 @@
     onSetMemberPack(chosenShip.id, teamIndex, memberId, source.resetPack);
   }
   // Launch: a BLIND candidate (beyond the telescope's range) asks first (user #7); any other launches at once.
+  // G2-6: a resumed system launches the same way (its id is "held-<expeditionId>"); it was charted before, so it never
+  // asks the blind confirm.
   function launch(): void {
-    if (!chosenShip || !selectedCandidate || !chosenCaptain) return;
-    if (selectedCandidate.telescope.blind) {
+    if (!chosenShip || (!selectedCandidate && !selectedResume) || !chosenCaptain) return;
+    if (selectedCandidate && selectedCandidate.telescope.blind) {
       confirmBlind = true;
       return;
     }
@@ -461,12 +551,57 @@
   }
   function commitLaunch(): void {
     confirmBlind = false;
-    if (!chosenShip || !selectedCandidate || !chosenCaptain) return;
-    onStart(chosenShip.id, chosenCaptain.id, selectedCandidate.id, anomalyOptIn);
+    const id = selectedResume?.id ?? selectedCandidate?.id ?? null;
+    if (!chosenShip || id === null || !chosenCaptain) return;
+    const launched = onStart(chosenShip.id, chosenCaptain.id, id, anomalyOptIn);
+    // G2-6 (the zero-click path): the console opens on this region next time, once the launch went out.
+    if (launched === true) {
+      rememberedTier = activeTier;
+      saveLastExpeditionTier(activeTier);
+    }
     // The host reassigns state; the chosen ship now has an active expedition and this view swaps to
     // in-progress on the next reactive pass. Reset the dispatch-only local toggles for the next dispatch.
     selectedCandidateId = null;
+    pickedTier = null;
     anomalyOptIn = true;
+  }
+  // G2-6: the region picker. A tab or a map badge opens its region; the arrow keys move along the tabs (and focus).
+  function pickTier(tier: RegionTier): void {
+    pickedTier = tier;
+  }
+  async function tabKey(e: KeyboardEvent, tier: RegionTier): Promise<void> {
+    const to = nextTier(tier, e.key);
+    if (to === null) return;
+    e.preventDefault();
+    pickTier(to);
+    await tick();
+    document.getElementById(`exp-tab-${to}`)?.focus();
+  }
+  function badgeKey(e: KeyboardEvent, tier: RegionTier): void {
+    if (e.key !== "Enter" && e.key !== " ") return;
+    e.preventDefault();
+    pickTier(tier);
+  }
+  function toggleMap(): void {
+    mapOpen = !mapOpen;
+    saveRegionMapOpen(mapOpen);
+  }
+  // The launch bar's "Edit packs": the Field Kits pack panel below (unchanged), scrolled to and focused.
+  let packsEl: HTMLElement | null = null;
+  function goToPacks(): void {
+    packsEl?.scrollIntoView({ block: "start", behavior: "smooth" });
+    packsEl?.focus({ preventScroll: true });
+  }
+  // G2-6 (user G13): the recall's one confirm, then the host's handler.
+  function commitRecall(): void {
+    const exp = chosenExpedition;
+    confirmRecall = false;
+    if (exp) onRecall(exp.id);
+  }
+  function commitAbandon(): void {
+    const id = abandonId;
+    abandonId = null;
+    if (id !== null) onAbandonHeld(id);
   }
   // The recommendation's headline, where focus lands after "Set composition" (the button itself goes away once the
   // ship fields the mix, which would otherwise drop focus to the page).
@@ -521,7 +656,7 @@
           <span class="exp-ship-name">{shipName(s.id)}</span>
           <span class="exp-ship-status">
             {#if exp}
-              {exp.phase === "complete" ? "Findings ready" : `On expedition · ${exp.phase === "activities" ? activitiesPhaseLabel(exp).toLowerCase() : exp.phase}`}
+              {exp.phase === "complete" ? "Findings ready" : exp.recall ? "Recalled · flying home" : `On expedition · ${exp.phase === "activities" ? activitiesPhaseLabel(exp).toLowerCase() : exp.phase}`}
             {:else if expeditionShipDamaged(state, s)}
               Repair first
             {:else}
@@ -559,22 +694,39 @@
           </div>
           {#if exp.phase === "complete"}
             <button type="button" class="exp-btn primary" on:click={() => onClaim(exp.id)}>Claim findings</button>
+          {:else if canRecall}
+            <!-- G2-6 (user G13): one confirm names the return time and what stops; never a paid speed-up. -->
+            <button type="button" class="exp-btn quiet" on:click={() => (confirmRecall = true)}><Icon name="recall" size={14} /> Recall</button>
           {/if}
         </div>
 
-        <!-- PHASE STEPPER -->
-        <div class="exp-stepper">
+        <!-- PHASE STEPPER (G2-6: a recalled run shows the phases it cut and "Recalled" on its way home) -->
+        <div class="exp-stepper" class:recalled={recalledSteps !== null}>
           {#each PHASE_STEPS as step, i (step.key)}
             {@const st = stepState(step.key, exp.phase)}
-            <div class="exp-step" class:done={st === "done"} class:active={st === "active"}>
-              <span class="exp-step-dot" aria-hidden="true">{st === "done" ? "✓" : i + 1}</span>
-              <span class="exp-step-label">{step.key === "activities" ? activitiesPhaseLabel(exp) : step.label}</span>
+            {@const rs = recalledSteps ? recalledSteps.steps[i] : null}
+            <div
+              class="exp-step"
+              class:done={rs ? rs === "done" : st === "done"}
+              class:active={rs ? false : st === "active"}
+              class:cut={rs === "cut"}
+              class:recalled={rs === "recalled"}
+            >
+              <span class="exp-step-dot" aria-hidden="true">
+                {#if rs === "recalled"}<Icon name="recall" size={12} />{:else if rs === "cut"}{i + 1}{:else if (rs ?? st) === "done"}<Icon name="check" size={12} />{:else}{i + 1}{/if}
+              </span>
+              <span class="exp-step-label">
+                {#if rs === "recalled" && recalledSteps}{recalledSteps.returnText}{:else}{step.key === "activities" ? activitiesPhaseLabel(exp) : step.label}{#if rs === "cut"}<span class="exp-sr"> (cut short by the recall)</span>{/if}{/if}
+              </span>
             </div>
             {#if i < PHASE_STEPS.length - 1}
-              <span class="exp-step-link" class:done={stepState(step.key, exp.phase) === "done"} aria-hidden="true"></span>
+              <span class="exp-step-link" class:done={rs ? rs === "done" : stepState(step.key, exp.phase) === "done"} class:cut={rs === "cut"} aria-hidden="true"></span>
             {/if}
           {/each}
         </div>
+        {#if exp.recall && exp.phase === "return"}
+          <div class="exp-recalled-note"><Icon name="recall" size={13} /> Flying home. Recalled runs claim like any other.</div>
+        {/if}
 
         <!-- TRANSIT / RETURN leg bar (with the charted-anomaly marker on the outbound leg) -->
         {#if exp.phase === "transit" || exp.phase === "return"}
@@ -792,6 +944,14 @@
           <span class="exp-findings-label">findings gathered</span>
           {#if exp.anomalyCharted}<span class="exp-chip anomaly">+ charted anomaly</span>{/if}
         </div>
+        {#if recallClaim}
+          <!-- G2-6: a recalled run home claims like any other; the card says what the recall left (Resume, or a candidate). -->
+          <div class="exp-recall-claim">
+            <strong><Icon name="recall" size={14} /> {recallClaim.heading}</strong>
+            <span>{recallClaim.text}</span>
+            {#if recallClaim.resumeChip}<span class="exp-chip resume"><Icon name="resume" size={11} /> {recallClaim.resumeChip}</span>{/if}
+          </div>
+        {/if}
         {#if claimKits}
           <!-- Field Kits FKR-9: the claim's kit line, after the haul. -->
           <div class="fk-claim">
@@ -807,107 +967,342 @@
           <div class="exp-hdr-main">
             <span class="exp-hdr-system">Dispatch · {shipName(chosenShip.id)}</span>
             <span class="exp-hdr-sub">
-              {hullLabel(chosenShip.id)}{#if chosenCaptain} · {chosenCaptain.label}{/if} · Sensors {chosenSensors}
+              {hullLabel(chosenShip.id)}{#if chosenCaptain} · {chosenCaptain.label}{/if} · Sensors {chosenSensors}{#if propulsion}
+                · <span class="exp-hdr-glyph"><Icon name="drive" size={12} /> {propulsion.driveText}</span> · <span class="exp-hdr-glyph"><Icon name="reach" size={12} /> {propulsion.reachText}</span>{/if}
             </span>
-            {#if packView && packView.teams.length > 0}
-              <span class="fk-ready"><Icon name="check" size={12} /> {packView.readyText}</span>
-            {/if}
           </div>
-          <button
-            type="button"
-            class="exp-btn primary"
-            disabled={!selectedCandidate || !chosenCaptain || needsAwayTeam || shipRepairLine !== null || gateLine !== null}
-            title={!chosenCaptain
-              ? expeditionDispatchBlockText("captainNotAssigned")
-              : shipRepairLine !== null
-                ? `${expeditionDispatchBlockText("shipDamaged")}. ${shipRepairLine}`
-              : gateLine !== null
-                ? gateLine
-              : !selectedCandidate
-                ? expeditionDispatchBlockText("noSuchCandidate")
-                : needsAwayTeam
-                  ? teamsView?.blockText ?? expeditionDispatchBlockText("needsAwayTeam")
-                  : selectedCandidate.telescope.blind
-                    ? "Launch blind: asks you to confirm first"
-                    : "Launch the expedition"}
-            on:click={launch}
-          >Launch</button>
+          {#if propulsion}<span class="exp-hdr-home">{propulsion.homeworldText}</span>{/if}
         </div>
-        {#if shipRepairLine !== null}
-          <div class="exp-block" role="status">
-            {expeditionDispatchBlockText("shipDamaged")}.
-            <span class="exp-block-counts">{shipRepairLine}.</span>
-          </div>
-        {/if}
-        {#if gateLine !== null}
-          <!-- G2-4 (D18): the propulsion gate Launch is off for, shown, not only in the hover title. -->
-          <div class="exp-block" role="status">{gateLine}</div>
-        {/if}
-        {#if needsAwayTeam && teamsView?.blockText}
-          <!-- D18 + GO-12: the ship-level reason Launch is off (not only in a hover title); each team's own wait, with
-               the time left, is in the Ground teams strip below. -->
-          <div class="exp-block" role="status">
-            {teamsView.blockText}
-            <span class="exp-block-counts">{teamsView.blockHint}</span>
+
+        <!-- G2-6 REGION PICKER (the signed-off mockup section 1): seven tabs, Roman numerals, each Ready or its first unmet
+             gate in words; the arrow keys move along them. The small map below is the alternative picker. -->
+        <div class="exp-tabs" role="tablist" aria-label="Regions">
+          {#each tabs as t (t.tier)}
+            <button
+              type="button"
+              role="tab"
+              id="exp-tab-{t.tier}"
+              class="exp-tab"
+              class:locked={!t.ready}
+              aria-selected={t.tier === activeTier}
+              aria-controls="exp-tabpanel"
+              aria-label={t.ariaLabel}
+              tabindex={t.tier === activeTier ? 0 : -1}
+              on:click={() => pickTier(t.tier)}
+              on:keydown={(e) => tabKey(e, t.tier)}
+            >
+              <span class="exp-tab-num" aria-hidden="true">{t.numeral}</span>
+              <span class="exp-tab-name" aria-hidden="true">{t.label}</span>
+              <span class="exp-tab-state" aria-hidden="true">
+                <Icon name={t.ready ? "check" : "lock"} size={11} />
+                <span>{t.stateText}</span>
+                {#if t.resumeCount > 0}<span class="exp-tab-res"><Icon name="resume" size={11} /> {t.resumeCount}</span>{/if}
+              </span>
+            </button>
+          {/each}
+        </div>
+        <div class="exp-map-tools">
+          <button type="button" class="exp-link" aria-expanded={mapOpen} aria-controls="exp-region-map" on:click={toggleMap}>
+            <Icon name="telescope" size={12} /> {mapOpen ? "Hide the map" : "Pick on the map"}
+          </button>
+        </div>
+        {#if regionMap}
+          {@const m = regionMap}
+          <!-- G2-6: the alternative picker, the approved telescope map look. Tapping a badge opens its region above. -->
+          <div class="exp-map" id="exp-region-map">
+            <svg class="exp-map-svg" viewBox={m.viewBox} role="group" aria-label={m.ariaLabel}>
+              <path class="exp-map-disk" d={m.diskPath} />
+              {#each m.armPaths as d, ai (ai)}<path class="exp-map-arm" class:minor={ai === m.armPaths.length - 1} {d} />{/each}
+              <path class="exp-map-bulge" d={m.bulgePath} />
+              <circle class="exp-map-core" cx={m.core.x} cy={m.core.y} r="3.5" />
+              <circle class="exp-map-ring" cx={m.home.x} cy={m.home.y} r={m.reachR} />
+              <circle class="exp-map-home" cx={m.home.x} cy={m.home.y} r="4" />
+              {#each m.badges as b (b.tier)}
+                <g
+                  class="exp-map-badge"
+                  class:locked={b.locked}
+                  class:sel={b.selected}
+                  role="button"
+                  tabindex="0"
+                  aria-label={b.ariaLabel}
+                  aria-pressed={b.selected}
+                  on:click={() => pickTier(b.tier)}
+                  on:keydown={(e) => badgeKey(e, b.tier)}
+                >
+                  <circle cx={b.x} cy={b.y} r={m.badgeR} />
+                  <text x={b.x} y={b.y + 3} text-anchor="middle">{b.numeral}</text>
+                </g>
+              {/each}
+              <text class="exp-map-label" x={m.homeLabel.x} y={m.homeLabel.y}>{m.homeLabel.text}</text>
+              <text class="exp-map-label small" x={m.coreLabel.x} y={m.coreLabel.y} text-anchor="middle">{m.coreLabel.text}</text>
+            </svg>
+            <div class="exp-map-legend">{m.legend}</div>
           </div>
         {/if}
 
+        <div class="exp-tabpanel" role="tabpanel" id="exp-tabpanel" aria-labelledby="exp-tab-{activeTier}">
+          {#if facts}
+            <div class="exp-facts">
+              <span class="exp-chip">{facts.bandText}</span>
+              <span class="exp-chip"><Icon name="clock" size={11} /> {facts.timeText}</span>
+              <span class="exp-chip">{facts.bodiesText}</span>
+              <span class="exp-chip">{facts.haulText}</span>
+              <span class="exp-chip"><Icon name="telescope" size={11} /> {facts.telescopeText}</span>
+            </div>
+          {/if}
+
+          {#if lockedView}
+            <!-- G2-6: a LOCKED tier (the mockup's locked panel): every gate, met or not, and a dimmed preview of its
+                 three nearest systems (not selectable). Its resumable systems still sit on top (review fix): dimmed, with
+                 the gate this ship fails, and Abandon still offered. -->
+            {#if resumeCards.length > 0}
+              <div class="exp-section-tag"><Icon name="resume" size={12} /> Open to resume</div>
+              <div class="exp-cards">
+                {#each resumeCards as r (r.id)}
+                  <div class="exp-resume-wrap">
+                    <div class="exp-target resume locked">
+                      <span class="exp-target-top">
+                        <span class="exp-target-name">{r.name}</span>
+                        <span class="exp-chip resume"><Icon name="resume" size={11} /> Resume</span>
+                        {#if r.realStar}<span class="exp-chip star">Real star</span>{/if}
+                      </span>
+                      <span class="exp-target-region">{r.whereText}</span>
+                      <span class="exp-rows">
+                        <span class="exp-row-k">Charted</span>
+                        <span class="exp-row-v">
+                          <span class="exp-reach" aria-hidden="true"><i style="width: {r.percent}%;"></i></span>
+                          <span class="exp-row-small">{r.chartedText}</span>
+                        </span>
+                        <span class="exp-row-k">Objectives</span>
+                        <span class="exp-row-v">{r.objectivesText}</span>
+                      </span>
+                      {#if r.reasonText}<span class="exp-target-reason"><Icon name="lock" size={13} /> {r.reasonText}</span>{/if}
+                    </div>
+                    <div class="exp-resume-foot">
+                      Stays open until finished or abandoned. This ship cannot resume it yet; any explorer that meets the gates can.
+                      <button type="button" class="exp-link" on:click={() => (abandonId = r.id)}>{r.abandonLabel}</button>
+                    </div>
+                  </div>
+                {/each}
+              </div>
+            {/if}
+            <div class="exp-locked">
+              <div class="exp-locked-gates">
+                <div class="exp-locked-head"><Icon name="lock" size={14} /> {lockedView.heading}</div>
+                <ul class="exp-gatelist">
+                  {#each lockedView.rows as row (row.key)}
+                    <li class={row.status}>
+                      <span class="exp-gatelist-glyph"><Icon name={row.glyph} size={16} /></span>
+                      <span>
+                        {row.title}{#if row.status !== "info"}<span class="exp-sr">{row.status === "met" ? " (met)" : " (not met)"}</span>{/if}
+                        <small>{row.detail}</small>
+                      </span>
+                    </li>
+                  {/each}
+                </ul>
+              </div>
+              <div class="exp-locked-peek">
+                <div class="exp-locked-head">{lockedView.peekHeading}</div>
+                <ul class="exp-peek" aria-label="Preview, not selectable">
+                  {#each lockedView.peek as p, pi (pi)}<li><span>{p.name}</span><span>{p.distanceText}</span></li>{/each}
+                </ul>
+                <div class="exp-note">{lockedView.peekNote}</div>
+              </div>
+            </div>
+          {:else}
+            {#if trainingNote}<div class="exp-note exp-training-note">{trainingNote}</div>{/if}
+
         <div class="exp-dispatch">
-          <!-- TARGET CANDIDATES with sensor-gated FOREKNOWLEDGE -->
+          <!-- TARGET CANDIDATES (G2-6: resumable systems first, then the region's nearest, then the launch bar and the
+               selected system's Subspace Telescope block) -->
           <div class="exp-targets">
-            <div class="exp-section-tag">Candidate targets</div>
-            {#each candidates as cand (cand.id)}
-              {@const fk = cand.foreknowledge}
-              {@const tel = cand.telescope}
-              <button
-                type="button"
-                class="exp-target"
-                class:active={selectedCandidateId === cand.id}
-                aria-pressed={selectedCandidateId === cand.id}
-                on:click={() => (selectedCandidateId = cand.id)}
-              >
-                <div class="exp-target-top">
-                  <span class="exp-target-name">{cand.systemName}</span>
-                  {#if tel.blind}
-                    <!-- SQ-7 7.2: a blind candidate shows only its name, region, distance and this chip. -->
-                    <span class="exp-chip blind"><Icon name="blindLaunch" size={12} /> Blind launch</span>
-                  {:else if !fk.inRange}
-                    <span class="exp-chip scope"><Icon name="telescope" size={12} /> {tel.detailName}</span>
-                    <span class="exp-chip range">Beyond sensor range</span>
-                  {:else}
-                    <span class="exp-chip scope"><Icon name="telescope" size={12} /> {tel.detailName}</span>
-                    <span class="exp-chip">{fk.bodyCount} {fk.bodyCount === 1 ? "body" : "bodies"}</span>
-                    <!-- E4c: name WHICH relic sets the system's would-be discoveries source (the engine's
-                         relicSets projection, canonical set order) instead of a bare "Relic signature". Revealed
-                         at the same sensor threshold; an empty list (no relic-bearing PoI) shows no chip. -->
-                    {#if fk.relicSets && fk.relicSets.length > 0}
-                      <span class="exp-chip relic"><Icon name="relic" size={11} /> Relics: {fk.relicSets.map(relicSetShortLabel).join(", ")}</span>
+            {#if resumeCards.length > 0}
+              <div class="exp-section-tag"><Icon name="resume" size={12} /> Open to resume</div>
+              <div class="exp-cards">
+                {#each resumeCards as r (r.id)}
+                  <div class="exp-resume-wrap">
+                    <button
+                      type="button"
+                      class="exp-target resume"
+                      class:active={selectedCandidateId === r.id}
+                      aria-pressed={selectedCandidateId === r.id}
+                      on:click={() => (selectedCandidateId = r.id)}
+                    >
+                      <span class="exp-target-top">
+                        <span class="exp-target-name">{r.name}</span>
+                        <span class="exp-chip resume"><Icon name="resume" size={11} /> Resume</span>
+                        {#if r.realStar}<span class="exp-chip star">Real star</span>{/if}
+                      </span>
+                      <span class="exp-target-region">{r.whereText}</span>
+                      <span class="exp-rows">
+                        <span class="exp-row-k">Charted</span>
+                        <span class="exp-row-v">
+                          <span class="exp-reach" aria-hidden="true"><i style="width: {r.percent}%;"></i></span>
+                          <span class="exp-row-small">{r.chartedText}</span>
+                        </span>
+                        <span class="exp-row-k">Objectives</span>
+                        <span class="exp-row-v">{r.objectivesText}</span>
+                        <span class="exp-row-k"><Icon name="clock" size={12} /> Transit</span>
+                        <span class="exp-row-v">{r.transitText}<span class="exp-row-small">The trip is flown again. Any explorer can resume it.</span></span>
+                      </span>
+                      {#if r.reasonText}<span class="exp-target-reason"><Icon name="warning" size={13} /> {r.reasonText}</span>{/if}
+                      <span class="exp-row-small"><Icon name="chevronRight" size={11} /> Select to resume</span>
+                    </button>
+                    <div class="exp-resume-foot">
+                      Stays open until finished or abandoned.
+                      <button type="button" class="exp-link" on:click={() => (abandonId = r.id)}>{r.abandonLabel}</button>
+                    </div>
+                  </div>
+                {/each}
+              </div>
+            {/if}
+            <div class="exp-section-tag">{candidatesHeading(candidates.length)}</div>
+            <div class="exp-cards">
+              {#each candidates as cand (cand.id)}
+                {@const fk = cand.foreknowledge}
+                {@const tel = cand.telescope}
+                {@const card = cardOf.get(cand.id)}
+                <button
+                  type="button"
+                  class="exp-target"
+                  class:active={selectedCandidateId === cand.id}
+                  aria-pressed={selectedCandidateId === cand.id}
+                  on:click={() => (selectedCandidateId = cand.id)}
+                >
+                  <span class="exp-target-top">
+                    <span class="exp-target-name">{cand.systemName}</span>
+                    {#if card?.realStar}<span class="exp-chip star">Real star</span>{/if}
+                    {#if card?.enemyTerritory}<span class="exp-chip enemy" title="Known enemy territory: combat risk one step higher"><Icon name="riskCombat" size={11} /> Enemy territory</span>{/if}
+                    {#if card?.trainingRun}<span class="exp-chip train" title="This ship's first expedition: it cannot be lost"><Icon name="check" size={11} /> Training run</span>{/if}
+                    {#if card && !card.reach.met}<span class="exp-chip warn"><Icon name="reach" size={11} /> Out of reach</span>{/if}
+                    {#if tel.blind}
+                      <!-- SQ-7 7.2: a blind candidate shows only its name, region, distance and this chip. -->
+                      <span class="exp-chip blind"><Icon name="blindLaunch" size={12} /> Blind launch</span>
+                    {:else if !fk.inRange}
+                      <span class="exp-chip scope"><Icon name="telescope" size={12} /> {tel.detailName}</span>
+                      <span class="exp-chip range">Beyond sensor range</span>
+                    {:else}
+                      <span class="exp-chip scope"><Icon name="telescope" size={12} /> {tel.detailName}</span>
+                      <!-- E4c: name WHICH relic sets the system's would-be discoveries source (the engine's
+                           relicSets projection, canonical set order) instead of a bare "Relic signature". Revealed
+                           at the same sensor threshold; an empty list (no relic-bearing PoI) shows no chip. -->
+                      {#if fk.relicSets && fk.relicSets.length > 0}
+                        <span class="exp-chip relic"><Icon name="relic" size={11} /> Relics: {fk.relicSets.map(relicSetShortLabel).join(", ")}</span>
+                      {/if}
                     {/if}
-                  {/if}
-                </div>
-                <div class="exp-target-region">{candidateRegionText(tel)}</div>
-                {#if fk.inRange && fk.bodies}
-                  <div class="exp-target-bodies">
-                    {#each fk.bodies as b, i}
-                      <span class="exp-target-body">
-                        {#if b.planetType}
-                          {planetLabel(b.planetType)}{#if b.hazard !== null} · {hazardLabelFor(b.planetType)} hazard{/if}
+                  </span>
+                  <span class="exp-target-region">{candidateRegionText(tel)} from your homeworld</span>
+                  {#if card}
+                    <span class="exp-rows">
+                      <span class="exp-row-k"><Icon name="clock" size={12} /> Transit</span>
+                      <span class="exp-row-v">{card.transitText}</span>
+                      <span class="exp-row-k">Bodies</span>
+                      <span class="exp-row-v">
+                        {#if fk.inRange && fk.bodies}
+                          <span class="exp-target-bodies">
+                            {#each fk.bodies as b, i}
+                              <span class="exp-target-body">
+                                {#if b.planetType}
+                                  {planetLabel(b.planetType)}{#if b.hazard !== null} · {hazardLabelFor(b.planetType)} hazard{/if}
+                                {:else}
+                                  Body {i + 1} · unresolved
+                                {/if}
+                              </span>
+                            {/each}
+                          </span>
+                        {:else if !fk.inRange && !tel.blind}
+                          <span class="exp-target-hidden">Contents hidden. A stronger sensor array reveals more.</span>
+                          {#if sensorSplitHint(tel, fk)}
+                            <!-- GO-12 review minor: the telescope still reads this system's risk; only the contents are hidden. -->
+                            <span class="exp-target-hint">{sensorSplitHint(tel, fk)}</span>
+                          {/if}
                         {:else}
-                          Body {i + 1} · unresolved
+                          <span class="exp-target-hidden">Unknown until the ship arrives.</span>
                         {/if}
                       </span>
-                    {/each}
-                  </div>
-                {:else if !fk.inRange && !tel.blind}
-                  <div class="exp-target-hidden">Contents hidden. A stronger sensor array reveals more.</div>
-                  {#if sensorSplitHint(tel, fk)}
-                    <!-- GO-12 review minor: the telescope still reads this system's risk; only the contents are hidden. -->
-                    <div class="exp-target-hint">{sensorSplitHint(tel, fk)}</div>
+                      {#if card.risk}
+                        <span class="exp-row-k">Risk</span>
+                        <span class="exp-row-v exp-riskrow">
+                          {#each card.risk as f (f.id)}<span class:hi={f.high} title="{f.label}: {f.gradeName}"><Icon name={f.glyph} size={12} /> {f.gradeText}</span>{/each}
+                        </span>
+                      {/if}
+                      <span class="exp-row-k"><Icon name="reach" size={12} /> Reach</span>
+                      <span class="exp-row-v">
+                        <span class="exp-reach" class:over={!card.reach.met} aria-hidden="true">
+                          <i style="width: {card.reach.fillPercent}%;"></i>
+                          {#if card.reach.markPercent !== null}<b style="left: {card.reach.markPercent}%;"></b>{/if}
+                        </span>
+                        <span class="exp-row-small">{card.reach.text}{#if card.reach.met} <span class="exp-met"><Icon name="check" size={11} /> in reach</span>{/if}</span>
+                      </span>
+                      <span class="exp-row-k">Gates</span>
+                      <span class="exp-row-v exp-gates">
+                        <span class:exp-met={card.gatesText.driveMet} class:exp-unmet={!card.gatesText.driveMet}><Icon name={card.gatesText.driveMet ? "check" : "lock"} size={11} /> {card.gatesText.drive}</span>
+                        <span class:exp-met={card.gatesText.sensorsMet} class:exp-unmet={!card.gatesText.sensorsMet}><Icon name={card.gatesText.sensorsMet ? "check" : "lock"} size={11} /> {card.gatesText.sensors}</span>
+                      </span>
+                    </span>
+                    {#if card.reasonText}<span class="exp-target-reason"><Icon name="warning" size={13} /> {card.reasonText}</span>{/if}
                   {/if}
+                </button>
+              {/each}
+            </div>
+
+            <!-- G2-6: LAUNCH in a bar under the candidates (the signed-off mockup): the selection, the kits line with a
+                 link to the unchanged pack panel, every reason Launch is off, and the button. -->
+            <div class="exp-launchbar">
+              <div class="exp-launch-sel">
+                <strong>{launchBar.selectedText}</strong>
+                {#if packView && packView.teams.length > 0}
+                  <span class="exp-launch-kits">
+                    <span><Icon name="kitFirstAid" size={13} /> Field kits: {packView.summaryText}</span>
+                    <span class="fk-ready"><Icon name="check" size={12} /> {packView.readyText}</span>
+                    <button type="button" class="exp-link" on:click={goToPacks}>Edit packs</button>
+                  </span>
                 {/if}
-              </button>
-              {#if selectedCandidateId === cand.id && selectedBlock}
-                {@const block = selectedBlock}
+                {#if shipRepairLine !== null}
+                  <div class="exp-block" role="status">
+                    {expeditionDispatchBlockText("shipDamaged")}.
+                    <span class="exp-block-counts">{shipRepairLine}.</span>
+                  </div>
+                {/if}
+                {#if gateLine !== null}
+                  <!-- G2-4 (D18): the propulsion gate Launch is off for, shown, not only in the hover title. -->
+                  <div class="exp-block" role="status">{gateLine}</div>
+                {/if}
+                {#if needsAwayTeam && teamsView?.blockText}
+                  <!-- D18 + GO-12: the ship-level reason Launch is off (not only in a hover title); each team's own wait,
+                       with the time left, is in the Ground teams strip. -->
+                  <div class="exp-block" role="status">
+                    {teamsView.blockText}
+                    <span class="exp-block-counts">{teamsView.blockHint}</span>
+                  </div>
+                {/if}
+              </div>
+              <button
+                type="button"
+                class="exp-btn primary exp-launch-btn"
+                disabled={(!selectedCandidate && !selectedResume) || !chosenCaptain || needsAwayTeam || shipRepairLine !== null || gateLine !== null}
+                title={!chosenCaptain
+                  ? expeditionDispatchBlockText("captainNotAssigned")
+                  : shipRepairLine !== null
+                    ? `${expeditionDispatchBlockText("shipDamaged")}. ${shipRepairLine}`
+                  : gateLine !== null
+                    ? gateLine
+                  : !selectedCandidate && !selectedResume
+                    ? expeditionDispatchBlockText("noSuchCandidate")
+                    : needsAwayTeam
+                      ? teamsView?.blockText ?? expeditionDispatchBlockText("needsAwayTeam")
+                      : selectedResume
+                        ? "Resume: fly back and pick up where you left off"
+                        : selectedCandidate?.telescope.blind
+                          ? "Launch blind: asks you to confirm first"
+                          : "Launch the expedition"}
+                on:click={launch}
+              >{#if launchBar.resume}<Icon name="resume" size={14} /> {/if}{launchBar.buttonText}</button>
+            </div>
+
+            {#if selectedCandidate && selectedBlock}
+              {@const cand = selectedCandidate}
+              {@const block = selectedBlock}
                 <!-- SQ-7 section 7.2: the SUBSPACE TELESCOPE block, under the selected candidate's foreknowledge. -->
                 <section class="exp-scope" class:blind={block.blind} aria-label="Subspace Telescope: {cand.systemName}" data-launch-view-computes={launchViewComputes}>
                   <div class="exp-scope-head">
@@ -1003,7 +1398,6 @@
                   {/if}
                 </section>
               {/if}
-            {/each}
           </div>
 
           <!-- SETUP RAIL: scanning array, ground teams, anomaly opt-in -->
@@ -1080,12 +1474,14 @@
             </label>
           </div>
         </div>
+          {/if}
+        </div>
 
-        {#if packView}
+        {#if packView && !lockedView}
           <!-- Field Kits FKR-9: PACK PER MEMBER (the signed-off mockup section 1). Pre-filled, so the zero-click path is
                just Launch. One stepper per kit per member; the per-team top-up toggle and the Warehouse stock in the
                side rail. Nothing here blocks Launch. -->
-          <section class="fk" aria-label="Field kits">
+          <section class="fk" id="exp-packs" aria-label="Field kits" tabindex="-1" bind:this={packsEl}>
             <div class="exp-section-tag">Field kits · pack per member</div>
             <div class="fk-free">
               <Icon name="kitFirstAid" size={16} />
@@ -1226,6 +1622,40 @@
     <svelte:fragment slot="footer">
       <button type="button" class="exp-btn" use:focusSafe on:click={() => (confirmBlind = false)}>Cancel</button>
       <button type="button" class="exp-btn primary" on:click={commitLaunch}>Launch blind</button>
+    </svelte:fragment>
+  </ActionModal>
+{/if}
+
+{#if confirmRecall && chosenExpedition}
+  <!-- G2-6 (user G13 "One confirm"): the return time, what stops and whether the system stays open, read live from the
+       engine's recallPreview. Keep going is the default focus (the safe answer). No paid speed-up (no Overtime). -->
+  <ActionModal title={recallView ? recallView.title : "Recall"} onClose={() => (confirmRecall = false)}>
+    <div class="exp-recall-confirm">
+      {#if recallView}
+        <p><Icon name="recall" size={16} /> <strong>{recallView.line}</strong></p>
+        <ul>
+          {#each recallView.stops as line, li (li)}<li>{line}</li>{/each}
+        </ul>
+      {:else if recallRefusal}
+        <p>{recallRefusal}.</p>
+      {/if}
+    </div>
+    <svelte:fragment slot="footer">
+      <button type="button" class="exp-btn" use:focusSafe on:click={() => (confirmRecall = false)}>{recallView ? recallView.keepText : "Close"}</button>
+      {#if recallView}
+        <button type="button" class="exp-btn primary" on:click={commitRecall}><Icon name="recall" size={14} /> {recallView.recallText}</button>
+      {/if}
+    </svelte:fragment>
+  </ActionModal>
+{/if}
+
+{#if abandonCard}
+  <!-- G2-6 (user G12 "Until finished" or abandoned): letting a resumable system go asks once. -->
+  <ActionModal title={abandonCard.abandonLabel} onClose={() => (abandonId = null)}>
+    <p class="exp-abandon-text">{abandonCard.abandonConfirm}</p>
+    <svelte:fragment slot="footer">
+      <button type="button" class="exp-btn" use:focusSafe on:click={() => (abandonId = null)}>Keep it</button>
+      <button type="button" class="exp-btn primary" on:click={commitAbandon}>Abandon</button>
     </svelte:fragment>
   </ActionModal>
 {/if}
@@ -2814,5 +3244,565 @@
     .fk-track::after {
       transition: none;
     }
+  }
+
+  /* ===== Expedition Tiers G2-6: the dispatch console (the signed-off mockup). One DOM; the container queries split it. */
+  .exp-sr {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+  .exp-hdr {
+    flex-wrap: wrap;
+  }
+  .exp-hdr-glyph {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+  }
+  .exp-hdr-home {
+    font-size: var(--text-2xs);
+    color: var(--color-text-dim);
+  }
+  .exp-btn.quiet {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: none;
+    color: var(--color-text-secondary);
+  }
+  .exp-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 0;
+    border: 0;
+    background: none;
+    color: var(--color-accent-bright);
+    text-decoration: underline;
+    font-size: var(--text-xs);
+    cursor: pointer;
+  }
+
+  /* The region tabs: two across in a narrow container, seven across from 769 px. */
+  .exp-tabs {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 6px;
+  }
+  .exp-tab {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: 2px 8px;
+    align-items: center;
+    padding: 8px;
+    min-width: 0;
+    text-align: left;
+    color: var(--color-text-secondary);
+    background: rgba(var(--color-accent-rgb), 0.04);
+    border: 1px solid rgba(var(--color-accent-rgb), 0.16);
+    border-radius: var(--corner);
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .exp-tab:hover {
+    border-color: rgba(var(--color-accent-rgb), 0.4);
+  }
+  .exp-tab[aria-selected="true"] {
+    border-color: var(--color-accent);
+    background: rgba(var(--color-accent-rgb), 0.12);
+    box-shadow: inset 0 -2px 0 var(--color-accent);
+  }
+  .exp-tab-num {
+    grid-row: span 2;
+    display: grid;
+    place-items: center;
+    min-width: 34px;
+    height: 24px;
+    padding: 0 4px;
+    box-sizing: border-box;
+    border: 1px solid var(--color-accent);
+    border-radius: 12px;
+    color: var(--color-accent-bright);
+    font-family: var(--font-mono);
+    font-size: var(--text-xs);
+    font-weight: 700;
+  }
+  .exp-tab.locked .exp-tab-num {
+    border-style: dashed;
+    border-color: var(--color-text-dim);
+    color: var(--color-text-dim);
+  }
+  .exp-tab-name {
+    font-size: var(--text-xs);
+    font-weight: 600;
+    color: var(--color-text-primary);
+    overflow-wrap: anywhere;
+  }
+  .exp-tab-state {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 3px 4px;
+    font-size: var(--text-2xs);
+    color: var(--color-success);
+    overflow-wrap: anywhere;
+  }
+  .exp-tab.locked .exp-tab-state {
+    color: var(--color-text-secondary);
+  }
+  .exp-tab-res {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    color: var(--color-accent-bright);
+  }
+  @container (min-width: 769px) {
+    .exp-tabs {
+      grid-template-columns: repeat(7, minmax(0, 1fr));
+    }
+  }
+
+  /* The small region map (the alternative picker). */
+  .exp-map-tools {
+    display: flex;
+    justify-content: flex-end;
+  }
+  .exp-map {
+    max-width: 340px;
+    width: 100%;
+    margin: 0 auto;
+  }
+  .exp-map-svg {
+    display: block;
+    width: 100%;
+    height: auto;
+  }
+  .exp-map-disk {
+    fill: rgba(var(--color-accent-rgb), 0.04);
+    stroke: rgba(var(--color-accent-rgb), 0.2);
+  }
+  .exp-map-arm {
+    fill: none;
+    stroke: var(--color-text-dim);
+    stroke-width: 7;
+    stroke-linecap: round;
+    opacity: 0.24;
+  }
+  .exp-map-arm.minor {
+    stroke-width: 4;
+  }
+  .exp-map-bulge {
+    fill: rgba(var(--color-warning-rgb), 0.18);
+  }
+  .exp-map-core {
+    fill: var(--color-warning);
+  }
+  .exp-map-ring {
+    fill: rgba(var(--color-accent-rgb), 0.08);
+    stroke: var(--color-accent);
+    stroke-width: 1.4;
+  }
+  .exp-map-home {
+    fill: var(--color-accent);
+    stroke: var(--color-bg-deep);
+    stroke-width: 1.5;
+  }
+  .exp-map-badge {
+    cursor: pointer;
+  }
+  .exp-map-badge circle {
+    fill: var(--color-bg-deep);
+    stroke: var(--color-accent);
+    stroke-width: 1.4;
+  }
+  .exp-map-badge text {
+    fill: var(--color-accent-bright);
+    font: 700 8.5px var(--font-mono, monospace);
+  }
+  .exp-map-badge.locked circle {
+    stroke: var(--color-text-dim);
+    stroke-dasharray: 2.5 2;
+  }
+  .exp-map-badge.locked text {
+    fill: var(--color-text-dim);
+  }
+  .exp-map-badge.sel circle {
+    stroke-width: 3;
+  }
+  .exp-map-badge:focus-visible {
+    outline: none;
+  }
+  .exp-map-badge:focus-visible circle {
+    stroke: var(--color-warning);
+    stroke-width: 3;
+  }
+  .exp-map-label {
+    fill: var(--color-text-secondary);
+    font: 600 10px system-ui, sans-serif;
+    paint-order: stroke;
+    stroke: var(--color-bg-deep);
+    stroke-width: 3px;
+  }
+  .exp-map-label.small {
+    font-size: 9px;
+    fill: var(--color-text-dim);
+  }
+  .exp-map-legend {
+    font-size: var(--text-2xs);
+    color: var(--color-text-dim);
+    text-align: center;
+  }
+
+  /* The tab panel: the tier's facts, then the locked panel or the cards. */
+  .exp-tabpanel {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    min-width: 0;
+  }
+  .exp-facts {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  .exp-facts .exp-chip,
+  .exp-target-top .exp-chip {
+    white-space: normal;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+  }
+  .exp-training-note {
+    font-style: normal;
+    font-size: var(--text-xs);
+    border-left: 2px solid var(--color-success);
+    padding-left: 8px;
+  }
+  .exp-locked {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 12px;
+  }
+  @container (min-width: 769px) {
+    .exp-locked {
+      grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
+    }
+  }
+  .exp-locked-gates,
+  .exp-locked-peek {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-width: 0;
+  }
+  .exp-locked-head {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-family: var(--font-display);
+    font-size: var(--text-sm);
+    color: var(--color-text-primary);
+  }
+  .exp-gatelist,
+  .exp-peek {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    gap: 6px;
+  }
+  .exp-gatelist li {
+    display: grid;
+    grid-template-columns: 20px minmax(0, 1fr);
+    gap: 6px;
+    font-size: var(--text-sm);
+    color: var(--color-text-primary);
+  }
+  .exp-gatelist small {
+    display: block;
+    font-size: var(--text-xs);
+    color: var(--color-text-secondary);
+  }
+  .exp-gatelist-glyph {
+    color: var(--color-text-dim);
+  }
+  .exp-gatelist .met .exp-gatelist-glyph {
+    color: var(--color-success);
+  }
+  .exp-gatelist .unmet .exp-gatelist-glyph {
+    color: var(--color-warning);
+  }
+  .exp-peek li {
+    display: flex;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 6px 8px;
+    border: 1px dashed rgba(var(--color-accent-rgb), 0.22);
+    border-radius: var(--corner);
+    color: var(--color-text-dim);
+    font-size: var(--text-xs);
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+
+  /* The candidate and resume cards: a wrapping grid (three across on a wide console, one at 375 px). */
+  .exp-cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, 210px), 1fr));
+    gap: 8px;
+  }
+  .exp-target {
+    min-width: 0;
+  }
+  .exp-target.resume {
+    border-style: dashed;
+    border-color: var(--color-accent);
+  }
+  .exp-resume-wrap {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 0;
+  }
+  .exp-resume-foot {
+    font-size: var(--text-2xs);
+    color: var(--color-text-dim);
+  }
+  .exp-chip.star,
+  .exp-chip.resume {
+    background: none;
+    border: 1px solid var(--color-accent);
+    color: var(--color-accent-bright);
+  }
+  .exp-chip.enemy {
+    background: none;
+    border: 1px dashed var(--color-danger);
+    color: var(--color-danger);
+  }
+  .exp-chip.train {
+    background: none;
+    border: 1px solid var(--color-success);
+    color: var(--color-success);
+  }
+  .exp-chip.warn {
+    background: none;
+    border: 1px solid var(--color-warning);
+    color: var(--color-warning);
+  }
+  .exp-rows {
+    display: grid;
+    grid-template-columns: 76px minmax(0, 1fr);
+    gap: 4px 8px;
+    font-size: var(--text-xs);
+    color: var(--color-text-secondary);
+    min-width: 0;
+  }
+  .exp-row-k {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    color: var(--color-text-dim);
+  }
+  .exp-row-v {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+  .exp-row-small {
+    font-size: var(--text-2xs);
+    color: var(--color-text-dim);
+  }
+  .exp-riskrow {
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: 2px 8px;
+  }
+  .exp-riskrow span {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+  }
+  .exp-riskrow .hi {
+    color: var(--color-warning);
+    font-weight: 600;
+  }
+  .exp-gates {
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: 2px 10px;
+  }
+  .exp-gates span,
+  .exp-met {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+  }
+  .exp-met {
+    color: var(--color-success);
+  }
+  .exp-unmet {
+    color: var(--color-warning);
+  }
+  /* The reach bar (the mockup's section 4): filled to the round trip's share of the reach; past it, hatched full with
+     the reach marked (shape, not only color). */
+  .exp-reach {
+    position: relative;
+    display: block;
+    height: 8px;
+    margin: 3px 0 2px;
+    border: 1px solid rgba(var(--color-accent-rgb), 0.4);
+    border-radius: var(--corner);
+    background: var(--color-bg-deep);
+    overflow: hidden;
+  }
+  .exp-reach i {
+    position: absolute;
+    inset: 0 auto 0 0;
+    background: var(--color-accent);
+  }
+  .exp-reach.over i {
+    background: repeating-linear-gradient(45deg, var(--color-warning) 0 4px, transparent 4px 7px);
+  }
+  .exp-reach b {
+    position: absolute;
+    top: -2px;
+    bottom: -2px;
+    width: 2px;
+    background: var(--color-text-primary);
+  }
+  .exp-target-reason {
+    display: flex;
+    align-items: flex-start;
+    gap: 6px;
+    font-size: var(--text-xs);
+    color: var(--color-warning);
+  }
+
+  /* The launch bar under the candidates. */
+  .exp-launchbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px 14px;
+    padding: 10px;
+    border: 1px solid rgba(var(--color-accent-rgb), 0.4);
+    border-radius: var(--corner);
+    background: rgba(var(--color-accent-rgb), 0.06);
+  }
+  .exp-launch-sel {
+    display: grid;
+    gap: 4px;
+    min-width: 0;
+    flex: 1 1 220px;
+    font-size: var(--text-sm);
+    color: var(--color-text-primary);
+    overflow-wrap: anywhere;
+  }
+  .exp-launch-kits {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px 10px;
+    font-size: var(--text-xs);
+    color: var(--color-text-secondary);
+  }
+  .exp-launch-kits span {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+  }
+  .exp-launch-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  /* The recalled stepper, the flying-home line, the claim card and the confirms. */
+  .exp-step.cut {
+    color: var(--color-text-dim);
+    text-decoration: line-through;
+  }
+  .exp-step.cut .exp-step-dot {
+    border-style: dashed;
+    background: none;
+  }
+  .exp-step-link.cut {
+    background: repeating-linear-gradient(90deg, rgba(var(--color-accent-rgb), 0.3) 0 3px, transparent 3px 6px);
+  }
+  .exp-step.recalled {
+    color: var(--color-warning);
+    font-weight: 600;
+    /* "Recalled · home in 12h 30m" wraps inside the stepper at 375 px rather than pushing it sideways. */
+    min-width: 0;
+  }
+  .exp-step.recalled .exp-step-label {
+    overflow-wrap: anywhere;
+  }
+  /* A recalled run's stepper (review fix): every step may shrink and its label wrap, so "Recalled · home in 2d 4h" fits
+     a 375 px console without pushing the row sideways. */
+  .exp-stepper.recalled .exp-step {
+    min-width: 0;
+    flex: 0 1 auto;
+  }
+  .exp-stepper.recalled .exp-step.recalled {
+    flex: 1 1 auto;
+  }
+  .exp-stepper.recalled .exp-step-label {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+  /* A resume card on a locked region: dimmed, not selectable (its gate line says why); Abandon stays below it. */
+  .exp-target.resume.locked {
+    opacity: 0.7;
+    cursor: default;
+  }
+  .exp-target.resume.locked:hover {
+    border-color: var(--color-accent);
+  }
+  .exp-step.recalled .exp-step-dot {
+    border-color: var(--color-warning);
+    color: var(--color-warning);
+  }
+  .exp-recalled-note,
+  .exp-recall-claim {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px 10px;
+    font-size: var(--text-xs);
+    color: var(--color-text-secondary);
+  }
+  .exp-recall-claim {
+    padding: 8px 10px;
+    border: 1px solid rgba(var(--color-accent-rgb), 0.3);
+    border-radius: var(--corner);
+  }
+  .exp-recall-claim strong {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    width: 100%;
+    color: var(--color-text-primary);
+  }
+  .exp-recall-confirm p {
+    display: flex;
+    align-items: flex-start;
+    gap: 6px;
+    margin: 0 0 6px;
+  }
+  .exp-recall-confirm ul {
+    margin: 6px 0;
+    padding-left: 18px;
+    font-size: var(--text-sm);
+  }
+  .exp-abandon-text {
+    margin: 0;
   }
 </style>

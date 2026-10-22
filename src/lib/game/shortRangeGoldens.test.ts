@@ -165,6 +165,7 @@ import { R2_2_ADDED_ENTRY_IDS } from "./relicBlanks.fixture";
 import { R2_3_ADDED_ENTRY_IDS } from "./relicIdentify.fixture";
 import { R2_4_ADDED_ENTRY_IDS } from "./relicMuseumV2.fixture";
 import { G2_4_ADDED_ENTRY_IDS, G2_4_FLIPPED_BEFORE } from "./propulsionRecallGoldens.fixture";
+import { G2_6_ADDED_ENTRY_IDS, G2_6_FLIPPED_BEFORE } from "./expeditionConsoleRegistry.fixture";
 // CP-8 / OC-11: the test switch that proves the auto-crew pause is the only thing that moved the fleet pin.
 vi.mock("./crewLock", async (io) => (await import("./complementOc11Switch.fixture")).oc11CrewLockMock(io));
 import { withOc11Off } from "./complementOc11Switch.fixture";
@@ -629,6 +630,9 @@ const RX_SLICE: RegistrySlice = { added: RX_ADDED_ENTRY_IDS };
 const G2_4_PENDING_FLIPS: RegistrySlice = { flipped: new Set(Object.keys(G2_4_FLIPPED_BEFORE).filter((id) => G2_4_FLIPPED_BEFORE[id].kind === "pending")), was: "pending" };
 const G2_4_SEAM_FLIPS: RegistrySlice = { flipped: new Set(Object.keys(G2_4_FLIPPED_BEFORE).filter((id) => G2_4_FLIPPED_BEFORE[id].kind === "seam")), was: "seam" };
 const G2_4_SLICES: readonly RegistrySlice[] = [{ added: G2_4_ADDED_ENTRY_IDS }, G2_4_PENDING_FLIPS, G2_4_SEAM_FLIPS];
+// Expedition Tiers G2-6 (the console's region picker and recall), after every pin here: the three rows it ADDS and the
+// rows it FLIPS pending -> live (expeditionConsoleRegistry.fixture.ts), held apart the same way in EVERY pin.
+const G2_6_SLICES: readonly RegistrySlice[] = [{ added: G2_6_ADDED_ENTRY_IDS }, { flipped: new Set(Object.keys(G2_6_FLIPPED_BEFORE)), was: "pending" }];
 // G1-6 (SHORT_RANGE_BOARD_LIVE, the board UI), after every pin here too: the two Mission Control board rungs it put in
 // FACILITIES (each a facility rung entry) and G1-3's audit row, flipped pending -> live with its gate check. Held apart
 // in EVERY pin (the RX_SLICE pattern); "G1-6 is the only cause" below proves that is the whole move.
@@ -659,7 +663,7 @@ const ML3_SLICE: RegistrySlice = { flipped: ML3_FLIPPED_LIVE, was: "pending" };
 // GG-3 also ADDS one entry (the probe dive seam), left out the same way.
 const GG_STUDY_SLICE: RegistrySlice = { added: GG_STUDY_ADDED_ENTRY_IDS, flipped: new Set(GG_STUDY_FLIPPED_BEFORE.keys()), was: "pending" };
 function registryPin(...given: readonly RegistrySlice[]): [number, string] {
-  const slices = [RX_SLICE, FUSE_SLICE, ML2_SLICE, OC15_SLICE, R2_2_SLICE, R2_3_SLICE, R2_4_SLICE, G16_SLICE, ...G2_4_SLICES, ML3_SLICE, GG_STUDY_SLICE, ...given];
+  const slices = [RX_SLICE, FUSE_SLICE, ML2_SLICE, OC15_SLICE, R2_2_SLICE, R2_3_SLICE, R2_4_SLICE, G16_SLICE, ...G2_4_SLICES, ...G2_6_SLICES, ML3_SLICE, GG_STUDY_SLICE, ...given];
   const rows = siReadBack(WIRING_REGISTRY.map((e) => ({ id: e.id, kind: e.status.kind as string })), (r) => r.id, (row) => ({ id: row[0], kind: row[1].kind as string }));
   const lines = rows.filter((e) => !slices.some((sl) => sl.added?.has(e.id))).map((e) => {
     const flip = slices.find((sl) => sl.flipped?.has(e.id));
