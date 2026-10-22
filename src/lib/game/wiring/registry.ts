@@ -101,8 +101,10 @@ import { DEPARTMENT_OF_SEAT, OFFICER_STAT_NEUTRAL, XO_DEPARTMENT_SHARE, officerS
 import { CREW_EFFECTIVENESS_KNEE, OFFICER_BONUSES_PENDING_IN_RELEASE, POWER_EFFICIENCY_KNEE } from "../crewOverlay";
 import { patrolCycleOneRampHours } from "../tick";
 import { constitutionRamp } from "../constitutionRamp";
-import { DRIVE_CLASS_REACH_MULT } from "../propulsion";
-import { voyageClassSteps } from "../voyage";
+import { DRIVE_CLASS_REACH_MULT, FRONTIER_SENSORS } from "../propulsion";
+import { TIER_TRANSIT_HOURS, VOYAGE_BAND_SCALE_PERMILLE, voyageClassSteps } from "../voyage";
+import { TIER_HAUL_MULT } from "../riskFactors";
+import { recallExpedition } from "../expedition";
 import { AWAY_TRAITS, type AwayTraitDef } from "../awayTraits";
 import { FIRST_AID_TRAINED_EFFECTIVENESS, FIRST_AID_UNTRAINED_EFFECTIVENESS, GAMBIT_PRESETS, GAMBIT_STATUSES, STONESKIN_BATTLE_RESIST } from "../gambit";
 import { applyMemberGambitPreset } from "../memberGambits";
@@ -187,6 +189,8 @@ import {
   sourceOn,
   FIELD_KITS_SWITCH_PROBE_STOCK,
   relicV2ProbeExpectedExceptional,
+  RECALL_PROBE_SHARE,
+  launchedAndAt,
   type ContextId,
   type ProbeId,
   type Transform,
@@ -426,11 +430,9 @@ function pending(owner: string, contexts?: readonly ContextId[]): WiringStatus {
 // pools + exclusive pool live, design 6.2)", was split into CP-1 to CP-4; CP-2 and the inert-racials slice (0.14.0,
 // user "everything wired" 2026-10-20) took the rest live. Exported for the liveness parity test (the renamed owner).
 export const CP_3 = "Complement plan CP-3 (Ground Ops complement consumers: Security, Medical, exclusive pool)";
-// Expedition Tiers G2-2 (plan 2026-10-14 G2-2: "the console still shows Tier I only (G2-6 adds the picker); a hidden
-// region is reachable by tests only"): every tier's candidates are built and tested (expeditionTierCandidates.test.ts),
-// but no player reaches a deeper tier until the console offers it, so the tier-gated sources wait on G2-6.
-const G2_6_PICKER = "G2-6 (the region picker: G2-2 built every tier's candidates, the console offers Tier I until then)";
-const G2_6_RECALL = "G2-6 (the recall button, its one confirm and the Resume cards: G2-5 built the engine)";
+// Expedition Tiers G2-6 (the dispatch console's region picker and recall): the tier-gated sources G2-2 to G2-5 left to
+// it (owners "G2-6 (the region picker ...)" and "G2-6 (the recall button ...)") are live, each with its own check
+// (auditRowWiring below; expeditionConsoleRegistry.fixture.ts G2_6_FLIPPED_BEFORE holds the flips apart in the pins).
 const PILOT_CUNNING = "pending user decision (officerStats.ts CUNNING_PENDING_SEATS)";
 // Gear wear (0.14.0, design docs/plans/2026-10-16-gear-wear-design.md section 11) owners: step 3 wires the use wear
 // sources, the repair contexts and the economy / ground efficiency; step 4 the combat half (battle wear, the
@@ -1627,14 +1629,18 @@ function facilityRungEntries(): WiringEntry[] {
         const t = eff.telescope as { detail: number; reachTier: number };
         const prev = i > 0 ? ((fdef.upgrades[i - 1].effect as unknown as { telescope: { detail: number; reachTier: number } }).telescope) : { detail: 0, reachTier: 0 };
         const detailMoves = t.detail !== prev.detail;
+        // G2-6: a rung that only moves the reach tier is live on the region picker (the tiers whose candidates the
+        // console reads instead of launching blind); a detail rung reads its detail (information only, by design).
         out.push(
           entry({
             ...common,
-            probe: detailMoves ? "telescopeDetail" : undefined,
-            contexts: detailMoves ? ["expedition:groundOps"] : [],
-            magnitude: () => t.detail - prev.detail,
-            status: detailMoves ? LIVE : pending(G2_6_PICKER),
-            note: "detail is information only (by design); the reach tier waits for the console to offer deeper tiers (G2-6)",
+            probe: detailMoves ? "telescopeDetail" : "telescopeReach",
+            contexts: detailMoves ? ["expedition:groundOps"] : ["facility", "expedition:groundOps"],
+            magnitude: () => (detailMoves ? t.detail - prev.detail : t.reachTier - prev.reachTier),
+            status: LIVE,
+            note: detailMoves
+              ? "detail is information only (by design); its reach tier reads on the SUBSPACE_TELESCOPE_LEVELS entries"
+              : "the reach tier: the deepest region tier whose candidates the console's picker reads (G2-6)",
           }),
         );
       } else if ("unlocksContent" in eff) {
@@ -1713,9 +1719,8 @@ function trackEntries(): WiringEntry[] {
     ),
   );
   // The Subspace Telescope ladder, rung by rung: the reading reaches the rung's region tier and reads its detail.
-  // The reach is information on the card today; the console offers Tier I candidates until G2-6 adds the region
-  // picker (G2-2 built every tier's candidates; the PARTIAL check
-  // reads the highest tier the candidates offer).
+  // Since G2-6 the console's region picker offers every tier, so the reach is live at Ground Ops too: it decides the
+  // deepest tier whose candidates the console reads (probes.ts telescopeReach there), not only the card's line.
   for (const row of SUBSPACE_TELESCOPE_LEVELS) {
     const at = (s: GameState) => withFacilityLevel(s, SUBSPACE_TELESCOPE_FACILITY_KEY, row.level);
     const below = (s: GameState) => withFacilityLevel(s, SUBSPACE_TELESCOPE_FACILITY_KEY, row.level - 1);
@@ -1727,14 +1732,14 @@ function trackEntries(): WiringEntry[] {
         source: { catalog: "SUBSPACE_TELESCOPE_LEVELS", key: `${row.level}:reachTier` },
         claim: `Telescope level ${row.level} reaches region tier ${row.reachTier}`,
         probe: "telescopeReach",
-        contexts: ["facility"],
+        // G2-6: the console's region picker reads every tier, so the reach tier decides which tiers' candidates read
+        // (risk, objectives) and which launch blind.
+        contexts: ["facility", "expedition:groundOps"],
         direction: "none",
         curve: { kind: "equals" },
         magnitude: value("reachTier"),
         on: at,
         off: below,
-        status: pending(G2_6_PICKER, ["expedition:groundOps"]),
-        flatChecks: { "expedition:groundOps": { probe: "candidateTopTier" } },
       }),
       entry({
         id: `facility:SUBSPACE_TELESCOPE_LEVELS:${row.level}:detail`,
@@ -3597,37 +3602,43 @@ const AUDIT_ROWS: readonly { id: string; system: WiringSystem; claim: string; st
   { id: "away:audit:statusPicker", system: "away", claim: "Status picker entries that never match (only six of nine statuses can fire)", status: pending("FK-9 + WR-10") },
   { id: "away:audit:fieldRepairOrder", system: "away", claim: "Player-ordered field repair (engine only, no UI)", status: pending("WR-10, OC-F14") },
   { id: "away:audit:legacyOnly", system: "away", claim: "Legacy-only: MAX_BATTLE_ATTEMPTS, EVAC_REWARD_FRACTION, ENCOUNTER_DROP_SCALE, scan ground battles, softenAmbush, the flat 2 h injury", status: pending("OC-G1") },
-  { id: "away:audit:tierDormant", system: "away", claim: "Tier-dormant rows: RISK_TIER_ODDS II to VII, enemy territory (the homeworld's fixed sectors), hostile sites, SCIENCE_HEAVY, affix rows above Tier I, the tier haul TIER_HAUL_MULT II to VII, TIER_BODY_COUNT II to VII, the deeper famous systems, DIFFICULTY_TIER_ROLL_MULT", status: pending(`${G2_6_PICKER}, SF-3`) },
+  // Expedition Tiers G2-6: the region picker offers every tier, so the tier rows read on a player's launch (the run's
+  // risk profile at the picked tier). The tier haul and the tier body counts have their own rows (the G2-2 review
+  // note); the future difficulty tiers keep theirs (nothing designed yet).
+  { id: "away:audit:tierDormant", system: "away", claim: "The tier rows a deeper launch reads: RISK_TIER_ODDS II to VII, enemy territory (the homeworld's fixed sectors), hostile sites, SCIENCE_HEAVY, affix rows above Tier I, the deeper famous systems", status: LIVE },
+  { id: "away:audit:tierHaulMult", system: "away", claim: "The tier haul TIER_HAUL_MULT II to VII: every objective's haul of a deeper run, x1.25 to x3.3 (user G16)", status: LIVE },
+  { id: "expedition:audit:tierBodyCount", system: "expedition", claim: "TIER_BODY_COUNT II to VII: deeper systems hold more bodies, up to 3 to 5 at Tiers VI and VII (user G17)", status: LIVE },
+  { id: "away:audit:difficultyTiers", system: "away", claim: "DIFFICULTY_TIER_ROLL_MULT above the base difficulty tier (the future difficulty tiers hook: one row today)", status: pending("SF-3 follow-up (the future difficulty tiers: nothing designed; objective affixes capture 2026-10-14)") },
   { id: "away:audit:objectiveHooks", system: "away", claim: "taskChainFollowUp, calmObjective, affix weightFor (no caller)", status: pending("OC-C4") },
   // G. Expedition content
   { id: "expedition:audit:siteFlavor", system: "expedition", claim: "Hostile and clearing site flavor (never rendered)", status: pending("WR-11 (render; no call)") },
   { id: "expedition:audit:anomalyFinding", system: "expedition", claim: "Charting the anomaly costs a detour (a voyage run: 25% of its outbound leg; an older run: 1 h) and pays nothing (B15)", status: pending("WR-11, OC-G3") },
   // Expedition Tiers G2-3: the voyage engine reaches every tier and every drive class (voyage.test.ts proves the ladder,
-  // the band scale and the halving); no player reaches a deeper tier until the picker, nor a class above I until G2-4.
-  { id: "expedition:audit:voyageDeepTiers", system: "expedition", claim: "The voyage ladder above Tier I: TIER_TRANSIT_HOURS II 4 h, III 8 h, IV 12 h, V 24 h, VI 72 h, VII 168 h", status: pending(G2_6_PICKER) },
+  // the band scale and the halving); since G2-6 a player picks any tier on the console, so the deeper ladder is live.
+  { id: "expedition:audit:voyageDeepTiers", system: "expedition", claim: "The voyage ladder above Tier I: TIER_TRANSIT_HOURS II 4 h, III 8 h, IV 12 h, V 24 h, VI 72 h, VII 168 h", status: LIVE },
   // Expedition Tiers G2-4 (propulsion.ts): a Class II drive is researchable, installable and halves a Tier I leg today;
   // the deep-space reach reads its class at every launch; no hull but an explorer launches. The tier gates themselves
-  // (drive class and frontier sensors per tier) only refuse at Tier II and deeper, which no player picks until G2-6.
+  // (drive class and frontier sensors per tier) refuse at Tier II and deeper, which a player picks on the G2-6 console.
   { id: "expedition:audit:voyageDriveClass", system: "expedition", claim: "A voyage leg halves per drive class above the tier's minimum (voyage.ts voyageClassSteps; the ship's class: propulsion.ts shipDriveClass)", status: LIVE },
   { id: "expedition:audit:deepSpaceReach", system: "expedition", claim: "Deep-space reach: the gear-inclusive range x DRIVE_CLASS_REACH_MULT by drive class x the Engineering long-haul ramp, against the round trip (outOfReach)", status: LIVE },
   { id: "expedition:audit:explorerHullGate", system: "expedition", claim: "Only an explorer hull launches an expedition, Tier I included (notExplorer)", status: LIVE },
-  { id: "expedition:audit:driveClassTierGate", system: "expedition", claim: "A tier asks for a drive class at least its own number (driveClassTooLow, driveClassUnavailable)", status: pending(G2_6_PICKER) },
-  { id: "expedition:audit:frontierSensors", system: "expedition", claim: "Frontier sensors to attempt a tier: FRONTIER_SENSORS I 0, II 10, III 20, IV 30, V 40, VI 55, VII 65 (frontierSensors)", status: pending(G2_6_PICKER) },
+  { id: "expedition:audit:driveClassTierGate", system: "expedition", claim: "A tier asks for a drive class at least its own number (driveClassTooLow, driveClassUnavailable)", status: LIVE },
+  { id: "expedition:audit:frontierSensors", system: "expedition", claim: "Frontier sensors to attempt a tier: FRONTIER_SENSORS I 0, II 10, III 20, IV 30, V 40, VI 55, VII 65 (frontierSensors)", status: LIVE },
   { id: "expedition:audit:hullBaseDriveClass", system: "expedition", claim: "A hull's base drive class from its tier (propulsion.ts hullBaseDriveClass): every explorer built today is Class I", status: { kind: "seam", owner: "the first tier 3 explorer hull (none is built yet)", userRef: "G2 OC-3 (user 2026-10-16): \"A combination of higher tier ships and better drive blueprints/stats/etc.\"" } },
   // Expedition Tiers G2-5: the recall and the resumable systems are built in the engine (expeditionRecall.test.ts proves
-  // the 1:1 times, the closing window and the resume); no player can recall or resume until G2-6's console.
-  { id: "expedition:audit:recall", system: "expedition", claim: "Recall: home in the outbound time flown (the detour not counted), or after arrival the window closes, one shared pickup, then the full return leg; finished work comes home", status: pending(G2_6_RECALL) },
-  { id: "expedition:audit:resumableSystems", system: "expedition", claim: "A recalled system with charted bodies stays open to resume by any explorer (scans done, objectives keep progress, the trip flown again) until finished or abandoned; one recalled before anything was charted is an ordinary candidate again", status: pending(G2_6_RECALL) },
+  // the 1:1 times, the closing window and the resume); G2-6's console recalls, resumes and abandons.
+  { id: "expedition:audit:recall", system: "expedition", claim: "Recall: home in the outbound time flown (the detour not counted), or after arrival the window closes, one shared pickup, then the full return leg; finished work comes home", status: LIVE },
+  { id: "expedition:audit:resumableSystems", system: "expedition", claim: "A recalled system with charted bodies stays open to resume by any explorer (scans done, objectives keep progress, the trip flown again) until finished or abandoned; one recalled before anything was charted is an ordinary candidate again", status: LIVE },
   { id: "facility:audit:heldDriveClasses", system: "facility", claim: "The Class III to VII Drive Blueprints (DRIVE_CLASS_BLUEPRINTS) join BLUEPRINTS once the Research Lab and Fabricator tracks reach their tiers", status: LIVE },
   { id: "expedition:audit:anomalySensors", system: "expedition", claim: "ANOMALY_CHANCE_PERMILLE: \"if sensors detect one\" (sensors not read)", status: pending("WR-11, OC-G3") },
   { id: "expedition:audit:relicSignature", system: "expedition", claim: "Foreknowledge relicSignature (the UI never reads it)", status: pending("WR-11 (delete or render; no call)") },
-  { id: "expedition:audit:blindLaunch", system: "expedition", claim: "The blind launch path (a candidate past the telescope's reach: a deeper tier)", status: pending(G2_6_PICKER) },
-  { id: "expedition:audit:oddsRiskyBelow", system: "expedition", claim: "ODDS_RISKY_BELOW (behind tier > 2)", status: pending(G2_6_PICKER) },
+  { id: "expedition:audit:blindLaunch", system: "expedition", claim: "The blind launch path (a candidate past the telescope's reach: a deeper tier)", status: LIVE },
+  { id: "expedition:audit:oddsRiskyBelow", system: "expedition", claim: "ODDS_RISKY_BELOW (behind tier > 2)", status: LIVE },
   { id: "expedition:audit:shipEventProfileFields", system: "expedition", claim: "ShipEventProfile evasion and shieldCapacity (frozen, never read)", status: pending("WR-11, OC-G5") },
   { id: "expedition:audit:planetComments", system: "expedition", claim: "Planet comments: Ocean slower work, Frozen best relic survival, Toxic hardened team", status: pending("OC-G6") },
   { id: "expedition:audit:legacyFallbacks", system: "expedition", claim: "FIGHT_POINTS_DEFAULT / MIN, SURVEY_AMBUSH_CHANCE (old runs only)", status: pending("OC-G1") },
   // H. Relics v2 R2-2 (relicBlanks.ts): live on every new run at Tier I; the rest waits for the slice that reaches it.
-  { id: "relic:audit:blankTiers", system: "relic", claim: "Relic blanks above Tier I: RELIC_BLANK_WEIGHTS II to VII (a deeper find rolls rarer on the same chance, user call 13 \"Better rarity only\")", status: pending(G2_6_PICKER) },
+  { id: "relic:audit:blankTiers", system: "relic", claim: "Relic blanks above Tier I: RELIC_BLANK_WEIGHTS II to VII (a deeper find rolls rarer on the same chance, user call 13 \"Better rarity only\")", status: LIVE },
   { id: "relic:audit:blankCulture", system: "relic", claim: "A blank's culture (cultureForBody, stamped on every new run's relic): the culture study reads it", status: pending("Relics v2 R2-6 (cultures: study points and the name reveal)") },
   { id: "relic:audit:shortRangeBlanks", system: "relic", claim: "Short-range relic drops (rollShortRangeRelicBlanks: per hour, Tier I 0.08x and Tier II 0.15x of the expedition rate)", status: pending("G1-5 (wires the hook into a delivered short-range cycle)") },
   { id: "relic:audit:completionBlank", system: "relic", claim: "The planet 100% bonus roll (planetCompletionRelicBlank: one extra blank, one rarity step up)", status: pending("G7 (calls the hook when a planet is fully completed)") },
@@ -3781,6 +3792,126 @@ function auditRowWiring(): Readonly<Record<string, Partial<EntryInput>>> {
       on: (s) => installMissingCombatBaselines(editShip(s, { typeKey: "orion" })),
       off: identity,
     },
+    // ===== Expedition Tiers G2-6: the console's region picker and recall (probes.ts consoleLaunch: the deepest tier
+    // ship-1 can attempt, its nearest candidate in reach, the gated launch a player's Launch sends) =====
+    // A Tier II launch needs a Class II drive (the Orion's sensors cleared first); with Class I it is refused.
+    "expedition:audit:driveClassTierGate": {
+      probe: "tierTwoLaunchAllowed",
+      contexts: ["expedition:groundOps"],
+      curve: { kind: "gate" },
+      magnitude: () => 1,
+      base: () => consoleOrion(G2_6_SENSORS),
+      on: classedDrive("classIIDriveBp"),
+      off: classedDrive("balancedDriveBp"),
+    },
+    // With the Class II drive, Tier II asks for its frontier sensors: a stock Orion reads 0; FRONTIER_SENSORS[2] clears it.
+    "expedition:audit:frontierSensors": {
+      probe: "tierTwoLaunchAllowed",
+      contexts: ["expedition:groundOps"],
+      curve: { kind: "gate" },
+      magnitude: () => 1,
+      base: () => classedDrive("classIIDriveBp")(consoleOrion(0)),
+      on: (s) => installPiece(s, { slotType: "sensor", implicitStats: { sensors: FRONTIER_SENSORS[2] } }),
+      off: identity,
+    },
+    // The console's Tier II launch flies Tier II's ladder (4 h nominal), the Class I ship's Tier I launch Tier I's (2 h):
+    // at least the gap between Tier II's nearest and Tier I's farthest band position, at up to twice the stock speed.
+    "expedition:audit:voyageDeepTiers": {
+      probe: "consoleOutbound",
+      contexts: ["expedition:groundOps"],
+      curve: { kind: "event", metric: "seconds of the outbound leg (Tier II over Tier I)" },
+      magnitude: () => ((TIER_TRANSIT_HOURS[2] * VOYAGE_BAND_SCALE_PERMILLE.near - TIER_TRANSIT_HOURS[1] * VOYAGE_BAND_SCALE_PERMILLE.far) * 3.6) / 2,
+      base: () => consoleOrion(G2_6_SENSORS),
+      on: classedDrive("classIIDriveBp"),
+      off: classedDrive("balancedDriveBp"),
+    },
+    // The console's Tier II launch rolls its risk on Tier II's rows (RISK_TIER_ODDS, hostile sites, affixes...).
+    "away:audit:tierDormant": {
+      probe: "consoleRiskTier",
+      contexts: ["expedition:groundOps"],
+      magnitude: () => 1,
+      base: () => consoleOrion(G2_6_SENSORS),
+      on: classedDrive("classIIDriveBp"),
+      off: classedDrive("balancedDriveBp"),
+    },
+    // ...and pays Tier II's haul on every objective.
+    "away:audit:tierHaulMult": {
+      probe: "consoleHaulMult",
+      contexts: ["expedition:groundOps"],
+      curve: { kind: "linearRelative" },
+      magnitude: () => TIER_HAUL_MULT[2] / TIER_HAUL_MULT[1] - 1,
+      base: () => consoleOrion(G2_6_SENSORS),
+      on: classedDrive("classIIDriveBp"),
+      off: classedDrive("balancedDriveBp"),
+    },
+    // A Class VII ship's console reads Tier VII's systems (3 to 5 bodies each) where a Class I ship reads Tier I's (1 to 3).
+    "expedition:audit:tierBodyCount": {
+      probe: "consoleBodyCount",
+      contexts: ["expedition:groundOps"],
+      curve: { kind: "event", metric: "bodies across the three nearest candidates" },
+      magnitude: () => 1,
+      base: () => withFacilityLevel(consoleOrion(G2_6_SENSORS), SUBSPACE_TELESCOPE_FACILITY_KEY, 8),
+      on: classedDrive("classVIIDriveBp"),
+      off: classedDrive("balancedDriveBp"),
+    },
+    // A Tier II launch beyond a Level 1 telescope goes blind (counted); a Level 2 telescope reads Tier II.
+    "expedition:audit:blindLaunch": {
+      probe: "consoleBlindLaunches",
+      contexts: ["expedition:groundOps"],
+      curve: { kind: "gate" },
+      magnitude: () => 1,
+      base: () => classedDrive("classIIDriveBp")(consoleOrion(G2_6_SENSORS)),
+      on: (s) => withFacilityLevel(s, SUBSPACE_TELESCOPE_FACILITY_KEY, 1),
+      off: (s) => withFacilityLevel(s, SUBSPACE_TELESCOPE_FACILITY_KEY, 2),
+    },
+    // At Tier III (behind tier 2) the recommendation reads the fight odds (ODDS_RISKY_BELOW judges them); at Tier I never.
+    "expedition:audit:oddsRiskyBelow": {
+      probe: "consoleOddsRead",
+      contexts: ["expedition:groundOps"],
+      curve: { kind: "event", metric: "compositions whose fight odds the recommendation reads" },
+      magnitude: () => 1,
+      base: () => withFacilityLevel(consoleOrion(G2_6_SENSORS), SUBSPACE_TELESCOPE_FACILITY_KEY, 5),
+      on: classedDrive("classIIIDriveBp"),
+      off: classedDrive("balancedDriveBp"),
+    },
+    // A Tier II launch's relic blanks roll on Tier II's table (more weight above the standard rarity).
+    "relic:audit:blankTiers": {
+      probe: "consoleBlankShare",
+      contexts: ["expedition:groundOps"],
+      curve: { kind: "event", metric: "permille of the blank table above the standard rarity" },
+      magnitude: () => 1,
+      base: () => consoleOrion(G2_6_SENSORS),
+      on: classedDrive("classIIDriveBp"),
+      off: classedDrive("balancedDriveBp"),
+    },
+    // Recalled a quarter of the way out, the run flies home in a quarter of its return leg (1:1, user #7).
+    "expedition:audit:recall": {
+      probe: "runReturnSeconds",
+      contexts: ["expedition:groundOps"],
+      direction: "down",
+      curve: { kind: "linearRelative" },
+      magnitude: () => RECALL_PROBE_SHARE - 1,
+      tolerance: 2,
+      base: () => launchedAndAt(consoleOrion(0), "quarterOut"),
+      on: (s) => recallExpedition(s, s.expeditions[0].id),
+      off: identity,
+    },
+    // Recalled once a body is charted, the system stays open to resume; recalled in transit, it is a candidate again.
+    "expedition:audit:resumableSystems": {
+      probe: "resumableCount",
+      contexts: ["expedition:groundOps"],
+      curve: { kind: "gate" },
+      magnitude: () => 1,
+      base: () => consoleOrion(0),
+      on: (s) => {
+        const at = launchedAndAt(s, "firstCharted");
+        return recallExpedition(at, at.expeditions[0].id);
+      },
+      off: (s) => {
+        const at = launchedAndAt(s, "quarterOut");
+        return recallExpedition(at, at.expeditions[0].id);
+      },
+    },
     "ship:audit:weaponPowerDraw": {
       probe: "sheetPowerDraw",
       contexts: ["sheet"],
@@ -3812,6 +3943,14 @@ function emodAuditEntries(): WiringEntry[] {
       off: classedDrive("balancedDriveBp", draw),
     }),
   ];
+}
+
+// Expedition Tiers G2-6: an Orion (an explorer) fielding the minimum away team, with a sensor piece of `sensors` (0: none)
+// installed; G2_6_SENSORS clears every tier's frontier sensors (Tier VII asks 65).
+const G2_6_SENSORS = 70;
+function consoleOrion(sensors: number): GameState {
+  const s = withAwayTeam(wiringBase("orion"));
+  return sensors > 0 ? installPiece(s, { slotType: "sensor", implicitStats: { sensors } }) : s;
 }
 
 // Expedition Tiers G2-4: ship-1 with an FTL drive of blueprint `blueprintKey` installed (no stat lines, `powerDraw`).
@@ -4077,7 +4216,6 @@ export const FLAT_UNCONTROLLED: Readonly<Record<string, string>> = {
   "sciCombatPower@ground": "Science never fights (D2): nothing live reaches a Science member's battle stats",
   "secInflictPermille@ground:noInflict": "an inflict piece is the only live source of on-hit statuses, and this context is the one without it",
   "salvageTalentCeiling@salvage:topTier": "the pool's top tier is the clamp: nothing can raise the tier a top Fleet Admiral rolls",
-  "candidateTopTier@expedition:groundOps": "the console offers Tier I candidates until G2-6 adds the region picker (G2-2 built every tier): nothing raises the offered region tier",
 };
 
 // ============================================================================

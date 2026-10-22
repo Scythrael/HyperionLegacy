@@ -58,6 +58,7 @@ import { em5ReadBack } from "./emodEm5Registry.fixture";
 import { R2_2_ADDED_ENTRY_IDS } from "./relicBlanks.fixture";
 import { R2_3_ADDED_ENTRY_IDS } from "./relicIdentify.fixture"; // R2-3: its three audit rows, held apart the same way
 import { G2_4_ADDED_ENTRY_IDS, G2_4_FLIPPED_BEFORE } from "./propulsionRecallGoldens.fixture";
+import { G2_6_ADDED_ENTRY_IDS, G2_6_FLIPPED_BEFORE } from "./expeditionConsoleRegistry.fixture";
 // ML-3 (Material Lines: material quality on delivery, OC-D2): its registry move, read back by ml3RowsBack.
 import { ml3RowsBack } from "./materialQualityGoldens.fixture";
 
@@ -650,10 +651,12 @@ const BEFORE_RX: WiringEntry[] = siReadBack(
   em5ReadBack(WIRING_REGISTRY).filter(
     (e) =>
       !RX_ADDED_ENTRY_IDS.has(e.id) && !FUSE_ADDED_ENTRY_IDS.has(e.id) && !R2_2_ADDED_ENTRY_IDS.has(e.id) && !R2_3_ADDED_ENTRY_IDS.has(e.id) && !G16_ADDED_IDS.has(e.id) &&
-      !G2_4_ADDED_ENTRY_IDS.has(e.id) && !OC15_ADDED_ENTRY_IDS.has(e.id) && !GG_STUDY_ADDED_ENTRY_IDS.has(e.id),
+      !G2_4_ADDED_ENTRY_IDS.has(e.id) && !OC15_ADDED_ENTRY_IDS.has(e.id) && !GG_STUDY_ADDED_ENTRY_IDS.has(e.id) && !G2_6_ADDED_ENTRY_IDS.has(e.id),
   ).map((e) =>
     e.id === G13_ROW
       ? { ...e, status: G16_ROW_BEFORE as (typeof WIRING_REGISTRY)[number]["status"], contexts: [], probe: undefined }
+      : e.id in G2_6_FLIPPED_BEFORE
+        ? ({ ...e, ...G2_6_FLIPPED_BEFORE[e.id] } as unknown as WiringEntry)
       : e.id in G2_4_FLIPPED_BEFORE
         ? { ...e, status: G2_4_FLIPPED_BEFORE[e.id], contexts: [], probe: undefined }
         : GG_STUDY_FLIPPED_BEFORE.has(e.id)
@@ -809,7 +812,7 @@ describe("EM-0 goldens (re-pinned by EM-1 where named)", () => {
     // and G2-4's additions are held apart here the same way, so the comparison sees G1-6's move alone. E-MOD EM-5's move is
     // read back first (em5ReadBack), as BEFORE_RX does; Gas Giant Study GG-3's added seam is held apart too.
     const live = em5ReadBack(WIRING_REGISTRY).filter(
-      (e) => !RX_ADDED_ENTRY_IDS.has(e.id) && !FUSE_ADDED_ENTRY_IDS.has(e.id) && !R2_2_ADDED_ENTRY_IDS.has(e.id) && !R2_3_ADDED_ENTRY_IDS.has(e.id) && !G2_4_ADDED_ENTRY_IDS.has(e.id) && !OC15_ADDED_ENTRY_IDS.has(e.id) && !GG_STUDY_ADDED_ENTRY_IDS.has(e.id),
+      (e) => !RX_ADDED_ENTRY_IDS.has(e.id) && !FUSE_ADDED_ENTRY_IDS.has(e.id) && !R2_2_ADDED_ENTRY_IDS.has(e.id) && !R2_3_ADDED_ENTRY_IDS.has(e.id) && !G2_4_ADDED_ENTRY_IDS.has(e.id) && !OC15_ADDED_ENTRY_IDS.has(e.id) && !GG_STUDY_ADDED_ENTRY_IDS.has(e.id) && !G2_6_ADDED_ENTRY_IDS.has(e.id),
     );
     const rung = live.filter((e) => G16_ADDED_IDS.has(e.id)).map((e) => [e.id, e.status, e.contexts, e.probe ?? null]);
     expect(rung).toEqual([...G16_ADDED_IDS].map((id) => [id, { kind: "live" }, ["mission:shortRange"], "shortRangeSlots"]));

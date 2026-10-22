@@ -52,6 +52,7 @@ import {
   type GambitStatusId,
   type GambitTargetSelector,
   type GameState,
+  type RegionTier,
   type TimedProcessKind,
   type MissionKey,
   type ObjectiveAffix,
@@ -131,11 +132,23 @@ import {
   depositExpeditionFindings,
   discoveryOddsPermille,
   expeditionCandidates,
+  expeditionLaunchView,
+  expeditionSystemGate,
+  resumableSystems,
+  returnDurationSeconds,
   rollBodyDiscoveries,
   scanEncounterChance,
   scanRatePerSecond,
   startExpedition,
+  tierCandidateSystems,
+  type CandidateSystem,
+  type ExpeditionDispatchResult,
 } from "../expedition";
+// Expedition Tiers G2-6: the region picker's readers (the console's tab per tier reads expeditionTierGates).
+import { expeditionTierGates } from "../propulsion";
+import { REGION_TIERS } from "../galaxy";
+import { tierHaulMult } from "../riskFactors";
+import { relicBlankStamp, relicBlankTable } from "../relicBlanks";
 import {
   GAMBIT_STATUSES,
   activityRelicFindBonus,
@@ -186,7 +199,7 @@ import { retirementExpMultiplier } from "../captainRetirement";
 import { transitBerthCount } from "../berths";
 import { shortRangeBoardSlots, startShortRangeCycle } from "../shortRangeBoard";
 import { rollShortRangeJob, shortRangeCycleReward, shortRangeShipRatings, type ShortRangeCyclePlan, type ShortRangeRoll, type ShortRangeTemplateKey } from "../shortRange";
-import { telescopeReading } from "../telescope";
+import { blindLaunchCount, telescopeReading } from "../telescope";
 import { getSeniorStaffBonusById } from "../seniorStaffBonuses";
 import { CREW_STAT_KEYS } from "../crewBuffs";
 import { POI_CATALOG, PLANET_TYPES, planetTypeHazard, poisForPlanetType } from "../expeditionContent";
@@ -1116,6 +1129,44 @@ const tierOneCandidate = (s: GameState) => {
   if (!cand) throw new Error("wiring fixture: no Tier I candidate");
   return cand;
 };
+// Expedition Tiers G2-6: the dispatch console offers every region tier (a tab per tier, expeditionTierGates). The
+// deepest tier whose gates ship-1 meets (0 when none: a non-explorer), the console's pick there (the nearest candidate
+// the ship can launch to, else the nearest: expeditionConsoleDisplay.ts preselectCandidateId) and the gated launch.
+export function deepestReadyTier(s: GameState): RegionTier | 0 {
+  let best: RegionTier | 0 = 0;
+  for (const t of REGION_TIERS) if (expeditionTierGates(s, shipOf(s), t).first === null) best = t;
+  return best;
+}
+function consolePick(s: GameState, tier: RegionTier): CandidateSystem {
+  const list = [...tierCandidateSystems(s, tier)].sort((a, b) => a.distanceLy - b.distanceLy || a.slot - b.slot);
+  return list.find((c) => expeditionSystemGate(s, shipOf(s), c) === null) ?? list[0];
+}
+function consoleLaunch(s: GameState, tier: RegionTier | 0 = deepestReadyTier(s)): ExpeditionDispatchResult | null {
+  if (tier === 0) return null;
+  const ready = readyForRun(s);
+  return startExpedition(ready, WIRING_SHIP_ID, WIRING_CAPTAIN_ID, consolePick(ready, tier).id);
+}
+const consoleRun = (s: GameState): Expedition | null => {
+  const r = consoleLaunch(s);
+  return r && r.success && r.expedition ? r.expedition : null;
+};
+// The recall probe's moment: a quarter of the outbound leg flown (before the anomaly check at the midpoint), so the
+// recalled run flies home in a quarter of its return leg (1:1, user #7).
+export const RECALL_PROBE_SHARE = 0.25;
+// Ship-1 launched from the console to Tier I's cand-1-0 and the save moved to `at` (seconds after the launch, or the
+// moment the run's first body is charted). Throws when the launch is refused (a fixture that cannot fly is a bug).
+export function launchedAndAt(s: GameState, at: "quarterOut" | "firstCharted"): GameState {
+  const r = startExpedition(readyForRun(s), WIRING_SHIP_ID, WIRING_CAPTAIN_ID, "cand-1-0");
+  if (!r.success || !r.expedition) throw new Error(`wiring console launch refused: ${r.reason}`);
+  const run = r.expedition;
+  const out = run.voyage?.outboundSeconds ?? 0;
+  let t = run.phaseAnchorSeconds + Math.floor(out * RECALL_PROBE_SHARE);
+  if (at === "firstCharted") {
+    t = run.phaseAnchorSeconds + out;
+    for (let i = 0; i < 500 && !advanceExpedition(run, t).bodies[0]?.scanned; i++) t += 300;
+  }
+  return { ...r.next, gameTimeSeconds: t };
+}
 const sci = () => WIRING_SCIENCE_ID;
 // The research probe reads a long project, so one museum step moves it by many ticks (well above its rounding).
 const RESEARCH_PROBE_SCALE = 1000;
@@ -1148,6 +1199,70 @@ export const PROBES = {
     label: "startExpedition(cand-1-0) succeeds (1) or is refused (0), with the minimum away team aboard",
     read: (s) => (startExpedition(withAwayTeam(s), WIRING_SHIP_ID, WIRING_CAPTAIN_ID, "cand-1-0").success ? 1 : 0),
   },
+  // Expedition Tiers G2-6 (the dispatch console's region picker): what a player's launch from the console reaches.
+  tierTwoLaunchAllowed: {
+    label: "a console launch to Tier II (its nearest candidate in reach) succeeds (1) or is refused (0), the minimum away team aboard",
+    read: (s) => (consoleLaunch(s, 2)?.success ? 1 : 0),
+  },
+  consoleRiskTier: {
+    label: "the region tier of the risk profile a console launch to the deepest tier ship-1 can attempt freezes (RISK_TIER_ODDS, hostile sites, SCIENCE_HEAVY, the affix rows read it); 0 when refused",
+    read: (s) => consoleRun(s)?.risk?.tier ?? 0,
+  },
+  consoleOutbound: {
+    label: "the outbound leg (seconds) of the voyage a console launch to the deepest tier ship-1 can attempt freezes; 0 when refused",
+    read: (s) => consoleRun(s)?.voyage?.outboundSeconds ?? 0,
+  },
+  consoleHaulMult: {
+    label: "the tier haul multiplier a console launch's run carries (riskFactors.ts tierHaulMult of its region stamp, on every objective's haul); 0 when refused",
+    read: (s) => {
+      const run = consoleRun(s);
+      return run ? tierHaulMult(run.region) : 0;
+    },
+  },
+  consoleBodyCount: {
+    label: "the bodies the console shows across the deepest tier's candidates (foreknowledge, the generated systems a launch flies)",
+    read: (s) => {
+      const tier = deepestReadyTier(s);
+      return tier === 0 ? 0 : expeditionCandidates(readyForRun(s), WIRING_SHIP_ID, tier).reduce((n, c) => n + (c.foreknowledge.bodyCount ?? 0), 0);
+    },
+  },
+  consoleBlindLaunches: {
+    label: "blind launches a console launch to the deepest tier ship-1 can attempt counts (a candidate past the telescope's range)",
+    read: (s) => {
+      const r = consoleLaunch(s);
+      return r && r.success ? blindLaunchCount(r.next) - blindLaunchCount(s) : -1;
+    },
+  },
+  consoleOddsRead: {
+    label: "the compositions whose fight odds the recommendation reads for the console's pick at the deepest tier (odds weigh in behind tier 2; ODDS_RISKY_BELOW decides when they swap the pick)",
+    read: (s) => {
+      const tier = deepestReadyTier(s);
+      if (tier === 0) return -1;
+      const ready = readyForRun(s);
+      const pick = consolePick(ready, tier);
+      const cand = expeditionCandidates(ready, WIRING_SHIP_ID, tier).find((c) => c.id === pick.id)!;
+      return expeditionLaunchView(ready, WIRING_SHIP_ID, cand).recommendation?.ranked.filter((r) => r.fightOdds !== undefined && r.fightOdds !== null).length ?? -1;
+    },
+  },
+  consoleBlankShare: {
+    label: "the permille of a console launch's relic blank table above the standard rarity (relicBlanks.ts relicBlankTable of its stamp's tier); -1 when refused",
+    read: (s) => {
+      const run = consoleRun(s);
+      const stamp = run ? relicBlankStamp(run, 0) : undefined;
+      if (!stamp) return -1;
+      const rows = relicBlankTable(stamp.tier);
+      const total = rows.reduce((n, r) => n + r.weight, 0);
+      return Math.round((1000 * rows.filter((r) => r.tier !== "standard").reduce((n, r) => n + r.weight, 0)) / Math.max(1, total));
+    },
+  },
+  runReturnSeconds: {
+    label: "returnDurationSeconds of ship-1's run (a recalled run: the way home its recall froze); -1 without a run",
+    read: (s) => {
+      const run = s.expeditions.find((e) => e.shipId === WIRING_SHIP_ID);
+      return run ? returnDurationSeconds(run) : -1;
+    },
+  },
+  resumableCount: { label: "resumableSystems: the systems the console offers to resume", read: (s) => resumableSystems(s).length },
   sheetYield: { label: "effectiveShipStats.extractionYieldMult", read: (s) => sheet(s).extractionYieldMult },
   sheetUnload: {
     label: "unload speed: effectiveShipStats.unloadSpeedMult (missions) / groundOps.factors.offloadMult (Ground Ops)",
@@ -1394,7 +1509,18 @@ export const PROBES = {
   // G1-6: whether the next Mission Control rung can be built now (1) or not (0): the board rung's completion gate.
   missionControlBuildable: { label: "canBuildFacilityUpgrade(missionControl).ok (1 / 0)", read: (s) => (canBuildFacilityUpgrade(s, "missionControl").ok ? 1 : 0) },
   missionsUnlocked: { label: "missions unlocked (count)", read: (s) => (Object.keys(MISSIONS) as MissionKey[]).filter((k) => missionUnlocked(s, k)).length },
-  telescopeReach: { label: "telescopeReading.reachTier", read: (s) => telescopeReading(s).reachTier },
+  // Expedition Tiers G2-6: at Ground Ops, the deepest region tier whose candidates the console's picker reads (every
+  // candidate of that tier inside the telescope's range: not a blind launch); 0 when it reads none.
+  telescopeReach: {
+    label: "telescopeReading.reachTier (Ground Ops: the deepest tier the console's candidates read, not blind)",
+    read: (s, ctx) => {
+      if (ctx !== "expedition:groundOps") return telescopeReading(s).reachTier;
+      const ready = readyForRun(s);
+      let best = 0;
+      for (const t of REGION_TIERS) if (expeditionCandidates(ready, WIRING_SHIP_ID, t).every((c) => !c.telescope.blind)) best = t;
+      return best;
+    },
+  },
   telescopeDetail: { label: "telescopeReading.detail", read: (s) => telescopeReading(s).detail },
   equipmentStorage: { label: "equipmentStorageCap", read: (s) => equipmentStorageCap(s) },
   berths: { label: "transitBerthCount", read: (s) => transitBerthCount(s) },
@@ -1438,10 +1564,6 @@ export const PROBES = {
   captainCount: { label: "captains (count)", read: (s) => s.captains.length },
   researchableBlueprints: { label: "blueprints a top-level Research Lab can start (blueprintResearchable)", read: (s) => researchableCount(s) },
   legacyInjurySeconds: { label: "applyExpeditionInjuries on a legacy run: the downed Security member's recovery", read: (s) => legacyInjurySeconds(s) },
-  candidateTopTier: {
-    label: "expeditionCandidates: the highest region tier offered",
-    read: (s) => Math.max(...expeditionCandidates(readyForRun(s), WIRING_SHIP_ID).map((c) => c.telescope.regionTier)),
-  },
   groundOpsRun: { label: "the Ground Ops run digest (candidates, the dispatch record, the run played out)", read: (s) => groundOpsRunDigest(s) },
   patrolRun: { label: "the patrol cycle digest (dispatch, one cycle through economyTick)", read: (s) => patrolDigest(s) },
   // == crew modules ==
