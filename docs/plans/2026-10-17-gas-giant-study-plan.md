@@ -476,3 +476,11 @@ no source today, the Deuterium Skim run (Material Lines L8 / ML-6) must land wit
 
 Also 2026-10-21: SF-3 ramp: "Fade Weak + build SI gear (Recommended)" and "Smooth the last steps (Recommended)"
 (recorded in the safe-first-runs plan).
+
+## USER ANSWERS (2026-10-21): GG-2 / GG-3 picks
+
+- "Approve all (Recommended)": GIANT_ZONE_LEAN (inner hot x3 / warm x2, outer cold x2); 60 s study floor; 4 to 8
+  canisters per study before the dive bonus and tier multiplier; dive bonus 0.5 x depth x probe rating (knee 2); one
+  probe per study; research data family uniform over 8; GALILEO_REFERENCE_LINES (iLevel 10 rates 1); Ancient Data
+  Fragment base 12 per mille, lift 2.5, knee 2, tier lift reuses the tier haul multiplier (about 1.5% / 4% at Tier II).
+  Drop these [PROVISIONAL] / [PROPOSAL] tags in GG-4/GG-5.
