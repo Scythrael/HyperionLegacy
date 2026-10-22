@@ -438,6 +438,43 @@ describe("GG-2 / GG-3 capture: every tier's systems, the plain ones whole and th
   });
 });
 
+// ===== GG-3 capture (taken on GG-2, a7dc7bc, BEFORE the study leg) =====
+//
+// Three study runs (the GG-0 giant, and the sweep's Tier I and Tier III giants of save seed 0x51f15e), dispatched as
+// GG-2 dispatches them (the stamp and the giant profiles): the dispatch record and every body's discoveries once the
+// whole system is scanned. GG-3 adds the study leg AFTER dispatch (nothing new is frozen) and never touches a
+// discovery, so both must hold; the finished run moves (the study's pause, the waiting pickups, the reward) and is
+// pinned by GG-3's own goldens.
+const GG3_RUNS: readonly [number | null, string][] = [
+  [null, "cand-1-2"],
+  [0x51f15e, "cand-1-0"],
+  [0x51f15e, "cand-3-0"],
+];
+// [dispatch record, discoveries of body 0, body 1, ...]; "741638a5" is an orbital body's empty list.
+const GG3_CAPTURE_GOLDEN: Record<string, readonly string[]> = {
+  "fresh:cand-1-2": ["8fe892cf", "2c20d8bf", "741638a5"],
+  "51f15e:cand-1-0": ["6f78d7a6", "ac027c80", "741638a5", "57eeb0dc"],
+  "51f15e:cand-3-0": ["c636e9f1", "741638a5", "8b22c88e", "7218468"],
+};
+
+describe("GG-3 capture: a study run's dispatch record and discoveries", () => {
+  it("three study runs", () => {
+    const out: Record<string, readonly string[]> = {};
+    for (const [saveSeed, id] of GG3_RUNS) {
+      const state = saveSeed === null ? crewed() : sweepState(saveSeed);
+      const res = startExpedition(state, "ship-1", 1, id);
+      if (!res.success || !res.expedition) throw new Error(`dispatch refused: ${res.reason}`);
+      const exp = res.expedition;
+      expect(exp.study, id).toBe(1);
+      let run = exp;
+      for (let t = exp.phaseAnchorSeconds + 600; t < FINAL && !run.bodies.every((b) => b.scanned); t += 600) run = advanceExpedition(run, t);
+      expect(run.bodies.every((b) => b.scanned), id).toBe(true);
+      out[`${saveSeed === null ? "fresh" : saveSeed.toString(16)}:${id}`] = [hash(exp), ...run.bodies.map((b) => hash(b.discoveries))];
+    }
+    expect(out).toEqual(GG3_CAPTURE_GOLDEN);
+  });
+});
+
 describe("GG-0 golden 5: the item census", () => {
   const gg1 = new Set(gasStudyItemIds());
   const census = (ids: string[], recipes: string[]) => {
