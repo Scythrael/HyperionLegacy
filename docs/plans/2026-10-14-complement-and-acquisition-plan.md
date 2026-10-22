@@ -755,3 +755,32 @@ the CP-6 core fix was dispatched the same day.
   when (links with the coming achievements system; build the per-captain record shape now so achievements plug in).
 - **OC-20 Science sensor amplification:** "Proposed numbers (Recommended)". **OC-21 stacking:** "Multiply (Recommended)".
 - **OC-14 bridge set:** "Keep the 3 built (Recommended)".
+
+## OC-15 Lab and Fabricator tier rungs: carry note (built 2026-10-21, on top of 04a4cb2)
+
+User 2026-10-21 (merge-batch answers, late calls): "Build them in 0.14.0 (Recommended)". For later slices:
+- One table, `model.ts LAB_FABRICATOR_TIER_RUNGS` (tiers III to VII), drives BOTH tracks: the Research Lab gains rungs
+  [2..6] (levels 3 to 7) and the Fabricator rungs [3..6] (levels 4 to 7); its existing tier III rung (FIX B, 20,000 /
+  240 / FA 6) is now that table's first row, byte-identical. `LAB_FABRICATOR_TOP_TIER` = 7.
+- **APPROVED** (user 2026-10-21, "Costs OK, +1 slot each (Recommended)") numbers, sized on the existing curve (credits x2.5 and FA +3 per rung, the Shipyard / telescope
+  strides; durations on the telescope ladder): III 20,000 / 240 / FA 6, IV 50,000 / 420 / FA 9, V 125,000 / 720 / FA 12,
+  VI 300,000 / 1,200 / FA 15, VII 750,000 / 1,800 / FA 18. Credits and FA only (the gates both Upgrades panels show).
+- **APPROVED** (same answer): every rung grants one slot (research or craft), the pattern every rung of both tracks carried, so no
+  rung is inert even before tier III+ blueprints land: a level VII Lab runs 7 projects, a level VII Fabricator 7 crafts.
+  This lifts the Fabricator past FIX B's "three lines, like the Refinery" above level 3 (craftingProgress design 6.4
+  now prices level 3 explicitly; the full track only widens fabricating's lead).
+- Tier content rides the blueprint `tier` alone (Lab N researches, Fabricator N crafts tier N). Readers for everything
+  else: `labTier(state)` / `fabricatorTier(state)` (model.ts). Owners: G2-4 propulsion (`drivesWithinFacilityReach`
+  reads the two track lengths, so Class III to VII join BLUEPRINTS at merge with no code change; its
+  `facility:audit:heldDriveClasses` row then flips and its blueprint / census pins move); R2-3 identification lanes
+  (I 1, III 2, V 3, VII 4 off `labTier`); GG-7 special blueprints (tiers 3 to 5); CP-11 Flag Command and Elite Quarters
+  (tier 3 now that the rung exists, not tier 2); EM-7 modules (Lab tiers 2 to 4).
+- UI: the Research Lab Upgrades grant line names "unlocks Tier N blueprints" only when a tier N blueprint exists (the
+  Fabricator's existing rule); Help (Research topic) names the level VII top and the slot per level.
+- Goldens: `labFabricatorTiersGoldens.test.ts` (captured first): existing rungs, slots / researchable / fabricate
+  reasons at levels 0 to 3, in-flight research and craft through a save, all unchanged; `top:*` moved on purpose (the
+  next rung now builds), proven by `labFabricatorTiers.fixture.ts withPreOc15Tracks`. `wiringGoldens rungs` moved
+  (re-pinned `RUNGS_OC15`, the old hash reproduced with the tracks cut back). Registry: nine added LIVE rung entries
+  (researchSlots / fabricateSlots probes), held apart in every registry pin via `OC15_ADDED_ENTRY_IDS`.
+- Merged feat/crew-0.14.0 (472672d: ML-2, SI gear, EM-2, timed grenades) in: the registry pins union OC15_SLICE with
+  ML2_SLICE (shortRangeGoldens registryPin) and keep OC15_ADDED_ENTRY_IDS out of emodGoldens BEFORE_RX beside ml2RowsBack.

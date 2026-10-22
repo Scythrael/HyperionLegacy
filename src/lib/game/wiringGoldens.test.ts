@@ -25,6 +25,7 @@ import Decimal from "break_infinity.js";
 vi.mock("./crewLock", async (io) => (await import("./complementOc11Switch.fixture")).oc11CrewLockMock(io));
 import { withOc11Off } from "./complementOc11Switch.fixture";
 import { PRE_RX_MISSION_KEYS } from "./reactorFuelGoldens.fixture";
+import { withPreOc15Tracks } from "./labFabricatorTiers.fixture";
 import {
   FACILITIES,
   ITEMS,
@@ -145,6 +146,8 @@ function atOreCap(): GameState {
 
 // ===== the goldens =====
 
+// The `rungs` record WITH the OC-15 tier rungs (GOLDEN.rungs is the record before them; see the rungs test).
+const RUNGS_OC15 = "84e43e35";
 const GOLDEN: Record<string, string | string[]> = {
   // Re-pinned by WR-4: B2 (OC-I3) lets both transports launch at the ore cap (their gate reads ok and their runs
   // join the list); OC-C2 names the Lunar Mine's uncommon strike Dense Ore (pre-fix 5eb4c97d: naming denseOre back
@@ -266,21 +269,30 @@ describe("WR-4 pre-fix goldens", () => {
     expect(out).toEqual(GOLDEN.patrol);
   });
 
+  // MOVED BY OC-15 (the Research Lab and Fabricator tier III to VII rungs): the two tracks gained rungs, so their rows
+  // grow and the old top levels read buildable. With the tracks cut back to their pre-OC-15 length
+  // (withPreOc15Tracks) the rows hash to GOLDEN.rungs exactly, so the new rungs are the only cause; RUNGS_OC15 pins
+  // the rows with them.
   it("rungs: canBuildFacilityUpgrade for every facility at every level, poor and rich", () => {
     const poor = freshState();
     let inv = poor.inventory;
     for (const id of Object.keys(ITEMS)) inv = addItemQuality(inv, id, new Decimal(1e12), 0);
     const wealthy: GameState = { ...poor, credits: new Decimal(1e15), fleetAdminLevel: 99, inventory: inv };
-    const out: string[] = [];
-    for (const [key, def] of Object.entries(FACILITIES)) {
-      for (let level = 0; level <= def.upgrades.length; level++) {
-        const a = canBuildFacilityUpgrade(withFacilityLevel(poor, key, level), key);
-        const b = canBuildFacilityUpgrade(withFacilityLevel(wealthy, key, level), key);
-        out.push(`${key}:${level}:${a.ok ? "ok" : a.reason}|${b.ok ? "ok" : b.reason}`);
+    const rows = (): string[] => {
+      const out: string[] = [];
+      for (const [key, def] of Object.entries(FACILITIES)) {
+        for (let level = 0; level <= def.upgrades.length; level++) {
+          const a = canBuildFacilityUpgrade(withFacilityLevel(poor, key, level), key);
+          const b = canBuildFacilityUpgrade(withFacilityLevel(wealthy, key, level), key);
+          out.push(`${key}:${level}:${a.ok ? "ok" : a.reason}|${b.ok ? "ok" : b.reason}`);
+        }
       }
-    }
+      return out;
+    };
+    const out = rows();
     expect(out.some((l) => l.endsWith("|ok"))).toBe(true);
-    expect(hash(out)).toEqual(GOLDEN.rungs);
+    expect(hash(withPreOc15Tracks(rows))).toEqual(GOLDEN.rungs);
+    expect(hash(out)).toEqual(RUNGS_OC15);
   });
 
   it("utility: the Damage Control and Pathfinder Suite readers", () => {
