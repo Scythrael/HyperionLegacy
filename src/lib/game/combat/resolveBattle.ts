@@ -740,7 +740,7 @@ interface InterceptPlan {
 // the rules the drone takes the shot's vs-Drones column (combatRules.ts FAMILY_VS_DRONES), the overflow past it goes on
 // at the shot's own scale (what the drone did not soak), and an EW shot aimed at the drones (anti-drone fire) leaves a
 // drone it does not destroy DISRUPTED (out of the fight until it repairs). No draw either way.
-function droneTakesHit(
+export function droneTakesHit(
 	drone: Drone,
 	raw: number,
 	family: WeaponFamily,
@@ -751,7 +751,9 @@ function droneTakesHit(
 	const mult = FAMILY_VS_DRONES[family];
 	const scaled = Math.floor((raw * mult) / 100);
 	const { absorbed, destroyed } = absorbWithDrone(drone, scaled);
-	const overflow = Math.max(0, raw - Math.ceil((absorbed * 100) / mult));
+	// Only a destroyed drone lets the rest of the shot through (absorbWithDrone's own rule); a drone that survives took
+	// the whole projectile, so the shot's scale-back rounding never leaks a point past it.
+	const overflow = destroyed ? Math.max(0, raw - Math.ceil((absorbed * 100) / mult)) : 0;
 	if (!destroyed && targeted && family === "ew" && drone.alive && absorbed > 0) {
 		drone.status = "disrupted";
 		drone.repairProgress = 0;

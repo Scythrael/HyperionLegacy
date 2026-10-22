@@ -3,17 +3,18 @@
 //
 // WR-8 moves two things: every run that starts now is stamped with the combat rules (combat/combatRules.ts
 // CombatRulesStamp: fights open at range, stance, range and speed act, the weapon traits, pirate armor and evasion,
-// carried statuses, the installed reactor and drive), and the craft pools gain nine lines (the six per-family resist
-// lines on Hull Plating and Shield Emitters, the three drone pod counter lines). With the switch ON (for the duration
-// of one call, restored after, nothing else touched) no run is stamped and the nine lines are out of their pools, so a
+// carried statuses, the installed reactor and drive), and the craft pools gain eight lines (the six per-family resist
+// lines on Hull Plating and Shield Emitters, the two drone pod counter lines). With the switch ON (for the duration
+// of one call, restored after, nothing else touched) no run is stamped and the eight lines are out of their pools, so a
 // golden computed inside it is the pre-WR-8 game exactly.
 
 import { afterAll, beforeAll } from "vitest";
 import { EQUIPMENT_SLOTS } from "./model";
 import { DRONE_POD_AFFIX_POOL } from "./itemgen";
-import { COMBAT_RULES_SWITCH, EMITTER_RESIST_LINES, PLATING_RESIST_LINES, POD_LINE_RAPID_CHARGE, POD_LINE_REPLENISH, POD_LINE_SMART_REFLECT } from "./combat/combatRules";
+import { COMBAT_RULES_SWITCH, EMITTER_RESIST_LINES, PLATING_RESIST_LINES, POD_LINE_REPLENISH, POD_LINE_SMART_REFLECT } from "./combat/combatRules";
 
-const POD_LINES: readonly string[] = [POD_LINE_REPLENISH, POD_LINE_RAPID_CHARGE, POD_LINE_SMART_REFLECT];
+// The two pod lines in the pool (Rapid Charge never joined it: WR-8 review, see itemgen.ts DRONE_POD_AFFIX_POOL).
+const POD_LINES: readonly string[] = [POD_LINE_REPLENISH, POD_LINE_SMART_REFLECT];
 
 // Remove `keys` from `pool` in place; returns the removed entries with their positions, for the restore.
 function pull(pool: { stat: string; weight: number }[], keys: readonly string[]): { at: number; entry: { stat: string; weight: number } }[] {

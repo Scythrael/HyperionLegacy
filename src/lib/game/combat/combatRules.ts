@@ -110,11 +110,13 @@ export const FAMILY_VS_DRONES: Record<WeaponFamily, number> = {
 
 // [PROVISIONAL] (OC-D12 "damageResist / disruptionResist lines on plating and emitters"; D23): the summed resist
 // points of one family across the installed gear become a percent on a hyperbolic curve that approaches 100 and never
-// reaches it (points / (points + knee)): 50 points = 50%. No hard cap: more points always resist more.
+// reaches it (points / (points + knee)): 50 points = 50%. Whole percents rounded DOWN, so no amount of points ever
+// reaches 100 (immunity): the curve tops out at 99. No hard cap below that: more points never resist less.
 export const FAMILY_RESIST_KNEE = 50;
 export function familyResistPercent(points: number): number {
   if (!(points > 0)) return 0;
-  return Math.round((100 * points) / (points + FAMILY_RESIST_KNEE));
+  // (The min only guards float precision at absurd point counts, where points + knee rounds to points.)
+  return Math.min(99, Math.floor((100 * points) / (points + FAMILY_RESIST_KNEE)));
 }
 
 // [PROVISIONAL] (OC-D12 "rapid charge, in-combat replenish and smart reflect as drone pod lines"; D23): a pod line's

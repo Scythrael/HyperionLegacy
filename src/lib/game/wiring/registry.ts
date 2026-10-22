@@ -1875,7 +1875,6 @@ const SHIP_PIECE_FOR: Readonly<Record<string, { slotType: string; moduleVariant?
   disruptionResist_particle: { slotType: "shieldEmitters" },
   disruptionResist_ew: { slotType: "shieldEmitters" },
   droneInCombatReplenish: { slotType: "droneBay" },
-  droneRapidCharge: { slotType: "droneBay" },
   droneSmartReflect: { slotType: "droneBay" },
 };
 
@@ -1965,10 +1964,9 @@ const LINE_SEAMS: Readonly<Record<string, LineSeam | null>> = {
   disruptionResist_kinetic: resistSeam("combatDisruptionResistKinetic"),
   disruptionResist_particle: resistSeam("combatDisruptionResistParticle"),
   disruptionResist_ew: resistSeam("combatDisruptionResistEw"),
-  // The drone pod counter lines on combatRules.ts podLineShare: a whole percent of in-combat replenish, the Rapid
-  // Charge share, a whole percent of Smart Reflect chance.
+  // The drone pod counter lines on combatRules.ts podLineShare: a whole percent of in-combat replenish, a whole percent
+  // of Smart Reflect chance. (Rapid Charge is out of the pool: ship:wr8:podRapidChargeLine, deferred.)
   droneInCombatReplenish: { probe: "combatInCombatReplenish", contexts: ["patrol"], curve: { kind: "linearAbsolute" }, magnitude: () => Math.round(100 * podLineShare(LINE_POINTS)), base: () => combatBase("carrier"), where: "rolled" },
-  droneRapidCharge: { probe: "combatRapidChargeShare", contexts: ["shipEvent"], curve: { kind: "linearAbsolute" }, magnitude: () => podLineShare(LINE_POINTS), base: () => combatBase("carrier"), where: "rolled" },
   droneSmartReflect: { probe: "combatSmartReflectChance", contexts: ["patrol"], curve: { kind: "linearAbsolute" }, magnitude: () => Math.round(100 * podLineShare(LINE_POINTS)), base: () => combatBase("carrier"), where: "rolled" },
 };
 function resistSeam(probe: ProbeId): LineSeam {
@@ -2778,6 +2776,14 @@ function missionEntries(): WiringEntry[] {
 // (combatEventManifoldOverheat), Inhibit has Point Defense as its source and the drone volley clock as its reader
 // (combatEventInhibitSource / Reader), and the support pulse charges Overcharged Capacitors (combatEventOvercharge).
 const SHIP_STATUS_PENDING: Readonly<Record<string, string>> = {};
+
+// WR-8 review: Rapid Charge waits for a podded ship that can be ambushed.
+const RAPID_CHARGE_DEFERRED: WiringStatus = {
+  kind: "deferred",
+  owner: "CP-15 patrol cloak, T3, or explorer drone bays",
+  userRef: `${T3}: patrol cloak detection`,
+};
+// (combatDescriptorProbes.ts combatEventRapidCharge is the rows' check the day a podded ship can be ambushed.)
 
 const GROUND_STATUS_PENDING: Readonly<Record<string, string>> = {
   corroded: "WR-10, OC-F9 (only analyze, never run, inflicts it)",
@@ -3605,7 +3611,11 @@ const AUDIT_ROWS: readonly { id: string; system: WiringSystem; claim: string; st
   { id: "ship:audit:torpedoArmorPen", system: "ship", claim: "Torpedo armorPen sees through a pirate hull's armor and dampening", status: LIVE },
   { id: "ship:audit:qualityDurabilityMax", system: "ship", claim: "qualityDurabilityMax for the reactor and FTL: the installed Reactor Core's and FTL drive's quality sets their combat pools (WR-8; gear wear step 4 opens them at the piece's true condition)", status: LIVE },
   { id: "ship:audit:particleTraceDetector", system: "ship", claim: "particleTraceDetector (hard 0, bridge.ts:960)", status: { kind: "deferred", owner: "CP-15 (patrol cloak detection)", userRef: `${T3}: patrol cloak detection` } },
-  { id: "ship:audit:rapidChargeAfterAmbush", system: "ship", claim: "Rapid Charge (a drone pod line) shortens an ambushed ship's return-fire delay", status: LIVE },
+  // WR-8 review: only an explorer on an expedition is ever ambushed in 0.14.0 and no explorer has a drone bay, so a pod's
+  // Rapid Charge could never act; the line stays out of the pod pool and both rows wait (the engine reads it already:
+  // resolveBattle's return-fire delay, bridge.ts podLinePoints).
+  { id: "ship:audit:rapidChargeAfterAmbush", system: "ship", claim: "Rapid Charge shortens an ambushed ship's return-fire delay", status: RAPID_CHARGE_DEFERRED },
+  { id: "ship:wr8:podRapidChargeLine", system: "ship", claim: "Rapid Charge as a drone pod line (droneRapidCharge on combatRules.ts podLineShare): out of the pod pool until a ship with drone bays can be ambushed", status: RAPID_CHARGE_DEFERRED },
   { id: "ship:audit:inCombatReplenishPercent", system: "ship", claim: "In-Combat Replenish (a drone pod line) rebuilds and repairs drones during the fight", status: LIVE },
   { id: "ship:audit:antiDrone", system: "ship", claim: "Point Defense and EMP fire at the target's drones (anti-drone fire)", status: LIVE },
   { id: "ship:audit:smartReflect", system: "ship", claim: "Smart Reflect (a Defense pod line) sends reflected shots at the weakest foe", status: LIVE },
@@ -3784,7 +3794,6 @@ function wr8AuditWiring(): Readonly<Record<string, Partial<EntryInput>>> {
       on: ftlAt(2),
       off: ftlAt(0),
     },
-    "ship:audit:rapidChargeAfterAmbush": ev("combatEventRapidCharge", "down", "the ambushed ship's first shot tick", ["shipEvent"]),
     "ship:audit:inCombatReplenishPercent": ev("combatEventInCombatReplenish", "up", "the squadron's drones online at the end"),
     "ship:audit:antiDrone": ev("combatEventAntiDrone", "none", "the drone carrier's damage taken"),
     "ship:audit:smartReflect": ev("combatEventSmartReflect", "up", "the weakest foe's damage taken"),

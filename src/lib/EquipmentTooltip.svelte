@@ -255,7 +255,6 @@
     disruptionResist_particle: "Particle Disruption Resist",
     disruptionResist_ew: "EW Disruption Resist",
     droneInCombatReplenish: "In-Combat Replenish",
-    droneRapidCharge: "Rapid Charge",
     droneSmartReflect: "Smart Reflect",
     moduleSlots: "Module Slots",
     equipmentSlots: "Equipment Slots",

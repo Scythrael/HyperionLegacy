@@ -11,7 +11,8 @@ import { equippedFor } from "./equipment";
 import { shipCombatRulesStamp } from "./crewOverlay";
 import { replayPatrol } from "./combat/patrolReplay";
 import { shipToCombatant } from "./combat/bridge";
-import { resolveBattle, droneCooldown } from "./combat/resolveBattle";
+import { resolveBattle, droneCooldown, droneTakesHit } from "./combat/resolveBattle";
+import { makeDrone } from "./combat/drones";
 import { makeWeaponInstance } from "./combat/weapons";
 import { generateEnemyWave } from "./combat/enemyWave";
 import { PIRATE_HULLS } from "./combat/enemyHulls";
@@ -158,16 +159,29 @@ describe("WR-8 pirates: armor, dampening and evasion under the rules only", () =
 });
 
 describe("WR-8 the curves (D23: concave, never a cap)", () => {
-  it("family resist approaches 100% and never reaches it; the knee is half", () => {
+  it("family resist approaches 100% and never reaches it (whole percents rounded down); the knee is half", () => {
     expect(familyResistPercent(0)).toBe(0);
     expect(familyResistPercent(FAMILY_RESIST_KNEE)).toBe(50);
-    expect(familyResistPercent(1e9)).toBeLessThanOrEqual(100);
+    expect(familyResistPercent(20)).toBe(28); // 28.57, rounded down
+    // WR-8 review: rounding to nearest reached 100 (immunity) from about 9,950 points; it never does now.
+    for (const p of [9_949, 9_950, 10_000, 1e6, 1e9, 1e18, Number.MAX_SAFE_INTEGER]) expect(familyResistPercent(p), String(p)).toBe(99);
     for (let p = 1; p < 400; p++) expect(familyResistPercent(p + 1)).toBeGreaterThanOrEqual(familyResistPercent(p));
   });
   it("a pod line's share rises without bound below 1", () => {
     expect(podLineShare(0)).toBe(0);
     for (let p = 1; p < 400; p++) expect(podLineShare(p + 1)).toBeGreaterThan(podLineShare(p));
     expect(podLineShare(1e9)).toBeLessThan(1);
+  });
+  it("a drone that survives a hit takes the whole projectile; only a destroyed drone lets the rest through", () => {
+    // WR-8 review: kinetic raw 11 at the 90% column is 9 on the drone; it survives, so nothing leaks (it was 1).
+    const survivor = makeDrone(20);
+    expect(droneTakesHit(survivor, 11, "kinetic", false, true)).toEqual({ overflow: 0, destroyed: false });
+    expect(survivor.hp).toBe(11);
+    // A drone the hit destroys soaks its last 5 (6 of the shot's points at 90%, rounded up); the other 5 go on.
+    const doomed = makeDrone(5);
+    expect(droneTakesHit(doomed, 11, "kinetic", false, true)).toEqual({ overflow: 5, destroyed: true });
+    // Without the rules it is absorbWithDrone exactly.
+    expect(droneTakesHit(makeDrone(5), 11, "kinetic", false, false)).toEqual({ absorbed: 5, overflow: 6, destroyed: true });
   });
   it("Inhibit stretches a squadron's period by 100 / (100 + delta), rounded up; none leaves it", () => {
     expect(droneCooldown(5, 0)).toBe(5);

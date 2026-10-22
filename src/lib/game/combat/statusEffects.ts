@@ -170,9 +170,9 @@ const CLEANSE_BASE_PERCENT = 60;
 // THE REGISTRY (design S4 System Disruptions table, encoded as data).
 //
 // DISRUPTIONS: the twelve S4 entries (eleven system debuffs + Plasma Fire DoT).
-// BUFFS:       reserved forward hook. Buffs are inflicted by module / support-
-//              drone procs in Phases 6/7; one reserved entry proves the buff path
-//              works end to end (the engine is kind-agnostic).
+// BUFFS:       the buffs (the engine is kind-agnostic). WR-8 (0.14.0): a support
+//              squadron's pulse inflicts Overcharged Capacitors on its owner under
+//              the combat rules.
 // STATUS_EFFECT_DEFS: the merged lookup the helpers + sim resolve ids against.
 //
 // Every magnitude here is FIRST-PASS + TUNABLE. Rank-1 debuff magnitude is 20%
@@ -311,12 +311,12 @@ export const DISRUPTIONS: Record<string, StatusEffectDef> = {
 		"#e57373",
 	),
 	// Drones --------------------------------------------------------------
-	// RESERVED, NOT YET WIRED (design S4 catalog / "[applied Phase 8: drones]"). `inhibit`
-	// is the drones-category member of the twelve-entry S4 disruption catalog (locked by
-	// statusEffects.test.ts), staged so the registry + the droneAttackRate stat path are real
-	// and testable now, exactly like the reserved BUFFS table below. Nothing PROCS or READS it
-	// yet: no sim code applies inhibit and no stat resolver consumes droneAttackRate. It is a
-	// deliberate seam awaiting the Phase 8 drone-disruption wiring, NOT dead code, so it stays.
+	// WIRED by WR-8 (0.14.0). `inhibit` is the drones-category member of the twelve-entry S4
+	// disruption catalog (locked by statusEffects.test.ts). Its SOURCE is Point Defense's drone
+	// effect slot under the combat rules (combatRules.ts WEAPON_RULE_TRAITS: it procs on a
+	// connecting shot against a ship that fields live drones); its READER is the inhibited ship's
+	// squadron clock (resolveBattle.ts droneCooldown: every volley and support pulse period
+	// stretches by 100 / (100 + delta)).
 	inhibit: debuffDef(
 		"inhibit",
 		"drones",
@@ -341,9 +341,9 @@ export const DISRUPTIONS: Record<string, StatusEffectDef> = {
 	},
 };
 
-// Reserved BUFF registry (design S4: buffs share the engine; module / support-
-// drone procs in Phases 6/7 inflict them). One entry so the buff path is real +
-// testable now; a positive delta IMPROVES the holder's stat.
+// The BUFF registry (design S4: buffs share the engine). WR-8 (0.14.0): the support
+// drone pulse inflicts Overcharged Capacitors under the combat rules (resolveBattle.ts,
+// SUPPORT_OVERCHARGE_ESCALATION); a positive delta IMPROVES the holder's stat.
 export const BUFFS: Record<string, StatusEffectDef> = {
 	overchargedCapacitors: {
 		id: "overchargedCapacitors",

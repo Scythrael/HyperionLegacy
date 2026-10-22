@@ -901,15 +901,16 @@ describe("generateDronePod: crafted-drone-pod minting (Combat 1.0 Unit 2.1a)", (
       rng: mulberry32(7),
       allocateId: idAllocator(),
     });
-    const allowed = new Set(["droneHp", "droneAccuracy", "droneInCombatReplenish", "droneRapidCharge"]);
+    // WR-8 review: Rapid Charge never joined the pool (it could never act on a pod in 0.14.0).
+    const allowed = new Set(["droneHp", "droneAccuracy", "droneInCombatReplenish"]);
     for (const k of Object.keys(p.implicitStats)) expect(allowed.has(k)).toBe(true);
     for (const k of Object.keys(p.rolledStats)) expect(allowed.has(k)).toBe(true);
   });
 
-  it("WR-8: Smart Reflect rolls only on a Defense pod (dronePodAffixPool), the other two counter lines on every role", () => {
-    expect(dronePodAffixPool("defense").map((a) => a.stat)).toEqual(["droneHp", "droneAccuracy", "droneInCombatReplenish", "droneRapidCharge", "droneSmartReflect"]);
+  it("WR-8: Smart Reflect rolls only on a Defense pod (dronePodAffixPool), In-Combat Replenish on every role, Rapid Charge on none", () => {
+    expect(dronePodAffixPool("defense").map((a) => a.stat)).toEqual(["droneHp", "droneAccuracy", "droneInCombatReplenish", "droneSmartReflect"]);
     for (const role of ["attack", "support"] as const) {
-      expect(dronePodAffixPool(role).map((a) => a.stat)).toEqual(["droneHp", "droneAccuracy", "droneInCombatReplenish", "droneRapidCharge"]);
+      expect(dronePodAffixPool(role).map((a) => a.stat)).toEqual(["droneHp", "droneAccuracy", "droneInCombatReplenish"]);
     }
     // Over many Defense pods the line does roll (a radiant pod rolls three of the five).
     let smart = 0;
@@ -1069,8 +1070,8 @@ describe("previewCraftOutcome", () => {
     expect(d.outputKind).toBe("drone");
     expect(d.slotType).toBe("droneBay");
     expect(d.implicit.map((l) => l.stat)).toEqual([DRONE_POD_IMPLICIT_STAT]);
-    // WR-8: an Attack pod's pool (no Smart Reflect: only a Defense pod rolls it).
-    expect(d.affixPool).toEqual(["droneHp", "droneAccuracy", "droneInCombatReplenish", "droneRapidCharge"]);
+    // WR-8: an Attack pod's pool (no Smart Reflect: only a Defense pod rolls it; Rapid Charge stays out, WR-8 review).
+    expect(d.affixPool).toEqual(["droneHp", "droneAccuracy", "droneInCombatReplenish"]);
   });
 
   it("returns null for a blueprint that mints no instance", () => {

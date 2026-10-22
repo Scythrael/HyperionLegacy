@@ -20054,7 +20054,7 @@
         <!-- Stance segmented (setPatrolStance), with a HelpTip ? for the three stances. -->
         <div class="mpane-poplbl" style="margin-top: 8px">
           <span class="mission-col-label" style="margin: 0">Stance</span>
-          <HelpTip label="Stance" text="Aggressive presses the attack: faster, bloodier fights at higher risk to your hull. Balanced trades evenly. Standoff keeps range to spare the hull, accepting a slower, more cautious engagement." />
+          <HelpTip label="Stance" text="Your stance sets the range your ship holds: Aggressive closes to short range, Balanced holds at medium, Standoff holds at long. A ship never holds beyond its longest weapon's reach, so a ship with only short-range guns closes whatever its stance. Only a faster ship can open the range on its target; at equal or lower speed it holds and the fight closes." />
         </div>
         <div class="patrol-segmented" role="group" aria-label="Combat stance">
           <button class="dev-btn" aria-pressed={stance === "aggressive"} on:click={() => setPatrolStance(patrolDispatchKey!, "aggressive")}>Aggressive</button>

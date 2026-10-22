@@ -1244,8 +1244,8 @@ event and battle row equals the pre-WR-8 capture). Under the stamp:
   cycle (`PatrolMissionState.playerStatusEffects`), and the installed Reactor Core and FTL drive qualities frozen in the
   stamp (`reactorQuality` / `ftlQuality`) set the combat pools.
 - Gear lines (no stamp needed: gear is locked while out): `damageResist_*` on Hull Plating and `disruptionResist_*` on
-  Shield Emitters on `familyResistPercent`; pod lines In-Combat Replenish, Rapid Charge and Smart Reflect (Defense pods
-  only) on `podLineShare`.
+  Shield Emitters on `familyResistPercent` (whole percents rounded down, so never 100); pod lines In-Combat Replenish
+  and Smart Reflect (Defense pods only) on `podLineShare`. Rapid Charge is NOT in the pod pool (see the review fixes).
 - Retired: `frameHp` / `COMBAT_FRAME_HP_FRACTION` and `CombatDefaultLoadout.builtInBays` (OC-D12 "coded or deleted").
   `ResolveOptions.objective`, `TargetingPolicy.escortShare` and the DoT rng are `seam` rows (OC-C4 "Keep tested hooks").
 
@@ -1253,7 +1253,7 @@ event and battle row equals the pre-WR-8 capture). Under the stamp:
 stamp, pools, Tachyon column, status carry and the gear lines; seeded battle events for the rest). New rows:
 `ship:wr8:*` (weapon / drone range, stance, speed kite, the status readers, Voltaic, vs-Drones, persistence, Inhibit
 source / reader, Overcharge, enemy mitigation), `ship:wr8:powerInCombat` pending on EM-3, `ship:wr8:ambushInPatrols`
-deferred (T3: only a cloak ambushes, so Rapid Charge acts in the ship events). The hull and gear-line transit
+deferred (T3: only a cloak ambushes). The hull and gear-line transit
 speed flat checks at `patrol` now read the legs alone (`patrolOutboundTicks`): transit speed reaches combat now.
 
 **Goldens moved (combatDescriptorGoldens.test.ts header names each one):** every patrol record, replay and state hash
@@ -1282,6 +1282,20 @@ beside `speed`, every patrol cycle and ship-event run already carries the stamp)
 `reactorDamagePercent`; the reactor pool is the installed piece's under the stamp; flip `ship:wr8:powerInCombat`.
 **For EM-4:** combat speed already reads the sheet's transit speed, so a reactor surplus lift on `transitSpeedMult`
 also speeds combat (a combat golden move to name); `ship:audit:reactorCoreNet` stays EM-4's.
+
+**Review fixes (2026-10-22, one commit):** (1) Rapid Charge could never act in 0.14.0 (only an explorer on an
+expedition is ambushed, and no explorer has a drone bay), so `droneRapidCharge` is out of `DRONE_POD_AFFIX_POOL` and
+`ship:audit:rapidChargeAfterAmbush` plus the new `ship:wr8:podRapidChargeLine` are DEFERRED (owner "CP-15 patrol cloak,
+T3, or explorer drone bays"); the engine reader stays (resolveBattle's return-fire delay, bridge.ts podLinePoints) and
+`combatEventRapidCharge` is their check once a podded ship can be ambushed. Re-pinned: itemgen.test's pod vocabulary,
+pool and craft preview (the line gone), the switch fixture (two pod lines). (2) `droneTakesHit`: a drone that survives
+takes the whole projectile (no rounding leak; only a destroyed drone passes overflow), with a test. (3) The stance help
+(App.svelte HelpTip, helpTopics.ts Combat Patrols) states the rule: the stance's range, never beyond the longest
+weapon's reach, only a faster ship opens the range. (4) statusEffects.ts names Inhibit's and Overcharged Capacitors'
+sources and readers. (5) `familyResistPercent` rounds down (tops out at 99), with a test. No golden moved.
+**HELD for the user:** `safeFirstPatrol.sweep.test.ts` CURVE_WINS (the SF-4 curve table: every hull's wins per curve
+position moved under the rules; the "wins never rise as the curve climbs" check still passes), and pirate armor, open
+distance and the reach rule.
 
 ### WR-9: Crew and officers beyond the CP slices
 

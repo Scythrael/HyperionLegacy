@@ -145,7 +145,6 @@ export const COMBAT_DESCRIPTOR_PROBES = {
   combatDisruptionResistParticle: { label: "shipToCombatant.disruptionResist.particle", read: (s) => rulesCombatant(s).disruptionResist.particle },
   combatDisruptionResistEw: { label: "shipToCombatant.disruptionResist.ew", read: (s) => rulesCombatant(s).disruptionResist.ew },
   combatInCombatReplenish: { label: "shipToCombatant.inCombatReplenishPercent", read: (s) => rulesCombatant(s).inCombatReplenishPercent ?? 0 },
-  combatRapidChargeShare: { label: "shipToCombatant.rapidChargeShare", read: (s) => rulesCombatant(s).rapidChargeShare ?? 0 },
   combatSmartReflectChance: {
     label: "the highest squadron smartReflectChance (bridge.ts squadronFromPod)",
     read: (s) => Math.max(0, ...rulesCombatant(s).drones.map((sq) => sq.smartReflectChance ?? 0)),

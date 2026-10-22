@@ -2,7 +2,7 @@
 // files whose registry snapshots were pinned before WR-8 apply, so those pins keep proving their own slices were their
 // only moves. TEST-ONLY (imported by *.test.ts files only).
 //
-// WR-8 ADDED entries (the nine resist and drone pod gear lines, the nine pirate hull mitigation fields, and the WR-8
+// WR-8 ADDED entries (the eight resist and drone pod gear lines, the nine pirate hull mitigation fields, and the WR-8
 // audit rows that split the old combat rows) and FLIPPED the rows below as they stood before it (status, no contexts,
 // no probe): the five statuses, the three pirate stances and the combat audit rows went live, the inert descriptors
 // row became a seam (OC-C4), and the member slot physicals row lost its WR-8 owner. Nothing was removed and the
@@ -20,7 +20,7 @@ export const WR8_ADDED_ENTRY_IDS: ReadonlySet<string> = new Set<string>([
   "ship:gearLine:disruptionResist_particle",
   "ship:gearLine:disruptionResist_ew",
   "ship:gearLine:droneInCombatReplenish",
-  "ship:gearLine:droneRapidCharge",
+  "ship:wr8:podRapidChargeLine",
   "ship:gearLine:droneSmartReflect",
   "ship:PIRATE_HULLS:raider:ablativeArmor",
   "ship:PIRATE_HULLS:raider:kineticDampening",
