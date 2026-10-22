@@ -63,6 +63,7 @@ export type WearSlot = Extract<
   | "sensor"
   | "bridge"
   | "quarters"
+  | "module"
   | "weapon"
   | "shieldEmitters"
   | "hullPlating"
@@ -103,6 +104,9 @@ export const WEAR_SOURCES: readonly WearSourceDef[] = [
   { id: "sensor:surveyCycle", slot: "sensor", mode: "use", by: "scans", event: "per survey mission cycle", raw: 6, per: 1 },
   { id: "bridge:minutesCrewed", slot: "bridge", mode: "use", by: "time aboard", event: "per minute underway with crew aboard", raw: 2, per: 1 },
   { id: "quarters:minutesCrewed", slot: "quarters", mode: "use", by: "time aboard", event: "per minute underway with crew aboard", raw: 2, per: 1 },
+  // E-MOD EM-5 (user M9, 2026-10-19, "Slowly underway"): a universal module wears by time underway, at the crew
+  // modules' slow rate.
+  { id: "module:minutesUnderway", slot: "module", mode: "use", by: "time underway", event: "per minute underway", raw: 2, per: 1 },
   { id: "memberWeapon:groundFight", slot: "memberWeapon", mode: "use", by: "fights", event: "per ground fight its wearer fights", raw: 10, per: 1 },
   { id: "memberTool:fieldworkStep", slot: "memberTool", mode: "use", by: "fieldwork", event: "per fieldwork step its wearer completes", raw: 6, per: 1 },
   // User W10 "implants slow": the slowest rate in the catalog.
@@ -164,6 +168,9 @@ export const WEAR_EFFICIENCY: readonly WearEfficiencyConsumer[] = [
   { id: "sensor:lines", slot: "sensor", reads: "scan rate, coverage and foreknowledge", combat: false },
   { id: "bridge:crewEfficiency", slot: "bridge", reads: "crew efficiency (never the station count)", combat: false },
   { id: "quarters:crewEfficiency", slot: "quarters", reads: "crew efficiency (never the station count)", combat: false },
+  // E-MOD EM-5: a module's catalog effect (its power output where something consumes it, never the install gate; its
+  // combat hull lift and conditional damage).
+  { id: "module:effect", slot: "module", reads: "its effect (power output where consumed, never the install gate; combat hull and damage)", combat: true },
   { id: "shieldEmitters:shields", slot: "shieldEmitters", reads: "shield capacity and recharge", combat: true },
   { id: "hullPlating:hullPoints", slot: "hullPlating", reads: "hull points", combat: true },
   { id: "droneBay:drones", slot: "droneBay", reads: "drone hp and yield (never the bay count)", combat: true },

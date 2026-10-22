@@ -83,6 +83,7 @@ import { ROLE_TEMPLATE, type DroneRole } from "./combat/drones";
 // Combat 1.0 (Unit 1.3/1.4): the per-hull default loadout, to build the Standard-Issue baseline spec
 // (combat-defense rework: the defensive magnitudes are now the FIXED SI-gear dials, not a frame split).
 import { COMBAT_DEFAULT_LOADOUT } from "./combat/bridge";
+import { UNIVERSAL_MODULES } from "./shipModules";
 import { itemTotal } from "./inventory"; // Task 9a: read item TOTAL across quality buckets
 import { PIRATE_HULLS } from "./combat/enemyHulls"; // Combat 0.13.0: PATROLS.hullPool ids are validated against this roster
 
@@ -2049,7 +2050,12 @@ describe("EQUIPMENT_SLOTS live-slot definitions (0.11.0 Task 2)", () => {
     // Prospecting squads (hidden, 2026-10-16): +3 weapons, +1 armor, +2 tools, +2 implants.
     // Field Kits FKR-5: +1 tool, the Impact Grenade.
     memberWeapon: 7, memberArmor: 5, memberTool: 13, implant: 15,
+    // E-MOD EM-5: the universal module slot carries one variety per UNIVERSAL_MODULES def (empty until EM-7).
+    module: UNIVERSAL_MODULES.length,
   };
+  // E-MOD EM-5: the module slot's effect is catalog-driven (shipModules.ts), so it alone carries no signature line and
+  // no affix pool (M5: unique effects only, no generic gear lines).
+  const CATALOG_ONLY_SLOTS = new Set<string>(["module"]);
   // E-CREW 0.14.0 (Task 7): member slots draw ONLY from the GROUND vocabulary, ship slots ONLY from the
   // ship allow-set above, so a ground line can never land on a ship slot (or a ship line on member gear).
   const GROUND_STAT_KEYS = new Set<string>(MEMBER_GROUND_STAT_KEYS);
@@ -2059,6 +2065,8 @@ describe("EQUIPMENT_SLOTS live-slot definitions (0.11.0 Task 2)", () => {
     expect(Object.keys(EQUIPMENT_SLOTS).sort()).toEqual(
       [
         "cargoBay", "ftlDrive", "reactorCore", "specUtility", "shieldEmitters", "hullPlating", "bridge", "quarters", "sensor",
+        // E-MOD EM-5: the universal module slot.
+        "module",
         // E-CREW 0.14.0 (Task 7): away-team member gear.
         "memberWeapon", "memberArmor", "memberTool", "implant",
       ].sort(),
@@ -2075,8 +2083,13 @@ describe("EQUIPMENT_SLOTS live-slot definitions (0.11.0 Task 2)", () => {
       expect(slot.varieties.length).toBe(EXPECTED_VARIETY_COUNT[key] ?? 3);
       // Both stat lists must be present (a slot with no signature or no roll pool
       // is a data error, not a valid launch state).
-      expect(slot.implicitStats.length).toBeGreaterThan(0);
-      expect(slot.affixPool.length).toBeGreaterThan(0);
+      if (CATALOG_ONLY_SLOTS.has(key)) {
+        expect(slot.implicitStats).toEqual([]);
+        expect(slot.affixPool).toEqual([]);
+      } else {
+        expect(slot.implicitStats.length).toBeGreaterThan(0);
+        expect(slot.affixPool.length).toBeGreaterThan(0);
+      }
       // E-CREW Task 7: the vocabulary this slot may draw from (ground keys for member slots).
       const allowed = allowedFor(key);
       // E4d: a variety's OWN implicit / affix overrides are fenced by the same vocabulary rules.

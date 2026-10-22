@@ -453,6 +453,34 @@ Armory / salvage / Archive / item-side install support, S2 out-of-ship lock. Hul
 module slots"). Tests: cap per hull; neutrality (no module = same object); each passive moves its value; each
 conditional fires only in its state.
 
+*Carry note (EM-5 built 2026-10-21, on f85ef73).* Goldens first: `emodEm5Goldens.test.ts` (install verdicts for every
+hull with and without the Spec Utility, the player combatant Standard Issue and fully crafted, every slot and variety's
+mint, the Armory slot set); none moved. Built: `EquipmentSlotType` `module`, a MULTI slot (`MULTI_SLOT_TYPES` in
+equipmentQueries.ts); `EQUIPMENT_SLOTS.module` (no signature line, no affix pool: rarity and quality act through
+`moduleEffectScale`, which moved to model.ts and is re-exported by crewModules.ts); `SLOT_BASE_PHYSICALS.module` mass 0,
+durability 100, its draw the def's (`UniversalModuleDef.powerDraw`, applied at mint, itemgen.ts). The leaf catalog
+`shipModules.ts`: the types for Passive, Proc, Conditional, Active, Set and Special, the M4 trigger union, the M1 rule
+(`MODULE_SLOT_SHARING_TYPES`: module + specUtility share `moduleSlots`), `validateUniversalModuleCatalog` (refuses a
+category or key with no engine yet, and a second module on one Passive / Conditional key until it has a D23 curve).
+`UNIVERSAL_MODULES` is EMPTY (the roster is EM-7's, the Lens EM-8's). Install gate: `duplicateModule` (M8), then
+`moduleSlotsFull` (a module, or a Spec Utility into an EMPTY slot), then `overPower`; S2 for modules only: a module
+cannot be installed or removed while `shipCrewLocked` (an expedition included), the other slots keep `onMissionLock`
+(S2 for them is still unbuilt). Engines: Passive `powerOutput` folds into `equipmentStatMods.modulePowerOutput` (the
+sheet, `shipPowerTotals`, `shipPowerBudget.moduleOutput`; `reactorOutput` and `reactorSurplus` stay the reactor's);
+Passive `hullIntegrity` and Conditional `weaponDamage` (hull or shield below a fraction, per projectile, no draw) in
+`bridge.ts applyModuleCombat`, so every fold that passes installed gear (patrol, replay, ship events) reads them.
+Armory: `module0..n` slots and `loadoutModuleRuleBroken` (cap + one per set); check-out / check-in honor S2 when a
+module moves. Wear (M9): `module:minutesUnderway` (raw 2) and `module:effect`, pending on gear wear steps 3 / 4 like
+every slot. **The switch:** `UNIVERSAL_MODULES_LIVE = false` (shipModules.ts) hides the Armory module slots; the
+engine is live. **For EM-7:** flip the switch in the commit that adds the first module blueprint (shipModules.test.ts
+asserts the switch equals "a module blueprint exists"), add each def to BOTH `UNIVERSAL_MODULES` and
+`EQUIPMENT_SLOTS.module.varieties`, add the catalog to the wiring registry with probes (sheetPowerOutput,
+combatHullMax, a below-threshold damage probe), flip the hulls' `moduleSlots` entries live (owner text names EM-7), and
+make the Aurora description true (OC-D13). **For EM-6:** add each new effect key and category to `MODULE_ENGINE_KEYS`
+with its engine. **For EM-10:** the `onMission` reason text says "captain is on a mission"; a module on an expedition
+needs the crew-lock wording. Registry: two wear rows added and every hull's `moduleSlots` re-owned to EM-7 (still
+pending); `emodEm5Registry.fixture.ts em5ReadBack` reads both back for emodGoldens and shortRangeGoldens. No save step.
+
 **EM-6 Proc and Active engine (the Combat 1.1 active-ability engine).** The trigger taxonomy (call M4) at fixed points
 in the step loop; private salted streams; Actives auto-cast by their preset rule (call M3). Frozen per patrol cycle;
 mission-cycle procs keyed on the run's cycle counter; expedition procs frozen in the dispatch snapshot. Tests: replay

@@ -438,6 +438,7 @@
   } from "./lib/game/equipment";
   // E-MOD EM-2: the power install gate's refusal text (one wording everywhere) and the Armory check-out's shortfall.
   import { overPowerReasonText } from "./lib/game/shipPower";
+  import { duplicateModuleReasonText, moduleSlotsFullReasonText } from "./lib/game/shipModules";
   // Crew 0.14.0 (phase 4a): the pure SENIOR STAFF engine, wired by the do* handlers below.
   // hire/fire/assign/unassign each take + return a whole GameState; promoteOfficer takes +
   // returns a single officer, so its handler splices the result back into state.officers.
@@ -5070,6 +5071,11 @@
       // E-MOD EM-2: the install would leave the ship over its power budget.
       case "overPower":
         return overPowerReasonText(refusal.powerShortfall);
+      // E-MOD EM-5: the shared module slots are full, or this module is already aboard.
+      case "moduleSlotsFull":
+        return moduleSlotsFullReasonText();
+      case "duplicateModule":
+        return duplicateModuleReasonText();
     }
   }
 
@@ -15225,11 +15231,12 @@
                 {/if}
 
                 <!-- Slots, grouped -->
-                {#each ["offense", "defense", "systems"] as grp (grp)}
+                <!-- E-MOD EM-5: "modules" holds the module slots, present only once modules are shown (UNIVERSAL_MODULES_LIVE). -->
+                {#each ["offense", "defense", "systems", "modules"] as grp (grp)}
                   {@const groupSlots = armorySlotDefs.filter((d) => d.group === grp)}
                   {#if groupSlots.length > 0}
                     <div class="warehouse-tier-head" style="margin-top:8px;">
-                      <span class="warehouse-tier-label">{grp === "offense" ? "Offense" : grp === "defense" ? "Defense" : "Systems"}</span>
+                      <span class="warehouse-tier-label">{grp === "offense" ? "Offense" : grp === "defense" ? "Defense" : grp === "modules" ? "Modules" : "Systems"}</span>
                       <span class="warehouse-tier-line"></span>
                     </div>
                     {#each groupSlots as def (def.key)}

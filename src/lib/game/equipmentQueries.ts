@@ -7,9 +7,10 @@
 import type { EquipmentInstance, EquipmentSlotType, GameState } from "./model";
 
 // MULTI_SLOT_TYPES: the slots that hold MORE THAN ONE piece per ship (weapon fills the hull's hardpoints; droneBay
-// fills the hull's drone bays). A slotType NOT in this set is a singleton (at most one piece per ship-slot). Read by
-// the install gate and mutators (equipment.ts) and the power budget's candidate swap (shipPower.ts).
-export const MULTI_SLOT_TYPES: ReadonlySet<EquipmentSlotType> = new Set<EquipmentSlotType>(["weapon", "droneBay"]);
+// fills the hull's drone bays; E-MOD EM-5's module fills the hull's moduleSlots, shared with the specUtility piece). A
+// slotType NOT in this set is a singleton (at most one piece per ship-slot). Read by the install gate and mutators
+// (equipment.ts) and the power budget's candidate swap (shipPower.ts).
+export const MULTI_SLOT_TYPES: ReadonlySet<EquipmentSlotType> = new Set<EquipmentSlotType>(["weapon", "droneBay", "module"]);
 
 // ----------------------------------------------------------------------------
 // equippedFor

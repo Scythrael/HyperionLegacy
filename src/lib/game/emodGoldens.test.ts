@@ -49,6 +49,8 @@ import { FUSE_ADDED_ENTRY_IDS } from "./fieldKitsFuse.fixture";
 import { RX_ADDED_ENTRY_IDS } from "./reactorFuelGoldens.fixture";
 // ML-2 (the Material Lines recipe rework + the recipe realism audit): its registry move, read back by ml2RowsBack.
 import { ml2RowsBack } from "./ml2RecipeGoldens.fixture";
+// E-MOD EM-5 (the module slot): its registry move, read back by em5ReadBack.
+import { em5ReadBack } from "./emodEm5Registry.fixture";
 
 // ===== shared helpers =====
 
@@ -616,8 +618,10 @@ type Back = { readonly sf3?: boolean; readonly fkr9?: boolean; readonly racials?
 // The Quartermaster Standard-Issue member lines and the D26 line swap (0.14.0) came after every pin here too: every
 // read-back and the snapshot read them back (siMemberGearRegistry.fixture.ts siReadBack: the added entries left out,
 // the nine retired combat lines restored in place; shortRangeGoldens.test.ts `registry:si` pins them).
+// E-MOD EM-5 came after every pin here: its two module wear rows are left out and the hulls' moduleSlots entries read
+// with their old owner (emodEm5Registry.fixture.ts em5ReadBack; shipModules.test.ts pins the move itself).
 const BEFORE_RX: WiringEntry[] = siReadBack(
-  WIRING_REGISTRY.filter((e) => !RX_ADDED_ENTRY_IDS.has(e.id) && !FUSE_ADDED_ENTRY_IDS.has(e.id)),
+  em5ReadBack(WIRING_REGISTRY).filter((e) => !RX_ADDED_ENTRY_IDS.has(e.id) && !FUSE_ADDED_ENTRY_IDS.has(e.id)),
   (e) => e.id,
   (row) => ({ id: row[0], status: row[1], contexts: row[2], probe: row[3] ?? undefined }) as unknown as WiringEntry,
 );

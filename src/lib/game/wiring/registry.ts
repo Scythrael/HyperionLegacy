@@ -2059,7 +2059,9 @@ const HULL_FIELD_PROBES: Readonly<Record<string, ProbeId>> = {
   engineEfficiency: "sheetEngineEff",
 };
 const HULL_FIELD_PENDING: Readonly<Record<string, string>> = {
-  moduleSlots: "WR-7, OC-D4 (no reader; every hull has the same slot set)",
+  // E-MOD EM-5: the install gate now reads it (the shared module slots, moduleSlotsFull), but no module can be crafted
+  // yet, so the slot is hidden (shipModules.ts UNIVERSAL_MODULES_LIVE) and the count binds on nothing a player can do.
+  moduleSlots: "EM-7 (the module slot is hidden until a module can be crafted: UNIVERSAL_MODULES_LIVE)",
   equipmentSlots: "WR-7, OC-C4 (a forward bucket; 0 on every hull)",
 };
 

@@ -149,6 +149,8 @@ import { GG1_ADDED_ENTRY_IDS } from "./gasStudyGoldens.fixture";
 import { FUSE_ADDED_ENTRY_IDS } from "./fieldKitsFuse.fixture";
 import { RX_ADDED_ENTRY_IDS } from "./reactorFuelGoldens.fixture";
 import { isSiAdded, SI_RETIRED, siReadBack } from "./siMemberGearRegistry.fixture";
+// E-MOD EM-5: its two module wear rows, held apart from the gear wear pin.
+import { EM5_ADDED_ENTRY_IDS } from "./emodEm5Registry.fixture";
 // CP-8 / OC-11: the test switch that proves the auto-crew pause is the only thing that moved the fleet pin.
 vi.mock("./crewLock", async (io) => (await import("./complementOc11Switch.fixture")).oc11CrewLockMock(io));
 import { withOc11Off } from "./complementOc11Switch.fixture";
@@ -851,7 +853,8 @@ describe("G1-0 golden 5: the wiring registry's ids and statuses", () => {
     pin("registry:g1", added);
   });
   it("gear wear steps 1 and 2: the added entries, each with its status (all pending)", () => {
-    const added = WIRING_REGISTRY.filter((e) => GW_SLICE.added!.has(e.id)).map((e) => `${e.id}|${e.status.kind}`);
+    // E-MOD EM-5's two module wear rows (emodEm5Registry.fixture.ts) are held apart: they came after this pin.
+    const added = WIRING_REGISTRY.filter((e) => GW_SLICE.added!.has(e.id) && !EM5_ADDED_ENTRY_IDS.has(e.id)).map((e) => `${e.id}|${e.status.kind}`);
     expect(added.length).toBeGreaterThan(30);
     expect(added.every((l) => l.endsWith("|pending"))).toBe(true);
     pin("registry:gearWear", [added.length, hash(added)]);

@@ -38,7 +38,9 @@ import { SI_PLATING_HP, REF_SHIELD_CAPACITY, REF_SHIELD_RECHARGE } from "../mode
 // 0.13.5 F5: the hull table, read to derive how many hardpoints and bays need padding. A VALUE
 // import from model into a combat leaf is the allowed direction (model never imports combat at
 // runtime), the same direction the three constants above already travel.
-import { SHIP_TYPES } from "../model";
+import { SHIP_TYPES, moduleEffectScale } from "../model";
+// E-MOD EM-5: the universal module catalog readers (a leaf: types only, no cycle).
+import { moduleConditionals, modulePassiveTotal } from "../shipModules";
 import type { Combatant, CombatTeam, CombatWeapon, FamilyResist } from "./types";
 import type { CombatStance } from "./positioning";
 import { makeWeaponInstance, WEAPON_DEFS, type WeaponId } from "./weapons";
@@ -789,6 +791,24 @@ export function applyOfficerCombat(c: Combatant, mods: OfficerCombatMods | undef
 	}
 }
 
+// E-MOD EM-5 (0.14.0, plan section 4 EM-5): fold a ship's installed UNIVERSAL MODULES onto a freshly minted combatant,
+// IN PLACE (the combatant is fresh per call). Only the combat engines EM-5 builds:
+//   Passive hullIntegrity : the hull pool scaled by (1 + the summed lift), ROUNDED (integer at the fold), full at start.
+//   Conditional           : the below-threshold damage lifts, read live by resolveBattle (Combatant.moduleConditionals).
+// Each magnitude is its catalog def's scaled by moduleEffectScale (rarity, quality). No module (every ship today, every
+// enemy, `gear` absent) leaves the combatant byte-identical: nothing is written. Procs and Actives are EM-6.
+export function applyModuleCombat(c: Combatant, gear: readonly EquipmentInstance[] | undefined): void {
+	if (gear === undefined || !gear.some((p) => p.slotType === "module")) return;
+	const scaleOf = (p: EquipmentInstance) => moduleEffectScale(p.rarity, p.quality);
+	const hull = modulePassiveTotal(gear, "hullIntegrity", scaleOf);
+	if (hull > 0) {
+		c.hullMax = Math.max(1, Math.round(c.hullMax * (1 + hull)));
+		c.hull = c.hullMax;
+	}
+	const conditionals = moduleConditionals(gear, scaleOf);
+	if (conditionals.length > 0) c.moduleConditionals = conditionals;
+}
+
 // ---------------------------------------------------------------------------
 // shipToCombatant -- fold a game ship's combat stats into a sim Combatant.
 //
@@ -1003,6 +1023,9 @@ export function shipToCombatant(args: ShipToCombatantArgs): Combatant {
 		rapidChargeAfterAmbush: false,
 		particleTraceDetector: 0,
 	};
+	// E-MOD EM-5: the installed universal modules (gear, so before the people): Passive hull integrity and the
+	// Conditional damage lifts. Read off the same installed gear, so every caller that folds gear folds modules.
+	applyModuleCombat(combatant, gear);
 	// E-CREW (Task 20): the seated officers' combat bonuses, on top of everything above (absent = no-op).
 	applyOfficerCombat(combatant, args.officerCombat);
 	// WR-5b: the commanding captain's Tactician nodes, on top (absent = no-op).

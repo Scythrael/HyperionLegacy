@@ -295,6 +295,9 @@ export const REQUISITION_CATALOGUE: RequisitionCatalogue = {
   thrusters: null,
   sensor: null,
   propellantTanks: null,
+  // E-MOD EM-5: a universal module has no Standard-Issue floor (no default variety; every module is a crafted or found
+  // accessory, H.1), so the counter issues none.
+  module: null,
 
   // --- E-CREW 0.14.0 (Task 9): the AWAY-TEAM MEMBER floors (design 5.4, inventory S94: "every ship /
   // crewman takes the SAME baseline"). One free Armor / Weapon / Tool per squad type, the anti-softlock
