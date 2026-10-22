@@ -91,13 +91,17 @@ const GOLDEN: Record<string, unknown> = {
   "paths:mission": { installGate: "onMission", install: "refused", uninstall: "throw:unfitEquipmentInstance blocked: onMission", checkOut: "refused", checkIn: "refused", assignOff: "refused" },
   "paths:patrol": { installGate: "onMission", install: "refused", uninstall: "throw:unfitEquipmentInstance blocked: onMission", checkOut: "refused", checkIn: "refused", assignOff: "refused" },
   "paths:shortRange": { installGate: "onMission", install: "refused", uninstall: "throw:unfitEquipmentInstance blocked: onMission", checkOut: "refused", checkIn: "refused", assignOff: "refused" },
-  // Before S1 / S2: an expedition (in flight, or complete but unclaimed) locked none of these paths.
-  "paths:expedition": { installGate: "ok", install: "3054208e", uninstall: "406880e9", checkOut: "7cc85ec9", checkIn: "d0bfb4e3", assignOff: "a56571a5", assignOnto: "615c6e56" },
-  "paths:expeditionUnclaimed": { installGate: "ok", install: "de9a40f6", uninstall: "4bf00273", checkOut: "9128cbd3", checkIn: "fee2c62d", assignOff: "836624df", assignOnto: "c7fc147e" },
+  // RE-PINNED by the S1 / S2 lock commit, the ONLY move: before it an expedition (in flight, or complete but
+  // unclaimed) locked none of these paths (captured: install "3054208e" / "de9a40f6", uninstall "406880e9" /
+  // "4bf00273", checkOut "7cc85ec9" / "9128cbd3", checkIn "d0bfb4e3" / "fee2c62d", assignOff "a56571a5" / "836624df",
+  // assignOnto "615c6e56" / "c7fc147e", installGate "ok"). Now every path refuses with the same state back, exactly
+  // as the captain-run rows above always did. The home and captain-run rows and the runs in flight did not move.
+  "paths:expedition": { installGate: "onMission", install: "refused", uninstall: "throw:unfitEquipmentInstance blocked: onMission", checkOut: "refused", checkIn: "refused", assignOff: "refused", assignOnto: "refused" },
+  "paths:expeditionUnclaimed": { installGate: "onMission", install: "refused", uninstall: "throw:unfitEquipmentInstance blocked: onMission", checkOut: "refused", checkIn: "refused", assignOff: "refused", assignOnto: "refused" },
   inFlight: ["514cd0a6", "760d471c"],
 };
 
-describe("S1 / S2 goldens: the ship gear and captain move paths, before the lock edits", () => {
+describe("S1 / S2 goldens: the ship gear and captain move paths (re-pinned by the lock commit where named)", () => {
   for (const kind of ["home", ...GEAR_LOCK_KINDS] as const) {
     it(`paths: ship-1 ${kind}`, () => {
       expect(pathReadings(kind)).toEqual(GOLDEN[`paths:${kind}`]);
@@ -107,11 +111,3 @@ describe("S1 / S2 goldens: the ship gear and captain move paths, before the lock
     expect([inFlightExpedition(), inFlightMission()]).toEqual(GOLDEN.inFlight);
   });
 });
-
-// Capture helper: run with GL_CAPTURE=1 to print the readings.
-if (process.env.GL_CAPTURE) {
-  const all: Record<string, unknown> = {};
-  for (const kind of ["home", ...GEAR_LOCK_KINDS] as const) all[`paths:${kind}`] = pathReadings(kind);
-  all.inFlight = [inFlightExpedition(), inFlightMission()];
-  console.log(JSON.stringify(all, null, 2));
-}

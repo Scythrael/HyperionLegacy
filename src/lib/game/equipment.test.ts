@@ -257,7 +257,7 @@ describe("on-mission lock", () => {
     const piece = makeEquip({ id: "equip-1", slotType: "cargoBay", fittedToShipId: null });
     const state = withCaptainOnMission(withEquipment(freshState(), piece));
 
-    expect(canFitEquipment(state, "ship-1", "equip-1")).toEqual({ ok: false, reason: "onMission" });
+    expect(canFitEquipment(state, "ship-1", "equip-1")).toEqual({ ok: false, reason: "onMission", lock: "onMission" });
   });
 
   it("fitEquipment throws when the ship's captain is on an active mission", () => {
@@ -914,7 +914,7 @@ describe("targeted swap on a MULTI slot (0.13.9)", () => {
     const state = fullCarrierWeapons();
     const locked = { ...state, equipment: state.equipment.map((e) => (e.id === "w-3" ? { ...e, locked: true } : e)) };
     expect(canFitEquipment(locked, "ship-1", "w-3", "w-1")).toEqual({ ok: false, reason: "locked" });
-    expect(canFitEquipment(withCaptainOnMission(state), "ship-1", "w-3", "w-1")).toEqual({ ok: false, reason: "onMission" });
+    expect(canFitEquipment(withCaptainOnMission(state), "ship-1", "w-3", "w-1")).toEqual({ ok: false, reason: "onMission", lock: "onMission" });
   });
 
   it("refuses a replacing id that is not a same-type piece installed on THIS ship", () => {

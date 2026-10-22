@@ -32,16 +32,28 @@ export function shipCrewLocked(state: GameState, shipId: string): boolean {
   return state.expeditions.some((e) => e.shipId === shipId);
 }
 
-// WHY a ship is crew-locked, for the player text: "onMission" (its captain is flying a mission or patrol;
-// this wins when both apply, since recall is the first step) or "onExpedition" (in flight, or complete but
-// unclaimed). null exactly when shipCrewLocked is false: it asks shipCrewLocked first, so the one predicate
-// stays the source of truth and this only names the cause. Pure.
-export type CrewLockReason = "onMission" | "onExpedition";
+// WHY a ship is crew-locked, for the player text. The captain's run comes first (it wins when both apply, since
+// recall is the first step), named by its kind so the words are honest (S2, user 2026-10-17: a refusal names the
+// real reason): "onMission" (an extraction mission), "onPatrol" or "onShortRange" (a Short-Range board run);
+// otherwise "onExpedition" (in flight, or complete but unclaimed). null exactly when shipCrewLocked is false: it
+// asks shipCrewLocked first, so the one predicate stays the source of truth and this only names the cause. Pure.
+export type CrewLockReason = "onMission" | "onPatrol" | "onShortRange" | "onExpedition";
 
 export function crewLockReason(state: GameState, shipId: string): CrewLockReason | null {
   if (!shipCrewLocked(state, shipId)) return null;
   const mission = onMissionLock(state, shipId);
-  return !mission.ok && mission.reason === "onMission" ? "onMission" : "onExpedition";
+  if (mission.ok || mission.reason !== "onMission") return "onExpedition";
+  // onMissionLock found the ship's assigned captain flying a run, so both finds resolve.
+  const ship = state.ships.find((s) => s.id === shipId)!;
+  const kind = state.captains.find((c) => c.id === ship.assignedCaptainId)!.mission!.kind;
+  switch (kind) {
+    case "extraction":
+      return "onMission";
+    case "patrol":
+      return "onPatrol";
+    case "shortRange":
+      return "onShortRange";
+  }
 }
 
 // The player-facing words for a lock (US English). EXHAUSTIVE with no default, so a new lock cause is a
@@ -50,6 +62,10 @@ export function crewLockReasonText(reason: CrewLockReason): string {
   switch (reason) {
     case "onMission":
       return "Ship is out on a mission";
+    case "onPatrol":
+      return "Ship is out on a patrol";
+    case "onShortRange":
+      return "Ship is on a short-range run";
     case "onExpedition":
       return "Ship is on an expedition";
   }
@@ -59,6 +75,8 @@ export function crewLockReasonText(reason: CrewLockReason): string {
 export function crewLockUntilText(reason: CrewLockReason): string {
   switch (reason) {
     case "onMission":
+    case "onPatrol":
+    case "onShortRange":
       return "until it returns";
     case "onExpedition":
       return "until its expedition is claimed";
@@ -126,4 +144,52 @@ export function setComplementMode(state: GameState, shipId: string, mode: ShipCo
       s.id === shipId ? { ...s, complement: { ...(s.complement ?? { buckets: [], mode: "passive" as const }), mode } } : s,
     ),
   };
+}
+
+// ============================================================================
+// S1 / S2 (docs/plans/2026-10-17-small-calls-answers.md, user 2026-10-17, both "Lock it (Recommended)"): the ship
+// gear lock and the captain lock read the SAME crew lock as every crew change, so a ship that is out (a mission, a
+// patrol, a short-range run, or an expedition until it is claimed) keeps its gear and its captain until it is home.
+// ============================================================================
+
+// The gear lock words for a refusal list ("Cannot install system: ..."), lower case like the other install reasons:
+// "ship is on an expedition (gear locked until its expedition is claimed)". Pure.
+export function shipGearLockReasonText(reason: CrewLockReason): string {
+  const why = crewLockReasonText(reason);
+  return `${why.charAt(0).toLowerCase()}${why.slice(1)} (gear locked ${crewLockUntilText(reason)})`;
+}
+
+// The gear lock as a sentence, for a disabled control's tooltip or a log line. Pure.
+export function shipGearLockHint(reason: CrewLockReason): string {
+  return `${crewLockReasonText(reason)}: its gear is locked ${crewLockUntilText(reason)}`;
+}
+
+// S1: whether captain `captainId` moving onto ship `shipId` (assignShipToCaptain) is crew-locked. Neither the
+// captain's current ship (moving off it) nor the target (moving onto it) may be out. Returns the first locked ship
+// and why, the current ship first, or null. The captain's own run is covered by the current ship's lock
+// (onMissionLock reads it); a captain or ship that does not exist is the caller's refusal, not a lock. Pure.
+export function captainMoveLock(
+  state: GameState,
+  captainId: number,
+  shipId: string,
+): { shipId: string; reason: CrewLockReason } | null {
+  const current = state.ships.find((s) => s.assignedCaptainId === captainId);
+  for (const id of [current?.id, shipId]) {
+    if (id === undefined) continue;
+    const reason = crewLockReason(state, id);
+    if (reason !== null) return { shipId: id, reason };
+  }
+  return null;
+}
+
+// Whether captain `captainId`'s current ship is out, so the captain cannot leave it (false with no ship). Pure.
+export function captainShipLocked(state: GameState, captainId: number): boolean {
+  const current = state.ships.find((s) => s.assignedCaptainId === captainId);
+  return current !== undefined && shipCrewLocked(state, current.id);
+}
+
+// The captain lock as a sentence: "Ship is on an expedition: captains stay aboard until its expedition is claimed".
+// Pure.
+export function captainMoveLockText(reason: CrewLockReason): string {
+  return `${crewLockReasonText(reason)}: captains stay aboard ${crewLockUntilText(reason)}`;
 }

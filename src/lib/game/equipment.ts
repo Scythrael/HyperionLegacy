@@ -106,10 +106,27 @@ import { salvageReservedInstanceIds } from "./reservation";
 // E-MOD EM-2 review: the pure queries every reader needs (equippedFor, MULTI_SLOT_TYPES, onMissionLock) live in the
 // LEAF module equipmentQueries.ts and are re-exported here, so shipPower.ts and the crew fold read them without
 // importing this file: equipment.ts -> shipPower.ts is one-way, no import cycle.
-import { MULTI_SLOT_TYPES, equippedFor, onMissionLock } from "./equipmentQueries";
+import { MULTI_SLOT_TYPES, equippedFor } from "./equipmentQueries";
 export { MULTI_SLOT_TYPES, equippedFor, onMissionLock } from "./equipmentQueries";
 // E-MOD EM-2: the power install gate's reading (one-way: shipPower.ts never imports this file).
 import { installPowerShortfallBetween } from "./shipPower";
+// S2: the one crew lock (crewLock.ts imports only the leaf equipmentQueries.ts, so no cycle).
+import { crewLockReason, type CrewLockReason } from "./crewLock";
+
+// S2 (docs/plans/2026-10-17-small-calls-answers.md, user 2026-10-17 "Lock it (Recommended)": "no ship gear changes
+// while the ship is out"): the ONE gear lock every ship gear change asks (hand install, hand uninstall, the Armory
+// check-out and check-in). It is the crew lock (crewLock.ts shipCrewLocked: the captain on a mission, a patrol or a
+// short-range run, or the ship on an expedition until it is claimed), wider than onMissionLock, which sees only the
+// captain's run. Checked in order: noShip (the ship is gone), then onMission with WHY. null when the ship's gear may
+// change. Pure.
+export function shipGearLock(
+  state: GameState,
+  shipId: string,
+): { ok: false; reason: "noShip" } | { ok: false; reason: "onMission"; lock: CrewLockReason } | null {
+  if (!state.ships.some((s) => s.id === shipId)) return { ok: false, reason: "noShip" };
+  const lock = crewLockReason(state, shipId);
+  return lock === null ? null : { ok: false, reason: "onMission", lock };
+}
 
 // The slot-type partitions the fit gate (canFitEquipment) and the mutators read. Sets (not arrays)
 // for O(1) membership; typed to EquipmentSlotType so a slot rename is a compile error.
@@ -263,8 +280,12 @@ export type EquipFitBlockReason =
 
 // A refused install: the reason, and for overPower the power it still needs. Every reason-text switch takes this
 // whole object so the overPower case can name its number (TypeScript narrows on `reason`).
+// S2 (user 2026-10-17 "Lock it"): "onMission" means the ship is OUT (the one crew lock, crewLock.ts shipCrewLocked:
+// a mission, a patrol, a short-range run, or an expedition until it is claimed), and the refusal carries WHY
+// (`lock`), so every surface can name the real reason (crewLock.ts shipGearLockReasonText) without the state.
 export type EquipFitRefusal =
-  | { ok: false; reason: Exclude<EquipFitBlockReason, "overPower"> }
+  | { ok: false; reason: Exclude<EquipFitBlockReason, "overPower" | "onMission"> }
+  | { ok: false; reason: "onMission"; lock: CrewLockReason }
   | { ok: false; reason: "overPower"; powerShortfall: number };
 export type EquipFitVerdict = { ok: true } | EquipFitRefusal;
 
@@ -386,12 +407,11 @@ export function canFitEquipment(
     return { ok: false, reason: "locked" };
   }
 
-  // --- Ship existence + on-mission lock (shared with unfitEquipment). This also
-  // yields the ship reference we need below, but onMissionLock re-finds it to stay
-  // a self-contained guard, so we resolve the ship again here for the requirement
-  // check (a find over a tiny list, negligible).
-  const lock = onMissionLock(state, shipId);
-  if (!lock.ok) return lock;
+  // --- Ship existence + the gear lock (shipGearLock, S2: the ship is out on a mission, a patrol, a short-range run
+  // or an expedition; shared with every uninstall and the Armory). It re-finds the ship to stay a self-contained
+  // guard, so we resolve the ship again here for the requirement check (a find over a tiny list, negligible).
+  const lock = shipGearLock(state, shipId);
+  if (lock !== null) return lock;
   // Non-null past the lock (it returned noShip otherwise).
   const ship = state.ships.find((s) => s.id === shipId)!;
 
@@ -622,7 +642,7 @@ function applyFit(state: GameState, shipId: string, instanceId: string, replacin
 // ----------------------------------------------------------------------------
 // Return the piece in a ship's slot (if any) to the spare pool AND auto-refit the
 // slot with a fresh Standard-Issue baseline, so a LIVE SLOT IS NEVER EMPTY. Guarded
-// by the SAME on-mission lock as fitEquipment (via onMissionLock), and THROWS with the
+// by the SAME gear lock as fitEquipment (shipGearLock, S2), and THROWS with the
 // reason token when that lock blocks (same WHY THROW rationale as fitEquipment: bare-
 // GameState signature -> a throw keeps the failure observable).
 //
@@ -652,8 +672,8 @@ export function unfitEquipment(
   shipId: string,
   slotType: EquipmentSlotType
 ): GameState {
-  const lock = onMissionLock(state, shipId);
-  if (!lock.ok) {
+  const lock = shipGearLock(state, shipId); // S2: the ship's gear stays while it is out
+  if (lock !== null) {
     throw new Error(`unfitEquipment blocked: ${lock.reason}`);
   }
 
@@ -714,7 +734,7 @@ export function unfitEquipment(
 // (not slot-targeted) because a MULTI weapon slot holds several pieces, so "uninstall the
 // weapon" is ambiguous without an id; targeting the id works for singletons too.
 //
-// Guarded by the SAME on-mission lock as fitEquipment / unfitEquipment (via onMissionLock),
+// Guarded by the SAME gear lock as fitEquipment / unfitEquipment (shipGearLock, S2),
 // and THROWS with the reason token when that lock blocks (same WHY THROW rationale: the
 // bare-GameState signature makes a silent no-op indistinguishable from a real change, an
 // observability hole, Omega 14). It also THROWS on a stale/bad call (unknown instance, or an
@@ -747,8 +767,8 @@ export function unfitEquipmentInstance(
   shipId: string,
   instanceId: string
 ): GameState {
-  const lock = onMissionLock(state, shipId);
-  if (!lock.ok) {
+  const lock = shipGearLock(state, shipId); // S2: the ship's gear stays while it is out
+  if (lock !== null) {
     throw new Error(`unfitEquipmentInstance blocked: ${lock.reason}`);
   }
 

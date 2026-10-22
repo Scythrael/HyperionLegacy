@@ -68,6 +68,9 @@
   // E-MOD EM-2: the power gate's refusal wording and the over-budget warning (P2: never evict, a warning chip).
   import { overBudgetNotice, overPowerReasonText } from "./game/shipPower";
   import { equippedFor, fittedInSlot, canFitEquipment } from "./game/equipment";
+  // S2 (user 2026-10-17 "Lock it"): the one crew lock names why a ship's gear is locked (a mission, a patrol, a
+  // short-range run, or an expedition until it is claimed), the same lock the engine's install gate reads.
+  import { crewLockReason, shipGearLockHint, shipGearLockReasonText } from "./game/crewLock";
   // The combat-loadout read helpers. combatHullTypeOf resolves the hull's combat class
   // (now non-null for every hull); computeCombatReadout folds the installed combat
   // gear into the readout the panel shows; weaponDisplayName + WEAPON_DEFS resolve a
@@ -351,7 +354,11 @@
   $: isProspectorHull = shipDef?.spec === "prospector";
   // E4d: every specialized hull (prospector / tactician / explorer) shows the Spec Utility slot.
   $: hasSpecUtilitySlot = shipDef !== null && shipDef !== undefined && shipDef.spec !== "general";
-  $: onMission = assignedCaptain !== null && assignedCaptain.mission !== null;
+  // S2: the gear lock (crewLock.ts crewLockReason, null when the ship is home). `onMission` keeps its old name for the
+  // controls it disables; it is true for every way the ship can be out, an expedition included.
+  $: gearLock = ship ? crewLockReason(state, ship.id) : null;
+  $: onMission = gearLock !== null;
+  $: gearLockHint = gearLock === null ? undefined : shipGearLockHint(gearLock);
 
   // --- Ship name (Renamable Ships) --------------------------------------------
   // The header title is the ship's DISPLAY name: its custom `name` if set, else the
@@ -925,7 +932,7 @@
       case "noShip":
         return "ship no longer exists";
       case "onMission":
-        return "captain is on a mission (install locked)";
+        return shipGearLockReasonText(refusal.lock);
       case "hullSpec":
         return "wrong hull type for this system";
       case "captainSpec":
@@ -1374,7 +1381,7 @@
             <div class="ss-captain-name">{assignedCaptain.label}</div>
             <div class="ss-captain-spec">
               {assignedCaptain.spec ? SPEC_LABEL[assignedCaptain.spec] ?? assignedCaptain.spec : "No specialization"}
-              {#if onMission}&middot; on mission (install locked){/if}
+              {#if gearLock !== null}&middot; {shipGearLockReasonText(gearLock)}{/if}
             </div>
           {:else}
             <div class="ss-captain-name ss-parked">Unassigned / Parked</div>
@@ -1512,7 +1519,7 @@
                     <button
                       class="ss-act ss-act-uninstall"
                       disabled={onMission || editsBlocked}
-                      title={onMission ? "Recall the captain first, installation is locked on mission" : undefined}
+                      title={gearLockHint}
                       on:click={() => handleUninstall(weapon.id)}
                     >Uninstall</button>
                   </div>
@@ -1573,7 +1580,7 @@
                     <button
                       class="ss-act ss-act-uninstall"
                       disabled={onMission || editsBlocked}
-                      title={onMission ? "Recall the captain first, installation is locked on mission" : undefined}
+                      title={gearLockHint}
                       on:click={() => handleUninstall(fitted.id)}
                     >Uninstall</button>
                   </div>
@@ -1630,7 +1637,7 @@
                     <button
                       class="ss-act ss-act-uninstall"
                       disabled={onMission || editsBlocked}
-                      title={onMission ? "Recall the captain first, installation is locked on mission" : undefined}
+                      title={gearLockHint}
                       on:click={() => handleUninstall(fitted.id)}
                     >Uninstall</button>
                   </div>
@@ -1688,7 +1695,7 @@
                       <button
                         class="ss-act ss-act-uninstall"
                         disabled={onMission || editsBlocked}
-                        title={onMission ? "Recall the captain first, installation is locked on mission" : undefined}
+                        title={gearLockHint}
                         on:click={() => handleUninstall(pod.id)}
                       >Uninstall</button>
                     </div>
