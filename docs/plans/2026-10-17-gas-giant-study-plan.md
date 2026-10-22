@@ -369,6 +369,37 @@ blueprints); none left = nothing. Ancient entries per open call 10; `requiresDec
 when the speed seam lands. Tests: family map covers every blueprint once, boost math and consumption, recipe roll
 determinism, lane independence from research and relic study, offline parity.
 
+**GG-5 carry note (built 2026-10-21, on GG-4).** New engine module `dataStudy.ts`; the lane pump and completion live in
+tick.ts. TimedProcessKind `"dataStudy"` with effect `studyData { itemId, studyIndex, cultureId? }` (consume at start).
+Lane: DATA_STUDY_LANES 1 from Lab Level I (labTier; as drawn), DATA_STUDY_TICKS 1200 (call 12). `processDataStudyLane`
+runs once per whole tick in economyTick after the repair pass (offline == live; draws nothing): when idle and not paused
+it starts the OLDEST held item (`heldDataQueue`: units held with no arrival entry first, item order; then
+GameState.dataStudyHeld in arrival order, the claim appending one entry per unit via `depositExpeditionFindings(state,
+findings, exp)` / `dataArrivals`; entries the inventory no longer covers are pruned). Pause (`setDataStudyPaused`,
+GameState.dataStudyPaused): nothing starts and the running study's countdown holds (resolveProcesses skips it), as
+drawn. Completion: a research data item banks one boost (GameState.researchBoosts) and rolls the recipe chance
+(DATA_STUDY_SALT keyed by the save's relic seed and the study index; draw 1 the 5% chance, draw 2 the pick, both always
+taken) over `dataStudyRecipeCandidates` (the item's family, tier <= the Lab's, not researched, not in research, not
+relic or decode locked), granted straight into researchedBlueprints; none left = nothing. `startResearch` spends every
+banked boost of the project's family (`researchFamilyOf`): duration = museum duration / (1 + researchBoostSpeed(n)),
+researchBoostSpeed(n) = 0.12 x diminishing(n, 4) / diminishing(1, 4). An Ancient Data Fragment decodes the next entry of
+its OWN culture (GameState.ancientDecoded[cultureId]; the culture is the Relics v2 body culture, cultureForBody, read
+off the study finding's body at the claim; a fragment held from before GG-5 reads a pure legacy hash) and gives that
+culture one study point (`feedCultureData` on the Museum v2 culture record: the OC-9 seam R2-6 builds naming on).
+`BlueprintDef.requiresDecode` + `blueprintDecodeLocked` (the most entries any one culture decoded) + canResearch
+`undecoded`: no blueprint carries it yet (GG-7's special blueprints will). Overtime covers `dataStudy` (tier 1). Research
+data items lost their `reserved` markers; their registry rows flip live in place (DATA_STUDY consume:<item>, probe: the
+lane studies the unit). Registry live with probes: GAS_STUDY_USES labLane, DATA_STUDY boost:<family> x8, recipeChance,
+ancientDecode; seam DATA_STUDY_SEAM decodeGate (owner GG-7). Completion log: a study that learned a recipe records a
+"blueprint", any other the item studied ("nothing"; GG-6's tab shows the boost or the entry); FA XP like a relic study.
+[PROVISIONAL]: RESEARCH_BOOST_KNEE 4. [PROPOSAL]: the family map (RESEARCH_FAMILY_BY_SLOT plus the Survey Rig and the
+Pathfinder Suite as Sensors; field kits as Field; hull unlocks and holds as Hull Design), the decode gate reading the
+most entries of any one culture, a data study earning FA XP. Readers for GG-6: `heldDataQueue`, `dataStudiesInFlight`,
+`dataStudyPaused`, `researchBoostsBanked`, `researchBoostSpeed`, `ancientEntriesDecoded`. For GG-6: research data is
+still on the warehouse shelves through the GG-3 source flip (GAS_STUDY_SOURCE_PENDING empty); the signed-off "no
+research-data warehouse shelf" is GG-6's to apply. Goldens: the GG-5 capture (a save holding data, an hour) holds with
+the lane paused; the lane-on hour is pinned (GG-5 golden).
+
 ### GG-6: UI (needs a v3 mockup sign-off first)
 
 Mockup coverage. Covered by v2 (needs the user's sign-off; never given): class art and readout, dive panel, reward

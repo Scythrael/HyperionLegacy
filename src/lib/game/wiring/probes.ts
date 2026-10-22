@@ -213,7 +213,9 @@ import {
   rollStudyReward,
   studyCanisterScale,
 } from "../gasGiantStudy";
-import { GAS_CANISTER_IDS, GIANT_CLASSES, NEBULA_KINDS, canistersInBand, type GiantClassDef, type GiantClassId, type NebulaKindDef, type NebulaKindId } from "../gasGiantContent";
+import { ANCIENT_DATA_FRAGMENT_ID, GAS_CANISTER_IDS, GIANT_CLASSES, NEBULA_KINDS, canistersInBand, type GiantClassDef, type GiantClassId, type NebulaKindDef, type NebulaKindId, type ResearchFamily } from "../gasGiantContent";
+// Gas Giant Study GG-5: the Research Lab's data study lane.
+import { DATA_STUDY_RECIPE_PERMILLE, DATA_STUDY_TICKS, researchFamilyOf, rollDataStudyRecipe, setDataStudyPaused } from "../dataStudy";
 
 // ============================================================================
 // Contexts (every context a claim can cover; plan section 3.2)
@@ -1923,6 +1925,65 @@ function gasStudyUseValue(s: GameState, use: string, on: boolean): number {
   }
 }
 
+// ===== Gas Giant Study GG-5: the Research Lab's data study lane (dataStudy.ts) =====
+
+// A Lab Level I save holding `units` of `itemId`, the lane on (OFF: paused, the consumer taken away), stepped one data
+// study and a little past it through the real economy tick.
+function dataStudyRun(s: GameState, itemId: string, on: boolean, units = 1): { before: GameState; after: GameState } {
+  const lab = withFacilityLevel(s, "research", 1);
+  const held: GameState = { ...lab, inventory: addItemQuality(lab.inventory, itemId, new Decimal(units), 0) };
+  const before = on ? held : setDataStudyPaused(held, true);
+  let after = before;
+  for (let i = 0; i < DATA_STUDY_TICKS + 3; i++) after = economyTick(after, 1, () => 0.999999);
+  return { before, after };
+}
+
+// The first blueprint of `family` a top Lab researches (BLUEPRINTS order).
+function familyBlueprint(family: ResearchFamily): string {
+  const key = Object.keys(BLUEPRINTS).find((k) => researchFamilyOf(BLUEPRINTS[k]) === family && BLUEPRINTS[k].requiresRelicDiscovery === undefined);
+  if (!key) throw new Error(`wiring: no blueprint of family ${family}`);
+  return key;
+}
+
+// A GG-5 lab lane value, read through its consumer.
+//   lane:             boosts banked by one study of Propulsion Data (OFF: the lane paused);
+//   consume:<item>:   units of the item the lane studied (OFF: paused);
+//   boost:<family>:   research ticks one banked boost saves on the family's first blueprint (OFF: none banked);
+//   recipe:           recipes a batch of 400 study rolls learns with candidates waiting (OFF: the chance at 0);
+//   decode:           entries one Ancient Data Fragment study decodes (OFF: paused).
+function dataStudyValue(s: GameState, a: string, b: string, on: boolean): number {
+  switch (a) {
+    case "lane": {
+      const { after } = dataStudyRun(s, "propulsionData", on);
+      return after.researchBoosts?.propulsion ?? 0;
+    }
+    case "consume": {
+      const { before, after } = dataStudyRun(s, b, on);
+      return heldOf(before, b) - heldOf(after, b);
+    }
+    case "boost": {
+      const family = b as ResearchFamily;
+      const key = familyBlueprint(family);
+      const ready: GameState = { ...withFacilityLevel(s, "research", 9), credits: new Decimal(1e12), ...(on ? { researchBoosts: { [family]: 1 } } : {}) };
+      const r = startResearch(ready, key);
+      const plain = startResearch({ ...ready, researchBoosts: undefined }, key);
+      const ticks = (x: typeof r) => x.next.activeProcesses[x.next.activeProcesses.length - 1]?.remainingTicks ?? 0;
+      return ticks(plain) - ticks(r);
+    }
+    case "recipe": {
+      let n = 0;
+      for (let i = 1; i <= 400; i += 1) if (rollDataStudyRecipe(RELIC_DEFAULT_SEED, i, ["frameSegmentBp"], on ? DATA_STUDY_RECIPE_PERMILLE : 0) !== null) n += 1;
+      return n;
+    }
+    case "decode": {
+      const { after } = dataStudyRun(s, ANCIENT_DATA_FRAGMENT_ID, on);
+      return Object.values(after.ancientDecoded ?? {}).reduce((x, y) => x + y, 0);
+    }
+    default:
+      return 0;
+  }
+}
+
 // GG-4: a run dispatched from `s` to the first candidate system, over a seed batch, that holds a nebula; throws when
 // none does (so a probe never passes on an empty fixture).
 const NEBULA_PROBE_SEEDS = Array.from({ length: 60 }, (_, i) => 0x51f15e + i * 0x10001);
@@ -2239,6 +2300,8 @@ function readContent(id: string, s: GameState): number {
       return giantClassFieldValue(a as GiantClassId, b, on);
     case "nebulaKind":
       return nebulaKindFieldValue(a as NebulaKindId, b, on);
+    case "dataStudy":
+      return dataStudyValue(s, a, b, on);
     case "lootPool": {
       // One salvage of the material: the item it gave is one of the pool's configured drops.
       const held = holding(s, a, new Decimal(1));

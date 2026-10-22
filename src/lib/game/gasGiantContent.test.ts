@@ -42,6 +42,7 @@ import { addItemQuality, itemTotal } from "./inventory";
 import { sellItem } from "./quartermaster";
 import { WIRING_REGISTRY } from "./wiring/registry";
 import { GG1_ADDED_ENTRY_IDS } from "./gasStudyGoldens.fixture";
+import { DATA_STUDY_ITEM_IDS } from "./dataStudy";
 import { effectFieldsOf } from "./wiring/fieldRoles";
 
 const sum = (o: BandOdds): number => ITEM_BANDS.reduce((n, b) => n + o[b], 0);
@@ -120,9 +121,11 @@ describe("GG-1 everything wired: a consumer or a GG reserve, a source or a pendi
     }
   });
 
-  it("every research data item and the fragment is reserved for GG-5's lab lane, not sellable", () => {
+  // GG-5 built the lab lane and dropped the reserves in the same commit (dataStudy.ts studies every one).
+  it("every research data item and the fragment is studied by GG-5's lab lane (no reserve left), not sellable", () => {
     for (const id of [...RESEARCH_FAMILIES.map((f) => RESEARCH_DATA_ITEM[f]), ANCIENT_DATA_FRAGMENT_ID]) {
-      expect(ITEMS[id].reserved, id).toMatch(/^GG-5 /);
+      expect(ITEMS[id].reserved, id).toBeUndefined();
+      expect(DATA_STUDY_ITEM_IDS, id).toContain(id);
       expect(ITEMS[id].sellValue, id).toBeUndefined();
     }
   });
@@ -154,7 +157,8 @@ describe("GG-1 everything wired: a consumer or a GG reserve, a source or a pendi
 
   // The study uses a built engine slice has taken live (GG-2: the class roll; GG-3: the study reward and the probe
   // dive; GG-4: the nebula sweep, which reads every nebula kind's two fields), and the class fields they read.
-  const BUILT_USES: ReadonlySet<string> = new Set(["classRoll", "studyReward", "probeDive", "nebulaSweep"]);
+  // GG-5: the lab lane, which consumes every research data item (their reserve rows flip live in place).
+  const BUILT_USES: ReadonlySet<string> = new Set(["classRoll", "studyReward", "probeDive", "nebulaSweep", "labLane"]);
   const CLASS_FIELD_USE: Readonly<Record<string, string>> = {
     weight: "classRoll",
     massMinMilliJ: "classRoll",
@@ -167,7 +171,8 @@ describe("GG-1 everything wired: a consumer or a GG reserve, a source or a pendi
   const builtLive = (e: (typeof WIRING_REGISTRY)[number]): boolean =>
     (e.source.catalog === "GAS_STUDY_USES" && BUILT_USES.has(e.source.key)) ||
     (e.source.catalog === "GIANT_CLASSES" && BUILT_USES.has(CLASS_FIELD_USE[e.source.key.split(":")[1]] ?? "")) ||
-    (e.source.catalog === "NEBULA_KINDS" && BUILT_USES.has("nebulaSweep"));
+    (e.source.catalog === "NEBULA_KINDS" && BUILT_USES.has("nebulaSweep")) ||
+    (e.source.catalog === "DATA_STUDY" && e.source.key.startsWith("consume:") && BUILT_USES.has("labLane"));
 
   it("the registry: GG-1's additions, each with its status (pending on its GG slice, or live for the sale, the recipe and a built slice's)", () => {
     const added = WIRING_REGISTRY.filter((e) => GG1_ADDED_ENTRY_IDS.has(e.id));

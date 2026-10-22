@@ -199,6 +199,8 @@ import { countClaimedExpedition, runCountsOf, runDifficultyAt } from "./runDiffi
 // Gas Giant Study GG-2: the study stamp, the orbital bodies and their giant profiles (gasGiantStudy.ts never imports
 // this module).
 import { isStudyBody, nebulaStampFor, studyStampFor, sweepsNebula, withGiantProfiles } from "./gasGiantStudy";
+// Gas Giant Study GG-5: the Research Lab's held data queue (dataStudy.ts imports neither this file nor tick.ts).
+import { dataArrivals } from "./dataStudy";
 
 // ============================================================================
 // FIRST-PASS TUNABLE constants
@@ -2624,7 +2626,10 @@ export interface ExpeditionClaimResult {
 // LIFETIME STATS: the haul folds through the shared foldLifetimeStatsDelta seam (the one extraction and
 // patrol loot use): materials into itemsGathered (the gross amount, mirroring how mission loot counts) and
 // credits into creditsEarned.
-export function depositExpeditionFindings(state: GameState, findings: readonly ExpeditionFinding[]): GameState {
+// Gas Giant Study GG-5: research data units also join the Research Lab's held queue in arrival order
+// (GameState.dataStudyHeld, dataStudy.ts dataArrivals: an Ancient Data Fragment with the culture of the body it came
+// from, read off `exp`), so the lane studies the oldest first.
+export function depositExpeditionFindings(state: GameState, findings: readonly ExpeditionFinding[], exp?: Pick<Expedition, "id" | "seed" | "region" | "risk">): GameState {
   let inventory = state.inventory;
   let discovered = state.discovered;
   let credits = state.credits;
@@ -2679,6 +2684,7 @@ export function depositExpeditionFindings(state: GameState, findings: readonly E
     }
   }
   if (!touched) return state;
+  const arrivals = dataArrivals(findings, exp, state.relicSeed);
 
   const lifetimeStats = foldLifetimeStatsDelta(state.lifetimeStats, {
     itemsGathered: gathered,
@@ -2695,6 +2701,7 @@ export function depositExpeditionFindings(state: GameState, findings: readonly E
     lifetimeStats,
     relicVault: vaultAdds.length > 0 ? [...(state.relicVault ?? []), ...vaultAdds] : state.relicVault,
     ...(surveys.length > 0 ? { surveyLog: [...(state.surveyLog ?? []), ...surveys] } : {}),
+    ...(arrivals.length > 0 ? { dataStudyHeld: [...(state.dataStudyHeld ?? []), ...arrivals] } : {}),
   };
 }
 
@@ -2737,7 +2744,7 @@ export function claimExpedition(state: GameState, expeditionId: string): Expedit
   const removed: GameState = { ...state, expeditions: state.expeditions.filter((e) => e.id !== expeditionId) };
   // Field Kits FKR-7: the extras the run still carries come home, even over the warehouse cap (call 17); the SAME state
   // for a run that carries none (every run without flag 2).
-  const deposited = depositExpeditionFindings(returnCarriedExtras(removed, exp), exp.findings);
+  const deposited = depositExpeditionFindings(returnCarriedExtras(removed, exp), exp.findings, exp);
   // Ground Ops (GO-7b): a flagged run brings home the members still in the medical bay with the time they have
   // left (never the flat 2h); a legacy run keeps Task 16's injuries.
   const { next: home, injuries } = exp.groundOps ? applyGroundOpsInjuries(deposited, exp) : applyExpeditionInjuries(deposited, exp);

@@ -21,6 +21,7 @@ import { addItemQuality } from "./inventory";
 import { ANCIENT_DATA_FRAGMENT_ID, RESEARCH_DATA_ITEM, RESEARCH_FAMILIES } from "./gasGiantContent";
 import { asPreRelicBlanksDispatch, dispatchPastPropulsion, plainAwayMember, withoutNebula } from "./awayTeamTestFixtures";
 import { goldenJson } from "./firstRunsGoldens.fixture";
+import { heldDataQueue, setDataStudyPaused } from "./dataStudy";
 
 function fnv(s: string): string {
   let h = 0x811c9dc5;
@@ -203,9 +204,25 @@ function holdingData(): GameState {
 const LAB_CAPTURE = "de0d7eb1";
 
 describe("GG-5 capture: a save holding research data, stepped an hour", () => {
-  it("the hour's state", () => {
+  // GG-5 (built after the capture): with the lane paused the hour is exactly the capture once the pause flag comes off.
+  it("the hour's state (the lane paused)", () => {
+    const paused = tick(3600, setDataStudyPaused(holdingData(), true), () => 0.5);
+    expect(paused.gameTimeSeconds).toBe(T0 + 3600);
+    expect(hash(setDataStudyPaused(paused, false))).toBe(LAB_CAPTURE);
+  });
+});
+
+// ===== GG-5 golden (pinned on GG-5): the same hour with the lane on =====
+// 20-minute studies back to back, oldest first: the save's units have no arrival entries (held from before GG-5), so
+// they go in item order: Propulsion Data twice done, Defense Data under way (it started at the second's end, so it
+// finishes a tick past the hour). [the hour's state, the banked boosts, the held queue left].
+const LAB_GOLDEN: readonly string[] = ["d9b3065b", "edfe75d4", "37d8e771"];
+
+describe("GG-5 golden: the hour with the lane on", () => {
+  it("two studies done and the third running, oldest first", () => {
     const after = tick(3600, holdingData(), () => 0.5);
-    expect(after.gameTimeSeconds).toBe(T0 + 3600);
-    expect(hash(after)).toBe(LAB_CAPTURE);
+    expect(after.researchBoosts).toEqual({ propulsion: 2 });
+    expect(after.activeProcesses.filter((p) => p.kind === "dataStudy").map((p) => p.effect.type === "studyData" && p.effect.itemId)).toEqual(["defenseData"]);
+    expect([hash(after), hash(after.researchBoosts ?? null), hash(heldDataQueue(after))]).toEqual(LAB_GOLDEN);
   });
 });

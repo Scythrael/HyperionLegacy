@@ -562,6 +562,12 @@ function labelForProcess(
 
     // Exploration 0.14.0 (E4a): a relic study at the Research facility. Named by the token's SET (the
     // relic itself is unknown until the study completes, which is the point of studying it).
+    // Gas Giant Study GG-5: a data study on the Research Lab's own lane, named by the item it studies.
+    case "dataStudy": {
+      const item = effect.type === "studyData" ? ITEMS[effect.itemId]?.label ?? effect.itemId : null;
+      return { icon: "research", primaryLabel: item !== null ? `Studying, ${item}` : "Studying research data", jumpTarget: "research" };
+    }
+
     case "relicStudy": {
       // Relics v2 R2-2: a blank with no set (no site) reads "General".
       const setId = effect.type === "identifyRelic" ? effect.token.setId : undefined;
@@ -1201,6 +1207,9 @@ const COMPLETION_KIND_VIEW: Record<
   // relics.ts in completionSubjectLabel). Reuses the research glyph and the Research Lab's own label.
   // E4c: the relic glyph + the Relics sub-tab (where the identification reveal card lives).
   relicStudy:              { verb: "Identified",  icon: "relic",      source: "Research Lab",   jumpTarget: "relics" },
+  // Gas Giant Study GG-5: a completed data study (the item studied, or the recipe it learned). The research tab hosts
+  // the lab until GG-6 adds the data study tab.
+  dataStudy:               { verb: "Studied",     icon: "research",   source: "Research Lab",   jumpTarget: "research" },
   // 0.13.4 Phase 2 Unit 2.2: the patrol run. The VERB is deliberately neutral ("Patrolled")
   // rather than outcome-flavored, because one row has to cover a clean finish, a recall, a
   // fuel-out and a defeat. The OUTCOME is carried by patrolEndReason and rendered from

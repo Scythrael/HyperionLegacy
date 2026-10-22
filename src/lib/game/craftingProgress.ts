@@ -323,6 +323,7 @@ export function craftingXpSubjectForProcess(process: TimedProcess): CraftingXpSu
     // Exploration 0.14.0 (E4a): a relic study IDENTIFIES a found object; it produces nothing, so
     // there is no crafting-XP subject (matches its crafting:false row in PROCESS_XP_AWARDS).
     case "relicStudy":
+    case "dataStudy": // Gas Giant Study GG-5: a Lab study produces nothing craftable
       return { kind: "none" };
   }
 }

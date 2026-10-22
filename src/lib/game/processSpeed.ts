@@ -82,6 +82,8 @@ export const OVERTIME_PROCESS_KINDS: readonly TimedProcessKind[] = [
   "shipBuild",
   "shipRepair",
   "researchProject",
+  // Gas Giant Study GG-5 (plan GG-5: "data studies are research jobs: Overtime covers them"): the Lab's data study.
+  "dataStudy",
   "facilityUpgrade",
   "equipmentStorageUpgrade",
   "docksExpansion",

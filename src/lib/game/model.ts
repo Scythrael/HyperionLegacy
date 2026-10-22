@@ -4673,7 +4673,7 @@ export function extractionMissionOf(captain: CaptainState): CaptainMissionState 
 // unidentified vault token at START (the token rides the identifyRelic effect) and, on completion,
 // IDENTIFIES it with a keyed deterministic roll and deposits one museum copy (resolveProcesses). XP
 // policy, log policy and render row are declared in the same exhaustive Records as every other kind.
-export type TimedProcessKind = "refineJob" | "facilityUpgrade" | "fuelRefineJob" | "researchProject" | "fabricateJob" | "shipBuild" | "equipmentStorageUpgrade" | "docksExpansion" | "transitBerthExpansion" | "shipRepair" | "salvageJob" | "relicStudy";
+export type TimedProcessKind = "refineJob" | "facilityUpgrade" | "fuelRefineJob" | "researchProject" | "fabricateJob" | "shipBuild" | "equipmentStorageUpgrade" | "docksExpansion" | "transitBerthExpansion" | "shipRepair" | "salvageJob" | "relicStudy" | "dataStudy";
 
 // What a process's COMPLETION applies (inputs were already deducted at START --
 // design §4's atomic-consume fix). `addItem` grants a refine job's output;
@@ -4805,7 +4805,12 @@ export type ProcessEffect =
   // Relics v2 R2-1 (DORMANT): `v: 2` marks a v2 study (its PRESENCE is the flag, plan 2026-10-17 section 3.2); R2-3
   // stamps it. A study without it resolves through the v1 roll exactly as dispatched, so every in-flight study keeps
   // its result.
-  | { type: "identifyRelic"; token: RelicVaultToken; studyIndex: number; v?: 2 };
+  | { type: "identifyRelic"; token: RelicVaultToken; studyIndex: number; v?: 2 }
+  // Gas Giant Study GG-5 (user call 8 "Auto when idle"): a DATA STUDY on the Research Lab's own lane (dataStudy.ts).
+  // The held item left the inventory at START (consume at start); `studyIndex` is minted from GameState.dataStudyIndex
+  // and keys the completion's recipe roll (DATA_STUDY_SALT), so it is a pure function of stored values. An Ancient
+  // Data Fragment carries the culture it came from (`cultureId`): its study decodes that culture's next entry.
+  | { type: "studyData"; itemId: string; studyIndex: number; cultureId?: string };
 
 // One in-flight timed process. `id` is monotonic ("proc-N"), allocated from
 // GameState.nextProcessId (mirrors the ShipInstance/nextShipId pattern).
@@ -7568,6 +7573,13 @@ export interface SurveyNebulaEntry {
 }
 export type SurveyLogEntry = SurveyGiantEntry | SurveyNebulaEntry;
 
+// Gas Giant Study GG-5: one held research data unit in arrival order (GameState.dataStudyHeld). `cultureId` only on an
+// Ancient Data Fragment (the culture of the body it came from).
+export interface DataStudyHeldEntry {
+  itemId: string;
+  cultureId?: string;
+}
+
 // A claimable EXPEDITIONARY FINDING. E2a shipped GENERIC placeholder tokens (a provenance tag only);
 // E3 makes an ACTIVITY finding REAL by attaching the away-team task's reward payload (planet-flavored
 // materials + credits + a CHANCE at an UNIDENTIFIED relic token). The payload fields are OPTIONAL so the
@@ -9086,6 +9098,21 @@ export interface GameState {
   // expedition.ts depositExpeditionFindings. Every displayed number derives from the entry's stored fields (the
   // Archive tab is GG-6). OPTIONAL: absent until the first readout comes home, so a save without one carries no key.
   surveyLog?: SurveyLogEntry[];
+  // Gas Giant Study GG-5 (plan section 3.3; user calls 8 to 10; the signed-off v3 mockup): the Research Lab's DATA
+  // STUDY lane (dataStudy.ts). All OPTIONAL, absent on every save until the lane first runs:
+  //   dataStudyHeld    research data in ARRIVAL order (the claim appends one entry per unit; an Ancient Data Fragment
+  //                    with the culture it came from). The inventory holds the units; this only orders them ("oldest
+  //                    held data first", as drawn). Units held with no entry (from before GG-5) are the oldest.
+  //   dataStudyPaused  the lane's pause toggle (call 8: "Auto when idle", with a pause toggle): no new study starts and
+  //                    the running one waits. Absent = on.
+  //   dataStudyIndex   the NEXT study's index (monotonic; keys its completion roll). Absent = 1.
+  //   researchBoosts   banked boosts per research family: the next project of the family uses them all (call 9).
+  //   ancientDecoded   ancient entries decoded per culture id (call 10 "One lane"; decode the fragment's own culture).
+  dataStudyHeld?: DataStudyHeldEntry[];
+  dataStudyPaused?: true;
+  dataStudyIndex?: number;
+  researchBoosts?: Partial<Record<ResearchFamily, number>>;
+  ancientDecoded?: Record<string, number>;
   // Safe first runs SF-1: the per-type run counters (RunCounts above; rules in runDifficulty.ts). freshState seeds
   // freshRunCounts(); save v70 derives them for an older save from its history (veterans). Written by claimExpedition,
   // dispatchCaptainOnPatrol and economyTick's patrol fold. OPTIONAL: absent (a dev save at v70 from before SF-1) reads
@@ -9448,9 +9475,6 @@ export interface ItemDef {
 // ML-1: the owners named by ItemDef.reserved (each becomes a pending wiring registry entry with this text as owner). ML-2
 // gave its six goods their blueprints and dropped their markers in the same commit.
 const EM8_PRECURSOR_LENS = "EM-8 (the Precursor Lens special module is crafted with it)";
-// Gas Giant Study GG-1: the owners of the research data reserves (the Research Lab's study lane, GG-5).
-const GG5_DATA_STUDY = "GG-5 (the Research Lab study lane studies it into a +12% boost on the next project of its family)";
-const GG5_ANCIENT_STUDY = "GG-5 (the Research Lab study lane decodes the next ancient entry from it)";
 // Gas Giant Study GG-1 (values approved by the user 2026-10-21): credits per canister at the Quartermaster's Sell counter.
 // Deuterium Ice at the Quartermaster's Sell counter, credits per unit. User 2026-10-21 (merge batch answers, "Comet
 // economy bug": "Cut ice to ~4 credits (Recommended)"): a crafting input, not a money run. It was 40 (the retired Fuel
@@ -10027,8 +10051,9 @@ export const ITEMS: Record<string, ItemDef> = {
   // Research Data (Gas Giant Study GG-1; user 2026-10-19 call 9 "Your six + 2, +12%").
   // One item per research family: the user's six (Propulsion, Defense, Weapons, Systems, Field, Hull Design) plus
   // Materials and Sensors. The Research Lab's study lane (GG-5, call 8 "Auto when idle") studies each held item into
-  // a +12% boost on the next project of its family (D23 stacking) and rarely a recipe (5%). Until GG-5 lands nothing
-  // studies them (the `reserved` marker) and until GG-3 nothing returns them, so they stay out of every list.
+  // a +12% boost on the next project of its family (D23 stacking) and rarely a recipe (5%): dataStudy.ts (GG-5, which
+  // dropped their `reserved` markers). GG-3's ship study returns them; they live in the Lab's list, never a warehouse
+  // shelf (the signed-off v3 mockup, as drawn).
   propulsionData: {
     label: "Propulsion Data",
     category: "researchData",
@@ -10036,7 +10061,6 @@ export const ITEMS: Record<string, ItemDef> = {
     rarity: "uncommon",
     unlockHint: "Returned by a ship's study of a gas giant or a nebula on an expedition.",
     flavor: "Pressure, flow and burn readings from the deep atmosphere, the raw stuff of better drives.",
-    reserved: GG5_DATA_STUDY,
   },
   defenseData: {
     label: "Defense Data",
@@ -10045,7 +10069,6 @@ export const ITEMS: Record<string, ItemDef> = {
     rarity: "uncommon",
     unlockHint: "Returned by a ship's study of a gas giant or a nebula on an expedition.",
     flavor: "How the probe hull held up under the crush, logged strain by strain.",
-    reserved: GG5_DATA_STUDY,
   },
   weaponsData: {
     label: "Weapons Data",
@@ -10054,7 +10077,6 @@ export const ITEMS: Record<string, ItemDef> = {
     rarity: "uncommon",
     unlockHint: "Returned by a ship's study of a gas giant or a nebula on an expedition.",
     flavor: "Lightning, plasma and charged winds measured at close range. Somebody will find a use for it.",
-    reserved: GG5_DATA_STUDY,
   },
   systemsData: {
     label: "Systems Data",
@@ -10063,7 +10085,6 @@ export const ITEMS: Record<string, ItemDef> = {
     rarity: "uncommon",
     unlockHint: "Returned by a ship's study of a gas giant or a nebula on an expedition.",
     flavor: "Telemetry from every subsystem that kept the probe talking on its way down.",
-    reserved: GG5_DATA_STUDY,
   },
   fieldData: {
     label: "Field Data",
@@ -10072,7 +10093,6 @@ export const ITEMS: Record<string, ItemDef> = {
     rarity: "uncommon",
     unlockHint: "Returned by a ship's study of a gas giant or a nebula on an expedition.",
     flavor: "Corrosion, heat and gravity loads, the conditions away-team gear has to survive.",
-    reserved: GG5_DATA_STUDY,
   },
   hullDesignData: {
     label: "Hull Design Data",
@@ -10081,7 +10101,6 @@ export const ITEMS: Record<string, ItemDef> = {
     rarity: "uncommon",
     unlockHint: "Returned by a ship's study of a gas giant or a nebula on an expedition.",
     flavor: "Shear and buffeting profiles at every altitude, the numbers a hull architect loses sleep over.",
-    reserved: GG5_DATA_STUDY,
   },
   materialsData: {
     label: "Materials Data",
@@ -10090,7 +10109,6 @@ export const ITEMS: Record<string, ItemDef> = {
     rarity: "uncommon",
     unlockHint: "Returned by a ship's study of a gas giant or a nebula on an expedition.",
     flavor: "Spectra of metallic hydrogen, silicate rain and stranger things that only form under that much pressure.",
-    reserved: GG5_DATA_STUDY,
   },
   sensorsData: {
     label: "Sensors Data",
@@ -10099,7 +10117,6 @@ export const ITEMS: Record<string, ItemDef> = {
     rarity: "uncommon",
     unlockHint: "Returned by a ship's study of a gas giant or a nebula on an expedition.",
     flavor: "Calibration sweeps taken through storms that blind ordinary instruments.",
-    reserved: GG5_DATA_STUDY,
   },
   // The ancient data (user 2026-10-19 call 10 "One lane"): a data type whose study decodes the next ancient entry
   // (GG-5); some entries unlock special blueprints. No culture name in 0.14.0 text: names come with G3 Relics v2.
@@ -10110,7 +10127,6 @@ export const ITEMS: Record<string, ItemDef> = {
     rarity: "rare",
     unlockHint: "Sometimes recovered by a deep probe dive during a ship's study of a gas giant.",
     flavor: "A shard of a record far older than the fleet, pulled from something that sank into the clouds long ago.",
-    reserved: GG5_ANCIENT_STUDY,
   },
 };
 
@@ -10425,6 +10441,12 @@ export interface BlueprintDef {
   // Typed as a plain string (not a relic-id union) because model.ts must not import relics.ts (relics.ts
   // imports model.ts); a test asserts every value names a real relic.
   requiresRelicDiscovery?: string;
+  // --- DECODE-GATED research (Gas Giant Study GG-5; user call 10 "some entries unlock special blueprints") ----------
+  // When PRESENT, the blueprint cannot be researched until some culture has decoded this many ancient entries
+  // (model.ts blueprintDecodeLocked: GameState.ancientDecoded, raised by the Research Lab's study of an Ancient Data
+  // Fragment). canResearch refuses it with `undecoded`. ABSENT on every blueprint today (GG-7 authors the special
+  // blueprints with it), so every research gate is byte-identical.
+  requiresDecode?: number;
   flavor?: string;      // narrative color (optional)
   unlockHint?: string;  // functional "how to unlock" clue for the UI (optional)
 }
@@ -11849,6 +11871,23 @@ export function blueprintRelicLocked(state: GameState, key: string): boolean {
   return !(state.relicDiscovered ?? []).includes(relicId);
 }
 
+// Gas Giant Study GG-5 (user call 10 "One lane": "some entries unlock special blueprints"): the most ancient entries
+// any one culture has decoded (GameState.ancientDecoded; 0 with none). Pure.
+export function ancientEntriesDecodedMax(state: Pick<GameState, "ancientDecoded">): number {
+  let best = 0;
+  for (const n of Object.values(state.ancientDecoded ?? {})) if (typeof n === "number" && n > best) best = n;
+  return best;
+}
+
+// GG-5: is this blueprint still LOCKED behind an ancient entry not yet decoded (BlueprintDef.requiresDecode)? FALSE for
+// every blueprint without the field (every blueprint today: GG-7 authors the special blueprints) and for an unknown
+// key. canResearch reads it for the `undecoded` reason. Pure.
+export function blueprintDecodeLocked(state: Pick<GameState, "ancientDecoded">, key: string): boolean {
+  const need = BLUEPRINTS[key]?.requiresDecode;
+  if (need === undefined) return false;
+  return ancientEntriesDecodedMax(state) < need;
+}
+
 // --- Default equipment variety per live slot (0.11.0 Task 18) ----------------
 // The Standard-Issue FLOOR: the ONE variety per live slot whose Standard-rarity,
 // quality-0 form is auto-seeded into every ship so a live slot is never empty
@@ -13008,6 +13047,7 @@ export function blueprintResearchable(state: GameState, key: string): boolean {
   if (blueprintUnlocked(state, key)) return false; // already researched
   if (researchInProgress(state, key)) return false; // a project is already unlocking it
   if (blueprintRelicLocked(state, key)) return false; // E4d: its relic has not been discovered yet
+  if (blueprintDecodeLocked(state, key)) return false; // GG-5: its ancient entry has not been decoded yet
   return bp.tier <= labTier(state); // tier gated by the research-facility level
 }
 

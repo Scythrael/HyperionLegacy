@@ -10467,6 +10467,9 @@
       case "undiscovered":
         // E4d: names the relic's SET only (never the undiscovered relic), the same wording the masked card uses.
         return undiscoveredResearchMask(bp.requiresRelicDiscovery).detail;
+      case "undecoded":
+        // Gas Giant Study GG-5: a decode-gated blueprint (GG-7's special blueprints; none yet).
+        return `Decode ${bp.requiresDecode ?? 1} ancient ${(bp.requiresDecode ?? 1) === 1 ? "entry" : "entries"} first`;
       case "notFound":
         return "Unavailable";
     }
