@@ -39,22 +39,24 @@ export function materialQualityClimbChance(points: number): number {
 // The salt of the delivery climb's private stream (odd, unique in the repo; salts.test.ts).
 export const MATERIAL_QUALITY_SALT = 0x5b3d71a9;
 
-// The private stream seed of one delivery: an FNV-1a mix of the captain id and the captain's LIFETIME count of
-// deliveries a climb chance was rolled for (CaptainState.materialQualityCycles), then the salt (the Motherlode
-// precedent), so no two deliveries of a career share a roll. Pure.
-export function materialQualitySeed(captainId: number, lifetimeDelivery: number): number {
+// The private stream seed of one delivery: the save's own seed (the homeworld seed, tick.ts
+// worksDirectorateSaveSeed; 0 for a state without one), the salt and an FNV-1a mix of the captain id and the
+// captain's LIFETIME count of deliveries a climb chance was rolled for (CaptainState.materialQualityCycles), the
+// plan's seed ^ salt ^ captain ^ cycle. So no two deliveries of a career share a roll, and delivery N of captain 1
+// does not roll alike in every save. Pure.
+export function materialQualitySeed(saveSeed: number, captainId: number, lifetimeDelivery: number): number {
   const key = `${captainId}|materialQuality|${lifetimeDelivery}`;
   let h = 0x811c9dc5;
   for (let i = 0; i < key.length; i++) {
     h ^= key.charCodeAt(i);
     h = Math.imul(h, 0x01000193) >>> 0;
   }
-  return (h ^ MATERIAL_QUALITY_SALT) >>> 0;
+  return ((saveSeed >>> 0) ^ MATERIAL_QUALITY_SALT ^ h) >>> 0;
 }
 
-// One delivery's private rounding stream (one draw per delivered item, in a fixed order). Pure.
-export function materialQualityStream(captainId: number, lifetimeDelivery: number): () => number {
-  const rng = makeRng(materialQualitySeed(captainId, lifetimeDelivery));
+// One delivery's private rounding stream (one draw per delivered item, in sorted item order). Pure.
+export function materialQualityStream(saveSeed: number, captainId: number, lifetimeDelivery: number): () => number {
+  const rng = makeRng(materialQualitySeed(saveSeed, captainId, lifetimeDelivery));
   return () => rng.next();
 }
 

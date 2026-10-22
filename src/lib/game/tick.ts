@@ -4543,7 +4543,7 @@ export function economyTick(
       const delivered = Object.keys(delta).filter((key) => delta[key].gt(0)).sort();
       if (delivered.length > 0) {
         const cycle = updated.materialQualityCycles ?? 0;
-        const roll = materialQualityStream(captain.id, cycle);
+        const roll = materialQualityStream(worksDirectorateSaveSeed(state), captain.id, cycle);
         for (const key of delivered) {
           const climbed = deliveryClimbUnits(delta[key], climbChance, roll);
           if (!climbed.gt(0)) continue;

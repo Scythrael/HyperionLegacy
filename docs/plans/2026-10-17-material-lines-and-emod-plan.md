@@ -360,6 +360,19 @@ higher" (text, no mockup).
 > pickups keep their own deposit roll (the registry's existing outOfScope reason). **Patch note line:** "Refinery-Feed
 > Rigs (and every Prospecting Rig's Material Quality line) now work: each unit a mission delivers has a chance to
 > arrive one quality higher."
+> **Review follow-ups (2026-10-21, merged with feat 5b5011a).** (a) The climb seed is now keyed by the save's own seed
+> too, the plan's `seed ^ MATERIAL_QUALITY_SALT ^ captain ^ cycle`: `materialQualitySeed(saveSeed, captainId, cycle)` =
+> `saveSeed ^ salt ^ FNV(captainId|materialQuality|cycle)`, the save seed being the homeworld seed
+> (`worksDirectorateSaveSeed`, the Works Directorate precedent), so delivery N of captain 1 does not climb alike in
+> every save. No live save has these draws yet; every golden fixture has no homeworld seed (0), so no pin moved (a
+> seeded-save test proves the key is read). (b) **Reading of L4 for the user to confirm:** "one keyed rounding roll
+> per delivery" is built as ONE private stream per delivery that takes ONE draw per delivered ITEM (sorted item
+> order), because each item has its own leftover fraction (a Salvage Wreckage delivery of three items takes three
+> draws on that one stream). The alternative is one draw shared by every item of the delivery (its items would round
+> up or down together). (c) The switch's visible title is aria-hidden (the switch's own label names it once). (d) The
+> rig tooltip also shows the ship's combined chance when two installed pieces carry the line ("Ship total, 2 pieces:
+> +Y% per unit (the points add, then diminish)", `shipMaterialQualityText`, Ship Systems passes the ship's pieces);
+> today only one Prospecting Rig installs per ship, so it first shows once more than one slot carries the line.
 
 **ML-4 Quality carries into crafts.** `startProcess` variant reports the unit-weighted consumed quality; effects stamp
 `inputQuality`; completion = `min(5, carried + rollQuality(rng, craftQualityBonus))` (same call, same draw count;

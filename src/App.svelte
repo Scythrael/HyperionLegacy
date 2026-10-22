@@ -11885,10 +11885,11 @@
                         {/each}
 
                         <!-- Material Lines ML-4 (L5, the signed-off Refinery mockup's order switch): which stock this
-                             order spends first. Starts off (lowest quality first) every time the form opens. -->
+                             order spends first. Starts off (lowest quality first) every time the form opens. The
+                             switch's own aria-label names it, so the visible title is aria-hidden (read once). -->
                         <div class="dev-row" style="margin-top: 8px; align-items: center; gap: 8px;">
                           <Toggle label="Use best materials" checked={cfgBestMaterials} on:change={(e) => (cfgBestMaterials = e.detail)} />
-                          <span><b>Use best materials</b><br /><span class="research-cost">{bestMaterialsNote(cfgBestMaterials)}</span></span>
+                          <span><b aria-hidden="true">Use best materials</b><br /><span class="research-cost">{bestMaterialsNote(cfgBestMaterials)}</span></span>
                         </div>
 
                         <div class="dev-row" style="margin-top: 8px;">
@@ -12555,7 +12556,7 @@
                           {#if bestOffered}
                             <div class="dev-row" style="margin-top: 8px; align-items: center; gap: 8px;">
                               <Toggle label="Use best materials" checked={cfgBestMaterials} on:change={(e) => (cfgBestMaterials = e.detail)} />
-                              <span><b>Use best materials</b><br /><span class="research-cost">{bestMaterialsNote(cfgBestMaterials)}</span></span>
+                              <span><b aria-hidden="true">Use best materials</b><br /><span class="research-cost">{bestMaterialsNote(cfgBestMaterials)}</span></span>
                             </div>
                           {/if}
 

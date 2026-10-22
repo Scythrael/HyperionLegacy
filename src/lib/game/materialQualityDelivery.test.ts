@@ -5,7 +5,7 @@
 import { describe, expect, it } from "vitest";
 import Decimal from "break_infinity.js";
 import { freshState, shipDerivedStats, type GameState } from "./model";
-import { dispatchCaptainOnMission, economyTick, itemCap } from "./tick";
+import { dispatchCaptainOnMission, economyTick, itemCap, worksDirectorateSaveSeed } from "./tick";
 import { equippedFor } from "./equipmentQueries";
 import { effectiveShipStats } from "./crewOverlay";
 import { getBucket, itemTotal } from "./inventory";
@@ -15,10 +15,11 @@ import {
   climbedQuality,
   deliveryClimbUnits,
   materialQualityClimbChance,
+  materialQualitySeed,
   materialQualityStream,
 } from "./materialQuality";
 import { countedLcg, rigFleet, withBuckets, withMaterialQualityOff } from "./materialQualityGoldens.fixture";
-import { pieceMaterialQualityText } from "../ui/materialQualityText";
+import { pieceMaterialQualityText, shipMaterialQualityText } from "../ui/materialQualityText";
 import { wiringEntry } from "./wiring/registry";
 
 // Steps a dispatched fleet one tick at a time until its first delivery lands (commonOre rises), on `rng`.
@@ -102,10 +103,23 @@ describe("ML-3 the delivery", () => {
     // Draws pinned at 0.999999: the delivery's own quality roll lands Q0, so the climbed units are exactly the Q1 rise.
     const { before, after } = toFirstDelivery(s0, () => 0.999999);
     const delivered = itemTotal(after.inventory, "commonOre").minus(itemTotal(before.inventory, "commonOre"));
-    const expected = deliveryClimbUnits(delivered, p, materialQualityStream(1, 0));
+    const expected = deliveryClimbUnits(delivered, p, materialQualityStream(worksDirectorateSaveSeed(s0), 1, 0));
     expect(expected.gt(0)).toBe(true);
     expect(getBucket(after.inventory, "commonOre", 1).minus(getBucket(before.inventory, "commonOre", 1)).toString()).toBe(expected.toString());
     expect(after.captains[0].materialQualityCycles).toBe(1);
+  });
+
+  it("the roll is keyed by the save's own seed too (delivery N does not roll alike in every save)", () => {
+    expect(materialQualitySeed(1, 1, 0)).not.toBe(materialQualitySeed(2, 1, 0));
+    expect(materialQualitySeed(1, 1, 0)).not.toBe(materialQualitySeed(1, 1, 1));
+    expect(materialQualitySeed(1, 1, 0)).not.toBe(materialQualitySeed(1, 2, 0));
+    // A seeded save's delivery climbs exactly what its own keyed stream says.
+    const seeded = dispatched({ ...rigFleet(), homeworld: { version: 1, seed: 0x5eed } });
+    const p = rigChance(seeded);
+    const { before, after } = toFirstDelivery(seeded, () => 0.999999);
+    const delivered = itemTotal(after.inventory, "commonOre").minus(itemTotal(before.inventory, "commonOre"));
+    const expected = deliveryClimbUnits(delivered, p, materialQualityStream(0x5eed, 1, 0));
+    expect(getBucket(after.inventory, "commonOre", 1).minus(getBucket(before.inventory, "commonOre", 1)).toString()).toBe(expected.toString());
   });
 
   it("the next delivery rolls on the next key (the lifetime counter steps)", () => {
@@ -164,6 +178,21 @@ describe("ML-3 the readout and the registry", () => {
     expect(pieceMaterialQualityText(rig)).toBe(`+${pct}% chance per unit to arrive one quality higher`);
     const plain = s.equipment.find((e) => e.fittedToShipId === "ship-1" && e.slotType === "cargoBay")!;
     expect(pieceMaterialQualityText(plain)).toBeNull();
+  });
+
+  it("two pieces with the line show the ship's combined chance: the points add, then the curve diminishes", () => {
+    const s = rigFleet();
+    const rig = s.equipment.find((e) => e.id === "rig-1")!;
+    const twin = { ...rig, id: "rig-2" };
+    const points = (rig.implicitStats.materialQualityChance ?? 0) + (rig.rolledStats.materialQualityChance ?? 0);
+    const total = materialQualityClimbChance(2 * points);
+    expect(total).toBeLessThan(2 * materialQualityClimbChance(points)); // concave
+    const pct = (Math.round(total * 1000) / 10).toFixed(1);
+    expect(shipMaterialQualityText(rig, [rig, twin])).toBe(`Ship total, 2 pieces: +${pct}% per unit (the points add, then diminish)`);
+    // One carrier (its own readout is the ship's), no ship context, or a spare not installed there: no total line.
+    expect(shipMaterialQualityText(rig, [rig])).toBeNull();
+    expect(shipMaterialQualityText(rig, undefined)).toBeNull();
+    expect(shipMaterialQualityText({ ...rig, id: "spare" }, [rig, twin])).toBeNull();
   });
 
   it("materialQualityChance is a LIVE gear line on mission deliveries", () => {
