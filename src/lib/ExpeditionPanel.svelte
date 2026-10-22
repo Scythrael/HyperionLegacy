@@ -136,7 +136,8 @@
   export let state: GameState;
   // Launch: dispatch the chosen ship + its captain on the chosen candidate, with the anomaly
   // opt-in. Host: startExpedition -> doSave -> pushLog.
-  export let onStart: (shipId: string, captainId: number, candidateId: string, anomalyOptIn: boolean) => void;
+  // G2-6: returns true when the expedition launched (the console then remembers the region).
+  export let onStart: (shipId: string, captainId: number, candidateId: string, anomalyOptIn: boolean) => boolean | void;
   // Claim: collect a COMPLETE expedition's findings. Host: claimExpedition -> doSave -> pushLog.
   export let onClaim: (expeditionId: string) => void;
   // Squads SQ-7 section 7.2: "Set composition" on the telescope's recommendation. Host: applyComposition -> doSave ->
@@ -247,6 +248,9 @@
   $: if (chosenShipId !== tierShipId) {
     tierShipId = chosenShipId;
     pickedTier = null;
+    // A confirm opened for another ship never reopens on its own later (review fix).
+    confirmRecall = false;
+    abandonId = null;
   }
   $: tabs = chosenShip && !chosenExpedition ? regionTabsView(state, chosenShip) : [];
   $: activeTier = pickedTier ?? consoleDefaultTier(tabs, rememberedTier);
@@ -262,15 +266,17 @@
   // The card rows (transit at this ship's drive, the reach bar, the gates), from the engine (expeditionConsoleDisplay.ts).
   $: cards = chosenShip ? candidates.map((c) => candidateCardView(state, chosenShip!, c, scopeLevel)) : [];
   $: cardOf = new Map<string, CandidateCardView>(cards.map((c) => [c.id, c]));
-  // G2-5 / G2-6 (user G12): the region's resumable systems, at the top of its own region.
-  $: resumeCards = chosenShip && !chosenExpedition && tierReady ? resumeCardsView(state, chosenShip, activeTier) : [];
+  // G2-5 / G2-6 (user G12): the region's resumable systems, at the top of its own region. A LOCKED region lists them
+  // too (dimmed, with the gate this ship fails, Abandon still offered), so its tab's resume count always has its cards.
+  $: resumeCards = chosenShip && !chosenExpedition ? resumeCardsView(state, chosenShip, activeTier) : [];
+  $: pickableResumes = tierReady ? resumeCards : [];
   // Default / repair the selected candidate when the list (or ship, or region) changes: the nearest this ship can
   // launch to (the zero-click path), else the nearest.
-  $: if ((cards.length > 0 || resumeCards.length > 0) && (selectedCandidateId === null || (!cardOf.has(selectedCandidateId) && !resumeCards.some((r) => r.id === selectedCandidateId)))) {
-    selectedCandidateId = preselectCandidateId(cards) ?? resumeCards[0]?.id ?? null;
+  $: if ((cards.length > 0 || pickableResumes.length > 0) && (selectedCandidateId === null || (!cardOf.has(selectedCandidateId) && !pickableResumes.some((r) => r.id === selectedCandidateId)))) {
+    selectedCandidateId = preselectCandidateId(cards) ?? pickableResumes[0]?.id ?? null;
   }
   $: selectedCandidate = candidates.find((c) => c.id === selectedCandidateId) ?? null;
-  $: selectedResume = resumeCards.find((r) => r.id === selectedCandidateId) ?? null;
+  $: selectedResume = pickableResumes.find((r) => r.id === selectedCandidateId) ?? null;
   $: launchBar = launchBarView(
     selectedResume
       ? { name: selectedResume.name, outboundSeconds: selectedResume.outboundSeconds, resume: true }
@@ -344,6 +350,11 @@
   $: recalledSteps = chosenExpedition ? recalledStepperView(chosenExpedition, now) : null;
   $: recallClaim = chosenExpedition ? recallClaimView(state, chosenExpedition) : null;
   // The resume card the abandon confirm names.
+  // The card it names went away (abandoned, launched, another region): the confirm closes for good.
+  function dropStaleAbandon(list: readonly { id: string }[]): void {
+    if (abandonId !== null && !list.some((r) => r.id === abandonId)) abandonId = null;
+  }
+  $: dropStaleAbandon(resumeCards);
   $: abandonCard = abandonId !== null ? resumeCards.find((r) => r.id === abandonId) ?? null : null;
 
   // --- Display helpers --------------------------------------------------------
@@ -542,10 +553,12 @@
     confirmBlind = false;
     const id = selectedResume?.id ?? selectedCandidate?.id ?? null;
     if (!chosenShip || id === null || !chosenCaptain) return;
-    onStart(chosenShip.id, chosenCaptain.id, id, anomalyOptIn);
-    // G2-6 (the zero-click path): the console opens on this region next time.
-    rememberedTier = activeTier;
-    saveLastExpeditionTier(activeTier);
+    const launched = onStart(chosenShip.id, chosenCaptain.id, id, anomalyOptIn);
+    // G2-6 (the zero-click path): the console opens on this region next time, once the launch went out.
+    if (launched === true) {
+      rememberedTier = activeTier;
+      saveLastExpeditionTier(activeTier);
+    }
     // The host reassigns state; the chosen ship now has an active expedition and this view swaps to
     // in-progress on the next reactive pass. Reset the dispatch-only local toggles for the next dispatch.
     selectedCandidateId = null;
@@ -688,7 +701,7 @@
         </div>
 
         <!-- PHASE STEPPER (G2-6: a recalled run shows the phases it cut and "Recalled" on its way home) -->
-        <div class="exp-stepper">
+        <div class="exp-stepper" class:recalled={recalledSteps !== null}>
           {#each PHASE_STEPS as step, i (step.key)}
             {@const st = stepState(step.key, exp.phase)}
             {@const rs = recalledSteps ? recalledSteps.steps[i] : null}
@@ -1040,11 +1053,42 @@
 
           {#if lockedView}
             <!-- G2-6: a LOCKED tier (the mockup's locked panel): every gate, met or not, and a dimmed preview of its
-                 three nearest systems (not selectable). -->
+                 three nearest systems (not selectable). Its resumable systems still sit on top (review fix): dimmed, with
+                 the gate this ship fails, and Abandon still offered. -->
+            {#if resumeCards.length > 0}
+              <div class="exp-section-tag"><Icon name="resume" size={12} /> Open to resume</div>
+              <div class="exp-cards">
+                {#each resumeCards as r (r.id)}
+                  <div class="exp-resume-wrap">
+                    <div class="exp-target resume locked">
+                      <span class="exp-target-top">
+                        <span class="exp-target-name">{r.name}</span>
+                        <span class="exp-chip resume"><Icon name="resume" size={11} /> Resume</span>
+                        {#if r.realStar}<span class="exp-chip star">Real star</span>{/if}
+                      </span>
+                      <span class="exp-target-region">{r.whereText}</span>
+                      <span class="exp-rows">
+                        <span class="exp-row-k">Charted</span>
+                        <span class="exp-row-v">
+                          <span class="exp-reach" aria-hidden="true"><i style="width: {r.percent}%;"></i></span>
+                          <span class="exp-row-small">{r.chartedText}</span>
+                        </span>
+                        <span class="exp-row-k">Objectives</span>
+                        <span class="exp-row-v">{r.objectivesText}</span>
+                      </span>
+                      {#if r.reasonText}<span class="exp-target-reason"><Icon name="lock" size={13} /> {r.reasonText}</span>{/if}
+                    </div>
+                    <div class="exp-resume-foot">
+                      Stays open until finished or abandoned. This ship cannot resume it yet; any explorer that meets the gates can.
+                      <button type="button" class="exp-link" on:click={() => (abandonId = r.id)}>{r.abandonLabel}</button>
+                    </div>
+                  </div>
+                {/each}
+              </div>
+            {/if}
             <div class="exp-locked">
               <div class="exp-locked-gates">
                 <div class="exp-locked-head"><Icon name="lock" size={14} /> {lockedView.heading}</div>
-                <div class="exp-block" role="status">{lockedView.reasonText}</div>
                 <ul class="exp-gatelist">
                   {#each lockedView.rows as row (row.key)}
                     <li class={row.status}>
@@ -1179,7 +1223,7 @@
                       {#if card.risk}
                         <span class="exp-row-k">Risk</span>
                         <span class="exp-row-v exp-riskrow">
-                          {#each card.risk as f (f.id)}<span class:hi={f.high} title="{f.label}: {f.gradeName}"><Icon name={f.glyph} size={12} /> {f.gradeName}</span>{/each}
+                          {#each card.risk as f (f.id)}<span class:hi={f.high} title="{f.label}: {f.gradeName}"><Icon name={f.glyph} size={12} /> {f.gradeText}</span>{/each}
                         </span>
                       {/if}
                       <span class="exp-row-k"><Icon name="reach" size={12} /> Reach</span>
@@ -3700,6 +3744,27 @@
   }
   .exp-step.recalled .exp-step-label {
     overflow-wrap: anywhere;
+  }
+  /* A recalled run's stepper (review fix): every step may shrink and its label wrap, so "Recalled · home in 2d 4h" fits
+     a 375 px console without pushing the row sideways. */
+  .exp-stepper.recalled .exp-step {
+    min-width: 0;
+    flex: 0 1 auto;
+  }
+  .exp-stepper.recalled .exp-step.recalled {
+    flex: 1 1 auto;
+  }
+  .exp-stepper.recalled .exp-step-label {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+  /* A resume card on a locked region: dimmed, not selectable (its gate line says why); Abandon stays below it. */
+  .exp-target.resume.locked {
+    opacity: 0.7;
+    cursor: default;
+  }
+  .exp-target.resume.locked:hover {
+    border-color: var(--color-accent);
   }
   .exp-step.recalled .exp-step-dot {
     border-color: var(--color-warning);

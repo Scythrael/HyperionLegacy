@@ -6,6 +6,7 @@
 import { describe, expect, it } from "vitest";
 import { freshState, type AwayMember, type Expedition, type GameState, type RegionTier, type ShipGroundTeam, type ShipTypeKey } from "./game/model";
 import {
+  advanceExpedition,
   candidateReach,
   candidateVoyage,
   expeditionCandidates,
@@ -50,7 +51,7 @@ const T0 = 100_000;
 const SEC = ["member-1", "member-2", "member-3", "member-4", "member-5", "member-6"];
 const SCI = ["member-11", "member-12", "member-13", "member-14", "member-15", "member-16"];
 
-function crewed(hull: ShipTypeKey = "orion"): GameState {
+function crewed(hull: ShipTypeKey = "orion", expeditionSeed?: number): GameState {
   const base = freshState();
   const m = (id: string, t: AwayMember["teamType"]): AwayMember => ({ ...plainAwayMember(id, t, "ship-1"), rank: 10 as AwayMember["rank"] });
   const teams: ShipGroundTeam[] = [
@@ -59,6 +60,7 @@ function crewed(hull: ShipTypeKey = "orion"): GameState {
   ];
   const s: GameState = {
     ...base,
+    ...(expeditionSeed === undefined ? {} : { expeditionSeed }),
     gameTimeSeconds: T0,
     nextExpeditionId: 2,
     awayMembers: [...SEC.map((id) => m(id, "security")), ...SCI.map((id) => m(id, "science"))],
@@ -211,22 +213,35 @@ describe("G2-6 the candidate card: transit, reach and gates are the engine's", (
     }
   });
 
+  // Expedition seed 1: a Class II Orion's Tier II list holds systems both inside and past its reach (forced, not hoped for).
   it("an out of reach card: the bar is hatched full with the reach marked, the full line names both numbers", () => {
-    const s = sensors(drive(crewed("orion"), "classIIDriveBp"), 30);
+    const s = sensors(drive(crewed("orion", 1), "classIIDriveBp"), 30);
     const cards = nearestFirst(expeditionCandidates(s, "ship-1", 2)).map((c) => candidateCardView(s, ship1(s), c));
-    const over = cards.find((c) => !c.reach.met);
-    const within = cards.find((c) => c.reach.met);
-    if (over) {
-      expect(over.reach.fillPercent).toBe(100);
-      expect(over.reach.markPercent).toBeLessThan(100);
-      expect(over.reasonText).toMatch(/^Beyond this ship's reach: [\d,]+ ly round trip, the ship reaches [\d,]+ ly\.$/);
-      expect(over.launchable).toBe(false);
-    }
-    if (within) {
-      expect(within.reach.markPercent).toBeNull();
-      expect(within.reasonText).toBeNull();
-    }
-    expect(over ?? within).toBeDefined();
+    const over = cards.find((c) => !c.reach.met)!;
+    const within = cards.find((c) => c.reach.met)!;
+    expect(over).toBeDefined();
+    expect(within).toBeDefined();
+    expect(over.reach.fillPercent).toBe(100);
+    expect(over.reach.markPercent).toBeLessThan(100);
+    expect(over.reasonText).toMatch(/^Beyond this ship's reach: [\d,]+ ly round trip, the ship reaches [\d,]+ ly\.$/);
+    expect(over.launchable).toBe(false);
+    expect(within.reach.markPercent).toBeNull();
+    expect(within.reach.fillPercent).toBeLessThanOrEqual(100);
+    expect(within.reasonText).toBeNull();
+    expect(within.launchable).toBe(true);
+  });
+
+  it("known enemy territory: the card's Combat grade reads the mockup's (+1); the other grades do not", () => {
+    const s = crewed("orion");
+    const base = expeditionCandidates(s, "ship-1", 1)[0];
+    const enemy = { ...base, telescope: { ...base.telescope, risk: { ...base.telescope.risk!, enemyTerritory: true } } };
+    const v = candidateCardView(s, ship1(s), enemy);
+    expect(v.enemyTerritory).toBe(true);
+    const combat = v.risk!.find((f) => f.id === "combat")!;
+    expect(combat.gradeText).toBe(`${combat.gradeName} (+1)`);
+    for (const f of v.risk!.filter((x) => x.id !== "combat")) expect(f.gradeText).toBe(f.gradeName);
+    const calm = candidateCardView(s, ship1(s), base);
+    expect(calm.risk!.find((f) => f.id === "combat")!.gradeText).toBe(calm.risk!.find((f) => f.id === "combat")!.gradeName);
   });
 
   it("preselects the nearest launchable card, else the nearest", () => {
@@ -300,19 +315,51 @@ describe("G2-6 recall: the one confirm, the recalled stepper and the claim (user
     expect([v.keepText, v.recallText]).toEqual(["Keep going", "Recall home"]);
   });
 
-  it("after arrival: the pickup, then the full trip out; objectives stop with progress; the system stays open", () => {
+  // The first moment the run has arrived, and the first moment its first body is charted (stepped through the engine).
+  function firstAt(exp: Expedition, done: (e: Expedition) => boolean): number {
+    let t = exp.phaseAnchorSeconds;
+    while (!done(advanceExpedition(exp, t))) t += 60;
+    return t;
+  }
+
+  it("after arrival, once a body is charted: the full trip out; objectives stop with progress; the system stays open", () => {
     const { s, exp } = flying();
-    // Deep into the window: some body is charted and work is under way.
-    let t = T0 + 20_000;
-    let v = recallConfirmView(at(s, t), exp, "Orion")!;
-    while (v.stops[0] === "Nothing has been charted yet." && t < T0 + 200_000) {
-      t += 5_000;
-      v = recallConfirmView(at(s, t), exp, "Orion")!;
-    }
+    const t = firstAt(exp, (e) => e.bodies[0].scanned) + 60;
+    const now = at({ ...s, expeditions: [advanceExpedition(exp, t)] }, t);
+    const p = recallPreview(now, exp.id);
+    expect(p.ok).toBe(true);
+    expect(p.ok && p.preview.held).toBe("resume");
+    const v = recallConfirmView(now, now.expeditions[0], "Orion")!;
     expect(v.stops[0]).toBe("Objectives in progress stop and keep their progress; finished work comes home.");
+    expect(v.stops).toContain("The medical bay treats the injured on the way.");
     expect(v.line).toMatch(/the full trip out\.$/);
-    const p = recallPreview(at(s, t), exp.id);
-    if (p.ok && p.preview.held === "resume") expect(v.stops.some((x) => /stays open: any explorer can resume it/.test(x))).toBe(true);
+    expect(v.stops.some((x) => /stays open: any explorer can resume it/.test(x))).toBe(true);
+  });
+
+  it("arrived but nothing charted yet: no objective stops; the system goes back to the candidates", () => {
+    const { s, exp } = flying();
+    const t = firstAt(exp, (e) => e.phase !== "transit") + 1;
+    const run = advanceExpedition(exp, t);
+    expect(run.bodies.some((b) => b.scanned)).toBe(false);
+    const now = at({ ...s, expeditions: [run] }, t);
+    const p = recallPreview(now, exp.id);
+    expect(p.ok && p.preview.phase).not.toBe("transit");
+    expect(p.ok && p.preview.held).toBe("candidate");
+    const v = recallConfirmView(now, run, "Orion")!;
+    expect(v.stops[0]).toBe("Nothing has been charted yet.");
+    expect(v.stops.some((x) => /Objectives in progress/.test(x))).toBe(false);
+    expect(v.stops[v.stops.length - 1]).toMatch(/goes back to the Tier I candidates\.$/);
+  });
+
+  it("a run from before G2-2 (no region stamp) recalled in transit: it does not stay open to resume", () => {
+    const { s, exp } = flying();
+    const legacy: Expedition = { ...exp };
+    delete legacy.region;
+    const mid = at({ ...s, expeditions: [legacy] }, T0 + 1_000);
+    const p = recallPreview(mid, exp.id);
+    expect(p.ok && p.preview.held).toBeNull();
+    const v = recallConfirmView(mid, legacy, "Orion")!;
+    expect(v.stops).toEqual(["Nothing has been charted yet.", `${exp.systemName} does not stay open to resume.`]);
   });
 
   it("a run that cannot be recalled has no confirm", () => {
@@ -333,7 +380,7 @@ describe("G2-6 recall: the one confirm, the recalled stepper and the claim (user
     const home = { ...run, phase: "complete" as const };
     const claim = recallClaimView(recalled, home)!;
     expect(claim.heading).toBe(`Home from ${run.systemName} (recalled)`);
-    expect(claim.text).toMatch(/is a Tier I candidate again\.$/);
+    expect(claim.text).toBe(`No findings yet. ${run.systemName} is a Tier I candidate again.`);
     expect(claim.resumeChip).toBeNull();
     expect(recallClaimView(recalled, run)).toBeNull();
   });
@@ -360,8 +407,18 @@ describe("G2-6 recall: the one confirm, the recalled stepper and the claim (user
     expect(cards[0].percent).toBe(Math.round(r.progress * 100));
     expect(cards[0].chartedText).toMatch(new RegExp(`^${cards[0].percent}% · ${r.bodiesScanned} of ${r.bodies} bod`));
     expect(cards[0].abandonConfirm).toBe(`Abandon ${r.systemName}? Its saved progress is let go; findings you claimed stay yours.`);
-    expect(cards[0].launchable).toBe(startExpedition(home, "ship-1", 1, r.id).success);
-    const claim = recallClaimView(state, { ...run, phase: "complete" });
-    expect(claim?.resumeChip).toBe("In Resume: Tier I");
+    expect(cards[0].launchable).toBe(true);
+    expect(startExpedition(home, "ship-1", 1, r.id).success).toBe(true);
+    const claim = recallClaimView(state, { ...run, phase: "complete" })!;
+    expect(claim.resumeChip).toBe("In Resume: Tier I");
+    expect(claim.text).toMatch(new RegExp(` ${r.systemName} saved to Resume at ${Math.round(r.progress * 100)}%\\.$`));
+    // A ship that cannot attempt the region (here a non-explorer: Tier I locked) still lists the card, with its gate
+    // line, so the tab's resume count always has its card and Abandon (review fix).
+    const locked = { ...home, ships: home.ships.map((sh) => (sh.id === "ship-1" ? { ...sh, typeKey: "generalFreighter" as const } : sh)) };
+    expect(regionTabsView(locked, ship1(locked))[0]).toMatchObject({ ready: false, resumeCount: 1 });
+    const lockedCards = resumeCardsView(locked, ship1(locked), 1);
+    expect(lockedCards).toHaveLength(1);
+    expect(lockedCards[0].launchable).toBe(false);
+    expect(lockedCards[0].reasonText).toBe("This hull cannot reach any expedition system. Expeditions need an explorer hull.");
   });
 });

@@ -8,7 +8,8 @@
 //     hull, drive class, then frontier sensors); the small galaxy map is the alternative picker.
 //   - A locked tier lists every gate, met or not, and a dimmed preview of its three nearest systems.
 //   - Resumable systems sit at the top of their own region with a count on its tab; a recall BEFORE anything was
-//     charted returns the system to the ordinary candidates (the engine lists it after the three).
+//     charted returns the system to the ordinary candidates (the engine appends it to its tier's list; the console sorts
+//     it nearest first among them, an ordinary candidate again).
 //   - Launch sits in a bar under the candidates; the Field Kits pack panel is unchanged (the bar links to it).
 //   - The recall is ONE confirm (user G13): the return time, what stops, whether the system stays open; its safe
 //     answer, Keep going, has the focus. No Overtime on expeditions: the confirm never offers a paid speed-up.
@@ -22,6 +23,7 @@ import {
   TIER_BODY_COUNT,
   candidateReach,
   candidateVoyage,
+  expeditionActivitiesDone,
   expeditionSystemGate,
   heldSystems,
   recallPreview,
@@ -303,7 +305,8 @@ export interface CandidateCardView {
   transitText: string; // "Out 1h 52m · back 1h 42m"
   reach: ReachBarView;
   gatesText: { drive: string; sensors: string; driveMet: boolean; sensorsMet: boolean };
-  risk: { id: string; glyph: IconName; label: string; gradeName: string; high: boolean }[] | null; // the telescope's graded factors
+  // The telescope's graded factors; `gradeText` adds the mockup's "(+1)" to Combat in known enemy territory.
+  risk: { id: string; glyph: IconName; label: string; gradeName: string; gradeText: string; high: boolean }[] | null;
   gate: ExpeditionGateDetail | null; // the first propulsion refusal (Launch is off on it)
   reasonText: string | null; // its full line
   launchable: boolean;
@@ -344,7 +347,8 @@ export function candidateCardView(state: GameState, ship: ShipInstance, cand: Ex
     ? null
     : RISK_FACTOR_ORDER.map((id) => {
         const f = block.factors.find((x) => x.id === id)!;
-        return { id, glyph: RISK_FACTOR_GLYPHS[id], label: f.label, gradeName: f.gradeName, high: f.grade !== null && f.grade >= 3 };
+        const plusOne = id === "combat" && block.enemyTerritory && f.grade !== null;
+        return { id, glyph: RISK_FACTOR_GLYPHS[id], label: f.label, gradeName: f.gradeName, gradeText: plusOne ? `${f.gradeName} (+1)` : f.gradeName, high: f.grade !== null && f.grade >= 3 };
       });
   return {
     id: cand.id,
@@ -373,7 +377,8 @@ export function preselectCandidateId(cards: readonly Pick<CandidateCardView, "id
   return (cards.find((c) => c.launchable) ?? cards[0])?.id ?? null;
 }
 
-// The heading over the ordinary candidates ("Three nearest systems"; a system a recall returned is listed after them).
+// The heading over the ordinary candidates ("Three nearest systems"; with a system a recall returned among them, sorted
+// by distance like the rest, "Nearest systems").
 export function candidatesHeading(count: number): string {
   return count === 3 ? "Three nearest systems" : "Nearest systems";
 }
@@ -547,14 +552,19 @@ export function recallConfirmView(state: GameState, exp: Expedition, shipName: s
     line = `It flies home in ${voyageSpanText(p.returnSeconds)}, the distance it has covered so far.`;
     stops.push("Nothing has been charted yet.");
     if (p.held === "candidate" && tier !== undefined) stops.push(`${sys} goes back to the Tier ${regionTierNumeral(tier)} candidates: launch to it again any time.`);
+    else stops.push(`${sys} does not stay open to resume.`);
   } else {
     const leg = Math.max(0, p.returnSeconds - p.pickupSeconds);
     line =
       p.pickupSeconds > 0
         ? `Teams come up first (${voyageSpanText(p.pickupSeconds)} pickup), then it flies home in ${voyageSpanText(leg)}, the full trip out.`
         : `It flies home in ${voyageSpanText(p.returnSeconds)}, the full trip out.`;
-    stops.push("Objectives in progress stop and keep their progress; finished work comes home.");
-    if (exp.groundOps) stops.push("The medical bay treats the injured on the way.");
+    // Arrived but nothing charted yet (the first scan under way): no objective is in progress to stop.
+    const charted = p.held === "resume" || exp.bodies.some((b) => b.scanned);
+    if (charted) {
+      stops.push("Objectives in progress stop and keep their progress; finished work comes home.");
+      if (exp.groundOps) stops.push("The medical bay treats the injured on the way.");
+    } else stops.push("Nothing has been charted yet.");
     if (p.held === "resume") stops.push(`${sys} stays open: any explorer can resume it and pick up where you left off (finished scans stay done, the trip is flown again).`);
     else if (p.held === "candidate" && tier !== undefined) stops.push(`${sys} goes back to the Tier ${regionTierNumeral(tier)} candidates.`);
     else stops.push(`${sys} does not stay open to resume.`);
@@ -585,15 +595,25 @@ export interface RecallClaimView {
   resumeChip: string | null; // "In Resume: Tier II"
 }
 
-// The claim card's recall lines for a recalled run home (null otherwise). Pure.
+// The claim card's recall lines for a recalled run home (null otherwise): the mockup's "Haul from 4 finished objectives
+// and the scan finds so far. Polaris saved to Resume at 62%." Pure.
 export function recallClaimView(state: Pick<GameState, "heldSystems">, exp: Expedition): RecallClaimView | null {
   const rc = exp.recall;
   if (!rc || exp.phase !== "complete") return null;
-  const n = exp.findings.length;
-  const found = n === 0 ? "No findings yet." : `${n} ${n === 1 ? "finding comes" : "findings come"} home.`;
+  const done = expeditionActivitiesDone(exp);
+  const found =
+    done > 0
+      ? `Haul from ${done} finished ${done === 1 ? "objective" : "objectives"} and the scan finds so far.`
+      : exp.findings.length > 0
+        ? "The scan finds so far."
+        : "No findings yet.";
   const held = rc.held ? heldSystems(state).find((h) => h.id === rc.held) : undefined;
   const tierText = held ? `Tier ${regionTierNumeral(held.region.tier)}` : "";
-  if (held?.kind === "resume") return { heading: `Home from ${exp.systemName} (recalled)`, text: `${found} ${exp.systemName} is saved to resume.`, resumeChip: `In Resume: ${tierText}` };
+  if (held?.kind === "resume") {
+    const view = resumableSystems(state).find((r) => r.id === held.id);
+    const pct = Math.round(Math.max(0, Math.min(1, view?.progress ?? 0)) * 100);
+    return { heading: `Home from ${exp.systemName} (recalled)`, text: `${found} ${exp.systemName} saved to Resume at ${pct}%.`, resumeChip: `In Resume: ${tierText}` };
+  }
   if (held?.kind === "candidate") return { heading: `Home from ${exp.systemName} (recalled)`, text: `${found} ${exp.systemName} is a ${tierText} candidate again.`, resumeChip: null };
   return { heading: `Home from ${exp.systemName} (recalled)`, text: found, resumeChip: null };
 }

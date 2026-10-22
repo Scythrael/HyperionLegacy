@@ -5811,14 +5811,14 @@
   // opt-in; claim removes a complete expedition and hands back its (E2c placeholder) findings for the E4
   // relic system to route later. NONE of this runs on the tick, so with no expedition the tick path is
   // byte-identical to before (resolveExpeditions is a same-ref no-op on an empty expeditions array).
-  function doStartExpedition(shipId: string, captainId: number, candidateId: string, anomalyOptIn: boolean) {
+  function doStartExpedition(shipId: string, captainId: number, candidateId: string, anomalyOptIn: boolean): boolean {
     // Field Kits FKR-9: what the launch's top-up teams buy (the same plan the dispatch settles), for the log.
     const topUp = topUpAtLaunch(state, shipId);
     const { next, success, expedition, reason } = startExpedition(state, shipId, captainId, candidateId, anomalyOptIn);
     if (!success || next === state) {
       // D18: the panel disables Launch for a known refusal, so this only fires on a race; say why anyway.
       if (reason) pushLog(`[${devShipLabel(shipId)}] Expedition not launched: ${expeditionDispatchBlockText(reason)}.`);
-      return;
+      return false;
     }
     state = next;
     pushLog(`[${devShipLabel(shipId)}] Expedition launched to ${expedition?.systemName ?? "the frontier"}.`);
@@ -5828,6 +5828,7 @@
       pushLog(`[${devShipLabel(shipId)}] Topped up at the Quartermaster: ${kitListText(topUp.bought)} for ${formatNumber(topUp.cost)} credits.`);
     }
     doSave();
+    return true;
   }
 
   // Expedition Tiers G2-6 (user #7 "1:1", G13 one confirm): RECALL a run home after the console's one confirm. The pure
