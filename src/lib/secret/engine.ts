@@ -330,17 +330,23 @@ export function produceMut(s: SecretState, dt: number): void {
 function autoBuyMut(s: SecretState): void {
   let overclockBought = false;
   const autoOc = autoActive(s, "autoOverclock");
+  // "Income priced": the stack is producing and the next level costs seconds of income rather
+  // than the post-reset floor. Only then may Auto Overclock spend past its share or make the
+  // generators wait for it. Right after a reset (no income, floor price) it only ever spends its
+  // share, so it can never starve the generators of the Ore they need to get going.
+  const flat = overclockFlatPrice(s);
+  const incomePriced = s.lastIncome.gt(0) && flat.gte(overclockFloorPrice(s.overclock));
   if (autoOc) {
     const price = overclockPrice(s);
     let budget = s.ore.mul(OC_AUTO_SHARE);
-    if (budget.lt(price) && s.ore.gte(price)) budget = price;
+    if (incomePriced && budget.lt(price) && s.ore.gte(price)) budget = price;
     overclockBought = buyOverclockMut(s, budget) > 0;
   }
   const low = autoActive(s, "autoBuyLow");
   const high = autoActive(s, "autoBuyHigh");
   if (!low && !high) return;
   // While Auto Overclock is saving up for a level, the generators leave that much Ore alone.
-  const reserve = autoOc && !overclockBought ? Decimal.min(s.ore, overclockPrice(s)) : ZERO;
+  const reserve = autoOc && incomePriced && !overclockBought ? Decimal.min(s.ore, overclockPrice(s)) : ZERO;
   for (let k = s.tiersUnlocked - 1; k >= 0; k--) {
     if (!(k < 4 ? low : high)) continue;
     const budget = s.ore.sub(reserve);

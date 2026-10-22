@@ -199,6 +199,14 @@ describe("autos", () => {
     expect(step(p, 1, 0).pcCount).toBe(1);
   });
 
+  it("autos get a freshly reset stack going on their own (Auto Overclock never starves the generators)", () => {
+    let s = freshSecretState(0);
+    for (const d of SKILLS) if (d.id !== "headStart") s.skills[d.id] = true;
+    for (let i = 0; i < 900; i++) s = step(s, 1, i * 1000);
+    expect(s.bestOre.log10()).toBeGreaterThan(20);
+    expect(s.overclock + s.captainCount).toBeGreaterThan(0);
+  });
+
   it("auto-buyers buy Overclock and generators each step", () => {
     const s = withRun(50);
     s.lastIncome = pow10(45);
