@@ -50,6 +50,8 @@ import { RX_ADDED_ENTRY_IDS } from "./reactorFuelGoldens.fixture";
 import { OC15_ADDED_ENTRY_IDS } from "./labFabricatorTiers.fixture";
 // ML-2 (the Material Lines recipe rework + the recipe realism audit): its registry move, read back by ml2RowsBack.
 import { ml2RowsBack } from "./ml2RecipeGoldens.fixture";
+// E-MOD EM-5 (the module slot): its registry move, read back by em5ReadBack.
+import { em5ReadBack } from "./emodEm5Registry.fixture";
 import { R2_2_ADDED_ENTRY_IDS } from "./relicBlanks.fixture";
 import { G2_4_ADDED_ENTRY_IDS, G2_4_FLIPPED_BEFORE } from "./propulsionRecallGoldens.fixture";
 
@@ -630,8 +632,10 @@ type Back = { readonly sf3?: boolean; readonly fkr9?: boolean; readonly racials?
 // (labFabricatorTiers.test.ts pins them live).
 const G16_ADDED_IDS: ReadonlySet<string> = new Set<string>(["facility:FACILITIES:missionControl:1", "facility:FACILITIES:missionControl:2"]);
 const G16_ROW_BEFORE = { kind: "pending", owner: "G1-6 (flips SHORT_RANGE_BOARD_LIVE with the board UI; the rungs then enumerate as facility rung entries on the shortRangeSlots probe)" } as const;
+// E-MOD EM-5 came after every pin here: its two module wear rows are left out and the hulls' moduleSlots entries read
+// with their old owner (emodEm5Registry.fixture.ts em5ReadBack; shipModules.test.ts pins the move itself).
 const BEFORE_RX: WiringEntry[] = siReadBack(
-  WIRING_REGISTRY.filter(
+  em5ReadBack(WIRING_REGISTRY).filter(
     (e) =>
       !RX_ADDED_ENTRY_IDS.has(e.id) && !FUSE_ADDED_ENTRY_IDS.has(e.id) && !R2_2_ADDED_ENTRY_IDS.has(e.id) && !G16_ADDED_IDS.has(e.id) &&
       !G2_4_ADDED_ENTRY_IDS.has(e.id) && !OC15_ADDED_ENTRY_IDS.has(e.id),
@@ -787,8 +791,9 @@ describe("EM-0 goldens (re-pinned by EM-1 where named)", () => {
   // board rungs (in FACILITIES order, right after the founding rung) and G1-3's audit row live with its gate check.
   it("registry: G1-6 (the board goes live) is the only cause of its move", () => {
     // Merged onto feat (0.14.0 integration): the slices BEFORE_RX holds apart (the timed grenades, R2-2, the SI read-back)
-    // and G2-4's additions are held apart here the same way, so the comparison sees G1-6's move alone.
-    const live = WIRING_REGISTRY.filter(
+    // and G2-4's additions are held apart here the same way, so the comparison sees G1-6's move alone. E-MOD EM-5's move is
+    // read back first (em5ReadBack), as BEFORE_RX does.
+    const live = em5ReadBack(WIRING_REGISTRY).filter(
       (e) => !RX_ADDED_ENTRY_IDS.has(e.id) && !FUSE_ADDED_ENTRY_IDS.has(e.id) && !R2_2_ADDED_ENTRY_IDS.has(e.id) && !G2_4_ADDED_ENTRY_IDS.has(e.id) && !OC15_ADDED_ENTRY_IDS.has(e.id),
     );
     const rung = live.filter((e) => G16_ADDED_IDS.has(e.id)).map((e) => [e.id, e.status, e.contexts, e.probe ?? null]);

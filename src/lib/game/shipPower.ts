@@ -3,7 +3,8 @@
 // penalty EM-3 and the reactor surplus drive lift EM-4 build on it; the Ship Systems readout shows the same two
 // numbers off the ship sheet, which this reader matches exactly: shipPower.test.ts).
 //
-//   output         = the hull's basePowerOutput (P1) + every installed powerOutput line (the Reactor Core implicit)
+//   output         = the hull's basePowerOutput (P1) + every installed powerOutput line (the Reactor Core implicit) +
+//                    every installed Passive module's output (E-MOD EM-5, moduleOutput)
 //   grossDraw      = every installed piece's draw (an FTL drive at its class, P5)
 //   draw           = grossDraw cut by the ship's power efficiency (P4: Reactor Overdrive, Power Discipline, Martian)
 //   remaining      = output - draw (negative when over budget); overBudget only on a STRICT overrun (power.ts)
@@ -34,6 +35,7 @@ import { powerBudget, type PowerBudget } from "./combat/power";
 export interface ShipPowerBudget extends PowerBudget {
   baseOutput: number; // the hull's own generation (basePowerOutput)
   reactorOutput: number; // the installed powerOutput lines (the Reactor Core implicit)
+  moduleOutput: number; // E-MOD EM-5: the installed Passive modules' power output (shipModules.ts), never reactor surplus
   grossDraw: number; // before power efficiency
   efficiency: number; // the ship's summed crew.powerEfficiency (Museum-amplified like every crew key)
   reactorSurplus: number; // unused reactor power (EM-4's drive lift)
@@ -99,7 +101,7 @@ export function shipPowerTotals(state: GameState, shipId: string): ShipPowerTota
   const ship = state.ships.find((s) => s.id === shipId);
   if (!ship) throw new Error(`shipPowerTotals: no ship ${shipId}`);
   const mods = equipmentStatMods(equippedFor(state, shipId));
-  const output = SHIP_TYPES[ship.typeKey].basePowerOutput + mods.powerOutput;
+  const output = SHIP_TYPES[ship.typeKey].basePowerOutput + mods.powerOutput + mods.modulePowerOutput;
   const gross = mods.totalPowerDraw;
   if (gross <= output) return { output, draw: gross };
   return { output, draw: netPowerDraw(gross, shipPowerEfficiency(state, shipId)) };
@@ -175,10 +177,14 @@ export function overBudgetNotice(state: GameState, shipId: string): OverBudgetNo
         : engineer
           ? "No power efficiency (no Reactor Overdrive, Power Discipline or Martian crew aboard)"
           : "No power efficiency (no Engineering officer aboard, and no Power Discipline or Martian crew)";
+  // E-MOD EM-5: a Passive module's output is named beside the reactor's.
+  const modules = mods.modulePowerOutput > 0 ? ` plus modules ${mods.modulePowerOutput}` : "";
   const supply =
     mods.powerOutput > 0
-      ? `Hull ${base} plus Reactor Core ${mods.powerOutput} supply ${t.output}`
-      : `No Reactor Core power: the hull's own ${base} only`;
+      ? `Hull ${base} plus Reactor Core ${mods.powerOutput}${modules} supply ${t.output}`
+      : modules
+        ? `No Reactor Core power: the hull's own ${base}${modules} supply ${t.output}`
+        : `No Reactor Core power: the hull's own ${base} only`;
   return {
     shortfall,
     chip: `Over budget by ${shortfall}`,
@@ -198,7 +204,7 @@ export function shipPowerBudget(
   const pieces = piecesWith(state, shipId, candidate);
   const mods = equipmentStatMods(pieces);
   const baseOutput = SHIP_TYPES[ship.typeKey].basePowerOutput;
-  const output = baseOutput + mods.powerOutput;
+  const output = baseOutput + mods.powerOutput + mods.modulePowerOutput;
   // EM-2: a candidate's efficiency is read on the ship as the candidate leaves it (a quarters or bridge swap moves it).
   const efficiency = shipPowerEfficiency(candidate ? withShipPieces(state, shipId, pieces) : state, shipId);
   const draw = netPowerDraw(mods.totalPowerDraw, efficiency);
@@ -210,6 +216,7 @@ export function shipPowerBudget(
     ...powerBudget(output, [{ powerDraw: draw }]),
     baseOutput,
     reactorOutput: mods.powerOutput,
+    moduleOutput: mods.modulePowerOutput,
     grossDraw: mods.totalPowerDraw,
     efficiency,
     reactorSurplus: Math.min(mods.powerOutput, Math.max(0, output - draw)),

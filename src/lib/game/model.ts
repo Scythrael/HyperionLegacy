@@ -22,6 +22,9 @@ import { constitutionRamp, RAMP_SECONDS_PER_TICK } from "./constitutionRamp";
 // Reactor fuel ladder (0.14.0, capture 2026-10-21): the fuel every Reactor Core blueprint takes (a leaf with no
 // imports, so no cycle).
 import { reactorCoreFuel } from "./reactorTech";
+// E-MOD EM-5 (0.14.0): the universal module catalog leaf (imports only types; no cycle), read by equipmentStatMods for
+// a Passive module's power output.
+import { modulePowerOutput } from "./shipModules";
 // Combat 0.13.0 (Phase 9b.5a): the persisted Patrol mission shape (PatrolMissionState,
 // below) carries a player-chosen combat STANCE and the carry-state DRONE squadrons.
 // Both types live in the combat/ layer. Imported TYPE-ONLY (erased at compile time)
@@ -151,7 +154,10 @@ export interface ShipTypeDef {
   //                     fuelNeeded for the formula this feeds.
   fuelCapacity: number;
   engineEfficiency: number;
-  moduleSlots: number;              // POPULATED but INERT this pass (no module system yet)
+  // E-MOD EM-5: the hull's SHARED module slots, read by the install gate (equipment.ts moduleSlotsFull) and the Armory:
+  // it caps the universal modules AND the specUtility piece together (user M1 "Separate counts"); the bridge, quarters
+  // and sensor keep their own slots. The module slot itself stays hidden until EM-7 (shipModules.ts UNIVERSAL_MODULES_LIVE).
+  moduleSlots: number;
   equipmentSlots: number;           // forward bucket; counts finalized with equipment/reactor design
   // --- Combat / defense base stats (Ship Systems UI, 0.11.0) ---------------------
   // ⚠️ FIRST-PASS TUNABLE launch placeholders, and INERT this pass: combat behavior
@@ -1793,6 +1799,10 @@ export type EquipmentSlotType =
   | "hullPlating"
   | "weapon"
   | "droneBay"
+  // E-MOD EM-5 (0.14.0): the UNIVERSAL MODULE slot (H.1 accessories), a MULTI slot like weapon / droneBay, capped by
+  // SHIP_TYPES[hull].moduleSlots TOGETHER with the specUtility piece (user M1 "Separate counts"; shipModules.ts).
+  // Mints through EQUIPMENT_SLOTS.module (varieties = UNIVERSAL_MODULES ids) with its catalog id as moduleVariant.
+  | "module"
   // RESERVED (defined, no consumer yet, forward hooks):
   | "bridge"
   | "quarters"
@@ -2043,6 +2053,25 @@ export function rarityIndex(rarity: EquipmentRarity): number {
     case "constellar":
       return 5;
   }
+}
+
+// The catalog-driven module EFFECT scale (Crew 0.14.0 Phase 1b), shared by the crew modules, the sensor arrays and the
+// universal modules (E-MOD EM-5). MOVED here from crewModules.ts (which re-exports all three, so every importer keeps
+// working) so the equipment fold (equipmentStatMods, below) can scale a universal module's power output without a
+// model -> crewModules import cycle.
+//
+// Per-rarity-step and per-quality-rung growth of a module's EFFECT (NOT its capacity, except the Efficient quarters
+// module). Referenced to "standard" == the neutral base: a standard, quality-0 module reads scale 1.0 (so its catalog
+// magnitude is used as-is), and a rarer / higher-quality module amplifies it. FIRST-PASS TUNABLE.
+export const MODULE_RARITY_STEP = 0.12; // +12% effect per rarity band above standard
+export const MODULE_QUALITY_STEP = 0.06; // +6% effect per quality rung
+
+// The multiplicative effect scale for a module of the given rarity/quality. Monotonic non-decreasing in both (steps
+// are >= 0). standard/q0 == 1.0. derelict clamps to the standard base (no negative step). Pure arithmetic.
+export function moduleEffectScale(rarity: EquipmentRarity, quality: number): number {
+  const rarityStep = Math.max(0, rarityIndex(rarity) - rarityIndex("standard"));
+  const q = Math.max(0, quality);
+  return (1 + rarityStep * MODULE_RARITY_STEP) * (1 + q * MODULE_QUALITY_STEP);
 }
 
 // ============================================================================
@@ -2624,6 +2653,20 @@ export const EQUIPMENT_SLOTS: Record<string, EquipmentSlotDef> = {
       // CRAFTABLE array: its blueprint (bioResonanceArrayBp) is discovery-gated by the Leviathan Scale.
       { key: "sensorBioResonance", label: "Bio-Resonance Array", statRatios: {} },
     ],
+  },
+  // E-MOD EM-5 (0.14.0, plan docs/plans/2026-10-17-material-lines-and-emod-plan.md section 3.3): the UNIVERSAL MODULE
+  // slot, the accessory layer (H.1). Each variety `key` IS a UNIVERSAL_MODULES catalog id (shipModules.ts; the test
+  // holds the two lists equal); the generation path stamps it onto the instance as moduleVariant, and the module's
+  // effect is catalog-driven (its def, scaled by moduleEffectScale), so the slot carries NO signature line and NO affix
+  // pool: rarity and quality act through the effect scale, and M5 ("unique effects only") keeps generic gear lines off
+  // modules. The piece's power draw is its def's (itemgen.ts). The varieties arrive with the v1 roster (EM-7) and the
+  // Precursor Lens (EM-8); until then the slot is hidden (shipModules.ts UNIVERSAL_MODULES_LIVE).
+  module: {
+    slotType: "module",
+    label: "Module",
+    implicitStats: [],
+    affixPool: [],
+    varieties: [],
   },
   // ==========================================================================================
   // E-CREW 0.14.0 (Task 7): AWAY-TEAM MEMBER GEAR (design D3/D4, section 5.4; names exactly as the
@@ -4001,6 +4044,10 @@ export interface EquipmentStatMods {
   totalMass: number;
   totalPowerDraw: number;
   powerOutput: number;
+  // E-MOD EM-5: the installed Passive modules' power output (shipModules.ts modulePowerOutput), whole points. Kept apart
+  // from `powerOutput` (the Reactor Core lines) so the budget can name the reactor's own share (shipPower.ts
+  // reactorOutput / reactorSurplus); every output total adds both. 0 with no such module.
+  modulePowerOutput: number;
 }
 // E-MOD EM-1 (S4-A03; user P5 2026-10-19 "x1.6 per class (Recommended)"): an FTL drive's power draw grows x1.6 for
 // each drive class above I, so deep reach competes with weapons and modules for the hull's power.
@@ -4111,6 +4158,8 @@ export function equipmentStatMods(pieces: EquipmentInstance[]): EquipmentStatMod
     totalMass: Math.max(0, grossMass - massReduction),
     totalPowerDraw: Math.max(0, grossPowerDraw - powerDrawReduction),
     powerOutput,
+    // E-MOD EM-5: a module carries no stat lines (EQUIPMENT_SLOTS.module); its output is its catalog def's, scaled.
+    modulePowerOutput: modulePowerOutput(pieces, (p) => moduleEffectScale(p.rarity, p.quality)),
   };
 }
 
@@ -4172,8 +4221,8 @@ function foldGuestQuarters(ship: ShipInstance, pieces: EquipmentInstance[], base
 //   4. MASS penalty (mass-vs-thrust): heavier fitments drag transitSpeedMult
 //      (multiplicative, stays positive) and engineEfficiency (subtractive, can go
 //      below baseline), clamped at ENGINE_EFF_FLOOR.
-//   5. POWER: output = the hull's base + every powerOutput line; draw = the pieces' draw (an FTL drive at
-//      its class). The crew's power efficiency cuts the draw later, in the crew overlay (E-MOD EM-1).
+//   5. POWER: output = the hull's base + every powerOutput line + every Passive module's output (E-MOD EM-5); draw =
+//      the pieces' draw (an FTL drive at its class, a module at its def's draw). The crew's power efficiency cuts the draw later, in the crew overlay (E-MOD EM-1).
 //
 // The optional `pieces` param DEFAULTS to [] so shipDerivedStats(ship) reproduces
 // the bare-hull projection EXACTLY (equipmentStatMods([]) is all-zero -> every
@@ -4234,7 +4283,7 @@ export function shipDerivedStats(
     engineEfficiency,
     fuelCapacity,
     mass: mods.totalMass,
-    powerOutput: base.powerOutput + mods.powerOutput,
+    powerOutput: base.powerOutput + mods.powerOutput + mods.modulePowerOutput, // E-MOD EM-5: + Passive module output
     powerDraw: mods.totalPowerDraw,
     sensors,
     ...(colonistCapacity > 0 ? { colonistCapacity } : {}),
@@ -11715,7 +11764,7 @@ export const DEFAULT_EQUIPMENT_VARIETY: Record<string, string> = {
 // unaffected.
 export const SLOT_BASE_PHYSICALS: Record<
   | "cargoBay" | "ftlDrive" | "reactorCore" | "specUtility" | "shieldEmitters" | "hullPlating" | "bridge" | "quarters" | "sensor"
-  | "memberArmor" | "memberWeapon" | "memberTool" | "implant",
+  | "module" | "memberArmor" | "memberWeapon" | "memberTool" | "implant",
   { mass: number; powerDraw: number; durability: number }
 > = {
   cargoBay: { mass: 10, powerDraw: 2, durability: 100 },
@@ -11739,6 +11788,10 @@ export const SLOT_BASE_PHYSICALS: Record<
   // balance follow-on, tuned when the consumer lands, NOT here. durability is a sensible reserved base
   // (never lost this patch, does not feed shipDerivedStats). FIRST-PASS TUNABLE.
   sensor: { mass: 0, powerDraw: 0, durability: 100 },
+  // E-MOD EM-5 (plan section 3.3: "mass 0, powerDraw per def, durability 100"): a module drags nothing through the mass
+  // fold; its REAL draw is its catalog def's (UniversalModuleDef.powerDraw, applied at mint by itemgen.ts), so the slot
+  // default here is 0 and never reaches a piece. durability is its wear toughness (gearWear.ts module rows).
+  module: { mass: 0, powerDraw: 0, durability: 100 },
   // Combat 1.0 (Unit 1.1): base physicals for the two defensive combat slots. A shield emitter
   // draws real power (an active deflector); hull plating is heavy + passive (0 draw) with the
   // highest base durability (it is armor). FIRST-PASS TUNABLE. Read only when a combat piece is

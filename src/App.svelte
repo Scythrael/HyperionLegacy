@@ -443,6 +443,7 @@
   } from "./lib/game/equipment";
   // E-MOD EM-2: the power install gate's refusal text (one wording everywhere) and the Armory check-out's shortfall.
   import { overPowerReasonText } from "./lib/game/shipPower";
+  import { duplicateModuleReasonText, moduleSlotsFullReasonText } from "./lib/game/shipModules";
   // Crew 0.14.0 (phase 4a): the pure SENIOR STAFF engine, wired by the do* handlers below.
   // hire/fire/assign/unassign each take + return a whole GameState; promoteOfficer takes +
   // returns a single officer, so its handler splices the result back into state.officers.
@@ -5126,6 +5127,11 @@
       // E-MOD EM-2: the install would leave the ship over its power budget.
       case "overPower":
         return overPowerReasonText(refusal.powerShortfall);
+      // E-MOD EM-5: the shared module slots are full, or this module is already aboard.
+      case "moduleSlotsFull":
+        return moduleSlotsFullReasonText();
+      case "duplicateModule":
+        return duplicateModuleReasonText();
     }
   }
 
@@ -15286,11 +15292,12 @@
                 {/if}
 
                 <!-- Slots, grouped -->
-                {#each ["offense", "defense", "systems"] as grp (grp)}
+                <!-- E-MOD EM-5: "modules" holds the module slots, present only once modules are shown (UNIVERSAL_MODULES_LIVE). -->
+                {#each ["offense", "defense", "systems", "modules"] as grp (grp)}
                   {@const groupSlots = armorySlotDefs.filter((d) => d.group === grp)}
                   {#if groupSlots.length > 0}
                     <div class="warehouse-tier-head" style="margin-top:8px;">
-                      <span class="warehouse-tier-label">{grp === "offense" ? "Offense" : grp === "defense" ? "Defense" : "Systems"}</span>
+                      <span class="warehouse-tier-label">{grp === "offense" ? "Offense" : grp === "defense" ? "Defense" : grp === "modules" ? "Modules" : "Systems"}</span>
                       <span class="warehouse-tier-line"></span>
                     </div>
                     {#each groupSlots as def (def.key)}
@@ -19438,7 +19445,8 @@
                the base-vs-fitted delta below is obvious. -->
           <div class="dev-row">
             <span class="dev-label">Grant slot</span>
-            {#each Object.keys(EQUIPMENT_SLOTS) as slotKey}
+            <!-- E-MOD EM-5: a slot with no varieties yet (the module slot until EM-7) has nothing to grant. -->
+            {#each Object.keys(EQUIPMENT_SLOTS).filter((k) => EQUIPMENT_SLOTS[k].varieties.length > 0) as slotKey}
               <button
                 class="dev-btn"
                 class:active={devEqSlot === slotKey}
@@ -19547,7 +19555,8 @@
                    spare as a Fit button (disabled + reasoned when canFit blocks).
                    SHIP slots only: the away-team member slots (isMemberSlotType) are worn
                    by members, never installed on a hull. -->
-              {#each Object.keys(EQUIPMENT_SLOTS).filter((k) => !isMemberSlotType(k)) as slotKey}
+              <!-- E-MOD EM-5: a slot with no varieties (the module slot until EM-7) has no piece to list. -->
+              {#each Object.keys(EQUIPMENT_SLOTS).filter((k) => !isMemberSlotType(k) && EQUIPMENT_SLOTS[k].varieties.length > 0) as slotKey}
                 {@const slot = slotKey as EquipmentSlotType}
                 {@const fitted = fittedInSlot(state, ship.id, slot)}
                 {@const matchingSpares = state.equipment.filter((e) => isUninstalledPiece(e) && e.slotType === slot)}

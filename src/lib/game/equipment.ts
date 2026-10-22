@@ -110,6 +110,10 @@ import { MULTI_SLOT_TYPES, equippedFor, onMissionLock } from "./equipmentQueries
 export { MULTI_SLOT_TYPES, equippedFor, onMissionLock } from "./equipmentQueries";
 // E-MOD EM-2: the power install gate's reading (one-way: shipPower.ts never imports this file).
 import { installPowerShortfallBetween } from "./shipPower";
+// E-MOD EM-5: the module slot rules (the leaf catalog) and the S2 out-of-ship lock (crewLock.ts imports only the leaf
+// equipmentQueries.ts, so no cycle).
+import { MODULE_SLOT_SHARING_TYPES, hasModuleOfVariant } from "./shipModules";
+import { shipCrewLocked } from "./crewLock";
 
 // The slot-type partitions the fit gate (canFitEquipment) and the mutators read. Sets (not arrays)
 // for O(1) membership; typed to EquipmentSlotType so a slot rename is a compile error.
@@ -151,6 +155,18 @@ const CATALOG_SINGLETON_SLOTS: ReadonlySet<EquipmentSlotType> = new Set<Equipmen
   "quarters",
   "sensor",
 ]);
+// E-MOD EM-5: the UNIVERSAL MODULE slot, a catalog-resolved ALLOW-EMPTY MULTI slot (MULTI_SLOT_TYPES), capped by the
+// hull's moduleSlots together with the specUtility piece (moduleSlotsFull) and one copy of a module per ship
+// (duplicateModule). Its own set so the installable-slot guard names it explicitly.
+const UNIVERSAL_MODULE_SLOTS: ReadonlySet<EquipmentSlotType> = new Set<EquipmentSlotType>(["module"]);
+
+// E-MOD EM-5 (user S2, 2026-10-17, "Lock it": "no ship gear changes while the ship is out"): a MODULE is installed or
+// removed only while its ship is home. The lock is the crew lock (crewLock.ts shipCrewLocked: out on a mission or
+// patrol, or on an expedition until it is claimed), wider than onMissionLock, because EM-6 freezes a ship's modules
+// into the expedition dispatch snapshot. The other slots keep onMissionLock for now (S2 for them is not built yet).
+function moduleLockedOut(state: GameState, shipId: string, slotType: EquipmentSlotType): boolean {
+  return UNIVERSAL_MODULE_SLOTS.has(slotType) && shipCrewLocked(state, shipId);
+}
 
 // ----------------------------------------------------------------------------
 // captainBranchToShipSpec
@@ -259,7 +275,15 @@ export type EquipFitBlockReason =
   // it supplies (hull base + Reactor Core, net draw after power efficiency; PRISTINE values, never wear). Checked
   // LAST, after every capacity check. The refusal carries the shortfall (EquipFitRefusal.powerShortfall) so every
   // surface can say "needs N more power" (overPowerReasonText, shipPower.ts). Uninstalling is never blocked.
-  | "overPower";
+  | "overPower"
+  // E-MOD EM-5 (user M1, 2026-10-17 "Separate counts"): the install would put more pieces in the hull's shared module
+  // slots (SHIP_TYPES[hull].moduleSlots: the universal modules AND the specUtility piece) than it has. Returned for a
+  // module piece, and for a specUtility piece going into an EMPTY Spec Utility slot (a utility swap never adds one).
+  // Checked with the other capacity checks, before the power budget.
+  | "moduleSlotsFull"
+  // E-MOD EM-5 (user M8, 2026-10-19 "One per ship"): a module of this kind (the same catalog id, the Precursor Lens
+  // included) is already installed on the ship. Checked right before moduleSlotsFull.
+  | "duplicateModule";
 
 // A refused install: the reason, and for overPower the power it still needs. Every reason-text switch takes this
 // whole object so the overPower case can name its number (TypeScript narrows on `reason`).
@@ -316,7 +340,9 @@ export function pieceEquipRequirement(instance: EquipmentInstance): EquipRequire
 // slot's equipRequirement, hull first then captain (hullSpec / captainSpec /
 // captainSpecParked) -> the piece being moved out is not held by a checked-out loadout
 // (replaceTargetInvalid / occupantInLoadout, 0.13.9) -> weapon hardpoint capacity (hardpointsFull,
-// weapon only) -> drone bay capacity (baysFull) -> the power budget (overPower, E-MOD EM-2).
+// weapon only) -> drone bay capacity (baysFull) -> one module of a kind (duplicateModule, E-MOD EM-5) -> the shared
+// module slots (moduleSlotsFull, a module or a specUtility into an empty slot) -> the power budget (overPower,
+// E-MOD EM-2). A module also waits while its ship is out on an expedition (onMission, the S2 lock, after the mission lock).
 //
 // 0.13.9 TARGETED SWAP (optional replacingInstanceId): on a MULTI slot (weapon / droneBay) the
 // loadout board's Swap names the exact installed piece being replaced. It must be a piece of the
@@ -349,7 +375,8 @@ export function canFitEquipment(
   if (
     !ECONOMY_INSTALLABLE_SLOTS.has(instance.slotType) &&
     !COMBAT_SLOT_TYPES.has(instance.slotType) &&
-    !CATALOG_SINGLETON_SLOTS.has(instance.slotType)
+    !CATALOG_SINGLETON_SLOTS.has(instance.slotType) &&
+    !UNIVERSAL_MODULE_SLOTS.has(instance.slotType)
   ) {
     return { ok: false, reason: "slotNotInstallable" };
   }
@@ -392,6 +419,8 @@ export function canFitEquipment(
   // check (a find over a tiny list, negligible).
   const lock = onMissionLock(state, shipId);
   if (!lock.ok) return lock;
+  // E-MOD EM-5 (S2): a module waits while its ship is out, an expedition included (moduleLockedOut).
+  if (moduleLockedOut(state, shipId, instance.slotType)) return { ok: false, reason: "onMission" };
   // Non-null past the lock (it returned noShip otherwise).
   const ship = state.ships.find((s) => s.id === shipId)!;
 
@@ -499,6 +528,34 @@ export function canFitEquipment(
       (e) => e.fittedToShipId === shipId && e.slotType === "droneBay" && e.id !== instanceId && e.id !== replacingInstanceId
     ).length;
     if (otherPods >= cap) return { ok: false, reason: "baysFull" };
+  }
+
+  // --- One module of a kind per ship (E-MOD EM-5, user M8 "One per ship"; the Precursor Lens too). The incoming piece
+  // and a targeted swap's outgoing piece never count, so swapping a module for another copy of itself is allowed.
+  if (instance.slotType === "module") {
+    const exceptIds = replacingInstanceId === undefined ? [instanceId] : [instanceId, replacingInstanceId];
+    if (hasModuleOfVariant(state.equipment.filter((e) => e.fittedToShipId === shipId), instance.moduleVariant, exceptIds)) {
+      return { ok: false, reason: "duplicateModule" };
+    }
+  }
+
+  // --- The shared module slots (E-MOD EM-5, user M1 "Separate counts"): SHIP_TYPES[hull].moduleSlots caps the
+  // universal modules AND the specUtility piece together. The pieces that STAY count: never the incoming piece, never a
+  // targeted swap's outgoing piece, and for a specUtility install never the current Spec Utility (the singleton swap
+  // moves it out). So a module needs a free slot, a utility swap always passes, and a utility into an EMPTY Spec Utility
+  // slot needs one. No live save can reach this refusal before a module exists (every hull has at least one slot and
+  // at most one utility).
+  if (MODULE_SLOT_SHARING_TYPES.has(instance.slotType)) {
+    const cap = SHIP_TYPES[ship.typeKey].moduleSlots;
+    const staying = state.equipment.filter(
+      (e) =>
+        e.fittedToShipId === shipId &&
+        MODULE_SLOT_SHARING_TYPES.has(e.slotType) &&
+        e.id !== instanceId &&
+        e.id !== replacingInstanceId &&
+        !(instance.slotType === "specUtility" && e.slotType === "specUtility")
+    ).length;
+    if (staying >= cap) return { ok: false, reason: "moduleSlotsFull" };
   }
 
   // POWER BUDGET (E-MOD EM-2, plan section 4 EM-2; user answers P1 / P2 2026-10-17): checked LAST, after every
@@ -656,6 +713,13 @@ export function unfitEquipment(
   if (!lock.ok) {
     throw new Error(`unfitEquipment blocked: ${lock.reason}`);
   }
+  // E-MOD EM-5: a module honors the S2 lock (moduleLockedOut) and has no Standard-Issue floor, so the dev panel's
+  // slot-targeted uninstall takes the slot's first module off and leaves it empty (the instance route), never mints.
+  if (UNIVERSAL_MODULE_SLOTS.has(slotType)) {
+    if (moduleLockedOut(state, shipId, slotType)) throw new Error(`unfitEquipment blocked: onMission`);
+    const piece = state.equipment.find((e) => e.fittedToShipId === shipId && e.slotType === slotType);
+    return piece ? unfitEquipmentInstance(state, shipId, piece.id) : state;
+  }
 
   // Identify the current occupant (if any) of this ship's slot.
   const occupant = state.equipment.find((e) => e.fittedToShipId === shipId && e.slotType === slotType);
@@ -757,6 +821,10 @@ export function unfitEquipmentInstance(
   const occupant = state.equipment.find((e) => e.id === instanceId);
   if (!occupant) {
     throw new Error(`unfitEquipmentInstance blocked: noInstance (${instanceId})`);
+  }
+  // E-MOD EM-5 (S2): a module stays aboard while its ship is out, an expedition included (moduleLockedOut).
+  if (moduleLockedOut(state, shipId, occupant.slotType)) {
+    throw new Error(`unfitEquipmentInstance blocked: onMission`);
   }
   if (occupant.fittedToShipId !== shipId) {
     throw new Error(
