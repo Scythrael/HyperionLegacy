@@ -953,6 +953,12 @@
   // 0.13.2 Unit 7: mount-time focus mover for the non-modal Ships drill-down (open lands
   // focus on the back control, close returns it to the originating roster row). See focusOnMount.ts.
   import { focusOnMount } from "./lib/focusOnMount";
+  // 0.13.11: Settings > Codes, the Enter Code window and the secret game. The secret game keeps its
+  // own state, save and ticker (src/lib/secret/runtime.ts); App only mounts it, starts its runtime
+  // and wipes it on Delete Save. It never reads or writes `state` and never runs in the main loop.
+  import EnterCodeModal from "./lib/EnterCodeModal.svelte";
+  import SecretGameOverlay from "./lib/SecretGameOverlay.svelte";
+  import { startSecretRuntime, wipeSecretGame, devFastForwardSecret, codesTabSeen, markCodesTabSeen } from "./lib/secret/runtime";
 
   // DEV_MODE, Vercel §9.5.3: true on Preview, false on Production. Locally,
   // set VITE_DEV_MODE=true in .env.local (see .env.example).
@@ -2723,14 +2729,23 @@
   // discoverability for the players who need it most: someone who needs a larger text size is the
   // least able to hunt for it. Keeping it first, with a visible section header, is the mitigation.
   // If it still reads as buried once it is on screen, promoting it back to its own subtab is cheap.
-  type OptionsTab = "ui" | "gameplay" | "confirmations" | "saveData";
+  type OptionsTab = "ui" | "gameplay" | "confirmations" | "saveData" | "codes";
   let activeOptionsTab: OptionsTab = "ui";
-  const OPTIONS_TABS: { key: OptionsTab; label: string }[] = [
+  // 0.13.11: "Codes" (gifts and giveaways) is the fifth sub-tab, with a NEW tag until it is opened
+  // once on this device (device-side flag through safeStorage; blocked storage just keeps the tag).
+  let codesSeen = codesTabSeen();
+  let OPTIONS_TABS: { key: OptionsTab; label: string; badge?: string }[];
+  $: OPTIONS_TABS = [
     { key: "ui", label: "UI" },
     { key: "gameplay", label: "Gameplay" },
     { key: "confirmations", label: "Confirmations" },
     { key: "saveData", label: "Save Data" },
+    { key: "codes", label: "Codes", badge: codesSeen ? undefined : "NEW" },
   ];
+  $: if (activeOptionsTab === "codes" && !codesSeen) {
+    markCodesTabSeen();
+    codesSeen = true;
+  }
 
   // System settings modal (0.11.2 Shell Correction, Task 3). The System program
   // left the bottom nav; its settings content now opens as a MODAL from the
@@ -2738,6 +2753,21 @@
   // activeSystemSubTab still selects which settings view is shown, but is now
   // driven by a top <SubTabs> bar inside the modal instead of the old left rail.
   let systemModalOpen = false;
+
+  // 0.13.11: the Enter Code window (over the System modal) and the secret game overlay (over the
+  // whole app). Completing the combo closes both windows and opens the game; closing the game hands
+  // focus back to the gear that opened the System window.
+  let enterCodeOpen = false;
+  let secretOpen = false;
+  function onComboComplete(): void {
+    enterCodeOpen = false;
+    systemModalOpen = false;
+    secretOpen = true;
+  }
+  function closeSecretGame(): void {
+    secretOpen = false;
+    void svelteTick().then(() => document.querySelector<HTMLElement>(".top-bar-gear")?.focus());
+  }
 
   // The modal's top-tab list, in display order. Settings is the first view (0.13.6 D7 removed the
   // former "profile" first tab, now at Crew > Admiral); the keys map to the settings content
@@ -3294,7 +3324,11 @@
 
     const onUnload = () => doSave();
     window.addEventListener("beforeunload", onUnload);
+    // 0.13.11: the secret game's own runtime (own state, own save, own 1 s ticker), started after
+    // the main load and catch-up above. It never touches `state` or pollGameLoop.
+    const stopSecret = startSecretRuntime();
     return () => {
+      stopSecret();
       window.removeEventListener("beforeunload", onUnload);
       document.removeEventListener("visibilitychange", onVisibilityChange);
     };
@@ -7897,6 +7931,9 @@
   }
 
   function resetSave() {
+    // 0.13.11: Delete Save and Debug "Reset save" also wipe the secret game's own save, so its
+    // recorded milestones never carry into a fresh game (user, builder check Q3).
+    wipeSecretGame();
     clearSave();
     // Seed the fresh starter's weak Standard-Issue combat set (see newGame rationale at
     // the initial `state` declaration): a reset game's hull is dispatchable like a new one.
@@ -16906,6 +16943,17 @@
         </div>
       </Panel>
       {/if}
+
+      {#if activeOptionsTab === "codes"}
+      <!-- CODES (0.13.11): gifts and giveaways. Device-side; nothing here is in the save. -->
+      <Panel>
+        <div class="panel-title">CODES</div>
+        <p class="prestige-text">Have a code from a giveaway or event? Enter it here to claim your gift.</p>
+        <div class="dev-row">
+          <button class="dev-btn" on:click={() => (enterCodeOpen = true)}>Enter code</button>
+        </div>
+      </Panel>
+      {/if}
       {/if}
 
       {#if DEV_MODE && activeSystemSubTab === "debug"}
@@ -16964,6 +17012,14 @@
           <div class="dev-row">
             <button class="dev-btn" on:click={doSave}>Save now</button>
             <button class="dev-btn danger" on:click={resetSave}>Reset save</button>
+          </div>
+          <!-- [DEV] 0.13.11 secret game: pretend it was away (paid through the real catch-up), or wipe it. -->
+          <div class="dev-row">
+            <span class="dev-label">[DEV] Secret game</span>
+            <button class="dev-btn" on:click={() => devFastForwardSecret(3600)}>+1h</button>
+            <button class="dev-btn" on:click={() => devFastForwardSecret(86400)}>+1d</button>
+            <button class="dev-btn" on:click={() => devFastForwardSecret(7 * 86400)}>+7d</button>
+            <button class="dev-btn danger" on:click={wipeSecretGame}>Wipe</button>
           </div>
           <!-- [DEV] Non-destructive preview of the SavePersistWarning banner (see
                devToggleSavePersistBanner). Flips ONLY the display flag; real saving is
@@ -17844,6 +17900,14 @@
         <button class="dev-btn danger" disabled={deleteConfirmText !== "DELETE"} on:click={confirmDelete}>Delete</button>
       </svelte:fragment>
     </ActionModal>
+  {/if}
+
+  {#if enterCodeOpen}
+    <EnterCodeModal onClose={() => (enterCodeOpen = false)} {onComboComplete} />
+  {/if}
+
+  {#if secretOpen}
+    <SecretGameOverlay onClose={closeSecretGame} />
   {/if}
 
   {#if refineConfirmModalOpen}

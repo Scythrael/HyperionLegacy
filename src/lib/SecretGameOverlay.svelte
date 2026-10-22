@@ -117,9 +117,16 @@
     { layer: "pc", skill: "autoPc" },
   ];
   const autoSkill = (layer: AutoLayer) => LAYERS.find((l) => l.layer === layer)!.skill;
+
+  // Portal to <body> (the ActionModal pattern) so no transformed or clipped ancestor can trap the
+  // fixed layer, and the blur covers the whole app.
+  function portal(node: HTMLElement) {
+    document.body.appendChild(node);
+    return { destroy() { node.remove(); } };
+  }
 </script>
 
-<div class="sg-backdrop">
+<div class="sg-backdrop" use:portal>
   <div class="sg" role="dialog" aria-modal="true" aria-labelledby="sg-title" use:focusTrap={onClose}>
     <header class="sg-head">
       <div class="sg-titles">
