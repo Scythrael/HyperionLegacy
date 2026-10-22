@@ -72,3 +72,5 @@ Done (17): the v8 sixteen plus reactor fuel ladder and reactor tech foundation (
 answered). Building (14): the v8 fourteen minus reactor, plus the recipe realism pass (built recipes fixed in the ML-2
 merge; planned recipes follow their own builds). Designed (1): completion tracking. Card shows 53% to release, 75%
 built, with a note that the drop from 72% is the new scope of the number, not lost work.
+
+USER ANSWER (2026-10-22): headline = "53% to release (Recommended)": keep the whole-road number with weights Building 70, Polish 10, QA rounds 18, Release 2 (the [PROPOSAL] above is now approved).
