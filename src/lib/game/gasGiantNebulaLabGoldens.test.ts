@@ -14,12 +14,12 @@
 
 import { describe, expect, it } from "vitest";
 import Decimal from "break_infinity.js";
-import { RESEARCH_FACILITY_KEY, SUBSPACE_TELESCOPE_FACILITY_KEY, freshState, type AwayMember, type Expedition, type GameState, type ShipGroundTeam } from "./model";
+import { RESEARCH_FACILITY_KEY, SUBSPACE_TELESCOPE_FACILITY_KEY, freshState, type AwayMember, type GameState, type ShipGroundTeam } from "./model";
 import { advanceExpedition, claimExpedition, expeditionCandidates } from "./expedition";
 import { tick } from "./tick";
 import { addItemQuality } from "./inventory";
 import { ANCIENT_DATA_FRAGMENT_ID, RESEARCH_DATA_ITEM, RESEARCH_FAMILIES } from "./gasGiantContent";
-import { asPreRelicBlanksDispatch, dispatchPastPropulsion, plainAwayMember } from "./awayTeamTestFixtures";
+import { asPreRelicBlanksDispatch, dispatchPastPropulsion, plainAwayMember, withoutNebula } from "./awayTeamTestFixtures";
 import { goldenJson } from "./firstRunsGoldens.fixture";
 
 function fnv(s: string): string {
@@ -57,13 +57,15 @@ function crewed(saveSeed: number): GameState {
   };
 }
 
-// GG-4: the dispatch record WITHOUT its nebula stamp (`Expedition.nebula`): the record the same dispatch made before
-// GG-4 (a run in flight at the update). The stamp is the one key GG-4 adds at dispatch. Identity without it. Pure.
-function withoutNebula(exp: Expedition): Expedition {
-  if (!("nebula" in exp)) return exp;
-  const rest = { ...exp } as Expedition & { nebula?: unknown };
-  delete rest.nebula;
-  return rest;
+// GG-4 (built after the capture): a candidate as the pre-GG-4 console listed it. Its identity (id, seed, system,
+// region) is outside the nebula draw; the only thing GG-4 adds to it is the task demand's `nebulaSweep` (the telescope's
+// Per body reading previews the sweep), taken off here. Pure.
+function candidateAsPreNebula<C extends { telescope: { demand: unknown } }>(c: C): C {
+  const demand = c.telescope.demand as Record<string, unknown> | null;
+  if (!demand || !("nebulaSweep" in demand)) return c;
+  const rest = { ...demand };
+  delete rest.nebulaSweep;
+  return { ...c, telescope: { ...c.telescope, demand: rest } };
 }
 
 const SAVE_SEEDS = [0x51f15e, 0x2b7c0d3] as const;
@@ -73,7 +75,7 @@ const TIERS = [1, 2, 3, 4, 5, 6, 7] as const;
 function nebulaRow(saveSeed: number, tier: number, slot: number): string[] {
   const state = crewed(saveSeed);
   const id = `cand-${tier}-${slot}`;
-  const cands = expeditionCandidates(state, "ship-1", tier as 1);
+  const cands = expeditionCandidates(state, "ship-1", tier as 1).map(candidateAsPreNebula);
   expect(cands.find((c) => c.id === id), id).toBeDefined();
   const res = asPreRelicBlanksDispatch(dispatchPastPropulsion(state, "ship-1", 1, id));
   if (!res.success || !res.expedition) throw new Error(`dispatch refused: ${res.reason}`);
@@ -141,6 +143,45 @@ describe("GG-4 capture: every tier's systems, dispatched and finished, with no n
       }
     }
     expect(rows).toEqual(NEBULA_CAPTURE);
+  });
+});
+
+// ===== GG-4 golden (pinned on GG-4): the same grid's systems that hold a nebula, as GG-4 dispatches and flies them =====
+// Per nebula system: [the stamp, the sweep leg, the sweep's finding, the finished run, the claim's deposits and Survey
+// Log]. The capture above holds for every system with the stamp taken off; this is the sweep's own shape.
+const NEBULA_GOLDEN: Record<string, string> = {
+  "2b7c0d3:cand-2-0": "5a06a101",
+  "2b7c0d3:cand-4-1": "ffd042fd",
+  "2b7c0d3:cand-6-2": "5cfdc296",
+  "2b7c0d3:cand-7-1": "a8c48f50",
+  "51f15e:cand-4-2": "9ef9d89d",
+  "51f15e:cand-6-2": "3901b791",
+  "51f15e:cand-7-2": "ee572977",
+};
+
+describe("GG-4 golden: the grid's nebula systems, swept", () => {
+  it("every system holding a nebula", () => {
+    const rows: Record<string, string> = {};
+    for (const saveSeed of SAVE_SEEDS) {
+      for (const tier of TIERS) {
+        for (let slot = 0; slot < 3; slot++) {
+          const id = `cand-${tier}-${slot}`;
+          const state = crewed(saveSeed);
+          const res = asPreRelicBlanksDispatch(dispatchPastPropulsion(state, "ship-1", 1, id));
+          const exp = res.expedition!;
+          if (!exp.nebula) continue;
+          const done = advanceExpedition(exp, FINAL);
+          expect(done.phase, id).toBe("complete");
+          const sweep = done.groundOps?.studyLegs?.find((l) => l.nebula === 1) ?? null;
+          expect(sweep?.done, id).toBe(true);
+          const claim = claimExpedition({ ...res.next, expeditions: [done] }, done.id);
+          const deposits = { inventory: claim.next.inventory, credits: claim.next.credits.toString(), surveyLog: claim.next.surveyLog ?? null };
+          rows[`${saveSeed.toString(16)}:${id}`] = hash([hash(exp.nebula), hash(sweep), hash(done.findings.find((f) => f.id === `${done.id}-find-nebula`) ?? null), hash(done), hash(deposits)]);
+        }
+      }
+    }
+    expect(Object.keys(rows).length).toBeGreaterThan(2);
+    expect(rows).toEqual(NEBULA_GOLDEN);
   });
 });
 

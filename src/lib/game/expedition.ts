@@ -198,7 +198,7 @@ import { formatCountdown } from "./format";
 import { countClaimedExpedition, runCountsOf, runDifficultyAt } from "./runDifficulty";
 // Gas Giant Study GG-2: the study stamp, the orbital bodies and their giant profiles (gasGiantStudy.ts never imports
 // this module).
-import { isStudyBody, studyStampFor, withGiantProfiles } from "./gasGiantStudy";
+import { isStudyBody, nebulaStampFor, studyStampFor, sweepsNebula, withGiantProfiles } from "./gasGiantStudy";
 
 // ============================================================================
 // FIRST-PASS TUNABLE constants
@@ -933,6 +933,7 @@ function previewRun(seed: number, scanParams: ExpeditionScanParams, region: Expe
   // preview drops the orbital bodies' objectives exactly as the run will.
   const study = studyStampFor(gen.bodies);
   const risked = gen.bodies.map((b, i) => ({ ...b, risk: risk.bodies[i] }));
+  const nebula = nebulaStampFor(seed, region.tier, gen.systemId);
   return {
     id: "preview",
     shipId: "",
@@ -965,6 +966,8 @@ function previewRun(seed: number, scanParams: ExpeditionScanParams, region: Expe
     hazardResist: 0,
     risk: risk.profile,
     ...(study ? { study } : {}),
+    // GG-4: the same nebula stamp the dispatch freezes (buildExpedition).
+    ...(nebula ? { nebula } : {}),
   };
 }
 
@@ -1067,6 +1070,8 @@ export function systemTaskPreview(seed: number, scanParams: ExpeditionScanParams
     bodies: run.bodies.map((b) => ({ ...(b.risk as BodyRiskGrades) })),
     tasks,
     ...(studies.length > 0 ? { studies } : {}),
+    // GG-4: the system's nebula (the ship sweeps it after the bodies, no squad), only when it holds one.
+    ...(run.nebula ? { nebula: run.nebula.kindId } : {}),
   };
 }
 
@@ -1198,6 +1203,7 @@ export function launchForecast(
       threat: null,
       note: "No ground team is ready to launch",
       ...(previewStudies > 0 ? { studies: previewStudies } : {}),
+      ...(preview.nebula ? { nebula: preview.nebula } : {}),
     };
   }
   let revealed = 0;
@@ -1249,6 +1255,8 @@ export function launchForecast(
     note: chosen ? null : "No fights expected",
     // Gas Giant Study GG-2: the run's ship studies (one per orbital body of a study run), only when there is one.
     ...(studyCount > 0 ? { studies: studyCount } : {}),
+    // GG-4: the nebula the ship would sweep after the bodies, only when there is one.
+    ...(exp.nebula ? { nebula: exp.nebula.kindId } : {}),
   };
 }
 
@@ -1430,8 +1438,14 @@ export function startExpedition(
   };
   // G2-5: a resumed run met its route's anomaly on the first trip (resolved, never charted twice), and records how
   // many bodies were charted before (the window opens past them, openResumedWindow).
+  // GG-4: a nebula an earlier trip swept is marked swept (the same key, so the record keeps its order) and not swept again.
   const expedition: Expedition = resumed
-    ? { ...launched, anomalyResolved: true, resume: { version: 1, heldId: resumed.id, scannedBodies: chartedPrefix(resumed.bodies!) } }
+    ? {
+        ...launched,
+        ...(resumed.nebulaSwept && launched.nebula ? { nebula: { ...launched.nebula, swept: 1 as const } } : {}),
+        anomalyResolved: true,
+        resume: { version: 1, heldId: resumed.id, scannedBodies: chartedPrefix(resumed.bodies!) },
+      }
     : launched;
   // Field Kits FKR-7: the packs leave stock (lowest quality first) and a top-up's credits are spent: the SAME plan
   // buildExpedition packed (planDispatchPacks is pure on the same inputs). A run without flag 2 settles nothing.
@@ -1548,6 +1562,9 @@ function buildExpedition(
   const study = studyStampFor(gen.bodies);
   const risked = gen.bodies.map((b, i) => ({ ...b, risk: risk.bodies[i] }));
   const bodies = study ? withGiantProfiles(seed, risked) : risked;
+  // Gas Giant Study GG-4: the system's nebula (its own keyed draw at the run's region tier, a famous nebula always),
+  // written last below, only when there is one.
+  const nebula = nebulaStampFor(seed, risk.profile.tier, gen.systemId);
   // Safe first runs SF-2 / SF-3: the run's difficulty stamp, from stored state only (the counters and the runs out):
   // the training run's, else the curve position and the region tier this run is dispatched at.
   const difficulty = runDifficultyAt(state, "expedition", risk.profile.tier, ship.typeKey);
@@ -1627,6 +1644,8 @@ function buildExpedition(
     ...(explorer ? { explorerCaptain: explorer } : {}),
     // Gas Giant Study GG-2: the study flag (see above), only on a system with an orbital body.
     ...(study ? { study } : {}),
+    // Gas Giant Study GG-4: the nebula stamp (see above), only on a system that holds one.
+    ...(nebula ? { nebula } : {}),
   };
   return expedition;
 }
@@ -2864,8 +2883,12 @@ function heldFromRecall(exp: Expedition, t: number): HeldSystem | null {
   if (charted === 0) return { ...base, kind: "candidate" };
   if (!exp.groundOps || !exp.risk) return null;
   const bodies = heldBodies(exp);
-  if (!systemUnfinished(exp, bodies)) return null;
-  return { ...base, kind: "resume", risk: { ...exp.risk }, bodies };
+  // GG-4: a nebula swept on this trip (or on an earlier one) is not swept again; one the recall cut short (or never
+  // reached) keeps the system unfinished, so it is resumable for its sweep alone.
+  const swept = exp.nebula !== undefined && (exp.nebula.swept === 1 || (exp.groundOps.studyLegs ?? []).some((l) => l.nebula === 1 && l.done === true));
+  const sweepLeft = sweepsNebula(exp) && !swept;
+  if (!systemUnfinished(exp, bodies) && !sweepLeft) return null;
+  return { ...base, kind: "resume", risk: { ...exp.risk }, bodies, ...(swept ? { nebulaSwept: true as const } : {}) };
 }
 
 // The bodies a resume record keeps (user G12 "Pick up where you left off"): charted bodies whole, with their

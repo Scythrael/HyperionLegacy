@@ -4274,6 +4274,15 @@ function gasStudyEntries(): WiringEntry[] {
       base: () => withAwayTeam(wiringBase()),
       on: sourceOn,
     },
+    //   nebulaSweep (GG-4): a run to a system with a nebula brings home its sweep's canisters (OFF: the stamp taken away).
+    nebulaSweep: {
+      probe: "content:gasStudy:nebulaSweep",
+      contexts: ["expedition:groundOps"],
+      curve: { kind: "event", metric: "canisters the nebula sweep of a whole run returns" },
+      magnitude: () => 1,
+      base: () => withAwayTeam(wiringBase()),
+      on: sourceOn,
+    },
   };
   for (const use of Object.keys(GAS_STUDY_USES) as GasStudyUse[]) {
     const system = useSystem[use];
@@ -4363,7 +4372,22 @@ function gasStudyEntries(): WiringEntry[] {
     for (const field of effectFieldsOf("NEBULA_KINDS")) {
       const owner = kindOwner[field];
       if (owner === undefined) continue;
-      out.push(entry({ id: `expedition:NEBULA_KINDS:${k.id}:${field}`, system: "expedition", source: { catalog: "NEBULA_KINDS", key: `${k.id}:${field}` }, claim: `${k.name}: its ${field}`, status: pending(owner) }));
+      // GG-4 built the sweep: both fields go live, each read through a batch of sweep rewards of the kind (the canisters
+      // above Standard with its odds vs all Standard; its heaviest gas of an uneven band with its weights vs even).
+      const metric = field === "bandOdds" ? `${k.name} canisters above Standard over a sweep batch, its odds vs all Standard` : `${k.name}'s heaviest gas of an uneven band over a sweep batch, its weights vs even`;
+      out.push(
+        entry({
+          id: `expedition:NEBULA_KINDS:${k.id}:${field}`,
+          system: "expedition",
+          source: { catalog: "NEBULA_KINDS", key: `${k.id}:${field}` },
+          claim: `${k.name}: its ${field}`,
+          probe: `content:nebulaKind:${k.id}:${field}`,
+          contexts: ["expedition:groundOps"],
+          curve: { kind: "event", metric },
+          magnitude: () => 1,
+          on: sourceOn,
+        }),
+      );
     }
   }
   // GG-3: the probe dive seam (gasGiantStudy.ts studyDiveEvents): one event per finished study with a Galileo aboard,

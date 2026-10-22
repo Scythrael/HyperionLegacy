@@ -58,7 +58,8 @@ import type { FieldKitId } from "./fieldKits";
 // G1-3: the short-range mission arm stores a roll and its cycle plan (types only; shortRange.ts imports this file).
 import type { ShortRangeCyclePlan, ShortRangeRoll, ShortRangeTier } from "./shortRange";
 // Gas Giant Study GG-2: an orbital body's giant class id (type only; gasGiantContent.ts imports this module).
-import type { GiantClassId } from "./gasGiantContent";
+// GG-4 / GG-5: a nebula kind id and a research data family (types only).
+import type { GiantClassId, NebulaKindId, ResearchFamily } from "./gasGiantContent";
 
 // Data model, tech spec §1 (Data Model).
 // Phase 4 (docs/plans/2026-07-06-phase4-navigation-progression-overhaul-plan.md):
@@ -7546,8 +7547,8 @@ export interface ExpeditionBody {
 
 // Gas Giant Study GG-3: one SURVEY LOG entry (GameState.surveyLog): a studied giant as the ship recorded it. Every
 // displayed number derives from these stored fields (gasGiantContent.ts giantPhysics / starProgress on the class and
-// the mass). `kind` "nebula" joins with GG-4's sweep.
-export interface SurveyLogEntry {
+// the mass). GG-4: a NEBULA entry (`kind` "nebula") records the system's swept nebula by its kind.
+export interface SurveyGiantEntry {
   id: string; // "<expeditionId>-survey-<bodyIndex>"
   at: number; // gameTimeSeconds the study ended
   systemName: string;
@@ -7557,6 +7558,15 @@ export interface SurveyLogEntry {
   massMilliJ: number;
   tier: RegionTier;
 }
+export interface SurveyNebulaEntry {
+  id: string; // "<expeditionId>-survey-nebula"
+  at: number; // gameTimeSeconds the sweep ended
+  systemName: string;
+  kind: "nebula";
+  kindId: NebulaKindId;
+  tier: RegionTier;
+}
+export type SurveyLogEntry = SurveyGiantEntry | SurveyNebulaEntry;
 
 // A claimable EXPEDITIONARY FINDING. E2a shipped GENERIC placeholder tokens (a provenance tag only);
 // E3 makes an ACTIVITY finding REAL by attaching the away-team task's reward payload (planet-flavored
@@ -8125,6 +8135,12 @@ export interface Expedition {
   // on every other run, and on every run dispatched before GG-2 (its gas giant objectives resolve as dispatched).
   // Optional, no SAVE bump.
   study?: 1;
+  // Gas Giant Study GG-4 (user call 2 "System-level sweep"): the system's NEBULA, frozen at dispatch when the system's
+  // own draw finds one (gasGiantStudy.ts nebulaStampFor: a per-mille by region tier, a famous nebula always). Present:
+  // the ship sweeps it after the last body (one study leg, GroundStudyLeg.nebula). `swept` marks a RESUMED run whose
+  // nebula an earlier trip already swept (HeldSystem.nebulaSwept), so it is not swept again. Absent on every other run
+  // and on every run dispatched before GG-4. Optional, no SAVE bump.
+  nebula?: { kindId: NebulaKindId; swept?: 1 };
 }
 
 // Expedition Tiers G2-5 (user #7 "Based on distance traveled 1:1"; G13 one confirm with the return time; G14 detour
@@ -8163,6 +8179,9 @@ export interface HeldSystem {
   region: ExpeditionRegionStamp;
   risk?: ExpeditionRiskProfile;
   bodies?: ExpeditionBody[];
+  // Gas Giant Study GG-4: the system's nebula was swept on the trip the recall cut short (the resumed run does not
+  // sweep it again). Absent otherwise.
+  nebulaSwept?: true;
 }
 
 // Expedition Tiers G2-3 (user G5 + G21, 2026-10-16): a run's voyage. `tier` sets the nominal hours (tiers are
@@ -8523,6 +8542,9 @@ export interface GroundRepairLeg {
 // done), the teams keep working, an ordinary pickup waits for it, and the study's reward (gasGiantStudy.ts
 // rollStudyReward) lands at endsAt, when the window latches `done`. Stored when it starts, so every later time is a
 // pure function of stored values.
+// GG-4: the NEBULA SWEEP is a study leg too (`nebula` set, bodyIndex gasGiantStudy.ts NEBULA_SWEEP_BODY_INDEX, -1: it
+// studies no body). It starts once every body is scanned, so it pauses no scan; it holds the ship, makes pickups wait
+// and keeps the window open exactly like a study. `nebula` is written last, only on the sweep.
 export interface GroundStudyLeg {
   kind: "study";
   bodyIndex: number;
@@ -8530,6 +8552,7 @@ export interface GroundStudyLeg {
   startsAt: number;
   endsAt: number;
   done?: true;
+  nebula?: 1;
 }
 
 // GO-7b: the run's ground operations (Expedition.groundOps; plan section 2). One COMBINED operations window

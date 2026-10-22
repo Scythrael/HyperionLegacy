@@ -133,7 +133,7 @@ import { rampedChance, runOddsRampOf } from "./runDifficulty";
 import { fieldKitsLive } from "./fieldKits";
 import { freshBasicsFor, refreshObjectiveSupplies, spendFightSupplies } from "./fieldKitsRun";
 // Gas Giant Study GG-3: the ship's study of an orbital body (gasGiantStudy.ts never imports this module).
-import { isStudyBody, rollStudyReward, studySeconds } from "./gasGiantStudy";
+import { NEBULA_SWEEP_BODY_INDEX, NEBULA_SWEEP_SECONDS, isStudyBody, rollNebulaReward, rollStudyReward, studySeconds, sweepsNebula } from "./gasGiantStudy";
 
 // Safe first runs SF-2 (user SF12): the log line of a training run's lost fight whose guards fell back (the backstop).
 export const TRAINING_FELL_BACK_TEXT = "The guards fell back. Training run: no setback.";
@@ -970,6 +970,8 @@ export function groundOpsBodyScanned(exp: Expedition, bodyIndex: number, t: numb
   // Gas Giant Study GG-3: an orbital body of a study run (no ground objective, GG-2) is studied by the ship, from now.
   const body = exp.bodies[bodyIndex];
   if (body && isStudyBody(exp, body)) scheduleStudyLeg(exp, bodyIndex, t);
+  // GG-4: once the last body is scanned the ship sweeps the system's nebula, after any study under way.
+  if (sweepsNebula(exp)) scheduleNebulaSweep(exp, t);
 }
 
 // ===== The window loop =====
@@ -1274,6 +1276,9 @@ export function openResumedGroundOps(exp: Expedition, charted: number, t: number
     const body = exp.bodies[i];
     if (isStudyBody(exp, body) && body.studied !== true) scheduleStudyLeg(exp, i, t);
   }
+  // GG-4: a resumed system whose every body is charted sweeps its nebula from the opening, after those studies (one an
+  // earlier trip swept carries `swept` and is not swept again).
+  if (sweepsNebula(exp)) scheduleNebulaSweep(exp, t);
   groundOpsAssignIdle(exp, t);
   checkRunEnd(exp, t);
 }
@@ -2531,10 +2536,34 @@ export function scheduleStudyLeg(exp: Expedition, bodyIndex: number, t: number):
   return leg;
 }
 
-// A study ends: latched done, and its reward found. Mutates the working clone.
+// GG-4: store the NEBULA SWEEP of a run that sweeps one (gasGiantStudy.ts sweepsNebula), once every body is scanned
+// (`t`: the last scan's completion, or a resumed window's opening). It starts then, or when the ship is free of a leg
+// under way (a study of the last body included), and lasts NEBULA_SWEEP_SECONDS. One per run. Returns the leg, or null.
+// Mutates the working clone.
+export function scheduleNebulaSweep(exp: Expedition, t: number): GroundStudyLeg | null {
+  const ops = exp.groundOps;
+  if (!ops || !sweepsNebula(exp)) return null;
+  if (!exp.bodies.every((b) => b.scanned)) return null;
+  if ((ops.studyLegs ?? []).some((l) => l.nebula === 1)) return null; // one sweep per run
+  const free = shipFreeAt(ops);
+  const startsAt = free !== null && free > t ? free : t;
+  const leg: GroundStudyLeg = {
+    kind: "study",
+    bodyIndex: NEBULA_SWEEP_BODY_INDEX,
+    scanBodyIndex: null,
+    startsAt,
+    endsAt: startsAt + NEBULA_SWEEP_SECONDS,
+    nebula: 1,
+  };
+  (ops.studyLegs ??= []).push(leg);
+  return leg;
+}
+
+// A study ends: latched done, and its reward found (GG-4: the sweep's reward for the nebula sweep). Mutates the
+// working clone.
 function finishStudy(exp: Expedition, leg: GroundStudyLeg): void {
   leg.done = true;
-  exp.findings.push(rollStudyReward(exp, leg.bodyIndex, leg.endsAt));
+  exp.findings.push(leg.nebula === 1 ? rollNebulaReward(exp, leg.endsAt) : rollStudyReward(exp, leg.bodyIndex, leg.endsAt));
 }
 
 // When a shuttle that would dock at `landing` actually docks: at the end of the study that holds the ship then (one
@@ -2629,7 +2658,9 @@ export function groundTaskProgressAt(exp: Pick<Expedition, "groundOps">, task: E
 // Gas Giant Study GG-3 (plan section 2: the study counts as its body's one objective): on a study run each orbital body
 // adds its STUDY at weight 1 (0 until it starts, then its elapsed share, 1 once done), so a run with no ground
 // objective still shows its progress. Every other run reads exactly as before.
-export function groundOpsProgress(exp: Pick<Expedition, "groundOps" | "bodies" | "study">, now: number): number {
+// GG-4: a run with a nebula adds its SWEEP the same way (weight 1; whole when an earlier trip of a resumed system swept
+// it).
+export function groundOpsProgress(exp: Pick<Expedition, "groundOps" | "bodies" | "study" | "nebula">, now: number): number {
   let total = 0;
   let sum = 0;
   exp.bodies.forEach((body, i) => {
@@ -2647,5 +2678,14 @@ export function groundOpsProgress(exp: Pick<Expedition, "groundOps" | "bodies" |
     const span = leg.endsAt - leg.startsAt;
     sum += leg.done ? 1 : span > 0 ? Math.max(0, Math.min(1, (now - leg.startsAt) / span)) : 1;
   });
+  if (exp.nebula !== undefined) {
+    total += 1;
+    const sweep = exp.groundOps?.studyLegs?.find((l) => l.nebula === 1);
+    if (exp.nebula.swept === 1) sum += 1;
+    else if (sweep) {
+      const span = sweep.endsAt - sweep.startsAt;
+      sum += sweep.done ? 1 : span > 0 ? Math.max(0, Math.min(1, (now - sweep.startsAt) / span)) : 1;
+    }
+  }
   return total > 0 ? Math.max(0, Math.min(1, sum / total)) : 0;
 }

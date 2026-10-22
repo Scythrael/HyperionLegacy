@@ -209,10 +209,11 @@ import {
   giantMassAt,
   isOrbitalPlanetType,
   rollGiantProfile,
+  rollNebulaReward,
   rollStudyReward,
   studyCanisterScale,
 } from "../gasGiantStudy";
-import { GAS_CANISTER_IDS, GIANT_CLASSES, canistersInBand, type GiantClassDef, type GiantClassId } from "../gasGiantContent";
+import { GAS_CANISTER_IDS, GIANT_CLASSES, NEBULA_KINDS, canistersInBand, type GiantClassDef, type GiantClassId, type NebulaKindDef, type NebulaKindId } from "../gasGiantContent";
 
 // ============================================================================
 // Contexts (every context a claim can cover; plan section 3.2)
@@ -1887,7 +1888,8 @@ function gasStudyUseValue(s: GameState, use: string, on: boolean): number {
     case "studyReward": {
       // The whole study run (OFF: its stamp taken away, a run dispatched before GG-2) until every body is scanned and
       // every study is done; the canisters its "study" findings carry.
-      const dispatched = studyRun(readyForRun(s));
+      // GG-4: the system's nebula (if it holds one) comes off both sides, so only the body studies count here.
+      const { nebula: _nebula, ...dispatched } = studyRun(readyForRun(s));
       const { study: _stamp, ...unstamped } = dispatched;
       let run: Expedition = on ? dispatched : unstamped;
       const settled = (r: Expedition): boolean => r.bodies.every((b) => b.scanned) && (r.groundOps?.studyLegs ?? []).every((l) => l.done);
@@ -1903,6 +1905,71 @@ function gasStudyUseValue(s: GameState, use: string, on: boolean): number {
       const run = studyRun(on ? wearPiece(ready, WIRING_SCIENCE_ID, "memberTool", GALILEO_VARIETY, { groundFieldwork: 12, groundHazardResist: 6, groundRelicFind: 2 }) : ready);
       const i = run.bodies.findIndex((b) => isOrbitalPlanetType(b.planetType));
       return 100 * studyCanisterScale(run, i);
+    }
+    case "nebulaSweep": {
+      // GG-4: a run to a system holding a nebula until every body is scanned and every study (the sweep included) is
+      // done (OFF: its nebula stamp taken away, a run dispatched before GG-4); the canisters its sweep finding carries.
+      const dispatched = nebulaRun(readyForRun(s));
+      const { nebula: _stamp, ...unstamped } = dispatched;
+      let run: Expedition = on ? dispatched : unstamped;
+      const settled = (r: Expedition): boolean => r.bodies.every((b) => b.scanned) && (r.groundOps?.studyLegs ?? []).every((l) => l.done);
+      for (let t = run.phaseAnchorSeconds + 3600; t < run.phaseAnchorSeconds + 4_000_000 && !settled(run); t += 3600) run = advanceExpedition(run, t);
+      let n = 0;
+      for (const f of run.findings) if (f.id === `${run.id}-find-nebula`) for (const id of GAS_CANISTER_IDS) n += f.materials?.[id] ?? 0;
+      return n;
+    }
+    default:
+      return 0;
+  }
+}
+
+// GG-4: a run dispatched from `s` to the first candidate system, over a seed batch, that holds a nebula; throws when
+// none does (so a probe never passes on an empty fixture).
+const NEBULA_PROBE_SEEDS = Array.from({ length: 60 }, (_, i) => 0x51f15e + i * 0x10001);
+function nebulaRun(s: GameState): Expedition {
+  for (const seed of NEBULA_PROBE_SEEDS) {
+    const run = dispatchRun({ ...s, expeditionSeed: seed });
+    if (run.nebula !== undefined) return run;
+  }
+  throw new Error("wiring: no nebula probe seed reaches a system with a nebula");
+}
+
+// GG-4: the canisters of `pick` over a batch of sweeps of a nebula of `kindId`, the reward rolled with `kinds`.
+function nebulaBatchCount(kindId: NebulaKindId, kinds: readonly NebulaKindDef[], pick: (id: string) => boolean): number {
+  let n = 0;
+  for (let seed = 1; seed <= 120; seed += 1) {
+    const exp = {
+      id: "wiring-nebula",
+      seed: seed * 0x9e3779b1,
+      systemName: "LB-0001",
+      region: { version: 1 as const, tier: 1 as const, enemyTerritory: false, bearing: 0, distanceLy: 10 },
+      nebula: { kindId },
+    };
+    const mats = rollNebulaReward(exp, 0, kinds).materials ?? {};
+    for (const [id, q] of Object.entries(mats)) if (pick(id) && (GAS_CANISTER_IDS as readonly string[]).includes(id)) n += q;
+  }
+  return n;
+}
+
+// A NEBULA_KINDS field, read through the sweep's reward (GG-4).
+//   bandOdds: the canisters above the Standard band with the kind's odds vs all Standard;
+//   itemWeights: the kind's heaviest gas of its first band whose weights are uneven (Standard, else Augmented) with its
+//   weights vs even weights (a Planetary nebula weighs its two Standard gases alike, so its Augmented pair is read).
+function nebulaKindFieldValue(kindId: NebulaKindId, field: string, on: boolean): number {
+  const def = NEBULA_KINDS.find((k) => k.id === kindId)!;
+  switch (field) {
+    case "bandOdds": {
+      const flat = { standard: 100, augmented: 0, stellar: 0, radiant: 0 };
+      const kinds = on ? NEBULA_KINDS : NEBULA_KINDS.map((k) => (k.id === kindId ? { ...k, bandOdds: flat } : k));
+      return nebulaBatchCount(kindId, kinds, (id) => ITEMS[id]?.band !== "standard");
+    }
+    case "itemWeights": {
+      const uneven = (band: "standard" | "augmented") => new Set(canistersInBand(band).map((id) => def.itemWeights[id])).size > 1;
+      const standard = canistersInBand(uneven("standard") ? "standard" : "augmented");
+      const heaviest = standard.reduce((a, b) => (def.itemWeights[b] > def.itemWeights[a] ? b : a), standard[0]);
+      const even = Object.fromEntries(GAS_CANISTER_IDS.map((id) => [id, 1])) as NebulaKindDef["itemWeights"];
+      const kinds = on ? NEBULA_KINDS : NEBULA_KINDS.map((k) => (k.id === kindId ? { ...k, itemWeights: even } : k));
+      return nebulaBatchCount(kindId, kinds, (id) => id === heaviest);
     }
     default:
       return 0;
@@ -2170,6 +2237,8 @@ function readContent(id: string, s: GameState): number {
       return gasStudyUseValue(s, a, on);
     case "giantClass":
       return giantClassFieldValue(a as GiantClassId, b, on);
+    case "nebulaKind":
+      return nebulaKindFieldValue(a as NebulaKindId, b, on);
     case "lootPool": {
       // One salvage of the material: the item it gave is one of the pool's configured drops.
       const held = holding(s, a, new Decimal(1));

@@ -381,10 +381,11 @@ const GOLDEN: Record<string, unknown> = {
   "first:candidates": "8207442a",
   // Re-pinned by Gas Giant Study GG-2 (cand-2 only, Calliope Reach with its gas giant; was 8105e2b): the giant's
   // ground objectives leave the demand and the recommendation, which count its one ship study instead (G2-0
-  // display:launch moved the same way).
+  // display:launch moved the same way). Re-pinned by GG-4 (cand-2 only; was 839d60ba): Calliope Reach holds a nebula,
+  // which joins its demand (`nebulaSweep`) and forecast (`nebula`), as G2-0 display:launch moved.
   "first:launch": [
-    "generalFreighter:cand-0:b4d99ab5", "generalFreighter:cand-1:25f32e71", "generalFreighter:cand-2:839d60ba",
-    "orion:cand-0:b4d99ab5", "orion:cand-1:25f32e71", "orion:cand-2:839d60ba",
+    "generalFreighter:cand-0:b4d99ab5", "generalFreighter:cand-1:25f32e71", "generalFreighter:cand-2:8da715f0",
+    "orion:cand-0:b4d99ab5", "orion:cand-1:25f32e71", "orion:cand-2:8da715f0",
   ],
   "first:parity": "271fa153",
   "later:orion:d18:2": [

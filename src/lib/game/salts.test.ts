@@ -70,7 +70,7 @@ const MODULES: Record<string, Record<string, unknown>> = {
   "materialQuality.ts": materialQuality,
   // Relics v2 R2-3: the identification v2 roll.
   "relicIdentify.ts": relicIdentify,
-  // Gas Giant Study GG-2 / GG-3: the giant profile roll and the study reward roll.
+  // Gas Giant Study GG-2 / GG-3: the giant profile roll and the study reward roll; GG-4: the nebula draw and its sweep.
   "gasGiantStudy.ts": gasGiantStudy,
 };
 

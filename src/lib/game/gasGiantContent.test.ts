@@ -153,8 +153,8 @@ describe("GG-1 everything wired: a consumer or a GG reserve, a source or a pendi
   });
 
   // The study uses a built engine slice has taken live (GG-2: the class roll; GG-3: the study reward and the probe
-  // dive), and the class fields they read.
-  const BUILT_USES: ReadonlySet<string> = new Set(["classRoll", "studyReward", "probeDive"]);
+  // dive; GG-4: the nebula sweep, which reads every nebula kind's two fields), and the class fields they read.
+  const BUILT_USES: ReadonlySet<string> = new Set(["classRoll", "studyReward", "probeDive", "nebulaSweep"]);
   const CLASS_FIELD_USE: Readonly<Record<string, string>> = {
     weight: "classRoll",
     massMinMilliJ: "classRoll",
@@ -166,7 +166,8 @@ describe("GG-1 everything wired: a consumer or a GG reserve, a source or a pendi
   };
   const builtLive = (e: (typeof WIRING_REGISTRY)[number]): boolean =>
     (e.source.catalog === "GAS_STUDY_USES" && BUILT_USES.has(e.source.key)) ||
-    (e.source.catalog === "GIANT_CLASSES" && BUILT_USES.has(CLASS_FIELD_USE[e.source.key.split(":")[1]] ?? ""));
+    (e.source.catalog === "GIANT_CLASSES" && BUILT_USES.has(CLASS_FIELD_USE[e.source.key.split(":")[1]] ?? "")) ||
+    (e.source.catalog === "NEBULA_KINDS" && BUILT_USES.has("nebulaSweep"));
 
   it("the registry: GG-1's additions, each with its status (pending on its GG slice, or live for the sale, the recipe and a built slice's)", () => {
     const added = WIRING_REGISTRY.filter((e) => GG1_ADDED_ENTRY_IDS.has(e.id));

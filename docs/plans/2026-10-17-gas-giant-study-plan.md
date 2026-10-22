@@ -336,6 +336,28 @@ to VII 20%; G2's nebula-region famous systems always]**, swept by one study leg 
 (**[PROPOSAL]** 7200 s, 24 to 48 canisters), Radiant 0. Tests as GG-3, plus: no nebula on a seed whose draw misses;
 G2 candidate identity outside the new draw.
 
+**GG-4 carry note (built 2026-10-21, on feat bc25a23).** `Expedition.nebula?: { kindId, swept? }` is stamped at
+dispatch (buildExpedition, and the preview run) only when the system's own draw finds one (gasGiantStudy.ts
+rollSystemNebula on NEBULA_SALT: draw 1 the hit at NEBULA_PERMILLE_BY_TIER, draw 2 the kind, uniform over the four; both
+always taken; the Orion, Lagoon and Eagle Nebulae always hold an emission nebula, FAMOUS_NEBULA_KIND), so every other
+dispatch record is byte-identical and a run in flight never sweeps. The SWEEP is a study leg (`GroundStudyLeg.nebula:
+1`, bodyIndex NEBULA_SWEEP_BODY_INDEX -1), scheduled when the last body is scanned (after any study under way) or when
+a resumed window opens on a fully charted system: 7200 s (call 12), no probe (no dive event), pickups wait for it, the
+window closes after it. Reward (rollNebulaReward, NEBULA_SWEEP_SALT, fixed order): data 400, family, readout 150, base
+24..48, chance rounding x the tier haul, then band and gas per canister by the kind's odds and weights (Radiant 0). No
+Ancient Data Fragment from a sweep. Survey Log: `SurveyLogEntry` is now `SurveyGiantEntry | SurveyNebulaEntry`
+(`kind: "nebula"`, `kindId`). Recall (G2-5): HeldSystem.nebulaSwept when the sweep finished; an unswept nebula keeps a
+system resumable; a resumed run marks `nebula.swept` and never sweeps twice; progress counts the sweep at weight 1.
+Previews: SystemTaskPreview.nebula, TaskDemand.nebulaSweep ("2 ship studies and 1 nebula sweep, no squad needed"),
+LaunchForecast.nebula; the candidate's identity is outside the draw (only its telescope demand gains `nebulaSweep`).
+Display: shipNowText "Sweeping the emission nebula · ..." (minimal; GG-6 owns the lane). Readers for GG-6:
+`nebulaCanisterRange`, `NEBULA_SWEEP_SECONDS`, `sweepsNebula`. Registry live with probes: GAS_STUDY_USES nebulaSweep
+and every NEBULA_KINDS bandOdds / itemWeights. [PROPOSAL] for the user: NEBULA_PERMILLE_BY_TIER (I 8% rising 2% a tier
+to VII 20%), the uniform kind draw, 24 to 48 canisters. Goldens: the GG-4 capture (42 systems, the stamp off) holds;
+the strip helper `withoutStudy` now also takes the nebula off (asPreNebulaDispatch for GG-3's own runs); moved on purpose,
+named at each pin: the fresh save's cand-1-2 (it holds a nebula) candidate / task preview / launch view (GG-0 golden 1,
+G2-0 display:candidates and display:launch, G2-1 candidates, SF-0 first:launch).
+
 ### GG-5: Research Lab study lane (engine)
 
 `"dataStudy"` process on its own lane (Lab 1 has 1 slot **[PROPOSAL]**), `DATA_STUDY_SECONDS` **[PROPOSAL 1200]**;
