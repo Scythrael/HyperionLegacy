@@ -1480,7 +1480,10 @@ function finishWork(exp: Expedition, ops: GroundOpsState, team: GroundTeamRun, r
     const points = ref.task.fightPoints ?? [];
     const cleared = ref.task.pointsCleared ?? 0;
     const target = cleared < points.length ? points[cleared] : 1;
-    if (team.workTo !== undefined && team.workTo >= target) bankSegment(ops, team, ref.task);
+    if (team.workTo !== undefined && team.workTo >= target) {
+      bankSegment(ops, team, ref.task);
+      if (exp.gearWear) tallyGroundWear(ops, crewOf(ops, team).flatMap((member) => member.scienceIds), "steps");
+    }
     return reinforcementFight(exp, ops, team, ref, t);
   }
   if (team.ambushed) {
@@ -1493,6 +1496,8 @@ function finishWork(exp: Expedition, ops: GroundOpsState, team: GroundTeamRun, r
   const to = team.workTo ?? task.progress ?? 0;
   task.progress = to;
   bankSegment(ops, team, task);
+  // GEAR WEAR step 3: the crew's Science members completed one fieldwork step (their tools wear by fieldwork).
+  if (exp.gearWear) tallyGroundWear(ops, crew.flatMap((member) => member.scienceIds), "steps");
   delete team.workFrom;
   delete team.workTo;
   if (to >= 1) {
@@ -1506,6 +1511,19 @@ function finishWork(exp: Expedition, ops: GroundOpsState, team: GroundTeamRun, r
     return;
   }
   startFight(exp, ops, team, ref, t);
+}
+
+// GEAR WEAR step 3 (a run stamped Expedition.gearWear only): count one ground fight or fieldwork step for each listed
+// member (once each), in ops.wearTally, read when the run comes home (gearWearEngine.ts expeditionWear). Resolution
+// never reads it. Mutates the ops record.
+function tallyGroundWear(ops: GroundOpsState, memberIds: readonly string[], kind: "fights" | "steps"): void {
+  const ids = [...new Set(memberIds)];
+  if (ids.length === 0) return;
+  const tally = (ops.wearTally ??= {});
+  for (const id of ids) {
+    const row = (tally[id] ??= {});
+    row[kind] = (row[kind] ?? 0) + 1;
+  }
 }
 
 // Bank the segment the crew just finished (segment index = the points cleared so far) for the crew's team set. A
@@ -1649,6 +1667,8 @@ function finishFight(exp: Expedition, ops: GroundOpsState, team: GroundTeamRun, 
   // Field Kits FKR-7 (a Field Kits run only): what the fight spent comes off each crew team's supplies, won or lost
   // (charges, free basics, extras), and its Injury Kit shares go on the treated member's trip treatment.
   spendFightSupplies(exp, crew, record, (id) => memberTeam(crew, id));
+  // GEAR WEAR step 3: every named member who fought (standing or downed at the end) counts one ground fight.
+  if (exp.gearWear) tallyGroundWear(ops, [...Object.keys(record.memberEnd), ...record.downedMemberIds], "fights");
   const task = ref.task;
   const surprise: Partial<GroundStepRecord> = {
     ...(record.surprise ? { surprise: true as const } : {}),

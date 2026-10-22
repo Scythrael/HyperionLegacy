@@ -18,6 +18,11 @@
 //   registry : the wiring registry snapshot (id, status, contexts, probe) and the E-MOD owned rows by name.
 
 import { describe, expect, it } from "vitest";
+// GEAR WEAR step 3: this file's pins were captured before the use wear engine; it runs with the use sources off
+// (gearWearSwitch.fixture.ts), so they keep proving nothing else moved. gearWearGoldens.test.ts pins the wear.
+import { gearWearOffInThisFile } from "./gearWearSwitch.fixture";
+import { gw3RegistryBack } from "./gearWearRegistry.fixture";
+gearWearOffInThisFile();
 import Decimal from "break_infinity.js";
 import {
   EQUIPMENT_SLOTS,
@@ -643,11 +648,12 @@ const G16_ADDED_IDS: ReadonlySet<string> = new Set<string>(["facility:FACILITIES
 const G16_ROW_BEFORE = { kind: "pending", owner: "G1-6 (flips SHORT_RANGE_BOARD_LIVE with the board UI; the rungs then enumerate as facility rung entries on the shortRangeSlots probe)" } as const;
 // E-MOD EM-5 came after every pin here: its two module wear rows are left out and the hulls' moduleSlots entries read
 // with their old owner (emodEm5Registry.fixture.ts em5ReadBack; shipModules.test.ts pins the move itself).
+// Gear wear step 3 came after every pin here too: its registry move is read back first (gearWearRegistry.fixture.ts).
 // Gas Giant Study GG-2 / GG-3 came after every pin here as well: the entries they FLIPPED pending -> live (the gas giant's
 // orbitalOnly row and the GG-1 study entries they wired; gasStudyGoldens.fixture.ts) read back as they stood (pending
 // on their owner, no live context, no probe) in every read-back and the snapshot; GG-3's added probe dive seam is left out.
 const BEFORE_RX: WiringEntry[] = siReadBack(
-  em5ReadBack(WIRING_REGISTRY).filter(
+  em5ReadBack(gw3RegistryBack(WIRING_REGISTRY)).filter(
     (e) =>
       !RX_ADDED_ENTRY_IDS.has(e.id) && !FUSE_ADDED_ENTRY_IDS.has(e.id) && !R2_2_ADDED_ENTRY_IDS.has(e.id) && !R2_3_ADDED_ENTRY_IDS.has(e.id) && !G16_ADDED_IDS.has(e.id) &&
       !G2_4_ADDED_ENTRY_IDS.has(e.id) && !OC15_ADDED_ENTRY_IDS.has(e.id) && !GG_STUDY_ADDED_ENTRY_IDS.has(e.id),
@@ -808,7 +814,7 @@ describe("EM-0 goldens (re-pinned by EM-1 where named)", () => {
     // Merged onto feat (0.14.0 integration): the slices BEFORE_RX holds apart (the timed grenades, R2-2, the SI read-back)
     // and G2-4's additions are held apart here the same way, so the comparison sees G1-6's move alone. E-MOD EM-5's move is
     // read back first (em5ReadBack), as BEFORE_RX does; Gas Giant Study GG-3's added seam is held apart too.
-    const live = em5ReadBack(WIRING_REGISTRY).filter(
+    const live = em5ReadBack(gw3RegistryBack(WIRING_REGISTRY)).filter(
       (e) => !RX_ADDED_ENTRY_IDS.has(e.id) && !FUSE_ADDED_ENTRY_IDS.has(e.id) && !R2_2_ADDED_ENTRY_IDS.has(e.id) && !R2_3_ADDED_ENTRY_IDS.has(e.id) && !G2_4_ADDED_ENTRY_IDS.has(e.id) && !OC15_ADDED_ENTRY_IDS.has(e.id) && !GG_STUDY_ADDED_ENTRY_IDS.has(e.id),
     );
     const rung = live.filter((e) => G16_ADDED_IDS.has(e.id)).map((e) => [e.id, e.status, e.contexts, e.probe ?? null]);

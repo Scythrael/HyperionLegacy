@@ -3486,6 +3486,11 @@ export interface ShortRangeMissionState {
   loadPaid?: number;
   // G1-4: the cycles this run has delivered (the run's completion log entry counts them). Absent until the first.
   cyclesThisRun?: number;
+  // GEAR WEAR step 3 (gearWearEngine.ts): the run's wear flag with its gear frozen (RunWearStamp) at dispatch and
+  // re-frozen at each cycle start (user 2026-10-21 "Re-read each cycle"); each delivered non-training cycle wears the
+  // ship's gear by use. A run without it (one dispatched
+  // before step 3) reads its gear pristine and wears nothing.
+  gearWear?: RunWearStamp;
 }
 
 // The board's per-slot cycle cursor (GameState.shortRangeBoard): slot id -> the cycle index its NEXT roll reads
@@ -3529,6 +3534,21 @@ export interface CaptainMissionState {
   // 0.14.0 SPEED SEAM (ProcessSpeed): instantComplete runs THIS cycle through to its delivery on the next tick. The
   // next cycle is a freshly built object without it. Absent = byte-identical.
   speed?: ProcessSpeed;
+  // GEAR WEAR step 3 (0.14.0, gearWearEngine.ts): the run's wear FLAG, stamped at dispatch (while any wear source is
+  // live) and carried to every repeated cycle, with the condition of the ship's worn gear frozen at dispatch and
+  // re-frozen at each cycle start (user 2026-10-21 "Re-read each cycle": worn gear shows from cycle 2). Each delivered cycle of a stamped run wears its ship's gear by use (hauls,
+  // light-years, minutes underway, a survey). A run in flight from before step 3 has none and plays as it did.
+  gearWear?: RunWearStamp;
+}
+
+// GEAR WEAR step 3: a captain mission's or short-range run's wear flag. `frozen`: piece id -> the condition (per-mille)
+// of each of the ship's WORN pieces as the current cycle started (at dispatch, then re-frozen at each cycle start,
+// gearWearEngine.ts projectRunStamp), read by the run sheet for that cycle (runShipStats), so the gear a cycle reads is
+// constant however the span is chunked and the wear the run takes shows from its next cycle. Absent when every piece
+// was pristine. Plain data.
+export interface RunWearStamp {
+  version: 1;
+  frozen?: Record<string, number>;
 }
 
 // --- Combat Patrol mission (Combat 0.13.0, Phase 9b.5a, design §S14) -----------
@@ -8076,6 +8096,11 @@ export interface Expedition {
   // (like encounterSteps): a run dispatched since GO-7b carries it and resolves on the Ground Ops timeline
   // (groundOps.ts); a run without it resolves on the legacy path, byte-identically. Optional, no SAVE bump.
   groundOps?: GroundOpsState;
+  // GEAR WEAR step 3 (0.14.0, gearWearEngine.ts): the run's wear FLAG with its dispatch instant, stamped at dispatch
+  // (while any wear source is live; never on the training run, user W9 "No wear on training"). When the run comes
+  // home its ship's and its members' gear wear by use (minutes underway, light-years, bodies scanned, ground fights,
+  // fieldwork steps, minutes on the ground). A run in flight from before step 3 has none and plays as it did.
+  gearWear?: ExpeditionWearStamp;
   // Squads SQ-4: the run's RISK PROFILE (with each body's ExpeditionBody.risk). Its PRESENCE is the risk-aware
   // flag: written at dispatch alongside groundOps; a flagged run dispatched before SQ-4 lacks it and keeps
   // resolving exactly as stamped. Optional, no SAVE bump.
@@ -8180,6 +8205,20 @@ export interface HeldSystem {
 // minimum halves the time); `outboundSpeed` / `returnSpeed` are the ship's own speed on each leg at dispatch
 // (outboundLegSpeed / returnLegSpeed: the sweeping transitSpeedMult times that leg's complement lift, CP-2 OC-E5).
 // The three durations are whole seconds; `returnSeconds` is before the Flight Deck ramp. Plain data.
+// GEAR WEAR step 3 (Expedition.gearWear): the wear flag of a run dispatched since step 3, with the instant it left
+// (gameTimeSeconds), so the minutes underway are known when it comes home. Plain data.
+export interface ExpeditionWearStamp {
+  version: 1;
+  dispatchedAt: number;
+}
+
+// GEAR WEAR step 3 (GroundOpsState.wearTally): one member's use on the ground, counted as it happens on a stamped run
+// (groundOps.ts finishFight, finishWork): the ground fights they fought and the fieldwork steps they completed.
+export interface GroundWearTally {
+  fights?: number;
+  steps?: number;
+}
+
 export interface ExpeditionVoyage {
   version: 1;
   tier: RegionTier;
@@ -8568,6 +8607,10 @@ export interface GroundOpsState {
   // GO-7c: the run's ground operations LOG, DISPLAY ONLY (resolution never reads it); absent until a line is
   // written, so a run without one keeps its exact shape.
   log?: GroundOpsLogEntry[];
+  // GEAR WEAR step 3: memberId -> that member's ground fights and fieldwork steps on a wear-stamped run
+  // (Expedition.gearWear), read when the run comes home (gearWearEngine.ts). Resolution never reads it. Absent until
+  // the first count, and on every run without the stamp, so such a run keeps its exact shape.
+  wearTally?: Record<string, GroundWearTally>;
   // Expedition Tiers G2-5: the instant the player RECALLED the ship and the window closed (groundOps.ts
   // closeGroundOps; endedAt is the same instant). Absent on every run nobody recalled.
   recalledAt?: number;

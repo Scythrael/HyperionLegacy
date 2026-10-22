@@ -12,6 +12,10 @@
 //   4. The blueprint catalog's keys (G2-4 adds the classed FTL drives).
 
 import { describe, expect, it } from "vitest";
+// GEAR WEAR step 3: this file's pins were captured before the use wear engine; it runs with the use sources off
+// (gearWearSwitch.fixture.ts), so they keep proving nothing else moved. gearWearGoldens.test.ts pins the wear.
+import { gearWearOffInThisFile } from "./gearWearSwitch.fixture";
+gearWearOffInThisFile();
 import Decimal from "break_infinity.js";
 import { BLUEPRINTS, freshState, type AwayMember, type Expedition, type GameState, type RegionTier, type ShipGroundTeam } from "./model";
 import { advanceExpedition, advanceExpeditionSeed, claimExpedition, expeditionCandidates, startExpedition } from "./expedition";

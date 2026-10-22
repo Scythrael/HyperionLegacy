@@ -107,7 +107,8 @@ describe("the catalog", () => {
 
   it("the Quartermaster issues no Standard-Issue module, and modules wear slowly underway (M9)", () => {
     expect(REQUISITION_CATALOGUE.module).toBeNull();
-    expect(WEAR_SOURCES.filter((w) => w.slot === "module").map((w) => [w.id, w.mode, w.raw])).toEqual([["module:minutesUnderway", "use", 2]]);
+    // Gear wear step 3: at the approved crew module rate (4 a minute), so it outruns the 2 a minute underway upkeep.
+    expect(WEAR_SOURCES.filter((w) => w.slot === "module").map((w) => [w.id, w.mode, w.raw])).toEqual([["module:minutesUnderway", "use", 4]]);
     expect(WEAR_EFFICIENCY.some((w) => w.slot === "module" && w.combat)).toBe(true);
   });
 });
@@ -116,7 +117,8 @@ describe("the registry move (emodEm5Registry.fixture.ts reads it back for the ea
   it("adds the two module wear rows (pending on gear wear) and re-owns every hull's moduleSlots to EM-7 (pending)", () => {
     const added = WIRING_REGISTRY.filter((e) => EM5_ADDED_ENTRY_IDS.has(e.id));
     expect(added.map((e) => e.id).sort()).toEqual([...EM5_ADDED_ENTRY_IDS].sort());
-    expect(added.every((e) => e.status.kind === "pending")).toBe(true);
+    // Gear wear step 3 wired the use source live (a module wears by time underway); its efficiency (combat) is step 4's.
+    expect(added.map((e) => `${e.id}|${e.status.kind}`).sort()).toEqual(["wear:WEAR_EFFICIENCY:module:effect|pending", "wear:WEAR_SOURCES:module:minutesUnderway|live"]);
     const slots = WIRING_REGISTRY.filter((e) => EM5_MODULE_SLOTS_IDS.has(e.id));
     expect(slots).toHaveLength(HULLS.length);
     for (const e of slots) expect(e.status).toEqual({ kind: "pending", owner: "EM-7 (the module slot is hidden until a module can be crafted: UNIVERSAL_MODULES_LIVE)" });

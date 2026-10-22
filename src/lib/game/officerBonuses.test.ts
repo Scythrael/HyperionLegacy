@@ -14,6 +14,10 @@
 // code BEFORE Task 20 (golden hashes captured before the change).
 
 import { describe, it, expect } from "vitest";
+// GEAR WEAR step 3: this file's pins were captured before the use wear engine; it runs with the use sources off
+// (gearWearSwitch.fixture.ts), so they keep proving nothing else moved. gearWearGoldens.test.ts pins the wear.
+import { gearWearOffInThisFile } from "./gearWearSwitch.fixture";
+gearWearOffInThisFile();
 import Decimal from "break_infinity.js";
 import {
   freshState,

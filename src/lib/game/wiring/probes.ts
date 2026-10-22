@@ -122,6 +122,7 @@ import { generateEnemyWave } from "../combat/enemyWave";
 import type { PirateHullId } from "../combat/enemyHulls";
 import { STATUS_EFFECT_DEFS, activeStatDelta, applyEffect, tickEffects } from "../combat/statusEffects";
 import { makeRng } from "../combat/rng";
+import { wearProbeDef, type WearProbeId } from "./wearProbes";
 import {
   advanceExpedition,
   candidateReach,
@@ -2588,10 +2589,12 @@ const ENEMY_RANK_PROBE_FIGHT: Readonly<Partial<Record<EnemyRank, { grade: number
 export type FacetProbeId = `facet:${CrewProfession | "all"}:${keyof OfficerStats}`;
 export type ContentProbeId = `content:${string}`;
 export type MuseumProbeId = `museum:${string}`;
-export type ProbeId = keyof typeof PROBES | FacetProbeId | ContentProbeId | MuseumProbeId;
+// GEAR WEAR step 3: the `wear:` probes live in wearProbes.ts (their fixtures drive the gear wear engine).
+export type ProbeId = keyof typeof PROBES | FacetProbeId | ContentProbeId | MuseumProbeId | WearProbeId;
 
 export function probeLabel(id: ProbeId): string {
   if (id.startsWith("content:")) return id;
+  if (id.startsWith("wear:")) return wearProbeDef(id as WearProbeId).label;
   if (id.startsWith("museum:")) return `museumBonuses.${id.slice(7)}`;
   if (id.startsWith("facet:")) {
     const [, dept, stat] = id.split(":");
@@ -2607,7 +2610,9 @@ function readFacet(id: FacetProbeId, s: GameState): number {
 
 // A probe's value, by id (the registry stores ids so the Debug panel can name them). A non-finite value throws.
 export function readProbe(id: ProbeId, s: GameState, ctx: ContextId): number {
-  const v = id.startsWith("facet:")
+  const v = id.startsWith("wear:")
+    ? wearProbeDef(id as WearProbeId).read(s, ctx)
+    : id.startsWith("facet:")
     ? readFacet(id as FacetProbeId, s)
     : id.startsWith("content:")
       ? readContent(id, s)

@@ -129,6 +129,12 @@
 // the stats pins keep proving no other stat moved (the transport hulls now carry base guest quarters).
 
 import { describe, expect, it, vi } from "vitest";
+// GEAR WEAR step 3: this file's pins were captured before the use wear engine; it runs with the use sources off
+// (gearWearSwitch.fixture.ts), so they keep proving nothing else moved. gearWearGoldens.test.ts pins the wear.
+import { gearWearOffInThisFile } from "./gearWearSwitch.fixture";
+import { GW3_ADDED_IDS, gw3EntryBack } from "./gearWearRegistry.fixture";
+import { WEAR_SOURCES } from "./gearWear";
+gearWearOffInThisFile();
 // E-MOD EM-1: sheets pinned before the power budget engine are hashed with it switched off (emodGoldens.test.ts pins
 // the power numbers and proves the switch reproduces its own capture), so these pins keep proving nothing else moved.
 import { withEm1Off } from "./emodEm1Switch.fixture";
@@ -368,6 +374,12 @@ const GOLDEN: Record<string, unknown> = {
   "registry": [1223, "8ba89020"],
   // Gear wear steps 1 and 2: the 41 pending `wear` entries (held apart from every other registry pin by GW_SLICE).
   "registry:gearWear": [41, "b8143ac4"],
+  // Gear wear step 3 (2026-10-21): the 41 `wear` entries with their statuses and live contexts (every use source,
+  // repair context and bonus live, eleven efficiency consumers live; the battle sources, the combat consumers, the
+  // reactor's output and the drive's engine efficiency pending), plus ship:audit:slotDurability (live) and
+  // ship:audit:slotDurabilityDefense (added, pending step 4). Re-pinned at the merge with feat (EM-5): its two module
+  // rows joined (the use source wired live by step 3, the combat consumer pending step 4): 43 -> 45 rows.
+  "registry:gearWear:step3": [45, "d4db10f5"],
   // The Quartermaster Standard-Issue member lines and the D26 line swap (0.14.0): read back in every registry pin
   // (siReadBack); the added entries with their statuses, then the retired ids.
   "registry:si": [
@@ -597,7 +609,14 @@ const FKR9_SLICE: RegistrySlice = { added: FKR5_HIDDEN_UNTIL_FKR7, flipped: FKR9
 // context, repair bonus and efficiency consumer, and two step 5 audit rows, all pending); its four re-owned OC-D14
 // audit rows stay pending, so their lines hash the same. GW_SLICE rides in every registryPin call (the ML1_SLICE
 // precedent), so the base pin and every cause pin are unchanged; `registry:gearWear` pins the additions.
-const GW_SLICE: RegistrySlice = { added: new Set(WIRING_REGISTRY.filter((e) => e.id.startsWith("wear:")).map((e) => e.id)) };
+// Gear wear step 3 rides in the same slice: its added audit row (the defense pieces' toughness, step 4) is held apart
+// and its toughness audit row (ship:audit:slotDurability, flipped live) read back as pending (gearWearRegistry.fixture.ts);
+// every `wear:` entry is held apart already, whatever its status.
+const GW_SLICE: RegistrySlice = {
+  added: new Set([...WIRING_REGISTRY.filter((e) => e.id.startsWith("wear:")).map((e) => e.id), ...GW3_ADDED_IDS]),
+  flipped: new Set(["ship:audit:slotDurability"]),
+  was: "pending",
+};
 // Safe first runs SF-3 (the difficulty curve places Weak enemies): the two Weak rank entries it FLIPPED pending -> live.
 // Like ML1_SLICE it rides in every registryPin call (read back as pending), so the base pin and every cause pin are
 // unchanged; the test "SF-3 is the only cause" proves the flips are the whole move.
@@ -892,12 +911,23 @@ describe("G1-0 golden 5: the wiring registry's ids and statuses", () => {
     expect(added.length).toBe(G1_ADDED_ENTRY_IDS.size);
     pin("registry:g1", added);
   });
-  it("gear wear steps 1 and 2: the added entries, each with its status (all pending)", () => {
+  it("gear wear steps 1 and 2: the added entries, each with its status (all pending; step 3 read back)", () => {
+    // Step 3's flips read back (gearWearRegistry.fixture.ts), the step 2 pin reproduces: step 3 moved only its own rows.
     // E-MOD EM-5's two module wear rows (emodEm5Registry.fixture.ts) are held apart: they came after this pin.
-    const added = WIRING_REGISTRY.filter((e) => GW_SLICE.added!.has(e.id) && !EM5_ADDED_ENTRY_IDS.has(e.id)).map((e) => `${e.id}|${e.status.kind}`);
+    const added = WIRING_REGISTRY.filter((e) => e.id.startsWith("wear:") && !EM5_ADDED_ENTRY_IDS.has(e.id))
+      .map((e) => gw3EntryBack(e)!)
+      .map((e) => `${e.id}|${e.status.kind}`);
     expect(added.length).toBeGreaterThan(30);
     expect(added.every((l) => l.endsWith("|pending"))).toBe(true);
     pin("registry:gearWear", [added.length, hash(added)]);
+  });
+  it("gear wear step 3: the wear entries and its two audit rows, each with its status", () => {
+    const rows = WIRING_REGISTRY.filter((e) => e.id.startsWith("wear:") || e.id === "ship:audit:slotDurability" || GW3_ADDED_IDS.has(e.id)).map(
+      (e) => `${e.id}|${e.status.kind}|${e.contexts.join(",")}`,
+    );
+    // Every use source, repair context and bonus is live; the battle sources and the combat consumers wait for step 4.
+    expect(rows.filter((l) => l.startsWith("wear:WEAR_SOURCES:") && l.includes("|live|")).length).toBe(WEAR_SOURCES.filter((w) => w.mode === "use").length);
+    pin("registry:gearWear:step3", [rows.length, hash(rows)]);
   });
   it("Quartermaster Standard-Issue member lines and the D26 swap: the added entries with their statuses, and the retired ids", () => {
     const added = WIRING_REGISTRY.filter((e) => isSiAdded(e.id)).map((e) => `${e.id}|${e.status.kind}`);

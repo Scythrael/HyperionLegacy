@@ -24,6 +24,10 @@
 // steps 1 and 2 (merged later) retired the stored durability: hashes go through goldenJson, which puts it back.
 
 import { describe, expect, it } from "vitest";
+// GEAR WEAR step 3: this file's pins were captured before the use wear engine; it runs with the use sources off
+// (gearWearSwitch.fixture.ts), so they keep proving nothing else moved. gearWearGoldens.test.ts pins the wear.
+import { gearWearOffInThisFile } from "./gearWearSwitch.fixture";
+gearWearOffInThisFile();
 // ML-2 (recipe realism) added two refined goods and their two refines after GG-1: held apart from the census below.
 import { ML2_NEW_ITEMS, ML2_NEW_REFINES } from "./ml2RecipeGoldens.fixture";
 import Decimal from "break_infinity.js";

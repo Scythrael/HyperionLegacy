@@ -67,6 +67,8 @@ import { installedSensorArray, sensorArrayEffect, sensorArrayRelicFindBonus } fr
 // E4d: the relic-unlocked Pathfinder Suite's expedition effect (a pure leaf over the installed pieces).
 import { pathfinderEffect } from "./utilityGear";
 import { equippedFor } from "./equipment";
+import { wornGearView } from "./gearWear";
+import { gearWearLive } from "./gearWearEngine";
 import { effectiveShipStats, foldOfficerPromotionCounters, officerBonusTotal, shipCrewContribution, shipSurveyAptitude } from "./crewOverlay";
 import { CREW_STAT_KEYS } from "./crewBuffs";
 import { fieldworkHazardResist, fieldworkSpeedMult } from "./fieldwork";
@@ -747,13 +749,16 @@ export function candidateVoyage(
   cand: Pick<CandidateSystem, "tier" | "distanceLy">,
   training: boolean,
   homeworld: HomeworldPlacement = stateHomeworld(state),
+  // GEAR WEAR step 3: the voyage a launch FLIES reads the worn-gear view (a worn drive flies slower); every GATE reads
+  // the pristine voyage (design 4.3: no gate reads a worn value), so candidateReach passes false.
+  worn: boolean = true,
 ): ExpeditionVoyage {
   return planVoyage({
     tier: cand.tier,
     distanceLy: cand.distanceLy,
     band: homeworld.regionBandsLy[cand.tier] ?? homeworld.regionBandsLy[1],
     driveClass: shipDriveClass(state, ship),
-    stats: effectiveShipStats(state, ship),
+    stats: effectiveShipStats(worn ? wornGearView(state) : state, ship),
     training,
   });
 }
@@ -768,7 +773,8 @@ export function candidateReach(
   cand: Pick<CandidateSystem, "tier" | "distanceLy">,
   homeworld: HomeworldPlacement = stateHomeworld(state),
 ): { roundTripLy: number; reachLy: number; met: boolean } {
-  const voyage = candidateVoyage(state, ship, cand, false, homeworld);
+  // GEAR WEAR step 3: the pristine voyage (a gate never reads a worn value, design 4.3).
+  const voyage = candidateVoyage(state, ship, cand, false, homeworld, false);
   return reachCheck(state, ship, cand.distanceLy, voyage.outboundSeconds + voyage.returnSeconds);
 }
 
@@ -818,7 +824,10 @@ function shipSensorSnapshot(
   ship: ShipInstance | undefined,
 ): { sensorArrayId: string | null; scanParams: ExpeditionScanParams; sensorPower: number } {
   if (!ship) return { sensorArrayId: null, scanParams: { ...NEUTRAL_SCAN_PARAMS }, sensorPower: 0 };
-  const installed = installedSensorArray(state, ship);
+  // GEAR WEAR step 3: the snapshot reads the worn-gear view (gearWear.ts), so the launch and every preview built from
+  // this snapshot read a worn array or sensor line the same way.
+  const gearView = wornGearView(state);
+  const installed = installedSensorArray(gearView, ship);
   // WR-5c: the commanding captain's survey nodes (Cartographer, Anomaly Sense, Deep Scan) ride the scan params, so
   // the dispatch freezes them and every preview built from this snapshot reads them. {} without them.
   const captainSurvey = captainSurveyScanParams(commandingCaptain(state, ship));
@@ -827,7 +836,7 @@ function shipSensorSnapshot(
     scanParams: { ...(installed ? sensorArrayEffect(installed) : NEUTRAL_SCAN_PARAMS), ...captainSurvey },
     // effectiveShipStats folds equipment + crew (crewOverlay), so a Science officer / Science division /
     // a fitted sensor item all shape this by construction. 0 for a bare hull today.
-    sensorPower: effectiveShipStats(state, ship).sensors,
+    sensorPower: effectiveShipStats(gearView, ship).sensors,
   };
 }
 
@@ -841,11 +850,13 @@ export interface ExpeditionGearBonuses {
   relicFindChance: number;
 }
 export function expeditionGearBonuses(state: GameState, ship: ShipInstance): ExpeditionGearBonuses {
-  const pathfinder = pathfinderEffect(equippedFor(state, ship.id));
+  // GEAR WEAR step 3: a worn suite or array reads at its efficiency (the worn-gear view, gearWear.ts).
+  const gearView = wornGearView(state);
+  const pathfinder = pathfinderEffect(equippedFor(gearView, ship.id));
   return {
     scanSpeed: pathfinder.scanSpeed,
     hazardResist: pathfinder.hazardResist,
-    relicFindChance: sensorArrayRelicFindBonus(installedSensorArray(state, ship)),
+    relicFindChance: sensorArrayRelicFindBonus(installedSensorArray(gearView, ship)),
   };
 }
 
@@ -1422,6 +1433,10 @@ export function startExpedition(
   // it flies (Expedition.voyage), so a later drive, crew or homeworld change never reshapes it.
   const homeworld = stateHomeworld(state);
   const built = buildExpedition(state, ship, captainId, seed, anomalyOptIn, number, gen, risk, undefined, fieldKitsRuns);
+  // GEAR WEAR step 3 (gearWearEngine.ts): the committed run's wear flag with its dispatch instant, while any wear source is
+  // live and never on the training run (user W9 "No wear on training"). Only a committed run carries it (the forecast's
+  // throwaway runs never wear anything).
+  const wear = gearWearLive() && !isTrainingRun(built) ? { gearWear: { version: 1 as const, dispatchedAt: state.gameTimeSeconds } } : {};
   // Relics v2 R2-2: and the relic blanks flag (its relic tokens carry the region tier and the body's culture, and roll
   // their rarity on the tier's blank table; Tier I's is today's).
   const launched: Expedition = {
@@ -1429,6 +1444,7 @@ export function startExpedition(
     region: regionStampOf(cand),
     voyage: candidateVoyage(state, ship, cand, isTrainingRun(built), homeworld),
     relicBlanks: { version: RELIC_BLANKS_VERSION },
+    ...wear,
   };
   // G2-5: a resumed run met its route's anomaly on the first trip (resolved, never charted twice), and records how
   // many bodies were charted before (the window opens past them, openResumedWindow).
@@ -1491,7 +1507,10 @@ function buildExpedition(
   // resolve as a pure function of the stored expedition (parity, matching the sensor snapshot). D19: the
   // members' programs ride the roster snapshot below, not the account-level pair.
   // (E4b: deriveAwayTeam already folds the museum's scienceTeamPower into scienceStrength.)
-  const awayTeam = deriveAwayTeam(state, ship);
+  // GEAR WEAR step 3: the away team and its roster freeze the members' gear through the worn-gear view (gearWear.ts),
+  // so a worn weapon, armor, tool or implant reads at its efficiency on this run (the same state when nothing is worn).
+  const gearView = wornGearView(state);
+  const awayTeam = deriveAwayTeam(gearView, ship);
   // E4b: snapshot the account-level museum's EXPEDITION bonuses at dispatch (the same "the launch is what
   // you saw at dispatch" contract as the sensor + away-team snapshots), so resolution reads only stored
   // values and a museum that grows mid-flight never changes an in-flight run (parity by construction).
@@ -1539,7 +1558,7 @@ function buildExpedition(
   // lack one; the legacy battle resolver handles that safely, see gambit.ts resolveExpeditionActivity.) One
   // team slotted in hire order snapshots exactly what the pre-GO-7b snapshotAwayRoster did.
   const groundSnapshot = snapshotGroundOps(state, ship, { recoveryTurnaround, quickRecovery, injurySteady });
-  const roster = snapshotAwayRosterForTeams(state, ship, groundSnapshot.teams);
+  const roster = snapshotAwayRosterForTeams(gearView, ship, groundSnapshot.teams);
   // Field Kits FKR-7 (behind fieldKits.ts FIELD_KITS_RUNS_LIVE): each deploying Security member's pack, from stock and a
   // top-up team's purchases (fieldKitsRun.ts planDispatchPacks; startExpedition settles the same plan).
   if (fieldKitsRuns) withDispatchPacks(groundSnapshot.teams, planDispatchPacks(state, ship, groundSnapshot.teams, roster.security));
