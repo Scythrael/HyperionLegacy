@@ -39,6 +39,7 @@ import type {
 	CombatEvent,
 	CombatWeapon,
 	DefensiveCarry,
+	EvasiveClose,
 	SystemConditionPip,
 	WeaponFamily,
 } from "./types";
@@ -95,7 +96,7 @@ import { STATUS_EFFECT_DEFS } from "./statusEffects";
 import { captainDroneDamage, captainProjectileDamage, chargeWeapon, incomingHitChance, landHullDamage } from "./captainEdge";
 // WR-8 (0.14.0): the combat descriptors' rule constants (ResolveOptions.combatRules gates the ones that change an
 // existing path; the rest read inputs only the rules ever set).
-import { BALANCED_FIREPOWER_SHARE, FAMILY_VS_DRONES, SUPPORT_OVERCHARGE_ESCALATION } from "./combatRules";
+import { BALANCED_FIREPOWER_SHARE, CLOSING_EVASION_PCT, FAMILY_VS_DRONES, SUPPORT_OVERCHARGE_ESCALATION } from "./combatRules";
 
 // ---------------------------------------------------------------------------
 // attachFlavor: select a cosmetic flavor line for a log event and stamp it on.
@@ -298,6 +299,10 @@ function cloneParticipants(participants: BattleParticipants): BattleParticipants
 			// purity + a safe second resolve of the same battle. Effects are plain data, so a spread
 			// per element is a full clone.
 			statusEffects: c.statusEffects.map((e) => ({ ...e })),
+			// WR-8 review: the banked Defensive and closing-evasion remainders are mutated in the fight, so fresh copies
+			// (absent stays absent).
+			...(c.defensiveCarry !== undefined ? { defensiveCarry: { ...c.defensiveCarry } } : {}),
+			...(c.evasiveClose !== undefined ? { evasiveClose: { ...c.evasiveClose } } : {}),
 			// Phase 7a: DEEP-copy each squadron AND its per-drone list. The sim mutates
 			// squadron.cooldownAccumulator + each drone's hp/alive/status, so a shallow
 			// copy would leak those writes back into the caller (breaking purity + a
@@ -329,8 +334,17 @@ function advanceMovement(
 	acc: Accumulators,
 	// WR-8: the combat rules (ResolveOptions.combatRules) are on for this battle.
 	rules = false,
+	// WR-8 review: every combatant (the closing-evasion reach check reads the foes).
+	combatants: readonly Combatant[] = [],
 ): void {
 	const effectiveSpeed = effectiveMoveSpeed(self);
+	const preferred = rules ? stanceHoldDistance(self) : stancePreferredDistance(self.stance);
+	// WR-8 review (user 2026-10-22, answer 5 "Closing is evasive"): a ship that is closing toward its stance range (it
+	// can move and its target is farther than where it parks) while none of its guns or offense drones reaches any foe
+	// moves evasively until one does or it stops closing. Pure geometry, no draw.
+	if (rules && self.evasiveClose !== undefined) {
+		self.evasiveClose.active = effectiveSpeed > 0 && Math.abs(target.position - self.position) > preferred && outOfReach(self, combatants);
+	}
 
 	// Bank this tick's worth of tenths (effective speed tenths per second * dt).
 	acc.move += effectiveSpeed * DT_DECISEC;
@@ -346,7 +360,6 @@ function advanceMovement(
 	// WR-8: under the rules the stance decides where the ship parks (stanceHoldDistance: Aggressive its shortest gun,
 	// Balanced where most of its firepower reaches, Defensive its longest reach), and a ship opens the range on its
 	// target only when it is FASTER (kiting needs a speed edge; an equal or slower ship holds and lets the fight close).
-	const preferred = rules ? stanceHoldDistance(self) : stancePreferredDistance(self.stance);
 	let delta = stanceMoveDelta(self.position, target.position, preferred, wholeSteps);
 	if (rules && delta !== 0) {
 		const closing = Math.sign(delta) === Math.sign(target.position - self.position);
@@ -399,12 +412,32 @@ function damageSources(c: Combatant): { reach: number; dps: number }[] {
 	return out;
 }
 
+// WR-8 review (answer 5, "it stops the moment any of its guns can fire"): true when none of `c`'s working guns
+// (Sensor Power Drain included) reaches any living foe. A ship with no working gun reads its offense squadrons
+// instead; false for a ship with no source at all (it is not closing to fire). Pure, no draw.
+function outOfReach(c: Combatant, combatants: readonly Combatant[]): boolean {
+	const all = damageSources(c);
+	const guns = all.slice(0, c.weapons.filter((w) => w.durability > 0).length);
+	const sources = guns.length > 0 ? guns : all;
+	if (sources.length === 0) return false;
+	const reach = Math.max(...sources.map((s) => s.reach));
+	for (const o of combatants) if (o.alive && o.team !== c.team && Math.abs(o.position - c.position) <= reach) return false;
+	return true;
+}
+
 // WR-8 review: `x` scaled to `keepPct` percent with the remainder banked in `carry[key]` (hundredths of a point), so a
 // run of small hits loses exactly the percent, not a floored whole point each. Integer math, no draw.
 function bankedPercent(x: number, keepPct: number, carry: DefensiveCarry, key: "taken" | "dealt"): number {
 	const bank = x * keepPct + carry[key];
 	const out = Math.floor(bank / 100);
 	carry[key] = bank - out * 100;
+	return out;
+}
+// `x` less CLOSING_EVASION_PCT, the remainder banked on the evasive state (hundredths of a point). No draw.
+function bankedEvasion(x: number, ev: EvasiveClose): number {
+	const bank = x * (100 - CLOSING_EVASION_PCT) + ev.carry;
+	const out = Math.floor(bank / 100);
+	ev.carry = bank - out * 100;
 	return out;
 }
 // A Defensive attacker's outgoing damage (DEFENSIVE_STANCE.damageDealtPct less, banked); `raw` unchanged otherwise.
@@ -676,10 +709,14 @@ export function applyProjectileDamage(
 			: dmgAfterResist;
 	// WR-8 review: a Defensive target takes less from every channel (banked, exact over the fight; absent = no change).
 	const defensive = target.defensive;
-	const dmg =
+	const dmgDefensive =
 		defensive !== undefined && defensive.damageTakenPct > 0 && target.defensiveCarry !== undefined
 			? bankedPercent(dmgAfterTaken, 100 - defensive.damageTakenPct, target.defensiveCarry, "taken")
 			: dmgAfterTaken;
+	// WR-8 review (answer 5): a target closing evasively, still out of its own reach, takes CLOSING_EVASION_PCT less
+	// (banked, exact over the approach; never all of it).
+	const ev = target.evasiveClose;
+	const dmg = ev !== undefined && ev.active ? bankedEvasion(dmgDefensive, ev) : dmgDefensive;
 
 	// Track total damage actually removed from the target (for logging + the
 	// aggregate the caller sums), and whether this projectile attenuated.
@@ -2150,7 +2187,7 @@ export function resolveBattle(
 
 			// PHASE A: movement. Step toward this ship's stance preferred distance from
 			// the target (close / kite / hold), Coolant-Leak-scaled (see advanceMovement).
-			advanceMovement(self, target, acc, rules);
+			advanceMovement(self, target, acc, rules, combatants);
 
 			// PHASE B: shield regen for the acting combatant (banked per-tick).
 			advanceShieldRegen(self, acc);

@@ -1036,6 +1036,8 @@ export function shipToCombatant(args: ShipToCombatantArgs): Combatant {
 	};
 	// WR-8 review (user 2026-10-22): a ship flying Defensive (stored key "standoff") under the combat rules carries its
 	// modifiers (combatRules.ts DEFENSIVE_STANCE): less damage taken and dealt, shields first, guarding. A fresh copy.
+	// WR-8 review (answer 5): every combatant under the rules can close evasively (resolveBattle.ts advanceMovement).
+	if (args.combatRules) combatant.evasiveClose = { active: false, carry: 0 };
 	if (args.combatRules && combatant.stance === "standoff") {
 		combatant.defensive = { ...DEFENSIVE_STANCE };
 		combatant.defensiveCarry = { taken: 0, dealt: 0, absorb: 0 };

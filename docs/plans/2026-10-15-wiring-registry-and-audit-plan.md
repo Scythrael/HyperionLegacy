@@ -1337,6 +1337,32 @@ systemic issue. But the actual balancing of the content can wait. If it's just a
   (was 713). In-flight runs stay byte-identical.
 - For WR-12: the patch note names the stance "Defensive"; the shipped patch notes stay as written.
 
+**User decision on the remaining gap (2026-10-22, answer 5 "Closing is evasive (Recommended)", one commit):** under
+the stamp every combatant carries `evasiveClose` (bridge.ts); in its movement phase it is active while the ship can move,
+its target is farther than where it parks and none of its working guns reaches any foe (a gunless ship reads its
+offense squadrons; a ship with no source never evades). While active every hit is `CLOSING_EVASION_PCT` (40,
+[PROVISIONAL]) smaller, banked so it is exact, never 100. Both sides. No draw, so offline == live; in-flight runs stay
+byte-identical. Also fixed here: resolveBattle's clone now copies the banked Defensive and evasive remainders (the
+second commit shared them with the caller, so a second resolve of the same input could differ), with a test.
+- Registry: `ship:wr8:closingEvasive` live (`combatEventClosingEvasive`: an autocannon ship closing on a railgun
+  platform takes less). Stance help (App.svelte, helpTopics.ts) says a ship closing in is harder to hit.
+- Measured (same five; pre-WR-8 / before answer 5 / now): Orion Sweep 94 / 87 / 88, Freighter Sweep 97 / 88 / 90,
+  Carrier Warband 53 / 42 / 39, Destroyer Warband 19 / 15 / 15, Battleship Warband 80 / 79 / 78. Stances (Aggressive /
+  Balanced / Defensive): Destroyer Sweep 100 / 100 / 100, Warband 15 / 15 / 10; Carrier Sweep 100 / 100 / 100,
+  Warband 39 / 39 / 41. 70% and 90% move nothing further (Freighter 92, Carrier 40 / 37, Destroyer 12 / 13): the
+  approach is about 7 s of a long fight and both sides close. Ablations (each piece switched off with the rest live):
+  the pre-WR-8 numbers come back exactly (94 / 97 / 53 / 19 / 79) only with ALL of open distance, precharge, status
+  carry, the vs-Drones column, pirate mitigation, Point Defense traits and pirate Defensive off; with everything but
+  the open distance off, 92 / 95 / 46 / 23 / 88. The Carrier's gap is spread across those rules, not the approach.
+- Goldens: patrol outcomes and ticks hold (replays and hashes move); forecasts Freighter Sweep 58, Battleship Warband 52,
+  Carrier Warband 26 (bands hold); ship events unchanged (the default-seed cand-2 cloaked fight is still lost for all
+  three explorers); three cloaked battle-grid fights won back. simPlayer's training Sweep ends at 737 shield (was 751).
+- CURVE_WINS: at 200 seeds the "wins never rise" check failed by one or two seeds (Aurora Warband c3 19 -> 20) at every
+  value from 20 to 60; per seed the c2 -> c3 step flips about a dozen outcomes each way, so it is sampling noise. The
+  curve now runs 400 seeds (`CURVE_SEEDS`), where every row falls; the pre-WR-8 200-seed table stays in the header.
+  Freighter Warband c0 is 262 of 400 (131 of 200; it was 181 of 200 before WR-8): closing evasion does not restore the
+  light-hull early Warband. [PROVISIONAL] for the user: the 400-seed sample (test design, not game rules).
+
 ### WR-9: Crew and officers beyond the CP slices
 
 Pilot Cunning (OC-E4), the transit split (OC-E5), Rapid Loadout scope (OC-E6), Morale Anchor's attrition half (OC-E7),

@@ -106,7 +106,9 @@ describe("WR-2 safe first runs: the allAuto newcomer baseline (SF-2 flipped the 
     // evasion), so a little more shield goes (713, was 732); still won, the hull untouched.
     // WR-8 review: the softened Raider (armor 3, evasion 3, was 5 and 5) and the Balanced stance parking where most of
     // the firepower reaches end the fights sooner, so less shield goes (751, was 713).
-    expect(r.patrol).toEqual({ patrol: "crimsonReaverSweep", refusal: null, won: true, endReason: "ordersComplete", repairSeconds: null, wavesWon: 2, wavesLost: 0, hullLeft: 340, shieldLeft: 751 });
+    // WR-8 review answer 5 (closing is evasive): the Raiders closing on the player's longer reach take less until their
+    // autocannons reach, so the fights run a little longer (737, was 751); still won, the hull untouched.
+    expect(r.patrol).toEqual({ patrol: "crimsonReaverSweep", refusal: null, won: true, endReason: "ordersComplete", repairSeconds: null, wavesWon: 2, wavesLost: 0, hullLeft: 340, shieldLeft: 737 });
     const first = r.expeditions[0];
     expect(first.shakedown).toBe(false);
     expect(first.candidate).toBe(0);

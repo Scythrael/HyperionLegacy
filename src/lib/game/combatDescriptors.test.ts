@@ -263,3 +263,23 @@ describe("WR-8 installed systems: a crafted reactor and drive set the combat poo
     expect([old.playerSystemDurability.reactor, old.playerSystemDurability.ftl]).toEqual([100, 100]);
   });
 });
+
+describe("WR-8 review: closing is evasive and the banked percents stay pure", () => {
+  const make = () => [
+    shipToCombatant({ id: "p", team: "player", stats: { hullIntegrity: 100_000, shieldCapacity: 500, shieldRecharge: 5 }, weaponLoadout: [makeWeaponInstance("autocannon", "p-w0")], stance: "standoff", position: 0, speed: 30, combatRules: true }),
+    shipToCombatant({ id: "e", team: "enemy", stats: { hullIntegrity: 100_000, shieldCapacity: 0, shieldRecharge: 0 }, weaponLoadout: [makeWeaponInstance("railgun", "e-w0")], stance: "aggressive", position: 300, speed: 30, combatRules: true }),
+  ];
+  it("every combatant under the rules carries the evasive state; none without", () => {
+    expect(make().map((c) => c.evasiveClose)).toEqual([{ active: false, carry: 0 }, { active: false, carry: 0 }]);
+    const off = shipToCombatant({ id: "x", team: "player", stats: { hullIntegrity: 10, shieldCapacity: 0, shieldRecharge: 0 }, stance: "standoff" });
+    expect([off.evasiveClose, off.defensive, off.defensiveCarry]).toEqual([undefined, undefined, undefined]);
+  });
+  it("a battle never writes the caller's carries, and a second resolve of the same input is identical", () => {
+    const input = make();
+    const a = resolveBattle({ combatants: input }, 7, { combatRules: 1, precharge: true });
+    expect(input.map((c) => [c.evasiveClose, c.defensiveCarry])).toEqual([[{ active: false, carry: 0 }, { taken: 0, dealt: 0, absorb: 0 }], [{ active: false, carry: 0 }, undefined]]);
+    const b = resolveBattle({ combatants: input }, 7, { combatRules: 1, precharge: true });
+    expect(b).toEqual(a);
+    expect(a.finalCombatants.every((c) => Number.isFinite(c.hull) && Number.isFinite(c.shield))).toBe(true);
+  });
+});

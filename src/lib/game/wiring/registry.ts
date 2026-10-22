@@ -3615,6 +3615,7 @@ const AUDIT_ROWS: readonly { id: string; system: WiringSystem; claim: string; st
   { id: "ship:wr8:defensiveDamageDealt", system: "ship", claim: "Defensive deals DEFENSIVE_STANCE.damageDealtPct less with its guns and drones", status: LIVE },
   { id: "ship:wr8:defensiveShieldRecharge", system: "ship", claim: "Defensive shields recharge DEFENSIVE_STANCE.shieldRechargePct faster", status: LIVE },
   { id: "ship:wr8:defensiveShieldAbsorb", system: "ship", claim: "Defensive shields stop DEFENSIVE_STANCE.shieldAbsorbPct more damage per point (their effective capacity)", status: LIVE },
+  { id: "ship:wr8:closingEvasive", system: "ship", claim: "Closing is evasive: a ship closing toward its stance range while none of its guns reaches a foe takes CLOSING_EVASION_PCT less from every hit (both sides)", status: LIVE },
   { id: "ship:wr8:defensiveGuardWeapons", system: "ship", claim: "A Defensive ship's Point Defense and EMP turn on the in-range foe fielding the most drones first", status: LIVE },
   { id: "ship:wr8:defensiveGuardDrones", system: "ship", claim: "A Defensive ship's drone squadrons hunt the in-range foe's drone screen first", status: LIVE },
   {
@@ -3798,6 +3799,7 @@ function wr8AuditWiring(): Readonly<Record<string, Partial<EntryInput>>> {
     "ship:wr8:defensiveShieldAbsorb": { probe: "combatDefensiveShieldAbsorb", contexts: ["patrol"], direction: "down", curve: { kind: "divisor" }, magnitude: () => DEFENSIVE_STANCE.shieldAbsorbPct / 100, on: combatDescriptorOn, tolerance: 1 },
     "ship:wr8:defensiveDamageDealt": ev("combatEventDefensiveDamageDealt", "down", "an autocannon's damage over 300 shots"),
     "ship:wr8:defensiveShieldRecharge": { probe: "combatEventDefensiveShieldRecharge", contexts: ["patrol"], direction: "up", curve: { kind: "linearRelative" }, magnitude: () => DEFENSIVE_STANCE.shieldRechargePct / 100, on: combatDescriptorOn, tolerance: 1 },
+    "ship:wr8:closingEvasive": ev("combatEventClosingEvasive", "down", "the closing ship's damage taken"),
     "ship:wr8:defensiveGuardWeapons": ev("combatEventDefensiveGuardWeapons", "up", "the drone-fielding foe's drone hit points lost to Point Defense"),
     "ship:wr8:defensiveGuardDrones": ev("combatEventDefensiveGuardDrones", "up", "the drone-fielding foe's drone hit points lost to an Attack squadron"),
     "ship:audit:ftlSpeedPenalty": ev("combatEventFtlSpeedPenalty", "up", "the first round within 100 (a Degraded drive vs nominal)"),

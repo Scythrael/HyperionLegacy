@@ -430,6 +430,15 @@ export interface Combatant {
 	// shield cost's remainder in 1 / (100 + shieldAbsorbPct) parts), so every percent is exact over a fight instead of a
 	// floor taking a whole point off each small hit. Set with `defensive`, absent otherwise.
 	defensiveCarry?: DefensiveCarry;
+	// WR-8 review (user 2026-10-22, answer 5): the closing-is-evasive state (combatRules.ts CLOSING_EVASION_PCT). Set
+	// by bridge.ts shipToCombatant on every combatant built under the combat rules; `active` is recomputed in each of
+	// its movement phases, `carry` banks the reduction's remainder (hundredths of a point). Absent otherwise.
+	evasiveClose?: EvasiveClose;
+}
+
+export interface EvasiveClose {
+	active: boolean;
+	carry: number;
 }
 
 export interface DefensiveCarry {

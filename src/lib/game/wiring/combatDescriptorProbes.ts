@@ -416,6 +416,15 @@ export const COMBAT_DESCRIPTOR_PROBES = {
     label: "a Defensive ship's Point Defense turns on the drone-fielding foe first (that foe's drone hit points lost)",
     read: (s) => guardBattle(["pointDefenseArray"], [], isOn(s)),
   },
+  combatEventClosingEvasive: {
+    label: "an autocannon ship closing on a stationary railgun platform from the open distance (its damage taken)",
+    read: (s) =>
+      sumOver(battles(() => {
+        const p = ship({ id: "p", team: "player", weapons: ["autocannon"], stats: { hullIntegrity: 100_000, shieldCapacity: 0, shieldRecharge: 0 }, stance: "aggressive" });
+        if (!isOn(s)) delete p.evasiveClose;
+        return [p, ship({ id: "e", team: "enemy", weapons: ["railgun"], stats: { hullIntegrity: 100_000, shieldCapacity: 0, shieldRecharge: 0 }, stance: "standoff", position: ENCOUNTER_OPEN_DISTANCE, speed: 0 })];
+      }, { ...RULES, precharge: true }), (r) => lost(byId(r.finalCombatants, "p"))),
+  },
   combatEventDefensiveGuardDrones: {
     label: "a Defensive ship's Attack squadron hunts the drone-fielding foe's screen first (its drone hit points lost)",
     read: (s) => guardBattle([], ["attack"], isOn(s)),

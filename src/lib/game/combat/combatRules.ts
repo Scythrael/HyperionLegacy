@@ -173,6 +173,12 @@ export interface DefensiveStance {
   shieldAbsorbPct: number;
   missileInterceptPct: number;
 }
+// [PROVISIONAL] (user 2026-10-22, answer 5 "Closing is evasive (Recommended)"): a ship closing toward its stance range
+// while still OUT of its own reach (no gun or offense drone can hit any foe yet) moves evasively and takes this percent
+// less from every hit. It stops the moment any of its sources reaches a foe, or when it stops closing. Both sides, the
+// same rules. Never 100 (no immunity); banked like the Defensive percents, so it is exact over the approach.
+export const CLOSING_EVASION_PCT = 40;
+
 export const DEFENSIVE_STANCE: Readonly<DefensiveStance> = {
   damageTakenPct: 20,
   damageDealtPct: 10,

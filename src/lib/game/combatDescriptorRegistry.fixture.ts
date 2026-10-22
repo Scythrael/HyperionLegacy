@@ -40,6 +40,7 @@ export const WR8_ADDED_ENTRY_IDS: ReadonlySet<string> = new Set<string>([
   "ship:wr8:defensiveDamageDealt",
   "ship:wr8:defensiveShieldRecharge",
   "ship:wr8:defensiveShieldAbsorb",
+  "ship:wr8:closingEvasive",
   "ship:wr8:defensiveGuardWeapons",
   "ship:wr8:defensiveGuardDrones",
   "ship:wr8:defensiveMissileIntercept",
