@@ -349,17 +349,18 @@ The Damage Control Suite's fires and every battle source stay step 4's. Repair c
 repair process), field repair (a GO-8b leg, arrived to repaired), underway; lifted by the hull repair's own speed bonus
 and the DC Suite's time cut. A piece underway settles only at its run's events, every other piece each call;
 `settlePiece` carries the leftover fraction and a wear event keeps the anchor, so tick() == 1 s steps and a short-range
-run's one call == 997 s chunks == 1 s steps (`gearWearEngine.test.ts`). **The freeze rule (section 7) is literal:** a
-captain mission or short-range run freezes its ship's worn gear in its stamp (`RunWearStamp.frozen`) and folds THAT for
-the whole run (`runShipStats`), and an expedition's dispatch snapshot reads the worn-gear view; the wear a run takes acts
-from its next dispatch. Efficiency (the step 2 curve, `gearWear.ts wornGearView`: a worn piece's lines scaled, a crew
+run's one call == 997 s chunks == 1 s steps (`gearWearEngine.test.ts`). **What a run reads (user 2026-10-21 "Re-read each
+cycle"):** a captain mission or short-range run freezes its ship's worn gear in its stamp (`RunWearStamp.frozen`) at
+dispatch and again at each cycle start (`projectRunStamp`, inside each engine's loop, so one call == chunks == steps)
+and folds THAT for the cycle (`runShipStats`): worn gear shows from cycle 2; an expedition's dispatch snapshot reads the
+worn-gear view and stays frozen. Efficiency (the step 2 curve, `gearWear.ts wornGearView`: a worn piece's lines scaled, a crew
 module's boost and a sensor array's variety effect through `viewPieceEfficiency`) acts ONLY in: the captain-mission run
 sheet (hold, drive speed, a rig's or Pathfinder's lines, sensors, crew modules), the short-range plan and cycle sheet,
 and the expedition dispatch snapshot (sensor power and array, Pathfinder scan speed and hazard resist, the voyage speed,
 the members' ground and fieldwork lines). Never in a gate (reach, the short-range sheet, the power install gate, station
 and berth counts, equip requirements) or in combat (patrols, ship events). In-flight runs carry no stamp: they read their
 gear as before and wear nothing; training runs are never stamped (expeditions) or make no event (short-range). Raws
-re-tuned on the real engine to the 3.4 targets ([PROVISIONAL]: hold 8 a haul, drive 2 per 10 ly, reactor and crew
+re-tuned on the real engine to the 3.4 targets (approved by the user 2026-10-21: hold 8 a haul, drive 2 per 10 ly, reactor and crew
 modules 4 a minute, a utility fire 8, a survey 12, the implant 2.5 a minute, just above the 2 a minute upkeep so it
 wears at all, W10). Registry: every use source, repair context and bonus live with a `wear:` probe
 (`wiring/wearProbes.ts`); eleven efficiency consumers live; the drive's engine efficiency re-owned to S4-A02 (its only
@@ -369,7 +370,8 @@ golden files captured before step 3 run with the use sources off (`gearWearSwitc
 so their pins hold; `gearWearGoldens.test.ts` pins the wear-on runs (`wear:*`). For step 4: patrols are untouched (a
 patrol records no use event yet; its ship's worn gear settles underway as the patrol ends); the combat consumers, the
 battle sources and the DC Suite are yours. For EM-5 / EM-7 (M9 "Slowly underway"): a special module wears through
-`shipPieceUseRaw` like the crew modules (minutes underway).
+`shipPieceUseRaw` like the crew modules (minutes underway). **Merged with feat 3306bda:** EM-5's module source is
+wired that way now (live; its rate set to the approved crew module rate, 4 a minute, since 2 never outran the upkeep).
 
 ## 12. OPEN CALLS (multiple-choice ready; recommended first)
 

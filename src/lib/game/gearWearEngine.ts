@@ -24,11 +24,12 @@
 //     their fieldwork steps (GroundOpsState.wearTally) and their implant the minutes of the ground operations window.
 // The Damage Control Suite's fires (a repair it shortens, a wave it patches) and every battle source are step 4.
 //
-// WHAT A RUN READS (design 7's freeze rule, "runs read condition at dispatch"): a captain mission and a short-range run
-// freeze the condition of their ship's worn gear in their stamp at dispatch (RunWearStamp.frozen) and fold THAT for
-// the whole run (runShipStats); an expedition freezes its whole snapshot at dispatch already (expedition.ts reads the
-// worn-gear view there). So the gear a run reads never changes mid-run, however the span is chunked, and the wear it
-// takes acts from its next dispatch.
+// WHAT A RUN READS (user 2026-10-21, "Re-read each cycle"): a captain mission and a short-range run freeze the condition
+// of their ship's worn gear in their stamp (RunWearStamp.frozen) at dispatch AND at each cycle start, and fold THAT for
+// the cycle (runShipStats), so worn gear shows from cycle 2 and never changes mid-cycle. The short-range engine
+// and the captain-mission loop (tick.ts tickCaptainMission onCycleDelivered) both re-read inside their loops
+// (projectRunStamp), so one call, chunks and 1 s steps agree. An expedition stays frozen at dispatch (expedition.ts
+// reads the worn-gear view there).
 //
 // THE REPAIR CONTEXTS (gearWear.ts REPAIR_RATES, lifted by the hull repair's own speed bonuses), by where the piece is
 // (member gear follows its member's ship; a spare or an Armory piece not checked out is at home):
@@ -127,6 +128,30 @@ export function runGearView(state: GameState, shipId: string, stamp: RunWearStam
   return { ...state, equipment };
 }
 
+// THE RE-READ AT A CYCLE START (user 2026-10-21, "Re-read each cycle"): a Repeat captain mission or short-range run
+// re-freezes its stamp at each cycle start, so worn gear shows from cycle 2. The ship's worn view-slot pieces as they
+// stand at `at`: each settled at its repair rate (underway) and worn by `events` up to `at` in order, exactly what the
+// tail pass (resolveGearWear) writes for the same events, then settled to `at` without writing. `state` is where the
+// pieces were during the span (the call's incoming state). Pure.
+export function projectRunStamp(state: GameState, shipId: string, events: readonly TimedWear<ShipUseWear>[], at: number): RunWearStamp {
+  const index = repairContextIndex(state);
+  const bonuses = new Map<string, RepairBonuses>();
+  const frozen: Record<string, number> = {};
+  let any = false;
+  for (const piece of state.equipment) {
+    if (piece.fittedToShipId !== shipId || !WEAR_VIEW_SLOTS.has(piece.slotType)) continue;
+    if (piece.condition === undefined && events.length === 0) continue;
+    const rate = pieceRepairRate(state, index, piece, pieceRepairContext(index, piece), bonuses);
+    let p = piece;
+    for (const ev of events) if (ev.at <= at) p = applyUseWear(settlePiece(p, ev.at, rate), shipPieceUseRaw(p, ev.wear), ev.at);
+    const c = pieceCondition(settlePiece(p, at, rate));
+    if (c >= CONDITION_FULL) continue;
+    frozen[piece.id] = c;
+    any = true;
+  }
+  return any ? { version: 1, frozen } : { version: 1 };
+}
+
 // THE RUN SHEET: the crew-boosted ship stats a stamped run reads, folded over its frozen gear (runGearView), so a worn
 // cargo bay, drive, sensor array, prospecting rig or crew module acts on the run. economyTick's mission arm, the
 // short-range cycle engine and its cycle-start plan read it. A run without a stamp (dispatched before step 3) reads
@@ -214,7 +239,8 @@ export function shortRangeWear(events: ShortRangeWearEvents, crewed: boolean): S
   return { hauls: events.hauls, lightYears: events.lightYears, minutesUnderway: events.minutesUnderway, surveys: events.surveys, bodiesScanned: 0, prospectingCycles: 0, crewed };
 }
 
-// [PROVISIONAL] the slice an expedition's TIME-based use is spread in (minutes): a run of hours wears its reactor,
+// The slice an expedition's TIME-based use is spread in (minutes; user-approved 2026-10-21 with the step 3 rates): a run
+// of hours wears its reactor,
 // crew modules and implants slice by slice across the time it ran, each slice settled against the underway upkeep
 // first (the cadence a captain mission's cycle gives the same sources), so a long run settles where wear and upkeep
 // balance instead of landing hours of wear at once. The COUNTED use (light-years, bodies, fights, fieldwork steps)

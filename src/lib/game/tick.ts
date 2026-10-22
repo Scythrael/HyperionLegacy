@@ -355,6 +355,9 @@ import {
   pushShipWear,
   recordExpeditionWear,
   resolveGearWear,
+  projectRunStamp,
+  type ShipUseWear,
+  type TimedWear,
   runShipStats,
   shipCrewAboard,
   shortRangeWear,
@@ -2011,7 +2014,13 @@ export function tickCaptainMission(
   // state, unchanged by another captain's progress within the call), so the "one big call == many
   // small calls" guarantee holds for the same reason the `bonuses` constant does. See the fractional-
   // rate parity trap at the accrual site below before shipping a nonzero-retirement fractional rate.
-  captainXpMult: number = 1
+  captainXpMult: number = 1,
+  // GEAR WEAR step 3 (user 2026-10-21, "Re-read each cycle"): called at each delivered cycle with its instant (ticks
+  // into this call) and the sheet that cycle ran on; it records the cycle's use wear and returns the sheet and the
+  // re-frozen wear stamp the NEXT cycle starts on (gearWearEngine.ts projectRunStamp, the same arithmetic the tail pass
+  // writes), so a Repeat run shows its worn gear from cycle 2 however the span is chunked. Omitted (every call site but a
+  // stamped run's economyTick arm) = the call-constant sheet, byte-identical to before.
+  onCycleDelivered?: (endTicks: number, stats: ShipDerivedStats | null) => { stats: ShipDerivedStats; gearWear: RunWearStamp } | null
 ): {
   captain: CaptainState;
   // Mission Rework (Task 1): widened LootMaterialKey -> string. The loot delta is now
@@ -2102,7 +2111,7 @@ export function tickCaptainMission(
   // still yield the same numbers (effectiveMissionDef is pure), but computing it
   // once is both cheaper and the clearest signal that it's a call-constant.
   const rawMissionDef = MISSIONS[extractionMission.missionKey];
-  const missionDef = shipStats ? effectiveMissionDef(rawMissionDef, shipStats) : rawMissionDef;
+  let missionDef = shipStats ? effectiveMissionDef(rawMissionDef, shipStats) : rawMissionDef;
   let mission: CaptainMissionState | null = { ...extractionMission, cargo: { ...extractionMission.cargo } };
   let remaining = ticksElapsed;
   // 0.13.4 Phase 3: berths claimed so far in THIS call, and the budget still available to it.
@@ -2224,7 +2233,7 @@ export function tickCaptainMission(
   // yield bonuses the caller already summed into `bonuses`. null ship -> 0
   // (no change). This folds ALL THREE tiers equally: the hull scales how much
   // ore/material each extracting tick produces, regardless of which tier won.
-  const shipYieldBonus = shipStats ? shipStats.extractionYieldMult - 1 : 0;
+  let shipYieldBonus = shipStats ? shipStats.extractionYieldMult - 1 : 0;
 
   // Exploration 0.14.0 (Phase E1a): the SURVEY sensor-yield bonus, a CALL-CONSTANT computed
   // ONCE here (exactly like shipYieldBonus directly above), so the closed-form
@@ -2239,17 +2248,17 @@ export function tickCaptainMission(
   // mults below alongside shipYieldBonus, so it scales the survey's material amount equally
   // regardless of which rarity tier a tick rolls (the design's "sensor-scaled yield"). It does
   // NOT touch the chance/bonus-roll fields (a survey's rarity ODDS are the mission def's own).
-  const surveySensorBase =
+  let surveySensorBase =
     shipStats && missionDef.missionType === "survey"
       ? shipStats.sensors * SURVEY_SENSOR_YIELD_COEFF
       : 0;
   // E-CREW (Task 21 review calls): Science's Constitution ramps the survey yield lift by the voyage's planned
   // hours (the cycle's phase lengths, RAMP_SECONDS_PER_TICK each). A call-constant; 0 facet = unchanged.
-  const surveyRamp =
+  let surveyRamp =
     surveySensorBase > 0
       ? constitutionRamp(bonuses.surveyYieldConstitution ?? 0, (missionCycleTiming(missionDef).total * RAMP_SECONDS_PER_TICK) / 3600)
       : 0;
-  const surveySensorBonus = surveyRamp === 0 ? surveySensorBase : surveySensorBase * (1 + surveyRamp);
+  let surveySensorBonus = surveyRamp === 0 ? surveySensorBase : surveySensorBase * (1 + surveyRamp);
 
   // Exploration 0.14.0 (Phase E1b): the TRANSPORT load cost, a CALL-CONSTANT computed ONCE here
   // (exactly like surveySensorBonus / shipYieldBonus above), so the closed-form "one big jump ==
@@ -2260,7 +2269,7 @@ export function tickCaptainMission(
   // profits) more with NO transport-specific cargo code. rewardMargin is captured alongside it; the
   // NET profit per delivered cycle is loadCost * rewardMargin (see the cycle-completion branch). ?? 0
   // tolerates a def that somehow omits the fields (it then simply nets nothing).
-  const transportLoadCost =
+  let transportLoadCost =
     missionDef.missionType === "transport" ? missionDef.cargoCapacity * (missionDef.supplyCostPerCargo ?? 0) : 0;
   const transportRewardMargin = missionDef.rewardMargin ?? 0;
   // WR-5a: the captain's Trade terms (call-constants). The working capital PAID is the discounted cost; the sale
@@ -2269,7 +2278,7 @@ export function tickCaptainMission(
   const transportMarginBonus = Math.max(0, bonuses.transportMarginBonus ?? 0);
   const transportSupplyDiscount = Math.max(0, bonuses.transportSupplyDiscount ?? 0);
   const transportTradeLive = transportMarginBonus > 0 || transportSupplyDiscount > 0;
-  const transportPaidCost = transportSupplyDiscount === 0 ? transportLoadCost : transportLoadCost * (1 - transportSupplyDiscount);
+  let transportPaidCost = transportSupplyDiscount === 0 ? transportLoadCost : transportLoadCost * (1 - transportSupplyDiscount);
   // WR-5a: Motherlode (a call-constant chance) and the captain's lifetime roll counter, advanced in delivery order.
   const motherlodeChance = Math.max(0, bonuses.motherlodeChance ?? 0);
   let motherlodeCycles: number | undefined = captain.motherlodeCycles;
@@ -2314,7 +2323,7 @@ export function tickCaptainMission(
   // (extraction AMOUNTS); the chance/bonus-roll fields are left untouched --
   // a hull's cargo/yield stats change how much a tick yields, not the odds of
   // hitting a tier or triggering a bonus roll.
-  const resolvedBonuses = {
+  let resolvedBonuses = {
     commonYieldMult: (bonuses.commonYieldMult ?? 0) + shipYieldBonus + surveySensorBonus,
     uncommonYieldMult: (bonuses.uncommonYieldMult ?? 0) + shipYieldBonus + surveySensorBonus,
     uncommonChanceMult: bonuses.uncommonChanceMult ?? 0,
@@ -2325,6 +2334,30 @@ export function tickCaptainMission(
     bonusRollChanceMult: bonuses.bonusRollChanceMult ?? 0,
     specBonusRollChance: bonuses.specBonusRollChance ?? 0,
   };
+  // GEAR WEAR step 3 (user 2026-10-21, "Re-read each cycle"): a new cycle's re-read sheet (onCycleDelivered) re-folds
+  // every sheet-derived constant above with THE SAME expressions (a re-read that returns the same sheet is
+  // byte-identical: gearWearEngine.test.ts proves it). Each stays constant within its cycle, so the per-cycle
+  // guarantee holds.
+  const refold = (stats: ShipDerivedStats): void => {
+    missionDef = effectiveMissionDef(rawMissionDef, stats);
+    shipYieldBonus = stats.extractionYieldMult - 1;
+    surveySensorBase = missionDef.missionType === "survey" ? stats.sensors * SURVEY_SENSOR_YIELD_COEFF : 0;
+    surveyRamp =
+      surveySensorBase > 0
+        ? constitutionRamp(bonuses.surveyYieldConstitution ?? 0, (missionCycleTiming(missionDef).total * RAMP_SECONDS_PER_TICK) / 3600)
+        : 0;
+    surveySensorBonus = surveyRamp === 0 ? surveySensorBase : surveySensorBase * (1 + surveyRamp);
+    transportLoadCost = missionDef.missionType === "transport" ? missionDef.cargoCapacity * (missionDef.supplyCostPerCargo ?? 0) : 0;
+    transportPaidCost = transportSupplyDiscount === 0 ? transportLoadCost : transportLoadCost * (1 - transportSupplyDiscount);
+    resolvedBonuses = {
+      ...resolvedBonuses,
+      commonYieldMult: (bonuses.commonYieldMult ?? 0) + shipYieldBonus + surveySensorBonus,
+      uncommonYieldMult: (bonuses.uncommonYieldMult ?? 0) + shipYieldBonus + surveySensorBonus,
+      rareYieldMult: (bonuses.rareYieldMult ?? 0) + shipYieldBonus + surveySensorBonus,
+    };
+  };
+  let cycleStats: ShipDerivedStats | null = shipStats;
+  let nextGear: { stats: ShipDerivedStats; gearWear: RunWearStamp } | null = null;
 
   // 0.14.0 SPEED SEAM (processSpeed.ts applyTimeSkip, the tutorial time skip): while the CURRENT cycle carries
   // speed.instantComplete, each phase is applied whole and the call's own ticks are not spent, so the cycle runs
@@ -2544,6 +2577,7 @@ export function tickCaptainMission(
             creditsDelta += marginStream === null ? margin : bonusCargo(margin, marginStream);
             cyclesCompleted += 1;
             cycleEndTicks.push(ticksElapsed - remaining); // GEAR WEAR step 3: the delivery instant (ticks into the call)
+          if (onCycleDelivered) nextGear = onCycleDelivered(ticksElapsed - remaining, cycleStats);
           }
           // else: working-capital gate -> this cycle idles (nothing booked, no cycle counted).
         } else {
@@ -2553,6 +2587,7 @@ export function tickCaptainMission(
           // credits, completion count) stay perfectly in sync per cycle.
           cyclesCompleted += 1;
           cycleEndTicks.push(ticksElapsed - remaining); // GEAR WEAR step 3: the delivery instant (ticks into the call)
+          if (onCycleDelivered) nextGear = onCycleDelivered(ticksElapsed - remaining, cycleStats);
         }
         // Fuel Economy v2 (F3): the AUTO-REPEAT fuel-spend rule (REPLACES Task-5's
         // stop-on-empty). A finished cycle either ends (recall) or STARTS A FRESH CYCLE,
@@ -2603,8 +2638,15 @@ export function tickCaptainMission(
             // E-CREW (Task 20): advance the run's output-rounding cursor (only while Command Presence is live).
             const prevCursor: number | undefined = mission!.outputRoundCursor;
             const outputRoundCursor: number | undefined = outputShare === 0 ? prevCursor : (prevCursor ?? 0) + 1;
-            // GEAR WEAR step 3: the run's wear flag rides every repeated cycle (absent on a run from before step 3).
-            const gearWear: RunWearStamp | undefined = mission!.gearWear;
+            // GEAR WEAR step 3: the run's wear flag rides every repeated cycle (absent on a run from before step 3),
+            // re-frozen at this cycle start when the cycle that just delivered re-read it (user "Re-read each cycle").
+            const reread: { stats: ShipDerivedStats; gearWear: RunWearStamp } | null = nextGear;
+            nextGear = null;
+            const gearWear: RunWearStamp | undefined = reread ? reread.gearWear : mission!.gearWear;
+            if (reread) {
+              cycleStats = reread.stats;
+              refold(reread.stats);
+            }
             mission = {
               kind: "extraction", // Combat 0.13.0 (9b.5a): tag the auto-repeated extraction cycle
               missionKey,
@@ -4467,11 +4509,25 @@ export function economyTick(
     // mid-mission, so the crew-boosted stats are ALSO a per-cycle constant here, preserving the
     // closed-form guarantee identically. With no crew this equals the pure equipment fold, so a
     // crew-free ship is byte-identical to before. A ship-less captain keeps the null fallback.
-    // GEAR WEAR step 3: the RUN sheet (gearWearEngine.ts runShipStats): the same fold over the gear the run FROZE at
-    // dispatch (its stamp), so a worn hold, drive, sensor array, prospecting rig or crew module acts on the run. It is
-    // constant for the whole run (the wear the run takes acts from its next dispatch), so the closed-form guarantee
-    // holds exactly as before. A run without a stamp (dispatched before step 3) reads the stored sheet.
+    // GEAR WEAR step 3: the RUN sheet (gearWearEngine.ts runShipStats): the same fold over the gear the run FROZE in its
+    // stamp (at dispatch, and again at each cycle start: onCycleDelivered below), so a worn hold, drive,
+    // sensor array, prospecting rig or crew module acts on the run from its next cycle. It is constant within a cycle,
+    // so the per-cycle guarantee holds as before. A run without a stamp (dispatched before step 3) reads the stored sheet.
     const shipStats = ship ? runShipStats(state, ship, wearStamp) : null;
+    // GEAR WEAR step 3 (user 2026-10-21, "Re-read each cycle"): at each delivered cycle of a stamped run, its use wear at
+    // its own instant (missionCycleWear on the sheet that cycle ran on), and the next cycle's gear re-read from the
+    // pieces as the call's deliveries so far leave them (projectRunStamp: the arithmetic the tail pass writes).
+    const missionWear: TimedWear<ShipUseWear>[] = [];
+    const missionCrewed = ship ? shipCrewAboard(state, ship) : false;
+    const onCycleDelivered =
+      wearStamp && ship
+        ? (endTicks: number, stats: ShipDerivedStats | null) => {
+            const at = state.gameTimeSeconds + endTicks * state.tickDurationSeconds;
+            if (stats) missionWear.push({ at, wear: missionCycleWear(missionKey, stats, state.tickDurationSeconds, missionCrewed) });
+            const gearWear = projectRunStamp(state, ship.id, missionWear, at);
+            return { gearWear, stats: runShipStats(state, ship, gearWear) };
+          }
+        : undefined;
     // Mission Rework (Task 5): the fuel one round-trip cycle of THIS mission costs on
     // THIS hull. fuelNeeded reads the BASE mission's transit legs (see fuel.ts) and the
     // hull's engineEfficiency. Task 14: price it from the EQUIPMENT-FOLDED
@@ -4547,7 +4603,9 @@ export function economyTick(
       berthBudgetRemaining,
       // Crew 0.14.0 (Phase C-3b): the fleet-wide retirement captain-XP multiplier (x1 until a captain
       // retires, so byte-identical for every existing save).
-      captainXpMult
+      captainXpMult,
+      // GEAR WEAR step 3: a stamped run records each delivered cycle's use and re-reads its gear for the next cycle.
+      onCycleDelivered,
     );
     // 0.13.4 Phase 3: draw the shared berth budget down so the next captain in this map sees it.
     // Same posture as the fuel and credit draw-downs directly below.
@@ -4616,12 +4674,8 @@ export function economyTick(
       // that ended within the call ended at its last delivery (or at the call's start, an at-base stop).
       if (wearStamp && shipStats) {
         const ends = cycleEndTicks ?? [];
-        const at = (ticks: number) => state.gameTimeSeconds + ticks * state.tickDurationSeconds;
-        if (ends.length > 0) {
-          const w = missionCycleWear(missionKey, shipStats, state.tickDurationSeconds, shipCrewAboard(state, ship));
-          for (const t of ends) pushShipWear(wearEvents, ship.id, at(t), w);
-        }
-        if (updated.mission === null) wearEvents.runEnds.set(ship.id, at(ends.length > 0 ? ends[ends.length - 1] : 0));
+        for (const ev of missionWear) pushShipWear(wearEvents, ship.id, ev.at, ev.wear);
+        if (updated.mission === null) wearEvents.runEnds.set(ship.id, state.gameTimeSeconds + (ends.length > 0 ? ends[ends.length - 1] : 0) * state.tickDurationSeconds);
       }
     }
     return deliveredCaptain;

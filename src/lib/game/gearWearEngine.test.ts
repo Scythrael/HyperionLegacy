@@ -2,12 +2,12 @@
 // repair contexts and the settling, through the real engine. The wiring registry's sensitivity level proves every
 // source, context, bonus and consumer at its configured magnitude (wiring/wearProbes.ts); this file proves the rules
 // around them: offline == live across settles, the frozen run gear, the in-flight and training runs, the gates that
-// never read a worn value, the save, and the section 3.4 targets the provisional raws were tuned to.
+// never read a worn value, the save, and the section 3.4 targets the approved raws were tuned to.
 
 import { describe, expect, it } from "vitest";
 import Decimal from "break_infinity.js";
 import { freshState, type CaptainMissionState, type EquipmentInstance, type GameState, type MissionKey, type ShortRangeMissionState } from "./model";
-import { canDispatch, dispatchCaptainOnMission, economyTick, installMissingCombatBaselines, shipRangeLightYears, tick } from "./tick";
+import { canDispatch, dispatchCaptainOnMission, economyTick, installMissingCombatBaselines, shipRangeLightYears, tick, tickCaptainMission } from "./tick";
 import { CONDITION_FULL, REPAIR_RATES, USE_WEAR_FLOOR, pieceCondition, withPieceCondition, wornGearView } from "./gearWear";
 import { emptyWearEvents, expeditionWear, livePieceCondition, missionCycleWear, recordExpeditionWear, resolveGearWear, runShipStats, runWearStamp } from "./gearWearEngine";
 import { effectiveShipStats } from "./crewOverlay";
@@ -194,10 +194,12 @@ describe("gear wear step 3: offline == live across settles", () => {
   });
 });
 
-describe("gear wear step 3: a run reads the gear it froze at dispatch (design 7's freeze rule)", () => {
-  it("a run dispatched with worn gear folds it for the whole run; the wear it takes acts from the next dispatch", () => {
-    // A crafted hold (Standard Issue lines fold to nothing, so wear on them moves nothing).
-    const base = installPiece(fleetBase(), { slotType: "cargoBay", durabilityMax: 100, implicitStats: { cargoCapacity: 40 } });
+describe("gear wear step 3: a Repeat run re-reads its gear at each cycle start (user 2026-10-21, Re-read each cycle)", () => {
+  // A crafted hold (Standard Issue lines fold to nothing, so wear on them moves nothing).
+  const lined = () => installPiece(fleetBase(), { slotType: "cargoBay", durabilityMax: 100, implicitStats: { cargoCapacity: 40 } });
+
+  it("a run dispatched with worn gear folds it for its first cycle, constant until that cycle delivers", () => {
+    const base = lined();
     const hold = shipPieces(base).find((e) => e.slotType === "cargoBay")!;
     const worn: GameState = { ...base, equipment: base.equipment.map((e) => (e.id === hold.id ? withPieceCondition(e, USE_WEAR_FLOOR, base.gameTimeSeconds) : e)) };
     let s = dispatched(worn, "shortOreRun");
@@ -206,8 +208,34 @@ describe("gear wear step 3: a run reads the gear it froze at dispatch (design 7'
     const ship = shipOf(s);
     const sheet0 = runShipStats(s, ship, stamp);
     expect(sheet0.cargoCapacity).toBeLessThan(effectiveShipStats(base, ship).cargoCapacity);
-    s = stepped(s, 900);
-    expect(runShipStats(s, ship, (s.captains[0].mission as CaptainMissionState).gearWear)).toEqual(sheet0);
+    s = stepped(s, 60); // mid-cycle: the stamp has not moved
+    expect((s.captains[0].mission as CaptainMissionState).gearWear).toEqual(stamp);
+  });
+
+  it("worn gear shows from cycle 2: the first delivery re-freezes the stamp and the next cycle folds the wear", () => {
+    let s = dispatched(lined(), "shortOreRun");
+    expect((s.captains[0].mission as CaptainMissionState).gearWear).toEqual({ version: 1 });
+    const ship = shipOf(s);
+    const sheet0 = runShipStats(s, ship, { version: 1 });
+    for (let i = 0; i < 2000 && Number(s.lifetimeStats.missionsCompleted.shortOreRun ?? 0) < 1; i++) s = economyTick(s, 1, RNG);
+    const stamp = (s.captains[0].mission as CaptainMissionState).gearWear!;
+    expect(Object.keys(stamp.frozen ?? {}).length).toBeGreaterThan(0);
+    const hold = shipPieces(s).find((e) => e.slotType === "cargoBay")!;
+    expect(stamp.frozen?.[hold.id]).toBe(pieceCondition(hold));
+    expect(runShipStats(s, ship, stamp).cargoCapacity).toBeLessThan(sheet0.cargoCapacity);
+  });
+
+  it("a re-read that returns the same sheet is byte-identical (the refold uses the declarations' expressions)", () => {
+    for (const key of ["shortOreRun", "surveyMineralAnomaly", "frontierSupplyRun"] as MissionKey[]) {
+      const s = { ...onMission(lined(), key, "ordersReceived"), credits: new Decimal(1e9) };
+      const captain = s.captains[0];
+      const stats = runShipStats(s, shipOf(s), undefined);
+      const plain = tickCaptainMission(5000, captain, RNG, {}, stats, Infinity, 0, 1e9, undefined, Infinity, 1);
+      const reread = tickCaptainMission(5000, captain, RNG, {}, stats, Infinity, 0, 1e9, undefined, Infinity, 1, () => ({ stats, gearWear: { version: 1 } }));
+      const strip = (r: typeof plain) => ({ ...r, captain: { ...r.captain, mission: r.captain.mission && { ...r.captain.mission, gearWear: undefined } } });
+      expect(Number(plain.lifetimeStatsDelta.missionsCompleted[key] ?? 0), key).toBeGreaterThan(1);
+      expect(JSON.stringify(strip(reread)), key).toBe(JSON.stringify(strip(plain)));
+    }
   });
 
   it("the cycle wear reads the run sheet's own cycle length (missionCycleWear)", () => {
@@ -278,7 +306,7 @@ describe("gear wear step 3: the save carries every stamp and tally", () => {
   });
 });
 
-describe("gear wear step 3: the section 3.4 targets the provisional raws were tuned to", () => {
+describe("gear wear step 3: the section 3.4 targets the approved raws were tuned to", () => {
   it("a Standard-Issue freighter on Repeat on the starter mission settles near 90% on use alone (every worn kind Sound)", () => {
     let s = dispatched(installMissingCombatBaselines({ ...freshState(), credits: new Decimal(0), captains: freshState().captains.map((c) => ({ ...c, level: 10 })) }), "shortOreRun");
     s = stepped(s, 6 * 3600);

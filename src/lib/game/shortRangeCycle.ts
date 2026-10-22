@@ -38,7 +38,7 @@ import { ITEMS, type CaptainState, type GameState, type RunCounts, type ShipInst
 import { SHORT_RANGE_OUTPUT_SALT, SHORT_RANGE_TEMPLATES, shortRangeCycleReward, wholeUnits, type ShortRangeCyclePlan, type ShortRangeRoll } from "./shortRange";
 import { shortRangeSlotById, startShortRangeCycle } from "./shortRangeBoard";
 import { shipMissionOutputBonus } from "./crewOverlay";
-import { runShipStats } from "./gearWearEngine";
+import { projectRunStamp, runShipStats, shipCrewAboard, shortRangeWear, type ShipUseWear, type TimedWear } from "./gearWearEngine";
 import { captainMotherlodeChance, captainTransportTerms, motherlodeSeed } from "./captainSecondaryEffects";
 import { countShortRangeCycleComplete } from "./runDifficulty";
 import { makeRng } from "./combat/rng";
@@ -237,10 +237,14 @@ export function tickCaptainShortRange(input: ShortRangeTickInput): ShortRangeTic
 
   // Call-constants: the hull, its gear and its crew cannot change while it is out (the crew and gear locks), and the
   // captain's talents are read once per call, exactly as tickCaptainMission reads its bonuses.
-  // GEAR WEAR step 3: the RUN sheet (gearWearEngine.ts runShipStats: the fold over the gear the run froze at dispatch,
-  // its stamp), constant for the whole run like the rest; a run without a stamp reads the stored sheet.
+  // GEAR WEAR step 3: the RUN sheet (gearWearEngine.ts runShipStats: the fold over the gear the cycle froze in its
+  // stamp), constant within a cycle; each cycle start re-reads it (user 2026-10-21 "Re-read each cycle") from the
+  // pieces as this call's earlier deliveries left them (projectRunStamp: the same arithmetic the tail pass writes), so
+  // one call, chunks and 1 s steps agree. A run without a stamp reads the stored sheet and makes no wear event.
   const wearStamp = startMission.gearWear;
-  const stats = runShipStats(state, ship, wearStamp);
+  let stats = runShipStats(state, ship, wearStamp);
+  const crewed = wearStamp === undefined ? false : shipCrewAboard(state, ship);
+  const timedWear: TimedWear<ShipUseWear>[] = [];
   const outputShare = Math.max(0, shipMissionOutputBonus(state, ship));
   const marginBonus = Math.max(0, captainTransportTerms(captain).marginBonus);
   const motherlodeChance = Math.max(0, captainMotherlodeChance(captain));
@@ -352,7 +356,10 @@ export function tickCaptainShortRange(input: ShortRangeTickInput): ShortRangeTic
     for (const k of items) if (haul[k] > 0) materials[k] = (materials[k] ?? 0) + haul[k];
     // GEAR WEAR step 3: this cycle's use on a stamped run (none on a training run, W9), at its delivery instant.
     const cycleWear = wearStamp === undefined ? null : shortRangeCycleWear(roll, mission.plan, state.tickDurationSeconds);
-    if (cycleWear !== null) wear.push({ atTicks: ticksElapsed - remaining, events: cycleWear });
+    if (cycleWear !== null) {
+      wear.push({ atTicks: ticksElapsed - remaining, events: cycleWear });
+      timedWear.push({ at: state.gameTimeSeconds + (ticksElapsed - remaining) * state.tickDurationSeconds, wear: shortRangeWear(cycleWear, crewed) });
+    }
     // The counters: one more delivered cycle (the curve skips the training run, SF5) and the board's cursor.
     cyclesDelivered += 1;
     completedByTemplate[roll.template] = (completedByTemplate[roll.template] ?? 0) + 1;
@@ -369,8 +376,11 @@ export function tickCaptainShortRange(input: ShortRangeTickInput): ShortRangeTic
     }
     // THE NEXT CYCLE START: the whole job re-rolls at the slot's next cycle index against the counters as they stand
     // now (this call's earlier starts and deliveries included), through the board's one cycle-start seam. GEAR WEAR
-    // step 3: the plan reads the gear the run froze at dispatch, and the stamp rides every cycle.
-    const start = startShortRangeCycle({ ...state, runCounts }, ship, slot, roll.cycleIndex + 1, wearStamp);
+    // step 3: the new cycle re-reads its gear (its stamp re-frozen at this instant), and its plan and pay fold it.
+    const cycleStamp =
+      wearStamp === undefined ? undefined : projectRunStamp(state, ship.id, timedWear, state.gameTimeSeconds + (ticksElapsed - remaining) * state.tickDurationSeconds);
+    if (cycleStamp !== undefined) stats = runShipStats(state, ship, cycleStamp);
+    const start = startShortRangeCycle({ ...state, runCounts }, ship, slot, roll.cycleIndex + 1, cycleStamp);
     runCounts = start.runCounts;
     mission = {
       kind: "shortRange",
@@ -381,7 +391,7 @@ export function tickCaptainShortRange(input: ShortRangeTickInput): ShortRangeTic
       phaseProgressTicks: 0,
       recalled: false,
       cyclesThisRun: cycles,
-      ...(wearStamp !== undefined ? { gearWear: wearStamp } : {}),
+      ...(cycleStamp !== undefined ? { gearWear: cycleStamp } : {}),
     };
   }
 

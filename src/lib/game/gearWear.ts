@@ -92,14 +92,13 @@ export interface WearSourceDef {
   readonly per: number;
 }
 
-// [PROVISIONAL] every raw value: the design's first pass (sections 3.1 and 3.2, marked [PROPOSAL] there). The use
-// rows were tuned in step 3 (2026-10-21, measured on the real engine, gearWearEngine.test.ts "the section 3.4
-// targets") so a Standard-Issue freighter on Repeat on a starter mission (Short Ore Run) settles near 90% on use
-// alone and an ordinary expedition comes home with its gear 80% or better: the cargo bay 12 -> 8 a haul (12 settled
-// it at 77%, Worn), the FTL drive 1 -> 2 per 10 ly, the reactor 3 -> 4 and the crew modules 2 -> 4 a minute, a
-// utility piece's fire 6 -> 8 and the survey cycle 6 -> 12 (each lower value never outran the underway upkeep once the
-// whole-per-mille rounding of a short cycle is counted). The sources, the use floor and the slow implant are the
-// user's; the numbers are not yet.
+// The USE rows are the step 3 tune, APPROVED by the user (2026-10-21, "Approve (Recommended)": hold 8 per cycle,
+// drive 2 per 10 ly, reactor and crew modules 4 a minute, utility fire 8, survey 12, implants 2.5 a minute), measured
+// on the real engine (gearWearEngine.test.ts "the section 3.4 targets"): a Standard-Issue freighter on Repeat on a
+// starter mission (Short Ore Run) settles near 90% on use alone and an ordinary expedition comes home with its gear 80%
+// or better (the first pass under each never outran the underway upkeep once a short cycle's whole-per-mille rounding
+// is counted, or settled the hold at 77%, Worn). The universal module (EM-5) follows the crew modules' approved rate.
+// [PROVISIONAL] the BATTLE rows: the design's first pass (section 3.2, marked [PROPOSAL] there), step 4's to tune.
 export const WEAR_SOURCES: readonly WearSourceDef[] = [
   // Use wear (stops at the use floor).
   { id: "cargoBay:haul", slot: "cargoBay", mode: "use", by: "hauls", event: "per completed haul cycle", raw: 8, per: 1 },

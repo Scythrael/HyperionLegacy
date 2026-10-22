@@ -355,36 +355,29 @@ describe("gear wear step 1 goldens (captured before any wear engine edit)", () =
 // What moved, and why (every move is the wear alone: the step 1 pins above reproduce with the use sources off):
 //   wear:mission:<key> : the dispatch record carries the run's wear stamp (gearWear), and each delivered cycle wears
 //                        the hold (a haul), the drive (light-years), the reactor (minutes underway) and, on a survey,
-//                        the sensor array; the run reads the gear it froze at dispatch (pristine here), so its cycles,
-//                        loot and credits are those of the step 1 capture: only the gear moves.
-//   wear:shortRange    : the same on a stamped short-range run (its training cycles wear nothing, W9).
+//                        the sensor array; each cycle start re-reads the gear (user 2026-10-21, "Re-read each
+//                        cycle"), so from cycle 2 the run folds its own wear (re-pinned for that rule: the states from
+//                        1,200 s moved, the dispatch records and the final conditions did not).
+//   wear:shortRange    : the same on a stamped short-range run (its training cycles wear nothing, W9; re-pinned for
+//                        the re-read rule like the missions).
 //   wear:expedition    : an ordinary (not training) run: the stamp, the ground tally (fights, fieldwork steps), and
 //                        the ship's and the members' gear worn as the run comes home.
 //   wear:recovery      : the worn freighter recalled and home: its gear recovers on its own, free, back to pristine.
 //   wear:redispatch    : dispatched again while still worn: the new run freezes the worn gear and folds it (a smaller
-//                        effective hold, a slower drive), so ITS cycles move.
+//                        effective hold, a slower drive), so ITS cycles move. Both re-pinned for the re-read rule (the
+//                        run they follow moved).
 const STEP3: Record<string, string[]> = {
-  "wear:mission:shortOreRun": ["a0f89ec2", "1200:6a1253e8", "2400:56552e97", "3600:e92d8851", "cargoBay=995 ftlDrive=997 reactorCore=993 specUtility=995 weapon=1000 weapon=1000 shieldEmitters=1000 hullPlating=1000"],
-  "wear:mission:longOreRun": ["bd383776", "1200:8978f453", "2400:e43cd576", "3600:566d7a3d", "cargoBay=995 ftlDrive=992 reactorCore=989 specUtility=995 weapon=1000 weapon=1000 shieldEmitters=1000 hullPlating=1000"],
-  "wear:mission:forageFlora": ["28b8807b", "1200:c1343184", "2400:31f53faf", "3600:13c3d5fd", "cargoBay=995 ftlDrive=994 reactorCore=990 specUtility=995 weapon=1000 weapon=1000 shieldEmitters=1000 hullPlating=1000"],
-  "wear:mission:salvageWreckage": ["fa78484f", "1200:736edf15", "2400:f41dbfeb", "3600:35596151", "cargoBay=995 ftlDrive=995 reactorCore=991 specUtility=995 weapon=1000 weapon=1000 shieldEmitters=1000 hullPlating=1000"],
-  "wear:mission:surveyStellarPhenomena": ["7f9da665", "1200:5fffc9d3", "2400:2049a576", "3600:e815670e", "cargoBay=995 ftlDrive=989 reactorCore=987 specUtility=995 weapon=1000 weapon=1000 shieldEmitters=1000 hullPlating=1000"],
+  "wear:mission:shortOreRun": ["a0f89ec2", "1200:9f3ccf58", "2400:7dc89fcd", "3600:b61edcd", "cargoBay=995 ftlDrive=997 reactorCore=993 specUtility=995 weapon=1000 weapon=1000 shieldEmitters=1000 hullPlating=1000"],
+  "wear:mission:longOreRun": ["bd383776", "1200:26067ed4", "2400:e343d951", "3600:c3842d53", "cargoBay=995 ftlDrive=992 reactorCore=989 specUtility=995 weapon=1000 weapon=1000 shieldEmitters=1000 hullPlating=1000"],
+  "wear:mission:forageFlora": ["28b8807b", "1200:75763396", "2400:51b6ff9c", "3600:d982acd5", "cargoBay=995 ftlDrive=994 reactorCore=990 specUtility=995 weapon=1000 weapon=1000 shieldEmitters=1000 hullPlating=1000"],
+  "wear:mission:salvageWreckage": ["fa78484f", "1200:90dc19c9", "2400:63fa079a", "3600:4d802f75", "cargoBay=995 ftlDrive=995 reactorCore=991 specUtility=995 weapon=1000 weapon=1000 shieldEmitters=1000 hullPlating=1000"],
+  "wear:mission:surveyStellarPhenomena": ["7f9da665", "1200:b645da89", "2400:20f8ee85", "3600:605804c2", "cargoBay=995 ftlDrive=989 reactorCore=987 specUtility=995 weapon=1000 weapon=1000 shieldEmitters=1000 hullPlating=1000"],
   // The transport's working capital never clears on this fixture's credits, so no cycle delivers: only the stamp moves.
   "wear:mission:frontierSupplyRun": ["58c67fe2", "1200:fcc14e23", "2400:729aee74", "3600:c7f83395", "cargoBay=1000 ftlDrive=1000 reactorCore=1000 specUtility=1000 weapon=1000 weapon=1000 shieldEmitters=1000 hullPlating=1000"],
-  "wear:shortRange": ["1b7e956a", "1200:167e791f", "2400:22bdb799", "3600:d8cfee9e", "cargoBay=1000 ftlDrive=993 reactorCore=996 specUtility=1000 weapon=1000 weapon=1000 shieldEmitters=1000 hullPlating=1000"],
-  "wear:expedition": [
-    "6f308f00",
-    "a0543f8c",
-    "f70dc432",
-    "ad5c3fca",
-    "cargoBay=1000 ftlDrive=1000 reactorCore=991 specUtility=1000 weapon=1000 shieldEmitters=1000 hullPlating=1000 memberWeapon=963 memberArmor=1000 memberTool=1000 implant=1000 memberWeapon=963 memberArmor=1000 memberTool=1000 implant=1000 memberWeapon=1000 memberArmor=1000 memberTool=907 implant=1000",
-  ],
-  "wear:redispatch": ["b8bfa2b9", "277dcf0e", "cargoBay=995 ftlDrive=997 reactorCore=993 specUtility=995 weapon=1000 weapon=1000 shieldEmitters=1000 hullPlating=1000"],
-  "wear:recovery": [
-    "cargoBay=994 ftlDrive=997 reactorCore=990 specUtility=994 weapon=1000 weapon=1000 shieldEmitters=1000 hullPlating=1000",
-    "cargoBay=998 ftlDrive=1000 reactorCore=994 specUtility=998 weapon=1000 weapon=1000 shieldEmitters=1000 hullPlating=1000",
-    "a9e32bba",
-  ],
+  "wear:shortRange": ["1b7e956a", "1200:4fb9e078", "2400:d12ef6e1", "3600:cf574c29", "cargoBay=1000 ftlDrive=993 reactorCore=996 specUtility=1000 weapon=1000 weapon=1000 shieldEmitters=1000 hullPlating=1000"],
+  "wear:expedition": ["6f308f00", "a0543f8c", "f70dc432", "ad5c3fca", "cargoBay=1000 ftlDrive=1000 reactorCore=991 specUtility=1000 weapon=1000 shieldEmitters=1000 hullPlating=1000 memberWeapon=963 memberArmor=1000 memberTool=1000 implant=1000 memberWeapon=963 memberArmor=1000 memberTool=1000 implant=1000 memberWeapon=1000 memberArmor=1000 memberTool=907 implant=1000"],
+  "wear:redispatch": ["b8bfa2b9", "e6c0e4d4", "cargoBay=995 ftlDrive=997 reactorCore=993 specUtility=995 weapon=1000 weapon=1000 shieldEmitters=1000 hullPlating=1000"],
+  "wear:recovery": ["cargoBay=994 ftlDrive=997 reactorCore=990 specUtility=994 weapon=1000 weapon=1000 shieldEmitters=1000 hullPlating=1000", "cargoBay=998 ftlDrive=1000 reactorCore=994 specUtility=998 weapon=1000 weapon=1000 shieldEmitters=1000 hullPlating=1000", "81565289"],
 };
 
 function pin3(key: string, value: string[]): void {
