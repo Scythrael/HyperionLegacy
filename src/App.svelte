@@ -5871,6 +5871,7 @@
   type WatchedRelicStudy = {
     token: RelicVaultToken | null;
     studyIndex: number | null;
+    v: number | undefined; // Relics v2 R2-3: the study's version stamp (2 = identification v2), for the hint below
     discoveredAtStart: Set<string>;
     seenRecordIds: Set<string>;
   };
@@ -5885,6 +5886,7 @@
       watchedRelicStudies.set(p.id, {
         token: p.effect.type === "identifyRelic" ? p.effect.token : null,
         studyIndex: p.effect.type === "identifyRelic" ? p.effect.studyIndex : null,
+        v: p.effect.type === "identifyRelic" ? p.effect.v : undefined,
         discoveredAtStart: new Set(state.relicDiscovered ?? []),
         seenRecordIds: new Set(log.filter((e) => e.kind === "relicStudy").map((e) => e.id)),
       });
@@ -5896,7 +5898,7 @@
       watchedRelicStudies.delete(id);
       const unseen = unseenRelicStudyRecords(log, watched.seenRecordIds).filter((e) => !claimed.has(e.id));
       const expected =
-        watched.token !== null && watched.studyIndex !== null ? identifyStudiedRelic(state, watched.token, watched.studyIndex) : null;
+        watched.token !== null && watched.studyIndex !== null ? identifyStudiedRelic(state, watched.token, watched.studyIndex, watched.v) : null;
       const record = pickRelicStudyRecord(unseen, expected);
       if (record === null || record.subjectKey === null) continue;
       claimed.add(record.id);

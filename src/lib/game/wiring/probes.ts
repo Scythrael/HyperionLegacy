@@ -64,7 +64,12 @@ import {
   type ShortRangeMissionState,
   type ShortRangePhase,
   withGeneralMuseumRecord,
+  emptyMuseumV2,
+  RELIC_DEFAULT_SEED,
+  type RelicVaultToken,
 } from "../model";
+// Relics v2 R2-3: identification v2 (the expected reveals the probe below is checked against).
+import { applyRelicIdentification, identifyRelicV2 } from "../relicIdentify";
 import {
   canBuildShip,
   canBuildFacilityUpgrade,
@@ -97,6 +102,7 @@ import {
   shipyardBayCount,
   startProcess,
   resolveProcesses,
+  relicStudySlotCount,
   shipyardRepairSpeedBonus,
   tierCap,
   xpPerTick,
@@ -951,6 +957,57 @@ function runFieldKitsTaskMember(s: GameState, memberId: string): GroundCombatant
   if (!ops) return undefined;
   const teams = ops.teams.map((t, i) => ({ securityIds: t.securityIds, downedThisTask: [], securityShare: ops.factors.securityShare[i] ?? 0 }));
   return taskFightTeam(run, teams, { id: "wiring-task", fightCount: 0 }).find((c) => c.memberId === memberId);
+}
+
+// Relics v2 R2-3: the identification v2 probe's studies: RELIC_V2_PROBE_STUDIES radiant Tier I blanks with no site, ids
+// "wiring-relic-v2-<n>", studied one after another from study index 1 on the default relic seed and an empty Museum (so
+// the expected reveals are a pure function of these constants).
+export const RELIC_V2_PROBE_STUDIES = 600;
+function relicV2ProbeToken(n: number): RelicVaultToken {
+  return { id: `wiring-relic-v2-${n}`, tier: "radiant", quality: 0 };
+}
+
+// The exceptional copies those studies land when every one reveals through identification v2 (relicIdentify.ts
+// identifyRelicV2 and applyRelicIdentification, run in order against the growing Museum). The registry's magnitude for
+// relic:audit:identifyV2. Pure.
+export function relicV2ProbeExpectedExceptional(): number {
+  let museum = emptyMuseumV2();
+  let discovered: string[] = [];
+  for (let n = 0; n < RELIC_V2_PROBE_STUDIES; n++) {
+    const outcome = identifyRelicV2(RELIC_DEFAULT_SEED, museum, relicV2ProbeToken(n), n + 1);
+    ({ museum, discovered } = applyRelicIdentification(museum, discovered, outcome, null));
+  }
+  return Object.values(museum.exceptional).reduce((a, b) => a + b, 0);
+}
+
+// Relics v2 R2-3 content probes ("content:relic:<a>"):
+//   exceptionalReveals  the exceptional copies the Museum holds after the probe's studies, each STARTED by the player's
+//                       start (startRelicStudy, a Lab I) and RESOLVED by the real resolver (resolveProcesses). On = the
+//                       study as started (the v2 stamp); off = the same study with the stamp removed (the v1 roll,
+//                       which never reveals an exceptional piece).
+//   lanes               the relic studies a Research Lab runs at once (relicStudySlotCount): on = Lab VII, off = Lab I.
+function relicContentProbe(kind: string, on: boolean, s: GameState): number {
+  if (kind === "lanes") return relicStudySlotCount(withFacilityLevel(s, "research", on ? 7 : 1));
+  if (kind !== "exceptionalReveals") throw new Error(`unknown relic content probe ${kind}`);
+  let cur: GameState = { ...withFacilityLevel(s, "research", 1), relicSeed: RELIC_DEFAULT_SEED, nextRelicStudyIndex: 1, museumV2: emptyMuseumV2(), relicVault: [], relicQueue: [] };
+  for (let n = 0; n < RELIC_V2_PROBE_STUDIES; n++) {
+    const token = relicV2ProbeToken(n);
+    const r = startRelicStudy({ ...cur, relicVault: [token] }, token.id);
+    if (!r.started) throw new Error(`relic v2 probe: study refused (${r.reason})`);
+    const started = on
+      ? r.next
+      : {
+          ...r.next,
+          activeProcesses: r.next.activeProcesses.map((p) => {
+            if (p.effect.type !== "identifyRelic") return p;
+            const { v: _v, ...v1 } = p.effect;
+            return { ...p, effect: v1 };
+          }),
+        };
+    const proc = started.activeProcesses.find((p) => p.kind === "relicStudy")!;
+    cur = resolveProcesses(started, proc.remainingTicks, () => 0).next;
+  }
+  return Object.values(cur.museumV2.exceptional).reduce((a, b) => a + b, 0);
 }
 
 // A relic the dispatched run recovers (the first seed whose roll hits on a hazard-1 Buried Vault), brought home by the
@@ -1914,6 +1971,8 @@ function readContent(id: string, s: GameState): number {
       const escort = () => (a === "attack" ? [] : [makeSquadron("attack", undefined, 0, "p-d1")]);
       return duelScore(() => [], () => (on ? [makeSquadron(a as DroneRole, undefined, 0, "p-d0"), ...escort()] : escort()), true);
     }
+    case "relic":
+      return relicContentProbe(a, on, s);
     case "pirate": {
       const e = generateEnemyWave(1, { hullPool: [a as PirateHullId], enemyCountMin: 1, enemyCountMax: 1, idPrefix: "wiring" })[0];
       return b === "shieldCapacity"

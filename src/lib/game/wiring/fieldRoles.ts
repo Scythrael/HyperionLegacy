@@ -261,15 +261,17 @@ export const FIELD_ROLES: Readonly<Record<string, Readonly<Record<string, FieldR
   },
   RELIC_SETS: { id: "identity", label: "display", relicIds: "identity", sources: "effect", perCopyStat: "effect", tiers: "effect" },
   RELICS: { id: "identity", label: "display", flavor: "display", setId: "identity", index: "identity", rarity: "effect" },
-  // Relics v2 R2-1 (dormant): the general pool and the exceptional sets; each effect field names the slice that reads it.
+  // Relics v2 R2-1: the general pool and the exceptional sets; each effect field names the slice that reads it.
+  // R2-3: band, siteSet and weight are read by every new study's reveal (relicIdentify.ts rollRelicIdentification: the
+  // band pick, the site bias, the in-band pick); only the stats wait for R2-4.
   RELIC_TYPES: {
     id: "identity",
     label: "display",
     flavor: "display",
-    band: { seam: "Relics v2 R2-3 (identification v2 picks a type by band; R2-2's relicBlanks.ts identifyGeneralRelic already reads it for a blank with no set)" },
-    siteSet: { seam: "Relics v2 R2-3 (the site bias doubles the old set's types; R2-2's relicBlanks.ts generalTypeWeight reads it)" },
+    band: "effect",
+    siteSet: "effect",
     stats: { seam: "Relics v2 R2-4 (museum math v2 sums each type's stats per tier)" },
-    weight: { seam: "Relics v2 R2-3 (the in-band pick)" },
+    weight: "effect",
   },
   EXCEPTIONAL_SETS: {
     id: "identity",
@@ -333,8 +335,8 @@ export const UNREAD_CONSTANTS: Readonly<Record<string, string>> = {
   PROSPECTING_USES: "seam: the prospecting quests patch (the three later Prospecting uses, read by the wiring registry; deferred)",
   PROSPECTING_BLUEPRINTS: "seam: the prospecting quests patch merges these hidden blueprints into BLUEPRINTS (read by the wiring registry; deferred)",
   // Relics v2 R2-1 (dormant catalog; plan 2026-10-17 section 4): each is read by the slice named, tested in relicsV2Catalog.test.ts.
-  // (R2-2 reads RELIC_BAND_ODDS, RELIC_SITE_BIAS_MULT and CULTURE_ROSTER: relicBlanks.ts.)
-  EXCEPTIONAL_PER_100K: "seam: Relics v2 R2-3 (identification v2's exceptional check, user call 6)",
+  // (R2-2 reads RELIC_BAND_ODDS, RELIC_SITE_BIAS_MULT and CULTURE_ROSTER: relicBlanks.ts; R2-3 reads EXCEPTIONAL_PER_100K:
+  // relicIdentify.ts, the exceptional check.)
   RELIC_SOFT_CAP: "seam: Relics v2 R2-4 (the per-tier soft cap freeze, user call 3)",
   CULTURE_STUDY_POINTS: "seam: Relics v2 R2-6 (a culture is named at this many study points, user call 9)",
 };

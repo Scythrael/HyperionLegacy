@@ -49,15 +49,18 @@ describe("R2-3 golden 1: a v1 study over 4 sets x 4 rarities x 8 tokens", () => 
 });
 
 describe("R2-3 golden 2: v1 studies of R2-2 blanks", () => {
-  it("a Tier II sited blank, a Tier VII setless blank and a Tier I setless blank land in the Tier I record", () => {
+  // MOVED by R2-3 (named in its commit; R2-2 carry note "R2-3 owns per-tier deposit"): a v1 study now deposits into its
+  // token's region tier record, so the Tier II and Tier VII blanks land in "2" and "7". Same relics, same counts; the
+  // Tier I blank and every pre-R2-2 token (no regionTier) still land in "1". Pre-R2-3: all three in "1", hash f713ac30.
+  it("a Tier II sited blank, a Tier VII setless blank and a Tier I setless blank land in their own tier's record", () => {
     const tokens: RelicVaultToken[] = [
       sited("b-t2", "shipwright", "stellar", { regionTier: 2, cultureId: "culture-t2-3" }),
       { id: "b-t7", tier: "radiant", quality: 0, regionTier: 7, cultureId: "culture-t7-1", source: "completion" },
       { id: "b-t1", tier: "augmented", quality: 0, regionTier: 1, cultureId: "culture-t1-2", source: "shortRange" },
     ];
     const out = tokens.map((t) => studyV1({ ...freshState(), relicVault: [t] }).museumV2);
-    expect(out.map((m) => m.general)).toEqual([{ "1": { ancientDriveCoil: 1 } }, { "1": { tectonicKeystone: 1 } }, { "1": { starChartFragment: 1 } }]);
-    expect(hash(out)).toBe("f713ac30");
+    expect(out.map((m) => m.general)).toEqual([{ "2": { ancientDriveCoil: 1 } }, { "7": { tectonicKeystone: 1 } }, { "1": { starChartFragment: 1 } }]);
+    expect(hash(out)).toBe("b594007d");
   });
 });
 
@@ -91,6 +94,8 @@ describe("R2-3 golden 3: a relic study, a Lab upgrade and another upgrade comple
 describe("R2-3 golden 4: relic-study lanes per Research Lab level", () => {
   it("levels 0 to 7", () => {
     const lanes = [0, 1, 2, 3, 4, 5, 6, 7].map((level) => relicStudySlotCount({ ...freshState(), facilities: { ...freshState().facilities, research: { level } } }));
-    expect(lanes).toEqual([0, 1, 1, 1, 1, 1, 1, 1]);
+    // MOVED by R2-3 (user call 12 "lanes by Lab": I 1, III 2, V 3, VII 4). Levels 0 to 2 (today's top Lab) unchanged;
+    // pre-R2-3 every built level read 1.
+    expect(lanes).toEqual([0, 1, 1, 2, 2, 3, 3, 4]);
   });
 });
