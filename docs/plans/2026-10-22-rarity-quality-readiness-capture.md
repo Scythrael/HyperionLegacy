@@ -78,3 +78,19 @@ quality on ships and field kits, Constellar color (red doc vs rose code).
 8. Constellar color: "Keep rose" (#f472b6).
 
 Still open: Derelict meaning; relic blanks at legendary tiers; quality on ships and field kits.
+
+## USER ANSWERS (2026-10-22), round 3
+
+9. Derelict: "Unify, keep unmade (Recommended)" (still never produced; one consistent rule everywhere, treated as the
+   Standard-Issue floor, so it cannot misbehave if it ever appears).
+10. Relic blanks: "Decouple them (Recommended)" (separate the relic blank ladder from the salvage pool so legendary
+    salvage later neither creates nor flattens legendary relic blanks).
+11. Quality on ships and field kits: "Out for 0.14.0 (Recommended)" (logged for a later patch; field-kits call 16
+    stays "kits ignore quality").
+
+All readiness calls answered. Build: the eight audit slices as scoped by answers 1 to 11 (hardening; dev mint for
+every tier incl. ascension; per-rarity profile table, legendaries +20% start, secondaries legendary-only; ascension
+plumbing behind a switch; Luminous legendary affix catalog; one shared set engine with 1 or 2 test sets, EM-7 reuses
+it; no producer beyond dev mint; traps: crew rows Radiant to Constellar sharing one legendary value, warehouse tokens,
+relic blanks decoupled, salvage ceiling row, set-complete shoutout, Derelict unified). Counts as a NEW system on the
+progress card (33 total).
