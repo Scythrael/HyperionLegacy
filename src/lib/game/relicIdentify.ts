@@ -31,11 +31,22 @@ import {
   type EquipmentRarity,
   type MuseumV2,
   type RegionTier,
-  type RegionTierKey,
   type RelicSetId,
   type RelicVaultToken,
 } from "./model";
-import { EXCEPTIONAL_PER_100K, RELIC_BAND_ODDS, RELIC_BANDS, exceptionalSetsOfTier, getExceptionalSetById, relicBandOf, relicSetForPoi, relicTypesInBand, type RelicBand } from "./relics";
+import {
+  EXCEPTIONAL_PER_100K,
+  RELIC_BAND_ODDS,
+  RELIC_BANDS,
+  exceptionalSetsOfTier,
+  getExceptionalSetById,
+  museumDepositExceptional,
+  museumDepositGeneral,
+  relicBandOf,
+  relicSetForPoi,
+  relicTypesInBand,
+  type RelicBand,
+} from "./relics";
 import { generalTypeWeight, vaultTokenRegionTier } from "./relicBlanks";
 import { makeRng, type Rng } from "./combat/rng";
 
@@ -172,7 +183,9 @@ export function identifyRelicV2(
 // The Museum and first-find registry after one identification lands. A general relic: one copy at its region tier,
 // +1 study point and one find on `cultureId` (call 9), its first find. An exceptional piece: one copy (duplicates
 // counted, call 7), its first find, and its set appended to setsCompleted once every piece is held (the ledger event
-// is R2-5's). Key positions of existing records are kept (spreads over existing keys). Pure.
+// is R2-5's). Key positions of existing records are kept (spreads over existing keys). R2-4: both go through the Museum
+// v2 deposits (relics.ts museumDepositGeneral / museumDepositExceptional), which snapshot a tier reaching the soft cap.
+// Pure.
 export function applyRelicIdentification(
   museum: MuseumV2 | undefined,
   discovered: readonly string[],
@@ -183,17 +196,15 @@ export function applyRelicIdentification(
   const id = relicIdentificationId(outcome);
   const nextDiscovered = discovered.includes(id) ? [...discovered] : [...discovered, id];
   if (outcome.kind === "general") {
-    const key = String(outcome.tier) as RegionTierKey;
-    const record = base.general[key] ?? {};
-    let next: MuseumV2 = { ...base, general: { ...base.general, [key]: { ...record, [id]: (record[id] ?? 0) + 1 } } };
+    let next: MuseumV2 = museumDepositGeneral(base, outcome.tier, id, 1);
     if (cultureId !== null) {
       const c = base.cultures[cultureId] ?? { points: 0, finds: {} };
       next = { ...next, cultures: { ...base.cultures, [cultureId]: { points: c.points + 1, finds: { ...c.finds, [id]: (c.finds[id] ?? 0) + 1 } } } };
     }
     return { museum: next, discovered: nextDiscovered };
   }
-  const exceptional = { ...base.exceptional, [id]: (base.exceptional[id] ?? 0) + 1 };
-  let next: MuseumV2 = { ...base, exceptional };
+  let next: MuseumV2 = museumDepositExceptional(base, id);
+  const exceptional = next.exceptional;
   const set = getExceptionalSetById(outcome.setId);
   if (set && !base.setsCompleted.includes(set.id) && set.pieces.every((p) => (exceptional[p.id] ?? 0) > 0)) {
     next = { ...next, setsCompleted: [...base.setsCompleted, set.id] };

@@ -42,8 +42,6 @@ import {
   SHIP_TYPES,
   blueprintKind,
   emptyMuseumV2,
-  generalMuseumRecord,
-  museumV2WithGeneral,
   type GameState,
   type RegionTier,
   type ShipTypeKey,
@@ -53,7 +51,7 @@ import {
 import { addToInventory, itemCap, mintBuiltShip } from "./tick";
 import { advanceExpedition } from "./expedition";
 import { itemTotal } from "./inventory";
-import { exceptionalSetsOfTier, getRelicTypeById } from "./relics";
+import { exceptionalSetsOfTier, getRelicTypeById, museumDepositExceptional, museumDepositGeneral } from "./relics";
 import { regionTierNumeral } from "./galaxy";
 
 // What a speed action points at: an in-flight timed process (by its "proc-N" id), a captain's current extraction
@@ -359,14 +357,14 @@ export function grant(
     };
     for (const r of relics) {
       if (r.kind === "general") {
-        const record = generalMuseumRecord({ museumV2: museum }, r.tier);
-        museum = museumV2WithGeneral(museum, { ...record, [r.typeId]: (record[r.typeId] ?? 0) + r.count }, r.tier);
+        // R2-4: the Museum v2 deposit snapshots a tier this grant carries to the soft cap at exactly the cap.
+        museum = museumDepositGeneral(museum, r.tier, r.typeId, r.count);
         find(r.typeId);
         // "1 Tier I Glyph Tablet relic", "2 Tier II Heart of the Archive relics" (the plural on "relic", never the name).
         parts.push(counted(r.count, `Tier ${regionTierNumeral(r.tier)} ${getRelicTypeById(r.typeId)!.label} relic`));
       } else {
         const piece = firstMissingExceptional({ museumV2: museum })!;
-        museum = { ...museum, exceptional: { ...museum.exceptional, [piece]: 1 } };
+        museum = museumDepositExceptional(museum, piece);
         find(piece);
         parts.push("an exceptional relic");
       }

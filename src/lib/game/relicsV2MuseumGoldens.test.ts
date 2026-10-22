@@ -5,8 +5,10 @@
 //      (museumBonusesFromRecord) and hashes to its pre-R2-4 value. Same counts, same bonus: must NEVER move.
 //   2. A Tier I veteran PAST the soft cap (1,700 Tier I copies, and the R2-0 "1000 of every relic" record), written as a
 //      save, loaded and migrated: the bonus after the load equals the bonus before it. Must NEVER move.
-//   3. Tier II to VII general copies and exceptional pieces: today they add NO stat (R2-3 carry note: "Tier II+ general
-//      copies and exceptional pieces add no stat until R2-4's museum math reads them"). R2-4 MOVES these on purpose.
+//   3. Tier II to VII general copies and exceptional pieces: before R2-4 they added NO stat (R2-3 carry note: "Tier II+
+//      general copies and exceptional pieces add no stat until R2-4's museum math reads them"). MOVED by the R2-4 engine
+//      commit on purpose: they now act (the per-tier D23 curve; the exceptional flats). The pre-R2-4 capture was all
+//      zeros (and Tier I only, for the mixed museum); the values below are the R2-4 pins.
 // NEVER regenerate these from a later build. A slice that moves one names it and the reason in its commit.
 
 import { describe, it, expect } from "vitest";
@@ -97,7 +99,7 @@ describe("R2-4 golden 2: a Tier I veteran past 1,000 copies keeps the same bonus
 // ============================================================================
 // 3. Tier II to VII copies and exceptional pieces (MOVED by R2-4 on purpose)
 // ============================================================================
-describe("R2-4 golden 3: Tier II+ general copies and exceptional pieces before R2-4", () => {
+describe("R2-4 golden 3 (MOVED by R2-4): Tier II+ general copies and exceptional pieces now act", () => {
   const general = (n: number): MuseumV2["general"] => {
     const out: MuseumV2["general"] = {};
     for (let t = 2; t <= 7; t++) out[String(t) as RegionTierKey] = { glyphTablet: n, hullRivet: n, tectonicKeystone: n };
@@ -105,18 +107,49 @@ describe("R2-4 golden 3: Tier II+ general copies and exceptional pieces before R
   };
   const pieces = Object.fromEntries(EXCEPTIONAL_SETS.flatMap((s) => s.pieces.map((p) => [p.id, 1])));
 
-  it("Tier II to VII copies alone add no stat", () => {
-    expect(museumBonuses(withMuseumV2({ general: general(25), exceptional: {}, frozen: {}, cultures: {}, culturesNamed: [], setsCompleted: [] }))).toEqual(ZERO);
+  it("Tier II to VII copies alone (was: no stat)", () => {
+    expect(museumBonuses(withMuseumV2({ general: general(25), exceptional: {}, frozen: {}, cultures: {}, culturesNamed: [], setsCompleted: [] }))).toEqual({ ...ZERO, cargoCapacity: 0.4745418956369287, hazardResist: 0.4745418956369287, researchSpeed: 0.4745418956369287 });
   });
 
-  it("every exceptional piece held (every set complete) adds no stat", () => {
+  it("every exceptional piece held, every set complete (was: no stat)", () => {
     const sets = EXCEPTIONAL_SETS.map((s) => s.id);
-    expect(museumBonuses(withMuseumV2({ general: {}, exceptional: pieces, frozen: {}, cultures: {}, culturesNamed: [], setsCompleted: sets }))).toEqual(ZERO);
+    expect(museumBonuses(withMuseumV2({ general: {}, exceptional: pieces, frozen: {}, cultures: {}, culturesNamed: [], setsCompleted: sets }))).toEqual({
+      researchSpeed: 0.55,
+      craftingQuality: 0.85,
+      relicFindChance: 1.42,
+      cargoCapacity: 1.07,
+      transitSpeed: 0.42000000000000004,
+      salvageYield: 1.3599999999999999,
+      sensors: 0.45999999999999996,
+      scanSpeed: 1.8599999999999999,
+      scienceTeamPower: 0.81,
+      crewBonuses: 1.01,
+      miningYield: 0.45999999999999996,
+      rareMaterialChance: 1.6999999999999997,
+      extractionSpeed: 0.35,
+      hazardResist: 1.02,
+    });
   });
 
-  it("a mixed museum reads only its Tier I record", () => {
+  it("a mixed museum (was: its Tier I record only)", () => {
     const tierOne = { glyphTablet: 12, hullRivet: 3 };
     const m: MuseumV2 = { general: { ...general(40), "1": tierOne }, exceptional: pieces, frozen: {}, cultures: {}, culturesNamed: [], setsCompleted: [] };
-    expect(museumBonuses(withMuseumV2(m))).toEqual(museumBonusesFromRecord(tierOne));
+    expect(museumBonuses(withMuseumV2(m))).not.toEqual(museumBonusesFromRecord(tierOne));
+    expect(museumBonuses(withMuseumV2(m))).toEqual({
+      researchSpeed: 1.2690388824061252,
+      craftingQuality: 0.85,
+      relicFindChance: 1.42,
+      cargoCapacity: 1.7800388824061253,
+      transitSpeed: 0.42000000000000004,
+      salvageYield: 1.3599999999999999,
+      sensors: 0.45999999999999996,
+      scanSpeed: 1.8599999999999999,
+      scienceTeamPower: 0.81,
+      crewBonuses: 1.01,
+      miningYield: 0.45999999999999996,
+      rareMaterialChance: 1.6999999999999997,
+      extractionSpeed: 0.35,
+      hazardResist: 1.7270388824061251,
+    });
   });
 });

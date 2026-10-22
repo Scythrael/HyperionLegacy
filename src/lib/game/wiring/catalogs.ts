@@ -46,7 +46,7 @@ import { AWAY_TRAITS } from "../awayTraits";
 import { PROSPECTING_BLUEPRINTS, PROSPECTING_SPEC_BASE, PROSPECTING_USES } from "../prospecting";
 import { GAMBIT_PRESETS, GAMBIT_STATUSES } from "../gambit";
 import { GROUND_CONDITIONS } from "../medicalBay";
-import { EXCEPTIONAL_SETS, MUSEUM_STATS, RELIC_SETS, RELIC_TYPES, RELICS } from "../relics";
+import { EXCEPTIONAL_SETS, MUSEUM_STATS, MUSEUM_V2_PER_COPY, RELIC_SETS, RELIC_TYPES, RELICS } from "../relics";
 import { BRIDGE_MODULES, QUARTERS_MODULES } from "../crewModules";
 import { SENSOR_ARRAYS } from "../sensorArrays";
 import { POI_CATALOG, PLANET_TYPES } from "../expeditionContent";
@@ -197,9 +197,11 @@ export function enumerateEffectSources(): EffectSource[] {
   add("MUSEUM_STATS", MUSEUM_STATS);
   add("RELIC_SETS", RELIC_SETS.flatMap((s) => s.tiers.map((t) => `${s.id}:${t.pieces}`)));
   add("RELICS", RELICS.map((r) => r.id));
-  // Relics v2 R2-1 (dormant): every general type, and every exceptional piece and full-set bonus
+  // Relics v2 R2-1 (live since R2-4's museum math v2): every general type, and every exceptional piece and full-set bonus
   add("RELIC_TYPES", RELIC_TYPES.map((t) => t.id));
   add("EXCEPTIONAL_SETS", EXCEPTIONAL_SETS.flatMap((s) => [...s.pieces.map((p) => `${s.id}:${p.id}`), `${s.id}:full`]));
+  // Relics v2 R2-4: each tier's per-copy value above Tier I (museum math v2)
+  add("MUSEUM_V2_PER_COPY", Object.keys(MUSEUM_V2_PER_COPY));
   // missions, expedition content, salvage
   add("PATROLS", Object.keys(PATROLS));
   // the ground objective affixes: every rank of every hook (an alignment-dependent hook once per alignment the

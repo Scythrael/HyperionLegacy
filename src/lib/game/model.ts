@@ -7655,12 +7655,14 @@ export type RegionTierKey = "1" | "2" | "3" | "4" | "5" | "6" | "7";
 //   general       copies per region tier per general relic TYPE id (relics.ts RELIC_TYPES). Sparse: a tier is absent
 //                 until its first copy, a type until its first copy at that tier.
 //   exceptional   copies per exceptional PIECE id (relics.ts EXCEPTIONAL_SETS); duplicates counted (OC-7, R2-5).
-//   frozen        the snapshot of a tier's general counts taken when it first reached the soft cap (OC-3, R2-4).
+//   frozen        the snapshot of a tier's record taken when its identified total (general plus exceptional copies) first
+//                 reached the soft cap (OC-3, R2-4: relics.ts withSoftCapSnapshot): its general copies and its exceptional
+//                 pieces' copies in one map. The regular game reads it from then on; the live counts keep growing.
 //   cultures      per culture id: study points and finds per type (OC-9, R2-6).
 //   culturesNamed culture ids in reveal order, each appended once (R2-6).
 //   setsCompleted exceptional set ids in completion order, each appended once (the ledger hook reads it, R2-5).
-// R2-1 is DORMANT: only general["1"] is written (by a v1 relic study, exactly where the v1 museum was written); every
-// other part stays empty until its slice.
+// Every write goes through relics.ts museumDepositGeneral / museumDepositExceptional (R2-4), which take the soft cap
+// snapshot; museumBonuses reads the whole record (R2-4 museum math v2).
 export interface MuseumCultureRecord {
   points: number;
   finds: Record<string, number>;

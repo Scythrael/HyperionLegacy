@@ -1035,7 +1035,7 @@
     museumResearchDurationTicks,
   } from "./lib/game/tick";
   // Exploration 0.14.0 (E4c): the relic catalog + museum readers (pure) the Relics/Museum host code reads.
-  import { museumBonuses, getRelicById, getRelicSetById, RELIC_SETS, undiscoveredResearchMask } from "./lib/game/relics";
+  import { museumBonuses, getRelicById, getRelicSetById, RELIC_SETS, undiscoveredResearchMask, withSoftCapSnapshot } from "./lib/game/relics";
   // Exploration 0.14.0 (E4c): the identification-reveal view model + the observer's record picker.
   import { buildRelicReveal, pickRelicStudyRecord, unseenRelicStudyRecords, type RelicReveal } from "./lib/relicReveal";
   // Exploration 0.14.0 (E4c): the crew + museum boosted ship stats, the SAME helper the engine dispatches
@@ -4829,7 +4829,9 @@
       museum[rid] = copies;
       if (!discovered.includes(rid)) discovered.push(rid);
     });
-    state = { ...withGeneralMuseumRecord(state, museum), relicDiscovered: discovered };
+    // Relics v2 R2-4: a dev grant that carries Tier I to the soft cap snapshots it, as every deposit does.
+    const granted = withGeneralMuseumRecord(state, museum);
+    state = { ...granted, museumV2: withSoftCapSnapshot(granted.museumV2), relicDiscovered: discovered };
     pushLog(`[DEV] ${set.label} museum set to ${devMuseumMode} ${n} copies.`);
   }
 

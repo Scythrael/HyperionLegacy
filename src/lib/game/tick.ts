@@ -188,14 +188,13 @@ import {
   RELIC_DEFAULT_SEED,
   // Relics v2 R2-3: the Museum v2 record a relic study deposits into (relicIdentify.ts applyRelicIdentification).
   type MuseumV2,
-  type RegionTierKey,
   emptyMuseumV2,
   // OC-15: THE Research Lab tier reader (R2-3's lanes read it).
   labTier,
 } from "./model";
 // Exploration 0.14.0 (Phase E4a): the relic catalog's pure identification roll + study constants.
 // relics.ts imports only model/expeditionContent TYPES + the leaf PRNG, so this adds no import cycle.
-import { identifyRelic, relicStudySeed, relicStudyDurationTicks, museumBonuses } from "./relics";
+import { identifyRelic, relicStudySeed, relicStudyDurationTicks, museumBonuses, museumDepositGeneral } from "./relics";
 import { identifyGeneralRelic, vaultTokenCultureId, vaultTokenRegionTier } from "./relicBlanks";
 // Relics v2 R2-3: identification v2 (the keyed three-draw roll and its deposit) and the lanes by Lab level.
 import { RELIC_STUDY_VERSION, applyRelicIdentification, identifyRelicV2, relicIdentificationId, relicStudyLanesAt } from "./relicIdentify";
@@ -8272,11 +8271,10 @@ function depositRelicStudy(
   }
   const relicId = identifyStudiedRelic(state, effect.token, effect.studyIndex);
   if (relicId === null) return { relicId, museum, discovered };
-  const key = String(vaultTokenRegionTier(effect.token)) as RegionTierKey;
-  const record = museum.general[key] ?? {};
+  // R2-4: through the Museum v2 deposit (relics.ts museumDepositGeneral), which snapshots a tier reaching the soft cap.
   return {
     relicId,
-    museum: { ...museum, general: { ...museum.general, [key]: { ...record, [relicId]: (record[relicId] ?? 0) + 1 } } },
+    museum: museumDepositGeneral(museum, vaultTokenRegionTier(effect.token), relicId, 1),
     discovered: discovered.includes(relicId) ? discovered : [...discovered, relicId],
   };
 }
