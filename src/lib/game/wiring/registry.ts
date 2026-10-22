@@ -348,6 +348,8 @@ export const CATALOGS = {
   WEAR_EFFICIENCY,
   // The reactor fuel ladder (0.14.0, reactorTech.ts): the fuel each Reactor Core blueprint takes.
   REACTOR_FUEL_LADDER,
+  // Gas Giant Study GG-2 / GG-3: the giant classes the class roll and the study reward read.
+  GIANT_CLASSES,
 } as const;
 export type Catalogs = typeof CATALOGS;
 
@@ -2992,7 +2994,15 @@ function contentEntries(): WiringEntry[] {
       out.push(
         entry({
           ...base("expedition", "PLANET_TYPES", `${p.id}:orbitalOnly`, `${p.label}: "no surface landing; finds are satellite ops"`),
-          status: pending("gas giant study 15b + OC-G2 (teams land and fight there, B21)"),
+          // Gas Giant Study GG-2 (D22, OC-G2): live. A study run's orbital body gets no ground objective (the ship
+          // studies it instead): the objectives on the run's bodies, all of this type, with the study stamp vs without.
+          probe: `content:orbitalOnly:${p.id}`,
+          contexts: ["expedition:groundOps"],
+          direction: "down",
+          curve: { kind: "event", metric: `ground objectives on ${p.label} bodies of a study run vs the same run unstamped` },
+          magnitude: () => 1,
+          base: () => withAwayTeam(wiringBase()),
+          on: sourceOn,
         }),
       );
     }
@@ -4235,10 +4245,89 @@ function gasStudyEntries(): WiringEntry[] {
     labLane: "facility",
     canisterRecipes: "facility",
   };
+  // The uses a built slice has taken live, each with its probe (the rest stay pending on their owner).
+  //   classRoll (GG-2): a dispatch to a system with an orbital body freezes a giant profile on it.
+  const liveUse: Partial<Record<GasStudyUse, Partial<EntryInput>>> = {
+    classRoll: {
+      probe: "content:gasStudy:classRoll",
+      contexts: ["expedition:groundOps"],
+      curve: { kind: "event", metric: "orbital bodies of a dispatched study run carrying a giant profile" },
+      magnitude: () => 1,
+      base: () => withAwayTeam(wiringBase()),
+      on: sourceOn,
+    },
+    //   studyReward (GG-3): a study run's claim brings home the canisters of its studies (OFF: the same run unstamped).
+    studyReward: {
+      probe: "content:gasStudy:studyReward",
+      contexts: ["expedition:groundOps"],
+      curve: { kind: "event", metric: "canisters the studies of a whole study run return" },
+      magnitude: () => 1,
+      base: () => withAwayTeam(wiringBase()),
+      on: sourceOn,
+    },
+    //   probeDive (GG-3): a Science member's Galileo dives: the study's canister haul scale x100 with it vs without.
+    probeDive: {
+      probe: "content:gasStudy:probeDive",
+      contexts: ["expedition:groundOps"],
+      curve: { kind: "event", metric: "the study's canister haul scale x100 with a reference Galileo aboard vs none" },
+      magnitude: () => 1,
+      base: () => withAwayTeam(wiringBase()),
+      on: sourceOn,
+    },
+  };
   for (const use of Object.keys(GAS_STUDY_USES) as GasStudyUse[]) {
     const system = useSystem[use];
-    out.push(entry({ id: `${system}:GAS_STUDY_USES:${use}`, system, source: { catalog: "GAS_STUDY_USES", key: use }, claim: GAS_STUDY_USES[use], status: pending(GAS_STUDY_USES[use]) }));
+    const live = liveUse[use];
+    out.push(
+      entry({
+        id: `${system}:GAS_STUDY_USES:${use}`,
+        system,
+        source: { catalog: "GAS_STUDY_USES", key: use },
+        claim: GAS_STUDY_USES[use],
+        ...(live ?? { status: pending(GAS_STUDY_USES[use]) }),
+      }),
+    );
   }
+  // A giant class's field a built slice reads, live with its probe (content:giantClass:<class>:<field>), else null.
+  //   weight (GG-2): the class roll picks the class more often with its weight than with it zeroed.
+  //   massMinMilliJ / massMaxMilliJ (GG-2): the mass roll's first and last steps are the band's ends.
+  const liveClassField = (c: (typeof GIANT_CLASSES)[number], field: string): Partial<EntryInput> | null => {
+    const probe = `content:giantClass:${c.id}:${field}` as const;
+    switch (field) {
+      case "weight":
+        return { probe, contexts: ["expedition:groundOps"], curve: { kind: "event", metric: `${c.name} rolls over a body batch with its weight vs zeroed` }, magnitude: () => 1, on: sourceOn };
+      case "massMinMilliJ":
+      case "massMaxMilliJ":
+        return {
+          probe,
+          contexts: ["expedition:groundOps"],
+          direction: "none",
+          curve: { kind: "equals" },
+          magnitude: (cfg) => {
+            const def = cfg.GIANT_CLASSES.find((x) => x.id === c.id)!;
+            return field === "massMinMilliJ" ? def.massMinMilliJ : def.massMaxMilliJ;
+          },
+        };
+      // GG-3, the probe's depth factor (gravity^0.4 from the radius model and the heat inflation), x1000 at the band's
+      // middle step: with the class's own model vs the plain giant curve, with its inflation vs none.
+      case "radiusModel":
+        return c.radiusModel === "giant"
+          ? { probe: undefined, contexts: [], notApplicable: "the plain giant radius curve is the baseline the other models are read against" }
+          : { probe, contexts: ["expedition:groundOps"], direction: "up", curve: { kind: "event", metric: `${c.name}'s depth factor x1000, its own radius model vs the giant curve` }, magnitude: () => 1, on: sourceOn };
+      case "inflation":
+        return c.inflation === 1
+          ? { probe: undefined, contexts: [], notApplicable: "no heat inflation (x1)" }
+          : { probe, contexts: ["expedition:groundOps"], direction: "down", curve: { kind: "event", metric: `${c.name}'s depth factor x1000 with its inflation vs none` }, magnitude: () => 1, on: sourceOn };
+      // GG-3, the study reward over a batch of studies of this class: the canisters above the Standard band with the
+      // class's odds vs all Standard; the class's heaviest Standard gas with its weights vs even weights.
+      case "bandOdds":
+        return { probe, contexts: ["expedition:groundOps"], curve: { kind: "event", metric: `${c.name} canisters above Standard over a study batch, its odds vs all Standard` }, magnitude: () => 1, on: sourceOn };
+      case "itemWeights":
+        return { probe, contexts: ["expedition:groundOps"], curve: { kind: "event", metric: `${c.name}'s heaviest Standard gas over a study batch, its weights vs even` }, magnitude: () => 1, on: sourceOn };
+      default:
+        return null;
+    }
+  };
   // The slice that reads each effect field. A field with no owner here gets NO entry (never a fallback owner), so the
   // completeness test ("every enumerated source has a registry entry") fails until it is given one.
   const classOwner: Readonly<Record<string, string>> = {
@@ -4258,7 +4347,16 @@ function gasStudyEntries(): WiringEntry[] {
     for (const field of effectFieldsOf("GIANT_CLASSES")) {
       const owner = classOwner[field];
       if (owner === undefined) continue;
-      out.push(entry({ id: `expedition:GIANT_CLASSES:${c.id}:${field}`, system: "expedition", source: { catalog: "GIANT_CLASSES", key: `${c.id}:${field}` }, claim: `${c.name}: its ${field}`, status: pending(owner) }));
+      const live = liveClassField(c, field);
+      out.push(
+        entry({
+          id: `expedition:GIANT_CLASSES:${c.id}:${field}`,
+          system: "expedition",
+          source: { catalog: "GIANT_CLASSES", key: `${c.id}:${field}` },
+          claim: `${c.name}: its ${field}`,
+          ...(live ?? { status: pending(owner) }),
+        }),
+      );
     }
   }
   for (const k of NEBULA_KINDS) {
@@ -4268,6 +4366,18 @@ function gasStudyEntries(): WiringEntry[] {
       out.push(entry({ id: `expedition:NEBULA_KINDS:${k.id}:${field}`, system: "expedition", source: { catalog: "NEBULA_KINDS", key: `${k.id}:${field}` }, claim: `${k.name}: its ${field}`, status: pending(owner) }));
     }
   }
+  // GG-3: the probe dive seam (gasGiantStudy.ts studyDiveEvents): one event per finished study with a Galileo aboard,
+  // for gear wear step 3's tool use wear. It moves nothing on its own.
+  out.push(
+    entry({
+      id: "away:GAS_STUDY_SEAM:probeDiveWear",
+      system: "away",
+      source: { catalog: "GAS_STUDY_SEAM", key: "probeDiveWear" },
+      claim: "Each finished study with a Galileo-Class Probe aboard is one probe dive (the probe's use wear)",
+      status: { kind: "seam", owner: GEAR_WEAR_STEP_3, userRef: "gear wear design 3.1 (user 2026-10-16): \"sensors by scans, tools by fieldwork\"" },
+      note: "gasGiantStudyLeg.test.ts proves the events",
+    }),
+  );
   return out;
 }
 

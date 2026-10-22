@@ -36,6 +36,7 @@ import * as shortRange from "./shortRange";
 import * as relicBlanks from "./relicBlanks";
 import * as materialQuality from "./materialQuality";
 import * as relicIdentify from "./relicIdentify";
+import * as gasGiantStudy from "./gasGiantStudy";
 
 // The modules whose salts must be distinct AND odd.
 const MODULES: Record<string, Record<string, unknown>> = {
@@ -69,6 +70,8 @@ const MODULES: Record<string, Record<string, unknown>> = {
   "materialQuality.ts": materialQuality,
   // Relics v2 R2-3: the identification v2 roll.
   "relicIdentify.ts": relicIdentify,
+  // Gas Giant Study GG-2 / GG-3: the giant profile roll and the study reward roll.
+  "gasGiantStudy.ts": gasGiantStudy,
 };
 
 // Legacy salts checked for DISTINCTNESS only. model.ts AWAY_RECRUIT_SEED_SALT (0x5a17c0de) predates the odd

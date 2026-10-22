@@ -21,7 +21,9 @@
 //     GG-3 / GG-4 give them a source; the user's "hide until live" ruling for field kits).
 //   - GAS_STUDY_USES: the study's engine uses, each a pending wiring registry entry owned by the slice that wires it.
 //
-// GG-1 IS DATA ONLY: nothing in the engine reads this module yet, so no gameplay golden moves. Every consumer is a
+// GG-2 (the engine, gasGiantStudy.ts) reads the class weights and mass bands for the giant profile of each orbital
+// body of a study run.
+// GG-1 WAS DATA ONLY: nothing in the engine read this module, so no gameplay golden moved. Every consumer is a
 // registered pending entry in the wiring registry (wiring/registry.ts gasStudyEntries): the class roll (GG-2), the
 // study reward and the probe dive (GG-3), the nebula sweep (GG-4), the Research Lab study lane (GG-5) and the canister
 // recipe uses (GG-7). FIRST-PASS TUNABLE magnitudes; the names and the mapping are the user's calls where noted.
@@ -74,20 +76,21 @@ export function gasStudyItemIds(): string[] {
   return [...GAS_CANISTER_IDS, ...RESEARCH_FAMILIES.map((f) => RESEARCH_DATA_ITEM[f]), ANCIENT_DATA_FRAGMENT_ID];
 }
 
-// The study items with no source yet: every one but the Deuterium Canister, which the Refinery already makes from
-// Deuterium Ice (REFINE_RECIPES.refineDeuteriumCanister). GG-3 (the study reward) and GG-4 (the nebula sweep) give the
-// rest their source and empty this set; until then the warehouse keeps them off its shelves and out of its catalog
-// count (App.svelte), so no tile points at a study that does not run yet.
+// The study items with no source yet. GG-1 held all but the Deuterium Canister (the Refinery makes it from Deuterium
+// Ice); GG-3 (gasGiantStudy.ts rollStudyReward: the ship's study of a gas giant) gave every canister, every research
+// data item and the Ancient Data Fragment its source, so the set is EMPTY: the warehouse (App.svelte) shelves and counts
+// every study item. It stays for a later study item that ships before its source (the "hide until live" ruling).
 export const GAS_STUDY_SOURCE_OWNER = "GG-3 (the ship's study of a gas giant returns it; GG-4 adds the nebula sweep)";
-export const GAS_STUDY_SOURCE_PENDING: ReadonlySet<string> = new Set(gasStudyItemIds().filter((id) => id !== "deuteriumCanister"));
+export const GAS_STUDY_SOURCE_PENDING: ReadonlySet<string> = new Set<string>();
 
 // Does this item wait on a gas study source (GAS_STUDY_SOURCE_PENDING)? False for every other item. Pure.
 export function gasStudySourcePending(itemId: string): boolean {
   return GAS_STUDY_SOURCE_PENDING.has(itemId);
 }
 
-// The study's engine uses, each owned by the slice that wires it (one pending wiring registry entry per use, the
-// PROSPECTING_USES precedent). A use goes live, and leaves this table, in the slice that builds it.
+// The study's engine uses, each owned by the slice that wires it (one wiring registry entry per use, the
+// PROSPECTING_USES precedent). A use goes live (its entry flips, with a probe) in the slice that builds it: GG-2 took
+// the class roll live (gasGiantStudy.ts rollGiantProfile).
 export const GAS_STUDY_USES = {
   classRoll: "GG-2 (an orbital body of a study run rolls its giant class and mass, and loses its ground objectives)",
   studyReward: "GG-3 (the study leg returns canisters always, research data at 40% and a Survey Log readout at 15%)",

@@ -127,13 +127,13 @@ describe("GG-1 everything wired: a consumer or a GG reserve, a source or a pendi
     }
   });
 
-  it("only the Deuterium Canister has a source today; the other fourteen wait on GG-3 / GG-4", () => {
+  it("since GG-3 every study item has a source (the ship's study of a gas giant): none waits", () => {
     expect(GAS_STUDY_SOURCE_OWNER).toMatch(/^GG-3 /);
-    expect([...GAS_STUDY_SOURCE_PENDING]).toEqual(gasStudyItemIds().filter((id) => id !== "deuteriumCanister"));
-    expect(gasStudySourcePending("deuteriumCanister")).toBe(false);
+    expect([...GAS_STUDY_SOURCE_PENDING]).toEqual([]);
+    for (const id of gasStudyItemIds()) expect(gasStudySourcePending(id), id).toBe(false);
     expect(gasStudySourcePending("commonOre")).toBe(false);
-    // The pending source is the study reward's own registry entry.
-    expect(WIRING_REGISTRY.find((e) => e.id === "expedition:GAS_STUDY_USES:studyReward")?.status).toEqual({ kind: "pending", owner: GAS_STUDY_USES.studyReward });
+    // The source is the study reward's own registry entry, live since GG-3.
+    expect(WIRING_REGISTRY.find((e) => e.id === "expedition:GAS_STUDY_USES:studyReward")?.status).toEqual({ kind: "live" });
   });
 
   it("every effect field of every class and kind has its pending entry (an unmapped field fails here, never a fallback)", () => {
@@ -152,12 +152,28 @@ describe("GG-1 everything wired: a consumer or a GG reserve, a source or a pendi
     for (const [use, owner] of Object.entries(GAS_STUDY_USES)) expect(owner, use).toMatch(/^GG-[2-7] /);
   });
 
-  it("the registry: GG-1's additions, each with its status (pending on its GG slice, or live for the sale and the recipe)", () => {
+  // The study uses a built engine slice has taken live (GG-2: the class roll; GG-3: the study reward and the probe
+  // dive), and the class fields they read.
+  const BUILT_USES: ReadonlySet<string> = new Set(["classRoll", "studyReward", "probeDive"]);
+  const CLASS_FIELD_USE: Readonly<Record<string, string>> = {
+    weight: "classRoll",
+    massMinMilliJ: "classRoll",
+    massMaxMilliJ: "classRoll",
+    radiusModel: "probeDive",
+    inflation: "probeDive",
+    bandOdds: "studyReward",
+    itemWeights: "studyReward",
+  };
+  const builtLive = (e: (typeof WIRING_REGISTRY)[number]): boolean =>
+    (e.source.catalog === "GAS_STUDY_USES" && BUILT_USES.has(e.source.key)) ||
+    (e.source.catalog === "GIANT_CLASSES" && BUILT_USES.has(CLASS_FIELD_USE[e.source.key.split(":")[1]] ?? ""));
+
+  it("the registry: GG-1's additions, each with its status (pending on its GG slice, or live for the sale, the recipe and a built slice's)", () => {
     const added = WIRING_REGISTRY.filter((e) => GG1_ADDED_ENTRY_IDS.has(e.id));
     // 6 uses + 7 classes x 7 effect fields + 4 kinds x 2 + 6 sell values + 9 reserves + 1 recipe
     expect(added).toHaveLength(6 + 49 + 8 + 6 + 9 + 1);
     for (const e of added) {
-      const live = e.source.key.endsWith(":sellValue") || e.source.catalog === "REFINE_RECIPES";
+      const live = e.source.key.endsWith(":sellValue") || e.source.catalog === "REFINE_RECIPES" || builtLive(e);
       if (live) expect(e.status.kind, e.id).toBe("live");
       else {
         expect(e.status.kind, e.id).toBe("pending");

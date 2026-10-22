@@ -17,7 +17,7 @@ import { BLUEPRINTS, freshState, type AwayMember, type Expedition, type GameStat
 import { advanceExpedition, advanceExpeditionSeed, claimExpedition, expeditionCandidates, startExpedition } from "./expedition";
 import { applyTimeSkip } from "./processSpeed";
 import { installMissingCombatBaselines } from "./tick";
-import { asExpeditionVeteran, dispatchPastPropulsion, plainAwayMember, withoutRelicBlanks } from "./awayTeamTestFixtures";
+import { asExpeditionVeteran, dispatchPastPropulsion, plainAwayMember, withoutRelicBlanks, withoutStudy } from "./awayTeamTestFixtures";
 import { FIELD_KITS_CATALOG_VERSION } from "./fieldKits";
 import { HELD_DRIVE_KEYS, PRE_G2_4_STORED_RUNS, withoutHeldDrives } from "./propulsionRecallGoldens.fixture";
 import { goldenJson } from "./firstRunsGoldens.fixture";
@@ -35,9 +35,11 @@ const hash = (v: unknown): string => fnv(goldenJson(v));
 // MERGED ONTO feat (0.14.0 integration): two slices merged after this capture stamp every NEW dispatch, and nothing
 // else in it: Relics v2 R2-2 adds its relic blanks flag (Expedition.relicBlanks) and the timed grenades bumped the
 // Field Kits catalog stamp from 1 to 2 (FIELD_KITS_CATALOG_VERSION). A dispatch made today is read back to the record
-// the capture's code wrote (the flag dropped, the stamp put back to catalog 1); the live stamp is checked. Pure.
+// the capture's code wrote (the flag dropped, the stamp put back to catalog 1); the live stamp is checked. Gas Giant
+// Study GG-2 (merged later still) stamps a system with a gas giant `study` and freezes each giant's profile: withoutStudy
+// takes both off. Pure.
 function asPreMergeDispatch(exp: Expedition): Expedition {
-  const plain = withoutRelicBlanks(exp);
+  const plain = withoutStudy(withoutRelicBlanks(exp));
   if (!plain.fieldKits) return plain;
   expect(plain.fieldKits.catalog).toBe(FIELD_KITS_CATALOG_VERSION);
   return { ...plain, fieldKits: { ...plain.fieldKits, catalog: 1 } };
@@ -133,9 +135,12 @@ const GOLDEN: Record<Name, string[]> = {
   tier4: ["5136e96", "5ae2c", "d1f2cc1b", "b42008cc", "4e42e1e6", "ab9f05b3", "8c2ecacb", "546d9369"],
 };
 // Per tier I..VII: the veteran Aurora's cand-<tier>-0 dispatch result, then its candidate list.
+// MOVED AT THE GG-2 MERGE, named: Tier VI's dispatch (its system holds a gas giant whose risk grades held a hostile
+// site or a clearing objective): GG-2 places neither on an orbital body (every draw kept), which withoutStudy cannot
+// rebuild, so that row re-pinned (was a49bef54). Tier III (also a gas giant system) reads as before through withoutStudy.
 const GOLDEN_TIERS: string[] = [
   "1:ok:627f2c8a", "1:list:27922952", "2:ok:5f7ba254", "2:list:60913b6f", "3:ok:d787b326", "3:list:ae4a9424",
-  "4:ok:1ec0d52", "4:list:a2dc4ed5", "5:ok:d790b266", "5:list:a10fc09a", "6:ok:a49bef54", "6:list:ecacb6f1",
+  "4:ok:1ec0d52", "4:list:a2dc4ed5", "5:ok:d790b266", "5:list:a10fc09a", "6:ok:fcb848ae", "6:list:ecacb6f1",
   "7:ok:d51772f2", "7:list:e16e3c7c",
 ];
 const GOLDEN_CATALOG = "fc8d8357";

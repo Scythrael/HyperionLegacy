@@ -57,6 +57,8 @@ import type { OfficerCombatEntry } from "./crewOverlay";
 import type { FieldKitId } from "./fieldKits";
 // G1-3: the short-range mission arm stores a roll and its cycle plan (types only; shortRange.ts imports this file).
 import type { ShortRangeCyclePlan, ShortRangeRoll, ShortRangeTier } from "./shortRange";
+// Gas Giant Study GG-2: an orbital body's giant class id (type only; gasGiantContent.ts imports this module).
+import type { GiantClassId } from "./gasGiantContent";
 
 // Data model, tech spec §1 (Data Model).
 // Phase 4 (docs/plans/2026-07-06-phase4-navigation-progression-overhaul-plan.md):
@@ -7531,6 +7533,25 @@ export interface ExpeditionBody {
   // dispatched before SQ-4, whose tasks stamp exactly as they did). groundOps.ts / groundTasks.ts / groundFight.ts
   // read it: fight points, needs, difficulty, flora's slower work and poison, the ambush chance.
   risk?: BodyRiskGrades;
+  // Gas Giant Study GG-2: an ORBITAL body's giant profile (its class by real science and its mass, integer
+  // milli-Jupiter masses; gasGiantStudy.ts rollGiantProfile), written at dispatch on a study run (Expedition.study)
+  // only, so the study and the Survey Log read never recompute from content a balance pass may retune. Absent on every
+  // other body and on every run dispatched before GG-2.
+  giant?: { classId: GiantClassId; massMilliJ: number };
+}
+
+// Gas Giant Study GG-3: one SURVEY LOG entry (GameState.surveyLog): a studied giant as the ship recorded it. Every
+// displayed number derives from these stored fields (gasGiantContent.ts giantPhysics / starProgress on the class and
+// the mass). `kind` "nebula" joins with GG-4's sweep.
+export interface SurveyLogEntry {
+  id: string; // "<expeditionId>-survey-<bodyIndex>"
+  at: number; // gameTimeSeconds the study ended
+  systemName: string;
+  bodyName: string; // "OR-2817 d"
+  kind: "giant";
+  classId: GiantClassId;
+  massMilliJ: number;
+  tier: RegionTier;
 }
 
 // A claimable EXPEDITIONARY FINDING. E2a shipped GENERIC placeholder tokens (a provenance tag only);
@@ -7545,13 +7566,17 @@ export interface ExpeditionBody {
 // EVENT (a small material + credit find). Both deposit exactly like an activity finding (no relic).
 export interface ExpeditionFinding {
   id: string; // stable, "<expeditionId>-find-<n>"
-  source: "anomaly" | "activity" | "encounter" | "supplyCache";
+  // Gas Giant Study GG-3: "study" is a ship study of an orbital body (gasGiantStudy.ts rollStudyReward): canisters
+  // always, research data and an Ancient Data Fragment by chance, and a Survey Log readout (`survey`) by chance.
+  source: "anomaly" | "activity" | "encounter" | "supplyCache" | "study";
   // E3 activity-finding payload (all optional; unset on an anomaly / pre-E3 finding):
   poiId?: string; // the PoI the away-team task resolved (expeditionContent.ts POI_CATALOG id)
   materials?: Record<string, number>; // itemId -> quantity gathered (E4 deposits these)
   credits?: number; // credits recovered
   relic?: ExpeditionRelicToken | null; // an UNIDENTIFIED relic token when the roll hit (E4 identifies it), else null/unset
   evacuated?: boolean; // true when the task was LOST after every attempt (evacuated: a reduced "always win something" payload)
+  // Gas Giant Study GG-3: a study's Survey Log readout (the claim appends it to GameState.surveyLog). Absent otherwise.
+  survey?: SurveyLogEntry;
 }
 
 // An UNIDENTIFIED relic the away-team recovered. Its rarity TIER + quality come from REUSING the salvage
@@ -8090,6 +8115,12 @@ export interface Expedition {
   // (GameState.heldSystems) and its first `scannedBodies` bodies were charted before (their scans stay done, their
   // objectives keep their progress). Absent on every other run. Optional, no SAVE bump.
   resume?: { version: 1; heldId: string; scannedBodies: number };
+  // Gas Giant Study GG-2 (D22, OC-G2 "Ship-only study"): the STUDY flag, frozen at dispatch on a run whose system holds
+  // an orbital-only body (gasGiantStudy.ts studyStampFor). Present: an orbital body gets no ground objectives (no PoI,
+  // no hostile site, no clearing, no supply cache) and ONE ship study instead (GroundOpsState.studyLegs, GG-3). Absent
+  // on every other run, and on every run dispatched before GG-2 (its gas giant objectives resolve as dispatched).
+  // Optional, no SAVE bump.
+  study?: 1;
 }
 
 // Expedition Tiers G2-5 (user #7 "Based on distance traveled 1:1"; G13 one confirm with the return time; G14 detour
@@ -8482,6 +8513,21 @@ export interface GroundRepairLeg {
   done?: true;
 }
 
+// Gas Giant Study GG-3 (user call 3 "The ship, always"; plan section 3.2): a SHIP STUDY of orbital body `bodyIndex`. It
+// starts when that body's scan completes (or when the ship is free of a leg under way) and the ship holds orbit until
+// endsAt: the scan clock pauses for it like a repair leg (scanBodyIndex, the next body's scan; null when the scan is
+// done), the teams keep working, an ordinary pickup waits for it, and the study's reward (gasGiantStudy.ts
+// rollStudyReward) lands at endsAt, when the window latches `done`. Stored when it starts, so every later time is a
+// pure function of stored values.
+export interface GroundStudyLeg {
+  kind: "study";
+  bodyIndex: number;
+  scanBodyIndex: number | null;
+  startsAt: number;
+  endsAt: number;
+  done?: true;
+}
+
 // GO-7b: the run's ground operations (Expedition.groundOps; plan section 2). One COMBINED operations window
 // (user Q1): it opens when the scanning phase begins (startedAt), task work overlaps the scan of later bodies,
 // and it closes (endedAt) once every body is scanned, no task is queued or active, and every team is idle, in
@@ -8503,6 +8549,9 @@ export interface GroundOpsState {
   // GO-8b (user WWVD): the ship's FIELD REPAIRS, in time order; absent until the first. Each pauses the scan like
   // a recovery leg and never overlaps another leg (groundOps.ts shipLegsInOrder merges the two lists).
   repairLegs?: GroundRepairLeg[];
+  // Gas Giant Study GG-3: the ship's STUDIES of orbital bodies, in time order; absent until the first (only a study
+  // run, Expedition.study, writes one). Each pauses the scan like a repair leg and never overlaps another leg.
+  studyLegs?: GroundStudyLeg[];
   // GO-7c: the run's ground operations LOG, DISPLAY ONLY (resolution never reads it); absent until a line is
   // written, so a run without one keeps its exact shape.
   log?: GroundOpsLogEntry[];
@@ -9005,6 +9054,11 @@ export interface GameState {
   // oldest first. OPTIONAL: absent until the first recall that leaves one, so every save keeps its exact shape. Plain
   // data: no SAVE bump, hydrateDecimals carries it through its `...state` spread.
   heldSystems?: HeldSystem[];
+  // Gas Giant Study GG-3 (plan docs/plans/2026-10-17-gas-giant-study-plan.md section 3.3): the SURVEY LOG, one entry per
+  // ship study whose Survey Log readout hit (15%, user 2026-10-09), appended in claim order by
+  // expedition.ts depositExpeditionFindings. Every displayed number derives from the entry's stored fields (the
+  // Archive tab is GG-6). OPTIONAL: absent until the first readout comes home, so a save without one carries no key.
+  surveyLog?: SurveyLogEntry[];
   // Safe first runs SF-1: the per-type run counters (RunCounts above; rules in runDifficulty.ts). freshState seeds
   // freshRunCounts(); save v70 derives them for an older save from its history (veterans). Written by claimExpedition,
   // dispatchCaptainOnPatrol and economyTick's patrol fold. OPTIONAL: absent (a dev save at v70 from before SF-1) reads
@@ -9880,8 +9934,8 @@ export const ITEMS: Record<string, ItemDef> = {
   // The six canisters by band: Standard Hydrogen and Methane, Augmented Ammonia and Deuterium, Stellar Helium-3,
   // Radiant the Antimatter Containment Cell ("Not a gas, but it will require its own specialized container"). Every
   // one sells at the Quartermaster (call 7: "also sellable"); their recipe uses are GG-7's (the G2 drive classes and
-  // the Lab tier 3 to 7 blueprints). Until GG-3 wires the study reward, only the Deuterium Canister has a source (the
-  // Refinery, from Deuterium Ice); the other five stay off the shelves (gasGiantContent.ts GAS_STUDY_SOURCE_PENDING).
+  // the Lab tier 3 to 7 blueprints). GG-3 wired the study reward (gasGiantStudy.ts rollStudyReward): a ship study of a
+  // gas giant fills all six; the Deuterium Canister is also refined from Deuterium Ice.
   hydrogenCanister: {
     label: "Hydrogen Canister",
     category: "gasCanister",
