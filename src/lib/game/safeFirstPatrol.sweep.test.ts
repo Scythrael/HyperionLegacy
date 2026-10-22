@@ -65,22 +65,23 @@ const CURVE_SEEDS = 400;
 // WR-8 review answer 5 (user 2026-10-22, "Closing is evasive"): a ship closing while none of its guns reaches takes
 // CLOSING_EVASION_PCT less. With it the 200-seed table broke "wins never rise" by one or two seeds (Aurora Warband c3
 // 19 -> 20 at every tried value 20 to 60; per seed, the c2 -> c3 step flips about a dozen outcomes each way), so the
-// curve now runs 400 seeds (CURVE_SEEDS), where every row falls. The early Sweep stays gentle (every hull wins 394 or
-// more of 400 through c4; the combat hulls all 400). The early Warband stays harder for the light hulls than before
-// WR-8 (Freighter c0 262 of 400, 131 of 200; was 181 of 200); closing evasion does not restore it, because the
-// approach is short (about 7 s from the open distance) and both sides close. The balance pass owns it (user
-// 2026-10-22: "the actual balancing of the content can wait").
+// curve runs 400 seeds (CURVE_SEEDS; user 2026-10-22 answer 7: approved), where every row falls.
+// WR-8 review answer 6 (user 2026-10-22, "Ship it, soften early curve"): a patrol cycle under the combat rules climbs
+// the curve from PATROL_RULES_RAMP_FLOOR (0.2, the shared floor is 0.35), so the light hulls' early Warbands are back
+// near their pre-WR-8 values (Freighter c0 373 of 400, 186.5 of 200, was 181 of 200 before WR-8 and 262 of 400 just
+// before this; the prospectors gentler than before, the explorers a little under: Orion c0 94.5 of 200, was 105).
+// Full strength (c10) is unchanged. The early Sweep is 400 of 400 through c4 on every hull.
 const CURVE_WINS: Record<string, [number[], number[]]> = {
-  generalFreighter: [[400, 400, 400, 400, 400, 400, 400, 395, 383, 366, 354], [262, 238, 174, 128, 95, 51, 29, 15, 9, 7, 6]],
-  prospectorHauler: [[400, 400, 400, 400, 400, 400, 400, 400, 398, 390, 377], [331, 310, 244, 194, 143, 91, 54, 28, 23, 13, 9]],
-  prospectorRunner: [[400, 400, 400, 399, 394, 362, 313, 219, 208, 207, 206], [53, 42, 22, 18, 7, 3, 2, 1, 1, 1, 1]],
-  prospectorMiner: [[400, 400, 400, 400, 397, 381, 358, 275, 221, 208, 208], [78, 63, 39, 26, 14, 7, 3, 1, 1, 1, 1]],
-  destroyer: [[400, 400, 400, 400, 400, 400, 400, 400, 400, 400, 400], [387, 379, 372, 353, 324, 273, 217, 151, 114, 86, 64]],
-  battleship: [[400, 400, 400, 400, 400, 400, 400, 400, 400, 400, 400], [400, 400, 400, 400, 400, 398, 397, 384, 378, 355, 348]],
-  carrier: [[400, 400, 400, 400, 400, 400, 400, 400, 400, 400, 400], [399, 396, 390, 386, 371, 345, 319, 253, 222, 175, 150]],
-  orion: [[400, 400, 400, 400, 400, 400, 398, 388, 371, 353, 335], [89, 78, 54, 37, 25, 17, 10, 5, 3, 3, 2]],
-  aurora: [[400, 400, 400, 400, 400, 400, 397, 387, 369, 352, 328], [76, 67, 41, 35, 23, 16, 9, 5, 3, 3, 2]],
-  eir: [[400, 400, 400, 400, 400, 399, 396, 378, 365, 345, 305], [90, 81, 54, 39, 24, 14, 10, 4, 3, 2, 2]],
+  generalFreighter: [[400, 400, 400, 400, 400, 400, 400, 399, 393, 371, 354], [373, 362, 317, 261, 164, 101, 42, 27, 12, 8, 6]],
+  prospectorHauler: [[400, 400, 400, 400, 400, 400, 400, 400, 398, 392, 377], [392, 383, 362, 329, 223, 154, 87, 44, 25, 15, 9]],
+  prospectorRunner: [[400, 400, 400, 400, 400, 396, 357, 276, 211, 208, 206], [167, 141, 96, 52, 23, 10, 3, 2, 1, 1, 1]],
+  prospectorMiner: [[400, 400, 400, 400, 400, 398, 376, 341, 253, 210, 208], [239, 204, 134, 77, 38, 17, 5, 2, 1, 1, 1]],
+  destroyer: [[400, 400, 400, 400, 400, 400, 400, 400, 400, 400, 400], [399, 398, 394, 389, 367, 332, 259, 192, 133, 98, 64]],
+  battleship: [[400, 400, 400, 400, 400, 400, 400, 400, 400, 400, 400], [400, 400, 400, 400, 400, 400, 397, 392, 379, 367, 348]],
+  carrier: [[400, 400, 400, 400, 400, 400, 400, 400, 400, 400, 400], [400, 400, 400, 399, 389, 375, 343, 294, 246, 200, 150]],
+  orion: [[400, 400, 400, 400, 400, 400, 400, 397, 385, 357, 335], [189, 162, 126, 88, 50, 23, 13, 8, 5, 3, 2]],
+  aurora: [[400, 400, 400, 400, 400, 400, 400, 396, 384, 353, 328], [169, 147, 109, 75, 43, 23, 13, 8, 5, 3, 2]],
+  eir: [[400, 400, 400, 400, 400, 400, 399, 393, 374, 351, 305], [197, 171, 128, 90, 56, 25, 12, 6, 3, 2, 2]],
 };
 
 function asVeteran(state: GameState): GameState {

@@ -1361,7 +1361,23 @@ second commit shared them with the caller, so a second resolve of the same input
   value from 20 to 60; per seed the c2 -> c3 step flips about a dozen outcomes each way, so it is sampling noise. The
   curve now runs 400 seeds (`CURVE_SEEDS`), where every row falls; the pre-WR-8 200-seed table stays in the header.
   Freighter Warband c0 is 262 of 400 (131 of 200; it was 181 of 200 before WR-8): closing evasion does not restore the
-  light-hull early Warband. [PROVISIONAL] for the user: the 400-seed sample (test design, not game rules).
+  light-hull early Warband. The 400-seed sample was approved by the user (answer 7).
+
+**User decisions 6 and 7 (2026-10-22, one commit):** (6) "Ship it, soften early curve": the WR-8 rules and numbers stay
+as c627efe left them (tougher full-strength Warbands are 0.16.0 balance); for peace now the existing safe-first patrol
+curve starts lower for a cycle under the combat rules: `runDifficulty.ts PATROL_RULES_RAMP_FLOOR` 0.2 [PROVISIONAL]
+(the shared `RAMP_FLOOR` stays 0.35 for expeditions, short-range runs and pre-WR-8 cycles), the same climb, exactly
+nominal at full strength, so c10 is unchanged. Picked from floors 0.2 to 0.35 and an ease-in exponent 1 to 1.5 (200
+seeds): 0.2 with the plain climb is the closest single curve (a higher floor leaves the Freighter and the explorers
+harsh, an exponent makes c2 and c5 far too easy). (7) 400 seeds for the monotonicity sweep: approved.
+Curve, Warband wins of 200 at c0 / c2 / c5 / c10 (pre-WR-8 -> now; now measured of 400 and halved):
+Freighter 181 / 135 / 49 / 5 -> 186.5 / 158.5 / 50.5 / 3; Hauler 194 / 170 / 75 / 10 -> 196 / 181 / 77 / 4.5; Runner
+60 / 24 / 5 / 0 -> 83.5 / 48 / 5 / 0.5; Miner 80 / 36 / 7 / 0 -> 119.5 / 67 / 8.5 / 0.5; Destroyer 200 / 198 / 173 / 44
+-> 199.5 / 197 / 166 / 32; Battleship 200 / 200 / 199 / 158 -> 200 / 200 / 200 / 174; Carrier 200 / 200 / 197 / 109 ->
+200 / 200 / 187.5 / 75; Orion 105 / 77 / 21 / 1 -> 94.5 / 63 / 11.5 / 1; Aurora 97 / 68 / 15 / 1 -> 84.5 / 54.5 /
+11.5 / 1; Eir 106 / 75 / 18 / 1 -> 98.5 / 64 / 12.5 / 1. Every Sweep row is 400 of 400 through c4. Every row still falls
+as the curve climbs. No default-suite golden moved (the combat goldens fly veterans); `safeFirstPatrol.test.ts` reads
+the rules floor for a live dispatch.
 
 ### WR-9: Crew and officers beyond the CP slices
 
