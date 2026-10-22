@@ -880,6 +880,56 @@ and gw; `registry` re-pinned 1d8ae09b to bd1e2f48 (read back, 1d8ae09b).
   (added entries out, retired rows restored in place), so every earlier pin reproduces; gearWearGoldens' crafted-gear
   expedition is built with the pre-swap catalog (its Science member wears a Sidearm and Field Suit).
 
+## SF-4 CARRY NOTE (2026-10-21, built on f85ef73; goldens first in 5c12275)
+
+**What a patrol is now.** `dispatchCaptainOnPatrol` stamps `PatrolMissionState.difficulty` (runDifficulty.ts
+`patrolDifficultyAt`: the run stamp plus `completed`, the won routes the cycle's ramp was read at) ONLY when it acts:
+the save's one safe patrol (SF9: `patrol.dispatched === 0`, not a veteran) or a cycle below the top of the curve. Absent
+= full strength, so a veteran, the top of the curve and every patrol in flight from before SF-4 store and fight exactly
+what they did (no SAVE_VERSION move; save.ts note). One shared leaf, combat/patrolProfile.ts, is read by the live loop
+(tick.ts freshPatrolMission / tickCaptainPatrol) AND the display replay and dispatch forecast (patrolReplay.ts
+resolvePatrolWaves; App.svelte patrolForecastFor passes `patrolDifficultyAt(state)` and keys its memo on it):
+1. The training cycle (SF10 "2 waves of 1 Raider"): the first `FIRST_PATROL_WAVES` 2 waves of its own schedule (never
+   more than minWaves; the schedule draws unchanged), each ONE enemy of the route's lightest hull (`lightestPatrolHull`:
+   the raider on both routes) at nominal strength. The backstop (OC-1): a lost wave breaks off (no defeat, no limp, no
+   damage, the carry-state it was entered with goes on, no loot for it); the replay marks the wave `brokeOff`.
+2. A ramped cycle (SF11 "Scale enemy stats"): the route's own waves and enemies, every enemy's hull, shields, recharge,
+   weapon yields and drone HP / yields x `rampEnemyScale(ramp)` (one curve source; the SF-3 review's smoothed last steps
+   come with `rampFraction`). The Weak fade and the affix / ambush lag are Ground Ops rules: a ship battle has no ranks,
+   affixes or ambushes, so the enemy scale is the whole patrol curve.
+3. The curve counts won routes minus the training cycle's (SF5): `tickCaptainPatrol` reports `curveRoutesCompleted`,
+   which economyTick folds into `runCounts.patrol.completed` (lifetimeStats.missionsCompleted still counts every route).
+   A Repeat relaunch reads the next position from the stored stamp alone (`nextPatrolCycleDifficulty`: the training
+   cycle hands over the floor, each won cycle one step up, none stays none), so one call == many and a second captain's
+   wins reach only the next dispatch.
+No new draw and no new salt. The forecast reads Guaranteed on the safe patrol for every hull and route by construction.
+
+**The proof.** `safeFirstPatrol.sweep.test.ts` (gated, `npm run test:sweep:patrol`, about 65 s): master seeds 0 to 999
+x all 10 hulls x both routes x Dispatch Once and Repeat = 40,000 first patrols, every one the training cycle, won, no
+defeat, no limp, no damage, its route off the curve, Repeat flying on at the floor; **the backstop never fired (0 lost
+waves of 80,000)**, so the training enemy needs no scale. The curve table (200 seeds x 11 positions x 10 hulls x 2
+routes): wins never rise as the curve climbs on any row, the top equals a veteran's (the SF-0 WINS table), pinned
+(`CURVE_WINS`; e.g. the Runner's Warband 60 of 200 at the floor to 0 at full, the destroyer's 200 to 44).
+`safeFirstPatrol.test.ts` (14 default tests): the rules, the profile against the same cycle without it, the backstop
+with an unarmed Orion (every wave lost in the fight, broken off, won undamaged; its next patrol at the floor is lost),
+offline == live (one call, 5 s chunks, 1 s steps) over a Repeat run through training and ramped cycles, the forecast,
+a 1,000-patrol fixed sample.
+
+**Goldens.** patrolRampGoldens.test.ts (captured before SF-4 in 5c12275) re-pinned with every move named in its header;
+UNCHANGED: every `ramp:*:c10` and `veteran:*` row (full strength is the pre-SF-4 game). SF-0 firstRunsGoldens: the 10
+`patrol:<hull>` rows, `patrol:repeat` and the gated `patrol:forecast` re-pinned (named in its GOLDEN header); the
+200-seed WINS table now dispatches as a patrol veteran (the nominal record), the closed-form pair keeps a limping case
+through a veteran; `gather:*`, `guards`, `old:v69` unchanged. Every other golden that dispatched a patrol from a fresh
+save goes through awayTeamTestFixtures.ts `asPrePatrolCurveDispatch` (the pre-SF-4 dispatch: no stamp, the whole
+schedule) and is byte-identical; patrol-balance.test.ts runs as `asPatrolVeteran` and keeps its numbers. simPlayer's
+allAuto first Sweep is the training cycle now (shield left 732, was 279).
+
+**For the user (open, flagged by SF-1):** the patrol curve steps per WON ROUTE, so one Dispatch Repeatedly session
+climbs it in about ten routes (a Sweep route is 14 ticks: under three minutes of Repeat at the 1 s tick). The
+alternative is one step per patrol run (dispatch to its end), a small change in `nextPatrolCycleDifficulty` and the
+route count. Patrol cloak detection moved to 0.14.x (T3 ruling): not built here. SF-6 owns the "Training run" chip on
+the patrol card and any `brokeOff` wording.
+
 ## USER ANSWERS (2026-10-21): SF-4 pacing
 
 - Patrol ramp pacing: "One step per patrol run (Recommended)": each dispatched patrol (however many routes it repeats)

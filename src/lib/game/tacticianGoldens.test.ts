@@ -27,6 +27,7 @@ import { equippedFor } from "./equipment";
 import { generateEquipment } from "./itemgen";
 import { DAMAGE_CONTROL_SUITE_KEY } from "./utilityGear";
 import { CLOAKED_VESSEL_HULL, buildShipCombatant, snapshotShipEventProfile } from "./shipScanEvents";
+import { asPrePatrolCurveDispatch } from "./awayTeamTestFixtures";
 
 function fnv(s: string): string {
   let h = 0x811c9dc5;
@@ -78,7 +79,7 @@ function carrier(nodes: readonly SecondaryTalentKey[]): GameState {
 }
 
 function patrolRow(s0: GameState): string[] {
-  const r = dispatchCaptainOnPatrol(s0, 1, "crimsonReaverWarband", "balanced", true);
+  const r = asPrePatrolCurveDispatch(dispatchCaptainOnPatrol(s0, 1, "crimsonReaverWarband", "balanced", true));
   if (!r.success) throw new Error(`patrol refused: ${r.reason}`);
   let s = r.next;
   const out = [hash(s.captains[0].mission)];

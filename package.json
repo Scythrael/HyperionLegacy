@@ -13,6 +13,7 @@
     "test:sweep:training": "vitest run --mode sweep src/lib/game/safeFirstExpedition",
     "test:sweep:si": "vitest run --mode sweep src/lib/game/siMemberGear.sweep",
     "test:sweep:ramp": "vitest run --mode sweep src/lib/game/safeFirstRamp",
+    "test:sweep:patrol": "vitest run --mode sweep src/lib/game/safeFirstPatrol",
     "test:sim": "vitest run --mode sim --reporter=verbose src/lib/game/sim"
   },
   "devDependencies": {

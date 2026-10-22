@@ -33,6 +33,7 @@ import {
 import { dispatchCaptainOnPatrol, economyTick, deriveWaveSeed, DEFAULT_PATROL_LOOT_TABLE, installMissingCombatBaselines } from "./tick";
 import { itemTotal } from "./inventory"; // read an item's TOTAL across quality buckets
 import { rollWaveLoot, type WaveLoot } from "./combat/patrolLoot";
+import { asPrePatrolCurveDispatch } from "./awayTeamTestFixtures";
 
 const PATROL_KEY = "crimsonReaverSweep";
 const DEF = PATROLS[PATROL_KEY];
@@ -62,7 +63,7 @@ function patrolState(typeKey: ShipTypeKey, seed: number): GameState {
 }
 
 function dispatch(state: GameState, repeat: boolean): GameState {
-  const r = dispatchCaptainOnPatrol(state, 1, PATROL_KEY, "balanced", repeat);
+  const r = asPrePatrolCurveDispatch(dispatchCaptainOnPatrol(state, 1, PATROL_KEY, "balanced", repeat));
   expect(r.success).toBe(true);
   return r.next;
 }

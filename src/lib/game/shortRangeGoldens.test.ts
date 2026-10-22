@@ -147,7 +147,7 @@ import { bucketOf, withBuckets } from "./wiring/probes";
 import { hash, onHull, withCrew, withV1Museum, withoutGuests } from "./firstRunsGoldens.fixture";
 import { ML2_ADDED_ENTRY_IDS, ml2LinesBack } from "./ml2RecipeGoldens.fixture";
 import { ML3_FLIPPED_LIVE } from "./materialQualityGoldens.fixture";
-import { asPreG2NamesDispatch, dispatchPastPropulsion } from "./awayTeamTestFixtures";
+import { asPreG2NamesDispatch, dispatchPastPropulsion, asPrePatrolCurveDispatch } from "./awayTeamTestFixtures";
 import { GG1_ADDED_ENTRY_IDS } from "./gasStudyGoldens.fixture";
 import { FUSE_ADDED_ENTRY_IDS } from "./fieldKitsFuse.fixture";
 import { RX_ADDED_ENTRY_IDS } from "./reactorFuelGoldens.fixture";
@@ -260,7 +260,7 @@ function mixedFleet(): GameState {
   if (!exp.success) throw new Error(`expedition refused: ${exp.reason}`);
   const mission = dispatchCaptainOnMission(exp.next, 2, "shortOreRun");
   if (!mission.success) throw new Error(`mission refused: ${mission.reason}`);
-  const patrol = dispatchCaptainOnPatrol(mission.next, 3, "crimsonReaverSweep", "balanced", true);
+  const patrol = asPrePatrolCurveDispatch(dispatchCaptainOnPatrol(mission.next, 3, "crimsonReaverSweep", "balanced", true));
   if (!patrol.success) throw new Error(`patrol refused: ${patrol.reason}`);
   return patrol.next;
 }

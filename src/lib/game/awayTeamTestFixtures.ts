@@ -5,7 +5,7 @@
 // through withMinimumAwayTeam so it keeps testing what it tested before (sensors, museum, relics, phases)
 // rather than the gate. The members are plain: rank 1, no traits, no gear, no own program.
 
-import { SHIP_TYPES, type AwayMember, type AwayTeamType, type Expedition, type ExpeditionFinding, type GameState, type ShipGroundTeam, type ShipTypeDef, type ShipTypeKey } from "./model";
+import { SHIP_TYPES, type AwayMember, type AwayTeamType, type Expedition, type ExpeditionFinding, type GameState, type ShipGroundTeam, type ShipTypeDef, type ShipTypeKey, PATROLS, type PatrolMissionState } from "./model";
 import { BANKED_SYSTEMS, SYSTEM_SALT, expeditionAwayTeamCheck, startExpedition, type ExpeditionCandidate, type ExpeditionDispatchResult } from "./expedition";
 import { FIELD_KITS_RUNS_LIVE } from "./fieldKits";
 import { PROVISIONAL_HOMEWORLD, type HomeworldPlacement } from "./galaxy";
@@ -15,6 +15,7 @@ import { V67_GROUND_TEAM_COUNT, emptyGroundTeams, shipsWithMemberAutoSlotted } f
 import { byIdNumber } from "./awayTeam";
 import { NEUTRAL_SHIP_EVENT_PROFILE } from "./groundOps";
 import { runCountsOf } from "./runDifficulty";
+import { planWaveSchedule, patrolWaveParams } from "./combat/waveSchedule";
 
 // Ground Operations (GO-1, and the GO-7c multi-team tests): register a SYNTHETIC hull under `key` in the
 // shared SHIP_TYPES table, cloned from the General Freighter with the given `awayTeams` (undefined = a hull
@@ -353,6 +354,31 @@ const VETERAN_FIXTURE_COMPLETED = 10;
 export function asExpeditionVeteran(state: GameState): GameState {
   const counts = runCountsOf(state);
   return { ...state, runCounts: { ...counts, expedition: { completed: VETERAN_FIXTURE_COMPLETED, trainingDone: true, veteran: true } } };
+}
+
+// Safe first runs SF-4: `state` as a save that flew patrols before 0.14.0 (save v70's veteran derivation: no safe
+// patrol, the curve at full strength), so its next patrol is dispatched and fought exactly as before SF-4. Tests that
+// pin NOMINAL patrol play from a fresh save go through this. Pure.
+export function asPatrolVeteran(state: GameState): GameState {
+  const counts = runCountsOf(state);
+  return { ...state, runCounts: { ...counts, patrol: { ...counts.patrol, veteran: true } } };
+}
+
+// Safe first runs SF-4: a patrol cycle as it was dispatched before SF-4: no difficulty stamp and the route's whole wave
+// schedule (every other key, and its order, untouched). Identity on an unstamped cycle. Pure.
+export function withoutPatrolCurve(m: PatrolMissionState): PatrolMissionState {
+  if (m.difficulty === undefined) return m;
+  const { difficulty: _stamp, ...rest } = m;
+  return { ...rest, waveTicks: planWaveSchedule(m.masterSeed, patrolWaveParams(PATROLS[m.patrolKey])) };
+}
+
+// Safe first runs SF-4: a patrol dispatch result turned into the one it was before SF-4 (withoutPatrolCurve on every
+// patrol in `next`), so a golden captured before SF-4 keeps proving only its own slice moved it: an unstamped cycle
+// relaunches unstamped and every won route counts, exactly the pre-SF-4 loop. A refusal is returned unchanged. Pure.
+export function asPrePatrolCurveDispatch<R extends { next: GameState }>(raw: R): R {
+  if (!raw.next.captains.some((c) => c.mission?.kind === "patrol" && c.mission.difficulty !== undefined)) return raw;
+  const captains = raw.next.captains.map((c) => (c.mission?.kind === "patrol" ? { ...c, mission: withoutPatrolCurve(c.mission) } : c));
+  return { ...raw, next: { ...raw.next, captains } };
 }
 
 // Field Kits (FK-3, docs/plans/2026-10-14-field-kits-plan.md section 3): the run WITHOUT its Field Kits fields, i.e.

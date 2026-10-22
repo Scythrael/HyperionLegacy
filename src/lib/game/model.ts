@@ -3761,6 +3761,20 @@ export interface PatrolMissionState {
   // 0.14.0 SPEED SEAM (ProcessSpeed): instantComplete flies THIS route through to its end on the next tick (a
   // limping hull crawls the rest of the way home in the same tick). A relaunched route is built without it.
   speed?: ProcessSpeed;
+  // Safe first runs SF-4 (docs/plans/2026-10-15-safe-first-runs-plan.md; runDifficulty.ts patrolDifficultyAt): THIS
+  // cycle's difficulty, frozen when the cycle starts (dispatch, and again at each relaunch, nextPatrolCycleDifficulty).
+  // The save's one safe patrol (firstRun: the training cycle) or a cycle on the gentle curve (ramp below 1), read by
+  // the live loop and the display replay alike (combat/patrolProfile.ts). OPTIONAL and written only when it acts:
+  // absent = full strength, so a veteran's patrol, a cycle at the top of the curve and every patrol in flight from
+  // before SF-4 store and fight exactly what they did (no SAVE_VERSION bump).
+  difficulty?: PatrolDifficultyStamp;
+}
+
+// Safe first runs SF-4: a patrol cycle's difficulty stamp: the run stamp (RunDifficultyStamp, tier I: patrols are
+// Tier I content) plus `completed`, the won routes on the curve this cycle's ramp was read at, so a relaunch reads the
+// next position from the stored mission alone (offline == live; another captain's wins count at the next dispatch).
+export interface PatrolDifficultyStamp extends RunDifficultyStamp {
+  completed: number;
 }
 
 // E-CREW 0.14.0 (Task 20): the Senior Staff officer bonuses that act on a ship's COMBATANT in a ship battle

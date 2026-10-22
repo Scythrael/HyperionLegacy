@@ -58,8 +58,8 @@ import { officerRepairSpeedBonus } from "./crewOverlay";
 import { generateEquipment } from "./itemgen";
 import { damageControlEffect, pathfinderEffect, DAMAGE_CONTROL_SUITE_KEY, PATHFINDER_SUITE_KEY } from "./utilityGear";
 import { addItemQuality } from "./inventory";
-import { advanceExpedition, claimExpedition, expeditionCandidates } from "./expedition";
-import { asPreG2NamesDispatch, asPreRanksDispatch, asPreSafeFirstRunsDispatch, plainAwayMember, withSlottedAwayTeams, dispatchPastPropulsion } from "./awayTeamTestFixtures";
+import { advanceExpedition, claimExpedition, expeditionCandidates, startExpedition } from "./expedition";
+import { asPreG2NamesDispatch, asPreRanksDispatch, asPreSafeFirstRunsDispatch, plainAwayMember, withSlottedAwayTeams, dispatchPastPropulsion, asPrePatrolCurveDispatch } from "./awayTeamTestFixtures";
 import { seatOfficer, withFacilityLevel } from "./wiring/probes";
 import { withCp2Off } from "./complementCp2Switch.fixture";
 
@@ -259,7 +259,7 @@ describe("WR-4 pre-fix goldens", () => {
   it("patrol: a Repeat patrol on a destroyer with a seated tactical officer, relaunched, with the display replay", () => {
     const st = seatOfficer(installMissingCombatBaselines(rich(onHull(freshState(), "destroyer"))), "tactical", ["tac.weaponCommand"], { race: "earthBorn" });
     expect(st.officers.length).toBe(1);
-    const r = dispatchCaptainOnPatrol(st, 1, "crimsonReaverSweep", "balanced", true);
+    const r = asPrePatrolCurveDispatch(dispatchCaptainOnPatrol(st, 1, "crimsonReaverSweep", "balanced", true));
     expect(r.success).toBe(true);
     let s = r.next;
     const out = [hash(s.captains[0].mission)];

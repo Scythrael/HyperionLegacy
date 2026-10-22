@@ -41,7 +41,7 @@ import { generateDronePod, generateEquipment, generateWeapon } from "./itemgen";
 import { equippedFor } from "./equipment";
 import { officerRepairSpeedBonus } from "./crewOverlay";
 import { advanceExpedition, claimExpedition, expeditionCandidates, startExpedition } from "./expedition";
-import { asPreRanksDispatch, asPreSafeFirstRunsDispatch, plainAwayMember, withSlottedAwayTeams } from "./awayTeamTestFixtures";
+import { asPreRanksDispatch, asPreSafeFirstRunsDispatch, plainAwayMember, withSlottedAwayTeams, asPrePatrolCurveDispatch } from "./awayTeamTestFixtures";
 import { hash, stateHash } from "./firstRunsGoldens.fixture";
 import { withSiMemberGearOff } from "./siMemberGearSwitch.fixture";
 
@@ -194,7 +194,7 @@ describe("gear wear step 1 goldens (captured before any wear engine edit)", () =
 
   for (const [hull, route] of PATROL_FIXTURES) {
     it(`patrol:${hull}: a crafted ${hull} on a Repeat ${route} over 2,400 s, with the display replay`, () => {
-      const r = dispatchCaptainOnPatrol(craftedLoadout(onHull(freshState(), hull)), 1, route, "balanced", true);
+      const r = asPrePatrolCurveDispatch(dispatchCaptainOnPatrol(craftedLoadout(onHull(freshState(), hull)), 1, route, "balanced", true));
       expect(r.success).toBe(true);
       let s = r.next;
       const out = [hash(s.captains[0].mission)];

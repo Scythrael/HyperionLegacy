@@ -76,6 +76,7 @@ import {
   type CaptainStopReason,
   type CaptainMissionState,
   type PatrolMissionState,
+  type PatrolDifficultyStamp,
   type ShortRangeMissionState,
   type RunCounts,
   type OfficerCombatMods,
@@ -249,7 +250,6 @@ import type { WeaponId } from "./combat/weapons";
 // Combat 1.0 (Unit 2.3a): DroneRole types the per-hull Standard-Issue drone-pod roles the same
 // seeder + installMissingCombatBaselines build (type-only, no runtime coupling).
 import type { DroneRole } from "./combat/drones";
-import { planWaveSchedule, patrolWaveParams } from "./combat/waveSchedule";
 // Combat 0.13.0 (Phase 12b-1 review): the pure per-wave seed derivation + its four salt
 // constants now live in their own dependency-free combat/ leaf (waveSeed.ts) so the
 // DISPLAY-ONLY patrol replay imports them DOWN from a leaf instead of UP from this live
@@ -425,7 +425,9 @@ import { itemTotal, addItemQuality, removeItemLowestFirst, removeItemHighestFirs
 // scope; server-side moderation in 0.14.0 plugs into the same signature.
 import { validateCaptainName } from "./captainName";
 // Safe first runs SF-1: the run counters (runDifficulty.ts imports model.ts only, so no cycle).
-import { countPatrolDispatch, countPatrolRoutes, runCountsOf, uncountShortRangeCycleStart } from "./runDifficulty";
+import { countPatrolDispatch, countPatrolRoutes, isTrainingPatrol, nextPatrolCycleDifficulty, patrolDifficultyAt, runCountsOf, uncountShortRangeCycleStart } from "./runDifficulty";
+// Safe first runs SF-4: a patrol cycle's difficulty profile (the training cycle, the curve), shared with the replay.
+import { patrolCycleEnemies, patrolCycleWaveTicks, patrolWaveBreaksOff, patrolWaveEnemyParams } from "./combat/patrolProfile";
 // G1-4: the short-range cycle engine and the board's stored-cursor shape check.
 import { shortRangeHasDeparted, tickCaptainShortRange } from "./shortRangeCycle";
 import { isWellFormedShortRangeBoard } from "./shortRangeBoard";
@@ -3019,6 +3021,10 @@ interface PatrolTickResult {
   // WR-4 (B4, OC-E10 "shipsDestroyed from patrol and ship-event kills"): the enemy ships this call's wave battles
   // destroyed (won and lost waves alike), so economyTick credits the officers aboard. 0 on a no-op call.
   enemiesDestroyed: number;
+  // Safe first runs SF-4: the routes WON this call that count on the patrol curve (runCounts.patrol.completed): every
+  // completed route except the training cycle's (user SF5 "Completed runs only, minus the tutorial run"). The same
+  // per-route count as missionsCompleted otherwise, so an unstamped patrol reports exactly its won routes.
+  curveRoutesCompleted: number;
 }
 
 // tickCaptainPatrol: advance ONE captain's patrol by `ticksElapsed` route ticks. PURE
@@ -3112,6 +3118,7 @@ export function tickCaptainPatrol(
     endRoutesCompleted: 0,
     lifetimeStatsDelta: emptyMissionLifetimeStatsDelta(),
     enemiesDestroyed: 0,
+    curveRoutesCompleted: 0,
   };
   // Only the patrol arm advances here; idle / extraction / a sub-tick call is a no-op.
   if (!captain.mission || captain.mission.kind !== "patrol" || ticksElapsed <= 0) return noOp;
@@ -3198,6 +3205,8 @@ export function tickCaptainPatrol(
   // cyclesCompleted: a single offline call can complete MANY routes (repeat-dispatch relaunch),
   // so this counts each one and feeds the missionsCompleted lifetime tally below.
   let routesCompleted = 0;
+  // Safe first runs SF-4: the same routes minus the training cycle's (the patrol curve's count).
+  let curveRoutesCompleted = 0;
   // WR-4 (B4): enemy ships destroyed in this call's wave battles (each wave resolves exactly once, however the span
   // is chunked, so this is closed-form like the loot).
   let enemiesDestroyed = 0;
@@ -3318,14 +3327,15 @@ export function tickCaptainPatrol(
 
       // ENEMY team: deterministic from the ENEMY-salt derivation. idPrefix = faction id +
       // wave index (traceable + disjoint across waves, enemyWave.ts's contract).
-      const enemies = generateEnemyWave(
-        deriveWaveSeed(mission.masterSeed, waveIndex, WAVE_ENEMY_SEED_SALT),
-        {
-          hullPool: def.hullPool,
-          enemyCountMin: def.enemyCountMin,
-          enemyCountMax: def.enemyCountMax,
-          idPrefix: `${mission.factionId}-w${waveIndex}`,
-        },
+      // Safe first runs SF-4: through the cycle's difficulty profile (combat/patrolProfile.ts, the SAME leaf the replay
+      // and the forecast read): the training cycle's one lightest enemy, a ramped cycle's enemies at the curve's
+      // strength; no stamp = the route's own params and the unscaled team, exactly as before.
+      const enemies = patrolCycleEnemies(
+        generateEnemyWave(
+          deriveWaveSeed(mission.masterSeed, waveIndex, WAVE_ENEMY_SEED_SALT),
+          patrolWaveEnemyParams(def, mission, `${mission.factionId}-w${waveIndex}`),
+        ),
+        mission,
       );
 
       // BATTLE: the BATTLE-salt derivation (distinct from the enemy seed above).
@@ -3339,6 +3349,13 @@ export function tickCaptainPatrol(
 
       // WR-4 (B4): every enemy this wave's battle destroyed counts toward the officers' shipsDestroyed.
       enemiesDestroyed += finalCombatants.filter((c) => c.team === "enemy" && !c.alive).length;
+      // Safe first runs SF-4: the carry-state this wave was entered with, for the training cycle's backstop below.
+      const preWave = {
+        hull: mission.playerHull,
+        shield: mission.playerShield,
+        drones: mission.playerDrones,
+        durability: mission.playerSystemDurability,
+      };
       // Read the player's POST-battle state BY ID (finalCombatants is in TURN order: by side,
       // then input order). Carry hull/shield/drones forward (attrition; hull never regens).
       const p = finalCombatants.find((c) => c.id === playerId);
@@ -3393,6 +3410,15 @@ export function tickCaptainPatrol(
         fleetAdminXpAwarded += loot.fleetAdminXp;
         captainXpAwarded += loot.captainXp;
         // CONTINUE: the patrol proceeds (later waves and/or transitBack still ahead).
+      } else if (patrolWaveBreaksOff(mission)) {
+        // Safe first runs SF-4, THE BACKSTOP (the training cycle only; OC-1 "Finish 100%, no setbacks"): the wave
+        // breaks off. No defeat, no limp home, no damage (the ship keeps the carry-state it entered the wave with)
+        // and no loot for the wave; the patrol flies on to its next wave and home. Never reached on any other cycle.
+        mission.playerHull = preWave.hull;
+        mission.playerShield = preWave.shield;
+        mission.playerDrones = preWave.drones;
+        mission.playerSystemDurability = preWave.durability;
+        mission.nextWaveIndex = waveIndex + 1;
       } else {
         // DEFEAT (Combat 0.13.0, Phase 11, design S13): the patrol does NOT end instantly.
         // The wreck must LIMP HOME first (2x the return leg), so instead of ending we switch
@@ -3451,6 +3477,8 @@ export function tickCaptainPatrol(
       // A full route flown + player alive = one patrol COMPLETED (won). Count it (win-only: a
       // defeat broke out above and never reaches here), keyed into missionsCompleted below.
       routesCompleted += 1;
+      // Safe first runs SF-4: on the curve unless it was the training cycle's route (SF5).
+      if (!isTrainingPatrol(mission)) curveRoutesCompleted += 1;
       // 0.13.4 Phase 2: the same completion, accumulated PER RUN. Incremented here (beside the
       // per-call counter) rather than at the ending, because a repeat-dispatch run completes
       // many routes and only the last one coincides with an ending.
@@ -3524,6 +3552,9 @@ export function tickCaptainPatrol(
               officerEffects.returnConstitution ?? 0,
               hoursOut + ((def.transitOutTicks + def.rollWindowTicks) * (officerEffects.secondsPerTick ?? 1)) / 3600,
             ),
+            // Safe first runs SF-4: the new cycle's difficulty, from this cycle's stamp alone (the training cycle
+            // hands over the curve's floor, a won ramped cycle one step up; none stays none).
+            difficulty: nextPatrolCycleDifficulty(mission.difficulty),
           });
           // The new cycle's frozen bonuses may differ from the old one's: re-fold the carry pools so the
           // between-wave regen and the limp damage read the SAME fold as this cycle's wave combatants.
@@ -3664,6 +3695,7 @@ export function tickCaptainPatrol(
     // field meaning "routes in the run that just finished" rather than "routes so far".
     endRoutesCompleted: endReason === null ? 0 : routesThisRun,
     enemiesDestroyed,
+    curveRoutesCompleted,
   };
 }
 
@@ -4253,8 +4285,9 @@ export function economyTick(
         // shared foldLifetimeStatsDelta seam the extraction arm uses (~110 lines below), so
         // combat loot/bounty/XP count toward lifetime totals exactly like extraction loot.
         lifetimeStats = foldLifetimeStatsDelta(lifetimeStats, patrolResult.lifetimeStatsDelta);
-        // Safe first runs SF-1: the same won routes count on the patrol curve (runCounts, folded below).
-        patrolRoutesWon += Object.values(patrolResult.lifetimeStatsDelta.missionsCompleted).reduce((sum, d) => sum + d.toNumber(), 0);
+        // Safe first runs SF-1: the same won routes count on the patrol curve (runCounts, folded below). SF-4: minus the
+        // training cycle's route (curveRoutesCompleted).
+        patrolRoutesWon += patrolResult.curveRoutesCompleted;
         // Crew 0.14.0 ("CREW GOES LIVE"): record this patrol's completed ROUTES against its ship so the
         // officers aboard get missionsCompleted credit (promotion gates). routesCompleted lives in the
         // patrol's lifetimeStatsDelta.missionsCompleted, keyed by patrolKey; sum its (single) value.
@@ -5445,6 +5478,9 @@ function freshPatrolMission(args: {
   // 0.14.0 (CP-4): a relaunch's carried Deck Handling bank, squadron by squadron (bridge.ts withReplenishCarry). Stored
   // as replenishCarryStart only when one is > 0, so the display replay seeds the same bank.
   replenishCarry?: readonly number[];
+  // Safe first runs SF-4: the cycle's difficulty (runDifficulty.ts patrolDifficultyAt at dispatch,
+  // nextPatrolCycleDifficulty at a relaunch). Stored only when present (absent = full strength, the record as before).
+  difficulty?: PatrolDifficultyStamp;
 }): PatrolMissionState {
   const { patrolKey, stance, masterSeed, repeatDispatch, shipDef, hullType, installedGear, officerCombat, captainCombat } = args;
   const deckHandling = args.deckHandling ?? 0;
@@ -5479,6 +5515,7 @@ function freshPatrolMission(args: {
     ...(replenishCarryStart.some((c) => c > 0) ? { replenishCarryStart } : {}),
     ...(freeRepairTicks > 0 ? { freeRepairTicks } : {}),
     ...(returnCutTicks > 0 ? { returnCutTicks } : {}),
+    ...(args.difficulty ? { difficulty: args.difficulty } : {}),
     kind: "patrol",
     patrolKey,
     factionId: def.factionId, // pin the fought faction (def could be retuned mid-flight)
@@ -5489,7 +5526,8 @@ function freshPatrolMission(args: {
     // Resolve the wave schedule NOW: a pure function of the master seed + def params, so it
     // is stable across save/load and reproducible offline==live (see PatrolMissionState
     // .waveTicks for the wave-plan-now rationale).
-    waveTicks: planWaveSchedule(masterSeed, patrolWaveParams(def)),
+    // Safe first runs SF-4: through the cycle's profile (the training cycle keeps the first waves of this schedule).
+    waveTicks: patrolCycleWaveTicks(masterSeed, def, { difficulty: args.difficulty }),
     nextWaveIndex: 0,
     wavesWon: 0,
     wavesLost: 0,
@@ -5909,6 +5947,9 @@ export function dispatchCaptainOnPatrol(
     returnCutTicks,
     // 0.14.0 (CP-4, OC-1 "Faster drone replenish"): freeze the crew's Deck Handling onto the first cycle (0 = none).
     deckHandling: shipDeckHandling(state, ship),
+    // Safe first runs SF-4: the save's one safe patrol, or the curve at the won routes so far (read BEFORE this
+    // dispatch is counted; absent at full strength).
+    difficulty: patrolDifficultyAt(state),
   });
 
   const captains = [...state.captains];
