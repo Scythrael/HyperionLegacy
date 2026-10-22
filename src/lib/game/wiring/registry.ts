@@ -186,10 +186,12 @@ import {
   GAMBIT_SELECTORS,
   sourceOn,
   FIELD_KITS_SWITCH_PROBE_STOCK,
+  relicV2ProbeExpectedExceptional,
   type ContextId,
   type ProbeId,
   type Transform,
 } from "./probes";
+import { relicStudyLanesAt } from "../relicIdentify";
 
 // ============================================================================
 // Types (plan section 3.2)
@@ -3619,6 +3621,10 @@ const AUDIT_ROWS: readonly { id: string; system: WiringSystem; claim: string; st
   { id: "relic:audit:blankCulture", system: "relic", claim: "A blank's culture (cultureForBody, stamped on every new run's relic): the culture study reads it", status: pending("Relics v2 R2-6 (cultures: study points and the name reveal)") },
   { id: "relic:audit:shortRangeBlanks", system: "relic", claim: "Short-range relic drops (rollShortRangeRelicBlanks: per hour, Tier I 0.08x and Tier II 0.15x of the expedition rate)", status: pending("G1-5 (wires the hook into a delivered short-range cycle)") },
   { id: "relic:audit:completionBlank", system: "relic", claim: "The planet 100% bonus roll (planetCompletionRelicBlank: one extra blank, one rarity step up)", status: pending("G7 (calls the hook when a planet is fully completed)") },
+  // Relics v2 R2-3 (relicIdentify.ts; the queue in tick.ts): every new study identifies through identification v2.
+  { id: "relic:audit:identifyV2", system: "relic", claim: "Identification v2: a new study reveals an exceptional piece at EXCEPTIONAL_PER_100K (user call 6), preferring the pieces the Museum lacks (call 7); else a general type on the blank's own rarity band odds (\"Only one boost\") with the site bias", status: LIVE },
+  { id: "relic:audit:identifyLanes", system: "relic", claim: "Relic-study lanes by Research Lab tier (RELIC_STUDY_LANES_BY_LAB: Lab I 1, III 2, V 3, VII 4; user call 12)", status: LIVE },
+  { id: "relic:audit:identifyQueue", system: "relic", claim: "The identification queue: the next queued blank starts the moment a lane frees, also while away (tick.ts queueRelicStudy / resolveRelicStudies)", status: pending("Relics v2 R2-7 (the Identification tab: feed, queue, reorder; the engine queue is built and tested)") },
   { id: "relic:audit:generalPick", system: "relic", claim: "A blank with no set identifies over the general pool by band, with the site bias (identifyGeneralRelic)", status: pending("G1-5 and G7 (the first callers that mint a blank with no set); R2-3 builds identification v2 on the same pick") },
   // I. Missions, patrols, factions
   { id: "mission:audit:unusedFactions", system: "mission", claim: "voidJackals, ironVultures, ashenCorsairs and Faction.id (no patrol references them)", status: pending("WR-11, OC-I2") },
@@ -3688,6 +3694,22 @@ function auditRowWiring(): Readonly<Record<string, Partial<EntryInput>>> {
     },
     // Field Kits FKR-9 / FKR-10: the hidden pieces are reachable: the Impact Grenade blueprint merged into BLUEPRINTS and
     // the carry line in the Stun and Toxin Grenade craft pools.
+    // Relics v2 R2-3: the reveals a real study start and resolve land, against the v1 roll (no exceptional piece).
+    "relic:audit:identifyV2": {
+      probe: "content:relic:exceptionalReveals",
+      contexts: ["research"],
+      curve: { kind: "gate" },
+      magnitude: () => relicV2ProbeExpectedExceptional(),
+      on: sourceOn,
+    },
+    // Relics v2 R2-3: Lab VII runs three more relic studies at once than Lab I.
+    "relic:audit:identifyLanes": {
+      probe: "content:relic:lanes",
+      contexts: ["research"],
+      curve: { kind: "gate" },
+      magnitude: () => relicStudyLanesAt(7) - relicStudyLanesAt(1),
+      on: sourceOn,
+    },
     "away:audit:fieldKitsHiddenPieces": {
       probe: "content:fieldKitsHiddenPieces",
       contexts: ["research", "craft"],

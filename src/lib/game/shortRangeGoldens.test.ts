@@ -156,6 +156,7 @@ import { isSiAdded, SI_RETIRED, siReadBack } from "./siMemberGearRegistry.fixtur
 // E-MOD EM-5: its two module wear rows, held apart from the gear wear pin.
 import { EM5_ADDED_ENTRY_IDS } from "./emodEm5Registry.fixture";
 import { R2_2_ADDED_ENTRY_IDS } from "./relicBlanks.fixture";
+import { R2_3_ADDED_ENTRY_IDS } from "./relicIdentify.fixture";
 import { G2_4_ADDED_ENTRY_IDS, G2_4_FLIPPED_BEFORE } from "./propulsionRecallGoldens.fixture";
 // CP-8 / OC-11: the test switch that proves the auto-crew pause is the only thing that moved the fleet pin.
 vi.mock("./crewLock", async (io) => (await import("./complementOc11Switch.fixture")).oc11CrewLockMock(io));
@@ -616,6 +617,8 @@ const G16_FLIPPED_LIVE: ReadonlySet<string> = new Set<string>(["facility:audit:m
 const G16_SLICE: RegistrySlice = { added: G16_ADDED_ENTRY_IDS, flipped: G16_FLIPPED_LIVE, was: "pending" };
 // Relics v2 R2-2's five audit rows, held apart in EVERY pin the same way (relicBlanks.test.ts pins them).
 const R2_2_SLICE: RegistrySlice = { added: R2_2_ADDED_ENTRY_IDS };
+// Relics v2 R2-3's three audit rows, the same (relicIdentify.test.ts pins them).
+const R2_3_SLICE: RegistrySlice = { added: R2_3_ADDED_ENTRY_IDS };
 // ML-2's two new entries (the Biofiber and Resin Distillate refines), held apart in EVERY pin (all were taken before it).
 const ML2_SLICE: RegistrySlice = { added: ML2_ADDED_ENTRY_IDS };
 // The OC-15 Lab and Fabricator tier rungs (0.14.0): one added entry per new rung, held apart in EVERY pin the same way
@@ -628,7 +631,7 @@ const ML3_SLICE: RegistrySlice = { flipped: ML3_FLIPPED_LIVE, was: "pending" };
 // taken before it) through siReadBack (siMemberGearRegistry.fixture.ts: the `si:` entries and the three new Science
 // lines left out, the nine retired combat lines restored in place); `registry:si` pins the added and retired ids.
 function registryPin(...given: readonly RegistrySlice[]): [number, string] {
-  const slices = [RX_SLICE, FUSE_SLICE, ML2_SLICE, OC15_SLICE, R2_2_SLICE, G16_SLICE, ...G2_4_SLICES, ML3_SLICE, ...given];
+  const slices = [RX_SLICE, FUSE_SLICE, ML2_SLICE, OC15_SLICE, R2_2_SLICE, R2_3_SLICE, G16_SLICE, ...G2_4_SLICES, ML3_SLICE, ...given];
   const rows = siReadBack(WIRING_REGISTRY.map((e) => ({ id: e.id, kind: e.status.kind as string })), (r) => r.id, (row) => ({ id: row[0], kind: row[1].kind as string }));
   const lines = rows.filter((e) => !slices.some((sl) => sl.added?.has(e.id))).map((e) => {
     const flip = slices.find((sl) => sl.flipped?.has(e.id));
