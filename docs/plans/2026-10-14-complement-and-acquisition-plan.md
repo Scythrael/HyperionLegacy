@@ -762,14 +762,13 @@ User 2026-10-21 (merge-batch answers, late calls): "Build them in 0.14.0 (Recomm
 - One table, `model.ts LAB_FABRICATOR_TIER_RUNGS` (tiers III to VII), drives BOTH tracks: the Research Lab gains rungs
   [2..6] (levels 3 to 7) and the Fabricator rungs [3..6] (levels 4 to 7); its existing tier III rung (FIX B, 20,000 /
   240 / FA 6) is now that table's first row, byte-identical. `LAB_FABRICATOR_TOP_TIER` = 7.
-- **[PROVISIONAL]** numbers, sized on the existing curve (credits x2.5 and FA +3 per rung, the Shipyard / telescope
+- **APPROVED** (user 2026-10-21, "Costs OK, +1 slot each (Recommended)") numbers, sized on the existing curve (credits x2.5 and FA +3 per rung, the Shipyard / telescope
   strides; durations on the telescope ladder): III 20,000 / 240 / FA 6, IV 50,000 / 420 / FA 9, V 125,000 / 720 / FA 12,
   VI 300,000 / 1,200 / FA 15, VII 750,000 / 1,800 / FA 18. Credits and FA only (the gates both Upgrades panels show).
-- **[PROVISIONAL]** every rung grants one slot (research or craft), the pattern every rung of both tracks carried, so no
+- **APPROVED** (same answer): every rung grants one slot (research or craft), the pattern every rung of both tracks carried, so no
   rung is inert even before tier III+ blueprints land: a level VII Lab runs 7 projects, a level VII Fabricator 7 crafts.
   This lifts the Fabricator past FIX B's "three lines, like the Refinery" above level 3 (craftingProgress design 6.4
-  now prices level 3 explicitly; the full track only widens fabricating's lead). Alternative for the user: rungs IV to
-  VII grant a speed multiplier instead of a slot (the Refinery's fourth rung shape).
+  now prices level 3 explicitly; the full track only widens fabricating's lead).
 - Tier content rides the blueprint `tier` alone (Lab N researches, Fabricator N crafts tier N). Readers for everything
   else: `labTier(state)` / `fabricatorTier(state)` (model.ts). Owners: G2-4 propulsion (`drivesWithinFacilityReach`
   reads the two track lengths, so Class III to VII join BLUEPRINTS at merge with no code change; its
@@ -783,3 +782,5 @@ User 2026-10-21 (merge-batch answers, late calls): "Build them in 0.14.0 (Recomm
   next rung now builds), proven by `labFabricatorTiers.fixture.ts withPreOc15Tracks`. `wiringGoldens rungs` moved
   (re-pinned `RUNGS_OC15`, the old hash reproduced with the tracks cut back). Registry: nine added LIVE rung entries
   (researchSlots / fabricateSlots probes), held apart in every registry pin via `OC15_ADDED_ENTRY_IDS`.
+- Merged feat/crew-0.14.0 (472672d: ML-2, SI gear, EM-2, timed grenades) in: the registry pins union OC15_SLICE with
+  ML2_SLICE (shortRangeGoldens registryPin) and keep OC15_ADDED_ENTRY_IDS out of emodGoldens BEFORE_RX beside ml2RowsBack.

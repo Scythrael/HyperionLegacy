@@ -1638,8 +1638,10 @@ describe("ITEMS, Phase 1 seed registry", () => {
     // Iridium Catalyst, Cobalt Coil, Osmium Plate, Photonic Gel, Biocatalyst; refined 5 -> 12), bringing the total to 38.
     // Gas Giant Study GG-1 (0.14.0) ADDED the six Gas Storage Canisters (gasCanister) and the nine research data items
     // (researchData: eight families and the Ancient Data Fragment), bringing the total to 53.
+    // ML-2 (0.14.0, the recipe realism audit, Group B call 6) ADDED two refined goods (Biofiber, Resin Distillate;
+    // refined 12 -> 14), bringing the total to 55.
     const keys = Object.keys(ITEMS);
-    expect(keys).toHaveLength(53);
+    expect(keys).toHaveLength(55);
     expect(Object.values(ITEMS).filter((i) => i.category === "fieldKit")).toHaveLength(6);
     expect(Object.values(ITEMS).filter((i) => i.category === "gasCanister")).toHaveLength(6);
     expect(Object.values(ITEMS).filter((i) => i.category === "researchData")).toHaveLength(9);
@@ -1649,7 +1651,7 @@ describe("ITEMS, Phase 1 seed registry", () => {
     const major = Object.values(ITEMS).filter((i) => i.category === "majorComponent");
     const salvaged = Object.values(ITEMS).filter((i) => i.category === "salvagedMaterial");
     expect(raw).toHaveLength(14);
-    expect(refined).toHaveLength(12);
+    expect(refined).toHaveLength(14);
     expect(minor).toHaveLength(3);
     expect(major).toHaveLength(1);
     expect(salvaged).toHaveLength(2);
@@ -2314,6 +2316,11 @@ describe("Equipment BLUEPRINTS (0.11.0 Task 18)", () => {
     const INTENDED_SPREAD = [
       "titaniumIngot", "polysilicateWafer",                    // refined (refine-recipe outputs)
       "frameSegment", "powerCoupling", "structuralAssembly",   // components (fabricated)
+      // ML-2 (0.14.0, Material Lines recipe rework + the recipe realism audit): every Refinery good now feeds an
+      // equipment blueprint too (WR-4's two, ML-1's seven, the audit's Biofiber and Resin Distillate).
+      "reclaimedAlloy", "purifiedBiomass",
+      "ferriteIngot", "reclaimedCircuit", "iridiumCatalyst", "cobaltCoil", "osmiumPlate", "photonicGel", "biocatalyst",
+      "biofiber", "resinDistillate",
     ];
     const usedInputs = new Set<string>();
     for (const bp of equipmentBlueprints) {

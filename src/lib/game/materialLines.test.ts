@@ -9,8 +9,10 @@
 //   - every refined input of a refine recipe or blueprint is producible; every raw input has a live mission source
 //   - ML-1 review (the user's "everything wired, nothing inert player-reachable" rule): a recipe whose output leads
 //     nowhere yet is not offered (refineRecipeOffered: canStartLine, the Refinery dropdown, the dashboard scan), and
-//     the gate lifts by itself when ML-2 / EM-8 drop the reserve marker. The engine tests below lift the markers for
-//     their duration (withMarkersLifted) to exercise the recipes as they will run once offered.
+//     the gate lifts by itself when ML-2 / EM-8 drop the reserve marker.
+// ML-2 (0.14.0) gave the six reserved goods their blueprints and dropped their markers in the same commit, so every
+// recipe here is offered now; the gate is still exercised by putting a marker back (withMarkersAdded). Only the
+// Precursor Circuit (EM-8) stays reserved.
 
 import { describe, expect, it } from "vitest";
 import {
@@ -58,7 +60,9 @@ const ML1_ITEMS: Record<string, string> = {
 };
 
 const COMPOUNDS = Object.keys(ML1_RECIPES).filter((k) => ML1_RECIPES[k].inputs.length > 1);
-const RESERVED_TODAY = ["reclaimedCircuit", "iridiumCatalyst", "cobaltCoil", "osmiumPlate", "photonicGel", "biocatalyst", "precursorCircuit"];
+// ML-2 lifted the six ML-1 reserves; only EM-8's Precursor Circuit is still reserved.
+const RESERVED_TODAY = ["precursorCircuit"];
+const ML2_LIFTED = ["reclaimedCircuit", "iridiumCatalyst", "cobaltCoil", "osmiumPlate", "photonicGel", "biocatalyst"];
 
 // Runs `fn` with the reserve marker lifted from `ids` (as ML-2 / EM-8 will when they add the consumer), then restores
 // it. The marker is static data, so this is the honest way to show the gate lifts on its own.
@@ -72,6 +76,17 @@ function withMarkersLifted<T>(ids: readonly string[], fn: () => T): T {
   }
 }
 const lifted = <T>(fn: () => T): T => withMarkersLifted(RESERVED_TODAY, fn);
+
+// Runs `fn` with a reserve marker put BACK on `ids` (the state before ML-2 gave them a use), then removes it: the
+// gate's mechanism, shown on today's data.
+function withMarkersAdded<T>(ids: readonly string[], fn: () => T): T {
+  try {
+    for (const id of ids) ITEMS[id].reserved = "ML-2 (test: the marker put back)";
+    return fn();
+  } finally {
+    for (const id of ids) delete ITEMS[id].reserved;
+  }
+}
 
 // A Refinery at level 1 (one slot) holding exactly `iterations` of a recipe's inputs (one unit fewer of `short`).
 function stocked(recipeKey: string, iterations: number, short?: string): GameState {
@@ -189,58 +204,59 @@ describe("ML-1 recipes: the seven Refinery recipes, as named", () => {
     }));
 });
 
-describe("ML-1 review: a recipe that leads nowhere yet is not offered", () => {
+describe("ML-1 review, after ML-2: every Material Lines recipe is on offer, and the gate still hides a dead end", () => {
   const ALL = Object.keys(ML1_RECIPES);
 
-  it("today none of the seven is offered (six reserved outputs; Ferrite Ingot only feeds the reserved Osmium Plate)", () => {
-    for (const key of ALL) expect(refineRecipeOffered(key), key).toBe(false);
+  it("ML-2 gave every output a use, so all seven are offered (beside the original four)", () => {
+    for (const key of ALL) expect(refineRecipeOffered(key), key).toBe(true);
     for (const key of ["refineCommonOre", "refinePolysilicateWafer", "refineReclaimedAlloy", "refinePurifiedBiomass"]) {
       expect(refineRecipeOffered(key), key).toBe(true);
     }
   });
 
-  it("the engine refuses a hidden recipe even fully stocked, and takes nothing", () => {
-    for (const key of ALL) {
-      const s = stocked(key, 1);
-      expect(canStartLine(s, "refine", key, 1), key).toEqual({ ok: false, reason: "notFound" });
-      const r = startLine(s, "refine", key, { kind: "batch", remaining: 1 });
-      expect(r.started, key).toBe(false);
-      expect(r.next, key).toBe(s);
-    }
+  it("the engine starts each one fully stocked", () => {
+    for (const key of ALL) expect(canStartLine(stocked(key, 1), "refine", key, 1), key).toEqual({ ok: true });
   });
 
-  it("the dashboard never suggests a hidden recipe, and does once it is offered", () => {
+  it("the gate still works: a marker put back hides its recipe, the engine refuses it and takes nothing", () => {
+    withMarkersAdded(["cobaltCoil"], () => {
+      expect(refineRecipeOffered("synthCobaltCoil")).toBe(false);
+      const s = stocked("synthCobaltCoil", 1);
+      expect(canStartLine(s, "refine", "synthCobaltCoil", 1)).toEqual({ ok: false, reason: "notFound" });
+      const r = startLine(s, "refine", "synthCobaltCoil", { kind: "batch", remaining: 1 });
+      expect(r.started).toBe(false);
+      expect(r.next).toBe(s);
+    });
+    expect(refineRecipeOffered("synthCobaltCoil")).toBe(true);
+  });
+
+  it("the dashboard suggests an offered recipe, and never a hidden one", () => {
     // Only Cobalt Ore and a Titanium Ingot in stock: the Cobalt Coil compound is the one recipe that could start.
     const s = stocked("synthCobaltCoil", 1);
-    expect(buildHomeDashboard(s).needsOrders.some((p) => p.id === "idle-refinery")).toBe(false);
-    withMarkersLifted(["cobaltCoil"], () => {
-      expect(buildHomeDashboard(s).needsOrders.some((p) => p.id === "idle-refinery")).toBe(true);
+    expect(buildHomeDashboard(s).needsOrders.some((p) => p.id === "idle-refinery")).toBe(true);
+    withMarkersAdded(["cobaltCoil"], () => {
+      expect(buildHomeDashboard(s).needsOrders.some((p) => p.id === "idle-refinery")).toBe(false);
     });
   });
 
-  it("each hidden recipe is a pending registry entry owned by the slice that lifts it (ML-2), never claimed live", () => {
+  it("each recipe is a live registry entry with its content probe (ML-2 lifted them by itself)", () => {
     for (const key of ALL) {
       const e = WIRING_REGISTRY.find((w) => w.id === `facility:REFINE_RECIPES:${key}`);
-      expect(e?.status.kind, key).toBe("pending");
-      expect(e?.status.kind === "pending" ? e.status.owner : "", key).toMatch(/^ML-2 /);
+      expect(e?.status.kind, key).toBe("live");
+      expect(e?.probe, key).toBe(`content:refine:${key}`);
     }
-    expect(WIRING_REGISTRY.find((w) => w.id === "facility:REFINE_RECIPES:refineCommonOre")?.status.kind).toBe("live");
   });
 
-  it("dropping one marker offers exactly the recipes it unblocks", () => {
-    withMarkersLifted(["cobaltCoil"], () => {
-      expect(ALL.filter(refineRecipeOffered)).toEqual(["synthCobaltCoil"]);
-      expect(canStartLine(stocked("synthCobaltCoil", 1), "refine", "synthCobaltCoil", 1)).toEqual({ ok: true });
+  it("putting one marker back hides exactly the recipes it blocks", () => {
+    withMarkersAdded(["cobaltCoil"], () => {
+      expect(ALL.filter((k) => !refineRecipeOffered(k))).toEqual(["synthCobaltCoil"]);
     });
-    // Osmium Plate gains a use: its compound AND the Ferrite refine feeding it come on offer together.
-    withMarkersLifted(["osmiumPlate"], () => {
-      expect(ALL.filter(refineRecipeOffered).sort()).toEqual(["refineFerriteIngot", "synthOsmiumPlate"]);
+    // The Osmium Plate: only its compound. Ferrite Ingot now feeds the Hauler Hold and Reinforced Plating directly, so
+    // its refine stays on offer.
+    withMarkersAdded(["osmiumPlate"], () => {
+      expect(ALL.filter((k) => !refineRecipeOffered(k))).toEqual(["synthOsmiumPlate"]);
     });
-    lifted(() => {
-      for (const key of ALL) expect(refineRecipeOffered(key), key).toBe(true);
-    });
-    // and the markers are back
-    for (const key of ALL) expect(refineRecipeOffered(key), key).toBe(false);
+    for (const key of ALL) expect(refineRecipeOffered(key), key).toBe(true);
   });
 });
 
@@ -325,23 +341,20 @@ describe("ML-1 sink rule: every material has a consumer or a typed reserve", () 
     }
   });
 
-  it("the six ML-2 goods are reserved for ML-2; Ferrite Ingot already feeds the Osmium Plate", () => {
-    for (const id of ["reclaimedCircuit", "iridiumCatalyst", "cobaltCoil", "osmiumPlate", "photonicGel", "biocatalyst"]) {
-      expect(ITEMS[id].reserved, id).toMatch(/^ML-2 /);
+  it("ML-2 lifted the six reserves: each good feeds at least one blueprint now; Ferrite Ingot feeds blueprints too", () => {
+    for (const id of [...ML2_LIFTED, "ferriteIngot"]) {
+      expect(ITEMS[id].reserved, id).toBeUndefined();
+      expect((used.get(id) ?? []).some((by) => by.startsWith("blueprint:")), id).toBe(true);
     }
-    expect(ITEMS.ferriteIngot.reserved).toBeUndefined();
     expect(used.get("ferriteIngot")).toContain("refine:synthOsmiumPlate");
   });
 
   // A LIVE sink is a consumer outside the Refinery or an OFFERED refine recipe; a hidden recipe is a dead end, not a sink.
   const liveSink = (id: string): boolean => (used.get(id) ?? []).some((by) => !by.startsWith("refine:") || refineRecipeOffered(by.slice("refine:".length)));
 
-  it("the six orphan raws of the E-MAT census: Scrap Alloy has a live sink now, the other five once ML-2 lifts its reserves", () => {
+  it("the six orphan raws of the E-MAT census all have a live sink now (ML-2 lifted the reserves)", () => {
     const ORPHANS = ["rareMaterial", "ferriteOre", "cobaltOre", "osmiumOre", "scrapAlloy", "salvagedCircuitry"];
-    expect(ORPHANS.filter(liveSink)).toEqual(["scrapAlloy"]); // Reclaimed Alloy feeds the Damage Control Suite
-    withMarkersLifted(RESERVED_TODAY.filter((id) => id !== "precursorCircuit"), () => {
-      for (const id of ORPHANS) expect(liveSink(id), id).toBe(true);
-    });
+    for (const id of ORPHANS) expect(liveSink(id), id).toBe(true);
   });
 });
 

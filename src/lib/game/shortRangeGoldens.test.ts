@@ -114,6 +114,13 @@
 //                  Science lines added, the nine retired combat lines removed; registryPin always reads them back
 //                  (siReadBack, like RX_SLICE), so the base pin and every cause pin are unchanged; `registry:si` pins
 //                  the added entries with their statuses and the retired ids.
+// MOVED BY ML-2 (the Material Lines recipe rework + the recipe realism audit): `registry:ml1` only. The seven ML-1 recipe
+//                  entries flip pending -> live (refineRecipeOffered offers them once their outputs have blueprint
+//                  consumers) and the six ML-2 reserves are gone (each good has its consumer); only the Precursor
+//                  Circuit's reserve (EM-8) stays. ML1_SLICE holds every ML-1 id apart in every registryPin call, and
+//                  ML-2's two new entries (the Biofiber and Resin Distillate refines) are held apart by ML2_SLICE, which
+//                  registryPin always applies, so the base pin and every cause pin are unchanged. The ML-1 pin is read
+//                  back (ml2LinesBack) to its capture.
 // ADDED BY G1-1: `guests:<hull>` (guest quarters bare and with each quarters variety, the Guest Wing last) and
 // `stats:<hull>:guestWing` (every other stat with a Guest Wing installed). The sheets hash through withoutGuests, so
 // the stats pins keep proving no other stat moved (the transport hulls now carry base guest quarters).
@@ -136,6 +143,7 @@ import { deserialize, migrate, serialize, type SaveFile } from "./save";
 import { WIRING_REGISTRY } from "./wiring/registry";
 import { bucketOf, withBuckets } from "./wiring/probes";
 import { hash, onHull, withCrew, withV1Museum, withoutGuests } from "./firstRunsGoldens.fixture";
+import { ML2_ADDED_ENTRY_IDS, ml2LinesBack } from "./ml2RecipeGoldens.fixture";
 import { asPreG2NamesDispatch } from "./awayTeamTestFixtures";
 import { GG1_ADDED_ENTRY_IDS } from "./gasStudyGoldens.fixture";
 import { FUSE_ADDED_ENTRY_IDS } from "./fieldKitsFuse.fixture";
@@ -385,20 +393,15 @@ const GOLDEN: Record<string, unknown> = {
     "retired:gear:science:sidearm:groundAccuracy",
     "retired:gear:science:sidearm:groundStatusChance",
   ],
+  // Re-pinned by ML-2: the seven recipes live, the six ML-2 reserves gone (ML1_PIN_BEFORE_ML2 is the ML-1 capture).
   "registry:ml1": [
-    "facility:REFINE_RECIPES:refineFerriteIngot|pending",
-    "facility:REFINE_RECIPES:refineReclaimedCircuit|pending",
-    "facility:REFINE_RECIPES:refineIridiumCatalyst|pending",
-    "facility:REFINE_RECIPES:synthCobaltCoil|pending",
-    "facility:REFINE_RECIPES:synthOsmiumPlate|pending",
-    "facility:REFINE_RECIPES:synthPhotonicGel|pending",
-    "facility:REFINE_RECIPES:synthBiocatalyst|pending",
-    "facility:ITEMS:reclaimedCircuit:reserved|pending",
-    "facility:ITEMS:iridiumCatalyst:reserved|pending",
-    "facility:ITEMS:cobaltCoil:reserved|pending",
-    "facility:ITEMS:osmiumPlate:reserved|pending",
-    "facility:ITEMS:photonicGel:reserved|pending",
-    "facility:ITEMS:biocatalyst:reserved|pending",
+    "facility:REFINE_RECIPES:refineFerriteIngot|live",
+    "facility:REFINE_RECIPES:refineReclaimedCircuit|live",
+    "facility:REFINE_RECIPES:refineIridiumCatalyst|live",
+    "facility:REFINE_RECIPES:synthCobaltCoil|live",
+    "facility:REFINE_RECIPES:synthOsmiumPlate|live",
+    "facility:REFINE_RECIPES:synthPhotonicGel|live",
+    "facility:REFINE_RECIPES:synthBiocatalyst|live",
     "facility:ITEMS:precursorCircuit:reserved|pending",
   ],
   "registry:g1": ["captain:SECONDARY_CAPTAIN_TALENTS:trade2:shortRange|live", "ship:gearLine:colonistCapacity|live", "ship:SHIP_TYPES:generalFreighter:colonistCapacity|live", "ship:SHIP_TYPES:orion:colonistCapacity|live", "ship:SHIP_TYPES:aurora:colonistCapacity|live", "ship:SHIP_TYPES:eir:colonistCapacity|live", "ship:SHIP_SEAMS:generalQuartersGuestPerk|live", "ship:QUARTERS_MODULES:quartersGuestWing|live", "ship:QUARTERS_MODULES:quartersGuestWing:capacity|pending",
@@ -488,6 +491,13 @@ const G1_ADDED_ENTRY_IDS: ReadonlySet<string> = new Set<string>([
   // G1-4: Shrewd Negotiator on a short-range drop-off (its own load, so its own entry beside the supply-run one).
   "captain:SECONDARY_CAPTAIN_TALENTS:trade2:shortRange",
 ]);
+// The ML-1 entries as ML-1 pinned them (before ML-2 offered the recipes and dropped six reserves).
+const ML1_PIN_BEFORE_ML2: readonly string[] = [
+  ...["refineFerriteIngot", "refineReclaimedCircuit", "refineIridiumCatalyst", "synthCobaltCoil", "synthOsmiumPlate", "synthPhotonicGel", "synthBiocatalyst"].map(
+    (k) => `facility:REFINE_RECIPES:${k}|pending`,
+  ),
+  ...["reclaimedCircuit", "iridiumCatalyst", "cobaltCoil", "osmiumPlate", "photonicGel", "biocatalyst", "precursorCircuit"].map((id) => `facility:ITEMS:${id}:reserved|pending`),
+];
 // The registry entries ML-1 adds (new ids only): its seven Refinery recipes and its seven typed reserves.
 const ML1_ADDED_ENTRY_IDS: ReadonlySet<string> = new Set<string>([
   ...["refineFerriteIngot", "refineReclaimedCircuit", "refineIridiumCatalyst", "synthCobaltCoil", "synthOsmiumPlate", "synthPhotonicGel", "synthBiocatalyst"].map(
@@ -587,6 +597,8 @@ const SF3_FLIPPED_LIVE: ReadonlySet<string> = new Set<string>(["expedition:ENEMY
 const SF3_SLICE: RegistrySlice = { flipped: SF3_FLIPPED_LIVE, was: "pending" };
 // The reactor fuel ladder's additions (0.14.0), held apart in EVERY pin (all of them were taken before it).
 const RX_SLICE: RegistrySlice = { added: RX_ADDED_ENTRY_IDS };
+// ML-2's two new entries (the Biofiber and Resin Distillate refines), held apart in EVERY pin (all were taken before it).
+const ML2_SLICE: RegistrySlice = { added: ML2_ADDED_ENTRY_IDS };
 // The OC-15 Lab and Fabricator tier rungs (0.14.0): one added entry per new rung, held apart in EVERY pin the same way
 // (labFabricatorTiers.test.ts pins them live).
 const OC15_SLICE: RegistrySlice = { added: OC15_ADDED_ENTRY_IDS };
@@ -594,7 +606,7 @@ const OC15_SLICE: RegistrySlice = { added: OC15_ADDED_ENTRY_IDS };
 // taken before it) through siReadBack (siMemberGearRegistry.fixture.ts: the `si:` entries and the three new Science
 // lines left out, the nine retired combat lines restored in place); `registry:si` pins the added and retired ids.
 function registryPin(...given: readonly RegistrySlice[]): [number, string] {
-  const slices = [RX_SLICE, FUSE_SLICE, OC15_SLICE, ...given];
+  const slices = [RX_SLICE, FUSE_SLICE, ML2_SLICE, OC15_SLICE, ...given];
   const rows = siReadBack(WIRING_REGISTRY.map((e) => ({ id: e.id, kind: e.status.kind as string })), (r) => r.id, (row) => ({ id: row[0], kind: row[1].kind as string }));
   const lines = rows.filter((e) => !slices.some((sl) => sl.added?.has(e.id))).map((e) => {
     const flip = slices.find((sl) => sl.flipped?.has(e.id));
@@ -856,8 +868,11 @@ describe("G1-0 golden 5: the wiring registry's ids and statuses", () => {
   });
   it("ML-1: the added entries, each with its status", () => {
     const added = WIRING_REGISTRY.filter((e) => ML1_ADDED_ENTRY_IDS.has(e.id)).map((e) => `${e.id}|${e.status.kind}`);
-    expect(added.length).toBe(ML1_ADDED_ENTRY_IDS.size);
+    // ML-2 dropped six of ML-1's reserves (their goods have consumers now), so 8 of the 14 ids remain.
+    expect(added.length).toBe(ML1_ADDED_ENTRY_IDS.size - 6);
     pin("registry:ml1", added);
+    // Read back: ML-2's lifts pending again and its dropped reserves restored, the ML-1 capture.
+    expect(ml2LinesBack(added)).toEqual(ML1_PIN_BEFORE_ML2);
   });
 });
 

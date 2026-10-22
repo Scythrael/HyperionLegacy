@@ -1100,6 +1100,8 @@
   import { fieldKitBlueprintIcon, fieldKitIcon } from "./lib/ui/fieldKitIcons";
   // Gas Giant Study GG-1: the canisters' SVG glyphs, and the study items still waiting on a source (kept off the shelves).
   import { gasCanisterIcon } from "./lib/ui/gasStudyIcons";
+  // ML-2 recipe realism: Biofiber and Resin Distillate wear their own SVG glyphs (refinedIcons.ts).
+  import { refinedItemIcon } from "./lib/ui/refinedIcons";
   import { gasStudySourcePending } from "./lib/game/gasGiantContent";
   // Reactor fuel ladder (0.14.0): a gathering mission's own SVG glyph (the Cometary Ice Harvest's comet).
   import { missionIcon } from "./lib/ui/missionIcons";
@@ -15916,9 +15918,9 @@
                                non-danger fill) while materialAtCap is still false and it still accepts
                                stock. Only a genuinely capped item (atCap) shows 100%. -->
                           <span class="warehouse-pct">{atCap ? 100 : Math.floor(pct)}%</span>
-                          {@const kitIc = fieldKitIcon(item.id) ?? gasCanisterIcon(item.id)}
+                          {@const kitIc = fieldKitIcon(item.id) ?? gasCanisterIcon(item.id) ?? refinedItemIcon(item.id)}
                           <!-- Field Kits FKR-3: a kit wears its own SVG glyph (fieldKitIcons.ts), and so does a gas canister (GG-1,
-                               gasStudyIcons.ts); the rest keep the category glyph. -->
+                               gasStudyIcons.ts), and so do Biofiber and Resin Distillate (ML-2, refinedIcons.ts); the rest keep the category glyph. -->
                           <span class="warehouse-glyph">{#if kitIc !== null}<Icon name={kitIc} />{:else}{warehouseCategoryGlyph(item.category)}{/if}</span>
                           <span class="warehouse-ct">{formatNumber(count)}</span>
                         {:else}
@@ -20615,7 +20617,7 @@
                 <div class="offline-summary-row">
                   <span class="offline-summary-row-label">
                     {#if ITEMS[mat.itemId]}
-                      {@const kitIc = fieldKitIcon(mat.itemId) ?? gasCanisterIcon(mat.itemId)}
+                      {@const kitIc = fieldKitIcon(mat.itemId) ?? gasCanisterIcon(mat.itemId) ?? refinedItemIcon(mat.itemId)}
                       <span class="offline-summary-item-icon" aria-hidden="true">{#if kitIc !== null}<Icon name={kitIc} />{:else}{warehouseCategoryGlyph(ITEMS[mat.itemId].category)}{/if}</span>
                       {ITEMS[mat.itemId].label}
                     {:else}

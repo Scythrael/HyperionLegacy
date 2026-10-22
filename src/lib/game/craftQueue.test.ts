@@ -553,6 +553,8 @@ function craftState(opts: {
   // recipe and only the skip-on-block cases want it.
   frameSegment?: number;
   uncommonMaterial?: number;
+  // ML-2 (0.14.0): the Prospector Hold's reworked recipe takes Reclaimed Alloy (not defaulted, like the two above).
+  reclaimedAlloy?: number;
   refineryLevel?: number;
   fabricatorLevel?: number;
 } = {}): GameState {
@@ -575,6 +577,7 @@ function craftState(opts: {
   inventory.titaniumIngot = [new Decimal(opts.titaniumIngot ?? 100)];
   if (opts.frameSegment !== undefined) inventory.frameSegment = [new Decimal(opts.frameSegment)];
   if (opts.uncommonMaterial !== undefined) inventory.uncommonMaterial = [new Decimal(opts.uncommonMaterial)];
+  if (opts.reclaimedAlloy !== undefined) inventory.reclaimedAlloy = [new Decimal(opts.reclaimedAlloy)];
   return {
     ...s,
     inventory,
@@ -2802,8 +2805,9 @@ describe("buildCraftQueue: eligibility is the ADAPTER's answer, never a second o
     // (2 frameSegment + 3 titaniumIngot) and enqueue now requires an order's inputs to be
     // free. The BLOCK under test is unchanged and is still `notResearched`, which is what
     // makes this the right fixture: the head is permanently blocked for a reason that has
-    // nothing to do with materials.
-    const loaded = enqueueAll(deepQueueState({ titaniumIngot: 40, frameSegment: 20, fabricatorLevel: 2 }), [
+    // nothing to do with materials. ML-2 (0.14.0): the hold's recipe is now 2 frameSegment + 1 titaniumIngot + 2
+    // reclaimedAlloy, so Reclaimed Alloy is stocked too; the block under test is still notResearched.
+    const loaded = enqueueAll(deepQueueState({ titaniumIngot: 40, frameSegment: 20, reclaimedAlloy: 20, fabricatorLevel: 2 }), [
       { facility: "fabricator", order: fabricateOrder("prospectorHoldBp") }, // not researched here
       { facility: "fabricator", order: fabricateOrder(FABRICATE_KEY) },
     ]);

@@ -179,6 +179,9 @@ export const ICON_SEMANTICS: Record<IconName, IconSemantic> = {
   antimatterCell: "subject",
   // Reactor fuel ladder (0.14.0): the comet names the Cometary Ice Harvest mission.
   comet: "subject",
+  // ML-2 recipe realism (0.14.0): each glyph names one refined good (Biofiber, Resin Distillate).
+  biofiber: "subject",
+  resinDistillate: "subject",
 
   // ACTION: something the player does. Should stay recognisable as that action.
   salvage: "action",
