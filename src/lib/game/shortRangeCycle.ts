@@ -37,7 +37,8 @@
 import { type CaptainState, type GameState, type RunCounts, type ShipInstance, type ShortRangeMissionState, type ShortRangePhase } from "./model";
 import { SHORT_RANGE_OUTPUT_SALT, SHORT_RANGE_TEMPLATES, shortRangeCycleReward, wholeUnits, type ShortRangeCyclePlan, type ShortRangeRoll } from "./shortRange";
 import { shortRangeSlotById, startShortRangeCycle } from "./shortRangeBoard";
-import { effectiveShipStats, shipMissionOutputBonus } from "./crewOverlay";
+import { shipMissionOutputBonus } from "./crewOverlay";
+import { runShipStats } from "./gearWearEngine";
 import { captainMotherlodeChance, captainTransportTerms, motherlodeSeed } from "./captainSecondaryEffects";
 import { countShortRangeCycleComplete } from "./runDifficulty";
 import { makeRng } from "./combat/rng";
@@ -115,8 +116,9 @@ export function shortRangeDepartureHold(
 // The use-wear events one delivered cycle of `roll` makes, in the units of the gear wear design's table (docs/plans/
 // 2026-10-16-gear-wear-design.md 3.1): a haul for a job that carries goods (the cargo bay), the lightyears flown both
 // ways (the FTL drive), the minutes underway (the reactor core and the crew modules) and a survey cycle (the sensor
-// array). null on a training run: W9 "No wear on training". SEAM, owner: the gear wear engine (not merged in 0.14.0's
-// branch yet; it calls this at each delivered cycle, the one place a short-range cycle ends). Pure.
+// array). null on a training run: W9 "No wear on training". Gear wear step 3 (gearWearEngine.ts) consumes it: the cycle
+// engine below collects it at each delivered cycle (the one place a short-range cycle ends, ShortRangeTickResult.wear)
+// and economyTick applies it at its tail. Pure.
 export interface ShortRangeWearEvents {
   hauls: number;
   lightYears: number;
@@ -162,6 +164,11 @@ export interface ShortRangeTickResult {
   runCounts: RunCounts; // the same reference when nothing changed
   nextCycle: Readonly<Record<number, number>>; // the same reference when nothing changed
   ended: { slotId: number; cycles: number } | null; // the run ended this call (recalled): the completion log entry
+  // GEAR WEAR step 3 (a run stamped ShortRangeMissionState.gearWear only): the use wear of each cycle delivered this
+  // call, in delivery order, with its instant in ticks into the call (shortRangeCycleWear; a training cycle makes
+  // none), and the instant the run ended (null when it did not). economyTick hands both to the gear wear engine.
+  wear: { atTicks: number; events: ShortRangeWearEvents }[];
+  endedAtTicks: number | null;
 }
 
 // Advance one captain's short-range run by `ticksElapsed`. See the header for the rules and the parity argument.
@@ -181,6 +188,8 @@ export function tickCaptainShortRange(input: ShortRangeTickInput): ShortRangeTic
     runCounts: input.runCounts,
     nextCycle: input.nextCycle,
     ended: null,
+    wear: [],
+    endedAtTicks: null,
   };
   const startMission = captain.mission;
   // A run always flies a hull (the crew lock keeps it aboard); a hull-less one holds still rather than guessing stats.
@@ -188,7 +197,10 @@ export function tickCaptainShortRange(input: ShortRangeTickInput): ShortRangeTic
 
   // Call-constants: the hull, its gear and its crew cannot change while it is out (the crew and gear locks), and the
   // captain's talents are read once per call, exactly as tickCaptainMission reads its bonuses.
-  const stats = effectiveShipStats(state, ship);
+  // GEAR WEAR step 3: the RUN sheet (gearWearEngine.ts runShipStats: the fold over the gear the run froze at dispatch,
+  // its stamp), constant for the whole run like the rest; a run without a stamp reads the stored sheet.
+  const wearStamp = startMission.gearWear;
+  const stats = runShipStats(state, ship, wearStamp);
   const outputShare = Math.max(0, shipMissionOutputBonus(state, ship));
   const marginBonus = Math.max(0, captainTransportTerms(captain).marginBonus);
   const motherlodeChance = Math.max(0, captainMotherlodeChance(captain));
@@ -214,6 +226,8 @@ export function tickCaptainShortRange(input: ShortRangeTickInput): ShortRangeTic
   const completedByTemplate: Record<string, number> = {};
   const materials: Record<string, number> = {};
   let ended: ShortRangeTickResult["ended"] = null;
+  const wear: ShortRangeTickResult["wear"] = [];
+  let endedAtTicks: number | null = null;
 
   // 0.14.0 SPEED SEAM (processSpeed.ts applyTimeSkip): while the CURRENT cycle carries speed.instantComplete, each
   // phase is applied whole without spending the call's own ticks, so the cycle runs through to its delivery inside
@@ -296,6 +310,9 @@ export function tickCaptainShortRange(input: ShortRangeTickInput): ShortRangeTic
       for (const k of items) haul[k] = wholeUnits(haul[k] * (1 + outputShare), rng);
     }
     for (const k of items) if (haul[k] > 0) materials[k] = (materials[k] ?? 0) + haul[k];
+    // GEAR WEAR step 3: this cycle's use on a stamped run (none on a training run, W9), at its delivery instant.
+    const cycleWear = wearStamp === undefined ? null : shortRangeCycleWear(roll, mission.plan, state.tickDurationSeconds);
+    if (cycleWear !== null) wear.push({ atTicks: ticksElapsed - remaining, events: cycleWear });
     // The counters: one more delivered cycle (the curve skips the training run, SF5) and the board's cursor.
     cyclesDelivered += 1;
     completedByTemplate[roll.template] = (completedByTemplate[roll.template] ?? 0) + 1;
@@ -306,12 +323,14 @@ export function tickCaptainShortRange(input: ShortRangeTickInput): ShortRangeTic
     // Recall finishes the cycle, then the run ends. A slot that no longer exists (a hand-edited save) ends the same way.
     if (mission.recalled || slot === null) {
       ended = { slotId: mission.slotId, cycles };
+      endedAtTicks = ticksElapsed - remaining;
       mission = null;
       break;
     }
     // THE NEXT CYCLE START: the whole job re-rolls at the slot's next cycle index against the counters as they stand
-    // now (this call's earlier starts and deliveries included), through the board's one cycle-start seam.
-    const start = startShortRangeCycle({ ...state, runCounts }, ship, slot, roll.cycleIndex + 1);
+    // now (this call's earlier starts and deliveries included), through the board's one cycle-start seam. GEAR WEAR
+    // step 3: the plan reads the gear the run froze at dispatch, and the stamp rides every cycle.
+    const start = startShortRangeCycle({ ...state, runCounts }, ship, slot, roll.cycleIndex + 1, wearStamp);
     runCounts = start.runCounts;
     mission = {
       kind: "shortRange",
@@ -322,6 +341,7 @@ export function tickCaptainShortRange(input: ShortRangeTickInput): ShortRangeTic
       phaseProgressTicks: 0,
       recalled: false,
       cyclesThisRun: cycles,
+      ...(wearStamp !== undefined ? { gearWear: wearStamp } : {}),
     };
   }
 
@@ -339,6 +359,8 @@ export function tickCaptainShortRange(input: ShortRangeTickInput): ShortRangeTic
     runCounts,
     nextCycle,
     ended,
+    wear,
+    endedAtTicks,
   };
 }
 

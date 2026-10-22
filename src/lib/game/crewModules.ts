@@ -39,6 +39,7 @@ import type {
 import { rarityIndex, SHIP_TYPES } from "./model";
 import { equippedFor } from "./equipmentQueries";
 import { officerRankMagnitudeFactor } from "./seniorStaff";
+import { viewPieceEfficiency } from "./gearWear";
 
 // ============================================================================
 // Rarity/quality effect scale (shared by both module kinds)
@@ -287,7 +288,9 @@ export function installedBridgeModule(state: GameState, ship: ShipInstance): Ins
 // contribution. 1.0 means no change. For a division module: focusBoost (scaled) on its own division,
 // offBoost (scaled) on the others. For a general module: focusBoost (scaled) uniformly. Pure.
 export function quartersProfessionMultiplier(mod: InstalledQuartersModule, profession: CrewProfession): number {
-  const scale = moduleEffectScale(mod.instance.rarity, mod.instance.quality);
+  // GEAR WEAR step 3: a worn module boosts at its efficiency where a run reads it (gearWear.ts viewPieceEfficiency, 1 on
+  // a stored piece). Its capacity is a count and never wears (quartersCapacityBonus).
+  const scale = moduleEffectScale(mod.instance.rarity, mod.instance.quality) * viewPieceEfficiency(mod.instance);
   const raw =
     mod.def.kind === "division"
       ? profession === mod.def.division
@@ -317,7 +320,8 @@ export function bridgeOfficerMultiplier(
   officer: SeniorStaffOfficer,
   hullSpec: ShipSpec,
 ): number {
-  const scale = moduleEffectScale(mod.instance.rarity, mod.instance.quality);
+  // GEAR WEAR step 3: a worn bridge module amplifies at its efficiency where a run reads it (gearWear.ts).
+  const scale = moduleEffectScale(mod.instance.rarity, mod.instance.quality) * viewPieceEfficiency(mod.instance);
   switch (mod.def.kind) {
     case "balanced":
       return 1 + mod.def.amp * scale;

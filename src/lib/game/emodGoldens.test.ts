@@ -15,6 +15,11 @@
 //   registry : the wiring registry snapshot (id, status, contexts, probe) and the E-MOD owned rows by name.
 
 import { describe, expect, it } from "vitest";
+// GEAR WEAR step 3: this file's pins were captured before the use wear engine; it runs with the use sources off
+// (gearWearSwitch.fixture.ts), so they keep proving nothing else moved. gearWearGoldens.test.ts pins the wear.
+import { gearWearOffInThisFile } from "./gearWearSwitch.fixture";
+import { gw3RegistryBack } from "./gearWearRegistry.fixture";
+gearWearOffInThisFile();
 import Decimal from "break_infinity.js";
 import {
   EQUIPMENT_SLOTS,
@@ -616,8 +621,9 @@ type Back = { readonly sf3?: boolean; readonly fkr9?: boolean; readonly racials?
 // The Quartermaster Standard-Issue member lines and the D26 line swap (0.14.0) came after every pin here too: every
 // read-back and the snapshot read them back (siMemberGearRegistry.fixture.ts siReadBack: the added entries left out,
 // the nine retired combat lines restored in place; shortRangeGoldens.test.ts `registry:si` pins them).
+// Gear wear step 3 came after every pin here too: its registry move is read back first (gearWearRegistry.fixture.ts).
 const BEFORE_RX: WiringEntry[] = siReadBack(
-  WIRING_REGISTRY.filter((e) => !RX_ADDED_ENTRY_IDS.has(e.id) && !FUSE_ADDED_ENTRY_IDS.has(e.id)),
+  gw3RegistryBack(WIRING_REGISTRY).filter((e) => !RX_ADDED_ENTRY_IDS.has(e.id) && !FUSE_ADDED_ENTRY_IDS.has(e.id)),
   (e) => e.id,
   (row) => ({ id: row[0], status: row[1], contexts: row[2], probe: row[3] ?? undefined }) as unknown as WiringEntry,
 );

@@ -136,7 +136,18 @@ import { SHORT_RANGE_TEMPLATES, SHORT_RANGE_TEMPLATE_KEYS } from "../shortRange"
 import { GAS_STUDY_USES, GIANT_CLASSES, NEBULA_KINDS, type GasStudyUse } from "../gasGiantContent";
 import { REACTOR_FUEL_LADDER, REACTOR_TECH_TIERS, REACTOR_VARIETY_TECH, reactorFuelRung } from "../reactorTech";
 import { effectFieldsOf } from "./fieldRoles";
-import { REPAIR_RATES, REPAIR_RATE_BONUSES, USE_WEAR_FLOOR, WEAR_EFFICIENCY, WEAR_SOURCES, wearEfficiency } from "../gearWear";
+import { REPAIR_RATES, REPAIR_RATE_BONUSES, TOUGHNESS_REFERENCE, USE_WEAR_FLOOR, WEAR_EFFICIENCY, WEAR_SOURCES, wearEfficiency } from "../gearWear";
+import {
+  WEAR_FIXTURE_CONDITION,
+  WEAR_REPAIR_MINUTES,
+  inShipyardBay,
+  memberVarietyFor,
+  onFieldRepairLeg,
+  wearMemberOf,
+  wearPieceIdFor,
+  wearRepairMinutes,
+  withFixtureCondition,
+} from "./wearProbes";
 import {
   CONDITION_LINES,
   CONDITION_LINE_IDS,
@@ -162,6 +173,7 @@ import {
   editMember,
   identity,
   installPiece,
+  onMission,
   seatOfficer,
   wearPiece,
   wiringBase,
@@ -3498,7 +3510,11 @@ const AUDIT_ROWS: readonly { id: string; system: WiringSystem; claim: string; st
   { id: "ship:audit:statRatios", system: "ship", claim: "Variety statRatios: an unlisted key keeps weight 1, so Hauler Hold rolls massReduction more than Prospector Hold (B11)", status: pending("WR-7, OC-D6") },
   { id: "ship:audit:favorsSpec", system: "ship", claim: "Variety favorsSpec (no reader)", status: pending("WR-7, OC-D5") },
   { id: "ship:audit:slotPowerDraw", system: "ship", claim: "SLOT_BASE_PHYSICALS powerDraw: a crafted piece draws its slot's power from the ship's budget", status: LIVE },
-  { id: "ship:audit:slotDurability", system: "ship", claim: "SLOT_BASE_PHYSICALS durability for economy, defense, crew, sensor and member pieces (never read)", status: pending(GEAR_WEAR_STEP_3) },
+  // Gear wear step 3: a piece's durabilityMax is its TOUGHNESS (gearWear.ts toughnessScale): every use wear amount on
+  // it scales by TOUGHNESS_REFERENCE / durabilityMax, so the slot bases act on every piece that wears by use (economy,
+  // crew, sensor and member pieces). The defense pieces wear by battle (step 4): their own row below.
+  { id: "ship:audit:slotDurability", system: "ship", claim: "SLOT_BASE_PHYSICALS durability for economy, crew, sensor and member pieces: a tougher piece wears slower by use", status: LIVE },
+  { id: "ship:audit:slotDurabilityDefense", system: "ship", claim: "SLOT_BASE_PHYSICALS durability for defense pieces (shield emitters, hull plating): a tougher piece wears slower in battle", status: pending(GEAR_WEAR_STEP_4) },
   { id: "ship:audit:reactorCoreNet", system: "ship", claim: "A crafted Reactor Core is net negative: its output only raises the power budget (no install gate or penalty before EM-2 / EM-3, the hull's own output covers every loadout), and its mass drags speed and fuel (B10)", status: pending("E-MOD EM-4 (unused reactor power speeds the drive, P3)") },
   { id: "ship:audit:arrayCharacter", system: "ship", claim: "ARRAY_CHARACTER: \"Focused: faster\" while its net rate is 0.78x; no Bio-Resonance line (B12)", status: pending("WR-7, OC-D11") },
   { id: "ship:audit:hullDescriptions", system: "ship", claim: "Hull descriptions (Aurora, Eir, Orion) claim what the engine does not do", status: pending("WR-7, OC-D13 (heavy cruiser wording: SF-6)") },
@@ -3543,7 +3559,7 @@ const AUDIT_ROWS: readonly { id: string; system: WiringSystem; claim: string; st
   { id: "away:audit:quickDraw", system: "away", claim: "Quick Draw only reorders teammates (the team already acts first)", status: pending("WR-10, OC-F5") },
   { id: "away:audit:scienceRank", system: "away", claim: "Science member rank \"nudges magnitude\" (fieldwork never reads it)", status: pending("WR-10, OC-F7") },
   { id: "away:audit:fieldDeviceEffectiveness", system: "away", claim: "fieldDevice effectiveness (both values 1; the specialist check is always false)", status: pending("FK-7") },
-  { id: "away:audit:memberSlotPhysicals", system: "away", claim: "Member slot physicals (mass, powerDraw, durability)", status: pending(`WR-8, OC-D14 (durability: ${GEAR_WEAR_STEP_3})`) },
+  { id: "away:audit:memberSlotPhysicals", system: "away", claim: "Member slot physicals (mass, powerDraw). Their durability is live since gear wear step 3: a member piece's toughness scales its use wear (ship:audit:slotDurability)", status: pending("WR-8, OC-D14") },
   // Field Kits FKR-7: the Injury Kit's share (a fight's `treated`) sums on the member's trip treatment and the run's bay
   // divides that member's cures by it (auditRowWiring below).
   { id: "away:audit:treatmentShare", system: "away", claim: "An Injury Kit shortens the treated member's medical bay time (treatmentShare)", status: LIVE },
@@ -3611,6 +3627,18 @@ function auditRowWiring(): Readonly<Record<string, Partial<EntryInput>>> {
   const emitter = (draw: number): Transform => (s) => installPiece(s, { slotType: "shieldEmitters", powerDraw: draw });
   const torpedo = (draw: number): Transform => (s) => installPiece(s, { slotType: "weapon", weaponType: "concussionTorpedo", powerDraw: draw });
   return {
+    // Gear wear step 3: a Reactor Core at its slot base (SLOT_BASE_PHYSICALS.reactorCore.durability) against one at
+    // the TOUGHNESS_REFERENCE: a minute underway takes reference / base as much (one rounding step of tolerance).
+    "ship:audit:slotDurability": {
+      probe: "wear:use:reactorCore:minutesRunning" as ProbeId,
+      contexts: ["mission:extraction", "mission:shortRange"],
+      direction: "up",
+      curve: { kind: "linearRelative" },
+      magnitude: (c) => TOUGHNESS_REFERENCE / c.SLOT_BASE_PHYSICALS.reactorCore.durability - 1,
+      base: () => installPiece(seatOfficer(wiringBase(), "operations", []), { slotType: "reactorCore", durabilityMax: TOUGHNESS_REFERENCE }),
+      on: (s) => ({ ...s, equipment: s.equipment.map((e) => (e.id === wearPieceIdFor("reactorCore") ? { ...e, durabilityMax: SLOT_BASE_PHYSICALS.reactorCore.durability } : e)) }),
+      tolerance: 1,
+    },
     // Field Kits FKR-7: one Injury Kit's share on a member's trip treatment divides their Broken Bone bay time.
     "away:audit:treatmentShare": {
       probe: "content:runTreatment",
@@ -4229,59 +4257,218 @@ function reactorTechEntries(): WiringEntry[] {
 }
 
 // ============================================================================
-// gear wear (0.14.0, design docs/plans/2026-10-16-gear-wear-design.md section 9; build order steps 1 and 2)
+// gear wear (0.14.0, design docs/plans/2026-10-16-gear-wear-design.md section 9; build order steps 1 to 3)
 // ============================================================================
+
+// Step 3: the contexts a USE source's event happens in (wiring/wearProbes.ts drives each: a delivered captain-mission
+// cycle, a delivered non-training short-range cycle, a stamped expedition coming home).
+const WEAR_MISSION_CONTEXTS: ContextId[] = ["mission:extraction", "mission:survey", "mission:transport", "mission:shortRange"];
+const WEAR_RUN_CONTEXTS: ContextId[] = [...WEAR_MISSION_CONTEXTS, "expedition:groundOps"];
+const WEAR_USE_CONTEXTS: Readonly<Record<string, ContextId[]>> = {
+  "cargoBay:haul": WEAR_MISSION_CONTEXTS,
+  "ftlDrive:distance": WEAR_RUN_CONTEXTS,
+  "reactorCore:minutesRunning": WEAR_RUN_CONTEXTS,
+  "bridge:minutesCrewed": WEAR_RUN_CONTEXTS,
+  "quarters:minutesCrewed": WEAR_RUN_CONTEXTS,
+  "sensor:surveyCycle": ["mission:survey", "mission:shortRange"],
+  "sensor:bodyScanned": ["expedition:groundOps"],
+  "specUtility:effectFires": ["mission:extraction", "mission:survey", "expedition:groundOps"],
+  "memberWeapon:groundFight": ["expedition:groundOps"],
+  "memberTool:fieldworkStep": ["expedition:groundOps"],
+  "implant:minutesOnGround": ["expedition:groundOps"],
+};
+const WEAR_DC_STEP_4 = "the Damage Control Suite's own fires and lines (a post-loss repair it shortens, a patrol wave it patches): gear wear step 4";
+const WEAR_USE_OUT_OF_SCOPE: Readonly<Record<string, { context: ContextId; reason: string }[]>> = {
+  "specUtility:effectFires": [
+    { context: "mission:shortRange", reason: "a short-range job draws no prospecting haul (it pays its rolled job), so no rig fires there" },
+    { context: "shipyard", reason: WEAR_DC_STEP_4 },
+    { context: "patrol", reason: WEAR_DC_STEP_4 },
+  ],
+};
+// The variety each ship slot's use fixture installs (a prospecting rig for the utility slot: it fires on a haul).
+const WEAR_FIXTURE_VARIETY: Readonly<Record<string, string>> = { sensor: "sensorBalanced", specUtility: "yieldRig", bridge: "bridgeBalancedCommand", quarters: "quartersUtilitarian" };
+
+// A fixture with ONE pristine piece of `slot` at the TOUGHNESS_REFERENCE (so a raw amount is the amount), crew aboard
+// (an officer with no bonus: the crew modules wear only with crew aboard), and `lines` on the piece.
+function wearSlotFixture(slot: string, lines: Readonly<Record<string, number>> = {}, variety?: string): GameState {
+  if (slot.startsWith("member") || slot === "implant") {
+    const member = wearMemberOf(slot);
+    const team: AwayTeamType = member === WIRING_SCIENCE_ID ? "science" : "security";
+    return wearPiece(withAwayTeam(wiringBase()), member, slot, variety ?? memberVarietyFor(slot, team) ?? "", lines);
+  }
+  const s = seatOfficer(wiringBase(), "operations", []);
+  const v = variety ?? WEAR_FIXTURE_VARIETY[slot];
+  return installPiece(s, { slotType: slot, durabilityMax: TOUGHNESS_REFERENCE, implicitStats: { ...lines }, ...(v ? { moduleVariant: v } : {}) });
+}
+
+// A worn piece (the repair fixtures): ship-1's cargo bay at WEAR_FIXTURE_CONDITION, anchored now.
+function wornCargoFixture(s: GameState = wiringBase()): GameState {
+  return withFixtureCondition(installPiece(s, { slotType: "cargoBay", durabilityMax: TOUGHNESS_REFERENCE }), "cargoBay", WEAR_FIXTURE_CONDITION);
+}
+
+// The ship-1 cargo piece (installPiece's id) as a pristine reference, to read a line's efficiency through.
+const WEAR_LINE = LINE_POINTS;
+const WEAR_FLOOR_EFFICIENCY = (): number => wearEfficiency(USE_WEAR_FLOOR);
 
 function wearEntries(): WiringEntry[] {
   const out: WiringEntry[] = [];
   // The sign convention (the registry's curve math, curveExpected): a magnitude is SIGNED so the curve lands on the
-  // expected value. A wear source (linearAbsolute, down) is minus its raw per-mille; an efficiency consumer
-  // (linearRelative, down) is efficiency(floor) - 1, also negative; a repair context or bonus (up) is positive.
-  // One entry per wear source (kind x source): the piece's condition goes down by the catalog's raw per-mille on a
-  // TOUGHNESS_REFERENCE piece (the fixture's durabilityMax), the headroom factor at full condition being 1.
+  // expected value. A wear source (linearAbsolute, down) is minus its raw per-mille per unit of its event; an
+  // efficiency consumer (down) is the efficiency at the use floor's move; a repair context or bonus (up) is positive.
+  //
+  // One entry per wear source (kind x source). A USE source is LIVE (step 3) at every context its event happens in:
+  // the probe drives that event once through the real engine on a TOUGHNESS_REFERENCE piece at full condition (the
+  // headroom factor at full is 1) and reads what it took per unit of the event (one rounding step of tolerance: the
+  // whole per-mille). off = the fixture without the piece (nothing to wear). A BATTLE source waits for step 4.
   for (const w of WEAR_SOURCES) {
+    const use = w.mode === "use";
     out.push(
       entry({
         id: `wear:WEAR_SOURCES:${w.id}`,
         system: "wear",
         source: { catalog: "WEAR_SOURCES", key: w.id },
-        claim: `${w.slot} wears by ${w.by}, ${w.event}${w.mode === "use" ? " (use stops at the use floor)" : " (battle can go below the floor, never breaks)"}`,
+        claim: `${w.slot} wears by ${w.by}, ${w.event}${use ? " (use stops at the use floor)" : " (battle can go below the floor, never breaks)"}`,
         direction: "down",
         magnitude: (c) => -(c.WEAR_SOURCES.find((x) => x.id === w.id)?.raw ?? 0),
-        status: pending(w.mode === "use" ? GEAR_WEAR_STEP_3 : GEAR_WEAR_STEP_4),
+        ...(use
+          ? {
+              probe: `wear:use:${w.id}` as ProbeId,
+              contexts: WEAR_USE_CONTEXTS[w.id] ?? [],
+              base: () => wearSlotFixture(w.slot),
+              off: (s: GameState) => ({ ...s, equipment: s.equipment.filter((e) => e.id !== wearPieceIdFor(w.slot)) }),
+              tolerance: 1,
+              ...(WEAR_USE_OUT_OF_SCOPE[w.id] ? { outOfScope: WEAR_USE_OUT_OF_SCOPE[w.id] } : {}),
+              note: "per unit of the event (a haul, 10 ly, a minute, a scan, a fight, a step); a run dispatched before step 3 carries no stamp and wears nothing",
+            }
+          : { status: pending(GEAR_WEAR_STEP_4) }),
       }),
     );
   }
-  // One entry per repair context: N minutes there from a known worn condition raises it by rate x N.
+  // One entry per repair context: WEAR_REPAIR_MINUTES there from a known worn condition raises it by rate x minutes
+  // (the engine's pass, gearWearEngine.ts resolveGearWear; integer rates, so exact).
+  const REPAIR_FIXTURE: Readonly<Record<keyof typeof REPAIR_RATES, { context: ContextId; base: () => GameState; offRun: boolean; note: string }>> = {
+    home: { context: "fleet", base: () => wornCargoFixture(), offRun: false, note: "ship-1 docked, on no run" },
+    shipyardBay: { context: "shipyard", base: () => inShipyardBay(wornCargoFixture()), offRun: false, note: "ship-1 in a Shipyard repair bay (its hull repair process)" },
+    fieldRepair: { context: "expedition:groundOps", base: () => onFieldRepairLeg(wornCargoFixture()), offRun: false, note: "ship-1 set down on a GO-8b field repair leg" },
+    underway: { context: "fleet", base: () => onMission(wornCargoFixture(), "shortOreRun", "transitOut"), offRun: true, note: "a run's upkeep, settled as the run comes home (a piece underway settles only at its run's events)" },
+  };
   for (const ctx of Object.keys(REPAIR_RATES) as (keyof typeof REPAIR_RATES)[]) {
+    const f = REPAIR_FIXTURE[ctx];
     out.push(
       entry({
         id: `wear:REPAIR_RATES:${ctx}`,
         system: "wear",
         source: { catalog: "REPAIR_RATES", key: ctx },
         claim: `Gear recovers on its own, free, at ${REPAIR_RATES[ctx]} per-mille a minute (${ctx})`,
+        probe: "wear:condition" as ProbeId,
+        contexts: [f.context],
         direction: "up",
-        magnitude: (c) => c.REPAIR_RATES[ctx],
-        status: pending(GEAR_WEAR_STEP_3),
+        magnitude: (c) => c.REPAIR_RATES[ctx] * WEAR_REPAIR_MINUTES,
+        base: f.base,
+        on: (s) => wearRepairMinutes(s, f.offRun),
+        note: f.note,
       }),
     );
   }
-  // The two hull repair bonuses lift every gear repair rate too (no new sources).
-  for (const bonus of REPAIR_RATE_BONUSES) {
-    out.push(
-      entry({
-        id: `wear:REPAIR_RATE_BONUSES:${bonus}`,
-        system: "wear",
-        source: { catalog: "REPAIR_RATE_BONUSES", key: bonus },
-        claim: `The ${bonus} hull repair bonus also speeds every gear repair rate`,
-        direction: "up",
-        curve: { kind: "linearRelative" },
-        status: pending(GEAR_WEAR_STEP_3),
-      }),
-    );
-  }
-  // One entry per efficiency consumer: the piece at the use floor scales its own lines by efficiency(floor).
+  // The two hull repair bonuses lift every gear repair rate too (no new sources): the repair a docked piece gets in
+  // WEAR_REPAIR_MINUTES grows by (1 + the officers' repair speed) and by 1 / (1 - the Damage Control Suite's time cut).
+  const homeGain = (s: GameState) => wearRepairMinutes(s, false);
+  const dcPoints = WEAR_LINE;
+  out.push(
+    entry({
+      id: "wear:REPAIR_RATE_BONUSES:officerRepairSpeed",
+      system: "wear",
+      source: { catalog: "REPAIR_RATE_BONUSES", key: "officerRepairSpeed" },
+      claim: "The officerRepairSpeed hull repair bonus also speeds every gear repair rate",
+      probe: "wear:repairGain" as ProbeId,
+      contexts: ["fleet"],
+      curve: { kind: "linearRelative" },
+      magnitude: (c) => c.SENIOR_STAFF_BONUSES.find((b) => b.id === "med.recovery")?.magnitude ?? 0,
+      base: () => wornCargoFixture(),
+      on: (s) => homeGain(seatOfficer(s, "medical", ["med.recovery"])),
+      off: homeGain,
+      tolerance: 1,
+      note: "Rapid Recovery seated; the hull repair's whole speed bonus (officers, crew and captain) lifts the rate",
+    }),
+    entry({
+      id: "wear:REPAIR_RATE_BONUSES:damageControlRepairTime",
+      system: "wear",
+      source: { catalog: "REPAIR_RATE_BONUSES", key: "damageControlRepairTime" },
+      claim: "The damageControlRepairTime hull repair bonus also speeds every gear repair rate",
+      probe: "wear:repairGain" as ProbeId,
+      contexts: ["fleet"],
+      curve: { kind: "linearRelative" },
+      magnitude: () => {
+        const r = plusToPercent(dcPoints, DC_REPAIR_SPEED_B, DC_REPAIR_SPEED_R);
+        return r / (1 - r);
+      },
+      base: () => wornCargoFixture(),
+      on: (s) => homeGain(installPiece(s, { slotType: "specUtility", moduleVariant: "damageControlSuite", implicitStats: { repairSpeed: dcPoints } })),
+      off: homeGain,
+      tolerance: 1,
+      note: "a Damage Control Suite installed: the rate divides by (1 - its repair time cut)",
+    }),
+  );
+  // One entry per efficiency consumer: the piece at the use floor reads its own lines at efficiency(floor) where a run
+  // reads them (the run sheet, gearWearEngine.ts runShipStats, at the mission contexts; the dispatch snapshot at
+  // expedition:groundOps). off = the same piece pristine.
+  const e = WEAR_FLOOR_EFFICIENCY;
+  const transitPercent = (p: number) => plusToPercent(p / PERCENT_STAT_CURVES.transitSpeedMult.plusDivisor, PERCENT_STAT_CURVES.transitSpeedMult.B, PERCENT_STAT_CURVES.transitSpeedMult.r);
+  const quarters = QUARTERS_MODULES.find((q) => q.kind === "general" && q.focusBoost > 0)!;
+  const bridgeAmp = (c: Catalogs) => (c.BRIDGE_MODULES.find((b) => b.id === "bridgeBalancedCommand")?.amp ?? 0) * moduleEffectScale("standard", 0);
+  const quartersBoost = (c: Catalogs) => (c.QUARTERS_MODULES.find((q) => q.id === quarters.id)?.focusBoost ?? 0) * moduleEffectScale("standard", 0);
+  const memberLine = (slot: string, line: string, stat: keyof typeof GEAR_POINT_BUMP) => ({
+    contexts: ["expedition:groundOps"] as ContextId[],
+    base: () => wearSlotFixture(slot, { [line]: WEAR_LINE }),
+    magnitude: (c: Catalogs) => WEAR_LINE * c.GEAR_POINT_BUMP[stat] * (e() - 1),
+  });
+  const CONSUMERS: Readonly<Record<string, Partial<WiringEntry> | WiringStatus>> = {
+    "cargoBay:cargoCapacity": { contexts: WEAR_MISSION_CONTEXTS, base: () => wearSlotFixture("cargoBay", { cargoCapacity: WEAR_LINE }), magnitude: () => WEAR_LINE * (e() - 1) },
+    "ftlDrive:transitSpeed": {
+      contexts: WEAR_RUN_CONTEXTS,
+      curve: { kind: "linearRelative" },
+      base: () => wearSlotFixture("ftlDrive", { transitSpeedMult: WEAR_LINE }),
+      magnitude: () => (1 + transitPercent(WEAR_LINE * e())) / (1 + transitPercent(WEAR_LINE)) - 1,
+    },
+    // Engine efficiency's only reader inside a run is a captain mission's fuel price per cycle, unreachable since
+    // 0.13.6 (an infinite fuel budget: facility:audit:fuelAutoBuy); reach reads the pristine drive (design 4.3).
+    "ftlDrive:engineEfficiency": pending("S4-A02 (the fuel-economy cleanup: a run's fuel price is engine efficiency's only run-time reader, unreachable since 0.13.6; reach reads the pristine drive, design 4.3)"),
+    // The reactor's power output has no reader outside the install gate (pristine) but the combat power budget, where
+    // combat's own model is the authority (W3).
+    "reactorCore:powerOutput": pending(`${GEAR_WEAR_STEP_4}: the reactor's power output is read only by the install gate (pristine, design 4.3) and the combat power budget`),
+    "specUtility:lines": {
+      contexts: ["mission:survey", "mission:shortRange", "expedition:groundOps"],
+      base: () => wearSlotFixture("specUtility", { sensors: WEAR_LINE }, "pathfinderSuite"),
+      magnitude: () => WEAR_LINE * (e() - 1),
+      outOfScope: [
+        { context: "shipyard", reason: WEAR_DC_STEP_4 },
+        { context: "patrol", reason: WEAR_DC_STEP_4 },
+      ],
+      note: "a Pathfinder Suite's sensors line (the survey yield, the short-range scan, the expedition's sensor power); every line scales the same way",
+    },
+    "sensor:lines": { contexts: ["mission:survey", "mission:shortRange", "expedition:groundOps"], base: () => wearSlotFixture("sensor", { sensors: WEAR_LINE }), magnitude: () => WEAR_LINE * (e() - 1) },
+    "bridge:crewEfficiency": {
+      contexts: WEAR_MISSION_CONTEXTS,
+      curve: { kind: "bonusRelative", base: SHIP_TYPES.generalFreighter.cargoCapacity },
+      base: () => installPiece(seatOfficer(wiringBase(), "operations", ["ops.cargoExpand"]), { slotType: "bridge", moduleVariant: "bridgeBalancedCommand", durabilityMax: TOUGHNESS_REFERENCE }),
+      magnitude: (c) => (1 + bridgeAmp(c) * e()) / (1 + bridgeAmp(c)) - 1,
+      note: "an Operations officer's Cargo Optimization through a Balanced Command bridge",
+    },
+    "quarters:crewEfficiency": {
+      contexts: WEAR_MISSION_CONTEXTS,
+      curve: { kind: "bonusRelative", base: 1 },
+      base: () => installPiece(withBuckets(wiringBase(), [bucketOf("operations", "ops.unloadSpeed")]), { slotType: "quarters", moduleVariant: quarters.id, durabilityMax: TOUGHNESS_REFERENCE }),
+      magnitude: (c) => (1 + quartersBoost(c) * e()) / (1 + quartersBoost(c)) - 1,
+      note: `an Operations complement's Efficient Unloading through ${quarters.label} quarters`,
+    },
+    "memberArmor:groundLines": { ...memberLine("memberArmor", "groundArmor", "armor"), note: "armor wears by battle (step 4); its efficiency acts on the dispatch snapshot now" },
+    "memberWeapon:groundLines": memberLine("memberWeapon", "groundPower", "power"),
+    "memberTool:fieldworkLines": memberLine("memberTool", "groundFieldwork", "fieldwork"),
+    "implant:groundLines": memberLine("implant", "groundHp", "hp"),
+  };
   for (const c of WEAR_EFFICIENCY) {
+    const spec = c.combat ? pending(GEAR_WEAR_STEP_4) : CONSUMERS[c.id];
+    const isStatus = spec !== undefined && "kind" in spec;
     out.push(
       entry({
         id: `wear:WEAR_EFFICIENCY:${c.id}`,
@@ -4289,9 +4476,17 @@ function wearEntries(): WiringEntry[] {
         source: { catalog: "WEAR_EFFICIENCY", key: c.id },
         claim: `A worn ${c.slot} piece scales its ${c.reads} on the gentle wear curve (never below 75%)`,
         direction: "down",
-        curve: { kind: "linearRelative" },
+        curve: { kind: "linearAbsolute" },
         magnitude: () => wearEfficiency(USE_WEAR_FLOOR) - 1,
-        status: pending(c.combat ? GEAR_WEAR_STEP_4 : GEAR_WEAR_STEP_3),
+        ...(spec === undefined
+          ? { status: pending(GEAR_WEAR_STEP_3) }
+          : isStatus
+            ? { status: spec as WiringStatus }
+            : {
+                probe: `wear:eff:${c.id}` as ProbeId,
+                on: (s: GameState) => withFixtureCondition(s, c.slot, USE_WEAR_FLOOR),
+                ...(spec as Partial<WiringEntry>),
+              }),
       }),
     );
   }

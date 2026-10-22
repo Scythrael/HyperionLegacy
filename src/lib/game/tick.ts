@@ -78,6 +78,7 @@ import {
   type PatrolMissionState,
   type ShortRangeMissionState,
   type RunCounts,
+  type RunWearStamp,
   type OfficerCombatMods,
   type CaptainCombatMods,
   type PatrolKey,
@@ -343,6 +344,18 @@ import {
   shipDeckHandling,
   type OfficerCombatEntry,
 } from "./crewOverlay";
+// GEAR WEAR step 3 (0.14.0): the use wear sources, the repair contexts and the settling (gearWearEngine.ts).
+import {
+  emptyWearEvents,
+  runWearStamp,
+  missionCycleWear,
+  pushShipWear,
+  recordExpeditionWear,
+  resolveGearWear,
+  runShipStats,
+  shipCrewAboard,
+  shortRangeWear,
+} from "./gearWearEngine";
 // WR-5b (0.14.0): the commanding captain's Tactician talents (frozen per patrol cycle; the Shipyard repair).
 import {
   captainWaveRegenFraction,
@@ -2024,6 +2037,9 @@ export function tickCaptainMission(
   // fuelSpent's reporting posture exactly. Normally 0 or 1; a call long enough to complete a
   // whole cycle and start another return leg can claim more than once.
   berthsClaimed: number;
+  // GEAR WEAR step 3: the instant (ticks into this call) each completed cycle delivered, in order. Absent on the
+  // early-outs (nothing delivered).
+  cycleEndTicks?: number[];
 } {
   if (!captain.mission || ticksElapsed <= 0) {
     return {
@@ -2163,6 +2179,9 @@ export function tickCaptainMission(
   // ones summing to the same span count the identical number of completions.
   // Rolled into lifetimeStatsDelta.missionsCompleted[missionKey] after the loop.
   let cyclesCompleted = 0;
+  // GEAR WEAR step 3: the instant (ticks into this call) each completed cycle delivered, in order, so economyTick
+  // applies each cycle's use wear at its own instant (gearWearEngine.ts), however the span is chunked.
+  const cycleEndTicks: number[] = [];
   // Mission Rework (Task 5): fuel accounting for the auto-repeat gate. fuelRemaining is
   // the shared-tank budget this call may still draw on (seeded from fuelBudget, drawn
   // down PER auto-repeat below); fuelSpent is the running total this call reports back
@@ -2521,6 +2540,7 @@ export function tickCaptainMission(
             const margin = outputCredits(net);
             creditsDelta += marginStream === null ? margin : bonusCargo(margin, marginStream);
             cyclesCompleted += 1;
+            cycleEndTicks.push(ticksElapsed - remaining); // GEAR WEAR step 3: the delivery instant (ticks into the call)
           }
           // else: working-capital gate -> this cycle idles (nothing booked, no cycle counted).
         } else {
@@ -2529,6 +2549,7 @@ export function tickCaptainMission(
           // credit award and the loot delivery above, so all three (loot,
           // credits, completion count) stay perfectly in sync per cycle.
           cyclesCompleted += 1;
+          cycleEndTicks.push(ticksElapsed - remaining); // GEAR WEAR step 3: the delivery instant (ticks into the call)
         }
         // Fuel Economy v2 (F3): the AUTO-REPEAT fuel-spend rule (REPLACES Task-5's
         // stop-on-empty). A finished cycle either ends (recall) or STARTS A FRESH CYCLE,
@@ -2579,6 +2600,8 @@ export function tickCaptainMission(
             // E-CREW (Task 20): advance the run's output-rounding cursor (only while Command Presence is live).
             const prevCursor: number | undefined = mission!.outputRoundCursor;
             const outputRoundCursor: number | undefined = outputShare === 0 ? prevCursor : (prevCursor ?? 0) + 1;
+            // GEAR WEAR step 3: the run's wear flag rides every repeated cycle (absent on a run from before step 3).
+            const gearWear: RunWearStamp | undefined = mission!.gearWear;
             mission = {
               kind: "extraction", // Combat 0.13.0 (9b.5a): tag the auto-repeated extraction cycle
               missionKey,
@@ -2588,6 +2611,7 @@ export function tickCaptainMission(
               recalled: false,
               refuelDelayTicks,
               ...(outputRoundCursor !== undefined ? { outputRoundCursor } : {}),
+              ...(gearWear !== undefined ? { gearWear } : {}),
             };
           }
         }
@@ -2753,6 +2777,8 @@ export function tickCaptainMission(
     creditsSpentOnFuel,
     // 0.13.4 Phase 3: berths this call claimed, for economyTick's shared budget.
     berthsClaimed,
+    // GEAR WEAR step 3: each delivered cycle's instant, ticks into this call.
+    cycleEndTicks,
   };
 }
 
@@ -4081,6 +4107,9 @@ export function economyTick(
   let shortRangeCounts: RunCounts | null = null;
   let shortRangeCursor: Readonly<Record<number, number>> | null = null;
   const shortRangeEndings: { captainId: number; slotId: number; cycles: number }[] = [];
+  // GEAR WEAR step 3: the use wear events this call's runs made (a delivered mission or short-range cycle, an
+  // expedition coming home), applied once at the tail (gearWearEngine.ts resolveGearWear). Empty without one.
+  const wearEvents = emptyWearEvents();
   const captains = state.captains.map((captain) => {
     if (captain.mission === null) return captain;
     // UNKNOWN-KEY INERT GUARD (fix: a removed/renamed mission/patrol key hard-crashed every tick,
@@ -4322,6 +4351,13 @@ export function economyTick(
         });
         // The officers aboard get missionsCompleted credit per delivered cycle (promotion gates), like a mission's.
         if (srShip && sr.cyclesDelivered > 0) shipMissionCompletions.set(srShip.id, (shipMissionCompletions.get(srShip.id) ?? 0) + sr.cyclesDelivered);
+        // GEAR WEAR step 3: each delivered (non-training) cycle's use on a stamped run, from the cycle engine's seam, at
+        // its own instant; a run that ended within the call ended at that delivery.
+        if (srShip && sr.wear.length > 0) {
+          const crewed = shipCrewAboard(state, srShip);
+          for (const w of sr.wear) pushShipWear(wearEvents, srShip.id, state.gameTimeSeconds + w.atTicks * state.tickDurationSeconds, shortRangeWear(w.events, crewed));
+        }
+        if (srShip && sr.endedAtTicks !== null) wearEvents.runEnds.set(srShip.id, state.gameTimeSeconds + sr.endedAtTicks * state.tickDurationSeconds);
         if (sr.ended !== null) shortRangeEndings.push({ captainId: captain.id, ...sr.ended });
         return srCaptain;
       }
@@ -4336,6 +4372,8 @@ export function economyTick(
     // this const instead. missionKey is invariant across a recall (recall only flags intent;
     // it never changes which mission runs), so this is exactly equivalent.
     const missionKey = captain.mission.missionKey;
+    // GEAR WEAR step 3: a run stamped at dispatch wears its gear at each delivered cycle (none in flight from before).
+    const wearStamp = captain.mission.gearWear;
     // Phase 2 (Task B3, design §3.4): AUTO-STOP, when this mission's PRIMARY material is
     // already at its warehouse tier cap the run CANNOT usefully complete (its haul would
     // land over an already-full warehouse). Rather than leave the captain FROZEN in place
@@ -4422,7 +4460,11 @@ export function economyTick(
     // mid-mission, so the crew-boosted stats are ALSO a per-cycle constant here, preserving the
     // closed-form guarantee identically. With no crew this equals the pure equipment fold, so a
     // crew-free ship is byte-identical to before. A ship-less captain keeps the null fallback.
-    const shipStats = ship ? effectiveShipStats(state, ship) : null;
+    // GEAR WEAR step 3: the RUN sheet (gearWearEngine.ts runShipStats): the same fold over the gear the run FROZE at
+    // dispatch (its stamp), so a worn hold, drive, sensor array, prospecting rig or crew module acts on the run. It is
+    // constant for the whole run (the wear the run takes acts from its next dispatch), so the closed-form guarantee
+    // holds exactly as before. A run without a stamp (dispatched before step 3) reads the stored sheet.
+    const shipStats = ship ? runShipStats(state, ship, wearStamp) : null;
     // Mission Rework (Task 5): the fuel one round-trip cycle of THIS mission costs on
     // THIS hull. fuelNeeded reads the BASE mission's transit legs (see fuel.ts) and the
     // hull's engineEfficiency. Task 14: price it from the EQUIPMENT-FOLDED
@@ -4484,6 +4526,7 @@ export function economyTick(
       fuelSpent: captainFuelSpent,
       creditsSpentOnFuel: captainCreditsSpentOnFuel,
       berthsClaimed: captainBerthsClaimed,
+      cycleEndTicks,
     } = tickCaptainMission(
       ticksElapsed,
       captain,
@@ -4540,6 +4583,17 @@ export function economyTick(
       const cyc = captainLifetimeStatsDelta.missionsCompleted[missionKey];
       if (cyc && cyc.gt(0)) {
         shipMissionCompletions.set(ship.id, (shipMissionCompletions.get(ship.id) ?? 0) + cyc.toNumber());
+      }
+      // GEAR WEAR step 3: each delivered cycle of a stamped run wears the ship's gear by use, at its own instant; a run
+      // that ended within the call ended at its last delivery (or at the call's start, an at-base stop).
+      if (wearStamp && shipStats) {
+        const ends = cycleEndTicks ?? [];
+        const at = (ticks: number) => state.gameTimeSeconds + ticks * state.tickDurationSeconds;
+        if (ends.length > 0) {
+          const w = missionCycleWear(missionKey, shipStats, state.tickDurationSeconds, shipCrewAboard(state, ship));
+          for (const t of ends) pushShipWear(wearEvents, ship.id, at(t), w);
+        }
+        if (updated.mission === null) wearEvents.runEnds.set(ship.id, at(ends.length > 0 ? ends[ends.length - 1] : 0));
       }
     }
     return updated;
@@ -4898,7 +4952,13 @@ export function economyTick(
   // index), and is a same-reference no-op when there is no active expedition, so a save with none is
   // byte-identical to before this phase. Composed AFTER resolveCrew so crew delivered/assigned this tick
   // is reflected in the state expeditions read from next tick (the same cadence resolveCrew itself uses).
-  return resolveExpeditions(resolveCrew(finalState));
+  // GEAR WEAR step 3 (gearWearEngine.ts): LAST, once per whole tick. The expeditions that came home this tick record
+  // their use, then every piece settles for the tick (where it was during it, read off the incoming state) and takes
+  // the tick's use events. Draws no rng; a same-reference no-op on a pristine save with no event.
+  const crewResolved = resolveCrew(finalState);
+  const expeditionsResolved = resolveExpeditions(crewResolved);
+  recordExpeditionWear(crewResolved, expeditionsResolved, wearEvents);
+  return resolveGearWear(state, expeditionsResolved, wearEvents);
 }
 
 // Offline catch-up entry point, tech spec §2 (Tick Loop and Time Semantics).
@@ -5286,6 +5346,8 @@ export function dispatchCaptainOnMission(
   // dispatch (canDispatch's reach check); refuel is instant and free, so the tank is never drained
   // and refuelDelayTicks is always 0.
   const captains = [...state.captains];
+  const wearShip = state.ships.find((s) => s.assignedCaptainId === captainId);
+  const wearStamp = wearShip ? runWearStamp(state, wearShip.id) : undefined;
   captains[idx] = {
     ...captains[idx],
     mission: {
@@ -5296,6 +5358,9 @@ export function dispatchCaptainOnMission(
       cargo: emptyLootTotals(),
       recalled: false,
       refuelDelayTicks: 0,
+      // GEAR WEAR step 3: the run's wear flag with its ship's worn gear frozen (gearWearEngine.ts), while any wear
+      // source is live.
+      ...(wearStamp !== undefined ? { gearWear: wearStamp } : {}),
     },
     // Combat 0.13.0 (offline recap): CLEAR any stale wall-stop reason on a fresh dispatch, so a
     // captain re-dispatched after a prior cargo/defeat stop never shows the old reason.

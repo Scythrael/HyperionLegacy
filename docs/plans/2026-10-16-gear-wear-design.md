@@ -337,6 +337,40 @@ M9 "Slowly underway (Recommended)" binds E-MOD special module wear when those mo
 (adb41c6) the step 1 goldens were re-captured on adb41c6's pre-wear engine and the merged tree reproduces them byte
 for byte; the registry pins hold the `wear` additions apart (shortRangeGoldens GW_SLICE, emodGoldens `gw` read-back).
 
+**Carry note, step 3 (built 2026-10-21).** Goldens first (`gearWearGoldens.test.ts` gained a transport mission and a
+short-range Repeat run, captured on f85ef73's pre-wear engine). `gearWearEngine.ts` is the tick side: economyTick
+records each run's USE events at their own instants and its tail settles and wears every piece once per call
+(`resolveGearWear`). Sources wired per kind: a delivered captain-mission cycle (hold a haul, drive the round trip's ly,
+reactor and crew modules its minutes, sensor a survey, a prospecting rig one fire), a delivered non-training short-range
+cycle (the G1-4 `shortRangeCycleWear` seam), and a stamped expedition coming home (its time in 5-minute slices for the
+reactor, crew modules and implants, so a long run settles against the upkeep; then the voyage's ly, the bodies scanned
+for the sensor and a Pathfinder, and each member's ground fights and fieldwork steps from `GroundOpsState.wearTally`).
+The Damage Control Suite's fires and every battle source stay step 4's. Repair contexts: home, Shipyard bay (the hull
+repair process), field repair (a GO-8b leg, arrived to repaired), underway; lifted by the hull repair's own speed bonus
+and the DC Suite's time cut. A piece underway settles only at its run's events, every other piece each call;
+`settlePiece` carries the leftover fraction and a wear event keeps the anchor, so tick() == 1 s steps and a short-range
+run's one call == 997 s chunks == 1 s steps (`gearWearEngine.test.ts`). **The freeze rule (section 7) is literal:** a
+captain mission or short-range run freezes its ship's worn gear in its stamp (`RunWearStamp.frozen`) and folds THAT for
+the whole run (`runShipStats`), and an expedition's dispatch snapshot reads the worn-gear view; the wear a run takes acts
+from its next dispatch. Efficiency (the step 2 curve, `gearWear.ts wornGearView`: a worn piece's lines scaled, a crew
+module's boost and a sensor array's variety effect through `viewPieceEfficiency`) acts ONLY in: the captain-mission run
+sheet (hold, drive speed, a rig's or Pathfinder's lines, sensors, crew modules), the short-range plan and cycle sheet,
+and the expedition dispatch snapshot (sensor power and array, Pathfinder scan speed and hazard resist, the voyage speed,
+the members' ground and fieldwork lines). Never in a gate (reach, the short-range sheet, the power install gate, station
+and berth counts, equip requirements) or in combat (patrols, ship events). In-flight runs carry no stamp: they read their
+gear as before and wear nothing; training runs are never stamped (expeditions) or make no event (short-range). Raws
+re-tuned on the real engine to the 3.4 targets ([PROVISIONAL]: hold 8 a haul, drive 2 per 10 ly, reactor and crew
+modules 4 a minute, a utility fire 8, a survey 12, the implant 2.5 a minute, just above the 2 a minute upkeep so it
+wears at all, W10). Registry: every use source, repair context and bonus live with a `wear:` probe
+(`wiring/wearProbes.ts`); eleven efficiency consumers live; the drive's engine efficiency re-owned to S4-A02 (its only
+run-time reader is the unreachable fuel price) and the reactor's power output to step 4 (only the install gate and the
+combat budget read it); ship:audit:slotDurability live (toughness), a step 4 row added for the defense pieces. The
+golden files captured before step 3 run with the use sources off (`gearWearSwitch.fixture.ts gearWearOffInThisFile`),
+so their pins hold; `gearWearGoldens.test.ts` pins the wear-on runs (`wear:*`). For step 4: patrols are untouched (a
+patrol records no use event yet; its ship's worn gear settles underway as the patrol ends); the combat consumers, the
+battle sources and the DC Suite are yours. For EM-5 / EM-7 (M9 "Slowly underway"): a special module wears through
+`shipPieceUseRaw` like the crew modules (minutes underway).
+
 ## 12. OPEN CALLS (multiple-choice ready; recommended first)
 
 - **OC-W1, condition storage.** (a) Per-mille `condition` plus an anchor; retire `durability` (Recommended). (b)
