@@ -1268,6 +1268,12 @@ export function openResumedGroundOps(exp: Expedition, charted: number, t: number
   if (!ops) return;
   for (const team of ops.teams) if (team.step === "idle") team.stepStartedAt = t;
   for (let i = 0; i < Math.min(charted, exp.bodies.length); i += 1) planNewTasks(exp, i, t);
+  // Gas Giant Study GG-3 x G2-5: a charted giant whose study the recall cut short is studied now (from the window's
+  // opening, one after another); one studied on an earlier trip (`studied`) is not studied again.
+  for (let i = 0; i < Math.min(charted, exp.bodies.length); i += 1) {
+    const body = exp.bodies[i];
+    if (isStudyBody(exp, body) && body.studied !== true) scheduleStudyLeg(exp, i, t);
+  }
   groundOpsAssignIdle(exp, t);
   checkRunEnd(exp, t);
 }
@@ -2635,6 +2641,8 @@ export function groundOpsProgress(exp: Pick<Expedition, "groundOps" | "bodies" |
     if (!isStudyBody(exp, body)) return;
     const leg = exp.groundOps?.studyLegs?.find((l) => l.bodyIndex === i);
     total += 1;
+    // G2-5: a resumed run's giant studied on an earlier trip counts whole.
+    if (!leg && body.studied === true) sum += 1;
     if (!leg) return;
     const span = leg.endsAt - leg.startsAt;
     sum += leg.done ? 1 : span > 0 ? Math.max(0, Math.min(1, (now - leg.startsAt) / span)) : 1;

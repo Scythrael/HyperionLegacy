@@ -317,6 +317,18 @@ ANCIENT_FRAGMENT_BASE_PERMILLE 12 / ANCIENT_PROBE_LIFT 2.5 / ANCIENT_PROBE_KNEE 
 with the reference probe; the tier lift reuses TIER_HAUL_MULT). [PROPOSAL] from the plan, kept: STUDY_MIN_SECONDS 60,
 canisters 4 to 8, dive 0.5 x depth x rating at knee 2, one probe per dive, a uniform data family.
 
+**GG-2 / GG-3 merge note (2026-10-21, onto feat with G2-4 / G2-5, R2-2, R2-3, SF-4).** Review fix: a recall
+(G2-5) during a study left the giant unstudied for good on the resumed trip, and a giant studied on the first trip
+read 0 in the resumed run's progress. Now a held body carries `studied` (resume record only, expedition.ts
+heldBodies) when its study finished; `openResumedGroundOps` studies every charted giant without it from the window's
+opening; `groundOpsProgress` counts a `studied` giant whole; and a system whose only unfinished work is a study stays
+resumable (systemUnfinished). Tests: gasGiantStudyResume.test.ts (parity included). Goldens: every GG pin reproduces
+(the captures go through dispatchPastPropulsion and asPreRelicBlanksDispatch); moved at the merge, named at their pins:
+propulsionRecallGoldens Tier VI dispatch and relicsV2BlanksGoldens Tier VII seed 11 (a gas giant whose risk grades held
+a hostile site or a clearing objective, which GG-2 drops and no strip can rebuild). Kept as built (for the user): a
+pickup waits only while the ship is on a study; the v3 mockup also showed the Strike team waiting through the next
+giant's scan, and a return that began before a study was stored docks on time.
+
 ### GG-4: Nebulae (engine)
 
 Per open call 2. Recommended shape: a system-level nebula on `NEBULA_SALT` at a permille by tier **[PROPOSAL I 8%, up

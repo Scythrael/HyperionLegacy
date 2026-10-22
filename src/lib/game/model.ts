@@ -7538,6 +7538,10 @@ export interface ExpeditionBody {
   // only, so the study and the Survey Log read never recompute from content a balance pass may retune. Absent on every
   // other body and on every run dispatched before GG-2.
   giant?: { classId: GiantClassId; massMilliJ: number };
+  // Gas Giant Study GG-3 x G2-5 (user G12 "Pick up where you left off"): on a HELD body only (HeldSystem.bodies, written
+  // by a recall's resume record): this orbital body's study was finished on an earlier trip, so the resumed run does
+  // not study it again and counts it done. Absent on every live run's body.
+  studied?: true;
 }
 
 // Gas Giant Study GG-3: one SURVEY LOG entry (GameState.surveyLog): a studied giant as the ship recorded it. Every

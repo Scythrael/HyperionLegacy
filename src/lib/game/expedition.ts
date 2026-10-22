@@ -2840,8 +2840,9 @@ function chartedPrefix(bodies: readonly ExpeditionBody[]): number {
 }
 
 // Is anything left to do in the system (a body to scan, an objective not done)? Pure.
-function systemUnfinished(bodies: readonly ExpeditionBody[]): boolean {
-  return bodies.some((b) => !b.scanned || b.activities.some((a) => !a.done));
+// Gas Giant Study GG-3: a held study body (heldBodies) whose study is not finished is unfinished too.
+function systemUnfinished(exp: Pick<Expedition, "study">, bodies: readonly ExpeditionBody[]): boolean {
+  return bodies.some((b) => !b.scanned || b.activities.some((a) => !a.done) || (isStudyBody(exp, b) && b.studied !== true));
 }
 
 // The held record a recall of `exp` (already advanced and recalled at `t`) leaves behind, or null. Pure: fresh data.
@@ -2861,18 +2862,24 @@ function heldFromRecall(exp: Expedition, t: number): HeldSystem | null {
   };
   const charted = chartedPrefix(exp.bodies);
   if (charted === 0) return { ...base, kind: "candidate" };
-  if (!exp.groundOps || !exp.risk || !systemUnfinished(exp.bodies)) return null;
-  return { ...base, kind: "resume", risk: { ...exp.risk }, bodies: heldBodies(exp.bodies) };
+  if (!exp.groundOps || !exp.risk) return null;
+  const bodies = heldBodies(exp);
+  if (!systemUnfinished(exp, bodies)) return null;
+  return { ...base, kind: "resume", risk: { ...exp.risk }, bodies };
 }
 
 // The bodies a resume record keeps (user G12 "Pick up where you left off"): charted bodies whole, with their
 // objectives back in the queue (nothing assigned, no streak, no alert: a new crew lands on them after a trip home and
 // back), progress, cleared fight points and banked segments kept; an unfinished body's scan starts over. Pure.
-function heldBodies(bodies: readonly ExpeditionBody[]): ExpeditionBody[] {
-  return bodies.map((b) => {
+// Gas Giant Study GG-3: a charted giant whose study finished on this trip is marked `studied` (the resumed run does not
+// study it again); one cut short by the recall is not, so the resumed run studies it from the start.
+function heldBodies(exp: Pick<Expedition, "bodies" | "groundOps" | "study">): ExpeditionBody[] {
+  const studiedNow = new Set((exp.groundOps?.studyLegs ?? []).filter((l) => l.done).map((l) => l.bodyIndex));
+  return exp.bodies.map((b, i) => {
     if (!b.scanned) return { ...b, scanProgress: 0, discoveries: [], activities: [] };
     return {
       ...b,
+      ...(isStudyBody(exp, b) && studiedNow.has(i) ? { studied: true as const } : {}),
       discoveries: b.discoveries.map((d) => ({ ...d })),
       activities: b.activities.map((a) => {
         const c = cloneActivity(a);
