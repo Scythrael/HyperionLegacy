@@ -15,6 +15,11 @@ import { hash, onHull, withCrew, SWEEP_END } from "./firstRunsGoldens.fixture";
 import { asExpeditionVeteran, asPreRelicBlanksRun, asPreStudyDispatch, dispatchPastPropulsion } from "./awayTeamTestFixtures";
 import { cultureForBody } from "./relicBlanks";
 import { FIELD_KITS_CATALOG_VERSION } from "./fieldKits";
+// WR-8 (0.14.0): every pin in this file was taken before the combat rules (combatRulesSwitch.fixture.ts), so the file
+// runs with them switched off and its pins keep proving WR-8 moved nothing else here (the rules stamp new patrol
+// cycles and runs; combatDescriptorGoldens.test.ts pins the combat rules themselves).
+import { combatRulesOffForThisFile } from "./combatRulesSwitch.fixture";
+combatRulesOffForThisFile();
 
 const SEEDS = [11, 23, 37] as const;
 const TIERS: readonly RegionTier[] = [1, 4, 7];

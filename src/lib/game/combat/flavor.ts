@@ -74,6 +74,7 @@ export type FlavorCategory =
 	| "droneIntercept"
 	| "droneReflect"
 	| "droneCounter"
+	| "chainArc"
 	| "droneReplenish"
 	| "outcome"
 	| "retreat"
@@ -355,6 +356,14 @@ const POOLS: Record<FlavorCategory, FlavorPool> = {
 		generic: ["{actor}'s screen lashes out, {damage} onto {target}."],
 	},
 
+	// WR-8: a Voltaic shot's arc jumping to a second foe ({actor} is the shooter).
+	chainArc: {
+		generic: [
+			"{actor}'s Voltaic arc leaps to {target} for {damage}.",
+			"Current from {actor}'s shot chains into {target}, {damage} more.",
+		],
+	},
+
 	// A drone rebuilt / repaired mid-fight.
 	droneReplenish: {
 		generic: [
@@ -440,6 +449,8 @@ export function flavorCategory(event: CombatEvent): FlavorCategory {
 			return "droneReflect";
 		case "droneCounter":
 			return "droneCounter";
+		case "chainArc":
+			return "chainArc";
 		case "droneReplenish":
 			return "droneReplenish";
 		default:

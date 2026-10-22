@@ -61,6 +61,7 @@ import { WEAPON_DEFS, type WeaponId } from "./combat/weapons";
 // only combat/positioning + combat/types, never itemgen or model, so no cycle (same posture as
 // the combat/weapons import above).
 import { ROLE_TEMPLATE, type DroneRole } from "./combat/drones";
+import { POD_LINE_RAPID_CHARGE, POD_LINE_REPLENISH, POD_LINE_SMART_REFLECT } from "./combat/combatRules";
 
 // SLOT_BASE_PHYSICALS moved to model.ts (0.11.0 Task 20) so it sits with the other
 // slot DATA (EQUIPMENT_SLOTS / DEFAULT_EQUIPMENT_VARIETY) and can be read by model's
@@ -667,10 +668,23 @@ export function generateWeapon(a: {
 // Exported (0.13.5 tooltip rework), same reasoning as the weapon pool above: previewCraftOutcome
 // reads this ONE table so the in-progress tooltip's affix list cannot drift from generateDronePod.
 export const DRONE_POD_IMPLICIT_STAT = "droneHp";
+// WR-8 (0.14.0, OC-D12 "rapid charge, in-combat replenish and smart reflect as drone pod lines"): three counter lines
+// join the pool [PROVISIONAL weights 1 each], read by the combat bridge (bridge.ts podLinePoints, squadronFromPod) on
+// combatRules.ts podLineShare. Smart Reflect only acts on a Defense squadron (only Defense drones reflect), so only a
+// Defense pod rolls it (DRONE_POD_LINE_ROLE, dronePodAffixPool).
 export const DRONE_POD_AFFIX_POOL: { stat: string; weight: number }[] = [
   { stat: "droneHp", weight: 4 },
   { stat: "droneAccuracy", weight: 3 },
+  { stat: POD_LINE_REPLENISH, weight: 1 },
+  { stat: POD_LINE_RAPID_CHARGE, weight: 1 },
+  { stat: POD_LINE_SMART_REFLECT, weight: 1 },
 ];
+// The pod lines only one squadron role rolls (WR-8).
+export const DRONE_POD_LINE_ROLE: Readonly<Record<string, DroneRole>> = { [POD_LINE_SMART_REFLECT]: "defense" };
+// The affix pool a pod of `role` rolls from: DRONE_POD_AFFIX_POOL without the lines another role owns. Pure.
+export function dronePodAffixPool(role: DroneRole): { stat: string; weight: number }[] {
+  return DRONE_POD_AFFIX_POOL.filter((a) => (DRONE_POD_LINE_ROLE[a.stat] ?? role) === role);
+}
 const DRONE_POD_NEUTRAL_VARIETY: EquipmentVarietyDef = { key: "dronePod", label: "Drone Pod", statRatios: {} };
 
 // First-pass intrinsic physicals for a crafted drone pod (ROLE_TEMPLATE carries none: those fields
@@ -714,7 +728,7 @@ export function generateDronePod(a: {
   // neutral pod variety. affixCount FIRST (may draw once for augmented), then the picks, so the rng
   // stream advances in the same documented order as generateEquipment / generateWeapon.
   const wantAffixes = affixCount(a.rarity, a.rng);
-  const rolledStatKeys = rollDistinctAffixStats(DRONE_POD_AFFIX_POOL, DRONE_POD_NEUTRAL_VARIETY, wantAffixes, a.rng);
+  const rolledStatKeys = rollDistinctAffixStats(dronePodAffixPool(a.droneRole), DRONE_POD_NEUTRAL_VARIETY, wantAffixes, a.rng);
   const rolledStats: Record<string, number> = {};
   const affixEach = rolledStatKeys.length > 0 ? Math.round(affixShare / rolledStatKeys.length) : 0;
   for (const stat of rolledStatKeys) {
@@ -851,7 +865,7 @@ export function previewCraftOutcome(
     slotType = "droneBay";
     varietyKey = null;
     implicitStatKeys = [DRONE_POD_IMPLICIT_STAT];
-    affixPoolTable = DRONE_POD_AFFIX_POOL;
+    affixPoolTable = dronePodAffixPool(blueprint.droneOutput.role); // WR-8: the role's own pool, as generateDronePod
   } else {
     // unlockOnly / a plain material recipe: no instance is minted, so there is nothing to preview.
     return null;

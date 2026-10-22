@@ -1225,6 +1225,64 @@ installed reactor / FTL pieces (OC-D14). This is the largest determinism risk: e
 `patrolReplay` parity proof move. **Goldens first** (every hull x both routes x Dispatch Once and Repeat, the forecast
 band, the GO ship battles). The patrol cloak input (`particleTraceDetector`) stays `deferred` (T3).
 
+#### WR-8 carry note (built 2026-10-22 on 8688c61; two commits: goldens, then the wiring; no SAVE bump)
+
+**Built:** `combat/combatRules.ts` (the rules, their constants and the `CombatRulesStamp`). Every rule acts only on a
+battle whose run carries the stamp: a patrol cycle is stamped when it starts (dispatch and EVERY relaunch, the
+officerCombat precedent), an expedition's ship-event battle inputs at dispatch (`ShipEventBattle.combatRules`), and the
+dispatch forecast reads the stamp a dispatch would write now (`crewOverlay.ts shipCombatRulesStamp`). In-flight runs
+are byte-identical (proved: dispatched inside the test switch, advanced by the WR-8 engine, every Once patrol, ship
+event and battle row equals the pre-WR-8 capture). Under the stamp:
+- OC-D9: enemies open at `ENCOUNTER_OPEN_DISTANCE` and close; patrols `precharge`; a ship holds at its stance's band
+  capped at its own reach (`resolveBattle.ts combatReach`, Sensor Power Drain included), and opens the range only when
+  FASTER than its target (equal speed holds, so every fight closes). Combat speed = `RULES_COMBAT_SPEED` x sheet transit
+  / hull base transit (gear, crew, captain, mass drag), frozen in the stamp.
+- OC-D12: `WEAPON_RULE_TRAITS` (Point Defense and EMP anti-drone, Point Defense's Inhibit as a drone effect slot,
+  Tachyon's own vs-Shields column, the Voltaic arc), the vs-Drones column on drone absorbs, an EW anti-drone hit
+  disrupts a drone it does not destroy, the support pulse charges Overcharged Capacitors, the Inhibit reader
+  (`droneCooldown`), pirate armor / dampening / evasion (`PIRATE_HULLS`), statuses carried between the waves of one
+  cycle (`PatrolMissionState.playerStatusEffects`), and the installed Reactor Core and FTL drive qualities frozen in the
+  stamp (`reactorQuality` / `ftlQuality`) set the combat pools.
+- Gear lines (no stamp needed: gear is locked while out): `damageResist_*` on Hull Plating and `disruptionResist_*` on
+  Shield Emitters on `familyResistPercent`; pod lines In-Combat Replenish, Rapid Charge and Smart Reflect (Defense pods
+  only) on `podLineShare`.
+- Retired: `frameHp` / `COMBAT_FRAME_HP_FRACTION` and `CombatDefaultLoadout.builtInBays` (OC-D12 "coded or deleted").
+  `ResolveOptions.objective`, `TargetingPolicy.escortShare` and the DoT rng are `seam` rows (OC-C4 "Keep tested hooks").
+
+**Registry:** every WR-8 pending entry is live (combatDescriptorProbes.ts: exact seams for the open distance, speed
+stamp, pools, Tachyon column, status carry and the gear lines; seeded battle events for the rest). New rows:
+`ship:wr8:*` (weapon / drone range, stance, speed kite, the status readers, Voltaic, vs-Drones, persistence, Inhibit
+source / reader, Overcharge, enemy mitigation), `ship:wr8:powerInCombat` pending on EM-3, `ship:wr8:ambushInPatrols`
+deferred (T3: only a cloak ambushes, so Rapid Charge acts in the ship events). The hull and gear-line transit
+speed flat checks at `patrol` now read the legs alone (`patrolOutboundTicks`): transit speed reaches combat now.
+
+**Goldens moved (combatDescriptorGoldens.test.ts header names each one):** every patrol record, replay and state hash
+(the stamp); outcomes: Freighter Sweep lost (was won), Hauler Warband lost (was won), Battleship Warband Repeat flies a
+third cycle; forecast bands down on the hard routes; cloaked ship battles 7 flips to win, 2 to loss. The 30 golden files
+pinned before WR-8 run with the rules switched off (`combatRulesSwitch.fixture.ts combatRulesOffForThisFile`, or
+`withCombatRulesOff` around the pre-WR-8 tests in officerBonuses / officerStatFacets); the registry snapshots read
+WR-8 back (`combatDescriptorRegistry.fixture.ts wr8ReadBack`). patrol-tick's attrition fixture re-seeded (19 -> 554);
+simPlayer's training Sweep ends at 713 shield (was 732).
+
+**[PROVISIONAL] (one constant each):** `ENCOUNTER_OPEN_DISTANCE` 300, `RULES_COMBAT_SPEED` 30 and `combatSpeedFor`
+(relative to the hull; alternative absolute), `PIRATE_HULLS` armor / dampening / evasion (Raider 5/0/5, Marauder 20/5/3,
+Corsair Carrier 15/5/0), `FAMILY_RESIST_KNEE` 50, `POD_LINE_KNEE` 20, `SUPPORT_OVERCHARGE_ESCALATION` 30, the
+`WEAPON_RULE_TRAITS` numbers (Inhibit 40 / 25, Tachyon 110, Voltaic 30%), the resist line split (plating damage,
+emitter disruption) and pool weights 1. Measured (100 seeds, veteran, Standard Issue, Balanced): Orion Sweep 94 -> 74%
+win, Freighter Sweep 97 -> 86%, Carrier Warband 53 -> 25%, Destroyer Warband 19 -> 6% (Aggressive 14%): the balance
+pass owns the numbers.
+
+**For gear wear step 4:** WR-8 built "reactor and FTL from the installed piece" (quality, frozen in the stamp) and
+flipped `ship:audit:qualityDurabilityMax` live; step 4 opens those pools at the piece's true condition (bridge.ts
+`freshSystem` opens FULL today) and keeps battle wear, the start floor and `podDurability`. Its owner string
+(`GEAR_WEAR_STEP_4`) can drop the installed-piece clause. **For WR-7:** OC-D6 "unlisted = never rolls" must list the
+six resist keys in the plating / emitter varieties' `statRatios`, or they stop rolling (`ship:audit:familyResists`'s
+roll probe fails loudly). **For EM-3:** add `powerSupplyPercent` to `CombatRulesStamp` (frozen at the cycle start
+beside `speed`, every patrol cycle and ship-event run already carries the stamp) and read it beside
+`reactorDamagePercent`; the reactor pool is the installed piece's under the stamp; flip `ship:wr8:powerInCombat`.
+**For EM-4:** combat speed already reads the sheet's transit speed, so a reactor surplus lift on `transitSpeedMult`
+also speeds combat (a combat golden move to name); `ship:audit:reactorCoreNet` stays EM-4's.
+
 ### WR-9: Crew and officers beyond the CP slices
 
 Pilot Cunning (OC-E4), the transit split (OC-E5), Rapid Loadout scope (OC-E6), Morale Anchor's attrition half (OC-E7),

@@ -13,7 +13,12 @@
 //                 an expedition veteran save with the D18 crew, the run advanced in one call to SWEEP_END: the scan
 //                 events and the ship battle outcomes.
 //
-// The engine commit re-pins what it moves and names every move in GOLDEN's header.
+// GOLDEN_PRE is that capture (on 8688c61). The engine commit (WR-8) proves three things about it:
+//   - the switch (combatRulesSwitch.fixture.ts withCombatRulesOff: no run stamped, the nine WR-8 craft lines out of
+//     their pools) reproduces every GOLDEN_PRE row, so WR-8 moved nothing else here;
+//   - IN FLIGHT: a patrol cycle or expedition dispatched before WR-8 (dispatched inside the switch, then advanced by
+//     the live WR-8 engine) is byte-identical to GOLDEN_PRE (Dispatch Once rows, every ship-event row and battle row);
+//   - GOLDEN pins the live WR-8 game, every move named in its header.
 
 import { describe, expect, it } from "vitest";
 import Decimal from "break_infinity.js";
@@ -29,6 +34,8 @@ import { threatAssessment } from "./combat/threatAssessment";
 import { hash, onHull, runOutcome, stateHash, SWEEP_END, withCrew } from "./firstRunsGoldens.fixture";
 import { asExpeditionVeteran, asPatrolVeteran, dispatchPastPropulsion } from "./awayTeamTestFixtures";
 import { patrolDifficultyAt } from "./runDifficulty";
+import { shipCombatRulesStamp } from "./crewOverlay";
+import { withCombatRulesOff } from "./combatRulesSwitch.fixture";
 
 const HULLS = Object.keys(SHIP_TYPES) as ShipTypeKey[];
 const ROUTES = Object.keys(PATROLS) as PatrolKey[];
@@ -47,8 +54,9 @@ function base(hull: ShipTypeKey): GameState {
 
 // One patrol from a veteran save on `hull`, advanced in 1 s ticks until the captain idles (Once) or MAX_CYCLES cycles
 // have started (Repeat: then recalled and flown home).
-function patrolRow(hull: ShipTypeKey, key: PatrolKey, repeat: boolean): string[] {
-  const r = dispatchCaptainOnPatrol(base(hull), 1, key, "balanced", repeat);
+// `inFlight`: dispatched inside the switch (a cycle from before WR-8), then advanced by the live engine.
+function patrolRow(hull: ShipTypeKey, key: PatrolKey, repeat: boolean, inFlight = false): string[] {
+  const r = inFlight ? withCombatRulesOff(() => dispatchCaptainOnPatrol(base(hull), 1, key, "balanced", repeat)) : dispatchCaptainOnPatrol(base(hull), 1, key, "balanced", repeat);
   expect(r.success, `${hull} ${key}: ${r.reason}`).toBe(true);
   const row = [hash(structuredClone(r.next.captains[0].mission)), hash(replayPatrol(r.next, r.next.captains[0]))];
   let s = r.next;
@@ -80,14 +88,16 @@ function forecast(state: GameState, key: PatrolKey): string {
   const shipDef = SHIP_TYPES[ship.typeKey];
   const installedGear = equippedFor(state, ship.id);
   const startDrones = installedDronesForPatrol(installedGear, `forecast-${key}-p`);
-  const startSystemDurability = defaultSystemDurabilityForHull(hullType, shipDef, installedGear);
+  // WR-8: the stamp a dispatch would write now (App.svelte passes the same; before WR-8 there was none).
+  const combatRules = shipCombatRulesStamp(state, ship);
+  const startSystemDurability = defaultSystemDurabilityForHull(hullType, shipDef, installedGear, combatRules);
   const startDefense = foldedPlayerDefense(shipDef, installedGear);
   let wins = 0;
   for (let i = 0; i < DEFAULT_SAMPLES; i++) {
     const result = resolvePatrolWaves({
       playerId: ship.id, stats: shipDef, hullType, stance: "balanced", installedGear, masterSeed: 0x5a4d + i, factionId: def.factionId, def,
       startHull: startDefense.hullMax, startShield: startDefense.shieldMax, startDrones, startSystemDurability,
-      difficulty: patrolDifficultyAt(state),
+      difficulty: patrolDifficultyAt(state), combatRules,
     });
     if (!result.defeated) wins += 1;
   }
@@ -95,8 +105,9 @@ function forecast(state: GameState, key: PatrolKey): string {
 }
 
 // One Ground Operations run from an expedition veteran save: its ship events and battles, and the run's outcome.
-function shipEventRow(hull: ShipTypeKey, cand: string, seed: number | undefined): string[] {
-  const res = dispatchPastPropulsion(asExpeditionVeteran(withCrew(onHull(hull, seed), "d18")), "ship-1", 1, cand);
+function shipEventRow(hull: ShipTypeKey, cand: string, seed: number | undefined, inFlight = false): string[] {
+  const go = () => dispatchPastPropulsion(asExpeditionVeteran(withCrew(onHull(hull, seed), "d18")), "ship-1", 1, cand);
+  const res = inFlight ? withCombatRulesOff(go) : go();
   expect(res.success, `${hull} ${cand}: ${res.reason}`).toBe(true);
   const done: Expedition = advanceExpedition(res.expedition!, SWEEP_END);
   const events = (done.scanEvents ?? []).filter((e) => e.kind === "shipEvent");
@@ -112,8 +123,9 @@ function kindDraw(want: "probe" | "cloaked"): number {
   for (let k = 0; k < SHIP_EVENT_WEIGHT_TOTAL; k++) if (shipEventKindOf({ kind: k, cloaked: 0 }) === want) return k;
   throw new Error(`no draw names ${want}`);
 }
-function battleRow(hull: ShipTypeKey, cand: string): string[] {
-  const res = dispatchPastPropulsion(asExpeditionVeteran(withCrew(onHull(hull), "d18")), "ship-1", 1, cand);
+function battleRow(hull: ShipTypeKey, cand: string, inFlight = false): string[] {
+  const go = () => dispatchPastPropulsion(asExpeditionVeteran(withCrew(onHull(hull), "d18")), "ship-1", 1, cand);
+  const res = inFlight ? withCombatRulesOff(go) : go();
   expect(res.success, `${hull} ${cand}: ${res.reason}`).toBe(true);
   const exp = res.expedition!;
   const quiet = { boardingAttempt: SHIP_EVENT_DRAW_UNITS - 1, boardingRepel: 0 };
@@ -134,7 +146,7 @@ function battleRow(hull: ShipTypeKey, cand: string): string[] {
   return out;
 }
 
-const GOLDEN: Record<string, unknown> = {
+const GOLDEN_PRE: Record<string, unknown> = {
   "battle:orion:cand-0": [
     "probe:0:0:win:0", "probe:0:1:win:0", "probe:0:2:win:0", "probe:1:0:win:0", "probe:1:1:win:0",
     "probe:1:2:win:0", "cloakedPass:0:0:win:0", "cloakedPass:0:1:win:0", "cloakedPass:0:2:loss:41",
@@ -318,41 +330,245 @@ const GOLDEN: Record<string, unknown> = {
   "shipEvent:eir:303:cand-2": ["none", "63dee130", "2/11 hull:28 setbacks:3", "6e14b4bc"],
 };
 
-describe("WR-8 combat goldens (captured before the engine edit)", () => {
-  for (const hull of EXPLORERS) {
-    for (const cand of CANDS) {
-      const id = `battle:${hull}:${cand}`;
-      it(id, () => {
-        expect(battleRow(hull, cand)).toEqual(GOLDEN[id]);
-      });
-    }
-  }
-  for (const hull of HULLS) {
-    for (const key of ROUTES) {
-      for (const repeat of [false, true]) {
-        const id = `patrol:${hull}:${key}:${repeat ? "repeat" : "once"}`;
-        it(id, () => {
-          expect(patrolRow(hull, key, repeat)).toEqual(GOLDEN[id]);
-        });
-      }
-    }
-  }
-  for (const hull of FORECAST_HULLS) {
-    for (const key of ROUTES) {
-      const id = `forecast:${hull}:${key}`;
-      it(id, () => {
-        expect(forecast(base(hull), key)).toEqual(GOLDEN[id]);
-      });
-    }
-  }
-  for (const hull of EXPLORERS) {
-    for (const seed of EXPEDITION_SEEDS) {
-      for (const cand of CANDS) {
-        const id = `shipEvent:${hull}:${seed ?? "default"}:${cand}`;
-        it(id, () => {
-          expect(shipEventRow(hull, cand, seed)).toEqual(GOLDEN[id]);
-        });
-      }
-    }
+// Every row id and how to compute it (`inFlight` as above; the forecast reads the stamp a dispatch writes now).
+interface Row {
+  id: string;
+  run: (inFlight: boolean) => unknown;
+  inFlight: boolean; // a run that can be in flight (the forecast is a display read, Repeat relaunches stamp new cycles)
+}
+const ROWS: Row[] = [
+  ...EXPLORERS.flatMap((hull) => CANDS.map((cand) => ({ id: `battle:${hull}:${cand}`, run: (f: boolean) => battleRow(hull, cand, f), inFlight: true }))),
+  ...HULLS.flatMap((hull) =>
+    ROUTES.flatMap((key) =>
+      [false, true].map((repeat) => ({ id: `patrol:${hull}:${key}:${repeat ? "repeat" : "once"}`, run: (f: boolean) => patrolRow(hull, key, repeat, f), inFlight: !repeat })),
+    ),
+  ),
+  ...FORECAST_HULLS.flatMap((hull) => ROUTES.map((key) => ({ id: `forecast:${hull}:${key}`, run: () => forecast(base(hull), key), inFlight: false }))),
+  ...EXPLORERS.flatMap((hull) =>
+    EXPEDITION_SEEDS.flatMap((seed) =>
+      CANDS.map((cand) => ({ id: `shipEvent:${hull}:${seed ?? "default"}:${cand}`, run: (f: boolean) => shipEventRow(hull, cand, seed, f), inFlight: true })),
+    ),
+  ),
+];
+
+describe("WR-8 combat goldens: the switch reproduces the capture taken before the engine edit", () => {
+  for (const row of ROWS) {
+    it(row.id, () => {
+      expect(withCombatRulesOff(() => row.run(false))).toEqual(GOLDEN_PRE[row.id]);
+    });
   }
 });
+
+describe("WR-8 in flight: a run dispatched before WR-8 is byte-identical under the WR-8 engine", () => {
+  for (const row of ROWS.filter((r) => r.inFlight)) {
+    it(row.id, () => {
+      expect(row.run(true)).toEqual(GOLDEN_PRE[row.id]);
+    });
+  }
+});
+
+describe("WR-8 combat goldens: the live game", () => {
+  for (const row of ROWS) {
+    it(row.id, () => {
+      const id = row.id;
+      expect(row.run(false)).toEqual(GOLDEN[id]);
+    });
+  }
+});
+
+// The live WR-8 game. Every move is the combat rules (combatRules.ts), each named:
+//   patrol:*      every dispatch record and every relaunch record carries the stamp ({ rules: 1, speed: 30 }), so every
+//                 record, replay and whole-state hash moves. The fights themselves now open at ENCOUNTER_OPEN_DISTANCE
+//                 with pre-charged guns, the pirates carry their plates and evasion, the stance holds at its band
+//                 within the ship's reach. Outcomes that changed: the General Freighter loses its Sweep at tick 14 (was
+//                 won; its one autocannon against plated, evasive Raiders) and its Warband earlier (tick 20, was 23);
+//                 the Prospector Hauler loses its Warband (tick 23, was won at 22); the Battleship's Warband Repeat
+//                 flies a third cycle (lost at 65, was lost at 39). Every other outcome and tick holds.
+//   forecast:*    the dispatch card's band under the rules: Freighter Sweep 55 of 64 (was 63), Warband 0 (was 2);
+//                 Destroyer Warband 3 (was 11); Battleship Warband 47 (was 52, likely -> worthy); Carrier Warband 16
+//                 (was 39, worthy -> not advised); Orion Sweep 47 (was 60, likely -> worthy). The Sweep for the
+//                 Destroyer, Battleship and Carrier and the Orion's Warband are unchanged.
+//   shipEvent:*   every run's frozen ship-event battle inputs carry the stamp, so every events and run hash moves; the
+//                 battle outcomes, objectives, hull damage and setbacks of all 36 runs are unchanged.
+//   battle:*      the vessel opens at range (the cloaked one with its railgun at 300): seven Cloaked Vessel fights that
+//                 were lost are won now and two that were won are lost (orion cand-0, aurora cand-0 / cand-1, eir
+//                 cand-0 / cand-1); orion cand-1 / cand-2, aurora cand-2 and eir cand-2 hold every fight.
+const GOLDEN: Record<string, unknown> = {
+  "battle:orion:cand-0": [
+    "probe:0:0:win:0", "probe:0:1:win:0", "probe:0:2:win:0", "probe:1:0:win:0", "probe:1:1:win:0",
+    "probe:1:2:win:0", "cloakedPass:0:0:win:0", "cloakedPass:0:1:win:0", "cloakedPass:0:2:win:0",
+    "cloakedPass:1:0:win:0", "cloakedPass:1:1:win:0", "cloakedPass:1:2:win:0", "cloakedFail:0:0:win:0",
+    "cloakedFail:0:1:win:0", "cloakedFail:0:2:win:0", "cloakedFail:1:0:win:0", "cloakedFail:1:1:win:0",
+    "cloakedFail:1:2:win:0",
+  ],
+  "battle:orion:cand-1": [
+    "probe:0:0:win:0", "probe:0:1:win:0", "probe:0:2:win:0", "probe:1:0:win:0", "probe:1:1:win:0",
+    "probe:1:2:win:0", "cloakedPass:0:0:win:0", "cloakedPass:0:1:win:0", "cloakedPass:0:2:win:0",
+    "cloakedPass:1:0:win:0", "cloakedPass:1:1:win:0", "cloakedPass:1:2:win:0", "cloakedFail:0:0:win:0",
+    "cloakedFail:0:1:win:0", "cloakedFail:0:2:win:0", "cloakedFail:1:0:win:0", "cloakedFail:1:1:win:0",
+    "cloakedFail:1:2:win:0",
+  ],
+  "battle:orion:cand-2": [
+    "probe:0:0:win:0", "probe:0:1:win:0", "probe:0:2:win:0", "probe:1:0:win:0", "probe:1:1:win:0",
+    "probe:1:2:win:0", "cloakedPass:0:0:win:0", "cloakedPass:0:1:win:0", "cloakedPass:0:2:win:0",
+    "cloakedPass:1:0:win:0", "cloakedPass:1:1:win:0", "cloakedPass:1:2:win:0", "cloakedFail:0:0:win:0",
+    "cloakedFail:0:1:win:0", "cloakedFail:0:2:win:0", "cloakedFail:1:0:win:0", "cloakedFail:1:1:win:0",
+    "cloakedFail:1:2:win:0",
+  ],
+  "battle:aurora:cand-0": [
+    "probe:0:0:win:0", "probe:0:1:win:0", "probe:0:2:win:0", "probe:1:0:win:0", "probe:1:1:win:0",
+    "probe:1:2:win:0", "cloakedPass:0:0:win:0", "cloakedPass:0:1:win:0", "cloakedPass:0:2:win:0",
+    "cloakedPass:1:0:win:0", "cloakedPass:1:1:win:0", "cloakedPass:1:2:win:0", "cloakedFail:0:0:win:0",
+    "cloakedFail:0:1:win:0", "cloakedFail:0:2:win:0", "cloakedFail:1:0:win:0", "cloakedFail:1:1:win:0",
+    "cloakedFail:1:2:win:0",
+  ],
+  "battle:aurora:cand-1": [
+    "probe:0:0:win:0", "probe:0:1:win:0", "probe:0:2:win:0", "probe:1:0:win:0", "probe:1:1:win:0",
+    "probe:1:2:win:0", "cloakedPass:0:0:win:0", "cloakedPass:0:1:win:0", "cloakedPass:0:2:win:0",
+    "cloakedPass:1:0:win:0", "cloakedPass:1:1:win:0", "cloakedPass:1:2:win:0", "cloakedFail:0:0:win:0",
+    "cloakedFail:0:1:win:0", "cloakedFail:0:2:loss:36", "cloakedFail:1:0:win:0", "cloakedFail:1:1:win:0",
+    "cloakedFail:1:2:win:0",
+  ],
+  "battle:aurora:cand-2": [
+    "probe:0:0:win:0", "probe:0:1:win:0", "probe:0:2:win:0", "probe:1:0:win:0", "probe:1:1:win:0",
+    "probe:1:2:win:0", "cloakedPass:0:0:win:0", "cloakedPass:0:1:win:0", "cloakedPass:0:2:win:0",
+    "cloakedPass:1:0:win:0", "cloakedPass:1:1:win:0", "cloakedPass:1:2:win:0", "cloakedFail:0:0:win:0",
+    "cloakedFail:0:1:win:0", "cloakedFail:0:2:win:0", "cloakedFail:1:0:win:0", "cloakedFail:1:1:win:0",
+    "cloakedFail:1:2:win:0",
+  ],
+  "battle:eir:cand-0": [
+    "probe:0:0:win:0", "probe:0:1:win:0", "probe:0:2:win:0", "probe:1:0:win:0", "probe:1:1:win:0",
+    "probe:1:2:win:0", "cloakedPass:0:0:win:0", "cloakedPass:0:1:win:0", "cloakedPass:0:2:win:0",
+    "cloakedPass:1:0:win:0", "cloakedPass:1:1:win:0", "cloakedPass:1:2:win:0", "cloakedFail:0:0:win:0",
+    "cloakedFail:0:1:win:0", "cloakedFail:0:2:win:0", "cloakedFail:1:0:win:0", "cloakedFail:1:1:win:0",
+    "cloakedFail:1:2:win:0",
+  ],
+  "battle:eir:cand-1": [
+    "probe:0:0:win:0", "probe:0:1:win:0", "probe:0:2:win:0", "probe:1:0:win:0", "probe:1:1:win:0",
+    "probe:1:2:win:0", "cloakedPass:0:0:win:0", "cloakedPass:0:1:win:0", "cloakedPass:0:2:win:0",
+    "cloakedPass:1:0:win:0", "cloakedPass:1:1:win:0", "cloakedPass:1:2:win:0", "cloakedFail:0:0:win:0",
+    "cloakedFail:0:1:win:0", "cloakedFail:0:2:loss:43", "cloakedFail:1:0:win:0", "cloakedFail:1:1:loss:43",
+    "cloakedFail:1:2:win:0",
+  ],
+  "battle:eir:cand-2": [
+    "probe:0:0:win:0", "probe:0:1:win:0", "probe:0:2:win:0", "probe:1:0:win:0", "probe:1:1:win:0",
+    "probe:1:2:win:0", "cloakedPass:0:0:win:0", "cloakedPass:0:1:win:0", "cloakedPass:0:2:win:0",
+    "cloakedPass:1:0:win:0", "cloakedPass:1:1:win:0", "cloakedPass:1:2:win:0", "cloakedFail:0:0:win:0",
+    "cloakedFail:0:1:loss:43", "cloakedFail:0:2:win:0", "cloakedFail:1:0:win:0", "cloakedFail:1:1:win:0",
+    "cloakedFail:1:2:win:0",
+  ],
+  "patrol:generalFreighter:crimsonReaverSweep:once": ["e38d27d1", "2eb23e3f", "lost:14", "701a58f1", "f808e2f6"],
+  "patrol:generalFreighter:crimsonReaverSweep:repeat": ["73034d22", "2eb23e3f", "lost:14", "701a58f1", "f808e2f6"],
+  "patrol:generalFreighter:crimsonReaverWarband:once": ["8170ae77", "e95a255d", "lost:20", "701a58f1", "beaf4ad4"],
+  "patrol:generalFreighter:crimsonReaverWarband:repeat": ["99dcfe20", "e95a255d", "lost:20", "701a58f1", "beaf4ad4"],
+  "patrol:prospectorHauler:crimsonReaverSweep:once": ["f98b7306", "b5ce6337", "won:14", "9d03d00b", "44d412c5"],
+  "patrol:prospectorHauler:crimsonReaverSweep:repeat": [
+    "934c2bc3", "b5ce6337", "relaunch:14", "e12e8723", "e1b49b3", "relaunch:28", "ffa3365b", "e0ca0b5f",
+    "won:42", "9d03d00b", "47f525c2",
+  ],
+  "patrol:prospectorHauler:crimsonReaverWarband:once": ["80c4d6e8", "d31f3ab1", "lost:23", "8539ed3f", "2e9d3cfb"],
+  "patrol:prospectorHauler:crimsonReaverWarband:repeat": ["106706bd", "d31f3ab1", "lost:23", "8539ed3f", "2e9d3cfb"],
+  "patrol:prospectorRunner:crimsonReaverSweep:once": ["63a6753a", "b1767ed2", "lost:10", "e1360e3a", "3458dee6"],
+  "patrol:prospectorRunner:crimsonReaverSweep:repeat": ["214270f", "b1767ed2", "lost:10", "e1360e3a", "3458dee6"],
+  "patrol:prospectorRunner:crimsonReaverWarband:once": ["121696a8", "83b2d76f", "lost:20", "e1360e3a", "7542ef9a"],
+  "patrol:prospectorRunner:crimsonReaverWarband:repeat": ["30947c7d", "83b2d76f", "lost:20", "e1360e3a", "7542ef9a"],
+  "patrol:prospectorMiner:crimsonReaverSweep:once": ["de8ea837", "743c0de3", "lost:10", "4a78733f", "e7fd04bd"],
+  "patrol:prospectorMiner:crimsonReaverSweep:repeat": ["e25a34e0", "743c0de3", "lost:10", "4a78733f", "e7fd04bd"],
+  "patrol:prospectorMiner:crimsonReaverWarband:once": ["45245f69", "e17f3d51", "lost:20", "4a78733f", "445177ad"],
+  "patrol:prospectorMiner:crimsonReaverWarband:repeat": ["33ff849a", "e17f3d51", "lost:20", "4a78733f", "445177ad"],
+  "patrol:destroyer:crimsonReaverSweep:once": ["31e77619", "80a4e2d", "won:14", "6ad9f46c", "d4055219"],
+  "patrol:destroyer:crimsonReaverSweep:repeat": [
+    "88ed10aa", "80a4e2d", "relaunch:14", "60ebf60a", "ec4d7b2e", "relaunch:28", "7e062882", "b1f3a2b2",
+    "won:42", "6ad9f46c", "bba9124",
+  ],
+  "patrol:destroyer:crimsonReaverWarband:once": ["d309e353", "71183fe6", "won:22", "6ad9f46c", "94a165d6"],
+  "patrol:destroyer:crimsonReaverWarband:repeat": [
+    "f622e534", "71183fe6", "relaunch:22", "2ac69177", "92f08a9f", "lost:38", "44b4c6b5", "db558c17",
+  ],
+  "patrol:battleship:crimsonReaverSweep:once": ["8117c7c7", "f4a7b9ff", "won:14", "c6dba9cb", "6a6e81a4"],
+  "patrol:battleship:crimsonReaverSweep:repeat": [
+    "20cde710", "f4a7b9ff", "relaunch:14", "faca3df0", "a70c0c5b", "relaunch:28", "c0349798", "e313c0f5",
+    "won:42", "c6dba9cb", "ae27954d",
+  ],
+  "patrol:battleship:crimsonReaverWarband:once": ["5ef43211", "ba112768", "won:22", "c6dba9cb", "394499f3"],
+  "patrol:battleship:crimsonReaverWarband:repeat": [
+    "34602562", "ba112768", "relaunch:22", "2140ca1f", "e9252c44", "relaunch:44", "76fd6027", "54c164fb",
+    "lost:65", "afe73d75", "d4a9f00b",
+  ],
+  "patrol:carrier:crimsonReaverSweep:once": ["10bbdaa4", "1a728dab", "won:14", "ea909677", "9554bb6e"],
+  "patrol:carrier:crimsonReaverSweep:repeat": [
+    "850b5d91", "1a728dab", "relaunch:14", "58546b3", "c852a96", "relaunch:28", "d272f5a0", "fe0a521d", "won:42",
+    "ea909677", "64959369",
+  ],
+  "patrol:carrier:crimsonReaverWarband:once": ["cf2ed6fa", "8128b8b5", "won:22", "ea909677", "15006abb"],
+  "patrol:carrier:crimsonReaverWarband:repeat": [
+    "a6257fcf", "8128b8b5", "relaunch:22", "ef3396d8", "1f175bf5", "lost:38", "73109288", "5d7605b4",
+  ],
+  "patrol:orion:crimsonReaverSweep:once": ["40a9303c", "32f52fff", "won:14", "c75858d4", "9f06f3dd"],
+  "patrol:orion:crimsonReaverSweep:repeat": [
+    "d818f5a9", "32f52fff", "relaunch:14", "819d4289", "2232a633", "relaunch:28", "e7cf8ac1", "32de9505",
+    "won:42", "c75858d4", "6d24a25c",
+  ],
+  "patrol:orion:crimsonReaverWarband:once": ["65e0e99a", "91defc1b", "lost:20", "6619cb48", "20b8680"],
+  "patrol:orion:crimsonReaverWarband:repeat": ["d6a857ef", "91defc1b", "lost:20", "6619cb48", "20b8680"],
+  "patrol:aurora:crimsonReaverSweep:once": ["dbd9c477", "39b966f8", "won:14", "62b89a6f", "511447be"],
+  "patrol:aurora:crimsonReaverSweep:repeat": [
+    "a9555020", "39b966f8", "relaunch:14", "2640ec00", "72233a1f", "relaunch:28", "88c7eb68", "2d93ea29",
+    "won:42", "62b89a6f", "efae95d5",
+  ],
+  "patrol:aurora:crimsonReaverWarband:once": ["c5c49945", "45ac724b", "lost:20", "def772e7", "e97d0cbd"],
+  "patrol:aurora:crimsonReaverWarband:repeat": ["faa3a9e", "45ac724b", "lost:20", "def772e7", "e97d0cbd"],
+  "patrol:eir:crimsonReaverSweep:once": ["87e41c0f", "f6319943", "won:14", "ffdca63b", "ef5f54b8"],
+  "patrol:eir:crimsonReaverSweep:repeat": [
+    "59e3b7f8", "f6319943", "relaunch:14", "a8468558", "99ea9bf9", "relaunch:28", "e57d6b00", "e967f201",
+    "won:42", "ffdca63b", "34db43b9",
+  ],
+  "patrol:eir:crimsonReaverWarband:once": ["3cd5058d", "7281303a", "lost:20", "7ddb5b8d", "d9543d0b"],
+  "patrol:eir:crimsonReaverWarband:repeat": ["51f75e26", "7281303a", "lost:20", "7ddb5b8d", "d9543d0b"],
+  "forecast:generalFreighter:crimsonReaverSweep": "55:likely",
+  "forecast:generalFreighter:crimsonReaverWarband": "0:impossible",
+  "forecast:destroyer:crimsonReaverSweep": "64:guaranteed",
+  "forecast:destroyer:crimsonReaverWarband": "3:extreme",
+  "forecast:battleship:crimsonReaverSweep": "64:guaranteed",
+  "forecast:battleship:crimsonReaverWarband": "47:worthy",
+  "forecast:carrier:crimsonReaverSweep": "64:guaranteed",
+  "forecast:carrier:crimsonReaverWarband": "16:notAdvised",
+  "forecast:orion:crimsonReaverSweep": "47:worthy",
+  "forecast:orion:crimsonReaverWarband": "0:impossible",
+  "shipEvent:orion:default:cand-0": ["none", "628d0a82", "1/11 hull:0 setbacks:0", "f24252bf"],
+  "shipEvent:orion:default:cand-1": ["probe:win", "63ad049a", "7/10 hull:0 setbacks:2", "fd53203a"],
+  "shipEvent:orion:default:cand-2": ["cloaked:win", "c21ba1b3", "4/6 hull:14 setbacks:2", "d13e8fe3"],
+  "shipEvent:orion:101:cand-0": ["probe:win", "f6d6791c", "7/12 hull:0 setbacks:1", "f17f4a40"],
+  "shipEvent:orion:101:cand-1": ["none", "2a9661e9", "4/14 hull:0 setbacks:1", "7cb3b28a"],
+  "shipEvent:orion:101:cand-2": ["probe:win", "c54ee85f", "7/15 hull:0 setbacks:1", "65d323a0"],
+  "shipEvent:orion:202:cand-0": ["probe:win", "ca306f68", "2/6 hull:0 setbacks:1", "28794530"],
+  "shipEvent:orion:202:cand-1": ["none", "741638a5", "0/3 hull:0 setbacks:0", "3a69453f"],
+  "shipEvent:orion:202:cand-2": ["cloaked:win,cloaked:win", "3fc16ecc", "2/11 hull:14 setbacks:3", "8ed76201"],
+  "shipEvent:orion:303:cand-0": ["none", "5925cf3a", "1/4 hull:0 setbacks:0", "272f6cc5"],
+  "shipEvent:orion:303:cand-1": ["none", "ed0e6120", "4/9 hull:14 setbacks:2", "34257f8f"],
+  "shipEvent:orion:303:cand-2": ["none", "63dee130", "2/11 hull:28 setbacks:3", "cfe2d89c"],
+  "shipEvent:aurora:default:cand-0": ["none", "628d0a82", "1/11 hull:0 setbacks:0", "f828e41c"],
+  "shipEvent:aurora:default:cand-1": ["probe:win", "63ad049a", "7/10 hull:0 setbacks:2", "53a73029"],
+  "shipEvent:aurora:default:cand-2": ["cloaked:win", "9f36b3f1", "4/6 hull:12 setbacks:2", "525912bb"],
+  "shipEvent:aurora:101:cand-0": ["probe:win", "f6d6791c", "7/12 hull:0 setbacks:1", "7f02ebc"],
+  "shipEvent:aurora:101:cand-1": ["none", "2a9661e9", "4/14 hull:0 setbacks:1", "9cb2d14e"],
+  "shipEvent:aurora:101:cand-2": ["probe:win", "c54ee85f", "7/15 hull:0 setbacks:1", "56c82b60"],
+  "shipEvent:aurora:202:cand-0": ["probe:win", "ca306f68", "2/6 hull:0 setbacks:1", "9bebd13d"],
+  "shipEvent:aurora:202:cand-1": ["none", "741638a5", "0/3 hull:0 setbacks:0", "5bb05537"],
+  "shipEvent:aurora:202:cand-2": ["cloaked:win,cloaked:win", "654d778e", "2/11 hull:12 setbacks:3", "f41c7a18"],
+  "shipEvent:aurora:303:cand-0": ["none", "5925cf3a", "1/4 hull:0 setbacks:0", "ab2dd70c"],
+  "shipEvent:aurora:303:cand-1": ["none", "6356624e", "4/9 hull:12 setbacks:2", "3f096b25"],
+  "shipEvent:aurora:303:cand-2": ["none", "2f72ff6c", "2/11 hull:24 setbacks:3", "cba89d0d"],
+  "shipEvent:eir:default:cand-0": ["none", "628d0a82", "1/11 hull:0 setbacks:0", "b76559a0"],
+  "shipEvent:eir:default:cand-1": ["probe:win", "63ad049a", "7/10 hull:0 setbacks:2", "4c507ad3"],
+  "shipEvent:eir:default:cand-2": ["cloaked:win", "c21ba1b3", "4/6 hull:14 setbacks:2", "75816d42"],
+  "shipEvent:eir:101:cand-0": ["probe:win", "f6d6791c", "7/12 hull:0 setbacks:1", "614ff081"],
+  "shipEvent:eir:101:cand-1": ["none", "2a9661e9", "4/14 hull:0 setbacks:1", "8dce36de"],
+  "shipEvent:eir:101:cand-2": ["probe:win", "c54ee85f", "7/15 hull:0 setbacks:1", "11fda315"],
+  "shipEvent:eir:202:cand-0": ["probe:win", "ca306f68", "2/6 hull:0 setbacks:1", "643a1566"],
+  "shipEvent:eir:202:cand-1": ["none", "741638a5", "0/3 hull:0 setbacks:0", "6b10a88b"],
+  "shipEvent:eir:202:cand-2": ["cloaked:win,cloaked:win", "3fc16ecc", "2/11 hull:14 setbacks:3", "d5bb95f6"],
+  "shipEvent:eir:303:cand-0": ["none", "5925cf3a", "1/4 hull:0 setbacks:0", "b1d272b1"],
+  "shipEvent:eir:303:cand-1": ["none", "ed0e6120", "4/9 hull:14 setbacks:2", "e1f155c2"],
+  "shipEvent:eir:303:cand-2": ["none", "63dee130", "2/11 hull:28 setbacks:3", "7c9a31b1"],
+};

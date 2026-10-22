@@ -92,7 +92,9 @@ import type { DroneSquadron } from "./drones";
 // (tick.ts). tick.ts imports the SAME leaves, so there is one source of truth and no cycle.
 // Safe first runs SF-4: the cycle's difficulty profile (the schedule, the enemies, the training backstop) comes from
 // the SAME leaf the live loop reads, so the replay and the dispatch forecast fight exactly the patrol's fight.
-import { patrolCycleEnemies, patrolCycleWaveTicks, patrolWaveBreaksOff, patrolWaveEnemyParams } from "./patrolProfile";
+import { patrolBattleOptions, patrolCycleEnemies, patrolCycleWaveTicks, patrolWaveBreaksOff, patrolWaveEnemyParams } from "./patrolProfile";
+import type { CombatRulesStamp } from "./combatRules";
+import type { StatusEffect } from "./statusEffects";
 import {
   deriveWaveSeed,
   WAVE_ENEMY_SEED_SALT,
@@ -228,6 +230,9 @@ export interface ResolvePatrolWavesInput {
   // Safe first runs SF-4: the cycle's difficulty (the mission's stored stamp; the dispatch forecast passes the stamp
   // a dispatch would write now, runDifficulty.ts patrolDifficultyAt). Absent = full strength (byte-identical).
   difficulty?: PatrolDifficultyStamp;
+  // WR-8 (0.14.0): the cycle's combat rules stamp (the mission's stored stamp; the dispatch forecast passes the one a
+  // dispatch would write now, crewOverlay.ts shipCombatRulesStamp). Absent = the pre-WR-8 waves (byte-identical).
+  combatRules?: CombatRulesStamp;
 }
 
 export interface ResolvePatrolWavesResult {
@@ -256,7 +261,7 @@ export function resolvePatrolWaves(input: ResolvePatrolWavesInput): ResolvePatro
   // The wave schedule: a pure function of the master seed + def params, IDENTICAL to
   // the array freshPatrolMission persisted at dispatch (same call), so the replay's
   // wave ticks match the live cycle's exactly.
-  const stamped = { difficulty: input.difficulty };
+  const stamped = { difficulty: input.difficulty, combatRules: input.combatRules };
   const waveTicks = patrolCycleWaveTicks(masterSeed, def, stamped);
 
   // Carry-state, seeded from the caller. startDrones is deep-cloned so the between-wave
@@ -272,6 +277,8 @@ export function resolvePatrolWaves(input: ResolvePatrolWavesInput): ResolvePatro
     reactor: input.startSystemDurability.reactor,
     ftl: input.startSystemDurability.ftl,
   };
+  // WR-8: the statuses the last wave left on the ship (a cycle under the combat rules opens clean, as the live one).
+  let carryStatusEffects: StatusEffect[] | undefined;
 
   const waves: PatrolReplayWave[] = [];
   let wavesWon = 0;
@@ -325,6 +332,9 @@ export function resolvePatrolWaves(input: ResolvePatrolWavesInput): ResolvePatro
       // E-CREW (Task 20): the same frozen officer bonuses the live wave reads.
       officerCombat: input.officerCombat,
       captainCombat: input.captainCombat,
+      // WR-8: the cycle's combat rules and the carried statuses, exactly as the live loop passes them.
+      combatRules: input.combatRules,
+      carryStatusEffects,
     });
 
     // ENEMY team + labels, from the ENEMY-salt derivation with the SAME idPrefix the
@@ -350,7 +360,8 @@ export function resolvePatrolWaves(input: ResolvePatrolWavesInput): ResolvePatro
     const { outcome, log, finalCombatants } = resolveBattle(
       { combatants: [player, ...enemies] },
       deriveWaveSeed(masterSeed, waveIndex, WAVE_BATTLE_SEED_SALT),
-      { generateLog: true },
+      // WR-8: the live loop's options (pre-charge and the rules' paths under the stamp), plus the log.
+      { generateLog: true, ...patrolBattleOptions(stamped) },
     );
 
     // Read the player + enemies out of finalCombatants BY ID (never by index).
@@ -406,6 +417,8 @@ export function resolvePatrolWaves(input: ResolvePatrolWavesInput): ResolvePatro
       // capture leaf the live loop uses, so the wear entering the next replayed wave matches the
       // real fight exactly. A fresh object (never a mutation of the input), keeping purity.
       carrySystemDurability = capturePlayerSystemDurability(playerEnd!);
+      // WR-8: the statuses carry on as the live loop's (only under the rules, only when there are some).
+      if (input.combatRules) carryStatusEffects = playerEnd!.statusEffects.length > 0 ? playerEnd!.statusEffects.map((e) => ({ ...e })) : undefined;
     } else if (patrolWaveBreaksOff(stamped)) {
       // SF-4 THE BACKSTOP (the training cycle): the wave breaks off exactly as the live loop does: no defeat, the
       // carry-state it was entered with goes on, and the later waves are still replayed.
@@ -501,11 +514,13 @@ export function replayPatrol(state: GameState, captain: CaptainState): PatrolRep
     // FULL system durability at the cycle's opening (Phase 12b Unit B2): the replay reconstructs
     // from the initial no-wear state, exactly as freshPatrolMission seeded the live cycle, so
     // both accumulate identical wear across the waves.
-    startSystemDurability: defaultSystemDurabilityForHull(hullType, shipDef, installedGear),
+    startSystemDurability: defaultSystemDurabilityForHull(hullType, shipDef, installedGear, mission.combatRules),
     officerCombat,
     captainCombat,
     // SF-4: the cycle's stored difficulty (absent = full strength).
     difficulty: mission.difficulty,
+    // WR-8: the cycle's stored combat rules (absent = a cycle from before WR-8).
+    combatRules: mission.combatRules,
   });
 
   return {

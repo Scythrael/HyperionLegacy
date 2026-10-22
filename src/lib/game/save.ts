@@ -2510,6 +2510,10 @@ const MIGRATIONS: Record<number, Migration> = {
   // PatrolMissionState.deckHandling and replenishCarryStart, and DroneSquadron.deckHandlingPpm / replenishCarryPpm
   // inside the patrol's playerDrones (an in-flight patrol keeps its seeded screen until the next relaunch freezes the
   // crew aboard). The Survey Aptitude and Spacer racials write no new field (scanSpeedBonus already exists).
+  // WR-8 (0.14.0, the combat descriptors) adds NOTHING here either, same rule: PatrolMissionState.combatRules and
+  // playerStatusEffects, ShipEventBattle.combatRules, DroneSquadron.smartReflectChance and the Combatant fields are
+  // optional and absent on everything from before it (an in-flight patrol fights its old rules until the next relaunch
+  // stamps the new cycle; an in-flight expedition finishes under the rules it was dispatched with).
   65: (state: any): any => {
     const seniorStaffSeed = state.seniorStaffSeed ?? SENIOR_STAFF_DEFAULT_SEED;
     return {

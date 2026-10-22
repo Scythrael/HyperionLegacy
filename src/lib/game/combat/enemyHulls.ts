@@ -77,6 +77,16 @@ export interface PirateHull {
 	// balanced holds Medium, standoff hangs at Long. Derived-from-loadout intent,
 	// hardcoded per hull here rather than computed.
 	stance: CombatStance;
+
+	// WR-8 (0.14.0, OC-D12 "pirate hulls get armor and evasion"): the hull's mitigation, applied under the combat
+	// rules only (enemyWave.ts generateEnemyWaveDetailed, params.combatRules), so a patrol cycle in flight before WR-8
+	// fights the hulls it always did. [PROVISIONAL] magnitudes, the balance pass owns them.
+	// The depleting ablative buffer on the hull path (what a kinetic weapon's armor pen sees through).
+	ablativeArmor: number;
+	// Flat percent off every hull-path hit after the buffer (armor pen sees through it too).
+	kineticDampening: number;
+	// Evasion points off every incoming shot's accuracy (Manifold Overheat cuts them).
+	evasion: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -99,6 +109,10 @@ export const PIRATE_HULLS: Record<PirateHullId, PirateHull> = {
 		weapons: ["autocannon"],
 		droneRoles: [],
 		stance: "aggressive",
+		// Light plates, the nimblest hull of the three.
+		ablativeArmor: 5,
+		kineticDampening: 0,
+		evasion: 5,
 	},
 
 	// MARAUDER: the medium line pirate. More hull + shield than a raider, TWO guns
@@ -115,6 +129,10 @@ export const PIRATE_HULLS: Record<PirateHullId, PirateHull> = {
 		weapons: ["autocannon", "railgun"],
 		droneRoles: [],
 		stance: "balanced",
+		// The armored line ship: the heaviest plates, a little dampening, slow to dodge.
+		ablativeArmor: 20,
+		kineticDampening: 5,
+		evasion: 3,
 	},
 
 	// CORSAIR CARRIER: the drone tender. The toughest of the three but with only a
@@ -131,5 +149,9 @@ export const PIRATE_HULLS: Record<PirateHullId, PirateHull> = {
 		weapons: ["plasma"],
 		droneRoles: ["attack"],
 		stance: "standoff",
+		// A big tender: plated, but it trusts its drones rather than dodging.
+		ablativeArmor: 15,
+		kineticDampening: 5,
+		evasion: 0,
 	},
 };

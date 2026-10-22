@@ -38,6 +38,11 @@ import { WIRING_BUCKET_COUNT, bucketOf, editCaptain, installPiece, seatOfficer, 
 // Earth-born and reads under withCp2Off (that racial at 0). Nothing else differs from the WR-5c tip's capture.
 import { asPreG2Candidate, asPreG2NamesDispatch, asPreSafeFirstRunsDispatch, dispatchPastPropulsion, asPrePatrolCurveDispatch } from "./awayTeamTestFixtures";
 import { withCp2Off } from "./complementCp2Switch.fixture";
+// WR-8 (0.14.0): every pin in this file was taken before the combat rules (combatRulesSwitch.fixture.ts), so the file
+// runs with them switched off and its pins keep proving WR-8 moved nothing else here (the rules stamp new patrol
+// cycles and runs; combatDescriptorGoldens.test.ts pins the combat rules themselves).
+import { combatRulesOffForThisFile } from "./combatRulesSwitch.fixture";
+combatRulesOffForThisFile();
 
 function fnv(s: string): string {
   let h = 0x811c9dc5;

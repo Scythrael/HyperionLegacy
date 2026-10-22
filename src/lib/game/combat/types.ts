@@ -185,12 +185,12 @@ export interface CombatWeapon {
 	// DRONE SCREEN directly (the "Squadron is targeted" matrix row): its projectiles
 	// are contested by the screen under the squadron-targeted rules (evade for
 	// attack/support, deflect for defense) instead of the carrier-guard rules, and a
-	// projectile that engages a drone deals NOTHING to the carrier. Point-Defense /
-	// EMP set this in Phase 9 content; every other weapon leaves it falsy and hits
-	// the carrier normally (with the screen guarding). OPTIONAL so existing weapon
-	// fixtures (which never set it) stay byte-identical: undefined reads as false.
-	// TODO(Phase 9): a targeting rule may also route a normal shot at a squadron; for
-	// now the flag is the single, explicit way a shot targets the drones directly.
+	// projectile that engages a drone deals NOTHING to the carrier. WR-8 (0.14.0):
+	// Point-Defense and EMP carry it when built under the combat rules (combatRules.ts
+	// WEAPON_RULE_TRAITS); every other weapon leaves it falsy and hits the carrier
+	// normally (with the screen guarding). OPTIONAL so existing weapon fixtures (which
+	// never set it) stay byte-identical: undefined reads as false. The flag is the single,
+	// explicit way a shot targets the drones directly.
 	antiDrone?: boolean;
 	// WR-5b (0.14.0): the commanding captain's Tactician nodes on THIS weapon (combat/captainEdge.ts sets them at the
 	// fold, resolveBattle reads them). All OPTIONAL: absent on every enemy and on a ship whose captain owns no such
@@ -205,6 +205,17 @@ export interface CombatWeapon {
 	chargeCarry?: number;
 	openingVolley?: boolean;
 	damageCarryMilli?: number;
+	// WR-8 (0.14.0, combat/combatRules.ts WEAPON_RULE_TRAITS): the traits a weapon carries when it is built under the
+	// combat rules. All OPTIONAL and absent on every weapon built without them, so those battles are byte-identical.
+	//   droneEffectSlots : effects a CONNECTING shot procs on a target that fields live drones (Point Defense's Inhibit),
+	//                      rolled after effectSlots, with the same disruption resist cut.
+	//   vsShieldsPct     : this weapon's vs-Shields triangle column (the Tachyon anti-shield exception), in place of
+	//                      its family's.
+	//   chainSharePct    : the percent of a connecting shot's damage that arcs to the attacker's weakest other foe (the
+	//                      Voltaic chain), through that foe's mitigation; no draw.
+	droneEffectSlots?: WeaponEffect[];
+	vsShieldsPct?: number;
+	chainSharePct?: number;
 }
 
 // WR-5b (0.14.0): the commanding captain's Tactician nodes a battle reads from the ship's combatant (combat/
@@ -402,7 +413,12 @@ export interface Combatant {
 	// it never touches the combat stream or drone state at the default). The MODULE
 	// that grants this is Phase 9; here it is the inert-by-default field the loop
 	// reads. OPTIONAL so existing combatant fixtures are unchanged.
+	// WR-8 (0.14.0): set from the installed drone pods' In-Combat Replenish lines (bridge.ts podCombatLines).
 	inCombatReplenishPercent?: number;
+	// WR-8 (0.14.0): the installed drone pods' Rapid Charge lines as a share in [0, 1) (combatRules.ts podLineShare):
+	// an ambushed ship's return-fire delay closes that share of the gap to the rapid-charge delay. OPTIONAL: absent (or
+	// 0) leaves the delay where rapidChargeAfterAmbush puts it.
+	rapidChargeShare?: number;
 }
 
 // One structured record in the combat log.

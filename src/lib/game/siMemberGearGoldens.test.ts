@@ -28,6 +28,11 @@ import { deserialize, migrate, serialize } from "./save";
 import { asExpeditionVeteran, asPreRelicBlanksRun, asPreStudyDispatch } from "./awayTeamTestFixtures";
 import { goldenJson, onHull, runOutcome, SWEEP_END, withCrew, withoutRunCounts, fnv } from "./firstRunsGoldens.fixture";
 import { withSiMemberGearOff } from "./siMemberGearSwitch.fixture";
+// WR-8 (0.14.0): every pin in this file was taken before the combat rules (combatRulesSwitch.fixture.ts), so the file
+// runs with them switched off and its pins keep proving WR-8 moved nothing else here (the rules stamp new patrol
+// cycles and runs; combatDescriptorGoldens.test.ts pins the combat rules themselves).
+import { combatRulesOffForThisFile } from "./combatRulesSwitch.fixture";
+combatRulesOffForThisFile();
 
 const hash = (v: unknown): string => fnv(goldenJson(withoutRunCounts(v)));
 // Five of the SF-3 sweep's seeds (makeExpeditionSeed(0x1234567, i), the section 2.5 B method), so the runs carry

@@ -102,7 +102,9 @@ describe("WR-2 safe first runs: the allAuto newcomer baseline (SF-2 flipped the 
     // WR-4 (B14): the player side acts first now, so the Sweep ends with more shield left (279, was 236).
     // SF-4: the save's first patrol is the TRAINING CYCLE (2 waves of 1 Raider instead of the route's own waves), so
     // the Sweep ends with far more shield left (732, was 279); the hull is the same.
-    expect(r.patrol).toEqual({ patrol: "crimsonReaverSweep", refusal: null, won: true, endReason: "ordersComplete", repairSeconds: null, wavesWon: 2, wavesLost: 0, hullLeft: 340, shieldLeft: 732 });
+    // WR-8: the training cycle fights under the combat rules (the Raider opens at range and carries its plates and
+    // evasion), so a little more shield goes (713, was 732); still won, the hull untouched.
+    expect(r.patrol).toEqual({ patrol: "crimsonReaverSweep", refusal: null, won: true, endReason: "ordersComplete", repairSeconds: null, wavesWon: 2, wavesLost: 0, hullLeft: 340, shieldLeft: 713 });
     const first = r.expeditions[0];
     expect(first.shakedown).toBe(false);
     expect(first.candidate).toBe(0);

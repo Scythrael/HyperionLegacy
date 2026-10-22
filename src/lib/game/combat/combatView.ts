@@ -426,6 +426,14 @@ export function simplifiedLogTokens(
         ...damageClauseTokens(shield, hull),
       ];
     }
+    // WR-8: a Voltaic shot's arc onto a second foe.
+    case "chainArc": {
+      const { shield, hull } = damageSplit(event);
+      return [
+        { text: `${attacker}'s arc chains to ${target}`, kind: "text" },
+        ...damageClauseTokens(shield, hull),
+      ];
+    }
     case "droneIntercept":
       return [
         { text: `${attacker}'s drones intercept ${target}'s fire.`, kind: "text" },
@@ -590,7 +598,8 @@ export function visualBeatsForRound(events: CombatEvent[], round: number): Visua
       }
       case "droneVolley":
       case "droneReflect":
-      case "droneCounter": {
+      case "droneCounter":
+      case "chainArc": {
         if (event.targetId === undefined) break;
         // A drone volley is ONE aggregate pop (never a crit, per the design), tinted by the
         // render layer's default (drone events carry no weapon family).

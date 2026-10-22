@@ -36,6 +36,7 @@ import { shipToCombatant, type CombatShipStats } from "./bridge";
 import { makeWeaponInstance } from "./weapons";
 import { makeSquadron } from "./drones";
 import { PIRATE_HULLS, type PirateHullId } from "./enemyHulls";
+import { ENCOUNTER_OPEN_DISTANCE, RULES_COMBAT_SPEED } from "./combatRules";
 import type { Combatant, CombatTeam } from "./types";
 
 // The full result of building a wave: the enemy Combatant[] AND the per-enemy picked
@@ -77,6 +78,11 @@ export interface EnemyWaveParams {
 	// TRACEABLE to, and DISJOINT ACROSS, the waves that spawned them. Non-empty by
 	// contract, so that traceability is never silently lost (guarded below).
 	idPrefix: string;
+
+	// WR-8 (0.14.0, combat/combatRules.ts): the wave fights under the combat rules (its patrol cycle carries a
+	// CombatRulesStamp). Then every enemy opens at ENCOUNTER_OPEN_DISTANCE, carries its hull's armor, dampening and
+	// evasion (PIRATE_HULLS) and its weapons' rule traits. No draw is added. Absent or false: the pre-WR-8 wave exactly.
+	combatRules?: boolean;
 
 	// ⚠️ FORWARD SEAM (TI-TX difficulty, design note): a future difficulty tier
 	// will scale enemy strength / count / hazards. This params object is the SINGLE
@@ -223,16 +229,22 @@ export function generateEnemyWaveDetailed(
 		// Fold it into a Combatant on the ENEMY team. An explicit weaponLoadout /
 		// drones ALWAYS wins in the bridge (no hullType passed: a pirate hull is not
 		// one of the player CombatHullTypes). Stance comes from the hull template.
-		enemies.push(
-			shipToCombatant({
-				id: `${idPrefix}-e${i}`,
-				team: ENEMY_TEAM,
-				stats,
-				weaponLoadout,
-				drones,
-				stance: hull.stance,
-			}),
-		);
+		const enemy = shipToCombatant({
+			id: `${idPrefix}-e${i}`,
+			team: ENEMY_TEAM,
+			stats,
+			weaponLoadout,
+			drones,
+			stance: hull.stance,
+			// WR-8: under the combat rules the wave opens at range and fights with its hull's mitigation (no draw).
+			...(params.combatRules ? { combatRules: true, position: ENCOUNTER_OPEN_DISTANCE, speed: RULES_COMBAT_SPEED } : {}),
+		});
+		if (params.combatRules) {
+			enemy.ablativeArmor = hull.ablativeArmor;
+			enemy.kineticDampening = hull.kineticDampening;
+			enemy.evasion = hull.evasion;
+		}
+		enemies.push(enemy);
 	}
 
 	return { enemies, hullIds };

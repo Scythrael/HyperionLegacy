@@ -33,8 +33,8 @@
 //   fleetOps5 Wolfpack        : m more drone squadrons, each a copy of the first installed pod's squadron (a ship with
 //                               no drone pod fields none)
 //
-// Battles today open with every ship at position 0 (OC-D9 "Enemies start at range" is not built yet), so Alpha
-// Strike's "first shot" is each weapon's first shot of the battle, wherever the fight opens.
+// Alpha Strike's "first shot" is each weapon's first shot of the battle, wherever the fight opens (WR-8 built OC-D9
+// "Enemies start at range": under the combat rules a weapon's first shot is the one it fires when its range opens).
 //
 // Every magnitude is read from the catalog (model.ts SECONDARY_CAPTAIN_TALENTS) by node KEY, so a retune is a data
 // edit. All PURE.

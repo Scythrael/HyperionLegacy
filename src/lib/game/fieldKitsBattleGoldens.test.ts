@@ -20,6 +20,11 @@ import { advanceExpedition } from "./expedition";
 import { groundOpsAssignIdle, groundOpsBodyScanned, initGroundTasks } from "./groundOps";
 import { plainAwayMember, withoutFieldKits, dispatchPastPropulsion } from "./awayTeamTestFixtures";
 import { hash } from "./firstRunsGoldens.fixture";
+// WR-8 (0.14.0): every pin in this file was taken before the combat rules (combatRulesSwitch.fixture.ts), so the file
+// runs with them switched off and its pins keep proving WR-8 moved nothing else here (the rules stamp new patrol
+// cycles and runs; combatDescriptorGoldens.test.ts pins the combat rules themselves).
+import { combatRulesOffForThisFile } from "./combatRulesSwitch.fixture";
+combatRulesOffForThisFile();
 
 // Field Kits catalog 1, pinned as a literal (timed grenades, 2026-10-21): these runs throw Stun and Toxin Grenades, and
 // catalog 2 gives those a fuse, so the pins stay the catalog 1 run (a run in flight before the fuse), byte-identical.

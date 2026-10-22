@@ -68,6 +68,10 @@ export const FIELD_ROLES: Readonly<Record<string, Readonly<Record<string, FieldR
     weapons: "effect",
     droneRoles: "effect",
     stance: "effect",
+    // WR-8 (OC-D12 "pirate hulls get armor and evasion"), applied under the combat rules.
+    ablativeArmor: "effect",
+    kineticDampening: "effect",
+    evasion: "effect",
   },
   PLANET_TYPES: {
     id: "identity",
@@ -231,9 +235,9 @@ export const FIELD_ROLES: Readonly<Record<string, Readonly<Record<string, FieldR
     durability: "effect",
     durabilityMax: "effect",
     quality: "effect",
-    range: { seam: "WR-8, OC-D9 (every ship sits at position 0, B3)" },
+    range: "effect", // WR-8: fights open at range (the firing gate and the stance reach read it)
     powerDraw: "effect", // E-MOD EM-1: a crafted weapon's draw joins the ship's power budget
-    armorPen: { seam: "WR-8, OC-D12 (enemy armor is 0)" },
+    armorPen: "effect", // WR-8: pirate hulls carry armor and dampening
   },
   ROLE_TEMPLATE: {
     droneHp: "effect",
@@ -247,7 +251,7 @@ export const FIELD_ROLES: Readonly<Record<string, Readonly<Record<string, FieldR
     reflectChance: "effect",
     supportHullRepair: "effect",
     droneReplenishRate: "effect",
-    range: { seam: "WR-8, OC-D9 (every ship sits at position 0, B3)" },
+    range: "effect", // WR-8: the squadron reach gate
   },
   STATUS_EFFECT_DEFS: {
     id: "identity",
@@ -339,4 +343,8 @@ export const UNREAD_CONSTANTS: Readonly<Record<string, string>> = {
   // relicIdentify.ts, the exceptional check.)
   RELIC_SOFT_CAP: "seam: Relics v2 R2-4 (the per-tier soft cap freeze, user call 3)",
   CULTURE_STUDY_POINTS: "seam: Relics v2 R2-6 (a culture is named at this many study points, user call 9)",
+  // WR-8 (0.14.0): the per-family resist line keys (the craft pools in model.ts spell them, since model.ts never imports
+  // combat at runtime): read by the wiring registry's roll probe and the test switch.
+  PLATING_RESIST_LINES: "bookkeeping: the Hull Plating resist line keys (WR-8), read by the wiring registry and the combat rules test switch",
+  EMITTER_RESIST_LINES: "bookkeeping: the Shield Emitter resist line keys (WR-8), read by the wiring registry and the combat rules test switch",
 };

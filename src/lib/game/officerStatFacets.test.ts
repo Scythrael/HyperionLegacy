@@ -81,6 +81,7 @@ import { goldenJson, withoutGuests, withoutRunCounts } from "./firstRunsGoldens.
 import { withCp2Off } from "./complementCp2Switch.fixture";
 // The inert racials (0.14.0): the Spacer key restored and the drone / survey sources zeroed (racialsSwitch.fixture.ts).
 import { withRacialsOff } from "./racialsSwitch.fixture";
+import { withCombatRulesOff } from "./combatRulesSwitch.fixture";
 import { activityRelicFindBonus, generateEncounter, softenAmbush } from "./gambit";
 import { applyExpeditionInjuries, injuryRecoverySeconds } from "./injuries";
 import {
@@ -512,17 +513,19 @@ const RACIALS_STATLESS: Record<string, string | string[]> = {
 };
 
 describe("neutrality: an all-10 bridge = byte-identical to before Task 21 (golden)", () => {
-  it("a full bridge at 10/10/10/10 (sheet, missions, patrols + replays, repair, expeditions)", { timeout: 120_000 }, () => {
+  // WR-8 (0.14.0): captured before the combat rules, so these fly with them switched off (combatRulesSwitch.fixture.ts;
+  // combatDescriptorGoldens.test.ts pins the rules).
+  it("a full bridge at 10/10/10/10 (sheet, missions, patrols + replays, repair, expeditions)", { timeout: 120_000 }, () => withCombatRulesOff(() => {
     expect(scenarioHashes(() => NEUTRAL)).toEqual(RACIALS_NEUTRAL);
     expect(racialsOffHashes(() => NEUTRAL)).toEqual(GOLDEN_NEUTRAL);
-  });
+  }));
 
-  it("the same bridge with stat-less officers (absent = neutral)", { timeout: 120_000 }, () => {
+  it("the same bridge with stat-less officers (absent = neutral)", { timeout: 120_000 }, () => withCombatRulesOff(() => {
     expect(scenarioHashes(() => undefined)).toEqual(RACIALS_STATLESS);
     expect(racialsOffHashes(() => undefined)).toEqual(GOLDEN_STATLESS);
-  });
+  }));
 
-  it("CP-2 turn it off: both bridges with the CP-2 effects switched off are the pre-CP-2 capture", { timeout: 240_000 }, () => {
+  it("CP-2 turn it off: both bridges with the CP-2 effects switched off are the pre-CP-2 capture", { timeout: 240_000 }, () => withCombatRulesOff(() => {
     // Captured before the inert racials too, so they are switched off as well.
     expect(racialsOffHashes(() => NEUTRAL, (run) => withCp2Off(run))).toEqual(GOLDEN_NEUTRAL_CP2_OFF);
     expect(racialsOffHashes(() => undefined, (run) => withCp2Off(run))).toEqual(GOLDEN_STATLESS_CP2_OFF);
@@ -537,7 +540,7 @@ describe("neutrality: an all-10 bridge = byte-identical to before Task 21 (golde
       return fnv(goldenJson([withoutGuests(withEm1Off(() => effectiveShipStats(sheet, sheet.ships[0]))), out]));
     }), { droneAndSurvey: false });
     expect(renamed).toBe(SHEET_CP2_OFF_PRE);
-  });
+  }));
 });
 
 // ============================================================================
