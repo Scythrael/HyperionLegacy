@@ -64,7 +64,8 @@ export const DATA_STUDY_SALT = 0x2d6f4a9b;
 // User call 12 (2026-10-19, "Proposed"): a data study takes 20 minutes (one tick is one second at the default cadence).
 export const DATA_STUDY_TICKS = 1200;
 
-// The lane count from Lab Level I (the signed-off v3 mockup, as drawn: "Lane 1 of 1, Lab level 1").
+// [PROVISIONAL] (the mockup shows Lab level 1 only; the plan's "Lab 1 has 1 slot" leaves room for more later): ONE lane
+// at every Lab level (the signed-off v3 mockup, as drawn: "Lane 1 of 1, Lab level 1").
 export const DATA_STUDY_LANES = 1;
 
 // User call 9: +12% speed on the next project of the family for one banked boost.

@@ -439,8 +439,8 @@ export const NEBULA_SWEEP_SALT = 0x6c1f2e4b;
 // [PROPOSAL] the chance a system holds a nebula, per mille by region tier (plan GG-4: Tier I 8% rising to VII 20%).
 export const NEBULA_PERMILLE_BY_TIER: Readonly<Record<RegionTier, number>> = { 1: 80, 2: 100, 3: 120, 4: 140, 5: 160, 6: 180, 7: 200 };
 
-// The famous systems that ARE nebulae always hold theirs (plan GG-4: "G2's nebula-region famous systems always"), each
-// of its real kind: the Orion, Lagoon and Eagle Nebulae are emission nebulae (starCatalog.ts FAMOUS_SYSTEMS ids).
+// [PROPOSAL] (inside the plan's GG-4 proposal bracket, not yet answered) the famous systems that ARE nebulae always hold
+// theirs (plan GG-4: "G2's nebula-region famous systems always"), each of its real kind: the Orion, Lagoon and Eagle Nebulae are emission nebulae (starCatalog.ts FAMOUS_SYSTEMS ids).
 export const FAMOUS_NEBULA_KIND: Readonly<Record<string, NebulaKindId>> = {
   orionNebula: "emissionNebula",
   lagoonNebula: "emissionNebula",
@@ -486,13 +486,17 @@ function nebulaDefOf(exp: Pick<Expedition, "nebula">, kinds: readonly NebulaKind
   return kinds.find((k) => k.id === id) ?? nebulaKindById(id) ?? null;
 }
 
-// The canisters a sweep can return, low to high (the forecast line, mockup v3 "31 to 62 from the sweep"): the base
-// range x the tier haul, the low end down and the high end up (the chance rounding can add one). Pure.
+// The canisters a sweep can return, low to high (the forecast line; mockup v3 drew "31 to 62 from the sweep" as its
+// example, while this returns 30 to 60 at Tier II (x1.25), so GG-6 prints this function, never the mockup's numbers):
+// the base range x the tier haul, the low end down and the high end up (the chance rounding can add one). Pure.
 export function nebulaCanisterRange(exp: Pick<Expedition, "region">): [number, number] {
   const scale = tierHaulMult(exp.region);
   return [Math.floor(NEBULA_CANISTERS_MIN * scale), Math.ceil(NEBULA_CANISTERS_MAX * scale)];
 }
 
+// [PROPOSAL] (this slice's pick, not yet answered) the sweep's extras reuse the giant study's odds: research data at
+// 40% (STUDY_RESEARCH_DATA_PERMILLE), a Survey Log readout at 15% (STUDY_SURVEY_READOUT_PERMILLE), and never an Ancient
+// Data Fragment (no depths to probe).
 // THE REWARD of the sweep, ending at `at`: one "study" finding (id "<expeditionId>-find-nebula"), on NEBULA_SWEEP_SALT,
 // in a FIXED draw order: (1) research data at STUDY_RESEARCH_DATA_PERMILLE, (2) its family (uniform over the eight),
 // (3) the Survey Log readout at STUDY_SURVEY_READOUT_PERMILLE, (4) the canister base count (NEBULA_CANISTERS_MIN to

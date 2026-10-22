@@ -197,6 +197,14 @@ describe("GG-5 the lane (call 8: auto when idle, with a pause toggle)", () => {
     const p = dataStudiesInFlight(s)[0];
     expect(canBuyOvertime(s, { kind: "process", id: p.id }).ok).toBe(true);
   });
+
+  it("Overtime is refused on a paused study (it is not counting down) and offered again once it resumes", () => {
+    const s = step(lab(1, { [PROP]: 1 }), 1);
+    const p = dataStudiesInFlight(s)[0];
+    const paused = setDataStudyPaused(s, true);
+    expect(canBuyOvertime(paused, { kind: "process", id: p.id })).toEqual({ ok: false, reason: "paused" });
+    expect(canBuyOvertime(setDataStudyPaused(paused, false), { kind: "process", id: p.id }).ok).toBe(true);
+  });
 });
 
 describe("GG-5 oldest held data first (as drawn)", () => {

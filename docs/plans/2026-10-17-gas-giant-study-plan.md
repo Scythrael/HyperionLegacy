@@ -389,8 +389,8 @@ culture one study point (`feedCultureData` on the Museum v2 culture record: the 
 `BlueprintDef.requiresDecode` + `blueprintDecodeLocked` (the most entries any one culture decoded) + canResearch
 `undecoded`: no blueprint carries it yet (GG-7's special blueprints will). Overtime covers `dataStudy` (tier 1). Research
 data items lost their `reserved` markers; their registry rows flip live in place (DATA_STUDY consume:<item>, probe: the
-lane studies the unit). Registry live with probes: GAS_STUDY_USES labLane, DATA_STUDY boost:<family> x8, recipeChance,
-ancientDecode; seam DATA_STUDY_SEAM decodeGate (owner GG-7). Completion log: a study that learned a recipe records a
+lane studies the unit). Registry live with probes: GAS_STUDY_USES labLane, DATA_STUDY boost:<family> x8, recipeChance; seams
+ancientDecode (review follow-up below) and DATA_STUDY_SEAM decodeGate (owner GG-7). Completion log: a study that learned a recipe records a
 "blueprint", any other the item studied ("nothing"; GG-6's tab shows the boost or the entry); FA XP like a relic study.
 [PROVISIONAL]: RESEARCH_BOOST_KNEE 4. [PROPOSAL]: the family map (RESEARCH_FAMILY_BY_SLOT plus the Survey Rig and the
 Pathfinder Suite as Sensors; field kits as Field; hull unlocks and holds as Hull Design), the decode gate reading the
@@ -399,6 +399,17 @@ most entries of any one culture, a data study earning FA XP. Readers for GG-6: `
 still on the warehouse shelves through the GG-3 source flip (GAS_STUDY_SOURCE_PENDING empty); the signed-off "no
 research-data warehouse shelf" is GG-6's to apply. Goldens: the GG-5 capture (a save holding data, an hour) holds with
 the lane paused; the lane-on hour is pinned (GG-5 golden).
+
+**GG-4 / GG-5 review follow-up (2026-10-22, integration).** `facility:DATA_STUDY:ancientDecode` is a SEAM (owner GG-7 and
+R2-6), not live: the study raises `ancientDecoded` (its probe still measures that), but no blueprint carries
+`requiresDecode` yet and nothing reads the culture study point, so a fragment study changes nothing a player sees until
+GG-7 (GG-7 adds a test that at least one blueprint needs a decode). Overtime is refused on a paused data study
+(`canBuyOvertime` reason `paused`). Tags added, for the user: [PROPOSAL] the sweep's extras (research data 40%, Survey
+Log readout 15%, never an Ancient Data Fragment), [PROPOSAL] the Orion, Lagoon and Eagle Nebulae always holding an
+emission nebula, [PROVISIONAL] one data lane at every Lab level. For GG-6: the forecast prints `nebulaCanisterRange`
+(30 to 60 at Tier II), not the mockup's example "31 to 62"; the demand line reads "2 ship studies and 1 nebula
+sweep, no squad needed" where the mockup drew "2 ship studies · 1 nebula sweep · Studies need no squad" (reconcile
+there); a paused lane needs its paused state on the Home row (its countdown holds).
 
 ### GG-6: UI (needs a v3 mockup sign-off first)
 

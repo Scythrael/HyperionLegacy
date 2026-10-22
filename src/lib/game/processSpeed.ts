@@ -131,7 +131,9 @@ export function overtimeStepCost(state: GameState, p: TimedProcess, step: number
   return Math.ceil(OVERTIME_CREDITS_PER_MINUTE * minutes * overtimeTier(state, p) * step);
 }
 
-export type OvertimeBlockReason = "notFound" | "notEligible" | "skipped" | "maxSteps" | "finishing" | "credits";
+// "paused" (GG-5 review follow-up): a Research Lab data study while the lane is paused (dataStudy.ts dataStudyPaused):
+// it is not counting down, so Overtime would buy nothing until it resumes.
+export type OvertimeBlockReason = "notFound" | "notEligible" | "skipped" | "maxSteps" | "finishing" | "credits" | "paused";
 
 export type OvertimeQuote =
   | { ok: true; step: number; cost: number; ticksSaved: number }
@@ -148,6 +150,7 @@ export function canBuyOvertime(state: GameState, ref: ProcessRef): OvertimeQuote
   if (!p) return { ok: false, reason: "notFound" };
   if (!OVERTIME_PROCESS_KINDS.includes(p.kind)) return { ok: false, reason: "notEligible" };
   if (p.speed?.instantComplete) return { ok: false, reason: "skipped" };
+  if (p.kind === "dataStudy" && state.dataStudyPaused === true) return { ok: false, reason: "paused" };
   const steps = p.speed?.overtimeSteps ?? 0;
   if (steps >= OVERTIME_MAX_STEPS) return { ok: false, reason: "maxSteps" };
   if (p.remainingTicks <= OVERTIME_FINISHING_TICKS) return { ok: false, reason: "finishing" };

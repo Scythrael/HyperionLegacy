@@ -4557,8 +4557,9 @@ function gasStudyEntries(): WiringEntry[] {
       note: "one fieldwork step on the probe (gear wear design 3.1, user 2026-10-16: \"sensors by scans, tools by fieldwork\"); gasGiantStudyLeg.test.ts proves the events",
     }),
   );
-  // GG-5: the lab lane's effects (dataStudy.ts), each live with its probe: one banked boost per research family (the
-  // ticks it saves on the family's first blueprint), the recipe chance, and the Ancient Data Fragment's decode.
+  // GG-5: the lab lane's effects (dataStudy.ts): one banked boost per research family (the ticks it saves on the
+  // family's first blueprint) and the recipe chance, each live with its probe; the Ancient Data Fragment's decode is a
+  // seam until a blueprint reads it (GG-7).
   for (const family of RESEARCH_FAMILIES) {
     out.push(
       entry({
@@ -4591,11 +4592,15 @@ function gasStudyEntries(): WiringEntry[] {
       system: "facility",
       source: { catalog: "DATA_STUDY", key: "ancientDecode" },
       claim: "An Ancient Data Fragment's study decodes the next entry of its own culture (and gives it a study point)",
+      // GG-5 review follow-up: a SEAM, not live. The study does raise GameState.ancientDecoded (probe
+      // content:dataStudy:decode measures it), but nothing a player sees reads that count yet: no blueprint carries
+      // requiresDecode (decodeGate below, GG-7) and the culture study point waits on culture naming (R2-6).
       probe: "content:dataStudy:decode",
       contexts: ["research"],
       curve: { kind: "event", metric: "entries one Ancient Data Fragment study decodes" },
       magnitude: () => 1,
       on: sourceOn,
+      status: { kind: "seam", owner: "GG-7 (the first special blueprint carrying requiresDecode) and Relics v2 R2-6 (culture study points)", userRef: "user call 10 (2026-10-19, \"One lane\"): a fragment decodes its culture's entries; some entries unlock special blueprints" },
     }),
     entry({
       id: "facility:DATA_STUDY_SEAM:decodeGate",
