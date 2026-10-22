@@ -1668,3 +1668,21 @@ is the first candidate to ask the user about a 0.14.x deferral, recorded as `def
   ship is out (shipCrewLocked); "Always multiply (Recommended)": every "+X%" talent is its own x(1 + X) factor (applies
   to WR-5b / WR-5c too); Assayer "Own ship only (Recommended)"; Trade Routes / Shrewd Negotiator "As built
   (Recommended)" (docked pay after one delivered supply run; discount adds to profit).
+
+## USER ANSWERS (2026-10-22): WR-8 review, patrol balance and the range rule (verbatim)
+
+Context: WR-8 review measured patrol wins per 100 (veteran, Standard Issue, Balanced): Orion Sweep 89 to 70, Freighter
+Sweep 96 to 80, Carrier Warband 55 to 26, Destroyer Warband 22 to 7. Causes about equal: (1) provisional pirate
+armor/evasion vs the 6 to 10 damage autocannon (a NUMBERS issue); (2) fighting through an approach, with the "hold no
+farther than the LONGEST weapon's reach" rule parking a Balanced Destroyer where its autocannon never fires (a SYSTEM
+issue).
+
+1. Patrol balance: "Let's remember that if it's a systemic issue, we fix the systemic issue. But the actual balancing
+   of the content can wait. If it's just a balancing numbers thing, option 1. Otherwise, we should fix the system
+   itself." Reading: soften the provisional pirate armor/evasion numbers for now (option 1, "Soften pirates for now";
+   0.16.0 owns real numbers) AND fix the parking system.
+2. Range rule: "Stance should decide. However, there's something missing. We should change Standoff to Defensive, and
+   make it more defensively oriented for it's actual behavior. That makes more sense. We have aggression which is
+   offense, but standoff doesn't really feel like it means "defensive", evne though it's the closest thing to it."
+   Reading: each stance sets where a ship holds; Standoff is renamed Defensive and gains defensive behavior (what it
+   does: next round of questions).
