@@ -18,7 +18,8 @@ import {
   labTier,
   type GameState,
 } from "./model";
-import { canBuildFacilityUpgrade, canFabricate, economyTick, fabricateSlotCount, researchSlotCount, startFacilityUpgrade } from "./tick";
+import { canBuildFacilityUpgrade, canFabricate, economyTick, fabricateSlotCount, researchSlotCount, startFabricateJob, startFacilityUpgrade, startResearch, tick } from "./tick";
+import { addItemQuality } from "./inventory";
 import { stateHash } from "./firstRunsGoldens.fixture";
 import { OC15_ADDED_ENTRY_IDS } from "./labFabricatorTiers.fixture";
 import { WIRING_REGISTRY } from "./wiring/registry";
@@ -171,5 +172,58 @@ describe("OC-15: the wiring registry", () => {
       "facility:FACILITIES:fabricator:5|live|fabricateSlots",
       "facility:FACILITIES:fabricator:6|live|fabricateSlots",
     ]);
+  });
+});
+
+describe("OC-15: a level VII Lab and Fabricator run seven jobs each at once", () => {
+  // Level VII on both tracks, rich, with every craft input for seven Frame Segments, seven research projects started
+  // and seven crafts started (each through the real start seams); the eighth of each is refused for want of a slot.
+  function sevenAndSeven(): GameState {
+    let s = { ...atLevels(7, 7, 99, 1e9), researchedBlueprints: ["frameSegmentBp"] };
+    s = { ...s, inventory: addItemQuality(s.inventory, "titaniumIngot", new Decimal(1_000), 0) };
+    const projects = Object.keys(BLUEPRINTS).filter((k) => blueprintResearchable(s, k));
+    expect(projects.length).toBeGreaterThan(7);
+    for (const key of projects.slice(0, 7)) {
+      const r = startResearch(s, key);
+      expect(r.started, key).toBe(true);
+      s = r.next;
+    }
+    expect(startResearch(s, projects[7]).reason).toBe("noSlot");
+    for (let i = 0; i < 7; i++) {
+      const r = startFabricateJob(s, "frameSegmentBp");
+      expect(r.started, `craft ${i + 1}`).toBe(true);
+      s = r.next;
+    }
+    expect(startFabricateJob(s, "frameSegmentBp").reason).toBe("noSlot");
+    return s;
+  }
+  const inFlight = (s: GameState, kind: string) => s.activeProcesses.filter((p) => p.kind === kind).length;
+
+  it("seven research projects and seven crafts are in flight together", () => {
+    const s = sevenAndSeven();
+    expect(inFlight(s, "researchProject")).toBe(7);
+    expect(inFlight(s, "fabricateJob")).toBe(7);
+  });
+
+  // The game's offline entry is tick(): it steps economyTick(state, 1) per whole tick, so completions land in time
+  // order whatever the span (a bare economyTick(state, 600) would resolve same-span completions in array order).
+  it("offline == live with more than three of each in flight (one tick() call, 60 s chunks, one-second ticks)", () => {
+    const start = sevenAndSeven();
+    let live = start;
+    for (let t = 1; t <= 600; t++) {
+      live = tick(1, live, () => 0.5);
+      if (t === 60) {
+        expect(inFlight(live, "researchProject")).toBeGreaterThan(3);
+        expect(inFlight(live, "fabricateJob")).toBeGreaterThan(3);
+      }
+    }
+    const offline = tick(600, start, () => 0.5);
+    let chunked = start;
+    for (let c = 0; c < 10; c++) chunked = tick(60, chunked, () => 0.5);
+    expect(stateHash(offline)).toBe(stateHash(live));
+    expect(stateHash(chunked)).toBe(stateHash(live));
+    // All seven crafts delivered (Frame Segment crafts in 120 ticks), so the run really went through completions.
+    expect(inFlight(live, "fabricateJob")).toBe(0);
+    expect(live.researchedBlueprints.length).toBeGreaterThan(start.researchedBlueprints.length);
   });
 });
