@@ -88,7 +88,7 @@ describe("Combat 0.13.0, Fabricator refuses unlock-only warship blueprints", () 
 });
 
 describe("Fabricator F1, FACILITIES.fabricator (tier + slot upgrade track)", () => {
-  it("exists, is labelled 'Fabricator', with a FINITE track of three slot rungs", () => {
+  it("exists, is labelled 'Fabricator', with a FINITE track of seven slot rungs", () => {
     const fab = FACILITIES.fabricator;
     expect(fab).toBeDefined();
     expect(fab.label).toBe("Fabricator");
@@ -98,14 +98,14 @@ describe("Fabricator F1, FACILITIES.fabricator (tier + slot upgrade track)", () 
     // That tied the track's LENGTH to the wrong axis: every rung carries a SLOT grant as
     // well as a tier unlock, and a slot is real content whether or not a new tier exists.
     // The owner's balance call was to give the Fabricator three craft lines, matching the
-    // Refinery's three refine lines, so the track is now three rungs long.
-    expect(fab.upgrades.length).toBe(3);
+    // Refinery's three refine lines, so the track was three rungs long. OC-15 (user 2026-10-16 "Add tiers 3-7
+    // now") extends it to tier VII, one slot rung per tier (labFabricatorTiers.test.ts).
+    expect(fab.upgrades.length).toBe(7);
 
     // The property that actually has to hold: the track must be long enough to reach
     // every shipped blueprint tier (the gate is `tier <= level`). Extra headroom above
     // the top tier is fine, it is what the third slot rung buys.
     const maxTier = Math.max(...Object.values(BLUEPRINTS).map((bp) => bp.tier));
-    expect(maxTier).toBe(2); // real content today: tiers 1-2 only
     expect(fab.upgrades.length).toBeGreaterThanOrEqual(maxTier);
 
     // No placeholder rungs: every rung on this track grants a real craft slot.
@@ -140,12 +140,13 @@ describe("Fabricator F1, FACILITIES.fabricator (tier + slot upgrade track)", () 
     expect(third.durationTicks / second.durationTicks).toBe(2);
     expect(third.requiresFleetAdminLevel! - second.requiresFleetAdminLevel!).toBe(3);
 
-    // And it lands on the Refinery's ceiling, which is the whole point of the change.
+    // And it lands on the Refinery's ceiling, which was the whole point of the change (through level 3; the OC-15
+    // tier rungs above it add a slot each, labFabricatorTiers.test.ts).
     const refineSlots = FACILITIES.refinery.upgrades.reduce(
       (sum, u) => sum + ("addRefineSlots" in u.effect ? u.effect.addRefineSlots : 0),
       0
     );
-    const fabricateSlots = FACILITIES.fabricator.upgrades.reduce(
+    const fabricateSlots = FACILITIES.fabricator.upgrades.slice(0, 3).reduce(
       (sum, u) => sum + ("addFabricateSlots" in u.effect ? u.effect.addFabricateSlots : 0),
       0
     );

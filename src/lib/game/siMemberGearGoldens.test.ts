@@ -25,7 +25,7 @@ import { inspectBlank } from "./tick";
 import { previewCraftOutcome } from "./itemgen";
 import { REQUISITION_ENTRIES, requisitionEntriesFor, requisitionStandardIssue } from "./quartermaster";
 import { deserialize, migrate, serialize } from "./save";
-import { asExpeditionVeteran } from "./awayTeamTestFixtures";
+import { asExpeditionVeteran, asPreRelicBlanksRun } from "./awayTeamTestFixtures";
 import { goldenJson, onHull, runOutcome, SWEEP_END, withCrew, withoutRunCounts, fnv } from "./firstRunsGoldens.fixture";
 import { withSiMemberGearOff } from "./siMemberGearSwitch.fixture";
 
@@ -66,7 +66,9 @@ function runsOf(build: (seed: number) => GameState): string {
     return advanceExpedition(res.expedition, SWEEP_END);
   });
   const lines = done.map(runOutcome).map((o) => `${o.objectives}:${o.lostFights}`);
-  return `${hash(done)} ${lines.join(" ")}`;
+  // Relics v2 R2-2 (merged after this capture): the runs hash as the pre-R2-2 engine stored them (asPreRelicBlanksRun:
+  // no relic blanks flag, no blank stamps; Tier I rarity is unchanged), so the pins keep proving only the SI change.
+  return `${hash(done.map(asPreRelicBlanksRun))} ${lines.join(" ")}`;
 }
 
 export function siRunNominal(): string {
@@ -90,7 +92,7 @@ export function siInflight(dispatch: () => GameState = () => asExpeditionVeteran
   if (!file) throw new Error("save did not round-trip");
   const loaded = migrate(file, ENTROPY);
   const exp = loaded.expeditions.find((e) => e.id === mid.id)!;
-  return { exp: hash(advanceExpedition(exp, SWEEP_END)), equipment: loaded.equipment };
+  return { exp: hash(asPreRelicBlanksRun(advanceExpedition(exp, SWEEP_END))), equipment: loaded.equipment };
 }
 
 // A crafted piece of `bpKey` inspected from one blank at crafting level `level` (the real Fabricator mint).

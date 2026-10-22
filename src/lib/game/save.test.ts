@@ -39,8 +39,8 @@ import { awayRecruitSeedFrom, SENIOR_STAFF_DEFAULT_SEED } from "./model";
 import { emptyGroundTeams, isWellFormedShipGroundTeams, shipGroundTeams } from "./groundTeams";
 import { isValidComposition, shipTeamKinds } from "./groundComposition";
 import { deployableMembers } from "./awayTeam";
-import { asLegacyDispatch, asV67GroundState, plainAwayMember, withMinimumAwayTeam, withSlottedAwayTeams, withoutEnemyRanks, withoutShipEvents } from "./awayTeamTestFixtures";
-import { advanceExpedition, claimExpedition, expeditionCandidates, startExpedition } from "./expedition";
+import { asLegacyDispatch, asV67GroundState, plainAwayMember, withMinimumAwayTeam, withSlottedAwayTeams, withoutEnemyRanks, withoutShipEvents, dispatchPastPropulsion } from "./awayTeamTestFixtures";
+import { advanceExpedition, claimExpedition, expeditionCandidates } from "./expedition";
 import { tick } from "./tick";
 import type { GameState } from "./model";
 
@@ -6636,7 +6636,7 @@ describe("migrate, v66 -> v67 ground-team slots (Ground Ops GO-1)", () => {
     let s = withMinimumAwayTeam(crewed());
     s = { ...s, awayMembers: s.awayMembers.map(withoutInjury) };
     // A v66 save predates Ground Ops (GO-7b), so its in-flight run is a legacy one (no groundOps flag).
-    const launched = asLegacyDispatch(startExpedition(s, "ship-1", 1, expeditionCandidates(s, "ship-1")[0].id));
+    const launched = asLegacyDispatch(dispatchPastPropulsion(s, "ship-1", 1, expeditionCandidates(s, "ship-1")[0].id));
     expect(launched.success).toBe(true);
     const raw = v66State(launched.next);
     const viaStep = migrateFrom(66, JSON.parse(JSON.stringify(raw)));
@@ -6816,7 +6816,7 @@ describe("migrate, v67 -> v68 squad composition + the founding telescope (Squads
       ...[11, 12, 13].map((i) => plainAwayMember(`member-${i}`, "science", "ship-1")),
     ];
     let s = withSlottedAwayTeams({ ...freshState(), awayMembers: members, nextAwayMemberId: 100, expeditionSeed: 1, gameTimeSeconds: 1_000 });
-    const launched = startExpedition(s, "ship-1", 1, expeditionCandidates(s, "ship-1")[0].id);
+    const launched = dispatchPastPropulsion(s, "ship-1", 1, expeditionCandidates(s, "ship-1")[0].id);
     expect(launched.success).toBe(true);
     expect(launched.expedition?.groundOps).toBeDefined();
     // Ground Ops GO-8: a v67 build never froze ship-event inputs (it carried the neutral profile), so the run comes
@@ -6848,8 +6848,8 @@ describe("migrate, v67 -> v68 squad composition + the founding telescope (Squads
     // the NEXT dispatch is the same expedition on both (the empty pending pair never deploys)
     s = { ...claimA.next, gameTimeSeconds: END_AT + 100_000 };
     const t = { ...claimB.next, gameTimeSeconds: END_AT + 100_000 };
-    const nextA = startExpedition(s, "ship-1", 1, expeditionCandidates(s, "ship-1")[0].id);
-    const nextB = startExpedition(t, "ship-1", 1, expeditionCandidates(t, "ship-1")[0].id);
+    const nextA = dispatchPastPropulsion(s, "ship-1", 1, expeditionCandidates(s, "ship-1")[0].id);
+    const nextB = dispatchPastPropulsion(t, "ship-1", 1, expeditionCandidates(t, "ship-1")[0].id);
     expect(nextA.success).toBe(true);
     expect(nextA.expedition?.groundOps?.teams.map((x) => x.index)).toEqual([0]);
     expect(JSON.stringify(nextA.expedition)).toBe(JSON.stringify(nextB.expedition));

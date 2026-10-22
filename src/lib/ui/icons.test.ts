@@ -83,6 +83,12 @@ describe("Ground Operations glyphs (0.14.0 GO-10)", () => {
     }
   });
 
+  // Short-Range Missions (0.14.0 G1-6): the two glyphs the signed-off board mockup added.
+  it("covers the short-range board's new glyphs", () => {
+    const required: IconName[] = ["shortRange", "commBooster"];
+    for (const name of required) expect(ICON_NAMES, `missing icon: ${name}`).toContain(name);
+  });
+
   // One concept, one glyph: no two names may share the same drawing (a copy-paste slip would make two
   // different things read the same).
   it("never draws two names identically", () => {

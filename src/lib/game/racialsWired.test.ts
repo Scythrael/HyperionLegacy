@@ -10,12 +10,13 @@
 // when it freezes, offline == live, and the captain's racial passing the crew-key guard.
 
 import { describe, expect, it } from "vitest";
+import { dispatchPastPropulsion } from "./awayTeamTestFixtures";
 import { freshState, outboundLegSpeed, returnLegSpeed, type CaptainState, type CrewBucket, type GameState, type PatrolMissionState } from "./model";
 import { dispatchCaptainOnPatrol, economyTick, tick } from "./tick";
 import { replayPatrol } from "./combat/patrolReplay";
 import { applyDeckHandling, installedDronesForPatrol } from "./combat/bridge";
 import { REPLENISH_PPM, replenishUnits } from "./combat/droneDefense";
-import { expeditionCandidates, startExpedition } from "./expedition";
+import { expeditionCandidates } from "./expedition";
 import { crewRepairSpeedBonus, effectiveShipStats, shipCrewContribution, shipDeckHandling, shipSurveyAptitude } from "./crewOverlay";
 import { CREW_STAT_KEYS, TRANSIT_SPEED_KEY } from "./crewBuffs";
 import { CREW_RACES } from "./crewRaces";
@@ -177,7 +178,7 @@ describe("Belter + Deck Handling: a patrol cycle's drones replenish faster", () 
 
 describe("Vael and Outer-Colony + Survey Aptitude: faster scans, frozen at dispatch", () => {
   const run = (s: GameState) => {
-    const r = startExpedition(s, "ship-1", 1, expeditionCandidates(s, "ship-1")[0].id);
+    const r = dispatchPastPropulsion(s, "ship-1", 1, expeditionCandidates(s, "ship-1")[0].id);
     if (!r.success || !r.expedition) throw new Error(`dispatch refused: ${r.reason}`);
     return r.expedition;
   };

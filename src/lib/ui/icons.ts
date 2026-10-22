@@ -406,6 +406,21 @@ export const ICON_PATHS = {
   // so it stays apart from `research`; the drop is small and sits over the mouth, apart from `kitAntitoxin`. The tube
   // is 8 units wide so it does not read as a thin line at 16 px.
   resinDistillate: ["M8 10h8v7.5a4 4 0 0 1-8 0z", "M8 14.5h8", "M12 2.5c1.2 1.5 2 2.6 2 3.5a2 2 0 0 1-4 0c0-.9.8-2 2-3.5z"],
+  // Short-Range Missions (0.14.0 G1-6, the signed-off board mockup's two new glyphs, user 2026-10-21 "approve as is").
+  // Short-range: a short hop from a home body (lower left, r 3) to a small nearby body (upper right, r 2.5) along one
+  // arc with an arrowhead. The Home row icon of a short-range run and its completion row. Reviewed at 16 / 28 / 56 px:
+  // the arc leaves the home body 0.8 units off its edge and the arrow tip lands 0.6 units off the target's edge, so
+  // under the 1.75 stroke both ends TOUCH their bodies (it reads as "from here to there", never a loose arrow); the
+  // target ring's 1.6 unit inner radius stays open at 16 px, so it reads as a second, smaller body rather than a dot; the 3.8 unit
+  // arrow arms stay two strokes at 16 px. Kept apart from `comet` (a body trailing three straight streaks) by the two
+  // bodies and the single curved path.
+  shortRange: ["M5 16a3 3 0 1 0 0 6 3 3 0 0 0 0-6z", "M19 2.5a2.5 2.5 0 1 0 0 5 2.5 2.5 0 0 0 0-5z", "M6.5 15.5C7.5 10 11 7 15.8 5.9", "M12.6 4.2l3.4 1.6-1.6 3.4"],
+  // Comm booster: a relay mast (an A-frame with one cross brace and an emitter knob at its apex) under two signal
+  // arcs. The Comm Booster Build job. Reviewed at 16 / 28 / 56 px: the brace meets both legs exactly (y 17.5, x 9.7 and
+  // 14.3) so it never pokes past them; both arcs are centered on the apex, the inner one 2.75 units clear of it and the
+  // outer 2.25 units clear of the inner under the stroke (about 1.5 px at 16 px), so the arcs stay two lines. Kept
+  // apart from `telescope` (a dish on a stand, the arcs off to one side) by the open frame and the centered arcs.
+  commBooster: ["M12 10.5L8.5 21", "M12 10.5l3.5 10.5", "M9.7 17.5h4.6", "M12 10.4v.2", "M8.8 7.5a4.5 4.5 0 0 1 6.4 0", "M6 4.7a8.5 8.5 0 0 1 12 0"],
 } as const satisfies Record<string, readonly string[]>;
 
 /**

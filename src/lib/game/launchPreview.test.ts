@@ -27,7 +27,6 @@ import {
   launchForecast,
   launchViewMemoSize,
   simulateLaunch,
-  startExpedition,
   systemTaskPreview,
 } from "./expedition";
 import { generateRiskProfile, hostileSiteFieldable, type ExpeditionRegion } from "./riskFactors";
@@ -38,7 +37,7 @@ import { THREAT_TIER_ORDER } from "./combat/threatAssessment";
 import { TELESCOPE_DETAIL, blindLaunchCount } from "./telescope";
 import { forecastTasksText, previewForHull, recommendLaunch, taskDemand, taskDemandText, type SystemTaskPreview } from "./launchRecommendation";
 import { deserialize, migrate, serialize } from "./save";
-import { plainAwayMember, withoutShipEvents } from "./awayTeamTestFixtures";
+import { plainAwayMember, withoutShipEvents, dispatchPastPropulsion } from "./awayTeamTestFixtures";
 
 const T0 = 100_000;
 // The instant the bodies are scanned: the outbound transit (the regular one since safe first runs SF-2 retired the 30
@@ -103,7 +102,7 @@ function stampedTasks(exp: Expedition): SystemTaskPreview["tasks"] {
 // telescope foresees (it joins after the previewed tasks; shipScanEvents.test.ts pins that).
 // G2-2: a forced region dispatches that tier's own candidate (its bodies grow with the tier), then forces the region.
 function dispatchAndScan(state: GameState, region?: ExpeditionRegion): Expedition {
-  const res = startExpedition(state, "ship-1", 1, region ? `cand-${region.tier}-0` : "cand-0");
+  const res = dispatchPastPropulsion(state, "ship-1", 1, region ? `cand-${region.tier}-0` : "cand-0");
   expect(res.success, String(res.reason)).toBe(true);
   let exp = withoutShipEvents(res.expedition!);
   if (region) {
@@ -152,7 +151,7 @@ describe("the task preview equals the run's stamped tasks (the forecast cannot l
 
 describe("the candidate carries only what its detail shows", () => {
   const s = crewedState();
-  const params = startExpedition(s, "ship-1", 1, "cand-0").expedition!.scanParams; // the ship's scan params
+  const params = dispatchPastPropulsion(s, "ship-1", 1, "cand-0").expedition!.scanParams; // the ship's scan params
 
   it("Graded (Level 1): no demand, no recommendation, no forecast", () => {
     for (const c of cands(atLevel(1, s))) {
@@ -297,21 +296,21 @@ describe("the blind launch counter (user, SQ-5 call (b): start counting now)", (
   it("counts a dispatch beyond the telescope's range, and only that", () => {
     const s = crewedState();
     expect(blindLaunchCount(s)).toBe(0);
-    const seen = startExpedition(atLevel(1, s), "ship-1", 1, "cand-0");
+    const seen = dispatchPastPropulsion(atLevel(1, s), "ship-1", 1, "cand-0");
     expect(seen.success).toBe(true);
     expect("blindLaunches" in seen.next).toBe(false); // no key until the first blind launch
-    const blind = startExpedition(atLevel(0, s), "ship-1", 1, "cand-0");
+    const blind = dispatchPastPropulsion(atLevel(0, s), "ship-1", 1, "cand-0");
     expect(blind.next.blindLaunches).toBe(1);
     // A second blind launch (the first run claimed) counts on.
     const docked: GameState = { ...blind.next, expeditions: [] };
-    const twice = startExpedition(docked, "ship-1", 1, "cand-1");
+    const twice = dispatchPastPropulsion(docked, "ship-1", 1, "cand-1");
     expect(twice.next.blindLaunches).toBe(2);
     // An in-range launch leaves the count alone.
-    const thenSeen = startExpedition(atLevel(1, { ...twice.next, expeditions: [] }), "ship-1", 1, "cand-0");
+    const thenSeen = dispatchPastPropulsion(atLevel(1, { ...twice.next, expeditions: [] }), "ship-1", 1, "cand-0");
     expect(thenSeen.next.blindLaunches).toBe(2);
     // A refused dispatch counts nothing (and returns the SAME state).
     const s0 = atLevel(0, s);
-    const refused = startExpedition(s0, "ship-1", 1, "cand-9");
+    const refused = dispatchPastPropulsion(s0, "ship-1", 1, "cand-9");
     expect(refused).toMatchObject({ success: false, reason: "noSuchCandidate" });
     expect(refused.next).toBe(s0);
   });
@@ -320,7 +319,7 @@ describe("the blind launch counter (user, SQ-5 call (b): start counting now)", (
     for (const bad of [-2, 1.5, Number.NaN, "3" as unknown as number]) {
       const s = { ...crewedState(), blindLaunches: bad };
       expect(blindLaunchCount(s)).toBe(0);
-      expect(startExpedition(atLevel(0, s), "ship-1", 1, "cand-0").next.blindLaunches).toBe(1);
+      expect(dispatchPastPropulsion(atLevel(0, s), "ship-1", 1, "cand-0").next.blindLaunches).toBe(1);
     }
     const counted = { ...crewedState(), blindLaunches: 7 };
     const loaded = migrate(deserialize(serialize(counted, 0))!);
@@ -335,14 +334,14 @@ describe("display only: previews never change a run", () => {
   it("a dispatch after computing every preview (Forecast detail) equals one that computed none", () => {
     const s = atLevel(7, crewedState(5));
     const before = JSON.stringify(s);
-    const direct = startExpedition(s, "ship-1", 1, "cand-1");
+    const direct = dispatchPastPropulsion(s, "ship-1", 1, "cand-1");
     for (let i = 0; i < 3; i++) {
       const list = cands(s);
       expect(list[1].telescope.forecast).not.toBeNull();
       systemTaskPreview(list[1].seed, direct.expedition!.scanParams, { tier: 6, enemyTerritory: true });
     }
     expect(JSON.stringify(s)).toBe(before);
-    const after = startExpedition(s, "ship-1", 1, "cand-1");
+    const after = dispatchPastPropulsion(s, "ship-1", 1, "cand-1");
     expect(JSON.stringify(after.next)).toBe(JSON.stringify(direct.next));
     for (const t of [T0 + 30_000, T0 + 200_000]) {
       expect(JSON.stringify(advanceExpedition(after.expedition!, t))).toBe(JSON.stringify(advanceExpedition(direct.expedition!, t)));
@@ -355,7 +354,7 @@ describe("the SQ-6 follow-up: the simulated launch, the fight odds, the memo", (
     const s = crewedState(2);
     const sim = simulateLaunch(s, "ship-1", cands(s)[0].seed, ["ground", "ground"], { tier: 1, enemyTerritory: false })!;
     expect(sim.exp!.id).toBe(FORECAST_EXPEDITION_ID);
-    expect(startExpedition(s, "ship-1", 1, "cand-0").expedition!.id).toBe(`expedition-${s.nextExpeditionId}`);
+    expect(dispatchPastPropulsion(s, "ship-1", 1, "cand-0").expedition!.id).toBe(`expedition-${s.nextExpeditionId}`);
   });
 
   it("the fight odds are the weighted clear rate of the planned crews, and more Security reads better on a dangerous system", () => {

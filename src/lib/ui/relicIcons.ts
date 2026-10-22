@@ -65,7 +65,10 @@ export function relicSetEmblem(setId: RelicSetId): IconName {
 }
 
 // A set's SHORT name for chips ("Precursor Set" -> "Precursor"), derived from the catalog label.
-export function relicSetShortLabel(setId: RelicSetId): string {
+// Relics v2 R2-2: a blank with no set (no site: a short-range, completion or grant blank) reads "General" (it
+// identifies over the general pool).
+export function relicSetShortLabel(setId: RelicSetId | undefined): string {
+  if (setId === undefined) return "General";
   const label = getRelicSetById(setId)?.label ?? setId;
   return label.replace(/\s+Set$/, "");
 }

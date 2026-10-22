@@ -244,7 +244,7 @@ describe("ML-0 Material Lines pre-change goldens", () => {
       // Field Kits FKR-9 / FKR-10 (the switch-on, model.ts FIELD_KITS_PLAYER_LIVE): the Impact Grenade blueprint
       // (FIELD_KITS_HIDDEN_BLUEPRINTS) merges into BLUEPRINTS, the ONE named move of this count (78 to 79). Counted apart
       // so the census keeps proving nothing else moved.
-      census.blueprints = Object.keys(BLUEPRINTS).filter((k) => !(k in FIELD_KITS_HIDDEN_BLUEPRINTS)).length;
+      census.blueprints = Object.keys(BLUEPRINTS).filter((k) => !(k in FIELD_KITS_HIDDEN_BLUEPRINTS) && BLUEPRINTS[k].driveClass === undefined).length; // G2-4: the classed drives held apart
       return census;
     };
     for (const k of Object.keys(FIELD_KITS_HIDDEN_BLUEPRINTS)) expect(BLUEPRINTS[k], k).toBe(FIELD_KITS_PLAYER_LIVE ? FIELD_KITS_HIDDEN_BLUEPRINTS[k] : undefined);

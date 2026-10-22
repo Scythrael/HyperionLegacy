@@ -18,7 +18,7 @@ import {
   returnCarriedExtras,
   spendFightSupplies,
 } from "./fieldKitsRun";
-import { advanceExpedition, claimExpedition, startExpedition } from "./expedition";
+import { advanceExpedition, claimExpedition } from "./expedition";
 import { applyGroundOpsEdit, groundOpsAssignIdle, groundOpsBodyScanned, groundTeamBaySeconds, initGroundTasks } from "./groundOps";
 import { getBucket, itemTotal } from "./inventory";
 import { shipSupportHeads } from "./gambit";
@@ -26,7 +26,7 @@ import { setGroundTeamTopUp, setMemberPack } from "./groundTeams";
 import { shipGroundTeams } from "./groundTeamSlots";
 import { applyGroundTeamLoadout, checkInGroundTeamLoadout, createGroundTeamLoadout } from "./armory";
 import { buyFieldKits, canBuyFieldKits, topUpAtLaunch } from "./quartermaster";
-import { withoutCurve, withoutCurveState, plainAwayMember, withoutFieldKits } from "./awayTeamTestFixtures";
+import { withoutCurve, withoutCurveState, plainAwayMember, withoutFieldKits, dispatchPastPropulsion } from "./awayTeamTestFixtures";
 import { deserialize, migrate, serialize, type SaveFile } from "./save";
 
 const T0 = 100_000;
@@ -101,7 +101,7 @@ function crewed(o: CrewOpts = {}): GameState {
 function dispatch(state: GameState, on = true) {
   // Safe first runs SF-3: the run at nominal (its curve stamp dropped; the kits stamp kept), as these tests were written
   // against.
-  const raw = startExpedition(state, "ship-1", 1, "cand-0", true, on);
+  const raw = dispatchPastPropulsion(state, "ship-1", 1, "cand-0", true, on);
   const res = raw.expedition ? { ...raw, expedition: withoutCurve(raw.expedition), next: withoutCurveState(raw.next) } : raw;
   if (!res.success || !res.expedition) throw new Error(`dispatch refused: ${res.reason}`);
   return res;
@@ -146,7 +146,7 @@ describe("FKR-7 the switch and the stamp", () => {
     expect(FIELD_KITS_RUNS_LIVE).toBe(true);
     const s = crewed({ stock: { firstAidKit: [9] }, credits: 5000, teams: [{ topUp: true }] });
     // The console's Launch leaves the switch argument out: the default is the switch.
-    const live = startExpedition(s, "ship-1", 1, "cand-0");
+    const live = dispatchPastPropulsion(s, "ship-1", 1, "cand-0");
     expect(live.success).toBe(true);
     expect(live.expedition!.fieldKits?.catalog).toBe(FIELD_KITS_CATALOG_VERSION);
     expect(held(live.next, "firstAidKit")).toBeLessThan(9);

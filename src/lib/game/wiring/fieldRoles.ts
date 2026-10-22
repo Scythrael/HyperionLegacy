@@ -182,7 +182,9 @@ export const FIELD_ROLES: Readonly<Record<string, Readonly<Record<string, FieldR
     effect: "effect",
   },
   FACILITIES: { label: "display", upgrades: "effect" },
-  FACILITY_UPGRADES: { materials: "gate", credits: "gate", durationTicks: "gate", requiresFleetAdminLevel: "gate", requiresHomeworldTalents: "gate", effect: "effect" },
+  // G1-6: requiresMissionCompletions (the Short-Range board rung at Mission Control level 2, the kept 50-completion
+  // hook) is a gate.
+  FACILITY_UPGRADES: { materials: "gate", credits: "gate", durationTicks: "gate", requiresFleetAdminLevel: "gate", requiresHomeworldTalents: "gate", requiresMissionCompletions: "gate", effect: "effect" },
   REFINE_RECIPES: { input: "effect", output: "effect", durationTicks: "effect" },
   BLUEPRINTS: {
     key: "identity",
@@ -199,6 +201,7 @@ export const FIELD_ROLES: Readonly<Record<string, Readonly<Record<string, FieldR
     equipmentOutput: "effect",
     weaponOutput: "effect",
     droneOutput: "effect",
+    driveClass: "effect", // Expedition Tiers G2-4: the drive's class (propulsion.ts shipDriveClass; EM-1's x1.6 power draw)
   },
   QUARTERS_MODULES: {
     id: "identity",
@@ -263,8 +266,8 @@ export const FIELD_ROLES: Readonly<Record<string, Readonly<Record<string, FieldR
     id: "identity",
     label: "display",
     flavor: "display",
-    band: { seam: "Relics v2 R2-3 (identification v2 picks a type by band)" },
-    siteSet: { seam: "Relics v2 R2-3 (the site bias doubles the old set's types)" },
+    band: { seam: "Relics v2 R2-3 (identification v2 picks a type by band; R2-2's relicBlanks.ts identifyGeneralRelic already reads it for a blank with no set)" },
+    siteSet: { seam: "Relics v2 R2-3 (the site bias doubles the old set's types; R2-2's relicBlanks.ts generalTypeWeight reads it)" },
     stats: { seam: "Relics v2 R2-4 (museum math v2 sums each type's stats per tier)" },
     weight: { seam: "Relics v2 R2-3 (the in-band pick)" },
   },
@@ -330,10 +333,8 @@ export const UNREAD_CONSTANTS: Readonly<Record<string, string>> = {
   PROSPECTING_USES: "seam: the prospecting quests patch (the three later Prospecting uses, read by the wiring registry; deferred)",
   PROSPECTING_BLUEPRINTS: "seam: the prospecting quests patch merges these hidden blueprints into BLUEPRINTS (read by the wiring registry; deferred)",
   // Relics v2 R2-1 (dormant catalog; plan 2026-10-17 section 4): each is read by the slice named, tested in relicsV2Catalog.test.ts.
-  RELIC_SITE_BIAS_MULT: "seam: Relics v2 R2-3 (identification v2: the source site doubles its old set's types, user call 17)",
-  RELIC_BAND_ODDS: "seam: Relics v2 R2-3 (identification v2 picks the band; R2-2's blank-rarity tables share the shift)",
+  // (R2-2 reads RELIC_BAND_ODDS, RELIC_SITE_BIAS_MULT and CULTURE_ROSTER: relicBlanks.ts.)
   EXCEPTIONAL_PER_100K: "seam: Relics v2 R2-3 (identification v2's exceptional check, user call 6)",
   RELIC_SOFT_CAP: "seam: Relics v2 R2-4 (the per-tier soft cap freeze, user call 3)",
-  CULTURE_ROSTER: "seam: Relics v2 R2-2 + R2-6 (a blank's culture from its planet; the names await the user's sign-off sheet)",
   CULTURE_STUDY_POINTS: "seam: Relics v2 R2-6 (a culture is named at this many study points, user call 9)",
 };

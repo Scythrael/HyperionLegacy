@@ -751,7 +751,9 @@ export function resistedHazard(hazard: number, resist: number): number {
 //           stable placeholder ids only and no display name at all.
 //   call 13 "Better rarity only": RELIC_BAND_ODDS (the relic chance and the haul multiplier untouched).
 //   call 17 site bias: "a relic's source site doubles the weight of its old set's types" (RELIC_SITE_BIAS_MULT).
-// Every number the user did not answer is the plan's recommended value, marked [PROVISIONAL] on its ONE constant.
+// Every number the user did not answer is the plan's recommended value, marked [PROVISIONAL] on its ONE constant (the
+// 2026-10-20 merge batch answers approved RELIC_TYPE_STATS, RELIC_TYPE_WEIGHT, RELIC_BAND_ODDS_ANCHORS and the
+// exceptional piece and full-set values).
 // Exceptional set and piece NAMES await the user's sign-off sheet (R2-5): stable ids and [PROPOSAL] labels only.
 
 // The four BANDS a general relic type belongs to and a blank's rarity folds onto (standard..radiant, the rarities the
@@ -774,7 +776,7 @@ export interface RelicTypeStat {
   share: number;
 }
 
-// [PROVISIONAL] (plan 3.1 [PROPOSAL], not an answered call): each type carries the stat its old set position granted.
+// User 2026-10-20 ("Approve (Recommended)", merge batch answers): each type carries the stat its old set position granted.
 // Index 1 = the set's per-copy stat, index k = the k-piece tier's stat; the two-stat Precursor capstone keeps both at
 // half share. All 14 Museum stats stay fed (a catalog test asserts the rule and the coverage).
 export const RELIC_TYPE_STATS: Readonly<Record<string, readonly RelicTypeStat[]>> = {
@@ -800,7 +802,7 @@ export const RELIC_TYPE_STATS: Readonly<Record<string, readonly RelicTypeStat[]>
   tectonicKeystone: [{ stat: "hazardResist", share: 1 }],
 };
 
-// [PROVISIONAL] (plan 3.1 "in-band weight", no number given): every type weighs the same inside its band; the band odds
+// User 2026-10-20 ("Approve (Recommended)"): every type weighs the same inside its band before the site bias; the band odds
 // already make the commons dominate. An integer, so the R2-3 pick stays one integer draw.
 export const RELIC_TYPE_WEIGHT = 1;
 
@@ -855,7 +857,7 @@ export function relicTypesInBand(band: RelicBand): RelicTypeDef[] {
 // A revealed-band weight row, in RELIC_BANDS order (standard, augmented, stellar, radiant).
 type BandRow = readonly [number, number, number, number];
 
-// [PROVISIONAL] (plan 3.1 [PROPOSAL]): the Tier IV and Tier VII anchor rows. The plan gives the standard blank at
+// User 2026-10-20 ("Approve (Recommended)"): the Tier IV and Tier VII anchor rows, as built. The plan gives the standard blank at
 // Tier IV (40/35/18/7) and Tier VII (20/35/28/17) and the radiant blank at Tier VII (0/10/40/50); the other rows
 // follow the same upward shift. Tier I is NOT here: it is today's RELIC_RARITY_WEIGHTS_BY_TIER exactly (read below),
 // and the tiers between the anchors interpolate linearly, rounded to integers.
@@ -930,11 +932,11 @@ export const EXCEPTIONAL_SET_SIZES: Readonly<Record<RegionTier, readonly number[
   7: [5, 5, 5],
 };
 
-// [PROVISIONAL] (plan 3.1 [PROPOSAL]: "Tier I +3% rising to Tier VII +15%"): one piece's flat value per region tier,
+// User 2026-10-20 ("Approve (Recommended)": "Tier I +3% rising to Tier VII +15%"): one piece's flat value per region tier,
 // linear between the two ends. The R2-5 content sheet may retune every value.
 export const EXCEPTIONAL_PIECE_VALUE: Readonly<Record<RegionTier, number>> = { 1: 0.03, 2: 0.05, 3: 0.07, 4: 0.09, 5: 0.11, 6: 0.13, 7: 0.15 };
 
-// [PROVISIONAL] (plan 3.1 [PROPOSAL]: "full-set bonus five times one piece"): a completed set's bonus, in pieces.
+// User 2026-10-20 ("Approve (Recommended)": "full set 5x one piece"): a completed set's bonus, in pieces.
 export const EXCEPTIONAL_FULL_SET_MULT = 5;
 
 // [PROVISIONAL] (no stat was proposed per piece; the R2-5 content sheet assigns them): pieces take the Museum stats in

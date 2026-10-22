@@ -265,6 +265,37 @@ exceptional piece of Tier I), logged, unused until the tutorial patch. The haul 
 the relic chance. Tests: R2-0 Tier I goldens unchanged; tier tables honored over 10,000 seeds per tier within
 tolerance; culture derivation pure and stable; each seam deterministic; grant kinds round-trip a save.
 
+**R2-2 carry note (2026-10-21, built on 624b0c5):**
+- New module `relicBlanks.ts` (relics.ts stays pure data). FLAG: `Expedition.relicBlanks: { version: 1 }`, stamped in
+  `startExpedition` beside `region` / `voyage`; only a flagged run passes the blank stamp to `rollRelicToken`, so a run
+  in flight at the update rolls and stores its tokens byte-identically (every R2-0 golden unchanged). Tier = the run's
+  G2-2 `region.tier`, else `risk.tier`, else I. Tokens and deposits append `regionTier` and `cultureId` LAST.
+- Blank rarity: `RELIC_BLANK_WEIGHTS[tier]`, Tier I = the `intactReactorCore` ladder rows exactly (1000/300/40/5), each
+  tier above scales a rarity by how its band grew in `RELIC_BAND_ODDS[tier].standard` over Tier I (IV 667/350/80/35, VII
+  333/350/124/85). Same single draw, same hazard ceiling (`relicBlankCeiling`, which gambit's `relicTierCeiling` now
+  reads). The chance never reads the tier; the haul multiplier never touches the roll (tested).
+- Culture: `cultureForBody(exp.seed, bodyIndex, tier)` on a fresh keyed stream (`RELIC_CULTURE_SALT`); an old token's
+  culture is `legacyTokenCultureId(relicSeed, token.id)`; readers `vaultTokenRegionTier / vaultTokenCultureId /
+  vaultTokenSource`.
+- `setId` (and `poiId`) are now OPTIONAL on `RelicVaultToken`: expedition deposits still write both, so sited blanks
+  identify by the v1 roll exactly; a blank with no set (hook or grant) identifies through `identifyGeneralRelic` (band
+  from `RELIC_BAND_ODDS[tier][band]`, then type with the call 17 site bias, `generalTypeWeight`). R2-3: build v2 on that
+  pick; note a v1 study still deposits into `general["1"]` whatever the token's tier (R2-3 owns per-tier deposit). UI
+  reads "General" for a setless blank (RelicStudyPanel, Home, the log line).
+- Hooks (pure, callers own the deposit via `withRelicBlanks`): `rollShortRangeRelicBlanks(seed, srTier, seconds, idPrefix)`
+  for G1-5 (expected count linear in time: whole part + one chance on the remainder, salt `RELIC_SHORT_RANGE_SALT`);
+  `planetCompletionRelicBlank(exp, bodyIndex)` / `rollCompletionRelicBlank` for G7 (the body's hazard roll, one step up,
+  salt `RELIC_COMPLETION_SALT`). Grant seam: `GrantBundle.relics` (`general` by type, tier, count; `firstExceptional` =
+  the first Tier I piece the save lacks), straight to `museumV2` + first finds, log line "an exceptional relic" (no
+  `[PROPOSAL]` name reaches text).
+- [PROVISIONAL], one constant each: `RELIC_BLANK_SHIFT_BAND` "standard" (whose band row the blank table follows),
+  `EXPEDITION_RELIC_BLANKS_PER_HOUR` 0.5 (measured: rank 6 Orion / Aurora 0.53 to 0.57 per hour, board crew Eir 0.39),
+  `SHORT_RANGE_RELIC_CEILING` 0 ("lowest-tier": standard rarity, Tier I).
+- Goldens: `relicsV2BlanksGoldens.test.ts` (goldens-first commit). Moved, named: Tier VII seeds 23 and 37 (eight rows
+  rarer, same tokens); Tier I and IV unchanged. `asPreFieldKitsDispatch` now composes `withoutRelicBlanks` (every
+  "as pre-X dispatch" helper strips the flag); `fieldKitsRunGoldens` strips it by hand. Registry: five pending audit
+  rows (`relic:audit:*`, owners G2-6, R2-6, G1-5, G7), held apart in every registry pin (`relicBlanks.fixture.ts`).
+
 ### R2-3: Identification v2, lanes and queue (engine)
 New studies carry `v: 2`; the completion roll is keyed off `(relicSeed, RELIC_IDENTIFY_V2_SALT, studyIndex,
 tokenId)` and draws exactly three integers in a fixed order (exceptional check per 100,000; then band or piece; then

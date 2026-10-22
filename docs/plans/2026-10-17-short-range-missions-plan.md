@@ -443,6 +443,28 @@ dispatch popup and its refusal text, the Overview / Home in-progress cards, the 
 new variety tile, the Training run chip placement, the recap line, or any 375 px layout. A v2 mockup after the open
 calls are answered; build waits for sign-off.
 
+**Carry note (G1-6, built 2026-10-21 on `624b0c5`, to the signed-off mockup, every open question as drawn):**
+- `ShortRangePanel.svelte` (the Operations "Short-Range" tab) draws; `shortRangeBoardDisplay.ts` (tested) decides:
+  slot cards, the six bars (`shortRangeBars`), the pre-pick (`shortRangeBestReady`, [PROVISIONAL]
+  `SHORT_RANGE_PREPICK_RULE` "widestMargin": the ready ship whose smallest value / sheet ratio is highest, ties to the
+  lowest captain id), the picker, the verdict (shortRangeBlockText), the cost preview (its per-hour figure samples the
+  slot's next 48 rolls at full size for the picked ship), locked slots from `MISSION_CONTROL_BOARD_RUNGS`, the job
+  types list. The popup uses `ActionModal`'s new `wide` card (920 px, two columns; a sheet on a phone).
+- Engine additions: `setShortRangeRepeat` (the card's Repeat toggle: off finishes this cycle, on takes it back; never
+  ends a run still at home, unlike Recall) and `shortRangeWaitText` (shortRangeCycle.ts: the waiting words, read
+  through `shortRangeDepartureHold`; the card, the Overview and Home all use it).
+- Home: in-progress and completion rows jump to the new `JumpTarget` "shortRange" and wear the `shortRange` glyph; a
+  waiting run's row is the calm line with no countdown. The offline recap counts `shortRange:*` tallies as
+  "Short-Range". The recall button passes `Date.now()` to `recallCaptain`; the log says when a recall at home ended
+  the run at once. The Mission Control card names the slot a board rung opens and shows its credit cost.
+- `SHORT_RANGE_BOARD_LIVE` and `GUEST_QUARTERS_DISPLAY_LIVE` are true. `facility:audit:missionControlUnlock` was
+  flipped live in place (probe `missionControlBuildable`: 50 completions of each ore run open the level 2 rung, 49 do
+  not) rather than deleted, the FKR-9 audit row precedent; the rung entries `facility:FACILITIES:missionControl:1/2`
+  are live on `shortRangeSlots`. The registry pins hold all three apart (G16_SLICE / G16_ADDED_IDS).
+- Not built (no stored record): the mockup's optional "Last cycle" line on a running card (the engine keeps no
+  per-cycle outcome; one completion entry per run end). The tab carries no "NEW" badge (ConsoleTabs has none).
+- For G1-7: Help page, patch note lines, the release gate and the QA sheet.
+
 ### G1-7: Help, patch note, QA sheet, close-out
 
 A Help page (Operations > Short-Range Missions), the 0.14.0 patch note lines, the wiring release gate green
