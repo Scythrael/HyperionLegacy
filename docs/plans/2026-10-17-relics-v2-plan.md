@@ -513,3 +513,10 @@ with the user's D23 rule (stacking bonuses use concave curves, never compounding
 3 and 4: counts freeze for the regular game at 1000, the past-cap count is kept for a future Endless Mode). Awaiting the
 user's pick of how (see the next USER ANSWERS block). The R2-4 provisional picks (MUSEUM_V2_PER_COPY, MUSEUM_V2_KNEE
 0.25, SOFT_CAP_FREEZES_EXCEPTIONAL false) and the Tier I veteran flag are also still unanswered.
+USER (2026-10-22, verbatim, answers the above): "That as you get more relics, the relics can all give a specific
+multiplier. The soft cap for the relics affects endless mode, but ALSO affects the minigame HL. Scales generators,
+overclock, talents, etc."
+Reading: the soft cap still freezes the regular game at 1000; relics (the past-cap count, and possibly all of them)
+each give a specific multiplier that feeds BOTH a future Endless Mode AND the secret minigame "Hyperion Legacy
+v0.0000001a" (generators, Overclock, its skills/talents, and so on). So the main game's relics become a cross-link
+into the minigame. Details (which relics, which stats, which patch) being settled by multiple choice.
