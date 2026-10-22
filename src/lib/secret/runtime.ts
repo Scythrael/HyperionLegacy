@@ -1,6 +1,6 @@
 // runtime.ts: keeps the secret game running inside the app (0.13.11).
 //
-// ⚠️ ITS OWN TICKER, ITS OWN STATE. This never touches the main GameState, never runs inside
+// NOTE: ITS OWN TICKER, ITS OWN STATE. This never touches the main GameState, never runs inside
 // economyTick or pollGameLoop, and never pauses, throttles or blocks the main loop. It is a plain
 // 1-second interval that advances the secret state to the wall clock (catchUp.advanceTo), so a
 // throttled background tab or a sleeping laptop simply means a bigger gap next time, paid by the

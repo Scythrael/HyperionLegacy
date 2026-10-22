@@ -1,6 +1,6 @@
 // state.ts: the secret game's state and its OWN save (0.13.11).
 //
-// ⚠️ NEVER PART OF THE MAIN SAVE. Separate localStorage key, separate version number, no entry in
+// NOTE: NEVER PART OF THE MAIN SAVE. Separate localStorage key, separate version number, no entry in
 // save.ts, SAVE_VERSION or MIGRATIONS. It is read and written only through the guarded
 // safeStorage helpers, so blocked or full storage means the game runs for the session and simply
 // does not persist. A corrupt or foreign value loads a fresh game instead of throwing.
