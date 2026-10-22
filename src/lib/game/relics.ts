@@ -20,8 +20,10 @@
 //   - identifyRelic: the keyed deterministic identification roll a completed study runs.
 //   - Museum readers: relicCopyLevel, setTierLevels (with bottleneck info for the E4c UI),
 //     setCompletion, museumBonuses (Record<MuseumStat, number>).
-//   - Relics v2 R2-1 (DORMANT, end of file): the v2 catalog (RELIC_TYPES, the band and exceptional odds tables, the
+//   - Relics v2 R2-1 (end of file): the v2 catalog (RELIC_TYPES, the band and exceptional odds tables, the
 //     exceptional sets, the soft cap, the culture roster), read by the later Relics v2 slices.
+//   - Relics v2 R2-4 (end of file): MUSEUM MATH V2 (Tier I through the v1 math, Tiers II to VII through the D23 curve,
+//     exceptional flats, the per-tier soft cap snapshot) and the pure Museum v2 deposits every writer goes through.
 //
 // ⚠️ ADDITIVE-NEUTRAL SEAM FOR E4b: museumBonuses on an empty museum is ALL ZEROS, so
 // wiring a consumer later as `base * (1 + bonus)` or `base + bonus` changes nothing for a
@@ -33,14 +35,15 @@
 // order, sources and stat assignments are the user's locked content calls.
 //
 // IMPORT DIRECTION (no cycle): this file imports TYPES only from model.ts and
-// expeditionContent.ts, plus the leaf PRNG (combat/rng.ts). model.ts does NOT import this
+// expeditionContent.ts, plus the leaf PRNG (combat/rng.ts) and the leaf D23 curve (diminishing.ts). model.ts does NOT import this
 // file (RelicSetId + RelicVaultToken are declared there as plain shapes), so the arrow is
 // one-way, the same arrangement expeditionContent.ts has with model.ts.
 // ============================================================================
 
-import type { EquipmentRarity, GameState, RegionTier, RelicSetId } from "./model";
+import type { EquipmentRarity, GameState, MuseumV2, RegionTier, RegionTierKey, RelicSetId } from "./model";
 import type { ExpeditionPoiId } from "./expeditionContent";
 import { makeRng } from "./combat/rng";
+import { diminishing } from "./diminishing";
 
 // ============================================================================
 // Stats (the closed union E4b wires into consumers)
@@ -650,6 +653,7 @@ export function setTierBonus(t: Pick<SetTierLevel, "level" | "magnitude">): numb
 // The museum's total bonuses from a museum record: per set, every copy adds MUSEUM_PER_COPY_BONUS of the
 // set's per-copy stat, and every tier level adds MUSEUM_TIER_LEVEL_BONUS * magnitude to each of the tier's
 // stats. All additive. An empty museum reads ALL ZEROS (the additive-neutral E4b seam). Pure.
+// Relics v2 R2-4: this is the TIER I math (museumBonusesFromMuseum reads the Tier I record through it, unchanged).
 export function museumBonusesFromRecord(museum: Readonly<Record<string, number>>): Record<MuseumStat, number> {
   const out = zeroMuseumBonuses();
   for (const set of RELIC_SETS) {
@@ -663,9 +667,10 @@ export function museumBonusesFromRecord(museum: Readonly<Record<string, number>>
   return out;
 }
 
-// The museum's total bonuses for a game state. Relics v2 R2-1: reads the Tier I general record
-// (state.museumV2.general["1"], where the v69 -> v70 step moved every v1 copy; model.ts generalMuseumRecord is the same
-// read), through the v1 math until R2-4 replaces it. A pre-E4 shape reads empty.
+// The museum's total bonuses for a game state. Relics v2 R2-4: the whole Museum v2 record through museum math v2
+// (museumBonusesFromMuseum, end of file): Tier I through the v1 math above (every Tier I veteran keeps exactly its
+// bonus), Tiers II to VII through the D23 curve, the exceptional flats, each tier read from its soft cap snapshot once
+// frozen. A pre-E4 shape reads empty.
 // E4b wires every MuseumStat into its live consumer (see the consumer map below). DERIVED ON READ, never
 // stored: each consumer reads it fresh off the state it is handed (economyTick once per call off its
 // incoming state; actions at action time), so it can never go stale and is never cached across ticks.
@@ -682,7 +687,7 @@ export function museumBonusesFromRecord(museum: Readonly<Record<string, number>>
 //                       -> SNAPSHOTTED onto the Expedition at dispatch (expedition.ts startExpedition)
 //   scienceTeamPower    -> gambit.ts deriveAwayTeam (scienceStrength x (1 + b), then snapshotted)
 export function museumBonuses(state: GameState): Record<MuseumStat, number> {
-  return museumBonusesFromRecord(state.museumV2?.general?.["1"] ?? {});
+  return museumBonusesFromMuseum(state.museumV2);
 }
 
 // ============================================================================
@@ -734,14 +739,15 @@ export function resistedHazard(hazard: number, resist: number): number {
 }
 
 // ============================================================================
-// Relics v2 R2-1 (docs/plans/2026-10-17-relics-v2-plan.md section 3.1): THE V2 CATALOG. DORMANT.
+// Relics v2 R2-1 (docs/plans/2026-10-17-relics-v2-plan.md section 3.1): THE V2 CATALOG.
 // ============================================================================
-// Pure data and pure readers; nothing on a game path reads any of it until its slice does (R2-2 blanks by tier, R2-3
-// identification v2, R2-4 museum math v2, R2-5 exceptional sets, R2-6 cultures), so every v1 result is unchanged.
+// Pure data and pure readers, each read by its slice (R2-2 blanks by tier, R2-3 identification v2, R2-4 museum math v2,
+// R2-5 exceptional sets, R2-6 cultures).
 //
 // The user's answers this catalog follows (plan USER ANSWERS 2026-10-19):
 //   call 1  "Become Tier I pool": the 17 relics become the general pool by band, 4 / 5 / 4 / 4, ids, names, flavors
-//           and first-find unlocks kept, the set ladder retired (R2-4 retires it).
+//           and first-find unlocks kept. R2-4: Tiers II to VII use the D23 curve with no ladder; Tier I keeps the v1
+//           ladder so every Tier I veteran keeps exactly its bonus (the controller's R2-4 ruling).
 //   call 2  "Same types, scaled per tier": ONE pool of general types, counted per region tier.
 //   call 3  "1000 per tier": the soft cap (RELIC_SOFT_CAP).
 //   call 5  "Growing sets, 54 pieces": EXCEPTIONAL_SET_SIZES.
@@ -1028,8 +1034,9 @@ export function exceptionalSetsOfTier(tier: RegionTier): ExceptionalSetDef[] {
 
 // Soft cap and cultures
 
-// Call 3 "1000 per tier" (call 4: keep counting past it and show it): identified general relics per region tier at
-// which that tier's counts freeze for the regular game (R2-4).
+// Call 3 "1000 per tier" (call 4: keep counting past it and show it): identified relics per region tier (its general
+// copies plus its exceptional copies, duplicates included: call 7 "a duplicate adds no stat but counts toward the tier
+// total") at which that tier's counts freeze for the regular game (R2-4, museumTierTotal / withSoftCapSnapshot).
 export const RELIC_SOFT_CAP = 1000;
 
 // Call 10: six curated cultures per region tier (42). Their NAMES await the user's sign-off sheet, so the roster
@@ -1044,3 +1051,171 @@ export const CULTURE_ROSTER: Readonly<Record<RegionTier, readonly string[]>> = (
 
 // Call 9: a culture's name is revealed at this many study points (+1 per identified find, plus 15b ancient data; R2-6).
 export const CULTURE_STUDY_POINTS = 10;
+
+// ============================================================================
+// Relics v2 R2-4 (plan 2026-10-17 section 4 R2-4): MUSEUM MATH V2. LIVE.
+// ============================================================================
+// What the Museum grants, from the whole Museum v2 record (museumBonusesFromMuseum, which museumBonuses reads):
+//   - TIER I keeps the v1 math EXACTLY (museumBonusesFromRecord: the per-copy passive plus the set ladder with its
+//     bottleneck), so every Tier I veteran's bonus is what it was before R2-4: same counts, same bonus (the controller's
+//     R2-4 ruling; relicsV2MuseumGoldens.test.ts goldens 1 and 2 prove it). The ladder therefore stays for Tier I only;
+//     no tier above I ever had one.
+//   - TIERS II TO VII (call 2 "Same types, scaled per tier"): the same general types, each copy worth its type's stat
+//     shares times MUSEUM_V2_PER_COPY[tier], summed per stat inside the tier and passed through the shared D23 curve
+//     diminishing(x, MUSEUM_V2_KNEE), then summed over tiers. Unbounded and concave: more always helps, each copy a
+//     little less, so a farmed tier's next copy is worth less than an early copy one tier up.
+//   - EXCEPTIONAL pieces and full sets add FLAT values (call 7: they do not stack): a held piece adds its value once
+//     (a duplicate adds nothing), and a set with every piece held adds its full-set bonus (5x one piece).
+//   - THE SOFT CAP (calls 3 and 4): when a tier's identified total (museumTierTotal) first reaches RELIC_SOFT_CAP, its
+//     record is snapshotted into `frozen` (withSoftCapSnapshot); from then on the regular game reads the snapshot
+//     (the one flat line on the D23 curve, the user's stated exception), while the live counts keep growing and the
+//     Museum shows them. Nothing for Endless Mode ships yet (nothing inert).
+// Hazard resist still passes its consumer's effectiveHazardResist curve; every consumer reads museumBonuses unchanged.
+
+// The region tiers the D23 curve serves (Tier I keeps the v1 math above).
+export type CurvedRegionTier = 2 | 3 | 4 | 5 | 6 | 7;
+const CURVED_TIERS: readonly CurvedRegionTier[] = [2, 3, 4, 5, 6, 7];
+
+// [PROVISIONAL] (plan 3.1 "MUSEUM_V2_PER_COPY[tier] = 0.001 x (1, 1.5, 2.2, 3, 4, 5.2, 6.6)", not yet answered): one
+// copy's value per stat share at each tier above I, as a fraction before the curve. Tier I's 0.001 is the v1 per-copy
+// passive (MUSEUM_PER_COPY_BONUS), which Tier I keeps.
+export const MUSEUM_V2_PER_COPY: Readonly<Record<CurvedRegionTier, number>> = { 2: 0.0015, 3: 0.0022, 4: 0.003, 5: 0.004, 6: 0.0052, 7: 0.0066 };
+
+// [PROVISIONAL] (plan 3.1 "MUSEUM_V2_KNEE 0.25", not yet answered): the D23 knee of each tier's per-stat curve, in
+// bonus units (a stat's pre-curve sum of +25% keeps about 73% of itself; +5% keeps about 91%).
+export const MUSEUM_V2_KNEE = 0.25;
+
+// [PROVISIONAL] (the plan freezes "its counts" and is silent on exceptional pieces): false = a held exceptional piece and
+// a completed set ALWAYS act, frozen tier or not (they are flat and cannot grow, so the cap has nothing to stop, and a
+// player who farmed past the cap still gets the pieces found later). true = a frozen tier's pieces are read from its
+// snapshot like its general copies. The snapshot holds the tier's pieces either way, so flipping this needs no
+// migration.
+export const SOFT_CAP_FREEZES_EXCEPTIONAL = false;
+
+// The region tier of an exceptional piece (its set's tier), or null for an unknown id. Pure.
+export function exceptionalPieceTier(pieceId: string): RegionTier | null {
+  const piece = EXCEPTIONAL_PIECE_BY_ID.get(pieceId);
+  return piece ? (EXCEPTIONAL_SET_BY_ID.get(piece.setId)?.tier ?? null) : null;
+}
+
+function tierKey(tier: RegionTier): RegionTierKey {
+  return String(tier) as RegionTierKey;
+}
+
+function positiveCount(n: number | undefined): number {
+  return typeof n === "number" && Number.isFinite(n) && n > 0 ? Math.floor(n) : 0;
+}
+
+// A tier's IDENTIFIED total: its general copies plus the copies of its exceptional pieces (duplicates included). Counts
+// keep growing past the cap (call 4), so this is the number the Museum shows. Pure.
+export function museumTierTotal(museum: MuseumV2 | undefined, tier: RegionTier): number {
+  if (!museum) return 0;
+  let total = 0;
+  for (const n of Object.values(museum.general?.[tierKey(tier)] ?? {})) total += positiveCount(n);
+  for (const [id, n] of Object.entries(museum.exceptional ?? {})) if (exceptionalPieceTier(id) === tier) total += positiveCount(n);
+  return total;
+}
+
+// Whether a tier's counts are frozen for the regular game (it reached the soft cap). Pure.
+export function museumTierFrozen(museum: MuseumV2 | undefined, tier: RegionTier): boolean {
+  return museum?.frozen?.[tierKey(tier)] !== undefined;
+}
+
+// A tier's whole record (its general copies and its exceptional pieces' copies in one map; the ids never collide, as the
+// catalog asserts): what a snapshot stores. Pure.
+function tierRecord(museum: MuseumV2, tier: RegionTier): Record<string, number> {
+  const out: Record<string, number> = { ...(museum.general[tierKey(tier)] ?? {}) };
+  for (const [id, n] of Object.entries(museum.exceptional)) if (exceptionalPieceTier(id) === tier && positiveCount(n) > 0) out[id] = n;
+  return out;
+}
+
+// The museum with every tier at or past the soft cap that has no snapshot yet snapshotted at its current counts. The
+// SAME reference when nothing changes. Every deposit ends here (a one-copy deposit reaches the cap exactly, so its
+// snapshot is exact); museumDepositGeneral trims a multi-copy grant to the exact cap first. Pure.
+export function withSoftCapSnapshot(museum: MuseumV2): MuseumV2 {
+  let frozen = museum.frozen;
+  for (const tier of REGION_TIER_LIST) {
+    if (frozen[tierKey(tier)] !== undefined || museumTierTotal(museum, tier) < RELIC_SOFT_CAP) continue;
+    frozen = { ...frozen, [tierKey(tier)]: tierRecord(museum, tier) };
+  }
+  return frozen === museum.frozen ? museum : { ...museum, frozen };
+}
+
+// `n` general copies of `typeId` deposited at `tier` (the one general deposit every writer goes through). When this
+// deposit carries the tier across the soft cap, the snapshot holds exactly RELIC_SOFT_CAP copies: the record before
+// it plus only the copies that reached the cap. Key positions of existing records are kept. Pure.
+export function museumDepositGeneral(museum: MuseumV2, tier: RegionTier, typeId: string, n: number): MuseumV2 {
+  const key = tierKey(tier);
+  const count = positiveCount(n);
+  if (count === 0) return museum;
+  const record = museum.general[key] ?? {};
+  let frozen = museum.frozen;
+  const before = museumTierTotal(museum, tier);
+  if (frozen[key] === undefined && before < RELIC_SOFT_CAP && before + count >= RELIC_SOFT_CAP) {
+    const atCap = tierRecord(museum, tier);
+    atCap[typeId] = (record[typeId] ?? 0) + (RELIC_SOFT_CAP - before);
+    frozen = { ...frozen, [key]: atCap };
+  }
+  return withSoftCapSnapshot({ ...museum, general: { ...museum.general, [key]: { ...record, [typeId]: (record[typeId] ?? 0) + count } }, frozen });
+}
+
+// One copy of exceptional piece `pieceId` deposited (duplicates counted, call 7), the soft cap checked. Pure.
+export function museumDepositExceptional(museum: MuseumV2, pieceId: string): MuseumV2 {
+  return withSoftCapSnapshot({ ...museum, exceptional: { ...museum.exceptional, [pieceId]: (museum.exceptional[pieceId] ?? 0) + 1 } });
+}
+
+// The record of `tier` the REGULAR GAME reads: the snapshot once the tier reached the cap, else the live general
+// counts. Pure.
+export function museumActiveRecord(museum: MuseumV2 | undefined, tier: RegionTier): Readonly<Record<string, number>> {
+  const key = tierKey(tier);
+  return museum?.frozen?.[key] ?? museum?.general?.[key] ?? {};
+}
+
+// One curved tier's bonus per stat: each stat's copies x shares x MUSEUM_V2_PER_COPY[tier], through the D23 curve. Ids
+// that are not general types (a snapshot's exceptional pieces) are skipped. Pure.
+export function museumTierCurveBonuses(record: Readonly<Record<string, number>>, tier: CurvedRegionTier): Record<MuseumStat, number> {
+  const raw = zeroMuseumBonuses();
+  const per = MUSEUM_V2_PER_COPY[tier];
+  for (const [id, n] of Object.entries(record)) {
+    const type = RELIC_TYPE_BY_ID.get(id);
+    const copies = positiveCount(n);
+    if (!type || copies === 0) continue;
+    for (const s of type.stats) raw[s.stat] += copies * s.share * per;
+  }
+  const out = zeroMuseumBonuses();
+  for (const stat of MUSEUM_STATS) if (raw[stat] > 0) out[stat] = diminishing(raw[stat], MUSEUM_V2_KNEE);
+  return out;
+}
+
+// The flat exceptional bonuses: each held piece once, each set with every piece held its full-set bonus. A frozen
+// tier's pieces read from its snapshot only when SOFT_CAP_FREEZES_EXCEPTIONAL. Pure.
+export function museumExceptionalBonuses(museum: MuseumV2 | undefined): Record<MuseumStat, number> {
+  const out = zeroMuseumBonuses();
+  if (!museum) return out;
+  for (const set of EXCEPTIONAL_SETS) {
+    const held = SOFT_CAP_FREEZES_EXCEPTIONAL && museumTierFrozen(museum, set.tier) ? museumActiveRecord(museum, set.tier) : (museum.exceptional ?? {});
+    let all = true;
+    for (const piece of set.pieces) {
+      if (positiveCount(held[piece.id]) > 0) out[piece.stat] += piece.value;
+      else all = false;
+    }
+    if (all) for (const b of set.fullSet) out[b.stat] += b.value;
+  }
+  return out;
+}
+
+// THE MUSEUM'S TOTAL BONUSES from a Museum v2 record: Tier I through the v1 math, Tiers II to VII through the curve,
+// plus the exceptional flats; each tier read from its snapshot once frozen. A museum with only Tier I copies returns
+// exactly museumBonusesFromRecord of that record (nothing else is added, not even a zero). Empty: all zeros. Pure.
+export function museumBonusesFromMuseum(museum: MuseumV2 | undefined): Record<MuseumStat, number> {
+  const out = museumBonusesFromRecord(museumActiveRecord(museum, 1));
+  const add = (b: Record<MuseumStat, number>) => {
+    for (const stat of MUSEUM_STATS) if (b[stat] !== 0) out[stat] += b[stat];
+  };
+  for (const tier of CURVED_TIERS) {
+    const record = museumActiveRecord(museum, tier);
+    if (Object.keys(record).length > 0) add(museumTierCurveBonuses(record, tier));
+  }
+  add(museumExceptionalBonuses(museum));
+  return out;
+}

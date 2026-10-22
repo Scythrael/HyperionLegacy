@@ -62,6 +62,7 @@ import { ml2RowsBack } from "./ml2RecipeGoldens.fixture";
 import { em5ReadBack } from "./emodEm5Registry.fixture";
 import { R2_2_ADDED_ENTRY_IDS } from "./relicBlanks.fixture";
 import { R2_3_ADDED_ENTRY_IDS } from "./relicIdentify.fixture"; // R2-3: its three audit rows, held apart the same way
+import { R2_4_ADDED_ENTRY_IDS, R2_4_FLIPPED_BEFORE } from "./relicMuseumV2.fixture"; // R2-4: its additions held apart, its flips read back
 import { G2_4_ADDED_ENTRY_IDS, G2_4_FLIPPED_BEFORE } from "./propulsionRecallGoldens.fixture";
 // ML-3 (Material Lines: material quality on delivery, OC-D2): its registry move, read back by ml3RowsBack.
 import { ml3RowsBack } from "./materialQualityGoldens.fixture";
@@ -652,10 +653,12 @@ const G16_ROW_BEFORE = { kind: "pending", owner: "G1-6 (flips SHORT_RANGE_BOARD_
 // Gas Giant Study GG-2 / GG-3 came after every pin here as well: the entries they FLIPPED pending -> live (the gas giant's
 // orbitalOnly row and the GG-1 study entries they wired; gasStudyGoldens.fixture.ts) read back as they stood (pending
 // on their owner, no live context, no probe) in every read-back and the snapshot; GG-3's added probe dive seam is left out.
+// Relics v2 R2-4 the same (relicMuseumV2.fixture.ts): its added entries left out, its RELIC_TYPES / EXCEPTIONAL_SETS
+// flips read back as R2-1 registered them.
 const BEFORE_RX: WiringEntry[] = siReadBack(
   em5ReadBack(gw3RegistryBack(WIRING_REGISTRY)).filter(
     (e) =>
-      !RX_ADDED_ENTRY_IDS.has(e.id) && !FUSE_ADDED_ENTRY_IDS.has(e.id) && !R2_2_ADDED_ENTRY_IDS.has(e.id) && !R2_3_ADDED_ENTRY_IDS.has(e.id) && !G16_ADDED_IDS.has(e.id) &&
+      !RX_ADDED_ENTRY_IDS.has(e.id) && !FUSE_ADDED_ENTRY_IDS.has(e.id) && !R2_2_ADDED_ENTRY_IDS.has(e.id) && !R2_3_ADDED_ENTRY_IDS.has(e.id) && !R2_4_ADDED_ENTRY_IDS.has(e.id) && !G16_ADDED_IDS.has(e.id) &&
       !G2_4_ADDED_ENTRY_IDS.has(e.id) && !OC15_ADDED_ENTRY_IDS.has(e.id) && !GG_STUDY_ADDED_ENTRY_IDS.has(e.id),
   ).map((e) =>
     e.id === G13_ROW
@@ -664,7 +667,9 @@ const BEFORE_RX: WiringEntry[] = siReadBack(
         ? { ...e, status: G2_4_FLIPPED_BEFORE[e.id], contexts: [], probe: undefined }
         : GG_STUDY_FLIPPED_BEFORE.has(e.id)
           ? ({ ...e, status: GG_STUDY_FLIPPED_BEFORE.get(e.id)!, contexts: [], probe: undefined } as WiringEntry)
-          : e,
+          : R2_4_FLIPPED_BEFORE.has(e.id)
+            ? ({ ...e, status: R2_4_FLIPPED_BEFORE.get(e.id)!, contexts: [], probe: undefined } as WiringEntry)
+            : e,
   ),
   (e) => e.id,
   (row) => ({ id: row[0], status: row[1], contexts: row[2], probe: row[3] ?? undefined }) as unknown as WiringEntry,
@@ -815,7 +820,7 @@ describe("EM-0 goldens (re-pinned by EM-1 where named)", () => {
     // and G2-4's additions are held apart here the same way, so the comparison sees G1-6's move alone. E-MOD EM-5's move is
     // read back first (em5ReadBack), as BEFORE_RX does; Gas Giant Study GG-3's added seam is held apart too.
     const live = em5ReadBack(gw3RegistryBack(WIRING_REGISTRY)).filter(
-      (e) => !RX_ADDED_ENTRY_IDS.has(e.id) && !FUSE_ADDED_ENTRY_IDS.has(e.id) && !R2_2_ADDED_ENTRY_IDS.has(e.id) && !R2_3_ADDED_ENTRY_IDS.has(e.id) && !G2_4_ADDED_ENTRY_IDS.has(e.id) && !OC15_ADDED_ENTRY_IDS.has(e.id) && !GG_STUDY_ADDED_ENTRY_IDS.has(e.id),
+      (e) => !RX_ADDED_ENTRY_IDS.has(e.id) && !FUSE_ADDED_ENTRY_IDS.has(e.id) && !R2_2_ADDED_ENTRY_IDS.has(e.id) && !R2_3_ADDED_ENTRY_IDS.has(e.id) && !R2_4_ADDED_ENTRY_IDS.has(e.id) && !G2_4_ADDED_ENTRY_IDS.has(e.id) && !OC15_ADDED_ENTRY_IDS.has(e.id) && !GG_STUDY_ADDED_ENTRY_IDS.has(e.id),
     );
     const rung = live.filter((e) => G16_ADDED_IDS.has(e.id)).map((e) => [e.id, e.status, e.contexts, e.probe ?? null]);
     expect(rung).toEqual([...G16_ADDED_IDS].map((id) => [id, { kind: "live" }, ["mission:shortRange"], "shortRangeSlots"]));

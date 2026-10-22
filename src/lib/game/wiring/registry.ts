@@ -22,6 +22,8 @@
 
 import {
   BLUEPRINTS,
+  emptyMuseumV2,
+  withGeneralMuseumRecord,
   FIELD_KITS_HIDDEN_BLUEPRINTS,
   CAPTAIN_RACIAL_SCALE,
   CAPTAIN_SPEC_BONUS,
@@ -115,10 +117,15 @@ import {
   MUSEUM_PER_COPY_BONUS,
   MUSEUM_STATS,
   MUSEUM_TIER_LEVEL_BONUS,
+  MUSEUM_V2_KNEE,
+  MUSEUM_V2_PER_COPY,
   RELIC_SETS,
+  RELIC_SOFT_CAP,
   RELIC_TYPES,
   RELICS,
   museumBonusesFromRecord,
+  museumDepositGeneral,
+  type CurvedRegionTier,
   type MuseumStat,
 } from "../relics";
 import { shortRangeRelicMicrosPerHour } from "../relicBlanks";
@@ -337,6 +344,8 @@ export const CATALOGS = {
   RELICS,
   RELIC_TYPES,
   EXCEPTIONAL_SETS,
+  // Relics v2 R2-4: each copy's value per tier above I (museum math v2).
+  MUSEUM_V2_PER_COPY,
   WEAPON_DEFS,
   SLOT_BASE_PHYSICALS,
   ROLE_TEMPLATE,
@@ -2554,24 +2563,60 @@ function relicEntries(): WiringEntry[] {
   return out;
 }
 
-// Relics v2 R2-1 (plan 2026-10-17 section 4): the v2 catalog is DORMANT, so each of its effect sources is pending with
-// the slice that wires it. A general type's stat moves its Museum stat once R2-4's museum math v2 reads RELIC_TYPES (its
-// consumer is the relic:MUSEUM_STATS entry); an exceptional piece and a full-set bonus once R2-4 adds their flat values
-// and R2-5 grants them. Until then nothing reads them, so nothing can move.
-const R2_4_TYPES = "Relics v2 R2-4 (museum math v2 sums each general type's stats per tier)";
-const R2_5_EXCEPTIONAL = "Relics v2 R2-4 + R2-5 (exceptional piece and full-set values; names await the content sign-off sheet)";
+// Relics v2 R2-4 (plan 2026-10-17 section 4 R2-4): museum math v2 reads the v2 catalog, so each effect source is LIVE,
+// measured on its Museum stat (the relic:MUSEUM_STATS entry proves that stat's consumer):
+//   - a general type: one copy at Tier II moves its first stat by diminishing(share x MUSEUM_V2_PER_COPY[2], knee)
+//     (Tier I copies are the relic:RELICS entries, through the v1 math Tier I keeps);
+//   - each tier's per-copy value: one Hull Rivet at that tier moves cargoCapacity through the same curve;
+//   - an exceptional piece: held alone it adds its flat value once (call 7: a duplicate adds nothing);
+//   - a full set: every piece held vs all but the last, which moves the full-set stat by exactly the full-set bonus
+//     (the last piece's stat differs: a set's pieces take distinct stats).
+// No player reaches Tier II or deeper until the region picker (relic:audit:blankTiers, G2-6); the math is live.
+const V2_FIXTURE_TIER: CurvedRegionTier = 2;
+const SOFT_CAP_PROBE_PAST = 200;
+const v2Curve = { kind: "diminishing", knee: MUSEUM_V2_KNEE, base: 0 } as const;
+const withTierCopies =
+  (tier: CurvedRegionTier, record: Readonly<Record<string, number>>): Transform =>
+  (s) =>
+    withGeneralMuseumRecord(s, record, tier);
+const withPieces =
+  (ids: readonly string[]): Transform =>
+  (s) => ({ ...s, museumV2: { ...(s.museumV2 ?? emptyMuseumV2()), exceptional: Object.fromEntries(ids.map((id) => [id, 1])) } });
 
 function relicV2Entries(): WiringEntry[] {
   const out: WiringEntry[] = [];
   for (const t of RELIC_TYPES) {
+    const stat = t.stats[0].stat;
     out.push(
       entry({
         id: `relic:RELIC_TYPES:${t.id}`,
         system: "relic",
         source: { catalog: "RELIC_TYPES", key: t.id },
         claim: `${t.label}: ${t.stats.map((s) => s.stat).join(" + ")} per copy, per tier`,
-        magnitude: (c) => c.RELIC_TYPES.find((x) => x.id === t.id)!.stats.reduce((a, s) => a + s.share, 0),
-        status: pending(R2_4_TYPES),
+        probe: `museum:${stat}`,
+        contexts: ["fleet"],
+        curve: v2Curve,
+        magnitude: (c) => c.RELIC_TYPES.find((x) => x.id === t.id)!.stats.find((x) => x.stat === stat)!.share * c.MUSEUM_V2_PER_COPY[V2_FIXTURE_TIER],
+        on: withTierCopies(V2_FIXTURE_TIER, { [t.id]: 1 }),
+        off: withTierCopies(V2_FIXTURE_TIER, {}),
+        note: "one copy at Tier II; the museum stat it sets is a relic:MUSEUM_STATS entry (its consumer is proved there)",
+      }),
+    );
+  }
+  for (const tier of Object.keys(MUSEUM_V2_PER_COPY).map(Number) as CurvedRegionTier[]) {
+    out.push(
+      entry({
+        id: `relic:MUSEUM_V2_PER_COPY:${tier}`,
+        system: "relic",
+        source: { catalog: "MUSEUM_V2_PER_COPY", key: String(tier) },
+        claim: `Tier ${tier} general copies: +${(MUSEUM_V2_PER_COPY[tier] * 100).toFixed(2)}% per copy before the curve`,
+        probe: "museum:cargoCapacity",
+        contexts: ["fleet"],
+        curve: v2Curve,
+        magnitude: (c) => c.MUSEUM_V2_PER_COPY[tier],
+        on: withTierCopies(tier, { hullRivet: 1 }),
+        off: withTierCopies(tier, {}),
+        note: "one Hull Rivet (cargoCapacity, share 1) at this tier",
       }),
     );
   }
@@ -2583,19 +2628,31 @@ function relicV2Entries(): WiringEntry[] {
           system: "relic",
           source: { catalog: "EXCEPTIONAL_SETS", key: `${set.id}:${p.id}` },
           claim: `${p.label}: ${p.stat}`,
+          probe: `museum:${p.stat}`,
+          contexts: ["fleet"],
           magnitude: (c) => c.EXCEPTIONAL_SETS.find((x) => x.id === set.id)!.pieces.find((x) => x.id === p.id)!.value,
-          status: pending(R2_5_EXCEPTIONAL),
+          tolerance: 1e-12,
+          on: withPieces([p.id]),
+          off: withPieces([]),
+          note: "the piece held alone (no set completes); names and values await the R2-5 content sheet",
         }),
       );
     }
+    const fullStat = set.fullSet[0].stat;
+    const ids = set.pieces.map((p) => p.id);
     out.push(
       entry({
         id: `relic:EXCEPTIONAL_SETS:${set.id}:full`,
         system: "relic",
         source: { catalog: "EXCEPTIONAL_SETS", key: `${set.id}:full` },
         claim: `${set.label} full set: ${set.fullSet.map((b) => b.stat).join(" + ")}`,
-        magnitude: (c) => c.EXCEPTIONAL_SETS.find((x) => x.id === set.id)!.fullSet.reduce((a, b) => a + b.value, 0),
-        status: pending(R2_5_EXCEPTIONAL),
+        probe: `museum:${fullStat}`,
+        contexts: ["fleet"],
+        magnitude: (c) => c.EXCEPTIONAL_SETS.find((x) => x.id === set.id)!.fullSet.filter((b) => b.stat === fullStat).reduce((a, b) => a + b.value, 0),
+        tolerance: 1e-12,
+        on: withPieces(ids),
+        off: withPieces(ids.slice(0, -1)),
+        note: "every piece held vs all but the last (whose stat is not the full-set stat)",
       }),
     );
   }
@@ -3659,6 +3716,8 @@ const AUDIT_ROWS: readonly { id: string; system: WiringSystem; claim: string; st
   { id: "relic:audit:identifyLanes", system: "relic", claim: "Relic-study lanes by Research Lab tier (RELIC_STUDY_LANES_BY_LAB: Lab I 1, III 2, V 3, VII 4; user call 12)", status: LIVE },
   { id: "relic:audit:identifyQueue", system: "relic", claim: "The identification queue: the next queued blank starts the moment a lane frees, also while away (tick.ts queueRelicStudy / resolveRelicStudies)", status: pending("Relics v2 R2-7 (the Identification tab: feed, queue, reorder; the engine queue is built and tested)") },
   { id: "relic:audit:generalPick", system: "relic", claim: "A blank with no set identifies over the general pool by band, with the site bias (identifyGeneralRelic)", status: pending("Relics v2 R2-3 follow-up (retire the v1 setless branch of identifyStudiedRelic: identification v2, relic:audit:identifyV2, studies every new blank, G1-5's short-range blanks included, so no study reaches this pick)") },
+  // Relics v2 R2-4 (relics.ts museum math v2): the per-tier soft cap snapshot (user calls 3 and 4).
+  { id: "relic:audit:softCap", system: "relic", claim: "The soft cap: a tier's counts freeze for the regular game at RELIC_SOFT_CAP identified relics (1000 per tier, user call 3); counts keep growing and show (call 4)", status: LIVE },
   // I. Missions, patrols, factions
   { id: "mission:audit:unusedFactions", system: "mission", claim: "voidJackals, ironVultures, ashenCorsairs and Faction.id (no patrol references them)", status: pending("WR-11, OC-I2") },
   // J. Salvage and item generation
@@ -3755,6 +3814,24 @@ function auditRowWiring(): Readonly<Record<string, Partial<EntryInput>>> {
       curve: { kind: "gate" },
       magnitude: () => relicV2ProbeExpectedExceptional(),
       on: sourceOn,
+    },
+    // Relics v2 R2-4: 200 Hull Rivets past the cap, deposited one at a time through the real deposit (the snapshot holds
+    // the first RELIC_SOFT_CAP), against the same copies as a plain record with no snapshot: the cap takes exactly the
+    // curve's growth over those copies off the regular game's cargoCapacity.
+    "relic:audit:softCap": {
+      probe: "museum:cargoCapacity",
+      contexts: ["fleet"],
+      direction: "down",
+      magnitude: () => {
+        const at = (n: number) => diminishing(n * MUSEUM_V2_PER_COPY[V2_FIXTURE_TIER], MUSEUM_V2_KNEE);
+        return at(RELIC_SOFT_CAP) - at(RELIC_SOFT_CAP + SOFT_CAP_PROBE_PAST);
+      },
+      on: (s) => {
+        let m = s.museumV2 ?? emptyMuseumV2();
+        for (let i = 0; i < RELIC_SOFT_CAP + SOFT_CAP_PROBE_PAST; i++) m = museumDepositGeneral(m, V2_FIXTURE_TIER, "hullRivet", 1);
+        return { ...s, museumV2: m };
+      },
+      off: withTierCopies(V2_FIXTURE_TIER, { hullRivet: RELIC_SOFT_CAP + SOFT_CAP_PROBE_PAST }),
     },
     // Relics v2 R2-3: Lab VII runs three more relic studies at once than Lab I.
     "relic:audit:identifyLanes": {

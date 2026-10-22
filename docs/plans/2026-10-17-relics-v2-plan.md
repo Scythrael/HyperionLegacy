@@ -345,6 +345,35 @@ copy ladder and the bottleneck (OC-1, call 10 of the mockup). Tests: empty museu
 tier; a farmed tier's next copy worth less than an early copy one tier up; frozen snapshot exact at the cap and stable
 past it; every stat moves its consumer (wiring sensitivity test); moved goldens named in the commit with the reason.
 
+**R2-4 carry note (2026-10-21, built on bc25a23):**
+- Math (end of `relics.ts`, `museumBonusesFromMuseum`, which `museumBonuses` reads; signature and consumers unchanged):
+  TIER I KEEPS THE V1 MATH EXACTLY (per-copy passive plus the set ladder and bottleneck) on the controller's ruling
+  "Tier I veterans' bonuses must stay exactly what they are today", so `museumBonusesFromRecord`, `setTierLevels` and
+  the RELIC_SETS / RELICS wiring rows stay, for Tier I only. This departs from the plan text above ("retire
+  setTierLevels, the copy ladder and the bottleneck"): no tier above I ever had a ladder. Tiers II to VII: per stat,
+  `diminishing(copies x share x MUSEUM_V2_PER_COPY[tier], MUSEUM_V2_KNEE)`, summed over tiers. Exceptional: each held
+  piece once (duplicates nothing), a full set +5x one piece; flat, on top.
+- Soft cap: a tier's identified total = its general copies plus its exceptional copies (duplicates count, call 7). At
+  1000 the tier's whole record (types and its pieces, one map) is snapshotted into `frozen`; the regular game reads the
+  snapshot (`museumActiveRecord`), counts keep growing (`museumTierTotal`, `museumTierFrozen` for R2-8). Every writer goes
+  through `museumDepositGeneral` / `museumDepositExceptional` (identification v2, the v1 study deposit, the grant seam;
+  a multi-copy grant is trimmed to the exact cap); the dev Museum control calls `withSoftCapSnapshot`. Load:
+  `withSoftCapSnapshotV70` (MIGRATIONS[69] step 6 and every load, FROZEN inline cap) snapshots a dev save already past
+  the cap at its current counts: same counts, same bonus.
+- [PROVISIONAL], one constant each: `MUSEUM_V2_PER_COPY` (plan 0.001 x 1.5 ... 6.6 for II to VII), `MUSEUM_V2_KNEE` 0.25,
+  `SOFT_CAP_FREEZES_EXCEPTIONAL` false (pieces and full sets always act, frozen tier or not; the snapshot holds them, so
+  flipping needs no migration).
+- Goldens: `relicsV2MuseumGoldens.test.ts` (goldens-first commit). Golden 1 (256 Tier I veterans) and 2 (past the cap
+  through a load) UNCHANGED. Moved, named: golden 3 (Tier II+ copies and exceptional pieces now act) and the R2-1
+  catalog test's "copies at another tier do not count yet". Every whole-state golden unchanged.
+- Wiring: RELIC_TYPES (17) and EXCEPTIONAL_SETS (54 + 14) flipped LIVE on `museum:<stat>` (Tier II fixture through the
+  diminishing curve; pieces flat; full set vs all but the last piece); added `relic:MUSEUM_V2_PER_COPY:2..7` and
+  `relic:audit:softCap` (LIVE: 200 copies past the cap move cargo down by the curve's growth). Pins hold the move apart
+  (`relicMuseumV2.fixture.ts`). The Debug panel now owns RELIC_TYPES, EXCEPTIONAL_SETS and MUSEUM_V2_PER_COPY; Tier I
+  readers read the snapshot. Reaching Tier II or deeper is still G2-6's (`relic:audit:blankTiers`).
+- For R2-8: the Museum panel still shows Tier I from the live `general["1"]` through the v1 readers; once a tier is
+  frozen the page should read `museumActiveRecord` for bonuses and `museumTierTotal` for the shown count.
+
 ### R2-5: Exceptional sets content, set completion, ledger (engine + content sign-off)
 Content sign-off first: one sheet with every exceptional set and piece name, stat and value for Tiers I to VII (OC-5).
 Then: set completion appends to `setsCompleted` once and emits a `relicSetCompleted` ledger event (set id, tier,
