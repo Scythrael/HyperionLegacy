@@ -51,3 +51,18 @@ bit-identical; (4) ascension seam (multiplier, validity, label, sort); (5) Lumin
 (6) one shared set engine (GEAR_SETS, 2/3/5 thresholds, piece counting per ship and member, Celestial minus-1 hook;
 EM-7 reuses it); (7) producibility switch (flag or talent proc, offline == live); (8) small traps (crew multiplier
 rows, warehouse tokens, relic blanks decoupled, 5th salvage ceiling row, set-complete chat shoutout).
+
+## USER ANSWERS (2026-10-22), round 1
+
+1. Legendaries: "As designed (Recommended)" (Luminous carries a unique legendary affix; Constellar carries set bonuses
+   2/3/5-piece, per the July epic design).
+2. Sets: "Engine + test sets (Recommended)" (one shared set engine for gear and E-MOD modules, proven with 1 or 2 test
+   sets; real set content only if balancing wants it).
+3. Ascension: "Plumbing only (Recommended)" (Nova and Celestial get real data, budget boost, the Luminous/Constellar
+   only rule, labels and sorting, behind a switch; no way to obtain them yet).
+4. Producer: "Dev mint now, proc later (Recommended)" (a Debug minter for every tier for balancing; the real
+   crafting-talent proc is designed when the user decides to ship them).
+
+Still open (next round): legendary budget step (+20% doc vs 1.15 code vs per-rarity table), secondaries (Stellar and
+up, would change live pieces), Derelict meaning, crew multiplier rows above Stellar, relic blanks at legendary tiers,
+quality on ships and field kits, Constellar color (red doc vs rose code).
