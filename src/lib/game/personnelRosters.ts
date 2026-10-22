@@ -333,9 +333,18 @@ export function rosterApplyGateText(state: GameState, gate: RosterApplyGate): st
       return crewLockText(state, gate.lockedShipId) ?? rosterApplyBlockText(gate.reason);
     case "pinnedAboardLockedShip": {
       const why = crewLockReason(state, gate.lockedShipId);
-      if (why === "onMission") return "A pinned officer or crew member is aboard a ship out on a mission";
-      if (why === "onExpedition") return "A pinned officer or crew member is aboard a ship on an expedition";
-      return rosterApplyBlockText(gate.reason);
+      switch (why) {
+        case "onMission":
+          return "A pinned officer or crew member is aboard a ship out on a mission";
+        case "onPatrol":
+          return "A pinned officer or crew member is aboard a ship out on a patrol";
+        case "onShortRange":
+          return "A pinned officer or crew member is aboard a ship on a short-range run";
+        case "onExpedition":
+          return "A pinned officer or crew member is aboard a ship on an expedition";
+        case null:
+          return rosterApplyBlockText(gate.reason);
+      }
     }
   }
 }

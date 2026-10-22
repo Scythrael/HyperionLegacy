@@ -186,7 +186,7 @@ import { groundSiteLabel } from "./expeditionContent";
 // E4a: the PoI -> relic-set single source of truth (pure data) for the foreknowledge signature + the
 // claim deposit's set routing.
 import { RELIC_SETS, relicSetForPoi, museumBonuses, resistedHazard } from "./relics";
-import type { RelicSetId, RelicVaultToken } from "./model";
+import type { RelicSetId, RelicVaultToken, SurveyLogEntry } from "./model";
 // E4a: the CLAIM DEPOSIT routes materials through the discovery-safe add seam (addToInventory, clamped at
 // itemCap) and folds the haul into lifetimeStats through the shared fold. These are imported from tick.ts,
 // which itself imports resolveExpeditions from this module: an ESM cycle that is SAFE because neither
@@ -198,6 +198,9 @@ import Decimal from "break_infinity.js";
 import { formatCountdown } from "./format";
 // Safe first runs SF-1: the run counters a claim updates (runDifficulty.ts imports model.ts only, so no cycle).
 import { countClaimedExpedition, runCountsOf, runDifficultyAt } from "./runDifficulty";
+// Gas Giant Study GG-2: the study stamp, the orbital bodies and their giant profiles (gasGiantStudy.ts never imports
+// this module).
+import { isStudyBody, studyStampFor, withGiantProfiles } from "./gasGiantStudy";
 
 // ============================================================================
 // FIRST-PASS TUNABLE constants
@@ -928,6 +931,10 @@ function previewRelicSets(seed: number, scanParams: ExpeditionScanParams, region
 function previewRun(seed: number, scanParams: ExpeditionScanParams, region: ExpeditionRegion): Expedition {
   const gen = previewSystem(seed, region);
   const risk = generateRiskProfile(seed, region, gen.bodies);
+  // Gas Giant Study GG-2: the same study flag and giant profiles the dispatch freezes (buildExpedition), so the
+  // preview drops the orbital bodies' objectives exactly as the run will.
+  const study = studyStampFor(gen.bodies);
+  const risked = gen.bodies.map((b, i) => ({ ...b, risk: risk.bodies[i] }));
   return {
     id: "preview",
     shipId: "",
@@ -940,7 +947,7 @@ function previewRun(seed: number, scanParams: ExpeditionScanParams, region: Expe
     phase: "scanning",
     phaseAnchorSeconds: 0,
     shakedown: false,
-    bodies: gen.bodies.map((b, i) => ({ ...b, risk: risk.bodies[i] })),
+    bodies: study ? withGiantProfiles(seed, risked) : risked,
     anomalyResolved: false,
     anomalyCharted: false,
     anomalyOptIn: false,
@@ -959,6 +966,7 @@ function previewRun(seed: number, scanParams: ExpeditionScanParams, region: Expe
     relicFindBonus: 0,
     hazardResist: 0,
     risk: risk.profile,
+    ...(study ? { study } : {}),
   };
 }
 
@@ -1053,11 +1061,14 @@ export function systemTaskPreview(seed: number, scanParams: ExpeditionScanParams
       tasks.push({ bodyIndex: i, poiId: t.poiId, hostile: isHostileSiteId(t.poiId), fightPoints: t.fightPoints?.length ?? 0, needs: taskNeedsOf(t), difficulty: t.difficulty ?? 1 });
     }
   });
+  // Gas Giant Study GG-2: the bodies the ship studies (no objective, no squad), only when the system holds one.
+  const studies = run.bodies.flatMap((b, i) => (isStudyBody(run, b) ? [i] : []));
   return {
     tier: region.tier,
     enemyTerritory: region.enemyTerritory,
     bodies: run.bodies.map((b) => ({ ...(b.risk as BodyRiskGrades) })),
     tasks,
+    ...(studies.length > 0 ? { studies } : {}),
   };
 }
 
@@ -1177,7 +1188,19 @@ export function launchForecast(
         byDifficulty[gradeSlot(t.difficulty)] += 1;
       } else unfinished += 1;
     }
-    return { kinds: used, label, teamsDeployed: 0, tasks, byDifficulty, unfinished, hardest: null, threat: null, note: "No ground team is ready to launch" };
+    const previewStudies = preview.studies?.length ?? 0;
+    return {
+      kinds: used,
+      label,
+      teamsDeployed: 0,
+      tasks,
+      byDifficulty,
+      unfinished,
+      hardest: null,
+      threat: null,
+      note: "No ground team is ready to launch",
+      ...(previewStudies > 0 ? { studies: previewStudies } : {}),
+    };
   }
   let revealed = 0;
   let tasks = 0;
@@ -1201,6 +1224,7 @@ export function launchForecast(
     }
   });
   const chosen = pick as { task: ExpeditionActivity; bodyIndex: number } | null;
+  const studyCount = exp.bodies.filter((b) => isStudyBody(exp, b)).length;
   const crew = chosen?.task.assignedTeamIds ?? [];
   const hardest: ForecastHardestTask | null = chosen
     ? {
@@ -1225,6 +1249,8 @@ export function launchForecast(
     hardest,
     threat: chosen ? groundCrewThreat(exp, crew, chosen.task.id) : null,
     note: chosen ? null : "No fights expected",
+    // Gas Giant Study GG-2: the run's ship studies (one per orbital body of a study run), only when there is one.
+    ...(studyCount > 0 ? { studies: studyCount } : {}),
   };
 }
 
@@ -1519,7 +1545,11 @@ function buildExpedition(
   if (fieldKitsRuns) withDispatchPacks(groundSnapshot.teams, planDispatchPacks(state, ship, groundSnapshot.teams, roster.security));
   // Squads SQ-4: the RISK PROFILE's presence (with each body's grades) is the risk-aware flag the ground tasks
   // stamp from.
-  const bodies = gen.bodies.map((b, i) => ({ ...b, risk: risk.bodies[i] }));
+  // Gas Giant Study GG-2: a system with an orbital body is a STUDY run (Expedition.study, written last below), and each
+  // orbital body freezes its giant profile (ExpeditionBody.giant, after its risk). Neither is written on any other run.
+  const study = studyStampFor(gen.bodies);
+  const risked = gen.bodies.map((b, i) => ({ ...b, risk: risk.bodies[i] }));
+  const bodies = study ? withGiantProfiles(seed, risked) : risked;
   // Safe first runs SF-2 / SF-3: the run's difficulty stamp, from stored state only (the counters and the runs out):
   // the training run's, else the curve position and the region tier this run is dispatched at.
   const difficulty = runDifficultyAt(state, "expedition", risk.profile.tier, ship.typeKey);
@@ -1601,6 +1631,8 @@ function buildExpedition(
     ...(explorer ? { explorerCaptain: explorer } : {}),
     // E-MOD EM-6: the body-scanned modules (assignDiscoveriesAndActivities), only when the ship carries one.
     ...(scanProcs.length > 0 ? { moduleScanProcs: scanProcs } : {}),
+    // Gas Giant Study GG-2: the study flag (see above), only on a system with an orbital body.
+    ...(study ? { study } : {}),
   };
   return expedition;
 }
@@ -1767,6 +1799,14 @@ function assignDiscoveriesAndActivities(
   bodyIndex: number,
   deployed: GroundTaskNeeds | null = exp.groundOps ? crewSquadsOf(exp.groundOps.teams) : null,
 ): void {
+  // Gas Giant Study GG-2 (D22, OC-G2): an orbital body of a study run has no surface: no discovery, no hostile site,
+  // no clearing objective, no sensor ghost find, so no ground objective at all (the ship studies it instead, GG-3).
+  // Its discovery stream is its own (keyed by the body), so leaving it undrawn shifts no other body's roll.
+  if (isStudyBody(exp, body)) {
+    body.discoveries = [];
+    body.activities = [];
+    return;
+  }
   const rng = makeRng((exp.seed ^ (DISCOVERY_SALT + Math.imul(bodyIndex + 1, 0x9e3779b9))) >>> 0);
   // The planet type gates the eligible pools; PLANET_TYPES[0] (terrestrial) is a defensive default the
   // union type makes unreachable, kept so an unexpected id still yields a valid pool.
@@ -2016,7 +2056,9 @@ export function scanStepRoll(exp: Expedition, bodyIndex: number, step: number, h
         : 0;
   const encounter = rng.chance(chance, 1000);
   const cache = rng.chance(clampPermille(SUPPLY_CACHE_CHANCE), 1000);
-  return { encounter, supplyCache: !encounter && cache };
+  // Gas Giant Study GG-2 (user call 4, 2026-10-19: "Stop on gas giants"): no supply cache at an orbital body of a
+  // study run (a cache is a ground find). Draw 2 is still taken, so the stream reads exactly as before.
+  return { encounter, supplyCache: !encounter && cache && !(body !== undefined && isStudyBody(exp, body)) };
 }
 
 // Ground Ops GO-8: the per-boundary SHIP EVENT chance on `body` for a flagged run with ship events: the scan
@@ -2594,6 +2636,8 @@ export function depositExpeditionFindings(state: GameState, findings: readonly E
   let discovered = state.discovered;
   let credits = state.credits;
   const vaultAdds: RelicVaultToken[] = [];
+  // Gas Giant Study GG-3: a study's Survey Log readout (GameState.surveyLog, appended in finding order).
+  const surveys: SurveyLogEntry[] = [];
   const gathered: Record<string, Decimal> = {};
   let creditsGained = 0;
   let touched = false;
@@ -2636,6 +2680,10 @@ export function depositExpeditionFindings(state: GameState, findings: readonly E
         touched = true;
       }
     }
+    if (f.survey) {
+      surveys.push({ ...f.survey });
+      touched = true;
+    }
   }
   if (!touched) return state;
 
@@ -2653,6 +2701,7 @@ export function depositExpeditionFindings(state: GameState, findings: readonly E
     credits,
     lifetimeStats,
     relicVault: vaultAdds.length > 0 ? [...(state.relicVault ?? []), ...vaultAdds] : state.relicVault,
+    ...(surveys.length > 0 ? { surveyLog: [...(state.surveyLog ?? []), ...surveys] } : {}),
   };
 }
 
@@ -2817,8 +2866,9 @@ function chartedPrefix(bodies: readonly ExpeditionBody[]): number {
 }
 
 // Is anything left to do in the system (a body to scan, an objective not done)? Pure.
-function systemUnfinished(bodies: readonly ExpeditionBody[]): boolean {
-  return bodies.some((b) => !b.scanned || b.activities.some((a) => !a.done));
+// Gas Giant Study GG-3: a held study body (heldBodies) whose study is not finished is unfinished too.
+function systemUnfinished(exp: Pick<Expedition, "study">, bodies: readonly ExpeditionBody[]): boolean {
+  return bodies.some((b) => !b.scanned || b.activities.some((a) => !a.done) || (isStudyBody(exp, b) && b.studied !== true));
 }
 
 // The held record a recall of `exp` (already advanced and recalled at `t`) leaves behind, or null. Pure: fresh data.
@@ -2838,18 +2888,24 @@ function heldFromRecall(exp: Expedition, t: number): HeldSystem | null {
   };
   const charted = chartedPrefix(exp.bodies);
   if (charted === 0) return { ...base, kind: "candidate" };
-  if (!exp.groundOps || !exp.risk || !systemUnfinished(exp.bodies)) return null;
-  return { ...base, kind: "resume", risk: { ...exp.risk }, bodies: heldBodies(exp.bodies) };
+  if (!exp.groundOps || !exp.risk) return null;
+  const bodies = heldBodies(exp);
+  if (!systemUnfinished(exp, bodies)) return null;
+  return { ...base, kind: "resume", risk: { ...exp.risk }, bodies };
 }
 
 // The bodies a resume record keeps (user G12 "Pick up where you left off"): charted bodies whole, with their
 // objectives back in the queue (nothing assigned, no streak, no alert: a new crew lands on them after a trip home and
 // back), progress, cleared fight points and banked segments kept; an unfinished body's scan starts over. Pure.
-function heldBodies(bodies: readonly ExpeditionBody[]): ExpeditionBody[] {
-  return bodies.map((b) => {
+// Gas Giant Study GG-3: a charted giant whose study finished on this trip is marked `studied` (the resumed run does not
+// study it again); one cut short by the recall is not, so the resumed run studies it from the start.
+function heldBodies(exp: Pick<Expedition, "bodies" | "groundOps" | "study">): ExpeditionBody[] {
+  const studiedNow = new Set((exp.groundOps?.studyLegs ?? []).filter((l) => l.done).map((l) => l.bodyIndex));
+  return exp.bodies.map((b, i) => {
     if (!b.scanned) return { ...b, scanProgress: 0, discoveries: [], activities: [] };
     return {
       ...b,
+      ...(isStudyBody(exp, b) && studiedNow.has(i) ? { studied: true as const } : {}),
       discoveries: b.discoveries.map((d) => ({ ...d })),
       activities: b.activities.map((a) => {
         const c = cloneActivity(a);

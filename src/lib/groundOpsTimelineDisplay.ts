@@ -587,6 +587,11 @@ export function shipNowText(exp: Expedition, ship: ShipInstance | null | undefin
       }
       return `Repaired, flying back · ${leftText(leg.endsAt, now)}`;
     }
+    case "study": {
+      // Gas Giant Study GG-3 (the engine's minimal line; GG-6 owns the study card and its timeline lane).
+      const body = exp.bodies[pos.leg.bodyIndex];
+      return `Holding orbit: studying ${body ? bodyTitle(exp, body, pos.leg.bodyIndex) : "the giant"} · ${leftText(pos.leg.endsAt, now)}`;
+    }
     case "holding":
       return "Holding station: every body scanned";
   }

@@ -12,7 +12,7 @@ import { describe, it, expect } from "vitest";
 import type { Expedition, ExpeditionFinding, GameState, RegionTier } from "./model";
 import { advanceExpedition, claimExpedition, makeExpeditionSeed } from "./expedition";
 import { hash, onHull, withCrew, SWEEP_END } from "./firstRunsGoldens.fixture";
-import { asExpeditionVeteran, asPreRelicBlanksRun, dispatchPastPropulsion } from "./awayTeamTestFixtures";
+import { asExpeditionVeteran, asPreRelicBlanksRun, asPreStudyDispatch, dispatchPastPropulsion } from "./awayTeamTestFixtures";
 import { cultureForBody } from "./relicBlanks";
 import { FIELD_KITS_CATALOG_VERSION } from "./fieldKits";
 
@@ -26,7 +26,9 @@ function crewed(seed: number): GameState {
 function finished(seed: number, tier: RegionTier): { state: GameState; done: Expedition } {
   // G2-4 (merged after this capture) gates an Eir off Tiers IV and VII (a Class I drive): the pre-G2-4 dispatch, which
   // writes the record a gated dispatch of a passing ship would (dispatchPastPropulsion).
-  const res = dispatchPastPropulsion(crewed(seed), "ship-1", 1, `cand-${tier}-0`);
+  // Gas Giant Study GG-2 (merged after this capture too): a gas giant of a study run has no ground objective, so the
+  // capture's runs are flown as dispatched before GG-2 (asPreStudyDispatch: no study stamp, the giant keeps its PoIs).
+  const res = asPreStudyDispatch(dispatchPastPropulsion(crewed(seed), "ship-1", 1, `cand-${tier}-0`));
   if (!res.success || !res.expedition) throw new Error(`dispatch refused: ${seed} ${tier} ${res.reason}`);
   return { state: res.next, done: advanceExpedition(res.expedition, res.next.gameTimeSeconds + SWEEP_END) };
 }
@@ -76,16 +78,36 @@ const R2_2_MOVED: Readonly<Record<string, { run: string; finds: readonly string[
   },
 };
 
+// MOVED AT THE GG-2 MERGE, named: Tier VII seed 11's third body is a gas giant whose risk grades held a hostile site
+// or a clearing objective before GG-2. GG-2 places no hostile site or clearing objective on an orbital body (every draw
+// kept), which asPreStudyDispatch cannot rebuild (the record stores the new grades), so the flat task index the later
+// bodies' rolls key off moved: the giant's own rows read as before, the fourth body's find came out augmented and the
+// fifth body's finds changed. Tier IV seed 11 and Tier VII seed 37 (also gas giant systems) read exactly as before
+// through asPreStudyDispatch.
+const GG_2_MOVED: Readonly<Record<string, { phase: string; run: string; finds: readonly string[] }>> = {
+  "7:11": {
+    phase: "complete",
+    run: "ece9bfad",
+    finds: [
+      "body-1-act-0 mineralOutcrop standard 0", "body-1-act-2 subterraneanCivilization standard 0", "body-1-act-3 subterraneanCivilization standard 0",
+      "body-1-act-4 derelictOutpost standard 0", "body-2-act-2 subterraneanCivilization standard 0", "body-1-act-1 crashedShip standard 0",
+      "body-3-act-1 caveNetwork standard 0", "body-3-act-6 crashedShip standard 0", "body-3-act-2 xenoFloraBloom standard 0",
+      "body-3-act-8 xenoFloraBloom standard 0", "body-3-act-4 xenoFloraBloom standard 0", "body-4-act-0 geothermalChamber augmented 1",
+      "body-5-act-1 subterraneanCivilization standard 0", "body-5-act-6 ancientRuins standard 0", "body-5-act-4 caveNetwork standard 0",
+    ],
+  },
+};
+
 describe("R2-2 golden 7: fresh dispatches' relic finds by tier", () => {
   for (const tier of TIERS) {
     for (const seed of SEEDS) {
       it(`Tier ${tier}, seed ${seed}`, () => {
         const { done } = finished(seed, tier);
-        const pin = { ...PRE_R2_2[`${tier}:${seed}`], ...R2_2_MOVED[`${tier}:${seed}`] };
+        const pin = { ...PRE_R2_2[`${tier}:${seed}`], ...R2_2_MOVED[`${tier}:${seed}`], ...GG_2_MOVED[`${tier}:${seed}`] };
         const pre = asPreFuseStamp(asPreRelicBlanksRun(done));
         // The chance is untouched at every tier: the same tokens at the same PoIs, in the same order.
         const site = (r: string) => r.split(" ").slice(0, 2).join(" ");
-        expect(relicRows(pre).map(site)).toEqual(PRE_R2_2[`${tier}:${seed}`].finds.map(site));
+        expect(relicRows(pre).map(site)).toEqual((GG_2_MOVED[`${tier}:${seed}`] ?? PRE_R2_2[`${tier}:${seed}`]).finds.map(site));
         expect({ phase: pre.phase, finds: relicRows(pre), run: hash(pre) }).toEqual({ phase: pin.phase, finds: pin.finds, run: pin.run });
         // Tier I is the pre-R2-2 run exactly.
         if (tier === 1) expect(R2_2_MOVED[`${tier}:${seed}`]).toBeUndefined();

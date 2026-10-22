@@ -148,7 +148,10 @@ function missionRun(key: MissionKey): { stepped: string; offline: string } {
 
 // ===== the goldens =====
 
-// Captured on 3306bda (feat/crew-0.14.0) before any EM-6 engine edit.
+// Captured on 3306bda (feat/crew-0.14.0) before any EM-6 engine edit. Re-pinned at the merge of feat bc25a23 for the
+// feat's own changes, never EM-6's: the six patrol and patrolInFlight pins (SF-4, the safe first patrol and the
+// patrol ramp) and groundOps:def0 (GG-2, orbital bodies). All 27 pins pass on bc25a23 WITHOUT the engine, so the
+// engine moves nothing (no module builds no engine).
 const PINS: Record<string, unknown> = {
   "battle:destroyer:plain": "73f89056",
   "battle:destroyer:precharge": "6525d0d7",
@@ -162,25 +165,25 @@ const PINS: Record<string, unknown> = {
   "battle:carrier:precharge": "365c28e2",
   "battle:carrier:playerAmbush": "6e5fba44",
   "battle:carrier:enemyAmbush": "410be37d",
-  "patrol:destroyer:crimsonReaverSweep": ["dc180833","681a7541","364882e9","962097ba","719a598d","e8da0c76"],
-  "patrolInFlight:destroyer:crimsonReaverSweep": "ca246024",
-  "patrol:destroyer:crimsonReaverWarband": ["8b7e0d66","e29160ba","2e142b5c"],
-  "patrolInFlight:destroyer:crimsonReaverWarband": "",
-  "patrol:battleship:crimsonReaverSweep": ["ce2baddb","95289fa1","f8d439eb","88d76f41","4656d61f","4e92ecf9"],
-  "patrolInFlight:battleship:crimsonReaverSweep": "3dd94c60",
-  "patrol:battleship:crimsonReaverWarband": ["e8b61ddc","b7b834c9","31763c9d"],
-  "patrolInFlight:battleship:crimsonReaverWarband": "e516d3cd",
-  "patrol:carrier:crimsonReaverSweep": ["a50bbf3d","8c9a3a1d","389e89cf","f97a90ba","f0c346cb","ffefc09d"],
-  "patrolInFlight:carrier:crimsonReaverSweep": "3ddec58",
-  "patrol:carrier:crimsonReaverWarband": ["9bfb817a","8f4be552","5e54dc23"],
-  "patrolInFlight:carrier:crimsonReaverWarband": "6dc8afaa",
+  "patrol:destroyer:crimsonReaverSweep": ["e88e7058","681a7541","3818d18c","5bd6529f","572c6fce","9c3552e"],
+  "patrolInFlight:destroyer:crimsonReaverSweep": "6b143eee",
+  "patrol:destroyer:crimsonReaverWarband": ["4e42cdb","47b5b6da","1ce04289","4ddc5dc6","3a8e704c","78e4f845"],
+  "patrolInFlight:destroyer:crimsonReaverWarband": "cf3b55b0",
+  "patrol:battleship:crimsonReaverSweep": ["f40de116","95289fa1","278d563a","2811f8d7","f281de36","d4960ad3"],
+  "patrolInFlight:battleship:crimsonReaverSweep": "67356c88",
+  "patrol:battleship:crimsonReaverWarband": ["6a3fa333","f722f03a","33859064","1cd723ac","25e7d286","8836c80e"],
+  "patrolInFlight:battleship:crimsonReaverWarband": "3b53a1b4",
+  "patrol:carrier:crimsonReaverSweep": ["5f8dd1ac","8c9a3a1d","409304c1","9f465a0","80456753","1053ecec"],
+  "patrolInFlight:carrier:crimsonReaverSweep": "8f053a59",
+  "patrol:carrier:crimsonReaverWarband": ["3bdc91f5","30ca13f2","2db8da84","864ea95e","b443eca0","a86d9bba"],
+  "patrolInFlight:carrier:crimsonReaverWarband": "dc7808fe",
   "groundOps:1234": ["cd15a363","f3d06723","60e19965"],
   "groundOpsEvents:1234": "supplyCache,debris:pass",
   "groundOps:5678": ["edabe07","e33c3497","689c6e8b"],
   "groundOpsEvents:5678": "debris:pass,supplyCache,supplyCache",
   "groundOps:9abc": ["a0085a30","64e97e30","c963310d"],
   "groundOpsEvents:9abc": "probe:win,ghost:pass,probe:win,storm:pass",
-  "groundOps:def0": ["f976921e","a5c96f59","938fe8a"],
+  "groundOps:def0": ["e50cd3a7","8b240a31","fab02d81"],
   "groundOpsEvents:def0": "debris:pass,cloaked:win,debris:pass,cloaked:win,storm:pass,supplyCache",
   "groundOps:2468": ["558e9737","c40215f8","e3f739ae"],
   "groundOpsEvents:2468": "probe:win,supplyCache",
@@ -199,6 +202,7 @@ function pinned(key: string, value: unknown): void {
     console.log(`EM6PIN ${JSON.stringify(key)}: ${JSON.stringify(value)},`);
     throw new Error(`no pin for ${key}`);
   }
+  if (JSON.stringify(value) !== JSON.stringify(PINS[key])) console.log(`EM6MOVE ${JSON.stringify(key)}: ${JSON.stringify(value)},`);
   expect(value).toEqual(PINS[key]);
 }
 

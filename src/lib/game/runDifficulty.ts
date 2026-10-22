@@ -23,13 +23,15 @@
 // curveBaseFactor), the affix roll and ambush chances x the odds ramp, one run behind (groundOps.ts, affixes.ts,
 // rampOddsFraction), the ship-event checks' fail chance, hull wear
 // and battle enemy on the curve (shipScanEvents.ts); at full strength every number is exactly the unstamped one apart
-// from the hazard ceiling. SF-4 the patrol; G1 the short-range missions (keyed per template).
+// from the hazard ceiling. SF-4 stamps the patrol (patrolDifficultyAt, the safe first patrol and the patrol curve, read
+// by combat/patrolProfile.ts in the live loop and the forecast alike); G1 the short-range missions (keyed per template).
 
 import {
   SHIP_TYPES,
   freshRunCounts,
   type Expedition,
   type GameState,
+  type PatrolDifficultyStamp,
   type RegionTier,
   type RunCounts,
   type RunDifficultyStamp,
@@ -157,6 +159,73 @@ export function rampedChance(chance: number, ramp: number): number {
 // exactly `pass` at full strength. Pure.
 export function rampedPassChance(pass: number, ramp: number): number {
   return ramp >= 1 ? pass : 1 - (1 - pass) * Math.max(0, ramp);
+}
+
+// ===== SF-4: the safe first patrol and the patrol curve =====
+//
+// User answers: ONE safe patrol in total (SF9), flown as "Fewest waves, lightest raider" (SF10: 2 waves of 1 Raider)
+// that cannot be lost (OC-1); after it the enemies "start weaker and grow to full over the first several patrols (same
+// gentle curve)" (SF11), the curve counting PATROL RUNS (user 2026-10-21 "One step per patrol run": each dispatched
+// patrol is one step however many routes a Repeat run flies; a run counts once it wins a route), the training run left
+// out (SF5). Patrols are Tier I
+// content (no region tier), so the curve applies (SF6). The Weak fade, the affix lag and the ambush lag of the SF-3
+// review are Ground Ops rules: a patrol battle has no ranks, affixes or ambushes, so the enemy scale below is the whole
+// patrol curve (the smoothed last steps come with rampFraction, one source).
+
+// The training cycle's wave count at most (user SF10 "2 waves of 1 Raider"): the first FIRST_PATROL_WAVES waves of the
+// cycle's own schedule (never more than the route's minWaves), so the schedule draws are unchanged.
+export const FIRST_PATROL_WAVES = 2;
+
+// The difficulty a patrol dispatched now flies: the save's one safe patrol (firstRun), else the curve at the patrol
+// runs counted so far, Tier I. ABSENT (undefined) at full strength (a veteran, or the curve at its top): the cycle is stored
+// and fought exactly as before SF-4. Pure.
+export function patrolDifficultyAt(state: GameState): PatrolDifficultyStamp | undefined {
+  const stamp = runDifficultyAt(state, "patrol", RAMP_MAX_TIER);
+  if (!stamp.firstRun && stamp.ramp >= 1) return undefined;
+  return { ...stamp, completed: stamp.firstRun ? 0 : completedRuns(state, "patrol") };
+}
+
+// The next cycle's difficulty at a Dispatch Repeatedly relaunch, from THIS cycle's stamp alone (so a relaunch is a
+// pure function of the stored mission: one big call == many small ones, and a second captain's runs never reach it
+// mid-run). User 2026-10-21 "One step per patrol run": a run keeps ONE curve position for every route it repeats, so a
+// ramped cycle hands over its own stamp unchanged; the training cycle hands over the curve's floor (the training run
+// does not count, SF5, so its later routes fly where the next patrol will start). Absent in = absent out (full strength
+// stays full; an in-flight patrol from before SF-4 relaunches as it did). Pure.
+export function nextPatrolCycleDifficulty(stamp: PatrolDifficultyStamp | undefined): PatrolDifficultyStamp | undefined {
+  const s = patrolStampOf({ difficulty: stamp });
+  if (s === null) return undefined;
+  if (!s.firstRun) return s;
+  const ramp = runRamp(s.completed, RAMP_MAX_TIER);
+  return ramp >= 1 ? undefined : { version: 1, firstRun: false, ramp, tier: RAMP_MAX_TIER, completed: s.completed };
+}
+
+// A patrol cycle's stamp read strictly (a missing or malformed stamp reads null: full strength, the cycle plays as it
+// did before SF-4). The ramp is clamped to [0, 1]. Pure.
+export function patrolStampOf(mission: { difficulty?: PatrolDifficultyStamp }): PatrolDifficultyStamp | null {
+  const d: unknown = mission.difficulty;
+  if (!d || typeof d !== "object") return null;
+  const s = d as Partial<PatrolDifficultyStamp>;
+  if (s.version !== 1 || typeof s.firstRun !== "boolean" || typeof s.ramp !== "number" || !Number.isFinite(s.ramp)) return null;
+  return {
+    version: 1,
+    firstRun: s.firstRun,
+    ramp: Math.max(0, Math.min(1, s.ramp)),
+    tier: RAMP_MAX_TIER,
+    completed: typeof s.completed === "number" ? wholeCount(s.completed) : 0,
+  };
+}
+
+// Whether a patrol cycle is the save's safe training cycle. Pure.
+export function isTrainingPatrol(mission: { difficulty?: PatrolDifficultyStamp }): boolean {
+  return patrolStampOf(mission)?.firstRun === true;
+}
+
+// The enemy strength a patrol cycle fights at (a multiplier on each enemy's hull, shields, weapon yields and drones):
+// the curve's rampEnemyScale on a ramped cycle, nominal (1) on the training cycle (its lesson is the shape: the
+// lightest hull, one per wave, two waves) and on a cycle without a stamp. Pure.
+export function patrolEnemyScale(mission: { difficulty?: PatrolDifficultyStamp }): number {
+  const s = patrolStampOf(mission);
+  return s === null || s.firstRun ? 1 : rampEnemyScale(s.ramp);
 }
 
 // ===== the counters =====
@@ -306,9 +375,10 @@ export function countShortRangeCycleComplete(counts: RunCounts, template: string
   return { ...counts, shortRange: { ...counts.shortRange, [template]: { ...prev, completed: prev.completed + 1 } } };
 }
 
-// Won patrol routes (economyTick, beside lifetimeStats.missionsCompleted). SF-4 leaves the training cycle's route out.
-// Zero or junk routes return the SAME counts. Pure.
-export function countPatrolRoutes(counts: RunCounts, routes: number): RunCounts {
-  const n = wholeCount(routes);
+// Patrol runs on the curve (economyTick, from tickCaptainPatrol's curveRunsCompleted: a run counts ONCE, when it wins
+// its first route, user 2026-10-21 "One step per patrol run"; the training run is left out, SF5). Zero or junk counts
+// return the SAME counts. Pure.
+export function countPatrolRuns(counts: RunCounts, runs: number): RunCounts {
+  const n = wholeCount(runs);
   return n === 0 ? counts : { ...counts, patrol: { ...counts.patrol, completed: counts.patrol.completed + n } };
 }

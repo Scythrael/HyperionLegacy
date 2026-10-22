@@ -47,6 +47,7 @@ import {
 } from "./tick";
 import { PATROLS } from "./model";
 import { defaultDroneRolesForHull, defaultSystemDurabilityForHull } from "./combat/bridge";
+import { asPrePatrolCurveDispatch } from "./awayTeamTestFixtures";
 
 const PATROL_KEY = "crimsonReaverSweep";
 const DEF = PATROLS[PATROL_KEY];
@@ -72,7 +73,7 @@ function patrolState(typeKey: ShipTypeKey, seed: number): GameState {
 }
 
 function dispatch(state: GameState, repeat: boolean): GameState {
-  const r = dispatchCaptainOnPatrol(state, 1, PATROL_KEY, "balanced", repeat);
+  const r = asPrePatrolCurveDispatch(dispatchCaptainOnPatrol(state, 1, PATROL_KEY, "balanced", repeat));
   expect(r.success).toBe(true);
   return r.next;
 }
@@ -99,7 +100,7 @@ const ATTRITION_ROUTE_LEN =
   ATTRITION_DEF.transitOutTicks + ATTRITION_DEF.rollWindowTicks + ATTRITION_DEF.transitBackTicks;
 
 function dispatchAttrition(): GameState {
-  const r = dispatchCaptainOnPatrol(patrolState("destroyer", ATTRITION_SEED), 1, ATTRITION_PATROL, "balanced", false);
+  const r = asPrePatrolCurveDispatch(dispatchCaptainOnPatrol(patrolState("destroyer", ATTRITION_SEED), 1, ATTRITION_PATROL, "balanced", false));
   expect(r.success).toBe(true);
   return r.next;
 }
@@ -203,8 +204,8 @@ describe("closed-form parity: one big call == many small calls (THE GATE)", () =
 
     function runPair(seedBase: number, hullA: ShipTypeKey, hullB: ShipTypeKey) {
       let state = twoPatrolCaptains(seedBase, hullA, hullB);
-      state = dispatchCaptainOnPatrol(state, 1, PATROL_KEY, "balanced", true).next;
-      state = dispatchCaptainOnPatrol(state, 2, PATROL_KEY, "balanced", true).next;
+      state = asPrePatrolCurveDispatch(dispatchCaptainOnPatrol(state, 1, PATROL_KEY, "balanced", true)).next;
+      state = asPrePatrolCurveDispatch(dispatchCaptainOnPatrol(state, 2, PATROL_KEY, "balanced", true)).next;
       // 0.13.6 fuel-to-reach: fuel no longer depletes, so the old "fuel dropped => relaunch fired"
       // non-vacuity proxy is gone. Snapshot the just-dispatched captains instead; after 60 ticks of
       // interleaving relaunches the captains' mission state must have moved (proves the run was not vacuous).
@@ -490,7 +491,7 @@ describe("anti-regression: extraction is unperturbed by a patrol captain", () =>
 
   it("captain 2's extraction outcome is identical whether or not captain 1 flies a patrol", () => {
     // WITH a patrol captain 1 (fights waves over these 10 ticks) + extraction captain 2.
-    const s1 = dispatchCaptainOnPatrol(twoCaptainBase(), 1, PATROL_KEY, "balanced", false).next;
+    const s1 = asPrePatrolCurveDispatch(dispatchCaptainOnPatrol(twoCaptainBase(), 1, PATROL_KEY, "balanced", false)).next;
     const s2 = dispatchCaptainOnMission(s1, 2, "shortOreRun").next;
     const withPatrol = economyTick(s2, 10, RNG);
 

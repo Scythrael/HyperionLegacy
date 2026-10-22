@@ -40,6 +40,7 @@ import {
   foldedPlayerDefense,
   defaultSystemDurabilityForHull,
 } from "./combat/bridge";
+import { asPrePatrolCurveDispatch } from "./awayTeamTestFixtures";
 
 const PATROL_KEY = "crimsonReaverSweep";
 // A constant rng so any incidental economyTick draw is identical across runs (a patrol-only
@@ -79,7 +80,7 @@ function patrolMissionOf(state: GameState): PatrolMissionState {
 }
 
 function dispatch(state: GameState): GameState {
-  const r = dispatchCaptainOnPatrol(state, 1, PATROL_KEY, "balanced", false);
+  const r = asPrePatrolCurveDispatch(dispatchCaptainOnPatrol(state, 1, PATROL_KEY, "balanced", false));
   expect(r.success).toBe(true);
   return r.next;
 }

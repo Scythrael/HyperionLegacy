@@ -33,7 +33,8 @@ import {
 import { relicTierCeiling, rollRelicToken, taskRelicSeed } from "./gambit";
 import { taskFullHaul } from "./groundTasks";
 import { makeExpeditionSeed, startExpedition } from "./expedition";
-import { economyTick, identifyStudiedRelic, startRelicStudy, tick } from "./tick";
+import { economyTick, identifyStudiedRelic, tick } from "./tick";
+import { startV1RelicStudy } from "./relicStudyV1.fixture";
 import { canGrant, grant } from "./processSpeed";
 import { deserialize, migrate, serialize, type SaveFile } from "./save";
 import { makeRng } from "./combat/rng";
@@ -330,11 +331,12 @@ describe("R2-2: a blank with no set identifies over the general pool", () => {
     expect(RELIC_TYPES.length).toBe(17);
   });
 
-  it("a setless blank's study identifies through it, deposits a copy and its first find (offline == live)", () => {
+  // R2-3: a v1 study (one in flight at the update); a NEW study identifies through identification v2 (relicIdentify.ts).
+  it("a setless blank's v1 study identifies through it, deposits a copy and its first find (offline == live)", () => {
     const token: RelicVaultToken = { id: "sr-1-relic-0", tier: "standard", quality: 0, regionTier: 1, cultureId: "culture-t1-2", source: "shortRange" };
     const s0: GameState = withRelicBlanks(freshState(), [token]);
     expect(s0.relicVault.map((t) => t.id)).toEqual(["sr-1-relic-0"]);
-    const started = startRelicStudy(s0, token.id);
+    const started = startV1RelicStudy(s0, token.id);
     expect(started.started).toBe(true);
     const proc = started.next.activeProcesses.find((p) => p.kind === "relicStudy")!;
     const effect = proc.effect as { type: "identifyRelic"; token: RelicVaultToken; studyIndex: number };

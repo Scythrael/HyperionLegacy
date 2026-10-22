@@ -814,7 +814,7 @@ export function applyModuleCombat(c: Combatant, gear: readonly EquipmentInstance
 	const conditionals = moduleConditionals(gear, scaleOf, context);
 	if (conditionals.length > 0) c.moduleConditionals = conditionals;
 	// E-MOD EM-6: the Procs and Actives, fired by resolveBattle from their trigger points. The installed gear is the
-	// frozen source: a module cannot move while its ship is out (equipment.ts moduleLockedOut, user S2), a patrol
+	// frozen source: a module cannot move while its ship is out (equipment.ts shipGearLock, user S2), a patrol
 	// cycle's waves and its display replay fold the same pieces, and an expedition's ship event folds the dispatch
 	// snapshot's pieces (shipScanEvents.ts snapshotShipEventProfile).
 	const procs = moduleCombatProcs(gear, scaleOf, context);

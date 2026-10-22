@@ -57,6 +57,9 @@ export interface SystemTaskPreview {
   enemyTerritory: boolean;
   bodies: BodyRiskGrades[];
   tasks: PreviewTask[]; // body order, then discovery order
+  // Gas Giant Study GG-2: the ORBITAL bodies the ship studies (body indices, ascending): no ground objective and no
+  // squad need there. Written only when the system holds one, so every other preview keeps its exact shape.
+  studies?: number[];
 }
 
 // The preview as THIS HULL can meet it (SQ-6 review Minor 1): a hostile site no valid composition of the hull can
@@ -105,6 +108,9 @@ export interface TaskDemand {
   twoScienceTasks: number; // tasks needing 2 or more Science squads
   maxSecurity: number;
   maxScience: number;
+  // Gas Giant Study GG-2: the ship studies the system holds (one per orbital body; no squad needed). Written only when
+  // there is one.
+  shipStudies?: number;
 }
 
 export function taskDemand(preview: SystemTaskPreview): TaskDemand {
@@ -125,6 +131,7 @@ export function taskDemand(preview: SystemTaskPreview): TaskDemand {
     twoScienceTasks: preview.tasks.filter((t) => t.needs.science >= 2).length,
     maxSecurity,
     maxScience,
+    ...(preview.studies && preview.studies.length > 0 ? { shipStudies: preview.studies.length } : {}),
   };
 }
 
@@ -141,6 +148,8 @@ export function taskDemandText(d: TaskDemand): string {
     `${plural(n, "objective needs", "objectives need")} 2${max > 2 ? " or more" : ""} ${type} squads`;
   if (d.twoSecurityTasks > 0) parts.push(heavy(d.twoSecurityTasks, d.maxSecurity, "Security"));
   if (d.twoScienceTasks > 0) parts.push(heavy(d.twoScienceTasks, d.maxScience, "Science"));
+  // Gas Giant Study GG-2 (mockup v3 "Studies need no squad").
+  if (d.shipStudies !== undefined && d.shipStudies > 0) parts.push(`${plural(d.shipStudies, "ship study", "ship studies")}, no squad needed`);
   return parts.join("; ");
 }
 
@@ -471,6 +480,9 @@ export interface LaunchForecast {
   hardest: ForecastHardestTask | null; // the hardest task with a fight, or null when no task has one
   threat: ThreatAssessment | null; // the odds band of the crew the plan would send on it
   note: string | null; // why there is no threat read ("No ground team is ready to launch")
+  // Gas Giant Study GG-2: the ship studies the run would make (one per orbital body; never a squad's work, never
+  // unfinished). Written only when there is one.
+  studies?: number;
 }
 
 // "7 objectives: 3 Simple, 2 Standard, 2 Challenging" (zero grades left out). Pure.

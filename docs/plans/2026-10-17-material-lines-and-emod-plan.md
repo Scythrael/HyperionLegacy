@@ -544,7 +544,7 @@ in the step loop; private salted streams; Actives auto-cast by their preset rule
 mission-cycle procs keyed on the run's cycle counter; expedition procs frozen in the dispatch snapshot. Tests: replay
 parity with modules; a module-free fleet byte-identical; every trigger fires at its point; cooldown and once-per-battle.
 
-*Carry note (EM-6 built 2026-10-21, on feat 3306bda).* Goldens first: `emodEm6Goldens.test.ts` (own commit) pins
+*Carry note (EM-6 built 2026-10-21 on feat 3306bda, merged with feat bc25a23).* Goldens first: `emodEm6Goldens.test.ts` (own commit) pins
 resolveBattle for every combat hull and every open (plain, precharged, the player ambushing, the player ambushed),
 logged and offline; a patrol per combat hull on both routes with the replay and an in-flight save/load continuation;
 six Orion Ground Ops runs (probe battles, cloaked ambushes) through claim; three extraction runs stepped and as one
@@ -564,7 +564,7 @@ fires when its rule holds, its effect would act (an arc needs a living target: t
 target; a restore needs missing shields) and its chance lands; a failed chance spends nothing. Each carrier rolls on
 its own stream; a certain chance takes no draw. New log event `moduleProc` (flavor `moduleArc` / `moduleShield`,
 `{module}` placeholder, Simplified line, an arc pop) carries the pools, so the replay fold stays true. Frozen: patrol
-waves and the replay fold the installed pieces (modules are crew-locked while out, S2); ship events fold the dispatch
+waves and the replay fold the installed pieces (all ship gear is locked while out, S2 shipGearLock); ship events fold the dispatch
 snapshot; `Expedition.moduleScanProcs` is written at dispatch; the mission cycle reads `bonuses.moduleCycle`
 (`missionCycleModulesFor`, a call-constant) on delivered non-transport extraction cycles, keyed on the new optional
 lifetime counter `CaptainState.moduleCycles` (the Motherlode rule; no save step). Tests: `shipModuleProcs.test.ts`
