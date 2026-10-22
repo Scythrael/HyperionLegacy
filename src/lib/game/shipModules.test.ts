@@ -92,8 +92,11 @@ describe("the catalog", () => {
     expect(validateUniversalModuleDef(TEST_CAPACITOR)).toEqual([]);
     expect(validateUniversalModuleDef(TEST_BRACING)).toEqual([]);
     expect(validateUniversalModuleDef(TEST_LAST_STAND)).toEqual([]);
-    const proc: UniversalModuleDef = { ...TEST_CAPACITOR, id: "p", category: "proc", trigger: { kind: "onHit" }, chance: 0.15 };
-    expect(validateUniversalModuleDef(proc).join()).toMatch(/no engine reads the proc/);
+    // EM-6 built the proc engine, so a proc now fails only on a key it does not read; the Set has no engine until EM-7.
+    const proc: UniversalModuleDef = { ...TEST_CAPACITOR, id: "p", category: "proc", contexts: ["patrol"], trigger: { kind: "onHit" }, chance: 0.15 };
+    expect(validateUniversalModuleDef(proc).join()).toMatch(/the proc engine does not read powerOutput/);
+    const set: UniversalModuleDef = { ...TEST_BRACING, id: "s", category: "set", setId: "testSet" };
+    expect(validateUniversalModuleDef(set).join()).toMatch(/no engine reads the set/);
     expect(validateUniversalModuleDef({ ...TEST_CAPACITOR, id: "w", effect: { key: "weaponDamage", magnitude: 0.1 } }).join()).toMatch(/does not read weaponDamage/);
     expect(validateUniversalModuleDef({ ...TEST_LAST_STAND, id: "c", condition: undefined }).join()).toMatch(/needs a condition/);
     expect(validateUniversalModuleDef({ ...TEST_LAST_STAND, id: "c", contexts: ["mission"] }).join()).toMatch(/combat only/);

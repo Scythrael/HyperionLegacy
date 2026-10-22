@@ -40,7 +40,7 @@ import { SI_PLATING_HP, REF_SHIELD_CAPACITY, REF_SHIELD_RECHARGE } from "../mode
 // runtime), the same direction the three constants above already travel.
 import { SHIP_TYPES, moduleEffectScale } from "../model";
 // E-MOD EM-5: the universal module catalog readers (a leaf: types only, no cycle).
-import { moduleConditionals, modulePassiveTotal, type ModuleCombatContext } from "../shipModules";
+import { moduleCombatProcs, moduleConditionals, modulePassiveTotal, type ModuleCombatContext } from "../shipModules";
 import type { Combatant, CombatTeam, CombatWeapon, FamilyResist } from "./types";
 import type { CombatStance } from "./positioning";
 import { makeWeaponInstance, WEAPON_DEFS, type WeaponId } from "./weapons";
@@ -800,7 +800,8 @@ export function applyOfficerCombat(c: Combatant, mods: OfficerCombatMods | undef
 //   Passive hullIntegrity : the hull pool scaled by (1 + the summed lift), ROUNDED (integer at the fold), full at start.
 //   Conditional           : the below-threshold damage lifts, read live by resolveBattle (Combatant.moduleConditionals).
 // Each magnitude is its catalog def's scaled by moduleEffectScale (rarity, quality). No module (every ship today, every
-// enemy, `gear` absent) leaves the combatant byte-identical: nothing is written. Procs and Actives are EM-6.
+// enemy, `gear` absent) leaves the combatant byte-identical: nothing is written. EM-6 adds the Procs and Actives
+// (Combatant.moduleProcs, fired by resolveBattle).
 // Only the modules that list `context` act (a patrol-only module never acts in a ship event).
 export function applyModuleCombat(c: Combatant, gear: readonly EquipmentInstance[] | undefined, context: ModuleCombatContext): void {
 	if (gear === undefined || !gear.some((p) => p.slotType === "module")) return;
@@ -812,6 +813,12 @@ export function applyModuleCombat(c: Combatant, gear: readonly EquipmentInstance
 	}
 	const conditionals = moduleConditionals(gear, scaleOf, context);
 	if (conditionals.length > 0) c.moduleConditionals = conditionals;
+	// E-MOD EM-6: the Procs and Actives, fired by resolveBattle from their trigger points. The installed gear is the
+	// frozen source: a module cannot move while its ship is out (equipment.ts shipGearLock, user S2), a patrol
+	// cycle's waves and its display replay fold the same pieces, and an expedition's ship event folds the dispatch
+	// snapshot's pieces (shipScanEvents.ts snapshotShipEventProfile).
+	const procs = moduleCombatProcs(gear, scaleOf, context);
+	if (procs.length > 0) c.moduleProcs = procs;
 }
 
 // ---------------------------------------------------------------------------

@@ -26,7 +26,7 @@ import { constitutionRamp, RAMP_SECONDS_PER_TICK } from "./constitutionRamp";
 import { reactorCoreFuel } from "./reactorTech";
 // E-MOD EM-5 (0.14.0): the universal module catalog leaf (imports only types; no cycle), read by equipmentStatMods for
 // a Passive module's power output.
-import { modulePowerOutput } from "./shipModules";
+import { modulePowerOutput, type ModuleScanProc } from "./shipModules";
 // Combat 0.13.0 (Phase 9b.5a): the persisted Patrol mission shape (PatrolMissionState,
 // below) carries a player-chosen combat STANCE and the carry-state DRONE squadrons.
 // Both types live in the combat/ layer. Imported TYPE-ONLY (erased at compile time)
@@ -4585,6 +4585,10 @@ export interface CaptainState {
   // (a ship with a rig line). It keys each delivery's private rounding roll (materialQuality.ts materialQualitySeed),
   // the Motherlode rule. OPTIONAL, written only once a delivery has rolled (absent = 0, no SAVE_VERSION bump).
   materialQualityCycles?: number;
+  // E-MOD EM-6 (the mission-cycle trigger): this captain's LIFETIME count of delivered cycles its ship's mission-cycle
+  // modules rolled for. It keys each cycle's private module stream (shipModules.ts moduleCycleSeed), the Motherlode
+  // rule. OPTIONAL, written only once a cycle has rolled (absent = 0, no SAVE_VERSION bump).
+  moduleCycles?: number;
 }
 
 // WR-5a / WR-5b / WR-5c (0.14.0, OC-A2 "own ship"): the captain who commands `ship` (ship.assignedCaptainId), or
@@ -8095,6 +8099,11 @@ export interface Expedition {
   // WR-5c: the commanding captain's explorer secondary nodes, frozen at dispatch (ExplorerCaptainRun). Absent when
   // the captain owns none of them. Optional, no SAVE bump (the tree is branch-only; no production save owns a node).
   explorerCaptain?: ExplorerCaptainRun;
+  // E-MOD EM-6 (the body-scanned trigger): the ship's installed body-scan modules (shipModules.ts moduleScanProcs),
+  // frozen at dispatch like every run input, so a module installed or removed later never changes an in-flight run.
+  // Read by expedition.ts assignDiscoveriesAndActivities when a body completes. Written only when the ship carries one;
+  // absent (every run today, every run in flight) scans exactly as before. Optional, no SAVE bump.
+  moduleScanProcs?: ModuleScanProc[];
   // Expedition Tiers G2-2: WHERE the run went, frozen at dispatch from the chosen candidate (ExpeditionRegionStamp),
   // so a run never re-reads the homeworld. Its PRESENCE marks a run named from the star catalog (bodies lettered
   // b, c, d; groundTaskQueueDisplay.ts bodyDesignation). Absent on every run dispatched before G2-2 (banked name,

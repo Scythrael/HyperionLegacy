@@ -544,6 +544,41 @@ in the step loop; private salted streams; Actives auto-cast by their preset rule
 mission-cycle procs keyed on the run's cycle counter; expedition procs frozen in the dispatch snapshot. Tests: replay
 parity with modules; a module-free fleet byte-identical; every trigger fires at its point; cooldown and once-per-battle.
 
+*Carry note (EM-6 built 2026-10-21 on feat 3306bda, merged with feat bc25a23).* Goldens first: `emodEm6Goldens.test.ts` (own commit) pins
+resolveBattle for every combat hull and every open (plain, precharged, the player ambushing, the player ambushed),
+logged and offline; a patrol per combat hull on both routes with the replay and an in-flight save/load continuation;
+six Orion Ground Ops runs (probe battles, cloaked ambushes) through claim; three extraction runs stepped and as one
+offline `tick()`. None moved (no module = no engine: `makeModuleEngine` returns null, `moduleCycle` / `moduleScanProcs`
+are absent). Built in the leaf `shipModules.ts`: the trigger rules (`MODULE_TRIGGER_CONTEXTS` checked per listed
+context: only a ship event can ambush; `MODULE_TRIGGER_EFFECTS`), the engine keys `arcDamage` / `shieldRestore`
+(combat), `bonusHaul` (mission cycle), `extraDiscovery` (body scanned) for Proc, Special and (combat only) Active, the
+frozen shapes (`moduleCombatProcs`, `moduleCycleProcs`, `moduleScanProcs`, integer at the fold, module id order) and
+three salts registered in salts.test.ts (`MODULE_PROC_SALT` per battle and turn index, `MODULE_CYCLE_SALT` per captain
+lifetime cycle with the save seed mixed in, `MODULE_SCAN_SALT` per body). The validator now refuses: an Active with a
+chance or without once-per-battle / a cooldown (M3), a hull threshold without a rule, a cooldown outside combat, a
+context its trigger never reaches, a non-whole arc, a fraction out of (0, 1], and two modules on one triggered key
+(D23). Combat (`resolveBattle.ts`): battle start (before an ambush), incoming ambush (the ambushed party, before the
+salvo), after ambush (after a salvo fired), on hit (a connecting weapon shot or drone volley on the carrier, the
+ambush salvo included), then per combat tick and below a hull threshold once per tick after status effects. A proc
+fires when its rule holds, its effect would act (an arc needs a living target: the attacker, else the current
+target; a restore needs missing shields) and its chance lands; a failed chance spends nothing. Each carrier rolls on
+its own stream; a certain chance takes no draw. New log event `moduleProc` (flavor `moduleArc` / `moduleShield`,
+`{module}` placeholder, Simplified line, an arc pop) carries the pools, so the replay fold stays true. Frozen: patrol
+waves and the replay fold the installed pieces (all ship gear is locked while out, S2 shipGearLock); ship events fold the dispatch
+snapshot; `Expedition.moduleScanProcs` is written at dispatch; the mission cycle reads `bonuses.moduleCycle`
+(`missionCycleModulesFor`, a call-constant) on delivered non-transport extraction cycles, keyed on the new optional
+lifetime counter `CaptainState.moduleCycles` (the Motherlode rule; no save step). Tests: `shipModuleProcs.test.ts`
+(one fixture module per trigger in shipModulesTest.fixture.ts). Registry: nothing added or moved (no catalog entry
+exists; EM-7 registers each module with its probe). **[PROVISIONAL]** `MODULE_ARC_FAMILY` (EW) and `MODULE_SCALE_ON`
+(the Lens' rarity and quality lift its chance, since one discovery is a whole count). **Readings for the user:** "on
+hit" is a hit TAKEN (the roster's Arc Discharger); the mission cycle is an extraction cycle (short-range board runs and
+transport runs do not fire it); a bonus haul lands after Motherlode and before Command Presence. **For EM-7:** add
+each def to `UNIVERSAL_MODULES` and the slot varieties; the roster's four triggered rows fit the engine as approved
+(Arc Discharger: proc onHit arcDamage; Prospector's Echo: proc missionCycle bonusHaul; Shield Surge: active hullBelow
+0.5 oncePerBattle shieldRestore 0.3); the Set engine is still yours. **For EM-8:** the Precursor Lens is a `special`
+bodyScanned `extraDiscovery` 1 (contexts `["expedition"]`). **For EM-10:** the one-line Active rule text reads the
+def's trigger and rule.
+
 **EM-7 v1 roster and blueprints (content).** The roster the user approves (call M6), blueprints on Lab tiers 2 to 4
 [PROPOSAL] (OC-15 tiers), recipes per call M7, two-piece set bonus. Tests: each module mints and acts in its context;
 a no-dead-stats entry per module (OC-K3); Archive rows.
