@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { COMBO_SEQUENCE, COMBO_LENGTH, comboKeyForCode, advanceCombo, type ComboKey } from "./combo";
+import { COMBO_SEQUENCE, COMBO_LENGTH, comboKeyForCode, comboActionForKey, advanceCombo, type ComboKey } from "./combo";
 
 describe("comboKeyForCode", () => {
   it("maps the twelve-press keys by event.code", () => {
@@ -51,5 +51,16 @@ describe("advanceCombo", () => {
     expect(pos).toBe(0);
     for (const k of COMBO_SEQUENCE) pos = advanceCombo(pos, k);
     expect(pos).toBe(12);
+  });
+});
+
+describe("comboActionForKey", () => {
+  it("lets keyboard users move focus and press pad buttons without clearing", () => {
+    expect(comboActionForKey("Tab", false, false)).toBe("ignore");
+    expect(comboActionForKey("Space", false, true)).toBe("ignore");
+    expect(comboActionForKey("Space", false, false)).toBe("other");
+    expect(comboActionForKey("Enter", false, true)).toBe("start");
+    expect(comboActionForKey("NumpadEnter", false, true)).toBe("other");
+    expect(comboActionForKey("ArrowUp", true, false)).toBe("ignore");
   });
 });

@@ -40,3 +40,13 @@ export function advanceCombo(pos: number, key: ComboKey): number {
   if (pos >= 0 && pos < COMBO_LENGTH && COMBO_SEQUENCE[pos] === key) return pos + 1;
   return key === COMBO_SEQUENCE[0] ? 1 : 0;
 }
+
+// What a key press does while the combo area is open, given where focus is. Keyboard and screen
+// reader friendliness on top of the raw mapping: Tab and Shift+Tab move focus without clearing,
+// and Space on a focused pad button presses that button (its click does the work) rather than
+// counting as a stray key.
+export function comboActionForKey(code: string, repeat: boolean, targetIsButton: boolean): ComboKey | "ignore" | "other" {
+  if (code === "Tab") return "ignore";
+  if (code === "Space" && targetIsButton) return "ignore";
+  return comboKeyForCode(code, repeat);
+}

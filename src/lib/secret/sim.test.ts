@@ -1,8 +1,7 @@
+import { report } from "./testReport";
 import { describe, it, expect } from "vitest";
 import { simulatePlayer, bestExponentAt, type SimResult } from "./sim";
 
-// console.log is swallowed by this repo's vitest setup; stdout is not.
-const report = (line: string) => process.stdout.write(`${line}\n`);
 const H = 3600;
 const D = 24 * H;
 const fmt = (t: number | undefined) => (t === undefined ? "never" : t < 2 * D ? `${(t / H).toFixed(2)} h` : `${(t / D).toFixed(2)} d`);

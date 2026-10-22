@@ -1,3 +1,4 @@
+import { report } from "./testReport";
 import { describe, it, expect, beforeAll } from "vitest";
 import Decimal from "break_infinity.js";
 import { advanceTo, createCatchUp, EXACT_BOUND_SECONDS, MAX_CATCHUP_STEPS } from "./catchUp";
@@ -6,8 +7,6 @@ import { effectiveExponent } from "./engine";
 import { earlyManualState, midAutoState, postPrestigeceptionState, pastFinaleState, live } from "./testStates";
 
 const H = 3600;
-// console.log is swallowed by this repo's vitest setup; stdout is not, so measurements still show.
-const report = (line: string) => process.stdout.write(`${line}\n`);
 
 let states: Record<string, SecretState>;
 beforeAll(() => {
