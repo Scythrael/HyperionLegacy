@@ -195,3 +195,8 @@ shaded surplus; over-budget flag on this screen; one-line Active rule text).
   1,800 / 18), each rung +1 research or craft slot and its tier's blueprints.
 - ML-3 climb curve: "Approve (Recommended)": MATERIAL_QUALITY_CURVE (about 8.5% at 10 points, 15% at 20, 21% at 30).
 - ML-3 roll count: "Per item type (Recommended)": one rounding draw per delivered item type, as built.
+
+## EM-6 calls (2026-10-22)
+
+- Module "each mission cycle" trigger: "Extraction runs only (Recommended)" (Prospector's Echo is about material hauls).
+- Module arc damage family: "Electromagnetic (Recommended)": MODULE_ARC_FAMILY EW confirmed.
