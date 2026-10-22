@@ -15,7 +15,7 @@
 // left untouched (never rewrite patch-note history), so this deliberately reads
 // as "0.2.0 newer than 0.9.0" once, only here.
 
-export const APP_VERSION = "0.13.10";
+export const APP_VERSION = "0.13.11";
 
 // ---------------------------------------------------------------------------
 // SHAPE. 0.13.5 introduced a STRUCTURED entry (marquee features + category
@@ -63,6 +63,13 @@ export function isStructuredNote(n: PatchNote): n is PatchNoteStructured {
 }
 
 export const PATCH_NOTES: PatchNote[] = [
+  {
+    // 0.13.11 wording is the design default (user 2026-10-22: the note mentions ONLY the new Codes
+    // section, nothing else). Final text awaits the user's approval before it ships.
+    version: "0.13.11",
+    lede: "Settings has a new Codes section for gifts and giveaways. Keep an eye out for codes in future events.",
+    save: "Your save carries over untouched.",
+  },
   {
     version: "0.13.10",
     lede: "A quick fix: your fleet now keeps working at full pace while the game sits in a background tab or your device sleeps.",

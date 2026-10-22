@@ -8,6 +8,7 @@
   // Extracted from the 0.13.2 install-flow modal (ShipSystemsPanel's .ss-modal-backdrop / .ss-picker),
   // which is the reference implementation. The Options gear popup is DELIBERATELY not migrated here.
   import { focusTrap } from "./focusTrap";
+  import Icon from "./ui/Icon.svelte";
 
   export let title: string;
   export let onClose: () => void;
@@ -16,6 +17,9 @@
   // A WIDE card on desktop (920px instead of 540px) for a two-column body (G1-6: the Short-Range dispatch popup's
   // picker beside its sheet, as the signed-off mockup draws it). Mobile is the same bottom sheet either way.
   export let wide: boolean = false;
+  // 0.13.11 opt-in: a 36px close button drawn with the SVG close glyph (the Enter Code window).
+  // Off by default, so every existing modal keeps its current close button.
+  export let iconClose: boolean = false;
 
   // Portal to <body> so the modal escapes any transformed / overflow-clipped ancestor (the same
   // reason the install flow portals). Safe on destroy whether or not Svelte already detached it.
@@ -33,7 +37,11 @@
   <div class="am-dialog" class:am-wide={wide} role="dialog" aria-modal="true" aria-label={ariaLabel} use:focusTrap={onClose}>
     <div class="am-head">
       <span class="am-title">{title}</span>
-      <button class="am-close" on:click={onClose} aria-label="Close">&times;</button>
+      {#if iconClose}
+        <button class="am-close am-close-icon" on:click={onClose} aria-label="Close"><Icon name="close" size={18} /></button>
+      {:else}
+        <button class="am-close" on:click={onClose} aria-label="Close">&times;</button>
+      {/if}
     </div>
     <div class="am-body">
       <slot />
@@ -107,6 +115,10 @@
     color: var(--color-text-secondary);
     border-radius: var(--corner);
     flex: 0 0 auto;
+  }
+  .am-close-icon {
+    width: 36px;
+    height: 36px;
   }
   .am-close:hover {
     color: var(--color-text-primary);
