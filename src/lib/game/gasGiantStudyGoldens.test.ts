@@ -49,14 +49,13 @@ import {
   expeditionLaunchView,
   expeditionRiskPreview,
   scanStepRoll,
-  startExpedition,
   systemTaskPreview,
 } from "./expedition";
 import { resolveShipScanEvent } from "./shipScanEvents";
 import { startResearch } from "./tick";
 import { gasStudyItemIds } from "./gasGiantContent";
 import { GG1_RECIPE } from "./gasStudyGoldens.fixture";
-import { asPreG2Candidate, asPreG2NamesDispatch, asPreRanksDispatch, plainAwayMember, withoutG2NamesState } from "./awayTeamTestFixtures";
+import { asPreG2Candidate, asPreG2NamesDispatch, asPreRanksDispatch, plainAwayMember, withoutG2NamesState, dispatchPastPropulsion } from "./awayTeamTestFixtures";
 import { goldenJson, withV1Museum } from "./firstRunsGoldens.fixture";
 
 // ===== shared helpers =====
@@ -125,7 +124,7 @@ function captureRun(candidateId: string): { out: string[]; exp: Expedition; plan
   expect(cand, candidateId).toBeDefined();
   // Field Kits FKR-1: dispatched with the enemy ranks flag off (asPreRanksDispatch), as the G2-0 regular rows are, so
   // the unequipped rank 10 squads close the window inside a day of game time; ranked runs are groundOpsRanks.test.ts's.
-  const res = asPreG2NamesDispatch(asPreRanksDispatch(startExpedition(state, "ship-1", 1, candidateId)));
+  const res = asPreG2NamesDispatch(asPreRanksDispatch(dispatchPastPropulsion(state, "ship-1", 1, candidateId)));
   if (!res.success || !res.expedition) throw new Error(`dispatch refused: ${res.reason}`);
   const exp = res.expedition;
   expect(exp.groundOps).toBeDefined();
@@ -325,7 +324,7 @@ describe("GG-0 golden 5: the item census", () => {
 
   it("item ids, counts by category, refine recipes and blueprint count (GG-1's additions held apart)", () => {
     const before = census(Object.keys(ITEMS).filter((id) => !gg1.has(id) && !ML2_NEW_ITEMS.has(id)), Object.keys(REFINE_RECIPES).filter((k) => k !== GG1_RECIPE && !ML2_NEW_REFINES.has(k)));
-    expect({ items: hash(before.ids), byCategory: before.byCategory, refineRecipes: before.refineRecipes, blueprints: Object.keys(BLUEPRINTS).filter((k) => !(k in FIELD_KITS_HIDDEN_BLUEPRINTS)).length }).toEqual(CENSUS_GOLDEN);
+    expect({ items: hash(before.ids), byCategory: before.byCategory, refineRecipes: before.refineRecipes, blueprints: Object.keys(BLUEPRINTS).filter((k) => !(k in FIELD_KITS_HIDDEN_BLUEPRINTS) && BLUEPRINTS[k].driveClass === undefined).length }).toEqual(CENSUS_GOLDEN);
     // Field Kits FKR-9 / FKR-10 (the switch-on): the hidden Impact Grenade blueprint merges in, the one named move of the
     // blueprint count (78 to 79), counted apart as in materialLinesGoldens.test.ts.
     for (const k of Object.keys(FIELD_KITS_HIDDEN_BLUEPRINTS)) expect(BLUEPRINTS[k], k).toBe(FIELD_KITS_HIDDEN_BLUEPRINTS[k]);

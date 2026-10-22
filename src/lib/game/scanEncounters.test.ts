@@ -50,7 +50,7 @@ import {
   generateEncounter,
 } from "./gambit";
 import { makeRng } from "./combat/rng";
-import { asLegacyDispatch, withSlottedAwayTeams } from "./awayTeamTestFixtures";
+import { asLegacyDispatch, withSlottedAwayTeams, dispatchPastPropulsion } from "./awayTeamTestFixtures";
 
 // ===== fixtures =====
 
@@ -436,7 +436,7 @@ describe("Evasive Command (the pilot officer's officer.evasion bonus)", () => {
   it("dispatch freezes it on the expedition with the step count", () => {
     const s = { ...withRoster(plainSquad()), officers: [pilot()] };
     const cand = expeditionCandidates(s, "ship-1")[0];
-    const res = startExpedition(s, "ship-1", 1, cand.id);
+    const res = dispatchPastPropulsion(s, "ship-1", 1, cand.id);
     expect(res.success).toBe(true);
     expect(res.expedition!.encounterEvasion).toBeCloseTo(0.15);
     expect(res.expedition!.encounterSteps).toBe(ENCOUNTER_STEPS);
@@ -457,7 +457,7 @@ describe("PARITY: one big advance == many small advances, with a real roster", (
     for (let i = 0; i < 300 && !found; i++) {
       const s = { ...base, expeditionSeed: (0x1234567 + i * 7919) >>> 0 };
       // A legacy run (asLegacyDispatch): Task 14's scan battles; a Ground Ops run rolls none (GO-7b).
-      const res = asLegacyDispatch(startExpedition(s, "ship-1", 1, expeditionCandidates(s, "ship-1")[0].id));
+      const res = asLegacyDispatch(dispatchPastPropulsion(s, "ship-1", 1, expeditionCandidates(s, "ship-1")[0].id));
       if (!res.success) continue;
       const done = advanceExpedition(res.expedition!, BIG);
       const evs = done.scanEvents ?? [];

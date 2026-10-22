@@ -47,7 +47,7 @@ import { canDispatch, canDispatchPatrol, installMissingCombatBaselines, shipRang
 import { deserialize, migrate, serialize, type SaveFile } from "./save";
 import { telescopeReadingAtLevel } from "./telescope";
 import { telescopeCardView, telescopeMapView } from "../telescopeCardDisplay";
-import { asPreG2Candidate as asPreG2CandidateFixture, asPreG2NamesDispatch, asPreRanksDispatch, asPreSafeFirstRunsDispatch, plainAwayMember, withSlottedAwayTeams } from "./awayTeamTestFixtures";
+import { asPreG2Candidate as asPreG2CandidateFixture, asPreG2NamesDispatch, asPreRanksDispatch, asPreSafeFirstRunsDispatch, dispatchPastPropulsion, plainAwayMember, withSlottedAwayTeams } from "./awayTeamTestFixtures";
 import { PRE_G2_STORED_RUNS } from "./expeditionTiersGoldens.fixture";
 import { PRE_RX_MISSION_KEYS } from "./reactorFuelGoldens.fixture";
 import { withV1Museum } from "./firstRunsGoldens.fixture";
@@ -306,7 +306,7 @@ describe("G2-0 golden 1: legacy in-flight runs restored from their stored record
 // expedition 1), so the shakedown rows keep proving the in-flight path; the training run is
 // safeFirstExpedition.test.ts's business.
 function freshRun(nextExpeditionId: number, candidateId: string): { exp: Expedition; done: Expedition; tl: [string, number][]; claimed: GameState } {
-  const res = asPreG2NamesDispatch(asPreSafeFirstRunsDispatch(asPreRanksDispatch(startExpedition(crewed(nextExpeditionId), "ship-1", 1, candidateId))));
+  const res = asPreG2NamesDispatch(asPreSafeFirstRunsDispatch(asPreRanksDispatch(dispatchPastPropulsion(crewed(nextExpeditionId), "ship-1", 1, candidateId))));
   if (!res.success || !res.expedition) throw new Error(`dispatch refused: ${res.reason}`);
   const exp = res.expedition;
   const tl = timeline(exp);
@@ -343,13 +343,13 @@ describe("G2-0 golden 2: fresh dispatches of candidates 0, 1 and 2, full timelin
 
   for (const cand of ["cand-0", "cand-1", "cand-2"]) {
     it(`regular ${cand}: one call == 997 s chunks == 1 s steps == the event-boundary chain`, () => {
-      const res = asPreRanksDispatch(startExpedition(crewed(2), "ship-1", 1, cand)); // FKR-1: flag off (see freshRun)
+      const res = asPreRanksDispatch(dispatchPastPropulsion(crewed(2), "ship-1", 1, cand)); // FKR-1: flag off (see freshRun)
       expectParity(res.expedition!);
     });
   }
 
   it("shakedown cand-0: one call == 997 s chunks == 1 s steps == the event-boundary chain", () => {
-    expectParity(asPreSafeFirstRunsDispatch(asPreRanksDispatch(startExpedition(crewed(1), "ship-1", 1, "cand-0"))).expedition!); // FKR-1, SF-2: as before both
+    expectParity(asPreSafeFirstRunsDispatch(asPreRanksDispatch(dispatchPastPropulsion(crewed(1), "ship-1", 1, "cand-0"))).expedition!); // FKR-1, SF-2: as before both
   });
 });
 
@@ -530,9 +530,14 @@ describe("G2-0 golden 4: reach and eligibility for every hull x every mission an
   // G2-4 adds expedition gates (drive class, reach, frontier sensors): none may block a Tier I launch by accident.
   // The whole startExpedition result (the refusal, or the record and the state through withoutG2State) of a Tier I
   // candidate 0 launch from every hull, stock and boosted, with a slotted crew (1 Security + 1 Science) at T0.
+  // G2-4 (user 2026-10-16, "no current non-explorer hull can reach ANY expedition system"): the pinned hashes are the
+  // pre-G2-4 dispatch (dispatchPastPropulsion); the gated dispatch equals it for the three explorers, stock and boosted
+  // (every gate passes at Tier I), and refuses the seven other hulls with notExplorer, the state untouched. Nothing
+  // else moved.
   it("the Tier I startExpedition result for every hull, stock and with +300 Fuel Capacity", () => {
     const out: string[] = [];
     let launched = 0;
+    let explorers = 0;
     for (const boost of [false, true]) {
       for (const hull of Object.keys(SHIP_TYPES) as ShipTypeKey[]) {
         const state = withSlottedAwayTeams({
@@ -542,13 +547,23 @@ describe("G2-0 golden 4: reach and eligibility for every hull x every mission an
           nextAwayMemberId: 100,
         });
         // FKR-1, SF-2: see freshRun; G2-2: with the pre-G2 names restored and no region stamp (asPreG2NamesDispatch).
-        const res = asPreG2NamesDispatch(asPreSafeFirstRunsDispatch(asPreRanksDispatch(startExpedition(state, "ship-1", 1, "cand-0"))));
+        const res = asPreG2NamesDispatch(asPreSafeFirstRunsDispatch(asPreRanksDispatch(dispatchPastPropulsion(state, "ship-1", 1, "cand-0"))));
+        const gated = startExpedition(state, "ship-1", 1, "cand-0");
+        if (SHIP_TYPES[hull].spec === "explorer") {
+          expect(gated.success, hull).toBe(true);
+          expect(asPreG2NamesDispatch(asPreSafeFirstRunsDispatch(asPreRanksDispatch(gated))), hull).toEqual(res);
+          explorers += 1;
+        } else {
+          expect(gated.reason, hull).toBe("notExplorer");
+          expect(gated.next, hull).toBe(state);
+        }
         if (res.success) launched += 1;
         out.push(`${boost ? "boost" : "stock"}:${hull}:${hash({ ...res, next: withoutG2State(res.next), expedition: res.expedition ? withoutG2Run(res.expedition) : null })}`);
       }
     }
-    // Every hull launches Tier I today (G2-4 must keep it so).
+    // Every hull launched Tier I before G2-4; G2-4 keeps every explorer launching.
     expect(launched).toBe(20);
+    expect(explorers).toBe(6);
     expect(out).toEqual(GOLDEN["reach:expedition"]);
   });
 });

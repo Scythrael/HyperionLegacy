@@ -271,13 +271,13 @@ describe("Research R1, blueprintResearchable (tier gated by research-facility le
 // facility, none of which set it). These tests pin that credit gate + the deduct.
 // ============================================================================
 describe("Research R2, Research Lab facility (tier + slot upgrade track)", () => {
-  it("FACILITIES.research exists, is labelled 'Research Lab', with a FINITE 2-level track", () => {
+  it("FACILITIES.research exists, is labelled 'Research Lab', with a FINITE 7-level track", () => {
     const research = FACILITIES[RESEARCH_FACILITY_KEY];
     expect(research).toBeDefined();
     expect(research.label).toBe("Research Lab");
-    // Caps at REAL content: level 1 (founding = tier-1) + level 2 (tier-2). Only tiers
-    // 1 and 2 of blueprints exist today, so there is NO rung beyond tier 2 (no placeholder).
-    expect(research.upgrades.length).toBe(2);
+    // OC-15 (user 2026-10-16 "Add tiers 3-7 now"): levels 1 and 2, then the tier III to VII rungs. Every rung grants
+    // a real research slot, so none is a placeholder (labFabricatorTiers.test.ts proves the tier rows).
+    expect(research.upgrades.length).toBe(7);
   });
 
   it("the founding rung (level 0->1) is zero-cost/ungated and grants the FIRST research slot", () => {
@@ -329,12 +329,12 @@ describe("Research R2, Research Lab facility (tier + slot upgrade track)", () =>
     expect(blueprintResearchable(state, "structuralAssemblyBp")).toBe(true);
   });
 
-  it("the upgrade track CAPS at real content: a level-2 lab reports fully upgraded", () => {
+  it("the upgrade track CAPS at its top tier: a level-7 lab reports fully upgraded (OC-15)", () => {
     const state = freshState();
-    state.facilities[RESEARCH_FACILITY_KEY] = { level: 2 };
+    state.facilities[RESEARCH_FACILITY_KEY] = { level: 7 };
     const check = canBuildFacilityUpgrade(state, RESEARCH_FACILITY_KEY);
     expect(check.ok).toBe(false);
-    expect(check.reason).toMatch(/fully upgraded/i); // no rung beyond tier 2
+    expect(check.reason).toMatch(/fully upgraded/i); // no rung beyond tier VII
   });
 
   it("the level 1->2 CREDIT gate blocks when broke even if all other gates pass", () => {

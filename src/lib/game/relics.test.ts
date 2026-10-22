@@ -57,12 +57,11 @@ import {
   depositExpeditionFindings,
   summarizeExpeditionFindings,
   expeditionCandidates,
-  startExpedition,
   advanceExpedition,
   SENSOR_REVEAL_RELIC,
   SENSOR_REVEAL_HAZARD,
 } from "./expedition";
-import { asLegacyDispatch, ensureMinimumAwayTeam } from "./awayTeamTestFixtures";
+import { asLegacyDispatch, ensureMinimumAwayTeam, dispatchPastPropulsion } from "./awayTeamTestFixtures";
 import {
   tick,
   economyTick,
@@ -233,7 +232,7 @@ describe("PoI -> relic set: ONE source of truth for the reward roll AND the fore
       expect(fk.relicSignature).toBe(fk.relicSets!.length > 0);
       // Commit this candidate and run it to completion; derive the sets from its real discoveries.
       // A legacy run (asLegacyDispatch) always completes; the discoveries are the same on either engine.
-      const res = asLegacyDispatch(startExpedition(s, "ship-1", 1, cand.id));
+      const res = asLegacyDispatch(dispatchPastPropulsion(s, "ship-1", 1, cand.id));
       const done = advanceExpedition(res.expedition!, 10_000_000);
       expect(done.phase).toBe("complete");
       const found = new Set<RelicSetId>();
@@ -316,7 +315,7 @@ describe("CLAIM DEPOSIT: findings land in inventory / credits / the relic vault"
   it("a real expedition run end-to-end: claimed credits + vault tokens match its findings", () => {
     // A crewed-strong snapshot so ground tasks win and relics can roll; run through the real tick.
     let s = ensureMinimumAwayTeam(freshState()); // D18: a launchable ship
-    const dispatched = startExpedition(s, "ship-1", 1, "cand-0");
+    const dispatched = dispatchPastPropulsion(s, "ship-1", 1, "cand-0");
     s = {
       ...dispatched.next,
       expeditions: dispatched.next.expeditions.map((e) => ({ ...e, securityStrength: 60, scienceStrength: 30, teamKit: 6 })),

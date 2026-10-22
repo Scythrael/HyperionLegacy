@@ -7,8 +7,8 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import LZString from "lz-string";
 import { freshState, type AwayMember, type GameState, type ShipGroundTeam } from "./model";
 import { SAVE_KEY, SAVE_VERSION, deserialize, loadFromLocalStorage, migrate, serialize, withHomeworldV70, type SaveFile } from "./save";
-import { advanceExpedition, claimExpedition, startExpedition } from "./expedition";
-import { asPreRanksDispatch, plainAwayMember } from "./awayTeamTestFixtures";
+import { advanceExpedition, claimExpedition } from "./expedition";
+import { asPreRanksDispatch, plainAwayMember, dispatchPastPropulsion } from "./awayTeamTestFixtures";
 import { homeworldPlacement, stateHomeworld } from "./galaxy";
 
 const E1 = 0x0badf00d;
@@ -44,7 +44,7 @@ function crewedInFlight(): GameState {
     nextAwayMemberId: 100,
     ships: base.ships.map((sh) => ({ ...sh, groundTeams: teams })),
   };
-  const res = asPreRanksDispatch(startExpedition(s, "ship-1", 1, "cand-0")); // the G2-0 golden 2 run (FKR-1 flag off)
+  const res = asPreRanksDispatch(dispatchPastPropulsion(s, "ship-1", 1, "cand-0")); // the G2-0 golden 2 run (FKR-1 flag off)
   if (!res.success) throw new Error(`dispatch refused: ${res.reason}`);
   return res.next;
 }

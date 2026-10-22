@@ -33,6 +33,7 @@ import * as model from "./model";
 import * as awayTeam from "./awayTeam";
 import * as crewGraduation from "./crewGraduation";
 import * as shortRange from "./shortRange";
+import * as relicBlanks from "./relicBlanks";
 
 // The modules whose salts must be distinct AND odd.
 const MODULES: Record<string, Record<string, unknown>> = {
@@ -60,6 +61,8 @@ const MODULES: Record<string, Record<string, unknown>> = {
   "crewGraduation.ts": crewGraduation,
   // G1-2: the short-range board seed, the roll and the whole-unit rounding.
   "shortRange.ts": shortRange,
+  // Relics v2 R2-2: a blank's culture, the short-range relic hook and the planet completion hook.
+  "relicBlanks.ts": relicBlanks,
 };
 
 // Legacy salts checked for DISTINCTNESS only. model.ts AWAY_RECRUIT_SEED_SALT (0x5a17c0de) predates the odd
@@ -139,6 +142,9 @@ describe("salt registry (GO-4)", () => {
       "shortRange.ts SHORT_RANGE_ROLL_SALT",
       "shortRange.ts SHORT_RANGE_ROUNDING_SALT",
       "shortRange.ts SHORT_RANGE_OUTPUT_SALT",
+      "relicBlanks.ts RELIC_CULTURE_SALT",
+      "relicBlanks.ts RELIC_SHORT_RANGE_SALT",
+      "relicBlanks.ts RELIC_COMPLETION_SALT",
     ]) {
       expect(names).toContain(expected);
     }

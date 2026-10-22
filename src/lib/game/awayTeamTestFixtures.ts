@@ -5,8 +5,9 @@
 // through withMinimumAwayTeam so it keeps testing what it tested before (sensors, museum, relics, phases)
 // rather than the gate. The members are plain: rank 1, no traits, no gear, no own program.
 
-import { SHIP_TYPES, type AwayMember, type AwayTeamType, type Expedition, type GameState, type ShipGroundTeam, type ShipTypeDef, type ShipTypeKey } from "./model";
-import { BANKED_SYSTEMS, SYSTEM_SALT, expeditionAwayTeamCheck, type ExpeditionCandidate } from "./expedition";
+import { SHIP_TYPES, type AwayMember, type AwayTeamType, type Expedition, type ExpeditionFinding, type GameState, type ShipGroundTeam, type ShipTypeDef, type ShipTypeKey } from "./model";
+import { BANKED_SYSTEMS, SYSTEM_SALT, expeditionAwayTeamCheck, startExpedition, type ExpeditionCandidate, type ExpeditionDispatchResult } from "./expedition";
+import { FIELD_KITS_RUNS_LIVE } from "./fieldKits";
 import { PROVISIONAL_HOMEWORLD, type HomeworldPlacement } from "./galaxy";
 import { systemDistanceLy } from "./telescope";
 import { makeRng } from "./combat/rng";
@@ -140,10 +141,48 @@ export function withoutFieldKitsStamp(exp: Expedition): Expedition {
 // A dispatch result turned into the run it was before the Field Kits switch-on (withoutFieldKitsStamp on the returned
 // expedition and every expedition in `next`). Every earlier "as pre-X dispatch" helper composes it (a run dispatched
 // before ranks, SF-2, G2-2, G2-3, SQ-4 or GO-7b was a run before the switch too). A refusal is returned unchanged. Pure.
-export function asPreFieldKitsDispatch<R extends { next: GameState; expedition?: Expedition }>(res: R): R {
+// Relics v2 R2-2 also: a run before the Field Kits switch-on was a run before R2-2 (withoutRelicBlanks).
+export function asPreFieldKitsDispatch<R extends { next: GameState; expedition?: Expedition }>(raw: R): R {
+  const res = asPreRelicBlanksDispatch(raw);
   if (!res.expedition) return res;
   const next = res.next.expeditions.some((e) => "fieldKits" in e) ? { ...res.next, expeditions: res.next.expeditions.map(withoutFieldKitsStamp) } : res.next;
   return { ...res, expedition: withoutFieldKitsStamp(res.expedition), next };
+}
+
+// Relics v2 R2-2: the dispatch record WITHOUT its relic blanks flag (`Expedition.relicBlanks`), i.e. the record the same
+// dispatch made before R2-2: a run in flight at the update. The flag is the ONE key a dispatch adds (a blank's stamps
+// appear only once the run rolls a relic), and a run without it rolls and stores its tokens exactly as before. A record
+// without the flag is returned as it is. Every other key keeps its order. Pure: a shallow copy.
+export function withoutRelicBlanks(exp: Expedition): Expedition {
+  if (!("relicBlanks" in exp)) return exp;
+  const rest = { ...exp };
+  delete rest.relicBlanks;
+  return rest;
+}
+
+// R2-2: a finished run as the pre-R2-2 engine stored it (relicsV2BlanksGoldens.test.ts, siMemberGearGoldens.test.ts):
+// no relic blanks flag, and every relic token without the blank stamps R2-2 appends (regionTier, cultureId; appended
+// last, so dropping them restores the key order). Pure.
+export function asPreRelicBlanksRun(done: Expedition): Expedition {
+  const plain = withoutRelicBlanks(done);
+  return {
+    ...plain,
+    findings: plain.findings.map((f) => {
+      if (!f.relic) return f;
+      const relic = { ...f.relic } as Record<string, unknown>;
+      delete relic.regionTier;
+      delete relic.cultureId;
+      return { ...f, relic: relic as unknown as ExpeditionFinding["relic"] };
+    }),
+  };
+}
+
+// R2-2: a dispatch result turned into the run it was before R2-2 (withoutRelicBlanks on the returned expedition and every
+// expedition in `next`). A refusal is returned unchanged. Pure.
+export function asPreRelicBlanksDispatch<R extends { next: GameState; expedition?: Expedition }>(res: R): R {
+  if (!res.expedition) return res;
+  const next = res.next.expeditions.some((e) => "relicBlanks" in e) ? { ...res.next, expeditions: res.next.expeditions.map(withoutRelicBlanks) } : res.next;
+  return { ...res, expedition: withoutRelicBlanks(res.expedition), next };
 }
 
 // Field Kits FKR-1 (enemy ranks): the run WITHOUT its enemy ranks flag (`Expedition.enemyRanks`), i.e. the run the
@@ -506,4 +545,20 @@ export function ensureMinimumAwayTeam(state: GameState, shipId = "ship-1"): Game
   const ship = state.ships.find((s) => s.id === shipId);
   if (!ship || expeditionAwayTeamCheck(state, ship).ok) return state;
   return withMinimumAwayTeam(state, shipId);
+}
+
+// Expedition Tiers G2-4: the PRE-G2-4 DISPATCH (startExpedition with its propulsion gates off: no explorer-hull,
+// drive class, frontier sensor or reach check). For the tests that fly the starting General Freighter, a Class I drive
+// to a deeper tier, or a ship short of reach to measure something else: the record is exactly what a gated dispatch of
+// a ship that passes would write (the gates only refuse; they never change a launched record). The gates' own tests
+// call startExpedition.
+export function dispatchPastPropulsion(
+  state: GameState,
+  shipId: string,
+  captainId: number,
+  candidateId: string,
+  anomalyOptIn = true,
+  fieldKitsRuns: boolean = FIELD_KITS_RUNS_LIVE,
+): ExpeditionDispatchResult {
+  return startExpedition(state, shipId, captainId, candidateId, anomalyOptIn, fieldKitsRuns, false);
 }

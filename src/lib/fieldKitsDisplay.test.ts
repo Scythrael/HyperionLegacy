@@ -5,11 +5,11 @@ import { describe, expect, it } from "vitest";
 import Decimal from "break_infinity.js";
 import { freshState, type AwayMember, type EquipmentInstance, type Expedition, type GameState, type GambitProgram, type ShipGroundTeam } from "./game/model";
 import { FIELD_KIT_IDS, FIELD_KIT_PRICES, freeBasicFirstAid } from "./game/fieldKits";
-import { startExpedition, advanceExpedition } from "./game/expedition";
+import { advanceExpedition } from "./game/expedition";
 import { setGroundTeamTopUp, setMemberPack } from "./game/groundTeams";
 import { topUpAtLaunch, buyFieldKits } from "./game/quartermaster";
 import { createGroundTeamLoadout } from "./game/armory";
-import { plainAwayMember } from "./game/awayTeamTestFixtures";
+import { plainAwayMember, dispatchPastPropulsion } from "./game/awayTeamTestFixtures";
 import { FIELD_KITS_RUNS_LIVE as FIELD_KITS_LIVE_NOW } from "./game/fieldKits";
 import { kitSlotView, packLineText, savePreview } from "./squadLoadoutDisplay";
 import { renameGroundTeam } from "./game/groundTeams";
@@ -326,7 +326,7 @@ describe("in the run (FKR-9)", () => {
   });
 
   it("an unstamped run has no supplies readout, card line or claim line", () => {
-    const res = startExpedition(crewed(), "ship-1", 1, "cand-0", true, false);
+    const res = dispatchPastPropulsion(crewed(), "ship-1", 1, "cand-0", true, false);
     const exp = res.expedition!;
     expect(runSuppliesView(exp, null, [])).toEqual([]);
     expect(runCardLine(exp, null)).toBeNull();
@@ -335,7 +335,7 @@ describe("in the run (FKR-9)", () => {
 
   it("a Field Kits run reads its free set, extras, charges and conditions per member", () => {
     const s = crewed({ stock: { firstAidKit: 6, splint: 2, injuryKit: 1 } });
-    const res = startExpedition(s, "ship-1", 1, "cand-0", true, true);
+    const res = dispatchPastPropulsion(s, "ship-1", 1, "cand-0", true, true);
     const exp = structuredClone(res.expedition!);
     const alpha = exp.groundOps!.teams[0];
     const free = exp.fieldKits!.freeBasics!.firstAidKit!;
@@ -371,7 +371,7 @@ describe("in the run (FKR-9)", () => {
 
   it("the claim line: kits home and what the run used; nothing for a run that packed nothing", () => {
     const s = crewed({ stock: { firstAidKit: 6 } });
-    const exp = structuredClone(startExpedition(s, "ship-1", 1, "cand-0", true, true).expedition!);
+    const exp = structuredClone(dispatchPastPropulsion(s, "ship-1", 1, "cand-0", true, true).expedition!);
     const alpha = exp.groundOps!.teams[0];
     alpha.kits = { ...alpha.kits!, "member-1": { firstAidKit: 0 } };
     const line = claimKitsView(exp)!;
@@ -379,13 +379,13 @@ describe("in the run (FKR-9)", () => {
     expect(line.subText).toBe(
       "Back in the Warehouse at claim. Used on the run: 1 First Aid Kit. Free kits are never carried home; they refill every objective. Returning kits may sit above the Warehouse cap.",
     );
-    const none = startExpedition(crewed(), "ship-1", 1, "cand-0", true, true).expedition!;
+    const none = dispatchPastPropulsion(crewed(), "ship-1", 1, "cand-0", true, true).expedition!;
     expect(claimKitsView(none)).toBeNull();
   });
 
   it("a whole Field Kits run reads without throwing at every step", () => {
     const s = crewed({ stock: { firstAidKit: 6, antitoxin: 6, splint: 2 } });
-    const exp = startExpedition(s, "ship-1", 1, "cand-0", true, true).expedition!;
+    const exp = dispatchPastPropulsion(s, "ship-1", 1, "cand-0", true, true).expedition!;
     for (const t of [100_000, 200_000, 400_000, 1_000_000, 2_100_000]) {
       const at = advanceExpedition(exp, t);
       const v = runSuppliesView(at, s.ships[0], s.awayMembers);
