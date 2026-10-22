@@ -378,7 +378,7 @@ describe("G1-3 the widened mission union at every consumer", () => {
   it("the ship is out: crew lock, gear lock, salvage lock, ship swap refused, a run counter ship", () => {
     const s = dispatched();
     expect(shipCrewLocked(s, "ship-1")).toBe(true);
-    expect(crewLockReason(s, "ship-1")).toBe("onMission");
+    expect(crewLockReason(s, "ship-1")).toBe("onShortRange"); // S2: the honest reason (a short-range run)
     expect(salvageShipLockReason(s, "ship-1")).toBe("shipOnMission");
     const parked = { ...s, ships: [...s.ships, { ...shipOf(s), id: "ship-9", assignedCaptainId: null }] };
     const swap = assignShipToCaptain(parked, WIRING_CAPTAIN_ID, "ship-9");

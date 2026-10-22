@@ -238,13 +238,13 @@ describe("one copy per ship (M8)", () => {
 });
 
 describe("the S2 lock: modules wait while the ship is out", () => {
-  it("an expedition locks module installs and removals (onMission), not the other slots' installs", () =>
+  it("an expedition locks module installs and removals (onMission), and every other slot's gear too (S2 shipGearLock)", () =>
     withTestModules([TEST_BRACING], () => {
       const m = mintTestModule(TEST_BRACING, "standard", 0, "test-s2");
       const home = installAll(withoutUtility(hullState("orion")), [m]).state;
       const spare = mintTestModule(TEST_BRACING, "standard", 0, "test-s2b");
       const out = { ...withPieces(home, [spare]), expeditions: [{ shipId: SHIP } as unknown as GameState["expeditions"][number]] };
-      expect(canFitEquipment(out, SHIP, "test-s2b", "test-s2")).toEqual({ ok: false, reason: "onMission" });
+      expect(canFitEquipment(out, SHIP, "test-s2b", "test-s2")).toEqual({ ok: false, reason: "onMission", lock: "onExpedition" });
       expect(() => unfitEquipmentInstance(out, SHIP, "test-s2")).toThrow(/onMission/);
       // The dev panel's slot-targeted uninstall honors it too, and at home takes the module off without minting.
       expect(() => unfitEquipment(out, SHIP, "module")).toThrow(/onMission/);
@@ -252,9 +252,9 @@ describe("the S2 lock: modules wait while the ship is out", () => {
       expect(off.equipment.find((e) => e.id === "test-s2")?.fittedToShipId).toBeNull();
       expect(off.nextEquipmentId).toBe(home.nextEquipmentId);
       expect(unfitEquipment(off, SHIP, "module")).toBe(off);
-      // A cargo bay is not a module: S2 for the other slots is not built, so their mission-only lock stands.
+      // S1 / S2 merged: the one gear lock (equipment.ts shipGearLock) holds every slot, a cargo bay too.
       const cargo = equippedFor(out, SHIP).find((e) => e.slotType === "cargoBay")!;
-      expect(() => unfitEquipmentInstance(out, SHIP, cargo.id)).not.toThrow();
+      expect(() => unfitEquipmentInstance(out, SHIP, cargo.id)).toThrow(/onMission/);
     }));
 });
 

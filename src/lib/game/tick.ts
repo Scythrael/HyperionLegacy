@@ -326,6 +326,9 @@ import { craftingXpAwardForProcess } from "./craftingProgress";
 // expedition crew lock) rather than re-reading captain.mission itself, so a queued teardown is
 // refused by exactly the rule salvageShip will apply at completion.
 import { equippedFor } from "./equipment";
+// S1 (user 2026-10-17 "Lock it"): the captain lock reads the one crew lock (crewLock.ts is a leaf: it imports only
+// equipmentQueries.ts and model types, so no cycle).
+import { captainMoveLock } from "./crewLock";
 // 0.13.4 Phase 3: the transit-berth read model. The engine reads berths.ts so it and the
 // console can never disagree about how many berths exist, who holds one, or who is waiting.
 import { transitBerthsFree } from "./berths";
@@ -6117,7 +6120,13 @@ export function renameShip(
 //     property that guarantee depends on, OR
 //   - the target ship is already flown by a DIFFERENT captain (assignedCaptainId
 //     is non-null and not this captain), you can't poach another captain's
-//     hull; it must be parked first.
+//     hull; it must be parked first, OR
+//   - S1 (docs/plans/2026-10-17-small-calls-answers.md, user 2026-10-17 "Lock it
+//     (Recommended)": no captain moves onto or off a ship that is out): the
+//     captain's current ship or the target is crew-locked (crewLock.ts
+//     captainMoveLock: a mission, a patrol, a short-range run, or an expedition
+//     until it is claimed). An expedition leaves captain.mission null, so the
+//     mission check above never saw it; the crew lock does.
 //
 // ORDERING IS SUBTLE, read before touching the .map() below. We assign the
 // TARGET ship first (its branch wins), THEN park any *different* hull the
@@ -6143,6 +6152,7 @@ export function assignShipToCaptain(
   if (ship.assignedCaptainId !== null && ship.assignedCaptainId !== captainId) {
     return { next: state, success: false };
   }
+  if (captainMoveLock(state, captainId, shipId) !== null) return { next: state, success: false }; // S1
 
   // ORDER MATTERS (see header comment): the target-assign branch is listed
   // FIRST so it wins for the self-reassign case; the park branch only fires on a
