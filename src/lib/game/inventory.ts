@@ -177,6 +177,62 @@ export function removeItemLowestFirst(
   return { ...inv, [item]: nextBuckets };
 }
 
+// Material Lines ML-4 (L5, the "Use best materials" toggle): the twin of removeItemLowestFirst that consumes the
+// HIGHEST quality bucket first, spilling down into lower tiers only when a higher bucket is exhausted. Same
+// affordability contract (callers gate on itemTotal first) and the same over-deduct posture (any leftover is
+// charged to bucket 0 as a negative). PURE: builds a fresh bucket array; input untouched.
+export function removeItemHighestFirst(
+  inv: Record<string, Decimal[]>,
+  item: string,
+  amount: Decimal
+): Record<string, Decimal[]> {
+  const source = inv[item];
+  const nextBuckets = source ? [...source] : [new Decimal(0)];
+  let remaining = amount;
+  for (let quality = nextBuckets.length - 1; quality >= 0; quality--) {
+    if (remaining.lte(0)) break;
+    const available = nextBuckets[quality];
+    if (available.lte(0)) continue;
+    if (available.gte(remaining)) {
+      nextBuckets[quality] = available.minus(remaining);
+      remaining = new Decimal(0);
+      break;
+    }
+    nextBuckets[quality] = new Decimal(0);
+    remaining = remaining.minus(available);
+  }
+  if (remaining.gt(0)) {
+    nextBuckets[0] = nextBuckets[0].minus(remaining);
+  }
+  return { ...inv, [item]: nextBuckets };
+}
+
+// Material Lines ML-4 (L6): what a draw of `amount` of `item` would consume, as units and quality-weighted units
+// (sum of quality x units), lowest quality first or (`highestFirst`) highest first: the SAME walk
+// removeItemLowestFirst / removeItemHighestFirst make, so the tally always describes the units really taken. Units the
+// stock cannot cover (only reachable past a skipped affordability gate) count at quality 0, where the over-deduct is
+// charged. PURE: reads only.
+export function drawQualityTally(
+  inv: Record<string, Decimal[]>,
+  item: string,
+  amount: Decimal,
+  highestFirst: boolean
+): { units: Decimal; qualityUnits: Decimal } {
+  const buckets = inv[item] ?? [];
+  let remaining = amount;
+  let qualityUnits = new Decimal(0);
+  for (let i = 0; i < buckets.length; i++) {
+    if (remaining.lte(0)) break;
+    const quality = highestFirst ? buckets.length - 1 - i : i;
+    const available = buckets[quality];
+    if (!available || available.lte(0)) continue;
+    const take = available.gte(remaining) ? remaining : available;
+    qualityUnits = qualityUnits.plus(take.times(quality));
+    remaining = remaining.minus(take);
+  }
+  return { units: amount, qualityUnits };
+}
+
 // Which quality bucket removeItemLowestFirst would draw from NEXT: the index of the
 // lowest bucket holding a positive balance, or 0 when the item is absent or fully spent.
 //

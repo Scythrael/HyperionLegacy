@@ -34,6 +34,7 @@ import * as awayTeam from "./awayTeam";
 import * as crewGraduation from "./crewGraduation";
 import * as shortRange from "./shortRange";
 import * as relicBlanks from "./relicBlanks";
+import * as materialQuality from "./materialQuality";
 
 // The modules whose salts must be distinct AND odd.
 const MODULES: Record<string, Record<string, unknown>> = {
@@ -63,6 +64,8 @@ const MODULES: Record<string, Record<string, unknown>> = {
   "shortRange.ts": shortRange,
   // Relics v2 R2-2: a blank's culture, the short-range relic hook and the planet completion hook.
   "relicBlanks.ts": relicBlanks,
+  // Material Lines ML-3: the delivery climb's private rounding roll (MATERIAL_QUALITY_SALT).
+  "materialQuality.ts": materialQuality,
 };
 
 // Legacy salts checked for DISTINCTNESS only. model.ts AWAY_RECRUIT_SEED_SALT (0x5a17c0de) predates the odd

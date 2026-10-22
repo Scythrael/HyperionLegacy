@@ -28,6 +28,7 @@
   // away-team gear surface so the tooltip and the rows can never name a piece two ways.
   import { memberPieceName } from "./awayGearDisplay";
   import { pieceHazardResistText } from "./ui/hazardResistText";
+  import { pieceMaterialQualityText, shipMaterialQualityText } from "./ui/materialQualityText";
   import type { IconName } from "./ui/icons";
   import { previewCraftOutcome, type CraftPreview } from "./game/itemgen";
   // Weapon combat stats (damage / accuracy / etc.) do NOT live on the EquipmentInstance's rolled
@@ -326,6 +327,9 @@
   // ignore it entirely (they carry no such reveal).
   export let collapsible = false;
   let open = !collapsible;
+  // Material Lines ML-3: the pieces installed on the same ship as `piece`, when the host knows them (Ship Systems),
+  // so a piece whose Material Quality stacks with another's also shows the ship's combined chance. Absent elsewhere.
+  export let shipPieces: EquipmentInstance[] | undefined = undefined;
 
   $: resolved = subject ?? (piece !== undefined ? ({ kind: "equipment", piece } as const) : null);
 
@@ -407,6 +411,8 @@
         primaries: [string, number][];
         // GO-6: the piece's EFFECTIVE hazard resist on the curve toward the cap, or null (no hazard line).
         hazardResist: string | null;
+        // Material Lines ML-3: what the piece's Material Quality points buy on a delivery, or null (no such line).
+        materialQuality: string | null;
         flavor: string | null;
         piece: EquipmentInstance;
       }
@@ -480,6 +486,7 @@
         implicit: Object.entries(p.implicitStats),
         primaries: Object.entries(p.rolledStats),
         hazardResist: pieceHazardResistText(p),
+        materialQuality: pieceMaterialQualityText(p),
         flavor: equipmentFlavor(p),
         piece: p,
       };
@@ -641,6 +648,14 @@
            resist on the curve toward the 75% cap, never full immunity). -->
       {#if view.hazardResist}
         <div class="et-detail">{view.hazardResist}</div>
+      {/if}
+      <!-- Material Lines ML-3: the Material Quality line is stat POINTS; this is the chance they buy per delivered unit. -->
+      {#if view.materialQuality}
+        {@const shipTotal = shipMaterialQualityText(view.piece, shipPieces)}
+        <div class="et-detail">{view.materialQuality}</div>
+        {#if shipTotal}
+          <div class="et-detail">{shipTotal}</div>
+        {/if}
       {/if}
     {:else if view.kind === "ship"}
       <div class="et-stats">

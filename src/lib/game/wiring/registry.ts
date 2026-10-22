@@ -85,6 +85,7 @@ import {
 } from "../model";
 import Decimal from "break_infinity.js";
 import { diminishing } from "../diminishing";
+import { materialQualityClimbChance } from "../materialQuality";
 import { secondaryTalentEffectText } from "../captainSecondaryEffects";
 import { buyHomeworldTalent, describeCaptainTalentEffect, installMissingCombatBaselines } from "../tick";
 import type { CaptainPrimaryMultKind } from "../captainPrimaryEffects";
@@ -1897,6 +1898,16 @@ const LINE_SEAMS: Readonly<Record<string, LineSeam | null>> = {
   // E-MOD EM-1: a Reactor Core's powerOutput line adds to the ship's power output (on top of the hull's own, P1).
   powerOutput: { probe: "sheetPowerOutput", contexts: ["sheet"], curve: { kind: "linearAbsolute" }, magnitude: () => LINE_POINTS },
   powerDrawReduction: null, // consumed at mint like massReduction: measured below as its own entry on the piece's draw
+  // Material Lines ML-3 (OC-D2): the line's points become the chance a delivered unit climbs one quality step
+  // (materialQuality.ts): a delivery climbs floor(amount x p) units plus one keyed rounding roll, so the share that
+  // climbed is p to within one unit of the haul.
+  materialQualityChance: {
+    probe: "missionOreQuality",
+    contexts: ["mission:extraction"],
+    curve: { kind: "chanceAbsolute" },
+    magnitude: () => materialQualityClimbChance(LINE_POINTS),
+    tolerance: 0.02,
+  },
   // An emitter's raw lines scale by the hull's shield effectiveness (bridge.ts hullDefenseComposition).
   shieldCapacity: {
     probe: "combatShieldMax",
@@ -1929,7 +1940,6 @@ const LINE_SEAMS: Readonly<Record<string, LineSeam | null>> = {
 };
 
 const LINE_PENDING: Readonly<Record<string, { owner: string; probe?: ProbeId; contexts?: ContextId[] }>> = {
-  materialQualityChance: { owner: "WR-7, OC-D2 (rolls on every Prospecting Rig, read by nothing)", probe: "missionOreQuality", contexts: ["mission:extraction"] },
   crewStations: { owner: "WR-7, OC-D3 (the tooltip prints the rolled value; nothing reads it)", probe: "quartersCapacity", contexts: ["sheet"] },
   crewEfficiency: { owner: "WR-7, OC-D3 (the tooltip prints the rolled value; nothing reads it)", probe: "sheetUnload", contexts: ["sheet"] },
 };
@@ -4036,7 +4046,6 @@ export const FLAT_UNCONTROLLED: Readonly<Record<string, string>> = {
   "secInflictPermille@ground:noInflict": "an inflict piece is the only live source of on-hit statuses, and this context is the one without it",
   "salvageTalentCeiling@salvage:topTier": "the pool's top tier is the clamp: nothing can raise the tier a top Fleet Admiral rolls",
   "candidateTopTier@expedition:groundOps": "the console offers Tier I candidates until G2-6 adds the region picker (G2-2 built every tier): nothing raises the offered region tier",
-  "missionOreQuality@mission:extraction": "nothing raises mined ore quality today (this line would be the first source)",
 };
 
 // ============================================================================

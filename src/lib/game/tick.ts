@@ -298,6 +298,8 @@ import { computeItemLevel, generateEquipment, generateWeapon, generateDronePod, 
 // seeded from the save's inspectSeed + the blueprint key (NOT the fleet's threaded tick rng), so
 // the roll is a pure function of the save (reload-identical, server-reverifiable later).
 import { makeRng } from "./combat/rng";
+// Material Lines ML-3 + ML-4: the delivery climb (private keyed stream) and the craft quality carry.
+import { carriedQuality, climbedQuality, craftOutputQuality, deliveryClimbUnits, materialQualityStream, type ConsumedQuality, type MaterialPreference } from "./materialQuality";
 // E-CREW 0.14.0 (Task 21): the Constitution ramp's tick length for mission-def hours.
 import { RAMP_SECONDS_PER_TICK } from "./constitutionRamp";
 // Crafting 0.13.3 (Phase 3 Unit 3.2): the WEIGHTED crafting-XP award for a completed
@@ -413,7 +415,7 @@ import {
 } from "./allocation";
 // Quality-bucketed inventory helpers (Equipment 0.11.0, Task 9a): every inventory
 // read/write routes through these so the economy is identical to the old scalar shape.
-import { itemTotal, addItemQuality, removeItemLowestFirst, lowestStockedQuality } from "./inventory";
+import { itemTotal, addItemQuality, removeItemLowestFirst, removeItemHighestFirst, drawQualityTally, lowestStockedQuality } from "./inventory";
 // Captain custom-name validation seam (Combat 0.13.0, Task 1.4): renameCaptain
 // runs every proposed name through this single client-side chokepoint before it
 // touches state. See captainName.ts for the (deliberately minimal, bypassable)
@@ -4056,6 +4058,10 @@ export function economyTick(
   // below grades that share with the bonus and the rest without it, both off the SAME recorded draws (rollQuality is
   // draw-count invariant), so no draw is added. Empty without the node, so the fold rolls exactly as before.
   const assayerDelivered = new Map<string, { amount: Decimal; bonus: number }>();
+  // Material Lines ML-3 (OC-D2): per item, the units this call's deliveries climbed one quality step (a ship with a
+  // material quality line), split into the share an Assayer captain delivered (graded with its bonus) and the rest.
+  // Empty without a rig line, so the fold below deposits exactly as before.
+  const climbDelivered = new Map<string, { plain: Decimal; assayer: Decimal }>();
   // Safe first runs SF-1: the patrol routes WON this call, fleet-wide (the patrol curve, runDifficulty.ts
   // countPatrolRoutes), folded once into runCounts below. A pure additive count, so one big call and many small ones
   // accrue the identical total.
@@ -4526,6 +4532,27 @@ export function economyTick(
         assayerDelivered.set(key, { amount: (prev?.amount ?? new Decimal(0)).plus(delta[key]), bonus: Math.max(prev?.bonus ?? 0, qualityBonus) });
       }
     }
+    // Material Lines ML-3 (OC-D2, L4): a ship with a material quality line climbs part of this delivery one quality
+    // step: floor(amount x p) units per item plus one keyed rounding roll each, off the captain's PRIVATE stream
+    // (never the shared rng, so the shared draw count is the same with or without a rig). The climbed units ride
+    // to the deposit fold below, split by whether this captain's share is graded with Assayer's bonus. The
+    // lifetime counter steps once per delivery that rolled, so no delivery of a career shares a roll.
+    let deliveredCaptain = updated;
+    const climbChance = shipStats?.materialQuality ?? 0;
+    if (climbChance > 0) {
+      const delivered = Object.keys(delta).filter((key) => delta[key].gt(0)).sort();
+      if (delivered.length > 0) {
+        const cycle = updated.materialQualityCycles ?? 0;
+        const roll = materialQualityStream(worksDirectorateSaveSeed(state), captain.id, cycle);
+        for (const key of delivered) {
+          const climbed = deliveryClimbUnits(delta[key], climbChance, roll);
+          if (!climbed.gt(0)) continue;
+          const prev = climbDelivered.get(key) ?? { plain: new Decimal(0), assayer: new Decimal(0) };
+          climbDelivered.set(key, qualityBonus > 0 ? { ...prev, assayer: prev.assayer.plus(climbed) } : { ...prev, plain: prev.plain.plus(climbed) });
+        }
+        deliveredCaptain = { ...updated, materialQualityCycles: cycle + 1 };
+      }
+    }
     fleetAdminXpDelta += captainFleetAdminXpDelta;
     creditsDelta += captainCreditsDelta;
     // Task 7: fold THIS captain's lifetime-stat delta into the fleet-wide
@@ -4543,7 +4570,7 @@ export function economyTick(
         shipMissionCompletions.set(ship.id, (shipMissionCompletions.get(ship.id) ?? 0) + cyc.toNumber());
       }
     }
-    return updated;
+    return deliveredCaptain;
   });
 
   // passiveTrickle (Homeworld Talent economyTrickle): flat fleet-wide
@@ -4637,14 +4664,30 @@ export function economyTick(
     // stream aligned. Re-gating this draw on the post-clamp delta would skip it only on the
     // capped path and silently desync offline loot rng from live.
     const assayer = assayerDelivered.get(key);
+    // Material Lines ML-3 (OC-D2): the units of this item that climbed, if any. A share deposits its climbed units
+    // FIRST at one step above its rolled quality (Q5 stays Q5), then the rest at the rolled quality, so a cap clamp
+    // trims ordinary units. With nothing climbed it is the single deposit it always was.
+    const climb = climbDelivered.get(key);
+    const depositShare = (share: Decimal, quality: number, climbed: Decimal | undefined): void => {
+      const up = climbed !== undefined && climbed.gt(0) ? Decimal.min(climbed, share) : null;
+      if (up !== null) {
+        const lifted = addToInventory(inventory, discovered, key, up, itemCap(state, key), climbedQuality(quality));
+        inventory = lifted.inventory;
+        discovered = lifted.discovered;
+        const rest = share.minus(up);
+        if (!rest.gt(0)) return;
+        share = rest;
+      }
+      const added = addToInventory(inventory, discovered, key, share, itemCap(state, key), quality);
+      inventory = added.inventory;
+      discovered = added.discovered;
+    };
     if (assayer === undefined || !amount.gt(0)) {
       const quality = amount.gt(0) ? rollQuality(rng) : 0;
       // Warehouse cap clamp: the deposit is bounded at this item's cap (itemCap), so a
       // cycle completing while just-under-cap lands AT the cap instead of overshooting.
       // Below cap this is byte-identical to the old unclamped add (min is a no-op).
-      const added = addToInventory(inventory, discovered, key, amount, itemCap(state, key), quality);
-      inventory = added.inventory;
-      discovered = added.discovered;
+      depositShare(amount, quality, amount.gt(0) ? climb?.plain : undefined);
       continue;
     }
     // WR-5a (Assayer, own deliveries only): ONE roll's draws, recorded, grade the rest of the item plainly and are
@@ -4660,14 +4703,8 @@ export function economyTick(
     let at = 0;
     const assayerQuality = rollQuality(() => draws[at++], assayer.bonus);
     const rest = amount.minus(assayer.amount);
-    const own = addToInventory(inventory, discovered, key, assayer.amount, itemCap(state, key), assayerQuality);
-    inventory = own.inventory;
-    discovered = own.discovered;
-    if (rest.gt(0)) {
-      const added = addToInventory(inventory, discovered, key, rest, itemCap(state, key), plainQuality);
-      inventory = added.inventory;
-      discovered = added.discovered;
-    }
+    depositShare(assayer.amount, assayerQuality, climb?.assayer);
+    if (rest.gt(0)) depositShare(rest, plainQuality, climb?.plain);
   }
 
   // Phase 1, Task 9: the post-mission fleet state, missions, passiveTrickle, and
@@ -6241,7 +6278,10 @@ export function startProcess(
   inputs: Record<string, Decimal>,
   durationTicks: number,
   effect: ProcessEffect,
-  lineId?: string
+  lineId?: string,
+  // Material Lines ML-4 (L5): which stock to spend first. Absent / "lowest" = lowest quality first (the documented
+  // consume policy, every caller before ML-4); "best" = the order's "Use best materials" toggle.
+  materialPreference?: MaterialPreference
 ): { next: GameState; started: boolean } {
   // Gate: EVERY input must be affordable. An absent inventory key reads as 0
   // (grow-on-demand contract, same as addToInventory), so requiring a
@@ -6260,10 +6300,23 @@ export function startProcess(
   // deduct; the gate above already proved every input is affordable, so no bucket goes
   // negative. Threaded immutably (each call returns a fresh inventory), the bucketed
   // twin of the old `{ ...state.inventory }` clone + per-key `.minus()`.
+  // Material Lines ML-4: a refine or fabricate job that deposits a stackable output (addItem) also tallies the
+  // quality of what it consumes (the SAME walk the deduct makes) and stamps the unit-weighted average, rounded down,
+  // as the effect's inputQuality (L6). Written only when above 0, so a job on Q0 stock is unchanged.
+  const highestFirst = materialPreference === "best";
+  const carries = effect.type === "addItem" && (kind === "refineJob" || kind === "fabricateJob");
+  const tally: ConsumedQuality = { units: new Decimal(0), qualityUnits: new Decimal(0) };
   let inventory = state.inventory;
   for (const itemId of Object.keys(inputs)) {
-    inventory = removeItemLowestFirst(inventory, itemId, inputs[itemId]);
+    if (carries) {
+      const t = drawQualityTally(inventory, itemId, inputs[itemId], highestFirst);
+      tally.units = tally.units.plus(t.units);
+      tally.qualityUnits = tally.qualityUnits.plus(t.qualityUnits);
+    }
+    inventory = highestFirst ? removeItemHighestFirst(inventory, itemId, inputs[itemId]) : removeItemLowestFirst(inventory, itemId, inputs[itemId]);
   }
+  const carried = carries ? carriedQuality(tally) : 0;
+  const stampedEffect: ProcessEffect = carried > 0 && effect.type === "addItem" ? { ...effect, inputQuality: carried } : effect;
 
   // id minted from nextProcessId as "proc-N" (the scheme TimedProcess.id / this
   // field's freshState seed document), then nextProcessId bumped so ids stay
@@ -6275,7 +6328,7 @@ export function startProcess(
     kind,
     remainingTicks: durationTicks,
     durationTicks,
-    effect,
+    effect: stampedEffect,
     // Only attach lineId when a caller supplied one (the line engine), via
     // conditional spread, so a non-line process carries NO lineId key at all,
     // keeping it identical to a pre-C2 process for deep-equal snapshots.
@@ -8577,7 +8630,9 @@ function stepCraftLine(state: GameState, line: CraftLine): { next: GameState; li
     // equipment blueprint). For refine + material lines this is byte-identical to the old inline
     // addItem, so their deep-equal parity snapshots are unaffected.
     spec.effect,
-    line.id
+    line.id,
+    // Material Lines ML-4 (L5): the line's "Use best materials" toggle (an attached lane reads its order's).
+    attachedOrder?.materialPreference ?? line.materialPreference
   );
   if (!started) return { next: state, line }; // unaffordable right now -> line waits
 
@@ -8699,6 +8754,8 @@ function joinFreeLanesToRunningOrders(
       recipeKey: order.recipeKey,
       remaining: order.remaining,
       mode: order.mode,
+      // Material Lines ML-4: the order's "Use best materials" toggle, mirrored like the fields above (only when on).
+      ...(order.materialPreference === "best" ? { materialPreference: "best" as const } : {}),
     });
     mintId += 1;
     free -= 1;
@@ -8975,11 +9032,15 @@ export function canStartLine(
 // line (it reserves exactly its one queued next iteration, see CraftLineMode). This is the
 // SAME count canStartLine's affordability gate validated, so an appended line is always
 // reservable from free at start.
+// Material Lines ML-4 (L5): `materialPreference` "best" is the configurator's "Use best materials" toggle, stamped on
+// the line only when on (absent = lowest-first), so a line started without it is byte-identical. It changes no gate:
+// affordability and reservation stay total-based.
 export function startLine(
   state: GameState,
   kind: CraftLineKind,
   recipeKey: string,
-  mode: CraftLineMode
+  mode: CraftLineMode,
+  materialPreference?: MaterialPreference
 ): { next: GameState; started: boolean; reason?: StartLineBlockReason } {
   // Iterations this line reserves up front: a batch reserves its full count; a continuous
   // line reserves exactly its ONE queued next iteration. This is the count canStartLine gates.
@@ -8995,7 +9056,14 @@ export function startLine(
   // affordable inputs, and output room. Append the line, byte-for-byte the C2 append path.
   const lines = (kind === "refine" ? state.refineLines : state.fabricateLines) ?? [];
   const remaining = count;
-  const line: CraftLine = { id: `craft-${state.nextCraftLineId}`, kind, recipeKey, remaining, mode };
+  const line: CraftLine = {
+    id: `craft-${state.nextCraftLineId}`,
+    kind,
+    recipeKey,
+    remaining,
+    mode,
+    ...(materialPreference === "best" ? { materialPreference } : {}),
+  };
   const field = kind === "refine" ? "refineLines" : "fabricateLines";
   return {
     next: { ...state, [field]: [...lines, line], nextCraftLineId: state.nextCraftLineId + 1 },
@@ -9238,7 +9306,8 @@ function craftLineQueueAdapter(kind: CraftLineKind): QueueAdapter {
       // same predicate and can never start a line the gate would refuse. Its `reason`
       // is dropped here deliberately: the promotion pass asks canStart for the reason
       // it displays, and the start path only needs to know whether it took.
-      const result = startLine(state, kind, order.recipeKey, order.mode);
+      // Material Lines ML-4: the queued order's "Use best materials" toggle rides onto the line.
+      const result = startLine(state, kind, order.recipeKey, order.mode, order.materialPreference);
       return { next: result.next, started: result.started };
     },
   };
@@ -11364,7 +11433,9 @@ export function resolveProcesses(
       // distributes crafted output across buckets identically to many small live steps
       // (⚠️ parity test in quality-roll.test.ts). effect.amount is always > 0 for a real
       // recipe, so this always contributes a genuine deposit.
-      const quality = rollQuality(rng, craftQualityBonus); // E4b: museum craftingQuality (draw-count invariant)
+      // Material Lines ML-4 (L6): the job's carried quality (stamped at start; absent = 0) plus the usual roll, Q5 at
+      // most. The roll is the same call with the same draws, so the shared stream advances exactly as before.
+      const quality = craftOutputQuality(process.effect.inputQuality, rollQuality(rng, craftQualityBonus)); // E4b: museum craftingQuality (draw-count invariant)
       // WR-6 (OC-B2): a Fabricator job stamped with Works Directorate's extra output delivers its output twice, at
       // the same rolled quality (no extra draw). Exactly the effect's amount otherwise.
       const outputAmount = completedOutputAmount(process);

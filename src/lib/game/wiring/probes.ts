@@ -896,10 +896,13 @@ function cycleOutput(s: GameState): number {
 }
 
 // One whole shortOreRun cycle: the QUALITY of the ore it delivered (quality rung x units, summed).
+// Material Lines ML-3: the delivered ore's average quality, quality-weighted units over units (the draws are pinned
+// at 0.999999, so the delivery's own roll lands Q0 and the reading is the share of units that climbed a step).
 function cycleOreQuality(s: GameState): number {
   const { before, after } = oneCycle(s, "shortOreRun");
   const weighted = (g: GameState) => (g.inventory.commonOre ?? []).reduce((a, q, i) => a + i * Number(q), 0);
-  return weighted(after) - weighted(before);
+  const units = heldOf(after, "commonOre") - heldOf(before, "commonOre");
+  return units > 0 ? (weighted(after) - weighted(before)) / units : 0;
 }
 
 // How many blueprints a top-level Research Lab can start (the relic-gated ones count once their relic is found).
@@ -1137,7 +1140,7 @@ export const PROBES = {
     read: (s, ctx) => (ctx === "mission:shortRange" ? shortRangeOutputShare(s) : shipMissionOutputBonus(s, shipOf(s))),
   },
   missionCycleOutput: { label: "one whole shortOreRun cycle (economyTick): the credits and Titanium Ore delivered", read: (s) => cycleOutput(s) },
-  missionOreQuality: { label: "one whole shortOreRun cycle (economyTick): the quality of the ore delivered", read: (s) => cycleOreQuality(s) },
+  missionOreQuality: { label: "one whole shortOreRun cycle (economyTick): the average quality of the ore delivered (quality-weighted units over units)", read: (s) => cycleOreQuality(s) },
   // == the captain secondary tree (WR-5a) ==
   deliveryQualityClimb: {
     label: "economyTick's mission deposit: the largest constant draw whose delivered ore still climbs to quality 1 (shortOreRun; mission:shortRange: a Supply Pickup)",

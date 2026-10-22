@@ -121,6 +121,9 @@
 //                  ML-2's two new entries (the Biofiber and Resin Distillate refines) are held apart by ML2_SLICE, which
 //                  registryPin always applies, so the base pin and every cause pin are unchanged. The ML-1 pin is read
 //                  back (ml2LinesBack) to its capture.
+// MOVED BY ML-3 (material quality on delivery, OC-D2): nothing pinned here. The rig line's entry flips pending -> live;
+//                  ML3_SLICE reads it back as pending in every registryPin call, so the base pin and every cause pin
+//                  are unchanged.
 // ADDED BY G1-1: `guests:<hull>` (guest quarters bare and with each quarters variety, the Guest Wing last) and
 // `stats:<hull>:guestWing` (every other stat with a Guest Wing installed). The sheets hash through withoutGuests, so
 // the stats pins keep proving no other stat moved (the transport hulls now carry base guest quarters).
@@ -143,6 +146,7 @@ import { WIRING_REGISTRY } from "./wiring/registry";
 import { bucketOf, withBuckets } from "./wiring/probes";
 import { hash, onHull, withCrew, withV1Museum, withoutGuests } from "./firstRunsGoldens.fixture";
 import { ML2_ADDED_ENTRY_IDS, ml2LinesBack } from "./ml2RecipeGoldens.fixture";
+import { ML3_FLIPPED_LIVE } from "./materialQualityGoldens.fixture";
 import { asPreG2NamesDispatch, dispatchPastPropulsion } from "./awayTeamTestFixtures";
 import { GG1_ADDED_ENTRY_IDS } from "./gasStudyGoldens.fixture";
 import { FUSE_ADDED_ENTRY_IDS } from "./fieldKitsFuse.fixture";
@@ -617,11 +621,14 @@ const ML2_SLICE: RegistrySlice = { added: ML2_ADDED_ENTRY_IDS };
 // The OC-15 Lab and Fabricator tier rungs (0.14.0): one added entry per new rung, held apart in EVERY pin the same way
 // (labFabricatorTiers.test.ts pins them live).
 const OC15_SLICE: RegistrySlice = { added: OC15_ADDED_ENTRY_IDS };
+// ML-3 (material quality on delivery, OC-D2): the rig line's entry it FLIPPED pending -> live, read back as pending in
+// EVERY pin (all were taken before it); the test "ML-3 is the only cause" proves the flip is the whole move.
+const ML3_SLICE: RegistrySlice = { flipped: ML3_FLIPPED_LIVE, was: "pending" };
 // The Quartermaster Standard-Issue member lines and the D26 line swap (0.14.0): read back in EVERY pin (all of them were
 // taken before it) through siReadBack (siMemberGearRegistry.fixture.ts: the `si:` entries and the three new Science
 // lines left out, the nine retired combat lines restored in place); `registry:si` pins the added and retired ids.
 function registryPin(...given: readonly RegistrySlice[]): [number, string] {
-  const slices = [RX_SLICE, FUSE_SLICE, ML2_SLICE, OC15_SLICE, R2_2_SLICE, G16_SLICE, ...G2_4_SLICES, ...given];
+  const slices = [RX_SLICE, FUSE_SLICE, ML2_SLICE, OC15_SLICE, R2_2_SLICE, G16_SLICE, ...G2_4_SLICES, ML3_SLICE, ...given];
   const rows = siReadBack(WIRING_REGISTRY.map((e) => ({ id: e.id, kind: e.status.kind as string })), (r) => r.id, (row) => ({ id: row[0], kind: row[1].kind as string }));
   const lines = rows.filter((e) => !slices.some((sl) => sl.added?.has(e.id))).map((e) => {
     const flip = slices.find((sl) => sl.flipped?.has(e.id));
@@ -801,6 +808,9 @@ const R2_1_SLICE: RegistrySlice = { added: new Set(WIRING_REGISTRY.filter((e) =>
 describe("G1-0 golden 5: the wiring registry's ids and statuses", () => {
   it("the entries outside the G1 additions, hashed in registry order", () => {
     pin("registry", registryPin(GW_SLICE, G1_SLICE, SF3_SLICE, GG1_SLICE, ML1_SLICE, R2_1_SLICE));
+  });
+  it("ML-3 is the only cause of its registry move (the rig line's entry flips live)", () => {
+    expect(WIRING_REGISTRY.filter((e) => ML3_FLIPPED_LIVE.has(e.id)).map((e) => e.status.kind)).toEqual(["live"]);
   });
   it("safe first runs SF-3 is the only cause of its registry move (Weak's two entries flip live)", () => {
     expect(WIRING_REGISTRY.filter((e) => SF3_FLIPPED_LIVE.has(e.id)).map((e) => e.status.kind)).toEqual(["live", "live"]);

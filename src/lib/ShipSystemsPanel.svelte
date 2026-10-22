@@ -2005,7 +2005,7 @@
       on:pointerenter={cancelTipHide}
       on:pointerleave={scheduleTipHide}
     >
-      <EquipmentTooltip piece={tipPiece} />
+      <EquipmentTooltip piece={tipPiece} shipPieces={fittedPieces} />
     </div>
   {/if}
 

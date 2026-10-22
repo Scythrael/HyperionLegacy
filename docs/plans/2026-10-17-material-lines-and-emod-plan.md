@@ -338,11 +338,69 @@ folds to 0; the old "materialQualityChance stays reserved" assertion is replaced
 Goldens: only rig-ship states move. UI: the rig tooltip line becomes a real "+X% chance per unit to arrive one quality
 higher" (text, no mockup).
 
+> **Carry note (ML-3 built 2026-10-21, on feat f85ef73).** Goldens first: `materialQualityGoldens.test.ts` (own
+> commit) pins a Refinery-Feed Rig ship under an Assayer captain on the Local Asteroid run and on Salvage Wreckage
+> (plus the ML-4 craft captures). Built in `materialQuality.ts`: `materialQualityClimbChance(points)` =
+> `diminishing(points x 0.01, 0.25)` (D23, the shared unbounded curve rather than an asymptotic PERCENT_STAT_CURVES
+> entry; a probability, so 1 at most), **`MATERIAL_QUALITY_CURVE` [PROVISIONAL]** (no answer names the numbers: 10
+> points about 8.5%, 20 about 15%, 30 about 21%); `equipmentStatMods` sums the line into
+> `percentPlus.materialQualityChance` (written only when a piece carries it) and `shipDerivedStats` writes the optional
+> `ShipDerivedStats.materialQuality` only when above 0. economyTick's per-captain merge climbs `floor(amount x p)`
+> units per delivered item plus one rounding draw each (sorted item order) on
+> `makeRng(FNV(captainId|materialQuality|cycle) ^ MATERIAL_QUALITY_SALT)` (salt registered in salts.test.ts), keyed on
+> the new lifetime counter `CaptainState.materialQualityCycles` (optional, written only once a delivery rolled; the
+> Motherlode rule, no save step). The deposit fold deposits each share's climbed units FIRST at `min(5, q + 1)`, then
+> the rest at `q`; the Assayer's own share climbs from its own graded quality. No shared draw added (draw counts
+> unchanged in every capture). Goldens moved: only rig-ship states (ML-0 `rig`, ML-3 `rigAssayer` / `rigSalvage`), each
+> reproduced by `withMaterialQualityOff` (the curve at 0 points per point); the registry snapshots (emodGoldens
+> cfe349ea -> c89e7c59, read back by `ml3RowsBack`; shortRangeGoldens unchanged through `ML3_SLICE`). Registry:
+> `ship:gearLine:materialQualityChance` LIVE on mission:extraction (probe `missionOreQuality`, now the delivered ore's
+> average quality); the FLAT_UNCONTROLLED excuse is gone; the wiring plan's WR-7 row is struck (X1). UI: the item
+> tooltip's detail line "+X% chance per unit to arrive one quality higher" (`ui/materialQualityText.ts`). Short-range
+> pickups keep their own deposit roll (the registry's existing outOfScope reason). **Patch note line:** "Refinery-Feed
+> Rigs (and every Prospecting Rig's Material Quality line) now work: each unit a mission delivers has a chance to
+> arrive one quality higher."
+> **Review follow-ups (2026-10-21, merged with feat 5b5011a).** (a) The climb seed is now keyed by the save's own seed
+> too, the plan's `seed ^ MATERIAL_QUALITY_SALT ^ captain ^ cycle`: `materialQualitySeed(saveSeed, captainId, cycle)` =
+> `saveSeed ^ salt ^ FNV(captainId|materialQuality|cycle)`, the save seed being the homeworld seed
+> (`worksDirectorateSaveSeed`, the Works Directorate precedent), so delivery N of captain 1 does not climb alike in
+> every save. No live save has these draws yet; every golden fixture has no homeworld seed (0), so no pin moved (a
+> seeded-save test proves the key is read). (b) **Reading of L4 for the user to confirm:** "one keyed rounding roll
+> per delivery" is built as ONE private stream per delivery that takes ONE draw per delivered ITEM (sorted item
+> order), because each item has its own leftover fraction (a Salvage Wreckage delivery of three items takes three
+> draws on that one stream). The alternative is one draw shared by every item of the delivery (its items would round
+> up or down together). (c) The switch's visible title is aria-hidden (the switch's own label names it once). (d) The
+> rig tooltip also shows the ship's combined chance when two installed pieces carry the line ("Ship total, 2 pieces:
+> +Y% per unit (the points add, then diminish)", `shipMaterialQualityText`, Ship Systems passes the ship's pieces);
+> today only one Prospecting Rig installs per ship, so it first shows once more than one slot carries the line.
+
 **ML-4 Quality carries into crafts.** `startProcess` variant reports the unit-weighted consumed quality; effects stamp
 `inputQuality`; completion = `min(5, carried + rollQuality(rng, craftQualityBonus))` (same call, same draw count;
 call L6). `materialPreference` per order with `removeItemHighestFirst` (call L5). Tests: a best-first line on q2 stock
 lands at 2 or more; absent `inputQuality` resolves byte-identically; lowest-first default byte-identical; reservation
 stays total-based (allocation.ts untouched). UI: the toggle needs the ML-7 mockup.
+
+> **Carry note (ML-4 built 2026-10-21, after ML-3).** Goldens: `materialQualityGoldens.test.ts` `refineMixed` /
+> `fabMixed` moved by design (c43a66c9 -> a653ebe5, bd8b3770 -> 44bb89ca; draw counts unchanged); stripping every
+> job's stamp as the run goes (`stripCarry`) reproduces both captures; `inFlight` (a job started without a stamp) and
+> `queued` held. Built: `startProcess` takes an optional `materialPreference`; a refineJob / fabricateJob whose effect
+> is `addItem` tallies what it consumes with `drawQualityTally` (inventory.ts, the same walk as the deduct) and
+> stamps `inputQuality` = `carriedQuality` (floor of the unit-weighted average, materialQuality.ts) only when above 0;
+> completion = `craftOutputQuality(inputQuality, rollQuality(rng, craftQualityBonus))` (same call, same draws). "best"
+> drains through the new `removeItemHighestFirst`. `materialPreference?: "best"` (absent = lowest) on `CraftLine`,
+> `CraftOrder` (mirrored onto joined lanes) and the queued `craftLine` order (carried at promotion); `startLine` takes it
+> as a fifth argument. allocation.ts gained only the type field; reservation math is untouched (total-based, tested).
+> UI (the signed-off Refinery mockup's order switch, wired now so the field is player-reachable): a `Toggle` "Use best
+> materials" on the Refinery and Fabricator configurators with the mockup's two notes (`bestMaterialsNote`), OFF
+> every time the form opens (sign-off: no memory), carried through the confirm modal and Add to queue; the log says
+> ", best materials". The Fabricator shows it only for stackable outputs (`bestOffered`). No save step. **For ML-5:**
+> blanks carry nothing yet: extend `carries` in startProcess to `addBlank` (stamp `inputQuality` on it), bucket the
+> blank on completion, drop the `bestOffered` guard so equipment blueprints show the switch, and pass the blank's
+> quality into `mintCraftedPiece` at inspect. **For ML-7:** the switch is in place (restyle freely); still yours: the
+> "This order uses" per-quality breakdown and the "Carried quality: average X = QN, then the roll" readout (the engine
+> walk is `drawQualityTally`), grouping, per-quality chips, Help. **Patch note line:** "Material quality now carries
+> into what you craft: an order's output starts from the average quality of what it used. Turn on Use best
+> materials on an order to spend your highest quality stock first."
 
 **ML-5 Quality blanks (call L7 a).** Blanks become quality buckets; inspect consumes the highest quality first and
 passes it to `mintCraftedPiece` (carry + climb); inspect seed derivation and draw order unchanged, so reload-before-

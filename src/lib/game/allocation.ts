@@ -66,6 +66,7 @@ import type { ShipTypeKey } from "./model";
 // module graph stays a DAG and this file stays the pure leaf its header promises.
 import type { QueuedJob, QueuedOrder, QueueFacilityKey } from "./model";
 import { itemTotal } from "./inventory";
+import type { MaterialPreference } from "./materialQuality";
 
 // --- Functions ---------------------------------------------------------------
 
@@ -128,6 +129,11 @@ export interface CraftLine {
   // is what keeps the 101 parity baseline meaningful. So this is ADDITIVE: when it is undefined,
   // the lane behaves precisely as it did before, reading its own `remaining`.
   orderId?: string;
+  // Material Lines ML-4 (L5, user 2026-10-19 "Toggle, lowest-first default"): "best" = this line's "Use best
+  // materials" toggle, so each job spends the highest quality stock first and carries more quality into its output.
+  // Written only when the player turned it on (absent = lowest-first, the documented consume policy), so every line
+  // started without it is byte-identical. It decides only WHICH buckets a job drains; allocation stays total-based.
+  materialPreference?: MaterialPreference;
 }
 
 // ============================================================================
@@ -158,6 +164,8 @@ export interface CraftOrder {
   // Iterations NOT YET STARTED across every lane attached to this order. THE allocation basis.
   remaining: number;
   mode: CraftLineMode; // batch (fixed N) or continuous
+  // Material Lines ML-4 (L5): the order's "Use best materials" toggle, mirrored onto every lane that joins it.
+  materialPreference?: MaterialPreference;
 }
 
 // Inputs consumed by a SINGLE iteration of this line, as a fresh Decimal map keyed

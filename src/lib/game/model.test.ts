@@ -1481,7 +1481,7 @@ describe("equipmentStatMods (the aggregator)", () => {
     expect(mods.totalPowerDraw).toBe(11); // 14 gross - 3 reduction
   });
 
-  it("takes powerOutput from the reactor implicit, FOLDS sensors (E1a), and IGNORES still-reserved stats", () => {
+  it("takes powerOutput from the reactor implicit, FOLDS sensors (E1a) and material quality (ML-3)", () => {
     const pieces = [
       makeEquip({ id: "r", slotType: "reactorCore", implicitStats: { powerOutput: 50 } }),
       makeEquip({ id: "u", slotType: "specUtility", implicitStats: { extractionYieldMult: 5 }, rolledStats: { sensors: 9, materialQualityChance: 9 } }),
@@ -1492,9 +1492,12 @@ describe("equipmentStatMods (the aggregator)", () => {
     // Exploration 0.14.0 (E1a): `sensors` now FOLDS as a flat point-sum (its survey-yield
     // consumer went live), so it lands in the flat bucket rather than being ignored.
     expect(mods.flat.sensors).toBe(9);
-    // materialQualityChance is STILL reserved: it must NOT leak into any folded bucket.
+    // Material Lines ML-3 (OC-D2): materialQualityChance sums raw into percentPlus (the climb chance is derived from it
+    // by shipDerivedStats), never into the flat bucket.
     expect((mods.flat as Record<string, number>).materialQualityChance).toBeUndefined();
-    expect((mods.percentPlus as Record<string, number>).materialQualityChance).toBeUndefined();
+    expect((mods.percentPlus as Record<string, number>).materialQualityChance).toBe(9);
+    // A loadout without the line keeps the old percentPlus shape (the key is absent, not 0).
+    expect("materialQualityChance" in equipmentStatMods([pieces[0]]).percentPlus).toBe(false);
   });
 
   it("returns all-zero mods for an empty loadout (the fold identity)", () => {
