@@ -569,7 +569,7 @@ snapshot; `Expedition.moduleScanProcs` is written at dispatch; the mission cycle
 (`missionCycleModulesFor`, a call-constant) on delivered non-transport extraction cycles, keyed on the new optional
 lifetime counter `CaptainState.moduleCycles` (the Motherlode rule; no save step). Tests: `shipModuleProcs.test.ts`
 (one fixture module per trigger in shipModulesTest.fixture.ts). Registry: nothing added or moved (no catalog entry
-exists; EM-7 registers each module with its probe). **[PROVISIONAL]** `MODULE_ARC_FAMILY` (EW) and `MODULE_SCALE_ON`
+exists; EM-7 registers each module with its probe). `MODULE_ARC_FAMILY` (EW, user-confirmed 2026-10-22). **[PROVISIONAL]** `MODULE_SCALE_ON`
 (the Lens' rarity and quality lift its chance, since one discovery is a whole count). **Readings for the user:** "on
 hit" is a hit TAKEN (the roster's Arc Discharger); the mission cycle is an extraction cycle (short-range board runs and
 transport runs do not fire it); a bonus haul lands after Motherlode and before Command Presence. **For EM-7:** add

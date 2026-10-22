@@ -201,7 +201,7 @@ export const MODULE_TRIGGER_EFFECTS: Readonly<Record<ModuleTriggerKind, readonly
   bodyScanned: ["extraDiscovery"],
 };
 
-// [PROVISIONAL] (no answer names it; EM-7 / EM-8 may retune): the damage family of a module arc. EW is neutral against
+// The damage family of a module arc (user 2026-10-22: Electromagnetic confirmed). EW is neutral against
 // armor and a little weak against shields (resolveBattle.ts FAMILY_VS_*), so an arc reads as a small electrical jolt.
 export const MODULE_ARC_FAMILY = "ew" as const;
 
