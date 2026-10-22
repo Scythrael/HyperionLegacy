@@ -383,6 +383,9 @@
     // Relics v2 R2-1: the Tier I general record (where the v1 museum copies live) and its write, for the dev museum.
     generalMuseumRecord,
     withGeneralMuseumRecord,
+    // OC-15: the Lab / Fabricator tier readers the Upgrades panels show.
+    labTier,
+    fabricatorTier,
   } from "./lib/game/model";
   // WR-3: the Debug Wiring panel's view model (the registry itself loads lazily inside it; types only here).
   import {
@@ -9920,14 +9923,14 @@
   // Lab level (0 = not built; freshState seeds 1) + its parallel-project slot count
   // (derived from levels reached; parallels refinerySlots). researchSlotCount reads
   // state directly, so it's reactive here.
-  $: researchLevel = state.facilities[RESEARCH_FACILITY_KEY]?.level ?? 0;
+  $: researchLevel = labTier(state);
   $: researchSlots = researchSlotCount(state);
   // The research projects currently in flight (kind "researchProject"). Their count
   // vs researchSlots is the free-slot gate (enforced in canResearch); each also
   // renders a progress row in the Overview sub-tab.
   $: activeResearchProjects = state.activeProcesses.filter((p) => p.kind === "researchProject");
 
-  // Next Research Lab UPGRADE rung (upgrades[level]; caps at length 2 today).
+  // Next Research Lab UPGRADE rung (upgrades[level]; the track ends at LAB_FABRICATOR_TOP_TIER, OC-15).
   // researchMaxed is an EXPLICIT length check (same noUncheckedIndexedAccess
   // reasoning as refineryMaxed) so nextResearchUpgrade stays non-undefined-typed in
   // the {:else} branch. The upgrade check + in-flight process mirror the Refinery's.
@@ -9969,14 +9972,14 @@
   // Fabricator level (0 = not built; freshState seeds 1) + its parallel-craft slot count
   // (derived from levels reached; parallels researchSlots). fabricateSlotCount reads state
   // directly, so it's reactive here.
-  $: fabricatorLevel = state.facilities[FABRICATOR_FACILITY_KEY]?.level ?? 0;
+  $: fabricatorLevel = fabricatorTier(state);
   $: fabricateSlots = fabricateSlotCount(state);
   // The fabricate jobs currently in flight (kind "fabricateJob"). Their count vs
   // fabricateSlots is the free-slot gate (enforced in canFabricate); each also renders a
   // progress row in the Overview sub-tab.
   $: activeFabricateJobs = state.activeProcesses.filter((p) => p.kind === "fabricateJob");
 
-  // Next Fabricator UPGRADE rung (upgrades[level]; caps at length 2 today). fabricatorMaxed
+  // Next Fabricator UPGRADE rung (upgrades[level]; ends at LAB_FABRICATOR_TOP_TIER). fabricatorMaxed
   // is an EXPLICIT length check (same noUncheckedIndexedAccess reasoning as researchMaxed)
   // so nextFabricatorUpgrade stays non-undefined-typed in the {:else} branch. The upgrade
   // check + in-flight process mirror the Research Lab's.
@@ -10106,6 +10109,10 @@
   // tier-3 blueprint later makes the clause reappear on its own with no code change.
   $: maxBlueprintTier = Object.values(BLUEPRINTS).reduce((max, bp) => Math.max(max, bp.tier), 0);
   $: fabricatorUnlocksNextTier = fabricatorLevel + 1 <= maxBlueprintTier;
+  // The Research Lab's twin (OC-15): its tier rungs III to VII exist before every tier has a blueprint (the classed
+  // drives, gas giant specials and top modules land in their own slices), so its grant line names a tier only when
+  // that tier has a blueprint, and otherwise names the research slot alone.
+  $: researchUnlocksNextTier = researchLevel + 1 <= maxBlueprintTier;
 
   // ── The CRAFTING LEVEL readout (Crafting 0.13.3, Phase 4 Unit 4.5) ──
   // The state-dependent half of the panel. Everything binds to craftingProgress.ts and
@@ -12596,7 +12603,7 @@
 
             {#if activeFabricatorSubTab === "upgrades"}
               <!-- UPGRADES, the Fabricator's finite tier/slot track
-                   (FACILITIES.fabricator.upgrades[level]; caps at length 2 today). Each
+                   (FACILITIES.fabricator.upgrades[level]; ends at tier VII, OC-15). Each
                    next rung grants a craft slot AND unlocks the next blueprint tier for
                    fabrication. Cost is CREDITS (materials are the per-craft cost, not the
                    upgrade cost), so the credits gate leads; the materials loop is kept
@@ -13003,7 +13010,7 @@
 
             {#if activeResearchSubTab === "upgrades"}
               <!-- UPGRADES, the Research Lab's finite tier/slot track
-                   (FACILITIES.research.upgrades[level]; caps at length 2 today). Each
+                   (FACILITIES.research.upgrades[level]; ends at tier VII, OC-15). Each
                    next rung grants a research slot AND unlocks the next blueprint tier.
                    Cost is CREDITS (the design's long-term sink), not materials, so the
                    credits gate leads the readiness rows; materials loop is kept (empty
@@ -13026,7 +13033,7 @@
                        whitespace-only text at a block boundary, which Svelte would trim) so
                        the " · " separator renders. -->
                   <div class="research-cost">
-                    {#if "addResearchSlots" in eff}Grants: +{eff.addResearchSlots} research slot{eff.addResearchSlots === 1 ? "" : "s"} · unlocks Tier {researchLevel + 1} blueprints{:else}Grants: unlocks Tier {researchLevel + 1} blueprints{/if}
+                    {#if "addResearchSlots" in eff}Grants: +{eff.addResearchSlots} research slot{eff.addResearchSlots === 1 ? "" : "s"}{#if researchUnlocksNextTier}{" "}· unlocks Tier {researchLevel + 1} blueprints{/if}{:else}Grants: unlocks Tier {researchLevel + 1} blueprints{/if}
                   </div>
                   <div class="research-cost">Duration: {durationReadout(nextResearchUpgrade.durationTicks, showTickCounts, state.tickDurationSeconds)}</div>
 

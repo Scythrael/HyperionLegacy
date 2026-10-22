@@ -3594,7 +3594,7 @@ const AUDIT_ROWS: readonly { id: string; system: WiringSystem; claim: string; st
   // the 1:1 times, the closing window and the resume); no player can recall or resume until G2-6's console.
   { id: "expedition:audit:recall", system: "expedition", claim: "Recall: home in the outbound time flown (the detour not counted), or after arrival the window closes, one shared pickup, then the full return leg; finished work comes home", status: pending(G2_6_RECALL) },
   { id: "expedition:audit:resumableSystems", system: "expedition", claim: "A recalled system with charted bodies stays open to resume by any explorer (scans done, objectives keep progress, the trip flown again) until finished or abandoned; one recalled before anything was charted is an ordinary candidate again", status: pending(G2_6_RECALL) },
-  { id: "facility:audit:heldDriveClasses", system: "facility", claim: "The Class III to VII Drive Blueprints (DRIVE_CLASS_BLUEPRINTS) join BLUEPRINTS once the Research Lab and Fabricator tracks reach their tiers", status: pending("complement OC-15 (Research Lab and Fabricator rungs 3 to 7; user 2026-10-16 \"Add tiers 3-7 now\")") },
+  { id: "facility:audit:heldDriveClasses", system: "facility", claim: "The Class III to VII Drive Blueprints (DRIVE_CLASS_BLUEPRINTS) join BLUEPRINTS once the Research Lab and Fabricator tracks reach their tiers", status: LIVE },
   { id: "expedition:audit:anomalySensors", system: "expedition", claim: "ANOMALY_CHANCE_PERMILLE: \"if sensors detect one\" (sensors not read)", status: pending("WR-11, OC-G3") },
   { id: "expedition:audit:relicSignature", system: "expedition", claim: "Foreknowledge relicSignature (the UI never reads it)", status: pending("WR-11 (delete or render; no call)") },
   { id: "expedition:audit:blindLaunch", system: "expedition", claim: "The blind launch path (a candidate past the telescope's reach: a deeper tier)", status: pending(G2_6_PICKER) },
@@ -3714,6 +3714,19 @@ function auditRowWiring(): Readonly<Record<string, Partial<EntryInput>>> {
       base: () => wiringBase("orion"),
       on: classedDrive("classIIDriveBp"),
       off: classedDrive("balancedDriveBp"),
+    },
+    // G2-4 + OC-15 (the Lab and Fabricator reach tier VII, so drivesWithinFacilityReach serves Class III to VII): the
+    // Class VII drive is a real blueprint, so installed it draws its class's power on the sheet, above the Class II
+    // drive's (ftlDriveClass reads BLUEPRINTS; a key outside it would read Class I and draw the base). The voyage leg is
+    // not the probe here: at Tier I a Class III leg already sits on the voyage floor.
+    "facility:audit:heldDriveClasses": {
+      probe: "sheetPowerDraw",
+      contexts: ["sheet"],
+      curve: { kind: "linearAbsolute" },
+      magnitude: (c) => driveClassPowerDraw(c.SLOT_BASE_PHYSICALS.ftlDrive.powerDraw, 7) - driveClassPowerDraw(c.SLOT_BASE_PHYSICALS.ftlDrive.powerDraw, 2),
+      base: bareHull,
+      on: classedDrive("classVIIDriveBp"),
+      off: classedDrive("classIIDriveBp"),
     },
     // G2-4: the starting General Freighter is refused, the same save on an Orion launches.
     "expedition:audit:explorerHullGate": {

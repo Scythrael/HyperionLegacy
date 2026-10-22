@@ -19,7 +19,7 @@ import { applyTimeSkip } from "./processSpeed";
 import { installMissingCombatBaselines } from "./tick";
 import { asExpeditionVeteran, dispatchPastPropulsion, plainAwayMember, withoutRelicBlanks } from "./awayTeamTestFixtures";
 import { FIELD_KITS_CATALOG_VERSION } from "./fieldKits";
-import { PRE_G2_4_STORED_RUNS } from "./propulsionRecallGoldens.fixture";
+import { HELD_DRIVE_KEYS, PRE_G2_4_STORED_RUNS, withoutHeldDrives } from "./propulsionRecallGoldens.fixture";
 import { goldenJson } from "./firstRunsGoldens.fixture";
 
 function fnv(s: string): string {
@@ -197,8 +197,13 @@ describe("G2-4 goldens first: a veteran Aurora at every tier, and the blueprint 
       const gated = startExpedition(state, "ship-1", 1, `cand-${tier}-0`);
       if (tier === 1) expect(gated).toEqual(res);
       else {
-        expect(gated.reason, `tier ${tier}`).toBe(tier === 2 ? "driveClassTooLow" : "driveClassUnavailable");
+        // FLIPPED BY OC-15 (Lab and Fabricator at tier VII serve Class III to VII): every deeper tier reads
+        // driveClassTooLow; with those rows held out (the catalog before OC-15) Tiers III to VII read
+        // driveClassUnavailable exactly as G2-4 pinned.
+        expect(gated.reason, `tier ${tier}`).toBe("driveClassTooLow");
         expect(gated.next).toBe(state);
+        const before = withoutHeldDrives(() => startExpedition(state, "ship-1", 1, `cand-${tier}-0`));
+        expect(before.reason, `tier ${tier}`).toBe(tier === 2 ? "driveClassTooLow" : "driveClassUnavailable");
       }
     }
     expect(out).toEqual(GOLDEN_TIERS);
@@ -207,8 +212,10 @@ describe("G2-4 goldens first: a veteran Aurora at every tier, and the blueprint 
   // G2-4 (named move): the Class II Drive Blueprint joins the catalog right after the Class I drives; the other keys
   // hash as before, in order.
   it("the blueprint catalog's keys", () => {
+    // OC-15 (named move): the Class III to VII rows follow it, in class order, once both tracks reach tier VII.
     const keys = Object.keys(BLUEPRINTS);
-    expect(keys.slice(keys.indexOf("balancedDriveBp") + 1, keys.indexOf("balancedDriveBp") + 2)).toEqual(["classIIDriveBp"]);
-    expect(hash(keys.filter((k) => k !== "classIIDriveBp"))).toBe(GOLDEN_CATALOG);
+    const classed = ["classIIDriveBp", ...HELD_DRIVE_KEYS];
+    expect(keys.slice(keys.indexOf("balancedDriveBp") + 1, keys.indexOf("balancedDriveBp") + 1 + classed.length)).toEqual(classed);
+    expect(hash(keys.filter((k) => !classed.includes(k)))).toBe(GOLDEN_CATALOG);
   });
 });

@@ -25,6 +25,7 @@ import Decimal from "break_infinity.js";
 vi.mock("./crewLock", async (io) => (await import("./complementOc11Switch.fixture")).oc11CrewLockMock(io));
 import { withOc11Off } from "./complementOc11Switch.fixture";
 import { PRE_RX_MISSION_KEYS } from "./reactorFuelGoldens.fixture";
+import { withPreOc15Tracks } from "./labFabricatorTiers.fixture";
 import {
   FACILITIES,
   ITEMS,
@@ -145,6 +146,8 @@ function atOreCap(): GameState {
 
 // ===== the goldens =====
 
+// The `rungs` record WITH the OC-15 tier rungs (GOLDEN.rungs is the record before them; see the rungs test).
+const RUNGS_OC15 = "84e43e35";
 const GOLDEN: Record<string, string | string[]> = {
   // Re-pinned by WR-4: B2 (OC-I3) lets both transports launch at the ore cap (their gate reads ok and their runs
   // join the list); OC-C2 names the Lunar Mine's uncommon strike Dense Ore (pre-fix 5eb4c97d: naming denseOre back
@@ -175,7 +178,12 @@ const GOLDEN: Record<string, string | string[]> = {
   // Re-pinned by G1-6 (SHORT_RANGE_BOARD_LIVE): Mission Control gains the two Short-Range board rungs, so its level 1
   // and 2 lines read the completion and credit gates and level 3 is the new top. With Mission Control cut back to its
   // founding rung the pre-flip capture (rungsBeforeG16) reproduces exactly, so the board rungs are the only cause.
-  rungs: "5394692d",
+  // Re-pinned once more at the merge of G1-6 with OC-15 (0.14.0 integration): both added rungs (the board's two on
+  // Mission Control, OC-15's Lab and Fabricator tiers) are in the rows. The rungs test reads back to every earlier
+  // value: without OC-15's rungs G1-6's pin (rungsG16), without G1-6's OC-15's (RUNGS_OC15), without both the
+  // pre-flip capture (rungsBeforeG16).
+  rungs: "6790392f",
+  rungsG16: "5394692d",
   rungsBeforeG16: "9928b877",
   utility: [
     "f3df2ef8", "3b01c657", "217dee49", "4f69bf08", "5bdee672", "8074aed9", "e1d54513", "a15fe684",
@@ -270,12 +278,16 @@ describe("WR-4 pre-fix goldens", () => {
     expect(out).toEqual(GOLDEN.patrol);
   });
 
+  // MOVED BY OC-15 (the Research Lab and Fabricator tier III to VII rungs): the two tracks gained rungs, so their rows
+  // grow and the old top levels read buildable. With the tracks cut back to their pre-OC-15 length
+  // (withPreOc15Tracks) the rows hash to G1-6's pin (GOLDEN.rungsG16) exactly, so the new rungs are the only cause;
+  // RUNGS_OC15 pins the rows with them and without G1-6's board rungs. GOLDEN.rungs holds both (see its note).
   it("rungs: canBuildFacilityUpgrade for every facility at every level, poor and rich", () => {
     const poor = freshState();
     let inv = poor.inventory;
     for (const id of Object.keys(ITEMS)) inv = addItemQuality(inv, id, new Decimal(1e12), 0);
     const wealthy: GameState = { ...poor, credits: new Decimal(1e15), fleetAdminLevel: 99, inventory: inv };
-    const lines = (): string[] => {
+    const rows = (): string[] => {
       const out: string[] = [];
       for (const [key, def] of Object.entries(FACILITIES)) {
         for (let level = 0; level <= def.upgrades.length; level++) {
@@ -286,18 +298,23 @@ describe("WR-4 pre-fix goldens", () => {
       }
       return out;
     };
-    const out = lines();
+    const out = rows();
     expect(out.some((l) => l.endsWith("|ok"))).toBe(true);
     expect(hash(out)).toEqual(GOLDEN.rungs);
-    // G1-6's only cause: Mission Control cut back to its founding rung reproduces the pre-flip capture.
+    // The read-back to both earlier values: without the OC-15 rungs the rows are G1-6's pin, without the G1-6 board
+    // rungs (Mission Control cut back to its founding rung) they are OC-15's, and without both the pre-flip capture.
     const mc = FACILITIES.missionControl;
-    const board = mc.upgrades;
-    try {
-      FACILITIES.missionControl = { ...mc, upgrades: board.slice(0, 1) };
-      expect(hash(lines())).toEqual(GOLDEN.rungsBeforeG16);
-    } finally {
-      FACILITIES.missionControl = mc;
-    }
+    const withoutG16 = <T,>(fn: () => T): T => {
+      try {
+        FACILITIES.missionControl = { ...mc, upgrades: mc.upgrades.slice(0, 1) };
+        return fn();
+      } finally {
+        FACILITIES.missionControl = mc;
+      }
+    };
+    expect(hash(withPreOc15Tracks(rows))).toEqual(GOLDEN.rungsG16);
+    expect(hash(withoutG16(rows))).toEqual(RUNGS_OC15);
+    expect(hash(withoutG16(() => withPreOc15Tracks(rows)))).toEqual(GOLDEN.rungsBeforeG16);
   });
 
   it("utility: the Damage Control and Pathfinder Suite readers", () => {

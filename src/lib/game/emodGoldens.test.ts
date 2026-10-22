@@ -47,6 +47,7 @@ import { goldenJson, withV1Museum } from "./firstRunsGoldens.fixture"; // gear w
 import { GG1_ADDED_ENTRY_IDS } from "./gasStudyGoldens.fixture";
 import { FUSE_ADDED_ENTRY_IDS } from "./fieldKitsFuse.fixture";
 import { RX_ADDED_ENTRY_IDS } from "./reactorFuelGoldens.fixture";
+import { OC15_ADDED_ENTRY_IDS } from "./labFabricatorTiers.fixture";
 // ML-2 (the Material Lines recipe rework + the recipe realism audit): its registry move, read back by ml2RowsBack.
 import { ml2RowsBack } from "./ml2RecipeGoldens.fixture";
 import { R2_2_ADDED_ENTRY_IDS } from "./relicBlanks.fixture";
@@ -625,13 +626,15 @@ type Back = { readonly sf3?: boolean; readonly fkr9?: boolean; readonly racials?
 // the nine retired combat lines restored in place; shortRangeGoldens.test.ts `registry:si` pins them).
 // Expedition Tiers G2-4 / G2-5 come after every pin too: their added entries are left out and their flips read back
 // (propulsionRecallGoldens.fixture.ts).
+// The OC-15 Lab and Fabricator tier rungs (labFabricatorTiers.fixture.ts) only ADD entries too, left out the same way
+// (labFabricatorTiers.test.ts pins them live).
 const G16_ADDED_IDS: ReadonlySet<string> = new Set<string>(["facility:FACILITIES:missionControl:1", "facility:FACILITIES:missionControl:2"]);
 const G16_ROW_BEFORE = { kind: "pending", owner: "G1-6 (flips SHORT_RANGE_BOARD_LIVE with the board UI; the rungs then enumerate as facility rung entries on the shortRangeSlots probe)" } as const;
 const BEFORE_RX: WiringEntry[] = siReadBack(
   WIRING_REGISTRY.filter(
     (e) =>
       !RX_ADDED_ENTRY_IDS.has(e.id) && !FUSE_ADDED_ENTRY_IDS.has(e.id) && !R2_2_ADDED_ENTRY_IDS.has(e.id) && !G16_ADDED_IDS.has(e.id) &&
-      !G2_4_ADDED_ENTRY_IDS.has(e.id),
+      !G2_4_ADDED_ENTRY_IDS.has(e.id) && !OC15_ADDED_ENTRY_IDS.has(e.id),
   ).map((e) =>
     e.id === G13_ROW
       ? { ...e, status: G16_ROW_BEFORE as (typeof WIRING_REGISTRY)[number]["status"], contexts: [], probe: undefined }
@@ -786,7 +789,7 @@ describe("EM-0 goldens (re-pinned by EM-1 where named)", () => {
     // Merged onto feat (0.14.0 integration): the slices BEFORE_RX holds apart (the timed grenades, R2-2, the SI read-back)
     // and G2-4's additions are held apart here the same way, so the comparison sees G1-6's move alone.
     const live = WIRING_REGISTRY.filter(
-      (e) => !RX_ADDED_ENTRY_IDS.has(e.id) && !FUSE_ADDED_ENTRY_IDS.has(e.id) && !R2_2_ADDED_ENTRY_IDS.has(e.id) && !G2_4_ADDED_ENTRY_IDS.has(e.id),
+      (e) => !RX_ADDED_ENTRY_IDS.has(e.id) && !FUSE_ADDED_ENTRY_IDS.has(e.id) && !R2_2_ADDED_ENTRY_IDS.has(e.id) && !G2_4_ADDED_ENTRY_IDS.has(e.id) && !OC15_ADDED_ENTRY_IDS.has(e.id),
     );
     const rung = live.filter((e) => G16_ADDED_IDS.has(e.id)).map((e) => [e.id, e.status, e.contexts, e.probe ?? null]);
     expect(rung).toEqual([...G16_ADDED_IDS].map((id) => [id, { kind: "live" }, ["mission:shortRange"], "shortRangeSlots"]));

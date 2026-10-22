@@ -391,7 +391,7 @@ scale, the class halving, `planVoyage`, `voyageOf`). For later slices:
   today is Class I; the tier 3 warships read II but are not explorers).
 - Blueprints: `model.ts DRIVE_CLASS_BLUEPRINTS` (Class II to VII, Balanced variety, tier = class, `driveClass` set).
   `drivesWithinFacilityReach` spreads a row into BLUEPRINTS only when BOTH the Research Lab and the Fabricator tracks
-  reach its tier: today Class II only (Lab tops at 2). Class II recipe Power Coupling 3 + Wafer 3 + Titanium Ingot 2
+  reach its tier: Class II to VII since OC-15 merged (both tracks reach tier VII; before it Class II only). Class II recipe Power Coupling 3 + Wafer 3 + Titanium Ingot 2
   (user 2026-10-21, "Approve (Recommended)", same answers section; the audit's Cobalt Coil waits for ML-2, which owns
   that reserve). **[PROPOSAL recipes / costs]** for the rest: III to V + Deuterium 1 / 2 / 3; VI and VII + 1 / 2
   Antimatter Cells. The crafted piece reads "Balanced Drive (Class II)" (craftQueue.ts).
@@ -399,8 +399,10 @@ scale, the class halving, `planVoyage`, `voyageOf`). For later slices:
   `driveClassUnavailable` / `driveClassTooLow`, `frontierSensors`, `outOfReach`; the refusal carries `gate`
   (`ExpeditionGateDetail`), `propulsion.ts expeditionGateText` gives the signed-off text with numbers. G2-6 reads
   `expeditionTierGates(state, ship, tier)` (every gate, met or not, plus the first unmet: the tab state) and
-  `expeditionSystemGate` / `candidateReach` (the reach bar). Class III to VII read "None can be built yet" until the
-  complement OC-15 Lab and Fabricator rungs exist (registry `facility:audit:heldDriveClasses`).
+  `expeditionSystemGate` / `candidateReach` (the reach bar). Since OC-15 a short drive reads `driveClassTooLow` at
+  every tier (before it Class III to VII read "None can be built yet"); registry `facility:audit:heldDriveClasses` is
+  LIVE with its own check (a Class VII drive draws its class's power on the sheet). Tests read the pre-OC-15 catalog
+  back with `propulsionRecallGoldens.fixture.ts withoutHeldDrives`.
 - Reach `DRIVE_CLASS_REACH_MULT` I 4, II 24, III 62, IV 68, V 105, VI 200, VII 240 (user 2026-10-21, "Approve
   (Recommended)", same answers section) on today's `shipTripRangeLightYears` (the Engineering ramp on the voyage's own
   round trip). **Deviation:** `LY_PER_TICK` is NOT

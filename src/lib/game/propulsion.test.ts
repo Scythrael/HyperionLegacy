@@ -35,6 +35,7 @@ import { editShip, installPiece, withAwayTeam } from "./wiring/probes";
 import { tierNominalSeconds } from "./voyage";
 import { craftLineOutputLabel } from "./craftQueue";
 import { dispatchPastPropulsion } from "./awayTeamTestFixtures";
+import { withoutHeldDrives } from "./propulsionRecallGoldens.fixture";
 
 const SHIP = "ship-1";
 const on = (hull: ShipTypeKey): GameState => withAwayTeam(installMissingCombatBaselines(editShip(freshState(), { typeKey: hull })));
@@ -93,13 +94,16 @@ describe("G2-4 the classed drive blueprints", () => {
     }
   });
 
-  it("only the rows both facility tracks reach join BLUEPRINTS: Class II today (Lab 2, Fabricator 3)", () => {
+  // FLIPPED BY OC-15 (the Research Lab and Fabricator tier III to VII rungs, merged 0.14.0): both tracks now reach tier
+  // VII, so every classed drive joins BLUEPRINTS (it was Class II only, both tracks stopping at 2) with no other change.
+  it("only the rows both facility tracks reach join BLUEPRINTS: Class II to VII since OC-15 (Lab 7, Fabricator 7)", () => {
     const top = Math.min(FACILITIES.research.upgrades.length, FACILITIES.fabricator.upgrades.length);
-    expect(top).toBe(2);
-    expect(Object.keys(drivesWithinFacilityReach())).toEqual(["classIIDriveBp"]);
-    expect(BLUEPRINTS.classIIDriveBp).toBe(DRIVE_CLASS_BLUEPRINTS[0]);
-    for (const bp of DRIVE_CLASS_BLUEPRINTS.slice(1)) expect(BLUEPRINTS[bp.key], bp.key).toBeUndefined();
-    expect(buildableDriveClassMax()).toBe(2);
+    expect(top).toBe(7);
+    expect(Object.keys(drivesWithinFacilityReach())).toEqual(DRIVE_CLASS_BLUEPRINTS.map((bp) => bp.key));
+    for (const bp of DRIVE_CLASS_BLUEPRINTS) expect(BLUEPRINTS[bp.key], bp.key).toBe(bp);
+    expect(buildableDriveClassMax()).toBe(7);
+    // Read back: with the Class III to VII rows held out (the catalog before OC-15) only Class II is buildable again.
+    withoutHeldDrives(() => expect(buildableDriveClassMax()).toBe(2));
   });
 
   it("the crafted piece names its class (user G20)", () => {
@@ -188,16 +192,26 @@ describe("G2-4 the tier gates: explorer, drive class, frontier sensors (first un
     expect(expeditionTierGates(seeing, ship(seeing), 2).first).toBeNull();
   });
 
-  it("driveClassUnavailable at Tiers III to VII: no hull and no served blueprint gives the class", () => {
+  // FLIPPED BY OC-15: every class is buildable now, so a Class II ship at Tiers III to VII reads driveClassTooLow.
+  // driveClassUnavailable still names a class nothing serves: the catalog without the Class III to VII rows (before
+  // OC-15) reads it exactly as before.
+  it("driveClassTooLow at Tiers III to VII since OC-15; driveClassUnavailable when no served blueprint gives the class", () => {
     const two = drive(on("orion"), "classIIDriveBp");
     for (const tier of [3, 4, 5, 6, 7] as const) {
       const g = expeditionTierGates(two, ship(two), tier);
-      expect(g.first?.reason, `tier ${tier}`).toBe("driveClassUnavailable");
-      expect(g.driveBuildable).toBe(false);
+      expect(g.first?.reason, `tier ${tier}`).toBe("driveClassTooLow");
+      expect(g.driveBuildable).toBe(true);
     }
-    const g5 = expeditionTierGates(two, ship(two), 5).first!;
-    expect(expeditionGateText(g5)).toBe("Needs a Class V drive. None can be built yet.");
-    expect(expeditionGateText({ ...expeditionTierGates(two, ship(two), 3).first! })).toBe("Needs a Class III drive. None can be built yet.");
+    withoutHeldDrives(() => {
+      for (const tier of [3, 4, 5, 6, 7] as const) {
+        const g = expeditionTierGates(two, ship(two), tier);
+        expect(g.first?.reason, `tier ${tier}`).toBe("driveClassUnavailable");
+        expect(g.driveBuildable).toBe(false);
+      }
+      const g5 = expeditionTierGates(two, ship(two), 5).first!;
+      expect(expeditionGateText(g5)).toBe("Needs a Class V drive. None can be built yet.");
+      expect(expeditionGateText({ ...expeditionTierGates(two, ship(two), 3).first! })).toBe("Needs a Class III drive. None can be built yet.");
+    });
   });
 
   it("frontierSensors both sides at Tier II (sensors 10): crew-inclusive sensors as the dispatch snapshot reads them", () => {

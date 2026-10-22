@@ -2245,9 +2245,11 @@ describe("Equipment BLUEPRINTS (0.11.0 Task 18)", () => {
   // (driveClass set: the Class II Drive today) is a class line on a Class I variety, counted apart (its own test below).
   const equipmentBlueprints = Object.values(BLUEPRINTS).filter((bp) => bp.equipmentOutput && bp.driveClass === undefined);
 
-  it("G2-4: the classed drives the facility tracks serve are in BLUEPRINTS (Class II today), each a Balanced FTL drive", () => {
+  // FLIPPED BY OC-15 (both facility tracks reach tier VII): Class II to VII are served (it was Class II only).
+  it("G2-4: the classed drives the facility tracks serve are in BLUEPRINTS (Class II to VII since OC-15), each a Balanced FTL drive", () => {
     const classed = Object.values(BLUEPRINTS).filter((bp) => bp.driveClass !== undefined);
-    expect(classed.map((bp) => [bp.key, bp.driveClass, bp.tier])).toEqual([["classIIDriveBp", 2, 2]]);
+    const numerals = ["II", "III", "IV", "V", "VI", "VII"];
+    expect(classed.map((bp) => [bp.key, bp.driveClass, bp.tier])).toEqual(numerals.map((n, i) => [`class${n}DriveBp`, i + 2, i + 2]));
     for (const bp of classed) expect(bp.equipmentOutput).toEqual({ slotType: "ftlDrive", varietyKey: "balancedDrive" });
   });
 
