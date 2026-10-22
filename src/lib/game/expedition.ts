@@ -179,7 +179,7 @@ import { groundSiteLabel } from "./expeditionContent";
 // E4a: the PoI -> relic-set single source of truth (pure data) for the foreknowledge signature + the
 // claim deposit's set routing.
 import { RELIC_SETS, relicSetForPoi, museumBonuses, resistedHazard } from "./relics";
-import type { RelicSetId, RelicVaultToken } from "./model";
+import type { RelicSetId, RelicVaultToken, SurveyLogEntry } from "./model";
 // E4a: the CLAIM DEPOSIT routes materials through the discovery-safe add seam (addToInventory, clamped at
 // itemCap) and folds the haul into lifetimeStats through the shared fold. These are imported from tick.ts,
 // which itself imports resolveExpeditions from this module: an ESM cycle that is SAFE because neither
@@ -2485,6 +2485,8 @@ export function depositExpeditionFindings(state: GameState, findings: readonly E
   let discovered = state.discovered;
   let credits = state.credits;
   const vaultAdds: RelicVaultToken[] = [];
+  // Gas Giant Study GG-3: a study's Survey Log readout (GameState.surveyLog, appended in finding order).
+  const surveys: SurveyLogEntry[] = [];
   const gathered: Record<string, Decimal> = {};
   let creditsGained = 0;
   let touched = false;
@@ -2524,6 +2526,10 @@ export function depositExpeditionFindings(state: GameState, findings: readonly E
         touched = true;
       }
     }
+    if (f.survey) {
+      surveys.push({ ...f.survey });
+      touched = true;
+    }
   }
   if (!touched) return state;
 
@@ -2541,6 +2547,7 @@ export function depositExpeditionFindings(state: GameState, findings: readonly E
     credits,
     lifetimeStats,
     relicVault: vaultAdds.length > 0 ? [...(state.relicVault ?? []), ...vaultAdds] : state.relicVault,
+    ...(surveys.length > 0 ? { surveyLog: [...(state.surveyLog ?? []), ...surveys] } : {}),
   };
 }
 

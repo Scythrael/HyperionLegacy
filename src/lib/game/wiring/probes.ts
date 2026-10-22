@@ -18,6 +18,7 @@ import {
   FIELD_KITS_DEFAULT_GRENADE_RULES,
   fieldKitsShownBlueprints,
   grenadeCraftPool,
+  ITEMS,
   MEMBER_SLOT_TYPES,
   MISSIONS,
   PATROLS,
@@ -191,8 +192,17 @@ import { GROUND_CONDITIONS, conditionCureSeconds } from "../medicalBay";
 import { loadoutSlotDefsForShipType } from "../armory";
 import { gambitProgramEquals } from "../memberGambits";
 // Gas Giant Study GG-2 / GG-3: the study engine and its content.
-import { GIANT_MASS_STEPS, giantMassAt, isOrbitalPlanetType, rollGiantProfile } from "../gasGiantStudy";
-import { GIANT_CLASSES, type GiantClassId } from "../gasGiantContent";
+import {
+  GALILEO_VARIETY,
+  GIANT_MASS_STEPS,
+  giantDepthFactor,
+  giantMassAt,
+  isOrbitalPlanetType,
+  rollGiantProfile,
+  rollStudyReward,
+  studyCanisterScale,
+} from "../gasGiantStudy";
+import { GAS_CANISTER_IDS, GIANT_CLASSES, canistersInBand, type GiantClassDef, type GiantClassId } from "../gasGiantContent";
 
 // ============================================================================
 // Contexts (every context a claim can cover; plan section 3.2)
@@ -1785,9 +1795,53 @@ function gasStudyUseValue(s: GameState, use: string, on: boolean): number {
       const run = studyRun(readyForRun(s));
       return on ? run.bodies.filter((b) => isOrbitalPlanetType(b.planetType) && b.giant !== undefined).length : 0;
     }
+    case "studyReward": {
+      // The whole study run (OFF: its stamp taken away, a run dispatched before GG-2) until every body is scanned and
+      // every study is done; the canisters its "study" findings carry.
+      const dispatched = studyRun(readyForRun(s));
+      const { study: _stamp, ...unstamped } = dispatched;
+      let run: Expedition = on ? dispatched : unstamped;
+      const settled = (r: Expedition): boolean => r.bodies.every((b) => b.scanned) && (r.groundOps?.studyLegs ?? []).every((l) => l.done);
+      for (let t = run.phaseAnchorSeconds + 3600; t < run.phaseAnchorSeconds + 4_000_000 && !settled(run); t += 3600) run = advanceExpedition(run, t);
+      let n = 0;
+      for (const f of run.findings) if (f.source === "study") for (const id of GAS_CANISTER_IDS) n += f.materials?.[id] ?? 0;
+      return n;
+    }
+    case "probeDive": {
+      // A reference Galileo (20 points at the variety's ratios) on the Science member vs none: the study's canister
+      // haul scale (the dive x the tier haul), x100.
+      const ready = readyForRun(s);
+      const run = studyRun(on ? wearPiece(ready, WIRING_SCIENCE_ID, "memberTool", GALILEO_VARIETY, { groundFieldwork: 12, groundHazardResist: 6, groundRelicFind: 2 }) : ready);
+      const i = run.bodies.findIndex((b) => isOrbitalPlanetType(b.planetType));
+      return 100 * studyCanisterScale(run, i);
+    }
     default:
       return 0;
   }
+}
+
+// A synthetic study run of one giant of `classId` at `seed` (the reward roll reads the profile, the region and the
+// roster; no probe aboard).
+function syntheticStudy(classId: GiantClassId, seed: number): Parameters<typeof rollStudyReward>[0] {
+  const def = GIANT_CLASSES.find((c) => c.id === classId)!;
+  return {
+    id: "wiring-study",
+    seed,
+    systemName: "LB-0001",
+    region: { version: 1, tier: 1, enemyTerritory: false, bearing: 0, distanceLy: 10 },
+    roster: { security: [], science: [] },
+    bodies: [{ ...syntheticBody("gasGiant", 0.1), scanned: true, giant: { classId, massMilliJ: giantMassAt(def, Math.floor(GIANT_MASS_STEPS / 2)) } }],
+  };
+}
+
+// The canisters of `pick` over a batch of studies of `classId`, the reward rolled with `classes`.
+function studyBatchCount(classId: GiantClassId, classes: readonly GiantClassDef[], pick: (id: string) => boolean): number {
+  let n = 0;
+  for (let seed = 1; seed <= 300; seed += 1) {
+    const mats = rollStudyReward(syntheticStudy(classId, seed * 0x9e3779b1), 0, 0, classes).materials ?? {};
+    for (const [id, q] of Object.entries(mats)) if (pick(id) && (GAS_CANISTER_IDS as readonly string[]).includes(id)) n += q;
+  }
+  return n;
 }
 
 // A GIANT_CLASSES field, read through its consumer.
@@ -1806,6 +1860,24 @@ function giantClassFieldValue(classId: GiantClassId, field: string, on: boolean)
       return giantMassAt(def, 0);
     case "massMaxMilliJ":
       return giantMassAt(def, GIANT_MASS_STEPS - 1);
+    case "radiusModel":
+    case "inflation": {
+      const off = field === "radiusModel" ? { ...def, radiusModel: "giant" as const } : { ...def, inflation: 1 };
+      const profile = { classId, massMilliJ: giantMassAt(def, Math.floor(GIANT_MASS_STEPS / 2)) };
+      return 1000 * giantDepthFactor(profile, on ? GIANT_CLASSES : GIANT_CLASSES.map((c) => (c.id === classId ? off : c)));
+    }
+    case "bandOdds": {
+      const flat = { standard: 100, augmented: 0, stellar: 0, radiant: 0 };
+      const classes = on ? GIANT_CLASSES : GIANT_CLASSES.map((c) => (c.id === classId ? { ...c, bandOdds: flat } : c));
+      return studyBatchCount(classId, classes, (id) => ITEMS[id]?.band !== "standard");
+    }
+    case "itemWeights": {
+      const standard = canistersInBand("standard");
+      const heaviest = standard.reduce((a, b) => (def.itemWeights[b] > def.itemWeights[a] ? b : a), standard[0]);
+      const even = Object.fromEntries(GAS_CANISTER_IDS.map((id) => [id, 1])) as GiantClassDef["itemWeights"];
+      const classes = on ? GIANT_CLASSES : GIANT_CLASSES.map((c) => (c.id === classId ? { ...c, itemWeights: even } : c));
+      return studyBatchCount(classId, classes, (id) => id === heaviest);
+    }
     default:
       return 0;
   }

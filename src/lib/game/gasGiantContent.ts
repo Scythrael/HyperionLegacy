@@ -76,12 +76,12 @@ export function gasStudyItemIds(): string[] {
   return [...GAS_CANISTER_IDS, ...RESEARCH_FAMILIES.map((f) => RESEARCH_DATA_ITEM[f]), ANCIENT_DATA_FRAGMENT_ID];
 }
 
-// The study items with no source yet: every one but the Deuterium Canister, which the Refinery already makes from
-// Deuterium Ice (REFINE_RECIPES.refineDeuteriumCanister). GG-3 (the study reward) and GG-4 (the nebula sweep) give the
-// rest their source and empty this set; until then the warehouse keeps them off its shelves and out of its catalog
-// count (App.svelte), so no tile points at a study that does not run yet.
+// The study items with no source yet. GG-1 held all but the Deuterium Canister (the Refinery makes it from Deuterium
+// Ice); GG-3 (gasGiantStudy.ts rollStudyReward: the ship's study of a gas giant) gave every canister, every research
+// data item and the Ancient Data Fragment its source, so the set is EMPTY: the warehouse (App.svelte) shelves and counts
+// every study item. It stays for a later study item that ships before its source (the "hide until live" ruling).
 export const GAS_STUDY_SOURCE_OWNER = "GG-3 (the ship's study of a gas giant returns it; GG-4 adds the nebula sweep)";
-export const GAS_STUDY_SOURCE_PENDING: ReadonlySet<string> = new Set(gasStudyItemIds().filter((id) => id !== "deuteriumCanister"));
+export const GAS_STUDY_SOURCE_PENDING: ReadonlySet<string> = new Set<string>();
 
 // Does this item wait on a gas study source (GAS_STUDY_SOURCE_PENDING)? False for every other item. Pure.
 export function gasStudySourcePending(itemId: string): boolean {

@@ -145,7 +145,7 @@ import { bucketOf, withBuckets } from "./wiring/probes";
 import { hash, onHull, withCrew, withV1Museum, withoutGuests } from "./firstRunsGoldens.fixture";
 import { ML2_ADDED_ENTRY_IDS, ml2LinesBack } from "./ml2RecipeGoldens.fixture";
 import { asPreG2NamesDispatch } from "./awayTeamTestFixtures";
-import { GG1_ADDED_ENTRY_IDS, GG_STUDY_FLIPPED_BEFORE } from "./gasStudyGoldens.fixture";
+import { GG1_ADDED_ENTRY_IDS, GG_STUDY_ADDED_ENTRY_IDS, GG_STUDY_FLIPPED_BEFORE } from "./gasStudyGoldens.fixture";
 import { FUSE_ADDED_ENTRY_IDS } from "./fieldKitsFuse.fixture";
 import { RX_ADDED_ENTRY_IDS } from "./reactorFuelGoldens.fixture";
 import { isSiAdded, SI_RETIRED, siReadBack } from "./siMemberGearRegistry.fixture";
@@ -604,7 +604,8 @@ const ML2_SLICE: RegistrySlice = { added: ML2_ADDED_ENTRY_IDS };
 // Gas Giant Study GG-2 / GG-3 (the engine slices): entries they FLIPPED pending -> live (the gas giant's orbitalOnly row
 // and the GG-1 study entries they wired; gasStudyGoldens.fixture.ts), read back as pending in EVERY pin (all of them were
 // taken before GG-2), so the base pin and every cause pin are unchanged.
-const GG_STUDY_SLICE: RegistrySlice = { flipped: new Set(GG_STUDY_FLIPPED_BEFORE.keys()), was: "pending" };
+// GG-3 also ADDS one entry (the probe dive seam), left out the same way.
+const GG_STUDY_SLICE: RegistrySlice = { added: GG_STUDY_ADDED_ENTRY_IDS, flipped: new Set(GG_STUDY_FLIPPED_BEFORE.keys()), was: "pending" };
 function registryPin(...given: readonly RegistrySlice[]): [number, string] {
   const slices = [RX_SLICE, FUSE_SLICE, ML2_SLICE, GG_STUDY_SLICE, ...given];
   const rows = siReadBack(WIRING_REGISTRY.map((e) => ({ id: e.id, kind: e.status.kind as string })), (r) => r.id, (row) => ({ id: row[0], kind: row[1].kind as string }));

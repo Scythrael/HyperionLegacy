@@ -51,6 +51,9 @@ function ggBeforeOwner(e: (typeof WIRING_REGISTRY)[number]): string | null {
   return null;
 }
 
+// The entries the engine slices ADD (GG-3: the probe dive seam), left out by every pin taken before them.
+export const GG_STUDY_ADDED_ENTRY_IDS: ReadonlySet<string> = new Set(WIRING_REGISTRY.filter((e) => e.source.catalog === "GAS_STUDY_SEAM").map((e) => e.id));
+
 export const GG_STUDY_FLIPPED_BEFORE: ReadonlyMap<string, { kind: "pending"; owner: string }> = new Map(
   WIRING_REGISTRY.flatMap((e) => {
     if (e.status.kind !== "live") return [];

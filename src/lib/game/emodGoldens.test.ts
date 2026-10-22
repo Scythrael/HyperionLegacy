@@ -44,7 +44,7 @@ import { siReadBack } from "./siMemberGearRegistry.fixture";
 import { getSeniorStaffBonusById } from "./seniorStaffBonuses";
 import { withEm1Off } from "./emodEm1Switch.fixture";
 import { goldenJson, withV1Museum } from "./firstRunsGoldens.fixture"; // gear wear: goldenJson puts the retired durability back
-import { GG1_ADDED_ENTRY_IDS, GG_STUDY_FLIPPED_BEFORE } from "./gasStudyGoldens.fixture";
+import { GG1_ADDED_ENTRY_IDS, GG_STUDY_ADDED_ENTRY_IDS, GG_STUDY_FLIPPED_BEFORE } from "./gasStudyGoldens.fixture";
 import { FUSE_ADDED_ENTRY_IDS } from "./fieldKitsFuse.fixture";
 import { RX_ADDED_ENTRY_IDS } from "./reactorFuelGoldens.fixture";
 // ML-2 (the Material Lines recipe rework + the recipe realism audit): its registry move, read back by ml2RowsBack.
@@ -618,9 +618,9 @@ type Back = { readonly sf3?: boolean; readonly fkr9?: boolean; readonly racials?
 // the nine retired combat lines restored in place; shortRangeGoldens.test.ts `registry:si` pins them).
 // Gas Giant Study GG-2 / GG-3 came after every pin here as well: the entries they FLIPPED pending -> live (the gas giant's
 // orbitalOnly row and the GG-1 study entries they wired; gasStudyGoldens.fixture.ts) read back as they stood (pending
-// on their owner, no live context, no probe) in every read-back and the snapshot.
+// on their owner, no live context, no probe) in every read-back and the snapshot; GG-3's added probe dive seam is left out.
 const BEFORE_RX: WiringEntry[] = siReadBack(
-  WIRING_REGISTRY.filter((e) => !RX_ADDED_ENTRY_IDS.has(e.id) && !FUSE_ADDED_ENTRY_IDS.has(e.id)).map((e) => {
+  WIRING_REGISTRY.filter((e) => !RX_ADDED_ENTRY_IDS.has(e.id) && !FUSE_ADDED_ENTRY_IDS.has(e.id) && !GG_STUDY_ADDED_ENTRY_IDS.has(e.id)).map((e) => {
     const before = GG_STUDY_FLIPPED_BEFORE.get(e.id);
     return before ? ({ ...e, status: before, contexts: [], probe: undefined } as WiringEntry) : e;
   }),

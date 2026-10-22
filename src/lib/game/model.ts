@@ -9725,8 +9725,8 @@ export const ITEMS: Record<string, ItemDef> = {
   // The six canisters by band: Standard Hydrogen and Methane, Augmented Ammonia and Deuterium, Stellar Helium-3,
   // Radiant the Antimatter Containment Cell ("Not a gas, but it will require its own specialized container"). Every
   // one sells at the Quartermaster (call 7: "also sellable"); their recipe uses are GG-7's (the G2 drive classes and
-  // the Lab tier 3 to 7 blueprints). Until GG-3 wires the study reward, only the Deuterium Canister has a source (the
-  // Refinery, from Deuterium Ice); the other five stay off the shelves (gasGiantContent.ts GAS_STUDY_SOURCE_PENDING).
+  // the Lab tier 3 to 7 blueprints). GG-3 wired the study reward (gasGiantStudy.ts rollStudyReward): a ship study of a
+  // gas giant fills all six; the Deuterium Canister is also refined from Deuterium Ice.
   hydrogenCanister: {
     label: "Hydrogen Canister",
     category: "gasCanister",

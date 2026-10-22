@@ -475,6 +475,39 @@ describe("GG-3 capture: a study run's dispatch record and discoveries", () => {
   });
 });
 
+// ===== GG-3 golden: the same three study runs finished (pinned on GG-3) =====
+// [the study legs, the study findings, the finished run, the claim's deposits and Survey Log]. The dispatch records and
+// discoveries above hold; these are the study's own shape: each leg from its giant's scan for studySeconds, its reward
+// at its end, the pickups that waited, the run closing after it.
+const GG3_GOLDEN: Record<string, readonly string[]> = {
+  "fresh:cand-1-2": ["c906c018", "111554b9", "542bc1f7", "8edbba12"],
+  "51f15e:cand-1-0": ["7189397f", "757af5b5", "10deb434", "3642df2c"],
+  "51f15e:cand-3-0": ["7e67d1d", "2aa22d47", "900dea14", "ae902878"],
+};
+
+describe("GG-3 golden: the three study runs, finished and claimed", () => {
+  it("study legs, study findings, the finished run, the claim", () => {
+    const out: Record<string, readonly string[]> = {};
+    for (const [saveSeed, id] of GG3_RUNS) {
+      const state = saveSeed === null ? crewed() : sweepState(saveSeed);
+      const res = startExpedition(state, "ship-1", 1, id);
+      if (!res.success || !res.expedition) throw new Error(`dispatch refused: ${res.reason}`);
+      const done = advanceExpedition(res.expedition, FINAL * 2);
+      expect(done.phase, id).toBe("complete");
+      const claim = claimExpedition({ ...res.next, expeditions: [done] }, done.id);
+      expect(claim.success).toBe(true);
+      const deposits = { inventory: claim.next.inventory, credits: claim.next.credits.toString(), surveyLog: claim.next.surveyLog ?? null };
+      out[`${saveSeed === null ? "fresh" : saveSeed.toString(16)}:${id}`] = [
+        hash(done.groundOps?.studyLegs ?? null),
+        hash(done.findings.filter((f) => f.source === "study")),
+        hash(done),
+        hash(deposits),
+      ];
+    }
+    expect(out).toEqual(GG3_GOLDEN);
+  });
+});
+
 describe("GG-0 golden 5: the item census", () => {
   const gg1 = new Set(gasStudyItemIds());
   const census = (ids: string[], recipes: string[]) => {

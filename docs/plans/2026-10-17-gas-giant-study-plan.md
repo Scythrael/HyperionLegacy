@@ -295,6 +295,28 @@ study legs (`checkRunEnd`). Exposes `studyDiveEvents(exp)` for the wear build. T
 tolerance over 2,000 studies per class, probe on the D23 curve (never capped, monotone), no probe still pays, safe
 first runs still cannot be lost, pickups wait for the leg, parity (one call == 997 s == 1 s).
 
+**GG-3 carry note (built 2026-10-21, on GG-2).** `GroundOpsState.studyLegs` (GroundStudyLeg): groundOpsBodyScanned
+schedules one per orbital body of a study run at its scan completion (or when the ship is free); it joins
+shipLegsInOrder, so the scan clock pauses for it (scanBodyIndex = the next body, null after the last), a recovery or
+repair leg queues behind it, and checkRunEnd waits for it. Its end is a window event (after a repair's, before a scan
+event or a team step at the same instant): `rollStudyReward` pushes one `"study"` finding. An ordinary return that
+would dock inside a study stored when it began docks at the study's end (studyPickupAt); a return begun before the
+study was stored docks on time (deviation from the v3 timeline sample, where the Strike team also waits through the
+next giant's SCAN: only a study holds the ship). Length `studySeconds` = 1800 / fieldworkSpeedMult on the body, floor 60.
+Reward draw order on GAS_STUDY_SALT: data 400, family (uniform over 8), readout 150, fragment, base 4..8, per-mille
+chance rounding of base x (1 + dive) x tierHaulMult, then band and gas per canister. Probe: `studyProbe` = the best
+`atmoProbe` on the frozen Science roster (hazard line, then relic line); ratings against GALILEO_REFERENCE_LINES.
+Claim: `survey` readouts append to `GameState.surveyLog`. GAS_STUDY_SOURCE_PENDING is now empty (every study item has a
+source). groundOpsProgress counts each study at weight 1. Readers for GG-6: `groundShipPosition` kind "study",
+`studyCanisterRange` (the "8 to 17 canisters" line), `studySeconds`, `studyProbe`, `giantDepthFactor`,
+`ancientFragmentPermille`; shipNowText got a minimal "Holding orbit: studying ..." line (the study lane is GG-6).
+Seam: `studyDiveEvents` (registry `away:GAS_STUDY_SEAM:probeDiveWear`, owner gear wear step 3). Registry live:
+GAS_STUDY_USES studyReward / probeDive and the classes' radiusModel / inflation / bandOdds / itemWeights (probes in
+wiring/probes.ts). [PROVISIONAL]: GALILEO_REFERENCE_LINES (iLevel 10 Standard q0: hazard 0.06, relic 0.02),
+ANCIENT_FRAGMENT_BASE_PERMILLE 12 / ANCIENT_PROBE_LIFT 2.5 / ANCIENT_PROBE_KNEE 2 (about 1.5% from orbit at Tier II, 4%
+with the reference probe; the tier lift reuses TIER_HAUL_MULT). [PROPOSAL] from the plan, kept: STUDY_MIN_SECONDS 60,
+canisters 4 to 8, dive 0.5 x depth x rating at knee 2, one probe per dive, a uniform data family.
+
 ### GG-4: Nebulae (engine)
 
 Per open call 2. Recommended shape: a system-level nebula on `NEBULA_SALT` at a permille by tier **[PROPOSAL I 8%, up

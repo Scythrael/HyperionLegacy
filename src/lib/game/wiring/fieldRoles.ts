@@ -319,8 +319,8 @@ export const UNREAD_CONSTANTS: Readonly<Record<string, string>> = {
   OFFICER_BONUSES_PENDING_IN_RELEASE: "bookkeeping: read by the wiring registry (the officer bonuses whose system lands later)",
   NEUTRAL_SHIP_EVENT_PROFILE: "seam: the profile a pre-GO-8 flagged run carries (OC-G1, the legacy path)",
   STAT_KEYS: "identity: the stat vocabulary bundle (LIVE / RESERVED / ground)",
-  // Gas Giant Study GG-1 (data only): read by the engine slices that wire them.
-  ITEM_BANDS: "data: the band order the study's band draw walks (GG-3)",
+  // Gas Giant Study GG-1 (data only): read by the engine slices that wire them (GG-3 reads ITEM_BANDS: the study's band
+  // draw, gasGiantStudy.ts rollCanister).
   GAS_STUDY_SOURCE_OWNER: "bookkeeping: the slice that gives the source-pending study items their source (GG-3, GG-4)",
   ALL_AUTO_SALVAGE_QUALITIES: "display: every quality tier for the auto-salvage picker",
   CUNNING_PENDING_SEATS: "bookkeeping: the seats with no Cunning over-delivery yet (Pilot Cunning, WR-9 OC-E4)",

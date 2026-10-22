@@ -4122,6 +4122,24 @@ function gasStudyEntries(): WiringEntry[] {
       base: () => withAwayTeam(wiringBase()),
       on: sourceOn,
     },
+    //   studyReward (GG-3): a study run's claim brings home the canisters of its studies (OFF: the same run unstamped).
+    studyReward: {
+      probe: "content:gasStudy:studyReward",
+      contexts: ["expedition:groundOps"],
+      curve: { kind: "event", metric: "canisters the studies of a whole study run return" },
+      magnitude: () => 1,
+      base: () => withAwayTeam(wiringBase()),
+      on: sourceOn,
+    },
+    //   probeDive (GG-3): a Science member's Galileo dives: the study's canister haul scale x100 with it vs without.
+    probeDive: {
+      probe: "content:gasStudy:probeDive",
+      contexts: ["expedition:groundOps"],
+      curve: { kind: "event", metric: "the study's canister haul scale x100 with a reference Galileo aboard vs none" },
+      magnitude: () => 1,
+      base: () => withAwayTeam(wiringBase()),
+      on: sourceOn,
+    },
   };
   for (const use of Object.keys(GAS_STUDY_USES) as GasStudyUse[]) {
     const system = useSystem[use];
@@ -4156,6 +4174,22 @@ function gasStudyEntries(): WiringEntry[] {
             return field === "massMinMilliJ" ? def.massMinMilliJ : def.massMaxMilliJ;
           },
         };
+      // GG-3, the probe's depth factor (gravity^0.4 from the radius model and the heat inflation), x1000 at the band's
+      // middle step: with the class's own model vs the plain giant curve, with its inflation vs none.
+      case "radiusModel":
+        return c.radiusModel === "giant"
+          ? { probe: undefined, contexts: [], notApplicable: "the plain giant radius curve is the baseline the other models are read against" }
+          : { probe, contexts: ["expedition:groundOps"], direction: "up", curve: { kind: "event", metric: `${c.name}'s depth factor x1000, its own radius model vs the giant curve` }, magnitude: () => 1, on: sourceOn };
+      case "inflation":
+        return c.inflation === 1
+          ? { probe: undefined, contexts: [], notApplicable: "no heat inflation (x1)" }
+          : { probe, contexts: ["expedition:groundOps"], direction: "down", curve: { kind: "event", metric: `${c.name}'s depth factor x1000 with its inflation vs none` }, magnitude: () => 1, on: sourceOn };
+      // GG-3, the study reward over a batch of studies of this class: the canisters above the Standard band with the
+      // class's odds vs all Standard; the class's heaviest Standard gas with its weights vs even weights.
+      case "bandOdds":
+        return { probe, contexts: ["expedition:groundOps"], curve: { kind: "event", metric: `${c.name} canisters above Standard over a study batch, its odds vs all Standard` }, magnitude: () => 1, on: sourceOn };
+      case "itemWeights":
+        return { probe, contexts: ["expedition:groundOps"], curve: { kind: "event", metric: `${c.name}'s heaviest Standard gas over a study batch, its weights vs even` }, magnitude: () => 1, on: sourceOn };
       default:
         return null;
     }
@@ -4198,6 +4232,18 @@ function gasStudyEntries(): WiringEntry[] {
       out.push(entry({ id: `expedition:NEBULA_KINDS:${k.id}:${field}`, system: "expedition", source: { catalog: "NEBULA_KINDS", key: `${k.id}:${field}` }, claim: `${k.name}: its ${field}`, status: pending(owner) }));
     }
   }
+  // GG-3: the probe dive seam (gasGiantStudy.ts studyDiveEvents): one event per finished study with a Galileo aboard,
+  // for gear wear step 3's tool use wear. It moves nothing on its own.
+  out.push(
+    entry({
+      id: "away:GAS_STUDY_SEAM:probeDiveWear",
+      system: "away",
+      source: { catalog: "GAS_STUDY_SEAM", key: "probeDiveWear" },
+      claim: "Each finished study with a Galileo-Class Probe aboard is one probe dive (the probe's use wear)",
+      status: { kind: "seam", owner: GEAR_WEAR_STEP_3, userRef: "gear wear design 3.1 (user 2026-10-16): \"sensors by scans, tools by fieldwork\"" },
+      note: "gasGiantStudyLeg.test.ts proves the events",
+    }),
+  );
   return out;
 }
 
