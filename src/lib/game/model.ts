@@ -154,7 +154,10 @@ export interface ShipTypeDef {
   //                     fuelNeeded for the formula this feeds.
   fuelCapacity: number;
   engineEfficiency: number;
-  moduleSlots: number;              // POPULATED but INERT this pass (no module system yet)
+  // E-MOD EM-5: the hull's SHARED module slots, read by the install gate (equipment.ts moduleSlotsFull) and the Armory:
+  // it caps the universal modules AND the specUtility piece together (user M1 "Separate counts"); the bridge, quarters
+  // and sensor keep their own slots. The module slot itself stays hidden until EM-7 (shipModules.ts UNIVERSAL_MODULES_LIVE).
+  moduleSlots: number;
   equipmentSlots: number;           // forward bucket; counts finalized with equipment/reactor design
   // --- Combat / defense base stats (Ship Systems UI, 0.11.0) ---------------------
   // ⚠️ FIRST-PASS TUNABLE launch placeholders, and INERT this pass: combat behavior

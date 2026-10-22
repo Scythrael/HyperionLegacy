@@ -19,7 +19,8 @@ import {
 } from "./model";
 import { dispatchCaptainOnPatrol, economyTick, installMissingCombatBaselines } from "./tick";
 import { replayPatrol } from "./combat/patrolReplay";
-import { canFitEquipment, equippedFor, fitEquipment, unfitEquipmentInstance } from "./equipment";
+import { snapshotShipEventProfile } from "./shipScanEvents";
+import { canFitEquipment, equippedFor, fitEquipment, unfitEquipment, unfitEquipmentInstance } from "./equipment";
 import { shipPowerBudget, shipPowerTotals } from "./shipPower";
 import { effectiveShipStats } from "./crewOverlay";
 import { applyModuleCombat, combatHullTypeOf, foldedPlayerDefense, shipToCombatant } from "./combat/bridge";
@@ -245,6 +246,12 @@ describe("the S2 lock: modules wait while the ship is out", () => {
       const out = { ...withPieces(home, [spare]), expeditions: [{ shipId: SHIP } as unknown as GameState["expeditions"][number]] };
       expect(canFitEquipment(out, SHIP, "test-s2b", "test-s2")).toEqual({ ok: false, reason: "onMission" });
       expect(() => unfitEquipmentInstance(out, SHIP, "test-s2")).toThrow(/onMission/);
+      // The dev panel's slot-targeted uninstall honors it too, and at home takes the module off without minting.
+      expect(() => unfitEquipment(out, SHIP, "module")).toThrow(/onMission/);
+      const off = unfitEquipment(home, SHIP, "module");
+      expect(off.equipment.find((e) => e.id === "test-s2")?.fittedToShipId).toBeNull();
+      expect(off.nextEquipmentId).toBe(home.nextEquipmentId);
+      expect(unfitEquipment(off, SHIP, "module")).toBe(off);
       // A cargo bay is not a module: S2 for the other slots is not built, so their mission-only lock stands.
       const cargo = equippedFor(out, SHIP).find((e) => e.slotType === "cargoBay")!;
       expect(() => unfitEquipmentInstance(out, SHIP, cargo.id)).not.toThrow();
@@ -327,13 +334,51 @@ describe("Passive engines: each passive moves its value; no module moves nothing
     const s = hullState("battleship");
     const gear = equippedFor(s, SHIP);
     expect(modulePowerOutput(gear, scaleOf)).toBe(0);
-    expect(moduleConditionals(gear, scaleOf)).toEqual([]);
+    expect(moduleConditionals(gear, scaleOf, "patrol")).toEqual([]);
     const c = shipToCombatant({ id: "p", team: "player", stats: SHIP_TYPES.battleship, installedGear: gear });
     const before = JSON.stringify(c);
-    applyModuleCombat(c, gear);
-    applyModuleCombat(c, undefined);
+    applyModuleCombat(c, gear, "patrol");
+    applyModuleCombat(c, undefined, "patrol");
     expect(JSON.stringify(c)).toBe(before);
     expect(c.moduleConditionals).toBeUndefined();
+  });
+});
+
+describe("contexts: a module acts only where it says it does", () => {
+  it("a patrol-only module lifts a patrol combatant but never a ship event's (and the reverse)", () => {
+    const patrolOnly: UniversalModuleDef = { ...TEST_BRACING, id: "testModulePatrolBrace", contexts: ["patrol"] };
+    const eventOnly: UniversalModuleDef = { ...TEST_LAST_STAND, id: "testModuleEventLast", contexts: ["shipEvent"] };
+    withTestModules([patrolOnly, eventOnly], () => {
+      const s = installAll(withoutUtility(hullState("destroyer")), [mintTestModule(patrolOnly, "standard", 0, "test-cp"), mintTestModule(eventOnly, "standard", 0, "test-ce")]).state;
+      const gear = equippedFor(s, SHIP);
+      const bare = shipToCombatant({ id: "p", team: "player", stats: SHIP_TYPES.destroyer, installedGear: equippedFor(withoutUtility(hullState("destroyer")), SHIP) });
+      const patrol = shipToCombatant({ id: "p", team: "player", stats: SHIP_TYPES.destroyer, installedGear: gear });
+      const event = shipToCombatant({ id: "p", team: "player", stats: SHIP_TYPES.destroyer, installedGear: gear, moduleContext: "shipEvent" });
+      expect(patrol.hullMax).toBe(Math.round(bare.hullMax * (1 + patrolOnly.effect.magnitude)));
+      expect(patrol.moduleConditionals).toBeUndefined();
+      expect(event.hullMax).toBe(bare.hullMax);
+      expect(event.moduleConditionals).toEqual([{ pool: "hull", fraction: 0.25, weaponDamage: 0.12 }]);
+      // The patrol carry pools read the patrol context too.
+      expect(foldedPlayerDefense(SHIP_TYPES.destroyer, gear).hullMax).toBe(patrol.hullMax);
+    });
+  });
+
+  it("the expedition ship event snapshot carries the modules and folds them in the ship event context", () =>
+    withTestModules([TEST_BRACING], () => {
+      const s = installAll(withoutUtility(hullState("orion")), [mintTestModule(TEST_BRACING, "standard", 0, "test-se")]).state;
+      const profile = snapshotShipEventProfile(s, s.ships.find((x) => x.id === SHIP)!);
+      expect(profile.battle!.installedGear!.some((p) => p.slotType === "module")).toBe(true);
+      const bare = snapshotShipEventProfile(withoutUtility(hullState("orion")), s.ships.find((x) => x.id === SHIP)!);
+      expect(profile.battle!.hullMax).toBe(Math.round(bare.battle!.hullMax * (1 + TEST_BRACING.effect.magnitude)));
+    }));
+
+  it("power output acts on the ship sheet, so only a module listing every context lifts it (and validation says so)", () => {
+    const narrow: UniversalModuleDef = { ...TEST_CAPACITOR, id: "testModuleNarrowCap", contexts: ["patrol"] };
+    expect(validateUniversalModuleDef(narrow).join()).toMatch(/must list every context/);
+    withTestModules([narrow, TEST_CAPACITOR], () => {
+      expect(modulePowerOutput([mintTestModule(narrow)], scaleOf)).toBe(0);
+      expect(modulePowerOutput([mintTestModule(TEST_CAPACITOR)], scaleOf)).toBe(TEST_CAPACITOR.effect.magnitude);
+    });
   });
 });
 
@@ -346,7 +391,7 @@ describe("Conditional engine: fires only in its state", () => {
       const gear = [{ ...mintTestModule(TEST_LAST_STAND, "standard", 0, "test-ls"), fittedToShipId: SHIP }];
       const mk = (withModule: boolean, hullFrac: number) => {
         const c = shipToCombatant({ id: "a", team: "player", stats: SHIP_TYPES.destroyer, hullType });
-        if (withModule) applyModuleCombat(c, gear);
+        if (withModule) applyModuleCombat(c, gear, "patrol");
         c.hull = Math.floor(c.hullMax * hullFrac);
         return c;
       };
@@ -377,7 +422,7 @@ describe("Conditional engine: fires only in its state", () => {
       const gear = [{ ...mintTestModule(TEST_LAST_STAND, "standard", 0, "test-ls2"), fittedToShipId: SHIP }];
       const fight = (withModule: boolean, hullFrac: number) => {
         const p = shipToCombatant({ id: "p", team: "player", stats: SHIP_TYPES.destroyer, hullType });
-        if (withModule) applyModuleCombat(p, gear);
+        if (withModule) applyModuleCombat(p, gear, "patrol");
         p.hull = Math.floor(p.hullMax * hullFrac);
         p.shield = 0;
         const e = shipToCombatant({ id: "e", team: "enemy", stats: SHIP_TYPES.destroyer, hullType });
@@ -389,7 +434,7 @@ describe("Conditional engine: fires only in its state", () => {
       withTestModules([shieldDef], () => {
         const g = [{ ...mintTestModule(shieldDef, "standard", 0, "test-sh"), fittedToShipId: SHIP }];
         const c = shipToCombatant({ id: "p", team: "player", stats: SHIP_TYPES.destroyer, hullType });
-        applyModuleCombat(c, g);
+        applyModuleCombat(c, g, "patrol");
         expect(c.moduleConditionals).toEqual([{ pool: "shield", fraction: 0.5, weaponDamage: 0.12 }]);
       });
     }));

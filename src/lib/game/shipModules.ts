@@ -53,7 +53,23 @@ export type UniversalModuleCategory = "passive" | "proc" | "conditional" | "acti
 // Where a module acts. "patrol" and "shipEvent" are the two combat contexts (a patrol wave, an expedition ship event);
 // "mission" is a captain mission's cycles; "expedition" is a voyage's scans and legs.
 export type ModuleContext = "patrol" | "shipEvent" | "mission" | "expedition";
-export const MODULE_COMBAT_CONTEXTS: readonly ModuleContext[] = ["patrol", "shipEvent"];
+export const MODULE_CONTEXTS: readonly ModuleContext[] = ["patrol", "shipEvent", "mission", "expedition"];
+// The two combat contexts a combatant is built for (bridge.ts shipToCombatant's moduleContext).
+export type ModuleCombatContext = "patrol" | "shipEvent";
+export const MODULE_COMBAT_CONTEXTS: readonly ModuleCombatContext[] = ["patrol", "shipEvent"];
+
+// Does `def` act in `context`? A module acts ONLY in the contexts it lists (a patrol-only module never acts in a ship
+// event). Pure.
+export function moduleActsIn(def: UniversalModuleDef, context: ModuleContext): boolean {
+  return def.contexts.includes(context);
+}
+
+// Does `def` act EVERYWHERE? A ship-sheet effect (the power output: the sheet, the install gate and the budget have no
+// context) acts only when the module lists every context, so a narrower module never lifts a context it does not name
+// (validateUniversalModuleDef refuses a narrower power module). Pure.
+export function moduleActsEverywhere(def: UniversalModuleDef): boolean {
+  return MODULE_CONTEXTS.every((c) => def.contexts.includes(c));
+}
 
 // The bounded trigger taxonomy (user M4, 2026-10-19, "Original proposal"). Read by EM-6's engine at fixed points in
 // the step loop (combat) and at the mission cycle / body scan (outside combat). `hullBelow` carries its threshold as
@@ -180,19 +196,22 @@ export function moduleMagnitude(def: UniversalModuleDef, piece: EquipmentInstanc
   return def.effect.magnitude * scaleOf(piece);
 }
 
-// The summed magnitude of every installed PASSIVE module carrying `key`. One copy per ship (M8) and one catalog module
-// per engine key (validateUniversalModuleCatalog) mean nothing stacks today; a second module sharing a key must fold
-// through the D23 diminishing curve, never a plain sum (the catalog test refuses it until then). Pure.
+// The summed magnitude of every installed PASSIVE module carrying `key` that acts in `context` ("everywhere": only a
+// module listing every context, the ship sheet's rule). One copy per ship (M8) and one catalog module per engine key
+// (validateUniversalModuleCatalog) mean nothing stacks today; a second module sharing a key must fold through the D23
+// diminishing curve, never a plain sum (the catalog test refuses it until then). Pure.
 export function modulePassiveTotal(
   pieces: readonly EquipmentInstance[],
   key: ModuleEffectKey,
   scaleOf: ModuleScaleOf,
+  context: ModuleContext | "everywhere",
   catalog: readonly UniversalModuleDef[] = UNIVERSAL_MODULES,
 ): number {
   let total = 0;
   for (const piece of pieces) {
     const def = pieceModuleDef(piece, catalog);
     if (def === undefined || def.category !== "passive" || def.effect.key !== key) continue;
+    if (!(context === "everywhere" ? moduleActsEverywhere(def) : moduleActsIn(def, context))) continue;
     total += moduleMagnitude(def, piece, scaleOf);
   }
   return total;
@@ -205,7 +224,7 @@ export function modulePowerOutput(
   scaleOf: ModuleScaleOf,
   catalog: readonly UniversalModuleDef[] = UNIVERSAL_MODULES,
 ): number {
-  const total = modulePassiveTotal(pieces, "powerOutput", scaleOf, catalog);
+  const total = modulePassiveTotal(pieces, "powerOutput", scaleOf, "everywhere", catalog);
   return total > 0 ? Math.round(total) : 0;
 }
 
@@ -216,16 +235,19 @@ export interface ModuleConditionalMod {
   readonly weaponDamage: number;
 }
 
-// Every installed CONDITIONAL module, as combat folds it (bridge.ts). Empty for a ship with none. Pure.
+// Every installed CONDITIONAL module that acts in `context`, as combat folds it (bridge.ts). Empty for a ship with
+// none. Pure.
 export function moduleConditionals(
   pieces: readonly EquipmentInstance[],
   scaleOf: ModuleScaleOf,
+  context: ModuleCombatContext,
   catalog: readonly UniversalModuleDef[] = UNIVERSAL_MODULES,
 ): ModuleConditionalMod[] {
   const out: ModuleConditionalMod[] = [];
   for (const piece of pieces) {
     const def = pieceModuleDef(piece, catalog);
     if (def === undefined || def.category !== "conditional" || def.condition === undefined) continue;
+    if (!moduleActsIn(def, context)) continue;
     if (def.effect.key !== "weaponDamage") continue;
     out.push({
       pool: def.condition.kind === "hullBelow" ? "hull" : "shield",
@@ -252,9 +274,13 @@ export function validateUniversalModuleDef(def: UniversalModuleDef): string[] {
   if (def.category === "conditional") {
     if (def.condition === undefined) errors.push(`${def.id}: a conditional needs a condition`);
     else if (!(def.condition.fraction > 0 && def.condition.fraction < 1)) errors.push(`${def.id}: the condition fraction must be in (0, 1)`);
-    if (def.contexts.some((c) => !MODULE_COMBAT_CONTEXTS.includes(c))) errors.push(`${def.id}: a conditional acts in combat only`);
+    if (def.contexts.some((c) => !(MODULE_COMBAT_CONTEXTS as readonly ModuleContext[]).includes(c))) errors.push(`${def.id}: a conditional acts in combat only`);
   } else if (def.condition !== undefined) errors.push(`${def.id}: only a conditional carries a condition`);
-  if (def.category === "passive" && def.effect.key === "hullIntegrity" && def.contexts.some((c) => !MODULE_COMBAT_CONTEXTS.includes(c))) {
+  // A ship-sheet effect has no context of its own, so it must name every context (moduleActsEverywhere).
+  if (def.category === "passive" && def.effect.key === "powerOutput" && !moduleActsEverywhere(def)) {
+    errors.push(`${def.id}: power output acts on the ship sheet, so it must list every context`);
+  }
+  if (def.category === "passive" && def.effect.key === "hullIntegrity" && def.contexts.some((c) => !(MODULE_COMBAT_CONTEXTS as readonly ModuleContext[]).includes(c))) {
     errors.push(`${def.id}: hull integrity acts in combat only`);
   }
   if (def.category === "passive" && (def.trigger !== undefined || def.chance !== undefined)) errors.push(`${def.id}: a passive has no trigger`);

@@ -713,6 +713,13 @@ export function unfitEquipment(
   if (!lock.ok) {
     throw new Error(`unfitEquipment blocked: ${lock.reason}`);
   }
+  // E-MOD EM-5: a module honors the S2 lock (moduleLockedOut) and has no Standard-Issue floor, so the dev panel's
+  // slot-targeted uninstall takes the slot's first module off and leaves it empty (the instance route), never mints.
+  if (UNIVERSAL_MODULE_SLOTS.has(slotType)) {
+    if (moduleLockedOut(state, shipId, slotType)) throw new Error(`unfitEquipment blocked: onMission`);
+    const piece = state.equipment.find((e) => e.fittedToShipId === shipId && e.slotType === slotType);
+    return piece ? unfitEquipmentInstance(state, shipId, piece.id) : state;
+  }
 
   // Identify the current occupant (if any) of this ship's slot.
   const occupant = state.equipment.find((e) => e.fittedToShipId === shipId && e.slotType === slotType);

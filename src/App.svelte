@@ -19311,7 +19311,8 @@
                the base-vs-fitted delta below is obvious. -->
           <div class="dev-row">
             <span class="dev-label">Grant slot</span>
-            {#each Object.keys(EQUIPMENT_SLOTS) as slotKey}
+            <!-- E-MOD EM-5: a slot with no varieties yet (the module slot until EM-7) has nothing to grant. -->
+            {#each Object.keys(EQUIPMENT_SLOTS).filter((k) => EQUIPMENT_SLOTS[k].varieties.length > 0) as slotKey}
               <button
                 class="dev-btn"
                 class:active={devEqSlot === slotKey}
@@ -19420,7 +19421,8 @@
                    spare as a Fit button (disabled + reasoned when canFit blocks).
                    SHIP slots only: the away-team member slots (isMemberSlotType) are worn
                    by members, never installed on a hull. -->
-              {#each Object.keys(EQUIPMENT_SLOTS).filter((k) => !isMemberSlotType(k)) as slotKey}
+              <!-- E-MOD EM-5: a slot with no varieties (the module slot until EM-7) has no piece to list. -->
+              {#each Object.keys(EQUIPMENT_SLOTS).filter((k) => !isMemberSlotType(k) && EQUIPMENT_SLOTS[k].varieties.length > 0) as slotKey}
                 {@const slot = slotKey as EquipmentSlotType}
                 {@const fitted = fittedInSlot(state, ship.id, slot)}
                 {@const matchingSpares = state.equipment.filter((e) => isUninstalledPiece(e) && e.slotType === slot)}
