@@ -140,10 +140,45 @@ export function withoutFieldKitsStamp(exp: Expedition): Expedition {
 // A dispatch result turned into the run it was before the Field Kits switch-on (withoutFieldKitsStamp on the returned
 // expedition and every expedition in `next`). Every earlier "as pre-X dispatch" helper composes it (a run dispatched
 // before ranks, SF-2, G2-2, G2-3, SQ-4 or GO-7b was a run before the switch too). A refusal is returned unchanged. Pure.
-export function asPreFieldKitsDispatch<R extends { next: GameState; expedition?: Expedition }>(res: R): R {
+// Gas Giant Study GG-2 (merged after the switch-on): a run before the switch-on is a run before GG-2 too, so this also
+// takes the study stamp off (withoutStudy).
+export function asPreFieldKitsDispatch<R extends { next: GameState; expedition?: Expedition }>(raw: R): R {
+  const res = asPreStudyDispatch(raw);
   if (!res.expedition) return res;
   const next = res.next.expeditions.some((e) => "fieldKits" in e) ? { ...res.next, expeditions: res.next.expeditions.map(withoutFieldKitsStamp) } : res.next;
   return { ...res, expedition: withoutFieldKitsStamp(res.expedition), next };
+}
+
+// Gas Giant Study GG-2 (docs/plans/2026-10-17-gas-giant-study-plan.md GG-2): the dispatch record WITHOUT its study stamp
+// (`Expedition.study`) and its orbital bodies' giant profiles (`ExpeditionBody.giant`), i.e. the record the same
+// dispatch made before GG-2: a run in flight at the update, whose gas giant gets its ground objectives as dispatched.
+// GG-2 also stopped placing a hostile site or a clearing objective on an orbital body (draws kept); a record whose
+// orbital body would have carried one is not a pre-GG-2 record, which this cannot rebuild, so a golden pinned on such a
+// seed moves (and names it). A record without the stamp is returned as it is. Every other key keeps its order. Pure.
+export function withoutStudy(exp: Expedition): Expedition {
+  if (!("study" in exp)) return exp;
+  const rest = { ...exp, bodies: exp.bodies.map((b) => (b.giant === undefined ? b : withoutGiant(b))) };
+  delete rest.study;
+  return rest;
+}
+
+function withoutGiant<B extends { giant?: unknown }>(body: B): B {
+  const rest = { ...body };
+  delete rest.giant;
+  return rest;
+}
+
+// A whole state with every expedition through withoutStudy. Identity when no run carries the stamp. Pure.
+export function withoutStudyState(state: GameState): GameState {
+  if (!state.expeditions.some((e) => "study" in e)) return state;
+  return { ...state, expeditions: state.expeditions.map(withoutStudy) };
+}
+
+// GG-2: a dispatch result turned into the run it was before GG-2 (withoutStudy on the returned expedition and every
+// expedition in `next`). A refusal is returned unchanged. Pure.
+export function asPreStudyDispatch<R extends { next: GameState; expedition?: Expedition }>(res: R): R {
+  if (!res.expedition) return res;
+  return { ...res, expedition: withoutStudy(res.expedition), next: withoutStudyState(res.next) };
 }
 
 // Field Kits FKR-1 (enemy ranks): the run WITHOUT its enemy ranks flag (`Expedition.enemyRanks`), i.e. the run the

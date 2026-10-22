@@ -340,6 +340,8 @@ export const CATALOGS = {
   WEAR_EFFICIENCY,
   // The reactor fuel ladder (0.14.0, reactorTech.ts): the fuel each Reactor Core blueprint takes.
   REACTOR_FUEL_LADDER,
+  // Gas Giant Study GG-2 / GG-3: the giant classes the class roll and the study reward read.
+  GIANT_CLASSES,
 } as const;
 export type Catalogs = typeof CATALOGS;
 
@@ -2971,7 +2973,15 @@ function contentEntries(): WiringEntry[] {
       out.push(
         entry({
           ...base("expedition", "PLANET_TYPES", `${p.id}:orbitalOnly`, `${p.label}: "no surface landing; finds are satellite ops"`),
-          status: pending("gas giant study 15b + OC-G2 (teams land and fight there, B21)"),
+          // Gas Giant Study GG-2 (D22, OC-G2): live. A study run's orbital body gets no ground objective (the ship
+          // studies it instead): the objectives on the run's bodies, all of this type, with the study stamp vs without.
+          probe: `content:orbitalOnly:${p.id}`,
+          contexts: ["expedition:groundOps"],
+          direction: "down",
+          curve: { kind: "event", metric: `ground objectives on ${p.label} bodies of a study run vs the same run unstamped` },
+          magnitude: () => 1,
+          base: () => withAwayTeam(wiringBase()),
+          on: sourceOn,
         }),
       );
     }
@@ -4101,10 +4111,55 @@ function gasStudyEntries(): WiringEntry[] {
     labLane: "facility",
     canisterRecipes: "facility",
   };
+  // The uses a built slice has taken live, each with its probe (the rest stay pending on their owner).
+  //   classRoll (GG-2): a dispatch to a system with an orbital body freezes a giant profile on it.
+  const liveUse: Partial<Record<GasStudyUse, Partial<EntryInput>>> = {
+    classRoll: {
+      probe: "content:gasStudy:classRoll",
+      contexts: ["expedition:groundOps"],
+      curve: { kind: "event", metric: "orbital bodies of a dispatched study run carrying a giant profile" },
+      magnitude: () => 1,
+      base: () => withAwayTeam(wiringBase()),
+      on: sourceOn,
+    },
+  };
   for (const use of Object.keys(GAS_STUDY_USES) as GasStudyUse[]) {
     const system = useSystem[use];
-    out.push(entry({ id: `${system}:GAS_STUDY_USES:${use}`, system, source: { catalog: "GAS_STUDY_USES", key: use }, claim: GAS_STUDY_USES[use], status: pending(GAS_STUDY_USES[use]) }));
+    const live = liveUse[use];
+    out.push(
+      entry({
+        id: `${system}:GAS_STUDY_USES:${use}`,
+        system,
+        source: { catalog: "GAS_STUDY_USES", key: use },
+        claim: GAS_STUDY_USES[use],
+        ...(live ?? { status: pending(GAS_STUDY_USES[use]) }),
+      }),
+    );
   }
+  // A giant class's field a built slice reads, live with its probe (content:giantClass:<class>:<field>), else null.
+  //   weight (GG-2): the class roll picks the class more often with its weight than with it zeroed.
+  //   massMinMilliJ / massMaxMilliJ (GG-2): the mass roll's first and last steps are the band's ends.
+  const liveClassField = (c: (typeof GIANT_CLASSES)[number], field: string): Partial<EntryInput> | null => {
+    const probe = `content:giantClass:${c.id}:${field}` as const;
+    switch (field) {
+      case "weight":
+        return { probe, contexts: ["expedition:groundOps"], curve: { kind: "event", metric: `${c.name} rolls over a body batch with its weight vs zeroed` }, magnitude: () => 1, on: sourceOn };
+      case "massMinMilliJ":
+      case "massMaxMilliJ":
+        return {
+          probe,
+          contexts: ["expedition:groundOps"],
+          direction: "none",
+          curve: { kind: "equals" },
+          magnitude: (cfg) => {
+            const def = cfg.GIANT_CLASSES.find((x) => x.id === c.id)!;
+            return field === "massMinMilliJ" ? def.massMinMilliJ : def.massMaxMilliJ;
+          },
+        };
+      default:
+        return null;
+    }
+  };
   // The slice that reads each effect field. A field with no owner here gets NO entry (never a fallback owner), so the
   // completeness test ("every enumerated source has a registry entry") fails until it is given one.
   const classOwner: Readonly<Record<string, string>> = {
@@ -4124,7 +4179,16 @@ function gasStudyEntries(): WiringEntry[] {
     for (const field of effectFieldsOf("GIANT_CLASSES")) {
       const owner = classOwner[field];
       if (owner === undefined) continue;
-      out.push(entry({ id: `expedition:GIANT_CLASSES:${c.id}:${field}`, system: "expedition", source: { catalog: "GIANT_CLASSES", key: `${c.id}:${field}` }, claim: `${c.name}: its ${field}`, status: pending(owner) }));
+      const live = liveClassField(c, field);
+      out.push(
+        entry({
+          id: `expedition:GIANT_CLASSES:${c.id}:${field}`,
+          system: "expedition",
+          source: { catalog: "GIANT_CLASSES", key: `${c.id}:${field}` },
+          claim: `${c.name}: its ${field}`,
+          ...(live ?? { status: pending(owner) }),
+        }),
+      );
     }
   }
   for (const k of NEBULA_KINDS) {

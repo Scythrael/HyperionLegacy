@@ -266,6 +266,23 @@ study" and no squad needs for it. Registry `orbitalOnly` to live. Tests: no PoI,
 orbital body over 64 seeds and Tiers I to VII; non-orbital bodies byte-identical to GG-0; preview == run; field repair
 never targets an orbital body; run with `study` deleted == GG-0 golden.
 
+**GG-2 carry note (built 2026-10-21, on feat f85ef73).** New engine module `gasGiantStudy.ts`. `Expedition.study: 1` is
+stamped ONLY on a system holding an orbital-only body (studyStampFor), so every other dispatch record is byte-identical;
+each orbital body freezes `ExpeditionBody.giant` (rollGiantProfile on GIANT_PROFILE_SALT: draw 1 class, draw 2 mass,
+log-uniform over GIANT_MASS_STEPS integer steps). On a stamped run `assignDiscoveriesAndActivities` gives an orbital body
+nothing (no PoI, site, clearing or sensor ghost find); `scanStepRoll` drops its supply cache (draw 2 kept; draw 1, the
+ship event, unchanged). `bodyRiskGrades` never places a hostile site or clearing objective on an orbital body (all seven
+draws kept; previews and new dispatches only, a run in flight keeps its stored grades). Previews: `SystemTaskPreview.
+studies`, `TaskDemand.shipStudies` (text "1 ship study, no squad needed"), `LaunchForecast.studies`, each written only
+when present. Registry: PLANET_TYPES gasGiant:orbitalOnly, GAS_STUDY_USES classRoll and the classes' weight / mass band
+fields live with probes. Kept, not retired (deviation, for in-flight identity): gasGiant stays in the PoI planetWeights
+and `MATERIAL_BY_PLANET_TYPE.gasGiant` stays, read only by a run dispatched before GG-2. [PROVISIONAL] GIANT_ZONE_LEAN
+(inner x3 hot / x2 warm, outer x2 cold; middle = the approved weights). Goldens: the pre-GG-2/GG-3 sweep (42 systems,
+Tiers I to VII) holds; strip helpers gained withoutStudy (asPreFieldKitsDispatch composes it, so every pre-GG-2 run
+golden holds); the gas giant candidate's previews moved on purpose (G2-0 display:candidates / display:launch, G2-1
+candidates, SF-0 first:launch, GG-0 golden 1's first three, WR-5c surveySensors4 / 5 cands), each named at its pin.
+For GG-6: `scanTrackDisplay.ts` still lists a gas giant's possible ground finds from poisForPlanetType (display).
+
 ### GG-3: The study leg and its reward (engine)
 
 The study leg starts when its body's scan completes (the ship holds orbit), lasts `STUDY_BASE_SECONDS` **[PROPOSAL

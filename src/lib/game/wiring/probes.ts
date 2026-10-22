@@ -190,6 +190,9 @@ import { addItemQuality, itemTotal } from "../inventory";
 import { GROUND_CONDITIONS, conditionCureSeconds } from "../medicalBay";
 import { loadoutSlotDefsForShipType } from "../armory";
 import { gambitProgramEquals } from "../memberGambits";
+// Gas Giant Study GG-2 / GG-3: the study engine and its content.
+import { GIANT_MASS_STEPS, giantMassAt, isOrbitalPlanetType, rollGiantProfile } from "../gasGiantStudy";
+import { GIANT_CLASSES, type GiantClassId } from "../gasGiantContent";
 
 // ============================================================================
 // Contexts (every context a claim can cover; plan section 3.2)
@@ -1741,6 +1744,73 @@ function planetFinds(s: GameState, planet: ExpeditionPlanetType, kind: "landmark
   return n;
 }
 
+// Gas Giant Study GG-2: the ground objectives on a dispatched run's bodies all turned into `planet` (an orbital-only
+// type), scanned to the end, over a seed batch. ON the run is stamped `study` (as a dispatch to a system with such a
+// body stamps it), so the orbital bodies get none; OFF the stamp is taken away (a run dispatched before GG-2), so
+// they get the ground objectives they had.
+function orbitalObjectives(s: GameState, planet: ExpeditionPlanetType, study: boolean): number {
+  let n = 0;
+  for (const seed of [0x1111, 0x2222, 0x3333, 0x4444]) {
+    const exp0 = dispatchRun({ ...s, expeditionSeed: seed });
+    const { study: _stamp, ...unstamped } = exp0;
+    let run: Expedition = { ...(study ? { ...unstamped, study: 1 as const } : unstamped), bodies: exp0.bodies.map((b) => ({ ...b, planetType: planet })) };
+    let t = run.phaseAnchorSeconds;
+    for (let i = 0; i < 400 && !run.bodies.every((b) => b.scanned); i++) {
+      t += 3600;
+      run = advanceExpedition(run, t);
+    }
+    for (const b of run.bodies) n += b.activities.length;
+  }
+  return n;
+}
+
+// Gas Giant Study: the save seeds the study probes search for a first candidate whose system holds an orbital body.
+const STUDY_PROBE_SEEDS = [0x51f15e, 0x1111, 0x2222, 0x3333, 0x4444, 0x5555, 0x6666, 0x7777, 0x8888, 0x9999] as const;
+
+// A run dispatched from `s` (the away team aboard) to the first candidate system, over the seed batch, that holds an
+// orbital body; throws when none does (so a probe never passes on an empty fixture).
+function studyRun(s: GameState): Expedition {
+  for (const seed of STUDY_PROBE_SEEDS) {
+    const run = dispatchRun({ ...s, expeditionSeed: seed });
+    if (run.bodies.some((b) => isOrbitalPlanetType(b.planetType))) return run;
+  }
+  throw new Error("wiring: no study probe seed reaches a system with an orbital body");
+}
+
+// A GAS_STUDY_USES use, read through its consumer (ON the use as built, OFF its effect taken away).
+//   classRoll: the orbital bodies of a dispatched study run that carry a giant profile (OFF: the profile taken away).
+function gasStudyUseValue(s: GameState, use: string, on: boolean): number {
+  switch (use) {
+    case "classRoll": {
+      const run = studyRun(readyForRun(s));
+      return on ? run.bodies.filter((b) => isOrbitalPlanetType(b.planetType) && b.giant !== undefined).length : 0;
+    }
+    default:
+      return 0;
+  }
+}
+
+// A GIANT_CLASSES field, read through its consumer.
+//   weight: how often the class roll picks the class over a body batch (OFF: its weight zeroed);
+//   massMinMilliJ / massMaxMilliJ: the mass roll's first / last step (equals the band's end).
+function giantClassFieldValue(classId: GiantClassId, field: string, on: boolean): number {
+  const def = GIANT_CLASSES.find((c) => c.id === classId)!;
+  switch (field) {
+    case "weight": {
+      const classes = on ? GIANT_CLASSES : GIANT_CLASSES.map((c) => (c.id === classId ? { ...c, weight: 0 } : c));
+      let n = 0;
+      for (let seed = 1; seed <= 200; seed += 1) for (let i = 0; i < 3; i += 1) if (rollGiantProfile(seed * 0x9e3779b1, i, 3, classes).classId === classId) n += 1;
+      return n;
+    }
+    case "massMinMilliJ":
+      return giantMassAt(def, 0);
+    case "massMaxMilliJ":
+      return giantMassAt(def, GIANT_MASS_STEPS - 1);
+    default:
+      return 0;
+  }
+}
+
 // == missions ==
 
 // Run one whole mission cycle from dispatch with every draw common (economyTick).
@@ -1931,6 +2001,12 @@ function readContent(id: string, s: GameState): number {
       return planetTypeHazard(a);
     case "planetBias":
       return planetFinds(s, a as ExpeditionPlanetType, b as "landmark" | "underground", on);
+    case "orbitalOnly":
+      return orbitalObjectives(s, a as ExpeditionPlanetType, on);
+    case "gasStudy":
+      return gasStudyUseValue(s, a, on);
+    case "giantClass":
+      return giantClassFieldValue(a as GiantClassId, b, on);
     case "lootPool": {
       // One salvage of the material: the item it gave is one of the pool's configured drops.
       const held = holding(s, a, new Decimal(1));

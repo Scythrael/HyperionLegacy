@@ -152,12 +152,27 @@ describe("GG-1 everything wired: a consumer or a GG reserve, a source or a pendi
     for (const [use, owner] of Object.entries(GAS_STUDY_USES)) expect(owner, use).toMatch(/^GG-[2-7] /);
   });
 
-  it("the registry: GG-1's additions, each with its status (pending on its GG slice, or live for the sale and the recipe)", () => {
+  // The study uses a built engine slice has taken live (GG-2: the class roll), and the class fields they read.
+  const BUILT_USES: ReadonlySet<string> = new Set(["classRoll"]);
+  const CLASS_FIELD_USE: Readonly<Record<string, string>> = {
+    weight: "classRoll",
+    massMinMilliJ: "classRoll",
+    massMaxMilliJ: "classRoll",
+    radiusModel: "probeDive",
+    inflation: "probeDive",
+    bandOdds: "studyReward",
+    itemWeights: "studyReward",
+  };
+  const builtLive = (e: (typeof WIRING_REGISTRY)[number]): boolean =>
+    (e.source.catalog === "GAS_STUDY_USES" && BUILT_USES.has(e.source.key)) ||
+    (e.source.catalog === "GIANT_CLASSES" && BUILT_USES.has(CLASS_FIELD_USE[e.source.key.split(":")[1]] ?? ""));
+
+  it("the registry: GG-1's additions, each with its status (pending on its GG slice, or live for the sale, the recipe and a built slice's)", () => {
     const added = WIRING_REGISTRY.filter((e) => GG1_ADDED_ENTRY_IDS.has(e.id));
     // 6 uses + 7 classes x 7 effect fields + 4 kinds x 2 + 6 sell values + 9 reserves + 1 recipe
     expect(added).toHaveLength(6 + 49 + 8 + 6 + 9 + 1);
     for (const e of added) {
-      const live = e.source.key.endsWith(":sellValue") || e.source.catalog === "REFINE_RECIPES";
+      const live = e.source.key.endsWith(":sellValue") || e.source.catalog === "REFINE_RECIPES" || builtLive(e);
       if (live) expect(e.status.kind, e.id).toBe("live");
       else {
         expect(e.status.kind, e.id).toBe("pending");

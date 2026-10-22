@@ -348,9 +348,12 @@ const GOLDEN: Record<string, unknown> = {
     "Calliope Reach: toxic 0.9, gasGiant 0.1",
   ],
   "first:candidates": "8207442a",
+  // Re-pinned by Gas Giant Study GG-2 (cand-2 only, Calliope Reach with its gas giant; was 8105e2b): the giant's
+  // ground objectives leave the demand and the recommendation, which count its one ship study instead (G2-0
+  // display:launch moved the same way).
   "first:launch": [
-    "generalFreighter:cand-0:b4d99ab5", "generalFreighter:cand-1:25f32e71", "generalFreighter:cand-2:8105e2b",
-    "orion:cand-0:b4d99ab5", "orion:cand-1:25f32e71", "orion:cand-2:8105e2b",
+    "generalFreighter:cand-0:b4d99ab5", "generalFreighter:cand-1:25f32e71", "generalFreighter:cand-2:839d60ba",
+    "orion:cand-0:b4d99ab5", "orion:cand-1:25f32e71", "orion:cand-2:839d60ba",
   ],
   "first:parity": "271fa153",
   "later:orion:d18:2": [

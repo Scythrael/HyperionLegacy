@@ -154,10 +154,14 @@ const MOVES: Partial<Record<SecondaryTalentKey, Record<string, string>>> = {
   // Anomaly Sense: captainDiscoveryMult 1.05 in the frozen scan params; every attempt's odds rise, the claim is unchanged.
   surveySensors3: { dispatch: "313d4b5", done: "639b9be8" },
   // Foreknowledge: each candidate reads one telescope detail level higher (display only; the run is untouched).
-  surveySensors4: { cands: "cb1aeb4e" },
+  // Gas Giant Study GG-2 (was cb1aeb4e): the lifted detail shows the task demand, and the gas giant system (candidate
+  // 2) previews no ground objective on its giant and one ship study there; nothing else in the list moved.
+  surveySensors4: { cands: "c4de8bec" },
   // Deep Scan: the candidates read in full (top detail, every foreknowledge field), and captainSureFinds 1 rides the
   // frozen scan params (each body's first attempt finds something).
-  surveySensors5: { cands: "e58c409c", dispatch: "791e6e4b", done: "fc8f8b2a" },
+  // Gas Giant Study GG-2 (was e58c409c): the full reading shows the task demand and the relic sets, and the gas giant
+  // system (candidate 2) previews no ground objective (so no relic set) on its giant and one ship study there.
+  surveySensors5: { cands: "a3d66e04", dispatch: "791e6e4b", done: "fc8f8b2a" },
   // Expedition Lead: the frozen Security and Science strengths x1.05; the squads fight and work harder, the haul moves.
   expeditionRelics1: { dispatch: "c215cfaa", done: "9ecdc4fc", claim: "69e6fd30" },
   // Field Science: explorerCaptain.relicFindMult 1.05 on the run; this seed's relic rolls land the same.

@@ -145,7 +145,7 @@ import { bucketOf, withBuckets } from "./wiring/probes";
 import { hash, onHull, withCrew, withV1Museum, withoutGuests } from "./firstRunsGoldens.fixture";
 import { ML2_ADDED_ENTRY_IDS, ml2LinesBack } from "./ml2RecipeGoldens.fixture";
 import { asPreG2NamesDispatch } from "./awayTeamTestFixtures";
-import { GG1_ADDED_ENTRY_IDS } from "./gasStudyGoldens.fixture";
+import { GG1_ADDED_ENTRY_IDS, GG_STUDY_FLIPPED_BEFORE } from "./gasStudyGoldens.fixture";
 import { FUSE_ADDED_ENTRY_IDS } from "./fieldKitsFuse.fixture";
 import { RX_ADDED_ENTRY_IDS } from "./reactorFuelGoldens.fixture";
 import { isSiAdded, SI_RETIRED, siReadBack } from "./siMemberGearRegistry.fixture";
@@ -601,8 +601,12 @@ const ML2_SLICE: RegistrySlice = { added: ML2_ADDED_ENTRY_IDS };
 // The Quartermaster Standard-Issue member lines and the D26 line swap (0.14.0): read back in EVERY pin (all of them were
 // taken before it) through siReadBack (siMemberGearRegistry.fixture.ts: the `si:` entries and the three new Science
 // lines left out, the nine retired combat lines restored in place); `registry:si` pins the added and retired ids.
+// Gas Giant Study GG-2 / GG-3 (the engine slices): entries they FLIPPED pending -> live (the gas giant's orbitalOnly row
+// and the GG-1 study entries they wired; gasStudyGoldens.fixture.ts), read back as pending in EVERY pin (all of them were
+// taken before GG-2), so the base pin and every cause pin are unchanged.
+const GG_STUDY_SLICE: RegistrySlice = { flipped: new Set(GG_STUDY_FLIPPED_BEFORE.keys()), was: "pending" };
 function registryPin(...given: readonly RegistrySlice[]): [number, string] {
-  const slices = [RX_SLICE, FUSE_SLICE, ML2_SLICE, ...given];
+  const slices = [RX_SLICE, FUSE_SLICE, ML2_SLICE, GG_STUDY_SLICE, ...given];
   const rows = siReadBack(WIRING_REGISTRY.map((e) => ({ id: e.id, kind: e.status.kind as string })), (r) => r.id, (row) => ({ id: row[0], kind: row[1].kind as string }));
   const lines = rows.filter((e) => !slices.some((sl) => sl.added?.has(e.id))).map((e) => {
     const flip = slices.find((sl) => sl.flipped?.has(e.id));

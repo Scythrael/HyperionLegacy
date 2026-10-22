@@ -33,6 +33,7 @@ import * as model from "./model";
 import * as awayTeam from "./awayTeam";
 import * as crewGraduation from "./crewGraduation";
 import * as shortRange from "./shortRange";
+import * as gasGiantStudy from "./gasGiantStudy";
 
 // The modules whose salts must be distinct AND odd.
 const MODULES: Record<string, Record<string, unknown>> = {
@@ -60,6 +61,8 @@ const MODULES: Record<string, Record<string, unknown>> = {
   "crewGraduation.ts": crewGraduation,
   // G1-2: the short-range board seed, the roll and the whole-unit rounding.
   "shortRange.ts": shortRange,
+  // Gas Giant Study GG-2 / GG-3: the giant profile roll and the study reward roll.
+  "gasGiantStudy.ts": gasGiantStudy,
 };
 
 // Legacy salts checked for DISTINCTNESS only. model.ts AWAY_RECRUIT_SEED_SALT (0x5a17c0de) predates the odd

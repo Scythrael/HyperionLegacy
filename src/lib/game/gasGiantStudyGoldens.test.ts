@@ -56,7 +56,7 @@ import { resolveShipScanEvent } from "./shipScanEvents";
 import { startResearch } from "./tick";
 import { gasStudyItemIds } from "./gasGiantContent";
 import { GG1_RECIPE } from "./gasStudyGoldens.fixture";
-import { asPreG2Candidate, asPreG2NamesDispatch, asPreRanksDispatch, plainAwayMember, withoutG2NamesState } from "./awayTeamTestFixtures";
+import { asPreG2Candidate, asPreG2NamesDispatch, asPreRanksDispatch, plainAwayMember, withoutG2NamesState, withoutStudy } from "./awayTeamTestFixtures";
 import { goldenJson, withV1Museum } from "./firstRunsGoldens.fixture";
 
 // ===== shared helpers =====
@@ -181,8 +181,14 @@ function expectParity(exp: Expedition): void {
 // named in expeditionTiersGoldens display:launch (a44bfe48 -> 6964ecd8, b956de0c -> 2de1df4): the forecast is built on
 // the run the dispatch would make, and this new save's first ordinary run now sits on the difficulty curve's floor, so
 // its Forecast detail odds read the gentler run. The dispatch itself is pinned as before the ranks (and so before SF-3).
+// GG-2 (orbital bodies lose ground objectives): the giant row's candidate, task preview and launch view moved on
+// purpose (were f5ddbd0a, e375bf74, 2de1df4): every preview is built on the run a dispatch would make NOW, and that run
+// gives the gas giant no ground objective (so no relic set at Level 8, no task, no squad need) and one ship study. The
+// candidate and the launch view equal G2-0's own moves (expeditionTiersGoldens display:candidates L8 cand-2 157c763c,
+// display:launch 3ad67e95). The dispatch and everything after it are pinned as dispatched before GG-2 (the strip
+// helpers take the study stamp off: asPreFieldKitsDispatch composes withoutStudy), so they hold.
 const GOLDEN: Record<string, readonly string[]> = {
-  giant: ["f5ddbd0a", "e375bf74", "2de1df4", "4ac8a0a7", "44d0a224", "93b332c5", "f23b02ce", "e8b83c3e", "d95c0baf", "a6f5bf49", "9a143f7", "661f503f"],
+  giant: ["157c763c", "8e03ab11", "3ad67e95", "4ac8a0a7", "44d0a224", "93b332c5", "f23b02ce", "e8b83c3e", "d95c0baf", "a6f5bf49", "9a143f7", "661f503f"],
   plain: ["82735f", "61454ce6", "6964ecd8", "81d9393c", "394ef6cb", "ffa69009", "5a7a918b", "52c3393d", "2dc0e5cf", "5d234ce9", "8b1199fc", "174e7996"],
   risk: ["6b5a19c0", "9c9d2b43", "31ca5738"],
 };
@@ -361,7 +367,9 @@ function sweepRow(saveSeed: number, tier: number, slot: number): string[] {
   const keptTasks = preview.tasks.filter((t) => !orbital[t.bodyIndex]);
   // The dispatch record apart from the orbital bodies' risk grades (GG-2 drops a hostile site or a clearing objective
   // there, every draw kept): with GG-2's stamps taken off it must read exactly this.
-  const record = { ...exp, bodies: exp.bodies.map((b, i) => (orbital[i] ? { ...b, risk: undefined } : b)) };
+  // GG-2: the stamps come off through withoutStudy (the study flag and the giant profiles).
+  const bare = withoutStudy(exp);
+  const record = { ...bare, bodies: bare.bodies.map((b, i) => (orbital[i] ? { ...b, risk: undefined } : b)) };
   return [id, "orbital", hash(keptRisk), hash(keptTasks), hash(record)];
 }
 

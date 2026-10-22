@@ -191,6 +191,9 @@ import Decimal from "break_infinity.js";
 import { formatCountdown } from "./format";
 // Safe first runs SF-1: the run counters a claim updates (runDifficulty.ts imports model.ts only, so no cycle).
 import { countClaimedExpedition, runCountsOf, runDifficultyAt } from "./runDifficulty";
+// Gas Giant Study GG-2: the study stamp, the orbital bodies and their giant profiles (gasGiantStudy.ts never imports
+// this module).
+import { isStudyBody, studyStampFor, withGiantProfiles } from "./gasGiantStudy";
 
 // ============================================================================
 // FIRST-PASS TUNABLE constants
@@ -853,6 +856,10 @@ function previewRelicSets(seed: number, scanParams: ExpeditionScanParams, region
 function previewRun(seed: number, scanParams: ExpeditionScanParams, region: ExpeditionRegion): Expedition {
   const gen = previewSystem(seed, region);
   const risk = generateRiskProfile(seed, region, gen.bodies);
+  // Gas Giant Study GG-2: the same study flag and giant profiles the dispatch freezes (buildExpedition), so the
+  // preview drops the orbital bodies' objectives exactly as the run will.
+  const study = studyStampFor(gen.bodies);
+  const risked = gen.bodies.map((b, i) => ({ ...b, risk: risk.bodies[i] }));
   return {
     id: "preview",
     shipId: "",
@@ -865,7 +872,7 @@ function previewRun(seed: number, scanParams: ExpeditionScanParams, region: Expe
     phase: "scanning",
     phaseAnchorSeconds: 0,
     shakedown: false,
-    bodies: gen.bodies.map((b, i) => ({ ...b, risk: risk.bodies[i] })),
+    bodies: study ? withGiantProfiles(seed, risked) : risked,
     anomalyResolved: false,
     anomalyCharted: false,
     anomalyOptIn: false,
@@ -884,6 +891,7 @@ function previewRun(seed: number, scanParams: ExpeditionScanParams, region: Expe
     relicFindBonus: 0,
     hazardResist: 0,
     risk: risk.profile,
+    ...(study ? { study } : {}),
   };
 }
 
@@ -977,11 +985,14 @@ export function systemTaskPreview(seed: number, scanParams: ExpeditionScanParams
       tasks.push({ bodyIndex: i, poiId: t.poiId, hostile: isHostileSiteId(t.poiId), fightPoints: t.fightPoints?.length ?? 0, needs: taskNeedsOf(t), difficulty: t.difficulty ?? 1 });
     }
   });
+  // Gas Giant Study GG-2: the bodies the ship studies (no objective, no squad), only when the system holds one.
+  const studies = run.bodies.flatMap((b, i) => (isStudyBody(run, b) ? [i] : []));
   return {
     tier: region.tier,
     enemyTerritory: region.enemyTerritory,
     bodies: run.bodies.map((b) => ({ ...(b.risk as BodyRiskGrades) })),
     tasks,
+    ...(studies.length > 0 ? { studies } : {}),
   };
 }
 
@@ -1101,7 +1112,19 @@ export function launchForecast(
         byDifficulty[gradeSlot(t.difficulty)] += 1;
       } else unfinished += 1;
     }
-    return { kinds: used, label, teamsDeployed: 0, tasks, byDifficulty, unfinished, hardest: null, threat: null, note: "No ground team is ready to launch" };
+    const previewStudies = preview.studies?.length ?? 0;
+    return {
+      kinds: used,
+      label,
+      teamsDeployed: 0,
+      tasks,
+      byDifficulty,
+      unfinished,
+      hardest: null,
+      threat: null,
+      note: "No ground team is ready to launch",
+      ...(previewStudies > 0 ? { studies: previewStudies } : {}),
+    };
   }
   let revealed = 0;
   let tasks = 0;
@@ -1125,6 +1148,7 @@ export function launchForecast(
     }
   });
   const chosen = pick as { task: ExpeditionActivity; bodyIndex: number } | null;
+  const studyCount = exp.bodies.filter((b) => isStudyBody(exp, b)).length;
   const crew = chosen?.task.assignedTeamIds ?? [];
   const hardest: ForecastHardestTask | null = chosen
     ? {
@@ -1149,6 +1173,8 @@ export function launchForecast(
     hardest,
     threat: chosen ? groundCrewThreat(exp, crew, chosen.task.id) : null,
     note: chosen ? null : "No fights expected",
+    // Gas Giant Study GG-2: the run's ship studies (one per orbital body of a study run), only when there is one.
+    ...(studyCount > 0 ? { studies: studyCount } : {}),
   };
 }
 
@@ -1408,7 +1434,11 @@ function buildExpedition(
   if (fieldKitsRuns) withDispatchPacks(groundSnapshot.teams, planDispatchPacks(state, ship, groundSnapshot.teams, roster.security));
   // Squads SQ-4: the RISK PROFILE's presence (with each body's grades) is the risk-aware flag the ground tasks
   // stamp from.
-  const bodies = gen.bodies.map((b, i) => ({ ...b, risk: risk.bodies[i] }));
+  // Gas Giant Study GG-2: a system with an orbital body is a STUDY run (Expedition.study, written last below), and each
+  // orbital body freezes its giant profile (ExpeditionBody.giant, after its risk). Neither is written on any other run.
+  const study = studyStampFor(gen.bodies);
+  const risked = gen.bodies.map((b, i) => ({ ...b, risk: risk.bodies[i] }));
+  const bodies = study ? withGiantProfiles(seed, risked) : risked;
   // Safe first runs SF-2 / SF-3: the run's difficulty stamp, from stored state only (the counters and the runs out):
   // the training run's, else the curve position and the region tier this run is dispatched at.
   const difficulty = runDifficultyAt(state, "expedition", risk.profile.tier, ship.typeKey);
@@ -1486,6 +1516,8 @@ function buildExpedition(
     // WR-5c: the commanding captain's run-frozen explorer nodes (Field Science, Away-Team Doctrine, Preservationist,
     // Relic Hunter, Drillmaster), only when it owns one (captainExplorerEffects.ts explorerCaptainRun).
     ...(explorer ? { explorerCaptain: explorer } : {}),
+    // Gas Giant Study GG-2: the study flag (see above), only on a system with an orbital body.
+    ...(study ? { study } : {}),
   };
   return expedition;
 }
@@ -1649,6 +1681,14 @@ function assignDiscoveriesAndActivities(
   bodyIndex: number,
   deployed: GroundTaskNeeds | null = exp.groundOps ? crewSquadsOf(exp.groundOps.teams) : null,
 ): void {
+  // Gas Giant Study GG-2 (D22, OC-G2): an orbital body of a study run has no surface: no discovery, no hostile site,
+  // no clearing objective, no sensor ghost find, so no ground objective at all (the ship studies it instead, GG-3).
+  // Its discovery stream is its own (keyed by the body), so leaving it undrawn shifts no other body's roll.
+  if (isStudyBody(exp, body)) {
+    body.discoveries = [];
+    body.activities = [];
+    return;
+  }
   const rng = makeRng((exp.seed ^ (DISCOVERY_SALT + Math.imul(bodyIndex + 1, 0x9e3779b9))) >>> 0);
   // The planet type gates the eligible pools; PLANET_TYPES[0] (terrestrial) is a defensive default the
   // union type makes unreachable, kept so an unexpected id still yields a valid pool.
@@ -1878,7 +1918,9 @@ export function scanStepRoll(exp: Expedition, bodyIndex: number, step: number, h
         : 0;
   const encounter = rng.chance(chance, 1000);
   const cache = rng.chance(clampPermille(SUPPLY_CACHE_CHANCE), 1000);
-  return { encounter, supplyCache: !encounter && cache };
+  // Gas Giant Study GG-2 (user call 4, 2026-10-19: "Stop on gas giants"): no supply cache at an orbital body of a
+  // study run (a cache is a ground find). Draw 2 is still taken, so the stream reads exactly as before.
+  return { encounter, supplyCache: !encounter && cache && !(body !== undefined && isStudyBody(exp, body)) };
 }
 
 // Ground Ops GO-8: the per-boundary SHIP EVENT chance on `body` for a flagged run with ship events: the scan
