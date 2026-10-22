@@ -520,3 +520,17 @@ Reading: the soft cap still freezes the regular game at 1000; relics (the past-c
 each give a specific multiplier that feeds BOTH a future Endless Mode AND the secret minigame "Hyperion Legacy
 v0.0000001a" (generators, Overclock, its skills/talents, and so on). So the main game's relics become a cross-link
 into the minigame. Details (which relics, which stats, which patch) being settled by multiple choice.
+
+## USER ANSWERS (2026-10-22): relics feed the minigame
+
+1. Which relics: "Every relic, past-cap extra" (every identified relic gives the minigame a small multiplier; copies
+   past a tier's 1000 cap give a bigger one: the cap stops helping the main game, so it pours into the minigame).
+2. Mapping: "By relic type (Recommended)" (each relic kind maps to one minigame lever, for example generators,
+   Overclock, skills; collecting variety matters). The exact kind-to-lever table is a [PROPOSAL] for sign-off.
+3. Timing: "With 0.14.0 (Recommended)" (ships with Relics v2; the minigame shows a "Relic boosts" line).
+4. Two-way: "Only via milestones" (the minigame never multiplies the main game; its milestones pay main-game rewards
+   in a later patch, as already decided).
+Notes for the build: compounding is allowed INSIDE the minigame (it is sealed from main-game balance; D23 still
+governs the main game); the minigame pacing sim must be re-run with realistic relic counts so the finale stays 3 to 5
+days and e1,000,000 about a month for a player WITHOUT relics, and the boost is reported for typical relic counts;
+the past-cap count also stays recorded for Endless Mode. New 0.14.0 slice: "R2-10 relic boosts in the minigame".
