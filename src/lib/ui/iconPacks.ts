@@ -96,6 +96,14 @@ export const ICON_SEMANTICS: Record<IconName, IconSemantic> = {
   chevronUp: "ornament",
   chevronDown: "ornament",
   chevronRight: "ornament",
+  arrowUp: "ornament",
+  arrowDown: "ornament",
+  arrowLeft: "ornament",
+  arrowRight: "ornament",
+  circle: "ornament",
+
+  // SUBJECT (0.13.11): the achievement star names a thing (a named goal), restyle freely.
+  star: "subject",
 };
 
 // ---------------------------------------------------------------------------

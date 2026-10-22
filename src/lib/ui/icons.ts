@@ -106,6 +106,19 @@ export const ICON_PATHS = {
   chevronRight: ["M9 6l6 6-6 6"],
   // Close: remove a queued order, dismiss a modal.
   close: ["M6 6l12 12", "M18 6L6 18"],
+
+  // --- 0.13.11 Codes pad and the secret game ---
+
+  // Arrows: a shaft and a head, one per direction, for the combo pad's D-pad and its slots.
+  // Separate names (not one rotated glyph) so each pad button names its own direction.
+  arrowUp: ["M12 5v14", "M6 11l6-6 6 6"],
+  arrowDown: ["M12 5v14", "M6 13l6 6 6-6"],
+  arrowLeft: ["M5 12h14", "M11 6l-6 6 6 6"],
+  arrowRight: ["M5 12h14", "M13 6l6 6-6 6"],
+  // Star: a five-point outline, the mark of a named achievement.
+  star: ["M12 3.5l2.6 5.3 5.9.9-4.3 4.1 1 5.8-5.2-2.7-5.2 2.7 1-5.8-4.3-4.1 5.9-.9z"],
+  // Circle: an empty ring, "not reached yet" beside a check for "reached".
+  circle: ["M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18z"],
 } as const satisfies Record<string, readonly string[]>;
 
 /**

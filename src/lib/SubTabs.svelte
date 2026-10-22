@@ -1,7 +1,8 @@
 <script lang="ts">
   import { onMount, afterUpdate } from "svelte";
 
-  export let tabs: { key: string; label: string; locked?: boolean }[];
+  // badge (0.13.11): an optional short tag after the label, such as the Codes sub-tab's "NEW".
+  export let tabs: { key: string; label: string; locked?: boolean; badge?: string }[];
   export let active: string;
   export let onSelect: (key: string) => void;
 
@@ -57,7 +58,7 @@
           if (!tab.locked) onSelect(tab.key);
         }}
       >
-        {#if tab.locked}🔒 {/if}{tab.label}
+        {#if tab.locked}🔒 {/if}{tab.label}{#if tab.badge}<span class="sub-tab-badge">{tab.badge}</span>{/if}
       </button>
     {/each}
   </div>
@@ -128,6 +129,18 @@
     cursor: pointer;
     flex-shrink: 0;
     white-space: nowrap;
+  }
+  /* The optional badge (0.13.11): a small accent tag riding after the label. */
+  .sub-tab-badge {
+    margin-left: 6px;
+    padding: 0 4px;
+    border-radius: 1px;
+    font-family: var(--font-display);
+    font-size: var(--text-3xs);
+    letter-spacing: 0.1em;
+    color: var(--color-bg-deep);
+    background: var(--color-accent);
+    vertical-align: 1px;
   }
   .sub-tab.active {
     background: rgba(var(--color-accent-rgb), 0.14);
