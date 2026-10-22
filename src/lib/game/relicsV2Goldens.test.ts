@@ -16,7 +16,8 @@ import { freshState, generalMuseumRecord, withGeneralMuseumRecord, RELIC_DEFAULT
 import { MUSEUM_STATS, RELIC_SETS, RELICS, identifyRelic, museumBonusesFromRecord, relicStudyDurationTicks, relicStudySeed } from "./relics";
 import { rollRelicToken } from "./gambit";
 import { advanceExpedition, depositExpeditionFindings } from "./expedition";
-import { economyTick, museumResearchDurationTicks, startRelicStudy, tick } from "./tick";
+import { economyTick, museumResearchDurationTicks, tick } from "./tick";
+import { startV1RelicStudy } from "./relicStudyV1.fixture";
 import { deserialize, migrate, serialize, type SaveFile } from "./save";
 import { PRE_G2_STORED_RUNS } from "./expeditionTiersGoldens.fixture";
 import { hash, stateHash, withV1Museum } from "./firstRunsGoldens.fixture";
@@ -237,7 +238,8 @@ describe("R2-0 golden 6: a v69 relic save, migrated and ticked to completion", (
       relicDiscovered: ["glyphTablet", "resonanceShard", "hullRivet", "geodeCore"],
       nextRelicStudyIndex: 5,
     };
-    const started = startRelicStudy(s, "expedition-3-relic-a");
+    // R2-3: a v69 save's study is a v1 study (no `v` stamp), as a pre-R2-3 build started it.
+    const started = startV1RelicStudy(s, "expedition-3-relic-a");
     expect(started.started).toBe(true);
     return started.next;
   };
