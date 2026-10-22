@@ -94,3 +94,14 @@ plumbing behind a switch; Luminous legendary affix catalog; one shared set engin
 it; no producer beyond dev mint; traps: crew rows Radiant to Constellar sharing one legendary value, warehouse tokens,
 relic blanks decoupled, salvage ceiling row, set-complete shoutout, Derelict unified). Counts as a NEW system on the
 progress card (33 total).
+
+## USER ANSWERS (2026-10-22), round 4 (supersedes answer 11)
+
+User: "Build in 0.14.0 or make absolutely sure that it's implemented in time for the balancing patch (0.16.0). We also
+need online in a subpatch right after this one, and the tutorial/story/quest patch too. So keep that in mind as well."
+
+11b. Ship and field-kit quality: "Due before 0.16.0 (Recommended)": NOT in 0.14.0; a must-land roadmap item built in
+     the patch before balancing, with a RELEASE GATE: 0.16.0 cannot start without it.
+12.  Roadmap order: "0.14.1 online, 0.15 story, 0.16 balance" (0.14.1 or 0.14.x = online subpatch right after
+     0.14.0; 0.15.0 = tutorial/story/quests; 0.16.0 = balancing). This supersedes the older order in
+     docs/plans/2026-09-15-exploration-crew-saga-0.14.0-design.md:31 and :590-591.
