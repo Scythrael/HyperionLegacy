@@ -58,7 +58,8 @@
           if (!tab.locked) onSelect(tab.key);
         }}
       >
-        {#if tab.locked}🔒 {/if}{tab.label}{#if tab.badge}<span class="sub-tab-badge">{tab.badge}</span>{/if}
+        {#if tab.locked}🔒 {/if}{tab.label}
+        {#if tab.badge}<span class="sub-tab-badge">{tab.badge}</span>{/if}
       </button>
     {/each}
   </div>
@@ -132,7 +133,7 @@
   }
   /* The optional badge (0.13.11): a small accent tag riding after the label. */
   .sub-tab-badge {
-    margin-left: 6px;
+    margin-left: 2px;
     padding: 0 4px;
     border-radius: 1px;
     font-family: var(--font-display);
