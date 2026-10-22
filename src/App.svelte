@@ -4829,9 +4829,12 @@
       museum[rid] = copies;
       if (!discovered.includes(rid)) discovered.push(rid);
     });
-    // Relics v2 R2-4: a dev grant that carries Tier I to the soft cap snapshots it, as every deposit does.
+    // Relics v2 R2-4: a dev grant that carries Tier I to the soft cap snapshots it, as every deposit does. The control
+    // SETS the counts, so an earlier Tier I snapshot is dropped first and re-taken from the new counts (a set count past
+    // the cap freezes at that count: a dev control, not a deposit).
     const granted = withGeneralMuseumRecord(state, museum);
-    state = { ...granted, museumV2: withSoftCapSnapshot(granted.museumV2), relicDiscovered: discovered };
+    const { "1": _dropped, ...frozen } = granted.museumV2.frozen;
+    state = { ...granted, museumV2: withSoftCapSnapshot({ ...granted.museumV2, frozen }), relicDiscovered: discovered };
     pushLog(`[DEV] ${set.label} museum set to ${devMuseumMode} ${n} copies.`);
   }
 

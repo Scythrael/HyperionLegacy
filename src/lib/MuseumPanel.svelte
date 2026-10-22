@@ -10,6 +10,11 @@
   // relics 1-K, five level pips on the doubling copy ladder, the next threshold or the BOTTLENECK relic
   // holding the tier back, the tier's live bonus, and the LOCKED state).
   //
+  // R2-4 review follow-up: the BONUS numbers (tier levels, set bonuses, per-copy totals) read the record the engine
+  // reads (museumActiveRecord: the soft cap snapshot once Tier I reached RELIC_SOFT_CAP), while the copy counts on the
+  // tiles stay live (call 4, "counts keep growing and show"); a frozen Tier I says so, and one line totals what the
+  // higher tiers and the exceptional pieces add (museumBeyondTierIBonuses). R2-8 owns the full v2 Museum page.
+  //
   // POSTURE (mirrors ExpeditionPanel / GambitEditorPanel): PURE PRESENTATION. It reads the Tier I museum record (generalMuseumRecord) /
   // state.relicDiscovered through the relics.ts readers (setTierLevels, setCompletion, relicCopies,
   // setTierBonus, setPerCopyBonus), so every number on screen is the engine's own number. It has no
@@ -32,6 +37,11 @@
     setTierLevels,
     setTierBonus,
     setPerCopyBonus,
+    museumActiveRecord,
+    museumTierFrozen,
+    museumBeyondTierIBonuses,
+    MUSEUM_STATS,
+    RELIC_SOFT_CAP,
     type RelicSetDef,
     type SetTierLevel,
   } from "./game/relics";
@@ -53,13 +63,20 @@
 
   // --- Derived reads ----------------------------------------------------------
   $: museum = generalMuseumRecord(state);
+  // What the engine reads for Tier I (the soft cap snapshot once frozen), and whether it is frozen.
+  $: active = museumActiveRecord(state.museumV2, 1);
+  $: tierIFrozen = museumTierFrozen(state.museumV2, 1);
+  $: beyond = museumBeyondTierIBonuses(state.museumV2);
+  $: beyondText = MUSEUM_STATS.filter((s) => beyond[s] > 0)
+    .map((s) => (s === "hazardResist" ? `${formatMuseumPct(beyond[s])} ${MUSEUM_STAT_LABEL[s]} (before the hazard curve)` : formatMuseumStatBonus(s, beyond[s])))
+    .join(", ");
   $: discovered = new Set(state.relicDiscovered ?? []);
   $: totalRelics = RELIC_SETS.reduce((n, s) => n + s.relicIds.length, 0);
   $: discoveredCount = RELIC_SETS.reduce((n, s) => n + s.relicIds.filter((rid) => isDiscovered(rid, museum, discovered)).length, 0);
   $: totalCopies = RELIC_SETS.reduce((n, s) => n + setCompletion(museum, s.id).totalCopies, 0);
 
   // One view per set, recomputed whenever the museum changes.
-  $: setViews = RELIC_SETS.map((set) => buildSetView(set, museum, discovered));
+  $: setViews = RELIC_SETS.map((set) => buildSetView(set, museum, active, tierIFrozen, discovered));
 
   // A relic counts as discovered once it has an identified copy (copies never decrease) or sits in the
   // first-find registry. Undiscovered relics are masked: their NAME is never shown early.
@@ -106,11 +123,12 @@
     return t.stats.map((s) => formatMuseumStatBonus(s, each)).join(", ");
   }
 
-  function buildSetView(set: RelicSetDef, m: Record<string, number>, d: Set<string>) {
+  // `m` the live copies (the tiles and the discovered counts), `a` the record the engine reads for the bonuses.
+  function buildSetView(set: RelicSetDef, m: Readonly<Record<string, number>>, a: Readonly<Record<string, number>>, frozen: boolean, d: Set<string>) {
     const completion = setCompletion(m, set.id);
     const holdouts = new Set<string>();
-    const tiers: TierView[] = setTierLevels(m, set.id).map((t) => {
-      const next = tierNext(set, t, m);
+    const tiers: TierView[] = setTierLevels(a, set.id).map((t) => {
+      const next = frozen && !t.locked ? { text: `Lv ${t.level} · held at the soft cap`, warn: false, holdout: null } : tierNext(set, t, a);
       if (next.holdout !== null) holdouts.add(next.holdout);
       return { tier: t, nextText: next.text, warn: next.warn, bonusText: tierBonusText(t) };
     });
@@ -132,7 +150,7 @@
       completion,
       relics,
       tiers,
-      perCopyTotal: setPerCopyBonus(completion.totalCopies),
+      perCopyTotal: setPerCopyBonus(setCompletion(a, set.id).totalCopies),
       sources: set.sources.map((poi) => getPoiById(poi)?.label ?? poi).join(", "),
     };
   }
@@ -148,6 +166,14 @@
     <b>How set bonuses level:</b> owning relics 1 through K unlocks a K-piece tier. Each level needs every required relic at the next copy threshold,
     <b>{MUSEUM_COPY_LADDER.join(" / ")}</b>, and adds {formatMuseumPct(MUSEUM_TIER_LEVEL_BONUS)}. A tier is only as strong as its least-collected relic.
   </p>
+  {#if tierIFrozen}
+    <p class="mu-ladder">
+      <b>Tier I reached the soft cap</b> at {RELIC_SOFT_CAP.toLocaleString("en-US")} identified relics: its bonuses hold at that point. New copies still count and show here.
+    </p>
+  {/if}
+  {#if beyondText !== ""}
+    <p class="mu-ladder"><b>Higher tiers and exceptional pieces add:</b> {beyondText}.</p>
+  {/if}
 
   {#each setViews as v (v.set.id)}
     <section class="mu-set">

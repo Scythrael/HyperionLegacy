@@ -6,6 +6,8 @@
 import { describe, it, expect } from "vitest";
 import { emptyMuseumV2, freshState, withGeneralMuseumRecord, type GameState, type MuseumV2, type RegionTier, type RelicVaultToken } from "./model";
 import {
+  museumBeyondTierIBonuses,
+  museumTierCurveBonuses,
   EXCEPTIONAL_FULL_SET_MULT,
   EXCEPTIONAL_PIECE_VALUE,
   EXCEPTIONAL_SETS,
@@ -34,6 +36,7 @@ import { grant } from "./processSpeed";
 import { economyTick, queueAllRelicStudies, tick } from "./tick";
 import { deserialize, migrate, serialize, withSoftCapSnapshotV70, type SaveFile } from "./save";
 import { WIRING_REGISTRY } from "./wiring/registry";
+import { withV1Museum } from "./firstRunsGoldens.fixture";
 import { R2_4_ADDED_ENTRY_IDS, R2_4_FLIPPED_BEFORE } from "./relicMuseumV2.fixture";
 
 const ZERO = Object.fromEntries(MUSEUM_STATS.map((k) => [k, 0])) as Record<MuseumStat, number>;
@@ -262,6 +265,31 @@ describe("R2-4 load: a veteran already past the cap (MIGRATIONS[69] step 6 and e
     expect(museumBonuses(loaded)).toEqual(museumBonusesFromRecord(over));
     const more = { ...loaded, museumV2: museumDepositGeneral(loaded.museumV2, 1, "hullRivet", 50) };
     expect(museumBonuses(more)).toEqual(museumBonuses(loaded));
+  });
+
+  it("a v69 save holding the old relicMuseum past the cap migrates through MIGRATIONS[69] with its snapshot and the same bonus", () => {
+    const s = withGeneralMuseumRecord(freshState(), over);
+    const v69 = { ...(deserialize(serialize(withV1Museum(s), 0)) as SaveFile), version: 69 };
+    expect("relicMuseum" in (v69.state as unknown as Record<string, unknown>)).toBe(true);
+    const loaded = migrate(v69, 0x2468ace1);
+    expect("relicMuseum" in (loaded as unknown as Record<string, unknown>)).toBe(false);
+    expect(loaded.museumV2.general["1"]).toEqual(over);
+    expect(loaded.museumV2.frozen).toEqual({ "1": over });
+    expect(museumBonuses(loaded)).toEqual(museumBonusesFromRecord(over));
+    // The every-load pass leaves it as it is (idempotent), and a second load lands the same museum.
+    expect(withSoftCapSnapshotV70(loaded)).toBe(loaded);
+    expect(migrate(deserialize(serialize(loaded, 0)) as SaveFile, 0x2468ace1).museumV2).toEqual(loaded.museumV2);
+  });
+});
+
+describe("R2-4 the Museum page's line beyond the Tier I sets (museumBeyondTierIBonuses)", () => {
+  it("is zero for a Tier I museum (frozen or not), the curve for a higher tier, a piece's flat value for a piece", () => {
+    expect(museumBeyondTierIBonuses(withGeneralMuseumRecord(freshState(), { glyphTablet: 700, hullRivet: 600 }).museumV2)).toEqual(museumBonusesFromMuseum(undefined));
+    const rec = { glyphTablet: 40, hullRivet: 9 };
+    expect(museumBeyondTierIBonuses(withTier(3, rec))).toEqual(museumTierCurveBonuses(rec, 3));
+    const piece = EXCEPTIONAL_SETS[0].pieces[0];
+    const withPiece = museumDepositExceptional(withGeneralMuseumRecord(freshState(), { glyphTablet: 5 }).museumV2, piece.id);
+    expect(museumBeyondTierIBonuses(withPiece)[piece.stat]).toBeCloseTo(piece.value, 12);
   });
 });
 

@@ -1204,6 +1204,20 @@ export function museumExceptionalBonuses(museum: MuseumV2 | undefined): Record<M
   return out;
 }
 
+// R2-4 review follow-up (the Museum page): what the Museum grants BEYOND the Tier I sets, per stat: the curved tiers
+// and the exceptional flats, so the page can show every bonus the engine applies (museumBonusesFromMuseum less the
+// Tier I v1 math). Hazard resist is the raw sum (its consumer's curve applies to the whole). Pure.
+export function museumBeyondTierIBonuses(museum: MuseumV2 | undefined): Record<MuseumStat, number> {
+  const total = museumBonusesFromMuseum(museum);
+  const tierI = museumBonusesFromRecord(museumActiveRecord(museum, 1));
+  const out = zeroMuseumBonuses();
+  for (const stat of MUSEUM_STATS) {
+    const d = total[stat] - tierI[stat];
+    if (d > 1e-12) out[stat] = d;
+  }
+  return out;
+}
+
 // THE MUSEUM'S TOTAL BONUSES from a Museum v2 record: Tier I through the v1 math, Tiers II to VII through the curve,
 // plus the exceptional flats; each tier read from its snapshot once frozen. A museum with only Tier I copies returns
 // exactly museumBonusesFromRecord of that record (nothing else is added, not even a zero). Empty: all zeros. Pure.

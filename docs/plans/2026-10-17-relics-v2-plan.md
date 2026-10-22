@@ -373,6 +373,15 @@ past it; every stat moves its consumer (wiring sensitivity test); moved goldens 
   readers read the snapshot. Reaching Tier II or deeper is still G2-6's (`relic:audit:blankTiers`).
 - For R2-8: the Museum panel still shows Tier I from the live `general["1"]` through the v1 readers; once a tier is
   frozen the page should read `museumActiveRecord` for bonuses and `museumTierTotal` for the shown count.
+- Review follow-up (2026-10-22, integration): the Museum page's bonus numbers (tier levels, set bonuses, per-copy totals)
+  now read `museumActiveRecord(state.museumV2, 1)`, so they match the engine once Tier I freezes; the tiles keep the live
+  copy counts (call 4), a frozen tier reads "Lv N · held at the soft cap" with one line naming the cap, and one line
+  totals what the higher tiers and the exceptional pieces add (`museumBeyondTierIBonuses`). The full v2 page stays
+  R2-8's. The dev Museum control drops Tier I's snapshot before re-taking it (it SETS counts). A v69 save holding the
+  old `relicMuseum` past the cap is pinned through `MIGRATIONS[69]` (relicsV2Museum.test.ts).
+- For the user: the soft cap also caps Tier I veterans. Their bonus is kept exactly, but it stops growing at 1000 Tier I
+  relics; with copies spread at random, Tier I tops out around ladder level 3 of 5 (the top rung needs 160 copies of each
+  of 17 relics).
 
 ### R2-5: Exceptional sets content, set completion, ledger (engine + content sign-off)
 Content sign-off first: one sheet with every exceptional set and piece name, stat and value for Tiers I to VII (OC-5).
