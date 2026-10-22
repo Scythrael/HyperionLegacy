@@ -13,6 +13,9 @@
 //                   weapon, tool, implant), through claim. Steps 3 and 4 move it (member gear, sensor, plating).
 //   repair        : a damaged crafted destroyer's Shipyard repair with a crafted spare in storage, run to completion.
 //                   Step 3 moves it only through the gear (the hull repair itself stays its own system, user W6).
+//   Step 3 added (captured on the pre-wear engine BEFORE the step 3 engine, 2026-10-21):
+//   mission:frontierSupplyRun : a transport mission's repeating cycles (the haul wear on a run that loads supplies).
+//   shortRange    : a crafted freighter's short-range Repeat run (the G1-4 cycle engine's wear seam), 3,600 s.
 //
 // Steps 1 and 2 (this slice: the catalogs, the pure helpers, the condition field that replaces the retired
 // `durability`, the v70 migration step) must move NONE of these: every piece is pristine and no wear source is wired.
@@ -21,8 +24,10 @@
 
 import { describe, expect, it } from "vitest";
 import { writeFileSync } from "node:fs";
+import Decimal from "break_infinity.js";
 import {
   EQUIPMENT_SLOTS,
+  MISSIONS,
   freshState,
   isMemberSlotType,
   type AwayMember,
@@ -33,6 +38,7 @@ import {
   type MissionKey,
   type PatrolKey,
   type PatrolMissionState,
+  type ShortRangeMissionState,
   type ShipTypeKey,
 } from "./model";
 import { dispatchCaptainOnMission, dispatchCaptainOnPatrol, economyTick, installMissingCombatBaselines, processShipRepairs, shipRepairDurationTicks } from "./tick";
@@ -44,6 +50,7 @@ import { advanceExpedition, claimExpedition, expeditionCandidates, startExpediti
 import { asPreRanksDispatch, asPreSafeFirstRunsDispatch, plainAwayMember, withSlottedAwayTeams } from "./awayTeamTestFixtures";
 import { hash, stateHash } from "./firstRunsGoldens.fixture";
 import { withSiMemberGearOff } from "./siMemberGearSwitch.fixture";
+import { shortRangeBoardSlots, shortRangeNextCycle, startShortRangeCycle } from "./shortRangeBoard";
 
 // ===== shared helpers =====
 
@@ -145,6 +152,9 @@ const GOLDEN: Record<string, string[]> = {
   "mission:forageFlora": ["f95fa7c8", "1200:fbe20294", "2400:e3c516bb", "3600:e2c76d7d"],
   "mission:salvageWreckage": ["9bcbc254", "1200:4a39fc85", "2400:5c45765f", "3600:d9a1be9f"],
   "mission:surveyStellarPhenomena": ["9207f56", "1200:df63ecd7", "2400:5988ea16", "3600:6e640802"],
+  // Step 3 extension, captured on f85ef73's pre-wear engine (2026-10-21).
+  "mission:frontierSupplyRun": ["94e8217", "1200:fbc123cc", "2400:e0198985", "3600:b6d17d08"],
+  shortRange: ["9132088f", "1200:9a5d5c69", "2400:ea95ba49", "3600:c613b2c8"],
   "patrol:destroyer": ["df281090", "2ad61e28", "67264ecd", "77d4b235", "5e7e8bd2", "f99c2b34", "35f5a476", "4f7f026a", "9901051b", "relaunches:171", "a89174c6"],
   "patrol:carrier": ["f2dbd51e", "7ff99f8c", "c1929171", "58b10189", "138a5918", "143f8846", "ed7acf50", "d4ad7090", "ab2b97d9", "relaunches:109", "86e16f3d"],
   "expedition": ["4eaa82ad", "8f7e452f", "659f1289", "43e5954"],
@@ -152,6 +162,11 @@ const GOLDEN: Record<string, string[]> = {
 };
 
 const MISSION_FIXTURES: readonly MissionKey[] = ["shortOreRun", "longOreRun", "forageFlora", "salvageWreckage", "surveyStellarPhenomena"];
+// Step 3 extension (captured on the pre-wear engine, 2026-10-21): a TRANSPORT mission's repeating cycles (the
+// cargo bay's haul wear on a run that loads supplies) and a short-range Repeat run (the G1-4 cycle engine's wear
+// seam, shortRangeCycleWear), both on the crafted loadout.
+const STEP3_MISSION_FIXTURES: readonly MissionKey[] = ["frontierSupplyRun"];
+const MAX_UNLOCK = Math.max(...Object.values(MISSIONS).map((m) => m.unlockLevel));
 const PATROL_FIXTURES: readonly [ShipTypeKey, PatrolKey][] = [
   ["destroyer", "crimsonReaverSweep"],
   ["carrier", "crimsonReaverWarband"],
@@ -177,7 +192,7 @@ describe("gear wear step 1 goldens (captured before any wear engine edit)", () =
     for (const g of gear) expect(g.quality, g.slotType).toBe(CRAFTED_QUALITY);
   });
 
-  for (const key of MISSION_FIXTURES) {
+  for (const key of [...MISSION_FIXTURES, ...STEP3_MISSION_FIXTURES]) {
     it(`mission:${key}: a crafted freighter's repeating cycles over 3,600 s`, () => {
       const r = dispatchCaptainOnMission(craftedLoadout(levelled(freshState(), 10)), 1, key);
       expect(r.success, `${key}: ${r.reason}`).toBe(true);
@@ -191,6 +206,32 @@ describe("gear wear step 1 goldens (captured before any wear engine edit)", () =
       pin(`mission:${key}`, out);
     });
   }
+
+  // Step 3 extension: a crafted freighter on the board's first short-range slot (Mission Control at its highest
+  // unlock, so the slot exists), Repeat, 3,600 s: the first cycle record and the state at 1,200, 2,400 and 3,600 s.
+  // The run is started through the board's one cycle-start seam (startShortRangeCycle, what the dispatch calls) with
+  // the sheet gate skipped (the shortRangeGoldens precedent): the crafted freighter has no guest quarters or crew
+  // ratings, and the sheet is not what this golden is about.
+  it("shortRange: a crafted freighter's short-range Repeat run over 3,600 s", () => {
+    const base = craftedLoadout(levelled(freshState(), 10));
+    const s0: GameState = {
+      ...base,
+      credits: new Decimal(1_000_000),
+      facilities: { ...base.facilities, missionControl: { ...base.facilities.missionControl, level: MAX_UNLOCK } },
+    };
+    const slot = shortRangeBoardSlots(s0)[0];
+    const start = startShortRangeCycle(s0, s0.ships[0], slot, shortRangeNextCycle(s0, slot.id));
+    const mission: ShortRangeMissionState = { kind: "shortRange", slotId: slot.id, roll: start.roll, plan: start.plan, phase: "transitOut", phaseProgressTicks: 0, recalled: false };
+    const r = { next: { ...s0, captains: s0.captains.map((c, i) => (i === 0 ? { ...c, mission } : c)), runCounts: start.runCounts } };
+    const out = [hash(r.next.captains[0].mission)];
+    let s = r.next;
+    const rng = lcg(0x5e3a);
+    for (const mark of [1200, 2400, 3600]) {
+      s = runTicks(s, 1200, rng);
+      out.push(`${mark}:${stateHash(s)}`);
+    }
+    pin("shortRange", out);
+  });
 
   for (const [hull, route] of PATROL_FIXTURES) {
     it(`patrol:${hull}: a crafted ${hull} on a Repeat ${route} over 2,400 s, with the display replay`, () => {
