@@ -1695,3 +1695,4 @@ issue).
 My calls: the player-facing label becomes "Defensive" everywhere (picker, Help, patch note, logs); the stored key stays
 `standoff` so saves need no migration (same pattern as the Settings tab key "options"); the new behavior applies via
 the WR-8 rules stamp, so in-flight runs replay unchanged. All Defensive numbers are [PROVISIONAL] for 0.16.0.
+5. Approach (after the stance fix and softer pirates: Orion 87, Freighter 88, Carrier Warband 42, Destroyer Warband 15, Battleship 79; zero pirate armor did not close the gap, the cause is short-gun ships eating railgun fire while closing): "Closing is evasive (Recommended)" (a ship closing to its stance range moves evasively; incoming fire is reduced while it is still out of its own guns' reach).
