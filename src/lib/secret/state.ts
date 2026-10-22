@@ -13,9 +13,14 @@ import {
   BASE_TIERS_OPEN,
   START_ORE,
   AUTO_TARGET_DEFAULT,
+  SKILLS,
+  MILESTONES,
   type SkillId,
   type MilestoneId,
 } from "./config";
+
+const SKILL_IDS: readonly SkillId[] = SKILLS.map((d) => d.id);
+const MILESTONE_IDS: readonly MilestoneId[] = MILESTONES.map((m) => m.id);
 
 export const SECRET_SAVE_KEY = "hl_secret_v0";
 export const SECRET_SAVE_VERSION = 0;
@@ -131,7 +136,8 @@ export function serializeSecret(s: SecretState): string {
 function readDecimal(v: unknown): Decimal | null {
   if (typeof v !== "string" && typeof v !== "number") return null;
   const d = new Decimal(v);
-  if (!Number.isFinite(d.mantissa) || !Number.isFinite(d.exponent) || d.lt(0)) return null;
+  // break_infinity parses "Infinity" to its exponent ceiling (9e15): treat that as not finite too.
+  if (!Number.isFinite(d.mantissa) || !Number.isFinite(d.exponent) || d.exponent >= 9e15 || d.lt(0)) return null;
   return d;
 }
 
@@ -162,6 +168,7 @@ export function deserializeSecret(raw: string | null, nowMs: number): SecretStat
   for (const k of NUMBER_FIELDS) {
     const n = parsed[k];
     if (!isFiniteNumber(n)) return null;
+    if (k !== "lastTickAt" && n < 0) return null; // counts and levels are never negative
     s[k] = n;
   }
   const bought = parsed.bought;
@@ -176,19 +183,58 @@ export function deserializeSecret(raw: string | null, nowMs: number): SecretStat
   for (const key of ["skills", "autoOn", "milestones"] as const) {
     if (!isPlainObject(parsed[key])) return null;
   }
-  s.skills = { ...(parsed.skills as SecretState["skills"]) };
-  s.autoOn = { ...(parsed.autoOn as SecretState["autoOn"]) };
-  s.milestones = { ...(parsed.milestones as SecretState["milestones"]) };
+  // Entry-level clean-up: unknown skills and switches are dropped, a milestone date must be a
+  // finite number, an auto target must be a positive percent (else the default).
+  const skills = parsed.skills as Record<string, unknown>;
+  const autoOn = parsed.autoOn as Record<string, unknown>;
+  const milestones = parsed.milestones as Record<string, unknown>;
+  for (const id of SKILL_IDS) {
+    if (skills[id] === true) s.skills[id] = true;
+    if (typeof autoOn[id] === "boolean") s.autoOn[id] = autoOn[id] as boolean;
+  }
+  for (const id of MILESTONE_IDS) {
+    const at = milestones[id];
+    if (isFiniteNumber(at)) s.milestones[id] = at;
+  }
   const t = parsed.autoTarget;
-  if (!isPlainObject(t) || !isFiniteNumber(t.captain) || !isFiniteNumber(t.fleet) || !isFiniteNumber(t.pc)) return null;
-  s.autoTarget = { captain: t.captain, fleet: t.fleet, pc: t.pc };
+  if (!isPlainObject(t)) return null;
+  for (const layer of ["captain", "fleet", "pc"] as const) {
+    const pct = t[layer];
+    s.autoTarget[layer] = isFiniteNumber(pct) && pct > 0 ? pct : AUTO_TARGET_DEFAULT;
+  }
   s.finaleSeen = parsed.finaleSeen === true;
   s.longSeen = parsed.longSeen === true;
   return s;
 }
 
+// Where an unreadable secret save is kept before anything overwrites it.
+export const SECRET_BACKUP_KEY = "hl_secret_v0_backup";
+
+export type SecretLoadStatus = "ok" | "empty" | "corrupt" | "future";
+
+// A save from a newer version of the game (a higher "v"): never overwritten by this build.
+export function isFutureSecretSave(raw: string): boolean {
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    return isPlainObject(parsed) && typeof parsed.v === "number" && parsed.v > SECRET_SAVE_VERSION;
+  } catch {
+    return false;
+  }
+}
+
+// Loads the secret save. An unreadable one (corrupt or from a newer version) is copied to
+// SECRET_BACKUP_KEY first, so the fresh game that replaces it can never destroy it.
+export function inspectSecretSave(nowMs: number): { state: SecretState; status: SecretLoadStatus } {
+  const raw = safeGetItem(SECRET_SAVE_KEY);
+  if (raw === null) return { state: freshSecretState(nowMs), status: "empty" };
+  const state = deserializeSecret(raw, nowMs);
+  if (state) return { state, status: "ok" };
+  safeSetItem(SECRET_BACKUP_KEY, raw);
+  return { state: freshSecretState(nowMs), status: isFutureSecretSave(raw) ? "future" : "corrupt" };
+}
+
 export function loadSecret(nowMs: number): SecretState {
-  return deserializeSecret(safeGetItem(SECRET_SAVE_KEY), nowMs) ?? freshSecretState(nowMs);
+  return inspectSecretSave(nowMs).state;
 }
 
 export function saveSecret(s: SecretState): boolean {

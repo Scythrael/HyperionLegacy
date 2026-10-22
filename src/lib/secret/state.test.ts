@@ -9,6 +9,8 @@ import {
   saveSecret,
   clearSecretSave,
   SECRET_SAVE_KEY,
+  SECRET_BACKUP_KEY,
+  inspectSecretSave,
 } from "./state";
 import { SAVE_KEY } from "../game/save";
 import { installMemoryStorage, installBlockedStorage, restoreStorage } from "./testStorage";
@@ -68,6 +70,30 @@ describe("serialization", () => {
   });
 });
 
+describe("range checks", () => {
+  const base = () => JSON.parse(serializeSecret(freshSecretState(0)));
+  it("drops unknown skills, bad switches and non-numeric milestone dates", () => {
+    const raw = base();
+    raw.skills = { headStart: true, wings: true, overdrive: "yes" };
+    raw.autoOn = { autoCaptain: false, bogus: true, autoFleet: 3 };
+    raw.milestones = { googol: 5, finale: "soon", e1000: null, nope: 1 };
+    const s = deserializeSecret(JSON.stringify(raw), 0)!;
+    expect(s.skills).toEqual({ headStart: true });
+    expect(s.autoOn).toEqual({ autoCaptain: false });
+    expect(s.milestones).toEqual({ googol: 5 });
+  });
+  it("resets a non-positive auto target to the default", () => {
+    const raw = base();
+    raw.autoTarget = { captain: 0, fleet: -5, pc: 250 };
+    expect(deserializeSecret(JSON.stringify(raw), 0)!.autoTarget).toEqual({ captain: 100, fleet: 100, pc: 250 });
+  });
+  it("rejects negative levels and counts, and non-finite Ore", () => {
+    for (const patch of [{ overclock: -1 }, { fleetTotal: -2 }, { ore: "Infinity" }, { bought: [1, 2, 3, 4, 5, 6, 7, -8] }]) {
+      expect(deserializeSecret(JSON.stringify({ ...base(), ...patch }), 0)).toBeNull();
+    }
+  });
+});
+
 describe("storage", () => {
   it("uses its own key, never the main save's", () => {
     expect(SECRET_SAVE_KEY).toBe("hl_secret_v0");
@@ -85,6 +111,20 @@ describe("storage", () => {
     expect(data.has(SECRET_SAVE_KEY)).toBe(false);
     expect(data.get(SAVE_KEY)).toBe("main-save-untouched");
     expect(loadSecret(900).bought[0]).toBe(0);
+  });
+
+  it("keeps a corrupt or future-version save under the backup key", () => {
+    const data = installMemoryStorage();
+    data.set(SECRET_SAVE_KEY, "{broken");
+    expect(inspectSecretSave(0).status).toBe("corrupt");
+    expect(data.get(SECRET_BACKUP_KEY)).toBe("{broken");
+    const future = JSON.stringify({ v: 3, anything: 1 });
+    data.set(SECRET_SAVE_KEY, future);
+    expect(inspectSecretSave(0).status).toBe("future");
+    expect(data.get(SECRET_BACKUP_KEY)).toBe(future);
+    expect(data.get(SECRET_SAVE_KEY)).toBe(future);
+    data.delete(SECRET_SAVE_KEY);
+    expect(inspectSecretSave(0).status).toBe("empty");
   });
 
   it("blocked storage still runs", () => {
