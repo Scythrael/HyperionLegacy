@@ -31,6 +31,14 @@ const ML34_GOLDEN = {
 // Re-pinned by ML-3 (by design: the rig's climb lifts part of each delivery one quality step and the captain's
 // lifetime counter steps; the shared draw count is unchanged). ML34_GOLDEN above stays the pre-change capture, and
 // the rig's climb chance at 0 (withMaterialQualityOff) reproduces it (asserted below).
+// Re-pinned by ML-4 (by design: each job stamps the unit-weighted average quality it consumed, rounded down, and its
+// output lands that much higher; the consumption itself, lowest-first, and the shared draw count are unchanged).
+// Stripping every job's carried quality as the run goes (stripCarry) reproduces ML34_GOLDEN (asserted below).
+const ML4_CRAFT = {
+  refineMixed: "a653ebe5:5",
+  fabMixed: "44bb89ca:2",
+};
+
 const ML3_RIG = {
   rigAssayer: "87121346:1104",
   rigSalvage: "c057cdeb:819",
@@ -41,14 +49,18 @@ describe("ML-3 + ML-4 pre-change goldens", () => {
     const s0 = lineQ(craftStateQ(MIXED_ORE, []), "refine", "refineCommonOre", { kind: "batch", remaining: 5 });
     const { state, draws } = steppedQ(s0, 80, 0x2e3);
     expect(state.refineLines).toHaveLength(0);
-    expect(`${stateHash(state)}:${draws}`).toEqual(ML34_GOLDEN.refineMixed);
+    expect(`${stateHash(state)}:${draws}`).toEqual(ML4_CRAFT.refineMixed);
+    const off = steppedQ(s0, 80, 0x2e3, stripCarry);
+    expect(`${stateHash(off.state)}:${off.draws}`).toEqual(ML34_GOLDEN.refineMixed);
   });
 
   it("fabMixed: a material fabricate line on Q0 and Q3 stock", () => {
     const s0 = lineQ(craftStateQ(MIXED_INGOT, ["frameSegmentBp"]), "fabricate", "frameSegmentBp", { kind: "batch", remaining: 2 });
     const { state, draws } = steppedQ(s0, 300, 0xfad);
     expect(state.fabricateLines).toHaveLength(0);
-    expect(`${stateHash(state)}:${draws}`).toEqual(ML34_GOLDEN.fabMixed);
+    expect(`${stateHash(state)}:${draws}`).toEqual(ML4_CRAFT.fabMixed);
+    const off = steppedQ(s0, 300, 0xfad, stripCarry);
+    expect(`${stateHash(off.state)}:${off.draws}`).toEqual(ML34_GOLDEN.fabMixed);
   });
 
   it("inFlight: a refine job started before the slice completes as it was started", () => {

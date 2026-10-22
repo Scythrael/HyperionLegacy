@@ -367,6 +367,28 @@ call L6). `materialPreference` per order with `removeItemHighestFirst` (call L5)
 lands at 2 or more; absent `inputQuality` resolves byte-identically; lowest-first default byte-identical; reservation
 stays total-based (allocation.ts untouched). UI: the toggle needs the ML-7 mockup.
 
+> **Carry note (ML-4 built 2026-10-21, after ML-3).** Goldens: `materialQualityGoldens.test.ts` `refineMixed` /
+> `fabMixed` moved by design (c43a66c9 -> a653ebe5, bd8b3770 -> 44bb89ca; draw counts unchanged); stripping every
+> job's stamp as the run goes (`stripCarry`) reproduces both captures; `inFlight` (a job started without a stamp) and
+> `queued` held. Built: `startProcess` takes an optional `materialPreference`; a refineJob / fabricateJob whose effect
+> is `addItem` tallies what it consumes with `drawQualityTally` (inventory.ts, the same walk as the deduct) and
+> stamps `inputQuality` = `carriedQuality` (floor of the unit-weighted average, materialQuality.ts) only when above 0;
+> completion = `craftOutputQuality(inputQuality, rollQuality(rng, craftQualityBonus))` (same call, same draws). "best"
+> drains through the new `removeItemHighestFirst`. `materialPreference?: "best"` (absent = lowest) on `CraftLine`,
+> `CraftOrder` (mirrored onto joined lanes) and the queued `craftLine` order (carried at promotion); `startLine` takes it
+> as a fifth argument. allocation.ts gained only the type field; reservation math is untouched (total-based, tested).
+> UI (the signed-off Refinery mockup's order switch, wired now so the field is player-reachable): a `Toggle` "Use best
+> materials" on the Refinery and Fabricator configurators with the mockup's two notes (`bestMaterialsNote`), OFF
+> every time the form opens (sign-off: no memory), carried through the confirm modal and Add to queue; the log says
+> ", best materials". The Fabricator shows it only for stackable outputs (`bestOffered`). No save step. **For ML-5:**
+> blanks carry nothing yet: extend `carries` in startProcess to `addBlank` (stamp `inputQuality` on it), bucket the
+> blank on completion, drop the `bestOffered` guard so equipment blueprints show the switch, and pass the blank's
+> quality into `mintCraftedPiece` at inspect. **For ML-7:** the switch is in place (restyle freely); still yours: the
+> "This order uses" per-quality breakdown and the "Carried quality: average X = QN, then the roll" readout (the engine
+> walk is `drawQualityTally`), grouping, per-quality chips, Help. **Patch note line:** "Material quality now carries
+> into what you craft: an order's output starts from the average quality of what it used. Turn on Use best
+> materials on an order to spend your highest quality stock first."
+
 **ML-5 Quality blanks (call L7 a).** Blanks become quality buckets; inspect consumes the highest quality first and
 passes it to `mintCraftedPiece` (carry + climb); inspect seed derivation and draw order unchanged, so reload-before-
 inspect still re-rolls the same piece. Save: `bucketBlanksV70` appended to `MIGRATIONS[69]`. Tests: counts preserved

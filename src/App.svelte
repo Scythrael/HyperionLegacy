@@ -1102,6 +1102,8 @@
   import { gasCanisterIcon } from "./lib/ui/gasStudyIcons";
   // ML-2 recipe realism: Biofiber and Resin Distillate wear their own SVG glyphs (refinedIcons.ts).
   import { refinedItemIcon } from "./lib/ui/refinedIcons";
+  // Material Lines ML-4: the "Use best materials" switch's note.
+  import { bestMaterialsNote } from "./lib/ui/materialQualityText";
   import { gasStudySourcePending } from "./lib/game/gasGiantContent";
   // Reactor fuel ladder (0.14.0): a gathering mission's own SVG glyph (the Cometary Ice Harvest's comet).
   import { missionIcon } from "./lib/ui/missionIcons";
@@ -2625,6 +2627,9 @@
   let cfgTier = 1;
   let cfgRecipeKey = "";
   let cfgQty = 1;
+  // Material Lines ML-4 (L5): the order's "Use best materials" toggle. Starts OFF (lowest quality first) every time a
+  // configurator opens (mockup sign-off 2026-10-21: it does not remember the last choice).
+  let cfgBestMaterials = false;
 
   // Crafting Allocation Redesign (Task C4): the Start-confirmation handshake, REUSED from the
   // retired refine-order flow. When the player clicks a configurator's Start AND
@@ -2636,7 +2641,7 @@
   // Cancel fully refunds. Same "state near the modal flag" pattern as deleteModalOpen.
   let refineConfirmModalOpen = false;
   let refineConfirmDontShowAgain = false;
-  let pendingLineStart: { kind: CraftLineKind; recipeKey: string; mode: CraftLineMode } | null = null;
+  let pendingLineStart: { kind: CraftLineKind; recipeKey: string; mode: CraftLineMode; best: boolean } | null = null;
 
   // Ship assign/swap picker modals (Ships, Stats Foundation, Task 11 UI) --
   // mirrors the Fleet Operations mission popup's missionPopupKey/
@@ -7883,6 +7888,7 @@
   function openConfigurator(kind: CraftLineKind, slotIndex: number) {
     openConfig = { kind, slotIndex };
     cfgQty = 1;
+    cfgBestMaterials = false; // ML-4: lowest quality first, every time
     if (kind === "refine") {
       cfgTier = 1; // REFINE_RECIPES carry no tier -> a single synthetic "Tier 1"
       cfgRecipeKey = Object.keys(REFINE_RECIPES).filter(refineRecipeOffered)[0] ?? "";
@@ -7911,13 +7917,14 @@
   // refineConfirmEnabled is on, stash the pending line + open the modal (Confirm commits);
   // otherwise commit straight away. `mode` is the batch/continuous run-mode (the configurator
   // only builds batch; continuous is engine-supported but not surfaced by this UI).
-  function doStartLine(kind: CraftLineKind, recipeKey: string, mode: CraftLineMode) {
+  // ML-4: `best` is the configurator's "Use best materials" toggle (carried through the confirm).
+  function doStartLine(kind: CraftLineKind, recipeKey: string, mode: CraftLineMode, best = false) {
     if (refineConfirmEnabled) {
-      pendingLineStart = { kind, recipeKey, mode };
+      pendingLineStart = { kind, recipeKey, mode, best };
       refineConfirmDontShowAgain = false; // fresh checkbox each time the modal opens
       refineConfirmModalOpen = true;
     } else {
-      commitStartLine(kind, recipeKey, mode);
+      commitStartLine(kind, recipeKey, mode, best);
     }
   }
 
@@ -7950,8 +7957,8 @@
     return bp.label.replace(/ Blueprint$/, "");
   }
 
-  function commitStartLine(kind: CraftLineKind, recipeKey: string, mode: CraftLineMode) {
-    const { next, started } = startLine(state, kind, recipeKey, mode);
+  function commitStartLine(kind: CraftLineKind, recipeKey: string, mode: CraftLineMode, best = false) {
+    const { next, started } = startLine(state, kind, recipeKey, mode, best ? "best" : undefined);
     if (!started) return;
     state = next;
     // Task 19: an EQUIPMENT blueprint logs its minted piece's SYSTEM name (slot + variety); it
@@ -7969,7 +7976,7 @@
         ? equipmentOutputLabel(eqOut)
         : ITEMS[outputId]?.label ?? outputId;
     const verb = kind === "refine" ? "Refine" : "Fabricate";
-    const desc = mode.kind === "batch" ? `×${mode.remaining}` : "continuous";
+    const desc = (mode.kind === "batch" ? `×${mode.remaining}` : "continuous") + (best ? ", best materials" : "");
     pushLog(`${verb} line started (${desc}) → [${outputLabel}].`);
     closeConfigurator();
     doSave();
@@ -7984,7 +7991,7 @@
       refineConfirmEnabled = false;
       saveRefineConfirmEnabled(false);
     }
-    commitStartLine(pendingLineStart.kind, pendingLineStart.recipeKey, pendingLineStart.mode);
+    commitStartLine(pendingLineStart.kind, pendingLineStart.recipeKey, pendingLineStart.mode, pendingLineStart.best);
     refineConfirmModalOpen = false;
     pendingLineStart = null;
   }
@@ -8080,9 +8087,11 @@
     facility: QueueFacilityKey,
     kind: CraftLineKind,
     recipeKey: string,
-    mode: CraftLineMode
+    mode: CraftLineMode,
+    best = false
   ) {
-    const order: QueuedOrder = { type: "craftLine", kind, recipeKey, mode };
+    // ML-4: the "Use best materials" toggle rides on the queued order (written only when on).
+    const order: QueuedOrder = { type: "craftLine", kind, recipeKey, mode, ...(best ? { materialPreference: "best" as const } : {}) };
     const { next, queued } = enqueueOrder(state, facility, order);
     // A refusal returns the SAME state ref (depth full / wrong facility), so this is a clean
     // no-op. The button's own disabled state already mirrors canEnqueueOrder, so reaching
@@ -11814,12 +11823,19 @@
                           </div>
                         {/each}
 
+                        <!-- Material Lines ML-4 (L5, the signed-off Refinery mockup's order switch): which stock this
+                             order spends first. Starts off (lowest quality first) every time the form opens. -->
+                        <div class="dev-row" style="margin-top: 8px; align-items: center; gap: 8px;">
+                          <Toggle label="Use best materials" checked={cfgBestMaterials} on:change={(e) => (cfgBestMaterials = e.detail)} />
+                          <span><b>Use best materials</b><br /><span class="research-cost">{bestMaterialsNote(cfgBestMaterials)}</span></span>
+                        </div>
+
                         <div class="dev-row" style="margin-top: 8px;">
                           <button
                             class="buy-btn"
                             disabled={!gate.ok}
                             title={gate.ok ? undefined : startLineBlockText(gate.reason)}
-                            on:click={() => doStartLine("refine", cfgRecipeKey, { kind: "batch", remaining: Math.floor(cfgQty) })}
+                            on:click={() => doStartLine("refine", cfgRecipeKey, { kind: "batch", remaining: Math.floor(cfgQty) }, cfgBestMaterials)}
                           >
                             Refine · ×{Math.max(1, Math.floor(cfgQty))}
                           </button>
@@ -11846,7 +11862,7 @@
                             disabled={queueCtl.blockText !== "" && !queueCtl.queueFullOnly}
                             on:click={() => queueCtl.queueFullOnly
                               ? openQueueFullNotice("refinery")
-                              : doEnqueueLine("refinery", "refine", cfgRecipeKey, { kind: "batch", remaining: Math.floor(cfgQty) })}
+                              : doEnqueueLine("refinery", "refine", cfgRecipeKey, { kind: "batch", remaining: Math.floor(cfgQty) }, cfgBestMaterials)}
                           >
                             Add to queue · ×{Math.max(1, Math.floor(cfgQty))}
                           </button>
@@ -12333,6 +12349,9 @@
                              picked something (or on a save naming a retired key), which is what the
                              {#if xpBp} guard down there is for. -->
                         {@const xpBp = BLUEPRINTS[cfgRecipeKey]}
+                        <!-- Material Lines ML-4: only a stackable output carries the consumed quality today (an
+                             equipment blank keeps it once quality blanks land, ML-5), so the switch shows for those. -->
+                        {@const bestOffered = xpBp !== undefined && !blueprintMintsEquipmentInstance(xpBp)}
                         <div class="mission-card" style="margin-top: 10px;">
                           <div class="research-name">{#if isQueueOpener}<Icon name="queue" size={12} /> Queue · configure an order{:else}<Icon name="fabricator" size={12} /> Line {slotIndex + 1} · configure a craft{/if}</div>
 
@@ -12471,12 +12490,20 @@
                             </div>
                           {/if}
 
+                          <!-- Material Lines ML-4 (L5): the order switch, as on the Refinery's form. -->
+                          {#if bestOffered}
+                            <div class="dev-row" style="margin-top: 8px; align-items: center; gap: 8px;">
+                              <Toggle label="Use best materials" checked={cfgBestMaterials} on:change={(e) => (cfgBestMaterials = e.detail)} />
+                              <span><b>Use best materials</b><br /><span class="research-cost">{bestMaterialsNote(cfgBestMaterials)}</span></span>
+                            </div>
+                          {/if}
+
                           <div class="dev-row" style="margin-top: 8px;">
                             <button
                               class="buy-btn"
                               disabled={!gate.ok}
                               title={gate.ok ? undefined : startLineBlockText(gate.reason, BLUEPRINTS[cfgRecipeKey])}
-                              on:click={() => doStartLine("fabricate", cfgRecipeKey, { kind: "batch", remaining: Math.floor(cfgQty) })}
+                              on:click={() => doStartLine("fabricate", cfgRecipeKey, { kind: "batch", remaining: Math.floor(cfgQty) }, bestOffered && cfgBestMaterials)}
                             >
                               Fabricate · ×{Math.max(1, Math.floor(cfgQty))}
                             </button>
@@ -12504,7 +12531,7 @@
                               disabled={queueCtl.blockText !== "" && !queueCtl.queueFullOnly}
                               on:click={() => queueCtl.queueFullOnly
                                 ? openQueueFullNotice("fabricator")
-                                : doEnqueueLine("fabricator", "fabricate", cfgRecipeKey, { kind: "batch", remaining: Math.floor(cfgQty) })}
+                                : doEnqueueLine("fabricator", "fabricate", cfgRecipeKey, { kind: "batch", remaining: Math.floor(cfgQty) }, bestOffered && cfgBestMaterials)}
                             >
                               Add to queue · ×{Math.max(1, Math.floor(cfgQty))}
                             </button>

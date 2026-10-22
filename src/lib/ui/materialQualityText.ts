@@ -7,6 +7,12 @@
 import type { EquipmentInstance } from "../game/model";
 import { materialQualityClimbChance } from "../game/materialQuality";
 
+// Material Lines ML-4 (L5): the note under a craft order's "Use best materials" switch, worded as the signed-off
+// Refinery mockup words it (2026-10-21). Pure.
+export function bestMaterialsNote(on: boolean): string {
+  return on ? "Highest quality first. Carries more quality into the output." : "Off: lowest quality first, so your good stock is saved.";
+}
+
 // One piece's material quality points (signature and rolled lines together, as the ship fold sums them). Pure.
 export function pieceMaterialQualityPoints(piece: EquipmentInstance): number {
   return (piece.implicitStats.materialQualityChance ?? 0) + (piece.rolledStats.materialQualityChance ?? 0);

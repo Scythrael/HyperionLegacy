@@ -18,7 +18,7 @@ import type { CraftLine, CraftOrder, CraftLineKind, CraftLineMode } from "./allo
 // import creates NO cycle (unlike the CraftLine type-only import above).
 import { QUALITY_TIERS } from "./inventory";
 // Material Lines ML-3: the rig line's per-unit climb chance (a leaf module: it imports nothing from model.ts).
-import { materialQualityClimbChance } from "./materialQuality";
+import { materialQualityClimbChance, type MaterialPreference } from "./materialQuality";
 // E-CREW 0.14.0 (Task 21): the Constitution ramp leaf (imports only diminishing.ts; no cycle).
 import { constitutionRamp, RAMP_SECONDS_PER_TICK } from "./constitutionRamp";
 // Reactor fuel ladder (0.14.0, capture 2026-10-21): the fuel every Reactor Core blueprint takes (a leaf with no
@@ -4614,7 +4614,12 @@ export type TimedProcessKind = "refineJob" | "facilityUpgrade" | "fuelRefineJob"
 // FacilityKey union) so a later facility needs no type change here, forward-loose
 // on purpose, same reasoning as inventory's `Record<string, Decimal>` key type.
 export type ProcessEffect =
-  | { type: "addItem"; itemId: string; amount: Decimal }
+  // Material Lines ML-4 (L6, user 2026-10-19 "Weighted average + climb"): `inputQuality` is the unit-weighted
+  // average quality of everything the job consumed, rounded down (materialQuality.ts carriedQuality), stamped by
+  // startProcess on a refine or fabricate job only when above 0. The output lands at min(5, inputQuality + the
+  // usual roll). ABSENT = 0, so every job in flight before ML-4 (and every job on Q0 stock) resolves exactly as
+  // before. A plain number: it rides hydrateDecimals's effect spread, no migration.
+  | { type: "addItem"; itemId: string; amount: Decimal; inputQuality?: number }
   | { type: "facilityLevelUp"; facility: string }
   // Research (Task R3, design §3): a completed research project unlocks its blueprint by
   // adding `key` to state.researchedBlueprints (resolveProcesses, idempotent, no dup).
@@ -5898,7 +5903,9 @@ export type SalvageOrderMode = Extract<CraftLineMode, { kind: "batch" }>;
 // Both arms are PLAIN STRINGS, keeping the no-Decimal guarantee below intact: they ride
 // hydrateDecimals's spread verbatim and need no revive branch and no migration.
 export type QueuedOrder =
-  | { type: "craftLine"; kind: CraftLineKind; recipeKey: string; mode: CraftLineMode }
+  // Material Lines ML-4 (L5): `materialPreference` "best" = the order's "Use best materials" toggle (highest quality
+  // stock first), carried onto the line at promotion. Written only when on; absent = lowest-first. A plain string.
+  | { type: "craftLine"; kind: CraftLineKind; recipeKey: string; mode: CraftLineMode; materialPreference?: MaterialPreference }
   | { type: "salvage"; target: SalvageTargetRef; mode: SalvageOrderMode }
   | { type: "research"; blueprintKey: string }
   | { type: "shipBuild"; typeKey: string };
