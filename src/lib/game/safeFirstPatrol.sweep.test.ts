@@ -48,17 +48,36 @@ describe.runIf(SWEEP)("SF-4 the 1,000-seed proof (gated): the first patrol canno
 const CURVE_SEEDS = 200;
 // Wins of 200 per curve position c = 0..10 (won routes after the safe patrol), Sweep then Warband. Measured on SF-4;
 // the last column is full strength and equals the SF-0 200-seed WINS table (firstRunsGoldens.test.ts), a veteran's.
+// WR-8 (0.14.0) moved every row: the fights open at range under the combat rules, the pirates carry armor and evasion,
+// and (WR-8 review, user 2026-10-22) the stances park where their guns work, Defensive carries its modifiers and the
+// pirates were softened (option 1: Raider armor 3 / evasion 3, Marauder 10 / 2, Corsair Carrier 8 / 1, no dampening).
+// Before WR-8 (SF-4), for comparison:
+//   generalFreighter: [[200, 200, 200, 200, 200, 200, 200, 200, 199, 197, 191], [181, 177, 135, 96, 76, 49, 26, 14, 9, 8, 5]],
+//   prospectorHauler: [[200, 200, 200, 200, 200, 200, 200, 200, 200, 200, 198], [194, 190, 170, 137, 114, 75, 49, 25, 18, 11, 10]],
+//   prospectorRunner: [[200, 200, 200, 200, 200, 188, 164, 125, 108, 107, 106], [60, 49, 24, 15, 7, 5, 2, 0, 0, 0, 0]],
+//   prospectorMiner: [[200, 200, 200, 200, 200, 198, 187, 158, 131, 110, 107], [80, 70, 36, 24, 14, 7, 4, 2, 0, 0, 0]],
+//   destroyer: [[200, 200, 200, 200, 200, 200, 200, 200, 200, 200, 200], [200, 200, 198, 194, 188, 173, 140, 101, 80, 55, 44]],
+//   battleship: [[200, 200, 200, 200, 200, 200, 200, 200, 200, 200, 200], [200, 200, 200, 200, 200, 199, 199, 189, 184, 172, 158]],
+//   carrier: [[200, 200, 200, 200, 200, 200, 200, 200, 200, 200, 200], [200, 200, 200, 200, 200, 197, 186, 172, 160, 124, 109]],
+//   orion: [[200, 200, 200, 200, 200, 200, 200, 198, 195, 184, 176], [105, 98, 77, 54, 39, 21, 13, 8, 4, 2, 1]],
+//   aurora: [[200, 200, 200, 200, 200, 200, 200, 198, 194, 183, 174], [97, 90, 68, 51, 30, 15, 11, 6, 4, 2, 1]],
+//   eir: [[200, 200, 200, 200, 200, 200, 200, 197, 191, 180, 172], [106, 98, 75, 53, 39, 18, 9, 8, 2, 1, 1]],
+// The early Sweep stays gentle (every hull wins 194 or more of 200 through c4; the combat hulls all 200). The Warband
+// is harder early for the light hulls (Freighter c0 129, was 181; Orion 48, was 105): the WR-8 approach (an enemy
+// railgun's free shots while a short-gunned ship closes) costs more than the pirates' mitigation (with zero pirate armor
+// and evasion a veteran Freighter still wins 88 of 100 Sweeps, 97 before WR-8). The balance pass owns it (user
+// 2026-10-22: "the actual balancing of the content can wait"). Every row still never rises as the curve climbs.
 const CURVE_WINS: Record<string, [number[], number[]]> = {
-  generalFreighter: [[200, 200, 200, 200, 200, 200, 200, 200, 199, 197, 191], [181, 177, 135, 96, 76, 49, 26, 14, 9, 8, 5]],
-  prospectorHauler: [[200, 200, 200, 200, 200, 200, 200, 200, 200, 200, 198], [194, 190, 170, 137, 114, 75, 49, 25, 18, 11, 10]],
-  prospectorRunner: [[200, 200, 200, 200, 200, 188, 164, 125, 108, 107, 106], [60, 49, 24, 15, 7, 5, 2, 0, 0, 0, 0]],
-  prospectorMiner: [[200, 200, 200, 200, 200, 198, 187, 158, 131, 110, 107], [80, 70, 36, 24, 14, 7, 4, 2, 0, 0, 0]],
-  destroyer: [[200, 200, 200, 200, 200, 200, 200, 200, 200, 200, 200], [200, 200, 198, 194, 188, 173, 140, 101, 80, 55, 44]],
-  battleship: [[200, 200, 200, 200, 200, 200, 200, 200, 200, 200, 200], [200, 200, 200, 200, 200, 199, 199, 189, 184, 172, 158]],
-  carrier: [[200, 200, 200, 200, 200, 200, 200, 200, 200, 200, 200], [200, 200, 200, 200, 200, 197, 186, 172, 160, 124, 109]],
-  orion: [[200, 200, 200, 200, 200, 200, 200, 198, 195, 184, 176], [105, 98, 77, 54, 39, 21, 13, 8, 4, 2, 1]],
-  aurora: [[200, 200, 200, 200, 200, 200, 200, 198, 194, 183, 174], [97, 90, 68, 51, 30, 15, 11, 6, 4, 2, 1]],
-  eir: [[200, 200, 200, 200, 200, 200, 200, 197, 191, 180, 172], [106, 98, 75, 53, 39, 18, 9, 8, 2, 1, 1]],
+  generalFreighter: [[200, 200, 200, 200, 200, 200, 199, 195, 189, 182, 174], [129, 119, 86, 63, 44, 19, 15, 9, 7, 5, 2]],
+  prospectorHauler: [[200, 200, 200, 200, 200, 200, 200, 199, 196, 194, 185], [167, 157, 114, 90, 68, 46, 26, 14, 12, 8, 6]],
+  prospectorRunner: [[200, 200, 199, 198, 194, 180, 143, 109, 108, 107, 107], [25, 20, 10, 8, 5, 2, 1, 0, 0, 0, 0]],
+  prospectorMiner: [[200, 200, 200, 199, 198, 188, 178, 127, 111, 108, 108], [38, 35, 19, 14, 8, 5, 2, 0, 0, 0, 0]],
+  destroyer: [[200, 200, 200, 200, 200, 200, 200, 200, 200, 200, 200], [195, 189, 186, 180, 168, 142, 114, 76, 59, 43, 28]],
+  battleship: [[200, 200, 200, 200, 200, 200, 200, 200, 200, 200, 200], [200, 200, 200, 200, 200, 199, 197, 188, 184, 178, 176]],
+  carrier: [[200, 200, 200, 200, 200, 200, 200, 200, 200, 200, 200], [199, 198, 195, 191, 185, 174, 166, 133, 114, 91, 80]],
+  orion: [[200, 200, 200, 200, 200, 199, 198, 195, 185, 176, 171], [48, 42, 27, 21, 16, 8, 5, 3, 2, 1, 1]],
+  aurora: [[200, 200, 200, 200, 200, 199, 198, 195, 184, 176, 168], [38, 32, 20, 19, 16, 7, 4, 3, 2, 1, 1]],
+  eir: [[200, 200, 200, 200, 200, 199, 198, 188, 181, 173, 155], [48, 44, 27, 21, 16, 7, 5, 2, 2, 1, 1]],
 };
 
 function asVeteran(state: GameState): GameState {

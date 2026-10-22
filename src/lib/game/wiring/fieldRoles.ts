@@ -70,7 +70,6 @@ export const FIELD_ROLES: Readonly<Record<string, Readonly<Record<string, FieldR
     stance: "effect",
     // WR-8 (OC-D12 "pirate hulls get armor and evasion"), applied under the combat rules.
     ablativeArmor: "effect",
-    kineticDampening: "effect",
     evasion: "effect",
   },
   PLANET_TYPES: {

@@ -89,9 +89,9 @@ import { materialQualityClimbChance } from "../materialQuality";
 import { secondaryTalentEffectText } from "../captainSecondaryEffects";
 import { buyHomeworldTalent, describeCaptainTalentEffect, installMissingCombatBaselines } from "../tick";
 import type { CaptainPrimaryMultKind } from "../captainPrimaryEffects";
-import { BASE_FTL_DURABILITY, BASE_REACTOR_DURABILITY, combatHullTypeOf, hullDefenseComposition } from "../combat/bridge";
+import { BASE_FTL_DURABILITY, BASE_REACTOR_DURABILITY, COMBAT_DEFAULT_LOADOUT, combatHullTypeOf, hullDefenseComposition } from "../combat/bridge";
 // WR-8 (0.14.0): the combat descriptors (combatRules.ts), their probes' on / off mark, and the readers they name.
-import { ENCOUNTER_OPEN_DISTANCE, WEAPON_RULE_TRAITS, familyResistPercent, podLineShare } from "../combat/combatRules";
+import { DEFENSIVE_STANCE, ENCOUNTER_OPEN_DISTANCE, WEAPON_RULE_TRAITS, familyResistPercent, podLineShare } from "../combat/combatRules";
 import { qualityDurabilityMax } from "../combat/durability";
 import { stancePreferredDistance } from "../combat/positioning";
 import { combatDescriptorOn } from "./combatDescriptorProbes";
@@ -2857,7 +2857,7 @@ function contentEntries(): WiringEntry[] {
     );
     // WR-8 (OC-D12 "pirate hulls get armor and evasion"): the hull's mitigation reaches its combatant under the combat
     // rules (combatEventEnemyMitigation proves it changes the damage a ship lands).
-    for (const field of ["ablativeArmor", "kineticDampening", "evasion"] as const) {
+    for (const field of ["ablativeArmor", "evasion"] as const) {
       out.push(
         entry({
           ...base("ship", "PIRATE_HULLS", `${id}:${field}`, `${PIRATE_HULLS[id].name} ${field}`),
@@ -3602,13 +3602,32 @@ const AUDIT_ROWS: readonly { id: string; system: WiringSystem; claim: string; st
   { id: "ship:audit:combatPositions", system: "ship", claim: "Fights open at range: the enemy side opens at ENCOUNTER_OPEN_DISTANCE and closes (patrol waves and the ship events)", status: LIVE },
   { id: "ship:wr8:weaponRange", system: "ship", claim: "Weapon range gates fire: a gun fires only at a target within its range", status: LIVE },
   { id: "ship:wr8:droneRange", system: "ship", claim: "Drone range gates volleys: a squadron volleys only at a target within its reach", status: LIVE },
-  { id: "ship:wr8:stance", system: "ship", claim: "Stance (the one the player picks per patrol, and every pirate's): a ship holds at its stance's band (BAND_SHORT, BAND_MEDIUM, BAND_LONG), never farther than its own reach", status: LIVE },
-  { id: "ship:wr8:speedKite", system: "ship", claim: "Speed: only a faster ship opens the range on its target (an equal or slower one holds and the fight closes)", status: LIVE },
+  { id: "ship:wr8:stance", system: "ship", claim: "Stance (the one the player picks per patrol, and every pirate's) decides where a ship parks under the combat rules (resolveBattle.ts stanceHoldDistance)", status: LIVE },
+  { id: "ship:wr8:speedKite", system: "ship", claim: "Speed: only a faster ship opens the range on its target (an equal or slower one holds and the fight closes); a Defensive ship backs off only if faster", status: LIVE },
+  // WR-8 review (user 2026-10-22, "if it's a systemic issue, we fix the systemic issue"): the stances park where their
+  // guns work, and Defensive does all four of its claims. Every number [PROVISIONAL] (combatRules.ts DEFENSIVE_STANCE,
+  // BALANCED_FIREPOWER_SHARE); each acts on a patrol whose cycle carries the combat rules stamp.
+  { id: "ship:wr8:stanceAggressive", system: "ship", claim: "Aggressive parks at its shortest gun's reach (every gun fires)", status: LIVE },
+  { id: "ship:wr8:stanceBalanced", system: "ship", claim: "Balanced parks at the farthest range where more than half its expected damage reaches (a Standard-Issue Destroyer's autocannon fires)", status: LIVE },
+  { id: "ship:wr8:stanceBalancedShare", system: "ship", claim: "Balanced leaves a small short gun out when the long guns carry most of the damage (BALANCED_FIREPOWER_SHARE)", status: LIVE },
+  { id: "ship:wr8:stanceDefensive", system: "ship", claim: "Defensive (stored key \"standoff\") parks at its longest gun's reach", status: LIVE },
+  { id: "ship:wr8:defensiveDamageTaken", system: "ship", claim: "Defensive takes DEFENSIVE_STANCE.damageTakenPct less damage from every hit", status: LIVE },
+  { id: "ship:wr8:defensiveDamageDealt", system: "ship", claim: "Defensive deals DEFENSIVE_STANCE.damageDealtPct less with its guns and drones", status: LIVE },
+  { id: "ship:wr8:defensiveShieldRecharge", system: "ship", claim: "Defensive shields recharge DEFENSIVE_STANCE.shieldRechargePct faster", status: LIVE },
+  { id: "ship:wr8:defensiveShieldAbsorb", system: "ship", claim: "Defensive shields stop DEFENSIVE_STANCE.shieldAbsorbPct more damage per point (their effective capacity)", status: LIVE },
+  { id: "ship:wr8:defensiveGuardWeapons", system: "ship", claim: "A Defensive ship's Point Defense and EMP turn on the in-range foe fielding the most drones first", status: LIVE },
+  { id: "ship:wr8:defensiveGuardDrones", system: "ship", claim: "A Defensive ship's drone squadrons hunt the in-range foe's drone screen first", status: LIVE },
+  {
+    id: "ship:wr8:defensiveMissileIntercept",
+    system: "ship",
+    claim: "A Defensive ship with working Point Defense or EMP shoots down DEFENSIVE_STANCE.missileInterceptPct of incoming missiles (the engine reads it; no enemy fires a missile in 0.14.0)",
+    status: pending("the first enemy loadout with a missile (WR-8 review: no pirate or ship event vessel installs a torpedo yet)"),
+  },
   { id: "ship:audit:ftlSpeedPenalty", system: "ship", claim: "FTL_SPEED_PENALTY: a Degraded or Offline drive slows the close", status: LIVE },
   { id: "ship:wr8:sensorDrainActs", system: "ship", claim: "Sensor Power Drain shrinks a ship's weapon reach in the fight", status: LIVE },
   { id: "ship:wr8:coolantLeakActs", system: "ship", claim: "Coolant Leak slows a ship in the fight", status: LIVE },
   { id: "ship:wr8:manifoldOverheatActs", system: "ship", claim: "Manifold Overheat cuts a pirate hull's evasion", status: LIVE },
-  { id: "ship:audit:torpedoArmorPen", system: "ship", claim: "Torpedo armorPen sees through a pirate hull's armor and dampening", status: LIVE },
+  { id: "ship:audit:torpedoArmorPen", system: "ship", claim: "Torpedo armorPen sees through a pirate hull's armor", status: LIVE },
   { id: "ship:audit:qualityDurabilityMax", system: "ship", claim: "qualityDurabilityMax for the reactor and FTL: the installed Reactor Core's and FTL drive's quality sets their combat pools (WR-8; gear wear step 4 opens them at the piece's true condition)", status: LIVE },
   { id: "ship:audit:particleTraceDetector", system: "ship", claim: "particleTraceDetector (hard 0, bridge.ts:960)", status: { kind: "deferred", owner: "CP-15 (patrol cloak detection)", userRef: `${T3}: patrol cloak detection` } },
   // WR-8 review: only an explorer on an expedition is ever ambushed in 0.14.0 and no explorer has a drone bay, so a pod's
@@ -3637,7 +3656,7 @@ const AUDIT_ROWS: readonly { id: string; system: WiringSystem; claim: string; st
   { id: "ship:audit:inertDescriptors", system: "ship", claim: "ResolveOptions.objective (a pluggable win condition), TargetingPolicy.escortShare (escort ships) and the DoT rng (a DoT with variance): framework hooks with no caller", status: { kind: "seam", owner: "the first mission type with its own win condition, escort ships, a varying DoT", userRef: "OC-C4 (user 2026-10-15): \"Keep tested hooks (Recommended)\"" } },
   { id: "ship:audit:statusColor", system: "ship", claim: "Status color (no reader)", status: pending("WR-11 (use in the combat view or delete; no call)") },
   { id: "ship:audit:partialCombat", system: "ship", claim: "Patrols pre-charge their guns during the close, like the ship events", status: LIVE },
-  { id: "ship:wr8:enemyMitigation", system: "ship", claim: "Enemy mitigation and evasion: a pirate hull fights with its armor, dampening and evasion", status: LIVE },
+  { id: "ship:wr8:enemyMitigation", system: "ship", claim: "Enemy mitigation and evasion: a pirate hull fights with its armor and evasion", status: LIVE },
   { id: "ship:wr8:ambushInPatrols", system: "ship", claim: "The ambush opener in patrols (only a cloak ambushes; it and Rapid Charge act in the ship events today)", status: { kind: "deferred", owner: "CP-15 (patrol cloak detection)", userRef: `${T3}: patrol cloak detection` } },
   { id: "ship:audit:podDurability", system: "ship", claim: "DRONE_POD_BASE_DURABILITY (pods never wear) and QUALITY_DURABILITY_BONUS on non-weapons", status: pending(GEAR_WEAR_STEP_4) },
   // E. Crew
@@ -3769,8 +3788,18 @@ function wr8AuditWiring(): Readonly<Record<string, Partial<EntryInput>>> {
     "ship:audit:combatPositions": { probe: "combatOpenDistance", contexts: ["patrol", "shipEvent"], direction: "none", curve: { kind: "equals" }, magnitude: () => ENCOUNTER_OPEN_DISTANCE },
     "ship:wr8:weaponRange": ev("combatEventWeaponRange", "up", "the target's damage taken (a railgun's range on vs out of reach)"),
     "ship:wr8:droneRange": ev("combatEventDroneRange", "down", "the target's damage taken (an Attack squadron's reach on vs a long reach)"),
-    "ship:wr8:stance": ev("combatEventStance", "none", "both ships' damage taken (Aggressive vs Standoff against a Marauder)"),
+    "ship:wr8:stance": ev("combatEventStance", "none", "both ships' damage taken (Aggressive vs Defensive against a Marauder)"),
     "ship:wr8:speedKite": ev("combatEventSpeedKite", "down", "the faster ship's damage taken"),
+    "ship:wr8:stanceAggressive": { probe: "combatHoldAggressive", contexts: ["patrol"], direction: "none", curve: { kind: "equals" }, magnitude: () => WEAPON_DEFS.autocannon.range }, // the Standard-Issue Battleship fills its spare hardpoints with autocannons
+    "ship:wr8:stanceBalanced": { probe: "combatHoldBalanced", contexts: ["patrol"], direction: "none", curve: { kind: "equals" }, magnitude: () => WEAPON_DEFS.autocannon.range },
+    "ship:wr8:stanceBalancedShare": { probe: "combatHoldBalancedLongGuns", contexts: ["patrol"], direction: "none", curve: { kind: "equals" }, magnitude: () => WEAPON_DEFS.railgun.range },
+    "ship:wr8:stanceDefensive": { probe: "combatHoldDefensive", contexts: ["patrol"], direction: "none", curve: { kind: "equals" }, magnitude: () => Math.max(...COMBAT_DEFAULT_LOADOUT.battleship.weapons.map((w) => WEAPON_DEFS[w].range)) },
+    "ship:wr8:defensiveDamageTaken": { probe: "combatDefensiveDamageTaken", contexts: ["patrol"], direction: "down", curve: { kind: "linearRelative" }, magnitude: () => -DEFENSIVE_STANCE.damageTakenPct / 100, on: combatDescriptorOn },
+    "ship:wr8:defensiveShieldAbsorb": { probe: "combatDefensiveShieldAbsorb", contexts: ["patrol"], direction: "down", curve: { kind: "divisor" }, magnitude: () => DEFENSIVE_STANCE.shieldAbsorbPct / 100, on: combatDescriptorOn, tolerance: 1 },
+    "ship:wr8:defensiveDamageDealt": ev("combatEventDefensiveDamageDealt", "down", "an autocannon's damage over 300 shots"),
+    "ship:wr8:defensiveShieldRecharge": { probe: "combatEventDefensiveShieldRecharge", contexts: ["patrol"], direction: "up", curve: { kind: "linearRelative" }, magnitude: () => DEFENSIVE_STANCE.shieldRechargePct / 100, on: combatDescriptorOn, tolerance: 1 },
+    "ship:wr8:defensiveGuardWeapons": ev("combatEventDefensiveGuardWeapons", "up", "the drone-fielding foe's drone hit points lost to Point Defense"),
+    "ship:wr8:defensiveGuardDrones": ev("combatEventDefensiveGuardDrones", "up", "the drone-fielding foe's drone hit points lost to an Attack squadron"),
     "ship:audit:ftlSpeedPenalty": ev("combatEventFtlSpeedPenalty", "up", "the first round within 100 (a Degraded drive vs nominal)"),
     "ship:wr8:sensorDrainActs": ev("combatEventSensorDrain", "up", "the first shot's tick (the drained reach opens once the drain lapses)"),
     "ship:wr8:coolantLeakActs": ev("combatEventCoolantLeak", "up", "the distance on round 3"),

@@ -1295,7 +1295,47 @@ weapon's reach, only a faster ship opens the range. (4) statusEffects.ts names I
 sources and readers. (5) `familyResistPercent` rounds down (tops out at 99), with a test. No golden moved.
 **HELD for the user:** `safeFirstPatrol.sweep.test.ts` CURVE_WINS (the SF-4 curve table: every hull's wins per curve
 position moved under the rules; the "wins never rise as the curve climbs" check still passes), and pirate armor, open
-distance and the reach rule.
+distance and the reach rule. (Released by the user's decisions below.)
+
+**User decisions on the balance drop (2026-10-22, one commit):** the rule: "if it's a systemic issue, we fix the
+systemic issue. But the actual balancing of the content can wait. If it's just a balancing numbers thing, option 1."
+- A, the system fix: the stances decide where a ship parks (`resolveBattle.ts stanceHoldDistance`, under the stamp
+  only). Aggressive: its shortest firing gun's reach. Balanced: the farthest reach at which the sources reaching it
+  deliver more than `BALANCED_FIREPOWER_SHARE` (0.5) of its expected damage (exactly half is a tie and goes closer), so
+  a Standard-Issue Destroyer parks at autocannon range. Defensive: its longest reach, backing off only when faster.
+  "Standoff" is DEFENSIVE everywhere player-facing (App.svelte stance button and help, helpTopics.ts, CombatView); the
+  stored key stays `standoff`. Defensive (`combatRules.ts DEFENSIVE_STANCE`, set by bridge.ts on a combatant built
+  under the rules) does all four: 20% less damage taken and 10% less dealt (guns and drones), shields recharge 25%
+  faster and stop 15% more per point, Point Defense / EMP and drone squadrons turn on the in-range foe fielding the
+  most drones first (`guardTarget`), and 30% missile intercept with working Point Defense or EMP. Every percent banks
+  its remainder (`Combatant.defensiveCarry`, the shield's `shieldBonus` accumulator), so it is exact over a fight, not
+  a floored point per small hit. Every pirate flies its own stance under the same rules, so the Corsair Carrier
+  (stored `standoff`) is Defensive too.
+- B, the numbers (option 1 "Soften pirates for now"): Raider armor 3 / evasion 3 (was 5 / 5), Marauder 10 / 2 (was
+  20 / 3), Corsair Carrier 8 / 1 (was 15 / 0), no pirate dampening (a percent dampening floors a whole point off every
+  small hit; the field and its three registry rows are gone).
+- Registry: new live rows `ship:wr8:stanceAggressive` / `stanceBalanced` / `stanceBalancedShare` / `stanceDefensive`
+  (exact parking seams on Standard-Issue patrol builds) and `ship:wr8:defensiveDamageTaken` / `DamageDealt` /
+  `ShieldRecharge` / `ShieldAbsorb` / `GuardWeapons` / `GuardDrones` (exact curves or seeded battles);
+  `ship:wr8:defensiveMissileIntercept` is PENDING (the engine reads it; no pirate or ship-event vessel installs a
+  missile in 0.14.0). The stance and kite rows' claims were rewritten.
+- Measured (100 seeds, veteran, Standard Issue, Balanced; pre-WR-8 / first WR-8 pin / now): Orion Sweep 94 / 74 / 87,
+  Freighter Sweep 97 / 86 / 88, Carrier Warband 53 / 25 / 42, Destroyer Warband 19 / 6 / 15, Battleship Warband 80 /
+  67 / 79. Stances now (Aggressive / Balanced / Defensive): Destroyer Sweep 100 / 100 / 100, Warband 15 / 15 / 12;
+  Carrier Sweep 100 / 100 / 100, Warband 42 / 42 / 40. Orion and Battleship land on target; Freighter, Carrier and
+  Destroyer stay short, and the pirate numbers cannot close it (zero pirate armor and evasion: 88 / 88 / 45 / 18 / 82).
+  The shortfall is the approach itself: data points for the balance pass (same five): open at 200 instead of 300:
+  85 / 89 / 39 / 16 / 82; no patrol precharge: 86 / 92 / 43 / 20 / 82; pirates without the Defensive modifiers:
+  87 / 88 / 45 / 15 / 82. [PROVISIONAL]: every DEFENSIVE_STANCE number, BALANCED_FIREPOWER_SHARE, the pirate numbers.
+- Goldens moved (combatDescriptorGoldens.test.ts header names each): the Freighter wins its Sweep again (Once and all
+  three Repeat cycles); the Battleship Warband Repeat loses its second cycle (tick 40); forecasts Freighter Sweep 56,
+  Destroyer Warband 9, Battleship Warband 53 likely, Carrier Warband 29 dice, Orion Sweep 58 likely; the Cloaked
+  Vessel (Balanced, autocannon plus railgun) parks at autocannon range, so the default-seed cand-2 expedition loses
+  its cloaked fight for all three explorers and the battle grid loses a few more cloaked fights. CURVE_WINS re-pinned
+  with the pre-WR-8 table in its header: the early Sweep stays gentle (194+ of 200 through c4 on every hull); the early
+  Warband is harder for the light hulls (Freighter c0 129, was 181). simPlayer's training Sweep ends at 751 shield
+  (was 713). In-flight runs stay byte-identical.
+- For WR-12: the patch note names the stance "Defensive"; the shipped patch notes stay as written.
 
 ### WR-9: Crew and officers beyond the CP slices
 

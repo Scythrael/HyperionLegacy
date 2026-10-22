@@ -105,7 +105,7 @@
   const STANCE_LABEL: Record<CombatStance, string> = {
     aggressive: "Aggressive",
     balanced: "Balanced",
-    standoff: "Standoff",
+    standoff: "Defensive", // WR-8 review: the player-facing name (the stored key stays "standoff")
   };
 
   // ==========================================================================

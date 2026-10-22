@@ -2174,11 +2174,9 @@ function readContent(id: string, s: GameState): number {
               ? e.drones.length
               : b === "ablativeArmor"
                 ? e.ablativeArmor
-                : b === "kineticDampening"
-                  ? e.kineticDampening
-                  : b === "evasion"
-                    ? e.evasion
-                    : e.hullMax;
+                : b === "evasion"
+                  ? e.evasion
+                  : e.hullMax;
     }
     case "patrolWindow": {
       const def = PATROLS[a];

@@ -55,6 +55,7 @@ import { pieceStartDurability } from "../gearWear";
 // and pod line curves.
 import {
 	DEFAULT_COMBAT_SPEED,
+	DEFENSIVE_STANCE,
 	familyResistPercent,
 	podLineShare,
 	POD_LINE_RAPID_CHARGE,
@@ -847,7 +848,7 @@ export function applyModuleCombat(c: Combatant, gear: readonly EquipmentInstance
 //      weapons            <- args.weaponLoadout, ELSE COMBAT_DEFAULT_LOADOUT[hullType], ELSE []
 //      shieldCoherence / ablativeArmor / kineticDampening / evasion -> 0
 //      damageResist / disruptionResist -> all-zero map ; speed -> args.speed ?? DEFAULT_COMBAT_SPEED
-//    (A pirate wave under the combat rules then writes its hull's armor, dampening and evasion, enemyWave.ts.)
+//    (A pirate wave under the combat rules then writes its hull's armor and evasion, enemyWave.ts.)
 //    An explicit weaponLoadout / drones ALWAYS wins on this path (hardcoded enemies, tests);
 //    otherwise a real hullType derives the default loadout, minting each weapon/squadron FRESH.
 //
@@ -1033,6 +1034,12 @@ export function shipToCombatant(args: ShipToCombatantArgs): Combatant {
 		rapidChargeAfterAmbush: false,
 		particleTraceDetector: 0,
 	};
+	// WR-8 review (user 2026-10-22): a ship flying Defensive (stored key "standoff") under the combat rules carries its
+	// modifiers (combatRules.ts DEFENSIVE_STANCE): less damage taken and dealt, shields first, guarding. A fresh copy.
+	if (args.combatRules && combatant.stance === "standoff") {
+		combatant.defensive = { ...DEFENSIVE_STANCE };
+		combatant.defensiveCarry = { taken: 0, dealt: 0, absorb: 0 };
+	}
 	// WR-8 (0.14.0, OC-D12): the installed drone pods' In-Combat Replenish and Rapid Charge lines (absent without one, so
 	// a combatant with no such pod is unchanged).
 	if (gear !== undefined) {

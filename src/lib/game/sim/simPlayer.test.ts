@@ -104,7 +104,9 @@ describe("WR-2 safe first runs: the allAuto newcomer baseline (SF-2 flipped the 
     // the Sweep ends with far more shield left (732, was 279); the hull is the same.
     // WR-8: the training cycle fights under the combat rules (the Raider opens at range and carries its plates and
     // evasion), so a little more shield goes (713, was 732); still won, the hull untouched.
-    expect(r.patrol).toEqual({ patrol: "crimsonReaverSweep", refusal: null, won: true, endReason: "ordersComplete", repairSeconds: null, wavesWon: 2, wavesLost: 0, hullLeft: 340, shieldLeft: 713 });
+    // WR-8 review: the softened Raider (armor 3, evasion 3, was 5 and 5) and the Balanced stance parking where most of
+    // the firepower reaches end the fights sooner, so less shield goes (751, was 713).
+    expect(r.patrol).toEqual({ patrol: "crimsonReaverSweep", refusal: null, won: true, endReason: "ordersComplete", repairSeconds: null, wavesWon: 2, wavesLost: 0, hullLeft: 340, shieldLeft: 751 });
     const first = r.expeditions[0];
     expect(first.shakedown).toBe(false);
     expect(first.candidate).toBe(0);

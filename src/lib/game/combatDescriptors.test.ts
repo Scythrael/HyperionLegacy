@@ -145,13 +145,13 @@ describe("WR-8 positions: fights open at range and close", () => {
   });
 });
 
-describe("WR-8 pirates: armor, dampening and evasion under the rules only", () => {
+describe("WR-8 pirates: armor and evasion under the rules only (no dampening: WR-8 review)", () => {
   for (const id of Object.keys(PIRATE_HULLS) as (keyof typeof PIRATE_HULLS)[]) {
     it(id, () => {
       const params = { hullPool: [id], enemyCountMin: 1, enemyCountMax: 1, idPrefix: "t" };
       const ruled = generateEnemyWave(9, { ...params, combatRules: true })[0];
       const old = generateEnemyWave(9, params)[0];
-      expect([ruled.ablativeArmor, ruled.kineticDampening, ruled.evasion, ruled.position]).toEqual([PIRATE_HULLS[id].ablativeArmor, PIRATE_HULLS[id].kineticDampening, PIRATE_HULLS[id].evasion, ENCOUNTER_OPEN_DISTANCE]);
+      expect([ruled.ablativeArmor, ruled.kineticDampening, ruled.evasion, ruled.position]).toEqual([PIRATE_HULLS[id].ablativeArmor, 0, PIRATE_HULLS[id].evasion, ENCOUNTER_OPEN_DISTANCE]);
       expect([old.ablativeArmor, old.kineticDampening, old.evasion, old.position]).toEqual([0, 0, 0, 0]);
       expect(stancePreferredDistance(ruled.stance)).toBeGreaterThan(0);
     });

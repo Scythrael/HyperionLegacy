@@ -145,6 +145,42 @@ export const EMITTER_RESIST_LINES = ["disruptionResist_kinetic", "disruptionResi
 // rolls this escalation chance (integer percent, x the current rank, the weapon proc rule).
 export const SUPPORT_OVERCHARGE_ESCALATION = 30;
 
+// ===== Stances (user 2026-10-22, WR-8 review: "Stance should decide") =====
+// Under the rules each stance sets where a ship parks (resolveBattle.ts stanceHoldDistance):
+//   Aggressive : its SHORTEST firing gun's reach, so every installed gun fires (the brawl it always was).
+//   Balanced   : the farthest range at which the guns and drones that reach it deliver MORE than this share of its
+//                expected damage (ties go to the closer range), so a small short gun on a long-range ship may sit out
+//                but a Balanced Destroyer's autocannons fire. [PROVISIONAL] the share.
+//   Defensive  : (the stored key stays "standoff", so no save migration) its LONGEST reach, backing off when a foe
+//                closes only if it is faster; and it takes less and deals less, puts its shields first and guards
+//                against threats (DefensiveStance below).
+export const BALANCED_FIREPOWER_SHARE = 0.5;
+
+// [PROVISIONAL] (user 2026-10-22: Defensive "does ALL FOUR"; 0.16.0 owns the numbers). Each is one flat source (no
+// stacking), so no curve is needed; each reads the whole percent below:
+//   damageTakenPct     : incoming damage reduced (every hit through applyProjectileDamage).
+//   damageDealtPct     : outgoing weapon and drone damage reduced.
+//   shieldRechargePct  : shields recharge faster in the fight.
+//   shieldAbsorbPct    : each shield point stops this much more damage (the shield's effective capacity).
+//   missileInterceptPct: a Defensive ship with working point defense shoots down an incoming missile projectile at
+//                        this chance (a missile is a weapon with the `missile` trait, the Concussion Torpedo).
+// Guarding (no number): its anti-drone weapons fire at a foe fielding drones before any other target, and its drone
+// squadrons hunt enemy drones before enemy ships.
+export interface DefensiveStance {
+  damageTakenPct: number;
+  damageDealtPct: number;
+  shieldRechargePct: number;
+  shieldAbsorbPct: number;
+  missileInterceptPct: number;
+}
+export const DEFENSIVE_STANCE: Readonly<DefensiveStance> = {
+  damageTakenPct: 20,
+  damageDealtPct: 10,
+  shieldRechargePct: 25,
+  shieldAbsorbPct: 15,
+  missileInterceptPct: 30,
+};
+
 // The weapon traits the rules add when a weapon is built (bridge.ts shipToCombatant, combatRules on):
 //   antiDrone        : the weapon aims at the target's drones (the squadron-targeted intercept row). Point Defense and
 //                      EMP (OC-D12 "antiDrone on Point Defense and EMP").
@@ -154,17 +190,21 @@ export const SUPPORT_OVERCHARGE_ESCALATION = 30;
 //                      "buffed vs shields": the particle column's 110 [PROVISIONAL]).
 //   chainSharePct    : the share of a connecting shot's damage that arcs to the attacker's next weakest foe (the
 //                      Voltaic chain, design S3 [PROVISIONAL 30%]).
+//   missile          : the weapon fires missiles a Defensive ship's point defense can shoot down (the Concussion
+//                      Torpedo; user 2026-10-22 "point defense and drones focus incoming drones and missiles").
 export interface WeaponRuleTraits {
   antiDrone?: boolean;
   droneEffectSlots?: readonly WeaponEffect[];
   vsShieldsPct?: number;
   chainSharePct?: number;
+  missile?: boolean;
 }
 export const WEAPON_RULE_TRAITS: Readonly<Partial<Record<WeaponId, WeaponRuleTraits>>> = {
   pointDefenseArray: { antiDrone: true, droneEffectSlots: [{ defId: "inhibit", procChance: 40, escalationChance: 25 }] },
   empCannon: { antiDrone: true },
   tachyonBurstEmitter: { vsShieldsPct: 110 },
   voltaic: { chainSharePct: 30 },
+  concussionTorpedo: { missile: true },
 };
 
 // `w` with its rule traits (a fresh object; the effect slots copied). A weapon with none is returned as it is. Pure.
@@ -177,5 +217,6 @@ export function withWeaponRuleTraits(w: CombatWeapon): CombatWeapon {
     ...(traits.droneEffectSlots ? { droneEffectSlots: traits.droneEffectSlots.map((e) => ({ ...e })) } : {}),
     ...(traits.vsShieldsPct !== undefined ? { vsShieldsPct: traits.vsShieldsPct } : {}),
     ...(traits.chainSharePct !== undefined ? { chainSharePct: traits.chainSharePct } : {}),
+    ...(traits.missile ? { missile: true } : {}),
   };
 }

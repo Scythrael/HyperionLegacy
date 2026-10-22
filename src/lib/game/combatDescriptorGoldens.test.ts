@@ -393,24 +393,44 @@ describe("WR-8 combat goldens: the live game", () => {
 //   battle:*      the vessel opens at range (the cloaked one with its railgun at 300): seven Cloaked Vessel fights that
 //                 were lost are won now and two that were won are lost (orion cand-0, aurora cand-0 / cand-1, eir
 //                 cand-0 / cand-1); orion cand-1 / cand-2, aurora cand-2 and eir cand-2 hold every fight.
+//
+// WR-8 review (user 2026-10-22: the stances decide where a ship parks, Defensive does all four; option 1 "Soften
+// pirates for now"): the table above was re-pinned. What moved from the first WR-8 pin, and why:
+//   patrol:*      the softened pirates (Raider armor 3 / evasion 3, Marauder 10 / 2, Corsair Carrier 8 / 1, no
+//                 dampening) and Balanced parking where most of the firepower reaches (a Destroyer's autocannons fire):
+//                 the General Freighter wins its Sweep again (tick 14, its Repeat flies all three cycles and wins at
+//                 42), as it did before WR-8; the Battleship's Warband Repeat loses its second cycle (tick 40, was a
+//                 third cycle lost at 65): the Warband's Marauders fly Balanced and now park where their autocannons
+//                 fire too, and its Corsair Carriers fly Defensive (their stored "standoff") with its modifiers.
+//                 Every other outcome and tick holds; every record, replay and state hash moves.
+//   forecast:*    Freighter Sweep 56 (55 at the first pin, 63 before WR-8); Destroyer Warband 9 (3, 11); Battleship
+//                 Warband 53, likely (47 worthy, 52 likely); Carrier Warband 29, dice (16 not advised, 39 worthy);
+//                 Orion Sweep 58, likely (47 worthy, 60 likely).
+//   shipEvent:*   the default-seed cand-2 Cloaked Vessel fight is lost now for all three explorers (was won): the
+//                 vessel flies Balanced and its autocannon carries most of its damage, so it parks at autocannon range
+//                 and both its guns fire. The other 33 runs' outcomes hold.
+//   battle:*      the same Cloaked Vessel effect on the battle grid: orion cand-0 / cand-1 / cand-2 each lose one more
+//                 cloaked fight, aurora cand-0 three and cand-2 two, eir cand-0 three and cand-2 one; eir cand-1 wins
+//                 one back. Content balance for the vessel waits with the rest (user 2026-10-22: "the actual balancing
+//                 of the content can wait").
 const GOLDEN: Record<string, unknown> = {
   "battle:orion:cand-0": [
     "probe:0:0:win:0", "probe:0:1:win:0", "probe:0:2:win:0", "probe:1:0:win:0", "probe:1:1:win:0",
     "probe:1:2:win:0", "cloakedPass:0:0:win:0", "cloakedPass:0:1:win:0", "cloakedPass:0:2:win:0",
     "cloakedPass:1:0:win:0", "cloakedPass:1:1:win:0", "cloakedPass:1:2:win:0", "cloakedFail:0:0:win:0",
-    "cloakedFail:0:1:win:0", "cloakedFail:0:2:win:0", "cloakedFail:1:0:win:0", "cloakedFail:1:1:win:0",
+    "cloakedFail:0:1:win:0", "cloakedFail:0:2:win:0", "cloakedFail:1:0:win:0", "cloakedFail:1:1:loss:41",
     "cloakedFail:1:2:win:0",
   ],
   "battle:orion:cand-1": [
     "probe:0:0:win:0", "probe:0:1:win:0", "probe:0:2:win:0", "probe:1:0:win:0", "probe:1:1:win:0",
     "probe:1:2:win:0", "cloakedPass:0:0:win:0", "cloakedPass:0:1:win:0", "cloakedPass:0:2:win:0",
     "cloakedPass:1:0:win:0", "cloakedPass:1:1:win:0", "cloakedPass:1:2:win:0", "cloakedFail:0:0:win:0",
-    "cloakedFail:0:1:win:0", "cloakedFail:0:2:win:0", "cloakedFail:1:0:win:0", "cloakedFail:1:1:win:0",
+    "cloakedFail:0:1:win:0", "cloakedFail:0:2:loss:41", "cloakedFail:1:0:win:0", "cloakedFail:1:1:win:0",
     "cloakedFail:1:2:win:0",
   ],
   "battle:orion:cand-2": [
     "probe:0:0:win:0", "probe:0:1:win:0", "probe:0:2:win:0", "probe:1:0:win:0", "probe:1:1:win:0",
-    "probe:1:2:win:0", "cloakedPass:0:0:win:0", "cloakedPass:0:1:win:0", "cloakedPass:0:2:win:0",
+    "probe:1:2:win:0", "cloakedPass:0:0:win:0", "cloakedPass:0:1:win:0", "cloakedPass:0:2:loss:41",
     "cloakedPass:1:0:win:0", "cloakedPass:1:1:win:0", "cloakedPass:1:2:win:0", "cloakedFail:0:0:win:0",
     "cloakedFail:0:1:win:0", "cloakedFail:0:2:win:0", "cloakedFail:1:0:win:0", "cloakedFail:1:1:win:0",
     "cloakedFail:1:2:win:0",
@@ -419,7 +439,7 @@ const GOLDEN: Record<string, unknown> = {
     "probe:0:0:win:0", "probe:0:1:win:0", "probe:0:2:win:0", "probe:1:0:win:0", "probe:1:1:win:0",
     "probe:1:2:win:0", "cloakedPass:0:0:win:0", "cloakedPass:0:1:win:0", "cloakedPass:0:2:win:0",
     "cloakedPass:1:0:win:0", "cloakedPass:1:1:win:0", "cloakedPass:1:2:win:0", "cloakedFail:0:0:win:0",
-    "cloakedFail:0:1:win:0", "cloakedFail:0:2:win:0", "cloakedFail:1:0:win:0", "cloakedFail:1:1:win:0",
+    "cloakedFail:0:1:win:0", "cloakedFail:0:2:loss:36", "cloakedFail:1:0:loss:36", "cloakedFail:1:1:loss:36",
     "cloakedFail:1:2:win:0",
   ],
   "battle:aurora:cand-1": [
@@ -431,113 +451,115 @@ const GOLDEN: Record<string, unknown> = {
   ],
   "battle:aurora:cand-2": [
     "probe:0:0:win:0", "probe:0:1:win:0", "probe:0:2:win:0", "probe:1:0:win:0", "probe:1:1:win:0",
-    "probe:1:2:win:0", "cloakedPass:0:0:win:0", "cloakedPass:0:1:win:0", "cloakedPass:0:2:win:0",
+    "probe:1:2:win:0", "cloakedPass:0:0:win:0", "cloakedPass:0:1:win:0", "cloakedPass:0:2:loss:36",
     "cloakedPass:1:0:win:0", "cloakedPass:1:1:win:0", "cloakedPass:1:2:win:0", "cloakedFail:0:0:win:0",
-    "cloakedFail:0:1:win:0", "cloakedFail:0:2:win:0", "cloakedFail:1:0:win:0", "cloakedFail:1:1:win:0",
+    "cloakedFail:0:1:loss:36", "cloakedFail:0:2:win:0", "cloakedFail:1:0:win:0", "cloakedFail:1:1:win:0",
     "cloakedFail:1:2:win:0",
   ],
   "battle:eir:cand-0": [
     "probe:0:0:win:0", "probe:0:1:win:0", "probe:0:2:win:0", "probe:1:0:win:0", "probe:1:1:win:0",
     "probe:1:2:win:0", "cloakedPass:0:0:win:0", "cloakedPass:0:1:win:0", "cloakedPass:0:2:win:0",
     "cloakedPass:1:0:win:0", "cloakedPass:1:1:win:0", "cloakedPass:1:2:win:0", "cloakedFail:0:0:win:0",
-    "cloakedFail:0:1:win:0", "cloakedFail:0:2:win:0", "cloakedFail:1:0:win:0", "cloakedFail:1:1:win:0",
+    "cloakedFail:0:1:win:0", "cloakedFail:0:2:loss:43", "cloakedFail:1:0:loss:43", "cloakedFail:1:1:loss:43",
     "cloakedFail:1:2:win:0",
   ],
   "battle:eir:cand-1": [
     "probe:0:0:win:0", "probe:0:1:win:0", "probe:0:2:win:0", "probe:1:0:win:0", "probe:1:1:win:0",
     "probe:1:2:win:0", "cloakedPass:0:0:win:0", "cloakedPass:0:1:win:0", "cloakedPass:0:2:win:0",
     "cloakedPass:1:0:win:0", "cloakedPass:1:1:win:0", "cloakedPass:1:2:win:0", "cloakedFail:0:0:win:0",
-    "cloakedFail:0:1:win:0", "cloakedFail:0:2:loss:43", "cloakedFail:1:0:win:0", "cloakedFail:1:1:loss:43",
+    "cloakedFail:0:1:win:0", "cloakedFail:0:2:loss:43", "cloakedFail:1:0:win:0", "cloakedFail:1:1:win:0",
     "cloakedFail:1:2:win:0",
   ],
   "battle:eir:cand-2": [
     "probe:0:0:win:0", "probe:0:1:win:0", "probe:0:2:win:0", "probe:1:0:win:0", "probe:1:1:win:0",
-    "probe:1:2:win:0", "cloakedPass:0:0:win:0", "cloakedPass:0:1:win:0", "cloakedPass:0:2:win:0",
+    "probe:1:2:win:0", "cloakedPass:0:0:win:0", "cloakedPass:0:1:win:0", "cloakedPass:0:2:loss:43",
     "cloakedPass:1:0:win:0", "cloakedPass:1:1:win:0", "cloakedPass:1:2:win:0", "cloakedFail:0:0:win:0",
     "cloakedFail:0:1:loss:43", "cloakedFail:0:2:win:0", "cloakedFail:1:0:win:0", "cloakedFail:1:1:win:0",
     "cloakedFail:1:2:win:0",
   ],
-  "patrol:generalFreighter:crimsonReaverSweep:once": ["e38d27d1", "2eb23e3f", "lost:14", "701a58f1", "f808e2f6"],
-  "patrol:generalFreighter:crimsonReaverSweep:repeat": ["73034d22", "2eb23e3f", "lost:14", "701a58f1", "f808e2f6"],
-  "patrol:generalFreighter:crimsonReaverWarband:once": ["8170ae77", "e95a255d", "lost:20", "701a58f1", "beaf4ad4"],
-  "patrol:generalFreighter:crimsonReaverWarband:repeat": ["99dcfe20", "e95a255d", "lost:20", "701a58f1", "beaf4ad4"],
-  "patrol:prospectorHauler:crimsonReaverSweep:once": ["f98b7306", "b5ce6337", "won:14", "9d03d00b", "44d412c5"],
+  "patrol:generalFreighter:crimsonReaverSweep:once": ["e38d27d1", "14d2675a", "won:14", "b2f38143", "619f0aa1"],
+  "patrol:generalFreighter:crimsonReaverSweep:repeat": [
+    "73034d22", "14d2675a", "relaunch:14", "63a72302", "802729ba", "relaunch:28", "c21dbd9a", "4099a67c",
+    "won:42", "b2f38143", "1193c52",
+  ],
+  "patrol:generalFreighter:crimsonReaverWarband:once": ["8170ae77", "d8cdcf30", "lost:20", "701a58f1", "beaf4ad4"],
+  "patrol:generalFreighter:crimsonReaverWarband:repeat": ["99dcfe20", "d8cdcf30", "lost:20", "701a58f1", "beaf4ad4"],
+  "patrol:prospectorHauler:crimsonReaverSweep:once": ["f98b7306", "b0c0dc6f", "won:14", "9d03d00b", "44d412c5"],
   "patrol:prospectorHauler:crimsonReaverSweep:repeat": [
-    "934c2bc3", "b5ce6337", "relaunch:14", "e12e8723", "e1b49b3", "relaunch:28", "ffa3365b", "e0ca0b5f",
+    "934c2bc3", "b0c0dc6f", "relaunch:14", "e12e8723", "e1b49b3", "relaunch:28", "ffa3365b", "e0ca0b5f",
     "won:42", "9d03d00b", "47f525c2",
   ],
-  "patrol:prospectorHauler:crimsonReaverWarband:once": ["80c4d6e8", "d31f3ab1", "lost:23", "8539ed3f", "2e9d3cfb"],
-  "patrol:prospectorHauler:crimsonReaverWarband:repeat": ["106706bd", "d31f3ab1", "lost:23", "8539ed3f", "2e9d3cfb"],
-  "patrol:prospectorRunner:crimsonReaverSweep:once": ["63a6753a", "b1767ed2", "lost:10", "e1360e3a", "3458dee6"],
-  "patrol:prospectorRunner:crimsonReaverSweep:repeat": ["214270f", "b1767ed2", "lost:10", "e1360e3a", "3458dee6"],
-  "patrol:prospectorRunner:crimsonReaverWarband:once": ["121696a8", "83b2d76f", "lost:20", "e1360e3a", "7542ef9a"],
-  "patrol:prospectorRunner:crimsonReaverWarband:repeat": ["30947c7d", "83b2d76f", "lost:20", "e1360e3a", "7542ef9a"],
-  "patrol:prospectorMiner:crimsonReaverSweep:once": ["de8ea837", "743c0de3", "lost:10", "4a78733f", "e7fd04bd"],
-  "patrol:prospectorMiner:crimsonReaverSweep:repeat": ["e25a34e0", "743c0de3", "lost:10", "4a78733f", "e7fd04bd"],
-  "patrol:prospectorMiner:crimsonReaverWarband:once": ["45245f69", "e17f3d51", "lost:20", "4a78733f", "445177ad"],
-  "patrol:prospectorMiner:crimsonReaverWarband:repeat": ["33ff849a", "e17f3d51", "lost:20", "4a78733f", "445177ad"],
-  "patrol:destroyer:crimsonReaverSweep:once": ["31e77619", "80a4e2d", "won:14", "6ad9f46c", "d4055219"],
+  "patrol:prospectorHauler:crimsonReaverWarband:once": ["80c4d6e8", "79401d04", "lost:23", "8539ed3f", "2e9d3cfb"],
+  "patrol:prospectorHauler:crimsonReaverWarband:repeat": ["106706bd", "79401d04", "lost:23", "8539ed3f", "2e9d3cfb"],
+  "patrol:prospectorRunner:crimsonReaverSweep:once": ["63a6753a", "88603aeb", "lost:10", "e1360e3a", "3458dee6"],
+  "patrol:prospectorRunner:crimsonReaverSweep:repeat": ["214270f", "88603aeb", "lost:10", "e1360e3a", "3458dee6"],
+  "patrol:prospectorRunner:crimsonReaverWarband:once": ["121696a8", "c682d5e", "lost:20", "e1360e3a", "7542ef9a"],
+  "patrol:prospectorRunner:crimsonReaverWarband:repeat": ["30947c7d", "c682d5e", "lost:20", "e1360e3a", "7542ef9a"],
+  "patrol:prospectorMiner:crimsonReaverSweep:once": ["de8ea837", "68d94336", "lost:10", "4a78733f", "e7fd04bd"],
+  "patrol:prospectorMiner:crimsonReaverSweep:repeat": ["e25a34e0", "68d94336", "lost:10", "4a78733f", "e7fd04bd"],
+  "patrol:prospectorMiner:crimsonReaverWarband:once": ["45245f69", "b698c0d9", "lost:20", "4a78733f", "445177ad"],
+  "patrol:prospectorMiner:crimsonReaverWarband:repeat": ["33ff849a", "b698c0d9", "lost:20", "4a78733f", "445177ad"],
+  "patrol:destroyer:crimsonReaverSweep:once": ["31e77619", "7f14da7", "won:14", "6ad9f46c", "d4055219"],
   "patrol:destroyer:crimsonReaverSweep:repeat": [
-    "88ed10aa", "80a4e2d", "relaunch:14", "60ebf60a", "ec4d7b2e", "relaunch:28", "7e062882", "b1f3a2b2",
+    "88ed10aa", "7f14da7", "relaunch:14", "60ebf60a", "ec4d7b2e", "relaunch:28", "7e062882", "b1f3a2b2",
     "won:42", "6ad9f46c", "bba9124",
   ],
-  "patrol:destroyer:crimsonReaverWarband:once": ["d309e353", "71183fe6", "won:22", "6ad9f46c", "94a165d6"],
+  "patrol:destroyer:crimsonReaverWarband:once": ["d309e353", "952cbced", "won:22", "6ad9f46c", "94a165d6"],
   "patrol:destroyer:crimsonReaverWarband:repeat": [
-    "f622e534", "71183fe6", "relaunch:22", "2ac69177", "92f08a9f", "lost:38", "44b4c6b5", "db558c17",
+    "f622e534", "952cbced", "relaunch:22", "2ac69177", "92f08a9f", "lost:38", "44b4c6b5", "db558c17",
   ],
-  "patrol:battleship:crimsonReaverSweep:once": ["8117c7c7", "f4a7b9ff", "won:14", "c6dba9cb", "6a6e81a4"],
+  "patrol:battleship:crimsonReaverSweep:once": ["8117c7c7", "6716857c", "won:14", "c6dba9cb", "6a6e81a4"],
   "patrol:battleship:crimsonReaverSweep:repeat": [
-    "20cde710", "f4a7b9ff", "relaunch:14", "faca3df0", "a70c0c5b", "relaunch:28", "c0349798", "e313c0f5",
+    "20cde710", "6716857c", "relaunch:14", "faca3df0", "a70c0c5b", "relaunch:28", "c0349798", "e313c0f5",
     "won:42", "c6dba9cb", "ae27954d",
   ],
-  "patrol:battleship:crimsonReaverWarband:once": ["5ef43211", "ba112768", "won:22", "c6dba9cb", "394499f3"],
+  "patrol:battleship:crimsonReaverWarband:once": ["5ef43211", "d96209bd", "won:22", "c6dba9cb", "394499f3"],
   "patrol:battleship:crimsonReaverWarband:repeat": [
-    "34602562", "ba112768", "relaunch:22", "2140ca1f", "e9252c44", "relaunch:44", "76fd6027", "54c164fb",
-    "lost:65", "afe73d75", "d4a9f00b",
+    "34602562", "d96209bd", "relaunch:22", "2140ca1f", "e9252c44", "lost:40", "afe73d75", "f547373a",
   ],
-  "patrol:carrier:crimsonReaverSweep:once": ["10bbdaa4", "1a728dab", "won:14", "ea909677", "9554bb6e"],
+  "patrol:carrier:crimsonReaverSweep:once": ["10bbdaa4", "9c989b4e", "won:14", "ea909677", "9554bb6e"],
   "patrol:carrier:crimsonReaverSweep:repeat": [
-    "850b5d91", "1a728dab", "relaunch:14", "58546b3", "c852a96", "relaunch:28", "d272f5a0", "fe0a521d", "won:42",
+    "850b5d91", "9c989b4e", "relaunch:14", "58546b3", "c852a96", "relaunch:28", "d272f5a0", "fe0a521d", "won:42",
     "ea909677", "64959369",
   ],
-  "patrol:carrier:crimsonReaverWarband:once": ["cf2ed6fa", "8128b8b5", "won:22", "ea909677", "15006abb"],
+  "patrol:carrier:crimsonReaverWarband:once": ["cf2ed6fa", "fcfa6ea7", "won:22", "ea909677", "15006abb"],
   "patrol:carrier:crimsonReaverWarband:repeat": [
-    "a6257fcf", "8128b8b5", "relaunch:22", "ef3396d8", "1f175bf5", "lost:38", "73109288", "5d7605b4",
+    "a6257fcf", "fcfa6ea7", "relaunch:22", "ef3396d8", "1f175bf5", "lost:38", "73109288", "5d7605b4",
   ],
-  "patrol:orion:crimsonReaverSweep:once": ["40a9303c", "32f52fff", "won:14", "c75858d4", "9f06f3dd"],
+  "patrol:orion:crimsonReaverSweep:once": ["40a9303c", "174b161b", "won:14", "c75858d4", "9f06f3dd"],
   "patrol:orion:crimsonReaverSweep:repeat": [
-    "d818f5a9", "32f52fff", "relaunch:14", "819d4289", "2232a633", "relaunch:28", "e7cf8ac1", "32de9505",
+    "d818f5a9", "174b161b", "relaunch:14", "819d4289", "2232a633", "relaunch:28", "e7cf8ac1", "32de9505",
     "won:42", "c75858d4", "6d24a25c",
   ],
-  "patrol:orion:crimsonReaverWarband:once": ["65e0e99a", "91defc1b", "lost:20", "6619cb48", "20b8680"],
-  "patrol:orion:crimsonReaverWarband:repeat": ["d6a857ef", "91defc1b", "lost:20", "6619cb48", "20b8680"],
-  "patrol:aurora:crimsonReaverSweep:once": ["dbd9c477", "39b966f8", "won:14", "62b89a6f", "511447be"],
+  "patrol:orion:crimsonReaverWarband:once": ["65e0e99a", "6311658a", "lost:20", "6619cb48", "20b8680"],
+  "patrol:orion:crimsonReaverWarband:repeat": ["d6a857ef", "6311658a", "lost:20", "6619cb48", "20b8680"],
+  "patrol:aurora:crimsonReaverSweep:once": ["dbd9c477", "6a814747", "won:14", "62b89a6f", "511447be"],
   "patrol:aurora:crimsonReaverSweep:repeat": [
-    "a9555020", "39b966f8", "relaunch:14", "2640ec00", "72233a1f", "relaunch:28", "88c7eb68", "2d93ea29",
+    "a9555020", "6a814747", "relaunch:14", "2640ec00", "72233a1f", "relaunch:28", "88c7eb68", "2d93ea29",
     "won:42", "62b89a6f", "efae95d5",
   ],
-  "patrol:aurora:crimsonReaverWarband:once": ["c5c49945", "45ac724b", "lost:20", "def772e7", "e97d0cbd"],
-  "patrol:aurora:crimsonReaverWarband:repeat": ["faa3a9e", "45ac724b", "lost:20", "def772e7", "e97d0cbd"],
-  "patrol:eir:crimsonReaverSweep:once": ["87e41c0f", "f6319943", "won:14", "ffdca63b", "ef5f54b8"],
+  "patrol:aurora:crimsonReaverWarband:once": ["c5c49945", "cc886b26", "lost:20", "def772e7", "e97d0cbd"],
+  "patrol:aurora:crimsonReaverWarband:repeat": ["faa3a9e", "cc886b26", "lost:20", "def772e7", "e97d0cbd"],
+  "patrol:eir:crimsonReaverSweep:once": ["87e41c0f", "9be953c8", "won:14", "ffdca63b", "ef5f54b8"],
   "patrol:eir:crimsonReaverSweep:repeat": [
-    "59e3b7f8", "f6319943", "relaunch:14", "a8468558", "99ea9bf9", "relaunch:28", "e57d6b00", "e967f201",
+    "59e3b7f8", "9be953c8", "relaunch:14", "a8468558", "99ea9bf9", "relaunch:28", "e57d6b00", "e967f201",
     "won:42", "ffdca63b", "34db43b9",
   ],
-  "patrol:eir:crimsonReaverWarband:once": ["3cd5058d", "7281303a", "lost:20", "7ddb5b8d", "d9543d0b"],
-  "patrol:eir:crimsonReaverWarband:repeat": ["51f75e26", "7281303a", "lost:20", "7ddb5b8d", "d9543d0b"],
-  "forecast:generalFreighter:crimsonReaverSweep": "55:likely",
+  "patrol:eir:crimsonReaverWarband:once": ["3cd5058d", "e6e3a4c8", "lost:20", "7ddb5b8d", "d9543d0b"],
+  "patrol:eir:crimsonReaverWarband:repeat": ["51f75e26", "e6e3a4c8", "lost:20", "7ddb5b8d", "d9543d0b"],
+  "forecast:generalFreighter:crimsonReaverSweep": "56:likely",
   "forecast:generalFreighter:crimsonReaverWarband": "0:impossible",
   "forecast:destroyer:crimsonReaverSweep": "64:guaranteed",
-  "forecast:destroyer:crimsonReaverWarband": "3:extreme",
+  "forecast:destroyer:crimsonReaverWarband": "9:extreme",
   "forecast:battleship:crimsonReaverSweep": "64:guaranteed",
-  "forecast:battleship:crimsonReaverWarband": "47:worthy",
+  "forecast:battleship:crimsonReaverWarband": "53:likely",
   "forecast:carrier:crimsonReaverSweep": "64:guaranteed",
-  "forecast:carrier:crimsonReaverWarband": "16:notAdvised",
-  "forecast:orion:crimsonReaverSweep": "47:worthy",
+  "forecast:carrier:crimsonReaverWarband": "29:dice",
+  "forecast:orion:crimsonReaverSweep": "58:likely",
   "forecast:orion:crimsonReaverWarband": "0:impossible",
   "shipEvent:orion:default:cand-0": ["none", "628d0a82", "1/11 hull:0 setbacks:0", "f24252bf"],
   "shipEvent:orion:default:cand-1": ["probe:win", "63ad049a", "7/10 hull:0 setbacks:2", "fd53203a"],
-  "shipEvent:orion:default:cand-2": ["cloaked:win", "c21ba1b3", "4/6 hull:14 setbacks:2", "d13e8fe3"],
+  "shipEvent:orion:default:cand-2": ["cloaked:loss", "577d816c", "4/6 hull:55 setbacks:2", "3c0d4e9d"],
   "shipEvent:orion:101:cand-0": ["probe:win", "f6d6791c", "7/12 hull:0 setbacks:1", "f17f4a40"],
   "shipEvent:orion:101:cand-1": ["none", "2a9661e9", "4/14 hull:0 setbacks:1", "7cb3b28a"],
   "shipEvent:orion:101:cand-2": ["probe:win", "c54ee85f", "7/15 hull:0 setbacks:1", "65d323a0"],
@@ -549,7 +571,7 @@ const GOLDEN: Record<string, unknown> = {
   "shipEvent:orion:303:cand-2": ["none", "63dee130", "2/11 hull:28 setbacks:3", "cfe2d89c"],
   "shipEvent:aurora:default:cand-0": ["none", "628d0a82", "1/11 hull:0 setbacks:0", "f828e41c"],
   "shipEvent:aurora:default:cand-1": ["probe:win", "63ad049a", "7/10 hull:0 setbacks:2", "53a73029"],
-  "shipEvent:aurora:default:cand-2": ["cloaked:win", "9f36b3f1", "4/6 hull:12 setbacks:2", "525912bb"],
+  "shipEvent:aurora:default:cand-2": ["cloaked:loss", "31a281f0", "4/6 hull:48 setbacks:2", "ed7b387e"],
   "shipEvent:aurora:101:cand-0": ["probe:win", "f6d6791c", "7/12 hull:0 setbacks:1", "7f02ebc"],
   "shipEvent:aurora:101:cand-1": ["none", "2a9661e9", "4/14 hull:0 setbacks:1", "9cb2d14e"],
   "shipEvent:aurora:101:cand-2": ["probe:win", "c54ee85f", "7/15 hull:0 setbacks:1", "56c82b60"],
@@ -561,7 +583,7 @@ const GOLDEN: Record<string, unknown> = {
   "shipEvent:aurora:303:cand-2": ["none", "2f72ff6c", "2/11 hull:24 setbacks:3", "cba89d0d"],
   "shipEvent:eir:default:cand-0": ["none", "628d0a82", "1/11 hull:0 setbacks:0", "b76559a0"],
   "shipEvent:eir:default:cand-1": ["probe:win", "63ad049a", "7/10 hull:0 setbacks:2", "4c507ad3"],
-  "shipEvent:eir:default:cand-2": ["cloaked:win", "c21ba1b3", "4/6 hull:14 setbacks:2", "75816d42"],
+  "shipEvent:eir:default:cand-2": ["cloaked:loss", "83f410ba", "4/6 hull:57 setbacks:2", "c13b4ee1"],
   "shipEvent:eir:101:cand-0": ["probe:win", "f6d6791c", "7/12 hull:0 setbacks:1", "614ff081"],
   "shipEvent:eir:101:cand-1": ["none", "2a9661e9", "4/14 hull:0 setbacks:1", "8dce36de"],
   "shipEvent:eir:101:cand-2": ["probe:win", "c54ee85f", "7/15 hull:0 setbacks:1", "11fda315"],

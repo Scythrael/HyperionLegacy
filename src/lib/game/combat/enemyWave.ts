@@ -80,7 +80,7 @@ export interface EnemyWaveParams {
 	idPrefix: string;
 
 	// WR-8 (0.14.0, combat/combatRules.ts): the wave fights under the combat rules (its patrol cycle carries a
-	// CombatRulesStamp). Then every enemy opens at ENCOUNTER_OPEN_DISTANCE, carries its hull's armor, dampening and
+	// CombatRulesStamp). Then every enemy opens at ENCOUNTER_OPEN_DISTANCE, carries its hull's armor and
 	// evasion (PIRATE_HULLS) and its weapons' rule traits. No draw is added. Absent or false: the pre-WR-8 wave exactly.
 	combatRules?: boolean;
 
@@ -241,7 +241,6 @@ export function generateEnemyWaveDetailed(
 		});
 		if (params.combatRules) {
 			enemy.ablativeArmor = hull.ablativeArmor;
-			enemy.kineticDampening = hull.kineticDampening;
 			enemy.evasion = hull.evasion;
 		}
 		enemies.push(enemy);

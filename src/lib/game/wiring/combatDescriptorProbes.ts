@@ -8,12 +8,13 @@
 // the battle moved by at least its minimum effect. Self-contained (it never imports probes.ts, which spreads these
 // into its PROBES table), so there is no import cycle.
 
-import { SHIP_TYPES, type GameState, type ShipInstance } from "../model";
+import { SHIP_TYPES, freshState, type GameState, type ShipInstance } from "../model";
 import { equippedFor } from "../equipment";
 import { shipCombatRulesStamp } from "../crewOverlay";
 import { combatHullTypeOf, shipToCombatant, type CombatShipStats } from "../combat/bridge";
 import { buildPatrolPlayerCombatant } from "../combat/patrolWave";
-import { applyProjectileDamage, fireWeapon, resolveBattle, type ResolveOptions } from "../combat/resolveBattle";
+import { applyProjectileDamage, fireWeapon, resolveBattle, stanceHoldDistance, type ResolveOptions } from "../combat/resolveBattle";
+import { installMissingCombatBaselines } from "../tick";
 import { makeWeaponInstance, type WeaponId } from "../combat/weapons";
 import { makeSquadron, type DroneRole, type DroneSquadron } from "../combat/drones";
 import { generateEnemyWave } from "../combat/enemyWave";
@@ -203,7 +204,7 @@ export const COMBAT_DESCRIPTOR_PROBES = {
     },
   },
   combatEventStance: {
-    label: "the player's patrol stance against a Marauder (both ships' damage taken): Aggressive vs Standoff",
+    label: "the player's patrol stance against a Marauder (both ships' damage taken): Aggressive vs Defensive",
     read: (s) =>
       sumOver(battles(() => [
         ship({ id: "p", team: "player", weapons: ["autocannon", "autocannon", "plasma"], stats: { hullIntegrity: 900, shieldCapacity: 200, shieldRecharge: 5 }, stance: isOn(s) ? "aggressive" : "standoff" }),
@@ -365,9 +366,101 @@ export const COMBAT_DESCRIPTOR_PROBES = {
         return firstShotTick(r.log, "p");
       }),
   },
+  // ===== WR-8 review (user 2026-10-22): the stances decide where a ship parks; Defensive does all four =====
+  combatHoldAggressive: { label: "stanceHoldDistance: a Standard-Issue Battleship flying Aggressive", read: () => stanceHoldDistance(patrolShip("battleship", "aggressive")) },
+  combatHoldBalanced: { label: "stanceHoldDistance: a Standard-Issue Destroyer flying Balanced", read: () => stanceHoldDistance(patrolShip("destroyer", "balanced")) },
+  combatHoldBalancedLongGuns: {
+    label: "stanceHoldDistance: two railguns and an autocannon flying Balanced (the small short gun sits out)",
+    read: () => stanceHoldDistance(ship({ id: "p", team: "player", weapons: ["railgun", "railgun", "autocannon"], stance: "balanced" })),
+  },
+  combatHoldDefensive: { label: "stanceHoldDistance: a Standard-Issue Battleship flying Defensive", read: () => stanceHoldDistance(patrolShip("battleship", "standoff")) },
+  combatDefensiveDamageTaken: {
+    label: "a patrol wave's Defensive combatant: a 1,000-point particle hit on its bare hull (applyProjectileDamage)",
+    read: (s) => {
+      const t = bare(patrolShip("destroyer", isOn(s) ? "standoff" : "balanced"));
+      return applyProjectileDamage(t, "particle", 0, 0, 1000).dealt;
+    },
+  },
+  combatDefensiveShieldAbsorb: {
+    label: "a patrol wave's Defensive combatant: shield points a 1,000-point particle hit costs (applyProjectileDamage)",
+    read: (s) => {
+      const t = bare(patrolShip("destroyer", isOn(s) ? "standoff" : "balanced"));
+      // The damage taken cut switched off on the reading, so the probe isolates the shield's absorb.
+      if (t.defensive) t.defensive = { ...t.defensive, damageTakenPct: 0 };
+      t.shield = 1_000_000;
+      t.shieldMax = 1_000_000;
+      applyProjectileDamage(t, "particle", 0, 0, 1000);
+      return 1_000_000 - t.shield;
+    },
+  },
+  combatEventDefensiveDamageDealt: {
+    label: "a Defensive ship's autocannon damage over 300 shots (fireWeapon)",
+    read: (s) => {
+      const rng = makeRng(5);
+      let dealt = 0;
+      const a = patrolShip("destroyer", isOn(s) ? "standoff" : "balanced");
+      for (let i = 0; i < 300; i++) dealt += fireWeapon(a, bare(ship({ id: "t", team: "enemy" })), a.weapons[0], rng).damage;
+      return dealt;
+    },
+  },
+  combatEventDefensiveShieldRecharge: {
+    label: "a Defensive ship's shields after a minute with no fire (its recharge)",
+    read: (s) =>
+      sumOver(battles(() => {
+        const p = ship({ id: "p", team: "player", stats: { hullIntegrity: 100_000, shieldCapacity: 100_000, shieldRecharge: 10 }, stance: isOn(s) ? "standoff" : "balanced", speed: 0 });
+        p.shield = 0;
+        return [p, ship({ id: "e", team: "enemy", stats: { hullIntegrity: 100_000, shieldCapacity: 0, shieldRecharge: 0 }, position: 1000, speed: 0 })];
+      }, RULES), (r) => byId(r.finalCombatants, "p")?.shield ?? 0),
+  },
+  combatEventDefensiveGuardWeapons: {
+    label: "a Defensive ship's Point Defense turns on the drone-fielding foe first (that foe's drone hit points lost)",
+    read: (s) => guardBattle(["pointDefenseArray"], [], isOn(s)),
+  },
+  combatEventDefensiveGuardDrones: {
+    label: "a Defensive ship's Attack squadron hunts the drone-fielding foe's screen first (its drone hit points lost)",
+    read: (s) => guardBattle([], ["attack"], isOn(s)),
+  },
 } satisfies Record<string, Def>;
 
 // ===== Helpers the probes share =====
+
+// A Standard-Issue `hull` as a patrol wave under the combat rules builds it, flying `stance`.
+function patrolShip(hull: "destroyer" | "battleship" | "carrier", stance: CombatStance): Combatant {
+  // The firstRunsGoldens onHull method: freshState with ship-1 retyped to the hull and its Standard-Issue gear.
+  const base = freshState();
+  const s = installMissingCombatBaselines({ ...base, ships: base.ships.map((x) => (x.id === SHIP ? { ...x, typeKey: hull } : x)) });
+  const sh = s.ships.find((x) => x.id === SHIP)!;
+  return buildPatrolPlayerCombatant({
+    playerId: "p",
+    stats: SHIP_TYPES[hull],
+    hullType: hull,
+    stance,
+    installedGear: equippedFor(s, sh.id),
+    carryHull: SHIP_TYPES[hull].hullIntegrity,
+    carryShield: 0,
+    carryDrones: [],
+    combatRules: shipCombatRulesStamp(s, sh) ?? { rules: COMBAT_RULES_WR8, speed: RULES_COMBAT_SPEED },
+  });
+}
+// `c` with no mitigation and no shield (a bare hull), so a hit lands whole.
+function bare(c: Combatant): Combatant {
+  c.shield = 0;
+  c.shieldMax = 0;
+  c.ablativeArmor = 0;
+  c.kineticDampening = 0;
+  c.damageResist = { kinetic: 0, particle: 0, ew: 0 };
+  return c;
+}
+// A ship with `weapons` and `drones` flying Defensive (or Balanced) against two foes: e0, the weakest (its usual
+// target), and e1, which fields two Defense squadrons. Summed over the seeds: the hit points e1's drones lost (a
+// destroyed drone counts its whole pool).
+function guardBattle(weapons: WeaponId[], drones: DroneRole[], defensive: boolean): number {
+  return sumOver(battles(() => [
+    ship({ id: "p", team: "player", weapons, drones, stats: { hullIntegrity: 100_000, shieldCapacity: 0, shieldRecharge: 0 }, stance: defensive ? "standoff" : "balanced", speed: 0 }),
+    ship({ id: "e0", team: "enemy", stats: { hullIntegrity: 50_000, shieldCapacity: 0, shieldRecharge: 0 }, position: 50, speed: 0 }),
+    ship({ id: "e1", team: "enemy", drones: ["defense", "defense"], stats: { hullIntegrity: 100_000, shieldCapacity: 0, shieldRecharge: 0 }, position: 50, speed: 0 }),
+  ], RULES), (r) => sumOver(byId(r.finalCombatants, "e1")?.drones ?? [], (sq) => sumOver(sq.drones, (d) => d.hpMax - (d.alive ? d.hp : 0))));
+}
 
 // A pirate wave of one `hull`, under the rules (armor, evasion, range) unless `rules` is false.
 function pirates(hull: PirateHullId, rules = true): Combatant[] {

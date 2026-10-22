@@ -70,6 +70,7 @@ import type { DroneSquadron } from "./drones";
 // the four-state pip. Imported as TYPES ONLY, zero runtime cycle: durability.ts
 // depends only on rng.ts, never on types.ts, so this import cannot loop.
 import type { DurableSystem, SystemCondition } from "./durability";
+import type { DefensiveStance } from "./combatRules";
 
 // A single weapon mounted on a combatant.
 //
@@ -216,6 +217,8 @@ export interface CombatWeapon {
 	droneEffectSlots?: WeaponEffect[];
 	vsShieldsPct?: number;
 	chainSharePct?: number;
+	//   missile          : the weapon fires missiles (a Defensive target's point defense may shoot one down).
+	missile?: boolean;
 }
 
 // WR-5b (0.14.0): the commanding captain's Tactician nodes a battle reads from the ship's combatant (combat/
@@ -419,6 +422,20 @@ export interface Combatant {
 	// an ambushed ship's return-fire delay closes that share of the gap to the rapid-charge delay. OPTIONAL: absent (or
 	// 0) leaves the delay where rapidChargeAfterAmbush puts it.
 	rapidChargeShare?: number;
+	// WR-8 review (user 2026-10-22): the Defensive stance's modifiers (combatRules.ts DEFENSIVE_STANCE), set by
+	// bridge.ts shipToCombatant on a combatant built under the combat rules with the stance "standoff" (its stored
+	// key). OPTIONAL: absent on every other combatant, so every other battle is unchanged.
+	defensive?: DefensiveStance;
+	// WR-8 review: the Defensive modifiers' banked remainders (hundredths of a point for damage taken and dealt; the
+	// shield cost's remainder in 1 / (100 + shieldAbsorbPct) parts), so every percent is exact over a fight instead of a
+	// floor taking a whole point off each small hit. Set with `defensive`, absent otherwise.
+	defensiveCarry?: DefensiveCarry;
+}
+
+export interface DefensiveCarry {
+	taken: number;
+	dealt: number;
+	absorb: number;
 }
 
 // One structured record in the combat log.
