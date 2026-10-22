@@ -98,6 +98,9 @@ export interface OfflineSummary {
   captainsProgressed: OfflineCaptainProgress[];
   materialsGained: OfflineMaterialGain[];
   shipsInRepair: OfflineShipInRepair[];
+  // G1-5: the unidentified relics that reached the vault while away (short-range cycles find them as they deliver; an
+  // expedition's relics only land when the player claims it). A whole count, 0 when none.
+  relicsFound: number;
 }
 
 // --- Small fail-open readers ------------------------------------------------
@@ -193,6 +196,12 @@ function inventoryOf(state: GameState): Record<string, Decimal[]> {
   return inv && typeof inv === "object" ? inv : {};
 }
 
+// The relic vault's token ids off a snapshot, or none when absent / not an array (fail-open).
+function vaultIdsOf(state: GameState): string[] {
+  const vault = (state as GameState | undefined)?.relicVault;
+  return Array.isArray(vault) ? vault.map((t) => (t && typeof t === "object" && typeof t.id === "string" ? t.id : "")) : [];
+}
+
 // ============================================================================
 // summarizeOfflineProgress : the ONE pure diff entry point.
 //
@@ -213,6 +222,7 @@ function inventoryOf(state: GameState): Record<string, Decimal[]> {
 //                       where it ROSE (strictly positive), as a Decimal delta.
 //   captainsProgressed: captains (matched by id) that EARNED xp, each with gross xpGained
 //                       (reconstructed across level-ups) and levelsGained (+N).
+//   relicsFound       : relic vault tokens in after whose id was not in before (G1-5: short-range finds).
 //   shipsInRepair     : ships flagged `damaged` in after that were NOT damaged in
 //                       before (i.e. they limped home into repair while away). The
 //                       repair field used is ShipInstance.damaged (the S13 flag the
@@ -346,6 +356,10 @@ export function summarizeOfflineProgress(
     }
   }
 
+  // --- Relics found (G1-5): vault tokens new by id (a study started while away removes one, never adds one) ---
+  const beforeVault = new Set(vaultIdsOf(before));
+  const relicsFound = vaultIdsOf(after).filter((id) => id !== "" && !beforeVault.has(id)).length;
+
   // --- hasContent gate ---
   // True iff at least one section carries something worth surfacing. The modal (and
   // the onMount open-decision) reads this single boolean rather than re-checking each
@@ -357,7 +371,8 @@ export function summarizeOfflineProgress(
     fleetLevelsGained > 0 ||
     captainsProgressed.length > 0 ||
     materialsGained.length > 0 ||
-    shipsInRepair.length > 0;
+    shipsInRepair.length > 0 ||
+    relicsFound > 0;
 
   return {
     secondsAway,
@@ -369,5 +384,6 @@ export function summarizeOfflineProgress(
     captainsProgressed,
     materialsGained,
     shipsInRepair,
+    relicsFound,
   };
 }

@@ -294,6 +294,8 @@ const ALL_KINDS = [
   "salvageJob",
   // Exploration 0.14.0 (E4a): the Research facility's relic study.
   "relicStudy",
+  // Gas Giant Study GG-5: the Research Lab's data study.
+  "dataStudy",
 ] as const satisfies readonly TimedProcessKind[];
 // WR-4 (OC-C1): kinds kept ONLY so an old log entry still renders; no process of them can start or remain in a
 // v70 save (MIGRATIONS[69] drops an in-flight fuelRefineJob), so the live completion case below leaves them out.
@@ -315,9 +317,9 @@ const SALVAGED_MATERIAL =
 describe("every TimedProcessKind leaves an honest record", () => {
   it("is exhaustive over the union (compile-time guard)", () => {
     expect(ALL_KINDS_IS_EXHAUSTIVE).toBe(true);
-    // 0.13.4 Phase 3: 11 with transitBerthExpansion; E4a: 12 with relicStudy. The literal is a
+    // 0.13.4 Phase 3: 11 with transitBerthExpansion; E4a: 12 with relicStudy; GG-5: 13 with dataStudy. The literal is a
     // tripwire, so a new kind has to be acknowledged here as well as given a row in each exhaustive table.
-    expect(ALL_KINDS).toHaveLength(12);
+    expect(ALL_KINDS).toHaveLength(13);
   });
 
   it("records one entry per kind, each with the reward shape that kind actually grants", () => {
@@ -344,6 +346,8 @@ describe("every TimedProcessKind leaves an honest record", () => {
           token: { id: "expedition-1-relic-x", tier: "standard", quality: 0, setId: "precursor", poiId: "ancientRuins" },
           studyIndex: 1,
         }),
+        // Gas Giant Study GG-5: a data study (index 2 of the default relic seed misses the 5% recipe roll).
+        readyProcess("p-data", "dataStudy", { type: "studyData", itemId: "propulsionData", studyIndex: 2 }),
       ],
     };
 
@@ -399,6 +403,9 @@ describe("every TimedProcessKind leaves an honest record", () => {
     expect(relic.reward).toBe("relic");
     expect(getRelicById(relic.subjectKey!)?.setId).toBe("precursor");
     expect(generalMuseumRecord(out)[relic.subjectKey!]).toBe(1);
+    // GG-5: a data study with no recipe learned records the item it studied; its boost is banked.
+    expect(byKind.get("dataStudy")).toMatchObject({ reward: "nothing", subjectKey: "propulsionData", items: [] });
+    expect(out.researchBoosts).toEqual({ propulsion: 1 });
   });
 
   // 0.13.7 Crafted Blanks: a completed equipment fabricate no longer mints a usable instance,

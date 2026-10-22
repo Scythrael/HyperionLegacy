@@ -33,6 +33,8 @@ import {
   // (one seeded draw, Standard..Radiant) + the rarity type generateEquipment consumes.
   rollCraftedRarity,
   type EquipmentRarity,
+  // E-MOD EM-6: a module piece's rarity and quality scale (the mission-cycle modules).
+  moduleEffectScale,
   MISSIONS,
   BASE_XP_PER_TICK,
   // Combat 0.13.0 (Phase 9b.5a): the patrol content table + its shapes, for patrol
@@ -79,6 +81,7 @@ import {
   type PatrolDifficultyStamp,
   type ShortRangeMissionState,
   type RunCounts,
+  type RunWearStamp,
   type OfficerCombatMods,
   type CaptainCombatMods,
   type PatrolKey,
@@ -119,6 +122,7 @@ import {
   blueprintMintsEquipmentInstance,
   blueprintUnlocked,
   blueprintRelicLocked, // Exploration 0.14.0 (E4d): the discovery-gated research lock
+  blueprintDecodeLocked, // Gas Giant Study GG-5: the decode-gated research lock
   // Equipment 0.11.0 Task B1: the spare-storage-cap seam. equipmentAtCap is the
   // equipment twin of materialAtCap, consulted by both fabricate gates below to refuse
   // STARTING a new equipment craft when the spare pool is full.
@@ -188,17 +192,35 @@ import {
   RELIC_DEFAULT_SEED,
   // Relics v2 R2-3: the Museum v2 record a relic study deposits into (relicIdentify.ts applyRelicIdentification).
   type MuseumV2,
-  type RegionTierKey,
   emptyMuseumV2,
   // OC-15: THE Research Lab tier reader (R2-3's lanes read it).
   labTier,
 } from "./model";
 // Exploration 0.14.0 (Phase E4a): the relic catalog's pure identification roll + study constants.
 // relics.ts imports only model/expeditionContent TYPES + the leaf PRNG, so this adds no import cycle.
-import { identifyRelic, relicStudySeed, relicStudyDurationTicks, museumBonuses } from "./relics";
+import { identifyRelic, relicStudySeed, relicStudyDurationTicks, museumBonuses, museumDepositGeneral } from "./relics";
 import { identifyGeneralRelic, vaultTokenCultureId, vaultTokenRegionTier } from "./relicBlanks";
 // Relics v2 R2-3: identification v2 (the keyed three-draw roll and its deposit) and the lanes by Lab level.
 import { RELIC_STUDY_VERSION, applyRelicIdentification, identifyRelicV2, relicIdentificationId, relicStudyLanesAt } from "./relicIdentify";
+// Gas Giant Study GG-5: the Research Lab's data study lane (dataStudy.ts imports neither this file nor expedition.ts).
+import { ANCIENT_DATA_FRAGMENT_ID } from "./gasGiantContent";
+import {
+  DATA_STUDY_TICKS,
+  dataStudiesInFlight,
+  dataStudyLaneCount,
+  dataStudyPaused,
+  dataStudyRecipeCandidates,
+  feedCultureData,
+  heldAfterStart,
+  heldDataQueue,
+  legacyFragmentCulture,
+  researchBoostSpeed,
+  researchBoostsBanked,
+  researchFamilyOf,
+  researchFamilyOfDataItem,
+  rollDataStudyRecipe,
+  withBoostsSpent,
+} from "./dataStudy";
 // Crafting 0.13.3 (Phase 2 Unit 2.1): the DERIVED salvage-reservation predicate the
 // enqueue gate consults so one target cannot be queued twice (design section 7.3).
 // Implemented in reservation.ts (a leaf both this file and equipment.ts can depend on
@@ -305,6 +327,8 @@ import { computeItemLevel, generateEquipment, generateWeapon, generateDronePod, 
 import { makeRng } from "./combat/rng";
 // Material Lines ML-3 + ML-4: the delivery climb (private keyed stream) and the craft quality carry.
 import { carriedQuality, climbedQuality, craftOutputQuality, deliveryClimbUnits, materialQualityStream, type ConsumedQuality, type MaterialPreference } from "./materialQuality";
+// E-MOD EM-6: the mission-cycle module trigger (its frozen procs, the private stream, the bonus haul).
+import { bonusHaulUnits, moduleCycleProcs, moduleCycleSeed, rollModuleChance, type ModuleCycleProc } from "./shipModules";
 // E-CREW 0.14.0 (Task 21): the Constitution ramp's tick length for mission-def hours.
 import { RAMP_SECONDS_PER_TICK } from "./constitutionRamp";
 // Crafting 0.13.3 (Phase 3 Unit 3.2): the WEIGHTED crafting-XP award for a completed
@@ -354,6 +378,21 @@ import {
   shipDeckHandling,
   type OfficerCombatEntry,
 } from "./crewOverlay";
+// GEAR WEAR step 3 (0.14.0): the use wear sources, the repair contexts and the settling (gearWearEngine.ts).
+import {
+  emptyWearEvents,
+  runWearStamp,
+  missionCycleWear,
+  pushShipWear,
+  recordExpeditionWear,
+  resolveGearWear,
+  projectRunStamp,
+  type ShipUseWear,
+  type TimedWear,
+  runShipStats,
+  shipCrewAboard,
+  shortRangeWear,
+} from "./gearWearEngine";
 // WR-5b (0.14.0): the commanding captain's Tactician talents (frozen per patrol cycle; the Shipyard repair).
 import {
   captainWaveRegenFraction,
@@ -434,7 +473,7 @@ import { countPatrolDispatch, countPatrolRuns, isTrainingPatrol, nextPatrolCycle
 // Safe first runs SF-4: a patrol cycle's difficulty profile (the training cycle, the curve), shared with the replay.
 import { patrolCycleEnemies, patrolCycleWaveTicks, patrolWaveBreaksOff, patrolWaveEnemyParams } from "./combat/patrolProfile";
 // G1-4: the short-range cycle engine and the board's stored-cursor shape check.
-import { shortRangeHasDeparted, tickCaptainShortRange } from "./shortRangeCycle";
+import { shortRangeHasDeparted, shortRangeVaultDeposit, tickCaptainShortRange, type ShortRangeRelicFind } from "./shortRangeCycle";
 import { isWellFormedShortRangeBoard } from "./shortRangeBoard";
 
 // Must stay in sync with MissionPhase and requiredTicksForPhase's switch --
@@ -1119,6 +1158,8 @@ const PROCESS_XP_AWARDS: Record<TimedProcessKind, { fleetAdmin: boolean; craftin
   // WHY NO CRAFTING XP: a study identifies a found object; it produces nothing, and the crafting axis is
   // reserved for production (the same reason researchProject is crafting-false).
   relicStudy:              { fleetAdmin: true,  crafting: false },
+  // Gas Giant Study GG-5: a Lab study like the relic study (free, finite: one per held data item).
+  dataStudy:               { fleetAdmin: true,  crafting: false },
 };
 
 // ============================================================================
@@ -1201,6 +1242,10 @@ const PROCESS_COMPLETION_LOG: Record<TimedProcessKind, CompletionLogPolicy> = {
   // so a batch of one; logged (revealing WHICH relic it was is the payoff the player wants to see), and
   // its honest shape is "relic" with the identified relic id as the subject.
   relicStudy:              { logged: true, batched: false, reward: "relic" },
+  // Gas Giant Study GG-5: a data study is a one-shot (one held item in); "byEffect": a study that learned a recipe
+  // grants a "blueprint" (the blueprint as the subject), any other records the item studied ("nothing" granted beyond
+  // the boost or the decoded entry, which the Research Lab's data study tab shows: GG-6).
+  dataStudy:               { logged: true, batched: false, reward: "byEffect" },
 };
 
 // What ONE completed iteration contributed, before it is either emitted on its own or
@@ -1334,8 +1379,60 @@ function appendPatrolCompletions(
 // entry per run, never per cycle, so a board on Repeat cannot evict the log). `iterations` carries the cycles the run
 // delivered; the subject is the board slot. Its reward is "nothing" for the patrol's reason: every cycle's pay already
 // landed as it was delivered, so re-listing it here would double-report. Same single allocator as the patrol endings.
+// G1-5: the relic blanks the run found (each went to the vault as its cycle was delivered) are named on the entry
+// (`relicsFound`, written only when there were any), the way a claimed expedition's log line names its relics.
 // A same-reference no-op with no ending. Pure.
-function appendShortRangeRunEndings(state: GameState, endings: readonly { slotId: number; cycles: number }[], nowMs: number): GameState {
+// G1-5 review follow-up (plan G1-5 UI: "the completion line names the relic"): ONE entry per delivered cycle that found
+// relics while its run goes on, so a live Repeat run's finds read in the log at once rather than only when it is
+// recalled. Relic finds are rare (a per-hour chance), so this cannot flood the 50-entry log the way a per-cycle line
+// would. A cycle that ends the run writes none: the run's own entry (appendShortRangeRunEndings) names its finds.
+// `iterations` is the run's cycle that found them. An empty list returns the state by reference (byte-identical).
+function appendShortRangeRelicFinds(state: GameState, finds: readonly { slotId: number; cycles: number; relics: number }[], nowMs: number): GameState {
+  if (finds.length === 0) return state;
+  let log = state.completionLog ?? [];
+  let nextId = state.nextCompletionLogId ?? 1;
+  for (const find of finds) {
+    log = pushCompletionEntry(log, {
+      id: `done-${nextId}`,
+      kind: "shortRangeRelicFind",
+      reward: "nothing",
+      atMs: nowMs,
+      startedAtMs: nowMs,
+      iterations: find.cycles,
+      items: [],
+      pieces: 0,
+      subjectKey: `slot-${find.slotId}`,
+      level: null,
+      fuelAmount: null,
+      creditsAmount: null,
+      stale: false,
+      relicsFound: find.relics,
+    });
+    nextId += 1;
+  }
+  return { ...state, completionLog: log, nextCompletionLogId: nextId };
+}
+
+// G1-5 review follow-up: this call's short-range log lines, the live finds and the run ends, in the order of the whole
+// tick each landed on (a stable sort: captain order inside a tick, and a tick's finds before its ends, exactly as 1 s
+// steps append them), so the log reads the same however the span is cut (offline == live). No lines: the state by
+// reference.
+function appendShortRangeLog(
+  state: GameState,
+  finds: readonly { slotId: number; cycles: number; relics: number; atTick: number }[],
+  endings: readonly { slotId: number; cycles: number; relics: number; atTick: number }[],
+  nowMs: number
+): GameState {
+  if (finds.length === 0 && endings.length === 0) return state;
+  const lines = [...finds.map((f) => ({ end: false, line: f })), ...endings.map((e) => ({ end: true, line: e }))].sort(
+    (a, b) => a.line.atTick - b.line.atTick || Number(a.end) - Number(b.end)
+  );
+  let out = state;
+  for (const { end, line } of lines) out = end ? appendShortRangeRunEndings(out, [line], nowMs) : appendShortRangeRelicFinds(out, [line], nowMs);
+  return out;
+}
+
+function appendShortRangeRunEndings(state: GameState, endings: readonly { slotId: number; cycles: number; relics: number }[], nowMs: number): GameState {
   if (endings.length === 0) return state;
   let log = state.completionLog ?? [];
   let nextId = state.nextCompletionLogId ?? 1;
@@ -1355,6 +1452,7 @@ function appendShortRangeRunEndings(state: GameState, endings: readonly { slotId
       fuelAmount: null,
       creditsAmount: null,
       stale: false,
+      ...(ending.relics > 0 ? { relicsFound: ending.relics } : {}),
     });
     nextId += 1;
   }
@@ -1407,7 +1505,8 @@ function completionYieldFor(
   mintedPieces: number,
   salvage: SalvageEffectOutcome | null,
   state: GameState,
-  relicId?: string | null
+  relicId?: string | null,
+  dataLearned?: string | null
 ): CompletionYield {
   const empty: CompletionYield = {
     reward: policy.reward === "byEffect" ? "nothing" : policy.reward,
@@ -1429,6 +1528,9 @@ function completionYieldFor(
       return { ...empty, reward: "materials", items: [{ itemId: effect.itemId, amount: completedOutputAmount(process).toString() }], subjectKey: effect.itemId };
     case "unlockBlueprint":
       return { ...empty, reward: "blueprint", subjectKey: effect.key };
+    case "studyData":
+      // Gas Giant Study GG-5: the recipe a study learned (the resolver hands it in), else the item it studied.
+      return dataLearned ? { ...empty, reward: "blueprint", subjectKey: dataLearned } : { ...empty, reward: "nothing", subjectKey: effect.itemId };
     case "addShip":
       return { ...empty, reward: "hull", subjectKey: effect.typeKey };
     case "addEquipment":
@@ -1588,13 +1690,14 @@ function recordCompletion(args: {
   mintedPieces: number;
   salvage: SalvageEffectOutcome | null;
   relicId?: string | null; // Relics v2 R2-3: the id a completing relic study identified (the resolver's chain)
+  dataLearned?: string | null; // Gas Giant Study GG-5: the recipe a completing data study learned (null: none)
   acc: CompletionLogState;
 }): CompletionLogState {
-  const { process, state, nowMs, levels, mintedPieces, salvage, relicId, acc } = args;
+  const { process, state, nowMs, levels, mintedPieces, salvage, relicId, dataLearned, acc } = args;
   const policy = PROCESS_COMPLETION_LOG[process.kind];
   if (!policy.logged) return acc;
 
-  const contribution = completionYieldFor(process, policy, levels, mintedPieces, salvage, state, relicId);
+  const contribution = completionYieldFor(process, policy, levels, mintedPieces, salvage, state, relicId, dataLearned);
   const startedAtMs = completionStartedAtMs(nowMs, process, state.tickDurationSeconds);
 
   // A line-backed iteration folds; everything else is a batch of one and emits now.
@@ -1949,6 +2052,13 @@ export function tickCaptainMission(
     motherlodeChance?: number;
     transportMarginBonus?: number;
     transportSupplyDiscount?: number;
+    // E-MOD EM-6 (the mission-cycle trigger): the ship's installed mission-cycle modules (shipModules.ts
+    // moduleCycleProcs, in module id order) and the save's own seed their stream mixes in. A call-constant: a module
+    // cannot move while its ship is out (equipment.ts shipGearLock, user S2), so the pieces read at the call ARE the run's
+    // frozen set. Each delivered non-transport cycle rolls every proc once on ONE private stream (moduleCycleSeed of the
+    // captain's LIFETIME CaptainState.moduleCycles, which then steps); a landed bonusHaul adds its fraction of the
+    // cycle's common haul. Absent / empty = no stream, no draw, the exact pre-EM-6 arithmetic.
+    moduleCycle?: { saveSeed: number; procs: readonly ModuleCycleProc[] };
   } = {},
   // The assigned ship's three derived stats (cargoCapacity, transitSpeedMult,
   // extractionYieldMult), or null for "no ship modifier", the default, which
@@ -2010,7 +2120,13 @@ export function tickCaptainMission(
   // state, unchanged by another captain's progress within the call), so the "one big call == many
   // small calls" guarantee holds for the same reason the `bonuses` constant does. See the fractional-
   // rate parity trap at the accrual site below before shipping a nonzero-retirement fractional rate.
-  captainXpMult: number = 1
+  captainXpMult: number = 1,
+  // GEAR WEAR step 3 (user 2026-10-21, "Re-read each cycle"): called at each delivered cycle with its instant (ticks
+  // into this call) and the sheet that cycle ran on; it records the cycle's use wear and returns the sheet and the
+  // re-frozen wear stamp the NEXT cycle starts on (gearWearEngine.ts projectRunStamp, the same arithmetic the tail pass
+  // writes), so a Repeat run shows its worn gear from cycle 2 however the span is chunked. Omitted (every call site but a
+  // stamped run's economyTick arm) = the call-constant sheet, byte-identical to before.
+  onCycleDelivered?: (endTicks: number, stats: ShipDerivedStats | null) => { stats: ShipDerivedStats; gearWear: RunWearStamp } | null
 ): {
   captain: CaptainState;
   // Mission Rework (Task 1): widened LootMaterialKey -> string. The loot delta is now
@@ -2039,6 +2155,9 @@ export function tickCaptainMission(
   // fuelSpent's reporting posture exactly. Normally 0 or 1; a call long enough to complete a
   // whole cycle and start another return leg can claim more than once.
   berthsClaimed: number;
+  // GEAR WEAR step 3: the instant (ticks into this call) each completed cycle delivered, in order. Absent on the
+  // early-outs (nothing delivered).
+  cycleEndTicks?: number[];
 } {
   if (!captain.mission || ticksElapsed <= 0) {
     return {
@@ -2098,7 +2217,7 @@ export function tickCaptainMission(
   // still yield the same numbers (effectiveMissionDef is pure), but computing it
   // once is both cheaper and the clearest signal that it's a call-constant.
   const rawMissionDef = MISSIONS[extractionMission.missionKey];
-  const missionDef = shipStats ? effectiveMissionDef(rawMissionDef, shipStats) : rawMissionDef;
+  let missionDef = shipStats ? effectiveMissionDef(rawMissionDef, shipStats) : rawMissionDef;
   let mission: CaptainMissionState | null = { ...extractionMission, cargo: { ...extractionMission.cargo } };
   let remaining = ticksElapsed;
   // 0.13.4 Phase 3: berths claimed so far in THIS call, and the budget still available to it.
@@ -2178,6 +2297,9 @@ export function tickCaptainMission(
   // ones summing to the same span count the identical number of completions.
   // Rolled into lifetimeStatsDelta.missionsCompleted[missionKey] after the loop.
   let cyclesCompleted = 0;
+  // GEAR WEAR step 3: the instant (ticks into this call) each completed cycle delivered, in order, so economyTick
+  // applies each cycle's use wear at its own instant (gearWearEngine.ts), however the span is chunked.
+  const cycleEndTicks: number[] = [];
   // Mission Rework (Task 5): fuel accounting for the auto-repeat gate. fuelRemaining is
   // the shared-tank budget this call may still draw on (seeded from fuelBudget, drawn
   // down PER auto-repeat below); fuelSpent is the running total this call reports back
@@ -2217,7 +2339,7 @@ export function tickCaptainMission(
   // yield bonuses the caller already summed into `bonuses`. null ship -> 0
   // (no change). This folds ALL THREE tiers equally: the hull scales how much
   // ore/material each extracting tick produces, regardless of which tier won.
-  const shipYieldBonus = shipStats ? shipStats.extractionYieldMult - 1 : 0;
+  let shipYieldBonus = shipStats ? shipStats.extractionYieldMult - 1 : 0;
 
   // Exploration 0.14.0 (Phase E1a): the SURVEY sensor-yield bonus, a CALL-CONSTANT computed
   // ONCE here (exactly like shipYieldBonus directly above), so the closed-form
@@ -2232,17 +2354,17 @@ export function tickCaptainMission(
   // mults below alongside shipYieldBonus, so it scales the survey's material amount equally
   // regardless of which rarity tier a tick rolls (the design's "sensor-scaled yield"). It does
   // NOT touch the chance/bonus-roll fields (a survey's rarity ODDS are the mission def's own).
-  const surveySensorBase =
+  let surveySensorBase =
     shipStats && missionDef.missionType === "survey"
       ? shipStats.sensors * SURVEY_SENSOR_YIELD_COEFF
       : 0;
   // E-CREW (Task 21 review calls): Science's Constitution ramps the survey yield lift by the voyage's planned
   // hours (the cycle's phase lengths, RAMP_SECONDS_PER_TICK each). A call-constant; 0 facet = unchanged.
-  const surveyRamp =
+  let surveyRamp =
     surveySensorBase > 0
       ? constitutionRamp(bonuses.surveyYieldConstitution ?? 0, (missionCycleTiming(missionDef).total * RAMP_SECONDS_PER_TICK) / 3600)
       : 0;
-  const surveySensorBonus = surveyRamp === 0 ? surveySensorBase : surveySensorBase * (1 + surveyRamp);
+  let surveySensorBonus = surveyRamp === 0 ? surveySensorBase : surveySensorBase * (1 + surveyRamp);
 
   // Exploration 0.14.0 (Phase E1b): the TRANSPORT load cost, a CALL-CONSTANT computed ONCE here
   // (exactly like surveySensorBonus / shipYieldBonus above), so the closed-form "one big jump ==
@@ -2253,7 +2375,7 @@ export function tickCaptainMission(
   // profits) more with NO transport-specific cargo code. rewardMargin is captured alongside it; the
   // NET profit per delivered cycle is loadCost * rewardMargin (see the cycle-completion branch). ?? 0
   // tolerates a def that somehow omits the fields (it then simply nets nothing).
-  const transportLoadCost =
+  let transportLoadCost =
     missionDef.missionType === "transport" ? missionDef.cargoCapacity * (missionDef.supplyCostPerCargo ?? 0) : 0;
   const transportRewardMargin = missionDef.rewardMargin ?? 0;
   // WR-5a: the captain's Trade terms (call-constants). The working capital PAID is the discounted cost; the sale
@@ -2262,10 +2384,13 @@ export function tickCaptainMission(
   const transportMarginBonus = Math.max(0, bonuses.transportMarginBonus ?? 0);
   const transportSupplyDiscount = Math.max(0, bonuses.transportSupplyDiscount ?? 0);
   const transportTradeLive = transportMarginBonus > 0 || transportSupplyDiscount > 0;
-  const transportPaidCost = transportSupplyDiscount === 0 ? transportLoadCost : transportLoadCost * (1 - transportSupplyDiscount);
+  let transportPaidCost = transportSupplyDiscount === 0 ? transportLoadCost : transportLoadCost * (1 - transportSupplyDiscount);
   // WR-5a: Motherlode (a call-constant chance) and the captain's lifetime roll counter, advanced in delivery order.
   const motherlodeChance = Math.max(0, bonuses.motherlodeChance ?? 0);
   let motherlodeCycles: number | undefined = captain.motherlodeCycles;
+  // E-MOD EM-6: the mission-cycle modules (a call-constant) and the captain's lifetime module counter.
+  const moduleCycle = bonuses.moduleCycle !== undefined && bonuses.moduleCycle.procs.length > 0 ? bonuses.moduleCycle : null;
+  let moduleCycles: number | undefined = captain.moduleCycles;
 
   // E-CREW 0.14.0 (Task 20): Command Presence's output share, a CALL-CONSTANT like the bonuses above (it is
   // read off the ship's seated officers by economyTick, which never reseats mid-call), applied at each
@@ -2307,7 +2432,7 @@ export function tickCaptainMission(
   // (extraction AMOUNTS); the chance/bonus-roll fields are left untouched --
   // a hull's cargo/yield stats change how much a tick yields, not the odds of
   // hitting a tier or triggering a bonus roll.
-  const resolvedBonuses = {
+  let resolvedBonuses = {
     commonYieldMult: (bonuses.commonYieldMult ?? 0) + shipYieldBonus + surveySensorBonus,
     uncommonYieldMult: (bonuses.uncommonYieldMult ?? 0) + shipYieldBonus + surveySensorBonus,
     uncommonChanceMult: bonuses.uncommonChanceMult ?? 0,
@@ -2318,6 +2443,30 @@ export function tickCaptainMission(
     bonusRollChanceMult: bonuses.bonusRollChanceMult ?? 0,
     specBonusRollChance: bonuses.specBonusRollChance ?? 0,
   };
+  // GEAR WEAR step 3 (user 2026-10-21, "Re-read each cycle"): a new cycle's re-read sheet (onCycleDelivered) re-folds
+  // every sheet-derived constant above with THE SAME expressions (a re-read that returns the same sheet is
+  // byte-identical: gearWearEngine.test.ts proves it). Each stays constant within its cycle, so the per-cycle
+  // guarantee holds.
+  const refold = (stats: ShipDerivedStats): void => {
+    missionDef = effectiveMissionDef(rawMissionDef, stats);
+    shipYieldBonus = stats.extractionYieldMult - 1;
+    surveySensorBase = missionDef.missionType === "survey" ? stats.sensors * SURVEY_SENSOR_YIELD_COEFF : 0;
+    surveyRamp =
+      surveySensorBase > 0
+        ? constitutionRamp(bonuses.surveyYieldConstitution ?? 0, (missionCycleTiming(missionDef).total * RAMP_SECONDS_PER_TICK) / 3600)
+        : 0;
+    surveySensorBonus = surveyRamp === 0 ? surveySensorBase : surveySensorBase * (1 + surveyRamp);
+    transportLoadCost = missionDef.missionType === "transport" ? missionDef.cargoCapacity * (missionDef.supplyCostPerCargo ?? 0) : 0;
+    transportPaidCost = transportSupplyDiscount === 0 ? transportLoadCost : transportLoadCost * (1 - transportSupplyDiscount);
+    resolvedBonuses = {
+      ...resolvedBonuses,
+      commonYieldMult: (bonuses.commonYieldMult ?? 0) + shipYieldBonus + surveySensorBonus,
+      uncommonYieldMult: (bonuses.uncommonYieldMult ?? 0) + shipYieldBonus + surveySensorBonus,
+      rareYieldMult: (bonuses.rareYieldMult ?? 0) + shipYieldBonus + surveySensorBonus,
+    };
+  };
+  let cycleStats: ShipDerivedStats | null = shipStats;
+  let nextGear: { stats: ShipDerivedStats; gearWear: RunWearStamp } | null = null;
 
   // 0.14.0 SPEED SEAM (processSpeed.ts applyTimeSkip, the tutorial time skip): while the CURRENT cycle carries
   // speed.instantComplete, each phase is applied whole and the call's own ticks are not spent, so the cycle runs
@@ -2480,9 +2629,22 @@ export function tickCaptainMission(
           motherlode = makeRng(motherlodeSeed(captain.id, motherlodeCycles ?? 0)).next() < motherlodeChance;
           motherlodeCycles = (motherlodeCycles ?? 0) + 1;
         }
-        const haul = motherlode
+        let haul = motherlode
           ? { commonOre: found.commonOre.times(2), uncommonMaterial: found.uncommonMaterial.times(2), rareMaterial: found.rareMaterial.times(2) }
           : found;
+        // E-MOD EM-6 (the mission-cycle trigger): each mission-cycle module rolls once for this delivered non-transport
+        // cycle, in module id order, on ONE private stream keyed on the captain's lifetime module counter (which then
+        // steps, so no cycle of a career shares a key); a landed bonusHaul grows the cycle's COMMON material by its
+        // fraction (after Motherlode, before Command Presence and Operations' bonus, so their shares grow it too).
+        if (moduleCycle !== null && missionDef.missionType !== "transport") {
+          const stream = makeRng(moduleCycleSeed(moduleCycle.saveSeed, captain.id, moduleCycles ?? 0));
+          moduleCycles = (moduleCycles ?? 0) + 1;
+          for (const proc of moduleCycle.procs) {
+            if (!rollModuleChance(stream, proc.chanceUnits)) continue;
+            const bonus = bonusHaulUnits(haul.commonOre.toNumber(), proc.fraction);
+            if (bonus > 0) haul = { ...haul, commonOre: haul.commonOre.plus(bonus) };
+          }
+        }
         // Exploration 0.14.0 (Phase E1b): TRANSPORT missions deposit NO extraction loot (a transport
         // is a pure credit loop, not a mining run). The cargo still ACCUMULATED during extracting (the
         // roll loop above is untouched, so the seeded rng stream stays byte-aligned live and offline),
@@ -2536,6 +2698,8 @@ export function tickCaptainMission(
             const margin = outputCredits(net);
             creditsDelta += marginStream === null ? margin : bonusCargo(margin, marginStream);
             cyclesCompleted += 1;
+            cycleEndTicks.push(ticksElapsed - remaining); // GEAR WEAR step 3: the delivery instant (ticks into the call)
+          if (onCycleDelivered) nextGear = onCycleDelivered(ticksElapsed - remaining, cycleStats);
           }
           // else: working-capital gate -> this cycle idles (nothing booked, no cycle counted).
         } else {
@@ -2544,6 +2708,8 @@ export function tickCaptainMission(
           // credit award and the loot delivery above, so all three (loot,
           // credits, completion count) stay perfectly in sync per cycle.
           cyclesCompleted += 1;
+          cycleEndTicks.push(ticksElapsed - remaining); // GEAR WEAR step 3: the delivery instant (ticks into the call)
+          if (onCycleDelivered) nextGear = onCycleDelivered(ticksElapsed - remaining, cycleStats);
         }
         // Fuel Economy v2 (F3): the AUTO-REPEAT fuel-spend rule (REPLACES Task-5's
         // stop-on-empty). A finished cycle either ends (recall) or STARTS A FRESH CYCLE,
@@ -2594,6 +2760,15 @@ export function tickCaptainMission(
             // E-CREW (Task 20): advance the run's output-rounding cursor (only while Command Presence is live).
             const prevCursor: number | undefined = mission!.outputRoundCursor;
             const outputRoundCursor: number | undefined = outputShare === 0 ? prevCursor : (prevCursor ?? 0) + 1;
+            // GEAR WEAR step 3: the run's wear flag rides every repeated cycle (absent on a run from before step 3),
+            // re-frozen at this cycle start when the cycle that just delivered re-read it (user "Re-read each cycle").
+            const reread: { stats: ShipDerivedStats; gearWear: RunWearStamp } | null = nextGear;
+            nextGear = null;
+            const gearWear: RunWearStamp | undefined = reread ? reread.gearWear : mission!.gearWear;
+            if (reread) {
+              cycleStats = reread.stats;
+              refold(reread.stats);
+            }
             mission = {
               kind: "extraction", // Combat 0.13.0 (9b.5a): tag the auto-repeated extraction cycle
               missionKey,
@@ -2603,6 +2778,7 @@ export function tickCaptainMission(
               recalled: false,
               refuelDelayTicks,
               ...(outputRoundCursor !== undefined ? { outputRoundCursor } : {}),
+              ...(gearWear !== undefined ? { gearWear } : {}),
             };
           }
         }
@@ -2759,6 +2935,8 @@ export function tickCaptainMission(
       ...(cunningCycles !== undefined ? { cunningCycles } : {}),
       // WR-5a: the lifetime Motherlode counter, written only once a cycle has rolled.
       ...(motherlodeCycles !== undefined ? { motherlodeCycles } : {}),
+      // E-MOD EM-6: the lifetime module-cycle counter, written only once a cycle has rolled.
+      ...(moduleCycles !== undefined ? { moduleCycles } : {}),
     },
     homePlanetDelta,
     fleetAdminXpDelta,
@@ -2768,6 +2946,8 @@ export function tickCaptainMission(
     creditsSpentOnFuel,
     // 0.13.4 Phase 3: berths this call claimed, for economyTick's shared budget.
     berthsClaimed,
+    // GEAR WEAR step 3: each delivered cycle's instant, ticks into this call.
+    cycleEndTicks,
   };
 }
 
@@ -4131,7 +4311,18 @@ export function economyTick(
   // null with no short-range run, so such a call writes neither field (byte-identical).
   let shortRangeCounts: RunCounts | null = null;
   let shortRangeCursor: Readonly<Record<number, number>> | null = null;
-  const shortRangeEndings: { captainId: number; slotId: number; cycles: number }[] = [];
+  // GEAR WEAR step 3: the use wear events this call's runs made (a delivered mission or short-range cycle, an
+  // expedition coming home), applied once at the tail (gearWearEngine.ts resolveGearWear). Empty without one.
+  const wearEvents = emptyWearEvents();
+  const shortRangeEndings: { captainId: number; slotId: number; cycles: number; relics: number }[] = [];
+  // G1-5: the relic blanks short-range cycles found this call, in captain order (each captain's in delivery order),
+  // deposited into the vault ordered by the whole tick each landed on (shortRangeVaultDeposit).
+  const shortRangeRelics: ShortRangeRelicFind[] = [];
+  // G1-5 review follow-up: the cycles that found relics while their run goes on (each one find line in the log) and
+  // the ends above, each with the call's whole tick it landed on, so the log reads in that order however the span is
+  // cut (appendShortRangeLog; the vault's shortRangeVaultDeposit rule).
+  const shortRangeRelicCycles: { captainId: number; slotId: number; cycles: number; relics: number; atTick: number }[] = [];
+  const shortRangeEndTicks: number[] = [];
   const captains = state.captains.map((captain) => {
     if (captain.mission === null) return captain;
     // UNKNOWN-KEY INERT GUARD (fix: a removed/renamed mission/patrol key hard-crashed every tick,
@@ -4374,7 +4565,19 @@ export function economyTick(
         });
         // The officers aboard get missionsCompleted credit per delivered cycle (promotion gates), like a mission's.
         if (srShip && sr.cyclesDelivered > 0) shipMissionCompletions.set(srShip.id, (shipMissionCompletions.get(srShip.id) ?? 0) + sr.cyclesDelivered);
-        if (sr.ended !== null) shortRangeEndings.push({ captainId: captain.id, ...sr.ended });
+        // GEAR WEAR step 3: each delivered (non-training) cycle's use on a stamped run, from the cycle engine's seam, at
+        // its own instant; a run that ended within the call ended at that delivery.
+        if (srShip && sr.wear.length > 0) {
+          const crewed = shipCrewAboard(state, srShip);
+          for (const w of sr.wear) pushShipWear(wearEvents, srShip.id, state.gameTimeSeconds + w.atTicks * state.tickDurationSeconds, shortRangeWear(w.events, crewed));
+        }
+        if (srShip && sr.endedAtTicks !== null) wearEvents.runEnds.set(srShip.id, state.gameTimeSeconds + sr.endedAtTicks * state.tickDurationSeconds);
+        if (sr.ended !== null) {
+          shortRangeEndings.push({ captainId: captain.id, ...sr.ended });
+          shortRangeEndTicks.push(Math.max(1, Math.ceil((sr.endedAtTicks ?? ticksElapsed) - 1e-9)));
+        }
+        for (const find of sr.relics) shortRangeRelics.push(find);
+        for (const c of sr.relicCycles) shortRangeRelicCycles.push({ captainId: captain.id, ...c });
         return srCaptain;
       }
       default:
@@ -4388,6 +4591,8 @@ export function economyTick(
     // this const instead. missionKey is invariant across a recall (recall only flags intent;
     // it never changes which mission runs), so this is exactly equivalent.
     const missionKey = captain.mission.missionKey;
+    // GEAR WEAR step 3: a run stamped at dispatch wears its gear at each delivered cycle (none in flight from before).
+    const wearStamp = captain.mission.gearWear;
     // Phase 2 (Task B3, design §3.4): AUTO-STOP, when this mission's PRIMARY material is
     // already at its warehouse tier cap the run CANNOT usefully complete (its haul would
     // land over an already-full warehouse). Rather than leave the captain FROZEN in place
@@ -4474,7 +4679,25 @@ export function economyTick(
     // mid-mission, so the crew-boosted stats are ALSO a per-cycle constant here, preserving the
     // closed-form guarantee identically. With no crew this equals the pure equipment fold, so a
     // crew-free ship is byte-identical to before. A ship-less captain keeps the null fallback.
-    const shipStats = ship ? effectiveShipStats(state, ship) : null;
+    // GEAR WEAR step 3: the RUN sheet (gearWearEngine.ts runShipStats): the same fold over the gear the run FROZE in its
+    // stamp (at dispatch, and again at each cycle start: onCycleDelivered below), so a worn hold, drive,
+    // sensor array, prospecting rig or crew module acts on the run from its next cycle. It is constant within a cycle,
+    // so the per-cycle guarantee holds as before. A run without a stamp (dispatched before step 3) reads the stored sheet.
+    const shipStats = ship ? runShipStats(state, ship, wearStamp) : null;
+    // GEAR WEAR step 3 (user 2026-10-21, "Re-read each cycle"): at each delivered cycle of a stamped run, its use wear at
+    // its own instant (missionCycleWear on the sheet that cycle ran on), and the next cycle's gear re-read from the
+    // pieces as the call's deliveries so far leave them (projectRunStamp: the arithmetic the tail pass writes).
+    const missionWear: TimedWear<ShipUseWear>[] = [];
+    const missionCrewed = ship ? shipCrewAboard(state, ship) : false;
+    const onCycleDelivered =
+      wearStamp && ship
+        ? (endTicks: number, stats: ShipDerivedStats | null) => {
+            const at = state.gameTimeSeconds + endTicks * state.tickDurationSeconds;
+            if (stats) missionWear.push({ at, wear: missionCycleWear(missionKey, stats, state.tickDurationSeconds, missionCrewed) });
+            const gearWear = projectRunStamp(state, ship.id, missionWear, at);
+            return { gearWear, stats: runShipStats(state, ship, gearWear) };
+          }
+        : undefined;
     // Mission Rework (Task 5): the fuel one round-trip cycle of THIS mission costs on
     // THIS hull. fuelNeeded reads the BASE mission's transit legs (see fuel.ts) and the
     // hull's engineEfficiency. Task 14: price it from the EQUIPMENT-FOLDED
@@ -4521,6 +4744,8 @@ export function economyTick(
       motherlodeChance: captainMotherlodeChance(captain),
       transportMarginBonus: tradeTerms.marginBonus,
       transportSupplyDiscount: tradeTerms.supplyDiscount,
+      // E-MOD EM-6: the ship's mission-cycle modules (undefined without one: no stream, no draw).
+      moduleCycle: ship ? missionCycleModulesFor(state, ship.id) : undefined,
     };
     // rng passed explicitly (rather than omitted) since bonuses is positional
     // arg 4, omitting arg 3 here would pass bonuses AS rng. rng is economyTick's
@@ -4536,6 +4761,7 @@ export function economyTick(
       fuelSpent: captainFuelSpent,
       creditsSpentOnFuel: captainCreditsSpentOnFuel,
       berthsClaimed: captainBerthsClaimed,
+      cycleEndTicks,
     } = tickCaptainMission(
       ticksElapsed,
       captain,
@@ -4549,7 +4775,9 @@ export function economyTick(
       berthBudgetRemaining,
       // Crew 0.14.0 (Phase C-3b): the fleet-wide retirement captain-XP multiplier (x1 until a captain
       // retires, so byte-identical for every existing save).
-      captainXpMult
+      captainXpMult,
+      // GEAR WEAR step 3: a stamped run records each delivered cycle's use and re-reads its gear for the next cycle.
+      onCycleDelivered,
     );
     // 0.13.4 Phase 3: draw the shared berth budget down so the next captain in this map sees it.
     // Same posture as the fuel and credit draw-downs directly below.
@@ -4613,6 +4841,13 @@ export function economyTick(
       const cyc = captainLifetimeStatsDelta.missionsCompleted[missionKey];
       if (cyc && cyc.gt(0)) {
         shipMissionCompletions.set(ship.id, (shipMissionCompletions.get(ship.id) ?? 0) + cyc.toNumber());
+      }
+      // GEAR WEAR step 3: each delivered cycle of a stamped run wears the ship's gear by use, at its own instant; a run
+      // that ended within the call ended at its last delivery (or at the call's start, an at-base stop).
+      if (wearStamp && shipStats) {
+        const ends = cycleEndTicks ?? [];
+        for (const ev of missionWear) pushShipWear(wearEvents, ship.id, ev.at, ev.wear);
+        if (updated.mission === null) wearEvents.runEnds.set(ship.id, state.gameTimeSeconds + (ends.length > 0 ? ends[ends.length - 1] : 0) * state.tickDurationSeconds);
       }
     }
     return deliveredCaptain;
@@ -4836,6 +5071,8 @@ export function economyTick(
     ...(patrolCurveRuns > 0 || srCountsAfter !== null ? { runCounts: countPatrolRuns(srCountsAfter ?? runCountsOf(state), patrolCurveRuns) } : {}),
     // G1-4: the board's cycle cursor, written only when a short-range cycle was delivered this call.
     ...(srCursorAfter !== null ? { shortRangeBoard: { version: 1 as const, nextCycle: { ...srCursorAfter } } } : {}),
+    // G1-5: the relic blanks short-range cycles found, into the vault (written only when there were any).
+    ...(shortRangeRelics.length > 0 ? { relicVault: shortRangeVaultDeposit(state, shortRangeRelics) } : {}),
   };
 
   // Phase 1, Task 9: resolve every in-flight timed process ONCE, fleet-wide (NOT
@@ -4874,7 +5111,12 @@ export function economyTick(
   // (there is one clock per tick), so no readout can tell them apart by time anyway, and the
   // log is chronological by append order.
   // G1-4: and the short-range runs that ended, after the patrol endings (the same single allocator, in turn).
-  const postProcessState = appendShortRangeRunEndings(appendPatrolCompletions(postProcessStateRaw, patrolEndings, nowMs), shortRangeEndings, nowMs);
+  const postProcessState = appendShortRangeLog(
+    appendPatrolCompletions(postProcessStateRaw, patrolEndings, nowMs),
+    shortRangeRelicCycles,
+    shortRangeEndings.map((e, i) => ({ ...e, atTick: shortRangeEndTicks[i] })),
+    nowMs
+  );
 
   // Crafting 0.13.3 (Phase 1 Unit 1.4, design §5.5): promote WAITING queued orders into
   // real running work, at THE one correct seam: AFTER resolveProcesses (so a facility
@@ -4934,7 +5176,11 @@ export function economyTick(
   // hull is damaged. Living HERE inside economyTick is what makes repair auto-start identically
   // live (App.svelte per bar) and offline (tick() steps economyTick(_,1) per tick), the
   // one-seam offline==live guarantee, exactly like processFuelPipelines.
-  const postRepairState = processShipRepairs(postFuelState);
+  const postRepairStateRaw = processShipRepairs(postFuelState);
+  // Gas Giant Study GG-5: the Research Lab's data study lane starts held data while a lane is free (call 8, "Auto
+  // when idle"), at this same per-tick seam (offline == live by construction). Draws no rng; the SAME state with no
+  // held research data, so every save without any is byte-identical.
+  const postRepairState = processDataStudyLane(postRepairStateRaw);
 
   // applyFleetAdminXp wraps the final state, it runs AFTER BOTH the captain loop
   // (mission FA XP) and resolveProcesses (process FA XP) have contributed to
@@ -4981,7 +5227,13 @@ export function economyTick(
   // index), and is a same-reference no-op when there is no active expedition, so a save with none is
   // byte-identical to before this phase. Composed AFTER resolveCrew so crew delivered/assigned this tick
   // is reflected in the state expeditions read from next tick (the same cadence resolveCrew itself uses).
-  return resolveExpeditions(resolveCrew(finalState));
+  // GEAR WEAR step 3 (gearWearEngine.ts): LAST, once per whole tick. The expeditions that came home this tick record
+  // their use, then every piece settles for the tick (where it was during it, read off the incoming state) and takes
+  // the tick's use events. Draws no rng; a same-reference no-op on a pristine save with no event.
+  const crewResolved = resolveCrew(finalState);
+  const expeditionsResolved = resolveExpeditions(crewResolved);
+  recordExpeditionWear(crewResolved, expeditionsResolved, wearEvents);
+  return resolveGearWear(state, expeditionsResolved, wearEvents);
 }
 
 // Offline catch-up entry point, tech spec §2 (Tick Loop and Time Semantics).
@@ -5369,6 +5621,8 @@ export function dispatchCaptainOnMission(
   // dispatch (canDispatch's reach check); refuel is instant and free, so the tank is never drained
   // and refuelDelayTicks is always 0.
   const captains = [...state.captains];
+  const wearShip = state.ships.find((s) => s.assignedCaptainId === captainId);
+  const wearStamp = wearShip ? runWearStamp(state, wearShip.id) : undefined;
   captains[idx] = {
     ...captains[idx],
     mission: {
@@ -5379,6 +5633,9 @@ export function dispatchCaptainOnMission(
       cargo: emptyLootTotals(),
       recalled: false,
       refuelDelayTicks: 0,
+      // GEAR WEAR step 3: the run's wear flag with its ship's worn gear frozen (gearWearEngine.ts), while any wear
+      // source is live.
+      ...(wearStamp !== undefined ? { gearWear: wearStamp } : {}),
     },
     // Combat 0.13.0 (offline recap): CLEAR any stale wall-stop reason on a fresh dispatch, so a
     // captain re-dispatched after a prior cargo/defeat stop never shows the old reason.
@@ -6008,7 +6265,7 @@ export function recallCaptain(state: GameState, captainId: number, nowMs: number
     const captains = [...state.captains];
     captains[idx] = { ...captains[idx], mission: null };
     const counts = uncountShortRangeCycleStart(runCountsOf(state), mission.roll.template);
-    const ended = appendShortRangeRunEndings({ ...state, captains, runCounts: counts }, [{ slotId: mission.slotId, cycles: mission.cyclesThisRun ?? 0 }], nowMs);
+    const ended = appendShortRangeRunEndings({ ...state, captains, runCounts: counts }, [{ slotId: mission.slotId, cycles: mission.cyclesThisRun ?? 0, relics: mission.relicsThisRun ?? 0 }], nowMs);
     return { next: ended, success: true };
   }
 
@@ -6299,6 +6556,16 @@ const WORKS_DIRECTORATE_DENOMINATOR = 10_000;
 export function worksDirectorateSaveSeed(state: Pick<GameState, "homeworld">): number {
   const seed = state.homeworld?.seed;
   return typeof seed === "number" && Number.isFinite(seed) ? seed >>> 0 : 0;
+}
+
+// E-MOD EM-6 (the mission-cycle trigger): the mission-cycle modules installed on `shipId`, with the save's own seed for
+// their stream (tickCaptainMission's bonuses.moduleCycle), or undefined when the ship carries none (every ship today):
+// then tickCaptainMission takes no module draw at all. Pure.
+export function missionCycleModulesFor(state: GameState, shipId: string): { saveSeed: number; procs: ModuleCycleProc[] } | undefined {
+  const pieces = equippedFor(state, shipId);
+  if (!pieces.some((p) => p.slotType === "module")) return undefined;
+  const procs = moduleCycleProcs(pieces, (p) => moduleEffectScale(p.rarity, p.quality));
+  return procs.length > 0 ? { saveSeed: worksDirectorateSaveSeed(state), procs } : undefined;
 }
 
 // The keyed stream seed of the Fabricator job minted as process number `processNumber` in the save keyed by
@@ -7929,6 +8196,7 @@ export type ResearchBlockReason =
   | "alreadyResearched"
   | "inProgress"
   | "undiscovered"
+  | "undecoded" // Gas Giant Study GG-5: its ancient entry is not decoded yet (BlueprintDef.requiresDecode)
   | "tierLocked"
   | "noSlot"
   | "credits";
@@ -7978,6 +8246,11 @@ export function canResearch(
   // locked until its relic's FIRST FIND (state.relicDiscovered). Ungated blueprints (all pre-E4d content)
   // read false here, so their gate order and reasons are byte-identical.
   if (blueprintRelicLocked(state, blueprintKey)) return { ok: false, reason: "undiscovered" };
+
+  // --- Decode gate (Gas Giant Study GG-5, user call 10): a blueprint carrying requiresDecode stays locked until some
+  // culture has decoded that many ancient entries. No blueprint carries it yet (GG-7's special blueprints will), so
+  // every gate order and reason is byte-identical.
+  if (blueprintDecodeLocked(state, blueprintKey)) return { ok: false, reason: "undecoded" };
 
   // --- Tier unlock: the research facility's level must have reached the blueprint's tier
   // (blueprintResearchable reads the SAME level >= tier relation; here it's its own reason so
@@ -8037,7 +8310,18 @@ export function startResearch(
   // credit spend + the process push land in the SAME transition (atomic start, the design
   // §4 posture materials/upgrade-credits already use). >= 0 guaranteed by canResearch's
   // credits gate (gate.ok above).
-  const afterCredits = { ...state, credits: state.credits.minus(cost) };
+  // Gas Giant Study GG-5 (user call 9): the project uses EVERY boost banked for its research family (the Research Lab's
+  // data studies): the museum's duration / (1 + researchBoostSpeed(n)), decided once here at start like the museum's
+  // speed, and the boosts are spent. With none banked the duration and the state are exactly as before.
+  const family = researchFamilyOf(bp);
+  const boosts = researchBoostsBanked(state, family);
+  const spentBoosts = boosts > 0 ? withBoostsSpent(state.researchBoosts, family) : state.researchBoosts;
+  const afterCredits: GameState = { ...state, credits: state.credits.minus(cost) };
+  if (boosts > 0) {
+    if (spentBoosts === undefined) delete afterCredits.researchBoosts;
+    else afterCredits.researchBoosts = spentBoosts;
+  }
+  const museumTicks = museumResearchDurationTicks(bp.researchDurationTicks, museumBonuses(state).researchSpeed);
   // No MATERIAL inputs (locked design #3: research costs TIME + CREDITS, not materials), so
   // the inputs map is empty, startProcess's gate/deduct loops no-op over it. It pushes the
   // "researchProject" TimedProcess (remainingTicks = researchDurationTicks) whose completion
@@ -8048,7 +8332,7 @@ export function startResearch(
     afterCredits,
     "researchProject",
     {},
-    museumResearchDurationTicks(bp.researchDurationTicks, museumBonuses(state).researchSpeed),
+    boosts > 0 ? museumResearchDurationTicks(museumTicks, researchBoostSpeed(boosts)) : museumTicks,
     {
       type: "unlockBlueprint",
       key: blueprintKey,
@@ -8229,6 +8513,49 @@ export function moveRelicQueueEntry(state: GameState, vaultTokenId: string, dire
   return { ...state, relicQueue: queue };
 }
 
+// ============================================================================
+// Gas Giant Study GG-5: THE DATA STUDY LANE (user call 8 "Auto when idle", with a pause toggle; rules in dataStudy.ts)
+// ============================================================================
+//
+// When the lane is idle and not paused it starts the OLDEST held research data item (dataStudy.ts heldDataQueue): the
+// item leaves the inventory at start (consume at start, the relic study's convention), its arrival entry leaves
+// GameState.dataStudyHeld, the next index is stamped, and a "dataStudy" TimedProcess of DATA_STUDY_TICKS runs on the
+// Lab's own lane (never blocking research or relic identification). Called once per whole tick inside economyTick
+// (after resolveProcesses, so a lane freed by a completion this tick restarts this tick), so offline (tick() steps
+// economyTick(_, 1)) equals live by construction. Draws nothing. The SAME state when nothing starts.
+
+// Start the lane's next study (the queue's head), or return the SAME state when there is none. Pure.
+function startNextDataStudy(state: GameState): GameState {
+  const head = heldDataQueue(state)[0];
+  if (!head) return state;
+  const studyIndex = state.dataStudyIndex ?? 1;
+  const cultureId = head.itemId === ANCIENT_DATA_FRAGMENT_ID ? (head.cultureId ?? legacyFragmentCulture(state, studyIndex)) : undefined;
+  const started = startProcess(state, "dataStudy", { [head.itemId]: new Decimal(1) }, DATA_STUDY_TICKS, {
+    type: "studyData",
+    itemId: head.itemId,
+    studyIndex,
+    ...(cultureId !== undefined ? { cultureId } : {}),
+  });
+  if (!started.started) return state;
+  const held = heldAfterStart(state, head, started.next.inventory);
+  const next: GameState = { ...started.next, dataStudyIndex: studyIndex + 1 };
+  if (held === undefined) delete next.dataStudyHeld;
+  else next.dataStudyHeld = held;
+  return next;
+}
+
+// The lane's per-tick pass: start held data while a lane is free (and the lane is on). Pure.
+export function processDataStudyLane(state: GameState): GameState {
+  if (dataStudyPaused(state)) return state;
+  let s = state;
+  while (dataStudiesInFlight(s).length < dataStudyLaneCount(s)) {
+    const next = startNextDataStudy(s);
+    if (next === s) break;
+    s = next;
+  }
+  return s;
+}
+
 // The relic a completed v1 study reveals: the KEYED roll identifyRelic(setId, tier, relicStudySeed(
 // relicSeed, studyIndex, tokenId)). A pure function of stored values (the save's fixed relicSeed + the
 // effect's own fields), so it is chunking-independent and reload-stable. Returns null for an unknown set (a
@@ -8272,11 +8599,10 @@ function depositRelicStudy(
   }
   const relicId = identifyStudiedRelic(state, effect.token, effect.studyIndex);
   if (relicId === null) return { relicId, museum, discovered };
-  const key = String(vaultTokenRegionTier(effect.token)) as RegionTierKey;
-  const record = museum.general[key] ?? {};
+  // R2-4: through the Museum v2 deposit (relics.ts museumDepositGeneral), which snapshots a tier reaching the soft cap.
   return {
     relicId,
-    museum: { ...museum, general: { ...museum.general, [key]: { ...record, [relicId]: (record[relicId] ?? 0) + 1 } } },
+    museum: museumDepositGeneral(museum, vaultTokenRegionTier(effect.token), relicId, 1),
     discovered: discovered.includes(relicId) ? discovered : [...discovered, relicId],
   };
 }
@@ -11682,8 +12008,21 @@ export function resolveProcesses(
   // Survivors are rebuilt in original order, so activeProcesses ordering is stable
   // across both chunkings (the parity test compares the arrays deep-equal).
   const stillActive: TimedProcess[] = [];
+  // Gas Giant Study GG-5: what completing DATA STUDIES write (dataStudy.ts): the banked boosts, the decoded entries and
+  // the study points per culture (folded into the Museum v2 record at the write-back, after the relic chain's), each
+  // seeded from the incoming state and written back ONLY when a data study completed this call (byte-identical
+  // otherwise). The lane's pause holds a running study where it is (call 8: "Pause holds the queue; nothing is lost").
+  let researchBoosts = state.researchBoosts;
+  let ancientDecoded = state.ancientDecoded;
+  const culturePoints: Record<string, number> = {};
+  let dataStudyLanded = false;
+  const dataPaused = dataStudyPaused(state);
 
   for (const process of state.activeProcesses) {
+    if (dataPaused && process.kind === "dataStudy") {
+      stillActive.push(process);
+      continue;
+    }
     const remainingTicks = process.remainingTicks - ticksElapsed;
     if (remainingTicks > MISSION_TICK_EPSILON) {
       // Not done, keep it with its decremented countdown. A later resolve picks
@@ -11708,6 +12047,8 @@ export function resolveProcesses(
     // Relics v2 R2-3: the id a completing relic study identified (from the chain), for its record. undefined for
     // every other process.
     let relicRecordId: string | null | undefined;
+    // Gas Giant Study GG-5: the recipe a completing data study learned (null: none), for its record.
+    let dataLearned: string | null = null;
     if (process.effect.type === "addItem") {
       // Quality roll at production (Task 9b): a completed refine/fabricate job rolls ONE
       // quality tier for its whole output amount, which then lands in that tier's bucket via
@@ -12117,6 +12458,35 @@ export function resolveProcesses(
       // and only on the success path. So a salvage completing inside one long offline span
       // draws exactly what the same salvage draws stepped live (⚠️ the behavioral proof is
       // the offline==live parity test in salvage.test.ts).
+    } else if (process.effect.type === "studyData") {
+      // Gas Giant Study GG-5: a completed DATA STUDY (dataStudy.ts). The item left the inventory at START. An Ancient
+      // Data Fragment decodes the next entry of its own culture and gives that culture one study point; any other
+      // research data banks one boost for its family and rolls the recipe chance on its own keyed stream (never the
+      // tick's rng), reading the running researched set and Lab level, so one big resolve equals live steps.
+      const effect = process.effect;
+      dataStudyLanded = true;
+      if (effect.itemId === ANCIENT_DATA_FRAGMENT_ID) {
+        const cultureId = effect.cultureId ?? legacyFragmentCulture(state, effect.studyIndex);
+        ancientDecoded = { ...(ancientDecoded ?? {}), [cultureId]: ((ancientDecoded ?? {})[cultureId] ?? 0) + 1 };
+        culturePoints[cultureId] = (culturePoints[cultureId] ?? 0) + 1;
+      } else {
+        const family = researchFamilyOfDataItem(effect.itemId);
+        if (family !== null) {
+          researchBoosts = { ...(researchBoosts ?? {}), [family]: ((researchBoosts ?? {})[family] ?? 0) + 1 };
+          const candidates = dataStudyRecipeCandidates(
+            {
+              researchedBlueprints,
+              labTier: facilities[RESEARCH_FACILITY_KEY]?.level ?? 0,
+              relicDiscovered: relicChain?.deposited ? relicChain.discovered : (state.relicDiscovered ?? []),
+              ancientDecoded,
+              activeProcesses: state.activeProcesses,
+            },
+            family,
+          );
+          dataLearned = rollDataStudyRecipe(state.relicSeed, effect.studyIndex, candidates);
+          if (dataLearned !== null && !researchedBlueprints.includes(dataLearned)) researchedBlueprints = [...researchedBlueprints, dataLearned];
+        }
+      }
     } else if (process.effect.type === "identifyRelic") {
       // Exploration 0.14.0 (Phase E4a): a completed RELIC STUDY identifies its token and deposits ONE
       // museum copy. The token left the vault at START (startRelicStudy), so there is nothing to consume
@@ -12192,6 +12562,7 @@ export function resolveProcesses(
       mintedPieces,
       salvage: salvageOutcome,
       relicId: relicRecordId,
+      dataLearned,
       acc: completionAcc,
     });
   }
@@ -12280,6 +12651,18 @@ export function resolveProcesses(
         : {}),
       // CP-6 review: a completed hull teardown's loadout + people writes (absent when none completed).
       ...(salvageWrites ?? {}),
+      // Gas Giant Study GG-5: a completed data study's boosts, decoded entries and culture study points (on the Museum
+      // the relic chain left), written only when one completed.
+      ...(dataStudyLanded && researchBoosts !== undefined ? { researchBoosts } : {}),
+      ...(dataStudyLanded && ancientDecoded !== undefined ? { ancientDecoded } : {}),
+      ...(Object.keys(culturePoints).length > 0
+        ? {
+            museumV2: Object.entries(culturePoints).reduce(
+              (m, [cultureId, points]) => feedCultureData(m, cultureId, points),
+              relicChain?.deposited ? relicChain.museum : state.museumV2,
+            ),
+          }
+        : {}),
     },
     fleetAdminXpDelta,
     craftingXpDelta,

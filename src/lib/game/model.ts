@@ -26,7 +26,7 @@ import { constitutionRamp, RAMP_SECONDS_PER_TICK } from "./constitutionRamp";
 import { reactorCoreFuel } from "./reactorTech";
 // E-MOD EM-5 (0.14.0): the universal module catalog leaf (imports only types; no cycle), read by equipmentStatMods for
 // a Passive module's power output.
-import { modulePowerOutput } from "./shipModules";
+import { modulePowerOutput, type ModuleScanProc } from "./shipModules";
 // Combat 0.13.0 (Phase 9b.5a): the persisted Patrol mission shape (PatrolMissionState,
 // below) carries a player-chosen combat STANCE and the carry-state DRONE squadrons.
 // Both types live in the combat/ layer. Imported TYPE-ONLY (erased at compile time)
@@ -58,7 +58,8 @@ import type { FieldKitId } from "./fieldKits";
 // G1-3: the short-range mission arm stores a roll and its cycle plan (types only; shortRange.ts imports this file).
 import type { ShortRangeCyclePlan, ShortRangeRoll, ShortRangeTier } from "./shortRange";
 // Gas Giant Study GG-2: an orbital body's giant class id (type only; gasGiantContent.ts imports this module).
-import type { GiantClassId } from "./gasGiantContent";
+// GG-4 / GG-5: a nebula kind id and a research data family (types only).
+import type { GiantClassId, NebulaKindId, ResearchFamily } from "./gasGiantContent";
 
 // Data model, tech spec §1 (Data Model).
 // Phase 4 (docs/plans/2026-07-06-phase4-navigation-progression-overhaul-plan.md):
@@ -3486,6 +3487,18 @@ export interface ShortRangeMissionState {
   loadPaid?: number;
   // G1-4: the cycles this run has delivered (the run's completion log entry counts them). Absent until the first.
   cyclesThisRun?: number;
+  // GEAR WEAR step 3 (gearWearEngine.ts): the run's wear flag with its gear frozen (RunWearStamp) at dispatch and
+  // re-frozen at each cycle start (user 2026-10-21 "Re-read each cycle"); each delivered non-training cycle wears the
+  // ship's gear by use. A run without it (one dispatched
+  // before step 3) reads its gear pristine and wears nothing.
+  gearWear?: RunWearStamp;
+  // G1-5 (relic drops, user call 11 "Rare, per hour"): the FLAG a run dispatched from G1-5 on carries (stamped at
+  // dispatch, carried to every later cycle of the run), so a run in flight at the update plays byte-identically (the
+  // Expedition.relicBlanks precedent). Only a flagged run rolls relic blanks at each delivered cycle
+  // (shortRangeCycle.ts, relicBlanks.ts rollShortRangeRelicBlanks).
+  relicBlanks?: { version: 1 };
+  // G1-5: the relic blanks this run has found (the run's completion log entry names them). Absent until the first.
+  relicsThisRun?: number;
 }
 
 // The board's per-slot cycle cursor (GameState.shortRangeBoard): slot id -> the cycle index its NEXT roll reads
@@ -3529,6 +3542,21 @@ export interface CaptainMissionState {
   // 0.14.0 SPEED SEAM (ProcessSpeed): instantComplete runs THIS cycle through to its delivery on the next tick. The
   // next cycle is a freshly built object without it. Absent = byte-identical.
   speed?: ProcessSpeed;
+  // GEAR WEAR step 3 (0.14.0, gearWearEngine.ts): the run's wear FLAG, stamped at dispatch (while any wear source is
+  // live) and carried to every repeated cycle, with the condition of the ship's worn gear frozen at dispatch and
+  // re-frozen at each cycle start (user 2026-10-21 "Re-read each cycle": worn gear shows from cycle 2). Each delivered cycle of a stamped run wears its ship's gear by use (hauls,
+  // light-years, minutes underway, a survey). A run in flight from before step 3 has none and plays as it did.
+  gearWear?: RunWearStamp;
+}
+
+// GEAR WEAR step 3: a captain mission's or short-range run's wear flag. `frozen`: piece id -> the condition (per-mille)
+// of each of the ship's WORN pieces as the current cycle started (at dispatch, then re-frozen at each cycle start,
+// gearWearEngine.ts projectRunStamp), read by the run sheet for that cycle (runShipStats), so the gear a cycle reads is
+// constant however the span is chunked and the wear the run takes shows from its next cycle. Absent when every piece
+// was pristine. Plain data.
+export interface RunWearStamp {
+  version: 1;
+  frozen?: Record<string, number>;
 }
 
 // --- Combat Patrol mission (Combat 0.13.0, Phase 9b.5a, design §S14) -----------
@@ -4585,6 +4613,10 @@ export interface CaptainState {
   // (a ship with a rig line). It keys each delivery's private rounding roll (materialQuality.ts materialQualitySeed),
   // the Motherlode rule. OPTIONAL, written only once a delivery has rolled (absent = 0, no SAVE_VERSION bump).
   materialQualityCycles?: number;
+  // E-MOD EM-6 (the mission-cycle trigger): this captain's LIFETIME count of delivered cycles its ship's mission-cycle
+  // modules rolled for. It keys each cycle's private module stream (shipModules.ts moduleCycleSeed), the Motherlode
+  // rule. OPTIONAL, written only once a cycle has rolled (absent = 0, no SAVE_VERSION bump).
+  moduleCycles?: number;
 }
 
 // WR-5a / WR-5b / WR-5c (0.14.0, OC-A2 "own ship"): the captain who commands `ship` (ship.assignedCaptainId), or
@@ -4672,7 +4704,7 @@ export function extractionMissionOf(captain: CaptainState): CaptainMissionState 
 // unidentified vault token at START (the token rides the identifyRelic effect) and, on completion,
 // IDENTIFIES it with a keyed deterministic roll and deposits one museum copy (resolveProcesses). XP
 // policy, log policy and render row are declared in the same exhaustive Records as every other kind.
-export type TimedProcessKind = "refineJob" | "facilityUpgrade" | "fuelRefineJob" | "researchProject" | "fabricateJob" | "shipBuild" | "equipmentStorageUpgrade" | "docksExpansion" | "transitBerthExpansion" | "shipRepair" | "salvageJob" | "relicStudy";
+export type TimedProcessKind = "refineJob" | "facilityUpgrade" | "fuelRefineJob" | "researchProject" | "fabricateJob" | "shipBuild" | "equipmentStorageUpgrade" | "docksExpansion" | "transitBerthExpansion" | "shipRepair" | "salvageJob" | "relicStudy" | "dataStudy";
 
 // What a process's COMPLETION applies (inputs were already deducted at START --
 // design §4's atomic-consume fix). `addItem` grants a refine job's output;
@@ -4804,7 +4836,12 @@ export type ProcessEffect =
   // Relics v2 R2-1 (DORMANT): `v: 2` marks a v2 study (its PRESENCE is the flag, plan 2026-10-17 section 3.2); R2-3
   // stamps it. A study without it resolves through the v1 roll exactly as dispatched, so every in-flight study keeps
   // its result.
-  | { type: "identifyRelic"; token: RelicVaultToken; studyIndex: number; v?: 2 };
+  | { type: "identifyRelic"; token: RelicVaultToken; studyIndex: number; v?: 2 }
+  // Gas Giant Study GG-5 (user call 8 "Auto when idle"): a DATA STUDY on the Research Lab's own lane (dataStudy.ts).
+  // The held item left the inventory at START (consume at start); `studyIndex` is minted from GameState.dataStudyIndex
+  // and keys the completion's recipe roll (DATA_STUDY_SALT), so it is a pure function of stored values. An Ancient
+  // Data Fragment carries the culture it came from (`cultureId`): its study decodes that culture's next entry.
+  | { type: "studyData"; itemId: string; studyIndex: number; cultureId?: string };
 
 // One in-flight timed process. `id` is monotonic ("proc-N"), allocated from
 // GameState.nextProcessId (mirrors the ShipInstance/nextShipId pattern).
@@ -6447,7 +6484,9 @@ export type CompletionSalvageSubject =
 // processes.
 // G1-4: "shortRangeRun", one entry per short-range RUN when it ends (the patrol precedent: one entry per run, its
 // `iterations` the cycles delivered), never one per cycle, so a board on Repeat cannot evict the rest of the log.
-export type CompletionLogKind = TimedProcessKind | "patrolRun" | "shortRangeRun";
+// G1-5 review follow-up: "shortRangeRelicFind", one entry per delivered cycle that found relics while its run goes on
+// (rare, a per-hour chance), so a live Repeat run's finds show before it is recalled.
+export type CompletionLogKind = TimedProcessKind | "patrolRun" | "shortRangeRun" | "shortRangeRelicFind";
 
 export interface CompletionLogEntry {
   id: string;               // "done-N", minted from state.nextCompletionLogId (mirrors "proc-N" / "q-N")
@@ -6488,6 +6527,10 @@ export interface CompletionLogEntry {
   // the resolver could still see it. Absent everywhere else, and absent on every entry
   // written before this field existed, so every read is presence-checked.
   salvageSubject?: CompletionSalvageSubject;
+  // G1-5: the unidentified relics a short-range run found over its cycles (they went to the vault as each cycle was
+  // delivered). Written only on a "shortRangeRun" entry that found at least one, and on every "shortRangeRelicFind"
+  // entry (the relics that one cycle found); absent everywhere else.
+  relicsFound?: number;
 }
 
 // The RUNNING accumulation for one line-backed order that has not finished yet.
@@ -7546,8 +7589,8 @@ export interface ExpeditionBody {
 
 // Gas Giant Study GG-3: one SURVEY LOG entry (GameState.surveyLog): a studied giant as the ship recorded it. Every
 // displayed number derives from these stored fields (gasGiantContent.ts giantPhysics / starProgress on the class and
-// the mass). `kind` "nebula" joins with GG-4's sweep.
-export interface SurveyLogEntry {
+// the mass). GG-4: a NEBULA entry (`kind` "nebula") records the system's swept nebula by its kind.
+export interface SurveyGiantEntry {
   id: string; // "<expeditionId>-survey-<bodyIndex>"
   at: number; // gameTimeSeconds the study ended
   systemName: string;
@@ -7556,6 +7599,22 @@ export interface SurveyLogEntry {
   classId: GiantClassId;
   massMilliJ: number;
   tier: RegionTier;
+}
+export interface SurveyNebulaEntry {
+  id: string; // "<expeditionId>-survey-nebula"
+  at: number; // gameTimeSeconds the sweep ended
+  systemName: string;
+  kind: "nebula";
+  kindId: NebulaKindId;
+  tier: RegionTier;
+}
+export type SurveyLogEntry = SurveyGiantEntry | SurveyNebulaEntry;
+
+// Gas Giant Study GG-5: one held research data unit in arrival order (GameState.dataStudyHeld). `cultureId` only on an
+// Ancient Data Fragment (the culture of the body it came from).
+export interface DataStudyHeldEntry {
+  itemId: string;
+  cultureId?: string;
 }
 
 // A claimable EXPEDITIONARY FINDING. E2a shipped GENERIC placeholder tokens (a provenance tag only);
@@ -7655,12 +7714,14 @@ export type RegionTierKey = "1" | "2" | "3" | "4" | "5" | "6" | "7";
 //   general       copies per region tier per general relic TYPE id (relics.ts RELIC_TYPES). Sparse: a tier is absent
 //                 until its first copy, a type until its first copy at that tier.
 //   exceptional   copies per exceptional PIECE id (relics.ts EXCEPTIONAL_SETS); duplicates counted (OC-7, R2-5).
-//   frozen        the snapshot of a tier's general counts taken when it first reached the soft cap (OC-3, R2-4).
+//   frozen        the snapshot of a tier's record taken when its identified total (general plus exceptional copies) first
+//                 reached the soft cap (OC-3, R2-4: relics.ts withSoftCapSnapshot): its general copies and its exceptional
+//                 pieces' copies in one map. The regular game reads it from then on; the live counts keep growing.
 //   cultures      per culture id: study points and finds per type (OC-9, R2-6).
 //   culturesNamed culture ids in reveal order, each appended once (R2-6).
 //   setsCompleted exceptional set ids in completion order, each appended once (the ledger hook reads it, R2-5).
-// R2-1 is DORMANT: only general["1"] is written (by a v1 relic study, exactly where the v1 museum was written); every
-// other part stays empty until its slice.
+// Every write goes through relics.ts museumDepositGeneral / museumDepositExceptional (R2-4), which take the soft cap
+// snapshot; museumBonuses reads the whole record (R2-4 museum math v2).
 export interface MuseumCultureRecord {
   points: number;
   finds: Record<string, number>;
@@ -8072,6 +8133,11 @@ export interface Expedition {
   // (like encounterSteps): a run dispatched since GO-7b carries it and resolves on the Ground Ops timeline
   // (groundOps.ts); a run without it resolves on the legacy path, byte-identically. Optional, no SAVE bump.
   groundOps?: GroundOpsState;
+  // GEAR WEAR step 3 (0.14.0, gearWearEngine.ts): the run's wear FLAG with its dispatch instant, stamped at dispatch
+  // (while any wear source is live; never on the training run, user W9 "No wear on training"). When the run comes
+  // home its ship's and its members' gear wear by use (minutes underway, light-years, bodies scanned, ground fights,
+  // fieldwork steps, minutes on the ground). A run in flight from before step 3 has none and plays as it did.
+  gearWear?: ExpeditionWearStamp;
   // Squads SQ-4: the run's RISK PROFILE (with each body's ExpeditionBody.risk). Its PRESENCE is the risk-aware
   // flag: written at dispatch alongside groundOps; a flagged run dispatched before SQ-4 lacks it and keeps
   // resolving exactly as stamped. Optional, no SAVE bump.
@@ -8095,6 +8161,11 @@ export interface Expedition {
   // WR-5c: the commanding captain's explorer secondary nodes, frozen at dispatch (ExplorerCaptainRun). Absent when
   // the captain owns none of them. Optional, no SAVE bump (the tree is branch-only; no production save owns a node).
   explorerCaptain?: ExplorerCaptainRun;
+  // E-MOD EM-6 (the body-scanned trigger): the ship's installed body-scan modules (shipModules.ts moduleScanProcs),
+  // frozen at dispatch like every run input, so a module installed or removed later never changes an in-flight run.
+  // Read by expedition.ts assignDiscoveriesAndActivities when a body completes. Written only when the ship carries one;
+  // absent (every run today, every run in flight) scans exactly as before. Optional, no SAVE bump.
+  moduleScanProcs?: ModuleScanProc[];
   // Expedition Tiers G2-2: WHERE the run went, frozen at dispatch from the chosen candidate (ExpeditionRegionStamp),
   // so a run never re-reads the homeworld. Its PRESENCE marks a run named from the star catalog (bodies lettered
   // b, c, d; groundTaskQueueDisplay.ts bodyDesignation). Absent on every run dispatched before G2-2 (banked name,
@@ -8125,6 +8196,12 @@ export interface Expedition {
   // on every other run, and on every run dispatched before GG-2 (its gas giant objectives resolve as dispatched).
   // Optional, no SAVE bump.
   study?: 1;
+  // Gas Giant Study GG-4 (user call 2 "System-level sweep"): the system's NEBULA, frozen at dispatch when the system's
+  // own draw finds one (gasGiantStudy.ts nebulaStampFor: a per-mille by region tier, a famous nebula always). Present:
+  // the ship sweeps it after the last body (one study leg, GroundStudyLeg.nebula). `swept` marks a RESUMED run whose
+  // nebula an earlier trip already swept (HeldSystem.nebulaSwept), so it is not swept again. Absent on every other run
+  // and on every run dispatched before GG-4. Optional, no SAVE bump.
+  nebula?: { kindId: NebulaKindId; swept?: 1 };
 }
 
 // Expedition Tiers G2-5 (user #7 "Based on distance traveled 1:1"; G13 one confirm with the return time; G14 detour
@@ -8163,6 +8240,9 @@ export interface HeldSystem {
   region: ExpeditionRegionStamp;
   risk?: ExpeditionRiskProfile;
   bodies?: ExpeditionBody[];
+  // Gas Giant Study GG-4: the system's nebula was swept on the trip the recall cut short (the resumed run does not
+  // sweep it again). Absent otherwise.
+  nebulaSwept?: true;
 }
 
 // Expedition Tiers G2-3 (user G5 + G21, 2026-10-16): a run's voyage. `tier` sets the nominal hours (tiers are
@@ -8171,6 +8251,20 @@ export interface HeldSystem {
 // minimum halves the time); `outboundSpeed` / `returnSpeed` are the ship's own speed on each leg at dispatch
 // (outboundLegSpeed / returnLegSpeed: the sweeping transitSpeedMult times that leg's complement lift, CP-2 OC-E5).
 // The three durations are whole seconds; `returnSeconds` is before the Flight Deck ramp. Plain data.
+// GEAR WEAR step 3 (Expedition.gearWear): the wear flag of a run dispatched since step 3, with the instant it left
+// (gameTimeSeconds), so the minutes underway are known when it comes home. Plain data.
+export interface ExpeditionWearStamp {
+  version: 1;
+  dispatchedAt: number;
+}
+
+// GEAR WEAR step 3 (GroundOpsState.wearTally): one member's use on the ground, counted as it happens on a stamped run
+// (groundOps.ts finishFight, finishWork): the ground fights they fought and the fieldwork steps they completed.
+export interface GroundWearTally {
+  fights?: number;
+  steps?: number;
+}
+
 export interface ExpeditionVoyage {
   version: 1;
   tier: RegionTier;
@@ -8523,6 +8617,9 @@ export interface GroundRepairLeg {
 // done), the teams keep working, an ordinary pickup waits for it, and the study's reward (gasGiantStudy.ts
 // rollStudyReward) lands at endsAt, when the window latches `done`. Stored when it starts, so every later time is a
 // pure function of stored values.
+// GG-4: the NEBULA SWEEP is a study leg too (`nebula` set, bodyIndex gasGiantStudy.ts NEBULA_SWEEP_BODY_INDEX, -1: it
+// studies no body). It starts once every body is scanned, so it pauses no scan; it holds the ship, makes pickups wait
+// and keeps the window open exactly like a study. `nebula` is written last, only on the sweep.
 export interface GroundStudyLeg {
   kind: "study";
   bodyIndex: number;
@@ -8530,6 +8627,7 @@ export interface GroundStudyLeg {
   startsAt: number;
   endsAt: number;
   done?: true;
+  nebula?: 1;
 }
 
 // GO-7b: the run's ground operations (Expedition.groundOps; plan section 2). One COMBINED operations window
@@ -8559,6 +8657,10 @@ export interface GroundOpsState {
   // GO-7c: the run's ground operations LOG, DISPLAY ONLY (resolution never reads it); absent until a line is
   // written, so a run without one keeps its exact shape.
   log?: GroundOpsLogEntry[];
+  // GEAR WEAR step 3: memberId -> that member's ground fights and fieldwork steps on a wear-stamped run
+  // (Expedition.gearWear), read when the run comes home (gearWearEngine.ts). Resolution never reads it. Absent until
+  // the first count, and on every run without the stamp, so such a run keeps its exact shape.
+  wearTally?: Record<string, GroundWearTally>;
   // Expedition Tiers G2-5: the instant the player RECALLED the ship and the window closed (groundOps.ts
   // closeGroundOps; endedAt is the same instant). Absent on every run nobody recalled.
   recalledAt?: number;
@@ -9063,6 +9165,21 @@ export interface GameState {
   // expedition.ts depositExpeditionFindings. Every displayed number derives from the entry's stored fields (the
   // Archive tab is GG-6). OPTIONAL: absent until the first readout comes home, so a save without one carries no key.
   surveyLog?: SurveyLogEntry[];
+  // Gas Giant Study GG-5 (plan section 3.3; user calls 8 to 10; the signed-off v3 mockup): the Research Lab's DATA
+  // STUDY lane (dataStudy.ts). All OPTIONAL, absent on every save until the lane first runs:
+  //   dataStudyHeld    research data in ARRIVAL order (the claim appends one entry per unit; an Ancient Data Fragment
+  //                    with the culture it came from). The inventory holds the units; this only orders them ("oldest
+  //                    held data first", as drawn). Units held with no entry (from before GG-5) are the oldest.
+  //   dataStudyPaused  the lane's pause toggle (call 8: "Auto when idle", with a pause toggle): no new study starts and
+  //                    the running one waits. Absent = on.
+  //   dataStudyIndex   the NEXT study's index (monotonic; keys its completion roll). Absent = 1.
+  //   researchBoosts   banked boosts per research family: the next project of the family uses them all (call 9).
+  //   ancientDecoded   ancient entries decoded per culture id (call 10 "One lane"; decode the fragment's own culture).
+  dataStudyHeld?: DataStudyHeldEntry[];
+  dataStudyPaused?: true;
+  dataStudyIndex?: number;
+  researchBoosts?: Partial<Record<ResearchFamily, number>>;
+  ancientDecoded?: Record<string, number>;
   // Safe first runs SF-1: the per-type run counters (RunCounts above; rules in runDifficulty.ts). freshState seeds
   // freshRunCounts(); save v70 derives them for an older save from its history (veterans). Written by claimExpedition,
   // dispatchCaptainOnPatrol and economyTick's patrol fold. OPTIONAL: absent (a dev save at v70 from before SF-1) reads
@@ -9425,9 +9542,6 @@ export interface ItemDef {
 // ML-1: the owners named by ItemDef.reserved (each becomes a pending wiring registry entry with this text as owner). ML-2
 // gave its six goods their blueprints and dropped their markers in the same commit.
 const EM8_PRECURSOR_LENS = "EM-8 (the Precursor Lens special module is crafted with it)";
-// Gas Giant Study GG-1: the owners of the research data reserves (the Research Lab's study lane, GG-5).
-const GG5_DATA_STUDY = "GG-5 (the Research Lab study lane studies it into a +12% boost on the next project of its family)";
-const GG5_ANCIENT_STUDY = "GG-5 (the Research Lab study lane decodes the next ancient entry from it)";
 // Gas Giant Study GG-1 (values approved by the user 2026-10-21): credits per canister at the Quartermaster's Sell counter.
 // Deuterium Ice at the Quartermaster's Sell counter, credits per unit. User 2026-10-21 (merge batch answers, "Comet
 // economy bug": "Cut ice to ~4 credits (Recommended)"): a crafting input, not a money run. It was 40 (the retired Fuel
@@ -10004,8 +10118,9 @@ export const ITEMS: Record<string, ItemDef> = {
   // Research Data (Gas Giant Study GG-1; user 2026-10-19 call 9 "Your six + 2, +12%").
   // One item per research family: the user's six (Propulsion, Defense, Weapons, Systems, Field, Hull Design) plus
   // Materials and Sensors. The Research Lab's study lane (GG-5, call 8 "Auto when idle") studies each held item into
-  // a +12% boost on the next project of its family (D23 stacking) and rarely a recipe (5%). Until GG-5 lands nothing
-  // studies them (the `reserved` marker) and until GG-3 nothing returns them, so they stay out of every list.
+  // a +12% boost on the next project of its family (D23 stacking) and rarely a recipe (5%): dataStudy.ts (GG-5, which
+  // dropped their `reserved` markers). GG-3's ship study returns them; they live in the Lab's list, never a warehouse
+  // shelf (the signed-off v3 mockup, as drawn).
   propulsionData: {
     label: "Propulsion Data",
     category: "researchData",
@@ -10013,7 +10128,6 @@ export const ITEMS: Record<string, ItemDef> = {
     rarity: "uncommon",
     unlockHint: "Returned by a ship's study of a gas giant or a nebula on an expedition.",
     flavor: "Pressure, flow and burn readings from the deep atmosphere, the raw stuff of better drives.",
-    reserved: GG5_DATA_STUDY,
   },
   defenseData: {
     label: "Defense Data",
@@ -10022,7 +10136,6 @@ export const ITEMS: Record<string, ItemDef> = {
     rarity: "uncommon",
     unlockHint: "Returned by a ship's study of a gas giant or a nebula on an expedition.",
     flavor: "How the probe hull held up under the crush, logged strain by strain.",
-    reserved: GG5_DATA_STUDY,
   },
   weaponsData: {
     label: "Weapons Data",
@@ -10031,7 +10144,6 @@ export const ITEMS: Record<string, ItemDef> = {
     rarity: "uncommon",
     unlockHint: "Returned by a ship's study of a gas giant or a nebula on an expedition.",
     flavor: "Lightning, plasma and charged winds measured at close range. Somebody will find a use for it.",
-    reserved: GG5_DATA_STUDY,
   },
   systemsData: {
     label: "Systems Data",
@@ -10040,7 +10152,6 @@ export const ITEMS: Record<string, ItemDef> = {
     rarity: "uncommon",
     unlockHint: "Returned by a ship's study of a gas giant or a nebula on an expedition.",
     flavor: "Telemetry from every subsystem that kept the probe talking on its way down.",
-    reserved: GG5_DATA_STUDY,
   },
   fieldData: {
     label: "Field Data",
@@ -10049,7 +10160,6 @@ export const ITEMS: Record<string, ItemDef> = {
     rarity: "uncommon",
     unlockHint: "Returned by a ship's study of a gas giant or a nebula on an expedition.",
     flavor: "Corrosion, heat and gravity loads, the conditions away-team gear has to survive.",
-    reserved: GG5_DATA_STUDY,
   },
   hullDesignData: {
     label: "Hull Design Data",
@@ -10058,7 +10168,6 @@ export const ITEMS: Record<string, ItemDef> = {
     rarity: "uncommon",
     unlockHint: "Returned by a ship's study of a gas giant or a nebula on an expedition.",
     flavor: "Shear and buffeting profiles at every altitude, the numbers a hull architect loses sleep over.",
-    reserved: GG5_DATA_STUDY,
   },
   materialsData: {
     label: "Materials Data",
@@ -10067,7 +10176,6 @@ export const ITEMS: Record<string, ItemDef> = {
     rarity: "uncommon",
     unlockHint: "Returned by a ship's study of a gas giant or a nebula on an expedition.",
     flavor: "Spectra of metallic hydrogen, silicate rain and stranger things that only form under that much pressure.",
-    reserved: GG5_DATA_STUDY,
   },
   sensorsData: {
     label: "Sensors Data",
@@ -10076,7 +10184,6 @@ export const ITEMS: Record<string, ItemDef> = {
     rarity: "uncommon",
     unlockHint: "Returned by a ship's study of a gas giant or a nebula on an expedition.",
     flavor: "Calibration sweeps taken through storms that blind ordinary instruments.",
-    reserved: GG5_DATA_STUDY,
   },
   // The ancient data (user 2026-10-19 call 10 "One lane"): a data type whose study decodes the next ancient entry
   // (GG-5); some entries unlock special blueprints. No culture name in 0.14.0 text: names come with G3 Relics v2.
@@ -10087,7 +10194,6 @@ export const ITEMS: Record<string, ItemDef> = {
     rarity: "rare",
     unlockHint: "Sometimes recovered by a deep probe dive during a ship's study of a gas giant.",
     flavor: "A shard of a record far older than the fleet, pulled from something that sank into the clouds long ago.",
-    reserved: GG5_ANCIENT_STUDY,
   },
 };
 
@@ -10402,6 +10508,12 @@ export interface BlueprintDef {
   // Typed as a plain string (not a relic-id union) because model.ts must not import relics.ts (relics.ts
   // imports model.ts); a test asserts every value names a real relic.
   requiresRelicDiscovery?: string;
+  // --- DECODE-GATED research (Gas Giant Study GG-5; user call 10 "some entries unlock special blueprints") ----------
+  // When PRESENT, the blueprint cannot be researched until some culture has decoded this many ancient entries
+  // (model.ts blueprintDecodeLocked: GameState.ancientDecoded, raised by the Research Lab's study of an Ancient Data
+  // Fragment). canResearch refuses it with `undecoded`. ABSENT on every blueprint today (GG-7 authors the special
+  // blueprints with it), so every research gate is byte-identical.
+  requiresDecode?: number;
   flavor?: string;      // narrative color (optional)
   unlockHint?: string;  // functional "how to unlock" clue for the UI (optional)
 }
@@ -11826,6 +11938,23 @@ export function blueprintRelicLocked(state: GameState, key: string): boolean {
   return !(state.relicDiscovered ?? []).includes(relicId);
 }
 
+// Gas Giant Study GG-5 (user call 10 "One lane": "some entries unlock special blueprints"): the most ancient entries
+// any one culture has decoded (GameState.ancientDecoded; 0 with none). Pure.
+export function ancientEntriesDecodedMax(state: Pick<GameState, "ancientDecoded">): number {
+  let best = 0;
+  for (const n of Object.values(state.ancientDecoded ?? {})) if (typeof n === "number" && n > best) best = n;
+  return best;
+}
+
+// GG-5: is this blueprint still LOCKED behind an ancient entry not yet decoded (BlueprintDef.requiresDecode)? FALSE for
+// every blueprint without the field (every blueprint today: GG-7 authors the special blueprints) and for an unknown
+// key. canResearch reads it for the `undecoded` reason. Pure.
+export function blueprintDecodeLocked(state: Pick<GameState, "ancientDecoded">, key: string): boolean {
+  const need = BLUEPRINTS[key]?.requiresDecode;
+  if (need === undefined) return false;
+  return ancientEntriesDecodedMax(state) < need;
+}
+
 // --- Default equipment variety per live slot (0.11.0 Task 18) ----------------
 // The Standard-Issue FLOOR: the ONE variety per live slot whose Standard-rarity,
 // quality-0 form is auto-seeded into every ship so a live slot is never empty
@@ -12985,6 +13114,7 @@ export function blueprintResearchable(state: GameState, key: string): boolean {
   if (blueprintUnlocked(state, key)) return false; // already researched
   if (researchInProgress(state, key)) return false; // a project is already unlocking it
   if (blueprintRelicLocked(state, key)) return false; // E4d: its relic has not been discovered yet
+  if (blueprintDecodeLocked(state, key)) return false; // GG-5: its ancient entry has not been decoded yet
   return bp.tier <= labTier(state); // tier gated by the research-facility level
 }
 

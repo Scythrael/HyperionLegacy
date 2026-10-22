@@ -1035,7 +1035,7 @@
     museumResearchDurationTicks,
   } from "./lib/game/tick";
   // Exploration 0.14.0 (E4c): the relic catalog + museum readers (pure) the Relics/Museum host code reads.
-  import { museumBonuses, getRelicById, getRelicSetById, RELIC_SETS, undiscoveredResearchMask } from "./lib/game/relics";
+  import { museumBonuses, getRelicById, getRelicSetById, RELIC_SETS, undiscoveredResearchMask, withSoftCapSnapshot } from "./lib/game/relics";
   // Exploration 0.14.0 (E4c): the identification-reveal view model + the observer's record picker.
   import { buildRelicReveal, pickRelicStudyRecord, unseenRelicStudyRecords, type RelicReveal } from "./lib/relicReveal";
   // Exploration 0.14.0 (E4c): the crew + museum boosted ship stats, the SAME helper the engine dispatches
@@ -4829,7 +4829,12 @@
       museum[rid] = copies;
       if (!discovered.includes(rid)) discovered.push(rid);
     });
-    state = { ...withGeneralMuseumRecord(state, museum), relicDiscovered: discovered };
+    // Relics v2 R2-4: a dev grant that carries Tier I to the soft cap snapshots it, as every deposit does. The control
+    // SETS the counts, so an earlier Tier I snapshot is dropped first and re-taken from the new counts (a set count past
+    // the cap freezes at that count: a dev control, not a deposit).
+    const granted = withGeneralMuseumRecord(state, museum);
+    const { "1": _dropped, ...frozen } = granted.museumV2.frozen;
+    state = { ...granted, museumV2: withSoftCapSnapshot({ ...granted.museumV2, frozen }), relicDiscovered: discovered };
     pushLog(`[DEV] ${set.label} museum set to ${devMuseumMode} ${n} copies.`);
   }
 
@@ -10467,6 +10472,9 @@
       case "undiscovered":
         // E4d: names the relic's SET only (never the undiscovered relic), the same wording the masked card uses.
         return undiscoveredResearchMask(bp.requiresRelicDiscovery).detail;
+      case "undecoded":
+        // Gas Giant Study GG-5: a decode-gated blueprint (GG-7's special blueprints; none yet).
+        return `Decode ${bp.requiresDecode ?? 1} ancient ${(bp.requiresDecode ?? 1) === 1 ? "entry" : "entries"} first`;
       case "notFound":
         return "Unavailable";
     }
@@ -20852,6 +20860,14 @@
                   <span class="offline-summary-row-value">+{formatNumber(mat.qty)}</span>
                 </div>
               {/each}
+            </div>
+          {/if}
+
+          <!-- G1-5: unidentified relics short-range missions found while away (the expedition claim line's words). -->
+          {#if sum.relicsFound > 0}
+            <div class="offline-summary-row">
+              <span class="offline-summary-row-label">Unidentified relics</span>
+              <span class="offline-summary-row-value">+{formatNumber(sum.relicsFound)} to the vault</span>
             </div>
           {/if}
 

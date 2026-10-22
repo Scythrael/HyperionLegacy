@@ -19,7 +19,7 @@
 // Pure: every function reads state and returns verdicts or new states; no draws outside the roll's own stream, no
 // clock, never the shared economy rng.
 
-import { MISSION_CONTROL_BOARD_RUNGS, type CaptainState, type GameState, type ShipInstance, type ShortRangeBoardState, type ShortRangeMissionState, type ShortRangePhase, type RunCounts } from "./model";
+import { MISSION_CONTROL_BOARD_RUNGS, type CaptainState, type GameState, type RunWearStamp, type ShipInstance, type ShortRangeBoardState, type ShortRangeMissionState, type ShortRangePhase, type RunCounts } from "./model";
 import {
   SHORT_RANGE_TEMPLATES,
   meetsSheet,
@@ -32,9 +32,10 @@ import {
   type ShortRangeSlotRef,
   type ShortRangeTier,
 } from "./shortRange";
-import { effectiveShipStats } from "./crewOverlay";
+import { runShipStats, runWearStamp } from "./gearWearEngine";
 import { countShortRangeCycleStart, runCountsOf } from "./runDifficulty";
 import { crewLockReasonText, shipCrewLocked } from "./crewLock";
+import { RELIC_BLANKS_VERSION } from "./relicBlanks";
 
 // ===== the board =====
 
@@ -110,10 +111,12 @@ export interface ShortRangeCycleStart {
 // template's first cycle start, isFirstRun), freeze its phase lengths for `ship` (shortRangeCyclePlan: the mission
 // folds, the crew's unload speed, Sensors and the Engineering rating), and count one more cycle start of the drawn
 // template. Dispatch calls it for the first cycle; G1-4's cycle engine calls it for every later one, so the training
-// run and the counters can never disagree. Pure.
-export function startShortRangeCycle(state: GameState, ship: ShipInstance, slot: ShortRangeSlotRef, cycleIndex: number): ShortRangeCycleStart {
+// run and the counters can never disagree. GEAR WEAR step 3: `wear` is the run's stamp (gearWearEngine.ts
+// runWearStamp at dispatch, projectRunStamp at each later cycle start), so the plan reads the gear the cycle froze; without one (a run from before step 3, a
+// preview) it reads the stored sheet. Pure.
+export function startShortRangeCycle(state: GameState, ship: ShipInstance, slot: ShortRangeSlotRef, cycleIndex: number, wear?: RunWearStamp): ShortRangeCycleStart {
   const roll = rollShortRangeJob(state, slot, cycleIndex);
-  const plan = shortRangeCyclePlan(roll, effectiveShipStats(state, ship), shortRangeShipEngineering(state, ship));
+  const plan = shortRangeCyclePlan(roll, runShipStats(state, ship, wear), shortRangeShipEngineering(state, ship));
   return { roll, plan, runCounts: countShortRangeCycleStart(runCountsOf(state), roll.template) };
 }
 
@@ -221,7 +224,9 @@ export function dispatchCaptainOnShortRange(state: GameState, captainId: number,
   const idx = state.captains.findIndex((c) => c.id === captainId);
   const slot = shortRangeSlotById(state, slotId)!;
   const ship = state.ships.find((s) => s.assignedCaptainId === captainId)!;
-  const start = startShortRangeCycle(state, ship, slot, shortRangeNextCycle(state, slotId));
+  // GEAR WEAR step 3: the run's wear flag with its ship's worn gear frozen (gearWearEngine.ts), while any source is live.
+  const wear = runWearStamp(state, ship.id);
+  const start = startShortRangeCycle(state, ship, slot, shortRangeNextCycle(state, slotId), wear);
   const mission: ShortRangeMissionState = {
     kind: "shortRange",
     slotId,
@@ -230,6 +235,10 @@ export function dispatchCaptainOnShortRange(state: GameState, captainId: number,
     phase: "transitOut",
     phaseProgressTicks: 0,
     recalled: !repeat,
+    ...(wear !== undefined ? { gearWear: wear } : {}),
+    // G1-5: a new run rolls relic blanks at each delivered cycle (the flag rides every later cycle of the run); a run
+    // dispatched before G1-5 carries none and plays exactly as it did.
+    relicBlanks: { version: RELIC_BLANKS_VERSION },
   };
   const captains = [...state.captains];
   captains[idx] = { ...captains[idx], mission, lastStopReason: undefined };
@@ -289,5 +298,8 @@ export function isWellFormedShortRangeMission(m: unknown): m is ShortRangeMissio
   // G1-4: the cycle engine's optional fields (the load a drop-off paid, the cycles this run delivered).
   if (s.loadPaid !== undefined && !isFiniteNonNegative(s.loadPaid)) return false;
   if (s.cyclesThisRun !== undefined && !isWholeCount(s.cyclesThisRun)) return false;
+  // G1-5: the relic flag and the run's relic count.
+  if (s.relicBlanks !== undefined && (!s.relicBlanks || typeof s.relicBlanks !== "object" || (s.relicBlanks as { version?: unknown }).version !== RELIC_BLANKS_VERSION)) return false;
+  if (s.relicsThisRun !== undefined && !isWholeCount(s.relicsThisRun)) return false;
   return true;
 }

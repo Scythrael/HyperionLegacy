@@ -562,6 +562,12 @@ function labelForProcess(
 
     // Exploration 0.14.0 (E4a): a relic study at the Research facility. Named by the token's SET (the
     // relic itself is unknown until the study completes, which is the point of studying it).
+    // Gas Giant Study GG-5: a data study on the Research Lab's own lane, named by the item it studies.
+    case "dataStudy": {
+      const item = effect.type === "studyData" ? ITEMS[effect.itemId]?.label ?? effect.itemId : null;
+      return { icon: "research", primaryLabel: item !== null ? `Studying, ${item}` : "Studying research data", jumpTarget: "research" };
+    }
+
     case "relicStudy": {
       // Relics v2 R2-2: a blank with no set (no site) reads "General".
       const setId = effect.type === "identifyRelic" ? effect.token.setId : undefined;
@@ -1201,6 +1207,9 @@ const COMPLETION_KIND_VIEW: Record<
   // relics.ts in completionSubjectLabel). Reuses the research glyph and the Research Lab's own label.
   // E4c: the relic glyph + the Relics sub-tab (where the identification reveal card lives).
   relicStudy:              { verb: "Identified",  icon: "relic",      source: "Research Lab",   jumpTarget: "relics" },
+  // Gas Giant Study GG-5: a completed data study (the item studied, or the recipe it learned). The research tab hosts
+  // the lab until GG-6 adds the data study tab.
+  dataStudy:               { verb: "Studied",     icon: "research",   source: "Research Lab",   jumpTarget: "research" },
   // 0.13.4 Phase 2 Unit 2.2: the patrol run. The VERB is deliberately neutral ("Patrolled")
   // rather than outcome-flavored, because one row has to cover a clean finish, a recall, a
   // fuel-out and a defeat. The OUTCOME is carried by patrolEndReason and rendered from
@@ -1215,6 +1224,8 @@ const COMPLETION_KIND_VIEW: Record<
   // G1-4: a short-range run that ended (recalled; its cycles delivered are the entry's iterations). G1-6: the board has
   // its own Operations tab, so the row opens it, and its source names that tab.
   shortRangeRun:           { verb: "Completed",   icon: "shortRange", source: "Short-Range Missions", jumpTarget: "shortRange" },
+  // G1-5 review follow-up: relics a live run's cycle found (they went to the vault), so the row opens the Relics tab.
+  shortRangeRelicFind:     { verb: "Found",       icon: "relic",      source: "Short-Range Missions", jumpTarget: "relics" },
 };
 
 // 0.13.4 Phase 2 Unit 2.2 (design §6.2): the EXHAUSTIVE wording table for patrol endings.
@@ -1264,6 +1275,11 @@ function completionSubjectLabel(entry: CompletionLogEntry, state: GameState): st
   if (entry.kind === "patrolRun") return PATROLS[key]?.label ?? key;
   // G1-4: a short-range run is named by its kind (its subject key is the board slot, not a catalog key).
   if (entry.kind === "shortRangeRun") return "Short-Range Missions";
+  // G1-5 review follow-up: a find line is named by what it found (the expedition claim line's words).
+  if (entry.kind === "shortRangeRelicFind") {
+    const n = entry.relicsFound ?? 0;
+    return `${n} unidentified relic${n === 1 ? "" : "s"}`;
+  }
   switch (entry.reward) {
     case "blueprint":
     case "systems":
@@ -1384,10 +1400,15 @@ function completionDetail(entry: CompletionLogEntry): string | null {
     return reason !== null ? `${flown}, ${reason}` : flown;
   }
   // G1-4: a short-range run's detail is how many missions it delivered (zero is real: recalled before the first).
+  // G1-5: and the unidentified relics its cycles found, in the expedition claim line's words.
   if (entry.kind === "shortRangeRun") {
-    if (entry.iterations === 0) return "no missions completed, recalled";
-    return `${entry.iterations === 1 ? "1 mission" : `${entry.iterations} missions`} completed, recalled`;
+    const found = entry.relicsFound ?? 0;
+    const relics = found > 0 ? `, ${found} unidentified relic${found === 1 ? "" : "s"} to the vault` : "";
+    if (entry.iterations === 0) return `no missions completed, recalled${relics}`;
+    return `${entry.iterations === 1 ? "1 mission" : `${entry.iterations} missions`} completed, recalled${relics}`;
   }
+  // G1-5 review follow-up: where a live run's find went, and which of its missions found it.
+  if (entry.kind === "shortRangeRelicFind") return `to the vault, on mission ${entry.iterations} of the run`;
   // 0.13.7 Crafted Blanks: a fabricate now deposits an UNINSPECTED blank, not a usable system, and
   // the primary line ("Fabricated, Balanced Hold") reads by process kind and cannot say so. The
   // detail carries the honesty. A batch keeps its run count, still worded as blanks ("3 blanks"),

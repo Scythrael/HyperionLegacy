@@ -432,6 +432,46 @@ Per-hour chance on its own salt, lowest-tier pool from G3, the token through the
 than a long one; training runs follow the same rule. **UI:** the completion line names the relic (reuses the
 expedition relic line).
 
+**Carry note (G1-5, built 2026-10-21 on `3306bda`):**
+- Flag: `ShortRangeMissionState.relicBlanks: { version: 1 }`, stamped at dispatch (`dispatchCaptainOnShortRange`) and
+  carried to every later cycle of the run. A run in flight from before G1-5 has none and plays byte-identically
+  (`shortRangeRelicsGoldens.test.ts`, goldens-first commit: its `inflight` side matches unstripped; a flagged run matches
+  once `withoutShortRangeRelics` takes its finds out, so the drops move nothing else). A Repeat run from before the
+  update picks up drops once it is dispatched again.
+- The roll: `shortRangeCycleRelics` (shortRangeCycle.ts) at each delivered cycle of a flagged run calls R2-2's
+  `rollShortRangeRelicBlanks(roll.seed, roll.tier, plan.totalTicks x tickDurationSeconds, "sr-<slot>-<cycle>")` (salt
+  `RELIC_SHORT_RANGE_SALT`, registered by R2-2). Mission time is the cycle's PLANNED length: a time-skipped cycle finds
+  what its time would have; a berth or departure wait is not mission time. Blanks: Tier I, standard
+  (`SHORT_RANGE_RELIC_CEILING` 0), no set, source "shortRange"; they study through the general pick.
+- Training runs follow the same rule (this section's test line). The safe-first-runs group 3 answer's guaranteed drops
+  ("one or two general relics, and the very first exceptional relic") belong to the real tutorial through R2-2's grant
+  seam (`GrantBundle.relics`), logged for the tutorial patch; nothing in 0.14.0 grants them.
+- Vault: economyTick gathers every captain's finds with the call tick each landed on and deposits them sorted by that
+  tick, then captain order (`shortRangeVaultDeposit`), so the vault reads the same however the span is cut (tested with
+  two captains, the second delivering first). A taken id (only after a dropped board resets the cursor) takes `-<n>`.
+- Log and recap: the mission counts `relicsThisRun`; the run's completion entry carries `relicsFound` (only when > 0);
+  Home reads "N missions completed, recalled, K unidentified relics to the vault" (also for a recall at home).
+  `OfflineSummary.relicsFound` (vault ids new since the snapshot) and the recap row "Unidentified relics, +K to the
+  vault". The Help Relics paragraph and the empty vault line now mention short-range finds.
+- Review follow-up (2026-10-22, the UI line "the completion line names the relic"): a live Repeat run's finds no longer
+  wait for its recall. Each delivered cycle that finds relics while the run goes on writes one completion entry of the new
+  kind `shortRangeRelicFind` (`relicsFound`, `iterations` the run's cycle; Home: "Found, N unidentified relics", "to the
+  vault, on mission K of the run", opening the Relics tab); a cycle that ends the run writes none (the run's own entry
+  names its finds). Finds are rare (per hour), so this cannot flood the 50-entry log. The call's finds and run ends append
+  in the order of the whole tick each landed on (`appendShortRangeLog`), so the log reads the same however the span is
+  cut. The board card adds a quiet line, "Found N unidentified relics this run, in the vault." (`ShortRangeRunView.relicLine`).
+- Wiring: `relic:audit:shortRangeBlanks` is LIVE in place (probe `content:shortRangeRelics`: a Tier I and a Tier II cycle
+  of `SHORT_RANGE_RELIC_PROBE_HOURS` 200 find 8 + 15 blanks with the flag, none without). `relic:audit:generalPick`
+  stays pending, owner now an R2-3 follow-up: after the merge with R2-3 every new study (short-range blanks included)
+  identifies through identification v2 (`relic:audit:identifyV2`, live), so the v1 setless branch of
+  `identifyStudiedRelic` (`identifyGeneralRelic`) is reached by no study and is for retiring. The
+  two short-range out-of-scope reasons for rareFindMult / rareFindChance now say the relic rate is call 11's fixed rate.
+- Reading for the user: no find bonus (rare-find talents, Science relic find) raises the short-range rate; call 11 is
+  a fixed fraction of `EXPEDITION_RELIC_BLANKS_PER_HOUR` (still [PROVISIONAL] 0.5 from R2-2).
+- Parity class found (G1-4's, not relic): one economyTick call spanning several cycles threads `runCounts` captain by
+  captain, so on a fresh save two captains' training runs can resolve differently from 1 s steps. Production-safe for
+  the same reason as the three classes in G1-4's note (loopClock steps `economyTick(state, 1)`).
+
 ### G1-6: Board UI, dispatch, in-progress (UI; needs a mockup sign-off)
 
 Board cards (this run's roll on top, the slot's sheet as one bar per category vs the picked ship, used categories

@@ -3166,6 +3166,8 @@ describe("resolveProcesses, per-kind XP routing (FA XP + crafting XP), character
       token: { id: "expedition-1-relic-a", tier: "standard", quality: 0, setId: "precursor", poiId: "ancientRuins" },
       studyIndex: 1,
     },
+    // Gas Giant Study GG-5: a data study of one research data item.
+    dataStudy: { type: "studyData", itemId: "propulsionData", studyIndex: 1 },
   };
   // Expected contribution of ONE completed process of each kind. FA XP lumps
   // FLEET_ADMIN_XP_PER_DURATION_TICK * durationTicks (0.12.1: was the bare
@@ -3210,6 +3212,8 @@ describe("resolveProcesses, per-kind XP routing (FA XP + crafting XP), character
     // Exploration 0.14.0 (E4a): a relic study is RESEARCH-LIKE (the researchProject row): FA XP for a
     // finite, expedition-gated job; no crafting XP because identifying a found object produces nothing.
     relicStudy: { fa: true, crafting: false, craftingXp: 0 },
+    // Gas Giant Study GG-5: a data study is a Lab study like the relic study.
+    dataStudy: { fa: true, crafting: false, craftingXp: 0 },
   };
 
   const D = 30; // durationTicks used for every single-process case

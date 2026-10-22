@@ -336,6 +336,28 @@ to VII 20%; G2's nebula-region famous systems always]**, swept by one study leg 
 (**[PROPOSAL]** 7200 s, 24 to 48 canisters), Radiant 0. Tests as GG-3, plus: no nebula on a seed whose draw misses;
 G2 candidate identity outside the new draw.
 
+**GG-4 carry note (built 2026-10-21, on feat bc25a23).** `Expedition.nebula?: { kindId, swept? }` is stamped at
+dispatch (buildExpedition, and the preview run) only when the system's own draw finds one (gasGiantStudy.ts
+rollSystemNebula on NEBULA_SALT: draw 1 the hit at NEBULA_PERMILLE_BY_TIER, draw 2 the kind, uniform over the four; both
+always taken; the Orion, Lagoon and Eagle Nebulae always hold an emission nebula, FAMOUS_NEBULA_KIND), so every other
+dispatch record is byte-identical and a run in flight never sweeps. The SWEEP is a study leg (`GroundStudyLeg.nebula:
+1`, bodyIndex NEBULA_SWEEP_BODY_INDEX -1), scheduled when the last body is scanned (after any study under way) or when
+a resumed window opens on a fully charted system: 7200 s (call 12), no probe (no dive event), pickups wait for it, the
+window closes after it. Reward (rollNebulaReward, NEBULA_SWEEP_SALT, fixed order): data 400, family, readout 150, base
+24..48, chance rounding x the tier haul, then band and gas per canister by the kind's odds and weights (Radiant 0). No
+Ancient Data Fragment from a sweep. Survey Log: `SurveyLogEntry` is now `SurveyGiantEntry | SurveyNebulaEntry`
+(`kind: "nebula"`, `kindId`). Recall (G2-5): HeldSystem.nebulaSwept when the sweep finished; an unswept nebula keeps a
+system resumable; a resumed run marks `nebula.swept` and never sweeps twice; progress counts the sweep at weight 1.
+Previews: SystemTaskPreview.nebula, TaskDemand.nebulaSweep ("2 ship studies and 1 nebula sweep, no squad needed"),
+LaunchForecast.nebula; the candidate's identity is outside the draw (only its telescope demand gains `nebulaSweep`).
+Display: shipNowText "Sweeping the emission nebula · ..." (minimal; GG-6 owns the lane). Readers for GG-6:
+`nebulaCanisterRange`, `NEBULA_SWEEP_SECONDS`, `sweepsNebula`. Registry live with probes: GAS_STUDY_USES nebulaSweep
+and every NEBULA_KINDS bandOdds / itemWeights. [PROPOSAL] for the user: NEBULA_PERMILLE_BY_TIER (I 8% rising 2% a tier
+to VII 20%), the uniform kind draw, 24 to 48 canisters. Goldens: the GG-4 capture (42 systems, the stamp off) holds;
+the strip helper `withoutStudy` now also takes the nebula off (asPreNebulaDispatch for GG-3's own runs); moved on purpose,
+named at each pin: the fresh save's cand-1-2 (it holds a nebula) candidate / task preview / launch view (GG-0 golden 1,
+G2-0 display:candidates and display:launch, G2-1 candidates, SF-0 first:launch).
+
 ### GG-5: Research Lab study lane (engine)
 
 `"dataStudy"` process on its own lane (Lab 1 has 1 slot **[PROPOSAL]**), `DATA_STUDY_SECONDS` **[PROPOSAL 1200]**;
@@ -346,6 +368,48 @@ not-yet-researched blueprint of that family at or below the Lab's tier is grante
 blueprints); none left = nothing. Ancient entries per open call 10; `requiresDecode` gates. Overtime covers the lane
 when the speed seam lands. Tests: family map covers every blueprint once, boost math and consumption, recipe roll
 determinism, lane independence from research and relic study, offline parity.
+
+**GG-5 carry note (built 2026-10-21, on GG-4).** New engine module `dataStudy.ts`; the lane pump and completion live in
+tick.ts. TimedProcessKind `"dataStudy"` with effect `studyData { itemId, studyIndex, cultureId? }` (consume at start).
+Lane: DATA_STUDY_LANES 1 from Lab Level I (labTier; as drawn), DATA_STUDY_TICKS 1200 (call 12). `processDataStudyLane`
+runs once per whole tick in economyTick after the repair pass (offline == live; draws nothing): when idle and not paused
+it starts the OLDEST held item (`heldDataQueue`: units held with no arrival entry first, item order; then
+GameState.dataStudyHeld in arrival order, the claim appending one entry per unit via `depositExpeditionFindings(state,
+findings, exp)` / `dataArrivals`; entries the inventory no longer covers are pruned). Pause (`setDataStudyPaused`,
+GameState.dataStudyPaused): nothing starts and the running study's countdown holds (resolveProcesses skips it), as
+drawn. Completion: a research data item banks one boost (GameState.researchBoosts) and rolls the recipe chance
+(DATA_STUDY_SALT keyed by the save's relic seed and the study index; draw 1 the 5% chance, draw 2 the pick, both always
+taken) over `dataStudyRecipeCandidates` (the item's family, tier <= the Lab's, not researched, not in research, not
+relic or decode locked), granted straight into researchedBlueprints; none left = nothing. `startResearch` spends every
+banked boost of the project's family (`researchFamilyOf`): duration = museum duration / (1 + researchBoostSpeed(n)),
+researchBoostSpeed(n) = 0.12 x diminishing(n, 4) / diminishing(1, 4). An Ancient Data Fragment decodes the next entry of
+its OWN culture (GameState.ancientDecoded[cultureId]; the culture is the Relics v2 body culture, cultureForBody, read
+off the study finding's body at the claim; a fragment held from before GG-5 reads a pure legacy hash) and gives that
+culture one study point (`feedCultureData` on the Museum v2 culture record: the OC-9 seam R2-6 builds naming on).
+`BlueprintDef.requiresDecode` + `blueprintDecodeLocked` (the most entries any one culture decoded) + canResearch
+`undecoded`: no blueprint carries it yet (GG-7's special blueprints will). Overtime covers `dataStudy` (tier 1). Research
+data items lost their `reserved` markers; their registry rows flip live in place (DATA_STUDY consume:<item>, probe: the
+lane studies the unit). Registry live with probes: GAS_STUDY_USES labLane, DATA_STUDY boost:<family> x8, recipeChance; seams
+ancientDecode (review follow-up below) and DATA_STUDY_SEAM decodeGate (owner GG-7). Completion log: a study that learned a recipe records a
+"blueprint", any other the item studied ("nothing"; GG-6's tab shows the boost or the entry); FA XP like a relic study.
+[PROVISIONAL]: RESEARCH_BOOST_KNEE 4. [PROPOSAL]: the family map (RESEARCH_FAMILY_BY_SLOT plus the Survey Rig and the
+Pathfinder Suite as Sensors; field kits as Field; hull unlocks and holds as Hull Design), the decode gate reading the
+most entries of any one culture, a data study earning FA XP. Readers for GG-6: `heldDataQueue`, `dataStudiesInFlight`,
+`dataStudyPaused`, `researchBoostsBanked`, `researchBoostSpeed`, `ancientEntriesDecoded`. For GG-6: research data is
+still on the warehouse shelves through the GG-3 source flip (GAS_STUDY_SOURCE_PENDING empty); the signed-off "no
+research-data warehouse shelf" is GG-6's to apply. Goldens: the GG-5 capture (a save holding data, an hour) holds with
+the lane paused; the lane-on hour is pinned (GG-5 golden).
+
+**GG-4 / GG-5 review follow-up (2026-10-22, integration).** `facility:DATA_STUDY:ancientDecode` is a SEAM (owner GG-7 and
+R2-6), not live: the study raises `ancientDecoded` (its probe still measures that), but no blueprint carries
+`requiresDecode` yet and nothing reads the culture study point, so a fragment study changes nothing a player sees until
+GG-7 (GG-7 adds a test that at least one blueprint needs a decode). Overtime is refused on a paused data study
+(`canBuyOvertime` reason `paused`). Tags added, for the user: [PROPOSAL] the sweep's extras (research data 40%, Survey
+Log readout 15%, never an Ancient Data Fragment), [PROPOSAL] the Orion, Lagoon and Eagle Nebulae always holding an
+emission nebula, [PROVISIONAL] one data lane at every Lab level. For GG-6: the forecast prints `nebulaCanisterRange`
+(30 to 60 at Tier II), not the mockup's example "31 to 62"; the demand line reads "2 ship studies and 1 nebula
+sweep, no squad needed" where the mockup drew "2 ship studies · 1 nebula sweep · Studies need no squad" (reconcile
+there); a paused lane needs its paused state on the Home row (its countdown holds).
 
 ### GG-6: UI (needs a v3 mockup sign-off first)
 

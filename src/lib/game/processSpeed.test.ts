@@ -93,6 +93,8 @@ function effectFor(kind: TimedProcessKind): ProcessEffect {
       return { type: "salvageResolve", target: { kind: "material", itemId: "frameSegment" } };
     case "relicStudy":
       return { type: "identifyRelic", token: relicToken(), studyIndex: 1 };
+    case "dataStudy":
+      return { type: "studyData", itemId: "propulsionData", studyIndex: 1 };
   }
 }
 
@@ -114,6 +116,7 @@ const KIND_COVERED: Record<TimedProcessKind, true> = {
   shipRepair: true,
   salvageJob: true,
   relicStudy: true,
+  dataStudy: true,
 };
 const ALL_KINDS = Object.keys(KIND_COVERED) as TimedProcessKind[];
 
@@ -170,9 +173,9 @@ describe("Overtime: the shape the user chose (+25% steps, never doubling, never 
     expect(OVERTIME_MAX_STEPS).toBeGreaterThanOrEqual(2);
   });
 
-  it("is offered on the kinds the user named: Shipyard builds and repairs, research, facility upgrades", () => {
+  it("is offered on the kinds the user named: Shipyard builds and repairs, research (GG-5: the Lab's data study too), facility upgrades", () => {
     expect([...OVERTIME_PROCESS_KINDS].sort()).toEqual(
-      ["docksExpansion", "equipmentStorageUpgrade", "facilityUpgrade", "researchProject", "shipBuild", "shipRepair", "transitBerthExpansion"].sort(),
+      ["dataStudy", "docksExpansion", "equipmentStorageUpgrade", "facilityUpgrade", "researchProject", "shipBuild", "shipRepair", "transitBerthExpansion"].sort(),
     );
   });
 });

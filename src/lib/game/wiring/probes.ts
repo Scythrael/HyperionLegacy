@@ -122,6 +122,7 @@ import { generateEnemyWave } from "../combat/enemyWave";
 import type { PirateHullId } from "../combat/enemyHulls";
 import { STATUS_EFFECT_DEFS, activeStatDelta, applyEffect, tickEffects } from "../combat/statusEffects";
 import { makeRng } from "../combat/rng";
+import { wearProbeDef, type WearProbeId } from "./wearProbes";
 import {
   advanceExpedition,
   candidateReach,
@@ -185,6 +186,7 @@ import { groundTeamBaySeconds } from "../groundOps";
 import { retirementExpMultiplier } from "../captainRetirement";
 import { transitBerthCount } from "../berths";
 import { shortRangeBoardSlots, startShortRangeCycle } from "../shortRangeBoard";
+import { RELIC_BLANKS_VERSION } from "../relicBlanks";
 import { rollShortRangeJob, shortRangeCycleReward, shortRangeShipRatings, type ShortRangeCyclePlan, type ShortRangeRoll, type ShortRangeTemplateKey } from "../shortRange";
 import { telescopeReading } from "../telescope";
 import { getSeniorStaffBonusById } from "../seniorStaffBonuses";
@@ -209,10 +211,13 @@ import {
   giantMassAt,
   isOrbitalPlanetType,
   rollGiantProfile,
+  rollNebulaReward,
   rollStudyReward,
   studyCanisterScale,
 } from "../gasGiantStudy";
-import { GAS_CANISTER_IDS, GIANT_CLASSES, canistersInBand, type GiantClassDef, type GiantClassId } from "../gasGiantContent";
+import { ANCIENT_DATA_FRAGMENT_ID, GAS_CANISTER_IDS, GIANT_CLASSES, NEBULA_KINDS, canistersInBand, type GiantClassDef, type GiantClassId, type NebulaKindDef, type NebulaKindId, type ResearchFamily } from "../gasGiantContent";
+// Gas Giant Study GG-5: the Research Lab's data study lane.
+import { DATA_STUDY_RECIPE_PERMILLE, DATA_STUDY_TICKS, researchFamilyOf, rollDataStudyRecipe, setDataStudyPaused } from "../dataStudy";
 
 // ============================================================================
 // Contexts (every context a claim can cover; plan section 3.2)
@@ -714,6 +719,39 @@ export function shortRangeTrainingCycle(template: ShortRangeTemplateKey): { roll
   const s = wiringBase();
   const m = shortRangeMissionOf(onShortRangeJob(s, template));
   return { roll: m.roll, plan: m.plan, credits: shortRangeCycleReward(m.roll, effectiveShipStats(s, shipOf(s))).credits };
+}
+
+// G1-5 (short-range relic drops): the planned length of the cycle the relic probe flies, in hours. Long enough that
+// each tier's expected finds are whole numbers, so the count is exact (rollShortRangeRelicBlanks still takes its
+// remainder chance draw, which on a zero remainder can never land):
+// Tier I 0.04 an hour x 200 = 8, Tier II 0.075 x 200 = 15.
+export const SHORT_RANGE_RELIC_PROBE_HOURS = 200;
+
+// The relic blanks one delivered short-range cycle of `tier` finds through the REAL cycle engine (economyTick): a
+// Telescope Repair (no load to pay, no Warehouse gate) on a slot of that tier, its plan stretched on site to
+// SHORT_RANGE_RELIC_PROBE_HOURS, recalled so the run ends at the delivery. `flagged`: the run carries G1-5's relic flag
+// (a dispatch from G1-5 on); off, the same run as a pre-G1-5 dispatch.
+export function shortRangeRelicCycleFinds(s: GameState, tier: 1 | 2, flagged: boolean): number {
+  const slot = { id: tier === 1 ? 0 : 2, tier };
+  let idx = 0;
+  while (rollShortRangeJob(s, slot, idx).template !== "telescopeRepair") if (++idx > 2000) throw new Error("wiring: no telescopeRepair roll");
+  const start = startShortRangeCycle(s, shipOf(s), slot, idx);
+  const total = SHORT_RANGE_RELIC_PROBE_HOURS * 3600;
+  const legs = start.plan.transitOutTicks + start.plan.transitBackTicks + start.plan.unloadTicks;
+  const plan = { ...start.plan, onSiteTicks: total - legs, totalTicks: total };
+  const mission: ShortRangeMissionState = {
+    kind: "shortRange",
+    slotId: slot.id,
+    roll: start.roll,
+    plan,
+    phase: "transitOut",
+    phaseProgressTicks: 0,
+    recalled: true,
+    ...(flagged ? { relicBlanks: { version: RELIC_BLANKS_VERSION } } : {}),
+  };
+  const after = economyTick({ ...editCaptain(s, { mission } as Partial<CaptainState>), runCounts: start.runCounts }, total + 1, () => 0.5);
+  if (captainOf(after).mission !== null) throw new Error("wiring: the relic probe's cycle was not delivered");
+  return (after.relicVault ?? []).filter((t) => t.source === "shortRange").length;
 }
 
 // The last tick of a Supply Pickup's home turnaround, then that tick (economyTick, every draw `draw`).
@@ -1887,7 +1925,8 @@ function gasStudyUseValue(s: GameState, use: string, on: boolean): number {
     case "studyReward": {
       // The whole study run (OFF: its stamp taken away, a run dispatched before GG-2) until every body is scanned and
       // every study is done; the canisters its "study" findings carry.
-      const dispatched = studyRun(readyForRun(s));
+      // GG-4: the system's nebula (if it holds one) comes off both sides, so only the body studies count here.
+      const { nebula: _nebula, ...dispatched } = studyRun(readyForRun(s));
       const { study: _stamp, ...unstamped } = dispatched;
       let run: Expedition = on ? dispatched : unstamped;
       const settled = (r: Expedition): boolean => r.bodies.every((b) => b.scanned) && (r.groundOps?.studyLegs ?? []).every((l) => l.done);
@@ -1903,6 +1942,130 @@ function gasStudyUseValue(s: GameState, use: string, on: boolean): number {
       const run = studyRun(on ? wearPiece(ready, WIRING_SCIENCE_ID, "memberTool", GALILEO_VARIETY, { groundFieldwork: 12, groundHazardResist: 6, groundRelicFind: 2 }) : ready);
       const i = run.bodies.findIndex((b) => isOrbitalPlanetType(b.planetType));
       return 100 * studyCanisterScale(run, i);
+    }
+    case "nebulaSweep": {
+      // GG-4: a run to a system holding a nebula until every body is scanned and every study (the sweep included) is
+      // done (OFF: its nebula stamp taken away, a run dispatched before GG-4); the canisters its sweep finding carries.
+      const dispatched = nebulaRun(readyForRun(s));
+      const { nebula: _stamp, ...unstamped } = dispatched;
+      let run: Expedition = on ? dispatched : unstamped;
+      const settled = (r: Expedition): boolean => r.bodies.every((b) => b.scanned) && (r.groundOps?.studyLegs ?? []).every((l) => l.done);
+      for (let t = run.phaseAnchorSeconds + 3600; t < run.phaseAnchorSeconds + 4_000_000 && !settled(run); t += 3600) run = advanceExpedition(run, t);
+      let n = 0;
+      for (const f of run.findings) if (f.id === `${run.id}-find-nebula`) for (const id of GAS_CANISTER_IDS) n += f.materials?.[id] ?? 0;
+      return n;
+    }
+    default:
+      return 0;
+  }
+}
+
+// ===== Gas Giant Study GG-5: the Research Lab's data study lane (dataStudy.ts) =====
+
+// A Lab Level I save holding `units` of `itemId`, the lane on (OFF: paused, the consumer taken away), stepped one data
+// study and a little past it through the real economy tick.
+function dataStudyRun(s: GameState, itemId: string, on: boolean, units = 1): { before: GameState; after: GameState } {
+  const lab = withFacilityLevel(s, "research", 1);
+  const held: GameState = { ...lab, inventory: addItemQuality(lab.inventory, itemId, new Decimal(units), 0) };
+  const before = on ? held : setDataStudyPaused(held, true);
+  let after = before;
+  for (let i = 0; i < DATA_STUDY_TICKS + 3; i++) after = economyTick(after, 1, () => 0.999999);
+  return { before, after };
+}
+
+// The first blueprint of `family` a top Lab researches (BLUEPRINTS order).
+function familyBlueprint(family: ResearchFamily): string {
+  const key = Object.keys(BLUEPRINTS).find((k) => researchFamilyOf(BLUEPRINTS[k]) === family && BLUEPRINTS[k].requiresRelicDiscovery === undefined);
+  if (!key) throw new Error(`wiring: no blueprint of family ${family}`);
+  return key;
+}
+
+// A GG-5 lab lane value, read through its consumer.
+//   lane:             boosts banked by one study of Propulsion Data (OFF: the lane paused);
+//   consume:<item>:   units of the item the lane studied (OFF: paused);
+//   boost:<family>:   research ticks one banked boost saves on the family's first blueprint (OFF: none banked);
+//   recipe:           recipes a batch of 400 study rolls learns with candidates waiting (OFF: the chance at 0);
+//   decode:           entries one Ancient Data Fragment study decodes (OFF: paused).
+function dataStudyValue(s: GameState, a: string, b: string, on: boolean): number {
+  switch (a) {
+    case "lane": {
+      const { after } = dataStudyRun(s, "propulsionData", on);
+      return after.researchBoosts?.propulsion ?? 0;
+    }
+    case "consume": {
+      const { before, after } = dataStudyRun(s, b, on);
+      return heldOf(before, b) - heldOf(after, b);
+    }
+    case "boost": {
+      const family = b as ResearchFamily;
+      const key = familyBlueprint(family);
+      const ready: GameState = { ...withFacilityLevel(s, "research", 9), credits: new Decimal(1e12), ...(on ? { researchBoosts: { [family]: 1 } } : {}) };
+      const r = startResearch(ready, key);
+      const plain = startResearch({ ...ready, researchBoosts: undefined }, key);
+      const ticks = (x: typeof r) => x.next.activeProcesses[x.next.activeProcesses.length - 1]?.remainingTicks ?? 0;
+      return ticks(plain) - ticks(r);
+    }
+    case "recipe": {
+      let n = 0;
+      for (let i = 1; i <= 400; i += 1) if (rollDataStudyRecipe(RELIC_DEFAULT_SEED, i, ["frameSegmentBp"], on ? DATA_STUDY_RECIPE_PERMILLE : 0) !== null) n += 1;
+      return n;
+    }
+    case "decode": {
+      const { after } = dataStudyRun(s, ANCIENT_DATA_FRAGMENT_ID, on);
+      return Object.values(after.ancientDecoded ?? {}).reduce((x, y) => x + y, 0);
+    }
+    default:
+      return 0;
+  }
+}
+
+// GG-4: a run dispatched from `s` to the first candidate system, over a seed batch, that holds a nebula; throws when
+// none does (so a probe never passes on an empty fixture).
+const NEBULA_PROBE_SEEDS = Array.from({ length: 60 }, (_, i) => 0x51f15e + i * 0x10001);
+function nebulaRun(s: GameState): Expedition {
+  for (const seed of NEBULA_PROBE_SEEDS) {
+    const run = dispatchRun({ ...s, expeditionSeed: seed });
+    if (run.nebula !== undefined) return run;
+  }
+  throw new Error("wiring: no nebula probe seed reaches a system with a nebula");
+}
+
+// GG-4: the canisters of `pick` over a batch of sweeps of a nebula of `kindId`, the reward rolled with `kinds`.
+function nebulaBatchCount(kindId: NebulaKindId, kinds: readonly NebulaKindDef[], pick: (id: string) => boolean): number {
+  let n = 0;
+  for (let seed = 1; seed <= 120; seed += 1) {
+    const exp = {
+      id: "wiring-nebula",
+      seed: seed * 0x9e3779b1,
+      systemName: "LB-0001",
+      region: { version: 1 as const, tier: 1 as const, enemyTerritory: false, bearing: 0, distanceLy: 10 },
+      nebula: { kindId },
+    };
+    const mats = rollNebulaReward(exp, 0, kinds).materials ?? {};
+    for (const [id, q] of Object.entries(mats)) if (pick(id) && (GAS_CANISTER_IDS as readonly string[]).includes(id)) n += q;
+  }
+  return n;
+}
+
+// A NEBULA_KINDS field, read through the sweep's reward (GG-4).
+//   bandOdds: the canisters above the Standard band with the kind's odds vs all Standard;
+//   itemWeights: the kind's heaviest gas of its first band whose weights are uneven (Standard, else Augmented) with its
+//   weights vs even weights (a Planetary nebula weighs its two Standard gases alike, so its Augmented pair is read).
+function nebulaKindFieldValue(kindId: NebulaKindId, field: string, on: boolean): number {
+  const def = NEBULA_KINDS.find((k) => k.id === kindId)!;
+  switch (field) {
+    case "bandOdds": {
+      const flat = { standard: 100, augmented: 0, stellar: 0, radiant: 0 };
+      const kinds = on ? NEBULA_KINDS : NEBULA_KINDS.map((k) => (k.id === kindId ? { ...k, bandOdds: flat } : k));
+      return nebulaBatchCount(kindId, kinds, (id) => ITEMS[id]?.band !== "standard");
+    }
+    case "itemWeights": {
+      const uneven = (band: "standard" | "augmented") => new Set(canistersInBand(band).map((id) => def.itemWeights[id])).size > 1;
+      const standard = canistersInBand(uneven("standard") ? "standard" : "augmented");
+      const heaviest = standard.reduce((a, b) => (def.itemWeights[b] > def.itemWeights[a] ? b : a), standard[0]);
+      const even = Object.fromEntries(GAS_CANISTER_IDS.map((id) => [id, 1])) as NebulaKindDef["itemWeights"];
+      const kinds = on ? NEBULA_KINDS : NEBULA_KINDS.map((k) => (k.id === kindId ? { ...k, itemWeights: even } : k));
+      return nebulaBatchCount(kindId, kinds, (id) => id === heaviest);
     }
     default:
       return 0;
@@ -2170,6 +2333,10 @@ function readContent(id: string, s: GameState): number {
       return gasStudyUseValue(s, a, on);
     case "giantClass":
       return giantClassFieldValue(a as GiantClassId, b, on);
+    case "nebulaKind":
+      return nebulaKindFieldValue(a as NebulaKindId, b, on);
+    case "dataStudy":
+      return dataStudyValue(s, a, b, on);
     case "lootPool": {
       // One salvage of the material: the item it gave is one of the pool's configured drops.
       const held = holding(s, a, new Decimal(1));
@@ -2397,6 +2564,10 @@ function readContent(id: string, s: GameState): number {
       if (!res.success || !res.expedition) throw new Error(`field kits switch probe: dispatch refused (${res.reason})`);
       return Object.values(carriedExtras(res.expedition)).reduce((n, x) => n + (x ?? 0), 0);
     }
+    case "shortRangeRelics":
+      // G1-5: the relic blanks a Tier I and a Tier II short-range cycle of SHORT_RANGE_RELIC_PROBE_HOURS find through
+      // the cycle engine; on, runs carrying G1-5's relic flag; off, the same runs without it (dispatched before G1-5).
+      return shortRangeRelicCycleFinds(s, 1, on) + shortRangeRelicCycleFinds(s, 2, on);
     case "fieldKitsHiddenPieces": {
       // Field Kits FKR-9 / FKR-10 (model.ts FIELD_KITS_PLAYER_LIVE): the pieces kept hidden until kits went live that a
       // player can now reach: each FIELD_KITS_HIDDEN_BLUEPRINTS blueprint in BLUEPRINTS (Research, the Fabricator, the
@@ -2588,10 +2759,12 @@ const ENEMY_RANK_PROBE_FIGHT: Readonly<Partial<Record<EnemyRank, { grade: number
 export type FacetProbeId = `facet:${CrewProfession | "all"}:${keyof OfficerStats}`;
 export type ContentProbeId = `content:${string}`;
 export type MuseumProbeId = `museum:${string}`;
-export type ProbeId = keyof typeof PROBES | FacetProbeId | ContentProbeId | MuseumProbeId;
+// GEAR WEAR step 3: the `wear:` probes live in wearProbes.ts (their fixtures drive the gear wear engine).
+export type ProbeId = keyof typeof PROBES | FacetProbeId | ContentProbeId | MuseumProbeId | WearProbeId;
 
 export function probeLabel(id: ProbeId): string {
   if (id.startsWith("content:")) return id;
+  if (id.startsWith("wear:")) return wearProbeDef(id as WearProbeId).label;
   if (id.startsWith("museum:")) return `museumBonuses.${id.slice(7)}`;
   if (id.startsWith("facet:")) {
     const [, dept, stat] = id.split(":");
@@ -2607,7 +2780,9 @@ function readFacet(id: FacetProbeId, s: GameState): number {
 
 // A probe's value, by id (the registry stores ids so the Debug panel can name them). A non-finite value throws.
 export function readProbe(id: ProbeId, s: GameState, ctx: ContextId): number {
-  const v = id.startsWith("facet:")
+  const v = id.startsWith("wear:")
+    ? wearProbeDef(id as WearProbeId).read(s, ctx)
+    : id.startsWith("facet:")
     ? readFacet(id as FacetProbeId, s)
     : id.startsWith("content:")
       ? readContent(id, s)

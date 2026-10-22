@@ -21,11 +21,13 @@ import {
   type EquipmentInstance,
   type GameState,
   type HomeworldTalentKey,
-  generalMuseumRecord,
   isStandardIssueBaseline,
+  emptyMuseumV2,
   withGeneralMuseumRecord,
+  type MuseumV2,
+  type RegionTierKey,
 } from "../model";
-import { MUSEUM_COPY_LADDER, RELIC_SETS, museumBonuses, type MuseumStat } from "../relics";
+import { EXCEPTIONAL_SETS, MUSEUM_COPY_LADDER, RELIC_SETS, museumActiveRecord, museumBonuses, type MuseumStat } from "../relics";
 import { OFFICER_STAT_NEUTRAL } from "../officerStats";
 import { CREW_RACES } from "../crewRaces";
 import { CREW_STAT_KEYS } from "../crewBuffs";
@@ -154,13 +156,14 @@ export const UNMEASURED_CATALOGS: Readonly<Record<string, string>> = {
   PROSPECTING_SPEC_BASE: "hidden until the prospecting quests patch",
   PROSPECTING_BLUEPRINTS: "hidden until the prospecting quests patch",
   PROSPECTING_USES: "hidden until the prospecting quests patch",
-  RELIC_TYPES: "dormant until Relics v2 R2-4 (copies per tier; R2-8 brings the Museum v2 page)",
-  EXCEPTIONAL_SETS: "dormant until Relics v2 R2-5 (exceptional pieces are not found before then)",
   // Gas Giant Study: the engine (gasGiantStudy.ts) reads the classes on a run, never off a ship the panel owns.
-  GAS_STUDY_USES: "the gas giant study engine's uses (GG-2 and GG-3 live, GG-4 to GG-7 pending): read on a run, no owner reader",
+  GAS_STUDY_USES: "the gas giant study engine's uses (GG-2 to GG-5 live, GG-7 pending): read on a run or by the Research Lab, no owner reader",
   GIANT_CLASSES: "read by the giant class roll and the study reward on a run (GG-2, GG-3): no owner reader in the panel",
-  NEBULA_KINDS: "data only until the nebula sweep (GG-4)",
+  NEBULA_KINDS: "read by the nebula sweep's reward on a run (GG-4): no owner reader in the panel",
   GAS_STUDY_SEAM: "a framework seam (the probe dive, read by gear wear step 3): nothing to own",
+  // GG-5: the Research Lab's data study lane is account-level (the Lab, the banked boosts), never a ship's.
+  DATA_STUDY: "the Research Lab's data study lane (GG-5): account-level, no ship owner reader",
+  DATA_STUDY_SEAM: "a framework seam (the decode gate, read by GG-7's special blueprints): nothing to own",
 };
 
 const shipOf = (s: GameState) => s.ships.find((sh) => sh.id === PANEL_SHIP_ID);
@@ -199,6 +202,27 @@ function dropLine(s: GameState, match: (e: EquipmentInstance) => boolean, line: 
 
 function uninstall(s: GameState, match: (e: EquipmentInstance) => boolean): GameState {
   return { ...s, equipment: s.equipment.map((e) => (match(e) ? { ...e, fittedToShipId: null } : e)) };
+}
+
+// Relics v2 R2-4: the Museum tiers the D23 curve serves, and the state with some ids removed from some tiers' general
+// copies and snapshots, or some exceptional pieces removed.
+const CURVED_TIER_KEYS: readonly RegionTierKey[] = ["2", "3", "4", "5", "6", "7"];
+function withoutMuseumIds(v: GameState, tiers: readonly RegionTierKey[], ids: readonly string[]): GameState {
+  const m: MuseumV2 = v.museumV2 ?? emptyMuseumV2();
+  const strip = (part: MuseumV2["general"]): MuseumV2["general"] => {
+    const out = { ...part };
+    for (const t of tiers) {
+      const rec = out[t];
+      if (!rec) continue;
+      out[t] = Object.fromEntries(Object.entries(rec).filter(([id]) => !ids.includes(id)));
+    }
+    return out;
+  };
+  return { ...v, museumV2: { ...m, general: strip(m.general), frozen: strip(m.frozen) } };
+}
+function withoutPieces(v: GameState, ids: readonly string[]): GameState {
+  const m: MuseumV2 = v.museumV2 ?? emptyMuseumV2();
+  return { ...v, museumV2: { ...m, exceptional: Object.fromEntries(Object.entries(m.exceptional).filter(([id]) => !ids.includes(id))) } };
 }
 
 function owned(withoutState: GameState, note?: string): Owned {
@@ -327,22 +351,49 @@ const ADAPTERS: Readonly<Record<string, Adapter>> = {
   BRIDGE_MODULES: (_e, v, key) => moduleOn(v, "bridge", key.split(":")[0]),
   SENSOR_ARRAYS: (_e, v, key) => moduleOn(v, "sensor", key.split(":")[0]),
   MUSEUM_STATS: (_e, v, key) =>
-    (museumBonuses(v)[key as MuseumStat] ?? 0) !== 0 ? owned(withGeneralMuseumRecord(v, {}), "without = an empty Museum (the stat's whole total)") : NOT_OWNED,
+    (museumBonuses(v)[key as MuseumStat] ?? 0) !== 0 ? owned({ ...v, museumV2: emptyMuseumV2() }, "without = an empty Museum (the stat's whole total)") : NOT_OWNED,
+  // Relics v2 R2-4: a general type's copies at Tiers II to VII (its Tier I copies are its RELICS row).
+  RELIC_TYPES: (_e, v, key) => {
+    const tiers = CURVED_TIER_KEYS.filter((t) => (museumActiveRecord(v.museumV2, Number(t) as 2)[key] ?? 0) > 0);
+    if (tiers.length === 0) return NOT_OWNED;
+    return owned(withoutMuseumIds(v, tiers, [key]), "without = none of its copies at Tiers II to VII");
+  },
+  // Relics v2 R2-4: a tier's per-copy value: every copy the tier holds.
+  MUSEUM_V2_PER_COPY: (_e, v, key) => {
+    const record = museumActiveRecord(v.museumV2, Number(key) as 2);
+    if (Object.keys(record).length === 0) return NOT_OWNED;
+    return owned(withoutMuseumIds(v, [key as RegionTierKey], Object.keys(record)), "without = none of the tier's copies");
+  },
+  // Relics v2 R2-4: an exceptional piece held (a duplicate adds nothing), or a full set (every piece held).
+  EXCEPTIONAL_SETS: (_e, v, key) => {
+    const [setId, part] = key.split(":");
+    const set = EXCEPTIONAL_SETS.find((x) => x.id === setId);
+    const held = v.museumV2?.exceptional ?? {};
+    if (!set) return NOT_OWNED;
+    if (part === "full") {
+      if (!set.pieces.every((p) => (held[p.id] ?? 0) > 0)) return NOT_OWNED;
+      const last = set.pieces[set.pieces.length - 1].id;
+      return owned(withoutPieces(v, [last]), "without = the set's last piece (its own value goes too)");
+    }
+    return (held[part] ?? 0) > 0 ? owned(withoutPieces(v, [part]), "without = the piece") : NOT_OWNED;
+  },
+  // Relics v2 R2-4: Tier I's record as the regular game reads it (its soft cap snapshot once frozen).
   RELICS: (_e, v, key) => {
-    const museum = generalMuseumRecord(v);
-    if ((museum[key] ?? 0) <= 0) return NOT_OWNED;
-    const { [key]: _gone, ...rest } = museum;
-    return owned(withGeneralMuseumRecord(v, rest), "without = none of its copies");
+    if ((museumActiveRecord(v.museumV2, 1)[key] ?? 0) <= 0) return NOT_OWNED;
+    return owned(withoutMuseumIds(v, ["1"], [key]), "without = none of its copies");
   },
   RELIC_SETS: (_e, v, key) => {
     const [setId, piecesText] = key.split(":");
     const set = RELIC_SETS.find((x) => x.id === setId);
     const relics = set?.relicIds.slice(0, Number(piecesText)) ?? [];
     const first = MUSEUM_COPY_LADDER[0];
-    const museum = generalMuseumRecord(v);
+    const museum = museumActiveRecord(v.museumV2, 1);
     if (!relics.length || !relics.every((r) => (museum[r] ?? 0) >= first)) return NOT_OWNED;
     const last = relics[relics.length - 1];
-    return owned(withGeneralMuseumRecord(v, { ...museum, [last]: first - 1 }), `without = the tier's last relic at ${first - 1} copies`);
+    const edited = { ...museum, [last]: first - 1 };
+    // Relics v2 R2-4: a frozen Tier I is read from its snapshot, so the edit goes there.
+    const without = v.museumV2?.frozen?.["1"] !== undefined ? { ...v, museumV2: { ...v.museumV2, frozen: { ...v.museumV2.frozen, "1": edited } } } : withGeneralMuseumRecord(v, edited);
+    return owned(without, `without = the tier's last relic at ${first - 1} copies`);
   },
   CREW_RARITY_MULTIPLIER: (_e, v, key) =>
     bucketsAboard(v).some((b) => b.rarity === key)

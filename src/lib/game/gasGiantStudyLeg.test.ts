@@ -48,7 +48,7 @@ import {
   studySeconds,
 } from "./gasGiantStudy";
 import { ITEMS } from "./model";
-import { dispatchPastPropulsion, plainAwayMember, withoutStudy } from "./awayTeamTestFixtures";
+import { asPreNebulaDispatch, dispatchPastPropulsion, plainAwayMember, withoutStudy } from "./awayTeamTestFixtures";
 
 const SEC = ["member-1", "member-2", "member-3", "member-4", "member-5", "member-6"];
 const SCI = ["member-11", "member-12", "member-13", "member-14", "member-15", "member-16"];
@@ -98,7 +98,9 @@ function withGalileo(s: GameState, memberId: string, points: number, id = `galil
 }
 
 function dispatch(state: GameState, id: string): { next: GameState; exp: Expedition } {
-  const res = dispatchPastPropulsion(state, "ship-1", 1, id);
+  // GG-4 (merged after GG-3): the giant's study alone, so the nebula stamp comes off (a run before GG-4; the sweep is
+  // gasGiantNebula.test.ts's).
+  const res = asPreNebulaDispatch(dispatchPastPropulsion(state, "ship-1", 1, id));
   if (!res.success || !res.expedition) throw new Error(`dispatch refused: ${res.reason}`);
   return { next: res.next, exp: res.expedition };
 }
@@ -356,8 +358,9 @@ describe("GG-3 the reward", () => {
         }
         if (f.survey) {
           survey += 1;
-          expect(f.survey.classId).toBe(c.id);
-          expect(f.survey.bodyName).toBe("LB-0001 b");
+          expect(f.survey.kind).toBe("giant");
+          if (f.survey.kind === "giant") expect(f.survey.classId).toBe(c.id);
+          if (f.survey.kind === "giant") expect(f.survey.bodyName).toBe("LB-0001 b");
         }
       }
       for (const b of ITEM_BANDS) expect(Math.abs(bands[b] / canisters - c.bandOdds[b] / 100), `${c.id} ${b}`).toBeLessThan(0.02);

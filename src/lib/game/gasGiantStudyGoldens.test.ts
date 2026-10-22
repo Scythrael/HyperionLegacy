@@ -24,6 +24,10 @@
 // steps 1 and 2 (merged later) retired the stored durability: hashes go through goldenJson, which puts it back.
 
 import { describe, expect, it } from "vitest";
+// GEAR WEAR step 3: this file's pins were captured before the use wear engine; it runs with the use sources off
+// (gearWearSwitch.fixture.ts), so they keep proving nothing else moved. gearWearGoldens.test.ts pins the wear.
+import { gearWearOffInThisFile } from "./gearWearSwitch.fixture";
+gearWearOffInThisFile();
 // ML-2 (recipe realism) added two refined goods and their two refines after GG-1: held apart from the census below.
 import { ML2_NEW_ITEMS, ML2_NEW_REFINES } from "./ml2RecipeGoldens.fixture";
 import Decimal from "break_infinity.js";
@@ -55,7 +59,7 @@ import { resolveShipScanEvent } from "./shipScanEvents";
 import { startResearch } from "./tick";
 import { gasStudyItemIds } from "./gasGiantContent";
 import { GG1_RECIPE } from "./gasStudyGoldens.fixture";
-import { asPreG2Candidate, asPreG2NamesDispatch, asPreRanksDispatch, plainAwayMember, withoutG2NamesState, dispatchPastPropulsion, withoutStudy, asPreRelicBlanksDispatch } from "./awayTeamTestFixtures";
+import { asPreG2Candidate, asPreG2NamesDispatch, asPreRanksDispatch, plainAwayMember, withoutG2NamesState, dispatchPastPropulsion, withoutStudy, asPreRelicBlanksDispatch, asPreNebulaDispatch } from "./awayTeamTestFixtures";
 import { goldenJson, withV1Museum } from "./firstRunsGoldens.fixture";
 
 // ===== shared helpers =====
@@ -186,8 +190,12 @@ function expectParity(exp: Expedition): void {
 // candidate and the launch view equal G2-0's own moves (expeditionTiersGoldens display:candidates L8 cand-2 157c763c,
 // display:launch 3ad67e95). The dispatch and everything after it are pinned as dispatched before GG-2 (the strip
 // helpers take the study stamp off: asPreFieldKitsDispatch composes withoutStudy), so they hold.
+// GG-4 (the nebula sweep): this system (freshState cand-1-2) holds a nebula, so its candidate (the telescope demand's
+// nebulaSweep), task preview (`nebula`) and launch view (the demand and the forecast's `nebula`) moved on purpose (were
+// 157c763c, 8e03ab11, 3ad67e95): every preview reads the run a dispatch makes NOW, and that run sweeps it. The dispatch
+// and everything after it hold (withoutStudy also takes the nebula stamp off).
 const GOLDEN: Record<string, readonly string[]> = {
-  giant: ["157c763c", "8e03ab11", "3ad67e95", "4ac8a0a7", "44d0a224", "93b332c5", "f23b02ce", "e8b83c3e", "d95c0baf", "a6f5bf49", "9a143f7", "661f503f"],
+  giant: ["ff403b2a", "16926927", "41590067", "4ac8a0a7", "44d0a224", "93b332c5", "f23b02ce", "e8b83c3e", "d95c0baf", "a6f5bf49", "9a143f7", "661f503f"],
   plain: ["82735f", "61454ce6", "6964ecd8", "81d9393c", "394ef6cb", "ffa69009", "5a7a918b", "52c3393d", "2dc0e5cf", "5d234ce9", "8b1199fc", "174e7996"],
   risk: ["6b5a19c0", "9c9d2b43", "31ca5738"],
 };
@@ -351,10 +359,12 @@ function sweepRow(saveSeed: number, tier: number, slot: number): string[] {
   const risk = expeditionRiskPreview(cand.seed, cand.region);
   // On feat, G2-4 and Relics v2 R2-2 landed before this slice: the pre-G2-4 dispatch (dispatchPastPropulsion) without
   // the R2-2 relic blanks flag (asPreRelicBlanksDispatch), here and in the GG-3 captures below, so every pin reproduces.
-  const res = asPreRelicBlanksDispatch(dispatchPastPropulsion(state, "ship-1", 1, id));
+  const res = asPreNebulaDispatch(asPreRelicBlanksDispatch(dispatchPastPropulsion(state, "ship-1", 1, id)));
   if (!res.success || !res.expedition) throw new Error(`dispatch refused: ${res.reason}`);
   const exp = res.expedition;
-  const preview = systemTaskPreview(cand.seed, exp.scanParams, cand.region);
+  // GG-4 (merged after the capture): the preview of a system with a nebula names it (`nebula`); taken off here, the
+  // pre-GG-4 preview (the dispatch above is stripped of the stamp the same way).
+  const { nebula: _nebula, ...preview } = systemTaskPreview(cand.seed, exp.scanParams, cand.region);
   const orbital = exp.bodies.map((b) => isOrbitalType(b.planetType));
   if (!orbital.some(Boolean)) {
     const done = advanceExpedition(exp, FINAL * 4);
@@ -463,7 +473,7 @@ describe("GG-3 capture: a study run's dispatch record and discoveries", () => {
     const out: Record<string, readonly string[]> = {};
     for (const [saveSeed, id] of GG3_RUNS) {
       const state = saveSeed === null ? crewed() : sweepState(saveSeed);
-      const res = asPreRelicBlanksDispatch(dispatchPastPropulsion(state, "ship-1", 1, id));
+      const res = asPreNebulaDispatch(asPreRelicBlanksDispatch(dispatchPastPropulsion(state, "ship-1", 1, id)));
       if (!res.success || !res.expedition) throw new Error(`dispatch refused: ${res.reason}`);
       const exp = res.expedition;
       expect(exp.study, id).toBe(1);
@@ -491,7 +501,7 @@ describe("GG-3 golden: the three study runs, finished and claimed", () => {
     const out: Record<string, readonly string[]> = {};
     for (const [saveSeed, id] of GG3_RUNS) {
       const state = saveSeed === null ? crewed() : sweepState(saveSeed);
-      const res = asPreRelicBlanksDispatch(dispatchPastPropulsion(state, "ship-1", 1, id));
+      const res = asPreNebulaDispatch(asPreRelicBlanksDispatch(dispatchPastPropulsion(state, "ship-1", 1, id)));
       if (!res.success || !res.expedition) throw new Error(`dispatch refused: ${res.reason}`);
       const done = advanceExpedition(res.expedition, FINAL * 2);
       expect(done.phase, id).toBe("complete");

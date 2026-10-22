@@ -1,5 +1,5 @@
 // GEAR WEAR steps 1 and 2 (0.14.0, docs/plans/2026-10-16-gear-wear-design.md): the catalogs and the pure helpers,
-// pinned against the USER ANSWERS (2026-10-16) they bind. Nothing here is wired into the tick yet (steps 3 to 5).
+// pinned against the USER ANSWERS (2026-10-16) they bind. The tick side (step 3) is gearWearEngine.test.ts.
 
 import { describe, expect, it } from "vitest";
 import {
@@ -134,8 +134,10 @@ describe("gear wear: use wear never goes below the use floor (user W2)", () => {
   });
 
   it("a use source quotes its raw per its event units (the FTL drive per 10 ly)", () => {
-    expect(useWearRaw("ftlDrive:distance", 25)).toBe(2);
-    expect(useWearRaw("cargoBay:haul", 1)).toBe(12);
+    // Step 3 tune: the drive wears 2 per 10 ly (floor of 2 x 25 / 10), the hold 8 a haul.
+    expect(useWearRaw("ftlDrive:distance", 25)).toBe(5);
+    expect(useWearRaw("ftlDrive:distance", 24)).toBe(4);
+    expect(useWearRaw("cargoBay:haul", 1)).toBe(8);
     expect(useWearRaw("cargoBay:haul", 0)).toBe(0);
     expect(useWearRaw("weapon:hitsTaken", 5)).toBe(0); // a battle source is not a use source
     expect(useWearRaw("nope", 5)).toBe(0);
@@ -269,13 +271,16 @@ describe("gear wear: the catalogs", () => {
     }
   });
 
-  it("implants wear slowest of all use sources (user W10)", () => {
+  it("implants wear slowest of all use sources (user W10), yet faster than the underway upkeep, so they wear at all", () => {
     const uses = WEAR_SOURCES.filter((w) => w.mode === "use");
     const implant = uses.find((w) => w.slot === "implant")!;
-    // The lowest raw amount in the catalog (the FTL drive ties it, quoted per 10 ly instead of per minute).
-    for (const w of uses) expect(implant.raw, w.id).toBeLessThanOrEqual(w.raw);
+    // Step 3 (tune): the lowest raw amount among the sources quoted per event or per minute. The FTL drive's raw is
+    // quoted per 10 ly (a different unit), so it is left out of the raw comparison.
+    for (const w of uses.filter((x) => x.per === 1)) expect(implant.raw, w.id).toBeLessThanOrEqual(w.raw);
     // And slower than every other time-based source (the reactor and the crew modules, per minute underway).
     for (const w of uses.filter((x) => x.slot !== "implant" && x.event.startsWith("per minute"))) expect(implant.raw, w.id).toBeLessThan(w.raw);
+    // "Wear very slowly" (W10 (a)), not "Never wear" (W10 (b)): above the underway upkeep a member's gear repairs at.
+    expect(implant.raw).toBeGreaterThan(REPAIR_RATES.underway);
   });
 
   it("weapons, the reactor and the FTL drive take no second efficiency penalty in combat (combat's model is the authority)", () => {

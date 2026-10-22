@@ -46,7 +46,7 @@ import { AWAY_TRAITS } from "../awayTraits";
 import { PROSPECTING_BLUEPRINTS, PROSPECTING_SPEC_BASE, PROSPECTING_USES } from "../prospecting";
 import { GAMBIT_PRESETS, GAMBIT_STATUSES } from "../gambit";
 import { GROUND_CONDITIONS } from "../medicalBay";
-import { EXCEPTIONAL_SETS, MUSEUM_STATS, RELIC_SETS, RELIC_TYPES, RELICS } from "../relics";
+import { EXCEPTIONAL_SETS, MUSEUM_STATS, MUSEUM_V2_PER_COPY, RELIC_SETS, RELIC_TYPES, RELICS } from "../relics";
 import { BRIDGE_MODULES, QUARTERS_MODULES } from "../crewModules";
 import { SENSOR_ARRAYS } from "../sensorArrays";
 import { POI_CATALOG, PLANET_TYPES } from "../expeditionContent";
@@ -59,7 +59,8 @@ import { AFFIX_ALIGNED_HOOKS, AFFIX_HOOK_KEYS, GAMBIT_ACTIONS, GAMBIT_SELECTORS 
 import { FIELD_ROLES, effectFieldsOf } from "./fieldRoles";
 import { REPAIR_RATES, REPAIR_RATE_BONUSES, WEAR_EFFICIENCY, WEAR_SOURCES } from "../gearWear";
 import { SHORT_RANGE_TEMPLATES } from "../shortRange";
-import { GAS_STUDY_USES, GIANT_CLASSES, NEBULA_KINDS } from "../gasGiantContent";
+import { GAS_STUDY_USES, GIANT_CLASSES, NEBULA_KINDS, RESEARCH_FAMILIES } from "../gasGiantContent";
+import { DATA_STUDY_ITEM_IDS } from "../dataStudy";
 import { REACTOR_TECH_TIERS, REACTOR_VARIETY_TECH } from "../reactorTech";
 
 // Field Kits FKR-5: the sources each grenade carries (its GrenadeTraits, as the registry measures them). Timed grenades
@@ -164,6 +165,9 @@ export function enumerateEffectSources(): EffectSource[] {
   add("PROSPECTING_USES", PROSPECTING_USES);
   // Gas Giant Study (GG-1 data, the engine uses wired by GG-2 to GG-7)
   add("GAS_STUDY_USES", Object.keys(GAS_STUDY_USES));
+  // GG-5: the Research Lab's data study lane: the eight family boosts, the recipe chance, the fragment's decode, and
+  // the lane consuming each research data item.
+  add("DATA_STUDY", [...RESEARCH_FAMILIES.map((f) => `boost:${f}`), "recipeChance", "ancientDecode", ...DATA_STUDY_ITEM_IDS.map((id) => `consume:${id}`)]);
   add(
     "MEMBER_GROUND_EFFECTS",
     [...new Set(MEMBER_SLOT_TYPES.flatMap((st) => EQUIPMENT_SLOTS[st].varieties.map((v) => v.member?.groundEffect?.kind).filter((k): k is NonNullable<typeof k> => k !== undefined)))],
@@ -197,9 +201,11 @@ export function enumerateEffectSources(): EffectSource[] {
   add("MUSEUM_STATS", MUSEUM_STATS);
   add("RELIC_SETS", RELIC_SETS.flatMap((s) => s.tiers.map((t) => `${s.id}:${t.pieces}`)));
   add("RELICS", RELICS.map((r) => r.id));
-  // Relics v2 R2-1 (dormant): every general type, and every exceptional piece and full-set bonus
+  // Relics v2 R2-1 (live since R2-4's museum math v2): every general type, and every exceptional piece and full-set bonus
   add("RELIC_TYPES", RELIC_TYPES.map((t) => t.id));
   add("EXCEPTIONAL_SETS", EXCEPTIONAL_SETS.flatMap((s) => [...s.pieces.map((p) => `${s.id}:${p.id}`), `${s.id}:full`]));
+  // Relics v2 R2-4: each tier's per-copy value above Tier I (museum math v2)
+  add("MUSEUM_V2_PER_COPY", Object.keys(MUSEUM_V2_PER_COPY));
   // missions, expedition content, salvage
   add("PATROLS", Object.keys(PATROLS));
   // the ground objective affixes: every rank of every hook (an alignment-dependent hook once per alignment the

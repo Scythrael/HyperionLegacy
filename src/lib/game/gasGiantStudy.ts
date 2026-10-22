@@ -34,23 +34,36 @@
 // (both import this one).
 // ============================================================================
 
-import { memberVariety, type Expedition, type ExpeditionBody, type ExpeditionFinding, type ExpeditionPlanetType, type SurveyLogEntry } from "./model";
+import {
+  memberVariety,
+  type Expedition,
+  type ExpeditionBody,
+  type ExpeditionFinding,
+  type ExpeditionPlanetType,
+  type RegionTier,
+  type SurveyGiantEntry,
+  type SurveyNebulaEntry,
+} from "./model";
 import { PLANET_TYPES } from "./expeditionContent";
 import {
   ANCIENT_DATA_FRAGMENT_ID,
   GAS_CANISTER_IDS,
   GIANT_CLASSES,
   ITEM_BANDS,
+  NEBULA_KINDS,
   RESEARCH_DATA_ITEM,
   RESEARCH_FAMILIES,
   canistersInBand,
   giantClassById,
   giantPhysics,
+  nebulaKindById,
   type BandOdds,
   type CanisterWeights,
   type GasCanisterId,
   type GiantClassDef,
   type GiantClassId,
+  type NebulaKindDef,
+  type NebulaKindId,
 } from "./gasGiantContent";
 import { fieldworkSpeedMult } from "./fieldwork";
 import { tierHaulMult } from "./riskFactors";
@@ -119,7 +132,7 @@ export const GIANT_CLASS_HEAT: Readonly<Record<GiantClassId, GiantHeat>> = {
   brownDwarf: "none",
 };
 
-// [PROVISIONAL] the "inner bodies lean hot" class bias (plan section 3.1, the GG-1 carry note: GG-2's class roll owns
+// (Approved 2026-10-21) the "inner bodies lean hot" class bias (plan section 3.1, the GG-1 carry note: GG-2's class roll owns
 // it): the integer factor on each class's approved roll weight (gasGiantContent.ts GIANT_CLASSES weight) by the body's
 // zone. Inner bodies lean hot (Sudarsky IV and V x3, III x2), outer bodies lean cold (Sudarsky I, II and the ice giant
 // x2), the middle reads the approved weights as they are. A lean, never a rule: every class can appear anywhere.
@@ -193,7 +206,7 @@ export function bodyGiantProfile(exp: Pick<Expedition, "seed" | "bodies">, bodyI
 // User call 12 (2026-10-19, "Proposed"): a giant study takes 30 minutes at the base pace (the probe and the Science
 // crew make it faster).
 export const STUDY_BASE_SECONDS = 1800;
-// [PROPOSAL] the shortest a study can get however fast the party works (D23: the pace itself is never capped).
+// (Approved 2026-10-21) the shortest a study can get however fast the party works (D23: the pace itself is never capped).
 export const STUDY_MIN_SECONDS = 60;
 
 // The study's length on `body` for run `exp`: STUDY_BASE_SECONDS / the deployed Science party's fieldwork pace on the
@@ -205,7 +218,7 @@ export function studySeconds(exp: Pick<Expedition, "roster" | "scienceStrength">
   return pace === 1 ? STUDY_BASE_SECONDS : Math.max(STUDY_MIN_SECONDS, Math.round(STUDY_BASE_SECONDS / pace));
 }
 
-// [PROVISIONAL] the reference Galileo-Class Probe its two dive lines are read against: an iLevel 10 Standard quality 0
+// (Approved 2026-10-21) the reference Galileo-Class Probe its two dive lines are read against: an iLevel 10 Standard quality 0
 // probe (a 20 point budget at the variety's ratios, hazard 0.3 and relic 0.1, converted at awayTeam.ts GEAR_POINT_BUMP
 // 0.01 a point). A probe with these lines rates 1 on each; a better one rates higher, on the D23 curves below.
 export const GALILEO_REFERENCE_LINES = { hazardResist: 0.06, relicFind: 0.02 } as const;
@@ -213,7 +226,7 @@ export const GALILEO_REFERENCE_LINES = { hazardResist: 0.06, relicFind: 0.02 } a
 // The probe that dives on a study: the deployed Science member's Galileo-Class Probe (memberTool variety `atmoProbe`)
 // with the highest hazard resist line (its crush rating), ties to the higher relic find line, then roster order; null
 // when nobody aboard wears one (the study still runs, from orbit only). Read off the roster frozen at dispatch, so the
-// dive is fixed at launch. [PROPOSAL] one probe per dive (plan GG-3).
+// dive is fixed at launch. One probe per dive (plan GG-3; approved 2026-10-21).
 export interface StudyProbe {
   memberId: string;
   pieceId: string;
@@ -260,7 +273,7 @@ export function giantDepthFactor(profile: GiantProfile, classes: readonly GiantC
   return def ? giantPhysics(def, profile.massMilliJ).depthFactor : 1;
 }
 
-// [PROPOSAL] the dive's haul bonus (plan GG-3): diminishing(STUDY_DIVE_PER_RATING x depth factor x the probe's dive
+// (Approved 2026-10-21) the dive's haul bonus (plan GG-3): diminishing(STUDY_DIVE_PER_RATING x depth factor x the probe's dive
 // rating, STUDY_DIVE_KNEE). 0 without a probe; unbounded, every better probe or denser giant adds a little more (D23).
 export const STUDY_DIVE_PER_RATING = 0.5;
 export const STUDY_DIVE_KNEE = 2;
@@ -268,14 +281,14 @@ export function studyDiveBonus(depthFactor: number, diveRating: number): number 
   return diminishing(STUDY_DIVE_PER_RATING * Math.max(0, depthFactor) * Math.max(0, diveRating), STUDY_DIVE_KNEE);
 }
 
-// [PROPOSAL] the canisters a study fills before the dive and the tier haul (plan GG-3: 4 to 8, user call 1b.3 "100% gas
+// (Approved 2026-10-21) the canisters a study fills before the dive and the tier haul (plan GG-3: 4 to 8, user call 1b.3 "100% gas
 // canisters (in a range)").
 export const STUDY_CANISTERS_MIN = 4;
 export const STUDY_CANISTERS_MAX = 8;
 // The user's odds (2026-10-09, 1b.3): "you have the 40% chance of research data and the 15% survey readout".
 export const STUDY_RESEARCH_DATA_PERMILLE = 400;
 export const STUDY_SURVEY_READOUT_PERMILLE = 150;
-// [PROVISIONAL] the Ancient Data Fragment's odds (user call 10, "One lane"; relics capture 3: the odds rise with the
+// (Approved 2026-10-21) the Ancient Data Fragment's odds (user call 10, "One lane"; relics capture 3: the odds rise with the
 // tier): ANCIENT_FRAGMENT_BASE_PERMILLE x the region's tier haul multiplier x (1 + diminishing(ANCIENT_PROBE_LIFT x the
 // probe's relic rating, ANCIENT_PROBE_KNEE)). About 1.5% from orbit at Tier II and 4% with the reference probe there
 // (the v3 mockup's sample line), unbounded with a better probe.
@@ -328,8 +341,8 @@ export function rollCanister(rng: Rng, odds: BandOdds, weights: CanisterWeights)
 
 // THE REWARD of the study of body `bodyIndex`, ending at `at` (the window's event): one finding, keyed on
 // GAS_STUDY_SALT by the body index, in a FIXED draw order so a count change never shifts a bonus roll (plan 3.4):
-//   (1) research data at STUDY_RESEARCH_DATA_PERMILLE, (2) its family (uniform over the eight [PROPOSAL]), (3) the
-//   Survey Log readout at STUDY_SURVEY_READOUT_PERMILLE, (4) the Ancient Data Fragment at ancientFragmentPermille,
+//   (1) research data at STUDY_RESEARCH_DATA_PERMILLE, (2) its family (uniform over the eight, approved 2026-10-21),
+//   (3) the Survey Log readout at STUDY_SURVEY_READOUT_PERMILLE, (4) the Ancient Data Fragment at ancientFragmentPermille,
 //   (5) the canister base count (STUDY_CANISTERS_MIN to MAX), (6) its chance rounding (x studyCanisterScale: floor plus
 //   one more at the fraction's per-mille, the salvage.ts chanceRound rule on an integer draw), then per canister
 //   (7) its band and (8) its gas (rollCanister).
@@ -373,7 +386,7 @@ export function surveyLogEntry(
   bodyIndex: number,
   profile: GiantProfile,
   at: number,
-): SurveyLogEntry {
+): SurveyGiantEntry {
   return {
     id: `${exp.id}-survey-${bodyIndex}`,
     at,
@@ -388,7 +401,8 @@ export function surveyLogEntry(
 
 // THE PROBE DIVE seam (plan GG-3; gear wear design 3.1: "tools by fieldwork"): one event per FINISHED study whose run
 // carried a Galileo, at the study's end, naming the member and the piece that dove. Gear wear step 3 reads it (the
-// probe's use wear); nothing else does. Pure.
+// probe's use wear); nothing else does. Pure. GG-4: the nebula sweep uses no probe (mockup v3 "No probe used"), so it
+// is never a dive.
 export interface StudyDiveEvent {
   bodyIndex: number;
   at: number;
@@ -398,5 +412,124 @@ export interface StudyDiveEvent {
 export function studyDiveEvents(exp: Pick<Expedition, "roster" | "groundOps">): StudyDiveEvent[] {
   const probe = studyProbe(exp);
   if (!probe) return [];
-  return (exp.groundOps?.studyLegs ?? []).filter((l) => l.done).map((l) => ({ bodyIndex: l.bodyIndex, at: l.endsAt, memberId: probe.memberId, pieceId: probe.pieceId }));
+  return (exp.groundOps?.studyLegs ?? [])
+    .filter((l) => l.done && !l.nebula)
+    .map((l) => ({ bodyIndex: l.bodyIndex, at: l.endsAt, memberId: probe.memberId, pieceId: probe.pieceId }));
+}
+
+// ============================================================================
+// GG-4: THE NEBULA SWEEP (user call 2 "System-level sweep"; call 12 "nebula sweep 2 h"; the four kinds approved
+// 2026-10-21; the signed-off v3 mockup, as drawn: the sweep sits on the ship lane after the bodies)
+// ============================================================================
+//
+// A system may hold a NEBULA: a system-level feature, never a body (the planet type draw of generateSystem is untouched,
+// so a nebula never becomes a ninth type). Its own keyed draw at dispatch (rollSystemNebula on NEBULA_SALT: a per-mille
+// by region tier, then the kind), or always for a famous nebula; frozen on Expedition.nebula (nebulaStampFor). Once
+// every body is scanned the ship SWEEPS it: one study leg (groundOps.ts scheduleNebulaSweep, GroundStudyLeg.nebula) of
+// NEBULA_SWEEP_SECONDS, after any study under way. No probe dives (a nebula has no crushing depth), so its length is
+// fixed and its haul reads the region's tier haul only. The reward (rollNebulaReward): canisters always, by the kind's
+// band odds (Radiant 0 on every kind: no magnetosphere, so no trapped antimatter) and gas weights; research data at
+// the study's 40%; a Survey Log readout at the study's 15%. No Ancient Data Fragment (the probe's relic line finds
+// those, in a giant's depths).
+
+// Salts (odd, distinct; salts.test.ts): the system's nebula draw, and the sweep's reward.
+export const NEBULA_SALT = 0x3b5d9a71;
+export const NEBULA_SWEEP_SALT = 0x6c1f2e4b;
+
+// [PROPOSAL] the chance a system holds a nebula, per mille by region tier (plan GG-4: Tier I 8% rising to VII 20%).
+export const NEBULA_PERMILLE_BY_TIER: Readonly<Record<RegionTier, number>> = { 1: 80, 2: 100, 3: 120, 4: 140, 5: 160, 6: 180, 7: 200 };
+
+// [PROPOSAL] (inside the plan's GG-4 proposal bracket, not yet answered) the famous systems that ARE nebulae always hold
+// theirs (plan GG-4: "G2's nebula-region famous systems always"), each of its real kind: the Orion, Lagoon and Eagle Nebulae are emission nebulae (starCatalog.ts FAMOUS_SYSTEMS ids).
+export const FAMOUS_NEBULA_KIND: Readonly<Record<string, NebulaKindId>> = {
+  orionNebula: "emissionNebula",
+  lagoonNebula: "emissionNebula",
+  eagleNebula: "emissionNebula",
+};
+
+// User call 12 (2026-10-19, "Proposed"): the nebula sweep takes 2 hours.
+export const NEBULA_SWEEP_SECONDS = 7200;
+// The sweep's study leg names no body.
+export const NEBULA_SWEEP_BODY_INDEX = -1;
+// [PROPOSAL] the canisters a sweep fills before the tier haul (plan GG-4: 24 to 48).
+export const NEBULA_CANISTERS_MIN = 24;
+export const NEBULA_CANISTERS_MAX = 48;
+
+// The nebula of the system seeded `seed` at region `tier` (systemId: the system's catalog id): draw 1 the hit at
+// NEBULA_PERMILLE_BY_TIER, draw 2 the kind (uniform over the four [PROPOSAL]). Both draws are always taken, on the
+// system's own keyed stream, so no other draw moves. A famous nebula is always its own kind. null: no nebula. Pure.
+export function rollSystemNebula(seed: number, tier: RegionTier, systemId: string, kinds: readonly NebulaKindDef[] = NEBULA_KINDS): NebulaKindId | null {
+  const rng = makeRng((seed ^ NEBULA_SALT) >>> 0);
+  const hit = rng.chance(NEBULA_PERMILLE_BY_TIER[tier] ?? NEBULA_PERMILLE_BY_TIER[1], 1000);
+  const kind = kinds[rng.nextInt(Math.max(1, kinds.length))] ?? NEBULA_KINDS[0];
+  const famous = FAMOUS_NEBULA_KIND[systemId];
+  if (famous !== undefined) return famous;
+  return hit ? kind.id : null;
+}
+
+// The nebula stamp a dispatch freezes (Expedition.nebula), or undefined (no key: a system without one stores exactly
+// the record it stored before GG-4). Pure.
+export function nebulaStampFor(seed: number, tier: RegionTier, systemId: string): { kindId: NebulaKindId } | undefined {
+  const kindId = rollSystemNebula(seed, tier, systemId);
+  return kindId === null ? undefined : { kindId };
+}
+
+// Does run `exp` sweep a nebula (stamped, and not swept on an earlier trip of a resumed system)? Pure.
+export function sweepsNebula(exp: Pick<Expedition, "nebula">): boolean {
+  return exp.nebula !== undefined && exp.nebula.swept !== 1;
+}
+
+// The kind def of a run's nebula (the probes pass an edited table), or null. Pure.
+function nebulaDefOf(exp: Pick<Expedition, "nebula">, kinds: readonly NebulaKindDef[]): NebulaKindDef | null {
+  const id = exp.nebula?.kindId;
+  if (id === undefined) return null;
+  return kinds.find((k) => k.id === id) ?? nebulaKindById(id) ?? null;
+}
+
+// The canisters a sweep can return, low to high (the forecast line; mockup v3 drew "31 to 62 from the sweep" as its
+// example, while this returns 30 to 60 at Tier II (x1.25), so GG-6 prints this function, never the mockup's numbers):
+// the base range x the tier haul, the low end down and the high end up (the chance rounding can add one). Pure.
+export function nebulaCanisterRange(exp: Pick<Expedition, "region">): [number, number] {
+  const scale = tierHaulMult(exp.region);
+  return [Math.floor(NEBULA_CANISTERS_MIN * scale), Math.ceil(NEBULA_CANISTERS_MAX * scale)];
+}
+
+// [PROPOSAL] (this slice's pick, not yet answered) the sweep's extras reuse the giant study's odds: research data at
+// 40% (STUDY_RESEARCH_DATA_PERMILLE), a Survey Log readout at 15% (STUDY_SURVEY_READOUT_PERMILLE), and never an Ancient
+// Data Fragment (no depths to probe).
+// THE REWARD of the sweep, ending at `at`: one "study" finding (id "<expeditionId>-find-nebula"), on NEBULA_SWEEP_SALT,
+// in a FIXED draw order: (1) research data at STUDY_RESEARCH_DATA_PERMILLE, (2) its family (uniform over the eight),
+// (3) the Survey Log readout at STUDY_SURVEY_READOUT_PERMILLE, (4) the canister base count (NEBULA_CANISTERS_MIN to
+// MAX), (5) its chance rounding (x the tier haul), then per canister (6) its band and (7) its gas by the kind's odds and
+// weights. Materials list the canisters in GAS_CANISTER_IDS order, then the data. Pure.
+export function rollNebulaReward(
+  exp: Pick<Expedition, "id" | "seed" | "region" | "systemName" | "nebula">,
+  at: number,
+  kinds: readonly NebulaKindDef[] = NEBULA_KINDS,
+): ExpeditionFinding {
+  const rng = makeRng((exp.seed ^ NEBULA_SWEEP_SALT) >>> 0);
+  const def = nebulaDefOf(exp, kinds) ?? NEBULA_KINDS[0];
+  const data = rng.chance(STUDY_RESEARCH_DATA_PERMILLE, 1000);
+  const family = RESEARCH_FAMILIES[rng.nextInt(RESEARCH_FAMILIES.length)];
+  const survey = rng.chance(STUDY_SURVEY_READOUT_PERMILLE, 1000);
+  const base = rng.nextRange(NEBULA_CANISTERS_MIN, NEBULA_CANISTERS_MAX);
+  const raw = base * tierHaulMult(exp.region);
+  const whole = Math.floor(raw);
+  const count = whole + (rng.nextInt(1000) < Math.round((raw - whole) * 1000) ? 1 : 0);
+  const filled: Partial<Record<GasCanisterId, number>> = {};
+  for (let i = 0; i < count; i += 1) {
+    const id = rollCanister(rng, def.bandOdds, def.itemWeights);
+    filled[id] = (filled[id] ?? 0) + 1;
+  }
+  const materials: Record<string, number> = {};
+  for (const id of GAS_CANISTER_IDS) if ((filled[id] ?? 0) > 0) materials[id] = filled[id] as number;
+  if (data) materials[RESEARCH_DATA_ITEM[family]] = 1;
+  const finding: ExpeditionFinding = { id: `${exp.id}-find-nebula`, source: "study", materials };
+  if (survey) finding.survey = nebulaSurveyEntry(exp, def.id, at);
+  return finding;
+}
+
+// The Survey Log entry a sweep's readout writes (GameState.surveyLog at claim). Pure.
+export function nebulaSurveyEntry(exp: Pick<Expedition, "id" | "region" | "systemName">, kindId: NebulaKindId, at: number): SurveyNebulaEntry {
+  return { id: `${exp.id}-survey-nebula`, at, systemName: exp.systemName, kind: "nebula", kindId, tier: exp.region?.tier ?? 1 };
 }

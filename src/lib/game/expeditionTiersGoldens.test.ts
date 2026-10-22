@@ -24,6 +24,10 @@
 // an EVENT-BOUNDARY chain (t - 1, t, t + 1 at every phase anchor, step record, log line and ship leg).
 
 import { describe, expect, it } from "vitest";
+// GEAR WEAR step 3: this file's pins were captured before the use wear engine; it runs with the use sources off
+// (gearWearSwitch.fixture.ts), so they keep proving nothing else moved. gearWearGoldens.test.ts pins the wear.
+import { gearWearOffInThisFile } from "./gearWearSwitch.fixture";
+gearWearOffInThisFile();
 import { goldenJson } from "./firstRunsGoldens.fixture"; // gear wear: hashes with the retired durability put back
 import Decimal from "break_infinity.js";
 import {
@@ -216,9 +220,12 @@ const GOLDEN: Record<string, string[]> = {
   // that hold it; was L5:e7403ea0 / 7b34ec3a and L8:7fb6e44e / f5ddbd0a): from Level 5 the reading shows the task
   // demand and at Level 8 the relic sets, and the giant now previews no ground objective (so no relic set) and one ship
   // study. Every other candidate, level and risk preview is unchanged.
+  // Re-pinned by Gas Giant Study GG-4 (cand-2 at Levels 5 and 8 only, and the two list hashes that hold it; was
+  // L5:b7676c2 / 326c1c2c and L8:b0a7d44c / 157c763c): that system holds a nebula, so from Level 5 its task demand
+  // reads the nebula sweep (`nebulaSweep`). Its identity and every other candidate are unchanged.
   "display:candidates": [
-    "L0:3d3c8b21", "62bcf2ed", "30626891", "4cf0ac35", "L1:8207442a", "27f0464d", "e0f76335", "cf6db03a", "L5:b7676c2",
-    "af03b8bf", "e7eb36d1", "326c1c2c", "L8:b0a7d44c", "82735f", "3fc57679", "157c763c", "risk:6aeb78c",
+    "L0:3d3c8b21", "62bcf2ed", "30626891", "4cf0ac35", "L1:8207442a", "27f0464d", "e0f76335", "cf6db03a", "L5:9785bfc0",
+    "af03b8bf", "e7eb36d1", "31ad305a", "L8:ef5e12de", "82735f", "3fc57679", "ff403b2a", "risk:6aeb78c",
     "risk:1686e1ad", "risk:d66c6828",
   ],
   // Re-pinned by safe first runs SF-3 (Level 8 of cand-0 and cand-2 only; was a44bfe48, b956de0c): the launch forecast
@@ -227,7 +234,9 @@ const GOLDEN: Record<string, string[]> = {
   // detail odds read the gentler run. Level 5 shows no odds and is unchanged.
   // Re-pinned by Gas Giant Study GG-2 (cand-2 at Levels 5 and 8 only; was 8105e2b, 2de1df4): the gas giant's ground
   // objectives leave the demand, the recommendation and the forecast, which count its one ship study instead.
-  "display:launch": ["b4d99ab5", "25f32e71", "839d60ba", "6964ecd8", "8f8520b2", "3ad67e95"],
+  // Re-pinned by Gas Giant Study GG-4 (cand-2 at Levels 5 and 8 only; was 839d60ba, 3ad67e95): its nebula joins the
+  // demand (`nebulaSweep`) and the forecast (`nebula`).
+  "display:launch": ["b4d99ab5", "25f32e71", "8da715f0", "6964ecd8", "8f8520b2", "41590067"],
   "display:telescope": [
     "cffd5b3a", "164e7dfc", "363ef743", "25ad175f", "7f465550", "2b693a80", "c730d797", "dbf9821d", "a7cf78e7",
     "card1:76ff8458", "map1:d0521360", "card8:945210e7", "map8:7ffc445a",
@@ -431,8 +440,9 @@ const G2_1_HOMEWORLD_SEED = 0x6a09e667;
 const homed = (s: GameState): GameState => ({ ...s, homeworld: { version: 1, seed: G2_1_HOMEWORLD_SEED } });
 const G2_1_GOLDEN: Record<string, string[]> = {
   // Re-pinned by Gas Giant Study GG-2 (Levels 5 and 8 only; was c7a61767, 7f6fe5b1): the gas giant system's task
-  // demand and relic sets, as in golden 3 above.
-  candidates: ["e196a0e6", "dfc8c538", "45ea79e9", "7d2ec80f"],
+  // demand and relic sets, as in golden 3 above. Re-pinned by GG-4 (Levels 5 and 8 only; was 45ea79e9, 7d2ec80f): the
+  // same system's demand reads its nebula sweep, as in golden 3 above.
+  candidates: ["e196a0e6", "dfc8c538", "a3797da7", "c462ae41"],
   card: ["51c2886e", "e64670ea"],
 };
 
