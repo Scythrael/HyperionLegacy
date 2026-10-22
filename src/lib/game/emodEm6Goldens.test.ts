@@ -28,7 +28,7 @@ import { equippedFor } from "./equipment";
 import { advanceExpedition, claimExpedition, expeditionCandidates } from "./expedition";
 import { shipEventsLive } from "./shipScanEvents";
 import { deserialize, migrate, serialize } from "./save";
-import { plainAwayMember, withSlottedAwayTeams, dispatchPastPropulsion } from "./awayTeamTestFixtures";
+import { asPreNebulaDispatch, plainAwayMember, withSlottedAwayTeams, dispatchPastPropulsion } from "./awayTeamTestFixtures";
 import { goldenJson, withV1Museum } from "./firstRunsGoldens.fixture";
 
 function fnv(s: string): string {
@@ -122,7 +122,9 @@ const SQUAD: AwayMember[] = [member("member-1", "security", { rank: 3 }), member
 function groundOpsRun(seed: number): { pins: string[]; events: string } {
   const s0 = hullState("orion");
   const s = withSlottedAwayTeams({ ...s0, awayMembers: SQUAD.map((m) => ({ ...m })), nextAwayMemberId: 100, expeditionSeed: seed });
-  const res = dispatchPastPropulsion(s, SHIP, 1, expeditionCandidates(s, SHIP)[0].id);
+  // Gas Giant Study GG-4 came after this capture: the run flies as a pre-GG-4 dispatch (no nebula stamp, so no sweep;
+  // asPreNebulaDispatch), so the pins keep proving nothing else moved (gasGiantNebulaLabGoldens.test.ts pins the sweep).
+  const res = asPreNebulaDispatch(dispatchPastPropulsion(s, SHIP, 1, expeditionCandidates(s, SHIP)[0].id));
   if (!res.success || !res.expedition) throw new Error(`dispatch refused: ${res.reason}`);
   const exp = res.expedition;
   expect(shipEventsLive(exp)).toBe(true);
