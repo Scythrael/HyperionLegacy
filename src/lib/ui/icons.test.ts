@@ -89,6 +89,12 @@ describe("Ground Operations glyphs (0.14.0 GO-10)", () => {
     for (const name of required) expect(ICON_NAMES, `missing icon: ${name}`).toContain(name);
   });
 
+  // Expedition Tiers G2-6: the four glyphs the signed-off dispatch console mockup added.
+  it("covers the dispatch console's new glyphs", () => {
+    const required: IconName[] = ["drive", "reach", "recall", "resume"];
+    for (const name of required) expect(ICON_NAMES, `missing icon: ${name}`).toContain(name);
+  });
+
   // One concept, one glyph: no two names may share the same drawing (a copy-paste slip would make two
   // different things read the same).
   it("never draws two names identically", () => {

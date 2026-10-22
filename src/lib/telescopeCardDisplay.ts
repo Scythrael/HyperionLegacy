@@ -294,13 +294,24 @@ function rangeLyForReachTop(homeworld: HomeworldPlacement): number {
   return Math.max(...TIERS.map((t) => homeworld.regionBandsLy[t].far));
 }
 
+// The radial scale: the mockup's TELESCOPE_MAP_RADIUS, shrunk only when this homeworld's farthest range would not
+// fit the view box (never clip a ring).
+function mapRadius(homeworld: HomeworldPlacement): number {
+  return Math.min(TELESCOPE_MAP_RADIUS, FIT_RADIUS * Math.sqrt(MAP_DMAX / Math.max(1, rangeLyForReachTop(homeworld))));
+}
+
+// Expedition Tiers G2-6: the map ring radius (px, from the homeworld) of a distance in light-years on the same
+// square-root scale telescopeMapView draws (the dispatch console's small region map draws a ship's reach with it),
+// capped at the farthest region's ring so a long reach never runs off the map. Pure.
+export function telescopeMapRingRadius(homeworld: HomeworldPlacement, ly: number): number {
+  const capped = Math.max(0, Math.min(ly, rangeLyForReachTop(homeworld)));
+  return round1(Math.max(4, mapRadius(homeworld) * Math.sqrt(capped / MAP_DMAX)));
+}
+
 export function telescopeMapView(level: number, homeworld: HomeworldPlacement = PROVISIONAL_HOMEWORLD): TelescopeMapView {
   const homeX = homeworld.galactic.x;
   const homeY = homeworld.galactic.y;
-  // The radial scale: the mockup's TELESCOPE_MAP_RADIUS, shrunk only when this homeworld's farthest range would not
-  // fit the view box (never clip a ring).
-  const farthestLy = rangeLyForReachTop(homeworld);
-  const radius = Math.min(TELESCOPE_MAP_RADIUS, FIT_RADIUS * Math.sqrt(MAP_DMAX / Math.max(1, farthestLy)));
+  const radius = mapRadius(homeworld);
 
   // Galactic (x, y) -> map pixels, centered on the homeworld.
   const proj = (x: number, y: number): [number, number] => {

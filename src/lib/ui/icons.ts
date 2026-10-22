@@ -421,6 +421,23 @@ export const ICON_PATHS = {
   // outer 2.25 units clear of the inner under the stroke (about 1.5 px at 16 px), so the arcs stay two lines. Kept
   // apart from `telescope` (a dish on a stand, the arcs off to one side) by the open frame and the centered arcs.
   commBooster: ["M12 10.5L8.5 21", "M12 10.5l3.5 10.5", "M9.7 17.5h4.6", "M12 10.4v.2", "M8.8 7.5a4.5 4.5 0 0 1 6.4 0", "M6 4.7a8.5 8.5 0 0 1 12 0"],
+  // Expedition Tiers G2-6 (the signed-off dispatch console mockup's four glyphs, user 2026-10-21 "approve as is", for
+  // the icons.ts review). Reviewed at 16 / 28 / 56 px in both themes.
+  // Drive: a ship's FTL drive (its class on the console header and the gate rows): a combustion chamber on top, its
+  // flared bell below and three exhaust streaks splaying out of the bell. The mockup drew it on its side (chamber,
+  // bell and exhaust ticks to the right); at every size that silhouette read as a loudspeaker, so the review stood it
+  // upright, the way a rocket engine reads. The streaks start 3 units under the bell's rim and sit 3 units apart, so
+  // they stay three strokes at 16 px; kept apart from `deploy` (a lander over a ground arc) by the chamber and the bell.
+  drive: ["M9.5 2.5h5v5h-5z", "M10 7.5L6.5 16h11L14 7.5", "M9 19l-.5 2.5", "M12 19v2.5", "M15 19l.5 2.5"],
+  // Reach: a span between two end ticks with an arrowhead at each end (how far the ship goes and back: the round trip
+  // against its deep-space reach). The arrowheads stop 2.5 units short of the ticks, so at 16 px they never fuse.
+  reach: ["M3 6v12M21 6v12", "M5.5 12h13", "M8.5 9l-3 3 3 3", "M15.5 9l3 3-3 3"],
+  // Recall: a U-turn arrow (the ship turns for home). Kept apart from `reload` (two arrows on a full circle) by the one
+  // open turn and its single arrowhead.
+  recall: ["M17 20v-9a5 5 0 0 0-10 0v2", "M4 10.5l3 3 3-3"],
+  // Resume: a bookmark with a forward chevron inside (a system kept to pick up where you left off). The chevron's 5
+  // unit height keeps it a chevron, not a dot, at 16 px.
+  resume: ["M7 3h10v18l-5-3.5L7 21z", "M10.5 8.5l2.5 2.5-2.5 2.5"],
 } as const satisfies Record<string, readonly string[]>;
 
 /**
