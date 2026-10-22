@@ -381,6 +381,9 @@
     // Relics v2 R2-1: the Tier I general record (where the v1 museum copies live) and its write, for the dev museum.
     generalMuseumRecord,
     withGeneralMuseumRecord,
+    // OC-15: the Lab / Fabricator tier readers the Upgrades panels show.
+    labTier,
+    fabricatorTier,
   } from "./lib/game/model";
   // WR-3: the Debug Wiring panel's view model (the registry itself loads lazily inside it; types only here).
   import {
@@ -9866,7 +9869,7 @@
   // Lab level (0 = not built; freshState seeds 1) + its parallel-project slot count
   // (derived from levels reached; parallels refinerySlots). researchSlotCount reads
   // state directly, so it's reactive here.
-  $: researchLevel = state.facilities[RESEARCH_FACILITY_KEY]?.level ?? 0;
+  $: researchLevel = labTier(state);
   $: researchSlots = researchSlotCount(state);
   // The research projects currently in flight (kind "researchProject"). Their count
   // vs researchSlots is the free-slot gate (enforced in canResearch); each also
@@ -9915,7 +9918,7 @@
   // Fabricator level (0 = not built; freshState seeds 1) + its parallel-craft slot count
   // (derived from levels reached; parallels researchSlots). fabricateSlotCount reads state
   // directly, so it's reactive here.
-  $: fabricatorLevel = state.facilities[FABRICATOR_FACILITY_KEY]?.level ?? 0;
+  $: fabricatorLevel = fabricatorTier(state);
   $: fabricateSlots = fabricateSlotCount(state);
   // The fabricate jobs currently in flight (kind "fabricateJob"). Their count vs
   // fabricateSlots is the free-slot gate (enforced in canFabricate); each also renders a

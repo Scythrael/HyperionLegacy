@@ -10531,9 +10531,10 @@ export const BLUEPRINTS: Record<string, BlueprintDef> = {
   // TIER = 1 or 2 ONLY. `tier` gates the RESEARCH LAB level required to research the blueprint
   // (canResearch: bp.tier > research level -> tierLocked), and the Research Lab capped at level 2
   // when these were tiered, so a tier-3 weapon blueprint would have been permanently un-
-  // researchable, and thus permanently un-craftable (OC-15 has since raised both tracks to VII). The three basic family staples are tier 1;
+  // researchable, and thus permanently un-craftable. The three basic family staples are tier 1;
   // the heavier / higher-impact weapons are tier 2 (matching structuralAssemblyBp / the tier-2
-  // equipment lines). A later level-3 Research Lab rung can re-tier upward.
+  // equipment lines). OC-15 has since raised both tracks to tier VII, so re-tiering upward is
+  // now a balancing call, not a reachability one.
   //
   // ⚠️ FIRST-PASS TUNABLE ⚠️ every tier / cost / duration / input amount below is a launch
   // placeholder in the SAME spirit as the material + equipment blueprints above (and the weapon
@@ -10845,9 +10846,9 @@ export const BLUEPRINTS: Record<string, BlueprintDef> = {
   // LAB level required to research the blueprint (canResearch: bp.tier > research level ->
   // tierLocked). The Research Lab capped at level 2 when these were tiered (OC-15 has since raised
   // it to VII), so a tier-3 blueprint would have been permanently un-researchable, and thus its
-  // hull permanently un-buildable. Tier 2 keeps these reachable at the Lab's current ceiling, and it is the
-  // heaviest researchable tier (matching structuralAssemblyBp / the tier-2 equipment lines).
-  // When a later phase adds a level-3 Research Lab rung, these can be re-tiered upward.
+  // hull permanently un-buildable. Tier 2 kept them reachable at the Lab's old ceiling and matches
+  // structuralAssemblyBp / the tier-2 equipment lines. The Lab now reaches tier VII (OC-15), so
+  // re-tiering these upward is a balancing call, not a reachability one.
   //
   // recipe.inputs is EMPTY (nothing is fabricated); the credit + duration cost is paid at the
   // Research Lab. ⚠️ FIRST-PASS TUNABLE ⚠️ tier / researchDurationTicks / researchCreditCost
@@ -12663,22 +12664,12 @@ export const SALVAGE_BAY_FACILITY_KEY = "salvageBay";
 // for the raw "subspaceTelescope" literal SQ-1 already seeds at level 1 (freshState + SAVE v68).
 export const SUBSPACE_TELESCOPE_FACILITY_KEY = "subspaceTelescope";
 
-// The Research facility's LEVEL, read DEFENSIVELY (absent facility -> 0). R1 has no
-// research facility, so this returns 0 until R2 seeds it at level 1, meaning tier-1
-// blueprints are NOT researchable in R1 alone and become researchable the moment R2's
-// seed lands, with NO change to blueprintResearchable. This duplicates tick.ts's private
-// facilityLevel() logic ON PURPOSE: model.ts must NOT import tick.ts (tick.ts imports
-// model.ts; the reverse is a circular dependency). CONSOLIDATION CANDIDATE (Omega 4):
-// once R2 formalizes the research facility, a single exported facilityLevel() could live
-// in model.ts and tick.ts import it, flagged, not done now (out of R1's additive scope).
-function researchFacilityLevel(state: GameState): number {
-  return labTier(state);
-}
-
 // OC-15: the highest blueprint tier the Research Lab / the Fabricator serves right now (its level, 0 when absent;
 // a level-N facility researches / crafts tier N and below, up to LAB_FABRICATOR_TOP_TIER). The ONE public reader for
 // everything gated on the Lab or Fabricator tier outside the blueprint gates themselves (Relics v2 R2-3's
 // identification lanes, the gas giant data study, propulsion's drive classes), so none of them reads the raw key.
+// Read DEFENSIVELY (absent facility -> 0). Duplicates tick.ts's private facilityLevel() ON PURPOSE: model.ts must NOT
+// import tick.ts (tick.ts imports model.ts; the reverse is a circular dependency).
 export function labTier(state: GameState): number {
   return state.facilities[RESEARCH_FACILITY_KEY]?.level ?? 0;
 }
@@ -12719,7 +12710,7 @@ export function blueprintResearchable(state: GameState, key: string): boolean {
   if (blueprintUnlocked(state, key)) return false; // already researched
   if (researchInProgress(state, key)) return false; // a project is already unlocking it
   if (blueprintRelicLocked(state, key)) return false; // E4d: its relic has not been discovered yet
-  return bp.tier <= researchFacilityLevel(state); // tier gated by the research-facility level
+  return bp.tier <= labTier(state); // tier gated by the research-facility level
 }
 
 // Open-ended (levels can climb indefinitely), a formula, not a finite table
