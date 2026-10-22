@@ -3491,6 +3491,13 @@ export interface ShortRangeMissionState {
   // ship's gear by use. A run without it (one dispatched
   // before step 3) reads its gear pristine and wears nothing.
   gearWear?: RunWearStamp;
+  // G1-5 (relic drops, user call 11 "Rare, per hour"): the FLAG a run dispatched from G1-5 on carries (stamped at
+  // dispatch, carried to every later cycle of the run), so a run in flight at the update plays byte-identically (the
+  // Expedition.relicBlanks precedent). Only a flagged run rolls relic blanks at each delivered cycle
+  // (shortRangeCycle.ts, relicBlanks.ts rollShortRangeRelicBlanks).
+  relicBlanks?: { version: 1 };
+  // G1-5: the relic blanks this run has found (the run's completion log entry names them). Absent until the first.
+  relicsThisRun?: number;
 }
 
 // The board's per-slot cycle cursor (GameState.shortRangeBoard): slot id -> the cycle index its NEXT roll reads
@@ -6512,6 +6519,9 @@ export interface CompletionLogEntry {
   // the resolver could still see it. Absent everywhere else, and absent on every entry
   // written before this field existed, so every read is presence-checked.
   salvageSubject?: CompletionSalvageSubject;
+  // G1-5: the unidentified relics a short-range run found over its cycles (they went to the vault as each cycle was
+  // delivered). Written only on a "shortRangeRun" entry that found at least one; absent everywhere else.
+  relicsFound?: number;
 }
 
 // The RUNNING accumulation for one line-backed order that has not finished yet.

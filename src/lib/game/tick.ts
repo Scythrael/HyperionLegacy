@@ -454,7 +454,7 @@ import { countPatrolDispatch, countPatrolRuns, isTrainingPatrol, nextPatrolCycle
 // Safe first runs SF-4: a patrol cycle's difficulty profile (the training cycle, the curve), shared with the replay.
 import { patrolCycleEnemies, patrolCycleWaveTicks, patrolWaveBreaksOff, patrolWaveEnemyParams } from "./combat/patrolProfile";
 // G1-4: the short-range cycle engine and the board's stored-cursor shape check.
-import { shortRangeHasDeparted, tickCaptainShortRange } from "./shortRangeCycle";
+import { shortRangeHasDeparted, shortRangeVaultDeposit, tickCaptainShortRange, type ShortRangeRelicFind } from "./shortRangeCycle";
 import { isWellFormedShortRangeBoard } from "./shortRangeBoard";
 
 // Must stay in sync with MissionPhase and requiredTicksForPhase's switch --
@@ -1354,8 +1354,10 @@ function appendPatrolCompletions(
 // entry per run, never per cycle, so a board on Repeat cannot evict the log). `iterations` carries the cycles the run
 // delivered; the subject is the board slot. Its reward is "nothing" for the patrol's reason: every cycle's pay already
 // landed as it was delivered, so re-listing it here would double-report. Same single allocator as the patrol endings.
+// G1-5: the relic blanks the run found (each went to the vault as its cycle was delivered) are named on the entry
+// (`relicsFound`, written only when there were any), the way a claimed expedition's log line names its relics.
 // A same-reference no-op with no ending. Pure.
-function appendShortRangeRunEndings(state: GameState, endings: readonly { slotId: number; cycles: number }[], nowMs: number): GameState {
+function appendShortRangeRunEndings(state: GameState, endings: readonly { slotId: number; cycles: number; relics: number }[], nowMs: number): GameState {
   if (endings.length === 0) return state;
   let log = state.completionLog ?? [];
   let nextId = state.nextCompletionLogId ?? 1;
@@ -1375,6 +1377,7 @@ function appendShortRangeRunEndings(state: GameState, endings: readonly { slotId
       fuelAmount: null,
       creditsAmount: null,
       stale: false,
+      ...(ending.relics > 0 ? { relicsFound: ending.relics } : {}),
     });
     nextId += 1;
   }
@@ -4228,10 +4231,13 @@ export function economyTick(
   // null with no short-range run, so such a call writes neither field (byte-identical).
   let shortRangeCounts: RunCounts | null = null;
   let shortRangeCursor: Readonly<Record<number, number>> | null = null;
-  const shortRangeEndings: { captainId: number; slotId: number; cycles: number }[] = [];
   // GEAR WEAR step 3: the use wear events this call's runs made (a delivered mission or short-range cycle, an
   // expedition coming home), applied once at the tail (gearWearEngine.ts resolveGearWear). Empty without one.
   const wearEvents = emptyWearEvents();
+  const shortRangeEndings: { captainId: number; slotId: number; cycles: number; relics: number }[] = [];
+  // G1-5: the relic blanks short-range cycles found this call, in captain order (each captain's in delivery order),
+  // deposited into the vault ordered by the whole tick each landed on (shortRangeVaultDeposit).
+  const shortRangeRelics: ShortRangeRelicFind[] = [];
   const captains = state.captains.map((captain) => {
     if (captain.mission === null) return captain;
     // UNKNOWN-KEY INERT GUARD (fix: a removed/renamed mission/patrol key hard-crashed every tick,
@@ -4482,6 +4488,7 @@ export function economyTick(
         }
         if (srShip && sr.endedAtTicks !== null) wearEvents.runEnds.set(srShip.id, state.gameTimeSeconds + sr.endedAtTicks * state.tickDurationSeconds);
         if (sr.ended !== null) shortRangeEndings.push({ captainId: captain.id, ...sr.ended });
+        for (const find of sr.relics) shortRangeRelics.push(find);
         return srCaptain;
       }
       default:
@@ -4975,6 +4982,8 @@ export function economyTick(
     ...(patrolCurveRuns > 0 || srCountsAfter !== null ? { runCounts: countPatrolRuns(srCountsAfter ?? runCountsOf(state), patrolCurveRuns) } : {}),
     // G1-4: the board's cycle cursor, written only when a short-range cycle was delivered this call.
     ...(srCursorAfter !== null ? { shortRangeBoard: { version: 1 as const, nextCycle: { ...srCursorAfter } } } : {}),
+    // G1-5: the relic blanks short-range cycles found, into the vault (written only when there were any).
+    ...(shortRangeRelics.length > 0 ? { relicVault: shortRangeVaultDeposit(state, shortRangeRelics) } : {}),
   };
 
   // Phase 1, Task 9: resolve every in-flight timed process ONCE, fleet-wide (NOT
@@ -6158,7 +6167,7 @@ export function recallCaptain(state: GameState, captainId: number, nowMs: number
     const captains = [...state.captains];
     captains[idx] = { ...captains[idx], mission: null };
     const counts = uncountShortRangeCycleStart(runCountsOf(state), mission.roll.template);
-    const ended = appendShortRangeRunEndings({ ...state, captains, runCounts: counts }, [{ slotId: mission.slotId, cycles: mission.cyclesThisRun ?? 0 }], nowMs);
+    const ended = appendShortRangeRunEndings({ ...state, captains, runCounts: counts }, [{ slotId: mission.slotId, cycles: mission.cyclesThisRun ?? 0, relics: mission.relicsThisRun ?? 0 }], nowMs);
     return { next: ended, success: true };
   }
 

@@ -20855,6 +20855,14 @@
             </div>
           {/if}
 
+          <!-- G1-5: unidentified relics short-range missions found while away (the expedition claim line's words). -->
+          {#if sum.relicsFound > 0}
+            <div class="offline-summary-row">
+              <span class="offline-summary-row-label">Unidentified relics</span>
+              <span class="offline-summary-row-value">+{formatNumber(sum.relicsFound)} to the vault</span>
+            </div>
+          {/if}
+
           <!-- Ships that limped home into the repair queue while away. -->
           {#if sum.shipsInRepair.length > 0}
             <div class="offline-summary-section">

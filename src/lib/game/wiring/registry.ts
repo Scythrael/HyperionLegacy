@@ -121,6 +121,7 @@ import {
   museumBonusesFromRecord,
   type MuseumStat,
 } from "../relics";
+import { shortRangeRelicMicrosPerHour } from "../relicBlanks";
 import { BRIDGE_MODULES, QUARTERS_MODULES, moduleEffectScale } from "../crewModules";
 import { graduateStandout } from "../crewGraduation";
 import { signatureKey } from "../crew";
@@ -201,6 +202,7 @@ import {
   GAMBIT_SELECTORS,
   sourceOn,
   FIELD_KITS_SWITCH_PROBE_STOCK,
+  SHORT_RANGE_RELIC_PROBE_HOURS,
   relicV2ProbeExpectedExceptional,
   type ContextId,
   type ProbeId,
@@ -3648,13 +3650,15 @@ const AUDIT_ROWS: readonly { id: string; system: WiringSystem; claim: string; st
   // H. Relics v2 R2-2 (relicBlanks.ts): live on every new run at Tier I; the rest waits for the slice that reaches it.
   { id: "relic:audit:blankTiers", system: "relic", claim: "Relic blanks above Tier I: RELIC_BLANK_WEIGHTS II to VII (a deeper find rolls rarer on the same chance, user call 13 \"Better rarity only\")", status: pending(G2_6_PICKER) },
   { id: "relic:audit:blankCulture", system: "relic", claim: "A blank's culture (cultureForBody, stamped on every new run's relic): the culture study reads it", status: pending("Relics v2 R2-6 (cultures: study points and the name reveal)") },
-  { id: "relic:audit:shortRangeBlanks", system: "relic", claim: "Short-range relic drops (rollShortRangeRelicBlanks: per hour, Tier I 0.08x and Tier II 0.15x of the expedition rate)", status: pending("G1-5 (wires the hook into a delivered short-range cycle)") },
+  // G1-5 wired the hook into every delivered cycle of a run dispatched from G1-5 on (shortRangeCycle.ts
+  // shortRangeCycleRelics): live in place, its check in auditRowWiring below.
+  { id: "relic:audit:shortRangeBlanks", system: "relic", claim: "Short-range relic drops (rollShortRangeRelicBlanks: per hour, Tier I 0.08x and Tier II 0.15x of the expedition rate)", status: LIVE },
   { id: "relic:audit:completionBlank", system: "relic", claim: "The planet 100% bonus roll (planetCompletionRelicBlank: one extra blank, one rarity step up)", status: pending("G7 (calls the hook when a planet is fully completed)") },
   // Relics v2 R2-3 (relicIdentify.ts; the queue in tick.ts): every new study identifies through identification v2.
   { id: "relic:audit:identifyV2", system: "relic", claim: "Identification v2: a new study reveals an exceptional piece at EXCEPTIONAL_PER_100K (user call 6), preferring the pieces the Museum lacks (call 7); else a general type on the blank's own rarity band odds (\"Only one boost\") with the site bias", status: LIVE },
   { id: "relic:audit:identifyLanes", system: "relic", claim: "Relic-study lanes by Research Lab tier (RELIC_STUDY_LANES_BY_LAB: Lab I 1, III 2, V 3, VII 4; user call 12)", status: LIVE },
   { id: "relic:audit:identifyQueue", system: "relic", claim: "The identification queue: the next queued blank starts the moment a lane frees, also while away (tick.ts queueRelicStudy / resolveRelicStudies)", status: pending("Relics v2 R2-7 (the Identification tab: feed, queue, reorder; the engine queue is built and tested)") },
-  { id: "relic:audit:generalPick", system: "relic", claim: "A blank with no set identifies over the general pool by band, with the site bias (identifyGeneralRelic)", status: pending("G1-5 and G7 (the first callers that mint a blank with no set); R2-3 builds identification v2 on the same pick") },
+  { id: "relic:audit:generalPick", system: "relic", claim: "A blank with no set identifies over the general pool by band, with the site bias (identifyGeneralRelic)", status: pending("Relics v2 R2-3 follow-up (retire the v1 setless branch of identifyStudiedRelic: identification v2, relic:audit:identifyV2, studies every new blank, G1-5's short-range blanks included, so no study reaches this pick)") },
   // I. Missions, patrols, factions
   { id: "mission:audit:unusedFactions", system: "mission", claim: "voidJackals, ironVultures, ashenCorsairs and Faction.id (no patrol references them)", status: pending("WR-11, OC-I2") },
   // J. Salvage and item generation
@@ -3713,6 +3717,15 @@ function auditRowWiring(): Readonly<Record<string, Partial<EntryInput>>> {
       magnitude: () => 1,
       on: playedOreRuns(MISSION_CONTROL_UNLOCK_COMPLETIONS),
       off: playedOreRuns(MISSION_CONTROL_UNLOCK_COMPLETIONS - 1),
+    },
+    // G1-5: a Tier I and a Tier II short-range cycle of SHORT_RANGE_RELIC_PROBE_HOURS find their per-hour rate x the
+    // hours in relic blanks (8 + 15) through the cycle engine; the same runs without G1-5's flag find none.
+    "relic:audit:shortRangeBlanks": {
+      probe: "content:shortRangeRelics",
+      contexts: ["mission:shortRange"],
+      curve: { kind: "gate" },
+      magnitude: () => ((shortRangeRelicMicrosPerHour(1) + shortRangeRelicMicrosPerHour(2)) * SHORT_RANGE_RELIC_PROBE_HOURS) / 1_000_000,
+      on: sourceOn,
     },
     // Field Kits FKR-7: one Injury Kit's share on a member's trip treatment divides their Broken Bone bay time.
     "away:audit:treatmentShare": {
@@ -4137,8 +4150,8 @@ const SHORT_RANGE_SWEEP_LIVE: ReadonlySet<string> = new Set([
 // extraction-roll talents stay with extraction missions.]
 const NO_EXTRACTING = "a short-range job has no extracting phase or ore rolls: it pays its rolled job (shortRange.ts shortRangeCycleReward)";
 const SHORT_RANGE_SWEEP_OUT_OF_SCOPE: Readonly<Record<string, string>> = {
-  "officer:officer.rareFindMult": "a short-range survey's yield is its scan size and Sensors, with no rare-tier roll to raise (short-range relics are G1-5's)",
-  "crew:crew.rareFindChance": "a short-range survey's yield is its scan size and Sensors, with no rare-tier roll to raise (short-range relics are G1-5's)",
+  "officer:officer.rareFindMult": "a short-range survey's yield is its scan size and Sensors, with no rare-tier roll to raise (its relic blanks roll the fixed per-hour rate of call 11, G1-5)",
+  "crew:crew.rareFindChance": "a short-range survey's yield is its scan size and Sensors, with no rare-tier roll to raise (its relic blanks roll the fixed per-hour rate of call 11, G1-5)",
   "captain:CAPTAIN_TALENTS:prospectorHub": NO_EXTRACTING,
   "captain:CAPTAIN_TALENTS:prospectorBulkExtraction": NO_EXTRACTING,
   "captain:CAPTAIN_TALENTS:prospectorRefinedExtraction": NO_EXTRACTING,

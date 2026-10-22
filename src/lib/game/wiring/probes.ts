@@ -186,6 +186,7 @@ import { groundTeamBaySeconds } from "../groundOps";
 import { retirementExpMultiplier } from "../captainRetirement";
 import { transitBerthCount } from "../berths";
 import { shortRangeBoardSlots, startShortRangeCycle } from "../shortRangeBoard";
+import { RELIC_BLANKS_VERSION } from "../relicBlanks";
 import { rollShortRangeJob, shortRangeCycleReward, shortRangeShipRatings, type ShortRangeCyclePlan, type ShortRangeRoll, type ShortRangeTemplateKey } from "../shortRange";
 import { telescopeReading } from "../telescope";
 import { getSeniorStaffBonusById } from "../seniorStaffBonuses";
@@ -715,6 +716,38 @@ export function shortRangeTrainingCycle(template: ShortRangeTemplateKey): { roll
   const s = wiringBase();
   const m = shortRangeMissionOf(onShortRangeJob(s, template));
   return { roll: m.roll, plan: m.plan, credits: shortRangeCycleReward(m.roll, effectiveShipStats(s, shipOf(s))).credits };
+}
+
+// G1-5 (short-range relic drops): the planned length of the cycle the relic probe flies, in hours. Long enough that
+// each tier's expected finds are whole numbers (rollShortRangeRelicBlanks rolls no chance on a zero remainder):
+// Tier I 0.04 an hour x 200 = 8, Tier II 0.075 x 200 = 15.
+export const SHORT_RANGE_RELIC_PROBE_HOURS = 200;
+
+// The relic blanks one delivered short-range cycle of `tier` finds through the REAL cycle engine (economyTick): a
+// Telescope Repair (no load to pay, no Warehouse gate) on a slot of that tier, its plan stretched on site to
+// SHORT_RANGE_RELIC_PROBE_HOURS, recalled so the run ends at the delivery. `flagged`: the run carries G1-5's relic flag
+// (a dispatch from G1-5 on); off, the same run as a pre-G1-5 dispatch.
+export function shortRangeRelicCycleFinds(s: GameState, tier: 1 | 2, flagged: boolean): number {
+  const slot = { id: tier === 1 ? 0 : 2, tier };
+  let idx = 0;
+  while (rollShortRangeJob(s, slot, idx).template !== "telescopeRepair") if (++idx > 2000) throw new Error("wiring: no telescopeRepair roll");
+  const start = startShortRangeCycle(s, shipOf(s), slot, idx);
+  const total = SHORT_RANGE_RELIC_PROBE_HOURS * 3600;
+  const legs = start.plan.transitOutTicks + start.plan.transitBackTicks + start.plan.unloadTicks;
+  const plan = { ...start.plan, onSiteTicks: total - legs, totalTicks: total };
+  const mission: ShortRangeMissionState = {
+    kind: "shortRange",
+    slotId: slot.id,
+    roll: start.roll,
+    plan,
+    phase: "transitOut",
+    phaseProgressTicks: 0,
+    recalled: true,
+    ...(flagged ? { relicBlanks: { version: RELIC_BLANKS_VERSION } } : {}),
+  };
+  const after = economyTick({ ...editCaptain(s, { mission } as Partial<CaptainState>), runCounts: start.runCounts }, total + 1, () => 0.5);
+  if (captainOf(after).mission !== null) throw new Error("wiring: the relic probe's cycle was not delivered");
+  return (after.relicVault ?? []).filter((t) => t.source === "shortRange").length;
 }
 
 // The last tick of a Supply Pickup's home turnaround, then that tick (economyTick, every draw `draw`).
@@ -2398,6 +2431,10 @@ function readContent(id: string, s: GameState): number {
       if (!res.success || !res.expedition) throw new Error(`field kits switch probe: dispatch refused (${res.reason})`);
       return Object.values(carriedExtras(res.expedition)).reduce((n, x) => n + (x ?? 0), 0);
     }
+    case "shortRangeRelics":
+      // G1-5: the relic blanks a Tier I and a Tier II short-range cycle of SHORT_RANGE_RELIC_PROBE_HOURS find through
+      // the cycle engine; on, runs carrying G1-5's relic flag; off, the same runs without it (dispatched before G1-5).
+      return shortRangeRelicCycleFinds(s, 1, on) + shortRangeRelicCycleFinds(s, 2, on);
     case "fieldKitsHiddenPieces": {
       // Field Kits FKR-9 / FKR-10 (model.ts FIELD_KITS_PLAYER_LIVE): the pieces kept hidden until kits went live that a
       // player can now reach: each FIELD_KITS_HIDDEN_BLUEPRINTS blueprint in BLUEPRINTS (Research, the Fabricator, the

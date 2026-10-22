@@ -35,6 +35,7 @@ import {
 import { runShipStats, runWearStamp } from "./gearWearEngine";
 import { countShortRangeCycleStart, runCountsOf } from "./runDifficulty";
 import { crewLockReasonText, shipCrewLocked } from "./crewLock";
+import { RELIC_BLANKS_VERSION } from "./relicBlanks";
 
 // ===== the board =====
 
@@ -235,6 +236,9 @@ export function dispatchCaptainOnShortRange(state: GameState, captainId: number,
     phaseProgressTicks: 0,
     recalled: !repeat,
     ...(wear !== undefined ? { gearWear: wear } : {}),
+    // G1-5: a new run rolls relic blanks at each delivered cycle (the flag rides every later cycle of the run); a run
+    // dispatched before G1-5 carries none and plays exactly as it did.
+    relicBlanks: { version: RELIC_BLANKS_VERSION },
   };
   const captains = [...state.captains];
   captains[idx] = { ...captains[idx], mission, lastStopReason: undefined };
@@ -294,5 +298,8 @@ export function isWellFormedShortRangeMission(m: unknown): m is ShortRangeMissio
   // G1-4: the cycle engine's optional fields (the load a drop-off paid, the cycles this run delivered).
   if (s.loadPaid !== undefined && !isFiniteNonNegative(s.loadPaid)) return false;
   if (s.cyclesThisRun !== undefined && !isWholeCount(s.cyclesThisRun)) return false;
+  // G1-5: the relic flag and the run's relic count.
+  if (s.relicBlanks !== undefined && (!s.relicBlanks || typeof s.relicBlanks !== "object" || (s.relicBlanks as { version?: unknown }).version !== RELIC_BLANKS_VERSION)) return false;
+  if (s.relicsThisRun !== undefined && !isWholeCount(s.relicsThisRun)) return false;
   return true;
 }
