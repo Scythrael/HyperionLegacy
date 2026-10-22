@@ -1686,3 +1686,12 @@ issue).
    offense, but standoff doesn't really feel like it means "defensive", evne though it's the closest thing to it."
    Reading: each stance sets where a ship holds; Standoff is renamed Defensive and gains defensive behavior (what it
    does: next round of questions).
+3. Defensive (renamed Standoff) does ALL FOUR: "Takes less, deals less" (incoming damage reduced, for example -20%,
+   outgoing reduced a bit); "Shields first" (shields recharge faster and absorb more); "Guards against threats"
+   (point defense and drones focus incoming drones and missiles before enemy ships); "Keeps its distance" (holds at
+   its longest gun's reach and backs off when enemies close, only if fast enough).
+4. Balanced parks "Where most firepower reaches (Recommended)" (the range covering the biggest share of its damage).
+   Aggressive closes so every gun fires (its shortest gun's reach).
+My calls: the player-facing label becomes "Defensive" everywhere (picker, Help, patch note, logs); the stored key stays
+`standoff` so saves need no migration (same pattern as the Settings tab key "options"); the new behavior applies via
+the WR-8 rules stamp, so in-flight runs replay unchanged. All Defensive numbers are [PROVISIONAL] for 0.16.0.
