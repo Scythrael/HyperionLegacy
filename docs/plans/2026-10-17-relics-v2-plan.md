@@ -503,3 +503,13 @@ inert: culture names (finds keep their "Relic Sample" codes, honest Help), the R
   relic's source site doubles the weight of its old set's types.
 - ALL 17 calls answered. Still open: the name sign-offs (exceptional set names, 42 culture names), presented as a
   sign-off sheet before R2-8.
+
+## USER IDEA (2026-10-22, open): compounding past the 1000-relic soft cap
+
+After learning the secret game's Overclock compounds (x1.125 per level, multiplied): "I'm tempted to make that 1000
+relic cap effect this too." Clarified by multiple choice: "Museum relics compound" (in the main game, relic copies
+past the 1000 soft cap keep growing the Museum bonus in a compounding way, instead of freezing). OPEN: this conflicts
+with the user's D23 rule (stacking bonuses use concave curves, never compounding) and with the soft cap design (calls
+3 and 4: counts freeze for the regular game at 1000, the past-cap count is kept for a future Endless Mode). Awaiting the
+user's pick of how (see the next USER ANSWERS block). The R2-4 provisional picks (MUSEUM_V2_PER_COPY, MUSEUM_V2_KNEE
+0.25, SOFT_CAP_FREEZES_EXCEPTIONAL false) and the Tier I veteran flag are also still unanswered.
