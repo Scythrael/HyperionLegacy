@@ -19,7 +19,8 @@
 // No offline cap (answer 6, "Always runs").
 //
 // lastTickAt advances by WHOLE seconds only; the fraction carries to the next call. A clock that
-// jumped backwards simply re-anchors (no time passed, nothing paid, nothing lost).
+// behind the stamp pays nothing and keeps the stamp (0.13.11.1: never re-anchored, so a clock set
+// back can never be paid twice; the shared trustedTime.ts clock never goes back in the first place).
 
 import { stepMut } from "./engine";
 import { cloneSecret, type SecretState } from "./state";
@@ -68,11 +69,9 @@ const prestigeCount = (x: SecretState): number => x.captainCount + x.fleetTotal 
 export function createCatchUp(s: SecretState, nowMs: number, opts: CatchUpOptions = {}): CatchUpJob {
   const done = (r: AdvanceResult): CatchUpJob => ({ run: () => true, runFor: () => true, elapsedSeconds: () => r.seconds, result: () => r });
   if (!Number.isFinite(nowMs)) return done({ state: s, steps: 0, mode: "none", seconds: 0 });
-  if (nowMs < s.lastTickAt) {
-    const re = cloneSecret(s);
-    re.lastTickAt = nowMs;
-    return done({ state: re, steps: 0, mode: "none", seconds: 0 });
-  }
+  // A clock behind the state's own stamp pays nothing and moves nothing: the stamp is a high-water
+  // mark (0.13.11.1 clock protection; the old re-anchor let a clock set back be paid twice).
+  if (nowMs < s.lastTickAt) return done({ state: s, steps: 0, mode: "none", seconds: 0 });
   const seconds = Math.floor((nowMs - s.lastTickAt) / 1000);
   if (seconds <= 0) return done({ state: s, steps: 0, mode: "none", seconds: 0 });
 

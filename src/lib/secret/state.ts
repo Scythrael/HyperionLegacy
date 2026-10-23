@@ -285,6 +285,17 @@ export function inspectSecretSave(nowMs: number): { state: SecretState; status: 
   return { state: freshSecretState(nowMs), status: isFutureSecretSave(raw) ? "future" : "corrupt" };
 }
 
+// The secret save's own time stamp, without loading it (the shared trusted clock raises its mark from
+// every save's stamp before anything pays out; 0.13.11.1 clock protection).
+export function peekSecretLastTick(): number | null {
+  try {
+    const parsed: unknown = JSON.parse(safeGetItem(SECRET_SAVE_KEY) ?? "null");
+    return isPlainObject(parsed) && isFiniteNumber(parsed.lastTickAt) ? parsed.lastTickAt : null;
+  } catch {
+    return null;
+  }
+}
+
 export function loadSecret(nowMs: number): SecretState {
   return inspectSecretSave(nowMs).state;
 }

@@ -173,12 +173,14 @@ describe("clock edges", () => {
     expect(advanceTo(b.state, 3999).steps).toBe(0);
   });
 
-  it("a clock that runs backwards pays nothing and re-anchors", () => {
+  it("a clock that runs backwards pays nothing and keeps its mark (never re-anchored, so never paid twice)", () => {
     const s = freshSecretState(100000);
     s.ore = new Decimal(1234);
     const r = advanceTo(s, 50000);
     expect(r.steps).toBe(0);
-    expect(r.state.lastTickAt).toBe(50000);
+    expect(r.state.lastTickAt).toBe(100000);
+    // and the next honest reading pays only real time past the mark, once
+    expect(advanceTo(r.state, 100000 + 5000).seconds).toBe(5);
     expect(r.state.ore.eq(1234)).toBe(true);
   });
 

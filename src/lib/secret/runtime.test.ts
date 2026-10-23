@@ -14,12 +14,14 @@ import {
 } from "./runtime";
 import Decimal from "break_infinity.js";
 import { achievementQueue, clearAchievements } from "../achievements";
+import { resetTrustedTimeForTests } from "../trustedTime";
 import { SECRET_SAVE_KEY, SECRET_BACKUP_KEY, deserializeSecret, freshSecretState, serializeSecret, type SecretState } from "./state";
 import { buyTier } from "./engine";
 import { installMemoryStorage, installBlockedStorage, restoreStorage } from "./testStorage";
 
 let stop: (() => void) | null = null;
 beforeEach(() => {
+  resetTrustedTimeForTests();
   vi.useFakeTimers();
   vi.setSystemTime(new Date("2026-10-22T18:00:00Z"));
 });
@@ -206,6 +208,36 @@ describe("0.13.11.1: popups and the found flag", () => {
     markSecretFound();
     wipeSecretGame();
     expect(get(secretGame).found).toBe(false);
+  });
+});
+
+describe("0.13.11.1: clock protection", () => {
+  it("a week forward then back, three times: paid at most the unverified allowance, never twice", () => {
+    installMemoryStorage();
+    stop = startSecretRuntime();
+    secretAct((s) => buyTier(s, 0, "one"));
+    const start = get(secretGame).lastTickAt;
+    const real = Date.now();
+    for (let i = 0; i < 3; i++) {
+      vi.setSystemTime(real + 7 * 86400 * 1000);
+      vi.advanceTimersByTime(1000);
+      vi.advanceTimersByTime(5000); // let any sliced catch-up land
+      vi.setSystemTime(real);
+      vi.advanceTimersByTime(1000);
+    }
+    const paidMs = get(secretGame).lastTickAt - start;
+    expect(paidMs).toBeLessThanOrEqual(2 * 86400 * 1000 + 60 * 1000);
+    expect(get(secretGame).lastTickAt).toBeGreaterThanOrEqual(start);
+  });
+
+  it("1970 pays nothing and keeps the game running from its mark", () => {
+    installMemoryStorage();
+    stop = startSecretRuntime();
+    secretAct((s) => buyTier(s, 0, "one"));
+    const mark = get(secretGame).lastTickAt;
+    vi.setSystemTime(new Date("1970-01-02T00:00:00Z"));
+    vi.advanceTimersByTime(3000);
+    expect(get(secretGame).lastTickAt).toBeGreaterThanOrEqual(mark);
   });
 });
 

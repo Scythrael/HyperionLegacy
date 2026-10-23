@@ -154,6 +154,18 @@ export function awayRecapSpan(
   return { before: open.before, secondsAway: open.secondsAway + Math.max(0, nowMs - open.shownAtMs) / 1000 };
 }
 
+// 0.13.11.1 clock protection. A reload whose catch-up had part of its absence HELD (the device
+// clock was ahead of what trustedTime.ts trusts) pays the rest later, once the clock is confirmed,
+// as a live catch-up. The absence's offline cap still covers BOTH payments together: the release may
+// pay at most udgetSeconds (the cap minus what the reload already paid), so an honest player
+// gets exactly what one uninterrupted reload would have paid, never a second cap. Pure.
+export function clampCatchUp(plan: AdvancePlan, budgetSeconds: number): AdvancePlan {
+  if (plan.mode !== "catchUp" || plan.cycles <= 0) return plan;
+  const cycles = Math.max(0, Math.min(plan.cycles, Math.floor(budgetSeconds / plan.barSeconds)));
+  if (cycles === plan.cycles) return plan;
+  return { ...plan, cycles, gameSeconds: (plan.gameSeconds * cycles) / plan.cycles, mode: cycles === 0 ? "none" : cycles <= LIVE_STEP_MAX_CYCLES ? "step" : "catchUp" };
+}
+
 // Game ticks a planned poll actually pays: a catch-up beyond the offline cap pays only the cap.
 export function paidTicks(plan: AdvancePlan, state: GameState): number {
   const raw = plan.cycles * plan.ticksPerCycle;

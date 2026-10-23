@@ -12,6 +12,7 @@ import {
   blendRunwayEma,
   startLoopClock,
   type LoopClock,
+  clampCatchUp,
 } from "./loopClock";
 import { tick, UNKNOWN_COMPLETION_TIME_MS } from "./tick";
 import { freshState, type CaptainMissionState, type GameState } from "./model";
@@ -396,5 +397,20 @@ describe("startLoopClock: the loop starts where the reload catch-up paid through
 
     // And a save right after stamps exactly what is paid, so nothing is paid twice on a reload.
     expect(paidThroughMs(clock, returnedAtMs + 5000)).toBe(returnedAtMs + 5000);
+  });
+});
+
+describe("clampCatchUp (0.13.11.1 clock protection: a held absence is paid under ONE offline cap)", () => {
+  const plan = (cycles: number) => ({ kind: "advance" as const, realElapsedSeconds: cycles, mode: (cycles > 2 ? "catchUp" : "step") as "catchUp" | "step", cycles, barSeconds: 1, ticksPerCycle: 1, gameSeconds: cycles });
+  it("leaves steady polls and catch-ups within the budget alone", () => {
+    expect(clampCatchUp(plan(1), 0)).toEqual(plan(1));
+    expect(clampCatchUp(plan(500), 1000)).toEqual(plan(500));
+  });
+  it("pays a release only up to what the cap still allows", () => {
+    const p = clampCatchUp(plan(5000), 1200);
+    expect(p.cycles).toBe(1200);
+    expect(p.gameSeconds).toBe(1200);
+    expect(p.mode).toBe("catchUp");
+    expect(clampCatchUp(plan(5000), 0).mode).toBe("none");
   });
 });

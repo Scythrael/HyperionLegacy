@@ -95,6 +95,20 @@ describe("App wiring for 0.13.11", () => {
     expect(APP).not.toMatch(/import [^;]*from "\.\/lib\/secret\/devTools"/);
   });
 
+  it("0.13.11.1: the main game reads the ONE trusted clock for loop, load, save and recaps", () => {
+    const loopStart = APP.indexOf("const pollGameLoop = () => {");
+    const loop = APP.slice(loopStart, APP.indexOf("const welcomeBack = ", loopStart));
+    expect(loop).toContain("const now = trustedNow();");
+    expect(loop).toContain("clampCatchUp(plan, heldReleaseBudgetSeconds)");
+    expect(functionBody("doSave")).toContain("paidThroughMs(loopClock, trustedNow())");
+    expect(APP).toContain("const returnedAtMs = trustedNow();");
+    expect(APP).toContain("initTrustedTime([loadedSave?.lastSavedAt, peekSecretLastTick()]);");
+    // No progress path reads the raw device clock any more.
+    for (const raw of ["paidThroughMs(loopClock, Date.now())", "const returnedAtMs = Date.now()", "atMs: Date.now(), snapshot"]) expect(APP).not.toContain(raw);
+    const runtime = readFileSync("src/lib/secret/runtime.ts", "utf-8");
+    expect(runtime).not.toMatch(/Date\.now\(\)/);
+  });
+
   it("0.13.11.1: one achievement popup mount, after the overlay", () => {
     expect(APP.split("<AchievementToasts").length - 1).toBe(1);
     expect(APP.indexOf("<AchievementToasts")).toBeGreaterThan(APP.indexOf("<SecretGameOverlay"));
