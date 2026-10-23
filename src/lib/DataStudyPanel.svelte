@@ -29,11 +29,13 @@
             class="ds-switch"
             role="switch"
             aria-checked={!view.paused}
+            aria-labelledby="ds-switch-label"
             on:click={() => onSetPaused(!view.paused)}
           >
             <span class="ds-knob" class:off={view.paused} aria-hidden="true"></span>
             {#if view.paused}<Icon name="pause" size={14} />{/if}
-            <span>{view.switchText}</span>
+            <span id="ds-switch-label">Auto-study</span>
+            <span aria-hidden="true">{view.switchText}</span>
           </button>
         </div>
 
@@ -60,13 +62,16 @@
           <i style="width: {view.current ? view.current.progressPct : 0}%;" class:paused={view.paused}></i>
         </div>
         <p class="ds-dim ds-note">{view.note}</p>
-        {#if view.capText}<p class="ds-dim ds-note">{view.capText}</p>{/if}
         {#each view.fullWarnings as w, i (i)}<p class="ds-full">{w}</p>{/each}
 
         <h3 class="ds-h ds-sub">Held data, next first</h3>
         <ul class="ds-q">
           {#each view.queue as row (row.key)}
-            <li><Icon name={row.glyph} size={16} /> <span>{row.name}</span><span class="ds-ct">x{row.count}</span></li>
+            <li class:full={row.full}>
+              <Icon name={row.glyph} size={16} /> <span>{row.name}</span>
+              <span class="ds-ct">x{row.count}</span>
+              {#if row.heldText}<span class="ds-held" title="Held of this type / its warehouse cap">{row.heldText}{#if row.full} full{/if}</span>{/if}
+            </li>
           {:else}
             <li class="ds-dim">{view.queueEmptyText}</li>
           {/each}
@@ -253,6 +258,14 @@
     border: 1px solid rgba(var(--color-accent-rgb), 0.14);
     border-radius: var(--corner);
     color: var(--color-text-primary);
+  }
+  .ds-held {
+    font-family: var(--font-mono);
+    font-size: var(--text-2xs);
+    color: var(--color-text-dim);
+  }
+  .ds-q li.full .ds-held {
+    color: var(--color-danger);
   }
   .ds-ct {
     margin-left: auto;

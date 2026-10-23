@@ -61,7 +61,7 @@ describe("GG-6 the Data study tab", () => {
     expect(v.labLevelText).toBe("Lab level 1");
     expect(v.current).toBeNull();
     expect(v.idleText).toBe("Idle: no held data");
-    expect(v.switchText).toBe("Auto-study on");
+    expect(v.switchText).toBe("on");
     expect(v.queue).toEqual([]);
   });
 
@@ -81,7 +81,7 @@ describe("GG-6 the Data study tab", () => {
     const s = setDataStudyPaused(step(lab(1, { [PROP]: 1, [SENS]: 1 }), 5), true);
     const v = dataStudyView(s);
     expect(v.paused).toBe(true);
-    expect(v.switchText).toBe("Paused");
+    expect(v.switchText).toBe("paused");
     expect(v.current?.etaText.startsWith("Paused, ")).toBe(true);
     const held = dataStudyView(step(s, 300));
     expect(held.current?.etaText).toBe(v.current?.etaText);
@@ -107,14 +107,20 @@ describe("GG-6 the Data study tab", () => {
     expect(v.idleText).toBe("Starting the next held data");
   });
 
-  it("shows held data against its per-type cap and warns when a type is full; no decoded count before GG-7", () => {
+  it("shows each type's held data against its own cap and warns when a type is full; no decoded count before GG-7", () => {
     const s = lab(1, { [PROP]: 2, [SENS]: 1 });
     const cap = itemCap(s, PROP);
     const v = dataStudyView(s);
-    expect(v.capText).toBe(`Held data 3 / ${formatNumber(cap)} of each type`);
+    // GG-6 pause review: the cap is per type, so each row shows its own type's stock against it (never a sum).
+    const rows = v.queue;
+    expect(rows.find((r) => r.itemId === PROP)!.heldText).toBe(`2 / ${formatNumber(cap)}`);
+    expect(rows.find((r) => r.itemId === SENS)!.heldText).toBe(`1 / ${formatNumber(cap)}`);
+    expect(rows.every((r) => !r.full)).toBe(true);
     expect(v.fullWarnings).toEqual([]);
     const full = { ...lab(1, { [PROP]: cap.toNumber() }), discovered: [...freshState().discovered, PROP] };
     expect(dataStudyView(full).fullWarnings).toEqual([`Propulsion Data is full (cap ${formatNumber(cap)}): more of it coming home is not kept.`]);
+    // The full type's queue row reads full too (it is still held, so it is still queued).
+    expect(dataStudyView(full).queue.find((r) => r.itemId === PROP)!.full).toBe(true);
     expect(ANCIENT_DECODE_TEXT_LIVE).toBe(false);
     expect(v.ancientText).toBeNull();
   });

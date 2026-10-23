@@ -78,6 +78,8 @@ export interface DataStudyQueueRow {
   name: string;
   glyph: IconName;
   count: number;
+  heldText: string | null; // GG-6 review: this type's whole stock against its own cap, "400 / 500"
+  full: boolean;
 }
 export interface DataStudyBoostRow {
   family: ResearchFamily;
@@ -102,7 +104,6 @@ export interface DataStudyView {
   boosts: DataStudyBoostRow[];
   boostNote: string;
   ancientText: string | null; // hidden until GG-7 makes decoding visible (ANCIENT_DECODE_TEXT_LIVE)
-  capText: string | null; // "Held data 5 / 500 of each type"
   fullWarnings: string[]; // one per data type at its warehouse cap
 }
 
@@ -114,7 +115,7 @@ export const DATA_STUDY_NOTE_ON = "When the lane is idle it starts the next held
 export const DATA_STUDY_NOTE_PAUSED = "Paused: held data waits in the queue, nothing is lost. Turn it back on to resume.";
 
 // The held queue in study order, consecutive units of the same item folded into one row ("Sensors Data x2"). Pure.
-export function dataQueueRows(state: Pick<GameState, "inventory" | "dataStudyHeld">): DataStudyQueueRow[] {
+export function dataQueueRows(state: GameState): DataStudyQueueRow[] {
   const rows: DataStudyQueueRow[] = [];
   for (const e of heldDataQueue(state)) {
     const last = rows[rows.length - 1];
@@ -122,7 +123,16 @@ export function dataQueueRows(state: Pick<GameState, "inventory" | "dataStudyHel
       last.count += 1;
       continue;
     }
-    rows.push({ key: `${rows.length}-${e.itemId}`, itemId: e.itemId, name: itemLabel(e.itemId), glyph: glyphOf(e.itemId), count: 1 });
+    const fill = stockFill(state as GameState, e.itemId);
+    rows.push({
+      key: `${rows.length}-${e.itemId}`,
+      itemId: e.itemId,
+      name: itemLabel(e.itemId),
+      glyph: glyphOf(e.itemId),
+      count: 1,
+      heldText: fill.cap === null ? null : `${formatNumber(fill.held)} / ${formatNumber(fill.cap)}`,
+      full: fill.full,
+    });
   }
   return rows;
 }
@@ -168,19 +178,16 @@ export function ancientDecodedTotal(state: Pick<GameState, "ancientDecoded">): n
 }
 
 // The held research data against its warehouse cap (the user, 2026-10-23: research data keeps the cap for now, and the
-// Data study tab shows it): every data type has the same per-type cap (its warehouse tier's), and a type at its cap
-// warns that more of it coming home is not kept (the claim clamps at the cap). Pure.
-export function heldCap(state: GameState): { capText: string | null; fullWarnings: string[] } {
-  let held = 0;
-  let cap: string | null = null;
+// Data study tab shows it). The cap is PER TYPE (each type's own warehouse shelf), so each queue row shows its type's
+// stock against it ("400 / 500", dataQueueRows), and a type at its cap warns that more of it coming home is not kept
+// (the claim clamps at the cap). Pure.
+export function heldCap(state: GameState): { fullWarnings: string[] } {
   const fullWarnings: string[] = [];
   for (const id of DATA_STUDY_ITEM_IDS) {
     const f = stockFill(state, id);
-    held += Math.max(0, Math.floor(f.held.toNumber()));
-    if (f.cap !== null) cap = formatNumber(f.cap);
     if (f.full && f.cap !== null) fullWarnings.push(`${itemLabel(id)} is full (cap ${formatNumber(f.cap)}): more of it coming home is not kept.`);
   }
-  return { capText: cap === null ? null : `Held data ${held} / ${cap} of each type`, fullWarnings };
+  return { fullWarnings };
 }
 
 // The whole Data study tab. Pure.
@@ -209,7 +216,8 @@ export function dataStudyView(state: GameState): DataStudyView {
     laneText: `Lane ${Math.min(1, lanes)} of ${lanes}`,
     labLevelText: `Lab level ${labTier(state)}`,
     paused,
-    switchText: paused ? "Paused" : "Auto-study on",
+    // GG-6 review: the switch's name is a stable "Auto-study" (its label); its state reads on aria-checked and this word.
+    switchText: paused ? "paused" : "on",
     current,
     // GG-6 review: on, with data held and nothing started yet (the lane starts it on the next tick).
     idleText: current ? null : queue.length > 0 ? (paused ? "Paused: held data waits" : "Starting the next held data") : "Idle: no held data",

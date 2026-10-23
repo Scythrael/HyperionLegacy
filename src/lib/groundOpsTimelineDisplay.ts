@@ -191,6 +191,7 @@ interface RawStep {
   // The user's pickup pause (2026-10-23): a return the ship collects, pausing its study (a record's studyPickup, or a
   // live return on a `pickup` leg). Never a wipe.
   studyPickup?: boolean;
+  pausedWhat?: "study" | "sweep"; // what that pickup paused (the words never call the sweep a study)
   plannedEnd?: number; // the live step's stored end (GG-6: a shuttle that waits for a study ends at the study's end)
 }
 
@@ -207,6 +208,12 @@ function wipePickup(ops: { shipLegs: readonly GroundShipLeg[] }, team: Pick<Grou
   return leg && leg.pickup !== 1 ? leg : null;
 }
 
+// What the pickup that docked team `teamIndex` at `at` paused, in one word ("study" when it cannot be found). Pure.
+function pickupPausedWhat(exp: Pick<Expedition, "groundOps">, teamIndex: number, at: number): "study" | "sweep" {
+  const leg = exp.groundOps?.shipLegs.find((l) => l.pickup === 1 && l.arrivesAt === at && groundLegTeams(l).includes(teamIndex));
+  return leg ? pausedStudyWord(exp, leg) : "study";
+}
+
 // The team's steps in time order: its history records, then its live step (ending at `axisEnd`). Pure.
 function teamSteps(exp: Expedition, team: GroundTeamRun, axisEnd: number): RawStep[] {
   const ops = exp.groundOps;
@@ -220,7 +227,7 @@ function teamSteps(exp: Expedition, team: GroundTeamRun, axisEnd: number): RawSt
       ...(r.taskId !== undefined ? { taskId: r.taskId } : {}),
       ...(r.outcome ? { outcome: r.outcome } : {}),
       ...(r.recovered ? { recovered: true } : {}),
-      ...(r.studyPickup ? { studyPickup: true } : {}),
+      ...(r.studyPickup ? { studyPickup: true, pausedWhat: pickupPausedWhat(exp, r.teamIndex, r.endedAt) } : {}),
       ...(r.ambushed ? { ambushed: true } : {}),
       ...(r.surprise ? { surprise: true } : {}),
       ...(r.reinforcement ? { reinforcement: true } : {}),
@@ -237,7 +244,7 @@ function teamSteps(exp: Expedition, team: GroundTeamRun, axisEnd: number): RawSt
       ...(team.step === "fight" && team.pendingFight?.reinforcement ? { reinforcement: true } : {}),
       live: true,
       ...(wipePickup(ops, team) ? { awaitingPickup: true } : {}),
-      ...(awaitingPickup(ops, team)?.pickup === 1 ? { studyPickup: true } : {}),
+      ...(awaitingPickup(ops, team)?.pickup === 1 ? { studyPickup: true, pausedWhat: pausedStudyWord(exp, awaitingPickup(ops, team)!) } : {}),
       ...(team.stepEndsAt !== null ? { plannedEnd: team.stepEndsAt } : {}),
     });
   }
@@ -296,8 +303,8 @@ function stepWords(exp: Expedition, steps: readonly RawStep[], i: number): StepW
     case "return":
       if (s.awaitingPickup) return { category: "travel", label: "awaiting pickup", detail: "Waiting for the ship to pick the team up", lost: false };
       // The user's pickup pause: the ship paused its study (or the sweep) to fly the pickup.
-      if (s.studyPickup && s.live) return { category: "travel", label: "awaiting pickup", detail: "Waiting for the ship: it paused its study to fly the pickup", lost: false };
-      if (s.studyPickup) return { category: "travel", label: "pickup", detail: `Picked up by the ship, which paused its study (${len})`, lost: false };
+      if (s.studyPickup && s.live) return { category: "travel", label: "awaiting pickup", detail: `Waiting for the ship: it paused its ${s.pausedWhat ?? "study"} to fly the pickup`, lost: false };
+      if (s.studyPickup) return { category: "travel", label: "pickup", detail: `Picked up by the ship, which paused its ${s.pausedWhat ?? "study"} (${len})`, lost: false };
       if (s.recovered) return { category: "travel", label: "pickup", detail: `Picked up by the ship (${len})`, lost: false };
       return { category: "travel", label: "return", detail: `Shuttle back to the ship (${len})${stopNote}`, lost: false };
     case "offload":
@@ -422,7 +429,7 @@ export function teamNowText(exp: Expedition, ship: ShipInstance | null | undefin
       return `Fighting at ${task}${left}`;
     case "return": {
       const leg = ops ? awaitingPickup(ops, team) : null;
-      if (leg && leg.pickup === 1) return `Waiting for the ship: it paused its study for the pickup · arrives ${team.stepEndsAt !== null && team.stepEndsAt > now ? `in ${spanText(Math.ceil(team.stepEndsAt - now))}` : "now"}`;
+      if (leg && leg.pickup === 1) return `Waiting for the ship: it paused its ${pausedStudyWord(exp, leg)} for the pickup · arrives ${team.stepEndsAt !== null && team.stepEndsAt > now ? `in ${spanText(Math.ceil(team.stepEndsAt - now))}` : "now"}`;
       if (leg) return `Waiting for the ship: pickup ${team.stepEndsAt !== null && team.stepEndsAt > now ? `in ${spanText(Math.ceil(team.stepEndsAt - now))}` : "now"}`;
       // GG-6: the shuttle is up but the ship holds orbit on a study; it docks when the study ends.
       const dock = ops && team.stepEndsAt !== null ? waitedOnStudy(ops, team.stepStartedAt, team.stepEndsAt) : null;
@@ -539,7 +546,8 @@ function pickupNote(leg: Pick<GroundStudyLeg, "pauses">): string {
 
 // GG-6: a study leg in words (the ship holds orbit over a giant, or sweeps the nebula). Pure.
 function studyLegWords(exp: Expedition, leg: GroundStudyLeg, now: number): StepWords {
-  const len = spanText(leg.endsAt - leg.startsAt);
+  // The study's own length: its span without the pickups that paused it (those draw as their own legs).
+  const len = spanText(leg.endsAt - leg.startsAt - (leg.pauses ?? []).reduce((a, p) => a + (p.to - p.from), 0));
   const going = leg.startsAt <= now && now < leg.endsAt && !leg.done;
   if (leg.nebula === 1) {
     const kind = exp.nebula ? nebulaKindById(exp.nebula.kindId) : undefined;

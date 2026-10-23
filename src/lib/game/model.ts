@@ -8387,7 +8387,8 @@ export interface Expedition {
   // pick back up where it left off, so going to get the team from where they are is fine. Then go back and continue
   // scanning."): frozen at dispatch on a study run (`study` or `nebula` present). Present: a team ready for pickup while
   // the ship holds a study or sweeps the nebula no longer waits for its end; the ship pauses it, flies the pickup and
-  // resumes where it left off (groundOps.ts pauseStudyForPickup). Absent on every other run and on every run dispatched
+  // resumes where it left off (groundOps.ts schedulePausePickup and pauseStudyAt, only when that brings the team aboard
+  // sooner than waiting, pausePaysOff). Absent on every other run and on every run dispatched
   // before the change (its shuttles wait, GG-3 studyPickupAt). Optional, no SAVE bump.
   pickupPause?: 1;
 }

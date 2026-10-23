@@ -5267,13 +5267,13 @@ function gasStudyEntries(): WiringEntry[] {
       magnitude: () => 1,
       on: sourceOn,
     },
-    //   pickupPause (the user, 2026-10-23): a study run's shuttles never wait for a study or the sweep; the ship pauses it
-    //   for a pickup (OFF: the stamp taken away, a run dispatched before the change). Read as the seconds teams spent
-    //   waiting for the ship over a whole run (the source cuts them).
+    //   pickupPause (the user, 2026-10-23): a study run's shuttles no longer wait out a study or the sweep when the ship
+    //   can collect them sooner (OFF: the stamp taken away, a run dispatched before the change). Read as the seconds
+    //   teams spend in the return step over a whole run, pickups included (the source cuts them).
     pickupPause: {
       probe: "content:gasStudy:pickupPause",
       contexts: ["expedition:groundOps"],
-      curve: { kind: "event", metric: "seconds teams wait for the ship behind a study or the sweep over a whole nebula run (OFF minus ON)" },
+      curve: { kind: "event", metric: "seconds teams spend in the return step over a whole nebula run, pickups and waits included (negated: the source cuts them)" },
       magnitude: () => 1,
       base: () => withAwayTeam(wiringBase()),
       on: sourceOn,

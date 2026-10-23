@@ -2114,16 +2114,17 @@ function gasStudyUseValue(s: GameState, use: string, on: boolean): number {
     }
     case "pickupPause": {
       // The user's pickup pause (2026-10-23): a whole run to a system holding a nebula (its 2 hour sweep makes the
-      // last shuttles wait on a run without the stamp). The seconds every team's shuttle spent waiting for the ship
-      // behind a study or the sweep, read negated so the source raises the value (ON 0 waiting, OFF the old wait).
+      // last shuttles wait on a run without the stamp). GG-6 pause review: the TOTAL seconds every team spent in its
+      // return step (an ordinary shuttle, a wait behind a study, a pickup the ship flew), read negated so the source
+      // raises the value: the pickups count too, so ON is measured, never 0 by construction.
       const ready = readyForRun(s);
       for (const seed of NEBULA_PROBE_SEEDS) {
         const dispatched = dispatchRun({ ...ready, expeditionSeed: seed });
         if (dispatched.nebula === undefined) continue;
         const { pickupPause: _stamp, ...unstamped } = dispatched;
-        const off = waitedBehindStudies(advanceExpedition(unstamped, dispatched.phaseAnchorSeconds + 4_000_000));
-        if (off === 0) continue; // the first nebula run whose shuttles waited without the stamp
-        return -(on ? waitedBehindStudies(advanceExpedition(dispatched, dispatched.phaseAnchorSeconds + 4_000_000)) : off);
+        const offRun = advanceExpedition(unstamped, dispatched.phaseAnchorSeconds + 4_000_000);
+        if (waitedBehindStudies(offRun) === 0) continue; // the first nebula run whose shuttles waited without the stamp
+        return -returnSeconds(on ? advanceExpedition(dispatched, dispatched.phaseAnchorSeconds + 4_000_000) : offRun);
       }
       throw new Error("wiring: no nebula probe seed holds a shuttle that waits behind a study");
     }
@@ -2224,6 +2225,14 @@ function waitedBehindStudies(run: Expedition): number {
     if ((ops?.studyLegs ?? []).some((l) => l.endsAt === r.endedAt)) waited += Math.max(0, r.endedAt - r.startedAt - RETURN_SECONDS);
   }
   return waited;
+}
+
+// The seconds every team of a run spent in its return step (a recall's stop left out), pickups and waits included.
+// Pure.
+function returnSeconds(run: Expedition): number {
+  let n = 0;
+  for (const r of run.groundOps?.history ?? []) if (r.step === "return" && !r.stopped) n += r.endedAt - r.startedAt;
+  return n;
 }
 
 // GG-4: the canisters of `pick` over a batch of sweeps of a nebula of `kindId`, the reward rolled with `kinds`.

@@ -463,6 +463,18 @@ the seconds shuttles wait behind a study over a whole nebula run, OFF the stamp 
 in the pins (gasStudyGoldens.fixture.ts). GG-4's own tests and golden now strip the stamp (`withoutNebula` and
 `withoutStudy` drop it too: every pre-GG-4 capture keeps its waiting shuttles).
 
+**GG-6 pause review (2026-10-23).** The pause is flown only when it brings the team aboard SOONER than waiting
+(`pausePaysOff`: the pickup's arrival before `waitDockAt`, the GG-3 dock; a tie waits), so a team ready with less than a
+leg's flight (300 s) of study left waits as before and nothing is delayed for it (the review's example, save seed
+0x51f15e + 29 x 977 cand-3-1, now docks in 105 s; the affce7e6 pin did not move). A wiped team's recovery leg always
+pauses (its old leg waited for the ship to be free of every leg). Kept as a design choice: a crew whose healthy and
+wiped teams come home together makes two trips (the wiped team's recovery leg, then the others' pickup), never one
+mixed leg, so a pickup is never read as a wipe. Tests: the rule (unit and engine-driven), the weak-crew wipe fixture
+(save seed 0x51f15e + 2 x 977, cand-2-1, rank 1, three teams: studyPause without pickup, recovered not studyPickup, the
+share still through the pause, 600 s == 997 s == one call, the lane's wipe and the "recovery leg" text). The probe now
+reads the total seconds teams spend in the return step (pickups included). The Data study tab shows each type's held
+count against its own cap on its queue row; the switch is named "Auto-study" with its state on aria-checked.
+
 ### GG-7: Crafting uses and special blueprints (data + engine)
 
 Canister recipe uses per open call 7 (new higher-tier blueprints from G2-4 and OC-15, so no existing recipe or

@@ -1855,11 +1855,25 @@ function pauseStudyAt(ops: GroundOpsState, study: GroundStudyLeg, from: number, 
   (study.pauses ??= []).push({ from, to: from + d });
 }
 
+// When a shuttle that leaves at `t` would dock by WAITING (the GG-3 rule: at the end of the study that holds the ship
+// when it lands, studyPickupAt). Pure.
+export function waitDockAt(ops: Pick<GroundOpsState, "studyLegs">, t: number): number {
+  return studyPickupAt(ops, t + RETURN_SECONDS);
+}
+
+// GG-6 pause review: a pause is flown only when it brings the team aboard SOONER than waiting would (a pickup that
+// arrives at `arrivesAt` against the waiting shuttle's dock): a team ready with less than a leg's flight of study left
+// waits as before, so a pause is never worse for the team and never delays the study for nothing. Pure.
+export function pausePaysOff(ops: Pick<GroundOpsState, "studyLegs">, t: number, arrivesAt: number): boolean {
+  return arrivesAt < waitDockAt(ops, t);
+}
+
 // The pickup leg of `teams` (one crew, one body) asked for at `t`, pausing the study that holds the ship, or null when
-// no study can be paused (the shuttles then wait as before, studyPickupAt). Mutates.
+// no study can be paused or a pause would not bring them aboard sooner (the shuttles then wait as before,
+// studyPickupAt). Mutates.
 function schedulePausePickup(exp: Expedition, ops: GroundOpsState, teams: readonly GroundTeamRun[], ref: GroundTaskRef, t: number): GroundShipLeg | null {
   // The ship already on its way to this body for a pickup (not arrived yet) takes these teams too: one shared pickup.
-  const joining = ops.shipLegs.find((l) => l.pickup === 1 && l.bodyIndex === ref.bodyIndex && l.arrivesAt >= t);
+  const joining = ops.shipLegs.find((l) => l.pickup === 1 && l.bodyIndex === ref.bodyIndex && l.arrivesAt >= t && pausePaysOff(ops, t, l.arrivesAt));
   if (joining) {
     const indices = [...new Set([...groundLegTeams(joining), ...teams.map((team) => team.index)])].sort((a, b) => a - b);
     joining.teamIndex = indices[0];
@@ -1867,7 +1881,7 @@ function schedulePausePickup(exp: Expedition, ops: GroundOpsState, teams: readon
     return joining;
   }
   const slot = pickupPauseSlot(ops, t);
-  if (!slot) return null;
+  if (!slot || !pausePaysOff(ops, t, slot.from + IN_SYSTEM_LEG_SECONDS)) return null;
   return pausedLeg(ops, slot, teams, ref, true);
 }
 
@@ -1897,10 +1911,13 @@ function pausedLeg(ops: GroundOpsState, slot: { from: number; study: GroundStudy
 // that; while scanning, the scan pauses for it. One team: exactly GO-7b's leg; several: one shared leg listing
 // them all (teamIndices). Mutates.
 function scheduleRecoveryLeg(exp: Expedition, ops: GroundOpsState, teams: readonly GroundTeamRun[], ref: GroundTaskRef, t: number): GroundShipLeg {
-  // The user's pickup pause: on a stamped run a wiped team is not left waiting behind a study either.
+  // The user's pickup pause: on a stamped run a wiped team is not left waiting behind a study either. Its recovery leg
+  // would otherwise start when the ship is free of every leg (after the study), so a pause inside the study always
+  // brings it aboard sooner; the check says so anyway.
   if (exp.pickupPause === 1) {
     const slot = pickupPauseSlot(ops, t);
-    if (slot) return pausedLeg(ops, slot, teams, ref, false);
+    const free = shipFreeAt(ops);
+    if (slot && slot.from < (free !== null && free > t ? free : t)) return pausedLeg(ops, slot, teams, ref, false);
   }
   const scanning = exp.bodies.findIndex((b) => !b.scanned);
   // Legs never overlap (GO-8b: a field repair counts too).
@@ -2787,15 +2804,6 @@ export function groundTaskProgressAt(exp: Pick<Expedition, "groundOps">, task: E
   return team.workFrom + (team.workTo - team.workFrom) * f;
 }
 
-// The run's ground progress in [0, 1] at `now` (the activities bar, the system's COMPLETION): every task's share
-// (done or skipped counts whole, others their interpolated progress), each weighted by its difficulty's completion
-// weight (Squads SQ-4, design section 4: sum(weight x progress) / sum(weight); riskFactors.ts difficultyWeight, 1
-// for an unrated task, so a run before SQ-4 reads the plain mean as before). 0 before any task exists. Pure.
-// Gas Giant Study GG-3 (plan section 2: the study counts as its body's one objective): on a study run each orbital body
-// adds its STUDY at weight 1 (0 until it starts, then its elapsed share, 1 once done), so a run with no ground
-// objective still shows its progress. Every other run reads exactly as before.
-// GG-4: a run with a nebula adds its SWEEP the same way (weight 1; whole when an earlier trip of a resumed system swept
-// it).
 // The share of a study (or the sweep) done at `now`, in [0, 1]: its elapsed time over its length, both without the
 // spans a pickup paused it (the user's pickup pause: progress is kept, never lost or counted twice). Exactly the plain
 // elapsed share on a study no pickup paused. Pure.
@@ -2811,6 +2819,15 @@ export function studyLegShare(leg: Pick<GroundStudyLeg, "startsAt" | "endsAt" | 
   return span > 0 ? Math.max(0, Math.min(1, (now - leg.startsAt - pausedSoFar) / span)) : 1;
 }
 
+// The run's ground progress in [0, 1] at `now` (the activities bar, the system's COMPLETION): every task's share
+// (done or skipped counts whole, others their interpolated progress), each weighted by its difficulty's completion
+// weight (Squads SQ-4, design section 4: sum(weight x progress) / sum(weight); riskFactors.ts difficultyWeight, 1
+// for an unrated task, so a run before SQ-4 reads the plain mean as before). 0 before any task exists. Pure.
+// Gas Giant Study GG-3 (plan section 2: the study counts as its body's one objective): on a study run each orbital body
+// adds its STUDY at weight 1 (0 until it starts, then its elapsed share, 1 once done), so a run with no ground
+// objective still shows its progress. Every other run reads exactly as before.
+// GG-4: a run with a nebula adds its SWEEP the same way (weight 1; whole when an earlier trip of a resumed system swept
+// it).
 export function groundOpsProgress(exp: Pick<Expedition, "groundOps" | "bodies" | "study" | "nebula">, now: number): number {
   let total = 0;
   let sum = 0;

@@ -8,7 +8,7 @@
 import { describe, expect, it } from "vitest";
 import { SUBSPACE_TELESCOPE_FACILITY_KEY, freshState, type AwayMember, type Expedition, type GameState, type ShipGroundTeam } from "./model";
 import { advanceExpedition, flaggedScanTimeline } from "./expedition";
-import { IN_SYSTEM_LEG_SECONDS, RETURN_SECONDS, groundLegTeams, pickupPauseSlot, studyLegShare, studyPickupAt } from "./groundOps";
+import { IN_SYSTEM_LEG_SECONDS, RETURN_SECONDS, groundLegTeams, pausePaysOff, pickupPauseSlot, studyLegShare, studyPickupAt, waitDockAt } from "./groundOps";
 import { NEBULA_SWEEP_SECONDS, isStudyBody, studySeconds } from "./gasGiantStudy";
 import { shipNowText, timelineView } from "../groundOpsTimelineDisplay";
 import { studyBodyView, studyShipCardView } from "../gasGiantStudyDisplay";
@@ -20,17 +20,23 @@ const SCI = ["member-11", "member-12", "member-13", "member-14", "member-15", "m
 const T0 = 100_000;
 const hash = (v: unknown): string => fnv(goldenJson(v));
 
-function crewed(): GameState {
+// ship-1 with two Ground teams of six rank 10 members (the default), or three thinner teams of `rank` members (the
+// GG-6 pause review's weak-crew fixture, whose teams wipe); `seed` sets the save's expedition seed.
+function crewed(seed?: number, rank = 10, teamsN: 2 | 3 = 2): GameState {
   const base = freshState();
-  const m = (id: string, t: AwayMember["teamType"]): AwayMember => ({ ...plainAwayMember(id, t, "ship-1"), rank: 10 as AwayMember["rank"] });
-  const teams: ShipGroundTeam[] = [
-    { kind: "ground", security: SEC.slice(0, 3), science: SCI.slice(0, 3), helpOthers: false },
-    { kind: "ground", security: SEC.slice(3), science: SCI.slice(3), helpOthers: false },
-  ];
+  const m = (id: string, t: AwayMember["teamType"]): AwayMember => ({ ...plainAwayMember(id, t, "ship-1"), rank: rank as AwayMember["rank"] });
+  const teams: ShipGroundTeam[] =
+    teamsN === 2
+      ? [
+          { kind: "ground", security: SEC.slice(0, 3), science: SCI.slice(0, 3), helpOthers: false },
+          { kind: "ground", security: SEC.slice(3), science: SCI.slice(3), helpOthers: false },
+        ]
+      : [0, 1, 2].map((k) => ({ kind: "ground" as const, security: SEC.slice(2 * k, 2 * k + 2), science: SCI.slice(2 * k, 2 * k + 2), helpOthers: false }));
   return {
     ...base,
     gameTimeSeconds: T0,
     nextExpeditionId: 2,
+    ...(seed !== undefined ? { expeditionSeed: seed } : {}),
     facilities: { ...base.facilities, [SUBSPACE_TELESCOPE_FACILITY_KEY]: { level: 8 } },
     awayMembers: [...SEC.map((id) => m(id, "security")), ...SCI.map((id) => m(id, "science"))],
     nextAwayMemberId: 100,
@@ -194,6 +200,87 @@ describe("pickup pause: a new study run (the user's answer)", () => {
     const oldView = timelineView(oldRun, null, oldRun.groundOps!.endedAt!, "whole", flaggedScanTimeline)!;
     expect(oldView.lanes.some((l) => l.segments.some((s) => s.category === "wait"))).toBe(true);
   });
+});
+
+describe("pickup pause: only when it brings the team aboard sooner (GG-6 pause review)", () => {
+  it("a team ready with less than a leg's flight of study left waits; one with more is collected", () => {
+    const study = { kind: "study" as const, bodyIndex: 1, scanBodyIndex: null, startsAt: 0, endsAt: 1000 };
+    const ops = { studyLegs: [study] };
+    // Ready at 800: the shuttle would land at 860 and dock at 1000 by waiting; a pickup from 800 arrives at 1100.
+    expect(waitDockAt(ops, 800)).toBe(1000);
+    expect(pausePaysOff(ops, 800, 800 + IN_SYSTEM_LEG_SECONDS)).toBe(false);
+    // Ready at 200: waiting docks at 1000; the pickup arrives at 500.
+    expect(pausePaysOff(ops, 200, 200 + IN_SYSTEM_LEG_SECONDS)).toBe(true);
+    // A tie waits (never worse, never a pause for nothing).
+    expect(pausePaysOff(ops, 400, 1000)).toBe(false);
+  });
+
+  it("engine-driven: the review's example (save seed 0x51f15e + 29 x 977, cand-3-1) docks by waiting 105 s, not a 300 s pickup", () => {
+    const res = dispatchPastPropulsion(crewed(0x51f15e + 29 * 977), "ship-1", 1, "cand-3-1");
+    const exp = res.expedition!;
+    expect(exp.pickupPause).toBe(1);
+    const ops = advanceExpedition(exp, exp.phaseAnchorSeconds + 4_000_000).groundOps!;
+    const waited = ops.history.filter((r) => r.step === "return" && !r.recovered && !r.studyPickup && !r.stopped && r.endedAt - r.startedAt > RETURN_SECONDS);
+    expect(waited.length).toBeGreaterThan(0);
+    for (const r of waited) {
+      // It docked at a study's end, sooner than any pickup could have arrived.
+      expect((ops.studyLegs ?? []).some((l) => l.endsAt === r.endedAt)).toBe(true);
+      expect(r.endedAt - r.startedAt).toBeLessThan(IN_SYSTEM_LEG_SECONDS + RETURN_SECONDS);
+    }
+    // Every pickup the ship flew arrived sooner than the shuttle would have docked by waiting at that moment.
+    for (const r of ops.history.filter((x) => x.studyPickup)) expect(r.endedAt - r.startedAt).toBeLessThanOrEqual(IN_SYSTEM_LEG_SECONDS + IN_SYSTEM_LEG_SECONDS);
+  });
+});
+
+describe("pickup pause: a wiped team (the recovery leg pauses the study too)", () => {
+  // The review's weak crew: three thin teams of rank 1 members (save seed 0x51f15e + 2 x 977, cand-2-1, Tier II).
+  const wipeFixture = (): Expedition => {
+    const res = dispatchPastPropulsion(crewed(0x51f15e + 2 * 977, 1, 3), "ship-1", 1, "cand-2-1", true);
+    if (!res.success || !res.expedition) throw new Error(`dispatch refused: ${res.reason}`);
+    return res.expedition;
+  };
+
+  it("the recovery leg carries studyPause and no pickup; the team comes home recovered, never a study pickup", () => {
+    const exp = wipeFixture();
+    const run = advanceExpedition(exp, exp.phaseAnchorSeconds + 4_000_000);
+    const ops = run.groundOps!;
+    const leg = ops.shipLegs.find((l) => l.studyPause === 1 && l.pickup === undefined)!;
+    expect(leg).toBeDefined();
+    expect(leg.scanBodyIndex).toBeNull();
+    const study = (ops.studyLegs ?? []).find((s) => (s.pauses ?? []).some((p) => p.from === leg.startsAt && p.to === leg.endsAt))!;
+    expect(study).toBeDefined();
+    // Read just after the pickup lands (the step history is capped per team, so a long weak-crew run ages it out).
+    const landed = advanceExpedition(exp, leg.arrivesAt + 1).groundOps!;
+    for (const ti of groundLegTeams(leg)) {
+      const rec = landed.history.find((r) => r.step === "return" && r.teamIndex === ti && r.endedAt === leg.arrivesAt)!;
+      expect(rec, `team ${ti}`).toBeDefined();
+      expect(rec.recovered).toBe(true);
+      expect(rec.studyPickup).toBeUndefined();
+    }
+    // The study's share holds still through the pause.
+    const p = study.pauses!.find((x) => x.from === leg.startsAt)!;
+    const open = { ...study, done: undefined };
+    expect(studyLegShare(open, p.from)).toBeCloseTo(studyLegShare(open, p.to), 12);
+  });
+
+  it("offline == live (600 s, 997 s and one call), the lane draws the wipe and the leg says recovery leg", () => {
+    const exp = wipeFixture();
+    const done = advanceExpedition(exp, exp.phaseAnchorSeconds + 4_000_000);
+    const leg = done.groundOps!.shipLegs.find((l) => l.studyPause === 1 && l.pickup === undefined)!;
+    // Up to a while after the window closes (the return flight is a pure function of the stored record from there).
+    const horizon = done.groundOps!.endedAt! - exp.phaseAnchorSeconds + 1200;
+    const one = advanceExpedition(exp, exp.phaseAnchorSeconds + horizon);
+    // Stepped, then one last call to the same horizon (the steps stop at the last whole step before it).
+    const stepped = (step: number) => advanceExpedition(runTo(exp, step, horizon), exp.phaseAnchorSeconds + horizon);
+    expect(hash(stepped(600))).toBe(hash(one));
+    expect(hash(stepped(997))).toBe(hash(one));
+    // The lane right after the wiped team is collected: the lost fight draws as a wipe, the leg as a paused recovery leg.
+    const t = leg.arrivesAt + 1;
+    const view = timelineView(advanceExpedition(exp, t), null, t, "whole", flaggedScanTimeline)!;
+    expect(view.lanes.some((l) => l.segments.some((s) => s.category === "wipe"))).toBe(true);
+    const legText = view.ship.steps.map((s) => s.text).filter((x) => /paused: recovery leg to /.test(x));
+    expect(legText.length).toBeGreaterThan(0);
+  }, 300_000);
 });
 
 describe("pickup pause: the slot", () => {
