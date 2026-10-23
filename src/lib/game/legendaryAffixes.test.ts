@@ -141,7 +141,7 @@ describe("RR-5: the mint", () => {
     const pool = [{ stat: "cargoCapacity" }];
     for (let seed = 1; seed < 50; seed++) {
       const withAffix: Record<string, number> = { cargoCapacity: 10 };
-      const id = rollRarityExtras({ ...RARITY_PROFILES.luminous, secondaries: 0, artisanPermille: 0 }, 400, pool, ["cargoCapacity"], withAffix, lcg(seed).rng, "cargoBay");
+      const id = rollRarityExtras({ ...RARITY_PROFILES.luminous, secondaries: 0, artisanPermille: 0 }, 400, pool, ["cargoCapacity"], withAffix, lcg(seed).rng, { slotType: "cargoBay" });
       const def = legendaryAffixDef(id)!;
       expect(def.id).toBe("bottomlessHold");
       expect(withAffix).toEqual({ cargoCapacity: 10 + legendaryAffixLineValue(def, 400) });

@@ -18,7 +18,18 @@
 // Leaf: imports model.ts and rarityProfiles.ts only, so itemgen.ts, inspectSort.ts and salvage.ts can all read it.
 // ============================================================================
 
-import { ascensionAllowedFor, equipmentRarityLabel, isEquipmentAscension, type EquipmentAscension, type EquipmentRarity } from "./model";
+import {
+  ASCENSION_BUDGET_MULT,
+  CELESTIAL_BUDGET_MULT,
+  NOVA_BUDGET_MULT,
+  ascensionAllowedFor,
+  equipmentRarityLabel,
+  isEquipmentAscension,
+  type EquipmentAscension,
+  type EquipmentRarity,
+} from "./model";
+// The ascension multipliers moved to model.ts (review of RR-4: the module effect scale reads them there too); re-exported.
+export { ASCENSION_BUDGET_MULT, CELESTIAL_BUDGET_MULT, NOVA_BUDGET_MULT };
 import { rarityProfile, type RarityProfile } from "./rarityProfiles";
 
 // The switch (answer 3): false = nothing a player does can produce an ascended piece. Read by every producer that
@@ -26,17 +37,6 @@ import { rarityProfile, type RarityProfile } from "./rarityProfiles";
 // stamp "none". Flipping it is the decision the user takes when Nova / Celestial ship (with a producer designed then).
 export const ASCENSION_PRODUCIBLE = false;
 
-// [PROVISIONAL] (design :215 "+25% Nova"): the Nova budget multiplier on top of the legendary row.
-export const NOVA_BUDGET_MULT = 1.25;
-// [PROVISIONAL] (the design says only "Celestial its own, drop-only"): the Celestial budget multiplier.
-export const CELESTIAL_BUDGET_MULT = 1.4;
-
-// The budget multiplier per ascension. TOTAL, so a new ascension is a compile error here until it is answered for.
-export const ASCENSION_BUDGET_MULT: Readonly<Record<EquipmentAscension, number>> = {
-  none: 1,
-  nova: NOVA_BUDGET_MULT,
-  celestial: CELESTIAL_BUDGET_MULT,
-};
 
 // [PROVISIONAL] (design :151-153, "2 Luminous-effect stats guaranteed" / "all Luminous-effect stats guaranteed", a
 // reading put to the user): what each ascension guarantees beyond the budget. TOTAL like the table above.

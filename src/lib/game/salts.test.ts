@@ -146,6 +146,7 @@ describe("salt registry (GO-4)", () => {
       "shipScanEvents.ts GHOST_FIND_SALT",
       "fieldKits.ts FIELD_DEVICE_SALT",
       "relics.ts RELIC_STUDY_SALT",
+      "rarityProfiles.ts RARITY_EXTRAS_SALT",
       "salvage.ts SALVAGE_ROUNDING_SEED_SALT",
       "tick.ts MISSION_OUTPUT_ROUNDING_SALT",
       "officerStats.ts CUNNING_SALT",

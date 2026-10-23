@@ -1594,7 +1594,7 @@ function buildExpedition(
   // WR-5c: the commanding captain's run-frozen explorer nodes (undefined without them).
   const explorer = explorerCaptainRun(commandingCaptain(state, ship));
   // E-MOD EM-6: the ship's body-scan modules, frozen here (empty without one, so nothing is written).
-  const scanProcs = moduleScanProcs(equippedFor(state, shipId), (p) => moduleEffectScale(p.rarity, p.quality));
+  const scanProcs = moduleScanProcs(equippedFor(state, shipId), (p) => moduleEffectScale(p.rarity, p.quality, p.ascension));
 
   const expedition: Expedition = {
     id,

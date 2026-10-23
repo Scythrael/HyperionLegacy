@@ -19,15 +19,15 @@
 // Leaf module: imports model.ts only (never itemgen.ts), so itemgen can import it with no cycle.
 // ============================================================================
 
-import { isEquipmentRarity, rarityIndex, type EquipmentRarity } from "./model";
+import { LEGENDARY_BUDGET_STEP, isEquipmentRarity, rarityIndex, type EquipmentRarity } from "./model";
+// LEGENDARY_BUDGET_STEP moved to model.ts (review of RR-3: the module effect scale reads it there too); re-exported.
+export { LEGENDARY_BUDGET_STEP };
 
 // Compounding budget multiplier per base-RARITY index (rarityIndex 0..4). At 1.15 each rarity step is a ~15% budget
 // bump over the one below it. TUNABLE. (Moved here from itemgen.ts at RR-3, which re-exports it, so every importer
 // keeps working; the value is unchanged.)
 export const RARITY_MULT = 1.15;
 
-// [PROVISIONAL] (answer 5, the design's "+20% Constellar/Luminous", epic :215): the legendary budget over Radiant's.
-export const LEGENDARY_BUDGET_STEP = 1.2;
 
 // [PROVISIONAL] (answer 6; the design names secondaries but no size): what ONE secondary line is worth, as a fraction
 // of the piece's whole budget, ADDED on top of it (a secondary is extra power, not a slice of the affix share).

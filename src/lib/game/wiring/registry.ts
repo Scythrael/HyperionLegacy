@@ -147,6 +147,7 @@ import { DAMAGE_CONTROL_SUITE_KEY, DC_REPAIR_SPEED_B, DC_REPAIR_SPEED_R, DC_WAVE
 import { DRONE_POD_AFFIX_POOL, DRONE_POD_IMPLICIT_STAT, WEAPON_AFFIX_POOL, WEAPON_IMPLICIT_STAT, budgetAtMult, budgetShares, generateEquipment, legendaryAffixLineValue } from "../itemgen";
 // RARITY READINESS RR-5: the Luminous legendary affix catalog (each row measured on its fold).
 import { LUMINOUS_AFFIXES } from "../legendaryAffixes";
+import { MODULE_RARITY_FACTOR } from "../model";
 // RARITY READINESS RR-3: the per-rarity profile table (each row measured on a real mint).
 import { RARITY_PROFILES } from "../rarityProfiles";
 // RARITY READINESS RR-4: the Nova / Celestial budget multipliers (each measured on a real legendary mint).
@@ -390,6 +391,8 @@ export const CATALOGS = {
   ASCENSION_BUDGET_MULT,
   // RARITY READINESS RR-5: the Luminous legendary affixes.
   LUMINOUS_AFFIXES,
+  // Review of RR-3 / RR-4: the module effect factor per band.
+  MODULE_RARITY_FACTOR,
   WEAR_EFFICIENCY,
   // The reactor fuel ladder (0.14.0, reactorTech.ts): the fuel each Reactor Core blueprint takes.
   REACTOR_FUEL_LADDER,
@@ -4495,6 +4498,7 @@ function build(): readonly WiringEntry[] {
     ...rarityProfileEntries(),
     ...ascensionEntries(),
     ...legendaryAffixEntries(),
+    ...moduleRarityEntries(),
     ...auditEntries(),
     ...speedSeamEntries(),
     ...wearEntries(),
@@ -4556,7 +4560,10 @@ function rarityProfileEntries(): WiringEntry[] {
     if (against === null) {
       return entry({ id: `ship:RARITY_PROFILES:${rarity}`, system: "ship", source: { catalog: "RARITY_PROFILES", key: rarity }, claim, probe: "sheetCargo", notApplicable: "the reference band (every other row is measured against the band below it)" });
     }
-    const legendary = row.secondaries > 0;
+    // Review of RR-3: EVERY row, the legendary ones too, installs the signature line alone and moves EXACTLY by the
+    // implicit difference (linearAbsolute), so a budget the generator stops reading fails here. The secondaries, Artisan
+    // and legendary affix are rolled lines, pinned exactly in rarityReviewFixes.test.ts (the generator's lines equal its
+    // picks plus rollRarityExtras on the next draw) and rarityProfiles.test.ts / legendaryAffixes.test.ts.
     const delta = (c: Catalogs): number => cargoImplicitAt(c.RARITY_PROFILES[rarity].budgetMult) - cargoImplicitAt(c.RARITY_PROFILES[against].budgetMult);
     return entry({
       id: `ship:RARITY_PROFILES:${rarity}`,
@@ -4566,16 +4573,70 @@ function rarityProfileEntries(): WiringEntry[] {
       probe: "sheetCargo",
       contexts: ["sheet"],
       direction: row.budgetMult >= RARITY_PROFILES[against].budgetMult ? "up" : "down",
-      curve: legendary
-        ? { kind: "event", metric: `cargo of a whole ${rarity} cargo bay over a ${against} one (iLevel ${RARITY_PROBE_ILEVEL}, quality ${RARITY_PROBE_QUALITY})` }
-        : { kind: "linearAbsolute" },
-      magnitude: legendary ? (c) => Math.abs(delta(c)) : delta,
+      curve: { kind: "linearAbsolute" },
+      magnitude: delta,
       base: bareHull,
-      on: rarityCargoMint(rarity, !legendary),
-      off: rarityCargoMint(against, !legendary),
+      on: rarityCargoMint(rarity, true),
+      off: rarityCargoMint(against, true),
       note: "measured through generateEquipment (itemgen.ts rarityBudget / affixCount / rollRarityExtras read the row)",
     });
   });
+}
+
+// RARITY READINESS (review of RR-3 / RR-4): the module twin of the rows above. Each MODULE_RARITY_FACTOR band, and Nova /
+// Celestial on a Luminous module, measured on a Utilitarian Quarters module (a live general crew boost) installed at
+// that band and quality 0 on an Operations complement carrying Efficient Unloading: the bonus part above 1 of the unload
+// speed is the module's boost x its effect scale (the QUARTERS_MODULES entries' own seam), so the scale is read exactly.
+// Then the pending row: a Luminous / Constellar bridge or quarters module's secondaries and Artisan ride its crewEfficiency
+// / crewStations lines, which nothing reads yet (LINE_PENDING, WR-7 OC-D3), so that part claims nothing live.
+function moduleRarityEntries(): WiringEntry[] {
+  const def = QUARTERS_MODULES.find((d) => d.id === "quartersUtilitarian")!;
+  const boost = (c: Catalogs): number => c.QUARTERS_MODULES.find((d) => d.id === def.id)!.focusBoost;
+  const opsBase = () => withBuckets(wiringBase(), [bucketOf("operations", "ops.unloadSpeed")]);
+  const at = (rarity: EquipmentRarity, ascension: EquipmentAscension): Transform => (s) =>
+    installPiece(s, { slotType: "quarters", moduleVariant: def.id, rarity, ascension, quality: 0 });
+  const out: WiringEntry[] = (Object.keys(MODULE_RARITY_FACTOR) as EquipmentRarity[]).map((rarity) =>
+    entry({
+      id: `ship:MODULE_RARITY_FACTOR:${rarity}`,
+      system: "ship",
+      source: { catalog: "MODULE_RARITY_FACTOR", key: rarity },
+      claim: `a ${rarity} crew, sensor or universal module acts at x${MODULE_RARITY_FACTOR[rarity].toFixed(4)} its catalog effect (before quality)`,
+      probe: "sheetUnload",
+      contexts: ["sheet"],
+      curve: { kind: "bonusRelative", base: 1 },
+      magnitude: (c) => boost(c) * c.MODULE_RARITY_FACTOR[rarity],
+      base: opsBase,
+      on: at(rarity, "none"),
+      note: "measured through crewModules.ts (moduleEffectScale reads MODULE_RARITY_FACTOR)",
+    }),
+  );
+  for (const ascension of ["nova", "celestial"] as const) {
+    out.push(
+      entry({
+        id: `ship:ASCENSION_BUDGET_MULT:${ascension}:modules`,
+        system: "ship",
+        source: { catalog: "ASCENSION_BUDGET_MULT", key: `${ascension}:modules` },
+        claim: `a ${ascension} Luminous or Constellar module acts at x${ASCENSION_BUDGET_MULT[ascension]} the legendary module effect`,
+        probe: "sheetUnload",
+        contexts: ["sheet"],
+        curve: { kind: "bonusRelative", base: 1 },
+        magnitude: (c) => boost(c) * c.MODULE_RARITY_FACTOR.luminous * c.ASCENSION_BUDGET_MULT[ascension],
+        base: opsBase,
+        on: at("luminous", ascension),
+        note: "measured through crewModules.ts (moduleEffectScale reads the piece's ascension)",
+      }),
+    );
+  }
+  out.push(
+    entry({
+      id: "ship:audit:rrCrewModuleExtras",
+      system: "ship",
+      source: { catalog: "AUDIT", key: "ship:audit:rrCrewModuleExtras" },
+      claim: "A Luminous / Constellar bridge or quarters module's secondaries and Artisan can land on its crewEfficiency / crewStations lines",
+      status: pending("WR-7, OC-D3 (the tooltip prints the rolled value; nothing reads it)"),
+    }),
+  );
+  return out;
 }
 
 // RARITY READINESS RR-4: each ASCENSION_BUDGET_MULT row, measured like a live rarity row: a Luminous cargo bay of the

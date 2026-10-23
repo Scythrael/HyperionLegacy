@@ -48,11 +48,18 @@ function cargo(rarity: EquipmentRarity, ascension: EquipmentAscension, id = "e",
 describe("RR-4: the switch and the rule", () => {
   it("no player path can produce an ascension", () => {
     expect(ASCENSION_PRODUCIBLE).toBe(false);
-    // Every Fabricator / inspect mint and Standard-Issue mint still stamps "none" (the dev mint is the only source).
-    const tick = readFileSync("src/lib/game/tick.ts", "utf8");
-    const stamps = tick.match(/ascension: [^,\n]+/g) ?? [];
-    expect(stamps.length).toBeGreaterThan(0);
-    for (const s of stamps) expect(s).toBe('ascension: "none"');
+    // Every Fabricator / inspect mint (tick.ts) and Standard-Issue mint (model.ts) still stamps "none"; in App.svelte the
+    // only other stamp is the DEV_MODE Debug minter's, through devMintAscension (the dev mint is the only source).
+    const stampsIn = (f: string): string[] => readFileSync(f, "utf8").replace(/\/\/.*$/gm, "").match(/ascension: [^,;\n)]+/g) ?? [];
+    const tick = stampsIn("src/lib/game/tick.ts");
+    expect(tick.length).toBeGreaterThan(0);
+    for (const s of tick) expect(s, "tick.ts").toBe('ascension: "none"');
+    const model = stampsIn("src/lib/game/model.ts").filter((s) => !s.startsWith("ascension: EquipmentAscension"));
+    expect(model.length).toBeGreaterThan(0);
+    for (const s of model) expect(s, "model.ts").toBe('ascension: "none"');
+    const app = stampsIn("src/App.svelte");
+    expect(app.length).toBeGreaterThan(0);
+    for (const s of app) expect(['ascension: "none"', "ascension: devMintAscension(devMintRarity"], `App.svelte ${s}`).toContain(s);
   });
 
   it("an ascension counts only on Luminous and Constellar; anything else reads none", () => {
@@ -156,6 +163,9 @@ describe("RR-4: the wiring registry carries one live, probed row per ascension",
       "ship:ASCENSION_BUDGET_MULT:none|live|sheetCargo|",
       "ship:ASCENSION_BUDGET_MULT:nova|live|sheetCargo|sheet",
       "ship:ASCENSION_BUDGET_MULT:celestial|live|sheetCargo|sheet",
+      // review of RR-4: the same multipliers on a Luminous module (moduleEffectScale)
+      "ship:ASCENSION_BUDGET_MULT:nova:modules|live|sheetUnload|sheet",
+      "ship:ASCENSION_BUDGET_MULT:celestial:modules|live|sheetUnload|sheet",
     ]);
   });
 });

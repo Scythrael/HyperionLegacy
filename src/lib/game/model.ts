@@ -2147,12 +2147,47 @@ export function rarityIndex(rarity: EquipmentRarity): number {
 export const MODULE_RARITY_STEP = 0.12; // +12% effect per rarity band above standard
 export const MODULE_QUALITY_STEP = 0.06; // +6% effect per quality rung
 
-// The multiplicative effect scale for a module of the given rarity/quality. Monotonic non-decreasing in both (steps
-// are >= 0). standard/q0 == 1.0. derelict clamps to the standard base (no negative step). Pure arithmetic.
-export function moduleEffectScale(rarity: EquipmentRarity, quality: number): number {
-  const rarityStep = Math.max(0, rarityIndex(rarity) - rarityIndex("standard"));
+// RARITY READINESS (RR-3 / RR-4 review fix): the legendary step and the ascension multipliers live HERE, beside the
+// module scale that reads them, because model.ts cannot import rarityProfiles.ts / ascension.ts (both import model.ts).
+// Those two modules re-export them, so every importer keeps one source.
+// [PROVISIONAL] (answer 5, the design's "+20% Constellar/Luminous", epic :215): the legendary step over Radiant, for the
+// stat budget (rarityProfiles.ts RARITY_PROFILES) and the module effect scale (MODULE_RARITY_FACTOR below) alike.
+export const LEGENDARY_BUDGET_STEP = 1.2;
+// [PROVISIONAL] (design :215 "+25% Nova"): the Nova multiplier on top of the legendary row (budget and module effect).
+export const NOVA_BUDGET_MULT = 1.25;
+// [PROVISIONAL] (the design says only "Celestial its own, drop-only"): the Celestial multiplier.
+export const CELESTIAL_BUDGET_MULT = 1.4;
+// The multiplier per ascension. TOTAL, so a new ascension is a compile error here until it is answered for.
+export const ASCENSION_BUDGET_MULT: Readonly<Record<EquipmentAscension, number>> = {
+  none: 1,
+  nova: NOVA_BUDGET_MULT,
+  celestial: CELESTIAL_BUDGET_MULT,
+};
+
+// The rarity factor of a module's EFFECT, per band (the module twin of the stat budget's RARITY_PROFILES budgetMult).
+// Derelict to Radiant are 1 + (bands above Standard) x MODULE_RARITY_STEP, the SAME expression as before (bit-identical);
+// Luminous and Constellar are Radiant's factor x LEGENDARY_BUDGET_STEP (answer 5), where they used to read one more
+// 12% step. TOTAL, so a new band is a compile error here.
+const moduleStepFactor = (band: EquipmentRarity): number => 1 + Math.max(0, rarityIndex(band) - rarityIndex("standard")) * MODULE_RARITY_STEP;
+export const MODULE_RARITY_FACTOR: Readonly<Record<EquipmentRarity, number>> = {
+  derelict: moduleStepFactor("derelict"),
+  standard: moduleStepFactor("standard"),
+  augmented: moduleStepFactor("augmented"),
+  stellar: moduleStepFactor("stellar"),
+  radiant: moduleStepFactor("radiant"),
+  luminous: moduleStepFactor("radiant") * LEGENDARY_BUDGET_STEP,
+  constellar: moduleStepFactor("radiant") * LEGENDARY_BUDGET_STEP,
+};
+
+// The multiplicative effect scale for a module of the given rarity / quality / ascension. Monotonic non-decreasing in
+// band, quality and ascension. standard/q0 == 1.0; derelict clamps to the standard base. The ascension counts only on a
+// band that may carry one (ascensionAllowedFor: Luminous / Constellar); anything else, and the default, reads x1, so
+// every live module is bit-identical to the pre-review scale. An unknown band reads Standard's factor. Pure arithmetic.
+export function moduleEffectScale(rarity: EquipmentRarity, quality: number, ascension: EquipmentAscension = "none"): number {
+  const factor = isEquipmentRarity(rarity) ? MODULE_RARITY_FACTOR[rarity] : MODULE_RARITY_FACTOR.standard;
+  const asc = ascensionAllowedFor(rarity) && isEquipmentAscension(ascension) ? ASCENSION_BUDGET_MULT[ascension] : 1;
   const q = Number.isFinite(quality) ? Math.max(0, quality) : 0; // RR-1: a non-finite quality reads as rung 0
-  return (1 + rarityStep * MODULE_RARITY_STEP) * (1 + q * MODULE_QUALITY_STEP);
+  return factor * asc * (1 + q * MODULE_QUALITY_STEP);
 }
 
 // ============================================================================
@@ -4292,7 +4327,7 @@ export function equipmentStatMods(pieces: EquipmentInstance[]): EquipmentStatMod
     totalPowerDraw: Math.max(0, grossPowerDraw - powerDrawReduction),
     powerOutput,
     // E-MOD EM-5: a module carries no stat lines (EQUIPMENT_SLOTS.module); its output is its catalog def's, scaled.
-    modulePowerOutput: modulePowerOutput(pieces, (p) => moduleEffectScale(p.rarity, p.quality)),
+    modulePowerOutput: modulePowerOutput(pieces, (p) => moduleEffectScale(p.rarity, p.quality, p.ascension)),
   };
 }
 
