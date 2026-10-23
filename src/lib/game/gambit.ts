@@ -2359,7 +2359,7 @@ function pickWeighted<T extends { weight: number }>(rng: Rng, items: T[]): T {
 
 // Roll a relic's rarity TIER on the relic blank ladder (RR-7: relicBlanks.ts RELIC_BLANK_LADDER_I, its own frozen copy of
 // the salvage ladder it used to read directly, SALVAGE_LOOT_POOLS.intactReactorCore): we draw a tier from its ordered list, weighted by each tier's own weight, with a
-// hazard-scaled CEILING that mirrors salvage's baseCeilingForLevel + slice (a more hazardous find can
+// hazard-scaled CEILING that mirrors salvage's salvageBaseCeiling + slice (a more hazardous find can
 // reach a higher relic tier). The relic keeps the tier's rarity NAME + quality bucket but stays
 // UNIDENTIFIED (E4 owns the concrete relic + its bonus). Returns the token, or null if the chance missed.
 // Draw order: relic chance, then (on hit) the tier pick -- fixed + documented.

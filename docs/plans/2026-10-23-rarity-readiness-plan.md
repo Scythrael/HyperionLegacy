@@ -191,7 +191,7 @@ needs a DEV_MODE build (a local `.env.local` with `VITE_DEV_MODE=true`, or a pre
 
 **A. The minter row (System > Debug > Mint gear)**
 1. The Rarity select lists seven bands, capitalized: Derelict, Standard, Augmented, Stellar, Radiant, Luminous, Constellar.
-2. The Ascension select (None / Nova / Celestial) is greyed out on every band except Luminous and Constellar.
+2. The Ascension select (None / Nova / Celestial) is grayed out on every band except Luminous and Constellar.
 3. Pick Nova on Luminous, then switch the band to Radiant and mint: the log line shows no ascension (it is dropped).
 4. Phone: the row wraps onto several lines; every select and the Mint button stay tappable.
 
