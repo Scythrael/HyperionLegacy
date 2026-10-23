@@ -64,7 +64,16 @@ export interface SimResult {
   samples: [number, number][]; // [seconds, best effective exponent] every 6 hours
 }
 
-function decide(s: SecretState, atMs: number): SecretState {
+// How the simulated player prestiges by hand. Targets follow the state's own auto targets (the same
+// "gain at least X% of what you have" rule), so a target sweep moves the hand and the autos alike.
+// manual: the automatic prestiges stay switched off (prestiging only at check-ins). spam: Fleet
+// Prestige whenever it pays anything at all.
+export interface PlayStyle {
+  manual?: boolean;
+  spam?: boolean;
+}
+
+function decide(s: SecretState, atMs: number, style: PlayStyle = {}): SecretState {
   // 0.13.11.1: the e1,000,000 upgrades, cheapest next level first, as often as affordable.
   if (upgradesUnlocked(s)) {
     for (;;) {
@@ -92,9 +101,15 @@ function decide(s: SecretState, atMs: number): SecretState {
   const fg = fleetGain(s);
   const pg = prestigeceptionGain(s);
   const cg = captainGain(s);
-  if (fg.gt(0) && (s.augmentPoints.eq(0) || fg.gte(s.augmentPoints))) s = doFleet(s, atMs);
-  else if (pg.gt(0) && (s.dreamPoints.eq(0) || pg.gte(s.dreamPoints))) s = doPrestigeception(s, atMs);
-  else if (!hasSkill(s, "autoCaptain") && cg.gt(0) && (s.captainPoints.eq(0) || cg.gte(s.captainPoints)) && !(s.fleetTotal === 0 && effectiveExponent(s.fleetPeak) >= 250)) {
+  if (style.manual) {
+    const off = { ...s.autoOn, autoCaptain: false, autoFleet: false, autoPc: false };
+    s = { ...s, autoOn: off };
+  }
+  const t = s.autoTarget;
+  const pays = (gain: typeof fg, have: typeof fg, pct: number) => gain.gt(0) && (have.eq(0) || gain.gte(have.mul(pct / 100)));
+  if (fg.gt(0) && (style.spam || pays(fg, s.augmentPoints, t.fleet))) s = doFleet(s, atMs);
+  else if (pays(pg, s.dreamPoints, t.pc)) s = doPrestigeception(s, atMs);
+  else if ((style.manual || !hasSkill(s, "autoCaptain")) && pays(cg, s.captainPoints, t.captain) && !(s.fleetTotal === 0 && effectiveExponent(s.fleetPeak) >= 250)) {
     s = doCaptain(s, atMs);
   }
   if (!(hasSkill(s, "autoBuyLow") && hasSkill(s, "autoOverclock"))) {
@@ -119,12 +134,16 @@ export interface SimOptions {
   stopAfterExponent?: { exponent: number; days: number };
   // Start from a saved state instead of a fresh game (exploration and reports).
   from?: SecretState;
+  // Target sweeps (0.13.11.1 retune): the auto targets every layer starts with, and the hand style.
+  targets?: { captain: number; fleet: number; pc: number };
+  style?: PlayStyle;
 }
 
 export function simulatePlayer(opts: SimOptions): SimResult {
   const t0 = performance.now();
   const profile = opts.profile ?? "steady";
   let s = opts.from ? cloneSecret(opts.from) : freshSecretState(START_MS);
+  if (opts.targets) s.autoTarget = { ...opts.targets };
   const events: Record<string, number> = {};
   const samples: [number, number][] = [];
   const sec = () => (s.lastTickAt - START_MS) / 1000;
@@ -170,14 +189,14 @@ export function simulatePlayer(opts: SimOptions): SimResult {
     let nextDecision = sec();
     while (sec() < end) {
       if (sec() >= nextDecision) {
-        s = decide(s, s.lastTickAt);
+        s = decide(s, s.lastTickAt, opts.style);
         nextDecision += 180;
       }
       stepMut(s, 1, s.lastTickAt + 1000);
       s.lastTickAt += 1000;
       watch();
     }
-    s = decide(s, s.lastTickAt);
+    s = decide(s, s.lastTickAt, opts.style);
     while (sec() >= nextSample) {
       samples.push([nextSample, effectiveExponent(s.bestOre)]);
       nextSample += 6 * H;

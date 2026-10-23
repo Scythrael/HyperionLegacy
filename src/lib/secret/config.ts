@@ -80,6 +80,14 @@ export const AP_POW = 0.178;
 export const DP_SCALE = 11900;
 export const DP_POW = 0.24;
 
+// 0.13.11.1 retune (user: "Retune so default is best"): each layer earns
+// scale x (peak exponent / threshold)^k, k under 1 (engine.ts gainExponent). From the finale on,
+// Captain and Fleet Prestige use k = 1, the 0.13.11 formula above; Dream Points keep DP_K.
+// [PROVISIONAL] values, measured in the plan's pacing results.
+export const CP_K = 0.6;
+export const AP_K = 0.55;
+export const DP_K = 0.7;
+
 export const HEAD_START_LOG10 = 10; // Head Start begins resets with 1e10 Ore
 export const OVERDRIVE_POWER = 1.05; // Overdrive: Ore production ^1.05
 
@@ -90,7 +98,7 @@ export const OVERDRIVE_POWER = 1.05; // Overdrive: Ore production ^1.05
 
 export const FINALE_EXPONENT = 777777;
 export const LONG_EXPONENT = 1000000;
-export const SOFT_SCALE = 58;
+export const SOFT_SCALE = 66; // 0.13.11.1 retune: 58 before (e1,000,000 back to about a month)
 export const SOFT_BETA = 0.5;
 
 // ---------------------------------------------------------------------------

@@ -4,6 +4,9 @@ import { freshSecretState, type SecretState } from "./state";
 import {
   captainGain,
   fleetGain,
+  fleetThresholdExponent,
+  fleetThresholdOre,
+  gainExponent,
   prestigeceptionGain,
   doCaptain,
   doFleet,
@@ -19,11 +22,16 @@ import {
   checkMilestonesMut,
 } from "./engine";
 import { cloneSecret } from "./state";
+import { formatSecret } from "./format";
 import {
   CP_SCALE,
   AP_SCALE,
   DP_SCALE,
   FLEET_AT,
+  FINALE_EXPONENT,
+  CP_K,
+  AP_K,
+  DP_K,
   MILESTONES,
   SKILLS,
   TEN_BONUS_SKILL,
@@ -46,16 +54,16 @@ function withRun(e: number): SecretState {
 }
 
 describe("Captain Prestige", () => {
-  it("needs 1e60 Ore and pays CP_SCALE x gainMultiplier x exponent / 60", () => {
+  it("needs 1e60 Ore and pays CP_SCALE x gainMultiplier x (exponent / 60)^CP_K before the finale", () => {
     expect(captainGain(withRun(59.9)).eq(0)).toBe(true);
     expect(doCaptain(withRun(59.9), 5).captainCount).toBe(0);
     const s = withRun(120);
-    expect(captainGain(s).eq(Math.floor(CP_SCALE * 2))).toBe(true);
+    expect(captainGain(s).eq(Math.floor(CP_SCALE * Math.pow(2, CP_K)))).toBe(true);
   });
 
   it("resets Ore, generators and Overclock, keeps Captain Points", () => {
     const t = doCaptain(withRun(120), 5);
-    expect(t.captainPoints.eq(Math.floor(CP_SCALE * 2))).toBe(true);
+    expect(t.captainPoints.eq(Math.floor(CP_SCALE * Math.pow(2, CP_K)))).toBe(true);
     expect(t.ore.eq(10)).toBe(true);
     expect(t.bought[0]).toBe(0);
     expect(t.owned[0].eq(0)).toBe(true);
@@ -70,9 +78,9 @@ describe("Fleet Prestige", () => {
     expect(fleetGain(withRun(308)).eq(0)).toBe(true);
     const s = withRun(FLEET_AT * 2);
     s.captainPoints = new Decimal(5000);
-    expect(fleetGain(s).eq(Math.floor(AP_SCALE * 2))).toBe(true);
+    expect(fleetGain(s).eq(Math.floor(AP_SCALE * Math.pow(2, AP_K)))).toBe(true);
     const t = doFleet(s, 9);
-    expect(t.augmentPoints.eq(Math.floor(AP_SCALE * 2))).toBe(true);
+    expect(t.augmentPoints.eq(Math.floor(AP_SCALE * Math.pow(2, AP_K)))).toBe(true);
     expect(t.skillPoints).toBe(1);
     expect(t.captainPoints.eq(0)).toBe(true);
     expect(t.fleetCount).toBe(1);
@@ -87,15 +95,95 @@ describe("Fleet Prestige", () => {
       s = doFleet(s, i);
       seen.push(s.tiersUnlocked);
       s.fleetPeak = pow10(400);
+      s.augmentPoints = new Decimal(0); // tiers only: keep each Fleet over the doubling bar (0.13.11.1)
     }
     expect(seen).toEqual([5, 6, 7, 7, 7, 8]);
+  });
+});
+
+describe("0.13.11.1: the Fleet bar doubles (user, \"Yes, double it\")", () => {
+  it("1.8e308 first; after that a Fleet must at least double your Augment Points", () => {
+    const s = withRun(FLEET_AT * 2);
+    expect(fleetThresholdExponent(s)).toBe(FLEET_AT);
+    expect(formatSecret(fleetThresholdOre(s))).toBe("1.80e308");
+    const g = fleetGain(s);
+    expect(g.gt(0)).toBe(true);
+    // Holding exactly what this Fleet pays: it doubles them, so it pays. One more point held: it does not.
+    s.augmentPoints = g;
+    expect(fleetGain(s).eq(g)).toBe(true);
+    s.augmentPoints = g.add(1);
+    expect(fleetGain(s).eq(0)).toBe(true);
+    const t = doFleet(s, 1);
+    expect(t.fleetCount).toBe(s.fleetCount);
+    expect(t.skillPoints).toBe(s.skillPoints);
+    // The bar shown is the exponent where the gain reaches the points held.
+    s.augmentPoints = new Decimal(AP_SCALE * Math.pow(2, AP_K));
+    expect(fleetThresholdExponent(s)).toBeCloseTo(FLEET_AT * 2, 6);
+  });
+
+  it("when every Fleet lands on its bar the bars are e308 x 2^(Fleets since the last Prestigeception, minus 1)", () => {
+    // Past the finale (gains linear, the 0.13.11 formula): Fleets at 1.8e308, 1.8e308, e616.5, e1,233 ...
+    let s = withRun(FLEET_AT);
+    s.bestOre = pow10(FINALE_EXPONENT);
+    const bars: number[] = [];
+    for (let i = 0; i < 4; i++) {
+      const bar = fleetThresholdExponent(s);
+      bars.push(bar);
+      s.fleetPeak = pow10(bar + 1e-9);
+      s = doFleet(s, i);
+      expect(s.fleetCount).toBe(i + 1);
+    }
+    for (const [i, bar] of bars.entries()) expect(bar).toBeCloseTo(FLEET_AT * Math.pow(2, Math.max(0, i - 1)), 3);
+  });
+
+  it("Fleet spam cannot farm Skill Points: a run past 1.8e308 but under the bar pays nothing", () => {
+    const s = withRun(400);
+    s.augmentPoints = new Decimal(1e6);
+    s.skillPoints = 3;
+    expect(fleetGain(s).eq(0)).toBe(true);
+    expect(doFleet(s, 1).skillPoints).toBe(3);
+    expect(fleetThresholdExponent(s)).toBeGreaterThan(400);
+  });
+
+  it("a Prestigeception puts the bar back at 1.8e308", () => {
+    const s = withRun(20000);
+    s.fleetCount = 6;
+    s.augmentPoints = new Decimal(1e9);
+    expect(fleetThresholdExponent(s)).toBeGreaterThan(FLEET_AT);
+    const t = doPrestigeception(s, 1);
+    expect(fleetThresholdExponent(t)).toBe(FLEET_AT);
+  });
+});
+
+describe("0.13.11.1: gains bend before the finale; Captain and Fleet return to the 0.13.11 formula after it", () => {
+  it("below the finale (exponent / threshold)^k; with the best Ore at the finale, Captain and Fleet are linear as in 0.13.11", () => {
+    const s = withRun(120);
+    expect(gainExponent(s, CP_K)).toBe(CP_K);
+    expect(captainGain(s).eq(Math.floor(CP_SCALE * Math.pow(2, CP_K)))).toBe(true);
+    s.bestOre = pow10(FINALE_EXPONENT);
+    expect(gainExponent(s, CP_K)).toBe(1);
+    expect(captainGain(s).eq(Math.floor(CP_SCALE * 2))).toBe(true);
+    // Dream Points keep their bend past the finale (they are never reset).
+    const p = withRun(20000);
+    p.bestOre = pow10(FINALE_EXPONENT + 1);
+    expect(prestigeceptionGain(p).eq(Math.floor(DP_SCALE * Math.pow(2, DP_K)))).toBe(true);
+    const f = withRun(FLEET_AT * 2);
+    f.bestOre = pow10(FINALE_EXPONENT);
+    expect(fleetGain(f).eq(Math.floor(AP_SCALE * 2))).toBe(true);
+  });
+
+  it("every k is under 1, so a bigger prestige pays less per exponent", () => {
+    for (const k of [CP_K, AP_K, DP_K]) {
+      expect(k).toBeGreaterThan(0);
+      expect(k).toBeLessThan(1);
+    }
   });
 });
 
 describe("Prestigeception", () => {
   it("needs e10,000 since the last one and pays Dream Points", () => {
     expect(prestigeceptionGain(withRun(9999)).eq(0)).toBe(true);
-    expect(prestigeceptionGain(withRun(20000)).eq(Math.floor(DP_SCALE * 2))).toBe(true);
+    expect(prestigeceptionGain(withRun(20000)).eq(Math.floor(DP_SCALE * Math.pow(2, DP_K)))).toBe(true);
   });
 
   it("resets Captain and Augment Points and the Fleet count, keeps skills, Skill Points and tiers", () => {
@@ -128,8 +216,10 @@ describe("Prestigeception", () => {
     s.dreamPoints = new Decimal(1e6);
     const m = gainMultiplier(s);
     expect(m.gt(1)).toBe(true);
-    expect(captainGain(s).div(plainCp).sub(m).abs().lt(0.01)).toBe(true);
-    expect(fleetGain(s).div(plainAp).sub(m).abs().lt(0.01)).toBe(true);
+    // (the plain gains are whole numbers, so compare against the unrounded products)
+    expect(plainCp.gt(0) && plainAp.gt(0)).toBe(true);
+    expect(captainGain(s).eq(m.mul(CP_SCALE * Math.pow((FLEET_AT * 2) / 60, CP_K)).floor())).toBe(true);
+    expect(fleetGain(s).eq(m.mul(AP_SCALE * Math.pow(2, AP_K)).floor())).toBe(true);
   });
 });
 

@@ -52,6 +52,7 @@
     canBuyUpgrade,
     buyUpgrade,
     milestoneVisible,
+    fleetThresholdOre,
     type BuyMode,
   } from "./secret/engine";
   import {
@@ -449,10 +450,11 @@
                 <span>Multiplier from them</span><span class="num">×{formatSecret(augmentMultiplier(s))}</span>
                 <span>Skill Points</span><span class="num">{s.skillPoints} unspent</span>
                 <span>Next unlock</span><span class="num">{nextUnlock(s)}</span>
+                <span>Ready at</span><span class="num">{formatSecret(fleetThresholdOre(s))} Ore</span>
                 <span>Prestige now for</span><span class="num">+{formatSecret(fg)} points</span>
               </div>
               <button class="sg-btn primary" type="button" disabled={busy || fg.lte(0)} on:click={() => secretAct((x, t) => doFleet(x, t))}>
-                {fg.lte(0) ? "Fleet Prestige (needs 1.8e308 Ore)" : "Fleet Prestige"}
+                {fg.lte(0) ? `Fleet Prestige (needs ${formatSecret(fleetThresholdOre(s))} Ore)` : "Fleet Prestige"}
               </button>
             </div>
             <div class="layer pc">

@@ -48,3 +48,20 @@ export function expectSixMonthBand(r: SimResult): void {
   expect(after).toBeLessThan(before);
 }
 
+
+// 0.13.11.1 (user: "Retune so default is best"): the steady player at the DEFAULT 100% targets,
+// measured by sim.test.ts (which checks it still lands here). The target sweeps compare against it.
+export const DEFAULT_STEADY = { finale: 4.27 * D, long: 29.37 * D };
+// How much sooner another target choice may reach a milestone and still count as "no better".
+export const TARGET_MARGIN = 0.03;
+
+// Another way to play reaches the finale and e1,000,000 no sooner than the default, within the margin
+// (never reaching e1,000,000 inside the simulated days counts as later).
+export function expectNoBetterThanDefault(label: string, r: SimResult): void {
+  expect(r.events.finale, `${label} finale`).toBeDefined();
+  for (const key of ["finale", "long"] as const) {
+    const t = r.events[key];
+    if (t === undefined) continue;
+    expect(t, `${label} ${key}`).toBeGreaterThanOrEqual(DEFAULT_STEADY[key] * (1 - TARGET_MARGIN));
+  }
+}

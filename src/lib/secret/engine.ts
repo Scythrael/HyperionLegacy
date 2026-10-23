@@ -55,6 +55,9 @@ import {
   TURBO_LEVEL,
   UPGRADES,
   UPGRADES_AT,
+  CP_K,
+  AP_K,
+  DP_K,
   STARFALL_EXPONENT,
   type SkillId,
   type MilestoneId,
@@ -480,22 +483,57 @@ function autoBuyMut(s: SecretState): void {
 // Prestige layers
 // ---------------------------------------------------------------------------
 
+// 0.13.11.1 (user, 2026-10-23: "Retune so default is best"). Below the finale each layer earns
+// scale x (peak exponent / threshold)^k with k under 1, so a bigger prestige pays less per minute
+// waited and the default 100% target (prestige when the gain matches what you hold) is the best
+// choice; at 200% to 1000%, or waiting by hand, the finale and e1,000,000 come later. Once the best
+// Ore has reached the finale, Captain and Fleet Prestige return to the 0.13.11 gains (k = 1). Dream
+// Points keep their bend for good: they are never reset, so a jump in their gain at the finale would
+// set off Prestigeceptions that throw away weeks of climbing (measured: a two-week stall right after
+// e1,000,000).
+export function gainExponent(s: SecretState, k: number): number {
+  return effectiveExponent(s.bestOre) >= FINALE_EXPONENT ? 1 : k;
+}
+
+function gainShape(e: number, at: number, k: number): number {
+  return Math.pow(e / at, k);
+}
+
 export function captainGain(s: SecretState): Decimal {
   const e = effectiveExponent(s.runPeak);
   if (e < CAPTAIN_AT) return ZERO;
-  return gainMultiplier(s).mul(CP_SCALE * (e / CAPTAIN_AT)).floor();
+  return gainMultiplier(s).mul(CP_SCALE * gainShape(e, CAPTAIN_AT, gainExponent(s, CP_K))).floor();
+}
+
+// The Fleet bar doubles (user, 2026-10-23, "Yes, double it"): after the first Fleet since the last
+// Prestigeception, a Fleet must at least double your Augment Points (its gain must reach the points
+// you hold). When every Fleet lands on its bar this is the proposed e308 x 2^(Fleets since the last
+// Prestigeception, minus 1); unlike a fixed ladder it also counts a big Fleet made after time away,
+// so a Fleet the moment one pays anything can never farm Skill Points faster than the default 100%
+// target. 1.8e308 is still the first bar, and a Prestigeception puts it back. The gain formula is
+// unchanged.
+export function fleetThresholdExponent(s: SecretState): number {
+  if (s.augmentPoints.lte(0)) return FLEET_AT;
+  const need = s.augmentPoints.div(gainMultiplier(s).mul(AP_SCALE)).toNumber();
+  return Math.max(FLEET_AT, FLEET_AT * Math.pow(need, 1 / gainExponent(s, AP_K)));
+}
+
+// The Ore the next Fleet Prestige needs, for the Prestige tab.
+export function fleetThresholdOre(s: SecretState): Decimal {
+  return Decimal.pow(10, fleetThresholdExponent(s));
 }
 
 export function fleetGain(s: SecretState): Decimal {
   const e = effectiveExponent(s.fleetPeak);
   if (e < FLEET_AT) return ZERO;
-  return gainMultiplier(s).mul(AP_SCALE * (e / FLEET_AT)).floor();
+  const gain = gainMultiplier(s).mul(AP_SCALE * gainShape(e, FLEET_AT, gainExponent(s, AP_K))).floor();
+  return gain.lt(s.augmentPoints) ? ZERO : gain;
 }
 
 export function prestigeceptionGain(s: SecretState): Decimal {
   const e = effectiveExponent(s.pcPeak);
   if (e < PRESTIGECEPTION_AT) return ZERO;
-  return new Decimal(DP_SCALE * (e / PRESTIGECEPTION_AT)).floor();
+  return new Decimal(DP_SCALE * gainShape(e, PRESTIGECEPTION_AT, DP_K)).floor();
 }
 
 function resetRunMut(s: SecretState): void {
