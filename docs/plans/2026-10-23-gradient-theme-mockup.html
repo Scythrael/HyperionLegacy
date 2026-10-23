@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Gradient Theme Options</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&family=Space+Grotesk:wght@400;500;600&family=JetBrains+Mono:wght@400;600&display=swap" />
+<style>
+  :root {
+    color-scheme: dark;
+    --bg-deep: #060a12; --bg-mid: #0a1120; --ink: #e6f4f8; --ink-2: #8fa3ad; --ink-3: #628591; --warn: #fbbf24;
+    --display: "Orbitron", sans-serif; --body: "Space Grotesk", "Inter", sans-serif; --mono: "JetBrains Mono", monospace;
+    --corner: 2px;
+    --violet-rgb: 160, 32, 240;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body { background: var(--bg-deep); color: var(--ink); font-family: var(--body); font-size: 13px; line-height: 1.45; padding: 24px 16px 60px; }
+  .wrap { max-width: 1120px; margin: 0 auto; display: grid; gap: 26px; }
+  h1 { font-family: var(--display); font-size: 20px; letter-spacing: .08em; margin: 0 0 6px; }
+  .intro { margin: 0; color: var(--ink-2); max-width: 82ch; }
+  .label { font-family: var(--display); font-size: 12px; letter-spacing: .18em; text-transform: uppercase; margin: 0 0 4px; color: #8ff0e0; }
+  .sub { margin: 0 0 10px; color: var(--ink-2); font-size: 12.5px; max-width: 90ch; }
+  .pair { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  @media (max-width: 820px) { .pair { grid-template-columns: 1fr; } }
+  .cap { font-size: 11px; color: var(--ink-3); margin-top: 4px; }
+
+  /* one mini game screen; the accent is set per screen */
+  .screen { --accent-rgb: 103, 232, 249; --accent: rgb(var(--accent-rgb)); border: 1px solid rgba(var(--accent-rgb), .25); border-radius: var(--corner); background: var(--bg-mid); padding: 10px; display: grid; gap: 8px; overflow: hidden; position: relative; }
+  .screen.green { --accent-rgb: 103, 249, 168; }
+  .top { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border: 1px solid rgba(var(--accent-rgb), .18); background: rgba(20, 40, 60, .32); border-radius: var(--corner); }
+  .top .t { font-family: var(--display); font-size: 11px; letter-spacing: .14em; margin-right: auto; color: var(--accent); }
+  .blk { display: grid; grid-template-columns: 28px 28px; grid-template-rows: 28px 14px; gap: 3px; }
+  .blk .b { border: 1px solid rgba(var(--accent-rgb), .4); background: rgba(var(--accent-rgb), .06); border-radius: var(--corner); display: grid; place-items: center; font-size: 11px; color: var(--accent); }
+  .blk .b.wide { grid-column: 1 / -1; font-size: 8px; letter-spacing: .1em; }
+  .grid { display: grid; grid-template-columns: 1.1fr 1fr; gap: 8px; }
+  .panel { border: 1px solid rgba(var(--accent-rgb), .18); background: rgba(20, 40, 60, .32); border-radius: var(--corner); padding: 8px; display: grid; gap: 6px; }
+  .panel .pt { font-family: var(--display); font-size: 10px; letter-spacing: .16em; color: var(--accent); }
+  .line { font-size: 11.5px; color: var(--ink-2); display: flex; justify-content: space-between; }
+  .line b { color: var(--ink); font-family: var(--mono); font-weight: 600; }
+  .bar { height: 6px; border: 1px solid rgba(var(--accent-rgb), .2); background: rgba(0,0,0,.35); }
+  .bar i { display: block; height: 100%; width: 62%; background: var(--accent); }
+  .btns { display: flex; gap: 6px; flex-wrap: wrap; }
+  .btn { font-size: 11.5px; padding: 5px 10px; border: 1px solid rgba(var(--accent-rgb), .4); background: rgba(var(--accent-rgb), .06); color: var(--accent); border-radius: var(--corner); }
+  .btn.p { background: rgba(var(--accent-rgb), .18); color: var(--ink); }
+
+  /* A: every panel and button gets its own diagonal wash */
+  .vA .panel, .vA .top { background: linear-gradient(135deg, rgba(var(--accent-rgb), .10), rgba(var(--violet-rgb), .14)), rgba(10, 20, 32, .55); }
+  .vA .btn, .vA .blk .b { background: linear-gradient(135deg, rgba(var(--accent-rgb), .14), rgba(var(--violet-rgb), .18)); }
+  .vA .btn.p { background: linear-gradient(135deg, rgba(var(--accent-rgb), .28), rgba(var(--violet-rgb), .30)); }
+
+  /* B: flat fills, gradient edges and fills only on borders and bars */
+  .vB .panel, .vB .top, .vB .btn, .vB .blk .b { border: 1px solid transparent; background:
+      linear-gradient(rgba(12, 22, 34, .92), rgba(12, 22, 34, .92)) padding-box,
+      linear-gradient(135deg, rgba(var(--accent-rgb), .7), rgba(var(--violet-rgb), .75)) border-box; }
+  .vB .btn.p { background:
+      linear-gradient(rgba(30, 30, 60, .85), rgba(30, 30, 60, .85)) padding-box,
+      linear-gradient(135deg, rgba(var(--accent-rgb), .9), rgba(var(--violet-rgb), .9)) border-box; color: var(--ink); }
+  .vB .bar i { background: linear-gradient(90deg, rgb(var(--accent-rgb)), rgb(var(--violet-rgb))); }
+
+  /* C: one sweep across the whole screen; each panel shows its slice of it */
+  .vC { background: linear-gradient(110deg, rgba(var(--accent-rgb), .10) 0%, rgba(var(--violet-rgb), .22) 100%), var(--bg-mid); }
+  .vC .panel, .vC .top { background: rgba(10, 18, 30, .45); backdrop-filter: blur(2px); }
+  .vC .btn { background: rgba(255,255,255,.03); }
+  .vC .grid > .panel:last-child { border-color: rgba(var(--violet-rgb), .35); }
+  .vC .grid > .panel:last-child .pt { color: #c58cff; }
+
+  /* D: A plus gradient headings, bars and a soft sheen on primary buttons */
+  .vD .panel, .vD .top { background: linear-gradient(135deg, rgba(var(--accent-rgb), .09), rgba(var(--violet-rgb), .12)), rgba(10, 20, 32, .55); border-color: rgba(var(--violet-rgb), .22); }
+  .vD .pt, .vD .top .t { background: linear-gradient(90deg, rgb(var(--accent-rgb)), #c58cff); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .vD .bar i { background: linear-gradient(90deg, rgb(var(--accent-rgb)), rgb(var(--violet-rgb))); }
+  .vD .btn { background: linear-gradient(135deg, rgba(var(--accent-rgb), .12), rgba(var(--violet-rgb), .16)); }
+  .vD .btn.p { background: linear-gradient(135deg, rgba(var(--accent-rgb), .30), rgba(var(--violet-rgb), .34)); color: var(--ink); box-shadow: inset 0 1px 0 rgba(255,255,255,.12); }
+  .vD .blk .b { background: linear-gradient(135deg, rgba(var(--accent-rgb), .14), rgba(var(--violet-rgb), .18)); }
+</style>
+</head>
+<body>
+<template id="screen-tpl">
+  <div class="top"><span class="t">HYPERION LEGACY</span><div class="blk"><span class="b">?</span><span class="b"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M7 8h10a4 4 0 0 1 4 4v1a3.5 3.5 0 0 1-6.3 2.1L14 14h-4l-.7 1.1A3.5 3.5 0 0 1 3 13v-1a4 4 0 0 1 4-4z"/><path d="M7.5 10.5v3M6 12h3"/></svg></span><span class="b wide">SETTINGS</span></div></div>
+  <div class="grid">
+    <div class="panel"><div class="pt">FLEET</div><div class="line">Credits <b>48,210</b></div><div class="line">Ships out <b>3 of 4</b></div><div class="bar"><i></i></div><div class="btns"><span class="btn p">Dispatch</span><span class="btn">Recall</span></div></div>
+    <div class="panel"><div class="pt">RESEARCH</div><div class="line">Lab tier <b>IV</b></div><div class="line">Next <b>2h 14m</b></div><div class="bar"><i style="width:35%"></i></div><div class="btns"><span class="btn">Queue</span><span class="btn p">Expedite</span></div></div>
+  </div>
+</template>
+<div class="wrap">
+  <header>
+    <h1>THE e10,000,000 PRIZE · GRADIENT THEME OPTIONS</h1>
+    <p class="intro">Four ways to read "panels and buttons get a diagonal gradient from the current color at the top left into purple at the right, translucent like today". Each is shown in the default cyan and in the green accent, to prove it follows whatever accent the player uses. The game is the same underneath; this is a cosmetic theme unlocked at e10,000,000 and picked in Settings &gt; UI. You can also mix parts of different options.</p>
+  </header>
+
+  <section>
+    <p class="label">A · Gradient wash</p>
+    <p class="sub">Every panel and button gets its own soft diagonal wash, accent to purple. The most literal reading. Calm and readable; everything matches.</p>
+    <div class="pair"><div class="screen vA" data-s></div><div class="screen vA green" data-s></div></div>
+  </section>
+
+  <section>
+    <p class="label">B · Gradient edges</p>
+    <p class="sub">Panels and buttons keep their dark fill; only the borders, progress bars and primary buttons carry the accent-to-purple gradient. The most "premium" and the least busy.</p>
+    <div class="pair"><div class="screen vB" data-s></div><div class="screen vB green" data-s></div></div>
+  </section>
+
+  <section>
+    <p class="label">C · One sweep across the screen</p>
+    <p class="sub">One continuous gradient runs across the whole screen, so panels on the left lean to your accent and panels on the right lean purple. It feels like one lit space rather than many pieces.</p>
+    <div class="pair"><div class="screen vC" data-s></div><div class="screen vC green" data-s></div></div>
+  </section>
+
+  <section>
+    <p class="label">D · Wash plus shine</p>
+    <p class="sub">Option A plus gradient headings, gradient progress bars and a soft sheen on primary buttons. The flashiest: it clearly reads as a reward.</p>
+    <div class="pair"><div class="screen vD" data-s></div><div class="screen vD green" data-s></div></div>
+  </section>
+</div>
+<script>
+  const tpl = document.getElementById('screen-tpl');
+  document.querySelectorAll('[data-s]').forEach(s => s.appendChild(tpl.content.cloneNode(true)));
+</script>
+</body>
+</html>

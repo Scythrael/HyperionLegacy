@@ -1,0 +1,366 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Codes and Minigames</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&family=Space+Grotesk:wght@400;500;600&family=JetBrains+Mono:wght@400;600&display=swap" />
+<style>
+  :root {
+    color-scheme: dark;
+    --corner: 2px;
+    --bg-deep: #060a12; --bg-mid: #0a1120; --panel: rgba(20, 40, 60, 0.32); --panel-solid: #0b1622;
+    --border: rgba(103, 232, 249, 0.18); --border-strong: rgba(103, 232, 249, 0.4);
+    --accent: #67e8f9; --accent-bright: #8ff0e0; --accent-rgb: 103, 232, 249;
+    --ink: #e6f4f8; --ink-2: #8fa3ad; --ink-3: #628591; --warn: #fbbf24; --ok: #34d399;
+    --display: "Orbitron", sans-serif; --body: "Space Grotesk", "Inter", sans-serif; --mono: "JetBrains Mono", monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body { background: var(--bg-deep); color: var(--ink); font-family: var(--body); font-size: 13px; line-height: 1.45; padding: 24px 16px 60px; }
+  .wrap { max-width: 1080px; margin: 0 auto; display: grid; gap: 28px; }
+  h1 { font-family: var(--display); font-size: 20px; letter-spacing: .08em; margin: 0 0 6px; }
+  .intro { margin: 0; color: var(--ink-2); max-width: 80ch; }
+  .prop { color: var(--warn); font-family: var(--mono); font-size: 11px; }
+  .label { font-family: var(--display); font-size: 12px; letter-spacing: .18em; color: var(--accent); text-transform: uppercase; margin: 0 0 8px; }
+  .note { color: var(--ink-2); font-size: 12px; margin: 8px 0 0; max-width: 90ch; }
+  .note b { color: var(--ink); }
+  .stage { border: 1px solid var(--border); border-radius: var(--corner); background: radial-gradient(800px 400px at 70% -10%, rgba(103,232,249,.07), transparent 60%), var(--bg-mid); padding: 18px 12px; overflow: hidden; }
+  .row { display: flex; gap: 14px; flex-wrap: wrap; align-items: flex-start; }
+  button { font: inherit; color: var(--accent); background: rgba(var(--accent-rgb), .06); border: 1px solid var(--border-strong); border-radius: var(--corner); padding: 6px 12px; cursor: pointer; }
+  button.primary { background: rgba(var(--accent-rgb), .18); color: var(--ink); }
+  button:focus-visible, input:focus-visible { outline: 2px solid var(--accent-bright); outline-offset: 2px; }
+  .win { width: min(440px, 100%); background: var(--panel-solid); border: 1px solid var(--border-strong); border-radius: var(--corner); box-shadow: 0 20px 60px rgba(0,0,0,.5); }
+  .win header { display: flex; justify-content: space-between; align-items: center; padding: 10px 14px; border-bottom: 1px solid var(--border); font-family: var(--display); letter-spacing: .2em; font-size: 12px; }
+  .win .body { padding: 14px; display: grid; gap: 12px; }
+  .x { width: 36px; height: 36px; display: grid; place-items: center; padding: 0; color: var(--ink-2); border-color: var(--border); background: transparent; }
+  .x svg { width: 16px; height: 16px; }
+  .field { display: flex; gap: 8px; }
+  .field input { flex: 1; min-width: 0; font: inherit; font-family: var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--ink); background: var(--bg-deep); border: 1px solid var(--border-strong); border-radius: var(--corner); padding: 7px 10px; }
+  .msg { font-size: 12.5px; border-radius: var(--corner); padding: 8px 10px; border: 1px solid var(--border); background: rgba(0,0,0,.25); }
+  .msg.ok { border-color: rgba(52,211,153,.5); color: var(--ink); }
+  .msg.ok b { color: var(--ok); }
+  .msg.info { border-color: var(--border-strong); }
+  .msg .lore { display: block; margin-top: 4px; color: var(--ink-2); font-style: italic; }
+  /* the segmented strip */
+  .strip { display: grid; grid-template-columns: repeat(12, 1fr); border: 1px solid var(--border-strong); border-radius: var(--corner); overflow: hidden; background: rgba(0,0,0,.35); }
+  .seg { height: 34px; display: grid; place-items: center; border-right: 1px solid var(--border); color: var(--ink-3); }
+  .seg:last-child { border-right: none; }
+  .seg.lit { background: rgba(var(--accent-rgb), .12); color: var(--accent-bright); box-shadow: inset 0 -2px 0 var(--accent); }
+  .seg svg { width: 15px; height: 15px; }
+  .circ { width: 18px; height: 18px; border-radius: 50%; border: 1.5px solid currentColor; display: grid; place-items: center; font-family: var(--display); font-size: 9px; font-weight: 700; }
+  .sq { border: 1.5px solid currentColor; border-radius: 1px; font-family: var(--display); font-size: 7.5px; letter-spacing: .04em; padding: 2px 2px; line-height: 1; }
+  @media (max-width: 420px) { .seg { height: 30px; } .seg svg { width: 12px; height: 12px; } .circ { width: 15px; height: 15px; font-size: 8px; } .sq { font-size: 6.5px; } }
+  .pad-hint { font-size: 11px; color: var(--ink-3); text-align: center; }
+  /* placement options */
+  .opt { flex: 1 1 300px; min-width: 0; }
+  .opt h3 { margin: 0 0 6px; font-family: var(--display); font-size: 13px; letter-spacing: .1em; }
+  .opt h3 span { color: var(--ink-3); font-weight: 500; }
+  .hdr { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border: 1px solid var(--border); background: rgba(0,0,0,.3); border-radius: var(--corner); }
+  .hdr .title { font-family: var(--display); font-size: 12px; letter-spacing: .14em; margin-right: auto; }
+  .ico { width: 36px; height: 36px; display: grid; place-items: center; padding: 0; position: relative; }
+  .ico svg { width: 18px; height: 18px; }
+  .ico.hl { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(var(--accent-rgb), .25); }
+  .pop { margin: 6px 0 0 auto; width: 240px; border: 1px solid var(--border-strong); background: var(--panel-solid); border-radius: var(--corner); padding: 8px; display: grid; gap: 6px; }
+  .game { display: flex; align-items: center; gap: 8px; padding: 7px 8px; border: 1px solid var(--border); border-radius: var(--corner); background: rgba(0,0,0,.2); }
+  .game b { font-weight: 600; }
+  .game span { color: var(--ink-3); font-size: 11.5px; display: block; }
+  .game button { margin-left: auto; padding: 4px 10px; }
+  .card { border: 1px solid var(--border); background: var(--panel); border-radius: var(--corner); padding: 10px; display: grid; gap: 8px; }
+  .card .t { font-family: var(--display); font-size: 11px; letter-spacing: .16em; color: var(--accent); }
+  .chips { display: flex; gap: 4px; flex-wrap: wrap; }
+  .chip { font-size: 11.5px; padding: 3px 8px; border: 1px solid var(--border); border-radius: var(--corner); color: var(--ink-2); }
+  .chip.on { color: var(--ink); border-color: var(--border-strong); background: rgba(var(--accent-rgb), .1); }
+  svg.g { fill: none; stroke: currentColor; stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round; }
+  /* minigame panel */
+  .gs { width: min(820px, 100%); margin: 0 auto; background: linear-gradient(180deg, rgba(14,28,42,.96), rgba(8,16,26,.97)); border: 1px solid var(--border-strong); border-radius: var(--corner); }
+  .gs-head { display: flex; gap: 10px; align-items: center; padding: 10px 12px; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+  .gs-title { font-family: var(--display); font-weight: 900; letter-spacing: .2em; font-size: 14px; color: var(--accent); }
+  .gs-sub { font-size: 11px; color: var(--ink-3); }
+  .gs-tools { margin-left: auto; display: flex; gap: 6px; }
+  .gs-tools button { height: 36px; min-width: 36px; padding: 0 10px; display: inline-flex; align-items: center; gap: 6px; }
+  .gs-tools svg { width: 16px; height: 16px; }
+  .gs-top { display: flex; gap: 12px; align-items: center; padding: 10px 12px; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+  .ore b { display: block; font-family: var(--mono); font-size: 22px; font-weight: 600; line-height: 1.1; }
+  .ore span { font-size: 11.5px; color: var(--ink-2); }
+  .oc { margin-left: auto; display: flex; align-items: center; gap: 10px; border: 1px solid var(--border); padding: 6px 8px; border-radius: var(--corner); background: rgba(0,0,0,.2); }
+  .oc .lv { font-size: 11.5px; color: var(--ink-2); }
+  .oc .lv b { color: var(--ink); font-family: var(--mono); }
+  .oc button { display: grid; line-height: 1.2; text-align: center; }
+  .oc button small { font-family: var(--mono); font-size: 10.5px; color: var(--ink-2); }
+  .reserved { margin: 8px 12px 0; height: 34px; border: 1px dashed rgba(251,191,36,.35); border-radius: var(--corner); display: grid; place-items: center; color: rgba(251,191,36,.6); font-size: 11px; }
+  .gs-tabs { display: flex; gap: 6px; padding: 10px 12px 0; flex-wrap: wrap; }
+  .gs-body { padding: 10px 12px 14px; display: grid; gap: 6px; }
+  .gs-body.scroll { max-height: 210px; overflow-y: auto; }
+  .gen { display: grid; grid-template-columns: 24px minmax(140px, 1.3fr) minmax(120px, 1fr) auto; gap: 10px; align-items: center; padding: 7px 10px; border: 1px solid var(--border); border-radius: var(--corner); background: rgba(0,0,0,.18); }
+  .gen .tier { font-family: var(--display); font-size: 11px; color: var(--ink-3); text-align: center; }
+  .gen b { display: block; font-weight: 600; }
+  .gen .fl { font-size: 11.5px; color: var(--ink-3); }
+  .gen .st { font-size: 11.5px; color: var(--ink-2); }
+  .gen .st .num { color: var(--ink); font-family: var(--mono); }
+  .buys { display: flex; gap: 4px; }
+  .buys button { font-size: 11.5px; padding: 5px 9px; white-space: nowrap; }
+  @media (max-width: 760px) { .gen { grid-template-columns: 22px 1fr; } .gen .st { grid-column: 2; } .gen .buys { grid-column: 1 / -1; } .buys button { flex: 1; } .oc { margin-left: 0; width: 100%; justify-content: space-between; } }
+  .stats { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 8px; }
+  .stat { border: 1px solid var(--border); border-radius: var(--corner); padding: 8px 10px; background: rgba(0,0,0,.2); }
+  .stat .k { font-size: 11px; color: var(--ink-3); letter-spacing: .06em; text-transform: uppercase; }
+  .stat .v { font-family: var(--mono); font-size: 15px; }
+  .track { height: 6px; background: rgba(0,0,0,.4); border: 1px solid var(--border); margin-top: 5px; }
+  .track i { display: block; height: 100%; background: var(--accent); }
+  .help { display: grid; gap: 8px; max-width: 72ch; }
+  .help h4 { margin: 4px 0 0; font-family: var(--display); font-size: 12px; letter-spacing: .1em; color: var(--accent); }
+  .help p { margin: 0; color: var(--ink-2); }
+  .blk2 { display: grid; grid-template-columns: 36px 36px; grid-auto-rows: 36px 18px; gap: 4px; }
+  .blk2 .sqb { width: 36px; height: 36px; padding: 0; display: grid; place-items: center; font-family: var(--display); font-weight: 700; }
+  .blk2 .sqb svg { width: 18px; height: 18px; }
+  .blk2 .sqb.wide2 { grid-column: span 2; width: auto; }
+  .blk2 .barb { grid-column: span 2; height: 18px; padding: 0 6px; font-size: 9px; letter-spacing: .14em; font-family: var(--display); display: inline-flex; align-items: center; justify-content: center; gap: 4px; }
+  .blk2 .barb svg { width: 11px; height: 11px; }
+  .blk2 .hl2 { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(var(--accent-rgb), .25); }
+  .blk2 .dim { opacity: .4; }
+  .gen.locked { opacity: .55; border-style: dashed; }
+  .toast { max-width: 420px; margin: 0 auto; border: 1px solid rgba(52,211,153,.5); background: rgba(10,22,30,.96); border-radius: var(--corner); padding: 10px 12px; box-shadow: 0 10px 30px rgba(0,0,0,.5); display: grid; gap: 3px; }
+  .toast .tt { font-family: var(--display); font-size: 12px; letter-spacing: .08em; color: var(--accent-bright); }
+  .toast .tr { font-size: 12.5px; color: var(--ink); }
+  .toast .tf { font-size: 12px; color: var(--ink-2); font-style: italic; }
+  .toast .rw { font-size: 12.5px; color: var(--ok); font-weight: 600; }
+  @media (max-width: 480px) { .stats { grid-template-columns: 1fr 1fr; } .stat .v { font-size: 13px; } }
+
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="up" viewBox="0 0 24 24"><path d="M12 5v14M6 11l6-6 6 6"/></symbol>
+  <symbol id="down" viewBox="0 0 24 24"><path d="M12 5v14M6 13l6 6 6-6"/></symbol>
+  <symbol id="left" viewBox="0 0 24 24"><path d="M5 12h14M11 6l-6 6 6 6"/></symbol>
+  <symbol id="right" viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></symbol>
+  <symbol id="close" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></symbol>
+  <symbol id="gear" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.2"/><path d="M12 3v2.5M12 18.5V21M3 12h2.5M18.5 12H21M5.6 5.6l1.8 1.8M16.6 16.6l1.8 1.8M5.6 18.4l1.8-1.8M16.6 7.4l1.8-1.8"/></symbol>
+  <symbol id="pad" viewBox="0 0 24 24"><path d="M7 8h10a4 4 0 0 1 4 4v1a3.5 3.5 0 0 1-6.3 2.1L14 14h-4l-.7 1.1A3.5 3.5 0 0 1 3 13v-1a4 4 0 0 1 4-4z"/><path d="M7.5 10.5v3M6 12h3"/><circle cx="16" cy="11" r=".6"/><circle cx="17.6" cy="12.8" r=".6"/></symbol>
+  <symbol id="chart" viewBox="0 0 24 24"><path d="M4 20h16"/><path d="M7 16v-5M12 16V7M17 16v-8"/></symbol>
+  <symbol id="stack" viewBox="0 0 24 24"><rect x="5" y="15" width="14" height="4" rx="1"/><rect x="6.5" y="10" width="11" height="4" rx="1"/><rect x="8" y="5" width="8" height="4" rx="1"/></symbol>
+</svg>
+<div class="wrap">
+  <header>
+    <h1>0.13.11.1 · CODES AND MINIGAMES</h1>
+    <p class="intro">Mockup for sign-off. Same look as 0.13.11. <span class="prop">[PROPOSAL]</span> marks my wording and choices. Frame 3 shows three places a minigame could live once it's unlocked; pick one (or mix).</p>
+  </header>
+
+  <section>
+    <p class="label">1 · The new strip: one row, 12 segments</p>
+    <div class="stage">
+      <div class="win" role="img" aria-label="Combo window with a 12-segment strip, eight presses lit">
+        <header><span>ENTER CODE</span><span class="x" style="border:1px solid var(--border)"><svg class="g"><use href="#close"/></svg></span></header>
+        <div class="body">
+          <div class="strip">
+            <div class="seg lit"><svg class="g"><use href="#up"/></svg></div>
+            <div class="seg lit"><svg class="g"><use href="#up"/></svg></div>
+            <div class="seg lit"><svg class="g"><use href="#down"/></svg></div>
+            <div class="seg lit"><svg class="g"><use href="#down"/></svg></div>
+            <div class="seg lit"><svg class="g"><use href="#left"/></svg></div>
+            <div class="seg lit"><svg class="g"><use href="#right"/></svg></div>
+            <div class="seg lit"><svg class="g"><use href="#left"/></svg></div>
+            <div class="seg lit"><svg class="g"><use href="#right"/></svg></div>
+            <div class="seg"></div><div class="seg"></div><div class="seg"></div><div class="seg"></div>
+          </div>
+          <div class="strip" aria-label="Completed strip showing the circle and square styles">
+            <div class="seg lit"><svg class="g"><use href="#up"/></svg></div>
+            <div class="seg lit"><svg class="g"><use href="#up"/></svg></div>
+            <div class="seg lit"><svg class="g"><use href="#down"/></svg></div>
+            <div class="seg lit"><svg class="g"><use href="#down"/></svg></div>
+            <div class="seg lit"><svg class="g"><use href="#left"/></svg></div>
+            <div class="seg lit"><svg class="g"><use href="#right"/></svg></div>
+            <div class="seg lit"><svg class="g"><use href="#left"/></svg></div>
+            <div class="seg lit"><svg class="g"><use href="#right"/></svg></div>
+            <div class="seg lit"><span class="circ">B</span></div>
+            <div class="seg lit"><span class="circ">A</span></div>
+            <div class="seg lit"><span class="sq">SEL</span></div>
+            <div class="seg lit"><span class="sq">STA</span></div>
+          </div>
+          <div class="pad-hint">The on-screen pad stays below, unchanged.</div>
+        </div>
+      </div>
+    </div>
+    <p class="note">The strip sits at the top of the combo area and replaces the 12 separate boxes. Each press fills the next segment with its symbol: arrows plain, <b>A and B in circles</b>, <b>SEL and STA in squares</b>; all 12 segments are the same width. A wrong press still clears it quietly. The second strip is only here to show the finished look; in the game there's one strip. At 375 px it stays one row.</p>
+  </section>
+
+  <section>
+    <p class="label">2 · The new messages in the code window</p>
+    <div class="stage">
+      <div class="row">
+        <div class="win">
+          <header><span>ENTER CODE</span><span class="x" style="border:1px solid var(--border)"><svg class="g"><use href="#close"/></svg></span></header>
+          <div class="body">
+            <div class="field"><input value="SUPERDUPERLEET" aria-label="Gift code" /><button class="primary">Redeem</button></div>
+            <div class="msg ok"><b>Code redeemed.</b> +1,337 credits added to your fleet.</div>
+            <div class="msg info">This code has been redeemed on this account.</div>
+            <div class="msg info">This code has been redeemed on this account.<span class="lore">"Why won't you leave any for us, Fleet Admiral? Space orphans are out there starving."</span></div>
+          </div>
+        </div>
+        <div class="win">
+          <header><span>ENTER CODE</span><span class="x" style="border:1px solid var(--border)"><svg class="g"><use href="#close"/></svg></span></header>
+          <div class="body">
+            <div class="msg ok"><b>Unlocked: Hyperion Legacy v0.0000001a.</b> Find it any time under <b>Settings › Codes › Minigames</b>. <span class="prop">[place depends on frame 3]</span></div>
+            <div class="msg info">You've already found this one. It lives under <b>Settings › Codes › Minigames</b> now.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <p class="note"><b>Left:</b> the first redeem pays 1,337 credits once per account, which means per save until 0.14.1 brings online accounts. Trying it again says exactly your line. The third try in a row adds a lore joke, and they rotate. Draft extras <span class="prop">[PROPOSAL]</span>: "The quartermaster has started labeling the credit vault 'Not For The Admiral.'", "Accounting would like a word. Several words, actually.", "Sensors detect a 1,337-credit-shaped hole in the budget. It has your name on it." <b>Right:</b> the first time the combo succeeds, it opens the minigame AND shows where it lives from now on. After that, the combo only shows the "already found" line.</p>
+  </section>
+
+  <section>
+    <p class="label">3 · Where minigames live (pick one)</p>
+    <div class="stage">
+      <div class="row">
+        <div class="opt">
+          <h3>A · Settings › Codes <span>(quiet)</span></h3>
+          <div class="card">
+            <div class="chips"><span class="chip">UI</span><span class="chip">Gameplay</span><span class="chip">Confirmations</span><span class="chip">Save Data</span><span class="chip on">Codes</span></div>
+            <div class="t">CODES</div>
+            <button class="primary" style="justify-self:start">Enter code</button>
+            <div class="t">MINIGAMES</div>
+            <div class="game"><svg class="g" style="width:20px;height:20px;color:var(--accent)"><use href="#stack"/></svg><div><b>Hyperion Legacy v0.0000001a</b><span>Finale reached · e781,204 Ore</span></div><button>Play</button></div>
+          </div>
+          <p class="note">Shows only after a minigame is unlocked. It stays out of the way but takes three clicks: gear, Codes, Play.</p>
+        </div>
+        <div class="opt">
+          <h3>B · Top-bar icon <span>(fastest)</span></h3>
+          <div class="hdr"><span class="title">HYPERION LEGACY</span><button class="ico hl" aria-label="Minigames"><svg class="g"><use href="#pad"/></svg></button><button class="ico" aria-label="Settings"><svg class="g"><use href="#gear"/></svg></button></div>
+          <div class="pop">
+            <div class="t" style="font-family:var(--display);font-size:11px;letter-spacing:.16em;color:var(--accent)">MINIGAMES</div>
+            <div class="game"><div><b>v0.0000001a</b><span>e781,204 Ore</span></div><button>Play</button></div>
+          </div>
+          <p class="note">A small controller icon appears next to the gear once something is unlocked. Two clicks from anywhere. It's the most visible, so others watching your screen can see it.</p>
+        </div>
+        <div class="opt">
+          <h3>C · Home card <span>(a showcase)</span></h3>
+          <div class="card">
+            <div class="t">MINIGAMES</div>
+            <div class="game"><svg class="g" style="width:20px;height:20px;color:var(--accent)"><use href="#stack"/></svg><div><b>Hyperion Legacy v0.0000001a</b><span>Ore is still climbing while you're away</span></div><button>Play</button></div>
+          </div>
+          <p class="note">A card on the Home screen once unlocked, with a live progress line. Good for "come back and check", but it takes Home space.</p>
+        </div>
+      </div>
+    </div>
+    <p class="note">Whichever you pick, nothing shows until a minigame is unlocked, so the secret stays a secret. The list is built to hold more minigames later.</p>
+  </section>
+
+  <section>
+    <p class="label">4 · The minigame, roomier: Overclock up top, Stats and Help buttons</p>
+    <div class="stage">
+      <div class="gs">
+        <div class="gs-head">
+          <div><div class="gs-title">HYPERION LEGACY v0.0000001a</div><div class="gs-sub">The original, with extra zeros.</div></div>
+          <div class="gs-tools"><button aria-label="Stats"><svg class="g"><use href="#chart"/></svg>Stats</button><button aria-label="Help">?</button><button aria-label="Close" style="padding:0"><svg class="g"><use href="#close"/></svg></button></div>
+        </div>
+        <div class="gs-top">
+          <div class="ore"><b>4.21e1,284</b><span>Ore · +9.86e1,282/s</span></div>
+          
+        </div>
+        <div class="reserved">Space kept free for your plans (shows nothing in the game)</div>
+        <div class="gs-tabs"><span class="chip on">Generators</span><span class="chip">Upgrades</span><span class="chip">Prestige</span><span class="chip">Skills</span><span class="chip">Milestones</span></div>
+        <div class="gs-body scroll">
+          <div class="gen"><div class="tier">I</div><div><b>Mining Laser</b><span class="fl">Points at rocks. Rocks become Ore.</span></div><div class="st"><span class="num">1.42e1,281</span> owned · <span class="num">×6.4e38</span></div><div class="buys"><button>Buy 1</button><button>Buy 10</button><button class="primary">Max</button></div></div>
+          <div class="gen"><div class="tier">II</div><div><b>Refinery</b><span class="fl">Refines raw ambition into more Mining Lasers.</span></div><div class="st"><span class="num">8.80e1,277</span> owned · <span class="num">×1.2e35</span></div><div class="buys"><button>Buy 1</button><button>Buy 10</button><button class="primary">Max</button></div></div>
+          <div class="gen"><div class="tier">III</div><div><b>Fabricator</b><span class="fl">Prints Refineries. Mostly on purpose.</span></div><div class="st"><span class="num">2.37e1,273</span> owned · <span class="num">×4.0e31</span></div><div class="buys"><button>Buy 1</button><button>Buy 10</button><button class="primary">Max</button></div></div>
+        </div>
+      </div>
+    </div>
+    <p class="note"><b>Removed from the main view:</b> the goal bar, the "This run" bar and the "makes Ore / makes Mining Lasers" lines. The joke flavor line stays under each name <span class="prop">[PROPOSAL, say if it should go too]</span>. <b>Overclock moved</b> to the new Upgrades tab (frame 7). The generator list scrolls inside the panel so the whole panel fits one screen. <b>Top right:</b> Stats, then [?] Help, then close. The dashed box marks the freed space; the game leaves it empty.</p>
+  </section>
+
+  <section>
+    <p class="label">5 · Stats (the goal and best Ore live here now)</p>
+    <div class="stage">
+      <div class="gs"><div class="gs-body">
+        <div class="stats">
+          <div class="stat"><div class="k">Goal</div><div class="v">e777,777 Ore · 0.17%</div><div class="track"><i style="width:17%"></i></div></div>
+          <div class="stat"><div class="k">This run</div><div class="v">e1,284</div><div class="track"><i style="width:9%"></i></div></div>
+          <div class="stat"><div class="k">Most Ore ever</div><div class="v">e1,301</div></div>
+          <div class="stat"><div class="k">Most Mining Lasers</div><div class="v">3.1e1,282</div></div>
+          <div class="stat"><div class="k">Most of each generator</div><div class="v" style="font-size:12px;line-height:1.6">II 9.0e1,277 · III 2.4e1,273<br>IV 6.1e1,268 · V 412 · VI 38</div></div>
+          <div class="stat"><div class="k">Highest Overclock</div><div class="v">Lv 412</div></div>
+          <div class="stat"><div class="k">Prestiges</div><div class="v" style="font-size:12px;line-height:1.6">Captain 1,203 · Fleet 4 · Prestigeception 0</div></div>
+          <div class="stat"><div class="k">Points</div><div class="v" style="font-size:12px;line-height:1.6">Captain 1,840 · Augment 96 · Dream 0</div></div>
+          <div class="stat"><div class="k">Milestones</div><div class="v">3 of 11</div></div>
+          <div class="stat"><div class="k">Time played</div><div class="v">2d 6h</div></div>
+          <div class="stat"><div class="k">First found</div><div class="v">Oct 22, 2026</div></div>
+        </div>
+      </div></div>
+    </div>
+    <p class="note">Opened by the Stats button. The list is <span class="prop">[PROPOSAL]</span>; say what to add or drop. "Most" means the highest ever, surviving every prestige.</p>
+  </section>
+
+  <section>
+    <p class="label">6 · Help [?]: everything you need to know</p>
+    <div class="stage">
+      <div class="gs"><div class="gs-body help">
+        <h4>THE STACK</h4><p>Mining Lasers make Ore. Every higher generator makes the one below it: Refineries make Mining Lasers, Fabricators make Refineries, and so on up to the Singularity Engine. Ore buys everything.</p>
+        <h4>THE TEN BONUS</h4><p>Every 10 of a generator you buy doubles its output.</p>
+        <h4>OVERCLOCK</h4><p>Speeds up the whole stack by ×1.125 per level, and the levels multiply. Its price follows your income.</p>
+        <h4>PRESTIGE</h4><p>Captain Prestige resets your stack for Captain Points. Fleet Prestige resets that too, for Augment Points, a Skill Point and new generators. Prestigeception resets everything for Dream Points, which make every prestige pay more.</p>
+        <h4>SKILLS, MILESTONES, TIME AWAY</h4><p>Skills automate the clicking. Milestones are recorded for a future reward. The stack keeps running while you're away.</p>
+      </div></div>
+    </div>
+    <p class="note">Plain-language help in one scrollable view <span class="prop">[PROPOSAL wording]</span>; this is where "makes Ore" and the rest of the rules now live.</p>
+  </section>
+
+  <section>
+    <p class="label">3b · Your pick: the button block where Settings lives</p>
+    <div class="stage">
+      <div class="row">
+        <div class="opt">
+          <h3>Before any minigame</h3>
+          <div class="hdr"><span class="title">HYPERION LEGACY</span><div class="blk2"><button class="sqb wide2" aria-label="Help">?</button><button class="barb" aria-label="Settings"><svg class="g"><use href="#gear"/></svg>SETTINGS</button></div></div>
+        </div>
+        <div class="opt">
+          <h3>After the first unlock</h3>
+          <div class="hdr"><span class="title">HYPERION LEGACY</span><div class="blk2"><button class="sqb" aria-label="Help">?</button><button class="sqb hl2" aria-label="Minigames"><svg class="g"><use href="#pad"/></svg></button><button class="barb" aria-label="Settings"><svg class="g"><use href="#gear"/></svg>SETTINGS</button></div></div>
+        </div>
+        <div class="opt">
+          <h3>Later, if a 4th button comes</h3>
+          <div class="hdr"><span class="title">HYPERION LEGACY</span><div class="blk2"><button class="sqb">?</button><button class="sqb"><svg class="g"><use href="#pad"/></svg></button><button class="sqb"><svg class="g"><use href="#gear"/></svg></button><button class="sqb dim">+</button></div></div>
+        </div>
+      </div>
+    </div>
+    <p class="note">The block sits where the gear is today. <b>Start:</b> Help [?] fills the top half and Settings is a half-height bar underneath. <b>After the first minigame unlock:</b> Help shrinks to a square and the Minigames button appears to its right, opening the minigame list. <b>Later:</b> a fourth button would make it a 2x2 grid of squares. <span class="prop">[PROPOSAL: Help opens the game's existing Help pages]</span></p>
+  </section>
+
+  <section>
+    <p class="label">7 · Upgrades tab: Overclock lives here; "???" until unlocked</p>
+    <div class="stage">
+      <div class="gs"><div class="gs-tabs"><span class="chip">Generators</span><span class="chip on">Upgrades</span><span class="chip">Prestige</span><span class="chip">Skills</span><span class="chip">Milestones</span></div>
+      <div class="gs-body">
+        <div class="gen"><div class="tier">OC</div><div><b>Overclock</b><span class="fl">The red button. Pressing it is the whole plan.</span></div><div class="st">Lv <span class="num">412</span> · <span class="num">×1.125</span> each</div><div class="buys"><button>Buy 1</button><button>Buy 10</button><button class="primary">Max</button></div></div>
+        <div class="gen"><div class="tier">+</div><div><b>Overclock Overclocker</b><span class="fl">It overclocks your overclock. That is the whole upgrade.</span></div><div class="st">Lv <span class="num">3 / 25</span> · each Overclock level counts more</div><div class="buys"><button>Buy 1</button><button>Buy 10</button><button class="primary">Max</button></div></div>
+        <div class="gen locked"><div class="tier">?</div><div><b>???</b><span class="fl">???</span></div><div class="st">Unlocks later</div><div class="buys"><button disabled>Locked</button></div></div>
+        <div class="gen locked"><div class="tier">?</div><div><b>???</b><span class="fl">???</span></div><div class="st">Unlocks later</div><div class="buys"><button disabled>Locked</button></div></div>
+      </div></div>
+      <div class="msg info" style="max-width:520px;margin:12px auto 0">First visit after e1,000,000: <b>"Congratulations, you unlocked the overclock overclocker! Kidding. Horses are extinct in the future, so there are none left to beat for this joke."</b></div>
+    </div>
+    <p class="note">Overclock now uses the generator row layout: flavor line, Buy 1, Buy 10, Max. At e1,000,000 the Overclock Overclocker unlocks along with a few more upgrades, each capped and shown as X / Y. Draft extras <span class="prop">[PROPOSAL]</span>: <b>Tenfold Tuner</b> (each ten bonus doubles a little harder), <b>Captain's Compound</b> (more Captain and Augment Points per prestige), <b>Lucid Dreaming</b> (Dream Points hit harder). Locked generators, upgrades and milestones all read "???" until you are close enough to reach them.</p>
+  </section>
+
+  <section>
+    <p class="label">8 · Achievement popup</p>
+    <div class="stage">
+      <div class="toast">
+        <div class="tt">Achievement obtained: A Respectable Googol</div>
+        <div class="tr">Reach 1e100 Ore.</div>
+        <div class="tf">"One googol. Somewhere, a mathematician is very proud of you."</div>
+        <div class="rw">Reward: recorded for a future update</div>
+      </div>
+      <div class="toast" style="margin-top:10px">
+        <div class="tt">Achievement obtained: e10,000,000</div>
+        <div class="tr">Reach e10,000,000 Ore.</div>
+        <div class="rw">Reward: the Starfall gradient theme, live now in Settings › UI</div>
+      </div>
+    </div>
+    <p class="note">Slides in at the top, fades after about 4 seconds or when tapped. Title, then how you earned it, then optional flavor, then the reward in green. The theme name "Starfall" is a placeholder <span class="prop">[PROPOSAL]</span>. Milestones (e1,000, e100,000, e777,777, e1,000,000, e10,000,000 and the others) stay hidden until reachable.</p>
+  </section>
+</div>
+</body>
+</html>
