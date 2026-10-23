@@ -39,3 +39,13 @@ C. Fleet spam: Fleet threshold = e308 x 2^(Fleets since the last Prestigeception
    light and keen timelines unchanged to the hundredth of an hour; spam then behaves like normal play.
 D. Coarse margin: leave.
 0.13.11.1 inherits all of 1 to 3; the e10,000,000 Starfall prize can be reached by the clock jump or farm.
+
+## USER ANSWERS (2026-10-23, verbatim)
+
+- Clock fix: "Make sure this is the case across the board for everything in the game. Imperative that this is the case
+  so you can't jump from 1970 to 2099 and so forth." So: clock-manipulation protection for the MAIN game and the
+  minigame alike (and anything else that reads wall-clock time): time is never paid twice after the clock goes back,
+  a device clock far ahead of the server's is not trusted, and progress is delayed never lost for honest players.
+- Targets: "Retune so default is best" (reshape prestige gains so about 100% auto targets is the best choice; retune to
+  the planned bands; current players keep their progress).
+- Fleet spam: "Yes, double it" (Fleet threshold e308 x 2^(Fleets since the last Prestigeception, minus 1)).
