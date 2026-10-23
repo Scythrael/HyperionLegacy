@@ -49,3 +49,4 @@ D. Coarse margin: leave.
 - Targets: "Retune so default is best" (reshape prestige gains so about 100% auto targets is the best choice; retune to
   the planned bands; current players keep their progress).
 - Fleet spam: "Yes, double it" (Fleet threshold e308 x 2^(Fleets since the last Prestigeception, minus 1)).
+- User (2026-10-23, verbatim): "Yeah, playing offline won't be a thing eventually anyway, because the game will be entirely online and can be based off of the server clock at all times at that point. It is essentially just bringing that philosophy into line with what we're doing now." (Direction: server time is the source of truth; the trusted-time module is built so 0.14.1 online can swap its source to the server clock with no gameplay change. The no-network fallback is a stopgap until then.)
