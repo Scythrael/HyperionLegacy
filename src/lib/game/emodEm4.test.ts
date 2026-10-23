@@ -1,8 +1,10 @@
 // E-MOD EM-4 (0.14.0, plan docs/plans/2026-10-17-material-lines-and-emod-plan.md section 4 EM-4; user answer P3
 // 2026-10-17 "Speeds the drive (Recommended)"; B10): the reactor surplus drive lift (reactorSurplus.ts).
 //
-//   - B10: a crafted Reactor Core (the worst Standard-quality tier 1 roll at item level 20, both tier 1 varieties) makes
-//     every hull strictly faster than its Standard-Issue core, light or heavily loaded.
+//   - Never slower (user 2026-10-23, the B10 guarantee): every Reactor Core variety at every item level 1 to 40 (worst,
+//     seeded and Radiant rolls) leaves every hull at least as fast as its Standard-Issue core, light or heavily loaded,
+//     on the sheet, the mission legs, the combat stamp and the voyage; a core whose lift is below its own drag flies
+//     exactly at the Standard-Issue speed. Soften the top (user 2026-10-23): the best core is +30 to +40%.
 //   - The Standard-Issue core is byte-identical (the same sheet object; no flag on a run).
 //   - The curve is D23: exactly 1 at no surplus, strictly rising, concave, never capped.
 //   - The surplus is shipPower.ts shipPowerBudget's reactorSurplus exactly (in budget, a draw eating part of the
@@ -14,7 +16,7 @@
 
 import { describe, expect, it } from "vitest";
 import Decimal from "break_infinity.js";
-import { MISSIONS, SHIP_TYPES, effectiveMissionDef, type CaptainMissionState, type GameState, type ShipTypeKey, type ShortRangeMissionState } from "./model";
+import { MISSIONS, SHIP_TYPES, effectiveMissionDef, type CaptainMissionState, type EquipmentInstance, type GameState, type ShipTypeKey, type ShortRangeMissionState } from "./model";
 import { dispatchCaptainOnMission, economyTick } from "./tick";
 import { effectiveShipStats, shipCombatRulesStamp, shipReactorSurplus } from "./crewOverlay";
 import { shipPowerBudget } from "./shipPower";
@@ -23,9 +25,10 @@ import { diminishing } from "./diminishing";
 import { dispatchCaptainOnShortRange, isWellFormedShortRangeMission } from "./shortRangeBoard";
 import { buildHomeDashboard } from "./homeDashboard";
 import { deserialize, migrate, serialize } from "./save";
-import { onHull } from "./firstRunsGoldens.fixture";
+import { onHull, withCrew } from "./firstRunsGoldens.fixture";
+import { asExpeditionVeteran, dispatchPastPropulsion } from "./awayTeamTestFixtures";
 import { seatOfficer } from "./wiring/probes";
-import { EM4_SHIP, em4Core, shortRangeBase, withCore, withDraw, worstCore } from "./emodEm4.fixture";
+import { EM4_SHIP, em4Core, mintCore, shortRangeBase, withCore, withDraw, worstCore } from "./emodEm4.fixture";
 import { withReactorLiftOff } from "./emodEm4Switch.fixture";
 import { gearWearOffInThisFile } from "./gearWearSwitch.fixture";
 gearWearOffInThisFile();
@@ -35,21 +38,88 @@ const HULLS = Object.keys(SHIP_TYPES) as ShipTypeKey[];
 const ship1 = (s: GameState) => s.ships.find((sh) => sh.id === EM4_SHIP)!;
 const sheet = (s: GameState) => effectiveShipStats(s, ship1(s));
 
-describe("EM-4 B10: a crafted Reactor Core makes every hull faster than its Standard-Issue core", () => {
-  for (const variety of ["efficientCore", "balancedCore"]) {
-    it(`${variety}: the worst Standard-quality roll at item level 20 (full mass 12) outruns its own mass on every hull`, () => {
-      const core = worstCore(variety, 20);
-      expect(core.mass).toBe(12);
-      for (const hull of HULLS) {
-        const si = onHull(hull);
-        expect(sheet(withCore(si, core)).transitSpeedMult, hull).toBeGreaterThan(sheet(si).transitSpeedMult);
-        // Heavily loaded (a 60-mass piece already aboard): the core's own drag is smaller, the lift the same.
-        const heavy = withDraw(si, 0);
-        const loaded = { ...heavy, equipment: heavy.equipment.map((e) => (e.id === "em4-bay" ? { ...e, mass: 60 } : e)) };
-        expect(sheet(withCore(loaded, core)).transitSpeedMult, `${hull} loaded`).toBeGreaterThan(sheet(loaded).transitSpeedMult);
+// The cores the never-slower sweep mints: every Reactor Core variety at every item level 1 to 40, the worst
+// Standard-quality roll (lowest output, heaviest) and four seeded Standard rolls, plus a quality 5 Radiant roll.
+const VARIETIES = ["efficientCore", "balancedCore", "highOutputCore"] as const;
+function sweepCores(variety: string, iLevel: number): EquipmentInstance[] {
+  return [worstCore(variety, iLevel), ...[1, 2, 3, 4].map((k) => mintCore(variety, iLevel, 0, "standard", 0x77 * k + iLevel)), mintCore(variety, iLevel, 5, "radiant", 0x5e + iLevel)];
+}
+// ship-1 with an extra 60-mass piece aboard (a heavily loaded ship: the core's own drag is a smaller share).
+function loaded(s: GameState): GameState {
+  const w = withDraw(s, 0);
+  return { ...w, equipment: w.equipment.map((e) => (e.id === "em4-bay" ? { ...e, mass: 60 } : e)) };
+}
+const legs = (s: GameState) => {
+  const d = effectiveMissionDef(MISSIONS.longOreRun, sheet(s));
+  return d.transitOutTicks + d.transitBackTicks;
+};
+
+describe("EM-4 never slower (user 2026-10-23): a crafted Reactor Core never makes a ship slower than its Standard-Issue core", () => {
+  it("every hull, every variety, item levels 1 to 40, light and loaded: the sheet speed and the mission legs", () => {
+    for (const hull of HULLS) {
+      for (const base of [onHull(hull), loaded(onHull(hull))]) {
+        const siSpeed = sheet(base).transitSpeedMult;
+        const siLegs = legs(base);
+        for (const variety of VARIETIES) {
+          for (let iLevel = 1; iLevel <= 40; iLevel++) {
+            for (const core of sweepCores(variety, iLevel)) {
+              const s = withCore(base, core);
+              expect(sheet(s).transitSpeedMult, `${hull} ${variety} iL${iLevel}`).toBeGreaterThanOrEqual(siSpeed);
+              expect(legs(s), `${hull} ${variety} iL${iLevel} legs`).toBeLessThanOrEqual(siLegs);
+            }
+          }
+        }
       }
-    });
-  }
+    }
+  });
+
+  it("the combat stamp speed (every combat hull) and the Orion's voyage, item levels 1 to 40", () => {
+    for (const hull of ["generalFreighter", "destroyer", "battleship", "carrier", "orion"] as ShipTypeKey[]) {
+      const si = onHull(hull);
+      const siSpeed = shipCombatRulesStamp(si, ship1(si))!.speed;
+      for (const variety of VARIETIES) {
+        for (let iLevel = 1; iLevel <= 40; iLevel++) {
+          const s = withCore(si, worstCore(variety, iLevel));
+          expect(shipCombatRulesStamp(s, ship1(s))!.speed, `${hull} ${variety} iL${iLevel}`).toBeGreaterThanOrEqual(siSpeed);
+        }
+      }
+    }
+    const orion = asExpeditionVeteran(withCrew(onHull("orion"), "d18"));
+    const voyage = (s: GameState) => dispatchPastPropulsion(s, EM4_SHIP, 1, "cand-0").expedition!.voyage!;
+    const siVoyage = voyage(orion);
+    for (const variety of VARIETIES) {
+      for (let iLevel = 1; iLevel <= 40; iLevel += 3) {
+        const v = voyage(withCore(orion, worstCore(variety, iLevel)));
+        expect(v.outboundSeconds, `${variety} iL${iLevel}`).toBeLessThanOrEqual(siVoyage.outboundSeconds);
+        expect(v.returnSeconds, `${variety} iL${iLevel}`).toBeLessThanOrEqual(siVoyage.returnSeconds);
+      }
+    }
+  });
+
+  it("a core whose lift is below its own drag flies exactly at the Standard-Issue speed; one past it flies faster", () => {
+    for (const hull of HULLS) {
+      const si = onHull(hull);
+      const ref = withCore(si, em4Core("ref"));
+      expect(sheet(ref).transitSpeedMult, hull).toBe(sheet(si).transitSpeedMult);
+      // The same core with no surplus left (a draw eats it all) also holds the floor.
+      const spent = withDraw(ref, SHIP_TYPES[hull].basePowerOutput + 40);
+      expect(shipReactorSurplus(spent, ship1(spent))).toBe(0);
+      expect(sheet(spent).transitSpeedMult, `${hull} spent`).toBe(sheet(withDraw(si, SHIP_TYPES[hull].basePowerOutput + 40)).transitSpeedMult);
+      // The top core (mass 0) flies its whole lift faster.
+      const top = withCore(si, em4Core("top"));
+      expect(sheet(top).transitSpeedMult, `${hull} top`).toBeGreaterThan(sheet(si).transitSpeedMult);
+    }
+  });
+
+  it("soften the top (user 2026-10-23): the best core 0.14.0 can mint flies about +30 to +40% over Standard Issue", () => {
+    for (const hull of HULLS) {
+      const si = onHull(hull);
+      const top = withCore(si, em4Core("top"));
+      const gain = sheet(top).transitSpeedMult / sheet(si).transitSpeedMult - 1;
+      expect(gain, hull).toBeGreaterThanOrEqual(0.3);
+      expect(gain, hull).toBeLessThanOrEqual(0.4);
+    }
+  });
 
   it("the Standard-Issue core reads exactly as before EM-4: no surplus, the same sheet object, no run flag", () => {
     for (const hull of HULLS) {
@@ -114,8 +184,8 @@ describe("EM-4 the surplus is the power budget's reactorSurplus", () => {
       expect(shipReactorSurplus(cases[1], ship1(cases[1]))).toBe(reactor - 10);
       expect(shipReactorSurplus(cases[2], ship1(cases[2]))).toBe(0);
       expect(shipReactorSurplus(cases[3], ship1(cases[3]))).toBeGreaterThan(reactor - 10);
-      // No surplus, no lift: the sheet is the pre-EM-4 one.
-      expect(sheet(cases[2])).toEqual(withReactorLiftOff(() => sheet(cases[2])));
+      // No surplus, no lift: the never-slower floor holds the ship at its Standard-Issue speed.
+      expect(sheet(cases[2]).transitSpeedMult).toBe(sheet(withDraw(onHull(hull), out + 40)).transitSpeedMult);
     }
   });
 });

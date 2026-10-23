@@ -2,13 +2,14 @@
 // own slice was its only move (the em3ReadBack / em5ReadBack precedent). EM-4 changes the registry in two ways:
 //   flipped: ship:audit:reactorCoreNet (B10), pending on EM-4 since WR-1, goes live with its check (the sheet's transit
 //            speed and the Ground Ops voyage), its claim rewritten to the fixed behavior.
-//   added  : ship:em4:reactorLiftCombatSpeed, the lift reaching the combat speed stamp (the WR-8 hand-off).
+//   added  : ship:em4:reactorLiftCombatSpeed, the lift reaching the combat speed stamp (the WR-8 hand-off), and
+//            ship:em4:reactorNeverSlower, the floor (user 2026-10-23 "Never slower").
 // em4ReadBack removes the added row and restores the flipped row's old claim and owner in place. Never imported by app
 // code.
 
 import type { WiringEntry } from "./wiring/registry";
 
-export const EM4_ADDED_ENTRY_IDS: ReadonlySet<string> = new Set(["ship:em4:reactorLiftCombatSpeed"]);
+export const EM4_ADDED_ENTRY_IDS: ReadonlySet<string> = new Set(["ship:em4:reactorLiftCombatSpeed", "ship:em4:reactorNeverSlower"]);
 export const EM4_FLIPPED_ID = "ship:audit:reactorCoreNet";
 const CLAIM_BEFORE =
   "A crafted Reactor Core is net negative: its output only raises the power budget (no install gate or penalty before EM-2 / EM-3, the hull's own output covers every loadout), and its mass drags speed and fuel (B10)";

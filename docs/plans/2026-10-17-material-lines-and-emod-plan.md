@@ -567,6 +567,36 @@ core doubles the speed (the D23 curve has no cap, and the B10 bar forces its far
 efficiency (reach). **For WR-7:** patrol legs still ignore speed; when they scale with it they read the stamp or a flag
 the same way. **For EM-7 / G2-4:** every module or Class II+ drive draw now spends lift before budget (the B.4 grid).
 
+*Carry note (EM-4 follow-up, 2026-10-23, the user's answers to the EM-4 open calls: "Never slower (Recommended)" and
+"Soften the top (Recommended)").* The readings above are superseded. NEVER SLOWER (`crewOverlay.ts applyReactorDrive`):
+the lifted speed is floored at the same ship's speed with this core weightless and no lift, which is exactly its
+Standard-Issue sheet (the Standard-Issue core weighs 0 and supplies 0, and a core carries no transit line); the floor is
+folded exactly, and skipped when the lift is clearly above the core's own drag. Since it sits on the sheet's transit
+speed it holds for the mission and short-range legs, the voyage and the combat stamp. The run flag now also marks a core
+with mass and no output. SOFTER TOP: `REACTOR_SURPLUS_LIFT` [PROVISIONAL] perPoint 0.0077, knee 10: the best core 0.14.0
+can mint (item level 40, quality 5, Radiant, mass 0, about 150 output) flies +35%; a weightless 20 output core +10%.
+With the floor, the core's mass eats the lift first: a full mass 12 core shows a gain only from about 80 surplus, a 6
+mass core from about 28. Impact (pre-EM-4 / now): sheet speed ref 0.81 / 1.00, mid 0.89 / 1.00, top 1.00 / 1.35;
+Freighter Short Ore Run legs ref 31 / 25 ticks, top 25 / 19 (Standard Issue 25); the Orion's Tier I voyage ref 6,915 /
+5,577 s each way, top 5,577 / 4,121 (Standard Issue 5,577); forecast wins of 64 (Standard Issue in brackets): Carrier
+Warband ref 3 / 23, top 25 / 29 (23); Battleship Warband ref 49 / 52, top 52 / 55 (52); Destroyer Warband ref 3 / 9,
+top 9 / 7 (9); Freighter Sweep ref 56 / 57, top 57 / 60 (57). Tests: `emodEm4.test.ts` sweeps every hull, every core
+variety, item levels 1 to 40 (the worst Standard roll, four seeded Standard rolls and a Radiant quality 5 roll), light
+and loaded: the sheet speed and the Long Ore Run legs never worse than Standard Issue; the combat stamp speed on every
+combat hull and the Orion's voyage likewise; the best core +30 to +40%. Registry: `ship:em4:reactorNeverSlower` added
+LIVE (equals: a 1 output, mass 12 core on a bare Freighter reads the hull's own speed on the sheet and the voyage); the
+two lift probes use a weightless core. The flag version stays 1 (no EM-4 build ever reached staging or a save).
+**The combat speed case** (a ref core at combat speed 31 won 6 Destroyer Warbands of 64, Standard Issue at 30 won 9):
+NOT a real inversion. A sweep of the Destroyer's stamp speed (64 and 512 samples) shows one real step, at the pirates'
+own speed 30: below it 3 to 4 of 64 (50 to 56 of 512), from 30 up a plateau of 6 to 9 of 64 (78 to 90 of 512; 30: 82,
+31: 78, 32: 83). The Carrier (2 / 23 of 64 below / at 30) and the Battleship show the same step. So 31 against 30 is
+sample noise on the plateau; the real harm was the old dragged core pushing a ship BELOW the pirates' speed (24), which
+the never-slower floor now rules out. **Reading for the user:** with both answers, a Standard-quality core with its full
+mass 12 never shows a speed gain at any item level 0.14.0 reaches (its worst roll tops out near 46 output at item level
+40); the gain shows on light (mass-reduced) and high-output rare cores (a Radiant quality 5 High-Output Core: +8% at item
+level 10, +23% at 20, +35% at 40; the Balanced Core's Radiant roll +9% at 40). Its other worth is the power headroom
+(EM-2).
+
 **EM-5 Module slot and catalog (engine).** The `module` slot, cap (call M1), `moduleSlotsFull`, `duplicateModule`
 (call M8), physicals, catalog, mint path, Passive and Conditional effects through the ship sheet and combat bridge,
 Armory / salvage / Archive / item-side install support, S2 out-of-ship lock. Hull descriptions made true (OC-D13: "most

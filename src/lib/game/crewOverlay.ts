@@ -28,7 +28,7 @@
 // ("Engine seams" 1/4/5).
 
 import type { GameState, ShipInstance, ShipDerivedStats, SeniorStaffOfficer, CrewSignature, CrewBucket, OfficerCombatMods, SeniorStaffSeat, PromotionObjectiveKind } from "./model";
-import { equipmentStatMods, shipDerivedStats, SHIP_TYPES } from "./model";
+import { equipmentStatMods, shipDerivedStats, MASS_SPEED_DRAG, SHIP_TYPES } from "./model";
 import { combatSpeedFor, newCombatRulesStamp, type CombatRulesStamp } from "./combat/combatRules";
 import { powerSupplyPercent } from "./combat/power";
 import { equippedFor } from "./equipmentQueries";
@@ -57,7 +57,7 @@ import { constitutionRamp, departmentFacet, departmentStrengthMultipliers, seatF
 import { captainShipLifts, commandingCaptain, type CaptainShipLifts } from "./captainSecondaryEffects";
 import { diminishing } from "./diminishing";
 // E-MOD EM-4: the reactor surplus drive lift's curve (a leaf: imports only diminishing.ts).
-import { reactorSurplusSpeedLift } from "./reactorSurplus";
+import { REACTOR_LIFT_SWITCH, reactorSurplusSpeedLift } from "./reactorSurplus";
 // WR-5c (0.14.0): the commanding captain's explorer secondary nodes (pure; imports only model.ts, so no cycle).
 import { captainComplementMult, captainOfficerOutputMult, captainSensorsMult } from "./captainExplorerEffects";
 
@@ -790,14 +790,32 @@ export function effectiveShipStats(state: GameState, ship: ShipInstance, opts: {
   // touch sensors, so the order between the two is immaterial).
   const captain = commandingCaptain(state, ship);
   const stats = applyCaptainSensors(applyCaptainOverlay(shipStatsBeforeCaptain(state, ship), captainShipLifts(captain)), captainSensorsMult(captain));
-  return opts.reactorLift === false ? stats : applyReactorDriveLift(stats, reactorSurplusSpeedLift(shipReactorSurplus(state, ship)));
+  return opts.reactorLift === false ? stats : applyReactorDrive(state, ship, stats);
 }
 
-// E-MOD EM-4: transit speed x `lift`. Exactly 1 returns `stats` itself (the byte-identical guarantee for every ship
-// without a crafted Reactor Core or without surplus). The leg lifts (Fast Departure / Fast Return) multiply this
-// sweeping speed, so both legs, the voyage and the combat speed all take it. PURE.
-function applyReactorDriveLift(stats: ShipDerivedStats, lift: number): ShipDerivedStats {
-  return lift === 1 ? stats : { ...stats, transitSpeedMult: stats.transitSpeedMult * lift };
+// E-MOD EM-4: the installed Reactor Core's drive effect on the finished sheet. Transit speed x the surplus lift, then
+// NEVER SLOWER (user 2026-10-23 "Never slower (Recommended)": a crafted core's speed can never drop below what the same
+// ship gets with its Standard-Issue core; the core's mass only eats into the surplus bonus): when the lifted speed is
+// below the speed of the same ship with this core weightless and no lift (exactly the Standard-Issue core's sheet: it
+// weighs 0 and supplies 0, and a core carries no transit line), that speed is the ship's. The leg lifts (Fast
+// Departure / Fast Return) multiply this sweeping speed, so both legs, the voyage and the combat speed all take it.
+// Returns `stats` itself without a core, with the Standard-Issue core and while the test switch is off (the
+// byte-identical guarantee). PURE.
+function applyReactorDrive(state: GameState, ship: ShipInstance, stats: ShipDerivedStats): ShipDerivedStats {
+  if (!REACTOR_LIFT_SWITCH.live) return stats;
+  const core = equippedFor(state, ship.id).find((p) => p.slotType === "reactorCore");
+  if (core === undefined) return stats;
+  const lift = reactorSurplusSpeedLift(shipReactorSurplus(state, ship));
+  const lifted = lift === 1 ? stats : { ...stats, transitSpeedMult: stats.transitSpeedMult * lift };
+  if (!(core.mass > 0)) return lifted;
+  // The core's own drag on this sheet, (1 + drag M) / (1 + drag (M - m)): a lift clearly above it is already faster
+  // than the floor, so the floor fold is skipped. Otherwise the floor is folded exactly (no ratio rounding).
+  const others = Math.max(0, stats.mass - core.mass);
+  const drag = (1 + MASS_SPEED_DRAG * stats.mass) / (1 + MASS_SPEED_DRAG * others);
+  if (lift > drag * (1 + 1e-9)) return lifted;
+  const weightless = { ...state, equipment: state.equipment.map((e) => (e.id === core.id ? { ...e, mass: 0 } : e)) };
+  const floor = effectiveShipStats(weightless, ship, { reactorLift: false }).transitSpeedMult;
+  return lifted.transitSpeedMult >= floor ? lifted : { ...stats, transitSpeedMult: floor };
 }
 
 // E-MOD EM-4: the installed Reactor Core's UNUSED power, min(the reactor's own output, max(0, output - net draw)),
