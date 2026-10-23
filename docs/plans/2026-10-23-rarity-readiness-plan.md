@@ -185,3 +185,11 @@ Each is recorded so the reviewer can check it against the answers. Numbers carry
 ## Carry notes
 
 (Each builder appends a short note under its slice here.)
+
+**RR-0 (2026-10-23, on feat @ b579a1f):** `rarityGoldens.fixture.ts` + `rarityGoldens.test.ts`. 217 LIVE pins (60 generator
+groups: 13 equipment slots with varieties plus weapon and drone, per live band; 71 inspect, 71 preview, 4 dev mint, primitives, readers,
+load, relic blank weights, salvage ceiling) and 117 RESERVED pins (Derelict / Luminous / Constellar generators, the four
+legendary x ascension sweeps, primitives at index 0 and 5, readers, dev mint, a load round trip of all 21 band and
+ascension pairs, the mixed reveal sort). Every generator cell records its draw count. Mutation checks on the capture:
+a Luminous affix-count change fails RESERVED only; an extra draw on Stellar (same lines) fails LIVE. Some preview pins
+share a hash on purpose (same-tier weapons and drive classes preview identically). `RR_CAPTURE=<path>` re-captures.
