@@ -81,8 +81,11 @@
       <Icon name="controller" size={20} />
     </button>
   {/if}
+  <!-- The half-height bar carries the word only: the gear glyph is for a square Settings button (full
+       or quarter size, the future 2x2 block), user 2026-10-23 "remove the gear when the button is half
+       of that space". -->
   <button type="button" class="hb-btn hb-settings" aria-label="Open settings" on:click={onSettings}>
-    <Icon name="gear" size={11} /><span>SETTINGS</span>
+    <span>SETTINGS</span>
   </button>
 
   {#if found && menuOpen}
@@ -100,15 +103,18 @@
 </div>
 
 <style>
+  /* Two equal rows (user, 2026-10-23: Settings takes HALF the height) and two columns that grow
+     with the word SETTINGS if the text size goes up, so the word always sits inside the bar. */
   .hb {
     position: relative;
     display: grid;
-    grid-template-columns: 76px;
-    grid-template-rows: 36px 18px;
+    grid-template-columns: repeat(2, minmax(38px, auto));
+    grid-template-rows: 30px 30px;
     gap: 4px;
   }
-  .hb.hb-found {
-    grid-template-columns: 36px 36px;
+  /* Before the first find, Help spans the whole top row. */
+  .hb:not(.hb-found) .hb-help {
+    grid-column: 1 / -1;
   }
   .hb-btn {
     display: inline-flex;
@@ -139,7 +145,10 @@
     grid-column: 1 / -1;
     font-family: var(--font-display);
     font-size: var(--text-3xs);
-    letter-spacing: 0.14em;
+    letter-spacing: 0.1em;
+    line-height: 1;
+    padding: 0 6px;
+    white-space: nowrap;
   }
   .hb-menu {
     position: absolute;

@@ -1092,6 +1092,35 @@
     .sg-backdrop {
       padding: 10px 8px;
     }
+    /* Phones (user, 2026-10-23: the tabs were too large and overflowed): smaller tabs on ONE row
+       that scrolls inside itself if a narrow phone still cannot hold all five; the page never
+       scrolls sideways. */
+    .sg-tabs {
+      flex-wrap: nowrap;
+      overflow-x: auto;
+      overscroll-behavior-x: contain;
+      scrollbar-width: thin;
+      gap: var(--space-2);
+      padding: 8px 10px 4px;
+    }
+    .sg-tab {
+      flex: 0 0 auto;
+      min-height: 32px;
+      padding: 3px 8px;
+      font-size: var(--text-xs);
+    }
+    .sg-head {
+      padding: 8px 10px;
+    }
+    .sg-tool {
+      height: 34px;
+      min-width: 34px;
+      padding: 0 8px;
+      font-size: var(--text-xs);
+    }
+    .sg-tool-square {
+      padding: 0;
+    }
     .sg {
       max-height: calc(100vh - 20px);
       max-height: calc(100dvh - 20px);
