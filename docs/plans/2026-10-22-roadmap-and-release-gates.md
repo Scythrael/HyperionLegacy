@@ -39,3 +39,14 @@ chosen color is very dark (for example black), text and accents that would use i
 automatic contrast check (AA). Build note for 0.13.11.1: implement Starfall's two gradient stops as tokens (start =
 accent, end = purple) so 0.14.2 can feed user-picked colors into the same tokens.
 User (2026-10-23): "Once that is live, the unlock the e10,000,000 provides is the wash plus shine style." So once the 0.14.2 theme builder ships, the e10,000,000 reward becomes the wash-plus-shine STYLE unlock (usable with any picked colors); until then it is the fixed Starfall theme (accent to purple). Players who earned Starfall before 0.14.2 keep it and get the style unlock.
+
+0.14.2 theme presets idea (user 2026-10-23, verbatim): "Ooooh. here's an idea as well. We have presets that unlock
+along with features. So you can select a preset. Default is the starting theme that the game ships with, witht eh same
+color. When you unlock Starfall, you get that preset, but when you click "Manual" you get the options for Theme Style,
+and appropriate dropdowns that become active or inactive based on the theme style you select. Colors are unlockables
+too. So we'll keep the ones we have now, but we may have to add in new colors and so forth haha."
+Reading: Settings > UI gets a PRESET picker (Default = today's shipped theme and color; Starfall unlocks as a preset at
+e10,000,000; more presets unlock with features) plus a "Manual" mode that reveals Theme Style and the dropdowns that
+style needs (enabled or disabled by style, for example one color for flat, two stops for gradients). COLORS are
+unlockables too: today's accent colors stay unlocked for everyone, new colors get added and unlocked later. Build note
+for 0.13.11.1: keep Starfall as data (a preset record: style id + color stops) so it slots into this picker as-is.
