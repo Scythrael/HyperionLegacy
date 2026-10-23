@@ -53,8 +53,12 @@ import {
   SOFT_BETA,
   SKILLS,
   TURBO_LEVEL,
+  UPGRADES,
+  UPGRADES_AT,
+  STARFALL_EXPONENT,
   type SkillId,
   type MilestoneId,
+  type UpgradeId,
 } from "./config";
 import { cloneSecret, type SecretState, type AutoLayer } from "./state";
 
@@ -152,9 +156,25 @@ export function autoActive(s: SecretState, id: SkillId): boolean {
   return hasSkill(s, id) && s.autoOn[id] !== false;
 }
 
+// The level of one e1,000,000 upgrade (0 when not bought).
+export function upgradeLevel(s: SecretState, id: UpgradeId): number {
+  return s.upgrades?.[id] ?? 0;
+}
+
+function upgradeStep(id: UpgradeId): number {
+  return UPGRADES.find((u) => u.id === id)!.step;
+}
+
 // Captain Points x Augment Points: multiplies every generator and speeds the Overclock clock.
+// Captain's Compound counts both as if you held (1 + step x level) times as many. Lucid Dreaming
+// lets Dream Points speed the stack too: x (1 + DP)^(step x level).
 export function prestigeMultiplier(s: SecretState): Decimal {
-  return powPositive(s.captainPoints.add(1), CP_POW).mul(powPositive(s.augmentPoints.add(1), AP_POW));
+  const cc = upgradeLevel(s, "captainsCompound");
+  const ld = upgradeLevel(s, "lucidDreaming");
+  if (cc === 0 && ld === 0) return powPositive(s.captainPoints.add(1), CP_POW).mul(powPositive(s.augmentPoints.add(1), AP_POW));
+  const m = 1 + upgradeStep("captainsCompound") * cc;
+  const base = powPositive(s.captainPoints.mul(m).add(1), CP_POW).mul(powPositive(s.augmentPoints.mul(m).add(1), AP_POW));
+  return ld === 0 ? base : base.mul(powPositive(s.dreamPoints.add(1), upgradeStep("lucidDreaming") * ld));
 }
 
 // Dream Points: multiply the Captain and Augment Points earned per prestige.
@@ -162,8 +182,58 @@ export function gainMultiplier(s: SecretState): Decimal {
   return powPositive(s.dreamPoints.add(1), DP_POW);
 }
 
+// The raw exponent whose effective value is e (the inverse of softenExponent).
+export function unsoftenExponent(e: number): number {
+  if (e <= FINALE_EXPONENT) return e;
+  return FINALE_EXPONENT + SOFT_SCALE * (Math.pow(1 + (SOFT_BETA * (e - FINALE_EXPONENT)) / SOFT_SCALE, 1 / SOFT_BETA) - 1);
+}
+
+export function upgradesUnlocked(s: SecretState): boolean {
+  return effectiveExponent(s.bestOre) >= UPGRADES_AT;
+}
+
+// Effective exponent of the next level's price, or null at the cap.
+export function upgradePriceExponent(s: SecretState, id: UpgradeId): number | null {
+  const def = UPGRADES.find((u) => u.id === id)!;
+  const level = upgradeLevel(s, id);
+  if (level >= def.cap) return null;
+  return def.priceBase * Math.pow(def.priceRatio, level);
+}
+
+// The next level's price in raw Ore, or null at the cap.
+export function upgradePrice(s: SecretState, id: UpgradeId): Decimal | null {
+  const e = upgradePriceExponent(s, id);
+  return e === null ? null : pow10(unsoftenExponent(e));
+}
+
+export function canBuyUpgrade(s: SecretState, id: UpgradeId): boolean {
+  const price = upgradePrice(s, id);
+  return upgradesUnlocked(s) && price !== null && s.ore.gte(price);
+}
+
+// Buys up to maxCount levels, one at a time at the rising price. Mutates s. Returns levels bought.
+export function buyUpgradeMut(s: SecretState, id: UpgradeId, maxCount = Infinity): number {
+  let count = 0;
+  while (count < maxCount && canBuyUpgrade(s, id)) {
+    s.ore = Decimal.max(ZERO, s.ore.sub(upgradePrice(s, id)!));
+    s.upgrades = { ...s.upgrades, [id]: upgradeLevel(s, id) + 1 };
+    count += 1;
+  }
+  return count;
+}
+
+export function buyUpgrade(s: SecretState, id: UpgradeId, mode: BuyMode): SecretState {
+  if (!canBuyUpgrade(s, id)) return s;
+  const next = cloneSecret(s);
+  buyUpgradeMut(next, id, mode === "one" ? 1 : mode === "ten" ? 10 : Infinity);
+  return next;
+}
+
+// Tenfold Tuner adds step x level to the ten bonus factor.
 export function tenBonusFactor(s: SecretState): number {
-  return hasSkill(s, "tenBonus") ? TEN_BONUS_SKILL : TEN_BONUS;
+  const base = hasSkill(s, "tenBonus") ? TEN_BONUS_SKILL : TEN_BONUS;
+  const tt = upgradeLevel(s, "tenfoldTuner");
+  return tt === 0 ? base : base + upgradeStep("tenfoldTuner") * tt;
 }
 
 // The output multiplier one tier gets from its own tens bought.
@@ -171,8 +241,10 @@ export function tenMultiplier(s: SecretState, tier: number): Decimal {
   return powNumber(tenBonusFactor(s), Math.floor(s.bought[tier] / 10));
 }
 
+// Overclock Overclocker makes every Overclock level count as (1 + step x level) levels.
 export function overclockMultiplier(s: SecretState): Decimal {
-  return powNumber(OC_FACTOR, s.overclock);
+  const oo = upgradeLevel(s, "ocOverclocker");
+  return powNumber(OC_FACTOR, oo === 0 ? s.overclock : s.overclock * (1 + upgradeStep("ocOverclocker") * oo));
 }
 
 // Everything multiplying one tier's rate, for display.
@@ -251,6 +323,7 @@ export function buyTier(s: SecretState, tier: number, mode: BuyMode): SecretStat
   const next = cloneSecret(s);
   const max = mode === "one" ? 1 : mode === "ten" ? 10 - (s.bought[tier] % 10) : Infinity;
   buyTierMut(next, tier, next.ore, max);
+  trackPeaksMut(next);
   return next;
 }
 
@@ -320,9 +393,10 @@ function commitOverclock(s: SecretState, budget: Decimal, left: Decimal, count: 
   return count;
 }
 
-export function buyOverclock(s: SecretState, mode: "one" | "max"): SecretState {
+export function buyOverclock(s: SecretState, mode: BuyMode): SecretState {
   const next = cloneSecret(s);
-  buyOverclockMut(next, next.ore, mode === "one" ? 1 : Infinity);
+  buyOverclockMut(next, next.ore, mode === "one" ? 1 : mode === "ten" ? 10 : Infinity);
+  trackPeaksMut(next);
   return next;
 }
 
@@ -566,12 +640,51 @@ function reached(s: SecretState, id: MilestoneId): boolean {
       return e() >= FINALE_EXPONENT;
     case "long":
       return e() >= LONG_EXPONENT;
+    case "starfall":
+      return e() >= STARFALL_EXPONENT;
   }
 }
 
 const MILESTONE_IDS: readonly MilestoneId[] = [
-  "firstCaptain", "googol", "firstFleet", "e1000", "singularity", "firstPc", "turbo", "e100k", "allSkills", "finale", "long",
+  "firstCaptain", "googol", "firstFleet", "e1000", "singularity", "firstPc", "turbo", "e100k", "allSkills", "finale", "long", "starfall",
 ];
+
+// The Ore goals, in order: each appears only once the one before it is reached (0.13.11.1).
+const ORE_CHAIN: readonly MilestoneId[] = ["googol", "e1000", "e100k", "finale", "long", "starfall"];
+
+// Is a milestone shown, or still "???"? Reached ones always show. Ore goals appear one step at a
+// time; the rest appear once their system is in view (design 0.13.11.1 section 5).
+export function milestoneVisible(s: SecretState, id: MilestoneId): boolean {
+  if (s.milestones[id] !== undefined) return true;
+  const chain = ORE_CHAIN.indexOf(id);
+  if (chain >= 0) return chain === 0 || s.milestones[ORE_CHAIN[chain - 1]] !== undefined;
+  switch (id) {
+    case "firstCaptain":
+    case "turbo":
+      return true;
+    case "firstFleet":
+      return s.captainCount > 0 || s.fleetTotal > 0;
+    case "firstPc":
+    case "allSkills":
+      return s.fleetTotal > 0;
+    case "singularity":
+      return isTierUnlocked(s, TIER_COUNT - 1);
+    default:
+      return false;
+  }
+}
+
+// The combo has unlocked the game (first success only sets the date).
+export function markFound(s: SecretState, atMs: number): SecretState {
+  if (s.found) return s;
+  return { ...cloneSecret(s), found: true, foundAt: s.foundAt ?? atMs };
+}
+
+// Keeps the Stats peaks: the most of each tier ever owned and the highest Overclock.
+function trackPeaksMut(s: SecretState): void {
+  for (let k = 0; k < s.tiersUnlocked; k++) if (s.owned[k].gt(s.peakOwned[k])) s.peakOwned[k] = s.owned[k];
+  if (s.overclock > s.peakOverclock) s.peakOverclock = s.overclock;
+}
 
 export function checkMilestonesMut(s: SecretState, atMs: number): void {
   for (const id of MILESTONE_IDS) {
@@ -604,6 +717,7 @@ export function stepMut(s: SecretState, dt: number, atMs: number, productionDt: 
   if (s.ore.gt(s.fleetPeak)) s.fleetPeak = s.ore;
   if (s.ore.gt(s.pcPeak)) s.pcPeak = s.ore;
   if (s.ore.gt(s.bestOre)) s.bestOre = s.ore;
+  trackPeaksMut(s);
   firePrestigeMut(s, due, atMs);
   checkMilestonesMut(s, atMs);
 }

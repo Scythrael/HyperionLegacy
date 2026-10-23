@@ -8,6 +8,8 @@
 //
 // All player-facing copy below is [PROPOSAL] copy the user may rewrite.
 
+import type { Achievement } from "../achievements";
+
 // ---------------------------------------------------------------------------
 // Generators (the cascade: Tier I makes Ore, every higher tier makes the tier below)
 // ---------------------------------------------------------------------------
@@ -115,10 +117,10 @@ export interface UpgradeDef {
 export const UPGRADES_AT = 1000000; // e1,000,000 Ore (best ever) unlocks the four
 
 export const UPGRADES: readonly UpgradeDef[] = [
-  { id: "ocOverclocker", name: "Overclock Overclocker", flavor: "It overclocks your overclock. That is the whole upgrade.", effect: "each Overclock level counts more", cap: 25, priceBase: 1000000, priceRatio: 1.1, step: 0.4 },
-  { id: "tenfoldTuner", name: "Tenfold Tuner", flavor: "Tightens the tens. Loosens the laws of arithmetic.", effect: "each ten bonus doubles a little harder", cap: 10, priceBase: 1050000, priceRatio: 1.2, step: 0.05 },
-  { id: "captainsCompound", name: "Captain's Compound", flavor: "Interest on interest on interest. The bank has questions.", effect: "more Captain and Augment Points", cap: 10, priceBase: 1100000, priceRatio: 1.2, step: 1 },
-  { id: "lucidDreaming", name: "Lucid Dreaming", flavor: "You can steer the dream now. You steered it toward more Ore.", effect: "Dream Points hit harder", cap: 10, priceBase: 1150000, priceRatio: 1.2, step: 0.01 },
+  { id: "ocOverclocker", name: "Overclock Overclocker", flavor: "It overclocks your overclock. That is the whole upgrade.", effect: "each Overclock level counts more", cap: 25, priceBase: 1000000, priceRatio: 1.0905, step: 0.7 },
+  { id: "tenfoldTuner", name: "Tenfold Tuner", flavor: "Tightens the tens. Loosens the laws of arithmetic.", effect: "each ten bonus doubles a little harder", cap: 10, priceBase: 1050000, priceRatio: 1.214, step: 0.05 },
+  { id: "captainsCompound", name: "Captain's Compound", flavor: "Interest on interest on interest. The bank has questions.", effect: "your Captain and Augment Points count as more", cap: 10, priceBase: 1100000, priceRatio: 1.228, step: 5 },
+  { id: "lucidDreaming", name: "Lucid Dreaming", flavor: "You can steer the dream now. You steered it toward more Ore.", effect: "Dream Points hit harder: they speed up the whole stack too", cap: 10, priceBase: 1200000, priceRatio: 1.243, step: 0.014 },
 ];
 
 // ---------------------------------------------------------------------------
@@ -179,28 +181,44 @@ export type MilestoneId =
   | "e100k"
   | "allSkills"
   | "finale"
-  | "long";
+  | "long"
+  | "starfall";
 
 export interface MilestoneDef {
   id: MilestoneId;
   name: string; // [PROPOSAL]
   detail: string;
-  achievement?: boolean; // the two named goals, flagged for the later rewards patch
+  how: string; // the requirement line on the achievement popup
+  flavor?: string; // [PROPOSAL] optional popup joke
+  reward?: string; // the popup's green line; default: recorded for a future update
+  achievement?: boolean; // the named goals, flagged for the later rewards patch
 }
 
+// 0.13.11.1: the new final stop. Its reward is real now: the Starfall theme style (themeStyle.ts).
+export const STARFALL_EXPONENT = 10000000;
+
 export const MILESTONES: readonly MilestoneDef[] = [
-  { id: "firstCaptain", name: "Number Go Up", detail: "Your first Captain Prestige" },
-  { id: "googol", name: "A Respectable Googol", detail: "1e100 Ore" },
-  { id: "firstFleet", name: "Fleet Week", detail: "Your first Fleet Prestige" },
-  { id: "e1000", name: "A Thousand Zeros, Give or Take", detail: "e1,000 Ore" },
-  { id: "singularity", name: "Do Not Look Directly at It", detail: "Build a Singularity Engine" },
-  { id: "firstPc", name: "Prestiged Your Prestige", detail: "Your first Prestigeception" },
-  { id: "turbo", name: "Turbo Button Enjoyer", detail: "Overclock level 10,000" },
-  { id: "e100k", name: "Running Low on Zeros", detail: "e100,000 Ore" },
-  { id: "allSkills", name: "Fully Automated Luxury Mining", detail: "Own every skill" },
-  { id: "finale", name: "Seven Sevens Short of Seven", detail: "e777,777 Ore, the special unlock", achievement: true },
-  { id: "long", name: "Forever Is a Long Time", detail: "e1,000,000 Ore", achievement: true },
+  { id: "firstCaptain", name: "Number Go Up", detail: "Your first Captain Prestige", how: "Do your first Captain Prestige.", flavor: "Promoted. Your old stack has been demolished with honors." },
+  { id: "googol", name: "A Respectable Googol", detail: "1e100 Ore", how: "Reach 1e100 Ore.", flavor: "One googol. Somewhere, a mathematician is very proud of you." },
+  { id: "firstFleet", name: "Fleet Week", detail: "Your first Fleet Prestige", how: "Do your first Fleet Prestige." },
+  { id: "e1000", name: "A Thousand Zeros, Give or Take", detail: "e1,000 Ore", how: "Reach e1,000 Ore." },
+  { id: "singularity", name: "Do Not Look Directly at It", detail: "Build a Singularity Engine", how: "Own a Singularity Engine.", flavor: "We said not to look. You looked." },
+  { id: "firstPc", name: "Prestiged Your Prestige", detail: "Your first Prestigeception", how: "Do your first Prestigeception." },
+  { id: "turbo", name: "Turbo Button Enjoyer", detail: "Overclock level 10,000", how: "Reach Overclock level 10,000." },
+  { id: "e100k", name: "Running Low on Zeros", detail: "e100,000 Ore", how: "Reach e100,000 Ore." },
+  { id: "allSkills", name: "Fully Automated Luxury Mining", detail: "Own every skill", how: "Learn every skill." },
+  { id: "finale", name: "Seven Sevens Short of Seven", detail: "e777,777 Ore, the special unlock", how: "Reach e777,777 Ore.", achievement: true },
+  { id: "long", name: "Forever Is a Long Time", detail: "e1,000,000 Ore", how: "Reach e1,000,000 Ore.", flavor: "Four new upgrades just woke up. They look eager.", achievement: true },
+  { id: "starfall", name: "The Numbers Got Too Big", detail: "e10,000,000 Ore, the Starfall theme", how: "Reach e10,000,000 Ore.", flavor: "You ran out of room for zeros, so we gave you stars.", reward: "Reward: the Starfall theme, live now in Settings › UI", achievement: true },
 ];
+
+export const REWARD_RECORDED_LINE = "Reward: recorded for a future update";
+
+// The achievement popup for a milestone (design section 5).
+export function milestoneAchievement(id: MilestoneId): Achievement {
+  const m = MILESTONES.find((d) => d.id === id)!;
+  return { id: `secret:${id}`, title: m.name, requirement: m.how, flavor: m.flavor, reward: m.reward ?? REWARD_RECORDED_LINE };
+}
 
 export const TURBO_LEVEL = 10000;
 

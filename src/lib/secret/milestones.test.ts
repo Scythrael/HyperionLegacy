@@ -230,12 +230,12 @@ describe("milestones", () => {
     expect(s.milestones.e1000).toBe(222);
   });
 
-  it("cover the required goals and flag the two named achievements", () => {
+  it("cover the required goals and flag the named achievements (0.13.11.1 adds e10,000,000)", () => {
     const ids = MILESTONES.map((m) => m.id);
-    for (const id of ["firstCaptain", "googol", "firstFleet", "firstPc", "singularity", "finale", "long"]) expect(ids).toContain(id);
+    for (const id of ["firstCaptain", "googol", "firstFleet", "firstPc", "singularity", "finale", "long", "starfall"]) expect(ids).toContain(id);
     expect(MILESTONES.length).toBeGreaterThanOrEqual(10);
     expect(MILESTONES.length).toBeLessThanOrEqual(12);
-    expect(MILESTONES.filter((m) => m.achievement).map((m) => m.id).sort()).toEqual(["finale", "long"]);
+    expect(MILESTONES.filter((m) => m.achievement).map((m) => m.id).sort()).toEqual(["finale", "long", "starfall"]);
   });
 
   it("a Singularity Engine, the finale, the long goal and every skill each record", () => {
