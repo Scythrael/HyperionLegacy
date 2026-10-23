@@ -51,6 +51,7 @@ import { captainMotherlodeChance, captainTransportTerms, motherlodeSeed } from "
 import { countShortRangeCycleComplete } from "./runDifficulty";
 import { makeRng } from "./combat/rng";
 import { rollShortRangeRelicBlanks } from "./relicBlanks";
+import { reactorLiftFlagged } from "./reactorSurplus";
 import { formatNumber } from "./format";
 
 // The float-snap epsilon of a phase boundary (tickCaptainMission's MISSION_TICK_EPSILON).
@@ -303,7 +304,7 @@ export function tickCaptainShortRange(input: ShortRangeTickInput): ShortRangeTic
   // one call, chunks and 1 s steps agree. A run without a stamp reads the stored sheet and makes no wear event.
   const wearStamp = startMission.gearWear;
   // E-MOD EM-4 (reactorSurplus.ts): only a run stamped with the reactor lift flag reads the drive lift.
-  const reactorLift = startMission.reactorLift !== undefined;
+  const reactorLift = reactorLiftFlagged(startMission.reactorLift);
   let stats = runShipStats(state, ship, wearStamp, reactorLift);
   const crewed = wearStamp === undefined ? false : shipCrewAboard(state, ship);
   const timedWear: TimedWear<ShipUseWear>[] = [];

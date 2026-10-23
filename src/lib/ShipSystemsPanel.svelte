@@ -120,7 +120,10 @@
     crewRepairSpeedBonus,
     shipMissionOutputBonus,
     shipRepairSpeedBonus,
+    gearSheetWithReactorDrive,
+    shipReactorSurplus,
   } from "./game/crewOverlay";
+  import { reactorSurplusSpeedLift } from "./game/reactorSurplus";
 
   // --- Props ------------------------------------------------------------------
   // `state` is the whole GameState (read-only here); `shipId` selects the ship
@@ -464,6 +467,17 @@
   // E-MOD EM-4: the same sheet without the reactor surplus drive lift (layered last), so the FTL Speed source split
   // shows the lift as its own "Reactor surplus" bucket and the Captain bucket stops before it.
   $: preLiftStats = ship ? effectiveShipStats(safeState, ship, { reactorLift: false }) : null;
+  // E-MOD EM-4 review: the gear-only sheet WITH the Reactor Core's drive rule (crewOverlay.ts
+  // gearSheetWithReactorDrive), which the install compare and the readout's gear note read, so a crafted core never
+  // shows as slower than the Standard-Issue one there (the user's "Never slower"). fitStats stays the raw gear fold
+  // the source buckets are built on.
+  $: fitDriveStats = ship ? gearSheetWithReactorDrive(ship, fittedPieces) : null;
+  // Whether the never-slower floor is what sets this ship's speed (the lift alone would leave it slower): the
+  // source popover then names the bucket for the floor, not for surplus.
+  $: reactorFloorBinds =
+    ship && preLiftStats && effectiveStats
+      ? effectiveStats.transitSpeedMult > preLiftStats.transitSpeedMult * reactorSurplusSpeedLift(shipReactorSurplus(safeState, ship)) * (1 + 1e-12)
+      : false;
   // The crew delta split by SOURCE, folded through the EXACT engine functions (shipCrewContribution +
   // applyCrewOverlay) the live fold uses, so a source bucket can never drift from the shown value.
   // Complement = the complement folded ALONE (no officers) off the gear baseline; Senior Staff = everything
@@ -552,7 +566,7 @@
   const STAT_INFO: Record<string, string> = {
     extractionYield: "How much raw material a mining or salvage mission pulls in; higher yield means more resources per run.",
     cargoCapacity: "How much a ship can carry home in a single trip; a bigger hold means fewer runs to move the same haul.",
-    ftlSpeed: "How fast the ship crosses between sectors; higher speed shortens every mission's travel time. A crafted Reactor Core's unused power speeds the drive too, with diminishing returns; every powered system you install uses some of it, and the core's own weight eats into it first, but a Reactor Core never makes the ship slower than the Standard-Issue one.",
+    ftlSpeed: "How fast the ship crosses between sectors; higher speed shortens every mission's travel time. A crafted Reactor Core's unused power speeds the drive too, with diminishing returns. Powered systems use it only once they draw more than the hull's own power, and the core's own weight eats into it first, but a Reactor Core never makes the ship slower than the Standard-Issue one.",
     outLeg: "The ship's speed on the outbound leg of a mission: FTL Speed plus the Fast Departure crew aboard.",
     backLeg: "The ship's speed on the return leg of a mission: FTL Speed plus the Fast Return crew aboard.",
     range: "How far the ship can travel before it must turn back, in light-years; more range reaches farther destinations. The Fuel Depot extends it for the whole fleet.",
@@ -572,7 +586,7 @@
           label: d.label,
           kind: d.kind,
           base: d.get(baseStats),
-          gear: d.get(fitStats),
+          gear: d.get(fitDriveStats ?? fitStats),
           effective: d.get(effectiveStats),
         }))
           .filter((r) => (r.key !== "outLeg" && r.key !== "backLeg") || Math.abs(r.effective - effectiveStats.transitSpeedMult) > 1e-9)
@@ -623,7 +637,7 @@
     // E-MOD EM-4: the Reactor Core's unused power speeding the drive (only the speed rows ever move).
     if (preLiftStats && effectiveStats) {
       const rd = d.get(effectiveStats) - d.get(preLiftStats);
-      if (Math.abs(rd) > 1e-9) out.push({ label: "Reactor surplus", text: fmtDeltaUnit(d.kind, rd), delta: true });
+      if (Math.abs(rd) > 1e-9) out.push({ label: reactorFloorBinds ? "Reactor Core (never slower)" : "Reactor surplus", text: fmtDeltaUnit(d.kind, rd), delta: true });
     }
     return out;
   }
@@ -835,8 +849,10 @@
     // fitted = the hypothetical candidate loadout, reusing the exact rows the live board shows.
     if (candidateIsEconomy) {
       if (!ship || !fitStats) return [];
-      const candStats = shipDerivedStats(ship, candidateGear);
-      return buildLiveRows(fitStats, candStats).map((r) => {
+      // E-MOD EM-4 review: both sides through the Reactor Core's drive rule (gear only), so a crafted core never
+      // compares as slower than the Standard-Issue one.
+      const candStats = gearSheetWithReactorDrive(ship, candidateGear);
+      return buildLiveRows(fitDriveStats ?? fitStats, candStats).map((r) => {
         // 0.13.9: a Range row diffs the FLOORED values it displays (floor(fitted) - floor(base)), so the
         // delta always equals the difference of the two numbers shown beside it.
         const delta = r.kind === "ly" ? Math.floor(r.fitted) - Math.floor(r.base) : r.fitted - r.base;

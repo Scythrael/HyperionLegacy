@@ -565,7 +565,7 @@ faster from about 17 output (item level 15); cores crafted below that (a fresh c
 be slower than Standard Issue, because the full mass 12 costs 19% of the speed and the lift is surplus-driven; the top
 core doubles the speed (the D23 curve has no cap, and the B10 bar forces its far end); the core's mass still costs fuel
 efficiency (reach). **For WR-7:** patrol legs still ignore speed; when they scale with it they read the stamp or a flag
-the same way. **For EM-7 / G2-4:** every module or Class II+ drive draw now spends lift before budget (the B.4 grid).
+the same way. **For EM-7 / G2-4:** a module or Class II+ drive draw spends the lift only once the total draw passes the hull's own power (the systems draw the hull's power first; the B.4 grid).
 
 *Carry note (EM-4 follow-up, 2026-10-23, the user's answers to the EM-4 open calls: "Never slower (Recommended)" and
 "Soften the top (Recommended)").* The readings above are superseded. NEVER SLOWER (`crewOverlay.ts applyReactorDrive`):
@@ -596,6 +596,27 @@ mass 12 never shows a speed gain at any item level 0.14.0 reaches (its worst rol
 40); the gain shows on light (mass-reduced) and high-output rare cores (a Radiant quality 5 High-Output Core: +8% at item
 level 10, +23% at 20, +35% at 40; the Balanced Core's Radiant roll +9% at 40). Its other worth is the power headroom
 (EM-2).
+
+*Carry note (EM-4 review fixes, 2026-10-23, "approve with fixes").* (1) The Ship Systems install compare and the
+readout's gear note read `crewOverlay.ts gearSheetWithReactorDrive` (the gear-only sheet with the same drive rule:
+gross-draw surplus, the never-slower floor), so a crafted core no longer compares as slower ("x1.00 -> x0.81, -19
+pts" before); the source popover names the bucket "Reactor Core (never slower)" when the floor sets the speed.
+(2) ONE run sheet for a captain mission in flight, `gearWearEngine.ts missionRunSheet` (the run's gear wear stamp and
+its reactor lift flag): the engine's mission arm and the Home row already read it; now the mission card (App.svelte)
+and the transit berth wait (berths.ts isAwaitingBerth and the berth ETA's unload) do too. Fixed with it, the older gear
+wear step 3 gap: those readouts read the pristine stored sheet, so a run worn at dispatch counted down early. Behavior
+beyond the readouts: none (the berth readers are display only; the engine claims berths through transitBerthsFree).
+(3) The FTL Speed (i) text and reactorSurplus.ts: powered systems use the lift only once they draw more than the hull's
+own power. (5) KNOWN_ISSUES.md records the pre-existing one-call parity break for Short Ore Runs (the 0.13.4 per-call
+berth budget). (7) `reactorLift` is required in `runShipStats` and `startShortRangeCycle`. (8) A captain mission's flag
+is read through `reactorSurplus.ts reactorLiftFlagged` (a malformed value, null included, never counts), the rule the
+short-range validator uses. Registry: the reactor wear consumer row (`wear:WEAR_EFFICIENCY:reactorCore:powerOutput`,
+pending on gear wear step 4) now names the drive lift as a reader (em4ReadBack restores the old owner text for the
+earlier pins). Tests: `emodEm4Readouts.test.ts`.
+**OPEN CALL for the user (EM-4 review item 4), [PROVISIONAL] as built:** the drive lift reads the Reactor Core's
+PRISTINE output (like the install gate), so a worn core lifts as much as a new one. (a) Keep pristine (as built; the
+core's wear acts in combat through its four-state model). (b) Read the worn output, like the other run consumers, from
+gear wear step 4.
 
 **EM-5 Module slot and catalog (engine).** The `module` slot, cap (call M1), `moduleSlotsFull`, `duplicateModule`
 (call M8), physicals, catalog, mint path, Passive and Conditional effects through the ship sheet and combat bridge,

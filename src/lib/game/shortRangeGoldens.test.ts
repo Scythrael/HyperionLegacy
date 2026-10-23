@@ -991,7 +991,7 @@ function fleetWithShortRange(): { s: GameState; shipId: string } {
     captains: [...base.captains, captain],
   };
   const ship = s.ships.find((sh) => sh.id === minted.shipId)!;
-  const start = startShortRangeCycle(s, ship, { id: 0, tier: 1 }, 0);
+  const start = startShortRangeCycle(s, ship, { id: 0, tier: 1 }, 0, undefined, true);
   const mission: ShortRangeMissionState = { kind: "shortRange", slotId: 0, roll: start.roll, plan: start.plan, phase: "transitOut", phaseProgressTicks: 0, recalled: false };
   return { s: { ...s, captains: s.captains.map((c) => (c.id === SR_CAPTAIN_ID ? { ...c, mission } : c)), runCounts: start.runCounts }, shipId: minted.shipId };
 }

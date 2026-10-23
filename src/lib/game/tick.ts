@@ -395,7 +395,7 @@ import {
   shortRangeWear,
 } from "./gearWearEngine";
 // E-MOD EM-4: the reactor surplus drive lift's run flag (a leaf).
-import { newReactorLiftFlag } from "./reactorSurplus";
+import { newReactorLiftFlag, reactorLiftFlagged } from "./reactorSurplus";
 // WR-5b (0.14.0): the commanding captain's Tactician talents (frozen per patrol cycle; the Shipyard repair).
 import {
   captainWaveRegenFraction,
@@ -4623,7 +4623,7 @@ export function economyTick(
     const wearStamp = captain.mission.gearWear;
     // E-MOD EM-4 (reactorSurplus.ts): only a run stamped with the reactor lift flag reads the drive lift (none in flight
     // from before EM-4).
-    const reactorLift = captain.mission.reactorLift !== undefined;
+    const reactorLift = reactorLiftFlagged(captain.mission.reactorLift); // a malformed flag (null included) never counts
     // Phase 2 (Task B3, design §3.4): AUTO-STOP, when this mission's PRIMARY material is
     // already at its warehouse tier cap the run CANNOT usefully complete (its haul would
     // land over an already-full warehouse). Rather than leave the captain FROZEN in place

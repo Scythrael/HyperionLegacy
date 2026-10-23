@@ -214,7 +214,7 @@ function shortRangeRun(stamped: boolean): { out: string[]; s: GameState } {
   };
   const slot = shortRangeBoardSlots(s0)[0];
   const wear = stamped ? runWearStamp(s0, "ship-1") : undefined;
-  const start = startShortRangeCycle(s0, s0.ships[0], slot, shortRangeNextCycle(s0, slot.id), wear);
+  const start = startShortRangeCycle(s0, s0.ships[0], slot, shortRangeNextCycle(s0, slot.id), wear, true);
   const mission: ShortRangeMissionState = {
     kind: "shortRange",
     slotId: slot.id,

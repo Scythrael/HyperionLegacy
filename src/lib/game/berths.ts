@@ -81,7 +81,11 @@ import {
 // economyTick uses (hull + equipment fold with the ship's crew overlaid), so the banked-leg check
 // tracks any crew transit boost too. crewOverlay.ts imports only model/equipment/crew leaves, so
 // there is no cycle.
-import { effectiveShipStats } from "./crewOverlay";
+// E-MOD EM-4 review (0.14.0): through gearWearEngine.ts missionRunSheet, the RUN's own sheet (its frozen gear wear
+// stamp and its reactor lift flag), exactly the sheet tickCaptainMission advances the run on, so a run in flight from
+// before EM-4 (or a worn one) is never reported waiting mid-transit. The berth readers are display only (the engine
+// claims berths through transitBerthsFree).
+import { missionRunSheet } from "./gearWearEngine";
 
 // How many transit berths the fleet has RIGHT NOW.
 //
@@ -162,7 +166,7 @@ export function isAwaitingBerth(state: GameState, captain: CaptainState): boolea
   if (rawDef === undefined) return false;
   // The SAME resolution tickCaptainMission performs before it compares progress to the
   // requirement, so the two cannot disagree about when a leg is finished.
-  const def = effectiveMissionDef(rawDef, effectiveShipStats(state, ship));
+  const def = effectiveMissionDef(rawDef, missionRunSheet(state, ship, mission));
   return mission.phaseProgressTicks >= requiredTicksForPhase("transitBack", def);
 }
 
@@ -225,7 +229,7 @@ function worstUnloadTicks(state: GameState): number {
     const rawDef = MISSIONS[mission.missionKey as MissionKey];
     const ship = state.ships.find((s) => s.assignedCaptainId === captain.id);
     if (rawDef === undefined || ship === undefined) continue;
-    worst = Math.max(worst, effectiveMissionDef(rawDef, effectiveShipStats(state, ship)).unloadTicks);
+    worst = Math.max(worst, effectiveMissionDef(rawDef, missionRunSheet(state, ship, mission)).unloadTicks);
   }
   return worst;
 }

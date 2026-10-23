@@ -27,7 +27,7 @@
 // and deterministic in (pool order, caps). See docs/plans/2026-09-22-crew-0.14.0-plan.md
 // ("Engine seams" 1/4/5).
 
-import type { GameState, ShipInstance, ShipDerivedStats, SeniorStaffOfficer, CrewSignature, CrewBucket, OfficerCombatMods, SeniorStaffSeat, PromotionObjectiveKind } from "./model";
+import type { EquipmentInstance, GameState, ShipInstance, ShipDerivedStats, SeniorStaffOfficer, CrewSignature, CrewBucket, OfficerCombatMods, SeniorStaffSeat, PromotionObjectiveKind } from "./model";
 import { equipmentStatMods, shipDerivedStats, MASS_SPEED_DRAG, SHIP_TYPES } from "./model";
 import { combatSpeedFor, newCombatRulesStamp, type CombatRulesStamp } from "./combat/combatRules";
 import { powerSupplyPercent } from "./combat/power";
@@ -805,17 +805,41 @@ function applyReactorDrive(state: GameState, ship: ShipInstance, stats: ShipDeri
   if (!REACTOR_LIFT_SWITCH.live) return stats;
   const core = equippedFor(state, ship.id).find((p) => p.slotType === "reactorCore");
   if (core === undefined) return stats;
-  const lift = reactorSurplusSpeedLift(shipReactorSurplus(state, ship));
+  return reactorDriveFold(stats, core, reactorSurplusSpeedLift(shipReactorSurplus(state, ship)), () => {
+    const weightless = { ...state, equipment: state.equipment.map((e) => (e.id === core.id ? { ...e, mass: 0 } : e)) };
+    return effectiveShipStats(weightless, ship, { reactorLift: false }).transitSpeedMult;
+  });
+}
+
+// E-MOD EM-4: the one drive rule both sheets share (the crew-inclusive one above and the gear-only one below): the
+// sheet's speed x `lift`, floored at `floorSpeed()` (the same sheet with the core weightless and no lift). The core's
+// own drag on the sheet, (1 + drag M) / (1 + drag (M - m)): a lift clearly above it is already faster than the floor,
+// so the floor fold is skipped; otherwise it is folded exactly (no ratio rounding). PURE.
+function reactorDriveFold(stats: ShipDerivedStats, core: EquipmentInstance, lift: number, floorSpeed: () => number): ShipDerivedStats {
   const lifted = lift === 1 ? stats : { ...stats, transitSpeedMult: stats.transitSpeedMult * lift };
   if (!(core.mass > 0)) return lifted;
-  // The core's own drag on this sheet, (1 + drag M) / (1 + drag (M - m)): a lift clearly above it is already faster
-  // than the floor, so the floor fold is skipped. Otherwise the floor is folded exactly (no ratio rounding).
   const others = Math.max(0, stats.mass - core.mass);
   const drag = (1 + MASS_SPEED_DRAG * stats.mass) / (1 + MASS_SPEED_DRAG * others);
   if (lift > drag * (1 + 1e-9)) return lifted;
-  const weightless = { ...state, equipment: state.equipment.map((e) => (e.id === core.id ? { ...e, mass: 0 } : e)) };
-  const floor = effectiveShipStats(weightless, ship, { reactorLift: false }).transitSpeedMult;
+  const floor = floorSpeed();
   return lifted.transitSpeedMult >= floor ? lifted : { ...stats, transitSpeedMult: floor };
+}
+
+// E-MOD EM-4 (review 2026-10-23): the GEAR-ONLY sheet (model.ts shipDerivedStats: hull and installed pieces, no crew)
+// with the Reactor Core's drive rule, for readouts that compare loadouts gear against gear (Ship Systems' install
+// compare and its gear note), so a crafted core never shows as slower there either. The surplus reads the gross draw
+// (no crew power efficiency: the gear-only scope), the floor the same pieces with the core weightless. Every other
+// field is shipDerivedStats' own. The same object without a core, with the Standard-Issue core and while the test
+// switch is off. PURE.
+export function gearSheetWithReactorDrive(ship: ShipInstance, pieces: EquipmentInstance[]): ShipDerivedStats {
+  const stats = shipDerivedStats(ship, pieces);
+  if (!REACTOR_LIFT_SWITCH.live) return stats;
+  const core = pieces.find((p) => p.slotType === "reactorCore");
+  if (core === undefined) return stats;
+  const mods = equipmentStatMods(pieces);
+  const other = SHIP_TYPES[ship.typeKey].basePowerOutput + mods.modulePowerOutput;
+  const surplus = Math.min(mods.powerOutput, Math.max(0, other + mods.powerOutput - mods.totalPowerDraw));
+  return reactorDriveFold(stats, core, reactorSurplusSpeedLift(surplus), () => shipDerivedStats(ship, pieces.map((p) => (p.id === core.id ? { ...p, mass: 0 } : p))).transitSpeedMult);
 }
 
 // E-MOD EM-4: the installed Reactor Core's UNUSED power, min(the reactor's own output, max(0, output - net draw)),

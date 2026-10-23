@@ -9,8 +9,8 @@
 //
 //   1 + perPoint x diminishing(surplus, knee)
 //
-// so a ship whose systems leave the reactor idle flies faster, and every powered system installed (a module, a Class
-// II+ drive) spends lift before it spends budget. NEVER SLOWER (crewOverlay.ts applyReactorDrive): the ship's speed
+// so a ship whose systems leave the reactor idle flies faster. The systems draw the hull's own power first, so powered
+// systems (a module, a Class II+ drive) use up the lift only once they draw more than the hull's own power. NEVER SLOWER (crewOverlay.ts applyReactorDrive): the ship's speed
 // with a crafted core is never below its speed with the Standard-Issue core; the core's mass only eats into the lift
 // (a 12 mass core on an otherwise light ship needs a lift of 24% before it shows). Speed counts everywhere it is read
 // (OC-D8): the mission legs, the short-range legs, the expedition voyage and, through the combat rules stamp, the
@@ -49,6 +49,16 @@ export function reactorSurplusSpeedLift(surplus: number): number {
   if (!REACTOR_LIFT_SWITCH.live || !(surplus > 0)) return 1;
   return 1 + REACTOR_SURPLUS_LIFT.perPoint * diminishing(surplus, REACTOR_SURPLUS_LIFT.knee);
 }
+
+// Whether a run's stored flag is the well-formed reactor lift flag (EM-4 review: a malformed value, null included,
+// never counts as flagged; the short-range validator refuses such a run at load). Pure.
+export function reactorLiftFlagged(flag: unknown): boolean {
+  return flag !== null && typeof flag === "object" && (flag as { version?: unknown }).version === REACTOR_LIFT_VERSION;
+}
+
+// [PROVISIONAL] (EM-4 review, an open call for the user): the lift reads the Reactor Core's PRISTINE output, as the
+// install gate does (gear wear design 4.3); a worn core does not lift less. Gear wear step 4 may make it read the
+// worn output instead.
 
 // The flag a run dispatched now on a ship with `pieces` installed carries. Written only when the installed Reactor Core
 // is not a Standard-Issue one (it supplies power or has mass): the gear is locked while the ship is out (equipment.ts

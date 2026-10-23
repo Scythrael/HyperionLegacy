@@ -5307,9 +5307,10 @@ function wearEntries(): WiringEntry[] {
     // Engine efficiency's only reader inside a run is a captain mission's fuel price per cycle, unreachable since
     // 0.13.6 (an infinite fuel budget: facility:audit:fuelAutoBuy); reach reads the pristine drive (design 4.3).
     "ftlDrive:engineEfficiency": pending("S4-A02 (the fuel-economy cleanup: a run's fuel price is engine efficiency's only run-time reader, unreachable since 0.13.6; reach reads the pristine drive, design 4.3)"),
-    // The reactor's power output has no reader outside the install gate (pristine) but the combat power budget, where
-    // combat's own model is the authority (W3).
-    "reactorCore:powerOutput": pending(`${GEAR_WEAR_STEP_4}: the reactor's power output is read only by the install gate (pristine, design 4.3) and the combat power budget`),
+    // The reactor's power output is read by the install gate (pristine), the combat power budget, where combat's own
+    // model is the authority (W3), and since E-MOD EM-4 the reactor surplus drive lift, which reads it pristine too
+    // ([PROVISIONAL], an open call for the user: reactorSurplus.ts).
+    "reactorCore:powerOutput": pending(`${GEAR_WEAR_STEP_4}: the reactor's power output is read by the install gate (pristine, design 4.3), the combat power budget and the reactor surplus drive lift (pristine for now, an open call)`),
     "specUtility:lines": {
       contexts: ["mission:survey", "mission:shortRange", "expedition:groundOps"],
       base: () => wearSlotFixture("specUtility", { sensors: WEAR_LINE }, "pathfinderSuite"),

@@ -36,7 +36,7 @@ import { runShipStats, runWearStamp } from "./gearWearEngine";
 import { countShortRangeCycleStart, runCountsOf } from "./runDifficulty";
 import { crewLockReasonText, shipCrewLocked } from "./crewLock";
 import { RELIC_BLANKS_VERSION } from "./relicBlanks";
-import { REACTOR_LIFT_VERSION, newReactorLiftFlag } from "./reactorSurplus";
+import { newReactorLiftFlag, reactorLiftFlagged } from "./reactorSurplus";
 import { equippedFor } from "./equipmentQueries";
 
 // ===== the board =====
@@ -117,7 +117,7 @@ export interface ShortRangeCycleStart {
 // runWearStamp at dispatch, projectRunStamp at each later cycle start), so the plan reads the gear the cycle froze; without one (a run from before step 3, a
 // preview) it reads the stored sheet. E-MOD EM-4: `reactorLift` is whether the run carries the reactor surplus drive
 // lift flag (reactorSurplus.ts; a run dispatched before EM-4 plans its later cycles without the lift). Pure.
-export function startShortRangeCycle(state: GameState, ship: ShipInstance, slot: ShortRangeSlotRef, cycleIndex: number, wear?: RunWearStamp, reactorLift: boolean = true): ShortRangeCycleStart {
+export function startShortRangeCycle(state: GameState, ship: ShipInstance, slot: ShortRangeSlotRef, cycleIndex: number, wear: RunWearStamp | undefined, reactorLift: boolean): ShortRangeCycleStart {
   const roll = rollShortRangeJob(state, slot, cycleIndex);
   const plan = shortRangeCyclePlan(roll, runShipStats(state, ship, wear, reactorLift), shortRangeShipEngineering(state, ship));
   return { roll, plan, runCounts: countShortRangeCycleStart(runCountsOf(state), roll.template) };
@@ -309,6 +309,6 @@ export function isWellFormedShortRangeMission(m: unknown): m is ShortRangeMissio
   if (s.relicBlanks !== undefined && (!s.relicBlanks || typeof s.relicBlanks !== "object" || (s.relicBlanks as { version?: unknown }).version !== RELIC_BLANKS_VERSION)) return false;
   if (s.relicsThisRun !== undefined && !isWholeCount(s.relicsThisRun)) return false;
   // E-MOD EM-4: the reactor surplus drive lift flag.
-  if (s.reactorLift !== undefined && (!s.reactorLift || typeof s.reactorLift !== "object" || (s.reactorLift as { version?: unknown }).version !== REACTOR_LIFT_VERSION)) return false;
+  if (s.reactorLift !== undefined && !reactorLiftFlagged(s.reactorLift)) return false;
   return true;
 }

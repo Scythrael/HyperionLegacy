@@ -136,7 +136,7 @@ interface UseEvent {
 function missionCycleEvent(s: GameState, key: MissionKey): UseEvent {
   const ship = shipOf(s);
   const stamp = runWearStamp(s, ship.id);
-  const stats = runShipStats(s, ship, stamp);
+  const stats = runShipStats(s, ship, stamp, true);
   const def = effectiveMissionDef(MISSIONS[key], stats);
   const m = captainOf(onMission(s, key, "unloading")).mission as CaptainMissionState;
   const mission: CaptainMissionState = { ...m, recalled: true, phaseProgressTicks: missionPhaseTicks("unloading", def, m.cargo) - 1, ...(stamp ? { gearWear: stamp } : {}) };
@@ -243,7 +243,7 @@ function usePerUnit(s: GameState, ctx: ContextId, sourceId: string): number {
 // The efficiency consumers (where a run reads them)
 // ============================================================================
 
-const sheetOfRun = (s: GameState) => runShipStats(s, shipOf(s), runWearStamp(s, WIRING_SHIP_ID));
+const sheetOfRun = (s: GameState) => runShipStats(s, shipOf(s), runWearStamp(s, WIRING_SHIP_ID), true);
 
 function memberStat(s: GameState, memberId: string, stat: string): number {
   const exp = dispatchRun(s);
