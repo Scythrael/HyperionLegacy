@@ -22,4 +22,7 @@
 
 declare module "node:fs" {
   export function readFileSync(path: string, encoding: string): string;
+  // 0.13.11.1: secret/goldens.test.ts regenerates its goldens file, ONLY when run on purpose with
+  // GOLDEN_WRITE=1 (the goldens are captured once, on the unchanged engine).
+  export function writeFileSync(path: string, data: string): void;
 }

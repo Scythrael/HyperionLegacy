@@ -958,7 +958,18 @@
   // and wipes it on Delete Save. It never reads or writes `state` and never runs in the main loop.
   import EnterCodeModal from "./lib/EnterCodeModal.svelte";
   import SecretGameOverlay from "./lib/SecretGameOverlay.svelte";
-  import { startSecretRuntime, wipeSecretGame, devFastForwardSecret, codesTabSeen, markCodesTabSeen } from "./lib/secret/runtime";
+  import { startSecretRuntime, wipeSecretGame, devFastForwardSecret, codesTabSeen, markCodesTabSeen, secretGame, markSecretFound } from "./lib/secret/runtime";
+  // 0.13.11.1: the Help / Minigames / Settings header block, the achievement popup, the gift code
+  // and Starfall unlock (account-level optional save fields, written only through accountExtras and
+  // the do* handlers below), and the theme STYLE layer (themeStyle.ts, device-side choice).
+  import HeaderButtons from "./lib/HeaderButtons.svelte";
+  import AchievementToasts from "./lib/AchievementToasts.svelte";
+  import { pushAchievement } from "./lib/achievements";
+  import { redeemGift, hasThemeStyle, unlockThemeStyle, NO_STREAK, ENDLESS_GREED, type RedeemOutcome, type RedeemStreak } from "./lib/accountExtras";
+  import { DEFAULT_PRESET_ID, availablePresets, effectivePreset, loadThemePreset, saveThemePreset, applyThemePreset } from "./lib/themeStyle";
+  import { displayOre as secretDisplayOre } from "./lib/secret/engine";
+  import { formatSecret } from "./lib/secret/format";
+  import { COPY as SECRET_COPY } from "./lib/secret/config";
 
   // DEV_MODE, Vercel §9.5.3: true on Preview, false on Production. Locally,
   // set VITE_DEV_MODE=true in .env.local (see .env.example).
@@ -2759,14 +2770,71 @@
   // focus back to the gear that opened the System window.
   let enterCodeOpen = false;
   let secretOpen = false;
-  function onComboComplete(): void {
-    enterCodeOpen = false;
-    systemModalOpen = false;
+  // 0.13.11.1: the combo only UNLOCKS. The first success records the find and opens the game over
+  // the still-open Enter Code window, whose message then says where the game lives; any later
+  // success just answers "already found" (the Minigames button is the way back in).
+  function onComboComplete(): "found" | "already" {
+    const first = markSecretFound();
+    if (first) secretOpen = true;
+    return first ? "found" : "already";
+  }
+  function openSecretGame(): void {
     secretOpen = true;
   }
   function closeSecretGame(): void {
     secretOpen = false;
-    void svelteTick().then(() => document.querySelector<HTMLElement>(".top-bar-gear")?.focus());
+    void svelteTick().then(() => {
+      const back = enterCodeOpen ? ".ec-wide" : ".hb-minigames";
+      (document.querySelector<HTMLElement>(back) ?? document.querySelector<HTMLElement>(".hb-settings"))?.focus();
+    });
+  }
+
+  // 0.13.11.1 gift codes, through the do* pattern: pure redeemGift, same-ref guard, state = next,
+  // pushLog, doSave. The re-entry streak (the third "already redeemed" in a row adds a humor line)
+  // lives for the session. The code itself is never logged.
+  let codeStreak: RedeemStreak = NO_STREAK;
+  function doRedeemCode(raw: string): RedeemOutcome {
+    const r = redeemGift(state, raw, codeStreak, Math.random);
+    codeStreak = r.streak;
+    if (r.next !== state) {
+      state = r.next;
+      if (r.outcome.kind === "redeemed") pushLog(`Gift code redeemed: +${formatNumber(r.outcome.credits)} credits.`);
+      doSave();
+    }
+    if (r.outcome.kind === "already" && r.outcome.endlessGreed) pushAchievement(ENDLESS_GREED);
+    return r.outcome;
+  }
+
+  // 0.13.11.1 theme STYLES. The e10,000,000 milestone (secret save) is mirrored into the main save
+  // as the account-level style unlock, so Delete Save wipes it with everything else. The chosen
+  // preset is a device-side preference and only applies while its style is unlocked.
+  function doUnlockThemeStyle(id: string): void {
+    const next = unlockThemeStyle(state, id);
+    if (next === state) return;
+    state = next;
+    pushLog("Unlocked the Starfall theme. Pick it in Settings > UI.");
+    doSave();
+  }
+  let accountReady = false;
+  $: if (accountReady && !suppressSave && $secretGame.milestones.starfall !== undefined && !hasThemeStyle(state, "washShine")) doUnlockThemeStyle("washShine");
+  let themePresetId: string = DEFAULT_PRESET_ID;
+  $: unlockedThemeStyles = Array.isArray(state.unlockedThemeStyles) ? state.unlockedThemeStyles : [];
+  $: themePresetChoices = availablePresets(unlockedThemeStyles);
+  $: applyThemePreset(effectivePreset(themePresetId, unlockedThemeStyles));
+  function setThemePreset(id: string): void {
+    themePresetId = id;
+    saveThemePreset(id);
+  }
+  // [DEV] grant the Starfall unlock without six months of play (Debug tab only).
+  function devGrantStarfall(): void {
+    doUnlockThemeStyle("washShine");
+  }
+
+  // The Minigames list's one-line status for the minigame.
+  $: minigameStatus = `${$secretGame.milestones.finale !== undefined ? "Finale reached · " : ""}${formatSecret(secretDisplayOre($secretGame.bestOre))} Ore best`;
+  function openHelpCenter(): void {
+    activeTab = "home";
+    activeHomeTab = "help";
   }
 
   // The modal's top-tab list, in display order. Settings is the first view (0.13.6 D7 removed the
@@ -3138,6 +3206,10 @@
     } else {
       pushLog("New save initialized.");
     }
+    // 0.13.11.1: the Starfall mirror and the theme style read the account only from here on, so a
+    // placeholder state before the load can never be written over the real save.
+    accountReady = true;
+    themePresetId = loadThemePreset();
     // ⚠️ HOTFIX 0.13.10: start from where the reload catch-up PAID THROUGH, not from now. The
     // catch-up takes real time to compute; starting the clock after it would leave those seconds
     // unpaid (and a save right after load would stamp past them). The first poll pays them, once.
@@ -9846,19 +9918,19 @@
           {/if}
         </div>
 
-        <!-- Gear: opens the System window on Settings (0.13.6 D7: now the ONLY door to the System
-             modal; the portrait went to Crew > Admiral). openSystemModal defaults to Settings. -->
-        <button
-          type="button"
-          class="top-bar-gear"
-          aria-label="Open settings"
-          on:click={openSystemModal}
-        >
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
-            <circle cx="12" cy="12" r="3.2" />
-            <path d="M19.4 15a1.6 1.6 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.6 1.6 0 0 0-1.8-.3 1.6 1.6 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1A1.6 1.6 0 0 0 9 19.4a1.6 1.6 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.6 1.6 0 0 0 .3-1.8 1.6 1.6 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1A1.6 1.6 0 0 0 4.6 9a1.6 1.6 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.6 1.6 0 0 0 1.8.3H9a1.6 1.6 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.6 1.6 0 0 0 1 1.5 1.6 1.6 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.6 1.6 0 0 0-.3 1.8V9a1.6 1.6 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.6 1.6 0 0 0-1.5 1z" />
-          </svg>
-        </button>
+        <!-- 0.13.11.1 HEADER BUTTON BLOCK (design section 3, mockup frame 3b), where the gear lived:
+             Help [?] (the Help center), Minigames once one is found, and Settings as the half-height
+             bar (the System window on Settings, still the ONLY door to it). -->
+        <div class="top-bar-buttons">
+          <HeaderButtons
+            found={$secretGame.found}
+            minigameTitle={SECRET_COPY.listName}
+            {minigameStatus}
+            onHelp={openHelpCenter}
+            onSettings={openSystemModal}
+            onPlay={openSecretGame}
+          />
+        </div>
       </div>
     </div>
 
@@ -16474,6 +16546,26 @@
             {/each}
           </select>
         </SettingRow>
+        <!-- 0.13.11.1 THEME STYLE: hidden until a style is earned (Starfall, the e10,000,000 prize).
+             Device-side like the color theme; the shipped look is "Default". -->
+        {#if themePresetChoices.length > 0}
+          <SettingRow
+            label="Theme style"
+            description="How panels and buttons are drawn. Starfall washes them from your theme color into purple, with gradient headings and bars. It works with every theme color."
+          >
+            <select
+              class="setting-select"
+              value={effectivePreset(themePresetId, unlockedThemeStyles)?.id ?? DEFAULT_PRESET_ID}
+              on:change={(e) => setThemePreset((e.target as HTMLSelectElement).value)}
+              aria-label="Theme style"
+            >
+              <option value={DEFAULT_PRESET_ID}>Default</option>
+              {#each themePresetChoices as preset}
+                <option value={preset.id}>{preset.label}</option>
+              {/each}
+            </select>
+          </SettingRow>
+        {/if}
       </Panel>
 
       <!-- HEADER CURRENCIES (0.13.6): pick which currencies fill the header band (Variant C), up to
@@ -17030,6 +17122,11 @@
             <button class="dev-btn" on:click={() => devFastForwardSecret(86400)}>+1d</button>
             <button class="dev-btn" on:click={() => devFastForwardSecret(7 * 86400)}>+7d</button>
             <button class="dev-btn danger" on:click={wipeSecretGame}>Wipe</button>
+          </div>
+          <!-- [DEV] 0.13.11.1: grant the Starfall theme style (the e10,000,000 prize) to test it. -->
+          <div class="dev-row">
+            <span class="dev-label">[DEV] Theme style</span>
+            <button class="dev-btn" on:click={devGrantStarfall}>Grant Starfall unlock</button>
           </div>
           <!-- [DEV] Non-destructive preview of the SavePersistWarning banner (see
                devToggleSavePersistBanner). Flips ONLY the display flag; real saving is
@@ -17913,12 +18010,15 @@
   {/if}
 
   {#if enterCodeOpen}
-    <EnterCodeModal onClose={() => (enterCodeOpen = false)} {onComboComplete} />
+    <EnterCodeModal onClose={() => (enterCodeOpen = false)} {onComboComplete} onRedeem={doRedeemCode} suspended={secretOpen} />
   {/if}
 
   {#if secretOpen}
     <SecretGameOverlay onClose={closeSecretGame} />
   {/if}
+
+  <!-- 0.13.11.1: the achievement popup, ONE mount above everything (the minigame overlay too). -->
+  <AchievementToasts />
 
   {#if refineConfirmModalOpen}
     <!-- Start-a-craft confirmation modal (Crafting Allocation Redesign, Task C4, reuses the
@@ -18639,8 +18739,7 @@
     appearance: none;
     -webkit-appearance: none;
   }
-  .top-bar-header .top-bar-gear { grid-area: gear; align-self: center; width: 46px; height: 46px; }
-  .top-bar-header .top-bar-gear svg { width: 21px; height: 21px; }
+  .top-bar-header .top-bar-buttons { grid-area: gear; align-self: center; }
 
   /* STATS stack. Bars stretch (barwrap flex:1, no cap). CRAFT amber lives at .tb-bar-amber > i. */
   /* ⚠️ ONE GRID for all stat rows, so every bar is the SAME width. Each .tb-statrow is display:
@@ -18770,8 +18869,6 @@
     .cur-band { gap: 8px; padding: 8px 10px 9px; }
     .cur-pill { padding: 7px 12px; gap: 8px; }
     .cur-pill-name { display: inline; margin-left: auto; font-size: var(--text-2xs); text-transform: uppercase; letter-spacing: 0.06em; color: var(--color-text-dim); white-space: nowrap; }
-    .top-bar-header .top-bar-gear { width: 58px; height: 58px; }
-    .top-bar-header .top-bar-gear svg { width: 26px; height: 26px; }
     .tb-pop-wrap { position: relative; }
     .tb-pop { left: auto; right: 0; width: max-content; max-width: 260px; }
   }
@@ -19464,35 +19561,6 @@
   /* ============================================================================
      HEADER: the gear peer-button, the expander, the crafting bar (0.13.5)
      ============================================================================ */
-
-  /* Sized to MATCH the portrait beside it, because that equality is the entire argument: a control
-     the same size as its neighbor reads as its equal, while a badge drawn on top of one reads as
-     decoration. */
-  .top-bar-gear {
-    width: 38px;
-    height: 38px;
-    flex: none;
-    border: 1px solid var(--color-border-strong);
-    background: var(--color-panel-bg-strong);
-    color: var(--color-accent);
-    display: grid;
-    place-items: center;
-    border-radius: var(--corner);
-    cursor: pointer;
-    padding: 0;
-    align-self: flex-start;
-  }
-  .top-bar-gear:hover {
-    background: rgba(var(--color-accent-rgb), 0.16);
-  }
-  .top-bar-gear:focus-visible {
-    outline: 2px solid var(--color-accent);
-    outline-offset: 2px;
-  }
-  .top-bar-gear svg {
-    width: 19px;
-    height: 19px;
-  }
 
   /* Crafting level. ⚠️ Amber, so it reads as a SIBLING track to Fleet Admiral level rather than a
      second copy of it: two identical accent bars stacked look like one stat rendered twice. */

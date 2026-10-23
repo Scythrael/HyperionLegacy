@@ -117,10 +117,10 @@ export interface UpgradeDef {
 export const UPGRADES_AT = 1000000; // e1,000,000 Ore (best ever) unlocks the four
 
 export const UPGRADES: readonly UpgradeDef[] = [
-  { id: "ocOverclocker", name: "Overclock Overclocker", flavor: "It overclocks your overclock. That is the whole upgrade.", effect: "each Overclock level counts more", cap: 25, priceBase: 1000000, priceRatio: 1.0905, step: 0.7 },
+  { id: "ocOverclocker", name: "Overclock Overclocker", flavor: "It overclocks your overclock. That is the whole upgrade.", effect: "each Overclock level counts more", cap: 25, priceBase: 1000000, priceRatio: 1.0905, step: 0.8 },
   { id: "tenfoldTuner", name: "Tenfold Tuner", flavor: "Tightens the tens. Loosens the laws of arithmetic.", effect: "each ten bonus doubles a little harder", cap: 10, priceBase: 1050000, priceRatio: 1.214, step: 0.05 },
-  { id: "captainsCompound", name: "Captain's Compound", flavor: "Interest on interest on interest. The bank has questions.", effect: "your Captain and Augment Points count as more", cap: 10, priceBase: 1100000, priceRatio: 1.228, step: 5 },
-  { id: "lucidDreaming", name: "Lucid Dreaming", flavor: "You can steer the dream now. You steered it toward more Ore.", effect: "Dream Points hit harder: they speed up the whole stack too", cap: 10, priceBase: 1200000, priceRatio: 1.243, step: 0.014 },
+  { id: "captainsCompound", name: "Captain's Compound", flavor: "Interest on interest on interest. The bank has questions.", effect: "your Captain and Augment Points count as more", cap: 10, priceBase: 1100000, priceRatio: 1.228, step: 4.5 },
+  { id: "lucidDreaming", name: "Lucid Dreaming", flavor: "You can steer the dream now. You steered it toward more Ore.", effect: "Dream Points hit harder: they speed up the whole stack too", cap: 10, priceBase: 1200000, priceRatio: 1.243, step: 0.0135 },
 ];
 
 // ---------------------------------------------------------------------------
@@ -228,6 +228,7 @@ export const TURBO_LEVEL = 10000;
 
 export const COPY = {
   title: "HYPERION LEGACY v0.0000001a",
+  listName: "Hyperion Legacy v0.0000001a", // in the Minigames list and the code window
   subtitle: "The original, with extra zeros.",
   footer: "It keeps running while it's closed, and while the game is closed.",
   captainBlurb: "The small reset. Your stack and Ore start over; Captain Points stay, and every one of them makes the whole stack run a little faster. Promotion by controlled demolition.",

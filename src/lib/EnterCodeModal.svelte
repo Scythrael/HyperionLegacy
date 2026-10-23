@@ -1,36 +1,65 @@
 <script lang="ts">
-  // EnterCodeModal: Settings > Codes > "Enter code" (0.13.11, design section 4).
+  // EnterCodeModal: Settings > Codes > "Enter code" (0.13.11, design section 4; 0.13.11.1 section 1
+  // and 2, mockup frames 1 and 2).
   //
-  // Two ways in: a gift code box with Redeem (0.13.11 ships no codes, so every code answers "not
-  // recognized"; redeemCode is the seam a later patch fills), and "Combo input", which opens a
-  // twelve-slot pad. Correct presses light the slots; a wrong press clears them silently. The
-  // window never shows or hints at the sequence. On the twelfth correct press it calls
-  // onComboComplete and the host opens the secret game.
+  // Two ways in: a gift code box with Redeem, paid by the host's do* handler (onRedeem: a code is
+  // paid once per account; re-entering says so, and from the third time in a row a humor line is
+  // added), and "Combo input", which opens the pad. Correct presses fill the next segment of ONE
+  // twelve-segment strip with their symbol (arrows as SVG, A and B in circles, SEL and STA in
+  // squares); a wrong press clears it silently. The window never shows or hints at the sequence.
+  // On the twelfth correct press it calls onComboComplete: the first time the host opens the game
+  // over this window and the message here says where it lives now; after that the combo only says
+  // it has already been found.
   //
-  // Keys (event.code, so layouts cannot change them) are only read while the combo area is open and
-  // focus is not in the code field; every rule lives in secret/combo.ts, where it is tested.
+  // Keys (event.code, so layouts cannot change them) are only read while the combo area is open,
+  // focus is not in the code field, and the game is not open on top; every rule lives in
+  // secret/combo.ts, where it is tested.
   import ActionModal from "./ActionModal.svelte";
   import Icon from "./ui/Icon.svelte";
   import type { IconName } from "./ui/icons";
-  import { lookupCode } from "./secret/codes";
+  import type { RedeemOutcome } from "./accountExtras";
   import { COMBO_SEQUENCE, COMBO_LENGTH, comboActionForKey, advanceCombo, type ComboKey } from "./secret/combo";
+  import { COPY } from "./secret/config";
 
   export let onClose: () => void;
-  export let onComboComplete: () => void;
+  export let onComboComplete: () => "found" | "already";
+  export let onRedeem: (raw: string) => RedeemOutcome;
+  // True while the game is open over this window: its keys belong to the game, not the pad.
+  export let suspended = false;
+
+  type Message = { tone: "ok" | "info"; strong?: string; text: string; lore?: string };
 
   let code = "";
-  let message = "";
+  let codeMessage: Message | null = null;
+  let comboMessage: Message | null = null;
   let comboOpen = false;
   let pos = 0;
   let codeInput: HTMLInputElement | null = null;
 
   const GLYPH: Partial<Record<ComboKey, IconName>> = { up: "arrowUp", down: "arrowDown", left: "arrowLeft", right: "arrowRight" };
-  const TEXT: Partial<Record<ComboKey, string>> = { b: "B", a: "A", select: "SEL", start: "STA" };
+  const CIRCLE: Partial<Record<ComboKey, string>> = { b: "B", a: "A" };
+  const SQUARE: Partial<Record<ComboKey, string>> = { select: "SEL", start: "STA" };
   const SLOTS = Array.from({ length: COMBO_LENGTH }, (_, i) => i);
 
+  // [PROPOSAL] wording for the unlock messages (mockup frame 2 tone).
+  const FOUND: Message = { tone: "ok", strong: `Unlocked: ${COPY.listName}.`, text: "Find it any time under the Minigames button at the top, next to Help." };
+  const ALREADY_FOUND: Message = { tone: "info", text: "You've already found this one. It lives under the Minigames button now." };
+
+  function messageFor(outcome: RedeemOutcome): Message {
+    switch (outcome.kind) {
+      case "empty":
+        return { tone: "info", text: "Type a code first." };
+      case "unknown":
+        return { tone: "info", text: "That code isn't recognized." };
+      case "redeemed":
+        return { tone: "ok", strong: "Code redeemed.", text: `+${outcome.credits.toLocaleString("en-US")} credits added to your fleet.` };
+      case "already":
+        return { tone: "info", text: "This code has been redeemed on this account.", lore: outcome.line?.text };
+    }
+  }
+
   function redeem(): void {
-    const r = lookupCode(code);
-    message = r.kind === "empty" ? "Type a code first." : r.kind === "unknown" ? "That code isn't recognized." : "";
+    codeMessage = messageFor(onRedeem(code));
   }
 
   function toggleCombo(): void {
@@ -42,12 +71,12 @@
     pos = advanceCombo(pos, key);
     if (pos === COMBO_LENGTH) {
       pos = 0;
-      onComboComplete();
+      comboMessage = onComboComplete() === "found" ? FOUND : ALREADY_FOUND;
     }
   }
 
   function onKeydown(event: KeyboardEvent): void {
-    if (!comboOpen || event.target === codeInput) return;
+    if (suspended || !comboOpen || event.target === codeInput) return;
     if (event.code === "Escape") return; // the window's own Escape closes it
     const targetIsButton = event.target instanceof HTMLButtonElement;
     const action = comboActionForKey(event.code, event.repeat, targetIsButton);
@@ -87,7 +116,15 @@
         />
         <button class="ec-btn primary" type="submit">Redeem</button>
       </div>
-      <div class="ec-msg" aria-live="polite">{message}</div>
+      <div class="ec-live" aria-live="polite">
+        {#if codeMessage}
+          <div class="ec-msg" class:ok={codeMessage.tone === "ok"}>
+            {#if codeMessage.strong}<b>{codeMessage.strong}</b>{/if}
+            {codeMessage.text}
+            {#if codeMessage.lore}<span class="ec-lore">"{codeMessage.lore}"</span>{/if}
+          </div>
+        {/if}
+      </div>
     </form>
 
     <div class="ec-divider" aria-hidden="true">OR</div>
@@ -98,16 +135,24 @@
 
     {#if comboOpen}
       <div class="ec-combo" id="ec-combo">
-        <div class="ec-slots" role="status" aria-label={`Combo progress: ${pos} of ${COMBO_LENGTH}`}>
+        <div class="ec-strip" role="status" aria-label={`Combo progress: ${pos} of ${COMBO_LENGTH}`}>
           {#each SLOTS as i}
             {@const key = COMBO_SEQUENCE[i]}
             {@const glyph = GLYPH[key]}
-            <div class="ec-slot" class:lit={i < pos} aria-hidden="true">
+            <div class="ec-seg" class:lit={i < pos} aria-hidden="true">
               {#if i < pos}
-                {#if glyph}<Icon name={glyph} size={14} />{:else}{TEXT[key]}{/if}
+                {#if glyph}<Icon name={glyph} size={15} />{:else if CIRCLE[key]}<span class="ec-circ">{CIRCLE[key]}</span>{:else}<span class="ec-sq">{SQUARE[key]}</span>{/if}
               {/if}
             </div>
           {/each}
+        </div>
+        <div class="ec-live" aria-live="polite">
+          {#if comboMessage}
+            <div class="ec-msg" class:ok={comboMessage.tone === "ok"}>
+              {#if comboMessage.strong}<b>{comboMessage.strong}</b>{/if}
+              {comboMessage.text}
+            </div>
+          {/if}
         </div>
 
         <div class="ec-pad">
@@ -180,10 +225,29 @@
     outline: 2px solid var(--color-accent-bright);
     outline-offset: 2px;
   }
+  .ec-live:empty {
+    display: none;
+  }
   .ec-msg {
-    min-height: 1.4em;
     font-size: var(--text-sm);
+    color: var(--color-text-primary);
+    border: 1px solid var(--color-border-strong);
+    border-radius: var(--corner);
+    padding: 8px 10px;
+    background: rgba(0, 0, 0, 0.25);
+    overflow-wrap: anywhere;
+  }
+  .ec-msg.ok {
+    border-color: color-mix(in srgb, var(--color-success) 50%, transparent);
+  }
+  .ec-msg.ok b {
+    color: var(--color-success);
+  }
+  .ec-lore {
+    display: block;
+    margin-top: 4px;
     color: var(--color-text-secondary);
+    font-style: italic;
   }
   .ec-divider {
     display: flex;
@@ -225,28 +289,52 @@
     display: grid;
     gap: var(--space-5);
   }
-  .ec-slots {
+  /* ONE segmented strip (0.13.11.1, mockup frame 1): twelve equal segments, one row at 375 px. */
+  .ec-strip {
     display: grid;
     grid-template-columns: repeat(12, minmax(0, 1fr));
-    gap: var(--space-2);
+    border: 1px solid var(--color-border-strong);
+    border-radius: var(--corner);
+    overflow: hidden;
+    background: rgba(0, 0, 0, 0.35);
   }
-  .ec-slot {
-    height: 26px;
+  .ec-seg {
+    height: 34px;
+    min-width: 0;
     display: grid;
     place-items: center;
-    border: 1px solid var(--color-border);
-    border-radius: var(--corner);
-    font-family: var(--font-mono);
-    font-size: var(--text-2xs);
+    border-right: 1px solid var(--color-border);
     color: var(--color-text-dim);
   }
-  .ec-slot.lit {
-    border-color: var(--color-accent);
-    color: var(--color-accent-bright);
-    background: rgba(var(--color-accent-rgb), 0.12);
-    box-shadow: 0 0 10px rgba(var(--color-accent-rgb), 0.25) inset;
+  .ec-seg:last-child {
+    border-right: none;
   }
-  .ec-pad {
+  .ec-seg.lit {
+    background: rgba(var(--color-accent-rgb), 0.12);
+    color: var(--color-accent-bright);
+    box-shadow: inset 0 -2px 0 var(--color-accent);
+  }
+  .ec-circ {
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    border: 1.5px solid currentColor;
+    display: grid;
+    place-items: center;
+    font-family: var(--font-display);
+    font-size: var(--text-3xs);
+    font-weight: 700;
+    line-height: 1;
+  }
+  .ec-sq {
+    border: 1.5px solid currentColor;
+    border-radius: 1px;
+    padding: 2px 1px;
+    font-family: var(--font-display);
+    font-size: var(--text-3xs);
+    line-height: 1;
+    letter-spacing: 0;
+  }  .ec-pad {
     display: grid;
     grid-template-columns: auto 1fr auto;
     gap: var(--space-6);
@@ -314,8 +402,12 @@
     color: var(--color-text-secondary);
   }
   @media (max-width: 420px) {
-    .ec-slots {
-      grid-template-columns: repeat(6, minmax(0, 1fr));
+    .ec-seg {
+      height: 30px;
+    }
+    .ec-circ {
+      width: 15px;
+      height: 15px;
     }
     .ec-pad {
       gap: var(--space-4);

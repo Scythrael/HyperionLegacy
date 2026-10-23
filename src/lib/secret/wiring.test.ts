@@ -51,6 +51,44 @@ describe("App wiring for 0.13.11", () => {
     expect(APP).toContain("startSecretRuntime()");
   });
 
+  it("0.13.11.1: the header block replaces the gear, in the same grid area", () => {
+    expect(APP).not.toContain('class="top-bar-gear"');
+    expect(APP).toContain('<div class="top-bar-buttons">');
+    expect(APP).toMatch(/<HeaderButtons[\s\S]*?found=\{\$secretGame\.found\}[\s\S]*?onHelp=\{openHelpCenter\}[\s\S]*?onSettings=\{openSystemModal\}[\s\S]*?onPlay=\{openSecretGame\}/);
+    expect(APP).toContain(".top-bar-header .top-bar-buttons { grid-area: gear;");
+    expect(functionBody("openHelpCenter")).toContain('activeHomeTab = "help"');
+    const hb = readFileSync("src/lib/HeaderButtons.svelte", "utf-8");
+    for (const label of ['aria-label="Help"', 'aria-label="Minigames"', 'aria-label="Open settings"', "aria-expanded={menuOpen}"]) expect(hb).toContain(label);
+    expect(hb).toMatch(/\{#if found\}[\s\S]*hb-minigames/);
+  });
+
+  it("0.13.11.1: credits and unlocks go through do* handlers (pure fn, same-ref guard, state = next, log, save)", () => {
+    const redeem = functionBody("doRedeemCode");
+    for (const part of ["redeemGift(state", "if (r.next !== state)", "state = r.next", "pushLog(", "doSave()"]) expect(redeem).toContain(part);
+    const unlock = functionBody("doUnlockThemeStyle");
+    for (const part of ["unlockThemeStyle(state", "if (next === state) return", "state = next", "pushLog(", "doSave()"]) expect(unlock).toContain(part);
+    // the Starfall mirror waits for the real save to load and never writes over a corrupt one
+    expect(APP).toContain("$: if (accountReady && !suppressSave && $secretGame.milestones.starfall !== undefined");
+  });
+
+  it("0.13.11.1: Delete Save and Debug Reset still rebuild from freshState, which carries none of the new fields", () => {
+    expect(functionBody("resetSave")).toContain("freshState()");
+  });
+
+  it("0.13.11.1: the theme style setting shows only once unlocked, and the Debug grant is dev-only", () => {
+    const row = APP.indexOf('label="Theme style"');
+    expect(row).toBeGreaterThan(APP.indexOf("{#if themePresetChoices.length > 0}"));
+    const debug = APP.indexOf('{#if DEV_MODE && activeSystemSubTab === "debug"}');
+    const grant = APP.indexOf("on:click={devGrantStarfall}");
+    expect(grant).toBeGreaterThan(debug);
+    expect(grant).toBeLessThan(APP.indexOf("{/if}", APP.indexOf("[DEV] Save warning", debug)));
+  });
+
+  it("0.13.11.1: one achievement popup mount, after the overlay", () => {
+    expect(APP.split("<AchievementToasts").length - 1).toBe(1);
+    expect(APP.indexOf("<AchievementToasts")).toBeGreaterThan(APP.indexOf("<SecretGameOverlay"));
+  });
+
   it("the main loop and the main economy never mention the secret game", () => {
     const loopStart = APP.indexOf("const pollGameLoop = () => {");
     const loopEnd = APP.indexOf("const welcomeBack = ", loopStart);
