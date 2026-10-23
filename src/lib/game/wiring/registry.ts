@@ -97,6 +97,7 @@ import { BASE_FTL_DURABILITY, BASE_REACTOR_DURABILITY, COMBAT_DEFAULT_LOADOUT, c
 import { DEFENSIVE_STANCE, ENCOUNTER_OPEN_DISTANCE, WEAPON_RULE_TRAITS, familyResistPercent, podLineShare } from "../combat/combatRules";
 // E-MOD EM-3: the combat over-budget penalty's floor (its registry row's magnitude).
 import { POWER_SUPPLY_FLOOR_PERCENT } from "../combat/power";
+import { reactorSurplusSpeedLift } from "../reactorSurplus";
 import { qualityDurabilityMax } from "../combat/durability";
 import { stancePreferredDistance } from "../combat/positioning";
 import { combatDescriptorOn } from "./combatDescriptorProbes";
@@ -3737,7 +3738,9 @@ const AUDIT_ROWS: readonly { id: string; system: WiringSystem; claim: string; st
   // crew, sensor and member pieces). The defense pieces wear by battle (step 4): their own row below.
   { id: "ship:audit:slotDurability", system: "ship", claim: "SLOT_BASE_PHYSICALS durability for economy, crew, sensor and member pieces: a tougher piece wears slower by use", status: LIVE },
   { id: "ship:audit:slotDurabilityDefense", system: "ship", claim: "SLOT_BASE_PHYSICALS durability for defense pieces (shield emitters, hull plating): a tougher piece wears slower in battle", status: pending(GEAR_WEAR_STEP_4) },
-  { id: "ship:audit:reactorCoreNet", system: "ship", claim: "A crafted Reactor Core is net negative: its output only raises the power budget (no install gate or penalty before EM-2 / EM-3, the hull's own output covers every loadout), and its mass drags speed and fuel (B10)", status: pending("E-MOD EM-4 (unused reactor power speeds the drive, P3)") },
+  // E-MOD EM-4 (P3 "Speeds the drive"): B10 fixed. The core's unused power lifts the transit speed (reactorSurplus.ts),
+  // and its mass only eats into that lift (never slower than Standard Issue); its mass still costs fuel efficiency.
+  { id: "ship:audit:reactorCoreNet", system: "ship", claim: "A crafted Reactor Core's unused power speeds the drive on a diminishing curve (the hull's own power is never surplus); its mass eats into that lift but never makes the ship slower than Standard Issue (B10 fixed)", status: LIVE },
   { id: "ship:audit:arrayCharacter", system: "ship", claim: "ARRAY_CHARACTER: \"Focused: faster\" while its net rate is 0.78x; no Bio-Resonance line (B12)", status: pending("WR-7, OC-D11") },
   { id: "ship:audit:hullDescriptions", system: "ship", claim: "Hull descriptions (Aurora, Eir, Orion) claim what the engine does not do", status: pending("WR-7, OC-D13 (heavy cruiser wording: SF-6)") },
   // WR-8 (0.14.0, OC-D9 "Enemies start at range", OC-D12 "Feed them all"): the combat descriptors, each live with its
@@ -4035,6 +4038,19 @@ function auditRowWiring(): Readonly<Record<string, Partial<EntryInput>>> {
   });
   return {
     ...wr8AuditWiring(),
+    // E-MOD EM-4: a Reactor Core of REACTOR_LIFT_PROBE_OUTPUT power against the same core (same mass) supplying none, on a
+    // bare hull (the hull's own power covers its draw, so the whole output is surplus): the sheet's transit speed and
+    // the Ground Ops voyage's frozen outbound speed rise by exactly the lift.
+    "ship:audit:reactorCoreNet": {
+      probe: "sheetTransit",
+      contexts: ["sheet", "expedition:groundOps"],
+      direction: "up",
+      curve: { kind: "linearRelative" },
+      magnitude: () => reactorSurplusSpeedLift(REACTOR_LIFT_PROBE_OUTPUT) - 1,
+      base: bareHull,
+      on: reactorOutput(REACTOR_LIFT_PROBE_OUTPUT),
+      off: reactorOutput(0),
+    },
     // Gear wear step 3: a Reactor Core at its slot base (SLOT_BASE_PHYSICALS.reactorCore.durability) against one at
     // the TOUGHNESS_REFERENCE: a minute underway takes reference / base as much (one rounding step of tolerance).
     "ship:audit:slotDurability": {
@@ -4332,9 +4348,50 @@ function auditRowWiring(): Readonly<Record<string, Partial<EntryInput>>> {
 
 // E-MOD EM-1: the drive class draw. Expedition Tiers G2-4 made it live: the Class II Drive Blueprint (researchable at
 // Lab tier 2) draws x1.6 its slot's base draw, rounded up, on the sheet.
+// E-MOD EM-4: the reactor surplus probe's core (whole power points; weightless, so the never-slower floor never binds
+// and on and off differ only in the output).
+const REACTOR_LIFT_PROBE_OUTPUT = 40;
+function reactorOutput(points: number, mass = 0): Transform {
+  return (s) => installPiece(s, { slotType: "reactorCore", mass, implicitStats: { powerOutput: points } });
+}
+
 function emodAuditEntries(): WiringEntry[] {
   const draw = SLOT_BASE_PHYSICALS.ftlDrive.powerDraw;
   return [
+    // E-MOD EM-4 (WR-8 hand-off: combat speed reads the sheet's transit speed): the reactor surplus lift reaches the
+    // combat speed a run starting now freezes in its stamp (a patrol cycle, an expedition's ship events). Whole speed
+    // units, so one rounding step of tolerance.
+    entry({
+      id: "ship:em4:reactorLiftCombatSpeed",
+      system: "ship",
+      source: { catalog: "AUDIT", key: "ship:em4:reactorLiftCombatSpeed" },
+      claim: "A crafted Reactor Core's unused power also speeds the ship in combat (its combat speed comes from its transit speed)",
+      probe: "combatSpeedStamp",
+      contexts: ["patrol", "shipEvent"],
+      direction: "up",
+      curve: { kind: "linearRelative" },
+      magnitude: () => reactorSurplusSpeedLift(REACTOR_LIFT_PROBE_OUTPUT) - 1,
+      base: () => combatBase(),
+      on: reactorOutput(REACTOR_LIFT_PROBE_OUTPUT),
+      off: reactorOutput(0),
+      tolerance: 1,
+    }),
+    // E-MOD EM-4 (user 2026-10-23 "Never slower (Recommended)"): a crafted core whose lift is smaller than its own mass
+    // drag (a 1 output core at the slot's base mass 12, on a bare hull) flies exactly at the hull's Standard-Issue speed:
+    // the sheet and the Ground Ops voyage read the hull's own transit speed, not the dragged one.
+    entry({
+      id: "ship:em4:reactorNeverSlower",
+      system: "ship",
+      source: { catalog: "AUDIT", key: "ship:em4:reactorNeverSlower" },
+      claim: "A crafted Reactor Core never makes the ship slower than its Standard-Issue core: its mass only eats into the surplus speed",
+      probe: "sheetTransit",
+      contexts: ["sheet", "expedition:groundOps"],
+      direction: "none",
+      curve: { kind: "equals" },
+      magnitude: (c) => c.SHIP_TYPES.generalFreighter.transitSpeedMult,
+      base: bareHull,
+      on: reactorOutput(1, SLOT_BASE_PHYSICALS.reactorCore.mass),
+    }),
     entry({
       id: "ship:SHIP_SEAMS:driveClassPowerDraw",
       system: "ship",
@@ -5670,9 +5727,10 @@ function wearEntries(): WiringEntry[] {
     // Engine efficiency's only reader inside a run is a captain mission's fuel price per cycle, unreachable since
     // 0.13.6 (an infinite fuel budget: facility:audit:fuelAutoBuy); reach reads the pristine drive (design 4.3).
     "ftlDrive:engineEfficiency": pending("S4-A02 (the fuel-economy cleanup: a run's fuel price is engine efficiency's only run-time reader, unreachable since 0.13.6; reach reads the pristine drive, design 4.3)"),
-    // The reactor's power output has no reader outside the install gate (pristine) but the combat power budget, where
-    // combat's own model is the authority (W3).
-    "reactorCore:powerOutput": pending(`${GEAR_WEAR_STEP_4}: the reactor's power output is read only by the install gate (pristine, design 4.3) and the combat power budget`),
+    // The reactor's power output is read by the install gate (pristine), the combat power budget, where combat's own
+    // model is the authority (W3), and since E-MOD EM-4 the reactor surplus drive lift, which reads it pristine too
+    // ([PROVISIONAL], an open call for the user: reactorSurplus.ts).
+    "reactorCore:powerOutput": pending(`${GEAR_WEAR_STEP_4}: the reactor's power output is read by the install gate (pristine, design 4.3), the combat power budget and the reactor surplus drive lift (pristine for now, an open call)`),
     "specUtility:lines": {
       contexts: ["mission:survey", "mission:shortRange", "expedition:groundOps"],
       base: () => wearSlotFixture("specUtility", { sensors: WEAR_LINE }, "pathfinderSuite"),

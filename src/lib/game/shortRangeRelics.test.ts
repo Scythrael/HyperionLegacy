@@ -61,7 +61,7 @@ function missionOf(s: GameState, captainId = WIRING_CAPTAIN_ID): ShortRangeMissi
 function cycleAt(s: GameState, slotId: number, idx: number, shipId = "ship-1"): ShortRangeMissionState {
   const slot = shortRangeBoardSlots(s)[slotId];
   const ship = s.ships.find((x) => x.id === shipId)!;
-  const start = startShortRangeCycle(s, ship, slot, idx);
+  const start = startShortRangeCycle(s, ship, slot, idx, undefined, true);
   return { kind: "shortRange", slotId, roll: start.roll, plan: start.plan, phase: "transitOut", phaseProgressTicks: 0, recalled: false, relicBlanks: { version: 1 } };
 }
 

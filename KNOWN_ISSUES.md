@@ -3,6 +3,19 @@
 Things known to be broken or missing, deliberately deferred. Ops §8.E.7:
 write it down so you don't relitigate it later.
 
+- **[OPEN, found 2026-10-23 in the E-MOD EM-4 review; pre-existing since 0.13.4] One long `economyTick` call is not
+  equal to 1 s steps for a Repeat captain mission (Short Ore Run).** A single 2,400-tick call completes 2 runs where
+  2,400 one-tick steps complete 16, and 997-tick chunks also differ (Standard Issue included; the reactor lift changes
+  nothing here). Cause: an extraction claims its transit berths from a PER-CALL budget, computed once from the
+  incoming state and drawn down as captains claim (tick.ts, the "IT IS A BUDGET FOR THE WHOLE economyTick CALL"
+  comment; design `docs/plans/2026-09-11-infrastructure-0.13.4-design.md` section 5.2), so a call spanning more than
+  one homecoming holds the run at a berth. **Play is unaffected:** the live loop and the offline catch-up both step
+  `economyTick(state, 1)` per whole tick. It matters for any tool that advances the world in one big call, notably the
+  balance harness idea in SUGGESTIONS.md (the "THE BALANCE HARNESS GROWS BEYOND COMBAT" entry, about line 1872: "a
+  simulated player-week is ONE CALL"), which must step per tick or get a berth budget per tick. Tests that compare a
+  one-call span keep it within one homecoming (emodEm4.test.ts uses 97 s chunks and a 120 s call; shortRangeCycle.test.ts
+  leaves the Long Ore Run out of its one-call comparison for the same reason).
+
 - **[RESOLVED 2026-07-16] A material can overshoot its warehouse cap by a full mission cycle's haul
   (user-observed: Deuterium Ice at 1.3M / 1M cap, running at 1000x dev speed).** FIXED in two parts:
   (1) `addToInventory` (the single shared deposit seam) now CLAMPS every producer deposit at the item's

@@ -51,6 +51,7 @@ import { captainMotherlodeChance, captainTransportTerms, motherlodeSeed } from "
 import { countShortRangeCycleComplete } from "./runDifficulty";
 import { makeRng } from "./combat/rng";
 import { rollShortRangeRelicBlanks } from "./relicBlanks";
+import { reactorLiftFlagged } from "./reactorSurplus";
 import { formatNumber } from "./format";
 
 // The float-snap epsilon of a phase boundary (tickCaptainMission's MISSION_TICK_EPSILON).
@@ -302,7 +303,9 @@ export function tickCaptainShortRange(input: ShortRangeTickInput): ShortRangeTic
   // pieces as this call's earlier deliveries left them (projectRunStamp: the same arithmetic the tail pass writes), so
   // one call, chunks and 1 s steps agree. A run without a stamp reads the stored sheet and makes no wear event.
   const wearStamp = startMission.gearWear;
-  let stats = runShipStats(state, ship, wearStamp);
+  // E-MOD EM-4 (reactorSurplus.ts): only a run stamped with the reactor lift flag reads the drive lift.
+  const reactorLift = reactorLiftFlagged(startMission.reactorLift);
+  let stats = runShipStats(state, ship, wearStamp, reactorLift);
   const crewed = wearStamp === undefined ? false : shipCrewAboard(state, ship);
   const timedWear: TimedWear<ShipUseWear>[] = [];
   const outputShare = Math.max(0, shipMissionOutputBonus(state, ship));
@@ -447,8 +450,8 @@ export function tickCaptainShortRange(input: ShortRangeTickInput): ShortRangeTic
     // step 3: the new cycle re-reads its gear (its stamp re-frozen at this instant), and its plan and pay fold it.
     const cycleStamp =
       wearStamp === undefined ? undefined : projectRunStamp(state, ship.id, timedWear, state.gameTimeSeconds + (ticksElapsed - remaining) * state.tickDurationSeconds);
-    if (cycleStamp !== undefined) stats = runShipStats(state, ship, cycleStamp);
-    const start = startShortRangeCycle({ ...state, runCounts }, ship, slot, roll.cycleIndex + 1, cycleStamp);
+    if (cycleStamp !== undefined) stats = runShipStats(state, ship, cycleStamp, reactorLift);
+    const start = startShortRangeCycle({ ...state, runCounts }, ship, slot, roll.cycleIndex + 1, cycleStamp, reactorLift);
     runCounts = start.runCounts;
     mission = {
       kind: "shortRange",
@@ -463,6 +466,8 @@ export function tickCaptainShortRange(input: ShortRangeTickInput): ShortRangeTic
       // G1-5: the run's relic flag and its finds so far ride every later cycle (absent on a run without the flag).
       ...(mission.relicBlanks !== undefined ? { relicBlanks: mission.relicBlanks } : {}),
       ...(relicsThisRun > 0 ? { relicsThisRun } : {}),
+      // E-MOD EM-4: the run's reactor lift flag rides every later cycle (absent on a run without it).
+      ...(mission.reactorLift !== undefined ? { reactorLift: mission.reactorLift } : {}),
     };
   }
 

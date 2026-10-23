@@ -1055,6 +1055,8 @@
   // missions through. The two mission-timing popups now read it (they read the bare equipment fold before,
   // which omitted crew and the museum, so the shown times disagreed with the flown ones).
   import { effectiveShipStats, shipCombatRulesStamp } from "./lib/game/crewOverlay";
+  // E-MOD EM-4 review: the in-progress mission card reads the run's own sheet (its gear wear stamp, its reactor lift flag).
+  import { missionRunSheet } from "./lib/game/gearWearEngine";
   // G1-3: a short-range run's display name (its current job) for the status rows and the recall log.
   // G1-6: the board's dispatch and its Repeat toggle (pure engine fns behind the do* handlers below).
   import { shortRangeMissionLabel, dispatchCaptainOnShortRange, setShortRangeRepeat, shortRangeBoardSlots } from "./lib/game/shortRangeBoard";
@@ -17396,7 +17398,7 @@
                          Home board and the engine. -->
                     {@const missionShip = state.ships.find((s) => s.assignedCaptainId === captain.id)}
                     {@const missionDef = missionShip
-                      ? effectiveMissionDef(MISSIONS[mission.missionKey], effectiveShipStats(state, missionShip))
+                      ? effectiveMissionDef(MISSIONS[mission.missionKey], missionRunSheet(state, missionShip, mission))
                       : MISSIONS[mission.missionKey]}
                     {@const requiredTicks = missionPhaseTicks(mission.phase, missionDef, mission.cargo)}
                     {@const progress = Math.min(1, mission.phaseProgressTicks / requiredTicks)}

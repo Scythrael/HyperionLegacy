@@ -27,8 +27,8 @@
 // and deterministic in (pool order, caps). See docs/plans/2026-09-22-crew-0.14.0-plan.md
 // ("Engine seams" 1/4/5).
 
-import type { GameState, ShipInstance, ShipDerivedStats, SeniorStaffOfficer, CrewSignature, CrewBucket, OfficerCombatMods, SeniorStaffSeat, PromotionObjectiveKind } from "./model";
-import { equipmentStatMods, shipDerivedStats, SHIP_TYPES } from "./model";
+import type { EquipmentInstance, GameState, ShipInstance, ShipDerivedStats, SeniorStaffOfficer, CrewSignature, CrewBucket, OfficerCombatMods, SeniorStaffSeat, PromotionObjectiveKind } from "./model";
+import { equipmentStatMods, shipDerivedStats, MASS_SPEED_DRAG, SHIP_TYPES } from "./model";
 import { combatSpeedFor, newCombatRulesStamp, type CombatRulesStamp } from "./combat/combatRules";
 import { powerSupplyPercent } from "./combat/power";
 import { equippedFor } from "./equipmentQueries";
@@ -56,6 +56,8 @@ import { constitutionRamp, departmentFacet, departmentStrengthMultipliers, seatF
 // WR-5a (0.14.0): the commanding captain's secondary-tree ship-stat lifts (pure; imports only model.ts).
 import { captainShipLifts, commandingCaptain, type CaptainShipLifts } from "./captainSecondaryEffects";
 import { diminishing } from "./diminishing";
+// E-MOD EM-4: the reactor surplus drive lift's curve (a leaf: imports only diminishing.ts).
+import { REACTOR_LIFT_SWITCH, reactorSurplusSpeedLift } from "./reactorSurplus";
 // WR-5c (0.14.0): the commanding captain's explorer secondary nodes (pure; imports only model.ts, so no cycle).
 import { captainComplementMult, captainOfficerOutputMult, captainSensorsMult } from "./captainExplorerEffects";
 
@@ -777,12 +779,86 @@ export function shipSurveyAptitude(state: GameState, ship: ShipInstance): number
 // missions + patrol, dispatch gates, berths, expedition sensor snapshot) and the UI readout route through
 // this one function, the museum's ship-stat bonuses land everywhere at once. With an empty museum both
 // overlays are identity (same reference), so the result is byte-identical to E4a.
-export function effectiveShipStats(state: GameState, ship: ShipInstance): ShipDerivedStats {
+//
+// E-MOD EM-4 (reactorSurplus.ts, user P3 "Speeds the drive"): the installed Reactor Core's unused output lifts the
+// transit speed, LAST (it multiplies the finished speed, so its share is exactly effective / (the sheet without it)).
+// `opts.reactorLift: false` reads the sheet without the lift: a captain mission or short-range run dispatched before
+// EM-4 (no flag, gearWearEngine.ts runShipStats), and the readout's source split (its Reactor surplus bucket).
+export function effectiveShipStats(state: GameState, ship: ShipInstance, opts: { reactorLift?: boolean } = {}): ShipDerivedStats {
   // WR-5a: the commanding captain's Prospector nodes, LAST (Overloaded Holds' overflow is a share of the finished hold).
   // WR-5c: then the same captain's Keen Sensors (a multiplier on the finished sensors; the Prospector lifts never
   // touch sensors, so the order between the two is immaterial).
   const captain = commandingCaptain(state, ship);
-  return applyCaptainSensors(applyCaptainOverlay(shipStatsBeforeCaptain(state, ship), captainShipLifts(captain)), captainSensorsMult(captain));
+  const stats = applyCaptainSensors(applyCaptainOverlay(shipStatsBeforeCaptain(state, ship), captainShipLifts(captain)), captainSensorsMult(captain));
+  return opts.reactorLift === false ? stats : applyReactorDrive(state, ship, stats);
+}
+
+// E-MOD EM-4: the installed Reactor Core's drive effect on the finished sheet. Transit speed x the surplus lift, then
+// NEVER SLOWER (user 2026-10-23 "Never slower (Recommended)": a crafted core's speed can never drop below what the same
+// ship gets with its Standard-Issue core; the core's mass only eats into the surplus bonus): when the lifted speed is
+// below the speed of the same ship with this core weightless and no lift (exactly the Standard-Issue core's sheet: it
+// weighs 0 and supplies 0, and a core carries no transit line), that speed is the ship's. The leg lifts (Fast
+// Departure / Fast Return) multiply this sweeping speed, so both legs, the voyage and the combat speed all take it.
+// Returns `stats` itself without a core, with the Standard-Issue core and while the test switch is off (the
+// byte-identical guarantee). PURE.
+function applyReactorDrive(state: GameState, ship: ShipInstance, stats: ShipDerivedStats): ShipDerivedStats {
+  if (!REACTOR_LIFT_SWITCH.live) return stats;
+  const core = equippedFor(state, ship.id).find((p) => p.slotType === "reactorCore");
+  if (core === undefined) return stats;
+  return reactorDriveFold(stats, core, reactorSurplusSpeedLift(shipReactorSurplus(state, ship)), () => {
+    const weightless = { ...state, equipment: state.equipment.map((e) => (e.id === core.id ? { ...e, mass: 0 } : e)) };
+    return effectiveShipStats(weightless, ship, { reactorLift: false }).transitSpeedMult;
+  });
+}
+
+// E-MOD EM-4: the one drive rule both sheets share (the crew-inclusive one above and the gear-only one below): the
+// sheet's speed x `lift`, floored at `floorSpeed()` (the same sheet with the core weightless and no lift). The core's
+// own drag on the sheet, (1 + drag M) / (1 + drag (M - m)): a lift clearly above it is already faster than the floor,
+// so the floor fold is skipped; otherwise it is folded exactly (no ratio rounding). PURE.
+function reactorDriveFold(stats: ShipDerivedStats, core: EquipmentInstance, lift: number, floorSpeed: () => number): ShipDerivedStats {
+  const lifted = lift === 1 ? stats : { ...stats, transitSpeedMult: stats.transitSpeedMult * lift };
+  if (!(core.mass > 0)) return lifted;
+  const others = Math.max(0, stats.mass - core.mass);
+  const drag = (1 + MASS_SPEED_DRAG * stats.mass) / (1 + MASS_SPEED_DRAG * others);
+  if (lift > drag * (1 + 1e-9)) return lifted;
+  const floor = floorSpeed();
+  return lifted.transitSpeedMult >= floor ? lifted : { ...stats, transitSpeedMult: floor };
+}
+
+// E-MOD EM-4 (review 2026-10-23): the GEAR-ONLY sheet (model.ts shipDerivedStats: hull and installed pieces, no crew)
+// with the Reactor Core's drive rule, for readouts that compare loadouts gear against gear (Ship Systems' install
+// compare and its gear note), so a crafted core never shows as slower there either. The surplus reads the gross draw
+// (no crew power efficiency: the gear-only scope), the floor the same pieces with the core weightless. Every other
+// field is shipDerivedStats' own. The same object without a core, with the Standard-Issue core and while the test
+// switch is off. PURE.
+export function gearSheetWithReactorDrive(ship: ShipInstance, pieces: EquipmentInstance[]): ShipDerivedStats {
+  const stats = shipDerivedStats(ship, pieces);
+  if (!REACTOR_LIFT_SWITCH.live) return stats;
+  const core = pieces.find((p) => p.slotType === "reactorCore");
+  if (core === undefined) return stats;
+  const mods = equipmentStatMods(pieces);
+  const other = SHIP_TYPES[ship.typeKey].basePowerOutput + mods.modulePowerOutput;
+  const surplus = Math.min(mods.powerOutput, Math.max(0, other + mods.powerOutput - mods.totalPowerDraw));
+  return reactorDriveFold(stats, core, reactorSurplusSpeedLift(surplus), () => shipDerivedStats(ship, pieces.map((p) => (p.id === core.id ? { ...p, mass: 0 } : p))).transitSpeedMult);
+}
+
+// E-MOD EM-4: the installed Reactor Core's UNUSED power, min(the reactor's own output, max(0, output - net draw)),
+// exactly shipPower.ts shipPowerBudget(...).reactorSurplus (emodEm4.test.ts holds the two equal). The hull's own base
+// power and a module's output are never surplus, so a ship without a crafted Reactor Core has none. PRISTINE gear (the
+// reactor is outside the wear view and no view moves a draw). FAST PATH: power efficiency only ever lowers the draw,
+// so a draw the hull's own output (and module output) covers leaves the whole reactor idle, and the crew fold is
+// skipped (every live ship under P1). PURE.
+export function shipReactorSurplus(state: GameState, ship: ShipInstance): number {
+  const pieces = equippedFor(state, ship.id);
+  if (!pieces.some((p) => p.slotType === "reactorCore")) return 0;
+  const mods = equipmentStatMods(pieces);
+  const reactor = mods.powerOutput;
+  if (!(reactor > 0)) return 0;
+  const other = SHIP_TYPES[ship.typeKey].basePowerOutput + mods.modulePowerOutput;
+  const gross = mods.totalPowerDraw;
+  if (gross <= other) return reactor;
+  const efficiency = Math.max(0, shipCrewContribution(state, ship)[CREW_STAT_KEYS.powerEfficiency] ?? 0);
+  return Math.min(reactor, Math.max(0, other + reactor - netPowerDraw(gross, efficiency)));
 }
 
 // WR-8 (0.14.0, combat/combatRules.ts): the combat rules stamp a run starting now writes for `ship`: its combat speed

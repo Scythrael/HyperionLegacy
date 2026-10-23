@@ -537,6 +537,87 @@ recharge); the patrol's shield top-up between waves (out of combat) is not cut. 
 them). Registry: `ship:audit:reactorCoreNet` LIVE. Tests: the B10 test (crafted core vs Standard-Issue, every hull,
 strictly faster); Standard-Issue reactor = byte-identical.
 
+*Carry note (EM-4 built 2026-10-23, on feat e1ee724).* Goldens first: `emodEm4Goldens.test.ts` (own commit 65e9cf3)
+pins, before the engine, every hull's sheet with the Standard-Issue core and three real mints (`emodEm4.fixture.ts`:
+ref, the worst Standard tier 1 roll at item level 20, 23 output and the full mass 12; mid, a Balanced Core at 10; top,
+the item level 40 quality 5 Radiant High-Output Core, about 150 output, mass 0), Short Ore Runs, a short-range run, an
+Orion's voyage, the combat stamp, Dispatch Once patrols (four hulls x both routes, WR-8 rules) and the forecasts.
+Built: the leaf `reactorSurplus.ts` (`REACTOR_SURPLUS_LIFT` [PROPOSAL] perPoint 0.022, knee 10: lift = 1 + perPoint x
+diminishing(surplus, knee); `REACTOR_LIFT_SWITCH`, the test-only off switch; the run flag `reactorLift: { version: 1 }`);
+`crewOverlay.ts shipReactorSurplus` (equals `shipPowerBudget().reactorSurplus`, a fast path while the hull's own output
+covers the draw) and the lift applied LAST in `effectiveShipStats` (`opts.reactorLift: false` reads without it).
+In-flight byte-identity: a captain mission and a short-range run read the lift only when flagged, stamped at dispatch on
+a ship with a powered Reactor Core (no flag on a Standard-Issue ship, so every such run record is unchanged) and carried
+to every later cycle (`runShipStats(..., reactorLift)`, `startShortRangeCycle(..., reactorLift)`, the Home dashboard
+row); a patrol cycle reads it through its combat stamp, frozen at the cycle start (the WR-8 / EM-3 rule: a run in
+flight keeps its stamp until its next cycle); an expedition through its dispatch snapshot. No draw, no salt, no save
+step (the short-range validator learns the flag). Moved by design (zeroing the lift, `emodEm4Switch.fixture.ts`,
+reproduces every pre row; every Standard-Issue row held): sheet speed x hull base, pre / live, ref 0.81 / 1.05, mid
+0.89 / 1.06, top 1.00 / 2.01; Short Ore Run legs on a Freighter ref 31 / 24 ticks (raw 25), top 25 / 13; the Orion's
+Tier I voyage ref 6,915 / 5,317 s each way (Standard Issue 5,577), top 5,577 / 2,776; forecast wins of 64: Carrier
+Warband ref 3 / 28, mid 2 / 26, top 25 / 33 (Standard Issue 23), and its Dispatch Once now won; Battleship Warband ref 49
+/ 53; Destroyer Warband ref 3 / 6 (Standard Issue 9); Freighter Sweep ref 56 / 57. `emodGoldens`, `gearWearGoldens`
+run with the lift off (`reactorLiftOffForThisFile`); the registry pins read EM-4 back (`emodEm4Registry.fixture.ts
+em4ReadBack`). Registry: `ship:audit:reactorCoreNet` LIVE (sheet and Ground Ops voyage), new
+`ship:em4:reactorLiftCombatSpeed` LIVE (patrol and ship event stamp). UI: one source bucket ("Reactor surplus") in the
+FTL Speed readout and the FTL Speed / Power Output (i) texts. **Readings for the user:** the worst Standard roll nets
+faster from about 17 output (item level 15); cores crafted below that (a fresh crafter's item level 1 to 10) can still
+be slower than Standard Issue, because the full mass 12 costs 19% of the speed and the lift is surplus-driven; the top
+core doubles the speed (the D23 curve has no cap, and the B10 bar forces its far end); the core's mass still costs fuel
+efficiency (reach). **For WR-7:** patrol legs still ignore speed; when they scale with it they read the stamp or a flag
+the same way. **For EM-7 / G2-4:** a module or Class II+ drive draw spends the lift only once the total draw passes the hull's own power (the systems draw the hull's power first; the B.4 grid).
+
+*Carry note (EM-4 follow-up, 2026-10-23, the user's answers to the EM-4 open calls: "Never slower (Recommended)" and
+"Soften the top (Recommended)").* The readings above are superseded. NEVER SLOWER (`crewOverlay.ts applyReactorDrive`):
+the lifted speed is floored at the same ship's speed with this core weightless and no lift, which is exactly its
+Standard-Issue sheet (the Standard-Issue core weighs 0 and supplies 0, and a core carries no transit line); the floor is
+folded exactly, and skipped when the lift is clearly above the core's own drag. Since it sits on the sheet's transit
+speed it holds for the mission and short-range legs, the voyage and the combat stamp. The run flag now also marks a core
+with mass and no output. SOFTER TOP: `REACTOR_SURPLUS_LIFT` [PROVISIONAL] perPoint 0.0077, knee 10: the best core 0.14.0
+can mint (item level 40, quality 5, Radiant, mass 0, about 150 output) flies +35%; a weightless 20 output core +10%.
+With the floor, the core's mass eats the lift first: a full mass 12 core shows a gain only from about 80 surplus, a 6
+mass core from about 28. Impact (pre-EM-4 / now): sheet speed ref 0.81 / 1.00, mid 0.89 / 1.00, top 1.00 / 1.35;
+Freighter Short Ore Run legs ref 31 / 25 ticks, top 25 / 19 (Standard Issue 25); the Orion's Tier I voyage ref 6,915 /
+5,577 s each way, top 5,577 / 4,121 (Standard Issue 5,577); forecast wins of 64 (Standard Issue in brackets): Carrier
+Warband ref 3 / 23, top 25 / 29 (23); Battleship Warband ref 49 / 52, top 52 / 55 (52); Destroyer Warband ref 3 / 9,
+top 9 / 7 (9); Freighter Sweep ref 56 / 57, top 57 / 60 (57). Tests: `emodEm4.test.ts` sweeps every hull, every core
+variety, item levels 1 to 40 (the worst Standard roll, four seeded Standard rolls and a Radiant quality 5 roll), light
+and loaded: the sheet speed and the Long Ore Run legs never worse than Standard Issue; the combat stamp speed on every
+combat hull and the Orion's voyage likewise; the best core +30 to +40%. Registry: `ship:em4:reactorNeverSlower` added
+LIVE (equals: a 1 output, mass 12 core on a bare Freighter reads the hull's own speed on the sheet and the voyage); the
+two lift probes use a weightless core. The flag version stays 1 (no EM-4 build ever reached staging or a save).
+**The combat speed case** (a ref core at combat speed 31 won 6 Destroyer Warbands of 64, Standard Issue at 30 won 9):
+NOT a real inversion. A sweep of the Destroyer's stamp speed (64 and 512 samples) shows one real step, at the pirates'
+own speed 30: below it 3 to 4 of 64 (50 to 56 of 512), from 30 up a plateau of 6 to 9 of 64 (78 to 90 of 512; 30: 82,
+31: 78, 32: 83). The Carrier (2 / 23 of 64 below / at 30) and the Battleship show the same step. So 31 against 30 is
+sample noise on the plateau; the real harm was the old dragged core pushing a ship BELOW the pirates' speed (24), which
+the never-slower floor now rules out. **Reading for the user:** with both answers, a Standard-quality core with its full
+mass 12 never shows a speed gain at any item level 0.14.0 reaches (its worst roll tops out near 46 output at item level
+40); the gain shows on light (mass-reduced) and high-output rare cores (a Radiant quality 5 High-Output Core: +8% at item
+level 10, +23% at 20, +35% at 40; the Balanced Core's Radiant roll +9% at 40). Its other worth is the power headroom
+(EM-2).
+
+*Carry note (EM-4 review fixes, 2026-10-23, "approve with fixes").* (1) The Ship Systems install compare and the
+readout's gear note read `crewOverlay.ts gearSheetWithReactorDrive` (the gear-only sheet with the same drive rule:
+gross-draw surplus, the never-slower floor), so a crafted core no longer compares as slower ("x1.00 -> x0.81, -19
+pts" before); the source popover names the bucket "Reactor Core (never slower)" when the floor sets the speed.
+(2) ONE run sheet for a captain mission in flight, `gearWearEngine.ts missionRunSheet` (the run's gear wear stamp and
+its reactor lift flag): the engine's mission arm and the Home row already read it; now the mission card (App.svelte)
+and the transit berth wait (berths.ts isAwaitingBerth and the berth ETA's unload) do too. Fixed with it, the older gear
+wear step 3 gap: those readouts read the pristine stored sheet, so a run worn at dispatch counted down early. Behavior
+beyond the readouts: none (the berth readers are display only; the engine claims berths through transitBerthsFree).
+(3) The FTL Speed (i) text and reactorSurplus.ts: powered systems use the lift only once they draw more than the hull's
+own power. (5) KNOWN_ISSUES.md records the pre-existing one-call parity break for Short Ore Runs (the 0.13.4 per-call
+berth budget). (7) `reactorLift` is required in `runShipStats` and `startShortRangeCycle`. (8) A captain mission's flag
+is read through `reactorSurplus.ts reactorLiftFlagged` (a malformed value, null included, never counts), the rule the
+short-range validator uses. Registry: the reactor wear consumer row (`wear:WEAR_EFFICIENCY:reactorCore:powerOutput`,
+pending on gear wear step 4) now names the drive lift as a reader (em4ReadBack restores the old owner text for the
+earlier pins). Tests: `emodEm4Readouts.test.ts`.
+**OPEN CALL for the user (EM-4 review item 4), [PROVISIONAL] as built:** the drive lift reads the Reactor Core's
+PRISTINE output (like the install gate), so a worn core lifts as much as a new one. (a) Keep pristine (as built; the
+core's wear acts in combat through its four-state model). (b) Read the worn output, like the other run consumers, from
+gear wear step 4.
+
 **EM-5 Module slot and catalog (engine).** The `module` slot, cap (call M1), `moduleSlotsFull`, `duplicateModule`
 (call M8), physicals, catalog, mint path, Passive and Conditional effects through the ship sheet and combat bridge,
 Armory / salvage / Archive / item-side install support, S2 out-of-ship lock. Hull descriptions made true (OC-D13: "most

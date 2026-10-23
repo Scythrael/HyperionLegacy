@@ -203,6 +203,7 @@ import { groundTeamBaySeconds } from "../groundOps";
 import { retirementExpMultiplier } from "../captainRetirement";
 import { transitBerthCount } from "../berths";
 import { shortRangeBoardSlots, startShortRangeCycle } from "../shortRangeBoard";
+import { newReactorLiftFlag } from "../reactorSurplus";
 import { RELIC_BLANKS_VERSION } from "../relicBlanks";
 import { rollShortRangeJob, shortRangeCycleReward, shortRangeShipRatings, type ShortRangeCyclePlan, type ShortRangeRoll, type ShortRangeTemplateKey } from "../shortRange";
 import { blindLaunchCount, telescopeReading } from "../telescope";
@@ -713,8 +714,10 @@ export function shortRangeJobRoll(s: GameState, template: ShortRangeTemplateKey)
 // Captain 1 flying that roll on ship-1, its cycle started through the board's own seam (startShortRangeCycle), at the
 // start of `phase`. Recalled unless `repeat`: the run ends after its one delivered cycle.
 export function onShortRangeJob(s: GameState, template: ShortRangeTemplateKey, phase: ShortRangePhase = "transitOut", repeat = false): GameState {
-  const start = startShortRangeCycle(s, shipOf(s), SHORT_RANGE_PROBE_SLOT, shortRangeJobIndex(s, template));
-  const mission: ShortRangeMissionState = { kind: "shortRange", slotId: 0, roll: start.roll, plan: start.plan, phase, phaseProgressTicks: 0, recalled: !repeat };
+  // E-MOD EM-4: the reactor lift flag a dispatch now writes (none with the Standard-Issue core).
+  const reactorLift = newReactorLiftFlag(equippedFor(s, WIRING_SHIP_ID));
+  const start = startShortRangeCycle(s, shipOf(s), SHORT_RANGE_PROBE_SLOT, shortRangeJobIndex(s, template), undefined, reactorLift !== undefined);
+  const mission: ShortRangeMissionState = { kind: "shortRange", slotId: 0, roll: start.roll, plan: start.plan, phase, phaseProgressTicks: 0, recalled: !repeat, ...(reactorLift ? { reactorLift } : {}) };
   return { ...editCaptain(s, { mission } as Partial<CaptainState>), runCounts: start.runCounts };
 }
 
@@ -752,7 +755,8 @@ export function shortRangeRelicCycleFinds(s: GameState, tier: 1 | 2, flagged: bo
   const slot = { id: tier === 1 ? 0 : 2, tier };
   let idx = 0;
   while (rollShortRangeJob(s, slot, idx).template !== "telescopeRepair") if (++idx > 2000) throw new Error("wiring: no telescopeRepair roll");
-  const start = startShortRangeCycle(s, shipOf(s), slot, idx);
+  const reactorLift = newReactorLiftFlag(equippedFor(s, WIRING_SHIP_ID));
+  const start = startShortRangeCycle(s, shipOf(s), slot, idx, undefined, reactorLift !== undefined);
   const total = SHORT_RANGE_RELIC_PROBE_HOURS * 3600;
   const legs = start.plan.transitOutTicks + start.plan.transitBackTicks + start.plan.unloadTicks;
   const plan = { ...start.plan, onSiteTicks: total - legs, totalTicks: total };
@@ -765,6 +769,7 @@ export function shortRangeRelicCycleFinds(s: GameState, tier: 1 | 2, flagged: bo
     phaseProgressTicks: 0,
     recalled: true,
     ...(flagged ? { relicBlanks: { version: RELIC_BLANKS_VERSION } } : {}),
+    ...(reactorLift ? { reactorLift } : {}),
   };
   const after = economyTick({ ...editCaptain(s, { mission } as Partial<CaptainState>), runCounts: start.runCounts }, total + 1, () => 0.5);
   if (captainOf(after).mission !== null) throw new Error("wiring: the relic probe's cycle was not delivered");

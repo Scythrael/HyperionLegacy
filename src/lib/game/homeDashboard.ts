@@ -110,7 +110,7 @@ import {
 } from "./craftQueue";
 // Crew 0.14.0 ("CREW GOES LIVE"): the SAME crew-boosted derived-stats helper the engine uses (hull +
 // equipment fold with the ship's crew overlaid), so the readout and the engine agree on phase lengths.
-import { effectiveShipStats } from "./crewOverlay";
+import { missionRunSheet } from "./gearWearEngine";
 // Exploration 0.14.0 (E4a): relic + set names for the relic-study rows (pure catalog, no cycle).
 import { getRelicById, getRelicSetById } from "./relics";
 
@@ -710,9 +710,9 @@ function rowForExtraction(
   // the pure equipment fold (byte-identical to before this phase).
   const rawMissionDef = MISSIONS[mission.missionKey];
   const ship = state.ships.find((s) => s.assignedCaptainId === captain.id);
-  const missionDef = ship
-    ? effectiveMissionDef(rawMissionDef, effectiveShipStats(state, ship))
-    : rawMissionDef;
+  // E-MOD EM-4 review: the run's own sheet (gearWearEngine.ts missionRunSheet: its frozen gear and its reactor lift
+  // flag), the one the engine flies it on.
+  const missionDef = ship ? effectiveMissionDef(rawMissionDef, missionRunSheet(state, ship, mission)) : rawMissionDef;
   // E-CREW (Task 21): the same phase length the engine advances on (a packed hold unloads faster).
   const requiredTicks = missionPhaseTicks(mission.phase, missionDef, mission.cargo);
   const progress = Math.min(1, mission.phaseProgressTicks / requiredTicks);

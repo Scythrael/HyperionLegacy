@@ -287,7 +287,7 @@ describe("G1-3 dispatch: the first cycle start, frozen, and the per-template boo
   it("startShortRangeCycle is the dispatch's own cycle start (the seam G1-4 reuses)", () => {
     const s = qualified();
     const slot = shortRangeBoardSlots(s)[1];
-    const start = startShortRangeCycle(s, shipOf(s), slot, 3);
+    const start = startShortRangeCycle(s, shipOf(s), slot, 3, undefined, true);
     const m = missionOf(dispatched({ ...s, shortRangeBoard: { version: 1, nextCycle: { 1: 3 } } }, 1));
     expect(m.roll).toEqual(start.roll);
     expect(m.plan).toEqual(start.plan);

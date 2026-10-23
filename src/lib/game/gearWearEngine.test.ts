@@ -81,7 +81,7 @@ describe("gear wear step 3: the use wear sources (each kind its own way, at its 
     const s0: GameState = { ...base, facilities: { ...base.facilities, missionControl: { ...base.facilities.missionControl, level: 9 } } };
     const slot = shortRangeBoardSlots(s0)[0];
     const wear = runWearStamp(s0, WIRING_SHIP_ID);
-    const start = startShortRangeCycle(s0, shipOf(s0), slot, shortRangeNextCycle(s0, slot.id), wear);
+    const start = startShortRangeCycle(s0, shipOf(s0), slot, shortRangeNextCycle(s0, slot.id), wear, true);
     expect(start.roll.difficulty.firstRun).toBe(true);
     const mission: ShortRangeMissionState = { kind: "shortRange", slotId: slot.id, roll: start.roll, plan: start.plan, phase: "transitOut", phaseProgressTicks: 0, recalled: false, gearWear: wear };
     let s: GameState = { ...s0, captains: s0.captains.map((c, i) => (i === 0 ? { ...c, mission } : c)), runCounts: start.runCounts };
@@ -174,7 +174,7 @@ describe("gear wear step 3: offline == live across settles", () => {
     const s0: GameState = { ...base, facilities: { ...base.facilities, missionControl: { ...base.facilities.missionControl, level: 9 } } };
     const slot = shortRangeBoardSlots(s0)[0];
     const wear = runWearStamp(s0, WIRING_SHIP_ID);
-    const start = startShortRangeCycle(s0, shipOf(s0), slot, shortRangeNextCycle(s0, slot.id), wear);
+    const start = startShortRangeCycle(s0, shipOf(s0), slot, shortRangeNextCycle(s0, slot.id), wear, true);
     const mission: ShortRangeMissionState = { kind: "shortRange", slotId: slot.id, roll: start.roll, plan: start.plan, phase: "transitOut", phaseProgressTicks: 0, recalled: false, gearWear: wear };
     const s: GameState = { ...s0, captains: s0.captains.map((c, i) => (i === 0 ? { ...c, mission } : c)), runCounts: start.runCounts };
     const spare: EquipmentInstance = { ...shipPieces(s).find((e) => e.slotType === "cargoBay")!, id: "gw-spare", fittedToShipId: null };
@@ -206,7 +206,7 @@ describe("gear wear step 3: a Repeat run re-reads its gear at each cycle start (
     const stamp = (s.captains[0].mission as CaptainMissionState).gearWear!;
     expect(stamp.frozen).toEqual({ [hold.id]: USE_WEAR_FLOOR });
     const ship = shipOf(s);
-    const sheet0 = runShipStats(s, ship, stamp);
+    const sheet0 = runShipStats(s, ship, stamp, true);
     expect(sheet0.cargoCapacity).toBeLessThan(effectiveShipStats(base, ship).cargoCapacity);
     s = stepped(s, 60); // mid-cycle: the stamp has not moved
     expect((s.captains[0].mission as CaptainMissionState).gearWear).toEqual(stamp);
@@ -216,20 +216,20 @@ describe("gear wear step 3: a Repeat run re-reads its gear at each cycle start (
     let s = dispatched(lined(), "shortOreRun");
     expect((s.captains[0].mission as CaptainMissionState).gearWear).toEqual({ version: 1 });
     const ship = shipOf(s);
-    const sheet0 = runShipStats(s, ship, { version: 1 });
+    const sheet0 = runShipStats(s, ship, { version: 1 }, true);
     for (let i = 0; i < 2000 && Number(s.lifetimeStats.missionsCompleted.shortOreRun ?? 0) < 1; i++) s = economyTick(s, 1, RNG);
     const stamp = (s.captains[0].mission as CaptainMissionState).gearWear!;
     expect(Object.keys(stamp.frozen ?? {}).length).toBeGreaterThan(0);
     const hold = shipPieces(s).find((e) => e.slotType === "cargoBay")!;
     expect(stamp.frozen?.[hold.id]).toBe(pieceCondition(hold));
-    expect(runShipStats(s, ship, stamp).cargoCapacity).toBeLessThan(sheet0.cargoCapacity);
+    expect(runShipStats(s, ship, stamp, true).cargoCapacity).toBeLessThan(sheet0.cargoCapacity);
   });
 
   it("a re-read that returns the same sheet is byte-identical (the refold uses the declarations' expressions)", () => {
     for (const key of ["shortOreRun", "surveyMineralAnomaly", "frontierSupplyRun"] as MissionKey[]) {
       const s = { ...onMission(lined(), key, "ordersReceived"), credits: new Decimal(1e9) };
       const captain = s.captains[0];
-      const stats = runShipStats(s, shipOf(s), undefined);
+      const stats = runShipStats(s, shipOf(s), undefined, true);
       const plain = tickCaptainMission(5000, captain, RNG, {}, stats, Infinity, 0, 1e9, undefined, Infinity, 1);
       const reread = tickCaptainMission(5000, captain, RNG, {}, stats, Infinity, 0, 1e9, undefined, Infinity, 1, () => ({ stats, gearWear: { version: 1 } }));
       const strip = (r: typeof plain) => ({ ...r, captain: { ...r.captain, mission: r.captain.mission && { ...r.captain.mission, gearWear: undefined } } });
@@ -240,7 +240,7 @@ describe("gear wear step 3: a Repeat run re-reads its gear at each cycle start (
 
   it("the cycle wear reads the run sheet's own cycle length (missionCycleWear)", () => {
     const s = fleetBase();
-    const w = missionCycleWear("shortOreRun", runShipStats(s, shipOf(s), runWearStamp(s, WIRING_SHIP_ID)), 1, true);
+    const w = missionCycleWear("shortOreRun", runShipStats(s, shipOf(s), runWearStamp(s, WIRING_SHIP_ID), true), 1, true);
     expect(w.hauls).toBe(1);
     expect(w.minutesUnderway).toBeGreaterThan(1);
     expect(w.lightYears).toBeGreaterThan(0);
@@ -264,7 +264,7 @@ describe("gear wear step 3: what wear never touches (design 4.3, the peace rule)
     expect(canDispatch(w, 1, "longOreRun")).toEqual(canDispatch(s, 1, "longOreRun"));
     expect(effectiveShipStats(w, ship)).toEqual(effectiveShipStats(s, ship));
     expect(shortRangeShipRatings(w, ship, 1)).toEqual(shortRangeShipRatings(s, ship, 1));
-    expect(runShipStats(w, ship, runWearStamp(w, WIRING_SHIP_ID)).cargoCapacity).toBeLessThan(effectiveShipStats(s, ship).cargoCapacity);
+    expect(runShipStats(w, ship, runWearStamp(w, WIRING_SHIP_ID), true).cargoCapacity).toBeLessThan(effectiveShipStats(s, ship).cargoCapacity);
   });
 
   it("the patrol combatant (combat is step 4's) and the install gate never read a worn value", () => {
