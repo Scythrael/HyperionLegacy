@@ -1,0 +1,41 @@
+# Why a player reached e100,000 Ore in under 24 hours (investigation, 2026-10-23)
+
+Trigger (user): "Also, there's someone that already has e100000 ore....It's been less than 24 hours." User hypothesis:
+"the minigame didn't scale prestiges properly, so once you were fast enough you could probably instantly fleet admiral
+prestige to get everything you wanted with just e308, which would also unlock additional generators quickly."
+Method: the real 0.13.11 engine (origin/main 5186046) in a scratch worktree; scripts and outputs in the session
+scratchpad `fastore\`.
+
+Reference (re-measured): steady e100,000 51.2 h, finale 102 h, e1,000,000 30.0 d; keen 38.1 h / 79.7 h / 27.8 d.
+
+Ranked explanations
+1. Fair play with auto targets above 100% (MOST LIKELY). The pacing was pinned on the default 100% auto targets, but
+   the UI offers up to 1000%, and prestige gains rise linearly with the peak exponent, so fewer bigger prestiges win.
+   Aggressive player, 100% targets: e100,000 26 to 29 h. Same player, 1000/1000/1000%: e100,000 10.96 h, finale 23.3 h
+   (acting only every 5 minutes: 12.7 h / 25.8 h). Keen check-ins at 1000%: e100,000 22 h, finale 45 h, e1M 36 d;
+   steady check-ins at 1000%: 28 h / 53 h / 35 d. e1,000,000 gets slower at high targets.
+2. Device clock forward or a hand-edited save (confirmed possible, needs intent). No catch-up cap; a far-future clock
+   pays everything (+7 d from a 4.3 h state reaches e100,000; +30 d the finale). FARMABLE: setting the clock back
+   re-anchors lastTickAt down and keeps everything (four "+7 d then back" rounds beat one 28-day jump). The save is
+   plain JSON in localStorage `hl_secret_v0`. The main game caps offline at 2 days per absence (OFFLINE_CAP_DAYS_BASE)
+   but also rebases on a backward clock.
+3. The user's Fleet-spam hypothesis: TRUE for Skill Points (Fleets every 5 to 20 minutes after the first at 1.33 h;
+   all 14 Skill Points and all 8 tiers by 4.25 h) but MINOR for e100,000 (26.2 h vs 28.6 h). Not how this player did it.
+4. Coarse catch-up margin: temporary +9 to +11% on some gaps, does not compound.
+5. Multi-tab / reload: no double pay (last writer wins can lose, never add).
+6. Engine bugs: none found (Overclock pricing, Max-buy rounding, best-Ore payouts behave).
+
+How to tell which: the player's `hl_secret_v0` (milestone dates after their post or a future lastTickAt = clock or
+edit; autoTarget 500 or 1000 with ~9 Fleets and e100k 11 to 22 h after firstCaptain = fair play).
+
+Fixes proposed
+A. Clock farm: lastTickAt becomes a high-water mark (never re-anchored backward); while the device clock is behind it,
+   advance live from performance.now() deltas; optional server-time check via a same-origin no-store HEAD Date header
+   (pay up to server time, hold the rest until verified; delayed, never lost). Hand-edited saves wait for anti-cheat.
+B. Pacing vs targets (the real cause, a balance call): pin the pacing gate on the BEST target choice and either make
+   the default the best choice and retune, or reshape gains so ~100% is near optimal. Removing 500/1000% does not fix
+   it (manual waiting gives the same).
+C. Fleet spam: Fleet threshold = e308 x 2^(Fleets since the last Prestigeception, minus 1). Tested: steady, steady+1h,
+   light and keen timelines unchanged to the hundredth of an hour; spam then behaves like normal play.
+D. Coarse margin: leave.
+0.13.11.1 inherits all of 1 to 3; the e10,000,000 Starfall prize can be reached by the clock jump or farm.

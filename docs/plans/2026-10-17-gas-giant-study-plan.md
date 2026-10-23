@@ -589,3 +589,9 @@ Also 2026-10-21: SF-3 ramp: "Fade Weak + build SI gear (Recommended)" and "Smoot
   probe per study; research data family uniform over 8; GALILEO_REFERENCE_LINES (iLevel 10 rates 1); Ancient Data
   Fragment base 12 per mille, lift 2.5, knee 2, tier lift reuses the tier haul multiplier (about 1.5% / 4% at Tier II).
   Drop these [PROVISIONAL] / [PROPOSAL] tags in GG-4/GG-5.
+
+## GG-6 built (branch gg-6, 65dad02, 2026-10-23): open call for the user
+
+Sell-peace sweep timing (both teams' last pickups waited behind the study and then the 2-hour sweep): (a) [builder recommends] shuttles dock normally during the sweep, the sweep still keeps the window open, stamped on new runs only; (b) start the sweep only once every team is aboard and idle; (c) run the sweep during the return trip. 13 mockup deviations listed in the GG-6 carry note, under review.
+USER ANSWER (2026-10-23, verbatim): "I think the ship should be able to stop mid-scan and pick back up where it left off, so going to get the team from where they are is fine. Then go back and continue scanning." Reading: a fourth option. When a team is ready for pickup during a gas giant study or the cloud sweep, the ship pauses the study/sweep, goes and picks the team up, then returns and resumes exactly where it left off (progress kept, nothing lost). Engine change, stamped on new runs only so in-flight runs stay byte-identical; the UI shows the pause and resume.
+USER ANSWERS (2026-10-23, GG-6 review calls): Survey Log: "Mockup first (Recommended)" (mock it up for sign-off before it ships); decoded count: "Hide until GG-7 (Recommended)"; research data cap: "Show cap in Lab tab (Recommended)" (Data study tab shows Held data N / cap with a full warning).
