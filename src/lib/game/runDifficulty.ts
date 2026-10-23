@@ -223,9 +223,21 @@ export function isTrainingPatrol(mission: { difficulty?: PatrolDifficultyStamp }
 // The enemy strength a patrol cycle fights at (a multiplier on each enemy's hull, shields, weapon yields and drones):
 // the curve's rampEnemyScale on a ramped cycle, nominal (1) on the training cycle (its lesson is the shape: the
 // lightest hull, one per wave, two waves) and on a cycle without a stamp. Pure.
-export function patrolEnemyScale(mission: { difficulty?: PatrolDifficultyStamp }): number {
+export function patrolEnemyScale(mission: { difficulty?: PatrolDifficultyStamp; combatRules?: unknown }): number {
   const s = patrolStampOf(mission);
-  return s === null || s.firstRun ? 1 : rampEnemyScale(s.ramp);
+  if (s === null || s.firstRun) return 1;
+  // WR-8 answer 6: a cycle under the combat rules (its stamp) climbs the patrol rules curve; an older cycle the shared one.
+  return mission.combatRules !== undefined ? patrolRulesEnemyScale(s.ramp) : rampEnemyScale(s.ramp);
+}
+
+// [PROVISIONAL] WR-8 review answer 6 (user 2026-10-22, "Ship it, soften early curve"): the WR-8 combat rules made the
+// early Warbands harder for the light hulls, so a patrol cycle under the rules climbs the same curve from a lower floor:
+// PATROL_RULES_RAMP_FLOOR of nominal on the first ramped run (the shared RAMP_FLOOR is 0.35), the same climb, exactly
+// nominal at full strength (c10 unchanged). Expeditions, short-range runs and pre-WR-8 cycles keep the shared curve.
+export const PATROL_RULES_RAMP_FLOOR = 0.2;
+export function patrolRulesEnemyScale(ramp: number): number {
+  if (!(ramp < 1)) return 1;
+  return PATROL_RULES_RAMP_FLOOR + (1 - PATROL_RULES_RAMP_FLOOR) * Math.max(0, ramp);
 }
 
 // ===== the counters =====

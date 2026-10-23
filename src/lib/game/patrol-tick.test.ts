@@ -284,7 +284,12 @@ describe("closed-form parity: one big call == many small calls (THE GATE)", () =
 // DECREASING progression is what makes the monotonic-wear case below non-vacuous; several
 // otherwise-valid seeds (8, 47, 65, 75) wear on wave 1 and then hold flat, which satisfies the
 // assertion while proving nothing. Others with a real decrease: 78, 104, 136, 137, 163.
-const ATTRITION_SEED = 19;
+// ⚠️ RE-SEEDED by WR-8 (0.14.0): the combat rules (fights open at range, the Marauder holds at its
+// band, pirate plates and evasion) turned seed 19 into a wave-2 loss for a Balanced destroyer. Seed
+// 554 was found by the same scan (0..600) for a win of both waves with wear on wave 1 AND further
+// wear on wave 2 and the route flown home intact: hull 600 -> 544 after wave 1 -> 484 after wave 2.
+// Others: 78, 105, 308, 368, 535.
+const ATTRITION_SEED = 554;
 
 describe("a patrol runs, fights its waves, and resolves", () => {
   it("wins its waves with hull attrition, then ends in SUCCESS (mission null, ship intact)", () => {

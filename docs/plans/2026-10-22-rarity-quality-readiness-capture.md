@@ -105,3 +105,42 @@ need online in a subpatch right after this one, and the tutorial/story/quest pat
 12.  Roadmap order: "0.14.1 online, 0.15 story, 0.16 balance" (0.14.1 or 0.14.x = online subpatch right after
      0.14.0; 0.15.0 = tutorial/story/quests; 0.16.0 = balancing). This supersedes the older order in
      docs/plans/2026-09-15-exploration-crew-saga-0.14.0-design.md:31 and :590-591.
+
+## OPEN CALLS for the user (2026-10-23, from the RR plan and its review; building continues on [PROVISIONAL] defaults)
+
+1. Artisan: the design's "+50% min / +25% max" has no roll range to apply to today; default folds it into one random
+   rolled line x1.25 on Luminous/Constellar at 25% chance.
+2. Legendary affix names [PROPOSAL]: Starfall Lance (weapon), Hivemind Relay (drone pod), Aegis Lattice (shield),
+   Bulwark of Sol (plating), Bottomless Hold (cargo), Fold Engine (FTL), Heart of a Star (reactor), Far Watcher
+   (sensor), Last Stand Weave (member armor), Oathkeeper (member weapon), Master's Touch (member tool), Second Sight
+   (implant).
+3. Test set names [PROPOSAL]: "Survey Cadre" (ship) and "Field Cadre" (member), dev mint only.
+4. Numbers [PROVISIONAL]: legendary 1.2x Radiant; Nova 1.25x; Celestial 1.4x; crew Radiant 1.55, legendary 1.8; salvage
+   5th tier at FA level 20; secondaries 0.15 of budget each.
+5. "Unique legendary affix": one-of-a-kind line only (default), or ALSO an equip limit (at most one per ship per id)?
+   The equip limit is NOT built until the user says so.
+6. Nova guarantees the Artisan line and Celestial adds one secondary (reading of the design's "Luminous-effect stats
+   guaranteed").
+7. The ascension "switch" = producibility only (no player can get Nova/Celestial; the math acts for dev-minted pieces).
+8. Secondaries are drawn with replacement and can stack onto an existing affix line.
+9. Celestial "cannot be sold": blocked from auto-salvage only; manual salvage allowed.
+10. The member test set's 5-piece tier is reachable only with 2 implant slots (augment affinity) or Celestial minus-1.
+11. RR-5 built (56009f9): the affix list changed from item 2 above. Now 13 [PROPOSAL] names: Starfall Lance
+    (weapon), Hivemind Relay (drone pod), Aegis Lattice (shield), Bulwark of Sol (plating), Bottomless Hold (cargo),
+    Endless Wake (fuel, replaces "Fold Engine" because transit speed is still pending at patrols), Heart of a Star
+    (reactor), Transmuter's Seal (spec utility, material quality chance), Grand Concourse (colonist capacity),
+    Oathkeeper (member weapon), Last Stand Weave (member armor), Master's Touch (member tool, relic find), Second
+    Sight (implant). Each worth 0.25 of the piece's budget [PROVISIONAL]. Bridge, sensor and universal modules get NO
+    legendary affix for now, because their only stat lines are read by nothing yet (an affix there would be inert).
+12. Luminous and Constellar modules (bridge, quarters, sensors, E-MOD) are now Radiant x1.2 like gear; Nova and
+    Celestial multiply that.
+CORRECTION to open call 11 (2026-10-23, from the RR-5/RR-6 review): the sensor exclusion was based on a false reason.
+The sensors line IS live (survey yield, the expedition sensor gate, region charting, scan events, short-range work),
+so the sensor slot GETS a legendary affix: "Far Watcher" (sensors) [PROPOSAL], as originally drafted. Bridge
+(crewEfficiency pending, WR-7) and universal modules (empty pool) stay excluded, honestly. The "Fold Engine" drop was
+also misexplained: transit speed is live on the sheet and in expeditions, just like cargo and fuel are partly pending
+elsewhere. OPEN CALL 13: the FTL drive's legendary affix: "Fold Engine" (transit speed) or "Endless Wake" (fuel
+capacity, built now)? OPEN CALL 14: set bonuses and gear wear: default being built = set tiers scale with the mean wear
+efficiency of their counted pieces (a fully worn set gives 75%), consistent with how worn gear works; alternative =
+set bonuses never wear. OPEN CALL 15: set tier magnitudes are flat (not scaled by item level), so they are large at low
+item level; [PROVISIONAL] for balancing.

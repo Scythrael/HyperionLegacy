@@ -52,6 +52,10 @@ import type { PirateHullId } from "./combat/enemyHulls";
 // crafted weapon. TYPE-ONLY import (compile-erased), so no runtime cycle, same posture as the
 // combat type imports above (combat/weapons imports only combat/types + statusEffects).
 import type { WeaponId } from "./combat/weapons";
+// WR-8 (0.14.0): the combat rules stamp a patrol cycle and an expedition's ship-event battles carry, and the status
+// effects a patrol cycle carries between waves (type-only imports, model.ts never imports combat at runtime).
+import type { CombatRulesStamp } from "./combat/combatRules";
+import type { StatusEffect } from "./combat/statusEffects";
 // Ground Operations (GO-8): the officers' combat PROFILE a ship-event run freezes at dispatch (crewOverlay.ts
 // officerCombatProfile, folded at each event's wall hours). TYPE-ONLY import (compile-erased): no runtime cycle.
 import type { OfficerCombatEntry } from "./crewOverlay";
@@ -2639,6 +2643,12 @@ export const EQUIPMENT_SLOTS: Record<string, EquipmentSlotDef> = {
       { stat: "shieldRecharge", weight: 4 },
       { stat: "shieldCoherence", weight: 2 },
       { stat: "massReduction", weight: 1 },
+      // WR-8 (0.14.0, OC-D12 "damageResist / disruptionResist lines on plating and emitters"): an emitter filters the
+      // disruptions of one weapon family (its procs and their escalation), read by the combat bridge on the D23 curve
+      // (combat/combatRules.ts familyResistPercent). [PROVISIONAL weights 1 each.]
+      { stat: "disruptionResist_kinetic", weight: 1 },
+      { stat: "disruptionResist_particle", weight: 1 },
+      { stat: "disruptionResist_ew", weight: 1 },
     ],
     varieties: [
       // Capacitor Bank: budget into raw absorb pool, the tank emitter.
@@ -2662,6 +2672,11 @@ export const EQUIPMENT_SLOTS: Record<string, EquipmentSlotDef> = {
       { stat: "ablativeArmor", weight: 3 },
       { stat: "kineticDampening", weight: 2 },
       { stat: "massReduction", weight: 1 },
+      // WR-8 (0.14.0, OC-D12): plating hardens against the damage of one weapon family (applied before mitigation),
+      // read by the combat bridge on the D23 curve (combat/combatRules.ts familyResistPercent). [PROVISIONAL weights.]
+      { stat: "damageResist_kinetic", weight: 1 },
+      { stat: "damageResist_particle", weight: 1 },
+      { stat: "damageResist_ew", weight: 1 },
     ],
     varieties: [
       // Reinforced: budget into raw structural HP, the straight tank plate.
@@ -3463,6 +3478,16 @@ export const LIVE_STAT_KEYS = [
   // flat berth count into ShipDerivedStats.colonistCapacity (shown as "Guest quarters"); the short-range passenger
   // runs (G1-4) read it. Never crew: it moves no complement capacity and never stands in for the cargo hold.
   "colonistCapacity",
+  // WR-8 (0.14.0, OC-D12 "Feed them all"): the per-family resist lines (Hull Plating rolls the damage resists, Shield
+  // Emitters the disruption resists). NOT folded by equipmentStatMods (they hit its ignore default): the combat bridge
+  // reads them off the installed pieces (bridge.ts sumFamilyResist). (The drone pod lines, like droneHp, live in the
+  // pod pool itemgen.ts DRONE_POD_AFFIX_POOL, not in a slot table.)
+  "damageResist_kinetic",
+  "damageResist_particle",
+  "damageResist_ew",
+  "disruptionResist_kinetic",
+  "disruptionResist_particle",
+  "disruptionResist_ew",
 ] as const;
 
 // RESERVED forward vocabulary for 0.12.0 (combat / crew / sensor / defense).
@@ -3925,6 +3950,17 @@ export interface PatrolMissionState {
   // absent = full strength, so a veteran's patrol, a cycle at the top of the curve and every patrol in flight from
   // before SF-4 store and fight exactly what they did (no SAVE_VERSION bump).
   difficulty?: PatrolDifficultyStamp;
+  // WR-8 (0.14.0, combat/combatRules.ts; OC-D9 "Enemies start at range", OC-D12 "Feed them all"): THIS cycle's combat
+  // rules and the ship's combat speed, frozen when the cycle starts (dispatch, and again at each relaunch). Every wave,
+  // the live loop, the display replay and the forecast read it: fights open at range and close, guns pre-charge,
+  // stance, range and speed act, the rules' weapon traits, pirate armor and evasion, the installed reactor and drive.
+  // OPTIONAL: absent on every cycle that started before WR-8, which fights exactly as it did until its next relaunch
+  // (no SAVE_VERSION bump).
+  combatRules?: CombatRulesStamp;
+  // WR-8 (OC-D12 "conditions persist across the waves of one patrol"): the status effects the last wave left on the
+  // player ship, which the next wave opens with (plain data). Written only on a cycle under the rules and only when
+  // non-empty; a relaunch starts its cycle clean.
+  playerStatusEffects?: StatusEffect[];
 }
 
 // Safe first runs SF-4: a patrol cycle's difficulty stamp: the run stamp (RunDifficultyStamp, tier I: patrols are
@@ -8891,6 +8927,11 @@ export interface ShipEventBattle {
   // captainCombatMods), read by buildShipCombatant. Its Damage Control (aegis3) factor is already folded into
   // repairSpeed above. OPTIONAL: absent when the captain owns no Tactician node.
   captainCombat?: CaptainCombatMods;
+  // WR-8 (0.14.0, combat/combatRules.ts): the run's combat rules and the ship's combat speed, frozen at dispatch: its
+  // ship battles open at range (the enemy at ENCOUNTER_OPEN_DISTANCE), the ship flies this speed with its weapons' rule
+  // traits and its installed reactor and drive. OPTIONAL: absent on a run dispatched before WR-8, whose battles are
+  // exactly what they were.
+  combatRules?: CombatRulesStamp;
 }
 
 // The default per-save expedition seed a fresh save starts from, and the value the v58->v59 migration

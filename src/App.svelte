@@ -1054,7 +1054,7 @@
   // Exploration 0.14.0 (E4c): the crew + museum boosted ship stats, the SAME helper the engine dispatches
   // missions through. The two mission-timing popups now read it (they read the bare equipment fold before,
   // which omitted crew and the museum, so the shown times disagreed with the flown ones).
-  import { effectiveShipStats } from "./lib/game/crewOverlay";
+  import { effectiveShipStats, shipCombatRulesStamp } from "./lib/game/crewOverlay";
   // G1-3: a short-range run's display name (its current job) for the status rows and the recall log.
   // G1-6: the board's dispatch and its Repeat toggle (pure engine fns behind the do* handlers below).
   import { shortRangeMissionLabel, dispatchCaptainOnShortRange, setShortRangeRepeat, shortRangeBoardSlots } from "./lib/game/shortRangeBoard";
@@ -4502,7 +4502,9 @@
     // SF-4: the difficulty a dispatch would stamp now (absent at full strength), part of the key so the band moves
     // when the safe patrol is spent or the curve climbs.
     const difficulty = patrolDifficultyAt(state);
-    const signature = `${patrolKey}::${ship.id}::${stance}::${gearIds}::${conditionDigest}::${JSON.stringify(difficulty ?? null)}`;
+    // WR-8: the combat rules stamp a dispatch would write now (the ship's combat speed rides it), part of the key.
+    const combatRules = shipCombatRulesStamp(state, ship);
+    const signature = `${patrolKey}::${ship.id}::${stance}::${gearIds}::${conditionDigest}::${JSON.stringify(difficulty ?? null)}::${JSON.stringify(combatRules ?? null)}`;
     const cached = patrolForecastCache.get(patrolKey);
     if (cached && cached.signature === signature) return cached.value;
 
@@ -4548,7 +4550,7 @@
     // forecast's wave 1, opening it Degraded (<=60%) so the forecast fired at reduced damage while the
     // real patrol fired at full, biasing the band pessimistic. For a Standard-Issue set this is byte-
     // identical to the absent path (bridge.ts documents that equality on the live seed).
-    const startSystemDurability = defaultSystemDurabilityForHull(hullType, shipDef, installedGear);
+    const startSystemDurability = defaultSystemDurabilityForHull(hullType, shipDef, installedGear, combatRules);
     // The FOLDED full hull/shield start pools (the SAME installed-gear fold the sim fights with, and the
     // SAME seed freshPatrolMission uses live), NOT the raw authored SHIP_TYPES stats. Byte-identical for
     // a Standard-Issue set; a crafted-plated/emitter ship now forecasts from its real folded pools.
@@ -4569,6 +4571,8 @@
         startDrones,
         startSystemDurability,
         difficulty,
+        // WR-8: the cycle a dispatch would start fights under the combat rules.
+        combatRules,
       });
       // A full-patrol WIN = survived every scheduled wave (never limped home defeated).
       if (!result.defeated) wins += 1;
@@ -20194,12 +20198,12 @@
         <!-- Stance segmented (setPatrolStance), with a HelpTip ? for the three stances. -->
         <div class="mpane-poplbl" style="margin-top: 8px">
           <span class="mission-col-label" style="margin: 0">Stance</span>
-          <HelpTip label="Stance" text="Aggressive presses the attack: faster, bloodier fights at higher risk to your hull. Balanced trades evenly. Standoff keeps range to spare the hull, accepting a slower, more cautious engagement." />
+          <HelpTip label="Stance" text="Your stance decides where your ship holds. Aggressive closes until every gun fires. Balanced holds where most of its firepower reaches. Defensive holds at its longest gun's reach and backs off only if it is faster; it takes 20% less damage and deals 10% less, its shields recharge 25% faster and stop 15% more, and its point defense and drones go after enemy drones first (and missiles, when enemies carry them). Only a faster ship can open the range; at equal or lower speed the fight closes. A ship still closing in, before any of its guns can reach, is harder to hit." />
         </div>
         <div class="patrol-segmented" role="group" aria-label="Combat stance">
           <button class="dev-btn" aria-pressed={stance === "aggressive"} on:click={() => setPatrolStance(patrolDispatchKey!, "aggressive")}>Aggressive</button>
           <button class="dev-btn" aria-pressed={stance === "balanced"} on:click={() => setPatrolStance(patrolDispatchKey!, "balanced")}>Balanced</button>
-          <button class="dev-btn" aria-pressed={stance === "standoff"} on:click={() => setPatrolStance(patrolDispatchKey!, "standoff")}>Standoff</button>
+          <button class="dev-btn" aria-pressed={stance === "standoff"} on:click={() => setPatrolStance(patrolDispatchKey!, "standoff")}>Defensive</button>
         </div>
 
         <!-- Dispatch mode segmented (setPatrolRepeat): once vs auto-relaunch. -->

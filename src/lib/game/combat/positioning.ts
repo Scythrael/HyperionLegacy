@@ -120,7 +120,7 @@ export function combatPhase(
 export type CombatStance = "aggressive" | "balanced" | "standoff";
 
 // The distance a stance wants to fight at (design S6): Aggressive charges to
-// Short range (exposes itself to brawl), Balanced holds Medium, Standoff kites
+// Short range (exposes itself to brawl), Balanced holds Medium, Standoff (shown as Defensive since WR-8) kites
 // at Long range. Returning a band ANCHOR (not an arbitrary number) keeps stance
 // and bands consistent: an aggressive ship parks exactly at the short-band edge.
 // TUNABLE (design S20): the preferred distance could later be an interior point

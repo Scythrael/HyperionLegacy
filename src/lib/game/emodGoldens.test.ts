@@ -48,6 +48,8 @@ import { advanceExpedition, claimExpedition, expeditionCandidates } from "./expe
 import { shipEventsLive } from "./shipScanEvents";
 import { asPreVoyageDispatch, plainAwayMember, withSlottedAwayTeams, dispatchPastPropulsion, asPrePatrolCurveDispatch } from "./awayTeamTestFixtures";
 import { WIRING_REGISTRY, type WiringEntry } from "./wiring/registry";
+// WR-8: every registry pin here was taken before WR-8, so its added entries are left out and its flips read back.
+import { wr8ReadBack } from "./combatDescriptorRegistry.fixture";
 import { siReadBack } from "./siMemberGearRegistry.fixture";
 import { getSeniorStaffBonusById } from "./seniorStaffBonuses";
 import { withEm1Off } from "./emodEm1Switch.fixture";
@@ -62,6 +64,9 @@ import { OC15_ADDED_ENTRY_IDS } from "./labFabricatorTiers.fixture";
 import { ml2RowsBack } from "./ml2RecipeGoldens.fixture";
 // E-MOD EM-5 (the module slot): its registry move, read back by em5ReadBack.
 import { em5ReadBack } from "./emodEm5Registry.fixture";
+// E-MOD EM-3 came after every pin here: its two added rows are left out (emodEm3Registry.fixture.ts em3ReadBack; its
+// flipped row, ship:wr8:powerInCombat, is a WR-8 addition wr8ReadBack already leaves out).
+import { em3ReadBack } from "./emodEm3Registry.fixture";
 import { R2_2_ADDED_ENTRY_IDS } from "./relicBlanks.fixture";
 import { R2_3_ADDED_ENTRY_IDS } from "./relicIdentify.fixture"; // R2-3: its three audit rows, held apart the same way
 import { R2_4_ADDED_ENTRY_IDS, R2_4_FLIPPED_BEFORE } from "./relicMuseumV2.fixture"; // R2-4: its additions held apart, its flips read back
@@ -69,6 +74,11 @@ import { G2_4_ADDED_ENTRY_IDS, G2_4_FLIPPED_BEFORE } from "./propulsionRecallGol
 import { G2_6_ADDED_ENTRY_IDS, G2_6_FLIPPED_BEFORE } from "./expeditionConsoleRegistry.fixture";
 // ML-3 (Material Lines: material quality on delivery, OC-D2): its registry move, read back by ml3RowsBack.
 import { ml3RowsBack } from "./materialQualityGoldens.fixture";
+// WR-8 (0.14.0): every pin in this file was taken before the combat rules (combatRulesSwitch.fixture.ts), so the file
+// runs with them switched off and its pins keep proving WR-8 moved nothing else here (the rules stamp new patrol
+// cycles and runs; combatDescriptorGoldens.test.ts pins the combat rules themselves).
+import { combatRulesOffForThisFile } from "./combatRulesSwitch.fixture";
+combatRulesOffForThisFile();
 
 // ===== shared helpers =====
 
@@ -659,7 +669,7 @@ const G16_ROW_BEFORE = { kind: "pending", owner: "G1-6 (flips SHORT_RANGE_BOARD_
 // Relics v2 R2-4 the same (relicMuseumV2.fixture.ts): its added entries left out, its RELIC_TYPES / EXCEPTIONAL_SETS
 // flips read back as R2-1 registered them.
 const BEFORE_RX: WiringEntry[] = siReadBack(
-  em5ReadBack(gw3RegistryBack(WIRING_REGISTRY)).filter(
+  em3ReadBack(em5ReadBack(wr8ReadBack(gw3RegistryBack(WIRING_REGISTRY)))).filter(
     (e) =>
       !RX_ADDED_ENTRY_IDS.has(e.id) && !RR_ADDED_ENTRY_IDS.has(e.id) && !FUSE_ADDED_ENTRY_IDS.has(e.id) && !R2_2_ADDED_ENTRY_IDS.has(e.id) && !R2_3_ADDED_ENTRY_IDS.has(e.id) && !R2_4_ADDED_ENTRY_IDS.has(e.id) && !G16_ADDED_IDS.has(e.id) &&
       !G2_4_ADDED_ENTRY_IDS.has(e.id) && !OC15_ADDED_ENTRY_IDS.has(e.id) && !GG_STUDY_ADDED_ENTRY_IDS.has(e.id) && !G2_6_ADDED_ENTRY_IDS.has(e.id),
@@ -824,7 +834,7 @@ describe("EM-0 goldens (re-pinned by EM-1 where named)", () => {
     // Merged onto feat (0.14.0 integration): the slices BEFORE_RX holds apart (the timed grenades, R2-2, the SI read-back)
     // and G2-4's additions are held apart here the same way, so the comparison sees G1-6's move alone. E-MOD EM-5's move is
     // read back first (em5ReadBack), as BEFORE_RX does; Gas Giant Study GG-3's added seam is held apart too.
-    const live = em5ReadBack(gw3RegistryBack(WIRING_REGISTRY)).filter(
+    const live = em3ReadBack(em5ReadBack(wr8ReadBack(gw3RegistryBack(WIRING_REGISTRY)))).filter(
       (e) => !RX_ADDED_ENTRY_IDS.has(e.id) && !RR_ADDED_ENTRY_IDS.has(e.id) && !FUSE_ADDED_ENTRY_IDS.has(e.id) && !R2_2_ADDED_ENTRY_IDS.has(e.id) && !R2_3_ADDED_ENTRY_IDS.has(e.id) && !R2_4_ADDED_ENTRY_IDS.has(e.id) && !G2_4_ADDED_ENTRY_IDS.has(e.id) && !OC15_ADDED_ENTRY_IDS.has(e.id) && !GG_STUDY_ADDED_ENTRY_IDS.has(e.id) && !G2_6_ADDED_ENTRY_IDS.has(e.id),
     );
     const rung = live.filter((e) => G16_ADDED_IDS.has(e.id)).map((e) => [e.id, e.status, e.contexts, e.probe ?? null]);

@@ -67,6 +67,7 @@
   import type { EquipFitRefusal } from "./game/equipment";
   // E-MOD EM-2: the power gate's refusal wording and the over-budget warning (P2: never evict, a warning chip).
   import { overBudgetNotice, overPowerReasonText } from "./game/shipPower";
+  import { POWER_SUPPLY_FLOOR_PERCENT } from "./game/combat/power";
   import { duplicateModuleReasonText, moduleSlotsFullReasonText } from "./game/shipModules";
   import { equippedFor, fittedInSlot, canFitEquipment } from "./game/equipment";
   // S2 (user 2026-10-17 "Lock it"): the one crew lock names why a ship's gear is locked (a mission, a patrol, a
@@ -553,7 +554,7 @@
     backLeg: "The ship's speed on the return leg of a mission: FTL Speed plus the Fast Return crew aboard.",
     range: "How far the ship can travel before it must turn back, in light-years; more range reaches farther destinations. The Fuel Depot extends it for the whole fleet.",
     powerOutput: "Total power the ship supplies: the hull's own generation plus any crafted Reactor Core. It needs to cover everything the installed systems draw.",
-    powerDraw: "Total power the installed systems consume, after any power efficiency from Engineering crew, Reactor Overdrive or Martian crew. An install that would put it over power output is refused. If the ship is already over (an officer left or a Reactor Core came off), nothing is removed and only installs that would make it worse are refused. Lower is better.",
+    powerDraw: `Total power the installed systems consume, after any power efficiency from Engineering crew, Reactor Overdrive or Martian crew. An install that would put it over power output is refused. If the ship is already over (an officer left or a Reactor Core came off), nothing is removed and only installs that would make it worse are refused, but in combat its weapons and shield recharge run weaker: the square root of output over draw, never below ${POWER_SUPPLY_FLOOR_PERCENT}%. Lower is better.`,
     mass: "The ship's combined mass from its hull and installed systems; lower mass is generally easier to move.",
     guestQuarters: "Berths for passengers such as refugees, separate from the crew and the cargo hold. Passenger runs need enough of them for everyone aboard.",
   };
@@ -1462,11 +1463,12 @@
       </div>
     {/if}
     <!-- E-MOD EM-2 (user answer P2): the over-budget warning, its own line beside the readiness banner above. Never
-         evicts and never blocks dispatch (power gates installs only); names the shortfall and where it comes from. -->
+         evicts and never blocks dispatch (power gates installs only); names the shortfall and where it comes from.
+         EM-3 (user answer P6): the combat strength line first, bold, then the gentle-cut sentence (the signed-off mockup). -->
     {#if powerNotice !== null}
       <div class="ss-advisory" role="status">
         <span class="ss-advisory-dot" aria-hidden="true"></span>
-        <span><strong>{powerNotice.chip}:</strong> {powerNotice.cause}</span>
+        <span><strong>{powerNotice.chip}:</strong> <strong>{powerNotice.strength}</strong> {powerNotice.gentleNote} {powerNotice.cause}</span>
       </div>
     {/if}
 

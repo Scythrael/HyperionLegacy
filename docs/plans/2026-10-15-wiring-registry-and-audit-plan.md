@@ -1225,6 +1225,177 @@ installed reactor / FTL pieces (OC-D14). This is the largest determinism risk: e
 `patrolReplay` parity proof move. **Goldens first** (every hull x both routes x Dispatch Once and Repeat, the forecast
 band, the GO ship battles). The patrol cloak input (`particleTraceDetector`) stays `deferred` (T3).
 
+#### WR-8 carry note (built 2026-10-22 on 8688c61; two commits: goldens, then the wiring; no SAVE bump)
+
+**Built:** `combat/combatRules.ts` (the rules, their constants and the `CombatRulesStamp`). Every rule acts only on a
+battle whose run carries the stamp: a patrol cycle is stamped when it starts (dispatch and EVERY relaunch, the
+officerCombat precedent), an expedition's ship-event battle inputs at dispatch (`ShipEventBattle.combatRules`), and the
+dispatch forecast reads the stamp a dispatch would write now (`crewOverlay.ts shipCombatRulesStamp`). In-flight runs
+are byte-identical (proved: dispatched inside the test switch, advanced by the WR-8 engine, every Once patrol, ship
+event and battle row equals the pre-WR-8 capture). Under the stamp:
+- OC-D9: enemies open at `ENCOUNTER_OPEN_DISTANCE` and close; patrols `precharge`; a ship holds at its stance's band
+  capped at its own reach (`resolveBattle.ts combatReach`, Sensor Power Drain included), and opens the range only when
+  FASTER than its target (equal speed holds, so every fight closes). Combat speed = `RULES_COMBAT_SPEED` x sheet transit
+  / hull base transit (gear, crew, captain, mass drag), frozen in the stamp.
+- OC-D12: `WEAPON_RULE_TRAITS` (Point Defense and EMP anti-drone, Point Defense's Inhibit as a drone effect slot,
+  Tachyon's own vs-Shields column, the Voltaic arc), the vs-Drones column on drone absorbs, an EW anti-drone hit
+  disrupts a drone it does not destroy, the support pulse charges Overcharged Capacitors, the Inhibit reader
+  (`droneCooldown`), pirate armor / dampening / evasion (`PIRATE_HULLS`), statuses carried between the waves of one
+  cycle (`PatrolMissionState.playerStatusEffects`), and the installed Reactor Core and FTL drive qualities frozen in the
+  stamp (`reactorQuality` / `ftlQuality`) set the combat pools.
+- Gear lines (no stamp needed: gear is locked while out): `damageResist_*` on Hull Plating and `disruptionResist_*` on
+  Shield Emitters on `familyResistPercent` (whole percents rounded down, so never 100); pod lines In-Combat Replenish
+  and Smart Reflect (Defense pods only) on `podLineShare`. Rapid Charge is NOT in the pod pool (see the review fixes).
+- Retired: `frameHp` / `COMBAT_FRAME_HP_FRACTION` and `CombatDefaultLoadout.builtInBays` (OC-D12 "coded or deleted").
+  `ResolveOptions.objective`, `TargetingPolicy.escortShare` and the DoT rng are `seam` rows (OC-C4 "Keep tested hooks").
+
+**Registry:** every WR-8 pending entry is live (combatDescriptorProbes.ts: exact seams for the open distance, speed
+stamp, pools, Tachyon column, status carry and the gear lines; seeded battle events for the rest). New rows:
+`ship:wr8:*` (weapon / drone range, stance, speed kite, the status readers, Voltaic, vs-Drones, persistence, Inhibit
+source / reader, Overcharge, enemy mitigation), `ship:wr8:powerInCombat` pending on EM-3, `ship:wr8:ambushInPatrols`
+deferred (T3: only a cloak ambushes). The hull and gear-line transit
+speed flat checks at `patrol` now read the legs alone (`patrolOutboundTicks`): transit speed reaches combat now.
+
+**Goldens moved (combatDescriptorGoldens.test.ts header names each one):** every patrol record, replay and state hash
+(the stamp); outcomes: Freighter Sweep lost (was won), Hauler Warband lost (was won), Battleship Warband Repeat flies a
+third cycle; forecast bands down on the hard routes; cloaked ship battles 7 flips to win, 2 to loss. The 30 golden files
+pinned before WR-8 run with the rules switched off (`combatRulesSwitch.fixture.ts combatRulesOffForThisFile`, or
+`withCombatRulesOff` around the pre-WR-8 tests in officerBonuses / officerStatFacets); the registry snapshots read
+WR-8 back (`combatDescriptorRegistry.fixture.ts wr8ReadBack`). patrol-tick's attrition fixture re-seeded (19 -> 554);
+simPlayer's training Sweep ends at 713 shield (was 732).
+
+**[PROVISIONAL] (one constant each):** `ENCOUNTER_OPEN_DISTANCE` 300, `RULES_COMBAT_SPEED` 30 and `combatSpeedFor`
+(relative to the hull; alternative absolute), `PIRATE_HULLS` armor / dampening / evasion (Raider 5/0/5, Marauder 20/5/3,
+Corsair Carrier 15/5/0), `FAMILY_RESIST_KNEE` 50, `POD_LINE_KNEE` 20, `SUPPORT_OVERCHARGE_ESCALATION` 30, the
+`WEAPON_RULE_TRAITS` numbers (Inhibit 40 / 25, Tachyon 110, Voltaic 30%), the resist line split (plating damage,
+emitter disruption) and pool weights 1. Measured (100 seeds, veteran, Standard Issue, Balanced): Orion Sweep 94 -> 74%
+win, Freighter Sweep 97 -> 86%, Carrier Warband 53 -> 25%, Destroyer Warband 19 -> 6% (Aggressive 14%): the balance
+pass owns the numbers.
+
+**For gear wear step 4:** WR-8 built "reactor and FTL from the installed piece" (quality, frozen in the stamp) and
+flipped `ship:audit:qualityDurabilityMax` live; step 4 opens those pools at the piece's true condition (bridge.ts
+`freshSystem` opens FULL today) and keeps battle wear, the start floor and `podDurability`. Its owner string
+(`GEAR_WEAR_STEP_4`) can drop the installed-piece clause. **For WR-7:** OC-D6 "unlisted = never rolls" must list the
+six resist keys in the plating / emitter varieties' `statRatios`, or they stop rolling (`ship:audit:familyResists`'s
+roll probe fails loudly). **For EM-3:** add `powerSupplyPercent` to `CombatRulesStamp` (frozen at the cycle start
+beside `speed`, every patrol cycle and ship-event run already carries the stamp) and read it beside
+`reactorDamagePercent`; the reactor pool is the installed piece's under the stamp; flip `ship:wr8:powerInCombat`.
+**For EM-4:** combat speed already reads the sheet's transit speed, so a reactor surplus lift on `transitSpeedMult`
+also speeds combat (a combat golden move to name); `ship:audit:reactorCoreNet` stays EM-4's.
+
+**Review fixes (2026-10-22, one commit):** (1) Rapid Charge could never act in 0.14.0 (only an explorer on an
+expedition is ambushed, and no explorer has a drone bay), so `droneRapidCharge` is out of `DRONE_POD_AFFIX_POOL` and
+`ship:audit:rapidChargeAfterAmbush` plus the new `ship:wr8:podRapidChargeLine` are DEFERRED (owner "CP-15 patrol cloak,
+T3, or explorer drone bays"); the engine reader stays (resolveBattle's return-fire delay, bridge.ts podLinePoints) and
+`combatEventRapidCharge` is their check once a podded ship can be ambushed. Re-pinned: itemgen.test's pod vocabulary,
+pool and craft preview (the line gone), the switch fixture (two pod lines). (2) `droneTakesHit`: a drone that survives
+takes the whole projectile (no rounding leak; only a destroyed drone passes overflow), with a test. (3) The stance help
+(App.svelte HelpTip, helpTopics.ts Combat Patrols) states the rule: the stance's range, never beyond the longest
+weapon's reach, only a faster ship opens the range. (4) statusEffects.ts names Inhibit's and Overcharged Capacitors'
+sources and readers. (5) `familyResistPercent` rounds down (tops out at 99), with a test. No golden moved.
+**HELD for the user:** `safeFirstPatrol.sweep.test.ts` CURVE_WINS (the SF-4 curve table: every hull's wins per curve
+position moved under the rules; the "wins never rise as the curve climbs" check still passes), and pirate armor, open
+distance and the reach rule. (Released by the user's decisions below.)
+
+**User decisions on the balance drop (2026-10-22, one commit):** the rule: "if it's a systemic issue, we fix the
+systemic issue. But the actual balancing of the content can wait. If it's just a balancing numbers thing, option 1."
+- A, the system fix: the stances decide where a ship parks (`resolveBattle.ts stanceHoldDistance`, under the stamp
+  only). Aggressive: its shortest firing gun's reach. Balanced: the farthest reach at which the sources reaching it
+  deliver more than `BALANCED_FIREPOWER_SHARE` (0.5) of its expected damage (exactly half is a tie and goes closer), so
+  a Standard-Issue Destroyer parks at autocannon range. Defensive: its longest reach, backing off only when faster.
+  "Standoff" is DEFENSIVE everywhere player-facing (App.svelte stance button and help, helpTopics.ts, CombatView); the
+  stored key stays `standoff`. Defensive (`combatRules.ts DEFENSIVE_STANCE`, set by bridge.ts on a combatant built
+  under the rules) does all four: 20% less damage taken and 10% less dealt (guns and drones), shields recharge 25%
+  faster and stop 15% more per point, Point Defense / EMP and drone squadrons turn on the in-range foe fielding the
+  most drones first (`guardTarget`), and 30% missile intercept with working Point Defense or EMP. Every percent banks
+  its remainder (`Combatant.defensiveCarry`, the shield's `shieldBonus` accumulator), so it is exact over a fight, not
+  a floored point per small hit. Every pirate flies its own stance under the same rules, so the Corsair Carrier
+  (stored `standoff`) is Defensive too.
+- B, the numbers (option 1 "Soften pirates for now"): Raider armor 3 / evasion 3 (was 5 / 5), Marauder 10 / 2 (was
+  20 / 3), Corsair Carrier 8 / 1 (was 15 / 0), no pirate dampening (a percent dampening floors a whole point off every
+  small hit; the field and its three registry rows are gone).
+- Registry: new live rows `ship:wr8:stanceAggressive` / `stanceBalanced` / `stanceBalancedShare` / `stanceDefensive`
+  (exact parking seams on Standard-Issue patrol builds) and `ship:wr8:defensiveDamageTaken` / `DamageDealt` /
+  `ShieldRecharge` / `ShieldAbsorb` / `GuardWeapons` / `GuardDrones` (exact curves or seeded battles);
+  `ship:wr8:defensiveMissileIntercept` is PENDING (the engine reads it; no pirate or ship-event vessel installs a
+  missile in 0.14.0). The stance and kite rows' claims were rewritten.
+- Measured (100 seeds, veteran, Standard Issue, Balanced; pre-WR-8 / first WR-8 pin / now): Orion Sweep 94 / 74 / 87,
+  Freighter Sweep 97 / 86 / 88, Carrier Warband 53 / 25 / 42, Destroyer Warband 19 / 6 / 15, Battleship Warband 80 /
+  67 / 79. Stances now (Aggressive / Balanced / Defensive): Destroyer Sweep 100 / 100 / 100, Warband 15 / 15 / 12;
+  Carrier Sweep 100 / 100 / 100, Warband 42 / 42 / 40. Orion and Battleship land on target; Freighter, Carrier and
+  Destroyer stay short, and the pirate numbers cannot close it (zero pirate armor and evasion: 88 / 88 / 45 / 18 / 82).
+  The shortfall is the approach itself: data points for the balance pass (same five): open at 200 instead of 300:
+  85 / 89 / 39 / 16 / 82; no patrol precharge: 86 / 92 / 43 / 20 / 82; pirates without the Defensive modifiers:
+  87 / 88 / 45 / 15 / 82. [PROVISIONAL]: every DEFENSIVE_STANCE number, BALANCED_FIREPOWER_SHARE, the pirate numbers.
+- Goldens moved (combatDescriptorGoldens.test.ts header names each): the Freighter wins its Sweep again (Once and all
+  three Repeat cycles); the Battleship Warband Repeat loses its second cycle (tick 40); forecasts Freighter Sweep 56,
+  Destroyer Warband 9, Battleship Warband 53 likely, Carrier Warband 29 dice, Orion Sweep 58 likely; the Cloaked
+  Vessel (Balanced, autocannon plus railgun) parks at autocannon range, so the default-seed cand-2 expedition loses
+  its cloaked fight for all three explorers and the battle grid loses a few more cloaked fights. CURVE_WINS re-pinned
+  with the pre-WR-8 table in its header: the early Sweep stays gentle (194+ of 200 through c4 on every hull); the early
+  Warband is harder for the light hulls (Freighter c0 129, was 181). simPlayer's training Sweep ends at 751 shield
+  (was 713). In-flight runs stay byte-identical.
+- For WR-12: the patch note names the stance "Defensive"; the shipped patch notes stay as written.
+
+**User decision on the remaining gap (2026-10-22, answer 5 "Closing is evasive (Recommended)", one commit):** under
+the stamp every combatant carries `evasiveClose` (bridge.ts); in its movement phase it is active while the ship can move,
+its target is farther than where it parks and none of its working guns reaches any foe (a gunless ship reads its
+offense squadrons; a ship with no source never evades). While active every hit is `CLOSING_EVASION_PCT` (40,
+[PROVISIONAL]) smaller, banked so it is exact, never 100. Both sides. No draw, so offline == live; in-flight runs stay
+byte-identical. Also fixed here: resolveBattle's clone now copies the banked Defensive and evasive remainders (the
+second commit shared them with the caller, so a second resolve of the same input could differ), with a test.
+- Registry: `ship:wr8:closingEvasive` live (`combatEventClosingEvasive`: an autocannon ship closing on a railgun
+  platform takes less). Stance help (App.svelte, helpTopics.ts) says a ship closing in is harder to hit.
+- Measured (same five; pre-WR-8 / before answer 5 / now): Orion Sweep 94 / 87 / 88, Freighter Sweep 97 / 88 / 90,
+  Carrier Warband 53 / 42 / 39, Destroyer Warband 19 / 15 / 15, Battleship Warband 80 / 79 / 78. Stances (Aggressive /
+  Balanced / Defensive): Destroyer Sweep 100 / 100 / 100, Warband 15 / 15 / 10; Carrier Sweep 100 / 100 / 100,
+  Warband 39 / 39 / 41. 70% and 90% move nothing further (Freighter 92, Carrier 40 / 37, Destroyer 12 / 13): the
+  approach is about 7 s of a long fight and both sides close. Ablations (each piece switched off with the rest live):
+  the pre-WR-8 numbers come back exactly (94 / 97 / 53 / 19 / 79) only with ALL of open distance, precharge, status
+  carry, the vs-Drones column, pirate mitigation, Point Defense traits and pirate Defensive off; with everything but
+  the open distance off, 92 / 95 / 46 / 23 / 88. The Carrier's gap is spread across those rules, not the approach.
+- Goldens: patrol outcomes and ticks hold (replays and hashes move); forecasts Freighter Sweep 58, Battleship Warband 52,
+  Carrier Warband 26 (bands hold); ship events unchanged (the default-seed cand-2 cloaked fight is still lost for all
+  three explorers); three cloaked battle-grid fights won back. simPlayer's training Sweep ends at 737 shield (was 751).
+- CURVE_WINS: at 200 seeds the "wins never rise" check failed by one or two seeds (Aurora Warband c3 19 -> 20) at every
+  value from 20 to 60; per seed the c2 -> c3 step flips about a dozen outcomes each way, so it is sampling noise. The
+  curve now runs 400 seeds (`CURVE_SEEDS`), where every row falls; the pre-WR-8 200-seed table stays in the header.
+  Freighter Warband c0 is 262 of 400 (131 of 200; it was 181 of 200 before WR-8): closing evasion does not restore the
+  light-hull early Warband. The 400-seed sample was approved by the user (answer 7).
+
+**User decisions 6 and 7 (2026-10-22, one commit):** (6) "Ship it, soften early curve": the WR-8 rules and numbers stay
+as c627efe left them (tougher full-strength Warbands are 0.16.0 balance); for peace now the existing safe-first patrol
+curve starts lower for a cycle under the combat rules: `runDifficulty.ts PATROL_RULES_RAMP_FLOOR` 0.2 [PROVISIONAL]
+(the shared `RAMP_FLOOR` stays 0.35 for expeditions, short-range runs and pre-WR-8 cycles), the same climb, exactly
+nominal at full strength, so c10 is unchanged. Picked from floors 0.2 to 0.35 and an ease-in exponent 1 to 1.5 (200
+seeds): 0.2 with the plain climb is the closest single curve (a higher floor leaves the Freighter and the explorers
+harsh, an exponent makes c2 and c5 far too easy). (7) 400 seeds for the monotonicity sweep: approved.
+Curve, Warband wins of 200 at c0 / c2 / c5 / c10 (pre-WR-8 -> now; now measured of 400 and halved):
+Freighter 181 / 135 / 49 / 5 -> 186.5 / 158.5 / 50.5 / 3; Hauler 194 / 170 / 75 / 10 -> 196 / 181 / 77 / 4.5; Runner
+60 / 24 / 5 / 0 -> 83.5 / 48 / 5 / 0.5; Miner 80 / 36 / 7 / 0 -> 119.5 / 67 / 8.5 / 0.5; Destroyer 200 / 198 / 173 / 44
+-> 199.5 / 197 / 166 / 32; Battleship 200 / 200 / 199 / 158 -> 200 / 200 / 200 / 174; Carrier 200 / 200 / 197 / 109 ->
+200 / 200 / 187.5 / 75; Orion 105 / 77 / 21 / 1 -> 94.5 / 63 / 11.5 / 1; Aurora 97 / 68 / 15 / 1 -> 84.5 / 54.5 /
+11.5 / 1; Eir 106 / 75 / 18 / 1 -> 98.5 / 64 / 12.5 / 1. Every Sweep row is 400 of 400 through c4. Every row still falls
+as the curve climbs. No default-suite golden moved (the combat goldens fly veterans); `safeFirstPatrol.test.ts` reads
+the rules floor for a live dispatch.
+
+**Follow-up review fixes (2026-10-23, one commit, after the feat merge ce8721d):** (1) a weapon's on-hit module procs
+fire on the ship the shot struck (`aim`: a Defensive ship's guard shot), not its target. (2) The guard drone volley
+(`fireSquadronAtDrones`) returns what it did: the struck foe's on-hit procs fire when a drone connects, its log line
+carries the real damage (`screenDamage` plus the shield / hull split) and `dronesDestroyed`, a kill logs `destroyed`,
+and the Simplified log says "hits X's drone screen for N, downing D". (3) The evasive close is read after the move,
+so it stops the tick a gun reaches. (4) A shield hit that drains the pool banks no absorb remainder. (5) The stance
+help says Defensive point defense goes after drones first "and missiles, when enemies carry them". (6) "installed"
+in shipModuleProcs.test.ts. Tests for each code fix (combatDescriptors.test.ts). Goldens: only fix 3 moves an
+outcome (an ablation with it undone reproduces the last pin): eir cand-2 loses one cloaked battle-grid fight again,
+forecasts Freighter Sweep 57 and Carrier Warband 23 (not advised, was 26 dice), simPlayer's training Sweep 733 shield;
+fixes 2 and 4 move only the Warband patrols' replays and hashes. CURVE_WINS re-pinned for fix 3 (48 cells, 9 of 400
+at most; Freighter Warband c0 still 373), every row still falls.
+**Coverage note (for WR-12 / 0.16.0):** after the merge no golden pins the combat rules, gear wear and ship modules
+TOGETHER: combatDescriptorGoldens runs with use wear off and no modules, and the EM-6 and gear wear goldens run with
+the combat rules off. A combined capture (a stamped patrol and expedition with worn gear and installed modules) is
+logged for WR-12 or the 0.16.0 balance pass.
+
 ### WR-9: Crew and officers beyond the CP slices
 
 Pilot Cunning (OC-E4), the transit split (OC-E5), Rapid Loadout scope (OC-E6), Morale Anchor's attrition half (OC-E7),

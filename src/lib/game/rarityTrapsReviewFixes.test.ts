@@ -8,6 +8,8 @@ import { addItemQuality } from "./inventory";
 import { salvageSalvagedMaterial } from "./salvage";
 import { gearShoutoutScanCount, setCompletionShoutouts } from "./setShoutouts";
 import { WIRING_REGISTRY } from "./wiring/registry";
+import { generateDronePod } from "./itemgen";
+import { POD_LINE_SMART_REFLECT } from "./combat/combatRules";
 import appSource from "../../App.svelte?raw";
 
 function piece(over: Partial<EquipmentInstance>): EquipmentInstance {
@@ -118,6 +120,22 @@ describe("fix 7: the catch-up shoutouts read above \"Welcome back\" in the newes
     const shout = appSource.indexOf("setCompletionShoutouts(beforeSnapshot, state)");
     expect(welcome).toBeGreaterThan(0);
     expect(shout).toBeGreaterThan(welcome);
+  });
+});
+
+describe("merge with WR-8: a legendary pod's secondaries respect the role's own pool", () => {
+  it("only a Defense pod ever carries Smart Reflect, secondaries included", () => {
+    for (const role of ["attack", "support", "defense"] as const) {
+      let reflect = 0;
+      for (let seed = 1; seed < 300; seed++) {
+        let s = seed >>> 0;
+        const rng = () => ((s = (Math.imul(s, 1664525) + 1013904223) >>> 0), s / 4294967296);
+        const p = generateDronePod({ droneRole: role, blueprintKey: null, iLevel: 40, quality: 5, rarity: "luminous", ascension: "celestial", rng, allocateId: () => "d" });
+        if ((p.rolledStats[POD_LINE_SMART_REFLECT] ?? 0) > 0) reflect++;
+      }
+      if (role === "defense") expect(reflect, role).toBeGreaterThan(0);
+      else expect(reflect, role).toBe(0);
+    }
   });
 });
 

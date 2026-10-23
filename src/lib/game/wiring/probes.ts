@@ -123,6 +123,10 @@ import { generateEnemyWave } from "../combat/enemyWave";
 import type { PirateHullId } from "../combat/enemyHulls";
 import { STATUS_EFFECT_DEFS, activeStatDelta, applyEffect, tickEffects } from "../combat/statusEffects";
 import { makeRng } from "../combat/rng";
+// WR-8 (0.14.0): the combat descriptors' probes (a leaf module) and the resist lines' pools.
+import { COMBAT_DESCRIPTOR_PROBES } from "./combatDescriptorProbes";
+import { EMITTER_RESIST_LINES, PLATING_RESIST_LINES } from "../combat/combatRules";
+import { rollDistinctAffixStats } from "../itemgen";
 import { wearProbeDef, type WearProbeId } from "./wearProbes";
 import {
   advanceExpedition,
@@ -1737,7 +1741,45 @@ export const PROBES = {
   fieldYieldVault: { label: "fieldworkEffect(buriedVault).yieldMult (best planet)", read: (s) => bestOverPlanets((p) => fieldworkEffect(fieldworkRun(s), p, "buriedVault").yieldMult) },
   fieldYieldRuins: { label: "fieldworkEffect(ancientRuins).yieldMult (best planet)", read: (s) => bestOverPlanets((p) => fieldworkEffect(fieldworkRun(s), p, "ancientRuins").yieldMult) },
   fieldYieldMineral: { label: "fieldworkEffect(mineralOutcrop).yieldMult (best planet)", read: (s) => bestOverPlanets((p) => fieldworkEffect(fieldworkRun(s), p, "mineralOutcrop").yieldMult) },
+  // == WR-8 (0.14.0): the combat descriptors (combatDescriptorProbes.ts, a leaf with its own on / off mark) ==
+  ...COMBAT_DESCRIPTOR_PROBES,
+  // WR-8: a Dispatch Once patrol's outbound leg in route ticks (the legs alone: no fight happens on them).
+  patrolOutboundTicks: {
+    label: "the first patrol's outbound leg (route ticks in transitOut)",
+    read: (s) => {
+      const r = dispatchCaptainOnPatrol(s, WIRING_CAPTAIN_ID, Object.keys(PATROLS)[0], "balanced", false);
+      if (!r.success) return -1;
+      let after = r.next;
+      let ticks = 0;
+      while ((captainOf(after).mission as PatrolMissionState | null)?.phase === "transitOut" && ticks < 10_000) {
+        after = economyTick(after, 1, () => 0.5);
+        ticks += 1;
+      }
+      return ticks;
+    },
+  },
+  // WR-8: the six per-family resist lines roll on crafted Hull Plating and Shield Emitters (resist picks over 300
+  // two-affix rolls per variety; OFF leaves the resist lines out of the pool). A variety bias that silenced them fails.
+  combatResistLinesRoll: {
+    label: "rollDistinctAffixStats(plating / emitter pool): resist line picks",
+    read: (s) => resistLinePicks(isOn(s)),
+  },
 } satisfies Record<string, ProbeDef>;
+
+// WR-8: how many of 300 two-affix rolls per Hull Plating and Shield Emitter variety pick a per-family resist line.
+function resistLinePicks(withLines: boolean): number {
+  const resist = new Set<string>([...PLATING_RESIST_LINES, ...EMITTER_RESIST_LINES]);
+  let picks = 0;
+  for (const slotType of ["hullPlating", "shieldEmitters"] as const) {
+    const slot = EQUIPMENT_SLOTS[slotType];
+    const pool = withLines ? slot.affixPool : slot.affixPool.filter((a) => !resist.has(a.stat));
+    for (const variety of slot.varieties) {
+      const rng = makeRng(0x7b1d);
+      for (let i = 0; i < 300; i++) picks += rollDistinctAffixStats(pool, variety, 2, () => rng.next()).filter((k) => resist.has(k)).length;
+    }
+  }
+  return picks;
+}
 
 // ============================================================================
 // Content probes ("content:<family>:<args>"): content DATA the engine reads (weapons, drone roles, pirate hulls,
@@ -2404,7 +2446,9 @@ function readContent(id: string, s: GameState): number {
     case "relic":
       return relicContentProbe(a, on, s);
     case "pirate": {
-      const e = generateEnemyWave(1, { hullPool: [a as PirateHullId], enemyCountMin: 1, enemyCountMax: 1, idPrefix: "wiring" })[0];
+      // WR-8: generated under the combat rules (the hull's armor, dampening and evasion reach the combatant only there;
+      // every other field reads the same either way).
+      const e = generateEnemyWave(1, { hullPool: [a as PirateHullId], enemyCountMin: 1, enemyCountMax: 1, idPrefix: "wiring", combatRules: true })[0];
       return b === "shieldCapacity"
         ? e.shieldMax
         : b === "shieldRecharge"
@@ -2413,7 +2457,11 @@ function readContent(id: string, s: GameState): number {
             ? e.weapons.length
             : b === "droneRoles"
               ? e.drones.length
-              : e.hullMax;
+              : b === "ablativeArmor"
+                ? e.ablativeArmor
+                : b === "evasion"
+                  ? e.evasion
+                  : e.hullMax;
     }
     case "patrolWindow": {
       const def = PATROLS[a];

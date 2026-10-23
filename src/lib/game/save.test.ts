@@ -28,7 +28,10 @@ import { SHIP_TYPES, PATROLS, REPAIR_BASE_TICKS, REPAIR_TICKS_PER_HULL } from ".
 // Combat 0.13.0 (Phase 12b Unit B2): the v32->v33 migration backfills a full per-system
 // durability carry-state; this helper is the expected full value (the same source the
 // migration + freshPatrolMission use).
-import { defaultSystemDurabilityForHull, COMBAT_DEFAULT_LOADOUT, defaultWeaponsForHull, defaultDroneRolesForHull, frameHp } from "./combat/bridge";
+import { defaultSystemDurabilityForHull, COMBAT_DEFAULT_LOADOUT, defaultWeaponsForHull, defaultDroneRolesForHull } from "./combat/bridge";
+// The retired combat frame share (bridge.ts frameHp, retired by WR-8): the pre-rework migration fixtures below still
+// build Standard-Issue plating the way those old saves carried it (hullIntegrity minus 20% of it, rounded).
+const frameHp = (hullIntegrity: number): number => Math.round(hullIntegrity * 0.2);
 // E-CREW Task 2: the v64->v65 block backfills officer stats through the seniorStaff.ts roll
 // (the real seeded roll since Task 19, which also adds the v65->v66 stub re-roll) and derives the away
 // recruit seed with the model.ts helper.

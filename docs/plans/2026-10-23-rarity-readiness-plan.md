@@ -481,3 +481,12 @@ rows' userRef quotes the user's words ("Yes, same for both (Recommended)") and p
 five-tier salvage test: a fifth tier pushed into a pool is never rolled at Fleet Admiral 19 and is rolled at 20 (popped
 in finally). (6) relics.ts and gambit.ts comments describe the decoupled relic ladder. (7) App.svelte pushes the
 catch-up shoutouts after "Welcome back", so they read above it. Goldens: none moved.
+
+**Merge of feat/crew-0.14.0 (WR-8 combat, EM-3 power, docs; 2026-10-23):** two conflicts, both registry snapshot pins
+(emodGoldens.test.ts, shortRangeGoldens.test.ts), resolved by taking feat's read-backs (wr8ReadBack, em3ReadBack) and
+keeping the rarity slices held apart (RR_ADDED_ENTRY_IDS / RR_SLICE). One rarity-side fix: a legendary drone pod's
+secondaries now draw from WR-8's role pool (`dronePodAffixPool`), so Smart Reflect never lands on a non-Defense pod
+(tested). The rarity goldens re-pinned with the cause recorded in rarityGoldens.fixture.ts: 34 LIVE and 20 RESERVED
+pins, every one a Shield Emitter, Hull Plating or Drone Pod pin, moved by WR-8's new affix pool lines; nothing else
+moved. Gates: 323 files / 9161 tests passed, check 0 errors; sweeps: test:sweep 234, training 56, si 5, ramp 53, patrol
+65, all passed.

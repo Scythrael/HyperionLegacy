@@ -27,6 +27,8 @@ import { shipToCombatant, type CombatHullType, type CombatShipStats } from "./br
 import type { CombatStance } from "./positioning";
 import type { Combatant } from "./types";
 import type { DroneSquadron } from "./drones";
+import { stampCombatArgs, type CombatRulesStamp } from "./combatRules";
+import type { StatusEffect } from "./statusEffects";
 import type { PatrolSystemDurability, EquipmentInstance, OfficerCombatMods, CaptainCombatMods } from "../model";
 // E4d: the Damage Control Suite's pure regen arithmetic (utilityGear.ts imports model only, so no cycle).
 import { damageControlWaveRegen } from "../utilityGear";
@@ -82,6 +84,12 @@ export function buildPatrolPlayerCombatant(args: {
   // WR-5b (0.14.0): the cycle's frozen captain Tactician talents (PatrolMissionState.captainCombat), passed straight
   // to shipToCombatant like officerCombat. Absent = none.
   captainCombat?: CaptainCombatMods;
+  // WR-8 (0.14.0, combat/combatRules.ts): the cycle's combat rules stamp (PatrolMissionState.combatRules). Under it the
+  // player flies its frozen combat speed with its weapons' rule traits and its installed reactor and drive, and opens
+  // each wave carrying the status effects the last wave left on it (OC-D12 "conditions persist across the waves of one
+  // patrol"). Absent = the pre-WR-8 build exactly.
+  combatRules?: CombatRulesStamp;
+  carryStatusEffects?: readonly StatusEffect[];
 }): Combatant {
   // FRESH per wave (weapons + cooldowns reset each wave). From the ship's INSTALLED gear when the
   // caller supplies it (Unit 1.4), else the hull defaults (the pre-1.4 build). shipToCombatant mints
@@ -96,11 +104,16 @@ export function buildPatrolPlayerCombatant(args: {
     installedGear: args.installedGear,
     officerCombat: args.officerCombat,
     captainCombat: args.captainCombat,
+    ...(args.combatRules ? stampCombatArgs(args.combatRules) : {}),
   });
   // OVERRIDE with the carry-state so hull damage + drone losses persist across waves.
   player.hull = args.carryHull;
   player.shield = args.carryShield;
   player.drones = args.carryDrones;
+  // WR-8: the statuses the last wave left, fresh copies (the sim mutates them in place).
+  if (args.combatRules && args.carryStatusEffects && args.carryStatusEffects.length > 0) {
+    player.statusEffects = args.carryStatusEffects.map((e) => ({ ...e }));
+  }
   // OVERRIDE the fresh systems with the carried DURABILITY so wear persists across waves
   // (Phase 12b Unit B2). Absent => the fresh full build stands (no wear yet). shipToCombatant
   // built fresh per-combatant weapon / reactor / ftl objects, so these writes never leak into

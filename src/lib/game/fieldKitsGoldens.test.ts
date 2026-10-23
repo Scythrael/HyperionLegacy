@@ -49,6 +49,11 @@ import { deserialize, migrate, serialize } from "./save";
 import { asPreG2NamesDispatch, plainAwayMember, withSlottedAwayTeams, withoutAffixes, withoutFieldKits, withoutFieldKitsState, withoutGroundOps, withoutRisk, withoutSafeFirstRuns, dispatchPastPropulsion } from "./awayTeamTestFixtures";
 // SF-1: whole states hash without the run counters (seeded by freshState, written by a claim), absent before SF-1.
 import { withoutRunCounts, goldenJson } from "./firstRunsGoldens.fixture";
+// WR-8 (0.14.0): every pin in this file was taken before the combat rules (combatRulesSwitch.fixture.ts), so the file
+// runs with them switched off and its pins keep proving WR-8 moved nothing else here (the rules stamp new patrol
+// cycles and runs; combatDescriptorGoldens.test.ts pins the combat rules themselves).
+import { combatRulesOffForThisFile } from "./combatRulesSwitch.fixture";
+combatRulesOffForThisFile();
 
 // ===== shared helpers =====
 

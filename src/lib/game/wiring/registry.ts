@@ -92,7 +92,14 @@ import { materialQualityClimbChance } from "../materialQuality";
 import { secondaryTalentEffectText } from "../captainSecondaryEffects";
 import { buyHomeworldTalent, describeCaptainTalentEffect, installMissingCombatBaselines } from "../tick";
 import type { CaptainPrimaryMultKind } from "../captainPrimaryEffects";
-import { combatHullTypeOf, hullDefenseComposition } from "../combat/bridge";
+import { BASE_FTL_DURABILITY, BASE_REACTOR_DURABILITY, COMBAT_DEFAULT_LOADOUT, combatHullTypeOf, hullDefenseComposition } from "../combat/bridge";
+// WR-8 (0.14.0): the combat descriptors (combatRules.ts), their probes' on / off mark, and the readers they name.
+import { DEFENSIVE_STANCE, ENCOUNTER_OPEN_DISTANCE, WEAPON_RULE_TRAITS, familyResistPercent, podLineShare } from "../combat/combatRules";
+// E-MOD EM-3: the combat over-budget penalty's floor (its registry row's magnitude).
+import { POWER_SUPPLY_FLOOR_PERCENT } from "../combat/power";
+import { qualityDurabilityMax } from "../combat/durability";
+import { stancePreferredDistance } from "../combat/positioning";
+import { combatDescriptorOn } from "./combatDescriptorProbes";
 import { SENIOR_STAFF_BONUSES, type SeniorStaffBonusDef } from "../seniorStaffBonuses";
 import { CREW_PROFESSION_BUFFS, CREW_STAT_KEYS, HELD_CREW_BUFF_IDS, SECOND_LEVEL_EXCLUSIVE, TRANSIT_SPEED_KEY, type CrewBuffDef } from "../crewBuffs";
 import { CREW_RACES } from "../crewRaces";
@@ -1916,6 +1923,15 @@ const SHIP_PIECE_FOR: Readonly<Record<string, { slotType: string; moduleVariant?
   weaponAccuracy: { slotType: "weapon" },
   droneHp: { slotType: "droneBay" },
   droneAccuracy: { slotType: "droneBay" },
+  // WR-8 (0.14.0, OC-D12): the per-family resist lines and the drone pod counter lines.
+  damageResist_kinetic: { slotType: "hullPlating" },
+  damageResist_particle: { slotType: "hullPlating" },
+  damageResist_ew: { slotType: "hullPlating" },
+  disruptionResist_kinetic: { slotType: "shieldEmitters" },
+  disruptionResist_particle: { slotType: "shieldEmitters" },
+  disruptionResist_ew: { slotType: "shieldEmitters" },
+  droneInCombatReplenish: { slotType: "droneBay" },
+  droneSmartReflect: { slotType: "droneBay" },
 };
 
 const LINE_POINTS = 20;
@@ -1995,7 +2011,23 @@ const LINE_SEAMS: Readonly<Record<string, LineSeam | null>> = {
   weaponAccuracy: { probe: "combatWeaponAccuracy", contexts: ["patrol"], curve: { kind: "linearAbsolute" }, magnitude: () => LINE_POINTS, base: () => combatBase(), where: "rolled" },
   droneHp: { probe: "combatDroneHp", contexts: ["patrol"], curve: { kind: "linearAbsolute" }, magnitude: () => LINE_POINTS, base: () => combatBase("carrier") },
   droneAccuracy: { probe: "combatDroneAccuracy", contexts: ["patrol"], curve: { kind: "linearAbsolute" }, magnitude: () => LINE_POINTS, base: () => combatBase("carrier"), where: "rolled" },
+  // WR-8 (0.14.0, OC-D12 "Feed them all"): the per-family resist lines become a percent on the D23 curve
+  // (combatRules.ts familyResistPercent), read off the installed plating (damage) and emitter (disruption), in the
+  // patrol fold and the ship events' (the same shipToCombatant).
+  damageResist_kinetic: resistSeam("combatDamageResistKinetic"),
+  damageResist_particle: resistSeam("combatDamageResistParticle"),
+  damageResist_ew: resistSeam("combatDamageResistEw"),
+  disruptionResist_kinetic: resistSeam("combatDisruptionResistKinetic"),
+  disruptionResist_particle: resistSeam("combatDisruptionResistParticle"),
+  disruptionResist_ew: resistSeam("combatDisruptionResistEw"),
+  // The drone pod counter lines on combatRules.ts podLineShare: a whole percent of in-combat replenish, a whole percent
+  // of Smart Reflect chance. (Rapid Charge is out of the pool: ship:wr8:podRapidChargeLine, deferred.)
+  droneInCombatReplenish: { probe: "combatInCombatReplenish", contexts: ["patrol"], curve: { kind: "linearAbsolute" }, magnitude: () => Math.round(100 * podLineShare(LINE_POINTS)), base: () => combatBase("carrier"), where: "rolled" },
+  droneSmartReflect: { probe: "combatSmartReflectChance", contexts: ["patrol"], curve: { kind: "linearAbsolute" }, magnitude: () => Math.round(100 * podLineShare(LINE_POINTS)), base: () => combatBase("carrier"), where: "rolled" },
 };
+function resistSeam(probe: ProbeId): LineSeam {
+  return { probe, contexts: ["patrol", "shipEvent"], curve: { kind: "linearAbsolute" }, magnitude: () => familyResistPercent(LINE_POINTS), base: () => combatBase(), where: "rolled" };
+}
 
 const LINE_PENDING: Readonly<Record<string, { owner: string; probe?: ProbeId; contexts?: ContextId[] }>> = {
   crewStations: { owner: "WR-7, OC-D3 (the tooltip prints the rolled value; nothing reads it)", probe: "quartersCapacity", contexts: ["sheet"] },
@@ -2093,7 +2125,11 @@ function shipLineEntries(): WiringEntry[] {
     if (p) return entry({ ...common, probe: p.probe, status: pending(p.owner, p.contexts) });
     if (!seam) return entry({ ...common, status: pending("WR-1 follow-up: no seam probe for this ship line") });
     // The patrol checks fly a combat hull (a freighter cannot patrol, so its patrol reading would be vacuous).
-    const patrolOnCombat: Partial<Record<ContextId, FlatCheck>> = { patrol: { base: () => combatBase() } };
+    // WR-8: transit speed now reaches a patrol's combat speed (ship:audit:derivedStatsInCombat), so its pending patrol
+    // context is the legs alone (patrolOutboundTicks).
+    const patrolOnCombat: Partial<Record<ContextId, FlatCheck>> = {
+      patrol: { base: () => combatBase(), ...(key === "transitSpeedMult" ? { probe: "patrolOutboundTicks" as ProbeId } : {}) },
+    };
     const partial: Readonly<Record<string, WiringStatus>> = {
       cargoCapacity: pending("WR-7, OC-D8 (expeditions and patrols do not read the hold)", ["expedition:groundOps", "patrol"]),
       transitSpeedMult: pending("WR-7, OC-D8 (patrol legs are fixed)", ["patrol"]),
@@ -2184,8 +2220,9 @@ function hullEntries(): WiringEntry[] {
             : {
                 flatChecks: {
                   ...(transit ? {} : { "expedition:groundOps": { on: shipPiece(field, LINE_POINTS), off: identity } }),
+                  // WR-8: a transit flat check reads the patrol legs alone (combat speed reads transit speed now).
                   ...(combat && (field === "cargoCapacity" || transit)
-                    ? { patrol: { base: () => combatBase(hull), on: shipPiece(field, LINE_POINTS), off: identity } }
+                    ? { patrol: { base: () => combatBase(hull), on: shipPiece(field, LINE_POINTS), off: identity, ...(transit ? { probe: "patrolOutboundTicks" as ProbeId } : {}) } }
                     : {}),
                 },
               }),
@@ -2838,13 +2875,19 @@ function missionEntries(): WiringEntry[] {
 // Content: ship combat, ground combat, expedition content, salvage pools, sell values
 // ============================================================================
 
-const SHIP_STATUS_PENDING: Readonly<Record<string, string>> = {
-  sensorPowerDrain: "WR-8, OC-D9 (range: every ship sits at position 0, B3)",
-  coolantLeak: "WR-8, OC-D9 (speed: every ship sits at position 0, B3)",
-  manifoldOverheat: "WR-8, OC-D12 (maneuver: enemy evasion is always 0)",
-  inhibit: "WR-8, OC-D12 (no source applies it; nothing reads droneAttackRate)",
-  overchargedCapacitors: "WR-8, OC-D12 (no source applies the buff)",
+// WR-8 (0.14.0) took the last five live: Sensor Power Drain and Coolant Leak act now that fights open at range
+// (combatEventSensorDrain, combatEventCoolantLeak), Manifold Overheat on the pirates' evasion
+// (combatEventManifoldOverheat), Inhibit has Point Defense as its source and the drone volley clock as its reader
+// (combatEventInhibitSource / Reader), and the support pulse charges Overcharged Capacitors (combatEventOvercharge).
+const SHIP_STATUS_PENDING: Readonly<Record<string, string>> = {};
+
+// WR-8 review: Rapid Charge waits for a podded ship that can be ambushed.
+const RAPID_CHARGE_DEFERRED: WiringStatus = {
+  kind: "deferred",
+  owner: "CP-15 patrol cloak, T3, or explorer drone bays",
+  userRef: `${T3}: patrol cloak detection`,
 };
+// (combatDescriptorProbes.ts combatEventRapidCharge is the rows' check the day a podded ship can be ambushed.)
 
 const GROUND_STATUS_PENDING: Readonly<Record<string, string>> = {
   corroded: "WR-10, OC-F9 (only analyze, never run, inflicts it)",
@@ -2904,12 +2947,32 @@ function contentEntries(): WiringEntry[] {
         }),
       );
     }
+    // WR-8 (OC-D9 "stance matters"): the hull's stance is the distance its combatant holds at under the combat rules
+    // (capped at its own reach in the fight; combatEventStance proves a stance moves a fight).
     out.push(
       entry({
         ...base("ship", "PIRATE_HULLS", `${id}:stance`, `${PIRATE_HULLS[id].name} stance`),
-        status: pending("WR-8, OC-D9 (every ship sits at position 0, so stance changes nothing, B3)"),
+        probe: `combatPirateStance:${id}`,
+        contexts: ["patrol"],
+        direction: "none",
+        curve: { kind: "equals" },
+        magnitude: (c) => stancePreferredDistance(c.PIRATE_HULLS[id].stance),
       }),
     );
+    // WR-8 (OC-D12 "pirate hulls get armor and evasion"): the hull's mitigation reaches its combatant under the combat
+    // rules (combatEventEnemyMitigation proves it changes the damage a ship lands).
+    for (const field of ["ablativeArmor", "evasion"] as const) {
+      out.push(
+        entry({
+          ...base("ship", "PIRATE_HULLS", `${id}:${field}`, `${PIRATE_HULLS[id].name} ${field}`),
+          probe: `content:pirate:${id}:${field}`,
+          contexts: ["patrol"],
+          direction: "none",
+          curve: { kind: "equals" },
+          magnitude: (c) => c.PIRATE_HULLS[id][field],
+        }),
+      );
+    }
   }
   for (const [id, def] of Object.entries(STATUS_EFFECT_DEFS)) {
     const owner = SHIP_STATUS_PENDING[id];
@@ -3677,24 +3740,73 @@ const AUDIT_ROWS: readonly { id: string; system: WiringSystem; claim: string; st
   { id: "ship:audit:reactorCoreNet", system: "ship", claim: "A crafted Reactor Core is net negative: its output only raises the power budget (no install gate or penalty before EM-2 / EM-3, the hull's own output covers every loadout), and its mass drags speed and fuel (B10)", status: pending("E-MOD EM-4 (unused reactor power speeds the drive, P3)") },
   { id: "ship:audit:arrayCharacter", system: "ship", claim: "ARRAY_CHARACTER: \"Focused: faster\" while its net rate is 0.78x; no Bio-Resonance line (B12)", status: pending("WR-7, OC-D11") },
   { id: "ship:audit:hullDescriptions", system: "ship", claim: "Hull descriptions (Aurora, Eir, Orion) claim what the engine does not do", status: pending("WR-7, OC-D13 (heavy cruiser wording: SF-6)") },
-  { id: "ship:audit:combatPositions", system: "ship", claim: "Weapon and drone range, stance (incl. the patrol stance the player picks), BAND_*, enemy stance, speed and position: every ship spawns at 0 (B3)", status: pending("WR-8, OC-D9") },
-  { id: "ship:audit:ftlSpeedPenalty", system: "ship", claim: "FTL_SPEED_PENALTY (depends on position)", status: pending("WR-8, OC-D9") },
-  { id: "ship:audit:torpedoArmorPen", system: "ship", claim: "Torpedo armorPen (enemy armor is 0)", status: pending("WR-8, OC-D12") },
-  { id: "ship:audit:qualityDurabilityMax", system: "ship", claim: "qualityDurabilityMax for the reactor and FTL (always quality 0)", status: pending(GEAR_WEAR_STEP_4) },
+  // WR-8 (0.14.0, OC-D9 "Enemies start at range", OC-D12 "Feed them all"): the combat descriptors, each live with its
+  // own check (auditRowWiring, combatDescriptorProbes.ts). Every one acts only on a battle whose run carries the
+  // combat rules stamp (a patrol cycle or an expedition started since WR-8), except the gear lines and their rows.
+  { id: "ship:audit:combatPositions", system: "ship", claim: "Fights open at range: the enemy side opens at ENCOUNTER_OPEN_DISTANCE and closes (patrol waves and the ship events)", status: LIVE },
+  { id: "ship:wr8:weaponRange", system: "ship", claim: "Weapon range gates fire: a gun fires only at a target within its range", status: LIVE },
+  { id: "ship:wr8:droneRange", system: "ship", claim: "Drone range gates volleys: a squadron volleys only at a target within its reach", status: LIVE },
+  { id: "ship:wr8:stance", system: "ship", claim: "Stance (the one the player picks per patrol, and every pirate's) decides where a ship parks under the combat rules (resolveBattle.ts stanceHoldDistance)", status: LIVE },
+  { id: "ship:wr8:speedKite", system: "ship", claim: "Speed: only a faster ship opens the range on its target (an equal or slower one holds and the fight closes); a Defensive ship backs off only if faster", status: LIVE },
+  // WR-8 review (user 2026-10-22, "if it's a systemic issue, we fix the systemic issue"): the stances park where their
+  // guns work, and Defensive does all four of its claims. Every number [PROVISIONAL] (combatRules.ts DEFENSIVE_STANCE,
+  // BALANCED_FIREPOWER_SHARE); each acts on a patrol whose cycle carries the combat rules stamp.
+  { id: "ship:wr8:stanceAggressive", system: "ship", claim: "Aggressive parks at its shortest gun's reach (every gun fires)", status: LIVE },
+  { id: "ship:wr8:stanceBalanced", system: "ship", claim: "Balanced parks at the farthest range where more than half its expected damage reaches (a Standard-Issue Destroyer's autocannon fires)", status: LIVE },
+  { id: "ship:wr8:stanceBalancedShare", system: "ship", claim: "Balanced leaves a small short gun out when the long guns carry most of the damage (BALANCED_FIREPOWER_SHARE)", status: LIVE },
+  { id: "ship:wr8:stanceDefensive", system: "ship", claim: "Defensive (stored key \"standoff\") parks at its longest gun's reach", status: LIVE },
+  { id: "ship:wr8:defensiveDamageTaken", system: "ship", claim: "Defensive takes DEFENSIVE_STANCE.damageTakenPct less damage from every hit", status: LIVE },
+  { id: "ship:wr8:defensiveDamageDealt", system: "ship", claim: "Defensive deals DEFENSIVE_STANCE.damageDealtPct less with its guns and drones", status: LIVE },
+  { id: "ship:wr8:defensiveShieldRecharge", system: "ship", claim: "Defensive shields recharge DEFENSIVE_STANCE.shieldRechargePct faster", status: LIVE },
+  { id: "ship:wr8:defensiveShieldAbsorb", system: "ship", claim: "Defensive shields stop DEFENSIVE_STANCE.shieldAbsorbPct more damage per point (their effective capacity)", status: LIVE },
+  { id: "ship:wr8:closingEvasive", system: "ship", claim: "Closing is evasive: a ship closing toward its stance range while none of its guns reaches a foe takes CLOSING_EVASION_PCT less from every hit (both sides)", status: LIVE },
+  { id: "ship:wr8:defensiveGuardWeapons", system: "ship", claim: "A Defensive ship's Point Defense and EMP turn on the in-range foe fielding the most drones first", status: LIVE },
+  { id: "ship:wr8:defensiveGuardDrones", system: "ship", claim: "A Defensive ship's drone squadrons hunt the in-range foe's drone screen first", status: LIVE },
+  {
+    id: "ship:wr8:defensiveMissileIntercept",
+    system: "ship",
+    claim: "A Defensive ship with working Point Defense or EMP shoots down DEFENSIVE_STANCE.missileInterceptPct of incoming missiles (the engine reads it; no enemy fires a missile in 0.14.0)",
+    status: pending("the first enemy loadout with a missile (WR-8 review: no pirate or ship event vessel installs a torpedo yet)"),
+  },
+  { id: "ship:audit:ftlSpeedPenalty", system: "ship", claim: "FTL_SPEED_PENALTY: a Degraded or Offline drive slows the close", status: LIVE },
+  { id: "ship:wr8:sensorDrainActs", system: "ship", claim: "Sensor Power Drain shrinks a ship's weapon reach in the fight", status: LIVE },
+  { id: "ship:wr8:coolantLeakActs", system: "ship", claim: "Coolant Leak slows a ship in the fight", status: LIVE },
+  { id: "ship:wr8:manifoldOverheatActs", system: "ship", claim: "Manifold Overheat cuts a pirate hull's evasion", status: LIVE },
+  { id: "ship:audit:torpedoArmorPen", system: "ship", claim: "Torpedo armorPen sees through a pirate hull's armor", status: LIVE },
+  { id: "ship:audit:qualityDurabilityMax", system: "ship", claim: "qualityDurabilityMax for the reactor and FTL: the installed Reactor Core's and FTL drive's quality sets their combat pools (WR-8; gear wear step 4 opens them at the piece's true condition)", status: LIVE },
   { id: "ship:audit:particleTraceDetector", system: "ship", claim: "particleTraceDetector (hard 0, bridge.ts:960)", status: { kind: "deferred", owner: "CP-15 (patrol cloak detection)", userRef: `${T3}: patrol cloak detection` } },
-  { id: "ship:audit:rapidChargeAfterAmbush", system: "ship", claim: "rapidChargeAfterAmbush (nothing sets it)", status: pending("WR-8, OC-D12") },
-  { id: "ship:audit:inCombatReplenishPercent", system: "ship", claim: "inCombatReplenishPercent (nothing sets it)", status: pending("WR-8, OC-D12") },
-  { id: "ship:audit:antiDrone", system: "ship", claim: "antiDrone (the PDA and EMP claim the role; no def sets it)", status: pending("WR-8, OC-D12") },
-  { id: "ship:audit:smartReflect", system: "ship", claim: "smartReflect (nothing sets it)", status: pending("WR-8, OC-D12") },
-  { id: "ship:audit:droneDisrupted", system: "ship", claim: "Drone status disrupted and drone evasion when targeted (nothing sets them)", status: pending("WR-8, OC-D12") },
-  { id: "ship:audit:familyResists", system: "ship", claim: "damageResist_<family> / disruptionResist_<family> (read in combat; no affix pool rolls them)", status: pending("WR-8, OC-D12") },
-  { id: "ship:audit:installedSystems", system: "ship", claim: "Reactor / FTL systems from installed gear (bridge.ts:945 uses a fresh quality-0 system)", status: pending("WR-8, OC-D12") },
-  { id: "ship:audit:derivedStatsInCombat", system: "ship", claim: "ShipDerivedStats in combat (powerOutput, sensors, mass)", status: pending("WR-8, OC-D12") },
+  // WR-8 review: only an explorer on an expedition is ever ambushed in 0.14.0 and no explorer has a drone bay, so a pod's
+  // Rapid Charge could never act; the line stays out of the pod pool and both rows wait (the engine reads it already:
+  // resolveBattle's return-fire delay, bridge.ts podLinePoints).
+  { id: "ship:audit:rapidChargeAfterAmbush", system: "ship", claim: "Rapid Charge shortens an ambushed ship's return-fire delay", status: RAPID_CHARGE_DEFERRED },
+  { id: "ship:wr8:podRapidChargeLine", system: "ship", claim: "Rapid Charge as a drone pod line (droneRapidCharge on combatRules.ts podLineShare): out of the pod pool until a ship with drone bays can be ambushed", status: RAPID_CHARGE_DEFERRED },
+  { id: "ship:audit:inCombatReplenishPercent", system: "ship", claim: "In-Combat Replenish (a drone pod line) rebuilds and repairs drones during the fight", status: LIVE },
+  { id: "ship:audit:antiDrone", system: "ship", claim: "Point Defense and EMP fire at the target's drones (anti-drone fire)", status: LIVE },
+  { id: "ship:audit:smartReflect", system: "ship", claim: "Smart Reflect (a Defense pod line) sends reflected shots at the weakest foe", status: LIVE },
+  { id: "ship:audit:droneDisrupted", system: "ship", claim: "An EW anti-drone hit leaves a drone it does not destroy disrupted (drone evasion when targeted acts on the anti-drone fire)", status: LIVE },
+  { id: "ship:audit:familyResists", system: "ship", claim: "damageResist_<family> / disruptionResist_<family>: crafted Hull Plating rolls the damage resists, Shield Emitters the disruption resists", status: LIVE },
+  { id: "ship:audit:installedSystems", system: "ship", claim: "Reactor / FTL systems from installed gear: the combat pools take the installed pieces' quality", status: LIVE },
+  { id: "ship:audit:derivedStatsInCombat", system: "ship", claim: "ShipDerivedStats in combat: the transit speed (its gear, crew, captain and mass drag) sets the combat speed", status: LIVE },
+  // E-MOD EM-3 (user answers 2026-10-17: Over budget "Gentle penalty curve", P6 "sqrt curve, floor 60%"): live in place,
+  // its checks in wr8AuditWiring below; the shield and floor rows beside it are EM-3's own.
+  { id: "ship:wr8:powerInCombat", system: "ship", claim: "ShipDerivedStats in combat: power output against the net draw. An over-budget ship's weapons hit at its power supply (sqrt(output / draw), frozen in the run's combat rules stamp)", status: LIVE },
+  { id: "ship:em3:powerShieldRecharge", system: "ship", claim: "An over-budget ship's shields recharge at its power supply in combat", status: LIVE },
+  { id: "ship:em3:powerSupplyFloor", system: "ship", claim: "POWER_SUPPLY_FLOOR_PERCENT: however far over budget, a ship fights at no less than this power supply (nothing shuts off)", status: LIVE },
   { id: "ship:audit:weaponPowerDraw", system: "ship", claim: "Weapon powerDraw: a crafted weapon draws its def's power from the ship's budget", status: LIVE },
-  { id: "ship:audit:commentOnlyRules", system: "ship", claim: "The Tachyon anti-shield exception and the Voltaic chain (comments only)", status: pending("WR-8, OC-D12") },
-  { id: "ship:audit:inertDescriptors", system: "ship", claim: "The vs-Drones triangle column, status persistence between battles, ResolveOptions.objective, TargetingPolicy.escortShare, builtInBays, frameHp, the DoT rng", status: pending("WR-8, OC-D12") },
+  { id: "ship:audit:commentOnlyRules", system: "ship", claim: "The Tachyon anti-shield exception: a Tachyon shot takes its own vs-Shields column", status: LIVE },
+  { id: "ship:wr8:voltaicChain", system: "ship", claim: "The Voltaic chain: a connecting Voltaic shot arcs part of its damage onto the attacker's weakest other foe", status: LIVE },
+  { id: "ship:wr8:vsDronesColumn", system: "ship", claim: "The vs-Drones triangle column: a drone absorbing a shot takes its family's column (Kinetic 90%, Particle 100%, EW 110%)", status: LIVE },
+  { id: "ship:wr8:statusPersistence", system: "ship", claim: "Statuses persist across the waves of one patrol: the next wave opens with what the last one left", status: LIVE },
+  { id: "ship:wr8:inhibitSource", system: "ship", claim: "Point Defense procs Inhibit on a target that fields drones", status: LIVE },
+  { id: "ship:wr8:inhibitReader", system: "ship", claim: "Inhibit slows the inhibited ship's drone volleys and pulses", status: LIVE },
+  { id: "ship:wr8:overchargeSource", system: "ship", claim: "A support drone pulse charges its owner's capacitors (Overcharged Capacitors)", status: LIVE },
+  // OC-C4 (user 2026-10-15): "Keep tested hooks (Recommended)". builtInBays (a duplicate of SHIP_TYPES droneBays) and the
+  // legacy frameHp split were retired by WR-8.
+  { id: "ship:audit:inertDescriptors", system: "ship", claim: "ResolveOptions.objective (a pluggable win condition), TargetingPolicy.escortShare (escort ships) and the DoT rng (a DoT with variance): framework hooks with no caller", status: { kind: "seam", owner: "the first mission type with its own win condition, escort ships, a varying DoT", userRef: "OC-C4 (user 2026-10-15): \"Keep tested hooks (Recommended)\"" } },
   { id: "ship:audit:statusColor", system: "ship", claim: "Status color (no reader)", status: pending("WR-11 (use in the combat view or delete; no call)") },
-  { id: "ship:audit:partialCombat", system: "ship", claim: "Ambush opener (expedition cloaked events only), precharge (Ground Ops only), enemy mitigation (players only), evasion (Evasive Command only), drone replenish (between waves only)", status: pending("WR-8, OC-D9 / OC-D12") },
+  { id: "ship:audit:partialCombat", system: "ship", claim: "Patrols pre-charge their guns during the close, like the ship events", status: LIVE },
+  { id: "ship:wr8:enemyMitigation", system: "ship", claim: "Enemy mitigation and evasion: a pirate hull fights with its armor and evasion", status: LIVE },
+  { id: "ship:wr8:ambushInPatrols", system: "ship", claim: "The ambush opener in patrols (only a cloak ambushes; it and Rapid Charge act in the ship events today)", status: { kind: "deferred", owner: "CP-15 (patrol cloak detection)", userRef: `${T3}: patrol cloak detection` } },
   { id: "ship:audit:podDurability", system: "ship", claim: "DRONE_POD_BASE_DURABILITY (pods never wear) and QUALITY_DURABILITY_BONUS on non-weapons", status: pending(GEAR_WEAR_STEP_4) },
   // E. Crew
   { id: "crew:audit:enlisted", system: "crew", claim: "The crew rank enlisted flag (never read)", status: pending("WR-9, OC-E11") },
@@ -3718,7 +3830,9 @@ const AUDIT_ROWS: readonly { id: string; system: WiringSystem; claim: string; st
   { id: "away:audit:quickDraw", system: "away", claim: "Quick Draw only reorders teammates (the team already acts first)", status: pending("WR-10, OC-F5") },
   { id: "away:audit:scienceRank", system: "away", claim: "Science member rank \"nudges magnitude\" (fieldwork never reads it)", status: pending("WR-10, OC-F7") },
   { id: "away:audit:fieldDeviceEffectiveness", system: "away", claim: "fieldDevice effectiveness (both values 1; the specialist check is always false)", status: pending("FK-7") },
-  { id: "away:audit:memberSlotPhysicals", system: "away", claim: "Member slot physicals (mass, powerDraw). Their durability is live since gear wear step 3: a member piece's toughness scales its use wear (ship:audit:slotDurability)", status: pending("WR-8, OC-D14") },
+  // WR-8 settled mass and power draw (0 by design: member gear never moves ship stats) and gear wear step 3 made the
+  // durability live (a member piece's toughness scales its use wear, wired through ship:audit:slotDurability's check).
+  { id: "away:audit:memberSlotPhysicals", system: "away", claim: "Member slot physicals: durability is the piece's toughness (a tougher member piece wears slower by use; ship:audit:slotDurability); mass and power draw are 0 by design (member gear never moves ship stats)", status: LIVE },
   // Field Kits FKR-7: the Injury Kit's share (a fight's `treated`) sums on the member's trip treatment and the run's bay
   // divides that member's cures by it (auditRowWiring below).
   { id: "away:audit:treatmentShare", system: "away", claim: "An Injury Kit shortens the treated member's medical bay time (treatmentShare)", status: LIVE },
@@ -3815,6 +3929,101 @@ function auditEntries(): WiringEntry[] {
 // E-MOD EM-1: the wiring of the audit rows that went live in place (their row keeps its registry position): the power
 // draw rows, live with the power budget (the ship's power draw readout, the budget the install gate EM-2 and the combat
 // penalty EM-3 read).
+// WR-8 (0.14.0, OC-D9, OC-D12, OC-D14): the combat descriptor rows' checks (combatDescriptorProbes.ts). A battle event
+// is measured with the descriptor in play (combatDescriptorOn) against it out of play, on fixed seeds: it moves by at
+// least one whole unit of its metric, the declared way. The pools, the open distance, the speed stamp, the Tachyon
+// column and the status carry are exact seams.
+function wr8AuditWiring(): Readonly<Record<string, Partial<EntryInput>>> {
+  const ev = (probe: ProbeId, direction: "up" | "down" | "none", metric: string, contexts: ContextId[] = ["patrol"]): Partial<EntryInput> => ({
+    probe,
+    contexts,
+    direction,
+    curve: { kind: "event", metric },
+    magnitude: () => 1,
+    on: combatDescriptorOn,
+  });
+  const reactorAt = (quality: number): Transform => (s) => installPiece(s, { slotType: "reactorCore", quality });
+  const ftlAt = (quality: number): Transform => (s) => installPiece(s, { slotType: "ftlDrive", quality });
+  const transitDrive = (points: number): Transform => (s) => installPiece(s, { slotType: "ftlDrive", implicitStats: points > 0 ? { transitSpeedMult: points } : {} });
+  // E-MOD EM-3: a Cargo Bay drawing num / den of the Destroyer's own output (combatBase's hull; its gear draws 0).
+  const overBudget = (num: number, den: number): Transform => (s) => installPiece(s, { slotType: "cargoBay", powerDraw: Math.ceil((SHIP_TYPES.destroyer.basePowerOutput * num) / den) });
+  return {
+    "ship:audit:combatPositions": { probe: "combatOpenDistance", contexts: ["patrol", "shipEvent"], direction: "none", curve: { kind: "equals" }, magnitude: () => ENCOUNTER_OPEN_DISTANCE },
+    "ship:wr8:weaponRange": ev("combatEventWeaponRange", "up", "the target's damage taken (a railgun's range on vs out of reach)"),
+    "ship:wr8:droneRange": ev("combatEventDroneRange", "down", "the target's damage taken (an Attack squadron's reach on vs a long reach)"),
+    "ship:wr8:stance": ev("combatEventStance", "none", "both ships' damage taken (Aggressive vs Defensive against a Marauder)"),
+    "ship:wr8:speedKite": ev("combatEventSpeedKite", "down", "the faster ship's damage taken"),
+    "ship:wr8:stanceAggressive": { probe: "combatHoldAggressive", contexts: ["patrol"], direction: "none", curve: { kind: "equals" }, magnitude: () => WEAPON_DEFS.autocannon.range }, // the Standard-Issue Battleship fills its spare hardpoints with autocannons
+    "ship:wr8:stanceBalanced": { probe: "combatHoldBalanced", contexts: ["patrol"], direction: "none", curve: { kind: "equals" }, magnitude: () => WEAPON_DEFS.autocannon.range },
+    "ship:wr8:stanceBalancedShare": { probe: "combatHoldBalancedLongGuns", contexts: ["patrol"], direction: "none", curve: { kind: "equals" }, magnitude: () => WEAPON_DEFS.railgun.range },
+    "ship:wr8:stanceDefensive": { probe: "combatHoldDefensive", contexts: ["patrol"], direction: "none", curve: { kind: "equals" }, magnitude: () => Math.max(...COMBAT_DEFAULT_LOADOUT.battleship.weapons.map((w) => WEAPON_DEFS[w].range)) },
+    "ship:wr8:defensiveDamageTaken": { probe: "combatDefensiveDamageTaken", contexts: ["patrol"], direction: "down", curve: { kind: "linearRelative" }, magnitude: () => -DEFENSIVE_STANCE.damageTakenPct / 100, on: combatDescriptorOn },
+    "ship:wr8:defensiveShieldAbsorb": { probe: "combatDefensiveShieldAbsorb", contexts: ["patrol"], direction: "down", curve: { kind: "divisor" }, magnitude: () => DEFENSIVE_STANCE.shieldAbsorbPct / 100, on: combatDescriptorOn, tolerance: 1 },
+    "ship:wr8:defensiveDamageDealt": ev("combatEventDefensiveDamageDealt", "down", "an autocannon's damage over 300 shots"),
+    "ship:wr8:defensiveShieldRecharge": { probe: "combatEventDefensiveShieldRecharge", contexts: ["patrol"], direction: "up", curve: { kind: "linearRelative" }, magnitude: () => DEFENSIVE_STANCE.shieldRechargePct / 100, on: combatDescriptorOn, tolerance: 1 },
+    "ship:wr8:closingEvasive": ev("combatEventClosingEvasive", "down", "the closing ship's damage taken"),
+    "ship:wr8:defensiveGuardWeapons": ev("combatEventDefensiveGuardWeapons", "up", "the drone-fielding foe's drone hit points lost to Point Defense"),
+    "ship:wr8:defensiveGuardDrones": ev("combatEventDefensiveGuardDrones", "up", "the drone-fielding foe's drone hit points lost to an Attack squadron"),
+    "ship:audit:ftlSpeedPenalty": ev("combatEventFtlSpeedPenalty", "up", "the first round within 100 (a Degraded drive vs nominal)"),
+    "ship:wr8:sensorDrainActs": ev("combatEventSensorDrain", "up", "the first shot's tick (the drained reach opens once the drain lapses)"),
+    "ship:wr8:coolantLeakActs": ev("combatEventCoolantLeak", "up", "the distance on round 3"),
+    "ship:wr8:manifoldOverheatActs": ev("combatEventManifoldOverheat", "up", "autocannon projectiles that hit a Raider"),
+    "ship:audit:torpedoArmorPen": ev("combatEventArmorPen", "up", "a torpedo's damage on a Marauder's plates"),
+    "ship:audit:qualityDurabilityMax": {
+      probe: "combatReactorPoolMax",
+      contexts: ["patrol", "shipEvent"],
+      curve: { kind: "linearAbsolute" },
+      magnitude: () => qualityDurabilityMax(BASE_REACTOR_DURABILITY, 3) - qualityDurabilityMax(BASE_REACTOR_DURABILITY, 0),
+      base: () => combatBase(),
+      on: reactorAt(3),
+      off: reactorAt(0),
+    },
+    "ship:audit:installedSystems": {
+      probe: "combatFtlPoolMax",
+      contexts: ["patrol", "shipEvent"],
+      curve: { kind: "linearAbsolute" },
+      magnitude: () => qualityDurabilityMax(BASE_FTL_DURABILITY, 2) - qualityDurabilityMax(BASE_FTL_DURABILITY, 0),
+      base: () => combatBase(),
+      on: ftlAt(2),
+      off: ftlAt(0),
+    },
+    "ship:audit:inCombatReplenishPercent": ev("combatEventInCombatReplenish", "up", "the squadron's drones online at the end"),
+    "ship:audit:antiDrone": ev("combatEventAntiDrone", "none", "the drone carrier's damage taken"),
+    "ship:audit:smartReflect": ev("combatEventSmartReflect", "up", "the weakest foe's damage taken"),
+    "ship:audit:droneDisrupted": ev("combatEventDroneDisrupted", "up", "the enemy's drones disrupted at the end"),
+    "ship:audit:familyResists": { probe: "combatResistLinesRoll", contexts: ["craft"], curve: { kind: "event", metric: "resist line picks over the plating and emitter rolls" }, magnitude: () => 1, on: sourceOn },
+    "ship:audit:derivedStatsInCombat": {
+      probe: "combatSpeedStamp",
+      contexts: ["patrol", "shipEvent"],
+      curve: { kind: "linearRelative" },
+      magnitude: () => percent("transitSpeedMult"),
+      base: bareHull,
+      on: transitDrive(LINE_POINTS),
+      off: transitDrive(0),
+      tolerance: 1,
+    },
+    // E-MOD EM-3: a Standard-Issue Destroyer (its own gear draws nothing) taking a powered Cargo Bay that draws half
+    // again its hull's output (supply sqrt(2 / 3), 81%), or four times it (the floor), against the ship in budget.
+    // Weapons and shields are measured as a patrol cycle builds the ship (the stamp it would write now) and as an
+    // expedition's ship event does (its dispatch snapshot).
+    "ship:wr8:powerInCombat": { probe: "combatPowerSupplyDamage", contexts: ["patrol", "shipEvent"], direction: "down", curve: { kind: "event", metric: "the first weapon's damage over 300 shots" }, magnitude: () => 1, base: () => combatBase(), on: overBudget(3, 2) },
+    "ship:em3:powerShieldRecharge": { probe: "combatPowerSupplyShieldRecharge", contexts: ["patrol", "shipEvent"], direction: "down", curve: { kind: "event", metric: "the shields recharged in a battle with no fire" }, magnitude: () => 1, base: () => combatBase(), on: overBudget(3, 2) },
+    "ship:em3:powerSupplyFloor": { probe: "combatPowerSupplyStamp", contexts: ["patrol"], direction: "none", curve: { kind: "equals" }, magnitude: () => POWER_SUPPLY_FLOOR_PERCENT, base: () => combatBase(), on: overBudget(4, 1) },
+    "ship:audit:commentOnlyRules": { probe: "combatTachyonVsShields", contexts: ["patrol"], direction: "none", curve: { kind: "equals" }, magnitude: () => WEAPON_RULE_TRAITS.tachyonBurstEmitter?.vsShieldsPct ?? 0, on: combatDescriptorOn },
+    "ship:wr8:voltaicChain": ev("combatEventVoltaicChain", "up", "the second foe's damage taken"),
+    "ship:wr8:vsDronesColumn": ev("combatEventVsDrones", "down", "a Defense drone's hit points lost to kinetic fire"),
+    "ship:wr8:statusPersistence": { probe: "combatStatusCarry", contexts: ["patrol"], curve: { kind: "gate" }, magnitude: () => 1, on: combatDescriptorOn },
+    "ship:wr8:inhibitSource": ev("combatEventInhibitSource", "up", "Inhibits Point Defense applied"),
+    "ship:wr8:inhibitReader": ev("combatEventInhibitReader", "down", "the inhibited squadron's volleys in 5 s"),
+    "ship:wr8:overchargeSource": ev("combatEventOvercharge", "up", "the owner's Overcharged Capacitors rank at the end"),
+    "ship:audit:partialCombat": ev("combatEventPrecharge", "down", "the first shot's tick"),
+    "ship:wr8:enemyMitigation": {
+      ...ev("combatEventEnemyMitigation", "down", "an autocannon's damage on a Marauder"),
+      outOfScope: [{ context: "shipEvent", reason: "the user named the pirate hulls; a ship event's vessel is not one", userRef: "OC-D12 (user 2026-10-16): \"pirate hulls get armor and evasion\"" }],
+    },
+  };
+}
+
 function auditRowWiring(): Readonly<Record<string, Partial<EntryInput>>> {
   const emitter = (draw: number): Transform => (s) => installPiece(s, { slotType: "shieldEmitters", powerDraw: draw });
   const torpedo = (draw: number): Transform => (s) => installPiece(s, { slotType: "weapon", weaponType: "concussionTorpedo", powerDraw: draw });
@@ -3825,6 +4034,7 @@ function auditRowWiring(): Readonly<Record<string, Partial<EntryInput>>> {
     lifetimeStats: { ...s.lifetimeStats, missionsCompleted: { ...s.lifetimeStats.missionsCompleted, shortOreRun: new Decimal(n), longOreRun: new Decimal(n) } },
   });
   return {
+    ...wr8AuditWiring(),
     // Gear wear step 3: a Reactor Core at its slot base (SLOT_BASE_PHYSICALS.reactorCore.durability) against one at
     // the TOUGHNESS_REFERENCE: a minute underway takes reference / base as much (one rounding step of tolerance).
     "ship:audit:slotDurability": {
@@ -3835,6 +4045,22 @@ function auditRowWiring(): Readonly<Record<string, Partial<EntryInput>>> {
       magnitude: (c) => TOUGHNESS_REFERENCE / c.SLOT_BASE_PHYSICALS.reactorCore.durability - 1,
       base: () => installPiece(seatOfficer(wiringBase(), "operations", []), { slotType: "reactorCore", durabilityMax: TOUGHNESS_REFERENCE }),
       on: (s) => ({ ...s, equipment: s.equipment.map((e) => (e.id === wearPieceIdFor("reactorCore") ? { ...e, durabilityMax: SLOT_BASE_PHYSICALS.reactorCore.durability } : e)) }),
+      tolerance: 1,
+    },
+    // Merged WR-8 + gear wear step 3: a member weapon's durability is its toughness too. Its slot base equals the
+    // TOUGHNESS_REFERENCE, so the check sets a piece twice as tough against one at the slot base: a ground fight takes
+    // (2 x reference) / base as much from the slot-base piece (one rounding step of tolerance).
+    "away:audit:memberSlotPhysicals": {
+      probe: "wear:use:memberWeapon:groundFight" as ProbeId,
+      contexts: ["expedition:groundOps"],
+      direction: "down",
+      curve: { kind: "linearRelative" },
+      magnitude: (c) => (2 * TOUGHNESS_REFERENCE) / c.SLOT_BASE_PHYSICALS.memberWeapon.durability - 1,
+      base: () => {
+        const s = wearSlotFixture("memberWeapon");
+        return { ...s, equipment: s.equipment.map((e) => (e.id === wearPieceIdFor("memberWeapon") ? { ...e, durabilityMax: 2 * TOUGHNESS_REFERENCE } : e)) };
+      },
+      on: (s) => ({ ...s, equipment: s.equipment.map((e) => (e.id === wearPieceIdFor("memberWeapon") ? { ...e, durabilityMax: SLOT_BASE_PHYSICALS.memberWeapon.durability } : e)) }),
       tolerance: 1,
     },
     // G1-6 (SHORT_RANGE_BOARD_LIVE): the board's level 2 rung opens once each ore run has MISSION_CONTROL_UNLOCK_COMPLETIONS
@@ -4396,6 +4622,9 @@ export const FLAT_UNCONTROLLED: Readonly<Record<string, string>> = {
   "sciCombatPower@ground": "Science never fights (D2): nothing live reaches a Science member's battle stats",
   "secInflictPermille@ground:noInflict": "an inflict piece is the only live source of on-hit statuses, and this context is the one without it",
   "salvageTalentCeiling@salvage:topTier": "the pool's top tier is the clamp: nothing can raise the tier a top Fleet Admiral rolls",
+  // WR-8: transit speed reaches a patrol's combat speed now (ship:audit:derivedStatsInCombat), so its pending patrol
+  // context is the LEGS alone, read here; no live effect moves a patrol leg until WR-7 (OC-D8) scales them.
+  "patrolOutboundTicks@patrol": "a patrol's legs are fixed route ticks until WR-7 (OC-D8: patrol legs scale with transit speed): nothing live moves them yet",
 };
 
 // ============================================================================

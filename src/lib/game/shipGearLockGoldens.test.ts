@@ -22,6 +22,11 @@ import { expeditionCandidates } from "./expedition";
 import { dispatchPastPropulsion, withMinimumAwayTeam } from "./awayTeamTestFixtures";
 import { stateHash } from "./firstRunsGoldens.fixture";
 import { GEAR_LOCK_KINDS, GL_LOADOUT, GL_SPARE, gearLockFleet, lockShip, withLoadoutWorn, type GearLockKind } from "./shipGearLock.fixture";
+// WR-8 (0.14.0): every pin in this file was taken before the combat rules (combatRulesSwitch.fixture.ts), so the file
+// runs with them switched off and its pins keep proving WR-8 moved nothing else here (the rules stamp new patrol
+// cycles and runs; combatDescriptorGoldens.test.ts pins the combat rules themselves).
+import { combatRulesOffForThisFile } from "./combatRulesSwitch.fixture";
+combatRulesOffForThisFile();
 
 function lcg(seed: number): () => number {
   let s = seed >>> 0;

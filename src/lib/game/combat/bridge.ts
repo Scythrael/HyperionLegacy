@@ -21,11 +21,11 @@
 //      dev harness, hardcoded enemies). Deriving weapons from a ship's FITTED / crafted
 //      weapon gear (replacing the hull defaults) is a LATER sub-phase, not this bridge.
 //
-//   2. MOVEMENT / DEFENSE stats the ship model has no field for yet (evasion,
-//      combat speed, armor, resists, shield coherence). These default to sensible
-//      neutral values with a TODO each, so a Combatant is valid input to
-//      resolveBattle today and the real stats layer in additively later without
-//      reshaping this function.
+//   2. MOVEMENT / DEFENSE stats. Since Combat 1.0 the defense lines (shield coherence,
+//      armor, dampening) fold off the installed gear; since WR-8 (0.14.0, combatRules.ts)
+//      the per-family resists fold off the crafted plating and emitter lines, a run under
+//      the combat rules passes the ship's combat speed and the enemy's opening position,
+//      and evasion comes from the officers (Evasive Command) or a pirate hull's line.
 // ============================================================================
 
 import type { ShipTypeDef, ShipTypeKey, PatrolSystemDurability, EquipmentInstance, OfficerCombatMods, CaptainCombatMods } from "../model";
@@ -51,6 +51,20 @@ import { applyCaptainCombat, applyCaptainDrones } from "./captainEdge";
 import { REPLENISH_PPM } from "./droneDefense";
 // Gear wear (0.14.0): a weapon opens its pool at the piece's TRUE condition (user W3), read through one pure helper.
 import { pieceStartDurability } from "../gearWear";
+// WR-8 (0.14.0): the combat descriptors (combatRules.ts): the default combat speed, the weapon rule traits, the resist
+// and pod line curves.
+import {
+	DEFAULT_COMBAT_SPEED,
+	DEFENSIVE_STANCE,
+	familyResistPercent,
+	podLineShare,
+	POD_LINE_RAPID_CHARGE,
+	POD_LINE_REPLENISH,
+	POD_LINE_SMART_REFLECT,
+	stampCombatArgs,
+	withWeaponRuleTraits,
+	type CombatRulesStamp,
+} from "./combatRules";
 
 // Default stance for a bridged ship (design S6): Balanced (fight at Medium range)
 // until the mission layer sets a real per-dispatch stance (player-chosen) or the
@@ -58,11 +72,8 @@ import { pieceStartDurability } from "../gearWear";
 // explicit + a single knob.
 const DEFAULT_STANCE: CombatStance = "balanced";
 
-// Default combat speed (position units per second) for a bridged ship until the
-// ship model grows a real combat-maneuver stat (TODO integration). Non-zero so
-// ships still close distance on the 1D axis; the exact value is a first-pass
-// placeholder (the sim's range gate mostly makes it moot at position 0 vs 0).
-const DEFAULT_COMBAT_SPEED = 10;
+// The default combat speed (position units per second) lives in combatRules.ts (WR-8): enemies fly it, and a run
+// under the combat rules passes the player's own (combatSpeedFor, frozen in the run's CombatRulesStamp).
 
 // The zero FamilyResist (no per-family damage/disruption resist). A fresh object
 // per Combatant so two bridged ships never share a resist map by reference.
@@ -70,30 +81,9 @@ function zeroResist(): FamilyResist {
 	return { kinetic: 0, particle: 0, ew: 0 };
 }
 
-// ---------------------------------------------------------------------------
-// FRAME HP (Combat 1.0 Unit 1.4, design 6a "middle path").
-//
-// ⚠️ LEGACY as of the combat-defense rework (2026-08-27): this frame/plating split is NO LONGER the
-// combat hull-pool fold. The rework replaced it with the HYBRID model (see hullDefenseComposition +
-// shipToCombatant below): hull = innateHullArmor (bare frame = authored - SI_PLATING_HP) + installed
-// plating.hullStrength (additive), while shields are multiplicative via effectiveness ratios. frameHp is
-// now UNUSED by both the combat fold and the ShipSystemsPanel readout (combatFit.ts folds the same
-// composition); it is retained only so its own unit test + this documented history survive until a
-// dedicated cleanup removes it. The combat sim no longer reads it.
-//
-// A combat hull keeps a SMALL intrinsic frame integrity; the fraction below splits a hull's total
-// structural HP between the intrinsic frame and the (legacy) plating baseline:
-// frameHp = round(hullIntegrity * COMBAT_FRAME_HP_FRACTION).
-export const COMBAT_FRAME_HP_FRACTION = 0.2;
-
-// The intrinsic frame HP for a hull with the given total structural integrity. PURE + integer
-// (Math.round). UNUSED IN PRODUCTION (corrected 2026-08-27): neither the combat fold nor combatFit.ts /
-// the ShipSystemsPanel readout calls it (the HYBRID rework replaced the frame/plating split). frameHp /
-// COMBAT_FRAME_HP_FRACTION are now referenced ONLY by tests (save.test.ts baseline fixtures + this
-// documented history), retained solely so those fixtures keep compiling until a dedicated cleanup removes it.
-export function frameHp(hullIntegrity: number): number {
-	return Math.round(hullIntegrity * COMBAT_FRAME_HP_FRACTION);
-}
+// (The legacy frame / plating split, frameHp and COMBAT_FRAME_HP_FRACTION, was retired by WR-8 (0.14.0, OC-D12 "the
+// inert descriptors get coded or deleted"): the combat-defense rework's HYBRID fold below replaced it on 2026-08-27,
+// and only save.test.ts's pre-rework migration fixtures still need its old number, which they now compute locally.)
 
 // ---------------------------------------------------------------------------
 // hullDefenseComposition: derive a hull's combat-defense composition (combat-defense rework, design
@@ -158,21 +148,28 @@ function affixOf(piece: EquipmentInstance | undefined, key: string): number {
 	return piece ? (piece.rolledStats[key] ?? 0) : 0;
 }
 
-// Sum the per-family resist affixes (`${prefix}_${family}`, e.g. "damageResist_kinetic")
-// across every installed piece into one FamilyResist map. FORWARD-WIRED: no gear rolls
-// these keys yet (per-family resist affixes are a later unit's vocabulary), so today
-// this always returns an all-zero map for a Standard-Issue set, matching the pre-1.4
-// hardcoded zeroResist(). Wired now so the fold reads real numbers the moment those
-// affixes exist, without reshaping shipToCombatant. PURE (fresh map per call).
+// Sum the per-family resist lines (`${prefix}_${family}`, e.g. "damageResist_kinetic") across every installed piece
+// into one FamilyResist map of PERCENTS. WR-8 (0.14.0, OC-D12): crafted Hull Plating rolls the damage resists and
+// Shield Emitters the disruption resists (combatRules.ts PLATING_RESIST_LINES / EMITTER_RESIST_LINES); the summed
+// points of a family become a percent on the D23 curve (combatRules.ts familyResistPercent: approaches 100, never a
+// cap). Standard-Issue gear rolls none, so its map stays all zero, matching the pre-1.4 zeroResist(). PURE.
 function sumFamilyResist(gear: EquipmentInstance[], prefix: string): FamilyResist {
 	const resist = zeroResist();
-	for (const piece of gear) {
-		for (const family of RESIST_FAMILIES) {
-			const key = `${prefix}_${family}`;
-			resist[family] += statOf(piece, key);
-		}
+	for (const family of RESIST_FAMILIES) {
+		const key = `${prefix}_${family}`;
+		let points = 0;
+		for (const piece of gear) points += statOf(piece, key);
+		resist[family] = familyResistPercent(points);
 	}
 	return resist;
+}
+
+// WR-8 (0.14.0, OC-D12 "rapid charge, in-combat replenish and smart reflect as drone pod lines"): the summed points of
+// one pod line across the installed drone pods. PURE.
+function podLinePoints(gear: readonly EquipmentInstance[], key: string): number {
+	let points = 0;
+	for (const piece of gear) if (piece.slotType === "droneBay") points += statOf(piece, key);
+	return points;
 }
 
 // ---------------------------------------------------------------------------
@@ -309,6 +306,10 @@ export function squadronFromPod(pod: EquipmentInstance, idPrefix?: string): Dron
 	if (droneAccuracyBonus !== 0) {
 		squadron.accuracy += droneAccuracyBonus;
 	}
+	// WR-8: a Defense pod's Smart Reflect line: the chance a reflected shot seeks the weakest foe (combatRules.ts
+	// podLineShare as a whole percent). Absent without the line, so every other pod is unchanged.
+	const smartPoints = statOf(pod, POD_LINE_SMART_REFLECT);
+	if (smartPoints > 0) squadron.smartReflectChance = Math.round(100 * podLineShare(smartPoints));
 	return squadron;
 }
 
@@ -317,16 +318,20 @@ export function squadronFromPod(pod: EquipmentInstance, idPrefix?: string): Dron
 // the crafted-equipment bridge), so these are shared first-pass ceilings, mirroring
 // weapons.ts BASE_WEAPON_DURABILITY. ⚠️ FIRST-PASS + TUNABLE (design S20). The
 // reactor/ftl start FULL (durability == durabilityMax) at quality 0.
-const BASE_REACTOR_DURABILITY = 100;
-const BASE_FTL_DURABILITY = 100;
+export const BASE_REACTOR_DURABILITY = 100;
+export const BASE_FTL_DURABILITY = 100;
 
-// Build one fresh DurableSystem (reactor or ftl) at quality 0 from a base ceiling.
+// Build one fresh DurableSystem (reactor or ftl) from a base ceiling at `quality` (0 by default).
 // A fresh object per Combatant so the sim's per-battle wear never leaks between
 // ships or back into a shared template. quality 0 => qualityDurabilityMax returns
-// the base unchanged; a real per-instance quality arrives with the equipment bridge.
-function freshSystem(baseDurability: number): DurableSystem {
-	const durabilityMax = qualityDurabilityMax(baseDurability, 0);
-	return { durability: durabilityMax, durabilityMax, quality: 0 };
+// the base unchanged.
+// WR-8 (0.14.0, "reactor / FTL systems from installed gear"): a run under the combat rules passes the installed Reactor
+// Core's and FTL drive's quality, frozen in its stamp (crewOverlay.ts shipCombatRulesStamp, ShipToCombatantArgs
+// systemQuality), so a crafted piece fields a bigger pool with a lower wear chance; a Standard-Issue piece is quality
+// 0, the same pool as before. The pool opens FULL here: gear wear step 4 opens it at the piece's true condition.
+function freshSystem(baseDurability: number, quality = 0): DurableSystem {
+	const durabilityMax = qualityDurabilityMax(baseDurability, quality);
+	return { durability: durabilityMax, durabilityMax, quality: Math.max(0, Math.floor(quality)) };
 }
 
 // ---------------------------------------------------------------------------
@@ -361,13 +366,9 @@ export interface CombatDefaultLoadout {
 	weapons: WeaponId[];
 	// The default drone squadrons, one per built-in bay (carrier only; design S8).
 	// Each entry is a role the bridge feeds to makeSquadron. Empty for non-carriers.
+	// (WR-8 retired the never-read `builtInBays` count: a hull's bays are SHIP_TYPES[hull].droneBays, the field the
+	// install gate reads; the carrier's second bay starts empty, filled by an installed pod.)
 	droneRoles: DroneRole[];
-	// The carrier's BUILT-IN hangar bay count (design S8: carriers get ~2 built-in
-	// bays plus more from the hangar SYSTEM). Lives here for now because the ship
-	// model has no hangar-bay field yet; the hangar-gear system (Phase 9/12) is its
-	// real home. 0 for non-carriers. droneRoles.length may be < builtInBays (some
-	// bays start empty, filled by fitted pods later).
-	builtInBays: number;
 }
 
 export const COMBAT_DEFAULT_LOADOUT: Record<CombatHullType, CombatDefaultLoadout> = {
@@ -379,7 +380,7 @@ export const COMBAT_DEFAULT_LOADOUT: Record<CombatHullType, CombatDefaultLoadout
 	// shield stats come straight from SHIP_TYPES (unchanged), and the guns are the
 	// autocannon, the weakest raw-damage weapon in the roster (weapons.ts: 6-10 yield),
 	// deliberately fewer than the hull's weaponHardpoints. NO drone bays (drones stay a
-	// CARRIER-only capability, builtInBays 0). The exact gun COUNTS below were tuned
+	// CARRIER-only capability, 0 drone bays). The exact gun COUNTS below were tuned
 	// against the REAL patrol sim (patrol-balance.test.ts): every economy hull's
 	// Standard-Issue win rate lands BELOW the destroyer's on BOTH the Sweep and the
 	// Warband, so an economy hull never rivals a combat hull. ⚠️ TUNABLE (same first-
@@ -391,7 +392,6 @@ export const COMBAT_DEFAULT_LOADOUT: Record<CombatHullType, CombatDefaultLoadout
 	generalFreighter: {
 		weapons: ["autocannon"],
 		droneRoles: [],
-		builtInBays: 0,
 	},
 	// HAULER: the biggest hull (700 integrity) but the most toothless kit, exactly 1
 	// autocannon, so its tankiness alone can NEVER carry it to a combat hull's win rate
@@ -399,19 +399,16 @@ export const COMBAT_DEFAULT_LOADOUT: Record<CombatHullType, CombatDefaultLoadout
 	prospectorHauler: {
 		weapons: ["autocannon"],
 		droneRoles: [],
-		builtInBays: 0,
 	},
 	// RUNNER: fast + fragile (1 hardpoint); 1 autocannon. No drones.
 	prospectorRunner: {
 		weapons: ["autocannon"],
 		droneRoles: [],
-		builtInBays: 0,
 	},
 	// PROSPECTOR/MINER: mid frame (1 hardpoint); 1 autocannon. No drones.
 	prospectorMiner: {
 		weapons: ["autocannon"],
 		droneRoles: [],
-		builtInBays: 0,
 	},
 	// --- COMBAT HULLS (unchanged: byte-identical parity with the pre-widening data) ---
 	// DESTROYER: a fast striker. 2 FAST weapons (a low-cooldown kinetic workhorse +
@@ -420,7 +417,6 @@ export const COMBAT_DEFAULT_LOADOUT: Record<CombatHullType, CombatDefaultLoadout
 	destroyer: {
 		weapons: ["autocannon", "plasma"],
 		droneRoles: [],
-		builtInBays: 0,
 	},
 	// BATTLESHIP: the gun wall. 3 HEAVY weapons (a precision railgun, a heavy
 	// warhead torpedo, and an anti-shield Voltaic to strip screens for the kinetics),
@@ -428,17 +424,15 @@ export const COMBAT_DEFAULT_LOADOUT: Record<CombatHullType, CombatDefaultLoadout
 	battleship: {
 		weapons: ["railgun", "concussionTorpedo", "voltaic"],
 		droneRoles: [],
-		builtInBays: 0,
 	},
 	// CARRIER: the drone platform. 1 weapon only (a Point-Defense screen weapon, all
 	// its 2 reduced hardpoints could hold, one left open for fitment) PLUS an Attack
-	// squadron in a built-in bay: its real offense is the drones. builtInBays 2 (design
-	// S8) documents the carrier's built-in capacity; the second bay starts empty
-	// (filled by a fitted pod later).
+	// squadron in a built-in bay: its real offense is the drones. The hull's 2 drone bays
+	// (SHIP_TYPES.carrier.droneBays, design S8) are its built-in capacity; the second bay
+	// starts empty (filled by an installed pod later).
 	carrier: {
 		weapons: ["pointDefenseArray"],
 		droneRoles: ["attack"],
-		builtInBays: 2,
 	},
 	// --- EXPLORER HULLS (0.14.0 Exploration Phase E0, design Part B) ------------------
 	// The glass-tank explorers carry TERRIBLE offense by design (their power goes to shields,
@@ -450,17 +444,14 @@ export const COMBAT_DEFAULT_LOADOUT: Record<CombatHullType, CombatDefaultLoadout
 	orion: {
 		weapons: ["autocannon"],
 		droneRoles: [],
-		builtInBays: 0,
 	},
 	aurora: {
 		weapons: ["autocannon"],
 		droneRoles: [],
-		builtInBays: 0,
 	},
 	eir: {
 		weapons: ["autocannon"],
 		droneRoles: [],
-		builtInBays: 0,
 	},
 };
 
@@ -524,7 +515,7 @@ export function defaultWeaponsForHull(hullType: CombatHullType): WeaponId[] {
 // drone bays as well, which was overreach on two counts.
 //
 // FIRST, the carrier's empty second bay is a DOCUMENTED DESIGN DECISION, not a gap. The loadout
-// table says so directly: "builtInBays 2 documents the carrier's built-in capacity; the second bay
+// table says so directly: the carrier's 2 bays are its built-in capacity and "the second bay
 // starts empty". Filling it was changing a deliberate choice while believing I was fixing an
 // oversight.
 //
@@ -655,10 +646,13 @@ export function applyDeckHandling(squadrons: DroneSquadron[], deckHandling: numb
 // passed stats, mutates nothing). A carried value is later CLAMPED to the fresh max on apply,
 // so even if a hull is retuned after a save was written, a backfilled "full" can never exceed
 // the real ceiling.
+// WR-8 (0.14.0): `combatRules` is the cycle's stamp (PatrolMissionState.combatRules), so the reactor and drive ceilings
+// are the ones the wave combatant fights with (its frozen installed-system qualities). Absent: quality 0, as before.
 export function defaultSystemDurabilityForHull(
   hullType: CombatHullType,
   stats: CombatShipStats,
   installedGear?: EquipmentInstance[],
+  combatRules?: CombatRulesStamp,
 ): PatrolSystemDurability {
   // Build the hull's fresh combatant once and read its full ceilings. id/team are irrelevant here
   // (nothing is fought), so any stable literal is fine.
@@ -670,7 +664,7 @@ export function defaultSystemDurabilityForHull(
   // damage across the whole patrol, strictly worse than a free Standard-Issue weapon. With gear
   // threaded, seed == real ceiling and the wave-1 apply is a no-op (full). undefined gear falls to
   // the hull-default path (byte-identical for a Standard-Issue set), so enemies/tests are unchanged.
-  const fresh = shipToCombatant({ id: "durability-seed", team: "player", stats, hullType, installedGear });
+  const fresh = shipToCombatant({ id: "durability-seed", team: "player", stats, hullType, installedGear, ...(combatRules ? stampCombatArgs(combatRules) : {}) });
   return {
     weapons: fresh.weapons.map((weapon) => weapon.durabilityMax),
     // A real combat hull always carries both (shipToCombatant builds them); the `?? 0` guards
@@ -753,6 +747,16 @@ export interface ShipToCombatantArgs {
 	// contexts it lists). Absent = "patrol" (every patrol wave, replay, carry pool and forecast); the expedition ship
 	// event passes "shipEvent" (shipScanEvents.ts buildShipCombatant).
 	moduleContext?: ModuleCombatContext;
+	// WR-8 (0.14.0, combat/combatRules.ts): the battle runs under the combat rules (its run carries a CombatRulesStamp).
+	// Then every weapon gets its rule traits (withWeaponRuleTraits: anti-drone fire, Inhibit, the Tachyon and Voltaic
+	// rules). Absent or false: the pre-WR-8 combatant exactly (the caller still passes position and speed itself).
+	combatRules?: boolean;
+	// WR-8: the qualities of the installed Reactor Core and FTL drive the run froze in its stamp (stampCombatArgs): the
+	// combat reactor and drive pools are built at them. Absent: quality 0, the pre-WR-8 pools.
+	systemQuality?: { reactor: number; ftl: number };
+	// E-MOD EM-3 (0.14.0): the power supply percent the run froze in its stamp (stampCombatArgs, combat/power.ts
+	// powerSupplyPercent): an over-budget ship's weapon damage and shield recharge. Absent or 100: full power.
+	powerSupplyPercent?: number;
 }
 
 // E-CREW 0.14.0 (Task 20): fold the Senior Staff combat bonuses onto a freshly minted combatant, IN PLACE
@@ -835,11 +839,13 @@ export function applyModuleCombat(c: Combatant, gear: readonly EquipmentInstance
 //      shieldCoherence    <- installed shieldEmitters shieldCoherence affix (?? 0)
 //      ablativeArmor      <- installed hullPlating ablativeArmor affix (?? 0)
 //      kineticDampening   <- installed hullPlating kineticDampening affix (?? 0)
-//      damageResist       <- summed per-family resist affixes across all gear (?? 0 each)
-//      disruptionResist   <- summed per-family resist affixes across all gear (?? 0 each)
-//      evasion            <- 0            (no maneuver stat wired this unit; TODO 1.6)
-//      speed              <- DEFAULT_COMBAT_SPEED (unchanged this unit; TODO 1.6)
+//      damageResist       <- the per-family resist lines summed across all gear, on familyResistPercent (WR-8)
+//      disruptionResist   <- likewise for the disruption resists (WR-8)
+//      evasion            <- 0 (the officers' Evasive Command adds to it, applyOfficerCombat)
+//      speed              <- args.speed (a run under the combat rules: its frozen combat speed), else DEFAULT_COMBAT_SPEED
 //      drones             <- installed drone-pod squadrons (squadronFromPod per droneBay pod, Unit 2.3a)
+//      inCombatReplenishPercent / rapidChargeShare <- the installed pods' counter lines (WR-8)
+//      reactor / ftl      <- quality 0 pools, or under the combat rules the installed pieces' quality (WR-8)
 //    A STANDARD-ISSUE set folds BYTE-IDENTICALLY to path B (innateHullArmor + SI_PLATING_HP
 //    == hullIntegrity, SI_EMITTER_CAP * shieldCapacity/REF_SHIELD_CAPACITY == the hull's shieldCapacity,
 //    recharge likewise, each weapon reconstructs to makeWeaponInstance, each drone pod reconstructs
@@ -851,7 +857,8 @@ export function applyModuleCombat(c: Combatant, gear: readonly EquipmentInstance
 //      shieldRecharge     <- stats.shieldRecharge
 //      weapons            <- args.weaponLoadout, ELSE COMBAT_DEFAULT_LOADOUT[hullType], ELSE []
 //      shieldCoherence / ablativeArmor / kineticDampening / evasion -> 0
-//      damageResist / disruptionResist -> all-zero map ; speed -> DEFAULT_COMBAT_SPEED
+//      damageResist / disruptionResist -> all-zero map ; speed -> args.speed ?? DEFAULT_COMBAT_SPEED
+//    (A pirate wave under the combat rules then writes its hull's armor and evasion, enemyWave.ts.)
 //    An explicit weaponLoadout / drones ALWAYS wins on this path (hardcoded enemies, tests);
 //    otherwise a real hullType derives the default loadout, minting each weapon/squadron FRESH.
 //
@@ -884,7 +891,7 @@ export function shipToCombatant(args: ShipToCombatantArgs): Combatant {
 	// order) reconstructs to byte-identical ids + stats. A gear set with no weapon yields [] (the
 	// dispatch blocker guarantees >=1 in normal play). ABSENT path (B): explicit loadout wins,
 	// else the hull default, else unarmed (the pre-9a default).
-	const weapons: CombatWeapon[] = gear
+	const builtWeapons: CombatWeapon[] = gear
 		? gear
 				.filter((piece) => piece.slotType === "weapon")
 				.map((piece, index) =>
@@ -896,6 +903,8 @@ export function shipToCombatant(args: ShipToCombatantArgs): Combatant {
 						makeWeaponInstance(weaponId, `${id}-w${index}-${weaponId}`),
 					)
 				: []);
+	// WR-8: under the combat rules every weapon carries its rule traits (combatRules.ts WEAPON_RULE_TRAITS).
+	const weapons = args.combatRules ? builtWeapons.map(withWeaponRuleTraits) : builtWeapons;
 
 	// DEFENSIVE STAT BLOCK. PLAYER path (gear present): read the shield/hull pools + mitigation
 	// off the fitted shieldEmitters / hullPlating pieces; ABSENT path: the pre-1.4 hull-class
@@ -992,8 +1001,8 @@ export function shipToCombatant(args: ShipToCombatantArgs): Combatant {
 		shieldCoherence,
 
 		// Hull-path mitigation <- the plating's affixes (PLAYER) or 0 (ABSENT). Evasion starts at 0
-		// on BOTH paths (no maneuver stat wired yet; TODO 1.6); E-CREW Task 20's Evasive Command sets it
-		// through applyOfficerCombat below when the caller passes officerCombat.
+		// on BOTH paths; E-CREW Task 20's Evasive Command adds to it through applyOfficerCombat below,
+		// and a pirate wave under the combat rules writes its hull's evasion (WR-8, enemyWave.ts).
 		ablativeArmor,
 		kineticDampening,
 		evasion: 0,
@@ -1003,8 +1012,8 @@ export function shipToCombatant(args: ShipToCombatantArgs): Combatant {
 		damageResist,
 		disruptionResist,
 
-		// Movement on the 1D axis. Position defaults to 0 (co-located); speed to the
-		// placeholder DEFAULT_COMBAT_SPEED (TODO 1.6: a real maneuver stat), unchanged this unit.
+		// Movement on the 1D axis. Position defaults to 0 (co-located); speed to DEFAULT_COMBAT_SPEED.
+		// WR-8: a run under the combat rules opens the enemy at range and passes each side's combat speed.
 		position: args.position ?? 0,
 		speed: args.speed ?? DEFAULT_COMBAT_SPEED,
 		// Stance (design S6): Balanced by default; caller/mission layer overrides.
@@ -1018,8 +1027,9 @@ export function shipToCombatant(args: ShipToCombatantArgs): Combatant {
 		// systems at quality 0 (first-pass base). Both players and enemies come through
 		// this bridge, so both sides wear symmetrically. The sim reads their condition
 		// for the power-starvation damage multiplier + the drive evasion/speed penalties.
-		reactor: freshSystem(BASE_REACTOR_DURABILITY),
-		ftl: freshSystem(BASE_FTL_DURABILITY),
+		// WR-8: a run under the combat rules builds them at its frozen installed-system qualities (systemQuality).
+		reactor: freshSystem(BASE_REACTOR_DURABILITY, args.systemQuality?.reactor ?? 0),
+		ftl: freshSystem(BASE_FTL_DURABILITY, args.systemQuality?.ftl ?? 0),
 
 		// A fresh combatant is alive; the sim flips this the tick hull hits <= 0.
 		alive: true,
@@ -1029,12 +1039,33 @@ export function shipToCombatant(args: ShipToCombatantArgs): Combatant {
 		statusEffects: [],
 		drones,
 
-		// Counter-module effect flags (design S7): OFF by default. The module ITEMS
-		// that grant these are Phase 9; a bridged ship carries none yet. TODO(Phase
-		// 9): read these from the ship's fitted counter-modules.
+		// Counter-module effect flags (design S7): OFF by default. WR-8: the installed drone pods' Rapid Charge lines set
+		// rapidChargeShare below; the Particle-Trace Detector waits for patrol cloak detection (CP-15, the user's 0.14.x).
 		rapidChargeAfterAmbush: false,
 		particleTraceDetector: 0,
 	};
+	// WR-8 review (user 2026-10-22): a ship flying Defensive (stored key "standoff") under the combat rules carries its
+	// modifiers (combatRules.ts DEFENSIVE_STANCE): less damage taken and dealt, shields first, guarding. A fresh copy.
+	// WR-8 review (answer 5): every combatant under the rules can close evasively (resolveBattle.ts advanceMovement).
+	if (args.combatRules) combatant.evasiveClose = { active: false, carry: 0 };
+	// E-MOD EM-3: an over-budget ship fights at its stamped power supply (absent at full power, so every ship in budget
+	// is the combatant it was).
+	if (args.powerSupplyPercent !== undefined && args.powerSupplyPercent < 100) {
+		combatant.powerSupplyPercent = args.powerSupplyPercent;
+		combatant.powerSupplyCarry = 0;
+	}
+	if (args.combatRules && combatant.stance === "standoff") {
+		combatant.defensive = { ...DEFENSIVE_STANCE };
+		combatant.defensiveCarry = { taken: 0, dealt: 0, absorb: 0 };
+	}
+	// WR-8 (0.14.0, OC-D12): the installed drone pods' In-Combat Replenish and Rapid Charge lines (absent without one, so
+	// a combatant with no such pod is unchanged).
+	if (gear !== undefined) {
+		const replenishPoints = podLinePoints(gear, POD_LINE_REPLENISH);
+		if (replenishPoints > 0) combatant.inCombatReplenishPercent = Math.round(100 * podLineShare(replenishPoints));
+		const rapidPoints = podLinePoints(gear, POD_LINE_RAPID_CHARGE);
+		if (rapidPoints > 0) combatant.rapidChargeShare = podLineShare(rapidPoints);
+	}
 	// E-MOD EM-5: the installed universal modules (gear, so before the people): Passive hull integrity and the
 	// Conditional damage lifts. Read off the same installed gear, so every caller that folds gear folds modules.
 	applyModuleCombat(combatant, gear, args.moduleContext ?? "patrol");

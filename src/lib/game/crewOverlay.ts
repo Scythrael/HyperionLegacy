@@ -28,7 +28,9 @@
 // ("Engine seams" 1/4/5).
 
 import type { GameState, ShipInstance, ShipDerivedStats, SeniorStaffOfficer, CrewSignature, CrewBucket, OfficerCombatMods, SeniorStaffSeat, PromotionObjectiveKind } from "./model";
-import { shipDerivedStats } from "./model";
+import { equipmentStatMods, shipDerivedStats, SHIP_TYPES } from "./model";
+import { combatSpeedFor, newCombatRulesStamp, type CombatRulesStamp } from "./combat/combatRules";
+import { powerSupplyPercent } from "./combat/power";
 import { equippedFor } from "./equipmentQueries";
 import { CREW_PROFESSION_BUFFS, CREW_STAT_KEYS, SECOND_LEVEL_EXCLUSIVE, TRANSIT_SPEED_KEY } from "./crewBuffs";
 import { CREW_RACES } from "./crewRaces";
@@ -781,6 +783,40 @@ export function effectiveShipStats(state: GameState, ship: ShipInstance): ShipDe
   // touch sensors, so the order between the two is immaterial).
   const captain = commandingCaptain(state, ship);
   return applyCaptainSensors(applyCaptainOverlay(shipStatsBeforeCaptain(state, ship), captainShipLifts(captain)), captainSensorsMult(captain));
+}
+
+// WR-8 (0.14.0, combat/combatRules.ts): the combat rules stamp a run starting now writes for `ship`: its combat speed
+// from its sheet transit speed (gear, crew, museum, officers, captain, mass) relative to its hull's own base speed
+// (combatSpeedFor), and its installed Reactor Core's and FTL drive's quality (the combat system pools). undefined only
+// while the test switch is off. PURE.
+// E-MOD EM-3 (0.14.0): and its power supply percent (combat/power.ts powerSupplyPercent, from shipNetPowerTotals: the
+// pristine output against the net draw), stored only when below 100.
+export function shipCombatRulesStamp(state: GameState, ship: ShipInstance): CombatRulesStamp | undefined {
+  const hullBase = SHIP_TYPES[ship.typeKey]?.transitSpeedMult ?? 1;
+  const gear = equippedFor(state, ship.id);
+  const quality = (slotType: string): number => gear.find((p) => p.slotType === slotType)?.quality ?? 0;
+  const power = shipNetPowerTotals(state, ship);
+  return newCombatRulesStamp(
+    combatSpeedFor(effectiveShipStats(state, ship).transitSpeedMult, hullBase),
+    quality("reactorCore"),
+    quality("ftlDrive"),
+    powerSupplyPercent(power.output, power.draw),
+  );
+}
+
+// E-MOD EM-2 / EM-3: the whole ship's power OUTPUT (the hull's basePowerOutput + the Reactor Core lines + Passive module
+// output) and NET draw (after power efficiency), PRISTINE gear only (wear is never read, gear wear design 4.3). Lives
+// here (beside netPowerDraw and the crew fold) so both the install gate (shipPower.ts shipPowerTotals reads it) and the
+// combat stamp above read ONE fold without an import cycle. FAST PATH: power efficiency only ever LOWERS the draw, so a
+// ship whose gross draw is within its output is within budget whatever its crew, and the crew fold is skipped (`draw`
+// is then the GROSS draw: exact for the gate and for a supply percent, which is 100 either way). PURE.
+export function shipNetPowerTotals(state: GameState, ship: ShipInstance): { output: number; draw: number } {
+  const mods = equipmentStatMods(equippedFor(state, ship.id));
+  const output = SHIP_TYPES[ship.typeKey].basePowerOutput + mods.powerOutput + mods.modulePowerOutput;
+  const gross = mods.totalPowerDraw;
+  if (gross <= output) return { output, draw: gross };
+  const efficiency = Math.max(0, shipCrewContribution(state, ship)[CREW_STAT_KEYS.powerEfficiency] ?? 0);
+  return { output, draw: netPowerDraw(gross, efficiency) };
 }
 
 // effectiveShipStats WITHOUT the captain overlays: the gear fold, the crew, the museum and the officer facets. The
