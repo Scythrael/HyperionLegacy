@@ -7187,6 +7187,8 @@
     reserved: "Already queued or being broken down, so the rules will not touch it again.",
     confirmTier: "Its quality tier is set to ask you first under Confirm before salvaging, and auto-salvage never answers a confirmation for you.",
     locked: "Locked, so nothing can salvage it (not the automation, not a manual salvage) until you unlock it.",
+    // RR-4 (rarity readiness): only a dev-minted piece can be Celestial today.
+    celestial: "Celestial, so auto-salvage never takes it. You can still salvage it by hand.",
     // ⚠️ IT MUST NOT SAY "just crafted". The same window starts when a piece is UNINSTALLED, and
     // the uninstall case is the one a player is most likely to be looking at (they took the piece
     // off a ship a moment ago and are deciding what to do with it). A sentence naming only the

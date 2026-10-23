@@ -3812,6 +3812,7 @@ describe("autoSalvageProtection: WHY a target is off limits, as a named reason (
       "reserved",
       "confirmTier",
       "locked",
+      "celestial", // rarity readiness RR-4: a Celestial piece is never taken by the automation
       "graceWindow",
     ];
     expect(AUTO_SALVAGE_PROTECTION_ORDER).toEqual(expected);

@@ -61,6 +61,8 @@ import {
 } from "./rarityProfiles";
 // RR-3: a legendary piece's private extras stream (secondaries, Artisan) is a makeRng stream (combat/rng.ts is a leaf).
 import { makeRng } from "./combat/rng";
+// RARITY READINESS RR-4: Nova / Celestial on a legendary (the ascended profile row). A leaf over model + rarityProfiles.
+import { ascendedProfile } from "./ascension";
 // Combat 1.0 (Unit 1.2): the weapon roster templates + id union. generateWeapon (below) mints a
 // crafted weapon by rolling power lines off a base WEAPON_DEF. This is a safe one-way import:
 // combat/weapons imports only combat/types + combat/statusEffects, never itemgen, so no cycle.
@@ -288,8 +290,10 @@ export function budgetAtMult(iLevel: number, quality: number, rarityMult: number
 // RR-3: THE budget a piece of this band gets (rarityProfiles.ts RARITY_PROFILES[band].budgetMult). Every generator and
 // the craft preview read this. For Derelict to Radiant it equals computeBudget(iLevel, quality, rarityIndex(band)) bit
 // for bit (rarityProfiles.test.ts); Luminous and Constellar are Radiant x LEGENDARY_BUDGET_STEP. Pure.
-export function rarityBudget(iLevel: number, quality: number, rarity: EquipmentRarity): number {
-  return budgetAtMult(iLevel, quality, rarityProfile(rarity).budgetMult);
+// RR-4: an optional ascension (Nova / Celestial on a legendary; ignored on any other band, so a live band reads exactly
+// the row above).
+export function rarityBudget(iLevel: number, quality: number, rarity: EquipmentRarity, ascension: EquipmentAscension = "none"): number {
+  return budgetAtMult(iLevel, quality, ascendedProfile(rarity, ascension).budgetMult);
 }
 
 // ============================================================================
@@ -487,8 +491,9 @@ export function generateEquipment(a: {
 
   // --- Budget and its implicit/affix split -----------------------------------
   // RR-3: the band's profile row decides the budget (bit-identical to the old index budget for every live band).
-  const profile = rarityProfile(a.rarity);
-  const budget = rarityBudget(a.iLevel, a.quality, a.rarity);
+  // RR-4: the ascended row (the band's own row object for "none" and for every live band, so live mints are unchanged).
+  const profile = ascendedProfile(a.rarity, a.ascension);
+  const budget = budgetAtMult(a.iLevel, a.quality, profile.budgetMult);
   const { implicitShare, affixShare } = budgetShares(budget);
 
   // E4d: a variety with its OWN identity (the relic-unlocked utility families) may override the slot's
@@ -682,7 +687,8 @@ export function generateWeapon(a: {
   }
 
   // Budget and its implicit/affix split (identical model to economy gear).
-  const budget = rarityBudget(a.iLevel, a.quality, a.rarity); // RR-3: the band's profile row
+  const profile = ascendedProfile(a.rarity, a.ascension); // RR-3 / RR-4: the band's (ascended) profile row
+  const budget = budgetAtMult(a.iLevel, a.quality, profile.budgetMult);
   const { implicitShare, affixShare } = budgetShares(budget);
 
   // --- Implicit: the single weaponYield signature line takes the whole implicit share.
@@ -698,7 +704,7 @@ export function generateWeapon(a: {
   for (const stat of rolledStatKeys) {
     rolledStats[stat] = affixEach;
   }
-  rollRarityExtras(rarityProfile(a.rarity), budget, WEAPON_AFFIX_POOL, rolledStatKeys, rolledStats, a.rng); // RR-3
+  rollRarityExtras(profile, budget, WEAPON_AFFIX_POOL, rolledStatKeys, rolledStats, a.rng); // RR-3
 
   // --- Durability: quality-scaled off the weapon template's base ceiling, starts full ----
   const durabilityMax = Math.round(template.durabilityMax * (1 + a.quality * QUALITY_DURABILITY_BONUS));
@@ -798,7 +804,8 @@ export function generateDronePod(a: {
   }
 
   // Budget and its implicit/affix split (identical model to economy + weapon gear).
-  const budget = rarityBudget(a.iLevel, a.quality, a.rarity); // RR-3: the band's profile row
+  const profile = ascendedProfile(a.rarity, a.ascension); // RR-3 / RR-4: the band's (ascended) profile row
+  const budget = budgetAtMult(a.iLevel, a.quality, profile.budgetMult);
   const { implicitShare, affixShare } = budgetShares(budget);
 
   // --- Implicit: the single droneHp signature line takes the whole implicit share.
@@ -814,7 +821,7 @@ export function generateDronePod(a: {
   for (const stat of rolledStatKeys) {
     rolledStats[stat] = affixEach;
   }
-  rollRarityExtras(rarityProfile(a.rarity), budget, DRONE_POD_AFFIX_POOL, rolledStatKeys, rolledStats, a.rng); // RR-3
+  rollRarityExtras(profile, budget, DRONE_POD_AFFIX_POOL, rolledStatKeys, rolledStats, a.rng); // RR-3
 
   // --- Durability: quality-scaled off the pod's first-pass base ceiling, starts full ----
   const durabilityMax = Math.round(DRONE_POD_BASE_DURABILITY * (1 + a.quality * QUALITY_DURABILITY_BONUS));

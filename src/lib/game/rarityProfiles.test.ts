@@ -182,7 +182,7 @@ describe("RR-3: the wiring registry carries one live, probed row per profile", (
   it("adds exactly the seven RARITY_PROFILES entries (held apart from the older registry snapshot pins)", async () => {
     const { WIRING_REGISTRY } = await import("./wiring/registry");
     const { RR_ADDED_ENTRY_IDS } = await import("./rarityRegistry.fixture");
-    const rows = WIRING_REGISTRY.filter((e) => RR_ADDED_ENTRY_IDS.has(e.id));
+    const rows = WIRING_REGISTRY.filter((e) => RR_ADDED_ENTRY_IDS.has(e.id) && e.source.catalog === "RARITY_PROFILES");
     expect(rows.map((e) => `${e.id}|${e.status.kind}|${e.probe}|${e.contexts.join(",")}`)).toEqual(
       EQUIPMENT_RARITY_LADDER.map((r) => `ship:RARITY_PROFILES:${r}|live|sheetCargo|${r === "standard" ? "" : "sheet"}`),
     );

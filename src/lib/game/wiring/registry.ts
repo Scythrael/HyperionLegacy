@@ -147,6 +147,8 @@ import { DAMAGE_CONTROL_SUITE_KEY, DC_REPAIR_SPEED_B, DC_REPAIR_SPEED_R, DC_WAVE
 import { DRONE_POD_AFFIX_POOL, DRONE_POD_IMPLICIT_STAT, WEAPON_AFFIX_POOL, WEAPON_IMPLICIT_STAT, budgetAtMult, budgetShares, generateEquipment } from "../itemgen";
 // RARITY READINESS RR-3: the per-rarity profile table (each row measured on a real mint).
 import { RARITY_PROFILES } from "../rarityProfiles";
+// RARITY READINESS RR-4: the Nova / Celestial budget multipliers (each measured on a real legendary mint).
+import { ASCENSION_BUDGET_MULT } from "../ascension";
 import { AFFIX_DEFS, ESCALATION_ENEMIES_PER_LEVEL, HEIGHTENED_SENSES_KNEE, HEIGHTENED_SENSES_PER_LEVEL } from "../affixes";
 import { ENEMY_RANKS, ENEMY_RANK_IDS } from "../enemyRanks";
 import { OVERTIME_STEP_RATE } from "../processSpeed";
@@ -382,6 +384,8 @@ export const CATALOGS = {
   REPAIR_RATE_BONUSES,
   // RARITY READINESS RR-3: the per-rarity rows (budget, affixes, secondaries, Artisan).
   RARITY_PROFILES,
+  // RARITY READINESS RR-4: the ascension budget multipliers.
+  ASCENSION_BUDGET_MULT,
   WEAR_EFFICIENCY,
   // The reactor fuel ladder (0.14.0, reactorTech.ts): the fuel each Reactor Core blueprint takes.
   REACTOR_FUEL_LADDER,
@@ -4483,6 +4487,7 @@ function build(): readonly WiringEntry[] {
     ...gasStudyEntries(),
     ...reactorTechEntries(),
     ...rarityProfileEntries(),
+    ...ascensionEntries(),
     ...auditEntries(),
     ...speedSeamEntries(),
     ...wearEntries(),
@@ -4562,6 +4567,38 @@ function rarityProfileEntries(): WiringEntry[] {
       on: rarityCargoMint(rarity, !legendary),
       off: rarityCargoMint(against, !legendary),
       note: "measured through generateEquipment (itemgen.ts rarityBudget / affixCount / rollRarityExtras read the row)",
+    });
+  });
+}
+
+// RARITY READINESS RR-4: each ASCENSION_BUDGET_MULT row, measured like a live rarity row: a Luminous cargo bay of the
+// ascension (signature line only, the same stream) against the plain Luminous one, the sheet cargo moving by EXACTLY the
+// implicit difference at the two multipliers. "none" is the reference. (The guaranteed Artisan and the Celestial
+// secondary are rolled lines, pinned in ascension.test.ts; the Celestial auto-salvage exemption in salvage.ts.)
+function ascensionEntries(): WiringEntry[] {
+  return (Object.keys(ASCENSION_BUDGET_MULT) as EquipmentAscension[]).map((ascension) => {
+    const mult = ASCENSION_BUDGET_MULT[ascension];
+    const claim = `a ${ascension} Luminous or Constellar piece rolls at x${mult} the legendary budget`;
+    if (ascension === "none") {
+      return entry({ id: "ship:ASCENSION_BUDGET_MULT:none", system: "ship", source: { catalog: "ASCENSION_BUDGET_MULT", key: "none" }, claim, probe: "sheetCargo", notApplicable: "the reference (no ascension, x1)" });
+    }
+    return entry({
+      id: `ship:ASCENSION_BUDGET_MULT:${ascension}`,
+      system: "ship",
+      source: { catalog: "ASCENSION_BUDGET_MULT", key: ascension },
+      claim,
+      probe: "sheetCargo",
+      contexts: ["sheet"],
+      direction: "up",
+      curve: { kind: "linearAbsolute" },
+      magnitude: (c) => {
+        const lum = c.RARITY_PROFILES.luminous.budgetMult;
+        return cargoImplicitAt(lum * c.ASCENSION_BUDGET_MULT[ascension]) - cargoImplicitAt(lum);
+      },
+      base: bareHull,
+      on: rarityCargoMint("luminous", true, ascension),
+      off: rarityCargoMint("luminous", true),
+      note: "measured through generateEquipment (itemgen.ts ascendedProfile reads the row)",
     });
   });
 }

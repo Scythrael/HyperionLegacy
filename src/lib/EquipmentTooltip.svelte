@@ -31,6 +31,8 @@
   import { pieceMaterialQualityText, shipMaterialQualityText } from "./ui/materialQualityText";
   import type { IconName } from "./ui/icons";
   import { previewCraftOutcome, type CraftPreview } from "./game/itemgen";
+  // RR-4 (rarity readiness): the grade label with its ascension ("Nova Luminous"); the band label when there is none.
+  import { ascensionLabel } from "./game/ascension";
   // Weapon combat stats (damage / accuracy / etc.) do NOT live on the EquipmentInstance's rolled
   // lines — they come from the weapon's base def, scaled by the rolled weaponYield/accuracy. We
   // reuse the SAME pure fold combat uses (weaponInstanceFromGear) so the tooltip's numbers equal
@@ -467,7 +469,7 @@
     if (resolved.kind === "equipment") {
       const p = resolved.piece;
       const accent = equipmentRarityColor(p.rarity);
-      const grade = p.rarity.charAt(0).toUpperCase() + p.rarity.slice(1);
+      const grade = ascensionLabel(p.rarity, p.ascension);
       return {
         kind: "equipment",
         accent,

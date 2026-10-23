@@ -133,6 +133,8 @@ import { museumBonuses } from "./relics";
 // 0.13.9: the codebase's seeded mulberry32 factory, for the PRIVATE chance-rounding stream
 // (see salvageRoundingStream). rng.ts has no imports, so this adds no cycle.
 import { makeRng } from "./combat/rng";
+// RARITY READINESS RR-4: the ascension order (keep-best tie-break) and the Celestial auto-salvage exemption.
+import { ascensionOrder, isCelestialPiece } from "./ascension";
 
 // --- Derived salvage reservations (Crafting 0.13.3, Phase 2 Unit 2.1) --------
 // Re-exported so "the salvage reservation helpers live in salvage.ts" stays TRUE for
@@ -1183,6 +1185,9 @@ export type AutoSalvageProtection =
   | "reserved"    // already queued or in flight for salvage: never double-queued
   | "confirmTier" // the player asked to be ASKED about this quality tier
   | "locked"      // the player LOCKED this exact piece (0.13.6 favorite/lock split): hands off
+  // RARITY READINESS RR-4 [PROPOSAL, a reading put to the user]: a Celestial piece (drop-only, "cannot be crafted or sold",
+  // epic design :152) is never taken by the AUTOMATION. A hand-clicked salvage stays allowed (unlike locked).
+  | "celestial"
   // ⚠️ "graceWindow", NOT "craftGrace". It was called craftGrace when only a MINT started the
   // window; it now also starts on UNINSTALL, so a name saying "craft" would be wrong for every
   // piece a player just took off a ship. The engine reason and the player-facing sentence both
@@ -1341,6 +1346,10 @@ const AUTO_SALVAGE_PROTECTIONS: Record<AutoSalvageProtection, AutoSalvageProtect
     }
   },
 
+  // RR-4: a Celestial piece (a Celestial Luminous or Celestial Constellar; a stray ascension on another band is not one).
+  // Hulls and stacks carry no ascension.
+  celestial: (_ctx, subject) => subject.target.kind === "equipment" && subject.piece !== undefined && isCelestialPiece(subject.piece),
+
   // ⚠️ THE GRACE PERIOD (0.13.3.1 Feature 3): a piece that was CRAFTED or UNINSTALLED moments
   // ago is exempt for graceSeconds of GAME time. Two moments, one window:
   //   a fresh CRAFT is not swept away before the player has looked at it, and
@@ -1488,6 +1497,10 @@ export function autoSalvageIsBetter(a: EquipmentInstance, b: EquipmentInstance):
   const rarityA = rarityIndex(a.rarity);
   const rarityB = rarityIndex(b.rarity);
   if (rarityA !== rarityB) return rarityA > rarityB;
+  // RR-4: then the ascension (Celestial, Nova, none). Every live piece reads none on both sides, so its order is unchanged.
+  const ascA = ascensionOrder(a.rarity, a.ascension);
+  const ascB = ascensionOrder(b.rarity, b.ascension);
+  if (ascA !== ascB) return ascA > ascB;
   return a.id < b.id; // total-order tie-break: never array order
 }
 

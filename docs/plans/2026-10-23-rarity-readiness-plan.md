@@ -258,3 +258,24 @@ older registry snapshot pins hold the new ids apart through `rarityRegistry.fixt
 rr3 (30 `rr3:gen:*` Luminous / Constellar, 60 `rr3+rr4:gen:*` legendary x ascension, `rr3:devMint:luminous`,
 `rr3:devMint:constellar`, `rr3+rr4:load:legendary`); the `rr3:prim:*` pins did not move (computeBudget and affixCount
 values are unchanged at index 5). Gates: 311 files / 8664 tests passed, check 0 errors.
+
+**RR-4 (2026-10-23):** new leaf `ascension.ts` (imports model.ts and rarityProfiles.ts): `ASCENSION_PRODUCIBLE = false`
+(the switch, a [PROVISIONAL] reading: producibility only; listed in fieldRoles.ts UNREAD_CONSTANTS with its owner, the
+later producer, since no player path mints an ascension and the test pins every tick.ts mint stamping "none"),
+`NOVA_BUDGET_MULT` [PROVISIONAL 1.25], `CELESTIAL_BUDGET_MULT` [PROVISIONAL 1.4], the total `ASCENSION_BUDGET_MULT` and
+`ASCENSION_EXTRAS` (Nova: guaranteed Artisan; Celestial: guaranteed Artisan plus one secondary [PROVISIONAL, put to the
+user]), `effectiveAscension` (Luminous / Constellar only; a stray value reads "none" everywhere, never stripped),
+`ascendedProfile` (returns the band's OWN row object for "none" and every stray value, so live mints are untouched),
+`ascensionLabel` ("Nova Luminous", "Celestial Constellar"), `ascensionOrder`, `isCelestialPiece`. Wired: all three
+generators roll by `ascendedProfile` (`rarityBudget` gained an optional ascension); `inspectSort.ts` ranks the ascension
+right after the band; salvage.ts `autoSalvageIsBetter` compares it after band, before the id; a new auto-salvage
+protection reason "celestial" (after "locked", before "graceWindow"; manual salvage stays allowed [PROPOSAL, put to the
+user]) with its App.svelte sentence; EquipmentTooltip.svelte's grade text reads `ascensionLabel` (the same string as
+before for every piece without a valid ascension; header text only). Registry: 3 `ship:ASCENSION_BUDGET_MULT:<asc>` rows
+("none" the reference; Nova and Celestial install a Luminous cargo bay's signature line against the plain Luminous one,
+the sheet cargo moving by EXACTLY the implicit difference, linearAbsolute), held apart from the old snapshot pins by
+`rarityRegistry.fixture.ts`. One existing test updated on purpose: salvage.test.ts's declared protection order gains
+"celestial". Goldens: LIVE none moved; RESERVED 63 moved, every one rr4-owned: the 60 `rr3+rr4:gen:*` legendary x
+ascension pins, `rr3+rr4:load:legendary`, `rr4+rr7:reader:sort:all`, `rr4+rr7:reader:keepBest:all`;
+`rr4:load:liveAscended` did NOT move (a stray ascension on a live band is ignored), which is the rule working. Gates:
+312 files / 8677 tests passed, check 0 errors.
