@@ -125,3 +125,12 @@ need online in a subpatch right after this one, and the tutorial/story/quest pat
 8. Secondaries are drawn with replacement and can stack onto an existing affix line.
 9. Celestial "cannot be sold": blocked from auto-salvage only; manual salvage allowed.
 10. The member test set's 5-piece tier is reachable only with 2 implant slots (augment affinity) or Celestial minus-1.
+11. RR-5 built (56009f9): the affix list changed from item 2 above. Now 13 [PROPOSAL] names: Starfall Lance
+    (weapon), Hivemind Relay (drone pod), Aegis Lattice (shield), Bulwark of Sol (plating), Bottomless Hold (cargo),
+    Endless Wake (fuel, replaces "Fold Engine" because transit speed is still pending at patrols), Heart of a Star
+    (reactor), Transmuter's Seal (spec utility, material quality chance), Grand Concourse (colonist capacity),
+    Oathkeeper (member weapon), Last Stand Weave (member armor), Master's Touch (member tool, relic find), Second
+    Sight (implant). Each worth 0.25 of the piece's budget [PROVISIONAL]. Bridge, sensor and universal modules get NO
+    legendary affix for now, because their only stat lines are read by nothing yet (an affix there would be inert).
+12. Luminous and Constellar modules (bridge, quarters, sensors, E-MOD) are now Radiant x1.2 like gear; Nova and
+    Celestial multiply that.
