@@ -511,13 +511,15 @@ export type GroundShipPosition =
   | { kind: "repair"; leg: GroundRepairLeg }
   | { kind: "study"; leg: GroundStudyLeg }
   | { kind: "holding" };
+// The user's pickup pause: a pickup leg lies INSIDE the study it paused, so the legs are read before the studies (on
+// every run without the stamp no two legs overlap, so the order changes nothing there).
 export function groundShipPosition(exp: Pick<Expedition, "groundOps" | "bodies">, t: number): GroundShipPosition {
   const repair = exp.groundOps?.repairLegs?.find((l) => l.startsAt <= t && t < l.endsAt);
   if (repair) return { kind: "repair", leg: repair };
-  const study = exp.groundOps?.studyLegs?.find((l) => l.startsAt <= t && t < l.endsAt);
-  if (study) return { kind: "study", leg: study };
   const leg = exp.groundOps?.shipLegs.find((l) => l.startsAt <= t && t < l.endsAt);
   if (leg) return { kind: "recovery", leg };
+  const study = exp.groundOps?.studyLegs?.find((l) => l.startsAt <= t && t < l.endsAt);
+  if (study) return { kind: "study", leg: study };
   const scanning = exp.bodies.findIndex((b) => !b.scanned);
   return scanning >= 0 ? { kind: "scanning", bodyIndex: scanning } : { kind: "holding" };
 }
@@ -1777,10 +1779,117 @@ function returnCrew(
   leadRec: Partial<GroundStepRecord> = {},
 ): void {
   const leg = wiped.length > 0 ? scheduleRecoveryLeg(exp, ops, wiped, ref, t) : null;
+  // The user's pickup pause: the crew's teams who were not wiped and whose shuttle would dock while the ship holds a
+  // study (or the sweep) get ONE shared pickup the ship flies, pausing the study (null: no stamp, or no study then).
+  const shuttles = crew.filter((member) => !wiped.includes(member));
+  const pickup = exp.pickupPause === 1 && shuttles.length > 0 && studyHolding(ops, t + RETURN_SECONDS) ? schedulePausePickup(exp, ops, shuttles, ref, t) : null;
   for (const member of crew) {
     if (crew.length > 1 && member !== lead) member.jointPartner = true;
-    startReturn(ops, member, t, wiped.includes(member) ? leg : null, member === lead ? leadRec : {});
+    startReturn(ops, member, t, wiped.includes(member) ? leg : pickup, member === lead ? leadRec : {});
   }
+}
+
+// ===== The user's PICKUP PAUSE (2026-10-23; Expedition.pickupPause, stamped runs only) =====
+//
+// "I think the ship should be able to stop mid-scan and pick back up where it left off, so going to get the team from
+// where they are is fine. Then go back and continue scanning." On a stamped run a team that needs the ship while it
+// holds a study (or sweeps the nebula) does not wait for its end: the ship PAUSES the study at the first moment it is
+// free of its other legs, flies the pickup (IN_SYSTEM_LEG_SECONDS out, the same back), and resumes the study exactly
+// where it left off. Stored as: the pickup leg (studyPause, scanBodyIndex null: the study's own scanBodyIndex already
+// holds the scan) INSIDE the study leg, the study's end pushed back by the leg's length with the span in its
+// `pauses`, and every leg stored to start later (a queued sweep, recovery or repair) pushed back by the same length,
+// with the shuttles tied to them. All stored when it happens, so every later time is a pure function of stored values
+// (offline == live). No draw.
+
+// The study holding the ship at `at` (a shuttle docking then would wait for it), or null. Pure.
+function studyHolding(ops: Pick<GroundOpsState, "studyLegs">, at: number): GroundStudyLeg | null {
+  return (ops.studyLegs ?? []).find((l) => !l.done && l.startsAt < at && at < l.endsAt) ?? null;
+}
+
+// Where a pickup asked for at `t` can pause a study: the first moment from `t` the ship is free of its other legs
+// (recovery, pickup, repair), when a study holds it then; else null. Pure.
+export function pickupPauseSlot(ops: Pick<GroundOpsState, "shipLegs" | "repairLegs" | "studyLegs">, t: number): { from: number; study: GroundStudyLeg } | null {
+  let from = t;
+  for (let moved = true; moved; ) {
+    moved = false;
+    for (const l of [...ops.shipLegs, ...(ops.repairLegs ?? [])]) {
+      if (l.startsAt <= from && from < l.endsAt) {
+        from = l.endsAt;
+        moved = true;
+      }
+    }
+  }
+  const study = (ops.studyLegs ?? []).find((l) => !l.done && l.startsAt <= from && from < l.endsAt);
+  return study ? { from, study } : null;
+}
+
+// Push the ship's time after `from` back by `d` for a pause of `study` (see the block header). Mutates.
+function pauseStudyAt(ops: GroundOpsState, study: GroundStudyLeg, from: number, d: number): void {
+  for (const l of ops.shipLegs) {
+    if (l.startsAt < from) continue;
+    for (const team of ops.teams) {
+      if (team.step === "return" && team.stepEndsAt === l.arrivesAt && groundLegTeams(l).includes(team.index)) team.stepEndsAt += d;
+    }
+    l.startsAt += d;
+    l.arrivesAt += d;
+    l.endsAt += d;
+  }
+  for (const l of ops.repairLegs ?? []) {
+    if (l.startsAt < from) continue;
+    l.startsAt += d;
+    l.arrivesAt += d;
+    l.repairedAt += d;
+    l.endsAt += d;
+  }
+  for (const l of ops.studyLegs ?? []) {
+    if (l === study) continue;
+    if (l.startsAt < from) continue;
+    // A shuttle waiting for this later study's end (the fallback below) docks later with it.
+    for (const team of ops.teams) if (team.step === "return" && team.stepEndsAt === l.endsAt) team.stepEndsAt += d;
+    l.startsAt += d;
+    l.endsAt += d;
+    if (l.pauses) l.pauses = l.pauses.map((p) => ({ from: p.from + d, to: p.to + d }));
+  }
+  for (const team of ops.teams) if (team.step === "return" && team.stepEndsAt === study.endsAt) team.stepEndsAt += d;
+  study.endsAt += d;
+  (study.pauses ??= []).push({ from, to: from + d });
+}
+
+// The pickup leg of `teams` (one crew, one body) asked for at `t`, pausing the study that holds the ship, or null when
+// no study can be paused (the shuttles then wait as before, studyPickupAt). Mutates.
+function schedulePausePickup(exp: Expedition, ops: GroundOpsState, teams: readonly GroundTeamRun[], ref: GroundTaskRef, t: number): GroundShipLeg | null {
+  // The ship already on its way to this body for a pickup (not arrived yet) takes these teams too: one shared pickup.
+  const joining = ops.shipLegs.find((l) => l.pickup === 1 && l.bodyIndex === ref.bodyIndex && l.arrivesAt >= t);
+  if (joining) {
+    const indices = [...new Set([...groundLegTeams(joining), ...teams.map((team) => team.index)])].sort((a, b) => a - b);
+    joining.teamIndex = indices[0];
+    if (indices.length > 1) joining.teamIndices = indices;
+    return joining;
+  }
+  const slot = pickupPauseSlot(ops, t);
+  if (!slot) return null;
+  return pausedLeg(ops, slot, teams, ref, true);
+}
+
+// Store a leg that pauses `slot.study` for `teams`. Mutates.
+function pausedLeg(ops: GroundOpsState, slot: { from: number; study: GroundStudyLeg }, teams: readonly GroundTeamRun[], ref: GroundTaskRef, pickup: boolean): GroundShipLeg {
+  const d = 2 * IN_SYSTEM_LEG_SECONDS;
+  pauseStudyAt(ops, slot.study, slot.from, d);
+  const indices = teams.map((team) => team.index).sort((a, b) => a - b);
+  const leg: GroundShipLeg = {
+    kind: "recovery",
+    teamIndex: indices[0],
+    ...(indices.length > 1 ? { teamIndices: indices } : {}),
+    bodyIndex: ref.bodyIndex,
+    scanBodyIndex: null,
+    startsAt: slot.from,
+    arrivesAt: slot.from + IN_SYSTEM_LEG_SECONDS,
+    endsAt: slot.from + d,
+    studyPause: 1,
+    ...(pickup ? { pickup: 1 as const } : {}),
+  };
+  ops.shipLegs.push(leg);
+  return leg;
 }
 
 // Store the RECOVERY LEG (see the header) that picks up `teams` (one crew, one body) at `t`: it starts when the
@@ -1788,6 +1897,11 @@ function returnCrew(
 // that; while scanning, the scan pauses for it. One team: exactly GO-7b's leg; several: one shared leg listing
 // them all (teamIndices). Mutates.
 function scheduleRecoveryLeg(exp: Expedition, ops: GroundOpsState, teams: readonly GroundTeamRun[], ref: GroundTaskRef, t: number): GroundShipLeg {
+  // The user's pickup pause: on a stamped run a wiped team is not left waiting behind a study either.
+  if (exp.pickupPause === 1) {
+    const slot = pickupPauseSlot(ops, t);
+    if (slot) return pausedLeg(ops, slot, teams, ref, false);
+  }
   const scanning = exp.bodies.findIndex((b) => !b.scanned);
   // Legs never overlap (GO-8b: a field repair counts too).
   const free = shipFreeAt(ops);
@@ -1823,8 +1937,10 @@ function startReturn(ops: GroundOpsState, team: GroundTeamRun, t: number, leg: G
 // joint crew's PARTNER skips the offload (the lead's offload delivers the crew's haul once, design 3.5) and goes
 // straight to its own bay.
 function finishReturn(exp: Expedition, ops: GroundOpsState, team: GroundTeamRun, ref: GroundTaskRef | null, t: number): void {
-  const recovered = ops.shipLegs.some((l) => l.arrivesAt === t && groundLegTeams(l).includes(team.index));
-  const rec: Partial<GroundStepRecord> = recovered ? { recovered: true } : {};
+  const on = ops.shipLegs.filter((l) => l.arrivesAt === t && groundLegTeams(l).includes(team.index));
+  const recovered = on.some((l) => l.pickup !== 1);
+  // The user's pickup pause: a team the ship flew to collect (not wiped) is a study pickup, never a recovery.
+  const rec: Partial<GroundStepRecord> = recovered ? { recovered: true } : on.length > 0 ? { studyPickup: true } : {};
   if (!team.jointPartner && ref && (ref.task.segmentsBanked ?? 0) > (ref.task.segmentsOffloaded ?? 0)) {
     return moveTo(ops, team, "offload", t, t + OFFLOAD_BASE_SECONDS / ops.factors.offloadMult, rec);
   }
@@ -2680,6 +2796,21 @@ export function groundTaskProgressAt(exp: Pick<Expedition, "groundOps">, task: E
 // objective still shows its progress. Every other run reads exactly as before.
 // GG-4: a run with a nebula adds its SWEEP the same way (weight 1; whole when an earlier trip of a resumed system swept
 // it).
+// The share of a study (or the sweep) done at `now`, in [0, 1]: its elapsed time over its length, both without the
+// spans a pickup paused it (the user's pickup pause: progress is kept, never lost or counted twice). Exactly the plain
+// elapsed share on a study no pickup paused. Pure.
+export function studyLegShare(leg: Pick<GroundStudyLeg, "startsAt" | "endsAt" | "done" | "pauses">, now: number): number {
+  if (leg.done) return 1;
+  let paused = 0;
+  let pausedSoFar = 0;
+  for (const p of leg.pauses ?? []) {
+    paused += p.to - p.from;
+    pausedSoFar += Math.max(0, Math.min(now, p.to) - p.from);
+  }
+  const span = leg.endsAt - leg.startsAt - paused;
+  return span > 0 ? Math.max(0, Math.min(1, (now - leg.startsAt - pausedSoFar) / span)) : 1;
+}
+
 export function groundOpsProgress(exp: Pick<Expedition, "groundOps" | "bodies" | "study" | "nebula">, now: number): number {
   let total = 0;
   let sum = 0;
@@ -2695,17 +2826,13 @@ export function groundOpsProgress(exp: Pick<Expedition, "groundOps" | "bodies" |
     // G2-5: a resumed run's giant studied on an earlier trip counts whole.
     if (!leg && body.studied === true) sum += 1;
     if (!leg) return;
-    const span = leg.endsAt - leg.startsAt;
-    sum += leg.done ? 1 : span > 0 ? Math.max(0, Math.min(1, (now - leg.startsAt) / span)) : 1;
+    sum += studyLegShare(leg, now);
   });
   if (exp.nebula !== undefined) {
     total += 1;
     const sweep = exp.groundOps?.studyLegs?.find((l) => l.nebula === 1);
     if (exp.nebula.swept === 1) sum += 1;
-    else if (sweep) {
-      const span = sweep.endsAt - sweep.startsAt;
-      sum += sweep.done ? 1 : span > 0 ? Math.max(0, Math.min(1, (now - sweep.startsAt) / span)) : 1;
-    }
+    else if (sweep) sum += studyLegShare(sweep, now);
   }
   return total > 0 ? Math.max(0, Math.min(1, sum / total)) : 0;
 }

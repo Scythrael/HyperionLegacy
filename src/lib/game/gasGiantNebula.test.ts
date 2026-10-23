@@ -29,7 +29,7 @@ import {
 import { ITEMS, type RegionTier } from "./model";
 import { installMissingCombatBaselines } from "./tick";
 import { difficultyWeight } from "./riskFactors";
-import { asExpeditionVeteran, dispatchPastPropulsion, plainAwayMember, withoutNebula } from "./awayTeamTestFixtures";
+import { asExpeditionVeteran, dispatchPastPropulsion, plainAwayMember, withoutNebula, withoutPickupPause } from "./awayTeamTestFixtures";
 
 const SEC = ["member-1", "member-2", "member-3", "member-4", "member-5", "member-6"];
 const SCI = ["member-11", "member-12", "member-13", "member-14", "member-15", "member-16"];
@@ -73,7 +73,9 @@ function nebulaRun(want: (e: Expedition) => boolean): { state: GameState; next: 
       for (const c of expeditionCandidates(state, "ship-1", tier)) {
         const res = dispatchPastPropulsion(state, "ship-1", 1, c.id);
         if (!res.success || !res.expedition?.nebula || !want(res.expedition)) continue;
-        return { state, next: res.next, exp: res.expedition, candId: c.id };
+        // The user's pickup pause (2026-10-23) came after GG-4: these are GG-4's runs (a shuttle waits for the sweep), so
+        // the stamp comes off; the pause is gasGiantPickupPause.test.ts's.
+        return { state, next: res.next, exp: withoutPickupPause(res.expedition), candId: c.id };
       }
     }
   }
@@ -343,8 +345,10 @@ describe("GG-4 x G2-5: a recalled system's nebula", () => {
     for (let seed = 1; seed < 600; seed += 1) {
       const s = veteran(seed);
       for (const c of expeditionCandidates(s, "ship-1", 1)) {
-        const res = startExpedition(s, "ship-1", 1, c.id);
-        if (!res.success || !res.expedition?.nebula) continue;
+        const raw = startExpedition(s, "ship-1", 1, c.id);
+        if (!raw.success || !raw.expedition?.nebula) continue;
+        // GG-4 x G2-5 as built (shuttles wait for the sweep): the pickup-pause stamp comes off the run and the save.
+        const res = { ...raw, expedition: withoutPickupPause(raw.expedition), next: { ...raw.next, expeditions: raw.next.expeditions.map(withoutPickupPause) } };
         const done = advanceExpedition(res.expedition, FINAL);
         const sweep = done.groundOps?.studyLegs?.find((l) => l.nebula === 1);
         if (!sweep || done.groundOps!.endedAt! < sweep.endsAt + slack) continue;

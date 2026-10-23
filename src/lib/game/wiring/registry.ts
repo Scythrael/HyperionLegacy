@@ -5228,6 +5228,7 @@ function gasStudyEntries(): WiringEntry[] {
     nebulaSweep: "expedition",
     labLane: "facility",
     canisterRecipes: "facility",
+    pickupPause: "expedition",
   };
   // The uses a built slice has taken live, each with its probe (the rest stay pending on their owner).
   //   classRoll (GG-2): a dispatch to a system with an orbital body freezes a giant profile on it.
@@ -5264,6 +5265,17 @@ function gasStudyEntries(): WiringEntry[] {
       contexts: ["research"],
       curve: { kind: "event", metric: "boosts banked by one study of Propulsion Data on the Research Lab's lane" },
       magnitude: () => 1,
+      on: sourceOn,
+    },
+    //   pickupPause (the user, 2026-10-23): a study run's shuttles never wait for a study or the sweep; the ship pauses it
+    //   for a pickup (OFF: the stamp taken away, a run dispatched before the change). Read as the seconds teams spent
+    //   waiting for the ship over a whole run (the source cuts them).
+    pickupPause: {
+      probe: "content:gasStudy:pickupPause",
+      contexts: ["expedition:groundOps"],
+      curve: { kind: "event", metric: "seconds teams wait for the ship behind a study or the sweep over a whole nebula run (OFF minus ON)" },
+      magnitude: () => 1,
+      base: () => withAwayTeam(wiringBase()),
       on: sourceOn,
     },
     //   nebulaSweep (GG-4): a run to a system with a nebula brings home its sweep's canisters (OFF: the stamp taken away).

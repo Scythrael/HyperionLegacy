@@ -188,6 +188,9 @@ interface RawStep {
   stopped?: boolean;
   live: boolean;
   awaitingPickup?: boolean; // live return waiting for the ship
+  // The user's pickup pause (2026-10-23): a return the ship collects, pausing its study (a record's studyPickup, or a
+  // live return on a `pickup` leg). Never a wipe.
+  studyPickup?: boolean;
   plannedEnd?: number; // the live step's stored end (GG-6: a shuttle that waits for a study ends at the study's end)
 }
 
@@ -195,6 +198,13 @@ interface RawStep {
 function awaitingPickup(ops: { shipLegs: readonly GroundShipLeg[] }, team: Pick<GroundTeamRun, "index" | "step" | "stepEndsAt">): GroundShipLeg | null {
   if (team.step !== "return" || team.stepEndsAt === null) return null;
   return ops.shipLegs.find((l) => groundLegTeams(l).includes(team.index) && l.arrivesAt === team.stepEndsAt) ?? null;
+}
+
+// The pickup a live return waits for when it is a wiped team's recovery leg (not the user's study-pause pickup of a
+// team that was not wiped). Pure.
+function wipePickup(ops: { shipLegs: readonly GroundShipLeg[] }, team: Pick<GroundTeamRun, "index" | "step" | "stepEndsAt">): GroundShipLeg | null {
+  const leg = awaitingPickup(ops, team);
+  return leg && leg.pickup !== 1 ? leg : null;
 }
 
 // The team's steps in time order: its history records, then its live step (ending at `axisEnd`). Pure.
@@ -210,6 +220,7 @@ function teamSteps(exp: Expedition, team: GroundTeamRun, axisEnd: number): RawSt
       ...(r.taskId !== undefined ? { taskId: r.taskId } : {}),
       ...(r.outcome ? { outcome: r.outcome } : {}),
       ...(r.recovered ? { recovered: true } : {}),
+      ...(r.studyPickup ? { studyPickup: true } : {}),
       ...(r.ambushed ? { ambushed: true } : {}),
       ...(r.surprise ? { surprise: true } : {}),
       ...(r.reinforcement ? { reinforcement: true } : {}),
@@ -225,7 +236,8 @@ function teamSteps(exp: Expedition, team: GroundTeamRun, axisEnd: number): RawSt
       ...(team.step === "fight" && team.pendingFight?.surprise ? { surprise: true } : {}),
       ...(team.step === "fight" && team.pendingFight?.reinforcement ? { reinforcement: true } : {}),
       live: true,
-      ...(awaitingPickup(ops, team) ? { awaitingPickup: true } : {}),
+      ...(wipePickup(ops, team) ? { awaitingPickup: true } : {}),
+      ...(awaitingPickup(ops, team)?.pickup === 1 ? { studyPickup: true } : {}),
       ...(team.stepEndsAt !== null ? { plannedEnd: team.stepEndsAt } : {}),
     });
   }
@@ -283,6 +295,9 @@ function stepWords(exp: Expedition, steps: readonly RawStep[], i: number): StepW
     }
     case "return":
       if (s.awaitingPickup) return { category: "travel", label: "awaiting pickup", detail: "Waiting for the ship to pick the team up", lost: false };
+      // The user's pickup pause: the ship paused its study (or the sweep) to fly the pickup.
+      if (s.studyPickup && s.live) return { category: "travel", label: "awaiting pickup", detail: "Waiting for the ship: it paused its study to fly the pickup", lost: false };
+      if (s.studyPickup) return { category: "travel", label: "pickup", detail: `Picked up by the ship, which paused its study (${len})`, lost: false };
       if (s.recovered) return { category: "travel", label: "pickup", detail: `Picked up by the ship (${len})`, lost: false };
       return { category: "travel", label: "return", detail: `Shuttle back to the ship (${len})${stopNote}`, lost: false };
     case "offload":
@@ -407,6 +422,7 @@ export function teamNowText(exp: Expedition, ship: ShipInstance | null | undefin
       return `Fighting at ${task}${left}`;
     case "return": {
       const leg = ops ? awaitingPickup(ops, team) : null;
+      if (leg && leg.pickup === 1) return `Waiting for the ship: it paused its study for the pickup · arrives ${team.stepEndsAt !== null && team.stepEndsAt > now ? `in ${spanText(Math.ceil(team.stepEndsAt - now))}` : "now"}`;
       if (leg) return `Waiting for the ship: pickup ${team.stepEndsAt !== null && team.stepEndsAt > now ? `in ${spanText(Math.ceil(team.stepEndsAt - now))}` : "now"}`;
       // GG-6: the shuttle is up but the ship holds orbit on a study; it docks when the study ends.
       const dock = ops && team.stepEndsAt !== null ? waitedOnStudy(ops, team.stepStartedAt, team.stepEndsAt) : null;
@@ -437,12 +453,28 @@ function shipLegWords(exp: Expedition, ship: ShipInstance | null | undefined, le
   const who = crewText(ship, teams);
   const shared = teams.length > 1 ? "shared pickup" : "pickup";
   const pause = leg.scanBodyIndex !== null ? "; the scan waited" : "";
+  if (leg.studyPause === 1) {
+    // The user's pickup pause: the leg lies inside the study (or the sweep) it paused.
+    const what = pausedStudyWord(exp, leg);
+    return {
+      category: "leg",
+      label: `${shared}: ${who}`,
+      detail: `${what === "sweep" ? "Sweep" : "Study"} paused: ${leg.pickup === 1 ? "pickup" : "recovery leg"} to ${where} for ${who} (${spanText(leg.endsAt - leg.startsAt)}), then back to the ${what}, where it left off`,
+      lost: false,
+    };
+  }
   return {
     category: "leg",
     label: `${shared}: ${who}`,
     detail: `Recovery leg to ${where} for ${who} (${teams.length > 1 ? "one shared pickup, " : ""}${spanText(leg.endsAt - leg.startsAt)})${pause}`,
     lost: false,
   };
+}
+
+// The study (or sweep) a pickup leg paused, in one word. Pure.
+function pausedStudyWord(exp: Pick<Expedition, "groundOps">, leg: Pick<GroundShipLeg, "startsAt">): "study" | "sweep" {
+  const study = (exp.groundOps?.studyLegs ?? []).find((l) => (l.pauses ?? []).some((p) => p.from === leg.startsAt));
+  return study?.nebula === 1 ? "sweep" : "study";
 }
 
 function repairLegWords(exp: Expedition, leg: GroundRepairLeg): StepWords {
@@ -497,6 +529,14 @@ function shipLegsOf(ops: { shipLegs: readonly GroundShipLeg[]; repairLegs?: read
   return [...ops.shipLegs, ...(ops.repairLegs ?? []), ...(ops.studyLegs ?? [])].map((l): [number, number] => [l.startsAt, l.endsAt]).sort((a, b) => a[0] - b[0]);
 }
 
+// The user's pickup pause: "; paused twice for a pickup (20m), resumed where it left off", or "". Pure.
+function pickupNote(leg: Pick<GroundStudyLeg, "pauses">): string {
+  const n = leg.pauses?.length ?? 0;
+  if (n === 0) return "";
+  const total = (leg.pauses ?? []).reduce((a, p) => a + (p.to - p.from), 0);
+  return `; paused ${n === 1 ? "once" : n === 2 ? "twice" : `${n} times`} for a pickup (${spanText(total)}), resumed where it left off`;
+}
+
 // GG-6: a study leg in words (the ship holds orbit over a giant, or sweeps the nebula). Pure.
 function studyLegWords(exp: Expedition, leg: GroundStudyLeg, now: number): StepWords {
   const len = spanText(leg.endsAt - leg.startsAt);
@@ -504,11 +544,11 @@ function studyLegWords(exp: Expedition, leg: GroundStudyLeg, now: number): StepW
   if (leg.nebula === 1) {
     const kind = exp.nebula ? nebulaKindById(exp.nebula.kindId) : undefined;
     const name = kind ? kind.name.toLowerCase() : "nebula";
-    return { category: "sweep", label: "nebula sweep", detail: going ? `Sweeping the ${name} (${len}), under way` : `Swept the ${name} (${len})`, lost: false };
+    return { category: "sweep", label: "nebula sweep", detail: going ? `Sweeping the ${name} (${len}), under way${pickupNote(leg)}` : `Swept the ${name} (${len})${pickupNote(leg)}`, lost: false };
   }
   const body = exp.bodies[leg.bodyIndex];
   const name = body ? bodyTitle(exp, body, leg.bodyIndex) : "the giant";
-  const pause = leg.scanBodyIndex !== null ? "; the scan waited" : "";
+  const pause = `${leg.scanBodyIndex !== null ? "; the scan waited" : ""}${pickupNote(leg)}`;
   return {
     category: "study",
     label: `study ${bodyDesignation(exp, leg.bodyIndex)}`,
@@ -599,10 +639,24 @@ function shipLane(exp: Expedition, ship: ShipInstance | null | undefined, axis: 
       add(segmentFrom(`repair-${k}`, axis, leg.startsAt, leg.endsAt, "shipyard", repairLegWords(exp, leg), { current: leg.startsAt <= now && now < leg.endsAt }));
     });
     // GG-6: the studies and the nebula sweep, on the ship lane after the scans (the v3 mockup, as drawn).
+    // The user's pickup pause: a paused study is drawn around its pauses (the pickup leg draws there), listed once.
     (ops.studyLegs ?? []).forEach((leg, k) => {
       const live = leg.startsAt <= now && now < leg.endsAt && !leg.done;
       const to = live ? Math.min(leg.endsAt, axis.end) : leg.endsAt;
-      add(segmentFrom(`study-${k}`, axis, leg.startsAt, to, leg.nebula === 1 ? "nebula" : "giant", studyLegWords(exp, leg, now), { current: live && ops.endedAt === undefined }));
+      const glyph: IconName = leg.nebula === 1 ? "nebula" : "giant";
+      const words = studyLegWords(exp, leg, now);
+      const holding = live && ops.endedAt === undefined && !(leg.pauses ?? []).some((p) => p.from <= now && now < p.to);
+      if (!leg.pauses || leg.pauses.length === 0) {
+        add(segmentFrom(`study-${k}`, axis, leg.startsAt, to, glyph, words, { current: holding }));
+        return;
+      }
+      const whole = segmentFrom(`study-${k}`, axis, leg.startsAt, to, glyph, words, { current: holding });
+      if (!whole) return;
+      listed.push(whole);
+      outside(leg.startsAt, to, leg.pauses.map((p): [number, number] => [p.from, p.to])).forEach(([a, b], j) => {
+        const piece = segmentFrom(`study-${k}-${j}`, axis, a, b, glyph, words, { current: holding && a <= now && now <= b });
+        if (piece) segments.push(piece);
+      });
     });
   }
   // The step list: what is happening now first, then the most recent first.
@@ -626,6 +680,13 @@ export function shipNowText(exp: Expedition, ship: ShipInstance | null | undefin
     }
     case "recovery": {
       const who = crewText(ship, groundLegTeams(pos.leg));
+      if (pos.leg.studyPause === 1) {
+        const what = pausedStudyWord(exp, pos.leg);
+        const label = what === "sweep" ? "Sweep" : "Study";
+        return now < pos.leg.arrivesAt
+          ? `${label} paused: flying to pick up ${who} · arrives in ${spanText(Math.ceil(pos.leg.arrivesAt - now))}`
+          : `${who} aboard · back to the ${what}, where it left off · ${leftText(pos.leg.endsAt, now)}`;
+      }
       return now < pos.leg.arrivesAt
         ? `Flying to pick up ${who} · arrives in ${spanText(Math.ceil(pos.leg.arrivesAt - now))}`
         : `${who} aboard · returning to ${pos.leg.scanBodyIndex === null ? "station" : "the scan"} · ${leftText(pos.leg.endsAt, now)}`;
@@ -699,7 +760,7 @@ export function timelineView(
       const words = stepWords(exp, steps, i);
       // GG-6: an ordinary shuttle that waited for a study draws its flight, then a hatched "pickup waits".
       const waitFrom =
-        s.step === "return" && !s.recovered && !s.awaitingPickup && !s.stopped ? waitedOnStudy(ops, s.startedAt, s.live ? (s.plannedEnd ?? s.endedAt) : s.endedAt) : null;
+        s.step === "return" && !s.recovered && !s.awaitingPickup && !s.studyPickup && !s.stopped ? waitedOnStudy(ops, s.startedAt, s.live ? (s.plannedEnd ?? s.endedAt) : s.endedAt) : null;
       if (waitFrom !== null && waitFrom < s.endedAt) {
         const fly = segmentFrom(`${team.index}-${i}-${s.startedAt}`, axis, s.startedAt, waitFrom, STEP_GLYPH.return, { ...words, label: "return", detail: `Shuttle back to the ship (${spanText(RETURN_SECONDS)})` }, {
           current: false,
@@ -804,7 +865,7 @@ function taskRecords(exp: Expedition, taskId: string): { rec: GroundStepRecord; 
 function recWasWipe(exp: Expedition, entry: { next: GroundStepRecord | null; live: GroundTeamRun | null }): boolean {
   if (entry.next) return entry.next.step === "return" && entry.next.recovered === true;
   const ops = exp.groundOps;
-  return entry.live !== null && ops !== undefined && awaitingPickup(ops, entry.live) !== null;
+  return entry.live !== null && ops !== undefined && wipePickup(ops, entry.live) !== null;
 }
 
 // Has the run touched this task (a crew on it, progress, a fight, an ambush, a banked segment)? Untouched queued

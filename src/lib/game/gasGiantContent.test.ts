@@ -158,7 +158,8 @@ describe("GG-1 everything wired: a consumer or a GG reserve, a source or a pendi
   // The study uses a built engine slice has taken live (GG-2: the class roll; GG-3: the study reward and the probe
   // dive; GG-4: the nebula sweep, which reads every nebula kind's two fields), and the class fields they read.
   // GG-5: the lab lane, which consumes every research data item (their reserve rows flip live in place).
-  const BUILT_USES: ReadonlySet<string> = new Set(["classRoll", "studyReward", "probeDive", "nebulaSweep", "labLane"]);
+  // GG-6 review: the user's pickup pause (2026-10-23) is a study use too, live with its probe.
+  const BUILT_USES: ReadonlySet<string> = new Set(["classRoll", "studyReward", "probeDive", "nebulaSweep", "labLane", "pickupPause"]);
   const CLASS_FIELD_USE: Readonly<Record<string, string>> = {
     weight: "classRoll",
     massMinMilliJ: "classRoll",
@@ -176,7 +177,8 @@ describe("GG-1 everything wired: a consumer or a GG reserve, a source or a pendi
 
   it("the registry: GG-1's additions, each with its status (pending on its GG slice, or live for the sale, the recipe and a built slice's)", () => {
     const added = WIRING_REGISTRY.filter((e) => GG1_ADDED_ENTRY_IDS.has(e.id));
-    // 6 uses + 7 classes x 7 effect fields + 4 kinds x 2 + 6 sell values + 9 reserves + 1 recipe
+    // 6 uses + 7 classes x 7 effect fields + 4 kinds x 2 + 6 sell values + 9 reserves + 1 recipe (the GG-6 pickup pause
+    // use is held apart as an engine addition, gasStudyGoldens.fixture.ts GG6_PICKUP_PAUSE_ENTRY_ID)
     expect(added).toHaveLength(6 + 49 + 8 + 6 + 9 + 1);
     for (const e of added) {
       const live = e.source.key.endsWith(":sellValue") || e.source.catalog === "REFINE_RECIPES" || builtLive(e);

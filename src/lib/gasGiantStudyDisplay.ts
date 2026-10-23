@@ -327,7 +327,13 @@ function chip(text: string, tone: StudyChipTone = "plain", glyph: IconName | nul
 // Section 1: the study rows in the scan section
 // ============================================================================
 
-export type StudyState = "queued" | "studying" | "studied";
+// "paused": the user's pickup pause (2026-10-23), the ship left the study to fly a pickup and will resume it.
+export type StudyState = "queued" | "studying" | "paused" | "studied";
+
+// The pause of `leg` under way at `now`, or null. Pure.
+export function studyPauseAt(leg: Pick<GroundStudyLeg, "pauses">, now: number): { from: number; to: number } | null {
+  return (leg.pauses ?? []).find((p) => p.from <= now && now < p.to) ?? null;
+}
 
 function legOf(exp: Pick<Expedition, "groundOps">, bodyIndex: number): GroundStudyLeg | undefined {
   return exp.groundOps?.studyLegs?.find((l) => l.bodyIndex === bodyIndex && l.nebula !== 1);
@@ -338,7 +344,15 @@ function sweepLegOf(exp: Pick<Expedition, "groundOps">): GroundStudyLeg | undefi
 function legState(leg: GroundStudyLeg | undefined, now: number): StudyState {
   if (!leg) return "queued";
   if (leg.done || now >= leg.endsAt) return "studied";
-  return now >= leg.startsAt ? "studying" : "queued";
+  if (now < leg.startsAt) return "queued";
+  return studyPauseAt(leg, now) ? "paused" : "studying";
+}
+
+// "Resumed after a pickup, progress kept" while a study runs again after a pause; null otherwise. Pure.
+function resumedChip(leg: GroundStudyLeg | undefined, state: StudyState): StudyChip | null {
+  if (!leg || state !== "studying") return null;
+  const n = leg.pauses?.length ?? 0;
+  return n === 0 ? null : chip(n === 1 ? "Resumed after a pickup, progress kept" : `Resumed after ${n} pickups, progress kept`, "plain", "check");
 }
 
 // The class def of an orbital body's frozen profile. Pure.
@@ -368,7 +382,8 @@ export function studyBodyView(exp: Expedition, bodyIndex: number, now: number): 
   const chips: StudyChip[] = [chip("Orbital: no ground objectives", "acc"), chip(`Ship study ${minText(seconds)}`, "acc", "research")];
   if (studyProbe(exp)) chips.push(chip("Galileo dive", "plain", "galileoProbe"));
   if (body.studied === true && !leg) chips.push(chip("Studied on an earlier trip", "ok", "check"));
-  else if (state === "studying") chips.push(chip("Studying now", "warn", "clock"));
+  else if (state === "paused") chips.push(chip("Paused for a pickup", "warn", "pause"));
+  else if (state === "studying") chips.push(chip("Studying now", "warn", "clock"), ...[resumedChip(leg, state)].filter((c): c is StudyChip => c !== null));
   else if (state === "studied") chips.push(chip("Studied", "ok", "check"));
   else chips.push(chip("Queued"));
   return { bodyIndex, letter: bodyDesignation(exp, bodyIndex), name: giantClassDisplayName(def), massText: massShortText(massMilliJ), state, chips };
@@ -398,7 +413,8 @@ export function nebulaRowView(exp: Expedition, now: number): NebulaRowView | nul
   const state: StudyState = earlier ? "studied" : legState(leg, now);
   const chips: StudyChip[] = [chip(`Nebula sweep ${minText(NEBULA_SWEEP_SECONDS)}`, "acc", "nebula"), chip("No probe used"), chip(bandRangeText(kind.bandOdds))];
   if (earlier) chips.push(chip("Swept on an earlier trip", "ok", "check"));
-  else if (state === "studying") chips.push(chip("Sweeping now", "warn", "clock"));
+  else if (state === "paused") chips.push(chip("Paused for a pickup", "warn", "pause"));
+  else if (state === "studying") chips.push(chip("Sweeping now", "warn", "clock"), ...[resumedChip(leg, state)].filter((c): c is StudyChip => c !== null));
   else if (state === "studied") chips.push(chip("Swept", "ok", "check"));
   else chips.push(chip("Queued"));
   return { name: kind.name, sub: "system feature, swept after the bodies", state, chips };
@@ -482,6 +498,7 @@ export function studyShipCardView(
   const ops = exp.groundOps;
   if (!ops || ops.endedAt !== undefined) return null;
   const pos = groundShipPosition(exp, now);
+  if (pos.kind === "recovery" && pos.leg.studyPause === 1) return pausedCardView(exp, ship, now, pos.leg);
   if (pos.kind !== "study") return null;
   const leg = pos.leg;
   // GG-6 review: a resumed run's startedAt sits its clock skip before the window opened.
@@ -525,6 +542,28 @@ export function studyShipCardView(
   };
 }
 
+// The user's pickup pause (2026-10-23): the card while the ship has left its study (or the sweep) to fly a pickup:
+// who it collects, when it arrives or is back, and how much of the study is left when it resumes. Pure.
+function pausedCardView(exp: Expedition, ship: ShipInstance | null | undefined, now: number, pickup: { startsAt: number; arrivesAt: number; endsAt: number; bodyIndex: number; teamIndex: number; teamIndices?: number[]; pickup?: 1 }): StudyShipCardView | null {
+  const study = (exp.groundOps?.studyLegs ?? []).find((l) => (l.pauses ?? []).some((p) => p.from === pickup.startsAt));
+  if (!study) return null;
+  const sweep = study.nebula === 1;
+  const kind = sweep && exp.nebula ? nebulaKindById(exp.nebula.kindId) : undefined;
+  const what = sweep ? `sweep of the ${kind ? kind.name.toLowerCase() : "nebula"}` : `study of the ${classOf(exp, study.bodyIndex).def.name}`;
+  const who = (pickup.teamIndices ?? [pickup.teamIndex]).map((i) => runTeamName(ship, i)).join(" and ");
+  const later = (study.pauses ?? []).filter((p) => p.from >= pickup.endsAt).reduce((a, p) => a + (p.to - p.from), 0);
+  const remaining = Math.max(0, study.endsAt - pickup.endsAt - later);
+  const flying = now < pickup.arrivesAt;
+  return {
+    title: `${sweep ? "Sweep" : "Study"} paused for a pickup`,
+    lead: `The ship left its ${what} to collect ${who} at ${bodyDesignation(exp, pickup.bodyIndex)}.`,
+    left: flying ? `arrives in ${minText(Math.ceil((pickup.arrivesAt - now) / 60) * 60)}` : `back in ${minText(Math.ceil((pickup.endsAt - now) / 60) * 60)}`,
+    tail: `It resumes where it left off: ${minText(remaining)} of the ${sweep ? "sweep" : "study"} remain, nothing lost.`,
+    chips: [chip("Paused for a pickup", "warn", "pause"), chip("Progress kept", "ok", "check")],
+    waits: [],
+  };
+}
+
 // ============================================================================
 // Section 1: the ship legs and the return forecast
 // ============================================================================
@@ -555,6 +594,14 @@ function pickedUpAt(exp: Expedition, leg: GroundStudyLeg): number[] {
     out.add(r.teamIndex);
   }
   return [...out].sort((a, b) => a - b);
+}
+
+// What a study row adds after its times: the user's pickup pauses ("paused 1:40 to 1:50 for a pickup") and the
+// teams an old run's waiting shuttles boarded at its end ("then pick up Alpha"). Null with neither. Pure.
+function legThen(leg: GroundStudyLeg, picked: string[], start: number): string | null {
+  const parts = (leg.pauses ?? []).map((p) => `paused ${clockText(p.from - start)} to ${clockText(p.to - start)} for a pickup`);
+  if (picked.length > 0) parts.push(`then pick up ${picked.join(" and ")}`);
+  return parts.length > 0 ? parts.join("; ") : null;
 }
 
 // The canisters the run's studies and sweep can return, and the forecast line ("On return (forecast): 15 to 31
@@ -635,7 +682,7 @@ export function studyLegsView(exp: Expedition, ship: ShipInstance | null | undef
       label: leg.nebula === 1 ? "Nebula sweep" : `Study ${bodyDesignation(exp, leg.bodyIndex)}`,
       study: true,
       when: current ? `${clockText(leg.startsAt - start)} to ${clockText(leg.endsAt - start)}, under way` : `${clockText(leg.startsAt - start)} to ${clockText(leg.endsAt - start)}`,
-      then: teams.length > 0 ? `then pick up ${teams.map((i) => runTeamName(ship, i)).join(" and ")}` : null,
+      then: legThen(leg, teams.map((i) => runTeamName(ship, i)), start),
       current,
     };
   });

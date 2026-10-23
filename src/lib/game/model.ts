@@ -8383,6 +8383,13 @@ export interface Expedition {
   // nebula an earlier trip already swept (HeldSystem.nebulaSwept), so it is not swept again. Absent on every other run
   // and on every run dispatched before GG-4. Optional, no SAVE bump.
   nebula?: { kindId: NebulaKindId; swept?: 1 };
+  // The user's PICKUP PAUSE (2026-10-23, verbatim in the gas giant plan: "the ship should be able to stop mid-scan and
+  // pick back up where it left off, so going to get the team from where they are is fine. Then go back and continue
+  // scanning."): frozen at dispatch on a study run (`study` or `nebula` present). Present: a team ready for pickup while
+  // the ship holds a study or sweeps the nebula no longer waits for its end; the ship pauses it, flies the pickup and
+  // resumes where it left off (groundOps.ts pauseStudyForPickup). Absent on every other run and on every run dispatched
+  // before the change (its shuttles wait, GG-3 studyPickupAt). Optional, no SAVE bump.
+  pickupPause?: 1;
 }
 
 // Expedition Tiers G2-5 (user #7 "Based on distance traveled 1:1"; G13 one confirm with the return time; G14 detour
@@ -8744,6 +8751,9 @@ export interface GroundStepRecord {
   taskId?: string;
   outcome?: "win" | "loss"; // a fight step
   recovered?: true; // a return step where the ship broke off its scan to pick the team up (a recovery leg)
+  // The user's pickup pause: a return step that ended when the ship, pausing its study or sweep, flew to collect the
+  // team (not wiped: a GroundShipLeg with `pickup`).
+  studyPickup?: true;
   ambushed?: true; // a work step an ambush cut short (Squads SQ-3: the crew retreated; SQ-4: or fought it)
   surprise?: true; // a fight step that was an ambush met as a surprise fight (Squads SQ-4)
   reinforcement?: true; // a fight step that was a Reinforcing extra battle (objective affixes, AF-1)
@@ -8770,6 +8780,12 @@ export interface GroundShipLeg {
   startsAt: number;
   arrivesAt: number;
   endsAt: number;
+  // The user's pickup pause (Expedition.pickupPause): this leg PAUSED a study or the nebula sweep (it lies inside the
+  // study leg, which grew by the leg's length; the study's own scanBodyIndex already pauses the scan, so this leg's is
+  // null). `pickup` marks a leg that collects teams who were NOT wiped (an ordinary return the ship flew to); a wiped
+  // team's recovery leg carries `studyPause` alone. Both written last, only on such legs.
+  studyPause?: 1;
+  pickup?: 1;
 }
 
 // GO-8b (user WWVD, 2026-10-12: "They'd find a planet with atmosphere nearby and set a course. Then land and conduct
@@ -8809,6 +8825,10 @@ export interface GroundStudyLeg {
   endsAt: number;
   done?: true;
   nebula?: 1;
+  // The user's pickup pause: the spans the ship left this study to fly a pickup (each from..to lies inside
+  // startsAt..endsAt, which grew by its length), in time order. Written last, only once a pickup paused it. The study's
+  // progress excludes them, so nothing is lost or counted twice.
+  pauses?: { from: number; to: number }[];
 }
 
 // GO-7b: the run's ground operations (Expedition.groundOps; plan section 2). One COMBINED operations window
