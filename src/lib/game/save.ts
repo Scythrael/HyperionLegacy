@@ -5,7 +5,7 @@
 import LZString from "lz-string";
 import Decimal from "break_infinity.js";
 import { QUALITY_TIERS } from "./inventory";
-import { type GameState, type MissionPhase, type ShortRangeMissionState, freshCaptains, freshLifetimeStats, requiredTicksForPhase, MISSIONS, SHIP_TYPES, seedStandardIssueForShip, STANDARD_ISSUE_ILEVEL, SI_PLATING_HP, SI_EMITTER_CAP, SI_EMITTER_RECHARGE, isStandardIssueBaseline, withStandardIssueMemberLines, withScienceLineSwap, AUTO_SALVAGE_RARITIES_NONE, AUTO_SALVAGE_GRACE_SECONDS_DEFAULT, SENIOR_STAFF_DEFAULT_SEED, SENIOR_STAFF_ROSTER_BASE, EXPEDITION_DEFAULT_SEED, DEFAULT_GAMBIT_PROGRAMS, RELIC_DEFAULT_SEED, awayRecruitSeedFrom } from "./model";
+import { type GameState, type MissionPhase, type ShortRangeMissionState, freshCaptains, freshLifetimeStats, requiredTicksForPhase, MISSIONS, SHIP_TYPES, seedStandardIssueForShip, STANDARD_ISSUE_ILEVEL, SI_PLATING_HP, SI_EMITTER_CAP, SI_EMITTER_RECHARGE, isStandardIssueBaseline, withStandardIssueMemberLines, withScienceLineSwap, AUTO_SALVAGE_RARITIES_NONE, AUTO_SALVAGE_GRACE_SECONDS_DEFAULT, SENIOR_STAFF_DEFAULT_SEED, SENIOR_STAFF_ROSTER_BASE, EXPEDITION_DEFAULT_SEED, DEFAULT_GAMBIT_PROGRAMS, RELIC_DEFAULT_SEED, awayRecruitSeedFrom, normalizeEquipmentRarity, normalizeEquipmentAscension } from "./model";
 // E-CREW (Task 2): the v64->v65 step backfills each officer's stats through the officer stat roll
 // (a neutral stub until Task 19, the real seeded roll since). Task 19's v65->v66 step re-rolls the
 // stub-era neutral lines through the same roll. One-way import: seniorStaff.ts is a pure leaf over
@@ -2870,6 +2870,51 @@ export function dropRetiredDurabilityV70(state: any): any {
   return { ...state, ...(equipment === state.equipment ? {} : { equipment }), ...(expeditions === state.expeditions ? {} : { expeditions }) };
 }
 
+// RARITY READINESS RR-1 (docs/plans/2026-10-23-rarity-readiness-plan.md): every piece's rarity and ascension as values
+// this build knows, on EVERY load (no SAVE_VERSION bump: a value normalization, the dropRetiredDurabilityV70 posture).
+// A known band passes through; a case or whitespace variant reads as what it spells; anything else (a hand-edited save,
+// a corrupt value, a band from a newer build, an absent field) reads RARITY_LOAD_FALLBACK ("standard", the Standard-
+// Issue floor) and ascension "none" (model.ts normalizeEquipmentRarity / normalizeEquipmentAscension). Covers the two
+// places an EquipmentInstance lives in the save: state.equipment and an in-flight expedition's frozen battle gear
+// (groundOps.shipEventProfile.battle.installedGear). A clean piece keeps its reference, a clean list its array and a
+// clean save its state object, so a valid save loads byte-identically. Idempotent. Junk entries pass through untouched.
+function pieceWithKnownRarity(e: any): any {
+  if (!e || typeof e !== "object" || Array.isArray(e)) return e;
+  const rarity = normalizeEquipmentRarity(e.rarity);
+  const ascension = normalizeEquipmentAscension(e.ascension);
+  if (rarity === e.rarity && ascension === e.ascension) return e;
+  return { ...e, rarity, ascension };
+}
+function piecesWithKnownRarity(list: unknown): unknown {
+  if (!Array.isArray(list)) return list;
+  const out = list.map(pieceWithKnownRarity);
+  return out.some((e, i) => e !== list[i]) ? out : list;
+}
+function expeditionWithKnownRarity(x: any): any {
+  const battle = x && typeof x === "object" ? x.groundOps?.shipEventProfile?.battle : undefined;
+  if (!battle || typeof battle !== "object") return x;
+  const installedGear = piecesWithKnownRarity(battle.installedGear);
+  if (installedGear === battle.installedGear) return x;
+  return {
+    ...x,
+    groundOps: {
+      ...x.groundOps,
+      shipEventProfile: { ...x.groundOps.shipEventProfile, battle: { ...battle, installedGear } },
+    },
+  };
+}
+export function withNormalizedGearRaritiesV70(state: any): any {
+  if (!state || typeof state !== "object") return state;
+  const equipment = piecesWithKnownRarity(state.equipment);
+  let expeditions: unknown = state.expeditions;
+  if (Array.isArray(state.expeditions)) {
+    const cleaned = state.expeditions.map(expeditionWithKnownRarity);
+    if (cleaned.some((x: any, i: number) => x !== state.expeditions[i])) expeditions = cleaned;
+  }
+  if (equipment === state.equipment && expeditions === state.expeditions) return state;
+  return { ...state, ...(equipment === state.equipment ? {} : { equipment }), ...(expeditions === state.expeditions ? {} : { expeditions }) };
+}
+
 // 0.14.0 member gear, two every-load value fixes in one pass over state.equipment (the withHomeworldV70 posture: a save
 // already at v70 never runs MIGRATIONS[69] again, and these pieces only exist on 0.14.0 builds):
 //   1. the D26 line swap (model.ts withScienceLineSwap): a Science Sidearm or Field Suit crafted before the swap has its
@@ -2967,6 +3012,9 @@ export function migrate(save: SaveFile, homeworldEntropy?: number): GameState {
     state = MIGRATIONS[version](state, ctx);
     version += 1;
   }
+  // RR-1 (rarity readiness): every piece's rarity and ascension as known values, FIRST, so every pass below (and the
+  // whole game) reads a known band. Identity on a clean save.
+  state = withNormalizedGearRaritiesV70(state);
   // G2-1 (review Important): a save ALREADY at v70 never runs MIGRATIONS[69] again, so a dev or QA save migrated by a
   // v70 build from before G2-1 would stay on the shared near-Sol spot the user rejected ("Random for everyone").
   // withHomeworldV70 is idempotent (a well-formed homeworld is kept, the same reference), so it runs on EVERY load.

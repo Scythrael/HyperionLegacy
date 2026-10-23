@@ -27,6 +27,8 @@ import { reactorCoreFuel } from "./reactorTech";
 // E-MOD EM-5 (0.14.0): the universal module catalog leaf (imports only types; no cycle), read by equipmentStatMods for
 // a Passive module's power output.
 import { modulePowerOutput, type ModuleScanProc } from "./shipModules";
+// RARITY READINESS RR-6: the one set engine (a leaf: model.ts types and shipModules.ts only).
+import { gearSetBonusLines } from "./gearSets";
 // Combat 0.13.0 (Phase 9b.5a): the persisted Patrol mission shape (PatrolMissionState,
 // below) carries a player-chosen combat STANCE and the carry-state DRONE squadrons.
 // Both types live in the combat/ layer. Imported TYPE-ONLY (erased at compile time)
@@ -1864,6 +1866,79 @@ export type EquipmentRarity =
 // this patch.
 export type EquipmentAscension = "none" | "nova" | "celestial";
 
+// RARITY READINESS RR-1 (docs/plans/2026-10-23-rarity-readiness-plan.md): the ascension vocabulary as a TOTAL record, so a
+// new member is a compile error here first (the AUTO_SALVAGE_RARITIES_NONE pattern). Read by isEquipmentAscension.
+const EQUIPMENT_ASCENSION_SET: Record<EquipmentAscension, true> = { none: true, nova: true, celestial: true };
+
+// RR-2: every ascension in ladder order (none, nova, celestial), DERIVED from the total record above, for the Debug
+// minter's picker and every later reader that walks the ascensions.
+export const EQUIPMENT_ASCENSIONS = Object.keys(EQUIPMENT_ASCENSION_SET) as EquipmentAscension[];
+
+// RR-2: which bands may carry an ascension at all. The design (epic 2026-07-17 section 3): "ascension only ever non-none
+// on Luminous/Constellar". A TOTAL record, so a new band must answer the question (a compile error until it does).
+const ASCENSION_BANDS: Record<EquipmentRarity, boolean> = {
+  derelict: false,
+  standard: false,
+  augmented: false,
+  stellar: false,
+  radiant: false,
+  luminous: true,
+  constellar: true,
+};
+
+// RARITY READINESS RR-7 (answer 9, "Unify, keep unmade"): the band an ITEM VALUE reader reads. Derelict is the
+// Standard-Issue floor: it reads as "standard" in every value reader (budget, module scale, salvage time, relic band,
+// Archive score), while ORDER readers (rarityIndex: the reveal sort, auto-salvage keep-best) keep it just below
+// Standard. Never produced (CRAFTED_RARITY_PRODUCIBLE). CREW Derelict is a live crew band with its own row and is not
+// this rule. Every other value normalizes like a load (RR-1). Pure.
+export function itemValueRarity(rarity: EquipmentRarity): EquipmentRarity {
+  const band = normalizeEquipmentRarity(rarity);
+  return band === "derelict" ? "standard" : band;
+}
+
+// May a piece of this band be Nova or Celestial? Total: an unknown value reads false. Pure.
+export function ascensionAllowedFor(rarity: EquipmentRarity): boolean {
+  return isEquipmentRarity(rarity) && ASCENSION_BANDS[rarity];
+}
+
+// [PROVISIONAL] RR-1 (answer 9, "treated as the Standard-Issue floor"): the band an UNKNOWN rarity value reads as on load
+// and in every total reader (a hand-edited save, a corrupt value, a band from a newer build).
+export const RARITY_LOAD_FALLBACK: EquipmentRarity = "standard";
+
+// Is `x` exactly one of the rarity bands? An OWN-property check on the total ladder record, so inherited names
+// ("constructor", "toString", "__proto__") never pass. Pure.
+export function isEquipmentRarity(x: unknown): x is EquipmentRarity {
+  return typeof x === "string" && Object.prototype.hasOwnProperty.call(AUTO_SALVAGE_RARITIES_NONE, x);
+}
+
+export function isEquipmentAscension(x: unknown): x is EquipmentAscension {
+  return typeof x === "string" && Object.prototype.hasOwnProperty.call(EQUIPMENT_ASCENSION_SET, x);
+}
+
+// A saved rarity value as a band: a known band passes through (the SAME value, so a clean save is untouched), a case or
+// whitespace variant reads as the band it spells ("Radiant " -> "radiant"), anything else reads RARITY_LOAD_FALLBACK.
+// Pure.
+export function normalizeEquipmentRarity(raw: unknown): EquipmentRarity {
+  if (isEquipmentRarity(raw)) return raw;
+  if (typeof raw === "string") {
+    const spelled = raw.trim().toLowerCase();
+    if (isEquipmentRarity(spelled)) return spelled;
+  }
+  return RARITY_LOAD_FALLBACK;
+}
+
+// A saved ascension value: known passes through, a case or whitespace variant reads as what it spells, anything else
+// (including an absent field) reads "none". An ascension on a band that cannot carry it is NOT stripped here (no data
+// is dropped on load); the readers decide what it means (RR-4). Pure.
+export function normalizeEquipmentAscension(raw: unknown): EquipmentAscension {
+  if (isEquipmentAscension(raw)) return raw;
+  if (typeof raw === "string") {
+    const spelled = raw.trim().toLowerCase();
+    if (isEquipmentAscension(spelled)) return spelled;
+  }
+  return "none";
+}
+
 // A concrete piece of equipment. Mirrors ShipInstance's lightweight per-instance
 // posture: non-stacking (each piece is its own record with a stable id), and its
 // `fittedToShipId` is the authority for which SHIP holds the piece (null = on no ship),
@@ -1942,6 +2017,14 @@ export interface EquipmentInstance {
   // alone. Set by a later E-CREW task; nothing writes it yet. Absent or null = not worn. Optional +
   // additive (like weaponType / committedToLoadoutId), so no save migration.
   fittedToMemberId?: string | null;
+  // RARITY READINESS RR-5: the Luminous legendary affix this piece rolled (legendaryAffixes.ts LUMINOUS_AFFIXES id). Its
+  // value is already in rolledStats under the row's stat key, so every fold reads it; this names it. Absent on every
+  // non-Luminous piece. Optional + additive (like moduleVariant), so no save migration.
+  legendaryAffixId?: string;
+  // RARITY READINESS RR-6: the gear SET a Constellar piece belongs to (gearSets.ts GEAR_SETS id; counted only on a
+  // Constellar piece of a slot the set covers). Stamped by the Debug minter only (no player path). Optional + additive,
+  // so no save migration; a frozen copy of the piece (an in-flight run's gear) carries it, so the run keeps its set.
+  setId?: string;
   integrity?: string;                     // RESERVED: server-minted anti-tamper token for the multiplayer era; unset this patch
   // --- 0.13.3.1 auto-salvage additions (Features 2 + 3) ------------------------------
   // FAVORITED: the player has pinned this exact piece, which makes it permanently exempt
@@ -2061,6 +2144,15 @@ export function rarityIndex(rarity: EquipmentRarity): number {
     case "luminous":
     case "constellar":
       return 5;
+    // RR-1: TOTAL. A value outside the union (a hand-edited save before the load normalization, a direct caller) reads
+    // as the Standard-Issue floor (RARITY_LOAD_FALLBACK) instead of undefined, which every budget, sort and score
+    // reader would turn into NaN. The never binding keeps the switch EXHAUSTIVE at compile time: a new band that is
+    // not given a case above is a build error here, while a junk value at run time still reads Standard.
+    default: {
+      const unhandled: never = rarity;
+      void unhandled;
+      return 1;
+    }
   }
 }
 
@@ -2075,12 +2167,47 @@ export function rarityIndex(rarity: EquipmentRarity): number {
 export const MODULE_RARITY_STEP = 0.12; // +12% effect per rarity band above standard
 export const MODULE_QUALITY_STEP = 0.06; // +6% effect per quality rung
 
-// The multiplicative effect scale for a module of the given rarity/quality. Monotonic non-decreasing in both (steps
-// are >= 0). standard/q0 == 1.0. derelict clamps to the standard base (no negative step). Pure arithmetic.
-export function moduleEffectScale(rarity: EquipmentRarity, quality: number): number {
-  const rarityStep = Math.max(0, rarityIndex(rarity) - rarityIndex("standard"));
-  const q = Math.max(0, quality);
-  return (1 + rarityStep * MODULE_RARITY_STEP) * (1 + q * MODULE_QUALITY_STEP);
+// RARITY READINESS (RR-3 / RR-4 review fix): the legendary step and the ascension multipliers live HERE, beside the
+// module scale that reads them, because model.ts cannot import rarityProfiles.ts / ascension.ts (both import model.ts).
+// Those two modules re-export them, so every importer keeps one source.
+// [PROVISIONAL] (answer 5, the design's "+20% Constellar/Luminous", epic :215): the legendary step over Radiant, for the
+// stat budget (rarityProfiles.ts RARITY_PROFILES) and the module effect scale (MODULE_RARITY_FACTOR below) alike.
+export const LEGENDARY_BUDGET_STEP = 1.2;
+// [PROVISIONAL] (design :215 "+25% Nova"): the Nova multiplier on top of the legendary row (budget and module effect).
+export const NOVA_BUDGET_MULT = 1.25;
+// [PROVISIONAL] (the design says only "Celestial its own, drop-only"): the Celestial multiplier.
+export const CELESTIAL_BUDGET_MULT = 1.4;
+// The multiplier per ascension. TOTAL, so a new ascension is a compile error here until it is answered for.
+export const ASCENSION_BUDGET_MULT: Readonly<Record<EquipmentAscension, number>> = {
+  none: 1,
+  nova: NOVA_BUDGET_MULT,
+  celestial: CELESTIAL_BUDGET_MULT,
+};
+
+// The rarity factor of a module's EFFECT, per band (the module twin of the stat budget's RARITY_PROFILES budgetMult).
+// Derelict to Radiant are 1 + (bands above Standard) x MODULE_RARITY_STEP, the SAME expression as before (bit-identical);
+// Luminous and Constellar are Radiant's factor x LEGENDARY_BUDGET_STEP (answer 5), where they used to read one more
+// 12% step. TOTAL, so a new band is a compile error here.
+const moduleStepFactor = (band: EquipmentRarity): number => 1 + Math.max(0, rarityIndex(band) - rarityIndex("standard")) * MODULE_RARITY_STEP;
+export const MODULE_RARITY_FACTOR: Readonly<Record<EquipmentRarity, number>> = {
+  derelict: moduleStepFactor("derelict"),
+  standard: moduleStepFactor("standard"),
+  augmented: moduleStepFactor("augmented"),
+  stellar: moduleStepFactor("stellar"),
+  radiant: moduleStepFactor("radiant"),
+  luminous: moduleStepFactor("radiant") * LEGENDARY_BUDGET_STEP,
+  constellar: moduleStepFactor("radiant") * LEGENDARY_BUDGET_STEP,
+};
+
+// The multiplicative effect scale for a module of the given rarity / quality / ascension. Monotonic non-decreasing in
+// band, quality and ascension. standard/q0 == 1.0; derelict clamps to the standard base. The ascension counts only on a
+// band that may carry one (ascensionAllowedFor: Luminous / Constellar); anything else, and the default, reads x1, so
+// every live module is bit-identical to the pre-review scale. An unknown band reads Standard's factor. Pure arithmetic.
+export function moduleEffectScale(rarity: EquipmentRarity, quality: number, ascension: EquipmentAscension = "none"): number {
+  const factor = isEquipmentRarity(rarity) ? MODULE_RARITY_FACTOR[rarity] : MODULE_RARITY_FACTOR.standard;
+  const asc = ascensionAllowedFor(rarity) && isEquipmentAscension(ascension) ? ASCENSION_BUDGET_MULT[ascension] : 1;
+  const q = Number.isFinite(quality) ? Math.max(0, quality) : 0; // RR-1: a non-finite quality reads as rung 0
+  return factor * asc * (1 + q * MODULE_QUALITY_STEP);
 }
 
 // ============================================================================
@@ -4185,7 +4312,13 @@ export function equipmentStatMods(pieces: EquipmentInstance[]): EquipmentStatMod
 
     // Every stat line the piece carries: implicit (slot-signature) + rolled (affixes).
     // One loop over both records so a stat that appears in both accumulates.
-    for (const stats of [piece.implicitStats, piece.rolledStats]) {
+    for (const stats of [piece.implicitStats, piece.rolledStats]) foldLines(stats);
+  }
+  // RARITY READINESS RR-6: the ship's active gear SET tiers (gearSets.ts), read like one more piece's lines. Empty for
+  // set-free gear (every piece a player can hold today), so the fold is unchanged there.
+  foldLines(gearSetBonusLines(pieces, "ship"));
+
+  function foldLines(stats: Record<string, number>): void {
       for (const [key, value] of Object.entries(stats)) {
         switch (key) {
           // FLAT capacities + the sensors point-sum: summed directly.
@@ -4249,7 +4382,6 @@ export function equipmentStatMods(pieces: EquipmentInstance[]): EquipmentStatMod
             break;
         }
       }
-    }
   }
 
   return {
@@ -4259,7 +4391,7 @@ export function equipmentStatMods(pieces: EquipmentInstance[]): EquipmentStatMod
     totalPowerDraw: Math.max(0, grossPowerDraw - powerDrawReduction),
     powerOutput,
     // E-MOD EM-5: a module carries no stat lines (EQUIPMENT_SLOTS.module); its output is its catalog def's, scaled.
-    modulePowerOutput: modulePowerOutput(pieces, (p) => moduleEffectScale(p.rarity, p.quality)),
+    modulePowerOutput: modulePowerOutput(pieces, (p) => moduleEffectScale(p.rarity, p.quality, p.ascension)),
   };
 }
 
@@ -6250,7 +6382,10 @@ export const EQUIPMENT_RARITY_LADDER = Object.keys(AUTO_SALVAGE_RARITIES_NONE) a
 // Consolidating the two is a worthwhile follow-up but is NOT done here: that component's
 // presentation is under a standing do-not-touch constraint.)
 export function equipmentRarityLabel(rarity: EquipmentRarity): string {
-  return rarity.charAt(0).toUpperCase() + rarity.slice(1);
+  // RR-1: total. A value that is not a band (a corrupt save before the load normalization) is labeled as the band it
+  // normalizes to, so the reader never throws on a non-string and never shows a made-up band name.
+  const band = normalizeEquipmentRarity(rarity);
+  return band.charAt(0).toUpperCase() + band.slice(1);
 }
 
 // Read a rarity selection off a SAVED value, defensively.
@@ -6668,8 +6803,9 @@ export const SALVAGE_TICKS_PER_QUALITY = 2;
 
 // MULTIPLIER on the equipment duration for the piece's own EquipmentRarity band. RAISING
 // an entry makes that whole band slower to break down; the ladder is meant to ascend
-// (derelict cheapest, the legendary flavors dearest) once tuned. All 1.0 = rarity is
-// free, today's behavior.
+// (Standard cheapest, the legendary flavors dearest) once tuned. Derelict has no say of its
+// own: it reads as the Standard-Issue floor (rarity readiness answer 9, itemValueRarity at the
+// use site). All 1.0 = rarity is free, today's behavior.
 //
 // ⚠️ ITS OWN TABLE OVER ITS OWN UNION, DELIBERATELY NOT SHARED WITH THE MATERIAL ARM'S.
 // EquipmentRarity (derelict / standard / augmented / stellar / radiant / luminous /
@@ -6939,7 +7075,9 @@ export function salvageDurationTicks(spec: SalvageDurationSpec): number {
       // arrive as a string the union does not contain via a hand-edited save, and
       // `undefined * n` is NaN. Guarded explicitly rather than trusted, because the cost
       // of being wrong here is a stuck bay.
-      const rarityMult = SALVAGE_EQUIPMENT_RARITY_MULTIPLIER[spec.rarity];
+      // Rarity readiness RR-7 (answer 9): looked up by itemValueRarity, so Derelict is the Standard-Issue floor here too
+      // (and a junk string reads Standard, an own key, never undefined).
+      const rarityMult = SALVAGE_EQUIPMENT_RARITY_MULTIPLIER[itemValueRarity(spec.rarity)];
       const safeRarityMult = Number.isFinite(rarityMult) && rarityMult > 0 ? rarityMult : 1;
 
       // --- Additive numeric axes, then the categorical multipliers -----------------

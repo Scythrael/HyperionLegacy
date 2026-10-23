@@ -6605,7 +6605,7 @@ export function worksDirectorateSaveSeed(state: Pick<GameState, "homeworld">): n
 export function missionCycleModulesFor(state: GameState, shipId: string): { saveSeed: number; procs: ModuleCycleProc[] } | undefined {
   const pieces = equippedFor(state, shipId);
   if (!pieces.some((p) => p.slotType === "module")) return undefined;
-  const procs = moduleCycleProcs(pieces, (p) => moduleEffectScale(p.rarity, p.quality));
+  const procs = moduleCycleProcs(pieces, (p) => moduleEffectScale(p.rarity, p.quality, p.ascension));
   return procs.length > 0 ? { saveSeed: worksDirectorateSaveSeed(state), procs } : undefined;
 }
 

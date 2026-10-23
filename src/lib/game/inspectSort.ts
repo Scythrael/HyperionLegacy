@@ -5,15 +5,21 @@
 // prize rolls sit at the top of the scrolling list. Pure + isolated here so it is trivially
 // unit-testable and shared from ONE place (the App imports this, never re-implements the order).
 import { rarityIndex, type EquipmentInstance } from "./model";
+// RARITY READINESS RR-4: Celestial above Nova above none within one band.
+import { ascensionOrder } from "./ascension";
 
 // Sort by rarity DESC (primary), then quality DESC, then iLevel DESC, using the game's canonical
 // rarity ordering (rarityIndex, model.ts). Returns a NEW array (never mutates the input), so a
 // caller can hand it the engine's roll-order array without disturbing it. rarityIndex collapses
 // luminous + constellar to the same top tier (they are parallel legendary flavors), so two such
-// pieces tie on rarity and fall through to the quality / iLevel tiebreakers.
+// pieces tie on rarity and fall through to the quality / iLevel tiebreakers. RR-4: within one band the ascension ranks
+// next (Celestial, Nova, none; a stray ascension on a non-legendary reads none, so every live piece sorts as before).
 export function sortRolledPieces(pieces: EquipmentInstance[]): EquipmentInstance[] {
   return [...pieces].sort(
     (a, b) =>
-      rarityIndex(b.rarity) - rarityIndex(a.rarity) || b.quality - a.quality || b.iLevel - a.iLevel,
+      rarityIndex(b.rarity) - rarityIndex(a.rarity) ||
+      ascensionOrder(b.rarity, b.ascension) - ascensionOrder(a.rarity, a.ascension) ||
+      b.quality - a.quality ||
+      b.iLevel - a.iLevel,
   );
 }

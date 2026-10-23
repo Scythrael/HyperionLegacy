@@ -144,3 +144,16 @@ capacity, built now)? OPEN CALL 14: set bonuses and gear wear: default being bui
 efficiency of their counted pieces (a fully worn set gives 75%), consistent with how worn gear works; alternative =
 set bonuses never wear. OPEN CALL 15: set tier magnitudes are flat (not scaled by item level), so they are large at low
 item level; [PROVISIONAL] for balancing.
+
+## MERGED into feat (e4246d5, 2026-10-23) after the holistic review ("merge"). Logged for later
+
+- Archive score and salvage time ignore ascension (a Nova Luminous scores like a plain Luminous): revisit when Nova or
+  Celestial becomes producible.
+- MUST ANSWER BEFORE LEGENDARIES CAN DROP: keep-best ranks item level first, so the duplicates auto-salvage rule can
+  queue a non-Celestial Luminous or set spare behind a higher-iLevel Standard of the same blueprint (salvage.ts
+  ~1664-1699); only Celestial is protected.
+- 0.14.0 RELEASE HAZARD (predates this work): production writes SAVE_VERSION 54; a v70 save exported from staging and
+  imported into production is written back stamped v54, and importing it back to staging re-runs migrations 54 to 69
+  over v70-shaped data. Guard the import/export path before 0.14.0 ships.
+- Optional: skip gearSetBonusLines in equipmentStatMods when no piece is Constellar or a module (fold ~40% slower per
+  call; a 6-hour tick run ~3 to 4% slower).

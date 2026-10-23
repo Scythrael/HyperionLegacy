@@ -50,6 +50,21 @@ import {
 import { QUALITY_TIERS } from "./inventory";
 // E-MOD EM-5: a universal module's draw is its catalog def's (the leaf catalog; no cycle).
 import { universalModuleDef } from "./shipModules";
+// RARITY READINESS RR-3: the per-rarity profile table (budget, affixes, secondaries, Artisan). A leaf over model.ts.
+import {
+  ARTISAN_LINE_MULT,
+  RARITY_EXTRAS_SALT,
+  RARITY_MULT,
+  SECONDARY_BUDGET_SHARE,
+  rarityProfile,
+  type RarityProfile,
+} from "./rarityProfiles";
+// RR-3: a legendary piece's private extras stream (secondaries, Artisan) is a makeRng stream (combat/rng.ts is a leaf).
+import { makeRng } from "./combat/rng";
+// RARITY READINESS RR-4: Nova / Celestial on a legendary (the ascended profile row). A leaf over model + rarityProfiles.
+import { ascendedProfile } from "./ascension";
+// RARITY READINESS RR-5: the Luminous legendary affix catalog (a leaf over model.ts types).
+import { legendaryAffixesFor, type LegendaryAffixDef } from "./legendaryAffixes";
 // Combat 1.0 (Unit 1.2): the weapon roster templates + id union. generateWeapon (below) mints a
 // crafted weapon by rolling power lines off a base WEAPON_DEF. This is a safe one-way import:
 // combat/weapons imports only combat/types + combat/statusEffects, never itemgen, so no cycle.
@@ -91,9 +106,17 @@ export const EQUIPMENT_ILEVEL_CAP_PER_TIER = 20;
 // same level/rarity. TUNABLE.
 export const QUALITY_MULT = 1.1;
 
-// Compounding budget multiplier per base-RARITY index (rarityIndex 0..5). At 1.15
-// each rarity step is a ~15% budget bump over the one below it. TUNABLE.
-export const RARITY_MULT = 1.15;
+// RARITY_MULT (the compounding budget multiplier per base-rarity index, 1.15) moved to rarityProfiles.ts at RR-3,
+// where the live rows derive from it; re-exported here so every importer keeps working.
+export { RARITY_MULT };
+
+// RR-1: the Standard rarity ordinal, the reading of a non-finite rarity index (rarityIndex("standard")).
+const STANDARD_RARITY_INDEX = rarityIndex("standard");
+
+// RR-1: x when it is a finite number, else the fallback. The identity for every finite input. Pure.
+function finiteOr(x: number, fallback: number): number {
+  return Number.isFinite(x) ? x : fallback;
+}
 
 // Fraction of the total budget that goes to the slot's IMPLICIT (signature) line(s);
 // the remaining (1 - this) goes to the rolled affix lines. At 0.5 the guaranteed
@@ -195,7 +218,22 @@ export function craftedDefensiveImplicit(
   quality: number,
   rarityIdx: number,
 ): number {
-  return Math.round((base + perLevel * iLevel) * QUALITY_MULT ** quality * RARITY_MULT ** rarityIdx);
+  // RR-1: finite inputs pass through unchanged (so every live magnitude is identical); a non-finite one reads as
+  // iLevel 0 / quality 0 / the Standard index, never NaN.
+  const lvl = finiteOr(iLevel, 0);
+  const q = finiteOr(quality, 0);
+  const idx = finiteOr(rarityIdx, STANDARD_RARITY_INDEX);
+  return craftedDefensiveImplicitAt(base, perLevel, lvl, q, RARITY_MULT ** idx);
+}
+
+// RR-3: the same curve with the rarity multiplier given directly (a band's RARITY_PROFILES budgetMult, which for every
+// live band IS RARITY_MULT ** rarityIndex, so the product, in the same order, is the identical double). Finite-guarded
+// like the index form; a non-finite multiplier reads as the Standard row's. Pure.
+export function craftedDefensiveImplicitAt(base: number, perLevel: number, iLevel: number, quality: number, rarityMult: number): number {
+  const lvl = finiteOr(iLevel, 0);
+  const q = finiteOr(quality, 0);
+  const mult = finiteOr(rarityMult, RARITY_MULT ** STANDARD_RARITY_INDEX);
+  return Math.round((base + perLevel * lvl) * QUALITY_MULT ** q * mult);
 }
 
 // Per-quality-rung durability bonus: durabilityMax = base * (1 + quality * this).
@@ -231,9 +269,38 @@ export function computeItemLevel(a: {
 // and rarity (multipliers > 1, round is non-decreasing), which the loot UI relies
 // on: a rarer or higher-quality drop is never numerically weaker for the same level.
 // ============================================================================
+//
+// RR-1 (rarity readiness): TOTAL. A non-finite input (NaN, Infinity, an absent field on a corrupt save) reads as
+// iLevel 0, quality 0 or the Standard index, so the budget is always a finite integer. Every finite input passes
+// through untouched and the multiplication order is unchanged, so every live budget is the identical double.
+// LIVE BANDS ONLY since RR-3 (review note): no app code calls this; the mint reads the band's profile row
+// (rarityBudget / budgetAtMult), which agrees with this index form for Derelict to Radiant only. At index 5 this gives
+// RARITY_MULT^5, while a Luminous / Constellar mint reads RARITY_MULT^4 x LEGENDARY_BUDGET_STEP.
 export function computeBudget(iLevel: number, quality: number, rarityIdx: number): number {
-  const raw = iLevel * PER_LEVEL_BUDGET * QUALITY_MULT ** quality * RARITY_MULT ** rarityIdx;
+  const lvl = finiteOr(iLevel, 0);
+  const q = finiteOr(quality, 0);
+  const idx = finiteOr(rarityIdx, STANDARD_RARITY_INDEX);
+  const raw = lvl * PER_LEVEL_BUDGET * QUALITY_MULT ** q * RARITY_MULT ** idx;
   return Math.round(raw);
+}
+
+// RR-3: the budget at a given rarity MULTIPLIER (same backbone, same order, so a live band's multiplier gives the
+// identical double computeBudget gives for its index). Pure.
+export function budgetAtMult(iLevel: number, quality: number, rarityMult: number): number {
+  const lvl = finiteOr(iLevel, 0);
+  const q = finiteOr(quality, 0);
+  const mult = finiteOr(rarityMult, RARITY_MULT ** STANDARD_RARITY_INDEX);
+  return Math.round(lvl * PER_LEVEL_BUDGET * QUALITY_MULT ** q * mult);
+}
+
+// RR-3: THE budget a piece of this band gets (rarityProfiles.ts RARITY_PROFILES[band].budgetMult, through
+// ascendedProfile). The generators compute the same thing from their ascended profile row (budgetAtMult(profile.budgetMult)),
+// so they never disagree with this. For Derelict to Radiant it equals computeBudget(iLevel, quality, rarityIndex(band)) bit
+// for bit (rarityProfiles.test.ts); Luminous and Constellar are Radiant x LEGENDARY_BUDGET_STEP. Pure.
+// RR-4: an optional ascension (Nova / Celestial on a legendary; ignored on any other band, so a live band reads exactly
+// the row above).
+export function rarityBudget(iLevel: number, quality: number, rarity: EquipmentRarity, ascension: EquipmentAscension = "none"): number {
+  return budgetAtMult(iLevel, quality, ascendedProfile(rarity, ascension).budgetMult);
 }
 
 // ============================================================================
@@ -249,24 +316,110 @@ export function computeBudget(iLevel: number, quality: number, rarityIdx: number
 // this patch but are handled as radiant-count (3) so a stray value never crashes
 // the pipeline.
 // ============================================================================
+//
+// RR-3 (rarity readiness): read from the band's RARITY_PROFILES row (affixes + extraAffixChance), which reproduces the
+// old switch exactly: Derelict 0, Standard 2, Augmented 2 with a 25% chance of 3 (its ONE draw, the same strict `<`),
+// Stellar / Radiant / Luminous / Constellar 3, and an unknown value Standard's 2 with zero draws (RR-1). Compile-time
+// exhaustiveness now lives in the TOTAL RARITY_PROFILES record (a new band is a build error there until answered).
 export function affixCount(rarity: EquipmentRarity, rng: () => number): number {
-  switch (rarity) {
-    case "derelict":
-      return 0;
-    case "standard":
-      return 2;
-    case "augmented":
-      // The single rng draw for the 25% upgrade. Kept as the ONLY draw so callers
-      // can reason exactly about how far the stream advanced before the affix picks.
-      return rng() < 0.25 ? 3 : 2;
-    case "stellar":
-    case "radiant":
-      return 3;
-    // Unproduced legendary flavors: treat as radiant-count for safety (no crash).
-    case "luminous":
-    case "constellar":
-      return 3;
+  const p = rarityProfile(rarity);
+  if (p.extraAffixChance > 0) return rng() < p.extraAffixChance ? p.affixes + 1 : p.affixes;
+  return p.affixes;
+}
+
+// ============================================================================
+// RR-3: rollRarityExtras (secondaries and Artisan; user answer 6, "Legendary and up only")
+// ----------------------------------------------------------------------------
+// Runs AFTER the affix picks. A band whose row has no extras (every live band) returns at once and draws NOTHING, so
+// its stream is untouched. A band with extras takes exactly ONE draw on the shared stream, which seeds a private makeRng
+// stream (salted RARITY_EXTRAS_SALT) for everything else, all integer draws:
+//   1. Artisan (artisanPermille): one random rolled AFFIX line x ARTISAN_LINE_MULT, rounded. Never a carry count, and
+//      never a mass / draw reduction whose boosted value the slot's base could not absorb (review fix: a wasted line).
+//   2. each secondary: a stat drawn by the pool's weight x the variety's statRatios (integer weights, the same bias the
+//      affix picker uses), ADDED onto that line (a new line when the piece lacks it), worth SECONDARY_BUDGET_SHARE of
+//      the piece's budget, through rolledLineValue (berths for a guest line). Never the grenade carry line (a charge
+//      count), and never a mass / draw reduction the slot's remaining base cannot absorb (review fix: the mint floors
+//      mass and draw at 0, so the overflow would be thrown away). Secondaries land in rolledStats, so every existing
+//      fold, the tooltip, salvage and the combat bridge read them with no new consumer.
+//   3. RR-5: on a band whose row has `legendaryAffix` (Luminous), ONE Luminous legendary affix drawn uniformly from the
+//      slot's rows (legendaryAffixes.ts legendaryAffixesFor), LAST. Its value (legendaryAffixLineValue) is ADDED onto its
+//      stat line like a secondary. Returns the drawn row's id (the generator stamps it as legendaryAffixId), or undefined
+//      (no row for the slot, not a legendary-affix band, or no slotType given).
+// `ctx`: the slot (for the legendary affix), the variety's statRatios (absent = every stat at its raw pool weight), and
+// the slot's base mass / draw (absent = a reduction is never a target). Mutates `rolledStats` (the generator's own fresh
+// record). Exported for its tests.
+// ============================================================================
+export interface RarityExtrasContext {
+  readonly slotType?: EquipmentSlotType;
+  readonly statRatios?: Readonly<Record<string, number>>;
+  readonly baseMass?: number;
+  readonly baseDraw?: number;
+}
+// The integer scale a pool weight x statRatio is drawn at (three decimals of a ratio survive).
+const EXTRAS_WEIGHT_SCALE = 1000;
+
+export function rollRarityExtras(
+  profile: RarityProfile,
+  budget: number,
+  affixPool: readonly { stat: string; weight?: number }[],
+  pickedStats: readonly string[],
+  rolledStats: Record<string, number>,
+  rng: () => number,
+  ctx: RarityExtrasContext = {},
+): string | undefined {
+  if (profile.secondaries <= 0 && profile.artisanPermille <= 0 && !profile.legendaryAffix) return undefined;
+  const seed = (Math.floor(rng() * 0x100000000) ^ RARITY_EXTRAS_SALT) >>> 0;
+  const extras = makeRng(seed);
+  // Can the slot's base still absorb a reduction line at `value` (the line's whole value after the change)?
+  const absorbs = (stat: string, value: number): boolean => {
+    if (stat === "massReduction") return ctx.baseMass !== undefined && value <= ctx.baseMass;
+    if (stat === "powerDrawReduction") return ctx.baseDraw !== undefined && value <= ctx.baseDraw;
+    return true;
+  };
+  if (profile.artisanPermille > 0 && extras.chance(profile.artisanPermille, 1000)) {
+    const lines = pickedStats.filter(
+      (s) => s !== "groundCarryCapacity" && rolledStats[s] !== undefined && absorbs(s, Math.round(rolledStats[s] * ARTISAN_LINE_MULT)),
+    );
+    if (lines.length > 0) {
+      const s = lines[extras.nextInt(lines.length)];
+      rolledStats[s] = Math.round(rolledStats[s] * ARTISAN_LINE_MULT);
+    }
   }
+  const each = Math.round(budget * SECONDARY_BUDGET_SHARE);
+  for (let i = 0; i < profile.secondaries; i++) {
+    const weighted = affixPool
+      .filter((e) => e.stat !== "groundCarryCapacity")
+      .map((e) => {
+        const add = rolledLineValue(e.stat, each);
+        const w = Math.round((e.weight ?? 1) * (ctx.statRatios?.[e.stat] ?? 1) * EXTRAS_WEIGHT_SCALE);
+        return { stat: e.stat, add, w: absorbs(e.stat, (rolledStats[e.stat] ?? 0) + add) ? Math.max(0, w) : 0 };
+      })
+      .filter((e) => e.w > 0);
+    const total = weighted.reduce((n, e) => n + e.w, 0);
+    if (total === 0) break;
+    let roll = extras.nextInt(total);
+    let pick = weighted[weighted.length - 1];
+    for (const e of weighted) {
+      if (roll < e.w) {
+        pick = e;
+        break;
+      }
+      roll -= e.w;
+    }
+    rolledStats[pick.stat] = (rolledStats[pick.stat] ?? 0) + pick.add;
+  }
+  if (!profile.legendaryAffix || ctx.slotType === undefined) return undefined;
+  const rows = legendaryAffixesFor(ctx.slotType);
+  if (rows.length === 0) return undefined;
+  const def = rows[extras.nextInt(rows.length)];
+  rolledStats[def.stat] = (rolledStats[def.stat] ?? 0) + legendaryAffixLineValue(def, budget);
+  return def.id;
+}
+
+// RR-5: the value a legendary affix row adds to its stat line on a piece of this budget: its budget share, rounded,
+// through rolledLineValue (berths for a guest line). Pure.
+export function legendaryAffixLineValue(def: LegendaryAffixDef, budget: number): number {
+  return rolledLineValue(def.stat, Math.round(budget * def.budgetShare));
 }
 
 // ============================================================================
@@ -349,7 +502,8 @@ export function budgetShares(budget: number): { implicitShare: number; affixShar
 // builds fresh records, mutating neither its inputs nor any shared state.
 //
 // Magnitude model:
-//   - budget          = computeBudget(iLevel, quality, rarityIndex(rarity)).
+//   - budget          = budgetAtMult(iLevel, quality, ascendedProfile(rarity, ascension).budgetMult) (RR-3 / RR-4; the
+//                       same double as computeBudget(iLevel, quality, rarityIndex(rarity)) for every live band).
 //   - implicit lines  share IMPLICIT_BUDGET_SHARE of the budget EQUALLY (rounded).
 //   - rolled affixes  share the rest EQUALLY (rounded); their stats come from the
 //                     weighted no-duplicate picker.
@@ -399,7 +553,10 @@ export function generateEquipment(a: {
   }
 
   // --- Budget and its implicit/affix split -----------------------------------
-  const budget = computeBudget(a.iLevel, a.quality, rarityIndex(a.rarity));
+  // RR-3: the band's profile row decides the budget (bit-identical to the old index budget for every live band).
+  // RR-4: the ascended row (the band's own row object for "none" and for every live band, so live mints are unchanged).
+  const profile = ascendedProfile(a.rarity, a.ascension);
+  const budget = budgetAtMult(a.iLevel, a.quality, profile.budgetMult);
   const { implicitShare, affixShare } = budgetShares(budget);
 
   // E4d: a variety with its OWN identity (the relic-unlocked utility families) may override the slot's
@@ -412,7 +569,7 @@ export function generateEquipment(a: {
   const implicitStats: Record<string, number> = {};
   const implicitCount = implicitStatKeys.length;
   const implicitEach = implicitCount > 0 ? Math.round(implicitShare / implicitCount) : 0;
-  const rarityIdx = rarityIndex(a.rarity);
+  const rarityMult = profile.budgetMult; // RR-3: the defensive curves compound the same multiplier as the budget
   for (const stat of implicitStatKeys) {
     // Combat-defense rework (HYBRID model): the three DEFENSIVE implicit lines do NOT use the shared
     // budget-derived implicitEach. Their Standard-Issue floor is a FLAT, hull-independent value per stat
@@ -424,16 +581,16 @@ export function generateEquipment(a: {
     // DIFFERENT curves (their floors diverge, 100 vs 300); see the CRAFTED_DEFENSE_* constants above for
     // the why and the worked first/high-tier numbers.
     if (a.slotType === "hullPlating" && stat === "hullStrength") {
-      implicitStats[stat] = craftedDefensiveImplicit(
-        CRAFTED_DEFENSE_HULL_BASE, CRAFTED_DEFENSE_HULL_PER_LEVEL, a.iLevel, a.quality, rarityIdx,
+      implicitStats[stat] = craftedDefensiveImplicitAt(
+        CRAFTED_DEFENSE_HULL_BASE, CRAFTED_DEFENSE_HULL_PER_LEVEL, a.iLevel, a.quality, rarityMult,
       );
     } else if (a.slotType === "shieldEmitters" && stat === "shieldCapacity") {
-      implicitStats[stat] = craftedDefensiveImplicit(
-        CRAFTED_DEFENSE_CAP_BASE, CRAFTED_DEFENSE_CAP_PER_LEVEL, a.iLevel, a.quality, rarityIdx,
+      implicitStats[stat] = craftedDefensiveImplicitAt(
+        CRAFTED_DEFENSE_CAP_BASE, CRAFTED_DEFENSE_CAP_PER_LEVEL, a.iLevel, a.quality, rarityMult,
       );
     } else if (a.slotType === "shieldEmitters" && stat === "shieldRecharge") {
-      implicitStats[stat] = craftedDefensiveImplicit(
-        CRAFTED_DEFENSE_RECHARGE_BASE, CRAFTED_DEFENSE_RECHARGE_PER_LEVEL, a.iLevel, a.quality, rarityIdx,
+      implicitStats[stat] = craftedDefensiveImplicitAt(
+        CRAFTED_DEFENSE_RECHARGE_BASE, CRAFTED_DEFENSE_RECHARGE_PER_LEVEL, a.iLevel, a.quality, rarityMult,
       );
     } else {
       implicitStats[stat] = rolledLineValue(stat, implicitEach); // G1-1: a guest line is stored in berths (FKR-5: a carry line as a count)
@@ -452,6 +609,14 @@ export function generateEquipment(a: {
   for (const stat of rolledStatKeys) {
     rolledStats[stat] = rolledLineValue(stat, affixEach); // G1-1: a guest line is stored in berths (FKR-5: a carry line as a count)
   }
+  // RR-3: a legendary's secondaries and Artisan, after the picks (no draw at all for a live band). Before the physicals
+  // fold below, so a secondary mass or draw reduction is consumed like a rolled one.
+  const legendaryAffixId = rollRarityExtras(profile, budget, affixPool, rolledStatKeys, rolledStats, a.rng, {
+    slotType: a.slotType,
+    statRatios: variety.statRatios,
+    baseMass: basePhysicals.mass,
+    baseDraw: a.slotType === "module" ? moduleBaseDraw(a.varietyKey) : basePhysicals.powerDraw,
+  }); // RR-5: and the legendary affix
 
   // --- Fold massReduction / powerDrawReduction into the physicals -------------
   // These two affixes, when rolled, are consumed into mass/powerDraw and dropped as
@@ -501,6 +666,8 @@ export function generateEquipment(a: {
     durabilityMax,
     fittedToShipId: null, // spare in the pool until a later fitting task assigns it
   };
+  // RR-5: a Luminous piece names its legendary affix (optional + additive: absent on every other piece, no migration).
+  if (legendaryAffixId !== undefined) piece.legendaryAffixId = legendaryAffixId;
   // A slot whose per-variety EFFECT is catalog-resolved persists WHICH variety it rolled, so the
   // consumer can look the effect up (the generic variety machinery does not store the variety).
   //   - Crew 0.14.0 (Phase 1b): a CREW MODULE (bridge / quarters) stores a QUARTERS_MODULES /
@@ -541,7 +708,7 @@ export function generateEquipment(a: {
 // cooldown, projectiles, ambush eligibility) is FIXED by its base WEAPON_DEF and is
 // never rolled. Only its power lines roll: a signature weaponYield implicit plus
 // rarity-driven affixes (more yield / accuracy) off a small fixed weapon pool. The
-// SAME budget machinery as economy gear (computeBudget / affixCount / the weighted
+// SAME budget machinery as economy gear (the profile budget / affixCount / the weighted
 // no-duplicate picker) drives the magnitudes, so a rarer / higher-quality / higher-
 // level weapon is monotonically stronger, exactly like an economy piece.
 //
@@ -590,7 +757,8 @@ export function generateWeapon(a: {
   }
 
   // Budget and its implicit/affix split (identical model to economy gear).
-  const budget = computeBudget(a.iLevel, a.quality, rarityIndex(a.rarity));
+  const profile = ascendedProfile(a.rarity, a.ascension); // RR-3 / RR-4: the band's (ascended) profile row
+  const budget = budgetAtMult(a.iLevel, a.quality, profile.budgetMult);
   const { implicitShare, affixShare } = budgetShares(budget);
 
   // --- Implicit: the single weaponYield signature line takes the whole implicit share.
@@ -606,6 +774,7 @@ export function generateWeapon(a: {
   for (const stat of rolledStatKeys) {
     rolledStats[stat] = affixEach;
   }
+  const legendaryAffixId = rollRarityExtras(profile, budget, WEAPON_AFFIX_POOL, rolledStatKeys, rolledStats, a.rng, { slotType: "weapon", baseMass: WEAPON_BASE_MASS, baseDraw: template.powerDraw }); // RR-3 / RR-5
 
   // --- Durability: quality-scaled off the weapon template's base ceiling, starts full ----
   const durabilityMax = Math.round(template.durabilityMax * (1 + a.quality * QUALITY_DURABILITY_BONUS));
@@ -625,6 +794,7 @@ export function generateWeapon(a: {
     powerDraw: template.powerDraw, // the weapon's reactor draw (design S10), from its def
     durabilityMax,
     fittedToShipId: null, // spare in the pool until the install path (Unit 1.3+) assigns it
+    ...(legendaryAffixId !== undefined ? { legendaryAffixId } : {}), // RR-5
   };
 }
 
@@ -636,7 +806,7 @@ export function generateWeapon(a: {
 // behavior, hp/family/accuracy/yield/range/evasion/cooldown + the defensive fields) is FIXED by
 // the drone ROLE_TEMPLATE and is never rolled. Only its POWER lines roll: a signature droneHp
 // implicit plus rarity-driven affixes (more hp / accuracy) off a small fixed pool. The SAME budget
-// machinery as economy + weapon gear (computeBudget / affixCount / the weighted no-duplicate
+// machinery as economy + weapon gear (the profile budget / affixCount / the weighted no-duplicate
 // picker) drives the magnitudes, so a rarer / higher-quality / higher-level pod is monotonically
 // stronger, exactly like a weapon or an economy piece.
 //
@@ -720,7 +890,8 @@ export function generateDronePod(a: {
   }
 
   // Budget and its implicit/affix split (identical model to economy + weapon gear).
-  const budget = computeBudget(a.iLevel, a.quality, rarityIndex(a.rarity));
+  const profile = ascendedProfile(a.rarity, a.ascension); // RR-3 / RR-4: the band's (ascended) profile row
+  const budget = budgetAtMult(a.iLevel, a.quality, profile.budgetMult);
   const { implicitShare, affixShare } = budgetShares(budget);
 
   // --- Implicit: the single droneHp signature line takes the whole implicit share.
@@ -736,6 +907,7 @@ export function generateDronePod(a: {
   for (const stat of rolledStatKeys) {
     rolledStats[stat] = affixEach;
   }
+  const legendaryAffixId = rollRarityExtras(profile, budget, dronePodAffixPool(a.droneRole), rolledStatKeys, rolledStats, a.rng, { slotType: "droneBay", baseMass: DRONE_POD_BASE_MASS, baseDraw: DRONE_POD_BASE_POWER_DRAW }); // RR-3 / RR-5 // merge with WR-8: the role's own pool (dronePodAffixPool), so a secondary never lands on Smart Reflect for a non-Defense pod
 
   // --- Durability: quality-scaled off the pod's first-pass base ceiling, starts full ----
   const durabilityMax = Math.round(DRONE_POD_BASE_DURABILITY * (1 + a.quality * QUALITY_DURABILITY_BONUS));
@@ -755,6 +927,7 @@ export function generateDronePod(a: {
     powerDraw: DRONE_POD_BASE_POWER_DRAW,
     durabilityMax,
     fittedToShipId: null, // spare in the pool until the install path (Unit 2.1b+) assigns it
+    ...(legendaryAffixId !== undefined ? { legendaryAffixId } : {}), // RR-5
   };
 }
 
@@ -772,7 +945,7 @@ export function generateDronePod(a: {
 //                     and how many affixes roll (count range).
 //
 // WHY this can be honest (not a guess): the roll is decomposed into PURE functions
-// (computeBudget / budgetShares / affixCount / craftedDefensiveImplicit), and each is
+// (budgetAtMult over the profile row / budgetShares / affixCount / craftedDefensiveImplicitAt), and each is
 // documented MONOTONIC non-decreasing in quality and rarity. So a stat's minimum is its
 // value at (quality 0, lowest producible rarity) and its maximum at (top quality, highest
 // producible rarity), computed by calling the SAME primitives the mint calls, never a
@@ -817,19 +990,19 @@ function previewImplicitMagnitude(
   stat: string,
   iLevel: number,
   quality: number,
-  rarityIdx: number,
+  rarityMult: number, // RR-3: the corner band's RARITY_PROFILES budgetMult (the mint's own multiplier)
   implicitCount: number,
 ): number {
   if (slotType === "hullPlating" && stat === "hullStrength") {
-    return craftedDefensiveImplicit(CRAFTED_DEFENSE_HULL_BASE, CRAFTED_DEFENSE_HULL_PER_LEVEL, iLevel, quality, rarityIdx);
+    return craftedDefensiveImplicitAt(CRAFTED_DEFENSE_HULL_BASE, CRAFTED_DEFENSE_HULL_PER_LEVEL, iLevel, quality, rarityMult);
   }
   if (slotType === "shieldEmitters" && stat === "shieldCapacity") {
-    return craftedDefensiveImplicit(CRAFTED_DEFENSE_CAP_BASE, CRAFTED_DEFENSE_CAP_PER_LEVEL, iLevel, quality, rarityIdx);
+    return craftedDefensiveImplicitAt(CRAFTED_DEFENSE_CAP_BASE, CRAFTED_DEFENSE_CAP_PER_LEVEL, iLevel, quality, rarityMult);
   }
   if (slotType === "shieldEmitters" && stat === "shieldRecharge") {
-    return craftedDefensiveImplicit(CRAFTED_DEFENSE_RECHARGE_BASE, CRAFTED_DEFENSE_RECHARGE_PER_LEVEL, iLevel, quality, rarityIdx);
+    return craftedDefensiveImplicitAt(CRAFTED_DEFENSE_RECHARGE_BASE, CRAFTED_DEFENSE_RECHARGE_PER_LEVEL, iLevel, quality, rarityMult);
   }
-  const { implicitShare } = budgetShares(computeBudget(iLevel, quality, rarityIdx));
+  const { implicitShare } = budgetShares(budgetAtMult(iLevel, quality, rarityMult));
   return guestLineValue(stat, Math.round(implicitShare / implicitCount)); // G1-1: the same berth conversion as the mint
 }
 
@@ -881,8 +1054,9 @@ export function previewCraftOutcome(
   });
 
   const rarities = PRODUCIBLE_EQUIPMENT_RARITIES;
-  const loIdx = rarityIndex(rarities[0]); // lowest producible band (standard)
-  const hiIdx = rarityIndex(rarities[rarities.length - 1]); // highest producible band (radiant)
+  // RR-3: the corners' profile multipliers (lowest and highest producible band), the mint's own.
+  const loMult = rarityProfile(rarities[0]).budgetMult; // lowest producible band (standard)
+  const hiMult = rarityProfile(rarities[rarities.length - 1]).budgetMult; // highest producible band (radiant)
   const qualityMin = 0;
   const qualityMax = QUALITY_TIERS - 1;
 
@@ -891,8 +1065,8 @@ export function previewCraftOutcome(
   const implicitCount = implicitStatKeys.length;
   let implicit: CraftStatRange[] = implicitStatKeys.map((stat) => ({
     stat,
-    min: previewImplicitMagnitude(slotType, stat, iLevel, qualityMin, loIdx, implicitCount),
-    max: previewImplicitMagnitude(slotType, stat, iLevel, qualityMax, hiIdx, implicitCount),
+    min: previewImplicitMagnitude(slotType, stat, iLevel, qualityMin, loMult, implicitCount),
+    max: previewImplicitMagnitude(slotType, stat, iLevel, qualityMax, hiMult, implicitCount),
   }));
   // 0.14.0: an away-team member blueprint's corners carry the mint's crafted budget floor (model.ts
   // craftedMemberFloorImplicits): each range spans both roll-space corners (a Standard roll's picks at the low one, the
@@ -900,18 +1074,18 @@ export function previewCraftOutcome(
   // the floor fills more). So the preview stays a true range where the floor lifts a low-level craft.
   if (outputKind === "equipment" && isMemberSlotType(slotType) && varietyKey !== null) {
     const vk = varietyKey;
-    const rolledAt = (quality: number, rarityIdx: number, picksWanted: number, carryPicked: boolean): number => {
+    const rolledAt = (quality: number, rarityMult: number, picksWanted: number, carryPicked: boolean): number => {
       const picks = Math.min(picksWanted, affixPoolTable.length);
       if (picks === 0) return 0;
-      const each = Math.round(budgetShares(computeBudget(iLevel, quality, rarityIdx)).affixShare / picks);
+      const each = Math.round(budgetShares(budgetAtMult(iLevel, quality, rarityMult)).affixShare / picks);
       return each * (carryPicked ? picks - 1 : picks);
     };
     const hasCarry = affixPoolTable.some((e) => e.stat === "groundCarryCapacity");
     const carryCases = hasCarry ? [false, true] : [false];
     const corners = [
-      { raw: Object.fromEntries(implicit.map((r) => [r.stat, r.min])), quality: qualityMin, rarityIdx: loIdx, picks: affixCount("standard", () => 0.5) },
-      { raw: Object.fromEntries(implicit.map((r) => [r.stat, r.max])), quality: qualityMax, rarityIdx: hiIdx, picks: affixCount(rarities[rarities.length - 1], () => 0) },
-    ].flatMap((c) => carryCases.map((carry) => craftedMemberFloorImplicits(vk, c.raw, rolledAt(c.quality, c.rarityIdx, c.picks, carry))));
+      { raw: Object.fromEntries(implicit.map((r) => [r.stat, r.min])), quality: qualityMin, rarityMult: loMult, picks: affixCount("standard", () => 0.5) },
+      { raw: Object.fromEntries(implicit.map((r) => [r.stat, r.max])), quality: qualityMax, rarityMult: hiMult, picks: affixCount(rarities[rarities.length - 1], () => 0) },
+    ].flatMap((c) => carryCases.map((carry) => craftedMemberFloorImplicits(vk, c.raw, rolledAt(c.quality, c.rarityMult, c.picks, carry))));
     implicit = implicit.map((r) => ({
       stat: r.stat,
       min: Math.min(...corners.map((c) => c[r.stat])),

@@ -36,12 +36,34 @@
 // ============================================================================
 
 import {
+  EQUIPMENT_ASCENSIONS,
+  EQUIPMENT_RARITY_LADDER,
+  ascensionAllowedFor,
   blueprintKind,
+  isEquipmentAscension,
   type BlueprintDef,
+  type EquipmentAscension,
   type EquipmentInstance,
   type EquipmentRarity,
 } from "./model";
 import { generateEquipment, generateWeapon, generateDronePod } from "./itemgen";
+// RARITY READINESS RR-6: the gear sets a Constellar dev mint can carry.
+import { gearSetsFor } from "./gearSets";
+
+// RARITY READINESS RR-2 (docs/plans/2026-10-23-rarity-readiness-plan.md; user answer 4, "Dev mint now, proc later"):
+// the Debug minter offers EVERY band on the ladder (Derelict to Constellar) and EVERY ascension, so the balancing pass
+// can conjure any planned tier on demand. This is the ONLY producer of the reserved tiers: the player-facing list
+// (PRODUCIBLE_EQUIPMENT_RARITIES) and the Fabricator roll (rollCraftedRarity) are untouched, and the picker lives only in
+// the DEV_MODE Debug tab.
+export const DEV_MINT_RARITIES: readonly EquipmentRarity[] = EQUIPMENT_RARITY_LADDER;
+export const DEV_MINT_ASCENSIONS: readonly EquipmentAscension[] = EQUIPMENT_ASCENSIONS;
+
+// The ascension a dev mint actually stamps: the requested one when the band may carry it (Luminous / Constellar, the
+// design's rule, model.ts ascensionAllowedFor), else "none". So the minter can never make a piece the design forbids
+// (a Nova Radiant), and a junk value never leaks onto a piece. Pure.
+export function devMintAscension(rarity: EquipmentRarity, ascension: EquipmentAscension): EquipmentAscension {
+  return ascensionAllowedFor(rarity) && isEquipmentAscension(ascension) ? ascension : "none";
+}
 
 // devMintFromBlueprint: mint one crafted EquipmentInstance off `blueprint` at the
 // caller-chosen iLevel / quality / rarity, dispatching to the correct generator by
@@ -58,10 +80,17 @@ export function devMintFromBlueprint(a: {
   iLevel: number;
   quality: number;
   rarity: EquipmentRarity;
+  // RR-2: the ascension to stamp (Nova / Celestial), applied through devMintAscension (Luminous / Constellar only).
+  // Absent = "none", which mints exactly what this function minted before RR-2.
+  ascension?: EquipmentAscension;
+  // RR-6: the gear set to stamp on a CONSTELLAR mint (a set its slot may carry); absent or invalid = the slot's first
+  // set (gearSetsFor). Ignored on any other band and on a slot no set covers.
+  setId?: string;
   rng: () => number;
   allocateId: () => string;
 }): EquipmentInstance | null {
   const kind = blueprintKind(a.blueprint);
+  const ascension = devMintAscension(a.rarity, a.ascension ?? "none");
 
   // WEAPON: slotType "weapon", minted off the blueprint's weaponOutput.weaponType
   // (a WeaponId). Same generator + blueprintKey wiring as the Fabricator's weapon
@@ -73,7 +102,7 @@ export function devMintFromBlueprint(a: {
       iLevel: a.iLevel,
       quality: a.quality,
       rarity: a.rarity,
-      ascension: "none", // base craft: never ascended (matches the Fabricator mint)
+      ascension, // RR-2: "none" unless a legendary dev mint asked for Nova / Celestial (the Fabricator never ascends)
       rng: a.rng,
       allocateId: a.allocateId,
     });
@@ -87,7 +116,7 @@ export function devMintFromBlueprint(a: {
       iLevel: a.iLevel,
       quality: a.quality,
       rarity: a.rarity,
-      ascension: "none",
+      ascension,
       rng: a.rng,
       allocateId: a.allocateId,
     });
@@ -98,19 +127,30 @@ export function devMintFromBlueprint(a: {
   // (slotType + varietyKey). generateEquipment applies the floored defensive-implicit
   // curves for shieldEmitters / hullPlating internally, identical to a real craft.
   if (kind === "equipment" && a.blueprint.equipmentOutput !== undefined) {
-    return generateEquipment({
+    const piece = generateEquipment({
       slotType: a.blueprint.equipmentOutput.slotType,
       varietyKey: a.blueprint.equipmentOutput.varietyKey,
       blueprintKey: a.blueprint.key,
       iLevel: a.iLevel,
       quality: a.quality,
       rarity: a.rarity,
-      ascension: "none",
+      ascension,
       rng: a.rng,
       allocateId: a.allocateId,
     });
+    // RR-6: a Constellar dev mint joins a set its slot may carry (weapons and drone pods: no set covers them yet).
+    const setId = devMintSetId(piece.slotType, a.rarity, a.setId);
+    return setId === undefined ? piece : { ...piece, setId };
   }
 
   // unlockOnly / material blueprints mint no gear: nothing to make, tell the caller.
   return null;
+}
+
+// RR-6: the set a dev mint stamps: on a CONSTELLAR piece only, the requested set when its slot may carry it, else the
+// slot's first set; undefined for any other band or a slot no set covers. Pure.
+export function devMintSetId(slotType: EquipmentInstance["slotType"], rarity: EquipmentRarity, requested: string | undefined): string | undefined {
+  if (rarity !== "constellar") return undefined;
+  const sets = gearSetsFor(slotType);
+  return (sets.find((s) => s.id === requested) ?? sets[0])?.id;
 }

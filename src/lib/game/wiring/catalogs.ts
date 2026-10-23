@@ -62,6 +62,11 @@ import { SHORT_RANGE_TEMPLATES } from "../shortRange";
 import { GAS_STUDY_USES, GIANT_CLASSES, NEBULA_KINDS, RESEARCH_FAMILIES } from "../gasGiantContent";
 import { DATA_STUDY_ITEM_IDS } from "../dataStudy";
 import { REACTOR_TECH_TIERS, REACTOR_VARIETY_TECH } from "../reactorTech";
+import { RARITY_PROFILES } from "../rarityProfiles";
+import { ASCENSION_BUDGET_MULT } from "../ascension";
+import { LUMINOUS_AFFIXES } from "../legendaryAffixes";
+import { MODULE_RARITY_FACTOR } from "../model";
+import { GEAR_SETS } from "../gearSets";
 
 // Field Kits FKR-5: the sources each grenade carries (its GrenadeTraits, as the registry measures them). Timed grenades
 // (user 2026-10-21): its fuse (the turns from the throw to the blast) and, on a timed one, the moved-clear chance.
@@ -194,6 +199,16 @@ export function enumerateEffectSources(): EffectSource[] {
   add("SHIP_GEAR_LINES", shipLineKeys());
   add("QUARTERS_MODULES", QUARTERS_MODULES.map((m) => m.id));
   add("BRIDGE_MODULES", BRIDGE_MODULES.map((m) => m.id));
+  // RARITY READINESS RR-3: one row per rarity band (budget, affixes, secondaries, Artisan).
+  add("RARITY_PROFILES", Object.keys(RARITY_PROFILES));
+  // RARITY READINESS RR-4: one row per ascension (the Nova / Celestial budget multipliers).
+  add("ASCENSION_BUDGET_MULT", [...Object.keys(ASCENSION_BUDGET_MULT), "nova:modules", "celestial:modules"]);
+  // Review of RR-3 / RR-4: the module effect factor per band (moduleEffectScale).
+  add("MODULE_RARITY_FACTOR", Object.keys(MODULE_RARITY_FACTOR));
+  // RARITY READINESS RR-6: one source per gear set tier, plus the Celestial reduction.
+  add("GEAR_SETS", [...GEAR_SETS.flatMap((s) => s.tiers.map((t) => `${s.id}:${t.pieces}`)), "celestialReduction"]);
+  // RARITY READINESS RR-5: one row per Luminous legendary affix.
+  add("LUMINOUS_AFFIXES", LUMINOUS_AFFIXES.map((d) => d.id));
   add("WEAPON_DEFS", Object.keys(WEAPON_DEFS));
   add("ROLE_TEMPLATE", Object.keys(ROLE_TEMPLATE));
   add("STATUS_EFFECT_DEFS", Object.keys(STATUS_EFFECT_DEFS));

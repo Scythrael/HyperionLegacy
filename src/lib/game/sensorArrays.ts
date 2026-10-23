@@ -30,7 +30,7 @@
 // not built) and Science-officer / Science-division sensor AMPLIFICATION (belongs with the crew overlay
 // + exploration). This file is the sensor ITEM only.
 
-import type { GameState, ShipInstance, EquipmentInstance, EquipmentRarity } from "./model";
+import type { GameState, ShipInstance, EquipmentInstance, EquipmentRarity, EquipmentAscension } from "./model";
 import { equippedFor } from "./equipment";
 // Reuse the crew modules' rarity/quality effect scale: it is the identical "standard/q0 == 1.0, richer
 // amplifies" curve a sensor wants, so a second copy of the same constants would only risk drift. It is a
@@ -191,7 +191,7 @@ export interface SensorArrayEffect {
 // never wears.
 export function sensorArrayEffect(installed: InstalledSensorArray): SensorArrayEffect {
   const wear = viewPieceEfficiency(installed.instance);
-  const scale = moduleEffectScale(installed.instance.rarity, installed.instance.quality) * wear;
+  const scale = moduleEffectScale(installed.instance.rarity, installed.instance.quality, installed.instance.ascension) * wear;
   return {
     scanRateMult: installed.def.scanRateMult * wear,
     coverageWidth: installed.def.coverageWidth,
@@ -206,12 +206,12 @@ export function sensorArrayEffect(installed: InstalledSensorArray): SensorArrayE
 // sensorArrayEffect so the stored ExpeditionScanParams shape never changes. Pure.
 export function sensorArrayRelicFindBonus(installed: InstalledSensorArray | null): number {
   if (installed === null || !(installed.def.relicFindBonus > 0)) return 0;
-  return installed.def.relicFindBonus * moduleEffectScale(installed.instance.rarity, installed.instance.quality) * viewPieceEfficiency(installed.instance);
+  return installed.def.relicFindBonus * moduleEffectScale(installed.instance.rarity, installed.instance.quality, installed.instance.ascension) * viewPieceEfficiency(installed.instance);
 }
 
 // A convenience direct scale reader (rarity/quality -> effect scale), so a consumer that only needs the
 // scalar can avoid resolving the full effect object. Pure passthrough to the shared curve. Unused this
 // patch (dormant), kept for symmetry with the crew-module readers.
-export function sensorEffectScale(rarity: EquipmentRarity, quality: number): number {
-  return moduleEffectScale(rarity, quality);
+export function sensorEffectScale(rarity: EquipmentRarity, quality: number, ascension: EquipmentAscension = "none"): number {
+  return moduleEffectScale(rarity, quality, ascension);
 }

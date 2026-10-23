@@ -16,26 +16,48 @@ import { rarityIndex } from "./model";
 // stops here.
 export const CREW_RARITY_CAP: EquipmentRarity = "stellar";
 
-// Per-tier magnitude multiplier for the crew-usable band (derelict..stellar). Partial on purpose:
-// tiers above the cap have no crew multiplier because the generator never produces them.
-// FIRST-PASS: derelict 0.9, standard 1.0, augmented 1.15, stellar 1.35.
-export const CREW_RARITY_MULTIPLIER: Partial<Record<EquipmentRarity, number>> = {
+// RARITY READINESS RR-7 (answer 7, "Yes, same for both"): the [PROVISIONAL] multiplier the legendary crew bands share.
+export const CREW_LEGENDARY_MULTIPLIER = 1.8;
+
+// Per-tier magnitude multiplier for EVERY band (RR-7: a TOTAL record, so a new band is a compile error here). The crew
+// generator still stops at the cap (CREW_RARITY_CAP stays Stellar until the user raises it), so the rows above it act
+// the moment the cap is raised and never before; they exist so raising the cap can never make a higher band weaker
+// (the pre-RR-7 table had no row above Stellar, so a raised cap would have read the 1.0 fallback).
+// FIRST-PASS: derelict 0.9, standard 1.0, augmented 1.15, stellar 1.35; [PROVISIONAL] radiant 1.55, luminous and
+// constellar CREW_LEGENDARY_MULTIPLIER (one shared value).
+export const CREW_RARITY_MULTIPLIER: Readonly<Record<EquipmentRarity, number>> = {
   derelict: 0.9,
   standard: 1.0,
   augmented: 1.15,
   stellar: 1.35,
+  radiant: 1.55,
+  luminous: CREW_LEGENDARY_MULTIPLIER,
+  constellar: CREW_LEGENDARY_MULTIPLIER,
 };
 
 // Clamp any rarity to the crew cap: anything at or above "stellar" on the ladder becomes "stellar".
 // Used to validate/normalize a crew rarity before reading its multiplier (a defensive guard, since
 // the generator already stops at the cap).
 export function clampCrewRarity(rarity: EquipmentRarity): EquipmentRarity {
-  return rarityIndex(rarity) > rarityIndex(CREW_RARITY_CAP) ? CREW_RARITY_CAP : rarity;
+  return clampCrewRarityAt(rarity, CREW_RARITY_CAP);
+}
+
+// RR-7: the same clamp at any cap (the guard test lifts it). Pure.
+export function clampCrewRarityAt(rarity: EquipmentRarity, cap: EquipmentRarity): EquipmentRarity {
+  return rarityIndex(rarity) > rarityIndex(cap) ? cap : rarity;
 }
 
 // The multiplicative magnitude modifier for a crew rarity. Clamps to the cap first, then reads the
 // table; a standard (1.0) fallback keeps the reader total even if an out-of-band rarity slips in.
 export function crewRarityMultiplier(rarity: EquipmentRarity): number {
-  const clamped = clampCrewRarity(rarity);
-  return CREW_RARITY_MULTIPLIER[clamped] ?? 1.0;
+  return crewRarityMultiplierAt(rarity, CREW_RARITY_CAP);
+}
+
+// RR-7: the multiplier under any cap (crewRarityMultiplier is this at CREW_RARITY_CAP). Pure.
+export function crewRarityMultiplierAt(rarity: EquipmentRarity, cap: EquipmentRarity): number {
+  const clamped = clampCrewRarityAt(rarity, cap);
+  // RR-1: an OWN finite entry only, so an inherited name ("constructor" reads a function off the prototype) can never
+  // turn into NaN downstream.
+  const m = Object.prototype.hasOwnProperty.call(CREW_RARITY_MULTIPLIER, clamped) ? CREW_RARITY_MULTIPLIER[clamped] : undefined;
+  return typeof m === "number" && Number.isFinite(m) ? m : 1.0;
 }

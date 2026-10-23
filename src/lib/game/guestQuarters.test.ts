@@ -113,7 +113,8 @@ describe("G1-1 guest quarters: each source moves the stat by its catalog magnitu
       rng: () => 0.5,
       allocateId: () => "equip-w",
     });
-    const points = Math.round(budgetShares(computeBudget(10, 0, 0)).implicitShare);
+    // Rarity readiness RR-7: a Derelict piece now reads the Standard-Issue floor's budget (rarity index 1).
+    const points = Math.round(budgetShares(computeBudget(10, 0, 1)).implicitShare);
     expect(p.implicitStats).toEqual({ colonistCapacity: points * GUEST_QUARTERS_PER_POINT });
     expect(p.moduleVariant).toBe("quartersGuestWing");
     expect(shipDerivedStats(hull("prospectorRunner"), [{ ...p, fittedToShipId: "ship-g" }]).colonistCapacity).toBe(points * GUEST_QUARTERS_PER_POINT);

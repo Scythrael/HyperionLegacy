@@ -340,6 +340,9 @@
     // 0.13.3.1 QA: the DISPLAY spelling of a band ("radiant" -> "Radiant"). Never written back
     // to state, never compared against a key: every stored value stays lowercase.
     equipmentRarityLabel,
+    // RR-2 (rarity readiness): the Debug minter's ascension picker is enabled only on a band that may carry one.
+    ascensionAllowedFor,
+    type EquipmentAscension,
     AUTO_SALVAGE_RARITIES_NONE,
     normalizeAutoSalvageRarities,
     autoSalvageRarityRuleOn,
@@ -667,7 +670,15 @@
   // the minted piece is shape-identical to genuinely-crafted gear; it just takes the
   // quality/iLevel/rarity as explicit args instead of rolling them off the seeded
   // stream, and never touches the parity-critical tick path. See devMint.ts.
-  import { devMintFromBlueprint } from "./lib/game/devMint";
+  // RR-2 (rarity readiness): the minter's picker lists (EVERY band and ascension, Debug tab only) and the rule that
+  // drops an ascension a band cannot carry.
+  import { devMintFromBlueprint, DEV_MINT_RARITIES, DEV_MINT_ASCENSIONS, devMintAscension } from "./lib/game/devMint";
+  // RR-5 (rarity readiness): the minted Luminous piece's legendary affix name, for the Debug log line.
+  import { legendaryAffixDef } from "./lib/game/legendaryAffixes";
+  // RR-6 (rarity readiness): a Constellar dev mint's gear set name, for the same log line.
+  import { gearSetDef } from "./lib/game/gearSets";
+  // RR-7 (rarity readiness): the set-complete shoutout lines (relic sets and gear sets).
+  import { setCompletionShoutouts } from "./lib/game/setShoutouts";
   // Combat 0.13.0 dev harness (Debug tab only): the ship->Combatant bridge
   // (shipToCombatant + the illustrative sampleLoadout), the sim entry point
   // (resolveBattle), and the plain dev log renderer (formatCombatLog). These wire
@@ -2293,22 +2304,22 @@
     }
   }
 
-  // Rarity -> tile accent color. Reuses existing theme tokens where one fits
-  // (uncommon -> success green, legendary -> warning amber); rare/epic/common
-  // have no matching token so use fixed hex (the mockup's own rarity palette).
-  // Drives the fill gradient, the rare+ ring, and the tooltip rarity label.
+  // Rarity -> tile accent color. Drives the fill gradient, the rare+ ring, and the tooltip rarity label.
+  // RR-7 (rarity readiness): every band reads a var(--item-rarity-*) token (app.css :root, with today's exact colors:
+  // uncommon and legendary follow the success / warning tokens, the other three are the mockup's hex), so the
+  // color-blind palette ([data-palette="cbsafe"]) remaps the warehouse too instead of being bypassed by raw hex.
   function warehouseRarityColor(rarity: ItemDef["rarity"]): string {
     switch (rarity) {
       case "common":
-        return "#8b9cb0";
+        return "var(--item-rarity-common)";
       case "uncommon":
-        return "var(--color-success)";
+        return "var(--item-rarity-uncommon)";
       case "rare":
-        return "#4fa3f2";
+        return "var(--item-rarity-rare)";
       case "epic":
-        return "#b07cf2";
+        return "var(--item-rarity-epic)";
       case "legendary":
-        return "var(--color-warning)";
+        return "var(--item-rarity-legendary)";
     }
   }
 
@@ -3288,6 +3299,15 @@
     logEntries = [msg, ...logEntries].slice(0, 8);
   }
 
+  // RR-7 (rarity readiness): the set-complete shoutout (the system chat stand-in). Every state change is diffed against
+  // the last one seen (setShoutouts.ts, pure), so a relic set or a gear set completed by ANY path (a study, an install,
+  // a loadout check-out) is announced once. The basis is reset to the loaded state after the load (onMount).
+  let shoutoutBasis: GameState | null = null;
+  $: if (state !== shoutoutBasis) {
+    if (shoutoutBasis !== null) for (const line of setCompletionShoutouts(shoutoutBasis, state)) pushLog(line);
+    shoutoutBasis = state;
+  }
+
   // Set true right before an import-triggered window.location.reload() so the
   // beforeunload/onDestroy teardown autosaves (which call doSave with the CURRENT
   // in-memory state) do NOT overwrite the freshly-imported save in localStorage.
@@ -3495,6 +3515,10 @@
       state = offlineSeconds > 5 ? tick(offlineSeconds, beforeSnapshot, Math.random, returnedAtMs) : beforeSnapshot;
       if (offlineSeconds > 5) {
         pushLog(`Welcome back. Advanced ${formatNumber(offlineSeconds)}s offline.`);
+        // RR-7 (rarity readiness): a set completed while away (a relic study, or gear the catch-up changed) gets its
+        // shoutout on return, from the same before / after pair the summary reads. Pushed AFTER the welcome line so it
+        // reads above it in the newest-first log (only a catch-up can complete a set here).
+        for (const line of setCompletionShoutouts(beforeSnapshot, state)) pushLog(line);
         // Only surface the full "While you were away" modal for a MEANINGFUL absence, and
         // only when the advance actually produced something to report (hasContent). A brief
         // drift, or an absence in which nothing happened, leaves the log line alone with no
@@ -3525,6 +3549,8 @@
     } else {
       pushLog("New save initialized.");
     }
+    // RR-7: the live shoutout watch starts from the loaded (and caught-up) state, so nothing already complete repeats.
+    shoutoutBasis = state;
     // ⚠️ HOTFIX 0.13.10: start from where the reload catch-up PAID THROUGH, not from now. The
     // catch-up takes real time to compute; starting the clock after it would leave those seconds
     // unpaid (and a save right after load would stamp past them). The first poll pays them, once.
@@ -4971,22 +4997,23 @@
   let devMintBlueprintKey: string = "plasmaBp";
   // The CHOSEN quality (0..5), iLevel, and rarity for the next mint. Quality/iLevel
   // default high (q5 / iL-40, the tier-2 cap) so the common QA case is one click; the
-  // developer dials them down for lower-tier tests. Rarity spans the craftable band
-  // Standard..Radiant (the exact set rollCraftedRarity produces in real play).
+  // developer dials them down for lower-tier tests. Rarity spans the WHOLE ladder since
+  // RR-2 (rarity readiness), Derelict to Constellar, plus an ascension on the legendary bands.
   let devMintQuality: number = 5;
   let devMintILevel: number = 40;
   let devMintRarity: EquipmentRarity = "radiant";
+  // RR-2: the ascension the next mint asks for. Applied only on Luminous / Constellar (devMintAscension); the select is
+  // disabled on every other band.
+  let devMintAscensionChoice: EquipmentAscension = "none";
 
   // The iLevel and rarity option lists the dev picker offers. iLevel presets bracket
   // the real reachable range: 1 (the crafting floor), 20 (the tier-1 cap), 40 (the
-  // tier-2 cap == EQUIPMENT_ILEVEL_CAP_PER_TIER * 2). Rarity is the craftable band.
+  // tier-2 cap == EQUIPMENT_ILEVEL_CAP_PER_TIER * 2). Rarity: every band (below).
   const DEV_MINT_ILEVELS: number[] = [1, 20, 40];
-  // 0.13.3.1 QA: the rarity options now come from PRODUCIBLE_EQUIPMENT_RARITIES (model.ts)
-  // rather than from a second hand-written copy of the same four names. Identical values today
-  // (standard/augmented/stellar/radiant, exactly what rollCraftedRarity returns), but the whole
-  // point of the picker is to mint gear a player could genuinely own, so it should track the
-  // real producible set instead of drifting away from it the next time that set changes.
-  const DEV_MINT_RARITIES: readonly EquipmentRarity[] = PRODUCIBLE_EQUIPMENT_RARITIES;
+  // RR-2 (rarity readiness, user answer 4 "Dev mint now, proc later"): the rarity options are now EVERY band on the
+  // ladder (DEV_MINT_RARITIES, devMint.ts), so the balancing pass can conjure a Derelict, Luminous or Constellar piece;
+  // the ascension options are none / Nova / Celestial (DEV_MINT_ASCENSIONS). Both are imported above. What a PLAYER can
+  // produce is untouched (PRODUCIBLE_EQUIPMENT_RARITIES still feeds the auto-salvage row).
 
   // Mint one crafted spare for the selected blueprint at the chosen quality/iLevel/
   // rarity and add it to the pool (fittedToShipId null, set inside the generators).
@@ -5006,6 +5033,7 @@
       iLevel: devMintILevel,
       quality: devMintQuality,
       rarity: devMintRarity,
+      ascension: devMintAscension(devMintRarity, devMintAscensionChoice),
       rng: Math.random,
       allocateId: () => mintedId,
     });
@@ -5024,7 +5052,7 @@
       nextEquipmentId: state.nextEquipmentId + 1,
     };
     doSave();
-    pushLog(`[DEV] Minted crafted ${piece.id}: ${bp.label} (${piece.slotType} · ${piece.rarity} q${piece.quality} · iL${piece.iLevel} · bp ${piece.blueprintKey}).`);
+    pushLog(`[DEV] Minted crafted ${piece.id}: ${bp.label} (${piece.slotType} · ${piece.rarity}${piece.ascension === "none" ? "" : " " + piece.ascension} q${piece.quality} · iL${piece.iLevel} · bp ${piece.blueprintKey}${piece.legendaryAffixId ? " · " + (legendaryAffixDef(piece.legendaryAffixId)?.label ?? piece.legendaryAffixId) : ""}${piece.setId ? " · set " + (gearSetDef(piece.setId)?.label ?? piece.setId) : ""}).`);
   }
 
   // [DEV] Non-destructively preview the SavePersistWarning banner. Flips ONLY the
@@ -7186,6 +7214,8 @@
     reserved: "Already queued or being broken down, so the rules will not touch it again.",
     confirmTier: "Its quality tier is set to ask you first under Confirm before salvaging, and auto-salvage never answers a confirmation for you.",
     locked: "Locked, so nothing can salvage it (not the automation, not a manual salvage) until you unlock it.",
+    // RR-4 (rarity readiness): only a dev-minted piece can be Celestial today.
+    celestial: "Celestial, so auto-salvage never takes it. You can still salvage it by hand.",
     // ⚠️ IT MUST NOT SAY "just crafted". The same window starts when a piece is UNINSTALLED, and
     // the uninstall case is the one a player is most likely to be looking at (they took the piece
     // off a ship a moment ago and are deciding what to do with it). A sentence naming only the
@@ -19696,7 +19726,13 @@
             <span class="dev-label">Rarity</span>
             <select class="dev-btn" bind:value={devMintRarity}>
               {#each DEV_MINT_RARITIES as r}
-                <option value={r}>{r}</option>
+                <option value={r}>{equipmentRarityLabel(r)}</option>
+              {/each}
+            </select>
+            <span class="dev-label">Ascension</span>
+            <select class="dev-btn" bind:value={devMintAscensionChoice} disabled={!ascensionAllowedFor(devMintRarity)}>
+              {#each DEV_MINT_ASCENSIONS as a}
+                <option value={a}>{a.charAt(0).toUpperCase() + a.slice(1)}</option>
               {/each}
             </select>
             <button class="dev-btn" on:click={devMintGear}>
