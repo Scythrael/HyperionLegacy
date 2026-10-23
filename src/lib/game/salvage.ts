@@ -1480,8 +1480,9 @@ function autoSalvageDuplicateKey(piece: EquipmentInstance): string {
 // which is exactly the kind of "discovered rather than declared" ordering that turns into
 // an offline/live divergence the first time an array is rebuilt in a different sequence.
 //
-// Returns true when `a` should be kept over `b`.
-function autoSalvageIsBetter(a: EquipmentInstance, b: EquipmentInstance): boolean {
+// Returns true when `a` should be kept over `b`. Exported (rarity readiness RR-0 review) so the rarity goldens can pin the
+// keep-best order on every live band before RR-4 adds the ascension tie-break.
+export function autoSalvageIsBetter(a: EquipmentInstance, b: EquipmentInstance): boolean {
   if (a.iLevel !== b.iLevel) return a.iLevel > b.iLevel;
   if (a.quality !== b.quality) return a.quality > b.quality;
   const rarityA = rarityIndex(a.rarity);

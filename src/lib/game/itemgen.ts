@@ -286,9 +286,13 @@ export function affixCount(rarity: EquipmentRarity, rng: () => number): number {
     case "constellar":
       return 3;
     // RR-1: TOTAL. A value outside the union reads as Standard (2 affixes, ZERO draws), so a corrupt rarity can
-    // neither crash the mint nor advance the stream differently from a Standard piece.
-    default:
+    // neither crash the mint nor advance the stream differently from a Standard piece. The never binding keeps the
+    // switch exhaustive at compile time (a new band without a case is a build error), the runtime fallback stays.
+    default: {
+      const unhandled: never = rarity;
+      void unhandled;
       return 2;
+    }
   }
 }
 

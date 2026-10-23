@@ -95,11 +95,26 @@ describe("RR-2: the Debug tab wiring (App.svelte source)", () => {
   });
 
   it("the Mint gear row sits inside the DEV_MODE Debug block", () => {
-    const row = appSource.indexOf('<span class="dev-label">Mint gear</span>');
+    // Search the MARKUP only: HTML comments (and script line comments) quote the gate's text in prose, so a search
+    // over the raw source would still pass with the real gate deleted (review of RR-2).
+    const markup = appSource.replace(/<!--[\s\S]*?-->/g, "").replace(/^\s*\/\/.*$/gm, "");
+    const row = markup.indexOf('<span class="dev-label">Mint gear</span>');
     expect(row).toBeGreaterThan(0);
-    const gate = appSource.lastIndexOf('{#if DEV_MODE && activeSystemSubTab === "debug"}', row);
+    const GATE = '{#if DEV_MODE && activeSystemSubTab === "debug"}';
+    const gate = markup.lastIndexOf(GATE, row);
     expect(gate).toBeGreaterThan(0);
-    const closeBetween = appSource.slice(gate, row).split("{#if").length - 1 - (appSource.slice(gate, row).split("{/if}").length - 1);
-    expect(closeBetween).toBeGreaterThanOrEqual(1); // the Debug {#if} is still open at the row
+    // Walk the blocks from the gate: its matching {/if} must come AFTER the row.
+    const tokens = /\{#if\b|\{\/if\}/g;
+    tokens.lastIndex = gate + GATE.length;
+    let depth = 1;
+    let close = -1;
+    for (let m = tokens.exec(markup); m !== null; m = tokens.exec(markup)) {
+      depth += m[0] === "{/if}" ? -1 : 1;
+      if (depth === 0) {
+        close = m.index;
+        break;
+      }
+    }
+    expect(close, "the Debug gate's closing {/if}").toBeGreaterThan(row);
   });
 });

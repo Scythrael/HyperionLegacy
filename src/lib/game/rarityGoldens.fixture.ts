@@ -3,14 +3,17 @@
 //
 // Two groups:
 //   LIVE     : everything a player can hold today (Standard, Augmented, Stellar, Radiant with ascension "none"), plus
-//              the real mint path (inspectBlank) and the craft preview, which only ever see live bands. No rarity
-//              readiness slice may move a LIVE pin: the user's answers 5 and 6 keep live tiers exactly as they are.
-//   RESERVED : Derelict, Luminous, Constellar and every non-"none" ascension. A slice may move a RESERVED pin only on
-//              purpose, naming the move in its commit and carry note (RR-3 the legendary budget and secondaries, RR-4
-//              ascension, RR-7 the Derelict floor and the crew rows).
+//              the real mint path (inspectBlank), the craft preview, the live CREW Derelict band (crewGeneration.ts
+//              GEN_RARITIES mints it), and the two live order readers (the reveal sort and auto-salvage keep-best) over
+//              live pieces only. No rarity readiness slice may move a LIVE pin (answers 5 and 6).
+//   RESERVED : Derelict items, Luminous, Constellar and every non-"none" ascension. EVERY key starts with the slice(s)
+//              expected to move it ("rr3:", "rr4:", "rr7:", or "rr3+rr4:"), and the test checks that every RESERVED key
+//              names an owner and that no pin mixes live and reserved values. A slice may move only pins it owns,
+//              naming each move in its commit and carry note.
 //
 // Every generator cell records the rng draws it consumed (a counting lcg), so a slice that slides a draw in front of
-// the affix picks moves a pin even when the stat lines happen to match.
+// the affix picks moves a pin even when the stat lines happen to match. Member slots mint with a REAL blueprint key
+// (the crafted member floor applies), every other slot with null (the generator's own path).
 
 import Decimal from "break_infinity.js";
 import {
@@ -20,6 +23,7 @@ import {
   blueprintMintsEquipmentInstance,
   equipmentRarityLabel,
   freshState,
+  isMemberSlotType,
   moduleEffectScale,
   rarityIndex,
   salvageDurationTicks,
@@ -52,17 +56,23 @@ import { sortRolledPieces } from "./inspectSort";
 import { clampCrewRarity, crewRarityMultiplier } from "./crewRarity";
 import { relicBandOf, relicStudyDurationTicks } from "./relics";
 import { RELIC_BLANK_WEIGHTS } from "./relicBlanks";
-import { SALVAGE_CEILING_THRESHOLDS } from "./salvage";
+import { SALVAGE_CEILING_THRESHOLDS, autoSalvageIsBetter } from "./salvage";
 import { deserialize, migrate, serialize } from "./save";
 import { hash } from "./firstRunsGoldens.fixture";
-
 
 export const LIVE_BANDS: readonly EquipmentRarity[] = ["standard", "augmented", "stellar", "radiant"];
 export const RESERVED_BANDS: readonly EquipmentRarity[] = ["derelict", "luminous", "constellar"];
 const LEGENDARY: readonly EquipmentRarity[] = ["luminous", "constellar"];
 const ASCENDED: readonly EquipmentAscension[] = ["nova", "celestial"];
+const ALL_ASCENSIONS: readonly EquipmentAscension[] = ["none", "nova", "celestial"];
 const QUALITIES = [0, 3, 5];
 const ILEVELS = [1, 20, 40];
+
+// The owner prefix every RESERVED key carries: the slice(s) expected to move it.
+export const RESERVED_OWNER = /^(rr3|rr4|rr7)(\+(rr3|rr4|rr7))*:/;
+// Which slice owns a reserved band's generator, dev mint and primitive pins: Derelict items move with RR-7's floor
+// rule, the legendaries with RR-3's profile rows; any ascended pin also moves with RR-4.
+const BAND_OWNER: Readonly<Partial<Record<EquipmentRarity, string>>> = { derelict: "rr7", luminous: "rr3", constellar: "rr3" };
 
 // A counting lcg: the same stream every run, plus how many draws were taken.
 function countingRng(seed: number): { rng: () => number; draws: () => number } {
@@ -101,9 +111,16 @@ export function gearBlueprintKeys(): string[] {
     .map(([k]) => k);
 }
 
-type Cell = { piece: EquipmentInstance; draws: number };
+// The real blueprint that crafts a member slot's variety (so the crafted member floor applies), else null.
+export function memberBlueprintFor(slot: string, varietyKey: string): string | null {
+  if (!isMemberSlotType(slot as EquipmentInstance["slotType"])) return null;
+  const hit = Object.entries(BLUEPRINTS).find(([, bp]) => bp.equipmentOutput?.slotType === slot && bp.equipmentOutput?.varietyKey === varietyKey);
+  return hit ? hit[0] : null;
+}
 
-function equipmentCells(slot: string, rarity: EquipmentRarity, ascension: EquipmentAscension, qualities: number[], iLevels: number[]): Cell[] {
+export type Cell = { piece: EquipmentInstance; draws: number };
+
+export function equipmentCells(slot: string, rarity: EquipmentRarity, ascension: EquipmentAscension, qualities: number[], iLevels: number[]): Cell[] {
   const out: Cell[] = [];
   for (const v of EQUIPMENT_SLOTS[slot].varieties) {
     for (const quality of qualities) {
@@ -112,7 +129,7 @@ function equipmentCells(slot: string, rarity: EquipmentRarity, ascension: Equipm
         const piece = generateEquipment({
           slotType: slot as EquipmentInstance["slotType"],
           varietyKey: v.key,
-          blueprintKey: null,
+          blueprintKey: memberBlueprintFor(slot, v.key),
           iLevel,
           quality,
           rarity,
@@ -127,7 +144,7 @@ function equipmentCells(slot: string, rarity: EquipmentRarity, ascension: Equipm
   return out;
 }
 
-function weaponCells(rarity: EquipmentRarity, ascension: EquipmentAscension, qualities: number[], iLevels: number[]): Cell[] {
+export function weaponCells(rarity: EquipmentRarity, ascension: EquipmentAscension, qualities: number[], iLevels: number[]): Cell[] {
   const out: Cell[] = [];
   for (const weaponType of Object.keys(WEAPON_DEFS) as WeaponId[]) {
     for (const quality of qualities) {
@@ -141,7 +158,7 @@ function weaponCells(rarity: EquipmentRarity, ascension: EquipmentAscension, qua
   return out;
 }
 
-function droneCells(rarity: EquipmentRarity, ascension: EquipmentAscension, qualities: number[], iLevels: number[]): Cell[] {
+export function droneCells(rarity: EquipmentRarity, ascension: EquipmentAscension, qualities: number[], iLevels: number[]): Cell[] {
   const out: Cell[] = [];
   for (const droneRole of Object.keys(ROLE_TEMPLATE) as DroneRole[]) {
     for (const quality of qualities) {
@@ -156,16 +173,16 @@ function droneCells(rarity: EquipmentRarity, ascension: EquipmentAscension, qual
 }
 
 // The generator sweep for one band and ascension: one pin per equipment slot, one for weapons, one for drone pods.
-function generatorPins(rarity: EquipmentRarity, ascension: EquipmentAscension, qualities: number[], iLevels: number[], tag: string): Record<string, string> {
+function generatorPins(rarity: EquipmentRarity, ascension: EquipmentAscension, qualities: number[], iLevels: number[], prefix: string, tag: string): Record<string, string> {
   const out: Record<string, string> = {};
-  for (const slot of liveSlots()) out[`gen:${slot}:${tag}`] = hash(equipmentCells(slot, rarity, ascension, qualities, iLevels));
-  out[`gen:weapon:${tag}`] = hash(weaponCells(rarity, ascension, qualities, iLevels));
-  out[`gen:drone:${tag}`] = hash(droneCells(rarity, ascension, qualities, iLevels));
+  for (const slot of liveSlots()) out[`${prefix}gen:${slot}:${tag}`] = hash(equipmentCells(slot, rarity, ascension, qualities, iLevels));
+  out[`${prefix}gen:weapon:${tag}`] = hash(weaponCells(rarity, ascension, qualities, iLevels));
+  out[`${prefix}gen:drone:${tag}`] = hash(droneCells(rarity, ascension, qualities, iLevels));
   return out;
 }
 
-// The pure primitives, split by band.
-function primitivePins(bands: readonly EquipmentRarity[], indices: number[], tag: string): Record<string, string> {
+// The pure primitives for a set of bands and the rarity indices they read.
+function primitivePins(bands: readonly EquipmentRarity[], indices: number[], prefix: string, tag: string): Record<string, string> {
   const affix = bands.map((r) => {
     const c = countingRng(cellSeed("affix", r));
     const lo = affixCount(r, () => 0);
@@ -189,33 +206,29 @@ function primitivePins(bands: readonly EquipmentRarity[], indices: number[], tag
   }
   const moduleScale = bands.map((r) => [0, 1, 2, 3, 4, 5].map((q) => moduleEffectScale(r, q)));
   return {
-    [`prim:affixCount:${tag}`]: hash(affix),
-    [`prim:computeBudget:${tag}`]: hash(budget),
-    [`prim:defensive:${tag}`]: hash(defensive),
-    [`prim:moduleScale:${tag}`]: hash(moduleScale),
+    [`${prefix}prim:affixCount:${tag}`]: hash(affix),
+    [`${prefix}prim:computeBudget:${tag}`]: hash(budget),
+    [`${prefix}prim:defensive:${tag}`]: hash(defensive),
+    [`${prefix}prim:moduleScale:${tag}`]: hash(moduleScale),
   };
 }
 
-// The readers downstream of rarity, one pin per band.
-function readerPins(bands: readonly EquipmentRarity[]): Record<string, string> {
-  const out: Record<string, string> = {};
-  for (const r of bands) {
-    const score = [1, 20, 40].flatMap((iLevel) => [0, 5].map((quality) => itemScore({ rarity: r, quality, iLevel })));
-    const salvage = [1, 40].flatMap((iLevel) => [0, 5].flatMap((quality) => [1, 3].map((tier) => salvageDurationTicks({ kind: "equipment", iLevel, quality, rarity: r, tier }))));
-    out[`reader:${r}`] = hash({
-      index: rarityIndex(r),
-      label: equipmentRarityLabel(r),
-      score,
-      salvage,
-      salvageMult: SALVAGE_EQUIPMENT_RARITY_MULTIPLIER[r],
-      crewMult: crewRarityMultiplier(r),
-      crewClamp: clampCrewRarity(r),
-      relicBand: relicBandOf(r),
-      relicStudy: relicStudyDurationTicks(r),
-    });
-  }
-  return out;
+// The ITEM readers downstream of rarity, one pin per band (the crew readers are pinned separately: crew bands and item
+// bands are owned by different rules).
+function itemReader(r: EquipmentRarity): unknown {
+  const score = [1, 20, 40].flatMap((iLevel) => [0, 5].map((quality) => itemScore({ rarity: r, quality, iLevel })));
+  const salvage = [1, 40].flatMap((iLevel) => [0, 5].flatMap((quality) => [1, 3].map((tier) => salvageDurationTicks({ kind: "equipment", iLevel, quality, rarity: r, tier }))));
+  return {
+    index: rarityIndex(r),
+    label: equipmentRarityLabel(r),
+    score,
+    salvage,
+    salvageMult: SALVAGE_EQUIPMENT_RARITY_MULTIPLIER[r],
+    relicBand: relicBandOf(r),
+    relicStudy: relicStudyDurationTicks(r),
+  };
 }
+const crewReader = (r: EquipmentRarity): unknown => ({ crewMult: crewRarityMultiplier(r), crewClamp: clampCrewRarity(r) });
 
 // The real Fabricator / inspect mint for every gear blueprint at eight seeds and two crafting levels (live bands only:
 // rollCraftedRarity produces Standard to Radiant).
@@ -244,22 +257,18 @@ function previewPins(): Record<string, string> {
   return out;
 }
 
-// The Debug minter at every band, for every gear blueprint (quality 5, iLevel 40, the picker's defaults).
-function devMintPins(bands: readonly EquipmentRarity[]): Record<string, string> {
-  const out: Record<string, string> = {};
-  for (const rarity of bands) {
-    const rows = gearBlueprintKeys().map((key) => {
-      const c = countingRng(cellSeed("devMint", key, rarity));
-      const piece = devMintFromBlueprint({ blueprint: BLUEPRINTS[key], iLevel: 40, quality: 5, rarity, rng: c.rng, allocateId: () => "equip-1" });
-      return { piece, draws: c.draws() };
-    });
-    out[`devMint:${rarity}`] = hash(rows);
-  }
-  return out;
+// The Debug minter at one band, for every gear blueprint (quality 5, iLevel 40, the picker's defaults).
+function devMintPin(rarity: EquipmentRarity): string {
+  const rows = gearBlueprintKeys().map((key) => {
+    const c = countingRng(cellSeed("devMint", key, rarity));
+    const piece = devMintFromBlueprint({ blueprint: BLUEPRINTS[key], iLevel: 40, quality: 5, rarity, rng: c.rng, allocateId: () => "equip-1" });
+    return { piece, draws: c.draws() };
+  });
+  return hash(rows);
 }
 
 // One cargo bay per (band, ascension) pair, through serialize, deserialize and migrate.
-function loadPin(pairs: [EquipmentRarity, EquipmentAscension][], tag: string): Record<string, string> {
+function loadPin(pairs: [EquipmentRarity, EquipmentAscension][]): string {
   const base = freshState();
   const pieces = pairs.map(([rarity, ascension], i) =>
     generateEquipment({
@@ -277,67 +286,97 @@ function loadPin(pairs: [EquipmentRarity, EquipmentAscension][], tag: string): R
   const state = { ...base, equipment: [...base.equipment, ...pieces] };
   const save = deserialize(serialize(state, 1_700_000_000_000, 1_700_000_000_000));
   const loaded = save ? migrate(save, 12345) : null;
-  return { [`load:${tag}`]: hash(loaded ? loaded.equipment : null) };
+  return hash(loaded ? loaded.equipment : null);
 }
 
-// A mixed reveal list through the shared sort (it contains legendary pieces, so it is RESERVED: RR-4 adds the
-// ascension tie-break).
-function sortPin(): Record<string, string> {
+// A fixed list of cargo bays over `bands` x quality {0, 5} x iLevel {1, 40} (x every ascension when asked), shuffled.
+function orderPieces(bands: readonly EquipmentRarity[], ascensions: readonly EquipmentAscension[]): EquipmentInstance[] {
   const pieces: EquipmentInstance[] = [];
   let n = 0;
-  for (const r of EQUIPMENT_RARITY_LADDER) {
-    for (const quality of [0, 5]) {
-      for (const iLevel of [1, 40]) {
-        const piece = generateEquipment({
-          slotType: "cargoBay",
-          varietyKey: EQUIPMENT_SLOTS.cargoBay.varieties[0].key,
-          blueprintKey: null,
-          iLevel,
-          quality,
-          rarity: r,
-          ascension: "none",
-          rng: countingRng(cellSeed("sort", r, quality, iLevel)).rng,
-          allocateId: () => `equip-${++n}`,
-        });
-        pieces.push(piece);
+  for (const r of bands) {
+    for (const ascension of ascensions) {
+      for (const quality of [0, 5]) {
+        for (const iLevel of [1, 40]) {
+          pieces.push(
+            generateEquipment({
+              slotType: "cargoBay",
+              varietyKey: EQUIPMENT_SLOTS.cargoBay.varieties[0].key,
+              blueprintKey: null,
+              iLevel,
+              quality,
+              rarity: r,
+              ascension,
+              rng: countingRng(cellSeed("sort", r, ascension, quality, iLevel)).rng,
+              allocateId: () => `equip-${++n}`,
+            }),
+          );
+        }
       }
     }
   }
-  // A fixed shuffle so the input is not already ordered.
-  const shuffled = pieces.map((p, i) => ({ p, k: cellSeed("shuffle", i) })).sort((a, b) => a.k - b.k).map((x) => x.p);
-  return { "reader:sort": hash(sortRolledPieces(shuffled).map((p) => p.id)) };
+  return pieces.map((p, i) => ({ p, k: cellSeed("shuffle", i) })).sort((a, b) => a.k - b.k).map((x) => x.p);
+}
+// The reveal sort's order and the auto-salvage keep-best verdict over every ordered pair.
+function sortPin(pieces: EquipmentInstance[]): string {
+  return hash(sortRolledPieces(pieces).map((p) => p.id));
+}
+function keepBestPin(pieces: EquipmentInstance[]): string {
+  return hash(pieces.map((a) => pieces.map((b) => (a === b ? "-" : autoSalvageIsBetter(a, b) ? "1" : "0")).join("")));
 }
 
-// Every pin, LIVE and RESERVED, computed on the current engine.
+// Every LIVE pin, computed on the current engine.
 export function computeLivePins(): Record<string, string> {
   const out: Record<string, string> = {};
-  for (const r of LIVE_BANDS) Object.assign(out, generatorPins(r, "none", QUALITIES, ILEVELS, r));
-  Object.assign(out, primitivePins(LIVE_BANDS, [1, 2, 3, 4], "live"));
-  Object.assign(out, readerPins(LIVE_BANDS));
+  for (const r of LIVE_BANDS) Object.assign(out, generatorPins(r, "none", QUALITIES, ILEVELS, "", r));
+  Object.assign(out, primitivePins(LIVE_BANDS, [1, 2, 3, 4], "", "live"));
+  for (const r of LIVE_BANDS) out[`reader:${r}`] = hash({ ...(itemReader(r) as object), ...(crewReader(r) as object) });
+  out["reader:crew:derelict"] = hash(crewReader("derelict")); // crew Derelict is a LIVE crew band (crewGeneration.ts)
   Object.assign(out, inspectPins());
   Object.assign(out, previewPins());
-  Object.assign(out, devMintPins(LIVE_BANDS));
-  Object.assign(out, loadPin(LIVE_BANDS.map((r) => [r, "none"]), "live"));
+  for (const r of LIVE_BANDS) out[`devMint:${r}`] = devMintPin(r);
+  out["load:live"] = loadPin(LIVE_BANDS.map((r) => [r, "none"]));
+  const live = orderPieces(LIVE_BANDS, ["none"]);
+  out["reader:sort:live"] = sortPin(live);
+  out["reader:keepBest:live"] = keepBestPin(live);
   out["relic:blankWeights"] = hash(RELIC_BLANK_WEIGHTS);
   out["salvage:ceiling"] = hash(SALVAGE_CEILING_THRESHOLDS);
   return out;
 }
 
+// Every RESERVED pin, each key prefixed by its owner slice(s).
 export function computeReservedPins(): Record<string, string> {
   const out: Record<string, string> = {};
-  for (const r of RESERVED_BANDS) Object.assign(out, generatorPins(r, "none", QUALITIES, ILEVELS, r));
-  for (const r of LEGENDARY) for (const a of ASCENDED) Object.assign(out, generatorPins(r, a, [5], [40], `${r}:${a}`));
-  Object.assign(out, primitivePins(RESERVED_BANDS, [0, 5], "reserved"));
-  Object.assign(out, readerPins(RESERVED_BANDS));
-  Object.assign(out, devMintPins(RESERVED_BANDS));
-  const allPairs: [EquipmentRarity, EquipmentAscension][] = [];
-  for (const r of EQUIPMENT_RARITY_LADDER) for (const a of ["none", "nova", "celestial"] as EquipmentAscension[]) allPairs.push([r, a]);
-  Object.assign(out, loadPin(allPairs, "all"));
-  Object.assign(out, sortPin());
+  for (const r of RESERVED_BANDS) Object.assign(out, generatorPins(r, "none", QUALITIES, ILEVELS, `${BAND_OWNER[r]}:`, r));
+  for (const r of LEGENDARY) for (const a of ASCENDED) Object.assign(out, generatorPins(r, a, [5], [40], "rr3+rr4:", `${r}:${a}`));
+  Object.assign(out, primitivePins(["derelict"], [0], "rr7:", "derelict"));
+  Object.assign(out, primitivePins(LEGENDARY, [5], "rr3:", "legendary"));
+  out["rr7:reader:derelict"] = hash(itemReader("derelict"));
+  // A legendary crew is reserved (the crew cap is Stellar); RR-7 adds its multiplier rows.
+  for (const r of LEGENDARY) out[`rr7:reader:${r}`] = hash({ ...(itemReader(r) as object), ...(crewReader(r) as object) });
+  for (const r of RESERVED_BANDS) out[`${BAND_OWNER[r]}:devMint:${r}`] = devMintPin(r);
+  out["rr7:load:derelict"] = loadPin(ALL_ASCENSIONS.map((a) => ["derelict", a]));
+  out["rr3+rr4:load:legendary"] = loadPin(LEGENDARY.flatMap((r) => ALL_ASCENSIONS.map((a): [EquipmentRarity, EquipmentAscension] => [r, a])));
+  out["rr4:load:liveAscended"] = loadPin(LIVE_BANDS.flatMap((r) => ASCENDED.map((a): [EquipmentRarity, EquipmentAscension] => [r, a])));
+  const all = orderPieces(EQUIPMENT_RARITY_LADDER, ALL_ASCENSIONS);
+  out["rr4+rr7:reader:sort:all"] = sortPin(all);
+  out["rr4+rr7:reader:keepBest:all"] = keepBestPin(all);
   return out;
 }
 
-// ===== The pins, captured on feat/crew-0.14.0 @ b579a1f (the engine before RR-1) =====
+// The vacuity facts the test asserts (computed here so the test and the sweep share one definition): for every band,
+// how many generator pieces carry more than one rolled line, and how many member pieces minted with a real blueprint.
+export function sweepFacts(): { multiLine: Record<string, number>; memberWithBlueprint: number } {
+  const multiLine: Record<string, number> = {};
+  for (const r of EQUIPMENT_RARITY_LADDER) {
+    const cells = [...liveSlots().flatMap((s) => equipmentCells(s, r, "none", [5], [40])), ...weaponCells(r, "none", [5], [40]), ...droneCells(r, "none", [5], [40])];
+    multiLine[r] = cells.filter((c) => Object.keys(c.piece.rolledStats).length > 1).length;
+  }
+  let memberWithBlueprint = 0;
+  for (const s of liveSlots()) for (const c of equipmentCells(s, "standard", "none", [0], [1])) if (c.piece.blueprintKey !== null) memberWithBlueprint++;
+  return { multiLine, memberWithBlueprint };
+}
+
+// ===== The pins, captured on the RR-2 engine (069d19a) with the RR-0 review fixes, before any RR-3 edit =====
 // RR_CAPTURE=<path> npx vitest run src/lib/game/rarityGoldens.test.ts writes a fresh record to <path>.
 
 export const RARITY_GOLDENS_LIVE: Record<string, string> = {
@@ -350,10 +389,10 @@ export const RARITY_GOLDENS_LIVE: Record<string, string> = {
   "gen:bridge:standard": "6d47d065",
   "gen:quarters:standard": "958c7749",
   "gen:sensor:standard": "8682ce57",
-  "gen:memberWeapon:standard": "81e1e882",
-  "gen:memberArmor:standard": "3f8d0c49",
-  "gen:memberTool:standard": "61e4a312",
-  "gen:implant:standard": "75635ad8",
+  "gen:memberWeapon:standard": "a959c652",
+  "gen:memberArmor:standard": "1d8aab7a",
+  "gen:memberTool:standard": "b4161794",
+  "gen:implant:standard": "32b26358",
   "gen:weapon:standard": "79730b58",
   "gen:drone:standard": "b7426995",
   "gen:cargoBay:augmented": "adfc2316",
@@ -365,10 +404,10 @@ export const RARITY_GOLDENS_LIVE: Record<string, string> = {
   "gen:bridge:augmented": "c88898ce",
   "gen:quarters:augmented": "8aae96ae",
   "gen:sensor:augmented": "a41a6d",
-  "gen:memberWeapon:augmented": "18ebe4b0",
-  "gen:memberArmor:augmented": "568f47df",
-  "gen:memberTool:augmented": "78a19138",
-  "gen:implant:augmented": "befbcc10",
+  "gen:memberWeapon:augmented": "d4ad5378",
+  "gen:memberArmor:augmented": "a884404d",
+  "gen:memberTool:augmented": "55dafc13",
+  "gen:implant:augmented": "a5a3fd12",
   "gen:weapon:augmented": "dabecc23",
   "gen:drone:augmented": "7a3d5766",
   "gen:cargoBay:stellar": "cbac11a6",
@@ -380,10 +419,10 @@ export const RARITY_GOLDENS_LIVE: Record<string, string> = {
   "gen:bridge:stellar": "3f82ed2c",
   "gen:quarters:stellar": "f66dfcac",
   "gen:sensor:stellar": "f248d0e1",
-  "gen:memberWeapon:stellar": "721aefec",
-  "gen:memberArmor:stellar": "798422d0",
-  "gen:memberTool:stellar": "730dacc9",
-  "gen:implant:stellar": "6883aecc",
+  "gen:memberWeapon:stellar": "5e6c563f",
+  "gen:memberArmor:stellar": "43b8931d",
+  "gen:memberTool:stellar": "b6054259",
+  "gen:implant:stellar": "6aafb120",
   "gen:weapon:stellar": "5af0878e",
   "gen:drone:stellar": "61a2da39",
   "gen:cargoBay:radiant": "fc0b0597",
@@ -395,20 +434,21 @@ export const RARITY_GOLDENS_LIVE: Record<string, string> = {
   "gen:bridge:radiant": "5ced7277",
   "gen:quarters:radiant": "c450311",
   "gen:sensor:radiant": "c68d9797",
-  "gen:memberWeapon:radiant": "542c022b",
-  "gen:memberArmor:radiant": "b2d79711",
-  "gen:memberTool:radiant": "de46ce1b",
-  "gen:implant:radiant": "1e9a0d86",
+  "gen:memberWeapon:radiant": "b1fb4b4d",
+  "gen:memberArmor:radiant": "89fc7702",
+  "gen:memberTool:radiant": "fd51e9b",
+  "gen:implant:radiant": "ca30410a",
   "gen:weapon:radiant": "bac4e5b7",
   "gen:drone:radiant": "8b1d5274",
   "prim:affixCount:live": "7edbff18",
   "prim:computeBudget:live": "719d2d0d",
   "prim:defensive:live": "a7a5d287",
   "prim:moduleScale:live": "2f983e90",
-  "reader:standard": "53489ffb",
-  "reader:augmented": "f4e07b3c",
-  "reader:stellar": "529fd64f",
-  "reader:radiant": "2f41a43a",
+  "reader:standard": "5a8512fb",
+  "reader:augmented": "be77453c",
+  "reader:stellar": "9347d5af",
+  "reader:radiant": "1f276efa",
+  "reader:crew:derelict": "a28e02d7",
   "inspect:prospectorHoldBp": "b75d1a44",
   "inspect:balancedHoldBp": "e95e8b92",
   "inspect:haulerHoldBp": "e5d1cdd9",
@@ -556,126 +596,135 @@ export const RARITY_GOLDENS_LIVE: Record<string, string> = {
   "devMint:stellar": "288ab90b",
   "devMint:radiant": "b5319e5c",
   "load:live": "65df3b5",
+  "reader:sort:live": "41f00022",
+  "reader:keepBest:live": "2f53247d",
   "relic:blankWeights": "42928ab7",
   "salvage:ceiling": "b3979148",
 };
 
 export const RARITY_GOLDENS_RESERVED: Record<string, string> = {
-  "gen:cargoBay:derelict": "8cff6e75",
-  "gen:ftlDrive:derelict": "f3a9dbc9",
-  "gen:reactorCore:derelict": "c7b5e2d9",
-  "gen:specUtility:derelict": "df4bf0c",
-  "gen:shieldEmitters:derelict": "d48cfc32",
-  "gen:hullPlating:derelict": "676b4364",
-  "gen:bridge:derelict": "6418fb85",
-  "gen:quarters:derelict": "730b71ae",
-  "gen:sensor:derelict": "a275b87d",
-  "gen:memberWeapon:derelict": "c232aed9",
-  "gen:memberArmor:derelict": "94c992b4",
-  "gen:memberTool:derelict": "7215cbb0",
-  "gen:implant:derelict": "a94000bf",
-  "gen:weapon:derelict": "51617ab",
-  "gen:drone:derelict": "39d49605",
-  "gen:cargoBay:luminous": "b9b1b067",
-  "gen:ftlDrive:luminous": "d3895285",
-  "gen:reactorCore:luminous": "40bf7f5d",
-  "gen:specUtility:luminous": "574f0f6c",
-  "gen:shieldEmitters:luminous": "d7799778",
-  "gen:hullPlating:luminous": "71994030",
-  "gen:bridge:luminous": "ec031c8d",
-  "gen:quarters:luminous": "3d29b09d",
-  "gen:sensor:luminous": "11afd69b",
-  "gen:memberWeapon:luminous": "301902da",
-  "gen:memberArmor:luminous": "f1903968",
-  "gen:memberTool:luminous": "a808a618",
-  "gen:implant:luminous": "c0fd6b4d",
-  "gen:weapon:luminous": "f98fca46",
-  "gen:drone:luminous": "b499bcbd",
-  "gen:cargoBay:constellar": "4d09f900",
-  "gen:ftlDrive:constellar": "654ae261",
-  "gen:reactorCore:constellar": "3ad3fe8d",
-  "gen:specUtility:constellar": "1fea17da",
-  "gen:shieldEmitters:constellar": "a10c2e61",
-  "gen:hullPlating:constellar": "2d16cb66",
-  "gen:bridge:constellar": "5b08f08",
-  "gen:quarters:constellar": "33dcc086",
-  "gen:sensor:constellar": "48216733",
-  "gen:memberWeapon:constellar": "95f1fc97",
-  "gen:memberArmor:constellar": "4eb5d163",
-  "gen:memberTool:constellar": "16328da5",
-  "gen:implant:constellar": "769f7db8",
-  "gen:weapon:constellar": "d9836eb7",
-  "gen:drone:constellar": "92672bbe",
-  "gen:cargoBay:luminous:nova": "5eb4bf37",
-  "gen:ftlDrive:luminous:nova": "956374d3",
-  "gen:reactorCore:luminous:nova": "b869508b",
-  "gen:specUtility:luminous:nova": "7bb8bb08",
-  "gen:shieldEmitters:luminous:nova": "bfefb184",
-  "gen:hullPlating:luminous:nova": "7c23dd91",
-  "gen:bridge:luminous:nova": "822dc424",
-  "gen:quarters:luminous:nova": "86cf09cb",
-  "gen:sensor:luminous:nova": "6f47634b",
-  "gen:memberWeapon:luminous:nova": "56c3216d",
-  "gen:memberArmor:luminous:nova": "47305851",
-  "gen:memberTool:luminous:nova": "fbbdcca0",
-  "gen:implant:luminous:nova": "2922edaf",
-  "gen:weapon:luminous:nova": "47ce95bb",
-  "gen:drone:luminous:nova": "38f1db3e",
-  "gen:cargoBay:luminous:celestial": "e2dbf8fc",
-  "gen:ftlDrive:luminous:celestial": "3511671a",
-  "gen:reactorCore:luminous:celestial": "92923f30",
-  "gen:specUtility:luminous:celestial": "4ff4b8b8",
-  "gen:shieldEmitters:luminous:celestial": "428d6170",
-  "gen:hullPlating:luminous:celestial": "53bbe5e2",
-  "gen:bridge:luminous:celestial": "b2f3e50e",
-  "gen:quarters:luminous:celestial": "a74292ae",
-  "gen:sensor:luminous:celestial": "2b6aec37",
-  "gen:memberWeapon:luminous:celestial": "bcec1e99",
-  "gen:memberArmor:luminous:celestial": "7328533",
-  "gen:memberTool:luminous:celestial": "f5b4e66c",
-  "gen:implant:luminous:celestial": "87d5b879",
-  "gen:weapon:luminous:celestial": "adeff0dd",
-  "gen:drone:luminous:celestial": "68f791c2",
-  "gen:cargoBay:constellar:nova": "1626cf8",
-  "gen:ftlDrive:constellar:nova": "2dacbe39",
-  "gen:reactorCore:constellar:nova": "89b7bea2",
-  "gen:specUtility:constellar:nova": "59e0f242",
-  "gen:shieldEmitters:constellar:nova": "5b1f467d",
-  "gen:hullPlating:constellar:nova": "3f96a0f2",
-  "gen:bridge:constellar:nova": "4c1c49ad",
-  "gen:quarters:constellar:nova": "13644197",
-  "gen:sensor:constellar:nova": "6cb16033",
-  "gen:memberWeapon:constellar:nova": "d34969f8",
-  "gen:memberArmor:constellar:nova": "f0f6cba",
-  "gen:memberTool:constellar:nova": "30454a71",
-  "gen:implant:constellar:nova": "bf966a0a",
-  "gen:weapon:constellar:nova": "dfa8c674",
-  "gen:drone:constellar:nova": "e1b403ab",
-  "gen:cargoBay:constellar:celestial": "eddc6d31",
-  "gen:ftlDrive:constellar:celestial": "55bb8c2",
-  "gen:reactorCore:constellar:celestial": "a3559a33",
-  "gen:specUtility:constellar:celestial": "d56ccac3",
-  "gen:shieldEmitters:constellar:celestial": "9370ce9",
-  "gen:hullPlating:constellar:celestial": "fe52aae9",
-  "gen:bridge:constellar:celestial": "c05306a7",
-  "gen:quarters:constellar:celestial": "42c0751f",
-  "gen:sensor:constellar:celestial": "f1aa39a3",
-  "gen:memberWeapon:constellar:celestial": "87a9e408",
-  "gen:memberArmor:constellar:celestial": "9827d7a",
-  "gen:memberTool:constellar:celestial": "a829fcff",
-  "gen:implant:constellar:celestial": "f1f2a1a0",
-  "gen:weapon:constellar:celestial": "2c55b618",
-  "gen:drone:constellar:celestial": "90f32979",
-  "prim:affixCount:reserved": "4bc08aa",
-  "prim:computeBudget:reserved": "c9f5a838",
-  "prim:defensive:reserved": "4cb44216",
-  "prim:moduleScale:reserved": "8895fa66",
-  "reader:derelict": "46c8d14d",
-  "reader:luminous": "b9a0c58a",
-  "reader:constellar": "b53ddfbd",
-  "devMint:derelict": "3a67153a",
-  "devMint:luminous": "cb933944",
-  "devMint:constellar": "2386ff8",
-  "load:all": "1a5e615a",
-  "reader:sort": "e942cfb",
+  "rr7:gen:cargoBay:derelict": "8cff6e75",
+  "rr7:gen:ftlDrive:derelict": "f3a9dbc9",
+  "rr7:gen:reactorCore:derelict": "c7b5e2d9",
+  "rr7:gen:specUtility:derelict": "df4bf0c",
+  "rr7:gen:shieldEmitters:derelict": "d48cfc32",
+  "rr7:gen:hullPlating:derelict": "676b4364",
+  "rr7:gen:bridge:derelict": "6418fb85",
+  "rr7:gen:quarters:derelict": "730b71ae",
+  "rr7:gen:sensor:derelict": "a275b87d",
+  "rr7:gen:memberWeapon:derelict": "b8bd38f1",
+  "rr7:gen:memberArmor:derelict": "55c00ba8",
+  "rr7:gen:memberTool:derelict": "7a37d14",
+  "rr7:gen:implant:derelict": "2e75f38b",
+  "rr7:gen:weapon:derelict": "51617ab",
+  "rr7:gen:drone:derelict": "39d49605",
+  "rr3:gen:cargoBay:luminous": "b9b1b067",
+  "rr3:gen:ftlDrive:luminous": "d3895285",
+  "rr3:gen:reactorCore:luminous": "40bf7f5d",
+  "rr3:gen:specUtility:luminous": "574f0f6c",
+  "rr3:gen:shieldEmitters:luminous": "d7799778",
+  "rr3:gen:hullPlating:luminous": "71994030",
+  "rr3:gen:bridge:luminous": "ec031c8d",
+  "rr3:gen:quarters:luminous": "3d29b09d",
+  "rr3:gen:sensor:luminous": "11afd69b",
+  "rr3:gen:memberWeapon:luminous": "635c20dc",
+  "rr3:gen:memberArmor:luminous": "f55fba2d",
+  "rr3:gen:memberTool:luminous": "4c33a44a",
+  "rr3:gen:implant:luminous": "26f11b63",
+  "rr3:gen:weapon:luminous": "f98fca46",
+  "rr3:gen:drone:luminous": "b499bcbd",
+  "rr3:gen:cargoBay:constellar": "4d09f900",
+  "rr3:gen:ftlDrive:constellar": "654ae261",
+  "rr3:gen:reactorCore:constellar": "3ad3fe8d",
+  "rr3:gen:specUtility:constellar": "1fea17da",
+  "rr3:gen:shieldEmitters:constellar": "a10c2e61",
+  "rr3:gen:hullPlating:constellar": "2d16cb66",
+  "rr3:gen:bridge:constellar": "5b08f08",
+  "rr3:gen:quarters:constellar": "33dcc086",
+  "rr3:gen:sensor:constellar": "48216733",
+  "rr3:gen:memberWeapon:constellar": "4c09801",
+  "rr3:gen:memberArmor:constellar": "258b2308",
+  "rr3:gen:memberTool:constellar": "1815710b",
+  "rr3:gen:implant:constellar": "3f16fff2",
+  "rr3:gen:weapon:constellar": "d9836eb7",
+  "rr3:gen:drone:constellar": "92672bbe",
+  "rr3+rr4:gen:cargoBay:luminous:nova": "5eb4bf37",
+  "rr3+rr4:gen:ftlDrive:luminous:nova": "956374d3",
+  "rr3+rr4:gen:reactorCore:luminous:nova": "b869508b",
+  "rr3+rr4:gen:specUtility:luminous:nova": "7bb8bb08",
+  "rr3+rr4:gen:shieldEmitters:luminous:nova": "bfefb184",
+  "rr3+rr4:gen:hullPlating:luminous:nova": "7c23dd91",
+  "rr3+rr4:gen:bridge:luminous:nova": "822dc424",
+  "rr3+rr4:gen:quarters:luminous:nova": "86cf09cb",
+  "rr3+rr4:gen:sensor:luminous:nova": "6f47634b",
+  "rr3+rr4:gen:memberWeapon:luminous:nova": "7ccad95",
+  "rr3+rr4:gen:memberArmor:luminous:nova": "73181eaf",
+  "rr3+rr4:gen:memberTool:luminous:nova": "b82ac9fc",
+  "rr3+rr4:gen:implant:luminous:nova": "576c7ddd",
+  "rr3+rr4:gen:weapon:luminous:nova": "47ce95bb",
+  "rr3+rr4:gen:drone:luminous:nova": "38f1db3e",
+  "rr3+rr4:gen:cargoBay:luminous:celestial": "e2dbf8fc",
+  "rr3+rr4:gen:ftlDrive:luminous:celestial": "3511671a",
+  "rr3+rr4:gen:reactorCore:luminous:celestial": "92923f30",
+  "rr3+rr4:gen:specUtility:luminous:celestial": "4ff4b8b8",
+  "rr3+rr4:gen:shieldEmitters:luminous:celestial": "428d6170",
+  "rr3+rr4:gen:hullPlating:luminous:celestial": "53bbe5e2",
+  "rr3+rr4:gen:bridge:luminous:celestial": "b2f3e50e",
+  "rr3+rr4:gen:quarters:luminous:celestial": "a74292ae",
+  "rr3+rr4:gen:sensor:luminous:celestial": "2b6aec37",
+  "rr3+rr4:gen:memberWeapon:luminous:celestial": "836ea35f",
+  "rr3+rr4:gen:memberArmor:luminous:celestial": "c709c491",
+  "rr3+rr4:gen:memberTool:luminous:celestial": "42aef4a0",
+  "rr3+rr4:gen:implant:luminous:celestial": "4087825b",
+  "rr3+rr4:gen:weapon:luminous:celestial": "adeff0dd",
+  "rr3+rr4:gen:drone:luminous:celestial": "68f791c2",
+  "rr3+rr4:gen:cargoBay:constellar:nova": "1626cf8",
+  "rr3+rr4:gen:ftlDrive:constellar:nova": "2dacbe39",
+  "rr3+rr4:gen:reactorCore:constellar:nova": "89b7bea2",
+  "rr3+rr4:gen:specUtility:constellar:nova": "59e0f242",
+  "rr3+rr4:gen:shieldEmitters:constellar:nova": "5b1f467d",
+  "rr3+rr4:gen:hullPlating:constellar:nova": "3f96a0f2",
+  "rr3+rr4:gen:bridge:constellar:nova": "4c1c49ad",
+  "rr3+rr4:gen:quarters:constellar:nova": "13644197",
+  "rr3+rr4:gen:sensor:constellar:nova": "6cb16033",
+  "rr3+rr4:gen:memberWeapon:constellar:nova": "c468e0e0",
+  "rr3+rr4:gen:memberArmor:constellar:nova": "54dd9eae",
+  "rr3+rr4:gen:memberTool:constellar:nova": "d940addb",
+  "rr3+rr4:gen:implant:constellar:nova": "c450ce8",
+  "rr3+rr4:gen:weapon:constellar:nova": "dfa8c674",
+  "rr3+rr4:gen:drone:constellar:nova": "e1b403ab",
+  "rr3+rr4:gen:cargoBay:constellar:celestial": "eddc6d31",
+  "rr3+rr4:gen:ftlDrive:constellar:celestial": "55bb8c2",
+  "rr3+rr4:gen:reactorCore:constellar:celestial": "a3559a33",
+  "rr3+rr4:gen:specUtility:constellar:celestial": "d56ccac3",
+  "rr3+rr4:gen:shieldEmitters:constellar:celestial": "9370ce9",
+  "rr3+rr4:gen:hullPlating:constellar:celestial": "fe52aae9",
+  "rr3+rr4:gen:bridge:constellar:celestial": "c05306a7",
+  "rr3+rr4:gen:quarters:constellar:celestial": "42c0751f",
+  "rr3+rr4:gen:sensor:constellar:celestial": "f1aa39a3",
+  "rr3+rr4:gen:memberWeapon:constellar:celestial": "2ee47572",
+  "rr3+rr4:gen:memberArmor:constellar:celestial": "f398cc3e",
+  "rr3+rr4:gen:memberTool:constellar:celestial": "11535ee1",
+  "rr3+rr4:gen:implant:constellar:celestial": "f76fed22",
+  "rr3+rr4:gen:weapon:constellar:celestial": "2c55b618",
+  "rr3+rr4:gen:drone:constellar:celestial": "90f32979",
+  "rr7:prim:affixCount:derelict": "839a4eab",
+  "rr7:prim:computeBudget:derelict": "3c03ed4f",
+  "rr7:prim:defensive:derelict": "799ebe44",
+  "rr7:prim:moduleScale:derelict": "f7a36064",
+  "rr3:prim:affixCount:legendary": "950c7d2c",
+  "rr3:prim:computeBudget:legendary": "91677598",
+  "rr3:prim:defensive:legendary": "435a5bc9",
+  "rr3:prim:moduleScale:legendary": "6fcd6bd7",
+  "rr7:reader:derelict": "7a08941f",
+  "rr7:reader:luminous": "b6ca9bca",
+  "rr7:reader:constellar": "d4ca1b1d",
+  "rr7:devMint:derelict": "3a67153a",
+  "rr3:devMint:luminous": "cb933944",
+  "rr3:devMint:constellar": "2386ff8",
+  "rr7:load:derelict": "283d7b0f",
+  "rr3+rr4:load:legendary": "a0d15f03",
+  "rr4:load:liveAscended": "7edccefb",
+  "rr4+rr7:reader:sort:all": "b5143063",
+  "rr4+rr7:reader:keepBest:all": "eab967a5",
 };

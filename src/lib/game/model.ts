@@ -2122,9 +2122,13 @@ export function rarityIndex(rarity: EquipmentRarity): number {
       return 5;
     // RR-1: TOTAL. A value outside the union (a hand-edited save before the load normalization, a direct caller) reads
     // as the Standard-Issue floor (RARITY_LOAD_FALLBACK) instead of undefined, which every budget, sort and score
-    // reader would turn into NaN.
-    default:
+    // reader would turn into NaN. The never binding keeps the switch EXHAUSTIVE at compile time: a new band that is
+    // not given a case above is a build error here, while a junk value at run time still reads Standard.
+    default: {
+      const unhandled: never = rarity;
+      void unhandled;
       return 1;
+    }
   }
 }
 
