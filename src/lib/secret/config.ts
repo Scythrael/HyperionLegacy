@@ -242,4 +242,22 @@ export const COPY = {
   longAfter: "More is coming in a later update. Your stack keeps climbing in the meantime.",
   rewardRecorded: "Reward recorded",
   rewardLater: "Reward arrives in a future update",
+  // 0.13.11.1 [PROPOSAL]
+  overclockFlavor: "The red button. Pressing it is the whole plan.",
+  upgradesNote: "Congratulations, you unlocked the overclock overclocker! Kidding. Horses are extinct in the future, so there are none left to beat for this joke.", // user copy, verbatim
+  upgradesLocked: "Unlocks later",
+  starfallRewardLater: "Reward: the Starfall theme",
+  starfallRewardDone: "Starfall theme unlocked",
 } as const;
+
+// The [?] Help view (0.13.11.1, design section 4): the rules in plain language, same voice as the
+// rest of the game. [PROPOSAL] copy. It names no locked content (that stays "???" until reachable).
+export const HELP_SECTIONS: readonly { title: string; body: string }[] = [
+  { title: "THE STACK", body: "Mining Lasers make Ore. Every higher generator makes the one below it: Refineries make Mining Lasers, Fabricators make Refineries, and so on up the stack. Ore buys everything. It is generators all the way down." },
+  { title: "THE TEN BONUS", body: "Every 10 of a generator you buy doubles its output. Owning them is nice; buying them is what counts." },
+  { title: "OVERCLOCK AND UPGRADES", body: "Overclock lives in the Upgrades tab. It speeds up the whole stack by ×1.125 per level, and the levels multiply. Its price follows your income, so waiting never makes it cheaper. Much later, a few more upgrades wake up there. Each one has a level cap, shown as X / Y." },
+  { title: "THREE KINDS OF PRESTIGE", body: "Captain Prestige resets your stack for Captain Points, and every point makes the stack faster. Fleet Prestige resets that too, for Augment Points, a Skill Point and new generators. Prestigeception resets everything below it for Dream Points, which make every Captain and Augment Point you earn count for more. Yes, it is prestige all the way down as well." },
+  { title: "SKILLS", body: "Skill Points come from Fleet Prestige. Skills do the clicking for you: auto-buyers, automatic prestiges at a target you set, a head start and more. The late game is mostly watching numbers go up, which is the point." },
+  { title: "MILESTONES", body: "Milestones appear as you get close to them, and each one is recorded with the date you reached it. Their rewards arrive in a future update. You will know the last one when you see it." },
+  { title: "TIME AWAY", body: "The stack keeps running while this window is closed and while the game is closed. Come back whenever you like. It does the work; you take the credit. Not those credits." },
+];

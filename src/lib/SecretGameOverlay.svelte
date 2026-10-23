@@ -1,10 +1,16 @@
 <script lang="ts">
-  // SecretGameOverlay: "Hyperion Legacy v0.0000001a", the secret generator game (0.13.11).
+  // SecretGameOverlay: "Hyperion Legacy v0.0000001a", the secret generator game (0.13.11; layout
+  // reworked in 0.13.11.1, design section 4, mockup frames 4 to 7).
   //
   // A full-viewport layer above the whole app; the app behind it is blurred and dimmed but keeps
   // running and saving exactly as before (this component never touches the main state or loop;
   // the secret game ticks in secret/runtime.ts on its own clock). Drawn in the game's own tokens,
   // so it re-hues with the player's accent theme. Close with the X or Escape.
+  //
+  // 0.13.11.1: the whole panel stays within one screen and only its body scrolls. The goal bar, the run bar and
+  // the "makes X" lines left the main view (their space stays empty on purpose); the goal and the
+  // records live in the Stats view, the rules in the [?] Help view. Overclock moved to the new
+  // Upgrades tab beside the four e1,000,000 upgrades. Anything not reachable yet reads "???".
   //
   // Every number the player sees goes through the effective scale (engine.displayOre and
   // friends), which is the raw value up to e777,777 and the softened one above it.
@@ -37,35 +43,48 @@
     setAuto,
     setAutoTarget,
     gainMultiplier,
+    upgradesUnlocked,
+    upgradeLevel,
+    upgradePriceExponent,
+    canBuyUpgrade,
+    buyUpgrade,
+    milestoneVisible,
     type BuyMode,
   } from "./secret/engine";
   import {
     TIERS,
     SKILLS,
     MILESTONES,
+    UPGRADES,
     COPY,
+    HELP_SECTIONS,
     AUTO_TARGET_CHOICES,
     FINALE_EXPONENT,
     LONG_EXPONENT,
+    STARFALL_EXPONENT,
     CP_POW,
     AP_POW,
     OC_FACTOR,
     type SkillId,
+    type UpgradeId,
   } from "./secret/config";
-  import type { SecretState, AutoLayer } from "./secret/state";
+  import { cloneSecret, type SecretState, type AutoLayer } from "./secret/state";
   import { formatSecret, formatExponent } from "./secret/format";
   import { tabKeyTarget, overlayClosesOn } from "./secret/overlayKeys";
 
   export let onClose: () => void;
 
-  type Tab = "generators" | "prestige" | "skills" | "milestones";
+  type Tab = "generators" | "upgrades" | "prestige" | "skills" | "milestones";
   const TABS: { key: Tab; label: string }[] = [
     { key: "generators", label: "Generators" },
+    { key: "upgrades", label: "Upgrades" },
     { key: "prestige", label: "Prestige" },
     { key: "skills", label: "Skills" },
     { key: "milestones", label: "Milestones" },
   ];
   let tab: Tab = "generators";
+  // The main view, or one of the two header views.
+  let view: "game" | "stats" | "help" = "game";
 
   let root: HTMLDivElement | null = null;
   let closeButton: HTMLButtonElement | null = null;
@@ -85,11 +104,16 @@
     // while this is the top layer gets it taken straight back. Nothing in the main game changes.
     const onFocusIn = (event: FocusEvent) => {
       const target = event.target as Node | null;
-      if (root && target && !root.contains(target)) focusInside();
+      if (root && target && !root.contains(target) && !isPopup(target)) focusInside();
     };
     document.addEventListener("focusin", onFocusIn);
     return () => document.removeEventListener("focusin", onFocusIn);
   });
+
+  // The achievement popup sits above this layer and may take focus to be dismissed.
+  function isPopup(target: Node): boolean {
+    return target instanceof Element && target.closest(".ach-host") !== null;
+  }
 
   // Escape closes it from anywhere: it is the top layer while open.
   function onWindowKeydown(event: KeyboardEvent): void {
@@ -103,15 +127,17 @@
     const target = tabKeyTarget(index, event.key, TABS.length);
     if (target === null) return;
     event.preventDefault();
-    tab = TABS[target].key;
+    selectTab(TABS[target].key);
     tabButtons[tab]?.focus();
+  }
+
+  function toggleView(next: "stats" | "help"): void {
+    view = view === next ? "game" : next;
   }
 
   $: s = $secretGame;
   $: busy = $secretCatchingUp;
   $: bestE = effectiveExponent(s.bestOre);
-  $: goal = bestE < FINALE_EXPONENT ? FINALE_EXPONENT : bestE < LONG_EXPONENT ? LONG_EXPONENT : null;
-  $: goalPct = goal === null ? 100 : Math.max(0, Math.min(100, (bestE / goal) * 100));
   $: celebration = s.milestones.finale !== undefined && !s.finaleSeen ? "finale" : s.milestones.long !== undefined && !s.longSeen ? "long" : null;
   // A celebration that appears mid-play takes focus onto its "Keep going" button.
   let shownCelebration: string | null = null;
@@ -119,19 +145,26 @@
     shownCelebration = celebration;
     if (celebration) void tick().then(() => keepGoing?.focus());
   }
-  // The goal bar moves at every check-in: alongside the best-ever bar, a thin second bar follows
-  // the current run back up (a reset drops Ore, so the best can sit still for a while).
-  $: runE = effectiveExponent(s.ore);
-  $: runPct = bestE <= 0 ? 0 : Math.max(0, Math.min(100, (runE / bestE) * 100));
   $: canOc = canOverclock(s);
   $: ore = s.ore;
   $: cg = captainGain(s);
   $: fg = fleetGain(s);
   $: pg = prestigeceptionGain(s);
+  $: upOpen = upgradesUnlocked(s);
+
+  // The one-time Upgrades joke (user copy): shown on the first visit to the tab after the unlock.
+  let showUpgradesNote = false;
+  function selectTab(next: Tab): void {
+    tab = next;
+    if (next !== "upgrades") showUpgradesNote = false;
+  }
+  $: if (tab === "upgrades" && upOpen && !s.upgradesNoteSeen && !busy) {
+    showUpgradesNote = true;
+    secretAct((x) => ({ ...cloneSecret(x), upgradesNoteSeen: true }));
+  }
 
   const fmt = (d: Decimal) => formatSecret(displayOre(d));
-  // Three decimals: past the finale a check-in moves the bar by small steps, and they should show.
-  const pctLabel = (p: number) => p.toFixed(3);
+  const pct = (p: number) => Math.max(0, Math.min(100, p));
 
   function buy(tier: number, mode: BuyMode): void {
     secretAct((x) => buyTier(x, tier, mode));
@@ -139,10 +172,11 @@
   function nextTenCost(x: SecretState, tier: number): Decimal {
     return unitPrice(x, tier).mul(10 - (x.bought[tier] % 10));
   }
+  // Names no locked generator (they read "???" until unlocked).
   function nextUnlock(x: SecretState): string {
     const locked = TIERS.map((t, i) => ({ t, i })).filter(({ i }) => !isTierUnlocked(x, i));
     if (locked.length === 0) return "Every generator unlocked";
-    return `${locked[0].t.name} at ${locked[0].t.unlockFleet} Fleet Prestiges`;
+    return `A new generator at ${locked[0].t.unlockFleet} Fleet Prestiges`;
   }
   function skillOwnedLabel(id: SkillId, x: SecretState): string {
     const def = SKILLS.find((d) => d.id === id)!;
@@ -151,15 +185,21 @@
     return autoActive(x, id) ? "On" : "Off";
   }
   function targetChange(layer: AutoLayer, event: Event): void {
-    const pct = Number((event.currentTarget as HTMLSelectElement).value);
-    secretAct((x) => setAutoTarget(x, layer, pct));
+    const value = Number((event.currentTarget as HTMLSelectElement).value);
+    secretAct((x) => setAutoTarget(x, layer, value));
   }
   function dismissCelebration(kind: "finale" | "long"): void {
     secretAct((x) => ({ ...x, finaleSeen: kind === "finale" ? true : x.finaleSeen, longSeen: kind === "long" ? true : x.longSeen }));
   }
-  function when(ms: number | undefined): string {
-    if (ms === undefined) return "";
+  function when(ms: number | undefined | null): string {
+    if (ms === undefined || ms === null) return "";
     return new Date(ms).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
+  }
+  function duration(ms: number): string {
+    const m = Math.max(0, Math.floor(ms / 60000));
+    const d = Math.floor(m / 1440);
+    const h = Math.floor((m % 1440) / 60);
+    return d > 0 ? `${d}d ${h}h` : `${h}h ${m % 60}m`;
   }
   const LAYERS: { layer: AutoLayer; skill: SkillId }[] = [
     { layer: "captain", skill: "autoCaptain" },
@@ -167,6 +207,29 @@
     { layer: "pc", skill: "autoPc" },
   ];
   const autoSkill = (layer: AutoLayer) => LAYERS.find((l) => l.layer === layer)!.skill;
+
+  // Overclock's per-level factor, after Overclock Overclocker.
+  function ocPerLevel(x: SecretState): number {
+    const step = UPGRADES.find((u) => u.id === "ocOverclocker")!.step;
+    return Math.pow(OC_FACTOR, 1 + step * upgradeLevel(x, "ocOverclocker"));
+  }
+  function upgradePriceLabel(x: SecretState, id: UpgradeId): string {
+    const e = upgradePriceExponent(x, id);
+    return e === null ? "Maxed" : `${formatExponent(Math.ceil(e))} Ore`;
+  }
+
+  // Stats: the next Ore goal on a log scale, then the run against the best.
+  const ORE_GOALS = [100, 1000, 100000, FINALE_EXPONENT, LONG_EXPONENT, STARFALL_EXPONENT];
+  $: goal = ORE_GOALS.find((g) => bestE < g) ?? null;
+  $: goalPct = goal === null ? 100 : pct((bestE / goal) * 100);
+  $: runE = effectiveExponent(s.ore);
+  $: runPct = bestE <= 0 ? 0 : pct((runE / bestE) * 100);
+  $: visibleMilestones = MILESTONES.filter((m) => milestoneVisible(s, m.id));
+  $: reachedCount = MILESTONES.filter((m) => s.milestones[m.id] !== undefined).length;
+  function milestoneReward(id: string, reached: boolean): string {
+    if (id === "starfall") return reached ? COPY.starfallRewardDone : COPY.starfallRewardLater;
+    return reached ? COPY.rewardRecorded : COPY.rewardLater;
+  }
 
   // Portal to <body> (the ActionModal pattern) so no transformed or clipped ancestor can trap the
   // fixed layer, and the blur covers the whole app.
@@ -185,35 +248,18 @@
         <div class="sg-title" id="sg-title">{COPY.title}</div>
         <div class="sg-sub">{COPY.subtitle}</div>
       </div>
+      <div class="sg-tools">
+        <button class="sg-tool" type="button" aria-pressed={view === "stats"} on:click={() => toggleView("stats")}><Icon name="chart" size={16} /><span>Stats</span></button>
+        <button class="sg-tool sg-tool-square" type="button" aria-label="Help" aria-pressed={view === "help"} on:click={() => toggleView("help")}><Icon name="help" size={18} /></button>
+        <button class="sg-tool sg-tool-square" type="button" aria-label="Close" bind:this={closeButton} on:click={onClose}><Icon name="close" size={18} /></button>
+      </div>
+    </header>
+
+    <div class="sg-top">
       <div class="sg-ore">
         <b class="num">{fmt(ore)}</b>
         <span>Ore · <span class="num">+{formatSecret(displayIncome(s))}</span>/s</span>
       </div>
-      <button class="sg-close" type="button" aria-label="Close" bind:this={closeButton} on:click={onClose}><Icon name="close" size={18} /></button>
-    </header>
-
-    <div class="sg-goal">
-      <div class="sg-goal-row">
-        {#if goal === null}
-          <span>Goal complete. More is coming later.</span><span class="num">100%</span>
-        {:else}
-          <span>Goal: <span class="num">{formatExponent(goal)}</span> Ore</span><span class="num">{pctLabel(goalPct)}%</span>
-        {/if}
-      </div>
-      <div
-        class="sg-track"
-        role="progressbar"
-        aria-label={goal === null ? "Goal complete" : `Progress to ${formatExponent(goal)} Ore, on a log scale`}
-        aria-valuemin="0"
-        aria-valuemax="100"
-        aria-valuenow={Math.round(goalPct)}
-      >
-        <i style={`width:${goalPct}%`}></i>
-      </div>
-      <div class="sg-run-row">
-        <span>This run: <span class="num">{formatExponent(Math.floor(runE))}</span> Ore</span><span class="num">{runPct.toFixed(1)}% of your best</span>
-      </div>
-      <div class="sg-track sg-track-run" aria-hidden="true"><i style={`width:${runPct}%`}></i></div>
     </div>
 
     {#if busy}
@@ -236,6 +282,61 @@
         <p class="muted">{COPY.longAfter}</p>
         <button class="sg-btn primary" type="button" bind:this={keepGoing} disabled={busy} on:click={() => dismissCelebration("long")}>Keep going</button>
       </section>
+    {:else if view === "stats"}
+      <section class="sg-body sg-view" aria-labelledby="sg-stats-title">
+        <div class="sg-view-head">
+          <h3 id="sg-stats-title" class="sg-section-name">STATS</h3>
+          <button class="sg-btn" type="button" on:click={() => (view = "game")}>Back to the stack</button>
+        </div>
+        <div class="stats">
+          <div class="stat">
+            <div class="k">Goal</div>
+            {#if goal === null}
+              <div class="v">Every goal reached</div>
+            {:else}
+              <div class="v"><span class="num">{formatExponent(goal)}</span> Ore · <span class="num">{goalPct.toFixed(2)}%</span></div>
+            {/if}
+            <div class="sg-track" role="progressbar" aria-label={goal === null ? "Every goal reached" : `Progress to ${formatExponent(goal)} Ore, on a log scale`} aria-valuemin="0" aria-valuemax="100" aria-valuenow={Math.round(goalPct)}><i style={`width:${goalPct}%`}></i></div>
+          </div>
+          <div class="stat">
+            <div class="k">This run</div>
+            <div class="v num">{formatExponent(Math.floor(runE))}</div>
+            <div class="sg-track" aria-hidden="true"><i style={`width:${runPct}%`}></i></div>
+          </div>
+          <div class="stat"><div class="k">Most Ore ever</div><div class="v num">{fmt(s.bestOre)}</div></div>
+          <div class="stat stat-wide">
+            <div class="k">Most of each generator</div>
+            <div class="v small">
+              {#each TIERS as t, i}
+                {#if isTierUnlocked(s, i)}<span class="peak"><span class="tier-label">{t.numeral}</span> <span class="num">{formatSecret(s.peakOwned[i])}</span></span>{/if}
+              {/each}
+            </div>
+          </div>
+          <div class="stat"><div class="k">Highest Overclock</div><div class="v">Lv <span class="num">{formatSecret(s.peakOverclock)}</span></div></div>
+          <div class="stat">
+            <div class="k">Prestiges</div>
+            <div class="v small">Captain <span class="num">{formatSecret(s.captainCount)}</span> · Fleet <span class="num">{formatSecret(s.fleetTotal)}</span> · Prestigeception <span class="num">{formatSecret(s.pcCount)}</span></div>
+          </div>
+          <div class="stat">
+            <div class="k">Points</div>
+            <div class="v small">Captain <span class="num">{formatSecret(s.captainPoints)}</span> · Augment <span class="num">{formatSecret(s.augmentPoints)}</span> · Dream <span class="num">{formatSecret(s.dreamPoints)}</span></div>
+          </div>
+          <div class="stat"><div class="k">Milestones</div><div class="v"><span class="num">{reachedCount}</span> of <span class="num">{visibleMilestones.length}</span></div></div>
+          <div class="stat"><div class="k">Time played</div><div class="v">{s.foundAt === null ? "Since before 0.13.11.1" : duration(s.lastTickAt - s.foundAt)}</div></div>
+          <div class="stat"><div class="k">First found</div><div class="v">{s.foundAt === null ? "Before 0.13.11.1" : when(s.foundAt)}</div></div>
+        </div>
+      </section>
+    {:else if view === "help"}
+      <section class="sg-body sg-view help" aria-labelledby="sg-help-title">
+        <div class="sg-view-head">
+          <h3 id="sg-help-title" class="sg-section-name">HOW IT WORKS</h3>
+          <button class="sg-btn" type="button" on:click={() => (view = "game")}>Back to the stack</button>
+        </div>
+        {#each HELP_SECTIONS as h}
+          <h4>{h.title}</h4>
+          <p>{h.body}</p>
+        {/each}
+      </section>
     {:else}
       <div class="sg-tabs" role="tablist" aria-label="Secret game sections">
         {#each TABS as t, i}
@@ -249,7 +350,7 @@
             aria-controls="sg-panel"
             tabindex={tab === t.key ? 0 : -1}
             bind:this={tabButtons[t.key]}
-            on:click={() => (tab = t.key)}
+            on:click={() => selectTab(t.key)}
             on:keydown={(e) => onTabKeydown(e, i)}
           >{t.label}</button>
         {/each}
@@ -264,7 +365,7 @@
               {@const ten = nextTenCost(s, i)}
               <div class="gen">
                 <div class="tier">{t.numeral}</div>
-                <div class="gname"><b>{t.name}</b><span>{t.makes}</span><em>{t.flavor}</em></div>
+                <div class="gname"><b>{t.name}</b><em>{t.flavor}</em></div>
                 <div class="gstats">
                   <span class="num">{formatSecret(s.owned[i])}</span> owned · <span class="num">×{formatSecret(tierMultiplier(s, i))}</span>
                   <div class="ten" aria-hidden="true"><i style={`width:${(s.bought[i] % 10) * 10}%`}></i></div>
@@ -277,20 +378,51 @@
               </div>
             {:else}
               <div class="gen locked">
-                <div class="tier">{t.numeral}</div>
-                <div class="gname"><b>{t.name}</b><span>Unlocks at Fleet Prestige {t.unlockFleet}</span></div>
-                <div class="gstats dim">{t.makes}</div>
+                <div class="tier">?</div>
+                <div class="gname"><b>???</b><em>???</em></div>
+                <div class="gstats dim">{COPY.upgradesLocked}</div>
                 <div class="buys"><button class="sg-btn" type="button" disabled>Locked</button></div>
               </div>
             {/if}
           {/each}
-          <div class="sg-oc">
-            <span>Overclock ×{OC_FACTOR} per level · level <span class="num">{formatSecret(s.overclock)}</span></span>
-            <span class="buys">
-              <button class="sg-btn" type="button" disabled={busy || !canOc || ore.lt(overclockPrice(s))} on:click={() => secretAct((x) => buyOverclock(x, "one"))}>Overclock<span class="num">{fmt(overclockPrice(s))}</span></button>
+        {:else if tab === "upgrades"}
+          {#if showUpgradesNote}
+            <div class="sg-note" role="status">{COPY.upgradesNote}</div>
+          {/if}
+          <div class="sg-section-name">UPGRADES</div>
+          <div class="gen">
+            <div class="tier">OC</div>
+            <div class="gname"><b>Overclock</b><em>{COPY.overclockFlavor}</em></div>
+            <div class="gstats">Lv <span class="num">{formatSecret(s.overclock)}</span> · <span class="num">×{formatSecret(ocPerLevel(s))}</span> each</div>
+            <div class="buys">
+              <button class="sg-btn" type="button" disabled={busy || !canOc || ore.lt(overclockPrice(s))} on:click={() => secretAct((x) => buyOverclock(x, "one"))}>Buy 1<span class="num">{fmt(overclockPrice(s))}</span></button>
+              <button class="sg-btn" type="button" disabled={busy || !canOc || ore.lt(overclockPrice(s))} on:click={() => secretAct((x) => buyOverclock(x, "ten"))}>Buy 10</button>
               <button class="sg-btn primary" type="button" disabled={busy || !canOc || ore.lt(overclockPrice(s))} on:click={() => secretAct((x) => buyOverclock(x, "max"))}>Max</button>
-            </span>
+            </div>
           </div>
+          {#each UPGRADES as u}
+            {#if upOpen}
+              {@const level = upgradeLevel(s, u.id)}
+              {@const can = !busy && canBuyUpgrade(s, u.id)}
+              <div class="gen">
+                <div class="tier">+</div>
+                <div class="gname"><b>{u.name}</b><em>{u.flavor}</em></div>
+                <div class="gstats">Lv <span class="num">{level} / {u.cap}</span> · {u.effect}</div>
+                <div class="buys">
+                  <button class="sg-btn" type="button" disabled={!can} on:click={() => secretAct((x) => buyUpgrade(x, u.id, "one"))}>Buy 1<span class="num">{upgradePriceLabel(s, u.id)}</span></button>
+                  <button class="sg-btn" type="button" disabled={!can} on:click={() => secretAct((x) => buyUpgrade(x, u.id, "ten"))}>Buy 10</button>
+                  <button class="sg-btn primary" type="button" disabled={!can} on:click={() => secretAct((x) => buyUpgrade(x, u.id, "max"))}>Max</button>
+                </div>
+              </div>
+            {:else}
+              <div class="gen locked">
+                <div class="tier">?</div>
+                <div class="gname"><b>???</b><em>???</em></div>
+                <div class="gstats dim">{COPY.upgradesLocked}</div>
+                <div class="buys"><button class="sg-btn" type="button" disabled>Locked</button></div>
+              </div>
+            {/if}
+          {/each}
         {:else if tab === "prestige"}
           <div class="split">
             <div class="layer captain">
@@ -341,7 +473,7 @@
                   <label class="auto-row">
                     <span>{SKILLS.find((d) => d.id === autoSkill(l.layer))?.name}: when the gain is at least</span>
                     <select value={s.autoTarget[l.layer]} disabled={busy} on:change={(e) => targetChange(l.layer, e)}>
-                      {#each AUTO_TARGET_CHOICES as pct}<option value={pct}>{pct}% of what you have</option>{/each}
+                      {#each AUTO_TARGET_CHOICES as choice}<option value={choice}>{choice}% of what you have</option>{/each}
                     </select>
                   </label>
                 {/if}
@@ -377,13 +509,21 @@
           <ul class="ms-list">
             {#each MILESTONES as m}
               {@const at = s.milestones[m.id]}
-              <li class="ms" class:done={at !== undefined} class:final={m.achievement}>
-                <span class="ms-icon">
-                  {#if m.achievement}<Icon name="star" size={18} />{:else if at !== undefined}<Icon name="check" size={18} />{:else}<Icon name="circle" size={18} />{/if}
-                </span>
-                <span class="ms-name"><b>{m.name}</b><span class="muted">{m.detail}{at !== undefined ? ` · ${when(at)}` : ""}</span></span>
-                <span class="rw">{at !== undefined ? COPY.rewardRecorded : COPY.rewardLater}</span>
-              </li>
+              {#if milestoneVisible(s, m.id)}
+                <li class="ms" class:done={at !== undefined} class:final={m.achievement}>
+                  <span class="ms-icon">
+                    {#if m.achievement}<Icon name="star" size={18} />{:else if at !== undefined}<Icon name="check" size={18} />{:else}<Icon name="circle" size={18} />{/if}
+                  </span>
+                  <span class="ms-name"><b>{m.name}</b><span class="muted">{m.detail}{at !== undefined ? ` · ${when(at)}` : ""}</span></span>
+                  <span class="rw">{milestoneReward(m.id, at !== undefined)}</span>
+                </li>
+              {:else}
+                <li class="ms hidden">
+                  <span class="ms-icon"><Icon name="circle" size={18} /></span>
+                  <span class="ms-name"><b>???</b><span class="muted">???</span></span>
+                  <span class="rw">???</span>
+                </li>
+              {/if}
             {/each}
           </ul>
         {/if}
@@ -407,8 +547,7 @@
     position: fixed;
     inset: 0;
     z-index: 2000;
-    overflow-y: auto;
-    overflow-x: hidden;
+    overflow: hidden;
     padding: 22px 16px;
     background: rgba(6, 10, 18, 0.55);
     -webkit-backdrop-filter: blur(6px) saturate(0.8);
@@ -416,9 +555,14 @@
     display: grid;
     place-items: start center;
   }
+  /* 0.13.11.1: the whole panel stays within one screen; only its body scrolls. */
   .sg {
     width: min(860px, 100%);
     min-width: 0;
+    max-height: calc(100vh - 44px);
+    max-height: calc(100dvh - 44px);
+    display: flex;
+    flex-direction: column;
     /* Theme-derived: the deep panel tones tinted by the player's accent, so it re-hues per theme. */
     background: linear-gradient(
       180deg,
@@ -454,12 +598,17 @@
     color: var(--color-text-dim);
   }
   .sg-head {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) auto auto;
-    gap: var(--space-6);
-    align-items: start;
-    padding: 14px 16px 10px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-5);
+    align-items: center;
+    padding: 10px 12px;
     border-bottom: 1px solid var(--color-border);
+    flex-shrink: 0;
+  }
+  .sg-titles {
+    min-width: 0;
+    flex: 1 1 220px;
   }
   .sg-title {
     font-family: var(--font-display);
@@ -473,9 +622,41 @@
     font-size: var(--text-sm);
     color: var(--color-text-dim);
   }
-  .sg-ore {
-    text-align: right;
-    min-width: 0;
+  .sg-tools {
+    display: flex;
+    gap: var(--space-3);
+    margin-left: auto;
+  }
+  .sg-tool {
+    height: 36px;
+    min-width: 36px;
+    padding: 0 10px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    font-family: var(--font-body);
+    font-size: var(--text-sm);
+    color: var(--color-accent);
+    background: transparent;
+    border: 1px solid var(--color-border);
+    border-radius: var(--corner);
+    cursor: pointer;
+  }
+  .sg-tool-square {
+    padding: 0;
+  }
+  .sg-tool[aria-pressed="true"] {
+    border-color: var(--color-accent);
+    background: rgba(var(--color-accent-rgb), 0.12);
+  }
+  .sg-top {
+    display: flex;
+    gap: var(--space-6);
+    align-items: center;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--color-border);
+    flex-shrink: 0;
   }
   .sg-ore b {
     display: block;
@@ -487,28 +668,6 @@
     font-size: var(--text-sm);
     color: var(--color-text-secondary);
   }
-  .sg-close {
-    display: grid;
-    place-items: center;
-    width: 36px;
-    height: 36px;
-    color: var(--color-accent);
-    background: transparent;
-    border: 1px solid var(--color-border);
-    border-radius: var(--corner);
-    cursor: pointer;
-  }
-  .sg-goal {
-    padding: 8px 16px 10px;
-    border-bottom: 1px solid var(--color-border);
-  }
-  .sg-goal-row {
-    display: flex;
-    justify-content: space-between;
-    gap: var(--space-4);
-    font-size: var(--text-sm);
-    color: var(--color-text-secondary);
-  }
   .sg-track {
     height: 6px;
     margin-top: 5px;
@@ -517,39 +676,26 @@
     border-radius: var(--corner);
     overflow: hidden;
   }
-  .sg-run-row {
-    display: flex;
-    justify-content: space-between;
-    gap: var(--space-4);
-    margin-top: 6px;
-    font-size: var(--text-xs);
-    color: var(--color-text-dim);
-  }
-  .sg-track-run {
-    height: 3px;
-    margin-top: 3px;
-  }
-  .sg-track-run i {
-    opacity: 0.6;
-  }
   .sg-track i {
     display: block;
     height: 100%;
     background: linear-gradient(90deg, var(--color-accent), var(--color-accent-bright));
   }
   .sg-busy {
-    margin: 10px 16px 0;
+    margin: 10px 12px 0;
     padding: 6px 10px;
     font-size: var(--text-sm);
     color: var(--color-text-secondary);
     border: 1px dashed var(--color-border);
     border-radius: var(--corner);
+    flex-shrink: 0;
   }
   .sg-tabs {
     display: flex;
     gap: var(--space-3);
-    padding: 10px 16px 0;
+    padding: 10px 12px 0;
     flex-wrap: wrap;
+    flex-shrink: 0;
   }
   .sg-tab {
     min-height: 36px;
@@ -567,16 +713,36 @@
     background: rgba(var(--color-accent-rgb), 0.1);
   }
   .sg-body {
-    padding: 10px 16px 16px;
+    padding: 10px 12px 14px;
     display: grid;
     gap: var(--space-3);
+    align-content: start;
     min-width: 0;
+    min-height: 0;
+    flex: 1 1 auto;
+    overflow-y: auto;
+    overscroll-behavior: contain;
   }
   .sg-section-name {
+    margin: 0;
     font-family: var(--font-display);
     font-size: var(--text-2xs);
     letter-spacing: 0.16em;
     color: var(--color-accent);
+  }
+  .sg-view-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: var(--space-4);
+    flex-wrap: wrap;
+  }
+  .sg-note {
+    padding: 8px 10px;
+    font-size: var(--text-sm);
+    border: 1px solid var(--color-border-strong);
+    border-radius: var(--corner);
+    background: rgba(0, 0, 0, 0.25);
   }
   .sg-btn {
     min-height: 36px;
@@ -611,7 +777,7 @@
   }
   .sg-btn:focus-visible,
   .sg-tab:focus-visible,
-  .sg-close:focus-visible,
+  .sg-tool:focus-visible,
   select:focus-visible {
     outline: 2px solid var(--color-accent-bright);
     outline-offset: 2px;
@@ -621,7 +787,7 @@
     grid-template-columns: 30px minmax(150px, 1.3fr) minmax(130px, 1fr) auto;
     gap: var(--space-5);
     align-items: center;
-    padding: 8px 10px;
+    padding: 7px 10px;
     border: 1px solid var(--color-border);
     border-radius: var(--corner);
     background: rgba(0, 0, 0, 0.18);
@@ -643,11 +809,6 @@
   .gname b {
     display: block;
     font-weight: 600;
-  }
-  .gname span {
-    display: block;
-    font-size: var(--text-sm);
-    color: var(--color-text-secondary);
   }
   .gname em {
     display: block;
@@ -678,18 +839,6 @@
     display: flex;
     gap: var(--space-2);
     flex-wrap: wrap;
-  }
-  .sg-oc {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    gap: var(--space-5);
-    flex-wrap: wrap;
-    margin-top: var(--space-3);
-    padding-top: var(--space-5);
-    border-top: 1px solid var(--color-border);
-    font-size: var(--text-sm);
-    color: var(--color-text-secondary);
   }
   .split {
     display: grid;
@@ -813,6 +962,10 @@
     border-radius: var(--corner);
     font-size: var(--text-sm);
   }
+  .ms.hidden {
+    opacity: 0.55;
+    border-style: dashed;
+  }
   .ms-icon {
     display: grid;
     place-items: center;
@@ -842,12 +995,66 @@
   .ms.done .rw {
     color: var(--color-accent);
   }
+  /* Stats (mockup frame 5): tiles in as many columns as there is room for, two on a phone. */
+  .stats {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: var(--space-4);
+  }
+  .stat {
+    min-width: 0;
+    padding: 8px 10px;
+    border: 1px solid var(--color-border);
+    border-radius: var(--corner);
+    background: rgba(0, 0, 0, 0.2);
+  }
+  .stat-wide {
+    grid-column: span 2;
+  }
+  .stat .k {
+    font-size: var(--text-xs);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--color-text-dim);
+  }
+  .stat .v {
+    font-size: var(--text-lg);
+    overflow-wrap: anywhere;
+  }
+  .stat .v.small {
+    font-size: var(--text-sm);
+    line-height: 1.6;
+  }
+  .peak {
+    display: inline-block;
+    margin-right: 10px;
+  }
+  .tier-label {
+    font-family: var(--font-display);
+    font-size: var(--text-2xs);
+    color: var(--color-text-dim);
+  }
+  .help h4 {
+    margin: 6px 0 0;
+    font-family: var(--font-display);
+    font-size: var(--text-sm);
+    letter-spacing: 0.1em;
+    color: var(--color-accent);
+  }
+  .help p {
+    margin: 0;
+    max-width: 72ch;
+    color: var(--color-text-secondary);
+    font-size: var(--text-sm);
+    line-height: 1.5;
+  }
   .sg-celebrate {
     display: grid;
     justify-items: center;
     gap: var(--space-5);
     text-align: center;
     padding: 28px 20px;
+    overflow-y: auto;
   }
   .sg-celebrate h2 {
     margin: 0;
@@ -864,10 +1071,11 @@
     color: var(--color-warning);
   }
   .sg-foot {
-    padding: 10px 16px 14px;
+    padding: 8px 12px 10px;
     border-top: 1px solid var(--color-border);
-    font-size: var(--text-sm);
+    font-size: var(--text-xs);
     color: var(--color-text-dim);
+    flex-shrink: 0;
   }
   @media (max-width: 860px) {
     .split,
@@ -876,6 +1084,13 @@
     }
   }
   @media (max-width: 480px) {
+    .sg-backdrop {
+      padding: 10px 8px;
+    }
+    .sg {
+      max-height: calc(100vh - 20px);
+      max-height: calc(100dvh - 20px);
+    }
     .ms {
       grid-template-columns: 22px minmax(0, 1fr);
     }
@@ -883,16 +1098,14 @@
       grid-column: 2;
       text-align: left;
     }
+    .stats {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+    .stat .v {
+      font-size: var(--text-md);
+    }
   }
   @media (max-width: 760px) {
-    .sg-head {
-      grid-template-columns: minmax(0, 1fr) auto;
-    }
-    .sg-ore {
-      grid-column: 1 / -1;
-      grid-row: 2;
-      text-align: left;
-    }
     .sg-ore b {
       font-size: var(--text-xl);
     }
