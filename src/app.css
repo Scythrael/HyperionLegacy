@@ -174,7 +174,7 @@
   --color-border-strong: rgba(103, 249, 168, 0.4);
   --color-panel-bg: rgba(20, 52, 40, 0.32);
   --color-text-secondary: #8fad9c;
-  --color-text-dim: #5b8770; /* 0.13.5 contrast lift: was #5a856f, 4.44:1 against the panel, now 4.55:1 */
+  --color-text-dim: #5b8871; /* 0.13.11.1 lift (user 2026-10-23): was #5b8770, 4.46:1 on the green panel's own tint, now 4.5:1 (lightness only). 0.13.5: was #5a856f */
   --color-starfield: #c2f5db;
 }
 [data-theme="blue"] {
@@ -262,7 +262,7 @@
   --color-border-strong: rgba(160, 168, 176, 0.4);
   --color-panel-bg: rgba(40, 44, 50, 0.32);
   --color-text-secondary: #9aa0a8;
-  --color-text-dim: #787e88; /* 0.13.5 contrast lift: was #686e76, 3.61:1 against the panel, now 4.54:1 */
+  --color-text-dim: #797f88; /* 0.13.11.1 lift (user 2026-10-23): was #787e88, 4.48:1 on the gray panel's own tint, now 4.5:1 (lightness only). 0.13.5: was #686e76 */
   --color-starfield: #d8dce2;
 }
 
@@ -379,10 +379,8 @@ button {
 :root {
   --grad-start-rgb: var(--color-accent-rgb);
   --grad-end-rgb: 160, 32, 240;
-  /* Wash strength per stop (themeStyle.ts stopStrength: a bright Color 2 washes in more lightly)
-     and the colors headings draw with (themeStyle.ts textStop: a very dark color becomes gray). */
-  --grad-start-k: 1;
-  --grad-end-k: 1;
+  /* The colors headings draw with (themeStyle.ts: Color 1's accent, and Color 2's stop; a very dark
+     color becomes a light gray). The washes always use the stops at full strength. */
   --grad-start-text-rgb: var(--grad-start-rgb);
   --grad-end-text-rgb: var(--grad-end-rgb);
 }
@@ -391,10 +389,10 @@ button {
    the start stop (top left) into the end stop (right) on panels and buttons, the stop-to-stop
    gradient on headings and progress bars, a soft sheen on primary buttons. */
 :root[data-style="washShine"] {
-  --style-panel: linear-gradient(135deg, rgba(var(--grad-start-rgb), calc(0.09 * var(--grad-start-k))), rgba(var(--grad-end-rgb), calc(0.12 * var(--grad-end-k)))), var(--color-panel-bg);
-  --style-dialog: linear-gradient(135deg, rgba(var(--grad-start-rgb), calc(0.09 * var(--grad-start-k))), rgba(var(--grad-end-rgb), calc(0.12 * var(--grad-end-k)))), var(--color-bg-mid);
-  --style-control: linear-gradient(135deg, rgba(var(--grad-start-rgb), calc(0.12 * var(--grad-start-k))), rgba(var(--grad-end-rgb), calc(0.16 * var(--grad-end-k))));
-  --style-control-primary: linear-gradient(135deg, rgba(var(--grad-start-rgb), calc(0.3 * var(--grad-start-k))), rgba(var(--grad-end-rgb), calc(0.34 * var(--grad-end-k))));
+  --style-panel: linear-gradient(135deg, rgba(var(--grad-start-rgb), 0.09), rgba(var(--grad-end-rgb), 0.12)), var(--color-panel-bg);
+  --style-dialog: linear-gradient(135deg, rgba(var(--grad-start-rgb), 0.09), rgba(var(--grad-end-rgb), 0.12)), var(--color-bg-mid);
+  --style-control: linear-gradient(135deg, rgba(var(--grad-start-rgb), 0.12), rgba(var(--grad-end-rgb), 0.16));
+  --style-control-primary: linear-gradient(135deg, rgba(var(--grad-start-rgb), 0.3), rgba(var(--grad-end-rgb), 0.34));
   --style-sheen: inset 0 1px 0 rgba(255, 255, 255, 0.12);
   --style-edge: rgba(var(--grad-end-rgb), 0.22);
   --style-fill: linear-gradient(90deg, rgb(var(--grad-start-rgb)), rgb(var(--grad-end-rgb)));
@@ -403,20 +401,30 @@ button {
   --style-heading: linear-gradient(90deg, rgb(var(--grad-start-text-rgb)) 0, color-mix(in srgb, rgb(var(--grad-end-text-rgb)) 55%, #ffffff) 12em);
 }
 
-/* washShine text lifts (contrast note above). Dim text per theme; secondary text already clears AA
-   on every washed surface. Themes whose dim text already clears (purple, chartreuse) need none. */
-:root[data-style="washShine"][data-theme="cyan"]:not([data-high-contrast="on"]) { --color-text-dim: #72929c; }
-:root[data-style="washShine"][data-theme="green"]:not([data-high-contrast="on"]) { --color-text-dim: #709783; }
-:root[data-style="washShine"][data-theme="blue"]:not([data-high-contrast="on"]) { --color-text-dim: #7687a3; }
-:root[data-style="washShine"][data-theme="pink"]:not([data-high-contrast="on"]) { --color-text-dim: #9b8092; }
-:root[data-style="washShine"][data-theme="vermilion"]:not([data-high-contrast="on"]) { --color-text-dim: #998173; }
-:root[data-style="washShine"][data-theme="red"]:not([data-high-contrast="on"]) { --color-text-dim: #9a7e80; }
-:root[data-style="washShine"][data-theme="white"]:not([data-high-contrast="on"]) { --color-text-dim: #8f8f97; }
-:root[data-style="washShine"][data-theme="gray"]:not([data-high-contrast="on"]) { --color-text-dim: #848a93; }
+/* washShine text lifts (contrast note above). The stops are saturated colors (themeStyle.ts
+   GRADIENT_STOPS), so each theme's dim text is lifted to clear AA with ANY Color 2, and button labels
+   draw with --style-label (the accent, lifted toward white where a washed button needs it). Never
+   under High contrast for the text tokens, which keep their own stronger values there. */
+:root[data-style="washShine"] { --style-label: var(--color-accent); }
+:root[data-style="washShine"][data-theme="cyan"]:not([data-high-contrast="on"]) { --color-text-dim: #7996a1; }
+:root[data-style="washShine"][data-theme="green"]:not([data-high-contrast="on"]) { --color-text-dim: #799d8a; }
+:root[data-style="washShine"][data-theme="blue"]:not([data-high-contrast="on"]) { --color-text-dim: #8493ac; }
+:root[data-style="washShine"][data-theme="purple"]:not([data-high-contrast="on"]) { --color-text-dim: #998aad; }
+:root[data-style="washShine"][data-theme="pink"]:not([data-high-contrast="on"]) { --color-text-dim: #a3899a; }
+:root[data-style="washShine"][data-theme="vermilion"]:not([data-high-contrast="on"]) { --color-text-dim: #a28b7f; }
+:root[data-style="washShine"][data-theme="red"]:not([data-high-contrast="on"]) { --color-text-dim: #a48b8c; }
+:root[data-style="washShine"][data-theme="white"]:not([data-high-contrast="on"]) { --color-text-dim: #93939b; }
+:root[data-style="washShine"][data-theme="gray"]:not([data-high-contrast="on"]) { --color-text-dim: #8f949c; }
+:root[data-style="washShine"][data-theme="blue"] { --style-label: #8fb3fb; }
+:root[data-style="washShine"][data-theme="purple"] { --style-label: #c2a2fb; }
+:root[data-style="washShine"][data-theme="pink"] { --style-label: #fa8fce; }
+:root[data-style="washShine"][data-theme="vermilion"] { --style-label: #fb987a; }
+:root[data-style="washShine"][data-theme="red"] { --style-label: #fb9595; }
+:root[data-style="washShine"][data-theme="gray"] { --style-label: #b0b7bd; }
 /* The color-blind palette's success and danger, lifted toward white just enough (hue kept). */
 :root[data-style="washShine"][data-palette="cbsafe"] {
-  --color-success: #0da37a;
-  --color-danger: #db7524;
+  --color-success: #19a881;
+  --color-danger: #dd7b2e;
 }
 
 /* 3. WHERE washShine applies. Danger buttons keep their own flat look, so a destructive label
@@ -432,10 +440,18 @@ button {
 }
 :root[data-style="washShine"] :is(.dev-btn, .sub-tab, .sg-btn, .sg-tab, .ec-btn, .hb-btn):not(:disabled):not(.active):not(.on):not(.primary):not(.danger) {
   background: var(--style-control);
+  color: var(--style-label);
+}
+:root[data-style="washShine"] :is(.dev-btn, .sub-tab, .sg-btn, .sg-tab, .ec-btn, .hb-btn):not(:disabled):not(.active):not(.on):not(.primary):not(.danger) :is(.num, span) {
+  color: var(--style-label);
 }
 :root[data-style="washShine"] :is(.buy-btn, .dev-btn.active, .sub-tab.active, .sg-btn.primary, .sg-tab.on, .ec-btn.primary):not(:disabled):not(.danger) {
   background: var(--style-control-primary);
   box-shadow: var(--style-sheen);
+  color: var(--color-text-primary);
+}
+:root[data-style="washShine"] :is(.buy-btn, .dev-btn.active, .sub-tab.active, .sg-btn.primary, .sg-tab.on, .ec-btn.primary):not(:disabled):not(.danger) .num {
+  color: var(--color-text-primary);
 }
 :root[data-style="washShine"] :is(.panel-title, .sg-title, .sg-section-name, .system-modal-title) {
   background: var(--style-heading);

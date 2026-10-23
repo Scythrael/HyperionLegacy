@@ -966,7 +966,7 @@
   import AchievementToasts from "./lib/AchievementToasts.svelte";
   import { pushAchievement } from "./lib/achievements";
   import { redeemGift, hasThemeStyle, unlockThemeStyle, NO_STREAK, ENDLESS_GREED, type RedeemOutcome, type RedeemStreak } from "./lib/accountExtras";
-  import { availablePresets, availableStyles, resolveLook, loadLookPrefs, hasManualPrefs, savePreset, saveManual, applyLook, isGradient, DEFAULT_LOOK_PREFS, type LookPrefs, type PresetChoice, type ThemeStyleId } from "./lib/themeStyle";
+  import { availablePresets, availableStyles, resolveLook, loadLookPrefs, hasManualPrefs, savePreset, saveManual, applyLook, isGradient, stopRgb, DEFAULT_LOOK_PREFS, type LookPrefs, type PresetChoice, type ThemeStyleId } from "./lib/themeStyle";
   import { displayOre as secretDisplayOre } from "./lib/secret/engine";
   import { formatSecret } from "./lib/secret/format";
   import { COPY as SECRET_COPY } from "./lib/secret/config";
@@ -16609,7 +16609,7 @@
             </select>
           </SettingRow>
           <SettingRow label="Color 1" description="Your accent color, used across the whole interface. A gradient style starts from it at the top left.">
-            <span class="theme-preview" style="background:{THEME_PREVIEW_COLORS[lookPrefs.color1]}" aria-hidden="true"></span>
+            <span class="theme-preview" style="background:{isGradient(look.style) ? `rgb(${stopRgb(lookPrefs.color1)})` : THEME_PREVIEW_COLORS[lookPrefs.color1]}" aria-hidden="true"></span>
             <select
               class="setting-select"
               value={lookPrefs.color1}
@@ -16623,10 +16623,10 @@
           </SettingRow>
           <SettingRow
             label="Color 2"
-            description={isGradient(look.style) ? "Where a gradient style ends, on the right. Bright colors wash in more softly so text stays easy to read." : "Only used by gradient styles. Flat draws with Color 1."}
+            description={isGradient(look.style) ? "Where a gradient style ends, on the right. The swatches show the deeper gradient shade each color washes with." : "Only used by gradient styles. Flat draws with Color 1."}
             disabled={!isGradient(look.style)}
           >
-            <span class="theme-preview" style="background:{THEME_PREVIEW_COLORS[lookPrefs.color2]}" aria-hidden="true"></span>
+            <span class="theme-preview" style="background:{isGradient(look.style) ? `rgb(${stopRgb(lookPrefs.color2)})` : THEME_PREVIEW_COLORS[lookPrefs.color2]}" aria-hidden="true"></span>
             <select
               class="setting-select"
               value={lookPrefs.color2}

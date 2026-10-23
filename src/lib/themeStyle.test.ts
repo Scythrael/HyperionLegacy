@@ -4,13 +4,13 @@ import {
   THEME_PRESETS,
   THEME_STYLES,
   VIOLET_RGB,
-  END_STOP_BUDGET,
   themeRgb,
   styleUnlocked,
   availablePresets,
   availableStyles,
   resolveLook,
-  stopStrength,
+  stopRgb,
+  GRADIENT_STOPS,
   textStop,
   loadLookPrefs,
   hasManualPrefs,
@@ -64,7 +64,7 @@ describe("resolveLook: what the screen actually shows", () => {
     expect(resolveLook(prefs({ preset: "manual", manualStyle: "washShine", color1: "green", color2: "pink" }), UNLOCKED, "cyan")).toEqual({
       theme: "green",
       style: "washShine",
-      stops: [themeRgb("green"), themeRgb("pink")],
+      stops: [stopRgb("green"), stopRgb("pink")],
     });
     expect(resolveLook(prefs({ preset: "manual", manualStyle: "flat", color1: "red", color2: "pink" }), UNLOCKED, "cyan")).toEqual({ theme: "red", style: "flat", stops: null });
   });
@@ -75,14 +75,32 @@ describe("resolveLook: what the screen actually shows", () => {
   });
 });
 
-describe("readability guards", () => {
-  it("a bright second color is washed in more lightly (Starfall's purple keeps full strength)", () => {
-    expect(stopStrength(VIOLET_RGB)).toBe(1);
-    expect(stopStrength(themeRgb("white"))).toBeLessThan(0.5);
-    expect(stopStrength(themeRgb("white"))).toBeGreaterThan(0);
-    expect(END_STOP_BUDGET).toBeGreaterThan(0);
+describe("Manual Cyan + Purple with Wash plus shine IS Starfall", () => {
+  function tokens(look: ReturnType<typeof resolveLook>) {
+    const props = new Map<string, string>();
+    const root = { dataset: {} as Record<string, string>, style: { setProperty: (k: string, v: string) => props.set(k, v), removeProperty: (k: string) => props.delete(k) } };
+    (globalThis as { document?: unknown }).document = { documentElement: root };
+    applyLook(look);
+    delete (globalThis as { document?: unknown }).document;
+    return { dataset: root.dataset, props: Object.fromEntries(props) };
+  }
+  it("renders identically: same theme, style and every token", () => {
+    const starfall = resolveLook(prefs({ preset: "starfall" }), UNLOCKED, "red");
+    const manual = resolveLook(prefs({ preset: "manual", manualStyle: "washShine", color1: "cyan", color2: "purple" }), UNLOCKED, "red");
+    expect(manual).toEqual(starfall);
+    expect(tokens(manual)).toEqual(tokens(starfall));
+    expect(tokens(manual).props["--grad-end-rgb"]).toBe("160, 32, 240");
   });
 
+  it("every color has a gradient stop; the accents (text, Flat) are unchanged", () => {
+    for (const name of THEME_NAMES) expect(GRADIENT_STOPS[name]).toMatch(/^\d+, \d+, \d+$/);
+    expect(stopRgb("purple")).toBe(VIOLET_RGB);
+    expect(stopRgb("cyan")).toBe(themeRgb("cyan"));
+    expect(themeRgb("purple")).toBe("166, 120, 249");
+  });
+});
+
+describe("readability guards", () => {
   it("a very dark color never colors text: headings switch to a light gray", () => {
     expect(textStop("4, 4, 8")).toBe("200, 204, 212");
     expect(textStop(themeRgb("cyan"))).toBe(themeRgb("cyan"));
@@ -138,7 +156,6 @@ describe("applyLook is the one writer to the root", () => {
     expect(root.dataset.style).toBe("washShine");
     expect(props.get("--grad-start-rgb")).toBe("103, 232, 249");
     expect(props.get("--grad-end-rgb")).toBe("160, 32, 240");
-    expect(props.get("--grad-end-k")).toBe("1");
     expect(props.get("--grad-end-text-rgb")).toBe("160, 32, 240");
     applyLook({ theme: "red", style: "flat", stops: null });
     expect(root.dataset.theme).toBe("red");

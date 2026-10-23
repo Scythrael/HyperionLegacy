@@ -16,9 +16,9 @@
 // and colors slot in as their own unlocks. Choices are device-side (localStorage via safeStorage),
 // and a missing unlock (Delete Save) falls back quietly: Starfall to Default, a locked style to Flat.
 //
-// Readability guards: a bright Color 2 is washed in more lightly (END_STOP_BUDGET, so no pair of
-// colors can wash a surface paler than every text token tolerates), and a very dark color never
-// colors text (headings switch to a light gray). themeStyleContrast.test.ts sweeps every pair.
+// Readability guards never weaken a wash: they only touch TEXT. app.css lifts dim text and button
+// labels under washShine so any Color 1 x Color 2 pair stays AA, and a very dark color never colors
+// a heading (textStop: light gray). themeStyleContrast.test.ts sweeps every pair.
 
 import { safeGetItem, safeSetItem } from "./safeStorage";
 import { THEME_NAMES, THEME_PREVIEW_COLORS, isValidTheme, type ThemeName } from "./theme";
@@ -47,7 +47,29 @@ export interface ThemePreset {
   stops: readonly [string, string];
 }
 
-export const STARFALL: ThemePreset = { id: "starfall", label: "Starfall", style: "washShine", theme: "cyan", stops: ["103, 232, 249", VIOLET_RGB] };
+// Each color's gradient STOP: the color a gradient style washes with when it is Color 1 or Color 2.
+// The accent (text, Flat) is unchanged; the stop is a saturated version at Starfall's purple
+// strength (the same luminance, 0.148), so every Color 2 tints as visibly as Starfall's. Cyan keeps
+// its accent (Starfall's own start) and Purple's stop IS Starfall's purple, so Manual Cyan + Purple
+// is exactly Starfall. White and Gray have no hue: a cool light gray and a slate.
+export const GRADIENT_STOPS: Readonly<Record<ThemeName, string>> = {
+  cyan: "103, 232, 249",
+  green: "9, 124, 60",
+  chartreuse: "77, 120, 8",
+  blue: "24, 96, 239",
+  purple: VIOLET_RGB,
+  pink: "205, 14, 126",
+  red: "214, 15, 15",
+  vermilion: "197, 57, 14",
+  white: "158, 158, 173",
+  gray: "100, 108, 120",
+};
+
+export function stopRgb(name: ThemeName): string {
+  return GRADIENT_STOPS[name];
+}
+
+export const STARFALL: ThemePreset = { id: "starfall", label: "Starfall", style: "washShine", theme: "cyan", stops: [GRADIENT_STOPS.cyan, GRADIENT_STOPS.purple] };
 
 export const THEME_PRESETS: readonly ThemePreset[] = [STARFALL];
 
@@ -98,7 +120,7 @@ export function resolveLook(prefs: LookPrefs, unlocked: readonly string[], color
   }
   if (prefs.preset === "manual") {
     const style = styleUnlocked(prefs.manualStyle, unlocked) ? prefs.manualStyle : "flat";
-    return { theme: prefs.color1, style, stops: isGradient(style) ? [themeRgb(prefs.color1), themeRgb(prefs.color2)] : null };
+    return { theme: prefs.color1, style, stops: isGradient(style) ? [stopRgb(prefs.color1), stopRgb(prefs.color2)] : null };
   }
   return { theme: colorTheme, style: "flat", stops: null };
 }
@@ -118,16 +140,6 @@ function luminance([r, g, b]: [number, number, number]): number {
     return s <= 0.03928 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4);
   };
   return 0.2126 * ch(r) + 0.7152 * ch(g) + 0.0722 * ch(b);
-}
-
-// The end stop's wash may add at most this much luminance at full strength (Starfall's purple sits
-// under it, so Starfall keeps its exact look; a bright Color 2 is scaled down to it). Set by the
-// contrast sweep: every accent theme with every Color 2 keeps all text at AA.
-export const END_STOP_BUDGET = 0.21;
-
-export function stopStrength(rgb: string): number {
-  const l = luminance(parse(rgb));
-  return l <= END_STOP_BUDGET ? 1 : Math.round((END_STOP_BUDGET / l) * 1000) / 1000;
 }
 
 const PANEL_TEXT_BG: [number, number, number] = [10, 20, 30]; // today's panel over the deep background
@@ -194,7 +206,7 @@ export const COLOR_CHOICES: readonly ThemeName[] = THEME_NAMES;
 // The one writer to the root
 // ---------------------------------------------------------------------------
 
-const TOKENS = ["--grad-start-rgb", "--grad-end-rgb", "--grad-start-k", "--grad-end-k", "--grad-start-text-rgb", "--grad-end-text-rgb"];
+const TOKENS = ["--grad-start-rgb", "--grad-end-rgb", "--grad-start-text-rgb", "--grad-end-text-rgb"];
 
 // On load and on every change, through this one path (the same discipline as applyAccessibility).
 export function applyLook(look: Look): void {
@@ -210,8 +222,7 @@ export function applyLook(look: Look): void {
   root.dataset.style = look.style;
   root.style.setProperty("--grad-start-rgb", a);
   root.style.setProperty("--grad-end-rgb", b);
-  root.style.setProperty("--grad-start-k", "1");
-  root.style.setProperty("--grad-end-k", String(stopStrength(b)));
-  root.style.setProperty("--grad-start-text-rgb", textStop(a));
+  // Headings start from Color 1's ACCENT (the readable text color), and end on Color 2's stop.
+  root.style.setProperty("--grad-start-text-rgb", textStop(themeRgb(look.theme)));
   root.style.setProperty("--grad-end-text-rgb", textStop(b, HEADING_END_SHARE));
 }
