@@ -31,22 +31,29 @@
   let playButton: HTMLButtonElement | null = null;
   let menu: HTMLElement | null = null;
 
-  // Moves the list to <body> and keeps it anchored under the Minigames button.
+  // Moves the list to <body> and keeps it anchored under the Minigames button. Expects the list's
+  // <section> to be the ONLY node it is used on (it moves that one element, nothing around it).
+  // Measured against the layout width (clientWidth, which leaves out a scrollbar), and re-placed on
+  // resize, on scroll, and whenever the button or the page changes size (the UI scale setting).
   function floating(node: HTMLElement) {
     document.body.appendChild(node);
     const place = () => {
       const r = toggle?.getBoundingClientRect();
       if (!r) return;
       node.style.top = `${Math.round(r.bottom + 6)}px`;
-      node.style.right = `${Math.max(8, Math.round(window.innerWidth - r.right))}px`;
+      node.style.right = `${Math.max(8, Math.round(document.documentElement.clientWidth - r.right))}px`;
     };
     place();
     window.addEventListener("resize", place);
     window.addEventListener("scroll", place, true);
+    const observer = typeof ResizeObserver !== "undefined" ? new ResizeObserver(place) : null;
+    if (toggle) observer?.observe(toggle);
+    observer?.observe(document.documentElement);
     return {
       destroy() {
         window.removeEventListener("resize", place);
         window.removeEventListener("scroll", place, true);
+        observer?.disconnect();
         node.remove();
       },
     };
@@ -79,10 +86,12 @@
     }
   }
 
-  // Focus leaving the block (Tab past the list) closes it.
+  // Focus leaving the block or the list closes it, also when it goes nowhere (Tab past Play at the
+  // end of the page). The list itself takes focus on a click inside it (tabindex -1), so clicking
+  // its text keeps it open.
   function onFocusOut(event: FocusEvent): void {
     const next = event.relatedTarget;
-    if (menuOpen && next instanceof Node && !inside(next)) closeMenu(false);
+    if (menuOpen && (next === null || (next instanceof Node && !inside(next)))) closeMenu(false);
   }
 
   function onWindowPointerdown(event: PointerEvent): void {
@@ -119,7 +128,7 @@
 </div>
 
 {#if found && menuOpen}
-    <section class="hb-menu" id="hb-menu" aria-label="Minigames" bind:this={menu} use:floating on:focusout={onFocusOut}>
+    <section class="hb-menu" id="hb-menu" aria-label="Minigames" tabindex="-1" bind:this={menu} use:floating on:focusout={onFocusOut}>
       <div class="hb-menu-title">MINIGAMES</div>
       <div class="hb-game">
         <div class="hb-game-text">

@@ -106,9 +106,13 @@ describe("App wiring for 0.13.11", () => {
     const z = Number(/z-index: (\d+);/.exec(menuCss)?.[1]);
     // Above every other layer in the app, below only the minigame window and the popup.
     const others: number[] = [];
-    for (const f of readdirSync("src/lib").filter((n) => n.endsWith(".svelte") && n !== "HeaderButtons.svelte" && n !== "SecretGameOverlay.svelte" && n !== "AchievementToasts.svelte"))
-      for (const m of readFileSync(`src/lib/${f}`, "utf-8").matchAll(/z-index: (\d+)/g)) others.push(Number(m[1]));
-    for (const m of APP.matchAll(/z-index: ?(\d+)/g)) others.push(Number(m[1]));
+    const mine = ["HeaderButtons.svelte", "SecretGameOverlay.svelte", "AchievementToasts.svelte"];
+    const sources = readdirSync("src", { recursive: true })
+      .map((n) => n.replace(/\\/g, "/"))
+      .filter((n) => (n.endsWith(".svelte") || n.endsWith(".css")) && !mine.some((m) => n.endsWith(m)));
+    expect(sources).toContain("app.css");
+    expect(sources.some((n) => n.includes("/"))).toBe(true); // subfolders are scanned too
+    for (const f of sources) for (const m of readFileSync(`src/${f}`, "utf-8").matchAll(/z-index:\s*(\d+)/g)) others.push(Number(m[1]));
     expect(others.length).toBeGreaterThan(5);
     expect(z).toBeGreaterThan(Math.max(...others));
     const overlay = Number(/z-index: (\d+);/.exec(readFileSync("src/lib/SecretGameOverlay.svelte", "utf-8"))?.[1]);
@@ -117,20 +121,26 @@ describe("App wiring for 0.13.11", () => {
     expect(hb).toMatch(/event\.key === "Escape"/);
     expect(hb).toContain("on:pointerdown={onWindowPointerdown}");
     expect(hb).toMatch(/hb-menu[^>]*on:focusout=\{onFocusOut\}/);
+    expect(hb).toContain("next === null ||");
+    expect(hb).toContain("document.documentElement.clientWidth - r.right");
+    expect(hb).toContain("new ResizeObserver(place)");
   });
 
   it("0.13.11.1: the main game reads the ONE trusted clock for loop, load, save and recaps", () => {
     const loopStart = APP.indexOf("const pollGameLoop = () => {");
     const loop = APP.slice(loopStart, APP.indexOf("const welcomeBack = ", loopStart));
     expect(loop).toContain("const now = trustedNow();");
-    expect(loop).toContain("clampCatchUp(plan, heldReleaseBudgetSeconds)");
+    expect(loop).toContain("releaseHeld(plan, heldRelease, trustedHeldMs() / 1000)");
     expect(functionBody("doSave")).toContain("paidThroughMs(loopClock, trustedNow())");
     expect(APP).toContain("const returnedAtMs = trustedNow();");
     expect(APP).toContain("initTrustedTime([loadedSave?.lastSavedAt, peekSecretLastTick()]);");
     // No progress path reads the raw device clock any more.
     for (const raw of ["paidThroughMs(loopClock, Date.now())", "const returnedAtMs = Date.now()", "atMs: Date.now(), snapshot"]) expect(APP).not.toContain(raw);
     const runtime = readFileSync("src/lib/secret/runtime.ts", "utf-8");
-    expect(runtime).not.toMatch(/Date\.now\(\)/);
+    // (one placeholder before the save loads, never the trusted clock at module load: review H1)
+    expect(runtime).toContain("let state: SecretState = freshSecretState(Date.now());");
+    expect(runtime).not.toContain("let state: SecretState = freshSecretState(trustedNow());");
+    expect(runtime.replace("let state: SecretState = freshSecretState(Date.now());", "")).not.toMatch(/Date\.now\(\)/);
   });
 
   it("0.13.11.1: one achievement popup mount, after the overlay", () => {

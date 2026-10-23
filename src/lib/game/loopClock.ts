@@ -157,13 +157,48 @@ export function awayRecapSpan(
 // 0.13.11.1 clock protection. A reload whose catch-up had part of its absence HELD (the device
 // clock was ahead of what trustedTime.ts trusts) pays the rest later, once the clock is confirmed,
 // as a live catch-up. The absence's offline cap still covers BOTH payments together: the release may
-// pay at most udgetSeconds (the cap minus what the reload already paid), so an honest player
-// gets exactly what one uninterrupted reload would have paid, never a second cap. Pure.
+// pay at most budgetSeconds of game time (the cap minus what the reload already paid), so an honest
+// player gets exactly what one uninterrupted reload would have paid, never a second cap. Pure.
+//
+// The game seconds one cycle is worth: barSeconds of real time at this poll's speed.
+function gameSecondsPerCycle(plan: AdvancePlan): number {
+  return plan.cycles > 0 ? plan.gameSeconds / plan.cycles : plan.barSeconds;
+}
+
+// Cut a catch-up down to at most budgetSeconds of game time (whole cycles).
 export function clampCatchUp(plan: AdvancePlan, budgetSeconds: number): AdvancePlan {
   if (plan.mode !== "catchUp" || plan.cycles <= 0) return plan;
-  const cycles = Math.max(0, Math.min(plan.cycles, Math.floor(budgetSeconds / plan.barSeconds)));
+  const perCycle = gameSecondsPerCycle(plan);
+  const cycles = Math.max(0, Math.min(plan.cycles, Math.floor(budgetSeconds / perCycle + 1e-9)));
   if (cycles === plan.cycles) return plan;
-  return { ...plan, cycles, gameSeconds: (plan.gameSeconds * cycles) / plan.cycles, mode: cycles === 0 ? "none" : cycles <= LIVE_STEP_MAX_CYCLES ? "step" : "catchUp" };
+  return { ...plan, cycles, gameSeconds: perCycle * cycles, mode: cycles === 0 ? "none" : cycles <= LIVE_STEP_MAX_CYCLES ? "step" : "catchUp" };
+}
+
+// The armed release: what the held absence may still pay (game seconds) and how much was held
+// (real seconds) at the last poll.
+export interface HeldRelease {
+  budgetSeconds: number;
+  heldSeconds: number;
+}
+
+// One poll against an armed release. Only the part of this catch-up that the hold RELEASED (the
+// drop in held time since the last poll) is limited by the budget; the rest of the poll, an honest
+// background gap for instance, is paid in full. The budget falls by what the release was paid, and
+// the release disarms (null) once nothing is held any more.
+export function releaseHeld(plan: AdvancePlan, arm: HeldRelease | null, heldNowSeconds: number): { plan: AdvancePlan; arm: HeldRelease | null } {
+  if (arm === null) return { plan, arm };
+  const held = Math.max(0, heldNowSeconds);
+  let next = plan;
+  let budget = arm.budgetSeconds;
+  if (plan.mode === "catchUp" && plan.cycles > 0) {
+    const speed = plan.gameSeconds / (plan.cycles * plan.barSeconds);
+    const planGame = plan.gameSeconds;
+    const releasedGame = Math.min(planGame, Math.max(0, arm.heldSeconds - held) * speed);
+    const releasedPaid = Math.min(releasedGame, Math.max(0, budget));
+    next = clampCatchUp(plan, planGame - releasedGame + releasedPaid);
+    budget -= releasedPaid;
+  }
+  return { plan: next, arm: held <= 0 ? null : { budgetSeconds: budget, heldSeconds: held } };
 }
 
 // Game ticks a planned poll actually pays: a catch-up beyond the offline cap pays only the cap.

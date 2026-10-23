@@ -13,6 +13,7 @@ import {
   startLoopClock,
   type LoopClock,
   clampCatchUp,
+  releaseHeld,
 } from "./loopClock";
 import { tick, UNKNOWN_COMPLETION_TIME_MS } from "./tick";
 import { freshState, type CaptainMissionState, type GameState } from "./model";
@@ -412,5 +413,44 @@ describe("clampCatchUp (0.13.11.1 clock protection: a held absence is paid under
     expect(p.gameSeconds).toBe(1200);
     expect(p.mode).toBe("catchUp");
     expect(clampCatchUp(plan(5000), 0).mode).toBe("none");
+  });
+  it("counts game seconds at the poll's speed (barSeconds x speed per cycle)", () => {
+    // speed 4: each 1-second cycle is worth 4 game seconds
+    const fast = { ...plan(5000), gameSeconds: 20000 };
+    const p = clampCatchUp(fast, 1200);
+    expect(p.cycles).toBe(300);
+    expect(p.gameSeconds).toBe(1200);
+  });
+});
+
+describe("releaseHeld (0.13.11.1 review M2: only the released part is limited)", () => {
+  const plan = (cycles: number) => ({ kind: "advance" as const, realElapsedSeconds: cycles, mode: (cycles > 2 ? "catchUp" : "step") as "catchUp" | "step", cycles, barSeconds: 1, ticksPerCycle: 1, gameSeconds: cycles });
+  it("a later honest background gap is paid in full even with the budget spent", () => {
+    // The reload used the whole cap; an hour is still held (never confirmed).
+    const arm = { budgetSeconds: 0, heldSeconds: 3600 };
+    const r = releaseHeld(plan(1800), arm, 3600); // a 30-minute background gap, hold unchanged
+    expect(r.plan.cycles).toBe(1800);
+    expect(r.arm).toEqual({ budgetSeconds: 0, heldSeconds: 3600 });
+  });
+  it("the release itself is paid only up to the budget, and the arm then disarms", () => {
+    const arm = { budgetSeconds: 600, heldSeconds: 3600 };
+    const r = releaseHeld(plan(3600), arm, 0); // the server confirmed: the whole hour arrives at once
+    expect(r.plan.cycles).toBe(600);
+    expect(r.arm).toBeNull();
+  });
+  it("a release mixed with real time: the real part in full, the released part up to the budget", () => {
+    const arm = { budgetSeconds: 100, heldSeconds: 1000 };
+    const r = releaseHeld(plan(1300), arm, 0); // 300 s real + 1000 s released
+    expect(r.plan.cycles).toBe(400);
+  });
+  it("a partial release lowers the budget by what it paid and stays armed", () => {
+    const arm = { budgetSeconds: 500, heldSeconds: 1000 };
+    const r = releaseHeld(plan(400), arm, 600);
+    expect(r.plan.cycles).toBe(400);
+    expect(r.arm).toEqual({ budgetSeconds: 100, heldSeconds: 600 });
+  });
+  it("steady polls pass through and nothing armed means nothing changes", () => {
+    expect(releaseHeld(plan(1), { budgetSeconds: 0, heldSeconds: 50 }, 50).plan).toEqual(plan(1));
+    expect(releaseHeld(plan(5000), null, 0).plan).toEqual(plan(5000));
   });
 });

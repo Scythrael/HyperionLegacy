@@ -885,7 +885,8 @@
     awayRecapSpan,
     paidTicks,
     blendRunwayEma,
-    clampCatchUp,
+    releaseHeld,
+    type HeldRelease,
     type LoopClock,
   } from "./lib/game/loopClock";
   import { formatNumber, formatDuration, formatClock } from "./lib/game/format";
@@ -965,7 +966,7 @@
   import { peekSecretLastTick } from "./lib/secret/state";
   // 0.13.11.1 clock protection: the ONE trusted wall clock every progress system reads (never
   // backward, never far ahead of the server; an honest clock is returned exactly).
-  import { trustedNow, initTrustedTime, syncServerTime, persistTrustedTime, trustedHeldMs } from "./lib/trustedTime";
+  import { trustedNow, initTrustedTime, syncServerTime, syncServerTimeIfDue, confirmTrustedTime, persistTrustedTime, trustedHeldMs, SERVER_TOLERANCE_MS } from "./lib/trustedTime";
   // 0.13.11.1: the Help / Minigames / Settings header block, the achievement popup, the gift code
   // and Starfall unlock (account-level optional save fields, written only through accountExtras and
   // the do* handlers below), and the theme STYLE layer (themeStyle.ts, device-side choice).
@@ -2940,10 +2941,10 @@
   let expandedMissionKey: MissionKey | null = null;
 
   let tickHandle: ReturnType<typeof setInterval>;
-  // 0.13.11.1 clock protection: the server time check's timer, and what a held reload may still
-  // pay when its hold is released (the rest of that absence's offline cap; null: nothing held).
+  // 0.13.11.1 clock protection: the server time check's timer, and the armed release of a held
+  // reload (what it may still pay, the rest of that absence's offline cap; null: nothing held).
   let timeSyncHandle: ReturnType<typeof setInterval> | undefined;
-  let heldReleaseBudgetSeconds: number | null = null;
+  let heldRelease: HeldRelease | null = null;
   let saveHandle: ReturnType<typeof setInterval>;
   // The live loop's clock (HOTFIX 0.13.10): the current cycle's start with any leftover carried
   // forward, the previous poll's time for the fleet clock, and the pause flag. Driven ONLY by
@@ -3200,7 +3201,9 @@
       paidThroughAtLoadMs = offlineSeconds > 5 ? returnedAtMs : Math.min(loadedSave.lastSavedAt, returnedAtMs);
       // 0.13.11.1: part of this absence was held (the device clock is ahead of what is trusted). It is
       // paid when the clock is confirmed, under what is left of this absence's own offline cap.
-      if (trustedHeldMs() > 0) heldReleaseBudgetSeconds = Math.max(0, offlineCapTicks(loadedSave.state) * loadedSave.state.tickDurationSeconds - offlineSeconds);
+      if (trustedHeldMs() > 0) {
+        heldRelease = { budgetSeconds: Math.max(0, offlineCapTicks(loadedSave.state) * loadedSave.state.tickDurationSeconds - offlineSeconds), heldSeconds: trustedHeldMs() / 1000 };
+      }
       // ⚠️ INVARIANT: the offline advance is this ONE deterministic call. offline == live
       // hinges on it being byte-identical to the live loop, so we ONLY read state around it
       // (the pre-tick snapshot is loadedSave.state, the post-tick snapshot is `state`) and
@@ -3305,10 +3308,12 @@
       const polled = planPoll(loopClock, now, state.tickDurationSeconds, speed);
       loopClock = polled.clock;
       let plan = polled.plan;
-      // 0.13.11.1: the release of a held absence is paid under the same offline cap as its reload.
-      if (heldReleaseBudgetSeconds !== null && plan.kind === "advance" && plan.mode === "catchUp") {
-        plan = clampCatchUp(plan, heldReleaseBudgetSeconds);
-        heldReleaseBudgetSeconds = null;
+      // 0.13.11.1: the release of a held absence is paid under the same offline cap as its reload;
+      // only the released part is limited (releaseHeld), any other gap in the same poll is paid.
+      if (heldRelease !== null && plan.kind === "advance") {
+        const released = releaseHeld(plan, heldRelease, trustedHeldMs() / 1000);
+        plan = released.plan;
+        heldRelease = released.arm;
       }
 
       // Paused (speed 0): the poll clock is frozen and nothing advances.
@@ -3416,19 +3421,34 @@
         return;
       }
       pollGameLoop();
-      const away = awayFrom;
-      awayFrom = null;
-      void syncServerTime();
-      if (away !== null) welcomeBack(away.snapshot, (trustedNow() - away.atMs) / 1000);
+      // 0.13.11.1: recap once the time away is known. After a device sleep performance.now() may have
+      // stopped, so a big held amount first waits (at most 3 s) for the server to confirm the clock.
+      // The away clock stays set meanwhile, so the loop's own catch-up never recaps part of it, and
+      // finish() reads and writes state in one synchronous pass (nothing straddles the await).
+      const finish = () => {
+        if (document.hidden) return; // hidden again: the next return recaps the whole stretch
+        pollGameLoop();
+        const away = awayFrom;
+        awayFrom = null;
+        if (away !== null) welcomeBack(away.snapshot, (trustedNow() - away.atMs) / 1000);
+      };
+      if (trustedHeldMs() > SERVER_TOLERANCE_MS) {
+        void confirmTrustedTime(3000).then(finish);
+        return;
+      }
+      void syncServerTimeIfDue();
+      finish();
     };
     document.addEventListener("visibilitychange", onVisibilityChange);
     // A tab opened in the background never fires a "hidden" change, so start the away clock here;
     // the first time it is shown, the hidden stretch is recapped like any other.
     if (document.hidden) awayFrom = { atMs: trustedNow(), snapshot: state };
 
-    // 0.13.11.1: check the server's clock now and every ten minutes (and on each return, above).
+    // 0.13.11.1: check the server's clock now and every ten minutes while shown (and on returns, above).
     void syncServerTime();
-    timeSyncHandle = setInterval(() => void syncServerTime(), 10 * 60 * 1000);
+    timeSyncHandle = setInterval(() => {
+      if (!document.hidden) void syncServerTime();
+    }, 10 * 60 * 1000);
 
     // Autosave every 30s, tech spec §6.
     saveHandle = setInterval(doSave, 30000);

@@ -69,6 +69,11 @@ describe("0.13.11 text rules", () => {
     }
   });
 
+  it("has no stray control characters (a raw backspace once slipped into a comment)", () => {
+    const whole = ["src/lib/game/loopClock.ts", "src/lib/game/loopClock.test.ts", "src/App.svelte"].map((path) => ({ path, src: readFileSync(path, "utf-8") }));
+    for (const f of [...FILES, ...SLICES(), ...whole]) expect(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/.test(f.src), `${f.path} has a control character`).toBe(false);
+  });
+
   it("uses SVG glyphs, never emoji", () => {
     for (const f of [...FILES, ...SLICES()]) expect(/\p{Extended_Pictographic}/u.test(f.src), `${f.path} has an emoji`).toBe(false);
   });

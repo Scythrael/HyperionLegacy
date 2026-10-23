@@ -35,7 +35,9 @@ const SLICE_MS = 8;
 // Gaps up to this many seconds are paid inline on the tick (at most 60 one-second steps).
 const INLINE_SECONDS = 60;
 
-let state: SecretState = freshSecretState(trustedNow());
+// A placeholder until startSecretRuntime loads the save: never the trusted clock at module load, which
+// would run before the main game starts the clock from its save stamps (0.13.11.1).
+let state: SecretState = freshSecretState(Date.now());
 let lastGood: SecretState = state;
 let readOnly = false; // a newer version's save is on disk: never overwrite it
 const store = writable<SecretState>(state);

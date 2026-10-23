@@ -96,9 +96,10 @@ describe("long gaps never pay less than live, and never more than live in a long
           expect(eC).toBeGreaterThanOrEqual(eL - 1e-9 * Math.max(1, eL));
           const generous = effectiveExponent(checkpoints.get(generousGap(gap))!.bestOre);
           // 0.13.11.1 retune: on a plateau (no new best for days, as the mid state has around e592,000
-          // once the gains bend) the coarse margin can sit a hair above live; the bound allows one part in
-          // ten thousand of the exponent (measured: 17 of 592,756), still far under any real overpay.
-          expect(eC).toBeLessThanOrEqual(generous + 1e-4 * Math.max(1, generous));
+          // once the gains bend) the coarse margin can sit a hair above live. The bound allows 25 in the
+          // exponent itself, absolute, not relative (measured: 17 above e592,756), far under any real
+          // overpay; everywhere else the measured gaps stay inside the old 1e-9 relative bound.
+          expect(eC).toBeLessThanOrEqual(generous + Math.max(1e-9 * Math.max(1, generous), name === "mid" ? 25 : 0));
           expect(progressAtLeast(c, l)).toBe(true);
           expect(c.dreamPoints.gte(l.dreamPoints)).toBe(true);
           if (l.milestones.finale !== undefined) expect(c.milestones.finale).toBeDefined();
@@ -185,6 +186,19 @@ describe("clock edges", () => {
     // and the next honest reading pays only real time past the mark, once
     expect(advanceTo(r.state, 100000 + 5000).seconds).toBe(5);
     expect(r.state.ore.eq(1234)).toBe(true);
+  });
+
+  it("a stamp far ahead of the trusted clock moves to now and pays nothing (review M1: never freezes)", () => {
+    const s = freshSecretState(100000 + 60 * 60 * 1000);
+    s.ore = new Decimal(1234);
+    const r = advanceTo(s, 100000);
+    expect(r.steps).toBe(0);
+    expect(r.state.lastTickAt).toBe(100000);
+    expect(r.state.ore.eq(1234)).toBe(true);
+    // from there it runs on real time again
+    expect(advanceTo(r.state, 100000 + 5000).seconds).toBe(5);
+    // within the tolerance the mark is kept instead
+    expect(advanceTo(freshSecretState(100000 + 5 * 60 * 1000), 100000).state.lastTickAt).toBe(100000 + 5 * 60 * 1000);
   });
 
   it("a non-finite clock does nothing", () => {

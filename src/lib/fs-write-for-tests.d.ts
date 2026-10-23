@@ -5,5 +5,5 @@
 // branch that declares more of node:fs without touching the shared shim.
 declare module "node:fs" {
   export function writeFileSync(path: string, data: string): void;
-  export function readdirSync(path: string): string[];
+  export function readdirSync(path: string, options?: { recursive?: boolean }): string[];
 }

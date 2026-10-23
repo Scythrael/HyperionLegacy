@@ -11,50 +11,76 @@
 //      device clock is behind the mark (the clock was set back), the session keeps advancing from
 //      performance.now() deltas, so open play works at real speed; nothing is re-anchored.
 //   2. FORWARD JUMPS. When the server's time is known (a same-origin no-store HEAD request, read the
-//      Date header), trusted time is at most server time + SERVER_TOLERANCE_MS. When it is not
-//      (offline, or the request failed), at most the last VERIFIED time + UNVERIFIED_ALLOWANCE_MS
-//      (2 days, the main game's own offline cap). Anything the device claims beyond that is HELD:
-//      it is not paid now, and it is not lost either, because every system pays from its own
-//      stamp, which stays where it was paid to; the rest is paid as real time catches up or as
-//      soon as a server check confirms the device.
+//      Date header, plus the Age header if a cache answered), trusted time is at most server time +
+//      SERVER_TOLERANCE_MS. When it is not (offline, or the request failed), at most a fixed base +
+//      UNVERIFIED_ALLOWANCE_MS (2 days, the main game's own offline cap). The base is the last time
+//      the SERVER confirmed (`verifiedMs`, never a device reading), or, before any server reading,
+//      a one-time anchor (`anchorMs`: the newest save stamp, or a brand-new device's first reading).
+//      Neither moves with reloads, so the allowance is paid once, never per reload. Anything the
+//      device claims beyond that is HELD: not paid now, not lost either (every system pays from its
+//      own stamp, which stays where it was paid to); it is paid as real time catches up or as soon
+//      as a server check confirms the device.
 //   3. HONEST CLOCKS SEE NO CHANGE. A device clock that only moves forward and agrees with the
 //      server to within the tolerance is returned exactly (trustedNow() === Date.now()), so the main
 //      game's offline catch-up, its goldens and offline == live parity are byte-identical. A small
 //      correction backward (a few minutes) just keeps counting from the monotonic clock until the
 //      device catches up; a small correction forward is within the tolerance. Daylight saving
 //      changes the displayed time only, never the epoch milliseconds read here.
+//   4. SELF-HEAL. When a server reading proves trusted time is more than the allowance AHEAD of the
+//      server (a save stamped while a clock was far ahead, or a tester's 2099 run), trusted time
+//      steps down to server time once. The main loop rebases on a backward clock (advanceCycle) and
+//      the minigame rebases a stamp that is ahead (catchUp), so neither freezes and nothing is paid.
+//   5. A SUSPENDED DEVICE. performance.now() stops during system sleep on many phones and laptops,
+//      so after a sleep the session anchor alone would pay only the tolerance. Whenever time is
+//      held while anchored, trustedNow() asks the server again (at most every 30 s), and the main
+//      game's return-from-away waits briefly for that answer before its recap (confirmTrustedTime).
 //
-// The rules are a pure function (readTrusted) so every case is tested without a browser.
+// The rules are pure functions (readTrusted, withServerTime) so every case is tested without a
+// browser.
 
 import { safeGetItem, safeSetItem } from "./safeStorage";
 
 export const SERVER_TOLERANCE_MS = 10 * 60 * 1000;
 export const UNVERIFIED_ALLOWANCE_MS = 2 * 24 * 60 * 60 * 1000;
+const SYNC_MIN_GAP_MS = 30 * 1000;
+const PERSIST_EVERY_MS = 30 * 1000;
+
+export interface StoredTrust {
+  floorMs: number;
+  verifiedMs: number | null;
+  anchorMs?: number | null;
+}
 
 export interface TrustState {
   floorMs: number; // the high-water mark (0: nothing known yet)
   lastTrustedMs: number; // the last trusted reading
   lastPerfMs: number; // performance.now() at that reading
-  verifiedMs: number | null; // the latest trusted time confirmed against the server (persisted)
+  verifiedMs: number | null; // the latest time the SERVER confirmed (persisted; never a device reading)
+  anchorMs: number | null; // the unverified base before any server reading (persisted, set once)
   server: { serverMs: number; perfMs: number } | null; // this session's server anchor
 }
 
 export function freshTrustState(perfMs: number): TrustState {
-  return { floorMs: 0, lastTrustedMs: 0, lastPerfMs: perfMs, verifiedMs: null, server: null };
+  return { floorMs: 0, lastTrustedMs: 0, lastPerfMs: perfMs, verifiedMs: null, anchorMs: null, server: null };
 }
 
-// Start a session: the stored mark and verification, raised by every save stamp the caller knows.
-export function initTrustState(stored: { floorMs: number; verifiedMs: number | null } | null, stamps: readonly (number | null | undefined)[], perfMs: number): TrustState {
+// Start a session: the stored mark and bases, raised by every save stamp the caller knows. With no
+// stored base, the newest save stamp is the anchor (an existing player's first load).
+export function initTrustState(stored: StoredTrust | null, stamps: readonly (number | null | undefined)[], perfMs: number): TrustState {
   const known = stamps.filter((x): x is number => typeof x === "number" && Number.isFinite(x));
   const floorMs = Math.max(stored?.floorMs ?? 0, ...known, 0);
-  return { floorMs, lastTrustedMs: floorMs, lastPerfMs: perfMs, verifiedMs: stored?.verifiedMs ?? null, server: null };
+  const verifiedMs = stored?.verifiedMs ?? null;
+  const anchorMs = stored?.anchorMs ?? (verifiedMs === null && known.length > 0 ? Math.max(...known) : null);
+  return { floorMs, lastTrustedMs: floorMs, lastPerfMs: perfMs, verifiedMs, anchorMs, server: null };
 }
+
+const serverNowOf = (st: TrustState, perfMs: number): number | null => (st.server ? st.server.serverMs + (perfMs - st.server.perfMs) : null);
 
 // The latest time trusted time may reach right now.
 function ceiling(st: TrustState, deviceMs: number, perfMs: number): number {
-  if (st.server) return st.server.serverMs + (perfMs - st.server.perfMs) + SERVER_TOLERANCE_MS;
-  const base = st.verifiedMs ?? (st.floorMs > 0 ? st.floorMs : deviceMs);
-  return base + UNVERIFIED_ALLOWANCE_MS;
+  const serverNow = serverNowOf(st, perfMs);
+  if (serverNow !== null) return serverNow + SERVER_TOLERANCE_MS;
+  return (st.verifiedMs ?? st.anchorMs ?? deviceMs) + UNVERIFIED_ALLOWANCE_MS;
 }
 
 export function readTrusted(st: TrustState, deviceMs: number, perfMs: number): { state: TrustState; nowMs: number; heldMs: number } {
@@ -62,19 +88,27 @@ export function readTrusted(st: TrustState, deviceMs: number, perfMs: number): {
   // Never backward, and an open session always keeps real speed (mono) even while unverified.
   const cap = Math.max(ceiling(st, deviceMs, perfMs), mono, st.lastTrustedMs);
   const nowMs = deviceMs >= st.lastTrustedMs ? Math.min(deviceMs, cap) : Math.min(Math.max(mono, st.lastTrustedMs), cap);
-  // Online, every reading is verified. Offline, the base stays where it was last verified (on a
-  // brand new device, its first reading), so the allowance is a one-time loan, never repeatable.
-  const verifiedMs = st.server ? Math.max(st.verifiedMs ?? 0, nowMs) : st.verifiedMs ?? nowMs;
+  // Only the server's own time is ever recorded as verified (no tolerance, no device reading).
+  const serverNow = serverNowOf(st, perfMs);
+  const verifiedMs = serverNow !== null ? Math.max(st.verifiedMs ?? -Infinity, serverNow) : st.verifiedMs;
+  // Before any server reading, the first reading of a brand-new device is its one-time anchor.
+  const anchorMs = st.anchorMs ?? (verifiedMs === null ? nowMs : null);
   return {
-    state: { ...st, floorMs: Math.max(st.floorMs, nowMs), lastTrustedMs: nowMs, lastPerfMs: perfMs, verifiedMs },
+    state: { ...st, floorMs: Math.max(st.floorMs, nowMs), lastTrustedMs: nowMs, lastPerfMs: perfMs, verifiedMs, anchorMs },
     nowMs,
     heldMs: Math.max(0, deviceMs - nowMs),
   };
 }
 
-// Anchor the session to the server's clock (the request's midpoint absorbs the round trip).
+// Anchor the session to the server's clock (serverMs read at perfMs). Records the server's time as
+// verified, and steps trusted time down to it when trusted time is more than the allowance ahead.
 export function withServerTime(st: TrustState, serverMs: number, perfMs: number): TrustState {
-  return Number.isFinite(serverMs) ? { ...st, server: { serverMs, perfMs } } : st;
+  if (!Number.isFinite(serverMs)) return st;
+  const next: TrustState = { ...st, server: { serverMs, perfMs }, verifiedMs: Math.max(st.verifiedMs ?? -Infinity, serverMs) };
+  if (Math.max(st.floorMs, st.lastTrustedMs) > serverMs + UNVERIFIED_ALLOWANCE_MS) {
+    return { ...next, floorMs: serverMs, lastTrustedMs: serverMs, lastPerfMs: perfMs };
+  }
+  return next;
 }
 
 // ---------------------------------------------------------------------------
@@ -87,11 +121,13 @@ function perfNow(): number {
   return typeof performance !== "undefined" ? performance.now() : Date.now();
 }
 
-function loadStored(): { floorMs: number; verifiedMs: number | null } | null {
+const finiteOrNull = (x: unknown): number | null => (typeof x === "number" && Number.isFinite(x) ? x : null);
+
+function loadStored(): StoredTrust | null {
   try {
-    const raw = JSON.parse(safeGetItem(KEY) ?? "null") as { floorMs?: unknown; verifiedMs?: unknown } | null;
+    const raw = JSON.parse(safeGetItem(KEY) ?? "null") as { floorMs?: unknown; verifiedMs?: unknown; anchorMs?: unknown } | null;
     if (!raw || typeof raw.floorMs !== "number" || !Number.isFinite(raw.floorMs)) return null;
-    return { floorMs: raw.floorMs, verifiedMs: typeof raw.verifiedMs === "number" && Number.isFinite(raw.verifiedMs) ? raw.verifiedMs : null };
+    return { floorMs: raw.floorMs, verifiedMs: finiteOrNull(raw.verifiedMs), anchorMs: finiteOrNull(raw.anchorMs) };
   } catch {
     return null;
   }
@@ -99,19 +135,24 @@ function loadStored(): { floorMs: number; verifiedMs: number | null } | null {
 
 let session: TrustState | null = null;
 let lastHeldMs = 0;
-let lastPersistedFloor = -1;
+let lastPersistedFloor = -Infinity;
+let lastSyncAttemptMs = -Infinity; // device time of the last server check (rate limiting only)
+// Nothing is written before initTrustedTime: a reading taken earlier must never reach storage.
+let initialized = false;
 
 function current(): TrustState {
   if (session === null) session = initTrustState(loadStored(), [], perfNow());
   return session;
 }
 
-// Start (or restart) the session with every save stamp known. Safe to call more than once: the mark
-// only ever rises.
+// Start (or restart) the session with every save stamp known. Built from storage and the stamps
+// only: a reading taken before this call (a module-level default, say) must never become the mark
+// or the base, or a device clock far ahead would be adopted. A server anchor already taken is kept.
 export function initTrustedTime(stamps: readonly (number | null | undefined)[]): void {
   const before = session;
-  const fresh = initTrustState(loadStored(), [...stamps, before?.floorMs], perfNow());
-  session = before ? { ...fresh, lastTrustedMs: Math.max(before.lastTrustedMs, fresh.floorMs), server: before.server, verifiedMs: before.verifiedMs ?? fresh.verifiedMs } : fresh;
+  const fresh = initTrustState(loadStored(), stamps, perfNow());
+  session = before?.server ? withServerTime(fresh, before.server.serverMs, before.server.perfMs) : fresh;
+  initialized = true;
 }
 
 // Raise the mark from a stamp read later (the minigame's own save).
@@ -125,7 +166,9 @@ export function trustedNow(): number {
   const r = readTrusted(current(), Date.now(), perfNow());
   session = r.state;
   lastHeldMs = r.heldMs;
-  if (r.state.floorMs - lastPersistedFloor > 5000) persistTrustedTime();
+  if (r.state.floorMs - lastPersistedFloor >= PERSIST_EVERY_MS) persistTrustedTime();
+  // Rule 5: anchored but holding more than the tolerance (a suspended device, most likely): ask again.
+  if (r.state.server && r.heldMs > SERVER_TOLERANCE_MS && Date.now() - lastSyncAttemptMs >= SYNC_MIN_GAP_MS) void syncServerTime();
   return r.nowMs;
 }
 
@@ -143,25 +186,34 @@ export function trustedHeldMs(): number {
 }
 
 export function persistTrustedTime(): void {
+  if (!initialized) return;
   const st = current();
   lastPersistedFloor = st.floorMs;
-  safeSetItem(KEY, JSON.stringify({ floorMs: st.floorMs, verifiedMs: st.verifiedMs }));
+  safeSetItem(KEY, JSON.stringify({ floorMs: st.floorMs, verifiedMs: st.verifiedMs, anchorMs: st.anchorMs }));
 }
 
-// Ask the server what time it is. Same origin, no-store, HEAD: only the Date header is read. Any
-// failure (offline, an error status, no header) leaves the unverified rules in place.
-export async function syncServerTime(fetcher: (url: string, init: RequestInit) => Promise<Response> = fetch): Promise<boolean> {
+type Fetcher = (url: string, init: RequestInit) => Promise<Response>;
+
+// Ask the server what time it is. Same origin, no-store, HEAD: only the Date and Age headers are
+// read. Any failure (offline, no fetch at all, an error status, no Date header) leaves the
+// unverified rules in place.
+export async function syncServerTime(fetcher?: Fetcher): Promise<boolean> {
   try {
-    if (typeof location === "undefined") return false;
+    lastSyncAttemptMs = Date.now();
+    const f: Fetcher | undefined = fetcher ?? (typeof fetch === "function" ? fetch : undefined);
+    if (!f || typeof location === "undefined") return false;
     const t0 = perfNow();
-    const res = await fetcher(`${location.origin}/`, { method: "HEAD", cache: "no-store" });
+    const res = await f(`${location.origin}/`, { method: "HEAD", cache: "no-store" });
     const t1 = perfNow();
     const date = res.headers.get("date");
     if (!res.ok || !date) return false;
-    const serverMs = Date.parse(date);
-    if (!Number.isFinite(serverMs)) return false;
+    const parsed = Date.parse(date);
+    if (!Number.isFinite(parsed)) return false;
+    // A cache that answered says how old its copy is; the Date header is when the copy was made.
+    const age = Number(res.headers.get("age") ?? 0);
+    const ageMs = Number.isFinite(age) && age > 0 ? age * 1000 : 0;
     // The header has whole seconds: take the midpoint of the request and half a second.
-    session = withServerTime(current(), serverMs + 500, (t0 + t1) / 2);
+    session = withServerTime(current(), parsed + ageMs + 500, (t0 + t1) / 2);
     persistTrustedTime();
     return true;
   } catch {
@@ -169,9 +221,30 @@ export async function syncServerTime(fetcher: (url: string, init: RequestInit) =
   }
 }
 
+// A server check unless one ran in the last 30 seconds and nothing is held (tab returns).
+export function syncServerTimeIfDue(fetcher?: Fetcher): Promise<boolean> {
+  if (lastHeldMs <= SERVER_TOLERANCE_MS && Date.now() - lastSyncAttemptMs < SYNC_MIN_GAP_MS) return Promise.resolve(false);
+  return syncServerTime(fetcher);
+}
+
+// When more than the tolerance is held, wait (at most timeoutMs) for the server to confirm the
+// clock, so a return from a sleep is paid and recapped in full. Resolves either way.
+export async function confirmTrustedTime(timeoutMs = 3000, fetcher?: Fetcher): Promise<void> {
+  if (lastHeldMs <= SERVER_TOLERANCE_MS) return;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<void>((resolve) => {
+    timer = setTimeout(resolve, timeoutMs);
+  });
+  await Promise.race([syncServerTime(fetcher).then(() => undefined), timeout]);
+  if (timer !== undefined) clearTimeout(timer);
+  trustedNow();
+}
+
 // Tests only.
 export function resetTrustedTimeForTests(): void {
   session = null;
   lastHeldMs = 0;
-  lastPersistedFloor = -1;
+  lastPersistedFloor = -Infinity;
+  lastSyncAttemptMs = -Infinity;
+  initialized = false;
 }

@@ -24,6 +24,7 @@
 
 import { stepMut } from "./engine";
 import { cloneSecret, type SecretState } from "./state";
+import { SERVER_TOLERANCE_MS } from "../trustedTime";
 
 export const EXACT_BOUND_SECONDS = 6 * 3600;
 export const MAX_COARSE_STEPS = 130000;
@@ -69,9 +70,17 @@ const prestigeCount = (x: SecretState): number => x.captainCount + x.fleetTotal 
 export function createCatchUp(s: SecretState, nowMs: number, opts: CatchUpOptions = {}): CatchUpJob {
   const done = (r: AdvanceResult): CatchUpJob => ({ run: () => true, runFor: () => true, elapsedSeconds: () => r.seconds, result: () => r });
   if (!Number.isFinite(nowMs)) return done({ state: s, steps: 0, mode: "none", seconds: 0 });
-  // A clock behind the state's own stamp pays nothing and moves nothing: the stamp is a high-water
-  // mark (0.13.11.1 clock protection; the old re-anchor let a clock set back be paid twice).
-  if (nowMs < s.lastTickAt) return done({ state: s, steps: 0, mode: "none", seconds: 0 });
+  // A clock a little behind the state's own stamp pays nothing and moves nothing: the stamp is a
+  // high-water mark (0.13.11.1 clock protection; the old re-anchor let a clock set back be paid
+  // twice). The trusted clock never runs backward on its own, so a stamp far AHEAD of it is a save
+  // written while a device clock was ahead, or the trusted clock stepped down to the server's: the
+  // stamp moves to now and nothing is paid, so the minigame never freezes (review M1).
+  if (nowMs < s.lastTickAt) {
+    if (s.lastTickAt - nowMs <= SERVER_TOLERANCE_MS) return done({ state: s, steps: 0, mode: "none", seconds: 0 });
+    const rebased = cloneSecret(s);
+    rebased.lastTickAt = nowMs;
+    return done({ state: rebased, steps: 0, mode: "none", seconds: 0 });
+  }
   const seconds = Math.floor((nowMs - s.lastTickAt) / 1000);
   if (seconds <= 0) return done({ state: s, steps: 0, mode: "none", seconds: 0 });
 
