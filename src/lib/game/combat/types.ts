@@ -443,6 +443,14 @@ export interface Combatant {
 	// by bridge.ts shipToCombatant on every combatant built under the combat rules; `active` is recomputed in each of
 	// its movement phases, `carry` banks the reduction's remainder (hundredths of a point). Absent otherwise.
 	evasiveClose?: EvasiveClose;
+	// E-MOD EM-3 (0.14.0, user answer P6 "sqrt curve, floor 60%"): the power supply an over-budget ship fights at, in whole
+	// percent (combat/power.ts powerSupplyPercent, frozen in the run's combat rules stamp): its weapon damage (after the
+	// worn reactor's own per-hit reactorDamagePercent floor, multiplicatively) and its shield recharge. Set by bridge.ts
+	// shipToCombatant only when below 100; absent on every other combatant, so every other battle is unchanged.
+	powerSupplyPercent?: number;
+	// EM-3: the weapon damage the power supply has banked (ten-thousandths of a point), so the percent is exact over a fight
+	// instead of a floor taking a point off each small hit. Set with `powerSupplyPercent`, absent otherwise.
+	powerSupplyCarry?: number;
 }
 
 export interface EvasiveClose {

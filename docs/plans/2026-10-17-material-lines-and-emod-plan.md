@@ -499,6 +499,38 @@ multiplies weapon damage and shield recharge beside `reactorDamagePercent` (call
 golden holds unless a ship is over budget. Runs AFTER WR-8 (shared bridge.ts and patrol goldens). Tests: replay parity;
 neutrality; the floor; stacking with a Degraded reactor is multiplicative, never below the floor product.
 
+*Carry note (EM-3 built 2026-10-23, on feat 21ff7c8).* Goldens first: `emodEm3Goldens.test.ts` (own commit) pins, under
+the WR-8 rules, battles through the real stamp path (Destroyer, Battleship, Carrier, Orion), Dispatch Once patrols and
+the dispatch forecast (Freighter, Destroyer, Battleship, Carrier x both routes) and the Orion's ship-event battles, each
+in budget, over (a draw of 1.5x output, supply 81%) and deep over (4x, the floor); before the engine every over and
+deep row equalled its in-budget row. Built: `combat/power.ts powerSupplyPercent(output, draw)` (100 in budget, the
+exact-equal rule included; else the whole floor of 100 x sqrt(output / draw) by integer root, never below
+`POWER_SUPPLY_FLOOR_PERCENT` 60, user P6); `CombatRulesStamp.powerSupplyPercent`, written only below 100 (the WR-8 hand
+off: frozen beside `speed` at every patrol cycle start, relaunch, ship-event dispatch and the forecast), passed by
+`stampCombatArgs` to `shipToCombatant` (`Combatant.powerSupplyPercent`, set only below 100). One fold reads the power:
+`crewOverlay.ts shipNetPowerTotals` (moved there from shipPower.ts so the stamp reads it without an import cycle;
+`shipPowerTotals` delegates). resolveBattle: weapon damage first takes the worn reactor's own per-hit floor (exactly as
+in budget), then the supply, banked on the attacker (ten-thousandths of a point), so a fight's total is the floor of
+its supplied total and an over-budget ship never out-hits the same ship in budget (review must-fix 2026-10-23: one
+banked product of reactor and supply rounded less than the in-budget floor and made small worn-reactor hits a BONUS;
+no golden moved with the fix: no pinned fight had a worn reactor change its damage); shield recharge banks the supply in hundredths of
+a tenth (`Accumulators.shieldSupply`), and the Defensive bonus banks on the supplied tenths. No draw added, so no salt.
+Proved: every in-budget row held; `emodEm3Switch.fixture.ts withPowerSupplyOff` reproduces every pre-EM-3 row; a run
+dispatched inside the switch and flown by the live engine is byte-identical (in flight); one 900 s `tick()` equals 900
+`economyTick(_, 1)` on a Repeat over-budget patrol; the replay reads the stamp. Win rate (forecast wins of 64, in /
+over / deep): Freighter Sweep 57 / 48 / 37, Destroyer Sweep 64 / 63 / 63, Destroyer Warband 9 / 4 / 2, Battleship
+Warband 52 / 45 / 33, Carrier Warband 23 / 14 / 6; the Battleship and Carrier Sweeps and the Freighter Warband held. No
+live ship is over budget under P1, so no live save moves; the player's path in is the P2 one (an Engineering officer
+or Martian crew leaving, or a Reactor Core removed from a ship whose Class II+ drive or modules needed it). UI: `overBudgetNotice`
+gains `supplyPercent`, `strength` ("Weapons and shield recharge at X%.", bold) and `gentleNote` ("The cut is gentle and
+grows with the shortfall, never below 60%."), the mockup's lines, shown first in the Ship Systems warning; the Power Draw (i) text states the penalty. Registry: `ship:wr8:powerInCombat` LIVE (weapon damage over
+300 shots, patrol and ship event), new `ship:em3:powerShieldRecharge` (LIVE, both contexts) and `ship:em3:powerSupplyFloor`
+(LIVE, equals 60); `emodEm3Registry.fixture.ts em3ReadBack` holds the two added rows apart in emodGoldens and
+shortRangeGoldens. No save step. **Readings for the user:** drone damage is not cut (P6 names weapons and shield
+recharge); the patrol's shield top-up between waves (out of combat) is not cut. **For EM-4:** a reactor surplus lift on
+`transitSpeedMult` also moves the stamp's combat speed (WR-8 note); the supply is untouched by it (surplus is in budget).
+**For EM-10:** the power bar's over-budget chip can read `overBudgetNotice().supplyPercent`.
+
 **EM-4 Reactor surplus (B10 fix, call P3 a).** `reactorSurplus` lifts `transitSpeedMult` on a D23 curve
 [PROPOSAL knee so a Standard-quality tier 1 core nets positive on every hull after its mass]. Speed counts everywhere
 (OC-D8), so mission, patrol-leg and voyage goldens with a crafted reactor move (explained; zeroing the lift reproduces

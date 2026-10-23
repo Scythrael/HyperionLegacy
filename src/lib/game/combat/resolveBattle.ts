@@ -254,6 +254,8 @@ interface Accumulators {
 	// WR-8 review: a Defensive ship's banked recharge bonus, in hundredths of a tenth (so the +25% is exact over a
 	// fight, not floored per second). Stays 0 for every other ship.
 	shieldBonus: number;
+	// E-MOD EM-3: an over-budget ship's banked shield recharge cut, in hundredths of a tenth. Stays 0 for every other ship.
+	shieldSupply: number;
 	// WR-5b (0.14.0): the thousandths of a damage point Drone Handler has banked across this combatant's drone hits
 	// (combat/captainEdge.ts captainDroneDamage). Stays 0 without the node.
 	drone: { milli: number };
@@ -449,6 +451,16 @@ function bankedEvasion(x: number, ev: EvasiveClose): number {
 	ev.carry = bank - out * 100;
 	return out;
 }
+// E-MOD EM-3: `raw` (already past the worn reactor's floor) x the attacker's power supply percent, the remainder banked
+// on the attacker (in ten-thousandths of a point, the unit EM-3 first shipped with, so the carry a battle reports is
+// unchanged). The carry never reaches a point, so a fight's total is the floor of its supplied total: at or below the
+// in-budget total. Integer math, no draw. Called only on a ship carrying a supply.
+function bankedPowerSupply(self: Combatant, raw: number): number {
+	const bank = raw * self.powerSupplyPercent! * 100 + (self.powerSupplyCarry ?? 0);
+	const out = Math.floor(bank / 10_000);
+	self.powerSupplyCarry = bank - out * 10_000;
+	return out;
+}
 // A Defensive attacker's outgoing damage (DEFENSIVE_STANCE.damageDealtPct less, banked); `raw` unchanged otherwise.
 function defensiveDealt(self: Combatant, raw: number): number {
 	const d = self.defensive;
@@ -584,11 +596,19 @@ function advanceShieldRegen(self: Combatant, acc: Accumulators): void {
 	if (steady !== undefined && steady.shieldRecharge !== 0) {
 		effectiveRecharge = Math.max(0, Math.round(effectiveRecharge * (1 + steady.shieldRecharge)));
 	}
-	acc.shield += effectiveRecharge * DT_DECISEC;
+	// E-MOD EM-3: an over-budget ship's shields recharge at its power supply percent. The cut banks in hundredths of a
+	// tenth (only whole tenths move), so it is exact over the fight. A ship in budget banks its full tenths as before.
+	let tenthsThisTick = effectiveRecharge * DT_DECISEC;
+	if (self.powerSupplyPercent !== undefined) {
+		acc.shieldSupply += tenthsThisTick * self.powerSupplyPercent;
+		tenthsThisTick = Math.floor(acc.shieldSupply / 100);
+		acc.shieldSupply -= tenthsThisTick * 100;
+	}
+	acc.shield += tenthsThisTick;
 	// WR-8 review: a Defensive ship puts its shields first (recharges shieldRechargePct faster). The bonus banks in
 	// hundredths and only whole tenths move, so it is exact over the fight. Integer math, no draw.
 	if (self.defensive !== undefined && self.defensive.shieldRechargePct > 0) {
-		acc.shieldBonus += effectiveRecharge * DT_DECISEC * self.defensive.shieldRechargePct;
+		acc.shieldBonus += tenthsThisTick * self.defensive.shieldRechargePct;
 		const tenths = Math.floor(acc.shieldBonus / 100);
 		acc.shieldBonus -= tenths * 100;
 		acc.shield += tenths;
@@ -1207,6 +1227,12 @@ export function fireWeapon(
 		}
 		if (reactorDamagePct !== 100) {
 			raw = Math.floor((raw * reactorDamagePct) / 100);
+		}
+		// E-MOD EM-3: an over-budget attacker's power supply, AFTER the worn reactor's own per-hit floor (the same floor a
+		// ship in budget takes, so over budget can never out-hit in budget), banked so the supply is exact over the fight.
+		// Absent on a ship in budget: no change.
+		if (self.powerSupplyPercent !== undefined) {
+			raw = bankedPowerSupply(self, raw);
 		}
 		// E-CREW (Task 21): Integrity's steady-under-fire damage, while the ATTACKER is below half hull
 		// (checked per projectile, so a shot that drops it below half lifts the rest). Whole points; no draw.
@@ -2168,7 +2194,7 @@ export function resolveBattle(
 	// Per-combatant fixed-point accumulators (movement + shield banking).
 	const accumulators = new Map<string, Accumulators>();
 	for (const c of combatants) {
-		accumulators.set(c.id, { move: 0, shield: 0, shieldBonus: 0, drone: { milli: 0 } });
+		accumulators.set(c.id, { move: 0, shield: 0, shieldBonus: 0, shieldSupply: 0, drone: { milli: 0 } });
 	}
 
 	// PHASE 7b IN-COMBAT DRONE REPLENISH banks (design S8). Keyed by

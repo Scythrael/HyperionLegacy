@@ -23,6 +23,8 @@
 //     persist across the waves of one patrol cycle.
 //   - The installed Reactor Core and FTL drive set the combat reactor and drive pools (their quality: a bigger pool and
 //     a lower wear chance), instead of a fresh quality 0 system.
+//   - E-MOD EM-3 (0.14.0): an over-budget ship fights at its power supply (combat/power.ts powerSupplyPercent), frozen in
+//     the stamp beside its speed; a ship in budget carries no supply, so its stamp is the WR-8 one exactly.
 //
 // IN-FLIGHT RUNS ARE BYTE-IDENTICAL: every rule above acts only on a battle whose run carries a CombatRulesStamp. A
 // patrol cycle is stamped when it starts (dispatch, and each relaunch), an expedition's ship-event battle inputs at
@@ -47,11 +49,17 @@ export const COMBAT_RULES_WR8 = 1 as const;
 //   speed         : the ship's combat speed (combatSpeedFor).
 //   reactorQuality: the installed Reactor Core's quality, the combat reactor pool's (written only when above 0).
 //   ftlQuality    : the installed FTL drive's quality, the combat drive pool's (written only when above 0).
+//   powerSupplyPercent: E-MOD EM-3 (0.14.0, user answer P6 "sqrt curve, floor 60%"): the power supply an over-budget
+//                   ship fights at (combat/power.ts powerSupplyPercent: its pristine output against its net draw), its
+//                   weapon damage and shield recharge in whole percent. Written only when below 100, so a ship in budget
+//                   carries exactly the stamp it carried before EM-3, and a run stamped before EM-3 (no field) fights
+//                   at 100 until its next cycle: in-flight runs replay byte-identically.
 export interface CombatRulesStamp {
   rules: typeof COMBAT_RULES_WR8;
   speed: number;
   reactorQuality?: number;
   ftlQuality?: number;
+  powerSupplyPercent?: number;
 }
 
 // TEST-ONLY off switch (combatRulesSwitch.fixture.ts withCombatRulesOff): while false, no new run is stamped and the
@@ -59,21 +67,37 @@ export interface CombatRulesStamp {
 // exactly. Always true in the app.
 export const COMBAT_RULES_SWITCH: { stampNewRuns: boolean } = { stampNewRuns: true };
 
-// The stamp a run starting now carries for a ship of combat speed `speed` and the installed system qualities
-// (undefined while the test switch is off).
-export function newCombatRulesStamp(speed: number, reactorQuality = 0, ftlQuality = 0): CombatRulesStamp | undefined {
+// TEST-ONLY off switch for E-MOD EM-3 (emodEm3Switch.fixture.ts withPowerSupplyOff): while false, no new stamp carries
+// a power supply, so a run starting inside the switch is a run stamped before EM-3 exactly. Always true in the app.
+export const POWER_SUPPLY_SWITCH: { stampNewRuns: boolean } = { stampNewRuns: true };
+
+// The stamp a run starting now carries for a ship of combat speed `speed`, the installed system qualities and the
+// power supply percent (undefined while the test switch is off).
+export function newCombatRulesStamp(speed: number, reactorQuality = 0, ftlQuality = 0, powerSupplyPercent = 100): CombatRulesStamp | undefined {
   if (!COMBAT_RULES_SWITCH.stampNewRuns) return undefined;
   return {
     rules: COMBAT_RULES_WR8,
     speed,
     ...(reactorQuality > 0 ? { reactorQuality } : {}),
     ...(ftlQuality > 0 ? { ftlQuality } : {}),
+    ...(POWER_SUPPLY_SWITCH.stampNewRuns && powerSupplyPercent < 100 ? { powerSupplyPercent } : {}),
   };
 }
 
-// The shipToCombatant arguments a combatant built under `stamp` takes (its traits, speed and system pools). Pure.
-export function stampCombatArgs(stamp: CombatRulesStamp): { combatRules: true; speed: number; systemQuality: { reactor: number; ftl: number } } {
-  return { combatRules: true, speed: stamp.speed, systemQuality: { reactor: stamp.reactorQuality ?? 0, ftl: stamp.ftlQuality ?? 0 } };
+// The shipToCombatant arguments a combatant built under `stamp` takes (its traits, speed, system pools and, when the
+// stamp carries one, its power supply). Pure.
+export function stampCombatArgs(stamp: CombatRulesStamp): {
+  combatRules: true;
+  speed: number;
+  systemQuality: { reactor: number; ftl: number };
+  powerSupplyPercent?: number;
+} {
+  return {
+    combatRules: true,
+    speed: stamp.speed,
+    systemQuality: { reactor: stamp.reactorQuality ?? 0, ftl: stamp.ftlQuality ?? 0 },
+    ...(stamp.powerSupplyPercent !== undefined ? { powerSupplyPercent: stamp.powerSupplyPercent } : {}),
+  };
 }
 
 // [PROVISIONAL] (OC-D9, the plan's recommended option: "enemies spawn at range and close"): the distance a fight opens

@@ -24,7 +24,7 @@ import { stancePreferredDistance, type CombatStance } from "../combat/positionin
 import type { Combatant, CombatEvent } from "../combat/types";
 import type { PirateHullId } from "../combat/enemyHulls";
 import { COMBAT_RULES_WR8, ENCOUNTER_OPEN_DISTANCE, RULES_COMBAT_SPEED, stampCombatArgs, withWeaponRuleTraits, type CombatRulesStamp } from "../combat/combatRules";
-import { shipEventEnemy, HOSTILE_PROBE_HULL } from "../shipScanEvents";
+import { buildShipCombatant, shipEventEnemy, snapshotShipEventProfile, HOSTILE_PROBE_HULL } from "../shipScanEvents";
 import type { Expedition, ExpeditionBody } from "../model";
 
 // The context ids these probes read (a subset of probes.ts CONTEXT_IDS, named here to keep the module a leaf).
@@ -429,7 +429,45 @@ export const COMBAT_DESCRIPTOR_PROBES = {
     label: "a Defensive ship's Attack squadron hunts the drone-fielding foe's screen first (its drone hit points lost)",
     read: (s) => guardBattle([], ["attack"], isOn(s)),
   },
+  // ===== E-MOD EM-3: the combat over-budget penalty (the stamp's power supply, read off the state) =====
+  // The supply percent a run starting now freezes (crewOverlay.ts shipCombatRulesStamp; absent = 100).
+  combatPowerSupplyStamp: {
+    label: "crewOverlay.ts shipCombatRulesStamp(...).powerSupplyPercent (absent = 100)",
+    read: (s) => shipCombatRulesStamp(s, shipOf(s))?.powerSupplyPercent ?? 100,
+  },
+  // The ship's first gun, 300 shots at a bare target, as the run builds the ship: a patrol cycle (the stamp it would
+  // write now) or a ship event (the dispatch snapshot, shipScanEvents.ts snapshotShipEventProfile).
+  combatPowerSupplyDamage: {
+    label: "the ship's first weapon's damage over 300 shots (fireWeapon), built from the run's stamp",
+    read: (s, ctx) => {
+      const rng = makeRng(5);
+      const a = runCombatant(s, ctx);
+      let dealt = 0;
+      for (let i = 0; i < 300; i++) dealt += fireWeapon(a, bare(ship({ id: "t", team: "enemy" })), a.weapons[0], rng).damage;
+      return dealt;
+    },
+  },
+  // The ship's shields after a fight with nothing firing (its recharge), from empty.
+  combatPowerSupplyShieldRecharge: {
+    label: "the ship's shields after a battle with no fire (its recharge), built from the run's stamp",
+    read: (s, ctx) =>
+      sumOver(battles(() => {
+        const p = runCombatant(s, ctx);
+        p.speed = 0;
+        p.weapons = [];
+        p.drones = [];
+        p.shield = 0;
+        p.shieldMax = 1_000_000; // never full, so the whole fight's recharge is measured
+        return [p, ship({ id: "e", team: "enemy", stats: { hullIntegrity: 100_000, shieldCapacity: 0, shieldRecharge: 0 }, position: 1000, speed: 0 })];
+      }, RULES), (r) => byId(r.finalCombatants, "wiring-player")?.shield ?? 0),
+  },
 } satisfies Record<string, Def>;
+
+// E-MOD EM-3: ship-1 as the run in `ctx` builds it: a ship event from its dispatch snapshot, otherwise a patrol cycle.
+function runCombatant(s: GameState, ctx: Ctx): Combatant {
+  if (ctx !== "shipEvent") return rulesCombatant(s);
+  return buildShipCombatant("wiring-player", snapshotShipEventProfile(s, shipOf(s)).battle!, 0, 0);
+}
 
 // ===== Helpers the probes share =====
 
