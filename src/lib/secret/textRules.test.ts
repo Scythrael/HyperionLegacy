@@ -29,6 +29,11 @@ const FILES = [
   "src/lib/HeaderButtons.svelte",
   "src/lib/secret/devTools.ts",
   "docs/plans/2026-10-23-hotfix-0.13.11.1-plan.md",
+  "src/lib/trustedTime.ts",
+  "src/lib/trustedTime.test.ts",
+  "src/lib/secret/simTargets.test.ts",
+  "src/lib/secret/simTargetsHigh.test.ts",
+  "src/lib/secret/simSpam.test.ts",
 ].map((path) => ({ path, src: readFileSync(path, "utf-8") }));
 
 // 0.13.11.1 additions inside files that predate the text rules, checked as slices.
@@ -48,6 +53,7 @@ const SLICES = () => [
   slice("src/App.svelte", "// The look: preset + manual picks", "// [DEV] grant the Starfall"),
   slice("src/lib/patchNotes.ts", 'version: "0.13.11.1"', 'version: "0.13.11"'),
   slice("src/lib/game/model.ts", "0.13.11.1 ACCOUNT-LEVEL EXTRAS", "unlockedThemeStyles?: string[];"),
+  slice("src/lib/game/loopClock.ts", "export function clampCatchUp", "\n}"),
 ];
 
 const COMPONENTS = FILES.filter((f) => f.path.endsWith(".svelte"));
