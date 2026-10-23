@@ -3206,16 +3206,16 @@
     } else {
       pushLog("New save initialized.");
     }
-    // 0.13.11.1: the Starfall mirror and the theme style read the account only from here on, so a
-    // placeholder state before the load can never be written over the real save.
-    accountReady = true;
-    themePresetId = loadThemePreset();
     // ⚠️ HOTFIX 0.13.10: start from where the reload catch-up PAID THROUGH, not from now. The
     // catch-up takes real time to compute; starting the clock after it would leave those seconds
     // unpaid (and a save right after load would stamp past them). The first poll pays them, once.
     const loopStartMs = paidThroughAtLoadMs ?? Date.now();
     loopClock = startLoopClock(loopStartMs);
     cycle = { barCycleStart: loopStartMs, nowTick: loopStartMs };
+    // 0.13.11.1: the Starfall mirror and the theme style read the account only from here on, so a
+    // placeholder state before the load can never be written over the real save.
+    accountReady = true;
+    themePresetId = loadThemePreset();
 
     // Tick-bar loop, checks the ONE shared fleet-wide cycle's progress every
     // 100ms, firing tickCaptainMission (Phase 3a) for EVERY mission captain
