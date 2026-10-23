@@ -820,3 +820,4 @@ to 2,776 s each way). (2) Real tier 1 cores supply about their item level (1 to 
 a fresh crafter's core (iL1 to 10) can still be SLOWER than Standard Issue; only from about 17 output (iL15) does the
 worst roll net faster. Fully fixing that needs the mass cut too (P3 option c, not picked). (3) Combat speed is not
 monotonic: a ref core gives combat speed 31 on the Destroyer Warband and wins 6 of 64 vs 9 at Standard Issue's 30.
+USER ANSWERS (2026-10-23): (1) early cores: "Never slower (Recommended)" (a crafted core's speed can never drop below Standard Issue's; its weight only eats into the surplus bonus; a systemic guarantee). (2) top end: "Soften the top (Recommended)" (flatten the curve so the best core gives a solid but modest lift, about +30 to +40%).
