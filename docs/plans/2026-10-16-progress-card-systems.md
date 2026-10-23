@@ -74,3 +74,7 @@ merge; planned recipes follow their own builds). Designed (1): completion tracki
 built, with a note that the drop from 72% is the new scope of the number, not lost work.
 
 USER ANSWER (2026-10-22): headline = "53% to release (Recommended)": keep the whole-road number with weights Building 70, Polish 10, QA rounds 18, Release 2 (the [PROPOSAL] above is now approved).
+
+## 2026-10-23 (v10): 33 systems, 18 done, 14 building, 1 designed = 76% built, 53% to release
+
+Done (18): the v9 seventeen plus the NEW rarity and quality readiness system (RR-0 to RR-8 merged e4246d5; added to the plan and finished the same day). Building (14): unchanged set (WR-8 combat descriptors, EM-3 power in combat and EM-4 reactor speed merged as progress inside wiring / E-MOD; G2-6 merged inside expedition tiers). Designed (1): completion tracking. To release stays 53% (0.70 x 75.8% = 53.0%) because the plan grew by one system while building moved; the card says so.
