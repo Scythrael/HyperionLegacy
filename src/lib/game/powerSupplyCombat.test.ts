@@ -11,7 +11,7 @@ import { SHIP_TYPES, freshState, type EquipmentInstance, type GameState, type Pa
 import { dispatchCaptainOnPatrol, economyTick, installMissingCombatBaselines, tick } from "./tick";
 import { fitEquipment } from "./equipment";
 import { unassignOfficer } from "./seniorStaff";
-import { overBudgetNotice, shipPowerSupplyPercent, shipPowerTotals } from "./shipPower";
+import { overBudgetNotice, shipPowerTotals } from "./shipPower";
 import { shipCombatRulesStamp } from "./crewOverlay";
 import { seatOfficer } from "./wiring/probes";
 import { POWER_SUPPLY_FLOOR_PERCENT, powerSupplyPercent } from "./combat/power";
@@ -27,6 +27,8 @@ import { asPatrolVeteran } from "./awayTeamTestFixtures";
 import { hash, onHull } from "./firstRunsGoldens.fixture";
 
 const SHIP = "ship-1";
+// The supply a run starting now would freeze for ship-1 (the stamp's own fold).
+const supplyOf = (s: GameState): number => shipCombatRulesStamp(s, s.ships.find((x) => x.id === SHIP)!)?.powerSupplyPercent ?? 100;
 
 function piece(id: string, over: Partial<EquipmentInstance> & { slotType: EquipmentInstance["slotType"] }): EquipmentInstance {
   return {
@@ -92,18 +94,19 @@ describe("EM-3: the stamp carries the supply only when below 100", () => {
     expect(shipCombatRulesStamp(installed, ship())).not.toHaveProperty("powerSupplyPercent");
     const left = unassignOfficer(installed, crewed.officers.find((o) => o.assignedShipId === SHIP)!.id);
     expect(shipPowerTotals(left, SHIP)).toEqual({ output: 85, draw: 90 });
-    expect(shipPowerSupplyPercent(left, SHIP)).toBe(97);
+    expect(supplyOf(left)).toBe(97);
     expect(shipCombatRulesStamp(left, left.ships.find((x) => x.id === SHIP)!)!.powerSupplyPercent).toBe(97);
     const notice = overBudgetNotice(left, SHIP)!;
     expect(notice.supplyPercent).toBe(97);
     expect(notice.strength).toBe("Weapons and shield recharge at 97%.");
+    expect(notice.gentleNote).toBe("The cut is gentle and grows with the shortfall, never below 60%.");
   });
 
   it("power efficiency lifts the supply: the officer back aboard brings it to full", () => {
     const over = withCargoDraw(onHull("destroyer"), 200); // 160 output, 200 gross
     const seated = seatOfficer(over, "engineering", ["eng.overdrive"]);
-    expect(shipPowerSupplyPercent(over, SHIP)).toBe(powerSupplyPercent(160, 200));
-    expect(shipPowerSupplyPercent(seated, SHIP)).toBeGreaterThan(shipPowerSupplyPercent(over, SHIP));
+    expect(supplyOf(over)).toBe(powerSupplyPercent(160, 200));
+    expect(supplyOf(seated)).toBeGreaterThan(supplyOf(over));
   });
 });
 
@@ -145,17 +148,35 @@ describe("EM-3: weapon damage (banked, exact over a fight)", () => {
     expect(full).toBeGreaterThan(1000);
     for (const supply of [99, 97, 81, 70, 60]) expect(totalDamage(gunner(supply)), `${supply}`).toBe(Math.floor((full * supply) / 100));
   });
-  it("stacks with a worn reactor multiplicatively, never below the floors' product", () => {
-    // Degraded (at 60% durability or below) is the reactor's 90%; offline (0) its 70%.
+  it("stacks with a worn reactor multiplicatively: the reactor's own per-hit floor first, then the supply", () => {
+    // Degraded (at 60% durability or below) is the reactor's 90%; offline (0) its 70%. The reactor rounds each hit down
+    // exactly as it does in budget, and the supply then scales the fight's total (banked).
     const degradedOnly = totalDamage(gunner(undefined, 60));
     const offlineOnly = totalDamage(gunner(undefined, 0));
     expect(degradedOnly).toBeLessThan(full);
     const both = totalDamage(gunner(81, 60));
-    expect(both).toBe(Math.floor((full * 90 * 81) / 10_000));
+    expect(both).toBe(Math.floor((degradedOnly * 81) / 100));
     const floors = totalDamage(gunner(POWER_SUPPLY_FLOOR_PERCENT, 0));
-    expect(floors).toBe(Math.floor((full * 70 * POWER_SUPPLY_FLOOR_PERCENT) / 10_000));
-    expect(floors).toBeGreaterThanOrEqual(Math.floor(full * 0.42));
+    expect(floors).toBe(Math.floor((offlineOnly * POWER_SUPPLY_FLOOR_PERCENT) / 100));
     expect(floors).toBeLessThan(offlineOnly);
+  });
+  // Review must-fix (2026-10-23): a worn reactor's per-hit floor must never make an over-budget ship hit HARDER than
+  // the same ship in budget (small hits lose the most to rounding, so they are the test).
+  it("over budget never beats in budget, at every reactor condition and small yields (1 to 8)", () => {
+    const small = (supply: number | undefined, durability: number, lo: number, hi: number): number => {
+      const a = gunner(supply, durability);
+      a.weapons = a.weapons.map((w) => ({ ...w, yieldMin: lo, yieldMax: hi }));
+      return totalDamage(a);
+    };
+    const bands: [number, number][] = [...Array.from({ length: 8 }, (_, i): [number, number] => [i + 1, i + 1]), [1, 8], [4, 8]];
+    for (const durability of [100, 60, 0]) {
+      for (const [lo, hi] of bands) {
+        const inBudget = small(undefined, durability, lo, hi);
+        for (const supply of [99, 97, 90, 81, 60]) {
+          expect(small(supply, durability, lo, hi), `reactor ${durability}, yields ${lo}-${hi}, supply ${supply}`).toBeLessThanOrEqual(inBudget);
+        }
+      }
+    }
   });
   it("is a post-draw scaling: the combat stream draws the same", () => {
     const a = gunner(81);
@@ -185,6 +206,9 @@ describe("EM-3: shield recharge (banked, exact over a fight)", () => {
     for (const supply of [97, 81, 60]) {
       const got = regained(supply);
       expect(Math.abs(got - (full * supply) / 100), `${supply}`).toBeLessThanOrEqual(1);
+      // Review must-fix check: the shield bank has no reactor floor in it, and its floor never rounds up.
+      expect(got, `${supply}`).toBeLessThanOrEqual(Math.floor((full * supply) / 100) + 1);
+      expect(got, `${supply}`).toBeLessThan(full);
     }
     expect(regained(100)).toBe(full);
   });

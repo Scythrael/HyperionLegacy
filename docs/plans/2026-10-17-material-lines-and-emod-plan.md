@@ -509,9 +509,11 @@ exact-equal rule included; else the whole floor of 100 x sqrt(output / draw) by 
 off: frozen beside `speed` at every patrol cycle start, relaunch, ship-event dispatch and the forecast), passed by
 `stampCombatArgs` to `shipToCombatant` (`Combatant.powerSupplyPercent`, set only below 100). One fold reads the power:
 `crewOverlay.ts shipNetPowerTotals` (moved there from shipPower.ts so the stamp reads it without an import cycle;
-`shipPowerTotals` delegates). resolveBattle: weapon damage takes ONE banked product of the worn reactor's percent and the
-supply (ten-thousandths carried on the attacker, so a fight's total is exact and never below the two floors' product;
-a ship without a supply keeps the reactor's own floor byte for byte); shield recharge banks the supply in hundredths of
+`shipPowerTotals` delegates). resolveBattle: weapon damage first takes the worn reactor's own per-hit floor (exactly as
+in budget), then the supply, banked on the attacker (ten-thousandths of a point), so a fight's total is the floor of
+its supplied total and an over-budget ship never out-hits the same ship in budget (review must-fix 2026-10-23: one
+banked product of reactor and supply rounded less than the in-budget floor and made small worn-reactor hits a BONUS;
+no golden moved with the fix: no pinned fight had a worn reactor change its damage); shield recharge banks the supply in hundredths of
 a tenth (`Accumulators.shieldSupply`), and the Defensive bonus banks on the supplied tenths. No draw added, so no salt.
 Proved: every in-budget row held; `emodEm3Switch.fixture.ts withPowerSupplyOff` reproduces every pre-EM-3 row; a run
 dispatched inside the switch and flown by the live engine is byte-identical (in flight); one 900 s `tick()` equals 900
@@ -520,8 +522,8 @@ over / deep): Freighter Sweep 57 / 48 / 37, Destroyer Sweep 64 / 63 / 63, Destro
 Warband 52 / 45 / 33, Carrier Warband 23 / 14 / 6; the Battleship and Carrier Sweeps and the Freighter Warband held. No
 live ship is over budget under P1, so no live save moves; the player's path in is the P2 one (an Engineering officer
 or Martian crew leaving, or a Reactor Core removed from a ship whose Class II+ drive or modules needed it). UI: `overBudgetNotice`
-gains `supplyPercent` and `strength` ("Weapons and shield recharge at X%.", the mockup's line), shown first in the Ship
-Systems warning; the Power Draw (i) text states the penalty. Registry: `ship:wr8:powerInCombat` LIVE (weapon damage over
+gains `supplyPercent`, `strength` ("Weapons and shield recharge at X%.", bold) and `gentleNote` ("The cut is gentle and
+grows with the shortfall, never below 60%."), the mockup's lines, shown first in the Ship Systems warning; the Power Draw (i) text states the penalty. Registry: `ship:wr8:powerInCombat` LIVE (weapon damage over
 300 shots, patrol and ship event), new `ship:em3:powerShieldRecharge` (LIVE, both contexts) and `ship:em3:powerSupplyFloor`
 (LIVE, equals 60); `emodEm3Registry.fixture.ts em3ReadBack` holds the two added rows apart in emodGoldens and
 shortRangeGoldens. No save step. **Readings for the user:** drone damage is not cut (P6 names weapons and shield

@@ -451,10 +451,12 @@ function bankedEvasion(x: number, ev: EvasiveClose): number {
 	ev.carry = bank - out * 100;
 	return out;
 }
-// E-MOD EM-3: `raw` x the attacker's power supply percent x `reactorPct` (the worn reactor's), the remainder banked on
-// the attacker (ten-thousandths of a point). Integer math, no draw. Called only on a ship carrying a power supply.
-function bankedPowerSupply(self: Combatant, raw: number, reactorPct: number): number {
-	const bank = raw * reactorPct * self.powerSupplyPercent! + (self.powerSupplyCarry ?? 0);
+// E-MOD EM-3: `raw` (already past the worn reactor's floor) x the attacker's power supply percent, the remainder banked
+// on the attacker (in ten-thousandths of a point, the unit EM-3 first shipped with, so the carry a battle reports is
+// unchanged). The carry never reaches a point, so a fight's total is the floor of its supplied total: at or below the
+// in-budget total. Integer math, no draw. Called only on a ship carrying a supply.
+function bankedPowerSupply(self: Combatant, raw: number): number {
+	const bank = raw * self.powerSupplyPercent! * 100 + (self.powerSupplyCarry ?? 0);
 	const out = Math.floor(bank / 10_000);
 	self.powerSupplyCarry = bank - out * 10_000;
 	return out;
@@ -1223,13 +1225,14 @@ export function fireWeapon(
 		if (weaponConditionDamagePct !== 100) {
 			raw = Math.floor((raw * weaponConditionDamagePct) / 100);
 		}
-		// E-MOD EM-3: an over-budget attacker's power supply multiplies the worn reactor's percent (one product, banked in
-		// ten-thousandths of a point, so it is exact over the fight and never below the two floors' product). A ship in
-		// budget (no powerSupplyPercent) keeps the reactor's own floor exactly as before.
-		if (self.powerSupplyPercent !== undefined) {
-			raw = bankedPowerSupply(self, raw, reactorDamagePct);
-		} else if (reactorDamagePct !== 100) {
+		if (reactorDamagePct !== 100) {
 			raw = Math.floor((raw * reactorDamagePct) / 100);
+		}
+		// E-MOD EM-3: an over-budget attacker's power supply, AFTER the worn reactor's own per-hit floor (the same floor a
+		// ship in budget takes, so over budget can never out-hit in budget), banked so the supply is exact over the fight.
+		// Absent on a ship in budget: no change.
+		if (self.powerSupplyPercent !== undefined) {
+			raw = bankedPowerSupply(self, raw);
 		}
 		// E-CREW (Task 21): Integrity's steady-under-fire damage, while the ATTACKER is below half hull
 		// (checked per projectile, so a shot that drops it below half lifts the rest). Whole points; no draw.

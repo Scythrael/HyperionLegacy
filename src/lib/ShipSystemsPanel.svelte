@@ -1464,11 +1464,11 @@
     {/if}
     <!-- E-MOD EM-2 (user answer P2): the over-budget warning, its own line beside the readiness banner above. Never
          evicts and never blocks dispatch (power gates installs only); names the shortfall and where it comes from.
-         EM-3 (user answer P6): the combat strength line first (weapons and shield recharge at X%). -->
+         EM-3 (user answer P6): the combat strength line first, bold, then the gentle-cut sentence (the signed-off mockup). -->
     {#if powerNotice !== null}
       <div class="ss-advisory" role="status">
         <span class="ss-advisory-dot" aria-hidden="true"></span>
-        <span><strong>{powerNotice.chip}:</strong> {powerNotice.strength} {powerNotice.cause}</span>
+        <span><strong>{powerNotice.chip}:</strong> <strong>{powerNotice.strength}</strong> {powerNotice.gentleNote} {powerNotice.cause}</span>
       </div>
     {/if}
 

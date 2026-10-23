@@ -30,7 +30,7 @@ import { HULL_TIER_REACTOR_REQUIREMENT, REACTOR_VARIETY_TECH, meetsReactorRequir
 import { MULTI_SLOT_TYPES, equippedFor } from "./equipmentQueries";
 import { netPowerDraw, shipCrewContribution, shipNetPowerTotals } from "./crewOverlay";
 import { CREW_STAT_KEYS } from "./crewBuffs";
-import { powerBudget, powerSupplyPercent, type PowerBudget } from "./combat/power";
+import { POWER_SUPPLY_FLOOR_PERCENT, powerBudget, powerSupplyPercent, type PowerBudget } from "./combat/power";
 
 export interface ShipPowerBudget extends PowerBudget {
   baseOutput: number; // the hull's own generation (basePowerOutput)
@@ -104,13 +104,6 @@ export function shipPowerTotals(state: GameState, shipId: string): ShipPowerTota
   return shipNetPowerTotals(state, ship);
 }
 
-// E-MOD EM-3: the power supply percent the ship would fight at in a run starting now (combat/power.ts
-// powerSupplyPercent: 100 in budget, sqrt(output / draw) over it, never below the floor). Pure.
-export function shipPowerSupplyPercent(state: GameState, shipId: string): number {
-  const t = shipPowerTotals(state, shipId);
-  return powerSupplyPercent(t.output, t.draw);
-}
-
 // How far over budget the ship is (0 when in budget). Over budget is a STRICT overrun (power.ts: exact-equal fits).
 export function powerShortfall(t: ShipPowerTotals): number {
   return Math.max(0, t.draw - t.output);
@@ -162,6 +155,7 @@ export interface OverBudgetNotice {
   chip: string;
   supplyPercent: number;
   strength: string;
+  gentleNote: string;
   cause: string;
 }
 export function overBudgetNotice(state: GameState, shipId: string): OverBudgetNotice | null {
@@ -198,6 +192,8 @@ export function overBudgetNotice(state: GameState, shipId: string): OverBudgetNo
     supplyPercent,
     // The signed-off mockup's strength line; the stamp freezes it when a patrol cycle or an expedition starts.
     strength: `Weapons and shield recharge at ${supplyPercent}%.`,
+    // The mockup's next sentence (the user's "Gentle penalty curve" and P6 floor), from the same constant the sim reads.
+    gentleNote: `The cut is gentle and grows with the shortfall, never below ${POWER_SUPPLY_FLOOR_PERCENT}%.`,
     cause: `${efficiency}. ${supply}, against a draw of ${t.draw}. Nothing was switched off or removed. Install a stronger Reactor Core or remove a powered system to clear it.`,
   };
 }
