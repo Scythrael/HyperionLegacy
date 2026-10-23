@@ -24,7 +24,7 @@ import { FIELD_ROLES, UNREAD_CONSTANTS } from "./wiring/fieldRoles";
 
 // Registry catalogs that are not catalog walks: the plan's audit rows, derived seams and missing fields.
 // Gas Giant Study GG-3: GAS_STUDY_SEAM (the probe dive seam).
-const SUPPLEMENTARY_CATALOGS = new Set(["AUDIT", "AWAY_TEAM_STRENGTH", "CAPTAIN_PROGRESSION", "MEMBER_PERKS", "SHIP_SEAMS", "SHIP_TYPES.missing", "GAMBIT_PROGRAMS", "SPEED_SEAM", "GAS_STUDY_SEAM"]);
+const SUPPLEMENTARY_CATALOGS = new Set(["AUDIT", "AWAY_TEAM_STRENGTH", "CAPTAIN_PROGRESSION", "MEMBER_PERKS", "SHIP_SEAMS", "SHIP_TYPES.missing", "GAMBIT_PROGRAMS", "SPEED_SEAM", "GAS_STUDY_SEAM", "DATA_STUDY_SEAM"]);
 
 const sources = enumerateEffectSources();
 // The display texts that promise a number today (the five Fleet Logistics queue labels, "+1 ..."): the scan must see them.

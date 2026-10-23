@@ -101,6 +101,11 @@ import {
 //      so every existing piece loads at full condition. See dropRetiredDurabilityV70, which migrate ALSO runs after the
 //      loop on every load (the withHomeworldV70 precedent), so a save already at v70 from a build before this step
 //      sheds the field too.
+//   6. Relics v2 R2-4 (plan 2026-10-17 R2-4; USER ANSWERS call 3 "1000 per tier"): a Museum v2 tier ALREADY at or past
+//      the soft cap (its general copies plus its exceptional copies, 1,000) with no snapshot gets one at its current
+//      counts, so the regular game reads exactly what it read before the load (same counts, same bonus) and the cap
+//      holds from there. Only branch and staging dev saves can be past the cap (0.13.x never had relics). See
+//      withSoftCapSnapshotV70, which migrate ALSO runs after the loop on every load.
 export const SAVE_VERSION = 70;
 export const SAVE_KEY = "fleet_admiral_save";
 
@@ -2609,8 +2614,9 @@ const MIGRATIONS: Record<number, Migration> = {
   // 3. Expedition Tiers G2-1: the per-save homeworld seed, from the injected entropy (withHomeworldV70).
   // 4. Relics v2 R2-1: the v1 museum copies move into museumV2.general["1"] (withMuseumV2V70).
   // 5. Gear wear: the retired per-piece `durability` field (dropRetiredDurabilityV70).
+  // 6. Relics v2 R2-4: a museum tier already past the soft cap gets its snapshot (withSoftCapSnapshotV70).
   69: (state: any, ctx: MigrationContext): any =>
-    dropRetiredDurabilityV70(withMuseumV2V70(withHomeworldV70(withRunCountsV70(dropRetiredFuelV70(state)), ctx.homeworldEntropy))),
+    dropRetiredDurabilityV70(withSoftCapSnapshotV70(withMuseumV2V70(withHomeworldV70(withRunCountsV70(dropRetiredFuelV70(state)), ctx.homeworldEntropy)))),
 };
 
 // The v69 -> v70 WR-4 step: drop `fuel` and every `fuelRefineJob` process (its addFuel output names a field that no
@@ -2790,6 +2796,34 @@ export function withMuseumV2V70(state: any): any {
   return out;
 }
 
+// The v69 -> v70 Relics v2 R2-4 step: snapshot every Museum v2 tier that is ALREADY at or past the soft cap and has no
+// snapshot, at its current counts (its general copies plus the copies of its exceptional pieces, one map, as relics.ts
+// withSoftCapSnapshot stores it). The regular game then reads exactly what it read before the load: same counts, same
+// bonus. FROZEN: reads only the raw save (run after withMuseumV2V70, so `museumV2` is well formed and its counts clean)
+// with the cap and the piece tier inline: 1,000 (relics.ts RELIC_SOFT_CAP, user call 3) and the tier in a piece id
+// ("exc-t<tier>-<set>-p<n>", relics.ts EXCEPTIONAL_SETS ids, which a save stores and never change). Idempotent: a save
+// with nothing to snapshot is returned as the SAME reference, so the every-load call is free. Key positions kept.
+const V70_RELIC_SOFT_CAP = 1000;
+export function withSoftCapSnapshotV70(state: any): any {
+  const museum = state && typeof state === "object" ? state.museumV2 : undefined;
+  if (!museum || typeof museum !== "object" || !museum.general || !museum.frozen || !museum.exceptional) return state;
+  const pieceTier = (id: string): string | null => /^exc-t([1-7])-/.exec(id)?.[1] ?? null;
+  let frozen = museum.frozen;
+  for (const tier of ["1", "2", "3", "4", "5", "6", "7"]) {
+    if (frozen[tier] !== undefined) continue;
+    const snapshot: Record<string, number> = { ...(museum.general[tier] ?? {}) };
+    let total = 0;
+    for (const n of Object.values(snapshot)) total += typeof n === "number" && n > 0 ? n : 0;
+    for (const [id, n] of Object.entries(museum.exceptional as Record<string, number>)) {
+      if (pieceTier(id) !== tier || !(typeof n === "number" && n > 0)) continue;
+      snapshot[id] = n;
+      total += n;
+    }
+    if (total >= V70_RELIC_SOFT_CAP) frozen = { ...frozen, [tier]: snapshot };
+  }
+  return frozen === museum.frozen ? state : { ...state, museumV2: { ...museum, frozen } };
+}
+
 // The v69 -> v70 gear wear step: delete `durability` from every EquipmentInstance the save stores: the gear itself
 // (state.equipment) and the deep copies an in-flight expedition froze at dispatch (GO-8,
 // expeditions[].groundOps.shipEventProfile.battle.installedGear). The field never dropped (every mint set it to
@@ -2940,6 +2974,8 @@ export function migrate(save: SaveFile, homeworldEntropy?: number): GameState {
   // Relics v2 R2-1: the same for the museum. A dev or QA save at v70 from a build before R2-1 still holds the v1
   // `relicMuseum`, which nothing reads any more; withMuseumV2V70 is idempotent (the SAME reference once moved).
   state = withMuseumV2V70(state);
+  // Relics v2 R2-4: the same for the soft cap snapshot (identity unless a tier is past the cap with no snapshot).
+  state = withSoftCapSnapshotV70(state);
   // Gear wear: the same every-load posture for the retired per-piece `durability` (identity once it is gone).
   state = dropRetiredDurabilityV70(state);
   // Member gear (0.14.0): old Science Sidearms / Field Suits get the D26 lines; Standard-Issue pieces gain their stats.

@@ -22,6 +22,8 @@
 
 import {
   BLUEPRINTS,
+  emptyMuseumV2,
+  withGeneralMuseumRecord,
   FIELD_KITS_HIDDEN_BLUEPRINTS,
   CAPTAIN_RACIAL_SCALE,
   CAPTAIN_SPEC_BONUS,
@@ -106,8 +108,10 @@ import { DEPARTMENT_OF_SEAT, OFFICER_STAT_NEUTRAL, XO_DEPARTMENT_SHARE, officerS
 import { CREW_EFFECTIVENESS_KNEE, OFFICER_BONUSES_PENDING_IN_RELEASE, POWER_EFFICIENCY_KNEE } from "../crewOverlay";
 import { patrolCycleOneRampHours } from "../tick";
 import { constitutionRamp } from "../constitutionRamp";
-import { DRIVE_CLASS_REACH_MULT } from "../propulsion";
-import { voyageClassSteps } from "../voyage";
+import { DRIVE_CLASS_REACH_MULT, FRONTIER_SENSORS } from "../propulsion";
+import { TIER_TRANSIT_HOURS, VOYAGE_BAND_SCALE_PERMILLE, voyageClassSteps } from "../voyage";
+import { TIER_HAUL_MULT } from "../riskFactors";
+import { recallExpedition } from "../expedition";
 import { AWAY_TRAITS, type AwayTraitDef } from "../awayTraits";
 import { FIRST_AID_TRAINED_EFFECTIVENESS, FIRST_AID_UNTRAINED_EFFECTIVENESS, GAMBIT_PRESETS, GAMBIT_STATUSES, STONESKIN_BATTLE_RESIST } from "../gambit";
 import { applyMemberGambitPreset } from "../memberGambits";
@@ -120,12 +124,18 @@ import {
   MUSEUM_PER_COPY_BONUS,
   MUSEUM_STATS,
   MUSEUM_TIER_LEVEL_BONUS,
+  MUSEUM_V2_KNEE,
+  MUSEUM_V2_PER_COPY,
   RELIC_SETS,
+  RELIC_SOFT_CAP,
   RELIC_TYPES,
   RELICS,
   museumBonusesFromRecord,
+  museumDepositGeneral,
+  type CurvedRegionTier,
   type MuseumStat,
 } from "../relics";
+import { shortRangeRelicMicrosPerHour } from "../relicBlanks";
 import { BRIDGE_MODULES, QUARTERS_MODULES, moduleEffectScale } from "../crewModules";
 import { graduateStandout } from "../crewGraduation";
 import { signatureKey } from "../crew";
@@ -143,10 +153,26 @@ import { AFFIX_DEFS, ESCALATION_ENEMIES_PER_LEVEL, HEIGHTENED_SENSES_KNEE, HEIGH
 import { ENEMY_RANKS, ENEMY_RANK_IDS } from "../enemyRanks";
 import { OVERTIME_STEP_RATE } from "../processSpeed";
 import { SHORT_RANGE_TEMPLATES, SHORT_RANGE_TEMPLATE_KEYS } from "../shortRange";
-import { GAS_STUDY_USES, GIANT_CLASSES, NEBULA_KINDS, type GasStudyUse } from "../gasGiantContent";
+import { GAS_STUDY_USES, GIANT_CLASSES, NEBULA_KINDS, RESEARCH_FAMILIES, type GasStudyUse } from "../gasGiantContent";
+// Gas Giant Study GG-5: the Research Lab's data study lane.
+import { DATA_STUDY_RECIPE_PERMILLE, RESEARCH_BOOST_PER, isResearchDataItem } from "../dataStudy";
 import { REACTOR_FUEL_LADDER, REACTOR_TECH_TIERS, REACTOR_VARIETY_TECH, reactorFuelRung } from "../reactorTech";
 import { effectFieldsOf } from "./fieldRoles";
-import { REPAIR_RATES, REPAIR_RATE_BONUSES, USE_WEAR_FLOOR, WEAR_EFFICIENCY, WEAR_SOURCES, wearEfficiency } from "../gearWear";
+import { REPAIR_RATES, REPAIR_RATE_BONUSES, TOUGHNESS_REFERENCE, USE_WEAR_FLOOR, WEAR_EFFICIENCY, WEAR_SOURCES, wearEfficiency } from "../gearWear";
+import {
+  WEAR_DIVE_PROBE_ID,
+  WEAR_FIXTURE_CONDITION,
+  WEAR_REPAIR_MINUTES,
+  diveFixture,
+  fieldRepairHome,
+  inShipyardBay,
+  memberVarietyFor,
+  onFieldRepairLeg,
+  wearMemberOf,
+  wearPieceIdFor,
+  wearRepairMinutes,
+  withFixtureCondition,
+} from "./wearProbes";
 import {
   CONDITION_LINES,
   CONDITION_LINE_IDS,
@@ -172,6 +198,7 @@ import {
   editMember,
   identity,
   installPiece,
+  onMission,
   editShip,
   seatOfficer,
   wearPiece,
@@ -191,7 +218,10 @@ import {
   GAMBIT_SELECTORS,
   sourceOn,
   FIELD_KITS_SWITCH_PROBE_STOCK,
+  SHORT_RANGE_RELIC_PROBE_HOURS,
   relicV2ProbeExpectedExceptional,
+  RECALL_PROBE_SHARE,
+  launchedAndAt,
   type ContextId,
   type ProbeId,
   type Transform,
@@ -325,6 +355,8 @@ export const CATALOGS = {
   RELICS,
   RELIC_TYPES,
   EXCEPTIONAL_SETS,
+  // Relics v2 R2-4: each copy's value per tier above I (museum math v2).
+  MUSEUM_V2_PER_COPY,
   WEAPON_DEFS,
   SLOT_BASE_PHYSICALS,
   ROLE_TEMPLATE,
@@ -431,11 +463,9 @@ function pending(owner: string, contexts?: readonly ContextId[]): WiringStatus {
 // pools + exclusive pool live, design 6.2)", was split into CP-1 to CP-4; CP-2 and the inert-racials slice (0.14.0,
 // user "everything wired" 2026-10-20) took the rest live. Exported for the liveness parity test (the renamed owner).
 export const CP_3 = "Complement plan CP-3 (Ground Ops complement consumers: Security, Medical, exclusive pool)";
-// Expedition Tiers G2-2 (plan 2026-10-14 G2-2: "the console still shows Tier I only (G2-6 adds the picker); a hidden
-// region is reachable by tests only"): every tier's candidates are built and tested (expeditionTierCandidates.test.ts),
-// but no player reaches a deeper tier until the console offers it, so the tier-gated sources wait on G2-6.
-const G2_6_PICKER = "G2-6 (the region picker: G2-2 built every tier's candidates, the console offers Tier I until then)";
-const G2_6_RECALL = "G2-6 (the recall button, its one confirm and the Resume cards: G2-5 built the engine)";
+// Expedition Tiers G2-6 (the dispatch console's region picker and recall): the tier-gated sources G2-2 to G2-5 left to
+// it (owners "G2-6 (the region picker ...)" and "G2-6 (the recall button ...)") are live, each with its own check
+// (auditRowWiring below; expeditionConsoleRegistry.fixture.ts G2_6_FLIPPED_BEFORE holds the flips apart in the pins).
 const PILOT_CUNNING = "pending user decision (officerStats.ts CUNNING_PENDING_SEATS)";
 // Gear wear (0.14.0, design docs/plans/2026-10-16-gear-wear-design.md section 11) owners: step 3 wires the use wear
 // sources, the repair contexts and the economy / ground efficiency; step 4 the combat half (battle wear, the
@@ -1632,14 +1662,18 @@ function facilityRungEntries(): WiringEntry[] {
         const t = eff.telescope as { detail: number; reachTier: number };
         const prev = i > 0 ? ((fdef.upgrades[i - 1].effect as unknown as { telescope: { detail: number; reachTier: number } }).telescope) : { detail: 0, reachTier: 0 };
         const detailMoves = t.detail !== prev.detail;
+        // G2-6: a rung that only moves the reach tier is live on the region picker (the tiers whose candidates the
+        // console reads instead of launching blind); a detail rung reads its detail (information only, by design).
         out.push(
           entry({
             ...common,
-            probe: detailMoves ? "telescopeDetail" : undefined,
-            contexts: detailMoves ? ["expedition:groundOps"] : [],
-            magnitude: () => t.detail - prev.detail,
-            status: detailMoves ? LIVE : pending(G2_6_PICKER),
-            note: "detail is information only (by design); the reach tier waits for the console to offer deeper tiers (G2-6)",
+            probe: detailMoves ? "telescopeDetail" : "telescopeReach",
+            contexts: detailMoves ? ["expedition:groundOps"] : ["facility", "expedition:groundOps"],
+            magnitude: () => (detailMoves ? t.detail - prev.detail : t.reachTier - prev.reachTier),
+            status: LIVE,
+            note: detailMoves
+              ? "detail is information only (by design); its reach tier reads on the SUBSPACE_TELESCOPE_LEVELS entries"
+              : "the reach tier: the deepest region tier whose candidates the console's picker reads (G2-6)",
           }),
         );
       } else if ("unlocksContent" in eff) {
@@ -1718,9 +1752,8 @@ function trackEntries(): WiringEntry[] {
     ),
   );
   // The Subspace Telescope ladder, rung by rung: the reading reaches the rung's region tier and reads its detail.
-  // The reach is information on the card today; the console offers Tier I candidates until G2-6 adds the region
-  // picker (G2-2 built every tier's candidates; the PARTIAL check
-  // reads the highest tier the candidates offer).
+  // Since G2-6 the console's region picker offers every tier, so the reach is live at Ground Ops too: it decides the
+  // deepest tier whose candidates the console reads (probes.ts telescopeReach there), not only the card's line.
   for (const row of SUBSPACE_TELESCOPE_LEVELS) {
     const at = (s: GameState) => withFacilityLevel(s, SUBSPACE_TELESCOPE_FACILITY_KEY, row.level);
     const below = (s: GameState) => withFacilityLevel(s, SUBSPACE_TELESCOPE_FACILITY_KEY, row.level - 1);
@@ -1732,14 +1765,14 @@ function trackEntries(): WiringEntry[] {
         source: { catalog: "SUBSPACE_TELESCOPE_LEVELS", key: `${row.level}:reachTier` },
         claim: `Telescope level ${row.level} reaches region tier ${row.reachTier}`,
         probe: "telescopeReach",
-        contexts: ["facility"],
+        // G2-6: the console's region picker reads every tier, so the reach tier decides which tiers' candidates read
+        // (risk, objectives) and which launch blind.
+        contexts: ["facility", "expedition:groundOps"],
         direction: "none",
         curve: { kind: "equals" },
         magnitude: value("reachTier"),
         on: at,
         off: below,
-        status: pending(G2_6_PICKER, ["expedition:groundOps"]),
-        flatChecks: { "expedition:groundOps": { probe: "candidateTopTier" } },
       }),
       entry({
         id: `facility:SUBSPACE_TELESCOPE_LEVELS:${row.level}:detail`,
@@ -2572,24 +2605,60 @@ function relicEntries(): WiringEntry[] {
   return out;
 }
 
-// Relics v2 R2-1 (plan 2026-10-17 section 4): the v2 catalog is DORMANT, so each of its effect sources is pending with
-// the slice that wires it. A general type's stat moves its Museum stat once R2-4's museum math v2 reads RELIC_TYPES (its
-// consumer is the relic:MUSEUM_STATS entry); an exceptional piece and a full-set bonus once R2-4 adds their flat values
-// and R2-5 grants them. Until then nothing reads them, so nothing can move.
-const R2_4_TYPES = "Relics v2 R2-4 (museum math v2 sums each general type's stats per tier)";
-const R2_5_EXCEPTIONAL = "Relics v2 R2-4 + R2-5 (exceptional piece and full-set values; names await the content sign-off sheet)";
+// Relics v2 R2-4 (plan 2026-10-17 section 4 R2-4): museum math v2 reads the v2 catalog, so each effect source is LIVE,
+// measured on its Museum stat (the relic:MUSEUM_STATS entry proves that stat's consumer):
+//   - a general type: one copy at Tier II moves its first stat by diminishing(share x MUSEUM_V2_PER_COPY[2], knee)
+//     (Tier I copies are the relic:RELICS entries, through the v1 math Tier I keeps);
+//   - each tier's per-copy value: one Hull Rivet at that tier moves cargoCapacity through the same curve;
+//   - an exceptional piece: held alone it adds its flat value once (call 7: a duplicate adds nothing);
+//   - a full set: every piece held vs all but the last, which moves the full-set stat by exactly the full-set bonus
+//     (the last piece's stat differs: a set's pieces take distinct stats).
+// No player reaches Tier II or deeper until the region picker (relic:audit:blankTiers, G2-6); the math is live.
+const V2_FIXTURE_TIER: CurvedRegionTier = 2;
+const SOFT_CAP_PROBE_PAST = 200;
+const v2Curve = { kind: "diminishing", knee: MUSEUM_V2_KNEE, base: 0 } as const;
+const withTierCopies =
+  (tier: CurvedRegionTier, record: Readonly<Record<string, number>>): Transform =>
+  (s) =>
+    withGeneralMuseumRecord(s, record, tier);
+const withPieces =
+  (ids: readonly string[]): Transform =>
+  (s) => ({ ...s, museumV2: { ...(s.museumV2 ?? emptyMuseumV2()), exceptional: Object.fromEntries(ids.map((id) => [id, 1])) } });
 
 function relicV2Entries(): WiringEntry[] {
   const out: WiringEntry[] = [];
   for (const t of RELIC_TYPES) {
+    const stat = t.stats[0].stat;
     out.push(
       entry({
         id: `relic:RELIC_TYPES:${t.id}`,
         system: "relic",
         source: { catalog: "RELIC_TYPES", key: t.id },
         claim: `${t.label}: ${t.stats.map((s) => s.stat).join(" + ")} per copy, per tier`,
-        magnitude: (c) => c.RELIC_TYPES.find((x) => x.id === t.id)!.stats.reduce((a, s) => a + s.share, 0),
-        status: pending(R2_4_TYPES),
+        probe: `museum:${stat}`,
+        contexts: ["fleet"],
+        curve: v2Curve,
+        magnitude: (c) => c.RELIC_TYPES.find((x) => x.id === t.id)!.stats.find((x) => x.stat === stat)!.share * c.MUSEUM_V2_PER_COPY[V2_FIXTURE_TIER],
+        on: withTierCopies(V2_FIXTURE_TIER, { [t.id]: 1 }),
+        off: withTierCopies(V2_FIXTURE_TIER, {}),
+        note: "one copy at Tier II; the museum stat it sets is a relic:MUSEUM_STATS entry (its consumer is proved there)",
+      }),
+    );
+  }
+  for (const tier of Object.keys(MUSEUM_V2_PER_COPY).map(Number) as CurvedRegionTier[]) {
+    out.push(
+      entry({
+        id: `relic:MUSEUM_V2_PER_COPY:${tier}`,
+        system: "relic",
+        source: { catalog: "MUSEUM_V2_PER_COPY", key: String(tier) },
+        claim: `Tier ${tier} general copies: +${(MUSEUM_V2_PER_COPY[tier] * 100).toFixed(2)}% per copy before the curve`,
+        probe: "museum:cargoCapacity",
+        contexts: ["fleet"],
+        curve: v2Curve,
+        magnitude: (c) => c.MUSEUM_V2_PER_COPY[tier],
+        on: withTierCopies(tier, { hullRivet: 1 }),
+        off: withTierCopies(tier, {}),
+        note: "one Hull Rivet (cargoCapacity, share 1) at this tier",
       }),
     );
   }
@@ -2601,19 +2670,31 @@ function relicV2Entries(): WiringEntry[] {
           system: "relic",
           source: { catalog: "EXCEPTIONAL_SETS", key: `${set.id}:${p.id}` },
           claim: `${p.label}: ${p.stat}`,
+          probe: `museum:${p.stat}`,
+          contexts: ["fleet"],
           magnitude: (c) => c.EXCEPTIONAL_SETS.find((x) => x.id === set.id)!.pieces.find((x) => x.id === p.id)!.value,
-          status: pending(R2_5_EXCEPTIONAL),
+          tolerance: 1e-12,
+          on: withPieces([p.id]),
+          off: withPieces([]),
+          note: "the piece held alone (no set completes); names and values await the R2-5 content sheet",
         }),
       );
     }
+    const fullStat = set.fullSet[0].stat;
+    const ids = set.pieces.map((p) => p.id);
     out.push(
       entry({
         id: `relic:EXCEPTIONAL_SETS:${set.id}:full`,
         system: "relic",
         source: { catalog: "EXCEPTIONAL_SETS", key: `${set.id}:full` },
         claim: `${set.label} full set: ${set.fullSet.map((b) => b.stat).join(" + ")}`,
-        magnitude: (c) => c.EXCEPTIONAL_SETS.find((x) => x.id === set.id)!.fullSet.reduce((a, b) => a + b.value, 0),
-        status: pending(R2_5_EXCEPTIONAL),
+        probe: `museum:${fullStat}`,
+        contexts: ["fleet"],
+        magnitude: (c) => c.EXCEPTIONAL_SETS.find((x) => x.id === set.id)!.fullSet.filter((b) => b.stat === fullStat).reduce((a, b) => a + b.value, 0),
+        tolerance: 1e-12,
+        on: withPieces(ids),
+        off: withPieces(ids.slice(0, -1)),
+        note: "every piece held vs all but the last (whose stat is not the full-set stat)",
       }),
     );
   }
@@ -3096,6 +3177,23 @@ function contentEntries(): WiringEntry[] {
   // ML-1: an item produced today whose consumer a later slice wires (ItemDef.reserved names it). Pending until that
   // slice adds the consumer and drops the marker (materialLines.test.ts fails while both are true).
   for (const [id, item] of Object.entries(ITEMS)) {
+    // Gas Giant Study GG-5 built the research data's consumer (the Research Lab's data study lane) and dropped their
+    // markers: each row is live now, read through the lane (the units it studied; OFF: the lane paused). The row keeps
+    // its id (and its place); its source is the lane's consumer (DATA_STUDY consume:<item>), the marker being gone.
+    if (item.reserved === undefined && isResearchDataItem(id)) {
+      out.push(
+        entry({
+          ...base("facility", "DATA_STUDY", `consume:${id}`, `${item.label} is produced and has a consumer`),
+          id: `facility:ITEMS:${id}:reserved`,
+          probe: `content:dataStudy:consume:${id}`,
+          contexts: ["research"],
+          curve: { kind: "event", metric: `units of ${item.label} the Research Lab's data study lane studies` },
+          magnitude: () => 1,
+          on: sourceOn,
+        }),
+      );
+      continue;
+    }
     if (item.reserved === undefined) continue;
     out.push(
       entry({
@@ -3592,7 +3690,11 @@ const AUDIT_ROWS: readonly { id: string; system: WiringSystem; claim: string; st
   { id: "ship:audit:statRatios", system: "ship", claim: "Variety statRatios: an unlisted key keeps weight 1, so Hauler Hold rolls massReduction more than Prospector Hold (B11)", status: pending("WR-7, OC-D6") },
   { id: "ship:audit:favorsSpec", system: "ship", claim: "Variety favorsSpec (no reader)", status: pending("WR-7, OC-D5") },
   { id: "ship:audit:slotPowerDraw", system: "ship", claim: "SLOT_BASE_PHYSICALS powerDraw: a crafted piece draws its slot's power from the ship's budget", status: LIVE },
-  { id: "ship:audit:slotDurability", system: "ship", claim: "SLOT_BASE_PHYSICALS durability for economy, defense, crew, sensor and member pieces (never read)", status: pending(GEAR_WEAR_STEP_3) },
+  // Gear wear step 3: a piece's durabilityMax is its TOUGHNESS (gearWear.ts toughnessScale): every use wear amount on
+  // it scales by TOUGHNESS_REFERENCE / durabilityMax, so the slot bases act on every piece that wears by use (economy,
+  // crew, sensor and member pieces). The defense pieces wear by battle (step 4): their own row below.
+  { id: "ship:audit:slotDurability", system: "ship", claim: "SLOT_BASE_PHYSICALS durability for economy, crew, sensor and member pieces: a tougher piece wears slower by use", status: LIVE },
+  { id: "ship:audit:slotDurabilityDefense", system: "ship", claim: "SLOT_BASE_PHYSICALS durability for defense pieces (shield emitters, hull plating): a tougher piece wears slower in battle", status: pending(GEAR_WEAR_STEP_4) },
   { id: "ship:audit:reactorCoreNet", system: "ship", claim: "A crafted Reactor Core is net negative: its output only raises the power budget (no install gate or penalty before EM-2 / EM-3, the hull's own output covers every loadout), and its mass drags speed and fuel (B10)", status: pending("E-MOD EM-4 (unused reactor power speeds the drive, P3)") },
   { id: "ship:audit:arrayCharacter", system: "ship", claim: "ARRAY_CHARACTER: \"Focused: faster\" while its net rate is 0.78x; no Bio-Resonance line (B12)", status: pending("WR-7, OC-D11") },
   { id: "ship:audit:hullDescriptions", system: "ship", claim: "Hull descriptions (Aurora, Eir, Orion) claim what the engine does not do", status: pending("WR-7, OC-D13 (heavy cruiser wording: SF-6)") },
@@ -3682,7 +3784,9 @@ const AUDIT_ROWS: readonly { id: string; system: WiringSystem; claim: string; st
   { id: "away:audit:quickDraw", system: "away", claim: "Quick Draw only reorders teammates (the team already acts first)", status: pending("WR-10, OC-F5") },
   { id: "away:audit:scienceRank", system: "away", claim: "Science member rank \"nudges magnitude\" (fieldwork never reads it)", status: pending("WR-10, OC-F7") },
   { id: "away:audit:fieldDeviceEffectiveness", system: "away", claim: "fieldDevice effectiveness (both values 1; the specialist check is always false)", status: pending("FK-7") },
-  { id: "away:audit:memberSlotPhysicals", system: "away", claim: "Member slot physicals: durability (mass and power draw are 0 by design: member gear never moves ship stats)", status: pending(GEAR_WEAR_STEP_3) },
+  // WR-8 settled mass and power draw (0 by design: member gear never moves ship stats) and gear wear step 3 made the
+  // durability live (a member piece's toughness scales its use wear, wired through ship:audit:slotDurability's check).
+  { id: "away:audit:memberSlotPhysicals", system: "away", claim: "Member slot physicals: durability is the piece's toughness (a tougher member piece wears slower by use; ship:audit:slotDurability); mass and power draw are 0 by design (member gear never moves ship stats)", status: LIVE },
   // Field Kits FKR-7: the Injury Kit's share (a fight's `treated`) sums on the member's trip treatment and the run's bay
   // divides that member's cures by it (auditRowWiring below).
   { id: "away:audit:treatmentShare", system: "away", claim: "An Injury Kit shortens the treated member's medical bay time (treatmentShare)", status: LIVE },
@@ -3703,45 +3807,55 @@ const AUDIT_ROWS: readonly { id: string; system: WiringSystem; claim: string; st
   { id: "away:audit:statusPicker", system: "away", claim: "Status picker entries that never match (only six of nine statuses can fire)", status: pending("FK-9 + WR-10") },
   { id: "away:audit:fieldRepairOrder", system: "away", claim: "Player-ordered field repair (engine only, no UI)", status: pending("WR-10, OC-F14") },
   { id: "away:audit:legacyOnly", system: "away", claim: "Legacy-only: MAX_BATTLE_ATTEMPTS, EVAC_REWARD_FRACTION, ENCOUNTER_DROP_SCALE, scan ground battles, softenAmbush, the flat 2 h injury", status: pending("OC-G1") },
-  { id: "away:audit:tierDormant", system: "away", claim: "Tier-dormant rows: RISK_TIER_ODDS II to VII, enemy territory (the homeworld's fixed sectors), hostile sites, SCIENCE_HEAVY, affix rows above Tier I, the tier haul TIER_HAUL_MULT II to VII, TIER_BODY_COUNT II to VII, the deeper famous systems, DIFFICULTY_TIER_ROLL_MULT", status: pending(`${G2_6_PICKER}, SF-3`) },
+  // Expedition Tiers G2-6: the region picker offers every tier, so the tier rows read on a player's launch (the run's
+  // risk profile at the picked tier). The tier haul and the tier body counts have their own rows (the G2-2 review
+  // note); the future difficulty tiers keep theirs (nothing designed yet).
+  { id: "away:audit:tierDormant", system: "away", claim: "The tier rows a deeper launch reads: RISK_TIER_ODDS II to VII, enemy territory (the homeworld's fixed sectors), hostile sites, SCIENCE_HEAVY, affix rows above Tier I, the deeper famous systems", status: LIVE },
+  { id: "away:audit:tierHaulMult", system: "away", claim: "The tier haul TIER_HAUL_MULT II to VII: every objective's haul of a deeper run, x1.25 to x3.3 (user G16)", status: LIVE },
+  { id: "expedition:audit:tierBodyCount", system: "expedition", claim: "TIER_BODY_COUNT II to VII: deeper systems hold more bodies, up to 3 to 5 at Tiers VI and VII (user G17)", status: LIVE },
+  { id: "away:audit:difficultyTiers", system: "away", claim: "DIFFICULTY_TIER_ROLL_MULT above the base difficulty tier (the future difficulty tiers hook: one row today)", status: pending("SF-3 follow-up (the future difficulty tiers: nothing designed; objective affixes capture 2026-10-14)") },
   { id: "away:audit:objectiveHooks", system: "away", claim: "taskChainFollowUp, calmObjective, affix weightFor (no caller)", status: pending("OC-C4") },
   // G. Expedition content
   { id: "expedition:audit:siteFlavor", system: "expedition", claim: "Hostile and clearing site flavor (never rendered)", status: pending("WR-11 (render; no call)") },
   { id: "expedition:audit:anomalyFinding", system: "expedition", claim: "Charting the anomaly costs a detour (a voyage run: 25% of its outbound leg; an older run: 1 h) and pays nothing (B15)", status: pending("WR-11, OC-G3") },
   // Expedition Tiers G2-3: the voyage engine reaches every tier and every drive class (voyage.test.ts proves the ladder,
-  // the band scale and the halving); no player reaches a deeper tier until the picker, nor a class above I until G2-4.
-  { id: "expedition:audit:voyageDeepTiers", system: "expedition", claim: "The voyage ladder above Tier I: TIER_TRANSIT_HOURS II 4 h, III 8 h, IV 12 h, V 24 h, VI 72 h, VII 168 h", status: pending(G2_6_PICKER) },
+  // the band scale and the halving); since G2-6 a player picks any tier on the console, so the deeper ladder is live.
+  { id: "expedition:audit:voyageDeepTiers", system: "expedition", claim: "The voyage ladder above Tier I: TIER_TRANSIT_HOURS II 4 h, III 8 h, IV 12 h, V 24 h, VI 72 h, VII 168 h", status: LIVE },
   // Expedition Tiers G2-4 (propulsion.ts): a Class II drive is researchable, installable and halves a Tier I leg today;
   // the deep-space reach reads its class at every launch; no hull but an explorer launches. The tier gates themselves
-  // (drive class and frontier sensors per tier) only refuse at Tier II and deeper, which no player picks until G2-6.
+  // (drive class and frontier sensors per tier) refuse at Tier II and deeper, which a player picks on the G2-6 console.
   { id: "expedition:audit:voyageDriveClass", system: "expedition", claim: "A voyage leg halves per drive class above the tier's minimum (voyage.ts voyageClassSteps; the ship's class: propulsion.ts shipDriveClass)", status: LIVE },
   { id: "expedition:audit:deepSpaceReach", system: "expedition", claim: "Deep-space reach: the gear-inclusive range x DRIVE_CLASS_REACH_MULT by drive class x the Engineering long-haul ramp, against the round trip (outOfReach)", status: LIVE },
   { id: "expedition:audit:explorerHullGate", system: "expedition", claim: "Only an explorer hull launches an expedition, Tier I included (notExplorer)", status: LIVE },
-  { id: "expedition:audit:driveClassTierGate", system: "expedition", claim: "A tier asks for a drive class at least its own number (driveClassTooLow, driveClassUnavailable)", status: pending(G2_6_PICKER) },
-  { id: "expedition:audit:frontierSensors", system: "expedition", claim: "Frontier sensors to attempt a tier: FRONTIER_SENSORS I 0, II 10, III 20, IV 30, V 40, VI 55, VII 65 (frontierSensors)", status: pending(G2_6_PICKER) },
+  { id: "expedition:audit:driveClassTierGate", system: "expedition", claim: "A tier asks for a drive class at least its own number (driveClassTooLow, driveClassUnavailable)", status: LIVE },
+  { id: "expedition:audit:frontierSensors", system: "expedition", claim: "Frontier sensors to attempt a tier: FRONTIER_SENSORS I 0, II 10, III 20, IV 30, V 40, VI 55, VII 65 (frontierSensors)", status: LIVE },
   { id: "expedition:audit:hullBaseDriveClass", system: "expedition", claim: "A hull's base drive class from its tier (propulsion.ts hullBaseDriveClass): every explorer built today is Class I", status: { kind: "seam", owner: "the first tier 3 explorer hull (none is built yet)", userRef: "G2 OC-3 (user 2026-10-16): \"A combination of higher tier ships and better drive blueprints/stats/etc.\"" } },
   // Expedition Tiers G2-5: the recall and the resumable systems are built in the engine (expeditionRecall.test.ts proves
-  // the 1:1 times, the closing window and the resume); no player can recall or resume until G2-6's console.
-  { id: "expedition:audit:recall", system: "expedition", claim: "Recall: home in the outbound time flown (the detour not counted), or after arrival the window closes, one shared pickup, then the full return leg; finished work comes home", status: pending(G2_6_RECALL) },
-  { id: "expedition:audit:resumableSystems", system: "expedition", claim: "A recalled system with charted bodies stays open to resume by any explorer (scans done, objectives keep progress, the trip flown again) until finished or abandoned; one recalled before anything was charted is an ordinary candidate again", status: pending(G2_6_RECALL) },
+  // the 1:1 times, the closing window and the resume); G2-6's console recalls, resumes and abandons.
+  { id: "expedition:audit:recall", system: "expedition", claim: "Recall: home in the outbound time flown (the detour not counted), or after arrival the window closes, one shared pickup, then the full return leg; finished work comes home", status: LIVE },
+  { id: "expedition:audit:resumableSystems", system: "expedition", claim: "A recalled system with charted bodies stays open to resume by any explorer (scans done, objectives keep progress, the trip flown again) until finished or abandoned; one recalled before anything was charted is an ordinary candidate again", status: LIVE },
   { id: "facility:audit:heldDriveClasses", system: "facility", claim: "The Class III to VII Drive Blueprints (DRIVE_CLASS_BLUEPRINTS) join BLUEPRINTS once the Research Lab and Fabricator tracks reach their tiers", status: LIVE },
   { id: "expedition:audit:anomalySensors", system: "expedition", claim: "ANOMALY_CHANCE_PERMILLE: \"if sensors detect one\" (sensors not read)", status: pending("WR-11, OC-G3") },
   { id: "expedition:audit:relicSignature", system: "expedition", claim: "Foreknowledge relicSignature (the UI never reads it)", status: pending("WR-11 (delete or render; no call)") },
-  { id: "expedition:audit:blindLaunch", system: "expedition", claim: "The blind launch path (a candidate past the telescope's reach: a deeper tier)", status: pending(G2_6_PICKER) },
-  { id: "expedition:audit:oddsRiskyBelow", system: "expedition", claim: "ODDS_RISKY_BELOW (behind tier > 2)", status: pending(G2_6_PICKER) },
+  { id: "expedition:audit:blindLaunch", system: "expedition", claim: "The blind launch path (a candidate past the telescope's reach: a deeper tier)", status: LIVE },
+  { id: "expedition:audit:oddsRiskyBelow", system: "expedition", claim: "ODDS_RISKY_BELOW (behind tier > 2)", status: LIVE },
   { id: "expedition:audit:shipEventProfileFields", system: "expedition", claim: "ShipEventProfile evasion and shieldCapacity (frozen, never read)", status: pending("WR-11, OC-G5") },
   { id: "expedition:audit:planetComments", system: "expedition", claim: "Planet comments: Ocean slower work, Frozen best relic survival, Toxic hardened team", status: pending("OC-G6") },
   { id: "expedition:audit:legacyFallbacks", system: "expedition", claim: "FIGHT_POINTS_DEFAULT / MIN, SURVEY_AMBUSH_CHANCE (old runs only)", status: pending("OC-G1") },
   // H. Relics v2 R2-2 (relicBlanks.ts): live on every new run at Tier I; the rest waits for the slice that reaches it.
-  { id: "relic:audit:blankTiers", system: "relic", claim: "Relic blanks above Tier I: RELIC_BLANK_WEIGHTS II to VII (a deeper find rolls rarer on the same chance, user call 13 \"Better rarity only\")", status: pending(G2_6_PICKER) },
+  { id: "relic:audit:blankTiers", system: "relic", claim: "Relic blanks above Tier I: RELIC_BLANK_WEIGHTS II to VII (a deeper find rolls rarer on the same chance, user call 13 \"Better rarity only\")", status: LIVE },
   { id: "relic:audit:blankCulture", system: "relic", claim: "A blank's culture (cultureForBody, stamped on every new run's relic): the culture study reads it", status: pending("Relics v2 R2-6 (cultures: study points and the name reveal)") },
-  { id: "relic:audit:shortRangeBlanks", system: "relic", claim: "Short-range relic drops (rollShortRangeRelicBlanks: per hour, Tier I 0.08x and Tier II 0.15x of the expedition rate)", status: pending("G1-5 (wires the hook into a delivered short-range cycle)") },
+  // G1-5 wired the hook into every delivered cycle of a run dispatched from G1-5 on (shortRangeCycle.ts
+  // shortRangeCycleRelics): live in place, its check in auditRowWiring below.
+  { id: "relic:audit:shortRangeBlanks", system: "relic", claim: "Short-range relic drops (rollShortRangeRelicBlanks: per hour, Tier I 0.08x and Tier II 0.15x of the expedition rate)", status: LIVE },
   { id: "relic:audit:completionBlank", system: "relic", claim: "The planet 100% bonus roll (planetCompletionRelicBlank: one extra blank, one rarity step up)", status: pending("G7 (calls the hook when a planet is fully completed)") },
   // Relics v2 R2-3 (relicIdentify.ts; the queue in tick.ts): every new study identifies through identification v2.
   { id: "relic:audit:identifyV2", system: "relic", claim: "Identification v2: a new study reveals an exceptional piece at EXCEPTIONAL_PER_100K (user call 6), preferring the pieces the Museum lacks (call 7); else a general type on the blank's own rarity band odds (\"Only one boost\") with the site bias", status: LIVE },
   { id: "relic:audit:identifyLanes", system: "relic", claim: "Relic-study lanes by Research Lab tier (RELIC_STUDY_LANES_BY_LAB: Lab I 1, III 2, V 3, VII 4; user call 12)", status: LIVE },
   { id: "relic:audit:identifyQueue", system: "relic", claim: "The identification queue: the next queued blank starts the moment a lane frees, also while away (tick.ts queueRelicStudy / resolveRelicStudies)", status: pending("Relics v2 R2-7 (the Identification tab: feed, queue, reorder; the engine queue is built and tested)") },
-  { id: "relic:audit:generalPick", system: "relic", claim: "A blank with no set identifies over the general pool by band, with the site bias (identifyGeneralRelic)", status: pending("G1-5 and G7 (the first callers that mint a blank with no set); R2-3 builds identification v2 on the same pick") },
+  { id: "relic:audit:generalPick", system: "relic", claim: "A blank with no set identifies over the general pool by band, with the site bias (identifyGeneralRelic)", status: pending("Relics v2 R2-3 follow-up (retire the v1 setless branch of identifyStudiedRelic: identification v2, relic:audit:identifyV2, studies every new blank, G1-5's short-range blanks included, so no study reaches this pick)") },
+  // Relics v2 R2-4 (relics.ts museum math v2): the per-tier soft cap snapshot (user calls 3 and 4).
+  { id: "relic:audit:softCap", system: "relic", claim: "The soft cap: a tier's counts freeze for the regular game at RELIC_SOFT_CAP identified relics (1000 per tier, user call 3); counts keep growing and show (call 4)", status: LIVE },
   // I. Missions, patrols, factions
   { id: "mission:audit:unusedFactions", system: "mission", claim: "voidJackals, ironVultures, ashenCorsairs and Faction.id (no patrol references them)", status: pending("WR-11, OC-I2") },
   // J. Salvage and item generation
@@ -3866,6 +3980,34 @@ function auditRowWiring(): Readonly<Record<string, Partial<EntryInput>>> {
   });
   return {
     ...wr8AuditWiring(),
+    // Gear wear step 3: a Reactor Core at its slot base (SLOT_BASE_PHYSICALS.reactorCore.durability) against one at
+    // the TOUGHNESS_REFERENCE: a minute underway takes reference / base as much (one rounding step of tolerance).
+    "ship:audit:slotDurability": {
+      probe: "wear:use:reactorCore:minutesRunning" as ProbeId,
+      contexts: ["mission:extraction", "mission:shortRange"],
+      direction: "up",
+      curve: { kind: "linearRelative" },
+      magnitude: (c) => TOUGHNESS_REFERENCE / c.SLOT_BASE_PHYSICALS.reactorCore.durability - 1,
+      base: () => installPiece(seatOfficer(wiringBase(), "operations", []), { slotType: "reactorCore", durabilityMax: TOUGHNESS_REFERENCE }),
+      on: (s) => ({ ...s, equipment: s.equipment.map((e) => (e.id === wearPieceIdFor("reactorCore") ? { ...e, durabilityMax: SLOT_BASE_PHYSICALS.reactorCore.durability } : e)) }),
+      tolerance: 1,
+    },
+    // Merged WR-8 + gear wear step 3: a member weapon's durability is its toughness too. Its slot base equals the
+    // TOUGHNESS_REFERENCE, so the check sets a piece twice as tough against one at the slot base: a ground fight takes
+    // (2 x reference) / base as much from the slot-base piece (one rounding step of tolerance).
+    "away:audit:memberSlotPhysicals": {
+      probe: "wear:use:memberWeapon:groundFight" as ProbeId,
+      contexts: ["expedition:groundOps"],
+      direction: "down",
+      curve: { kind: "linearRelative" },
+      magnitude: (c) => (2 * TOUGHNESS_REFERENCE) / c.SLOT_BASE_PHYSICALS.memberWeapon.durability - 1,
+      base: () => {
+        const s = wearSlotFixture("memberWeapon");
+        return { ...s, equipment: s.equipment.map((e) => (e.id === wearPieceIdFor("memberWeapon") ? { ...e, durabilityMax: 2 * TOUGHNESS_REFERENCE } : e)) };
+      },
+      on: (s) => ({ ...s, equipment: s.equipment.map((e) => (e.id === wearPieceIdFor("memberWeapon") ? { ...e, durabilityMax: SLOT_BASE_PHYSICALS.memberWeapon.durability } : e)) }),
+      tolerance: 1,
+    },
     // G1-6 (SHORT_RANGE_BOARD_LIVE): the board's level 2 rung opens once each ore run has MISSION_CONTROL_UNLOCK_COMPLETIONS
     // completions; one fewer keeps it shut.
     "facility:audit:missionControlUnlock": {
@@ -3875,6 +4017,15 @@ function auditRowWiring(): Readonly<Record<string, Partial<EntryInput>>> {
       magnitude: () => 1,
       on: playedOreRuns(MISSION_CONTROL_UNLOCK_COMPLETIONS),
       off: playedOreRuns(MISSION_CONTROL_UNLOCK_COMPLETIONS - 1),
+    },
+    // G1-5: a Tier I and a Tier II short-range cycle of SHORT_RANGE_RELIC_PROBE_HOURS find their per-hour rate x the
+    // hours in relic blanks (8 + 15) through the cycle engine; the same runs without G1-5's flag find none.
+    "relic:audit:shortRangeBlanks": {
+      probe: "content:shortRangeRelics",
+      contexts: ["mission:shortRange"],
+      curve: { kind: "gate" },
+      magnitude: () => ((shortRangeRelicMicrosPerHour(1) + shortRangeRelicMicrosPerHour(2)) * SHORT_RANGE_RELIC_PROBE_HOURS) / 1_000_000,
+      on: sourceOn,
     },
     // Field Kits FKR-7: one Injury Kit's share on a member's trip treatment divides their Broken Bone bay time.
     "away:audit:treatmentShare": {
@@ -3904,6 +4055,24 @@ function auditRowWiring(): Readonly<Record<string, Partial<EntryInput>>> {
       curve: { kind: "gate" },
       magnitude: () => relicV2ProbeExpectedExceptional(),
       on: sourceOn,
+    },
+    // Relics v2 R2-4: 200 Hull Rivets past the cap, deposited one at a time through the real deposit (the snapshot holds
+    // the first RELIC_SOFT_CAP), against the same copies as a plain record with no snapshot: the cap takes exactly the
+    // curve's growth over those copies off the regular game's cargoCapacity.
+    "relic:audit:softCap": {
+      probe: "museum:cargoCapacity",
+      contexts: ["fleet"],
+      direction: "down",
+      magnitude: () => {
+        const at = (n: number) => diminishing(n * MUSEUM_V2_PER_COPY[V2_FIXTURE_TIER], MUSEUM_V2_KNEE);
+        return at(RELIC_SOFT_CAP) - at(RELIC_SOFT_CAP + SOFT_CAP_PROBE_PAST);
+      },
+      on: (s) => {
+        let m = s.museumV2 ?? emptyMuseumV2();
+        for (let i = 0; i < RELIC_SOFT_CAP + SOFT_CAP_PROBE_PAST; i++) m = museumDepositGeneral(m, V2_FIXTURE_TIER, "hullRivet", 1);
+        return { ...s, museumV2: m };
+      },
+      off: withTierCopies(V2_FIXTURE_TIER, { hullRivet: RELIC_SOFT_CAP + SOFT_CAP_PROBE_PAST }),
     },
     // Relics v2 R2-3: Lab VII runs three more relic studies at once than Lab I.
     "relic:audit:identifyLanes": {
@@ -3974,6 +4143,126 @@ function auditRowWiring(): Readonly<Record<string, Partial<EntryInput>>> {
       on: (s) => installMissingCombatBaselines(editShip(s, { typeKey: "orion" })),
       off: identity,
     },
+    // ===== Expedition Tiers G2-6: the console's region picker and recall (probes.ts consoleLaunch: the deepest tier
+    // ship-1 can attempt, its nearest candidate in reach, the gated launch a player's Launch sends) =====
+    // A Tier II launch needs a Class II drive (the Orion's sensors cleared first); with Class I it is refused.
+    "expedition:audit:driveClassTierGate": {
+      probe: "tierTwoLaunchAllowed",
+      contexts: ["expedition:groundOps"],
+      curve: { kind: "gate" },
+      magnitude: () => 1,
+      base: () => consoleOrion(G2_6_SENSORS),
+      on: classedDrive("classIIDriveBp"),
+      off: classedDrive("balancedDriveBp"),
+    },
+    // With the Class II drive, Tier II asks for its frontier sensors: a stock Orion reads 0; FRONTIER_SENSORS[2] clears it.
+    "expedition:audit:frontierSensors": {
+      probe: "tierTwoLaunchAllowed",
+      contexts: ["expedition:groundOps"],
+      curve: { kind: "gate" },
+      magnitude: () => 1,
+      base: () => classedDrive("classIIDriveBp")(consoleOrion(0)),
+      on: (s) => installPiece(s, { slotType: "sensor", implicitStats: { sensors: FRONTIER_SENSORS[2] } }),
+      off: identity,
+    },
+    // The console's Tier II launch flies Tier II's ladder (4 h nominal), the Class I ship's Tier I launch Tier I's (2 h):
+    // at least the gap between Tier II's nearest and Tier I's farthest band position, at up to twice the stock speed.
+    "expedition:audit:voyageDeepTiers": {
+      probe: "consoleOutbound",
+      contexts: ["expedition:groundOps"],
+      curve: { kind: "event", metric: "seconds of the outbound leg (Tier II over Tier I)" },
+      magnitude: () => ((TIER_TRANSIT_HOURS[2] * VOYAGE_BAND_SCALE_PERMILLE.near - TIER_TRANSIT_HOURS[1] * VOYAGE_BAND_SCALE_PERMILLE.far) * 3.6) / 2,
+      base: () => consoleOrion(G2_6_SENSORS),
+      on: classedDrive("classIIDriveBp"),
+      off: classedDrive("balancedDriveBp"),
+    },
+    // The console's Tier II launch rolls its risk on Tier II's rows (RISK_TIER_ODDS, hostile sites, affixes...).
+    "away:audit:tierDormant": {
+      probe: "consoleRiskTier",
+      contexts: ["expedition:groundOps"],
+      magnitude: () => 1,
+      base: () => consoleOrion(G2_6_SENSORS),
+      on: classedDrive("classIIDriveBp"),
+      off: classedDrive("balancedDriveBp"),
+    },
+    // ...and pays Tier II's haul on every objective.
+    "away:audit:tierHaulMult": {
+      probe: "consoleHaulMult",
+      contexts: ["expedition:groundOps"],
+      curve: { kind: "linearRelative" },
+      magnitude: () => TIER_HAUL_MULT[2] / TIER_HAUL_MULT[1] - 1,
+      base: () => consoleOrion(G2_6_SENSORS),
+      on: classedDrive("classIIDriveBp"),
+      off: classedDrive("balancedDriveBp"),
+    },
+    // A Class VII ship's console reads Tier VII's systems (3 to 5 bodies each) where a Class I ship reads Tier I's (1 to 3).
+    "expedition:audit:tierBodyCount": {
+      probe: "consoleBodyCount",
+      contexts: ["expedition:groundOps"],
+      curve: { kind: "event", metric: "bodies across the three nearest candidates" },
+      magnitude: () => 1,
+      base: () => withFacilityLevel(consoleOrion(G2_6_SENSORS), SUBSPACE_TELESCOPE_FACILITY_KEY, 8),
+      on: classedDrive("classVIIDriveBp"),
+      off: classedDrive("balancedDriveBp"),
+    },
+    // A Tier II launch beyond a Level 1 telescope goes blind (counted); a Level 2 telescope reads Tier II.
+    "expedition:audit:blindLaunch": {
+      probe: "consoleBlindLaunches",
+      contexts: ["expedition:groundOps"],
+      curve: { kind: "gate" },
+      magnitude: () => 1,
+      base: () => classedDrive("classIIDriveBp")(consoleOrion(G2_6_SENSORS)),
+      on: (s) => withFacilityLevel(s, SUBSPACE_TELESCOPE_FACILITY_KEY, 1),
+      off: (s) => withFacilityLevel(s, SUBSPACE_TELESCOPE_FACILITY_KEY, 2),
+    },
+    // At Tier III (behind tier 2) the recommendation reads the fight odds (ODDS_RISKY_BELOW judges them); at Tier I never.
+    "expedition:audit:oddsRiskyBelow": {
+      probe: "consoleOddsRead",
+      contexts: ["expedition:groundOps"],
+      curve: { kind: "event", metric: "compositions whose fight odds the recommendation reads" },
+      magnitude: () => 1,
+      base: () => withFacilityLevel(consoleOrion(G2_6_SENSORS), SUBSPACE_TELESCOPE_FACILITY_KEY, 5),
+      on: classedDrive("classIIIDriveBp"),
+      off: classedDrive("balancedDriveBp"),
+    },
+    // A Tier II launch's relic blanks roll on Tier II's table (more weight above the standard rarity).
+    "relic:audit:blankTiers": {
+      probe: "consoleBlankShare",
+      contexts: ["expedition:groundOps"],
+      curve: { kind: "event", metric: "permille of the blank table above the standard rarity" },
+      magnitude: () => 1,
+      base: () => consoleOrion(G2_6_SENSORS),
+      on: classedDrive("classIIDriveBp"),
+      off: classedDrive("balancedDriveBp"),
+    },
+    // Recalled a quarter of the way out, the run flies home in a quarter of its return leg (1:1, user #7).
+    "expedition:audit:recall": {
+      probe: "runReturnSeconds",
+      contexts: ["expedition:groundOps"],
+      direction: "down",
+      curve: { kind: "linearRelative" },
+      magnitude: () => RECALL_PROBE_SHARE - 1,
+      tolerance: 2,
+      base: () => launchedAndAt(consoleOrion(0), "quarterOut"),
+      on: (s) => recallExpedition(s, s.expeditions[0].id),
+      off: identity,
+    },
+    // Recalled once a body is charted, the system stays open to resume; recalled in transit, it is a candidate again.
+    "expedition:audit:resumableSystems": {
+      probe: "resumableCount",
+      contexts: ["expedition:groundOps"],
+      curve: { kind: "gate" },
+      magnitude: () => 1,
+      base: () => consoleOrion(0),
+      on: (s) => {
+        const at = launchedAndAt(s, "firstCharted");
+        return recallExpedition(at, at.expeditions[0].id);
+      },
+      off: (s) => {
+        const at = launchedAndAt(s, "quarterOut");
+        return recallExpedition(at, at.expeditions[0].id);
+      },
+    },
     "ship:audit:weaponPowerDraw": {
       probe: "sheetPowerDraw",
       contexts: ["sheet"],
@@ -4005,6 +4294,14 @@ function emodAuditEntries(): WiringEntry[] {
       off: classedDrive("balancedDriveBp", draw),
     }),
   ];
+}
+
+// Expedition Tiers G2-6: an Orion (an explorer) fielding the minimum away team, with a sensor piece of `sensors` (0: none)
+// installed; G2_6_SENSORS clears every tier's frontier sensors (Tier VII asks 65).
+const G2_6_SENSORS = 70;
+function consoleOrion(sensors: number): GameState {
+  const s = withAwayTeam(wiringBase("orion"));
+  return sensors > 0 ? installPiece(s, { slotType: "sensor", implicitStats: { sensors } }) : s;
 }
 
 // Expedition Tiers G2-4: ship-1 with an FTL drive of blueprint `blueprintKey` installed (no stat lines, `powerDraw`).
@@ -4270,7 +4567,6 @@ export const FLAT_UNCONTROLLED: Readonly<Record<string, string>> = {
   "sciCombatPower@ground": "Science never fights (D2): nothing live reaches a Science member's battle stats",
   "secInflictPermille@ground:noInflict": "an inflict piece is the only live source of on-hit statuses, and this context is the one without it",
   "salvageTalentCeiling@salvage:topTier": "the pool's top tier is the clamp: nothing can raise the tier a top Fleet Admiral rolls",
-  "candidateTopTier@expedition:groundOps": "the console offers Tier I candidates until G2-6 adds the region picker (G2-2 built every tier): nothing raises the offered region tier",
   // WR-8: transit speed reaches a patrol's combat speed now (ship:audit:derivedStatsInCombat), so its pending patrol
   // context is the LEGS alone, read here; no live effect moves a patrol leg until WR-7 (OC-D8) scales them.
   "patrolOutboundTicks@patrol": "a patrol's legs are fixed route ticks until WR-7 (OC-D8: patrol legs scale with transit speed): nothing live moves them yet",
@@ -4302,8 +4598,8 @@ const SHORT_RANGE_SWEEP_LIVE: ReadonlySet<string> = new Set([
 // extraction-roll talents stay with extraction missions.]
 const NO_EXTRACTING = "a short-range job has no extracting phase or ore rolls: it pays its rolled job (shortRange.ts shortRangeCycleReward)";
 const SHORT_RANGE_SWEEP_OUT_OF_SCOPE: Readonly<Record<string, string>> = {
-  "officer:officer.rareFindMult": "a short-range survey's yield is its scan size and Sensors, with no rare-tier roll to raise (short-range relics are G1-5's)",
-  "crew:crew.rareFindChance": "a short-range survey's yield is its scan size and Sensors, with no rare-tier roll to raise (short-range relics are G1-5's)",
+  "officer:officer.rareFindMult": "a short-range survey's yield is its scan size and Sensors, with no rare-tier roll to raise (its relic blanks roll the fixed per-hour rate of call 11, G1-5)",
+  "crew:crew.rareFindChance": "a short-range survey's yield is its scan size and Sensors, with no rare-tier roll to raise (its relic blanks roll the fixed per-hour rate of call 11, G1-5)",
   "captain:CAPTAIN_TALENTS:prospectorHub": NO_EXTRACTING,
   "captain:CAPTAIN_TALENTS:prospectorBulkExtraction": NO_EXTRACTING,
   "captain:CAPTAIN_TALENTS:prospectorRefinedExtraction": NO_EXTRACTING,
@@ -4470,6 +4766,23 @@ function gasStudyEntries(): WiringEntry[] {
       base: () => withAwayTeam(wiringBase()),
       on: sourceOn,
     },
+    //   labLane (GG-5): the Research Lab's data study lane banks a boost from one held research data item (OFF: paused).
+    labLane: {
+      probe: "content:dataStudy:lane",
+      contexts: ["research"],
+      curve: { kind: "event", metric: "boosts banked by one study of Propulsion Data on the Research Lab's lane" },
+      magnitude: () => 1,
+      on: sourceOn,
+    },
+    //   nebulaSweep (GG-4): a run to a system with a nebula brings home its sweep's canisters (OFF: the stamp taken away).
+    nebulaSweep: {
+      probe: "content:gasStudy:nebulaSweep",
+      contexts: ["expedition:groundOps"],
+      curve: { kind: "event", metric: "canisters the nebula sweep of a whole run returns" },
+      magnitude: () => 1,
+      base: () => withAwayTeam(wiringBase()),
+      on: sourceOn,
+    },
   };
   for (const use of Object.keys(GAS_STUDY_USES) as GasStudyUse[]) {
     const system = useSystem[use];
@@ -4559,19 +4872,95 @@ function gasStudyEntries(): WiringEntry[] {
     for (const field of effectFieldsOf("NEBULA_KINDS")) {
       const owner = kindOwner[field];
       if (owner === undefined) continue;
-      out.push(entry({ id: `expedition:NEBULA_KINDS:${k.id}:${field}`, system: "expedition", source: { catalog: "NEBULA_KINDS", key: `${k.id}:${field}` }, claim: `${k.name}: its ${field}`, status: pending(owner) }));
+      // GG-4 built the sweep: both fields go live, each read through a batch of sweep rewards of the kind (the canisters
+      // above Standard with its odds vs all Standard; its heaviest gas of an uneven band with its weights vs even).
+      const metric = field === "bandOdds" ? `${k.name} canisters above Standard over a sweep batch, its odds vs all Standard` : `${k.name}'s heaviest gas of an uneven band over a sweep batch, its weights vs even`;
+      out.push(
+        entry({
+          id: `expedition:NEBULA_KINDS:${k.id}:${field}`,
+          system: "expedition",
+          source: { catalog: "NEBULA_KINDS", key: `${k.id}:${field}` },
+          claim: `${k.name}: its ${field}`,
+          probe: `content:nebulaKind:${k.id}:${field}`,
+          contexts: ["expedition:groundOps"],
+          curve: { kind: "event", metric },
+          magnitude: () => 1,
+          on: sourceOn,
+        }),
+      );
     }
   }
-  // GG-3: the probe dive seam (gasGiantStudy.ts studyDiveEvents): one event per finished study with a Galileo aboard,
-  // for gear wear step 3's tool use wear. It moves nothing on its own.
+  // GG-3: the probe dive (gasGiantStudy.ts studyDiveEvents): one event per finished study with a Galileo aboard. Gear
+  // wear step 3 wires it LIVE: each dive is one fieldwork step's use on the probe that dove (gearWearEngine.ts
+  // expeditionWear), measured on the real run read at its first dive (wiring/wearProbes.ts divePerUnit).
   out.push(
     entry({
       id: "away:GAS_STUDY_SEAM:probeDiveWear",
       system: "away",
       source: { catalog: "GAS_STUDY_SEAM", key: "probeDiveWear" },
       claim: "Each finished study with a Galileo-Class Probe aboard is one probe dive (the probe's use wear)",
-      status: { kind: "seam", owner: GEAR_WEAR_STEP_3, userRef: "gear wear design 3.1 (user 2026-10-16): \"sensors by scans, tools by fieldwork\"" },
-      note: "gasGiantStudyLeg.test.ts proves the events",
+      probe: "wear:dive" as ProbeId,
+      contexts: ["expedition:groundOps"],
+      direction: "down",
+      magnitude: (c) => -(c.WEAR_SOURCES.find((w) => w.id === "memberTool:fieldworkStep")?.raw ?? 0),
+      base: () => diveFixture(),
+      off: (s) => ({ ...s, equipment: s.equipment.filter((e) => e.id !== WEAR_DIVE_PROBE_ID) }),
+      tolerance: 1,
+      note: "one fieldwork step on the probe (gear wear design 3.1, user 2026-10-16: \"sensors by scans, tools by fieldwork\"); gasGiantStudyLeg.test.ts proves the events",
+    }),
+  );
+  // GG-5: the lab lane's effects (dataStudy.ts): one banked boost per research family (the ticks it saves on the
+  // family's first blueprint) and the recipe chance, each live with its probe; the Ancient Data Fragment's decode is a
+  // seam until a blueprint reads it (GG-7).
+  for (const family of RESEARCH_FAMILIES) {
+    out.push(
+      entry({
+        id: `facility:DATA_STUDY:boost:${family}`,
+        system: "facility",
+        source: { catalog: "DATA_STUDY", key: `boost:${family}` },
+        claim: `A banked ${family} data boost speeds the next ${family} research project by ${Math.round(RESEARCH_BOOST_PER * 100)}% (D23 stacking)`,
+        probe: `content:dataStudy:boost:${family}`,
+        contexts: ["research"],
+        curve: { kind: "event", metric: `research ticks one banked boost saves on the first ${family} blueprint` },
+        magnitude: () => 1,
+        on: sourceOn,
+      }),
+    );
+  }
+  out.push(
+    entry({
+      id: "facility:DATA_STUDY:recipeChance",
+      system: "facility",
+      source: { catalog: "DATA_STUDY", key: "recipeChance" },
+      claim: `A data study learns a recipe of its family at ${DATA_STUDY_RECIPE_PERMILLE / 10}%`,
+      probe: "content:dataStudy:recipe",
+      contexts: ["research"],
+      curve: { kind: "event", metric: "recipes learned over 400 study rolls with a candidate waiting" },
+      magnitude: () => 1,
+      on: sourceOn,
+    }),
+    entry({
+      id: "facility:DATA_STUDY:ancientDecode",
+      system: "facility",
+      source: { catalog: "DATA_STUDY", key: "ancientDecode" },
+      claim: "An Ancient Data Fragment's study decodes the next entry of its own culture (and gives it a study point)",
+      // GG-5 review follow-up: a SEAM, not live. The study does raise GameState.ancientDecoded (probe
+      // content:dataStudy:decode measures it), but nothing a player sees reads that count yet: no blueprint carries
+      // requiresDecode (decodeGate below, GG-7) and the culture study point waits on culture naming (R2-6).
+      probe: "content:dataStudy:decode",
+      contexts: ["research"],
+      curve: { kind: "event", metric: "entries one Ancient Data Fragment study decodes" },
+      magnitude: () => 1,
+      on: sourceOn,
+      status: { kind: "seam", owner: "GG-7 (the first special blueprint carrying requiresDecode) and Relics v2 R2-6 (culture study points)", userRef: "user call 10 (2026-10-19, \"One lane\"): a fragment decodes its culture's entries; some entries unlock special blueprints" },
+    }),
+    entry({
+      id: "facility:DATA_STUDY_SEAM:decodeGate",
+      system: "facility",
+      source: { catalog: "DATA_STUDY_SEAM", key: "decodeGate" },
+      claim: "A special blueprint opens once an ancient entry is decoded (BlueprintDef.requiresDecode)",
+      status: { kind: "seam", owner: "GG-7 (the special blueprints carry requiresDecode)", userRef: "user call 10 (2026-10-19, \"One lane\"): some entries unlock special blueprints" },
+      note: "gasGiantDataStudy.test.ts proves the gate on a fixture blueprint",
     }),
   );
   return out;
@@ -4669,59 +5058,219 @@ function reactorTechEntries(): WiringEntry[] {
 }
 
 // ============================================================================
-// gear wear (0.14.0, design docs/plans/2026-10-16-gear-wear-design.md section 9; build order steps 1 and 2)
+// gear wear (0.14.0, design docs/plans/2026-10-16-gear-wear-design.md section 9; build order steps 1 to 3)
 // ============================================================================
+
+// Step 3: the contexts a USE source's event happens in (wiring/wearProbes.ts drives each: a delivered captain-mission
+// cycle, a delivered non-training short-range cycle, a stamped expedition coming home).
+const WEAR_MISSION_CONTEXTS: ContextId[] = ["mission:extraction", "mission:survey", "mission:transport", "mission:shortRange"];
+const WEAR_RUN_CONTEXTS: ContextId[] = [...WEAR_MISSION_CONTEXTS, "expedition:groundOps"];
+const WEAR_USE_CONTEXTS: Readonly<Record<string, ContextId[]>> = {
+  "cargoBay:haul": WEAR_MISSION_CONTEXTS,
+  "ftlDrive:distance": WEAR_RUN_CONTEXTS,
+  "reactorCore:minutesRunning": WEAR_RUN_CONTEXTS,
+  "bridge:minutesCrewed": WEAR_RUN_CONTEXTS,
+  "quarters:minutesCrewed": WEAR_RUN_CONTEXTS,
+  "module:minutesUnderway": WEAR_RUN_CONTEXTS,
+  "sensor:surveyCycle": ["mission:survey", "mission:shortRange"],
+  "sensor:bodyScanned": ["expedition:groundOps"],
+  "specUtility:effectFires": ["mission:extraction", "mission:survey", "expedition:groundOps"],
+  "memberWeapon:groundFight": ["expedition:groundOps"],
+  "memberTool:fieldworkStep": ["expedition:groundOps"],
+  "implant:minutesOnGround": ["expedition:groundOps"],
+};
+const WEAR_DC_STEP_4 = "the Damage Control Suite's own fires and lines (a post-loss repair it shortens, a patrol wave it patches): gear wear step 4";
+const WEAR_USE_OUT_OF_SCOPE: Readonly<Record<string, { context: ContextId; reason: string }[]>> = {
+  "specUtility:effectFires": [
+    { context: "mission:shortRange", reason: "a short-range job draws no prospecting haul (it pays its rolled job), so no rig fires there" },
+    { context: "shipyard", reason: WEAR_DC_STEP_4 },
+    { context: "patrol", reason: WEAR_DC_STEP_4 },
+  ],
+};
+// The variety each ship slot's use fixture installs (a prospecting rig for the utility slot: it fires on a haul).
+const WEAR_FIXTURE_VARIETY: Readonly<Record<string, string>> = { sensor: "sensorBalanced", specUtility: "yieldRig", bridge: "bridgeBalancedCommand", quarters: "quartersUtilitarian" };
+
+// A fixture with ONE pristine piece of `slot` at the TOUGHNESS_REFERENCE (so a raw amount is the amount), crew aboard
+// (an officer with no bonus: the crew modules wear only with crew aboard), and `lines` on the piece.
+function wearSlotFixture(slot: string, lines: Readonly<Record<string, number>> = {}, variety?: string): GameState {
+  if (slot.startsWith("member") || slot === "implant") {
+    const member = wearMemberOf(slot);
+    const team: AwayTeamType = member === WIRING_SCIENCE_ID ? "science" : "security";
+    return wearPiece(withAwayTeam(wiringBase()), member, slot, variety ?? memberVarietyFor(slot, team) ?? "", lines);
+  }
+  const s = seatOfficer(wiringBase(), "operations", []);
+  const v = variety ?? WEAR_FIXTURE_VARIETY[slot];
+  return installPiece(s, { slotType: slot, durabilityMax: TOUGHNESS_REFERENCE, implicitStats: { ...lines }, ...(v ? { moduleVariant: v } : {}) });
+}
+
+// A worn piece (the repair fixtures): ship-1's cargo bay at WEAR_FIXTURE_CONDITION, anchored now.
+function wornCargoFixture(s: GameState = wiringBase()): GameState {
+  return withFixtureCondition(installPiece(s, { slotType: "cargoBay", durabilityMax: TOUGHNESS_REFERENCE }), "cargoBay", WEAR_FIXTURE_CONDITION);
+}
+
+// The ship-1 cargo piece (installPiece's id) as a pristine reference, to read a line's efficiency through.
+const WEAR_LINE = LINE_POINTS;
+const WEAR_FLOOR_EFFICIENCY = (): number => wearEfficiency(USE_WEAR_FLOOR);
 
 function wearEntries(): WiringEntry[] {
   const out: WiringEntry[] = [];
   // The sign convention (the registry's curve math, curveExpected): a magnitude is SIGNED so the curve lands on the
-  // expected value. A wear source (linearAbsolute, down) is minus its raw per-mille; an efficiency consumer
-  // (linearRelative, down) is efficiency(floor) - 1, also negative; a repair context or bonus (up) is positive.
-  // One entry per wear source (kind x source): the piece's condition goes down by the catalog's raw per-mille on a
-  // TOUGHNESS_REFERENCE piece (the fixture's durabilityMax), the headroom factor at full condition being 1.
+  // expected value. A wear source (linearAbsolute, down) is minus its raw per-mille per unit of its event; an
+  // efficiency consumer (down) is the efficiency at the use floor's move; a repair context or bonus (up) is positive.
+  //
+  // One entry per wear source (kind x source). A USE source is LIVE (step 3) at every context its event happens in:
+  // the probe drives that event once through the real engine on a TOUGHNESS_REFERENCE piece at full condition (the
+  // headroom factor at full is 1) and reads what it took per unit of the event (one rounding step of tolerance: the
+  // whole per-mille). off = the fixture without the piece (nothing to wear). A BATTLE source waits for step 4.
   for (const w of WEAR_SOURCES) {
+    const use = w.mode === "use";
     out.push(
       entry({
         id: `wear:WEAR_SOURCES:${w.id}`,
         system: "wear",
         source: { catalog: "WEAR_SOURCES", key: w.id },
-        claim: `${w.slot} wears by ${w.by}, ${w.event}${w.mode === "use" ? " (use stops at the use floor)" : " (battle can go below the floor, never breaks)"}`,
+        claim: `${w.slot} wears by ${w.by}, ${w.event}${use ? " (use stops at the use floor)" : " (battle can go below the floor, never breaks)"}`,
         direction: "down",
         magnitude: (c) => -(c.WEAR_SOURCES.find((x) => x.id === w.id)?.raw ?? 0),
-        status: pending(w.mode === "use" ? GEAR_WEAR_STEP_3 : GEAR_WEAR_STEP_4),
+        ...(use
+          ? {
+              probe: `wear:use:${w.id}` as ProbeId,
+              contexts: WEAR_USE_CONTEXTS[w.id] ?? [],
+              base: () => wearSlotFixture(w.slot),
+              off: (s: GameState) => ({ ...s, equipment: s.equipment.filter((e) => e.id !== wearPieceIdFor(w.slot)) }),
+              tolerance: 1,
+              ...(WEAR_USE_OUT_OF_SCOPE[w.id] ? { outOfScope: WEAR_USE_OUT_OF_SCOPE[w.id] } : {}),
+              note: "per unit of the event (a haul, 10 ly, a minute, a scan, a fight, a step); a run dispatched before step 3 carries no stamp and wears nothing",
+            }
+          : { status: pending(GEAR_WEAR_STEP_4) }),
       }),
     );
   }
-  // One entry per repair context: N minutes there from a known worn condition raises it by rate x N.
+  // One entry per repair context: WEAR_REPAIR_MINUTES there from a known worn condition raises it by rate x minutes
+  // (the engine's pass, gearWearEngine.ts resolveGearWear; integer rates, so exact).
+  const REPAIR_FIXTURE: Readonly<Record<keyof typeof REPAIR_RATES, { context: ContextId; base: () => GameState; offRun: boolean; home?: boolean; note: string }>> = {
+    home: { context: "fleet", base: () => wornCargoFixture(), offRun: false, note: "ship-1 docked, on no run" },
+    shipyardBay: { context: "shipyard", base: () => inShipyardBay(wornCargoFixture()), offRun: false, note: "ship-1 in a Shipyard repair bay (its hull repair process)" },
+    fieldRepair: { context: "expedition:groundOps", base: () => onFieldRepairLeg(wornCargoFixture()), offRun: false, home: true, note: "ship-1 set down on a GO-8b field repair leg for the whole span, settled as the run comes home (in event order with its wear)" },
+    underway: { context: "fleet", base: () => onMission(wornCargoFixture(), "shortOreRun", "transitOut"), offRun: true, note: "a run's upkeep, settled as the run comes home (a piece underway settles only at its run's events)" },
+  };
   for (const ctx of Object.keys(REPAIR_RATES) as (keyof typeof REPAIR_RATES)[]) {
+    const f = REPAIR_FIXTURE[ctx];
     out.push(
       entry({
         id: `wear:REPAIR_RATES:${ctx}`,
         system: "wear",
         source: { catalog: "REPAIR_RATES", key: ctx },
         claim: `Gear recovers on its own, free, at ${REPAIR_RATES[ctx]} per-mille a minute (${ctx})`,
+        probe: "wear:condition" as ProbeId,
+        contexts: [f.context],
         direction: "up",
-        magnitude: (c) => c.REPAIR_RATES[ctx],
-        status: pending(GEAR_WEAR_STEP_3),
+        magnitude: (c) => c.REPAIR_RATES[ctx] * WEAR_REPAIR_MINUTES,
+        base: f.base,
+        on: (s) => (f.home ? fieldRepairHome(s) : wearRepairMinutes(s, f.offRun)),
+        note: f.note,
       }),
     );
   }
-  // The two hull repair bonuses lift every gear repair rate too (no new sources).
-  for (const bonus of REPAIR_RATE_BONUSES) {
-    out.push(
-      entry({
-        id: `wear:REPAIR_RATE_BONUSES:${bonus}`,
-        system: "wear",
-        source: { catalog: "REPAIR_RATE_BONUSES", key: bonus },
-        claim: `The ${bonus} hull repair bonus also speeds every gear repair rate`,
-        direction: "up",
-        curve: { kind: "linearRelative" },
-        status: pending(GEAR_WEAR_STEP_3),
-      }),
-    );
-  }
-  // One entry per efficiency consumer: the piece at the use floor scales its own lines by efficiency(floor).
+  // The two hull repair bonuses lift every gear repair rate too (no new sources): the repair a docked piece gets in
+  // WEAR_REPAIR_MINUTES grows by (1 + the officers' repair speed) and by 1 / (1 - the Damage Control Suite's time cut).
+  const homeGain = (s: GameState) => wearRepairMinutes(s, false);
+  const dcPoints = WEAR_LINE;
+  out.push(
+    entry({
+      id: "wear:REPAIR_RATE_BONUSES:officerRepairSpeed",
+      system: "wear",
+      source: { catalog: "REPAIR_RATE_BONUSES", key: "officerRepairSpeed" },
+      claim: "The officerRepairSpeed hull repair bonus also speeds every gear repair rate",
+      probe: "wear:repairGain" as ProbeId,
+      contexts: ["fleet"],
+      curve: { kind: "linearRelative" },
+      magnitude: (c) => c.SENIOR_STAFF_BONUSES.find((b) => b.id === "med.recovery")?.magnitude ?? 0,
+      base: () => wornCargoFixture(),
+      on: (s) => homeGain(seatOfficer(s, "medical", ["med.recovery"])),
+      off: homeGain,
+      tolerance: 1,
+      note: "Rapid Recovery seated; the hull repair's whole speed bonus (officers, crew and captain) lifts the rate",
+    }),
+    entry({
+      id: "wear:REPAIR_RATE_BONUSES:damageControlRepairTime",
+      system: "wear",
+      source: { catalog: "REPAIR_RATE_BONUSES", key: "damageControlRepairTime" },
+      claim: "The damageControlRepairTime hull repair bonus also speeds every gear repair rate",
+      probe: "wear:repairGain" as ProbeId,
+      contexts: ["fleet"],
+      curve: { kind: "linearRelative" },
+      magnitude: () => {
+        const r = plusToPercent(dcPoints, DC_REPAIR_SPEED_B, DC_REPAIR_SPEED_R);
+        return r / (1 - r);
+      },
+      base: () => wornCargoFixture(),
+      on: (s) => homeGain(installPiece(s, { slotType: "specUtility", moduleVariant: "damageControlSuite", implicitStats: { repairSpeed: dcPoints } })),
+      off: homeGain,
+      tolerance: 1,
+      note: "a Damage Control Suite installed: the rate divides by (1 - its repair time cut)",
+    }),
+  );
+  // One entry per efficiency consumer: the piece at the use floor reads its own lines at efficiency(floor) where a run
+  // reads them (the run sheet, gearWearEngine.ts runShipStats, at the mission contexts; the dispatch snapshot at
+  // expedition:groundOps). off = the same piece pristine.
+  const e = WEAR_FLOOR_EFFICIENCY;
+  const transitPercent = (p: number) => plusToPercent(p / PERCENT_STAT_CURVES.transitSpeedMult.plusDivisor, PERCENT_STAT_CURVES.transitSpeedMult.B, PERCENT_STAT_CURVES.transitSpeedMult.r);
+  const quarters = QUARTERS_MODULES.find((q) => q.kind === "general" && q.focusBoost > 0)!;
+  const bridgeAmp = (c: Catalogs) => (c.BRIDGE_MODULES.find((b) => b.id === "bridgeBalancedCommand")?.amp ?? 0) * moduleEffectScale("standard", 0);
+  const quartersBoost = (c: Catalogs) => (c.QUARTERS_MODULES.find((q) => q.id === quarters.id)?.focusBoost ?? 0) * moduleEffectScale("standard", 0);
+  const memberLine = (slot: string, line: string, stat: keyof typeof GEAR_POINT_BUMP) => ({
+    contexts: ["expedition:groundOps"] as ContextId[],
+    base: () => wearSlotFixture(slot, { [line]: WEAR_LINE }),
+    magnitude: (c: Catalogs) => WEAR_LINE * c.GEAR_POINT_BUMP[stat] * (e() - 1),
+  });
+  const CONSUMERS: Readonly<Record<string, Partial<WiringEntry> | WiringStatus>> = {
+    "cargoBay:cargoCapacity": { contexts: WEAR_MISSION_CONTEXTS, base: () => wearSlotFixture("cargoBay", { cargoCapacity: WEAR_LINE }), magnitude: () => WEAR_LINE * (e() - 1) },
+    "ftlDrive:transitSpeed": {
+      contexts: WEAR_RUN_CONTEXTS,
+      curve: { kind: "linearRelative" },
+      base: () => wearSlotFixture("ftlDrive", { transitSpeedMult: WEAR_LINE }),
+      magnitude: () => (1 + transitPercent(WEAR_LINE * e())) / (1 + transitPercent(WEAR_LINE)) - 1,
+    },
+    // Engine efficiency's only reader inside a run is a captain mission's fuel price per cycle, unreachable since
+    // 0.13.6 (an infinite fuel budget: facility:audit:fuelAutoBuy); reach reads the pristine drive (design 4.3).
+    "ftlDrive:engineEfficiency": pending("S4-A02 (the fuel-economy cleanup: a run's fuel price is engine efficiency's only run-time reader, unreachable since 0.13.6; reach reads the pristine drive, design 4.3)"),
+    // The reactor's power output has no reader outside the install gate (pristine) but the combat power budget, where
+    // combat's own model is the authority (W3).
+    "reactorCore:powerOutput": pending(`${GEAR_WEAR_STEP_4}: the reactor's power output is read only by the install gate (pristine, design 4.3) and the combat power budget`),
+    "specUtility:lines": {
+      contexts: ["mission:survey", "mission:shortRange", "expedition:groundOps"],
+      base: () => wearSlotFixture("specUtility", { sensors: WEAR_LINE }, "pathfinderSuite"),
+      magnitude: () => WEAR_LINE * (e() - 1),
+      outOfScope: [
+        { context: "shipyard", reason: WEAR_DC_STEP_4 },
+        { context: "patrol", reason: WEAR_DC_STEP_4 },
+      ],
+      note: "a Pathfinder Suite's sensors line (the survey yield, the short-range scan, the expedition's sensor power); every line scales the same way",
+    },
+    "sensor:lines": { contexts: ["mission:survey", "mission:shortRange", "expedition:groundOps"], base: () => wearSlotFixture("sensor", { sensors: WEAR_LINE }), magnitude: () => WEAR_LINE * (e() - 1) },
+    "bridge:crewEfficiency": {
+      contexts: WEAR_MISSION_CONTEXTS,
+      curve: { kind: "bonusRelative", base: SHIP_TYPES.generalFreighter.cargoCapacity },
+      base: () => installPiece(seatOfficer(wiringBase(), "operations", ["ops.cargoExpand"]), { slotType: "bridge", moduleVariant: "bridgeBalancedCommand", durabilityMax: TOUGHNESS_REFERENCE }),
+      magnitude: (c) => (1 + bridgeAmp(c) * e()) / (1 + bridgeAmp(c)) - 1,
+      note: "an Operations officer's Cargo Optimization through a Balanced Command bridge",
+    },
+    "quarters:crewEfficiency": {
+      contexts: WEAR_MISSION_CONTEXTS,
+      curve: { kind: "bonusRelative", base: 1 },
+      base: () => installPiece(withBuckets(wiringBase(), [bucketOf("operations", "ops.unloadSpeed")]), { slotType: "quarters", moduleVariant: quarters.id, durabilityMax: TOUGHNESS_REFERENCE }),
+      magnitude: (c) => (1 + quartersBoost(c) * e()) / (1 + quartersBoost(c)) - 1,
+      note: `an Operations complement's Efficient Unloading through ${quarters.label} quarters`,
+    },
+    "memberArmor:groundLines": { ...memberLine("memberArmor", "groundArmor", "armor"), note: "armor wears by battle (step 4); its efficiency acts on the dispatch snapshot now" },
+    "memberWeapon:groundLines": memberLine("memberWeapon", "groundPower", "power"),
+    "memberTool:fieldworkLines": memberLine("memberTool", "groundFieldwork", "fieldwork"),
+    "implant:groundLines": memberLine("implant", "groundHp", "hp"),
+  };
   for (const c of WEAR_EFFICIENCY) {
+    const spec = c.combat ? pending(GEAR_WEAR_STEP_4) : CONSUMERS[c.id];
+    const isStatus = spec !== undefined && "kind" in spec;
     out.push(
       entry({
         id: `wear:WEAR_EFFICIENCY:${c.id}`,
@@ -4729,9 +5278,17 @@ function wearEntries(): WiringEntry[] {
         source: { catalog: "WEAR_EFFICIENCY", key: c.id },
         claim: `A worn ${c.slot} piece scales its ${c.reads} on the gentle wear curve (never below 75%)`,
         direction: "down",
-        curve: { kind: "linearRelative" },
+        curve: { kind: "linearAbsolute" },
         magnitude: () => wearEfficiency(USE_WEAR_FLOOR) - 1,
-        status: pending(c.combat ? GEAR_WEAR_STEP_4 : GEAR_WEAR_STEP_3),
+        ...(spec === undefined
+          ? { status: pending(GEAR_WEAR_STEP_3) }
+          : isStatus
+            ? { status: spec as WiringStatus }
+            : {
+                probe: `wear:eff:${c.id}` as ProbeId,
+                on: (s: GameState) => withFixtureCondition(s, c.slot, USE_WEAR_FLOOR),
+                ...(spec as Partial<WiringEntry>),
+              }),
       }),
     );
   }

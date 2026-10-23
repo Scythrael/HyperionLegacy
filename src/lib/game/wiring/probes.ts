@@ -52,6 +52,7 @@ import {
   type GambitStatusId,
   type GambitTargetSelector,
   type GameState,
+  type RegionTier,
   type TimedProcessKind,
   type MissionKey,
   type ObjectiveAffix,
@@ -126,6 +127,7 @@ import { makeRng } from "../combat/rng";
 import { COMBAT_DESCRIPTOR_PROBES } from "./combatDescriptorProbes";
 import { EMITTER_RESIST_LINES, PLATING_RESIST_LINES } from "../combat/combatRules";
 import { rollDistinctAffixStats } from "../itemgen";
+import { wearProbeDef, type WearProbeId } from "./wearProbes";
 import {
   advanceExpedition,
   candidateReach,
@@ -135,11 +137,23 @@ import {
   depositExpeditionFindings,
   discoveryOddsPermille,
   expeditionCandidates,
+  expeditionLaunchView,
+  expeditionSystemGate,
+  resumableSystems,
+  returnDurationSeconds,
   rollBodyDiscoveries,
   scanEncounterChance,
   scanRatePerSecond,
   startExpedition,
+  tierCandidateSystems,
+  type CandidateSystem,
+  type ExpeditionDispatchResult,
 } from "../expedition";
+// Expedition Tiers G2-6: the region picker's readers (the console's tab per tier reads expeditionTierGates).
+import { expeditionTierGates } from "../propulsion";
+import { REGION_TIERS } from "../galaxy";
+import { tierHaulMult } from "../riskFactors";
+import { relicBlankStamp, relicBlankTable } from "../relicBlanks";
 import {
   GAMBIT_STATUSES,
   activityRelicFindBonus,
@@ -189,8 +203,9 @@ import { groundTeamBaySeconds } from "../groundOps";
 import { retirementExpMultiplier } from "../captainRetirement";
 import { transitBerthCount } from "../berths";
 import { shortRangeBoardSlots, startShortRangeCycle } from "../shortRangeBoard";
+import { RELIC_BLANKS_VERSION } from "../relicBlanks";
 import { rollShortRangeJob, shortRangeCycleReward, shortRangeShipRatings, type ShortRangeCyclePlan, type ShortRangeRoll, type ShortRangeTemplateKey } from "../shortRange";
-import { telescopeReading } from "../telescope";
+import { blindLaunchCount, telescopeReading } from "../telescope";
 import { getSeniorStaffBonusById } from "../seniorStaffBonuses";
 import { CREW_STAT_KEYS } from "../crewBuffs";
 import { POI_CATALOG, PLANET_TYPES, planetTypeHazard, poisForPlanetType } from "../expeditionContent";
@@ -213,10 +228,13 @@ import {
   giantMassAt,
   isOrbitalPlanetType,
   rollGiantProfile,
+  rollNebulaReward,
   rollStudyReward,
   studyCanisterScale,
 } from "../gasGiantStudy";
-import { GAS_CANISTER_IDS, GIANT_CLASSES, canistersInBand, type GiantClassDef, type GiantClassId } from "../gasGiantContent";
+import { ANCIENT_DATA_FRAGMENT_ID, GAS_CANISTER_IDS, GIANT_CLASSES, NEBULA_KINDS, canistersInBand, type GiantClassDef, type GiantClassId, type NebulaKindDef, type NebulaKindId, type ResearchFamily } from "../gasGiantContent";
+// Gas Giant Study GG-5: the Research Lab's data study lane.
+import { DATA_STUDY_RECIPE_PERMILLE, DATA_STUDY_TICKS, researchFamilyOf, rollDataStudyRecipe, setDataStudyPaused } from "../dataStudy";
 
 // ============================================================================
 // Contexts (every context a claim can cover; plan section 3.2)
@@ -720,6 +738,39 @@ export function shortRangeTrainingCycle(template: ShortRangeTemplateKey): { roll
   return { roll: m.roll, plan: m.plan, credits: shortRangeCycleReward(m.roll, effectiveShipStats(s, shipOf(s))).credits };
 }
 
+// G1-5 (short-range relic drops): the planned length of the cycle the relic probe flies, in hours. Long enough that
+// each tier's expected finds are whole numbers, so the count is exact (rollShortRangeRelicBlanks still takes its
+// remainder chance draw, which on a zero remainder can never land):
+// Tier I 0.04 an hour x 200 = 8, Tier II 0.075 x 200 = 15.
+export const SHORT_RANGE_RELIC_PROBE_HOURS = 200;
+
+// The relic blanks one delivered short-range cycle of `tier` finds through the REAL cycle engine (economyTick): a
+// Telescope Repair (no load to pay, no Warehouse gate) on a slot of that tier, its plan stretched on site to
+// SHORT_RANGE_RELIC_PROBE_HOURS, recalled so the run ends at the delivery. `flagged`: the run carries G1-5's relic flag
+// (a dispatch from G1-5 on); off, the same run as a pre-G1-5 dispatch.
+export function shortRangeRelicCycleFinds(s: GameState, tier: 1 | 2, flagged: boolean): number {
+  const slot = { id: tier === 1 ? 0 : 2, tier };
+  let idx = 0;
+  while (rollShortRangeJob(s, slot, idx).template !== "telescopeRepair") if (++idx > 2000) throw new Error("wiring: no telescopeRepair roll");
+  const start = startShortRangeCycle(s, shipOf(s), slot, idx);
+  const total = SHORT_RANGE_RELIC_PROBE_HOURS * 3600;
+  const legs = start.plan.transitOutTicks + start.plan.transitBackTicks + start.plan.unloadTicks;
+  const plan = { ...start.plan, onSiteTicks: total - legs, totalTicks: total };
+  const mission: ShortRangeMissionState = {
+    kind: "shortRange",
+    slotId: slot.id,
+    roll: start.roll,
+    plan,
+    phase: "transitOut",
+    phaseProgressTicks: 0,
+    recalled: true,
+    ...(flagged ? { relicBlanks: { version: RELIC_BLANKS_VERSION } } : {}),
+  };
+  const after = economyTick({ ...editCaptain(s, { mission } as Partial<CaptainState>), runCounts: start.runCounts }, total + 1, () => 0.5);
+  if (captainOf(after).mission !== null) throw new Error("wiring: the relic probe's cycle was not delivered");
+  return (after.relicVault ?? []).filter((t) => t.source === "shortRange").length;
+}
+
 // The last tick of a Supply Pickup's home turnaround, then that tick (economyTick, every draw `draw`).
 function shortRangeDeliveryTick(s: GameState, draw: number, over: Partial<CaptainState> = {}): { before: GameState; after: GameState } {
   const on = onShortRangeJob(s, "supplyPickup", "unloading");
@@ -1120,6 +1171,44 @@ const tierOneCandidate = (s: GameState) => {
   if (!cand) throw new Error("wiring fixture: no Tier I candidate");
   return cand;
 };
+// Expedition Tiers G2-6: the dispatch console offers every region tier (a tab per tier, expeditionTierGates). The
+// deepest tier whose gates ship-1 meets (0 when none: a non-explorer), the console's pick there (the nearest candidate
+// the ship can launch to, else the nearest: expeditionConsoleDisplay.ts preselectCandidateId) and the gated launch.
+export function deepestReadyTier(s: GameState): RegionTier | 0 {
+  let best: RegionTier | 0 = 0;
+  for (const t of REGION_TIERS) if (expeditionTierGates(s, shipOf(s), t).first === null) best = t;
+  return best;
+}
+function consolePick(s: GameState, tier: RegionTier): CandidateSystem {
+  const list = [...tierCandidateSystems(s, tier)].sort((a, b) => a.distanceLy - b.distanceLy || a.slot - b.slot);
+  return list.find((c) => expeditionSystemGate(s, shipOf(s), c) === null) ?? list[0];
+}
+function consoleLaunch(s: GameState, tier: RegionTier | 0 = deepestReadyTier(s)): ExpeditionDispatchResult | null {
+  if (tier === 0) return null;
+  const ready = readyForRun(s);
+  return startExpedition(ready, WIRING_SHIP_ID, WIRING_CAPTAIN_ID, consolePick(ready, tier).id);
+}
+const consoleRun = (s: GameState): Expedition | null => {
+  const r = consoleLaunch(s);
+  return r && r.success && r.expedition ? r.expedition : null;
+};
+// The recall probe's moment: a quarter of the outbound leg flown (before the anomaly check at the midpoint), so the
+// recalled run flies home in a quarter of its return leg (1:1, user #7).
+export const RECALL_PROBE_SHARE = 0.25;
+// Ship-1 launched from the console to Tier I's cand-1-0 and the save moved to `at` (seconds after the launch, or the
+// moment the run's first body is charted). Throws when the launch is refused (a fixture that cannot fly is a bug).
+export function launchedAndAt(s: GameState, at: "quarterOut" | "firstCharted"): GameState {
+  const r = startExpedition(readyForRun(s), WIRING_SHIP_ID, WIRING_CAPTAIN_ID, "cand-1-0");
+  if (!r.success || !r.expedition) throw new Error(`wiring console launch refused: ${r.reason}`);
+  const run = r.expedition;
+  const out = run.voyage?.outboundSeconds ?? 0;
+  let t = run.phaseAnchorSeconds + Math.floor(out * RECALL_PROBE_SHARE);
+  if (at === "firstCharted") {
+    t = run.phaseAnchorSeconds + out;
+    for (let i = 0; i < 500 && !advanceExpedition(run, t).bodies[0]?.scanned; i++) t += 300;
+  }
+  return { ...r.next, gameTimeSeconds: t };
+}
 const sci = () => WIRING_SCIENCE_ID;
 // The research probe reads a long project, so one museum step moves it by many ticks (well above its rounding).
 const RESEARCH_PROBE_SCALE = 1000;
@@ -1152,6 +1241,70 @@ export const PROBES = {
     label: "startExpedition(cand-1-0) succeeds (1) or is refused (0), with the minimum away team aboard",
     read: (s) => (startExpedition(withAwayTeam(s), WIRING_SHIP_ID, WIRING_CAPTAIN_ID, "cand-1-0").success ? 1 : 0),
   },
+  // Expedition Tiers G2-6 (the dispatch console's region picker): what a player's launch from the console reaches.
+  tierTwoLaunchAllowed: {
+    label: "a console launch to Tier II (its nearest candidate in reach) succeeds (1) or is refused (0), the minimum away team aboard",
+    read: (s) => (consoleLaunch(s, 2)?.success ? 1 : 0),
+  },
+  consoleRiskTier: {
+    label: "the region tier of the risk profile a console launch to the deepest tier ship-1 can attempt freezes (RISK_TIER_ODDS, hostile sites, SCIENCE_HEAVY, the affix rows read it); 0 when refused",
+    read: (s) => consoleRun(s)?.risk?.tier ?? 0,
+  },
+  consoleOutbound: {
+    label: "the outbound leg (seconds) of the voyage a console launch to the deepest tier ship-1 can attempt freezes; 0 when refused",
+    read: (s) => consoleRun(s)?.voyage?.outboundSeconds ?? 0,
+  },
+  consoleHaulMult: {
+    label: "the tier haul multiplier a console launch's run carries (riskFactors.ts tierHaulMult of its region stamp, on every objective's haul); 0 when refused",
+    read: (s) => {
+      const run = consoleRun(s);
+      return run ? tierHaulMult(run.region) : 0;
+    },
+  },
+  consoleBodyCount: {
+    label: "the bodies the console shows across the deepest tier's candidates (foreknowledge, the generated systems a launch flies)",
+    read: (s) => {
+      const tier = deepestReadyTier(s);
+      return tier === 0 ? 0 : expeditionCandidates(readyForRun(s), WIRING_SHIP_ID, tier).reduce((n, c) => n + (c.foreknowledge.bodyCount ?? 0), 0);
+    },
+  },
+  consoleBlindLaunches: {
+    label: "blind launches a console launch to the deepest tier ship-1 can attempt counts (a candidate past the telescope's range)",
+    read: (s) => {
+      const r = consoleLaunch(s);
+      return r && r.success ? blindLaunchCount(r.next) - blindLaunchCount(s) : -1;
+    },
+  },
+  consoleOddsRead: {
+    label: "the compositions whose fight odds the recommendation reads for the console's pick at the deepest tier (odds weigh in behind tier 2; ODDS_RISKY_BELOW decides when they swap the pick)",
+    read: (s) => {
+      const tier = deepestReadyTier(s);
+      if (tier === 0) return -1;
+      const ready = readyForRun(s);
+      const pick = consolePick(ready, tier);
+      const cand = expeditionCandidates(ready, WIRING_SHIP_ID, tier).find((c) => c.id === pick.id)!;
+      return expeditionLaunchView(ready, WIRING_SHIP_ID, cand).recommendation?.ranked.filter((r) => r.fightOdds !== undefined && r.fightOdds !== null).length ?? -1;
+    },
+  },
+  consoleBlankShare: {
+    label: "the permille of a console launch's relic blank table above the standard rarity (relicBlanks.ts relicBlankTable of its stamp's tier); -1 when refused",
+    read: (s) => {
+      const run = consoleRun(s);
+      const stamp = run ? relicBlankStamp(run, 0) : undefined;
+      if (!stamp) return -1;
+      const rows = relicBlankTable(stamp.tier);
+      const total = rows.reduce((n, r) => n + r.weight, 0);
+      return Math.round((1000 * rows.filter((r) => r.tier !== "standard").reduce((n, r) => n + r.weight, 0)) / Math.max(1, total));
+    },
+  },
+  runReturnSeconds: {
+    label: "returnDurationSeconds of ship-1's run (a recalled run: the way home its recall froze); -1 without a run",
+    read: (s) => {
+      const run = s.expeditions.find((e) => e.shipId === WIRING_SHIP_ID);
+      return run ? returnDurationSeconds(run) : -1;
+    },
+  },
+  resumableCount: { label: "resumableSystems: the systems the console offers to resume", read: (s) => resumableSystems(s).length },
   sheetYield: { label: "effectiveShipStats.extractionYieldMult", read: (s) => sheet(s).extractionYieldMult },
   sheetUnload: {
     label: "unload speed: effectiveShipStats.unloadSpeedMult (missions) / groundOps.factors.offloadMult (Ground Ops)",
@@ -1398,7 +1551,18 @@ export const PROBES = {
   // G1-6: whether the next Mission Control rung can be built now (1) or not (0): the board rung's completion gate.
   missionControlBuildable: { label: "canBuildFacilityUpgrade(missionControl).ok (1 / 0)", read: (s) => (canBuildFacilityUpgrade(s, "missionControl").ok ? 1 : 0) },
   missionsUnlocked: { label: "missions unlocked (count)", read: (s) => (Object.keys(MISSIONS) as MissionKey[]).filter((k) => missionUnlocked(s, k)).length },
-  telescopeReach: { label: "telescopeReading.reachTier", read: (s) => telescopeReading(s).reachTier },
+  // Expedition Tiers G2-6: at Ground Ops, the deepest region tier whose candidates the console's picker reads (every
+  // candidate of that tier inside the telescope's range: not a blind launch); 0 when it reads none.
+  telescopeReach: {
+    label: "telescopeReading.reachTier (Ground Ops: the deepest tier the console's candidates read, not blind)",
+    read: (s, ctx) => {
+      if (ctx !== "expedition:groundOps") return telescopeReading(s).reachTier;
+      const ready = readyForRun(s);
+      let best = 0;
+      for (const t of REGION_TIERS) if (expeditionCandidates(ready, WIRING_SHIP_ID, t).every((c) => !c.telescope.blind)) best = t;
+      return best;
+    },
+  },
   telescopeDetail: { label: "telescopeReading.detail", read: (s) => telescopeReading(s).detail },
   equipmentStorage: { label: "equipmentStorageCap", read: (s) => equipmentStorageCap(s) },
   berths: { label: "transitBerthCount", read: (s) => transitBerthCount(s) },
@@ -1442,10 +1606,6 @@ export const PROBES = {
   captainCount: { label: "captains (count)", read: (s) => s.captains.length },
   researchableBlueprints: { label: "blueprints a top-level Research Lab can start (blueprintResearchable)", read: (s) => researchableCount(s) },
   legacyInjurySeconds: { label: "applyExpeditionInjuries on a legacy run: the downed Security member's recovery", read: (s) => legacyInjurySeconds(s) },
-  candidateTopTier: {
-    label: "expeditionCandidates: the highest region tier offered",
-    read: (s) => Math.max(...expeditionCandidates(readyForRun(s), WIRING_SHIP_ID).map((c) => c.telescope.regionTier)),
-  },
   groundOpsRun: { label: "the Ground Ops run digest (candidates, the dispatch record, the run played out)", read: (s) => groundOpsRunDigest(s) },
   patrolRun: { label: "the patrol cycle digest (dispatch, one cycle through economyTick)", read: (s) => patrolDigest(s) },
   // == crew modules ==
@@ -1929,7 +2089,8 @@ function gasStudyUseValue(s: GameState, use: string, on: boolean): number {
     case "studyReward": {
       // The whole study run (OFF: its stamp taken away, a run dispatched before GG-2) until every body is scanned and
       // every study is done; the canisters its "study" findings carry.
-      const dispatched = studyRun(readyForRun(s));
+      // GG-4: the system's nebula (if it holds one) comes off both sides, so only the body studies count here.
+      const { nebula: _nebula, ...dispatched } = studyRun(readyForRun(s));
       const { study: _stamp, ...unstamped } = dispatched;
       let run: Expedition = on ? dispatched : unstamped;
       const settled = (r: Expedition): boolean => r.bodies.every((b) => b.scanned) && (r.groundOps?.studyLegs ?? []).every((l) => l.done);
@@ -1945,6 +2106,130 @@ function gasStudyUseValue(s: GameState, use: string, on: boolean): number {
       const run = studyRun(on ? wearPiece(ready, WIRING_SCIENCE_ID, "memberTool", GALILEO_VARIETY, { groundFieldwork: 12, groundHazardResist: 6, groundRelicFind: 2 }) : ready);
       const i = run.bodies.findIndex((b) => isOrbitalPlanetType(b.planetType));
       return 100 * studyCanisterScale(run, i);
+    }
+    case "nebulaSweep": {
+      // GG-4: a run to a system holding a nebula until every body is scanned and every study (the sweep included) is
+      // done (OFF: its nebula stamp taken away, a run dispatched before GG-4); the canisters its sweep finding carries.
+      const dispatched = nebulaRun(readyForRun(s));
+      const { nebula: _stamp, ...unstamped } = dispatched;
+      let run: Expedition = on ? dispatched : unstamped;
+      const settled = (r: Expedition): boolean => r.bodies.every((b) => b.scanned) && (r.groundOps?.studyLegs ?? []).every((l) => l.done);
+      for (let t = run.phaseAnchorSeconds + 3600; t < run.phaseAnchorSeconds + 4_000_000 && !settled(run); t += 3600) run = advanceExpedition(run, t);
+      let n = 0;
+      for (const f of run.findings) if (f.id === `${run.id}-find-nebula`) for (const id of GAS_CANISTER_IDS) n += f.materials?.[id] ?? 0;
+      return n;
+    }
+    default:
+      return 0;
+  }
+}
+
+// ===== Gas Giant Study GG-5: the Research Lab's data study lane (dataStudy.ts) =====
+
+// A Lab Level I save holding `units` of `itemId`, the lane on (OFF: paused, the consumer taken away), stepped one data
+// study and a little past it through the real economy tick.
+function dataStudyRun(s: GameState, itemId: string, on: boolean, units = 1): { before: GameState; after: GameState } {
+  const lab = withFacilityLevel(s, "research", 1);
+  const held: GameState = { ...lab, inventory: addItemQuality(lab.inventory, itemId, new Decimal(units), 0) };
+  const before = on ? held : setDataStudyPaused(held, true);
+  let after = before;
+  for (let i = 0; i < DATA_STUDY_TICKS + 3; i++) after = economyTick(after, 1, () => 0.999999);
+  return { before, after };
+}
+
+// The first blueprint of `family` a top Lab researches (BLUEPRINTS order).
+function familyBlueprint(family: ResearchFamily): string {
+  const key = Object.keys(BLUEPRINTS).find((k) => researchFamilyOf(BLUEPRINTS[k]) === family && BLUEPRINTS[k].requiresRelicDiscovery === undefined);
+  if (!key) throw new Error(`wiring: no blueprint of family ${family}`);
+  return key;
+}
+
+// A GG-5 lab lane value, read through its consumer.
+//   lane:             boosts banked by one study of Propulsion Data (OFF: the lane paused);
+//   consume:<item>:   units of the item the lane studied (OFF: paused);
+//   boost:<family>:   research ticks one banked boost saves on the family's first blueprint (OFF: none banked);
+//   recipe:           recipes a batch of 400 study rolls learns with candidates waiting (OFF: the chance at 0);
+//   decode:           entries one Ancient Data Fragment study decodes (OFF: paused).
+function dataStudyValue(s: GameState, a: string, b: string, on: boolean): number {
+  switch (a) {
+    case "lane": {
+      const { after } = dataStudyRun(s, "propulsionData", on);
+      return after.researchBoosts?.propulsion ?? 0;
+    }
+    case "consume": {
+      const { before, after } = dataStudyRun(s, b, on);
+      return heldOf(before, b) - heldOf(after, b);
+    }
+    case "boost": {
+      const family = b as ResearchFamily;
+      const key = familyBlueprint(family);
+      const ready: GameState = { ...withFacilityLevel(s, "research", 9), credits: new Decimal(1e12), ...(on ? { researchBoosts: { [family]: 1 } } : {}) };
+      const r = startResearch(ready, key);
+      const plain = startResearch({ ...ready, researchBoosts: undefined }, key);
+      const ticks = (x: typeof r) => x.next.activeProcesses[x.next.activeProcesses.length - 1]?.remainingTicks ?? 0;
+      return ticks(plain) - ticks(r);
+    }
+    case "recipe": {
+      let n = 0;
+      for (let i = 1; i <= 400; i += 1) if (rollDataStudyRecipe(RELIC_DEFAULT_SEED, i, ["frameSegmentBp"], on ? DATA_STUDY_RECIPE_PERMILLE : 0) !== null) n += 1;
+      return n;
+    }
+    case "decode": {
+      const { after } = dataStudyRun(s, ANCIENT_DATA_FRAGMENT_ID, on);
+      return Object.values(after.ancientDecoded ?? {}).reduce((x, y) => x + y, 0);
+    }
+    default:
+      return 0;
+  }
+}
+
+// GG-4: a run dispatched from `s` to the first candidate system, over a seed batch, that holds a nebula; throws when
+// none does (so a probe never passes on an empty fixture).
+const NEBULA_PROBE_SEEDS = Array.from({ length: 60 }, (_, i) => 0x51f15e + i * 0x10001);
+function nebulaRun(s: GameState): Expedition {
+  for (const seed of NEBULA_PROBE_SEEDS) {
+    const run = dispatchRun({ ...s, expeditionSeed: seed });
+    if (run.nebula !== undefined) return run;
+  }
+  throw new Error("wiring: no nebula probe seed reaches a system with a nebula");
+}
+
+// GG-4: the canisters of `pick` over a batch of sweeps of a nebula of `kindId`, the reward rolled with `kinds`.
+function nebulaBatchCount(kindId: NebulaKindId, kinds: readonly NebulaKindDef[], pick: (id: string) => boolean): number {
+  let n = 0;
+  for (let seed = 1; seed <= 120; seed += 1) {
+    const exp = {
+      id: "wiring-nebula",
+      seed: seed * 0x9e3779b1,
+      systemName: "LB-0001",
+      region: { version: 1 as const, tier: 1 as const, enemyTerritory: false, bearing: 0, distanceLy: 10 },
+      nebula: { kindId },
+    };
+    const mats = rollNebulaReward(exp, 0, kinds).materials ?? {};
+    for (const [id, q] of Object.entries(mats)) if (pick(id) && (GAS_CANISTER_IDS as readonly string[]).includes(id)) n += q;
+  }
+  return n;
+}
+
+// A NEBULA_KINDS field, read through the sweep's reward (GG-4).
+//   bandOdds: the canisters above the Standard band with the kind's odds vs all Standard;
+//   itemWeights: the kind's heaviest gas of its first band whose weights are uneven (Standard, else Augmented) with its
+//   weights vs even weights (a Planetary nebula weighs its two Standard gases alike, so its Augmented pair is read).
+function nebulaKindFieldValue(kindId: NebulaKindId, field: string, on: boolean): number {
+  const def = NEBULA_KINDS.find((k) => k.id === kindId)!;
+  switch (field) {
+    case "bandOdds": {
+      const flat = { standard: 100, augmented: 0, stellar: 0, radiant: 0 };
+      const kinds = on ? NEBULA_KINDS : NEBULA_KINDS.map((k) => (k.id === kindId ? { ...k, bandOdds: flat } : k));
+      return nebulaBatchCount(kindId, kinds, (id) => ITEMS[id]?.band !== "standard");
+    }
+    case "itemWeights": {
+      const uneven = (band: "standard" | "augmented") => new Set(canistersInBand(band).map((id) => def.itemWeights[id])).size > 1;
+      const standard = canistersInBand(uneven("standard") ? "standard" : "augmented");
+      const heaviest = standard.reduce((a, b) => (def.itemWeights[b] > def.itemWeights[a] ? b : a), standard[0]);
+      const even = Object.fromEntries(GAS_CANISTER_IDS.map((id) => [id, 1])) as NebulaKindDef["itemWeights"];
+      const kinds = on ? NEBULA_KINDS : NEBULA_KINDS.map((k) => (k.id === kindId ? { ...k, itemWeights: even } : k));
+      return nebulaBatchCount(kindId, kinds, (id) => id === heaviest);
     }
     default:
       return 0;
@@ -2218,6 +2503,10 @@ function readContent(id: string, s: GameState): number {
       return gasStudyUseValue(s, a, on);
     case "giantClass":
       return giantClassFieldValue(a as GiantClassId, b, on);
+    case "nebulaKind":
+      return nebulaKindFieldValue(a as NebulaKindId, b, on);
+    case "dataStudy":
+      return dataStudyValue(s, a, b, on);
     case "lootPool": {
       // One salvage of the material: the item it gave is one of the pool's configured drops.
       const held = holding(s, a, new Decimal(1));
@@ -2445,6 +2734,10 @@ function readContent(id: string, s: GameState): number {
       if (!res.success || !res.expedition) throw new Error(`field kits switch probe: dispatch refused (${res.reason})`);
       return Object.values(carriedExtras(res.expedition)).reduce((n, x) => n + (x ?? 0), 0);
     }
+    case "shortRangeRelics":
+      // G1-5: the relic blanks a Tier I and a Tier II short-range cycle of SHORT_RANGE_RELIC_PROBE_HOURS find through
+      // the cycle engine; on, runs carrying G1-5's relic flag; off, the same runs without it (dispatched before G1-5).
+      return shortRangeRelicCycleFinds(s, 1, on) + shortRangeRelicCycleFinds(s, 2, on);
     case "fieldKitsHiddenPieces": {
       // Field Kits FKR-9 / FKR-10 (model.ts FIELD_KITS_PLAYER_LIVE): the pieces kept hidden until kits went live that a
       // player can now reach: each FIELD_KITS_HIDDEN_BLUEPRINTS blueprint in BLUEPRINTS (Research, the Fabricator, the
@@ -2636,10 +2929,12 @@ const ENEMY_RANK_PROBE_FIGHT: Readonly<Partial<Record<EnemyRank, { grade: number
 export type FacetProbeId = `facet:${CrewProfession | "all"}:${keyof OfficerStats}`;
 export type ContentProbeId = `content:${string}`;
 export type MuseumProbeId = `museum:${string}`;
-export type ProbeId = keyof typeof PROBES | FacetProbeId | ContentProbeId | MuseumProbeId;
+// GEAR WEAR step 3: the `wear:` probes live in wearProbes.ts (their fixtures drive the gear wear engine).
+export type ProbeId = keyof typeof PROBES | FacetProbeId | ContentProbeId | MuseumProbeId | WearProbeId;
 
 export function probeLabel(id: ProbeId): string {
   if (id.startsWith("content:")) return id;
+  if (id.startsWith("wear:")) return wearProbeDef(id as WearProbeId).label;
   if (id.startsWith("museum:")) return `museumBonuses.${id.slice(7)}`;
   if (id.startsWith("facet:")) {
     const [, dept, stat] = id.split(":");
@@ -2655,7 +2950,9 @@ function readFacet(id: FacetProbeId, s: GameState): number {
 
 // A probe's value, by id (the registry stores ids so the Debug panel can name them). A non-finite value throws.
 export function readProbe(id: ProbeId, s: GameState, ctx: ContextId): number {
-  const v = id.startsWith("facet:")
+  const v = id.startsWith("wear:")
+    ? wearProbeDef(id as WearProbeId).read(s, ctx)
+    : id.startsWith("facet:")
     ? readFacet(id as FacetProbeId, s)
     : id.startsWith("content:")
       ? readContent(id, s)

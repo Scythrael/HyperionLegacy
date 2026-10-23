@@ -36,6 +36,7 @@ import { equippedFor } from "./equipment";
 // amplifies" curve a sensor wants, so a second copy of the same constants would only risk drift. It is a
 // pure arithmetic helper, not crew-specific, and crewModules.ts does not import this file (no cycle).
 import { moduleEffectScale } from "./crewModules";
+import { viewPieceEfficiency } from "./gearWear";
 
 // ============================================================================
 // The scanning arrays (3): WIDE-beam / FOCUSED-beam / BALANCED
@@ -185,10 +186,14 @@ export interface SensorArrayEffect {
   undergroundPoiOddsBias: number;
 }
 
+// GEAR WEAR step 3: a worn array (read through the worn-gear view, gearWear.ts viewPieceEfficiency; exactly 1 on a
+// stored piece) scans at its efficiency and biases its discoveries at it. Its coverage width is a count of bodies and
+// never wears.
 export function sensorArrayEffect(installed: InstalledSensorArray): SensorArrayEffect {
-  const scale = moduleEffectScale(installed.instance.rarity, installed.instance.quality);
+  const wear = viewPieceEfficiency(installed.instance);
+  const scale = moduleEffectScale(installed.instance.rarity, installed.instance.quality) * wear;
   return {
-    scanRateMult: installed.def.scanRateMult,
+    scanRateMult: installed.def.scanRateMult * wear,
     coverageWidth: installed.def.coverageWidth,
     landmarkOddsBias: installed.def.landmarkOddsBias * scale,
     undergroundPoiOddsBias: installed.def.undergroundPoiOddsBias * scale,
@@ -201,7 +206,7 @@ export function sensorArrayEffect(installed: InstalledSensorArray): SensorArrayE
 // sensorArrayEffect so the stored ExpeditionScanParams shape never changes. Pure.
 export function sensorArrayRelicFindBonus(installed: InstalledSensorArray | null): number {
   if (installed === null || !(installed.def.relicFindBonus > 0)) return 0;
-  return installed.def.relicFindBonus * moduleEffectScale(installed.instance.rarity, installed.instance.quality);
+  return installed.def.relicFindBonus * moduleEffectScale(installed.instance.rarity, installed.instance.quality) * viewPieceEfficiency(installed.instance);
 }
 
 // A convenience direct scale reader (rarity/quality -> effect scale), so a consumer that only needs the

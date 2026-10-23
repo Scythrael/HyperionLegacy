@@ -185,6 +185,9 @@ export const ICON_SEMANTICS: Record<IconName, IconSemantic> = {
   // Short-Range Missions (0.14.0 G1-6): the hop names the mission type (Home rows), the mast names one job.
   shortRange: "subject",
   commBooster: "subject",
+  // Expedition Tiers G2-6: the drive names a ship's FTL drive (its class), the reach names its deep-space reach.
+  drive: "subject",
+  reach: "subject",
 
   // ACTION: something the player does. Should stay recognisable as that action.
   salvage: "action",
@@ -200,12 +203,23 @@ export const ICON_SEMANTICS: Record<IconName, IconSemantic> = {
   checkIn: "action",
   checkOut: "action",
   saveSet: "action",
+  // Expedition Tiers G2-6: turn a run for home, and launch a held system again.
+  recall: "action",
+  resume: "action",
 
   // ORNAMENT: structure and direction. Least restricted.
   clock: "ornament",
   chevronUp: "ornament",
   chevronDown: "ornament",
   chevronRight: "ornament",
+  arrowUp: "ornament",
+  arrowDown: "ornament",
+  arrowLeft: "ornament",
+  arrowRight: "ornament",
+  circle: "ornament",
+
+  // SUBJECT (0.13.11): the achievement star names a thing (a named goal), restyle freely.
+  star: "subject",
 };
 
 // ---------------------------------------------------------------------------

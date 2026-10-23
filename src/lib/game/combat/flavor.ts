@@ -42,6 +42,8 @@
 
 import type { CombatEvent, WeaponFamily } from "./types";
 import { STATUS_EFFECT_DEFS } from "./statusEffects";
+// E-MOD EM-6: the module catalog (a leaf of types only), for the {module} placeholder.
+import { universalModuleDef } from "../shipModules";
 
 // The magnitude of the single cosmetic draw the sim makes per event. Kept at 1000
 // (the same magnitude the Phase-3 throwaway draw used) so the cosmetic stream
@@ -76,6 +78,8 @@ export type FlavorCategory =
 	| "droneCounter"
 	| "chainArc"
 	| "droneReplenish"
+	| "moduleArc"
+	| "moduleShield"
 	| "outcome"
 	| "retreat"
 	| "generic";
@@ -100,7 +104,7 @@ interface FlavorPool {
 // ---------------------------------------------------------------------------
 // THE POOLS. Author family + generic densely; add type/signature only for
 // identity. Placeholders (bound at render, see interpolateFlavor):
-//   {actor}  {target}  {damage}  {effect}  {rank}  {shield}  {hull}  {count}
+//   {actor}  {target}  {damage}  {effect}  {rank}  {shield}  {hull}  {count}  {module}
 // ---------------------------------------------------------------------------
 const POOLS: Record<FlavorCategory, FlavorPool> = {
 	// A hit that landed on the target's shields (shields still up afterward).
@@ -372,6 +376,22 @@ const POOLS: Record<FlavorCategory, FlavorPool> = {
 		],
 	},
 
+	// E-MOD EM-6: a universal module's arc ({module} names it) striking {target}.
+	moduleArc: {
+		generic: [
+			"{actor}'s {module} arcs back at {target} for {damage}.",
+			"A discharge from {actor}'s {module} lashes {target}, {damage}.",
+		],
+	},
+
+	// E-MOD EM-6: a universal module restoring its own ship's shields ({damage} is the shield restored).
+	moduleShield: {
+		generic: [
+			"{actor}'s {module} surges, {damage} shield restored.",
+			"{actor}'s {module} floods the screen, shields back up by {damage}.",
+		],
+	},
+
 	// The victory line. NOT wired into the sim (the outcome is returned separately,
 	// not as a cosmetic-drawn event); provided for the render layer + future use.
 	outcome: {
@@ -453,6 +473,8 @@ export function flavorCategory(event: CombatEvent): FlavorCategory {
 			return "chainArc";
 		case "droneReplenish":
 			return "droneReplenish";
+		case "moduleProc":
+			return event.moduleEffect === "shieldRestore" ? "moduleShield" : "moduleArc";
 		default:
 			return "generic";
 	}
@@ -537,6 +559,11 @@ function effectLabel(defId: string | undefined): string {
 	return STATUS_EFFECT_DEFS[defId]?.displayName ?? defId;
 }
 
+// E-MOD EM-6: a universal module's catalog label, falling back to a neutral phrase for an id this build does not know.
+export function moduleLabel(moduleId: string | undefined): string {
+	return universalModuleDef(moduleId)?.label ?? "module";
+}
+
 // Resolve a combatant id to a display name via the caller's lookup, falling back
 // to the raw id (and to a neutral word when there is no id at all) so a missing
 // name never renders "undefined". Mirrors logFormat's display helper.
@@ -573,6 +600,8 @@ export function interpolateFlavor(
 		hull: String(Math.max(0, event.hullAfter ?? 0)),
 		// Drone/projectile connect count (droneVolley + intercept narration).
 		count: String(event.projectilesHit ?? 0),
+		// E-MOD EM-6: the universal module that fired (its catalog label).
+		module: moduleLabel(event.moduleId),
 	};
 	// Replace every {word} token with its bound value; an unrecognized token
 	// resolves to an empty string (keeps a typo from leaking "{foo}" into the log).

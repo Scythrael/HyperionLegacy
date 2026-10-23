@@ -388,11 +388,12 @@ describe("R2-2: the wiring registry additions (every registry pin holds them apa
     expect(
       WIRING_REGISTRY.filter((e) => R2_2_ADDED_ENTRY_IDS.has(e.id)).map((e) => `${e.id}|${e.status.kind}|${e.status.kind === "pending" ? e.status.owner : ""}`),
     ).toEqual([
-      "relic:audit:blankTiers|pending|G2-6 (the region picker: G2-2 built every tier's candidates, the console offers Tier I until then)",
+      // Expedition Tiers G2-6 took it live (the console's region picker reaches every tier; registry auditRowWiring).
+      "relic:audit:blankTiers|live|",
       "relic:audit:blankCulture|pending|Relics v2 R2-6 (cultures: study points and the name reveal)",
-      "relic:audit:shortRangeBlanks|pending|G1-5 (wires the hook into a delivered short-range cycle)",
+      "relic:audit:shortRangeBlanks|live|",
       "relic:audit:completionBlank|pending|G7 (calls the hook when a planet is fully completed)",
-      "relic:audit:generalPick|pending|G1-5 and G7 (the first callers that mint a blank with no set); R2-3 builds identification v2 on the same pick",
+      "relic:audit:generalPick|pending|Relics v2 R2-3 follow-up (retire the v1 setless branch of identifyStudiedRelic: identification v2, relic:audit:identifyV2, studies every new blank, G1-5's short-range blanks included, so no study reaches this pick)",
     ]);
   });
 });

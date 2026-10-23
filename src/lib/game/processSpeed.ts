@@ -42,8 +42,6 @@ import {
   SHIP_TYPES,
   blueprintKind,
   emptyMuseumV2,
-  generalMuseumRecord,
-  museumV2WithGeneral,
   type GameState,
   type RegionTier,
   type ShipTypeKey,
@@ -52,8 +50,9 @@ import {
 } from "./model";
 import { addToInventory, itemCap, mintBuiltShip } from "./tick";
 import { advanceExpedition } from "./expedition";
+import { expeditionHomeNow } from "./gearWearEngine";
 import { itemTotal } from "./inventory";
-import { exceptionalSetsOfTier, getRelicTypeById } from "./relics";
+import { exceptionalSetsOfTier, getRelicTypeById, museumDepositExceptional, museumDepositGeneral } from "./relics";
 import { regionTierNumeral } from "./galaxy";
 
 // What a speed action points at: an in-flight timed process (by its "proc-N" id), a captain's current extraction
@@ -82,6 +81,8 @@ export const OVERTIME_PROCESS_KINDS: readonly TimedProcessKind[] = [
   "shipBuild",
   "shipRepair",
   "researchProject",
+  // Gas Giant Study GG-5 (plan GG-5: "data studies are research jobs: Overtime covers them"): the Lab's data study.
+  "dataStudy",
   "facilityUpgrade",
   "equipmentStorageUpgrade",
   "docksExpansion",
@@ -130,7 +131,9 @@ export function overtimeStepCost(state: GameState, p: TimedProcess, step: number
   return Math.ceil(OVERTIME_CREDITS_PER_MINUTE * minutes * overtimeTier(state, p) * step);
 }
 
-export type OvertimeBlockReason = "notFound" | "notEligible" | "skipped" | "maxSteps" | "finishing" | "credits";
+// "paused" (GG-5 review follow-up): a Research Lab data study while the lane is paused (dataStudy.ts dataStudyPaused):
+// it is not counting down, so Overtime would buy nothing until it resumes.
+export type OvertimeBlockReason = "notFound" | "notEligible" | "skipped" | "maxSteps" | "finishing" | "credits" | "paused";
 
 export type OvertimeQuote =
   | { ok: true; step: number; cost: number; ticksSaved: number }
@@ -147,6 +150,7 @@ export function canBuyOvertime(state: GameState, ref: ProcessRef): OvertimeQuote
   if (!p) return { ok: false, reason: "notFound" };
   if (!OVERTIME_PROCESS_KINDS.includes(p.kind)) return { ok: false, reason: "notEligible" };
   if (p.speed?.instantComplete) return { ok: false, reason: "skipped" };
+  if (p.kind === "dataStudy" && state.dataStudyPaused === true) return { ok: false, reason: "paused" };
   const steps = p.speed?.overtimeSteps ?? 0;
   if (steps >= OVERTIME_MAX_STEPS) return { ok: false, reason: "maxSteps" };
   if (p.remainingTicks <= OVERTIME_FINISHING_TICKS) return { ok: false, reason: "finishing" };
@@ -225,7 +229,10 @@ function timeSkipResult(state: GameState, ref: ProcessRef): { ok: true; next: Ga
   // reads the run's own stored times (its medical bay ends) as at E (injuries.ts applyGroundOpsInjuries).
   const offset = done.phaseAnchorSeconds - state.gameTimeSeconds;
   const stamped = { ...done, speed: { ...done.speed, instantComplete: true as const, ...(offset > 0 ? { clockOffsetSeconds: offset } : {}) } };
-  return { ok: true, next: { ...state, expeditions: state.expeditions.map((e) => (e.id === exp.id ? stamped : e)) } };
+  const next = { ...state, expeditions: state.expeditions.map((e) => (e.id === exp.id ? stamped : e)) };
+  // GEAR WEAR step 3: the run comes home NOW, so its use wear and field repairs apply now, in event order on its own
+  // timeline laid back to end at the skip (gearWearEngine.ts expeditionHomeNow); the tick never sees it come home.
+  return { ok: true, next: expeditionHomeNow(state, next, exp.id) };
 }
 
 // Finish a process for free: a timed process on the next tick, a mission cycle or patrol route through to its end on
@@ -359,14 +366,14 @@ export function grant(
     };
     for (const r of relics) {
       if (r.kind === "general") {
-        const record = generalMuseumRecord({ museumV2: museum }, r.tier);
-        museum = museumV2WithGeneral(museum, { ...record, [r.typeId]: (record[r.typeId] ?? 0) + r.count }, r.tier);
+        // R2-4: the Museum v2 deposit snapshots a tier this grant carries to the soft cap at exactly the cap.
+        museum = museumDepositGeneral(museum, r.tier, r.typeId, r.count);
         find(r.typeId);
         // "1 Tier I Glyph Tablet relic", "2 Tier II Heart of the Archive relics" (the plural on "relic", never the name).
         parts.push(counted(r.count, `Tier ${regionTierNumeral(r.tier)} ${getRelicTypeById(r.typeId)!.label} relic`));
       } else {
         const piece = firstMissingExceptional({ museumV2: museum })!;
-        museum = { ...museum, exceptional: { ...museum.exceptional, [piece]: 1 } };
+        museum = museumDepositExceptional(museum, piece);
         find(piece);
         parts.push("an exceptional relic");
       }

@@ -59,12 +59,16 @@ import type {
   SnapshotMember,
   PromotionObjectiveKind,
 } from "./model";
-import { SHIP_TYPES, commandingCaptain, memberVariety } from "./model";
+import { SHIP_TYPES, commandingCaptain, memberVariety, moduleEffectScale } from "./model";
+// E-MOD EM-6: the body-scanned module trigger (its frozen procs and private stream).
+import { moduleScanProcs, moduleScanSeed, rollModuleChance } from "./shipModules";
 import { makeRng, type Rng } from "./combat/rng";
 import { installedSensorArray, sensorArrayEffect, sensorArrayRelicFindBonus } from "./sensorArrays";
 // E4d: the relic-unlocked Pathfinder Suite's expedition effect (a pure leaf over the installed pieces).
 import { pathfinderEffect } from "./utilityGear";
 import { equippedFor } from "./equipment";
+import { wornGearView } from "./gearWear";
+import { gearWearLive } from "./gearWearEngine";
 import { effectiveShipStats, foldOfficerPromotionCounters, officerBonusTotal, shipCrewContribution, shipSurveyAptitude } from "./crewOverlay";
 import { CREW_STAT_KEYS } from "./crewBuffs";
 import { fieldworkHazardResist, fieldworkSpeedMult } from "./fieldwork";
@@ -198,7 +202,9 @@ import { formatCountdown } from "./format";
 import { countClaimedExpedition, runCountsOf, runDifficultyAt } from "./runDifficulty";
 // Gas Giant Study GG-2: the study stamp, the orbital bodies and their giant profiles (gasGiantStudy.ts never imports
 // this module).
-import { isStudyBody, studyStampFor, withGiantProfiles } from "./gasGiantStudy";
+import { isStudyBody, nebulaStampFor, studyStampFor, sweepsNebula, withGiantProfiles } from "./gasGiantStudy";
+// Gas Giant Study GG-5: the Research Lab's held data queue (dataStudy.ts imports neither this file nor tick.ts).
+import { dataArrivals } from "./dataStudy";
 
 // ============================================================================
 // FIRST-PASS TUNABLE constants
@@ -745,13 +751,16 @@ export function candidateVoyage(
   cand: Pick<CandidateSystem, "tier" | "distanceLy">,
   training: boolean,
   homeworld: HomeworldPlacement = stateHomeworld(state),
+  // GEAR WEAR step 3: the voyage a launch FLIES reads the worn-gear view (a worn drive flies slower); every GATE reads
+  // the pristine voyage (design 4.3: no gate reads a worn value), so candidateReach passes false.
+  worn: boolean = true,
 ): ExpeditionVoyage {
   return planVoyage({
     tier: cand.tier,
     distanceLy: cand.distanceLy,
     band: homeworld.regionBandsLy[cand.tier] ?? homeworld.regionBandsLy[1],
     driveClass: shipDriveClass(state, ship),
-    stats: effectiveShipStats(state, ship),
+    stats: effectiveShipStats(worn ? wornGearView(state) : state, ship),
     training,
   });
 }
@@ -766,7 +775,8 @@ export function candidateReach(
   cand: Pick<CandidateSystem, "tier" | "distanceLy">,
   homeworld: HomeworldPlacement = stateHomeworld(state),
 ): { roundTripLy: number; reachLy: number; met: boolean } {
-  const voyage = candidateVoyage(state, ship, cand, false, homeworld);
+  // GEAR WEAR step 3: the pristine voyage (a gate never reads a worn value, design 4.3).
+  const voyage = candidateVoyage(state, ship, cand, false, homeworld, false);
   return reachCheck(state, ship, cand.distanceLy, voyage.outboundSeconds + voyage.returnSeconds);
 }
 
@@ -816,7 +826,10 @@ function shipSensorSnapshot(
   ship: ShipInstance | undefined,
 ): { sensorArrayId: string | null; scanParams: ExpeditionScanParams; sensorPower: number } {
   if (!ship) return { sensorArrayId: null, scanParams: { ...NEUTRAL_SCAN_PARAMS }, sensorPower: 0 };
-  const installed = installedSensorArray(state, ship);
+  // GEAR WEAR step 3: the snapshot reads the worn-gear view (gearWear.ts), so the launch and every preview built from
+  // this snapshot read a worn array or sensor line the same way.
+  const gearView = wornGearView(state);
+  const installed = installedSensorArray(gearView, ship);
   // WR-5c: the commanding captain's survey nodes (Cartographer, Anomaly Sense, Deep Scan) ride the scan params, so
   // the dispatch freezes them and every preview built from this snapshot reads them. {} without them.
   const captainSurvey = captainSurveyScanParams(commandingCaptain(state, ship));
@@ -825,7 +838,7 @@ function shipSensorSnapshot(
     scanParams: { ...(installed ? sensorArrayEffect(installed) : NEUTRAL_SCAN_PARAMS), ...captainSurvey },
     // effectiveShipStats folds equipment + crew (crewOverlay), so a Science officer / Science division /
     // a fitted sensor item all shape this by construction. 0 for a bare hull today.
-    sensorPower: effectiveShipStats(state, ship).sensors,
+    sensorPower: effectiveShipStats(gearView, ship).sensors,
   };
 }
 
@@ -839,11 +852,13 @@ export interface ExpeditionGearBonuses {
   relicFindChance: number;
 }
 export function expeditionGearBonuses(state: GameState, ship: ShipInstance): ExpeditionGearBonuses {
-  const pathfinder = pathfinderEffect(equippedFor(state, ship.id));
+  // GEAR WEAR step 3: a worn suite or array reads at its efficiency (the worn-gear view, gearWear.ts).
+  const gearView = wornGearView(state);
+  const pathfinder = pathfinderEffect(equippedFor(gearView, ship.id));
   return {
     scanSpeed: pathfinder.scanSpeed,
     hazardResist: pathfinder.hazardResist,
-    relicFindChance: sensorArrayRelicFindBonus(installedSensorArray(state, ship)),
+    relicFindChance: sensorArrayRelicFindBonus(installedSensorArray(gearView, ship)),
   };
 }
 
@@ -933,6 +948,7 @@ function previewRun(seed: number, scanParams: ExpeditionScanParams, region: Expe
   // preview drops the orbital bodies' objectives exactly as the run will.
   const study = studyStampFor(gen.bodies);
   const risked = gen.bodies.map((b, i) => ({ ...b, risk: risk.bodies[i] }));
+  const nebula = nebulaStampFor(seed, region.tier, gen.systemId);
   return {
     id: "preview",
     shipId: "",
@@ -965,6 +981,8 @@ function previewRun(seed: number, scanParams: ExpeditionScanParams, region: Expe
     hazardResist: 0,
     risk: risk.profile,
     ...(study ? { study } : {}),
+    // GG-4: the same nebula stamp the dispatch freezes (buildExpedition).
+    ...(nebula ? { nebula } : {}),
   };
 }
 
@@ -1067,6 +1085,8 @@ export function systemTaskPreview(seed: number, scanParams: ExpeditionScanParams
     bodies: run.bodies.map((b) => ({ ...(b.risk as BodyRiskGrades) })),
     tasks,
     ...(studies.length > 0 ? { studies } : {}),
+    // GG-4: the system's nebula (the ship sweeps it after the bodies, no squad), only when it holds one.
+    ...(run.nebula ? { nebula: run.nebula.kindId } : {}),
   };
 }
 
@@ -1198,6 +1218,7 @@ export function launchForecast(
       threat: null,
       note: "No ground team is ready to launch",
       ...(previewStudies > 0 ? { studies: previewStudies } : {}),
+      ...(preview.nebula ? { nebula: preview.nebula } : {}),
     };
   }
   let revealed = 0;
@@ -1249,6 +1270,8 @@ export function launchForecast(
     note: chosen ? null : "No fights expected",
     // Gas Giant Study GG-2: the run's ship studies (one per orbital body of a study run), only when there is one.
     ...(studyCount > 0 ? { studies: studyCount } : {}),
+    // GG-4: the nebula the ship would sweep after the bodies, only when there is one.
+    ...(exp.nebula ? { nebula: exp.nebula.kindId } : {}),
   };
 }
 
@@ -1420,6 +1443,10 @@ export function startExpedition(
   // it flies (Expedition.voyage), so a later drive, crew or homeworld change never reshapes it.
   const homeworld = stateHomeworld(state);
   const built = buildExpedition(state, ship, captainId, seed, anomalyOptIn, number, gen, risk, undefined, fieldKitsRuns);
+  // GEAR WEAR step 3 (gearWearEngine.ts): the committed run's wear flag with its dispatch instant, while any wear source is
+  // live and never on the training run (user W9 "No wear on training"). Only a committed run carries it (the forecast's
+  // throwaway runs never wear anything).
+  const wear = gearWearLive() && !isTrainingRun(built) ? { gearWear: { version: 1 as const, dispatchedAt: state.gameTimeSeconds } } : {};
   // Relics v2 R2-2: and the relic blanks flag (its relic tokens carry the region tier and the body's culture, and roll
   // their rarity on the tier's blank table; Tier I's is today's).
   const launched: Expedition = {
@@ -1427,11 +1454,18 @@ export function startExpedition(
     region: regionStampOf(cand),
     voyage: candidateVoyage(state, ship, cand, isTrainingRun(built), homeworld),
     relicBlanks: { version: RELIC_BLANKS_VERSION },
+    ...wear,
   };
   // G2-5: a resumed run met its route's anomaly on the first trip (resolved, never charted twice), and records how
   // many bodies were charted before (the window opens past them, openResumedWindow).
+  // GG-4: a nebula an earlier trip swept is marked swept (the same key, so the record keeps its order) and not swept again.
   const expedition: Expedition = resumed
-    ? { ...launched, anomalyResolved: true, resume: { version: 1, heldId: resumed.id, scannedBodies: chartedPrefix(resumed.bodies!) } }
+    ? {
+        ...launched,
+        ...(resumed.nebulaSwept && launched.nebula ? { nebula: { ...launched.nebula, swept: 1 as const } } : {}),
+        anomalyResolved: true,
+        resume: { version: 1, heldId: resumed.id, scannedBodies: chartedPrefix(resumed.bodies!) },
+      }
     : launched;
   // Field Kits FKR-7: the packs leave stock (lowest quality first) and a top-up's credits are spent: the SAME plan
   // buildExpedition packed (planDispatchPacks is pure on the same inputs). A run without flag 2 settles nothing.
@@ -1489,7 +1523,10 @@ function buildExpedition(
   // resolve as a pure function of the stored expedition (parity, matching the sensor snapshot). D19: the
   // members' programs ride the roster snapshot below, not the account-level pair.
   // (E4b: deriveAwayTeam already folds the museum's scienceTeamPower into scienceStrength.)
-  const awayTeam = deriveAwayTeam(state, ship);
+  // GEAR WEAR step 3: the away team and its roster freeze the members' gear through the worn-gear view (gearWear.ts),
+  // so a worn weapon, armor, tool or implant reads at its efficiency on this run (the same state when nothing is worn).
+  const gearView = wornGearView(state);
+  const awayTeam = deriveAwayTeam(gearView, ship);
   // E4b: snapshot the account-level museum's EXPEDITION bonuses at dispatch (the same "the launch is what
   // you saw at dispatch" contract as the sensor + away-team snapshots), so resolution reads only stored
   // values and a museum that grows mid-flight never changes an in-flight run (parity by construction).
@@ -1537,7 +1574,7 @@ function buildExpedition(
   // lack one; the legacy battle resolver handles that safely, see gambit.ts resolveExpeditionActivity.) One
   // team slotted in hire order snapshots exactly what the pre-GO-7b snapshotAwayRoster did.
   const groundSnapshot = snapshotGroundOps(state, ship, { recoveryTurnaround, quickRecovery, injurySteady });
-  const roster = snapshotAwayRosterForTeams(state, ship, groundSnapshot.teams);
+  const roster = snapshotAwayRosterForTeams(gearView, ship, groundSnapshot.teams);
   // Field Kits FKR-7 (behind fieldKits.ts FIELD_KITS_RUNS_LIVE): each deploying Security member's pack, from stock and a
   // top-up team's purchases (fieldKitsRun.ts planDispatchPacks; startExpedition settles the same plan).
   if (fieldKitsRuns) withDispatchPacks(groundSnapshot.teams, planDispatchPacks(state, ship, groundSnapshot.teams, roster.security));
@@ -1548,11 +1585,16 @@ function buildExpedition(
   const study = studyStampFor(gen.bodies);
   const risked = gen.bodies.map((b, i) => ({ ...b, risk: risk.bodies[i] }));
   const bodies = study ? withGiantProfiles(seed, risked) : risked;
+  // Gas Giant Study GG-4: the system's nebula (its own keyed draw at the run's region tier, a famous nebula always),
+  // written last below, only when there is one.
+  const nebula = nebulaStampFor(seed, risk.profile.tier, gen.systemId);
   // Safe first runs SF-2 / SF-3: the run's difficulty stamp, from stored state only (the counters and the runs out):
   // the training run's, else the curve position and the region tier this run is dispatched at.
   const difficulty = runDifficultyAt(state, "expedition", risk.profile.tier, ship.typeKey);
   // WR-5c: the commanding captain's run-frozen explorer nodes (undefined without them).
   const explorer = explorerCaptainRun(commandingCaptain(state, ship));
+  // E-MOD EM-6: the ship's body-scan modules, frozen here (empty without one, so nothing is written).
+  const scanProcs = moduleScanProcs(equippedFor(state, shipId), (p) => moduleEffectScale(p.rarity, p.quality));
 
   const expedition: Expedition = {
     id,
@@ -1625,8 +1667,12 @@ function buildExpedition(
     // WR-5c: the commanding captain's run-frozen explorer nodes (Field Science, Away-Team Doctrine, Preservationist,
     // Relic Hunter, Drillmaster), only when it owns one (captainExplorerEffects.ts explorerCaptainRun).
     ...(explorer ? { explorerCaptain: explorer } : {}),
+    // E-MOD EM-6: the body-scanned modules (assignDiscoveriesAndActivities), only when the ship carries one.
+    ...(scanProcs.length > 0 ? { moduleScanProcs: scanProcs } : {}),
     // Gas Giant Study GG-2: the study flag (see above), only on a system with an orbital body.
     ...(study ? { study } : {}),
+    // Gas Giant Study GG-4: the nebula stamp (see above), only on a system that holds one.
+    ...(nebula ? { nebula } : {}),
   };
   return expedition;
 }
@@ -1860,6 +1906,26 @@ function assignDiscoveriesAndActivities(
     if (pool.length === 0) continue;
     const poi = pickWeightedPoi(ghost, pool).poi;
     discoveries.push({ id: `${exp.id}-${body.id}-disc-${discoveries.length}`, kind: surface ? "landmark" : "underground", poiId: poi.id });
+  }
+  // E-MOD EM-6 (the body-scanned trigger): each frozen body-scan module (Expedition.moduleScanProcs, module id order)
+  // rolls its chance as the body completes, on ONE private stream per body (shipModules.ts moduleScanSeed), never the
+  // body's discovery stream, so every discovery above is untouched; a landed extraDiscovery adds `count` discoveries,
+  // last, each drawn like the ghost's (the pool when both have candidates, then the site). A run without the field
+  // (every run today) takes no draw here.
+  const scanProcs = exp.moduleScanProcs;
+  if (scanProcs !== undefined && scanProcs.length > 0) {
+    const stream = makeRng(moduleScanSeed(exp.seed, bodyIndex));
+    for (const proc of scanProcs) {
+      if (!rollModuleChance(stream, proc.chanceUnits)) continue;
+      for (let k = 0; k < proc.count; k++) {
+        const both = pools.surface.length > 0 && pools.underground.length > 0;
+        const surface = both ? stream.nextInt(2) === 0 : pools.surface.length > 0;
+        const pool = surface ? pools.surface : pools.underground;
+        if (pool.length === 0) continue;
+        const poi = pickWeightedPoi(stream, pool).poi;
+        discoveries.push({ id: `${exp.id}-${body.id}-disc-${discoveries.length}`, kind: surface ? "landmark" : "underground", poiId: poi.id });
+      }
+    }
   }
   body.discoveries = discoveries;
   body.activities = discoveries.map((d, k) => ({
@@ -2605,7 +2671,10 @@ export interface ExpeditionClaimResult {
 // LIFETIME STATS: the haul folds through the shared foldLifetimeStatsDelta seam (the one extraction and
 // patrol loot use): materials into itemsGathered (the gross amount, mirroring how mission loot counts) and
 // credits into creditsEarned.
-export function depositExpeditionFindings(state: GameState, findings: readonly ExpeditionFinding[]): GameState {
+// Gas Giant Study GG-5: research data units also join the Research Lab's held queue in arrival order
+// (GameState.dataStudyHeld, dataStudy.ts dataArrivals: an Ancient Data Fragment with the culture of the body it came
+// from, read off `exp`), so the lane studies the oldest first.
+export function depositExpeditionFindings(state: GameState, findings: readonly ExpeditionFinding[], exp?: Pick<Expedition, "id" | "seed" | "region" | "risk">): GameState {
   let inventory = state.inventory;
   let discovered = state.discovered;
   let credits = state.credits;
@@ -2660,6 +2729,7 @@ export function depositExpeditionFindings(state: GameState, findings: readonly E
     }
   }
   if (!touched) return state;
+  const arrivals = dataArrivals(findings, exp, state.relicSeed);
 
   const lifetimeStats = foldLifetimeStatsDelta(state.lifetimeStats, {
     itemsGathered: gathered,
@@ -2676,6 +2746,7 @@ export function depositExpeditionFindings(state: GameState, findings: readonly E
     lifetimeStats,
     relicVault: vaultAdds.length > 0 ? [...(state.relicVault ?? []), ...vaultAdds] : state.relicVault,
     ...(surveys.length > 0 ? { surveyLog: [...(state.surveyLog ?? []), ...surveys] } : {}),
+    ...(arrivals.length > 0 ? { dataStudyHeld: [...(state.dataStudyHeld ?? []), ...arrivals] } : {}),
   };
 }
 
@@ -2718,7 +2789,7 @@ export function claimExpedition(state: GameState, expeditionId: string): Expedit
   const removed: GameState = { ...state, expeditions: state.expeditions.filter((e) => e.id !== expeditionId) };
   // Field Kits FKR-7: the extras the run still carries come home, even over the warehouse cap (call 17); the SAME state
   // for a run that carries none (every run without flag 2).
-  const deposited = depositExpeditionFindings(returnCarriedExtras(removed, exp), exp.findings);
+  const deposited = depositExpeditionFindings(returnCarriedExtras(removed, exp), exp.findings, exp);
   // Ground Ops (GO-7b): a flagged run brings home the members still in the medical bay with the time they have
   // left (never the flat 2h); a legacy run keeps Task 16's injuries.
   const { next: home, injuries } = exp.groundOps ? applyGroundOpsInjuries(deposited, exp) : applyExpeditionInjuries(deposited, exp);
@@ -2864,8 +2935,12 @@ function heldFromRecall(exp: Expedition, t: number): HeldSystem | null {
   if (charted === 0) return { ...base, kind: "candidate" };
   if (!exp.groundOps || !exp.risk) return null;
   const bodies = heldBodies(exp);
-  if (!systemUnfinished(exp, bodies)) return null;
-  return { ...base, kind: "resume", risk: { ...exp.risk }, bodies };
+  // GG-4: a nebula swept on this trip (or on an earlier one) is not swept again; one the recall cut short (or never
+  // reached) keeps the system unfinished, so it is resumable for its sweep alone.
+  const swept = exp.nebula !== undefined && (exp.nebula.swept === 1 || (exp.groundOps.studyLegs ?? []).some((l) => l.nebula === 1 && l.done === true));
+  const sweepLeft = sweepsNebula(exp) && !swept;
+  if (!systemUnfinished(exp, bodies) && !sweepLeft) return null;
+  return { ...base, kind: "resume", risk: { ...exp.risk }, bodies, ...(swept ? { nebulaSwept: true as const } : {}) };
 }
 
 // The bodies a resume record keeps (user G12 "Pick up where you left off"): charted bodies whole, with their

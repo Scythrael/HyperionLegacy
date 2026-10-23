@@ -1,7 +1,8 @@
 // GEAR WEAR (0.14.0), build order steps 1 and 2 of docs/plans/2026-10-16-gear-wear-design.md section 11: the
-// catalogs and the PURE helpers. Nothing here is called by the tick yet: the wear sources, the repair contexts and the
-// settling at events are step 3, the combat half is step 4, the UI (and the optional paid repair) is step 5. Every
-// catalog row is registered in the wiring registry as `pending` with its owning step.
+// catalogs and the PURE helpers, plus (step 3) the WORN-GEAR VIEW the run readers fold their gear through. The tick
+// side of step 3 (the use wear sources, the repair contexts and the settling) lives in gearWearEngine.ts; the combat
+// half is step 4, the UI (and the optional paid repair) is step 5. Every catalog row is registered in the wiring
+// registry with its owning step.
 //
 // The user (OC-D14, 2026-10-16, verbatim): "Everything wears in different ways. Similar to reality. Use. Battle
 // damage. Etc. But can easily be repaired over time."
@@ -91,26 +92,34 @@ export interface WearSourceDef {
   readonly per: number;
 }
 
-// [PROVISIONAL] every raw value: the design's first pass (sections 3.1 and 3.2, marked [PROPOSAL] there), tuned by
-// the sim harness to the section 3.4 targets in step 3. The sources, the use floor and the slow implant are the
-// user's; the numbers are not yet.
+// The USE rows are the step 3 tune, APPROVED by the user (2026-10-21, "Approve (Recommended)": hold 8 per cycle,
+// drive 2 per 10 ly, reactor and crew modules 4 a minute, utility fire 8, survey 12, implants 2.5 a minute), measured
+// on the real engine (gearWearEngine.test.ts "the section 3.4 targets"): a Standard-Issue freighter on Repeat on a
+// starter mission (Short Ore Run) settles near 90% on use alone and an ordinary expedition comes home with its gear 80%
+// or better (the first pass under each never outran the underway upkeep once a short cycle's whole-per-mille rounding
+// is counted, or settled the hold at 77%, Worn). The universal module (EM-5) follows the crew modules' approved rate.
+// [PROVISIONAL] the BATTLE rows: the design's first pass (section 3.2, marked [PROPOSAL] there), step 4's to tune.
 export const WEAR_SOURCES: readonly WearSourceDef[] = [
   // Use wear (stops at the use floor).
-  { id: "cargoBay:haul", slot: "cargoBay", mode: "use", by: "hauls", event: "per completed haul cycle", raw: 12, per: 1 },
-  { id: "ftlDrive:distance", slot: "ftlDrive", mode: "use", by: "distance", event: "per 10 ly traveled on any run, applied per leg", raw: 1, per: 10 },
-  { id: "reactorCore:minutesRunning", slot: "reactorCore", mode: "use", by: "hours running", event: "per minute underway, applied per leg or cycle", raw: 3, per: 1 },
-  { id: "specUtility:effectFires", slot: "specUtility", mode: "use", by: "its own job", event: "per cycle its effect fires", raw: 6, per: 1 },
+  { id: "cargoBay:haul", slot: "cargoBay", mode: "use", by: "hauls", event: "per completed haul cycle", raw: 8, per: 1 },
+  { id: "ftlDrive:distance", slot: "ftlDrive", mode: "use", by: "distance", event: "per 10 ly traveled on any run, applied per leg", raw: 2, per: 10 },
+  { id: "reactorCore:minutesRunning", slot: "reactorCore", mode: "use", by: "hours running", event: "per minute underway, applied per leg or cycle", raw: 4, per: 1 },
+  { id: "specUtility:effectFires", slot: "specUtility", mode: "use", by: "its own job", event: "per cycle its effect fires", raw: 8, per: 1 },
   { id: "sensor:bodyScanned", slot: "sensor", mode: "use", by: "scans", event: "per body scanned on an expedition", raw: 15, per: 1 },
-  { id: "sensor:surveyCycle", slot: "sensor", mode: "use", by: "scans", event: "per survey mission cycle", raw: 6, per: 1 },
-  { id: "bridge:minutesCrewed", slot: "bridge", mode: "use", by: "time aboard", event: "per minute underway with crew aboard", raw: 2, per: 1 },
-  { id: "quarters:minutesCrewed", slot: "quarters", mode: "use", by: "time aboard", event: "per minute underway with crew aboard", raw: 2, per: 1 },
+  { id: "sensor:surveyCycle", slot: "sensor", mode: "use", by: "scans", event: "per survey mission cycle", raw: 12, per: 1 },
+  { id: "bridge:minutesCrewed", slot: "bridge", mode: "use", by: "time aboard", event: "per minute underway with crew aboard", raw: 4, per: 1 },
+  { id: "quarters:minutesCrewed", slot: "quarters", mode: "use", by: "time aboard", event: "per minute underway with crew aboard", raw: 4, per: 1 },
   // E-MOD EM-5 (user M9, 2026-10-19, "Slowly underway"): a universal module wears by time underway, at the crew
-  // modules' slow rate.
-  { id: "module:minutesUnderway", slot: "module", mode: "use", by: "time underway", event: "per minute underway", raw: 2, per: 1 },
+  // modules' slow rate (gear wear step 3: the approved crew module rate, 4 a minute; at EM-5's first pass of 2 it never
+  // outran the underway upkeep of 2 a minute, so it would never wear).
+  { id: "module:minutesUnderway", slot: "module", mode: "use", by: "time underway", event: "per minute underway", raw: 4, per: 1 },
   { id: "memberWeapon:groundFight", slot: "memberWeapon", mode: "use", by: "fights", event: "per ground fight its wearer fights", raw: 10, per: 1 },
   { id: "memberTool:fieldworkStep", slot: "memberTool", mode: "use", by: "fieldwork", event: "per fieldwork step its wearer completes", raw: 6, per: 1 },
-  // User W10 "implants slow": the slowest rate in the catalog.
-  { id: "implant:minutesOnGround", slot: "implant", mode: "use", by: "time deployed", event: "per minute on the ground", raw: 1, per: 1 },
+  // User W10 "implants slow" ("Wear very slowly by time on the ground"): the slowest time rate in the catalog, set
+  // just above the underway upkeep (2 a minute) so it wears at all (step 3 tune: 1 a minute never outran the upkeep,
+  // which made it the "Never wear" option the user did not pick). On a long run it settles near 95% while on the
+  // ground and recovers on the trip home.
+  { id: "implant:minutesOnGround", slot: "implant", mode: "use", by: "time deployed", event: "per minute on the ground", raw: 2.5, per: 1 },
   // Battle wear (can go below the floor, down to 0). Pool sources convert the EXISTING combat-stream pool loss.
   { id: "weapon:hitsTaken", slot: "weapon", mode: "battle", by: "hits taken", event: "per patrol cycle: the weapon's pool loss", raw: 1000, per: 1 },
   { id: "reactorCore:hitsTaken", slot: "reactorCore", mode: "battle", by: "hits taken", event: "per patrol cycle: the reactor's pool loss", raw: 1000, per: 1 },
@@ -312,4 +321,72 @@ export function pieceStartDurability(piece: Pick<EquipmentInstance, "condition" 
   const c = pieceCondition(piece);
   if (c >= CONDITION_FULL) return piece.durabilityMax;
   return Math.round((piece.durabilityMax * c) / CONDITION_FULL);
+}
+
+// ============================================================================
+// Step 3: the WORN-GEAR VIEW (design 4.2, user W2 + W7 "Gentle")
+// ============================================================================
+//
+// What wear DOES: a worn piece's OWN stat lines (implicit and rolled) scale by its efficiency before the existing
+// fold and curves, so every downstream curve still sees one input. It acts ONLY where a run reads its gear (the use
+// contexts gear wear step 3 covers; gearWearEngine.ts runShipStats and the expedition dispatch snapshot):
+//   - a captain mission (extraction, survey, transport): the mission sheet economyTick folds each tick,
+//   - a short-range cycle: the plan frozen at each cycle start and the cycle engine's sheet,
+//   - an expedition dispatch: the sensor snapshot, the gear bonuses, the away team and its roster, the voyage.
+// Never in a gate (reach, the short-range sheet, the power-budget install gate, crew station counts, equip
+// requirements: they read the real state, design 4.3) and never in combat (patrols and every ship battle read the
+// real state: combat's four-state model is the authority, user W3, and the combat half is step 4).
+//
+// The view is a COPY of the state's equipment list (the stored pieces are never touched): a pristine piece is the
+// same object, a worn piece of a VIEW slot is a fresh object with its lines scaled. A piece whose effect is not a
+// line (a crew module's boost, a sensor array's variety effect) reads its efficiency through viewPieceEfficiency,
+// which is 1 for every stored piece and the piece's efficiency for a view copy, so those readers act in the run
+// contexts only, exactly like the lines.
+
+// The slots the view scales: every non-combat efficiency consumer (WEAR_EFFICIENCY). The reactor is left out: its
+// only reader outside the install gate (pristine, design 4.3) is the combat power budget, where combat's own model is
+// the authority (W3), so its catalog row is owned by step 4.
+export const WEAR_VIEW_SLOTS: ReadonlySet<string> = new Set(WEAR_EFFICIENCY.filter((c) => !c.combat && c.slot !== "reactorCore").map((c) => c.slot));
+
+// Lines that are COUNTS, never scaled by wear (design 4.3: no station, berth or charge count moves with condition):
+// crew stations, guest berths and a member's grenade carry.
+export const WEAR_EXEMPT_LINES: ReadonlySet<string> = new Set(["crewStations", "colonistCapacity", "groundCarryCapacity"]);
+
+// The efficiency each view copy was built at (a WeakMap, so it never reaches a save).
+const VIEW_EFFICIENCY = new WeakMap<object, number>();
+const VIEW_CACHE = new WeakMap<readonly EquipmentInstance[], EquipmentInstance[]>();
+
+function scaledLines(lines: Readonly<Record<string, number>>, efficiency: number): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const [k, v] of Object.entries(lines)) out[k] = WEAR_EXEMPT_LINES.has(k) ? v : v * efficiency;
+  return out;
+}
+
+// One piece as the run readers see it: the same object when pristine or outside the view slots, else a copy with
+// its lines scaled by its efficiency (recorded for viewPieceEfficiency). Pure.
+export function wornPieceView(piece: EquipmentInstance): EquipmentInstance {
+  if (!WEAR_VIEW_SLOTS.has(piece.slotType)) return piece;
+  const efficiency = pieceWearEfficiency(piece);
+  if (efficiency >= 1) return piece;
+  const copy: EquipmentInstance = { ...piece, implicitStats: scaledLines(piece.implicitStats, efficiency), rolledStats: scaledLines(piece.rolledStats, efficiency) };
+  VIEW_EFFICIENCY.set(copy, efficiency);
+  return copy;
+}
+
+// The efficiency a reader applies to a piece's NON-LINE effect: a view copy's efficiency, exactly 1 for a stored
+// piece, so the crew module and sensor array readers act on wear in the run contexts only. Pure.
+export function viewPieceEfficiency(piece: object): number {
+  return VIEW_EFFICIENCY.get(piece) ?? 1;
+}
+
+// The state as a run reads its gear: its equipment list through wornPieceView. The SAME state reference when no
+// view-slot piece is worn (every pristine save, so byte-identical), cached per equipment list. Pure.
+export function wornGearView<T extends { equipment: EquipmentInstance[] }>(state: T): T {
+  let view = VIEW_CACHE.get(state.equipment);
+  if (view === undefined) {
+    const worn = state.equipment.some((p) => p.condition !== undefined && WEAR_VIEW_SLOTS.has(p.slotType) && pieceCondition(p) < CONDITION_FULL);
+    view = worn ? state.equipment.map(wornPieceView) : state.equipment;
+    VIEW_CACHE.set(state.equipment, view);
+  }
+  return view === state.equipment ? state : { ...state, equipment: view };
 }

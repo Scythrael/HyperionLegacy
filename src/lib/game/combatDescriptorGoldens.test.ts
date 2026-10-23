@@ -32,10 +32,15 @@ import { combatHullTypeOf, defaultSystemDurabilityForHull, foldedPlayerDefense, 
 import { DEFAULT_SAMPLES } from "./combat/rating";
 import { threatAssessment } from "./combat/threatAssessment";
 import { hash, onHull, runOutcome, stateHash, SWEEP_END, withCrew } from "./firstRunsGoldens.fixture";
-import { asExpeditionVeteran, asPatrolVeteran, dispatchPastPropulsion } from "./awayTeamTestFixtures";
+import { asExpeditionVeteran, asPatrolVeteran, dispatchPastPropulsion, withoutNebula } from "./awayTeamTestFixtures";
 import { patrolDifficultyAt } from "./runDifficulty";
 import { shipCombatRulesStamp } from "./crewOverlay";
 import { withCombatRulesOff } from "./combatRulesSwitch.fixture";
+// Merged onto feat (gear wear step 3 landed there after these pins): every row here was captured before step 3, so the
+// file runs with use wear switched off (the precedent every pre-step-3 golden file follows); the expedition rows'
+// whole-run hashes were the only rows step 3 moved (its run wear stamp), and gearWearGoldens.test.ts pins the wear.
+import { gearWearOffInThisFile } from "./gearWearSwitch.fixture";
+gearWearOffInThisFile();
 
 const HULLS = Object.keys(SHIP_TYPES) as ShipTypeKey[];
 const ROUTES = Object.keys(PATROLS) as PatrolKey[];
@@ -109,7 +114,11 @@ function shipEventRow(hull: ShipTypeKey, cand: string, seed: number | undefined,
   const go = () => dispatchPastPropulsion(asExpeditionVeteran(withCrew(onHull(hull, seed), "d18")), "ship-1", 1, cand);
   const res = inFlight ? withCombatRulesOff(go) : go();
   expect(res.success, `${hull} ${cand}: ${res.reason}`).toBe(true);
-  const done: Expedition = advanceExpedition(res.expedition!, SWEEP_END);
+  // Merged onto feat: Gas Giant Study GG-4 (after these pins) stamps a nebula on some systems at dispatch; these rows
+  // were captured before it, so the record is read without the stamp (awayTeamTestFixtures.ts withoutNebula, the
+  // strip every pre-GG-4 pin uses). It moved only the four nebula systems' whole-run hashes (default and 101 cand-2,
+  // 303 cand-0 / cand-1), never a battle.
+  const done: Expedition = advanceExpedition(withoutNebula(res.expedition!), SWEEP_END);
   const events = (done.scanEvents ?? []).filter((e) => e.kind === "shipEvent");
   const battles = events.filter((e) => e.event === "probe" || e.event === "cloaked").map((e) => `${e.event}:${e.outcome}`);
   const o = runOutcome(done);

@@ -38,6 +38,7 @@ import { allocatedItem } from "./allocation";
 import { WIRING_REGISTRY } from "./wiring/registry";
 import { GIANT_CLASSES, gasStudySourcePending } from "./gasGiantContent";
 import { rollStudyReward } from "./gasGiantStudy";
+import { DATA_STUDY_ITEM_IDS } from "./dataStudy";
 
 // The seven recipes as the user approved them (July section 12 / E-MAT 3b): key -> inputs and output.
 const ML1_RECIPES: Record<string, { inputs: string[]; output: string }> = {
@@ -280,6 +281,8 @@ function consumers(): Map<string, string[]> {
   TRANSIT_BERTH_RUNGS.forEach((r, i) => Object.keys(r.materials).forEach((id) => add(id, `berth:${i}`)));
   for (const id of Object.keys(SALVAGE_LOOT_POOLS)) add(id, "salvage");
   for (const [id, def] of Object.entries(ITEMS)) if (def.sellValue !== undefined) add(id, "sell");
+  // Gas Giant Study GG-5: the Research Lab's data study lane studies every research data item and the fragment.
+  for (const id of DATA_STUDY_ITEM_IDS) add(id, "dataStudy");
   return out;
 }
 

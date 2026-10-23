@@ -194,11 +194,34 @@ export function asPreRelicBlanksDispatch<R extends { next: GameState; expedition
 // GG-2 also stopped placing a hostile site or a clearing objective on an orbital body (draws kept); a record whose
 // orbital body would have carried one is not a pre-GG-2 record, which this cannot rebuild, so a golden pinned on such a
 // seed moves (and names it). A record without the stamp is returned as it is. Every other key keeps its order. Pure.
+// GG-4 (merged after GG-2): a run before GG-2 was a run before GG-4 too, so this also takes the nebula stamp off
+// (withoutNebula).
 export function withoutStudy(exp: Expedition): Expedition {
-  if (!("study" in exp)) return exp;
-  const rest = { ...exp, bodies: exp.bodies.map((b) => (b.giant === undefined ? b : withoutGiant(b))) };
+  const plain = withoutNebula(exp);
+  if (!("study" in plain)) return plain;
+  const rest = { ...plain, bodies: plain.bodies.map((b) => (b.giant === undefined ? b : withoutGiant(b))) };
   delete rest.study;
   return rest;
+}
+
+// Gas Giant Study GG-4: the dispatch record WITHOUT its nebula stamp (`Expedition.nebula`), i.e. the record the same
+// dispatch made before GG-4 (a run in flight at the update: no sweep). The stamp is the one key GG-4 adds at dispatch.
+// A record without it is returned as it is. Every other key keeps its order. Pure.
+export function withoutNebula(exp: Expedition): Expedition {
+  if (!("nebula" in exp)) return exp;
+  const rest = { ...exp };
+  delete rest.nebula;
+  return rest;
+}
+
+// GG-4: a whole state, and a dispatch result, with every expedition through withoutNebula. Identity without one. Pure.
+export function withoutNebulaState(state: GameState): GameState {
+  if (!state.expeditions.some((e) => "nebula" in e)) return state;
+  return { ...state, expeditions: state.expeditions.map(withoutNebula) };
+}
+export function asPreNebulaDispatch<R extends { next: GameState; expedition?: Expedition }>(res: R): R {
+  if (!res.expedition) return res;
+  return { ...res, expedition: withoutNebula(res.expedition), next: withoutNebulaState(res.next) };
 }
 
 function withoutGiant<B extends { giant?: unknown }>(body: B): B {
@@ -209,7 +232,7 @@ function withoutGiant<B extends { giant?: unknown }>(body: B): B {
 
 // A whole state with every expedition through withoutStudy. Identity when no run carries the stamp. Pure.
 export function withoutStudyState(state: GameState): GameState {
-  if (!state.expeditions.some((e) => "study" in e)) return state;
+  if (!state.expeditions.some((e) => "study" in e || "nebula" in e)) return state;
   return { ...state, expeditions: state.expeditions.map(withoutStudy) };
 }
 

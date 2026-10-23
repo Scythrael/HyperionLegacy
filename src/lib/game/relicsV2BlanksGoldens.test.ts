@@ -9,6 +9,10 @@
 // NEVER regenerate these from a later build.
 
 import { describe, it, expect } from "vitest";
+// GEAR WEAR step 3: this file's pins were captured before the use wear engine; it runs with the use sources off
+// (gearWearSwitch.fixture.ts), so they keep proving nothing else moved. gearWearGoldens.test.ts pins the wear.
+import { gearWearOffInThisFile } from "./gearWearSwitch.fixture";
+gearWearOffInThisFile();
 import type { Expedition, ExpeditionFinding, GameState, RegionTier } from "./model";
 import { advanceExpedition, claimExpedition, makeExpeditionSeed } from "./expedition";
 import { hash, onHull, withCrew, SWEEP_END } from "./firstRunsGoldens.fixture";

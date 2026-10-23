@@ -157,6 +157,9 @@
         <button type="button" class="sr-btn ghost" on:click={() => onRecall(run.captainId)}>Recall</button>
       {/if}
     </div>
+    {#if run.relicLine !== null}
+      <p class="sr-dim sr-xs">{run.relicLine}</p>
+    {/if}
     {#if run.hold !== null}
       <p class="sr-dim sr-xs">It has not left yet, so Recall ends the run now and spends nothing.</p>
     {:else if !run.recalled}

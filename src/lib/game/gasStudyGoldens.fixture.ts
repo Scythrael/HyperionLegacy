@@ -20,9 +20,19 @@ export const GG1_ADDED_ENTRY_IDS: ReadonlySet<string> = new Set(
     (e) =>
       GG1_CATALOGS.has(e.source.catalog) ||
       (e.source.catalog === "ITEMS" && GG1_ITEMS.has(e.source.key.split(":")[0])) ||
+      // GG-5: the nine research data reserve rows keep their ids (and places) but now name the lane's consumer.
+      isGg5ConsumeRow(e) ||
       (e.source.catalog === "REFINE_RECIPES" && e.source.key === GG1_RECIPE),
   ).map((e) => e.id),
 );
+
+// GG-5 (the Research Lab's data study lane) dropped the nine research data reserves and flipped their rows live in
+// place; these were their owners (the ITEMS `reserved` markers GG-1 wrote).
+const GG5_DATA_STUDY_BEFORE = "GG-5 (the Research Lab study lane studies it into a +12% boost on the next project of its family)";
+const GG5_ANCIENT_STUDY_BEFORE = "GG-5 (the Research Lab study lane decodes the next ancient entry from it)";
+function isGg5ConsumeRow(e: (typeof WIRING_REGISTRY)[number]): boolean {
+  return e.source.catalog === "DATA_STUDY" && e.source.key.startsWith("consume:");
+}
 
 // Gas Giant Study GG-2 / GG-3 (the engine slices): entries that FLIP pending -> live, never added or removed. Each id
 // maps to the status it had before (every one was pending, with no live context and no probe), so a registry pin taken
@@ -45,14 +55,20 @@ const ORBITAL_ONLY_BEFORE = "gas giant study 15b + OC-G2 (teams land and fight t
 function ggBeforeOwner(e: (typeof WIRING_REGISTRY)[number]): string | null {
   if (e.id === ORBITAL_ONLY_ENTRY_ID) return ORBITAL_ONLY_BEFORE;
   if (e.source.catalog === "GAS_STUDY_USES") return GAS_STUDY_USES[e.source.key as GasStudyUse] ?? null;
+  if (isGg5ConsumeRow(e)) return e.source.key === "consume:ancientDataFragment" ? GG5_ANCIENT_STUDY_BEFORE : GG5_DATA_STUDY_BEFORE;
   const field = e.source.key.split(":")[1];
   if (e.source.catalog === "GIANT_CLASSES" && GG1_CLASS_FIELD_OWNER[field]) return GAS_STUDY_USES[GG1_CLASS_FIELD_OWNER[field]];
   if (e.source.catalog === "NEBULA_KINDS" && GG1_KIND_FIELD_OWNER[field]) return GAS_STUDY_USES[GG1_KIND_FIELD_OWNER[field]];
   return null;
 }
 
-// The entries the engine slices ADD (GG-3: the probe dive seam), left out by every pin taken before them.
-export const GG_STUDY_ADDED_ENTRY_IDS: ReadonlySet<string> = new Set(WIRING_REGISTRY.filter((e) => e.source.catalog === "GAS_STUDY_SEAM").map((e) => e.id));
+// The entries the engine slices ADD (GG-3: the probe dive seam; GG-5: the lab lane's boosts, recipe chance, decode and
+// decode gate seam), left out by every pin taken before them.
+export const GG_STUDY_ADDED_ENTRY_IDS: ReadonlySet<string> = new Set(
+  WIRING_REGISTRY.filter(
+    (e) => e.source.catalog === "GAS_STUDY_SEAM" || e.source.catalog === "DATA_STUDY_SEAM" || (e.source.catalog === "DATA_STUDY" && !isGg5ConsumeRow(e)),
+  ).map((e) => e.id),
+);
 
 export const GG_STUDY_FLIPPED_BEFORE: ReadonlyMap<string, { kind: "pending"; owner: string }> = new Map(
   WIRING_REGISTRY.flatMap((e) => {

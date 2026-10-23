@@ -69,8 +69,9 @@ const flatChecks = WIRING_REGISTRY.flatMap((e) =>
 describe("wiring sensitivity: every claimed context that does not move yet stays flat, on a fixture that would show it", () => {
   it("covers the PARTIAL contexts and the inert sources (vacuity guard)", () => {
     // Lowered from 80 at Expedition Tiers G2-3: the voyage took the ship speed sources live at Ground Ops (the
-    // gear line, the ten hulls, the museum), leaving 80 partial contexts.
-    expect(flatChecks.filter(({ e }) => e.contexts.length > 0).length).toBeGreaterThan(70);
+    // gear line, the ten hulls, the museum), leaving 80 partial contexts. Lowered from 70 at Expedition Tiers G2-6: the
+    // region picker took the eight telescope reach entries live at Ground Ops, leaving 63.
+    expect(flatChecks.filter(({ e }) => e.contexts.length > 0).length).toBeGreaterThan(60);
     // Lowered from 30 at the CP-2 + WR-5a integration (0.14.0): both slices moved inert sources live, leaving 28;
     // WR-5b's Tactician tree left 24, WR-5c's Explorer tree 20 (no pending secondary captain entry is left). The
     // guard only asserts the sweep is not vacuous; lower it again as more sources go live. Lowered from 15 when the

@@ -39,6 +39,7 @@ import {
   getRelicTypeById,
   museumBonuses,
   museumBonusesFromRecord,
+  museumTierCurveBonuses,
   relicBandOf,
   relicTypesInBand,
   type MuseumStat,
@@ -281,8 +282,8 @@ describe("R2-1 data model: the Museum v2 record", () => {
   it("museumBonuses reads the Tier I general record through the v1 math", () => {
     const rec = { glyphTablet: 45, resonanceShard: 41, starChartFragment: 22, precursorLens: 18, geodeCore: 10, magmaPearl: 10 };
     expect(museumBonuses(withGeneralMuseumRecord(freshState(), rec))).toEqual(museumBonusesFromRecord(rec));
-    // Copies at another tier do not count yet (R2-4 brings the per-tier curve).
-    expect(museumBonuses(withGeneralMuseumRecord(freshState(), rec, 2))).toEqual(museumBonusesFromRecord({}));
+    // R2-4 (moved on purpose): copies at another tier count through that tier's D23 curve (museum math v2).
+    expect(museumBonuses(withGeneralMuseumRecord(freshState(), rec, 2))).toEqual(museumTierCurveBonuses(rec, 2));
   });
 });
 

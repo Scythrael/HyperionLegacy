@@ -1822,3 +1822,33 @@ is the first candidate to ask the user about a 0.14.x deferral, recorded as `def
   ship is out (shipCrewLocked); "Always multiply (Recommended)": every "+X%" talent is its own x(1 + X) factor (applies
   to WR-5b / WR-5c too); Assayer "Own ship only (Recommended)"; Trade Routes / Shrewd Negotiator "As built
   (Recommended)" (docked pay after one delivered supply run; discount adds to profit).
+
+## USER ANSWERS (2026-10-22): WR-8 review, patrol balance and the range rule (verbatim)
+
+Context: WR-8 review measured patrol wins per 100 (veteran, Standard Issue, Balanced): Orion Sweep 89 to 70, Freighter
+Sweep 96 to 80, Carrier Warband 55 to 26, Destroyer Warband 22 to 7. Causes about equal: (1) provisional pirate
+armor/evasion vs the 6 to 10 damage autocannon (a NUMBERS issue); (2) fighting through an approach, with the "hold no
+farther than the LONGEST weapon's reach" rule parking a Balanced Destroyer where its autocannon never fires (a SYSTEM
+issue).
+
+1. Patrol balance: "Let's remember that if it's a systemic issue, we fix the systemic issue. But the actual balancing
+   of the content can wait. If it's just a balancing numbers thing, option 1. Otherwise, we should fix the system
+   itself." Reading: soften the provisional pirate armor/evasion numbers for now (option 1, "Soften pirates for now";
+   0.16.0 owns real numbers) AND fix the parking system.
+2. Range rule: "Stance should decide. However, there's something missing. We should change Standoff to Defensive, and
+   make it more defensively oriented for it's actual behavior. That makes more sense. We have aggression which is
+   offense, but standoff doesn't really feel like it means "defensive", evne though it's the closest thing to it."
+   Reading: each stance sets where a ship holds; Standoff is renamed Defensive and gains defensive behavior (what it
+   does: next round of questions).
+3. Defensive (renamed Standoff) does ALL FOUR: "Takes less, deals less" (incoming damage reduced, for example -20%,
+   outgoing reduced a bit); "Shields first" (shields recharge faster and absorb more); "Guards against threats"
+   (point defense and drones focus incoming drones and missiles before enemy ships); "Keeps its distance" (holds at
+   its longest gun's reach and backs off when enemies close, only if fast enough).
+4. Balanced parks "Where most firepower reaches (Recommended)" (the range covering the biggest share of its damage).
+   Aggressive closes so every gun fires (its shortest gun's reach).
+My calls: the player-facing label becomes "Defensive" everywhere (picker, Help, patch note, logs); the stored key stays
+`standoff` so saves need no migration (same pattern as the Settings tab key "options"); the new behavior applies via
+the WR-8 rules stamp, so in-flight runs replay unchanged. All Defensive numbers are [PROVISIONAL] for 0.16.0.
+5. Approach (after the stance fix and softer pirates: Orion 87, Freighter 88, Carrier Warband 42, Destroyer Warband 15, Battleship 79; zero pirate armor did not close the gap, the cause is short-gun ships eating railgun fire while closing): "Closing is evasive (Recommended)" (a ship closing to its stance range moves evasively; incoming fire is reduced while it is still out of its own guns' reach).
+6. After evasive closing (c627efe: Orion 88, Freighter 90, Carrier Warband 39, Destroyer Warband 15, Battleship 78; the remaining gap is spread across several new rules working as designed): "Ship it, soften early curve (Recommended)" (tougher Warbands are content balance for 0.16.0; tune the existing safe-first ramp so light hulls' early Warbands are as gentle as before WR-8, Freighter c0 Warband back near 181 of 200).
+7. Patrol monotonicity sweep at 400 seeds instead of 200: "Yes, 400 seeds".

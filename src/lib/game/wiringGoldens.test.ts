@@ -19,6 +19,10 @@
 // the state is pinned.
 
 import { describe, expect, it, vi } from "vitest";
+// GEAR WEAR step 3: this file's pins were captured before the use wear engine; it runs with the use sources off
+// (gearWearSwitch.fixture.ts), so they keep proving nothing else moved. gearWearGoldens.test.ts pins the wear.
+import { gearWearOffInThisFile } from "./gearWearSwitch.fixture";
+gearWearOffInThisFile();
 import { goldenJson, withV1Museum } from "./firstRunsGoldens.fixture"; // gear wear: goldenJson puts the retired durability back
 import Decimal from "break_infinity.js";
 // OC-11 (CP-8): the switch that proves the auto-crew pause is the only thing it moved here (see the lunarMine pin).

@@ -64,6 +64,97 @@ export const TEST_FILLERS: UniversalModuleDef[] = Array.from({ length: 6 }, (_, 
   source: "craft" as const,
 }));
 
+// E-MOD EM-6: one fixture per trigger of the Proc and Active engine (never real content; the v1 roster is EM-7's).
+export const TEST_OPENING_ARC: UniversalModuleDef = {
+  id: "testModuleOpeningArc",
+  label: "Test Opening Arc",
+  category: "proc",
+  contexts: ["patrol", "shipEvent"],
+  trigger: { kind: "battleStart" },
+  chance: 1,
+  effect: { key: "arcDamage", magnitude: 25 },
+  powerDraw: 0,
+  source: "craft",
+};
+export const TEST_AMBUSH_WARD: UniversalModuleDef = {
+  id: "testModuleAmbushWard",
+  label: "Test Ambush Ward",
+  category: "proc",
+  contexts: ["shipEvent"],
+  trigger: { kind: "incomingAmbush" },
+  chance: 1,
+  effect: { key: "arcDamage", magnitude: 30 },
+  powerDraw: 0,
+  source: "craft",
+};
+export const TEST_AMBUSH_RECOVERY: UniversalModuleDef = {
+  id: "testModuleAmbushRecovery",
+  label: "Test Ambush Recovery",
+  category: "active",
+  contexts: ["shipEvent"],
+  trigger: { kind: "afterAmbush" },
+  oncePerBattle: true,
+  effect: { key: "shieldRestore", magnitude: 0.5 },
+  powerDraw: 0,
+  source: "craft",
+};
+export const TEST_ARC_DISCHARGER: UniversalModuleDef = {
+  id: "testModuleArcDischarger",
+  label: "Test Arc Discharger",
+  category: "proc",
+  contexts: ["patrol", "shipEvent"],
+  trigger: { kind: "onHit" },
+  chance: 0.5,
+  effect: { key: "arcDamage", magnitude: 12 },
+  powerDraw: 0,
+  source: "craft",
+};
+export const TEST_TICK_ARC: UniversalModuleDef = {
+  id: "testModuleTickArc",
+  label: "Test Tick Arc",
+  category: "proc",
+  contexts: ["patrol", "shipEvent"],
+  trigger: { kind: "combatTick" },
+  chance: 0.25,
+  cooldownTicks: 20,
+  effect: { key: "arcDamage", magnitude: 3 },
+  powerDraw: 0,
+  source: "craft",
+};
+export const TEST_SURGE: UniversalModuleDef = {
+  id: "testModuleSurge",
+  label: "Test Surge",
+  category: "active",
+  contexts: ["patrol", "shipEvent"],
+  trigger: { kind: "hullBelow", fraction: 0.5 },
+  oncePerBattle: true,
+  effect: { key: "shieldRestore", magnitude: 0.3 },
+  powerDraw: 0,
+  source: "craft",
+};
+export const TEST_ECHO: UniversalModuleDef = {
+  id: "testModuleEcho",
+  label: "Test Echo",
+  category: "proc",
+  contexts: ["mission"],
+  trigger: { kind: "missionCycle" },
+  chance: 0.5,
+  effect: { key: "bonusHaul", magnitude: 0.25 },
+  powerDraw: 0,
+  source: "craft",
+};
+export const TEST_LENS: UniversalModuleDef = {
+  id: "testModuleLens",
+  label: "Test Lens",
+  category: "special",
+  contexts: ["expedition"],
+  trigger: { kind: "bodyScanned" },
+  chance: 0.5,
+  effect: { key: "extraDiscovery", magnitude: 1 },
+  powerDraw: 0,
+  source: "discovery",
+};
+
 let mintCount = 0;
 // Mint a module piece of `def` (inside withTestModules), in storage.
 export function mintTestModule(def: UniversalModuleDef, rarity: EquipmentRarity = "standard", quality = 0, id?: string): EquipmentInstance {

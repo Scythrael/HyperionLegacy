@@ -345,6 +345,44 @@ copy ladder and the bottleneck (OC-1, call 10 of the mockup). Tests: empty museu
 tier; a farmed tier's next copy worth less than an early copy one tier up; frozen snapshot exact at the cap and stable
 past it; every stat moves its consumer (wiring sensitivity test); moved goldens named in the commit with the reason.
 
+**R2-4 carry note (2026-10-21, built on bc25a23):**
+- Math (end of `relics.ts`, `museumBonusesFromMuseum`, which `museumBonuses` reads; signature and consumers unchanged):
+  TIER I KEEPS THE V1 MATH EXACTLY (per-copy passive plus the set ladder and bottleneck) on the controller's ruling
+  "Tier I veterans' bonuses must stay exactly what they are today", so `museumBonusesFromRecord`, `setTierLevels` and
+  the RELIC_SETS / RELICS wiring rows stay, for Tier I only. This departs from the plan text above ("retire
+  setTierLevels, the copy ladder and the bottleneck"): no tier above I ever had a ladder. Tiers II to VII: per stat,
+  `diminishing(copies x share x MUSEUM_V2_PER_COPY[tier], MUSEUM_V2_KNEE)`, summed over tiers. Exceptional: each held
+  piece once (duplicates nothing), a full set +5x one piece; flat, on top.
+- Soft cap: a tier's identified total = its general copies plus its exceptional copies (duplicates count, call 7). At
+  1000 the tier's whole record (types and its pieces, one map) is snapshotted into `frozen`; the regular game reads the
+  snapshot (`museumActiveRecord`), counts keep growing (`museumTierTotal`, `museumTierFrozen` for R2-8). Every writer goes
+  through `museumDepositGeneral` / `museumDepositExceptional` (identification v2, the v1 study deposit, the grant seam;
+  a multi-copy grant is trimmed to the exact cap); the dev Museum control calls `withSoftCapSnapshot`. Load:
+  `withSoftCapSnapshotV70` (MIGRATIONS[69] step 6 and every load, FROZEN inline cap) snapshots a dev save already past
+  the cap at its current counts: same counts, same bonus.
+- [PROVISIONAL], one constant each: `MUSEUM_V2_PER_COPY` (plan 0.001 x 1.5 ... 6.6 for II to VII), `MUSEUM_V2_KNEE` 0.25,
+  `SOFT_CAP_FREEZES_EXCEPTIONAL` false (pieces and full sets always act, frozen tier or not; the snapshot holds them, so
+  flipping needs no migration).
+- Goldens: `relicsV2MuseumGoldens.test.ts` (goldens-first commit). Golden 1 (256 Tier I veterans) and 2 (past the cap
+  through a load) UNCHANGED. Moved, named: golden 3 (Tier II+ copies and exceptional pieces now act) and the R2-1
+  catalog test's "copies at another tier do not count yet". Every whole-state golden unchanged.
+- Wiring: RELIC_TYPES (17) and EXCEPTIONAL_SETS (54 + 14) flipped LIVE on `museum:<stat>` (Tier II fixture through the
+  diminishing curve; pieces flat; full set vs all but the last piece); added `relic:MUSEUM_V2_PER_COPY:2..7` and
+  `relic:audit:softCap` (LIVE: 200 copies past the cap move cargo down by the curve's growth). Pins hold the move apart
+  (`relicMuseumV2.fixture.ts`). The Debug panel now owns RELIC_TYPES, EXCEPTIONAL_SETS and MUSEUM_V2_PER_COPY; Tier I
+  readers read the snapshot. Reaching Tier II or deeper is still G2-6's (`relic:audit:blankTiers`).
+- For R2-8: the Museum panel still shows Tier I from the live `general["1"]` through the v1 readers; once a tier is
+  frozen the page should read `museumActiveRecord` for bonuses and `museumTierTotal` for the shown count.
+- Review follow-up (2026-10-22, integration): the Museum page's bonus numbers (tier levels, set bonuses, per-copy totals)
+  now read `museumActiveRecord(state.museumV2, 1)`, so they match the engine once Tier I freezes; the tiles keep the live
+  copy counts (call 4), a frozen tier reads "Lv N · held at the soft cap" with one line naming the cap, and one line
+  totals what the higher tiers and the exceptional pieces add (`museumBeyondTierIBonuses`). The full v2 page stays
+  R2-8's. The dev Museum control drops Tier I's snapshot before re-taking it (it SETS counts). A v69 save holding the
+  old `relicMuseum` past the cap is pinned through `MIGRATIONS[69]` (relicsV2Museum.test.ts).
+- For the user: the soft cap also caps Tier I veterans. Their bonus is kept exactly, but it stops growing at 1000 Tier I
+  relics; with copies spread at random, Tier I tops out around ladder level 3 of 5 (the top rung needs 160 copies of each
+  of 17 relics).
+
 ### R2-5: Exceptional sets content, set completion, ledger (engine + content sign-off)
 Content sign-off first: one sheet with every exceptional set and piece name, stat and value for Tiers I to VII (OC-5).
 Then: set completion appends to `setsCompleted` once and emits a `relicSetCompleted` ledger event (set id, tier,
@@ -465,3 +503,41 @@ inert: culture names (finds keep their "Relic Sample" codes, honest Help), the R
   relic's source site doubles the weight of its old set's types.
 - ALL 17 calls answered. Still open: the name sign-offs (exceptional set names, 42 culture names), presented as a
   sign-off sheet before R2-8.
+
+## USER IDEA (2026-10-22, open): compounding past the 1000-relic soft cap
+
+After learning the secret game's Overclock compounds (x1.125 per level, multiplied): "I'm tempted to make that 1000
+relic cap effect this too." Clarified by multiple choice: "Museum relics compound" (in the main game, relic copies
+past the 1000 soft cap keep growing the Museum bonus in a compounding way, instead of freezing). OPEN: this conflicts
+with the user's D23 rule (stacking bonuses use concave curves, never compounding) and with the soft cap design (calls
+3 and 4: counts freeze for the regular game at 1000, the past-cap count is kept for a future Endless Mode). Awaiting the
+user's pick of how (see the next USER ANSWERS block). The R2-4 provisional picks (MUSEUM_V2_PER_COPY, MUSEUM_V2_KNEE
+0.25, SOFT_CAP_FREEZES_EXCEPTIONAL false) and the Tier I veteran flag are also still unanswered.
+USER (2026-10-22, verbatim, answers the above): "That as you get more relics, the relics can all give a specific
+multiplier. The soft cap for the relics affects endless mode, but ALSO affects the minigame HL. Scales generators,
+overclock, talents, etc."
+Reading: the soft cap still freezes the regular game at 1000; relics (the past-cap count, and possibly all of them)
+each give a specific multiplier that feeds BOTH a future Endless Mode AND the secret minigame "Hyperion Legacy
+v0.0000001a" (generators, Overclock, its skills/talents, and so on). So the main game's relics become a cross-link
+into the minigame. Details (which relics, which stats, which patch) being settled by multiple choice.
+
+## USER ANSWERS (2026-10-22): relics feed the minigame
+
+1. Which relics: "Every relic, past-cap extra" (every identified relic gives the minigame a small multiplier; copies
+   past a tier's 1000 cap give a bigger one: the cap stops helping the main game, so it pours into the minigame).
+2. Mapping: "By relic type (Recommended)" (each relic kind maps to one minigame lever, for example generators,
+   Overclock, skills; collecting variety matters). The exact kind-to-lever table is a [PROPOSAL] for sign-off.
+3. Timing: "With 0.14.0 (Recommended)" (ships with Relics v2; the minigame shows a "Relic boosts" line).
+4. Two-way: "Only via milestones" (the minigame never multiplies the main game; its milestones pay main-game rewards
+   in a later patch, as already decided).
+Notes for the build: compounding is allowed INSIDE the minigame (it is sealed from main-game balance; D23 still
+governs the main game); the minigame pacing sim must be re-run with realistic relic counts so the finale stays 3 to 5
+days and e1,000,000 about a month for a player WITHOUT relics, and the boost is reported for typical relic counts;
+the past-cap count also stays recorded for Endless Mode. New 0.14.0 slice: "R2-10 relic boosts in the minigame".
+CORRECTION (user, 2026-10-22, verbatim): "Yes! Sorry. That's what I meant. Relics will never affect the main game after
+1k, but the same thing occurs there too. Diminishing returns. Then eventually, you'll get new bonuses that are balanced
+around the scaling this provides!"
+So: past 1000 per tier, relics never help the main game (the freeze stays). The relic boost INTO THE MINIGAME also
+follows diminishing returns (a D23-style concave, uncapped curve), NOT compounding; this supersedes the "compounding is
+allowed inside the minigame" note above for relic boosts (the minigame's own Overclock still compounds as built).
+Future minigame bonuses get balanced around the scaling relics provide (later content).

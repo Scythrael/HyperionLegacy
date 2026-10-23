@@ -480,6 +480,9 @@ export interface ShortRangeRunView {
   hold: ShortRangeDepartureHold | null; // waiting at home (the engine's departure gate)
   holdText: string | null; // the card's full waiting text
   holdLine: string | null; // the calm one-line status (Home, the Overview)
+  // G1-5 review follow-up: the quiet line naming the unidentified relics this run has found so far (they are already in
+  // the vault), or null before its first find (and on a run dispatched before G1-5).
+  relicLine: string | null;
 }
 
 // The run's waiting words, read through the engine's own departure gate (null when it has left or leaves next tick).
@@ -524,7 +527,14 @@ export function shortRangeRunView(state: GameState, captain: CaptainState): Shor
     hold: wait?.hold ?? null,
     holdText: wait?.text ?? null,
     holdLine: wait?.line ?? null,
+    relicLine: shortRangeRelicLine(m.relicsThisRun ?? 0),
   };
+}
+
+// G1-5 review follow-up: the board card's quiet line for a run's relic finds so far. Pure.
+export function shortRangeRelicLine(found: number): string | null {
+  if (!Number.isFinite(found) || found <= 0) return null;
+  return `Found ${found} unidentified relic${found === 1 ? "" : "s"} this run, in the vault.`;
 }
 
 // The calm one-line status of a run (Home's in-progress row, user 2026-10-21 "Yes, calm status line"): the waiting

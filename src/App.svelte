@@ -53,7 +53,7 @@
   import RelicStudyPanel from "./lib/RelicStudyPanel.svelte";
   import MuseumPanel from "./lib/MuseumPanel.svelte";
   // The pure dispatch + claim engine fns the Expedition Console's do* handlers call (expedition.ts).
-  import { startExpedition, claimExpedition, summarizeExpeditionFindings, expeditionDispatchBlockText, canEditGroundOps, editGroundOps } from "./lib/game/expedition";
+  import { startExpedition, claimExpedition, summarizeExpeditionFindings, expeditionDispatchBlockText, canEditGroundOps, editGroundOps, recallExpedition, recallPreview, recallBlockText, abandonHeldSystem, canAbandonHeldSystem, heldSystems } from "./lib/game/expedition";
   // Ground Operations GO-13: the queue screen's live edits (assign, reorder, skip, re-queue, Default plan,
   // Auto-assign), their refusal words and log lines.
   import { groundOpsEditBlockText, type GroundOpsEdit } from "./lib/game/groundOps";
@@ -618,6 +618,8 @@
   // Field Kits FKR-9 / FKR-10: the kit screens' display decisions (tested in fieldKitsDisplay.test.ts) and the runs
   // switch (the Logistics Consumables spot becomes the Field Kits stock once kits are live in runs).
   import { claimKitsView, fieldKitShopRows, fieldKitStockRows, kitCountText, kitListText, shopQtyMax } from "./lib/fieldKitsDisplay";
+  // Expedition Tiers G2-6: the console's voyage span ("1h 52m", "3d") for the recall log line.
+  import { voyageSpanText } from "./lib/expeditionConsoleDisplay";
   import { FIELD_KITS_RUNS_LIVE, FIELD_KITS, type FieldKitId } from "./lib/game/fieldKits";
   import { carriedExtras } from "./lib/game/fieldKitsRun";
   // 0.13.4 Phase 4: the transit-berth read model. The console reads the SAME module the engine
@@ -1035,7 +1037,7 @@
     museumResearchDurationTicks,
   } from "./lib/game/tick";
   // Exploration 0.14.0 (E4c): the relic catalog + museum readers (pure) the Relics/Museum host code reads.
-  import { museumBonuses, getRelicById, getRelicSetById, RELIC_SETS, undiscoveredResearchMask } from "./lib/game/relics";
+  import { museumBonuses, getRelicById, getRelicSetById, RELIC_SETS, undiscoveredResearchMask, withSoftCapSnapshot } from "./lib/game/relics";
   // Exploration 0.14.0 (E4c): the identification-reveal view model + the observer's record picker.
   import { buildRelicReveal, pickRelicStudyRecord, unseenRelicStudyRecords, type RelicReveal } from "./lib/relicReveal";
   // Exploration 0.14.0 (E4c): the crew + museum boosted ship stats, the SAME helper the engine dispatches
@@ -1258,6 +1260,12 @@
   // 0.13.2 Unit 7: mount-time focus mover for the non-modal Ships drill-down (open lands
   // focus on the back control, close returns it to the originating roster row). See focusOnMount.ts.
   import { focusOnMount } from "./lib/focusOnMount";
+  // 0.13.11: Settings > Codes, the Enter Code window and the secret game. The secret game keeps its
+  // own state, save and ticker (src/lib/secret/runtime.ts); App only mounts it, starts its runtime
+  // and wipes it on Delete Save. It never reads or writes `state` and never runs in the main loop.
+  import EnterCodeModal from "./lib/EnterCodeModal.svelte";
+  import SecretGameOverlay from "./lib/SecretGameOverlay.svelte";
+  import { startSecretRuntime, wipeSecretGame, devFastForwardSecret, codesTabSeen, markCodesTabSeen } from "./lib/secret/runtime";
 
   // DEV_MODE, Vercel §9.5.3: true on Preview, false on Production. Locally,
   // set VITE_DEV_MODE=true in .env.local (see .env.example).
@@ -3112,14 +3120,23 @@
   // discoverability for the players who need it most: someone who needs a larger text size is the
   // least able to hunt for it. Keeping it first, with a visible section header, is the mitigation.
   // If it still reads as buried once it is on screen, promoting it back to its own subtab is cheap.
-  type OptionsTab = "ui" | "gameplay" | "confirmations" | "saveData";
+  type OptionsTab = "ui" | "gameplay" | "confirmations" | "saveData" | "codes";
   let activeOptionsTab: OptionsTab = "ui";
-  const OPTIONS_TABS: { key: OptionsTab; label: string }[] = [
+  // 0.13.11: "Codes" (gifts and giveaways) is the fifth sub-tab, with a NEW tag until it is opened
+  // once on this device (device-side flag through safeStorage; blocked storage just keeps the tag).
+  let codesSeen = codesTabSeen();
+  let OPTIONS_TABS: { key: OptionsTab; label: string; badge?: string }[];
+  $: OPTIONS_TABS = [
     { key: "ui", label: "UI" },
     { key: "gameplay", label: "Gameplay" },
     { key: "confirmations", label: "Confirmations" },
     { key: "saveData", label: "Save Data" },
+    { key: "codes", label: "Codes", badge: codesSeen ? undefined : "NEW" },
   ];
+  $: if (activeOptionsTab === "codes" && !codesSeen) {
+    markCodesTabSeen();
+    codesSeen = true;
+  }
 
   // System settings modal (0.11.2 Shell Correction, Task 3). The System program
   // left the bottom nav; its settings content now opens as a MODAL from the
@@ -3127,6 +3144,21 @@
   // activeSystemSubTab still selects which settings view is shown, but is now
   // driven by a top <SubTabs> bar inside the modal instead of the old left rail.
   let systemModalOpen = false;
+
+  // 0.13.11: the Enter Code window (over the System modal) and the secret game overlay (over the
+  // whole app). Completing the combo closes both windows and opens the game; closing the game hands
+  // focus back to the gear that opened the System window.
+  let enterCodeOpen = false;
+  let secretOpen = false;
+  function onComboComplete(): void {
+    enterCodeOpen = false;
+    systemModalOpen = false;
+    secretOpen = true;
+  }
+  function closeSecretGame(): void {
+    secretOpen = false;
+    void svelteTick().then(() => document.querySelector<HTMLElement>(".top-bar-gear")?.focus());
+  }
 
   // The modal's top-tab list, in display order. Settings is the first view (0.13.6 D7 removed the
   // former "profile" first tab, now at Crew > Admiral); the keys map to the settings content
@@ -3661,7 +3693,17 @@
 
     const onUnload = () => doSave();
     window.addEventListener("beforeunload", onUnload);
+    // 0.13.11: the secret game's own runtime (own state, own save, own 1 s ticker), started after
+    // the main load and catch-up above. It never touches `state` or pollGameLoop.
+    // Guarded on top of the runtime's own guards: nothing in the secret game may break startup.
+    let stopSecret: () => void = () => {};
+    try {
+      stopSecret = startSecretRuntime();
+    } catch {
+      // The main game runs on; the secret game simply is not running this session.
+    }
     return () => {
+      stopSecret();
       window.removeEventListener("beforeunload", onUnload);
       document.removeEventListener("visibilitychange", onVisibilityChange);
     };
@@ -4833,7 +4875,12 @@
       museum[rid] = copies;
       if (!discovered.includes(rid)) discovered.push(rid);
     });
-    state = { ...withGeneralMuseumRecord(state, museum), relicDiscovered: discovered };
+    // Relics v2 R2-4: a dev grant that carries Tier I to the soft cap snapshots it, as every deposit does. The control
+    // SETS the counts, so an earlier Tier I snapshot is dropped first and re-taken from the new counts (a set count past
+    // the cap freezes at that count: a dev control, not a deposit).
+    const granted = withGeneralMuseumRecord(state, museum);
+    const { "1": _dropped, ...frozen } = granted.museumV2.frozen;
+    state = { ...granted, museumV2: withSoftCapSnapshot({ ...granted.museumV2, frozen }), relicDiscovered: discovered };
     pushLog(`[DEV] ${set.label} museum set to ${devMuseumMode} ${n} copies.`);
   }
 
@@ -5813,14 +5860,14 @@
   // opt-in; claim removes a complete expedition and hands back its (E2c placeholder) findings for the E4
   // relic system to route later. NONE of this runs on the tick, so with no expedition the tick path is
   // byte-identical to before (resolveExpeditions is a same-ref no-op on an empty expeditions array).
-  function doStartExpedition(shipId: string, captainId: number, candidateId: string, anomalyOptIn: boolean) {
+  function doStartExpedition(shipId: string, captainId: number, candidateId: string, anomalyOptIn: boolean): boolean {
     // Field Kits FKR-9: what the launch's top-up teams buy (the same plan the dispatch settles), for the log.
     const topUp = topUpAtLaunch(state, shipId);
     const { next, success, expedition, reason } = startExpedition(state, shipId, captainId, candidateId, anomalyOptIn);
     if (!success || next === state) {
       // D18: the panel disables Launch for a known refusal, so this only fires on a race; say why anyway.
       if (reason) pushLog(`[${devShipLabel(shipId)}] Expedition not launched: ${expeditionDispatchBlockText(reason)}.`);
-      return;
+      return false;
     }
     state = next;
     pushLog(`[${devShipLabel(shipId)}] Expedition launched to ${expedition?.systemName ?? "the frontier"}.`);
@@ -5829,6 +5876,36 @@
     if (expedition?.fieldKits && topUp.cost > 0) {
       pushLog(`[${devShipLabel(shipId)}] Topped up at the Quartermaster: ${kitListText(topUp.bought)} for ${formatNumber(topUp.cost)} credits.`);
     }
+    doSave();
+    return true;
+  }
+
+  // Expedition Tiers G2-6 (user #7 "1:1", G13 one confirm): RECALL a run home after the console's one confirm. The pure
+  // engine fn (recallExpedition: a refusal is the SAME state), then doSave + pushLog. The log names the time home and
+  // what the recall left (a resumable system, or a candidate again).
+  function doRecallExpedition(expeditionId: string) {
+    const exp = state.expeditions.find((e) => e.id === expeditionId) ?? null;
+    const preview = recallPreview(state, expeditionId);
+    const label = `[${exp ? devShipLabel(exp.shipId) : "Expedition"}]`;
+    if (!preview.ok) {
+      pushLog(`${label} Recall refused: ${recallBlockText(preview.reason)}.`);
+      return;
+    }
+    const next = recallExpedition(state, expeditionId);
+    if (next === state) return;
+    state = next;
+    const name = exp?.systemName ?? "the system";
+    const left = preview.preview.held === "resume" ? ` ${name} stays open to resume.` : preview.preview.held === "candidate" ? ` ${name} is a candidate again.` : "";
+    pushLog(`${label} Recalled from ${name}: home in ${voyageSpanText(preview.preview.returnSeconds)}.${left}`);
+    doSave();
+  }
+
+  // Expedition Tiers G2-6 (user G12, "Until finished" or abandoned): let a resumable system go after its one confirm.
+  function doAbandonHeldSystem(heldId: string) {
+    if (!canAbandonHeldSystem(state, heldId)) return;
+    const name = heldSystems(state).find((h) => h.id === heldId)?.systemName ?? "the system";
+    state = abandonHeldSystem(state, heldId);
+    pushLog(`Abandoned ${name}: its saved progress is let go.`);
     doSave();
   }
 
@@ -9539,6 +9616,13 @@
   }
 
   function resetSave() {
+    // 0.13.11: Delete Save and Debug "Reset save" also wipe the secret game's own save, so its
+    // recorded milestones never carry into a fresh game (user, builder check Q3).
+    try {
+      wipeSecretGame();
+    } catch {
+      // Never let the secret game block a Delete Save.
+    }
     clearSave();
     // Seed the fresh starter's weak Standard-Issue combat set (see newGame rationale at
     // the initial `state` declaration): a reset game's hull is dispatchable like a new one.
@@ -10471,6 +10555,9 @@
       case "undiscovered":
         // E4d: names the relic's SET only (never the undiscovered relic), the same wording the masked card uses.
         return undiscoveredResearchMask(bp.requiresRelicDiscovery).detail;
+      case "undecoded":
+        // Gas Giant Study GG-5: a decode-gated blueprint (GG-7's special blueprints; none yet).
+        return `Decode ${bp.requiresDecode ?? 1} ancient ${(bp.requiresDecode ?? 1) === 1 ? "entry" : "entries"} first`;
       case "notFound":
         return "Unavailable";
     }
@@ -17721,6 +17808,8 @@
           onEditGroundOps={doEditGroundOps}
           onSetMemberPack={doSetMemberPack}
           onSetTeamTopUp={doSetTeamTopUp}
+          onRecall={doRecallExpedition}
+          onAbandonHeld={doAbandonHeldSystem}
         />
         <!-- Exploration 0.14.0 (E3b): the AWAY-TEAM GAMBITS editor, right under the console so it is
              discoverable from dispatch (the console's dispatch view points here). Since Ground Operations
@@ -19315,6 +19404,17 @@
         </div>
       </Panel>
       {/if}
+
+      {#if activeOptionsTab === "codes"}
+      <!-- CODES (0.13.11): gifts and giveaways. Device-side; nothing here is in the save. -->
+      <Panel>
+        <div class="panel-title">CODES</div>
+        <p class="prestige-text">Have a code from a giveaway or event? Enter it here to claim your gift.</p>
+        <div class="dev-row">
+          <button class="dev-btn" on:click={() => (enterCodeOpen = true)}>Enter code</button>
+        </div>
+      </Panel>
+      {/if}
       {/if}
 
       {#if DEV_MODE && activeSystemSubTab === "debug"}
@@ -19403,6 +19503,14 @@
           <div class="dev-row">
             <button class="dev-btn" on:click={doSave}>Save now</button>
             <button class="dev-btn danger" on:click={resetSave}>Reset save</button>
+          </div>
+          <!-- [DEV] 0.13.11 secret game: pretend it was away (paid through the real catch-up), or wipe it. -->
+          <div class="dev-row">
+            <span class="dev-label">[DEV] Secret game</span>
+            <button class="dev-btn" on:click={() => devFastForwardSecret(3600)}>+1h</button>
+            <button class="dev-btn" on:click={() => devFastForwardSecret(86400)}>+1d</button>
+            <button class="dev-btn" on:click={() => devFastForwardSecret(7 * 86400)}>+7d</button>
+            <button class="dev-btn danger" on:click={wipeSecretGame}>Wipe</button>
           </div>
           <!-- [DEV] Non-destructive preview of the SavePersistWarning banner (see
                devToggleSavePersistBanner). Flips ONLY the display flag; real saving is
@@ -20384,6 +20492,14 @@
     </ActionModal>
   {/if}
 
+  {#if enterCodeOpen}
+    <EnterCodeModal onClose={() => (enterCodeOpen = false)} {onComboComplete} />
+  {/if}
+
+  {#if secretOpen}
+    <SecretGameOverlay onClose={closeSecretGame} />
+  {/if}
+
   {#if refineConfirmModalOpen}
     <!-- Start-a-craft confirmation modal (Crafting Allocation Redesign, Task C4, reuses the
          Phase-2 refine-confirm pref + modal). The "Don't show this again" checkbox disables the
@@ -20856,6 +20972,14 @@
                   <span class="offline-summary-row-value">+{formatNumber(mat.qty)}</span>
                 </div>
               {/each}
+            </div>
+          {/if}
+
+          <!-- G1-5: unidentified relics short-range missions found while away (the expedition claim line's words). -->
+          {#if sum.relicsFound > 0}
+            <div class="offline-summary-row">
+              <span class="offline-summary-row-label">Unidentified relics</span>
+              <span class="offline-summary-row-value">+{formatNumber(sum.relicsFound)} to the vault</span>
             </div>
           {/if}
 

@@ -20,16 +20,20 @@
 //   M8 one copy of a module per ship (the Precursor Lens included): the duplicateModule refusal.
 //   M9 modules wear slowly underway (gearWear.ts module rows).
 //
-// SLICE OWNERSHIP: EM-5 (this slice) owns the slot, the cap, the refusals, these types and the Passive and
-// Conditional engines (the ship sheet's power output, the combat hull pool, the below-threshold damage). EM-6 owns
-// the Proc and Active engine (the trigger points, the private salted streams). EM-7 authors the v1 roster and its
-// blueprints (and the two-piece Set bonus); EM-8 the Precursor Lens. So the catalog ships EMPTY here, and the module
-// slot stays hidden from the player behind UNIVERSAL_MODULES_LIVE until a module can be crafted.
+// SLICE OWNERSHIP: EM-5 owns the slot, the cap, the refusals, these types and the Passive and Conditional engines
+// (the ship sheet's power output, the combat hull pool, the below-threshold damage). EM-6 owns the Proc and Active
+// engine: the trigger rules, the frozen proc shapes and their private salted streams below, read at fixed points by
+// combat/resolveBattle.ts (the six combat triggers), tick.ts tickCaptainMission (the mission cycle) and expedition.ts
+// assignDiscoveriesAndActivities (the body scan). EM-7 authors the v1 roster and its blueprints (and the two-piece Set
+// bonus); EM-8 the Precursor Lens. So the catalog ships EMPTY, and the module slot stays hidden from the player behind
+// UNIVERSAL_MODULES_LIVE until a module can be crafted.
 //
-// A LEAF MODULE: it imports nothing but types, so model.ts (equipmentStatMods, the power output fold) can read the
-// catalog without an import cycle. Pure: no state, no clock, no random draw.
+// A LEAF MODULE: it imports nothing but types, so model.ts (equipmentStatMods, the power output fold) and the combat
+// sim can read the catalog without an import cycle. Pure: no state, no clock; the only random draws are on the
+// private streams the engine hands in (rollModuleChance).
 
 import type { EquipmentInstance, EquipmentSlotType } from "./model";
+import type { Rng } from "./combat/rng";
 
 // ============================================================================
 // The switch
@@ -90,13 +94,27 @@ export interface ModuleCondition {
   readonly fraction: number;
 }
 
-// The effect keys an engine reads. EM-5's engines (the ones built here):
+// The effect keys an engine reads. EM-5's engines:
 //   powerOutput   Passive, flat: adds whole power to the ship's output (the sheet, the install gate, the budget).
 //   hullIntegrity Passive, a fraction: lifts the combat hull pool (patrols and ship events).
 //   weaponDamage  Conditional, a fraction: lifts every projectile's damage while the condition holds.
-// EM-6 (procs, actives), EM-7 (the set bonus) and EM-8 (the Precursor Lens) add their keys WITH their engines;
-// MODULE_ENGINE_KEYS below lists what each category can read today, and the catalog test refuses any other.
-export type ModuleEffectKey = "powerOutput" | "hullIntegrity" | "weaponDamage";
+// EM-6's engines (Proc, Active and Special; each fires from its trigger, see MODULE_TRIGGER_EFFECTS):
+//   arcDamage      combat, whole damage points: one EW-family hit on the attacker that struck the ship (on hit) or on
+//                  the ship's current target (every other combat trigger), through the shared mitigation pipeline.
+//   shieldRestore  combat, a fraction of the ship's shield pool restored at once (never above the pool).
+//   bonusHaul      mission cycle, a fraction: the delivered cycle's common material grows by that share.
+//   extraDiscovery body scanned, whole discoveries: that many more discoveries on the scanned body (the sensor ghost's
+//                  draw: a pool, then a site). Its rarity and quality scale act on the CHANCE (MODULE_SCALE_ON).
+// EM-7 (the set bonus) adds its key WITH its engine; MODULE_ENGINE_KEYS below lists what each category can read
+// today, and the catalog test refuses any other.
+export type ModuleEffectKey =
+  | "powerOutput"
+  | "hullIntegrity"
+  | "weaponDamage"
+  | "arcDamage"
+  | "shieldRestore"
+  | "bonusHaul"
+  | "extraDiscovery";
 
 export interface ModuleEffect {
   readonly key: ModuleEffectKey;
@@ -128,10 +146,254 @@ export const UNIVERSAL_MODULES: readonly UniversalModuleDef[] = [];
 // The effect keys each category's engine reads TODAY. A category absent here has no engine yet (EM-6: proc, active,
 // special; EM-7: set), so no catalog entry of that category may exist until its slice adds the engine and the key
 // here: the "nothing inert" rule, enforced by validateUniversalModuleDef.
+// EM-6 adds Proc, Active and Special (the Precursor Lens is proc-shaped: a chance per trigger). An Active is a combat
+// auto-cast (user M3, 2026-10-19, "One preset rule"), so it reads the combat effects only.
+const TRIGGERED_KEYS: readonly ModuleEffectKey[] = ["arcDamage", "shieldRestore", "bonusHaul", "extraDiscovery"];
 export const MODULE_ENGINE_KEYS: Readonly<Partial<Record<UniversalModuleCategory, readonly ModuleEffectKey[]>>> = {
   passive: ["powerOutput", "hullIntegrity"],
   conditional: ["weaponDamage"],
+  proc: TRIGGERED_KEYS,
+  active: ["arcDamage", "shieldRestore"],
+  special: TRIGGERED_KEYS,
 };
+
+// ============================================================================
+// EM-6: the trigger rules (user M4, 2026-10-19, "Original proposal")
+// ============================================================================
+
+export type ModuleTriggerKind = ModuleTrigger["kind"];
+// The six combat triggers, resolved at fixed points of resolveBattle's step loop:
+//   battleStart    once, before the first tick (and before an ambush opener).
+//   incomingAmbush the ship is the ambushed party: before the ambusher's opening salvo lands.
+//   afterAmbush    the ship is the ambushed party: after the opening salvo landed (only when one fired).
+//   onHit          the ship took a connecting weapon shot or drone volley (the ambush salvo included).
+//   combatTick     every tick, after status effects, before the objective is checked.
+//   hullBelow      every tick at the same point, while the hull is strictly below its fraction of the pool.
+export type ModuleCombatTriggerKind = "battleStart" | "incomingAmbush" | "afterAmbush" | "onHit" | "combatTick" | "hullBelow";
+export const MODULE_COMBAT_TRIGGERS: readonly ModuleCombatTriggerKind[] = ["battleStart", "incomingAmbush", "afterAmbush", "onHit", "combatTick", "hullBelow"];
+export function isCombatTrigger(kind: ModuleTriggerKind): kind is ModuleCombatTriggerKind {
+  return (MODULE_COMBAT_TRIGGERS as readonly string[]).includes(kind);
+}
+
+// Where each trigger can fire, checked PER CONTEXT a module lists (a context its trigger never reaches would be inert
+// there). Only an expedition ship event can be an ambush (shipScanEvents.ts, the cloaked vessel); a patrol never is.
+export const MODULE_TRIGGER_CONTEXTS: Readonly<Record<ModuleTriggerKind, readonly ModuleContext[]>> = {
+  battleStart: ["patrol", "shipEvent"],
+  incomingAmbush: ["shipEvent"],
+  afterAmbush: ["shipEvent"],
+  onHit: ["patrol", "shipEvent"],
+  combatTick: ["patrol", "shipEvent"],
+  hullBelow: ["patrol", "shipEvent"],
+  missionCycle: ["mission"],
+  bodyScanned: ["expedition"],
+};
+
+// Which effects each trigger's engine applies.
+const COMBAT_EFFECTS: readonly ModuleEffectKey[] = ["arcDamage", "shieldRestore"];
+export const MODULE_TRIGGER_EFFECTS: Readonly<Record<ModuleTriggerKind, readonly ModuleEffectKey[]>> = {
+  battleStart: COMBAT_EFFECTS,
+  incomingAmbush: COMBAT_EFFECTS,
+  afterAmbush: COMBAT_EFFECTS,
+  onHit: COMBAT_EFFECTS,
+  combatTick: COMBAT_EFFECTS,
+  hullBelow: COMBAT_EFFECTS,
+  missionCycle: ["bonusHaul"],
+  bodyScanned: ["extraDiscovery"],
+};
+
+// The damage family of a module arc (user 2026-10-22: Electromagnetic confirmed). EW is neutral against
+// armor and a little weak against shields (resolveBattle.ts FAMILY_VS_*), so an arc reads as a small electrical jolt.
+export const MODULE_ARC_FAMILY = "ew" as const;
+
+// [PROVISIONAL] (no answer names it): what a piece's rarity and quality scale (moduleEffectScale) acts on: the
+// effect's size, except where the size is a whole count of things (one more discovery), where it lifts the chance
+// instead, so a better piece always does more (the user's "everything wired": rarity and quality never inert).
+export const MODULE_SCALE_ON: Readonly<Partial<Record<ModuleEffectKey, "magnitude" | "chance">>> = {
+  extraDiscovery: "chance",
+};
+
+// The effect keys whose magnitude is a whole number (damage points, discoveries); the other triggered keys are
+// fractions in (0, 1].
+const WHOLE_MAGNITUDE_KEYS: ReadonlySet<ModuleEffectKey> = new Set<ModuleEffectKey>(["arcDamage", "extraDiscovery"]);
+const FRACTION_MAGNITUDE_KEYS: ReadonlySet<ModuleEffectKey> = new Set<ModuleEffectKey>(["shieldRestore", "bonusHaul"]);
+
+// ============================================================================
+// EM-6: the private streams (odd salts, unique in the repo: salts.test.ts lists this module)
+// ============================================================================
+
+// A battle's module stream for the combatant at turn-order index `index`: its own stream, never the combat stream, so
+// a ship with modules leaves every other draw of the battle where it was.
+export const MODULE_PROC_SALT = 0x4d3a9c65;
+// A mission cycle's module stream (the captain, the captain's lifetime count of cycles a module rolled for).
+export const MODULE_CYCLE_SALT = 0x2e8b17d3;
+// A scanned body's module stream (the run's seed, the body).
+export const MODULE_SCAN_SALT = 0x71c6e2a9;
+
+export function moduleProcSeed(battleSeed: number, index: number): number {
+  return ((battleSeed >>> 0) ^ MODULE_PROC_SALT ^ Math.imul(index + 1, 0x9e3779b9)) >>> 0;
+}
+
+// The save's own seed (the homeworld seed, tick.ts worksDirectorateSaveSeed) is mixed in, the ML-3 rule, so cycle N of
+// captain 1 does not roll alike in every save.
+export function moduleCycleSeed(saveSeed: number, captainId: number, lifetimeCycle: number): number {
+  const key = `${captainId}|moduleCycle|${lifetimeCycle}`;
+  let h = 0x811c9dc5;
+  for (let i = 0; i < key.length; i++) {
+    h ^= key.charCodeAt(i);
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  return ((saveSeed >>> 0) ^ MODULE_CYCLE_SALT ^ h) >>> 0;
+}
+
+export function moduleScanSeed(expeditionSeed: number, bodyIndex: number): number {
+  return ((expeditionSeed >>> 0) ^ MODULE_SCAN_SALT ^ Math.imul(bodyIndex + 1, 0x85ebca6b)) >>> 0;
+}
+
+// Chances are integers (combat/rng.ts integer-first contract): a chance in [0, 1] is held in MODULE_CHANCE_UNITS.
+export const MODULE_CHANCE_UNITS = 1_000_000;
+export function moduleChanceUnits(chance: number): number {
+  const p = Number.isFinite(chance) ? Math.max(0, Math.min(1, chance)) : 0;
+  return Math.round(p * MODULE_CHANCE_UNITS);
+}
+// Does one roll of a proc at `chanceUnits` land? A certain chance (an Active, or a proc at 1) and a zero chance take no
+// draw; anything between takes exactly one integer draw from `rng`.
+export function rollModuleChance(rng: Rng, chanceUnits: number): boolean {
+  if (chanceUnits >= MODULE_CHANCE_UNITS) return true;
+  if (chanceUnits <= 0) return false;
+  return rng.nextInt(MODULE_CHANCE_UNITS) < chanceUnits;
+}
+
+// ============================================================================
+// EM-6: the frozen proc shapes (built from the installed pieces; plain JSON-safe data)
+// ============================================================================
+
+// One combat proc or Active as the sim reads it (Combatant.moduleProcs), in module id order.
+//   amount: arcDamage whole points; shieldRestore per-mille of the shield pool.
+export interface ModuleCombatProc {
+  readonly moduleId: string;
+  readonly trigger: ModuleCombatTriggerKind;
+  readonly hullBelowFraction?: number; // hullBelow only
+  readonly chanceUnits: number; // MODULE_CHANCE_UNITS = always (an Active)
+  readonly cooldownTicks: number; // 0 = none
+  readonly oncePerBattle: boolean;
+  readonly effect: "arcDamage" | "shieldRestore";
+  readonly amount: number;
+}
+
+// One mission-cycle proc (tickCaptainMission), in module id order: `fraction` of the cycle's common haul.
+export interface ModuleCycleProc {
+  readonly moduleId: string;
+  readonly chanceUnits: number;
+  readonly fraction: number;
+}
+
+// One body-scan proc (Expedition.moduleScanProcs, frozen at dispatch), in module id order: `count` discoveries.
+export interface ModuleScanProc {
+  readonly moduleId: string;
+  readonly chanceUnits: number;
+  readonly count: number;
+}
+
+// The triggered (Proc, Active, Special) defs installed among `pieces` that act in `context` on `kinds`, with their
+// pieces, in module id order (the install order never decides a draw order). Pure.
+function triggeredModules(
+  pieces: readonly EquipmentInstance[],
+  context: ModuleContext,
+  kinds: readonly ModuleTriggerKind[],
+  catalog: readonly UniversalModuleDef[],
+): { def: UniversalModuleDef; piece: EquipmentInstance }[] {
+  const out: { def: UniversalModuleDef; piece: EquipmentInstance }[] = [];
+  for (const piece of pieces) {
+    const def = pieceModuleDef(piece, catalog);
+    if (def === undefined || def.trigger === undefined) continue;
+    if (def.category !== "proc" && def.category !== "active" && def.category !== "special") continue;
+    if (!kinds.includes(def.trigger.kind) || !moduleActsIn(def, context)) continue;
+    if (!MODULE_TRIGGER_EFFECTS[def.trigger.kind].includes(def.effect.key)) continue;
+    out.push({ def, piece });
+  }
+  return out.sort((a, b) => (a.def.id < b.def.id ? -1 : a.def.id > b.def.id ? 1 : 0));
+}
+
+// A triggered def's chance in units: an Active always casts; a proc's chance, lifted by the piece's scale when the
+// scale acts on the chance (MODULE_SCALE_ON).
+function procChanceUnits(def: UniversalModuleDef, scale: number): number {
+  if (def.category === "active") return MODULE_CHANCE_UNITS;
+  const chance = def.chance ?? 0;
+  return moduleChanceUnits(MODULE_SCALE_ON[def.effect.key] === "chance" ? chance * scale : chance);
+}
+function procMagnitude(def: UniversalModuleDef, scale: number): number {
+  return MODULE_SCALE_ON[def.effect.key] === "chance" ? def.effect.magnitude : def.effect.magnitude * scale;
+}
+
+// Every combat proc and Active installed among `pieces` that acts in `context`. Empty for a ship with none. Integer at
+// the fold: arc damage rounds to whole points, a shield restore to whole per-mille (the whole pool at most). Pure.
+export function moduleCombatProcs(
+  pieces: readonly EquipmentInstance[],
+  scaleOf: ModuleScaleOf,
+  context: ModuleCombatContext,
+  catalog: readonly UniversalModuleDef[] = UNIVERSAL_MODULES,
+): ModuleCombatProc[] {
+  return triggeredModules(pieces, context, MODULE_COMBAT_TRIGGERS, catalog).map(({ def, piece }) => {
+    const scale = scaleOf(piece);
+    const trigger = def.trigger!;
+    const magnitude = procMagnitude(def, scale);
+    const effect = def.effect.key as "arcDamage" | "shieldRestore";
+    return {
+      moduleId: def.id,
+      trigger: trigger.kind as ModuleCombatTriggerKind,
+      ...(trigger.kind === "hullBelow" ? { hullBelowFraction: trigger.fraction } : {}),
+      chanceUnits: procChanceUnits(def, scale),
+      cooldownTicks: Math.max(0, Math.floor(def.cooldownTicks ?? 0)),
+      oncePerBattle: def.oncePerBattle === true,
+      effect,
+      amount: effect === "arcDamage" ? Math.max(0, Math.round(magnitude)) : Math.max(0, Math.min(1000, Math.round(magnitude * 1000))),
+    };
+  });
+}
+
+// Every mission-cycle proc installed among `pieces` (the "mission" context). Empty for a ship with none. Pure.
+export function moduleCycleProcs(
+  pieces: readonly EquipmentInstance[],
+  scaleOf: ModuleScaleOf,
+  catalog: readonly UniversalModuleDef[] = UNIVERSAL_MODULES,
+): ModuleCycleProc[] {
+  return triggeredModules(pieces, "mission", ["missionCycle"], catalog).map(({ def, piece }) => {
+    const scale = scaleOf(piece);
+    return { moduleId: def.id, chanceUnits: procChanceUnits(def, scale), fraction: procMagnitude(def, scale) };
+  });
+}
+
+// Every body-scan proc installed among `pieces` (the "expedition" context). Empty for a ship with none. Pure.
+export function moduleScanProcs(
+  pieces: readonly EquipmentInstance[],
+  scaleOf: ModuleScaleOf,
+  catalog: readonly UniversalModuleDef[] = UNIVERSAL_MODULES,
+): ModuleScanProc[] {
+  return triggeredModules(pieces, "expedition", ["bodyScanned"], catalog).map(({ def, piece }) => {
+    const scale = scaleOf(piece);
+    return { moduleId: def.id, chanceUnits: procChanceUnits(def, scale), count: Math.max(0, Math.round(procMagnitude(def, scale))) };
+  });
+}
+
+// The combat proc rule (user M3: an Active's ONE preset rule is its trigger plus once per battle or a cooldown; a proc
+// may carry either too). Per battle and per proc: whether it already fired (once per battle) and the tick it last
+// fired (the cooldown). A proc whose rule holds then rolls its chance (rollModuleChance).
+export interface ModuleProcClock {
+  fired: boolean;
+  lastTick: number | undefined;
+}
+export function moduleProcReady(proc: ModuleCombatProc, clock: ModuleProcClock, tick: number): boolean {
+  if (proc.oncePerBattle && clock.fired) return false;
+  if (proc.cooldownTicks > 0 && clock.lastTick !== undefined && tick - clock.lastTick < proc.cooldownTicks) return false;
+  return true;
+}
+
+// The bonus a landed bonusHaul adds to a cycle's common haul: `fraction` of it. A whole haul stays whole (rounded down,
+// no draw); an already fractional haul (a yield bonus) scales exactly, as fractional amounts always do.
+export function bonusHaulUnits(common: number, fraction: number): number {
+  if (!(common > 0) || !(fraction > 0)) return 0;
+  return Number.isInteger(common) ? Math.floor(common * fraction + 1e-9) : common * fraction;
+}
 
 // ============================================================================
 // The slot rules
@@ -284,11 +546,48 @@ export function validateUniversalModuleDef(def: UniversalModuleDef): string[] {
     errors.push(`${def.id}: hull integrity acts in combat only`);
   }
   if (def.category === "passive" && (def.trigger !== undefined || def.chance !== undefined)) errors.push(`${def.id}: a passive has no trigger`);
+  errors.push(...validateTriggeredModuleDef(def));
   return errors;
 }
 
-// Every problem with a catalog: each def, unique ids, and no two modules sharing a Passive or Conditional engine key
-// (D23: a shared key would stack as a plain sum; it must get a diminishing curve first). Pure.
+// EM-6: the trigger rules a Proc, an Active or a Special must meet (and that nothing else may carry). Pure.
+function validateTriggeredModuleDef(def: UniversalModuleDef): string[] {
+  const errors: string[] = [];
+  const triggered = def.category === "proc" || def.category === "active" || def.category === "special";
+  if (!triggered) {
+    if (def.category !== "passive" && (def.trigger !== undefined || def.chance !== undefined)) errors.push(`${def.id}: only a proc, an active or a special has a trigger`);
+    if (def.cooldownTicks !== undefined || def.oncePerBattle !== undefined) errors.push(`${def.id}: only a proc, an active or a special has a cooldown or a once-per-battle rule`);
+    return errors;
+  }
+  const trigger = def.trigger;
+  if (trigger === undefined) return [`${def.id}: a ${def.category} needs a trigger`];
+  // The effect must be one its trigger's engine applies, and every context it lists one its trigger reaches.
+  if (!MODULE_TRIGGER_EFFECTS[trigger.kind].includes(def.effect.key)) errors.push(`${def.id}: the ${trigger.kind} trigger does not apply ${def.effect.key}`);
+  for (const c of def.contexts) {
+    if (!MODULE_TRIGGER_CONTEXTS[trigger.kind].includes(c)) errors.push(`${def.id}: the ${trigger.kind} trigger never fires in the ${c} context`);
+  }
+  if (trigger.kind === "hullBelow" && !(trigger.fraction > 0 && trigger.fraction < 1)) errors.push(`${def.id}: the hull threshold must be in (0, 1)`);
+  // M3 (one preset rule): an Active always casts when its rule holds, once per battle or on a cooldown.
+  if (def.category === "active") {
+    if (!isCombatTrigger(trigger.kind)) errors.push(`${def.id}: an active casts in combat only`);
+    if (def.chance !== undefined) errors.push(`${def.id}: an active has no chance (it casts whenever its rule holds)`);
+    if (def.oncePerBattle !== true && !((def.cooldownTicks ?? 0) > 0)) errors.push(`${def.id}: an active's rule is once per battle or a cooldown`);
+  } else if (!(def.chance !== undefined && def.chance > 0 && def.chance <= 1)) {
+    errors.push(`${def.id}: a ${def.category} needs a chance in (0, 1]`);
+  }
+  // A threshold held for many ticks must not fire every tick: it needs once per battle or a cooldown.
+  if (trigger.kind === "hullBelow" && def.oncePerBattle !== true && !((def.cooldownTicks ?? 0) > 0)) errors.push(`${def.id}: a hull threshold needs once per battle or a cooldown`);
+  // Cooldowns and once per battle are battle clocks; nothing reads them outside combat.
+  if (!isCombatTrigger(trigger.kind) && (def.cooldownTicks !== undefined || def.oncePerBattle !== undefined)) errors.push(`${def.id}: a cooldown or once per battle acts in combat only`);
+  if (def.cooldownTicks !== undefined && !(Number.isInteger(def.cooldownTicks) && def.cooldownTicks > 0)) errors.push(`${def.id}: a cooldown is a whole number of ticks above 0`);
+  if (WHOLE_MAGNITUDE_KEYS.has(def.effect.key) && !(Number.isInteger(def.effect.magnitude) && def.effect.magnitude >= 1)) errors.push(`${def.id}: ${def.effect.key} is a whole number of at least 1`);
+  if (FRACTION_MAGNITUDE_KEYS.has(def.effect.key) && !(def.effect.magnitude > 0 && def.effect.magnitude <= 1)) errors.push(`${def.id}: ${def.effect.key} is a fraction in (0, 1]`);
+  return errors;
+}
+
+// Every problem with a catalog: each def, unique ids, and no two modules sharing a Passive or Conditional engine key,
+// or one triggered effect key (EM-6: two bonus hauls or two arcs would add up as a plain sum too) (D23: a shared key
+// would stack as a plain sum; it must get a diminishing curve first). Pure.
 export function validateUniversalModuleCatalog(catalog: readonly UniversalModuleDef[] = UNIVERSAL_MODULES): string[] {
   const errors = catalog.flatMap(validateUniversalModuleDef);
   const ids = new Set<string>();
@@ -296,8 +595,9 @@ export function validateUniversalModuleCatalog(catalog: readonly UniversalModule
   for (const def of catalog) {
     if (ids.has(def.id)) errors.push(`${def.id}: duplicate id`);
     ids.add(def.id);
-    if (def.category === "passive" || def.category === "conditional") {
-      const k = `${def.category}:${def.effect.key}`;
+    if (def.category !== "set") {
+      const triggered = def.category === "proc" || def.category === "active" || def.category === "special";
+      const k = `${triggered ? "triggered" : def.category}:${def.effect.key}`;
       if (keys.has(k)) errors.push(`${def.id}: a second ${k} module needs a diminishing curve first (D23)`);
       keys.add(k);
     }

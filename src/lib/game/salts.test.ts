@@ -35,8 +35,10 @@ import * as crewGraduation from "./crewGraduation";
 import * as shortRange from "./shortRange";
 import * as relicBlanks from "./relicBlanks";
 import * as materialQuality from "./materialQuality";
+import * as shipModules from "./shipModules";
 import * as relicIdentify from "./relicIdentify";
 import * as gasGiantStudy from "./gasGiantStudy";
+import * as dataStudy from "./dataStudy";
 
 // The modules whose salts must be distinct AND odd.
 const MODULES: Record<string, Record<string, unknown>> = {
@@ -68,10 +70,14 @@ const MODULES: Record<string, Record<string, unknown>> = {
   "relicBlanks.ts": relicBlanks,
   // Material Lines ML-3: the delivery climb's private rounding roll (MATERIAL_QUALITY_SALT).
   "materialQuality.ts": materialQuality,
+  // E-MOD EM-6: the Proc and Active engine's private streams (battle, mission cycle, body scan).
+  "shipModules.ts": shipModules,
   // Relics v2 R2-3: the identification v2 roll.
   "relicIdentify.ts": relicIdentify,
-  // Gas Giant Study GG-2 / GG-3: the giant profile roll and the study reward roll.
+  // Gas Giant Study GG-2 / GG-3: the giant profile roll and the study reward roll; GG-4: the nebula draw and its sweep.
   "gasGiantStudy.ts": gasGiantStudy,
+  // GG-5: the Research Lab data study's recipe roll.
+  "dataStudy.ts": dataStudy,
 };
 
 // Legacy salts checked for DISTINCTNESS only. model.ts AWAY_RECRUIT_SEED_SALT (0x5a17c0de) predates the odd

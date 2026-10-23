@@ -15,6 +15,10 @@
 //   rigSalvage   : the same rig on Salvage Wreckage (several delivered items per cycle). ML-3 moves it the same way.
 
 import { describe, expect, it } from "vitest";
+// GEAR WEAR step 3: this file's pins were captured before the use wear engine; it runs with the use sources off
+// (gearWearSwitch.fixture.ts), so they keep proving nothing else moved. gearWearGoldens.test.ts pins the wear.
+import { gearWearOffInThisFile } from "./gearWearSwitch.fixture";
+gearWearOffInThisFile();
 import { enqueueOrder } from "./tick";
 import { stateHash } from "./firstRunsGoldens.fixture";
 import { MIXED_INGOT, MIXED_ORE, craftStateQ, lineQ, rigFleet, rigRun, steppedQ, stripCarry, withMaterialQualityOff } from "./materialQualityGoldens.fixture";

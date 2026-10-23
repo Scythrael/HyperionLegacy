@@ -12,6 +12,10 @@
 // dispatch made today through `withoutVoyage` equals the stored record (G2-3: "a dispatch with `voyage` deleted").
 
 import { describe, expect, it } from "vitest";
+// GEAR WEAR step 3: this file's pins were captured before the use wear engine; it runs with the use sources off
+// (gearWearSwitch.fixture.ts), so they keep proving nothing else moved. gearWearGoldens.test.ts pins the wear.
+import { gearWearOffInThisFile } from "./gearWearSwitch.fixture";
+gearWearOffInThisFile();
 import { freshState, type AwayMember, type Expedition, type GameState, type ShipGroundTeam } from "./model";
 import { advanceExpedition, advanceExpeditionSeed, claimExpedition } from "./expedition";
 import { applyTimeSkip } from "./processSpeed";

@@ -486,6 +486,35 @@ anything is charted returns the system to the ordinary candidates). For G2-6:
 - 375 px, no sideways scroll; SVG glyphs only (lock, drive, reach, recall glyphs in `icons.ts` + `ICON_SEMANTICS`,
   reviewed at 16 / 28 / 56 px); keyboard reachable tabs; text rules below.
 
+**G2-6 carry note (built 2026-10-22, on top of 8688c61).** Built to the signed-off dispatch mockup (AnWvt9kfqAUJo1sCMkTpMC,
+"approve as is"). Pure view model `src/lib/expeditionConsoleDisplay.ts` (+ tests); per-viewer conveniences
+`src/lib/expeditionConsolePreference.ts`; ExpeditionPanel draws it; App.svelte `doRecallExpedition` / `doAbandonHeldSystem`.
+- Console: Tier I to VII tabs (`regionTabsView`: Ready or `tierGateShortText` of the engine's first unmet gate, a resume
+  count; arrow / Home / End keys), a "Pick on the map" toggle for the small map (`regionMapView` on telescopeMapView's
+  geometry, a solid ring for this ship's reach; new `telescopeCardDisplay.ts telescopeMapRingRadius`), the tier chips
+  (`tierFactsView`), a locked panel (`lockedTierView`: every gate met or not, the dimmed three nearest), resume cards on top
+  (`resumeCardsView`, Abandon asks once), candidate cards in a grid (`candidateCardView`: transit = candidateVoyage, reach
+  bar = candidateReach, gates, graded risk, the full refusal line), the launch bar under them (`launchBarView`; the Field
+  Kits pack panel is unchanged, "Edit packs" scrolls to it), then the selected system's Subspace Telescope block.
+  Zero-click: opens on the region last launched to (a browser preference; falls back to the deepest Ready tier below
+  it) and preselects the nearest launchable system (`preselectCandidateId`).
+- Recall: a Recall button while out; ONE confirm (`recallConfirmView` from recallPreview; Keep going has the focus, no
+  paid speed-up); the stepper shows cut phases and "Recalled · home in X" (`recalledStepperView`); the claim card names
+  what stayed (`recallClaimView`: "In Resume: Tier N" or a candidate again).
+- Glyphs: `drive`, `reach`, `recall`, `resume` in icons.ts + ICON_SEMANTICS. Review finding: the mockup's sideways drive
+  (box, bell, ticks) read as a loudspeaker at 16 / 28 / 56 px, so it stands upright (chamber, bell, three exhaust streaks).
+- Registry: every G2-6 owner flipped LIVE with a probe on the console's real path (probes.ts `deepestReadyTier`,
+  `consoleLaunch`): driveClassTierGate and frontierSensors (`tierTwoLaunchAllowed`), voyageDeepTiers (`consoleOutbound`),
+  tierDormant (`consoleRiskTier`), blindLaunch (`consoleBlindLaunches`), oddsRiskyBelow (`consoleOddsRead`), relic
+  blankTiers (`consoleBlankShare`), recall (`runReturnSeconds`, 1:1 at a quarter out) and resumableSystems
+  (`resumableCount`); the telescope reach entries and reach-only rungs read at Ground Ops (`telescopeReach` there: the
+  deepest tier the console reads). New own rows `away:audit:tierHaulMult` (`consoleHaulMult`) and
+  `expedition:audit:tierBodyCount` (`consoleBodyCount`). DIFFICULTY_TIER_ROLL_MULT moved to its own pending row
+  `away:audit:difficultyTiers` (owner "SF-3 follow-up": nothing designed). The `candidateTopTier` probe is gone.
+- Goldens: no game behavior moved. Registry pins hold G2-6 apart (`expeditionConsoleRegistry.fixture.ts`
+  G2_6_ADDED_ENTRY_IDS / G2_6_FLIPPED_BEFORE in shortRangeGoldens `registryPin` and emodGoldens `BEFORE_RX`); relicBlanks'
+  R2-2 row test reads blankTiers live; the sensitivity vacuity guard lowered 70 to 60 (63 partial contexts left).
+
 ### G2-7: Telescope map per homeworld, Wolf 359, Help (UI + content)
 
 - `telescopeMapView`: badge spots band-relative per homeworld (inside each region's band as measured from it), the
@@ -666,3 +695,7 @@ names in game text (the Wolf 359 nod stays original).
 - **G20 wording:** ""Class IV drive" (Recommended)": roman numerals, no "warp".
 - **G21 + G14 time:** "Tiers set the time (Recommended)": tiers are difficulty; distance shifts time only within a
   tier; detour time is not distance flown on recall.
+
+## USER ANSWER (2026-10-22): G2-6 drive glyph
+
+"Keep the upright one" (the builder redrew the mockup drive glyph upright because sideways it read as a loudspeaker). G2-6 merged as 62fbf39.

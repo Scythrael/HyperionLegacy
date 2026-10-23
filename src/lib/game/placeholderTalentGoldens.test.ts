@@ -19,6 +19,10 @@
 // baseline ("none") never moves.
 
 import { describe, expect, it } from "vitest";
+// GEAR WEAR step 3: this file's pins were captured before the use wear engine; it runs with the use sources off
+// (gearWearSwitch.fixture.ts), so they keep proving nothing else moved. gearWearGoldens.test.ts pins the wear.
+import { gearWearOffInThisFile } from "./gearWearSwitch.fixture";
+gearWearOffInThisFile();
 // E-MOD EM-1: sheets pinned before the power budget engine are hashed with it switched off (emodGoldens.test.ts pins
 // the power numbers and proves the switch reproduces its own capture), so these pins keep proving nothing else moved.
 import { withEm1Off } from "./emodEm1Switch.fixture";

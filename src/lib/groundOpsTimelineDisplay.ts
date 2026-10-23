@@ -34,6 +34,7 @@ import type {
   ShipInstance,
 } from "./game/model";
 import { ITEMS } from "./game/model";
+import { nebulaKindById } from "./game/gasGiantContent";
 import { groundLegTeams, groundOpsBayCare, groundShipPosition, groundTaskProgressAt, groundTaskFindingPrefix, groundTaskStuck, groundTeamRemainingTasks } from "./game/groundOps";
 import type { FlaggedScanPause, FlaggedScanSpan } from "./game/expedition";
 import { GROUND_CONDITIONS, STONESKIN_INJURY_MULT, conditionCureSeconds, type ConditionClass } from "./game/medicalBay";
@@ -589,6 +590,11 @@ export function shipNowText(exp: Expedition, ship: ShipInstance | null | undefin
     }
     case "study": {
       // Gas Giant Study GG-3 (the engine's minimal line; GG-6 owns the study card and its timeline lane).
+      // GG-4: the nebula sweep is a study leg too.
+      if (pos.leg.nebula === 1) {
+        const kind = exp.nebula ? nebulaKindById(exp.nebula.kindId) : undefined;
+        return `Sweeping the ${kind ? kind.name.toLowerCase() : "nebula"} · ${leftText(pos.leg.endsAt, now)}`;
+      }
       const body = exp.bodies[pos.leg.bodyIndex];
       return `Holding orbit: studying ${body ? bodyTitle(exp, body, pos.leg.bodyIndex) : "the giant"} · ${leftText(pos.leg.endsAt, now)}`;
     }

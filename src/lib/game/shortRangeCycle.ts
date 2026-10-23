@@ -22,6 +22,14 @@
 // - Recall finishes the current cycle, then the run ends (recallCaptain marks it; a run that has not left home yet
 //   ends at once there, and its cycle start is taken back so the template keeps its training run).
 // - No failure state: a ship that met the sheet at dispatch always completes (call 9).
+// - G1-5 relic drops (call 11 "Rare, per hour (Recommended)": lowest-tier unidentified relics, a chance per HOUR of
+//   mission time, Tier I 0.08x and Tier II 0.15x the expedition rate): each delivered cycle of a flagged run (the
+//   relicBlanks stamp, written at dispatch) rolls relicBlanks.ts rollShortRangeRelicBlanks on the cycle's own seed for
+//   its planned length (the frozen plan's total ticks), so the expected finds are linear in mission time and a short
+//   cycle repeated fast earns no more per hour than a long one. The training run follows the same rule: the guaranteed
+//   tutorial drops (safe first runs, group 3: "one or two general relics, and the very first exceptional relic") belong
+//   to the tutorial patch's grant seam, not to this roll. The blanks go to the vault (tick.ts), named in the run's
+//   completion entry and the offline recap.
 //
 // THE PARITY ARGUMENT. Everything a cycle reads is frozen at its start (the roll and its plan) or is a constant of the
 // call (the ship's stats, its crew's output share, the captain's terms); the counters and the board cursor are
@@ -34,13 +42,15 @@
 // PURE: no clock, no shared economy rng (the material rounding draws on the roll's own SHORT_RANGE_OUTPUT_SALT stream,
 // Motherlode on the captain's private stream), no state mutation.
 
-import { ITEMS, type CaptainState, type GameState, type RunCounts, type ShipInstance, type ShortRangeMissionState, type ShortRangePhase } from "./model";
+import { ITEMS, type CaptainState, type GameState, type RelicVaultToken, type RunCounts, type ShipInstance, type ShortRangeMissionState, type ShortRangePhase } from "./model";
 import { SHORT_RANGE_OUTPUT_SALT, SHORT_RANGE_TEMPLATES, shortRangeCycleReward, wholeUnits, type ShortRangeCyclePlan, type ShortRangeRoll } from "./shortRange";
 import { shortRangeSlotById, startShortRangeCycle } from "./shortRangeBoard";
-import { effectiveShipStats, shipMissionOutputBonus } from "./crewOverlay";
+import { shipMissionOutputBonus } from "./crewOverlay";
+import { projectRunStamp, runShipStats, shipCrewAboard, shortRangeWear, type ShipUseWear, type TimedWear } from "./gearWearEngine";
 import { captainMotherlodeChance, captainTransportTerms, motherlodeSeed } from "./captainSecondaryEffects";
 import { countShortRangeCycleComplete } from "./runDifficulty";
 import { makeRng } from "./combat/rng";
+import { rollShortRangeRelicBlanks } from "./relicBlanks";
 import { formatNumber } from "./format";
 
 // The float-snap epsilon of a phase boundary (tickCaptainMission's MISSION_TICK_EPSILON).
@@ -155,8 +165,9 @@ export function shortRangeWaitText(
 // The use-wear events one delivered cycle of `roll` makes, in the units of the gear wear design's table (docs/plans/
 // 2026-10-16-gear-wear-design.md 3.1): a haul for a job that carries goods (the cargo bay), the lightyears flown both
 // ways (the FTL drive), the minutes underway (the reactor core and the crew modules) and a survey cycle (the sensor
-// array). null on a training run: W9 "No wear on training". SEAM, owner: the gear wear engine (not merged in 0.14.0's
-// branch yet; it calls this at each delivered cycle, the one place a short-range cycle ends). Pure.
+// array). null on a training run: W9 "No wear on training". Gear wear step 3 (gearWearEngine.ts) consumes it: the cycle
+// engine below collects it at each delivered cycle (the one place a short-range cycle ends, ShortRangeTickResult.wear)
+// and economyTick applies it at its tail. Pure.
 export interface ShortRangeWearEvents {
   hauls: number;
   lightYears: number;
@@ -172,6 +183,49 @@ export function shortRangeCycleWear(roll: ShortRangeRoll, plan: ShortRangeCycleP
     minutesUnderway: (plan.totalTicks * secondsPerTick) / 60,
     surveys: site === "scan" ? 1 : 0,
   };
+}
+
+// ===== relic drops (G1-5) =====
+
+// The relic blanks one delivered cycle of a flagged run finds: rollShortRangeRelicBlanks on the cycle's own roll seed
+// (a pure function of the frozen roll and plan, so offline == live by construction), for the cycle's planned mission
+// time in seconds, at the slot's tier. Ids `sr-<slot>-<cycle>-relic-<n>`: the board cursor only advances on a delivered
+// cycle, so a slot never delivers the same cycle index twice. None for a run without the G1-5 flag. Pure.
+export function shortRangeCycleRelics(
+  mission: Pick<ShortRangeMissionState, "roll" | "plan" | "slotId" | "relicBlanks">,
+  secondsPerTick: number,
+): RelicVaultToken[] {
+  if (mission.relicBlanks === undefined) return [];
+  const roll = mission.roll;
+  const seconds = mission.plan.totalTicks * (Number.isFinite(secondsPerTick) && secondsPerTick > 0 ? secondsPerTick : 1);
+  return rollShortRangeRelicBlanks(roll.seed, roll.tier, seconds, `sr-${mission.slotId}-${roll.cycleIndex}`);
+}
+
+// One relic blank a run found this call, with the whole tick of the call it was delivered on (1 = the call's first
+// tick). economyTick orders every captain's finds by that tick, then captain order, so the vault reads the same
+// however the span is cut (1 s steps deliver each tick's finds in captain order).
+export interface ShortRangeRelicFind {
+  token: RelicVaultToken;
+  atTick: number;
+}
+
+// The vault after this call's finds: `finds` (captain order, each captain's in delivery order) sorted by the tick they
+// landed on (a stable sort keeps captain order inside a tick), appended to the incoming vault. A find whose id is
+// already taken (a vault token, or one a relic study in flight carries: only possible after a hand-edited or dropped
+// board reset the cursor) takes the next free `-<n>` suffix, so the Relics tab's keyed list never sees a duplicate.
+// Pure: a pure function of the incoming state and the finds.
+export function shortRangeVaultDeposit(state: Pick<GameState, "relicVault" | "activeProcesses">, finds: readonly ShortRangeRelicFind[]): RelicVaultToken[] {
+  const vault = state.relicVault ?? [];
+  const taken = new Set<string>(vault.map((t) => t.id));
+  for (const p of state.activeProcesses ?? []) if (p.effect.type === "identifyRelic") taken.add(p.effect.token.id);
+  const out = [...vault];
+  for (const { token } of [...finds].sort((a, b) => a.atTick - b.atTick)) {
+    let id = token.id;
+    for (let n = 2; taken.has(id); n++) id = `${token.id}-${n}`;
+    taken.add(id);
+    out.push(id === token.id ? token : { ...token, id });
+  }
+  return out;
 }
 
 // ===== the cycle loop =====
@@ -201,7 +255,18 @@ export interface ShortRangeTickResult {
   completedByTemplate: Readonly<Record<string, number>>; // delivered cycles per template this call
   runCounts: RunCounts; // the same reference when nothing changed
   nextCycle: Readonly<Record<number, number>>; // the same reference when nothing changed
-  ended: { slotId: number; cycles: number } | null; // the run ended this call (recalled): the completion log entry
+  // GEAR WEAR step 3 (a run stamped ShortRangeMissionState.gearWear only): the use wear of each cycle delivered this
+  // call, in delivery order, with its instant in ticks into the call (shortRangeCycleWear; a training cycle makes
+  // none), and the instant the run ended (null when it did not). economyTick hands both to the gear wear engine.
+  wear: { atTicks: number; events: ShortRangeWearEvents }[];
+  endedAtTicks: number | null;
+  ended: { slotId: number; cycles: number; relics: number } | null; // the run ended this call (recalled): the completion log entry
+  relics: readonly ShortRangeRelicFind[]; // G1-5: the relic blanks delivered cycles found, in delivery order
+  // G1-5 review follow-up: each delivered cycle that found relics while the run goes on (the completion log's find
+  // line, so a live Repeat run's finds show before it is recalled), in delivery order. A cycle that ends the run is not
+  // listed: the run's own completion entry names its finds.
+  // `atTick`: the call's whole tick the cycle was delivered on (the vault's ShortRangeRelicFind tick).
+  relicCycles: { slotId: number; cycles: number; relics: number; atTick: number }[];
 }
 
 // Advance one captain's short-range run by `ticksElapsed`. See the header for the rules and the parity argument.
@@ -221,6 +286,10 @@ export function tickCaptainShortRange(input: ShortRangeTickInput): ShortRangeTic
     runCounts: input.runCounts,
     nextCycle: input.nextCycle,
     ended: null,
+    wear: [],
+    endedAtTicks: null,
+    relics: [],
+    relicCycles: [],
   };
   const startMission = captain.mission;
   // A run always flies a hull (the crew lock keeps it aboard); a hull-less one holds still rather than guessing stats.
@@ -228,7 +297,14 @@ export function tickCaptainShortRange(input: ShortRangeTickInput): ShortRangeTic
 
   // Call-constants: the hull, its gear and its crew cannot change while it is out (the crew and gear locks), and the
   // captain's talents are read once per call, exactly as tickCaptainMission reads its bonuses.
-  const stats = effectiveShipStats(state, ship);
+  // GEAR WEAR step 3: the RUN sheet (gearWearEngine.ts runShipStats: the fold over the gear the cycle froze in its
+  // stamp), constant within a cycle; each cycle start re-reads it (user 2026-10-21 "Re-read each cycle") from the
+  // pieces as this call's earlier deliveries left them (projectRunStamp: the same arithmetic the tail pass writes), so
+  // one call, chunks and 1 s steps agree. A run without a stamp reads the stored sheet and makes no wear event.
+  const wearStamp = startMission.gearWear;
+  let stats = runShipStats(state, ship, wearStamp);
+  const crewed = wearStamp === undefined ? false : shipCrewAboard(state, ship);
+  const timedWear: TimedWear<ShipUseWear>[] = [];
   const outputShare = Math.max(0, shipMissionOutputBonus(state, ship));
   const marginBonus = Math.max(0, captainTransportTerms(captain).marginBonus);
   const motherlodeChance = Math.max(0, captainMotherlodeChance(captain));
@@ -254,6 +330,10 @@ export function tickCaptainShortRange(input: ShortRangeTickInput): ShortRangeTic
   const completedByTemplate: Record<string, number> = {};
   const materials: Record<string, number> = {};
   let ended: ShortRangeTickResult["ended"] = null;
+  const wear: ShortRangeTickResult["wear"] = [];
+  let endedAtTicks: number | null = null;
+  const relics: ShortRangeRelicFind[] = [];
+  const relicCycles: ShortRangeTickResult["relicCycles"] = [];
 
   // 0.14.0 SPEED SEAM (processSpeed.ts applyTimeSkip): while the CURRENT cycle carries speed.instantComplete, each
   // phase is applied whole without spending the call's own ticks, so the cycle runs through to its delivery inside
@@ -336,22 +416,39 @@ export function tickCaptainShortRange(input: ShortRangeTickInput): ShortRangeTic
       for (const k of items) haul[k] = wholeUnits(haul[k] * (1 + outputShare), rng);
     }
     for (const k of items) if (haul[k] > 0) materials[k] = (materials[k] ?? 0) + haul[k];
+    // GEAR WEAR step 3: this cycle's use on a stamped run (none on a training run, W9), at its delivery instant.
+    const cycleWear = wearStamp === undefined ? null : shortRangeCycleWear(roll, mission.plan, state.tickDurationSeconds);
+    if (cycleWear !== null) {
+      wear.push({ atTicks: ticksElapsed - remaining, events: cycleWear });
+      timedWear.push({ at: state.gameTimeSeconds + (ticksElapsed - remaining) * state.tickDurationSeconds, wear: shortRangeWear(cycleWear, crewed) });
+    }
     // The counters: one more delivered cycle (the curve skips the training run, SF5) and the board's cursor.
     cyclesDelivered += 1;
     completedByTemplate[roll.template] = (completedByTemplate[roll.template] ?? 0) + 1;
     if (!roll.difficulty.firstRun) runCounts = countShortRangeCycleComplete(runCounts, roll.template);
     nextCycle = { ...nextCycle, [mission.slotId]: roll.cycleIndex + 1 };
     const cycles = (mission.cyclesThisRun ?? 0) + 1;
+    // G1-5: the relic blanks this cycle found (a flagged run only), stamped with the call's whole tick it landed on.
+    const found = shortRangeCycleRelics(mission, state.tickDurationSeconds);
+    const atTick = Math.max(1, Math.ceil(ticksElapsed - remaining - TICK_EPSILON));
+    for (const token of found) relics.push({ token, atTick });
+    const relicsThisRun = (mission.relicsThisRun ?? 0) + found.length;
     const slot = shortRangeSlotById(state, mission.slotId);
     // Recall finishes the cycle, then the run ends. A slot that no longer exists (a hand-edited save) ends the same way.
     if (mission.recalled || slot === null) {
-      ended = { slotId: mission.slotId, cycles };
+      endedAtTicks = ticksElapsed - remaining;
+      ended = { slotId: mission.slotId, cycles, relics: relicsThisRun };
       mission = null;
       break;
     }
+    if (found.length > 0) relicCycles.push({ slotId: mission.slotId, cycles, relics: found.length, atTick });
     // THE NEXT CYCLE START: the whole job re-rolls at the slot's next cycle index against the counters as they stand
-    // now (this call's earlier starts and deliveries included), through the board's one cycle-start seam.
-    const start = startShortRangeCycle({ ...state, runCounts }, ship, slot, roll.cycleIndex + 1);
+    // now (this call's earlier starts and deliveries included), through the board's one cycle-start seam. GEAR WEAR
+    // step 3: the new cycle re-reads its gear (its stamp re-frozen at this instant), and its plan and pay fold it.
+    const cycleStamp =
+      wearStamp === undefined ? undefined : projectRunStamp(state, ship.id, timedWear, state.gameTimeSeconds + (ticksElapsed - remaining) * state.tickDurationSeconds);
+    if (cycleStamp !== undefined) stats = runShipStats(state, ship, cycleStamp);
+    const start = startShortRangeCycle({ ...state, runCounts }, ship, slot, roll.cycleIndex + 1, cycleStamp);
     runCounts = start.runCounts;
     mission = {
       kind: "shortRange",
@@ -362,6 +459,10 @@ export function tickCaptainShortRange(input: ShortRangeTickInput): ShortRangeTic
       phaseProgressTicks: 0,
       recalled: false,
       cyclesThisRun: cycles,
+      ...(cycleStamp !== undefined ? { gearWear: cycleStamp } : {}),
+      // G1-5: the run's relic flag and its finds so far ride every later cycle (absent on a run without the flag).
+      ...(mission.relicBlanks !== undefined ? { relicBlanks: mission.relicBlanks } : {}),
+      ...(relicsThisRun > 0 ? { relicsThisRun } : {}),
     };
   }
 
@@ -379,6 +480,10 @@ export function tickCaptainShortRange(input: ShortRangeTickInput): ShortRangeTic
     runCounts,
     nextCycle,
     ended,
+    wear,
+    endedAtTicks,
+    relics,
+    relicCycles,
   };
 }
 

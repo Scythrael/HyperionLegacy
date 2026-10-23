@@ -18,6 +18,8 @@ import type { CombatEvent, Combatant, WeaponFamily } from "./types";
 import { BAND_LONG, effectiveHp } from "./positioning";
 import type { SquadronStatusSummary } from "./drones";
 import { STATUS_EFFECT_DEFS } from "./statusEffects";
+// E-MOD EM-6: a universal module's label for the Simplified log line.
+import { moduleLabel } from "./flavor";
 // Type-only import (no runtime dependency, so no import cycle): the mobile roster
 // helpers below read a folded RoundSnapshot to find each enemy's CURRENT hull.
 import type { RoundSnapshot } from "./patrolReplay";
@@ -449,6 +451,19 @@ export function simplifiedLogTokens(
       ];
     case "droneReplenish":
       return [{ text: `${attacker} rebuilds a drone.`, kind: "text" }];
+    // E-MOD EM-6: a universal module's arc (damage to the target) or shield restore (the actor's own shields).
+    case "moduleProc": {
+      const mod = moduleLabel(event.moduleId);
+      if (event.moduleEffect === "shieldRestore") {
+        return [
+          { text: `${attacker}'s ${mod} restores `, kind: "text" },
+          { text: String(event.damage ?? 0), kind: "shield" },
+          { text: " shield.", kind: "text" },
+        ];
+      }
+      const { shield, hull } = damageSplit(event);
+      return [{ text: `${attacker}'s ${mod} arcs into ${target}`, kind: "text" }, ...damageClauseTokens(shield, hull)];
+    }
     case "evade":
       return [{ text: `${target} evades ${attacker}'s fire.`, kind: "text" }];
     case "dot": {
@@ -611,6 +626,14 @@ export function visualBeatsForRound(events: CombatEvent[], round: number): Visua
           amount: shield + hull,
           crit: false,
         });
+        break;
+      }
+      case "moduleProc": {
+        // E-MOD EM-6: a module arc pops over its target like a hit (its family tint, never a crit); a shield restore is not
+        // pop-worthy (no damage taken).
+        if (event.targetId === undefined || event.moduleEffect !== "arcDamage") break;
+        const { shield, hull } = damageSplit(event);
+        beats.push({ kind: "hit", fromId: event.actorId, toId: event.targetId, family: event.family, amount: shield + hull, crit: false });
         break;
       }
       case "dot": {
