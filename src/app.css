@@ -379,22 +379,28 @@ button {
 :root {
   --grad-start-rgb: var(--color-accent-rgb);
   --grad-end-rgb: 160, 32, 240;
+  /* Wash strength per stop (themeStyle.ts stopStrength: a bright Color 2 washes in more lightly)
+     and the colors headings draw with (themeStyle.ts textStop: a very dark color becomes gray). */
+  --grad-start-k: 1;
+  --grad-end-k: 1;
+  --grad-start-text-rgb: var(--grad-start-rgb);
+  --grad-end-text-rgb: var(--grad-end-rgb);
 }
 
 /* 2. washShine style tokens (theme mockup option D, "wash plus shine"): a soft diagonal wash from
    the start stop (top left) into the end stop (right) on panels and buttons, the stop-to-stop
    gradient on headings and progress bars, a soft sheen on primary buttons. */
 :root[data-style="washShine"] {
-  --style-panel: linear-gradient(135deg, rgba(var(--grad-start-rgb), 0.09), rgba(var(--grad-end-rgb), 0.12)), var(--color-panel-bg);
-  --style-dialog: linear-gradient(135deg, rgba(var(--grad-start-rgb), 0.09), rgba(var(--grad-end-rgb), 0.12)), var(--color-bg-mid);
-  --style-control: linear-gradient(135deg, rgba(var(--grad-start-rgb), 0.12), rgba(var(--grad-end-rgb), 0.16));
-  --style-control-primary: linear-gradient(135deg, rgba(var(--grad-start-rgb), 0.3), rgba(var(--grad-end-rgb), 0.34));
+  --style-panel: linear-gradient(135deg, rgba(var(--grad-start-rgb), calc(0.09 * var(--grad-start-k))), rgba(var(--grad-end-rgb), calc(0.12 * var(--grad-end-k)))), var(--color-panel-bg);
+  --style-dialog: linear-gradient(135deg, rgba(var(--grad-start-rgb), calc(0.09 * var(--grad-start-k))), rgba(var(--grad-end-rgb), calc(0.12 * var(--grad-end-k)))), var(--color-bg-mid);
+  --style-control: linear-gradient(135deg, rgba(var(--grad-start-rgb), calc(0.12 * var(--grad-start-k))), rgba(var(--grad-end-rgb), calc(0.16 * var(--grad-end-k))));
+  --style-control-primary: linear-gradient(135deg, rgba(var(--grad-start-rgb), calc(0.3 * var(--grad-start-k))), rgba(var(--grad-end-rgb), calc(0.34 * var(--grad-end-k))));
   --style-sheen: inset 0 1px 0 rgba(255, 255, 255, 0.12);
   --style-edge: rgba(var(--grad-end-rgb), 0.22);
   --style-fill: linear-gradient(90deg, rgb(var(--grad-start-rgb)), rgb(var(--grad-end-rgb)));
   /* Text needs a lighter end than the bar: the end stop mixed 45% toward white. The sweep ends at
      12em, not at the element's edge, so a short heading on a wide panel still shows both colors. */
-  --style-heading: linear-gradient(90deg, rgb(var(--grad-start-rgb)) 0, color-mix(in srgb, rgb(var(--grad-end-rgb)) 55%, #ffffff) 12em);
+  --style-heading: linear-gradient(90deg, rgb(var(--grad-start-text-rgb)) 0, color-mix(in srgb, rgb(var(--grad-end-text-rgb)) 55%, #ffffff) 12em);
 }
 
 /* washShine text lifts (contrast note above). Dim text per theme; secondary text already clears AA

@@ -27,6 +27,7 @@ const FILES = [
   "src/lib/themeStyle.ts",
   "src/lib/AchievementToasts.svelte",
   "src/lib/HeaderButtons.svelte",
+  "src/lib/secret/devTools.ts",
   "docs/plans/2026-10-23-hotfix-0.13.11.1-plan.md",
 ].map((path) => ({ path, src: readFileSync(path, "utf-8") }));
 
@@ -43,7 +44,8 @@ const SLICES = () => [
   slice("src/app.css", "THEME STYLES (0.13.11.1", "/* REDUCED MOTION"),
   slice("src/App.svelte", "// 0.13.11.1: the combo only UNLOCKS.", "// The modal's top-tab list"),
   slice("src/App.svelte", "<!-- 0.13.11.1 HEADER BUTTON BLOCK", '<main class="tab-body">'),
-  slice("src/App.svelte", "<!-- 0.13.11.1 THEME STYLE:", "<!-- HEADER CURRENCIES"),
+  slice("src/App.svelte", "<!-- 0.13.11.1 THEME (user", "<!-- HEADER CURRENCIES"),
+  slice("src/App.svelte", "// The look: preset + manual picks", "// [DEV] grant the Starfall"),
   slice("src/lib/patchNotes.ts", 'version: "0.13.11.1"', 'version: "0.13.11"'),
   slice("src/lib/game/model.ts", "0.13.11.1 ACCOUNT-LEVEL EXTRAS", "unlockedThemeStyles?: string[];"),
 ];

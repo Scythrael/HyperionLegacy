@@ -958,7 +958,7 @@
   // and wipes it on Delete Save. It never reads or writes `state` and never runs in the main loop.
   import EnterCodeModal from "./lib/EnterCodeModal.svelte";
   import SecretGameOverlay from "./lib/SecretGameOverlay.svelte";
-  import { startSecretRuntime, wipeSecretGame, devFastForwardSecret, codesTabSeen, markCodesTabSeen, secretGame, markSecretFound } from "./lib/secret/runtime";
+  import { startSecretRuntime, wipeSecretGame, devFastForwardSecret, codesTabSeen, markCodesTabSeen, secretGame, markSecretFound, secretAct } from "./lib/secret/runtime";
   // 0.13.11.1: the Help / Minigames / Settings header block, the achievement popup, the gift code
   // and Starfall unlock (account-level optional save fields, written only through accountExtras and
   // the do* handlers below), and the theme STYLE layer (themeStyle.ts, device-side choice).
@@ -966,7 +966,7 @@
   import AchievementToasts from "./lib/AchievementToasts.svelte";
   import { pushAchievement } from "./lib/achievements";
   import { redeemGift, hasThemeStyle, unlockThemeStyle, NO_STREAK, ENDLESS_GREED, type RedeemOutcome, type RedeemStreak } from "./lib/accountExtras";
-  import { DEFAULT_PRESET_ID, availablePresets, effectivePreset, loadThemePreset, saveThemePreset, applyThemePreset } from "./lib/themeStyle";
+  import { availablePresets, availableStyles, resolveLook, loadLookPrefs, hasManualPrefs, savePreset, saveManual, applyLook, isGradient, DEFAULT_LOOK_PREFS, type LookPrefs, type PresetChoice, type ThemeStyleId } from "./lib/themeStyle";
   import { displayOre as secretDisplayOre } from "./lib/secret/engine";
   import { formatSecret } from "./lib/secret/format";
   import { COPY as SECRET_COPY } from "./lib/secret/config";
@@ -2817,13 +2817,37 @@
   }
   let accountReady = false;
   $: if (accountReady && !suppressSave && $secretGame.milestones.starfall !== undefined && !hasThemeStyle(state, "washShine")) doUnlockThemeStyle("washShine");
-  let themePresetId: string = DEFAULT_PRESET_ID;
+  // The look: preset + manual picks (device-side), the account's unlocked styles and the Default
+  // color theme, resolved by themeStyle.ts and written to the root by ONE writer (applyLook).
+  let lookPrefs: LookPrefs = DEFAULT_LOOK_PREFS;
   $: unlockedThemeStyles = Array.isArray(state.unlockedThemeStyles) ? state.unlockedThemeStyles : [];
-  $: themePresetChoices = availablePresets(unlockedThemeStyles);
-  $: applyThemePreset(effectivePreset(themePresetId, unlockedThemeStyles));
-  function setThemePreset(id: string): void {
-    themePresetId = id;
-    saveThemePreset(id);
+  $: presetChoices = availablePresets(unlockedThemeStyles);
+  $: styleChoices = availableStyles(unlockedThemeStyles);
+  $: look = resolveLook(lookPrefs, unlockedThemeStyles, currentTheme);
+  // A Starfall choice whose unlock is gone (Delete Save) shows, and behaves, as Default.
+  $: shownPreset = lookPrefs.preset === "starfall" && presetChoices.length === 0 ? "default" : lookPrefs.preset;
+  $: applyLook(look);
+  function setPreset(p: PresetChoice): void {
+    lookPrefs = { ...lookPrefs, preset: p };
+    savePreset(p);
+    // The first switch to Manual starts from the current color theme, so nothing jumps.
+    if (p === "manual" && !hasManualPrefs()) setManual({ color1: currentTheme });
+  }
+  function setManual(patch: Partial<Pick<LookPrefs, "manualStyle" | "color1" | "color2">>): void {
+    lookPrefs = { ...lookPrefs, ...patch };
+    saveManual(lookPrefs);
+  }
+  // [DEV] minigame shortcuts (Debug tab only). devTools is loaded by a dynamic import behind the
+  // compile-time DEV_MODE gate, so the production bundle never carries it.
+  async function devSecret(kind: "found" | "skills" | "e1m" | "e10m"): Promise<void> {
+    if (!DEV_MODE) return;
+    const dev = await import("./lib/secret/devTools");
+    if (kind === "found") {
+      pushLog(markSecretFound() ? "[DEV] Minigame marked found." : "[DEV] Minigame was already found.");
+      return;
+    }
+    const done = secretAct((x, now) => (kind === "skills" ? dev.devMaxSkills(x, now) : dev.devJumpTo(x, kind === "e1m" ? 1e6 : 1e7, now)));
+    pushLog(done ? `[DEV] Minigame: ${kind === "skills" ? "every skill on" : kind === "e1m" ? "jumped to e1,000,000" : "jumped to e10,000,000"}.` : "[DEV] Minigame is catching up; try again in a moment.");
   }
   // [DEV] grant the Starfall unlock without six months of play (Debug tab only).
   function devGrantStarfall(): void {
@@ -3215,7 +3239,7 @@
     // 0.13.11.1: the Starfall mirror and the theme style read the account only from here on, so a
     // placeholder state before the load can never be written over the real save.
     accountReady = true;
-    themePresetId = loadThemePreset();
+    lookPrefs = loadLookPrefs(currentTheme);
 
     // Tick-bar loop, checks the ONE shared fleet-wide cycle's progress every
     // 100ms, firing tickCaptainMission (Phase 3a) for EVERY mission captain
@@ -8125,8 +8149,7 @@
   }
 
   function setTheme(name: ThemeName) {
-    currentTheme = name;
-    document.documentElement.dataset.theme = name;
+    currentTheme = name; // the root is written by applyLook (the look follows the Default color)
     saveTheme(name);
   }
 
@@ -16530,38 +16553,89 @@
            to echo. -->
       <Panel class="settings-section">
         <div class="panel-title">UI THEME</div>
+        <!-- 0.13.11.1 THEME (user, 2026-10-23 "go all the way"): a PRESET, then its settings.
+             Default is the shipped look (Flat, the color theme below); Starfall (once earned) is the
+             fixed prize look; Manual picks a style and two colors. Device-side, like the colors. -->
         <SettingRow
-          label="Theme color"
-          description="Changes the accent color used across the whole interface. Panels and text re-hue with it."
+          label="Theme preset"
+          description="Default is the classic look in your theme color. Manual lets you pick the style and the colors yourself."
         >
-          <span class="theme-preview" style="background:{THEME_PREVIEW_COLORS[currentTheme]}" aria-hidden="true"></span>
           <select
             class="setting-select"
-            value={currentTheme}
-            on:change={(e) => setTheme((e.target as HTMLSelectElement).value as ThemeName)}
-            aria-label="Theme color"
+            value={shownPreset}
+            on:change={(e) => setPreset((e.target as HTMLSelectElement).value as PresetChoice)}
+            aria-label="Theme preset"
           >
-            {#each THEME_NAMES as name}
-              <option value={name}>{name.charAt(0).toUpperCase() + name.slice(1)}</option>
+            <option value="default">Default</option>
+            {#each presetChoices as preset}
+              <option value={preset.id}>{preset.label}</option>
             {/each}
+            <option value="manual">Manual</option>
           </select>
         </SettingRow>
-        <!-- 0.13.11.1 THEME STYLE: hidden until a style is earned (Starfall, the e10,000,000 prize).
-             Device-side like the color theme; the shipped look is "Default". -->
-        {#if themePresetChoices.length > 0}
+        {#if shownPreset === "default"}
+          <SettingRow
+            label="Theme color"
+            description="Changes the accent color used across the whole interface. Panels and text re-hue with it."
+          >
+            <span class="theme-preview" style="background:{THEME_PREVIEW_COLORS[currentTheme]}" aria-hidden="true"></span>
+            <select
+              class="setting-select"
+              value={currentTheme}
+              on:change={(e) => setTheme((e.target as HTMLSelectElement).value as ThemeName)}
+              aria-label="Theme color"
+            >
+              {#each THEME_NAMES as name}
+                <option value={name}>{name.charAt(0).toUpperCase() + name.slice(1)}</option>
+              {/each}
+            </select>
+          </SettingRow>
+        {:else if shownPreset === "starfall"}
+          <p class="setting-group-note">Starfall draws with its own colors, cyan into purple, whatever your theme color is.</p>
+        {:else}
           <SettingRow
             label="Theme style"
-            description="How panels and buttons are drawn. Starfall washes them from your theme color into purple, with gradient headings and bars. It works with every theme color."
+            description="How panels and buttons are drawn. Flat is the classic look; more styles unlock as you earn them."
           >
             <select
               class="setting-select"
-              value={effectivePreset(themePresetId, unlockedThemeStyles)?.id ?? DEFAULT_PRESET_ID}
-              on:change={(e) => setThemePreset((e.target as HTMLSelectElement).value)}
+              value={look.style}
+              on:change={(e) => setManual({ manualStyle: (e.target as HTMLSelectElement).value as ThemeStyleId })}
               aria-label="Theme style"
             >
-              <option value={DEFAULT_PRESET_ID}>Default</option>
-              {#each themePresetChoices as preset}
-                <option value={preset.id}>{preset.label}</option>
+              {#each styleChoices as style}
+                <option value={style.id}>{style.label}</option>
+              {/each}
+            </select>
+          </SettingRow>
+          <SettingRow label="Color 1" description="Your accent color, used across the whole interface. A gradient style starts from it at the top left.">
+            <span class="theme-preview" style="background:{THEME_PREVIEW_COLORS[lookPrefs.color1]}" aria-hidden="true"></span>
+            <select
+              class="setting-select"
+              value={lookPrefs.color1}
+              on:change={(e) => setManual({ color1: (e.target as HTMLSelectElement).value as ThemeName })}
+              aria-label="Color 1"
+            >
+              {#each THEME_NAMES as name}
+                <option value={name}>{name.charAt(0).toUpperCase() + name.slice(1)}</option>
+              {/each}
+            </select>
+          </SettingRow>
+          <SettingRow
+            label="Color 2"
+            description={isGradient(look.style) ? "Where a gradient style ends, on the right. Bright colors wash in more softly so text stays easy to read." : "Only used by gradient styles. Flat draws with Color 1."}
+            disabled={!isGradient(look.style)}
+          >
+            <span class="theme-preview" style="background:{THEME_PREVIEW_COLORS[lookPrefs.color2]}" aria-hidden="true"></span>
+            <select
+              class="setting-select"
+              value={lookPrefs.color2}
+              disabled={!isGradient(look.style)}
+              on:change={(e) => setManual({ color2: (e.target as HTMLSelectElement).value as ThemeName })}
+              aria-label="Color 2"
+            >
+              {#each THEME_NAMES as name}
+                <option value={name}>{name.charAt(0).toUpperCase() + name.slice(1)}</option>
               {/each}
             </select>
           </SettingRow>
@@ -17123,6 +17197,14 @@
             <button class="dev-btn" on:click={() => devFastForwardSecret(7 * 86400)}>+7d</button>
             <button class="dev-btn" on:click={() => devFastForwardSecret(30 * 86400)}>+30d</button>
             <button class="dev-btn danger" on:click={wipeSecretGame}>Wipe</button>
+          </div>
+          <!-- [DEV] 0.13.11.1 minigame shortcuts: consistent states built by secret/devTools.ts. -->
+          <div class="dev-row">
+            <span class="dev-label">[DEV] Minigame</span>
+            <button class="dev-btn" on:click={() => devSecret("found")}>Mark found</button>
+            <button class="dev-btn" on:click={() => devSecret("skills")}>Max skills</button>
+            <button class="dev-btn" on:click={() => devSecret("e1m")}>Jump to e1,000,000</button>
+            <button class="dev-btn" on:click={() => devSecret("e10m")}>Jump to e10,000,000</button>
           </div>
           <!-- [DEV] 0.13.11.1: grant the Starfall theme style (the e10,000,000 prize) to test it. -->
           <div class="dev-row">

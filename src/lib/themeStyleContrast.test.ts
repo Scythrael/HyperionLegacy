@@ -4,7 +4,8 @@
 // its [data-theme] block, so a new theme is swept automatically.
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
-import { STARFALL } from "./themeStyle";
+import { STARFALL, themeRgb, stopStrength, textStop, HEADING_END_SHARE } from "./themeStyle";
+import type { ThemeName } from "./theme";
 
 const CSS: string = readFileSync("src/app.css", "utf-8");
 const AA = 4.5;
@@ -39,15 +40,15 @@ const token = (b: string, name: string) => {
 // A wash token's alphas: start stop, end stop, and the black shade under it (0 when none).
 function wash(name: string): { start: number; end: number; shade: number } {
   const v = token(block(':root[data-style="washShine"]'), name);
-  const start = Number(/rgba\(var\(--grad-start-rgb\),\s*([\d.]+)\)/.exec(v)![1]);
-  const end = Number(/rgba\(var\(--grad-end-rgb\),\s*([\d.]+)\)/.exec(v)![1]);
+  const start = Number(/rgba\(var\(--grad-start-rgb\),\s*calc\(([\d.]+) \* var\(--grad-start-k\)\)\)/.exec(v)![1]);
+  const end = Number(/rgba\(var\(--grad-end-rgb\),\s*calc\(([\d.]+) \* var\(--grad-end-k\)\)\)/.exec(v)![1]);
   const shade = /rgba\(0, 0, 0, ([\d.]+)\)/.exec(v);
   return { start, end, shade: shade ? Number(shade[1]) : 0 };
 }
 
 const ROOT = block(":root");
 const PURPLE = triplet(/--grad-end-rgb:\s*([^;]+);/.exec(CSS)![1]);
-const HEAD_MIX = Number(/color-mix\(in srgb, rgb\(var\(--grad-end-rgb\)\) (\d+)%, #ffffff\)/.exec(CSS)![1]) / 100;
+const HEAD_MIX = Number(/color-mix\(in srgb, rgb\(var\(--grad-end-text-rgb\)\) (\d+)%, #ffffff\)/.exec(CSS)![1]) / 100;
 const DEEP = hex(token(ROOT, "--color-bg-deep"));
 const MID = hex(token(ROOT, "--color-bg-mid"));
 const PRIMARY = hex(token(ROOT, "--color-text-primary"));
@@ -78,14 +79,15 @@ const THEMES = [...CSS.matchAll(/\[data-theme="(\w+)"\] \{([^}]*)\}/g)].map((m) 
     panel: over([+pm[1], +pm[2], +pm[3]], +pm[4], DEEP),
     secondary: hex(token(b, "--color-text-secondary")),
     dim: hex(liftedDim(m[1], token(b, "--color-text-dim"))),
+    dimFlat: hex(token(b, "--color-text-dim")),
   };
 });
 
 describe("Starfall (washShine) reads at AA on every theme, with and without the color-blind palette", () => {
   it("parses every theme, the stops and the washes, so the sweep is not vacuous", () => {
     expect(THEMES.length).toBe(10);
-    expect(PURPLE).toEqual(triplet((STARFALL.stops[1] as { rgb: string }).rgb));
-    expect(STARFALL.stops[0]).toBe("accent");
+    expect(PURPLE).toEqual(triplet(STARFALL.stops[1]));
+    expect(STARFALL.stops[0]).toBe("103, 232, 249");
     for (const w of ["--style-panel", "--style-dialog", "--style-control", "--style-control-primary"]) expect(wash(w).start).toBeGreaterThan(0);
   });
 
@@ -156,4 +158,72 @@ describe("Starfall (washShine) reads at AA on every theme, with and without the 
     expect(border[1]).toContain(':not([data-high-contrast="on"])');
     for (const m of CSS.matchAll(/:root\[data-style="washShine"\]\[data-theme="\w+"\][^{]*\{/g)) expect(m[0]).toContain(':not([data-high-contrast="on"])');
   });
+});
+
+// Flat (today's look) reads the palettes' own semantic colors, unlifted.
+const SEMANTIC_FLAT = {
+  default: SEMANTIC.default,
+  cbsafe: (() => {
+    const b = block(':root[data-palette="cbsafe"]');
+    return { success: hex(token(b, "--color-success")), warning: hex(token(b, "--color-warning")), danger: hex(token(b, "--color-danger")) };
+  })(),
+};
+
+describe("every Color 1 x Color 2 pair (Manual), and Flat, at AA in both palettes", () => {
+  const panel = wash("--style-panel");
+  const dialog = wash("--style-dialog");
+  const control = wash("--style-control");
+  const primary = wash("--style-control-primary");
+  const mixWhite = (c: RGB, share: number) => c.map((v) => v * share + 255 * (1 - share)) as RGB;
+
+  for (const palette of ["default", "cbsafe"] as const) {
+    it(`washShine, all ${THEMES.length * THEMES.length} pairs (${palette} palette)`, () => {
+      const fails: string[] = [];
+      for (const t of THEMES) {
+        const c1 = themeRgb(t.name as ThemeName);
+        expect(triplet(c1)).toEqual(t.accent); // Color 1 is this theme's accent
+        for (const t2 of THEMES) {
+          const c2 = themeRgb(t2.name as ThemeName);
+          const e = triplet(c2);
+          const k = stopStrength(c2);
+          const headStart = triplet(textStop(c1));
+          const headEnd = mixWhite(triplet(textStop(c2, HEADING_END_SHARE)), HEAD_MIX);
+          const texts: Record<string, RGB> = { primary: PRIMARY, secondary: t.secondary, dim: t.dim, accent: t.accent, bright: t.bright, headStart, headEnd, ...SEMANTIC[palette] };
+          const ps = over(t.accent, panel.start, t.panel);
+          const pe = over(e, panel.end * k, t.panel);
+          const surfaces: [string, RGB, Record<string, RGB>][] = [
+            ["panel start", ps, texts],
+            ["panel end", pe, texts],
+            ["window start", over(t.accent, dialog.start, MID), texts],
+            ["window end", over(e, dialog.end * k, MID), texts],
+            ["button start", over(t.accent, control.start, ps), { primary: PRIMARY, accent: t.accent, bright: t.bright }],
+            ["button end", over(e, control.end * k, pe), { primary: PRIMARY, accent: t.accent, bright: t.bright }],
+            ["primary start", over(t.accent, primary.start, ps), { primary: PRIMARY, bright: t.bright }],
+            ["primary end", over(e, primary.end * k, pe), { primary: PRIMARY, bright: t.bright }],
+          ];
+          for (const [where, bg, fgs] of surfaces) {
+            for (const [name, fg] of Object.entries(fgs)) {
+              const r = ratio(fg, bg);
+              if (r < AA) fails.push(`${t.name} + ${t2.name}: ${name} on ${where} ${r.toFixed(2)}`);
+            }
+          }
+        }
+      }
+      expect(fails).toEqual([]);
+    });
+
+    // Flat is exactly today's look, so it is measured the way contrast.test.ts has measured it since
+    // 0.13.5: on the reference panel #0a141e. (On each theme's own tinted panel, green and gray dim
+    // text sit at 4.46 and 4.48, a pre-existing margin noted for the user, not changed here.)
+    it(`Flat with every Color 1 is today's look and reads at AA (${palette} palette)`, () => {
+      const fails: string[] = [];
+      const REF: RGB = hex("#0a141e");
+      for (const t0 of THEMES) {
+        const t = { ...t0, panel: REF };
+        const texts: Record<string, RGB> = { primary: PRIMARY, secondary: t.secondary, dim: t.dimFlat, accent: t.accent, bright: t.bright, ...SEMANTIC_FLAT[palette] };
+        for (const [name, fg] of Object.entries(texts)) if (ratio(fg, t.panel) < AA) fails.push(`${t.name} ${name} ${ratio(fg, t.panel).toFixed(2)}`);
+      }
+      expect(fails).toEqual([]);
+    });
+  }
 });
