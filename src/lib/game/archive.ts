@@ -5,7 +5,7 @@
 // the SCORE (a plain number), so the save never grows with the collection and a better craft later
 // simply overwrites the score. Pure over GameState, like armory.ts / salvage.ts.
 import type { GameState, EquipmentInstance, BlueprintDef } from "./model";
-import { BLUEPRINTS, blueprintMintsEquipmentInstance, rarityIndex, isSparePiece } from "./model";
+import { BLUEPRINTS, blueprintMintsEquipmentInstance, itemValueRarity, rarityIndex, isSparePiece } from "./model";
 import { EQUIPMENT_ILEVEL_CAP_PER_TIER } from "./itemgen";
 
 const MAX_QUALITY = 5; // quality rungs 0..5
@@ -19,7 +19,8 @@ const MAX_RARITY_INDEX = 5; // luminous / constellar (the top tier) -> rarityInd
 export function itemScore(inst: Pick<EquipmentInstance, "rarity" | "quality" | "iLevel">): number {
   const quality = Number.isFinite(inst.quality) ? inst.quality : 0;
   const iLevel = Number.isFinite(inst.iLevel) ? inst.iLevel : 0;
-  return (rarityIndex(inst.rarity) + 1) * (quality + 1) * iLevel * 10;
+  // RR-7 (answer 9): a value reader, so Derelict scores as the Standard-Issue floor (itemValueRarity).
+  return (rarityIndex(itemValueRarity(inst.rarity)) + 1) * (quality + 1) * iLevel * 10;
 }
 
 // The MAXIMUM achievable score for a craftable blueprint: top rarity, top quality, and the item's

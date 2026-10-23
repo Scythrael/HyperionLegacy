@@ -1882,6 +1882,16 @@ const ASCENSION_BANDS: Record<EquipmentRarity, boolean> = {
   constellar: true,
 };
 
+// RARITY READINESS RR-7 (answer 9, "Unify, keep unmade"): the band an ITEM VALUE reader reads. Derelict is the
+// Standard-Issue floor: it reads as "standard" in every value reader (budget, module scale, salvage time, relic band,
+// Archive score), while ORDER readers (rarityIndex: the reveal sort, auto-salvage keep-best) keep it just below
+// Standard. Never produced (CRAFTED_RARITY_PRODUCIBLE). CREW Derelict is a live crew band with its own row and is not
+// this rule. Every other value normalizes like a load (RR-1). Pure.
+export function itemValueRarity(rarity: EquipmentRarity): EquipmentRarity {
+  const band = normalizeEquipmentRarity(rarity);
+  return band === "derelict" ? "standard" : band;
+}
+
 // May a piece of this band be Nova or Celestial? Total: an unknown value reads false. Pure.
 export function ascensionAllowedFor(rarity: EquipmentRarity): boolean {
   return isEquipmentRarity(rarity) && ASCENSION_BANDS[rarity];

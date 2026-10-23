@@ -96,7 +96,8 @@ import { combatHullTypeOf, hullDefenseComposition } from "../combat/bridge";
 import { SENIOR_STAFF_BONUSES, type SeniorStaffBonusDef } from "../seniorStaffBonuses";
 import { CREW_PROFESSION_BUFFS, CREW_STAT_KEYS, HELD_CREW_BUFF_IDS, SECOND_LEVEL_EXCLUSIVE, TRANSIT_SPEED_KEY, type CrewBuffDef } from "../crewBuffs";
 import { CREW_RACES } from "../crewRaces";
-import { CREW_RARITY_MULTIPLIER } from "../crewRarity";
+import { CREW_RARITY_CAP, CREW_RARITY_MULTIPLIER } from "../crewRarity";
+import { rarityIndex } from "../model";
 import { CREW_RANKS, CREW_RANK_ORDER, rankMagnitudeFactor } from "../crewRank";
 import { GROUND_CONDITIONS, STONESKIN_INJURY_MULT } from "../medicalBay";
 import { OFFICER_STAT_KEYS } from "../seniorStaff";
@@ -3487,6 +3488,25 @@ function crewScalarEntries(): WiringEntry[] {
   // Unloading, the bonus part above 1 of the unload speed grows by the multiplier's step from the standard Crewman.
   const opsBucket = (over: Partial<CrewBucket>): Transform => (s) => withBuckets(s, [{ ...bucketOf("operations", "ops.unloadSpeed"), ...over }]);
   for (const [rarity, mult] of Object.entries(CREW_RARITY_MULTIPLIER) as [EquipmentRarity, number][]) {
+    // RARITY READINESS RR-7 (answer 7): the rows above the crew cap exist so a raised cap never makes a higher band
+    // weaker, but the generator never mints above CREW_RARITY_CAP (Stellar), so nothing reads them until the user raises
+    // the cap: deferred with the user's words, never claimed live.
+    if (rarityIndex(rarity) > rarityIndex(CREW_RARITY_CAP)) {
+      out.push(
+        entry({
+          id: `crew:CREW_RARITY_MULTIPLIER:${rarity}`,
+          system: "crew",
+          source: { catalog: "CREW_RARITY_MULTIPLIER", key: rarity },
+          claim: `${rarity} crew carry their buffs at x${mult}`,
+          status: {
+            kind: "deferred",
+            owner: "the patch that raises CREW_RARITY_CAP above Stellar",
+            userRef: "rarity readiness answer 7 (2026-10-22): \"Luminous and Constellar crew share one value; the cap stays at Stellar until the user raises it\"",
+          },
+        }),
+      );
+      continue;
+    }
     out.push(
       entry({
         id: `crew:CREW_RARITY_MULTIPLIER:${rarity}`,
@@ -4564,6 +4584,11 @@ function rarityProfileEntries(): WiringEntry[] {
     const claim = `${rarity} gear rolls at x${row.budgetMult.toFixed(4)} budget with ${row.affixes} affix line(s)${row.extraAffixChance > 0 ? ` (${row.extraAffixChance * 100}% chance of one more)` : ""}${extras}`;
     if (against === null) {
       return entry({ id: `ship:RARITY_PROFILES:${rarity}`, system: "ship", source: { catalog: "RARITY_PROFILES", key: rarity }, claim, probe: "sheetCargo", notApplicable: "the reference band (every other row is measured against the band below it)" });
+    }
+    // RR-7 (answer 9): Derelict reads the Standard-Issue floor's budget, so its signature line equals Standard's (the
+    // equality is pinned in rarityTraps.test.ts); its one difference, no affixes, is a rolled-line fact.
+    if (row.budgetMult === RARITY_PROFILES[against].budgetMult) {
+      return entry({ id: `ship:RARITY_PROFILES:${rarity}`, system: "ship", source: { catalog: "RARITY_PROFILES", key: rarity }, claim, probe: "sheetCargo", notApplicable: `reads the ${against} row's budget (the Standard-Issue floor, rarity readiness answer 9)` });
     }
     // Review of RR-3: EVERY row, the legendary ones too, installs the signature line alone and moves EXACTLY by the
     // implicit difference (linearAbsolute), so a budget the generator stops reading fails here. The secondaries, Artisan

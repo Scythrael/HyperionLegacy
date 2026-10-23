@@ -34,7 +34,9 @@ function lcg(seed: number): { rng: () => number; draws: () => number } {
 describe("RR-3: the live rows are today's numbers", () => {
   it("budgetMult is exactly RARITY_MULT ** rarityIndex, with zero secondaries and no Artisan", () => {
     for (const r of LIVE) {
-      expect(Object.is(RARITY_PROFILES[r].budgetMult, RARITY_MULT ** rarityIndex(r)), r).toBe(true);
+      // RR-7 (answer 9): Derelict, never produced, is the Standard-Issue floor: Standard's budget, not its own index.
+      const idx = r === "derelict" ? rarityIndex("standard") : rarityIndex(r);
+      expect(Object.is(RARITY_PROFILES[r].budgetMult, RARITY_MULT ** idx), r).toBe(true);
       expect(RARITY_PROFILES[r].secondaries, r).toBe(0);
       expect(RARITY_PROFILES[r].artisanPermille, r).toBe(0);
     }
@@ -61,7 +63,7 @@ describe("RR-3: the live rows are today's numbers", () => {
   });
 
   it("rarityBudget equals the old index budget for every live band, level and quality", () => {
-    for (const r of LIVE) {
+    for (const r of LIVE.filter((b) => b !== "derelict")) { // RR-7: Derelict reads Standard's (rarityTraps.test.ts)
       for (const iLevel of [0, 1, 7, 20, 40, 400]) {
         for (let q = 0; q <= 5; q++) expect(rarityBudget(iLevel, q, r), `${r} ${iLevel} ${q}`).toBe(computeBudget(iLevel, q, rarityIndex(r)));
       }
@@ -184,7 +186,7 @@ describe("RR-3: the wiring registry carries one live, probed row per profile", (
     const { RR_ADDED_ENTRY_IDS } = await import("./rarityRegistry.fixture");
     const rows = WIRING_REGISTRY.filter((e) => RR_ADDED_ENTRY_IDS.has(e.id) && e.source.catalog === "RARITY_PROFILES");
     expect(rows.map((e) => `${e.id}|${e.status.kind}|${e.probe}|${e.contexts.join(",")}`)).toEqual(
-      EQUIPMENT_RARITY_LADDER.map((r) => `ship:RARITY_PROFILES:${r}|live|sheetCargo|${r === "standard" ? "" : "sheet"}`),
+      EQUIPMENT_RARITY_LADDER.map((r) => `ship:RARITY_PROFILES:${r}|live|sheetCargo|${r === "standard" || r === "derelict" ? "" : "sheet"}`), // RR-7: Derelict reads Standard's budget (notApplicable)
     );
     expect(rows.find((e) => e.id === "ship:RARITY_PROFILES:standard")!.notApplicable).toBeTruthy();
   });

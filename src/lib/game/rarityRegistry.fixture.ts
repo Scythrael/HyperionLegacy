@@ -12,7 +12,13 @@ import { WIRING_REGISTRY } from "./wiring/registry";
 
 export const RR_CATALOGS: ReadonlySet<string> = new Set(["RARITY_PROFILES", "ASCENSION_BUDGET_MULT", "LUMINOUS_AFFIXES", "MODULE_RARITY_FACTOR", "GEAR_SETS"]);
 
-const RR_AUDIT_IDS: ReadonlySet<string> = new Set(["ship:audit:rrCrewModuleExtras"]);
+// RR-7: the crew multiplier rows above the cap (radiant, luminous, constellar) are new ids in an old catalog.
+const RR_AUDIT_IDS: ReadonlySet<string> = new Set([
+  "ship:audit:rrCrewModuleExtras",
+  "crew:CREW_RARITY_MULTIPLIER:radiant",
+  "crew:CREW_RARITY_MULTIPLIER:luminous",
+  "crew:CREW_RARITY_MULTIPLIER:constellar",
+]);
 
 export const RR_ADDED_ENTRY_IDS: ReadonlySet<string> = new Set(
   WIRING_REGISTRY.filter((e) => RR_CATALOGS.has(e.source.catalog) || RR_AUDIT_IDS.has(e.id)).map((e) => e.id),

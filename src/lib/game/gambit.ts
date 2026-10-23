@@ -71,7 +71,7 @@ import type {
   GroundStatus,
   EnemyRank,
 } from "./model";
-import { SALVAGE_LOOT_POOLS, DEFAULT_GAMBIT_PROGRAMS, DEFAULT_MEMBER_GAMBIT, FIELD_KITS_PLAYER_LIVE, commandingCaptain, memberVariety } from "./model";
+import { DEFAULT_GAMBIT_PROGRAMS, DEFAULT_MEMBER_GAMBIT, FIELD_KITS_PLAYER_LIVE, commandingCaptain, memberVariety } from "./model";
 // Field Kits FKR-6: the kit ids (type only: fieldKits.ts imports this module, so the kit RULES arrive by injection,
 // BattleKitRules below) and the rank order the rank conditions compare (enemyRanks.ts imports types only, so no cycle).
 import type { FieldKitId } from "./fieldKits";
@@ -81,7 +81,7 @@ import { crewRarityMultiplier } from "./crewRarity";
 import { rankMagnitudeFactor } from "./crewRank";
 // E4a: the PoI -> relic-set single source of truth (pure data; imports no engine module, so no cycle).
 import { RELIC_BEARING_POIS, isRelicBearingPoi, museumBonuses, resistedHazard } from "./relics";
-import { relicBlankCeiling, relicBlankStamp, rollBlankRarity, type RelicBlankStamp } from "./relicBlanks";
+import { RELIC_BLANK_LADDER_I, relicBlankCeiling, relicBlankStamp, rollBlankRarity, type RelicBlankStamp } from "./relicBlanks";
 // E-CREW Task 15: the Science party's fieldwork (pure; imports only model + content, so no cycle).
 import { fieldworkEffect, type FieldworkEffect } from "./fieldwork";
 // E-CREW 0.14.0 (Task 21): the Constitution ramp (a pure leaf; no cycle).
@@ -2357,8 +2357,8 @@ function pickWeighted<T extends { weight: number }>(rng: Rng, items: T[]): T {
   return items[items.length - 1];
 }
 
-// Roll a relic's rarity TIER by REUSING the salvage tiered-rarity machinery (SALVAGE_LOOT_POOLS): we draw
-// a tier from the intactReactorCore pool's ordered tier list, weighted by each tier's own weight, with a
+// Roll a relic's rarity TIER on the relic blank ladder (RR-7: relicBlanks.ts RELIC_BLANK_LADDER_I, its own frozen copy of
+// the salvage ladder it used to read directly, SALVAGE_LOOT_POOLS.intactReactorCore): we draw a tier from its ordered list, weighted by each tier's own weight, with a
 // hazard-scaled CEILING that mirrors salvage's baseCeilingForLevel + slice (a more hazardous find can
 // reach a higher relic tier). The relic keeps the tier's rarity NAME + quality bucket but stays
 // UNIDENTIFIED (E4 owns the concrete relic + its bonus). Returns the token, or null if the chance missed.
@@ -2392,7 +2392,7 @@ export function rollRelicToken(
   if (!rng.chance(chance, 1000)) return null;
   // REUSE the salvage tier ladder: hazard sets how far up the ordered tiers the roll can reach.
   const ceiling = relicTierCeiling(hazard, captain?.relicTierLift);
-  const tier = blank ? rollBlankRarity(rng, blank.tier, ceiling) : pickWeighted(rng, SALVAGE_LOOT_POOLS.intactReactorCore.slice(0, ceiling + 1));
+  const tier = blank ? rollBlankRarity(rng, blank.tier, ceiling) : pickWeighted(rng, RELIC_BLANK_LADDER_I.slice(0, ceiling + 1)); // RR-7: the relic ladder, decoupled from salvage
   const studySpeed = captain?.relicStudySpeed;
   return {
     id: relicId,

@@ -677,6 +677,8 @@
   import { legendaryAffixDef } from "./lib/game/legendaryAffixes";
   // RR-6 (rarity readiness): a Constellar dev mint's gear set name, for the same log line.
   import { gearSetDef } from "./lib/game/gearSets";
+  // RR-7 (rarity readiness): the set-complete shoutout lines (relic sets and gear sets).
+  import { setCompletionShoutouts } from "./lib/game/setShoutouts";
   // Combat 0.13.0 dev harness (Debug tab only): the ship->Combatant bridge
   // (shipToCombatant + the illustrative sampleLoadout), the sim entry point
   // (resolveBattle), and the plain dev log renderer (formatCombatLog). These wire
@@ -2300,22 +2302,22 @@
     }
   }
 
-  // Rarity -> tile accent color. Reuses existing theme tokens where one fits
-  // (uncommon -> success green, legendary -> warning amber); rare/epic/common
-  // have no matching token so use fixed hex (the mockup's own rarity palette).
-  // Drives the fill gradient, the rare+ ring, and the tooltip rarity label.
+  // Rarity -> tile accent color. Drives the fill gradient, the rare+ ring, and the tooltip rarity label.
+  // RR-7 (rarity readiness): every band reads a var(--item-rarity-*) token (app.css :root, with today's exact colors:
+  // uncommon and legendary follow the success / warning tokens, the other three are the mockup's hex), so the
+  // color-blind palette ([data-palette="cbsafe"]) remaps the warehouse too instead of being bypassed by raw hex.
   function warehouseRarityColor(rarity: ItemDef["rarity"]): string {
     switch (rarity) {
       case "common":
-        return "#8b9cb0";
+        return "var(--item-rarity-common)";
       case "uncommon":
-        return "var(--color-success)";
+        return "var(--item-rarity-uncommon)";
       case "rare":
-        return "#4fa3f2";
+        return "var(--item-rarity-rare)";
       case "epic":
-        return "#b07cf2";
+        return "var(--item-rarity-epic)";
       case "legendary":
-        return "var(--color-warning)";
+        return "var(--item-rarity-legendary)";
     }
   }
 
@@ -3295,6 +3297,15 @@
     logEntries = [msg, ...logEntries].slice(0, 8);
   }
 
+  // RR-7 (rarity readiness): the set-complete shoutout (the system chat stand-in). Every state change is diffed against
+  // the last one seen (setShoutouts.ts, pure), so a relic set or a gear set completed by ANY path (a study, an install,
+  // a loadout check-out) is announced once. The basis is reset to the loaded state after the load (onMount).
+  let shoutoutBasis: GameState | null = null;
+  $: if (state !== shoutoutBasis) {
+    if (shoutoutBasis !== null) for (const line of setCompletionShoutouts(shoutoutBasis, state)) pushLog(line);
+    shoutoutBasis = state;
+  }
+
   // Set true right before an import-triggered window.location.reload() so the
   // beforeunload/onDestroy teardown autosaves (which call doSave with the CURRENT
   // in-memory state) do NOT overwrite the freshly-imported save in localStorage.
@@ -3500,6 +3511,9 @@
         pushLog(`Fuel is a reach stat now, so the fuel you held beyond the free starter tank was refunded: +${formatNumber(fuelRefund)} credits.`);
       }
       state = offlineSeconds > 5 ? tick(offlineSeconds, beforeSnapshot, Math.random, returnedAtMs) : beforeSnapshot;
+      // RR-7 (rarity readiness): a set completed while away (a relic study, or gear the catch-up changed) gets its
+      // shoutout on return, from the same before / after pair the summary reads.
+      for (const line of setCompletionShoutouts(beforeSnapshot, state)) pushLog(line);
       if (offlineSeconds > 5) {
         pushLog(`Welcome back. Advanced ${formatNumber(offlineSeconds)}s offline.`);
         // Only surface the full "While you were away" modal for a MEANINGFUL absence, and
@@ -3532,6 +3546,8 @@
     } else {
       pushLog("New save initialized.");
     }
+    // RR-7: the live shoutout watch starts from the loaded (and caught-up) state, so nothing already complete repeats.
+    shoutoutBasis = state;
     // ⚠️ HOTFIX 0.13.10: start from where the reload catch-up PAID THROUGH, not from now. The
     // catch-up takes real time to compute; starting the clock after it would leave those seconds
     // unpaid (and a save right after load would stamp past them). The first poll pays them, once.

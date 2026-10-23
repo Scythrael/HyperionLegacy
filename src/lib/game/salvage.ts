@@ -505,13 +505,17 @@ export const SALVAGE_CEILING_THRESHOLDS: { minFleetAdminLevel: number; maxTierIn
   { minFleetAdminLevel: 5, maxTierIndex: 1 },  // augmented unlocks
   { minFleetAdminLevel: 10, maxTierIndex: 2 }, // stellar unlocks (first exclusive exotics)
   { minFleetAdminLevel: 15, maxTierIndex: 3 }, // radiant unlocks (top of this patch's ladder)
+  // RARITY READINESS RR-7: a FIFTH row for a legendary salvage tier. [PROVISIONAL] level 20. Every pool has four tiers
+  // today and the ceiling is clamped to each pool's real top (salvageSalvagedMaterial), so no live roll changes; a pool
+  // that gains a fifth tier reaches it here without anyone remembering to add the row.
+  { minFleetAdminLevel: 20, maxTierIndex: 4 },
 ];
 
 // Resolve the base ceiling (before any talent bonus) for a Fleet Admiral level: the
 // maxTierIndex of the highest threshold whose minFleetAdminLevel the player meets. A
 // level below the first threshold still yields index 0 (the floor is always the low
-// tier, never "nothing"). PURE.
-function baseCeilingForLevel(fleetAdminLevel: number): number {
+// tier, never "nothing"). PURE. Exported (rarity readiness RR-7) so the fifth row can be tested without a fifth tier.
+export function salvageBaseCeiling(fleetAdminLevel: number): number {
   let ceiling = 0;
   for (const t of SALVAGE_CEILING_THRESHOLDS) {
     if (fleetAdminLevel >= t.minFleetAdminLevel) {
@@ -593,7 +597,7 @@ export function salvageSalvagedMaterial(
   // talent automatically (always applies in real play); `ceilingBonus` is the extra
   // test-override on top.
   const rawCeiling =
-    baseCeilingForLevel(state.fleetAdminLevel) +
+    salvageBaseCeiling(state.fleetAdminLevel) +
     salvageTalentBonus(state).ceilingBonus +
     ceilingBonus;
   const ceiling = Math.min(Math.max(rawCeiling, 0), pool.length - 1);

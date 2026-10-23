@@ -15,10 +15,12 @@ describe("crewRarity: multiplier table", () => {
     expect(CREW_RARITY_MULTIPLIER.stellar).toBeCloseTo(1.35, 10);
   });
 
-  it("does NOT define multipliers above the cap (generator never mints them)", () => {
-    expect(CREW_RARITY_MULTIPLIER.radiant).toBeUndefined();
-    expect(CREW_RARITY_MULTIPLIER.luminous).toBeUndefined();
-    expect(CREW_RARITY_MULTIPLIER.constellar).toBeUndefined();
+  // Rarity readiness RR-7 (answer 7) REPLACED the old "no rows above the cap" rule on purpose: every band now has a row
+  // (so raising the cap can never make a higher band weaker), and the cap still clamps them (rarityTraps.test.ts).
+  it("defines a row for every band above the cap, never weaker than Stellar (rarity readiness RR-7)", () => {
+    expect(CREW_RARITY_MULTIPLIER.radiant).toBeGreaterThan(CREW_RARITY_MULTIPLIER.stellar);
+    expect(CREW_RARITY_MULTIPLIER.luminous).toBeGreaterThanOrEqual(CREW_RARITY_MULTIPLIER.radiant);
+    expect(CREW_RARITY_MULTIPLIER.constellar).toBe(CREW_RARITY_MULTIPLIER.luminous);
   });
 
   it("caps at stellar", () => {

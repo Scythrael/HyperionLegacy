@@ -144,7 +144,7 @@ import { EQUIPMENT_SLOTS, FIELD_KITS_PLAYER_LIVE, MISSIONS, SHIP_TYPES, type Equ
 import { startShortRangeCycle } from "./shortRangeBoard";
 import { dispatchCaptainOnMission, dispatchCaptainOnPatrol, economyTick, installMissingCombatBaselines, mintBuiltShip } from "./tick";
 import { effectiveShipStats } from "./crewOverlay";
-import { generateEquipment } from "./itemgen";
+import { budgetAtMult, budgetShares, generateEquipment, rolledLineValue } from "./itemgen";
 import { buildHomeDashboard } from "./homeDashboard";
 import { buildShipRoster } from "./shipRoster";
 import { deserialize, migrate, serialize, type SaveFile } from "./save";
@@ -221,7 +221,16 @@ function withPiece(state: GameState, piece: EquipmentInstance, shipId: string): 
 }
 
 // A derelict quarters piece of `variety` (no affixes: only the implicit lines, which the affix pool cannot reach).
+// Rarity readiness RR-7 made Derelict the Standard-Issue floor (Standard's budget). This golden only used Derelict as an
+// implicit-only device, so the helper keeps the piece it was captured with: the same mint, its implicit lines at the
+// pre-RR-7 Derelict budget (rarity multiplier 1), through the mint's own split and line conversion.
 function derelictQuarters(variety: string, id: string): EquipmentInstance {
+  const piece = derelictQuartersMint(variety, id);
+  const keys = Object.keys(piece.implicitStats);
+  const each = keys.length > 0 ? Math.round(budgetShares(budgetAtMult(10, 0, 1)).implicitShare / keys.length) : 0;
+  return { ...piece, implicitStats: Object.fromEntries(keys.map((k) => [k, rolledLineValue(k, each)])) };
+}
+function derelictQuartersMint(variety: string, id: string): EquipmentInstance {
   return generateEquipment({
     slotType: "quarters",
     varietyKey: variety,

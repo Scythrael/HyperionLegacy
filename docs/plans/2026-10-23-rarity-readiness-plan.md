@@ -342,3 +342,31 @@ set's pieces carrying no lines so exactly the k-th piece's tier switches; plus t
 one Celestial, switch the 5-piece), exact. The set-complete shoutout is RR-7's. Goldens: LIVE none moved; RESERVED 1
 moved, `rr3+rr6:devMint:constellar` (rr6-owned: Constellar dev mints now carry a set). Gates: 315 files / 8740 tests
 passed, check 0 errors.
+
+**RR-7 (2026-10-23):** (1) Crew (answer 7): `CREW_RARITY_MULTIPLIER` is a TOTAL record, radiant [PROVISIONAL 1.55], luminous
+= constellar = `CREW_LEGENDARY_MULTIPLIER` [PROVISIONAL 1.8]; `CREW_RARITY_CAP` stays Stellar (crew above it still read
+Stellar's 1.35); `clampCrewRarityAt` / `crewRarityMultiplierAt` take any cap and a guard test lifts the cap through the
+whole ladder (never weaker going up). Registry: the three rows above the cap are DEFERRED (owner: the patch that raises
+the cap, the user's answer 7 words), never claimed live; crewRarity.test.ts's old "no rows above the cap" test replaced
+on purpose. (2) Warehouse: App.svelte `warehouseRarityColor` returns `var(--item-rarity-*)`; app.css `:root` defines
+them with today's exact colors, the cbsafe block remaps rare (#56b4e9) and epic (#cc79a7) like stellar / radiant
+(uncommon / legendary follow the semantic tokens it already remaps; common stays); every use is a CSS context. (3) Relic
+blanks (answer 10): relicBlanks.ts `RELIC_BLANK_LADDER_I` is its own frozen copy of the four rows (standard 1000 q0,
+augmented 300 q1, stellar 40 q3, radiant 5 q4); the blank tables, `relicBlankCeiling` and gambit.ts's legacy
+`rollRelicToken` path read it, never SALVAGE_LOOT_POOLS (a test pushes a Luminous tier into the salvage pool and every
+blank, ceiling and token roll is unchanged). (4) Salvage: a fifth `SALVAGE_CEILING_THRESHOLDS` row `{ 20 [PROVISIONAL], 4
+}`, clamped to each pool's real top (four tiers today), so no roll changes; `salvageBaseCeiling` exported. (5) Shoutout:
+new `setShoutouts.ts` `setCompletionShoutouts(before, after)` (pure): every relic set newly in `museumV2.setsCompleted`
+("Set complete: Tier I Exceptional Set A is whole in the Museum.", the [PROPOSAL] tag dropped from the line) and every gear
+set a ship or member newly has COMPLETE (all its tiers active); breaking a set says nothing. App.svelte logs it around
+the offline catch-up (beforeSnapshot / state) and on every live state change (a reactive diff against `shoutoutBasis`,
+reset to the loaded state after load), so a set completed while away is announced on return. (6) Derelict (answer 9):
+model.ts `itemValueRarity` (Derelict reads Standard in value readers); RARITY_PROFILES.derelict takes Standard's budget
+and no affixes; archive.ts `itemScore` reads it; module scale, salvage time and relic band already did; order readers
+keep it below Standard; crew Derelict (a live crew band) untouched; never produced. Registry: the Derelict profile row is
+notApplicable (it reads Standard's budget). Tests updated on purpose: guestQuarters.test.ts (a Derelict Guest Wing now has
+Standard's budget); shortRangeGoldens.test.ts's golden 3 used Derelict only as an implicit-only device, so its helper now
+rebuilds the exact pre-RR-7 piece and the G1 golden does NOT move. Goldens: LIVE 1 moved on purpose, `salvage:ceiling`
+(the table gained its fifth row; data only, no roll changed); RESERVED 18 moved, every one rr7-owned (the 15 Derelict
+generator pins, `rr7:reader:derelict`, `rr7:devMint:derelict`, `rr7:load:derelict`). Gates: 316 files / 8752 tests passed,
+check 0 errors.

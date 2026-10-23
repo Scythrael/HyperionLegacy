@@ -62,7 +62,8 @@ const LEGENDARY_MULT = RARITY_MULT ** rarityIndex("radiant") * LEGENDARY_BUDGET_
 
 // The table. TOTAL over the ladder, so a new band is a compile error here until it is answered for.
 export const RARITY_PROFILES: Readonly<Record<EquipmentRarity, RarityProfile>> = {
-  derelict: { budgetMult: liveMult("derelict"), affixes: 0, extraAffixChance: 0, secondaries: 0, artisanPermille: 0, legendaryAffix: false },
+  // RR-7 (answer 9): Derelict is the Standard-Issue floor: Standard's budget, no affixes (a floor piece rolls none).
+  derelict: { budgetMult: liveMult("standard"), affixes: 0, extraAffixChance: 0, secondaries: 0, artisanPermille: 0, legendaryAffix: false },
   standard: { budgetMult: liveMult("standard"), affixes: 2, extraAffixChance: 0, secondaries: 0, artisanPermille: 0, legendaryAffix: false },
   augmented: { budgetMult: liveMult("augmented"), affixes: 2, extraAffixChance: 0.25, secondaries: 0, artisanPermille: 0, legendaryAffix: false },
   stellar: { budgetMult: liveMult("stellar"), affixes: 3, extraAffixChance: 0, secondaries: 0, artisanPermille: 0, legendaryAffix: false },
