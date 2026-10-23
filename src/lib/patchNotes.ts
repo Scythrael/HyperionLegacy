@@ -15,7 +15,7 @@
 // left untouched (never rewrite patch-note history), so this deliberately reads
 // as "0.2.0 newer than 0.9.0" once, only here.
 
-export const APP_VERSION = "0.13.11";
+export const APP_VERSION = "0.13.11.1";
 
 // ---------------------------------------------------------------------------
 // SHAPE. 0.13.5 introduced a STRUCTURED entry (marquee features + category
@@ -63,6 +63,22 @@ export function isStructuredNote(n: PatchNote): n is PatchNoteStructured {
 }
 
 export const PATCH_NOTES: PatchNote[] = [
+  {
+    // 0.13.11.1 [PROPOSAL] wording, awaiting the user's approval: it mentions ONLY the gift code
+    // ability and the new Help button, and says nothing about what else the codes window holds.
+    version: "0.13.11.1",
+    lede: "A small follow-up: codes work now, and there is a Help button at the top of the screen.",
+    categories: [
+      {
+        title: "Additional Improvements",
+        bullets: [
+          { lead: "Codes work now.", text: "The Codes section in Settings now accepts codes. Try SUPERDUPERLEET." },
+          { lead: "A Help button.", text: "The top right corner has a new Help [?] button that opens the Help pages. Settings sits right below it." },
+        ],
+      },
+    ],
+    save: "Your save carries over untouched.",
+  },
   {
     // 0.13.11 wording is the design default (user 2026-10-22: the note mentions ONLY the new Codes
     // section, nothing else). Final text awaits the user's approval before it ships.

@@ -4920,7 +4920,7 @@ export interface GameState {
   // ONE entry can be emitted per ORDER rather than one per iteration.
   openJobBatches: OpenJobBatch[];
   // --- 0.13.11.1 ACCOUNT-LEVEL EXTRAS (docs/plans/2026-10-23-hotfix-0.13.11.1-design.md) ---
-  // ⚠️ OPTIONAL ON PURPOSE, NO SAVE_VERSION BUMP: absent on every older save and on freshState(),
+  // OPTIONAL ON PURPOSE, NO SAVE_VERSION BUMP: absent on every older save and on freshState(),
   // so Delete Save and Debug Reset (both rebuild from freshState) clear them, and they merge into
   // any later schema untouched. Written ONLY through src/lib/accountExtras.ts. Nothing in the tick
   // reads them. Per save until online accounts arrive (0.14.1), then per account.

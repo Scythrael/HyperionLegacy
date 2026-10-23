@@ -59,7 +59,7 @@
 
 <div class="hb" class:hb-found={found} bind:this={block}>
   <button type="button" class="hb-btn hb-help" aria-label="Help" title="Help" on:click={onHelp}>
-    <Icon name="help" size={18} />
+    <Icon name="help" size={22} />
   </button>
   {#if found}
     <button

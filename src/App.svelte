@@ -17121,6 +17121,7 @@
             <button class="dev-btn" on:click={() => devFastForwardSecret(3600)}>+1h</button>
             <button class="dev-btn" on:click={() => devFastForwardSecret(86400)}>+1d</button>
             <button class="dev-btn" on:click={() => devFastForwardSecret(7 * 86400)}>+7d</button>
+            <button class="dev-btn" on:click={() => devFastForwardSecret(30 * 86400)}>+30d</button>
             <button class="dev-btn danger" on:click={wipeSecretGame}>Wipe</button>
           </div>
           <!-- [DEV] 0.13.11.1: grant the Starfall theme style (the e10,000,000 prize) to test it. -->

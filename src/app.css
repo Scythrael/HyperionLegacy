@@ -369,7 +369,7 @@ button {
      2. the STYLE TOKENS: what each surface becomes under a style. Colors come ONLY from the stops.
      3. WHERE A STYLE APPLIES: one rule block per style, naming the shared surfaces. Components are
         not edited, so the default look (no data-style) is untouched by construction.
-   ⚠️ CONTRAST: every text token stays WCAG AA on these surfaces in every theme and in the
+   CONTRAST: every text token stays WCAG AA on these surfaces in every theme and in the
    color-blind palette (themeStyleContrast.test.ts). The dark shade layer under each wash is what
    keeps the tinted surfaces no lighter than today's panels; lower it and dim text fails first.
    ============================================================================ */
@@ -389,8 +389,9 @@ button {
   --style-sheen: inset 0 1px 0 rgba(255, 255, 255, 0.12);
   --style-edge: rgba(var(--grad-end-rgb), 0.24);
   --style-fill: linear-gradient(90deg, rgb(var(--grad-start-rgb)), rgb(var(--grad-end-rgb)));
-  /* Text needs a lighter end than the bar: the end stop mixed 45% toward white. */
-  --style-heading: linear-gradient(90deg, rgb(var(--grad-start-rgb)), color-mix(in srgb, rgb(var(--grad-end-rgb)) 55%, #ffffff));
+  /* Text needs a lighter end than the bar: the end stop mixed 45% toward white. The sweep ends at
+     12em, not at the element's edge, so a short heading on a wide panel still shows both colors. */
+  --style-heading: linear-gradient(90deg, rgb(var(--grad-start-rgb)) 0, color-mix(in srgb, rgb(var(--grad-end-rgb)) 55%, #ffffff) 12em);
 }
 :root[data-style="washShine"] :is(.panel, .fpane, .cpane, .mpane, .home-row, .done-row, .mission-card, .top-bar, .nav-tabs, .sg, .layer, .gen, .hb-menu) {
   background: var(--style-panel);

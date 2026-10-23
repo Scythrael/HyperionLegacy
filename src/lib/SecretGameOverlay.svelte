@@ -213,6 +213,9 @@
     const step = UPGRADES.find((u) => u.id === "ocOverclocker")!.step;
     return Math.pow(OC_FACTOR, 1 + step * upgradeLevel(x, "ocOverclocker"));
   }
+  function perLevelLabel(v: number): string {
+    return v < 10 ? v.toFixed(3) : v < 1000 ? v.toFixed(1) : formatSecret(v);
+  }
   function upgradePriceLabel(x: SecretState, id: UpgradeId): string {
     const e = upgradePriceExponent(x, id);
     return e === null ? "Maxed" : `${formatExponent(Math.ceil(e))} Ore`;
@@ -393,7 +396,7 @@
           <div class="gen">
             <div class="tier">OC</div>
             <div class="gname"><b>Overclock</b><em>{COPY.overclockFlavor}</em></div>
-            <div class="gstats">Lv <span class="num">{formatSecret(s.overclock)}</span> · <span class="num">×{formatSecret(ocPerLevel(s))}</span> each</div>
+            <div class="gstats">Lv <span class="num">{formatSecret(s.overclock)}</span> · <span class="num">×{perLevelLabel(ocPerLevel(s))}</span> each</div>
             <div class="buys">
               <button class="sg-btn" type="button" disabled={busy || !canOc || ore.lt(overclockPrice(s))} on:click={() => secretAct((x) => buyOverclock(x, "one"))}>Buy 1<span class="num">{fmt(overclockPrice(s))}</span></button>
               <button class="sg-btn" type="button" disabled={busy || !canOc || ore.lt(overclockPrice(s))} on:click={() => secretAct((x) => buyOverclock(x, "ten"))}>Buy 10</button>
