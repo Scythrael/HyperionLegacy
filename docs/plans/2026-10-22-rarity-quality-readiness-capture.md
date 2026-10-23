@@ -134,3 +134,13 @@ need online in a subpatch right after this one, and the tutorial/story/quest pat
     legendary affix for now, because their only stat lines are read by nothing yet (an affix there would be inert).
 12. Luminous and Constellar modules (bridge, quarters, sensors, E-MOD) are now Radiant x1.2 like gear; Nova and
     Celestial multiply that.
+CORRECTION to open call 11 (2026-10-23, from the RR-5/RR-6 review): the sensor exclusion was based on a false reason.
+The sensors line IS live (survey yield, the expedition sensor gate, region charting, scan events, short-range work),
+so the sensor slot GETS a legendary affix: "Far Watcher" (sensors) [PROPOSAL], as originally drafted. Bridge
+(crewEfficiency pending, WR-7) and universal modules (empty pool) stay excluded, honestly. The "Fold Engine" drop was
+also misexplained: transit speed is live on the sheet and in expeditions, just like cargo and fuel are partly pending
+elsewhere. OPEN CALL 13: the FTL drive's legendary affix: "Fold Engine" (transit speed) or "Endless Wake" (fuel
+capacity, built now)? OPEN CALL 14: set bonuses and gear wear: default being built = set tiers scale with the mean wear
+efficiency of their counted pieces (a fully worn set gives 75%), consistent with how worn gear works; alternative =
+set bonuses never wear. OPEN CALL 15: set tier magnitudes are flat (not scaled by item level), so they are large at low
+item level; [PROVISIONAL] for balancing.
