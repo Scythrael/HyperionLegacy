@@ -22,8 +22,14 @@
   const nameOf = (id: string): string | null => state.awayMembers.find((m) => m.id === id)?.name ?? null;
   $: card = studyShipCardView(exp, ship, now, nameOf);
   $: legs = studyLegsView(exp, ship, now, flaggedScanTimeline);
-  // The body cards read only the frozen run (its profile, roster and region), so they are built once per run.
-  $: giants = giantCardsView(exp);
+  // The body cards read only the frozen run (its profiles, roster and region), so they are rebuilt only when the run
+  // in view changes (memoized on its id), not on every tick.
+  let giantsFor: string | null = null;
+  let giants: ReturnType<typeof giantCardsView> = [];
+  $: if (exp.id !== giantsFor) {
+    giantsFor = exp.id;
+    giants = giantCardsView(exp);
+  }
   $: results = studyResultsView(exp);
 </script>
 

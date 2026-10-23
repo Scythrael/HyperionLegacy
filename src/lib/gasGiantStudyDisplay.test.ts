@@ -34,6 +34,8 @@ import {
   GALILEO_CRUSH_BAR_PER_RATING,
   GIANT_ART,
   NEBULA_ART,
+  SURVEY_LOG_LIVE,
+  archiveSubTabs,
   bandRangeText,
   canisterChances,
   canisterDetailView,
@@ -288,7 +290,7 @@ describe("GG-6 the gas giant body card (every number the engine's)", () => {
     const depth = giantDepthFactor(exp.bodies[i].giant!);
     expect(v.probeRows[0].value).toBe(`${Math.round(GALILEO_CRUSH_BAR_PER_RATING * probe.diveRating)} bar at Jupiter gravity (hazard resist line)`);
     expect(v.probeRows[1].value).toBe(`x${depth.toFixed(2)} from gravity`);
-    expect(v.column.diveText).toBe(`Dive depth ~${Math.round(Math.min(1000, GALILEO_CRUSH_BAR_PER_RATING * probe.diveRating * depth))} bar`);
+    expect(v.column.diveText).toBe(`Dive depth ~${Math.round(GALILEO_CRUSH_BAR_PER_RATING * probe.diveRating * depth).toLocaleString("en-US")} bar`);
     const p = giantCardView(plain, i)!;
     expect(p.column.diveFrac).toBeNull();
     expect(p.probeRows[0].value).toMatch(/No Galileo-Class Probe/);
@@ -364,15 +366,34 @@ describe("GG-6 the ship holding orbit, the ship legs, the timeline", () => {
 describe("GG-6 the study results and the claim line", () => {
   const done = settled(dispatchGiant(true));
 
-  it("every study and sweep finding gets a results row; the claim line counts its canisters", () => {
+  it("every study and sweep finding gets a results row; the claim line names the studies, never the haul again", () => {
     const rows = studyResultsView(done);
     const studies = done.findings.filter((f) => f.source === "study");
     expect(rows.length).toBe(studies.length);
     expect(rows.length).toBeGreaterThan(0);
-    const canisters = studies.reduce((a, f) => a + GAS_CANISTER_IDS.reduce((b, id) => b + (f.materials?.[id] ?? 0), 0), 0);
     const line = studyClaimLine(done.findings)!;
-    expect(line.startsWith(`Ship studies: ${canisters} canister`)).toBe(true);
+    const giants = studies.filter((f) => !f.id.endsWith("-find-nebula")).length;
+    expect(line.startsWith(`Ship studies: ${giants} gas giant`)).toBe(true);
+    if (done.nebula) expect(line).toContain("1 nebula sweep");
+    // The "Findings claimed" line already lists every canister: none named here.
+    expect(line).not.toMatch(/Canister|canister/);
+    expect(line).not.toMatch(/Survey Log/);
     expect(studyClaimLine(done.findings.filter((f) => f.source !== "study"))).toBeNull();
+  });
+
+  it("the summary chips add the mockup's ground objectives count once every body is scanned", () => {
+    const texts = studySummaryChips(done).map((c) => c.text);
+    const n = done.bodies.reduce((a, b) => a + b.activities.length, 0);
+    expect(texts).toContain(`${n} ground objective${n === 1 ? "" : "s"}`);
+  });
+
+  it("a resumed run counts only what it still studies (a giant studied before, a nebula swept before)", () => {
+    const resumed = {
+      ...done,
+      bodies: done.bodies.map((b) => (isStudyBody(done, b) ? { ...b, studied: true as const } : b)),
+      nebula: done.nebula ? { ...done.nebula, swept: 1 as const } : undefined,
+    };
+    expect(studySummaryChips(resumed)).toEqual([]);
   });
 });
 
@@ -479,6 +500,14 @@ describe("GG-6 the canister shelf", () => {
     expect(onWarehouseShelf("ancientDataFragment")).toBe(false);
     expect(onWarehouseShelf("hydrogenCanister")).toBe(true);
     expect(onWarehouseShelf("commonOre")).toBe(true);
+  });
+});
+
+describe("GG-6 review: the Survey Log waits for its own mockup sign-off", () => {
+  it("the Archive tab list leaves the Survey Log out while it is not live", () => {
+    expect(SURVEY_LOG_LIVE).toBe(false);
+    expect(archiveSubTabs().map((t) => t.key)).toEqual(["archive", "museum"]);
+    expect(archiveSubTabs(true).map((t) => t.key)).toEqual(["archive", "museum", "surveyLog"]);
   });
 });
 

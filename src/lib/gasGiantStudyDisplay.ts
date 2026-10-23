@@ -406,12 +406,20 @@ export function nebulaRowView(exp: Expedition, now: number): NebulaRowView | nul
 
 // The run's study summary chips (section 1's top row, the launch preview's words): the bodies, the ship studies, the
 // nebula sweep and "Studies need no squad". Empty on a run with neither. Pure.
+// GG-6 review: a resumed run counts only what this trip still studies (a giant studied on an earlier trip and an
+// already swept nebula are left out), and the mockup's "N ground objectives" chip shows once every body is scanned (the
+// count is known only then).
 export function studySummaryChips(exp: Pick<Expedition, "bodies" | "study" | "nebula">): StudyChip[] {
-  const studies = exp.bodies.filter((b) => isStudyBody(exp, b)).length;
-  if (studies === 0 && !exp.nebula) return [];
+  const studies = exp.bodies.filter((b) => isStudyBody(exp, b) && b.studied !== true).length;
+  const sweep = sweepsNebula(exp);
+  if (studies === 0 && !sweep) return [];
   const out: StudyChip[] = [chip(plural(exp.bodies.length, "body", "bodies"))];
+  if (exp.bodies.every((b) => b.scanned)) {
+    const objectives = exp.bodies.reduce((a, b) => a + b.activities.length, 0);
+    out.push(chip(plural(objectives, "ground objective", "ground objectives")));
+  }
   if (studies > 0) out.push(chip(plural(studies, "ship study", "ship studies")));
-  if (exp.nebula) out.push(chip("1 nebula sweep"));
+  if (sweep) out.push(chip("1 nebula sweep"));
   out.push(chip("Studies need no squad", "ok"));
   return out;
 }
@@ -476,7 +484,8 @@ export function studyShipCardView(
   const pos = groundShipPosition(exp, now);
   if (pos.kind !== "study") return null;
   const leg = pos.leg;
-  const start = ops.startedAt ?? leg.startsAt;
+  // GG-6 review: a resumed run's startedAt sits its clock skip before the window opened.
+  const start = (ops.startedAt ?? leg.startsAt) + (ops.scanClockSkip ?? 0);
   const ends = clockText(leg.endsAt - start);
   const scanNote = leg.scanBodyIndex !== null ? "The scan clock is paused while the ship holds orbit; teams keep working." : "Every body is scanned; teams keep working.";
   const waits = teamsWaitingOn(exp, leg).map((ti) => {
@@ -580,7 +589,7 @@ export function studyLegsView(exp: Expedition, ship: ShipInstance | null | undef
   const ops = exp.groundOps;
   const hasStudy = exp.bodies.some((b) => isStudyBody(exp, b));
   if (!ops || ops.startedAt === undefined || (!hasStudy && !exp.nebula)) return null;
-  const start = ops.startedAt;
+  const start = ops.startedAt + (ops.scanClockSkip ?? 0);
   const legs = (ops.studyLegs ?? []).slice().sort((a, b) => a.startsAt - b.startsAt);
   // Scan spans, each started after any study it overlaps at its start.
   type Item = { kind: "scan"; letters: string[]; from: number; to: number | null } | { kind: "study"; leg: GroundStudyLeg };
@@ -783,7 +792,9 @@ export function giantCardView(exp: Expedition, bodyIndex: number): GiantCardView
       ticks,
       galileoFrac: columnFrac(GALILEO_1995_BAR),
       diveFrac: diveBar !== null ? columnFrac(diveBar) : null,
-      diveText: diveBar !== null ? `Dive depth ~${Math.round(Math.min(COLUMN_MAX_BAR, diveBar))} bar` : null,
+      // GG-6 review: the drawn line stops at the column's floor (columnFrac clamps); the words print the real depth,
+      // which keeps growing with a better probe (D23, never capped).
+      diveText: diveBar !== null ? `Dive depth ~${Math.round(diveBar).toLocaleString("en-US")} bar` : null,
       ariaLabel:
         diveBar !== null
           ? `Pressure column: the probe dives to about ${Math.round(diveBar)} bar; the 1995 Galileo probe reached ${GALILEO_1995_BAR} bar.`
@@ -852,27 +863,24 @@ export function studyResultsView(exp: Pick<Expedition, "id" | "findings" | "bodi
   return out;
 }
 
-// The claim's study line for the log, or null when the claim held no study: "Ship studies: 17 canisters, Propulsion
-// Data x1 to the Research Lab, 1 Survey Log readout." Pure.
+// The claim's study line for the log, or null when the claim held no study. GG-6 review: the "Findings claimed" line
+// already lists every canister and data item, so this line only says what the studies were and where the data goes:
+// "Ship studies: 2 gas giants and 1 nebula sweep; research data goes to the Research Lab's Data study tab." The
+// readout clause appears only while the Survey Log tab is live (SURVEY_LOG_LIVE). Pure.
 export function studyClaimLine(findings: readonly ExpeditionFinding[]): string | null {
   const studies = findings.filter(isStudyFinding);
   if (studies.length === 0) return null;
-  let canisters = 0;
-  const data: Record<string, number> = {};
-  let readouts = 0;
-  for (const f of studies) {
-    for (const [id, qty] of Object.entries(f.materials ?? {})) {
-      if (!(qty > 0)) continue;
-      if ((GAS_CANISTER_IDS as readonly string[]).includes(id)) canisters += qty;
-      else data[id] = (data[id] ?? 0) + qty;
-    }
-    if (f.survey) readouts += 1;
-  }
-  const parts = [plural(canisters, "canister", "canisters")];
-  const held = Object.entries(data).map(([id, q]) => `${ITEMS[id]?.label ?? id} x${q}`);
-  if (held.length > 0) parts.push(`${held.join(", ")} to the Research Lab`);
-  if (readouts > 0) parts.push(plural(readouts, "Survey Log readout", "Survey Log readouts"));
-  return `Ship studies: ${parts.join(", ")}.`;
+  const sweeps = studies.filter((f) => f.id.endsWith("-find-nebula")).length;
+  const giants = studies.length - sweeps;
+  const what: string[] = [];
+  if (giants > 0) what.push(plural(giants, "gas giant", "gas giants"));
+  if (sweeps > 0) what.push(plural(sweeps, "nebula sweep", "nebula sweeps"));
+  const parts = [what.join(" and ")];
+  const data = studies.some((f) => Object.entries(f.materials ?? {}).some(([id, q]) => q > 0 && ITEMS[id]?.category === "researchData"));
+  if (data) parts.push("research data goes to the Research Lab's Data study tab");
+  const readouts = studies.filter((f) => f.survey).length;
+  if (SURVEY_LOG_LIVE && readouts > 0) parts.push(plural(readouts, "Survey Log readout", "Survey Log readouts"));
+  return `Ship studies: ${parts.join("; ")}.`;
 }
 
 // ============================================================================
@@ -1031,6 +1039,21 @@ export function surveyEntryView(entry: SurveyLogEntry, all: readonly SurveyLogEn
     stage: kind.stage,
     stageNote: "Supernova and planetary nebula debris seeds the next molecular cloud, and the cycle starts again.",
   };
+}
+
+// The user (2026-10-23): the Survey Log needs its own mockup sign-off before it ships. The tab and its code stay built
+// but hidden behind this switch (the Archive tab list leaves it out while false; archiveSubTabs).
+export const SURVEY_LOG_LIVE = false;
+
+// The Archive's sub-tabs in order: the Survey Log only while SURVEY_LOG_LIVE. Pure.
+export type ArchiveSubTabKey = "archive" | "museum" | "surveyLog";
+export function archiveSubTabs(live: boolean = SURVEY_LOG_LIVE): { key: ArchiveSubTabKey; label: string }[] {
+  const tabs: { key: ArchiveSubTabKey; label: string }[] = [
+    { key: "archive", label: "Archive" },
+    { key: "museum", label: "Museum" },
+  ];
+  if (live) tabs.push({ key: "surveyLog", label: "Survey Log" });
+  return tabs;
 }
 
 // The Survey Log's empty line (every readout is the study's 15% roll).

@@ -5,13 +5,16 @@
   // where it comes from, what uses it, what it sells for, the Refinery recipe). The five gases share one glyph, the
   // antimatter cell has its own (user 2026-10-21).
   //
+  // GG-6 review: each tile carries the warehouse grid's fill (percent and bar) and its red full state, and the detail
+  // card says "Full (cap N)": the claim clamps at the cap, so a full shelf must never look roomy (stockFillDisplay.ts).
+  //
   // POSTURE: pure presentation over gasGiantStudyDisplay.ts canisterDetailView (tested; its sources and uses are read
   // off the content tables and every blueprint recipe). Selling stays the Quartermaster's. One DOM; the tile grid goes
   // 2, 3 and 6 across with the panel's width.
 
   import type { GameState } from "./game/model";
   import { GAS_CANISTER_IDS, type GasCanisterId } from "./game/gasGiantContent";
-  import { itemTotal } from "./game/inventory";
+  import { stockFill } from "./stockFillDisplay";
   import { ITEMS } from "./game/model";
   import { canisterDetailView } from "./gasGiantStudyDisplay";
   import { GAS_CANISTER_ICON } from "./ui/gasStudyIcons";
@@ -28,6 +31,7 @@
   $: if (!shown.includes(selected) && shown.length > 0) selected = shown[0];
   $: detail = canisterDetailView(selected);
   $: discovered = state.discovered.includes(selected);
+  $: fill = stockFill(state, selected);
 </script>
 
 {#if shown.length > 0}
@@ -36,9 +40,11 @@
       {#each shown as id (id)}
         {@const item = ITEMS[id]}
         {@const known = state.discovered.includes(id)}
+        {@const f = stockFill(state, id)}
         <button
           type="button"
           class="gc-tile b-{item?.band ?? 'standard'}"
+          class:full={f.full}
           aria-pressed={id === selected}
           aria-controls="gc-detail"
           on:click={() => (selected = id)}
@@ -46,7 +52,13 @@
           <span class="gc-glyph t-{item?.band ?? 'standard'}" aria-hidden="true"><Icon name={GAS_CANISTER_ICON[id]} size={28} /></span>
           <span class="gc-nm">{item?.label ?? id}</span>
           <span class="gc-band t-{item?.band ?? 'standard'}">{item?.band ?? "standard"}</span>
-          <span class="gc-ct">{known ? `x${formatNumber(itemTotal(state.inventory, id))}` : "Not found yet"}</span>
+          <span class="gc-ct">{known ? `x${formatNumber(f.held)}` : "Not found yet"}</span>
+          {#if known && f.cap !== null}
+            <span class="gc-fillrow">
+              <span class="gc-fill" aria-hidden="true"><i style="width: {f.pct}%;"></i></span>
+              <span class="gc-pct">{f.full ? "Full" : `${f.pct}%`}</span>
+            </span>
+          {/if}
         </button>
       {/each}
     </div>
@@ -60,7 +72,11 @@
       </div>
       <dl class="gc-kv">
         <dt>Held</dt>
-        <dd class="mono">{formatNumber(itemTotal(state.inventory, detail.id))}</dd>
+        <dd class="mono">{formatNumber(fill.held)}{#if fill.cap !== null} / {formatNumber(fill.cap)}{/if}</dd>
+        {#if fill.full && fill.cap !== null}
+          <dt>Shelf</dt>
+          <dd class="gc-full">Full (cap {formatNumber(fill.cap)}): canisters past the cap are not kept. Expand the Warehouse.</dd>
+        {/if}
         <dt>Source</dt>
         <dd>{detail.source}</dd>
         <dt>Used in</dt>
@@ -120,6 +136,38 @@
   .gc-tile:focus-visible {
     outline: 2px solid var(--color-accent-bright);
     outline-offset: 2px;
+  }
+  .gc-tile.full {
+    border-color: var(--color-danger);
+  }
+  .gc-fillrow {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .gc-fill {
+    flex: 1;
+    height: 4px;
+    border-radius: 2px;
+    background: rgba(var(--color-accent-rgb), 0.14);
+    overflow: hidden;
+  }
+  .gc-fill i {
+    display: block;
+    height: 100%;
+    background: var(--color-accent-bright);
+  }
+  .gc-tile.full .gc-fill i {
+    background: var(--color-danger);
+  }
+  .gc-pct {
+    font-size: var(--text-2xs);
+    font-family: var(--font-mono);
+    color: var(--color-text-secondary);
+  }
+  .gc-tile.full .gc-pct,
+  .gc-full {
+    color: var(--color-danger);
   }
   .gc-tile.b-standard { border-left-color: var(--rarity-standard); }
   .gc-tile.b-augmented { border-left-color: var(--rarity-augmented); }

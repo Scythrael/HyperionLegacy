@@ -29,7 +29,6 @@
             class="ds-switch"
             role="switch"
             aria-checked={!view.paused}
-            aria-label="Auto-study"
             on:click={() => onSetPaused(!view.paused)}
           >
             <span class="ds-knob" class:off={view.paused} aria-hidden="true"></span>
@@ -61,6 +60,8 @@
           <i style="width: {view.current ? view.current.progressPct : 0}%;" class:paused={view.paused}></i>
         </div>
         <p class="ds-dim ds-note">{view.note}</p>
+        {#if view.capText}<p class="ds-dim ds-note">{view.capText}</p>{/if}
+        {#each view.fullWarnings as w, i (i)}<p class="ds-full">{w}</p>{/each}
 
         <h3 class="ds-h ds-sub">Held data, next first</h3>
         <ul class="ds-q">
@@ -94,7 +95,7 @@
             {/each}
           </tbody>
         </table>
-        <p class="ds-dim ds-note">{view.ancientText}</p>
+        {#if view.ancientText}<p class="ds-dim ds-note">{view.ancientText}</p>{/if}
       </section>
     </div>
   {/if}
@@ -155,6 +156,11 @@
   }
   .ds-note {
     margin: 0;
+  }
+  .ds-full {
+    margin: 0;
+    font-size: var(--text-xs);
+    color: var(--color-danger);
   }
   .ds-switch {
     display: inline-flex;

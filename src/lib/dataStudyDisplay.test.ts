@@ -10,7 +10,9 @@ import { addItemQuality } from "./game/inventory";
 import { ANCIENT_DATA_FRAGMENT_ID, RESEARCH_DATA_ITEM, RESEARCH_FAMILIES } from "./game/gasGiantContent";
 import { DATA_STUDY_TICKS, researchBoostSpeed, researchFamilyOf, setDataStudyPaused } from "./game/dataStudy";
 import { buildHomeDashboard, DATA_STUDY_PAUSED_HOME_LINE } from "./game/homeDashboard";
-import { boostText, dataQueueRows, dataStudyLogLine, dataStudyView, familyLabel, ticksText } from "./dataStudyDisplay";
+import { ANCIENT_DECODE_TEXT_LIVE, boostText, dataQueueRows, dataStudyLogLine, dataStudyView, familyLabel, ticksText } from "./dataStudyDisplay";
+import { itemCap } from "./game/tick";
+import { formatNumber } from "./game/format";
 
 const T0 = 100_000;
 const rng = () => 0.5;
@@ -97,6 +99,24 @@ describe("GG-6 the Data study tab", () => {
     expect(row.nextText).toBe("+12% speed");
     expect(v.boosts.length).toBe(RESEARCH_FAMILIES.length);
     expect(v.log[0]).toMatch(/^Propulsion Data study done: boost banked/);
+  });
+
+  it("on, with data held and nothing started yet: the lane says it is starting, not idle", () => {
+    const v = dataStudyView(lab(1, { [PROP]: 1 }));
+    expect(v.current).toBeNull();
+    expect(v.idleText).toBe("Starting the next held data");
+  });
+
+  it("shows held data against its per-type cap and warns when a type is full; no decoded count before GG-7", () => {
+    const s = lab(1, { [PROP]: 2, [SENS]: 1 });
+    const cap = itemCap(s, PROP);
+    const v = dataStudyView(s);
+    expect(v.capText).toBe(`Held data 3 / ${formatNumber(cap)} of each type`);
+    expect(v.fullWarnings).toEqual([]);
+    const full = { ...lab(1, { [PROP]: cap.toNumber() }), discovered: [...freshState().discovered, PROP] };
+    expect(dataStudyView(full).fullWarnings).toEqual([`Propulsion Data is full (cap ${formatNumber(cap)}): more of it coming home is not kept.`]);
+    expect(ANCIENT_DECODE_TEXT_LIVE).toBe(false);
+    expect(v.ancientText).toBeNull();
   });
 
   it("folds consecutive units of one item into a row", () => {

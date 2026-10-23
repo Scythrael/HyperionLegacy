@@ -1151,7 +1151,7 @@
   import SurveyLogPanel from "./lib/SurveyLogPanel.svelte";
   import GasCanisterShelf from "./lib/GasCanisterShelf.svelte";
   import { dataStudyView } from "./lib/dataStudyDisplay";
-  import { SURVEY_LOG_HELP, onWarehouseShelf, studyClaimLine } from "./lib/gasGiantStudyDisplay";
+  import { SURVEY_LOG_HELP, SURVEY_LOG_LIVE, archiveSubTabs, onWarehouseShelf, studyClaimLine } from "./lib/gasGiantStudyDisplay";
   import { setDataStudyPaused } from "./lib/game/dataStudy";
   // Reactor fuel ladder (0.14.0): a gathering mission's own SVG glyph (the Cometary Ice Harvest's comet).
   import { missionIcon } from "./lib/ui/missionIcons";
@@ -10051,8 +10051,9 @@
   // expand storage" set. Drives the Overview's "items at cap" count + the
   // Attention card's per-item FULL list. materialAtCap is the same fn the
   // backend auto-stop uses, so this can't disagree with what actually idles.
+  // GG-6 review: research data has no warehouse shelf, so its cap shows in the Research Lab's Data study tab instead.
   $: warehouseItemsAtCap = Object.keys(ITEMS).filter(
-    (id) => state.discovered.includes(id) && materialAtCap(state, id)
+    (id) => onWarehouseShelf(id) && state.discovered.includes(id) && materialAtCap(state, id)
   );
   // Discovered / total across the whole catalog (the 100%-completion checklist,
   // design §3.2). A simple count pair for the Overview readout.
@@ -10061,8 +10062,8 @@
   $: warehouseDiscoveredCount = Object.keys(ITEMS).filter((id) => onWarehouseShelf(id) && state.discovered.includes(id)).length;
   // Gas Giant Study GG-1: the study items with no source yet are not counted (nothing can discover them before GG-3).
   $: warehouseTotalCount = Object.keys(ITEMS).filter((id) => onWarehouseShelf(id) && !gasStudySourcePending(id)).length;
-  // Gas Giant Study GG-6: the Research Lab's Data study tab (dataStudyDisplay.ts).
-  $: dataStudyTabView = dataStudyView(state);
+  // Gas Giant Study GG-6: the Research Lab's Data study tab (dataStudyDisplay.ts), built only while that tab is open.
+  $: dataStudyTabView = activeFoundryFacility === "research" && activeResearchSubTab === "dataStudy" ? dataStudyView(state) : null;
 
   // ---- Mission Rework (Task 8 UI) reactive derivations ------------------------
   // All read live `state`, so every readout below (dispatch gate, fuel gauge,
@@ -10855,11 +10856,8 @@
         ], active: activeShipyardSubTab, onSelect: (key) => (activeShipyardSubTab = key as ShipyardSubTab) };
       // Exploration 0.14.0 (E4c): the Archive gained the Museum beside its enshrine record.
       case "archive":
-        return { tabs: [
-          { key: "archive", label: "Archive" },
-          { key: "museum", label: "Museum" },
-          { key: "surveyLog", label: "Survey Log" },
-        ], active: activeArchiveSubTab, onSelect: (key) => (activeArchiveSubTab = key as ArchiveSubTab) };
+        // GG-6: the Survey Log tab waits for its own mockup sign-off (gasGiantStudyDisplay.ts SURVEY_LOG_LIVE).
+        return { tabs: archiveSubTabs(), active: activeArchiveSubTab, onSelect: (key) => (activeArchiveSubTab = key as ArchiveSubTab) };
       // Ground Ops GO-17 UI: ship loadouts and squad (ground team) loadouts, one shared cap.
       case "armory":
         return { tabs: [
@@ -13264,7 +13262,7 @@
                     text="Research data comes home from a ship's study of a gas giant or a nebula. The Lab studies it on its own lane, never blocking research or relic study, oldest first. Each study banks a boost for its family; your next project in that family uses them all. Pause holds the queue and the running study."
                   />
                 </div>
-                <DataStudyPanel view={dataStudyTabView} onSetPaused={doSetDataStudyPaused} />
+                {#if dataStudyTabView}<DataStudyPanel view={dataStudyTabView} onSetPaused={doSetDataStudyPaused} />{/if}
               </Panel>
             {/if}
 
@@ -15638,7 +15636,7 @@
                 {/if}
               </Panel>
             {/if}
-          {:else if activeFoundryFacility === "archive" && activeArchiveSubTab === "surveyLog"}
+          {:else if activeFoundryFacility === "archive" && activeArchiveSubTab === "surveyLog" && SURVEY_LOG_LIVE}
             <!-- THE SURVEY LOG (Gas Giant Study GG-6; the user's Lore home): every study readout (15% of studies and
                  sweeps) written at the claim, grouped by class with counts; the entry card shows how close a giant came
                  to becoming a star, or where a nebula sits in a star's life cycle. Pure display. -->

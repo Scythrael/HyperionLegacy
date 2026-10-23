@@ -14,6 +14,7 @@
 import type { CompletionLogEntry, GameState } from "./game/model";
 import { BLUEPRINTS, ITEMS, labTier } from "./game/model";
 import {
+  DATA_STUDY_ITEM_IDS,
   DATA_STUDY_RECIPE_PERMILLE,
   DATA_STUDY_TICKS,
   RESEARCH_BOOST_PER,
@@ -28,6 +29,8 @@ import {
 } from "./game/dataStudy";
 import { ANCIENT_DATA_FRAGMENT_ID, RESEARCH_DATA_ITEM, RESEARCH_FAMILIES, type ResearchFamily } from "./game/gasGiantContent";
 import { researchDataIcon } from "./ui/gasStudyIcons";
+import { stockFill } from "./stockFillDisplay";
+import { formatNumber } from "./game/format";
 import type { IconName } from "./ui/icons";
 
 // ===== Words =====
@@ -98,8 +101,14 @@ export interface DataStudyView {
   log: string[];
   boosts: DataStudyBoostRow[];
   boostNote: string;
-  ancientText: string;
+  ancientText: string | null; // hidden until GG-7 makes decoding visible (ANCIENT_DECODE_TEXT_LIVE)
+  capText: string | null; // "Held data 5 / 500 of each type"
+  fullWarnings: string[]; // one per data type at its warehouse cap
 }
+
+// The user (2026-10-23): no "Entries decoded so far" number until decoding does something a player sees (GG-7 authors
+// the decode-gated blueprints). The lane still decodes; the line returns with GG-7.
+export const ANCIENT_DECODE_TEXT_LIVE = false;
 
 export const DATA_STUDY_NOTE_ON = "When the lane is idle it starts the next held data on its own. Pause holds the queue; nothing is lost.";
 export const DATA_STUDY_NOTE_PAUSED = "Paused: held data waits in the queue, nothing is lost. Turn it back on to resume.";
@@ -158,6 +167,22 @@ export function ancientDecodedTotal(state: Pick<GameState, "ancientDecoded">): n
   return n;
 }
 
+// The held research data against its warehouse cap (the user, 2026-10-23: research data keeps the cap for now, and the
+// Data study tab shows it): every data type has the same per-type cap (its warehouse tier's), and a type at its cap
+// warns that more of it coming home is not kept (the claim clamps at the cap). Pure.
+export function heldCap(state: GameState): { capText: string | null; fullWarnings: string[] } {
+  let held = 0;
+  let cap: string | null = null;
+  const fullWarnings: string[] = [];
+  for (const id of DATA_STUDY_ITEM_IDS) {
+    const f = stockFill(state, id);
+    held += Math.max(0, Math.floor(f.held.toNumber()));
+    if (f.cap !== null) cap = formatNumber(f.cap);
+    if (f.full && f.cap !== null) fullWarnings.push(`${itemLabel(id)} is full (cap ${formatNumber(f.cap)}): more of it coming home is not kept.`);
+  }
+  return { capText: cap === null ? null : `Held data ${held} / ${cap} of each type`, fullWarnings };
+}
+
 // The whole Data study tab. Pure.
 export function dataStudyView(state: GameState): DataStudyView {
   const lanes = dataStudyLaneCount(state);
@@ -186,14 +211,18 @@ export function dataStudyView(state: GameState): DataStudyView {
     paused,
     switchText: paused ? "Paused" : "Auto-study on",
     current,
-    idleText: current ? null : paused && queue.length > 0 ? "Paused: held data waits" : "Idle: no held data",
-    idleSub: current ? null : paused && queue.length > 0 ? "Turn auto-study back on to start the next one." : "The next data returned starts on its own.",
+    // GG-6 review: on, with data held and nothing started yet (the lane starts it on the next tick).
+    idleText: current ? null : queue.length > 0 ? (paused ? "Paused: held data waits" : "Starting the next held data") : "Idle: no held data",
+    idleSub: current ? null : queue.length > 0 ? (paused ? "Turn auto-study back on to start the next one." : "The lane starts it on its own.") : "The next data returned starts on its own.",
     note: paused ? DATA_STUDY_NOTE_PAUSED : DATA_STUDY_NOTE_ON,
     queue,
     queueEmptyText: "Nothing held",
     log: dataStudyLog(state),
     boosts: boostRows(state),
     boostNote: `Each finished study banks one boost for its family. Your next project in that family uses them all: +${boostPct}% speed for one, stacking on the diminishing curve, never capped.`,
-    ancientText: `An Ancient Data Fragment is studied in this same lane; it decodes the next entry of the culture it came from instead of banking a boost. Entries decoded so far: ${decoded}.`,
+    ancientText: ANCIENT_DECODE_TEXT_LIVE
+      ? `An Ancient Data Fragment is studied in this same lane; it decodes the next entry of the culture it came from instead of banking a boost. Entries decoded so far: ${decoded}.`
+      : null,
+    ...heldCap(state),
   };
 }

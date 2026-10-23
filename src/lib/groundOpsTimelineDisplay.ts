@@ -667,7 +667,8 @@ export function timelineView(
 ): TimelineView | null {
   const ops = exp.groundOps;
   if (!ops || ops.startedAt === undefined) return null;
-  const windowStart = ops.startedAt;
+  // GG-6 review: a resumed run's startedAt sits its clock skip before the window opened (G2-5).
+  const windowStart = ops.startedAt + (ops.scanClockSkip ?? 0);
   const closed = ops.endedAt !== undefined;
   const end = Math.max(windowStart + 1, closed ? (ops.endedAt as number) : now);
   const raw = ops.teams.map((team) => teamSteps(exp, team, end));
