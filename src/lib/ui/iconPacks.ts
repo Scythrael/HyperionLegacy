@@ -104,6 +104,13 @@ export const ICON_SEMANTICS: Record<IconName, IconSemantic> = {
 
   // SUBJECT (0.13.11): the achievement star names a thing (a named goal), restyle freely.
   star: "subject",
+
+  // 0.13.11.1: the header block and the minigame panel. The controller names a thing (the
+  // minigames); help, gear and chart open something, so they stay recognizable as those actions.
+  controller: "subject",
+  help: "action",
+  gear: "action",
+  chart: "action",
 };
 
 // ---------------------------------------------------------------------------

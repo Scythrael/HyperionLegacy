@@ -119,6 +119,18 @@ export const ICON_PATHS = {
   star: ["M12 3.5l2.6 5.3 5.9.9-4.3 4.1 1 5.8-5.2-2.7-5.2 2.7 1-5.8-4.3-4.1 5.9-.9z"],
   // Circle: an empty ring, "not reached yet" beside a check for "reached".
   circle: ["M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18z"],
+
+  // --- 0.13.11.1 header block and the minigame panel ---
+
+  // Controller: a gamepad (D-pad cross on the left, two buttons on the right), the Minigames
+  // button. The buttons are hair-length lines so the round caps paint them as dots.
+  controller: ["M7 7.5h10a4.5 4.5 0 0 1 4.5 4.5v1a3.5 3.5 0 0 1-6.4 2L14.4 14H9.6l-.7 1a3.5 3.5 0 0 1-6.4-2v-1A4.5 4.5 0 0 1 7 7.5z", "M7.5 9.8v4.4M5.3 12h4.4", "M15.6 11v.2", "M17.8 13v.2"],
+  // Help: a question mark, the Help button (the dot is a hair-length line, as in warning).
+  help: ["M8 8.6a4 4 0 1 1 5.8 3.6c-1.1.5-1.8 1.5-1.8 2.7v.5", "M12 19.2v.2"],
+  // Gear: settings. The same cog the header gear always drew, moved into the registry.
+  gear: ["M12 8.8a3.2 3.2 0 1 0 0 6.4 3.2 3.2 0 0 0 0-6.4z", "M19.4 15a1.6 1.6 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.6 1.6 0 0 0-1.8-.3 1.6 1.6 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1A1.6 1.6 0 0 0 9 19.4a1.6 1.6 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.6 1.6 0 0 0 .3-1.8 1.6 1.6 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1A1.6 1.6 0 0 0 4.6 9a1.6 1.6 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.6 1.6 0 0 0 1.8.3H9a1.6 1.6 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.6 1.6 0 0 0 1 1.5 1.6 1.6 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.6 1.6 0 0 0-.3 1.8V9a1.6 1.6 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.6 1.6 0 0 0-1.5 1z"],
+  // Chart: three rising bars on a baseline, the minigame's Stats button.
+  chart: ["M4 20h16", "M7 16v-5", "M12 16V7", "M17 16v-8"],
 } as const satisfies Record<string, readonly string[]>;
 
 /**
