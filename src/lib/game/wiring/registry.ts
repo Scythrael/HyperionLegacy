@@ -94,6 +94,8 @@ import type { CaptainPrimaryMultKind } from "../captainPrimaryEffects";
 import { BASE_FTL_DURABILITY, BASE_REACTOR_DURABILITY, COMBAT_DEFAULT_LOADOUT, combatHullTypeOf, hullDefenseComposition } from "../combat/bridge";
 // WR-8 (0.14.0): the combat descriptors (combatRules.ts), their probes' on / off mark, and the readers they name.
 import { DEFENSIVE_STANCE, ENCOUNTER_OPEN_DISTANCE, WEAPON_RULE_TRAITS, familyResistPercent, podLineShare } from "../combat/combatRules";
+// E-MOD EM-3: the combat over-budget penalty's floor (its registry row's magnitude).
+import { POWER_SUPPLY_FLOOR_PERCENT } from "../combat/power";
 import { qualityDurabilityMax } from "../combat/durability";
 import { stancePreferredDistance } from "../combat/positioning";
 import { combatDescriptorOn } from "./combatDescriptorProbes";
@@ -3745,7 +3747,11 @@ const AUDIT_ROWS: readonly { id: string; system: WiringSystem; claim: string; st
   { id: "ship:audit:familyResists", system: "ship", claim: "damageResist_<family> / disruptionResist_<family>: crafted Hull Plating rolls the damage resists, Shield Emitters the disruption resists", status: LIVE },
   { id: "ship:audit:installedSystems", system: "ship", claim: "Reactor / FTL systems from installed gear: the combat pools take the installed pieces' quality", status: LIVE },
   { id: "ship:audit:derivedStatsInCombat", system: "ship", claim: "ShipDerivedStats in combat: the transit speed (its gear, crew, captain and mass drag) sets the combat speed", status: LIVE },
-  { id: "ship:wr8:powerInCombat", system: "ship", claim: "ShipDerivedStats in combat: power output against the net draw (the over-budget penalty)", status: pending("E-MOD EM-3 (the combat over-budget penalty freezes the power supply in the cycle's combat rules stamp)") },
+  // E-MOD EM-3 (user answers 2026-10-17: Over budget "Gentle penalty curve", P6 "sqrt curve, floor 60%"): live in place,
+  // its checks in wr8AuditWiring below; the shield and floor rows beside it are EM-3's own.
+  { id: "ship:wr8:powerInCombat", system: "ship", claim: "ShipDerivedStats in combat: power output against the net draw. An over-budget ship's weapons hit at its power supply (sqrt(output / draw), frozen in the run's combat rules stamp)", status: LIVE },
+  { id: "ship:em3:powerShieldRecharge", system: "ship", claim: "An over-budget ship's shields recharge at its power supply in combat", status: LIVE },
+  { id: "ship:em3:powerSupplyFloor", system: "ship", claim: "POWER_SUPPLY_FLOOR_PERCENT: however far over budget, a ship fights at no less than this power supply (nothing shuts off)", status: LIVE },
   { id: "ship:audit:weaponPowerDraw", system: "ship", claim: "Weapon powerDraw: a crafted weapon draws its def's power from the ship's budget", status: LIVE },
   { id: "ship:audit:commentOnlyRules", system: "ship", claim: "The Tachyon anti-shield exception: a Tachyon shot takes its own vs-Shields column", status: LIVE },
   { id: "ship:wr8:voltaicChain", system: "ship", claim: "The Voltaic chain: a connecting Voltaic shot arcs part of its damage onto the attacker's weakest other foe", status: LIVE },
@@ -3899,6 +3905,8 @@ function wr8AuditWiring(): Readonly<Record<string, Partial<EntryInput>>> {
   const reactorAt = (quality: number): Transform => (s) => installPiece(s, { slotType: "reactorCore", quality });
   const ftlAt = (quality: number): Transform => (s) => installPiece(s, { slotType: "ftlDrive", quality });
   const transitDrive = (points: number): Transform => (s) => installPiece(s, { slotType: "ftlDrive", implicitStats: points > 0 ? { transitSpeedMult: points } : {} });
+  // E-MOD EM-3: a Cargo Bay drawing num / den of the Destroyer's own output (combatBase's hull; its gear draws 0).
+  const overBudget = (num: number, den: number): Transform => (s) => installPiece(s, { slotType: "cargoBay", powerDraw: Math.ceil((SHIP_TYPES.destroyer.basePowerOutput * num) / den) });
   return {
     "ship:audit:combatPositions": { probe: "combatOpenDistance", contexts: ["patrol", "shipEvent"], direction: "none", curve: { kind: "equals" }, magnitude: () => ENCOUNTER_OPEN_DISTANCE },
     "ship:wr8:weaponRange": ev("combatEventWeaponRange", "up", "the target's damage taken (a railgun's range on vs out of reach)"),
@@ -3954,6 +3962,13 @@ function wr8AuditWiring(): Readonly<Record<string, Partial<EntryInput>>> {
       off: transitDrive(0),
       tolerance: 1,
     },
+    // E-MOD EM-3: a Standard-Issue Destroyer (its own gear draws nothing) taking a powered Cargo Bay that draws half
+    // again its hull's output (supply sqrt(2 / 3), 81%), or four times it (the floor), against the ship in budget.
+    // Weapons and shields are measured as a patrol cycle builds the ship (the stamp it would write now) and as an
+    // expedition's ship event does (its dispatch snapshot).
+    "ship:wr8:powerInCombat": { probe: "combatPowerSupplyDamage", contexts: ["patrol", "shipEvent"], direction: "down", curve: { kind: "event", metric: "the first weapon's damage over 300 shots" }, magnitude: () => 1, base: () => combatBase(), on: overBudget(3, 2) },
+    "ship:em3:powerShieldRecharge": { probe: "combatPowerSupplyShieldRecharge", contexts: ["patrol", "shipEvent"], direction: "down", curve: { kind: "event", metric: "the shields recharged in a battle with no fire" }, magnitude: () => 1, base: () => combatBase(), on: overBudget(3, 2) },
+    "ship:em3:powerSupplyFloor": { probe: "combatPowerSupplyStamp", contexts: ["patrol"], direction: "none", curve: { kind: "equals" }, magnitude: () => POWER_SUPPLY_FLOOR_PERCENT, base: () => combatBase(), on: overBudget(4, 1) },
     "ship:audit:commentOnlyRules": { probe: "combatTachyonVsShields", contexts: ["patrol"], direction: "none", curve: { kind: "equals" }, magnitude: () => WEAPON_RULE_TRAITS.tachyonBurstEmitter?.vsShieldsPct ?? 0, on: combatDescriptorOn },
     "ship:wr8:voltaicChain": ev("combatEventVoltaicChain", "up", "the second foe's damage taken"),
     "ship:wr8:vsDronesColumn": ev("combatEventVsDrones", "down", "a Defense drone's hit points lost to kinetic fire"),

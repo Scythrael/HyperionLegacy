@@ -16,7 +16,15 @@
 // drawing half again the ship's output: sqrt(2/3), 81%) and DEEP over (four times the output: sqrt(1/4) = 50%, below
 // the 60% floor). The draw sits on the installed Shield Emitter's pristine powerDraw, the only field it touches: power
 // draw moves nothing else in combat, so before EM-3 every over and deep row equals its in-budget row except the hashes
-// that include the piece itself (the ship and the whole state), and a test below proves that.
+// that include the piece itself (the ship and the whole state); the switch test below proves that.
+//
+// EM-3 (the engine commit) proves four things about EM3_GOLDEN_PRE: every in-budget row holds (a ship in budget carries
+// no power supply); the switch (emodEm3Switch.fixture.ts withPowerSupplyOff: no stamp carries a supply) reproduces every
+// row; IN FLIGHT, a run dispatched inside the switch (stamped before EM-3) and flown by the live engine is
+// byte-identical to its row; and EM3_GOLDEN pins the live game, whose over and deep rows moved by design (forecast wins
+// of 64, in / over / deep: Freighter Sweep 57 / 48 / 37, Destroyer Sweep 64 / 63 / 63, Destroyer Warband 9 / 4 / 2,
+// Battleship Warband 52 / 45 / 33, Carrier Warband 23 / 14 / 6; the Battleship and Carrier Sweeps and the Freighter
+// Warband held; the deep Freighter Sweep patrol is lost at tick 10 where it was won).
 
 import { describe, expect, it } from "vitest";
 import Decimal from "break_infinity.js";
@@ -37,6 +45,7 @@ import { patrolDifficultyAt } from "./runDifficulty";
 import { shipCombatRulesStamp } from "./crewOverlay";
 import { shipPowerTotals } from "./shipPower";
 import { gearWearOffInThisFile } from "./gearWearSwitch.fixture";
+import { withPowerSupplyOff } from "./emodEm3Switch.fixture";
 // The pins are about combat power, not gear wear: use wear stays off so a later wear tune never moves them.
 gearWearOffInThisFile();
 
@@ -236,24 +245,76 @@ export const EM3_GOLDEN_PRE: Record<string, unknown> = {
   "shipEvent:orion:deep": ["probe:0:0:win:0:a894f168", "probe:0:1:win:0:f4bd0752", "probe:0:2:win:0:3f047c54", "probe:1:0:win:0:cc9053ba", "probe:1:1:win:0:b3d35774", "probe:1:2:win:0:8eb44f6", "cloakedPass:0:0:win:0:38c3f49", "cloakedPass:0:1:win:0:6bea0e7", "cloakedPass:0:2:win:0:eda81181", "cloakedPass:1:0:win:0:27ecdc73", "cloakedPass:1:1:win:0:31ef0e91", "cloakedPass:1:2:win:0:abfb56f3", "cloakedFail:0:0:win:0:38c3f49", "cloakedFail:0:1:win:0:6bea0e7", "cloakedFail:0:2:win:0:eda81181", "cloakedFail:1:0:win:0:27ecdc73", "cloakedFail:1:1:loss:41:28710703", "cloakedFail:1:2:win:0:abfb56f3"],
 };
 
-describe("EM-3 goldens (captured before the combat over-budget penalty)", () => {
+// The live EM-3 game. Every in-budget row is its GOLDEN_PRE row (a ship in budget carries no power supply). Every
+// over and deep battle, patrol, replay and ship-event row moved by design (the stamp's supply: 81% over, the 60%
+// floor deep); each forecast that moved is named in the report and the plan's carry note.
+export const EM3_GOLDEN: Record<string, unknown> = {
+  // In budget: the GOLDEN_PRE rows.
+  ...Object.fromEntries(Object.entries(EM3_GOLDEN_PRE).filter(([k]) => k.endsWith(":in"))),
+  "battle:destroyer:over": "2f7ff333",
+  "battle:battleship:over": "5152b8f7",
+  "battle:carrier:over": "14de60a8",
+  "battle:orion:over": "931ebad3",
+  "patrol:generalFreighter:crimsonReaverSweep:over": ["bad8e453", "5ac76d4d", "won:14", "b2f38143", "f97a5238"],
+  "forecast:generalFreighter:crimsonReaverSweep:over": "48:worthy",
+  "patrol:generalFreighter:crimsonReaverWarband:over": ["4fcbf611", "630e8ec2", "lost:20", "701a58f1", "885e3925"],
+  "forecast:generalFreighter:crimsonReaverWarband:over": "0:impossible",
+  "patrol:destroyer:crimsonReaverSweep:over": ["753f737f", "1de6ef6d", "won:14", "6ad9f46c", "efab1087"],
+  "forecast:destroyer:crimsonReaverSweep:over": "63:likely",
+  "patrol:destroyer:crimsonReaverWarband:over": ["3a140659", "eaf90ef3", "won:22", "6ad9f46c", "bd700ec8"],
+  "forecast:destroyer:crimsonReaverWarband:over": "4:extreme",
+  "patrol:battleship:crimsonReaverSweep:over": ["e75edf6d", "6f48751", "won:14", "c6dba9cb", "9d406c2"],
+  "forecast:battleship:crimsonReaverSweep:over": "64:guaranteed",
+  "patrol:battleship:crimsonReaverWarband:over": ["c2738b87", "61e9b0a9", "won:22", "c6dba9cb", "7671172d"],
+  "forecast:battleship:crimsonReaverWarband:over": "45:worthy",
+  "patrol:carrier:crimsonReaverSweep:over": ["2027014e", "113de716", "won:14", "ea909677", "9012fba4"],
+  "forecast:carrier:crimsonReaverSweep:over": "64:guaranteed",
+  "patrol:carrier:crimsonReaverWarband:over": ["3ff3d2e4", "bf5cf279", "won:22", "ea909677", "c2373fc1"],
+  "forecast:carrier:crimsonReaverWarband:over": "14:notAdvised",
+  "shipEvent:orion:over": ["probe:0:0:win:0:a894f168", "probe:0:1:win:0:f4bd0752", "probe:0:2:win:0:3f047c54", "probe:1:0:win:0:cc9053ba", "probe:1:1:win:0:b3d35774", "probe:1:2:win:0:8eb44f6", "cloakedPass:0:0:win:0:38c3f49", "cloakedPass:0:1:loss:41:fabed3b6", "cloakedPass:0:2:win:0:eda81181", "cloakedPass:1:0:loss:41:c636d7b4", "cloakedPass:1:1:win:0:31ef0e91", "cloakedPass:1:2:win:0:abfb56f3", "cloakedFail:0:0:win:0:38c3f49", "cloakedFail:0:1:loss:41:fabed3b6", "cloakedFail:0:2:loss:41:695e5fdb", "cloakedFail:1:0:loss:41:c636d7b4", "cloakedFail:1:1:loss:41:28710703", "cloakedFail:1:2:loss:41:4dfd9dfe"],
+  "battle:destroyer:deep": "7916aaed",
+  "battle:battleship:deep": "6397ffd7",
+  "battle:carrier:deep": "cb70a3f2",
+  "battle:orion:deep": "9b28c363",
+  "patrol:generalFreighter:crimsonReaverSweep:deep": ["72897a44", "60059ba1", "lost:10", "701a58f1", "97bf2b09"],
+  "forecast:generalFreighter:crimsonReaverSweep:deep": "37:dice",
+  "patrol:generalFreighter:crimsonReaverWarband:deep": ["b9a0b632", "14da7d55", "lost:20", "701a58f1", "2554c899"],
+  "forecast:generalFreighter:crimsonReaverWarband:deep": "0:impossible",
+  "patrol:destroyer:crimsonReaverSweep:deep": ["6a4d0180", "5ded8ae6", "won:14", "6ad9f46c", "e91aa50b"],
+  "forecast:destroyer:crimsonReaverSweep:deep": "63:likely",
+  "patrol:destroyer:crimsonReaverWarband:deep": ["437eba72", "f59c3d", "won:22", "6ad9f46c", "926bbf5c"],
+  "forecast:destroyer:crimsonReaverWarband:deep": "2:extreme",
+  "patrol:battleship:crimsonReaverSweep:deep": ["baf75d80", "e6154c02", "won:14", "c6dba9cb", "1a747e75"],
+  "forecast:battleship:crimsonReaverSweep:deep": "64:guaranteed",
+  "patrol:battleship:crimsonReaverWarband:deep": ["1098f2fa", "74832a4c", "won:22", "c6dba9cb", "55d52fda"],
+  "forecast:battleship:crimsonReaverWarband:deep": "33:dice",
+  "patrol:carrier:crimsonReaverSweep:deep": ["f5097af5", "f153cf84", "won:14", "ea909677", "5a3efd9e"],
+  "forecast:carrier:crimsonReaverSweep:deep": "64:guaranteed",
+  "patrol:carrier:crimsonReaverWarband:deep": ["e1577adb", "5f03ded", "won:22", "ea909677", "f1ccd2fb"],
+  "forecast:carrier:crimsonReaverWarband:deep": "6:extreme",
+  "shipEvent:orion:deep": ["probe:0:0:win:0:a894f168", "probe:0:1:win:0:f4bd0752", "probe:0:2:win:0:3f047c54", "probe:1:0:win:0:cc9053ba", "probe:1:1:win:0:b3d35774", "probe:1:2:win:0:8eb44f6", "cloakedPass:0:0:loss:41:e154b8d", "cloakedPass:0:1:loss:41:fabed3b6", "cloakedPass:0:2:loss:41:695e5fdb", "cloakedPass:1:0:loss:41:c636d7b4", "cloakedPass:1:1:loss:41:28710703", "cloakedPass:1:2:loss:41:4dfd9dfe", "cloakedFail:0:0:loss:41:e154b8d", "cloakedFail:0:1:loss:41:fabed3b6", "cloakedFail:0:2:loss:41:695e5fdb", "cloakedFail:1:0:loss:41:c636d7b4", "cloakedFail:1:1:loss:41:28710703", "cloakedFail:1:2:loss:41:4dfd9dfe"],
+};
+
+describe("EM-3 goldens", () => {
   const got = em3Rows();
-  it("every row matches the capture", () => {
-    expect(got).toEqual(EM3_GOLDEN_PRE);
+  it("the live game matches GOLDEN", () => {
+    expect(got).toEqual(EM3_GOLDEN);
   });
-  it("before EM-3, power draw moves no fight: every over and deep row equals its in-budget row (but the piece's own hashes)", () => {
-    for (const [k, v] of Object.entries(got)) {
-      const level = k.split(":").pop() as PowerLevel;
-      if (level === "in") continue;
-      const inRow = got[k.replace(/:(over|deep)$/, ":in")];
-      if (k.startsWith("patrol:")) {
-        // The dispatch record, the replay and the outcome hold; the ship and the state carry the piece's draw.
-        expect((v as string[]).slice(0, 3), k).toEqual((inRow as string[]).slice(0, 3));
-      } else if (k.startsWith("shipEvent:")) {
-        expect(v, k).toEqual(inRow);
-      } else {
-        expect(v, k).toEqual(inRow);
+  it("every in-budget row is its pre-EM-3 capture (a ship in budget fights exactly as before)", () => {
+    for (const [k, v] of Object.entries(got)) if (k.endsWith(":in")) expect(v, k).toEqual(EM3_GOLDEN_PRE[k]);
+  });
+  it("the switch reproduces every pre-EM-3 row (EM-3 moved nothing else)", () => {
+    expect(withPowerSupplyOff(em3Rows)).toEqual(EM3_GOLDEN_PRE);
+  });
+  it("in flight: a patrol cycle or expedition stamped before EM-3 flies on at full power, byte-identical", () => {
+    for (const level of EM3_LEVELS) {
+      for (const hull of EM3_PATROL_HULLS) {
+        for (const key of EM3_ROUTES) {
+          const row = patrolRow(hull, key, level, (s) => withPowerSupplyOff(() => dispatchCaptainOnPatrol(s, 1, key, "balanced", false)));
+          expect(row, `${hull} ${key} ${level}`).toEqual(EM3_GOLDEN_PRE[`patrol:${hull}:${key}:${level}`]);
+        }
       }
+      expect(shipEventRow(level, withPowerSupplyOff), `orion ${level}`).toEqual(EM3_GOLDEN_PRE[`shipEvent:orion:${level}`]);
     }
   });
 });

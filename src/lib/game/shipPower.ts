@@ -28,9 +28,9 @@ import type { EquipmentInstance, GameState } from "./model";
 import { BLUEPRINTS, DEFAULT_EQUIPMENT_VARIETY, SHIP_TYPES, equipmentStatMods } from "./model";
 import { HULL_TIER_REACTOR_REQUIREMENT, REACTOR_VARIETY_TECH, meetsReactorRequirement, requiredReactorTech, type ReactorTechId } from "./reactorTech";
 import { MULTI_SLOT_TYPES, equippedFor } from "./equipmentQueries";
-import { netPowerDraw, shipCrewContribution } from "./crewOverlay";
+import { netPowerDraw, shipCrewContribution, shipNetPowerTotals } from "./crewOverlay";
 import { CREW_STAT_KEYS } from "./crewBuffs";
-import { powerBudget, type PowerBudget } from "./combat/power";
+import { powerBudget, powerSupplyPercent, type PowerBudget } from "./combat/power";
 
 export interface ShipPowerBudget extends PowerBudget {
   baseOutput: number; // the hull's own generation (basePowerOutput)
@@ -97,14 +97,18 @@ export interface ShipPowerTotals {
   output: number;
   draw: number; // net of power efficiency; the gross draw when the fast path proves the ship fits
 }
+// E-MOD EM-3: the fold itself lives in crewOverlay.ts shipNetPowerTotals (the combat stamp reads the same one).
 export function shipPowerTotals(state: GameState, shipId: string): ShipPowerTotals {
   const ship = state.ships.find((s) => s.id === shipId);
   if (!ship) throw new Error(`shipPowerTotals: no ship ${shipId}`);
-  const mods = equipmentStatMods(equippedFor(state, shipId));
-  const output = SHIP_TYPES[ship.typeKey].basePowerOutput + mods.powerOutput + mods.modulePowerOutput;
-  const gross = mods.totalPowerDraw;
-  if (gross <= output) return { output, draw: gross };
-  return { output, draw: netPowerDraw(gross, shipPowerEfficiency(state, shipId)) };
+  return shipNetPowerTotals(state, ship);
+}
+
+// E-MOD EM-3: the power supply percent the ship would fight at in a run starting now (combat/power.ts
+// powerSupplyPercent: 100 in budget, sqrt(output / draw) over it, never below the floor). Pure.
+export function shipPowerSupplyPercent(state: GameState, shipId: string): number {
+  const t = shipPowerTotals(state, shipId);
+  return powerSupplyPercent(t.output, t.draw);
 }
 
 // How far over budget the ship is (0 when in budget). Over budget is a STRICT overrun (power.ts: exact-equal fits).
@@ -151,11 +155,13 @@ export function overPowerReasonText(shortfall: number): string {
 // The over-budget warning (user answer P2, 2026-10-17: "Never evict; a warning chip"): null while the ship is in
 // budget. A ship can only get here by losing power it had (an Engineering officer or Martian crew leaving, a Reactor
 // Core uninstalled), since every install that would put it here is refused. `chip` is the short flag, `cause` names
-// where the shortfall comes from, from the ship as it is now. Nothing is ever switched off or removed. The combat
-// strength line (weapons and shield recharge at X%, P6) joins when the combat penalty lands (EM-3, after WR-8). Pure.
+// where the shortfall comes from, from the ship as it is now. Nothing is ever switched off or removed. `strength` is
+// the combat line (E-MOD EM-3, user answer P6): the power supply percent its next fight runs at. Pure.
 export interface OverBudgetNotice {
   shortfall: number;
   chip: string;
+  supplyPercent: number;
+  strength: string;
   cause: string;
 }
 export function overBudgetNotice(state: GameState, shipId: string): OverBudgetNotice | null {
@@ -185,9 +191,13 @@ export function overBudgetNotice(state: GameState, shipId: string): OverBudgetNo
       : modules
         ? `No Reactor Core power: the hull's own ${base}${modules} supply ${t.output}`
         : `No Reactor Core power: the hull's own ${base} only`;
+  const supplyPercent = powerSupplyPercent(t.output, t.draw);
   return {
     shortfall,
     chip: `Over budget by ${shortfall}`,
+    supplyPercent,
+    // The signed-off mockup's strength line; the stamp freezes it when a patrol cycle or an expedition starts.
+    strength: `Weapons and shield recharge at ${supplyPercent}%.`,
     cause: `${efficiency}. ${supply}, against a draw of ${t.draw}. Nothing was switched off or removed. Install a stronger Reactor Core or remove a powered system to clear it.`,
   };
 }

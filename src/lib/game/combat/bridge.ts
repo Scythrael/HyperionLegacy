@@ -754,6 +754,9 @@ export interface ShipToCombatantArgs {
 	// WR-8: the qualities of the installed Reactor Core and FTL drive the run froze in its stamp (stampCombatArgs): the
 	// combat reactor and drive pools are built at them. Absent: quality 0, the pre-WR-8 pools.
 	systemQuality?: { reactor: number; ftl: number };
+	// E-MOD EM-3 (0.14.0): the power supply percent the run froze in its stamp (stampCombatArgs, combat/power.ts
+	// powerSupplyPercent): an over-budget ship's weapon damage and shield recharge. Absent or 100: full power.
+	powerSupplyPercent?: number;
 }
 
 // E-CREW 0.14.0 (Task 20): fold the Senior Staff combat bonuses onto a freshly minted combatant, IN PLACE
@@ -1045,6 +1048,12 @@ export function shipToCombatant(args: ShipToCombatantArgs): Combatant {
 	// modifiers (combatRules.ts DEFENSIVE_STANCE): less damage taken and dealt, shields first, guarding. A fresh copy.
 	// WR-8 review (answer 5): every combatant under the rules can close evasively (resolveBattle.ts advanceMovement).
 	if (args.combatRules) combatant.evasiveClose = { active: false, carry: 0 };
+	// E-MOD EM-3: an over-budget ship fights at its stamped power supply (absent at full power, so every ship in budget
+	// is the combatant it was).
+	if (args.powerSupplyPercent !== undefined && args.powerSupplyPercent < 100) {
+		combatant.powerSupplyPercent = args.powerSupplyPercent;
+		combatant.powerSupplyCarry = 0;
+	}
 	if (args.combatRules && combatant.stance === "standoff") {
 		combatant.defensive = { ...DEFENSIVE_STANCE };
 		combatant.defensiveCarry = { taken: 0, dealt: 0, absorb: 0 };
