@@ -94,6 +94,89 @@ describe("range checks", () => {
   });
 });
 
+describe("0.13.11.1 fields", () => {
+  const NEW_KEYS = ["upgrades", "found", "foundAt", "peakOwned", "peakOverclock", "upgradesNoteSeen"];
+  // A save exactly as 0.13.11 wrote it: none of the new keys.
+  function oldShape(s: ReturnType<typeof freshSecretState>): string {
+    const raw = JSON.parse(serializeSecret(s));
+    for (const k of NEW_KEYS) delete raw[k];
+    return JSON.stringify(raw);
+  }
+
+  it("a fresh state starts unfound, with no upgrades and peaks at zero", () => {
+    const s = freshSecretState(0);
+    expect(s.found).toBe(false);
+    expect(s.foundAt).toBeNull();
+    expect(s.upgrades).toEqual({ ocOverclocker: 0, tenfoldTuner: 0, captainsCompound: 0, lucidDreaming: 0 });
+    expect(s.peakOwned.every((d) => d.eq(0))).toBe(true);
+    expect(s.peakOverclock).toBe(0);
+    expect(s.upgradesNoteSeen).toBe(false);
+  });
+
+  it("a 0.13.11 save loads with every new field defaulted, and a played one counts as found", () => {
+    const s = freshSecretState(0);
+    s.ore = new Decimal("1e500");
+    s.bought[0] = 40;
+    s.owned[0] = new Decimal("3e400");
+    s.overclock = 77;
+    s.captainCount = 3;
+    s.milestones = { googol: 5000, firstCaptain: 2000 };
+    const back = deserializeSecret(oldShape(s), 0)!;
+    expect(back).not.toBeNull();
+    expect(back.ore.eq(new Decimal("1e500"))).toBe(true);
+    expect(back.milestones).toEqual({ googol: 5000, firstCaptain: 2000 });
+    expect(back.upgrades.ocOverclocker).toBe(0);
+    expect(back.found).toBe(true);
+    expect(back.foundAt).toBe(2000); // the earliest recorded milestone
+    expect(back.peakOwned[0].eq(new Decimal("3e400"))).toBe(true);
+    expect(back.peakOverclock).toBe(77);
+  });
+
+  it("an untouched 0.13.11 save (the runtime saves one for everyone) is not found", () => {
+    const back = deserializeSecret(oldShape(freshSecretState(5)), 0)!;
+    expect(back.found).toBe(false);
+    expect(back.foundAt).toBeNull();
+  });
+
+  it("round-trips every new field", () => {
+    const s = freshSecretState(0);
+    s.found = true;
+    s.foundAt = 1234;
+    s.upgrades = { ocOverclocker: 3, tenfoldTuner: 1, captainsCompound: 0, lucidDreaming: 2 };
+    s.peakOwned[4] = new Decimal("5e77");
+    s.peakOverclock = 999;
+    s.upgradesNoteSeen = true;
+    const raw = serializeSecret(s);
+    const back = deserializeSecret(raw, 0)!;
+    expect(serializeSecret(back)).toBe(raw);
+  });
+
+  it("bad values in the new fields fall back to defaults instead of rejecting the save", () => {
+    const raw = JSON.parse(serializeSecret(freshSecretState(0)));
+    raw.upgrades = { ocOverclocker: -3, tenfoldTuner: "x", captainsCompound: 2.7, lucidDreaming: 999 };
+    raw.found = "yes";
+    raw.foundAt = "soon";
+    raw.peakOwned = [1, 2];
+    raw.peakOverclock = -1;
+    const back = deserializeSecret(JSON.stringify(raw), 0)!;
+    expect(back).not.toBeNull();
+    expect(back.upgrades).toEqual({ ocOverclocker: 0, tenfoldTuner: 0, captainsCompound: 2, lucidDreaming: 10 });
+    expect(back.found).toBe(false);
+    expect(back.foundAt).toBeNull();
+    expect(back.peakOwned.every((d) => d.eq(0))).toBe(true);
+    expect(back.peakOverclock).toBe(0);
+  });
+
+  it("clones the new containers deeply", () => {
+    const a = freshSecretState(0);
+    const b = cloneSecret(a);
+    b.upgrades.ocOverclocker = 4;
+    b.peakOwned[0] = new Decimal(9);
+    expect(a.upgrades.ocOverclocker).toBe(0);
+    expect(a.peakOwned[0].eq(0)).toBe(true);
+  });
+});
+
 describe("storage", () => {
   it("uses its own key, never the main save's", () => {
     expect(SECRET_SAVE_KEY).toBe("hl_secret_v0");

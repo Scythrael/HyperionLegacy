@@ -92,6 +92,36 @@ export const SOFT_SCALE = 58;
 export const SOFT_BETA = 0.5;
 
 // ---------------------------------------------------------------------------
+// The e1,000,000 upgrades (0.13.11.1). Four upgrades unlock when the best Ore reaches e1,000,000.
+// Each has a level cap shown as "X / Y" (user-approved exception to D23, 2026-10-23). Level n
+// (counting from 0) costs Ore at the effective exponent priceBase x priceRatio^n. All four are
+// kept through every prestige. At level 0 every effect is exactly 1, so nothing before
+// e1,000,000 moves. [PROVISIONAL] numbers, set by the pacing sim.
+// ---------------------------------------------------------------------------
+
+export type UpgradeId = "ocOverclocker" | "tenfoldTuner" | "captainsCompound" | "lucidDreaming";
+
+export interface UpgradeDef {
+  id: UpgradeId;
+  name: string;
+  flavor: string; // [PROPOSAL]
+  effect: string; // the plain-language line beside the level
+  cap: number;
+  priceBase: number; // effective exponent of level 0's price
+  priceRatio: number; // each level's price exponent is this times the last
+  step: number; // the size of one level's effect (see engine.ts)
+}
+
+export const UPGRADES_AT = 1000000; // e1,000,000 Ore (best ever) unlocks the four
+
+export const UPGRADES: readonly UpgradeDef[] = [
+  { id: "ocOverclocker", name: "Overclock Overclocker", flavor: "It overclocks your overclock. That is the whole upgrade.", effect: "each Overclock level counts more", cap: 25, priceBase: 1000000, priceRatio: 1.1, step: 0.4 },
+  { id: "tenfoldTuner", name: "Tenfold Tuner", flavor: "Tightens the tens. Loosens the laws of arithmetic.", effect: "each ten bonus doubles a little harder", cap: 10, priceBase: 1050000, priceRatio: 1.2, step: 0.05 },
+  { id: "captainsCompound", name: "Captain's Compound", flavor: "Interest on interest on interest. The bank has questions.", effect: "more Captain and Augment Points", cap: 10, priceBase: 1100000, priceRatio: 1.2, step: 1 },
+  { id: "lucidDreaming", name: "Lucid Dreaming", flavor: "You can steer the dream now. You steered it toward more Ore.", effect: "Dream Points hit harder", cap: 10, priceBase: 1150000, priceRatio: 1.2, step: 0.01 },
+];
+
+// ---------------------------------------------------------------------------
 // Skills (Skill Points come from Fleet Prestige, one each; kept through every reset)
 // ---------------------------------------------------------------------------
 

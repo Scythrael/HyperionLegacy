@@ -15,7 +15,9 @@ import {
   AUTO_TARGET_DEFAULT,
   SKILLS,
   MILESTONES,
+  UPGRADES,
   type SkillId,
+  type UpgradeId,
   type MilestoneId,
 } from "./config";
 
@@ -55,6 +57,18 @@ export interface SecretState {
   finaleSeen: boolean;
   longSeen: boolean;
   lastTickAt: number; // wall clock (ms) the state has been advanced to
+  // --- 0.13.11.1. Absent from every 0.13.11 save: deserializeSecret fills safe defaults and never
+  // rejects a save over them (the version number stays 0). ---
+  upgrades: Record<UpgradeId, number>; // levels of the e1,000,000 upgrades
+  found: boolean; // the combo has unlocked it (shows the Minigames button)
+  foundAt: number | null; // when (ms), for Stats; null when unknown (found before 0.13.11.1)
+  peakOwned: Decimal[]; // per tier, the most ever owned (kept through every prestige)
+  peakOverclock: number; // the highest Overclock level ever
+  upgradesNoteSeen: boolean; // the one-time Upgrades tab joke has been shown
+}
+
+export function freshUpgrades(): Record<UpgradeId, number> {
+  return { ocOverclocker: 0, tenfoldTuner: 0, captainsCompound: 0, lucidDreaming: 0 };
 }
 
 export function freshSecretState(nowMs: number): SecretState {
@@ -87,6 +101,12 @@ export function freshSecretState(nowMs: number): SecretState {
     finaleSeen: false,
     longSeen: false,
     lastTickAt: nowMs,
+    upgrades: freshUpgrades(),
+    found: false,
+    foundAt: null,
+    peakOwned: Array.from({ length: TIER_COUNT }, () => new Decimal(0)),
+    peakOverclock: 0,
+    upgradesNoteSeen: false,
   };
 }
 
@@ -100,6 +120,8 @@ export function cloneSecret(s: SecretState): SecretState {
     autoOn: { ...s.autoOn },
     autoTarget: { ...s.autoTarget },
     milestones: { ...s.milestones },
+    upgrades: { ...s.upgrades },
+    peakOwned: s.peakOwned.slice(),
   };
 }
 
@@ -128,7 +150,7 @@ const NUMBER_FIELDS = [
 ] as const;
 
 export function serializeSecret(s: SecretState): string {
-  const out: Record<string, unknown> = { ...s, owned: s.owned.map((d) => d.toString()) };
+  const out: Record<string, unknown> = { ...s, owned: s.owned.map((d) => d.toString()), peakOwned: s.peakOwned.map((d) => d.toString()) };
   for (const k of DECIMAL_FIELDS) out[k] = s[k].toString();
   return JSON.stringify(out);
 }
@@ -204,7 +226,37 @@ export function deserializeSecret(raw: string | null, nowMs: number): SecretStat
   }
   s.finaleSeen = parsed.finaleSeen === true;
   s.longSeen = parsed.longSeen === true;
+  readNewFields(s, parsed);
   return s;
+}
+
+// 0.13.11.1 fields. Every 0.13.11 save lacks them, so a missing or bad value takes its default
+// and never rejects the save (Review Focus 1).
+function readNewFields(s: SecretState, parsed: Record<string, unknown>): void {
+  const up = isPlainObject(parsed.upgrades) ? parsed.upgrades : {};
+  for (const def of UPGRADES) {
+    const n = up[def.id];
+    s.upgrades[def.id] = isFiniteNumber(n) && n > 0 ? Math.min(def.cap, Math.floor(n)) : 0;
+  }
+  const peaks = Array.isArray(parsed.peakOwned) && parsed.peakOwned.length === TIER_COUNT ? parsed.peakOwned.map(readDecimal) : null;
+  // Missing (or bad) peaks start from what is owned now; the engine keeps them rising from there.
+  s.peakOwned = peaks && peaks.every((d) => d !== null) ? (peaks as Decimal[]) : s.owned.slice();
+  const po = parsed.peakOverclock;
+  s.peakOverclock = isFiniteNumber(po) && po >= 0 ? po : s.overclock;
+  s.upgradesNoteSeen = parsed.upgradesNoteSeen === true;
+  if (typeof parsed.found === "boolean") {
+    s.found = parsed.found;
+    s.foundAt = isFiniteNumber(parsed.foundAt) ? parsed.foundAt : null;
+  } else {
+    // A 0.13.11 save: the runtime saved a fresh game for every player, so only real play counts.
+    s.found = playedBefore(s);
+    const dates = Object.values(s.milestones).filter(isFiniteNumber);
+    s.foundAt = s.found && dates.length > 0 ? Math.min(...dates) : null;
+  }
+}
+
+function playedBefore(s: SecretState): boolean {
+  return s.bought.some((b) => b > 0) || s.overclock > 0 || s.captainCount > 0 || s.fleetTotal > 0 || s.pcCount > 0;
 }
 
 // Where an unreadable secret save is kept before anything overwrites it.
