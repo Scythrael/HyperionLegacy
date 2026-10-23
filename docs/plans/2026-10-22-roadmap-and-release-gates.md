@@ -38,3 +38,4 @@ stops; the game generates the theme from style + colors (blue/purple + D = today
 chosen color is very dark (for example black), text and accents that would use it switch to a light gray, with an
 automatic contrast check (AA). Build note for 0.13.11.1: implement Starfall's two gradient stops as tokens (start =
 accent, end = purple) so 0.14.2 can feed user-picked colors into the same tokens.
+User (2026-10-23): "Once that is live, the unlock the e10,000,000 provides is the wash plus shine style." So once the 0.14.2 theme builder ships, the e10,000,000 reward becomes the wash-plus-shine STYLE unlock (usable with any picked colors); until then it is the fixed Starfall theme (accent to purple). Players who earned Starfall before 0.14.2 keep it and get the style unlock.
