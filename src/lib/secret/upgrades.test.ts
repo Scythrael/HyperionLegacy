@@ -2,11 +2,15 @@
 // the Stats peaks and the found flag (0.13.11.1).
 import { describe, it, expect } from "vitest";
 import Decimal from "break_infinity.js";
+import { readFileSync } from "node:fs";
 import { freshSecretState, cloneSecret, type SecretState } from "./state";
 import {
   overclockMultiplier,
   tenBonusFactor,
   prestigeMultiplier,
+  captainMultiplier,
+  augmentMultiplier,
+  dreamSpeedMultiplier,
   gainMultiplier,
   upgradesUnlocked,
   upgradePrice,
@@ -91,6 +95,26 @@ describe("each upgrade measurably acts (everything wired)", () => {
     // with no Dream Points it does nothing, so it never surprises a player who has none
     const none = withLevel({ ...cloneSecret(s), dreamPoints: new Decimal(0) }, "lucidDreaming", 3);
     expect(prestigeMultiplier(none).eq(prestigeMultiplier({ ...cloneSecret(none), upgrades: { ...none.upgrades, lucidDreaming: 0 } }))).toBe(true);
+  });
+});
+
+describe("the Prestige tab shows the engine's own multipliers", () => {
+  it("Captain x Augment x Dream speed is exactly the prestige multiplier, at any levels", () => {
+    for (const [cc, ld] of [[0, 0], [3, 0], [0, 4], [10, 10]]) {
+      const s = withLevel(withLevel(atEffective(1.5e6), "captainsCompound", cc), "lucidDreaming", ld);
+      const shown = captainMultiplier(s).mul(augmentMultiplier(s)).mul(dreamSpeedMultiplier(s));
+      expect(shown.log10()).toBeCloseTo(prestigeMultiplier(s).log10(), 9);
+    }
+    const plain = atEffective(1.5e6);
+    expect(dreamSpeedMultiplier(plain).eq(1)).toBe(true);
+    expect(captainMultiplier(withLevel(plain, "captainsCompound", 2)).gt(captainMultiplier(plain))).toBe(true);
+  });
+
+  it("the overlay reads them from the engine, and shows the Lucid Dreaming speed line", () => {
+    const src = readFileSync("src/lib/SecretGameOverlay.svelte", "utf-8");
+    expect(src).not.toMatch(/\.pow\((CP|AP)_POW\)/);
+    for (const fn of ["captainMultiplier(s)", "augmentMultiplier(s)", "dreamSpeedMultiplier(s)"]) expect(src).toContain(fn);
+    expect(src).toContain("Dream Points speed the stack");
   });
 });
 

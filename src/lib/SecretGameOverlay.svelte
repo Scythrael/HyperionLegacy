@@ -43,6 +43,9 @@
     setAuto,
     setAutoTarget,
     gainMultiplier,
+    captainMultiplier,
+    augmentMultiplier,
+    dreamSpeedMultiplier,
     upgradesUnlocked,
     upgradeLevel,
     upgradePriceExponent,
@@ -62,8 +65,6 @@
     FINALE_EXPONENT,
     LONG_EXPONENT,
     STARFALL_EXPONENT,
-    CP_POW,
-    AP_POW,
     OC_FACTOR,
     type SkillId,
     type UpgradeId,
@@ -325,7 +326,7 @@
             <div class="v small">Captain <span class="num">{formatSecret(s.captainPoints)}</span> · Augment <span class="num">{formatSecret(s.augmentPoints)}</span> · Dream <span class="num">{formatSecret(s.dreamPoints)}</span></div>
           </div>
           <div class="stat"><div class="k">Milestones</div><div class="v"><span class="num">{reachedCount}</span> of <span class="num">{visibleMilestones.length}</span></div></div>
-          <div class="stat"><div class="k">Time played</div><div class="v">{s.foundAt === null ? "Since before 0.13.11.1" : duration(s.lastTickAt - s.foundAt)}</div></div>
+          <div class="stat"><div class="k">Time since found</div><div class="v">{s.foundAt === null ? "Since before 0.13.11.1" : duration(s.lastTickAt - s.foundAt)}</div></div>
           <div class="stat"><div class="k">First found</div><div class="v">{s.foundAt === null ? "Before 0.13.11.1" : when(s.foundAt)}</div></div>
         </div>
       </section>
@@ -433,7 +434,7 @@
               <p class="muted">{COPY.captainBlurb}</p>
               <div class="kv">
                 <span>Captain Points</span><span class="num">{formatSecret(s.captainPoints)}</span>
-                <span>Multiplier from them</span><span class="num">×{formatSecret(s.captainPoints.add(1).pow(CP_POW))}</span>
+                <span>Multiplier from them</span><span class="num">×{formatSecret(captainMultiplier(s))}</span>
                 <span>Ready at</span><span class="num">1e60 Ore</span>
                 <span>Prestige now for</span><span class="num">+{formatSecret(cg)} points</span>
               </div>
@@ -445,7 +446,7 @@
               <div class="kv">
                 <span>Fleet Prestiges</span><span class="num">{s.fleetCount} (lifetime {s.fleetTotal})</span>
                 <span>Augment Points</span><span class="num">{formatSecret(s.augmentPoints)}</span>
-                <span>Multiplier from them</span><span class="num">×{formatSecret(s.augmentPoints.add(1).pow(AP_POW))}</span>
+                <span>Multiplier from them</span><span class="num">×{formatSecret(augmentMultiplier(s))}</span>
                 <span>Skill Points</span><span class="num">{s.skillPoints} unspent</span>
                 <span>Next unlock</span><span class="num">{nextUnlock(s)}</span>
                 <span>Prestige now for</span><span class="num">+{formatSecret(fg)} points</span>
@@ -460,6 +461,7 @@
               <div class="kv">
                 <span>Dream Points</span><span class="num">{formatSecret(s.dreamPoints)}</span>
                 <span>Captain and Augment gains</span><span class="num">×{formatSecret(gainMultiplier(s))}</span>
+                {#if upgradeLevel(s, "lucidDreaming") > 0}<span>Dream Points speed the stack</span><span class="num">×{formatSecret(dreamSpeedMultiplier(s))}</span>{/if}
                 <span>Ready at</span><span class="num">{formatExponent(10000)} Ore</span>
                 <span>Prestige now for</span><span class="num">+{formatSecret(pg)} points</span>
               </div>

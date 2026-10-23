@@ -29,7 +29,8 @@ export type SimProfile = "steady" | "light" | "keen";
 export const LONG_STRETCH_DT = 10;
 
 const H = 3600;
-const START_MS = Date.UTC(2026, 9, 22, 18, 0, 0);
+export const SIM_START_MS = Date.UTC(2026, 9, 22, 18, 0, 0);
+const START_MS = SIM_START_MS;
 
 // shiftHours moves every daily check-in later (the first evening stays put): a robustness check.
 export function sessions(profile: SimProfile, days: number, shiftHours = 0): [number, number][] {

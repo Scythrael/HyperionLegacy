@@ -53,8 +53,8 @@ export function seenCodeLines(state: GameState): number[] {
 }
 
 // Redeems a typed code against the main save. Pays a gift once per account; a repeat answers
-// "already", and from the third repeat in a row adds a humor line (tracked; all 40 seen earns
-// Endless Greed once).
+// "already", and from the third repeat in a row adds a humor line, unseen ones first (tracked;
+// all 40 seen earns Endless Greed once).
 export function redeemGift(
   state: GameState,
   raw: string,
@@ -77,8 +77,8 @@ export function redeemGift(
   if (count < JOKE_FROM_STREAK) {
     return { next: state, outcome: { kind: "already", endlessGreed: false }, streak: { count, lastLine: streak.lastLine } };
   }
-  const id = pickJokeLine(streak.lastLine, rng);
   const seen = seenCodeLines(state);
+  const id = pickJokeLine(streak.lastLine, rng, seen);
   let next = state;
   let endlessGreed = false;
   if (!seen.includes(id)) {

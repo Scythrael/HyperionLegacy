@@ -169,12 +169,26 @@ function upgradeStep(id: UpgradeId): number {
 // Captain's Compound counts both as if you held (1 + step x level) times as many. Lucid Dreaming
 // lets Dream Points speed the stack too: x (1 + DP)^(step x level).
 export function prestigeMultiplier(s: SecretState): Decimal {
+  const base = captainMultiplier(s).mul(augmentMultiplier(s));
+  return upgradeLevel(s, "lucidDreaming") === 0 ? base : base.mul(dreamSpeedMultiplier(s));
+}
+
+// The three factors of prestigeMultiplier, also what the Prestige tab shows (so the screen can
+// never disagree with the engine). At level 0 each is exactly the 0.13.11 formula.
+function compoundFactor(s: SecretState): number {
+  return 1 + upgradeStep("captainsCompound") * upgradeLevel(s, "captainsCompound");
+}
+export function captainMultiplier(s: SecretState): Decimal {
   const cc = upgradeLevel(s, "captainsCompound");
+  return powPositive(cc === 0 ? s.captainPoints.add(1) : s.captainPoints.mul(compoundFactor(s)).add(1), CP_POW);
+}
+export function augmentMultiplier(s: SecretState): Decimal {
+  const cc = upgradeLevel(s, "captainsCompound");
+  return powPositive(cc === 0 ? s.augmentPoints.add(1) : s.augmentPoints.mul(compoundFactor(s)).add(1), AP_POW);
+}
+export function dreamSpeedMultiplier(s: SecretState): Decimal {
   const ld = upgradeLevel(s, "lucidDreaming");
-  if (cc === 0 && ld === 0) return powPositive(s.captainPoints.add(1), CP_POW).mul(powPositive(s.augmentPoints.add(1), AP_POW));
-  const m = 1 + upgradeStep("captainsCompound") * cc;
-  const base = powPositive(s.captainPoints.mul(m).add(1), CP_POW).mul(powPositive(s.augmentPoints.mul(m).add(1), AP_POW));
-  return ld === 0 ? base : base.mul(powPositive(s.dreamPoints.add(1), upgradeStep("lucidDreaming") * ld));
+  return ld === 0 ? ONE : powPositive(s.dreamPoints.add(1), upgradeStep("lucidDreaming") * ld);
 }
 
 // Dream Points: multiply the Captain and Augment Points earned per prestige.

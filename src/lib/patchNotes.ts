@@ -64,8 +64,8 @@ export function isStructuredNote(n: PatchNote): n is PatchNoteStructured {
 
 export const PATCH_NOTES: PatchNote[] = [
   {
-    // 0.13.11.1 [PROPOSAL] wording, awaiting the user's approval: it mentions ONLY the gift code
-    // ability and the new Help button, and says nothing about what else the codes window holds.
+    // 0.13.11.1 wording approved by the user (2026-10-23): it mentions ONLY the gift code ability and
+    // the new Help button, and says nothing about what else the codes window holds.
     version: "0.13.11.1",
     lede: "A small follow-up: codes work now, and there is a Help button at the top of the screen.",
     categories: [

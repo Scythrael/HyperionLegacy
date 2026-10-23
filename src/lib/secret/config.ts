@@ -6,7 +6,7 @@
 // player simulation (sim.ts, pinned by sim.test.ts). Change a number here and the pacing test
 // tells you whether the planned playtime still holds.
 //
-// All player-facing copy below is [PROPOSAL] copy the user may rewrite.
+// Player-facing copy below: 0.13.11 copy approved 2026-10-22, 0.13.11.1 copy approved 2026-10-23.
 
 import type { Achievement } from "../achievements";
 
@@ -20,7 +20,7 @@ export const BASE_TIERS_OPEN = 4;
 export interface TierDef {
   numeral: string;
   name: string;
-  flavor: string; // [PROPOSAL] one joke line under the name
+  flavor: string; // one joke line under the name
   makes: string; // what it produces, as the row's subtitle
   baseCostLog10: number; // log10 of the first unit's Ore price
   costStepLog10: number; // log10 of the price factor at every ten bought
@@ -106,7 +106,7 @@ export type UpgradeId = "ocOverclocker" | "tenfoldTuner" | "captainsCompound" | 
 export interface UpgradeDef {
   id: UpgradeId;
   name: string;
-  flavor: string; // [PROPOSAL]
+  flavor: string;
   effect: string; // the plain-language line beside the level
   cap: number;
   priceBase: number; // effective exponent of level 0's price
@@ -148,7 +148,7 @@ export interface SkillDef {
 }
 
 // Display order is also the order the steady player buys them in the simulation.
-// [PROPOSAL] additions beyond the mockup's six: Auto Overclock, Auto Fleet Prestige, Auto
+// Additions beyond the mockup's six (kept by the user, 2026-10-22): Auto Overclock, Auto Fleet Prestige, Auto
 // Prestigeception (the design allows up to four more of the same kinds).
 export const SKILLS: readonly SkillDef[] = [
   { id: "autoOverclock", name: "Auto Overclock", blurb: "Buys Overclock for you", cost: 1, auto: true },
@@ -186,10 +186,10 @@ export type MilestoneId =
 
 export interface MilestoneDef {
   id: MilestoneId;
-  name: string; // [PROPOSAL]
+  name: string;
   detail: string;
   how: string; // the requirement line on the achievement popup
-  flavor?: string; // [PROPOSAL] optional popup joke
+  flavor?: string; // optional popup joke
   reward?: string; // the popup's green line; default: recorded for a future update
   achievement?: boolean; // the named goals, flagged for the later rewards patch
 }
@@ -223,7 +223,7 @@ export function milestoneAchievement(id: MilestoneId): Achievement {
 export const TURBO_LEVEL = 10000;
 
 // ---------------------------------------------------------------------------
-// Copy [PROPOSAL]
+// Copy
 // ---------------------------------------------------------------------------
 
 export const COPY = {
@@ -242,7 +242,7 @@ export const COPY = {
   longAfter: "More is coming in a later update. Your stack keeps climbing in the meantime.",
   rewardRecorded: "Reward recorded",
   rewardLater: "Reward arrives in a future update",
-  // 0.13.11.1 [PROPOSAL]
+  // 0.13.11.1
   overclockFlavor: "The red button. Pressing it is the whole plan.",
   upgradesNote: "Congratulations, you unlocked the overclock overclocker! Kidding. Horses are extinct in the future, so there are none left to beat for this joke.", // user copy, verbatim
   upgradesLocked: "Unlocks later",
@@ -251,13 +251,13 @@ export const COPY = {
 } as const;
 
 // The [?] Help view (0.13.11.1, design section 4): the rules in plain language, same voice as the
-// rest of the game. [PROPOSAL] copy. It names no locked content (that stays "???" until reachable).
+// rest of the game. It names no locked content (that stays "???" until reachable).
 export const HELP_SECTIONS: readonly { title: string; body: string }[] = [
   { title: "THE STACK", body: "Mining Lasers make Ore. Every higher generator makes the one below it: Refineries make Mining Lasers, Fabricators make Refineries, and so on up the stack. Ore buys everything. It is generators all the way down." },
   { title: "THE TEN BONUS", body: "Every 10 of a generator you buy doubles its output. Owning them is nice; buying them is what counts." },
   { title: "OVERCLOCK AND UPGRADES", body: "Overclock lives in the Upgrades tab. It speeds up the whole stack by ×1.125 per level, and the levels multiply. Its price follows your income, so waiting never makes it cheaper. Much later, a few more upgrades wake up there. Each one has a level cap, shown as X / Y." },
   { title: "THREE KINDS OF PRESTIGE", body: "Captain Prestige resets your stack for Captain Points, and every point makes the stack faster. Fleet Prestige resets that too, for Augment Points, a Skill Point and new generators. Prestigeception resets everything below it for Dream Points, which make every Captain and Augment Point you earn count for more. Yes, it is prestige all the way down as well." },
   { title: "SKILLS", body: "Skill Points come from Fleet Prestige. Skills do the clicking for you: auto-buyers, automatic prestiges at a target you set, a head start and more. The late game is mostly watching numbers go up, which is the point." },
-  { title: "MILESTONES", body: "Milestones appear as you get close to them, and each one is recorded with the date you reached it. Their rewards arrive in a future update. You will know the last one when you see it." },
+  { title: "MILESTONES", body: "Milestones appear as you get close to them, and each one is recorded with the date you reached it. Most rewards arrive in a future update; the last one pays out right away. You will know it when you see it." },
   { title: "TIME AWAY", body: "The stack keeps running while this window is closed and while the game is closed. Come back whenever you like. It does the work; you take the credit. Not those credits." },
 ];

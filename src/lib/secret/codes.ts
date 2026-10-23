@@ -83,11 +83,12 @@ export const JOKE_LINES: readonly string[] = [
   "Congratulations! You've unlocked... nothing. Again. Impressive consistency, though.",
 ];
 
-// A random line id (1 to 40), never `lastShown`: one of the other 39, uniformly.
-export function pickJokeLine(lastShown: number | null, rng: () => number): number {
-  const n = JOKE_LINES.length;
-  const pool = lastShown !== null && lastShown >= 1 && lastShown <= n ? n - 1 : n;
-  const r = Math.min(pool - 1, Math.max(0, Math.floor(rng() * pool)));
-  const id = r + 1;
-  return lastShown !== null && pool === n - 1 && id >= lastShown ? id + 1 : id;
+// The next humor line (an id from 1 to 40). User, 2026-10-23, "Unseen first": while this account
+// has unseen lines, pick uniformly among those (so all 40 take about 40 tries); once every line has
+// been seen, pick uniformly among all of them. Never the line shown last, in either phase.
+export function pickJokeLine(lastShown: number | null, rng: () => number, seen: readonly number[] = []): number {
+  const ids = JOKE_LINES.map((_, i) => i + 1);
+  const unseen = ids.filter((id) => !seen.includes(id) && id !== lastShown);
+  const pool = unseen.length > 0 ? unseen : ids.filter((id) => id !== lastShown);
+  return pool[Math.min(pool.length - 1, Math.max(0, Math.floor(rng() * pool.length)))];
 }

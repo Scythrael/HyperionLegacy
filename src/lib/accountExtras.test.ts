@@ -65,6 +65,20 @@ describe("redeemGift", () => {
     expect(r.outcome).toEqual({ kind: "already", endlessGreed: false });
   });
 
+  it("unseen lines come first: 40 lines in the first 40 re-entries that carry one", () => {
+    let s = redeemGift(freshState(), "SUPERDUPERLEET", NO_STREAK, rng).next;
+    let streak: RedeemStreak = NO_STREAK;
+    let withLine = 0;
+    while ((s.seenCodeLines?.length ?? 0) < 40 && withLine < 100) {
+      const r = redeemGift(s, "SUPERDUPERLEET", streak, rng);
+      if (r.outcome.kind === "already" && r.outcome.line) withLine += 1;
+      s = r.next;
+      streak = r.streak;
+    }
+    expect(withLine).toBe(40);
+    expect(s.endlessGreedAt).toBeDefined();
+  });
+
   it("seeing all 40 lines earns Endless Greed exactly once", () => {
     let s = redeemGift(freshState(), "SUPERDUPERLEET", NO_STREAK, rng).next;
     let streak: RedeemStreak = NO_STREAK;

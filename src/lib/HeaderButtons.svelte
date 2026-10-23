@@ -50,6 +50,12 @@
     }
   }
 
+  // Focus leaving the block (Tab past the list) closes it.
+  function onFocusOut(event: FocusEvent): void {
+    const next = event.relatedTarget;
+    if (menuOpen && block && next instanceof Node && !block.contains(next)) closeMenu(false);
+  }
+
   function onWindowPointerdown(event: PointerEvent): void {
     if (menuOpen && block && event.target instanceof Node && !block.contains(event.target)) closeMenu(false);
   }
@@ -57,7 +63,7 @@
 
 <svelte:window on:keydown={onWindowKeydown} on:pointerdown={onWindowPointerdown} />
 
-<div class="hb" class:hb-found={found} bind:this={block}>
+<div class="hb" class:hb-found={found} bind:this={block} on:focusout={onFocusOut}>
   <button type="button" class="hb-btn hb-help" aria-label="Help" title="Help" on:click={onHelp}>
     <Icon name="help" size={22} />
   </button>
@@ -67,9 +73,8 @@
       class="hb-btn hb-minigames"
       aria-label="Minigames"
       title="Minigames"
-      aria-haspopup="true"
       aria-expanded={menuOpen}
-      aria-controls="hb-menu"
+      aria-controls={menuOpen ? "hb-menu" : undefined}
       bind:this={toggle}
       on:click={() => (menuOpen ? closeMenu() : openMenu())}
     >

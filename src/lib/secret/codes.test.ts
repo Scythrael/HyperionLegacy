@@ -56,6 +56,45 @@ describe("the joke lines", () => {
     expect(approved).toEqual([...JOKE_LINES]);
   });
 
+  it("unseen lines first (user, 2026-10-23): forty picks in a row show forty different lines", () => {
+    let seed = 3;
+    const rng = () => ((seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648);
+    const seen: number[] = [];
+    let last: number | null = null;
+    for (let i = 0; i < 40; i++) {
+      const id = pickJokeLine(last, rng, seen);
+      expect(seen).not.toContain(id);
+      seen.push(id);
+      last = id;
+    }
+    expect(new Set(seen).size).toBe(40);
+    // with one line left unseen, that is the one, whatever the dice say
+    const all = Array.from({ length: 40 }, (_, i) => i + 1);
+    expect(pickJokeLine(5, () => 0.999, all.filter((x) => x !== 17))).toBe(17);
+  });
+
+  it("once every line is seen: uniform random, never the line shown last", () => {
+    const all = Array.from({ length: 40 }, (_, i) => i + 1);
+    // mulberry32: a test rng good enough for a frequency check
+    let a = 9;
+    const rng = () => {
+      a = (a + 0x6d2b79f5) | 0;
+      let t = Math.imul(a ^ (a >>> 15), 1 | a);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+    const counts = new Map<number, number>();
+    let last: number | null = null;
+    for (let i = 0; i < 4000; i++) {
+      const id = pickJokeLine(last, rng, all);
+      expect(id).not.toBe(last);
+      counts.set(id, (counts.get(id) ?? 0) + 1);
+      last = id;
+    }
+    expect(counts.size).toBe(40);
+    for (const n of counts.values()) expect(n).toBeGreaterThan(50); // about 100 each
+  });
+
   it("never picks the line shown last, and reaches every line", () => {
     let seed = 7;
     const rng = () => ((seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648);

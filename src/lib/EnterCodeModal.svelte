@@ -32,6 +32,9 @@
   let code = "";
   let codeMessage: Message | null = null;
   let comboMessage: Message | null = null;
+  // Bumped on every answer, so the same message twice in a row is re-drawn and re-announced.
+  let codeSerial = 0;
+  let comboSerial = 0;
   let comboOpen = false;
   let pos = 0;
   let codeInput: HTMLInputElement | null = null;
@@ -41,7 +44,7 @@
   const SQUARE: Partial<Record<ComboKey, string>> = { select: "SEL", start: "STA" };
   const SLOTS = Array.from({ length: COMBO_LENGTH }, (_, i) => i);
 
-  // [PROPOSAL] wording for the unlock messages (mockup frame 2 tone).
+  // The unlock messages (approved 2026-10-23, mockup frame 2 tone).
   const FOUND: Message = { tone: "ok", strong: `Unlocked: ${COPY.listName}.`, text: "Find it any time under the Minigames button at the top, next to Help." };
   const ALREADY_FOUND: Message = { tone: "info", text: "You've already found this one. It lives under the Minigames button now." };
 
@@ -60,6 +63,7 @@
 
   function redeem(): void {
     codeMessage = messageFor(onRedeem(code));
+    codeSerial += 1;
   }
 
   function toggleCombo(): void {
@@ -72,6 +76,7 @@
     if (pos === COMBO_LENGTH) {
       pos = 0;
       comboMessage = onComboComplete() === "found" ? FOUND : ALREADY_FOUND;
+      comboSerial += 1;
     }
   }
 
@@ -117,13 +122,13 @@
         <button class="ec-btn primary" type="submit">Redeem</button>
       </div>
       <div class="ec-live" aria-live="polite">
-        {#if codeMessage}
+        {#if codeMessage}{#key codeSerial}
           <div class="ec-msg" class:ok={codeMessage.tone === "ok"}>
             {#if codeMessage.strong}<b>{codeMessage.strong}</b>{/if}
             {codeMessage.text}
             {#if codeMessage.lore}<span class="ec-lore">"{codeMessage.lore}"</span>{/if}
           </div>
-        {/if}
+        {/key}{/if}
       </div>
     </form>
 
@@ -147,12 +152,12 @@
           {/each}
         </div>
         <div class="ec-live" aria-live="polite">
-          {#if comboMessage}
+          {#if comboMessage}{#key comboSerial}
             <div class="ec-msg" class:ok={comboMessage.tone === "ok"}>
               {#if comboMessage.strong}<b>{comboMessage.strong}</b>{/if}
               {comboMessage.text}
             </div>
-          {/if}
+          {/key}{/if}
         </div>
 
         <div class="ec-pad">
