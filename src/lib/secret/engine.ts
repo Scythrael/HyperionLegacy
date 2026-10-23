@@ -505,29 +505,10 @@ export function captainGain(s: SecretState): Decimal {
   return gainMultiplier(s).mul(CP_SCALE * gainShape(e, CAPTAIN_AT, gainExponent(s, CP_K))).floor();
 }
 
-// The Fleet bar doubles (user, 2026-10-23, "Yes, double it"): after the first Fleet since the last
-// Prestigeception, a Fleet must at least double your Augment Points (its gain must reach the points
-// you hold). When every Fleet lands on its bar this is the proposed e308 x 2^(Fleets since the last
-// Prestigeception, minus 1); unlike a fixed ladder it also counts a big Fleet made after time away,
-// so a Fleet the moment one pays anything can never farm Skill Points faster than the default 100%
-// target. 1.8e308 is still the first bar, and a Prestigeception puts it back. The gain formula is
-// unchanged.
-export function fleetThresholdExponent(s: SecretState): number {
-  if (s.augmentPoints.lte(0)) return FLEET_AT;
-  const need = s.augmentPoints.div(gainMultiplier(s).mul(AP_SCALE)).toNumber();
-  return Math.max(FLEET_AT, FLEET_AT * Math.pow(need, 1 / gainExponent(s, AP_K)));
-}
-
-// The Ore the next Fleet Prestige needs, for the Prestige tab.
-export function fleetThresholdOre(s: SecretState): Decimal {
-  return Decimal.pow(10, fleetThresholdExponent(s));
-}
-
 export function fleetGain(s: SecretState): Decimal {
   const e = effectiveExponent(s.fleetPeak);
   if (e < FLEET_AT) return ZERO;
-  const gain = gainMultiplier(s).mul(AP_SCALE * gainShape(e, FLEET_AT, gainExponent(s, AP_K))).floor();
-  return gain.lt(s.augmentPoints) ? ZERO : gain;
+  return gainMultiplier(s).mul(AP_SCALE * gainShape(e, FLEET_AT, gainExponent(s, AP_K))).floor();
 }
 
 export function prestigeceptionGain(s: SecretState): Decimal {

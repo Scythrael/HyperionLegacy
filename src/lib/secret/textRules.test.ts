@@ -33,7 +33,6 @@ const FILES = [
   "src/lib/trustedTime.test.ts",
   "src/lib/secret/simTargets.test.ts",
   "src/lib/secret/simTargetsHigh.test.ts",
-  "src/lib/secret/simSpam.test.ts",
 ].map((path) => ({ path, src: readFileSync(path, "utf-8") }));
 
 // 0.13.11.1 additions inside files that predate the text rules, checked as slices.

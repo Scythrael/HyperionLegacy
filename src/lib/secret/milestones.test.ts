@@ -4,8 +4,6 @@ import { freshSecretState, type SecretState } from "./state";
 import {
   captainGain,
   fleetGain,
-  fleetThresholdExponent,
-  fleetThresholdOre,
   gainExponent,
   prestigeceptionGain,
   doCaptain,
@@ -22,7 +20,6 @@ import {
   checkMilestonesMut,
 } from "./engine";
 import { cloneSecret } from "./state";
-import { formatSecret } from "./format";
 import {
   CP_SCALE,
   AP_SCALE,
@@ -95,63 +92,8 @@ describe("Fleet Prestige", () => {
       s = doFleet(s, i);
       seen.push(s.tiersUnlocked);
       s.fleetPeak = pow10(400);
-      s.augmentPoints = new Decimal(0); // tiers only: keep each Fleet over the doubling bar (0.13.11.1)
     }
     expect(seen).toEqual([5, 6, 7, 7, 7, 8]);
-  });
-});
-
-describe("0.13.11.1: the Fleet bar doubles (user, \"Yes, double it\")", () => {
-  it("1.8e308 first; after that a Fleet must at least double your Augment Points", () => {
-    const s = withRun(FLEET_AT * 2);
-    expect(fleetThresholdExponent(s)).toBe(FLEET_AT);
-    expect(formatSecret(fleetThresholdOre(s))).toBe("1.80e308");
-    const g = fleetGain(s);
-    expect(g.gt(0)).toBe(true);
-    // Holding exactly what this Fleet pays: it doubles them, so it pays. One more point held: it does not.
-    s.augmentPoints = g;
-    expect(fleetGain(s).eq(g)).toBe(true);
-    s.augmentPoints = g.add(1);
-    expect(fleetGain(s).eq(0)).toBe(true);
-    const t = doFleet(s, 1);
-    expect(t.fleetCount).toBe(s.fleetCount);
-    expect(t.skillPoints).toBe(s.skillPoints);
-    // The bar shown is the exponent where the gain reaches the points held.
-    s.augmentPoints = new Decimal(AP_SCALE * Math.pow(2, AP_K));
-    expect(fleetThresholdExponent(s)).toBeCloseTo(FLEET_AT * 2, 6);
-  });
-
-  it("when every Fleet lands on its bar the bars are e308 x 2^(Fleets since the last Prestigeception, minus 1)", () => {
-    // Past the finale (gains linear, the 0.13.11 formula): Fleets at 1.8e308, 1.8e308, e616.5, e1,233 ...
-    let s = withRun(FLEET_AT);
-    s.bestOre = pow10(FINALE_EXPONENT);
-    const bars: number[] = [];
-    for (let i = 0; i < 4; i++) {
-      const bar = fleetThresholdExponent(s);
-      bars.push(bar);
-      s.fleetPeak = pow10(bar + 1e-9);
-      s = doFleet(s, i);
-      expect(s.fleetCount).toBe(i + 1);
-    }
-    for (const [i, bar] of bars.entries()) expect(bar).toBeCloseTo(FLEET_AT * Math.pow(2, Math.max(0, i - 1)), 3);
-  });
-
-  it("Fleet spam cannot farm Skill Points: a run past 1.8e308 but under the bar pays nothing", () => {
-    const s = withRun(400);
-    s.augmentPoints = new Decimal(1e6);
-    s.skillPoints = 3;
-    expect(fleetGain(s).eq(0)).toBe(true);
-    expect(doFleet(s, 1).skillPoints).toBe(3);
-    expect(fleetThresholdExponent(s)).toBeGreaterThan(400);
-  });
-
-  it("a Prestigeception puts the bar back at 1.8e308", () => {
-    const s = withRun(20000);
-    s.fleetCount = 6;
-    s.augmentPoints = new Decimal(1e9);
-    expect(fleetThresholdExponent(s)).toBeGreaterThan(FLEET_AT);
-    const t = doPrestigeception(s, 1);
-    expect(fleetThresholdExponent(t)).toBe(FLEET_AT);
   });
 });
 
