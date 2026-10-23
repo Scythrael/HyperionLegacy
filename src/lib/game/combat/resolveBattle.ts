@@ -38,6 +38,8 @@ import type {
 	Combatant,
 	CombatEvent,
 	CombatWeapon,
+	DefensiveCarry,
+	EvasiveClose,
 	SystemConditionPip,
 	WeaponFamily,
 } from "./types";
@@ -73,6 +75,7 @@ import {
 	bandFor,
 	longestWeaponRange,
 	combatPhase,
+	effectiveHp,
 } from "./positioning";
 import { selectFlavorTemplate, FLAVOR_PICK_RANGE } from "./flavor";
 // Phase 12b Unit B1 LIVE DURABILITY. The pure model (rollDurabilityLoss draws ONE
@@ -93,6 +96,9 @@ import {
 import { STATUS_EFFECT_DEFS } from "./statusEffects";
 // WR-5b (0.14.0): the commanding captain's Tactician talents (absent fields = the exact pre-WR-5b path).
 import { captainDroneDamage, captainProjectileDamage, chargeWeapon, incomingHitChance, landHullDamage } from "./captainEdge";
+// WR-8 (0.14.0): the combat descriptors' rule constants (ResolveOptions.combatRules gates the ones that change an
+// existing path; the rest read inputs only the rules ever set).
+import { BALANCED_FIREPOWER_SHARE, CLOSING_EVASION_PCT, FAMILY_VS_DRONES, SUPPORT_OVERCHARGE_ESCALATION } from "./combatRules";
 
 // ---------------------------------------------------------------------------
 // attachFlavor: select a cosmetic flavor line for a log event and stamp it on.
@@ -179,8 +185,8 @@ const CRIT_MULT_DEN = 2; // 1.5x
 // multiply. TODO(balance): if a finer per-pool split is ever wanted, scale the
 // shield-absorbed portion and the hull-path portion independently instead.
 //
-// "vs Drones" (design S3: Kinetic -10%, EW +10%, Particle 0%) is INERT until the
-// drone sub-system lands (Phase 8); only the shield/armor columns apply now.
+// "vs Drones" (design S3: Kinetic -10%, EW +10%, Particle 0%) lives in combatRules.ts FAMILY_VS_DRONES (WR-8): under
+// the combat rules a drone that absorbs a shot takes that column (planIntercept).
 const FAMILY_VS_SHIELDS: Record<WeaponFamily, number> = {
 	particle: 110, // +10% vs shields (its specialty)
 	kinetic: 100, //   neutral vs shields (hard-walled, no attenuation)
@@ -227,6 +233,13 @@ export interface ResolveOptions {
 	// every existing fixture is byte-identical. The mission layer sets this per
 	// encounter (Phase 9). TODO(Phase 9): derive the ambusher from mission + stealth.
 	ambush?: string;
+
+	// WR-8 (0.14.0, combat/combatRules.ts): the run's combat rules version (its CombatRulesStamp.rules), or undefined
+	// for a run stamped before WR-8. Under the rules: a ship holds at its stance's distance only as far as its own reach
+	// and opens the range only when faster than its target (advanceMovement); a drone absorbing a shot takes the
+	// vs-Drones triangle column; an EW anti-drone hit leaves the drone it does not destroy disrupted; a support pulse
+	// charges its owner's capacitors. Absent: every one of those paths is exactly the pre-WR-8 one.
+	combatRules?: number;
 }
 
 // Transient per-combatant fixed-point accumulators. These are SIM-INTERNAL
@@ -238,9 +251,28 @@ interface Accumulators {
 	move: number;
 	// Banked tenths of a shield-point from shield recharge.
 	shield: number;
+	// WR-8 review: a Defensive ship's banked recharge bonus, in hundredths of a tenth (so the +25% is exact over a
+	// fight, not floored per second). Stays 0 for every other ship.
+	shieldBonus: number;
 	// WR-5b (0.14.0): the thousandths of a damage point Drone Handler has banked across this combatant's drone hits
 	// (combat/captainEdge.ts captainDroneDamage). Stays 0 without the node.
 	drone: { milli: number };
+}
+
+// The log event type of each collateral hit (WR-8 adds the Voltaic chain arc).
+const COLLATERAL_EVENT: Record<CollateralHit["kind"], string> = {
+	reflect: "droneReflect",
+	counter: "droneCounter",
+	chain: "chainArc",
+};
+
+// WR-8: a squadron's volley / pulse period under its owner's drone attack rate delta (Inhibit: a negative percent): the
+// period stretches by 100 / (100 + delta), rounded up to a whole tick, so a -20% Inhibit turns a 5-tick volley into a
+// 7-tick one. A zero (or positive) delta returns the period unchanged. Pure, no draw.
+export function droneCooldown(cooldownDeciSec: number, droneAttackDelta: number): number {
+	if (droneAttackDelta >= 0) return cooldownDeciSec;
+	const rate = Math.max(1, 100 + droneAttackDelta);
+	return Math.ceil((cooldownDeciSec * 100) / rate);
 }
 
 // Deep-ish clone of the participant list so resolveBattle NEVER mutates the
@@ -269,6 +301,10 @@ function cloneParticipants(participants: BattleParticipants): BattleParticipants
 			// purity + a safe second resolve of the same battle. Effects are plain data, so a spread
 			// per element is a full clone.
 			statusEffects: c.statusEffects.map((e) => ({ ...e })),
+			// WR-8 review: the banked Defensive and closing-evasion remainders are mutated in the fight, so fresh copies
+			// (absent stays absent).
+			...(c.defensiveCarry !== undefined ? { defensiveCarry: { ...c.defensiveCarry } } : {}),
+			...(c.evasiveClose !== undefined ? { evasiveClose: { ...c.evasiveClose } } : {}),
 			// Phase 7a: DEEP-copy each squadron AND its per-drone list. The sim mutates
 			// squadron.cooldownAccumulator + each drone's hp/alive/status, so a shallow
 			// copy would leak those writes back into the caller (breaking purity + a
@@ -298,45 +334,209 @@ function advanceMovement(
 	self: Combatant,
 	target: Combatant,
 	acc: Accumulators,
+	// WR-8: the combat rules (ResolveOptions.combatRules) are on for this battle.
+	rules = false,
+	// WR-8 review: every combatant (the closing-evasion reach check reads the foes).
+	combatants: readonly Combatant[] = [],
 ): void {
-	// PHASE 6 DEBUFF (applied): Coolant Leak (-speed) scales the EFFECTIVE movement
-	// speed DOWN before banking. Read the combatant's summed `speed` delta (a
-	// negative percent for a coolant leak) and apply it to the base speed. Pure
-	// integer scaling of an already-integer rate, no combat draw, so parity holds
-	// (offline == live) and a leak-free ship is byte-identical (zero delta = no-op).
-	const speedDelta = activeStatDelta(self.statusEffects, "speed");
-	let effectiveSpeed =
-		speedDelta !== 0 ? applyPercentDelta(self.speed, speedDelta) : self.speed;
-
-	// PHASE 12b UNIT B1 (design S9): a worn FTL/drive cuts CLOSING SPEED. Scale the
-	// effective speed DOWN by the ftl condition penalty (Degraded < Offline). Pure
-	// integer scaling of an already-integer rate, no combat draw, so parity holds and a
-	// ship with a nominal (or absent) ftl is byte-identical (penalty 0 => no-op).
-	if (self.ftl !== undefined) {
-		const ftlSpeedPenalty = ftlSpeedPenaltyPercent(systemCondition(self.ftl));
-		if (ftlSpeedPenalty > 0) {
-			effectiveSpeed = Math.floor((effectiveSpeed * (100 - ftlSpeedPenalty)) / 100);
+	const effectiveSpeed = effectiveMoveSpeed(self);
+	const preferred = rules ? stanceHoldDistance(self) : stancePreferredDistance(self.stance);
+	// WR-8 review (user 2026-10-22, answer 5 "Closing is evasive"): a ship that is closing toward its stance range (it
+	// can move and its target is farther than where it parks) while none of its guns reaches any foe moves evasively
+	// until one does or it stops closing. Read from where the ship stands AFTER this tick's move (or on a tick it banks
+	// no step), so it stops the tick a gun reaches. Pure geometry, no draw.
+	const settleEvasion = (): void => {
+		if (rules && self.evasiveClose !== undefined) {
+			self.evasiveClose.active = effectiveSpeed > 0 && Math.abs(target.position - self.position) > preferred && outOfReach(self, combatants);
 		}
-	}
+	};
 
 	// Bank this tick's worth of tenths (effective speed tenths per second * dt).
 	acc.move += effectiveSpeed * DT_DECISEC;
 	// Convert whole banked units into position steps; keep the remainder banked.
 	const wholeSteps = Math.floor(acc.move / TENTHS_PER_SECOND);
-	if (wholeSteps <= 0) return;
+	if (wholeSteps <= 0) {
+		settleEvasion();
+		return;
+	}
 	acc.move -= wholeSteps * TENTHS_PER_SECOND;
 
 	// Step toward the stance's preferred distance (signed: + closes, - kites, 0
 	// holds). stanceMoveDelta caps the step so we never overshoot the preferred
 	// point and holds when co-located (gap 0), which preserves the co-located
 	// parity fixtures (both at position 0 stay put).
-	const preferred = stancePreferredDistance(self.stance);
-	self.position += stanceMoveDelta(
-		self.position,
-		target.position,
-		preferred,
-		wholeSteps,
-	);
+	// WR-8: under the rules the stance decides where the ship parks (stanceHoldDistance: Aggressive its shortest gun,
+	// Balanced where most of its firepower reaches, Defensive its longest reach), and a ship opens the range on its
+	// target only when it is FASTER (kiting needs a speed edge; an equal or slower ship holds and lets the fight close).
+	let delta = stanceMoveDelta(self.position, target.position, preferred, wholeSteps);
+	if (rules && delta !== 0) {
+		const closing = Math.sign(delta) === Math.sign(target.position - self.position);
+		if (!closing && effectiveSpeed <= effectiveMoveSpeed(target)) delta = 0;
+	}
+	self.position += delta;
+	settleEvasion();
+}
+
+// The combatant's movement speed this tick (position units per second), with its debuffs and drive condition. Pure.
+function effectiveMoveSpeed(c: Combatant): number {
+	// PHASE 6 DEBUFF (applied): Coolant Leak (-speed) scales the EFFECTIVE movement
+	// speed DOWN before banking. Read the combatant's summed `speed` delta (a
+	// negative percent for a coolant leak) and apply it to the base speed. Pure
+	// integer scaling of an already-integer rate, no combat draw, so parity holds
+	// (offline == live) and a leak-free ship is byte-identical (zero delta = no-op).
+	const speedDelta = activeStatDelta(c.statusEffects, "speed");
+	let effectiveSpeed = speedDelta !== 0 ? applyPercentDelta(c.speed, speedDelta) : c.speed;
+	// PHASE 12b UNIT B1 (design S9): a worn FTL/drive cuts CLOSING SPEED. Scale the
+	// effective speed DOWN by the ftl condition penalty (Degraded < Offline). Pure
+	// integer scaling of an already-integer rate, no combat draw, so parity holds and a
+	// ship with a nominal (or absent) ftl is byte-identical (penalty 0 => no-op).
+	if (c.ftl !== undefined) {
+		const ftlSpeedPenalty = ftlSpeedPenaltyPercent(systemCondition(c.ftl));
+		if (ftlSpeedPenalty > 0) {
+			effectiveSpeed = Math.floor((effectiveSpeed * (100 - ftlSpeedPenalty)) / 100);
+		}
+	}
+	return effectiveSpeed;
+}
+
+// WR-8: this combatant's damage sources as (reach, expected damage per second): each firing weapon (an offline one
+// excluded; Sensor Power Drain shrinks its reach exactly as the firing gate does) and each offense squadron with a
+// live drone. Expected damage = average yield x projectiles (or online drones) x accuracy / the cooldown. Pure.
+function damageSources(c: Combatant): { reach: number; dps: number }[] {
+	const rangeDelta = activeStatDelta(c.statusEffects, "range");
+	const out: { reach: number; dps: number }[] = [];
+	for (const w of c.weapons) {
+		if (w.durability <= 0) continue;
+		const reach = rangeDelta !== 0 ? applyPercentDelta(w.range, rangeDelta) : w.range;
+		const dps = (((w.yieldMin + w.yieldMax) / 2) * w.projectileCount * (w.accuracy / 100)) / (Math.max(1, w.cooldownDeciSec) / TENTHS_PER_SECOND);
+		out.push({ reach, dps });
+	}
+	for (const sq of c.drones) {
+		if (!(sq.yieldMax > 0)) continue;
+		const online = sq.drones.filter((d) => d.alive && d.status === "online").length;
+		if (online === 0) continue;
+		const dps = (((sq.yieldMin + sq.yieldMax) / 2) * online * (sq.accuracy / 100)) / (Math.max(1, sq.attackCooldownDeciSec) / TENTHS_PER_SECOND);
+		out.push({ reach: sq.range, dps });
+	}
+	return out;
+}
+
+// WR-8 review (answer 5, "it stops the moment any of its guns can fire"): true when none of `c`'s working guns
+// (Sensor Power Drain included) reaches any living foe. A ship with no working gun reads its offense squadrons
+// instead; false for a ship with no source at all (it is not closing to fire). Pure, no draw.
+function outOfReach(c: Combatant, combatants: readonly Combatant[]): boolean {
+	const all = damageSources(c);
+	const guns = all.slice(0, c.weapons.filter((w) => w.durability > 0).length);
+	const sources = guns.length > 0 ? guns : all;
+	if (sources.length === 0) return false;
+	const reach = Math.max(...sources.map((s) => s.reach));
+	for (const o of combatants) if (o.alive && o.team !== c.team && Math.abs(o.position - c.position) <= reach) return false;
+	return true;
+}
+
+// WR-8 review: `x` scaled to `keepPct` percent with the remainder banked in `carry[key]` (hundredths of a point), so a
+// run of small hits loses exactly the percent, not a floored whole point each. Integer math, no draw.
+function bankedPercent(x: number, keepPct: number, carry: DefensiveCarry, key: "taken" | "dealt"): number {
+	const bank = x * keepPct + carry[key];
+	const out = Math.floor(bank / 100);
+	carry[key] = bank - out * 100;
+	return out;
+}
+// `x` less CLOSING_EVASION_PCT, the remainder banked on the evasive state (hundredths of a point). No draw.
+function bankedEvasion(x: number, ev: EvasiveClose): number {
+	const bank = x * (100 - CLOSING_EVASION_PCT) + ev.carry;
+	const out = Math.floor(bank / 100);
+	ev.carry = bank - out * 100;
+	return out;
+}
+// A Defensive attacker's outgoing damage (DEFENSIVE_STANCE.damageDealtPct less, banked); `raw` unchanged otherwise.
+function defensiveDealt(self: Combatant, raw: number): number {
+	const d = self.defensive;
+	return d !== undefined && d.damageDealtPct > 0 && self.defensiveCarry !== undefined ? bankedPercent(raw, 100 - d.damageDealtPct, self.defensiveCarry, "dealt") : raw;
+}
+
+// WR-8 review (user 2026-10-22, Defensive "guards against threats"): the foe a Defensive ship's guns and drones turn on
+// first: the living enemy within `reach` that fields the most online drones (the lowest shield + hull, then the id,
+// on a tie), or undefined when none does. Pure, no draw.
+function guardTarget(self: Combatant, combatants: Combatant[], reach: number): Combatant | undefined {
+	let best: Combatant | undefined;
+	let bestDrones = 0;
+	for (const c of combatants) {
+		if (!c.alive || c.team === self.team || Math.abs(self.position - c.position) > reach) continue;
+		const drones = c.drones.reduce((n, sq) => n + sq.drones.filter((d) => d.alive && d.status === "online").length, 0);
+		if (drones === 0) continue;
+		if (best === undefined || drones > bestDrones || (drones === bestDrones && (effectiveHp(c) < effectiveHp(best) || (effectiveHp(c) === effectiveHp(best) && c.id < best.id)))) {
+			best = c;
+			bestDrones = drones;
+		}
+	}
+	return best;
+}
+
+// WR-8 review: a Defensive owner's squadron volleys at `guard`'s drone screen: each of its online drones rolls its hit
+// against the defending squadron's evasion and, on a hit, its damage, which the next online enemy drone takes
+// (droneTakesHit, squadron-targeted: no overflow onto the carrier). Once the screen is spent the rest strike the hull
+// through normal mitigation. The same two draws per drone as an ordinary volley. Returns what it did: the drones that
+// connected, the damage the screen drones took and the shield / hull damage past it, the drones destroyed, and whether
+// the guard died.
+interface GuardVolley {
+	dronesHit: number;
+	screenDamage: number;
+	shieldDealt: number;
+	hullDealt: number;
+	dronesDestroyed: number;
+	killed: boolean;
+}
+function fireSquadronAtDrones(self: Combatant, guard: Combatant, squadron: DroneSquadron, combat: Rng, droneCarry: { milli: number }, rules: boolean): GuardVolley {
+	const out: GuardVolley = { dronesHit: 0, screenDamage: 0, shieldDealt: 0, hullDealt: 0, dronesDestroyed: 0, killed: false };
+	for (const drone of squadron.drones) {
+		if (!drone.alive || drone.status !== "online") continue;
+		const defenders = availableDefenders(guard);
+		const next = defenders[0];
+		const evasion = next ? next.squadron.evasion : guard.evasion;
+		if (!combat.chance(Math.max(0, Math.min(100, squadron.accuracy - evasion)), 100)) continue;
+		out.dronesHit++;
+		let raw = captainDroneDamage(self.captainEdge, droneCarry, combat.nextRange(squadron.yieldMin, squadron.yieldMax));
+		raw = defensiveDealt(self, raw);
+		if (next) {
+			const hpBefore = next.drone.hp;
+			if (droneTakesHit(next.drone, raw, squadron.family, true, rules).destroyed) out.dronesDestroyed++;
+			out.screenDamage += Math.max(0, hpBefore - next.drone.hp);
+		} else {
+			const hit = applyProjectileDamage(guard, squadron.family, 0, 0, raw);
+			out.shieldDealt += hit.shieldDealt;
+			out.hullDealt += hit.hullDealt;
+			if (guard.hull <= 0 && guard.alive) {
+				guard.alive = false;
+				out.killed = true;
+			}
+		}
+	}
+	return out;
+}
+
+// WR-8 review (user 2026-10-22, "Stance should decide"): the distance this combatant parks at from its target under the
+// combat rules (combatRules.ts, the stance header). With no damage source at all it keeps its stance's band. Pure.
+//   aggressive: its shortest gun's reach (its drones' when it has no gun), so every gun fires.
+//   balanced  : the farthest reach at which the sources reaching it deliver more than BALANCED_FIREPOWER_SHARE of its
+//               expected damage (exactly the share is a tie and goes to the closer range).
+//   standoff  : (Defensive) its longest reach.
+export function stanceHoldDistance(c: Combatant): number {
+	const sources = damageSources(c);
+	if (sources.length === 0) return stancePreferredDistance(c.stance);
+	if (c.stance === "aggressive") {
+		const guns = sources.slice(0, c.weapons.filter((w) => w.durability > 0).length);
+		const pool = guns.length > 0 ? guns : sources;
+		return Math.min(...pool.map((s) => s.reach));
+	}
+	if (c.stance === "standoff") return Math.max(...sources.map((s) => s.reach));
+	const total = sources.reduce((n, s) => n + s.dps, 0);
+	const reaches = [...new Set(sources.map((s) => s.reach))].sort((a, b) => b - a);
+	for (const r of reaches) {
+		const share = sources.filter((s) => s.reach >= r).reduce((n, s) => n + s.dps, 0);
+		if (total > 0 && share > BALANCED_FIREPOWER_SHARE * total) return r;
+	}
+	return reaches[reaches.length - 1];
 }
 
 // E-CREW 0.14.0 (Task 21): is `c` STEADY UNDER FIRE right now? True only for a combatant that carries the
@@ -385,6 +585,14 @@ function advanceShieldRegen(self: Combatant, acc: Accumulators): void {
 		effectiveRecharge = Math.max(0, Math.round(effectiveRecharge * (1 + steady.shieldRecharge)));
 	}
 	acc.shield += effectiveRecharge * DT_DECISEC;
+	// WR-8 review: a Defensive ship puts its shields first (recharges shieldRechargePct faster). The bonus banks in
+	// hundredths and only whole tenths move, so it is exact over the fight. Integer math, no draw.
+	if (self.defensive !== undefined && self.defensive.shieldRechargePct > 0) {
+		acc.shieldBonus += effectiveRecharge * DT_DECISEC * self.defensive.shieldRechargePct;
+		const tenths = Math.floor(acc.shieldBonus / 100);
+		acc.shieldBonus -= tenths * 100;
+		acc.shield += tenths;
+	}
 	const wholePoints = Math.floor(acc.shield / TENTHS_PER_SECOND);
 	if (wholePoints <= 0) return;
 	acc.shield -= wholePoints * TENTHS_PER_SECOND;
@@ -444,10 +652,14 @@ interface CollateralHit {
 	targetId: string;
 	// Damage actually dealt (post-mitigation, integer).
 	damage: number;
-	// Which drone behavior produced it, so flavor can distinguish the two.
-	kind: "reflect" | "counter";
+	// Which drone behavior produced it, so flavor can distinguish the two. WR-8: "chain" is a Voltaic arc (the shot's
+	// own attacker dealt it to a second foe).
+	kind: "reflect" | "counter" | "chain";
 	// True if this collateral hit destroyed that combatant.
 	killed: boolean;
+	// WR-8: the victim's pools after the hit (a chain arc's log carries them, so the replay fold moves its bars).
+	shieldAfter?: number;
+	hullAfter?: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -476,6 +688,9 @@ export function applyProjectileDamage(
 	// ambush skips the deflector screen, not the hull plating). Default false keeps
 	// every normal shot byte-identical (the regression default for all fixtures).
 	bypassShields = false,
+	// WR-8 (0.14.0): the shooting weapon's own vs-Shields column (CombatWeapon.vsShieldsPct, the Tachyon anti-shield
+	// exception), in place of its family's while the target's shields are up. Undefined = the family column.
+	vsShieldsPct?: number,
 ): { dealt: number; attenuated: boolean; shieldDealt: number; hullDealt: number } {
 	// STEP 4 (triangle): pick ONE column. Normally from the target's CURRENT shield
 	// state (shields up => vs-Shields, shields down => vs-Armor); a hull-direct
@@ -484,7 +699,7 @@ export function applyProjectileDamage(
 	const triangleMult = bypassShields
 		? FAMILY_VS_ARMOR[family]
 		: target.shield > 0
-			? FAMILY_VS_SHIELDS[family]
+			? (vsShieldsPct ?? FAMILY_VS_SHIELDS[family])
 			: FAMILY_VS_ARMOR[family];
 	const dmgAfterTriangle = Math.floor((rawAfterCrit * triangleMult) / 100);
 
@@ -515,10 +730,20 @@ export function applyProjectileDamage(
 	// zero delta is a no-op (applyPercentDelta(x, 0) === x), so an unafflicted target is
 	// byte-identical (offline == live holds and every zero-effect fixture is unchanged).
 	const damageTakenDelta = activeStatDelta(target.statusEffects, "damageTaken");
-	const dmg =
+	const dmgAfterTaken =
 		damageTakenDelta !== 0
 			? applyPercentDelta(dmgAfterResist, damageTakenDelta)
 			: dmgAfterResist;
+	// WR-8 review: a Defensive target takes less from every channel (banked, exact over the fight; absent = no change).
+	const defensive = target.defensive;
+	const dmgDefensive =
+		defensive !== undefined && defensive.damageTakenPct > 0 && target.defensiveCarry !== undefined
+			? bankedPercent(dmgAfterTaken, 100 - defensive.damageTakenPct, target.defensiveCarry, "taken")
+			: dmgAfterTaken;
+	// WR-8 review (answer 5): a target closing evasively, still out of its own reach, takes CLOSING_EVASION_PCT less
+	// (banked, exact over the approach; never all of it).
+	const ev = target.evasiveClose;
+	const dmg = ev !== undefined && ev.active ? bankedEvasion(dmgDefensive, ev) : dmgDefensive;
 
 	// Track total damage actually removed from the target (for logging + the
 	// aggregate the caller sums), and whether this projectile attenuated.
@@ -566,7 +791,25 @@ export function applyProjectileDamage(
 
 		// STEP 5b (shields): the non-attenuated portion is absorbed up to the current
 		// shield pool; the overflow continues to the hull-path.
-		if (target.shield > 0) {
+		// WR-8 review: a Defensive target's shield points each stop shieldAbsorbPct more damage (its effective capacity):
+		// the shot costs toShields x 100 / (100 + pct) points (the remainder banked, so it is exact over the fight), and a
+		// drained pool stops floor(points x the same).
+		const absorbPct = defensive?.shieldAbsorbPct ?? 0;
+		const carry = target.defensiveCarry;
+		if (target.shield > 0 && absorbPct > 0 && carry !== undefined) {
+			const parts = toShields * 100 + carry.absorb;
+			const cost = Math.floor(parts / (100 + absorbPct));
+			if (cost <= target.shield) {
+				target.shield -= cost;
+				carry.absorb = parts - cost * (100 + absorbPct);
+			} else {
+				// The pool drains: the cost was not paid, so no remainder is banked from it (the carry starts over).
+				const stopped = Math.floor((target.shield * (100 + absorbPct)) / 100);
+				target.shield = 0;
+				hullPath += Math.max(0, toShields - stopped);
+				carry.absorb = 0;
+			}
+		} else if (target.shield > 0) {
 			const absorbed = Math.min(target.shield, toShields);
 			target.shield -= absorbed;
 			hullPath += toShields - absorbed;
@@ -633,6 +876,8 @@ export function applyProjectileDamage(
 // ---------------------------------------------------------------------------
 interface DroneDefenseContext {
 	combatants: Combatant[];
+	// WR-8: the combat rules are on (ResolveOptions.combatRules): the vs-Drones column and the EW drone disruption.
+	rules?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -676,6 +921,31 @@ interface InterceptPlan {
 	droneDestroyed: boolean;
 }
 
+// WR-8: a drone takes one projectile (`raw`, pre-mitigation). Without the rules this is absorbWithDrone exactly. Under
+// the rules the drone takes the shot's vs-Drones column (combatRules.ts FAMILY_VS_DRONES), the overflow past it goes on
+// at the shot's own scale (what the drone did not soak), and an EW shot aimed at the drones (anti-drone fire) leaves a
+// drone it does not destroy DISRUPTED (out of the fight until it repairs). No draw either way.
+export function droneTakesHit(
+	drone: Drone,
+	raw: number,
+	family: WeaponFamily,
+	targeted: boolean,
+	rules: boolean,
+): { overflow: number; destroyed: boolean } {
+	if (!rules) return absorbWithDrone(drone, raw);
+	const mult = FAMILY_VS_DRONES[family];
+	const scaled = Math.floor((raw * mult) / 100);
+	const { absorbed, destroyed } = absorbWithDrone(drone, scaled);
+	// Only a destroyed drone lets the rest of the shot through (absorbWithDrone's own rule); a drone that survives took
+	// the whole projectile, so the shot's scale-back rounding never leaks a point past it.
+	const overflow = destroyed ? Math.max(0, raw - Math.ceil((absorbed * 100) / mult)) : 0;
+	if (!destroyed && targeted && family === "ew" && drone.alive && absorbed > 0) {
+		drone.status = "disrupted";
+		drone.repairProgress = 0;
+	}
+	return { overflow, destroyed };
+}
+
 function planIntercept(
 	defender: Defender,
 	weapon: CombatWeapon,
@@ -685,9 +955,12 @@ function planIntercept(
 	combatants: Combatant[],
 	targeted: boolean,
 	combat: Rng,
+	// WR-8: the combat rules are on for this shot (DroneDefenseContext.rules).
+	rules = false,
 ): InterceptPlan {
 	const { squadron, drone } = defender;
 	const role = squadron.role;
+	const absorbWithDroneAt = (d: Drone, incoming: number) => droneTakesHit(d, incoming, weapon.family, targeted, rules);
 
 	// DEFENSE: deflect/reflect in BOTH the carrier-targeted and squadron-targeted
 	// cases (a defense drone's whole job is to block, whoever it is shielding).
@@ -695,11 +968,14 @@ function planIntercept(
 		if (combat.chance(squadron.interceptChance, 100)) {
 			// Deflected. PARTICLE-ONLY reflect: roll whether it bounces back.
 			if (canReflect(weapon.family) && combat.chance(squadron.reflectChance, 100)) {
+				// WR-8: a Defense pod's Smart Reflect line is a chance (one roll, only when the squadron carries it).
+				const smartChance = squadron.smartReflectChance ?? 0;
+				const smart = squadron.smartReflect || (smartChance > 0 && combat.chance(smartChance, 100));
 				const reflectTarget = selectReflectTarget(
 					carrier,
 					attacker,
 					combatants,
-					squadron.smartReflect,
+					smart,
 				);
 				return {
 					carrierOverflow: 0,
@@ -712,7 +988,7 @@ function planIntercept(
 		}
 		// Failed deflect: absorb with HP; overflow leaks to the carrier UNLESS this
 		// was squadron-targeted anti-drone fire (spent on the drone).
-		const { overflow, destroyed } = absorbWithDrone(drone, raw);
+		const { overflow, destroyed } = absorbWithDroneAt(drone, raw);
 		return { carrierOverflow: targeted ? 0 : overflow, droneDestroyed: destroyed };
 	}
 
@@ -723,11 +999,11 @@ function planIntercept(
 			if (combat.chance(squadron.evasion, 100)) {
 				return { carrierOverflow: 0, droneDestroyed: false };
 			}
-			const { destroyed } = absorbWithDrone(drone, raw);
+			const { destroyed } = absorbWithDroneAt(drone, raw);
 			return { carrierOverflow: 0, droneDestroyed: destroyed };
 		}
 		// Carrier-targeted: PURE MEAT-SHIELD, no roll. Absorb + overflow to carrier.
-		const { overflow, destroyed } = absorbWithDrone(drone, raw);
+		const { overflow, destroyed } = absorbWithDroneAt(drone, raw);
 		return { carrierOverflow: overflow, droneDestroyed: destroyed };
 	}
 
@@ -738,7 +1014,7 @@ function planIntercept(
 		if (combat.chance(squadron.evasion, 100)) {
 			return { carrierOverflow: 0, droneDestroyed: false };
 		}
-		const { destroyed } = absorbWithDrone(drone, raw);
+		const { destroyed } = absorbWithDroneAt(drone, raw);
 		return { carrierOverflow: 0, droneDestroyed: destroyed };
 	}
 	// Carrier-targeted: risky guarding intercept. Success dodges AND counterattacks.
@@ -750,7 +1026,7 @@ function planIntercept(
 			droneDestroyed: false,
 		};
 	}
-	const { overflow, destroyed } = absorbWithDrone(drone, raw);
+	const { overflow, destroyed } = absorbWithDroneAt(drone, raw);
 	return { carrierOverflow: overflow, droneDestroyed: destroyed };
 }
 
@@ -868,6 +1144,9 @@ export function fireWeapon(
 	let dronesEngaged = 0;
 	let dronesDestroyed = 0;
 	const collateral: CollateralHit[] = [];
+	// WR-8: whether the target fielded a live drone when the shot left (Point Defense's Inhibit procs only then).
+	const targetFieldsDrones =
+		weapon.droneEffectSlots !== undefined && target.drones.some((sq) => sq.drones.some((d) => d.alive));
 
 	// Apply a reflect/counterattack hit to a combatant OTHER than the shot's target
 	// (design S8). Routes through the SAME mitigation (particle for a reflect, the
@@ -876,7 +1155,7 @@ export function fireWeapon(
 		victim: Combatant,
 		family: WeaponFamily,
 		damage: number,
-		kind: "reflect" | "counter",
+		kind: "reflect" | "counter" | "chain",
 	): void {
 		// A reflect/counter carries no attenuation/armor-pen signature (0/0): it is a
 		// bounced/return bolt, not the original weapon's shaped shot. TODO(balance):
@@ -887,12 +1166,19 @@ export function fireWeapon(
 			victim.alive = false;
 			killed = true;
 		}
-		collateral.push({ targetId: victim.id, damage: dealt, kind, killed });
+		collateral.push({ targetId: victim.id, damage: dealt, kind, killed, ...(kind === "chain" ? { shieldAfter: victim.shield, hullAfter: victim.hull } : {}) });
 	}
 
 	// Fire each projectile independently. projectileCount is >= 1 by contract; a
 	// bad 0/negative count would simply fire nothing (defensive, no throw).
+	// WR-8 review: a Defensive target's working point defense may shoot down an incoming missile (one roll per missile
+	// projectile, drawn only when the target guards with an anti-drone weapon; no other shot draws it).
+	const missileGuard =
+		weapon.missile === true && (target.defensive?.missileInterceptPct ?? 0) > 0 && target.weapons.some((w) => w.antiDrone === true && w.durability > 0)
+			? target.defensive!.missileInterceptPct
+			: 0;
 	for (let p = 0; p < weapon.projectileCount; p++) {
+		if (missileGuard > 0 && combat.chance(missileGuard, 100)) continue; // shot down: no hit roll, no damage
 		// STEP 1/2: hit roll (one combat draw, always).
 		const hit = combat.chance(hitChance, 100);
 		if (!hit) continue; // missed projectile: no crit/damage draw, no damage
@@ -935,6 +1221,8 @@ export function fireWeapon(
 		}
 		// WR-5b: the attacker's captain edges (Weapons Drill, Overcharge, Alpha Strike), banked whole points; no draw.
 		raw = captainProjectileDamage(self.captainEdge, weapon, target, raw);
+		// WR-8 review: a Defensive attacker deals a little less (banked, exact over the fight; no draw).
+		raw = defensiveDealt(self, raw);
 
 		// PHASE 7b INTERCEPT: each projectile pulls the NEXT available defender (one
 		// drone per projectile, design S8 saturation). If the screen is thinner than
@@ -953,6 +1241,7 @@ export function fireWeapon(
 				defenseCtx!.combatants,
 				targeted,
 				combat,
+				defenseCtx!.rules === true,
 			);
 			if (plan.droneDestroyed) dronesDestroyed++;
 			// A reflected (particle) shot bounces onto the attacker or a smart-reflect
@@ -973,6 +1262,7 @@ export function fireWeapon(
 					weapon.armorPen,
 					plan.carrierOverflow,
 					bypassShields,
+					weapon.vsShieldsPct,
 				);
 				totalDealt += dealt;
 				totalShieldDealt += shieldDealt;
@@ -993,6 +1283,7 @@ export function fireWeapon(
 			weapon.armorPen,
 			raw,
 			bypassShields,
+			weapon.vsShieldsPct,
 		);
 		totalDealt += dealt;
 		totalShieldDealt += shieldDealt;
@@ -1024,7 +1315,10 @@ export function fireWeapon(
 			Math.min(100, target.disruptionResist[weapon.family]),
 		);
 		const resistKept = 100 - disruptionResistPct; // percent of chance retained
-		for (const slot of weapon.effectSlots) {
+		// WR-8: the weapon's drone effect slots (Point Defense's Inhibit) join the roll when the target fielded live
+		// drones as the shot left; absent on every weapon built without the combat rules (no extra draw).
+		const slots = targetFieldsDrones ? [...weapon.effectSlots, ...weapon.droneEffectSlots!] : weapon.effectSlots;
+		for (const slot of slots) {
 			// Cut the proc chance by the family disruption resist (integer floor).
 			const effectiveProcChance =
 				disruptionResistPct > 0
@@ -1051,6 +1345,21 @@ export function fireWeapon(
 			);
 			appliedEffects.push(slot.defId);
 		}
+	}
+
+	// WR-8 THE VOLTAIC CHAIN (design S3, combatRules.ts WEAPON_RULE_TRAITS): a connecting shot from a weapon with a
+	// chain share arcs that share of the damage it dealt onto the attacker's weakest OTHER living foe (lowest shield +
+	// hull, id tiebreak), through that foe's mitigation as a particle bolt with no attenuation or armor pen. No draw:
+	// only the normal firing path (it carries the combatant list) can arc, and only a weapon built under the combat
+	// rules carries the share.
+	if ((weapon.chainSharePct ?? 0) > 0 && defenseCtx !== undefined && totalDealt > 0) {
+		let victim: Combatant | undefined;
+		for (const c of defenseCtx.combatants) {
+			if (!c.alive || c.team === self.team || c === target) continue;
+			if (victim === undefined || effectiveHp(c) < effectiveHp(victim) || (effectiveHp(c) === effectiveHp(victim) && c.id < victim.id)) victim = c;
+		}
+		const arc = Math.floor((totalDealt * weapon.chainSharePct!) / 100);
+		if (victim !== undefined && arc > 0) applyCollateral(victim, weapon.family, arc, "chain");
 	}
 
 	// PHASE 12b UNIT B1 LIVE DURABILITY WEAR (design S2.7 / S9): a CONNECTING shot is
@@ -1229,7 +1538,9 @@ function fireSquadron(
 		// STEP 4: raw damage in [yieldMin, yieldMax] (one combat draw per hit). No
 		// crit for drones in 7a (TODO balance).
 		// WR-5b: the owner's captain Drone Handler, banked whole points (no draw); `raw` unchanged without it.
-		const raw = captainDroneDamage(self.captainEdge, droneCarry, combat.nextRange(squadron.yieldMin, squadron.yieldMax));
+		let raw = captainDroneDamage(self.captainEdge, droneCarry, combat.nextRange(squadron.yieldMin, squadron.yieldMax));
+		// WR-8 review: a Defensive owner's drones deal a little less too (banked, exact over the fight; no draw).
+		raw = defensiveDealt(self, raw);
 
 		// STEP 5: mitigation, same strict order as a weapon shot. Drones carry no
 		// particle attenuation or kinetic armor-pen (0/0), so they route through
@@ -1636,9 +1947,14 @@ function resolveAmbushOpener(
 	// Otherwise the target is stunned for the base delay, SHORTENED by a Rapid-Charge
 	// counter-module. Its weapons hold until this tick.
 	if (!detected && firedOpener) {
+		// WR-8: a drone pod's Rapid Charge line closes its share of the gap to the rapid-charge delay (rounded down to a
+		// whole tick, so any share above 0 that reaches a tick counts; 0 or absent leaves the delay as it was).
+		const share = target.rapidChargeShare ?? 0;
 		const delay = target.rapidChargeAfterAmbush
 			? RAPID_CHARGE_RETURN_DELAY_DECISEC
-			: AMBUSH_RETURN_DELAY_DECISEC;
+			: share > 0
+				? AMBUSH_RETURN_DELAY_DECISEC - Math.floor((AMBUSH_RETURN_DELAY_DECISEC - RAPID_CHARGE_RETURN_DELAY_DECISEC) * share)
+				: AMBUSH_RETURN_DELAY_DECISEC;
 		returnFireReadyTick.set(target.id, delay);
 	}
 }
@@ -1817,6 +2133,8 @@ export function resolveBattle(
 ): { outcome: BattleOutcome; log: CombatEvent[]; finalCombatants: Combatant[] } {
 	const generateLog = options?.generateLog ?? false;
 	const objective = options?.objective ?? lastTeamStanding;
+	// WR-8: the combat rules are on for this battle (see ResolveOptions.combatRules).
+	const rules = (options?.combatRules ?? 0) > 0;
 
 	// Two independent RNG streams from the one seed. `combat` drives every
 	// outcome roll; `cosmetic` is touched ONLY under generateLog for flavor, and
@@ -1850,7 +2168,7 @@ export function resolveBattle(
 	// Per-combatant fixed-point accumulators (movement + shield banking).
 	const accumulators = new Map<string, Accumulators>();
 	for (const c of combatants) {
-		accumulators.set(c.id, { move: 0, shield: 0, drone: { milli: 0 } });
+		accumulators.set(c.id, { move: 0, shield: 0, shieldBonus: 0, drone: { milli: 0 } });
 	}
 
 	// PHASE 7b IN-COMBAT DRONE REPLENISH banks (design S8). Keyed by
@@ -2052,7 +2370,7 @@ export function resolveBattle(
 
 			// PHASE A: movement. Step toward this ship's stance preferred distance from
 			// the target (close / kite / hold), Coolant-Leak-scaled (see advanceMovement).
-			advanceMovement(self, target, acc);
+			advanceMovement(self, target, acc, rules, combatants);
 
 			// PHASE B: shield regen for the acting combatant (banked per-tick).
 			advanceShieldRegen(self, acc);
@@ -2097,6 +2415,9 @@ export function resolveBattle(
 				// only the deterministic `alive` flag + draws NO RNG, so offline == live == replay
 				// still agree (the fewer draws happen identically on every path).
 				if (!self.alive || !target.alive) break;
+				// WR-8 review: a Defensive ship's anti-drone weapons guard first: each fires at the in-range foe fielding
+				// live drones (guardTarget) before the ship's own target; every other weapon fires at the target.
+				const aim = self.defensive !== undefined && weapon.antiDrone === true ? (guardTarget(self, combatants, rangeDelta !== 0 ? applyPercentDelta(weapon.range, rangeDelta) : weapon.range) ?? target) : target;
 				// PHASE 12b UNIT B1 (design S9): an OFFLINE weapon (durability depleted) is
 				// down and cannot fire. Skip it entirely (it does not even accrue cooldown);
 				// in B1 durability only decreases within a battle, so once offline it stays
@@ -2115,7 +2436,7 @@ export function resolveBattle(
 				// band opens) WITHOUT banking a backlog. Without the cap the accumulator keeps
 				// growing every out-of-range tick (the += DT above runs each tick) and then dumps
 				// ~N back-to-back shots on entry (the cooldown-burst bug). We do NOT reset it.
-				const distance = Math.abs(self.position - target.position);
+				const distance = Math.abs(self.position - aim.position);
 				const effectiveRange =
 					rangeDelta !== 0 ? applyPercentDelta(weapon.range, rangeDelta) : weapon.range;
 				if (distance > effectiveRange) {
@@ -2182,7 +2503,7 @@ export function resolveBattle(
 				// laid bare" death beat) from a plain shield hit or hull hit. Read only
 				// under generateLog so offline stays untouched; the read never affects
 				// the outcome regardless.
-				const shieldBefore = generateLog ? target.shield : 0;
+				const shieldBefore = generateLog ? aim.shield : 0;
 
 				// REAL shot pipeline. Every combat-stream draw happens inside, on a
 				// schedule independent of generateLog (parity invariant). Passes `self`
@@ -2191,8 +2512,9 @@ export function resolveBattle(
 				// PHASE 7b: pass the defense context so an incoming shot is contested by
 				// the target's drone screen (interception / deflect / reflect / meat-
 				// shield). Droneless targets make zero extra draws (the parity guard).
-				const shot = fireWeapon(self, target, weapon, combat, false, {
+				const shot = fireWeapon(self, aim, weapon, combat, false, {
 					combatants,
+					rules,
 				});
 
 				// LOG + COSMETIC work is gated on generateLog ONLY. None of this can
@@ -2215,7 +2537,7 @@ export function resolveBattle(
 								round,
 								type: evaded ? "evade" : "hit",
 								actorId: self.id,
-								targetId: target.id,
+								targetId: aim.id,
 								damage: shot.damage,
 								result: evaded ? "evade" : "hit",
 								shieldAfter: shot.shieldAfter,
@@ -2245,7 +2567,7 @@ export function resolveBattle(
 					// fireWeapon; here we only narrate it, reading the target's CURRENT
 					// rank so an escalation reads "II" / "III".
 					for (const defId of shot.appliedEffects) {
-						const inst = target.statusEffects.find((e) => e.defId === defId);
+						const inst = aim.statusEffects.find((e) => e.defId === defId);
 						log.push(
 							attachFlavor(
 								{
@@ -2253,7 +2575,7 @@ export function resolveBattle(
 									round,
 									type: "effectApplied",
 									actorId: self.id,
-									targetId: target.id,
+									targetId: aim.id,
 									result: "effectApplied",
 									shieldAfter: shot.shieldAfter,
 									hullAfter: shot.hullAfter,
@@ -2272,7 +2594,7 @@ export function resolveBattle(
 									round,
 									type: "destroyed",
 									actorId: self.id,
-									targetId: target.id,
+									targetId: aim.id,
 									result: "destroyed",
 									shieldAfter: shot.shieldAfter,
 									hullAfter: shot.hullAfter,
@@ -2293,7 +2615,7 @@ export function resolveBattle(
 									tDeciSec: t,
 									round,
 									type: "droneIntercept",
-									actorId: target.id, // the DEFENDER's drones acted
+									actorId: aim.id, // the DEFENDER's drones acted
 									targetId: self.id,
 									result: "droneIntercept",
 									projectilesHit: shot.dronesEngaged,
@@ -2309,11 +2631,13 @@ export function resolveBattle(
 								{
 									tDeciSec: t,
 									round,
-									type: hit.kind === "reflect" ? "droneReflect" : "droneCounter",
-									actorId: target.id, // the carrier's screen dealt this
+									type: COLLATERAL_EVENT[hit.kind],
+									// the carrier's screen dealt a reflect / counter; a chain arc is the shooter's own (WR-8)
+									actorId: hit.kind === "chain" ? self.id : aim.id,
 									targetId: hit.targetId,
 									damage: hit.damage,
-									result: hit.kind === "reflect" ? "droneReflect" : "droneCounter",
+									result: COLLATERAL_EVENT[hit.kind],
+									...(hit.kind === "chain" ? { shieldAfter: hit.shieldAfter, hullAfter: hit.hullAfter, family: weapon.family, weaponType: weapon.weaponType } : {}),
 								},
 								cosmetic,
 							),
@@ -2325,7 +2649,7 @@ export function resolveBattle(
 										tDeciSec: t,
 										round,
 										type: "destroyed",
-										actorId: target.id,
+										actorId: aim.id,
 										targetId: hit.targetId,
 										result: "destroyed",
 									},
@@ -2337,7 +2661,8 @@ export function resolveBattle(
 				}
 				// E-MOD EM-6: the struck ship's on-hit procs (a connecting shot), after the shot is narrated. An arc that
 				// destroys this attacker ends its salvo at the liveness check above.
-				if (modules !== null && shot.projectilesHit > 0) modules.fire(target, "onHit", t, self);
+				// WR-8 review: the ship the shot struck (a Defensive ship's guard shot strikes `aim`, not its target).
+				if (modules !== null && shot.projectilesHit > 0) modules.fire(aim, "onHit", t, self);
 			}
 
 				// PHASE C2: DRONE SQUADRONS (design S8, Phase 7a OFFENSE). Each squadron
@@ -2354,6 +2679,8 @@ export function resolveBattle(
 				// shot is contested by this same array); here the loop adds the SUPPORT
 				// KIT (Mode 3): a support squadron's pulse repairs the owner + cleanses
 				// disruptions instead of firing. Offense (attack/defense volleys) is 7a.
+				// WR-8: the owner's summed drone attack rate delta (Inhibit, a negative percent; 0 without one).
+				const droneAttackDelta = activeStatDelta(self.statusEffects, "droneAttackRate");
 				for (const squadron of self.drones) {
 					// MID-TURN LIVENESS (Combat 1.0 correctness fix, 2026-08-27). This ship may
 					// have been reflect-killed in the weapon phase above; a dead ship runs NO
@@ -2363,10 +2690,13 @@ export function resolveBattle(
 					// no RNG draw, so offline == live == replay agree. `break`: a dead self does
 					// nothing for the rest of its turn.
 					if (!self.alive) break;
+					// WR-8: an Inhibit on the owner (Point Defense's drone effect) lengthens every squadron's volley and pulse
+					// period (droneCooldown); without one this is exactly attackCooldownDeciSec.
+					const cooldown = droneCooldown(squadron.attackCooldownDeciSec, droneAttackDelta);
 					// Advance the squadron's firing clock by dt (no combat draw).
 					squadron.cooldownAccumulator += DT_DECISEC;
 					// Not yet ready to volley / pulse.
-					if (squadron.cooldownAccumulator < squadron.attackCooldownDeciSec) continue;
+					if (squadron.cooldownAccumulator < cooldown) continue;
 
 					// PHASE 7b SUPPORT PULSE (design S8 Mode 3). A utility squadron does
 					// NOT fire; when its clock is ready it repairs the OWNER's hull (per
@@ -2376,7 +2706,7 @@ export function resolveBattle(
 					// on there being a support squadron at all (parity: no support => no
 					// draw here). The cleanse is the only combat-stream draw.
 					if (squadron.mode === "utility") {
-						squadron.cooldownAccumulator -= squadron.attackCooldownDeciSec;
+						squadron.cooldownAccumulator -= cooldown;
 						// Count alive+online drones: a wiped/jammed support screen heals less.
 						let activeDrones = 0;
 						for (const d of squadron.drones) {
@@ -2392,6 +2722,11 @@ export function resolveBattle(
 						// the screen has an active drone to run the kit.
 						const cleansed =
 							activeDrones > 0 ? supportCleanse(self, combat) : [];
+						// WR-8: under the rules an active pulse also charges the owner's capacitors (Overcharged Capacitors,
+						// +shield recharge; a refresh rolls its escalation on the combat stream, after the cleanse).
+						if (rules && activeDrones > 0) {
+							self.statusEffects = applyEffect(self.statusEffects, "overchargedCapacitors", SUPPORT_OVERCHARGE_ESCALATION, combat);
+						}
 						// LOG-ONLY narration of the pulse (never changes the outcome).
 						// attachFlavor makes the single cosmetic draw per event.
 						if (generateLog && (self.hull !== hullBefore || cleansed.length > 0)) {
@@ -2439,6 +2774,43 @@ export function resolveBattle(
 					// on this ship still runs its pulse. We do NOT re-select (once-per-turn policy
 					// unchanged); reads the deterministic `alive` flag, draws NO RNG (live ==
 					// replay).
+					// WR-8 review: a Defensive owner's squadron hunts enemy drones first (guardTarget within its reach):
+					// the volley consumes its period and strikes that foe's screen (fireSquadronAtDrones).
+					const guard = self.defensive !== undefined ? guardTarget(self, combatants, squadron.range) : undefined;
+					if (guard !== undefined) {
+						squadron.cooldownAccumulator -= cooldown;
+						const gv = fireSquadronAtDrones(self, guard, squadron, combat, acc.drone, rules);
+						if (generateLog) {
+							// The same aggregate line as an ordinary volley (projectilesHit = drones that connected), with the
+							// damage its screen took (screenDamage) and the drones it downed (dronesDestroyed) beside the split.
+							const evaded = gv.dronesHit === 0;
+							log.push(
+								attachFlavor(
+									{
+										tDeciSec: t,
+										round,
+										type: "droneVolley",
+										actorId: self.id,
+										targetId: guard.id,
+										damage: gv.screenDamage + gv.shieldDealt + gv.hullDealt,
+										result: evaded ? "evade" : "droneVolley",
+										shieldAfter: guard.shield,
+										hullAfter: guard.hull,
+										family: squadron.family,
+										projectilesHit: gv.dronesHit,
+										...(evaded ? {} : { shieldDamage: gv.shieldDealt, hullDamage: gv.hullDealt, screenDamage: gv.screenDamage, dronesDestroyed: gv.dronesDestroyed }),
+									},
+									cosmetic,
+								),
+							);
+							if (gv.killed) {
+								log.push(attachFlavor({ tDeciSec: t, round, type: "destroyed", actorId: self.id, targetId: guard.id, result: "destroyed", shieldAfter: guard.shield, hullAfter: guard.hull }, cosmetic));
+							}
+						}
+						// The struck ship's on-hit procs (a connecting volley), as the ordinary volley fires them.
+						if (modules !== null && gv.dronesHit > 0) modules.fire(guard, "onHit", t, self);
+						continue;
+					}
 					if (!target.alive) continue;
 					// Reach gate: owner-to-target distance vs the squadron's range. Out of reach
 					// CAPS the accumulator at the ready threshold (like a weapon, see PHASE C) so
@@ -2448,8 +2820,8 @@ export function resolveBattle(
 					// reach (see drones.ts templates).
 					const droneDistance = Math.abs(self.position - target.position);
 					if (droneDistance > squadron.range) {
-						if (squadron.cooldownAccumulator > squadron.attackCooldownDeciSec) {
-							squadron.cooldownAccumulator = squadron.attackCooldownDeciSec;
+						if (squadron.cooldownAccumulator > cooldown) {
+							squadron.cooldownAccumulator = cooldown;
 						}
 						continue;
 					}
@@ -2457,7 +2829,7 @@ export function resolveBattle(
 					// Ready + in reach: consume ONE cooldown period (carry the remainder for
 					// exact fractional rates), then volley. Every combat-stream draw happens
 					// inside fireSquadron, on a schedule independent of generateLog (parity).
-					squadron.cooldownAccumulator -= squadron.attackCooldownDeciSec;
+					squadron.cooldownAccumulator -= cooldown;
 					const volley = fireSquadron(self, target, squadron, combat, acc.drone);
 
 					// LOG + COSMETIC gated on generateLog ONLY (cannot change the outcome:

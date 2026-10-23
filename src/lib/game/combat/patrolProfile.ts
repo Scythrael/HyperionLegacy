@@ -19,13 +19,15 @@
 // ============================================================================
 
 import type { PatrolDef, PatrolDifficultyStamp } from "../model";
+import type { CombatRulesStamp } from "./combatRules";
 import { FIRST_PATROL_WAVES, isTrainingPatrol, patrolEnemyScale } from "../runDifficulty";
 import { PIRATE_HULLS, type PirateHullId } from "./enemyHulls";
 import type { EnemyWaveParams } from "./enemyWave";
 import { planWaveSchedule, patrolWaveParams } from "./waveSchedule";
 import type { Combatant } from "./types";
 
-type Stamped = { difficulty?: PatrolDifficultyStamp };
+// WR-8 (0.14.0): and the cycle's combat rules stamp (combat/combatRules.ts), read by the wave's enemy params.
+type Stamped = { difficulty?: PatrolDifficultyStamp; combatRules?: CombatRulesStamp };
 
 // The route's LIGHTEST hull (the least hull + shield; the first in pool order on a tie): the training cycle's enemy.
 // Pure.
@@ -46,8 +48,17 @@ export function patrolCycleWaveTicks(masterSeed: number, def: PatrolDef, stamped
 // One wave's enemy params: the route's pool and count band, or on the training cycle one enemy of its lightest hull.
 // Pure.
 export function patrolWaveEnemyParams(def: PatrolDef, stamped: Stamped, idPrefix: string): EnemyWaveParams {
-  if (isTrainingPatrol(stamped)) return { hullPool: [lightestPatrolHull(def)], enemyCountMin: 1, enemyCountMax: 1, idPrefix };
-  return { hullPool: def.hullPool, enemyCountMin: def.enemyCountMin, enemyCountMax: def.enemyCountMax, idPrefix };
+  // WR-8: a cycle under the combat rules fields its enemies under them (absent: the pre-WR-8 params exactly).
+  const rules = stamped.combatRules !== undefined ? { combatRules: true } : {};
+  if (isTrainingPatrol(stamped)) return { hullPool: [lightestPatrolHull(def)], enemyCountMin: 1, enemyCountMax: 1, idPrefix, ...rules };
+  return { hullPool: def.hullPool, enemyCountMin: def.enemyCountMin, enemyCountMax: def.enemyCountMax, idPrefix, ...rules };
+}
+
+// WR-8 (0.14.0): the battle options a patrol wave resolves with: under the cycle's combat rules the guns pre-charge
+// during the close (OC-D9 "patrols gain precharge", like the ship events) and the rules' battle paths are on. A cycle
+// without the stamp resolves exactly as before ({}).
+export function patrolBattleOptions(stamped: Stamped): { precharge?: boolean; combatRules?: number } {
+  return stamped.combatRules !== undefined ? { precharge: true, combatRules: stamped.combatRules.rules } : {};
 }
 
 // One enemy at `scale` of nominal: hull and shield pools, shield recharge, every weapon's yield band, every drone's

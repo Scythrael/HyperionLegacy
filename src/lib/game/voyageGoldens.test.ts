@@ -23,6 +23,11 @@ import { installMissingCombatBaselines } from "./tick";
 import { asPreFieldKitsDispatch, asExpeditionVeteran, plainAwayMember, withoutCurve, dispatchPastPropulsion } from "./awayTeamTestFixtures";
 import { PRE_G2_3_STORED_RUNS } from "./voyageGoldens.fixture";
 import { goldenJson, withV1Museum } from "./firstRunsGoldens.fixture"; // gear wear: goldenJson puts the retired durability back
+// WR-8 (0.14.0): every pin in this file was taken before the combat rules (combatRulesSwitch.fixture.ts), so the file
+// runs with them switched off and its pins keep proving WR-8 moved nothing else here (the rules stamp new patrol
+// cycles and runs; combatDescriptorGoldens.test.ts pins the combat rules themselves).
+import { combatRulesOffForThisFile } from "./combatRulesSwitch.fixture";
+combatRulesOffForThisFile();
 
 function fnv(s: string): string {
   let h = 0x811c9dc5;

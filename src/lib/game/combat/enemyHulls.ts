@@ -77,6 +77,17 @@ export interface PirateHull {
 	// balanced holds Medium, standoff hangs at Long. Derived-from-loadout intent,
 	// hardcoded per hull here rather than computed.
 	stance: CombatStance;
+
+	// WR-8 (0.14.0, OC-D12 "pirate hulls get armor and evasion"): the hull's mitigation, applied under the combat
+	// rules only (enemyWave.ts generateEnemyWaveDetailed, params.combatRules), so a patrol cycle in flight before WR-8
+	// fights the hulls it always did. [PROVISIONAL] magnitudes, softened by the user's WR-8 review pick (2026-10-22
+	// option 1 "Soften pirates for now"; 0.16.0 owns the real numbers). Armor and evasion only, as the user named them:
+	// a percent dampening floors away a whole point of every small hit (a 4 to 6 point drone strike loses 20% to 1%),
+	// so the pirates carry none.
+	// The depleting ablative buffer on the hull path (what a kinetic weapon's armor pen sees through).
+	ablativeArmor: number;
+	// Evasion points off every incoming shot's accuracy (Manifold Overheat cuts them).
+	evasion: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -99,6 +110,9 @@ export const PIRATE_HULLS: Record<PirateHullId, PirateHull> = {
 		weapons: ["autocannon"],
 		droneRoles: [],
 		stance: "aggressive",
+		// Light plates, the nimblest hull of the three.
+		ablativeArmor: 3,
+		evasion: 3,
 	},
 
 	// MARAUDER: the medium line pirate. More hull + shield than a raider, TWO guns
@@ -115,12 +129,15 @@ export const PIRATE_HULLS: Record<PirateHullId, PirateHull> = {
 		weapons: ["autocannon", "railgun"],
 		droneRoles: [],
 		stance: "balanced",
+		// The armored line ship: the heaviest plates, slow to dodge.
+		ablativeArmor: 10,
+		evasion: 2,
 	},
 
 	// CORSAIR CARRIER: the drone tender. The toughest of the three but with only a
 	// MODEST direct gun (a single Plasma chipper); its real offense is a fielded
 	// Attack drone squadron. It is the reason enemies bring drones, so the player's
-	// anti-drone weapons matter. Standoff (hangs at Long and lets the drones do the
+	// anti-drone weapons matter. Defensive (stored "standoff": hangs at its longest reach and lets the drones do the
 	// work). Still tuned to be beatable by an entry destroyer.
 	corsairCarrier: {
 		id: "corsairCarrier",
@@ -131,5 +148,8 @@ export const PIRATE_HULLS: Record<PirateHullId, PirateHull> = {
 		weapons: ["plasma"],
 		droneRoles: ["attack"],
 		stance: "standoff",
+		// A big tender: plated, and it barely dodges (it trusts its drones).
+		ablativeArmor: 8,
+		evasion: 1,
 	},
 };

@@ -17,6 +17,11 @@ import { describe, expect, it } from "vitest";
 // (gearWearSwitch.fixture.ts), so they keep proving nothing else moved. gearWearGoldens.test.ts pins the wear.
 import { gearWearOffInThisFile } from "./gearWearSwitch.fixture";
 gearWearOffInThisFile();
+// Merged with WR-8 (0.14.0): every pin in this file was taken before the combat rules (combatRulesSwitch.fixture.ts),
+// so the file runs with them switched off and its pins keep proving nothing else moved (the rules stamp new patrol
+// cycles and runs; combatDescriptorGoldens.test.ts pins the combat rules themselves).
+import { combatRulesOffForThisFile } from "./combatRulesSwitch.fixture";
+combatRulesOffForThisFile();
 import Decimal from "break_infinity.js";
 import { RESEARCH_FACILITY_KEY, SUBSPACE_TELESCOPE_FACILITY_KEY, freshState, type AwayMember, type GameState, type ShipGroundTeam } from "./model";
 import { advanceExpedition, claimExpedition, expeditionCandidates } from "./expedition";

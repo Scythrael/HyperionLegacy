@@ -18,6 +18,9 @@ import {
   nextPatrolCycleDifficulty,
   patrolDifficultyAt,
   patrolEnemyScale,
+  patrolRulesEnemyScale,
+  PATROL_RULES_RAMP_FLOOR,
+  RAMP_FLOOR,
   rampEnemyScale,
   rampFraction,
   runCountsOf,
@@ -77,6 +80,13 @@ describe("SF-4 the rules: the stamp a patrol dispatch writes", () => {
     expect(patrolEnemyScale({})).toBe(1);
     expect(patrolEnemyScale({ difficulty: { version: 1, firstRun: true, ramp: 0, tier: 1, completed: 0 } })).toBe(1);
     expect(patrolEnemyScale({ difficulty: { version: 1, firstRun: false, ramp: 0, tier: 1, completed: 0 } })).toBe(rampEnemyScale(0));
+    // WR-8 answer 6: a cycle under the combat rules climbs from PATROL_RULES_RAMP_FLOOR, to nominal at full strength.
+    const rules = { rules: 1, speed: 30 } as const;
+    expect(patrolEnemyScale({ difficulty: { version: 1, firstRun: false, ramp: 0, tier: 1, completed: 0 }, combatRules: rules })).toBe(PATROL_RULES_RAMP_FLOOR);
+    expect(patrolEnemyScale({ difficulty: { version: 1, firstRun: false, ramp: 0.5, tier: 1, completed: 4 }, combatRules: rules })).toBeCloseTo(PATROL_RULES_RAMP_FLOOR + (1 - PATROL_RULES_RAMP_FLOOR) * 0.5, 12);
+    expect(patrolEnemyScale({ difficulty: { version: 1, firstRun: true, ramp: 0, tier: 1, completed: 0 }, combatRules: rules })).toBe(1);
+    expect([patrolRulesEnemyScale(1), patrolRulesEnemyScale(2), patrolRulesEnemyScale(Number.NaN)]).toEqual([1, 1, 1]);
+    expect(PATROL_RULES_RAMP_FLOOR).toBeLessThan(RAMP_FLOOR);
     expect(rampEnemyScale(0)).toBe(0.35);
   });
 
@@ -122,9 +132,10 @@ describe("SF-4 the profile against the same cycle without it", () => {
         floor.waves[i].enemyStart.forEach((e, j) => {
           const nominal = top.waves[i].enemyStart[j];
           expect(nominal.hullMax).toBe(PIRATE_HULLS[top.waves[i].enemyHullIds[j]].hullIntegrity);
-          expect(e.hullMax).toBe(Math.round(nominal.hullMax * 0.35));
-          expect(e.shieldMax).toBe(Math.round(nominal.shieldMax * 0.35));
-          expect(e.weapons.map((w) => w.yieldMax)).toEqual(nominal.weapons.map((w) => Math.round(w.yieldMax * 0.35)));
+          // WR-8 answer 6: a live dispatch carries the combat rules stamp, so its floor is PATROL_RULES_RAMP_FLOOR (was 0.35).
+          expect(e.hullMax).toBe(Math.round(nominal.hullMax * PATROL_RULES_RAMP_FLOOR));
+          expect(e.shieldMax).toBe(Math.round(nominal.shieldMax * PATROL_RULES_RAMP_FLOOR));
+          expect(e.weapons.map((w) => w.yieldMax)).toEqual(nominal.weapons.map((w) => Math.round(w.yieldMax * PATROL_RULES_RAMP_FLOOR)));
         });
       }
     }

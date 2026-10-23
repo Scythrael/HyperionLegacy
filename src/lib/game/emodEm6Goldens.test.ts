@@ -14,6 +14,11 @@
 //               span as ONE offline tick() call (per mission cycle).
 
 import { describe, expect, it } from "vitest";
+// Merged with WR-8 (0.14.0): every pin in this file was taken before the combat rules (combatRulesSwitch.fixture.ts),
+// so the file runs with them switched off and its pins keep proving nothing else moved (the rules stamp new patrol
+// cycles and runs; combatDescriptorGoldens.test.ts pins the combat rules themselves).
+import { combatRulesOffForThisFile } from "./combatRulesSwitch.fixture";
+combatRulesOffForThisFile();
 // GEAR WEAR step 3: this file's pins were captured before the use wear engine; it runs with the use sources off
 // (gearWearSwitch.fixture.ts), so they keep proving nothing else moved. gearWearGoldens.test.ts pins the wear.
 import { gearWearOffInThisFile } from "./gearWearSwitch.fixture";

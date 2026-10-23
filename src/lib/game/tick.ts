@@ -376,6 +376,7 @@ import {
   shipRepairSpeedBonus,
   shipCrewContribution,
   shipDeckHandling,
+  shipCombatRulesStamp,
   type OfficerCombatEntry,
 } from "./crewOverlay";
 // GEAR WEAR step 3 (0.14.0): the use wear sources, the repair contexts and the settling (gearWearEngine.ts).
@@ -471,7 +472,8 @@ import { validateCaptainName } from "./captainName";
 // Safe first runs SF-1: the run counters (runDifficulty.ts imports model.ts only, so no cycle).
 import { countPatrolDispatch, countPatrolRuns, isTrainingPatrol, nextPatrolCycleDifficulty, patrolDifficultyAt, runCountsOf, uncountShortRangeCycleStart } from "./runDifficulty";
 // Safe first runs SF-4: a patrol cycle's difficulty profile (the training cycle, the curve), shared with the replay.
-import { patrolCycleEnemies, patrolCycleWaveTicks, patrolWaveBreaksOff, patrolWaveEnemyParams } from "./combat/patrolProfile";
+import { patrolBattleOptions, patrolCycleEnemies, patrolCycleWaveTicks, patrolWaveBreaksOff, patrolWaveEnemyParams } from "./combat/patrolProfile";
+import type { CombatRulesStamp } from "./combat/combatRules";
 // G1-4: the short-range cycle engine and the board's stored-cursor shape check.
 import { shortRangeHasDeparted, shortRangeVaultDeposit, tickCaptainShortRange, type ShortRangeRelicFind } from "./shortRangeCycle";
 import { isWellFormedShortRangeBoard } from "./shortRangeBoard";
@@ -3284,6 +3286,9 @@ export function tickCaptainPatrol(
     homeGuardShield?: number;
     // 0.14.0 (CP-4, OC-1): the crew's Deck Handling a relaunch freezes onto its new cycle (0 / absent = none).
     deckHandling?: number;
+    // WR-8 (0.14.0): the combat rules stamp a relaunch freezes onto its new cycle (crewOverlay.ts shipCombatRulesStamp:
+    // the ship's combat speed now). Absent = the new cycle is unstamped (a test call; the app always passes it).
+    combatRules?: CombatRulesStamp;
   } = {},
 ): PatrolTickResult {
   const noOp: PatrolTickResult = {
@@ -3510,6 +3515,9 @@ export function tickCaptainPatrol(
         officerCombat: mission.officerCombat,
         // WR-5b: this cycle's FROZEN captain Tactician talents (absent = none).
         captainCombat: mission.captainCombat,
+        // WR-8: this cycle's combat rules (absent = the pre-WR-8 combatant) and the statuses the last wave left.
+        combatRules: mission.combatRules,
+        carryStatusEffects: mission.playerStatusEffects,
       });
 
       // ENEMY team: deterministic from the ENEMY-salt derivation. idPrefix = faction id +
@@ -3529,9 +3537,11 @@ export function tickCaptainPatrol(
       // generateLog defaults false: the engine needs only the OUTCOME + carry-state; the
       // watchable log is a 9b.5d concern (it re-resolves / streams for the player). Default
       // objective (lastTeamStanding) = enemies down -> player wins, player down -> loss.
+      // WR-8: under the cycle's combat rules the guns pre-charge and the rules' battle paths are on ({} without them).
       const { outcome, finalCombatants } = resolveBattle(
         { combatants: [player, ...enemies] },
         deriveWaveSeed(mission.masterSeed, waveIndex, WAVE_BATTLE_SEED_SALT),
+        patrolBattleOptions(mission),
       );
 
       // WR-4 (B4): every enemy this wave's battle destroyed counts toward the officers' shipsDestroyed.
@@ -3542,6 +3552,7 @@ export function tickCaptainPatrol(
         shield: mission.playerShield,
         drones: mission.playerDrones,
         durability: mission.playerSystemDurability,
+        statuses: mission.playerStatusEffects,
       };
       // Read the player's POST-battle state BY ID (finalCombatants is in TURN order: by side,
       // then input order). Carry hull/shield/drones forward (attrition; hull never regens).
@@ -3557,6 +3568,11 @@ export function tickCaptainPatrol(
         // symmetric with hull/shield; on a defeat the mission then limps home and this wear is
         // discarded with the ending mission (it does not outlive the patrol in B2).
         mission.playerSystemDurability = capturePlayerSystemDurability(p);
+        // WR-8: under the rules the statuses on the ship carry into the next wave (written only when there are some).
+        if (mission.combatRules) {
+          if (p.statusEffects.length > 0) mission.playerStatusEffects = p.statusEffects.map((e) => ({ ...e }));
+          else delete mission.playerStatusEffects;
+        }
       }
 
       // A win requires BOTH the objective naming "player" AND the player actually alive
@@ -3605,6 +3621,9 @@ export function tickCaptainPatrol(
         mission.playerShield = preWave.shield;
         mission.playerDrones = preWave.drones;
         mission.playerSystemDurability = preWave.durability;
+        // WR-8: and the statuses it entered with (the replay's carry is the same).
+        if (preWave.statuses !== undefined) mission.playerStatusEffects = preWave.statuses;
+        else delete mission.playerStatusEffects;
         mission.nextWaveIndex = waveIndex + 1;
       } else {
         // DEFEAT (Combat 0.13.0, Phase 11, design S13): the patrol does NOT end instantly.
@@ -3744,6 +3763,9 @@ export function tickCaptainPatrol(
             // Safe first runs SF-4: the new cycle's difficulty, from this cycle's stamp alone (the training cycle
             // hands over the curve's floor; a ramped cycle keeps its stamp, one step per patrol run; none stays none).
             difficulty: nextPatrolCycleDifficulty(mission.difficulty),
+            // WR-8: the new cycle starts under the combat rules, at the ship's combat speed now (economyTick's live
+            // read), like every new cycle; a cycle stamped before WR-8 kept its old rules only to its end.
+            combatRules: officerEffects.combatRules,
           });
           // The new cycle's frozen bonuses may differ from the old one's: re-fold the carry pools so the
           // between-wave regen and the limp damage read the SAME fold as this cycle's wave combatants.
@@ -4438,6 +4460,8 @@ export function economyTick(
                 homeGuardShield: homeGuardPatrolShieldMult(state),
                 // 0.14.0 (CP-4): Deck Handling, for the next cycle's frozen record (0 without the key).
                 deckHandling: shipDeckHandling(state, patrolShip),
+                // WR-8: the combat rules and combat speed, for the next cycle's frozen record.
+                combatRules: shipCombatRulesStamp(state, patrolShip),
               }
             : {},
         );
@@ -5747,6 +5771,9 @@ function freshPatrolMission(args: {
   // Safe first runs SF-4: the cycle's difficulty (runDifficulty.ts patrolDifficultyAt at dispatch,
   // nextPatrolCycleDifficulty at a relaunch). Stored only when present (absent = full strength, the record as before).
   difficulty?: PatrolDifficultyStamp;
+  // WR-8 (0.14.0): the cycle's combat rules stamp (crewOverlay.ts shipCombatRulesStamp). Stored only when present; it
+  // also sizes the reactor and drive carry pools to the installed pieces the wave combatant fights with.
+  combatRules?: CombatRulesStamp;
 }): PatrolMissionState {
   const { patrolKey, stance, masterSeed, repeatDispatch, shipDef, hullType, installedGear, officerCombat, captainCombat } = args;
   const deckHandling = args.deckHandling ?? 0;
@@ -5782,6 +5809,7 @@ function freshPatrolMission(args: {
     ...(freeRepairTicks > 0 ? { freeRepairTicks } : {}),
     ...(returnCutTicks > 0 ? { returnCutTicks } : {}),
     ...(args.difficulty ? { difficulty: args.difficulty } : {}),
+    ...(args.combatRules ? { combatRules: { ...args.combatRules } } : {}),
     kind: "patrol",
     patrolKey,
     factionId: def.factionId, // pin the fought faction (def could be retuned mid-flight)
@@ -5821,7 +5849,7 @@ function freshPatrolMission(args: {
     // Carry-state seeded to FULL system durability (Phase 12b Unit B2): every weapon + the
     // reactor + the ftl at their fresh ceilings (no wear), the same "start clean" a fresh
     // dispatch AND a relaunch both want. Wear accumulates from here across the cycle's waves.
-    playerSystemDurability: defaultSystemDurabilityForHull(hullType, shipDef, installedGear),
+    playerSystemDurability: defaultSystemDurabilityForHull(hullType, shipDef, installedGear, args.combatRules),
     recalled: false,
     repeatDispatch,
   };
@@ -6216,6 +6244,8 @@ export function dispatchCaptainOnPatrol(
     // Safe first runs SF-4: the save's one safe patrol, or the curve at the patrol runs counted so far (read BEFORE this
     // dispatch is counted; absent at full strength).
     difficulty: patrolDifficultyAt(state),
+    // WR-8: the first cycle starts under the combat rules at the ship's combat speed now.
+    combatRules: shipCombatRulesStamp(state, ship),
   });
 
   const captains = [...state.captains];

@@ -59,7 +59,8 @@ import type { CombatStance } from "./combat/positioning";
 import type { Combatant } from "./combat/types";
 import { rollHaul, scanStepKey } from "./gambit";
 import { equippedFor } from "./equipment";
-import { effectiveShipStats, officerCombatModsFromProfile, officerCombatProfile, shipCrewContribution, shipRepairSpeedBonus } from "./crewOverlay";
+import { effectiveShipStats, officerCombatModsFromProfile, officerCombatProfile, shipCombatRulesStamp, shipCrewContribution, shipRepairSpeedBonus } from "./crewOverlay";
+import { ENCOUNTER_OPEN_DISTANCE, RULES_COMBAT_SPEED, stampCombatArgs } from "./combat/combatRules";
 // WR-5b (0.14.0): the commanding captain's Tactician talents, frozen with the battle profile.
 import { shipCaptainCombatMods, withCaptainRepair } from "./captainTacticianEffects";
 import { CREW_STAT_KEYS } from "./crewBuffs";
@@ -163,6 +164,9 @@ const COMBAT_SLOT_TYPES: ReadonlySet<string> = new Set(["weapon", "shieldEmitter
 
 // The frozen profile at dispatch (groundOps.ts snapshotGroundOps writes it). Pure: fresh, JSON-safe data.
 export function snapshotShipEventProfile(state: GameState, ship: ShipInstance): ShipEventProfile {
+  // WR-8: the run's combat rules, the ship's combat speed and its installed reactor and drive qualities, frozen here
+  // (undefined only under the test switch).
+  const combatRules = shipCombatRulesStamp(state, ship);
   const gear = equippedFor(state, ship.id).filter((piece) => COMBAT_SLOT_TYPES.has(piece.slotType));
   // WR-5b: the commanding captain's Tactician talents (absent without a node, so the profile is unchanged).
   const captainCombat = shipCaptainCombatMods(state, ship);
@@ -176,6 +180,7 @@ export function snapshotShipEventProfile(state: GameState, ship: ShipInstance): 
     // WR-5b: x the captain's Damage Control, its own factor (the Shipyard's divisor gets the same).
     repairSpeed: withCaptainRepair(shipRepairSpeedBonus(state, ship), captainCombat),
     ...(captainCombat ? { captainCombat: { ...captainCombat } } : {}),
+    ...(combatRules ? { combatRules } : {}),
   };
   const c = buildShipCombatant(ship.id, battle, 0, 0);
   battle.hullMax = c.hullMax;
@@ -206,6 +211,8 @@ export function buildShipCombatant(id: string, battle: ShipEventBattle, hoursOut
     officerCombat: officerCombatModsFromProfile(battle.officerCombat, hoursOut),
     captainCombat: battle.captainCombat,
     moduleContext: "shipEvent", // E-MOD EM-5: only modules listing ship events act here
+    // WR-8: a run under the combat rules flies its frozen combat speed with the rules' traits and systems.
+    ...(battle.combatRules ? stampCombatArgs(battle.combatRules) : {}),
   });
   if (hullDamage > 0) c.hull = Math.max(1, c.hullMax - Math.round(hullDamage));
   return c;
@@ -421,12 +428,15 @@ export function shipEventEnemy(exp: Expedition, body: ExpeditionBody, bodyIndex:
   const hazard = stamp ? encounterHazard(resisted, stamp.tier) : resisted;
   const curve = stamp ? rampEnemyScale(stamp.ramp) : 1;
   const k = (1 + PROBE_HAZARD_SCALE * hazard) * Math.max(0, 1 - (exp.ambushSoften ?? 0)) * curve;
+  // WR-8: under the run's combat rules the vessel opens at range with its weapons' rule traits.
+  const rules = exp.groundOps?.shipEventProfile?.battle?.combatRules !== undefined;
   const c = shipToCombatant({
     id,
     team: "enemy",
     stats: hull.stats,
     weaponLoadout: hull.weapons.map((w, i) => makeWeaponInstance(w, `${id}-w${i}-${w}`)),
     stance: hull.stance,
+    ...(rules ? { combatRules: true, position: ENCOUNTER_OPEN_DISTANCE, speed: RULES_COMBAT_SPEED } : {}),
   });
   c.hullMax = Math.max(1, Math.round(c.hullMax * k));
   c.hull = c.hullMax;
@@ -452,7 +462,13 @@ function shipEventBattleWon(
 ): boolean {
   const enemy = shipEventEnemy(exp, body, bodyIndex, step, hull);
   const ambush = ambushFirst === "ship" ? ship.id : ambushFirst === "enemy" ? enemy.id : undefined;
-  const result = resolveBattle({ combatants: [ship, enemy] }, shipEventBattleSeed(exp, bodyIndex, step), { precharge: true, ...(ambush ? { ambush } : {}) });
+  // WR-8: the run's combat rules (absent on a run dispatched before WR-8).
+  const rules = exp.groundOps?.shipEventProfile?.battle?.combatRules;
+  const result = resolveBattle({ combatants: [ship, enemy] }, shipEventBattleSeed(exp, bodyIndex, step), {
+    precharge: true,
+    ...(ambush ? { ambush } : {}),
+    ...(rules ? { combatRules: rules.rules } : {}),
+  });
   return result.outcome.winner === "player";
 }
 

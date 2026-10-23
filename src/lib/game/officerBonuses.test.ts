@@ -63,6 +63,7 @@ import { itemTotal } from "./inventory";
 import { asLegacyDispatch, asPreG2NamesDispatch, withSlottedAwayTeams, withoutGroundSquadState, dispatchPastPropulsion, asPrePatrolCurveDispatch } from "./awayTeamTestFixtures";
 // SF-1: whole states hash without the run counters (seeded by freshState, written by a patrol), absent before SF-1.
 import { withoutRunCounts, goldenJson } from "./firstRunsGoldens.fixture";
+import { withCombatRulesOff } from "./combatRulesSwitch.fixture";
 
 // Ground Ops (GO-7b): this file pins LEGACY expedition runs (goldens captured before Ground Ops): every dispatch
 // slots the members in hire order (dispatch reads the slotted ground teams) and resolves without the groundOps
@@ -203,7 +204,9 @@ describe("neutrality: no officer = byte-identical to before Task 20 (golden)", (
     }
   });
 
-  it("patrols (live loop + relaunches + the display replay)", () => {
+  // WR-8 (0.14.0): captured before the combat rules, so the patrols fly with them switched off (combatRulesSwitch
+  // .fixture.ts; combatDescriptorGoldens.test.ts pins the rules).
+  it("patrols (live loop + relaunches + the display replay)", () => withCombatRulesOff(() => {
     for (const typeKey of ["destroyer", "carrier", "battleship"] as ShipTypeKey[]) {
       const r = asPrePatrolCurveDispatch(dispatchCaptainOnPatrol(patrolState(typeKey), 1, "crimsonReaverSweep", "balanced", true));
       expect(r.success).toBe(true);
@@ -217,7 +220,7 @@ describe("neutrality: no officer = byte-identical to before Task 20 (golden)", (
       expect(fnv(goldenJson(withoutRunCounts(withoutGroundSquadState(s))))).toBe(GOLDEN[`patrol:${typeKey}:state`]);
       expect(replays).toEqual(GOLDEN[`patrol:${typeKey}:replays`]);
     }
-  });
+  }));
 
   it("a Shipyard repair", () => {
     const base = installMissingCombatBaselines({ ...freshState() });

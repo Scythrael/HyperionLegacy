@@ -174,6 +174,10 @@ export interface DroneSquadron {
 	// shot to a PRIORITY enemy (a weaker/Support foe) instead of the attacker.
 	// Default false; the module/hull that grants it is Phase 9. Inert when off.
 	smartReflect: boolean;
+	// WR-8 (0.14.0): the integer-percent chance (from a Defense pod's Smart Reflect line, bridge.ts squadronFromPod) that
+	// a reflected shot seeks the priority foe when smartReflect is off: one combat-stream roll per reflect, drawn only
+	// when the chance is above 0 (OPTIONAL: absent on every squadron without the line, which never draws it).
+	smartReflectChance?: number;
 	// supportHullRepair: hull points a SUPPORT squadron repairs on the owner PER
 	// SUPPORT PULSE, PER ALIVE DRONE (design S8 Mode 3 "small hull repair per tick").
 	// 0 for attack/defense. No combat draw (deterministic heal).

@@ -2041,6 +2041,13 @@ describe("EQUIPMENT_SLOTS live-slot definitions (0.11.0 Task 2)", () => {
     "hazardResist",
     // G1-1 (Short-Range Missions): guest quarters (the quarters affix line + the Guest Wing's signature).
     "colonistCapacity",
+    // WR-8 (0.14.0, OC-D12): the per-family resist lines (plating damage, emitter disruption).
+    "damageResist_kinetic",
+    "damageResist_particle",
+    "damageResist_ew",
+    "disruptionResist_kinetic",
+    "disruptionResist_particle",
+    "disruptionResist_ew",
   ]);
 
   // E4d: the per-slot variety counts. 3 for every gear slot, except quarters (9 crew-quarters variants),
@@ -2832,7 +2839,7 @@ describe("STAT_KEYS registry, drift guard over EQUIPMENT_SLOTS (0.11.0 Task 3)",
     }
   });
 
-  it("LIVE_STAT_KEYS holds exactly the 23 live keys (10 economy + 6 Combat 1.0 defensive + 2 crew-module + 4 E4d utility + G1-1 guest quarters)", () => {
+  it("LIVE_STAT_KEYS holds exactly the 29 live keys (10 economy + 6 Combat 1.0 defensive + 2 crew-module + 4 E4d utility + G1-1 guest quarters + 6 WR-8 resists)", () => {
     // Pins the LIVE vocabulary so a key added/removed here is a deliberate, tested
     // change (the slot table draws only from this set).
     expect([...LIVE_STAT_KEYS].sort()).toEqual(
@@ -2864,6 +2871,13 @@ describe("STAT_KEYS registry, drift guard over EQUIPMENT_SLOTS (0.11.0 Task 3)",
         "hazardResist",
         // G1-1 (Short-Range Missions) guest quarters, moved from RESERVED:
         "colonistCapacity",
+        // WR-8 (0.14.0, OC-D12) the per-family resist lines (Hull Plating damage, Shield Emitter disruption):
+        "damageResist_kinetic",
+        "damageResist_particle",
+        "damageResist_ew",
+        "disruptionResist_kinetic",
+        "disruptionResist_particle",
+        "disruptionResist_ew",
       ].sort(),
     );
   });

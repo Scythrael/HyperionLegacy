@@ -28,7 +28,8 @@
 // ("Engine seams" 1/4/5).
 
 import type { GameState, ShipInstance, ShipDerivedStats, SeniorStaffOfficer, CrewSignature, CrewBucket, OfficerCombatMods, SeniorStaffSeat, PromotionObjectiveKind } from "./model";
-import { shipDerivedStats } from "./model";
+import { shipDerivedStats, SHIP_TYPES } from "./model";
+import { combatSpeedFor, newCombatRulesStamp, type CombatRulesStamp } from "./combat/combatRules";
 import { equippedFor } from "./equipmentQueries";
 import { CREW_PROFESSION_BUFFS, CREW_STAT_KEYS, SECOND_LEVEL_EXCLUSIVE, TRANSIT_SPEED_KEY } from "./crewBuffs";
 import { CREW_RACES } from "./crewRaces";
@@ -781,6 +782,17 @@ export function effectiveShipStats(state: GameState, ship: ShipInstance): ShipDe
   // touch sensors, so the order between the two is immaterial).
   const captain = commandingCaptain(state, ship);
   return applyCaptainSensors(applyCaptainOverlay(shipStatsBeforeCaptain(state, ship), captainShipLifts(captain)), captainSensorsMult(captain));
+}
+
+// WR-8 (0.14.0, combat/combatRules.ts): the combat rules stamp a run starting now writes for `ship`: its combat speed
+// from its sheet transit speed (gear, crew, museum, officers, captain, mass) relative to its hull's own base speed
+// (combatSpeedFor), and its installed Reactor Core's and FTL drive's quality (the combat system pools). undefined only
+// while the test switch is off. PURE.
+export function shipCombatRulesStamp(state: GameState, ship: ShipInstance): CombatRulesStamp | undefined {
+  const hullBase = SHIP_TYPES[ship.typeKey]?.transitSpeedMult ?? 1;
+  const gear = equippedFor(state, ship.id);
+  const quality = (slotType: string): number => gear.find((p) => p.slotType === slotType)?.quality ?? 0;
+  return newCombatRulesStamp(combatSpeedFor(effectiveShipStats(state, ship).transitSpeedMult, hullBase), quality("reactorCore"), quality("ftlDrive"));
 }
 
 // effectiveShipStats WITHOUT the captain overlays: the gear fold, the crew, the museum and the officer facets. The

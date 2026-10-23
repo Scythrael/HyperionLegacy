@@ -24,6 +24,11 @@ import { PRE_RX_MISSION_KEYS } from "./reactorFuelGoldens.fixture";
 import { canDispatch, dispatchCaptainOnMission, economyTick, shipRangeLightYears } from "./tick";
 import { expeditionCandidates } from "./expedition";
 import { asPreG2NamesDispatch, asPreRanksDispatch, asPreSafeFirstRunsDispatch, plainAwayMember, withSlottedAwayTeams, dispatchPastPropulsion } from "./awayTeamTestFixtures";
+// WR-8 (0.14.0): every pin in this file was taken before the combat rules (combatRulesSwitch.fixture.ts), so the file
+// runs with them switched off and its pins keep proving WR-8 moved nothing else here (the rules stamp new patrol
+// cycles and runs; combatDescriptorGoldens.test.ts pins the combat rules themselves).
+import { combatRulesOffForThisFile } from "./combatRulesSwitch.fixture";
+combatRulesOffForThisFile();
 
 function fnv(s: string): string {
   let h = 0x811c9dc5;

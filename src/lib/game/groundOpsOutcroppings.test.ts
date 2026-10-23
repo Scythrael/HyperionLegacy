@@ -67,6 +67,11 @@ import {
 import { forecastTasksText } from "./launchRecommendation";
 // SF-1: the claimed state hashes without the run counters (a claim writes them), absent before SF-1.
 import { withoutRunCounts, goldenJson } from "./firstRunsGoldens.fixture";
+// WR-8 (0.14.0): every pin in this file was taken before the combat rules (combatRulesSwitch.fixture.ts), so the file
+// runs with them switched off and its pins keep proving WR-8 moved nothing else here (the rules stamp new patrol
+// cycles and runs; combatDescriptorGoldens.test.ts pins the combat rules themselves).
+import { combatRulesOffForThisFile } from "./combatRulesSwitch.fixture";
+combatRulesOffForThisFile();
 
 function fnv(s: string): string {
   let h = 0x811c9dc5;

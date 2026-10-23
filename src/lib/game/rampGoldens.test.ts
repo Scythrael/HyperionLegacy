@@ -22,6 +22,11 @@ import { advanceExpedition } from "./expedition";
 import { hash, onHull, runOutcome, SWEEP_END, withCrew, type CrewName, type RunOutcome } from "./firstRunsGoldens.fixture";
 import { asExpeditionVeteran, asPreG2NamesDispatch, dispatchPastPropulsion } from "./awayTeamTestFixtures";
 import { runCountsOf } from "./runDifficulty";
+// WR-8 (0.14.0): every pin in this file was taken before the combat rules (combatRulesSwitch.fixture.ts), so the file
+// runs with them switched off and its pins keep proving WR-8 moved nothing else here (the rules stamp new patrol
+// cycles and runs; combatDescriptorGoldens.test.ts pins the combat rules themselves).
+import { combatRulesOffForThisFile } from "./combatRulesSwitch.fixture";
+combatRulesOffForThisFile();
 
 const CANDS = ["cand-0", "cand-1", "cand-2"];
 

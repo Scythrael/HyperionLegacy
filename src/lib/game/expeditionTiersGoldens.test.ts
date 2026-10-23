@@ -55,6 +55,11 @@ import { asPreG2Candidate as asPreG2CandidateFixture, asPreG2NamesDispatch, asPr
 import { PRE_G2_STORED_RUNS } from "./expeditionTiersGoldens.fixture";
 import { PRE_RX_MISSION_KEYS } from "./reactorFuelGoldens.fixture";
 import { withV1Museum } from "./firstRunsGoldens.fixture";
+// WR-8 (0.14.0): every pin in this file was taken before the combat rules (combatRulesSwitch.fixture.ts), so the file
+// runs with them switched off and its pins keep proving WR-8 moved nothing else here (the rules stamp new patrol
+// cycles and runs; combatDescriptorGoldens.test.ts pins the combat rules themselves).
+import { combatRulesOffForThisFile } from "./combatRulesSwitch.fixture";
+combatRulesOffForThisFile();
 
 // ===== shared helpers =====
 

@@ -23,6 +23,11 @@ import { advanceExpedition } from "./expedition";
 import { groundOpsAssignIdle, groundOpsBodyScanned, initGroundTasks } from "./groundOps";
 import { dispatchPastPropulsion, plainAwayMember, withoutFieldKits } from "./awayTeamTestFixtures";
 import { hash } from "./firstRunsGoldens.fixture";
+// WR-8 (0.14.0): every pin in this file was taken before the combat rules (combatRulesSwitch.fixture.ts), so the file
+// runs with them switched off and its pins keep proving WR-8 moved nothing else here (the rules stamp new patrol
+// cycles and runs; combatDescriptorGoldens.test.ts pins the combat rules themselves).
+import { combatRulesOffForThisFile } from "./combatRulesSwitch.fixture";
+combatRulesOffForThisFile();
 
 const T0 = 100_000;
 const SEC = ["member-1", "member-2", "member-3", "member-4", "member-5", "member-6"];

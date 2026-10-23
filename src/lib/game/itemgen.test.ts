@@ -47,6 +47,7 @@ import {
   generateEquipment,
   generateWeapon,
   generateDronePod,
+  dronePodAffixPool,
   DRONE_POD_BASE_POWER_DRAW,
   DRONE_POD_BASE_DURABILITY,
   // 0.13.5 tooltip rework: the PRE-roll preview + the now-exported weapon/drone roll tables.
@@ -888,7 +889,8 @@ describe("generateDronePod: crafted-drone-pod minting (Combat 1.0 Unit 2.1a)", (
     expect(strong.implicitStats.droneHp).toBeGreaterThan(weak.implicitStats.droneHp);
   });
 
-  it("only ever rolls drone-vocabulary stats (droneHp / droneAccuracy)", () => {
+  // WR-8 (0.14.0, OC-D12): the pod counter lines joined the drone vocabulary; Smart Reflect only on a Defense pod.
+  it("only ever rolls drone-vocabulary stats (droneHp / droneAccuracy / the WR-8 counter lines its role rolls)", () => {
     const p = generateDronePod({
       droneRole: "attack",
       blueprintKey: null,
@@ -899,9 +901,24 @@ describe("generateDronePod: crafted-drone-pod minting (Combat 1.0 Unit 2.1a)", (
       rng: mulberry32(7),
       allocateId: idAllocator(),
     });
-    const allowed = new Set(["droneHp", "droneAccuracy"]);
+    // WR-8 review: Rapid Charge never joined the pool (it could never act on a pod in 0.14.0).
+    const allowed = new Set(["droneHp", "droneAccuracy", "droneInCombatReplenish"]);
     for (const k of Object.keys(p.implicitStats)) expect(allowed.has(k)).toBe(true);
     for (const k of Object.keys(p.rolledStats)) expect(allowed.has(k)).toBe(true);
+  });
+
+  it("WR-8: Smart Reflect rolls only on a Defense pod (dronePodAffixPool), In-Combat Replenish on every role, Rapid Charge on none", () => {
+    expect(dronePodAffixPool("defense").map((a) => a.stat)).toEqual(["droneHp", "droneAccuracy", "droneInCombatReplenish", "droneSmartReflect"]);
+    for (const role of ["attack", "support"] as const) {
+      expect(dronePodAffixPool(role).map((a) => a.stat)).toEqual(["droneHp", "droneAccuracy", "droneInCombatReplenish"]);
+    }
+    // Over many Defense pods the line does roll (a radiant pod rolls three of the five).
+    let smart = 0;
+    for (let seed = 1; seed <= 60; seed++) {
+      const p = generateDronePod({ droneRole: "defense", blueprintKey: null, iLevel: 25, quality: 2, rarity: "radiant", ascension: "none", rng: mulberry32(seed), allocateId: idAllocator() });
+      if (p.rolledStats.droneSmartReflect !== undefined) smart += 1;
+    }
+    expect(smart).toBeGreaterThan(0);
   });
 
   it("throws on an unknown drone role (corrupt caller / save)", () => {
@@ -1053,7 +1070,8 @@ describe("previewCraftOutcome", () => {
     expect(d.outputKind).toBe("drone");
     expect(d.slotType).toBe("droneBay");
     expect(d.implicit.map((l) => l.stat)).toEqual([DRONE_POD_IMPLICIT_STAT]);
-    expect(d.affixPool).toEqual(["droneHp", "droneAccuracy"]);
+    // WR-8: an Attack pod's pool (no Smart Reflect: only a Defense pod rolls it; Rapid Charge stays out, WR-8 review).
+    expect(d.affixPool).toEqual(["droneHp", "droneAccuracy", "droneInCombatReplenish"]);
   });
 
   it("returns null for a blueprint that mints no instance", () => {

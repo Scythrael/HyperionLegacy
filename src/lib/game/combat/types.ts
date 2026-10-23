@@ -70,6 +70,7 @@ import type { DroneSquadron } from "./drones";
 // the four-state pip. Imported as TYPES ONLY, zero runtime cycle: durability.ts
 // depends only on rng.ts, never on types.ts, so this import cannot loop.
 import type { DurableSystem, SystemCondition } from "./durability";
+import type { DefensiveStance } from "./combatRules";
 
 // E-MOD EM-6: the frozen combat proc shape (shipModules.ts, a leaf of types only). TYPE ONLY, zero runtime cycle.
 import type { ModuleCombatProc } from "../shipModules";
@@ -188,12 +189,12 @@ export interface CombatWeapon {
 	// DRONE SCREEN directly (the "Squadron is targeted" matrix row): its projectiles
 	// are contested by the screen under the squadron-targeted rules (evade for
 	// attack/support, deflect for defense) instead of the carrier-guard rules, and a
-	// projectile that engages a drone deals NOTHING to the carrier. Point-Defense /
-	// EMP set this in Phase 9 content; every other weapon leaves it falsy and hits
-	// the carrier normally (with the screen guarding). OPTIONAL so existing weapon
-	// fixtures (which never set it) stay byte-identical: undefined reads as false.
-	// TODO(Phase 9): a targeting rule may also route a normal shot at a squadron; for
-	// now the flag is the single, explicit way a shot targets the drones directly.
+	// projectile that engages a drone deals NOTHING to the carrier. WR-8 (0.14.0):
+	// Point-Defense and EMP carry it when built under the combat rules (combatRules.ts
+	// WEAPON_RULE_TRAITS); every other weapon leaves it falsy and hits the carrier
+	// normally (with the screen guarding). OPTIONAL so existing weapon fixtures (which
+	// never set it) stay byte-identical: undefined reads as false. The flag is the single,
+	// explicit way a shot targets the drones directly.
 	antiDrone?: boolean;
 	// WR-5b (0.14.0): the commanding captain's Tactician nodes on THIS weapon (combat/captainEdge.ts sets them at the
 	// fold, resolveBattle reads them). All OPTIONAL: absent on every enemy and on a ship whose captain owns no such
@@ -208,6 +209,19 @@ export interface CombatWeapon {
 	chargeCarry?: number;
 	openingVolley?: boolean;
 	damageCarryMilli?: number;
+	// WR-8 (0.14.0, combat/combatRules.ts WEAPON_RULE_TRAITS): the traits a weapon carries when it is built under the
+	// combat rules. All OPTIONAL and absent on every weapon built without them, so those battles are byte-identical.
+	//   droneEffectSlots : effects a CONNECTING shot procs on a target that fields live drones (Point Defense's Inhibit),
+	//                      rolled after effectSlots, with the same disruption resist cut.
+	//   vsShieldsPct     : this weapon's vs-Shields triangle column (the Tachyon anti-shield exception), in place of
+	//                      its family's.
+	//   chainSharePct    : the percent of a connecting shot's damage that arcs to the attacker's weakest other foe (the
+	//                      Voltaic chain), through that foe's mitigation; no draw.
+	droneEffectSlots?: WeaponEffect[];
+	vsShieldsPct?: number;
+	chainSharePct?: number;
+	//   missile          : the weapon fires missiles (a Defensive target's point defense may shoot one down).
+	missile?: boolean;
 }
 
 // WR-5b (0.14.0): the commanding captain's Tactician nodes a battle reads from the ship's combatant (combat/
@@ -411,7 +425,35 @@ export interface Combatant {
 	// it never touches the combat stream or drone state at the default). The MODULE
 	// that grants this is Phase 9; here it is the inert-by-default field the loop
 	// reads. OPTIONAL so existing combatant fixtures are unchanged.
+	// WR-8 (0.14.0): set from the installed drone pods' In-Combat Replenish lines (bridge.ts podCombatLines).
 	inCombatReplenishPercent?: number;
+	// WR-8 (0.14.0): the installed drone pods' Rapid Charge lines as a share in [0, 1) (combatRules.ts podLineShare):
+	// an ambushed ship's return-fire delay closes that share of the gap to the rapid-charge delay. OPTIONAL: absent (or
+	// 0) leaves the delay where rapidChargeAfterAmbush puts it.
+	rapidChargeShare?: number;
+	// WR-8 review (user 2026-10-22): the Defensive stance's modifiers (combatRules.ts DEFENSIVE_STANCE), set by
+	// bridge.ts shipToCombatant on a combatant built under the combat rules with the stance "standoff" (its stored
+	// key). OPTIONAL: absent on every other combatant, so every other battle is unchanged.
+	defensive?: DefensiveStance;
+	// WR-8 review: the Defensive modifiers' banked remainders (hundredths of a point for damage taken and dealt; the
+	// shield cost's remainder in 1 / (100 + shieldAbsorbPct) parts), so every percent is exact over a fight instead of a
+	// floor taking a whole point off each small hit. Set with `defensive`, absent otherwise.
+	defensiveCarry?: DefensiveCarry;
+	// WR-8 review (user 2026-10-22, answer 5): the closing-is-evasive state (combatRules.ts CLOSING_EVASION_PCT). Set
+	// by bridge.ts shipToCombatant on every combatant built under the combat rules; `active` is recomputed in each of
+	// its movement phases, `carry` banks the reduction's remainder (hundredths of a point). Absent otherwise.
+	evasiveClose?: EvasiveClose;
+}
+
+export interface EvasiveClose {
+	active: boolean;
+	carry: number;
+}
+
+export interface DefensiveCarry {
+	taken: number;
+	dealt: number;
+	absorb: number;
 }
 
 // One structured record in the combat log.
@@ -479,6 +521,10 @@ export interface CombatEvent {
 	// How many of the shot's projectiles connected (0 = full evade). Lets flavor
 	// distinguish a clean volley from a grazing partial hit.
 	projectilesHit?: number;
+	// WR-8 review: a Defensive ship's guard drone volley at a foe's drone screen: the damage the screen drones took (part
+	// of `damage`, beside shieldDamage / hullDamage) and the drones it destroyed. Absent on every other event.
+	screenDamage?: number;
+	dronesDestroyed?: number;
 
 	// -- Phase 12 flavor fields (all optional; consumed by the layered cosmetic
 	// flavor pools in flavor.ts). None of these affect the outcome; they exist so

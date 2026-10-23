@@ -247,6 +247,15 @@
     weaponAccuracy: "Weapon Accuracy",
     droneHp: "Drone HP",
     droneAccuracy: "Drone Accuracy",
+    // WR-8 (0.14.0): the per-family resist lines and the drone pod counter lines.
+    damageResist_kinetic: "Kinetic Damage Resist",
+    damageResist_particle: "Particle Damage Resist",
+    damageResist_ew: "EW Damage Resist",
+    disruptionResist_kinetic: "Kinetic Disruption Resist",
+    disruptionResist_particle: "Particle Disruption Resist",
+    disruptionResist_ew: "EW Disruption Resist",
+    droneInCombatReplenish: "In-Combat Replenish",
+    droneSmartReflect: "Smart Reflect",
     moduleSlots: "Module Slots",
     equipmentSlots: "Equipment Slots",
     // E-CREW 0.14.0: the away-team member gear GROUND lines (model.ts MEMBER_GROUND_STAT_KEYS).

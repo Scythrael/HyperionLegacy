@@ -408,6 +408,16 @@ export function simplifiedLogTokens(
       ];
     }
     case "droneVolley": {
+      // WR-8 review: a guard volley at a drone screen names the screen damage and the drones it downed.
+      const screen = event.screenDamage ?? 0;
+      if (screen > 0) {
+        const downed = event.dronesDestroyed ?? 0;
+        const past = (event.shieldDamage ?? 0) + (event.hullDamage ?? 0) > 0 ? damageClauseTokens(event.shieldDamage ?? 0, event.hullDamage ?? 0) : [];
+        return [
+          { text: `${attacker}'s drone squadron hits ${target}'s drone screen for ${screen}${downed > 0 ? `, downing ${downed}` : ""}`, kind: "text" },
+          ...(past.length > 0 ? [{ text: ", and", kind: "text" as const }, ...past] : [{ text: ".", kind: "text" as const }]),
+        ];
+      }
       const { shield, hull } = damageSplit(event);
       return [
         { text: `${attacker}'s drone squadron hits ${target}`, kind: "text" },
@@ -425,6 +435,14 @@ export function simplifiedLogTokens(
       const { shield, hull } = damageSplit(event);
       return [
         { text: `${attacker}'s drones counterattack ${target}`, kind: "text" },
+        ...damageClauseTokens(shield, hull),
+      ];
+    }
+    // WR-8: a Voltaic shot's arc onto a second foe.
+    case "chainArc": {
+      const { shield, hull } = damageSplit(event);
+      return [
+        { text: `${attacker}'s arc chains to ${target}`, kind: "text" },
         ...damageClauseTokens(shield, hull),
       ];
     }
@@ -605,7 +623,8 @@ export function visualBeatsForRound(events: CombatEvent[], round: number): Visua
       }
       case "droneVolley":
       case "droneReflect":
-      case "droneCounter": {
+      case "droneCounter":
+      case "chainArc": {
         if (event.targetId === undefined) break;
         // A drone volley is ONE aggregate pop (never a crit, per the design), tinted by the
         // render layer's default (drone events carry no weapon family).
