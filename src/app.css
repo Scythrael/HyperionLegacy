@@ -359,6 +359,63 @@ button {
   --rarity-constellar: #f0e442; /* yellow */
 }
 
+/* ============================================================================
+   THEME STYLES (0.13.11.1, design section 7). The e10,000,000 prize "Starfall" is a PRESET
+   (themeStyle.ts): the washShine STYLE drawn with two gradient STOPS, the player's accent into
+   purple. Kept in three separate layers so the 0.14.2 theme builder can mix any style with any two
+   colors (coordinator note):
+     1. the STOP TOKENS: two R, G, B triplets. The defaults below; applyThemePreset writes the
+        preset's own stops onto the root.
+     2. the STYLE TOKENS: what each surface becomes under a style. Colors come ONLY from the stops.
+     3. WHERE A STYLE APPLIES: one rule block per style, naming the shared surfaces. Components are
+        not edited, so the default look (no data-style) is untouched by construction.
+   ⚠️ CONTRAST: every text token stays WCAG AA on these surfaces in every theme and in the
+   color-blind palette (themeStyleContrast.test.ts). The dark shade layer under each wash is what
+   keeps the tinted surfaces no lighter than today's panels; lower it and dim text fails first.
+   ============================================================================ */
+:root {
+  --grad-start-rgb: var(--color-accent-rgb);
+  --grad-end-rgb: 160, 32, 240;
+}
+
+/* washShine (theme mockup option D, "wash plus shine"): every panel and button gets a soft diagonal
+   wash from the start stop (top left) into the end stop (right), headings and progress bars carry
+   the stop-to-stop gradient, primary buttons get a soft sheen. */
+:root[data-style="washShine"] {
+  --style-panel: linear-gradient(135deg, rgba(var(--grad-start-rgb), 0.05), rgba(var(--grad-end-rgb), 0.11)), linear-gradient(rgba(0, 0, 0, 0.6), rgba(0, 0, 0, 0.6)), var(--color-panel-bg);
+  --style-dialog: linear-gradient(135deg, rgba(var(--grad-start-rgb), 0.05), rgba(var(--grad-end-rgb), 0.11)), linear-gradient(rgba(0, 0, 0, 0.6), rgba(0, 0, 0, 0.6)), var(--color-bg-mid);
+  --style-control: linear-gradient(135deg, rgba(var(--grad-start-rgb), 0.08), rgba(var(--grad-end-rgb), 0.12)), linear-gradient(rgba(0, 0, 0, 0.35), rgba(0, 0, 0, 0.35));
+  --style-control-primary: linear-gradient(135deg, rgba(var(--grad-start-rgb), 0.18), rgba(var(--grad-end-rgb), 0.24));
+  --style-sheen: inset 0 1px 0 rgba(255, 255, 255, 0.12);
+  --style-edge: rgba(var(--grad-end-rgb), 0.24);
+  --style-fill: linear-gradient(90deg, rgb(var(--grad-start-rgb)), rgb(var(--grad-end-rgb)));
+  /* Text needs a lighter end than the bar: the end stop mixed 45% toward white. */
+  --style-heading: linear-gradient(90deg, rgb(var(--grad-start-rgb)), color-mix(in srgb, rgb(var(--grad-end-rgb)) 55%, #ffffff));
+}
+:root[data-style="washShine"] :is(.panel, .fpane, .cpane, .mpane, .home-row, .done-row, .mission-card, .top-bar, .nav-tabs, .sg, .layer, .gen, .hb-menu) {
+  background: var(--style-panel);
+  border-color: var(--style-edge);
+}
+:root[data-style="washShine"] :is(.system-modal-dialog, .am-dialog) {
+  background: var(--style-dialog);
+}
+:root[data-style="washShine"] :is(.dev-btn, .sub-tab, .sg-btn, .sg-tab, .ec-btn, .hb-btn):not(:disabled):not(.active):not(.on):not(.primary) {
+  background: var(--style-control);
+}
+:root[data-style="washShine"] :is(.buy-btn, .dev-btn.active, .sub-tab.active, .sg-btn.primary, .sg-tab.on, .ec-btn.primary):not(:disabled) {
+  background: var(--style-control-primary);
+  box-shadow: var(--style-sheen);
+}
+:root[data-style="washShine"] :is(.panel-title, .sg-title, .sg-section-name, .system-modal-title) {
+  background: var(--style-heading);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+:root[data-style="washShine"] :is(.research-bar-fill, .tb-bar:not(.tb-bar-amber) > i, .sg-track i) {
+  background: var(--style-fill);
+}
+
 /* REDUCED MOTION, as an explicit SETTING rather than only an OS query.
    ⚠️ THE OS QUERY STILL WORKS ON ITS OWN (see the prefers-reduced-motion block in
    App.svelte): this exists so a player whose operating system is NOT configured for
