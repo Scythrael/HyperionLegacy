@@ -135,6 +135,8 @@ export const CONTENT_CATALOGS: ReadonlySet<string> = new Set([
   "GROUND_CONDITIONS",
   "SPEED_SEAM",
   // Gear wear (0.14.0): the wear sources, repair rates and bonuses and efficiency consumers every piece plays by.
+  // Rarity readiness RR-3: the per-rarity rows every minted piece rolls by (content, like the loot pools).
+  "RARITY_PROFILES",
   "WEAR_SOURCES",
   "REPAIR_RATES",
   "REPAIR_RATE_BONUSES",

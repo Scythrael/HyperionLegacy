@@ -62,6 +62,7 @@ import { SHORT_RANGE_TEMPLATES } from "../shortRange";
 import { GAS_STUDY_USES, GIANT_CLASSES, NEBULA_KINDS, RESEARCH_FAMILIES } from "../gasGiantContent";
 import { DATA_STUDY_ITEM_IDS } from "../dataStudy";
 import { REACTOR_TECH_TIERS, REACTOR_VARIETY_TECH } from "../reactorTech";
+import { RARITY_PROFILES } from "../rarityProfiles";
 
 // Field Kits FKR-5: the sources each grenade carries (its GrenadeTraits, as the registry measures them). Timed grenades
 // (user 2026-10-21): its fuse (the turns from the throw to the blast) and, on a timed one, the moved-clear chance.
@@ -194,6 +195,8 @@ export function enumerateEffectSources(): EffectSource[] {
   add("SHIP_GEAR_LINES", shipLineKeys());
   add("QUARTERS_MODULES", QUARTERS_MODULES.map((m) => m.id));
   add("BRIDGE_MODULES", BRIDGE_MODULES.map((m) => m.id));
+  // RARITY READINESS RR-3: one row per rarity band (budget, affixes, secondaries, Artisan).
+  add("RARITY_PROFILES", Object.keys(RARITY_PROFILES));
   add("WEAPON_DEFS", Object.keys(WEAPON_DEFS));
   add("ROLE_TEMPLATE", Object.keys(ROLE_TEMPLATE));
   add("STATUS_EFFECT_DEFS", Object.keys(STATUS_EFFECT_DEFS));

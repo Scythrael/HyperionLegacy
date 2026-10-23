@@ -71,6 +71,7 @@ import {
   type CaptainTalentKey,
   type CrewBucket,
   type CrewProfession,
+  type EquipmentAscension,
   type EquipmentRarity,
   type CrewRace,
   type GambitActionId,
@@ -143,7 +144,9 @@ import { ROLE_TEMPLATE } from "../combat/drones";
 import { PIRATE_HULLS } from "../combat/enemyHulls";
 import { STATUS_EFFECT_DEFS } from "../combat/statusEffects";
 import { DAMAGE_CONTROL_SUITE_KEY, DC_REPAIR_SPEED_B, DC_REPAIR_SPEED_R, DC_WAVE_REGEN_B, DC_WAVE_REGEN_R, PF_HAZARD_RESIST_B, PF_HAZARD_RESIST_R, PF_SCAN_SPEED_B, PF_SCAN_SPEED_R } from "../utilityGear";
-import { DRONE_POD_AFFIX_POOL, DRONE_POD_IMPLICIT_STAT, WEAPON_AFFIX_POOL, WEAPON_IMPLICIT_STAT } from "../itemgen";
+import { DRONE_POD_AFFIX_POOL, DRONE_POD_IMPLICIT_STAT, WEAPON_AFFIX_POOL, WEAPON_IMPLICIT_STAT, budgetAtMult, budgetShares, generateEquipment } from "../itemgen";
+// RARITY READINESS RR-3: the per-rarity profile table (each row measured on a real mint).
+import { RARITY_PROFILES } from "../rarityProfiles";
 import { AFFIX_DEFS, ESCALATION_ENEMIES_PER_LEVEL, HEIGHTENED_SENSES_KNEE, HEIGHTENED_SENSES_PER_LEVEL } from "../affixes";
 import { ENEMY_RANKS, ENEMY_RANK_IDS } from "../enemyRanks";
 import { OVERTIME_STEP_RATE } from "../processSpeed";
@@ -377,6 +380,8 @@ export const CATALOGS = {
   WEAR_SOURCES,
   REPAIR_RATES,
   REPAIR_RATE_BONUSES,
+  // RARITY READINESS RR-3: the per-rarity rows (budget, affixes, secondaries, Artisan).
+  RARITY_PROFILES,
   WEAR_EFFICIENCY,
   // The reactor fuel ladder (0.14.0, reactorTech.ts): the fuel each Reactor Core blueprint takes.
   REACTOR_FUEL_LADDER,
@@ -4477,12 +4482,88 @@ function build(): readonly WiringEntry[] {
     ...prospectingEntries(),
     ...gasStudyEntries(),
     ...reactorTechEntries(),
+    ...rarityProfileEntries(),
     ...auditEntries(),
     ...speedSeamEntries(),
     ...wearEntries(),
   ]
     .map((e) => (ALLOW_LIST_REASONS[e.id] ? { ...e, reason: ALLOW_LIST_REASONS[e.id] } : e))
     .flatMap((e) => shortRangeSwept([e]));
+}
+
+// RARITY READINESS RR-3 (docs/plans/2026-10-23-rarity-readiness-plan.md): each RARITY_PROFILES row, measured on a REAL
+// mint through the generator that reads it: a balanced cargo bay (iLevel 40, quality 5, one fixed rng stream) of the
+// band installed on the bare hull, against the same mint one band down (Radiant for the two legendaries; Standard for
+// Derelict, which sits below it). Standard is the reference row.
+//   - A LIVE row (Derelict to Radiant) installs the mint's signature line alone (its rolled lines dropped: a band's
+//     affix count and Augmented's draw change WHICH affixes roll, so the rolled cargo is not monotone). The sheet moves
+//     by EXACTLY the implicit line's difference at the two rows' budget multipliers (linearAbsolute).
+//   - A LEGENDARY row installs the WHOLE mint (secondaries and Artisan included). It rolls the same affix picks as the
+//     Radiant mint on the same stream (its extras draw comes after them), so every line is at least as large and the
+//     sheet moves by at least the implicit difference (an event curve; the secondaries only add to it).
+const RARITY_PROBE_ILEVEL = 40;
+const RARITY_PROBE_QUALITY = 5;
+function rarityCargoMint(rarity: EquipmentRarity, signatureOnly: boolean, ascension: EquipmentAscension = "none"): Transform {
+  return (s) => {
+    let x = 0x2468ace1;
+    const rng = () => {
+      x = (Math.imul(x, 1664525) + 1013904223) >>> 0;
+      return x / 4294967296;
+    };
+    const piece = generateEquipment({
+      slotType: "cargoBay",
+      varietyKey: EQUIPMENT_SLOTS.cargoBay.varieties[1].key,
+      blueprintKey: null,
+      iLevel: RARITY_PROBE_ILEVEL,
+      quality: RARITY_PROBE_QUALITY,
+      rarity,
+      ascension,
+      rng,
+      allocateId: () => "wiring-equip-cargoBay",
+    });
+    return installPiece(s, { ...piece, ...(signatureOnly ? { rolledStats: {} } : {}), fittedToShipId: WIRING_SHIP_ID });
+  };
+}
+// A cargo bay's single implicit line at a row's budget multiplier (the mint's own split).
+const cargoImplicitAt = (mult: number): number => Math.round(budgetShares(budgetAtMult(RARITY_PROBE_ILEVEL, RARITY_PROBE_QUALITY, mult)).implicitShare);
+const RARITY_PROBE_AGAINST: Readonly<Record<EquipmentRarity, EquipmentRarity | null>> = {
+  derelict: "standard",
+  standard: null,
+  augmented: "standard",
+  stellar: "augmented",
+  radiant: "stellar",
+  luminous: "radiant",
+  constellar: "radiant",
+};
+function rarityProfileEntries(): WiringEntry[] {
+  return (Object.keys(RARITY_PROFILES) as EquipmentRarity[]).map((rarity) => {
+    const row = RARITY_PROFILES[rarity];
+    const against = RARITY_PROBE_AGAINST[rarity];
+    const extras = row.secondaries > 0 ? `, ${row.secondaries} secondary line(s) and a ${row.artisanPermille / 10}% Artisan chance` : "";
+    const claim = `${rarity} gear rolls at x${row.budgetMult.toFixed(4)} budget with ${row.affixes} affix line(s)${row.extraAffixChance > 0 ? ` (${row.extraAffixChance * 100}% chance of one more)` : ""}${extras}`;
+    if (against === null) {
+      return entry({ id: `ship:RARITY_PROFILES:${rarity}`, system: "ship", source: { catalog: "RARITY_PROFILES", key: rarity }, claim, probe: "sheetCargo", notApplicable: "the reference band (every other row is measured against the band below it)" });
+    }
+    const legendary = row.secondaries > 0;
+    const delta = (c: Catalogs): number => cargoImplicitAt(c.RARITY_PROFILES[rarity].budgetMult) - cargoImplicitAt(c.RARITY_PROFILES[against].budgetMult);
+    return entry({
+      id: `ship:RARITY_PROFILES:${rarity}`,
+      system: "ship",
+      source: { catalog: "RARITY_PROFILES", key: rarity },
+      claim,
+      probe: "sheetCargo",
+      contexts: ["sheet"],
+      direction: row.budgetMult >= RARITY_PROFILES[against].budgetMult ? "up" : "down",
+      curve: legendary
+        ? { kind: "event", metric: `cargo of a whole ${rarity} cargo bay over a ${against} one (iLevel ${RARITY_PROBE_ILEVEL}, quality ${RARITY_PROBE_QUALITY})` }
+        : { kind: "linearAbsolute" },
+      magnitude: legendary ? (c) => Math.abs(delta(c)) : delta,
+      base: bareHull,
+      on: rarityCargoMint(rarity, !legendary),
+      off: rarityCargoMint(against, !legendary),
+      note: "measured through generateEquipment (itemgen.ts rarityBudget / affixCount / rollRarityExtras read the row)",
+    });
+  });
 }
 
 // Prospecting squads (hidden): the role bases, the hidden blueprints and the three later uses, each deferred to

@@ -55,6 +55,8 @@ import { goldenJson, withV1Museum } from "./firstRunsGoldens.fixture"; // gear w
 import { GG1_ADDED_ENTRY_IDS, GG_STUDY_ADDED_ENTRY_IDS, GG_STUDY_FLIPPED_BEFORE } from "./gasStudyGoldens.fixture";
 import { FUSE_ADDED_ENTRY_IDS } from "./fieldKitsFuse.fixture";
 import { RX_ADDED_ENTRY_IDS } from "./reactorFuelGoldens.fixture";
+// Rarity readiness RR-3 and up: the added RARITY_PROFILES (and later rarity) entries, held apart like RX_ADDED_ENTRY_IDS.
+import { RR_ADDED_ENTRY_IDS } from "./rarityRegistry.fixture";
 import { OC15_ADDED_ENTRY_IDS } from "./labFabricatorTiers.fixture";
 // ML-2 (the Material Lines recipe rework + the recipe realism audit): its registry move, read back by ml2RowsBack.
 import { ml2RowsBack } from "./ml2RecipeGoldens.fixture";
@@ -659,7 +661,7 @@ const G16_ROW_BEFORE = { kind: "pending", owner: "G1-6 (flips SHORT_RANGE_BOARD_
 const BEFORE_RX: WiringEntry[] = siReadBack(
   em5ReadBack(gw3RegistryBack(WIRING_REGISTRY)).filter(
     (e) =>
-      !RX_ADDED_ENTRY_IDS.has(e.id) && !FUSE_ADDED_ENTRY_IDS.has(e.id) && !R2_2_ADDED_ENTRY_IDS.has(e.id) && !R2_3_ADDED_ENTRY_IDS.has(e.id) && !R2_4_ADDED_ENTRY_IDS.has(e.id) && !G16_ADDED_IDS.has(e.id) &&
+      !RX_ADDED_ENTRY_IDS.has(e.id) && !RR_ADDED_ENTRY_IDS.has(e.id) && !FUSE_ADDED_ENTRY_IDS.has(e.id) && !R2_2_ADDED_ENTRY_IDS.has(e.id) && !R2_3_ADDED_ENTRY_IDS.has(e.id) && !R2_4_ADDED_ENTRY_IDS.has(e.id) && !G16_ADDED_IDS.has(e.id) &&
       !G2_4_ADDED_ENTRY_IDS.has(e.id) && !OC15_ADDED_ENTRY_IDS.has(e.id) && !GG_STUDY_ADDED_ENTRY_IDS.has(e.id) && !G2_6_ADDED_ENTRY_IDS.has(e.id),
   ).map((e) =>
     e.id === G13_ROW
@@ -823,7 +825,7 @@ describe("EM-0 goldens (re-pinned by EM-1 where named)", () => {
     // and G2-4's additions are held apart here the same way, so the comparison sees G1-6's move alone. E-MOD EM-5's move is
     // read back first (em5ReadBack), as BEFORE_RX does; Gas Giant Study GG-3's added seam is held apart too.
     const live = em5ReadBack(gw3RegistryBack(WIRING_REGISTRY)).filter(
-      (e) => !RX_ADDED_ENTRY_IDS.has(e.id) && !FUSE_ADDED_ENTRY_IDS.has(e.id) && !R2_2_ADDED_ENTRY_IDS.has(e.id) && !R2_3_ADDED_ENTRY_IDS.has(e.id) && !R2_4_ADDED_ENTRY_IDS.has(e.id) && !G2_4_ADDED_ENTRY_IDS.has(e.id) && !OC15_ADDED_ENTRY_IDS.has(e.id) && !GG_STUDY_ADDED_ENTRY_IDS.has(e.id) && !G2_6_ADDED_ENTRY_IDS.has(e.id),
+      (e) => !RX_ADDED_ENTRY_IDS.has(e.id) && !RR_ADDED_ENTRY_IDS.has(e.id) && !FUSE_ADDED_ENTRY_IDS.has(e.id) && !R2_2_ADDED_ENTRY_IDS.has(e.id) && !R2_3_ADDED_ENTRY_IDS.has(e.id) && !R2_4_ADDED_ENTRY_IDS.has(e.id) && !G2_4_ADDED_ENTRY_IDS.has(e.id) && !OC15_ADDED_ENTRY_IDS.has(e.id) && !GG_STUDY_ADDED_ENTRY_IDS.has(e.id) && !G2_6_ADDED_ENTRY_IDS.has(e.id),
     );
     const rung = live.filter((e) => G16_ADDED_IDS.has(e.id)).map((e) => [e.id, e.status, e.contexts, e.probe ?? null]);
     expect(rung).toEqual([...G16_ADDED_IDS].map((id) => [id, { kind: "live" }, ["mission:shortRange"], "shortRangeSlots"]));

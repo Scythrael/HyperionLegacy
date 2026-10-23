@@ -39,6 +39,7 @@ import * as shipModules from "./shipModules";
 import * as relicIdentify from "./relicIdentify";
 import * as gasGiantStudy from "./gasGiantStudy";
 import * as dataStudy from "./dataStudy";
+import * as rarityProfiles from "./rarityProfiles";
 
 // The modules whose salts must be distinct AND odd.
 const MODULES: Record<string, Record<string, unknown>> = {
@@ -78,6 +79,8 @@ const MODULES: Record<string, Record<string, unknown>> = {
   "gasGiantStudy.ts": gasGiantStudy,
   // GG-5: the Research Lab data study's recipe roll.
   "dataStudy.ts": dataStudy,
+  // Rarity readiness RR-3: a legendary piece's private extras stream (secondaries, Artisan).
+  "rarityProfiles.ts": rarityProfiles,
 };
 
 // Legacy salts checked for DISTINCTNESS only. model.ts AWAY_RECRUIT_SEED_SALT (0x5a17c0de) predates the odd

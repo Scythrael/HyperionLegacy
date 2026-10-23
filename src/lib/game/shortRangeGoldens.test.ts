@@ -157,6 +157,7 @@ import { asPreG2NamesDispatch, dispatchPastPropulsion, asPrePatrolCurveDispatch 
 import { GG1_ADDED_ENTRY_IDS, GG_STUDY_ADDED_ENTRY_IDS, GG_STUDY_FLIPPED_BEFORE } from "./gasStudyGoldens.fixture";
 import { FUSE_ADDED_ENTRY_IDS } from "./fieldKitsFuse.fixture";
 import { RX_ADDED_ENTRY_IDS } from "./reactorFuelGoldens.fixture";
+import { RR_ADDED_ENTRY_IDS } from "./rarityRegistry.fixture";
 import { OC15_ADDED_ENTRY_IDS } from "./labFabricatorTiers.fixture";
 import { isSiAdded, SI_RETIRED, siReadBack } from "./siMemberGearRegistry.fixture";
 // E-MOD EM-5: its two module wear rows, held apart from the gear wear pin.
@@ -626,6 +627,9 @@ const SF3_FLIPPED_LIVE: ReadonlySet<string> = new Set<string>(["expedition:ENEMY
 const SF3_SLICE: RegistrySlice = { flipped: SF3_FLIPPED_LIVE, was: "pending" };
 // The reactor fuel ladder's additions (0.14.0), held apart in EVERY pin (all of them were taken before it).
 const RX_SLICE: RegistrySlice = { added: RX_ADDED_ENTRY_IDS };
+// Rarity readiness RR-3 and up: the added rarity entries (RARITY_PROFILES rows), held apart in EVERY pin the same way
+// (rarityProfiles.test.ts pins them).
+const RR_SLICE: RegistrySlice = { added: RR_ADDED_ENTRY_IDS };
 // Expedition Tiers G2-4 / G2-5 (after every pin here): their added entries and their flips, held apart the same way.
 const G2_4_PENDING_FLIPS: RegistrySlice = { flipped: new Set(Object.keys(G2_4_FLIPPED_BEFORE).filter((id) => G2_4_FLIPPED_BEFORE[id].kind === "pending")), was: "pending" };
 const G2_4_SEAM_FLIPS: RegistrySlice = { flipped: new Set(Object.keys(G2_4_FLIPPED_BEFORE).filter((id) => G2_4_FLIPPED_BEFORE[id].kind === "seam")), was: "seam" };
@@ -663,7 +667,7 @@ const ML3_SLICE: RegistrySlice = { flipped: ML3_FLIPPED_LIVE, was: "pending" };
 // GG-3 also ADDS one entry (the probe dive seam), left out the same way.
 const GG_STUDY_SLICE: RegistrySlice = { added: GG_STUDY_ADDED_ENTRY_IDS, flipped: new Set(GG_STUDY_FLIPPED_BEFORE.keys()), was: "pending" };
 function registryPin(...given: readonly RegistrySlice[]): [number, string] {
-  const slices = [RX_SLICE, FUSE_SLICE, ML2_SLICE, OC15_SLICE, R2_2_SLICE, R2_3_SLICE, R2_4_SLICE, G16_SLICE, ...G2_4_SLICES, ...G2_6_SLICES, ML3_SLICE, GG_STUDY_SLICE, ...given];
+  const slices = [RX_SLICE, RR_SLICE, FUSE_SLICE, ML2_SLICE, OC15_SLICE, R2_2_SLICE, R2_3_SLICE, R2_4_SLICE, G16_SLICE, ...G2_4_SLICES, ...G2_6_SLICES, ML3_SLICE, GG_STUDY_SLICE, ...given];
   const rows = siReadBack(WIRING_REGISTRY.map((e) => ({ id: e.id, kind: e.status.kind as string })), (r) => r.id, (row) => ({ id: row[0], kind: row[1].kind as string }));
   const lines = rows.filter((e) => !slices.some((sl) => sl.added?.has(e.id))).map((e) => {
     const flip = slices.find((sl) => sl.flipped?.has(e.id));

@@ -236,3 +236,25 @@ the row sits before the real Debug gate's closing `{/if}` (verified: removing `D
 fallback. (5) The RR-1 step text now says the normalization runs BEFORE `withStandardIssueMemberLinesV70` and names the
 corrupt-save side effect. Plan: the RR-3 extras seed source is specified; the RR-5 unique-equipped rule is [PROPOSAL],
 not built; the four design readings put to the user are marked.
+
+**RR-3 (2026-10-23):** new leaf `rarityProfiles.ts` (imports model.ts only): `RARITY_PROFILES` (TOTAL over the ladder;
+fields budgetMult, affixes, extraAffixChance, secondaries, artisanPermille), `rarityProfile` (unknown = the Standard
+row), `RARITY_MULT` (moved from itemgen.ts, re-exported there), `LEGENDARY_BUDGET_STEP` [PROVISIONAL 1.2],
+`SECONDARY_BUDGET_SHARE` [PROVISIONAL 0.15], `ARTISAN_CHANCE_PERMILLE` [PROVISIONAL 250], `ARTISAN_LINE_MULT`
+[PROVISIONAL 1.25, the design's min / max folded into one multiplier, flagged], `RARITY_EXTRAS_SALT` (0x3e5a9c71,
+registered in salts.test.ts). Live rows are DERIVED (`RARITY_MULT ** rarityIndex`), so the doubles are identical.
+itemgen.ts: `rarityBudget` / `budgetAtMult` / `craftedDefensiveImplicitAt` (same multiplication order), `affixCount`
+reads the row (exhaustiveness now lives in the total record), `rollRarityExtras` (Artisan first on one affix line, then
+the secondaries, with replacement, never on the grenade carry line, added into rolledStats before the physicals fold;
+ONE shared-stream draw after the picks seeds the salted stream, zero draws for any band without extras). All three
+generators and `previewCraftOutcome` read the profile. Plan deviations: the interface's `extraSecondaryChance` is not
+added (answer 6 gives Stellar / Radiant none, and no legendary row uses one), and the `legendaryAffix` / `setBonus` flags
+arrive with RR-5 / RR-6, their first readers (no inert field). Registry: 7 `ship:RARITY_PROFILES:<band>` rows (catalogs.ts
+enumerates them; panelOwnership.ts lists RARITY_PROFILES as content): live rows install the band's signature line and
+move the sheet cargo EXACTLY by the implicit difference to the band below (linearAbsolute); the legendary rows install
+the whole mint against Radiant (event, at least the implicit difference); Standard is the reference (notApplicable). The
+older registry snapshot pins hold the new ids apart through `rarityRegistry.fixture.ts` RR_ADDED_ENTRY_IDS
+(shortRangeGoldens RR_SLICE, emodGoldens filters). Goldens: LIVE none moved; RESERVED 93 moved, every one owned by
+rr3 (30 `rr3:gen:*` Luminous / Constellar, 60 `rr3+rr4:gen:*` legendary x ascension, `rr3:devMint:luminous`,
+`rr3:devMint:constellar`, `rr3+rr4:load:legendary`); the `rr3:prim:*` pins did not move (computeBudget and affixCount
+values are unchanged at index 5). Gates: 311 files / 8664 tests passed, check 0 errors.
