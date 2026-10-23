@@ -4919,6 +4919,15 @@ export interface GameState {
   // (see OpenJobBatch). Never rendered; this is engine bookkeeping that exists purely so
   // ONE entry can be emitted per ORDER rather than one per iteration.
   openJobBatches: OpenJobBatch[];
+  // --- 0.13.11.1 ACCOUNT-LEVEL EXTRAS (docs/plans/2026-10-23-hotfix-0.13.11.1-design.md) ---
+  // ⚠️ OPTIONAL ON PURPOSE, NO SAVE_VERSION BUMP: absent on every older save and on freshState(),
+  // so Delete Save and Debug Reset (both rebuild from freshState) clear them, and they merge into
+  // any later schema untouched. Written ONLY through src/lib/accountExtras.ts. Nothing in the tick
+  // reads them. Per save until online accounts arrive (0.14.1), then per account.
+  redeemedGifts?: string[]; // gift ids already paid (codes.ts GiftId), never the code itself
+  seenCodeLines?: number[]; // "already redeemed" humor lines seen (1 to 40)
+  endlessGreedAt?: number; // when every humor line had been seen (the Endless Greed achievement)
+  unlockedThemeStyles?: string[]; // earned theme styles (themeStyle.ts ThemeStyleId), e.g. "washShine"
 }
 
 // RecipeKey / RecipeDef / RECIPES (the legacy INSTANT Homeworld craft path) were

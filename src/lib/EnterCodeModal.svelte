@@ -12,7 +12,7 @@
   import ActionModal from "./ActionModal.svelte";
   import Icon from "./ui/Icon.svelte";
   import type { IconName } from "./ui/icons";
-  import { redeemCode, redeemMessage } from "./secret/codes";
+  import { lookupCode } from "./secret/codes";
   import { COMBO_SEQUENCE, COMBO_LENGTH, comboActionForKey, advanceCombo, type ComboKey } from "./secret/combo";
 
   export let onClose: () => void;
@@ -29,7 +29,8 @@
   const SLOTS = Array.from({ length: COMBO_LENGTH }, (_, i) => i);
 
   function redeem(): void {
-    message = redeemMessage(redeemCode(code));
+    const r = lookupCode(code);
+    message = r.kind === "empty" ? "Type a code first." : r.kind === "unknown" ? "That code isn't recognized." : "";
   }
 
   function toggleCombo(): void {
