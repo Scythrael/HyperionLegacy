@@ -4,7 +4,7 @@ import Decimal from "break_infinity.js";
 import { advanceTo, createCatchUp, EXACT_BOUND_SECONDS, MAX_CATCHUP_STEPS } from "./catchUp";
 import { serializeSecret, freshSecretState, type SecretState } from "./state";
 import { effectiveExponent } from "./engine";
-import { earlyManualState, midAutoState, postPrestigeceptionState, pastFinaleState, live } from "./testStates";
+import { earlyManualState, midAutoState, postPrestigeceptionState, pastFinaleState, pastLongState, live } from "./testStates";
 import { simulatePlayer } from "./sim";
 
 const H = 3600;
@@ -18,13 +18,15 @@ beforeAll(() => {
     pastFinale: pastFinaleState(),
     // The reviewer's case: the steady player's state on day 2, whose long gaps cross the finale.
     day2: simulatePlayer({ profile: "steady", days: 2, stopAfterLongDays: 0 }).final,
+    // 0.13.11.1: past e1,000,000 with some of each upgrade bought.
+    pastLong: pastLongState(),
   };
-}, 120000);
+}, 240000);
 
 describe("short gaps match live exactly", () => {
-  for (const gap of [1, 59, 3600, EXACT_BOUND_SECONDS]) {
-    it(`a ${gap} s gap equals ${gap} live seconds`, () => {
-      const s = states.mid;
+  for (const [name, gap] of [["mid", 1], ["mid", 59], ["mid", 3600], ["mid", EXACT_BOUND_SECONDS], ["pastLong", 3600]] as const) {
+    it(`a ${gap} s gap equals ${gap} live seconds (${name})`, () => {
+      const s = states[name];
       const caught = advanceTo(s, s.lastTickAt + gap * 1000 + 400);
       expect(caught.mode).toBe("exact");
       let liveState = s;
@@ -66,6 +68,7 @@ const GAPS: Record<string, number[]> = {
   postPc: [EXACT_BOUND_SECONDS + 1, 10 * H, 2 * D, 3 * D],
   pastFinale: [EXACT_BOUND_SECONDS + 1, 10 * H, 2 * D, 3 * D],
   day2: [EXACT_BOUND_SECONDS + 1, 10 * H, 2 * D, 3 * D],
+  pastLong: [EXACT_BOUND_SECONDS + 1, 10 * H, 2 * D, 3 * D],
 };
 // The sane bound above: never more than live play would reach by staying open longer. Twice the
 // gap up to 10 hours, half again the gap beyond (where live runs are long to compute).
