@@ -809,7 +809,7 @@ export function applyOfficerCombat(c: Combatant, mods: OfficerCombatMods | undef
 // Only the modules that list `context` act (a patrol-only module never acts in a ship event).
 export function applyModuleCombat(c: Combatant, gear: readonly EquipmentInstance[] | undefined, context: ModuleCombatContext): void {
 	if (gear === undefined || !gear.some((p) => p.slotType === "module")) return;
-	const scaleOf = (p: EquipmentInstance) => moduleEffectScale(p.rarity, p.quality);
+	const scaleOf = (p: EquipmentInstance) => moduleEffectScale(p.rarity, p.quality, p.ascension);
 	const hull = modulePassiveTotal(gear, "hullIntegrity", scaleOf, context);
 	if (hull > 0) {
 		c.hullMax = Math.max(1, Math.round(c.hullMax * (1 + hull)));

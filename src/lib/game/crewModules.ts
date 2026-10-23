@@ -276,7 +276,7 @@ export function installedBridgeModule(state: GameState, ship: ShipInstance): Ins
 export function quartersProfessionMultiplier(mod: InstalledQuartersModule, profession: CrewProfession): number {
   // GEAR WEAR step 3: a worn module boosts at its efficiency where a run reads it (gearWear.ts viewPieceEfficiency, 1 on
   // a stored piece). Its capacity is a count and never wears (quartersCapacityBonus).
-  const scale = moduleEffectScale(mod.instance.rarity, mod.instance.quality) * viewPieceEfficiency(mod.instance);
+  const scale = moduleEffectScale(mod.instance.rarity, mod.instance.quality, mod.instance.ascension) * viewPieceEfficiency(mod.instance);
   const raw =
     mod.def.kind === "division"
       ? profession === mod.def.division
@@ -294,7 +294,7 @@ export function quartersCapacityBonus(state: GameState, ship: ShipInstance): num
   const mod = installedQuartersModule(state, ship);
   if (!mod) return 0;
   if (!mod.def.capacityScales) return mod.def.baseCapacity;
-  return Math.round(mod.def.baseCapacity * moduleEffectScale(mod.instance.rarity, mod.instance.quality));
+  return Math.round(mod.def.baseCapacity * moduleEffectScale(mod.instance.rarity, mod.instance.quality, mod.instance.ascension));
 }
 
 // The output multiplier a bridge module applies to ONE officer's contribution, given the hull's role.
@@ -307,7 +307,7 @@ export function bridgeOfficerMultiplier(
   hullSpec: ShipSpec,
 ): number {
   // GEAR WEAR step 3: a worn bridge module amplifies at its efficiency where a run reads it (gearWear.ts).
-  const scale = moduleEffectScale(mod.instance.rarity, mod.instance.quality) * viewPieceEfficiency(mod.instance);
+  const scale = moduleEffectScale(mod.instance.rarity, mod.instance.quality, mod.instance.ascension) * viewPieceEfficiency(mod.instance);
   switch (mod.def.kind) {
     case "balanced":
       return 1 + mod.def.amp * scale;

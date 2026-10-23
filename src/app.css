@@ -78,6 +78,12 @@
   --rarity-radiant: #a020f0; /* violet (user-deepened 2026-09-13; was #a855f7, read pink on some screens) */
   --rarity-luminous: var(--color-warning);
   --rarity-constellar: #f472b6; /* rose: the parallel legendary flavor, distinct from luminous */
+  /* RR-7 (rarity readiness): the warehouse ITEM rarity tokens (App.svelte warehouseRarityColor), today's exact colors */
+  --item-rarity-common: #8b9cb0;
+  --item-rarity-uncommon: var(--color-success);
+  --item-rarity-rare: #4fa3f2;
+  --item-rarity-epic: #b07cf2;
+  --item-rarity-legendary: var(--color-warning);
 
   /* Ambient Starfield dot color. Overridden per-theme below with a subtle,
      mostly-white tint of that theme's hue so the DEFAULT background meshes with
@@ -357,6 +363,10 @@ button {
   --rarity-stellar: #56b4e9; /* sky blue */
   --rarity-radiant: #cc79a7; /* reddish purple */
   --rarity-constellar: #f0e442; /* yellow */
+  /* RR-7: the warehouse item tiers: uncommon and legendary follow the semantic tokens above; rare and epic take the
+     same Okabe-Ito hues as stellar and radiant; common (slate) carries no state-vs-state meaning and stays. */
+  --item-rarity-rare: #56b4e9;
+  --item-rarity-epic: #cc79a7;
 }
 
 /* REDUCED MOTION, as an explicit SETTING rather than only an OS query.

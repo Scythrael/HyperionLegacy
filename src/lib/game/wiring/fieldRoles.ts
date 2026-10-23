@@ -334,6 +334,10 @@ export const UNREAD_CONSTANTS: Readonly<Record<string, string>> = {
   // draw, gasGiantStudy.ts rollCanister).
   GAS_STUDY_SOURCE_OWNER: "bookkeeping: the slice that gives the source-pending study items their source (GG-3, GG-4)",
   ALL_AUTO_SALVAGE_QUALITIES: "display: every quality tier for the auto-salvage picker",
+  // Rarity readiness RR-4 (user answer 3 "Plumbing only", answer 4 "Dev mint now, proc later").
+  // Rarity readiness RR-5.
+  LEGENDARY_AFFIX_EXCLUDED: "bookkeeping: the slot families with no Luminous legendary affix and why (no inert line), checked by legendaryAffixes.test.ts",
+  ASCENSION_PRODUCIBLE: "switch: false = no player path mints Nova / Celestial; its reader is the producer (crafting-talent proc or drop source) designed when the user ships ascension (owner: that later patch); the Debug minter is the only source until then",
   CUNNING_PENDING_SEATS: "bookkeeping: the seats with no Cunning over-delivery yet (Pilot Cunning, WR-9 OC-E4)",
   ECONOMY_FLOOR_SLOTS: "display: the Quartermaster's economy floor set, named for its readers",
   ENEMY_RANK_IDS: "bookkeeping: the enemy ranks in order, read by the wiring registry (one entry per rank, Field Kits FKR-1) and FKR-3's rank chips",

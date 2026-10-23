@@ -18,7 +18,7 @@
 // Pure functions only; every draw is an integer draw on a makeRng stream keyed by a fresh odd salt (salts.test.ts).
 // ============================================================================
 
-import { RELIC_DEFAULT_SEED, SALVAGE_LOOT_POOLS, type EquipmentRarity, type Expedition, type GameState, type RegionTier, type RelicSetId, type RelicVaultToken } from "./model";
+import { RELIC_DEFAULT_SEED, type EquipmentRarity, type Expedition, type GameState, type RegionTier, type RelicSetId, type RelicVaultToken } from "./model";
 import { CULTURE_ROSTER, RELIC_BAND_ODDS, RELIC_BANDS, RELIC_SITE_BIAS_MULT, relicBandOf, relicSetForPoi, relicTypesInBand, type RelicBand } from "./relics";
 import { makeRng, type Rng } from "./combat/rng";
 
@@ -41,9 +41,17 @@ export interface RelicBlankRow {
   quality: number;
 }
 
-// The relic roll's Tier I table: the salvage ladder it has always reused (SALVAGE_LOOT_POOLS.intactReactorCore,
-// standard 1000 / augmented 300 / stellar 40 / radiant 5).
-const TIER_I_LADDER = SALVAGE_LOOT_POOLS.intactReactorCore;
+// The relic roll's Tier I table. RARITY READINESS RR-7 (answer 10, "Decouple them"): its OWN frozen table, no longer
+// SALVAGE_LOOT_POOLS.intactReactorCore, so a legendary salvage tier added later neither creates a legendary relic blank
+// nor reshapes (flattens) the blank odds. The rows are exactly the four the relic roll has always read (standard 1000
+// q0 / augmented 300 q1 / stellar 40 q3 / radiant 5 q4), so every blank rolls bit for bit as before.
+export const RELIC_BLANK_LADDER_I: readonly RelicBlankRow[] = [
+  { tier: "standard", weight: 1000, quality: 0 },
+  { tier: "augmented", weight: 300, quality: 1 },
+  { tier: "stellar", weight: 40, quality: 3 },
+  { tier: "radiant", weight: 5, quality: 4 },
+];
+const TIER_I_LADDER = RELIC_BLANK_LADDER_I;
 
 // [PROVISIONAL] (plan R2-2 "Tier II and up pick rarity from the OC-13 table"; no row was given for the blank itself): the
 // band-odds row whose shift the blank table shares. Each tier's blank weight for a rarity is Tier I's weight times how

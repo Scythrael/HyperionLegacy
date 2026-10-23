@@ -71,6 +71,7 @@ import {
   type CaptainTalentKey,
   type CrewBucket,
   type CrewProfession,
+  type EquipmentAscension,
   type EquipmentRarity,
   type CrewRace,
   type GambitActionId,
@@ -102,7 +103,8 @@ import { combatDescriptorOn } from "./combatDescriptorProbes";
 import { SENIOR_STAFF_BONUSES, type SeniorStaffBonusDef } from "../seniorStaffBonuses";
 import { CREW_PROFESSION_BUFFS, CREW_STAT_KEYS, HELD_CREW_BUFF_IDS, SECOND_LEVEL_EXCLUSIVE, TRANSIT_SPEED_KEY, type CrewBuffDef } from "../crewBuffs";
 import { CREW_RACES } from "../crewRaces";
-import { CREW_RARITY_MULTIPLIER } from "../crewRarity";
+import { CREW_RARITY_CAP, CREW_RARITY_MULTIPLIER } from "../crewRarity";
+import { rarityIndex } from "../model";
 import { CREW_RANKS, CREW_RANK_ORDER, rankMagnitudeFactor } from "../crewRank";
 import { GROUND_CONDITIONS, STONESKIN_INJURY_MULT } from "../medicalBay";
 import { OFFICER_STAT_KEYS } from "../seniorStaff";
@@ -150,7 +152,16 @@ import { ROLE_TEMPLATE } from "../combat/drones";
 import { PIRATE_HULLS } from "../combat/enemyHulls";
 import { STATUS_EFFECT_DEFS } from "../combat/statusEffects";
 import { DAMAGE_CONTROL_SUITE_KEY, DC_REPAIR_SPEED_B, DC_REPAIR_SPEED_R, DC_WAVE_REGEN_B, DC_WAVE_REGEN_R, PF_HAZARD_RESIST_B, PF_HAZARD_RESIST_R, PF_SCAN_SPEED_B, PF_SCAN_SPEED_R } from "../utilityGear";
-import { DRONE_POD_AFFIX_POOL, DRONE_POD_IMPLICIT_STAT, WEAPON_AFFIX_POOL, WEAPON_IMPLICIT_STAT } from "../itemgen";
+import { DRONE_POD_AFFIX_POOL, DRONE_POD_IMPLICIT_STAT, WEAPON_AFFIX_POOL, WEAPON_IMPLICIT_STAT, budgetAtMult, budgetShares, generateEquipment, legendaryAffixLineValue } from "../itemgen";
+// RARITY READINESS RR-5: the Luminous legendary affix catalog (each row measured on its fold).
+import { LUMINOUS_AFFIXES, type LegendaryAffixDef } from "../legendaryAffixes";
+import { MODULE_RARITY_FACTOR, type EquipmentInstance as RrEquipmentInstance } from "../model";
+// RARITY READINESS RR-6: the one set engine's catalog (each tier measured exactly on its fold).
+import { CELESTIAL_SET_REDUCTION, GEAR_SETS, type GearSetDef } from "../gearSets";
+// RARITY READINESS RR-3: the per-rarity profile table (each row measured on a real mint).
+import { RARITY_PROFILES } from "../rarityProfiles";
+// RARITY READINESS RR-4: the Nova / Celestial budget multipliers (each measured on a real legendary mint).
+import { ASCENSION_BUDGET_MULT } from "../ascension";
 import { AFFIX_DEFS, ESCALATION_ENEMIES_PER_LEVEL, HEIGHTENED_SENSES_KNEE, HEIGHTENED_SENSES_PER_LEVEL } from "../affixes";
 import { ENEMY_RANKS, ENEMY_RANK_IDS } from "../enemyRanks";
 import { OVERTIME_STEP_RATE } from "../processSpeed";
@@ -384,6 +395,16 @@ export const CATALOGS = {
   WEAR_SOURCES,
   REPAIR_RATES,
   REPAIR_RATE_BONUSES,
+  // RARITY READINESS RR-3: the per-rarity rows (budget, affixes, secondaries, Artisan).
+  RARITY_PROFILES,
+  // RARITY READINESS RR-4: the ascension budget multipliers.
+  ASCENSION_BUDGET_MULT,
+  // RARITY READINESS RR-5: the Luminous legendary affixes.
+  LUMINOUS_AFFIXES,
+  // Review of RR-3 / RR-4: the module effect factor per band.
+  MODULE_RARITY_FACTOR,
+  // RARITY READINESS RR-6: the gear sets.
+  GEAR_SETS,
   WEAR_EFFICIENCY,
   // The reactor fuel ladder (0.14.0, reactorTech.ts): the fuel each Reactor Core blueprint takes.
   REACTOR_FUEL_LADDER,
@@ -2347,7 +2368,7 @@ function wingPending(division: CrewProfession): WiringStatus {
 
 function moduleEntries(): WiringEntry[] {
   const out: WiringEntry[] = [];
-  const scale = moduleEffectScale("standard", 0);
+  const scale = moduleEffectScale("standard", 0, "none");
   // Each module measured on an Operations complement bucket carrying Efficient Unloading (a live key), so the
   // module's division multiplier shows on the unload speed: the bonus part above 1 grows by the boost.
   const opsBase = () => withBuckets(wiringBase(), [bucketOf("operations", "ops.unloadSpeed")]);
@@ -2454,7 +2475,7 @@ function sensorArrayEntries(): WiringEntry[] {
           contexts: ["expedition:groundOps"],
           direction: "none",
           curve: { kind: "equals" },
-          magnitude: (c) => (c.SENSOR_ARRAYS.find((a) => a.id === def.id)![field] as number) * (field === "landmarkOddsBias" || field === "undergroundPoiOddsBias" || field === "relicFindBonus" ? moduleEffectScale("standard", 0) : 1),
+          magnitude: (c) => (c.SENSOR_ARRAYS.find((a) => a.id === def.id)![field] as number) * (field === "landmarkOddsBias" || field === "undergroundPoiOddsBias" || field === "relicFindBonus" ? moduleEffectScale("standard", 0, "none") : 1),
           base: () => installPiece(wiringBase(), { slotType: "sensor", moduleVariant: def.id }),
           note: field === "scanRateMult" || field === "coverageWidth" ? "the net rate is their product (B12: Focused reads faster but nets 0.78x; WR-7 OC-D11)" : undefined,
         }),
@@ -3530,6 +3551,25 @@ function crewScalarEntries(): WiringEntry[] {
   // Unloading, the bonus part above 1 of the unload speed grows by the multiplier's step from the standard Crewman.
   const opsBucket = (over: Partial<CrewBucket>): Transform => (s) => withBuckets(s, [{ ...bucketOf("operations", "ops.unloadSpeed"), ...over }]);
   for (const [rarity, mult] of Object.entries(CREW_RARITY_MULTIPLIER) as [EquipmentRarity, number][]) {
+    // RARITY READINESS RR-7 (answer 7): the rows above the crew cap exist so a raised cap never makes a higher band
+    // weaker, but the generator never mints above CREW_RARITY_CAP (Stellar), so nothing reads them until the user raises
+    // the cap: deferred with the user's words, never claimed live.
+    if (rarityIndex(rarity) > rarityIndex(CREW_RARITY_CAP)) {
+      out.push(
+        entry({
+          id: `crew:CREW_RARITY_MULTIPLIER:${rarity}`,
+          system: "crew",
+          source: { catalog: "CREW_RARITY_MULTIPLIER", key: rarity },
+          claim: `${rarity} crew carry their buffs at x${mult}`,
+          status: {
+            kind: "deferred",
+            owner: "the patch that raises CREW_RARITY_CAP above Stellar",
+            userRef: "rarity readiness answer 7 (2026-10-22): \"Yes, same for both (Recommended)\": multiplier rows Radiant to Constellar so higher crew are always stronger, Luminous and Constellar sharing one value, and the cap staying at Stellar until the user raises it",
+          },
+        }),
+      );
+      continue;
+    }
     out.push(
       entry({
         id: `crew:CREW_RARITY_MULTIPLIER:${rarity}`,
@@ -4631,6 +4671,8 @@ const SHORT_RANGE_SWEEP_OUT_OF_SCOPE: Readonly<Record<string, string>> = {
   "fleetAdmiral:HOMEWORLD_TALENTS:fleetLogisticsYield": NO_EXTRACTING,
   "facility:FACILITIES:missionControl:0": "the short-range board's two base slots need no Mission Control level; its later slots are the MISSION_CONTROL_BOARD_RUNGS (addShortRangeSlot)",
   "ship:gearLine:materialQualityChance": "a Prospecting Rig's ore quality is an extraction line; a short-range pickup's ore takes the deposit's own quality roll",
+  // Rarity readiness RR-5: the Transmuter's Seal legendary affix rides the same line, so the same reason.
+  "ship:LUMINOUS_AFFIXES:transmutersSeal": "a Prospecting Rig's ore quality is an extraction line; a short-range pickup's ore takes the deposit's own quality roll",
   "relic:MUSEUM_STATS:rareMaterialChance": NO_EXTRACTING,
 };
 // The Trade margin talents pay a drop-off's margin in whole credits (shortRangeCycle.ts shortRangeDropOffMargin rounds
@@ -4706,12 +4748,390 @@ function build(): readonly WiringEntry[] {
     ...prospectingEntries(),
     ...gasStudyEntries(),
     ...reactorTechEntries(),
+    ...rarityProfileEntries(),
+    ...ascensionEntries(),
+    ...legendaryAffixEntries(),
+    ...moduleRarityEntries(),
+    ...gearSetEntries(),
     ...auditEntries(),
     ...speedSeamEntries(),
     ...wearEntries(),
   ]
     .map((e) => (ALLOW_LIST_REASONS[e.id] ? { ...e, reason: ALLOW_LIST_REASONS[e.id] } : e))
     .flatMap((e) => shortRangeSwept([e]));
+}
+
+// RARITY READINESS RR-3 (docs/plans/2026-10-23-rarity-readiness-plan.md): each RARITY_PROFILES row, measured on a REAL
+// mint through the generator that reads it: a balanced cargo bay (iLevel 40, quality 5, one fixed rng stream) of the
+// band installed on the bare hull, against the same mint one band down (Radiant for the two legendaries; Standard for
+// Derelict, which sits below it). Standard is the reference row.
+//   - A LIVE row (Derelict to Radiant) installs the mint's signature line alone (its rolled lines dropped: a band's
+//     affix count and Augmented's draw change WHICH affixes roll, so the rolled cargo is not monotone). The sheet moves
+//     by EXACTLY the implicit line's difference at the two rows' budget multipliers (linearAbsolute).
+//   - A LEGENDARY row installs the WHOLE mint (secondaries and Artisan included). It rolls the same affix picks as the
+//     Radiant mint on the same stream (its extras draw comes after them), so every line is at least as large and the
+//     sheet moves by at least the implicit difference (an event curve; the secondaries only add to it).
+const RARITY_PROBE_ILEVEL = 40;
+const RARITY_PROBE_QUALITY = 5;
+function rarityCargoMint(rarity: EquipmentRarity, signatureOnly: boolean, ascension: EquipmentAscension = "none"): Transform {
+  return (s) => {
+    let x = 0x2468ace1;
+    const rng = () => {
+      x = (Math.imul(x, 1664525) + 1013904223) >>> 0;
+      return x / 4294967296;
+    };
+    const piece = generateEquipment({
+      slotType: "cargoBay",
+      varietyKey: EQUIPMENT_SLOTS.cargoBay.varieties[1].key,
+      blueprintKey: null,
+      iLevel: RARITY_PROBE_ILEVEL,
+      quality: RARITY_PROBE_QUALITY,
+      rarity,
+      ascension,
+      rng,
+      allocateId: () => "wiring-equip-cargoBay",
+    });
+    return installPiece(s, { ...piece, ...(signatureOnly ? { rolledStats: {} } : {}), fittedToShipId: WIRING_SHIP_ID });
+  };
+}
+// A cargo bay's single implicit line at a row's budget multiplier (the mint's own split).
+const cargoImplicitAt = (mult: number): number => Math.round(budgetShares(budgetAtMult(RARITY_PROBE_ILEVEL, RARITY_PROBE_QUALITY, mult)).implicitShare);
+const RARITY_PROBE_AGAINST: Readonly<Record<EquipmentRarity, EquipmentRarity | null>> = {
+  derelict: "standard",
+  standard: null,
+  augmented: "standard",
+  stellar: "augmented",
+  radiant: "stellar",
+  luminous: "radiant",
+  constellar: "radiant",
+};
+function rarityProfileEntries(): WiringEntry[] {
+  return (Object.keys(RARITY_PROFILES) as EquipmentRarity[]).map((rarity) => {
+    const row = RARITY_PROFILES[rarity];
+    const against = RARITY_PROBE_AGAINST[rarity];
+    const extras = row.secondaries > 0 ? `, ${row.secondaries} secondary line(s) and a ${row.artisanPermille / 10}% Artisan chance` : "";
+    const claim = `${rarity} gear rolls at x${row.budgetMult.toFixed(4)} budget with ${row.affixes} affix line(s)${row.extraAffixChance > 0 ? ` (${row.extraAffixChance * 100}% chance of one more)` : ""}${extras}`;
+    if (against === null) {
+      return entry({ id: `ship:RARITY_PROFILES:${rarity}`, system: "ship", source: { catalog: "RARITY_PROFILES", key: rarity }, claim, probe: "sheetCargo", notApplicable: "the reference band (every other row is measured against the band below it)" });
+    }
+    // RR-7 (answer 9): Derelict reads the Standard-Issue floor's budget, so its signature line equals Standard's (the
+    // equality is pinned in rarityTraps.test.ts); its one difference, no affixes, is a rolled-line fact.
+    if (rarity === "derelict" && row.budgetMult === RARITY_PROFILES[against].budgetMult) {
+      return entry({ id: `ship:RARITY_PROFILES:${rarity}`, system: "ship", source: { catalog: "RARITY_PROFILES", key: rarity }, claim, probe: "sheetCargo", notApplicable: `reads the ${against} row's budget (the Standard-Issue floor, rarity readiness answer 9)` });
+    }
+    // Review of RR-3: EVERY row, the legendary ones too, installs the signature line alone and moves EXACTLY by the
+    // implicit difference (linearAbsolute), so a budget the generator stops reading fails here. The secondaries, Artisan
+    // and legendary affix are rolled lines, pinned exactly in rarityReviewFixes.test.ts (the generator's lines equal its
+    // picks plus rollRarityExtras on the next draw) and rarityProfiles.test.ts / legendaryAffixes.test.ts.
+    const delta = (c: Catalogs): number => cargoImplicitAt(c.RARITY_PROFILES[rarity].budgetMult) - cargoImplicitAt(c.RARITY_PROFILES[against].budgetMult);
+    return entry({
+      id: `ship:RARITY_PROFILES:${rarity}`,
+      system: "ship",
+      source: { catalog: "RARITY_PROFILES", key: rarity },
+      claim,
+      probe: "sheetCargo",
+      contexts: ["sheet"],
+      direction: row.budgetMult >= RARITY_PROFILES[against].budgetMult ? "up" : "down",
+      curve: { kind: "linearAbsolute" },
+      magnitude: delta,
+      base: bareHull,
+      on: rarityCargoMint(rarity, true),
+      off: rarityCargoMint(against, true),
+      note: "measured through generateEquipment (itemgen.ts rarityBudget / affixCount / rollRarityExtras read the row)",
+    });
+  });
+}
+
+// RARITY READINESS (review of RR-3 / RR-4): the module twin of the rows above. Each MODULE_RARITY_FACTOR band, and Nova /
+// Celestial on a Luminous module, measured on a Utilitarian Quarters module (a live general crew boost) installed at
+// that band and quality 0 on an Operations complement carrying Efficient Unloading: the bonus part above 1 of the unload
+// speed is the module's boost x its effect scale (the QUARTERS_MODULES entries' own seam), so the scale is read exactly.
+// Then the pending row: a Luminous / Constellar bridge or quarters module's secondaries and Artisan ride its crewEfficiency
+// / crewStations lines, which nothing reads yet (LINE_PENDING, WR-7 OC-D3), so that part claims nothing live.
+function moduleRarityEntries(): WiringEntry[] {
+  const def = QUARTERS_MODULES.find((d) => d.id === "quartersUtilitarian")!;
+  const boost = (c: Catalogs): number => c.QUARTERS_MODULES.find((d) => d.id === def.id)!.focusBoost;
+  const opsBase = () => withBuckets(wiringBase(), [bucketOf("operations", "ops.unloadSpeed")]);
+  const at = (rarity: EquipmentRarity, ascension: EquipmentAscension): Transform => (s) =>
+    installPiece(s, { slotType: "quarters", moduleVariant: def.id, rarity, ascension, quality: 0 });
+  const out: WiringEntry[] = (Object.keys(MODULE_RARITY_FACTOR) as EquipmentRarity[]).map((rarity) =>
+    entry({
+      id: `ship:MODULE_RARITY_FACTOR:${rarity}`,
+      system: "ship",
+      source: { catalog: "MODULE_RARITY_FACTOR", key: rarity },
+      claim: `a ${rarity} crew, sensor or universal module acts at x${MODULE_RARITY_FACTOR[rarity].toFixed(4)} its catalog effect (before quality)`,
+      probe: "sheetUnload",
+      contexts: ["sheet"],
+      curve: { kind: "bonusRelative", base: 1 },
+      magnitude: (c) => boost(c) * c.MODULE_RARITY_FACTOR[rarity],
+      base: opsBase,
+      on: at(rarity, "none"),
+      note: "measured through crewModules.ts (moduleEffectScale reads MODULE_RARITY_FACTOR)",
+    }),
+  );
+  for (const ascension of ["nova", "celestial"] as const) {
+    out.push(
+      entry({
+        id: `ship:ASCENSION_BUDGET_MULT:${ascension}:modules`,
+        system: "ship",
+        source: { catalog: "ASCENSION_BUDGET_MULT", key: `${ascension}:modules` },
+        claim: `a ${ascension} Luminous or Constellar module acts at x${ASCENSION_BUDGET_MULT[ascension]} the legendary module effect`,
+        probe: "sheetUnload",
+        contexts: ["sheet"],
+        curve: { kind: "bonusRelative", base: 1 },
+        magnitude: (c) => boost(c) * c.MODULE_RARITY_FACTOR.luminous * c.ASCENSION_BUDGET_MULT[ascension],
+        base: opsBase,
+        on: at("luminous", ascension),
+        note: "measured through crewModules.ts (moduleEffectScale reads the piece's ascension)",
+      }),
+    );
+  }
+  out.push(
+    entry({
+      id: "ship:audit:rrCrewModuleExtras",
+      system: "ship",
+      source: { catalog: "AUDIT", key: "ship:audit:rrCrewModuleExtras" },
+      claim: "A Luminous / Constellar bridge or quarters module's secondaries and Artisan can land on its crewEfficiency / crewStations lines",
+      status: pending("WR-7, OC-D3 (the tooltip prints the rolled value; nothing reads it)"),
+    }),
+  );
+  return out;
+}
+
+// RARITY READINESS RR-4: each ASCENSION_BUDGET_MULT row, measured like a live rarity row: a Luminous cargo bay of the
+// ascension (signature line only, the same stream) against the plain Luminous one, the sheet cargo moving by EXACTLY the
+// implicit difference at the two multipliers. "none" is the reference. (The guaranteed Artisan and the Celestial
+// secondary are rolled lines, pinned in ascension.test.ts; the Celestial auto-salvage exemption in salvage.ts.)
+function ascensionEntries(): WiringEntry[] {
+  return (Object.keys(ASCENSION_BUDGET_MULT) as EquipmentAscension[]).map((ascension) => {
+    const mult = ASCENSION_BUDGET_MULT[ascension];
+    const claim = `a ${ascension} Luminous or Constellar piece rolls at x${mult} the legendary budget`;
+    if (ascension === "none") {
+      return entry({ id: "ship:ASCENSION_BUDGET_MULT:none", system: "ship", source: { catalog: "ASCENSION_BUDGET_MULT", key: "none" }, claim, probe: "sheetCargo", notApplicable: "the reference (no ascension, x1)" });
+    }
+    return entry({
+      id: `ship:ASCENSION_BUDGET_MULT:${ascension}`,
+      system: "ship",
+      source: { catalog: "ASCENSION_BUDGET_MULT", key: ascension },
+      claim,
+      probe: "sheetCargo",
+      contexts: ["sheet"],
+      direction: "up",
+      curve: { kind: "linearAbsolute" },
+      magnitude: (c) => {
+        const lum = c.RARITY_PROFILES.luminous.budgetMult;
+        return cargoImplicitAt(lum * c.ASCENSION_BUDGET_MULT[ascension]) - cargoImplicitAt(lum);
+      },
+      base: bareHull,
+      on: rarityCargoMint("luminous", true, ascension),
+      off: rarityCargoMint("luminous", true),
+      note: "measured through generateEquipment (itemgen.ts ascendedProfile reads the row)",
+    });
+  });
+}
+
+// RARITY READINESS RR-5: each LUMINOUS_AFFIXES row, measured on the fold its stat line already moves. The row's value is
+// its budget share of a Luminous piece at the registry's reference roll (iLevel 40, quality 5), through the mint's own
+// legendaryAffixLineValue; the piece carrying that line goes on ship-1 (or on the squad's member) against the same piece
+// without it, through the SAME seam the gear line's own entry uses (LINE_SEAMS, or gearSeam for a member line), with the
+// seam's curve evaluated at the row's value. legendaryAffixes.test.ts pins that a Luminous mint adds exactly that value.
+const legendaryProbeBudget = (c: Catalogs): number => budgetAtMult(RARITY_PROBE_ILEVEL, RARITY_PROBE_QUALITY, c.RARITY_PROFILES.luminous.budgetMult);
+// The catalog row when the catalog holds it (a retune moves the magnitude), else the def itself (a candidate row).
+const legendaryValueOf = (c: Catalogs, def: LegendaryAffixDef): number => legendaryAffixLineValue(c.LUMINOUS_AFFIXES.find((d) => d.id === def.id) ?? def, legendaryProbeBudget(c));
+// A ship line's seam at an arbitrary number of points (the LINE_SEAMS shapes, generalized from LINE_POINTS).
+const SHIP_LINE_AT: Readonly<Record<string, (c: Catalogs, points: number) => number>> = {
+  cargoCapacity: (_c, p) => p,
+  fuelCapacity: (_c, p) => p,
+  powerOutput: (_c, p) => p,
+  colonistCapacity: (_c, p) => p,
+  weaponYield: (_c, p) => p,
+  droneHp: (_c, p) => p,
+  hullStrength: (_c, p) => p,
+  shieldCapacity: (c, p) => p * hullDefenseComposition(c.SHIP_TYPES.destroyer).shieldCapEffectiveness,
+  materialQualityChance: (_c, p) => materialQualityClimbChance(p),
+  // Review of RR-5: the sensors line is live (flat on the sheet), for Far Watcher.
+  sensors: (_c, p) => p,
+  // Review of RR-5: transit speed is a percent line (the sheet's speed x (1 + its percent)), so "Fold Engine" is a
+  // one-line catalog swap if the user picks it over Endless Wake.
+  transitSpeedMult: (_c, p) => plusToPercent(p / PERCENT_STAT_CURVES.transitSpeedMult.plusDivisor, PERCENT_STAT_CURVES.transitSpeedMult.B, PERCENT_STAT_CURVES.transitSpeedMult.r),
+};
+// The seams LINE_SEAMS does not carry (transit speed is measured by its own speed entries there).
+const LEGENDARY_EXTRA_SEAMS: Readonly<Record<string, LineSeam>> = {
+  transitSpeedMult: { probe: "sheetTransit", contexts: ["sheet"], curve: { kind: "linearRelative" }, magnitude: () => 0 },
+};
+// The squad a member row is measured on (one that may wear the slot's first matching variety).
+const LEGENDARY_MEMBER_TEAM: Readonly<Partial<Record<string, AwayTeamType>>> = {
+  memberWeapon: "security",
+  memberArmor: "security",
+  memberTool: "science",
+  implant: "security",
+};
+function legendaryAffixEntries(): WiringEntry[] {
+  return LUMINOUS_AFFIXES.map(legendaryAffixEntryFor);
+}
+// One legendary affix row's entry (exported so a candidate row, such as the Fold Engine alternative, can be measured
+// before it joins the catalog).
+export function legendaryAffixEntryFor(def: LegendaryAffixDef): WiringEntry {
+  const slotType = def.slotTypes[0];
+  const value = legendaryValueOf(CATALOGS, def);
+  const claim = `${def.label} (a Luminous ${slotType} legendary affix): ${def.budgetShare * 100}% of the piece's budget onto ${def.stat}`;
+  const source = { catalog: "LUMINOUS_AFFIXES", key: def.id };
+  const team = LEGENDARY_MEMBER_TEAM[slotType];
+  if (team !== undefined) {
+    const seam = gearSeam(team, def.stat as MemberGroundStatKey, (c) => legendaryValueOf(c, def))!;
+    const variety = EQUIPMENT_SLOTS[slotType].varieties.find((v) => v.member?.teamTypes.includes(team))!;
+    return entry({
+      id: `away:LUMINOUS_AFFIXES:${def.id}`,
+      system: "away",
+      source,
+      claim,
+      probe: seam.probe,
+      contexts: [seam.context],
+      curve: seam.curve,
+      magnitude: seam.magnitude,
+      tolerance: seam.tolerance,
+      base: () => withAwayTeam(wiringBase()),
+      on: (s) => wearPiece(s, wearerOf(team), slotType, variety.key, { [def.stat]: value }),
+      off: (s) => wearPiece(s, wearerOf(team), slotType, variety.key, {}),
+    });
+  }
+  const seam = (LINE_SEAMS[def.stat] ?? LEGENDARY_EXTRA_SEAMS[def.stat])!;
+  const at = SHIP_LINE_AT[def.stat]!;
+  return entry({
+    id: `ship:LUMINOUS_AFFIXES:${def.id}`,
+    system: "ship",
+    source,
+    claim,
+    probe: seam.probe,
+    contexts: seam.contexts,
+    curve: seam.curve,
+    magnitude: (c) => at(c, legendaryValueOf(c, def)),
+    tolerance: seam.tolerance,
+    ...(seam.base ? { base: seam.base } : {}),
+    on: shipPiece(def.stat, value),
+    off: shipPiece(def.stat, 0),
+  });
+}
+
+// RARITY READINESS RR-6: each GEAR_SETS tier, measured exactly on its fold. A tier of k pieces: k Constellar pieces of
+// the set worn by one wearer (ship-1's slots, or the Security member's member slots; their own lines empty, so only the
+// set acts) against the same k pieces with the k-th one out of the set, so exactly that tier switches (each tier of a
+// test set adds a different line). Ship tiers read the line's own sheet seam (LINE_SEAMS); member tiers the squad
+// line's seam (gearSeam). Plus the Celestial hook: four Survey Cadre pieces with one Celestial against none, which
+// switches exactly the 5-piece tier on.
+function setShipPieces(def: GearSetDef, k: number, last: "in" | "out", celestialFirst = false): Transform {
+  return (s) => {
+    let out = s;
+    def.slotTypes.slice(0, k).forEach((slotType, i) => {
+      out = installPiece(out, {
+        slotType,
+        rarity: "constellar",
+        ...(celestialFirst && i === 0 ? { ascension: "celestial" as const } : {}),
+        ...(i === k - 1 && last === "out" ? {} : { setId: def.id }),
+      });
+    });
+    return out;
+  };
+}
+// The member slots a Field-style set fills, in order (a second implant for the 5-piece: implants are a multi slot).
+const SET_MEMBER_SLOTS = (def: GearSetDef): string[] => [...def.slotTypes, ...(def.slotTypes.includes("implant") ? ["implant"] : [])];
+function setMemberPieces(def: GearSetDef, k: number, last: "in" | "out"): Transform {
+  return (s) => {
+    const memberId = WIRING_SECURITY_ID;
+    const pieces = SET_MEMBER_SLOTS(def)
+      .slice(0, k)
+      .map(
+        (slotType, i) =>
+          ({
+            id: `wiring-set-${def.id}-${i}`,
+            slotType,
+            moduleVariant: EQUIPMENT_SLOTS[slotType].varieties.find((v) => v.member?.teamTypes.includes("security"))!.key,
+            rarity: "constellar",
+            ascension: "none",
+            quality: 0,
+            iLevel: 10,
+            blueprintKey: null,
+            implicitStats: {},
+            rolledStats: {},
+            mass: 0,
+            powerDraw: 0,
+            durabilityMax: 100,
+            fittedToShipId: null,
+            fittedToMemberId: memberId,
+            ...(i === k - 1 && last === "out" ? {} : { setId: def.id }),
+          }) as RrEquipmentInstance,
+      );
+    const ids = new Set(pieces.map((p) => p.id));
+    return { ...s, equipment: [...s.equipment.filter((e) => !ids.has(e.id)), ...pieces] };
+  };
+}
+const setTierMagnitude = (c: Catalogs, setId: string, pieces: number): number => c.GEAR_SETS.find((x) => x.id === setId)!.tiers.find((t) => t.pieces === pieces)!.magnitude;
+function gearSetEntries(): WiringEntry[] {
+  const out: WiringEntry[] = [];
+  for (const def of GEAR_SETS) {
+    for (const t of def.tiers) {
+      const key = `${def.id}:${t.pieces}`;
+      const claim = `${def.label} (${def.scope} set) ${t.pieces}-piece: +${t.magnitude} ${t.stat}`;
+      const source = { catalog: "GEAR_SETS", key };
+      if (def.scope === "ship") {
+        const seam = LINE_SEAMS[t.stat]!;
+        out.push(
+          entry({
+            id: `ship:GEAR_SETS:${key}`,
+            system: "ship",
+            source,
+            claim,
+            probe: seam.probe,
+            contexts: seam.contexts,
+            curve: { kind: "linearAbsolute" },
+            magnitude: (c) => setTierMagnitude(c, def.id, t.pieces),
+            base: bareHull,
+            on: setShipPieces(def, t.pieces, "in"),
+            off: setShipPieces(def, t.pieces, "out"),
+            note: "the set's pieces carry no lines of their own, so only the tier moves (equipmentStatMods reads gearSetBonusLines)",
+          }),
+        );
+      } else {
+        const seam = gearSeam("security", t.stat as MemberGroundStatKey, (c) => setTierMagnitude(c, def.id, t.pieces))!;
+        out.push(
+          entry({
+            id: `away:GEAR_SETS:${key}`,
+            system: "away",
+            source,
+            claim,
+            probe: seam.probe,
+            contexts: [seam.context],
+            curve: seam.curve,
+            magnitude: seam.magnitude,
+            tolerance: seam.tolerance,
+            base: () => withAwayTeam(wiringBase()),
+            on: setMemberPieces(def, t.pieces, "in"),
+            off: setMemberPieces(def, t.pieces, "out"),
+            note: "the set's pieces carry no lines of their own, so only the tier moves (snapshotMember reads gearSetBonusLines)",
+          }),
+        );
+      }
+    }
+  }
+  const survey = GEAR_SETS.find((d) => d.id === "testSetSurvey")!;
+  const fiveStat = survey.tiers.find((t) => t.pieces === 5)!.stat;
+  const fiveSeam = LINE_SEAMS[fiveStat]!;
+  out.push(
+    entry({
+      id: "ship:GEAR_SETS:celestialReduction",
+      system: "ship",
+      source: { catalog: "GEAR_SETS", key: "celestialReduction" },
+      claim: `a Celestial Constellar piece lowers every tier of its set by ${CELESTIAL_SET_REDUCTION} (four ${survey.label} pieces reach the 5-piece)`,
+      probe: fiveSeam.probe,
+      contexts: fiveSeam.contexts,
+      curve: { kind: "linearAbsolute" },
+      magnitude: (c) => setTierMagnitude(c, survey.id, 5),
+      base: bareHull,
+      on: setShipPieces(survey, 5 - CELESTIAL_SET_REDUCTION, "in", true),
+      off: setShipPieces(survey, 5 - CELESTIAL_SET_REDUCTION, "in"),
+    }),
+  );
+  return out;
 }
 
 // Prospecting squads (hidden): the role bases, the hidden blueprints and the three later uses, each deferred to
@@ -5232,8 +5652,8 @@ function wearEntries(): WiringEntry[] {
   const e = WEAR_FLOOR_EFFICIENCY;
   const transitPercent = (p: number) => plusToPercent(p / PERCENT_STAT_CURVES.transitSpeedMult.plusDivisor, PERCENT_STAT_CURVES.transitSpeedMult.B, PERCENT_STAT_CURVES.transitSpeedMult.r);
   const quarters = QUARTERS_MODULES.find((q) => q.kind === "general" && q.focusBoost > 0)!;
-  const bridgeAmp = (c: Catalogs) => (c.BRIDGE_MODULES.find((b) => b.id === "bridgeBalancedCommand")?.amp ?? 0) * moduleEffectScale("standard", 0);
-  const quartersBoost = (c: Catalogs) => (c.QUARTERS_MODULES.find((q) => q.id === quarters.id)?.focusBoost ?? 0) * moduleEffectScale("standard", 0);
+  const bridgeAmp = (c: Catalogs) => (c.BRIDGE_MODULES.find((b) => b.id === "bridgeBalancedCommand")?.amp ?? 0) * moduleEffectScale("standard", 0, "none");
+  const quartersBoost = (c: Catalogs) => (c.QUARTERS_MODULES.find((q) => q.id === quarters.id)?.focusBoost ?? 0) * moduleEffectScale("standard", 0, "none");
   const memberLine = (slot: string, line: string, stat: keyof typeof GEAR_POINT_BUMP) => ({
     contexts: ["expedition:groundOps"] as ContextId[],
     base: () => wearSlotFixture(slot, { [line]: WEAR_LINE }),
