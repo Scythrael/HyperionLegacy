@@ -51,13 +51,23 @@ const HEAD_MIX = Number(/color-mix\(in srgb, rgb\(var\(--grad-end-rgb\)\) (\d+)%
 const DEEP = hex(token(ROOT, "--color-bg-deep"));
 const MID = hex(token(ROOT, "--color-bg-mid"));
 const PRIMARY = hex(token(ROOT, "--color-text-primary"));
+// The semantic text colors as they are UNDER washShine: the palette's own values, with the style's
+// lifts applied where it declares them.
+const optional = (b: string, name: string) => new RegExp(`${name}:\\s*([^;]+);`).exec(b)?.[1];
 const SEMANTIC = {
   default: { success: hex(token(ROOT, "--color-success")), warning: hex(token(ROOT, "--color-warning")), danger: hex(token(ROOT, "--color-danger")) },
   cbsafe: (() => {
     const b = block(':root[data-palette="cbsafe"]');
-    return { success: hex(token(b, "--color-success")), warning: hex(token(b, "--color-warning")), danger: hex(token(b, "--color-danger")) };
+    const lift = block(':root[data-style="washShine"][data-palette="cbsafe"]');
+    const pick = (n: string) => hex(optional(lift, n) ?? token(b, n));
+    return { success: pick("--color-success"), warning: pick("--color-warning"), danger: pick("--color-danger") };
   })(),
 };
+// Each theme's dim text under washShine (its lift when the style declares one).
+function liftedDim(theme: string, fallback: string): string {
+  const sel = `:root[data-style="washShine"][data-theme="${theme}"]:not([data-high-contrast="on"])`;
+  return CSS.includes(`${sel} {`) ? token(block(sel), "--color-text-dim") : fallback;
+}
 const THEMES = [...CSS.matchAll(/\[data-theme="(\w+)"\] \{([^}]*)\}/g)].map((m) => {
   const b = m[2];
   const pm = /rgba\((\d+),\s*(\d+),\s*(\d+),\s*([\d.]+)\)/.exec(token(b, "--color-panel-bg"))!;
@@ -67,7 +77,7 @@ const THEMES = [...CSS.matchAll(/\[data-theme="(\w+)"\] \{([^}]*)\}/g)].map((m) 
     bright: hex(token(b, "--color-accent-bright")),
     panel: over([+pm[1], +pm[2], +pm[3]], +pm[4], DEEP),
     secondary: hex(token(b, "--color-text-secondary")),
-    dim: hex(token(b, "--color-text-dim")),
+    dim: hex(liftedDim(m[1], token(b, "--color-text-dim"))),
   };
 });
 
@@ -115,11 +125,6 @@ describe("Starfall (washShine) reads at AA on every theme, with and without the 
           for (const [name, fg] of Object.entries({ primary: PRIMARY, accent: t.accent, bright: t.bright })) {
             if (ratio(fg, bg) < AA) fails.push(`${t.name} ${name} on button ${stop} ${ratio(fg, bg).toFixed(2)}`);
           }
-          // Danger labels (Delete Save, Reset) sit on buttons too. Today's flat button already
-          // misses AA for some of them; the style must never make one worse than today.
-          const today = over(t.accent, 0.08, t.panel);
-          const danger = SEMANTIC[palette].danger;
-          if (ratio(danger, bg) < Math.min(AA, ratio(danger, today)) - 1e-9) fails.push(`${t.name} danger on button ${stop} worse than today`);
         }
         for (const [stop, bg] of Object.entries(prim)) {
           for (const [name, fg] of Object.entries({ primary: PRIMARY, bright: t.bright })) {
@@ -130,4 +135,25 @@ describe("Starfall (washShine) reads at AA on every theme, with and without the 
       expect(fails).toEqual([]);
     });
   }
+
+  it("uses the approved mockup D washes, with no dark layer under the panels", () => {
+    const mock = readFileSync("docs/plans/2026-10-23-gradient-theme-mockup.html", "utf-8");
+    const d = (sel: string) => {
+      const m = new RegExp(`${sel.replace(/[.]/g, "\\.")}[^{]*\\{ background: linear-gradient\\(135deg, rgba\\(var\\(--accent-rgb\\), ([.\\d]+)\\), rgba\\(var\\(--violet-rgb\\), ([.\\d]+)\\)\\)`).exec(mock)!;
+      return { start: Number(m[1]), end: Number(m[2]) };
+    };
+    expect(d(".vD .panel")).toEqual({ start: panel.start, end: panel.end });
+    expect(d(".vD .btn")).toEqual({ start: control.start, end: control.end });
+    expect(d(".vD .btn.p")).toEqual({ start: primary.start, end: primary.end });
+    for (const w of [panel, dialog, control, primary]) expect(w.shade).toBe(0);
+  });
+
+  it("danger buttons keep today's flat look, and High contrast keeps its own text and borders", () => {
+    const rules = CSS.slice(CSS.indexOf("3. WHERE washShine applies"), CSS.indexOf("/* REDUCED MOTION"));
+    for (const m of rules.matchAll(/:is\(\.dev-btn[^{]*\{/g)) expect(m[0]).toContain(":not(.danger)");
+    for (const m of rules.matchAll(/:is\(\.buy-btn[^{]*\{/g)) expect(m[0]).toContain(":not(.danger)");
+    const border = /([^\n]*)\{\s*border-color: var\(--style-edge\);/.exec(rules)!;
+    expect(border[1]).toContain(':not([data-high-contrast="on"])');
+    for (const m of CSS.matchAll(/:root\[data-style="washShine"\]\[data-theme="\w+"\][^{]*\{/g)) expect(m[0]).toContain(':not([data-high-contrast="on"])');
+  });
 });

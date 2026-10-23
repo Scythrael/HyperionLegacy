@@ -369,41 +369,65 @@ button {
      2. the STYLE TOKENS: what each surface becomes under a style. Colors come ONLY from the stops.
      3. WHERE A STYLE APPLIES: one rule block per style, naming the shared surfaces. Components are
         not edited, so the default look (no data-style) is untouched by construction.
-   CONTRAST: every text token stays WCAG AA on these surfaces in every theme and in the
-   color-blind palette (themeStyleContrast.test.ts). The dark shade layer under each wash is what
-   keeps the tinted surfaces no lighter than today's panels; lower it and dim text fails first.
+   CONTRAST: the washes are the approved mockup D alphas (the reference image look), with no dark
+   layer under them. They make surfaces a little lighter than today's, so washShine LIFTS the text
+   tokens that would fall under WCAG AA (each theme's dim text, and the color-blind palette's
+   success and danger), only while the style is on and never under High contrast, which keeps its
+   own stronger values. themeStyleContrast.test.ts holds every text token at AA on both stops in
+   every theme, with and without the color-blind palette.
    ============================================================================ */
 :root {
   --grad-start-rgb: var(--color-accent-rgb);
   --grad-end-rgb: 160, 32, 240;
 }
 
-/* washShine (theme mockup option D, "wash plus shine"): every panel and button gets a soft diagonal
-   wash from the start stop (top left) into the end stop (right), headings and progress bars carry
-   the stop-to-stop gradient, primary buttons get a soft sheen. */
+/* 2. washShine style tokens (theme mockup option D, "wash plus shine"): a soft diagonal wash from
+   the start stop (top left) into the end stop (right) on panels and buttons, the stop-to-stop
+   gradient on headings and progress bars, a soft sheen on primary buttons. */
 :root[data-style="washShine"] {
-  --style-panel: linear-gradient(135deg, rgba(var(--grad-start-rgb), 0.05), rgba(var(--grad-end-rgb), 0.11)), linear-gradient(rgba(0, 0, 0, 0.6), rgba(0, 0, 0, 0.6)), var(--color-panel-bg);
-  --style-dialog: linear-gradient(135deg, rgba(var(--grad-start-rgb), 0.05), rgba(var(--grad-end-rgb), 0.11)), linear-gradient(rgba(0, 0, 0, 0.6), rgba(0, 0, 0, 0.6)), var(--color-bg-mid);
-  --style-control: linear-gradient(135deg, rgba(var(--grad-start-rgb), 0.08), rgba(var(--grad-end-rgb), 0.12)), linear-gradient(rgba(0, 0, 0, 0.35), rgba(0, 0, 0, 0.35));
-  --style-control-primary: linear-gradient(135deg, rgba(var(--grad-start-rgb), 0.18), rgba(var(--grad-end-rgb), 0.24));
+  --style-panel: linear-gradient(135deg, rgba(var(--grad-start-rgb), 0.09), rgba(var(--grad-end-rgb), 0.12)), var(--color-panel-bg);
+  --style-dialog: linear-gradient(135deg, rgba(var(--grad-start-rgb), 0.09), rgba(var(--grad-end-rgb), 0.12)), var(--color-bg-mid);
+  --style-control: linear-gradient(135deg, rgba(var(--grad-start-rgb), 0.12), rgba(var(--grad-end-rgb), 0.16));
+  --style-control-primary: linear-gradient(135deg, rgba(var(--grad-start-rgb), 0.3), rgba(var(--grad-end-rgb), 0.34));
   --style-sheen: inset 0 1px 0 rgba(255, 255, 255, 0.12);
-  --style-edge: rgba(var(--grad-end-rgb), 0.24);
+  --style-edge: rgba(var(--grad-end-rgb), 0.22);
   --style-fill: linear-gradient(90deg, rgb(var(--grad-start-rgb)), rgb(var(--grad-end-rgb)));
   /* Text needs a lighter end than the bar: the end stop mixed 45% toward white. The sweep ends at
      12em, not at the element's edge, so a short heading on a wide panel still shows both colors. */
   --style-heading: linear-gradient(90deg, rgb(var(--grad-start-rgb)) 0, color-mix(in srgb, rgb(var(--grad-end-rgb)) 55%, #ffffff) 12em);
 }
+
+/* washShine text lifts (contrast note above). Dim text per theme; secondary text already clears AA
+   on every washed surface. Themes whose dim text already clears (purple, chartreuse) need none. */
+:root[data-style="washShine"][data-theme="cyan"]:not([data-high-contrast="on"]) { --color-text-dim: #72929c; }
+:root[data-style="washShine"][data-theme="green"]:not([data-high-contrast="on"]) { --color-text-dim: #709783; }
+:root[data-style="washShine"][data-theme="blue"]:not([data-high-contrast="on"]) { --color-text-dim: #7687a3; }
+:root[data-style="washShine"][data-theme="pink"]:not([data-high-contrast="on"]) { --color-text-dim: #9b8092; }
+:root[data-style="washShine"][data-theme="vermilion"]:not([data-high-contrast="on"]) { --color-text-dim: #998173; }
+:root[data-style="washShine"][data-theme="red"]:not([data-high-contrast="on"]) { --color-text-dim: #9a7e80; }
+:root[data-style="washShine"][data-theme="white"]:not([data-high-contrast="on"]) { --color-text-dim: #8f8f97; }
+:root[data-style="washShine"][data-theme="gray"]:not([data-high-contrast="on"]) { --color-text-dim: #848a93; }
+/* The color-blind palette's success and danger, lifted toward white just enough (hue kept). */
+:root[data-style="washShine"][data-palette="cbsafe"] {
+  --color-success: #0da37a;
+  --color-danger: #db7524;
+}
+
+/* 3. WHERE washShine applies. Danger buttons keep their own flat look, so a destructive label
+   reads exactly as it does today. Under High contrast the strong borders stay. */
 :root[data-style="washShine"] :is(.panel, .fpane, .cpane, .mpane, .home-row, .done-row, .mission-card, .top-bar, .nav-tabs, .sg, .layer, .gen, .hb-menu) {
   background: var(--style-panel);
+}
+:root[data-style="washShine"]:not([data-high-contrast="on"]) :is(.panel, .fpane, .cpane, .mpane, .home-row, .done-row, .mission-card, .top-bar, .nav-tabs, .sg, .layer, .gen, .hb-menu) {
   border-color: var(--style-edge);
 }
 :root[data-style="washShine"] :is(.system-modal-dialog, .am-dialog) {
   background: var(--style-dialog);
 }
-:root[data-style="washShine"] :is(.dev-btn, .sub-tab, .sg-btn, .sg-tab, .ec-btn, .hb-btn):not(:disabled):not(.active):not(.on):not(.primary) {
+:root[data-style="washShine"] :is(.dev-btn, .sub-tab, .sg-btn, .sg-tab, .ec-btn, .hb-btn):not(:disabled):not(.active):not(.on):not(.primary):not(.danger) {
   background: var(--style-control);
 }
-:root[data-style="washShine"] :is(.buy-btn, .dev-btn.active, .sub-tab.active, .sg-btn.primary, .sg-tab.on, .ec-btn.primary):not(:disabled) {
+:root[data-style="washShine"] :is(.buy-btn, .dev-btn.active, .sub-tab.active, .sg-btn.primary, .sg-tab.on, .ec-btn.primary):not(:disabled):not(.danger) {
   background: var(--style-control-primary);
   box-shadow: var(--style-sheen);
 }
@@ -416,7 +440,6 @@ button {
 :root[data-style="washShine"] :is(.research-bar-fill, .tb-bar:not(.tb-bar-amber) > i, .sg-track i) {
   background: var(--style-fill);
 }
-
 /* REDUCED MOTION, as an explicit SETTING rather than only an OS query.
    ⚠️ THE OS QUERY STILL WORKS ON ITS OWN (see the prefers-reduced-motion block in
    App.svelte): this exists so a player whose operating system is NOT configured for
