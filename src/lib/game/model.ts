@@ -1860,6 +1860,48 @@ export type EquipmentRarity =
 // this patch.
 export type EquipmentAscension = "none" | "nova" | "celestial";
 
+// RARITY READINESS RR-1 (docs/plans/2026-10-23-rarity-readiness-plan.md): the ascension vocabulary as a TOTAL record, so a
+// new member is a compile error here first (the AUTO_SALVAGE_RARITIES_NONE pattern). Read by isEquipmentAscension.
+const EQUIPMENT_ASCENSION_SET: Record<EquipmentAscension, true> = { none: true, nova: true, celestial: true };
+
+// [PROVISIONAL] RR-1 (answer 9, "treated as the Standard-Issue floor"): the band an UNKNOWN rarity value reads as on load
+// and in every total reader (a hand-edited save, a corrupt value, a band from a newer build).
+export const RARITY_LOAD_FALLBACK: EquipmentRarity = "standard";
+
+// Is `x` exactly one of the rarity bands? An OWN-property check on the total ladder record, so inherited names
+// ("constructor", "toString", "__proto__") never pass. Pure.
+export function isEquipmentRarity(x: unknown): x is EquipmentRarity {
+  return typeof x === "string" && Object.prototype.hasOwnProperty.call(AUTO_SALVAGE_RARITIES_NONE, x);
+}
+
+export function isEquipmentAscension(x: unknown): x is EquipmentAscension {
+  return typeof x === "string" && Object.prototype.hasOwnProperty.call(EQUIPMENT_ASCENSION_SET, x);
+}
+
+// A saved rarity value as a band: a known band passes through (the SAME value, so a clean save is untouched), a case or
+// whitespace variant reads as the band it spells ("Radiant " -> "radiant"), anything else reads RARITY_LOAD_FALLBACK.
+// Pure.
+export function normalizeEquipmentRarity(raw: unknown): EquipmentRarity {
+  if (isEquipmentRarity(raw)) return raw;
+  if (typeof raw === "string") {
+    const spelled = raw.trim().toLowerCase();
+    if (isEquipmentRarity(spelled)) return spelled;
+  }
+  return RARITY_LOAD_FALLBACK;
+}
+
+// A saved ascension value: known passes through, a case or whitespace variant reads as what it spells, anything else
+// (including an absent field) reads "none". An ascension on a band that cannot carry it is NOT stripped here (no data
+// is dropped on load); the readers decide what it means (RR-4). Pure.
+export function normalizeEquipmentAscension(raw: unknown): EquipmentAscension {
+  if (isEquipmentAscension(raw)) return raw;
+  if (typeof raw === "string") {
+    const spelled = raw.trim().toLowerCase();
+    if (isEquipmentAscension(spelled)) return spelled;
+  }
+  return "none";
+}
+
 // A concrete piece of equipment. Mirrors ShipInstance's lightweight per-instance
 // posture: non-stacking (each piece is its own record with a stable id), and its
 // `fittedToShipId` is the authority for which SHIP holds the piece (null = on no ship),
@@ -2057,6 +2099,11 @@ export function rarityIndex(rarity: EquipmentRarity): number {
     case "luminous":
     case "constellar":
       return 5;
+    // RR-1: TOTAL. A value outside the union (a hand-edited save before the load normalization, a direct caller) reads
+    // as the Standard-Issue floor (RARITY_LOAD_FALLBACK) instead of undefined, which every budget, sort and score
+    // reader would turn into NaN.
+    default:
+      return 1;
   }
 }
 
@@ -2075,7 +2122,7 @@ export const MODULE_QUALITY_STEP = 0.06; // +6% effect per quality rung
 // are >= 0). standard/q0 == 1.0. derelict clamps to the standard base (no negative step). Pure arithmetic.
 export function moduleEffectScale(rarity: EquipmentRarity, quality: number): number {
   const rarityStep = Math.max(0, rarityIndex(rarity) - rarityIndex("standard"));
-  const q = Math.max(0, quality);
+  const q = Number.isFinite(quality) ? Math.max(0, quality) : 0; // RR-1: a non-finite quality reads as rung 0
   return (1 + rarityStep * MODULE_RARITY_STEP) * (1 + q * MODULE_QUALITY_STEP);
 }
 
@@ -6207,7 +6254,10 @@ export const EQUIPMENT_RARITY_LADDER = Object.keys(AUTO_SALVAGE_RARITIES_NONE) a
 // Consolidating the two is a worthwhile follow-up but is NOT done here: that component's
 // presentation is under a standing do-not-touch constraint.)
 export function equipmentRarityLabel(rarity: EquipmentRarity): string {
-  return rarity.charAt(0).toUpperCase() + rarity.slice(1);
+  // RR-1: total. A value that is not a band (a corrupt save before the load normalization) is labeled as the band it
+  // normalizes to, so the reader never throws on a non-string and never shows a made-up band name.
+  const band = normalizeEquipmentRarity(rarity);
+  return band.charAt(0).toUpperCase() + band.slice(1);
 }
 
 // Read a rarity selection off a SAVED value, defensively.

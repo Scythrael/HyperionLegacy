@@ -132,7 +132,10 @@ export const RELIC_STUDY_TIER_MULT: Readonly<Record<EquipmentRarity, number>> = 
 
 // The study duration for a token of the given tier, in whole ticks. Pure.
 export function relicStudyDurationTicks(tier: EquipmentRarity): number {
-  return Math.max(1, Math.round(RELIC_STUDY_BASE_TICKS * (RELIC_STUDY_TIER_MULT[tier] ?? 1)));
+  // RR-1: an OWN finite entry only (an inherited name such as "constructor" would otherwise read a function and give
+  // a NaN duration, a study lane that never finishes).
+  const m = Object.prototype.hasOwnProperty.call(RELIC_STUDY_TIER_MULT, tier) ? RELIC_STUDY_TIER_MULT[tier] : undefined;
+  return Math.max(1, Math.round(RELIC_STUDY_BASE_TICKS * (typeof m === "number" && Number.isFinite(m) ? m : 1)));
 }
 
 // ============================================================================

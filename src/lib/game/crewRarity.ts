@@ -37,5 +37,8 @@ export function clampCrewRarity(rarity: EquipmentRarity): EquipmentRarity {
 // table; a standard (1.0) fallback keeps the reader total even if an out-of-band rarity slips in.
 export function crewRarityMultiplier(rarity: EquipmentRarity): number {
   const clamped = clampCrewRarity(rarity);
-  return CREW_RARITY_MULTIPLIER[clamped] ?? 1.0;
+  // RR-1: an OWN finite entry only, so an inherited name ("constructor" reads a function off the prototype) can never
+  // turn into NaN downstream.
+  const m = Object.prototype.hasOwnProperty.call(CREW_RARITY_MULTIPLIER, clamped) ? CREW_RARITY_MULTIPLIER[clamped] : undefined;
+  return typeof m === "number" && Number.isFinite(m) ? m : 1.0;
 }

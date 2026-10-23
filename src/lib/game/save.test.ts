@@ -3717,8 +3717,10 @@ describe("migrate, equipment GameState fields backfill (v26 -> v27)", () => {
     const migrated: any = migrate(save);
 
     // Preserved through the chain; the v29->v30 step backfills the new iLevel field (floor 1) onto
-    // this pre-iLevel piece, every other field rides through untouched.
-    expect(migrated.equipment).toEqual([{ id: "equip-1", slotType: "reactor", fittedToShipId: null, iLevel: 1 }]);
+    // this pre-iLevel piece, every other field rides through untouched. Rarity readiness RR-1: this hand-built piece
+    // carries no rarity or ascension at all, which every rarity reader would read as NaN, so the every-load
+    // normalization (withNormalizedGearRaritiesV70) gives it the Standard-Issue floor and no ascension.
+    expect(migrated.equipment).toEqual([{ id: "equip-1", slotType: "reactor", fittedToShipId: null, iLevel: 1, rarity: "standard", ascension: "none" }]);
     expect(migrated.nextEquipmentId).toBe(2); // NOT reset to 1
     expect(migrated.craftingLevel).toBe(3); // NOT reset to 1
     expect(migrated.craftingXp instanceof Decimal).toBe(true);

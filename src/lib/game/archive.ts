@@ -14,8 +14,12 @@ const MAX_RARITY_INDEX = 5; // luminous / constellar (the top tier) -> rarityInd
 // The score for a specific rolled instance: (rarityIndex+1) x (quality+1) x iLevel x 10 (the
 // 1-INDEXED form the user confirmed, so a Q0 / derelict item still scores rather than reading as a
 // broken zero). Rolls and durability deliberately do not count (design section 5).
+// RR-1 (rarity readiness): total. rarityIndex is total, and a non-finite quality or iLevel (a corrupt save) reads as 0,
+// so a score is never NaN; every finite input scores exactly as before.
 export function itemScore(inst: Pick<EquipmentInstance, "rarity" | "quality" | "iLevel">): number {
-  return (rarityIndex(inst.rarity) + 1) * (inst.quality + 1) * inst.iLevel * 10;
+  const quality = Number.isFinite(inst.quality) ? inst.quality : 0;
+  const iLevel = Number.isFinite(inst.iLevel) ? inst.iLevel : 0;
+  return (rarityIndex(inst.rarity) + 1) * (quality + 1) * iLevel * 10;
 }
 
 // The MAXIMUM achievable score for a craftable blueprint: top rarity, top quality, and the item's

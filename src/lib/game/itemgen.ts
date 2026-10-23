@@ -94,6 +94,14 @@ export const QUALITY_MULT = 1.1;
 // each rarity step is a ~15% budget bump over the one below it. TUNABLE.
 export const RARITY_MULT = 1.15;
 
+// RR-1: the Standard rarity ordinal, the reading of a non-finite rarity index (rarityIndex("standard")).
+const STANDARD_RARITY_INDEX = rarityIndex("standard");
+
+// RR-1: x when it is a finite number, else the fallback. The identity for every finite input. Pure.
+function finiteOr(x: number, fallback: number): number {
+  return Number.isFinite(x) ? x : fallback;
+}
+
 // Fraction of the total budget that goes to the slot's IMPLICIT (signature) line(s);
 // the remaining (1 - this) goes to the rolled affix lines. At 0.5 the guaranteed
 // signature stat and the variable affixes get an even half each. TUNABLE.
@@ -194,7 +202,12 @@ export function craftedDefensiveImplicit(
   quality: number,
   rarityIdx: number,
 ): number {
-  return Math.round((base + perLevel * iLevel) * QUALITY_MULT ** quality * RARITY_MULT ** rarityIdx);
+  // RR-1: finite inputs pass through unchanged (so every live magnitude is identical); a non-finite one reads as
+  // iLevel 0 / quality 0 / the Standard index, never NaN.
+  const lvl = finiteOr(iLevel, 0);
+  const q = finiteOr(quality, 0);
+  const idx = finiteOr(rarityIdx, STANDARD_RARITY_INDEX);
+  return Math.round((base + perLevel * lvl) * QUALITY_MULT ** q * RARITY_MULT ** idx);
 }
 
 // Per-quality-rung durability bonus: durabilityMax = base * (1 + quality * this).
@@ -230,8 +243,15 @@ export function computeItemLevel(a: {
 // and rarity (multipliers > 1, round is non-decreasing), which the loot UI relies
 // on: a rarer or higher-quality drop is never numerically weaker for the same level.
 // ============================================================================
+//
+// RR-1 (rarity readiness): TOTAL. A non-finite input (NaN, Infinity, an absent field on a corrupt save) reads as
+// iLevel 0, quality 0 or the Standard index, so the budget is always a finite integer. Every finite input passes
+// through untouched and the multiplication order is unchanged, so every live budget is the identical double.
 export function computeBudget(iLevel: number, quality: number, rarityIdx: number): number {
-  const raw = iLevel * PER_LEVEL_BUDGET * QUALITY_MULT ** quality * RARITY_MULT ** rarityIdx;
+  const lvl = finiteOr(iLevel, 0);
+  const q = finiteOr(quality, 0);
+  const idx = finiteOr(rarityIdx, STANDARD_RARITY_INDEX);
+  const raw = lvl * PER_LEVEL_BUDGET * QUALITY_MULT ** q * RARITY_MULT ** idx;
   return Math.round(raw);
 }
 
@@ -265,6 +285,10 @@ export function affixCount(rarity: EquipmentRarity, rng: () => number): number {
     case "luminous":
     case "constellar":
       return 3;
+    // RR-1: TOTAL. A value outside the union reads as Standard (2 affixes, ZERO draws), so a corrupt rarity can
+    // neither crash the mint nor advance the stream differently from a Standard piece.
+    default:
+      return 2;
   }
 }
 

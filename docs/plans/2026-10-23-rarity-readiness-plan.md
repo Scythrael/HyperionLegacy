@@ -193,3 +193,16 @@ legendary x ascension sweeps, primitives at index 0 and 5, readers, dev mint, a 
 ascension pairs, the mixed reveal sort). Every generator cell records its draw count. Mutation checks on the capture:
 a Luminous affix-count change fails RESERVED only; an extra draw on Stellar (same lines) fails LIVE. Some preview pins
 share a hash on purpose (same-tier weapons and drive classes preview identically). `RR_CAPTURE=<path>` re-captures.
+
+**RR-1 (2026-10-23):** model.ts `isEquipmentRarity` / `isEquipmentAscension` (own-property checks, so "constructor" and
+"__proto__" never pass), `normalizeEquipmentRarity` / `normalizeEquipmentAscension` (case and whitespace tolerant, else
+`RARITY_LOAD_FALLBACK` [PROVISIONAL "standard"] / "none"), total `rarityIndex` (default 1), total `equipmentRarityLabel`,
+finite-guarded `moduleEffectScale`; itemgen.ts `computeBudget` and `craftedDefensiveImplicit` read non-finite input as
+0 / 0 / the Standard index (identity for finite input, same multiplication order), `affixCount` default = Standard (2,
+zero draws); archive.ts `itemScore`, crewRarity.ts `crewRarityMultiplier` and relics.ts `relicStudyDurationTicks`
+guarded (the last two read a FUNCTION off the prototype for "constructor", a NaN found while writing the tests).
+save.ts `withNormalizedGearRaritiesV70` runs on every load right after the migration loop (state.equipment and an
+in-flight run's frozen battle gear), identity on a clean save; SAVE_VERSION stays 70, no migration step. One existing
+test updated on purpose: save.test.ts "preserves already-present equipment fields" hand-builds a piece with NO rarity
+or ascension, which now loads as standard / none. `EQUIPMENT_ASCENSIONS` moved to RR-2 (its first reader). Goldens:
+none moved (LIVE and RESERVED). Gates: 309 files / 8634 tests passed, check 0 errors.
