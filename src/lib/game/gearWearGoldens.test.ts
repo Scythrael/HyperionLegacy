@@ -60,6 +60,11 @@ import { afterExpeditionTraining } from "./wiring/wearProbes";
 // cycles and runs; combatDescriptorGoldens.test.ts pins the combat rules themselves).
 import { combatRulesOffForThisFile } from "./combatRulesSwitch.fixture";
 combatRulesOffForThisFile();
+// E-MOD EM-4 (0.14.0): every pin here was taken before the reactor surplus drive lift, and the crafted freighter flies
+// a crafted Reactor Core, so its legs move with the lift by design (emodEm4Goldens.test.ts pins the lift). The file
+// runs with the lift off, so its pins keep proving the wear engine and nothing else.
+import { reactorLiftOffForThisFile } from "./emodEm4Switch.fixture";
+reactorLiftOffForThisFile();
 
 // ===== shared helpers =====
 

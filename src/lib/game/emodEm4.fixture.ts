@@ -11,6 +11,8 @@
 
 import { equipmentStatMods, type EquipmentInstance, type GameState } from "./model";
 import { generateEquipment } from "./itemgen";
+import { resolveCrew } from "./crewOverlay";
+import { editShip, installPiece, wiringBase } from "./wiring/probes";
 
 export const EM4_SHIP = "ship-1";
 
@@ -71,6 +73,14 @@ export function em4Core(name: Em4CoreName): EquipmentInstance {
 export function withCore(s: GameState, core: EquipmentInstance): GameState {
   const rest = s.equipment.filter((e) => !(e.fittedToShipId === EM4_SHIP && e.slotType === "reactorCore"));
   return { ...s, equipment: [...rest, { ...core, fittedToShipId: EM4_SHIP }] };
+}
+
+// A crewed Eir with a sensor array (it meets the Tier I short-range sheet, shortRangeCycle.test.ts), with `core`
+// installed when given.
+export function shortRangeBase(core?: EquipmentInstance): GameState {
+  const eir = resolveCrew({ ...editShip(wiringBase(), { typeKey: "eir" }), gameTimeSeconds: 6 * 3600 });
+  const s = installPiece(eir, { slotType: "sensor", moduleVariant: "sensorBalanced", implicitStats: { sensors: 20 } });
+  return core ? withCore(s, core) : s;
 }
 
 // `s` with a powered Cargo Bay on ship-1 drawing `draw` (a pristine draw; nothing else on the bay acts).

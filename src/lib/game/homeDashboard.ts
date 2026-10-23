@@ -710,8 +710,9 @@ function rowForExtraction(
   // the pure equipment fold (byte-identical to before this phase).
   const rawMissionDef = MISSIONS[mission.missionKey];
   const ship = state.ships.find((s) => s.assignedCaptainId === captain.id);
+  // E-MOD EM-4: with the reactor surplus drive lift only when the run carries its flag, as the engine reads it.
   const missionDef = ship
-    ? effectiveMissionDef(rawMissionDef, effectiveShipStats(state, ship))
+    ? effectiveMissionDef(rawMissionDef, effectiveShipStats(state, ship, { reactorLift: mission.reactorLift !== undefined }))
     : rawMissionDef;
   // E-CREW (Task 21): the same phase length the engine advances on (a packed hold unloads faster).
   const requiredTicks = missionPhaseTicks(mission.phase, missionDef, mission.cargo);

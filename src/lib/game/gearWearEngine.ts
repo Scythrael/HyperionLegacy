@@ -165,8 +165,10 @@ export function projectRunStamp(state: GameState, shipId: string, events: readon
 // cargo bay, drive, sensor array, prospecting rig or crew module acts on the run. economyTick's mission arm, the
 // short-range cycle engine and its cycle-start plan read it. A run without a stamp (dispatched before step 3) reads
 // the stored sheet; every gate reads the stored sheet too (design 4.3). Pure.
-export function runShipStats(state: GameState, ship: ShipInstance, stamp: RunWearStamp | undefined): ShipDerivedStats {
-  return effectiveShipStats(stamp === undefined ? state : runGearView(state, ship.id, stamp), ship);
+// E-MOD EM-4 (reactorSurplus.ts): `reactorLift` is whether the run carries the reactor surplus drive lift flag (a run
+// dispatched before EM-4 does not, and flies without the lift); a caller with no run in hand reads it (the default).
+export function runShipStats(state: GameState, ship: ShipInstance, stamp: RunWearStamp | undefined, reactorLift: boolean = true): ShipDerivedStats {
+  return effectiveShipStats(stamp === undefined ? state : runGearView(state, ship.id, stamp), ship, { reactorLift });
 }
 
 // ============================================================================

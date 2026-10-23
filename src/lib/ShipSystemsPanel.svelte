@@ -461,6 +461,9 @@
   // gear loadouts off fitStats, and installing a system changes GEAR, not crew, so the compare must
   // never fold crew in (that would double-count it). Only this readout display becomes crew-inclusive.
   $: effectiveStats = ship ? effectiveShipStats(safeState, ship) : null;
+  // E-MOD EM-4: the same sheet without the reactor surplus drive lift (layered last), so the FTL Speed source split
+  // shows the lift as its own "Reactor surplus" bucket and the Captain bucket stops before it.
+  $: preLiftStats = ship ? effectiveShipStats(safeState, ship, { reactorLift: false }) : null;
   // The crew delta split by SOURCE, folded through the EXACT engine functions (shipCrewContribution +
   // applyCrewOverlay) the live fold uses, so a source bucket can never drift from the shown value.
   // Complement = the complement folded ALONE (no officers) off the gear baseline; Senior Staff = everything
@@ -549,11 +552,11 @@
   const STAT_INFO: Record<string, string> = {
     extractionYield: "How much raw material a mining or salvage mission pulls in; higher yield means more resources per run.",
     cargoCapacity: "How much a ship can carry home in a single trip; a bigger hold means fewer runs to move the same haul.",
-    ftlSpeed: "How fast the ship crosses between sectors; higher speed shortens every mission's travel time.",
+    ftlSpeed: "How fast the ship crosses between sectors; higher speed shortens every mission's travel time. A crafted Reactor Core's unused power speeds the drive too, with diminishing returns; every powered system you install uses some of it.",
     outLeg: "The ship's speed on the outbound leg of a mission: FTL Speed plus the Fast Departure crew aboard.",
     backLeg: "The ship's speed on the return leg of a mission: FTL Speed plus the Fast Return crew aboard.",
     range: "How far the ship can travel before it must turn back, in light-years; more range reaches farther destinations. The Fuel Depot extends it for the whole fleet.",
-    powerOutput: "Total power the ship supplies: the hull's own generation plus any crafted Reactor Core. It needs to cover everything the installed systems draw.",
+    powerOutput: "Total power the ship supplies: the hull's own generation plus any crafted Reactor Core. It needs to cover everything the installed systems draw. Reactor Core power the systems leave unused speeds the drive (see FTL Speed).",
     powerDraw: `Total power the installed systems consume, after any power efficiency from Engineering crew, Reactor Overdrive or Martian crew. An install that would put it over power output is refused. If the ship is already over (an officer left or a Reactor Core came off), nothing is removed and only installs that would make it worse are refused, but in combat its weapons and shield recharge run weaker: the square root of output over draw, never below ${POWER_SUPPLY_FLOOR_PERCENT}%. Lower is better.`,
     mass: "The ship's combined mass from its hull and installed systems; lower mass is generally easier to move.",
     guestQuarters: "Berths for passengers such as refugees, separate from the crew and the cargo hold. Passenger runs need enough of them for everyone aboard.",
@@ -613,9 +616,14 @@
       const md = d.get(preCaptainStats) - d.get(crewOnlyStats);
       if (Math.abs(md) > 1e-9) out.push({ label: "Museum", text: fmtDeltaUnit(d.kind, md), delta: true });
     }
-    if (preCaptainStats && effectiveStats) {
-      const kd = d.get(effectiveStats) - d.get(preCaptainStats);
+    if (preCaptainStats && preLiftStats) {
+      const kd = d.get(preLiftStats) - d.get(preCaptainStats);
       if (Math.abs(kd) > 1e-9) out.push({ label: "Captain", text: fmtDeltaUnit(d.kind, kd), delta: true });
+    }
+    // E-MOD EM-4: the Reactor Core's unused power speeding the drive (only the speed rows ever move).
+    if (preLiftStats && effectiveStats) {
+      const rd = d.get(effectiveStats) - d.get(preLiftStats);
+      if (Math.abs(rd) > 1e-9) out.push({ label: "Reactor surplus", text: fmtDeltaUnit(d.kind, rd), delta: true });
     }
     return out;
   }

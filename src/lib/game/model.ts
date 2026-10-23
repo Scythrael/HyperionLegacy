@@ -3524,6 +3524,9 @@ export interface ShortRangeMissionState {
   relicBlanks?: { version: 1 };
   // G1-5: the relic blanks this run has found (the run's completion log entry names them). Absent until the first.
   relicsThisRun?: number;
+  // E-MOD EM-4 (reactorSurplus.ts): the reactor surplus drive lift FLAG, stamped at dispatch and carried to every later
+  // cycle; only a flagged run's cycle plans read the lift, so a run in flight at the update flies exactly as it did.
+  reactorLift?: { version: 1 };
 }
 
 // The board's per-slot cycle cursor (GameState.shortRangeBoard): slot id -> the cycle index its NEXT roll reads
@@ -3572,6 +3575,10 @@ export interface CaptainMissionState {
   // re-frozen at each cycle start (user 2026-10-21 "Re-read each cycle": worn gear shows from cycle 2). Each delivered cycle of a stamped run wears its ship's gear by use (hauls,
   // light-years, minutes underway, a survey). A run in flight from before step 3 has none and plays as it did.
   gearWear?: RunWearStamp;
+  // E-MOD EM-4 (reactorSurplus.ts): the reactor surplus drive lift FLAG, stamped at dispatch and carried to every
+  // repeated cycle. Only a flagged run's legs read the lift (gearWearEngine.ts runShipStats), so a run in flight at the
+  // update flies exactly as it did. Optional, no SAVE bump.
+  reactorLift?: { version: 1 };
 }
 
 // GEAR WEAR step 3: a captain mission's or short-range run's wear flag. `frozen`: piece id -> the condition (per-mille)
