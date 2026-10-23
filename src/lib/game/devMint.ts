@@ -47,6 +47,8 @@ import {
   type EquipmentRarity,
 } from "./model";
 import { generateEquipment, generateWeapon, generateDronePod } from "./itemgen";
+// RARITY READINESS RR-6: the gear sets a Constellar dev mint can carry.
+import { gearSetsFor } from "./gearSets";
 
 // RARITY READINESS RR-2 (docs/plans/2026-10-23-rarity-readiness-plan.md; user answer 4, "Dev mint now, proc later"):
 // the Debug minter offers EVERY band on the ladder (Derelict to Constellar) and EVERY ascension, so the balancing pass
@@ -81,6 +83,9 @@ export function devMintFromBlueprint(a: {
   // RR-2: the ascension to stamp (Nova / Celestial), applied through devMintAscension (Luminous / Constellar only).
   // Absent = "none", which mints exactly what this function minted before RR-2.
   ascension?: EquipmentAscension;
+  // RR-6: the gear set to stamp on a CONSTELLAR mint (a set its slot may carry); absent or invalid = the slot's first
+  // set (gearSetsFor). Ignored on any other band and on a slot no set covers.
+  setId?: string;
   rng: () => number;
   allocateId: () => string;
 }): EquipmentInstance | null {
@@ -122,7 +127,7 @@ export function devMintFromBlueprint(a: {
   // (slotType + varietyKey). generateEquipment applies the floored defensive-implicit
   // curves for shieldEmitters / hullPlating internally, identical to a real craft.
   if (kind === "equipment" && a.blueprint.equipmentOutput !== undefined) {
-    return generateEquipment({
+    const piece = generateEquipment({
       slotType: a.blueprint.equipmentOutput.slotType,
       varietyKey: a.blueprint.equipmentOutput.varietyKey,
       blueprintKey: a.blueprint.key,
@@ -133,8 +138,19 @@ export function devMintFromBlueprint(a: {
       rng: a.rng,
       allocateId: a.allocateId,
     });
+    // RR-6: a Constellar dev mint joins a set its slot may carry (weapons and drone pods: no set covers them yet).
+    const setId = devMintSetId(piece.slotType, a.rarity, a.setId);
+    return setId === undefined ? piece : { ...piece, setId };
   }
 
   // unlockOnly / material blueprints mint no gear: nothing to make, tell the caller.
   return null;
+}
+
+// RR-6: the set a dev mint stamps: on a CONSTELLAR piece only, the requested set when its slot may carry it, else the
+// slot's first set; undefined for any other band or a slot no set covers. Pure.
+export function devMintSetId(slotType: EquipmentInstance["slotType"], rarity: EquipmentRarity, requested: string | undefined): string | undefined {
+  if (rarity !== "constellar") return undefined;
+  const sets = gearSetsFor(slotType);
+  return (sets.find((s) => s.id === requested) ?? sets[0])?.id;
 }

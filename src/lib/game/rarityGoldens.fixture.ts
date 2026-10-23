@@ -723,7 +723,7 @@ export const RARITY_GOLDENS_RESERVED: Record<string, string> = {
   "rr7:reader:constellar": "d4ca1b1d",
   "rr7:devMint:derelict": "3a67153a",
   "rr3+rr5:devMint:luminous": "3fd1f3b8",
-  "rr3+rr6:devMint:constellar": "46054a0a",
+  "rr3+rr6:devMint:constellar": "6386b563",
   "rr7:load:derelict": "283d7b0f",
   "rr3+rr4+rr5+rr6:load:legendary": "5df90d5b",
   "rr4:load:liveAscended": "7edccefb",

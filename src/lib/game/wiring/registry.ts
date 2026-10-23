@@ -147,7 +147,9 @@ import { DAMAGE_CONTROL_SUITE_KEY, DC_REPAIR_SPEED_B, DC_REPAIR_SPEED_R, DC_WAVE
 import { DRONE_POD_AFFIX_POOL, DRONE_POD_IMPLICIT_STAT, WEAPON_AFFIX_POOL, WEAPON_IMPLICIT_STAT, budgetAtMult, budgetShares, generateEquipment, legendaryAffixLineValue } from "../itemgen";
 // RARITY READINESS RR-5: the Luminous legendary affix catalog (each row measured on its fold).
 import { LUMINOUS_AFFIXES } from "../legendaryAffixes";
-import { MODULE_RARITY_FACTOR } from "../model";
+import { MODULE_RARITY_FACTOR, type EquipmentInstance as RrEquipmentInstance } from "../model";
+// RARITY READINESS RR-6: the one set engine's catalog (each tier measured exactly on its fold).
+import { CELESTIAL_SET_REDUCTION, GEAR_SETS, type GearSetDef } from "../gearSets";
 // RARITY READINESS RR-3: the per-rarity profile table (each row measured on a real mint).
 import { RARITY_PROFILES } from "../rarityProfiles";
 // RARITY READINESS RR-4: the Nova / Celestial budget multipliers (each measured on a real legendary mint).
@@ -393,6 +395,8 @@ export const CATALOGS = {
   LUMINOUS_AFFIXES,
   // Review of RR-3 / RR-4: the module effect factor per band.
   MODULE_RARITY_FACTOR,
+  // RARITY READINESS RR-6: the gear sets.
+  GEAR_SETS,
   WEAR_EFFICIENCY,
   // The reactor fuel ladder (0.14.0, reactorTech.ts): the fuel each Reactor Core blueprint takes.
   REACTOR_FUEL_LADDER,
@@ -4499,6 +4503,7 @@ function build(): readonly WiringEntry[] {
     ...ascensionEntries(),
     ...legendaryAffixEntries(),
     ...moduleRarityEntries(),
+    ...gearSetEntries(),
     ...auditEntries(),
     ...speedSeamEntries(),
     ...wearEntries(),
@@ -4739,6 +4744,127 @@ function legendaryAffixEntries(): WiringEntry[] {
       off: shipPiece(def.stat, 0),
     });
   });
+}
+
+// RARITY READINESS RR-6: each GEAR_SETS tier, measured exactly on its fold. A tier of k pieces: k Constellar pieces of
+// the set worn by one wearer (ship-1's slots, or the Security member's member slots; their own lines empty, so only the
+// set acts) against the same k pieces with the k-th one out of the set, so exactly that tier switches (each tier of a
+// test set adds a different line). Ship tiers read the line's own sheet seam (LINE_SEAMS); member tiers the squad
+// line's seam (gearSeam). Plus the Celestial hook: four Survey Cadre pieces with one Celestial against none, which
+// switches exactly the 5-piece tier on.
+function setShipPieces(def: GearSetDef, k: number, last: "in" | "out", celestialFirst = false): Transform {
+  return (s) => {
+    let out = s;
+    def.slotTypes.slice(0, k).forEach((slotType, i) => {
+      out = installPiece(out, {
+        slotType,
+        rarity: "constellar",
+        ...(celestialFirst && i === 0 ? { ascension: "celestial" as const } : {}),
+        ...(i === k - 1 && last === "out" ? {} : { setId: def.id }),
+      });
+    });
+    return out;
+  };
+}
+// The member slots a Field-style set fills, in order (a second implant for the 5-piece: implants are a multi slot).
+const SET_MEMBER_SLOTS = (def: GearSetDef): string[] => [...def.slotTypes, ...(def.slotTypes.includes("implant") ? ["implant"] : [])];
+function setMemberPieces(def: GearSetDef, k: number, last: "in" | "out"): Transform {
+  return (s) => {
+    const memberId = WIRING_SECURITY_ID;
+    const pieces = SET_MEMBER_SLOTS(def)
+      .slice(0, k)
+      .map(
+        (slotType, i) =>
+          ({
+            id: `wiring-set-${def.id}-${i}`,
+            slotType,
+            moduleVariant: EQUIPMENT_SLOTS[slotType].varieties.find((v) => v.member?.teamTypes.includes("security"))!.key,
+            rarity: "constellar",
+            ascension: "none",
+            quality: 0,
+            iLevel: 10,
+            blueprintKey: null,
+            implicitStats: {},
+            rolledStats: {},
+            mass: 0,
+            powerDraw: 0,
+            durabilityMax: 100,
+            fittedToShipId: null,
+            fittedToMemberId: memberId,
+            ...(i === k - 1 && last === "out" ? {} : { setId: def.id }),
+          }) as RrEquipmentInstance,
+      );
+    const ids = new Set(pieces.map((p) => p.id));
+    return { ...s, equipment: [...s.equipment.filter((e) => !ids.has(e.id)), ...pieces] };
+  };
+}
+const setTierMagnitude = (c: Catalogs, setId: string, pieces: number): number => c.GEAR_SETS.find((x) => x.id === setId)!.tiers.find((t) => t.pieces === pieces)!.magnitude;
+function gearSetEntries(): WiringEntry[] {
+  const out: WiringEntry[] = [];
+  for (const def of GEAR_SETS) {
+    for (const t of def.tiers) {
+      const key = `${def.id}:${t.pieces}`;
+      const claim = `${def.label} (${def.scope} set) ${t.pieces}-piece: +${t.magnitude} ${t.stat}`;
+      const source = { catalog: "GEAR_SETS", key };
+      if (def.scope === "ship") {
+        const seam = LINE_SEAMS[t.stat]!;
+        out.push(
+          entry({
+            id: `ship:GEAR_SETS:${key}`,
+            system: "ship",
+            source,
+            claim,
+            probe: seam.probe,
+            contexts: seam.contexts,
+            curve: { kind: "linearAbsolute" },
+            magnitude: (c) => setTierMagnitude(c, def.id, t.pieces),
+            base: bareHull,
+            on: setShipPieces(def, t.pieces, "in"),
+            off: setShipPieces(def, t.pieces, "out"),
+            note: "the set's pieces carry no lines of their own, so only the tier moves (equipmentStatMods reads gearSetBonusLines)",
+          }),
+        );
+      } else {
+        const seam = gearSeam("security", t.stat as MemberGroundStatKey, (c) => setTierMagnitude(c, def.id, t.pieces))!;
+        out.push(
+          entry({
+            id: `away:GEAR_SETS:${key}`,
+            system: "away",
+            source,
+            claim,
+            probe: seam.probe,
+            contexts: [seam.context],
+            curve: seam.curve,
+            magnitude: seam.magnitude,
+            tolerance: seam.tolerance,
+            base: () => withAwayTeam(wiringBase()),
+            on: setMemberPieces(def, t.pieces, "in"),
+            off: setMemberPieces(def, t.pieces, "out"),
+            note: "the set's pieces carry no lines of their own, so only the tier moves (snapshotMember reads gearSetBonusLines)",
+          }),
+        );
+      }
+    }
+  }
+  const survey = GEAR_SETS.find((d) => d.id === "testSetSurvey")!;
+  const fiveStat = survey.tiers.find((t) => t.pieces === 5)!.stat;
+  const fiveSeam = LINE_SEAMS[fiveStat]!;
+  out.push(
+    entry({
+      id: "ship:GEAR_SETS:celestialReduction",
+      system: "ship",
+      source: { catalog: "GEAR_SETS", key: "celestialReduction" },
+      claim: `a Celestial Constellar piece lowers every tier of its set by ${CELESTIAL_SET_REDUCTION} (four ${survey.label} pieces reach the 5-piece)`,
+      probe: fiveSeam.probe,
+      contexts: fiveSeam.contexts,
+      curve: { kind: "linearAbsolute" },
+      magnitude: (c) => setTierMagnitude(c, survey.id, 5),
+      base: bareHull,
+      on: setShipPieces(survey, 5 - CELESTIAL_SET_REDUCTION, "in", true),
+      off: setShipPieces(survey, 5 - CELESTIAL_SET_REDUCTION, "in"),
+    }),
+  );
+  return out;
 }
 
 // Prospecting squads (hidden): the role bases, the hidden blueprints and the three later uses, each deferred to

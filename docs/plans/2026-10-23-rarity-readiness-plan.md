@@ -316,3 +316,29 @@ computeBudget marked live-bands-only; the plan's ASCENSION_PRODUCIBLE wording fi
 model.ts and App.svelte stamps; `rarityProfiles.ts RARITY_EXTRAS_SALT` added to the salts.test.ts expected names.
 Goldens: LIVE none moved; RESERVED 89 moved, every one rr3-owned (the legendary generator, dev mint and load pins, and
 `rr3:prim:moduleScale:legendary`); no rr7 or rr4-only pin moved. Gates: 314 files / 8718 tests passed, check 0 errors.
+
+**RR-6 (2026-10-23):** new leaf `gearSets.ts` (model.ts types and shipModules.ts only, so model.ts imports it with no
+cycle; it checks Celestial Constellar directly instead of importing ascension.ts, which would close a cycle through
+rarityProfiles.ts): `GEAR_SETS` (the two test sets [PROPOSAL]: "Survey Cadre", ship, cargoBay / ftlDrive / sensor /
+reactorCore / specUtility, tiers 2 cargoCapacity, 3 sensors, 5 fuelCapacity; "Field Cadre", member, memberArmor /
+memberWeapon / memberTool / implant, tiers 2 groundArmor, 3 groundPower, 5 groundHp; the Field Cadre 5-piece needs two
+implants (an augment-affinity race) or a Celestial piece, as the user is being asked), `GEAR_SET_TIER_PIECES` (2 / 3 / 5),
+`GEAR_SET_POINTS_PER_PIECE` [PROVISIONAL 10: a tier adds pieces x 10 points of its line], `CELESTIAL_SET_REDUCTION` (1,
+once per set), `pieceSetId` (a Constellar piece's `setId` when the set covers its slot, or a set-category module's catalog
+`UniversalModuleDef.setId`), `gearSetCounts` (distinct pieces of ONE wearer), `activeGearSetTiers`, `gearSetBonusLines`.
+`EquipmentInstance.setId?` (optional, additive, no migration). Folds: model.ts `equipmentStatMods` folds the ship-scope
+lines as one more piece's lines (the per-line switch became a local `foldLines`, unchanged); awayTeam.ts `snapshotMember`
+adds the member-scope lines over THAT member's worn pieces before the one conversion. Both are derived from the install
+authorities, so install, uninstall, loadout check-out / check-in and member wear / remove recount (tested through
+fitEquipment / unfitEquipment, createLoadout / installIntoLoadout / checkOutLoadout / checkInLoadout, fitToMember /
+unfitFromMember); a member snapshot freezes the bonus and an in-flight run's installed gear is a structuredClone that keeps
+`setId`, so runs keep their set state. Dev mint only: `devMintSetId` stamps a Constellar equipment-branch mint with the
+requested set if its slot may carry it, else the slot's first set (weapons / drone pods / hull / shield: none); a test
+pins that itemgen.ts and tick.ts mintCraftedPiece never write a setId. E-MOD: the engine reads a set-category module's
+setId, tested with a fixture module only (UNIVERSAL_MODULES stays empty, UNIVERSAL_MODULES_LIVE false);
+`MODULE_ENGINE_KEYS.set` is NOT added (what a set module's own effect line is stays EM-7's call). The App Debug mint log
+names the set. Registry: 7 GEAR_SETS rows (6 tiers through the line's own seam, ship LINE_SEAMS or member gearSeam, the
+set's pieces carrying no lines so exactly the k-th piece's tier switches; plus the Celestial hook: four Survey pieces,
+one Celestial, switch the 5-piece), exact. The set-complete shoutout is RR-7's. Goldens: LIVE none moved; RESERVED 1
+moved, `rr3+rr6:devMint:constellar` (rr6-owned: Constellar dev mints now carry a set). Gates: 315 files / 8740 tests
+passed, check 0 errors.

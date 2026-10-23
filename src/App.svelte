@@ -675,6 +675,8 @@
   import { devMintFromBlueprint, DEV_MINT_RARITIES, DEV_MINT_ASCENSIONS, devMintAscension } from "./lib/game/devMint";
   // RR-5 (rarity readiness): the minted Luminous piece's legendary affix name, for the Debug log line.
   import { legendaryAffixDef } from "./lib/game/legendaryAffixes";
+  // RR-6 (rarity readiness): a Constellar dev mint's gear set name, for the same log line.
+  import { gearSetDef } from "./lib/game/gearSets";
   // Combat 0.13.0 dev harness (Debug tab only): the ship->Combatant bridge
   // (shipToCombatant + the illustrative sampleLoadout), the sim entry point
   // (resolveBattle), and the plain dev log renderer (formatCombatLog). These wire
@@ -5027,7 +5029,7 @@
       nextEquipmentId: state.nextEquipmentId + 1,
     };
     doSave();
-    pushLog(`[DEV] Minted crafted ${piece.id}: ${bp.label} (${piece.slotType} · ${piece.rarity}${piece.ascension === "none" ? "" : " " + piece.ascension} q${piece.quality} · iL${piece.iLevel} · bp ${piece.blueprintKey}${piece.legendaryAffixId ? " · " + (legendaryAffixDef(piece.legendaryAffixId)?.label ?? piece.legendaryAffixId) : ""}).`);
+    pushLog(`[DEV] Minted crafted ${piece.id}: ${bp.label} (${piece.slotType} · ${piece.rarity}${piece.ascension === "none" ? "" : " " + piece.ascension} q${piece.quality} · iL${piece.iLevel} · bp ${piece.blueprintKey}${piece.legendaryAffixId ? " · " + (legendaryAffixDef(piece.legendaryAffixId)?.label ?? piece.legendaryAffixId) : ""}${piece.setId ? " · set " + (gearSetDef(piece.setId)?.label ?? piece.setId) : ""}).`);
   }
 
   // [DEV] Non-destructively preview the SavePersistWarning banner. Flips ONLY the

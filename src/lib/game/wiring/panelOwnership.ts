@@ -140,6 +140,7 @@ export const CONTENT_CATALOGS: ReadonlySet<string> = new Set([
   "ASCENSION_BUDGET_MULT", // RR-4: the ascension rows, content like the rarity rows
   "LUMINOUS_AFFIXES", // RR-5: the legendary affix rows a Luminous piece rolls (content)
   "MODULE_RARITY_FACTOR", // review of RR-3 / RR-4: the module effect factor per band (content)
+  "GEAR_SETS", // RR-6: the gear set tiers (content)
   "WEAR_SOURCES",
   "REPAIR_RATES",
   "REPAIR_RATE_BONUSES",

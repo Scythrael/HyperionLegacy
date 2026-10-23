@@ -5,11 +5,12 @@
 //   RR-4: one entry per ASCENSION_BUDGET_MULT row.
 //   RR-5: one entry per LUMINOUS_AFFIXES row.
 //   Review of RR-3 / RR-4: the MODULE_RARITY_FACTOR rows, the two ascension module rows and one pending audit row.
+//   RR-6: one entry per GEAR_SETS tier and the Celestial reduction.
 // Never imported by app code.
 
 import { WIRING_REGISTRY } from "./wiring/registry";
 
-export const RR_CATALOGS: ReadonlySet<string> = new Set(["RARITY_PROFILES", "ASCENSION_BUDGET_MULT", "LUMINOUS_AFFIXES", "MODULE_RARITY_FACTOR"]);
+export const RR_CATALOGS: ReadonlySet<string> = new Set(["RARITY_PROFILES", "ASCENSION_BUDGET_MULT", "LUMINOUS_AFFIXES", "MODULE_RARITY_FACTOR", "GEAR_SETS"]);
 
 const RR_AUDIT_IDS: ReadonlySet<string> = new Set(["ship:audit:rrCrewModuleExtras"]);
 

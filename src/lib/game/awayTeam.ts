@@ -53,6 +53,8 @@ import { CREW_RACE_IDS } from "./crewRaces";
 import { generateCrewIdentity } from "./crew";
 import { OFFICER_ROSTER_WINDOW_SECONDS, officerRosterWindowIndex } from "./seniorStaff";
 import { makeRng, weightedPick, type Rng } from "./combat/rng";
+// RARITY READINESS RR-6: the one set engine (the member scope).
+import { gearSetBonusLines } from "./gearSets";
 import { shipCrewLocked } from "./crewLock";
 // Ground Ops (GO-2): keep each ship's ground-team slots in sync with crew moves. groundTeamSlots.ts imports
 // model.ts only, so this is no cycle (groundTeams.ts, which imports this module, re-exports it).
@@ -843,6 +845,15 @@ export function snapshotMember(member: AwayMember, worn: readonly EquipmentInsta
         for (const status of effect.statuses) gearResistStatuses.add(status);
         break;
     }
+  }
+  // RARITY READINESS RR-6: the member's active gear SET tiers (gearSets.ts, counted over THIS member's worn pieces only),
+  // added like one more untuned piece's ground lines before the one conversion. Empty for set-free gear, so every
+  // snapshot of today's gear is unchanged; the snapshot freezes the result, so an in-flight run keeps its set state.
+  const memberWorn = worn.filter((p) => isMemberSlotType(p.slotType));
+  for (const [key, value] of Object.entries(gearSetBonusLines(memberWorn, "member")) as [MemberGroundStatKey, number][]) {
+    if (!(MEMBER_GROUND_STAT_KEYS as readonly string[]).includes(key)) continue;
+    summed[key] = (summed[key] ?? 0) + value;
+    untuned[key] = (untuned[key] ?? 0) + value;
   }
   const converted = convertGroundPoints(summed);
 

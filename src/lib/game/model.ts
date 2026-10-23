@@ -27,6 +27,8 @@ import { reactorCoreFuel } from "./reactorTech";
 // E-MOD EM-5 (0.14.0): the universal module catalog leaf (imports only types; no cycle), read by equipmentStatMods for
 // a Passive module's power output.
 import { modulePowerOutput, type ModuleScanProc } from "./shipModules";
+// RARITY READINESS RR-6: the one set engine (a leaf: model.ts types and shipModules.ts only).
+import { gearSetBonusLines } from "./gearSets";
 // Combat 0.13.0 (Phase 9b.5a): the persisted Patrol mission shape (PatrolMissionState,
 // below) carries a player-chosen combat STANCE and the carry-state DRONE squadrons.
 // Both types live in the combat/ layer. Imported TYPE-ONLY (erased at compile time)
@@ -2005,6 +2007,10 @@ export interface EquipmentInstance {
   // value is already in rolledStats under the row's stat key, so every fold reads it; this names it. Absent on every
   // non-Luminous piece. Optional + additive (like moduleVariant), so no save migration.
   legendaryAffixId?: string;
+  // RARITY READINESS RR-6: the gear SET a Constellar piece belongs to (gearSets.ts GEAR_SETS id; counted only on a
+  // Constellar piece of a slot the set covers). Stamped by the Debug minter only (no player path). Optional + additive,
+  // so no save migration; a frozen copy of the piece (an in-flight run's gear) carries it, so the run keeps its set.
+  setId?: string;
   integrity?: string;                     // RESERVED: server-minted anti-tamper token for the multiplayer era; unset this patch
   // --- 0.13.3.1 auto-salvage additions (Features 2 + 3) ------------------------------
   // FAVORITED: the player has pinned this exact piece, which makes it permanently exempt
@@ -4253,7 +4259,13 @@ export function equipmentStatMods(pieces: EquipmentInstance[]): EquipmentStatMod
 
     // Every stat line the piece carries: implicit (slot-signature) + rolled (affixes).
     // One loop over both records so a stat that appears in both accumulates.
-    for (const stats of [piece.implicitStats, piece.rolledStats]) {
+    for (const stats of [piece.implicitStats, piece.rolledStats]) foldLines(stats);
+  }
+  // RARITY READINESS RR-6: the ship's active gear SET tiers (gearSets.ts), read like one more piece's lines. Empty for
+  // set-free gear (every piece a player can hold today), so the fold is unchanged there.
+  foldLines(gearSetBonusLines(pieces, "ship"));
+
+  function foldLines(stats: Record<string, number>): void {
       for (const [key, value] of Object.entries(stats)) {
         switch (key) {
           // FLAT capacities + the sensors point-sum: summed directly.
@@ -4317,7 +4329,6 @@ export function equipmentStatMods(pieces: EquipmentInstance[]): EquipmentStatMod
             break;
         }
       }
-    }
   }
 
   return {
