@@ -809,3 +809,14 @@ Sets in 0.14.x). The power budget itself should not move: seven registry rows an
    actually fights at.
 4. Battle Rating does not drop for an over-budget ship (it also ignores the other WR-8 stamp fields). Should BR reflect
    the power cut?
+
+## EM-4 built (branch em-4, 7f7de6d, 2026-10-23): open calls for the user
+
+Built per P3 (a) "Speeds the drive": lift = 1 + 0.022 x diminishing(surplus, 10) [PROVISIONAL], concave, uncapped.
+Builder's findings: (1) the first answer said unused surplus gives a SMALL bonus, but the plan's B10 bar (a crafted
+core nets positive after its full mass 12, which costs 19% speed) forces the top of the curve high: a top core (iL40
+q5 Radiant, ~150 output) about DOUBLES speed (Freighter Short Ore Run legs 25 to 13 ticks; Orion Tier I voyage 5,577 s
+to 2,776 s each way). (2) Real tier 1 cores supply about their item level (1 to 35), not the plan's assumed 20 to 40, so
+a fresh crafter's core (iL1 to 10) can still be SLOWER than Standard Issue; only from about 17 output (iL15) does the
+worst roll net faster. Fully fixing that needs the mass cut too (P3 option c, not picked). (3) Combat speed is not
+monotonic: a ref core gives combat speed 31 on the Destroyer Warband and wins 6 of 64 vs 9 at Standard Issue's 30.
