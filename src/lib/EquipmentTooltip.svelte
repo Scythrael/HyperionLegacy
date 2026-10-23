@@ -28,6 +28,8 @@
   // away-team gear surface so the tooltip and the rows can never name a piece two ways.
   import { memberPieceName } from "./awayGearDisplay";
   import { pieceHazardResistText } from "./ui/hazardResistText";
+  // RR-8 (rarity readiness): a Luminous piece's legendary affix and a Constellar piece's set, one line each.
+  import { pieceLegendaryAffixText, pieceSetText } from "./ui/rarityPieceText";
   import { pieceMaterialQualityText, shipMaterialQualityText } from "./ui/materialQualityText";
   import type { IconName } from "./ui/icons";
   import { previewCraftOutcome, type CraftPreview } from "./game/itemgen";
@@ -415,6 +417,9 @@
         hazardResist: string | null;
         // Material Lines ML-3: what the piece's Material Quality points buy on a delivery, or null (no such line).
         materialQuality: string | null;
+        // RR-8: "Legendary affix: <name>" on a Luminous piece, "Set: <name> (2 / 3 / 5 pieces)" on a set piece, else null.
+        legendaryAffix: string | null;
+        setLine: string | null;
         flavor: string | null;
         piece: EquipmentInstance;
       }
@@ -489,6 +494,8 @@
         primaries: Object.entries(p.rolledStats),
         hazardResist: pieceHazardResistText(p),
         materialQuality: pieceMaterialQualityText(p),
+        legendaryAffix: pieceLegendaryAffixText(p),
+        setLine: pieceSetText(p),
         flavor: equipmentFlavor(p),
         piece: p,
       };
@@ -658,6 +665,13 @@
         {#if shipTotal}
           <div class="et-detail">{shipTotal}</div>
         {/if}
+      {/if}
+      <!-- RR-8 (rarity readiness): the legendary affix's value is already in the lines above; these name it and the set. -->
+      {#if view.legendaryAffix}
+        <div class="et-detail">{view.legendaryAffix}</div>
+      {/if}
+      {#if view.setLine}
+        <div class="et-detail">{view.setLine}</div>
       {/if}
     {:else if view.kind === "ship"}
       <div class="et-stats">

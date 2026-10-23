@@ -176,12 +176,78 @@ Each is recorded so the reviewer can check it against the answers. Numbers carry
 
 ### Slice RR-8: close-out
 
-- [ ] Tooltip: one line naming a Luminous piece's legendary affix (tracked from the review of RR-5).
-- [ ] Wiring registry: every new row live with a probe (no deferred row without a named owner); progress card counts the new system (33 total, capture doc).
-- [ ] Holistic review against Review Focus 1 to 5; delta QA sheet (desktop and mobile: the Debug minter, a minted Luminous / Constellar / Nova / Celestial piece's tooltip, a set completing on a ship and a member, the warehouse in the cbsafe palette).
-- [ ] Commit `docs(0.14.0): rarity readiness close-out (RR-8)`.
+- [x] Tooltip: one line naming a Luminous piece's legendary affix (tracked from the review of RR-5), and one naming a Constellar piece's set.
+- [x] Wiring registry: every new row live with a probe (no deferred row without a named owner); progress card counts the new system (33 total, capture doc; the card itself is updated by the lead).
+- [x] Holistic review against Review Focus 1 to 5; delta QA sheet (below).
+- [x] Commit `docs(0.14.0): rarity readiness close-out (RR-8)`.
 
 ---
+
+## QA checklist (RR-8): the Debug minter path, desktop and 375 px phone
+
+Run each step on DESKTOP and on a 375 px wide PHONE view (no sideways scroll anywhere; long lines wrap). The Debug tab
+needs a DEV_MODE build (a local `.env.local` with `VITE_DEV_MODE=true`, or a preview / staging build); the
+`?dev` switch no longer exists. Every name below is a [PROPOSAL] and every number [PROVISIONAL].
+
+**A. The minter row (System > Debug > Mint gear)**
+1. The Rarity select lists seven bands, capitalized: Derelict, Standard, Augmented, Stellar, Radiant, Luminous, Constellar.
+2. The Ascension select (None / Nova / Celestial) is greyed out on every band except Luminous and Constellar.
+3. Pick Nova on Luminous, then switch the band to Radiant and mint: the log line shows no ascension (it is dropped).
+4. Phone: the row wraps onto several lines; every select and the Mint button stay tappable.
+
+**B. Every band (mint a Cargo Bay blueprint at each band, quality 5, iL 40)**
+1. The log line names the band (and the ascension, the legendary affix, the set where they apply).
+2. Open each piece's tooltip: the chip reads "<Band> · Q5"; Standard to Radiant tooltips are unchanged from before
+   this work.
+3. Derelict: same signature number as Standard, no rolled lines. It sorts below Standard in the spares list.
+4. Luminous and Constellar: visibly larger numbers than Radiant (about +20%), extra rolled lines (secondaries).
+
+**C. Ascension**
+1. Mint Luminous None, Nova and Celestial cargo bays: the tooltip chip reads "Luminous", "Nova Luminous",
+   "Celestial Luminous" (then " · Q5"); each is larger than the one before.
+2. Do the same on a crew module (a Quarters blueprint) installed on a crewed ship: where the crew boost is shown, it
+   grows Radiant < Luminous < Nova < Celestial.
+3. Select a Celestial piece in storage: the auto-salvage note says it is Celestial and never auto-salvaged; a manual
+   salvage still works.
+
+**D. Legendary affixes (Luminous)**
+1. Mint one Luminous piece of each family: weapon, drone pod, shield emitter, hull plating, cargo bay, FTL drive,
+   reactor core, sensor, spec utility, quarters, member weapon, member armor, member tool, implant. Each tooltip shows
+   one line "Legendary affix: <name>" (Starfall Lance, Hivemind Relay, Aegis Lattice, Bulwark of Sol, Bottomless Hold,
+   Endless Wake, Heart of a Star, Far Watcher, Transmuter's Seal, Grand Concourse, Oathkeeper, Last Stand Weave,
+   Master's Touch, Second Sight) and the log names it too.
+2. A Luminous BRIDGE module shows no legendary affix line (by design).
+3. Two pieces with the same affix can be installed on one ship (no limit is built).
+
+**E. Survey Cadre (ship set)**
+1. Mint Constellar cargo bay, FTL drive, sensor, reactor core and spec utility pieces: each tooltip shows
+   "Set: Survey Cadre (2 / 3 / 5 pieces)".
+2. Install them on ONE ship one at a time and watch the ship's stats: at 2 pieces cargo +20, at 3 sensors +30, at 5
+   fuel capacity +50. At the fifth the log says "Set complete: <ship> wears the full Survey Cadre set."
+3. Uninstall one: the 5-piece bonus goes away (no log line for breaking it). Reinstall: the shoutout repeats.
+4. Put two of the pieces on a second ship: neither ship gets the 2-piece from the other's pieces.
+5. Commit the pieces to a loadout and check it out to a ship: the bonuses arrive with it; check it in: they leave.
+6. Celestial minus-1: mint one Celestial Constellar cargo bay (its tooltip adds "one fewer each with this Celestial
+   piece"); with it plus three more Survey pieces (four total) the ship gets all three tiers and the shoutout.
+
+**F. Field Cadre (member set)**
+1. Mint Constellar member armor, weapon, tool and implant: tooltip "Set: Field Cadre (2 / 3 / 5 pieces)".
+2. Equip one Security member: armor rises at 2 pieces, power at 3. If the roster has a member of an augment-affinity
+   race (Martian or Stheni, two implant slots), that member wearing two implants reaches 5 (HP rises) and the log shouts it; any other member needs a
+   Celestial piece to reach it with four.
+3. Two members wearing one piece each get nothing.
+
+**G. Warehouse colors**
+1. Default palette: warehouse tiles look exactly as before (common slate, uncommon green, rare blue, epic violet,
+   legendary amber).
+2. Settings > UI > Accessibility > color-blind palette: rare tiles turn sky blue, epic reddish purple, uncommon and
+   legendary follow the palette's green and orange.
+
+**H. Persistence and production**
+1. Reload: every minted piece keeps its band, ascension, legendary affix line and set line.
+2. Leave and return after a few minutes: nothing announces twice; a set completed by the catch-up is announced once.
+3. A production build has no Debug tab and nothing a player can do makes a Luminous, Constellar, Nova, Celestial or
+   Derelict piece.
 
 ## Carry notes
 
@@ -387,3 +453,20 @@ validateLegendaryAffixDef lives in the tests; the tooltip affix line is tracked 
 magnitudes are FLAT points (pieces x GEAR_SET_POINTS_PER_PIECE), not scaled by item level. Goldens: LIVE none moved;
 RESERVED 4 moved, all rr5-owned: `rr3+rr5:gen:sensor:luminous`, `rr3+rr4+rr5:gen:sensor:luminous:nova` / `:celestial`,
 `rr3+rr5:devMint:luminous` (a Luminous sensor now rolls Far Watcher). Gates: 316 files / 8756 tests passed, check 0 errors.
+
+**RR-8 (2026-10-23, close-out):** Tooltip: new `src/lib/ui/rarityPieceText.ts` (pure, tested) gives
+`pieceLegendaryAffixText` ("Legendary affix: Starfall Lance") and `pieceSetText` ("Set: Survey Cadre (2 / 3 / 5 pieces)",
+plus ", one fewer each with this Celestial piece" on a Celestial Constellar piece); EquipmentTooltip.svelte shows each as
+one `et-detail` line under the piece's stats (no new layout; a source test pins both). Registry close-out:
+`rarityCloseout.test.ts` checks every entry the slices added (44 rows: 7 RARITY_PROFILES, 5 ASCENSION_BUDGET_MULT, 14
+LUMINOUS_AFFIXES, 7 MODULE_RARITY_FACTOR, 7 GEAR_SETS, 3 crew rows and 1 audit row) is live with a probe and a context or
+a named reference row, except four rows that are honestly not live with owners outside these slices (the crew-module
+extras audit row, pending WR-7 OC-D3; the three crew rows above the cap, deferred to the patch that raises it), and that
+no entry anywhere is pending or deferred on an RR slice. Holistic review against Review Focus: (1) live pieces: the 220
+LIVE pins held through every slice except `salvage:ceiling` (RR-7, a data row, no roll changed); (2) junk saves:
+rarityHardening.test.ts; (3) legendary math leaking into live gear: rarityProfiles / ascension / rarityReviewFixes
+tests; (4) set recount and double count: gearSets.test.ts through the real install, loadout and member paths, plus the
+wear rule; (5) neighbors: rarityTraps.test.ts (crew guard with the cap lifted, relic blanks with a fifth salvage tier,
+warehouse tokens in both palettes). The QA checklist above covers the Debug minter path on desktop and a 375 px phone.
+The fan progress card's 33rd system (capture doc) is for the lead to post. Goldens: none moved. Gates: 318 files / 8765
+tests passed, check 0 errors.
