@@ -25,6 +25,8 @@
 
 import type { EquipmentInstance, EquipmentSlotType } from "./model";
 import { universalModuleDef, type UniversalModuleDef } from "./shipModules";
+// Review of RR-6: a set tier wears with its pieces (gearWear.ts is a leaf over model.ts types).
+import { WEAR_EXEMPT_LINES, viewPieceEfficiency } from "./gearWear";
 
 export type GearSetScope = "ship" | "member";
 
@@ -45,8 +47,6 @@ export interface GearSetDef {
   readonly slotTypes: readonly EquipmentSlotType[]; // the gear slots whose Constellar pieces may carry it
   readonly tiers: readonly GearSetTier[];
 }
-
-
 
 // [PROVISIONAL]: a tier's bonus in points per piece it needs (2-piece 20, 3-piece 30, 5-piece 50 points of its line).
 export const GEAR_SET_POINTS_PER_PIECE = 10;
@@ -111,22 +111,29 @@ function isCelestialConstellar(piece: EquipmentInstance): boolean {
 export interface GearSetCount {
   readonly count: number; // distinct counted pieces
   readonly celestial: boolean; // at least one is a Celestial Constellar
+  // Review of RR-6 [PROVISIONAL rule, consistent with gear wear; the user's call is pending]: the mean
+  // viewPieceEfficiency of the counted pieces. Exactly 1 for stored pieces (every reader outside a run), so a tier is
+  // full there; inside a run's gear view (gearWear.ts wornGearView) worn pieces read below 1 and the tier wears with them.
+  readonly efficiency: number;
 }
 
 // Count each set's pieces in ONE wearer's list (distinct piece ids). Pure.
 export function gearSetCounts(pieces: readonly EquipmentInstance[], moduleDef: ModuleDefResolver = catalogModule): Map<string, GearSetCount> {
   const seen = new Set<string>();
-  const out = new Map<string, { count: number; celestial: boolean }>();
+  const acc = new Map<string, { count: number; celestial: boolean; efficiencySum: number }>();
   for (const p of pieces) {
     if (seen.has(p.id)) continue;
     seen.add(p.id);
     const id = pieceSetId(p, moduleDef);
     if (id === undefined) continue;
-    const c = out.get(id) ?? { count: 0, celestial: false };
+    const c = acc.get(id) ?? { count: 0, celestial: false, efficiencySum: 0 };
     c.count++;
+    c.efficiencySum += viewPieceEfficiency(p);
     if (isCelestialConstellar(p)) c.celestial = true;
-    out.set(id, c);
+    acc.set(id, c);
   }
+  const out = new Map<string, GearSetCount>();
+  for (const [id, c] of acc) out.set(id, { count: c.count, celestial: c.celestial, efficiency: c.efficiencySum / c.count });
   return out;
 }
 
@@ -151,7 +158,10 @@ export function activeGearSetTiers(pieces: readonly EquipmentInstance[], scope: 
     const c = counts.get(set.id);
     if (c === undefined) continue;
     for (const t of set.tiers) {
-      if (c.count >= gearSetTierRequirement(t.pieces, c.celestial)) out.push({ setId: set.id, pieces: t.pieces, stat: t.stat, magnitude: t.magnitude });
+      if (c.count < gearSetTierRequirement(t.pieces, c.celestial)) continue;
+      // A count line (stations, berths, carry) never wears, exactly like a piece's own line (gearWear.ts WEAR_EXEMPT_LINES).
+      const magnitude = WEAR_EXEMPT_LINES.has(t.stat) || c.efficiency === 1 ? t.magnitude : t.magnitude * c.efficiency;
+      out.push({ setId: set.id, pieces: t.pieces, stat: t.stat, magnitude });
     }
   }
   return out;

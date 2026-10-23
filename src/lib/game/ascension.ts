@@ -37,7 +37,6 @@ import { rarityProfile, type RarityProfile } from "./rarityProfiles";
 // stamp "none". Flipping it is the decision the user takes when Nova / Celestial ship (with a producer designed then).
 export const ASCENSION_PRODUCIBLE = false;
 
-
 // [PROVISIONAL] (design :151-153, "2 Luminous-effect stats guaranteed" / "all Luminous-effect stats guaranteed", a
 // reading put to the user): what each ascension guarantees beyond the budget. TOTAL like the table above.
 export const ASCENSION_EXTRAS: Readonly<Record<EquipmentAscension, { readonly guaranteedArtisan: boolean; readonly extraSecondaries: number }>> = {

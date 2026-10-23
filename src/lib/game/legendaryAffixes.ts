@@ -39,8 +39,14 @@ export const LUMINOUS_AFFIXES: readonly LegendaryAffixDef[] = [
   { id: "aegisLattice", label: "Aegis Lattice", slotTypes: ["shieldEmitters"], stat: "shieldCapacity", budgetShare: LEGENDARY_AFFIX_BUDGET_SHARE },
   { id: "bulwarkOfSol", label: "Bulwark of Sol", slotTypes: ["hullPlating"], stat: "hullStrength", budgetShare: LEGENDARY_AFFIX_BUDGET_SHARE },
   { id: "bottomlessHold", label: "Bottomless Hold", slotTypes: ["cargoBay"], stat: "cargoCapacity", budgetShare: LEGENDARY_AFFIX_BUDGET_SHARE },
+  // The user is choosing between this and the plan's "Fold Engine" (transitSpeedMult, live on the sheet and in
+  // expeditions). The swap is this ONE line: { id: "foldEngine", label: "Fold Engine", ..., stat: "transitSpeedMult" }
+  // (the registry already measures a transitSpeedMult row; legendaryAffixes.test.ts proves it).
   { id: "endlessWake", label: "Endless Wake", slotTypes: ["ftlDrive"], stat: "fuelCapacity", budgetShare: LEGENDARY_AFFIX_BUDGET_SHARE },
   { id: "heartOfAStar", label: "Heart of a Star", slotTypes: ["reactorCore"], stat: "powerOutput", budgetShare: LEGENDARY_AFFIX_BUDGET_SHARE },
+  // Review of RR-5: the sensors line IS live (equipmentStatMods folds it into the ship's sensors: survey yield, the
+  // expedition sensor gate, region charting, scan events, short-range jobs).
+  { id: "farWatcher", label: "Far Watcher", slotTypes: ["sensor"], stat: "sensors", budgetShare: LEGENDARY_AFFIX_BUDGET_SHARE },
   // A Spec Utility line every variety's piece is read on (materialQuality.ts), unlike the suite-only scan / hazard lines.
   { id: "transmutersSeal", label: "Transmuter's Seal", slotTypes: ["specUtility"], stat: "materialQualityChance", budgetShare: LEGENDARY_AFFIX_BUDGET_SHARE },
   { id: "grandConcourse", label: "Grand Concourse", slotTypes: ["quarters"], stat: "colonistCapacity", budgetShare: LEGENDARY_AFFIX_BUDGET_SHARE },
@@ -53,7 +59,6 @@ export const LUMINOUS_AFFIXES: readonly LegendaryAffixDef[] = [
 // The slot families with NO legendary affix in v1, each with why (no inert line: the user's "everything wired" rule).
 export const LEGENDARY_AFFIX_EXCLUDED: Readonly<Partial<Record<EquipmentSlotType, string>>> = {
   bridge: "a bridge module's power is its catalog effect (crewModules.ts, scaled by rarity); its only rolled stat line (crewEfficiency) is read by nothing yet (WR-7, OC-D3)",
-  sensor: "a sensor array's power is its catalog scan profile (sensorArrays.ts); its sensors line is deferred (no reader in 0.14.0)",
   module: "a universal module's power is its catalog effect (shipModules.ts); the module roster lands in EM-7",
 };
 

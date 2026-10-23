@@ -149,7 +149,7 @@ Each is recorded so the reviewer can check it against the answers. Numbers carry
 **Interfaces:** `interface LegendaryAffixDef { id; label [PROPOSAL]; slotTypes; stat (an existing fold key); budgetShare [PROVISIONAL] }`, `LUMINOUS_AFFIXES`, `legendaryAffixesFor(slotType)`, `validateLegendaryAffixDef`.
 
 - [ ] Failing tests: every live slot family has at least one affix; each stat key is read by a live fold (validator against the fold vocabulary); a Luminous mint carries exactly one, a Constellar or live mint none; the line measurably moves the fold (probe). (No unique-equipped rule: [PROPOSAL], awaiting the user.)
-- [ ] Proposed v1 names [PROPOSAL], one per family (as built in RR-5; each on a line its slot already rolls and a live fold reads): Weapon "Starfall Lance" (weaponYield), Drone pod "Hivemind Relay" (droneHp), Shield emitter "Aegis Lattice" (shieldCapacity), Hull plating "Bulwark of Sol" (hullStrength), Cargo bay "Bottomless Hold" (cargoCapacity), FTL drive "Endless Wake" (fuelCapacity; transitSpeedMult runs on a diminishing curve and is pending at patrols), Reactor core "Heart of a Star" (powerOutput), Spec utility "Transmuter's Seal" (materialQualityChance, read on every variety; the scan and hazard lines are suite-only), Quarters "Grand Concourse" (colonistCapacity), Member weapon "Oathkeeper" (groundPower), Member armor "Last Stand Weave" (groundArmor), Member tool "Master's Touch" (groundRelicFind), Implant "Second Sight" (groundHp). NO affix (no inert line): Bridge (crewEfficiency is read by nothing yet), Sensor (the sensors line is deferred; "Far Watcher" dropped), Module (EM-7). The user names or replaces them before any ship.
+- [ ] Proposed v1 names [PROPOSAL], one per family (as built in RR-5; each on a line its slot already rolls and a live fold reads): Weapon "Starfall Lance" (weaponYield), Drone pod "Hivemind Relay" (droneHp), Shield emitter "Aegis Lattice" (shieldCapacity), Hull plating "Bulwark of Sol" (hullStrength), Cargo bay "Bottomless Hold" (cargoCapacity), FTL drive "Endless Wake" (fuelCapacity; the user is choosing between it and the plan's "Fold Engine" on transitSpeedMult, which IS live on the sheet and in expeditions, as cargo and fuel are partly pending elsewhere too; the swap is one catalog line and the registry already measures a transitSpeedMult row), Reactor core "Heart of a Star" (powerOutput), Sensor "Far Watcher" (sensors: the line is live, folded into the ship's sensors, read by survey yield, the expedition sensor gate, region charting, scan events and short-range jobs; added in the review of RR-5), Spec utility "Transmuter's Seal" (materialQualityChance, read on every variety; the scan and hazard lines are suite-only), Quarters "Grand Concourse" (colonistCapacity), Member weapon "Oathkeeper" (groundPower), Member armor "Last Stand Weave" (groundArmor), Member tool "Master's Touch" (groundRelicFind), Implant "Second Sight" (groundHp). NO affix (no inert line): Bridge (crewEfficiency is read by nothing yet), Module (EM-7). Not built: an App picker to choose a legendary affix or a set at the Debug mint (one row per family and one set per slot make it unnecessary today), and a separate validateLegendaryAffixDef (its checks live in legendaryAffixes.test.ts). The Luminous affix name shows only in the Debug log; RR-8 adds it as one tooltip line. The user names or replaces them before any ship.
 - [ ] Commit `feat(0.14.0): Luminous legendary affix catalog (RR-5)`.
 
 ### Slice RR-6: one shared set engine
@@ -176,6 +176,7 @@ Each is recorded so the reviewer can check it against the answers. Numbers carry
 
 ### Slice RR-8: close-out
 
+- [ ] Tooltip: one line naming a Luminous piece's legendary affix (tracked from the review of RR-5).
 - [ ] Wiring registry: every new row live with a probe (no deferred row without a named owner); progress card counts the new system (33 total, capture doc).
 - [ ] Holistic review against Review Focus 1 to 5; delta QA sheet (desktop and mobile: the Debug minter, a minted Luminous / Constellar / Nova / Celestial piece's tooltip, a set completing on a ship and a member, the warehouse in the cbsafe palette).
 - [ ] Commit `docs(0.14.0): rarity readiness close-out (RR-8)`.
@@ -370,3 +371,19 @@ rebuilds the exact pre-RR-7 piece and the G1 golden does NOT move. Goldens: LIVE
 (the table gained its fifth row; data only, no roll changed); RESERVED 18 moved, every one rr7-owned (the 15 Derelict
 generator pins, `rr7:reader:derelict`, `rr7:devMint:derelict`, `rr7:load:derelict`). Gates: 316 files / 8752 tests passed,
 check 0 errors.
+
+**RR-5 / RR-6 review fixes (2026-10-23, after RR-7):** (1) CORRECTION to the RR-5 note above: the sensor exclusion rested
+on a false reason (the sensors line IS live). Now 14 LUMINOUS_AFFIXES rows: "Far Watcher" [PROPOSAL] on `sensors`;
+LEGENDARY_AFFIX_EXCLUDED is bridge and module only; registry SHIP_LINE_AT gained `sensors` (exact, sheet). (2) The plan's
+reason for replacing "Fold Engine" is corrected (transit speed is live on the sheet and in expeditions); Endless Wake
+(fuel) stays while the user chooses, and the swap is one catalog line: `legendaryAffixEntryFor` (registry.ts, exported)
+measures a candidate row, SHIP_LINE_AT and a LEGENDARY_EXTRA_SEAMS entry carry transitSpeedMult, and a test measures a
+Fold Engine row exactly. (3) Set tiers wear with their pieces [PROVISIONAL rule, the user's call pending]: each active
+tier scales by the mean `viewPieceEfficiency` of the set's counted pieces (1 for stored pieces, so only a run's gear view
+moves it; count lines never wear, WEAR_EXEMPT_LINES); gearSets.ts reads gearWear.ts (a leaf). Nits: the moduleEffectScale
+call-site test scans every non-test file under src (the registry's reference calls now pass "none" explicitly); stray
+double blank lines removed; the plan notes the App picker for affix / set choice was not built and that
+validateLegendaryAffixDef lives in the tests; the tooltip affix line is tracked for RR-8. PROVISIONAL note: set tier
+magnitudes are FLAT points (pieces x GEAR_SET_POINTS_PER_PIECE), not scaled by item level. Goldens: LIVE none moved;
+RESERVED 4 moved, all rr5-owned: `rr3+rr5:gen:sensor:luminous`, `rr3+rr4+rr5:gen:sensor:luminous:nova` / `:celestial`,
+`rr3+rr5:devMint:luminous` (a Luminous sensor now rolls Far Watcher). Gates: 316 files / 8756 tests passed, check 0 errors.

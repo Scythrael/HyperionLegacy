@@ -28,7 +28,6 @@ export { LEGENDARY_BUDGET_STEP };
 // keeps working; the value is unchanged.)
 export const RARITY_MULT = 1.15;
 
-
 // [PROVISIONAL] (answer 6; the design names secondaries but no size): what ONE secondary line is worth, as a fraction
 // of the piece's whole budget, ADDED on top of it (a secondary is extra power, not a slice of the affix share).
 export const SECONDARY_BUDGET_SHARE = 0.15;

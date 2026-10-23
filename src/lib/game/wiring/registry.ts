@@ -147,7 +147,7 @@ import { STATUS_EFFECT_DEFS } from "../combat/statusEffects";
 import { DAMAGE_CONTROL_SUITE_KEY, DC_REPAIR_SPEED_B, DC_REPAIR_SPEED_R, DC_WAVE_REGEN_B, DC_WAVE_REGEN_R, PF_HAZARD_RESIST_B, PF_HAZARD_RESIST_R, PF_SCAN_SPEED_B, PF_SCAN_SPEED_R } from "../utilityGear";
 import { DRONE_POD_AFFIX_POOL, DRONE_POD_IMPLICIT_STAT, WEAPON_AFFIX_POOL, WEAPON_IMPLICIT_STAT, budgetAtMult, budgetShares, generateEquipment, legendaryAffixLineValue } from "../itemgen";
 // RARITY READINESS RR-5: the Luminous legendary affix catalog (each row measured on its fold).
-import { LUMINOUS_AFFIXES } from "../legendaryAffixes";
+import { LUMINOUS_AFFIXES, type LegendaryAffixDef } from "../legendaryAffixes";
 import { MODULE_RARITY_FACTOR, type EquipmentInstance as RrEquipmentInstance } from "../model";
 // RARITY READINESS RR-6: the one set engine's catalog (each tier measured exactly on its fold).
 import { CELESTIAL_SET_REDUCTION, GEAR_SETS, type GearSetDef } from "../gearSets";
@@ -2331,7 +2331,7 @@ function wingPending(division: CrewProfession): WiringStatus {
 
 function moduleEntries(): WiringEntry[] {
   const out: WiringEntry[] = [];
-  const scale = moduleEffectScale("standard", 0);
+  const scale = moduleEffectScale("standard", 0, "none");
   // Each module measured on an Operations complement bucket carrying Efficient Unloading (a live key), so the
   // module's division multiplier shows on the unload speed: the bonus part above 1 grows by the boost.
   const opsBase = () => withBuckets(wiringBase(), [bucketOf("operations", "ops.unloadSpeed")]);
@@ -2438,7 +2438,7 @@ function sensorArrayEntries(): WiringEntry[] {
           contexts: ["expedition:groundOps"],
           direction: "none",
           curve: { kind: "equals" },
-          magnitude: (c) => (c.SENSOR_ARRAYS.find((a) => a.id === def.id)![field] as number) * (field === "landmarkOddsBias" || field === "undergroundPoiOddsBias" || field === "relicFindBonus" ? moduleEffectScale("standard", 0) : 1),
+          magnitude: (c) => (c.SENSOR_ARRAYS.find((a) => a.id === def.id)![field] as number) * (field === "landmarkOddsBias" || field === "undergroundPoiOddsBias" || field === "relicFindBonus" ? moduleEffectScale("standard", 0, "none") : 1),
           base: () => installPiece(wiringBase(), { slotType: "sensor", moduleVariant: def.id }),
           note: field === "scanRateMult" || field === "coverageWidth" ? "the net rate is their product (B12: Focused reads faster but nets 0.78x; WR-7 OC-D11)" : undefined,
         }),
@@ -4707,7 +4707,8 @@ function ascensionEntries(): WiringEntry[] {
 // without it, through the SAME seam the gear line's own entry uses (LINE_SEAMS, or gearSeam for a member line), with the
 // seam's curve evaluated at the row's value. legendaryAffixes.test.ts pins that a Luminous mint adds exactly that value.
 const legendaryProbeBudget = (c: Catalogs): number => budgetAtMult(RARITY_PROBE_ILEVEL, RARITY_PROBE_QUALITY, c.RARITY_PROFILES.luminous.budgetMult);
-const legendaryValue = (c: Catalogs, id: string): number => legendaryAffixLineValue(c.LUMINOUS_AFFIXES.find((d) => d.id === id)!, legendaryProbeBudget(c));
+// The catalog row when the catalog holds it (a retune moves the magnitude), else the def itself (a candidate row).
+const legendaryValueOf = (c: Catalogs, def: LegendaryAffixDef): number => legendaryAffixLineValue(c.LUMINOUS_AFFIXES.find((d) => d.id === def.id) ?? def, legendaryProbeBudget(c));
 // A ship line's seam at an arbitrary number of points (the LINE_SEAMS shapes, generalized from LINE_POINTS).
 const SHIP_LINE_AT: Readonly<Record<string, (c: Catalogs, points: number) => number>> = {
   cargoCapacity: (_c, p) => p,
@@ -4719,6 +4720,15 @@ const SHIP_LINE_AT: Readonly<Record<string, (c: Catalogs, points: number) => num
   hullStrength: (_c, p) => p,
   shieldCapacity: (c, p) => p * hullDefenseComposition(c.SHIP_TYPES.destroyer).shieldCapEffectiveness,
   materialQualityChance: (_c, p) => materialQualityClimbChance(p),
+  // Review of RR-5: the sensors line is live (flat on the sheet), for Far Watcher.
+  sensors: (_c, p) => p,
+  // Review of RR-5: transit speed is a percent line (the sheet's speed x (1 + its percent)), so "Fold Engine" is a
+  // one-line catalog swap if the user picks it over Endless Wake.
+  transitSpeedMult: (_c, p) => plusToPercent(p / PERCENT_STAT_CURVES.transitSpeedMult.plusDivisor, PERCENT_STAT_CURVES.transitSpeedMult.B, PERCENT_STAT_CURVES.transitSpeedMult.r),
+};
+// The seams LINE_SEAMS does not carry (transit speed is measured by its own speed entries there).
+const LEGENDARY_EXTRA_SEAMS: Readonly<Record<string, LineSeam>> = {
+  transitSpeedMult: { probe: "sheetTransit", contexts: ["sheet"], curve: { kind: "linearRelative" }, magnitude: () => 0 },
 };
 // The squad a member row is measured on (one that may wear the slot's first matching variety).
 const LEGENDARY_MEMBER_TEAM: Readonly<Partial<Record<string, AwayTeamType>>> = {
@@ -4728,46 +4738,49 @@ const LEGENDARY_MEMBER_TEAM: Readonly<Partial<Record<string, AwayTeamType>>> = {
   implant: "security",
 };
 function legendaryAffixEntries(): WiringEntry[] {
-  return LUMINOUS_AFFIXES.map((def) => {
-    const slotType = def.slotTypes[0];
-    const value = legendaryValue(CATALOGS, def.id);
-    const claim = `${def.label} (a Luminous ${slotType} legendary affix): ${def.budgetShare * 100}% of the piece's budget onto ${def.stat}`;
-    const source = { catalog: "LUMINOUS_AFFIXES", key: def.id };
-    const team = LEGENDARY_MEMBER_TEAM[slotType];
-    if (team !== undefined) {
-      const seam = gearSeam(team, def.stat as MemberGroundStatKey, (c) => legendaryValue(c, def.id))!;
-      const variety = EQUIPMENT_SLOTS[slotType].varieties.find((v) => v.member?.teamTypes.includes(team))!;
-      return entry({
-        id: `away:LUMINOUS_AFFIXES:${def.id}`,
-        system: "away",
-        source,
-        claim,
-        probe: seam.probe,
-        contexts: [seam.context],
-        curve: seam.curve,
-        magnitude: seam.magnitude,
-        tolerance: seam.tolerance,
-        base: () => withAwayTeam(wiringBase()),
-        on: (s) => wearPiece(s, wearerOf(team), slotType, variety.key, { [def.stat]: value }),
-        off: (s) => wearPiece(s, wearerOf(team), slotType, variety.key, {}),
-      });
-    }
-    const seam = LINE_SEAMS[def.stat]!;
-    const at = SHIP_LINE_AT[def.stat]!;
+  return LUMINOUS_AFFIXES.map(legendaryAffixEntryFor);
+}
+// One legendary affix row's entry (exported so a candidate row, such as the Fold Engine alternative, can be measured
+// before it joins the catalog).
+export function legendaryAffixEntryFor(def: LegendaryAffixDef): WiringEntry {
+  const slotType = def.slotTypes[0];
+  const value = legendaryValueOf(CATALOGS, def);
+  const claim = `${def.label} (a Luminous ${slotType} legendary affix): ${def.budgetShare * 100}% of the piece's budget onto ${def.stat}`;
+  const source = { catalog: "LUMINOUS_AFFIXES", key: def.id };
+  const team = LEGENDARY_MEMBER_TEAM[slotType];
+  if (team !== undefined) {
+    const seam = gearSeam(team, def.stat as MemberGroundStatKey, (c) => legendaryValueOf(c, def))!;
+    const variety = EQUIPMENT_SLOTS[slotType].varieties.find((v) => v.member?.teamTypes.includes(team))!;
     return entry({
-      id: `ship:LUMINOUS_AFFIXES:${def.id}`,
-      system: "ship",
+      id: `away:LUMINOUS_AFFIXES:${def.id}`,
+      system: "away",
       source,
       claim,
       probe: seam.probe,
-      contexts: seam.contexts,
+      contexts: [seam.context],
       curve: seam.curve,
-      magnitude: (c) => at(c, legendaryValue(c, def.id)),
+      magnitude: seam.magnitude,
       tolerance: seam.tolerance,
-      ...(seam.base ? { base: seam.base } : {}),
-      on: shipPiece(def.stat, value),
-      off: shipPiece(def.stat, 0),
+      base: () => withAwayTeam(wiringBase()),
+      on: (s) => wearPiece(s, wearerOf(team), slotType, variety.key, { [def.stat]: value }),
+      off: (s) => wearPiece(s, wearerOf(team), slotType, variety.key, {}),
     });
+  }
+  const seam = (LINE_SEAMS[def.stat] ?? LEGENDARY_EXTRA_SEAMS[def.stat])!;
+  const at = SHIP_LINE_AT[def.stat]!;
+  return entry({
+    id: `ship:LUMINOUS_AFFIXES:${def.id}`,
+    system: "ship",
+    source,
+    claim,
+    probe: seam.probe,
+    contexts: seam.contexts,
+    curve: seam.curve,
+    magnitude: (c) => at(c, legendaryValueOf(c, def)),
+    tolerance: seam.tolerance,
+    ...(seam.base ? { base: seam.base } : {}),
+    on: shipPiece(def.stat, value),
+    off: shipPiece(def.stat, 0),
   });
 }
 
@@ -5410,8 +5423,8 @@ function wearEntries(): WiringEntry[] {
   const e = WEAR_FLOOR_EFFICIENCY;
   const transitPercent = (p: number) => plusToPercent(p / PERCENT_STAT_CURVES.transitSpeedMult.plusDivisor, PERCENT_STAT_CURVES.transitSpeedMult.B, PERCENT_STAT_CURVES.transitSpeedMult.r);
   const quarters = QUARTERS_MODULES.find((q) => q.kind === "general" && q.focusBoost > 0)!;
-  const bridgeAmp = (c: Catalogs) => (c.BRIDGE_MODULES.find((b) => b.id === "bridgeBalancedCommand")?.amp ?? 0) * moduleEffectScale("standard", 0);
-  const quartersBoost = (c: Catalogs) => (c.QUARTERS_MODULES.find((q) => q.id === quarters.id)?.focusBoost ?? 0) * moduleEffectScale("standard", 0);
+  const bridgeAmp = (c: Catalogs) => (c.BRIDGE_MODULES.find((b) => b.id === "bridgeBalancedCommand")?.amp ?? 0) * moduleEffectScale("standard", 0, "none");
+  const quartersBoost = (c: Catalogs) => (c.QUARTERS_MODULES.find((q) => q.id === quarters.id)?.focusBoost ?? 0) * moduleEffectScale("standard", 0, "none");
   const memberLine = (slot: string, line: string, stat: keyof typeof GEAR_POINT_BUMP) => ({
     contexts: ["expedition:groundOps"] as ContextId[],
     base: () => wearSlotFixture(slot, { [line]: WEAR_LINE }),

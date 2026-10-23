@@ -7,7 +7,7 @@
 //      measure the budget exactly on the signature line).
 
 import { describe, expect, it } from "vitest";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync, statSync } from "node:fs";
 import {
   EQUIPMENT_ASCENSIONS,
   EQUIPMENT_RARITY_LADDER,
@@ -132,7 +132,19 @@ describe("fix 2: the legendary step and the ascension reach module-effect gear",
   });
 
   it("every call site passes the piece's ascension", () => {
-    const files = ["src/lib/game/combat/bridge.ts", "src/lib/game/crewModules.ts", "src/lib/game/expedition.ts", "src/lib/game/model.ts", "src/lib/game/sensorArrays.ts", "src/lib/game/tick.ts"];
+    // Every non-test source file under src (review of RR-5: a hardcoded list would miss a call in a new file, which would
+    // silently read x1). A call passes the piece's ascension, or the literal "none" where no piece exists (a reference
+    // scale, as the wiring registry's catalog magnitudes use).
+    const files: string[] = [];
+    const walk = (dir: string): void => {
+      for (const name of readdirSync(dir)) {
+        const p = `${dir}/${name}`;
+        if (statSync(p).isDirectory()) walk(p);
+        else if (/\.(ts|svelte)$/.test(name) && !/\.(test|testkit)\.ts$|\.d\.ts$|\.fixture\.ts$/.test(name)) files.push(p);
+      }
+    };
+    walk("src");
+    expect(files.length).toBeGreaterThan(100);
     let calls = 0;
     for (const f of files) {
       const text = readFileSync(f, "utf8").replace(/\/\/.*$/gm, "");
@@ -141,7 +153,7 @@ describe("fix 2: the legendary step and the ascension reach module-effect gear",
         if (f.endsWith("model.ts") && args[0] === "rarity: EquipmentRarity") continue; // the declaration
         calls++;
         expect(args.length, `${f}: moduleEffectScale(${m[1]})`).toBe(3);
-        expect(args[2], `${f}: moduleEffectScale(${m[1]})`).toMatch(/ascension/);
+        expect(args[2], `${f}: moduleEffectScale(${m[1]})`).toMatch(/ascension|^"none"$/);
       }
     }
     expect(calls).toBeGreaterThanOrEqual(9);

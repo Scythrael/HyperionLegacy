@@ -37,6 +37,7 @@ import { equippedFor } from "./equipmentQueries";
 import { withTestModules, mintTestModule } from "./shipModulesTest.fixture";
 import type { UniversalModuleDef } from "./shipModules";
 import { plainAwayMember } from "./awayTeamTestFixtures";
+import { viewPieceEfficiency, wornPieceView } from "./gearWear";
 import { fitEquipment, unfitEquipment } from "./equipment";
 import { checkInLoadout, checkOutLoadout, createLoadout, installIntoLoadout, loadoutSlotDefsForShipType } from "./armory";
 import { fitToMember, memberEquipment, unfitFromMember } from "./memberEquipment";
@@ -239,6 +240,25 @@ describe("RR-6: recount on install, uninstall and member wear (derived from the 
     expect(armorOf(s) - one).toBeCloseTo(20 * GEAR_POINT_BUMP.armor, 12);
     s = unfitFromMember(s, "member-set", weapon.id);
     expect(armorOf(s)).toBeCloseTo(one, 12);
+  });
+});
+
+describe("review of RR-6: a set tier wears with its pieces in run contexts [PROVISIONAL rule]", () => {
+  it("in a run's gear view each active tier scales by the mean view efficiency of the set's counted pieces", () => {
+    const [cargo, ftl] = survey(2, { condition: 500, conditionAt: 0 });
+    const view = [wornPieceView(cargo), wornPieceView(ftl)];
+    const e = view.map((p) => viewPieceEfficiency(p));
+    expect(e[0]).toBeLessThan(1);
+    const mean = (e[0] + e[1]) / 2;
+    expect(gearSetBonusLines(view, "ship").cargoCapacity).toBeCloseTo(2 * GEAR_SET_POINTS_PER_PIECE * mean, 12);
+    // a worn piece and a pristine one: the mean of the two
+    const mixed = [wornPieceView(cargo), ftl];
+    expect(gearSetBonusLines(mixed, "ship").cargoCapacity).toBeCloseTo(2 * GEAR_SET_POINTS_PER_PIECE * ((e[0] + 1) / 2), 12);
+  });
+
+  it("outside a run (the stored pieces) the tier is full, whatever the condition", () => {
+    const pieces = survey(2, { condition: 500, conditionAt: 0 });
+    expect(gearSetBonusLines(pieces, "ship")).toEqual({ cargoCapacity: 2 * GEAR_SET_POINTS_PER_PIECE });
   });
 });
 

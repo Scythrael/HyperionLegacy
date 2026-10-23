@@ -91,7 +91,9 @@ describe("RR-5: the catalog", () => {
       expect(rows.length > 0 || excluded !== undefined, st).toBe(true);
       expect(rows.length > 0 && excluded !== undefined, st).toBe(false);
     }
-    expect(Object.keys(LEGENDARY_AFFIX_EXCLUDED).sort()).toEqual(["bridge", "module", "sensor"]);
+    // review of RR-5: the sensors line IS live (survey yield, the expedition sensor gate, region charting, scan events,
+    // short-range), so the sensor family carries Far Watcher; only bridge and module stay excluded.
+    expect(Object.keys(LEGENDARY_AFFIX_EXCLUDED).sort()).toEqual(["bridge", "module"]);
   });
 
   it("only Luminous rolls a legendary affix", () => {
@@ -156,6 +158,22 @@ describe("RR-5: the mint", () => {
     const a = mint("cargoBay", "luminous", "none", 3).piece;
     const b = mint("cargoBay", "luminous", "nova", 4).piece;
     expect(a.legendaryAffixId).toBe(b.legendaryAffixId); // one row per family today, so they share it, and nothing refuses that
+  });
+});
+
+describe("review of RR-5: the Fold Engine alternative is a one-line catalog swap", () => {
+  it("a transitSpeedMult FTL row would be rollable and measured exactly by the registry's own entry builder", async () => {
+    const { legendaryAffixEntryFor, CATALOGS, curveExpected } = await import("./wiring/registry");
+    const { readProbe } = await import("./wiring/probes");
+    const fold = { id: "foldEngine", label: "Fold Engine", slotTypes: ["ftlDrive"] as EquipmentSlotType[], stat: "transitSpeedMult", budgetShare: LEGENDARY_AFFIX_BUDGET_SHARE };
+    expect(rollableOn("ftlDrive").has(fold.stat)).toBe(true);
+    const e = legendaryAffixEntryFor(fold);
+    expect(e.status.kind).toBe("live");
+    const s0 = e.base();
+    const off = readProbe(e.probe!, e.off(s0), e.contexts[0]);
+    const on = readProbe(e.probe!, e.on(s0), e.contexts[0]);
+    expect(on).toBeGreaterThan(off);
+    expect(on).toBeCloseTo(curveExpected(e.curve, off, e.magnitude(CATALOGS))!, 9);
   });
 });
 
