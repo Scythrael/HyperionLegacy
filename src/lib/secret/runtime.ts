@@ -22,6 +22,9 @@
 import { writable, type Readable } from "svelte/store";
 import { freshSecretState, inspectSecretSave, saveSecret, clearSecretSave, type SecretState } from "./state";
 import { advanceTo, createCatchUp, type CatchUpJob } from "./catchUp";
+import { markFound } from "./engine";
+import { MILESTONES, milestoneAchievement, type MilestoneId } from "./config";
+import { pushAchievement } from "../achievements";
 import { safeGetItem, safeSetItem, safeRemoveItem } from "../safeStorage";
 
 const TICK_MS = 1000;
@@ -44,10 +47,46 @@ export const secretCatchingUp: Readable<boolean> = { subscribe: catching.subscri
 let job: CatchUpJob | null = null;
 let jobTimer: ReturnType<typeof setTimeout> | null = null;
 
-function publish(next: SecretState): void {
+// The milestones `next` has that `prev` did not (0.13.11.1: each one gets an achievement popup).
+export function newlyReached(prev: SecretState, next: SecretState): MilestoneId[] {
+  return MILESTONES.map((m) => m.id).filter((id) => next.milestones[id] !== undefined && prev.milestones[id] === undefined);
+}
+
+// A combo success while a sliced catch-up runs is applied when the job lands.
+let pendingFoundAt: number | null = null;
+
+// `announce` is false for a load or a wipe: only milestones reached during play or a catch-up pop up.
+function publish(next: SecretState, announce = true): void {
+  if (pendingFoundAt !== null && !job) {
+    next = markFound(next, pendingFoundAt);
+    pendingFoundAt = null;
+  }
+  const prev = state;
   state = next;
   lastGood = next;
   store.set(next);
+  if (!announce) return;
+  try {
+    for (const id of newlyReached(prev, next)) pushAchievement(milestoneAchievement(id));
+  } catch {
+    // A popup is never worth breaking the game for.
+  }
+}
+
+// The combo succeeded: record the minigame as found. Returns true only the first time.
+export function markSecretFound(): boolean {
+  try {
+    const first = !state.found && pendingFoundAt === null;
+    if (!first) return false;
+    pendingFoundAt = Date.now();
+    if (!job) {
+      publish(state);
+      persist();
+    }
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function persist(): void {
@@ -134,7 +173,8 @@ export function wipeSecretGame(): void {
   stopJob();
   readOnly = false;
   clearSecretSave();
-  publish(freshSecretState(Date.now()));
+  pendingFoundAt = null;
+  publish(freshSecretState(Date.now()), false);
 }
 
 // Dev only (Debug tab): pretend the secret game was away for `seconds` and pay it through the real
@@ -153,9 +193,9 @@ export function startSecretRuntime(): () => void {
   try {
     const loaded = inspectSecretSave(Date.now());
     readOnly = loaded.status === "future";
-    publish(loaded.state);
+    publish(loaded.state, false);
   } catch {
-    publish(freshSecretState(Date.now()));
+    publish(freshSecretState(Date.now()), false);
   }
   advance(Date.now());
   const tick = setInterval(() => advance(Date.now()), TICK_MS);
