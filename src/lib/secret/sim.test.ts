@@ -1,13 +1,17 @@
-// sim.test.ts: the planned playtime, pinned (design section 7). The steady player's offline gaps
-// run through the SHIPPING catch-up (6-hour exact window), exactly as the game pays them.
+// sim.test.ts: the planned playtime, pinned (0.13.11 design section 7, 0.13.11.1 design section 6).
+// One steady player from a fresh game to 20 days past e10,000,000. Up to e1,000,000 the offline
+// gaps run through the SHIPPING catch-up (6-hour exact window), exactly as the game pays them, so
+// the 0.13.11 bands are checked unchanged; after e1,000,000 the gaps run as 10-second coarse steps
+// (LONG_STRETCH_DT) so six months simulate in about a minute.
 import { describe, it } from "vitest";
-import { simulatePlayer } from "./sim";
-import { timeline, expectPlannedBands } from "./simReport";
+import { simulatePlayer, LONG_STRETCH_DT } from "./sim";
+import { timeline, expectPlannedBands, expectSixMonthBand } from "./simReport";
 
 describe("steady player pacing", () => {
-  it("lands in the planned bands: first Captain in 30 to 60 min, finale in 3 to 5 days, e1,000,000 in about a month, still climbing after", () => {
-    const r = simulatePlayer({ profile: "steady", days: 45, stopAfterLongDays: 7.1 });
+  it("first Captain in 30 to 60 min, finale in 3 to 5 days, e1,000,000 in about a month, e10,000,000 in about six months", () => {
+    const r = simulatePlayer({ profile: "steady", days: 240, longStretchDt: LONG_STRETCH_DT, stopAfterExponent: { exponent: 1e7, days: 20 } });
     timeline("steady", r);
     expectPlannedBands(r);
-  }, 240000);
+    expectSixMonthBand(r);
+  }, 900000);
 });

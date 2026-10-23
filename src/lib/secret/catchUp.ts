@@ -56,9 +56,16 @@ export interface CatchUpJob {
   result(): AdvanceResult;
 }
 
+// The game always uses the defaults. The pacing simulation's six-month stretch passes a longer
+// minCoarseDt (and no exact window) so half a year of check-ins runs in seconds (sim.ts).
+export interface CatchUpOptions {
+  exactBoundSeconds?: number;
+  minCoarseDt?: number;
+}
+
 const prestigeCount = (x: SecretState): number => x.captainCount + x.fleetTotal + x.pcCount;
 
-export function createCatchUp(s: SecretState, nowMs: number, opts: { exactBoundSeconds?: number } = {}): CatchUpJob {
+export function createCatchUp(s: SecretState, nowMs: number, opts: CatchUpOptions = {}): CatchUpJob {
   const done = (r: AdvanceResult): CatchUpJob => ({ run: () => true, runFor: () => true, elapsedSeconds: () => r.seconds, result: () => r });
   if (!Number.isFinite(nowMs)) return done({ state: s, steps: 0, mode: "none", seconds: 0 });
   if (nowMs < s.lastTickAt) {
@@ -74,7 +81,7 @@ export function createCatchUp(s: SecretState, nowMs: number, opts: { exactBoundS
   const exact = seconds <= (opts.exactBoundSeconds ?? EXACT_BOUND_SECONDS);
   const tail = exact ? 0 : Math.min(COARSE_TAIL_SECONDS, seconds);
   const coarseSeconds = exact ? 0 : seconds - tail;
-  const n = exact ? 0 : Math.max(1, Math.min(MAX_COARSE_STEPS, Math.ceil(coarseSeconds / MIN_COARSE_DT)));
+  const n = exact ? 0 : Math.max(1, Math.min(MAX_COARSE_STEPS, Math.ceil(coarseSeconds / (opts.minCoarseDt ?? MIN_COARSE_DT))));
   const dt = exact ? 0 : coarseSeconds / n;
 
   let steps = 0;
@@ -141,7 +148,7 @@ export function createCatchUp(s: SecretState, nowMs: number, opts: { exactBoundS
   };
 }
 
-export function advanceTo(s: SecretState, nowMs: number, opts: { exactBoundSeconds?: number } = {}): AdvanceResult {
+export function advanceTo(s: SecretState, nowMs: number, opts: CatchUpOptions = {}): AdvanceResult {
   const job = createCatchUp(s, nowMs, opts);
   job.run(Infinity);
   return job.result();

@@ -13,13 +13,20 @@
 // Auto Captain is owned, Captain Prestige if it at least doubles Captain Points (holding off when
 // the first Fleet is within reach); then, until auto-buyers cover it, Overclock Max with half the
 // Ore and Max on every tier, highest first. Auto targets stay at their 100% default.
+// 0.13.11.1: from e1,000,000 on, the player also buys the four upgrades at every look, cheapest next
+// level first, as long as one is affordable.
 
-import { freshSecretState, type SecretState } from "./state";
-import { stepMut, buyOverclockMut, buyTierMut, buySkill, canBuySkill, captainGain, fleetGain, prestigeceptionGain, doCaptain, doFleet, doPrestigeception, effectiveExponent, hasSkill } from "./engine";
-import { advanceTo, EXACT_BOUND_SECONDS } from "./catchUp";
-import { SKILLS, type MilestoneId } from "./config";
+import { freshSecretState, cloneSecret, type SecretState } from "./state";
+import { stepMut, buyOverclockMut, buyTierMut, buySkill, canBuySkill, captainGain, fleetGain, prestigeceptionGain, doCaptain, doFleet, doPrestigeception, effectiveExponent, hasSkill, upgradesUnlocked, upgradePriceExponent, canBuyUpgrade, buyUpgrade } from "./engine";
+import { advanceTo, EXACT_BOUND_SECONDS, type CatchUpOptions } from "./catchUp";
+import { SKILLS, UPGRADES, type MilestoneId, type UpgradeId } from "./config";
 
 export type SimProfile = "steady" | "light" | "keen";
+
+// The six-month stretch: coarse offline steps of this many seconds once e1,000,000 is reached.
+// Measured against the shipping catch-up from the same e1,000,000 state: e10,000,000 at 178.0 days
+// here against 178.8 with the shipping catch-up (plan, pacing results). Sessions stay live play.
+export const LONG_STRETCH_DT = 10;
 
 const H = 3600;
 const START_MS = Date.UTC(2026, 9, 22, 18, 0, 0);
@@ -57,6 +64,22 @@ export interface SimResult {
 }
 
 function decide(s: SecretState, atMs: number): SecretState {
+  // 0.13.11.1: the e1,000,000 upgrades, cheapest next level first, as often as affordable.
+  if (upgradesUnlocked(s)) {
+    for (;;) {
+      let best: UpgradeId | null = null;
+      let bestE = Infinity;
+      for (const u of UPGRADES) {
+        const e = upgradePriceExponent(s, u.id);
+        if (e !== null && e < bestE && canBuyUpgrade(s, u.id)) {
+          best = u.id;
+          bestE = e;
+        }
+      }
+      if (best === null) break;
+      s = buyUpgrade(s, best, "one");
+    }
+  }
   for (const def of SKILLS) {
     if (hasSkill(s, def.id)) continue;
     if (!canBuySkill(s, def.id)) {
@@ -80,10 +103,27 @@ function decide(s: SecretState, atMs: number): SecretState {
   return s;
 }
 
-export function simulatePlayer(opts: { profile?: SimProfile; days: number; exactBoundSeconds?: number; stopAfterLongDays?: number; shiftHours?: number; stopAfterFinale?: boolean }): SimResult {
+export interface SimOptions {
+  profile?: SimProfile;
+  days: number;
+  exactBoundSeconds?: number;
+  stopAfterLongDays?: number;
+  shiftHours?: number;
+  stopAfterFinale?: boolean;
+  // The six-month stretch (0.13.11.1): once e1,000,000 is reached, offline gaps run as coarse
+  // steps of this many seconds (no exact window) so half a year simulates in seconds. Sessions stay
+  // live 1-second play. Measured against the shipping catch-up in the plan's results.
+  longStretchDt?: number;
+  // Stop this many days after the given effective exponent is first reached.
+  stopAfterExponent?: { exponent: number; days: number };
+  // Start from a saved state instead of a fresh game (exploration and reports).
+  from?: SecretState;
+}
+
+export function simulatePlayer(opts: SimOptions): SimResult {
   const t0 = performance.now();
   const profile = opts.profile ?? "steady";
-  let s = freshSecretState(START_MS);
+  let s = opts.from ? cloneSecret(opts.from) : freshSecretState(START_MS);
   const events: Record<string, number> = {};
   const samples: [number, number][] = [];
   const sec = () => (s.lastTickAt - START_MS) / 1000;
@@ -94,7 +134,7 @@ export function simulatePlayer(opts: { profile?: SimProfile; days: number; exact
   // the rest are noticed by the player the next time the simulation looks.
   const FROM_MILESTONES: [string, MilestoneId][] = [
     ["captain1", "firstCaptain"], ["googol", "googol"], ["fleet1", "firstFleet"], ["e1000", "e1000"],
-    ["singularity", "singularity"], ["pc1", "firstPc"], ["e100000", "e100k"], ["finale", "finale"], ["long", "long"],
+    ["singularity", "singularity"], ["pc1", "firstPc"], ["e100000", "e100k"], ["finale", "finale"], ["long", "long"], ["starfall", "starfall"],
   ];
   const watch = () => {
     for (const [name, id] of FROM_MILESTONES) {
@@ -105,15 +145,27 @@ export function simulatePlayer(opts: { profile?: SimProfile; days: number; exact
     if (s.fleetTotal >= 6) mark("fleet6");
     if (e >= 10000) mark("e10000");
     if (e >= 900000) mark("e900000");
+    for (const m of [2e6, 3e6, 5e6, 7e6, 1e7]) if (e >= m) mark(`e${m}`);
     for (const def of SKILLS) if (hasSkill(s, def.id)) mark(`skill:${def.id}`);
+    for (const u of UPGRADES) {
+      const def = u;
+      if ((s.upgrades[u.id] ?? 0) >= 1) mark(`up1:${u.id}`);
+      if ((s.upgrades[u.id] ?? 0) >= def.cap) mark(`upMax:${u.id}`);
+    }
   };
+  watch();
   let nextSample = 0;
+  const gapOptions = (): CatchUpOptions =>
+    opts.longStretchDt !== undefined && events.long !== undefined
+      ? { exactBoundSeconds: 0, minCoarseDt: opts.longStretchDt }
+      : { exactBoundSeconds: opts.exactBoundSeconds ?? EXACT_BOUND_SECONDS };
   for (const [start, length] of sessions(profile, opts.days, opts.shiftHours ?? 0)) {
+    const end = start + length;
+    if (sec() >= end) continue; // before the starting state
     if (sec() < start) {
-      s = advanceTo(s, START_MS + start * 1000, { exactBoundSeconds: opts.exactBoundSeconds ?? EXACT_BOUND_SECONDS }).state;
+      s = advanceTo(s, START_MS + start * 1000, gapOptions()).state;
       watch();
     }
-    const end = start + length;
     let nextDecision = sec();
     while (sec() < end) {
       if (sec() >= nextDecision) {
@@ -130,7 +182,10 @@ export function simulatePlayer(opts: { profile?: SimProfile; days: number; exact
       nextSample += 6 * H;
     }
     if (opts.stopAfterFinale && events.finale !== undefined) break;
-    if (events.long !== undefined && sec() > events.long + (opts.stopAfterLongDays ?? 8) * 24 * H) break;
+    if (opts.stopAfterExponent) {
+      const key = `e${opts.stopAfterExponent.exponent}`;
+      if (events[key] !== undefined && sec() > events[key] + opts.stopAfterExponent.days * 24 * H) break;
+    } else if (events.long !== undefined && sec() > events.long + (opts.stopAfterLongDays ?? 8) * 24 * H) break;
   }
   return { events, final: s, wallMs: performance.now() - t0, samples };
 }

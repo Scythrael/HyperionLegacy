@@ -31,3 +31,20 @@ export function expectPlannedBands(r: SimResult): void {
   expect(e.pc1).toBeLessThan(e.finale);
 }
 
+// 0.13.11.1 (design section 6): the four e1,000,000 upgrades carry the steady player to
+// e10,000,000 in about six months, every upgrade gets bought on the way, and growth after the final
+// stop slows (the 20 days after it add less than the 20 days before it).
+export function expectSixMonthBand(r: SimResult): void {
+  const e = r.events;
+  expect(e.starfall).toBeGreaterThanOrEqual(150 * D);
+  expect(e.starfall).toBeLessThanOrEqual(210 * D);
+  for (const id of ["ocOverclocker", "tenfoldTuner", "captainsCompound", "lucidDreaming"]) {
+    expect(e[`up1:${id}`], id).toBeGreaterThanOrEqual(e.long);
+    expect(e[`upMax:${id}`], id).toBeLessThanOrEqual(e.starfall + 2 * D);
+  }
+  const before = bestExponentAt(r, e.starfall) - bestExponentAt(r, e.starfall - 20 * D);
+  const after = bestExponentAt(r, e.starfall + 20 * D) - bestExponentAt(r, e.starfall);
+  expect(after).toBeGreaterThan(0);
+  expect(after).toBeLessThan(before);
+}
+
