@@ -206,3 +206,17 @@ in-flight run's frozen battle gear), identity on a clean save; SAVE_VERSION stay
 test updated on purpose: save.test.ts "preserves already-present equipment fields" hand-builds a piece with NO rarity
 or ascension, which now loads as standard / none. `EQUIPMENT_ASCENSIONS` moved to RR-2 (its first reader). Goldens:
 none moved (LIVE and RESERVED). Gates: 309 files / 8634 tests passed, check 0 errors.
+
+**RR-2 (2026-10-23):** model.ts `EQUIPMENT_ASCENSIONS` (derived from the total ascension record) and
+`ascensionAllowedFor` (a total `ASCENSION_BANDS` record: luminous and constellar only, design :149); devMint.ts
+`DEV_MINT_RARITIES` (= `EQUIPMENT_RARITY_LADDER`, all seven bands), `DEV_MINT_ASCENSIONS`, `devMintAscension` (the
+requested ascension on a legendary band, else "none"; junk never leaks), and an optional `ascension` arg on
+`devMintFromBlueprint` (absent mints exactly what it did before). App.svelte Debug "Mint gear" row: the rarity select
+lists every band by `equipmentRarityLabel`, a new Ascension select (None / Nova / Celestial) is disabled unless the band
+allows one, the mint routes through `devMintAscension`, and the log line names a non-"none" ascension. Player paths
+untouched: `PRODUCIBLE_EQUIPMENT_RARITIES` still Standard to Radiant (asserted), Fabricator mints still stamp "none".
+Note for RR-4: a dev-minted Nova or Celestial piece carries the field but no reader acts on it until RR-4 wires the
+budget, label and sort (the Debug minter is its only source, so nothing reaches a player meanwhile). Tests:
+devMintLadder.test.ts (the rule, the lists, every band on three generators, the omitted-ascension identity, and an
+App.svelte source test that the row reads the full lists inside the DEV_MODE Debug block). Goldens: none moved. Gates:
+310 files / 8644 tests passed, check 0 errors.

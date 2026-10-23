@@ -1864,6 +1864,27 @@ export type EquipmentAscension = "none" | "nova" | "celestial";
 // new member is a compile error here first (the AUTO_SALVAGE_RARITIES_NONE pattern). Read by isEquipmentAscension.
 const EQUIPMENT_ASCENSION_SET: Record<EquipmentAscension, true> = { none: true, nova: true, celestial: true };
 
+// RR-2: every ascension in ladder order (none, nova, celestial), DERIVED from the total record above, for the Debug
+// minter's picker and every later reader that walks the ascensions.
+export const EQUIPMENT_ASCENSIONS = Object.keys(EQUIPMENT_ASCENSION_SET) as EquipmentAscension[];
+
+// RR-2: which bands may carry an ascension at all. The design (epic 2026-07-17 section 3): "ascension only ever non-none
+// on Luminous/Constellar". A TOTAL record, so a new band must answer the question (a compile error until it does).
+const ASCENSION_BANDS: Record<EquipmentRarity, boolean> = {
+  derelict: false,
+  standard: false,
+  augmented: false,
+  stellar: false,
+  radiant: false,
+  luminous: true,
+  constellar: true,
+};
+
+// May a piece of this band be Nova or Celestial? Total: an unknown value reads false. Pure.
+export function ascensionAllowedFor(rarity: EquipmentRarity): boolean {
+  return isEquipmentRarity(rarity) && ASCENSION_BANDS[rarity];
+}
+
 // [PROVISIONAL] RR-1 (answer 9, "treated as the Standard-Issue floor"): the band an UNKNOWN rarity value reads as on load
 // and in every total reader (a hand-edited save, a corrupt value, a band from a newer build).
 export const RARITY_LOAD_FALLBACK: EquipmentRarity = "standard";

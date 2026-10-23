@@ -340,6 +340,9 @@
     // 0.13.3.1 QA: the DISPLAY spelling of a band ("radiant" -> "Radiant"). Never written back
     // to state, never compared against a key: every stored value stays lowercase.
     equipmentRarityLabel,
+    // RR-2 (rarity readiness): the Debug minter's ascension picker is enabled only on a band that may carry one.
+    ascensionAllowedFor,
+    type EquipmentAscension,
     AUTO_SALVAGE_RARITIES_NONE,
     normalizeAutoSalvageRarities,
     autoSalvageRarityRuleOn,
@@ -667,7 +670,9 @@
   // the minted piece is shape-identical to genuinely-crafted gear; it just takes the
   // quality/iLevel/rarity as explicit args instead of rolling them off the seeded
   // stream, and never touches the parity-critical tick path. See devMint.ts.
-  import { devMintFromBlueprint } from "./lib/game/devMint";
+  // RR-2 (rarity readiness): the minter's picker lists (EVERY band and ascension, Debug tab only) and the rule that
+  // drops an ascension a band cannot carry.
+  import { devMintFromBlueprint, DEV_MINT_RARITIES, DEV_MINT_ASCENSIONS, devMintAscension } from "./lib/game/devMint";
   // Combat 0.13.0 dev harness (Debug tab only): the ship->Combatant bridge
   // (shipToCombatant + the illustrative sampleLoadout), the sim entry point
   // (resolveBattle), and the plain dev log renderer (formatCombatLog). These wire
@@ -4965,22 +4970,23 @@
   let devMintBlueprintKey: string = "plasmaBp";
   // The CHOSEN quality (0..5), iLevel, and rarity for the next mint. Quality/iLevel
   // default high (q5 / iL-40, the tier-2 cap) so the common QA case is one click; the
-  // developer dials them down for lower-tier tests. Rarity spans the craftable band
-  // Standard..Radiant (the exact set rollCraftedRarity produces in real play).
+  // developer dials them down for lower-tier tests. Rarity spans the WHOLE ladder since
+  // RR-2 (rarity readiness), Derelict to Constellar, plus an ascension on the legendary bands.
   let devMintQuality: number = 5;
   let devMintILevel: number = 40;
   let devMintRarity: EquipmentRarity = "radiant";
+  // RR-2: the ascension the next mint asks for. Applied only on Luminous / Constellar (devMintAscension); the select is
+  // disabled on every other band.
+  let devMintAscensionChoice: EquipmentAscension = "none";
 
   // The iLevel and rarity option lists the dev picker offers. iLevel presets bracket
   // the real reachable range: 1 (the crafting floor), 20 (the tier-1 cap), 40 (the
-  // tier-2 cap == EQUIPMENT_ILEVEL_CAP_PER_TIER * 2). Rarity is the craftable band.
+  // tier-2 cap == EQUIPMENT_ILEVEL_CAP_PER_TIER * 2). Rarity: every band (below).
   const DEV_MINT_ILEVELS: number[] = [1, 20, 40];
-  // 0.13.3.1 QA: the rarity options now come from PRODUCIBLE_EQUIPMENT_RARITIES (model.ts)
-  // rather than from a second hand-written copy of the same four names. Identical values today
-  // (standard/augmented/stellar/radiant, exactly what rollCraftedRarity returns), but the whole
-  // point of the picker is to mint gear a player could genuinely own, so it should track the
-  // real producible set instead of drifting away from it the next time that set changes.
-  const DEV_MINT_RARITIES: readonly EquipmentRarity[] = PRODUCIBLE_EQUIPMENT_RARITIES;
+  // RR-2 (rarity readiness, user answer 4 "Dev mint now, proc later"): the rarity options are now EVERY band on the
+  // ladder (DEV_MINT_RARITIES, devMint.ts), so the balancing pass can conjure a Derelict, Luminous or Constellar piece;
+  // the ascension options are none / Nova / Celestial (DEV_MINT_ASCENSIONS). Both are imported above. What a PLAYER can
+  // produce is untouched (PRODUCIBLE_EQUIPMENT_RARITIES still feeds the auto-salvage row).
 
   // Mint one crafted spare for the selected blueprint at the chosen quality/iLevel/
   // rarity and add it to the pool (fittedToShipId null, set inside the generators).
@@ -5000,6 +5006,7 @@
       iLevel: devMintILevel,
       quality: devMintQuality,
       rarity: devMintRarity,
+      ascension: devMintAscension(devMintRarity, devMintAscensionChoice),
       rng: Math.random,
       allocateId: () => mintedId,
     });
@@ -5018,7 +5025,7 @@
       nextEquipmentId: state.nextEquipmentId + 1,
     };
     doSave();
-    pushLog(`[DEV] Minted crafted ${piece.id}: ${bp.label} (${piece.slotType} · ${piece.rarity} q${piece.quality} · iL${piece.iLevel} · bp ${piece.blueprintKey}).`);
+    pushLog(`[DEV] Minted crafted ${piece.id}: ${bp.label} (${piece.slotType} · ${piece.rarity}${piece.ascension === "none" ? "" : " " + piece.ascension} q${piece.quality} · iL${piece.iLevel} · bp ${piece.blueprintKey}).`);
   }
 
   // [DEV] Non-destructively preview the SavePersistWarning banner. Flips ONLY the
@@ -19690,7 +19697,13 @@
             <span class="dev-label">Rarity</span>
             <select class="dev-btn" bind:value={devMintRarity}>
               {#each DEV_MINT_RARITIES as r}
-                <option value={r}>{r}</option>
+                <option value={r}>{equipmentRarityLabel(r)}</option>
+              {/each}
+            </select>
+            <span class="dev-label">Ascension</span>
+            <select class="dev-btn" bind:value={devMintAscensionChoice} disabled={!ascensionAllowedFor(devMintRarity)}>
+              {#each DEV_MINT_ASCENSIONS as a}
+                <option value={a}>{a.charAt(0).toUpperCase() + a.slice(1)}</option>
               {/each}
             </select>
             <button class="dev-btn" on:click={devMintGear}>
