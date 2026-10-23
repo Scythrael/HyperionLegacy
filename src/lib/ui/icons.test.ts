@@ -95,6 +95,12 @@ describe("Ground Operations glyphs (0.14.0 GO-10)", () => {
     for (const name of required) expect(ICON_NAMES, `missing icon: ${name}`).toContain(name);
   });
 
+  // Gas Giant Study GG-6: the six glyphs the signed-off v3 study mockup added.
+  it("covers the gas giant study screens' new glyphs", () => {
+    const required: IconName[] = ["researchData", "ancientFragment", "galileoProbe", "giant", "nebula", "pause"];
+    for (const name of required) expect(ICON_NAMES, `missing icon: ${name}`).toContain(name);
+  });
+
   // One concept, one glyph: no two names may share the same drawing (a copy-paste slip would make two
   // different things read the same).
   it("never draws two names identically", () => {

@@ -113,6 +113,10 @@ import {
 import { missionRunSheet } from "./gearWearEngine";
 // Exploration 0.14.0 (E4a): relic + set names for the relic-study rows (pure catalog, no cycle).
 import { getRelicById, getRelicSetById } from "./relics";
+import { dataStudyPaused } from "./dataStudy";
+
+// Gas Giant Study GG-6: the Home row's line for a data study while the lane is paused.
+export const DATA_STUDY_PAUSED_HOME_LINE = "Paused: the countdown holds until auto-study is back on";
 
 // ---------------------------------------------------------------------------
 // Public shapes
@@ -150,7 +154,10 @@ export type JumpTarget =
   | "relics"
   // Short-Range Missions (0.14.0 G1-6): the Operations "Short-Range" tab (the board), where a short-range run is
   // dispatched, followed and recalled, so its in-progress and completed rows land there.
-  | "shortRange";
+  | "shortRange"
+  // Gas Giant Study GG-6: the Research facility's DATA STUDY sub-tab (the signed-off v3 mockup: its own Research Lab tab),
+  // where a running or just-finished data study's rows land.
+  | "dataStudy";
 
 // Which FLAVOR of in-progress row this is. Drives how the UI reads the optional
 // fields: a "patrol" row is the only kind that carries `combat` (and has a null ETA,
@@ -565,7 +572,7 @@ function labelForProcess(
     // Gas Giant Study GG-5: a data study on the Research Lab's own lane, named by the item it studies.
     case "dataStudy": {
       const item = effect.type === "studyData" ? ITEMS[effect.itemId]?.label ?? effect.itemId : null;
-      return { icon: "research", primaryLabel: item !== null ? `Studying, ${item}` : "Studying research data", jumpTarget: "research" };
+      return { icon: "research", primaryLabel: item !== null ? `Studying, ${item}` : "Studying research data", jumpTarget: "dataStudy" };
     }
 
     case "relicStudy": {
@@ -656,6 +663,10 @@ function rowForProcess(
     durationTicks = runningRow.etaTicks;
     secondaryLabel = `${runningRow.remaining + 1} to ${process.kind === "refineJob" ? "refine" : "fabricate"}`;
   }
+
+  // Gas Giant Study GG-6: a data study while the lane is paused holds its countdown (dataStudy.ts setDataStudyPaused),
+  // so the row says so instead of reading as stuck.
+  if (process.kind === "dataStudy" && dataStudyPaused(state)) secondaryLabel = DATA_STUDY_PAUSED_HOME_LINE;
 
   return {
     id: process.id,
@@ -1207,9 +1218,9 @@ const COMPLETION_KIND_VIEW: Record<
   // relics.ts in completionSubjectLabel). Reuses the research glyph and the Research Lab's own label.
   // E4c: the relic glyph + the Relics sub-tab (where the identification reveal card lives).
   relicStudy:              { verb: "Identified",  icon: "relic",      source: "Research Lab",   jumpTarget: "relics" },
-  // Gas Giant Study GG-5: a completed data study (the item studied, or the recipe it learned). The research tab hosts
-  // the lab until GG-6 adds the data study tab.
-  dataStudy:               { verb: "Studied",     icon: "research",   source: "Research Lab",   jumpTarget: "research" },
+  // Gas Giant Study GG-5: a completed data study (the item studied, or the recipe it learned). GG-6: the row opens the
+  // Research Lab's Data study tab.
+  dataStudy:               { verb: "Studied",     icon: "research",   source: "Research Lab",   jumpTarget: "dataStudy" },
   // 0.13.4 Phase 2 Unit 2.2: the patrol run. The VERB is deliberately neutral ("Patrolled")
   // rather than outcome-flavored, because one row has to cover a clean finish, a recall, a
   // fuel-out and a defeat. The OUTCOME is carried by patrolEndReason and rendered from

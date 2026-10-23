@@ -1673,6 +1673,9 @@ function buildExpedition(
     ...(study ? { study } : {}),
     // Gas Giant Study GG-4: the nebula stamp (see above), only on a system that holds one.
     ...(nebula ? { nebula } : {}),
+    // The user's pickup pause (2026-10-23): a study run's pickups pause the study instead of waiting for its end
+    // (groundOps.ts). Written last, only on a run with a study or a nebula, so every other record is byte-identical.
+    ...(study || nebula ? { pickupPause: 1 as const } : {}),
   };
   return expedition;
 }

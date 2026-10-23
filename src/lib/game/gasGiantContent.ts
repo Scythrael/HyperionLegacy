@@ -98,6 +98,7 @@ export const GAS_STUDY_USES = {
   nebulaSweep: "GG-4 (the ship sweeps the system's nebula after the bodies)",
   labLane: "GG-5 (the Research Lab study lane studies held data into family boosts and decodes ancient entries)",
   canisterRecipes: "GG-7 (canisters feed the G2 drive classes and the Lab tier 3 to 7 blueprints)",
+  pickupPause: "GG-6 (the user's pickup pause, 2026-10-23: a team ready for pickup during a study or the nebula sweep is collected by the ship, which then resumes where it left off)",
 } as const;
 export type GasStudyUse = keyof typeof GAS_STUDY_USES;
 

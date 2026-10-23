@@ -199,7 +199,7 @@ import { taskFightGuard, taskFightTeam } from "../groundFight";
 import { buyFieldKits, sellItem } from "../quartermaster";
 // Field Kits FKR-7: the run plumbing (the free basic set at an objective start, the bay share).
 import { carriedExtras, fieldKitsStamp, refreshObjectiveSupplies } from "../fieldKitsRun";
-import { groundTeamBaySeconds } from "../groundOps";
+import { RETURN_SECONDS, groundTeamBaySeconds } from "../groundOps";
 import { retirementExpMultiplier } from "../captainRetirement";
 import { transitBerthCount } from "../berths";
 import { shortRangeBoardSlots, startShortRangeCycle } from "../shortRangeBoard";
@@ -2112,6 +2112,22 @@ function gasStudyUseValue(s: GameState, use: string, on: boolean): number {
       const i = run.bodies.findIndex((b) => isOrbitalPlanetType(b.planetType));
       return 100 * studyCanisterScale(run, i);
     }
+    case "pickupPause": {
+      // The user's pickup pause (2026-10-23): a whole run to a system holding a nebula (its 2 hour sweep makes the
+      // last shuttles wait on a run without the stamp). GG-6 pause review: the TOTAL seconds every team spent in its
+      // return step (an ordinary shuttle, a wait behind a study, a pickup the ship flew), read negated so the source
+      // raises the value: the pickups count too, so ON is measured, never 0 by construction.
+      const ready = readyForRun(s);
+      for (const seed of NEBULA_PROBE_SEEDS) {
+        const dispatched = dispatchRun({ ...ready, expeditionSeed: seed });
+        if (dispatched.nebula === undefined) continue;
+        const { pickupPause: _stamp, ...unstamped } = dispatched;
+        const offRun = advanceExpedition(unstamped, dispatched.phaseAnchorSeconds + 4_000_000);
+        if (waitedBehindStudies(offRun) === 0) continue; // the first nebula run whose shuttles waited without the stamp
+        return -returnSeconds(on ? advanceExpedition(dispatched, dispatched.phaseAnchorSeconds + 4_000_000) : offRun);
+      }
+      throw new Error("wiring: no nebula probe seed holds a shuttle that waits behind a study");
+    }
     case "nebulaSweep": {
       // GG-4: a run to a system holding a nebula until every body is scanned and every study (the sweep included) is
       // done (OFF: its nebula stamp taken away, a run dispatched before GG-4); the canisters its sweep finding carries.
@@ -2197,6 +2213,26 @@ function nebulaRun(s: GameState): Expedition {
     if (run.nebula !== undefined) return run;
   }
   throw new Error("wiring: no nebula probe seed reaches a system with a nebula");
+}
+
+// The user's pickup pause: the seconds every ordinary shuttle of a run spent waiting for the ship behind a study or
+// the sweep (it docked at the study's end, past its RETURN_SECONDS flight). Pure.
+function waitedBehindStudies(run: Expedition): number {
+  const ops = run.groundOps;
+  let waited = 0;
+  for (const r of ops?.history ?? []) {
+    if (r.step !== "return" || r.recovered || r.studyPickup || r.stopped) continue;
+    if ((ops?.studyLegs ?? []).some((l) => l.endsAt === r.endedAt)) waited += Math.max(0, r.endedAt - r.startedAt - RETURN_SECONDS);
+  }
+  return waited;
+}
+
+// The seconds every team of a run spent in its return step (a recall's stop left out), pickups and waits included.
+// Pure.
+function returnSeconds(run: Expedition): number {
+  let n = 0;
+  for (const r of run.groundOps?.history ?? []) if (r.step === "return" && !r.stopped) n += r.endedAt - r.startedAt;
+  return n;
 }
 
 // GG-4: the canisters of `pick` over a batch of sweeps of a nebula of `kindId`, the reward rolled with `kinds`.

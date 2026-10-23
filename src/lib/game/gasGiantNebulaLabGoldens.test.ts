@@ -28,7 +28,7 @@ import { advanceExpedition, claimExpedition, expeditionCandidates } from "./expe
 import { tick } from "./tick";
 import { addItemQuality } from "./inventory";
 import { ANCIENT_DATA_FRAGMENT_ID, RESEARCH_DATA_ITEM, RESEARCH_FAMILIES } from "./gasGiantContent";
-import { asPreRelicBlanksDispatch, dispatchPastPropulsion, plainAwayMember, withoutNebula } from "./awayTeamTestFixtures";
+import { asPreRelicBlanksDispatch, dispatchPastPropulsion, plainAwayMember, withoutNebula, withoutPickupPause } from "./awayTeamTestFixtures";
 import { goldenJson } from "./firstRunsGoldens.fixture";
 import { heldDataQueue, setDataStudyPaused } from "./dataStudy";
 
@@ -178,7 +178,9 @@ describe("GG-4 golden: the grid's nebula systems, swept", () => {
           const id = `cand-${tier}-${slot}`;
           const state = crewed(saveSeed);
           const res = asPreRelicBlanksDispatch(dispatchPastPropulsion(state, "ship-1", 1, id));
-          const exp = res.expedition!;
+          // The user's pickup pause (2026-10-23) came after GG-4: the sweep's own shape is pinned as GG-4 built it (its
+          // shuttles wait), so the pickup-pause stamp comes off; gasGiantPickupPause.test.ts pins the stamped runs.
+          const exp = withoutPickupPause(res.expedition!);
           if (!exp.nebula) continue;
           const done = advanceExpedition(exp, FINAL);
           expect(done.phase, id).toBe("complete");

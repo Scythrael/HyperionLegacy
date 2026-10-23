@@ -422,6 +422,59 @@ preview / telescope card line, the nebula on the system card, the claim result l
 (`ArchiveSubTab` gains `"surveyLog"`, `MuseumPanel.svelte` pattern; grouped by class with counts), the study card,
 the warehouse section, the lab tab. QA at 1280 px and 375 px, light and dark.
 
+**GG-6 carry note (built 2026-10-23, on feat 8870cdd).** UI only; no engine rule, save field or golden moved. Display
+decisions in `gasGiantStudyDisplay.ts` and `dataStudyDisplay.ts` (both tested); components `StudyRunPanel`,
+`GasGiantCard`, `GiantArt`, `StarBar`, `StudyChips`, `DataStudyPanel`, `SurveyLogPanel`, `GasCanisterShelf`. Built as
+drawn: section 1 (each orbital body's study row with its class, mass, "Orbital: no ground objectives", ship study time,
+Galileo dive and state; the dashed nebula row; the summary chips; the ship holding orbit card with the probe, the
+fieldwork pace and the waiting pickups; the ship legs card and the return forecast; the timeline's study and sweep on
+the ship lane and the hatched "pickup waits" on a team lane), section 2 (the body card per orbital body, a real
+tablist), section 3 (the Research Lab's own "Data study" tab with the auto-study switch, `doSetDataStudyPaused`),
+section 5 (the Gas Storage Canisters shelf and detail card). Also: the Archive's Survey Log tab (not drawn in v3; the v2
+layout with the v3 star bar), the study results card and the claim log line, the launch preview's study chips (the demand
+line leaves the studies to the chips), the Home row's paused line and the new `dataStudy` jump target, research data off
+the warehouse catalog counts (`onWarehouseShelf`), the six glyphs (researchData, ancientFragment, galileoProbe, giant,
+nebula, pause; verbatim from the mockup). The forecast prints the engine's ranges (30 to 60 from a Tier II sweep, not
+the mockup's sample 31 to 62). Left for its owners: the Cultures tab (section 4: R2-7 lists cultures, R2-8 the detail and
+names, GG-7 the special blueprint cards); the data tab shows the decoded count until then. [PROPOSAL] display-only:
+GALILEO_CRUSH_BAR_PER_RATING 90 (the mockup's arithmetic), the cloud decks and palettes of Sudarsky II to V and the four
+nebula kinds. Open for the user: the 2 h sweep holds every pickup (sell peace), see the report.
+
+**GG-6 review round (2026-10-23).** UI fixes: the canister shelf carries the warehouse fill and red full state ("Full
+(cap N)"; `stockFillDisplay.ts`), the dive depth prints the real number (only the drawn line stops at 1,000 bar), the
+summary chips count only what a resumed run still studies and add "N ground objectives" once every body is scanned,
+resumed clock times add `scanClockSkip`, the claim line no longer repeats the haul, research data leaves the warehouse
+at-cap list and the Data study tab shows "Held data N / cap of each type" with a full warning. User calls: the "Entries
+decoded so far" line is hidden until GG-7 (`ANCIENT_DECODE_TEXT_LIVE` false); the Survey Log tab stays built but HIDDEN
+until its own mockup sign-off (`SURVEY_LOG_LIVE` false, `archiveSubTabs`, tested). ENGINE (the user's answer above,
+"stop mid-scan and pick back up where it left off"): `Expedition.pickupPause: 1` is stamped on new study runs (right
+after `study` / `nebula`). On such a run a team ready for pickup while the ship holds a study or the sweep is collected
+by a pickup leg (`GroundShipLeg.studyPause`, `pickup` when not wiped; one shared leg per body while it is still on its
+way) that pauses the study at the first moment the ship is free (`pickupPauseSlot`); the study grows by the leg's length
+with the span in `GroundStudyLeg.pauses`, every later stored leg (a queued sweep, recovery or repair) and the shuttles
+tied to them shift with it, and the study's progress excludes the pauses (`studyLegShare`). A wiped team's recovery leg
+pauses the study the same way. Rewards are unchanged (the study rolls read no time). A run without the stamp resolves
+exactly as stored (gasGiantPickupPause.test.ts golden 124dbee8, pinned before the change; the stamped run pins affce7e6,
+600 s == 997 s == one call). Display: "Study paused: flying to pick up ...", the "Study paused for a pickup" card with
+the time left on resume, "Paused for a pickup" and "Resumed after a pickup, progress kept" chips, the pauses in the legs
+card, the study drawn around its pauses on the ship lane, the team lane's "pickup" (never a wipe); old runs keep the
+hatched "pickup waits". Registry: `expedition:GAS_STUDY_USES:pickupPause` live (probe `content:gasStudy:pickupPause`:
+the seconds shuttles wait behind a study over a whole nebula run, OFF the stamp removed), held apart from GG-1's rows
+in the pins (gasStudyGoldens.fixture.ts). GG-4's own tests and golden now strip the stamp (`withoutNebula` and
+`withoutStudy` drop it too: every pre-GG-4 capture keeps its waiting shuttles).
+
+**GG-6 pause review (2026-10-23).** The pause is flown only when it brings the team aboard SOONER than waiting
+(`pausePaysOff`: the pickup's arrival before `waitDockAt`, the GG-3 dock; a tie waits), so a team ready with less than a
+leg's flight (300 s) of study left waits as before and nothing is delayed for it (the review's example, save seed
+0x51f15e + 29 x 977 cand-3-1, now docks in 105 s; the affce7e6 pin did not move). A wiped team's recovery leg always
+pauses (its old leg waited for the ship to be free of every leg). Kept as a design choice: a crew whose healthy and
+wiped teams come home together makes two trips (the wiped team's recovery leg, then the others' pickup), never one
+mixed leg, so a pickup is never read as a wipe. Tests: the rule (unit and engine-driven), the weak-crew wipe fixture
+(save seed 0x51f15e + 2 x 977, cand-2-1, rank 1, three teams: studyPause without pickup, recovered not studyPickup, the
+share still through the pause, 600 s == 997 s == one call, the lane's wipe and the "recovery leg" text). The probe now
+reads the total seconds teams spend in the return step (pickups included). The Data study tab shows each type's held
+count against its own cap on its queue row; the switch is named "Auto-study" with its state on aria-checked.
+
 ### GG-7: Crafting uses and special blueprints (data + engine)
 
 Canister recipe uses per open call 7 (new higher-tier blueprints from G2-4 and OC-15, so no existing recipe or

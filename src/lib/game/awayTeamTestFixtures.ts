@@ -207,16 +207,18 @@ export function withoutStudy(exp: Expedition): Expedition {
 // Gas Giant Study GG-4: the dispatch record WITHOUT its nebula stamp (`Expedition.nebula`), i.e. the record the same
 // dispatch made before GG-4 (a run in flight at the update: no sweep). The stamp is the one key GG-4 adds at dispatch.
 // A record without it is returned as it is. Every other key keeps its order. Pure.
+// The user's pickup pause (2026-10-23) came after GG-4, so a record before GG-4 never carries its stamp either: this
+// also takes `pickupPause` off (withoutPickupPause), so every pre-GG-4 capture keeps the shuttles that waited.
 export function withoutNebula(exp: Expedition): Expedition {
-  if (!("nebula" in exp)) return exp;
+  if (!("nebula" in exp)) return withoutPickupPause(exp);
   const rest = { ...exp };
   delete rest.nebula;
-  return rest;
+  return withoutPickupPause(rest);
 }
 
 // GG-4: a whole state, and a dispatch result, with every expedition through withoutNebula. Identity without one. Pure.
 export function withoutNebulaState(state: GameState): GameState {
-  if (!state.expeditions.some((e) => "nebula" in e)) return state;
+  if (!state.expeditions.some((e) => "nebula" in e || "pickupPause" in e)) return state;
   return { ...state, expeditions: state.expeditions.map(withoutNebula) };
 }
 export function asPreNebulaDispatch<R extends { next: GameState; expedition?: Expedition }>(res: R): R {
@@ -230,9 +232,19 @@ function withoutGiant<B extends { giant?: unknown }>(body: B): B {
   return rest;
 }
 
+// The user's pickup pause (2026-10-23): the dispatch record WITHOUT its pickup-pause stamp (`Expedition.pickupPause`),
+// i.e. the record the same dispatch made before the change (its shuttles wait for a study or the sweep, GG-3). A record
+// without it is returned as it is. Every other key keeps its order. Pure.
+export function withoutPickupPause(exp: Expedition): Expedition {
+  if (!("pickupPause" in exp)) return exp;
+  const rest = { ...exp };
+  delete rest.pickupPause;
+  return rest;
+}
+
 // A whole state with every expedition through withoutStudy. Identity when no run carries the stamp. Pure.
 export function withoutStudyState(state: GameState): GameState {
-  if (!state.expeditions.some((e) => "study" in e || "nebula" in e)) return state;
+  if (!state.expeditions.some((e) => "study" in e || "nebula" in e || "pickupPause" in e)) return state;
   return { ...state, expeditions: state.expeditions.map(withoutStudy) };
 }
 

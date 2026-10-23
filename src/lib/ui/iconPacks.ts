@@ -188,9 +188,17 @@ export const ICON_SEMANTICS: Record<IconName, IconSemantic> = {
   // Expedition Tiers G2-6: the drive names a ship's FTL drive (its class), the reach names its deep-space reach.
   drive: "subject",
   reach: "subject",
+  // Gas Giant Study GG-6: each glyph names one study subject (a data item, the fragment, the probe, the giant, the nebula).
+  researchData: "subject",
+  ancientFragment: "subject",
+  galileoProbe: "subject",
+  giant: "subject",
+  nebula: "subject",
 
   // ACTION: something the player does. Should stay recognisable as that action.
   salvage: "action",
+  // Gas Giant Study GG-6: the data study lane's switch when auto-study is off.
+  pause: "action",
   queue: "action",
   close: "action",
   study: "action",

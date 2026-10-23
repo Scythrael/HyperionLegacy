@@ -1145,6 +1145,14 @@
   // Material Lines ML-4: the "Use best materials" switch's note.
   import { bestMaterialsNote } from "./lib/ui/materialQualityText";
   import { gasStudySourcePending } from "./lib/game/gasGiantContent";
+  // Gas Giant Study GG-6: the Research Lab's Data study tab, the Archive's Survey Log, the canister shelf and the claim's
+  // study line (display decisions in dataStudyDisplay.ts and gasGiantStudyDisplay.ts, tested).
+  import DataStudyPanel from "./lib/DataStudyPanel.svelte";
+  import SurveyLogPanel from "./lib/SurveyLogPanel.svelte";
+  import GasCanisterShelf from "./lib/GasCanisterShelf.svelte";
+  import { dataStudyView } from "./lib/dataStudyDisplay";
+  import { SURVEY_LOG_HELP, SURVEY_LOG_LIVE, archiveSubTabs, onWarehouseShelf, studyClaimLine } from "./lib/gasGiantStudyDisplay";
+  import { setDataStudyPaused } from "./lib/game/dataStudy";
   // Reactor fuel ladder (0.14.0): a gathering mission's own SVG glyph (the Cometary Ice Harvest's comet).
   import { missionIcon } from "./lib/ui/missionIcons";
   // GO-10: the shared threat tier chip (SVG tier dot, HelpTip bubble), used by the patrol card + dispatch popup.
@@ -2518,7 +2526,9 @@
   // Exploration 0.14.0 (E4c): a fourth tab, "relics", the relic VAULT + STUDY LANE + identification
   // reveal (RelicStudyPanel). A relic study runs on the Research facility's OWN lane, separate from
   // blueprint research, so it gets its own tab beside the catalog rather than a section inside it.
-  type ResearchSubTab = "overview" | "research" | "relics" | "upgrades";
+  // Gas Giant Study GG-6 (the signed-off v3 mockup, as drawn): a fifth tab, "dataStudy", the Lab's own DATA STUDY lane
+  // (DataStudyPanel): held research data auto-studied into banked boosts, with a pause switch.
+  type ResearchSubTab = "overview" | "research" | "relics" | "dataStudy" | "upgrades";
   let activeResearchSubTab: ResearchSubTab = "overview";
 
   // Exploration 0.14.0 (E4c): the Archive's TWO-tab axis. "archive" is the existing enshrine record
@@ -2526,7 +2536,9 @@
   // leveling set tiers. The relics + artifacts system is one Archive-family collection, so the Museum
   // lives here rather than as a new facility. Defaults to "archive" so the existing console opens as
   // it always has.
-  type ArchiveSubTab = "archive" | "museum";
+  // Gas Giant Study GG-6 (the user's Lore home, 2026-10-08): a third tab, "surveyLog", the SURVEY LOG (SurveyLogPanel)
+  // of every study readout, grouped by class.
+  type ArchiveSubTab = "archive" | "museum" | "surveyLog";
   let activeArchiveSubTab: ArchiveSubTab = "archive";
 
   // Ground Ops GO-17 UI: the Armory's TWO-tab axis. "ship" is the existing ship loadout console (unchanged);
@@ -3851,6 +3863,8 @@
       case "salvageBay":
       // Exploration 0.14.0 (E4c): the Research facility's Relics sub-tab, a Facilities console too.
       case "relics":
+      // Gas Giant Study GG-6: the Research facility's Data study sub-tab.
+      case "dataStudy":
       case "facilities":
         return "facilities";
       default: {
@@ -3932,6 +3946,13 @@
         activeFoundryFacility = "research";
         activeResearchSubTab = "relics";
         break;
+      case "dataStudy":
+        // Gas Giant Study GG-6: a running or just-finished data study lands on the Research facility's Data study tab
+        // (the lane, its queue, the banked boosts).
+        facilitiesView = "console";
+        activeFoundryFacility = "research";
+        activeResearchSubTab = "dataStudy";
+        break;
       case "facilities":
         // The Facilities OVERVIEW (the dashboard of all facility cards), NOT a single foundry
         // console: the aggregate "facility upgrade(s) ready" prompt spans several facilities, so
@@ -4006,6 +4027,9 @@
         return "research";
       // Exploration 0.14.0 (E4c): relic study runs at the Research facility, so it dots that card.
       case "relics":
+        return "research";
+      // Gas Giant Study GG-6: the data study lane runs at the Research facility too.
+      case "dataStudy":
         return "research";
       case "shipyard":
         return "shipyard";
@@ -5963,6 +5987,9 @@
       pushLog(`[${exp ? devShipLabel(exp.shipId) : "Expedition"}] Came home injured: ${injuredText.join(", ")}.`);
     }
     if (kits) pushLog(`[${exp ? devShipLabel(exp.shipId) : "Expedition"}] ${kits.homeText}.`);
+    // Gas Giant Study GG-6: what the ship's studies brought home (canisters, research data for the Lab, readouts).
+    const studyLine = studyClaimLine(findings ?? []);
+    if (studyLine) pushLog(`[${exp ? devShipLabel(exp.shipId) : "Expedition"}] ${studyLine}`);
     doSave();
   }
 
@@ -5978,6 +6005,17 @@
     // Relics v2 R2-2: a blank with no set (no site) reads "General".
     const setLabel = token ? (token.setId === undefined ? "General" : getRelicSetById(token.setId)?.label ?? token.setId) : "unknown set";
     pushLog(`Relic study started → ${token ? token.tier.charAt(0).toUpperCase() + token.tier.slice(1) : ""} ${setLabel} relic.`);
+    doSave();
+  }
+
+  // Gas Giant Study GG-6: the Data study tab's auto-study switch. The canonical do* flow: the PURE engine fn
+  // (dataStudy.ts setDataStudyPaused, which returns the SAME state when nothing changes), reassign `state`, pushLog,
+  // doSave. It never refuses, so the switch is always offered once the lane exists.
+  function doSetDataStudyPaused(paused: boolean) {
+    const next = setDataStudyPaused(state, paused);
+    if (next === state) return;
+    state = next;
+    pushLog(paused ? "Data study paused: held data waits in the queue." : "Data study back on: the Lab studies held data on its own.");
     doSave();
   }
 
@@ -10013,14 +10051,19 @@
   // expand storage" set. Drives the Overview's "items at cap" count + the
   // Attention card's per-item FULL list. materialAtCap is the same fn the
   // backend auto-stop uses, so this can't disagree with what actually idles.
+  // GG-6 review: research data has no warehouse shelf, so its cap shows in the Research Lab's Data study tab instead.
   $: warehouseItemsAtCap = Object.keys(ITEMS).filter(
-    (id) => state.discovered.includes(id) && materialAtCap(state, id)
+    (id) => onWarehouseShelf(id) && state.discovered.includes(id) && materialAtCap(state, id)
   );
   // Discovered / total across the whole catalog (the 100%-completion checklist,
   // design §3.2). A simple count pair for the Overview readout.
-  $: warehouseDiscoveredCount = Object.keys(ITEMS).filter((id) => state.discovered.includes(id)).length;
+  // Gas Giant Study GG-6 (the signed-off v3 mockup, as drawn: no research-data warehouse shelf): research data lives in
+  // the Research Lab's Data study tab, so the warehouse catalog counts it nowhere (onWarehouseShelf).
+  $: warehouseDiscoveredCount = Object.keys(ITEMS).filter((id) => onWarehouseShelf(id) && state.discovered.includes(id)).length;
   // Gas Giant Study GG-1: the study items with no source yet are not counted (nothing can discover them before GG-3).
-  $: warehouseTotalCount = Object.keys(ITEMS).filter((id) => !gasStudySourcePending(id)).length;
+  $: warehouseTotalCount = Object.keys(ITEMS).filter((id) => onWarehouseShelf(id) && !gasStudySourcePending(id)).length;
+  // Gas Giant Study GG-6: the Research Lab's Data study tab (dataStudyDisplay.ts), built only while that tab is open.
+  $: dataStudyTabView = activeFoundryFacility === "research" && activeResearchSubTab === "dataStudy" ? dataStudyView(state) : null;
 
   // ---- Mission Rework (Task 8 UI) reactive derivations ------------------------
   // All read live `state`, so every readout below (dispatch gate, fuel gauge,
@@ -10794,6 +10837,7 @@
           { key: "overview", label: "Overview" },
           { key: "research", label: "Research" },
           { key: "relics", label: "Relics" },
+          { key: "dataStudy", label: "Data study" },
           { key: "upgrades", label: "Upgrades" },
         ], active: activeResearchSubTab, onSelect: (key) => (activeResearchSubTab = key as ResearchSubTab) };
       case "fuelStorage":
@@ -10812,10 +10856,8 @@
         ], active: activeShipyardSubTab, onSelect: (key) => (activeShipyardSubTab = key as ShipyardSubTab) };
       // Exploration 0.14.0 (E4c): the Archive gained the Museum beside its enshrine record.
       case "archive":
-        return { tabs: [
-          { key: "archive", label: "Archive" },
-          { key: "museum", label: "Museum" },
-        ], active: activeArchiveSubTab, onSelect: (key) => (activeArchiveSubTab = key as ArchiveSubTab) };
+        // GG-6: the Survey Log tab waits for its own mockup sign-off (gasGiantStudyDisplay.ts SURVEY_LOG_LIVE).
+        return { tabs: archiveSubTabs(), active: activeArchiveSubTab, onSelect: (key) => (activeArchiveSubTab = key as ArchiveSubTab) };
       // Ground Ops GO-17 UI: ship loadouts and squad (ground team) loadouts, one shared cap.
       case "armory":
         return { tabs: [
@@ -13207,6 +13249,23 @@
               </Panel>
             {/if}
 
+            {#if activeResearchSubTab === "dataStudy"}
+              <!-- DATA STUDY (Gas Giant Study GG-6, the signed-off v3 mockup section 3): the Lab's own lane studies
+                   held research data with zero clicks (oldest first), banks one boost per study for its family, rarely
+                   learns a recipe, and decodes an Ancient Data Fragment's entry. The switch routes to
+                   doSetDataStudyPaused; the panel only reads. -->
+              <Panel>
+                <div class="panel-title">
+                  DATA STUDY
+                  <HelpTip
+                    label="How data study works"
+                    text="Research data comes home from a ship's study of a gas giant or a nebula. The Lab studies it on its own lane, never blocking research or relic study, oldest first. Each study banks a boost for its family; your next project in that family uses them all. Pause holds the queue and the running study."
+                  />
+                </div>
+                {#if dataStudyTabView}<DataStudyPanel view={dataStudyTabView} onSetPaused={doSetDataStudyPaused} />{/if}
+              </Panel>
+            {/if}
+
             {#if activeResearchSubTab === "upgrades"}
               <!-- UPGRADES, the Research Lab's finite tier/slot track
                    (FACILITIES.research.upgrades[level]; ends at tier VII, OC-15). Each
@@ -15577,6 +15636,20 @@
                 {/if}
               </Panel>
             {/if}
+          {:else if activeFoundryFacility === "archive" && activeArchiveSubTab === "surveyLog" && SURVEY_LOG_LIVE}
+            <!-- THE SURVEY LOG (Gas Giant Study GG-6; the user's Lore home): every study readout (15% of studies and
+                 sweeps) written at the claim, grouped by class with counts; the entry card shows how close a giant came
+                 to becoming a star, or where a nebula sits in a star's life cycle. Pure display. -->
+            <Panel>
+              <div class="panel-title">
+                SURVEY LOG
+                <HelpTip
+                  label="How the Survey Log works"
+                  text={SURVEY_LOG_HELP}
+                />
+              </div>
+              <SurveyLogPanel entries={state.surveyLog ?? []} />
+            </Panel>
           {:else if activeFoundryFacility === "archive" && activeArchiveSubTab === "museum"}
             <!-- THE MUSEUM (Exploration 0.14.0, E4c): the Archive's relic collection. Every identified relic
                  copy lands here; the four sets' rosters (undiscovered relics masked), the per-copy passive,
@@ -16155,6 +16228,11 @@
                     <span class="warehouse-tier-line"></span>
                     <span class="warehouse-tier-cap">{section.items.length} item{section.items.length === 1 ? "" : "s"}</span>
                   </div>
+                  {#if section.key === "gasCanister"}
+                    <!-- Gas Giant Study GG-6 (the signed-off v3 mockup section 5): the canister shelf, a band-edged tile
+                         per canister and the selected one's detail card (source, uses, sell value, the Refinery recipe). -->
+                    <GasCanisterShelf {state} ids={section.items.map((i) => i.id)} />
+                  {:else}
                   <div class="warehouse-grid">
                     {#each section.items as item (item.id)}
                       {@const discovered = state.discovered.includes(item.id)}
@@ -16195,6 +16273,7 @@
                       </button>
                     {/each}
                   </div>
+                  {/if}
                 </div>
               {/if}
             {/each}

@@ -15,10 +15,14 @@ const GG1_CATALOGS: ReadonlySet<string> = new Set(["GAS_STUDY_USES", "GIANT_CLAS
 const GG1_ITEMS: ReadonlySet<string> = new Set(gasStudyItemIds());
 export const GG1_RECIPE = "refineDeuteriumCanister";
 
+// The GG-6 review's one registry addition (the user's pickup pause, 2026-10-23): a GAS_STUDY_USES row GG-1 never wrote,
+// live from the start, so it is never a GG-1 row nor a flipped one; it is held apart with the engine slices' additions.
+export const GG6_PICKUP_PAUSE_ENTRY_ID = "expedition:GAS_STUDY_USES:pickupPause";
+
 export const GG1_ADDED_ENTRY_IDS: ReadonlySet<string> = new Set(
   WIRING_REGISTRY.filter(
     (e) =>
-      GG1_CATALOGS.has(e.source.catalog) ||
+      (GG1_CATALOGS.has(e.source.catalog) && e.id !== GG6_PICKUP_PAUSE_ENTRY_ID) ||
       (e.source.catalog === "ITEMS" && GG1_ITEMS.has(e.source.key.split(":")[0])) ||
       // GG-5: the nine research data reserve rows keep their ids (and places) but now name the lane's consumer.
       isGg5ConsumeRow(e) ||
@@ -53,6 +57,7 @@ export const ORBITAL_ONLY_ENTRY_ID = "expedition:PLANET_TYPES:gasGiant:orbitalOn
 const ORBITAL_ONLY_BEFORE = "gas giant study 15b + OC-G2 (teams land and fight there, B21)";
 
 function ggBeforeOwner(e: (typeof WIRING_REGISTRY)[number]): string | null {
+  if (e.id === GG6_PICKUP_PAUSE_ENTRY_ID) return null;
   if (e.id === ORBITAL_ONLY_ENTRY_ID) return ORBITAL_ONLY_BEFORE;
   if (e.source.catalog === "GAS_STUDY_USES") return GAS_STUDY_USES[e.source.key as GasStudyUse] ?? null;
   if (isGg5ConsumeRow(e)) return e.source.key === "consume:ancientDataFragment" ? GG5_ANCIENT_STUDY_BEFORE : GG5_DATA_STUDY_BEFORE;
@@ -66,7 +71,11 @@ function ggBeforeOwner(e: (typeof WIRING_REGISTRY)[number]): string | null {
 // decode gate seam), left out by every pin taken before them.
 export const GG_STUDY_ADDED_ENTRY_IDS: ReadonlySet<string> = new Set(
   WIRING_REGISTRY.filter(
-    (e) => e.source.catalog === "GAS_STUDY_SEAM" || e.source.catalog === "DATA_STUDY_SEAM" || (e.source.catalog === "DATA_STUDY" && !isGg5ConsumeRow(e)),
+    (e) =>
+      e.id === GG6_PICKUP_PAUSE_ENTRY_ID ||
+      e.source.catalog === "GAS_STUDY_SEAM" ||
+      e.source.catalog === "DATA_STUDY_SEAM" ||
+      (e.source.catalog === "DATA_STUDY" && !isGg5ConsumeRow(e)),
   ).map((e) => e.id),
 );
 

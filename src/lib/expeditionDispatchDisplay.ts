@@ -38,8 +38,10 @@ import {
   type LaunchForecast,
   type LaunchRecommendation,
   type LaunchView,
+  type TaskDemand,
 } from "./game/launchRecommendation";
 import type { ThreatAssessment } from "./game/combat/threatAssessment";
+import { demandStudyChips, type StudyChip } from "./gasGiantStudyDisplay";
 import type { IconName } from "./ui/icons";
 import { nameList } from "./groundTeamDisplay";
 import { forecastAffixPills, type AffixPillView } from "./objectiveAffixDisplay";
@@ -202,6 +204,9 @@ export interface TelescopeBlockView {
   factors: TelescopeFactorRow[]; // empty when blind
   bodies: TelescopeBodyRow[] | null; // Per body and up
   demandText: string | null; // Per body and up: "Security work on 3 of 5 bodies; ..."
+  // Gas Giant Study GG-6 (the v3 mockup's launch preview chips): "2 ship studies", "1 nebula sweep", "Studies need no
+  // squad"; empty when the system holds no study. The demand line leaves the studies to the chips.
+  studyChips: StudyChip[];
   nextNote: string | null; // what the next detail level adds
   wantsLaunchView: boolean; // Recommendation and up: the panel asks for the lazy launch view
 }
@@ -262,6 +267,7 @@ export function telescopeBlockView(candidate: Pick<ExpeditionCandidate, "telesco
       factors: [],
       bodies: null,
       demandText: null,
+      studyChips: [],
       nextNote: null,
       wantsLaunchView: false,
     };
@@ -323,10 +329,20 @@ export function telescopeBlockView(candidate: Pick<ExpeditionCandidate, "telesco
     enemyTerritory: t.risk.enemyTerritory === true,
     factors,
     bodies,
-    demandText: t.demand ? `${taskDemandText(t.demand)}.` : null,
+    demandText: t.demand ? `${taskDemandText(withoutStudyDemand(t.demand))}.` : null,
+    studyChips: demandStudyChips(t.demand),
     nextNote,
     wantsLaunchView: t.detail >= TELESCOPE_DETAIL.recommendation,
   };
+}
+
+// GG-6: the demand without its ship studies and nebula sweep (the chips say those, as drawn). Pure.
+function withoutStudyDemand(d: TaskDemand): TaskDemand {
+  if (d.shipStudies === undefined && d.nebulaSweep === undefined) return d;
+  const rest = { ...d };
+  delete rest.shipStudies;
+  delete rest.nebulaSweep;
+  return rest;
 }
 
 // The note under the detail chip: what lifted the reading above the telescope's own detail (the ship's sensors, and
