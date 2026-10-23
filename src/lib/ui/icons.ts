@@ -391,6 +391,24 @@ export const ICON_PATHS = {
   // Antimatter Containment Cell: a cell frame (two end plates on two posts) holding a charge that touches nothing,
   // so it reads as a magnetic bottle rather than a gas cylinder.
   antimatterCell: ["M4.5 3.5h15", "M4.5 20.5h15", "M7 3.5v17", "M17 3.5v17", "M12 9.5a2.5 2.5 0 1 0 0 5 2.5 2.5 0 0 0 0-5z"],
+  // Gas Giant Study GG-6 (0.14.0, the signed-off v3 mockup, user 2026-10-21 "approve as is"): the study screens' glyphs.
+  // Reviewed at 16 / 28 / 56 px.
+  // Research data: a data crystal (a tall hexagon) carrying two lines of text, the held research data items. Kept apart
+  // from `relicResonanceShard` (a jagged shard, no text) by its even sides and the two lines.
+  researchData: ["M12 3l6.5 3.8v7.4L12 21l-6.5-6.8V6.8z", "M9 10h6", "M9 13.5h4"],
+  // Ancient Data Fragment: a torn page (a straight spine on the left, a jagged tear down the right) with three short
+  // lines of script. Kept apart from `relicGlyphTablet` by the tear.
+  ancientFragment: ["M6 4h8.5l-1.5 4 3 3-2 4 2.5 5H6z", "M9 9h2.5", "M9 13h3", "M9 17h2"],
+  // Galileo-Class Probe: a domed descent probe on its heat-shield cone, an antenna on top and a drogue line below (the
+  // 1995 Galileo probe's silhouette). Kept apart from `shipProbe` (the hostile probe) by the dome and the shield.
+  galileoProbe: ["M7 11a5 5 0 0 1 10 0v3H7z", "M5 14h14l-2.5 3.5h-9z", "M12 6V3", "M10 21l2-3.5 2 3.5"],
+  // Gas giant: a round body crossed by one tilted ring, the orbital-only body a ship studies.
+  giant: ["M12 6a6 6 0 1 0 0 12 6 6 0 0 0 0-12z", "M2.5 15.5c2.5-1.3 6-2.6 9.5-3.4s7-1.1 9-.6"],
+  // Nebula: a soft cloud with one bright band through it and a small star sparkle above, the system feature the ship
+  // sweeps.
+  nebula: ["M4.5 15.5a4 4 0 0 1 3-6.3 5 5 0 0 1 9.6 1.3 3.3 3.3 0 0 1 0 6.5H8a3.5 3.5 0 0 1-3.5-1.5z", "M9 14h6", "M19 4.5v3M17.5 6h3"],
+  // Pause: two upright bars (the data study lane's auto-study switch when it is off).
+  pause: ["M8.5 5v14", "M15.5 5v14"],
 
   // Reactor fuel ladder (0.14.0): the Cometary Ice Harvest mission. A comet: a round nucleus at the upper right and three
   // streaks of tail flaring away to the lower left, the middle one longest. The streaks leave the nucleus at its two

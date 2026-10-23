@@ -422,6 +422,24 @@ preview / telescope card line, the nebula on the system card, the claim result l
 (`ArchiveSubTab` gains `"surveyLog"`, `MuseumPanel.svelte` pattern; grouped by class with counts), the study card,
 the warehouse section, the lab tab. QA at 1280 px and 375 px, light and dark.
 
+**GG-6 carry note (built 2026-10-23, on feat 8870cdd).** UI only; no engine rule, save field or golden moved. Display
+decisions in `gasGiantStudyDisplay.ts` and `dataStudyDisplay.ts` (both tested); components `StudyRunPanel`,
+`GasGiantCard`, `GiantArt`, `StarBar`, `StudyChips`, `DataStudyPanel`, `SurveyLogPanel`, `GasCanisterShelf`. Built as
+drawn: section 1 (each orbital body's study row with its class, mass, "Orbital: no ground objectives", ship study time,
+Galileo dive and state; the dashed nebula row; the summary chips; the ship holding orbit card with the probe, the
+fieldwork pace and the waiting pickups; the ship legs card and the return forecast; the timeline's study and sweep on
+the ship lane and the hatched "pickup waits" on a team lane), section 2 (the body card per orbital body, a real
+tablist), section 3 (the Research Lab's own "Data study" tab with the auto-study switch, `doSetDataStudyPaused`),
+section 5 (the Gas Storage Canisters shelf and detail card). Also: the Archive's Survey Log tab (not drawn in v3; the v2
+layout with the v3 star bar), the study results card and the claim log line, the launch preview's study chips (the demand
+line leaves the studies to the chips), the Home row's paused line and the new `dataStudy` jump target, research data off
+the warehouse catalog counts (`onWarehouseShelf`), the six glyphs (researchData, ancientFragment, galileoProbe, giant,
+nebula, pause; verbatim from the mockup). The forecast prints the engine's ranges (30 to 60 from a Tier II sweep, not
+the mockup's sample 31 to 62). Left for its owners: the Cultures tab (section 4: R2-7 lists cultures, R2-8 the detail and
+names, GG-7 the special blueprint cards); the data tab shows the decoded count until then. [PROPOSAL] display-only:
+GALILEO_CRUSH_BAR_PER_RATING 90 (the mockup's arithmetic), the cloud decks and palettes of Sudarsky II to V and the four
+nebula kinds. Open for the user: the 2 h sweep holds every pickup (sell peace), see the report.
+
 ### GG-7: Crafting uses and special blueprints (data + engine)
 
 Canister recipe uses per open call 7 (new higher-tier blueprints from G2-4 and OC-15, so no existing recipe or

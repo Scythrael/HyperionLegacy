@@ -129,6 +129,13 @@
   } from "./expeditionConsoleDisplay";
   import { loadLastExpeditionTier, loadRegionMapOpen, saveLastExpeditionTier, saveRegionMapOpen } from "./expeditionConsolePreference";
   import { recallBlockText, recallPreview } from "./game/expedition";
+  // Gas Giant Study GG-6 (the signed-off v3 mockup, user 2026-10-21 "approve as is"): each orbital body's study row, the
+  // system's nebula row, the study summary chips, and under the timelines the ship holding orbit, the ship legs with the
+  // return forecast, the gas giant body card and the study results. Display decisions in gasGiantStudyDisplay.ts
+  // (tested); nothing here acts (the ship always runs the study).
+  import { nebulaRowView, studyBodyView, studySummaryChips } from "./gasGiantStudyDisplay";
+  import StudyChips from "./StudyChips.svelte";
+  import StudyRunPanel from "./StudyRunPanel.svelte";
 
   // --- Props ------------------------------------------------------------------
   // `state` is the whole GameState (read-only here). The callbacks route every side effect
@@ -335,6 +342,9 @@
   // GO-14 (a flagged run): the task progress cards and the medical bay cards, recomputed per tick (time left).
   $: taskCards = chosenExpedition?.groundOps ? taskCardsView(chosenExpedition, chosenShip, now) : null;
   $: bayCards = chosenExpedition?.groundOps ? bayCardsView(chosenExpedition, chosenShip, now, state.awayMembers) : [];
+  // GG-6: the study summary chips and the nebula row of the run in view.
+  $: studyChipRow = chosenExpedition ? studySummaryChips(chosenExpedition) : [];
+  $: nebRow = chosenExpedition ? nebulaRowView(chosenExpedition, now) : null;
   // GO-15: the scan tracks' key row (only the kinds this run shows).
   $: scanKey = chosenExpedition ? scanTrackKey(chosenExpedition) : null;
   // Field Kits FKR-9: the dispatch pack screen (null while kits are not live in runs), the run's supplies readout per
@@ -764,18 +774,28 @@
             {#if scanKey.costNote}<span class="exp-scan-key-note">{scanKey.costNote}</span>{/if}
           </div>
         {/if}
+        {#if studyChipRow.length > 0}
+          <!-- GG-6: the study summary (the v3 mockup's chip row): bodies, ship studies, the nebula sweep, no squad needed. -->
+          <StudyChips chips={studyChipRow} label="Ship studies" />
+        {/if}
         <div class="exp-bodies">
           {#each exp.bodies as body, bi (body.id)}
             {@const frac = body.scanTotal > 0 ? body.scanProgress / body.scanTotal : 0}
             {@const track = scanTrackView(exp, bi)}
-            <div class="exp-body-card">
+            {@const study = studyBodyView(exp, bi, now)}
+            <div class="exp-body-card" class:orb={study !== null}>
               <div class="exp-body-top">
                 <span class="exp-body-type">
-                  {planetLabel(body.planetType)}
-                  {#if isOrbital(body.planetType)}<span class="exp-body-flag">orbital ops</span>{/if}
+                  {#if study}
+                    <span class="exp-body-let">{study.letter}</span> {study.name} <span class="exp-body-mass">{study.massText}</span>
+                  {:else}
+                    {planetLabel(body.planetType)}
+                    {#if isOrbital(body.planetType)}<span class="exp-body-flag">orbital ops</span>{/if}
+                  {/if}
                 </span>
                 <span class="exp-body-haz">{hazardLabelFor(body.planetType)} hazard</span>
               </div>
+              {#if study}<StudyChips chips={study.chips} label="{study.name} study" />{/if}
               {#if track}
                 <ScanTrack {track} idBase="scan-{exp.id}-{bi}" battleLines={(step) => scanBattleLines(exp, bi, step)} />
               {:else}
@@ -784,7 +804,9 @@
                 </div>
               {/if}
               <div class="exp-body-scanpct">{pct(frac)}% scanned</div>
-              {#if body.discoveries.length > 0}
+              {#if study}
+                <!-- GG-6: an orbital body has no ground finds; its study chips above say so. -->
+              {:else if body.discoveries.length > 0}
                 <div class="exp-body-pois">
                   {#each body.discoveries as d (d.id)}
                     <span class="exp-poi" class:underground={d.kind === "underground"}>{poiLabel(d.poiId)}</span>
@@ -795,6 +817,15 @@
               {/if}
             </div>
           {/each}
+          {#if nebRow}
+            <!-- GG-4 / GG-6: the system's nebula, a system feature swept after the bodies (dashed, as drawn). -->
+            <div class="exp-body-card neb">
+              <div class="exp-body-top">
+                <span class="exp-body-type"><Icon name="nebula" size={20} /> {nebRow.name} <span class="exp-body-mass">{nebRow.sub}</span></span>
+              </div>
+              <StudyChips chips={nebRow.chips} label="{nebRow.name} sweep" />
+            </div>
+          {/if}
         </div>
 
         <!-- GO-13: the per-planet TASK QUEUES (a flagged run only): reassign, reorder, skip, re-queue, Default plan,
@@ -804,6 +835,8 @@
 
           <!-- GO-14: each team's timeline and the ship's lane, the medical bay cards, the task progress cards. -->
           <GroundTeamTimeline {exp} ship={chosenShip} {now} />
+          <!-- GG-6: the ship holding orbit, the ship legs and forecast, the gas giant body card, the study results. -->
+          <StudyRunPanel {exp} ship={chosenShip} {now} {state} />
           {#each supplies as sv (sv.index)}
             <!-- Field Kits FKR-9 ("Both"): the team's supplies, under its timeline: free set left, extras and grenade
                  charges left, each member's condition with its bay time; the objective's final fight rank. -->
@@ -1342,6 +1375,7 @@
                     {#if block.bodies}
                       <div class="exp-scope-sub">Per body</div>
                       {#if block.demandText}<div class="exp-scope-demand">{block.demandText}</div>{/if}
+                      {#if block.studyChips.length > 0}<StudyChips chips={block.studyChips} label="Ship studies" />{/if}
                       <div class="exp-scope-bodies">
                         {#each block.bodies as b, bi (bi)}
                           <div class="exp-scope-body">
@@ -1936,6 +1970,26 @@
   .exp-body-type {
     font-size: var(--text-sm);
     color: var(--color-text-primary);
+  }
+  /* GG-6 (v3 mockup): an orbital body's card wears the stronger line; the nebula's is dashed. */
+  .exp-body-card.orb {
+    border-color: rgba(var(--color-accent-rgb), 0.4);
+  }
+  .exp-body-card.neb {
+    border-style: dashed;
+  }
+  .exp-body-type {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+  .exp-body-let {
+    font-family: var(--font-display);
+    color: var(--color-accent-bright);
+  }
+  .exp-body-mass {
+    font-family: var(--font-mono);
+    font-size: var(--text-2xs);
+    color: var(--color-text-secondary);
   }
   .exp-body-flag {
     font-size: calc(9px * var(--ui-scale));

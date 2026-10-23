@@ -22,10 +22,12 @@ import { ITEMS } from "./game/model";
 import { BOARDING_PAUSE_SECONDS } from "./game/shipScanEvents";
 import { groundSiteLabel, poisForPlanetType } from "./game/expeditionContent";
 import { spanText } from "./groundOpsTimelineDisplay";
+import { isStudyBody } from "./game/gasGiantStudy";
 import type { IconName } from "./ui/icons";
 
 // The parts of a run the track reads.
-export type ScanTrackRun = Pick<Expedition, "encounterSteps" | "scanEvents" | "findings" | "bodies" | "groundOps">;
+// GG-6: `study` too (a study run's orbital body takes no ground find, so a sensor ghost read true there adds none).
+export type ScanTrackRun = Pick<Expedition, "encounterSteps" | "scanEvents" | "findings" | "bodies" | "groundOps"> & Partial<Pick<Expedition, "study">>;
 
 // good: nothing lost (a pass, a win, a find); bad: it cost scan time, hull or credits.
 export type ScanPipTone = "good" | "bad";
@@ -178,7 +180,10 @@ function shipEventWords(run: ScanTrackRun, event: ExpeditionScanEvent, kind: Shi
       break;
     case "ghost":
       outcome = passed ? "Read true" : "False reading";
-      if (passed) {
+      if (passed && run.bodies[event.bodyIndex] && isStudyBody(run, run.bodies[event.bodyIndex])) {
+        // GG-6: a study run's orbital body has no surface, so the true reading adds no ground find (GG-2).
+        line = "the sensors read it true; an orbital body has no ground finds to add.";
+      } else if (passed) {
         const body = run.bodies[event.bodyIndex];
         const found = event.bonusDiscovery ? ghostDiscoveryLabel(run, event) : null;
         line =

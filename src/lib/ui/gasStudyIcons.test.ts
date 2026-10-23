@@ -4,8 +4,8 @@
 import { describe, expect, it } from "vitest";
 import { ICON_PATHS } from "./icons";
 import { ICON_SEMANTICS } from "./iconPacks";
-import { GAS_CANISTER_ICON, gasCanisterIcon } from "./gasStudyIcons";
-import { GAS_CANISTER_IDS } from "../game/gasGiantContent";
+import { GAS_CANISTER_ICON, gasCanisterIcon, researchDataIcon } from "./gasStudyIcons";
+import { ANCIENT_DATA_FRAGMENT_ID, GAS_CANISTER_IDS, RESEARCH_DATA_ITEM, RESEARCH_FAMILIES } from "../game/gasGiantContent";
 
 describe("gas study glyphs", () => {
   it("every canister maps to a registered, classified SVG icon", () => {
@@ -26,5 +26,18 @@ describe("gas study glyphs", () => {
     expect(gasCanisterIcon("commonOre")).toBeNull();
     expect(gasCanisterIcon("propulsionData")).toBeNull();
     expect(gasCanisterIcon("firstAidKit")).toBeNull();
+  });
+
+  // GG-6: the research data glyphs arrive with the Data study tab.
+  it("every research data item wears the data crystal, the fragment its torn page; nothing else has one", () => {
+    for (const f of RESEARCH_FAMILIES) {
+      const name = researchDataIcon(RESEARCH_DATA_ITEM[f]);
+      expect(name, f).toBe("researchData");
+      expect(ICON_SEMANTICS[name!]).toBe("subject");
+    }
+    expect(researchDataIcon(ANCIENT_DATA_FRAGMENT_ID)).toBe("ancientFragment");
+    expect(ICON_SEMANTICS.ancientFragment).toBe("subject");
+    expect(researchDataIcon("hydrogenCanister")).toBeNull();
+    expect(researchDataIcon("commonOre")).toBeNull();
   });
 });

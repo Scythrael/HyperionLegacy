@@ -14,7 +14,7 @@
 
   import type { Expedition, ShipInstance } from "./game/model";
   import { flaggedScanTimeline } from "./game/expedition";
-  import { LANE_KEY, SHIP_KEY, STOPPED_KEY_TEXT, timelineView, type TimelineMode } from "./groundOpsTimelineDisplay";
+  import { LANE_KEY, SHIP_KEY, STOPPED_KEY_TEXT, STUDY_LANE_KEY, STUDY_SHIP_KEY, timelineView, type TimelineMode } from "./groundOpsTimelineDisplay";
   import Icon from "./ui/Icon.svelte";
   import TeamBadge from "./ui/TeamBadge.svelte";
 
@@ -121,12 +121,23 @@
       {#each LANE_KEY as k (k.category)}
         <li><i class="gt-swatch c-{k.category}" aria-hidden="true"></i><Icon name={k.glyph} size={12} />{k.text}</li>
       {/each}
+      {#if view.hasStudies}
+        {#each STUDY_LANE_KEY as k (k.category)}
+          <li><i class="gt-swatch c-{k.category}" aria-hidden="true"></i><Icon name={k.glyph} size={12} />{k.text}</li>
+        {/each}
+      {/if}
       {#if view.hasStopped}
         <li><i class="gt-swatch stopped" aria-hidden="true"></i>{STOPPED_KEY_TEXT}</li>
       {/if}
       {#each SHIP_KEY as k (k.category)}
         <li><i class="gt-swatch c-{k.category}" aria-hidden="true"></i><Icon name={k.glyph} size={12} />{k.text}</li>
       {/each}
+      {#if view.hasStudies}
+        <!-- Gas Giant Study GG-6: the ship's studies and the nebula sweep (the v3 mockup, as drawn). -->
+        {#each STUDY_SHIP_KEY as k (k.category)}
+          <li><i class="gt-swatch c-{k.category}" aria-hidden="true"></i><Icon name={k.glyph} size={12} />{k.text}</li>
+        {/each}
+      {/if}
     </ul>
   {/if}
 </section>
@@ -321,6 +332,16 @@
   .c-pause { background-color: var(--lane-pause); }
   .c-leg { background-color: var(--lane-leg); }
   .c-repair { background-color: var(--lane-repair); }
+  /* GG-6 (v3 mockup): a study is solid accent, the sweep the stellar blue, a waiting pickup hatched in the warning hue
+     (the hatch and the dashed edge carry it, never color alone). */
+  .c-study { background-color: var(--color-accent); color: var(--color-bg-deep); font-weight: 600; }
+  .c-sweep { background-color: color-mix(in srgb, var(--rarity-stellar) 55%, transparent); box-shadow: inset 0 0 0 1px var(--rarity-stellar); }
+  .c-wait {
+    background-image: repeating-linear-gradient(45deg, color-mix(in srgb, var(--color-warning) 30%, transparent) 0 5px, transparent 5px 10px);
+    box-shadow: inset 0 0 0 1px var(--color-warning);
+    border-style: dashed;
+    color: var(--color-warning);
+  }
 
   .gt-steps {
     grid-column: 2;
