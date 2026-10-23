@@ -768,3 +768,12 @@ Sets in 0.14.x). The power budget itself should not move: seven registry rows an
   Power Draw help text must describe this rule truthfully; roster apply judges the fully applied roster (its officers and
   crew included); the warning names the cause; the Armory Check out button disables when refused; drop the duplicate
   reason/refusal field; consider moving equippedFor + MULTI_SLOT_TYPES to a leaf module to break the import cycle.
+
+## OPEN CALLS for the user (2026-10-23, from the EM-3 review; built on these defaults)
+
+1. Drones are NOT weakened when over budget (P6 names only weapon damage and shield recharge).
+2. Shields still refill at full speed between patrol waves (outside combat); only in-fight recharge is cut.
+3. The supply percent rounds DOWN (81% where the mockup's sketch rounded to 82%), so it shows the number the ship
+   actually fights at.
+4. Battle Rating does not drop for an over-budget ship (it also ignores the other WR-8 stamp fields). Should BR reflect
+   the power cut?
