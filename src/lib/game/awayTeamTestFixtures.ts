@@ -230,6 +230,16 @@ function withoutGiant<B extends { giant?: unknown }>(body: B): B {
   return rest;
 }
 
+// The user's pickup pause (2026-10-23): the dispatch record WITHOUT its pickup-pause stamp (`Expedition.pickupPause`),
+// i.e. the record the same dispatch made before the change (its shuttles wait for a study or the sweep, GG-3). A record
+// without it is returned as it is. Every other key keeps its order. Pure.
+export function withoutPickupPause(exp: Expedition): Expedition {
+  if (!("pickupPause" in exp)) return exp;
+  const rest = { ...exp } as Expedition & { pickupPause?: unknown };
+  delete rest.pickupPause;
+  return rest;
+}
+
 // A whole state with every expedition through withoutStudy. Identity when no run carries the stamp. Pure.
 export function withoutStudyState(state: GameState): GameState {
   if (!state.expeditions.some((e) => "study" in e || "nebula" in e)) return state;
