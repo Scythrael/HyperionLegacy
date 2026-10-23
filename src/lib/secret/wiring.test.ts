@@ -1,7 +1,7 @@
 // wiring.test.ts: App.svelte's few touches of the secret game, checked against the real source
 // (the same technique uiScale.test.ts uses; this repo has no Svelte component harness).
 import { describe, it, expect } from "vitest";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 
 const APP = readFileSync("src/App.svelte", "utf-8");
 
@@ -93,6 +93,30 @@ describe("App wiring for 0.13.11", () => {
     expect(dev).toContain("if (!DEV_MODE) return;");
     expect(dev).toContain('await import("./lib/secret/devTools")');
     expect(APP).not.toMatch(/import [^;]*from "\.\/lib\/secret\/devTools"/);
+  });
+
+  it("0.13.11.1: the Minigames list floats above everything (user: \"above everything else\")", () => {
+    const hb = readFileSync("src/lib/HeaderButtons.svelte", "utf-8");
+    // Portaled to <body>, fixed and anchored under the button: the top bar is its own stacking
+    // context, so the list must leave it to rise above the page and the bottom nav.
+    expect(hb).toContain("document.body.appendChild(node)");
+    expect(hb).toMatch(/<section class="hb-menu"[^>]*use:floating/);
+    const menuCss = hb.slice(hb.indexOf(".hb-menu {"), hb.indexOf("}", hb.indexOf(".hb-menu {")));
+    expect(menuCss).toContain("position: fixed;");
+    const z = Number(/z-index: (\d+);/.exec(menuCss)?.[1]);
+    // Above every other layer in the app, below only the minigame window and the popup.
+    const others: number[] = [];
+    for (const f of readdirSync("src/lib").filter((n) => n.endsWith(".svelte") && n !== "HeaderButtons.svelte" && n !== "SecretGameOverlay.svelte" && n !== "AchievementToasts.svelte"))
+      for (const m of readFileSync(`src/lib/${f}`, "utf-8").matchAll(/z-index: (\d+)/g)) others.push(Number(m[1]));
+    for (const m of APP.matchAll(/z-index: ?(\d+)/g)) others.push(Number(m[1]));
+    expect(others.length).toBeGreaterThan(5);
+    expect(z).toBeGreaterThan(Math.max(...others));
+    const overlay = Number(/z-index: (\d+);/.exec(readFileSync("src/lib/SecretGameOverlay.svelte", "utf-8"))?.[1]);
+    expect(z).toBeLessThan(overlay);
+    // Closes on Escape, a click outside it, focus leaving it, and after Play.
+    expect(hb).toMatch(/event\.key === "Escape"/);
+    expect(hb).toContain("on:pointerdown={onWindowPointerdown}");
+    expect(hb).toMatch(/hb-menu[^>]*on:focusout=\{onFocusOut\}/);
   });
 
   it("0.13.11.1: the main game reads the ONE trusted clock for loop, load, save and recaps", () => {

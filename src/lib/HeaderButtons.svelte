@@ -9,7 +9,12 @@
   //
   // Help opens the existing Help center, Settings opens the System window, Play opens the minigame.
   // Every control is a real button with a label; the list closes on Escape, on a click outside it,
-  // and after Play, and focus returns to the Minigames button.
+  // when focus leaves it, and after Play, and focus returns to the Minigames button.
+  //
+  // The list is PORTALED to <body> (user, staging: it clipped under the content below the header):
+  // the top bar is its own stacking context, so nothing inside it can rise above the page. On the
+  // body, fixed under the button and re-placed on resize and scroll, it sits above every panel and
+  // the bottom nav.
   import { tick } from "svelte";
   import Icon from "./ui/Icon.svelte";
 
@@ -24,6 +29,30 @@
   let block: HTMLDivElement | null = null;
   let toggle: HTMLButtonElement | null = null;
   let playButton: HTMLButtonElement | null = null;
+  let menu: HTMLElement | null = null;
+
+  // Moves the list to <body> and keeps it anchored under the Minigames button.
+  function floating(node: HTMLElement) {
+    document.body.appendChild(node);
+    const place = () => {
+      const r = toggle?.getBoundingClientRect();
+      if (!r) return;
+      node.style.top = `${Math.round(r.bottom + 6)}px`;
+      node.style.right = `${Math.max(8, Math.round(window.innerWidth - r.right))}px`;
+    };
+    place();
+    window.addEventListener("resize", place);
+    window.addEventListener("scroll", place, true);
+    return {
+      destroy() {
+        window.removeEventListener("resize", place);
+        window.removeEventListener("scroll", place, true);
+        node.remove();
+      },
+    };
+  }
+
+  const inside = (n: Node | null) => n !== null && ((block?.contains(n) ?? false) || (menu?.contains(n) ?? false));
 
   async function openMenu(): Promise<void> {
     menuOpen = true;
@@ -53,11 +82,11 @@
   // Focus leaving the block (Tab past the list) closes it.
   function onFocusOut(event: FocusEvent): void {
     const next = event.relatedTarget;
-    if (menuOpen && block && next instanceof Node && !block.contains(next)) closeMenu(false);
+    if (menuOpen && next instanceof Node && !inside(next)) closeMenu(false);
   }
 
   function onWindowPointerdown(event: PointerEvent): void {
-    if (menuOpen && block && event.target instanceof Node && !block.contains(event.target)) closeMenu(false);
+    if (menuOpen && event.target instanceof Node && !inside(event.target)) closeMenu(false);
   }
 </script>
 
@@ -87,9 +116,10 @@
   <button type="button" class="hb-btn hb-settings" aria-label="Open settings" on:click={onSettings}>
     <span>SETTINGS</span>
   </button>
+</div>
 
-  {#if found && menuOpen}
-    <section class="hb-menu" id="hb-menu" aria-label="Minigames">
+{#if found && menuOpen}
+    <section class="hb-menu" id="hb-menu" aria-label="Minigames" bind:this={menu} use:floating on:focusout={onFocusOut}>
       <div class="hb-menu-title">MINIGAMES</div>
       <div class="hb-game">
         <div class="hb-game-text">
@@ -99,8 +129,7 @@
         <button type="button" class="hb-play" bind:this={playButton} on:click={play} aria-label={`Play ${minigameTitle}`}>Play</button>
       </div>
     </section>
-  {/if}
-</div>
+{/if}
 
 <style>
   /* Two equal rows (user, 2026-10-23: Settings takes HALF the height) and two columns that grow
@@ -150,11 +179,11 @@
     padding: 0 6px;
     white-space: nowrap;
   }
+  /* On <body>, fixed under the button (floating), above every panel and the bottom nav; below the
+     minigame overlay (2000) and the achievement popup (2100). */
   .hb-menu {
-    position: absolute;
-    top: calc(100% + 6px);
-    right: 0;
-    z-index: 30;
+    position: fixed;
+    z-index: 1900;
     width: min(260px, calc(100vw - 32px));
     display: grid;
     gap: 6px;
