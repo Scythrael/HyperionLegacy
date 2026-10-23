@@ -408,6 +408,16 @@ export function simplifiedLogTokens(
       ];
     }
     case "droneVolley": {
+      // WR-8 review: a guard volley at a drone screen names the screen damage and the drones it downed.
+      const screen = event.screenDamage ?? 0;
+      if (screen > 0) {
+        const downed = event.dronesDestroyed ?? 0;
+        const past = (event.shieldDamage ?? 0) + (event.hullDamage ?? 0) > 0 ? damageClauseTokens(event.shieldDamage ?? 0, event.hullDamage ?? 0) : [];
+        return [
+          { text: `${attacker}'s drone squadron hits ${target}'s drone screen for ${screen}${downed > 0 ? `, downing ${downed}` : ""}`, kind: "text" },
+          ...(past.length > 0 ? [{ text: ", and", kind: "text" as const }, ...past] : [{ text: ".", kind: "text" as const }]),
+        ];
+      }
       const { shield, hull } = damageSplit(event);
       return [
         { text: `${attacker}'s drone squadron hits ${target}`, kind: "text" },

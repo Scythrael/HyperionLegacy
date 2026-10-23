@@ -521,6 +521,10 @@ export interface CombatEvent {
 	// How many of the shot's projectiles connected (0 = full evade). Lets flavor
 	// distinguish a clean volley from a grazing partial hit.
 	projectilesHit?: number;
+	// WR-8 review: a Defensive ship's guard drone volley at a foe's drone screen: the damage the screen drones took (part
+	// of `damage`, beside shieldDamage / hullDamage) and the drones it destroyed. Absent on every other event.
+	screenDamage?: number;
+	dronesDestroyed?: number;
 
 	// -- Phase 12 flavor fields (all optional; consumed by the layered cosmetic
 	// flavor pools in flavor.ts). None of these affect the outcome; they exist so

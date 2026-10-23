@@ -295,9 +295,9 @@ describe("patrols: frozen per cycle, the replay agrees, a run in flight carries 
   it("an on-hit and a below-threshold module fight on every wave; live, replay and a reloaded run agree", { timeout: 60_000 }, () =>
     withTestModules([TEST_ARC_DISCHARGER, TEST_SURGE], () => withCombatRulesOff(() => {
       const base = withoutUtility(hullState("destroyer"));
-      const fitted = installAll(base, [mintTestModule(TEST_ARC_DISCHARGER, "radiant", 5, "pt-arc"), mintTestModule(TEST_SURGE, "radiant", 5, "pt-surge")]);
+      const installed = installAll(base, [mintTestModule(TEST_ARC_DISCHARGER, "radiant", 5, "pt-arc"), mintTestModule(TEST_SURGE, "radiant", 5, "pt-surge")]);
       const bare = run(base);
-      const live = run(fitted, 5);
+      const live = run(installed, 5);
       // The modules moved the patrol (sensitivity).
       expect(JSON.stringify(live.s.captains[0])).not.toBe(JSON.stringify(bare.s.captains[0]));
       // The display replay re-resolves every wave from the same stored cycle and installed pieces.
@@ -316,8 +316,8 @@ describe("patrols: frozen per cycle, the replay agrees, a run in flight carries 
   it("under the WR-8 combat rules the modules still fight every wave of the cycle (the display replay shows their procs)", { timeout: 60_000 }, () =>
     withTestModules([TEST_ARC_DISCHARGER, TEST_SURGE], () => {
       const base = withoutUtility(hullState("destroyer"));
-      const fitted = installAll(base, [mintTestModule(TEST_ARC_DISCHARGER, "radiant", 5, "pt-arc"), mintTestModule(TEST_SURGE, "radiant", 5, "pt-surge")]);
-      const live = run(fitted);
+      const installed = installAll(base, [mintTestModule(TEST_ARC_DISCHARGER, "radiant", 5, "pt-arc"), mintTestModule(TEST_SURGE, "radiant", 5, "pt-surge")]);
+      const live = run(installed);
       const m = live.s.captains[0].mission as PatrolMissionState;
       expect(m.combatRules).toBeDefined();
       const replay = replayPatrol(live.s, live.s.captains[0]);
@@ -364,9 +364,9 @@ describe("mission cycles: a private stream per delivered cycle, offline == live"
   };
   it("the Echo grows the common haul on some cycles, takes no shared draw, and one offline call equals stepping", { timeout: 60_000 }, () =>
     withTestModules([TEST_ECHO], () => {
-      const fitted = dispatchEcho(true);
+      const installed = dispatchEcho(true);
       const bare = dispatchEcho(false);
-      expect(missionCycleModulesFor(fitted, SHIP)?.procs).toEqual([{ moduleId: TEST_ECHO.id, chanceUnits: MODULE_CHANCE_UNITS / 2, fraction: 0.25 }]);
+      expect(missionCycleModulesFor(installed, SHIP)?.procs).toEqual([{ moduleId: TEST_ECHO.id, chanceUnits: MODULE_CHANCE_UNITS / 2, fraction: 0.25 }]);
       const step = (s0: GameState, rng: ReturnType<typeof counted>) => {
         let s = s0;
         for (let i = 0; i < 1500; i++) s = economyTick(s, 1, rng);
@@ -374,7 +374,7 @@ describe("mission cycles: a private stream per delivered cycle, offline == live"
       };
       const rngA = counted(0xe6);
       const rngB = counted(0xe6);
-      const withEcho = step(fitted, rngA);
+      const withEcho = step(installed, rngA);
       const without = step(bare, rngB);
       // The shared economy stream: the same draws with or without the module.
       expect(rngA.calls).toBe(rngB.calls);
@@ -383,7 +383,7 @@ describe("mission cycles: a private stream per delivered cycle, offline == live"
       const common = (s: GameState) => itemTotal(s.inventory, "commonOre");
       expect(common(withEcho).gt(common(without))).toBe(true);
       // Offline: one tick() call over the same span is the same state.
-      const offline = tick(1500, fitted, counted(0xe6), 0);
+      const offline = tick(1500, installed, counted(0xe6), 0);
       expect(JSON.stringify(offline.captains)).toBe(JSON.stringify(withEcho.captains));
       expect(JSON.stringify(offline.inventory)).toBe(JSON.stringify(withEcho.inventory));
     }));

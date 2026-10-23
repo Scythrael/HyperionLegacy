@@ -342,17 +342,23 @@ function advanceMovement(
 	const effectiveSpeed = effectiveMoveSpeed(self);
 	const preferred = rules ? stanceHoldDistance(self) : stancePreferredDistance(self.stance);
 	// WR-8 review (user 2026-10-22, answer 5 "Closing is evasive"): a ship that is closing toward its stance range (it
-	// can move and its target is farther than where it parks) while none of its guns or offense drones reaches any foe
-	// moves evasively until one does or it stops closing. Pure geometry, no draw.
-	if (rules && self.evasiveClose !== undefined) {
-		self.evasiveClose.active = effectiveSpeed > 0 && Math.abs(target.position - self.position) > preferred && outOfReach(self, combatants);
-	}
+	// can move and its target is farther than where it parks) while none of its guns reaches any foe moves evasively
+	// until one does or it stops closing. Read from where the ship stands AFTER this tick's move (or on a tick it banks
+	// no step), so it stops the tick a gun reaches. Pure geometry, no draw.
+	const settleEvasion = (): void => {
+		if (rules && self.evasiveClose !== undefined) {
+			self.evasiveClose.active = effectiveSpeed > 0 && Math.abs(target.position - self.position) > preferred && outOfReach(self, combatants);
+		}
+	};
 
 	// Bank this tick's worth of tenths (effective speed tenths per second * dt).
 	acc.move += effectiveSpeed * DT_DECISEC;
 	// Convert whole banked units into position steps; keep the remainder banked.
 	const wholeSteps = Math.floor(acc.move / TENTHS_PER_SECOND);
-	if (wholeSteps <= 0) return;
+	if (wholeSteps <= 0) {
+		settleEvasion();
+		return;
+	}
 	acc.move -= wholeSteps * TENTHS_PER_SECOND;
 
 	// Step toward the stance's preferred distance (signed: + closes, - kites, 0
@@ -368,6 +374,7 @@ function advanceMovement(
 		if (!closing && effectiveSpeed <= effectiveMoveSpeed(target)) delta = 0;
 	}
 	self.position += delta;
+	settleEvasion();
 }
 
 // The combatant's movement speed this tick (position units per second), with its debuffs and drive condition. Pure.
@@ -469,25 +476,43 @@ function guardTarget(self: Combatant, combatants: Combatant[], reach: number): C
 // WR-8 review: a Defensive owner's squadron volleys at `guard`'s drone screen: each of its online drones rolls its hit
 // against the defending squadron's evasion and, on a hit, its damage, which the next online enemy drone takes
 // (droneTakesHit, squadron-targeted: no overflow onto the carrier). Once the screen is spent the rest strike the hull
-// through normal mitigation. The same two draws per drone as an ordinary volley. Returns the drones it destroyed.
-function fireSquadronAtDrones(self: Combatant, guard: Combatant, squadron: DroneSquadron, combat: Rng, droneCarry: { milli: number }, rules: boolean): number {
-	let destroyed = 0;
+// through normal mitigation. The same two draws per drone as an ordinary volley. Returns what it did: the drones that
+// connected, the damage the screen drones took and the shield / hull damage past it, the drones destroyed, and whether
+// the guard died.
+interface GuardVolley {
+	dronesHit: number;
+	screenDamage: number;
+	shieldDealt: number;
+	hullDealt: number;
+	dronesDestroyed: number;
+	killed: boolean;
+}
+function fireSquadronAtDrones(self: Combatant, guard: Combatant, squadron: DroneSquadron, combat: Rng, droneCarry: { milli: number }, rules: boolean): GuardVolley {
+	const out: GuardVolley = { dronesHit: 0, screenDamage: 0, shieldDealt: 0, hullDealt: 0, dronesDestroyed: 0, killed: false };
 	for (const drone of squadron.drones) {
 		if (!drone.alive || drone.status !== "online") continue;
 		const defenders = availableDefenders(guard);
 		const next = defenders[0];
 		const evasion = next ? next.squadron.evasion : guard.evasion;
 		if (!combat.chance(Math.max(0, Math.min(100, squadron.accuracy - evasion)), 100)) continue;
+		out.dronesHit++;
 		let raw = captainDroneDamage(self.captainEdge, droneCarry, combat.nextRange(squadron.yieldMin, squadron.yieldMax));
 		raw = defensiveDealt(self, raw);
 		if (next) {
-			if (droneTakesHit(next.drone, raw, squadron.family, true, rules).destroyed) destroyed++;
+			const hpBefore = next.drone.hp;
+			if (droneTakesHit(next.drone, raw, squadron.family, true, rules).destroyed) out.dronesDestroyed++;
+			out.screenDamage += Math.max(0, hpBefore - next.drone.hp);
 		} else {
-			applyProjectileDamage(guard, squadron.family, 0, 0, raw);
-			if (guard.hull <= 0 && guard.alive) guard.alive = false;
+			const hit = applyProjectileDamage(guard, squadron.family, 0, 0, raw);
+			out.shieldDealt += hit.shieldDealt;
+			out.hullDealt += hit.hullDealt;
+			if (guard.hull <= 0 && guard.alive) {
+				guard.alive = false;
+				out.killed = true;
+			}
 		}
 	}
-	return destroyed;
+	return out;
 }
 
 // WR-8 review (user 2026-10-22, "Stance should decide"): the distance this combatant parks at from its target under the
@@ -774,13 +799,15 @@ export function applyProjectileDamage(
 		if (target.shield > 0 && absorbPct > 0 && carry !== undefined) {
 			const parts = toShields * 100 + carry.absorb;
 			const cost = Math.floor(parts / (100 + absorbPct));
-			carry.absorb = parts - cost * (100 + absorbPct);
 			if (cost <= target.shield) {
 				target.shield -= cost;
+				carry.absorb = parts - cost * (100 + absorbPct);
 			} else {
+				// The pool drains: the cost was not paid, so no remainder is banked from it (the carry starts over).
 				const stopped = Math.floor((target.shield * (100 + absorbPct)) / 100);
 				target.shield = 0;
 				hullPath += Math.max(0, toShields - stopped);
+				carry.absorb = 0;
 			}
 		} else if (target.shield > 0) {
 			const absorbed = Math.min(target.shield, toShields);
@@ -2634,7 +2661,8 @@ export function resolveBattle(
 				}
 				// E-MOD EM-6: the struck ship's on-hit procs (a connecting shot), after the shot is narrated. An arc that
 				// destroys this attacker ends its salvo at the liveness check above.
-				if (modules !== null && shot.projectilesHit > 0) modules.fire(target, "onHit", t, self);
+				// WR-8 review: the ship the shot struck (a Defensive ship's guard shot strikes `aim`, not its target).
+				if (modules !== null && shot.projectilesHit > 0) modules.fire(aim, "onHit", t, self);
 			}
 
 				// PHASE C2: DRONE SQUADRONS (design S8, Phase 7a OFFENSE). Each squadron
@@ -2751,15 +2779,36 @@ export function resolveBattle(
 					const guard = self.defensive !== undefined ? guardTarget(self, combatants, squadron.range) : undefined;
 					if (guard !== undefined) {
 						squadron.cooldownAccumulator -= cooldown;
-						const downed = fireSquadronAtDrones(self, guard, squadron, combat, acc.drone, rules);
+						const gv = fireSquadronAtDrones(self, guard, squadron, combat, acc.drone, rules);
 						if (generateLog) {
+							// The same aggregate line as an ordinary volley (projectilesHit = drones that connected), with the
+							// damage its screen took (screenDamage) and the drones it downed (dronesDestroyed) beside the split.
+							const evaded = gv.dronesHit === 0;
 							log.push(
 								attachFlavor(
-									{ tDeciSec: t, round, type: "droneVolley", actorId: self.id, targetId: guard.id, damage: 0, result: "droneVolley", projectilesHit: downed, hullAfter: guard.hull, shieldAfter: guard.shield },
+									{
+										tDeciSec: t,
+										round,
+										type: "droneVolley",
+										actorId: self.id,
+										targetId: guard.id,
+										damage: gv.screenDamage + gv.shieldDealt + gv.hullDealt,
+										result: evaded ? "evade" : "droneVolley",
+										shieldAfter: guard.shield,
+										hullAfter: guard.hull,
+										family: squadron.family,
+										projectilesHit: gv.dronesHit,
+										...(evaded ? {} : { shieldDamage: gv.shieldDealt, hullDamage: gv.hullDealt, screenDamage: gv.screenDamage, dronesDestroyed: gv.dronesDestroyed }),
+									},
 									cosmetic,
 								),
 							);
+							if (gv.killed) {
+								log.push(attachFlavor({ tDeciSec: t, round, type: "destroyed", actorId: self.id, targetId: guard.id, result: "destroyed", shieldAfter: guard.shield, hullAfter: guard.hull }, cosmetic));
+							}
 						}
+						// The struck ship's on-hit procs (a connecting volley), as the ordinary volley fires them.
+						if (modules !== null && gv.dronesHit > 0) modules.fire(guard, "onHit", t, self);
 						continue;
 					}
 					if (!target.alive) continue;

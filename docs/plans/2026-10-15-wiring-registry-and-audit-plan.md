@@ -1379,6 +1379,23 @@ Freighter 181 / 135 / 49 / 5 -> 186.5 / 158.5 / 50.5 / 3; Hauler 194 / 170 / 75 
 as the curve climbs. No default-suite golden moved (the combat goldens fly veterans); `safeFirstPatrol.test.ts` reads
 the rules floor for a live dispatch.
 
+**Follow-up review fixes (2026-10-23, one commit, after the feat merge ce8721d):** (1) a weapon's on-hit module procs
+fire on the ship the shot struck (`aim`: a Defensive ship's guard shot), not its target. (2) The guard drone volley
+(`fireSquadronAtDrones`) returns what it did: the struck foe's on-hit procs fire when a drone connects, its log line
+carries the real damage (`screenDamage` plus the shield / hull split) and `dronesDestroyed`, a kill logs `destroyed`,
+and the Simplified log says "hits X's drone screen for N, downing D". (3) The evasive close is read after the move,
+so it stops the tick a gun reaches. (4) A shield hit that drains the pool banks no absorb remainder. (5) The stance
+help says Defensive point defense goes after drones first "and missiles, when enemies carry them". (6) "installed"
+in shipModuleProcs.test.ts. Tests for each code fix (combatDescriptors.test.ts). Goldens: only fix 3 moves an
+outcome (an ablation with it undone reproduces the last pin): eir cand-2 loses one cloaked battle-grid fight again,
+forecasts Freighter Sweep 57 and Carrier Warband 23 (not advised, was 26 dice), simPlayer's training Sweep 733 shield;
+fixes 2 and 4 move only the Warband patrols' replays and hashes. CURVE_WINS re-pinned for fix 3 (48 cells, 9 of 400
+at most; Freighter Warband c0 still 373), every row still falls.
+**Coverage note (for WR-12 / 0.16.0):** after the merge no golden pins the combat rules, gear wear and ship modules
+TOGETHER: combatDescriptorGoldens runs with use wear off and no modules, and the EM-6 and gear wear goldens run with
+the combat rules off. A combined capture (a stamped patrol and expedition with worn gear and installed modules) is
+logged for WR-12 or the 0.16.0 balance pass.
+
 ### WR-9: Crew and officers beyond the CP slices
 
 Pilot Cunning (OC-E4), the transit split (OC-E5), Rapid Loadout scope (OC-E6), Morale Anchor's attrition half (OC-E7),

@@ -11,7 +11,7 @@ import { equippedFor } from "./equipment";
 import { shipCombatRulesStamp } from "./crewOverlay";
 import { replayPatrol } from "./combat/patrolReplay";
 import { shipToCombatant } from "./combat/bridge";
-import { resolveBattle, droneCooldown, droneTakesHit } from "./combat/resolveBattle";
+import { applyProjectileDamage, resolveBattle, droneCooldown, droneTakesHit } from "./combat/resolveBattle";
 import { makeDrone } from "./combat/drones";
 import { makeWeaponInstance } from "./combat/weapons";
 import { generateEnemyWave } from "./combat/enemyWave";
@@ -29,6 +29,10 @@ import {
   withWeaponRuleTraits,
 } from "./combat/combatRules";
 import { withCombatRulesOff } from "./combatRulesSwitch.fixture";
+import { applyModuleCombat } from "./combat/bridge";
+import { makeSquadron } from "./combat/drones";
+import { TEST_ARC_DISCHARGER, mintTestModule, withTestModules } from "./shipModulesTest.fixture";
+import { simplifiedLogTokens } from "./combat/combatView";
 import { onHull, withCrew } from "./firstRunsGoldens.fixture";
 import { asExpeditionVeteran, asPatrolVeteran, dispatchPastPropulsion } from "./awayTeamTestFixtures";
 import { shipEventEnemy, HOSTILE_PROBE_HULL } from "./shipScanEvents";
@@ -281,5 +285,89 @@ describe("WR-8 review: closing is evasive and the banked percents stay pure", ()
     const b = resolveBattle({ combatants: input }, 7, { combatRules: 1, precharge: true });
     expect(b).toEqual(a);
     expect(a.finalCombatants.every((c) => Number.isFinite(c.hull) && Number.isFinite(c.shield))).toBe(true);
+  });
+});
+
+describe("WR-8 review: a Defensive ship's guard fire is a real hit (on-hit procs, the log)", () => {
+  // An on-hit module that always procs, on BOTH foes: e0 is the Defensive ship's own target (the weakest, no drones),
+  // e1 fields a Defense screen (the guard target). Each foe's Arc Discharger fires only when that foe is struck.
+  const SURE = { ...TEST_ARC_DISCHARGER, id: "testModuleArcSure", chance: 1 };
+  const foe = (id: string, drones: boolean, hull: number) => {
+    const c = shipToCombatant({ id, team: "enemy", stats: { hullIntegrity: hull, shieldCapacity: 0, shieldRecharge: 0 }, drones: drones ? [makeSquadron("defense", undefined, 0, `${id}-d0`)] : [], position: 50, speed: 0, combatRules: true });
+    applyModuleCombat(c, [{ ...mintTestModule(SURE, "standard", 0, `${id}-arc`), fittedToShipId: id }], "patrol");
+    return c;
+  };
+  const battle = (weapons: string[], drones: string[]) =>
+    withTestModules([SURE], () =>
+      resolveBattle(
+        {
+          combatants: [
+            shipToCombatant({ id: "p", team: "player", stats: { hullIntegrity: 1_000_000, shieldCapacity: 0, shieldRecharge: 0 }, weaponLoadout: weapons.map((w, i) => makeWeaponInstance(w as never, `p-w${i}`)), drones: drones.map((d, i) => makeSquadron(d as never, undefined, 0, `p-d${i}`)), stance: "standoff", position: 0, speed: 0, combatRules: true }),
+            foe("e0", false, 50_000),
+            foe("e1", true, 100_000),
+          ],
+        },
+        9,
+        { combatRules: 1, precharge: true, generateLog: true },
+      ),
+    );
+  it("Point Defense guarding at the drone-fielding foe fires THAT foe's on-hit procs, never the untouched target's", () => {
+    const r = battle(["pointDefenseArray"], []);
+    // While e1's screen is up the guard shots land on e1 (once it is down the gun returns to its target, e0).
+    const ticksOn = (id: string) => new Set(r.log.filter((e) => e.type === "hit" && e.actorId === "p" && e.targetId === id).map((e) => e.tDeciSec));
+    const onE1 = ticksOn("e1");
+    const onE0 = ticksOn("e0");
+    expect(onE1.size).toBeGreaterThan(0);
+    const procTicks = (owner: string) => r.log.filter((e) => e.type === "moduleProc" && e.actorId === owner).map((e) => e.tDeciSec);
+    expect(procTicks("e1").filter((t) => onE1.has(t)).length).toBe(onE1.size);
+    expect(procTicks("e0").every((t) => onE0.has(t))).toBe(true);
+    expect(procTicks("e0").some((t) => onE1.has(t) && !onE0.has(t))).toBe(false);
+  });
+  it("a guard drone volley fires the struck foe's on-hit procs and logs the damage it dealt and the drones it downed", () => {
+    const r = battle([], ["attack"]);
+    // The guard volleys: the ones at e1 (once its screen is down the squadron returns to its target, e0).
+    const volleys = r.log.filter((e) => e.type === "droneVolley" && e.actorId === "p" && e.targetId === "e1");
+    expect(volleys.length).toBeGreaterThan(0);
+    const hits = volleys.filter((e) => e.result === "droneVolley");
+    expect(hits.length).toBeGreaterThan(0);
+    expect(hits.every((e) => (e.damage ?? 0) > 0 && (e.screenDamage ?? 0) + (e.shieldDamage ?? 0) + (e.hullDamage ?? 0) === e.damage)).toBe(true);
+    expect(volleys.reduce((n, e) => n + (e.dronesDestroyed ?? 0), 0)).toBeGreaterThan(0);
+    expect(volleys.every((e) => (e.projectilesHit ?? 0) <= 10)).toBe(true);
+    const hitTicks = new Set(hits.map((e) => e.tDeciSec));
+    const procTicks = r.log.filter((e) => e.type === "moduleProc" && e.actorId === "e1").map((e) => e.tDeciSec);
+    expect(procTicks.filter((t) => hitTicks.has(t)).length).toBe(hitTicks.size);
+    // The narration names the real damage (never "for 0"), and the screen hit says so.
+    const text = simplifiedLogTokens(hits[0], (id) => id.toUpperCase()).map((t) => t.text).join("");
+    expect(text).toContain(`drone screen for ${hits[0].screenDamage}`);
+    expect(text).not.toMatch(/for 0\b/);
+  });
+});
+
+describe("WR-8 review: the evasive close and the shield absorb carry", () => {
+  const defensive = () => shipToCombatant({ id: "d", team: "player", stats: { hullIntegrity: 10_000, shieldCapacity: 1_000, shieldRecharge: 0 }, stance: "standoff", combatRules: true });
+  it("a hit that drains a Defensive shield banks no remainder from the cost it never paid", () => {
+    const c = defensive();
+    c.shield = 7;
+    applyProjectileDamage(c, "kinetic", 0, 0, 100);
+    expect([c.shield, c.defensiveCarry?.absorb]).toEqual([0, 0]);
+    // A paid cost still banks its remainder (exact over the fight).
+    const d = defensive();
+    applyProjectileDamage(d, "kinetic", 0, 0, 10);
+    expect(d.defensiveCarry!.absorb).toBeGreaterThanOrEqual(0);
+    expect(d.defensiveCarry!.absorb).toBeLessThan(115);
+  });
+  it("the evasion stops the tick a gun reaches: no hit lands evaded once the closing ship is within its reach", () => {
+    // An autocannon ship (reach 100) closing at 30 on a stationary railgun platform (reach 300): every railgun hit the
+    // closer takes while its own gun is out of reach is cut, and none after.
+    const p = shipToCombatant({ id: "p", team: "player", stats: { hullIntegrity: 100_000, shieldCapacity: 0, shieldRecharge: 0 }, weaponLoadout: [makeWeaponInstance("autocannon", "p-w0")], stance: "aggressive", position: 0, speed: 30, combatRules: true });
+    const e = shipToCombatant({ id: "e", team: "enemy", stats: { hullIntegrity: 100_000, shieldCapacity: 0, shieldRecharge: 0 }, weaponLoadout: [makeWeaponInstance("railgun", "e-w0")], stance: "standoff", position: 300, speed: 0, combatRules: true });
+    const bare = { ...p, evasiveClose: undefined };
+    const a = resolveBattle({ combatants: [p, e] }, 5, { combatRules: 1, precharge: true, generateLog: true });
+    const b = resolveBattle({ combatants: [bare, e] }, 5, { combatRules: 1, precharge: true, generateLog: true });
+    const hits = (r: typeof a) => r.log.filter((x) => x.type === "hit" && x.actorId === "e");
+    const firstOwnShot = a.log.find((x) => (x.type === "hit" || x.type === "evade") && x.actorId === "p")!.tDeciSec;
+    const cut = hits(a).map((h, i) => [h.tDeciSec, (h.damage ?? 0) < (hits(b)[i].damage ?? 0)] as const);
+    expect(cut.some(([, c]) => c)).toBe(true);
+    expect(cut.filter(([t]) => t >= firstOwnShot).every(([, c]) => !c)).toBe(true);
   });
 });
