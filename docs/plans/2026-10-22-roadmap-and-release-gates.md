@@ -26,3 +26,15 @@ docs/plans/2026-09-15-exploration-crew-saga-0.14.0-design.md (:31 and :590-591).
 The tutorial AI should voice humor in adversity, for example: "Studies have found that a little humor in the face of adversity results in an improved mood and extra productivity." (source: docs/plans/2026-10-22-hotfix-0.13.11-secret-generator-capture.md, answer F3)
 
 Future theme work (user 2026-10-23): a theme STYLE dropdown with the gradient types (A wash, B edges, C one sweep, D wash plus shine) next to the color theme selector.
+
+0.14.2 theme builder idea (user 2026-10-23, verbatim): "Also. another idea for 0.14.2 as well. The theme unlocks. We
+might consider theme style unlocks, and then a color selector section where we select from teh colors we want. So, for
+example. The game then uses the selected colors and the theme style to generate one. So if blue/purple are selected
+and the wash plus shine style are selected, we get the reward offered now. If I choose red/black, we get a red and
+black version. We will want to make sure that when super dark colors are chosen (like black), the text doesn't become
+unreadable, so we might have a light gray in the text where black would appear."
+Reading: unlockable theme STYLES (A wash, B edges, C one sweep, D wash plus shine) plus a color picker for the gradient
+stops; the game generates the theme from style + colors (blue/purple + D = today's Starfall). Guard readability: when a
+chosen color is very dark (for example black), text and accents that would use it switch to a light gray, with an
+automatic contrast check (AA). Build note for 0.13.11.1: implement Starfall's two gradient stops as tokens (start =
+accent, end = purple) so 0.14.2 can feed user-picked colors into the same tokens.
