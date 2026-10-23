@@ -6760,8 +6760,9 @@ export const SALVAGE_TICKS_PER_QUALITY = 2;
 
 // MULTIPLIER on the equipment duration for the piece's own EquipmentRarity band. RAISING
 // an entry makes that whole band slower to break down; the ladder is meant to ascend
-// (derelict cheapest, the legendary flavors dearest) once tuned. All 1.0 = rarity is
-// free, today's behavior.
+// (Standard cheapest, the legendary flavors dearest) once tuned. Derelict has no say of its
+// own: it reads as the Standard-Issue floor (rarity readiness answer 9, itemValueRarity at the
+// use site). All 1.0 = rarity is free, today's behavior.
 //
 // ⚠️ ITS OWN TABLE OVER ITS OWN UNION, DELIBERATELY NOT SHARED WITH THE MATERIAL ARM'S.
 // EquipmentRarity (derelict / standard / augmented / stellar / radiant / luminous /
@@ -7031,7 +7032,9 @@ export function salvageDurationTicks(spec: SalvageDurationSpec): number {
       // arrive as a string the union does not contain via a hand-edited save, and
       // `undefined * n` is NaN. Guarded explicitly rather than trusted, because the cost
       // of being wrong here is a stuck bay.
-      const rarityMult = SALVAGE_EQUIPMENT_RARITY_MULTIPLIER[spec.rarity];
+      // Rarity readiness RR-7 (answer 9): looked up by itemValueRarity, so Derelict is the Standard-Issue floor here too
+      // (and a junk string reads Standard, an own key, never undefined).
+      const rarityMult = SALVAGE_EQUIPMENT_RARITY_MULTIPLIER[itemValueRarity(spec.rarity)];
       const safeRarityMult = Number.isFinite(rarityMult) && rarityMult > 0 ? rarityMult : 1;
 
       // --- Additive numeric axes, then the categorical multipliers -----------------

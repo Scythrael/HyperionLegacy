@@ -2390,7 +2390,7 @@ export function rollRelicToken(
   const rng = makeRng(seed >>> 0);
   const chance = relicChancePermille(hazard, findBonus, captain?.relicFindMult);
   if (!rng.chance(chance, 1000)) return null;
-  // REUSE the salvage tier ladder: hazard sets how far up the ordered tiers the roll can reach.
+  // The relic blank ladder (its own frozen table since RR-7): hazard sets how far up the ordered tiers the roll can reach.
   const ceiling = relicTierCeiling(hazard, captain?.relicTierLift);
   const tier = blank ? rollBlankRarity(rng, blank.tier, ceiling) : pickWeighted(rng, RELIC_BLANK_LADDER_I.slice(0, ceiling + 1)); // RR-7: the relic ladder, decoupled from salvage
   const studySpeed = captain?.relicStudySpeed;

@@ -470,3 +470,14 @@ wear rule; (5) neighbors: rarityTraps.test.ts (crew guard with the cap lifted, r
 warehouse tokens in both palettes). The QA checklist above covers the Debug minter path on desktop and a 375 px phone.
 The fan progress card's 33rd system (capture doc) is for the lead to post. Goldens: none moved. Gates: 318 files / 8765
 tests passed, check 0 errors.
+
+**RR-7 review fixes (2026-10-23):** (1) setShoutouts.ts: the gear half returns at once when the equipment, ships and
+members are the same references as before, and when no piece counts toward a set (`pieceSetId`, so a module without a
+set costs nothing); otherwise it groups set pieces by wearer in ONE pass; a scan counter (`gearShoutoutScanCount`) proves
+both skips. (2) registry.ts: only the DERELICT row turns notApplicable for matching the row below (a legendary row stays
+probed even if LEGENDARY_BUDGET_STEP were ever 1). (3) model.ts `salvageDurationTicks` reads its rarity multiplier by
+`itemValueRarity`, and the multiplier table's comment no longer calls Derelict the cheapest band. (4) The deferred crew
+rows' userRef quotes the user's words ("Yes, same for both (Recommended)") and paraphrases the rest. (5) An end-to-end
+five-tier salvage test: a fifth tier pushed into a pool is never rolled at Fleet Admiral 19 and is rolled at 20 (popped
+in finally). (6) relics.ts and gambit.ts comments describe the decoupled relic ladder. (7) App.svelte pushes the
+catch-up shoutouts after "Welcome back", so they read above it. Goldens: none moved.

@@ -3501,7 +3501,7 @@ function crewScalarEntries(): WiringEntry[] {
           status: {
             kind: "deferred",
             owner: "the patch that raises CREW_RARITY_CAP above Stellar",
-            userRef: "rarity readiness answer 7 (2026-10-22): \"Luminous and Constellar crew share one value; the cap stays at Stellar until the user raises it\"",
+            userRef: "rarity readiness answer 7 (2026-10-22): \"Yes, same for both (Recommended)\": multiplier rows Radiant to Constellar so higher crew are always stronger, Luminous and Constellar sharing one value, and the cap staying at Stellar until the user raises it",
           },
         }),
       );
@@ -4587,7 +4587,7 @@ function rarityProfileEntries(): WiringEntry[] {
     }
     // RR-7 (answer 9): Derelict reads the Standard-Issue floor's budget, so its signature line equals Standard's (the
     // equality is pinned in rarityTraps.test.ts); its one difference, no affixes, is a rolled-line fact.
-    if (row.budgetMult === RARITY_PROFILES[against].budgetMult) {
+    if (rarity === "derelict" && row.budgetMult === RARITY_PROFILES[against].budgetMult) {
       return entry({ id: `ship:RARITY_PROFILES:${rarity}`, system: "ship", source: { catalog: "RARITY_PROFILES", key: rarity }, claim, probe: "sheetCargo", notApplicable: `reads the ${against} row's budget (the Standard-Issue floor, rarity readiness answer 9)` });
     }
     // Review of RR-3: EVERY row, the legendary ones too, installs the signature line alone and moves EXACTLY by the

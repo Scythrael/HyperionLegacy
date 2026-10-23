@@ -460,7 +460,8 @@ export function undiscoveredResearchMask(relicId: string | undefined): { title: 
 // Identification (the keyed, tier-skewed roll a completed study runs)
 // ============================================================================
 
-// The four rarity TIERS the reward roll actually produces (SALVAGE_LOOT_POOLS standard..radiant). The
+// The four rarity TIERS the reward roll actually produces (the relic blank ladder standard..radiant, relicBlanks.ts
+// RELIC_BLANK_LADDER_I, decoupled from the salvage pools in rarity readiness RR-7). The
 // reserved ladder ends fold onto the nearest produced tier: derelict reads as standard, luminous /
 // constellar read as radiant.
 type SkewTier = "standard" | "augmented" | "stellar" | "radiant";

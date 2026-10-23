@@ -3511,11 +3511,12 @@
         pushLog(`Fuel is a reach stat now, so the fuel you held beyond the free starter tank was refunded: +${formatNumber(fuelRefund)} credits.`);
       }
       state = offlineSeconds > 5 ? tick(offlineSeconds, beforeSnapshot, Math.random, returnedAtMs) : beforeSnapshot;
-      // RR-7 (rarity readiness): a set completed while away (a relic study, or gear the catch-up changed) gets its
-      // shoutout on return, from the same before / after pair the summary reads.
-      for (const line of setCompletionShoutouts(beforeSnapshot, state)) pushLog(line);
       if (offlineSeconds > 5) {
         pushLog(`Welcome back. Advanced ${formatNumber(offlineSeconds)}s offline.`);
+        // RR-7 (rarity readiness): a set completed while away (a relic study, or gear the catch-up changed) gets its
+        // shoutout on return, from the same before / after pair the summary reads. Pushed AFTER the welcome line so it
+        // reads above it in the newest-first log (only a catch-up can complete a set here).
+        for (const line of setCompletionShoutouts(beforeSnapshot, state)) pushLog(line);
         // Only surface the full "While you were away" modal for a MEANINGFUL absence, and
         // only when the advance actually produced something to report (hasContent). A brief
         // drift, or an absence in which nothing happened, leaves the log line alone with no
