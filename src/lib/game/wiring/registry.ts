@@ -144,7 +144,9 @@ import { ROLE_TEMPLATE } from "../combat/drones";
 import { PIRATE_HULLS } from "../combat/enemyHulls";
 import { STATUS_EFFECT_DEFS } from "../combat/statusEffects";
 import { DAMAGE_CONTROL_SUITE_KEY, DC_REPAIR_SPEED_B, DC_REPAIR_SPEED_R, DC_WAVE_REGEN_B, DC_WAVE_REGEN_R, PF_HAZARD_RESIST_B, PF_HAZARD_RESIST_R, PF_SCAN_SPEED_B, PF_SCAN_SPEED_R } from "../utilityGear";
-import { DRONE_POD_AFFIX_POOL, DRONE_POD_IMPLICIT_STAT, WEAPON_AFFIX_POOL, WEAPON_IMPLICIT_STAT, budgetAtMult, budgetShares, generateEquipment } from "../itemgen";
+import { DRONE_POD_AFFIX_POOL, DRONE_POD_IMPLICIT_STAT, WEAPON_AFFIX_POOL, WEAPON_IMPLICIT_STAT, budgetAtMult, budgetShares, generateEquipment, legendaryAffixLineValue } from "../itemgen";
+// RARITY READINESS RR-5: the Luminous legendary affix catalog (each row measured on its fold).
+import { LUMINOUS_AFFIXES } from "../legendaryAffixes";
 // RARITY READINESS RR-3: the per-rarity profile table (each row measured on a real mint).
 import { RARITY_PROFILES } from "../rarityProfiles";
 // RARITY READINESS RR-4: the Nova / Celestial budget multipliers (each measured on a real legendary mint).
@@ -386,6 +388,8 @@ export const CATALOGS = {
   RARITY_PROFILES,
   // RARITY READINESS RR-4: the ascension budget multipliers.
   ASCENSION_BUDGET_MULT,
+  // RARITY READINESS RR-5: the Luminous legendary affixes.
+  LUMINOUS_AFFIXES,
   WEAR_EFFICIENCY,
   // The reactor fuel ladder (0.14.0, reactorTech.ts): the fuel each Reactor Core blueprint takes.
   REACTOR_FUEL_LADDER,
@@ -4411,6 +4415,8 @@ const SHORT_RANGE_SWEEP_OUT_OF_SCOPE: Readonly<Record<string, string>> = {
   "fleetAdmiral:HOMEWORLD_TALENTS:fleetLogisticsYield": NO_EXTRACTING,
   "facility:FACILITIES:missionControl:0": "the short-range board's two base slots need no Mission Control level; its later slots are the MISSION_CONTROL_BOARD_RUNGS (addShortRangeSlot)",
   "ship:gearLine:materialQualityChance": "a Prospecting Rig's ore quality is an extraction line; a short-range pickup's ore takes the deposit's own quality roll",
+  // Rarity readiness RR-5: the Transmuter's Seal legendary affix rides the same line, so the same reason.
+  "ship:LUMINOUS_AFFIXES:transmutersSeal": "a Prospecting Rig's ore quality is an extraction line; a short-range pickup's ore takes the deposit's own quality roll",
   "relic:MUSEUM_STATS:rareMaterialChance": NO_EXTRACTING,
 };
 // The Trade margin talents pay a drop-off's margin in whole credits (shortRangeCycle.ts shortRangeDropOffMargin rounds
@@ -4488,6 +4494,7 @@ function build(): readonly WiringEntry[] {
     ...reactorTechEntries(),
     ...rarityProfileEntries(),
     ...ascensionEntries(),
+    ...legendaryAffixEntries(),
     ...auditEntries(),
     ...speedSeamEntries(),
     ...wearEntries(),
@@ -4599,6 +4606,76 @@ function ascensionEntries(): WiringEntry[] {
       on: rarityCargoMint("luminous", true, ascension),
       off: rarityCargoMint("luminous", true),
       note: "measured through generateEquipment (itemgen.ts ascendedProfile reads the row)",
+    });
+  });
+}
+
+// RARITY READINESS RR-5: each LUMINOUS_AFFIXES row, measured on the fold its stat line already moves. The row's value is
+// its budget share of a Luminous piece at the registry's reference roll (iLevel 40, quality 5), through the mint's own
+// legendaryAffixLineValue; the piece carrying that line goes on ship-1 (or on the squad's member) against the same piece
+// without it, through the SAME seam the gear line's own entry uses (LINE_SEAMS, or gearSeam for a member line), with the
+// seam's curve evaluated at the row's value. legendaryAffixes.test.ts pins that a Luminous mint adds exactly that value.
+const legendaryProbeBudget = (c: Catalogs): number => budgetAtMult(RARITY_PROBE_ILEVEL, RARITY_PROBE_QUALITY, c.RARITY_PROFILES.luminous.budgetMult);
+const legendaryValue = (c: Catalogs, id: string): number => legendaryAffixLineValue(c.LUMINOUS_AFFIXES.find((d) => d.id === id)!, legendaryProbeBudget(c));
+// A ship line's seam at an arbitrary number of points (the LINE_SEAMS shapes, generalized from LINE_POINTS).
+const SHIP_LINE_AT: Readonly<Record<string, (c: Catalogs, points: number) => number>> = {
+  cargoCapacity: (_c, p) => p,
+  fuelCapacity: (_c, p) => p,
+  powerOutput: (_c, p) => p,
+  colonistCapacity: (_c, p) => p,
+  weaponYield: (_c, p) => p,
+  droneHp: (_c, p) => p,
+  hullStrength: (_c, p) => p,
+  shieldCapacity: (c, p) => p * hullDefenseComposition(c.SHIP_TYPES.destroyer).shieldCapEffectiveness,
+  materialQualityChance: (_c, p) => materialQualityClimbChance(p),
+};
+// The squad a member row is measured on (one that may wear the slot's first matching variety).
+const LEGENDARY_MEMBER_TEAM: Readonly<Partial<Record<string, AwayTeamType>>> = {
+  memberWeapon: "security",
+  memberArmor: "security",
+  memberTool: "science",
+  implant: "security",
+};
+function legendaryAffixEntries(): WiringEntry[] {
+  return LUMINOUS_AFFIXES.map((def) => {
+    const slotType = def.slotTypes[0];
+    const value = legendaryValue(CATALOGS, def.id);
+    const claim = `${def.label} (a Luminous ${slotType} legendary affix): ${def.budgetShare * 100}% of the piece's budget onto ${def.stat}`;
+    const source = { catalog: "LUMINOUS_AFFIXES", key: def.id };
+    const team = LEGENDARY_MEMBER_TEAM[slotType];
+    if (team !== undefined) {
+      const seam = gearSeam(team, def.stat as MemberGroundStatKey, (c) => legendaryValue(c, def.id))!;
+      const variety = EQUIPMENT_SLOTS[slotType].varieties.find((v) => v.member?.teamTypes.includes(team))!;
+      return entry({
+        id: `away:LUMINOUS_AFFIXES:${def.id}`,
+        system: "away",
+        source,
+        claim,
+        probe: seam.probe,
+        contexts: [seam.context],
+        curve: seam.curve,
+        magnitude: seam.magnitude,
+        tolerance: seam.tolerance,
+        base: () => withAwayTeam(wiringBase()),
+        on: (s) => wearPiece(s, wearerOf(team), slotType, variety.key, { [def.stat]: value }),
+        off: (s) => wearPiece(s, wearerOf(team), slotType, variety.key, {}),
+      });
+    }
+    const seam = LINE_SEAMS[def.stat]!;
+    const at = SHIP_LINE_AT[def.stat]!;
+    return entry({
+      id: `ship:LUMINOUS_AFFIXES:${def.id}`,
+      system: "ship",
+      source,
+      claim,
+      probe: seam.probe,
+      contexts: seam.contexts,
+      curve: seam.curve,
+      magnitude: (c) => at(c, legendaryValue(c, def.id)),
+      tolerance: seam.tolerance,
+      ...(seam.base ? { base: seam.base } : {}),
+      on: shipPiece(def.stat, value),
+      off: shipPiece(def.stat, 0),
     });
   });
 }

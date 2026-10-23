@@ -673,6 +673,8 @@
   // RR-2 (rarity readiness): the minter's picker lists (EVERY band and ascension, Debug tab only) and the rule that
   // drops an ascension a band cannot carry.
   import { devMintFromBlueprint, DEV_MINT_RARITIES, DEV_MINT_ASCENSIONS, devMintAscension } from "./lib/game/devMint";
+  // RR-5 (rarity readiness): the minted Luminous piece's legendary affix name, for the Debug log line.
+  import { legendaryAffixDef } from "./lib/game/legendaryAffixes";
   // Combat 0.13.0 dev harness (Debug tab only): the ship->Combatant bridge
   // (shipToCombatant + the illustrative sampleLoadout), the sim entry point
   // (resolveBattle), and the plain dev log renderer (formatCombatLog). These wire
@@ -5025,7 +5027,7 @@
       nextEquipmentId: state.nextEquipmentId + 1,
     };
     doSave();
-    pushLog(`[DEV] Minted crafted ${piece.id}: ${bp.label} (${piece.slotType} · ${piece.rarity}${piece.ascension === "none" ? "" : " " + piece.ascension} q${piece.quality} · iL${piece.iLevel} · bp ${piece.blueprintKey}).`);
+    pushLog(`[DEV] Minted crafted ${piece.id}: ${bp.label} (${piece.slotType} · ${piece.rarity}${piece.ascension === "none" ? "" : " " + piece.ascension} q${piece.quality} · iL${piece.iLevel} · bp ${piece.blueprintKey}${piece.legendaryAffixId ? " · " + (legendaryAffixDef(piece.legendaryAffixId)?.label ?? piece.legendaryAffixId) : ""}).`);
   }
 
   // [DEV] Non-destructively preview the SavePersistWarning banner. Flips ONLY the

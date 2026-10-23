@@ -63,6 +63,8 @@ import {
 import { makeRng } from "./combat/rng";
 // RARITY READINESS RR-4: Nova / Celestial on a legendary (the ascended profile row). A leaf over model + rarityProfiles.
 import { ascendedProfile } from "./ascension";
+// RARITY READINESS RR-5: the Luminous legendary affix catalog (a leaf over model.ts types).
+import { legendaryAffixesFor, type LegendaryAffixDef } from "./legendaryAffixes";
 // Combat 1.0 (Unit 1.2): the weapon roster templates + id union. generateWeapon (below) mints a
 // crafted weapon by rolling power lines off a base WEAPON_DEF. This is a safe one-way import:
 // combat/weapons imports only combat/types + combat/statusEffects, never itemgen, so no cycle.
@@ -331,6 +333,11 @@ export function affixCount(rarity: EquipmentRarity, rng: () => number): number {
 //      ADDED onto that line (a new line when the piece lacks it), worth SECONDARY_BUDGET_SHARE of the piece's budget,
 //      through rolledLineValue (berths for a guest line). Secondaries land in rolledStats, so every existing fold, the
 //      tooltip, salvage and the combat bridge read them with no new consumer.
+//   3. RR-5: on a band whose row has `legendaryAffix` (Luminous), ONE Luminous legendary affix drawn uniformly from the
+//      slot's rows (legendaryAffixes.ts legendaryAffixesFor), LAST, so the Artisan and secondary draws before it are
+//      exactly RR-3's. Its value (legendaryAffixLineValue) is ADDED onto its stat line like a secondary. Returns the
+//      drawn row's id (the generator stamps it as legendaryAffixId), or undefined (no row for the slot, or not a
+//      legendary-affix band, or no slotType given).
 // Mutates `rolledStats` (the generator's own fresh record). Exported for its tests.
 // ============================================================================
 export function rollRarityExtras(
@@ -340,8 +347,9 @@ export function rollRarityExtras(
   pickedStats: readonly string[],
   rolledStats: Record<string, number>,
   rng: () => number,
-): void {
-  if (profile.secondaries <= 0 && profile.artisanPermille <= 0) return;
+  slotType?: EquipmentSlotType,
+): string | undefined {
+  if (profile.secondaries <= 0 && profile.artisanPermille <= 0 && !profile.legendaryAffix) return undefined;
   const seed = (Math.floor(rng() * 0x100000000) ^ RARITY_EXTRAS_SALT) >>> 0;
   const extras = makeRng(seed);
   if (profile.artisanPermille > 0 && extras.chance(profile.artisanPermille, 1000)) {
@@ -352,12 +360,25 @@ export function rollRarityExtras(
     }
   }
   const candidates = [...new Set(affixPool.map((e) => e.stat))].filter((s) => s !== "groundCarryCapacity");
-  if (candidates.length === 0) return;
-  const each = Math.round(budget * SECONDARY_BUDGET_SHARE);
-  for (let i = 0; i < profile.secondaries; i++) {
-    const s = candidates[extras.nextInt(candidates.length)];
-    rolledStats[s] = (rolledStats[s] ?? 0) + rolledLineValue(s, each);
+  if (candidates.length > 0) {
+    const each = Math.round(budget * SECONDARY_BUDGET_SHARE);
+    for (let i = 0; i < profile.secondaries; i++) {
+      const s = candidates[extras.nextInt(candidates.length)];
+      rolledStats[s] = (rolledStats[s] ?? 0) + rolledLineValue(s, each);
+    }
   }
+  if (!profile.legendaryAffix || slotType === undefined) return undefined;
+  const rows = legendaryAffixesFor(slotType);
+  if (rows.length === 0) return undefined;
+  const def = rows[extras.nextInt(rows.length)];
+  rolledStats[def.stat] = (rolledStats[def.stat] ?? 0) + legendaryAffixLineValue(def, budget);
+  return def.id;
+}
+
+// RR-5: the value a legendary affix row adds to its stat line on a piece of this budget: its budget share, rounded,
+// through rolledLineValue (berths for a guest line). Pure.
+export function legendaryAffixLineValue(def: LegendaryAffixDef, budget: number): number {
+  return rolledLineValue(def.stat, Math.round(budget * def.budgetShare));
 }
 
 // ============================================================================
@@ -548,7 +569,7 @@ export function generateEquipment(a: {
   }
   // RR-3: a legendary's secondaries and Artisan, after the picks (no draw at all for a live band). Before the physicals
   // fold below, so a secondary mass or draw reduction is consumed like a rolled one.
-  rollRarityExtras(profile, budget, affixPool, rolledStatKeys, rolledStats, a.rng);
+  const legendaryAffixId = rollRarityExtras(profile, budget, affixPool, rolledStatKeys, rolledStats, a.rng, a.slotType); // RR-5: and the legendary affix
 
   // --- Fold massReduction / powerDrawReduction into the physicals -------------
   // These two affixes, when rolled, are consumed into mass/powerDraw and dropped as
@@ -598,6 +619,8 @@ export function generateEquipment(a: {
     durabilityMax,
     fittedToShipId: null, // spare in the pool until a later fitting task assigns it
   };
+  // RR-5: a Luminous piece names its legendary affix (optional + additive: absent on every other piece, no migration).
+  if (legendaryAffixId !== undefined) piece.legendaryAffixId = legendaryAffixId;
   // A slot whose per-variety EFFECT is catalog-resolved persists WHICH variety it rolled, so the
   // consumer can look the effect up (the generic variety machinery does not store the variety).
   //   - Crew 0.14.0 (Phase 1b): a CREW MODULE (bridge / quarters) stores a QUARTERS_MODULES /
@@ -704,7 +727,7 @@ export function generateWeapon(a: {
   for (const stat of rolledStatKeys) {
     rolledStats[stat] = affixEach;
   }
-  rollRarityExtras(profile, budget, WEAPON_AFFIX_POOL, rolledStatKeys, rolledStats, a.rng); // RR-3
+  const legendaryAffixId = rollRarityExtras(profile, budget, WEAPON_AFFIX_POOL, rolledStatKeys, rolledStats, a.rng, "weapon"); // RR-3 / RR-5
 
   // --- Durability: quality-scaled off the weapon template's base ceiling, starts full ----
   const durabilityMax = Math.round(template.durabilityMax * (1 + a.quality * QUALITY_DURABILITY_BONUS));
@@ -724,6 +747,7 @@ export function generateWeapon(a: {
     powerDraw: template.powerDraw, // the weapon's reactor draw (design S10), from its def
     durabilityMax,
     fittedToShipId: null, // spare in the pool until the install path (Unit 1.3+) assigns it
+    ...(legendaryAffixId !== undefined ? { legendaryAffixId } : {}), // RR-5
   };
 }
 
@@ -821,7 +845,7 @@ export function generateDronePod(a: {
   for (const stat of rolledStatKeys) {
     rolledStats[stat] = affixEach;
   }
-  rollRarityExtras(profile, budget, DRONE_POD_AFFIX_POOL, rolledStatKeys, rolledStats, a.rng); // RR-3
+  const legendaryAffixId = rollRarityExtras(profile, budget, DRONE_POD_AFFIX_POOL, rolledStatKeys, rolledStats, a.rng, "droneBay"); // RR-3 / RR-5
 
   // --- Durability: quality-scaled off the pod's first-pass base ceiling, starts full ----
   const durabilityMax = Math.round(DRONE_POD_BASE_DURABILITY * (1 + a.quality * QUALITY_DURABILITY_BONUS));
@@ -841,6 +865,7 @@ export function generateDronePod(a: {
     powerDraw: DRONE_POD_BASE_POWER_DRAW,
     durabilityMax,
     fittedToShipId: null, // spare in the pool until the install path (Unit 2.1b+) assigns it
+    ...(legendaryAffixId !== undefined ? { legendaryAffixId } : {}), // RR-5
   };
 }
 

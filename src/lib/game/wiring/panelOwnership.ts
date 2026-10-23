@@ -138,6 +138,7 @@ export const CONTENT_CATALOGS: ReadonlySet<string> = new Set([
   // Rarity readiness RR-3: the per-rarity rows every minted piece rolls by (content, like the loot pools).
   "RARITY_PROFILES",
   "ASCENSION_BUDGET_MULT", // RR-4: the ascension rows, content like the rarity rows
+  "LUMINOUS_AFFIXES", // RR-5: the legendary affix rows a Luminous piece rolls (content)
   "WEAR_SOURCES",
   "REPAIR_RATES",
   "REPAIR_RATE_BONUSES",

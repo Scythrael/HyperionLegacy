@@ -149,7 +149,7 @@ Each is recorded so the reviewer can check it against the answers. Numbers carry
 **Interfaces:** `interface LegendaryAffixDef { id; label [PROPOSAL]; slotTypes; stat (an existing fold key); budgetShare [PROVISIONAL] }`, `LUMINOUS_AFFIXES`, `legendaryAffixesFor(slotType)`, `validateLegendaryAffixDef`.
 
 - [ ] Failing tests: every live slot family has at least one affix; each stat key is read by a live fold (validator against the fold vocabulary); a Luminous mint carries exactly one, a Constellar or live mint none; the line measurably moves the fold (probe). (No unique-equipped rule: [PROPOSAL], awaiting the user.)
-- [ ] Proposed v1 names [PROPOSAL], one per family: Weapon "Starfall Lance" (weaponYield), Drone pod "Hivemind Relay" (droneHp), Shield emitter "Aegis Lattice" (shieldCapacity), Hull plating "Bulwark of Sol" (hullStrength), Cargo bay "Bottomless Hold" (cargoCapacity), FTL drive "Fold Engine" (transitSpeedMult), Reactor core "Heart of a Star" (powerOutput), Sensor "Far Watcher" (sensors), Member armor "Last Stand Weave", Member weapon "Oathkeeper", Member tool "Master's Touch", Implant "Second Sight" (member stats each on an existing ground stat key). The user names or replaces them before any ship.
+- [ ] Proposed v1 names [PROPOSAL], one per family (as built in RR-5; each on a line its slot already rolls and a live fold reads): Weapon "Starfall Lance" (weaponYield), Drone pod "Hivemind Relay" (droneHp), Shield emitter "Aegis Lattice" (shieldCapacity), Hull plating "Bulwark of Sol" (hullStrength), Cargo bay "Bottomless Hold" (cargoCapacity), FTL drive "Endless Wake" (fuelCapacity; transitSpeedMult runs on a diminishing curve and is pending at patrols), Reactor core "Heart of a Star" (powerOutput), Spec utility "Transmuter's Seal" (materialQualityChance, read on every variety; the scan and hazard lines are suite-only), Quarters "Grand Concourse" (colonistCapacity), Member weapon "Oathkeeper" (groundPower), Member armor "Last Stand Weave" (groundArmor), Member tool "Master's Touch" (groundRelicFind), Implant "Second Sight" (groundHp). NO affix (no inert line): Bridge (crewEfficiency is read by nothing yet), Sensor (the sensors line is deferred; "Far Watcher" dropped), Module (EM-7). The user names or replaces them before any ship.
 - [ ] Commit `feat(0.14.0): Luminous legendary affix catalog (RR-5)`.
 
 ### Slice RR-6: one shared set engine
@@ -279,3 +279,19 @@ the sheet cargo moving by EXACTLY the implicit difference, linearAbsolute), held
 ascension pins, `rr3+rr4:load:legendary`, `rr4+rr7:reader:sort:all`, `rr4+rr7:reader:keepBest:all`;
 `rr4:load:liveAscended` did NOT move (a stray ascension on a live band is ignored), which is the rule working. Gates:
 312 files / 8677 tests passed, check 0 errors.
+
+**RR-5 (2026-10-23):** new leaf `legendaryAffixes.ts`: `LUMINOUS_AFFIXES` (13 rows, names [PROPOSAL], listed in the RR-5
+step above), `LEGENDARY_AFFIX_BUDGET_SHARE` [PROVISIONAL 0.25 of the piece's budget, added on top],
+`LEGENDARY_AFFIX_EXCLUDED` (bridge, sensor, module, each with why; listed in UNREAD_CONSTANTS as bookkeeping),
+`legendaryAffixesFor`, `legendaryAffixDef`. `RarityProfile.legendaryAffix` (Luminous only; Constellar untouched until
+RR-6; an ascension keeps it). itemgen.ts `rollRarityExtras` draws the row LAST on the private extras stream (the Artisan
+and secondary draws stay RR-3's; still one shared draw), adds `legendaryAffixLineValue` onto the row's stat line and
+returns the id; all three generators stamp `EquipmentInstance.legendaryAffixId` (optional, additive, no migration). NO
+per-ship or per-member limit ([PROPOSAL], not built; a test pins that two pieces with the same affix are allowed). The App
+Debug mint log names the affix. Registry: 13 LUMINOUS_AFFIXES rows (9 ship, 4 away), each through its line's own seam
+(LINE_SEAMS or gearSeam) evaluated at the row's value at the reference Luminous roll, exact curves; Transmuter's Seal
+shares the material quality line's short-range out-of-scope reason. Goldens: the legendary pins were relabeled to their
+real owners (Luminous `rr3+rr5` / `rr3+rr4+rr5`, Constellar `rr3+rr6` / `rr3+rr4+rr6`, `rr3+rr4+rr5+rr6:load:legendary`;
+RESERVED_OWNER accepts rr3 to rr7). LIVE none moved; RESERVED 41 moved, every one rr5-owned: 39 Luminous generator pins
+(13 families with an affix x none / Nova / Celestial; the bridge and sensor pins did not move),
+`rr3+rr5:devMint:luminous`, `rr3+rr4+rr5+rr6:load:legendary`; no Constellar pin moved. Gates: 313 files / 8700 tests passed, check 0 errors.

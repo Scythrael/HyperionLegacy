@@ -2001,6 +2001,10 @@ export interface EquipmentInstance {
   // alone. Set by a later E-CREW task; nothing writes it yet. Absent or null = not worn. Optional +
   // additive (like weaponType / committedToLoadoutId), so no save migration.
   fittedToMemberId?: string | null;
+  // RARITY READINESS RR-5: the Luminous legendary affix this piece rolled (legendaryAffixes.ts LUMINOUS_AFFIXES id). Its
+  // value is already in rolledStats under the row's stat key, so every fold reads it; this names it. Absent on every
+  // non-Luminous piece. Optional + additive (like moduleVariant), so no save migration.
+  legendaryAffixId?: string;
   integrity?: string;                     // RESERVED: server-minted anti-tamper token for the multiplayer era; unset this patch
   // --- 0.13.3.1 auto-salvage additions (Features 2 + 3) ------------------------------
   // FAVORITED: the player has pinned this exact piece, which makes it permanently exempt

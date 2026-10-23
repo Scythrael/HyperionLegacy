@@ -64,6 +64,7 @@ import { DATA_STUDY_ITEM_IDS } from "../dataStudy";
 import { REACTOR_TECH_TIERS, REACTOR_VARIETY_TECH } from "../reactorTech";
 import { RARITY_PROFILES } from "../rarityProfiles";
 import { ASCENSION_BUDGET_MULT } from "../ascension";
+import { LUMINOUS_AFFIXES } from "../legendaryAffixes";
 
 // Field Kits FKR-5: the sources each grenade carries (its GrenadeTraits, as the registry measures them). Timed grenades
 // (user 2026-10-21): its fuse (the turns from the throw to the blast) and, on a timed one, the moved-clear chance.
@@ -200,6 +201,8 @@ export function enumerateEffectSources(): EffectSource[] {
   add("RARITY_PROFILES", Object.keys(RARITY_PROFILES));
   // RARITY READINESS RR-4: one row per ascension (the Nova / Celestial budget multipliers).
   add("ASCENSION_BUDGET_MULT", Object.keys(ASCENSION_BUDGET_MULT));
+  // RARITY READINESS RR-5: one row per Luminous legendary affix.
+  add("LUMINOUS_AFFIXES", LUMINOUS_AFFIXES.map((d) => d.id));
   add("WEAPON_DEFS", Object.keys(WEAPON_DEFS));
   add("ROLE_TEMPLATE", Object.keys(ROLE_TEMPLATE));
   add("STATUS_EFFECT_DEFS", Object.keys(STATUS_EFFECT_DEFS));

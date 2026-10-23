@@ -52,6 +52,8 @@ export interface RarityProfile {
   readonly extraAffixChance: number; // chance of one more affix (ONE shared-stream draw when > 0; Augmented only)
   readonly secondaries: number; // extra lines on the private extras stream (legendary only, answer 6)
   readonly artisanPermille: number; // the Artisan chance per mille, on the private extras stream (legendary only)
+  // RR-5 (answer 1): the band rolls ONE Luminous legendary affix (legendaryAffixes.ts) on the private extras stream.
+  readonly legendaryAffix: boolean;
 }
 
 // A live band's budget multiplier: exactly the double the pre-RR-3 budget computed (RARITY_MULT ** rarityIndex).
@@ -60,13 +62,13 @@ const LEGENDARY_MULT = RARITY_MULT ** rarityIndex("radiant") * LEGENDARY_BUDGET_
 
 // The table. TOTAL over the ladder, so a new band is a compile error here until it is answered for.
 export const RARITY_PROFILES: Readonly<Record<EquipmentRarity, RarityProfile>> = {
-  derelict: { budgetMult: liveMult("derelict"), affixes: 0, extraAffixChance: 0, secondaries: 0, artisanPermille: 0 },
-  standard: { budgetMult: liveMult("standard"), affixes: 2, extraAffixChance: 0, secondaries: 0, artisanPermille: 0 },
-  augmented: { budgetMult: liveMult("augmented"), affixes: 2, extraAffixChance: 0.25, secondaries: 0, artisanPermille: 0 },
-  stellar: { budgetMult: liveMult("stellar"), affixes: 3, extraAffixChance: 0, secondaries: 0, artisanPermille: 0 },
-  radiant: { budgetMult: liveMult("radiant"), affixes: 3, extraAffixChance: 0, secondaries: 0, artisanPermille: 0 },
-  luminous: { budgetMult: LEGENDARY_MULT, affixes: 3, extraAffixChance: 0, secondaries: 2, artisanPermille: ARTISAN_CHANCE_PERMILLE },
-  constellar: { budgetMult: LEGENDARY_MULT, affixes: 3, extraAffixChance: 0, secondaries: 1, artisanPermille: ARTISAN_CHANCE_PERMILLE },
+  derelict: { budgetMult: liveMult("derelict"), affixes: 0, extraAffixChance: 0, secondaries: 0, artisanPermille: 0, legendaryAffix: false },
+  standard: { budgetMult: liveMult("standard"), affixes: 2, extraAffixChance: 0, secondaries: 0, artisanPermille: 0, legendaryAffix: false },
+  augmented: { budgetMult: liveMult("augmented"), affixes: 2, extraAffixChance: 0.25, secondaries: 0, artisanPermille: 0, legendaryAffix: false },
+  stellar: { budgetMult: liveMult("stellar"), affixes: 3, extraAffixChance: 0, secondaries: 0, artisanPermille: 0, legendaryAffix: false },
+  radiant: { budgetMult: liveMult("radiant"), affixes: 3, extraAffixChance: 0, secondaries: 0, artisanPermille: 0, legendaryAffix: false },
+  luminous: { budgetMult: LEGENDARY_MULT, affixes: 3, extraAffixChance: 0, secondaries: 2, artisanPermille: ARTISAN_CHANCE_PERMILLE, legendaryAffix: true },
+  constellar: { budgetMult: LEGENDARY_MULT, affixes: 3, extraAffixChance: 0, secondaries: 1, artisanPermille: ARTISAN_CHANCE_PERMILLE, legendaryAffix: false },
 };
 
 // A band's row. Total: an unknown value reads the Standard row (RR-1, the Standard-Issue floor). Pure.
