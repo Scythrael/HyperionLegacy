@@ -10,6 +10,7 @@ docs/plans/2026-09-15-exploration-crew-saga-0.14.0-design.md (:31 and :590-591).
 | 0.13.11.1 | Codes and minigame follow-up (strip, SUPERDUPERLEET, joke lines, Help/Minigames/Settings block, Upgrades tab, e10,000,000 stretch, Starfall prize theme) |
 | 0.14.1 (or 0.14.x) | Online, a subpatch right after 0.14.0; also the developer's personal red/gray/gold theme once accounts can tell who is who |
 | 0.14.2 | Desktop layout pass (mobile stays; inspired by a friend's project, screenshot to come) |
+| 0.14.3 | Achievements: main-game achievements, the theme builder (moved from 0.14.2), minigame rewards paying out (back pay), real codes and giveaways; systems fully wired, numbers balanced in 0.16.0 (outline: docs/plans/2026-10-23-0.14.3-achievements-outline.md) |
 | 0.15.0 | Tutorial, story and quests |
 | 0.16.0 | Balancing (and content) patch |
 
