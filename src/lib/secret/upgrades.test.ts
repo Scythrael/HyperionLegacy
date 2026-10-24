@@ -1,4 +1,4 @@
-// upgrades.test.ts: the four e1,000,000 upgrades, the e10,000,000 milestone, hidden milestones,
+// upgrades.test.ts: the late upgrades (staggered from e1,000,000), the e10,000,000 milestone, hidden milestones,
 // the Stats peaks and the found flag (0.13.11.1).
 import { describe, it, expect } from "vitest";
 import Decimal from "break_infinity.js";
@@ -27,8 +27,14 @@ import {
   doCaptain,
   stepMut,
   pow10,
+  upgradeUnlocked,
+  encabulatorFactor,
+  tierMultiplier,
+  overdrivePower,
+  sharpenFactor,
+  produceMut,
 } from "./engine";
-import { UPGRADES, UPGRADES_AT, STARFALL_EXPONENT, MILESTONES, milestoneAchievement, type UpgradeId } from "./config";
+import { UPGRADES, UPGRADES_AT, STARFALL_EXPONENT, MILESTONES, OVERDRIVE_POWER, milestoneAchievement, type UpgradeId } from "./config";
 
 // A state whose best and current Ore sit at effective exponent e.
 function atEffective(e: number): SecretState {
@@ -54,7 +60,7 @@ const withLevel = (s: SecretState, id: UpgradeId, n: number): SecretState => {
 
 describe("the effective scale's inverse", () => {
   it("unsoftenExponent undoes softenExponent", () => {
-    for (const e of [10, 777777, 800000, 1e6, 3.3e6, 1e7]) expect(softenExponent(unsoftenExponent(e))).toBeCloseTo(e, 3);
+    for (const e of [10, 777777, 800000, 1e6, 3.3e6, 1e7, 1.02e7, 1.3e7, 3e7]) expect(softenExponent(unsoftenExponent(e)) / e).toBeCloseTo(1, 9);
   });
 });
 
@@ -203,6 +209,16 @@ describe("hidden milestones", () => {
     expect(milestoneVisible(s, "starfall")).toBe(false);
     s.milestones.finale = 4;
     s.milestones.long = 5;
+    // 0.13.11.1 content pacing: the beats on the way to e10,000,000, one at a time too
+    expect(milestoneVisible(s, "e2m")).toBe(true);
+    expect(milestoneVisible(s, "e3m")).toBe(false);
+    expect(milestoneVisible(s, "starfall")).toBe(false);
+    s.milestones.e2m = 6;
+    s.milestones.e3m = 7;
+    s.milestones.e5m = 8;
+    expect(milestoneVisible(s, "e7m")).toBe(true);
+    expect(milestoneVisible(s, "starfall")).toBe(false);
+    s.milestones.e7m = 9;
     expect(milestoneVisible(s, "starfall")).toBe(true);
   });
 
@@ -247,5 +263,82 @@ describe("the Stats peaks and the found flag", () => {
     expect(a.found).toBe(true);
     expect(a.foundAt).toBe(100);
     expect(markFound(a, 200)).toBe(a);
+  });
+});
+
+describe("0.13.11.1: past e10,000,000 a second bend (user: \"Slow it after e10M\")", () => {
+  it("leaves everything up to e10,000,000 exactly as it was and only slows above it, never stopping", () => {
+    const at10M = unsoftenExponent(1e7);
+    expect(softenExponent(at10M)).toBeCloseTo(1e7, 3);
+    // a raw step past e10,000,000 moves the effective exponent less than it used to, but always forward
+    let last = softenExponent(at10M);
+    for (const raw of [at10M * 1.5, at10M * 3, at10M * 10, at10M * 100]) {
+      const e = softenExponent(raw);
+      expect(e).toBeGreaterThan(last);
+      last = e;
+    }
+    expect(softenExponent(at10M * 10)).toBeLessThan(2e7);
+  });
+});
+
+describe("0.13.11.1 content pacing: staggered and new upgrades, new milestones", () => {
+  it("each upgrade wakes at its own best Ore, in order, the first at e1,000,000", () => {
+    const sorted = [...UPGRADES].sort((a, b) => a.unlockAt - b.unlockAt);
+    expect(sorted[0].unlockAt).toBe(UPGRADES_AT);
+    for (const u of UPGRADES) {
+      const below = atEffective(u.unlockAt - 1);
+      below.ore = pow10(unsoftenExponent(u.unlockAt + 5e6));
+      expect(upgradeUnlocked(below, u.id), u.id).toBe(false);
+      expect(canBuyUpgrade(below, u.id), u.id).toBe(false);
+      const at = atEffective(u.unlockAt);
+      expect(upgradeUnlocked(at, u.id), u.id).toBe(true);
+      expect(canBuyUpgrade(at, u.id), u.id).toBe(true); // the first level costs the unlock itself
+      expect(u.priceBase).toBe(u.unlockAt);
+    }
+    expect(new Set(UPGRADES.map((u) => u.unlockAt)).size).toBe(UPGRADES.length);
+  });
+
+  it("the three late upgrades measurably act and are exactly 1 at level 0", () => {
+    const s = atEffective(4e6);
+    s.skills.overdrive = true;
+    s.tiersUnlocked = 8;
+    const lv = (id: UpgradeId, n: number) => ({ ...cloneSecret(s), upgrades: { ...s.upgrades, [id]: n } });
+    expect(encabulatorFactor(s)).toBe(1);
+    expect(encabulatorFactor(lv("turboEncabulator", 3))).toBeGreaterThan(1);
+    expect(tierMultiplier(lv("turboEncabulator", 3), 0).gt(tierMultiplier(s, 0))).toBe(true);
+    expect(overdrivePower(s)).toBe(OVERDRIVE_POWER);
+    expect(overdrivePower(lv("overdriveOverdrive", 4))).toBeGreaterThan(OVERDRIVE_POWER);
+    expect(sharpenFactor(s, 7)).toBe(1);
+    expect(sharpenFactor(lv("singularitySharpener", 2), 7)).toBeGreaterThan(1);
+    expect(sharpenFactor(lv("singularitySharpener", 2), 6)).toBe(1); // only the top generator
+    // and each one makes the stack produce more over a second
+    // (on a small stack, where a second's Ore shows against what is held)
+    for (const [id, n] of [["turboEncabulator", 3], ["overdriveOverdrive", 4], ["singularitySharpener", 5]] as const) {
+      const a = freshSecretState(0);
+      a.skills.overdrive = true;
+      a.tiersUnlocked = 8;
+      a.owned = a.owned.map(() => new Decimal(1e6));
+      a.bought = a.bought.map(() => 100);
+      const b = cloneSecret(a);
+      b.upgrades = { ...b.upgrades, [id]: n };
+      produceMut(a, 1);
+      produceMut(b, 1);
+      expect(b.ore.gt(a.ore), id).toBe(true);
+    }
+  });
+
+  it("four new Ore milestones between e1,000,000 and e10,000,000, each with a popup", () => {
+    for (const [id, e] of [["e2m", 2e6], ["e3m", 3e6], ["e5m", 5e6], ["e7m", 7777777]] as const) {
+      const s = atEffective(e - 1);
+      checkMilestonesMut(s, 1);
+      expect(s.milestones[id], id).toBeUndefined();
+      const t = atEffective(e);
+      checkMilestonesMut(t, 2);
+      expect(t.milestones[id], id).toBe(2);
+      const pop = milestoneAchievement(id);
+      expect(pop.title.length).toBeGreaterThan(3);
+      expect(pop.flavor).toBeTruthy();
+      expect(pop.reward).toBe("Reward: recorded for a future update");
+    }
   });
 });

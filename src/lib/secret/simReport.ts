@@ -33,25 +33,30 @@ export function expectPlannedBands(r: SimResult): void {
 }
 
 // 0.13.11.1 (design section 6): the four e1,000,000 upgrades carry the steady player to
-// e10,000,000 in about seven months (about 220 days since the curve round) and every upgrade gets
-// bought on the way. Growth after the final stop: before the curve round the 20 days after it added
-// less than the 20 days before. With the curve round's rarer, bigger Captain resets the late runs
-// climb longer, and the 20 days after now add about twice the 20 days before (measured 3.78M against
-// 1.91M; Lucid Dreaming maxes six days before e10,000,000). [OPEN, for the user] Pinned: growth goes
-// on and stays within three times the 20 days before.
+// e10,000,000 in about four months (about 120 days, user: "About 4 months") and every upgrade gets
+// bought on the way, and growth after the final stop slows (the 20 days after it add less than the
+// 20 days before it; since the curve round a second bend past e10,000,000 does that, user: "Slow it
+// after e10M").
 export function expectSixMonthBand(r: SimResult): void {
   const e = r.events;
-  // 0.13.11.1 curve round (Q3 + PC 0.5, user: "a little while longer overall"): measured 220.3 d
-  expect(e.starfall).toBeGreaterThanOrEqual(190 * D);
-  expect(e.starfall).toBeLessThanOrEqual(245 * D);
+  // 0.13.11.1 content pacing (user: "About 4 months"): about 120 days for the average player
+  expect(e.starfall).toBeGreaterThanOrEqual(110 * D);
+  expect(e.starfall).toBeLessThanOrEqual(130 * D);
   for (const id of ["ocOverclocker", "tenfoldTuner", "captainsCompound", "lucidDreaming"]) {
     expect(e[`up1:${id}`], id).toBeGreaterThanOrEqual(e.long);
     expect(e[`upMax:${id}`], id).toBeLessThanOrEqual(e.starfall + 2 * D);
   }
+  expectSlowsAfterStarfall(r);
+}
+
+// The 20 days after e10,000,000 add less than the 20 days before it, and growth never stops.
+export function expectSlowsAfterStarfall(r: SimResult): void {
+  const e = r.events;
   const before = bestExponentAt(r, e.starfall) - bestExponentAt(r, e.starfall - 20 * D);
   const after = bestExponentAt(r, e.starfall + 20 * D) - bestExponentAt(r, e.starfall);
+  report(`[after e10M] 20 d before +${Math.round(before)}, 20 d after +${Math.round(after)}`);
   expect(after).toBeGreaterThan(0);
-  expect(after).toBeLessThan(3 * before);
+  expect(after).toBeLessThan(before);
 }
 
 

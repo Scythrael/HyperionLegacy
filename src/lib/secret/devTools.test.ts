@@ -94,7 +94,8 @@ for (const [label, target] of [["e1,000,000", LONG_EXPONENT], ["e10,000,000", ST
       else expect(fresh).not.toContain("starfall");
       expect(newlyReached(s, liveFor(s, 60))).toEqual([]);
       const ids = MILESTONES.map((m) => m.id).filter((id) => s.milestones[id] !== undefined);
-      expect(ids.length).toBe(target === STARFALL_EXPONENT ? MILESTONES.length : MILESTONES.length - 1);
+      // at e1,000,000 the beats on the way to e10,000,000 are still ahead (e2M, e3M, e5M, e7.77M, e10M)
+      expect(ids.length).toBe(target === STARFALL_EXPONENT ? MILESTONES.length : MILESTONES.length - 5);
     });
 
     it("upgrades: none at e1,000,000 (the horse joke still to come), all at their cap at e10,000,000", () => {

@@ -58,11 +58,11 @@ describe("Overclock: Buy 1, Buy 10 and Max", () => {
   });
 });
 
-describe("the four e1,000,000 upgrades: Buy 1, Buy 10 and Max", () => {
+describe("the late upgrades: Buy 1, Buy 10 and Max", () => {
   function unlocked(oreEff: number): SecretState {
     const s = producing(0, 10);
-    s.bestOre = Decimal.pow(10, unsoftenExponent(1e6));
     s.ore = Decimal.pow(10, unsoftenExponent(oreEff));
+    s.bestOre = s.ore; // every upgrade awake (each wakes at its own best Ore)
     return s;
   }
 

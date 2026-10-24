@@ -57,7 +57,7 @@ export function pastLongState(): SecretState {
   const s = freshSecretState(0);
   grant(s, SKILLS.map((d) => d.id));
   play(s, 120 * 86400, 10, (x) => effectiveExponent(x.bestOre) > LONG_EXPONENT + 20000);
-  s.upgrades = { ocOverclocker: 6, tenfoldTuner: 2, captainsCompound: 2, lucidDreaming: 1 };
+  s.upgrades = { ocOverclocker: 6, tenfoldTuner: 2, captainsCompound: 2, lucidDreaming: 1, turboEncabulator: 0, overdriveOverdrive: 0, singularitySharpener: 0 };
   // Automatic prestiges set to their highest target (a player's own choice), so the run itself
   // climbs through the long gaps below and every per-run comparison applies, not just the
   // prestige currencies.

@@ -30,6 +30,7 @@
     overclockQuote,
     upgradeQuote,
     allSkillsLearned,
+    upgradeUnlocked,
     type BuyQuote,
     canOverclock,
     tierMultiplier,
@@ -424,7 +425,8 @@
             </div>
           </div>
           {#each UPGRADES as u}
-            {#if upOpen}
+            <!-- 0.13.11.1 content pacing: each upgrade wakes at its own best Ore (upgradeUnlocked) -->
+            {#if upgradeUnlocked(s, u.id)}
               {@const level = upgradeLevel(s, u.id)}
               {@const can = !busy && canBuyUpgrade(s, u.id)}
               {@const q10 = upgradeQuote(s, u.id, 10)}

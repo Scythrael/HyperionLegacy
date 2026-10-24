@@ -279,7 +279,7 @@ describe("milestones", () => {
     const ids = MILESTONES.map((m) => m.id);
     for (const id of ["firstCaptain", "googol", "firstFleet", "firstPc", "singularity", "finale", "long", "starfall"]) expect(ids).toContain(id);
     expect(MILESTONES.length).toBeGreaterThanOrEqual(10);
-    expect(MILESTONES.length).toBeLessThanOrEqual(12);
+    expect(MILESTONES.length).toBeLessThanOrEqual(16); // 0.13.11.1 content pacing adds four
     expect(MILESTONES.filter((m) => m.achievement).map((m) => m.id).sort()).toEqual(["finale", "long", "starfall"]);
   });
 

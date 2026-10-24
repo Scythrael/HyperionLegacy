@@ -3,11 +3,11 @@
 // 3-hour first session (sim.ts). Bands leave room for a milestone moving by a check-in or two.
 import { describe, it, expect } from "vitest";
 import { simulatePlayer, LONG_STRETCH_DT } from "./sim";
-import { timeline, D, H } from "./simReport";
+import { timeline, expectSlowsAfterStarfall, D, H } from "./simReport";
 
 describe("the optimal player", () => {
-  it("first Captain under an hour, finale in 3.5 to 5.5 days, e1,000,000 in 28 to 41 days, e10,000,000 in 195 to 260 days", () => {
-    const r = simulatePlayer({ profile: "optimal", days: 320, longStretchDt: LONG_STRETCH_DT, stopAfterExponent: { exponent: 1e7, days: 1 } });
+  it("first Captain under an hour, finale in 3.5 to 5.5 days, e1,000,000 in 28 to 41 days, e10,000,000 in 115 to 145 days", () => {
+    const r = simulatePlayer({ profile: "optimal", days: 320, longStretchDt: LONG_STRETCH_DT, stopAfterExponent: { exponent: 1e7, days: 20 } });
     timeline("optimal", r);
     const e = r.events;
     expect(e.captain1).toBeLessThanOrEqual(H);
@@ -15,7 +15,8 @@ describe("the optimal player", () => {
     expect(e.finale).toBeLessThanOrEqual(5.5 * D);
     expect(e.long).toBeGreaterThanOrEqual(28 * D);
     expect(e.long).toBeLessThanOrEqual(41 * D);
-    expect(e.starfall).toBeGreaterThanOrEqual(195 * D);
-    expect(e.starfall).toBeLessThanOrEqual(260 * D);
+    expect(e.starfall).toBeGreaterThanOrEqual(115 * D);
+    expectSlowsAfterStarfall(r);
+    expect(e.starfall).toBeLessThanOrEqual(145 * D);
   }, 900000);
 });

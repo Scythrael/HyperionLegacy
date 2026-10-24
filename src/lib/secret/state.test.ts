@@ -107,7 +107,7 @@ describe("0.13.11.1 fields", () => {
     const s = freshSecretState(0);
     expect(s.found).toBe(false);
     expect(s.foundAt).toBeNull();
-    expect(s.upgrades).toEqual({ ocOverclocker: 0, tenfoldTuner: 0, captainsCompound: 0, lucidDreaming: 0 });
+    expect(s.upgrades).toEqual({ ocOverclocker: 0, tenfoldTuner: 0, captainsCompound: 0, lucidDreaming: 0, turboEncabulator: 0, overdriveOverdrive: 0, singularitySharpener: 0 });
     expect(s.peakOwned.every((d) => d.eq(0))).toBe(true);
     expect(s.peakOverclock).toBe(0);
     expect(s.upgradesNoteSeen).toBe(false);
@@ -142,7 +142,7 @@ describe("0.13.11.1 fields", () => {
     const s = freshSecretState(0);
     s.found = true;
     s.foundAt = 1234;
-    s.upgrades = { ocOverclocker: 3, tenfoldTuner: 1, captainsCompound: 0, lucidDreaming: 2 };
+    s.upgrades = { ocOverclocker: 3, tenfoldTuner: 1, captainsCompound: 0, lucidDreaming: 2, turboEncabulator: 0, overdriveOverdrive: 0, singularitySharpener: 0 };
     s.peakOwned[4] = new Decimal("5e77");
     s.peakOverclock = 999;
     s.upgradesNoteSeen = true;
@@ -160,7 +160,7 @@ describe("0.13.11.1 fields", () => {
     raw.peakOverclock = -1;
     const back = deserializeSecret(JSON.stringify(raw), 0)!;
     expect(back).not.toBeNull();
-    expect(back.upgrades).toEqual({ ocOverclocker: 0, tenfoldTuner: 0, captainsCompound: 2, lucidDreaming: 10 });
+    expect(back.upgrades).toEqual({ ocOverclocker: 0, tenfoldTuner: 0, captainsCompound: 2, lucidDreaming: 10, turboEncabulator: 0, overdriveOverdrive: 0, singularitySharpener: 0 });
     expect(back.found).toBe(false);
     expect(back.foundAt).toBeNull();
     expect(back.peakOwned.every((d) => d.eq(0))).toBe(true);

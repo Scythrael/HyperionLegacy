@@ -8,7 +8,7 @@ import { simulatePlayer, LONG_STRETCH_DT } from "./sim";
 import { timeline, expectPlannedBands, expectSixMonthBand, DEFAULT_STEADY } from "./simReport";
 
 describe("steady player pacing", () => {
-  it("first Captain in 30 to 60 min, finale in 3 to 5 days, e1,000,000 in about a month, e10,000,000 in about seven months (curve round)", () => {
+  it("first Captain in 30 to 60 min, finale in 3 to 5 days, e1,000,000 in about a month, e10,000,000 in about four months (content pacing)", () => {
     const r = simulatePlayer({ profile: "steady", days: 280, longStretchDt: LONG_STRETCH_DT, stopAfterExponent: { exponent: 1e7, days: 20 } });
     timeline("steady", r);
     expectPlannedBands(r);

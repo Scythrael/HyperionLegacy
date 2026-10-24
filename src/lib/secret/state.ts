@@ -70,7 +70,7 @@ export interface SecretState {
 }
 
 export function freshUpgrades(): Record<UpgradeId, number> {
-  return { ocOverclocker: 0, tenfoldTuner: 0, captainsCompound: 0, lucidDreaming: 0 };
+  return { ocOverclocker: 0, tenfoldTuner: 0, captainsCompound: 0, lucidDreaming: 0, turboEncabulator: 0, overdriveOverdrive: 0, singularitySharpener: 0 };
 }
 
 export function freshSecretState(nowMs: number): SecretState {

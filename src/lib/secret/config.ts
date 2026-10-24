@@ -124,7 +124,13 @@ export const SOFT_BETA = 0.5;
 // e1,000,000 moves. [PROVISIONAL] numbers, set by the pacing sim.
 // ---------------------------------------------------------------------------
 
-export type UpgradeId = "ocOverclocker" | "tenfoldTuner" | "captainsCompound" | "lucidDreaming";
+// 0.13.11.1 content pacing (user: "Stagger the upgrades", "More upgrades", minigame Upgrades tab
+// only, "About 4 months"): each upgrade wakes up at its own best-Ore exponent (unlockAt), so the
+// average player gets a new one every few weeks from e1,000,000 (day 32) to about day 92, and
+// e10,000,000 near day 120. The upgrades multiply together, so the first ones wake close together
+// (each alone barely moves the climb). Three late ones added. Names, flavor and numbers
+// [PROPOSAL] / [PROVISIONAL] (plan, pacing results).
+export type UpgradeId = "ocOverclocker" | "tenfoldTuner" | "captainsCompound" | "lucidDreaming" | "turboEncabulator" | "overdriveOverdrive" | "singularitySharpener";
 
 export interface UpgradeDef {
   id: UpgradeId;
@@ -132,18 +138,22 @@ export interface UpgradeDef {
   flavor: string;
   effect: string; // the plain-language line beside the level
   cap: number;
+  unlockAt: number; // effective exponent of the best Ore that wakes it up
   priceBase: number; // effective exponent of level 0's price
   priceRatio: number; // each level's price exponent is this times the last
   step: number; // the size of one level's effect (see engine.ts)
 }
 
-export const UPGRADES_AT = 1000000; // e1,000,000 Ore (best ever) unlocks the four
+export const UPGRADES_AT = 1000000; // e1,000,000 Ore (best ever) wakes the first one (and the tab)
 
 export const UPGRADES: readonly UpgradeDef[] = [
-  { id: "ocOverclocker", name: "Overclock Overclocker", flavor: "It overclocks your overclock. That is the whole upgrade.", effect: "each Overclock level counts more", cap: 25, priceBase: 1000000, priceRatio: 1.0905, step: 0.8 },
-  { id: "tenfoldTuner", name: "Tenfold Tuner", flavor: "Tightens the tens. Loosens the laws of arithmetic.", effect: "each ten bonus doubles a little harder", cap: 10, priceBase: 1050000, priceRatio: 1.214, step: 0.05 },
-  { id: "captainsCompound", name: "Captain's Compound", flavor: "Interest on interest on interest. The bank has questions.", effect: "your Captain and Augment Points count as more", cap: 10, priceBase: 1100000, priceRatio: 1.228, step: 4.5 },
-  { id: "lucidDreaming", name: "Lucid Dreaming", flavor: "You can steer the dream now. You steered it toward more Ore.", effect: "Dream Points hit harder: they speed up the whole stack too", cap: 10, priceBase: 1200000, priceRatio: 1.243, step: 0.0135 },
+  { id: "ocOverclocker", name: "Overclock Overclocker", flavor: "It overclocks your overclock. That is the whole upgrade.", effect: "each Overclock level counts more", cap: 25, unlockAt: 1000000, priceBase: 1000000, priceRatio: 1.0844, step: 0.88 },
+  { id: "tenfoldTuner", name: "Tenfold Tuner", flavor: "Tightens the tens. Loosens the laws of arithmetic.", effect: "each ten bonus doubles a little harder", cap: 10, unlockAt: 1350000, priceBase: 1350000, priceRatio: 1.1583, step: 0.055 },
+  { id: "captainsCompound", name: "Captain's Compound", flavor: "Interest on interest on interest. The bank has questions.", effect: "your Captain and Augment Points count as more", cap: 10, unlockAt: 1200000, priceBase: 1200000, priceRatio: 1.115, step: 4.95 },
+  { id: "lucidDreaming", name: "Lucid Dreaming", flavor: "You can steer the dream now. You steered it toward more Ore.", effect: "Dream Points hit harder: they speed up the whole stack too", cap: 10, unlockAt: 1500000, priceBase: 1500000, priceRatio: 1.0874, step: 0.01485 },
+  { id: "turboEncabulator", name: "Turbo Encabulator", flavor: "Nobody knows how it works. Nobody needs to. It works.", effect: "the whole stack runs faster", cap: 10, unlockAt: 1800000, priceBase: 1800000, priceRatio: 1.0563, step: 1.1 },
+  { id: "overdriveOverdrive", name: "Overdrive Overdrive", flavor: "Overdrive, but it also drives over itself. Please wear a helmet.", effect: "Overdrive raises Ore production to a higher power", cap: 10, unlockAt: 2400000, priceBase: 2400000, priceRatio: 1.0345, step: 0.011 },
+  { id: "singularitySharpener", name: "Singularity Sharpener", flavor: "A sharper singularity. Do not ask what it was before.", effect: "the Singularity Engine makes more", cap: 10, unlockAt: 3400000, priceBase: 3400000, priceRatio: 1.016, step: 1.1 },
 ];
 
 // ---------------------------------------------------------------------------
@@ -205,6 +215,10 @@ export type MilestoneId =
   | "allSkills"
   | "finale"
   | "long"
+  | "e2m"
+  | "e3m"
+  | "e5m"
+  | "e7m"
   | "starfall";
 
 export interface MilestoneDef {
@@ -219,6 +233,11 @@ export interface MilestoneDef {
 
 // 0.13.11.1: the new final stop. Its reward is real now: the Starfall theme style (themeStyle.ts).
 export const STARFALL_EXPONENT = 10000000;
+// Past e10,000,000 a second bend (engine.ts endSoften; user: "Slow it after e10M"): effective =
+// 10,000,000 + END_SOFT_SCALE x ((1 + over / END_SOFT_SCALE)^END_SOFT_BETA - 1) / END_SOFT_BETA. It
+// slows, never stops. [PROVISIONAL] measured in the plan's pacing results.
+export const END_SOFT_SCALE = 20000;
+export const END_SOFT_BETA = 0.5;
 
 export const MILESTONES: readonly MilestoneDef[] = [
   { id: "firstCaptain", name: "Number Go Up", detail: "Your first Captain Prestige", how: "Do your first Captain Prestige.", flavor: "Promoted. Your old stack has been demolished with honors." },
@@ -231,7 +250,13 @@ export const MILESTONES: readonly MilestoneDef[] = [
   { id: "e100k", name: "Running Low on Zeros", detail: "e100,000 Ore", how: "Reach e100,000 Ore." },
   { id: "allSkills", name: "Fully Automated Luxury Mining", detail: "Own every skill", how: "Learn every skill." },
   { id: "finale", name: "Seven Sevens Short of Seven", detail: "e777,777 Ore, the special unlock", how: "Reach e777,777 Ore.", achievement: true },
-  { id: "long", name: "Forever Is a Long Time", detail: "e1,000,000 Ore", how: "Reach e1,000,000 Ore.", flavor: "Four new upgrades just woke up. They look eager.", achievement: true },
+  { id: "long", name: "Forever Is a Long Time", detail: "e1,000,000 Ore", how: "Reach e1,000,000 Ore.", flavor: "A new upgrade just woke up. More are stirring.", achievement: true },
+  // 0.13.11.1 content pacing (user: "More milestones"): a beat every few weeks on the way to
+  // e10,000,000. Names and flavor [PROPOSAL].
+  { id: "e2m", name: "Forever, Twice", detail: "e2,000,000 Ore", how: "Reach e2,000,000 Ore.", flavor: "Forever, but twice. Still not finished." },
+  { id: "e3m", name: "Third Time's the Charm", detail: "e3,000,000 Ore", how: "Reach e3,000,000 Ore.", flavor: "It was not the charm. Keep going." },
+  { id: "e5m", name: "Halfway to Too Big", detail: "e5,000,000 Ore", how: "Reach e5,000,000 Ore.", flavor: "The numbers have started to look nervous." },
+  { id: "e7m", name: "Seven Sevens, Fully Grown", detail: "e7,777,777 Ore", how: "Reach e7,777,777 Ore.", flavor: "The sevens from the finale grew up. They send their regards." },
   { id: "starfall", name: "The Numbers Got Too Big", detail: "e10,000,000 Ore, the Starfall theme", how: "Reach e10,000,000 Ore.", flavor: "You ran out of room for zeros, so we gave you stars.", reward: "Reward: the Starfall theme, live now in Settings › UI", achievement: true },
 ];
 
@@ -262,7 +287,7 @@ export const COPY = {
   finaleAfter: "The special unlock is recorded for a future update. The numbers keep going if you do; they just take their time now.",
   longTitle: "FOREVER IS A LONG TIME",
   longBody: "e1,000,000 Ore. That was the long way around, and you took it.",
-  longAfter: "More is coming in a later update. Your stack keeps climbing in the meantime.",
+  longAfter: "New upgrades keep waking up on the way to e10,000,000. Your stack keeps climbing in the meantime.", // [PROPOSAL] 0.13.11.1 content pacing
   rewardRecorded: "Reward recorded",
   rewardLater: "Reward arrives in a future update",
   // 0.13.11.1

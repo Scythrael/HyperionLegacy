@@ -62,6 +62,8 @@ import {
   AP_K,
   DP_K,
   STARFALL_EXPONENT,
+  END_SOFT_SCALE,
+  END_SOFT_BETA,
   type SkillId,
   type MilestoneId,
   type UpgradeId,
@@ -115,15 +117,30 @@ function affordSeries(left: Decimal, firstLog: number, ratioLog: number, maxCoun
 // The effective scale
 // ---------------------------------------------------------------------------
 
-export function softenExponent(x: number): number {
+function finaleSoften(x: number): number {
   if (x <= FINALE_EXPONENT) return x;
   return FINALE_EXPONENT + (SOFT_SCALE * (Math.pow(1 + (x - FINALE_EXPONENT) / SOFT_SCALE, SOFT_BETA) - 1)) / SOFT_BETA;
 }
 
-// d(effective)/d(raw), for turning a raw income into a displayed one.
+// 0.13.11.1 (user: "Slow it after e10M"): past e10,000,000 a second bend of the same shape, so the
+// climb reads as the end of the content. It only slows, it never stops (no cap), and nothing at or
+// below e10,000,000 moves.
+function endSoften(e: number): number {
+  if (e <= STARFALL_EXPONENT) return e;
+  return STARFALL_EXPONENT + (END_SOFT_SCALE * (Math.pow(1 + (e - STARFALL_EXPONENT) / END_SOFT_SCALE, END_SOFT_BETA) - 1)) / END_SOFT_BETA;
+}
+
+export function softenExponent(x: number): number {
+  return endSoften(finaleSoften(x));
+}
+
+// d(effective)/d(raw), for turning a raw income into a displayed one (the chain rule through both
+// bends).
 function softenSlope(x: number): number {
   if (x <= FINALE_EXPONENT) return 1;
-  return Math.pow(1 + (x - FINALE_EXPONENT) / SOFT_SCALE, SOFT_BETA - 1);
+  const first = Math.pow(1 + (x - FINALE_EXPONENT) / SOFT_SCALE, SOFT_BETA - 1);
+  const e = finaleSoften(x);
+  return e <= STARFALL_EXPONENT ? first : first * Math.pow(1 + (e - STARFALL_EXPONENT) / END_SOFT_SCALE, END_SOFT_BETA - 1);
 }
 
 function rawExponent(raw: Decimal): number {
@@ -211,12 +228,18 @@ export function gainMultiplier(s: SecretState): Decimal {
 
 // The raw exponent whose effective value is e (the inverse of softenExponent).
 export function unsoftenExponent(e: number): number {
+  if (e > STARFALL_EXPONENT) e = STARFALL_EXPONENT + END_SOFT_SCALE * (Math.pow(1 + (END_SOFT_BETA * (e - STARFALL_EXPONENT)) / END_SOFT_SCALE, 1 / END_SOFT_BETA) - 1);
   if (e <= FINALE_EXPONENT) return e;
   return FINALE_EXPONENT + SOFT_SCALE * (Math.pow(1 + (SOFT_BETA * (e - FINALE_EXPONENT)) / SOFT_SCALE, 1 / SOFT_BETA) - 1);
 }
 
+// The Upgrades tab's late section opens at e1,000,000; each upgrade then wakes at its own unlockAt.
 export function upgradesUnlocked(s: SecretState): boolean {
   return effectiveExponent(s.bestOre) >= UPGRADES_AT;
+}
+
+export function upgradeUnlocked(s: SecretState, id: UpgradeId): boolean {
+  return effectiveExponent(s.bestOre) >= UPGRADES.find((u) => u.id === id)!.unlockAt;
 }
 
 // Effective exponent of the next level's price, or null at the cap.
@@ -235,7 +258,7 @@ export function upgradePrice(s: SecretState, id: UpgradeId): Decimal | null {
 
 export function canBuyUpgrade(s: SecretState, id: UpgradeId): boolean {
   const price = upgradePrice(s, id);
-  return upgradesUnlocked(s) && price !== null && s.ore.gte(price);
+  return upgradeUnlocked(s, id) && price !== null && s.ore.gte(price);
 }
 
 // Buys up to maxCount levels, one at a time at the rising price. Mutates s. Returns levels bought.
@@ -253,7 +276,7 @@ export function upgradeQuote(s: SecretState, id: UpgradeId, maxCount: number): B
   const def = UPGRADES.find((u) => u.id === id)!;
   const room = def.cap - upgradeLevel(s, id);
   const after = cloneSecret(s);
-  const count = upgradesUnlocked(s) ? buyUpgradeMut(after, id, maxCount) : 0;
+  const count = upgradeUnlocked(s, id) ? buyUpgradeMut(after, id, maxCount) : 0;
   const priceAt = (i: number) => pow10(unsoftenExponent(def.priceBase * Math.pow(def.priceRatio, upgradeLevel(s, id) + i)));
   let cost = ZERO;
   for (let i = 0; i < count; i++) cost = cost.add(priceAt(i));
@@ -291,7 +314,24 @@ export function overclockMultiplier(s: SecretState): Decimal {
 
 // Everything multiplying one tier's rate, for display.
 export function tierMultiplier(s: SecretState, tier: number): Decimal {
-  return tenMultiplier(s, tier).mul(overclockMultiplier(s)).mul(prestigeMultiplier(s));
+  return tenMultiplier(s, tier).mul(overclockMultiplier(s)).mul(prestigeMultiplier(s)).mul(encabulatorFactor(s)).mul(sharpenFactor(s, tier));
+}
+
+// Singularity Sharpener: the top generator makes 1 + step x level times as much (1 at level 0).
+export function sharpenFactor(s: SecretState, tier: number): number {
+  const lv = upgradeLevel(s, "singularitySharpener");
+  return lv === 0 || tier !== TIER_COUNT - 1 ? 1 : 1 + upgradeStep("singularitySharpener") * lv;
+}
+
+// Overdrive Overdrive: the Overdrive skill's power rises by step per level (OVERDRIVE_POWER at 0).
+export function overdrivePower(s: SecretState): number {
+  return OVERDRIVE_POWER + upgradeStep("overdriveOverdrive") * upgradeLevel(s, "overdriveOverdrive");
+}
+
+// Turbo Encabulator: the whole stack runs 1 + step x level times faster (1 at level 0). A speed, not
+// a prestige gain, so buying it never sets off a reset.
+export function encabulatorFactor(s: SecretState): number {
+  return 1 + upgradeStep("turboEncabulator") * upgradeLevel(s, "turboEncabulator");
 }
 
 export function isTierUnlocked(s: SecretState, tier: number): boolean {
@@ -504,9 +544,9 @@ export function buyOverclock(s: SecretState, mode: BuyMode): SecretState {
 export function produceMut(s: SecretState, dt: number): void {
   if (dt <= 0) return;
   const n = s.tiersUnlocked;
-  const shared = overclockMultiplier(s).mul(prestigeMultiplier(s));
+  const shared = overclockMultiplier(s).mul(prestigeMultiplier(s)).mul(encabulatorFactor(s));
   const rho: Decimal[] = [];
-  for (let k = 0; k < n; k++) rho.push(tenMultiplier(s, k).mul(TIERS[k].baseRate).mul(shared));
+  for (let k = 0; k < n; k++) rho.push(tenMultiplier(s, k).mul(TIERS[k].baseRate).mul(shared).mul(sharpenFactor(s, k)));
   // x[0] is Ore, x[m] is owned[m - 1]. The top unlocked tier is only ever bought.
   const x: Decimal[] = [s.ore, ...s.owned.slice(0, n)];
   const gains: Decimal[] = new Array(n).fill(ZERO);
@@ -521,7 +561,7 @@ export function produceMut(s: SecretState, dt: number): void {
     gains[m] = acc;
   }
   let oreGain = gains[0];
-  if (hasSkill(s, "overdrive") && oreGain.gt(0)) oreGain = oreGain.div(dt).pow(OVERDRIVE_POWER).mul(dt);
+  if (hasSkill(s, "overdrive") && oreGain.gt(0)) oreGain = oreGain.div(dt).pow(overdrivePower(s)).mul(dt);
   s.lastIncome = oreGain.div(dt);
   s.ore = s.ore.add(oreGain);
   for (let m = 1; m < n; m++) s.owned[m - 1] = s.owned[m - 1].add(gains[m]);
@@ -766,17 +806,25 @@ function reached(s: SecretState, id: MilestoneId): boolean {
       return e() >= FINALE_EXPONENT;
     case "long":
       return e() >= LONG_EXPONENT;
+    case "e2m":
+      return e() >= 2000000;
+    case "e3m":
+      return e() >= 3000000;
+    case "e5m":
+      return e() >= 5000000;
+    case "e7m":
+      return e() >= 7777777;
     case "starfall":
       return e() >= STARFALL_EXPONENT;
   }
 }
 
 const MILESTONE_IDS: readonly MilestoneId[] = [
-  "firstCaptain", "googol", "firstFleet", "e1000", "singularity", "firstPc", "turbo", "e100k", "allSkills", "finale", "long", "starfall",
+  "firstCaptain", "googol", "firstFleet", "e1000", "singularity", "firstPc", "turbo", "e100k", "allSkills", "finale", "long", "e2m", "e3m", "e5m", "e7m", "starfall",
 ];
 
 // The Ore goals, in order: each appears only once the one before it is reached (0.13.11.1).
-const ORE_CHAIN: readonly MilestoneId[] = ["googol", "e1000", "e100k", "finale", "long", "starfall"];
+const ORE_CHAIN: readonly MilestoneId[] = ["googol", "e1000", "e100k", "finale", "long", "e2m", "e3m", "e5m", "e7m", "starfall"];
 
 // Is a milestone shown, or still "???"? Reached ones always show. Ore goals appear one step at a
 // time; the rest appear once their system is in view (design 0.13.11.1 section 5).
