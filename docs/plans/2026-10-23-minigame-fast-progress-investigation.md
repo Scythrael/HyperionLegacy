@@ -61,3 +61,11 @@ D. Coarse margin: leave.
 - User (2026-10-23, verbatim): "Unless this is intentional. I reset and got my third fleet admiral prestige, then got my prestigeception. The fleet admiral setup reset so I was able to fleet admiral reset. Was that intentional? The skill points become pointless pretty quickly, but I digress haha." (Prestigeception resetting Fleet is intended.) Spare SP decision: "Hmmm. I think they shouldn't be awarded afterward. If we do add in new systems to this in the future, we should have a new prestige layer that starts scaling things again at some point, etc etc." So: no Skill Points once all skills are owned (held spares kept); future minigame content comes as a new prestige layer.
 - PC 0.5 built (cfe8cbf). User answers: old saves "Convert (Recommended)" (Captain Points converted once, CP' = (1+CP)^0.4 - 1, same bonus, smaller number); casual e10M 247 d "Accept it"; after e10M "Slow it after e10M (Recommended)" (a gentle slowdown past e10,000,000, never a hard stop).
 - User (2026-10-23, verbatim): "The e10m should be around 180 days for average play." (Retune only the e1M to e10M stretch so the average player reaches e10M at ~180 d; earlier milestones unchanged.)
+- Content-pacing review (2026-10-23): after day 5 most new content arrived in one burst at e1M (day ~32), leaving ~5
+  months without a new unlock. User picks (multi): "Stagger the upgrades (Recommended)", "More milestones
+  (Recommended)", "More upgrades", "Shorter goal", with the note: "The first one is great, but only if we don't make
+  these upgrades affect the main game. If you're referring to uupgrades on the upgrades tab, then that's perfectly
+  fine!" (minigame Upgrades tab only, never the main game). Goal length: "About 4 months" (e10M ~120 d for the average
+  player; supersedes the ~180 d note). So: stagger the four upgrades (e1M, e2M, e3.5M, e5M or similar), add 2 to 4
+  more late upgrades unlocking across the months, add funny milestones every few weeks (e2M, e3M, e5M, e7.77M ...),
+  each with its popup and recorded reward; new names and copy are [PROPOSAL] for the user's sign-off.
