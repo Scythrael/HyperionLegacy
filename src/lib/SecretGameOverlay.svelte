@@ -27,6 +27,10 @@
     buyTier,
     overclockPrice,
     buyOverclock,
+    overclockQuote,
+    upgradeQuote,
+    allSkillsLearned,
+    type BuyQuote,
     canOverclock,
     tierMultiplier,
     isTierUnlocked,
@@ -147,6 +151,21 @@
     if (celebration) void tick().then(() => keepGoing?.focus());
   }
   $: canOc = canOverclock(s);
+  // Buy 10 and Max say what they will do (0.13.11.1, staging: Buy 10 looked like Max and showed no
+  // price): Buy 10 buys at most ten levels, fewer only when Ore or the cap runs out.
+  $: oc10 = overclockQuote(s, 10);
+  $: ocMax = overclockQuote(s, Infinity);
+  function tenLabel(q: BuyQuote): string {
+    if (q.limitedBy === "cap") return `Buy ${q.count} (to the cap)`;
+    if (q.limitedBy === "ore" && q.count > 0) return `Buy ${q.count} of 10`;
+    return "Buy 10";
+  }
+  function tenTitle(q: BuyQuote): string {
+    if (q.limitedBy === "cap") return `Only ${q.count} level${q.count === 1 ? "" : "s"} left before the cap`;
+    if (q.limitedBy === "ore") return q.count > 0 ? `Ore runs out after ${q.count} level${q.count === 1 ? "" : "s"}` : "Not enough Ore for one level";
+    return "Buys ten levels";
+  }
+  const levelsLabel = (n: number) => `${formatSecret(n)} level${n === 1 ? "" : "s"}`;
   $: ore = s.ore;
   $: cg = captainGain(s);
   $: fg = fleetGain(s);
@@ -400,22 +419,24 @@
             <div class="gstats">Lv <span class="num">{formatSecret(s.overclock)}</span> · <span class="num">×{perLevelLabel(ocPerLevel(s))}</span> each</div>
             <div class="buys">
               <button class="sg-btn" type="button" disabled={busy || !canOc || ore.lt(overclockPrice(s))} on:click={() => secretAct((x) => buyOverclock(x, "one"))}>Buy 1<span class="num">{fmt(overclockPrice(s))}</span></button>
-              <button class="sg-btn" type="button" disabled={busy || !canOc || ore.lt(overclockPrice(s))} on:click={() => secretAct((x) => buyOverclock(x, "ten"))}>Buy 10</button>
-              <button class="sg-btn primary" type="button" disabled={busy || !canOc || ore.lt(overclockPrice(s))} on:click={() => secretAct((x) => buyOverclock(x, "max"))}>Max</button>
+              <button class="sg-btn" type="button" title={tenTitle(oc10)} disabled={busy || !canOc || oc10.count === 0} on:click={() => secretAct((x) => buyOverclock(x, "ten"))}>{tenLabel(oc10)}<span class="num">{fmt(oc10.count > 0 && oc10.limitedBy ? oc10.cost : oc10.fullCost)}</span></button>
+              <button class="sg-btn primary" type="button" disabled={busy || !canOc || ocMax.count === 0} on:click={() => secretAct((x) => buyOverclock(x, "max"))}>Max<span class="num">{levelsLabel(ocMax.count)}</span></button>
             </div>
           </div>
           {#each UPGRADES as u}
             {#if upOpen}
               {@const level = upgradeLevel(s, u.id)}
               {@const can = !busy && canBuyUpgrade(s, u.id)}
+              {@const q10 = upgradeQuote(s, u.id, 10)}
+              {@const qMax = upgradeQuote(s, u.id, Infinity)}
               <div class="gen">
                 <div class="tier">+</div>
                 <div class="gname"><b>{u.name}</b><em>{u.flavor}</em></div>
                 <div class="gstats">Lv <span class="num">{level} / {u.cap}</span> · {u.effect}</div>
                 <div class="buys">
                   <button class="sg-btn" type="button" disabled={!can} on:click={() => secretAct((x) => buyUpgrade(x, u.id, "one"))}>Buy 1<span class="num">{upgradePriceLabel(s, u.id)}</span></button>
-                  <button class="sg-btn" type="button" disabled={!can} on:click={() => secretAct((x) => buyUpgrade(x, u.id, "ten"))}>Buy 10</button>
-                  <button class="sg-btn primary" type="button" disabled={!can} on:click={() => secretAct((x) => buyUpgrade(x, u.id, "max"))}>Max</button>
+                  <button class="sg-btn" type="button" title={tenTitle(q10)} disabled={!can} on:click={() => secretAct((x) => buyUpgrade(x, u.id, "ten"))}>{tenLabel(q10)}<span class="num">{q10.fullCost.gt(0) ? fmt(q10.count > 0 && q10.limitedBy === "ore" ? q10.cost : q10.fullCost) : "Maxed"}</span></button>
+                  <button class="sg-btn primary" type="button" disabled={!can} on:click={() => secretAct((x) => buyUpgrade(x, u.id, "max"))}>Max<span class="num">{levelsLabel(qMax.count)}</span></button>
                 </div>
               </div>
             {:else}
@@ -447,9 +468,9 @@
                 <span>Fleet Prestiges</span><span class="num">{s.fleetCount} (lifetime {s.fleetTotal})</span>
                 <span>Augment Points</span><span class="num">{formatSecret(s.augmentPoints)}</span>
                 <span>Multiplier from them</span><span class="num">×{formatSecret(augmentMultiplier(s))}</span>
-                <span>Skill Points</span><span class="num">{s.skillPoints} unspent</span>
+                <span>Skill Points</span><span class="num">{allSkillsLearned(s) ? COPY.allSkillsLearned : `${s.skillPoints} unspent`}</span>
                 <span>Next unlock</span><span class="num">{nextUnlock(s)}</span>
-                <span>Prestige now for</span><span class="num">+{formatSecret(fg)} points</span>
+                <span>Prestige now for</span><span class="num">+{formatSecret(fg)} points{allSkillsLearned(s) ? "" : " and a Skill Point"}</span>
               </div>
               <button class="sg-btn primary" type="button" disabled={busy || fg.lte(0)} on:click={() => secretAct((x, t) => doFleet(x, t))}>
                 {fg.lte(0) ? "Fleet Prestige (needs 1.8e308 Ore)" : "Fleet Prestige"}
@@ -462,7 +483,7 @@
                 <span>Dream Points</span><span class="num">{formatSecret(s.dreamPoints)}</span>
                 <span>Captain and Augment gains</span><span class="num">×{formatSecret(gainMultiplier(s))}</span>
                 {#if upgradeLevel(s, "lucidDreaming") > 0}<span>Dream Points speed the stack</span><span class="num">×{formatSecret(dreamSpeedMultiplier(s))}</span>{/if}
-                <span>Ready at</span><span class="num">{formatExponent(10000)} Ore</span>
+                <span>Ready at</span><span class="num">{formatExponent(10000)} Ore in one climb (a Fleet Prestige starts it over)</span>
                 <span>Prestige now for</span><span class="num">+{formatSecret(pg)} points</span>
               </div>
               <button class="sg-btn primary" type="button" disabled={busy || pg.lte(0)} on:click={() => secretAct((x, t) => doPrestigeception(x, t))}>

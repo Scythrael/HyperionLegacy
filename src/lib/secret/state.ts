@@ -18,8 +18,7 @@ import {
   UPGRADES,
   type SkillId,
   type UpgradeId,
-  type MilestoneId,
-} from "./config";
+  type MilestoneId, CP_POW, CP_POW_BEFORE_CURVE_ROUND } from "./config";
 
 const SKILL_IDS: readonly SkillId[] = SKILLS.map((d) => d.id);
 const MILESTONE_IDS: readonly MilestoneId[] = MILESTONES.map((m) => m.id);
@@ -65,6 +64,9 @@ export interface SecretState {
   peakOwned: Decimal[]; // per tier, the most ever owned (kept through every prestige)
   peakOverclock: number; // the highest Overclock level ever
   upgradesNoteSeen: boolean; // the one-time Upgrades tab joke has been shown
+  // 0.13.11.1 curve round: the scale Captain Points are counted in. 2 = the CP_POW 0.4875 scale; a save
+  // without it holds 0.195-scale points, converted once on load so the bonus they give is unchanged.
+  captainScale: 2;
 }
 
 export function freshUpgrades(): Record<UpgradeId, number> {
@@ -107,6 +109,7 @@ export function freshSecretState(nowMs: number): SecretState {
     peakOwned: Array.from({ length: TIER_COUNT }, () => new Decimal(0)),
     peakOverclock: 0,
     upgradesNoteSeen: false,
+    captainScale: 2,
   };
 }
 
@@ -244,6 +247,11 @@ function readNewFields(s: SecretState, parsed: Record<string, unknown>): void {
   const po = parsed.peakOverclock;
   s.peakOverclock = isFiniteNumber(po) && po >= 0 ? po : s.overclock;
   s.upgradesNoteSeen = parsed.upgradesNoteSeen === true;
+  // Points saved on the old 0.195 scale: (1 + CP)^0.195 = (1 + CP')^0.4875 gives CP' = (1 + CP)^0.4 - 1,
+  // the same Captain bonus, never more and never less (user: existing saves keep every point).
+  if (parsed.captainScale !== 2 && s.captainPoints.gt(0)) {
+    s.captainPoints = Decimal.max(0, s.captainPoints.add(1).pow(CP_POW_BEFORE_CURVE_ROUND / CP_POW).sub(1));
+  }
   if (typeof parsed.found === "boolean") {
     s.found = parsed.found;
     s.foundAt = isFiniteNumber(parsed.foundAt) ? parsed.foundAt : null;

@@ -218,3 +218,32 @@ describe("storage", () => {
     expect(() => clearSecretSave()).not.toThrow();
   });
 });
+
+describe("0.13.11.1 curve round: Captain Points saved on the old scale", () => {
+  it("a save without captainScale has its points converted once, so the Captain bonus is unchanged", async () => {
+    const { captainMultiplier } = await import("./engine");
+    const { CP_POW_BEFORE_CURVE_ROUND } = await import("./config");
+    const old = freshSecretState(0);
+    old.captainPoints = new Decimal(1.58e8);
+    const raw = JSON.parse(serializeSecret(old));
+    delete raw.captainScale;
+    const loaded = deserializeSecret(JSON.stringify(raw), 0)!;
+    const before = Math.pow(1 + 1.58e8, CP_POW_BEFORE_CURVE_ROUND);
+    expect(captainMultiplier(loaded).toNumber() / before).toBeCloseTo(1, 9);
+    expect(loaded.captainPoints.lt(1.58e8)).toBe(true);
+    expect(loaded.captainScale).toBe(2);
+    // and only once: saved again and loaded again, nothing moves
+    const again = deserializeSecret(serializeSecret(loaded), 0)!;
+    expect(again.captainPoints.eq(loaded.captainPoints)).toBe(true);
+  });
+
+  it("no Captain Points, nothing to convert; every other field is untouched", () => {
+    const old = freshSecretState(0);
+    old.augmentPoints = new Decimal(77);
+    const raw = JSON.parse(serializeSecret(old));
+    delete raw.captainScale;
+    const loaded = deserializeSecret(JSON.stringify(raw), 0)!;
+    expect(loaded.captainPoints.eq(0)).toBe(true);
+    expect(loaded.augmentPoints.eq(77)).toBe(true);
+  });
+});

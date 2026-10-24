@@ -8,8 +8,9 @@
 // game pays them.
 //
 // Every 3 minutes in a session (and once more on leaving) the player: buys skills in the listed
-// order when affordable; takes Fleet Prestige if it at least doubles Augment Points (or is the
-// first); else Prestigeception if it at least doubles Dream Points (or is the first); else, until
+// order when affordable; takes Prestigeception if it at least doubles Dream Points (or is the
+// first); else Fleet Prestige if it at least doubles Augment Points (or is the first; 0.13.11.1:
+// the higher layer first, as a Fleet uses up the climb); else, until
 // Auto Captain is owned, Captain Prestige if it at least doubles Captain Points (holding off when
 // the first Fleet is within reach); then, until auto-buyers cover it, Overclock Max with half the
 // Ore and Max on every tier, highest first. Auto targets stay at their 100% default.
@@ -135,8 +136,9 @@ function decide(s: SecretState, atMs: number, style: PlayStyle = {}, order: read
   }
   const t = s.autoTarget;
   const pays = (gain: typeof fg, have: typeof fg, pct: number) => gain.gt(0) && (have.eq(0) || gain.gte(have.mul(pct / 100)));
-  if (fg.gt(0) && (style.spam || pays(fg, s.augmentPoints, t.fleet))) s = doFleet(s, atMs);
-  else if (pays(pg, s.dreamPoints, t.pc)) s = doPrestigeception(s, atMs);
+  // The higher layer first, like the automatic prestiges: a Fleet would use up the climb.
+  if (pays(pg, s.dreamPoints, t.pc)) s = doPrestigeception(s, atMs);
+  else if (fg.gt(0) && (style.spam || pays(fg, s.augmentPoints, t.fleet))) s = doFleet(s, atMs);
   else if ((style.manual || !hasSkill(s, "autoCaptain")) && pays(cg, s.captainPoints, t.captain) && !(s.fleetTotal === 0 && effectiveExponent(s.fleetPeak) >= 250)) {
     s = doCaptain(s, atMs);
   }

@@ -6,7 +6,7 @@ import { timeline, expectPlannedBands, expectSixMonthBand, D } from "./simReport
 
 describe("robustness", () => {
   it("check-ins an hour later still land in every band, e10,000,000 included", () => {
-    const r = simulatePlayer({ profile: "steady", days: 240, shiftHours: 1, longStretchDt: LONG_STRETCH_DT, stopAfterExponent: { exponent: 1e7, days: 20 } });
+    const r = simulatePlayer({ profile: "steady", days: 280, shiftHours: 1, longStretchDt: LONG_STRETCH_DT, stopAfterExponent: { exponent: 1e7, days: 20 } });
     timeline("steady+1h", r);
     expectPlannedBands(r);
     expectSixMonthBand(r);

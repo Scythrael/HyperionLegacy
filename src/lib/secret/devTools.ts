@@ -12,7 +12,7 @@
 import Decimal from "break_infinity.js";
 import { cloneSecret, type SecretState } from "./state";
 import { markFound, pow10, unsoftenExponent, checkMilestonesMut, stepMut, effectiveExponent } from "./engine";
-import { SKILLS, TIERS, TIER_COUNT, UPGRADES, STARFALL_EXPONENT } from "./config";
+import { SKILLS, TIERS, TIER_COUNT, UPGRADES, STARFALL_EXPONENT, CAPTAIN_BEND } from "./config";
 
 export function devMarkFound(s: SecretState, atMs: number): SecretState {
   return markFound(s, atMs);
@@ -94,7 +94,8 @@ function build(s: SecretState, effectiveTarget: number, raw: number, atMs: numbe
   out.pcPeak = out.ore;
   out.bestOre = Decimal.max(out.ore, s.bestOre);
   out.runSeconds = 86400;
-  out.captainPoints = new Decimal(layers.captainPoints);
+  // (measured on the 0.195 Captain scale: converted like an old save, the same Captain bonus)
+  out.captainPoints = new Decimal(layers.captainPoints).add(1).pow(CAPTAIN_BEND).sub(1);
   out.augmentPoints = new Decimal(layers.augmentPoints);
   out.dreamPoints = new Decimal(layers.dreamPoints);
   out.captainCount = Math.max(s.captainCount, layers.captainCount);

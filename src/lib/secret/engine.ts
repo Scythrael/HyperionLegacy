@@ -56,6 +56,9 @@ import {
   UPGRADES,
   UPGRADES_AT,
   CP_K,
+  CP_K_AFTER_FINALE,
+  CAPTAIN_BEND,
+  GAME_PACE_AFTER_FIRST_PC,
   AP_K,
   DP_K,
   STARFALL_EXPONENT,
@@ -139,11 +142,18 @@ export function displayOre(raw: Decimal): Decimal {
   return pow10(softenExponent(x));
 }
 
-// Ore per second as the player sees it (the chain rule through the softening curve).
+// The game clock's speed: 1, then GAME_PACE_AFTER_FIRST_PC once the first Prestigeception is done.
+export function gamePace(s: SecretState): number {
+  return s.pcCount > 0 || s.milestones.firstPc !== undefined ? GAME_PACE_AFTER_FIRST_PC : 1;
+}
+
+// Ore per real second as the player sees it (the chain rule through the softening curve).
+// lastIncome is per game second; the game clock runs at gamePace.
 export function displayIncome(s: SecretState): Decimal {
   const x = rawExponent(s.ore);
-  if (x <= FINALE_EXPONENT || s.ore.lte(0)) return s.lastIncome;
-  return displayOre(s.ore).mul(softenSlope(x)).mul(s.lastIncome.div(s.ore));
+  const pace = gamePace(s);
+  if (x <= FINALE_EXPONENT || s.ore.lte(0)) return s.lastIncome.mul(pace);
+  return displayOre(s.ore).mul(softenSlope(x)).mul(s.lastIncome.div(s.ore)).mul(pace);
 }
 
 // ---------------------------------------------------------------------------
@@ -183,7 +193,7 @@ function compoundFactor(s: SecretState): number {
 }
 export function captainMultiplier(s: SecretState): Decimal {
   const cc = upgradeLevel(s, "captainsCompound");
-  return powPositive(cc === 0 ? s.captainPoints.add(1) : s.captainPoints.mul(compoundFactor(s)).add(1), CP_POW);
+  return powPositive(cc === 0 ? s.captainPoints.add(1) : s.captainPoints.mul(Math.pow(compoundFactor(s), CAPTAIN_BEND)).add(1), CP_POW);
 }
 export function augmentMultiplier(s: SecretState): Decimal {
   const cc = upgradeLevel(s, "captainsCompound");
@@ -237,6 +247,21 @@ export function buyUpgradeMut(s: SecretState, id: UpgradeId, maxCount = Infinity
     count += 1;
   }
   return count;
+}
+
+export function upgradeQuote(s: SecretState, id: UpgradeId, maxCount: number): BuyQuote {
+  const def = UPGRADES.find((u) => u.id === id)!;
+  const room = def.cap - upgradeLevel(s, id);
+  const after = cloneSecret(s);
+  const count = upgradesUnlocked(s) ? buyUpgradeMut(after, id, maxCount) : 0;
+  const priceAt = (i: number) => pow10(unsoftenExponent(def.priceBase * Math.pow(def.priceRatio, upgradeLevel(s, id) + i)));
+  let cost = ZERO;
+  for (let i = 0; i < count; i++) cost = cost.add(priceAt(i));
+  let fullCost = ZERO;
+  const want = Math.min(Number.isFinite(maxCount) ? maxCount : room, room);
+  for (let i = 0; i < want; i++) fullCost = fullCost.add(priceAt(i));
+  const limitedBy = count >= room && room < maxCount ? "cap" : Number.isFinite(maxCount) && count < maxCount ? "ore" : null;
+  return { count, cost, fullCost, limitedBy };
 }
 
 export function buyUpgrade(s: SecretState, id: UpgradeId, mode: BuyMode): SecretState {
@@ -410,6 +435,61 @@ function commitOverclock(s: SecretState, budget: Decimal, left: Decimal, count: 
   return count;
 }
 
+// What a buy of up to maxCount levels does right now (0.13.11.1, staging: Buy 10 showed no price):
+// how many levels it buys, what they cost, and why it stops short of maxCount ("ore" or "cap"; null
+// when it does not). fullCost is the price of maxCount levels whatever the Ore on hand (for a
+// finite maxCount; the bought cost for Max).
+export interface BuyQuote {
+  count: number;
+  cost: Decimal;
+  fullCost: Decimal;
+  limitedBy: "ore" | "cap" | null;
+}
+
+// The levels and the cost buyOverclockMut would buy with the Ore on hand, worked out the same way
+// but summed directly: subtracting a price far below the Ore held (e380 from e400) would read as 0.
+function overclockPlan(s: SecretState, maxCount: number): { count: number; cost: Decimal } {
+  if (s.ore.lte(0) || maxCount <= 0 || !canOverclock(s)) return { count: 0, cost: ZERO };
+  let left = s.ore;
+  let count = 0;
+  let cost = ZERO;
+  const flat = overclockFlatPrice(s);
+  if (flat.gt(0)) {
+    const firstFloorAbove = Math.ceil((flat.log10() - LOG_FLOOR_BASE) / LOG_FLOOR_STEP);
+    const flatLevels = Math.min(Math.max(0, firstFloorAbove - s.overclock), maxCount);
+    if (flatLevels > 0) {
+      let n = flatLevels;
+      const affordable = left.div(flat).floor();
+      if (affordable.lt(n)) n = affordable.toNumber();
+      if (n > 0) {
+        left = left.sub(flat.mul(n));
+        cost = cost.add(flat.mul(n));
+        count += n;
+      }
+      if (n < flatLevels) return { count, cost };
+    }
+  }
+  if (count < maxCount && left.gt(0)) {
+    const firstLog = LOG_FLOOR_BASE + LOG_FLOOR_STEP * (s.overclock + count);
+    const series = affordSeries(left, firstLog, LOG_FLOOR_STEP, maxCount === Infinity ? Number.MAX_SAFE_INTEGER : maxCount - count);
+    count += series.count;
+    cost = cost.add(series.cost);
+  }
+  return { count, cost };
+}
+
+export function overclockQuote(s: SecretState, maxCount: number): BuyQuote {
+  const { count, cost } = overclockPlan(s, maxCount);
+  let fullCost = cost;
+  if (Number.isFinite(maxCount)) {
+    // Every level costs the larger of the income price and its floor (exactly as buyOverclockMut).
+    const flat = overclockFlatPrice(s);
+    fullCost = ZERO;
+    for (let i = 0; i < maxCount; i++) fullCost = fullCost.add(Decimal.max(flat, overclockFloorPrice(s.overclock + i)));
+  }
+  return { count, cost, fullCost, limitedBy: Number.isFinite(maxCount) && count < maxCount ? "ore" : null };
+}
+
 export function buyOverclock(s: SecretState, mode: BuyMode): SecretState {
   const next = cloneSecret(s);
   buyOverclockMut(next, next.ore, mode === "one" ? 1 : mode === "ten" ? 10 : Infinity);
@@ -487,7 +567,8 @@ function autoBuyMut(s: SecretState): void {
 // scale x (peak exponent / threshold)^k with k under 1, so a bigger prestige pays less per minute
 // waited and the default 100% target (prestige when the gain matches what you hold) is the best
 // choice; at 200% to 1000%, or waiting by hand, the finale and e1,000,000 come later. Once the best
-// Ore has reached the finale, Captain and Fleet Prestige return to the 0.13.11 gains (k = 1). Dream
+// Ore has reached the finale, Fleet Prestige returns to the 0.13.11 gains (k = 1) and Captain
+// Prestige to CP_K_AFTER_FINALE (the same, bent for the curve round's stronger Captain bonus). Dream
 // Points keep their bend for good: they are never reset, so a jump in their gain at the finale would
 // set off Prestigeceptions that throw away weeks of climbing (measured: a two-week stall right after
 // e1,000,000).
@@ -502,7 +583,8 @@ function gainShape(e: number, at: number, k: number): number {
 export function captainGain(s: SecretState): Decimal {
   const e = effectiveExponent(s.runPeak);
   if (e < CAPTAIN_AT) return ZERO;
-  return gainMultiplier(s).mul(CP_SCALE * gainShape(e, CAPTAIN_AT, gainExponent(s, CP_K))).floor();
+  const k = effectiveExponent(s.bestOre) >= FINALE_EXPONENT ? CP_K_AFTER_FINALE : CP_K;
+  return powPositive(gainMultiplier(s), CAPTAIN_BEND).mul(CP_SCALE * gainShape(e, CAPTAIN_AT, k)).floor();
 }
 
 export function fleetGain(s: SecretState): Decimal {
@@ -550,11 +632,17 @@ function doFleetMut(s: SecretState, atMs: number): boolean {
   s.augmentPoints = s.augmentPoints.add(gain);
   s.fleetCount += 1;
   s.fleetTotal += 1;
-  s.skillPoints += 1;
+  // User, 2026-10-23: once every skill is learned, no more Skill Points (spare ones are kept). New
+  // content is expected to come as a new prestige layer that starts scaling things again.
+  if (!allSkillsLearned(s)) s.skillPoints += 1;
   s.captainPoints = ZERO;
   unlockTiersMut(s);
   resetRunMut(s);
   s.fleetPeak = s.ore;
+  // One climb pays one layer (staging, 2026-10-23: a climb past e10,000 paid a Fleet Prestige and
+  // then a Prestigeception too). A Fleet uses up the climb, so Prestigeception needs a fresh one.
+  // (Captain then Fleet from one climb gains nothing: a Fleet resets Captain Points.)
+  s.pcPeak = s.ore;
   checkMilestonesMut(s, atMs);
   return true;
 }
@@ -613,6 +701,11 @@ function firePrestigeMut(s: SecretState, layer: AutoLayerDue, atMs: number): voi
 // ---------------------------------------------------------------------------
 // Skills and settings
 // ---------------------------------------------------------------------------
+
+// Every skill owned: Fleet Prestige stops paying Skill Points.
+export function allSkillsLearned(s: SecretState): boolean {
+  return SKILLS.every((d) => s.skills[d.id] === true);
+}
 
 export function canBuySkill(s: SecretState, id: SkillId): boolean {
   const def = SKILLS.find((d) => d.id === id);
@@ -741,6 +834,11 @@ function ensureRecoverableMut(s: SecretState): void {
 // step is never shorter than a live one, a catch-up never cuts a run shorter than live play would
 // (catchUp.test.ts: never pays less).
 export function stepMut(s: SecretState, dt: number, atMs: number, productionDt: number = dt): void {
+  // 0.13.11.1 curve round: after the first Prestigeception the game runs at GAME_PACE_AFTER_FIRST_PC.
+  // Applied here, the one step live play and every catch-up share, so offline == live stays exact.
+  const pace = gamePace(s);
+  dt *= pace;
+  productionDt *= pace;
   ensureRecoverableMut(s);
   const due = dueAutoPrestige(s);
   autoBuyMut(s);

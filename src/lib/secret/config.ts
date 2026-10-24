@@ -68,10 +68,18 @@ export const CAPTAIN_AT = 60; // 1e60 Ore
 export const FLEET_AT = Math.log10(1.8) + 308; // 1.8e308 Ore
 export const PRESTIGECEPTION_AT = 10000; // e10,000 Ore
 
-// Captain Points earned = CP_SCALE x gainMultiplier x (exponent / 60). Each point speeds the stack:
-// multiplier (1 + CP)^CP_POW, unbounded, concave (D23: diminishing returns, never a cap).
-export const CP_SCALE = 186;
-export const CP_POW = 0.195;
+// Captain Points earned = CP_SCALE x gainMultiplier^CAPTAIN_BEND x (exponent / 60)^k. Each point
+// speeds the stack: multiplier (1 + CP)^CP_POW, unbounded, concave (D23: diminishing returns, never
+// a cap). 0.13.11.1 curve round (user: "make the captain feel more useful without speeding the
+// game up", picked "Q3", then "Ship PC 0.5"): CP_POW 0.195 to 0.4875, so doubling your points is
+// x1.40 instead of x1.145. CAPTAIN_BEND = 0.195 / 0.4875 pays for it: the gain curve, the Dream Point
+// boost on Captain gains and Captain's Compound are bent by it, so each doubling needs more growth
+// and Captain resets come less often, each one bigger. The scale (0.5 x 186^0.4) keeps the pace
+// about level. The bonus a save's points gave before is kept exactly (state.ts converts them once).
+export const CP_POW_BEFORE_CURVE_ROUND = 0.195;
+export const CP_POW = 0.4875;
+export const CAPTAIN_BEND = CP_POW_BEFORE_CURVE_ROUND / CP_POW; // 0.4
+export const CP_SCALE = 0.5 * Math.pow(186, CAPTAIN_BEND);
 // Augment Points earned = AP_SCALE x gainMultiplier x (exponent / 308). Multiplier (1 + AP)^AP_POW.
 export const AP_SCALE = 40;
 export const AP_POW = 0.178;
@@ -82,11 +90,18 @@ export const DP_POW = 0.24;
 
 // 0.13.11.1 retune (user: "Retune so default is best"): each layer earns
 // scale x (peak exponent / threshold)^k, k under 1 (engine.ts gainExponent). From the finale on,
-// Captain and Fleet Prestige use k = 1, the 0.13.11 formula above; Dream Points keep DP_K.
-// [PROVISIONAL] values, measured in the plan's pacing results.
-export const CP_K = 0.6;
+// Fleet Prestige uses k = 1 and Captain Prestige CP_K_AFTER_FINALE (the 0.13.11 k = 1, bent by
+// CAPTAIN_BEND); Dream Points keep DP_K. [PROVISIONAL] values, measured in the plan's pacing results.
+export const CP_K = 0.6 * CAPTAIN_BEND; // 0.24
+export const CP_K_AFTER_FINALE = CAPTAIN_BEND; // 0.4
 export const AP_K = 0.55;
 export const DP_K = 0.7;
+
+// 0.13.11.1 curve round (user: "adjust the curve of the game a little to make things take a little
+// while longer overall", picked "Ship PC 0.5"): from the first Prestigeception on, the whole game
+// runs at 1 / 1.15 speed, live and offline alike (engine.ts stepMut). Before it, nothing changes, so
+// the first evening (first Captain, first Fleet) plays exactly as before.
+export const GAME_PACE_AFTER_FIRST_PC = 1 / 1.15;
 
 export const HEAD_START_LOG10 = 10; // Head Start begins resets with 1e10 Ore
 export const OVERDRIVE_POWER = 1.05; // Overdrive: Ore production ^1.05
@@ -254,6 +269,7 @@ export const COPY = {
   overclockFlavor: "The red button. Pressing it is the whole plan.",
   upgradesNote: "Congratulations, you unlocked the overclock overclocker! Kidding. Horses are extinct in the future, so there are none left to beat for this joke.", // user copy, verbatim
   upgradesLocked: "Unlocks later",
+  allSkillsLearned: "All skills learned: no more Skill Points",
   starfallRewardLater: "Reward: the Starfall theme",
   starfallRewardDone: "Starfall theme unlocked",
 } as const;

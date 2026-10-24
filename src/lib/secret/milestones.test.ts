@@ -18,8 +18,14 @@ import {
   gainMultiplier,
   tenMultiplier,
   checkMilestonesMut,
+  captainMultiplier,
+  stepMut,
+  gamePace,
+  displayIncome,
+  allSkillsLearned,
 } from "./engine";
 import { cloneSecret } from "./state";
+import { readFileSync } from "node:fs";
 import {
   CP_SCALE,
   AP_SCALE,
@@ -27,9 +33,14 @@ import {
   FLEET_AT,
   FINALE_EXPONENT,
   CP_K,
+  CP_K_AFTER_FINALE,
+  CAPTAIN_BEND,
+  CP_POW,
+  GAME_PACE_AFTER_FIRST_PC,
   AP_K,
   DP_K,
   MILESTONES,
+  COPY,
   SKILLS,
   TEN_BONUS_SKILL,
   OVERDRIVE_POWER,
@@ -104,7 +115,8 @@ describe("0.13.11.1: gains bend before the finale; Captain and Fleet return to t
     expect(captainGain(s).eq(Math.floor(CP_SCALE * Math.pow(2, CP_K)))).toBe(true);
     s.bestOre = pow10(FINALE_EXPONENT);
     expect(gainExponent(s, CP_K)).toBe(1);
-    expect(captainGain(s).eq(Math.floor(CP_SCALE * 2))).toBe(true);
+    // Captain: the 0.13.11 k = 1 bent by the curve round's CAPTAIN_BEND
+    expect(captainGain(s).eq(Math.floor(CP_SCALE * Math.pow(2, CP_K_AFTER_FINALE)))).toBe(true);
     // Dream Points keep their bend past the finale (they are never reset).
     const p = withRun(20000);
     p.bestOre = pow10(FINALE_EXPONENT + 1);
@@ -160,7 +172,8 @@ describe("Prestigeception", () => {
     expect(m.gt(1)).toBe(true);
     // (the plain gains are whole numbers, so compare against the unrounded products)
     expect(plainCp.gt(0) && plainAp.gt(0)).toBe(true);
-    expect(captainGain(s).eq(m.mul(CP_SCALE * Math.pow((FLEET_AT * 2) / 60, CP_K)).floor())).toBe(true);
+    // (Captain gains take the Dream Point boost bent by CAPTAIN_BEND: the curve round)
+    expect(captainGain(s).eq(m.pow(CAPTAIN_BEND).mul(CP_SCALE * Math.pow((FLEET_AT * 2) / 60, CP_K)).floor())).toBe(true);
     expect(fleetGain(s).eq(m.mul(AP_SCALE * Math.pow(2, AP_K)).floor())).toBe(true);
   });
 });
@@ -210,7 +223,7 @@ describe("autos", () => {
   it("auto Captain fires only when the gain reaches the target percent, and never when switched off", () => {
     const s = withRun(120);
     s.skills.autoCaptain = true;
-    s.captainPoints = new Decimal(1000); // gain 372 is 37% of 1000
+    s.captainPoints = new Decimal(10); // the gain (4) is 40% of 10
     s.autoTarget.captain = 50;
     expect(step(s, 1, 0).captainCount).toBe(0);
     const low = setAutoTarget(s, "captain", 25);
@@ -281,5 +294,97 @@ describe("milestones", () => {
     expect(s.milestones.finale).toBe(7);
     expect(s.milestones.long).toBe(7);
     expect(s.milestones.allSkills).toBe(7);
+  });
+});
+
+describe("0.13.11.1: one climb pays one layer (staging: Fleet then Prestigeception from the same climb)", () => {
+  it("a Fleet Prestige uses up the climb: Prestigeception needs a fresh one", () => {
+    const s = withRun(20000); // one climb past both e308 and e10,000
+    expect(fleetGain(s).gt(0)).toBe(true);
+    expect(prestigeceptionGain(s).gt(0)).toBe(true);
+    const t = doFleet(s, 1);
+    expect(t.fleetTotal).toBe(1);
+    expect(prestigeceptionGain(t).eq(0)).toBe(true);
+    expect(doPrestigeception(t, 2).pcCount).toBe(0);
+    // a fresh climb past e10,000 pays it again
+    const climbed = cloneSecret(t);
+    climbed.ore = pow10(12000);
+    stepMut(climbed, 1, 3);
+    expect(prestigeceptionGain(climbed).gt(0)).toBe(true);
+  });
+
+  it("with both automatic prestiges due, the higher layer goes first and the Fleet does not follow from the same climb", () => {
+    const s = withRun(20000);
+    s.skills.autoFleet = true;
+    s.skills.autoPc = true;
+    const t = step(s, 1, 0);
+    expect(t.pcCount).toBe(1);
+    expect(t.fleetTotal).toBe(0);
+    expect(fleetGain(t).eq(0)).toBe(true);
+  });
+
+  it("Captain then Fleet from one climb gains nothing extra: the Fleet resets Captain Points", () => {
+    const s = withRun(FLEET_AT * 2);
+    const afterBoth = doFleet(doCaptain(s, 1), 2);
+    const fleetOnly = doFleet(s, 2);
+    expect(afterBoth.captainPoints.eq(0)).toBe(true);
+    expect(afterBoth.augmentPoints.eq(fleetOnly.augmentPoints)).toBe(true);
+    expect(afterBoth.skillPoints).toBe(fleetOnly.skillPoints);
+  });
+});
+
+describe("0.13.11.1 curve round: the Captain bonus and the game clock (user picked Q3 + PC 0.5)", () => {
+  it("doubling Captain Points gives x1.40 (it was x1.145)", () => {
+    const s = freshSecretState(0);
+    s.captainPoints = new Decimal(1e6);
+    const a = captainMultiplier(s);
+    s.captainPoints = new Decimal(2e6);
+    const ratio = captainMultiplier(s).div(a).toNumber();
+    expect(ratio).toBeCloseTo(Math.pow(2, CP_POW), 3);
+    expect(ratio).toBeGreaterThan(1.39);
+  });
+
+  it("the game clock runs at 1 / 1.15 after the first Prestigeception, live and offline alike (one stepMut)", () => {
+    const before = withRun(100);
+    expect(gamePace(before)).toBe(1);
+    const after = withRun(100);
+    after.pcCount = 1;
+    after.milestones.firstPc = 1;
+    expect(gamePace(after)).toBe(GAME_PACE_AFTER_FIRST_PC);
+    const a = cloneSecret(before);
+    const b = cloneSecret(after);
+    stepMut(a, 1, 1000);
+    stepMut(b, 1, 1000);
+    expect(a.runSeconds).toBeCloseTo(1, 9);
+    expect(b.runSeconds).toBeCloseTo(1 / 1.15, 9);
+    // Ore per second on screen is per real second
+    expect(displayIncome(b).div(b.lastIncome).toNumber()).toBeCloseTo(1 / 1.15, 9);
+  });
+});
+
+describe("0.13.11.1: no Skill Points once every skill is learned (user: they shouldn't be awarded afterward)", () => {
+  it("a Fleet with every skill owned pays Augment Points but no Skill Point; spare points are kept", () => {
+    const s = withRun(FLEET_AT * 2);
+    for (const d of SKILLS) s.skills[d.id] = true;
+    s.skillPoints = 3; // spare, earned before
+    const t = doFleet(s, 1);
+    expect(t.fleetTotal).toBe(1);
+    expect(t.augmentPoints.gt(0)).toBe(true);
+    expect(t.skillPoints).toBe(3);
+    expect(allSkillsLearned(t)).toBe(true);
+  });
+
+  it("with any skill still to learn, a Fleet still pays one", () => {
+    const s = withRun(FLEET_AT * 2);
+    for (const d of SKILLS.slice(1)) s.skills[d.id] = true;
+    expect(allSkillsLearned(s)).toBe(false);
+    expect(doFleet(s, 1).skillPoints).toBe(s.skillPoints + 1);
+  });
+
+  it("the Prestige tab says so on the Fleet card and its payout line", () => {
+    const ov = readFileSync("src/lib/SecretGameOverlay.svelte", "utf-8");
+    expect(ov).toContain("allSkillsLearned(s) ? COPY.allSkillsLearned");
+    expect(ov).toContain('points{allSkillsLearned(s) ? "" : " and a Skill Point"}');
+    expect(COPY.allSkillsLearned).toBe("All skills learned: no more Skill Points");
   });
 });
