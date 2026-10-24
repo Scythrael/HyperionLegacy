@@ -4,7 +4,8 @@ import Decimal from "break_infinity.js";
 import { advanceTo, createCatchUp, EXACT_BOUND_SECONDS, MAX_CATCHUP_STEPS } from "./catchUp";
 import { serializeSecret, freshSecretState, type SecretState } from "./state";
 import { effectiveExponent } from "./engine";
-import { earlyManualState, midAutoState, postPrestigeceptionState, pastFinaleState, pastLongState, live } from "./testStates";
+import { earlyManualState, midAutoState, postPrestigeceptionState, pastFinaleState, pastLongState, pastStarfallState, live } from "./testStates";
+import { UPGRADES } from "./config";
 import { simulatePlayer } from "./sim";
 
 const H = 3600;
@@ -20,7 +21,10 @@ beforeAll(() => {
     day2: simulatePlayer({ profile: "steady", days: 2, stopAfterLongDays: 0 }).final,
     // 0.13.11.1: past e1,000,000 with some of each upgrade bought.
     pastLong: pastLongState(),
+    // final re-check: past e10,000,000, all seven upgrades capped
+    pastStarfall: pastStarfallState(),
   };
+  for (const u of UPGRADES) if (states.pastStarfall.upgrades[u.id] !== u.cap) throw new Error(`pastStarfall: ${u.id} not capped`);
 }, 240000);
 
 describe("short gaps match live exactly", () => {
@@ -69,6 +73,7 @@ const GAPS: Record<string, number[]> = {
   pastFinale: [EXACT_BOUND_SECONDS + 1, 10 * H, 2 * D, 3 * D],
   day2: [EXACT_BOUND_SECONDS + 1, 10 * H, 2 * D, 3 * D],
   pastLong: [EXACT_BOUND_SECONDS + 1, 10 * H, 2 * D, 3 * D],
+  pastStarfall: [EXACT_BOUND_SECONDS + 1, 10 * H],
 };
 // The sane bound above: never more than live play would reach by staying open longer. Twice the
 // gap up to 10 hours, half again the gap beyond (where live runs are long to compute).

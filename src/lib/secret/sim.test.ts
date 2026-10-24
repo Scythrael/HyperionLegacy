@@ -16,5 +16,6 @@ describe("steady player pacing", () => {
     // The target sweeps (simTargets*.test.ts) compare against these default-target pins.
     expect(r.events.finale / DEFAULT_STEADY.finale).toBeCloseTo(1, 2);
     expect(r.events.long / DEFAULT_STEADY.long).toBeCloseTo(1, 2);
+    expect(r.events.starfall / DEFAULT_STEADY.starfall).toBeCloseTo(1, 2);
   }, 900000);
 });

@@ -3,6 +3,12 @@
 Things known to be broken or missing, deliberately deferred. Ops §8.E.7:
 write it down so you don't relitigate it later.
 
+- **[RELEASE RULE, 0.13.11.1] Never roll prod back past 0.13.11.1.** 0.13.11.1 re-expresses the
+  minigame's Captain Points on a new scale (CP_POW 0.4875, converted once so the Captain bonus is
+  unchanged). A rollback to 0.13.11 and a re-promotion does not convert twice (the device remembers
+  under `hl_secret_cp_scale`), but Captain Points earned while 0.13.11 runs are on the old scale and
+  would read on the new one afterwards. Plan: docs/plans/2026-10-23-hotfix-0.13.11.1-plan.md, Task 26.
+
 - **[RESOLVED 2026-07-16] A material can overshoot its warehouse cap by a full mission cycle's haul
   (user-observed: Deuterium Ice at 1.3M / 1M cap, running at 1000x dev speed).** FIXED in two parts:
   (1) `addToInventory` (the single shared deposit seam) now CLAMPS every producer deposit at the item's

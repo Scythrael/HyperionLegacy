@@ -1,7 +1,8 @@
 // testStates.ts: representative secret game states for the catch-up tests. Test-only.
 import { freshSecretState, cloneSecret, type SecretState } from "./state";
 import { stepMut, buyOverclockMut, buyTierMut, effectiveExponent } from "./engine";
-import { SKILLS, FINALE_EXPONENT, LONG_EXPONENT, type SkillId } from "./config";
+import { SKILLS, FINALE_EXPONENT, LONG_EXPONENT, STARFALL_EXPONENT, type SkillId } from "./config";
+import { devJumpTo } from "./devTools";
 
 function grant(s: SecretState, ids: readonly SkillId[]): void {
   for (const id of ids) s.skills[id] = true;
@@ -72,4 +73,10 @@ export function live(s: SecretState, seconds: number): SecretState {
   for (let i = 1; i <= seconds; i++) stepMut(x, 1, s.lastTickAt + i * 1000);
   x.lastTickAt = s.lastTickAt + seconds * 1000;
   return x;
+}
+
+// Final re-check: past e10,000,000 with every upgrade (all seven) at its cap and every skill, the
+// state the Debug jump builds and lets the engine settle (Overdrive Overdrive's power acts per step).
+export function pastStarfallState(): SecretState {
+  return devJumpTo(freshSecretState(0), STARFALL_EXPONENT, 86400 * 1000);
 }

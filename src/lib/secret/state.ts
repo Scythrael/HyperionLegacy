@@ -174,8 +174,15 @@ function isPlainObject(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null && !Array.isArray(v);
 }
 
-// Returns null for anything that is not a valid version-0 secret save.
-export function deserializeSecret(raw: string | null, nowMs: number): SecretState | null {
+// The device has already converted its Captain Points to the 0.4875 scale (0.13.11.1). Kept under its
+// own key because 0.13.11 drops the captainScale field when it saves: after a rollback to 0.13.11 and a
+// re-promotion, a save that lost the marker is still recognized and never converted twice.
+export const SECRET_CP_SCALE_KEY = "hl_secret_cp_scale";
+
+// Returns null for anything that is not a valid version-0 secret save. cpConverted: this device has
+// converted its Captain Points before (SECRET_CP_SCALE_KEY), so a save without the marker is not
+// converted again.
+export function deserializeSecret(raw: string | null, nowMs: number, opts: { cpConverted?: boolean } = {}): SecretState | null {
   if (raw === null) return null;
   let parsed: unknown;
   try {
@@ -229,13 +236,13 @@ export function deserializeSecret(raw: string | null, nowMs: number): SecretStat
   }
   s.finaleSeen = parsed.finaleSeen === true;
   s.longSeen = parsed.longSeen === true;
-  readNewFields(s, parsed);
+  readNewFields(s, parsed, opts.cpConverted === true);
   return s;
 }
 
 // 0.13.11.1 fields. Every 0.13.11 save lacks them, so a missing or bad value takes its default
 // and never rejects the save (Review Focus 1).
-function readNewFields(s: SecretState, parsed: Record<string, unknown>): void {
+function readNewFields(s: SecretState, parsed: Record<string, unknown>, cpConverted: boolean): void {
   const up = isPlainObject(parsed.upgrades) ? parsed.upgrades : {};
   for (const def of UPGRADES) {
     const n = up[def.id];
@@ -249,7 +256,9 @@ function readNewFields(s: SecretState, parsed: Record<string, unknown>): void {
   s.upgradesNoteSeen = parsed.upgradesNoteSeen === true;
   // Points saved on the old 0.195 scale: (1 + CP)^0.195 = (1 + CP')^0.4875 gives CP' = (1 + CP)^0.4 - 1,
   // the same Captain bonus, never more and never less (user: existing saves keep every point).
-  if (parsed.captainScale !== 2 && s.captainPoints.gt(0)) {
+  // Only when the marker is ABSENT (any other value is left alone), and never on a device that has
+  // converted before (a rollback to 0.13.11 drops the marker; final re-check).
+  if (!("captainScale" in parsed) && !cpConverted && s.captainPoints.gt(0)) {
     s.captainPoints = Decimal.max(0, s.captainPoints.add(1).pow(CP_POW_BEFORE_CURVE_ROUND / CP_POW).sub(1));
   }
   if (typeof parsed.found === "boolean") {
@@ -287,8 +296,11 @@ export function isFutureSecretSave(raw: string): boolean {
 export function inspectSecretSave(nowMs: number): { state: SecretState; status: SecretLoadStatus } {
   const raw = safeGetItem(SECRET_SAVE_KEY);
   if (raw === null) return { state: freshSecretState(nowMs), status: "empty" };
-  const state = deserializeSecret(raw, nowMs);
-  if (state) return { state, status: "ok" };
+  const state = deserializeSecret(raw, nowMs, { cpConverted: safeGetItem(SECRET_CP_SCALE_KEY) === "2" });
+  if (state) {
+    safeSetItem(SECRET_CP_SCALE_KEY, "2");
+    return { state, status: "ok" };
+  }
   safeSetItem(SECRET_BACKUP_KEY, raw);
   return { state: freshSecretState(nowMs), status: isFutureSecretSave(raw) ? "future" : "corrupt" };
 }

@@ -31,6 +31,7 @@
     upgradeQuote,
     allSkillsLearned,
     upgradeUnlocked,
+    upgradeBlocked,
     type BuyQuote,
     canOverclock,
     tierMultiplier,
@@ -157,6 +158,7 @@
   $: oc10 = overclockQuote(s, 10);
   $: ocMax = overclockQuote(s, Infinity);
   function tenLabel(q: BuyQuote): string {
+    if (q.limitedBy === "cap" && q.count === 0) return COPY.maxed;
     if (q.limitedBy === "cap") return `Buy ${q.count} (to the cap)`;
     if (q.limitedBy === "ore" && q.count > 0) return `Buy ${q.count} of 10`;
     return "Buy 10";
@@ -425,20 +427,23 @@
             </div>
           </div>
           {#each UPGRADES as u}
-            <!-- 0.13.11.1 content pacing: each upgrade wakes at its own best Ore (upgradeUnlocked) -->
-            {#if upgradeUnlocked(s, u.id)}
+            <!-- 0.13.11.1 content pacing: each upgrade wakes at its own best Ore (upgradeUnlocked). A save
+                 that already owns levels in one that now wakes later shows it, with buying blocked. -->
+            {#if upgradeUnlocked(s, u.id) || upgradeLevel(s, u.id) > 0}
               {@const level = upgradeLevel(s, u.id)}
               {@const can = !busy && canBuyUpgrade(s, u.id)}
               {@const q10 = upgradeQuote(s, u.id, 10)}
               {@const qMax = upgradeQuote(s, u.id, Infinity)}
+              {@const block = upgradeBlocked(s, u.id)}
               <div class="gen">
                 <div class="tier">+</div>
                 <div class="gname"><b>{u.name}</b><em>{u.flavor}</em></div>
                 <div class="gstats">Lv <span class="num">{level} / {u.cap}</span> · {u.effect}</div>
+                {#if block && level < u.cap}<div class="gstats dim">{block.kind === "asleep" ? `Wakes at ${formatExponent(block.unlockAt)} Ore` : COPY.needsOverdrive}</div>{/if}
                 <div class="buys">
                   <button class="sg-btn" type="button" disabled={!can} on:click={() => secretAct((x) => buyUpgrade(x, u.id, "one"))}>Buy 1<span class="num">{upgradePriceLabel(s, u.id)}</span></button>
-                  <button class="sg-btn" type="button" title={tenTitle(q10)} disabled={!can} on:click={() => secretAct((x) => buyUpgrade(x, u.id, "ten"))}>{tenLabel(q10)}<span class="num">{q10.fullCost.gt(0) ? fmt(q10.count > 0 && q10.limitedBy === "ore" ? q10.cost : q10.fullCost) : "Maxed"}</span></button>
-                  <button class="sg-btn primary" type="button" disabled={!can} on:click={() => secretAct((x) => buyUpgrade(x, u.id, "max"))}>Max<span class="num">{levelsLabel(qMax.count)}</span></button>
+                  <button class="sg-btn" type="button" title={tenTitle(q10)} disabled={!can} on:click={() => secretAct((x) => buyUpgrade(x, u.id, "ten"))}>{tenLabel(q10)}{#if q10.fullCost.gt(0)}<span class="num">{fmt(q10.count > 0 && q10.limitedBy === "ore" ? q10.cost : q10.fullCost)}</span>{/if}</button>
+                  <button class="sg-btn primary" type="button" disabled={!can} on:click={() => secretAct((x) => buyUpgrade(x, u.id, "max"))}>Max<span class="num">{level >= u.cap ? COPY.maxed : levelsLabel(qMax.count)}</span></button>
                 </div>
               </div>
             {:else}
@@ -465,7 +470,7 @@
             </div>
             <div class="layer fleet">
               <h3>FLEET PRESTIGE</h3>
-              <p class="muted">{COPY.fleetBlurb}</p>
+              <p class="muted">{allSkillsLearned(s) ? COPY.fleetBlurbAllSkills : COPY.fleetBlurb}</p>
               <div class="kv">
                 <span>Fleet Prestiges</span><span class="num">{s.fleetCount} (lifetime {s.fleetTotal})</span>
                 <span>Augment Points</span><span class="num">{formatSecret(s.augmentPoints)}</span>

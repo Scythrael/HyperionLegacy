@@ -102,7 +102,8 @@ function build(s: SecretState, effectiveTarget: number, raw: number, atMs: numbe
   out.fleetTotal = Math.max(s.fleetTotal, layers.fleetTotal);
   out.fleetCount = Math.min(layers.fleetCount, out.fleetTotal);
   out.pcCount = Math.max(s.pcCount, layers.pcCount);
-  out.skillPoints = Math.max(0, out.fleetTotal - SKILLS.reduce((n, d) => n + d.cost, 0));
+  // Every skill is owned, so no Fleet pays a Skill Point any more (the cutoff): none spare.
+  out.skillPoints = 0;
   out.upgrades = { ocOverclocker: 0, tenfoldTuner: 0, captainsCompound: 0, lucidDreaming: 0, turboEncabulator: 0, overdriveOverdrive: 0, singularitySharpener: 0 };
   if (final) for (const u of UPGRADES) out.upgrades[u.id] = u.cap;
   out.upgradesNoteSeen = false;

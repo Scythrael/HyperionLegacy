@@ -1,5 +1,6 @@
 // devTools.test.ts: the [DEV] minigame shortcuts land states the engine accepts (0.13.11.1).
 import { describe, it, expect } from "vitest";
+import { readFileSync } from "node:fs";
 import { freshSecretState, serializeSecret, deserializeSecret, cloneSecret, type SecretState } from "./state";
 import { devMarkFound, devMaxSkills, devJumpTo } from "./devTools";
 import { effectiveExponent, upgradesUnlocked, upgradeLevel, hasSkill, autoActive, isTierUnlocked, stepMut, captainGain, fleetGain, prestigeceptionGain } from "./engine";
@@ -110,5 +111,18 @@ describe("jumps never move dates already earned", () => {
     const s = devMarkFound(freshSecretState(NOW), NOW);
     s.milestones.googol = 123;
     expect(devJumpTo(s, LONG_EXPONENT, NOW).milestones.googol).toBe(123);
+  });
+});
+
+describe("final re-check: the Debug jumps", () => {
+  it("leave no spare Skill Points (every skill is owned, so Fleets pay none)", () => {
+    for (const target of [1e6, STARFALL_EXPONENT]) expect(devJumpTo(freshSecretState(0), target, 1000).skillPoints).toBe(0);
+  });
+
+  it("say on the Debug button that the e10,000,000 jump is a fast-forward state", () => {
+    const app = readFileSync("src/App.svelte", "utf-8");
+    expect(app).toContain("Jump to e10,000,000 (fast-forward state)");
+    const grant = app.slice(app.indexOf("function devGrantStarfall(): void {"), app.indexOf("function devGrantStarfall(): void {") + 120);
+    expect(grant).toContain("if (!DEV_MODE) return;");
   });
 });

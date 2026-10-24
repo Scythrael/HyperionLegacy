@@ -63,6 +63,7 @@ describe("the late upgrades: Buy 1, Buy 10 and Max", () => {
     const s = producing(0, 10);
     s.ore = Decimal.pow(10, unsoftenExponent(oreEff));
     s.bestOre = s.ore; // every upgrade awake (each wakes at its own best Ore)
+    s.skills.overdrive = true; // Overdrive Overdrive needs the skill
     return s;
   }
 
@@ -106,8 +107,8 @@ describe("the Upgrades tab shows it", () => {
     const ov = readFileSync("src/lib/SecretGameOverlay.svelte", "utf-8");
     expect(ov).toMatch(/buyOverclock\(x, "ten"\)\)\}>\{tenLabel\(oc10\)\}<span class="num">/);
     expect(ov).toMatch(/buyOverclock\(x, "max"\)\)\}>Max<span class="num">\{levelsLabel\(ocMax\.count\)\}/);
-    expect(ov).toMatch(/buyUpgrade\(x, u\.id, "ten"\)\)\}>\{tenLabel\(q10\)\}<span class="num">/);
-    expect(ov).toMatch(/buyUpgrade\(x, u\.id, "max"\)\)\}>Max<span class="num">\{levelsLabel\(qMax\.count\)\}/);
+    expect(ov).toMatch(/buyUpgrade\(x, u\.id, "ten"\)\)\}>\{tenLabel\(q10\)\}\{#if q10\.fullCost\.gt\(0\)\}<span class="num">/);
+    expect(ov).toMatch(/buyUpgrade\(x, u\.id, "max"\)\)\}>Max<span class="num">\{level >= u\.cap \? COPY\.maxed : levelsLabel\(qMax\.count\)\}/);
     expect(ov).toContain("Ore runs out after");
     expect(ov).toContain("(to the cap)");
   });

@@ -2,6 +2,7 @@
 import { expect } from "vitest";
 import { report } from "./testReport";
 import { bestExponentAt, type SimResult } from "./sim";
+import { UPGRADES } from "./config";
 
 export const H = 3600;
 export const D = 24 * H;
@@ -42,7 +43,7 @@ export function expectSixMonthBand(r: SimResult): void {
   // 0.13.11.1 content pacing (user: "About 4 months"): about 120 days for the average player
   expect(e.starfall).toBeGreaterThanOrEqual(110 * D);
   expect(e.starfall).toBeLessThanOrEqual(130 * D);
-  for (const id of ["ocOverclocker", "tenfoldTuner", "captainsCompound", "lucidDreaming"]) {
+  for (const id of UPGRADES.map((u) => u.id)) {
     expect(e[`up1:${id}`], id).toBeGreaterThanOrEqual(e.long);
     expect(e[`upMax:${id}`], id).toBeLessThanOrEqual(e.starfall + 2 * D);
   }
@@ -62,7 +63,7 @@ export function expectSlowsAfterStarfall(r: SimResult): void {
 
 // 0.13.11.1 (user: "Retune so default is best"): the steady player at the DEFAULT 100% targets,
 // measured by sim.test.ts (which checks it still lands here). The target sweeps compare against it.
-export const DEFAULT_STEADY = { finale: 422012, long: 2794738 }; // 4.88 d and 32.35 d (curve round)
+export const DEFAULT_STEADY = { finale: 422012, long: 2794738, starfall: 119.15 * D }; // 4.88 d, 32.35 d, 119.2 d
 // How much sooner another target choice may reach a milestone and still count as "no better".
 export const TARGET_MARGIN = 0.03;
 

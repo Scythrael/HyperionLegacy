@@ -242,6 +242,15 @@ export function upgradeUnlocked(s: SecretState, id: UpgradeId): boolean {
   return effectiveExponent(s.bestOre) >= UPGRADES.find((u) => u.id === id)!.unlockAt;
 }
 
+// Why an upgrade cannot be bought right now, apart from its price and cap (null: nothing in the
+// way): it has not woken yet (a save may own levels from before the stagger), or it needs a skill.
+export type UpgradeBlock = { kind: "asleep"; unlockAt: number } | { kind: "needsOverdrive" };
+export function upgradeBlocked(s: SecretState, id: UpgradeId): UpgradeBlock | null {
+  if (!upgradeUnlocked(s, id)) return { kind: "asleep", unlockAt: UPGRADES.find((u) => u.id === id)!.unlockAt };
+  if (id === "overdriveOverdrive" && !hasSkill(s, "overdrive")) return { kind: "needsOverdrive" };
+  return null;
+}
+
 // Effective exponent of the next level's price, or null at the cap.
 export function upgradePriceExponent(s: SecretState, id: UpgradeId): number | null {
   const def = UPGRADES.find((u) => u.id === id)!;
@@ -258,7 +267,7 @@ export function upgradePrice(s: SecretState, id: UpgradeId): Decimal | null {
 
 export function canBuyUpgrade(s: SecretState, id: UpgradeId): boolean {
   const price = upgradePrice(s, id);
-  return upgradeUnlocked(s, id) && price !== null && s.ore.gte(price);
+  return upgradeBlocked(s, id) === null && price !== null && s.ore.gte(price);
 }
 
 // Buys up to maxCount levels, one at a time at the rising price. Mutates s. Returns levels bought.
@@ -276,7 +285,7 @@ export function upgradeQuote(s: SecretState, id: UpgradeId, maxCount: number): B
   const def = UPGRADES.find((u) => u.id === id)!;
   const room = def.cap - upgradeLevel(s, id);
   const after = cloneSecret(s);
-  const count = upgradeUnlocked(s, id) ? buyUpgradeMut(after, id, maxCount) : 0;
+  const count = upgradeBlocked(s, id) === null ? buyUpgradeMut(after, id, maxCount) : 0;
   const priceAt = (i: number) => pow10(unsoftenExponent(def.priceBase * Math.pow(def.priceRatio, upgradeLevel(s, id) + i)));
   let cost = ZERO;
   for (let i = 0; i < count; i++) cost = cost.add(priceAt(i));

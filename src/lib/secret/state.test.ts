@@ -11,6 +11,7 @@ import {
   SECRET_SAVE_KEY,
   SECRET_BACKUP_KEY,
   inspectSecretSave,
+  SECRET_CP_SCALE_KEY,
 } from "./state";
 import { SAVE_KEY } from "../game/save";
 import { installMemoryStorage, installBlockedStorage, restoreStorage } from "./testStorage";
@@ -245,5 +246,33 @@ describe("0.13.11.1 curve round: Captain Points saved on the old scale", () => {
     const loaded = deserializeSecret(JSON.stringify(raw), 0)!;
     expect(loaded.captainPoints.eq(0)).toBe(true);
     expect(loaded.augmentPoints.eq(77)).toBe(true);
+  });
+});
+
+describe("final re-check: the Captain conversion happens once, also across a rollback", () => {
+  it("converts only when the marker is absent; any other value is left alone", () => {
+    const old = freshSecretState(0);
+    old.captainPoints = new Decimal(1e8);
+    const raw = JSON.parse(serializeSecret(old));
+    raw.captainScale = 1; // not 2, but present
+    expect(deserializeSecret(JSON.stringify(raw), 0)!.captainPoints.eq(1e8)).toBe(true);
+  });
+
+  it("a save that lost the marker (0.13.11 saved over it after a rollback) is not converted twice on this device", () => {
+    const data = installMemoryStorage();
+    const old = freshSecretState(0);
+    old.captainPoints = new Decimal(1e8);
+    const raw = JSON.parse(serializeSecret(old));
+    delete raw.captainScale;
+    data.set(SECRET_SAVE_KEY, JSON.stringify(raw));
+    const first = inspectSecretSave(0).state; // converted once, the device remembers
+    expect(first.captainPoints.lt(1e8)).toBe(true);
+    expect(data.get(SECRET_CP_SCALE_KEY)).toBe("2");
+    // a rollback to 0.13.11 saves the converted points without the marker
+    const rolledBack = JSON.parse(serializeSecret(first));
+    delete rolledBack.captainScale;
+    data.set(SECRET_SAVE_KEY, JSON.stringify(rolledBack));
+    const again = inspectSecretSave(0).state;
+    expect(again.captainPoints.eq(first.captainPoints)).toBe(true);
   });
 });

@@ -152,7 +152,7 @@ export const UPGRADES: readonly UpgradeDef[] = [
   { id: "captainsCompound", name: "Captain's Compound", flavor: "Interest on interest on interest. The bank has questions.", effect: "your Captain and Augment Points count as more", cap: 10, unlockAt: 1200000, priceBase: 1200000, priceRatio: 1.115, step: 4.95 },
   { id: "lucidDreaming", name: "Lucid Dreaming", flavor: "You can steer the dream now. You steered it toward more Ore.", effect: "Dream Points hit harder: they speed up the whole stack too", cap: 10, unlockAt: 1500000, priceBase: 1500000, priceRatio: 1.0874, step: 0.01485 },
   { id: "turboEncabulator", name: "Turbo Encabulator", flavor: "Nobody knows how it works. Nobody needs to. It works.", effect: "the whole stack runs faster", cap: 10, unlockAt: 1800000, priceBase: 1800000, priceRatio: 1.0563, step: 1.1 },
-  { id: "overdriveOverdrive", name: "Overdrive Overdrive", flavor: "Overdrive, but it also drives over itself. Please wear a helmet.", effect: "Overdrive raises Ore production to a higher power", cap: 10, unlockAt: 2400000, priceBase: 2400000, priceRatio: 1.0345, step: 0.011 },
+  { id: "overdriveOverdrive", name: "Overdrive Overdrive", flavor: "Overdrive, but it also drives over itself. Please wear a helmet.", effect: "with the Overdrive skill, Ore production rises to a higher power", cap: 10, unlockAt: 2400000, priceBase: 2400000, priceRatio: 1.0345, step: 0.011 },
   { id: "singularitySharpener", name: "Singularity Sharpener", flavor: "A sharper singularity. Do not ask what it was before.", effect: "the Singularity Engine makes more", cap: 10, unlockAt: 3400000, priceBase: 3400000, priceRatio: 1.016, step: 1.1 },
 ];
 
@@ -295,6 +295,10 @@ export const COPY = {
   upgradesNote: "Congratulations, you unlocked the overclock overclocker! Kidding. Horses are extinct in the future, so there are none left to beat for this joke.", // user copy, verbatim
   upgradesLocked: "Unlocks later",
   allSkillsLearned: "All skills learned: no more Skill Points",
+  // The Fleet card once every skill is learned (no Skill Point any more).
+  fleetBlurbAllSkills: "The big reset. Trade your Captain Points for Augment Points. New generators unlock as your Fleet count grows. The admiral would like a word, and the word is \"more\".",
+  needsOverdrive: "Needs the Overdrive skill",
+  maxed: "Maxed",
   starfallRewardLater: "Reward: the Starfall theme",
   starfallRewardDone: "Starfall theme unlocked",
 } as const;

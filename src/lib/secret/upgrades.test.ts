@@ -33,8 +33,9 @@ import {
   overdrivePower,
   sharpenFactor,
   produceMut,
+  upgradeBlocked,
 } from "./engine";
-import { UPGRADES, UPGRADES_AT, STARFALL_EXPONENT, MILESTONES, OVERDRIVE_POWER, milestoneAchievement, type UpgradeId } from "./config";
+import { UPGRADES, UPGRADES_AT, STARFALL_EXPONENT, MILESTONES, OVERDRIVE_POWER, COPY, milestoneAchievement, type UpgradeId } from "./config";
 
 // A state whose best and current Ore sit at effective exponent e.
 function atEffective(e: number): SecretState {
@@ -49,6 +50,7 @@ function atEffective(e: number): SecretState {
   s.augmentPoints = new Decimal(1e5);
   s.dreamPoints = new Decimal(1e6);
   s.skills.tenBonus = true;
+  s.skills.overdrive = true; // late game: Overdrive Overdrive needs it
   return s;
 }
 
@@ -340,5 +342,42 @@ describe("0.13.11.1 content pacing: staggered and new upgrades, new milestones",
       expect(pop.flavor).toBeTruthy();
       expect(pop.reward).toBe("Reward: recorded for a future update");
     }
+  });
+});
+
+describe("final re-check: upgrade rows", () => {
+  it("Overdrive Overdrive needs the Overdrive skill to be bought, and says so", () => {
+    const s = atEffective(3e6);
+    s.ore = pow10(unsoftenExponent(9e6));
+    delete s.skills.overdrive;
+    expect(upgradeUnlocked(s, "overdriveOverdrive")).toBe(true);
+    expect(upgradeBlocked(s, "overdriveOverdrive")).toEqual({ kind: "needsOverdrive" });
+    expect(canBuyUpgrade(s, "overdriveOverdrive")).toBe(false);
+    s.skills.overdrive = true;
+    expect(upgradeBlocked(s, "overdriveOverdrive")).toBeNull();
+    expect(canBuyUpgrade(s, "overdriveOverdrive")).toBe(true);
+    expect(UPGRADES.find((u) => u.id === "overdriveOverdrive")!.effect).toContain("Overdrive skill");
+  });
+
+  it("a save owning levels in an upgrade that now wakes later keeps them, sees the row, and waits to buy more", () => {
+    const s = atEffective(1.1e6); // Tenfold Tuner wakes at e1.35M now
+    s.ore = pow10(unsoftenExponent(9e6));
+    s.upgrades.tenfoldTuner = 3;
+    expect(upgradeBlocked(s, "tenfoldTuner")).toEqual({ kind: "asleep", unlockAt: UPGRADES.find((u) => u.id === "tenfoldTuner")!.unlockAt });
+    expect(canBuyUpgrade(s, "tenfoldTuner")).toBe(false);
+    expect(tenBonusFactor(s)).toBeGreaterThan(tenBonusFactor({ ...cloneSecret(s), upgrades: { ...s.upgrades, tenfoldTuner: 0 } }));
+    const ov = readFileSync("src/lib/SecretGameOverlay.svelte", "utf-8");
+    expect(ov).toContain("{#if upgradeUnlocked(s, u.id) || upgradeLevel(s, u.id) > 0}");
+    expect(ov).toContain("`Wakes at ${formatExponent(block.unlockAt)} Ore`");
+    expect(ov).toContain("COPY.needsOverdrive");
+  });
+
+  it("a capped upgrade reads Maxed, never Buy 0; the Fleet card drops the Skill Point once every skill is learned", () => {
+    const ov = readFileSync("src/lib/SecretGameOverlay.svelte", "utf-8");
+    expect(ov).toContain('if (q.limitedBy === "cap" && q.count === 0) return COPY.maxed;');
+    expect(ov).toContain("level >= u.cap ? COPY.maxed : levelsLabel(qMax.count)");
+    expect(ov).toContain("allSkillsLearned(s) ? COPY.fleetBlurbAllSkills : COPY.fleetBlurb");
+    expect(COPY.fleetBlurbAllSkills).not.toMatch(/Skill Point/);
+    expect(COPY.fleetBlurb).toMatch(/Skill Point/);
   });
 });

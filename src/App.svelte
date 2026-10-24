@@ -2859,6 +2859,7 @@
   }
   // [DEV] grant the Starfall unlock without six months of play (Debug tab only).
   function devGrantStarfall(): void {
+    if (!DEV_MODE) return;
     doUnlockThemeStyle("washShine");
   }
 
@@ -17253,7 +17254,7 @@
             <button class="dev-btn" on:click={() => devSecret("found")}>Mark found</button>
             <button class="dev-btn" on:click={() => devSecret("skills")}>Max skills</button>
             <button class="dev-btn" on:click={() => devSecret("e1m")}>Jump to e1,000,000</button>
-            <button class="dev-btn" on:click={() => devSecret("e10m")}>Jump to e10,000,000</button>
+            <button class="dev-btn" on:click={() => devSecret("e10m")} title="A fast-forward state: it climbs faster past e10,000,000 than real play does">Jump to e10,000,000 (fast-forward state)</button>
           </div>
           <!-- [DEV] 0.13.11.1: grant the Starfall theme style (the e10,000,000 prize) to test it. -->
           <div class="dev-row">

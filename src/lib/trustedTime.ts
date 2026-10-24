@@ -11,7 +11,7 @@
 //      device clock is behind the mark (the clock was set back), the session keeps advancing from
 //      performance.now() deltas, so open play works at real speed; nothing is re-anchored.
 //   2. FORWARD JUMPS. When the server's time is known (a same-origin no-store HEAD request, read the
-//      Date header, plus the Age header if a cache answered), trusted time is at most server time +
+//      Date header; never the Age header, see syncServerTime), trusted time is at most server time +
 //      SERVER_TOLERANCE_MS. When it is not (offline, or the request failed), at most a fixed base +
 //      UNVERIFIED_ALLOWANCE_MS (2 days, the main game's own offline cap). The base is the last time
 //      the SERVER confirmed (`verifiedMs`, never a device reading), or, before any server reading,
@@ -43,6 +43,9 @@ import { safeGetItem, safeSetItem } from "./safeStorage";
 export const SERVER_TOLERANCE_MS = 10 * 60 * 1000;
 export const UNVERIFIED_ALLOWANCE_MS = 2 * 24 * 60 * 60 * 1000;
 const SYNC_MIN_GAP_MS = 30 * 1000;
+// While time is held the checks back off: 30 s, 1 min, 2 min ... up to 10 min (final re-check), so a
+// device clock left fast does not send a HEAD every 30 seconds forever.
+const HELD_GAP_MAX_MS = 10 * 60 * 1000;
 const PERSIST_EVERY_MS = 30 * 1000;
 
 export interface StoredTrust {
@@ -137,6 +140,15 @@ let session: TrustState | null = null;
 let lastHeldMs = 0;
 let lastPersistedFloor = -Infinity;
 let lastSyncAttemptMs = -Infinity; // device time of the last server check (rate limiting only)
+let heldGapMs = SYNC_MIN_GAP_MS; // the current back-off while time is held
+let testFetcher: Fetcher | undefined; // tests only
+
+// A check while time is held, at most once per back-off gap; each one doubles the gap.
+function heldSyncDue(): boolean {
+  if (Date.now() - lastSyncAttemptMs < heldGapMs) return false;
+  heldGapMs = Math.min(heldGapMs * 2, HELD_GAP_MAX_MS);
+  return true;
+}
 // Nothing is written before initTrustedTime: a reading taken earlier must never reach storage.
 let initialized = false;
 
@@ -168,7 +180,8 @@ export function trustedNow(): number {
   lastHeldMs = r.heldMs;
   if (r.state.floorMs - lastPersistedFloor >= PERSIST_EVERY_MS) persistTrustedTime();
   // Rule 5: anchored but holding more than the tolerance (a suspended device, most likely): ask again.
-  if (r.state.server && r.heldMs > SERVER_TOLERANCE_MS && Date.now() - lastSyncAttemptMs >= SYNC_MIN_GAP_MS) void syncServerTime();
+  if (r.heldMs <= SERVER_TOLERANCE_MS) heldGapMs = SYNC_MIN_GAP_MS;
+  else if (r.state.server && heldSyncDue()) void syncServerTime();
   return r.nowMs;
 }
 
@@ -194,13 +207,13 @@ export function persistTrustedTime(): void {
 
 type Fetcher = (url: string, init: RequestInit) => Promise<Response>;
 
-// Ask the server what time it is. Same origin, no-store, HEAD: only the Date and Age headers are
+// Ask the server what time it is. Same origin, no-store, HEAD: only the Date header is
 // read. Any failure (offline, no fetch at all, an error status, no Date header) leaves the
 // unverified rules in place.
-export async function syncServerTime(fetcher?: Fetcher): Promise<boolean> {
+async function requestServerTime(fetcher?: Fetcher): Promise<boolean> {
   try {
     lastSyncAttemptMs = Date.now();
-    const f: Fetcher | undefined = fetcher ?? (typeof fetch === "function" ? fetch : undefined);
+    const f: Fetcher | undefined = fetcher ?? testFetcher ?? (typeof fetch === "function" ? fetch : undefined);
     if (!f || typeof location === "undefined") return false;
     const t0 = perfNow();
     const res = await f(`${location.origin}/`, { method: "HEAD", cache: "no-store" });
@@ -209,11 +222,11 @@ export async function syncServerTime(fetcher?: Fetcher): Promise<boolean> {
     if (!res.ok || !date) return false;
     const parsed = Date.parse(date);
     if (!Number.isFinite(parsed)) return false;
-    // A cache that answered says how old its copy is; the Date header is when the copy was made.
-    const age = Number(res.headers.get("age") ?? 0);
-    const ageMs = Number.isFinite(age) && age > 0 ? age * 1000 : 0;
+    // The Date header alone. Never Age: Vercel's edge stamps Date at response time even on a cache hit,
+    // and that hit also carries an Age (seen: 116002 s, 32 hours, with no-cache request headers), so
+    // adding it would read the server 32 hours ahead and growing (final re-check H1).
     // The header has whole seconds: take the midpoint of the request and half a second.
-    session = withServerTime(current(), parsed + ageMs + 500, (t0 + t1) / 2);
+    session = withServerTime(current(), parsed + 500, (t0 + t1) / 2);
     persistTrustedTime();
     return true;
   } catch {
@@ -221,9 +234,20 @@ export async function syncServerTime(fetcher?: Fetcher): Promise<boolean> {
   }
 }
 
+// One check at a time: a second caller (the return from away) waits on the one already asking.
+let inflight: Promise<boolean> | null = null;
+export function syncServerTime(fetcher?: Fetcher): Promise<boolean> {
+  if (inflight && !fetcher) return inflight;
+  const p = requestServerTime(fetcher).finally(() => {
+    if (inflight === p) inflight = null;
+  });
+  inflight = p;
+  return p;
+}
+
 // A server check unless one ran in the last 30 seconds and nothing is held (tab returns).
 export function syncServerTimeIfDue(fetcher?: Fetcher): Promise<boolean> {
-  if (lastHeldMs <= SERVER_TOLERANCE_MS && Date.now() - lastSyncAttemptMs < SYNC_MIN_GAP_MS) return Promise.resolve(false);
+  if (lastHeldMs <= SERVER_TOLERANCE_MS ? Date.now() - lastSyncAttemptMs < SYNC_MIN_GAP_MS : !heldSyncDue()) return Promise.resolve(false);
   return syncServerTime(fetcher);
 }
 
@@ -231,13 +255,22 @@ export function syncServerTimeIfDue(fetcher?: Fetcher): Promise<boolean> {
 // clock, so a return from a sleep is paid and recapped in full. Resolves either way.
 export async function confirmTrustedTime(timeoutMs = 3000, fetcher?: Fetcher): Promise<void> {
   if (lastHeldMs <= SERVER_TOLERANCE_MS) return;
+  // A check already on its way (trustedNow starts one when time is held) is waited for; otherwise a
+  // return long after the last check (a sleep) asks, and quick returns follow the back-off.
+  const asking = inflight ?? (heldSyncDue() ? syncServerTime(fetcher) : null);
+  if (asking === null) return;
   let timer: ReturnType<typeof setTimeout> | undefined;
   const timeout = new Promise<void>((resolve) => {
     timer = setTimeout(resolve, timeoutMs);
   });
-  await Promise.race([syncServerTime(fetcher).then(() => undefined), timeout]);
+  await Promise.race([asking.then(() => undefined), timeout]);
   if (timer !== undefined) clearTimeout(timer);
   trustedNow();
+}
+
+// Tests only: the request the automatic checks make.
+export function setTrustedFetcherForTests(f: Fetcher | undefined): void {
+  testFetcher = f;
 }
 
 // Tests only.
@@ -246,5 +279,8 @@ export function resetTrustedTimeForTests(): void {
   lastHeldMs = 0;
   lastPersistedFloor = -Infinity;
   lastSyncAttemptMs = -Infinity;
+  heldGapMs = SYNC_MIN_GAP_MS;
+  testFetcher = undefined;
+  inflight = null;
   initialized = false;
 }

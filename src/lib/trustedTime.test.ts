@@ -10,6 +10,7 @@ import {
   UNVERIFIED_ALLOWANCE_MS,
   syncServerTime,
   syncServerTimeIfDue,
+  setTrustedFetcherForTests,
   confirmTrustedTime,
   trustedHeldMs,
   trustedNow,
@@ -341,10 +342,11 @@ describe("review H2: a suspended device (performance.now() stopped) is paid in f
     await syncServerTime(at(REAL0));
     const awayFrom = trustedNow();
     vi.setSystemTime(REAL0 + 8 * H); // the laptop slept eight hours
-    const first = trustedNow();
+    setTrustedFetcherForTests(at(REAL0 + 8 * H)); // what the server answers after the sleep
+    const first = trustedNow(); // held, so this starts a check
     expect(first - awayFrom).toBeLessThanOrEqual(SERVER_TOLERANCE_MS + 1000);
     expect(trustedHeldMs()).toBeGreaterThan(SERVER_TOLERANCE_MS);
-    await confirmTrustedTime(3000, at(REAL0 + 8 * H));
+    await confirmTrustedTime(3000); // waits for that check
     const back = trustedNow();
     expect(back - awayFrom).toBeGreaterThanOrEqual(8 * H - 2000);
     expect(trustedHeldMs()).toBe(0);
@@ -399,16 +401,22 @@ describe("review M3 and the request itself", () => {
     delete (globalThis as { location?: unknown }).location;
   });
 
-  it("a cached answer's Age is added to its Date", async () => {
-    const data = installMemoryStorage();
-    (globalThis as { location?: unknown }).location = { origin: "https://hl.test" };
-    vi.useFakeTimers({ toFake: ["Date"] });
-    vi.setSystemTime(REAL0);
-    initTrustedTime([REAL0 - MIN]);
-    const dated = REAL0 - 120 * 1000; // the edge made this copy two minutes ago
-    await syncServerTime(() => Promise.resolve(new Response(null, { status: 200, headers: { date: new Date(dated).toUTCString(), age: "120" } })));
-    const verified = JSON.parse(data.get("hl_trusted_time")!).verifiedMs as number;
-    expect(Math.abs(verified - REAL0)).toBeLessThanOrEqual(1500);
+  it("the Age header is ignored: Vercel stamps Date at response time even on a cache hit (final re-check H1)", async () => {
+    for (const age of ["120", "116002", "9999999"]) {
+      const data = installMemoryStorage();
+      (globalThis as { location?: unknown }).location = { origin: "https://hl.test" };
+      vi.useFakeTimers({ toFake: ["Date"] });
+      vi.setSystemTime(REAL0);
+      resetTrustedTimeForTests();
+      initTrustedTime([REAL0 - MIN]);
+      await syncServerTime(() => Promise.resolve(new Response(null, { status: 200, headers: { date: new Date(REAL0).toUTCString(), age } })));
+      const verified = JSON.parse(data.get("hl_trusted_time")!).verifiedMs as number;
+      expect(Math.abs(verified - REAL0), `age ${age}`).toBeLessThanOrEqual(1500);
+      // a device parked far ahead gains nothing from a big Age either
+      vi.setSystemTime(Y2099);
+      expect(trustedNow() - REAL0, `age ${age}`).toBeLessThanOrEqual(SERVER_TOLERANCE_MS + 2000);
+      restoreStorage();
+    }
   });
 
   it("no fetch at all is a failed check, never a throw", async () => {
@@ -451,5 +459,41 @@ describe("review M3 and the request itself", () => {
     vi.setSystemTime(REAL0 + 31 * 1000);
     trustedNow();
     expect(JSON.parse(data.get("hl_trusted_time")!).floorMs).toBeGreaterThan(first);
+  });
+});
+
+describe("final re-check: a device clock left fast does not ask the server every 30 seconds forever", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+    restoreStorage();
+    resetTrustedTimeForTests();
+    delete (globalThis as { location?: unknown }).location;
+  });
+
+  it("the checks back off 30 s, 1 min, 2 min ... up to 10 min while time is held, and reset once it is not", async () => {
+    installMemoryStorage();
+    (globalThis as { location?: unknown }).location = { origin: "https://hl.test" };
+    vi.useFakeTimers({ toFake: ["Date"] });
+    let real = REAL0;
+    let calls = 0;
+    const server = () => {
+      calls += 1;
+      return Promise.resolve(new Response(null, { status: 200, headers: { date: new Date(real).toUTCString() } }));
+    };
+    setTrustedFetcherForTests(server);
+    vi.setSystemTime(real);
+    initTrustedTime([real - MIN]);
+    await syncServerTime(server);
+    calls = 0;
+    // the device runs a day fast for an hour of play, read every 10 seconds
+    for (let i = 0; i < 360; i++) {
+      real += 10 * 1000;
+      vi.setSystemTime(real + D);
+      trustedNow();
+      await Promise.resolve();
+    }
+    // 30 s, 1, 2, 4, 8, 10, 10, 10 ... minutes: well under a dozen in an hour (every 30 s would be 120)
+    expect(calls).toBeGreaterThan(2);
+    expect(calls).toBeLessThanOrEqual(12);
   });
 });

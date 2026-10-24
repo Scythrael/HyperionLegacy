@@ -35,6 +35,7 @@ const FILES = [
   "src/lib/secret/simTargetsHigh.test.ts",
   "src/lib/secret/simOptimal.test.ts",
   "src/lib/secret/simCasual.test.ts",
+  "src/lib/secret/simTargetsLong.test.ts",
   "src/lib/secret/buyQuotes.test.ts",
 ].map((path) => ({ path, src: readFileSync(path, "utf-8") }));
 
