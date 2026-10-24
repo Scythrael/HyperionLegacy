@@ -69,3 +69,4 @@ D. Coarse margin: leave.
   player; supersedes the ~180 d note). So: stagger the four upgrades (e1M, e2M, e3.5M, e5M or similar), add 2 to 4
   more late upgrades unlocking across the months, add funny milestones every few weeks (e2M, e3M, e5M, e7.77M ...),
   each with its popup and recorded reward; new names and copy are [PROPOSAL] for the user's sign-off.
+- Four-month curve built (56231e7): average e10M 119.2 d, beats every few weeks (Turbo Encabulator, Overdrive Overdrive, Singularity Sharpener; milestones Forever Twice / Third Time's the Charm / Halfway to Too Big / Seven Sevens Fully Grown). User: "Approve all" (pacing, names and copy).
