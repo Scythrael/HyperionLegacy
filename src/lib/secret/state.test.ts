@@ -11,6 +11,7 @@ import {
   SECRET_SAVE_KEY,
   SECRET_BACKUP_KEY,
   inspectSecretSave,
+  SECRET_CP_SCALE_KEY,
 } from "./state";
 import { SAVE_KEY } from "../game/save";
 import { installMemoryStorage, installBlockedStorage, restoreStorage } from "./testStorage";
@@ -94,6 +95,89 @@ describe("range checks", () => {
   });
 });
 
+describe("0.13.11.1 fields", () => {
+  const NEW_KEYS = ["upgrades", "found", "foundAt", "peakOwned", "peakOverclock", "upgradesNoteSeen"];
+  // A save exactly as 0.13.11 wrote it: none of the new keys.
+  function oldShape(s: ReturnType<typeof freshSecretState>): string {
+    const raw = JSON.parse(serializeSecret(s));
+    for (const k of NEW_KEYS) delete raw[k];
+    return JSON.stringify(raw);
+  }
+
+  it("a fresh state starts unfound, with no upgrades and peaks at zero", () => {
+    const s = freshSecretState(0);
+    expect(s.found).toBe(false);
+    expect(s.foundAt).toBeNull();
+    expect(s.upgrades).toEqual({ ocOverclocker: 0, tenfoldTuner: 0, captainsCompound: 0, lucidDreaming: 0, turboEncabulator: 0, overdriveOverdrive: 0, singularitySharpener: 0 });
+    expect(s.peakOwned.every((d) => d.eq(0))).toBe(true);
+    expect(s.peakOverclock).toBe(0);
+    expect(s.upgradesNoteSeen).toBe(false);
+  });
+
+  it("a 0.13.11 save loads with every new field defaulted, and a played one counts as found", () => {
+    const s = freshSecretState(0);
+    s.ore = new Decimal("1e500");
+    s.bought[0] = 40;
+    s.owned[0] = new Decimal("3e400");
+    s.overclock = 77;
+    s.captainCount = 3;
+    s.milestones = { googol: 5000, firstCaptain: 2000 };
+    const back = deserializeSecret(oldShape(s), 0)!;
+    expect(back).not.toBeNull();
+    expect(back.ore.eq(new Decimal("1e500"))).toBe(true);
+    expect(back.milestones).toEqual({ googol: 5000, firstCaptain: 2000 });
+    expect(back.upgrades.ocOverclocker).toBe(0);
+    expect(back.found).toBe(true);
+    expect(back.foundAt).toBe(2000); // the earliest recorded milestone
+    expect(back.peakOwned[0].eq(new Decimal("3e400"))).toBe(true);
+    expect(back.peakOverclock).toBe(77);
+  });
+
+  it("an untouched 0.13.11 save (the runtime saves one for everyone) is not found", () => {
+    const back = deserializeSecret(oldShape(freshSecretState(5)), 0)!;
+    expect(back.found).toBe(false);
+    expect(back.foundAt).toBeNull();
+  });
+
+  it("round-trips every new field", () => {
+    const s = freshSecretState(0);
+    s.found = true;
+    s.foundAt = 1234;
+    s.upgrades = { ocOverclocker: 3, tenfoldTuner: 1, captainsCompound: 0, lucidDreaming: 2, turboEncabulator: 0, overdriveOverdrive: 0, singularitySharpener: 0 };
+    s.peakOwned[4] = new Decimal("5e77");
+    s.peakOverclock = 999;
+    s.upgradesNoteSeen = true;
+    const raw = serializeSecret(s);
+    const back = deserializeSecret(raw, 0)!;
+    expect(serializeSecret(back)).toBe(raw);
+  });
+
+  it("bad values in the new fields fall back to defaults instead of rejecting the save", () => {
+    const raw = JSON.parse(serializeSecret(freshSecretState(0)));
+    raw.upgrades = { ocOverclocker: -3, tenfoldTuner: "x", captainsCompound: 2.7, lucidDreaming: 999 };
+    raw.found = "yes";
+    raw.foundAt = "soon";
+    raw.peakOwned = [1, 2];
+    raw.peakOverclock = -1;
+    const back = deserializeSecret(JSON.stringify(raw), 0)!;
+    expect(back).not.toBeNull();
+    expect(back.upgrades).toEqual({ ocOverclocker: 0, tenfoldTuner: 0, captainsCompound: 2, lucidDreaming: 10, turboEncabulator: 0, overdriveOverdrive: 0, singularitySharpener: 0 });
+    expect(back.found).toBe(false);
+    expect(back.foundAt).toBeNull();
+    expect(back.peakOwned.every((d) => d.eq(0))).toBe(true);
+    expect(back.peakOverclock).toBe(0);
+  });
+
+  it("clones the new containers deeply", () => {
+    const a = freshSecretState(0);
+    const b = cloneSecret(a);
+    b.upgrades.ocOverclocker = 4;
+    b.peakOwned[0] = new Decimal(9);
+    expect(a.upgrades.ocOverclocker).toBe(0);
+    expect(a.peakOwned[0].eq(0)).toBe(true);
+  });
+});
+
 describe("storage", () => {
   it("uses its own key, never the main save's", () => {
     expect(SECRET_SAVE_KEY).toBe("hl_secret_v0");
@@ -133,5 +217,62 @@ describe("storage", () => {
     expect(s.lastTickAt).toBe(77);
     expect(saveSecret(s)).toBe(false);
     expect(() => clearSecretSave()).not.toThrow();
+  });
+});
+
+describe("0.13.11.1 curve round: Captain Points saved on the old scale", () => {
+  it("a save without captainScale has its points converted once, so the Captain bonus is unchanged", async () => {
+    const { captainMultiplier } = await import("./engine");
+    const { CP_POW_BEFORE_CURVE_ROUND } = await import("./config");
+    const old = freshSecretState(0);
+    old.captainPoints = new Decimal(1.58e8);
+    const raw = JSON.parse(serializeSecret(old));
+    delete raw.captainScale;
+    const loaded = deserializeSecret(JSON.stringify(raw), 0)!;
+    const before = Math.pow(1 + 1.58e8, CP_POW_BEFORE_CURVE_ROUND);
+    expect(captainMultiplier(loaded).toNumber() / before).toBeCloseTo(1, 9);
+    expect(loaded.captainPoints.lt(1.58e8)).toBe(true);
+    expect(loaded.captainScale).toBe(2);
+    // and only once: saved again and loaded again, nothing moves
+    const again = deserializeSecret(serializeSecret(loaded), 0)!;
+    expect(again.captainPoints.eq(loaded.captainPoints)).toBe(true);
+  });
+
+  it("no Captain Points, nothing to convert; every other field is untouched", () => {
+    const old = freshSecretState(0);
+    old.augmentPoints = new Decimal(77);
+    const raw = JSON.parse(serializeSecret(old));
+    delete raw.captainScale;
+    const loaded = deserializeSecret(JSON.stringify(raw), 0)!;
+    expect(loaded.captainPoints.eq(0)).toBe(true);
+    expect(loaded.augmentPoints.eq(77)).toBe(true);
+  });
+});
+
+describe("final re-check: the Captain conversion happens once, also across a rollback", () => {
+  it("converts only when the marker is absent; any other value is left alone", () => {
+    const old = freshSecretState(0);
+    old.captainPoints = new Decimal(1e8);
+    const raw = JSON.parse(serializeSecret(old));
+    raw.captainScale = 1; // not 2, but present
+    expect(deserializeSecret(JSON.stringify(raw), 0)!.captainPoints.eq(1e8)).toBe(true);
+  });
+
+  it("a save that lost the marker (0.13.11 saved over it after a rollback) is not converted twice on this device", () => {
+    const data = installMemoryStorage();
+    const old = freshSecretState(0);
+    old.captainPoints = new Decimal(1e8);
+    const raw = JSON.parse(serializeSecret(old));
+    delete raw.captainScale;
+    data.set(SECRET_SAVE_KEY, JSON.stringify(raw));
+    const first = inspectSecretSave(0).state; // converted once, the device remembers
+    expect(first.captainPoints.lt(1e8)).toBe(true);
+    expect(data.get(SECRET_CP_SCALE_KEY)).toBe("2");
+    // a rollback to 0.13.11 saves the converted points without the marker
+    const rolledBack = JSON.parse(serializeSecret(first));
+    delete rolledBack.captainScale;
+    data.set(SECRET_SAVE_KEY, JSON.stringify(rolledBack));
+    const again = inspectSecretSave(0).state;
+    expect(again.captainPoints.eq(first.captainPoints)).toBe(true);
   });
 });

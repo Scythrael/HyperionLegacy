@@ -1,7 +1,8 @@
 // testStates.ts: representative secret game states for the catch-up tests. Test-only.
 import { freshSecretState, cloneSecret, type SecretState } from "./state";
 import { stepMut, buyOverclockMut, buyTierMut, effectiveExponent } from "./engine";
-import { SKILLS, FINALE_EXPONENT, type SkillId } from "./config";
+import { SKILLS, FINALE_EXPONENT, LONG_EXPONENT, STARFALL_EXPONENT, type SkillId } from "./config";
+import { devJumpTo } from "./devTools";
 
 function grant(s: SecretState, ids: readonly SkillId[]): void {
   for (const id of ids) s.skills[id] = true;
@@ -51,9 +52,31 @@ export function pastFinaleState(): SecretState {
   return play(s, 60, 1);
 }
 
+// 0.13.11.1: past e1,000,000, everything automated, with some of each upgrade bought (the four
+// upgrades and the long post-finale climb are where offline parity has to keep holding).
+export function pastLongState(): SecretState {
+  const s = freshSecretState(0);
+  grant(s, SKILLS.map((d) => d.id));
+  play(s, 120 * 86400, 10, (x) => effectiveExponent(x.bestOre) > LONG_EXPONENT + 20000);
+  s.upgrades = { ocOverclocker: 6, tenfoldTuner: 2, captainsCompound: 2, lucidDreaming: 1, turboEncabulator: 0, overdriveOverdrive: 0, singularitySharpener: 0 };
+  // Automatic prestiges set to their highest target (a player's own choice), so the run itself
+  // climbs through the long gaps below and every per-run comparison applies, not just the
+  // prestige currencies.
+  s.autoTarget = { captain: 1000, fleet: 1000, pc: 1000 };
+  const e0 = effectiveExponent(s.bestOre);
+  play(s, 60 * 86400, 10, (x) => effectiveExponent(x.bestOre) > e0 + 2000);
+  return play(s, 60, 1);
+}
+
 export function live(s: SecretState, seconds: number): SecretState {
   const x = cloneSecret(s);
   for (let i = 1; i <= seconds; i++) stepMut(x, 1, s.lastTickAt + i * 1000);
   x.lastTickAt = s.lastTickAt + seconds * 1000;
   return x;
+}
+
+// Final re-check: past e10,000,000 with every upgrade (all seven) at its cap and every skill, the
+// state the Debug jump builds and lets the engine settle (Overdrive Overdrive's power acts per step).
+export function pastStarfallState(): SecretState {
+  return devJumpTo(freshSecretState(0), STARFALL_EXPONENT, 86400 * 1000);
 }

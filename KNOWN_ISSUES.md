@@ -3,6 +3,12 @@
 Things known to be broken or missing, deliberately deferred. Ops §8.E.7:
 write it down so you don't relitigate it later.
 
+- **[RELEASE RULE, 0.13.11.1] Never roll prod back past 0.13.11.1.** 0.13.11.1 re-expresses the
+  minigame's Captain Points on a new scale (CP_POW 0.4875, converted once so the Captain bonus is
+  unchanged). A rollback to 0.13.11 and a re-promotion does not convert twice (the device remembers
+  under `hl_secret_cp_scale`), but Captain Points earned while 0.13.11 runs are on the old scale and
+  would read on the new one afterwards. Plan: docs/plans/2026-10-23-hotfix-0.13.11.1-plan.md, Task 26.
+
 - **[OPEN, found 2026-10-23 in the E-MOD EM-4 review; pre-existing since 0.13.4] One long `economyTick` call is not
   equal to 1 s steps for a Repeat captain mission (Short Ore Run).** A single 2,400-tick call completes 2 runs where
   2,400 one-tick steps complete 16, and 997-tick chunks also differ (Standard Issue included; the reactor lift changes

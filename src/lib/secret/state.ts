@@ -15,9 +15,10 @@ import {
   AUTO_TARGET_DEFAULT,
   SKILLS,
   MILESTONES,
+  UPGRADES,
   type SkillId,
-  type MilestoneId,
-} from "./config";
+  type UpgradeId,
+  type MilestoneId, CP_POW, CP_POW_BEFORE_CURVE_ROUND } from "./config";
 
 const SKILL_IDS: readonly SkillId[] = SKILLS.map((d) => d.id);
 const MILESTONE_IDS: readonly MilestoneId[] = MILESTONES.map((m) => m.id);
@@ -55,6 +56,21 @@ export interface SecretState {
   finaleSeen: boolean;
   longSeen: boolean;
   lastTickAt: number; // wall clock (ms) the state has been advanced to
+  // --- 0.13.11.1. Absent from every 0.13.11 save: deserializeSecret fills safe defaults and never
+  // rejects a save over them (the version number stays 0). ---
+  upgrades: Record<UpgradeId, number>; // levels of the e1,000,000 upgrades
+  found: boolean; // the combo has unlocked it (shows the Minigames button)
+  foundAt: number | null; // when (ms), for Stats; null when unknown (found before 0.13.11.1)
+  peakOwned: Decimal[]; // per tier, the most ever owned (kept through every prestige)
+  peakOverclock: number; // the highest Overclock level ever
+  upgradesNoteSeen: boolean; // the one-time Upgrades tab joke has been shown
+  // 0.13.11.1 curve round: the scale Captain Points are counted in. 2 = the CP_POW 0.4875 scale; a save
+  // without it holds 0.195-scale points, converted once on load so the bonus they give is unchanged.
+  captainScale: 2;
+}
+
+export function freshUpgrades(): Record<UpgradeId, number> {
+  return { ocOverclocker: 0, tenfoldTuner: 0, captainsCompound: 0, lucidDreaming: 0, turboEncabulator: 0, overdriveOverdrive: 0, singularitySharpener: 0 };
 }
 
 export function freshSecretState(nowMs: number): SecretState {
@@ -87,6 +103,13 @@ export function freshSecretState(nowMs: number): SecretState {
     finaleSeen: false,
     longSeen: false,
     lastTickAt: nowMs,
+    upgrades: freshUpgrades(),
+    found: false,
+    foundAt: null,
+    peakOwned: Array.from({ length: TIER_COUNT }, () => new Decimal(0)),
+    peakOverclock: 0,
+    upgradesNoteSeen: false,
+    captainScale: 2,
   };
 }
 
@@ -100,6 +123,8 @@ export function cloneSecret(s: SecretState): SecretState {
     autoOn: { ...s.autoOn },
     autoTarget: { ...s.autoTarget },
     milestones: { ...s.milestones },
+    upgrades: { ...s.upgrades },
+    peakOwned: s.peakOwned.slice(),
   };
 }
 
@@ -128,7 +153,7 @@ const NUMBER_FIELDS = [
 ] as const;
 
 export function serializeSecret(s: SecretState): string {
-  const out: Record<string, unknown> = { ...s, owned: s.owned.map((d) => d.toString()) };
+  const out: Record<string, unknown> = { ...s, owned: s.owned.map((d) => d.toString()), peakOwned: s.peakOwned.map((d) => d.toString()) };
   for (const k of DECIMAL_FIELDS) out[k] = s[k].toString();
   return JSON.stringify(out);
 }
@@ -149,8 +174,15 @@ function isPlainObject(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null && !Array.isArray(v);
 }
 
-// Returns null for anything that is not a valid version-0 secret save.
-export function deserializeSecret(raw: string | null, nowMs: number): SecretState | null {
+// The device has already converted its Captain Points to the 0.4875 scale (0.13.11.1). Kept under its
+// own key because 0.13.11 drops the captainScale field when it saves: after a rollback to 0.13.11 and a
+// re-promotion, a save that lost the marker is still recognized and never converted twice.
+export const SECRET_CP_SCALE_KEY = "hl_secret_cp_scale";
+
+// Returns null for anything that is not a valid version-0 secret save. cpConverted: this device has
+// converted its Captain Points before (SECRET_CP_SCALE_KEY), so a save without the marker is not
+// converted again.
+export function deserializeSecret(raw: string | null, nowMs: number, opts: { cpConverted?: boolean } = {}): SecretState | null {
   if (raw === null) return null;
   let parsed: unknown;
   try {
@@ -204,7 +236,44 @@ export function deserializeSecret(raw: string | null, nowMs: number): SecretStat
   }
   s.finaleSeen = parsed.finaleSeen === true;
   s.longSeen = parsed.longSeen === true;
+  readNewFields(s, parsed, opts.cpConverted === true);
   return s;
+}
+
+// 0.13.11.1 fields. Every 0.13.11 save lacks them, so a missing or bad value takes its default
+// and never rejects the save (Review Focus 1).
+function readNewFields(s: SecretState, parsed: Record<string, unknown>, cpConverted: boolean): void {
+  const up = isPlainObject(parsed.upgrades) ? parsed.upgrades : {};
+  for (const def of UPGRADES) {
+    const n = up[def.id];
+    s.upgrades[def.id] = isFiniteNumber(n) && n > 0 ? Math.min(def.cap, Math.floor(n)) : 0;
+  }
+  const peaks = Array.isArray(parsed.peakOwned) && parsed.peakOwned.length === TIER_COUNT ? parsed.peakOwned.map(readDecimal) : null;
+  // Missing (or bad) peaks start from what is owned now; the engine keeps them rising from there.
+  s.peakOwned = peaks && peaks.every((d) => d !== null) ? (peaks as Decimal[]) : s.owned.slice();
+  const po = parsed.peakOverclock;
+  s.peakOverclock = isFiniteNumber(po) && po >= 0 ? po : s.overclock;
+  s.upgradesNoteSeen = parsed.upgradesNoteSeen === true;
+  // Points saved on the old 0.195 scale: (1 + CP)^0.195 = (1 + CP')^0.4875 gives CP' = (1 + CP)^0.4 - 1,
+  // the same Captain bonus, never more and never less (user: existing saves keep every point).
+  // Only when the marker is ABSENT (any other value is left alone), and never on a device that has
+  // converted before (a rollback to 0.13.11 drops the marker; final re-check).
+  if (!("captainScale" in parsed) && !cpConverted && s.captainPoints.gt(0)) {
+    s.captainPoints = Decimal.max(0, s.captainPoints.add(1).pow(CP_POW_BEFORE_CURVE_ROUND / CP_POW).sub(1));
+  }
+  if (typeof parsed.found === "boolean") {
+    s.found = parsed.found;
+    s.foundAt = isFiniteNumber(parsed.foundAt) ? parsed.foundAt : null;
+  } else {
+    // A 0.13.11 save: the runtime saved a fresh game for every player, so only real play counts.
+    s.found = playedBefore(s);
+    const dates = Object.values(s.milestones).filter(isFiniteNumber);
+    s.foundAt = s.found && dates.length > 0 ? Math.min(...dates) : null;
+  }
+}
+
+function playedBefore(s: SecretState): boolean {
+  return s.bought.some((b) => b > 0) || s.overclock > 0 || s.captainCount > 0 || s.fleetTotal > 0 || s.pcCount > 0;
 }
 
 // Where an unreadable secret save is kept before anything overwrites it.
@@ -227,10 +296,24 @@ export function isFutureSecretSave(raw: string): boolean {
 export function inspectSecretSave(nowMs: number): { state: SecretState; status: SecretLoadStatus } {
   const raw = safeGetItem(SECRET_SAVE_KEY);
   if (raw === null) return { state: freshSecretState(nowMs), status: "empty" };
-  const state = deserializeSecret(raw, nowMs);
-  if (state) return { state, status: "ok" };
+  const state = deserializeSecret(raw, nowMs, { cpConverted: safeGetItem(SECRET_CP_SCALE_KEY) === "2" });
+  if (state) {
+    safeSetItem(SECRET_CP_SCALE_KEY, "2");
+    return { state, status: "ok" };
+  }
   safeSetItem(SECRET_BACKUP_KEY, raw);
   return { state: freshSecretState(nowMs), status: isFutureSecretSave(raw) ? "future" : "corrupt" };
+}
+
+// The secret save's own time stamp, without loading it (the shared trusted clock raises its mark from
+// every save's stamp before anything pays out; 0.13.11.1 clock protection).
+export function peekSecretLastTick(): number | null {
+  try {
+    const parsed: unknown = JSON.parse(safeGetItem(SECRET_SAVE_KEY) ?? "null");
+    return isPlainObject(parsed) && isFiniteNumber(parsed.lastTickAt) ? parsed.lastTickAt : null;
+  } catch {
+    return null;
+  }
 }
 
 export function loadSecret(nowMs: number): SecretState {

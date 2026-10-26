@@ -2,6 +2,7 @@
 import { expect } from "vitest";
 import { report } from "./testReport";
 import { bestExponentAt, type SimResult } from "./sim";
+import { UPGRADES } from "./config";
 
 export const H = 3600;
 export const D = 24 * H;
@@ -22,8 +23,9 @@ export function expectPlannedBands(r: SimResult): void {
   expect(e.captain1).toBeLessThanOrEqual(60 * 60);
   expect(e.finale).toBeGreaterThanOrEqual(3 * D);
   expect(e.finale).toBeLessThanOrEqual(5 * D);
-  expect(e.long).toBeGreaterThanOrEqual(26 * D);
-  expect(e.long).toBeLessThanOrEqual(34 * D);
+  // 0.13.11.1 curve round (Q3 + PC 0.5): e1,000,000 a little past a month (measured 32.3 d)
+  expect(e.long).toBeGreaterThanOrEqual(28 * D);
+  expect(e.long).toBeLessThanOrEqual(37 * D);
   // growth never stops: a week after e1,000,000 the best Ore is still higher
   expect(bestExponentAt(r, e.long + 7 * D)).toBeGreaterThan(bestExponentAt(r, e.long));
   // and every layer happens on the way
@@ -31,3 +33,47 @@ export function expectPlannedBands(r: SimResult): void {
   expect(e.pc1).toBeLessThan(e.finale);
 }
 
+// 0.13.11.1 (design section 6): the four e1,000,000 upgrades carry the steady player to
+// e10,000,000 in about four months (about 120 days, user: "About 4 months") and every upgrade gets
+// bought on the way, and growth after the final stop slows (the 20 days after it add less than the
+// 20 days before it; since the curve round a second bend past e10,000,000 does that, user: "Slow it
+// after e10M").
+export function expectSixMonthBand(r: SimResult): void {
+  const e = r.events;
+  // 0.13.11.1 content pacing (user: "About 4 months"): about 120 days for the average player
+  expect(e.starfall).toBeGreaterThanOrEqual(110 * D);
+  expect(e.starfall).toBeLessThanOrEqual(130 * D);
+  for (const id of UPGRADES.map((u) => u.id)) {
+    expect(e[`up1:${id}`], id).toBeGreaterThanOrEqual(e.long);
+    expect(e[`upMax:${id}`], id).toBeLessThanOrEqual(e.starfall + 2 * D);
+  }
+  expectSlowsAfterStarfall(r);
+}
+
+// The 20 days after e10,000,000 add less than the 20 days before it, and growth never stops.
+export function expectSlowsAfterStarfall(r: SimResult): void {
+  const e = r.events;
+  const before = bestExponentAt(r, e.starfall) - bestExponentAt(r, e.starfall - 20 * D);
+  const after = bestExponentAt(r, e.starfall + 20 * D) - bestExponentAt(r, e.starfall);
+  report(`[after e10M] 20 d before +${Math.round(before)}, 20 d after +${Math.round(after)}`);
+  expect(after).toBeGreaterThan(0);
+  expect(after).toBeLessThan(before);
+}
+
+
+// 0.13.11.1 (user: "Retune so default is best"): the steady player at the DEFAULT 100% targets,
+// measured by sim.test.ts (which checks it still lands here). The target sweeps compare against it.
+export const DEFAULT_STEADY = { finale: 422012, long: 2794738, starfall: 119.15 * D }; // 4.88 d, 32.35 d, 119.2 d
+// How much sooner another target choice may reach a milestone and still count as "no better".
+export const TARGET_MARGIN = 0.03;
+
+// Another way to play reaches the finale and e1,000,000 no sooner than the default, within the margin
+// (never reaching e1,000,000 inside the simulated days counts as later).
+export function expectNoBetterThanDefault(label: string, r: SimResult): void {
+  expect(r.events.finale, `${label} finale`).toBeDefined();
+  for (const key of ["finale", "long"] as const) {
+    const t = r.events[key];
+    if (t === undefined) continue;
+    expect(t, `${label} ${key}`).toBeGreaterThanOrEqual(DEFAULT_STEADY[key] * (1 - TARGET_MARGIN));
+  }
+}

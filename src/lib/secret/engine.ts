@@ -53,8 +53,20 @@ import {
   SOFT_BETA,
   SKILLS,
   TURBO_LEVEL,
+  UPGRADES,
+  UPGRADES_AT,
+  CP_K,
+  CP_K_AFTER_FINALE,
+  CAPTAIN_BEND,
+  GAME_PACE_AFTER_FIRST_PC,
+  AP_K,
+  DP_K,
+  STARFALL_EXPONENT,
+  END_SOFT_SCALE,
+  END_SOFT_BETA,
   type SkillId,
   type MilestoneId,
+  type UpgradeId,
 } from "./config";
 import { cloneSecret, type SecretState, type AutoLayer } from "./state";
 
@@ -105,15 +117,30 @@ function affordSeries(left: Decimal, firstLog: number, ratioLog: number, maxCoun
 // The effective scale
 // ---------------------------------------------------------------------------
 
-export function softenExponent(x: number): number {
+function finaleSoften(x: number): number {
   if (x <= FINALE_EXPONENT) return x;
   return FINALE_EXPONENT + (SOFT_SCALE * (Math.pow(1 + (x - FINALE_EXPONENT) / SOFT_SCALE, SOFT_BETA) - 1)) / SOFT_BETA;
 }
 
-// d(effective)/d(raw), for turning a raw income into a displayed one.
+// 0.13.11.1 (user: "Slow it after e10M"): past e10,000,000 a second bend of the same shape, so the
+// climb reads as the end of the content. It only slows, it never stops (no cap), and nothing at or
+// below e10,000,000 moves.
+function endSoften(e: number): number {
+  if (e <= STARFALL_EXPONENT) return e;
+  return STARFALL_EXPONENT + (END_SOFT_SCALE * (Math.pow(1 + (e - STARFALL_EXPONENT) / END_SOFT_SCALE, END_SOFT_BETA) - 1)) / END_SOFT_BETA;
+}
+
+export function softenExponent(x: number): number {
+  return endSoften(finaleSoften(x));
+}
+
+// d(effective)/d(raw), for turning a raw income into a displayed one (the chain rule through both
+// bends).
 function softenSlope(x: number): number {
   if (x <= FINALE_EXPONENT) return 1;
-  return Math.pow(1 + (x - FINALE_EXPONENT) / SOFT_SCALE, SOFT_BETA - 1);
+  const first = Math.pow(1 + (x - FINALE_EXPONENT) / SOFT_SCALE, SOFT_BETA - 1);
+  const e = finaleSoften(x);
+  return e <= STARFALL_EXPONENT ? first : first * Math.pow(1 + (e - STARFALL_EXPONENT) / END_SOFT_SCALE, END_SOFT_BETA - 1);
 }
 
 function rawExponent(raw: Decimal): number {
@@ -132,11 +159,18 @@ export function displayOre(raw: Decimal): Decimal {
   return pow10(softenExponent(x));
 }
 
-// Ore per second as the player sees it (the chain rule through the softening curve).
+// The game clock's speed: 1, then GAME_PACE_AFTER_FIRST_PC once the first Prestigeception is done.
+export function gamePace(s: SecretState): number {
+  return s.pcCount > 0 || s.milestones.firstPc !== undefined ? GAME_PACE_AFTER_FIRST_PC : 1;
+}
+
+// Ore per real second as the player sees it (the chain rule through the softening curve).
+// lastIncome is per game second; the game clock runs at gamePace.
 export function displayIncome(s: SecretState): Decimal {
   const x = rawExponent(s.ore);
-  if (x <= FINALE_EXPONENT || s.ore.lte(0)) return s.lastIncome;
-  return displayOre(s.ore).mul(softenSlope(x)).mul(s.lastIncome.div(s.ore));
+  const pace = gamePace(s);
+  if (x <= FINALE_EXPONENT || s.ore.lte(0)) return s.lastIncome.mul(pace);
+  return displayOre(s.ore).mul(softenSlope(x)).mul(s.lastIncome.div(s.ore)).mul(pace);
 }
 
 // ---------------------------------------------------------------------------
@@ -152,9 +186,39 @@ export function autoActive(s: SecretState, id: SkillId): boolean {
   return hasSkill(s, id) && s.autoOn[id] !== false;
 }
 
+// The level of one e1,000,000 upgrade (0 when not bought).
+export function upgradeLevel(s: SecretState, id: UpgradeId): number {
+  return s.upgrades?.[id] ?? 0;
+}
+
+function upgradeStep(id: UpgradeId): number {
+  return UPGRADES.find((u) => u.id === id)!.step;
+}
+
 // Captain Points x Augment Points: multiplies every generator and speeds the Overclock clock.
+// Captain's Compound counts both as if you held (1 + step x level) times as many. Lucid Dreaming
+// lets Dream Points speed the stack too: x (1 + DP)^(step x level).
 export function prestigeMultiplier(s: SecretState): Decimal {
-  return powPositive(s.captainPoints.add(1), CP_POW).mul(powPositive(s.augmentPoints.add(1), AP_POW));
+  const base = captainMultiplier(s).mul(augmentMultiplier(s));
+  return upgradeLevel(s, "lucidDreaming") === 0 ? base : base.mul(dreamSpeedMultiplier(s));
+}
+
+// The three factors of prestigeMultiplier, also what the Prestige tab shows (so the screen can
+// never disagree with the engine). At level 0 each is exactly the 0.13.11 formula.
+function compoundFactor(s: SecretState): number {
+  return 1 + upgradeStep("captainsCompound") * upgradeLevel(s, "captainsCompound");
+}
+export function captainMultiplier(s: SecretState): Decimal {
+  const cc = upgradeLevel(s, "captainsCompound");
+  return powPositive(cc === 0 ? s.captainPoints.add(1) : s.captainPoints.mul(Math.pow(compoundFactor(s), CAPTAIN_BEND)).add(1), CP_POW);
+}
+export function augmentMultiplier(s: SecretState): Decimal {
+  const cc = upgradeLevel(s, "captainsCompound");
+  return powPositive(cc === 0 ? s.augmentPoints.add(1) : s.augmentPoints.mul(compoundFactor(s)).add(1), AP_POW);
+}
+export function dreamSpeedMultiplier(s: SecretState): Decimal {
+  const ld = upgradeLevel(s, "lucidDreaming");
+  return ld === 0 ? ONE : powPositive(s.dreamPoints.add(1), upgradeStep("lucidDreaming") * ld);
 }
 
 // Dream Points: multiply the Captain and Augment Points earned per prestige.
@@ -162,8 +226,88 @@ export function gainMultiplier(s: SecretState): Decimal {
   return powPositive(s.dreamPoints.add(1), DP_POW);
 }
 
+// The raw exponent whose effective value is e (the inverse of softenExponent).
+export function unsoftenExponent(e: number): number {
+  if (e > STARFALL_EXPONENT) e = STARFALL_EXPONENT + END_SOFT_SCALE * (Math.pow(1 + (END_SOFT_BETA * (e - STARFALL_EXPONENT)) / END_SOFT_SCALE, 1 / END_SOFT_BETA) - 1);
+  if (e <= FINALE_EXPONENT) return e;
+  return FINALE_EXPONENT + SOFT_SCALE * (Math.pow(1 + (SOFT_BETA * (e - FINALE_EXPONENT)) / SOFT_SCALE, 1 / SOFT_BETA) - 1);
+}
+
+// The Upgrades tab's late section opens at e1,000,000; each upgrade then wakes at its own unlockAt.
+export function upgradesUnlocked(s: SecretState): boolean {
+  return effectiveExponent(s.bestOre) >= UPGRADES_AT;
+}
+
+export function upgradeUnlocked(s: SecretState, id: UpgradeId): boolean {
+  return effectiveExponent(s.bestOre) >= UPGRADES.find((u) => u.id === id)!.unlockAt;
+}
+
+// Why an upgrade cannot be bought right now, apart from its price and cap (null: nothing in the
+// way): it has not woken yet (a save may own levels from before the stagger), or it needs a skill.
+export type UpgradeBlock = { kind: "asleep"; unlockAt: number } | { kind: "needsOverdrive" };
+export function upgradeBlocked(s: SecretState, id: UpgradeId): UpgradeBlock | null {
+  if (!upgradeUnlocked(s, id)) return { kind: "asleep", unlockAt: UPGRADES.find((u) => u.id === id)!.unlockAt };
+  if (id === "overdriveOverdrive" && !hasSkill(s, "overdrive")) return { kind: "needsOverdrive" };
+  return null;
+}
+
+// Effective exponent of the next level's price, or null at the cap.
+export function upgradePriceExponent(s: SecretState, id: UpgradeId): number | null {
+  const def = UPGRADES.find((u) => u.id === id)!;
+  const level = upgradeLevel(s, id);
+  if (level >= def.cap) return null;
+  return def.priceBase * Math.pow(def.priceRatio, level);
+}
+
+// The next level's price in raw Ore, or null at the cap.
+export function upgradePrice(s: SecretState, id: UpgradeId): Decimal | null {
+  const e = upgradePriceExponent(s, id);
+  return e === null ? null : pow10(unsoftenExponent(e));
+}
+
+export function canBuyUpgrade(s: SecretState, id: UpgradeId): boolean {
+  const price = upgradePrice(s, id);
+  return upgradeBlocked(s, id) === null && price !== null && s.ore.gte(price);
+}
+
+// Buys up to maxCount levels, one at a time at the rising price. Mutates s. Returns levels bought.
+export function buyUpgradeMut(s: SecretState, id: UpgradeId, maxCount = Infinity): number {
+  let count = 0;
+  while (count < maxCount && canBuyUpgrade(s, id)) {
+    s.ore = Decimal.max(ZERO, s.ore.sub(upgradePrice(s, id)!));
+    s.upgrades = { ...s.upgrades, [id]: upgradeLevel(s, id) + 1 };
+    count += 1;
+  }
+  return count;
+}
+
+export function upgradeQuote(s: SecretState, id: UpgradeId, maxCount: number): BuyQuote {
+  const def = UPGRADES.find((u) => u.id === id)!;
+  const room = def.cap - upgradeLevel(s, id);
+  const after = cloneSecret(s);
+  const count = upgradeBlocked(s, id) === null ? buyUpgradeMut(after, id, maxCount) : 0;
+  const priceAt = (i: number) => pow10(unsoftenExponent(def.priceBase * Math.pow(def.priceRatio, upgradeLevel(s, id) + i)));
+  let cost = ZERO;
+  for (let i = 0; i < count; i++) cost = cost.add(priceAt(i));
+  let fullCost = ZERO;
+  const want = Math.min(Number.isFinite(maxCount) ? maxCount : room, room);
+  for (let i = 0; i < want; i++) fullCost = fullCost.add(priceAt(i));
+  const limitedBy = count >= room && room < maxCount ? "cap" : Number.isFinite(maxCount) && count < maxCount ? "ore" : null;
+  return { count, cost, fullCost, limitedBy };
+}
+
+export function buyUpgrade(s: SecretState, id: UpgradeId, mode: BuyMode): SecretState {
+  if (!canBuyUpgrade(s, id)) return s;
+  const next = cloneSecret(s);
+  buyUpgradeMut(next, id, mode === "one" ? 1 : mode === "ten" ? 10 : Infinity);
+  return next;
+}
+
+// Tenfold Tuner adds step x level to the ten bonus factor.
 export function tenBonusFactor(s: SecretState): number {
-  return hasSkill(s, "tenBonus") ? TEN_BONUS_SKILL : TEN_BONUS;
+  const base = hasSkill(s, "tenBonus") ? TEN_BONUS_SKILL : TEN_BONUS;
+  const tt = upgradeLevel(s, "tenfoldTuner");
+  return tt === 0 ? base : base + upgradeStep("tenfoldTuner") * tt;
 }
 
 // The output multiplier one tier gets from its own tens bought.
@@ -171,13 +315,32 @@ export function tenMultiplier(s: SecretState, tier: number): Decimal {
   return powNumber(tenBonusFactor(s), Math.floor(s.bought[tier] / 10));
 }
 
+// Overclock Overclocker makes every Overclock level count as (1 + step x level) levels.
 export function overclockMultiplier(s: SecretState): Decimal {
-  return powNumber(OC_FACTOR, s.overclock);
+  const oo = upgradeLevel(s, "ocOverclocker");
+  return powNumber(OC_FACTOR, oo === 0 ? s.overclock : s.overclock * (1 + upgradeStep("ocOverclocker") * oo));
 }
 
 // Everything multiplying one tier's rate, for display.
 export function tierMultiplier(s: SecretState, tier: number): Decimal {
-  return tenMultiplier(s, tier).mul(overclockMultiplier(s)).mul(prestigeMultiplier(s));
+  return tenMultiplier(s, tier).mul(overclockMultiplier(s)).mul(prestigeMultiplier(s)).mul(encabulatorFactor(s)).mul(sharpenFactor(s, tier));
+}
+
+// Singularity Sharpener: the top generator makes 1 + step x level times as much (1 at level 0).
+export function sharpenFactor(s: SecretState, tier: number): number {
+  const lv = upgradeLevel(s, "singularitySharpener");
+  return lv === 0 || tier !== TIER_COUNT - 1 ? 1 : 1 + upgradeStep("singularitySharpener") * lv;
+}
+
+// Overdrive Overdrive: the Overdrive skill's power rises by step per level (OVERDRIVE_POWER at 0).
+export function overdrivePower(s: SecretState): number {
+  return OVERDRIVE_POWER + upgradeStep("overdriveOverdrive") * upgradeLevel(s, "overdriveOverdrive");
+}
+
+// Turbo Encabulator: the whole stack runs 1 + step x level times faster (1 at level 0). A speed, not
+// a prestige gain, so buying it never sets off a reset.
+export function encabulatorFactor(s: SecretState): number {
+  return 1 + upgradeStep("turboEncabulator") * upgradeLevel(s, "turboEncabulator");
 }
 
 export function isTierUnlocked(s: SecretState, tier: number): boolean {
@@ -251,6 +414,7 @@ export function buyTier(s: SecretState, tier: number, mode: BuyMode): SecretStat
   const next = cloneSecret(s);
   const max = mode === "one" ? 1 : mode === "ten" ? 10 - (s.bought[tier] % 10) : Infinity;
   buyTierMut(next, tier, next.ore, max);
+  trackPeaksMut(next);
   return next;
 }
 
@@ -320,9 +484,65 @@ function commitOverclock(s: SecretState, budget: Decimal, left: Decimal, count: 
   return count;
 }
 
-export function buyOverclock(s: SecretState, mode: "one" | "max"): SecretState {
+// What a buy of up to maxCount levels does right now (0.13.11.1, staging: Buy 10 showed no price):
+// how many levels it buys, what they cost, and why it stops short of maxCount ("ore" or "cap"; null
+// when it does not). fullCost is the price of maxCount levels whatever the Ore on hand (for a
+// finite maxCount; the bought cost for Max).
+export interface BuyQuote {
+  count: number;
+  cost: Decimal;
+  fullCost: Decimal;
+  limitedBy: "ore" | "cap" | null;
+}
+
+// The levels and the cost buyOverclockMut would buy with the Ore on hand, worked out the same way
+// but summed directly: subtracting a price far below the Ore held (e380 from e400) would read as 0.
+function overclockPlan(s: SecretState, maxCount: number): { count: number; cost: Decimal } {
+  if (s.ore.lte(0) || maxCount <= 0 || !canOverclock(s)) return { count: 0, cost: ZERO };
+  let left = s.ore;
+  let count = 0;
+  let cost = ZERO;
+  const flat = overclockFlatPrice(s);
+  if (flat.gt(0)) {
+    const firstFloorAbove = Math.ceil((flat.log10() - LOG_FLOOR_BASE) / LOG_FLOOR_STEP);
+    const flatLevels = Math.min(Math.max(0, firstFloorAbove - s.overclock), maxCount);
+    if (flatLevels > 0) {
+      let n = flatLevels;
+      const affordable = left.div(flat).floor();
+      if (affordable.lt(n)) n = affordable.toNumber();
+      if (n > 0) {
+        left = left.sub(flat.mul(n));
+        cost = cost.add(flat.mul(n));
+        count += n;
+      }
+      if (n < flatLevels) return { count, cost };
+    }
+  }
+  if (count < maxCount && left.gt(0)) {
+    const firstLog = LOG_FLOOR_BASE + LOG_FLOOR_STEP * (s.overclock + count);
+    const series = affordSeries(left, firstLog, LOG_FLOOR_STEP, maxCount === Infinity ? Number.MAX_SAFE_INTEGER : maxCount - count);
+    count += series.count;
+    cost = cost.add(series.cost);
+  }
+  return { count, cost };
+}
+
+export function overclockQuote(s: SecretState, maxCount: number): BuyQuote {
+  const { count, cost } = overclockPlan(s, maxCount);
+  let fullCost = cost;
+  if (Number.isFinite(maxCount)) {
+    // Every level costs the larger of the income price and its floor (exactly as buyOverclockMut).
+    const flat = overclockFlatPrice(s);
+    fullCost = ZERO;
+    for (let i = 0; i < maxCount; i++) fullCost = fullCost.add(Decimal.max(flat, overclockFloorPrice(s.overclock + i)));
+  }
+  return { count, cost, fullCost, limitedBy: Number.isFinite(maxCount) && count < maxCount ? "ore" : null };
+}
+
+export function buyOverclock(s: SecretState, mode: BuyMode): SecretState {
   const next = cloneSecret(s);
-  buyOverclockMut(next, next.ore, mode === "one" ? 1 : Infinity);
+  buyOverclockMut(next, next.ore, mode === "one" ? 1 : mode === "ten" ? 10 : Infinity);
+  trackPeaksMut(next);
   return next;
 }
 
@@ -333,9 +553,9 @@ export function buyOverclock(s: SecretState, mode: "one" | "max"): SecretState {
 export function produceMut(s: SecretState, dt: number): void {
   if (dt <= 0) return;
   const n = s.tiersUnlocked;
-  const shared = overclockMultiplier(s).mul(prestigeMultiplier(s));
+  const shared = overclockMultiplier(s).mul(prestigeMultiplier(s)).mul(encabulatorFactor(s));
   const rho: Decimal[] = [];
-  for (let k = 0; k < n; k++) rho.push(tenMultiplier(s, k).mul(TIERS[k].baseRate).mul(shared));
+  for (let k = 0; k < n; k++) rho.push(tenMultiplier(s, k).mul(TIERS[k].baseRate).mul(shared).mul(sharpenFactor(s, k)));
   // x[0] is Ore, x[m] is owned[m - 1]. The top unlocked tier is only ever bought.
   const x: Decimal[] = [s.ore, ...s.owned.slice(0, n)];
   const gains: Decimal[] = new Array(n).fill(ZERO);
@@ -350,7 +570,7 @@ export function produceMut(s: SecretState, dt: number): void {
     gains[m] = acc;
   }
   let oreGain = gains[0];
-  if (hasSkill(s, "overdrive") && oreGain.gt(0)) oreGain = oreGain.div(dt).pow(OVERDRIVE_POWER).mul(dt);
+  if (hasSkill(s, "overdrive") && oreGain.gt(0)) oreGain = oreGain.div(dt).pow(overdrivePower(s)).mul(dt);
   s.lastIncome = oreGain.div(dt);
   s.ore = s.ore.add(oreGain);
   for (let m = 1; m < n; m++) s.owned[m - 1] = s.owned[m - 1].add(gains[m]);
@@ -392,22 +612,40 @@ function autoBuyMut(s: SecretState): void {
 // Prestige layers
 // ---------------------------------------------------------------------------
 
+// 0.13.11.1 (user, 2026-10-23: "Retune so default is best"). Below the finale each layer earns
+// scale x (peak exponent / threshold)^k with k under 1, so a bigger prestige pays less per minute
+// waited and the default 100% target (prestige when the gain matches what you hold) is the best
+// choice; at 200% to 1000%, or waiting by hand, the finale and e1,000,000 come later. Once the best
+// Ore has reached the finale, Fleet Prestige returns to the 0.13.11 gains (k = 1) and Captain
+// Prestige to CP_K_AFTER_FINALE (the same, bent for the curve round's stronger Captain bonus). Dream
+// Points keep their bend for good: they are never reset, so a jump in their gain at the finale would
+// set off Prestigeceptions that throw away weeks of climbing (measured: a two-week stall right after
+// e1,000,000).
+export function gainExponent(s: SecretState, k: number): number {
+  return effectiveExponent(s.bestOre) >= FINALE_EXPONENT ? 1 : k;
+}
+
+function gainShape(e: number, at: number, k: number): number {
+  return Math.pow(e / at, k);
+}
+
 export function captainGain(s: SecretState): Decimal {
   const e = effectiveExponent(s.runPeak);
   if (e < CAPTAIN_AT) return ZERO;
-  return gainMultiplier(s).mul(CP_SCALE * (e / CAPTAIN_AT)).floor();
+  const k = effectiveExponent(s.bestOre) >= FINALE_EXPONENT ? CP_K_AFTER_FINALE : CP_K;
+  return powPositive(gainMultiplier(s), CAPTAIN_BEND).mul(CP_SCALE * gainShape(e, CAPTAIN_AT, k)).floor();
 }
 
 export function fleetGain(s: SecretState): Decimal {
   const e = effectiveExponent(s.fleetPeak);
   if (e < FLEET_AT) return ZERO;
-  return gainMultiplier(s).mul(AP_SCALE * (e / FLEET_AT)).floor();
+  return gainMultiplier(s).mul(AP_SCALE * gainShape(e, FLEET_AT, gainExponent(s, AP_K))).floor();
 }
 
 export function prestigeceptionGain(s: SecretState): Decimal {
   const e = effectiveExponent(s.pcPeak);
   if (e < PRESTIGECEPTION_AT) return ZERO;
-  return new Decimal(DP_SCALE * (e / PRESTIGECEPTION_AT)).floor();
+  return new Decimal(DP_SCALE * gainShape(e, PRESTIGECEPTION_AT, DP_K)).floor();
 }
 
 function resetRunMut(s: SecretState): void {
@@ -443,11 +681,17 @@ function doFleetMut(s: SecretState, atMs: number): boolean {
   s.augmentPoints = s.augmentPoints.add(gain);
   s.fleetCount += 1;
   s.fleetTotal += 1;
-  s.skillPoints += 1;
+  // User, 2026-10-23: once every skill is learned, no more Skill Points (spare ones are kept). New
+  // content is expected to come as a new prestige layer that starts scaling things again.
+  if (!allSkillsLearned(s)) s.skillPoints += 1;
   s.captainPoints = ZERO;
   unlockTiersMut(s);
   resetRunMut(s);
   s.fleetPeak = s.ore;
+  // One climb pays one layer (staging, 2026-10-23: a climb past e10,000 paid a Fleet Prestige and
+  // then a Prestigeception too). A Fleet uses up the climb, so Prestigeception needs a fresh one.
+  // (Captain then Fleet from one climb gains nothing: a Fleet resets Captain Points.)
+  s.pcPeak = s.ore;
   checkMilestonesMut(s, atMs);
   return true;
 }
@@ -506,6 +750,11 @@ function firePrestigeMut(s: SecretState, layer: AutoLayerDue, atMs: number): voi
 // ---------------------------------------------------------------------------
 // Skills and settings
 // ---------------------------------------------------------------------------
+
+// Every skill owned: Fleet Prestige stops paying Skill Points.
+export function allSkillsLearned(s: SecretState): boolean {
+  return SKILLS.every((d) => s.skills[d.id] === true);
+}
 
 export function canBuySkill(s: SecretState, id: SkillId): boolean {
   const def = SKILLS.find((d) => d.id === id);
@@ -566,12 +815,59 @@ function reached(s: SecretState, id: MilestoneId): boolean {
       return e() >= FINALE_EXPONENT;
     case "long":
       return e() >= LONG_EXPONENT;
+    case "e2m":
+      return e() >= 2000000;
+    case "e3m":
+      return e() >= 3000000;
+    case "e5m":
+      return e() >= 5000000;
+    case "e7m":
+      return e() >= 7777777;
+    case "starfall":
+      return e() >= STARFALL_EXPONENT;
   }
 }
 
 const MILESTONE_IDS: readonly MilestoneId[] = [
-  "firstCaptain", "googol", "firstFleet", "e1000", "singularity", "firstPc", "turbo", "e100k", "allSkills", "finale", "long",
+  "firstCaptain", "googol", "firstFleet", "e1000", "singularity", "firstPc", "turbo", "e100k", "allSkills", "finale", "long", "e2m", "e3m", "e5m", "e7m", "starfall",
 ];
+
+// The Ore goals, in order: each appears only once the one before it is reached (0.13.11.1).
+const ORE_CHAIN: readonly MilestoneId[] = ["googol", "e1000", "e100k", "finale", "long", "e2m", "e3m", "e5m", "e7m", "starfall"];
+
+// Is a milestone shown, or still "???"? Reached ones always show. Ore goals appear one step at a
+// time; the rest appear once their system is in view (design 0.13.11.1 section 5).
+export function milestoneVisible(s: SecretState, id: MilestoneId): boolean {
+  if (s.milestones[id] !== undefined) return true;
+  const chain = ORE_CHAIN.indexOf(id);
+  if (chain >= 0) return chain === 0 || s.milestones[ORE_CHAIN[chain - 1]] !== undefined;
+  switch (id) {
+    case "firstCaptain":
+    case "turbo":
+      return true;
+    case "firstFleet":
+      return s.captainCount > 0 || s.fleetTotal > 0;
+    case "firstPc":
+    case "allSkills":
+      return s.fleetTotal > 0;
+    case "singularity":
+      return isTierUnlocked(s, TIER_COUNT - 1);
+    default:
+      return false;
+  }
+}
+
+// The combo has unlocked the game (first success only sets the date).
+export function markFound(s: SecretState, atMs: number): SecretState {
+  if (s.found) return s;
+  return { ...cloneSecret(s), found: true, foundAt: s.foundAt ?? atMs };
+}
+
+// Keeps the Stats peaks: the most of each tier ever owned and the highest Overclock.
+function trackPeaksMut(s: SecretState): void {
+  for (let k = 0; k < s.tiersUnlocked; k++) if (s.owned[k].gt(s.peakOwned[k])) s.peakOwned[k] = s.owned[k];
+  if (s.overclock > s.peakOverclock) s.peakOverclock = s.overclock;
+}
 
 export function checkMilestonesMut(s: SecretState, atMs: number): void {
   for (const id of MILESTONE_IDS) {
@@ -595,6 +891,11 @@ function ensureRecoverableMut(s: SecretState): void {
 // step is never shorter than a live one, a catch-up never cuts a run shorter than live play would
 // (catchUp.test.ts: never pays less).
 export function stepMut(s: SecretState, dt: number, atMs: number, productionDt: number = dt): void {
+  // 0.13.11.1 curve round: after the first Prestigeception the game runs at GAME_PACE_AFTER_FIRST_PC.
+  // Applied here, the one step live play and every catch-up share, so offline == live stays exact.
+  const pace = gamePace(s);
+  dt *= pace;
+  productionDt *= pace;
   ensureRecoverableMut(s);
   const due = dueAutoPrestige(s);
   autoBuyMut(s);
@@ -604,6 +905,7 @@ export function stepMut(s: SecretState, dt: number, atMs: number, productionDt: 
   if (s.ore.gt(s.fleetPeak)) s.fleetPeak = s.ore;
   if (s.ore.gt(s.pcPeak)) s.pcPeak = s.ore;
   if (s.ore.gt(s.bestOre)) s.bestOre = s.ore;
+  trackPeaksMut(s);
   firePrestigeMut(s, due, atMs);
   checkMilestonesMut(s, atMs);
 }
