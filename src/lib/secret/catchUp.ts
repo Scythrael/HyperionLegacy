@@ -19,10 +19,12 @@
 // No offline cap (answer 6, "Always runs").
 //
 // lastTickAt advances by WHOLE seconds only; the fraction carries to the next call. A clock that
-// jumped backwards simply re-anchors (no time passed, nothing paid, nothing lost).
+// behind the stamp pays nothing and keeps the stamp (0.13.11.1: never re-anchored, so a clock set
+// back can never be paid twice; the shared trustedTime.ts clock never goes back in the first place).
 
 import { stepMut } from "./engine";
 import { cloneSecret, type SecretState } from "./state";
+import { SERVER_TOLERANCE_MS } from "../trustedTime";
 
 export const EXACT_BOUND_SECONDS = 6 * 3600;
 export const MAX_COARSE_STEPS = 130000;
@@ -56,15 +58,28 @@ export interface CatchUpJob {
   result(): AdvanceResult;
 }
 
+// The game always uses the defaults. The pacing simulation's six-month stretch passes a longer
+// minCoarseDt (and no exact window) so half a year of check-ins runs in seconds (sim.ts).
+export interface CatchUpOptions {
+  exactBoundSeconds?: number;
+  minCoarseDt?: number;
+}
+
 const prestigeCount = (x: SecretState): number => x.captainCount + x.fleetTotal + x.pcCount;
 
-export function createCatchUp(s: SecretState, nowMs: number, opts: { exactBoundSeconds?: number } = {}): CatchUpJob {
+export function createCatchUp(s: SecretState, nowMs: number, opts: CatchUpOptions = {}): CatchUpJob {
   const done = (r: AdvanceResult): CatchUpJob => ({ run: () => true, runFor: () => true, elapsedSeconds: () => r.seconds, result: () => r });
   if (!Number.isFinite(nowMs)) return done({ state: s, steps: 0, mode: "none", seconds: 0 });
+  // A clock a little behind the state's own stamp pays nothing and moves nothing: the stamp is a
+  // high-water mark (0.13.11.1 clock protection; the old re-anchor let a clock set back be paid
+  // twice). The trusted clock never runs backward on its own, so a stamp far AHEAD of it is a save
+  // written while a device clock was ahead, or the trusted clock stepped down to the server's: the
+  // stamp moves to now and nothing is paid, so the minigame never freezes (review M1).
   if (nowMs < s.lastTickAt) {
-    const re = cloneSecret(s);
-    re.lastTickAt = nowMs;
-    return done({ state: re, steps: 0, mode: "none", seconds: 0 });
+    if (s.lastTickAt - nowMs <= SERVER_TOLERANCE_MS) return done({ state: s, steps: 0, mode: "none", seconds: 0 });
+    const rebased = cloneSecret(s);
+    rebased.lastTickAt = nowMs;
+    return done({ state: rebased, steps: 0, mode: "none", seconds: 0 });
   }
   const seconds = Math.floor((nowMs - s.lastTickAt) / 1000);
   if (seconds <= 0) return done({ state: s, steps: 0, mode: "none", seconds: 0 });
@@ -74,7 +89,7 @@ export function createCatchUp(s: SecretState, nowMs: number, opts: { exactBoundS
   const exact = seconds <= (opts.exactBoundSeconds ?? EXACT_BOUND_SECONDS);
   const tail = exact ? 0 : Math.min(COARSE_TAIL_SECONDS, seconds);
   const coarseSeconds = exact ? 0 : seconds - tail;
-  const n = exact ? 0 : Math.max(1, Math.min(MAX_COARSE_STEPS, Math.ceil(coarseSeconds / MIN_COARSE_DT)));
+  const n = exact ? 0 : Math.max(1, Math.min(MAX_COARSE_STEPS, Math.ceil(coarseSeconds / (opts.minCoarseDt ?? MIN_COARSE_DT))));
   const dt = exact ? 0 : coarseSeconds / n;
 
   let steps = 0;
@@ -141,7 +156,7 @@ export function createCatchUp(s: SecretState, nowMs: number, opts: { exactBoundS
   };
 }
 
-export function advanceTo(s: SecretState, nowMs: number, opts: { exactBoundSeconds?: number } = {}): AdvanceResult {
+export function advanceTo(s: SecretState, nowMs: number, opts: CatchUpOptions = {}): AdvanceResult {
   const job = createCatchUp(s, nowMs, opts);
   job.run(Infinity);
   return job.result();

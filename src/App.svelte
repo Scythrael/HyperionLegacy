@@ -1046,6 +1046,8 @@
     relicStudiesInFlight,
     identifyStudiedRelic,
     museumResearchDurationTicks,
+    // 0.13.11.1 clock protection: a held absence is released under this same offline cap.
+    offlineCapTicks,
   } from "./lib/game/tick";
   // Exploration 0.14.0 (E4c): the relic catalog + museum readers (pure) the Relics/Museum host code reads.
   import { museumBonuses, getRelicById, getRelicSetById, RELIC_SETS, undiscoveredResearchMask, withSoftCapSnapshot } from "./lib/game/relics";
@@ -1211,6 +1213,8 @@
     paidThroughMs,
     startLoopClock,
     awayRecapSpan,
+    releaseHeld,
+    type HeldRelease,
     type LoopClock,
   } from "./lib/game/loopClock";
   import { formatNumber, formatDuration, formatClock } from "./lib/game/format";
@@ -1286,7 +1290,22 @@
   // and wipes it on Delete Save. It never reads or writes `state` and never runs in the main loop.
   import EnterCodeModal from "./lib/EnterCodeModal.svelte";
   import SecretGameOverlay from "./lib/SecretGameOverlay.svelte";
-  import { startSecretRuntime, wipeSecretGame, devFastForwardSecret, codesTabSeen, markCodesTabSeen } from "./lib/secret/runtime";
+  import { startSecretRuntime, wipeSecretGame, devFastForwardSecret, codesTabSeen, markCodesTabSeen, secretGame, markSecretFound, secretAct } from "./lib/secret/runtime";
+  import { peekSecretLastTick } from "./lib/secret/state";
+  // 0.13.11.1 clock protection: the ONE trusted wall clock every progress system reads (never
+  // backward, never far ahead of the server; an honest clock is returned exactly).
+  import { trustedNow, initTrustedTime, syncServerTime, syncServerTimeIfDue, confirmTrustedTime, persistTrustedTime, trustedHeldMs, SERVER_TOLERANCE_MS } from "./lib/trustedTime";
+  // 0.13.11.1: the Help / Minigames / Settings header block, the achievement popup, the gift code
+  // and Starfall unlock (account-level optional save fields, written only through accountExtras and
+  // the do* handlers below), and the theme STYLE layer (themeStyle.ts, device-side choice).
+  import HeaderButtons from "./lib/HeaderButtons.svelte";
+  import AchievementToasts from "./lib/AchievementToasts.svelte";
+  import { pushAchievement } from "./lib/achievements";
+  import { redeemGift, hasThemeStyle, unlockThemeStyle, NO_STREAK, ENDLESS_GREED, type RedeemOutcome, type RedeemStreak } from "./lib/accountExtras";
+  import { availablePresets, availableStyles, resolveLook, loadLookPrefs, hasManualPrefs, savePreset, saveManual, applyLook, isGradient, stopRgb, DEFAULT_LOOK_PREFS, type LookPrefs, type PresetChoice, type ThemeStyleId } from "./lib/themeStyle";
+  import { displayOre as secretDisplayOre } from "./lib/secret/engine";
+  import { formatSecret } from "./lib/secret/format";
+  import { COPY as SECRET_COPY } from "./lib/secret/config";
 
   // DEV_MODE, Vercel §9.5.3: true on Preview, false on Production. Locally,
   // set VITE_DEV_MODE=true in .env.local (see .env.example).
@@ -3175,14 +3194,96 @@
   // focus back to the gear that opened the System window.
   let enterCodeOpen = false;
   let secretOpen = false;
-  function onComboComplete(): void {
-    enterCodeOpen = false;
-    systemModalOpen = false;
+  // 0.13.11.1: the combo only UNLOCKS. The first success records the find and opens the game over
+  // the still-open Enter Code window, whose message then says where the game lives; any later
+  // success just answers "already found" (the Minigames button is the way back in).
+  function onComboComplete(): "found" | "already" {
+    const first = markSecretFound();
+    if (first) secretOpen = true;
+    return first ? "found" : "already";
+  }
+  function openSecretGame(): void {
     secretOpen = true;
   }
   function closeSecretGame(): void {
     secretOpen = false;
-    void svelteTick().then(() => document.querySelector<HTMLElement>(".top-bar-gear")?.focus());
+    void svelteTick().then(() => {
+      const back = enterCodeOpen ? ".ec-wide" : ".hb-minigames";
+      (document.querySelector<HTMLElement>(back) ?? document.querySelector<HTMLElement>(".hb-settings"))?.focus();
+    });
+  }
+
+  // 0.13.11.1 gift codes, through the do* pattern: pure redeemGift, same-ref guard, state = next,
+  // pushLog, doSave. The re-entry streak (the third "already redeemed" in a row adds a humor line)
+  // lives for the session. The code itself is never logged.
+  let codeStreak: RedeemStreak = NO_STREAK;
+  function doRedeemCode(raw: string): RedeemOutcome {
+    const r = redeemGift(state, raw, codeStreak, Math.random);
+    codeStreak = r.streak;
+    if (r.next !== state) {
+      state = r.next;
+      if (r.outcome.kind === "redeemed") pushLog(`Gift code redeemed: +${formatNumber(r.outcome.credits)} credits.`);
+      doSave();
+    }
+    if (r.outcome.kind === "already" && r.outcome.endlessGreed) pushAchievement(ENDLESS_GREED);
+    return r.outcome;
+  }
+
+  // 0.13.11.1 theme STYLES. The e10,000,000 milestone (secret save) is mirrored into the main save
+  // as the account-level style unlock, so Delete Save wipes it with everything else. The chosen
+  // preset is a device-side preference and only applies while its style is unlocked.
+  function doUnlockThemeStyle(id: string): void {
+    const next = unlockThemeStyle(state, id);
+    if (next === state) return;
+    state = next;
+    pushLog("Unlocked the Starfall theme. Pick it in Settings > UI.");
+    doSave();
+  }
+  let accountReady = false;
+  $: if (accountReady && !suppressSave && $secretGame.milestones.starfall !== undefined && !hasThemeStyle(state, "washShine")) doUnlockThemeStyle("washShine");
+  // The look: preset + manual picks (device-side), the account's unlocked styles and the Default
+  // color theme, resolved by themeStyle.ts and written to the root by ONE writer (applyLook).
+  let lookPrefs: LookPrefs = DEFAULT_LOOK_PREFS;
+  $: unlockedThemeStyles = Array.isArray(state.unlockedThemeStyles) ? state.unlockedThemeStyles : [];
+  $: presetChoices = availablePresets(unlockedThemeStyles);
+  $: styleChoices = availableStyles(unlockedThemeStyles);
+  $: look = resolveLook(lookPrefs, unlockedThemeStyles, currentTheme);
+  // A Starfall choice whose unlock is gone (Delete Save) shows, and behaves, as Default.
+  $: shownPreset = lookPrefs.preset === "starfall" && presetChoices.length === 0 ? "default" : lookPrefs.preset;
+  $: applyLook(look);
+  function setPreset(p: PresetChoice): void {
+    lookPrefs = { ...lookPrefs, preset: p };
+    savePreset(p);
+    // The first switch to Manual starts from the current color theme, so nothing jumps.
+    if (p === "manual" && !hasManualPrefs()) setManual({ color1: currentTheme });
+  }
+  function setManual(patch: Partial<Pick<LookPrefs, "manualStyle" | "color1" | "color2">>): void {
+    lookPrefs = { ...lookPrefs, ...patch };
+    saveManual(lookPrefs);
+  }
+  // [DEV] minigame shortcuts (Debug tab only). devTools is loaded by a dynamic import behind the
+  // compile-time DEV_MODE gate, so the production bundle never carries it.
+  async function devSecret(kind: "found" | "skills" | "e1m" | "e10m"): Promise<void> {
+    if (!DEV_MODE) return;
+    const dev = await import("./lib/secret/devTools");
+    if (kind === "found") {
+      pushLog(markSecretFound() ? "[DEV] Minigame marked found." : "[DEV] Minigame was already found.");
+      return;
+    }
+    const done = secretAct((x, now) => (kind === "skills" ? dev.devMaxSkills(x, now) : dev.devJumpTo(x, kind === "e1m" ? 1e6 : 1e7, now)));
+    pushLog(done ? `[DEV] Minigame: ${kind === "skills" ? "every skill on" : kind === "e1m" ? "jumped to e1,000,000" : "jumped to e10,000,000"}.` : "[DEV] Minigame is catching up; try again in a moment.");
+  }
+  // [DEV] grant the Starfall unlock without six months of play (Debug tab only).
+  function devGrantStarfall(): void {
+    if (!DEV_MODE) return;
+    doUnlockThemeStyle("washShine");
+  }
+
+  // The Minigames list's one-line status for the minigame.
+  $: minigameStatus = `${$secretGame.milestones.finale !== undefined ? "Finale reached · " : ""}${formatSecret(secretDisplayOre($secretGame.bestOre))} Ore best`;
+  function openHelpCenter(): void {
+    activeTab = "home";
+    activeHomeTab = "help";
   }
 
   // The modal's top-tab list, in display order. Settings is the first view (0.13.6 D7 removed the
@@ -3257,6 +3358,10 @@
   let expandedMissionKey: MissionKey | null = null;
 
   let tickHandle: ReturnType<typeof setInterval>;
+  // 0.13.11.1 clock protection: the server time check's timer, and the armed release of a held
+  // reload (what it may still pay, the rest of that absence's offline cap; null: nothing held).
+  let timeSyncHandle: ReturnType<typeof setInterval> | undefined;
+  let heldRelease: HeldRelease | null = null;
   let saveHandle: ReturnType<typeof setInterval>;
   // The live loop's clock (HOTFIX 0.13.10): the current cycle's start with any leftover carried
   // forward, the previous poll's time for the fleet clock, and the pause flag. Driven ONLY by
@@ -3348,7 +3453,8 @@
     // HOTFIX 0.13.10: stamp how far the economy is PAID (the loop's cycle start), not the write
     // time. A hidden tab closed between throttled polls, and the leftover under one bar cycle, are
     // then paid by the next load's offline catch-up instead of being lost. Now while paused.
-    const persisted = saveToLocalStorage(state, createdAt, paidThroughMs(loopClock, Date.now()));
+    const persisted = saveToLocalStorage(state, createdAt, paidThroughMs(loopClock, trustedNow()));
+    persistTrustedTime();
     if (persisted !== lastSavePersisted) {
       lastSavePersisted = persisted;
       savePersistFailed.set(!persisted);
@@ -3489,6 +3595,9 @@
     registerLiveSaveExporter(() => downloadLiveSave(state, createdAt));
 
     const loadedSave = loadFromLocalStorage();
+    // 0.13.11.1: the trusted clock starts from every save's stamp, so a span already paid (by this
+    // save or by the minigame's) is never paid again, whatever the device clock now says.
+    initTrustedTime([loadedSave?.lastSavedAt, peekSecretLastTick()]);
     // Where the economy is paid through once loading finishes (HOTFIX 0.13.10): the catch-up's
     // end on a successful load, otherwise now. The loop clock starts HERE (see below).
     let paidThroughAtLoadMs: number | null = null;
@@ -3496,11 +3605,16 @@
       createdAt = loadedSave.createdAt;
       // Captured ONCE and reused for both the span and the catch-up's clock anchor, so the
       // two can never disagree by the few milliseconds two Date.now() calls would differ by.
-      const returnedAtMs = Date.now();
+      const returnedAtMs = trustedNow();
       const offlineSeconds = Math.max(0, (returnedAtMs - loadedSave.lastSavedAt) / 1000);
       // A span of 5 s or less is not caught up below, so the economy is then paid only through the
       // save itself; the first poll pays that short span instead (never later than now).
       paidThroughAtLoadMs = offlineSeconds > 5 ? returnedAtMs : Math.min(loadedSave.lastSavedAt, returnedAtMs);
+      // 0.13.11.1: part of this absence was held (the device clock is ahead of what is trusted). It is
+      // paid when the clock is confirmed, under what is left of this absence's own offline cap.
+      if (trustedHeldMs() > 0) {
+        heldRelease = { budgetSeconds: Math.max(0, offlineCapTicks(loadedSave.state) * loadedSave.state.tickDurationSeconds - offlineSeconds), heldSeconds: trustedHeldMs() / 1000 };
+      }
       // ⚠️ INVARIANT: the offline advance is this ONE deterministic call. offline == live
       // hinges on it being byte-identical to the live loop, so we ONLY read state around it
       // (the pre-tick snapshot is loadedSave.state, the post-tick snapshot is `state`) and
@@ -3566,9 +3680,13 @@
     // ⚠️ HOTFIX 0.13.10: start from where the reload catch-up PAID THROUGH, not from now. The
     // catch-up takes real time to compute; starting the clock after it would leave those seconds
     // unpaid (and a save right after load would stamp past them). The first poll pays them, once.
-    const loopStartMs = paidThroughAtLoadMs ?? Date.now();
+    const loopStartMs = paidThroughAtLoadMs ?? trustedNow();
     loopClock = startLoopClock(loopStartMs);
     cycle = { barCycleStart: loopStartMs, nowTick: loopStartMs };
+    // 0.13.11.1: the Starfall mirror and the theme style read the account only from here on, so a
+    // placeholder state before the load can never be written over the real save.
+    accountReady = true;
+    lookPrefs = loadLookPrefs(currentTheme);
 
     // Tick-bar loop, checks the ONE shared fleet-wide cycle's progress every
     // 100ms, firing tickCaptainMission (Phase 3a) for EVERY mission captain
@@ -3608,14 +3726,21 @@
     // large gap is paid by tick(), the very catch-up a reload runs, offline cap included. The
     // pause rules and the speed rule are unchanged and live in planPoll too, where they are tested.
     const pollGameLoop = () => {
-      const now = Date.now();
+      const now = trustedNow();
       // Consume the completed frame from the PREVIOUS poll. Cleared here, at the very top and
       // before any early return, so a pause or a speed change cannot strand the bar at 100%.
       barCompletedFrame = false;
 
       const polled = planPoll(loopClock, now, state.tickDurationSeconds, speed);
       loopClock = polled.clock;
-      const plan = polled.plan;
+      let plan = polled.plan;
+      // 0.13.11.1: the release of a held absence is paid under the same offline cap as its reload;
+      // only the released part is limited (releaseHeld), any other gap in the same poll is paid.
+      if (heldRelease !== null && plan.kind === "advance") {
+        const released = releaseHeld(plan, heldRelease, trustedHeldMs() / 1000);
+        plan = released.plan;
+        heldRelease = released.arm;
+      }
 
       // Paused (speed 0): the poll clock is frozen and nothing advances.
       if (plan.kind === "paused") return;
@@ -3657,7 +3782,7 @@
           // where one poll IS one tick); a catch-up uses it as the END of its reconstructed
           // schedule, exactly like the reload path. Reading the clock HERE rather than inside
           // economyTick keeps the tick a pure function of its arguments.
-          const completionClockMs = Date.now();
+          const completionClockMs = trustedNow();
           state = runPollEconomy(state, plan, Math.random, completionClockMs);
 
           // A large gap seen while the tab is VISIBLE (a sleep the browser never reported as
@@ -3687,7 +3812,7 @@
     const welcomeBack = (before: GameState, secondsAway: number) => {
       if (loopClock.paused || saveCorruptModalOpen || secondsAway < AWAY_SUMMARY_MIN_SECONDS) return;
       pushLog(`Welcome back. Advanced ${formatNumber(secondsAway)}s while away.`);
-      const nowMs = Date.now();
+      const nowMs = trustedNow();
       const span = awayRecapSpan(offlineSummary !== null ? offlineSummaryBasis : null, before, secondsAway, nowMs);
       const summary = summarizeOfflineProgress(span.before, state, span.secondsAway);
       if (summary.hasContent) {
@@ -3702,18 +3827,38 @@
     // period later, and recap the whole hidden stretch once. Hiding only remembers where we were.
     const onVisibilityChange = () => {
       if (document.hidden) {
-        if (awayFrom === null) awayFrom = { atMs: Date.now(), snapshot: state };
+        if (awayFrom === null) awayFrom = { atMs: trustedNow(), snapshot: state };
         return;
       }
       pollGameLoop();
-      const away = awayFrom;
-      awayFrom = null;
-      if (away !== null) welcomeBack(away.snapshot, (Date.now() - away.atMs) / 1000);
+      // 0.13.11.1: recap once the time away is known. After a device sleep performance.now() may have
+      // stopped, so a big held amount first waits (at most 3 s) for the server to confirm the clock.
+      // The away clock stays set meanwhile, so the loop's own catch-up never recaps part of it, and
+      // finish() reads and writes state in one synchronous pass (nothing straddles the await).
+      const finish = () => {
+        if (document.hidden) return; // hidden again: the next return recaps the whole stretch
+        pollGameLoop();
+        const away = awayFrom;
+        awayFrom = null;
+        if (away !== null) welcomeBack(away.snapshot, (trustedNow() - away.atMs) / 1000);
+      };
+      if (trustedHeldMs() > SERVER_TOLERANCE_MS) {
+        void confirmTrustedTime(3000).then(finish);
+        return;
+      }
+      void syncServerTimeIfDue();
+      finish();
     };
     document.addEventListener("visibilitychange", onVisibilityChange);
     // A tab opened in the background never fires a "hidden" change, so start the away clock here;
     // the first time it is shown, the hidden stretch is recapped like any other.
-    if (document.hidden) awayFrom = { atMs: Date.now(), snapshot: state };
+    if (document.hidden) awayFrom = { atMs: trustedNow(), snapshot: state };
+
+    // 0.13.11.1: check the server's clock now and every ten minutes while shown (and on returns, above).
+    void syncServerTime();
+    timeSyncHandle = setInterval(() => {
+      if (!document.hidden) void syncServerTime();
+    }, 10 * 60 * 1000);
 
     // Autosave every 30s, tech spec §6.
     saveHandle = setInterval(doSave, 30000);
@@ -3751,6 +3896,7 @@
 
   onDestroy(() => {
     clearInterval(tickHandle);
+    if (timeSyncHandle !== undefined) clearInterval(timeSyncHandle);
     clearInterval(saveHandle);
     clearInterval(needsTickerHandle);
   });
@@ -9802,8 +9948,7 @@
   }
 
   function setTheme(name: ThemeName) {
-    currentTheme = name;
-    document.documentElement.dataset.theme = name;
+    currentTheme = name; // the root is written by applyLook (the look follows the Default color)
     saveTheme(name);
   }
 
@@ -11745,19 +11890,19 @@
           {/if}
         </div>
 
-        <!-- Gear: opens the System window on Settings (0.13.6 D7: now the ONLY door to the System
-             modal; the portrait went to Crew > Admiral). openSystemModal defaults to Settings. -->
-        <button
-          type="button"
-          class="top-bar-gear"
-          aria-label="Open settings"
-          on:click={openSystemModal}
-        >
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
-            <circle cx="12" cy="12" r="3.2" />
-            <path d="M19.4 15a1.6 1.6 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.6 1.6 0 0 0-1.8-.3 1.6 1.6 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1A1.6 1.6 0 0 0 9 19.4a1.6 1.6 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.6 1.6 0 0 0 .3-1.8 1.6 1.6 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1A1.6 1.6 0 0 0 4.6 9a1.6 1.6 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.6 1.6 0 0 0 1.8.3H9a1.6 1.6 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.6 1.6 0 0 0 1 1.5 1.6 1.6 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.6 1.6 0 0 0-.3 1.8V9a1.6 1.6 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.6 1.6 0 0 0-1.5 1z" />
-          </svg>
-        </button>
+        <!-- 0.13.11.1 HEADER BUTTON BLOCK (design section 3, mockup frame 3b), where the gear lived:
+             Help [?] (the Help center), Minigames once one is found, and Settings as the half-height
+             bar (the System window on Settings, still the ONLY door to it). -->
+        <div class="top-bar-buttons">
+          <HeaderButtons
+            found={$secretGame.found}
+            minigameTitle={SECRET_COPY.listName}
+            {minigameStatus}
+            onHelp={openHelpCenter}
+            onSettings={openSystemModal}
+            onPlay={openSecretGame}
+          />
+        </div>
       </div>
     </div>
 
@@ -19020,22 +19165,93 @@
            to echo. -->
       <Panel class="settings-section">
         <div class="panel-title">UI THEME</div>
+        <!-- 0.13.11.1 THEME (user, 2026-10-23 "go all the way"): a PRESET, then its settings.
+             Default is the shipped look (Flat, the color theme below); Starfall (once earned) is the
+             fixed prize look; Manual picks a style and two colors. Device-side, like the colors. -->
         <SettingRow
-          label="Theme color"
-          description="Changes the accent color used across the whole interface. Panels and text re-hue with it."
+          label="Theme preset"
+          description="Default is the classic look in your theme color. Manual lets you pick the style and the colors yourself."
         >
-          <span class="theme-preview" style="background:{THEME_PREVIEW_COLORS[currentTheme]}" aria-hidden="true"></span>
           <select
             class="setting-select"
-            value={currentTheme}
-            on:change={(e) => setTheme((e.target as HTMLSelectElement).value as ThemeName)}
-            aria-label="Theme color"
+            value={shownPreset}
+            on:change={(e) => setPreset((e.target as HTMLSelectElement).value as PresetChoice)}
+            aria-label="Theme preset"
           >
-            {#each THEME_NAMES as name}
-              <option value={name}>{name.charAt(0).toUpperCase() + name.slice(1)}</option>
+            <option value="default">Default</option>
+            {#each presetChoices as preset}
+              <option value={preset.id}>{preset.label}</option>
             {/each}
+            <option value="manual">Manual</option>
           </select>
         </SettingRow>
+        {#if shownPreset === "default"}
+          <SettingRow
+            label="Theme color"
+            description="Changes the accent color used across the whole interface. Panels and text re-hue with it."
+          >
+            <span class="theme-preview" style="background:{THEME_PREVIEW_COLORS[currentTheme]}" aria-hidden="true"></span>
+            <select
+              class="setting-select"
+              value={currentTheme}
+              on:change={(e) => setTheme((e.target as HTMLSelectElement).value as ThemeName)}
+              aria-label="Theme color"
+            >
+              {#each THEME_NAMES as name}
+                <option value={name}>{name.charAt(0).toUpperCase() + name.slice(1)}</option>
+              {/each}
+            </select>
+          </SettingRow>
+        {:else if shownPreset === "starfall"}
+          <p class="setting-group-note">Starfall draws with its own colors, cyan into purple, whatever your theme color is.</p>
+        {:else}
+          <SettingRow
+            label="Theme style"
+            description="How panels and buttons are drawn. Flat is the classic look; more styles unlock as you earn them."
+          >
+            <select
+              class="setting-select"
+              value={look.style}
+              on:change={(e) => setManual({ manualStyle: (e.target as HTMLSelectElement).value as ThemeStyleId })}
+              aria-label="Theme style"
+            >
+              {#each styleChoices as style}
+                <option value={style.id}>{style.label}</option>
+              {/each}
+            </select>
+          </SettingRow>
+          <SettingRow label="Color 1" description="Your accent color, used across the whole interface. A gradient style starts from it at the top left.">
+            <span class="theme-preview" style="background:{isGradient(look.style) ? `rgb(${stopRgb(lookPrefs.color1)})` : THEME_PREVIEW_COLORS[lookPrefs.color1]}" aria-hidden="true"></span>
+            <select
+              class="setting-select"
+              value={lookPrefs.color1}
+              on:change={(e) => setManual({ color1: (e.target as HTMLSelectElement).value as ThemeName })}
+              aria-label="Color 1"
+            >
+              {#each THEME_NAMES as name}
+                <option value={name}>{name.charAt(0).toUpperCase() + name.slice(1)}</option>
+              {/each}
+            </select>
+          </SettingRow>
+          <SettingRow
+            label="Color 2"
+            description={isGradient(look.style) ? "Where a gradient style ends, on the right. The swatches show the deeper gradient shade each color washes with." : "Only used by gradient styles. Flat draws with Color 1."}
+            disabled={!isGradient(look.style)}
+          >
+            <span class="theme-preview" style="background:{isGradient(look.style) ? `rgb(${stopRgb(lookPrefs.color2)})` : THEME_PREVIEW_COLORS[lookPrefs.color2]}" aria-hidden="true"></span>
+            <select
+              class="setting-select"
+              value={lookPrefs.color2}
+              disabled={!isGradient(look.style)}
+              on:change={(e) => setManual({ color2: (e.target as HTMLSelectElement).value as ThemeName })}
+              aria-label="Color 2"
+            >
+              {#each THEME_NAMES as name}
+                <option value={name}>{name.charAt(0).toUpperCase() + name.slice(1)}</option>
+              {/each}
+            </select>
+          </SettingRow>
+        {/if}
       </Panel>
 
       <!-- HEADER CURRENCIES (0.13.6): pick which currencies fill the header band (Variant C), up to
@@ -19621,7 +19837,21 @@
             <button class="dev-btn" on:click={() => devFastForwardSecret(3600)}>+1h</button>
             <button class="dev-btn" on:click={() => devFastForwardSecret(86400)}>+1d</button>
             <button class="dev-btn" on:click={() => devFastForwardSecret(7 * 86400)}>+7d</button>
+            <button class="dev-btn" on:click={() => devFastForwardSecret(30 * 86400)}>+30d</button>
             <button class="dev-btn danger" on:click={wipeSecretGame}>Wipe</button>
+          </div>
+          <!-- [DEV] 0.13.11.1 minigame shortcuts: consistent states built by secret/devTools.ts. -->
+          <div class="dev-row">
+            <span class="dev-label">[DEV] Minigame</span>
+            <button class="dev-btn" on:click={() => devSecret("found")}>Mark found</button>
+            <button class="dev-btn" on:click={() => devSecret("skills")}>Max skills</button>
+            <button class="dev-btn" on:click={() => devSecret("e1m")}>Jump to e1,000,000</button>
+            <button class="dev-btn" on:click={() => devSecret("e10m")} title="A fast-forward state: it climbs faster past e10,000,000 than real play does">Jump to e10,000,000 (fast-forward state)</button>
+          </div>
+          <!-- [DEV] 0.13.11.1: grant the Starfall theme style (the e10,000,000 prize) to test it. -->
+          <div class="dev-row">
+            <span class="dev-label">[DEV] Theme style</span>
+            <button class="dev-btn" on:click={devGrantStarfall}>Grant Starfall unlock</button>
           </div>
           <!-- [DEV] Non-destructive preview of the SavePersistWarning banner (see
                devToggleSavePersistBanner). Flips ONLY the display flag; real saving is
@@ -20610,12 +20840,15 @@
   {/if}
 
   {#if enterCodeOpen}
-    <EnterCodeModal onClose={() => (enterCodeOpen = false)} {onComboComplete} />
+    <EnterCodeModal onClose={() => (enterCodeOpen = false)} {onComboComplete} onRedeem={doRedeemCode} suspended={secretOpen} />
   {/if}
 
   {#if secretOpen}
     <SecretGameOverlay onClose={closeSecretGame} />
   {/if}
+
+  <!-- 0.13.11.1: the achievement popup, ONE mount above everything (the minigame overlay too). -->
+  <AchievementToasts />
 
   {#if refineConfirmModalOpen}
     <!-- Start-a-craft confirmation modal (Crafting Allocation Redesign, Task C4, reuses the
@@ -21377,8 +21610,7 @@
     appearance: none;
     -webkit-appearance: none;
   }
-  .top-bar-header .top-bar-gear { grid-area: gear; align-self: center; width: 46px; height: 46px; }
-  .top-bar-header .top-bar-gear svg { width: 21px; height: 21px; }
+  .top-bar-header .top-bar-buttons { grid-area: gear; align-self: center; }
 
   /* STATS stack. Bars stretch (barwrap flex:1, no cap). CRAFT amber lives at .tb-bar-amber > i. */
   /* ⚠️ ONE GRID for all stat rows, so every bar is the SAME width. Each .tb-statrow is display:
@@ -21508,8 +21740,6 @@
     .cur-band { gap: 8px; padding: 8px 10px 9px; }
     .cur-pill { padding: 7px 12px; gap: 8px; }
     .cur-pill-name { display: inline; margin-left: auto; font-size: var(--text-2xs); text-transform: uppercase; letter-spacing: 0.06em; color: var(--color-text-dim); white-space: nowrap; }
-    .top-bar-header .top-bar-gear { width: 58px; height: 58px; }
-    .top-bar-header .top-bar-gear svg { width: 26px; height: 26px; }
     .tb-pop-wrap { position: relative; }
     .tb-pop { left: auto; right: 0; width: max-content; max-width: 260px; }
   }
@@ -22209,35 +22439,6 @@
   /* ============================================================================
      HEADER: the gear peer-button, the expander, the crafting bar (0.13.5)
      ============================================================================ */
-
-  /* Sized to MATCH the portrait beside it, because that equality is the entire argument: a control
-     the same size as its neighbor reads as its equal, while a badge drawn on top of one reads as
-     decoration. */
-  .top-bar-gear {
-    width: 38px;
-    height: 38px;
-    flex: none;
-    border: 1px solid var(--color-border-strong);
-    background: var(--color-panel-bg-strong);
-    color: var(--color-accent);
-    display: grid;
-    place-items: center;
-    border-radius: var(--corner);
-    cursor: pointer;
-    padding: 0;
-    align-self: flex-start;
-  }
-  .top-bar-gear:hover {
-    background: rgba(var(--color-accent-rgb), 0.16);
-  }
-  .top-bar-gear:focus-visible {
-    outline: 2px solid var(--color-accent);
-    outline-offset: 2px;
-  }
-  .top-bar-gear svg {
-    width: 19px;
-    height: 19px;
-  }
 
   /* Crafting level. ⚠️ Amber, so it reads as a SIBLING track to Fleet Admiral level rather than a
      second copy of it: two identical accent bars stacked look like one stat rendered twice. */

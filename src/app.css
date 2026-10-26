@@ -180,7 +180,7 @@
   --color-border-strong: rgba(103, 249, 168, 0.4);
   --color-panel-bg: rgba(20, 52, 40, 0.32);
   --color-text-secondary: #8fad9c;
-  --color-text-dim: #5b8770; /* 0.13.5 contrast lift: was #5a856f, 4.44:1 against the panel, now 4.55:1 */
+  --color-text-dim: #5b8871; /* 0.13.11.1 lift (user 2026-10-23): was #5b8770, 4.46:1 on the green panel's own tint, now 4.5:1 (lightness only). 0.13.5: was #5a856f */
   --color-starfield: #c2f5db;
 }
 [data-theme="blue"] {
@@ -268,7 +268,7 @@
   --color-border-strong: rgba(160, 168, 176, 0.4);
   --color-panel-bg: rgba(40, 44, 50, 0.32);
   --color-text-secondary: #9aa0a8;
-  --color-text-dim: #787e88; /* 0.13.5 contrast lift: was #686e76, 3.61:1 against the panel, now 4.54:1 */
+  --color-text-dim: #797f88; /* 0.13.11.1 lift (user 2026-10-23): was #787e88, 4.48:1 on the gray panel's own tint, now 4.5:1 (lightness only). 0.13.5: was #686e76 */
   --color-starfield: #d8dce2;
 }
 
@@ -369,6 +369,109 @@ button {
   --item-rarity-epic: #cc79a7;
 }
 
+/* ============================================================================
+   THEME STYLES (0.13.11.1, design section 7). The e10,000,000 prize "Starfall" is a PRESET
+   (themeStyle.ts): the washShine STYLE drawn with two gradient STOPS, the player's accent into
+   purple. Kept in three separate layers so the 0.14.2 theme builder can mix any style with any two
+   colors (coordinator note):
+     1. the STOP TOKENS: two R, G, B triplets. The defaults below; applyThemePreset writes the
+        preset's own stops onto the root.
+     2. the STYLE TOKENS: what each surface becomes under a style. Colors come ONLY from the stops.
+     3. WHERE A STYLE APPLIES: one rule block per style, naming the shared surfaces. Components are
+        not edited, so the default look (no data-style) is untouched by construction.
+   CONTRAST: the washes are the approved mockup D alphas (the reference image look), with no dark
+   layer under them. They make surfaces a little lighter than today's, so washShine LIFTS the text
+   tokens that would fall under WCAG AA (each theme's dim text, and the color-blind palette's
+   success and danger), only while the style is on and never under High contrast, which keeps its
+   own stronger values. themeStyleContrast.test.ts holds every text token at AA on both stops in
+   every theme, with and without the color-blind palette.
+   ============================================================================ */
+:root {
+  --grad-start-rgb: var(--color-accent-rgb);
+  --grad-end-rgb: 160, 32, 240;
+  /* The colors headings draw with (themeStyle.ts: Color 1's accent, and Color 2's stop; a very dark
+     color becomes a light gray). The washes always use the stops at full strength. */
+  --grad-start-text-rgb: var(--grad-start-rgb);
+  --grad-end-text-rgb: var(--grad-end-rgb);
+}
+
+/* 2. washShine style tokens (theme mockup option D, "wash plus shine"): a soft diagonal wash from
+   the start stop (top left) into the end stop (right) on panels and buttons, the stop-to-stop
+   gradient on headings and progress bars, a soft sheen on primary buttons. */
+:root[data-style="washShine"] {
+  --style-panel: linear-gradient(135deg, rgba(var(--grad-start-rgb), 0.09), rgba(var(--grad-end-rgb), 0.12)), var(--color-panel-bg);
+  --style-dialog: linear-gradient(135deg, rgba(var(--grad-start-rgb), 0.09), rgba(var(--grad-end-rgb), 0.12)), var(--color-bg-mid);
+  --style-control: linear-gradient(135deg, rgba(var(--grad-start-rgb), 0.12), rgba(var(--grad-end-rgb), 0.16));
+  --style-control-primary: linear-gradient(135deg, rgba(var(--grad-start-rgb), 0.3), rgba(var(--grad-end-rgb), 0.34));
+  --style-sheen: inset 0 1px 0 rgba(255, 255, 255, 0.12);
+  --style-edge: rgba(var(--grad-end-rgb), 0.22);
+  --style-fill: linear-gradient(90deg, rgb(var(--grad-start-rgb)), rgb(var(--grad-end-rgb)));
+  /* Text needs a lighter end than the bar: the end stop mixed 45% toward white. The sweep ends at
+     12em, not at the element's edge, so a short heading on a wide panel still shows both colors. */
+  --style-heading: linear-gradient(90deg, rgb(var(--grad-start-text-rgb)) 0, color-mix(in srgb, rgb(var(--grad-end-text-rgb)) 55%, #ffffff) 12em);
+}
+
+/* washShine text lifts (contrast note above). The stops are saturated colors (themeStyle.ts
+   GRADIENT_STOPS), so each theme's dim text is lifted to clear AA with ANY Color 2, and button labels
+   draw with --style-label (the accent, lifted toward white where a washed button needs it). Never
+   under High contrast for the text tokens, which keep their own stronger values there. */
+:root[data-style="washShine"] { --style-label: var(--color-accent); }
+:root[data-style="washShine"][data-theme="cyan"]:not([data-high-contrast="on"]) { --color-text-dim: #7996a1; }
+:root[data-style="washShine"][data-theme="green"]:not([data-high-contrast="on"]) { --color-text-dim: #799d8a; }
+:root[data-style="washShine"][data-theme="blue"]:not([data-high-contrast="on"]) { --color-text-dim: #8493ac; }
+:root[data-style="washShine"][data-theme="purple"]:not([data-high-contrast="on"]) { --color-text-dim: #998aad; }
+:root[data-style="washShine"][data-theme="pink"]:not([data-high-contrast="on"]) { --color-text-dim: #a3899a; }
+:root[data-style="washShine"][data-theme="vermilion"]:not([data-high-contrast="on"]) { --color-text-dim: #a28b7f; }
+:root[data-style="washShine"][data-theme="red"]:not([data-high-contrast="on"]) { --color-text-dim: #a48b8c; }
+:root[data-style="washShine"][data-theme="white"]:not([data-high-contrast="on"]) { --color-text-dim: #93939b; }
+:root[data-style="washShine"][data-theme="gray"]:not([data-high-contrast="on"]) { --color-text-dim: #8f949c; }
+:root[data-style="washShine"][data-theme="blue"] { --style-label: #8fb3fb; }
+:root[data-style="washShine"][data-theme="purple"] { --style-label: #c2a2fb; }
+:root[data-style="washShine"][data-theme="pink"] { --style-label: #fa8fce; }
+:root[data-style="washShine"][data-theme="vermilion"] { --style-label: #fb987a; }
+:root[data-style="washShine"][data-theme="red"] { --style-label: #fb9595; }
+:root[data-style="washShine"][data-theme="gray"] { --style-label: #b0b7bd; }
+/* The color-blind palette's success and danger, lifted toward white just enough (hue kept). */
+:root[data-style="washShine"][data-palette="cbsafe"] {
+  --color-success: #19a881;
+  --color-danger: #dd7b2e;
+}
+
+/* 3. WHERE washShine applies. Danger buttons keep their own flat look, so a destructive label
+   reads exactly as it does today. Under High contrast the strong borders stay. */
+:root[data-style="washShine"] :is(.panel, .fpane, .cpane, .mpane, .home-row, .done-row, .mission-card, .top-bar, .nav-tabs, .sg, .layer, .gen, .hb-menu) {
+  background: var(--style-panel);
+}
+:root[data-style="washShine"]:not([data-high-contrast="on"]) :is(.panel, .fpane, .cpane, .mpane, .home-row, .done-row, .mission-card, .top-bar, .nav-tabs, .sg, .layer, .gen, .hb-menu) {
+  border-color: var(--style-edge);
+}
+:root[data-style="washShine"] :is(.system-modal-dialog, .am-dialog) {
+  background: var(--style-dialog);
+}
+:root[data-style="washShine"] :is(.dev-btn, .sub-tab, .sg-btn, .sg-tab, .ec-btn, .hb-btn):not(:disabled):not(.active):not(.on):not(.primary):not(.danger) {
+  background: var(--style-control);
+  color: var(--style-label);
+}
+:root[data-style="washShine"] :is(.dev-btn, .sub-tab, .sg-btn, .sg-tab, .ec-btn, .hb-btn):not(:disabled):not(.active):not(.on):not(.primary):not(.danger) :is(.num, span) {
+  color: var(--style-label);
+}
+:root[data-style="washShine"] :is(.buy-btn, .dev-btn.active, .sub-tab.active, .sg-btn.primary, .sg-tab.on, .ec-btn.primary):not(:disabled):not(.danger) {
+  background: var(--style-control-primary);
+  box-shadow: var(--style-sheen);
+  color: var(--color-text-primary);
+}
+:root[data-style="washShine"] :is(.buy-btn, .dev-btn.active, .sub-tab.active, .sg-btn.primary, .sg-tab.on, .ec-btn.primary):not(:disabled):not(.danger) .num {
+  color: var(--color-text-primary);
+}
+:root[data-style="washShine"] :is(.panel-title, .sg-title, .sg-section-name, .system-modal-title) {
+  background: var(--style-heading);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+:root[data-style="washShine"] :is(.research-bar-fill, .tb-bar:not(.tb-bar-amber) > i, .sg-track i) {
+  background: var(--style-fill);
+}
 /* REDUCED MOTION, as an explicit SETTING rather than only an OS query.
    ⚠️ THE OS QUERY STILL WORKS ON ITS OWN (see the prefers-reduced-motion block in
    App.svelte): this exists so a player whose operating system is NOT configured for
