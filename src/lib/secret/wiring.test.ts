@@ -137,6 +137,8 @@ describe("App wiring for 0.13.11", () => {
     expect(APP).toContain("initTrustedTime([loadedSave?.lastSavedAt, peekSecretLastTick()]);");
     // No progress path reads the raw device clock any more.
     for (const raw of ["paidThroughMs(loopClock, Date.now())", "const returnedAtMs = Date.now()", "atMs: Date.now(), snapshot"]) expect(APP).not.toContain(raw);
+    // 0.14.0 merge: feat's record stamps (recall, cancel) and the dev offline button read it too.
+    for (const raw of ["recallCaptain(state, captainId, Date.now())", "cancelLine(state, lineId, Date.now())", "tick(secondsAway, before, Math.random, Date.now())", "shownAtMs: Date.now()"]) expect(APP).not.toContain(raw);
     const runtime = readFileSync("src/lib/secret/runtime.ts", "utf-8");
     // (one placeholder before the save loads, never the trusted clock at module load: review H1)
     expect(runtime).toContain("let state: SecretState = freshSecretState(Date.now());");

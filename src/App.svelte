@@ -3930,7 +3930,7 @@
     }
     const shortRange = captain.mission !== null && captain.mission.kind === "shortRange" ? captain.mission : null;
     // G1-4 carry note: recallCaptain takes the clock for the run-end log entry a short-range run still at home writes.
-    const { next, success } = recallCaptain(state, captainId, Date.now());
+    const { next, success } = recallCaptain(state, captainId, trustedNow());
     if (!success) return;
     state = next;
     // G1-3: a short-range recall finishes the current cycle first (tick.ts recallCaptain), so the log says so. G1-4: a
@@ -4903,17 +4903,17 @@
     // time. That is not a display bug: the record genuinely had no time in it, because the
     // one production caller that reconstructs the schedule (the onMount catch-up) was passing
     // its anchor and this one was not. This button's span ENDS NOW by construction, exactly
-    // like a real return, so Date.now() is the same honest anchor the real path uses and
+    // like a real return, so trustedNow() is the same honest anchor the real path uses and
     // tick() derives the per-tick schedule from it identically. It stays a plain ARGUMENT, so
     // the tick still reads no ambient clock and offline == live is untouched.
-    state = tick(secondsAway, before, Math.random, Date.now()); // fleet-wide: advances every captain, matches real offline catch-up
+    state = tick(secondsAway, before, Math.random, trustedNow()); // fleet-wide: advances every captain, matches real offline catch-up
     // Surface the SAME While-You-Were-Away recap the real reload path builds, using the SAME
     // pure diff helper, so this dev button exercises the offline summary end-to-end for a KNOWN
     // duration (verifiable numbers, screenshot-able). Unlike the real onMount path it does NOT
     // gate on hasContent, so pressing the button always shows what that duration produced (an
     // empty recap = nothing was running), giving clear QA feedback that the trigger fired.
     offlineSummary = summarizeOfflineProgress(before, state, secondsAway);
-    offlineSummaryBasis = { before, secondsAway, shownAtMs: Date.now() };
+    offlineSummaryBasis = { before, secondsAway, shownAtMs: trustedNow() };
     pushLog(`[DEV] Simulated ${hours}h offline for the whole fleet.`);
   }
 
@@ -5034,7 +5034,7 @@
     for (const p of state.activeProcesses) {
       if (p.effect.type === "identifyRelic") taken.add(p.effect.token.id);
     }
-    const stamp = Date.now();
+    const stamp = trustedNow();
     let seq = 0;
     const freshId = (): string => {
       let id = `dev-relic-${stamp}-${seq++}`;
@@ -8409,7 +8409,7 @@
     // the same purity reason the tick's clock is, even though this handler is UI-only and
     // never runs offline: a run stopped partway still leaves a dated record of what it
     // produced, and the engine stays a pure function of its arguments.
-    state = cancelLine(state, lineId, Date.now());
+    state = cancelLine(state, lineId, trustedNow());
     pushLog("Production line canceled; remaining reservation released.");
     doSave();
   }
