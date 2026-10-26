@@ -37,6 +37,9 @@ const FILES = [
   "src/lib/secret/simCasual.test.ts",
   "src/lib/secret/simTargetsLong.test.ts",
   "src/lib/secret/buyQuotes.test.ts",
+  // 0.13.11.2
+  "src/lib/secret/prestigePreview.test.ts",
+  "docs/plans/2026-10-26-hotfix-0.13.11.2-plan.md",
 ].map((path) => ({ path, src: readFileSync(path, "utf-8") }));
 
 // 0.13.11.1 additions inside files that predate the text rules, checked as slices.
@@ -55,6 +58,7 @@ const SLICES = () => [
   slice("src/App.svelte", "<!-- 0.13.11.1 THEME (user", "<!-- HEADER CURRENCIES"),
   slice("src/App.svelte", "// The look: preset + manual picks", "// [DEV] grant the Starfall"),
   slice("src/lib/patchNotes.ts", 'version: "0.13.11.1"', 'version: "0.13.11"'),
+  slice("src/lib/patchNotes.ts", 'version: "0.13.11.2"', 'version: "0.13.11.1"'),
   slice("src/lib/game/model.ts", "0.13.11.1 ACCOUNT-LEVEL EXTRAS", "unlockedThemeStyles?: string[];"),
   slice("src/lib/game/loopClock.ts", "export function clampCatchUp", "\n}"),
 ];

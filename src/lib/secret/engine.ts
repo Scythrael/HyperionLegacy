@@ -741,10 +741,40 @@ function dueAutoPrestige(s: SecretState): AutoLayerDue {
   return null;
 }
 
-function firePrestigeMut(s: SecretState, layer: AutoLayerDue, atMs: number): void {
-  if (layer === "pc") doPrestigeceptionMut(s, atMs);
-  else if (layer === "fleet") doFleetMut(s, atMs);
-  else if (layer === "captain") doCaptainMut(s, atMs);
+function firePrestigeMut(s: SecretState, layer: AutoLayerDue, atMs: number): boolean {
+  if (layer === "pc") return doPrestigeceptionMut(s, atMs);
+  if (layer === "fleet") return doFleetMut(s, atMs);
+  if (layer === "captain") return doCaptainMut(s, atMs);
+  return false;
+}
+
+// 0.13.11.2 prestige previews (user: "It's hard to tell if the actual weight of what these
+// prestiges accomplishes changes."). The Prestige tab shows what resetting NOW does to the
+// multipliers. It runs the real reset on a copy and reads the same functions the engine uses, so a
+// preview is the engine's own before and after, never a second copy of the math.
+export interface PrestigeWeights {
+  captain: Decimal; // captainMultiplier: the Captain Points' bonus on the whole stack
+  augment: Decimal; // augmentMultiplier: the Augment Points' bonus on the whole stack
+  stack: Decimal; // prestigeMultiplier: every prestige bonus on the whole stack together
+  gains: Decimal; // gainMultiplier: the Dream Points' bonus on Captain and Augment gains
+  dreamSpeed: Decimal; // dreamSpeedMultiplier: the Dream Points' speed bonus (Lucid Dreaming)
+}
+
+export function prestigeWeights(s: SecretState): PrestigeWeights {
+  return {
+    captain: captainMultiplier(s),
+    augment: augmentMultiplier(s),
+    stack: prestigeMultiplier(s),
+    gains: gainMultiplier(s),
+    dreamSpeed: dreamSpeedMultiplier(s),
+  };
+}
+
+// null while the layer pays nothing yet (its button is disabled then, and the preview is hidden).
+export function prestigePreview(s: SecretState, layer: AutoLayer): { before: PrestigeWeights; after: PrestigeWeights } | null {
+  const next = cloneSecret(s);
+  if (!firePrestigeMut(next, layer, s.lastTickAt)) return null;
+  return { before: prestigeWeights(s), after: prestigeWeights(next) };
 }
 
 // ---------------------------------------------------------------------------

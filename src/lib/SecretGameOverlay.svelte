@@ -52,6 +52,7 @@
     captainMultiplier,
     augmentMultiplier,
     dreamSpeedMultiplier,
+    prestigePreview,
     upgradesUnlocked,
     upgradeLevel,
     upgradePriceExponent,
@@ -76,7 +77,7 @@
     type UpgradeId,
   } from "./secret/config";
   import { cloneSecret, type SecretState, type AutoLayer } from "./secret/state";
-  import { formatSecret, formatExponent } from "./secret/format";
+  import { formatSecret, formatExponent, formatMultiplier } from "./secret/format";
   import { tabKeyTarget, overlayClosesOn } from "./secret/overlayKeys";
 
   export let onClose: () => void;
@@ -173,6 +174,10 @@
   $: cg = captainGain(s);
   $: fg = fleetGain(s);
   $: pg = prestigeceptionGain(s);
+  // 0.13.11.2: what resetting NOW does to each layer's multiplier, read off a real reset run on a
+  // copy (engine prestigePreview). null hides the line while the layer pays nothing yet.
+  $: previews = tab === "prestige" ? { captain: prestigePreview(s, "captain"), fleet: prestigePreview(s, "fleet"), pc: prestigePreview(s, "pc") } : null;
+  const times = (d: Decimal) => `×${formatMultiplier(d)}`;
   $: upOpen = upgradesUnlocked(s);
 
   // The one-time Upgrades joke (user copy): shown on the first visit to the tab after the unlock.
@@ -466,6 +471,9 @@
                 <span>Ready at</span><span class="num">1e60 Ore</span>
                 <span>Prestige now for</span><span class="num">+{formatSecret(cg)} points</span>
               </div>
+              {#if previews?.captain}
+                <p class="preview">Captain Prestige now: <span class="num">{times(previews.captain.before.captain)}</span> to <span class="num">{times(previews.captain.after.captain)}</span> on the whole stack.</p>
+              {/if}
               <button class="sg-btn primary" type="button" disabled={busy || cg.lte(0)} on:click={() => secretAct((x, t) => doCaptain(x, t))}>Captain Prestige</button>
             </div>
             <div class="layer fleet">
@@ -479,6 +487,12 @@
                 <span>Next unlock</span><span class="num">{nextUnlock(s)}</span>
                 <span>Prestige now for</span><span class="num">+{formatSecret(fg)} points{allSkillsLearned(s) ? "" : " and a Skill Point"}</span>
               </div>
+              {#if previews?.fleet}
+                <p class="preview">
+                  Fleet Prestige now: Augment <span class="num">{times(previews.fleet.before.augment)}</span> to <span class="num">{times(previews.fleet.after.augment)}</span>. Captain Points go
+                  back to 0, so the whole stack goes <span class="num">{times(previews.fleet.before.stack)}</span> to <span class="num">{times(previews.fleet.after.stack)}</span>.
+                </p>
+              {/if}
               <button class="sg-btn primary" type="button" disabled={busy || fg.lte(0)} on:click={() => secretAct((x, t) => doFleet(x, t))}>
                 {fg.lte(0) ? "Fleet Prestige (needs 1.8e308 Ore)" : "Fleet Prestige"}
               </button>
@@ -493,6 +507,12 @@
                 <span>Ready at</span><span class="num">{formatExponent(10000)} Ore in one climb (a Fleet Prestige starts it over)</span>
                 <span>Prestige now for</span><span class="num">+{formatSecret(pg)} points</span>
               </div>
+              {#if previews?.pc}
+                <p class="preview">
+                  Prestigeception now: Captain and Augment gains <span class="num">{times(previews.pc.before.gains)}</span> to <span class="num">{times(previews.pc.after.gains)}</span>.{#if upgradeLevel(s, "lucidDreaming") > 0}
+                    Dream Points speed the stack <span class="num">{times(previews.pc.before.dreamSpeed)}</span> to <span class="num">{times(previews.pc.after.dreamSpeed)}</span>.{/if}
+                </p>
+              {/if}
               <button class="sg-btn primary" type="button" disabled={busy || pg.lte(0)} on:click={() => secretAct((x, t) => doPrestigeception(x, t))}>
                 {pg.lte(0) ? `Prestigeception (needs ${formatExponent(10000)} Ore)` : "Prestigeception"}
               </button>
@@ -927,6 +947,25 @@
   }
   .layer .sg-btn {
     white-space: normal;
+  }
+  /* 0.13.11.2 prestige previews: the weight of resetting now, right above the button. */
+  .layer p.preview {
+    padding: 6px 8px;
+    border-left: 3px solid var(--color-warning);
+    border-radius: 2px;
+    background: rgba(255, 255, 255, 0.04);
+    color: var(--color-text-primary);
+    overflow-wrap: anywhere;
+  }
+  .layer.fleet p.preview {
+    border-left-color: var(--sg-fleet);
+  }
+  .layer.pc p.preview {
+    border-left-color: var(--sg-pc);
+  }
+  .preview .num {
+    font-weight: 700;
+    white-space: nowrap;
   }
   .autos {
     margin-top: var(--space-6);
