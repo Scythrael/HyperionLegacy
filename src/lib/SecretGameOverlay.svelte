@@ -509,7 +509,8 @@
               </div>
               {#if previews?.pc}
                 <p class="preview">
-                  Prestigeception now: Captain and Augment gains <span class="num">{times(previews.pc.before.gains)}</span> to <span class="num">{times(previews.pc.after.gains)}</span>.{#if upgradeLevel(s, "lucidDreaming") > 0}
+                  Prestigeception now: Captain and Augment gains <span class="num">{times(previews.pc.before.gains)}</span> to <span class="num">{times(previews.pc.after.gains)}</span>. Captain and
+                  Augment Points go back to 0, so the whole stack goes <span class="num">{times(previews.pc.before.stack)}</span> to <span class="num">{times(previews.pc.after.stack)}</span>.{#if upgradeLevel(s, "lucidDreaming") > 0}
                     Dream Points speed the stack <span class="num">{times(previews.pc.before.dreamSpeed)}</span> to <span class="num">{times(previews.pc.after.dreamSpeed)}</span>.{/if}
                 </p>
               {/if}

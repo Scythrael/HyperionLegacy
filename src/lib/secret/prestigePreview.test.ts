@@ -152,6 +152,20 @@ describe("prestige previews", () => {
     eq(p.after.dreamSpeed, new Decimal(1), "no Lucid Dreaming");
   });
 
+  it("Prestigeception: Captain and Augment Points go back to 0, so the whole stack falls to the Dream speed", () => {
+    for (const ld of [0, 1, cap("lucidDreaming")]) {
+      const s = withUpgrade(ready({ cp: 900, ap: 80, dp: 50 }), "lucidDreaming", ld);
+      const { after } = expectMatchesReal(s, "pc");
+      const p = prestigePreview(s, "pc")!;
+      expect(after.captainPoints.eq(0) && after.augmentPoints.eq(0)).toBe(true);
+      eq(p.after.captain, new Decimal(1), `Lucid ${ld} captain`);
+      eq(p.after.augment, new Decimal(1), `Lucid ${ld} augment`);
+      eq(p.after.stack, p.after.dreamSpeed, `Lucid ${ld} stack is the Dream speed alone`);
+      eq(p.before.stack, captainMultiplier(s).mul(augmentMultiplier(s)).mul(dreamSpeedMultiplier(s)), `Lucid ${ld} stack before`);
+      expect(p.after.stack.lt(p.before.stack), `Lucid ${ld} stack falls`).toBe(true);
+    }
+  });
+
   it("Prestigeception at every Lucid Dreaming level", () => {
     for (let level = 0; level <= cap("lucidDreaming"); level++) {
       const s = withUpgrade(ready({ cp: 900, ap: 80, dp: 1234 }), "lucidDreaming", level);

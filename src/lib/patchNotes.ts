@@ -64,7 +64,7 @@ export function isStructuredNote(n: PatchNote): n is PatchNoteStructured {
 
 export const PATCH_NOTES: PatchNote[] = [
   {
-    // 0.13.11.2 [PROPOSAL] wording for the user: spoiler-free, it says nothing about what changed.
+    // 0.13.11.2 wording approved by the user (2026-10-26): spoiler-free, it says nothing about what changed.
     version: "0.13.11.2",
     lede: "Small polish and fixes.",
     save: "Your save carries over untouched.",
