@@ -20,7 +20,8 @@ import {
   allSkillsLearned,
   pow10,
 } from "./engine";
-import { SKILLS, UPGRADES, STARFALL_EXPONENT, LONG_EXPONENT, type UpgradeId } from "./config";
+import { SKILLS, UPGRADES, TIERS, HELP_SECTIONS, COPY, STARFALL_EXPONENT, LONG_EXPONENT, type UpgradeId } from "./config";
+import { readFileSync } from "node:fs";
 import { devJumpTo } from "./devTools";
 
 const AT = 5_000_000;
@@ -191,5 +192,54 @@ describe("prestige previews", () => {
       }
       expect(shown, `layers ready at ${target}`).toBe(3);
     }
+  });
+});
+
+// 0.13.11.2 (user: "Looks like the text is clipping a bit." and "Could just simplify it and add anything
+// that needs explanation to the ? menu."): the three cards read short, and the Help view explains.
+describe("prestige cards read short", () => {
+  const ov = readFileSync("src/lib/SecretGameOverlay.svelte", "utf-8");
+  const block = ov.slice(ov.indexOf('{:else if tab === "prestige"}'), ov.indexOf("{#if LAYERS.some("));
+  const MAX_LABEL = 12;
+
+  it("every row is a label and a value, and no label is longer than a short phrase", () => {
+    const labels = [...block.matchAll(/<dt>([^<]*)<\/dt>/g)].map((m) => m[1]);
+    expect(labels.length).toBeGreaterThanOrEqual(16);
+    for (const l of labels) {
+      expect(l.length, l).toBeLessThanOrEqual(MAX_LABEL);
+      expect(l.split(" ").length, l).toBeLessThanOrEqual(2);
+    }
+    // No old-style loose label and value spans are left in the cards.
+    expect(block).not.toMatch(/<div class="kv">/);
+    expect(block.match(/<dl class="kv">/g)?.length).toBe(3);
+  });
+
+  it("the long values are gone from the cards", () => {
+    for (const gone of ["Multiplier from them", "Prestige now for", "Ready at", "a Fleet Prestige starts it over", "Captain and Augment gains</span>"]) {
+      expect(block, gone).not.toContain(gone);
+    }
+    expect(COPY.allSkillsLearned.length).toBeLessThanOrEqual(MAX_LABEL);
+  });
+
+  it("the rows never collide: the label never breaks and a value with no room beside it drops under it", () => {
+    const css = ov.slice(ov.indexOf("  .kv {"), ov.indexOf("  .layer .sg-btn {"));
+    expect(css).toMatch(/\.kv > div \{[^}]*flex-wrap: wrap;/);
+    expect(css).toMatch(/\.kv dt \{[^}]*white-space: nowrap;/);
+    expect(css).toMatch(/\.kv dd \{[^}]*overflow-wrap: anywhere;/);
+    expect(css).toMatch(/\.kv dd \{[^}]*max-width: 100%;/);
+  });
+
+  it("the Help view carries what the cards no longer say, and its unlock ladder matches the generators", () => {
+    const help = HELP_SECTIONS.map((h) => h.body).join(" ");
+    expect(help).toMatch(/Augment Points speed up the whole stack/);
+    expect(help).toMatch(/Dream Points are never taken away/);
+    expect(help).toMatch(/fresh climb to e10,000 Ore/);
+    expect(help).toMatch(/stops paying Skill Points/);
+    const ladder = TIERS.map((t) => t.unlockFleet).filter((n) => n > 0);
+    const last = ladder.pop();
+    expect(help).toContain(`New generators unlock at ${ladder.join(", ")} and ${last} lifetime Fleet Prestiges.`);
+    // The Help view names no locked content: no generator past the first four, no late upgrade.
+    for (const t of TIERS.filter((x) => x.unlockFleet > 0)) expect(help, t.name).not.toContain(t.name);
+    for (const u of UPGRADES) expect(help, u.name).not.toContain(u.name);
   });
 });
