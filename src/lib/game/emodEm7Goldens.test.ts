@@ -37,6 +37,7 @@ import { combatHullTypeOf, shipToCombatant } from "./combat/bridge";
 import { equippedFor } from "./equipmentQueries";
 import { dispatchRun, installPiece, wiringBase } from "./wiring/probes";
 import { hash } from "./firstRunsGoldens.fixture";
+import { withoutEm7Blueprints } from "./emodEm7.fixture";
 
 const CAPTURE = Boolean(import.meta.env.EM7_CAPTURE);
 const HULLS = Object.keys(SHIP_TYPES) as ShipTypeKey[];
@@ -83,7 +84,12 @@ function setReadings(): Record<string, unknown> {
   return out;
 }
 
-function computePins(): { held: Record<string, string>; moved: Record<string, string> } {
+// `pre`: EM-7's additions held apart (the module switch off through loadoutSlotDefsForShipType's own test hook, the eight
+// module blueprints left out: emodEm7.fixture.ts), which must reproduce every pre-EM-7 capture: the proof that EM-7's
+// additions are the whole move.
+function computePins(pre = false): { held: Record<string, string>; moved: Record<string, string> } {
+  const blueprints = pre ? withoutEm7Blueprints(BLUEPRINTS) : BLUEPRINTS;
+  const archivable = archivableBlueprints().filter((a) => a.key in blueprints);
   const held: Record<string, string> = {};
   const moved: Record<string, string> = {};
   for (const hull of HULLS) {
@@ -97,7 +103,7 @@ function computePins(): { held: Record<string, string>; moved: Record<string, st
         shipToCombatant({ id: "p", team: "player", stats: SHIP_TYPES[hull], hullType: ht, installedGear: equippedFor(si, SHIP) }),
       );
     }
-    moved[`loadout:${hull}`] = hash(loadoutSlotDefsForShipType(hull));
+    moved[`loadout:${hull}`] = hash(pre ? loadoutSlotDefsForShipType(hull, false) : loadoutSlotDefsForShipType(hull));
   }
   for (const hull of ["orion", "aurora"] as const) {
     const run = dispatchRun(wiringBase(hull));
@@ -113,18 +119,55 @@ function computePins(): { held: Record<string, string>; moved: Record<string, st
   held["sets"] = hash(setReadings());
   // The catalog: Lab tiers 1 to 7.
   for (let tier = 1; tier <= 7; tier++) {
-    const keys = Object.values(BLUEPRINTS).filter((bp) => bp.tier === tier).map((bp) => bp.key);
+    const keys = Object.values(blueprints).filter((bp) => bp.tier === tier).map((bp) => bp.key);
     moved[`catalog:tier:${tier}`] = hash(keys);
-    moved[`catalog:fabricator:${tier}`] = hash(fabricateKeyGroups(Object.values(BLUEPRINTS), tier));
-    moved[`catalog:research:${tier}`] = hash(keys.map((k) => [k, researchSectionOf(BLUEPRINTS[k])]));
+    moved[`catalog:fabricator:${tier}`] = hash(fabricateKeyGroups(Object.values(blueprints), tier));
+    moved[`catalog:research:${tier}`] = hash(keys.map((k) => [k, researchSectionOf(blueprints[k])]));
   }
+  const max = archivable.reduce((a, { bp }) => a + maxItemScore(bp), 0);
   moved["catalog:archive"] = hash({
-    slots: archivableBlueprints().map((a) => a.key),
-    max: archivableBlueprints().reduce((a, { bp }) => a + maxItemScore(bp), 0),
-    fresh: archiveCompletion(wiringBase()),
+    slots: archivable.map((a) => a.key),
+    max,
+    fresh: pre ? { total: 0, max, pct: 0 } : archiveCompletion(wiringBase()),
   });
   return { held, moved };
 }
+
+// The by-design readings after EM-7 (pinned so a later slice cannot move one unexplained).
+const MOVED_AFTER: Record<string, string> = {
+  "loadout:generalFreighter": "d29a3c6b",
+  "loadout:prospectorHauler": "366ebcc4",
+  "loadout:prospectorRunner": "9a356c9f",
+  "loadout:prospectorMiner": "9a356c9f",
+  "loadout:destroyer": "93e5db29",
+  "loadout:battleship": "b1c56e38",
+  "loadout:carrier": "fe3db005",
+  "loadout:orion": "62a6ba3a",
+  "loadout:aurora": "42dbc854",
+  "loadout:eir": "62a6ba3a",
+  "catalog:tier:1": "9ec83d2c",
+  "catalog:fabricator:1": "308e5cf2",
+  "catalog:research:1": "33c99963",
+  "catalog:tier:2": "400c2de",
+  "catalog:fabricator:2": "6b69720",
+  "catalog:research:2": "9c25116c",
+  "catalog:tier:3": "76c83e13",
+  "catalog:fabricator:3": "19a6bab3",
+  "catalog:research:3": "a827db6a",
+  "catalog:tier:4": "3178fad1",
+  "catalog:fabricator:4": "ba6192b5",
+  "catalog:research:4": "d090d7a3",
+  "catalog:tier:5": "9d72b6ad",
+  "catalog:fabricator:5": "50003ca9",
+  "catalog:research:5": "d27708aa",
+  "catalog:tier:6": "7378edd4",
+  "catalog:fabricator:6": "294daec8",
+  "catalog:research:6": "76c27325",
+  "catalog:tier:7": "6e4f45a7",
+  "catalog:fabricator:7": "ecd3353b",
+  "catalog:research:7": "c255dddc",
+  "catalog:archive": "354f5b8d",
+};
 
 // Captured on the pre-EM-7 engine (feat/crew-0.14.0 b66b976).
 const HELD: Record<string, string> = {
@@ -211,8 +254,21 @@ describe("E-MOD EM-7 goldens (captured before the v1 roster)", () => {
     expect(Object.keys(HELD).length).toBeGreaterThan(30);
     for (const [k, v] of Object.entries(HELD)) expect(pins.held[k], k).toBe(v);
   });
-  it("the by-design readings are pinned as they were before EM-7", () => {
+  it("the by-design readings: with EM-7's additions held apart, every one is the pre-EM-7 capture", () => {
     expect(Object.keys(MOVED_BEFORE).length).toBeGreaterThan(20);
-    for (const [k, v] of Object.entries(MOVED_BEFORE)) expect(pins.moved[k], k).toBe(v);
+    const pre = computePins(true);
+    for (const [k, v] of Object.entries(MOVED_BEFORE)) expect(pre.moved[k], k).toBe(v);
+  });
+  it("the by-design readings: EM-7 moves exactly the named ones (every hull's Armory slot set, Lab tiers 2 to 4, the Archive)", () => {
+    const moved = Object.keys(MOVED_BEFORE).filter((k) => pins.moved[k] !== MOVED_BEFORE[k]).sort();
+    expect(moved).toEqual(
+      [
+        ...HULLS.map((h) => `loadout:${h}`),
+        ...[2, 3, 4].flatMap((t) => [`catalog:tier:${t}`, `catalog:fabricator:${t}`, `catalog:research:${t}`]),
+        "catalog:archive",
+      ].sort(),
+    );
+    expect(Object.keys(MOVED_AFTER).length).toBe(Object.keys(MOVED_BEFORE).length);
+    for (const [k, v] of Object.entries(MOVED_AFTER)) expect(pins.moved[k], k).toBe(v);
   });
 });

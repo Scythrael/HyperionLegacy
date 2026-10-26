@@ -59,7 +59,7 @@ import type {
   SnapshotMember,
   PromotionObjectiveKind,
 } from "./model";
-import { SHIP_TYPES, commandingCaptain, memberVariety, moduleEffectScale } from "./model";
+import { SHIP_TYPES, commandingCaptain, memberVariety, moduleEffectScale, shipGearSetBonusLines } from "./model";
 // E-MOD EM-6: the body-scanned module trigger (its frozen procs and private stream).
 import { moduleScanProcs, moduleScanSeed, rollModuleChance } from "./shipModules";
 import { makeRng, type Rng } from "./combat/rng";
@@ -845,7 +845,9 @@ function shipSensorSnapshot(
 // E4d: the ship's INSTALLED-GEAR expedition bonuses, added to the museum's at dispatch: the Pathfinder
 // Suite's scan speed + hazard resist, and the installed sensor array's relic-find bonus (non-zero only for
 // the Bio-Resonance Array). Exact zeros for a ship carrying neither (every existing loadout), so the
-// snapshot sum museum + 0 is the museum value bit-for-bit. Pure.
+// snapshot sum museum + 0 is the museum value bit-for-bit. E-MOD EM-7: a complete module set's scan bonus (the Survey
+// Pair: model.ts shipGearSetBonusLines, scaled by its pieces and worn with them in the run's gear view) joins the scan
+// speed; added only when there is one, so every set-free ship reads the Pathfinder's value unchanged. Pure.
 export interface ExpeditionGearBonuses {
   scanSpeed: number;
   hazardResist: number;
@@ -854,9 +856,11 @@ export interface ExpeditionGearBonuses {
 export function expeditionGearBonuses(state: GameState, ship: ShipInstance): ExpeditionGearBonuses {
   // GEAR WEAR step 3: a worn suite or array reads at its efficiency (the worn-gear view, gearWear.ts).
   const gearView = wornGearView(state);
-  const pathfinder = pathfinderEffect(equippedFor(gearView, ship.id));
+  const installed = equippedFor(gearView, ship.id);
+  const pathfinder = pathfinderEffect(installed);
+  const setScan = shipGearSetBonusLines(installed).scanSpeedBonus ?? 0;
   return {
-    scanSpeed: pathfinder.scanSpeed,
+    scanSpeed: setScan > 0 ? pathfinder.scanSpeed + setScan : pathfinder.scanSpeed,
     hazardResist: pathfinder.hazardResist,
     relicFindChance: sensorArrayRelicFindBonus(installedSensorArray(gearView, ship)),
   };

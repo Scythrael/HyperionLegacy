@@ -115,7 +115,7 @@ import { combatHullTypeOf, shipToCombatant } from "../combat/bridge";
 import type { Combatant, CombatWeapon } from "../combat/types";
 import type { DroneRole, DroneSquadron } from "../combat/drones";
 import type { WeaponId } from "../combat/weapons";
-import { resolveBattle } from "../combat/resolveBattle";
+import { fireWeapon, resolveBattle } from "../combat/resolveBattle";
 import { makeWeaponInstance } from "../combat/weapons";
 import { makeSquadron } from "../combat/drones";
 import { replenishUnits } from "../combat/droneDefense";
@@ -188,7 +188,9 @@ import { seniorStaffCandidates } from "../seniorStaff";
 import { applyExpeditionInjuries, injuryRecoverySeconds, shipInjuryFactors } from "../injuries";
 import { boardingRepelChance, buildShipCombatant, snapshotShipEventProfile } from "../shipScanEvents";
 import { shipsWithMemberAutoSlotted } from "../groundTeamSlots";
-import { equippedFor } from "../equipment";
+import { canFitEquipment, equippedFor, fitEquipment } from "../equipment";
+// E-MOD EM-7: the v1 module roster (the install-gate slot count probe installs it piece by piece).
+import { UNIVERSAL_MODULES } from "../shipModules";
 import { effectiveShipStats, officerCombatMods, officerRepairSpeedBonus, resolveCrew, shipCrewContribution, shipMissionOutputBonus, shipRepairSpeedBonus } from "../crewOverlay";
 import { departmentFacet, seatFacet } from "../officerStats";
 import { RELICS, museumBonuses, type MuseumStat } from "../relics";
@@ -910,6 +912,55 @@ function shipEventCombatant(s: GameState): Combatant | undefined {
   return battle ? buildShipCombatant("wiring-event", battle, 0, 0) : undefined;
 }
 
+// == E-MOD EM-7: the universal modules' combat engines ==
+// The battles the module probes fight: the ship (its patrol or ship-event combatant, modules folded by bridge.ts) against
+// a Standard-Issue Battleship at range, precharged, logged, MODULE_BATTLE_SEEDS seeds. A Battleship outlasts the
+// fixture ship, so it takes hits (the Arc Discharger's trigger) and falls below half hull (the Shield Surge's rule).
+export const MODULE_BATTLE_SEEDS = 12;
+function moduleBattleEnemy(): Combatant {
+  return shipToCombatant({ id: "wiring-module-enemy", team: "enemy", stats: SHIP_TYPES.battleship, hullType: combatHullTypeOf("battleship")!, position: 40 });
+}
+function moduleProcTotal(s: GameState, ctx: ContextId, effect: "arcDamage" | "shieldRestore"): number {
+  let total = 0;
+  for (let i = 1; i <= MODULE_BATTLE_SEEDS; i++) {
+    const r = resolveBattle({ combatants: [battleCombatant(s, ctx), moduleBattleEnemy()] }, Math.imul(i, 0x9e3779b1) >>> 0, { precharge: true, generateLog: true });
+    for (const ev of r.log) if (ev.type === "moduleProc" && ev.moduleEffect === effect) total += ev.damage ?? 0;
+  }
+  return total;
+}
+// The first weapon's volley with the ship's hull at MODULE_LOW_HULL_PERCENT (below every module hull threshold), fired
+// MODULE_SHOT_SEEDS times at a target with no shield and no armor, so the volley's damage is its raw projectiles.
+export const MODULE_SHOT_SEEDS = 40;
+export const MODULE_LOW_HULL_PERCENT = 10;
+function moduleLowHullShot(s: GameState, ctx: ContextId): number {
+  let total = 0;
+  for (let seed = 1; seed <= MODULE_SHOT_SEEDS; seed++) {
+    const c = battleCombatant(s, ctx);
+    const w = c.weapons[0];
+    if (w === undefined) return 0;
+    c.hull = Math.max(1, Math.floor((c.hullMax * MODULE_LOW_HULL_PERCENT) / 100));
+    const target = moduleBattleEnemy();
+    target.shield = 0;
+    target.shieldMax = 0;
+    target.ablativeArmor = 0;
+    target.kineticDampening = 0;
+    total += fireWeapon(c, target, w, makeRng(seed)).damage;
+  }
+  return total / MODULE_SHOT_SEEDS;
+}
+// MODULE_HAUL_BATCH real deliveries of 10 Titanium Ore (deliveryTick, the Motherlode probe's), captain 1's lifetime
+// module counter at 0 to MODULE_HAUL_BATCH - 1 (each a different key of the private mission-cycle stream): the mean
+// ore above the 10 delivered.
+export const MODULE_HAUL_BATCH = 1000;
+function moduleBonusHaul(s: GameState): number {
+  let extra = 0;
+  for (let i = 0; i < MODULE_HAUL_BATCH; i++) {
+    const { before, after } = deliveryTick(s, 0.999999, { moduleCycles: i });
+    extra += heldOf(after, "commonOre") - heldOf(before, "commonOre") - 10;
+  }
+  return extra / MODULE_HAUL_BATCH;
+}
+
 // The Security squad as a dispatched run fields it (the run's frozen officer care rides along).
 function runMember(s: GameState, memberId: string): GroundCombatant | undefined {
   return expeditionTeamCombatants(dispatchRun(readyForRun(s)), "wiring").find((c) => c.memberId === memberId);
@@ -1481,6 +1532,23 @@ export const PROBES = {
       for (let i = 0; i < 1000; i++) total += captainDroneDamage(c.captainEdge, carry, SHOT_RAW);
       return total / 1000;
     },
+  },
+  // == E-MOD EM-7: the universal modules' combat engines, through the real battle (resolveBattle / fireWeapon) ==
+  moduleArcDamage: {
+    label: `resolveBattle: the arc damage the ship's modules dealt (moduleProc events) over ${MODULE_BATTLE_SEEDS} battles against a Battleship (patrol / shipEvent)`,
+    read: (s, ctx) => moduleProcTotal(s, ctx, "arcDamage"),
+  },
+  moduleShieldRestored: {
+    label: `resolveBattle: the shield the ship's modules restored (moduleProc events) over ${MODULE_BATTLE_SEEDS} battles against a Battleship (patrol / shipEvent)`,
+    read: (s, ctx) => moduleProcTotal(s, ctx, "shieldRestore"),
+  },
+  moduleLowHullShot: {
+    label: `fireWeapon: the mean damage of the first weapon's volley over ${MODULE_SHOT_SEEDS} seeds, the ship at ${MODULE_LOW_HULL_PERCENT}% hull, at an unarmored target (patrol / shipEvent)`,
+    read: (s, ctx) => moduleLowHullShot(s, ctx),
+  },
+  moduleBonusHaul: {
+    label: `economyTick deliveries: the mean extra Titanium Ore over ${MODULE_HAUL_BATCH} real 10-ore shortOreRun deliveries, the captain's lifetime module counter 0 to ${MODULE_HAUL_BATCH - 1}`,
+    read: (s) => moduleBonusHaul(s),
   },
   battleDroneHp: { label: "the first squadron's droneHp: the patrol cycle's seed / the ship-event combatant", read: (s, ctx) => battleDrones(s, ctx)[0]?.droneHp ?? 0 },
   battleDroneReplenish: {
@@ -2567,6 +2635,21 @@ function readContent(id: string, s: GameState): number {
       return shortRangeContentValue(s, a, b as ShortRangeTemplateKey);
     case "loadoutSlots":
       return loadoutSlotDefsForShipType(a as ShipTypeKey).filter((d) => d.slotType === b).length;
+    case "moduleInstalls": {
+      // E-MOD EM-7: the hull bare (no Spec Utility, which shares the module slots), every catalog module offered in id
+      // order through the real install gate: how many it installs before the slots are full.
+      const hull = wiringBase(a as ShipTypeKey);
+      let st: GameState = { ...hull, equipment: hull.equipment.filter((e) => e.fittedToShipId !== WIRING_SHIP_ID) };
+      let installed = 0;
+      for (const def of [...UNIVERSAL_MODULES].sort((x, y) => (x.id < y.id ? -1 : 1))) {
+        const id = `wiring-module-${def.id}`;
+        st = { ...st, equipment: [...st.equipment, { id, slotType: "module", moduleVariant: def.id, rarity: "standard", ascension: "none", quality: 0, iLevel: 10, blueprintKey: `${def.id}Bp`, implicitStats: {}, rolledStats: {}, mass: 0, powerDraw: def.powerDraw, durabilityMax: 100, fittedToShipId: null } as EquipmentInstance] };
+        if (!canFitEquipment(st, WIRING_SHIP_ID, id).ok) break;
+        st = fitEquipment(st, WIRING_SHIP_ID, id);
+        installed++;
+      }
+      return installed;
+    }
     case "groundTeams":
       return groundTeamCount(a as ShipTypeKey);
     case "cure": {

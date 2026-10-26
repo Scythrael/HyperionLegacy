@@ -446,7 +446,7 @@
   } from "./lib/game/equipment";
   // E-MOD EM-2: the power install gate's refusal text (one wording everywhere) and the Armory check-out's shortfall.
   import { overPowerReasonText } from "./lib/game/shipPower";
-  import { duplicateModuleReasonText, moduleSlotsFullReasonText } from "./lib/game/shipModules";
+  import { UNIVERSAL_MODULES_LIVE, duplicateModuleReasonText, moduleSlotsFullReasonText } from "./lib/game/shipModules";
   // Crew 0.14.0 (phase 4a): the pure SENIOR STAFF engine, wired by the do* handlers below.
   // hire/fire/assign/unassign each take + return a whole GameState; promoteOfficer takes +
   // returns a single officer, so its handler splices the result back into state.officers.
@@ -2080,7 +2080,10 @@
   // remain genuine reserved families with no engine yet.
   // Field Kits FKR-10 (call 14 "The reserved Consumables spot"): once kits are live in runs, Consumables graduates to the
   // Field Kits stock panel on the Ship Equipment tab, so only Modules stays reserved.
-  const LOGISTICS_RESERVED_GOODS: string[] = FIELD_KITS_RUNS_LIVE ? ["Modules"] : ["Modules", "Consumables"];
+  // E-MOD EM-7: once universal modules can be crafted (UNIVERSAL_MODULES_LIVE) they are real gear and show in the Ship
+  // Systems bay above like every crafted piece, so the "Modules" chip goes (the Weapons chip precedent, BUG-U2). With
+  // nothing left reserved, the Reserved panel is not drawn at all.
+  const LOGISTICS_RESERVED_GOODS: string[] = [...(UNIVERSAL_MODULES_LIVE ? [] : ["Modules"]), ...(FIELD_KITS_RUNS_LIVE ? [] : ["Consumables"])];
 
   // The warehouse TIERS that have their own facility + cap system today (design
   // §3.1: each tier is its own facility). Drives the Upgrade tab's per-tier
@@ -15922,6 +15925,7 @@
                existing accent/text tokens so no new class or color is introduced.
                A family becomes real when combat lands (0.13.0), at which point it
                graduates to its own top-level Logistics ConsoleTab. -->
+          {#if LOGISTICS_RESERVED_GOODS.length > 0}
           <Panel>
             <div class="warehouse-tier-head">
               <span class="warehouse-tier-label">Reserved</span>
@@ -15937,6 +15941,7 @@
               {/each}
             </div>
           </Panel>
+          {/if}
         {/if}
 
         {#if activeLogisticsTab === "awayTeamGear"}

@@ -24,9 +24,9 @@
 // (the ship sheet's power output, the combat hull pool, the below-threshold damage). EM-6 owns the Proc and Active
 // engine: the trigger rules, the frozen proc shapes and their private salted streams below, read at fixed points by
 // combat/resolveBattle.ts (the six combat triggers), tick.ts tickCaptainMission (the mission cycle) and expedition.ts
-// assignDiscoveriesAndActivities (the body scan). EM-7 authors the v1 roster and its blueprints (and the two-piece Set
-// bonus); EM-8 the Precursor Lens. So the catalog ships EMPTY, and the module slot stays hidden from the player behind
-// UNIVERSAL_MODULES_LIVE until a module can be crafted.
+// assignDiscoveriesAndActivities (the body scan). EM-7 authors the v1 roster below and its blueprints (model.ts
+// MODULE_BLUEPRINTS), the Set engine (the Survey Pair, a set of the shared gear set engine, gearSets.ts) and flips
+// UNIVERSAL_MODULES_LIVE; EM-8 adds the Precursor Lens.
 //
 // A LEAF MODULE: it imports nothing but types, so model.ts (equipmentStatMods, the power output fold) and the combat
 // sim can read the catalog without an import cycle. Pure: no state, no clock; the only random draws are on the
@@ -40,12 +40,11 @@ import type { Rng } from "./combat/rng";
 // ============================================================================
 
 // UNIVERSAL_MODULES_LIVE: whether the module slot is shown to the player (the Armory's module slots today; the Ship
-// Systems Modules row, the Fabricator group and the Logistics family when EM-10 builds them). FALSE until EM-7
-// authors the first craftable module (the user's "nothing player-reachable may be inert": an empty slot no player can
-// fill must not be shown). The ENGINE is live regardless (the slot, the cap, the refusals, the effect folds), so a
-// module piece behaves correctly the moment one exists; only its surfaces wait. EM-7 flips this in the commit that
-// adds the first module blueprint.
-export const UNIVERSAL_MODULES_LIVE = false;
+// Systems Modules row, the Fabricator group and the Logistics family when EM-10 builds them). It was FALSE until EM-7
+// authored the first craftable module (the user's "nothing player-reachable may be inert": an empty slot no player can
+// fill must not be shown). EM-7 (0.14.0) flipped it with the v1 roster and its blueprints (model.ts MODULE_BLUEPRINTS);
+// shipModules.test.ts holds the switch equal to "a module blueprint exists".
+export const UNIVERSAL_MODULES_LIVE = true;
 
 // ============================================================================
 // Catalog types
@@ -105,8 +104,12 @@ export interface ModuleCondition {
 //   bonusHaul      mission cycle, a fraction: the delivered cycle's common material grows by that share.
 //   extraDiscovery body scanned, whole discoveries: that many more discoveries on the scanned body (the sensor ghost's
 //                  draw: a pool, then a site). Its rarity and quality scale act on the CHANCE (MODULE_SCALE_ON).
-// EM-7 (the set bonus) adds its key WITH its engine; MODULE_ENGINE_KEYS below lists what each category can read
-// today, and the catalog test refuses any other.
+// EM-7's engine (the Set; its bonus is the set's tier in gearSets.ts GEAR_SETS, the ONE set engine for gear and modules,
+// RR-6):
+//   scanSpeedBonus expedition, a fraction: added to the run's scan speed bonus at dispatch (the scan rate x (1 + it)),
+//                  while the set is complete. A set module's own magnitude IS its set tier's bonus (the catalog test
+//                  holds the two equal), so the module reads what the set gives.
+// MODULE_ENGINE_KEYS below lists what each category can read today, and the catalog test refuses any other.
 export type ModuleEffectKey =
   | "powerOutput"
   | "hullIntegrity"
@@ -114,7 +117,8 @@ export type ModuleEffectKey =
   | "arcDamage"
   | "shieldRestore"
   | "bonusHaul"
-  | "extraDiscovery";
+  | "extraDiscovery"
+  | "scanSpeedBonus";
 
 export interface ModuleEffect {
   readonly key: ModuleEffectKey;
@@ -138,16 +142,64 @@ export interface UniversalModuleDef {
   readonly source: "craft" | "discovery" | "salvageExclusive";
 }
 
-// The v1 roster lands in EM-7 (the eight rows the user approved 2026-10-19, M6 "Approve all") and EM-8 (the Precursor
-// Lens). Each entry must also be a variety of EQUIPMENT_SLOTS.module (model.ts) with the same key; shipModules.test.ts
-// holds the two lists equal.
-export const UNIVERSAL_MODULES: readonly UniversalModuleDef[] = [];
+// ============================================================================
+// EM-7: the v1 roster (user M6, 2026-10-19, "Approve all": the eight rows of plan section 5 call 12, as named, with
+// those effects; the Precursor Lens, the ninth, is EM-8's)
+// ============================================================================
 
-// The effect keys each category's engine reads TODAY. A category absent here has no engine yet (EM-6: proc, active,
-// special; EM-7: set), so no catalog entry of that category may exist until its slice adds the engine and the key
-// here: the "nothing inert" rule, enforced by validateUniversalModuleDef.
+// The Survey Pair's set id (gearSets.ts GEAR_SETS reads it, so the set and its two modules share one key).
+export const SURVEY_PAIR_SET_ID = "surveyPair";
+
+// [PROVISIONAL] every number of the v1 roster, in ONE place (no answer names them; the signed-off modules mockup's
+// sample values, "illustrative, nothing is final", are the first pass). Magnitudes are at Standard quality 0 and scale
+// with the piece's rarity, quality and ascension (model.ts moduleEffectScale; a set's bonus by the mean scale of its
+// counted pieces, gearSets.ts). Draws are the piece's base power draw (no slot default).
+export const MODULE_V1_NUMBERS = {
+  auxiliaryCapacitor: { powerOutput: 8, powerDraw: 0 },
+  structuralBracing: { hullIntegrity: 0.06, powerDraw: 3 },
+  // "a small hit back": whole EW damage points (a crafted weapon's shot is 20 to 55).
+  arcDischarger: { chance: 0.15, arcDamage: 8, powerDraw: 8 },
+  // a landed echo adds half the cycle's common haul again (expected +5% at the 10% chance).
+  prospectorsEcho: { chance: 0.1, bonusHaul: 0.5, powerDraw: 4 },
+  lastStandProtocol: { hullBelow: 0.25, weaponDamage: 0.12, powerDraw: 4 },
+  shieldSurge: { hullBelow: 0.5, shieldRestore: 0.3, powerDraw: 6 },
+  // the Survey Pair together: +8% scan speed on expeditions.
+  surveyPair: { scanSpeedBonus: 0.08 },
+  longBaselineArray: { powerDraw: 6 },
+  signalIntegrator: { powerDraw: 5 },
+} as const;
+
+const N = MODULE_V1_NUMBERS;
+const EVERYWHERE: readonly ModuleContext[] = MODULE_CONTEXTS;
+const COMBAT: readonly ModuleContext[] = ["patrol", "shipEvent"];
+
+// The v1 roster. Each entry is also a variety of EQUIPMENT_SLOTS.module (model.ts derives the varieties from this list)
+// and has one blueprint (model.ts MODULE_BLUEPRINTS); shipModules.test.ts holds the three equal.
+export const UNIVERSAL_MODULES: readonly UniversalModuleDef[] = [
+  // Passive: more power for the ship's grid, on every context (a sheet effect).
+  { id: "auxiliaryCapacitor", label: "Auxiliary Capacitor", category: "passive", contexts: EVERYWHERE, effect: { key: "powerOutput", magnitude: N.auxiliaryCapacitor.powerOutput }, powerDraw: N.auxiliaryCapacitor.powerDraw, source: "craft" },
+  // Passive: a bigger combat hull pool.
+  { id: "structuralBracing", label: "Structural Bracing", category: "passive", contexts: COMBAT, effect: { key: "hullIntegrity", magnitude: N.structuralBracing.hullIntegrity }, powerDraw: N.structuralBracing.powerDraw, source: "craft" },
+  // Proc: on a hit TAKEN (EM-6's "on hit"), a chance to arc a small EW hit back at the attacker.
+  { id: "arcDischarger", label: "Arc Discharger", category: "proc", contexts: COMBAT, trigger: { kind: "onHit" }, chance: N.arcDischarger.chance, effect: { key: "arcDamage", magnitude: N.arcDischarger.arcDamage }, powerDraw: N.arcDischarger.powerDraw, source: "craft" },
+  // Proc: each delivered extraction cycle (user 2026-10-22 "Extraction runs only"), a chance of a bonus common haul.
+  { id: "prospectorsEcho", label: "Prospector's Echo", category: "proc", contexts: ["mission"], trigger: { kind: "missionCycle" }, chance: N.prospectorsEcho.chance, effect: { key: "bonusHaul", magnitude: N.prospectorsEcho.bonusHaul }, powerDraw: N.prospectorsEcho.powerDraw, source: "craft" },
+  // Conditional: while the hull is below a quarter, every projectile hits harder.
+  { id: "lastStandProtocol", label: "Last Stand Protocol", category: "conditional", contexts: COMBAT, condition: { kind: "hullBelow", fraction: N.lastStandProtocol.hullBelow }, effect: { key: "weaponDamage", magnitude: N.lastStandProtocol.weaponDamage }, powerDraw: N.lastStandProtocol.powerDraw, source: "craft" },
+  // Active (Combat 1.0's own example; M3 one preset rule): once per battle, when the hull falls below half, restore
+  // part of the shield pool.
+  { id: "shieldSurge", label: "Shield Surge", category: "active", contexts: COMBAT, trigger: { kind: "hullBelow", fraction: N.shieldSurge.hullBelow }, oncePerBattle: true, effect: { key: "shieldRestore", magnitude: N.shieldSurge.shieldRestore }, powerDraw: N.shieldSurge.powerDraw, source: "craft" },
+  // Set (2 pieces): the Survey Pair. Together they speed an expedition's scans.
+  { id: "longBaselineArray", label: "Long-Baseline Array", category: "set", contexts: ["expedition"], setId: SURVEY_PAIR_SET_ID, effect: { key: "scanSpeedBonus", magnitude: N.surveyPair.scanSpeedBonus }, powerDraw: N.longBaselineArray.powerDraw, source: "craft" },
+  { id: "signalIntegrator", label: "Signal Integrator", category: "set", contexts: ["expedition"], setId: SURVEY_PAIR_SET_ID, effect: { key: "scanSpeedBonus", magnitude: N.surveyPair.scanSpeedBonus }, powerDraw: N.signalIntegrator.powerDraw, source: "craft" },
+];
+
+// The effect keys each category's engine reads TODAY. A category absent here has no engine yet, so no catalog entry of
+// that category may exist until its slice adds the engine and the key here: the "nothing inert" rule, enforced by
+// validateUniversalModuleDef.
 // EM-6 adds Proc, Active and Special (the Precursor Lens is proc-shaped: a chance per trigger). An Active is a combat
-// auto-cast (user M3, 2026-10-19, "One preset rule"), so it reads the combat effects only.
+// auto-cast (user M3, 2026-10-19, "One preset rule"), so it reads the combat effects only. EM-7 adds the Set: its key
+// is a set tier's bonus line (gearSets.ts), read by the expedition dispatch (expedition.ts expeditionGearBonuses).
 const TRIGGERED_KEYS: readonly ModuleEffectKey[] = ["arcDamage", "shieldRestore", "bonusHaul", "extraDiscovery"];
 export const MODULE_ENGINE_KEYS: Readonly<Partial<Record<UniversalModuleCategory, readonly ModuleEffectKey[]>>> = {
   passive: ["powerOutput", "hullIntegrity"],
@@ -155,6 +207,12 @@ export const MODULE_ENGINE_KEYS: Readonly<Partial<Record<UniversalModuleCategory
   proc: TRIGGERED_KEYS,
   active: ["arcDamage", "shieldRestore"],
   special: TRIGGERED_KEYS,
+  set: ["scanSpeedBonus"],
+};
+
+// EM-7: where each set key acts (a set bonus must list exactly the contexts its consumer reads).
+export const MODULE_SET_KEY_CONTEXTS: Readonly<Partial<Record<ModuleEffectKey, readonly ModuleContext[]>>> = {
+  scanSpeedBonus: ["expedition"],
 };
 
 // ============================================================================
@@ -546,6 +604,16 @@ export function validateUniversalModuleDef(def: UniversalModuleDef): string[] {
     errors.push(`${def.id}: hull integrity acts in combat only`);
   }
   if (def.category === "passive" && (def.trigger !== undefined || def.chance !== undefined)) errors.push(`${def.id}: a passive has no trigger`);
+  // EM-7: a Set names its set (gearSets.ts GEAR_SETS; that the id is a real set is checked by the catalog test, since
+  // gearSets.ts imports this file), acts exactly where its key's consumer reads, and its bonus is a fraction in (0, 1].
+  if (def.category === "set") {
+    if (def.setId === undefined || def.setId === "") errors.push(`${def.id}: a set module needs a setId`);
+    const where = MODULE_SET_KEY_CONTEXTS[def.effect.key];
+    if (where !== undefined && (def.contexts.length !== where.length || def.contexts.some((c) => !where.includes(c)))) {
+      errors.push(`${def.id}: the ${def.effect.key} set bonus acts in ${where.join(", ")} only`);
+    }
+    if (!(def.effect.magnitude > 0 && def.effect.magnitude <= 1)) errors.push(`${def.id}: ${def.effect.key} is a fraction in (0, 1]`);
+  } else if (def.setId !== undefined) errors.push(`${def.id}: only a set module carries a setId`);
   errors.push(...validateTriggeredModuleDef(def));
   return errors;
 }
@@ -592,10 +660,17 @@ export function validateUniversalModuleCatalog(catalog: readonly UniversalModule
   const errors = catalog.flatMap(validateUniversalModuleDef);
   const ids = new Set<string>();
   const keys = new Set<string>();
+  // EM-7: a set key belongs to ONE set (two sets on one bonus line would add up as a plain sum, D23); the pieces of one
+  // set share it by design (the set counts them once, as a set).
+  const setOfKey = new Map<string, string | undefined>();
   for (const def of catalog) {
     if (ids.has(def.id)) errors.push(`${def.id}: duplicate id`);
     ids.add(def.id);
-    if (def.category !== "set") {
+    if (def.category === "set") {
+      const owner = setOfKey.get(def.effect.key);
+      if (setOfKey.has(def.effect.key) && owner !== def.setId) errors.push(`${def.id}: a second set on ${def.effect.key} needs a diminishing curve first (D23)`);
+      setOfKey.set(def.effect.key, def.setId);
+    } else {
       const triggered = def.category === "proc" || def.category === "active" || def.category === "special";
       const k = `${triggered ? "triggered" : def.category}:${def.effect.key}`;
       if (keys.has(k)) errors.push(`${def.id}: a second ${k} module needs a diminishing curve first (D23)`);

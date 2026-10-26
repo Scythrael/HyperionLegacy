@@ -65,6 +65,7 @@ import { goldenJson, withV1Museum } from "./firstRunsGoldens.fixture";
 // runs with them switched off and its pins keep proving WR-8 moved nothing else here (the rules stamp new patrol
 // cycles and runs; combatDescriptorGoldens.test.ts pins the combat rules themselves).
 import { combatRulesOffForThisFile } from "./combatRulesSwitch.fixture";
+import { EM7_BLUEPRINT_KEYS } from "./emodEm7.fixture";
 combatRulesOffForThisFile();
 
 // ===== shared helpers =====
@@ -534,7 +535,7 @@ describe("GG-0 golden 5: the item census", () => {
 
   it("item ids, counts by category, refine recipes and blueprint count (GG-1's additions held apart)", () => {
     const before = census(Object.keys(ITEMS).filter((id) => !gg1.has(id) && !ML2_NEW_ITEMS.has(id)), Object.keys(REFINE_RECIPES).filter((k) => k !== GG1_RECIPE && !ML2_NEW_REFINES.has(k)));
-    expect({ items: hash(before.ids), byCategory: before.byCategory, refineRecipes: before.refineRecipes, blueprints: Object.keys(BLUEPRINTS).filter((k) => !(k in FIELD_KITS_HIDDEN_BLUEPRINTS) && BLUEPRINTS[k].driveClass === undefined).length }).toEqual(CENSUS_GOLDEN);
+    expect({ items: hash(before.ids), byCategory: before.byCategory, refineRecipes: before.refineRecipes, blueprints: Object.keys(BLUEPRINTS).filter((k) => !(k in FIELD_KITS_HIDDEN_BLUEPRINTS) && BLUEPRINTS[k].driveClass === undefined && !EM7_BLUEPRINT_KEYS.has(k)).length }).toEqual(CENSUS_GOLDEN); // E-MOD EM-7's module blueprints held apart
     // Field Kits FKR-9 / FKR-10 (the switch-on): the hidden Impact Grenade blueprint merges in, the one named move of the
     // blueprint count (78 to 79), counted apart as in materialLinesGoldens.test.ts.
     for (const k of Object.keys(FIELD_KITS_HIDDEN_BLUEPRINTS)) expect(BLUEPRINTS[k], k).toBe(FIELD_KITS_HIDDEN_BLUEPRINTS[k]);

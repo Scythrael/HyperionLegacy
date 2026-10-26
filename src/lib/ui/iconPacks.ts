@@ -150,6 +150,14 @@ export const ICON_SEMANTICS: Record<IconName, IconSemantic> = {
   supplyCache: "subject",
   // Short-Range Missions (0.14.0 G1-1): the Guest Wing names one quarters module.
   guestWing: "subject",
+  // E-MOD EM-7: the v1 universal modules (each names a thing, a module).
+  moduleCapacitor: "subject",
+  moduleBracing: "subject",
+  moduleArc: "subject",
+  moduleEcho: "subject",
+  moduleLastStand: "subject",
+  moduleSurge: "subject",
+  moduleSignal: "subject",
   telescope: "subject",
   riskCombat: "subject",
   riskFauna: "subject",

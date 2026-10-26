@@ -356,6 +356,8 @@ const ADAPTERS: Readonly<Record<string, Adapter>> = {
   QUARTERS_MODULES: (_e, v, key) => moduleOn(v, "quarters", key.split(":")[0]),
   BRIDGE_MODULES: (_e, v, key) => moduleOn(v, "bridge", key.split(":")[0]),
   SENSOR_ARRAYS: (_e, v, key) => moduleOn(v, "sensor", key.split(":")[0]),
+  // E-MOD EM-7: a universal module installed on the measured ship.
+  UNIVERSAL_MODULES: (_e, v, key) => moduleOn(v, "module", key),
   MUSEUM_STATS: (_e, v, key) =>
     (museumBonuses(v)[key as MuseumStat] ?? 0) !== 0 ? owned({ ...v, museumV2: emptyMuseumV2() }, "without = an empty Museum (the stat's whole total)") : NOT_OWNED,
   // Relics v2 R2-4: a general type's copies at Tiers II to VII (its Tier I copies are its RELICS row).

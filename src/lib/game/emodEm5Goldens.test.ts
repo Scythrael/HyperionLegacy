@@ -142,6 +142,9 @@ function combatRow(hull: ShipTypeKey): string {
 function mintRow(): string[] {
   const out: string[] = [];
   for (const [slotType, slot] of Object.entries(EQUIPMENT_SLOTS)) {
+    // E-MOD EM-7 came after this capture: the module slot's varieties (the v1 roster) are held apart
+    // (shipModuleRoster.test.ts pins their mints).
+    if (slotType === "module") continue;
     slot.varieties.forEach((v, i) => {
       for (const rarity of ["standard", "radiant"] as const) {
         const piece = generateEquipment({
@@ -162,8 +165,10 @@ function mintRow(): string[] {
   return out;
 }
 
+// E-MOD EM-7 flipped UNIVERSAL_MODULES_LIVE after this capture: the slot set is read with the switch off (the
+// function's own test hook), so the pin keeps proving EM-5 moved nothing; emodEm7Goldens.test.ts pins the flip.
 function loadoutRow(hull: ShipTypeKey): string {
-  return loadoutSlotDefsForShipType(hull).map((d) => `${d.key}/${d.slotType}/${d.group}`).join(",");
+  return loadoutSlotDefsForShipType(hull, false).map((d) => `${d.key}/${d.slotType}/${d.group}`).join(",");
 }
 
 // Captured on f85ef73 (feat/crew-0.14.0) before EM-5.

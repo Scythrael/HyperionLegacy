@@ -142,6 +142,8 @@ import {
 } from "../relics";
 import { shortRangeRelicMicrosPerHour } from "../relicBlanks";
 import { BRIDGE_MODULES, QUARTERS_MODULES, moduleEffectScale } from "../crewModules";
+// E-MOD EM-7: the v1 universal module roster (each module's registry row reads its def through CATALOGS).
+import { UNIVERSAL_MODULES, bonusHaulUnits, type UniversalModuleDef } from "../shipModules";
 import { graduateStandout } from "../crewGraduation";
 import { signatureKey } from "../crew";
 import { SENSOR_ARRAYS } from "../sensorArrays";
@@ -406,6 +408,8 @@ export const CATALOGS = {
   MODULE_RARITY_FACTOR,
   // RARITY READINESS RR-6: the gear sets.
   GEAR_SETS,
+  // E-MOD EM-7: the v1 universal modules.
+  UNIVERSAL_MODULES,
   WEAR_EFFICIENCY,
   // The reactor fuel ladder (0.14.0, reactorTech.ts): the fuel each Reactor Core blueprint takes.
   REACTOR_FUEL_LADDER,
@@ -2171,9 +2175,7 @@ const HULL_FIELD_PROBES: Readonly<Record<string, ProbeId>> = {
   engineEfficiency: "sheetEngineEff",
 };
 const HULL_FIELD_PENDING: Readonly<Record<string, string>> = {
-  // E-MOD EM-5: the install gate now reads it (the shared module slots, moduleSlotsFull), but no module can be crafted
-  // yet, so the slot is hidden (shipModules.ts UNIVERSAL_MODULES_LIVE) and the count binds on nothing a player can do.
-  moduleSlots: "EM-7 (the module slot is hidden until a module can be crafted: UNIVERSAL_MODULES_LIVE)",
+  // (E-MOD EM-7 took `moduleSlots` live: the module slot is shown since UNIVERSAL_MODULES_LIVE, see hullEntries.)
   equipmentSlots: "WR-7, OC-C4 (a forward bucket; 0 on every hull)",
 };
 
@@ -2287,6 +2289,16 @@ function hullEntries(): WiringEntry[] {
           const s = wiringBase(hull);
           return { ...s, equipment: s.equipment.filter((e) => e.fittedToShipId !== "ship-1") };
         },
+      }),
+    );
+    // E-MOD EM-7: the hull's shared module slots (modules + the Spec Utility, user M1 "Separate counts"), counted through
+    // the real install gate: distinct catalog modules installed one by one on the bare hull until moduleSlotsFull.
+    out.push(
+      hullEntry(hull, "moduleSlots", {
+        probe: `content:moduleInstalls:${hull}`,
+        contexts: ["sheet"],
+        magnitude: (c) => c.SHIP_TYPES[hull].moduleSlots,
+        note: "canFitEquipment accepts that many distinct modules on the bare hull (no Spec Utility), then refuses moduleSlotsFull; the Armory offers the same count of module slots",
       }),
     );
     for (const field of Object.keys(HULL_FIELD_PENDING)) {
@@ -4710,6 +4722,9 @@ const SHORT_RANGE_SWEEP_LIVE: ReadonlySet<string> = new Set([
 // extraction-roll talents stay with extraction missions.]
 const NO_EXTRACTING = "a short-range job has no extracting phase or ore rolls: it pays its rolled job (shortRange.ts shortRangeCycleReward)";
 const SHORT_RANGE_SWEEP_OUT_OF_SCOPE: Readonly<Record<string, string>> = {
+  // E-MOD EM-7: the mission-cycle module trigger fires on extraction runs only (user 2026-10-22, "Extraction runs only":
+  // Prospector's Echo is about material hauls), and a short-range board run is not one.
+  "ship:UNIVERSAL_MODULES:prospectorsEcho": "the mission-cycle module trigger fires on extraction runs only (user 2026-10-22); a short-range board run is not one",
   "officer:officer.rareFindMult": "a short-range survey's yield is its scan size and Sensors, with no rare-tier roll to raise (its relic blanks roll the fixed per-hour rate of call 11, G1-5)",
   "crew:crew.rareFindChance": "a short-range survey's yield is its scan size and Sensors, with no rare-tier roll to raise (its relic blanks roll the fixed per-hour rate of call 11, G1-5)",
   "captain:CAPTAIN_TALENTS:prospectorHub": NO_EXTRACTING,
@@ -4809,6 +4824,7 @@ function build(): readonly WiringEntry[] {
     ...ascensionEntries(),
     ...legendaryAffixEntries(),
     ...moduleRarityEntries(),
+    ...universalModuleEntries(),
     ...gearSetEntries(),
     ...auditEntries(),
     ...speedSeamEntries(),
@@ -5123,6 +5139,146 @@ function setMemberPieces(def: GearSetDef, k: number, last: "in" | "out"): Transf
   };
 }
 const setTierMagnitude = (c: Catalogs, setId: string, pieces: number): number => c.GEAR_SETS.find((x) => x.id === setId)!.tiers.find((t) => t.pieces === pieces)!.magnitude;
+// ============================================================================
+// E-MOD EM-7: the v1 universal modules (shipModules.ts UNIVERSAL_MODULES), one row each, measured on the engine its
+// category reads at Standard quality 0 (moduleEffectScale 1), installed as the real piece (its catalog id stamped,
+// its def's draw)
+// ============================================================================
+
+// The probe a module SET's bonus line reaches (its consumer).
+const MODULE_SET_PROBES: Readonly<Record<string, ProbeId>> = { scanSpeedBonus: "expScanSpeedBonus" };
+
+// A module piece of `def` on ship-1, its own id so two modules sit side by side (installPiece replaces by slot).
+function modulePieceOn(def: UniversalModuleDef): Transform {
+  return (s) => ({
+    ...s,
+    equipment: [
+      ...s.equipment.filter((e) => e.id !== `wiring-module-${def.id}`),
+      {
+        id: `wiring-module-${def.id}`,
+        slotType: "module",
+        moduleVariant: def.id,
+        rarity: "standard",
+        ascension: "none",
+        quality: 0,
+        iLevel: 10,
+        blueprintKey: `${def.id}Bp`,
+        implicitStats: {},
+        rolledStats: {},
+        mass: 0,
+        powerDraw: def.powerDraw,
+        durabilityMax: 100,
+        fittedToShipId: WIRING_SHIP_ID,
+      } as GameState["equipment"][number],
+    ],
+  });
+}
+// The first `k` catalog modules of set `setId` installed (catalog order).
+function moduleSetPieces(setId: string, k: number, except?: string): Transform {
+  return (s) => UNIVERSAL_MODULES.filter((d) => d.category === "set" && d.setId === setId && d.id !== except).slice(0, k).reduce((acc, d) => modulePieceOn(d)(acc), s);
+}
+
+const MODULE_BONUS_HAUL_TOLERANCE = 0.15; // three standard deviations of the 1,000-delivery sample at a 10% chance of +5
+function universalModuleEntries(): WiringEntry[] {
+  const std = moduleEffectScale("standard", 0, "none");
+  const pct = (f: number): number => Math.round(f * 1000) / 10;
+  const defOf = (c: Catalogs, id: string) => c.UNIVERSAL_MODULES.find((d) => d.id === id)!;
+  const combat = (def: UniversalModuleDef): ContextId[] => def.contexts.filter((c): c is "patrol" | "shipEvent" => c === "patrol" || c === "shipEvent");
+  return UNIVERSAL_MODULES.map((def) => {
+    const common = {
+      id: `ship:UNIVERSAL_MODULES:${def.id}`,
+      system: "ship" as const,
+      source: { catalog: "UNIVERSAL_MODULES", key: def.id },
+      on: modulePieceOn(def),
+    };
+    switch (def.effect.key) {
+      case "powerOutput":
+        return entry({
+          ...common,
+          claim: `${def.label}: +${def.effect.magnitude} power output`,
+          probe: "sheetPowerOutput",
+          contexts: ["sheet"],
+          magnitude: (c) => Math.round(defOf(c, def.id).effect.magnitude * std),
+          base: () => wiringBase(),
+          note: "a Passive power line: the sheet, the install gate and the budget read it (shipPower.ts moduleOutput)",
+        });
+      case "hullIntegrity":
+        return entry({
+          ...common,
+          claim: `${def.label}: +${pct(def.effect.magnitude)}% hull integrity`,
+          probe: "combatHullMax",
+          contexts: combat(def),
+          curve: { kind: "linearRelative" },
+          magnitude: (c) => defOf(c, def.id).effect.magnitude * std,
+          base: () => combatBase(),
+          tolerance: 1,
+          note: "bridge.ts applyModuleCombat lifts the combat hull pool (rounded to a whole point)",
+        });
+      case "weaponDamage":
+        return entry({
+          ...common,
+          claim: `${def.label}: +${pct(def.effect.magnitude)}% weapon damage while the hull is below ${pct(def.condition?.fraction ?? 0)}%`,
+          probe: "moduleLowHullShot",
+          contexts: combat(def),
+          curve: { kind: "linearRelative" },
+          magnitude: (c) => defOf(c, def.id).effect.magnitude * std,
+          base: () => combatBase(),
+          tolerance: 0.5,
+          note: "resolveBattle reads the Conditional per projectile (each rounded to a whole point, so the mean is within half a point)",
+        });
+      case "arcDamage":
+        return entry({
+          ...common,
+          claim: `${def.label}: on a hit taken, a ${pct(def.chance ?? 0)}% chance to arc ${def.effect.magnitude} damage back`,
+          probe: "moduleArcDamage",
+          contexts: combat(def),
+          curve: { kind: "event", metric: "arc damage dealt over the probe's battles" },
+          magnitude: (c) => Math.round(defOf(c, def.id).effect.magnitude * std),
+          base: () => combatBase(),
+          note: "at least one arc of its full size lands (resolveBattle's on-hit trigger, the module's private stream)",
+        });
+      case "shieldRestore":
+        return entry({
+          ...common,
+          claim: `${def.label}: once per battle below ${pct(def.trigger?.kind === "hullBelow" ? def.trigger.fraction : 0)}% hull, restore ${pct(def.effect.magnitude)}% shields`,
+          probe: "moduleShieldRestored",
+          contexts: combat(def),
+          curve: { kind: "event", metric: "shield restored over the probe's battles" },
+          magnitude: () => 1,
+          base: () => combatBase(),
+          note: "the Active casts by its preset rule and restores at least one whole point (resolveBattle's below-threshold trigger)",
+        });
+      case "bonusHaul":
+        return entry({
+          ...common,
+          claim: `${def.label}: each extraction cycle, a ${pct(def.chance ?? 0)}% chance of ${pct(def.effect.magnitude)}% more common material`,
+          probe: "moduleBonusHaul",
+          contexts: ["mission:extraction"],
+          magnitude: (c) => {
+            const d = defOf(c, def.id);
+            return (d.chance ?? 0) * bonusHaulUnits(10, d.effect.magnitude * std);
+          },
+          base: () => wiringBase(),
+          tolerance: MODULE_BONUS_HAUL_TOLERANCE,
+          note: "the mean extra ore per 10-ore delivery: the chance times the bonus (tickCaptainMission, the private mission-cycle stream)",
+        });
+      case "scanSpeedBonus":
+        // A set piece: it COMPLETES its set (the other pieces already installed), so the set's tier switches on.
+        return entry({
+          ...common,
+          claim: `${def.label}: completes the ${def.setId} set (+${pct(def.effect.magnitude)}% expedition scan speed with its partner)`,
+          probe: MODULE_SET_PROBES[def.effect.key]!,
+          contexts: ["expedition:groundOps"],
+          magnitude: (c) => defOf(c, def.id).effect.magnitude * std,
+          base: () => moduleSetPieces(def.setId!, Number.MAX_SAFE_INTEGER, def.id)(wiringBase("aurora")),
+          note: "alone the piece gives nothing; it switches its set's tier on (gearSets.ts, read by expeditionGearBonuses)",
+        });
+      default:
+        return entry({ ...common, claim: def.label, status: pending(`EM-8 (the ${def.effect.key} engine's registry row arrives with the Precursor Lens)`) });
+    }
+  });
+}
+
 function gearSetEntries(): WiringEntry[] {
   const out: WiringEntry[] = [];
   for (const def of GEAR_SETS) {
@@ -5130,6 +5286,26 @@ function gearSetEntries(): WiringEntry[] {
       const key = `${def.id}:${t.pieces}`;
       const claim = `${def.label} (${def.scope} set) ${t.pieces}-piece: +${t.magnitude} ${t.stat}`;
       const source = { catalog: "GEAR_SETS", key };
+      if (def.moduleSet === true) {
+        // E-MOD EM-7: a MODULE set (the Survey Pair): its catalog modules installed together on an Aurora move the
+        // dispatched run's scan speed bonus by the tier (Standard quality 0: the module scale is 1 there).
+        out.push(
+          entry({
+            id: `ship:GEAR_SETS:${key}`,
+            system: "ship",
+            source,
+            claim,
+            probe: MODULE_SET_PROBES[t.stat]!,
+            contexts: ["expedition:groundOps"],
+            curve: { kind: "linearAbsolute" },
+            magnitude: (c) => setTierMagnitude(c, def.id, t.pieces) * moduleEffectScale("standard", 0, "none"),
+            base: () => wiringBase("aurora"),
+            on: moduleSetPieces(def.id, t.pieces),
+            note: "the set's modules installed on the ship; expedition.ts expeditionGearBonuses reads model.ts shipGearSetBonusLines",
+          }),
+        );
+        continue;
+      }
       if (def.scope === "ship") {
         const seam = LINE_SEAMS[t.stat]!;
         out.push(

@@ -21,6 +21,7 @@ import { canBuildFacilityUpgrade, canFabricate, economyTick, fabricateSlotCount,
 import { deserialize, migrate, serialize, type SaveFile } from "./save";
 import { hash, stateHash } from "./firstRunsGoldens.fixture";
 import { withPreOc15Tracks } from "./labFabricatorTiers.fixture";
+import { EM7_BLUEPRINT_KEYS } from "./emodEm7.fixture";
 
 const GOLDEN: Record<string, unknown> = {
   "rungs:research": "8146c32f",
@@ -62,8 +63,9 @@ describe("OC-15 golden 1: the existing rungs of both tracks", () => {
 describe("OC-15 golden 2: slots, researchable keys and fabricate reasons at today's levels", () => {
   it("Lab 0 to 2 x Fabricator 0 to 3", () => {
     // Merged with G2-4 (0.14.0 integration): its classed drive blueprints (driveClass set, Class II to VII) came after
-    // this capture and are held apart, the census precedent; every other key reads as captured.
-    const keys = Object.keys(BLUEPRINTS).filter((k) => BLUEPRINTS[k].driveClass === undefined).sort();
+    // this capture and are held apart, the census precedent; every other key reads as captured. E-MOD EM-7's eight module
+    // blueprints (Lab tiers 2 to 4) are held apart the same way.
+    const keys = Object.keys(BLUEPRINTS).filter((k) => BLUEPRINTS[k].driveClass === undefined && !EM7_BLUEPRINT_KEYS.has(k)).sort();
     const rows: string[] = [];
     for (let lab = 0; lab <= 2; lab++) {
       for (let fab = 0; fab <= 3; fab++) {

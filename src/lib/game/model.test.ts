@@ -2261,8 +2261,11 @@ describe("Equipment BLUEPRINTS (0.11.0 Task 18)", () => {
     "synapticAcceleratorBp", "archaeoScannerBp", "environmentalAdaptationBp", "cipherWetwareBp", "bioAnalyzerBp",
     // Field Kits FKR-5: the Impact Grenade, hidden in FIELD_KITS_HIDDEN_BLUEPRINTS until FIELD_KITS_PLAYER_LIVE (FKR-7).
     ...(FIELD_KITS_PLAYER_LIVE ? ["impactGrenadeBp"] : []),
+    // E-MOD EM-7: the eight v1 universal modules (one blueprint per module slot variety).
+    "auxiliaryCapacitorBp", "structuralBracingBp", "prospectorsEchoBp", "arcDischargerBp",
+    "lastStandProtocolBp", "longBaselineArrayBp", "signalIntegratorBp", "shieldSurgeBp",
   ];
-  const EQUIP_BP_COUNT = 52 + (FIELD_KITS_PLAYER_LIVE ? 1 : 0);
+  const EQUIP_BP_COUNT = 52 + (FIELD_KITS_PLAYER_LIVE ? 1 : 0) + 8;
 
   // Every equipment blueprint = a BLUEPRINTS entry carrying `equipmentOutput`. Expedition Tiers G2-4: a CLASSED drive
   // (driveClass set: the Class II Drive today) is a class line on a Class I variety, counted apart (its own test below).
@@ -2276,7 +2279,7 @@ describe("Equipment BLUEPRINTS (0.11.0 Task 18)", () => {
     for (const bp of classed) expect(bp.equipmentOutput).toEqual({ slotType: "ftlDrive", varietyKey: "balancedDrive" });
   });
 
-  it("defines exactly 52 equipment blueprints (53 once the Impact Grenade's is live), one per (equipmentOutput slot × variety)", () => {
+  it("defines exactly 52 equipment blueprints (53 once the Impact Grenade's is live, 61 with EM-7's modules), one per (equipmentOutput slot × variety)", () => {
     expect(equipmentBlueprints).toHaveLength(EQUIP_BP_COUNT);
     // The named set matches the derived key list (no missing / extra entry).
     const keys = equipmentBlueprints.map((bp) => bp.key).sort();
@@ -2299,6 +2302,8 @@ describe("Equipment BLUEPRINTS (0.11.0 Task 18)", () => {
       "cargoBay", "ftlDrive", "reactorCore", "specUtility", "shieldEmitters", "hullPlating",
       // E-CREW 0.14.0 (Task 7): every member gear variety is craftable too.
       "memberWeapon", "memberArmor", "memberTool", "implant",
+      // E-MOD EM-7: every universal module too.
+      "module",
     ] as const;
     for (const slotType of EQUIP_BP_SLOTS) {
       for (const variety of EQUIPMENT_SLOTS[slotType].varieties) {

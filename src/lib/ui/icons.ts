@@ -457,6 +457,24 @@ export const ICON_PATHS = {
   // unit height keeps it a chevron, not a dot, at 16 px.
   resume: ["M7 3h10v18l-5-3.5L7 21z", "M10.5 8.5l2.5 2.5-2.5 2.5"],
 
+  // E-MOD EM-7: the v1 universal modules (the signed-off Relics, Refinery and Modules mockup, section C, "approved as
+  // drawn"; each path is the mockup's own). The Long-Baseline Array draws with `telescope` (a long receiver), as the
+  // mockup does.
+  // Auxiliary Capacitor: a battery body with its terminal nub and two cell bars.
+  moduleCapacitor: ["M4 8h14v8H4z", "M18 10.5h2v3h-2", "M8 10.5v3M11 10.5v3"],
+  // Structural Bracing: a square frame cross-braced corner to corner.
+  moduleBracing: ["M4 4h16v16H4z", "M4 4l16 16M20 4L4 20"],
+  // Arc Discharger: a spark trace jumping across a line (a discharge).
+  moduleArc: ["M3 12h3.5l2-5 3 10 2-6 1.5 3H21"],
+  // Prospector's Echo: an ore nugget with two echo arcs off its shoulder.
+  moduleEcho: ["M8 20l-3-6 3.5-5h5l3.5 5-3 6z", "M17.5 5.5a4 4 0 0 1 2.5 3.5", "M15.5 2.5a7 7 0 0 1 6 6"],
+  // Last Stand Protocol: a shield with an exclamation mark (fights hardest when nearly down).
+  moduleLastStand: ["M12 3l8 3v6c0 4.5-3.4 8-8 9-4.6-1-8-4.5-8-9V6z", "M12 8v5", "M12 16v.2"],
+  // Shield Surge: a shield with a rising arrow (the shields come back up).
+  moduleSurge: ["M12 3l8 3v6c0 4.5-3.4 8-8 9-4.6-1-8-4.5-8-9V6z", "M12 16V9", "M9 11.5l3-3 3 3"],
+  // Signal Integrator: a waveform through a vertical tick (a signal being read).
+  moduleSignal: ["M3 12c1.5-3 3-3 4.5 0s3 3 4.5 0 3-3 4.5 0 3 3 4.5 0", "M12 3v4M12 17v4"],
+
   // --- 0.13.11 Codes pad and the secret game ---
 
   // Arrows: a shaft and a head, one per direction, for the combo pad's D-pad and its slots.

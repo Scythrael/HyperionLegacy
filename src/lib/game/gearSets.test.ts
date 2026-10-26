@@ -69,12 +69,14 @@ const field = (k: number, over: Partial<EquipmentInstance> = {}) =>
 const tiersOf = (pieces: EquipmentInstance[], scope: "ship" | "member") => activeGearSetTiers(pieces, scope).map((t) => t.pieces);
 
 describe("RR-6: the catalog", () => {
-  it("two test sets [PROPOSAL], one per scope, each with the 2 / 3 / 5 tiers on existing fold keys", () => {
+  it("two test sets [PROPOSAL], one per scope, each with the 2 / 3 / 5 tiers on existing fold keys (and EM-7's module set)", () => {
     expect(GEAR_SETS.map((s) => [s.id, s.label, s.scope])).toEqual([
       ["testSetSurvey", "Survey Cadre", "ship"],
       ["testSetField", "Field Cadre", "member"],
+      // E-MOD EM-7: the Survey Pair, the first module set (its own describe in shipModuleRoster.test.ts).
+      ["surveyPair", "Survey Pair", "ship"],
     ]);
-    for (const s of GEAR_SETS) {
+    for (const s of GEAR_SETS.filter((d) => d.moduleSet !== true)) {
       expect(s.tiers.map((t) => t.pieces)).toEqual([...GEAR_SET_TIER_PIECES]);
       for (const t of s.tiers) expect(t.magnitude).toBe(t.pieces * GEAR_SET_POINTS_PER_PIECE);
       for (const st of s.slotTypes) expect(EQUIPMENT_SLOTS[st], st).toBeDefined();
@@ -263,7 +265,7 @@ describe("review of RR-6: a set tier wears with its pieces in run contexts [PROV
 });
 
 describe("RR-6: the wiring registry carries one live, probed row per set tier and the Celestial hook", () => {
-  it("seven GEAR_SETS entries, all live with a probe and a context", async () => {
+  it("eight GEAR_SETS entries (EM-7 added the Survey Pair's), all live with a probe and a context", async () => {
     const { WIRING_REGISTRY } = await import("./wiring/registry");
     const rows = WIRING_REGISTRY.filter((e) => e.source.catalog === "GEAR_SETS");
     expect(rows.map((e) => e.source.key)).toEqual([
@@ -273,6 +275,7 @@ describe("RR-6: the wiring registry carries one live, probed row per set tier an
       "testSetField:2",
       "testSetField:3",
       "testSetField:5",
+      "surveyPair:2",
       "celestialReduction",
     ]);
     for (const e of rows) {

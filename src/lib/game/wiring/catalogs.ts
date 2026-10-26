@@ -67,6 +67,7 @@ import { ASCENSION_BUDGET_MULT } from "../ascension";
 import { LUMINOUS_AFFIXES } from "../legendaryAffixes";
 import { MODULE_RARITY_FACTOR } from "../model";
 import { GEAR_SETS } from "../gearSets";
+import { UNIVERSAL_MODULES } from "../shipModules";
 
 // Field Kits FKR-5: the sources each grenade carries (its GrenadeTraits, as the registry measures them). Timed grenades
 // (user 2026-10-21): its fuse (the turns from the throw to the blast) and, on a timed one, the moved-clear chance.
@@ -207,6 +208,8 @@ export function enumerateEffectSources(): EffectSource[] {
   add("MODULE_RARITY_FACTOR", Object.keys(MODULE_RARITY_FACTOR));
   // RARITY READINESS RR-6: one source per gear set tier, plus the Celestial reduction.
   add("GEAR_SETS", [...GEAR_SETS.flatMap((s) => s.tiers.map((t) => `${s.id}:${t.pieces}`)), "celestialReduction"]);
+  // E-MOD EM-7: one row per v1 universal module (its effect through its category's engine).
+  add("UNIVERSAL_MODULES", UNIVERSAL_MODULES.map((d) => d.id));
   // RARITY READINESS RR-5: one row per Luminous legendary affix.
   add("LUMINOUS_AFFIXES", LUMINOUS_AFFIXES.map((d) => d.id));
   add("WEAPON_DEFS", Object.keys(WEAPON_DEFS));

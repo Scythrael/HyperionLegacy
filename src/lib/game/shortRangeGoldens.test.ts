@@ -149,6 +149,7 @@ import { buildHomeDashboard } from "./homeDashboard";
 import { buildShipRoster } from "./shipRoster";
 import { deserialize, migrate, serialize, type SaveFile } from "./save";
 import { WIRING_REGISTRY } from "./wiring/registry";
+import { EM7_ADDED_ENTRY_IDS, EM7_MODULE_SLOTS_IDS } from "./emodEm7Registry.fixture";
 // WR-8: every registry pin here was taken before WR-8, so its added entries are left out and its flips read back.
 import { wr8ReadBack } from "./combatDescriptorRegistry.fixture";
 // E-MOD EM-3 came after these pins: its two added rows are left out (emodEm3Registry.fixture.ts).
@@ -686,8 +687,11 @@ const ML3_SLICE: RegistrySlice = { flipped: ML3_FLIPPED_LIVE, was: "pending" };
 // taken before GG-2), so the base pin and every cause pin are unchanged.
 // GG-3 also ADDS one entry (the probe dive seam), left out the same way.
 const GG_STUDY_SLICE: RegistrySlice = { added: GG_STUDY_ADDED_ENTRY_IDS, flipped: new Set(GG_STUDY_FLIPPED_BEFORE.keys()), was: "pending" };
+// E-MOD EM-7 (the v1 module roster), after every pin here: its added rows (one per module and the Survey Pair tier) and
+// the hulls' moduleSlots rows it FLIPPED pending -> live (emodEm7Registry.fixture.ts), held apart in EVERY pin.
+const EM7_SLICE: RegistrySlice = { added: EM7_ADDED_ENTRY_IDS, flipped: EM7_MODULE_SLOTS_IDS, was: "pending" };
 function registryPin(...given: readonly RegistrySlice[]): [number, string] {
-  const slices = [RX_SLICE, RR_SLICE, FUSE_SLICE, ML2_SLICE, OC15_SLICE, R2_2_SLICE, R2_3_SLICE, R2_4_SLICE, G16_SLICE, ...G2_4_SLICES, ...G2_6_SLICES, ML3_SLICE, GG_STUDY_SLICE, ...given];
+  const slices = [RX_SLICE, RR_SLICE, FUSE_SLICE, ML2_SLICE, OC15_SLICE, R2_2_SLICE, R2_3_SLICE, R2_4_SLICE, G16_SLICE, ...G2_4_SLICES, ...G2_6_SLICES, ML3_SLICE, GG_STUDY_SLICE, EM7_SLICE, ...given];
   const rows = siReadBack(em4ReadBack(em3ReadBack(wr8ReadBack(WIRING_REGISTRY))).map((e) => ({ id: e.id, kind: e.status.kind as string })), (r) => r.id, (row) => ({ id: row[0], kind: row[1].kind as string }));
   const lines = rows.filter((e) => !slices.some((sl) => sl.added?.has(e.id))).map((e) => {
     const flip = slices.find((sl) => sl.flipped?.has(e.id));

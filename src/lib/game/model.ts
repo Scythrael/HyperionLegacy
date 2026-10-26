@@ -26,7 +26,7 @@ import { constitutionRamp, RAMP_SECONDS_PER_TICK } from "./constitutionRamp";
 import { reactorCoreFuel } from "./reactorTech";
 // E-MOD EM-5 (0.14.0): the universal module catalog leaf (imports only types; no cycle), read by equipmentStatMods for
 // a Passive module's power output.
-import { modulePowerOutput, type ModuleScanProc } from "./shipModules";
+import { UNIVERSAL_MODULES, modulePowerOutput, type ModuleScanProc } from "./shipModules";
 // RARITY READINESS RR-6: the one set engine (a leaf: model.ts types and shipModules.ts only).
 import { gearSetBonusLines } from "./gearSets";
 // Combat 0.13.0 (Phase 9b.5a): the persisted Patrol mission shape (PatrolMissionState,
@@ -1415,7 +1415,9 @@ export const SHIP_TYPES: Record<ShipTypeKey, ShipTypeDef> = {
       { teamType: "science", size: 4 },
       { teamType: "prospecting", size: 3 },
     ],
-    description: "A survey scout. The most module slots and the fastest cruise, at the cost of frame and hold.",
+    // OC-D13 ("Make them true as built"): the most module slots is true since EM-7 made modules installable (5, the
+    // fleet's most); its cruise is the fastest of the explorer hulls (1.3), not of the fleet (the Runner's 1.5).
+    description: "A survey scout. The most module slots and the fastest cruise of the explorer hulls, at the cost of frame and hold.",
   },
   eir: {
     label: "Eir", spec: "explorer", tier: 2, // FIRST-PASS TUNABLE
@@ -2806,14 +2808,14 @@ export const EQUIPMENT_SLOTS: Record<string, EquipmentSlotDef> = {
   // holds the two lists equal); the generation path stamps it onto the instance as moduleVariant, and the module's
   // effect is catalog-driven (its def, scaled by moduleEffectScale), so the slot carries NO signature line and NO affix
   // pool: rarity and quality act through the effect scale, and M5 ("unique effects only") keeps generic gear lines off
-  // modules. The piece's power draw is its def's (itemgen.ts). The varieties arrive with the v1 roster (EM-7) and the
-  // Precursor Lens (EM-8); until then the slot is hidden (shipModules.ts UNIVERSAL_MODULES_LIVE).
+  // modules. The piece's power draw is its def's (itemgen.ts). EM-7: the varieties ARE the v1 roster, derived from the
+  // catalog (so the two lists can never drift; the Precursor Lens joins with EM-8).
   module: {
     slotType: "module",
     label: "Module",
     implicitStats: [],
     affixPool: [],
-    varieties: [],
+    varieties: UNIVERSAL_MODULES.map((d) => ({ key: d.id, label: d.label, statRatios: {} })),
   },
   // ==========================================================================================
   // E-CREW 0.14.0 (Task 7): AWAY-TEAM MEMBER GEAR (design D3/D4, section 5.4; names exactly as the
@@ -4290,6 +4292,13 @@ export function driveClassPowerDraw(draw: number, driveClass: number): number {
   return Math.ceil(draw * Math.pow(DRIVE_CLASS_POWER_DRAW_MULT, driveClass - 1) - 1e-9);
 }
 
+// E-MOD EM-7: ONE ship's active set bonus lines with every module set scaled by its pieces' rarity, quality and ascension
+// (moduleEffectScale, the effect scale of every module): the reader every ship-side set consumer goes through (the
+// sheet fold above, the expedition dispatch). A set-free list returns {} exactly as gearSetBonusLines does. Pure.
+export function shipGearSetBonusLines(pieces: readonly EquipmentInstance[]): Record<string, number> {
+  return gearSetBonusLines(pieces, "ship", undefined, (p) => moduleEffectScale(p.rarity, p.quality, p.ascension));
+}
+
 export function equipmentStatMods(pieces: EquipmentInstance[]): EquipmentStatMods {
   const flat: Record<string, number> = { cargoCapacity: 0, fuelCapacity: 0, sensors: 0 };
   const percentPlus: Record<string, number> = {
@@ -4315,8 +4324,9 @@ export function equipmentStatMods(pieces: EquipmentInstance[]): EquipmentStatMod
     for (const stats of [piece.implicitStats, piece.rolledStats]) foldLines(stats);
   }
   // RARITY READINESS RR-6: the ship's active gear SET tiers (gearSets.ts), read like one more piece's lines. Empty for
-  // set-free gear (every piece a player can hold today), so the fold is unchanged there.
-  foldLines(gearSetBonusLines(pieces, "ship"));
+  // set-free gear (every piece a player can hold today), so the fold is unchanged there. E-MOD EM-7: module sets scale
+  // with their pieces (shipGearSetBonusLines); the Survey Pair's line is not a sheet line (its case below).
+  foldLines(shipGearSetBonusLines(pieces));
 
   function foldLines(stats: Record<string, number>): void {
       for (const [key, value] of Object.entries(stats)) {
@@ -4374,6 +4384,11 @@ export function equipmentStatMods(pieces: EquipmentInstance[]): EquipmentStatMod
           // returns the same percentPlus shape as before.
           case "materialQualityChance":
             percentPlus.materialQualityChance = (percentPlus.materialQualityChance ?? 0) + value;
+            break;
+          // E-MOD EM-7: a module set's expedition scan bonus (the Survey Pair). Not a ship sheet line: the expedition
+          // dispatch reads it straight from the set engine (expedition.ts expeditionGearBonuses), so it is listed here
+          // only to make "the sheet never folds it" visible.
+          case "scanSpeedBonus":
             break;
           // Any unknown key: intentionally ignored. No silent surprise: the fold simply does not read it.
           // (`sensors` and `materialQualityChance` USED to fall here; each graduated to its own case when its
@@ -10837,6 +10852,52 @@ export const DRIVE_CLASS_BLUEPRINTS: readonly BlueprintDef[] = [
   classedDriveBlueprint(6, { ticks: 400, credits: 48_000, craft: 900 }, { deuteriumCanister: 3, antimatterCell: 1 }),
   classedDriveBlueprint(7, { ticks: 480, credits: 96_000, craft: 1_080 }, { deuteriumCanister: 3, antimatterCell: 2 }),
 ];
+// E-MOD EM-7 (user M6 "Approve all", M7 "Material Lines items", 2026-10-19): one blueprint per v1 universal module
+// (shipModules.ts UNIVERSAL_MODULES), on Lab tiers 2 to 4 (the plan's [PROPOSAL] tiers: the passives and the mission
+// proc at tier 2, the combat proc, the conditional and the Survey Pair at tier 3, the Active at tier 4). [PROPOSAL]
+// recipes from the recipe realism audit section 10 (each module built from what it physically is, on the Material
+// Lines refined items). [PROVISIONAL] research and craft costs, the tier 2 relic specials' and the Class III / IV
+// drives' (MODULE_BLUEPRINT_COSTS). Flavor text carries no number: the module's effect line on its card does.
+export const MODULE_BLUEPRINT_COSTS: Readonly<Record<2 | 3 | 4, { ticks: number; credits: number; craft: number }>> = {
+  2: { ticks: 240, credits: 2_400, craft: 340 },
+  3: { ticks: 200, credits: 6_000, craft: 480 },
+  4: { ticks: 260, credits: 12_000, craft: 600 },
+};
+function moduleBlueprint(varietyKey: string, label: string, tier: 2 | 3 | 4, inputs: Record<string, number>, flavor: string): BlueprintDef {
+  const cost = MODULE_BLUEPRINT_COSTS[tier];
+  return {
+    key: `${varietyKey}Bp`,
+    label: `${label} Blueprint`,
+    tier,
+    researchDurationTicks: cost.ticks,
+    researchCreditCost: cost.credits,
+    craftDurationTicks: cost.craft,
+    equipmentOutput: { slotType: "module", varietyKey },
+    recipe: { inputs },
+    flavor,
+    unlockHint: "Researched at the Research Lab (needs a higher lab tier); crafted at the Fabricator; installed in a ship's module slot.",
+  };
+}
+export const MODULE_BLUEPRINTS: Readonly<Record<string, BlueprintDef>> = Object.fromEntries(
+  [
+    // Extra power storage and conversion: couplings, reclaimed circuits and a wafer.
+    moduleBlueprint("auxiliaryCapacitor", "Auxiliary Capacitor", 2, { powerCoupling: 2, reclaimedCircuit: 2, polysilicateWafer: 1 }, "A spare bank of storage cells and converters, wired straight into the ship's grid."),
+    // Added hull bracing: ferrite struts on frame segments.
+    moduleBlueprint("structuralBracing", "Structural Bracing", 2, { ferriteIngot: 2, frameSegment: 2 }, "Cross-braced ferrite struts bolted along the spine, so the hull holds together a little longer under fire."),
+    // An ore-sensing package: photonic optics on reclaimed circuits.
+    moduleBlueprint("prospectorsEcho", "Prospector's Echo", 2, { photonicGel: 1, reclaimedCircuit: 2 }, "An ore-sensing package that listens to every haul, and now and then hears a little more rock worth taking."),
+    // A charged coil that arcs back: cobalt coils on a coupling.
+    moduleBlueprint("arcDischarger", "Arc Discharger", 3, { cobaltCoil: 2, powerCoupling: 1 }, "A charged cobalt coil that bites back: when a shot lands, the stored charge can leap to whoever fired it."),
+    // Control circuitry: reclaimed circuits on wafers.
+    moduleBlueprint("lastStandProtocol", "Last Stand Protocol", 3, { reclaimedCircuit: 2, polysilicateWafer: 2 }, "Control circuitry that strips the safety limits off the guns when the hull is nearly gone."),
+    // The Survey Pair: a long optical receiver, and the signal processing that reads it.
+    moduleBlueprint("longBaselineArray", "Long-Baseline Array", 3, { photonicGel: 2, frameSegment: 1 }, "A long optical receiver. Alone it only listens; paired with a Signal Integrator it sharpens every scan."),
+    moduleBlueprint("signalIntegrator", "Signal Integrator", 3, { reclaimedCircuit: 2, polysilicateWafer: 1 }, "Signal processing for a long receiver. Alone it has nothing to read; paired with a Long-Baseline Array it sharpens every scan."),
+    // A stored-charge shield boost: couplings, a cobalt coil and a reclaimed circuit.
+    moduleBlueprint("shieldSurge", "Shield Surge", 4, { powerCoupling: 2, cobaltCoil: 1, reclaimedCircuit: 1 }, "A stored charge held in reserve and dumped into the shield emitters the moment the hull starts to fail."),
+  ].map((bp) => [bp.key, bp]),
+);
+
 // The classed drives whose tier BOTH facility tracks reach (a level-N facility serves tier N; a track's top level is
 // its rung count), keyed for BLUEPRINTS' spread. Hoisted: BLUEPRINTS below spreads it. Pure over the static tables.
 export function drivesWithinFacilityReach(): Readonly<Record<string, BlueprintDef>> {
@@ -11595,6 +11656,9 @@ export const BLUEPRINTS: Record<string, BlueprintDef> = {
     flavor: "A living membrane tuned to the hum of very old things. It sweeps slowly, and it listens for relics.",
     unlockHint: "Identify a Leviathan Scale to unlock this research; crafted at the Fabricator.",
   },
+
+  // E-MOD EM-7: the v1 universal module blueprints (MODULE_BLUEPRINTS above), Lab tiers 2 to 4.
+  ...MODULE_BLUEPRINTS,
 
   // ══════════════════════════════════════════════════════════════════════════
   // AWAY-TEAM MEMBER GEAR BLUEPRINTS (E-CREW 0.14.0, Task 7) ─────────────────

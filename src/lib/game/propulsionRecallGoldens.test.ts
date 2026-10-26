@@ -29,6 +29,7 @@ import { goldenJson } from "./firstRunsGoldens.fixture";
 // runs with them switched off and its pins keep proving WR-8 moved nothing else here (the rules stamp new patrol
 // cycles and runs; combatDescriptorGoldens.test.ts pins the combat rules themselves).
 import { combatRulesOffForThisFile } from "./combatRulesSwitch.fixture";
+import { EM7_BLUEPRINT_KEYS } from "./emodEm7.fixture";
 combatRulesOffForThisFile();
 
 function fnv(s: string): string {
@@ -230,6 +231,7 @@ describe("G2-4 goldens first: a veteran Aurora at every tier, and the blueprint 
     const keys = Object.keys(BLUEPRINTS);
     const classed = ["classIIDriveBp", ...HELD_DRIVE_KEYS];
     expect(keys.slice(keys.indexOf("balancedDriveBp") + 1, keys.indexOf("balancedDriveBp") + 1 + classed.length)).toEqual(classed);
-    expect(hash(keys.filter((k) => !classed.includes(k)))).toBe(GOLDEN_CATALOG);
+    // E-MOD EM-7 (named move): its eight module blueprints follow the Bio-Resonance Array; held apart here.
+    expect(hash(keys.filter((k) => !classed.includes(k) && !EM7_BLUEPRINT_KEYS.has(k)))).toBe(GOLDEN_CATALOG);
   });
 });

@@ -696,6 +696,35 @@ def's trigger and rule.
 [PROPOSAL] (OC-15 tiers), recipes per call M7, two-piece set bonus. Tests: each module mints and acts in its context;
 a no-dead-stats entry per module (OC-K3); Archive rows.
 
+*Carry note (EM-7 built 2026-10-26, branch em-7 on feat b66b976).* Goldens first: `emodEm7Goldens.test.ts` (own
+commit): 35 HELD pins (every hull's sheet bare and Standard Issue, the player combatant, Orion / Aurora dispatch, the
+Pathfinder gear bonuses, the RR-6 set engine) never moved; 32 by-design pins (every hull's Armory slot set, Lab tiers 2
+to 4, the Archive) moved, and with EM-7's additions held apart (`emodEm7.fixture.ts`) every one reproduces the capture.
+Built: the v1 roster in `shipModules.ts UNIVERSAL_MODULES` (M6 names and shapes; every number [PROVISIONAL] in ONE
+constant, `MODULE_V1_NUMBERS`, the signed-off mockup's sample values: Capacitor +8 power draw 0; Bracing +6% hull draw 3;
+Arc 15% on a hit taken, 8 EW damage, draw 8; Echo 10% per extraction cycle, +50% common haul, draw 4; Last Stand +12%
+below 25% hull, draw 4; Surge once per battle below 50% hull, restore 30% shields, draw 6; Survey Pair +8% expedition
+scan speed, draws 6 / 5). The Set engine: `MODULE_ENGINE_KEYS.set = ["scanSpeedBonus"]`; the Survey Pair is a MODULE set
+of the one engine (`gearSets.ts GEAR_SETS surveyPair`, `moduleSet: true`, slotTypes []), its tier scaled by the mean
+`moduleEffectScale` (with ascension) of its counted pieces; `model.ts shipGearSetBonusLines` is the scaled reader;
+`expeditionGearBonuses` adds it to the dispatch scan speed (the sheet ignores the line). Set validation: a setId, the
+key's own contexts, one set per bonus key (D23). Blueprints `model.ts MODULE_BLUEPRINTS` [PROPOSAL tiers]: tier 2
+Capacitor, Bracing, Echo; tier 3 Arc, Last Stand, both Survey Pair pieces; tier 4 Surge; [PROPOSAL] recipes = the realism
+audit section 10 rows; [PROVISIONAL] costs `MODULE_BLUEPRINT_COSTS`. `EQUIPMENT_SLOTS.module.varieties` derive from the
+catalog. `UNIVERSAL_MODULES_LIVE = true`. Registry: one live row per module (`ship:UNIVERSAL_MODULES:<id>`; new probes
+moduleArcDamage, moduleShieldRestored, moduleLowHullShot, moduleBonusHaul; sheetPowerOutput, combatHullMax,
+expScanSpeedBonus), `ship:GEAR_SETS:surveyPair:2`, every hull's `moduleSlots` LIVE (`content:moduleInstalls`, the real
+install gate's count); the Echo is out of scope on short-range runs (user 2026-10-22). `emodEm7Registry.fixture.ts
+em7ReadBack` / EM7_SLICE hold the move apart in emodGoldens and shortRangeGoldens. UI (as signed off, mockup section C):
+the item card shows the module's kind, its effect at the piece's scale and an Active's rule (`ui/moduleEffectText.ts`),
+the eight SVG glyphs (icons.ts, the mockup's paths; the Long-Baseline Array draws `telescope`), the stale Logistics
+"Modules" coming-soon chip dropped; the Aurora's description made true (OC-D13). No save step, no salt, no stamp: no
+save holds a module. **For EM-8:** add the Lens def and blueprint; its `extraDiscovery` row needs a registry case (the
+default branch names EM-8). **For EM-10:** the Ship Systems Modules row is not built: until it lands an installed module
+shows only in the Armory and the item card, and is removed through an Armory loadout (no per-slot Remove on Ship
+Systems). **For gear wear step 4:** module effects read pristine until `wear:WEAR_EFFICIENCY:module:effect` goes live
+(the Survey Pair would then wear through the set engine).
+
 **EM-8 Precursor Lens special module.** Discovery-gated blueprint (`requiresRelicDiscovery: "precursorLens"`), input
 Precursor Circuit, one per fleet or per ship per call M8, its unique proc per call M6. Registry: the Precursor Lens
 first-find row LIVE. Tests: masked until identified; mints; proc acts.

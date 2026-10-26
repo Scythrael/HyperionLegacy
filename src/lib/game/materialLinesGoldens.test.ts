@@ -42,6 +42,7 @@ import { gasStudyItemIds } from "./gasGiantContent";
 import { GG1_RECIPE } from "./gasStudyGoldens.fixture";
 import { ML2_NEW_ITEMS, ML2_NEW_REFINES } from "./ml2RecipeGoldens.fixture";
 import { withMaterialQualityOff } from "./materialQualityGoldens.fixture";
+import { EM7_BLUEPRINT_KEYS } from "./emodEm7.fixture";
 
 // ===== shared helpers =====
 
@@ -248,7 +249,7 @@ describe("ML-0 Material Lines pre-change goldens", () => {
       // Field Kits FKR-9 / FKR-10 (the switch-on, model.ts FIELD_KITS_PLAYER_LIVE): the Impact Grenade blueprint
       // (FIELD_KITS_HIDDEN_BLUEPRINTS) merges into BLUEPRINTS, the ONE named move of this count (78 to 79). Counted apart
       // so the census keeps proving nothing else moved.
-      census.blueprints = Object.keys(BLUEPRINTS).filter((k) => !(k in FIELD_KITS_HIDDEN_BLUEPRINTS) && BLUEPRINTS[k].driveClass === undefined).length; // G2-4: the classed drives held apart
+      census.blueprints = Object.keys(BLUEPRINTS).filter((k) => !(k in FIELD_KITS_HIDDEN_BLUEPRINTS) && BLUEPRINTS[k].driveClass === undefined && !EM7_BLUEPRINT_KEYS.has(k)).length; // G2-4: the classed drives held apart; E-MOD EM-7: the module blueprints too
       return census;
     };
     for (const k of Object.keys(FIELD_KITS_HIDDEN_BLUEPRINTS)) expect(BLUEPRINTS[k], k).toBe(FIELD_KITS_PLAYER_LIVE ? FIELD_KITS_HIDDEN_BLUEPRINTS[k] : undefined);

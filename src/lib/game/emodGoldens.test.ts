@@ -48,6 +48,8 @@ import { advanceExpedition, claimExpedition, expeditionCandidates } from "./expe
 import { shipEventsLive } from "./shipScanEvents";
 import { asPreVoyageDispatch, plainAwayMember, withSlottedAwayTeams, dispatchPastPropulsion, asPrePatrolCurveDispatch } from "./awayTeamTestFixtures";
 import { WIRING_REGISTRY, type WiringEntry } from "./wiring/registry";
+// E-MOD EM-7 came after every pin here: its added rows are left out and its moduleSlots flip read back first.
+import { em7ReadBack } from "./emodEm7Registry.fixture";
 // WR-8: every registry pin here was taken before WR-8, so its added entries are left out and its flips read back.
 import { wr8ReadBack } from "./combatDescriptorRegistry.fixture";
 import { siReadBack } from "./siMemberGearRegistry.fixture";
@@ -675,7 +677,7 @@ const G16_ROW_BEFORE = { kind: "pending", owner: "G1-6 (flips SHORT_RANGE_BOARD_
 // Relics v2 R2-4 the same (relicMuseumV2.fixture.ts): its added entries left out, its RELIC_TYPES / EXCEPTIONAL_SETS
 // flips read back as R2-1 registered them.
 const BEFORE_RX: WiringEntry[] = siReadBack(
-  em4ReadBack(em3ReadBack(em5ReadBack(wr8ReadBack(gw3RegistryBack(WIRING_REGISTRY))))).filter(
+  em4ReadBack(em3ReadBack(em5ReadBack(wr8ReadBack(gw3RegistryBack(em7ReadBack(WIRING_REGISTRY)))))).filter(
     (e) =>
       !RX_ADDED_ENTRY_IDS.has(e.id) && !RR_ADDED_ENTRY_IDS.has(e.id) && !FUSE_ADDED_ENTRY_IDS.has(e.id) && !R2_2_ADDED_ENTRY_IDS.has(e.id) && !R2_3_ADDED_ENTRY_IDS.has(e.id) && !R2_4_ADDED_ENTRY_IDS.has(e.id) && !G16_ADDED_IDS.has(e.id) &&
       !G2_4_ADDED_ENTRY_IDS.has(e.id) && !OC15_ADDED_ENTRY_IDS.has(e.id) && !GG_STUDY_ADDED_ENTRY_IDS.has(e.id) && !G2_6_ADDED_ENTRY_IDS.has(e.id),
@@ -840,7 +842,7 @@ describe("EM-0 goldens (re-pinned by EM-1 where named)", () => {
     // Merged onto feat (0.14.0 integration): the slices BEFORE_RX holds apart (the timed grenades, R2-2, the SI read-back)
     // and G2-4's additions are held apart here the same way, so the comparison sees G1-6's move alone. E-MOD EM-5's move is
     // read back first (em5ReadBack), as BEFORE_RX does; Gas Giant Study GG-3's added seam is held apart too.
-    const live = em4ReadBack(em3ReadBack(em5ReadBack(wr8ReadBack(gw3RegistryBack(WIRING_REGISTRY))))).filter(
+    const live = em4ReadBack(em3ReadBack(em5ReadBack(wr8ReadBack(gw3RegistryBack(em7ReadBack(WIRING_REGISTRY)))))).filter(
       (e) => !RX_ADDED_ENTRY_IDS.has(e.id) && !RR_ADDED_ENTRY_IDS.has(e.id) && !FUSE_ADDED_ENTRY_IDS.has(e.id) && !R2_2_ADDED_ENTRY_IDS.has(e.id) && !R2_3_ADDED_ENTRY_IDS.has(e.id) && !R2_4_ADDED_ENTRY_IDS.has(e.id) && !G2_4_ADDED_ENTRY_IDS.has(e.id) && !OC15_ADDED_ENTRY_IDS.has(e.id) && !GG_STUDY_ADDED_ENTRY_IDS.has(e.id) && !G2_6_ADDED_ENTRY_IDS.has(e.id),
     );
     const rung = live.filter((e) => G16_ADDED_IDS.has(e.id)).map((e) => [e.id, e.status, e.contexts, e.probe ?? null]);

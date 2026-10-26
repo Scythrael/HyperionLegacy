@@ -30,6 +30,9 @@
   import { pieceHazardResistText } from "./ui/hazardResistText";
   // RR-8 (rarity readiness): a Luminous piece's legendary affix and a Constellar piece's set, one line each.
   import { pieceLegendaryAffixText, pieceSetText } from "./ui/rarityPieceText";
+  // E-MOD EM-7: what a universal module does (its effect at this piece's scale, an Active's preset rule).
+  import { moduleEffectSentence, moduleKindText, moduleRuleText, pieceModuleLines } from "./ui/moduleEffectText";
+  import { universalModuleDef } from "./game/shipModules";
   import { pieceMaterialQualityText, shipMaterialQualityText } from "./ui/materialQualityText";
   import type { IconName } from "./ui/icons";
   import { previewCraftOutcome, type CraftPreview } from "./game/itemgen";
@@ -151,6 +154,15 @@
   // varietySvgIcon / equipmentSvgIcon instead.
   const EQUIPMENT_VARIETY_SVG_ICON: Partial<Record<string, IconName>> = {
     quartersGuestWing: "guestWing",
+    // E-MOD EM-7: the v1 universal modules (the signed-off modules mockup's glyphs).
+    auxiliaryCapacitor: "moduleCapacitor",
+    structuralBracing: "moduleBracing",
+    arcDischarger: "moduleArc",
+    prospectorsEcho: "moduleEcho",
+    lastStandProtocol: "moduleLastStand",
+    shieldSurge: "moduleSurge",
+    longBaselineArray: "telescope",
+    signalIntegrator: "moduleSignal",
   };
 
   // Fallback glyph per SLOT, used if a variety is unmapped OR a slot has no variety
@@ -429,6 +441,8 @@
         // RR-8: "Legendary affix: <name>" on a Luminous piece, "Set: <name> (2 / 3 / 5 pieces)" on a set piece, else null.
         legendaryAffix: string | null;
         setLine: string | null;
+        // E-MOD EM-7: a universal module's kind, effect and (an Active) rule, or null for any other piece.
+        moduleLines: { kind: string; effect: string; rule: string | null } | null;
         flavor: string | null;
         piece: EquipmentInstance;
       }
@@ -467,6 +481,8 @@
         // range / base damage), which are known pre-roll. The rolled weaponYield (shown as the
         // signature range) adds to the base damage; base damage is shown so the range reads in context.
         weaponBase: { label: string; value: string }[] | null;
+        // E-MOD EM-7: a module craft's effect at Standard quality 0 (the roll scales it), or null.
+        moduleLines: { kind: string; effect: string; rule: string | null } | null;
         flavor: string | null;
       }
     | null;
@@ -505,6 +521,7 @@
         materialQuality: pieceMaterialQualityText(p),
         legendaryAffix: pieceLegendaryAffixText(p),
         setLine: pieceSetText(p),
+        moduleLines: pieceModuleLines(p),
         flavor: equipmentFlavor(p),
         piece: p,
       };
@@ -558,6 +575,7 @@
     // family / projectiles / fire rate / range / base damage). The rolled weaponYield adds to the
     // base damage and is shown separately as the signature range.
     const weaponType = bp?.weaponOutput?.weaponType;
+    const craftModule = bp?.equipmentOutput?.slotType === "module" ? universalModuleDef(bp.equipmentOutput.varietyKey) : undefined;
     const weaponBase =
       weaponType !== undefined && WEAPON_DEFS[weaponType] !== undefined
         ? weaponCombatRows(WEAPON_DEFS[weaponType])
@@ -572,6 +590,7 @@
       slotLabel: preview ? slotLabelFor(preview.slotType, preview.varietyKey) : "",
       preview,
       weaponBase,
+      moduleLines: craftModule ? { kind: moduleKindText(craftModule), effect: `${moduleEffectSentence(craftModule, 1)} (Standard; better rarity and quality do more.)`, rule: moduleRuleText(craftModule) } : null,
       flavor: bp?.flavor ?? null,
     };
   })();
@@ -682,6 +701,14 @@
       {#if view.setLine}
         <div class="et-detail">{view.setLine}</div>
       {/if}
+      <!-- E-MOD EM-7: a module carries no stat lines; these say what it does (the modules mockup's details card). -->
+      {#if view.moduleLines}
+        <div class="et-detail">{view.moduleLines.kind}</div>
+        <div class="et-detail">{view.moduleLines.effect}</div>
+        {#if view.moduleLines.rule}
+          <div class="et-detail"><b>{view.moduleLines.rule}</b></div>
+        {/if}
+      {/if}
     {:else if view.kind === "ship"}
       <div class="et-stats">
         {#each view.stats as row (row.label)}
@@ -703,6 +730,13 @@
             <div class="et-statrow"><span class="et-k">{row.label}</span><span class="et-v">{row.value}</span></div>
           {/each}
         </div>
+      {/if}
+      {#if view.moduleLines}
+        <div class="et-detail">{view.moduleLines.kind}</div>
+        <div class="et-detail">{view.moduleLines.effect}</div>
+        {#if view.moduleLines.rule}
+          <div class="et-detail"><b>{view.moduleLines.rule}</b></div>
+        {/if}
       {/if}
       {#if view.preview}
         {@const p = view.preview}

@@ -16,6 +16,7 @@ import { economyTick, inspectBlank, startLine } from "./tick";
 import { salvageEquipment } from "./salvage";
 import { hash, stateHash } from "./firstRunsGoldens.fixture";
 import { holding, withFacilityLevel } from "./wiring/probes";
+import { EM7_BLUEPRINT_KEYS } from "./emodEm7.fixture";
 
 // Every blueprint ML-2 reworks (plan ML-2 + audit Groups B and C), in BLUEPRINTS order.
 export const ML2_REWORKED: readonly string[] = [
@@ -202,7 +203,8 @@ const REWORKED_SET: ReadonlySet<string> = new Set(ML2_REWORKED);
 export function untouchedRows(added: ReadonlySet<string> = new Set()): string[] {
   return recipeTable().filter((r) => {
     const [kind, key] = r.split(":");
-    return kind === "bp" ? !REWORKED_SET.has(key) && BLUEPRINTS[key].driveClass === undefined : kind === "refine" ? !added.has(key) : true;
+    // E-MOD EM-7: its eight module blueprints came after the capture and are held apart (emodEm7.fixture.ts).
+    return kind === "bp" ? !REWORKED_SET.has(key) && BLUEPRINTS[key].driveClass === undefined && !EM7_BLUEPRINT_KEYS.has(key) : kind === "refine" ? !added.has(key) : true;
   });
 }
 export function reworkedRows(): [string, string][] {

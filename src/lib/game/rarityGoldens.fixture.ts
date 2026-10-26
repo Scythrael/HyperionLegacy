@@ -59,6 +59,7 @@ import { RELIC_BLANK_WEIGHTS } from "./relicBlanks";
 import { SALVAGE_CEILING_THRESHOLDS, autoSalvageIsBetter } from "./salvage";
 import { deserialize, migrate, serialize } from "./save";
 import { hash } from "./firstRunsGoldens.fixture";
+import { EM7_BLUEPRINT_KEYS } from "./emodEm7.fixture";
 
 export const LIVE_BANDS: readonly EquipmentRarity[] = ["standard", "augmented", "stellar", "radiant"];
 export const RESERVED_BANDS: readonly EquipmentRarity[] = ["derelict", "luminous", "constellar"];
@@ -101,15 +102,18 @@ function cellSeed(...parts: (string | number)[]): number {
 }
 
 // The live equipment slots (every EQUIPMENT_SLOTS entry with at least one variety).
+// E-MOD EM-7 came after the capture: the universal module slot gained its varieties and eight module blueprints joined
+// BLUEPRINTS. Both are held apart here (emodEm7.fixture.ts), so every pin keeps proving the rarity slices were its only
+// moves; shipModuleRoster.test.ts pins the module mints (every module x band x quality, with their draw counts).
 export function liveSlots(): string[] {
   return Object.entries(EQUIPMENT_SLOTS)
-    .filter(([, d]) => d.varieties.length > 0)
+    .filter(([k, d]) => d.varieties.length > 0 && k !== "module")
     .map(([k]) => k);
 }
 
 export function gearBlueprintKeys(): string[] {
   return Object.entries(BLUEPRINTS)
-    .filter(([, bp]) => blueprintMintsEquipmentInstance(bp))
+    .filter(([k, bp]) => blueprintMintsEquipmentInstance(bp) && !EM7_BLUEPRINT_KEYS.has(k))
     .map(([k]) => k);
 }
 
