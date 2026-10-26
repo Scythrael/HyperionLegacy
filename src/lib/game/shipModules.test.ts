@@ -35,6 +35,7 @@ import {
   MODULE_SLOT_SHARING_TYPES,
   UNIVERSAL_MODULES,
   UNIVERSAL_MODULES_LIVE,
+  hullHasSpecUtilitySlot,
   moduleConditionals,
   modulePowerOutput,
   moduleSlotsUsed,
@@ -174,11 +175,12 @@ describe("the shared module slots (M1: moduleSlots caps the modules and the Spec
         expect(["moduleSlotsFull", "hullSpec"]).toContain(canUtility(full));
         const freed = unfitEquipmentInstance(full, SHIP, equippedFor(full, SHIP).find((e) => e.slotType === "module")!.id);
         expect(["ok", "hullSpec"]).toContain(canUtility(freed));
-        // With the Spec Utility aboard, one module slot fewer.
+        // With the Spec Utility aboard, one module slot fewer; EM-7 review: except on a hull with no Spec Utility slot
+        // (the Freighter's seeded Standard-Issue utility fills nothing it cannot remove).
         const s = hullState(hull);
         if (utilityOf(s)) {
           const withUtil = installAll(s, TEST_FILLERS.map((d) => mintTestModule(d)));
-          expect(withUtil.verdicts.filter((v) => v === "ok").length).toBe(cap - 1);
+          expect(withUtil.verdicts.filter((v) => v === "ok").length).toBe(hullHasSpecUtilitySlot(SHIP_TYPES[hull].spec) ? cap - 1 : cap);
         }
       }));
   }
@@ -213,8 +215,10 @@ describe("one copy per ship (M8)", () => {
       expect(canFitEquipment(state, SHIP, "test-b", "test-a")).toEqual({ ok: true });
       const swapped = fitEquipment(state, SHIP, "test-b", "test-a");
       expect(equippedFor(swapped, SHIP).filter((e) => e.slotType === "module").map((e) => e.id).sort()).toEqual(["test-b", "test-c"]);
-      // The item-side Install on... list says why on the ship it cannot go to.
-      expect(installTargetsFor(state, "test-b").find((t) => t.kind === "ship" && t.shipId === SHIP)).toMatchObject({ ok: false, refusal: { reason: "duplicateModule" } });
+      // The item-side Install on... list says why on the ship it cannot go to. EM-7 (user 2026-10-26, "Armory loadouts
+      // only"): until EM-10 every ship is refused for a module there, the gate's own reason still duplicateModule.
+      expect(installTargetsFor(state, "test-b").find((t) => t.kind === "ship" && t.shipId === SHIP)).toMatchObject({ ok: false, refusal: { reason: "moduleArmoryOnly" } });
+      expect(canFitEquipment(state, SHIP, "test-b")).toEqual({ ok: false, reason: "duplicateModule" });
     }));
 
   it("the Armory refuses a duplicate and an overfull set inside a loadout", () =>

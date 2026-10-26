@@ -10856,7 +10856,8 @@ export const DRIVE_CLASS_BLUEPRINTS: readonly BlueprintDef[] = [
 // (shipModules.ts UNIVERSAL_MODULES), on Lab tiers 2 to 4 (the plan's [PROPOSAL] tiers: the passives and the mission
 // proc at tier 2, the combat proc, the conditional and the Survey Pair at tier 3, the Active at tier 4). [PROPOSAL]
 // recipes from the recipe realism audit section 10 (each module built from what it physically is, on the Material
-// Lines refined items). [PROVISIONAL] research and craft costs, the tier 2 relic specials' and the Class III / IV
+// Lines refined items; the Shield Surge's Iridium Catalyst is the user's, 2026-10-26). [PROVISIONAL] research and craft
+// costs, the tier 2 relic specials' and the Class III / IV
 // drives' (MODULE_BLUEPRINT_COSTS). Flavor text carries no number: the module's effect line on its card does.
 export const MODULE_BLUEPRINT_COSTS: Readonly<Record<2 | 3 | 4, { ticks: number; credits: number; craft: number }>> = {
   2: { ticks: 240, credits: 2_400, craft: 340 },
@@ -10893,8 +10894,9 @@ export const MODULE_BLUEPRINTS: Readonly<Record<string, BlueprintDef>> = Object.
     // The Survey Pair: a long optical receiver, and the signal processing that reads it.
     moduleBlueprint("longBaselineArray", "Long-Baseline Array", 3, { photonicGel: 2, frameSegment: 1 }, "A long optical receiver. Alone it only listens; paired with a Signal Integrator it sharpens every scan."),
     moduleBlueprint("signalIntegrator", "Signal Integrator", 3, { reclaimedCircuit: 2, polysilicateWafer: 1 }, "Signal processing for a long receiver. Alone it has nothing to read; paired with a Long-Baseline Array it sharpens every scan."),
-    // A stored-charge shield boost: couplings, a cobalt coil and a reclaimed circuit.
-    moduleBlueprint("shieldSurge", "Shield Surge", 4, { powerCoupling: 2, cobaltCoil: 1, reclaimedCircuit: 1 }, "A stored charge held in reserve and dumped into the shield emitters the moment the hull starts to fail."),
+    // A stored-charge shield boost: couplings, a cobalt coil and a reclaimed circuit, plus (user 2026-10-26, "Add
+    // Iridium Catalyst", M7 "Iridium Catalyst for the top tier") an Iridium Catalyst for the top-tier module.
+    moduleBlueprint("shieldSurge", "Shield Surge", 4, { powerCoupling: 2, cobaltCoil: 1, reclaimedCircuit: 1, iridiumCatalyst: 1 }, "A stored charge held in reserve and dumped into the shield emitters the moment the hull starts to fail."),
   ].map((bp) => [bp.key, bp]),
 );
 

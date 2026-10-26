@@ -920,13 +920,29 @@ export const MODULE_BATTLE_SEEDS = 12;
 function moduleBattleEnemy(): Combatant {
   return shipToCombatant({ id: "wiring-module-enemy", team: "enemy", stats: SHIP_TYPES.battleship, hullType: combatHullTypeOf("battleship")!, position: 40 });
 }
+// EM-7 review: each reading is one cast's EXACT size, so the registry asserts the configured number, not just "one
+// landed". arcDamage: the largest single arc against an enemy with no shield and no armor (the arc's whole points land;
+// only a killing arc can be smaller). shieldRestore: the largest single restore in per-mille of the carrier's shield
+// pool (the engine restores floor(pool x amount / 1000), the per-mille off by under 1000 / pool).
 function moduleProcTotal(s: GameState, ctx: ContextId, effect: "arcDamage" | "shieldRestore"): number {
-  let total = 0;
+  let best = 0;
   for (let i = 1; i <= MODULE_BATTLE_SEEDS; i++) {
-    const r = resolveBattle({ combatants: [battleCombatant(s, ctx), moduleBattleEnemy()] }, Math.imul(i, 0x9e3779b1) >>> 0, { precharge: true, generateLog: true });
-    for (const ev of r.log) if (ev.type === "moduleProc" && ev.moduleEffect === effect) total += ev.damage ?? 0;
+    const player = battleCombatant(s, ctx);
+    const foe = moduleBattleEnemy();
+    if (effect === "arcDamage") {
+      foe.shield = 0;
+      foe.shieldMax = 0;
+      foe.ablativeArmor = 0;
+      foe.kineticDampening = 0;
+    }
+    const r = resolveBattle({ combatants: [player, foe] }, Math.imul(i, 0x9e3779b1) >>> 0, { precharge: true, generateLog: true });
+    for (const ev of r.log) {
+      if (ev.type !== "moduleProc" || ev.moduleEffect !== effect) continue;
+      const size = effect === "arcDamage" ? ev.damage ?? 0 : ((ev.damage ?? 0) * 1000) / Math.max(1, player.shieldMax);
+      best = Math.max(best, size);
+    }
   }
-  return total;
+  return best;
 }
 // The first weapon's volley with the ship's hull at MODULE_LOW_HULL_PERCENT (below every module hull threshold), fired
 // MODULE_SHOT_SEEDS times at a target with no shield and no armor, so the volley's damage is its raw projectiles.
@@ -1535,11 +1551,11 @@ export const PROBES = {
   },
   // == E-MOD EM-7: the universal modules' combat engines, through the real battle (resolveBattle / fireWeapon) ==
   moduleArcDamage: {
-    label: `resolveBattle: the arc damage the ship's modules dealt (moduleProc events) over ${MODULE_BATTLE_SEEDS} battles against a Battleship (patrol / shipEvent)`,
+    label: `resolveBattle: the largest single module arc (moduleProc events) over ${MODULE_BATTLE_SEEDS} battles against an unshielded, unarmored Battleship (patrol / shipEvent)`,
     read: (s, ctx) => moduleProcTotal(s, ctx, "arcDamage"),
   },
   moduleShieldRestored: {
-    label: `resolveBattle: the shield the ship's modules restored (moduleProc events) over ${MODULE_BATTLE_SEEDS} battles against a Battleship (patrol / shipEvent)`,
+    label: `resolveBattle: the largest single module shield restore, per-mille of the ship's shield pool, over ${MODULE_BATTLE_SEEDS} battles against a Battleship (patrol / shipEvent)`,
     read: (s, ctx) => moduleProcTotal(s, ctx, "shieldRestore"),
   },
   moduleLowHullShot: {

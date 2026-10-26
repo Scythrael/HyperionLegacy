@@ -446,7 +446,7 @@
   } from "./lib/game/equipment";
   // E-MOD EM-2: the power install gate's refusal text (one wording everywhere) and the Armory check-out's shortfall.
   import { overPowerReasonText } from "./lib/game/shipPower";
-  import { UNIVERSAL_MODULES_LIVE, duplicateModuleReasonText, moduleSlotsFullReasonText } from "./lib/game/shipModules";
+  import { UNIVERSAL_MODULES_LIVE, duplicateModuleReasonText, moduleArmoryOnlyReasonText, moduleSlotsFullReasonText } from "./lib/game/shipModules";
   // Crew 0.14.0 (phase 4a): the pure SENIOR STAFF engine, wired by the do* handlers below.
   // hire/fire/assign/unassign each take + return a whole GameState; promoteOfficer takes +
   // returns a single officer, so its handler splices the result back into state.officers.
@@ -5263,6 +5263,9 @@
         return moduleSlotsFullReasonText();
       case "duplicateModule":
         return duplicateModuleReasonText();
+      // E-MOD EM-7 (user "Armory loadouts only"): Install on... refuses ships for a module until EM-10.
+      case "moduleArmoryOnly":
+        return moduleArmoryOnlyReasonText();
     }
   }
 

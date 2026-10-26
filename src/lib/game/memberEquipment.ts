@@ -56,6 +56,7 @@ import { isMemberSlotType, isUninstalledPiece, memberVariety, startAutoSalvageGr
 // Imported from reservation.ts (the type-only leaf), the same way equipment.ts does, never from salvage.ts.
 import { salvageReservedInstanceIds } from "./reservation";
 import { canFitEquipment, type EquipFitRefusal } from "./equipment";
+import { MODULE_INSTALL_ARMORY_ONLY } from "./shipModules";
 import { implantSlotsFor, shipCrewLocked } from "./awayTeam";
 
 // ============================================================================
@@ -451,6 +452,11 @@ export function installTargetsFor(state: GameState, pieceId: string): InstallTar
         ? { kind: "member", memberId: m.id, ok: true }
         : { kind: "member", memberId: m.id, ok: false, reason: gate.reason };
     });
+  }
+  // E-MOD EM-7 (user 2026-10-26, "Armory loadouts only"): until EM-10's Ship Systems Modules row, a module goes on and
+  // off a ship through an Armory loadout only, so the item-side picker lists every ship refused, with the reason.
+  if (piece.slotType === "module" && MODULE_INSTALL_ARMORY_ONLY) {
+    return state.ships.map((s): InstallTarget => ({ kind: "ship", shipId: s.id, ok: false, refusal: { ok: false, reason: "moduleArmoryOnly" } }));
   }
   return state.ships.map((s): InstallTarget => {
     const gate = canFitEquipment(state, s.id, pieceId);

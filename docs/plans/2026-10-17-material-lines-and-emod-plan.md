@@ -725,6 +725,22 @@ shows only in the Armory and the item card, and is removed through an Armory loa
 Systems). **For gear wear step 4:** module effects read pristine until `wear:WEAR_EFFICIENCY:module:effect` goes live
 (the Survey Pair would then wear through the set engine).
 
+*Carry note (EM-7 review fixes, 2026-10-26, "approve with fixes" and the user's three answers).* (1) The General
+Freighter's seeded Standard-Issue Spec Utility (it shows no slot for it, so it can never be removed) no longer fills its
+one module slot: `shipModules.ts hullHasSpecUtilitySlot` is the one predicate the gate, `moduleSlotsUsed`, the Armory slot
+set and Ship Systems read (user: the Freighter keeps 1 slot). (2) User "Armory loadouts only": `MODULE_INSTALL_ARMORY_ONLY`
+(true until EM-10) makes Install on... refuse every ship for a module (`moduleArmoryOnly`, "install modules through an
+Armory loadout for now"); the full-slots text now says "Change modules in an Armory loadout" (the mockup's "Remove a
+module first" returns with EM-10's Modules row). (3) User "Add Iridium Catalyst": the tier 4 Shield Surge recipe takes 1
+Iridium Catalyst; the other recipes and the tiers stay [PROPOSAL]. (4) The Survey Pair card shows the real pair bonus
+when the host passes the ship's pieces (the mean of both scales), else says the bonus averages both pieces. (5) The Arc
+row asserts the exact arc size, the Shield Surge row the per-cast share; the roster test asserts every cast is exactly
+floor(pool x 30%). (6) `bonusHaulUnits` still floors a whole haul (a 1-unit cycle gains nothing from a landed Echo):
+noted for the balancing patch, banking it would need a saved per-captain carry. (7) **Logged:** Celestial Constellar's
+minus-1 would have let ONE Survey Pair piece (a dev-minted Celestial module) complete the pair; unreachable in play,
+now guarded (a module set never takes the reduction). **Patch-note line idea:** "Archive completion % drops a little:
+the eight new module blueprints each add an Archive slot (display only, nothing you enshrined is lost)."
+
 **EM-8 Precursor Lens special module.** Discovery-gated blueprint (`requiresRelicDiscovery: "precursorLens"`), input
 Precursor Circuit, one per fleet or per ship per call M8, its unique proc per call M6. Registry: the Precursor Lens
 first-find row LIVE. Tests: masked until identified; mints; proc acts.

@@ -183,7 +183,9 @@ export function activeGearSetTiers(pieces: readonly EquipmentInstance[], scope: 
     const c = counts.get(set.id);
     if (c === undefined) continue;
     for (const t of set.tiers) {
-      if (c.count < gearSetTierRequirement(t.pieces, c.celestial)) continue;
+      // EM-7 review: the Celestial minus-1 is a Constellar GEAR rule; a module set never takes it, so a two-piece module
+      // set (the Survey Pair) always needs both pieces (a dev-minted Celestial module could otherwise complete it alone).
+      if (c.count < (set.moduleSet === true ? t.pieces : gearSetTierRequirement(t.pieces, c.celestial))) continue;
       // A count line (stations, berths, carry) never wears, exactly like a piece's own line (gearWear.ts WEAR_EXEMPT_LINES).
       const worn = WEAR_EXEMPT_LINES.has(t.stat) || c.efficiency === 1 ? t.magnitude : t.magnitude * c.efficiency;
       // E-MOD EM-7: a module set's tier scales with its pieces' rarity, quality and ascension (1 for a gear set).

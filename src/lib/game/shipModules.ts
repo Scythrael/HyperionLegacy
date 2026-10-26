@@ -448,6 +448,9 @@ export function moduleProcReady(proc: ModuleCombatProc, clock: ModuleProcClock, 
 
 // The bonus a landed bonusHaul adds to a cycle's common haul: `fraction` of it. A whole haul stays whole (rounded down,
 // no draw); an already fractional haul (a yield bonus) scales exactly, as fractional amounts always do.
+// EM-7 review (noted, not banked): the floor drops the remainder, so a landed Echo on a 1-unit cycle adds nothing; every
+// real extraction cycle hauls tens of units, and banking the remainder would need a stored per-captain carry (a save
+// field), so it is logged for the balancing patch instead.
 export function bonusHaulUnits(common: number, fraction: number): number {
   if (!(common > 0) || !(fraction > 0)) return 0;
   return Number.isInteger(common) ? Math.floor(common * fraction + 1e-9) : common * fraction;
@@ -461,18 +464,37 @@ export function bonusHaulUnits(common: number, fraction: number): number {
 // the universal modules and spec utility"). The bridge, quarters and sensor keep their own slots and never count.
 export const MODULE_SLOT_SHARING_TYPES: ReadonlySet<EquipmentSlotType> = new Set<EquipmentSlotType>(["module", "specUtility"]);
 
-// How many of the shared module slots `pieces` fill. Pure.
-export function moduleSlotsUsed(pieces: readonly Pick<EquipmentInstance, "slotType">[]): number {
+// Does a hull of this spec carry a Spec Utility slot? Every SPECIALIZED hull does; the General Freighter has none (E4d).
+// THE one predicate: the install gate's shared-slot count, moduleSlotsUsed, the Armory slot set (armory.ts) and Ship
+// Systems (ShipSystemsPanel hasSpecUtilitySlot) all read it. EM-7 review: every save's starting Freighter is seeded a
+// Standard-Issue Spec Utility it shows no slot for (and so can never remove); counting that piece filled the
+// Freighter's one module slot for good. Pure.
+export function hullHasSpecUtilitySlot(spec: string): boolean {
+  return spec !== "general";
+}
+
+// How many of the shared module slots `pieces` fill: every module, and the Spec Utility only on a hull that has the
+// slot (`hasSpecUtilitySlot`, from hullHasSpecUtilitySlot; a stray utility on the Freighter fills nothing). Pure.
+export function moduleSlotsUsed(pieces: readonly Pick<EquipmentInstance, "slotType">[], hasSpecUtilitySlot = true): number {
   let n = 0;
-  for (const p of pieces) if (MODULE_SLOT_SHARING_TYPES.has(p.slotType)) n++;
+  for (const p of pieces) if (p.slotType === "module" || (hasSpecUtilitySlot && p.slotType === "specUtility")) n++;
   return n;
 }
 
-// The refusal texts every install surface renders (Ship Systems, Install on..., the dev panel), in the signed-off
-// Modules mockup's words ("No free module slot ... Remove a module first."; "One per ship."). Lower case first word,
-// no final period, like every other install reason text.
+// User 2026-10-26 ("Armory loadouts only (Recommended)"): until EM-10 builds the Ship Systems Modules row, a module
+// piece is installed and removed through an Armory loadout only, so the item-side Install on... refuses every ship for
+// a module (memberEquipment.ts installTargetsFor, the moduleArmoryOnly refusal). EM-10 turns this off.
+export const MODULE_INSTALL_ARMORY_ONLY = true;
+
+// The refusal texts every install surface renders (Ship Systems, Install on..., the dev panel). Lower case first word,
+// no final period, like every other install reason text. EM-7 review: no surface outside the Armory has a module Remove
+// control yet, so the full-slots text says where to change them (the mockup's "Remove a module first" returns with
+// EM-10's Modules row).
 export function moduleSlotsFullReasonText(): string {
-  return "no free module slot (the Spec Utility shares them). Remove a module first";
+  return "no free module slot (modules and the Spec Utility share them). Change modules in an Armory loadout";
+}
+export function moduleArmoryOnlyReasonText(): string {
+  return "install modules through an Armory loadout for now";
 }
 export function duplicateModuleReasonText(): string {
   return "this module is already installed on this ship (one per ship)";

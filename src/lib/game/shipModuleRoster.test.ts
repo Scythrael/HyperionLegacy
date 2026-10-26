@@ -27,10 +27,13 @@ import { fireWeapon, resolveBattle } from "./combat/resolveBattle";
 import { makeRng } from "./combat/rng";
 import type { Combatant, CombatEvent } from "./combat/types";
 import { canFitEquipment, equippedFor, fitEquipment, unfitEquipmentInstance } from "./equipment";
+import { installTargetsFor } from "./memberEquipment";
+import { checkInLoadout, checkOutLoadout, createLoadout, installIntoLoadout, uninstallFromLoadout } from "./armory";
 import { shipPowerBudget } from "./shipPower";
 import { effectiveShipStats } from "./crewOverlay";
 import { expeditionGearBonuses } from "./expedition";
 import { loadoutSlotDefsForShipType } from "./armory";
+import { isSparePiece } from "./model";
 import { archivableBlueprints, archiveItem } from "./archive";
 import { salvageEquipment } from "./salvage";
 import { itemTotal } from "./inventory";
@@ -38,7 +41,12 @@ import { GEAR_SETS, activeGearSetTiers, gearSetDef } from "./gearSets";
 import { wornPieceView } from "./gearWear";
 import {
   MODULE_ENGINE_KEYS,
+  MODULE_INSTALL_ARMORY_ONLY,
   MODULE_V1_NUMBERS,
+  hullHasSpecUtilitySlot,
+  moduleArmoryOnlyReasonText,
+  moduleSlotsFullReasonText,
+  moduleSlotsUsed,
   SURVEY_PAIR_SET_ID,
   UNIVERSAL_MODULES,
   UNIVERSAL_MODULES_LIVE,
@@ -135,7 +143,8 @@ describe("the roster (user M6 'Approve all': the eight rows as named, with those
     expect(recipe("arcDischarger")).toEqual({ cobaltCoil: 2, powerCoupling: 1 });
     expect(recipe("prospectorsEcho")).toEqual({ photonicGel: 1, reclaimedCircuit: 2 });
     expect(recipe("lastStandProtocol")).toEqual({ reclaimedCircuit: 2, polysilicateWafer: 2 });
-    expect(recipe("shieldSurge")).toEqual({ powerCoupling: 2, cobaltCoil: 1, reclaimedCircuit: 1 });
+    // User 2026-10-26 ("Add Iridium Catalyst", M7 "Iridium Catalyst for the top tier"): the tier 4 Active takes one.
+    expect(recipe("shieldSurge")).toEqual({ powerCoupling: 2, cobaltCoil: 1, reclaimedCircuit: 1, iridiumCatalyst: 1 });
     expect(recipe("longBaselineArray")).toEqual({ photonicGel: 2, frameSegment: 1 });
     expect(recipe("signalIntegrator")).toEqual({ reclaimedCircuit: 2, polysilicateWafer: 1 });
     for (const d of UNIVERSAL_MODULES) for (const item of Object.keys(recipe(d.id))) expect(ITEMS[item], `${d.id}: ${item}`).toBeDefined();
@@ -223,8 +232,16 @@ describe("the mint, the player path and the item card", () => {
     expect(lines("prospectorsEcho")).toMatchObject({ kind: "Proc · Missions", effect: "Each extraction cycle: a 10% chance of a bonus haul, +50% of that cycle's common material." });
     expect(lines("lastStandProtocol").effect).toBe("While hull is below 25%: +12% weapon damage.");
     expect(lines("shieldSurge")).toEqual({ kind: "Active · Combat", effect: "Restores 30% shields.", rule: "Auto-cast, preset rule: once per battle, when hull falls below 50%." });
-    expect(lines("longBaselineArray")).toMatchObject({ kind: "Set · Expeditions", effect: "With a Signal Integrator installed: +8% scan speed on expeditions." });
-    expect(lines("signalIntegrator").effect).toBe("With a Long-Baseline Array installed: +8% scan speed on expeditions.");
+    expect(lines("longBaselineArray")).toMatchObject({ kind: "Set · Expeditions", effect: "With a Signal Integrator installed: +8% scan speed on expeditions (the pair's bonus averages both pieces)." });
+    expect(lines("signalIntegrator").effect).toBe("With a Long-Baseline Array installed: +8% scan speed on expeditions (the pair's bonus averages both pieces).");
+    // EM-7 review: installed as a pair (the host passes the ship's pieces), the card shows the REAL pair bonus, the mean
+    // of both pieces' scales (the engine's own reader), not this piece's alone.
+    const lba = { ...mint("longBaselineArray", "radiant", 5, "card-lba"), fittedToShipId: SHIP };
+    const sig = { ...mint("signalIntegrator", "standard", 0, "card-sig"), fittedToShipId: SHIP };
+    const pair = (Math.round(0.08 * ((moduleEffectScale("radiant", 5) + 1) / 2) * 1000) / 10).toFixed(1);
+    expect(pieceModuleLines(lba, [lba, sig])!.effect).toBe(`Survey Pair active: +${pair}% scan speed on expeditions.`);
+    expect(pieceModuleLines(sig, [lba, sig])!.effect).toBe(`Survey Pair active: +${pair}% scan speed on expeditions.`);
+    expect(pieceModuleLines(lba, [lba])!.effect).toMatch(/averages both pieces/);
     // A better roll reads a bigger number (rarity and quality are never inert).
     expect(lines("auxiliaryCapacitor", "radiant", 5).effect).not.toBe(lines("auxiliaryCapacitor").effect);
     expect(moduleRuleText(def("arcDischarger"))).toBeNull();
@@ -234,7 +251,7 @@ describe("the mint, the player path and the item card", () => {
     // Every line obeys the text rules (no em dash, no double hyphen).
     for (const d of UNIVERSAL_MODULES) {
       const l = lines(d.id);
-      for (const t of [l.kind, l.effect, l.rule ?? ""]) expect(t, d.id).not.toMatch(/—|--/);
+      for (const t of [l.kind, l.effect, l.rule ?? ""]) expect(t, d.id).not.toMatch(/\u2014|\x2d\x2d/);
     }
   });
 
@@ -280,11 +297,30 @@ describe("each module acts in its context, and only there", () => {
     for (let seed = 1; seed <= 6; seed++) {
       const r = resolveBattle({ combatants: [combatant(["arcDischarger"]), enemy()] }, seed * 101, { precharge: true, generateLog: true });
       const hits = procs(r.log, "arcDamage");
-      for (const h of hits) expect([h.targetId, h.damage]).toEqual(["e", expect.any(Number)]);
+      for (const h of hits) expect(h.targetId).toBe("e");
       arcs += hits.length;
       // The combat stream is untouched: with the module's draws removed the enemy's own shots are the same.
       const bare = resolveBattle({ combatants: [combatant([]), enemy()] }, seed * 101, { precharge: true, generateLog: true });
       expect(r.log.filter((e) => e.actorId === "e" && e.type !== "moduleProc").slice(0, 3)).toEqual(bare.log.filter((e) => e.actorId === "e").slice(0, 3));
+    }
+    expect(arcs).toBeGreaterThan(0);
+  });
+
+  it("Arc Discharger: every arc is exactly its configured size on an unarmored target (only a killing arc is smaller)", () => {
+    const size = Math.round(def("arcDischarger").effect.magnitude * moduleEffectScale("standard", 0));
+    let arcs = 0;
+    for (let seed = 1; seed <= 6; seed++) {
+      const foe = enemy();
+      foe.shield = 0;
+      foe.shieldMax = 0;
+      foe.ablativeArmor = 0;
+      foe.kineticDampening = 0;
+      const r = resolveBattle({ combatants: [combatant(["arcDischarger"]), foe] }, seed * 211, { precharge: true, generateLog: true });
+      for (const h of procs(r.log, "arcDamage")) {
+        arcs++;
+        if ((h.hullAfter ?? 1) > 0) expect(h.damage).toBe(size);
+        else expect(h.damage).toBeLessThanOrEqual(size);
+      }
     }
     expect(arcs).toBeGreaterThan(0);
   });
@@ -316,6 +352,12 @@ describe("each module acts in its context, and only there", () => {
       const r = resolveBattle({ combatants: [combatant(["shieldSurge"]), enemy()] }, seed * 131, { precharge: true, generateLog: true });
       const surges = procs(r.log, "shieldRestore");
       expect(surges.length, `seed ${seed}`).toBeLessThanOrEqual(1);
+      // EM-7 review: each cast restores exactly floor(pool x 30%), never past the pool.
+      const pool = combatant(["shieldSurge"]).shieldMax;
+      for (const e of surges) {
+        const before = (e.shieldAfter ?? 0) - (e.damage ?? 0);
+        expect(e.damage).toBe(Math.min(Math.floor((pool * 300) / 1000), pool - before));
+      }
       casts += surges.length;
     }
     expect(casts).toBeGreaterThan(0);
@@ -323,7 +365,9 @@ describe("each module acts in its context, and only there", () => {
 
   it("Prospector's Echo: a bonus common haul on extraction cycles, offline == live, no shared draw", { timeout: 60_000 }, () => {
     const dispatch = (withModule: boolean) => {
-      const base = withoutUtility(hullState("generalFreighter"));
+      // EM-7 review: a REAL fresh save's Freighter (its Standard-Issue Spec Utility, which it shows no slot for, never
+      // fills its one module slot).
+      const base = freshState();
       const s0 = withModule ? installAll(base, [mint("prospectorsEcho")]) : base;
       const r = dispatchCaptainOnMission({ ...s0, captains: s0.captains.map((c) => ({ ...c, level: 10 })) }, 1, "shortOreRun");
       expect(r.success).toBe(true);
@@ -383,6 +427,70 @@ describe("each module acts in its context, and only there", () => {
 function wiringAurora(): GameState {
   return withoutUtility(hullState("aurora"));
 }
+
+describe("EM-7 review: the Freighter's slot, Armory loadouts only, the module set's own rules", () => {
+  it("a fresh Freighter (its Standard-Issue Spec Utility aboard) installs one module, then refuses a second", () => {
+    const s0 = freshState();
+    const ship = s0.ships.find((x) => x.id === SHIP)!;
+    expect(ship.typeKey).toBe("generalFreighter");
+    expect(equippedFor(s0, SHIP).some((e) => e.slotType === "specUtility")).toBe(true);
+    expect(SHIP_TYPES.generalFreighter.moduleSlots).toBe(1);
+    expect(moduleSlotsUsed(equippedFor(s0, SHIP), hullHasSpecUtilitySlot("general"))).toBe(0);
+    const echo = mint("prospectorsEcho", "standard", 0, "fr-echo");
+    let s = { ...s0, equipment: [...s0.equipment, echo] };
+    expect(canFitEquipment(s, SHIP, echo.id)).toEqual({ ok: true });
+    s = fitEquipment(s, SHIP, echo.id);
+    const arc = mint("arcDischarger", "standard", 0, "fr-arc");
+    s = { ...s, equipment: [...s.equipment, arc] };
+    expect(canFitEquipment(s, SHIP, arc.id)).toEqual({ ok: false, reason: "moduleSlotsFull" });
+    // A specialized hull still counts its utility (M1 "Separate counts").
+    expect(hullHasSpecUtilitySlot("prospector")).toBe(true);
+    expect(moduleSlotsUsed([{ slotType: "specUtility" }, { slotType: "module" }])).toBe(2);
+    expect(moduleSlotsUsed([{ slotType: "specUtility" }, { slotType: "module" }], false)).toBe(1);
+  });
+
+  it("Install on... refuses every ship for a module (until EM-10), with the user's reason; other gear is unchanged", () => {
+    expect(MODULE_INSTALL_ARMORY_ONLY).toBe(true);
+    const s0 = freshState();
+    const echo = { ...mint("prospectorsEcho", "standard", 0, "io-echo"), fittedToShipId: null };
+    const s = { ...s0, equipment: [...s0.equipment, echo] };
+    const targets = installTargetsFor(s, echo.id);
+    expect(targets.length).toBe(s.ships.length);
+    for (const t of targets) expect(t).toMatchObject({ kind: "ship", ok: false, refusal: { ok: false, reason: "moduleArmoryOnly" } });
+    expect(moduleArmoryOnlyReasonText()).toBe("install modules through an Armory loadout for now");
+    // The full-slots text names where modules change (no surface but the Armory has a module Remove yet).
+    expect(moduleSlotsFullReasonText()).not.toMatch(/Remove/);
+    expect(moduleSlotsFullReasonText()).toMatch(/Armory loadout/);
+  });
+
+  it("an Armory loadout installs and removes a module cleanly on a fresh Freighter", () => {
+    let s = freshState();
+    const created = createLoadout(s, "generalFreighter", "Echo run");
+    s = created.next;
+    const id = created.loadoutId!;
+    const echo = { ...mint("prospectorsEcho", "standard", 0, "lo-echo"), fittedToShipId: null };
+    s = { ...s, equipment: [...s.equipment, echo] };
+    const moduleKey = loadoutSlotDefsForShipType("generalFreighter").find((d) => d.slotType === "module")!.key;
+    s = installIntoLoadout(s, id, moduleKey, echo.id);
+    expect(s.loadouts.find((l) => l.id === id)!.slots[moduleKey]).toBe(echo.id);
+    const out = checkOutLoadout(s, id, SHIP);
+    expect(out).not.toBe(s);
+    expect(equippedFor(out, SHIP).map((e) => e.id)).toContain(echo.id);
+    expect(missionCycleModulesFor(out, SHIP)?.procs.map((p) => p.moduleId)).toEqual(["prospectorsEcho"]);
+    const back = checkInLoadout(out, id);
+    expect(equippedFor(back, SHIP).map((e) => e.id)).not.toContain(echo.id);
+    expect(missionCycleModulesFor(back, SHIP)).toBeUndefined();
+    const freed = uninstallFromLoadout(back, id, moduleKey);
+    expect(freed.loadouts.find((l) => l.id === id)!.slots[moduleKey] ?? null).toBeNull();
+    expect(isSparePiece(freed.equipment.find((e) => e.id === echo.id)!)).toBe(true);
+  });
+
+  it("the Celestial minus-1 never lets ONE Survey Pair piece complete the pair (a module set keeps its count)", () => {
+    const celestial = { ...mint("longBaselineArray", "constellar", 0, "cel-lba"), ascension: "celestial" as const };
+    expect(activeGearSetTiers([celestial], "ship", undefined, scaleOf)).toEqual([]);
+    expect(shipGearSetBonusLines([celestial]).scanSpeedBonus).toBeUndefined();
+  });
+});
 
 describe("the registry (every module a live, probed row; emodEm7Registry.fixture.ts reads the move back)", () => {
   it("one live row per module and per Survey Pair tier and module blueprint; every hull's moduleSlots live", () => {

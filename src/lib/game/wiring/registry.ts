@@ -5178,6 +5178,8 @@ function moduleSetPieces(setId: string, k: number, except?: string): Transform {
   return (s) => UNIVERSAL_MODULES.filter((d) => d.category === "set" && d.setId === setId && d.id !== except).slice(0, k).reduce((acc, d) => modulePieceOn(d)(acc), s);
 }
 
+// The restore is floored to a whole point: in per-mille of the Destroyer's Standard-Issue pool that is under 1000 / pool.
+const MODULE_SHIELD_RESTORE_TOLERANCE = 4;
 const MODULE_BONUS_HAUL_TOLERANCE = 0.15; // three standard deviations of the 1,000-delivery sample at a 10% chance of +5
 function universalModuleEntries(): WiringEntry[] {
   const std = moduleEffectScale("standard", 0, "none");
@@ -5232,10 +5234,9 @@ function universalModuleEntries(): WiringEntry[] {
           claim: `${def.label}: on a hit taken, a ${pct(def.chance ?? 0)}% chance to arc ${def.effect.magnitude} damage back`,
           probe: "moduleArcDamage",
           contexts: combat(def),
-          curve: { kind: "event", metric: "arc damage dealt over the probe's battles" },
           magnitude: (c) => Math.round(defOf(c, def.id).effect.magnitude * std),
           base: () => combatBase(),
-          note: "at least one arc of its full size lands (resolveBattle's on-hit trigger, the module's private stream)",
+          note: "the largest single arc is exactly the configured whole points (resolveBattle's on-hit trigger, the module's private stream, an unarmored target)",
         });
       case "shieldRestore":
         return entry({
@@ -5243,10 +5244,10 @@ function universalModuleEntries(): WiringEntry[] {
           claim: `${def.label}: once per battle below ${pct(def.trigger?.kind === "hullBelow" ? def.trigger.fraction : 0)}% hull, restore ${pct(def.effect.magnitude)}% shields`,
           probe: "moduleShieldRestored",
           contexts: combat(def),
-          curve: { kind: "event", metric: "shield restored over the probe's battles" },
-          magnitude: () => 1,
+          magnitude: (c) => Math.min(1000, Math.round(defOf(c, def.id).effect.magnitude * std * 1000)),
           base: () => combatBase(),
-          note: "the Active casts by its preset rule and restores at least one whole point (resolveBattle's below-threshold trigger)",
+          tolerance: MODULE_SHIELD_RESTORE_TOLERANCE,
+          note: "the largest single cast restores floor(pool x amount / 1000), so its per-mille of the pool is the configured share within one floor step (shipModuleRoster.test.ts asserts every cast exactly)",
         });
       case "bonusHaul":
         return entry({

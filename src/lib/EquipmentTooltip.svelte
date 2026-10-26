@@ -521,7 +521,7 @@
         materialQuality: pieceMaterialQualityText(p),
         legendaryAffix: pieceLegendaryAffixText(p),
         setLine: pieceSetText(p),
-        moduleLines: pieceModuleLines(p),
+        moduleLines: pieceModuleLines(p, shipPieces),
         flavor: equipmentFlavor(p),
         piece: p,
       };

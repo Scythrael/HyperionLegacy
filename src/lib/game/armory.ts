@@ -43,7 +43,7 @@ import { memberSlotCapacity, memberWornIndex, pieceWearableBy } from "./memberEq
 // this module).
 import { setMemberPack } from "./groundTeams";
 // E-MOD EM-5: the module slot rules and the switch that keeps the module slots hidden (the leaf catalog; no cycle).
-import { MODULE_SLOT_SHARING_TYPES, UNIVERSAL_MODULES_LIVE, hasModuleOfVariant } from "./shipModules";
+import { MODULE_SLOT_SHARING_TYPES, UNIVERSAL_MODULES_LIVE, hasModuleOfVariant, hullHasSpecUtilitySlot } from "./shipModules";
 
 // The base loadout count (design: a FLAT 25, talent-expandable). Derived through loadoutCap, the ONE
 // reader, so a future loadout-count talent adds to it in exactly one place (content-driven rule).
@@ -169,7 +169,7 @@ export function loadoutSlotDefsForShipType(shipTypeKey: ShipTypeKey, modulesLive
   // E4d: every SPECIALIZED hull (prospector rigs, tactician Damage Control Suite, explorer Pathfinder
   // Suite) carries the Spec Utility slot; only the general Freighter has none. Mirrors ShipSystemsPanel's
   // hasSpecUtilitySlot. (A prospector hull's slot set is unchanged.)
-  if (def !== undefined && def.spec !== "general") {
+  if (def !== undefined && hullHasSpecUtilitySlot(def.spec)) {
     defs.push({ key: "specUtility", slotType: "specUtility", index: null, group: "systems", label: "Spec Utility" });
   }
   if (modulesLive) {

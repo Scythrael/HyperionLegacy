@@ -111,7 +111,7 @@ export { MULTI_SLOT_TYPES, equippedFor, onMissionLock } from "./equipmentQueries
 // E-MOD EM-2: the power install gate's reading (one-way: shipPower.ts never imports this file).
 import { installPowerShortfallBetween } from "./shipPower";
 // E-MOD EM-5: the module slot rules (the leaf catalog).
-import { MODULE_SLOT_SHARING_TYPES, hasModuleOfVariant } from "./shipModules";
+import { MODULE_SLOT_SHARING_TYPES, hasModuleOfVariant, hullHasSpecUtilitySlot } from "./shipModules";
 // S2: the one crew lock (crewLock.ts imports only the leaf equipmentQueries.ts, so no cycle).
 import { crewLockReason, type CrewLockReason } from "./crewLock";
 
@@ -290,7 +290,11 @@ export type EquipFitBlockReason =
   | "moduleSlotsFull"
   // E-MOD EM-5 (user M8, 2026-10-19 "One per ship"): a module of this kind (the same catalog id, the Precursor Lens
   // included) is already installed on the ship. Checked right before moduleSlotsFull.
-  | "duplicateModule";
+  | "duplicateModule"
+  // E-MOD EM-7 (user 2026-10-26, "Armory loadouts only"): a module piece offered to a SHIP by the item-side Install
+  // on... (memberEquipment.ts installTargetsFor) while shipModules.ts MODULE_INSTALL_ARMORY_ONLY holds (until EM-10).
+  // Never returned by canFitEquipment itself (the Armory check-out installs modules).
+  | "moduleArmoryOnly";
 
 // A refused install: the reason, and for overPower the power it still needs. Every reason-text switch takes this
 // whole object so the overPower case can name its number (TypeScript narrows on `reason`).
@@ -553,12 +557,17 @@ export function canFitEquipment(
   // moves it out). So a module needs a free slot, a utility swap always passes, and a utility into an EMPTY Spec Utility
   // slot needs one. No live save can reach this refusal before a module exists (every hull has at least one slot and
   // at most one utility).
-  if (MODULE_SLOT_SHARING_TYPES.has(instance.slotType)) {
+  // EM-7 review: on a hull with NO Spec Utility slot (the General Freighter) a utility piece fills no module slot, the
+  // incoming one or a staying one (every save's Freighter carries a Standard-Issue utility it can never remove), by the
+  // one predicate the Armory and Ship Systems read (shipModules.ts hullHasSpecUtilitySlot).
+  const hasUtilitySlot = hullHasSpecUtilitySlot(SHIP_TYPES[ship.typeKey].spec);
+  if (MODULE_SLOT_SHARING_TYPES.has(instance.slotType) && (hasUtilitySlot || instance.slotType !== "specUtility")) {
     const cap = SHIP_TYPES[ship.typeKey].moduleSlots;
     const staying = state.equipment.filter(
       (e) =>
         e.fittedToShipId === shipId &&
         MODULE_SLOT_SHARING_TYPES.has(e.slotType) &&
+        (hasUtilitySlot || e.slotType !== "specUtility") &&
         e.id !== instanceId &&
         e.id !== replacingInstanceId &&
         !(instance.slotType === "specUtility" && e.slotType === "specUtility")

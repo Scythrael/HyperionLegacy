@@ -68,7 +68,7 @@
   // E-MOD EM-2: the power gate's refusal wording and the over-budget warning (P2: never evict, a warning chip).
   import { overBudgetNotice, overPowerReasonText } from "./game/shipPower";
   import { POWER_SUPPLY_FLOOR_PERCENT } from "./game/combat/power";
-  import { duplicateModuleReasonText, moduleSlotsFullReasonText } from "./game/shipModules";
+  import { duplicateModuleReasonText, hullHasSpecUtilitySlot, moduleArmoryOnlyReasonText, moduleSlotsFullReasonText } from "./game/shipModules";
   import { equippedFor, fittedInSlot, canFitEquipment } from "./game/equipment";
   // S2 (user 2026-10-17 "Lock it"): the one crew lock names why a ship's gear is locked (a mission, a patrol, a
   // short-range run, or an expedition until it is claimed), the same lock the engine's install gate reads.
@@ -358,7 +358,8 @@
       : null;
   $: isProspectorHull = shipDef?.spec === "prospector";
   // E4d: every specialized hull (prospector / tactician / explorer) shows the Spec Utility slot.
-  $: hasSpecUtilitySlot = shipDef !== null && shipDef !== undefined && shipDef.spec !== "general";
+  // EM-7 review: the one predicate the install gate's shared module slots and the Armory read (shipModules.ts).
+  $: hasSpecUtilitySlot = shipDef !== null && shipDef !== undefined && hullHasSpecUtilitySlot(shipDef.spec);
   // S2: the gear lock (crewLock.ts crewLockReason, null when the ship is home). `onMission` keeps its old name for the
   // controls it disables; it is true for every way the ship can be out, an expedition included.
   $: gearLock = ship ? crewLockReason(state, ship.id) : null;
@@ -992,6 +993,9 @@
         return moduleSlotsFullReasonText();
       case "duplicateModule":
         return duplicateModuleReasonText();
+      // E-MOD EM-7 (user "Armory loadouts only"): only Install on... returns it; listed so the switch stays exhaustive.
+      case "moduleArmoryOnly":
+        return moduleArmoryOnlyReasonText();
     }
   }
 
