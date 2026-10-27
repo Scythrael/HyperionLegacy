@@ -489,6 +489,39 @@ Canister 1 [PROPOSAL]). That blueprint does not exist yet, so GG-7 builds it wit
 (reactorTech.ts) already carries the Deuterium-Helium-3 fusion, antimatter-catalyzed fusion and antimatter tiers as
 balancing patch seams; GG-7 adds no reactor. The Deuterium Canister's reactor use is live (every Reactor Core recipe).
 
+**GG-7 carry note (built 2026-10-27, on feat 1567b4d).** Goldens first (gasGiantSpecialsGoldens.test.ts: every pre-GG-7
+blueprint's research verdict at Lab 0 to 7 with and without decoded entries, the grid's study and nebula runs with every
+stamp, the fragment odds); all three hold. New leaf `specialBlueprints.ts` (keys, varieties, Lab tiers III / IV / V as
+the mockup drew, and GG7_NUMBERS: every [PROVISIONAL] number in one place). model.ts GAS_GIANT_BLUEPRINTS, spread after
+EM-7's modules, all NEW rows (no existing recipe moved): Pressure-Forged Plating (Hull Plating variety
+`pressureForgedPlating`, Osmium Plate 2 + Ferrite Ingot 2 + Frame 1 + Methane Canister 1), Ramscoop Collector (universal
+module `ramscoopCollector`, passive, expeditions only, Cobalt Coil 2 + Coupling 2 + Frame 2), Resonance Sensor Array
+(sensor variety `sensorResonance`, Photonic Gel 2 + Wafer 2 + Coupling 1 + Helium-3 Canister 1), each `requiresDecode`;
+Elite Quarters Blueprint at Lab tier III (the audit's mix + Ammonia 1 + Hydrogen 1, call 14). Every canister now has a
+consumer (Hydrogen and Ammonia: Elite Quarters; Methane: the plating; Deuterium: cores and Class III+ drives; Helium-3:
+the Resonance array, no Reactor Core; the cell: Class VI and VII). ENGINE, stamped on new runs only: the dispatch
+freezes `Expedition.nebula.ramscoop` (per mille, the module's boost x moduleEffectScale x wear) when the ship carries a
+Ramscoop and the system holds a nebula: the sweep lasts 7200 / (1 + it) and fills x (1 + it) (nebulaSweepSeconds,
+nebulaHaulScale; never a gate); `Expedition.ancientFind` (per mille) when a study run's ship carries the Resonance array:
+every study's fragment odds x (1 + it). Without the stamps every record and draw is byte-identical (capture 2). Registry
+live with probes: GAS_STUDY_USES canisterRecipes (+ one equals row per canister, `content:craftSpends`), the three
+`BLUEPRINTS:<key>:effect` rows (plating lean over minted plates, sweep canisters per hour, fragment per-mille), the
+Ramscoop module row (its frozen stamp), SENSOR_ARRAYS ancientFragmentBonus, DATA_STUDY ancientDecode and
+DATA_STUDY_SEAM decodeGate (gate); new seam DATA_STUDY_SEAM cultureStudyPoint (owner R2-6). UI: ANCIENT_DECODE_TEXT_LIVE
+true; the Data study tab gains the mockup section 4 "Special blueprints" cards (glyph, name, line, Lab tier, state chip)
+with the decode gate's line (the Cultures tab waits on R2-8, so no culture name is shown); the research refusal reads
+"Decode N ancient entries of one culture first"; the Ramscoop's module card. Goldens moved on purpose, each held apart
+through gasGiantSpecials.fixture.ts (withoutGg7Content, GG7_BLUEPRINT_KEYS) or gasStudyGoldens.fixture.ts
+(GG7_ADDED_ENTRY_IDS, the canisterRecipes flip): blueprint keys / census / lab tiers / recipes table / rarity mints /
+EM-5 and EM-7 pins / the registry pins. Test rules adjusted: the no-wall rule counts a decode-gated blueprint as a
+discovery payoff and keeps EARLY (Lab I and II) varieties open (the quarters slot's only blueprint is Lab III until
+CP-11). [PROVISIONAL]: decode entries 1 / 2 / 3 (the mockup sampled 3 and 5 with relic-decoded entries the engine does not
+have), costs = the Class III to V drives', the plating lean, Ramscoop +50% and draw 6, Resonance +50%, Elite Quarters 1 + 1
+canisters. [PROPOSAL]: the Resonance array's effect (fragment odds), the three special recipes (audit section 9), the
+Elite Quarters taking GG-7's place in CP-11. For CP-11: `eliteQuartersBp` exists (tier III, canisters); build the
+others around it. Left: sensors taking Hydrogen and Methane (call 14) need a Lab III+ sensor array besides the special
+one (none exists); Help is GG-8's.
+
 ### GG-8: Help, registry close-out, QA sheet
 
 Help topics: gas giants and nebulae, the Galileo-Class Probe, Gas Storage Canisters, research data and the lab lane,
