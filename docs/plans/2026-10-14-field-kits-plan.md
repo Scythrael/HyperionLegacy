@@ -587,6 +587,13 @@ shortRangeGoldens' `registryPin` (FKR8_SLICE) and emodGoldens' `fkr8ReadBack`. G
 equal the no-device run's, the Lure salvage); every catalog 2, no-device and FK-3 pin unchanged. Help: Field Kits topic
 "FIELD DEVICES" paragraph (`FIELD_DEVICES_PARAGRAPH`, numbers from the engine), cross-links in Risk Factors (ambushes)
 and Scan Events (salvage); QA sheet section 12 rewritten. Tests: `fieldDevices.test.ts` (12).
+**FKR-8 review follow-up (2026-10-27):** D23 stacking: `fieldDeviceChance` / `fieldDeviceSalvageMult` pass one device's
+worth (`fieldDeviceSingleDial` 0.4 x roll) whole and the rest through `diminishing()` at `FIELD_DEVICE_STACK_KNEE` 0.4
+[PROVISIONAL]; a Shroud stack past one divides the chance (never zero: five at 50% keep about 49%, was 0), Lure salvage
+tapers uncapped (six at 75% +107%, was +180%). One device is exactly as before (Lure x(1 + 0.4 roll), Shroud x(1 - 0.4
+roll)). The in-flight path is untouched. Moved again, named: the two Lure salvage-seed SHIP rows (the roster's two
+Lures). Help says a downed member stops counting until the team is healed in the bay, and that stacks diminish. Caller
+tests: whole runs through startWork's ambush roll and a won ship battle's salvage (each fails with its reader dropped).
 
 #### FKR-9: Dispatch packing per member and run readouts (UI) **[NEEDS A NEW USER MOCKUP SIGN-OFF]**
 

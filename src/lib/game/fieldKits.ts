@@ -26,7 +26,7 @@
 // 2026-10-17, and the free basic curve's shape on 2026-10-20. DETERMINISM: pure; the only draw is fieldDevicePercent's, on FIELD_DEVICE_SALT (registered in
 // salts.test.ts). Module graph: model (types), gambit (first aid constants), diminishing, combat/rng.
 
-import { BLUEPRINTS, memberVariety, type AwayRosterSnapshot, type AwayTraitId, type Expedition, type GambitStatusId, type SnapshotMember } from "./model";
+import { BLUEPRINTS, EQUIPMENT_SLOTS, memberVariety, type AwayRosterSnapshot, type AwayTraitId, type Expedition, type GambitStatusId, type SnapshotMember } from "./model";
 import {
   BASIC_DEBUFFS as BATTLE_BASIC_DEBUFFS,
   BONE_LINE,
@@ -371,15 +371,43 @@ export function fieldDeviceLureDial(members: readonly SnapshotMember[]): number 
   return dial;
 }
 
-// A chance under a device dial at one use's effectiveness: chance x (1 + dial x effectiveness), kept a probability
-// (0 to 1). Pure.
-export function fieldDeviceChance(chance: number, dial: number, effectiveness: number): number {
-  return Math.max(0, Math.min(1, chance * (1 + dial * effectiveness)));
+// STACKING (D23, user 2026-10-08: diminishing returns, never a cap). A stack of devices does not add linearly: the
+// summed |dial| x roll passes ONE device's worth whole (the largest single dial, FIELD_DEVICE_SINGLE_DIAL, at this
+// roll), and everything beyond it through the shared diminishing() curve at FIELD_DEVICE_STACK_KNEE, so each extra
+// device adds less than the last and the stack never stops growing. One device keeps exactly its effect (a Lure
+// x (1 + 0.4 x roll), a Shroud x (1 - 0.4 x roll)). A Shroud stack past one device DIVIDES the chance (the one-device
+// factor 1 - a, then / (1 + diminishing(beyond) / (1 - a)), the same slope at the join), so it approaches zero and
+// never reaches it; a Lure stack lifts the chance by the curved amount (a probability still tops out at 1) and the
+// salvage scale by the curved amount x LURE_SALVAGE_PER_DIAL, uncapped.
+// The knee [PROVISIONAL]: one device's dial, so a second Lure at a 75% roll adds about 0.23 to the first's 0.3 (0.53
+// in all, not 0.6), six add about 1.07 (not 1.8); five Shrouds at a 50% roll leave about 49% of the chance (not 0).
+export const FIELD_DEVICE_STACK_KNEE = 0.4;
+
+// The largest single device dial (|encounterBias| over the member tools: 0.4). Pure.
+export function fieldDeviceSingleDial(): number {
+  return Math.max(0, ...EQUIPMENT_SLOTS.memberTool.varieties.map((v) => Math.abs(v.member?.encounterBias ?? 0)));
 }
 
-// The salvage scale multiplier of a Lure dial at one use's effectiveness. Pure.
+// The stacked worth of `used` (|dial| x roll) when one device at this roll is worth `one`: whole up to it, the rest
+// diminished. Pure.
+function stackedDeviceWorth(used: number, one: number): number {
+  return used <= one ? used : one + diminishing(used - one, FIELD_DEVICE_STACK_KNEE);
+}
+
+// A chance under a device dial at one use's effectiveness (see STACKING above), kept a probability. Pure.
+export function fieldDeviceChance(chance: number, dial: number, effectiveness: number): number {
+  const used = Math.abs(dial) * effectiveness;
+  const one = fieldDeviceSingleDial() * effectiveness;
+  if (dial >= 0) return Math.min(1, chance * (1 + stackedDeviceWorth(used, one)));
+  if (used <= one) return Math.max(0, chance * (1 - used));
+  const keep = 1 - one;
+  return (chance * keep) / (1 + diminishing(used - one, FIELD_DEVICE_STACK_KNEE) / keep);
+}
+
+// The salvage scale multiplier of a Lure dial at one use's effectiveness (see STACKING above). Pure.
 export function fieldDeviceSalvageMult(lureDial: number, effectiveness: number): number {
-  return 1 + Math.max(0, lureDial) * effectiveness * LURE_SALVAGE_PER_DIAL;
+  const used = Math.max(0, lureDial) * effectiveness;
+  return 1 + stackedDeviceWorth(used, fieldDeviceSingleDial() * effectiveness) * LURE_SALVAGE_PER_DIAL;
 }
 
 // ===== Saboteur: the thrower's own grenades =====

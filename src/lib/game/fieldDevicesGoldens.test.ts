@@ -237,6 +237,10 @@ const SHIP_PINS: Record<string, { reads: string; events: string; claim: string }
 //                      Shroud never scales a drop); the Lure runs' two won probe battles pay a larger haul (the Lure's
 //                      drop scale at each use's roll, the Codebreaker's x1.06 on top), so their events and claims move.
 //                      At the first seed (no won battle) the Lure runs' claims hold: their extra events left nothing.
+//                      Re-pinned at the review follow-up (D23 stacking, fieldKits.ts STACKING): the salvage reads the
+//                      whole roster's two Lures, whose second now adds less (curved past one device), so the two Lure
+//                      salvage-seed rows moved again (events, claims). Every HAND row holds: each crew wears one device,
+//                      and one device keeps exactly its linear effect.
 const FKR8_MOVED_HAND: Record<string, Partial<{ run: string; tally: string; claim: string }>> = {
   "shroud:stamped": { run: "2ccb9bbd", tally: "[[\"ancientRuins\",0,0,0,\"done\"],[\"ancientRuins\",1,0,1,\"done\"],[\"ancientRuins\",1,0,1,\"done\"],[\"enemyColony\",0,1,4,\"done\"],[\"derelictOutpost\",0,1,4,\"done\"]]", claim: "140fb1eb" },
   "lure:stamped": { run: "265d99f3", tally: "[[\"ancientRuins\",0,0,0,\"done\"],[\"ancientRuins\",1,0,1,\"done\"],[\"ancientRuins\",1,0,1,\"done\"],[\"enemyColony\",0,1,6,\"done\"],[\"derelictOutpost\",0,1,6,\"done\"]]", claim: "7c7dea46" },
@@ -246,9 +250,9 @@ const FKR8_MOVED_SHIP: Record<string, Partial<{ reads: string; events: string; c
   "shroud:stamped": { reads: "f15f4531", events: "c81683ec", claim: "65a11485" },
   "shroud:stamped:salvage": { reads: "6b65277", events: "e174d427", claim: "3c42325f" },
   "lure:stamped": { reads: "f15f4531", events: "c81683ec" },
-  "lure:stamped:salvage": { reads: "6b65277", events: "ca69ed4b", claim: "e3e2ea09" },
+  "lure:stamped:salvage": { reads: "6b65277", events: "d969e64f", claim: "89664e89" },
   "lureCodebreaker:stamped": { reads: "f15f4531", events: "c81683ec" },
-  "lureCodebreaker:stamped:salvage": { reads: "6b65277", events: "4ca8c3a1", claim: "8ea55abc" },
+  "lureCodebreaker:stamped:salvage": { reads: "6b65277", events: "e534a915", claim: "a849bbbc" },
 };
 
 // The pin a run must read now: its capture, with the named FKR-8 move applied (every moved field must have moved).

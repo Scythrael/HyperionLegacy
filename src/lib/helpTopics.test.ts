@@ -358,6 +358,10 @@ describe("HELP_TOPICS", () => {
       expect(FIELD_DEVICES_PARAGRAPH).toContain("40% less at full strength, so 20% to 30% less each roll");
       expect(FIELD_DEVICES_PARAGRAPH).toContain(`pays ${n(40 * LURE_SALVAGE_PER_DIAL * 0.5)} to ${n(40 * LURE_SALVAGE_PER_DIAL * 0.75)} more salvage`);
       expect(FIELD_DEVICES_PARAGRAPH).toMatch(/ambush on a quiet objective, and reinforcements on a Reinforcing one/);
+      // D23 stacking and the downed rule as the engine does them (fieldKits.ts STACKING; groundOps.ts healTeam).
+      expect(FIELD_DEVICES_PARAGRAPH).toContain("Each extra device adds less than the one before");
+      expect(FIELD_DEVICES_PARAGRAPH).toContain("stops counting until the team is healed in the medical bay");
+      expect(FIELD_DEVICES_PARAGRAPH).not.toMatch(/they add up/);
       expect(topic("scanEvents").body).toContain("A Lure Beacon on the expedition raises the salvage of a won ship battle");
     });
 
