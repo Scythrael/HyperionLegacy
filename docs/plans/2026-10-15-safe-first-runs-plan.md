@@ -951,3 +951,12 @@ the patrol card and any `brokeOff` wording.
   through `runCounts.patrol.completed` in the hashed state (with the per-route count line restored every old value
   reproduced). racialsWired's Belter replenish test now dispatches as a patrol veteran (at the floor no drone is lost).
   `npm run test:sweep:patrol` green.
+
+## USER ANSWERS (2026-10-27): SF-6 text (calls 12 and 13)
+
+- **Call 12 first-run text:** "Approve as drafted (Recommended)": chip "Training run" with "Your first expedition cannot
+  fail. From the next one on, the risk rises slowly." (patrol: "Your first patrol cannot fail. From the next one on,
+  the risk rises slowly."); the gathering card: "First run: see how a mission works."
+- **Call 13 heavy cruiser descriptions:** "Approve as drafted (Recommended)": the three SF-6 descriptions verbatim, shown
+  on the Shipyard build card AND the ship detail header. (Check the Aurora line against the EM-7 OC-D13 fix, which made
+  its description true: keep whichever text is true of the built hull and say so.)
