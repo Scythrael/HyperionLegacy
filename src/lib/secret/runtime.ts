@@ -58,6 +58,9 @@ let jobTimer: ReturnType<typeof setTimeout> | null = null;
 // before the runtime starts, and on every main save). Applied to the state only BETWEEN advances (never
 // inside a running catch-up job), so every step of one advance reads one snapshot and offline == live
 // holds. undefined = no relics: the state then carries no field at all.
+// A catch-up pays the WHOLE time away with the snapshot read now (at load, the current Museum), not
+// with what the Museum held part way through the absence. Accepted (R2-10 review): relic counts only
+// rise, so this can only round in the player's favor, and offline == live holds for any one snapshot.
 let relicBoosts: RelicBoosts | undefined = undefined;
 
 function withRelics(s: SecretState): SecretState {

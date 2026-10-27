@@ -15,9 +15,11 @@
 
 import type { MuseumV2, RegionTierKey } from "../game/model";
 import { diminishing } from "../game/diminishing";
+import { REGION_TIER_LIST } from "../game/relics";
 import { RELIC_BOOSTS, RELIC_PAST_CAP_WEIGHT, type RelicBoosts, type RelicLever } from "./config";
 
-const TIER_KEYS: readonly RegionTierKey[] = ["1", "2", "3", "4", "5", "6", "7"];
+// Every region tier's Museum key, from the one tier list the Museum math walks.
+const TIER_KEYS: readonly RegionTierKey[] = REGION_TIER_LIST.map((t) => String(t) as RegionTierKey);
 
 function count(n: unknown): number {
   return typeof n === "number" && Number.isFinite(n) && n > 0 ? Math.floor(n) : 0;

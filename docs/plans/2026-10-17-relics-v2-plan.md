@@ -561,6 +561,17 @@ Asked by multiple choice; all four picks were the Recommended option.
    minigame, still on the D23 diminishing curve (no cap, no compounding).
 4. Two-way stays "Only via milestones" (2026-10-22): the minigame never multiplies the main game.
 
+## USER ANSWERS (2026-10-27): R2-10 review calls
+
+Asked by multiple choice; all three picks were the Recommended option.
+1. Resonance Shard ("Fleet Points", no such currency in the minigame): "Augment Points count more" (the builder's
+   pick, kept): it makes the Augment Points held count as more on the stack, so it never doubles Glyph Tablet.
+2. The heavy end (Tier I 2,000 with 1,000 past the cap, Tier II 1,000, Tier III 300: goals 54 to 74% sooner):
+   "Keep it".
+3. The casual player's e1,000,000 about 42% sooner with a typical collection: "Accept" (a threshold effect: relic-free
+   casual sits at the slow end of its band; keep the widened band in simRelicsCasual.test.ts).
+The 17 perCopy amounts and knees stay [PROVISIONAL] for the 0.16.0 balancing pass.
+
 ### R2-10 carry note (built)
 - Reader `src/lib/secret/relicBoosts.ts` (pure, one-way): live Museum v2 counts per type over every tier; a copy past
   its tier's soft cap (read off the tier's snapshot) counts `RELIC_PAST_CAP_WEIGHT` 5x; boost = 1 + perCopy x
@@ -569,15 +580,18 @@ Asked by multiple choice; all four picks were the Recommended option.
   `SecretState.relicBoosts` (never saved; absent without relics); App sets it at load (before the runtime starts),
   on every main save and when the minigame opens. Ancient Drive Coil is the game clock (`gamePace`), the rest act on
   tier rates, Overclock level count, ten bonus factor, the three point gains and the Augment Points' count.
-- [PROVISIONAL] "Fleet Points" (Resonance Shard): no such currency in the minigame, read as "your Augment Points count
-  as more" (the Fleet layer's reward on the stack), so it never duplicates Glyph Tablet (Augment Points earned).
+- "Fleet Points" (Resonance Shard): no such currency in the minigame, read as "your Augment Points count as more" (the
+  Fleet layer's reward on the stack), so it never duplicates Glyph Tablet (Augment Points earned). User 2026-10-27:
+  kept.
 - Pacing (typical = about 208 Tier I relics, 3 weeks: one explorer 16 h/day at 0.5 blanks/h plus two Tier I
   short-range missions; heavy = Tier I 2,000 with 1,000 past cap, Tier II 1,000, Tier III 300), finale / e1M / e10M:
   average 4.17 / 27.87 / 101.29 d (14.7 / 13.8 / 15.0% faster); optimal 3.52 / 30.22 / 101.71 (21.0 / 12.3 / 21.8%);
   casual 6.23 / 27.97 / 117.06 (9.1 / 41.5 / 16.8%; the relic-free casual e1M sits at the slow end of its band);
   heavy average 2.24 / 8.53 / 34.12 (54 / 74 / 71%). Relic-free unchanged (relicGoldens.test.ts byte-identical).
-  With typical relics the 100% default targets stay best (200%, 500%, 1000%, by hand all later) and the coarse
-  stretch tracks shipping (2.55%). The climb is path-dependent: a Prestigeception landing just before a goal costs
+  With typical relics the 100% default targets stay best: 200% is pinned (simRelicsTargets.test.ts); 500%, 1000% and
+  by hand were measured once, all later, not pinned. The coarse stretch tracks shipping with relics (2.55%, pinned in
+  simRelicsStretch.test.ts). The relic-free optimal and casual numbers the ratios use are pinned in simOptimal and
+  simCasual. The climb is path-dependent: a Prestigeception landing just before a goal costs
   about a day, which is why most of the speed is the even game-clock lever.
 - Registry: 17 `relic:audit:minigame:<lever>` rows LIVE with `content:minigame:<lever>` probes (10 Tier I copies move
   the lever by its boost through the minigame consumer).

@@ -137,9 +137,11 @@ describe("two-way stays Only via milestones: the main game never moves", () => {
   });
 
   it("no gameplay file of the main game imports the minigame (the Debug wiring audit reads it, one way)", () => {
+    // The Debug wiring audit's two files are the only readers allowed (its probes and its rows).
+    const ALLOWED = new Set(["src/lib/game/wiring/probes.ts", "src/lib/game/wiring/registry.ts"]);
     const offenders: string[] = [];
     for (const file of walk("src/lib/game")) {
-      if (file.includes("/wiring/") || /\.(test|fixture)\.ts$/.test(file)) continue;
+      if (ALLOWED.has(file) || /\.(test|fixture)\.ts$/.test(file)) continue;
       if (/from "[^"]*\/secret\//.test(readFileSync(file, "utf-8"))) offenders.push(file);
     }
     expect(offenders).toEqual([]);

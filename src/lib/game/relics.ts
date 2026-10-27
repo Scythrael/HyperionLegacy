@@ -876,7 +876,7 @@ export const RELIC_BAND_ODDS_ANCHORS: Readonly<Record<4 | 7, Readonly<Record<Rel
   7: { standard: [20, 35, 28, 17], augmented: [15, 32, 33, 20], stellar: [5, 22, 41, 32], radiant: [0, 10, 40, 50] },
 };
 
-const REGION_TIER_LIST: readonly RegionTier[] = [1, 2, 3, 4, 5, 6, 7];
+export const REGION_TIER_LIST: readonly RegionTier[] = [1, 2, 3, 4, 5, 6, 7];
 
 function tierOneRow(blank: RelicBand): BandRow {
   const w = RELIC_RARITY_WEIGHTS_BY_TIER[blank];

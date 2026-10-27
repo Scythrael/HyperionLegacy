@@ -198,9 +198,10 @@ export interface RelicBoostDef {
 // The pacing: the climb is path-dependent (a Prestigeception that lands just before a goal costs a
 // day), so most of the speed comes from Ancient Drive Coil's game clock, which compresses the whole
 // game evenly, and the other levers stay small. The mapping is the user's table. "Fleet Points"
-// (Resonance Shard) has no currency of its own in this game: [PROVISIONAL] read as the Fleet layer's
-// reward on the stack (Augment Points count as more, the way Captain's Compound counts them), so it
-// never doubles Glyph Tablet's Augment Points earned.
+// (Resonance Shard) has no currency of its own in this game: read as the Fleet layer's reward on the
+// stack (Augment Points count as more, the way Captain's Compound counts them), so it never doubles
+// Glyph Tablet's Augment Points earned (user 2026-10-27: "Augment Points count more", kept). The
+// amounts and knees stay [PROVISIONAL] for the 0.16.0 balancing pass.
 export const RELIC_BOOSTS: readonly RelicBoostDef[] = [
   // typical x1.05 each generator row
   { relicId: "geodeCore", lever: "tier1", boosts: "Mining Laser output", perCopy: 0.00311, knee: 10 },
