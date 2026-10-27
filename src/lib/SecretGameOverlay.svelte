@@ -59,6 +59,8 @@
     canBuyUpgrade,
     buyUpgrade,
     milestoneVisible,
+    overclockLevelFactor,
+    relicBoost,
     type BuyMode,
   } from "./secret/engine";
   import {
@@ -72,10 +74,13 @@
     FINALE_EXPONENT,
     LONG_EXPONENT,
     STARFALL_EXPONENT,
-    OC_FACTOR,
+    RELIC_BOOSTS,
+    RELIC_TIER_LEVERS,
+    RELIC_LOCKED_TIER_TEXT,
     type SkillId,
     type UpgradeId,
   } from "./secret/config";
+  import { getRelicTypeById } from "./game/relics";
   import { cloneSecret, type SecretState, type AutoLayer } from "./secret/state";
   import { formatSecret, formatExponent, formatMultiplier } from "./secret/format";
   import { tabKeyTarget, overlayClosesOn } from "./secret/overlayKeys";
@@ -237,11 +242,23 @@
   ];
   const autoSkill = (layer: AutoLayer) => LAYERS.find((l) => l.layer === layer)!.skill;
 
-  // Overclock's per-level factor, after Overclock Overclocker.
-  function ocPerLevel(x: SecretState): number {
-    const step = UPGRADES.find((u) => u.id === "ocOverclocker")!.step;
-    return Math.pow(OC_FACTOR, 1 + step * upgradeLevel(x, "ocOverclocker"));
+  // Overclock's per-level factor, after Overclock Overclocker and the Flight Recorder relic boost.
+  const ocPerLevel = (x: SecretState): number => overclockLevelFactor(x);
+
+  // R2-10: the active relic boosts (the main game's Museum, read as a snapshot by the runtime). A
+  // generator boost names its generator only once it is unlocked; until then it stays undiscovered.
+  function relicRows(x: SecretState): { relic: string; what: string; mult: string }[] {
+    const rows: { relic: string; what: string; mult: string }[] = [];
+    for (const def of RELIC_BOOSTS) {
+      const m = relicBoost(x, def.lever);
+      if (!(m > 1)) continue;
+      const tier = RELIC_TIER_LEVERS.indexOf(def.lever);
+      const what = tier < 0 ? def.boosts : isTierUnlocked(x, tier) ? `${TIERS[tier].name} output` : RELIC_LOCKED_TIER_TEXT;
+      rows.push({ relic: getRelicTypeById(def.relicId)?.label ?? def.relicId, what, mult: m < 1.1 ? m.toFixed(3) : m < 10 ? m.toFixed(2) : formatMultiplier(m) });
+    }
+    return rows;
   }
+  $: relicList = view === "stats" ? relicRows(s) : [];
   function perLevelLabel(v: number): string {
     return v < 10 ? v.toFixed(3) : v < 1000 ? v.toFixed(1) : formatSecret(v);
   }
@@ -356,6 +373,16 @@
           <div class="stat"><div class="k">Milestones</div><div class="v"><span class="num">{reachedCount}</span> of <span class="num">{visibleMilestones.length}</span></div></div>
           <div class="stat"><div class="k">Time since found</div><div class="v">{s.foundAt === null ? "Since before 0.13.11.1" : duration(s.lastTickAt - s.foundAt)}</div></div>
           <div class="stat"><div class="k">First found</div><div class="v">{s.foundAt === null ? "Before 0.13.11.1" : when(s.foundAt)}</div></div>
+          {#if relicList.length > 0}
+            <div class="stat stat-wide relics">
+              <div class="k">Relic boosts</div>
+              <ul class="relic-list">
+                {#each relicList as r}
+                  <li><span class="relic-name">{r.relic}</span><span class="relic-what">{r.what}</span><span class="num relic-mult">×{r.mult}</span></li>
+                {/each}
+              </ul>
+            </div>
+          {/if}
         </div>
       </section>
     {:else if view === "help"}
@@ -1123,6 +1150,34 @@
     display: inline-block;
     margin-right: 10px;
   }
+  /* R2-10: the relic boosts, one row each: relic, what it boosts, the multiplier at the right. */
+  .relic-list {
+    margin: 4px 0 0;
+    padding: 0;
+    list-style: none;
+    font-size: var(--text-sm);
+  }
+  .relic-list li {
+    display: grid;
+    grid-template-columns: minmax(0, 11em) minmax(0, 1fr) auto;
+    gap: 8px;
+    padding: 2px 0;
+    border-top: 1px solid var(--color-border);
+  }
+  .relic-list li:first-child {
+    border-top: 0;
+  }
+  .relic-name {
+    font-weight: 600;
+    overflow-wrap: anywhere;
+  }
+  .relic-what {
+    color: var(--color-text-dim);
+    overflow-wrap: anywhere;
+  }
+  .relic-mult {
+    text-align: right;
+  }
   .tier-label {
     font-family: var(--font-display);
     font-size: var(--text-2xs);
@@ -1226,6 +1281,18 @@
     }
     .stat .v {
       font-size: var(--text-md);
+    }
+    /* R2-10 on a phone: the relic and its multiplier on one line, what it boosts under them. */
+    .relic-list li {
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 0 8px;
+    }
+    .relic-mult {
+      grid-column: 2;
+      grid-row: 1;
+    }
+    .relic-what {
+      grid-column: 1 / -1;
     }
   }
   @media (max-width: 760px) {

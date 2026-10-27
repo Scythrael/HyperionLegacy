@@ -3,7 +3,7 @@
 // 3-hour first session (sim.ts). Bands leave room for a milestone moving by a check-in or two.
 import { describe, it, expect } from "vitest";
 import { simulatePlayer, LONG_STRETCH_DT } from "./sim";
-import { timeline, expectSlowsAfterStarfall, D, H } from "./simReport";
+import { timeline, expectSlowsAfterStarfall, D, H, RELIC_FREE, RELIC_GOALS } from "./simReport";
 
 describe("the optimal player", () => {
   it("first Captain under an hour, finale in 3.5 to 5.5 days, e1,000,000 in 28 to 41 days, e10,000,000 in 115 to 145 days", () => {
@@ -13,6 +13,8 @@ describe("the optimal player", () => {
     expect(e.captain1).toBeLessThanOrEqual(H);
     expect(e.finale).toBeGreaterThanOrEqual(3.5 * D);
     expect(e.finale).toBeLessThanOrEqual(5.5 * D);
+    // R2-10: the relic pins compare against these relic-free numbers (simReport RELIC_FREE.optimal)
+    for (const g of RELIC_GOALS) expect(e[g] / D, g).toBeCloseTo(RELIC_FREE.optimal[g], 2);
     expect(e.long).toBeGreaterThanOrEqual(28 * D);
     expect(e.long).toBeLessThanOrEqual(41 * D);
     expect(e.starfall).toBeGreaterThanOrEqual(115 * D);

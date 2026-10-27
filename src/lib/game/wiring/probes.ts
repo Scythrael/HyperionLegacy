@@ -238,6 +238,21 @@ import {
 import { ANCIENT_DATA_FRAGMENT_ID, GAS_CANISTER_IDS, GIANT_CLASSES, NEBULA_KINDS, canistersInBand, type GiantClassDef, type GiantClassId, type NebulaKindDef, type NebulaKindId, type ResearchFamily } from "../gasGiantContent";
 // Gas Giant Study GG-5: the Research Lab's data study lane.
 import { DATA_STUDY_RECIPE_PERMILLE, DATA_STUDY_TICKS, researchFamilyOf, rollDataStudyRecipe, setDataStudyPaused } from "../dataStudy";
+// Relics v2 R2-10: the minigame's relic boosts (one-way: the main game's Museum read by the secret game). This audit
+// reads them; no gameplay file of the main game does (relicBoosts.test.ts).
+import { RELIC_TIER_LEVERS, OC_FACTOR as SECRET_OC_FACTOR, AP_POW as SECRET_AP_POW, type RelicLever } from "../../secret/config";
+import { relicBoostsFromMuseum } from "../../secret/relicBoosts";
+import { freshSecretState, type SecretState } from "../../secret/state";
+import {
+  tierMultiplier as secretTierMultiplier,
+  overclockMultiplier as secretOverclockMultiplier,
+  tenBonusFactor as secretTenBonusFactor,
+  gamePace as secretGamePace,
+  captainGain as secretCaptainGain,
+  fleetGain as secretFleetGain,
+  prestigeceptionGain as secretPrestigeceptionGain,
+  augmentMultiplier as secretAugmentMultiplier,
+} from "../../secret/engine";
 
 // ============================================================================
 // Contexts (every context a claim can cover; plan section 3.2)
@@ -1151,6 +1166,56 @@ function relicContentProbe(kind: string, on: boolean, s: GameState): number {
     cur = resolveProcesses(started, proc.remainingTicks, () => 0).next;
   }
   return Object.values(cur.museumV2.exceptional).reduce((a, b) => a + b, 0);
+}
+
+// Relics v2 R2-10 content probes ("content:minigame:<lever>"): the fixture's Museum read as the minigame's relic boosts
+// (relicBoostsFromMuseum, what the runtime reads from every main save), measured through the minigame consumer the lever
+// multiplies, on one fixed minigame state. Each value is linear in its lever's boost:
+//   tier1..tier8   that generator's rate multiplier (tierMultiplier); allSmall / allBig read Tier I's
+//   overclock      the Overclock levels counted (log of overclockMultiplier over log 1.125)
+//   stack          the game clock's speed (gamePace)
+//   tenBonus       the ten bonus factor
+//   captain / augment / dream   the points the next Captain Prestige / Fleet Prestige / Prestigeception pays
+//   fleet          the Augment Points counted on the stack (augmentMultiplier undone through AP_POW)
+function minigameProbeState(s: GameState): SecretState {
+  const x = freshSecretState(0);
+  x.tiersUnlocked = 8;
+  x.bought = new Array(8).fill(10);
+  x.owned = Array.from({ length: 8 }, () => new Decimal(10));
+  x.overclock = 100;
+  x.augmentPoints = new Decimal(1e6);
+  x.dreamPoints = new Decimal(1e30);
+  x.runPeak = new Decimal("1e5000");
+  x.fleetPeak = new Decimal("1e5000");
+  x.pcPeak = new Decimal("1e50000");
+  const boosts = relicBoostsFromMuseum(s.museumV2);
+  if (boosts) x.relicBoosts = boosts;
+  return x;
+}
+function minigameContentProbe(lever: string, s: GameState): number {
+  const x = minigameProbeState(s);
+  const tier = RELIC_TIER_LEVERS.indexOf(lever as RelicLever);
+  if (tier >= 0) return secretTierMultiplier(x, tier).toNumber();
+  switch (lever) {
+    case "allSmall":
+    case "allBig":
+      return secretTierMultiplier(x, 0).toNumber();
+    case "overclock":
+      return secretOverclockMultiplier(x).log10() / Math.log10(SECRET_OC_FACTOR);
+    case "stack":
+      return secretGamePace(x);
+    case "tenBonus":
+      return secretTenBonusFactor(x);
+    case "captain":
+      return secretCaptainGain(x).toNumber();
+    case "augment":
+      return secretFleetGain(x).toNumber();
+    case "dream":
+      return secretPrestigeceptionGain(x).toNumber();
+    case "fleet":
+      return Math.pow(10, secretAugmentMultiplier(x).log10() / SECRET_AP_POW) - 1;
+  }
+  throw new Error(`unknown minigame content probe ${lever}`);
 }
 
 // A relic the dispatched run recovers (the first seed whose roll hits on a hazard-1 Buried Vault), brought home by the
@@ -2570,6 +2635,8 @@ function readContent(id: string, s: GameState): number {
     }
     case "relic":
       return relicContentProbe(a, on, s);
+    case "minigame":
+      return minigameContentProbe(a, s);
     case "pirate": {
       // WR-8: generated under the combat rules (the hull's armor, dampening and evasion reach the combatant only there;
       // every other field reads the same either way).

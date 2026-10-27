@@ -21,6 +21,9 @@
 
 import { writable, type Readable } from "svelte/store";
 import { freshSecretState, inspectSecretSave, saveSecret, clearSecretSave, type SecretState } from "./state";
+import { relicBoostsFromMuseum, sameRelicBoosts } from "./relicBoosts";
+import type { RelicBoosts } from "./config";
+import type { MuseumV2 } from "../game/model";
 import { advanceTo, createCatchUp, type CatchUpJob } from "./catchUp";
 import { markFound } from "./engine";
 import { MILESTONES, milestoneAchievement, type MilestoneId } from "./config";
@@ -50,6 +53,45 @@ export const secretCatchingUp: Readable<boolean> = { subscribe: catching.subscri
 
 let job: CatchUpJob | null = null;
 let jobTimer: ReturnType<typeof setTimeout> | null = null;
+
+// 0.14.0 (Relics v2 R2-10): the main game's relic boosts, read from the main save by App (at load,
+// before the runtime starts, and on every main save). Applied to the state only BETWEEN advances (never
+// inside a running catch-up job), so every step of one advance reads one snapshot and offline == live
+// holds. undefined = no relics: the state then carries no field at all.
+// A catch-up pays the WHOLE time away with the snapshot read now (at load, the current Museum), not
+// with what the Museum held part way through the absence. Accepted (R2-10 review): relic counts only
+// rise, so this can only round in the player's favor, and offline == live holds for any one snapshot.
+let relicBoosts: RelicBoosts | undefined = undefined;
+
+function withRelics(s: SecretState): SecretState {
+  if (s.relicBoosts === relicBoosts) return s;
+  const next = { ...s };
+  if (relicBoosts === undefined) delete next.relicBoosts;
+  else next.relicBoosts = relicBoosts;
+  return next;
+}
+
+// Brings the snapshot onto the live state now (not while a job runs: the next advance after it lands does).
+function applyRelics(): void {
+  if (job) return;
+  const next = withRelics(state);
+  if (next === state) return;
+  state = next;
+  lastGood = next;
+  store.set(next);
+}
+
+// App passes the main save's Museum v2 record. Never throws into the app.
+export function setSecretRelicBoosts(museum: MuseumV2 | undefined): void {
+  try {
+    const next = relicBoostsFromMuseum(museum);
+    if (sameRelicBoosts(next, relicBoosts)) return;
+    relicBoosts = next;
+    applyRelics();
+  } catch {
+    // A relic read is never worth breaking the game for; the old snapshot stays.
+  }
+}
 
 // The milestones `next` has that `prev` did not (0.13.11.1: each one gets an achievement popup).
 export function newlyReached(prev: SecretState, next: SecretState): MilestoneId[] {
@@ -137,6 +179,7 @@ function runSlice(): void {
 function advance(nowMs: number): void {
   if (job) return; // a sliced catch-up is already on its way
   try {
+    applyRelics();
     const gap = (nowMs - state.lastTickAt) / 1000;
     if (gap <= INLINE_SECONDS) {
       const r = advanceTo(state, nowMs);
@@ -161,6 +204,7 @@ export function secretAct(fn: (s: SecretState, nowMs: number) => SecretState): b
   if (job) return false;
   try {
     const nowMs = trustedNow();
+    applyRelics();
     const caught = advanceTo(state, nowMs).state;
     publish(fn(caught, nowMs));
     persist();
@@ -178,7 +222,7 @@ export function wipeSecretGame(): void {
   readOnly = false;
   clearSecretSave();
   pendingFoundAt = null;
-  publish(freshSecretState(trustedNow()), false);
+  publish(withRelics(freshSecretState(trustedNow())), false);
 }
 
 // Dev only (Debug tab): pretend the secret game was away for `seconds` and pay it through the real

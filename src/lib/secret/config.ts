@@ -157,6 +157,81 @@ export const UPGRADES: readonly UpgradeDef[] = [
 ];
 
 // ---------------------------------------------------------------------------
+// Relic boosts (0.14.0, Relics v2 R2-10; plan docs/plans/2026-10-17-relics-v2-plan.md, USER ANSWERS
+// 2026-10-22 and 2026-10-26). Every identified relic in the MAIN game's Museum gives this game one
+// small multiplier, one lever per relic type (the user's 17-row table, "Approve as drafted"). Per
+// type: weighted copies = regular copies + RELIC_PAST_CAP_WEIGHT x copies past that tier's 1,000 soft
+// cap, then boost = 1 + perCopy x diminishing(weighted, knee) on the shared D23 curve: no cap, no
+// compounding (user correction 2026-10-22). Two-way stays "Only via milestones": nothing here ever
+// multiplies the main game. The boosts reach the engine as a snapshot on the state (relicBoosts,
+// never saved), read from the main save at open and on every main save (runtime.ts).
+// ---------------------------------------------------------------------------
+
+export type RelicLever =
+  | "tier1" | "tier2" | "tier3" | "tier4" | "tier5" | "tier6" | "tier7" | "tier8"
+  | "overclock" | "stack" | "tenBonus" | "captain" | "augment" | "fleet" | "dream" | "allSmall" | "allBig";
+
+// The multiplier per lever (a missing lever is exactly 1). A plain readonly record: engine.ts reads it.
+export type RelicBoosts = Readonly<Partial<Record<RelicLever, number>>>;
+
+// The tier levers, by tier index (Mining Laser first).
+export const RELIC_TIER_LEVERS: readonly RelicLever[] = ["tier1", "tier2", "tier3", "tier4", "tier5", "tier6", "tier7", "tier8"];
+
+// User answer 3 (2026-10-26, "5x (Recommended)"): a copy past its tier's 1,000 soft cap counts 5x.
+export const RELIC_PAST_CAP_WEIGHT = 5;
+
+export interface RelicBoostDef {
+  relicId: string; // the main game's general relic type id (relics.ts RELIC_TYPES; a test pins the match)
+  lever: RelicLever;
+  boosts: string; // what it boosts, for the Stats list (tier levers name their generator there instead)
+  perCopy: number; // A: the boost's growth per weighted copy far below the knee
+  knee: number; // the D23 knee, in weighted copies
+}
+
+// [PROVISIONAL] every perCopy (A) and knee below: the user picked "Gentle" (about 10 to 20% faster to
+// each goal for a typical 0.14.0 collection; relic-free players keep the shipped bands); the numbers
+// are the builder's, tuned by the pacing sims (simRelics*.test.ts pins both). Each A is set so the
+// TYPICAL collection (relicCollections.ts: about 208 Tier I relics, weighted copies standard 29,
+// augmented 12, stellar 6, radiant 1 per type) lands on its row's target below. The knees sit well
+// under those counts (standard 10, augmented 4, stellar 2, radiant 0.5), so more copies grow on the
+// curve's square-root reach: forty times the copies is about six times the bonus part, never a cap.
+// The pacing: the climb is path-dependent (a Prestigeception that lands just before a goal costs a
+// day), so most of the speed comes from Ancient Drive Coil's game clock, which compresses the whole
+// game evenly, and the other levers stay small. The mapping is the user's table. "Fleet Points"
+// (Resonance Shard) has no currency of its own in this game: read as the Fleet layer's reward on the
+// stack (Augment Points count as more, the way Captain's Compound counts them), so it never doubles
+// Glyph Tablet's Augment Points earned (user 2026-10-27: "Augment Points count more", kept). The
+// amounts and knees stay [PROVISIONAL] for the 0.16.0 balancing pass.
+export const RELIC_BOOSTS: readonly RelicBoostDef[] = [
+  // typical x1.05 each generator row
+  { relicId: "geodeCore", lever: "tier1", boosts: "Mining Laser output", perCopy: 0.00311, knee: 10 },
+  { relicId: "magmaPearl", lever: "tier2", boosts: "Refinery output", perCopy: 0.0076, knee: 4 },
+  { relicId: "deepVeinCompass", lever: "tier3", boosts: "Fabricator output", perCopy: 0.0152, knee: 2 },
+  { relicId: "tectonicKeystone", lever: "tier4", boosts: "Synthesizer output", perCopy: 0.0809, knee: 0.5 },
+  { relicId: "sporeCapsule", lever: "tier5", boosts: "Fusion Forge output", perCopy: 0.00311, knee: 10 },
+  { relicId: "bioluminescentSeed", lever: "tier6", boosts: "Graviton Press output", perCopy: 0.0076, knee: 4 },
+  { relicId: "leviathanScale", lever: "tier7", boosts: "Quantum Loom output", perCopy: 0.0152, knee: 2 },
+  { relicId: "livingCrystal", lever: "tier8", boosts: "Singularity Engine output", perCopy: 0.0809, knee: 0.5 },
+  // typical x1.02 (each level counts as 1.02 levels)
+  { relicId: "flightRecorder", lever: "overclock", boosts: "each Overclock level counts more", perCopy: 0.00304, knee: 4 },
+  // typical x1.15 on the game clock
+  { relicId: "ancientDriveCoil", lever: "stack", boosts: "the whole stack runs faster", perCopy: 0.0456, knee: 2 },
+  // typical x1.005 on the ten bonus factor (2 becomes 2.01)
+  { relicId: "hullRivet", lever: "tenBonus", boosts: "each ten bonus is a little stronger", perCopy: 0.000311, knee: 10 },
+  // typical x1.04 each points row
+  { relicId: "captainsSigil", lever: "captain", boosts: "Captain Points earned", perCopy: 0.0647, knee: 0.5 },
+  { relicId: "glyphTablet", lever: "augment", boosts: "Augment Points earned", perCopy: 0.00249, knee: 10 },
+  { relicId: "resonanceShard", lever: "fleet", boosts: "your Augment Points count as more", perCopy: 0.00608, knee: 4 },
+  { relicId: "starChartFragment", lever: "dream", boosts: "Dream Points earned", perCopy: 0.00608, knee: 4 },
+  // typical x1.03 and x1.05 on every generator
+  { relicId: "precursorLens", lever: "allSmall", boosts: "every generator", perCopy: 0.00911, knee: 2 },
+  { relicId: "heartOfTheArchive", lever: "allBig", boosts: "every generator, radiantly", perCopy: 0.0809, knee: 0.5 },
+];
+
+// The Stats line for a generator boost while that generator is still locked (it stays "???").
+export const RELIC_LOCKED_TIER_TEXT = "an undiscovered generator";
+
+// ---------------------------------------------------------------------------
 // Skills (Skill Points come from Fleet Prestige, one each; kept through every reset)
 // ---------------------------------------------------------------------------
 
@@ -313,5 +388,6 @@ export const HELP_SECTIONS: readonly { title: string; body: string }[] = [
   { title: "THE FINE PRINT", body: "Augment Points speed up the whole stack the way Captain Points do, and only a Prestigeception takes them away. Dream Points are never taken away: they make every Captain and Augment Point you earn count for more. A Fleet Prestige uses up the climb that paid for it, so a Prestigeception needs a fresh climb to e10,000 Ore after one. New generators unlock at 1, 2, 3 and 6 lifetime Fleet Prestiges. Legal read this paragraph twice and then asked to be reset too." },
   { title: "SKILLS", body: "Skill Points come from Fleet Prestige. Skills do the clicking for you: auto-buyers, automatic prestiges at a target you set, a head start and more. Once every skill is learned, Fleet Prestige stops paying Skill Points; any you saved stay yours. The late game is mostly watching numbers go up, which is the point." },
   { title: "MILESTONES", body: "Milestones appear as you get close to them, and each one is recorded with the date you reached it. Most rewards arrive in a future update; the last one pays out right away. You will know it when you see it." },
+  { title: "RELIC BOOSTS", body: "The relics in your Museum, out in the real game, hum at this old build. Each kind boosts one thing in here (Stats lists them), and every copy helps a little less than the one before. Copies past a tier's 1,000 count five times over. Nothing in here ever flows back out, apart from a certain smugness." },
   { title: "TIME AWAY", body: "The stack keeps running while this window is closed and while the game is closed. Come back whenever you like. It does the work; you take the credit. Not those credits." },
 ];

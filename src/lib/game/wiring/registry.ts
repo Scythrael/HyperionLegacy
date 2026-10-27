@@ -141,6 +141,8 @@ import {
   type MuseumStat,
 } from "../relics";
 import { shortRangeRelicMicrosPerHour } from "../relicBlanks";
+// Relics v2 R2-10: the minigame's relic boost table (one-way; the audit reads it, no gameplay file does).
+import { RELIC_BOOSTS } from "../../secret/config";
 import { BRIDGE_MODULES, QUARTERS_MODULES, moduleEffectScale } from "../crewModules";
 // E-MOD EM-7: the v1 universal module roster (each module's registry row reads its def through CATALOGS).
 import { UNIVERSAL_MODULES, bonusHaulUnits, type UniversalModuleDef } from "../shipModules";
@@ -415,6 +417,8 @@ export const CATALOGS = {
   REACTOR_FUEL_LADDER,
   // Gas Giant Study GG-2 / GG-3: the giant classes the class roll and the study reward read.
   GIANT_CLASSES,
+  // Relics v2 R2-10: the minigame's relic boost table (its audit rows read A and the knee here).
+  RELIC_BOOSTS,
 } as const;
 export type Catalogs = typeof CATALOGS;
 
@@ -3917,6 +3921,8 @@ const AUDIT_ROWS: readonly { id: string; system: WiringSystem; claim: string; st
   { id: "relic:audit:generalPick", system: "relic", claim: "A blank with no set identifies over the general pool by band, with the site bias (identifyGeneralRelic)", status: pending("Relics v2 R2-3 follow-up (retire the v1 setless branch of identifyStudiedRelic: identification v2, relic:audit:identifyV2, studies every new blank, G1-5's short-range blanks included, so no study reaches this pick)") },
   // Relics v2 R2-4 (relics.ts museum math v2): the per-tier soft cap snapshot (user calls 3 and 4).
   { id: "relic:audit:softCap", system: "relic", claim: "The soft cap: a tier's counts freeze for the regular game at RELIC_SOFT_CAP identified relics (1000 per tier, user call 3); counts keep growing and show (call 4)", status: LIVE },
+  // Relics v2 R2-10 (secret/relicBoosts.ts): every relic type boosts one minigame lever (user table 2026-10-26).
+  ...minigameAuditRows(),
   // I. Missions, patrols, factions
   { id: "mission:audit:unusedFactions", system: "mission", claim: "voidJackals, ironVultures, ashenCorsairs and Faction.id (no patrol references them)", status: pending("WR-11, OC-I2") },
   // J. Salvage and item generation
@@ -4355,7 +4361,49 @@ function auditRowWiring(): Readonly<Record<string, Partial<EntryInput>>> {
       on: torpedo(WEAPON_DEFS.concussionTorpedo.powerDraw),
       off: torpedo(0),
     },
+    // Relics v2 R2-10: MINIGAME_PROBE_COPIES Tier I copies of each relic type move its minigame lever by exactly its
+    // boost, 1 + perCopy x diminishing(copies, knee), through the lever's minigame consumer (probes.ts).
+    ...minigameRelicWiring(),
   };
+}
+
+// R2-10: the relic copies each minigame probe deposits (all at Tier I, below the soft cap: weighted 1:1).
+const MINIGAME_PROBE_COPIES = 10;
+
+function minigameRelicWiring(): Record<string, Partial<EntryInput>> {
+  const out: Record<string, Partial<EntryInput>> = {};
+  for (const d of RELIC_BOOSTS) {
+    const gain = d.lever === "captain" || d.lever === "augment" || d.lever === "dream";
+    out[minigameAuditId(d.lever)] = {
+      probe: `content:minigame:${d.lever}`,
+      contexts: ["fleet"],
+      curve: { kind: "linearRelative" },
+      magnitude: (c) => {
+        const def = c.RELIC_BOOSTS.find((x) => x.lever === d.lever)!;
+        return def.perCopy * diminishing(MINIGAME_PROBE_COPIES, def.knee);
+      },
+      on: (s) => withGeneralMuseumRecord(s, { [d.relicId]: MINIGAME_PROBE_COPIES }, 1),
+      off: (s) => withGeneralMuseumRecord(s, {}, 1),
+      // the three point gains are whole points (floored): one point either way
+      ...(gain ? { tolerance: 1 } : {}),
+      note: "the minigame's relic boost (one-way: the main game never reads it)",
+    };
+  }
+  return out;
+}
+
+function minigameAuditId(lever: string): string {
+  return `relic:audit:minigame:${lever}`;
+}
+
+// R2-10 audit rows, one per relic type (the user's 17-row table, config.ts RELIC_BOOSTS).
+function minigameAuditRows(): { id: string; system: WiringSystem; claim: string; status: WiringStatus }[] {
+  return RELIC_BOOSTS.map((d) => ({
+    id: minigameAuditId(d.lever),
+    system: "relic" as const,
+    claim: `Relic boosts in the minigame: ${RELIC_TYPES.find((t) => t.id === d.relicId)?.label ?? d.relicId} copies (past a tier's soft cap 5x) boost ${d.boosts} on the D23 curve`,
+    status: LIVE,
+  }));
 }
 
 // E-MOD EM-1: the drive class draw. Expedition Tiers G2-4 made it live: the Class II Drive Blueprint (researchable at
