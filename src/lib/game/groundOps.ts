@@ -133,7 +133,7 @@ import { rampedChance, runOddsRampOf } from "./runDifficulty";
 import { fieldKitsLive } from "./fieldKits";
 import { freshBasicsFor, refreshObjectiveSupplies, spendFightSupplies } from "./fieldKitsRun";
 // Gas Giant Study GG-3: the ship's study of an orbital body (gasGiantStudy.ts never imports this module).
-import { NEBULA_SWEEP_BODY_INDEX, NEBULA_SWEEP_SECONDS, isStudyBody, rollNebulaReward, rollStudyReward, studySeconds, sweepsNebula } from "./gasGiantStudy";
+import { NEBULA_SWEEP_BODY_INDEX, isStudyBody, nebulaSweepSeconds, rollNebulaReward, rollStudyReward, studySeconds, sweepsNebula } from "./gasGiantStudy";
 
 // Safe first runs SF-2 (user SF12): the log line of a training run's lost fight whose guards fell back (the backstop).
 export const TRAINING_FELL_BACK_TEXT = "The guards fell back. Training run: no setback.";
@@ -2691,7 +2691,8 @@ export function scheduleStudyLeg(exp: Expedition, bodyIndex: number, t: number):
 
 // GG-4: store the NEBULA SWEEP of a run that sweeps one (gasGiantStudy.ts sweepsNebula), once every body is scanned
 // (`t`: the last scan's completion, or a resumed window's opening). It starts then, or when the ship is free of a leg
-// under way (a study of the last body included), and lasts NEBULA_SWEEP_SECONDS. One per run. Returns the leg, or null.
+// under way (a study of the last body included), and lasts nebulaSweepSeconds (GG-7: shorter with a Ramscoop Collector). One
+// per run. Returns the leg, or null.
 // Mutates the working clone.
 export function scheduleNebulaSweep(exp: Expedition, t: number): GroundStudyLeg | null {
   const ops = exp.groundOps;
@@ -2705,7 +2706,7 @@ export function scheduleNebulaSweep(exp: Expedition, t: number): GroundStudyLeg 
     bodyIndex: NEBULA_SWEEP_BODY_INDEX,
     scanBodyIndex: null,
     startsAt,
-    endsAt: startsAt + NEBULA_SWEEP_SECONDS,
+    endsAt: startsAt + nebulaSweepSeconds(exp),
     nebula: 1,
   };
   (ops.studyLegs ??= []).push(leg);

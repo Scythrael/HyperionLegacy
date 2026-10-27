@@ -2056,7 +2056,9 @@ describe("EQUIPMENT_SLOTS live-slot definitions (0.11.0 Task 2)", () => {
   // E-CREW 0.14.0 (Task 7): the four member slots carry the mockup catalog (4 weapons, 4 armors, 10 tools,
   // 13 implants).
   const EXPECTED_VARIETY_COUNT: Record<string, number> = {
-    quarters: 10, specUtility: 5, sensor: 4, // G1-1: the Guest Wing is the 10th quarters variant
+    quarters: 10, specUtility: 5, sensor: 5, // G1-1: the Guest Wing is the 10th quarters variant; GG-7: the Resonance array
+    // Gas Giant Study GG-7: Pressure-Forged Plating, a special blueprint's plate.
+    hullPlating: 4,
     // Prospecting squads (hidden, 2026-10-16): +3 weapons, +1 armor, +2 tools, +2 implants.
     // Field Kits FKR-5: +1 tool, the Impact Grenade.
     memberWeapon: 7, memberArmor: 5, memberTool: 13, implant: 15,
@@ -2156,7 +2158,8 @@ describe("EQUIPMENT_SLOTS live-slot definitions (0.11.0 Task 2)", () => {
     expect(platingAffixStats).toContain("ablativeArmor");
     expect(platingAffixStats).toContain("kineticDampening");
     expect(EQUIPMENT_SLOTS.hullPlating.varieties.map((v) => v.key)).toEqual(
-      ["reinforcedPlating", "ablativePlating", "compositePlating"],
+      // Gas Giant Study GG-7 appended Pressure-Forged Plating (a special blueprint, gasGiantSpecials.test.ts).
+      ["reinforcedPlating", "ablativePlating", "compositePlating", "pressureForgedPlating"],
     );
     // NOT auto-seeded: combat hulls receive these via the Unit 1.3 install path, not the
     // global DEFAULT_EQUIPMENT_VARIETY that seeds the four economy slots onto every ship.
@@ -2264,8 +2267,10 @@ describe("Equipment BLUEPRINTS (0.11.0 Task 18)", () => {
     // E-MOD EM-7: the eight v1 universal modules (one blueprint per module slot variety).
     "auxiliaryCapacitorBp", "structuralBracingBp", "prospectorsEchoBp", "arcDischargerBp",
     "lastStandProtocolBp", "longBaselineArrayBp", "signalIntegratorBp", "shieldSurgeBp",
+    // Gas Giant Study GG-7: the three special blueprints and the Lab tier III Elite Quarters.
+    "pressureForgedPlatingBp", "ramscoopCollectorBp", "resonanceSensorArrayBp", "eliteQuartersBp",
   ];
-  const EQUIP_BP_COUNT = 52 + (FIELD_KITS_PLAYER_LIVE ? 1 : 0) + 8;
+  const EQUIP_BP_COUNT = 52 + (FIELD_KITS_PLAYER_LIVE ? 1 : 0) + 8 + 4;
 
   // Every equipment blueprint = a BLUEPRINTS entry carrying `equipmentOutput`. Expedition Tiers G2-4: a CLASSED drive
   // (driveClass set: the Class II Drive today) is a class line on a Class I variety, counted apart (its own test below).
@@ -2279,7 +2284,7 @@ describe("Equipment BLUEPRINTS (0.11.0 Task 18)", () => {
     for (const bp of classed) expect(bp.equipmentOutput).toEqual({ slotType: "ftlDrive", varietyKey: "balancedDrive" });
   });
 
-  it("defines exactly 52 equipment blueprints (53 once the Impact Grenade's is live, 61 with EM-7's modules), one per (equipmentOutput slot × variety)", () => {
+  it("defines exactly 52 equipment blueprints (53 once the Impact Grenade's is live, 61 with EM-7's modules, 65 with GG-7's), one per (equipmentOutput slot × variety)", () => {
     expect(equipmentBlueprints).toHaveLength(EQUIP_BP_COUNT);
     // The named set matches the derived key list (no missing / extra entry).
     const keys = equipmentBlueprints.map((bp) => bp.key).sort();

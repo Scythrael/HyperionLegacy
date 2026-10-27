@@ -91,6 +91,7 @@ export const FIELD_ROLES: Readonly<Record<string, Readonly<Record<string, FieldR
     landmarkOddsBias: "effect",
     undergroundPoiOddsBias: "effect",
     relicFindBonus: "effect",
+    ancientFragmentBonus: "effect", // Gas Giant Study GG-7: the Resonance Sensor Array's Ancient Data Fragment lift
   },
   ITEMS: {
     label: "display",
@@ -198,6 +199,7 @@ export const FIELD_ROLES: Readonly<Record<string, Readonly<Record<string, FieldR
     tier: "gate",
     researchCreditCost: "gate",
     requiresRelicDiscovery: "gate",
+    requiresDecode: "gate", // Gas Giant Study GG-5 / GG-7: a special blueprint opens once an ancient entry is decoded
     researchDurationTicks: "effect",
     craftDurationTicks: "effect",
     recipe: "effect",

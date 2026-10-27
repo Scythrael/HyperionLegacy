@@ -172,6 +172,8 @@ describe("the module card's trigger in plain words (EM-10)", () => {
       shieldSurge: "Acts in combat once the ship's hull falls below 50%.",
       longBaselineArray: "Acts on expeditions while both pieces of its pair are installed on the same ship.",
       signalIntegrator: "Acts on expeditions while both pieces of its pair are installed on the same ship.",
+      // Gas Giant Study GG-7: the Ramscoop Collector (a special blueprint).
+      ramscoopCollector: "Acts on each expedition's nebula sweep.",
     };
     for (const d of UNIVERSAL_MODULES) {
       expect(moduleWhenText(d), d.id).toBe(expected[d.id]);

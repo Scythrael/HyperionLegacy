@@ -12,6 +12,7 @@
 //   4. The blueprint catalog's keys (G2-4 adds the classed FTL drives).
 
 import { describe, expect, it } from "vitest";
+import { GG7_BLUEPRINT_KEYS } from "./gasGiantSpecials.fixture";
 // GEAR WEAR step 3: this file's pins were captured before the use wear engine; it runs with the use sources off
 // (gearWearSwitch.fixture.ts), so they keep proving nothing else moved. gearWearGoldens.test.ts pins the wear.
 import { gearWearOffInThisFile } from "./gearWearSwitch.fixture";
@@ -232,6 +233,7 @@ describe("G2-4 goldens first: a veteran Aurora at every tier, and the blueprint 
     const classed = ["classIIDriveBp", ...HELD_DRIVE_KEYS];
     expect(keys.slice(keys.indexOf("balancedDriveBp") + 1, keys.indexOf("balancedDriveBp") + 1 + classed.length)).toEqual(classed);
     // E-MOD EM-7 (named move): its eight module blueprints follow the Bio-Resonance Array; held apart here.
-    expect(hash(keys.filter((k) => !classed.includes(k) && !EM7_BLUEPRINT_KEYS.has(k)))).toBe(GOLDEN_CATALOG);
+    // Gas Giant Study GG-7 (named move): its four blueprints follow EM-7's; held apart here too.
+    expect(hash(keys.filter((k) => !classed.includes(k) && !EM7_BLUEPRINT_KEYS.has(k) && !GG7_BLUEPRINT_KEYS.has(k)))).toBe(GOLDEN_CATALOG);
   });
 });

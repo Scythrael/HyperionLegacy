@@ -3,6 +3,9 @@
   // section 3, "approve as is" 2026-10-21). Left card: the lane ("Lane 1 of 1", the Lab level), the auto-study switch,
   // the study under way with its countdown and bar, the held data in study order (oldest first, as drawn) and the last
   // few finished studies. Right card: the banked boosts per family and what each family's next project gets.
+  // GG-7: below both, the SPECIAL BLUEPRINTS (the v3 mockup section 4 cards: each one's glyph, name, line and Lab tier,
+  // and its state chip: the entry it waits on, "Unlocked: ready to research", researching, researched) with the decode
+  // gate's line. The mockup draws them in a Cultures tab that waits on the culture names (R2-8), so they sit here.
   //
   // POSTURE: pure presentation over dataStudyDisplay.ts (tested). The switch bubbles up through onSetPaused to the
   // host's do* handler (App.svelte doSetDataStudyPaused: dataStudy.ts setDataStudyPaused, pushLog, doSave). One DOM,
@@ -101,6 +104,26 @@
           </tbody>
         </table>
         {#if view.ancientText}<p class="ds-dim ds-note">{view.ancientText}</p>{/if}
+      </section>
+
+      <section class="ds-card ds-specials" aria-labelledby="ds-sp-h">
+        <h3 id="ds-sp-h" class="ds-h">Special blueprints</h3>
+        <p class="ds-dim ds-note">{view.decodeGateText}</p>
+        <ul class="ds-bps">
+          {#each view.specials as sp (sp.key)}
+            <li class="ds-bp" class:open={sp.state === "open"} class:done={sp.state === "researched" || sp.state === "researching"}>
+              <div class="ds-bp-row">
+                <span class="ds-bp-glyph" class:ok={sp.state !== "locked"} aria-hidden="true"><Icon name={sp.glyph} size={28} /></span>
+                <b>{sp.name}</b>
+              </div>
+              <p class="ds-bp-text">{sp.text}</p>
+              <span class="ds-chip" class:ok={sp.state !== "locked"}>
+                {#if sp.state === "locked"}<Icon name="lock" size={14} />{/if}
+                {sp.chipText}
+              </span>
+            </li>
+          {/each}
+        </ul>
       </section>
     </div>
   {/if}
@@ -305,6 +328,69 @@
   }
   .ds-mono {
     font-family: var(--font-mono);
+  }
+  .ds-specials {
+    grid-column: 1 / -1;
+  }
+  .ds-bps {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    gap: 8px;
+    grid-template-columns: minmax(0, 1fr);
+  }
+  @container (min-width: 640px) {
+    .ds-bps {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+  }
+  .ds-bp {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 6px;
+    padding: 10px;
+    min-width: 0;
+    font-size: var(--text-xs);
+    border: 1px solid rgba(var(--color-accent-rgb), 0.18);
+    border-radius: var(--corner);
+    color: var(--color-text-primary);
+  }
+  .ds-bp.open,
+  .ds-bp.done {
+    border-color: var(--color-success);
+  }
+  .ds-bp-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+  }
+  .ds-bp-glyph {
+    display: inline-flex;
+    color: var(--color-text-secondary);
+  }
+  .ds-bp-glyph.ok {
+    color: var(--color-success);
+  }
+  .ds-bp-text {
+    margin: 0;
+    color: var(--color-text-secondary);
+  }
+  .ds-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 8px;
+    font-size: var(--text-2xs);
+    color: var(--color-text-secondary);
+    border: 1px solid rgba(var(--color-accent-rgb), 0.3);
+    border-radius: var(--corner);
+  }
+  .ds-chip.ok {
+    color: var(--color-success);
+    border-color: var(--color-success);
   }
   @media (prefers-reduced-motion: reduce) {
     .ds-knob::after {

@@ -107,7 +107,7 @@ describe("GG-6 the Data study tab", () => {
     expect(v.idleText).toBe("Starting the next held data");
   });
 
-  it("shows each type's held data against its own cap and warns when a type is full; no decoded count before GG-7", () => {
+  it("shows each type's held data against its own cap and warns when a type is full; the decoded count since GG-7", () => {
     const s = lab(1, { [PROP]: 2, [SENS]: 1 });
     const cap = itemCap(s, PROP);
     const v = dataStudyView(s);
@@ -121,8 +121,11 @@ describe("GG-6 the Data study tab", () => {
     expect(dataStudyView(full).fullWarnings).toEqual([`Propulsion Data is full (cap ${formatNumber(cap)}): more of it coming home is not kept.`]);
     // The full type's queue row reads full too (it is still held, so it is still queued).
     expect(dataStudyView(full).queue.find((r) => r.itemId === PROP)!.full).toBe(true);
-    expect(ANCIENT_DECODE_TEXT_LIVE).toBe(false);
-    expect(v.ancientText).toBeNull();
+    // GG-7 authored the decode-gated special blueprints, so the user's "Hide until GG-7" line is back on.
+    expect(ANCIENT_DECODE_TEXT_LIVE).toBe(true);
+    expect(v.ancientText).toBe("An Ancient Data Fragment is studied in this same lane; it decodes the next entry of the culture it came from instead of banking a boost. Entries decoded so far: 0.");
+    expect(dataStudyView({ ...s, ancientDecoded: { a: 2, b: 1 } }).ancientText).toMatch(/Entries decoded so far: 3\.$/);
+    expect(v.specials.map((c) => c.state)).toEqual(["locked", "locked", "locked"]);
   });
 
   it("folds consecutive units of one item into a row", () => {

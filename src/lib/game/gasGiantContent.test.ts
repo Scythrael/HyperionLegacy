@@ -159,7 +159,7 @@ describe("GG-1 everything wired: a consumer or a GG reserve, a source or a pendi
   // dive; GG-4: the nebula sweep, which reads every nebula kind's two fields), and the class fields they read.
   // GG-5: the lab lane, which consumes every research data item (their reserve rows flip live in place).
   // GG-6 review: the user's pickup pause (2026-10-23) is a study use too, live with its probe.
-  const BUILT_USES: ReadonlySet<string> = new Set(["classRoll", "studyReward", "probeDive", "nebulaSweep", "labLane", "pickupPause"]);
+  const BUILT_USES: ReadonlySet<string> = new Set(["classRoll", "studyReward", "probeDive", "nebulaSweep", "labLane", "pickupPause", "canisterRecipes"]);
   const CLASS_FIELD_USE: Readonly<Record<string, string>> = {
     weight: "classRoll",
     massMinMilliJ: "classRoll",

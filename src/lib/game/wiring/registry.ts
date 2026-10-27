@@ -171,7 +171,9 @@ import { AFFIX_DEFS, ESCALATION_ENEMIES_PER_LEVEL, HEIGHTENED_SENSES_KNEE, HEIGH
 import { ENEMY_RANKS, ENEMY_RANK_IDS } from "../enemyRanks";
 import { OVERTIME_STEP_RATE } from "../processSpeed";
 import { SHORT_RANGE_TEMPLATES, SHORT_RANGE_TEMPLATE_KEYS } from "../shortRange";
-import { GAS_STUDY_USES, GIANT_CLASSES, NEBULA_KINDS, RESEARCH_FAMILIES, type GasStudyUse } from "../gasGiantContent";
+import { GAS_CANISTER_IDS, GAS_STUDY_USES, GIANT_CLASSES, NEBULA_KINDS, RESEARCH_FAMILIES, type GasCanisterId, type GasStudyUse } from "../gasGiantContent";
+// Gas Giant Study GG-7: the special blueprints and the canisters' consumers.
+import { PRESSURE_FORGED_PLATING_VARIETY, RAMSCOOP_COLLECTOR_MODULE, RESONANCE_SENSOR_ARRAY, SPECIAL_BLUEPRINT_KEYS, type SpecialBlueprintKey } from "../specialBlueprints";
 // Gas Giant Study GG-5: the Research Lab's data study lane.
 import { DATA_STUDY_RECIPE_PERMILLE, RESEARCH_BOOST_PER, isResearchDataItem } from "../dataStudy";
 import { REACTOR_FUEL_LADDER, REACTOR_TECH_TIERS, REACTOR_VARIETY_TECH, reactorFuelRung } from "../reactorTech";
@@ -2479,6 +2481,8 @@ function sensorArrayEntries(): WiringEntry[] {
     ["landmarkOddsBias", "expLandmarkBias"],
     ["undergroundPoiOddsBias", "expUndergroundBias"],
     ["relicFindBonus", "arrayRelicFind"],
+    // Gas Giant Study GG-7: the Resonance Sensor Array's Ancient Data Fragment lift (the reader the dispatch freezes).
+    ["ancientFragmentBonus", "arrayAncientFind"],
   ];
   for (const def of SENSOR_ARRAYS) {
     for (const [field, probe] of fields) {
@@ -2492,7 +2496,7 @@ function sensorArrayEntries(): WiringEntry[] {
           contexts: ["expedition:groundOps"],
           direction: "none",
           curve: { kind: "equals" },
-          magnitude: (c) => (c.SENSOR_ARRAYS.find((a) => a.id === def.id)![field] as number) * (field === "landmarkOddsBias" || field === "undergroundPoiOddsBias" || field === "relicFindBonus" ? moduleEffectScale("standard", 0, "none") : 1),
+          magnitude: (c) => (c.SENSOR_ARRAYS.find((a) => a.id === def.id)![field] as number) * (field === "landmarkOddsBias" || field === "undergroundPoiOddsBias" || field === "relicFindBonus" || field === "ancientFragmentBonus" ? moduleEffectScale("standard", 0, "none") : 1),
           base: () => installPiece(wiringBase(), { slotType: "sensor", moduleVariant: def.id }),
           note: field === "scanRateMult" || field === "coverageWidth" ? "the net rate is their product (B12: Focused reads faster but nets 0.78x; WR-7 OC-D11)" : undefined,
         }),
@@ -5322,6 +5326,21 @@ function universalModuleEntries(): WiringEntry[] {
           base: () => moduleSetPieces(def.setId!, Number.MAX_SAFE_INTEGER, def.id)(wiringBase("aurora")),
           note: "alone the piece gives nothing; it switches its set's tier on (gearSets.ts, read by expeditionGearBonuses)",
         });
+      case "nebulaSweep":
+        // Gas Giant Study GG-7: the Ramscoop Collector. Its consumer is the expedition dispatch, which freezes the boost
+        // on the run's nebula stamp (per mille); the sweep's length and haul read the stamp (gasGiantStudy.ts), measured
+        // end to end by the special blueprint's own row (facility:BLUEPRINTS:ramscoopCollectorBp:effect).
+        return entry({
+          ...common,
+          claim: `${def.label}: nebula sweeps +${pct(def.effect.magnitude)}% canisters and that much faster`,
+          probe: "content:gg7:ramscoopStamp",
+          contexts: ["expedition:groundOps"],
+          direction: "none",
+          curve: { kind: "equals" },
+          magnitude: (c) => Math.round(defOf(c, def.id).effect.magnitude * std * 1000) / 1000,
+          base: () => withAwayTeam(wiringBase()),
+          note: "the dispatch to a nebula system freezes the module's boost (Expedition.nebula.ramscoop, whole per mille)",
+        });
       default:
         return entry({ ...common, claim: def.label, status: pending(`EM-8 (the ${def.effect.key} engine's registry row arrives with the Precursor Lens)`) });
     }
@@ -5444,6 +5463,76 @@ function prospectingEntries(): WiringEntry[] {
 // band odds and item weights (GG-3: the study reward and the probe's depth factor), and each nebula kind's band odds
 // and item weights (GG-4: the nebula sweep). A slice flips its entries live, with a probe, in the commit that wires
 // them. The items' own reserves and sell values register with the other ITEMS rows (recipeAndBlueprintEntries).
+// GG-7: the blueprint each canister's registry row reads (a recipe taking it; GG-7's own where it added one).
+const CANISTER_CONSUMER: Readonly<Record<GasCanisterId, string>> = {
+  hydrogenCanister: "eliteQuartersBp",
+  methaneCanister: "pressureForgedPlatingBp",
+  ammoniaCanister: "eliteQuartersBp",
+  deuteriumCanister: "classIIIDriveBp",
+  helium3Canister: "resonanceSensorArrayBp",
+  antimatterCell: "classVIDriveBp",
+};
+
+// GG-7: the piece blueprint `key` mints (Standard, quality 0, iLevel 10, a flat roll stream), installed on the ship.
+function mintedOn(key: string): Transform {
+  return (s) => {
+    const out = BLUEPRINTS[key].equipmentOutput!;
+    const piece = generateEquipment({ slotType: out.slotType, varietyKey: out.varietyKey, blueprintKey: key, iLevel: 10, quality: 0, rarity: "standard", ascension: "none", rng: () => 0.5, allocateId: () => `wiring-gg7-${key}` });
+    return installPiece(s, { ...piece, fittedToShipId: WIRING_SHIP_ID });
+  };
+}
+
+// GG-7: one special blueprint's effect row.
+//   Pressure-Forged Plating: its lean on the Hull Plating lines, the kinetic dampening a batch of minted plates rolls vs
+//     the Reinforced Plating (the slot's straight tank plate).
+//   Ramscoop Collector: a nebula run's sweep canisters per hour of sweep, the minted module installed vs none.
+//   Resonance Sensor Array: a study run's Ancient Data Fragment per-mille, the minted array installed vs none.
+function specialBlueprintEntry(key: SpecialBlueprintKey): WiringEntry {
+  const source = { catalog: "BLUEPRINTS", key: `${key}:effect` };
+  const label = BLUEPRINTS[key]?.label.replace(/ Blueprint$/, "") ?? key;
+  switch (key) {
+    case "pressureForgedPlatingBp":
+      return entry({
+        id: `ship:BLUEPRINTS:${key}:effect`,
+        system: "ship",
+        source,
+        claim: `${label}: Hull Plating leaning into kinetic dampening (${PRESSURE_FORGED_PLATING_VARIETY})`,
+        probe: "content:gg7:platingLean",
+        contexts: ["craft"],
+        curve: { kind: "event", metric: "kinetic dampening points over a batch of Stellar plates minted through generateEquipment, the variety vs the Reinforced Plating" },
+        magnitude: () => 1,
+        on: sourceOn,
+        note: "the plate's lines fold into combat like every Hull Plating line (the SHIP_GEAR_LINES rows)",
+      });
+    case "ramscoopCollectorBp":
+      return entry({
+        id: `expedition:BLUEPRINTS:${key}:effect`,
+        system: "expedition",
+        source,
+        claim: `${label}: bigger, faster nebula sweeps (${RAMSCOOP_COLLECTOR_MODULE}); never a gate`,
+        probe: "content:gg7:sweepRate",
+        contexts: ["expedition:groundOps"],
+        curve: { kind: "event", metric: "a nebula run's sweep canisters per hour of sweep, the module installed vs none" },
+        magnitude: () => 1,
+        base: () => withAwayTeam(wiringBase()),
+        on: mintedOn(key),
+      });
+    case "resonanceSensorArrayBp":
+      return entry({
+        id: `expedition:BLUEPRINTS:${key}:effect`,
+        system: "expedition",
+        source,
+        claim: `${label}: more Ancient Data Fragments from every gas giant study (${RESONANCE_SENSOR_ARRAY})`,
+        probe: "content:gg7:fragmentOdds",
+        contexts: ["expedition:groundOps"],
+        curve: { kind: "event", metric: "a study run's Ancient Data Fragment per-mille, the array installed vs none" },
+        magnitude: () => 1,
+        base: () => withAwayTeam(wiringBase()),
+        on: mintedOn(key),
+      });
+  }
+}
+
 function gasStudyEntries(): WiringEntry[] {
   const out: WiringEntry[] = [];
   const useSystem: Readonly<Record<GasStudyUse, WiringSystem>> = {
@@ -5501,6 +5590,15 @@ function gasStudyEntries(): WiringEntry[] {
       curve: { kind: "event", metric: "seconds teams spend in the return step over a whole nebula run, pickups and waits included (negated: the source cuts them)" },
       magnitude: () => 1,
       base: () => withAwayTeam(wiringBase()),
+      on: sourceOn,
+    },
+    //   canisterRecipes (GG-7): every canister feeds a recipe (the G2 drive classes, the Reactor Cores, the special
+    //   blueprints and the Lab tier III Elite Quarters): one craft of each spends its canisters (OFF: none held).
+    canisterRecipes: {
+      probe: "content:gg7:canisterUses",
+      contexts: ["craft"],
+      curve: { kind: "event", metric: "canisters one craft of every canister recipe spends (OFF: none held, so each craft refuses)" },
+      magnitude: () => 1,
       on: sourceOn,
     },
     //   nebulaSweep (GG-4): a run to a system with a nebula brings home its sweep's canisters (OFF: the stamp taken away).
@@ -5619,6 +5717,28 @@ function gasStudyEntries(): WiringEntry[] {
       );
     }
   }
+  // GG-7 (the dead-stock rule, user call 7): each canister's consumer, a NEW blueprint taking it (no existing recipe
+  // moved), read through one Fabricator craft of it: the canisters it spends equal its recipe's count.
+  for (const id of GAS_CANISTER_IDS) {
+    const key = CANISTER_CONSUMER[id];
+    out.push(
+      entry({
+        id: `facility:GAS_STUDY_USES:canisterRecipes:${id}`,
+        system: "facility",
+        source: { catalog: "GAS_STUDY_USES", key: `canisterRecipes:${id}` },
+        claim: `${ITEMS[id]?.label ?? id}: ${BLUEPRINTS[key]?.label ?? key} takes it`,
+        probe: `content:craftSpends:${key}:${id}`,
+        contexts: ["craft"],
+        direction: "none",
+        curve: { kind: "equals" },
+        magnitude: (c) => c.BLUEPRINTS[key]?.recipe.inputs[id] ?? 0,
+        note: "one craft at a Fabricator of its tier, researched and holding the inputs: the canisters it spends at start",
+      }),
+    );
+  }
+  // GG-7: each special blueprint's effect, measured through its consumer with the piece its blueprint mints (Standard,
+  // quality 0, iLevel 10) installed on the ship.
+  for (const key of SPECIAL_BLUEPRINT_KEYS) out.push(specialBlueprintEntry(key));
   // GG-3: the probe dive (gasGiantStudy.ts studyDiveEvents): one event per finished study with a Galileo aboard. Gear
   // wear step 3 wires it LIVE: each dive is one fieldwork step's use on the probe that dove (gearWearEngine.ts
   // expeditionWear), measured on the real run read at its first dive (wiring/wearProbes.ts divePerUnit).
@@ -5672,24 +5792,37 @@ function gasStudyEntries(): WiringEntry[] {
       id: "facility:DATA_STUDY:ancientDecode",
       system: "facility",
       source: { catalog: "DATA_STUDY", key: "ancientDecode" },
-      claim: "An Ancient Data Fragment's study decodes the next entry of its own culture (and gives it a study point)",
-      // GG-5 review follow-up: a SEAM, not live. The study does raise GameState.ancientDecoded (probe
-      // content:dataStudy:decode measures it), but nothing a player sees reads that count yet: no blueprint carries
-      // requiresDecode (decodeGate below, GG-7) and the culture study point waits on culture naming (R2-6).
+      claim: "An Ancient Data Fragment's study decodes the next entry of its own culture (the entries open the special blueprints)",
+      // GG-7: LIVE. The study raises GameState.ancientDecoded (probe content:dataStudy:decode measures it) and the
+      // special blueprints read it (decodeGate below). The culture study point it also gives waits on culture naming
+      // (its own seam below, R2-6).
       probe: "content:dataStudy:decode",
       contexts: ["research"],
       curve: { kind: "event", metric: "entries one Ancient Data Fragment study decodes" },
       magnitude: () => 1,
       on: sourceOn,
-      status: { kind: "seam", owner: "GG-7 (the first special blueprint carrying requiresDecode) and Relics v2 R2-6 (culture study points)", userRef: "user call 10 (2026-10-19, \"One lane\"): a fragment decodes its culture's entries; some entries unlock special blueprints" },
     }),
     entry({
       id: "facility:DATA_STUDY_SEAM:decodeGate",
       system: "facility",
       source: { catalog: "DATA_STUDY_SEAM", key: "decodeGate" },
-      claim: "A special blueprint opens once an ancient entry is decoded (BlueprintDef.requiresDecode)",
-      status: { kind: "seam", owner: "GG-7 (the special blueprints carry requiresDecode)", userRef: "user call 10 (2026-10-19, \"One lane\"): some entries unlock special blueprints" },
-      note: "gasGiantDataStudy.test.ts proves the gate on a fixture blueprint",
+      claim: "A special blueprint opens once enough ancient entries of one culture are decoded (BlueprintDef.requiresDecode)",
+      // GG-7: LIVE. The three special blueprints carry requiresDecode; a Lab VII researches each once one culture has
+      // decoded its entry (OFF: no entry decoded, every one refused as `undecoded`).
+      probe: "content:gg7:decodeGate",
+      contexts: ["research"],
+      curve: { kind: "gate" },
+      magnitude: (c) => SPECIAL_BLUEPRINT_KEYS.filter((k) => (c.BLUEPRINTS[k]?.requiresDecode ?? Infinity) <= 3).length,
+      on: sourceOn,
+      note: "gasGiantSpecials.test.ts walks each special blueprint across its own entry",
+    }),
+    entry({
+      id: "facility:DATA_STUDY_SEAM:cultureStudyPoint",
+      system: "facility",
+      source: { catalog: "DATA_STUDY_SEAM", key: "cultureStudyPoint" },
+      claim: "An Ancient Data Fragment's study gives its culture one study point (the Museum v2 culture record)",
+      status: { kind: "seam", owner: "Relics v2 R2-6 (culture naming reads the study points)", userRef: "relics v2 call 9 (2026-10-19, \"Tied to source planet\"): +1 study point per identified find plus 15b ancient data; named at 10" },
+      note: "dataStudy.ts feedCultureData writes the point; nothing reads it until culture names are signed off (R2-8)",
     }),
   );
   return out;

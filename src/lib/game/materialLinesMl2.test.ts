@@ -224,13 +224,18 @@ describe("ML-2 standing rules", () => {
       ];
       return routes.some((inputs) => inputs.every((i) => reachable(i, next)));
     };
-    // A slot whose only blueprints are discovery payoffs (the sensor array today; CP-11 authors its ordinary ones) has no
-    // ordinary variety to keep open; the Standard-Issue piece covers it.
-    const ordinarySlots = slotsWithBps.filter((slot) => equipmentBps.some((bp) => bp.equipmentOutput!.slotType === slot && bp.requiresRelicDiscovery === undefined));
+    // A slot whose only blueprints are discovery payoffs (the sensor array today: a relic's and, since GG-7, a decoded
+    // ancient entry's; CP-11 authors its ordinary ones) has no ordinary variety to keep open; the Standard-Issue piece
+    // covers it. GG-7's special blueprints are discovery payoffs like a relic's (requiresDecode). The rule keeps an EARLY
+    // variety open (Lab tiers I and II): a slot whose only ordinary blueprint sits higher (the quarters slot, whose one
+    // blueprint today is GG-7's Lab tier III Elite Quarters with its canisters, until CP-11 authors the tier I and II
+    // modules) has no early variety to keep open.
+    const ordinary = (bp: (typeof equipmentBps)[number]) => bp.requiresRelicDiscovery === undefined && bp.requiresDecode === undefined && bp.tier <= 2;
+    const ordinarySlots = slotsWithBps.filter((slot) => equipmentBps.some((bp) => bp.equipmentOutput!.slotType === slot && ordinary(bp)));
     expect(ordinarySlots.length).toBeGreaterThan(8);
     for (const slot of ordinarySlots) {
       const open = equipmentBps.filter(
-        (bp) => bp.equipmentOutput!.slotType === slot && bp.requiresRelicDiscovery === undefined && Object.keys(bp.recipe.inputs).every((i) => reachable(i, new Set())),
+        (bp) => bp.equipmentOutput!.slotType === slot && ordinary(bp) && Object.keys(bp.recipe.inputs).every((i) => reachable(i, new Set())),
       );
       expect(open.length, `${slot} has a no-wall variety`).toBeGreaterThan(0);
     }

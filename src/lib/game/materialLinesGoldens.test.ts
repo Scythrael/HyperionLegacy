@@ -16,6 +16,7 @@
 //              by design: it adds items and recipes).
 
 import { describe, expect, it } from "vitest";
+import { GG7_BLUEPRINT_KEYS } from "./gasGiantSpecials.fixture";
 // GEAR WEAR step 3: this file's pins were captured before the use wear engine; it runs with the use sources off
 // (gearWearSwitch.fixture.ts), so they keep proving nothing else moved. gearWearGoldens.test.ts pins the wear.
 import { gearWearOffInThisFile } from "./gearWearSwitch.fixture";
@@ -249,7 +250,7 @@ describe("ML-0 Material Lines pre-change goldens", () => {
       // Field Kits FKR-9 / FKR-10 (the switch-on, model.ts FIELD_KITS_PLAYER_LIVE): the Impact Grenade blueprint
       // (FIELD_KITS_HIDDEN_BLUEPRINTS) merges into BLUEPRINTS, the ONE named move of this count (78 to 79). Counted apart
       // so the census keeps proving nothing else moved.
-      census.blueprints = Object.keys(BLUEPRINTS).filter((k) => !(k in FIELD_KITS_HIDDEN_BLUEPRINTS) && BLUEPRINTS[k].driveClass === undefined && !EM7_BLUEPRINT_KEYS.has(k)).length; // G2-4: the classed drives held apart; E-MOD EM-7: the module blueprints too
+      census.blueprints = Object.keys(BLUEPRINTS).filter((k) => !(k in FIELD_KITS_HIDDEN_BLUEPRINTS) && BLUEPRINTS[k].driveClass === undefined && !EM7_BLUEPRINT_KEYS.has(k) && !GG7_BLUEPRINT_KEYS.has(k)).length; // G2-4: the classed drives held apart; E-MOD EM-7: the module blueprints too; GG-7: its four
       return census;
     };
     for (const k of Object.keys(FIELD_KITS_HIDDEN_BLUEPRINTS)) expect(BLUEPRINTS[k], k).toBe(FIELD_KITS_PLAYER_LIVE ? FIELD_KITS_HIDDEN_BLUEPRINTS[k] : undefined);

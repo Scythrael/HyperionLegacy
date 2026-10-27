@@ -15,6 +15,7 @@
 // cover the power budget and every install path; this file adds only what EM-5 edits.
 
 import { describe, expect, it } from "vitest";
+import { withoutGg7Content } from "./gasGiantSpecials.fixture";
 import Decimal from "break_infinity.js";
 import {
   EQUIPMENT_SLOTS,
@@ -219,6 +220,7 @@ describe("EM-5 goldens: a module-free fleet is byte-identical", () => {
     });
   }
   it("mint: every slot and variety at a fixed roll", () => {
-    expect(fnv(mintRow().join("|"))).toBe(MINT_GOLDEN);
+    // GG-7 (after this capture): its three slot varieties held apart (gasGiantSpecials.fixture.ts).
+    expect(fnv(withoutGg7Content(() => mintRow()).join("|"))).toBe(MINT_GOLDEN);
   });
 });

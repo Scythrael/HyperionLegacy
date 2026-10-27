@@ -69,6 +69,9 @@ export function moduleEffectSentence(def: UniversalModuleDef, scale: number): st
     }
     case "extraDiscovery":
       return `Each body scanned: a chance to uncover ${Math.round(def.effect.magnitude)} extra hidden discovery.`;
+    case "nebulaSweep":
+      // GG-7: the Ramscoop Collector, at the engine's own per-mille stamp (gasGiantStudy.ts gearPermilleStamp).
+      return `Nebula sweeps: +${pct(Math.round(m * 1000) / 1000)} canisters, and the sweep runs that much faster. Nebulae stay gatherable without it.`;
   }
 }
 
@@ -85,6 +88,8 @@ export function moduleRuleText(def: UniversalModuleDef): string | null {
 // module never needs its own sentence here. Pure.
 export function moduleWhenText(def: UniversalModuleDef): string {
   const where = moduleContextLabel(def);
+  // GG-7: the Ramscoop Collector acts on one event of a run, its nebula sweep.
+  if (def.effect.key === "nebulaSweep") return "Acts on each expedition's nebula sweep.";
   if (def.category === "passive") return where === "Everywhere" ? "Always on, everywhere the ship goes." : `Always on in ${where.toLowerCase()}.`;
   if (def.category === "conditional" && def.condition !== undefined) {
     const pool = def.condition.kind === "hullBelow" ? "hull" : "shields";

@@ -99,6 +99,8 @@ describe("the roster (user M6 'Approve all': the eight rows as named, with those
       ["shieldSurge", "Shield Surge", "active", "shieldRestore"],
       ["longBaselineArray", "Long-Baseline Array", "set", "scanSpeedBonus"],
       ["signalIntegrator", "Signal Integrator", "set", "scanSpeedBonus"],
+      // Gas Giant Study GG-7 (user call 11, "Three now"): the Ramscoop Collector, a special blueprint's module.
+      ["ramscoopCollector", "Ramscoop Collector", "passive", "nebulaSweep"],
     ]);
     expect(validateUniversalModuleCatalog()).toEqual([]);
     // The approved shapes: on a hit taken; each extraction cycle; below 25% hull; once per battle below 50% hull.
@@ -113,8 +115,11 @@ describe("the roster (user M6 'Approve all': the eight rows as named, with those
 
   it("the module slot's varieties are the catalog; one blueprint each on Lab tiers 2 to 4; the switch is on", () => {
     expect(EQUIPMENT_SLOTS.module.varieties.map((v) => [v.key, v.label])).toEqual(UNIVERSAL_MODULES.map((d) => [d.id, d.label]));
-    const bps = Object.values(BLUEPRINTS).filter((b) => b.equipmentOutput?.slotType === "module");
-    expect(bps.map((b) => b.equipmentOutput!.varietyKey).sort()).toEqual(UNIVERSAL_MODULES.map((d) => d.id).sort());
+    // GG-7: the Ramscoop Collector's blueprint is a special blueprint (model.ts GAS_GIANT_BLUEPRINTS, gasGiantSpecials.test.ts),
+    // so the EM-7 roster rows below are the others.
+    const all = Object.values(BLUEPRINTS).filter((b) => b.equipmentOutput?.slotType === "module");
+    expect(all.map((b) => b.equipmentOutput!.varietyKey).sort()).toEqual(UNIVERSAL_MODULES.map((d) => d.id).sort());
+    const bps = all.filter((b) => b.key !== "ramscoopCollectorBp");
     for (const b of bps) {
       expect(b).toBe(MODULE_BLUEPRINTS[b.key]);
       expect([2, 3, 4], b.key).toContain(b.tier);

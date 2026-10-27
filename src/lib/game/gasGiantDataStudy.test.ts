@@ -328,8 +328,9 @@ describe("GG-5 the Ancient Data Fragment (call 10: decodes the next entry of its
     } finally {
       BLUEPRINTS[key] = original;
     }
-    // Every blueprint today is ungated.
-    for (const k of Object.keys(BLUEPRINTS)) expect(blueprintDecodeLocked(lab(9), k), k).toBe(false);
+    // Every blueprint but GG-7's three special blueprints is ungated (gasGiantSpecials.test.ts walks those).
+    const special = new Set(["pressureForgedPlatingBp", "ramscoopCollectorBp", "resonanceSensorArrayBp"]);
+    for (const k of Object.keys(BLUEPRINTS)) expect(blueprintDecodeLocked(lab(9), k), k).toBe(special.has(k));
   });
 });
 

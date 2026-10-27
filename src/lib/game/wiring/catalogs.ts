@@ -59,7 +59,8 @@ import { AFFIX_ALIGNED_HOOKS, AFFIX_HOOK_KEYS, GAMBIT_ACTIONS, GAMBIT_SELECTORS 
 import { FIELD_ROLES, effectFieldsOf } from "./fieldRoles";
 import { REPAIR_RATES, REPAIR_RATE_BONUSES, WEAR_EFFICIENCY, WEAR_SOURCES } from "../gearWear";
 import { SHORT_RANGE_TEMPLATES } from "../shortRange";
-import { GAS_STUDY_USES, GIANT_CLASSES, NEBULA_KINDS, RESEARCH_FAMILIES } from "../gasGiantContent";
+import { GAS_CANISTER_IDS, GAS_STUDY_USES, GIANT_CLASSES, NEBULA_KINDS, RESEARCH_FAMILIES } from "../gasGiantContent";
+import { SPECIAL_BLUEPRINT_KEYS } from "../specialBlueprints";
 import { DATA_STUDY_ITEM_IDS } from "../dataStudy";
 import { REACTOR_TECH_TIERS, REACTOR_VARIETY_TECH } from "../reactorTech";
 import { RARITY_PROFILES } from "../rarityProfiles";
@@ -171,6 +172,9 @@ export function enumerateEffectSources(): EffectSource[] {
   add("PROSPECTING_USES", PROSPECTING_USES);
   // Gas Giant Study (GG-1 data, the engine uses wired by GG-2 to GG-7)
   add("GAS_STUDY_USES", Object.keys(GAS_STUDY_USES));
+  // GG-7: each canister's consumer (the dead-stock rule) and each special blueprint's effect.
+  add("GAS_STUDY_USES", GAS_CANISTER_IDS.map((id) => `canisterRecipes:${id}`));
+  add("BLUEPRINTS", SPECIAL_BLUEPRINT_KEYS.map((k) => `${k}:effect`));
   // GG-5: the Research Lab's data study lane: the eight family boosts, the recipe chance, the fragment's decode, and
   // the lane consuming each research data item.
   add("DATA_STUDY", [...RESEARCH_FAMILIES.map((f) => `boost:${f}`), "recipeChance", "ancientDecode", ...DATA_STUDY_ITEM_IDS.map((id) => `consume:${id}`)]);

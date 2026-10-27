@@ -28,12 +28,13 @@
 // MODULE_BLUEPRINTS), the Set engine (the Survey Pair, a set of the shared gear set engine, gearSets.ts) and flips
 // UNIVERSAL_MODULES_LIVE; EM-8 adds the Precursor Lens.
 //
-// A LEAF MODULE: it imports nothing but types, so model.ts (equipmentStatMods, the power output fold) and the combat
-// sim can read the catalog without an import cycle. Pure: no state, no clock; the only random draws are on the
+// A LEAF MODULE: it imports nothing but types and the leaf specialBlueprints.ts (GG-7), so model.ts (equipmentStatMods,
+// the power output fold) and the combat sim can read the catalog without an import cycle. Pure: no state, no clock; the only random draws are on the
 // private streams the engine hands in (rollModuleChance).
 
 import type { EquipmentInstance, EquipmentSlotType } from "./model";
 import type { Rng } from "./combat/rng";
+import { GG7_NUMBERS, RAMSCOOP_COLLECTOR_MODULE } from "./specialBlueprints";
 
 // ============================================================================
 // The switch
@@ -109,6 +110,9 @@ export interface ModuleCondition {
 //   scanSpeedBonus expedition, a fraction: added to the run's scan speed bonus at dispatch (the scan rate x (1 + it)),
 //                  while the set is complete. A set module's own magnitude IS its set tier's bonus (the catalog test
 //                  holds the two equal), so the module reads what the set gives.
+// Gas Giant Study GG-7's engine (a Passive read at the expedition dispatch, frozen on the run's nebula stamp):
+//   nebulaSweep    expedition, a fraction: the nebula sweep's canisters x (1 + it) and its length / (1 + it) (the Ramscoop
+//                  Collector, user call 11: it BOOSTS the sweep, never gates it; a ship without one sweeps as before).
 // MODULE_ENGINE_KEYS below lists what each category can read today, and the catalog test refuses any other.
 export type ModuleEffectKey =
   | "powerOutput"
@@ -118,7 +122,8 @@ export type ModuleEffectKey =
   | "shieldRestore"
   | "bonusHaul"
   | "extraDiscovery"
-  | "scanSpeedBonus";
+  | "scanSpeedBonus"
+  | "nebulaSweep";
 
 export interface ModuleEffect {
   readonly key: ModuleEffectKey;
@@ -192,6 +197,11 @@ export const UNIVERSAL_MODULES: readonly UniversalModuleDef[] = [
   // Set (2 pieces): the Survey Pair. Together they speed an expedition's scans.
   { id: "longBaselineArray", label: "Long-Baseline Array", category: "set", contexts: ["expedition"], setId: SURVEY_PAIR_SET_ID, effect: { key: "scanSpeedBonus", magnitude: N.surveyPair.scanSpeedBonus }, powerDraw: N.longBaselineArray.powerDraw, source: "craft" },
   { id: "signalIntegrator", label: "Signal Integrator", category: "set", contexts: ["expedition"], setId: SURVEY_PAIR_SET_ID, effect: { key: "scanSpeedBonus", magnitude: N.surveyPair.scanSpeedBonus }, powerDraw: N.signalIntegrator.powerDraw, source: "craft" },
+  // Gas Giant Study GG-7 (user call 11, "Three now"): the Ramscoop Collector, a special blueprint opened by a decoded
+  // ancient entry (model.ts ramscoopCollectorBp). Passive, on expeditions: a magnetic funnel that makes the nebula sweep
+  // bigger and faster ([PROVISIONAL] magnitude and draw in specialBlueprints.ts GG7_NUMBERS). Never a gate: a ship
+  // without one sweeps exactly as before.
+  { id: RAMSCOOP_COLLECTOR_MODULE, label: "Ramscoop Collector", category: "passive", contexts: ["expedition"], effect: { key: "nebulaSweep", magnitude: GG7_NUMBERS.ramscoopCollector.nebulaSweep }, powerDraw: GG7_NUMBERS.ramscoopCollector.powerDraw, source: "craft" },
 ];
 
 // The effect keys each category's engine reads TODAY. A category absent here has no engine yet, so no catalog entry of
@@ -202,7 +212,7 @@ export const UNIVERSAL_MODULES: readonly UniversalModuleDef[] = [
 // is a set tier's bonus line (gearSets.ts), read by the expedition dispatch (expedition.ts expeditionGearBonuses).
 const TRIGGERED_KEYS: readonly ModuleEffectKey[] = ["arcDamage", "shieldRestore", "bonusHaul", "extraDiscovery"];
 export const MODULE_ENGINE_KEYS: Readonly<Partial<Record<UniversalModuleCategory, readonly ModuleEffectKey[]>>> = {
-  passive: ["powerOutput", "hullIntegrity"],
+  passive: ["powerOutput", "hullIntegrity", "nebulaSweep"],
   conditional: ["weaponDamage"],
   proc: TRIGGERED_KEYS,
   active: ["arcDamage", "shieldRestore"],
@@ -559,6 +569,16 @@ export function modulePassiveTotal(
   return total;
 }
 
+// GG-7: the nebula sweep boost of every installed Ramscoop Collector among `pieces` (a fraction; 0 without one), as the
+// expedition dispatch freezes it (expedition.ts buildExpedition, Expedition.nebula.ramscoop). Pure.
+export function moduleNebulaSweep(
+  pieces: readonly EquipmentInstance[],
+  scaleOf: ModuleScaleOf,
+  catalog: readonly UniversalModuleDef[] = UNIVERSAL_MODULES,
+): number {
+  return modulePassiveTotal(pieces, "nebulaSweep", scaleOf, "expedition", catalog);
+}
+
 // A module's passive power output in whole points (the budget is integer, combat/power.ts): rounded once over the
 // ship's total. 0 for a ship with no such module. Pure.
 export function modulePowerOutput(
@@ -624,6 +644,10 @@ export function validateUniversalModuleDef(def: UniversalModuleDef): string[] {
   }
   if (def.category === "passive" && def.effect.key === "hullIntegrity" && def.contexts.some((c) => !(MODULE_COMBAT_CONTEXTS as readonly ModuleContext[]).includes(c))) {
     errors.push(`${def.id}: hull integrity acts in combat only`);
+  }
+  // GG-7: the nebula sweep boost is read by the expedition dispatch only (frozen on the run's nebula stamp).
+  if (def.category === "passive" && def.effect.key === "nebulaSweep" && (def.contexts.length !== 1 || def.contexts[0] !== "expedition")) {
+    errors.push(`${def.id}: the nebula sweep boost acts on expeditions only`);
   }
   if (def.category === "passive" && (def.trigger !== undefined || def.chance !== undefined)) errors.push(`${def.id}: a passive has no trigger`);
   // EM-7: a Set names its set (gearSets.ts GEAR_SETS; that the id is a real set is checked by the catalog test, since
