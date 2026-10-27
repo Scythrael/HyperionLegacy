@@ -38,3 +38,13 @@ QUESTION QUEUE (ask when the user is back, most important first):
 4. FKR-8 (field device roll): LURE_SALVAGE_PER_DIAL [PROVISIONAL] 1 (one Lure adds 20 to 30% salvage); whether the
    Lure's salvage boost should also cover cloaked-vessel battles (OC-F1 names only probe salvage; built for both). The
    stacked-device D23 fix was applied under the standing rule (no question needed).
+5. Relic timeline study (docs/plans/2026-10-27-relic-timeline-study.md): 1,000 identified per tier takes a steady
+   player 101 d (Tier I) to 3,761 d (Tier VII), heavy 15 to 848 d; first copy of all 17 types ~51 d steady, ~6 to 8 d
+   heavy; 10,000 copies of EVERY type is ~744 years steady (~149 y counting past-cap 5x), ~88 y heavy (~18 y weighted),
+   because the rarest type (Living Crystal) is 0.40% of drops. Calls: (a) where the relic ceiling's knee sits (the user's
+   "10k of each" vs reachable timelines), or change drop rates; (b) no relic type is gated by tier today (Tier I can reveal
+   every radiant type), which contradicts "you'll need higher tier content to unlock the last of that 16": gate the
+   rarest types by tier?
+6. Fix to schedule (no question): the R2-10 test helper relicCollections.ts bandShares applies the tier band odds twice
+   (identification uses the Tier I row only), so the pinned heavy collection holds slightly too many rare copies; fix and
+   re-pin with the relic ceiling slice.

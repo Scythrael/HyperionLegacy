@@ -53,3 +53,9 @@ unlockables too: today's accent colors stay unlocked for everyone, new colors ge
 for 0.13.11.1: keep Starfall as data (a preset record: style id + color stops) so it slots into this picker as-is.
 
 Balancing method (user 2026-10-23: "Then we will build off of this for our balancing plans and such as well."): the 0.13.11.1 minigame tuning approach is the template for the 0.16.0 balance pass: simulate OPTIMAL, AVERAGE and CASUAL player profiles; report time to each milestone; measure the FELT effect of each reset or upgrade (multiplier gained per action), not just totals; check that no setting or strategy beats the default by more than a small margin; tune one layer while holding the overall pace; present options with numbers and let the user pick.
+
+## 1.0 content length target (user, 2026-10-27, verbatim)
+
+"I'm thinking ~2 years of content from start to finish for 1.0 overall." (Said about relic collection pacing: "we will
+be able to handle the proper balancing to ensure that the game doesn't take 700 years to complete.") The 0.16.0
+balancing pass tunes drop rates and pacing toward about 2 years from start to finish for 1.0.

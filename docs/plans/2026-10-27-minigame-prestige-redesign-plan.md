@@ -67,6 +67,20 @@ both before each slice.
 - [ ] Step 3: Commit `test(minigame): pre-redesign goldens` and `docs(minigame): relic timeline study`. Report the
   study table to the controller (it goes to the user before Slice 5's tuning).
 
+**Slice 0 carry note (built):**
+- `redesignGoldens.test.ts` + `.json`, captured on the unchanged engine (795a2c1): `fleetBarLadder` (rungs n = 0 to 5
+  Fleets since the last Prestigeception: bar found by bisection, 308.255273 on every rung today; fleetGain at
+  effective peaks 308 / 400 / 1,000 / 10,000 = 0 / 46 / 76 / 271), `pcBarLadder` (m = 0 to 3 lifetime
+  Prestigeceptions: bar 10,000 on every rung; gain 11,900 at e10,000), and per player (average, optimal, casual)
+  `skillState` (purchase order and second, Skill Points held at the stop: 2 / 0 / 6), `milestoneUnlocks` and
+  `pacingRelicFree` (every sim event to e10,000,000; average 4.88 / 32.35 / 119.15 d, optimal 4.46 / 34.47 / 130.06,
+  casual 6.86 / 47.84 / 140.65). The sims stop at e10,000,000 (sim.test.ts runs 20 days past it; the events before
+  the stop are the same). One file, four tests, about 9 minutes serial (the three sims). Every later slice that moves
+  a capture says which and why, then regenerates with GOLDEN_WRITE=1.
+- Study: `docs/plans/2026-10-27-relic-timeline-study.md`. Headline for Slice 5: 10,000 copies of every type is about
+  88 years raw (18 weighted) for a heavy player, so the ceiling's "about reached at 10,000 of each" needs a user call;
+  and no type is tier-gated today (Tier I can reveal every radiant type), against the user's stated intent.
+
 ### Slice 1: State fields and config data
 
 **Files:**

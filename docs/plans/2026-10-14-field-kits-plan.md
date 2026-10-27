@@ -1318,3 +1318,8 @@ Reading (this reshapes FK-1, FK-4, FK-5, FK-6, FK-8, FK-9):
   one dim "needs Medical Training" line under non-medics.
 - The mockup is signed off by these answers; FKR-9/10 build to it. New glyphs it proposes (grenade, offense / defense /
   debuff role glyphs, home mark) need the 16/28/56 px review in icons.ts + ICON_SEMANTICS before shipping.
+
+## USER ANSWERS (2026-10-27): FKR-8 review
+
+- Lure salvage: "Keep both (Recommended)": one Lure adds 20 to 30% ship-battle salvage (stacks diminish), for probe AND
+  cloaked-vessel battles; LURE_SALVAGE_PER_DIAL stays [PROVISIONAL] for the 0.16.0 balancing pass.

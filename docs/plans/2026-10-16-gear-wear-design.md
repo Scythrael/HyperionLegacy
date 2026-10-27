@@ -429,3 +429,10 @@ the wear fields with wear on.
   utility fire 8, survey 12, implants 2.5 a minute, the 5-minute expedition slice.
 - Universal module wear: "4 a minute (Recommended)": modules wear by time underway at the crew-module rate (2 never
   outran the 2-a-minute upkeep).
+
+## USER ANSWERS (2026-10-27): step 4 review
+
+- Repeat patrols under true-condition combat wear down until they lose (destroyer Repeat Sweep after 14 cycles,
+  battleship after 30). User pick: "Pause to repair": a Repeat patrol sends itself home to repair when its gear drops
+  under a set line, then resumes (the line [PROPOSAL], one named constant; the pause and resume shown to the player and
+  in the log; never a defeat from wear alone on Repeat).
