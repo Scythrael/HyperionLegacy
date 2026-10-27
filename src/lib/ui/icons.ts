@@ -479,6 +479,18 @@ export const ICON_PATHS = {
   module: ["M5 6h14v12H5z", "M8 6V3.5M12 6V3.5M16 6V3.5M8 20.5V18M12 20.5V18M16 20.5V18", "M9 10h6v4H9z"],
   // Power: a lightning bolt (the ship's power budget).
   power: ["M13 2.5L5 13.5h6l-1 8 8-11h-6z"],
+  // E-MOD EM-10 review (SVG only, never emoji): the five Spec Utility varieties, which share the Modules row and its
+  // install picker. They replace the emoji placeholders EquipmentTooltip carried for them.
+  // Yield Rig: a cut gem with a plus beside it (more of what is mined).
+  rigYield: ["M3 9l3-5h8l3 5-7 11z", "M3 9h14", "M8 4l2 5 2-5", "M19.5 14v6M16.5 17h6"],
+  // Survey Rig: a mast on a tripod sending out two sweep arcs (it reads the ground).
+  rigSurvey: ["M12 10.5V15", "M12 15l-5 6M12 15l5 6", "M9.2 7.8a4 4 0 0 1 5.6 0", "M6.4 5a8 8 0 0 1 11.2 0"],
+  // Refinery-Feed Rig: a lab flask with its fill line (ore prepared for the refinery).
+  rigRefineryFeed: ["M9 3h6", "M10 3v6l-5 9a2 2 0 0 0 1.7 3h10.6a2 2 0 0 0 1.7-3l-5-9V3", "M7.5 15h9"],
+  // Damage Control Suite: an extinguisher, its valve and hose (fires out, breaches sealed).
+  suiteDamageControl: ["M8 10a3 3 0 0 1 3-3h1a3 3 0 0 1 3 3v11H8z", "M11.5 7V4", "M9.5 4h5l3 3", "M10.5 13h2"],
+  // Pathfinder Suite: a folded map (the explorer's route finder).
+  suitePathfinder: ["M3 6l6-2 6 2 6-2v14l-6 2-6-2-6 2z", "M9 4v14", "M15 6v14"],
 
   // --- 0.13.11 Codes pad and the secret game ---
 

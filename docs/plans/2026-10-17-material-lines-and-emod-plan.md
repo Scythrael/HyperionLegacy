@@ -779,6 +779,15 @@ shows, and module blank tiles draw their SVG glyph. Icons `module` and `power` (
 ICON_SEMANTICS. Help topic "Power and modules" (numbers read from DRIVE_CLASS_POWER_DRAW_MULT,
 POWER_SUPPLY_FLOOR_PERCENT, the module blueprints' first tier); Ship Systems links to it. Verified in headless Chrome at
 1280 and 375 px (in budget with the Survey Pair, over budget, the power refusal; no horizontal scroll at 375).
+*EM-10 review fixes (2026-10-26, "approve with fixes").* (1) A module compare keeps its power rows plus every row that
+moves (`moduleCompareKeepsRow`): its draw eats the Reactor Core surplus, so FTL Speed and Range can drop; a small
+multiplier change reads in tenths or hundredths of a point (`pointsDeltaText`), never "+0 pts". (2) SVG only: the five
+Spec Utility varieties draw new glyphs (`rigYield`, `rigSurvey`, `rigRefineryFeed`, `suiteDamageControl`,
+`suitePathfinder` in icons.ts + ICON_SEMANTICS; their emoji are gone), and the Armory rows draw SVG glyphs too. (3) The
+over-budget warning shows even if the budget reader fails. (4) The card's power line reads `modulePowerOutput`. (5) The
+draw strip's reduction is the fold's own (`equipmentStatMods`, set lines and the clamp). (6) A module's condition is in
+its tile's accessible name, on the tile and on the card. (7) The Power bar's "Power and modules" link opens that Help
+topic (App.svelte `openHelpTopic`).
 
 ### Order and dependencies
 

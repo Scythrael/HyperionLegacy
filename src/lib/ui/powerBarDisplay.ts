@@ -15,7 +15,7 @@
 // harness); no game rules live here.
 
 import type { EquipmentInstance } from "../game/model";
-import { driveClassPowerDraw, ftlDriveClass, moduleEffectScale, shipGearSetBonusLines, DRIVE_CLASS_POWER_DRAW_MULT } from "../game/model";
+import { driveClassPowerDraw, equipmentStatMods, ftlDriveClass, moduleEffectScale, shipGearSetBonusLines, DRIVE_CLASS_POWER_DRAW_MULT } from "../game/model";
 import type { OverBudgetNotice, ShipPowerBudget } from "../game/shipPower";
 import { modulePowerOutput, pieceModuleDef } from "../game/shipModules";
 import { GEAR_SETS, activeGearSetTiers } from "../game/gearSets";
@@ -109,6 +109,25 @@ export function powerBarView(budget: ShipPowerBudget, notice: OverBudgetNotice |
   };
 }
 
+// The install compare for a MODULE candidate (EM-10 review): always its two power rows, plus every other sheet row
+// whose delta is not zero (a Range row by the floored values it shows). A module's draw or output changes the Reactor
+// Core surplus, which the drive rule (crewOverlay.ts gearSheetWithReactorDrive) turns into FTL Speed and Range, so
+// those rows must show when they move. Pure.
+export const MODULE_COMPARE_POWER_ROWS: ReadonlySet<string> = new Set(["Power Output", "Power Draw"]);
+export function moduleCompareKeepsRow(row: { label: string; base: number; fitted: number; kind: "flat" | "pct" | "ly" }): boolean {
+  if (MODULE_COMPARE_POWER_ROWS.has(row.label)) return true;
+  if (row.kind === "ly") return Math.floor(row.fitted) !== Math.floor(row.base);
+  return Math.abs(row.fitted - row.base) >= 1e-9;
+}
+
+// A multiplier row's change in points for the compare ("+35 pts", "-0.4 pts", "-0.04 pts"): whole points from 1 point
+// up, finer below, so a small real change never reads as "+0 pts". Pure.
+export function pointsDeltaText(delta: number): string {
+  const pts = delta * 100;
+  const a = Math.abs(pts);
+  return `${pts > 0 ? "+" : ""}${pts.toFixed(a >= 1 ? 0 : a >= 0.1 ? 1 : 2)} pts`;
+}
+
 // A piece's own power draw as the budget counts it: an FTL drive at its drive class (EM-1, P5), every other piece its
 // minted draw. Before the ship-wide powerDrawReduction lines (the budget's gross draw nets those). Pure.
 export function piecePowerDraw(piece: Pick<EquipmentInstance, "slotType" | "powerDraw" | "blueprintKey">): number {
@@ -129,12 +148,13 @@ export function driveDrawText(piece: Pick<EquipmentInstance, "slotType" | "power
   return `Class ${driveClassNumeral(cls)} drive · draw ${draw}${why}`;
 }
 
-// The ship-wide powerDrawReduction lines summed (rolled affixes), so the per-system draw list can say where the rest of
-// the gross draw went. Pure.
-export function drawReductionTotal(pieces: readonly Pick<EquipmentInstance, "implicitStats" | "rolledStats">[]): number {
-  let r = 0;
-  for (const p of pieces) r += (p.implicitStats.powerDrawReduction ?? 0) + (p.rolledStats.powerDrawReduction ?? 0);
-  return r;
+// How much the power fold takes off the summed per-piece draws (the powerDrawReduction lines, a gear set's included, and
+// the fold's clamp at 0), so the per-system draw list says where the rest of the gross draw went. Read from the fold
+// itself (model.ts equipmentStatMods), so the strip always sums to the gross draw. Pure.
+export function drawReductionTotal(pieces: readonly EquipmentInstance[]): number {
+  let sum = 0;
+  for (const p of pieces) sum += piecePowerDraw(p);
+  return sum - equipmentStatMods(pieces as EquipmentInstance[]).totalPowerDraw;
 }
 
 // ============================================================================

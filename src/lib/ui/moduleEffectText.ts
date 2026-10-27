@@ -10,7 +10,8 @@
 
 import { moduleEffectScale, shipGearSetBonusLines, type EquipmentInstance } from "../game/model";
 import { activeGearSetTiers, gearSetDef } from "../game/gearSets";
-import { UNIVERSAL_MODULES, pieceModuleDef, type ModuleContext, type UniversalModuleDef } from "../game/shipModules";
+import { UNIVERSAL_MODULES, modulePowerOutput, pieceModuleDef, type ModuleContext, type UniversalModuleDef } from "../game/shipModules";
+import { CONDITION_FULL, pieceCondition } from "../game/gearWear";
 
 // A fraction as a percent with at most one decimal ("12%", "6.7%").
 function pct(f: number): string {
@@ -112,10 +113,19 @@ export function moduleWhenText(def: UniversalModuleDef): string {
 }
 
 // The card's draw line: "Power draw 8", and for a module that adds power "Power draw 0, adds 8 power". Reads the piece's
-// own minted draw and its scaled output (the numbers the budget folds). Pure.
-export function moduleDrawText(def: UniversalModuleDef, piece: Pick<EquipmentInstance, "powerDraw" | "rarity" | "quality" | "ascension">): string {
-  const adds = def.category === "passive" && def.effect.key === "powerOutput" ? Math.round(def.effect.magnitude * moduleEffectScale(piece.rarity, piece.quality, piece.ascension)) : 0;
+// own minted draw and the engine's own output fold for it (shipModules.ts modulePowerOutput, the reader the budget
+// uses, so the card and the bar can never round apart). Pure.
+export function moduleDrawText(piece: EquipmentInstance): string {
+  const adds = modulePowerOutput([piece], (p) => moduleEffectScale(p.rarity, p.quality, p.ascension));
   return adds > 0 ? `Power draw ${piece.powerDraw}, adds ${adds} power` : `Power draw ${piece.powerDraw}`;
+}
+
+// The card's condition line (the mockup's details card), or null for a pristine piece. Wear never moves the power checks
+// (gear wear design 4.3). Pure.
+export function moduleConditionText(piece: Pick<EquipmentInstance, "condition">): string | null {
+  const pct = Math.round((pieceCondition(piece) / CONDITION_FULL) * 100);
+  if (pct >= 100) return null;
+  return `Condition ${pct}%. Wears slowly while the ship is underway; power checks always use the pristine values.`;
 }
 
 // The card's closing note (the mockup's details card): the one-per-ship rule (user M8) and the S2 lock.
@@ -131,6 +141,7 @@ export interface PieceModuleLines {
   rule: string | null;
   when: string;
   draw: string;
+  condition: string | null;
 }
 export function pieceModuleLines(piece: EquipmentInstance, shipPieces?: readonly EquipmentInstance[]): PieceModuleLines | null {
   const def = pieceModuleDef(piece);
@@ -140,7 +151,8 @@ export function pieceModuleLines(piece: EquipmentInstance, shipPieces?: readonly
     effect: activeSetText(def, piece, shipPieces) ?? moduleEffectSentence(def, moduleEffectScale(piece.rarity, piece.quality, piece.ascension)),
     rule: moduleRuleText(def),
     when: moduleWhenText(def),
-    draw: moduleDrawText(def, piece),
+    draw: moduleDrawText(piece),
+    condition: moduleConditionText(piece),
   };
 }
 

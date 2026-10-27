@@ -4,7 +4,11 @@
 // class draw the power fold uses.
 
 import { describe, expect, it } from "vitest";
-import { BLUEPRINTS, DRIVE_CLASS_BLUEPRINTS, DRIVE_CLASS_POWER_DRAW_MULT, SHIP_TYPES, equipmentStatMods, freshState, type EquipmentInstance, type GameState } from "../game/model";
+import { BLUEPRINTS, DRIVE_CLASS_BLUEPRINTS, DRIVE_CLASS_POWER_DRAW_MULT, EQUIPMENT_SLOTS, SHIP_TYPES, equipmentStatMods, freshState, type EquipmentInstance, type GameState } from "../game/model";
+import { gearSheetWithReactorDrive } from "../game/crewOverlay";
+import { equipmentIcon, equipmentSvgIcon, varietySvgIcon } from "../EquipmentTooltip.svelte";
+import { ICON_PATHS } from "./icons";
+import { ICON_SEMANTICS } from "./iconPacks";
 import { equippedFor, fittedInSlot } from "../game/equipment";
 import { overBudgetNotice, shipPowerBudget } from "../game/shipPower";
 import { POWER_SUPPLY_FLOOR_PERCENT, powerSupplyPercent } from "../game/combat/power";
@@ -15,8 +19,10 @@ import {
   activeModuleSetLines,
   drawReductionTotal,
   driveDrawText,
+  moduleCompareKeepsRow,
   moduleRowTiles,
   moduleTileCategory,
+  pointsDeltaText,
   moduleTileDrawText,
   pieceConditionPercent,
   piecePowerDraw,
@@ -176,6 +182,75 @@ describe("the module card's trigger in plain words (EM-10)", () => {
         expect(t).not.toMatch(/—|–|-{2}/);
         expect(t).not.toMatch(/\b(fit|fits|fitting|fitted)\b/i);
       }
+    }
+  });
+});
+
+describe("EM-10 review fixes", () => {
+  // A weightless, powerful crafted core on the starting Freighter, whose systems already use the hull's own power (the
+  // systems draw the hull's power first): the core's unused power is what speeds the drive.
+  function strongCore(): GameState {
+    const s = freshState();
+    const core = fittedInSlot(s, SHIP, "reactorCore")!;
+    const bay = fittedInSlot(s, SHIP, "cargoBay")!;
+    const strong = { ...core, blueprintKey: "highOutputCoreBp", implicitStats: { powerOutput: 150 }, rolledStats: {}, mass: 0 };
+    const hungry = { ...bay, powerDraw: SHIP_TYPES.generalFreighter.basePowerOutput };
+    return { ...s, equipment: s.equipment.map((e) => (e.id === core.id ? strong : e.id === bay.id ? hungry : e)) };
+  }
+
+  it("1. a module's draw can slow the drive, and the module compare keeps the moved FTL Speed row", () => {
+    const s = strongCore();
+    const ship = s.ships.find((x) => x.id === SHIP)!;
+    const pieces = equippedFor(s, SHIP);
+    const surge = { ...mintTestModule(def("shieldSurge"), "standard", 0, "rf-surge"), fittedToShipId: SHIP };
+    const before = gearSheetWithReactorDrive(ship, pieces);
+    const after = gearSheetWithReactorDrive(ship, [...pieces, surge]);
+    expect(after.transitSpeedMult).toBeLessThan(before.transitSpeedMult);
+    expect(moduleCompareKeepsRow({ label: "FTL Speed", base: before.transitSpeedMult, fitted: after.transitSpeedMult, kind: "pct" })).toBe(true);
+    // power rows always, an unmoved row never, Range by its floored values
+    expect(moduleCompareKeepsRow({ label: "Power Draw", base: 5, fitted: 5, kind: "flat" })).toBe(true);
+    expect(moduleCompareKeepsRow({ label: "Cargo Capacity", base: 60, fitted: 60, kind: "flat" })).toBe(false);
+    expect(moduleCompareKeepsRow({ label: "Range", base: 75.2, fitted: 75.9, kind: "ly" })).toBe(false);
+    expect(moduleCompareKeepsRow({ label: "Range", base: 75.2, fitted: 74.9, kind: "ly" })).toBe(true);
+    // a small real change never reads as "+0 pts"
+    const pts = pointsDeltaText(after.transitSpeedMult - before.transitSpeedMult);
+    expect(pts).toMatch(/^-\d/);
+    expect(pts).not.toBe("-0 pts");
+    expect(pointsDeltaText(0.35)).toBe("+35 pts");
+    expect(pointsDeltaText(-0.004)).toBe("-0.4 pts");
+  });
+
+  it("4. the card's power line reads the engine's own output fold (the bar's number)", () => {
+    for (const [rarity, q] of [["standard", 0], ["radiant", 3], ["augmented", 5]] as const) {
+      const cap = mintTestModule(def("auxiliaryCapacitor"), rarity, q, `rf-cap-${rarity}`);
+      const adds = shipPowerBudget(aboard(freshState(), [cap]), SHIP).moduleOutput;
+      expect(pieceModuleLines(cap)!.draw).toBe(`Power draw ${cap.powerDraw}, adds ${adds} power`);
+    }
+  });
+
+  it("5. the draw reduction is the fold's own (set lines and the clamp at 0 included)", () => {
+    const s = freshState();
+    const pieces = equippedFor(s, SHIP).map((p, i) => (i === 0 ? { ...p, rolledStats: { ...p.rolledStats, powerDrawReduction: 999 } } : p));
+    const sum = pieces.reduce((n, p) => n + piecePowerDraw(p), 0);
+    expect(sum - drawReductionTotal(pieces)).toBe(equipmentStatMods(pieces).totalPowerDraw);
+    expect(equipmentStatMods(pieces).totalPowerDraw).toBe(0);
+  });
+
+  it("6. a worn module's card names its condition; a pristine one does not", () => {
+    const arc = mintTestModule(def("arcDischarger"), "standard", 0, "rf-arc");
+    expect(pieceModuleLines(arc)!.condition).toBeNull();
+    expect(pieceModuleLines({ ...arc, condition: 920 })!.condition).toMatch(/^Condition 92%\./);
+  });
+
+  it("2. every Spec Utility variety draws an SVG glyph (never an emoji), classified for packs", () => {
+    for (const v of EQUIPMENT_SLOTS.specUtility.varieties) {
+      const ic = varietySvgIcon(v.key);
+      expect(ic, v.key).not.toBeNull();
+      expect(ICON_PATHS[ic!], v.key).toBeDefined();
+      expect(ICON_SEMANTICS[ic!], v.key).toBe("subject");
+      const piece = { ...fittedInSlot(freshState(), SHIP, "specUtility")!, moduleVariant: v.key };
+      expect(equipmentIcon(piece), v.key).toBe("");
+      expect(equipmentSvgIcon(piece), v.key).toBe(ic);
     }
   });
 });

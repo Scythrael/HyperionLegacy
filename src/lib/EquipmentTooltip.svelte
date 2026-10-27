@@ -137,14 +137,9 @@
     highOutputCore: "⚛️",
     efficientCore: "🔋",
     balancedCore: "⚖️",
-    // Spec Utility rigs:
-    yieldRig: "💎",
-    surveyRig: "📡",
-    refineryFeedRig: "🧪",
-    // Exploration 0.14.0 (E4d): the relic-unlocked items (same placeholder-emoji surface as above; the
-    // game-wide SVG migration of this map is a separate pass).
-    damageControlSuite: "🧯",
-    pathfinderSuite: "🗺️",
+    // Spec Utility rigs and suites: E-MOD EM-10 review moved all five to SVG (EQUIPMENT_VARIETY_SVG_ICON below).
+    // Exploration 0.14.0 (E4d): the relic-unlocked sensor (same placeholder-emoji surface as above; the game-wide SVG
+    // migration of this map is a separate pass).
     sensorBioResonance: "🧬",
   };
 
@@ -163,6 +158,13 @@
     shieldSurge: "moduleSurge",
     longBaselineArray: "telescope",
     signalIntegrator: "moduleSignal",
+    // E-MOD EM-10 review (SVG only, never emoji): every Spec Utility variety, drawn on the Modules row, its picker, the
+    // card header, the Logistics bay and the Armory.
+    yieldRig: "rigYield",
+    surveyRig: "rigSurvey",
+    refineryFeedRig: "rigRefineryFeed",
+    damageControlSuite: "suiteDamageControl",
+    pathfinderSuite: "suitePathfinder",
   };
 
   // Fallback glyph per SLOT, used if a variety is unmapped OR a slot has no variety
@@ -712,6 +714,9 @@
           <div class="et-detail"><b>{view.moduleLines.rule}</b></div>
         {/if}
         <div class="et-detail">{view.moduleLines.draw}</div>
+        {#if view.moduleLines.condition}
+          <div class="et-detail">{view.moduleLines.condition}</div>
+        {/if}
         <div class="et-detail">{MODULE_CARD_NOTE}</div>
       {/if}
     {:else if view.kind === "ship"}

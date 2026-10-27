@@ -75,6 +75,8 @@
     activeModuleSetLines,
     drawReductionTotal,
     driveDrawText,
+    moduleCompareKeepsRow,
+    pointsDeltaText,
     moduleRowTiles,
     moduleTileCategory,
     moduleTileDrawText,
@@ -84,6 +86,8 @@
   } from "./ui/powerBarDisplay";
   import { pieceModuleLines } from "./ui/moduleEffectText";
   import Icon from "./ui/Icon.svelte";
+  // The Help topic the Power bar links to (helpTopics.ts; powerBarDisplay.test.ts holds the id to a real topic).
+  const POWER_HELP_TOPIC_ID = "powerAndModules";
   import { equippedFor, fittedInSlot, canFitEquipment } from "./game/equipment";
   // S2 (user 2026-10-17 "Lock it"): the one crew lock names why a ship's gear is locked (a mission, a patrol, a
   // short-range run, or an expedition until it is claimed), the same lock the engine's install gate reads.
@@ -183,6 +187,9 @@
   // but this locks the controls so the player is not left mashing a button that only logs a refusal.
   export let loadoutLocked = false;
   export let loadoutName = "";
+  // E-MOD EM-10 review: opens a Help topic (the Power bar links to "Power and modules"). The host owns the Help center
+  // (App.svelte openHelpTopic); without a host handler the link is not drawn.
+  export let onOpenHelp: ((topicId: string) => void) | undefined = undefined;
 
   // --- Slot metadata ----------------------------------------------------------
   // The installable SINGLETON slots, grouped by function to match the mockup. Each
@@ -900,9 +907,10 @@
       // E-MOD EM-4 review: both sides through the Reactor Core's drive rule (gear only), so a crafted core never
       // compares as slower than the Standard-Issue one.
       const candStats = gearSheetWithReactorDrive(ship, candidateGear);
-      // E-MOD EM-10: a module moves only the power rows of the sheet (its effect is in the card lines above them).
+      // E-MOD EM-10: a module shows its power rows and every other row it really moves (its draw changes the Reactor
+      // Core surplus, so FTL Speed and Range can move); its effect is in the card lines above them.
       const rows = buildLiveRows(fitDriveStats ?? fitStats, candStats).filter(
-        (r) => installCandidate?.slotType !== "module" || r.label === "Power Output" || r.label === "Power Draw",
+        (r) => installCandidate?.slotType !== "module" || moduleCompareKeepsRow(r),
       );
       return rows.map((r) => {
         // 0.13.9: a Range row diffs the FLOORED values it displays (floor(fitted) - floor(base)), so the
@@ -916,7 +924,7 @@
         const deltaText = zero
           ? null
           : r.kind === "pct"
-            ? `${delta > 0 ? "+" : ""}${(delta * 100).toFixed(0)} pts`
+            ? pointsDeltaText(delta)
             : r.kind === "ly"
               ? `${delta > 0 ? "+" : ""}${delta} LY`
               : `${delta > 0 ? "+" : ""}${fmtFlat(Number(delta.toFixed(1)))}`;
@@ -1592,6 +1600,11 @@
           <div class="ss-group ss-power" class:over={powerBar.over}>
             <div class="ss-group-head">
               <span class="ss-head-ic" aria-hidden="true"><Icon name="power" /></span> Power
+              {#if onOpenHelp}
+                <button type="button" class="ss-help-link" on:click={() => onOpenHelp?.(POWER_HELP_TOPIC_ID)} aria-label="Help: Power and modules">
+                  <Icon name="help" /> Power and modules
+                </button>
+              {/if}
               <span class="ss-power-chip" class:warn={powerBar.over}>
                 <Icon name={powerBar.over ? "warning" : "check"} />
                 {powerBar.chip}
@@ -1641,6 +1654,11 @@
                 {/if}
               </div>
             {/if}
+          </div>
+        {:else if powerNotice !== null}
+          <!-- The budget reader failed (a stray piece) but the ship is over budget: the warning still shows. -->
+          <div class="ss-power-warn" role="status">
+            <strong>{powerNotice.chip}: {powerNotice.strength}</strong> {powerNotice.gentleNote} {powerNotice.cause}
           </div>
         {/if}
 
@@ -1869,7 +1887,7 @@
                     <button
                       type="button"
                       class="ss-mod-info"
-                      aria-label={`${spareLabel(piece)}: ${piece.rarity} grade, iL ${piece.iLevel}. Details.`}
+                      aria-label={`${spareLabel(piece)}: ${piece.rarity} grade, iL ${piece.iLevel}, ${moduleTileDrawText(piece)}, condition ${cond}%. Details.`}
                       on:click={(e) => clickInfo(e, piece)}
                       on:mouseenter={(e) => hoverTip(piece, e.currentTarget)}
                       on:mouseleave={hoverOut}
@@ -1880,7 +1898,8 @@
                       <span class="ss-mod-glyph" aria-hidden="true">{#if svg !== null}<Icon name={svg} size={22} />{:else}{tileIcon(piece)}{/if}</span>
                       <span class="ss-mod-name">{spareLabel(piece)}</span>
                       <span class="ss-mod-sub">{piece.rarity} &middot; iL {piece.iLevel} &middot; {moduleTileDrawText(piece)}</span>
-                      <span class="ss-mod-wear" title={`Condition ${cond}%`}><i style="width: {cond}%"></i></span>
+                      <span class="ss-mod-wear" title={`Condition ${cond}%`} aria-hidden="true"><i style="width: {cond}%"></i></span>
+                      <span class="ss-mod-sub">Condition {cond}%</span>
                     </button>
                     <div class="ss-slot-actions">
                       {#if t.kind === "utility"}
@@ -2914,6 +2933,24 @@
     letter-spacing: 0.04em;
     text-transform: none;
     white-space: nowrap;
+  }
+  .ss-help-link {
+    appearance: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    margin-left: 10px;
+    padding: 0;
+    background: none;
+    border: none;
+    font: inherit;
+    font-size: var(--text-3xs);
+    letter-spacing: 0.04em;
+    text-transform: none;
+    color: var(--color-accent-bright);
+    cursor: pointer;
+    text-decoration: underline;
+    text-underline-offset: 2px;
   }
   .ss-power-chip.warn {
     border-color: rgba(var(--color-warning-rgb), 0.5);

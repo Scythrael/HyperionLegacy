@@ -226,12 +226,12 @@ describe("the mint, the player path and the item card", () => {
 
   it("the item card says what each module does at the piece's own scale (the mockup's words)", () => {
     const lines = (id: string, rarity: EquipmentRarity = "standard", q = 0) => pieceModuleLines(mint(id, rarity, q))!;
-    expect(lines("auxiliaryCapacitor")).toEqual({ kind: "Passive · Everywhere", effect: "Adds 8 power output.", rule: null, when: "Always on, everywhere the ship goes.", draw: "Power draw 0, adds 8 power" });
+    expect(lines("auxiliaryCapacitor")).toEqual({ kind: "Passive · Everywhere", effect: "Adds 8 power output.", rule: null, when: "Always on, everywhere the ship goes.", draw: "Power draw 0, adds 8 power", condition: null });
     expect(lines("structuralBracing").effect).toBe("+6% hull integrity in combat.");
     expect(lines("arcDischarger")).toMatchObject({ kind: "Proc · Combat", effect: "When the ship takes a hit: a 15% chance to arc 8 damage back at the attacker." });
     expect(lines("prospectorsEcho")).toMatchObject({ kind: "Proc · Missions", effect: "Each extraction cycle: a 10% chance of a bonus haul, +50% of that cycle's common material." });
     expect(lines("lastStandProtocol").effect).toBe("While hull is below 25%: +12% weapon damage.");
-    expect(lines("shieldSurge")).toEqual({ kind: "Active · Combat", effect: "Restores 30% shields.", rule: "Auto-cast, preset rule: once per battle, when hull falls below 50%.", when: "Acts in combat once the ship's hull falls below 50%.", draw: "Power draw 6" });
+    expect(lines("shieldSurge")).toEqual({ kind: "Active · Combat", effect: "Restores 30% shields.", rule: "Auto-cast, preset rule: once per battle, when hull falls below 50%.", when: "Acts in combat once the ship's hull falls below 50%.", draw: "Power draw 6", condition: null });
     expect(lines("longBaselineArray")).toMatchObject({ kind: "Set · Expeditions", effect: "With a Signal Integrator installed: +8% scan speed on expeditions (the pair's bonus averages both pieces)." });
     expect(lines("signalIntegrator").effect).toBe("With a Long-Baseline Array installed: +8% scan speed on expeditions (the pair's bonus averages both pieces).");
     // EM-7 review: installed as a pair (the host passes the ship's pieces), the card shows the REAL pair bonus, the mean

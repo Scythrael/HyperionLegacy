@@ -3288,6 +3288,11 @@
     activeTab = "home";
     activeHomeTab = "help";
   }
+  // E-MOD EM-10 review: open the Help center on one topic (the Ship Systems Power bar's "Power and modules" link).
+  function openHelpTopic(topicId: string): void {
+    if (HELP_TOPICS.some((t) => t.id === topicId)) activeHelpTopic = topicId;
+    openHelpCenter();
+  }
 
   // The modal's top-tab list, in display order. Settings is the first view (0.13.6 D7 removed the
   // former "profile" first tab, now at Crew > Admiral); the keys map to the settings content
@@ -15736,7 +15741,7 @@
                               aria-expanded={armoryTip?.itemId === inst.id}
                               on:click={(e) => toggleArmoryTip(e, inst.id)}
                             >
-                              <span style="color:{equipmentRarityColor(inst.rarity)};">{equipmentIcon(inst)} {systemSalvageName(inst)}</span>
+                              <span style="color:{equipmentRarityColor(inst.rarity)};">{#if equipmentSvgIcon(inst) !== null}<Icon name={equipmentSvgIcon(inst) ?? "equipment"} size={12} />{:else}{equipmentIcon(inst)}{/if} {systemSalvageName(inst)}</span>
                               <span class="armory-item-sub">{inst.rarity} · Q{inst.quality}</span>
                               <span class="armory-item-info" aria-hidden="true">ⓘ</span>
                             </button>
@@ -15780,7 +15785,7 @@
                               title={cand.locked === true ? "Locked, so it cannot be committed. Unlock it in Ship Equipment first." : undefined}
                               on:click={() => doArmoryInstall(armoryInstallSlotKey!, cand.id)}
                             >
-                              <span class="ship-pick-name"><span style="color:{equipmentRarityColor(cand.rarity)};">{equipmentIcon(cand)} {systemSalvageName(cand)}</span>{#if cand.locked === true} 🔒{:else if cand.favorite} <span style="color:var(--color-warning);">★</span>{/if}</span>
+                              <span class="ship-pick-name"><span style="color:{equipmentRarityColor(cand.rarity)};">{#if equipmentSvgIcon(cand) !== null}<Icon name={equipmentSvgIcon(cand) ?? "equipment"} size={12} />{:else}{equipmentIcon(cand)}{/if} {systemSalvageName(cand)}</span>{#if cand.locked === true} 🔒{:else if cand.favorite} <span style="color:var(--color-warning);">★</span>{/if}</span>
                               <span class="ship-pick-sub">{cand.rarity} · Q{cand.quality} · iL {cand.iLevel}{#if netBR !== 0} · <span style="color:{netBR > 0 ? 'var(--color-success)' : 'var(--color-danger)'};">{netBR > 0 ? "+" : ""}{formatNumber(netBR)} BR</span>{/if}</span>
                             </button>
                           {/each}
@@ -16790,6 +16795,7 @@
           onRepair={repairShipNow}
           onRename={handleRenameShip}
           onClose={returnFromShipPage}
+          onOpenHelp={openHelpTopic}
         />
         {:else if activeShipDetailTab === "seniorStaff"}
         <!-- SENIOR STAFF (Crew 0.14.0 phase 4a). The named-officer management pane for this

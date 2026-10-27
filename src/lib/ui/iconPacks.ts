@@ -161,6 +161,12 @@ export const ICON_SEMANTICS: Record<IconName, IconSemantic> = {
   // E-MOD EM-10: the module slot and the power budget (each names a thing on the Ship Systems board).
   module: "subject",
   power: "subject",
+  // E-MOD EM-10 review: the five Spec Utility varieties (each names one installed piece).
+  rigYield: "subject",
+  rigSurvey: "subject",
+  rigRefineryFeed: "subject",
+  suiteDamageControl: "subject",
+  suitePathfinder: "subject",
   telescope: "subject",
   riskCombat: "subject",
   riskFauna: "subject",
