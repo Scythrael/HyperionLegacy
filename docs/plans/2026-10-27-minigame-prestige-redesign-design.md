@@ -1,6 +1,6 @@
 # Minigame prestige redesign: every layer meaningful (design)
 
-Status: DRAFT v2 for the user's approval (2026-10-27; v2 adds the design-check answers and the relic ceiling). Ships with 0.14.0 (user pick "With 0.14.0", 2026-10-27), on the
+Status: APPROVED by the user 2026-10-27 ("Approve, six skills (Recommended)"); v2 adds the design-check answers and the relic ceiling. Ships with 0.14.0 (user pick "With 0.14.0", 2026-10-27), on the
 `feat/crew-0.14.0` branch, re-simmed. Game: the secret minigame "Hyperion Legacy v0.0000001a" (`src/lib/secret/*`).
 Every user quote below is verbatim; the full record is in
 `docs/plans/2026-10-23-minigame-fast-progress-investigation.md`, section "USER DIRECTION (2026-10-27)" and the
@@ -115,7 +115,7 @@ skill, never a cliff). Claude's call (design check): the scaling factor is exact
 so a skill at count 0 gives its full listed level effect (a converted save never loses strength after a reset). The
 e1,000,000 Upgrades tab (Ore-bought) is separate and unchanged. Roster size: six (three reworked, three new); the user
 asked whether to expand, Claude recommended six for 0.14.0 (more skills need more points or thinner levels for the
-endpoint in 3.4) with new skills coming from a future prestige layer [to confirm with the user].
+endpoint in 3.4) with new skills coming from a future prestige layer (user 2026-10-27: "Approve, six skills").
 
 ### 3.4 Skill Point schedule and the endpoint
 
@@ -147,7 +147,7 @@ endpoint in 3.4) with new skills coming from a future prestige layer [to confirm
 - The 17-row lever table (user, 2026-10-26) and the past-cap 5x weight stay; what changes is the curve: each lever's
   share is set so the combined effect meets the ceiling. The early boost stays gentle (a typical 0.14.0 collection
   about 15% faster, as approved); the sims pin relic-free bands exactly.
-- "16 relics" (user) vs 17 types in the code: [to confirm with the user].
+- All 17 relic types count toward the ceiling, Heart of the Archive included (user 2026-10-27, "All 17").
 - How the 2.5x is realized in the engine is left to the builder, measured in the sim as the plateau exponent.
 
 ### 3.7 Study: how long to the relic limit
