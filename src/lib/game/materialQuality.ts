@@ -94,13 +94,16 @@ export interface ConsumedQuality {
   qualityUnits: Decimal;
 }
 
+// A tiny epsilon keeps an exact average (2.0 computed as 1.9999...) on its own rung. Shared with the ML-7 readout
+// (ui/materialLinesDisplay.ts averageText), so the printed average and the rung it floors to always agree.
+export const CARRY_AVERAGE_EPSILON = 1e-9;
+
 // The carried quality of a job (L6): the unit-weighted average of the consumed quality, rounded down, Q5 at most.
 // 0 when nothing was consumed. Pure.
 export function carriedQuality(tally: ConsumedQuality): number {
   if (!tally.units.gt(0)) return 0;
-  // A tiny epsilon keeps an exact average (2.0 computed as 1.9999...) on its own rung.
   const avg = tally.qualityUnits.div(tally.units).toNumber();
-  return Math.max(0, Math.min(MAX_MATERIAL_QUALITY, Math.floor(avg + 1e-9)));
+  return Math.max(0, Math.min(MAX_MATERIAL_QUALITY, Math.floor(avg + CARRY_AVERAGE_EPSILON)));
 }
 
 // A craft's output quality (L6): the carried quality plus the usual roll, Q5 at most. An absent carry is 0, so a job

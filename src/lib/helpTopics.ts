@@ -121,6 +121,14 @@ import type { RegionTier } from "./game/model";
 import { BLUEPRINTS, LAB_FABRICATOR_TOP_TIER } from "./game/model";
 // WR-4 (OC-C1): the Fuel Depot's per-level fleet reach, read from the engine constant (no stale number).
 import { FUEL_DEPOT_REACH_PER_RUNG } from "./game/model";
+// Material Lines ML-7: the line names and the top quality, read from their owners (no stale list or number).
+import { REFINERY_LINES } from "./ui/materialLinesDisplay";
+import { MAX_MATERIAL_QUALITY } from "./game/materialQuality";
+
+// "Structural, Heavy metals, Recovered tech, Organic and Volatiles".
+const LINE_LABELS = REFINERY_LINES.map((l) => l.label);
+const LINE_NAMES = LINE_LABELS.length > 1 ? `${LINE_LABELS.slice(0, -1).join(", ")} and ${LINE_LABELS[LINE_LABELS.length - 1]}` : LINE_LABELS.join("");
+const TOP_Q = `Q${MAX_MATERIAL_QUALITY}`;
 
 // ===== Derived-text helpers (0.14.0 topics; see the header) =====
 
@@ -213,7 +221,18 @@ export const HELP_TOPICS: HelpTopic[] = [
   {
     id: "refining",
     title: "Refining",
-    body: "The Refinery, in Facilities, turns raw ore into the refined materials your Fabricator needs (for example Titanium Ore into Titanium Ingots, and Polysilicate Ore into Polysilicate Wafers). It runs as a set of independent production lines: each slot can be configured with its own tier, item, and amount, so several different refine jobs run at once. Starting a job reserves its ingredients up front so lines never double-spend the same stockpile, and each upgrade unlocks another line. You can queue a fixed batch or run continuously, and the status readout tells you why a line paused, whether it ran out of ingredients or the output storage is full.",
+    body: "The Refinery, in Facilities, turns raw ore into the refined materials your Fabricator needs (for example Titanium Ore into Titanium Ingots, and Polysilicate Ore into Polysilicate Wafers). It runs as a set of independent production lines: each slot can be configured with its own tier, item, and amount, so several different refine jobs run at once. Starting a job reserves its ingredients up front so lines never double-spend the same stockpile, and each upgrade unlocks another line. You can queue a fixed batch or run continuously, and the status readout tells you why a line paused, whether it ran out of ingredients or the output storage is full. The Production tab lists every recipe grouped by material line, with the stock you hold of each; Order on a recipe opens a free line's form on it, or the queue's form when every line is busy (see Material lines and quality).",
+  },
+  {
+    id: "materialQuality",
+    title: "Material lines and quality",
+    body: `Every material you hold has a quality, from Q0 to ${TOP_Q}. Most stock is Q0. A mission delivery or a finished craft rolls its quality, and a ship carrying Material Quality gives each unit it delivers a chance to arrive one quality higher. Material Quality comes from the Prospecting Rig: the Refinery-Feed Rig is built for it, the Yield and Survey Rigs carry a little, and any Prospecting Rig can roll it as an extra line.
+
+The Refinery's Production tab groups its recipes into material lines by where their raws come from: ${LINE_NAMES}. A compound sits with the line of its main raw (Cobalt Coil under Heavy metals, for example). Each recipe shows how much of its output you hold, split by quality, and each raw opens to show its own split. The same split is on every material's tooltip under Logistics, Materials (hover a tile, or tap it on a phone).
+
+Quality carries into what you refine and into materials you fabricate. Each run of an order works out the average quality of everything it used, weighted by units and rounded down, and its output starts at that quality; the usual quality roll can then lift it further, never above ${TOP_Q}. An order spends your lowest quality stock first, so your good stock is saved. Turn on Use best materials on an order to spend the highest quality first and carry more quality into the output; the switch starts off every time you open the form.
+
+On the order form, This order uses lists the qualities the order will draw, and Carried quality shows the average and the quality the next run starts from. Each run is its own job, so a long order on mixed stock can carry a different quality on its later runs (the form says so), and another line drawing the same material at the same time can change which stock is left. Fabricated equipment does not take on the quality of its materials, so Use best materials is offered only where the output is a material.`,
   },
   {
     id: "fabricating",
