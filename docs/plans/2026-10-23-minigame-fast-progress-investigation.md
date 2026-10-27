@@ -127,3 +127,7 @@ with close to 0 skill points, and maxed upgrades."
 Reading: the points economy is tuned so every Fleet's points matter (costs rise with level); the total points a player
 can earn and the total cost of maxing every upgrade meet at about the point where e10,000,000 is reliably reachable;
 there the points stop, every upgrade is maxed, and the player holds close to 0 spare points (no pile of useless points).
+Brainstorm (2026-10-27) picks: relics "Whole climb, as built (Recommended)" (R2-10 stays: a gentle boost throughout; past
+e10M, where the curve trails off, relics are what still moves you); shipping "With 0.14.0 (Recommended)" (built and
+re-simmed on the 0.14.0 branch with a save conversion: spent Skill Points refunded into the new upgrades, automations
+granted by milestones already reached).
