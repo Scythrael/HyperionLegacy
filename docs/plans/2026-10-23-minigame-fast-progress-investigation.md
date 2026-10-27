@@ -99,3 +99,9 @@ the Fleet bar to a fixed 1.8e308" was Claude's reading, not the user's words. Re
 5. All three layers (Captain, Fleet, Prestigeception) must each feel meaningful.
 (Mentioned as what the user would have suggested on 10-23: put Skill Points on Captain Prestige with prestige minimums.
 Not a pick; an alternative for the design.)
+
+Brainstorm Q1 (2026-10-27): "Three or four Fleets in, every skill owned: what should a Fleet Prestige give you that
+makes the next one worth pushing for?" User, verbatim: "Hmmm. My thought on that one is that fleet admiral prestiges
+would still feel useful. Whether that be an upgrade set or something to that end. But every prestige should have a use
+from start to finish, with things trailing off after e10,000,000 by design before you start seeing the relics start to
+affect the game. Then perhaps we might introduce an e20m or something that could lead to another prize."
