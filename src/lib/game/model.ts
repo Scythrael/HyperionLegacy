@@ -8366,7 +8366,9 @@ export interface Expedition {
   // FKR-7: `freeBasics` = the free basic set every Security member starts each objective with (fieldKits.ts
   // freeBasicSet on the ship's Medical and Operations headcount), frozen at dispatch so the run reads only stored
   // values. Absent = none (a run stamped by hand). Stamped only behind fieldKits.ts FIELD_KITS_RUNS_LIVE.
-  fieldKits?: { catalog: number; freeBasics?: Partial<Record<FieldKitId, number>> };
+  // Field Kits FKR-8: `devices` (fieldKits.ts FIELD_DEVICES_VERSION), stamped only when a Security member wears a
+  // field device; it moves the devices to the ground, rolled per use (fieldKits.ts fieldDevicesLive).
+  fieldKits?: { catalog: number; freeBasics?: Partial<Record<FieldKitId, number>>; devices?: number };
   // 0.14.0 SPEED SEAM (ProcessSpeed): a STAMP only. processSpeed.ts applyTimeSkip advances the run to its own
   // completion at once (its phase anchors land at its natural end) and marks it; nothing in the engine reads it.
   speed?: ProcessSpeed;

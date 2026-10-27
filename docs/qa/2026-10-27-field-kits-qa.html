@@ -178,7 +178,7 @@
     <ol>
       <li><b>Help.</b> Two new topics, <b>Field Kits</b> and <b>Enemy Ranks</b>, every number read from its engine constant and every control name from its screen (helpTopics.test.ts). Four stale lines fixed: the Quartermaster topic no longer says buying is "Coming Soon", Storage no longer calls Consumables (or Modules) "reserved for later", the Return Trip bay table lists every condition with its time, and Fabricating names the Field Kits group.</li>
       <li><b>Wiring.</b> Inspired (the Combat Stim's buff) is live with a real probe. The status picker row is re-owned to WR-10 (only Corroded can never fire). Every other Field Kits stat is live (no-dead-stats.test.ts, "Field Kits close-out").</li>
-      <li><b>Still open: FKR-8, the field device roll.</b> The plan's per-use 50% to 75% device roll (53% to 79.5% with a Codebreaker aboard) is not built, so its three registry rows stay pending on FKR-8 and the Help does not describe it. Section 12 is marked "not in this build".</li>
+      <li><b>FKR-8, the field device roll (built 2026-10-27).</b> The Shroud Emitter and Lure Beacon roll 50% to 75% each time they act (53% to 79.5% with a Codebreaker aboard) and work on the ground (your OC-F1 answer): ambush and reinforcement chances, plus the Lure's salvage on won ship battles. Its three registry rows are live, two more rows cover the reinforcement and salvage halves, and the release gate holds no Field Kits entry. Section 12 lists the checks; the Help describes it.</li>
     </ol>
   </div>
 
@@ -265,8 +265,13 @@ const SECTIONS = [
     { t: 'Text rules on every new line: "objective" (never "task"), "install", US English, no em dashes, no emoji.', c: true, how: "helpTopics.test.ts text rules; secret/textRules.test.ts." },
     { t: "The topics read well at 375 px (lists wrap, no horizontal scroll).", tag: "device" },
   ]},
-  { n: "12", title: "Field devices (R5 item)", note: "R5 lists the per-use device roll. It belongs to FKR-8, which is not built: Shroud Emitter and Lure Beacon still work as before, at a fixed strength.", items: [
-    { t: "Ship-event odds vary per boundary between 50% and 75% of the device's effect (53% to 79.5% with a Codebreaker aboard).", tag: "later" },
+  { n: "12", title: "Field devices (FKR-8)", note: "R5 lists the per-use device roll on the ship-event odds. Your OC-F1 answer (\"Move them to the ground\") moved the Shroud Emitter and Lure Beacon to the ground, so the roll is made there, each time a device acts.", items: [
+    { t: "On an expedition launched now, a Shroud Emitter on a Security member makes ambushes on quiet objectives and Reinforcing reinforcements less likely, and a Lure Beacon more likely, at a strength rolled fresh each time: 50% to 75% (53% to 79.5% with a Codebreaker on the expedition). One device moves the chance 20% to 30%.", c: true, how: "fieldDevices.test.ts; wiring probes content:fieldDevice:ambush, reinforcement, roll and codebreaker; fieldDevicesGoldens.test.ts (stamped runs, moves named)." },
+    { t: "A Lure Beacon raises the salvage of a ship battle won while the ship scans (20% to 30% more for one Lure, rolled per battle). A Shroud Emitter never lowers it.", c: true, how: "fieldDevices.test.ts (shipSalvageScale); content:fieldDevice:salvage; the salvage seed in fieldDevicesGoldens.test.ts." },
+    { t: "On such an expedition the scan event odds no longer change with the devices.", c: true, how: "fieldDevices.test.ts; fieldDevicesGoldens.test.ts (every device set's boundary reads equal the no-device run's)." },
+    { t: "An expedition launched before this update finishes unchanged: its devices keep moving the scan event odds, at full strength.", tag: "save", c: true, how: "fieldDevicesGoldens.test.ts (in-flight pins unchanged); fieldKitsGoldens.test.ts (FK-3 device fixtures unchanged)." },
+    { t: "Play check: a Lure Beacon on a Security member, then a Shroud Emitter, over a run each: the Lure run meets more ambush and reinforcement fights on its objectives." },
+    { t: 'Help: the Field Kits topic\'s "FIELD DEVICES" paragraph reads true; the Risk Factors ambush line and the Scan Events topic point to it.', c: true, how: "helpTopics.test.ts (field devices, read from the engine constants)." },
   ]},
   { n: "13", title: "Visual and cross-cutting", items: [
     { t: "Glyphs at 16, 28 and 56 px read clearly: the six kits, grenade, role marks (offense, defense, debuff), home, the three bone ranks, the five rank chips.", tag: "theme", c: true, how: "fieldKitIcons.test.ts and icons.test.ts (every glyph registered with ICON_SEMANTICS); the visual call is yours." },

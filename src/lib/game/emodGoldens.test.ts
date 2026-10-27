@@ -47,7 +47,7 @@ import { effectiveShipStats } from "./crewOverlay";
 import { advanceExpedition, claimExpedition, expeditionCandidates } from "./expedition";
 import { shipEventsLive } from "./shipScanEvents";
 import { asPreVoyageDispatch, plainAwayMember, withSlottedAwayTeams, dispatchPastPropulsion, asPrePatrolCurveDispatch } from "./awayTeamTestFixtures";
-import { WIRING_REGISTRY, type WiringEntry } from "./wiring/registry";
+import { FKR8_ADDED_IDS, FKR8_FLIPPED_LIVE, WIRING_REGISTRY, type WiringEntry } from "./wiring/registry";
 // E-MOD EM-7 came after every pin here: its added rows are left out and its moduleSlots flip read back first.
 import { em7ReadBack } from "./emodEm7Registry.fixture";
 // WR-8: every registry pin here was taken before WR-8, so its added entries are left out and its flips read back.
@@ -689,8 +689,17 @@ const FKR11_BEFORE: Readonly<Record<string, string>> = {
   "away:audit:fieldDeviceEffectiveness": "FK-7",
   "away:audit:statusPicker": "FK-9 + WR-10",
 };
+// Field Kits FKR-8 (the field devices roll per use, on the ground) came after every pin here too: three entries flipped
+// pending -> live (the Field Devices kit category, its two audit rows; FKR8_FLIPPED_LIVE) and two audit rows were added
+// (OC-F1's reinforcement and salvage halves; FKR8_ADDED_IDS). Every read-back and the snapshot read them as they stood
+// before it (pending on FKR-8, no live context, no probe; the added rows left out), inside fkr11ReadBack.
+function fkr8ReadBack(rows: readonly WiringEntry[]): WiringEntry[] {
+  return rows
+    .filter((e) => !FKR8_ADDED_IDS.has(e.id))
+    .map((e) => (e.id in FKR8_FLIPPED_LIVE ? ({ ...e, status: { kind: "pending", owner: FKR8_FLIPPED_LIVE[e.id] }, contexts: [], probe: undefined } as WiringEntry) : e));
+}
 function fkr11ReadBack(rows: readonly WiringEntry[]): WiringEntry[] {
-  return rows.map((e) => {
+  return fkr8ReadBack(rows).map((e) => {
     if (!(e.id in FKR11_BEFORE)) return e;
     const status = { kind: "pending", owner: FKR11_BEFORE[e.id] } as WiringEntry["status"];
     return e.id === "away:GAMBIT_STATUSES:inspired" ? { ...e, status, contexts: [], probe: undefined } : { ...e, status };
@@ -863,7 +872,7 @@ describe("EM-0 goldens (re-pinned by EM-1 where named)", () => {
     // and G2-4's additions are held apart here the same way, so the comparison sees G1-6's move alone. E-MOD EM-5's move is
     // read back first (em5ReadBack), as BEFORE_RX does; Gas Giant Study GG-3's added seam is held apart too.
     const live = em4ReadBack(em3ReadBack(em5ReadBack(wr8ReadBack(gw3RegistryBack(em7ReadBack(WIRING_REGISTRY)))))).filter(
-      (e) => !RX_ADDED_ENTRY_IDS.has(e.id) && !RR_ADDED_ENTRY_IDS.has(e.id) && !FUSE_ADDED_ENTRY_IDS.has(e.id) && !R2_2_ADDED_ENTRY_IDS.has(e.id) && !R2_3_ADDED_ENTRY_IDS.has(e.id) && !R2_10_ADDED_ENTRY_IDS.has(e.id) && !R2_4_ADDED_ENTRY_IDS.has(e.id) && !G2_4_ADDED_ENTRY_IDS.has(e.id) && !OC15_ADDED_ENTRY_IDS.has(e.id) && !GG_STUDY_ADDED_ENTRY_IDS.has(e.id) && !G2_6_ADDED_ENTRY_IDS.has(e.id),
+      (e) => !FKR8_ADDED_IDS.has(e.id) && !RX_ADDED_ENTRY_IDS.has(e.id) && !RR_ADDED_ENTRY_IDS.has(e.id) && !FUSE_ADDED_ENTRY_IDS.has(e.id) && !R2_2_ADDED_ENTRY_IDS.has(e.id) && !R2_3_ADDED_ENTRY_IDS.has(e.id) && !R2_10_ADDED_ENTRY_IDS.has(e.id) && !R2_4_ADDED_ENTRY_IDS.has(e.id) && !G2_4_ADDED_ENTRY_IDS.has(e.id) && !OC15_ADDED_ENTRY_IDS.has(e.id) && !GG_STUDY_ADDED_ENTRY_IDS.has(e.id) && !G2_6_ADDED_ENTRY_IDS.has(e.id),
     );
     const rung = live.filter((e) => G16_ADDED_IDS.has(e.id)).map((e) => [e.id, e.status, e.contexts, e.probe ?? null]);
     expect(rung).toEqual([...G16_ADDED_IDS].map((id) => [id, { kind: "live" }, ["mission:shortRange"], "shortRangeSlots"]));

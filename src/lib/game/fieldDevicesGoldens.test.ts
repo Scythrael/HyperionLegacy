@@ -224,25 +224,62 @@ const SHIP_PINS: Record<string, { reads: string; events: string; claim: string }
   "lureCodebreaker:stamped:salvage": { reads: "b976dba3", events: "cfe916cb", claim: "f9c728dc" },
 };
 
+// MOVED AT FKR-8, named (stamped runs with a device only; every inflight pin and every run with no device holds):
+//   HAND shroud      : the Shrouds lower each landing's reinforcement chance at its rolled 50 to 75%, and the Derelict
+//                      Outpost's visit now brings none (6 fights to its 4 points); the run and the claim follow. The
+//                      ambush rolls on the calm objectives land on the same side of the lowered chance (same ambushes).
+//   HAND lure / lureCodebreaker : the Lures raise each landing's reinforcement chance, and the Enemy Colony's visit now
+//                      brings reinforcements (4 fights to 6); the ambushes again land on the same side. The Codebreaker's
+//                      x1.06 crosses no roll here, so the run hash is the Lure run's; the claim differs only by the trait.
+//   SHIP shroud / lure / lureCodebreaker : the ship-event chance no longer reads the devices (OC-F1), so every
+//                      boundary's chance and step roll is the no-device run's (`reads` equal none's at each seed) and the
+//                      events follow. At the salvage seed the Shroud run's events are exactly the no-device run's (a
+//                      Shroud never scales a drop); the Lure runs' two won probe battles pay a larger haul (the Lure's
+//                      drop scale at each use's roll, the Codebreaker's x1.06 on top), so their events and claims move.
+//                      At the first seed (no won battle) the Lure runs' claims hold: their extra events left nothing.
+const FKR8_MOVED_HAND: Record<string, Partial<{ run: string; tally: string; claim: string }>> = {
+  "shroud:stamped": { run: "2ccb9bbd", tally: "[[\"ancientRuins\",0,0,0,\"done\"],[\"ancientRuins\",1,0,1,\"done\"],[\"ancientRuins\",1,0,1,\"done\"],[\"enemyColony\",0,1,4,\"done\"],[\"derelictOutpost\",0,1,4,\"done\"]]", claim: "140fb1eb" },
+  "lure:stamped": { run: "265d99f3", tally: "[[\"ancientRuins\",0,0,0,\"done\"],[\"ancientRuins\",1,0,1,\"done\"],[\"ancientRuins\",1,0,1,\"done\"],[\"enemyColony\",0,1,6,\"done\"],[\"derelictOutpost\",0,1,6,\"done\"]]", claim: "7c7dea46" },
+  "lureCodebreaker:stamped": { run: "265d99f3", tally: "[[\"ancientRuins\",0,0,0,\"done\"],[\"ancientRuins\",1,0,1,\"done\"],[\"ancientRuins\",1,0,1,\"done\"],[\"enemyColony\",0,1,6,\"done\"],[\"derelictOutpost\",0,1,6,\"done\"]]", claim: "47d704c3" },
+};
+const FKR8_MOVED_SHIP: Record<string, Partial<{ reads: string; events: string; claim: string }>> = {
+  "shroud:stamped": { reads: "f15f4531", events: "c81683ec", claim: "65a11485" },
+  "shroud:stamped:salvage": { reads: "6b65277", events: "e174d427", claim: "3c42325f" },
+  "lure:stamped": { reads: "f15f4531", events: "c81683ec" },
+  "lure:stamped:salvage": { reads: "6b65277", events: "ca69ed4b", claim: "e3e2ea09" },
+  "lureCodebreaker:stamped": { reads: "f15f4531", events: "c81683ec" },
+  "lureCodebreaker:stamped:salvage": { reads: "6b65277", events: "4ca8c3a1", claim: "8ea55abc" },
+};
+
+// The pin a run must read now: its capture, with the named FKR-8 move applied (every moved field must have moved).
+function expectPinned<T extends Record<string, string>>(got: T, before: T, moved: Partial<T> | undefined): void {
+  for (const [field, value] of Object.entries(moved ?? {})) expect(value, `${field} is named as moved`).not.toBe(before[field]);
+  expect(got).toEqual({ ...before, ...(moved ?? {}) });
+}
+
 const captured: Record<string, unknown> = {};
 
-describe("FKR-8 goldens: field devices on the ground and on ship events, before the per-use roll", () => {
+describe("FKR-8 goldens: field devices on the ground and on ship events (in-flight runs unchanged, new runs moved as named)", () => {
   for (const set of DEVICE_SETS) {
     for (const stamp of STAMPS) {
       it(`HAND ${key(set, stamp)}`, { timeout: 120_000 }, () => {
         const got = handPins(set, stamp);
         if (CAPTURE) captured[`hand:${key(set, stamp)}`] = got;
-        else expect(got).toEqual(HAND_PINS[key(set, stamp)]);
+        else expectPinned(got, HAND_PINS[key(set, stamp)], FKR8_MOVED_HAND[key(set, stamp)]);
       });
       for (const [tag, seed] of SHIP_SEEDS) {
         it(`SHIP ${key(set, stamp)}${tag}`, { timeout: 120_000 }, () => {
           const got = shipPins(set, stamp, seed);
           if (CAPTURE) captured[`ship:${key(set, stamp)}${tag}`] = got;
-          else expect(got).toEqual(SHIP_PINS[`${key(set, stamp)}${tag}`]);
+          else expectPinned(got, SHIP_PINS[`${key(set, stamp)}${tag}`], FKR8_MOVED_SHIP[`${key(set, stamp)}${tag}`]);
         });
       }
     }
   }
+
+  it("a stamped run's ship-event chance reads no device (every device set's reads are the no-device run's)", () => {
+    for (const set of DEVICE_SETS) for (const [tag] of SHIP_SEEDS) expect(FKR8_MOVED_SHIP[`${key(set, "stamped")}${tag}`]?.reads ?? SHIP_PINS[`${key(set, "stamped")}${tag}`].reads).toBe(SHIP_PINS[`${key("none", "stamped")}${tag}`].reads);
+  });
 
   it("the hand run meets what it is pinned for: an ambush on a calm objective and reinforcements on a combat one", { timeout: 120_000 }, () => {
     const mid = advanceExpedition(handRun("none", "stamped").exp, MID);

@@ -26,7 +26,6 @@ import {
   advanceExpedition,
   encounterChance,
   expeditionCandidates,
-  fieldDeviceEffectiveness,
   nextActivityWindow,
   scanEncounterChance,
   scanStepRoll,
@@ -37,7 +36,7 @@ import {
   ENCOUNTER_CHANCE_MAX,
   ENCOUNTER_HAZARD_CHANCE,
   ENCOUNTER_STEPS,
-  FIELD_DEVICE_UNTRAINED_EFFECTIVENESS,
+  PRE_FKR8_DEVICE_EFFECTIVENESS,
 } from "./expedition";
 import { snapshotAwayRoster } from "./awayTeam";
 import { officerBonusTotal } from "./crewOverlay";
@@ -212,7 +211,7 @@ describe("encounter chance formula", () => {
 });
 
 // ============================================================================
-describe("D20 field devices: the untrained multiplier is ONE tunable number, applied to every device", () => {
+describe("D20 field devices on a legacy run: the dial at the effectiveness it is given (full strength before FKR-8)", () => {
   it("the device bias is multiplied by the effectiveness it is given", () => {
     const s = withRoster(plainSquad(), [tool("equip-901", "shroudEmitter", "member-1")]);
     const security = snapshotAwayRoster(s, s.ships[0]).security;
@@ -220,13 +219,11 @@ describe("D20 field devices: the untrained multiplier is ONE tunable number, app
     expect(squadEncounterBias(security, 0.5)).toBeCloseTo(-0.2);
   });
 
-  it("the run's chance uses FIELD_DEVICE_UNTRAINED_EFFECTIVENESS (no specialist exists yet)", () => {
+  it("a legacy run's chance reads its devices at full strength (PRE_FKR8_DEVICE_EFFECTIVENESS; FKR-8 rolls only stamped Ground Ops runs)", () => {
     const s = withRoster(plainSquad(), [tool("equip-901", "lureBeacon", "member-1")]);
     const exp = scanExp(s);
-    expect(fieldDeviceEffectiveness(exp.roster)).toBe(FIELD_DEVICE_UNTRAINED_EFFECTIVENESS);
-    expect(scanEncounterChance(exp, exp.bodies[0])).toBeCloseTo(
-      encounterChance(1, 0.4 * FIELD_DEVICE_UNTRAINED_EFFECTIVENESS, 0)
-    );
+    expect(PRE_FKR8_DEVICE_EFFECTIVENESS).toBe(1);
+    expect(scanEncounterChance(exp, exp.bodies[0])).toBeCloseTo(encounterChance(1, 0.4 * PRE_FKR8_DEVICE_EFFECTIVENESS, 0));
   });
 });
 

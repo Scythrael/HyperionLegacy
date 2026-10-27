@@ -7,7 +7,7 @@
 //
 //   legacy        : no groundOps (the oldest engine path still live; a lone Security member, scan-time encounters).
 //   legacyDevices : no groundOps, a Shroud Emitter and two Lure Beacons worn (the scan ENCOUNTER chance and step roll
-//                   at every boundary are hashed too: scanEncounterChance reads fieldDeviceEffectiveness, FK-7's target).
+//                   at every boundary are hashed too: scanEncounterChance reads the device dial; FKR-8 keeps it at full strength on such a run).
 //   preSq4        : a Ground Ops run dispatched before SQ-4 (no risk profile, BOTH Ground teams deploy).
 //   riskAware     : a risk-aware run before AF-1 (Tier IV enemy territory, no affix flag: SQ-4 + clearing).
 //   affixCat1     : affix catalog 1 (AF-1): a Reinforcing objective, a weak crew, a loss raises the ALERT.
@@ -33,7 +33,7 @@ import { gearWearOffInThisFile } from "./gearWearSwitch.fixture";
 gearWearOffInThisFile();
 import Decimal from "break_infinity.js";
 import { EQUIPMENT_SLOTS, FIELD_KITS_PLAYER_LIVE, freshState, grenadeCraftPool, type AwayMember, type BodyRiskGrades, type EquipmentInstance, type Expedition, type ExpeditionActivity, type ExpeditionBody, type GameState, type GroundStepRecord, type ShipGroundTeam } from "./model";
-import { advanceExpedition, claimExpedition, expeditionCandidates, scanEncounterChance, scanStepRoll, shipScanEventChance, squadEncounterBias, fieldDeviceEffectiveness } from "./expedition";
+import { advanceExpedition, claimExpedition, expeditionCandidates, scanEncounterChance, scanStepRoll, shipScanEventChance, squadEncounterBias, PRE_FKR8_DEVICE_EFFECTIVENESS } from "./expedition";
 import { bodyFloraGrade, generateRiskProfile, type ExpeditionRegion } from "./riskFactors";
 import { groundOpsAssignIdle, groundOpsBodyScanned, initGroundTasks, taskCover } from "./groundOps";
 import { alertLevelAt, rollReinforcements, type ObjectiveAffix } from "./affixes";
@@ -332,7 +332,7 @@ const FIXTURES: Record<string, Fixture> = {
     },
     check: (done, exp) => {
       expect("groundOps" in exp).toBe(false);
-      expect(squadEncounterBias(exp.roster!.security, fieldDeviceEffectiveness(exp.roster))).toBeCloseTo(0.4);
+      expect(squadEncounterBias(exp.roster!.security, PRE_FKR8_DEVICE_EFFECTIVENESS)).toBeCloseTo(0.4);
       expect((done.scanEvents ?? []).some((e) => e.kind === "encounter")).toBe(true);
     },
   },
@@ -468,20 +468,20 @@ const FIXTURES: Record<string, Fixture> = {
     build: () => dispatch(crewed(0xaadc2, "gg", 3, [tool("equip-901", "shroudEmitter", "member-1")])),
     check: (_done, exp) => {
       expect(shipEventsLive(exp)).toBe(true);
-      expect(squadEncounterBias(exp.roster!.security, fieldDeviceEffectiveness(exp.roster))).toBeCloseTo(-0.4);
+      expect(squadEncounterBias(exp.roster!.security, PRE_FKR8_DEVICE_EFFECTIVENESS)).toBeCloseTo(-0.4);
     },
   },
   lure: {
     build: () => dispatch(crewed(0xaadc2, "gg", 3, [tool("equip-901", "lureBeacon", "member-1")])),
     check: (done, exp) => {
-      expect(squadEncounterBias(exp.roster!.security, fieldDeviceEffectiveness(exp.roster))).toBeCloseTo(0.4);
+      expect(squadEncounterBias(exp.roster!.security, PRE_FKR8_DEVICE_EFFECTIVENESS)).toBeCloseTo(0.4);
       expect((done.scanEvents ?? []).some((e) => e.kind === "shipEvent")).toBe(true);
     },
   },
   bothDevices: {
     build: () => dispatch(crewed(0xaadc2, "gg", 3, [tool("equip-901", "shroudEmitter", "member-1"), tool("equip-902", "lureBeacon", "member-4"), tool("equip-903", "lureBeacon", "member-5"), tool("equip-904", "lureBeacon", "member-6")])),
     check: (_done, exp) => {
-      expect(squadEncounterBias(exp.roster!.security, fieldDeviceEffectiveness(exp.roster))).toBeCloseTo(0.8);
+      expect(squadEncounterBias(exp.roster!.security, PRE_FKR8_DEVICE_EFFECTIVENESS)).toBeCloseTo(0.8);
     },
   },
 };

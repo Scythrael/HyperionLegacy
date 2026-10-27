@@ -61,6 +61,10 @@ import {
   type ShipInstance,
   type ShipTypeKey,
   type SnapshotMember,
+  type AwayTraitId,
+  type ExpeditionActivity,
+  type GroundTeamRun,
+  memberVariety,
   type MemberPerkId,
   type PatrolMissionState,
   type ShortRangeMissionState,
@@ -179,7 +183,7 @@ import {
   type GambitLogEvent,
   type GroundCombatant,
 } from "../gambit";
-import { FIELD_KITS, FIELD_KITS_CATALOG_VERSION, FIELD_KITS_RUNS_LIVE, type FieldKitId } from "../fieldKits";
+import { FIELD_DEVICES_VERSION, FIELD_KITS, FIELD_KITS_CATALOG_VERSION, FIELD_KITS_RUNS_LIVE, type FieldKitId } from "../fieldKits";
 import { withThrownGrenades } from "../fieldKitsGrenades";
 import { FIELD_KITS_BATTLE, withFieldKitsDefaultProgram } from "../fieldKitsBattle";
 import { fieldworkEffect, fieldworkHazardResist, fieldworkSpeedMult } from "../fieldwork";
@@ -187,7 +191,7 @@ import { taskSecurityHazardResist } from "../groundTasks";
 import { awayRecruitCandidates, snapshotMembers } from "../awayTeam";
 import { seniorStaffCandidates } from "../seniorStaff";
 import { applyExpeditionInjuries, injuryRecoverySeconds, shipInjuryFactors } from "../injuries";
-import { boardingRepelChance, buildShipCombatant, snapshotShipEventProfile } from "../shipScanEvents";
+import { boardingRepelChance, buildShipCombatant, shipSalvageScale, snapshotShipEventProfile } from "../shipScanEvents";
 import { shipsWithMemberAutoSlotted } from "../groundTeamSlots";
 import { canFitEquipment, equippedFor, fitEquipment } from "../equipment";
 // E-MOD EM-7: the v1 module roster (the install-gate slot count probe installs it piece by piece).
@@ -202,7 +206,7 @@ import { taskFightGuard, taskFightTeam } from "../groundFight";
 import { buyFieldKits, sellItem } from "../quartermaster";
 // Field Kits FKR-7: the run plumbing (the free basic set at an objective start, the bay share).
 import { carriedExtras, fieldKitsStamp, refreshObjectiveSupplies } from "../fieldKitsRun";
-import { RETURN_SECONDS, groundTeamBaySeconds } from "../groundOps";
+import { RETURN_SECONDS, ambushStrike, groundDeviceChance, groundTeamBaySeconds, visitReinforcements, type GroundTaskRef } from "../groundOps";
 import { retirementExpMultiplier } from "../captainRetirement";
 import { transitBerthCount } from "../berths";
 import { shortRangeBoardSlots, startShortRangeCycle } from "../shortRangeBoard";
@@ -3031,6 +3035,8 @@ function readContent(id: string, s: GameState): number {
       if (!res.success || !res.expedition) throw new Error(`field kits switch probe: dispatch refused (${res.reason})`);
       return Object.values(carriedExtras(res.expedition)).reduce((n, x) => n + (x ?? 0), 0);
     }
+    case "fieldDevice":
+      return fieldDeviceProbe(a, on);
     case "shortRangeRelics":
       // G1-5: the relic blanks a Tier I and a Tier II short-range cycle of SHORT_RANGE_RELIC_PROBE_HOURS find through
       // the cycle engine; on, runs carrying G1-5's relic flag; off, the same runs without it (dispatched before G1-5).
@@ -3140,6 +3146,56 @@ function kitProbe(kit: FieldKitId, on: boolean): number {
 const FREE_BASIC_PROBE_HEADS = 16;
 // Field Kits FKR-9 / FKR-10: the First Aid Kits the runs switch probe's Warehouse holds (one per wiring Security member).
 export const FIELD_KITS_SWITCH_PROBE_STOCK = 1;
+
+// Field Kits FKR-8 (the wiring plan's OC-F1): the field devices on the ground, rolled per use. Each part reads the
+// engine's own reader on a run carrying the field devices stamp (FIELD_DEVICES_VERSION) whose one Security member
+// (the crew) wears a Lure Beacon when `on` (none when off), over FIELD_DEVICE_PROBE_USES uses (each use its own key):
+//   ambush        : the uses an ambush strikes (groundOps.ts ambushStrike, the roll startWork makes) on a calm objective
+//                   at FIELD_DEVICE_PROBE_CHANCE;
+//   reinforcement : the visits that bring reinforcements (groundOps.ts visitReinforcements, the roll landOnTask makes) on
+//                   a Reinforcing I objective;
+//   roll          : the distinct percents the Lure's per-use effectiveness takes (groundOps.ts groundDeviceChance, the
+//                   chance both rolls compare against, read back to the percent); off, no device works, one value;
+//   codebreaker   : the Lure's lift on one use's chance (groundDeviceChance / the chance, minus 1), the Lure worn either
+//                   way and (on) a Codebreaker among the Science squad;
+//   salvage       : the summed rollHaul scale of a won probe battle (shipScanEvents.ts shipSalvageScale, the scale
+//                   shipEventSalvage rolls the haul at) over the probe's scan boundaries.
+export const FIELD_DEVICE_PROBE_USES = 256;
+export const FIELD_DEVICE_PROBE_CHANCE = 0.3;
+// The scan boundaries the salvage part reads: bodies 0 to 3, steps 1 to 9.
+export const FIELD_DEVICE_PROBE_BOUNDARIES: readonly (readonly [number, number])[] = [0, 1, 2, 3].flatMap((b) => [1, 2, 3, 4, 5, 6, 7, 8, 9].map((k) => [b, k] as const));
+function fieldDeviceProbe(part: string, on: boolean): number {
+  const lure = part === "codebreaker" || on;
+  const codebreaker = part === "codebreaker" && on;
+  const member = (memberId: string, teamType: "security" | "science", varietyKey: string | null, traits: AwayTraitId[]) =>
+    ({ memberId, teamType, traits, gear: varietyKey ? [{ pieceId: `wiring-${varietyKey}`, slotType: "memberTool", varietyKey, points: 0 }] : [] }) as unknown as SnapshotMember;
+  const exp = {
+    id: "wiring-devices",
+    seed: 0x5eed8,
+    fieldKits: { catalog: FIELD_KITS_CATALOG_VERSION, devices: FIELD_DEVICES_VERSION },
+    roster: { security: [member("wiring-sec", "security", lure ? "lureBeacon" : null, [])], science: [member("wiring-sci", "science", null, codebreaker ? ["codebreaker"] : [])] },
+    bodies: [],
+  } as unknown as Expedition;
+  const crew = [{ securityIds: ["wiring-sec"], scienceIds: ["wiring-sci"], downedThisTask: [] }] as unknown as GroundTeamRun[];
+  const ref = (flatIndex: number, task: Partial<ExpeditionActivity>) =>
+    ({ body: { id: "wiring-body", hazard: 0 }, bodyIndex: 0, flatIndex, task: { id: `wiring-task-${flatIndex}`, poiId: "derelictOutpost", ...task } }) as unknown as GroundTaskRef;
+  const uses = Array.from({ length: FIELD_DEVICE_PROBE_USES }, (_, k) => k);
+  switch (part) {
+    case "ambush":
+      return uses.filter((k) => ambushStrike(exp, ref(k, { fightPoints: [], ambushChance: FIELD_DEVICE_PROBE_CHANCE }), 100, crew) !== null).length;
+    case "reinforcement":
+      return uses.filter((k) => visitReinforcements(exp, crew, ref(k, { fightPoints: [0.5], affixes: [{ id: "reinforcing", rank: 1, alignment: "negative" }] }), 0).length > 0).length;
+    case "roll": {
+      const dial = memberVariety("memberTool", "lureBeacon")?.member.encounterBias ?? 0;
+      return new Set(uses.map((k) => Math.round(((groundDeviceChance(exp, crew, FIELD_DEVICE_PROBE_CHANCE, "ambush", k, 0) / FIELD_DEVICE_PROBE_CHANCE - 1) / dial) * 100))).size;
+    }
+    case "codebreaker":
+      return groundDeviceChance(exp, crew, FIELD_DEVICE_PROBE_CHANCE, "ambush", 0, 0) / FIELD_DEVICE_PROBE_CHANCE - 1;
+    case "salvage":
+      return FIELD_DEVICE_PROBE_BOUNDARIES.reduce((sum, [b, k]) => sum + shipSalvageScale(exp, b, k, false), 0);
+  }
+  throw new Error(`field device probe: no part ${part}`);
+}
 function freeBasicProbe(s: GameState, kit: FieldKitId, part: string, on: boolean): number {
   const heads = part === "crew" && on ? FREE_BASIC_PROBE_HEADS : 0;
   const buckets = heads > 0 ? [{ profession: "medical" as const, rarity: "standard" as const, rank: 1 as const, race: "earthBorn" as const, buff1Id: "med.triage", buff2Id: null, count: heads }] : [];
