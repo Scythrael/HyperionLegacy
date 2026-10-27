@@ -2910,10 +2910,21 @@ const RAPID_CHARGE_DEFERRED: WiringStatus = {
 };
 // (combatDescriptorProbes.ts combatEventRapidCharge is the rows' check the day a podded ship can be ambushed.)
 
+// Field Kits FKR-11: Inspired went live with the Combat Stim (fieldKitsBattle.ts applyKit, a Field Kits run's Use Item);
+// its row reads the strike seam like Weakened's, the other way.
 const GROUND_STATUS_PENDING: Readonly<Record<string, string>> = {
   corroded: "WR-10, OC-F9 (only analyze, never run, inflicts it)",
-  inspired: "FK-5 (nothing inflicts it)",
 };
+
+// Field Kits FKR-11 (the close-out): the three audit rows it RE-OWNED, still pending. The field device rows wait on the
+// plan's own field device slice (docs/plans/2026-10-14-field-kits-plan.md FKR-8, the revised FK-7, not built); the status
+// picker's Field Kits half is done (every condition and Inspired can fire on a Field Kits run), leaving only Corroded,
+// WR-10's OC-F9. Exported for the registry pins' read-back (shortRangeGoldens, emodGoldens).
+export const FKR11_REOWNED = {
+  shroudLureGroundOps: "FKR-8 + OC-F1 (the field device slice: Shroud and Lure on the ground, the 50 to 75% per-use roll)",
+  fieldDeviceEffectiveness: "FKR-8 (the field device slice: the 50 to 75% per-use roll, Codebreaker +6%)",
+  statusPicker: "WR-10, OC-F9 (Corroded: only Analyze inflicts it)",
+} as const;
 
 const ACTION_PENDING: Readonly<Partial<Record<GambitActionId, string>>> = {
   fallBack: "WR-10, OC-F6 (identical to Hold, gambit.ts:887)",
@@ -3024,6 +3035,8 @@ function contentEntries(): WiringEntry[] {
           ? { direction: "down", curve: { kind: "linearRelative" }, magnitude: (c) => -c.GAMBIT_STATUSES[id].magnitude }
           : def.effect === "damageDown" || def.effect === "damageTakenDown"
             ? { direction: "down", curve: { kind: "linearRelative" }, magnitude: (c) => -c.GAMBIT_STATUSES[id].magnitude, tolerance: 1 }
+            : def.effect === "damageUp"
+              ? { direction: "up", curve: { kind: "linearRelative" }, magnitude: (c) => c.GAMBIT_STATUSES[id].magnitude, tolerance: 1 }
             : def.effect === "skipTurn" || def.effect === "turnLoss" || def.effect === "mayFallBack"
               ? {
                   direction: "down",
@@ -3847,12 +3860,12 @@ const AUDIT_ROWS: readonly { id: string; system: WiringSystem; claim: string; st
   },
   { id: "crew:audit:commandPresenceExpedition", system: "crew", claim: "Command Presence and Operations Integrity do not reach expeditions", status: pending("WR-9, OC-E9") },
   // F. Away team and ground
-  { id: "away:audit:shroudLureGroundOps", system: "away", claim: "Shroud Emitter and Lure Beacon on Ground Ops move the ship event chance; no drop multiplier", status: pending("FK-7 + OC-F1") },
+  { id: "away:audit:shroudLureGroundOps", system: "away", claim: "Shroud Emitter and Lure Beacon on Ground Ops move the ship event chance; no drop multiplier", status: pending(FKR11_REOWNED.shroudLureGroundOps) },
   { id: "away:audit:neuralBackupClaim", system: "away", claim: "Neural Backup revives the FIRST downed ally; its flavor says the wearer (B13)", status: pending("WR-10, OC-F2") },
   { id: "away:audit:medKitClaim", system: "away", claim: "Med Kit \"keeps a downed friend in the fight\" (no revive)", status: pending("WR-10, OC-F3") },
   { id: "away:audit:quickDraw", system: "away", claim: "Quick Draw only reorders teammates (the team already acts first)", status: pending("WR-10, OC-F5") },
   { id: "away:audit:scienceRank", system: "away", claim: "Science member rank \"nudges magnitude\" (fieldwork never reads it)", status: pending("WR-10, OC-F7") },
-  { id: "away:audit:fieldDeviceEffectiveness", system: "away", claim: "fieldDevice effectiveness (both values 1; the specialist check is always false)", status: pending("FK-7") },
+  { id: "away:audit:fieldDeviceEffectiveness", system: "away", claim: "fieldDevice effectiveness (both values 1; the specialist check is always false)", status: pending(FKR11_REOWNED.fieldDeviceEffectiveness) },
   // WR-8 settled mass and power draw (0 by design: member gear never moves ship stats) and gear wear step 3 made the
   // durability live (a member piece's toughness scales its use wear, wired through ship:audit:slotDurability's check).
   { id: "away:audit:memberSlotPhysicals", system: "away", claim: "Member slot physicals: durability is the piece's toughness (a tougher member piece wears slower by use; ship:audit:slotDurability); mass and power draw are 0 by design (member gear never moves ship stats)", status: LIVE },
@@ -3873,7 +3886,7 @@ const AUDIT_ROWS: readonly { id: string; system: WiringSystem; claim: string; st
   // screen"): live in place with their own checks (auditRowWiring below).
   { id: "away:audit:fieldKitsHiddenPieces", system: "away", claim: "Hidden until kits are live (FIELD_KITS_PLAYER_LIVE): the Impact Grenade blueprint (FIELD_KITS_HIDDEN_BLUEPRINTS, out of Research, the Fabricator and the Archive) and the +1 Carry Capacity line on new Stun and Toxin Grenade crafts", status: LIVE },
   { id: "away:audit:fieldKitsRunsSwitch", system: "away", claim: "Field Kits in runs (fieldKits.ts FIELD_KITS_RUNS_LIVE): a new dispatch stamps flag 2, packs each member from stock, buys a top-up team's shortfall, and the unused extras come home at claim", status: LIVE },
-  { id: "away:audit:statusPicker", system: "away", claim: "Status picker entries that never match (only six of nine statuses can fire)", status: pending("FK-9 + WR-10") },
+  { id: "away:audit:statusPicker", system: "away", claim: "Status picker entries that never match (Corroded: only Analyze inflicts it, and no battle runs Analyze)", status: pending(FKR11_REOWNED.statusPicker) },
   { id: "away:audit:fieldRepairOrder", system: "away", claim: "Player-ordered field repair (engine only, no UI)", status: pending("WR-10, OC-F14") },
   { id: "away:audit:legacyOnly", system: "away", claim: "Legacy-only: MAX_BATTLE_ATTEMPTS, EVAC_REWARD_FRACTION, ENCOUNTER_DROP_SCALE, scan ground battles, softenAmbush, the flat 2 h injury", status: pending("OC-G1") },
   // Expedition Tiers G2-6: the region picker offers every tier, so the tier rows read on a player's launch (the run's

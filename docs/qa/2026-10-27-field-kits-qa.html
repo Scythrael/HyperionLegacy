@@ -1,0 +1,363 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>0.14.0 QA: Field Kits</title>
+<style>
+  :root {
+    --bg: #070b12;
+    --bg-2: #0d1420;
+    --panel: #111a29;
+    --panel-2: #0b1220;
+    --line: #1f2c40;
+    --line-2: #2a3a54;
+    --text: #dce6f3;
+    --dim: #8497af;
+    --faint: #5d6d86;
+    --accent: #38e0ff;
+    --accent-2: #7cf6c9;
+    --claude: #b98bff;
+    --desk: #38e0ff;
+    --mob: #ffcc66;
+    --warn: #ffcc66;
+    --save: #ff9a6b;
+    --device: #7fb2ff;
+    --good: #6ff2b0;
+    --danger: #ff7a7a;
+    --shadow: 0 0 0 1px var(--line), 0 18px 40px -24px #000;
+  }
+  * { box-sizing: border-box; }
+  html { color-scheme: dark; }
+  body {
+    margin: 0;
+    background:
+      radial-gradient(1200px 600px at 78% -10%, rgba(56,224,255,0.10), transparent 60%),
+      radial-gradient(900px 500px at 8% 8%, rgba(185,139,255,0.08), transparent 55%),
+      var(--bg);
+    color: var(--text);
+    font: 14px/1.55 ui-sans-serif, system-ui, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    padding: env(safe-area-inset-top, 0) 0 calc(env(safe-area-inset-bottom, 0) + 48px);
+  }
+  .wrap { max-width: 980px; margin: 0 auto; padding: 28px 18px 0; }
+  a { color: var(--accent); }
+
+  .eyebrow { font-size: 11px; letter-spacing: 3px; text-transform: uppercase; color: var(--accent); opacity: 0.85; margin: 0 0 6px; }
+  h1 { font-size: clamp(22px, 4.4vw, 34px); line-height: 1.1; margin: 0 0 4px; text-wrap: balance; font-weight: 750; letter-spacing: 0.3px; }
+  h1 .v { color: var(--accent); }
+  .sub { color: var(--dim); margin: 0 0 20px; font-size: 13px; }
+
+  .progress-card {
+    background: linear-gradient(180deg, var(--panel), var(--panel-2));
+    border: 1px solid var(--line-2); border-radius: 16px; padding: 20px 22px; box-shadow: var(--shadow); margin-bottom: 20px;
+  }
+  .progress-top { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+  .pct { font-size: clamp(30px, 8vw, 52px); font-weight: 800; line-height: 1; letter-spacing: -1px; color: var(--accent);
+    text-shadow: 0 0 24px rgba(56,224,255,0.45); font-variant-numeric: tabular-nums; }
+  .pct small { font-size: 15px; font-weight: 600; color: var(--dim); margin-left: 8px; letter-spacing: 0; }
+  .rowcount { color: var(--text); font-size: 15px; font-weight: 650; font-variant-numeric: tabular-nums; }
+  .rowcount b { color: var(--accent-2); }
+  .bar { margin-top: 16px; height: 16px; border-radius: 999px; background: #0a1220; border: 1px solid var(--line-2); overflow: hidden; }
+  .bar > i { display: block; height: 100%; width: 0%; background: linear-gradient(90deg, #2bd0ff, #7cf6c9);
+    box-shadow: 0 0 18px rgba(56,224,255,0.6); border-radius: 999px; transition: width .35s cubic-bezier(.2,.8,.2,1); }
+  .substats { display: flex; gap: 18px; flex-wrap: wrap; margin-top: 14px; font-size: 12.5px; color: var(--dim); }
+  .substats .dot { display: inline-block; width: 9px; height: 9px; border-radius: 3px; margin-right: 7px; vertical-align: middle; }
+  .substats b { color: var(--text); font-variant-numeric: tabular-nums; }
+  .d-claude { background: var(--claude); box-shadow: 0 0 10px var(--claude); }
+  .d-desk { background: var(--desk); box-shadow: 0 0 10px var(--desk); }
+  .d-mob { background: var(--mob); box-shadow: 0 0 10px var(--mob); }
+
+  .legend { background: var(--panel-2); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; margin-bottom: 26px; font-size: 12.5px; color: var(--dim); }
+  .legend p { margin: 0 0 8px; }
+  .legend p:last-child { margin-bottom: 0; }
+  .legend b { color: var(--text); }
+  .chip { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 11px; font-weight: 650; letter-spacing: 0.3px; vertical-align: middle; }
+  .chip.save { color: var(--save); background: rgba(255,154,107,0.12); border: 1px solid rgba(255,154,107,0.4); }
+  .chip.device { color: var(--device); background: rgba(127,178,255,0.12); border: 1px solid rgba(127,178,255,0.4); }
+  .chip.theme { color: var(--accent-2); background: rgba(124,246,201,0.10); border: 1px solid rgba(124,246,201,0.35); }
+  .chip.later { color: var(--danger); background: rgba(255,122,122,0.10); border: 1px solid rgba(255,122,122,0.4); }
+  .toolbar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 22px; }
+  .btn { background: var(--panel); color: var(--text); border: 1px solid var(--line-2); border-radius: 8px; padding: 7px 13px; font-size: 12.5px; cursor: pointer; font-weight: 600; }
+  .btn:hover { border-color: var(--accent); color: var(--accent); }
+  .toolbar .note { color: var(--faint); font-size: 12px; }
+
+  section { margin-bottom: 26px; }
+  .sec-head { display: flex; align-items: center; gap: 12px; margin: 0 0 6px; }
+  .sec-num { font-variant-numeric: tabular-nums; font-weight: 800; color: var(--accent); font-size: 13px; letter-spacing: 1px;
+    background: rgba(56,224,255,0.08); border: 1px solid rgba(56,224,255,0.3); border-radius: 7px; padding: 3px 9px; min-width: 34px; text-align: center; }
+  .sec-title { font-size: 16px; font-weight: 700; letter-spacing: 0.2px; }
+  .sec-line { flex: 1; height: 1px; background: linear-gradient(90deg, var(--line-2), transparent); }
+  .sec-done { font-size: 11.5px; color: var(--faint); font-variant-numeric: tabular-nums; }
+  .sec-note { color: var(--dim); font-size: 12.5px; font-style: italic; margin: 0 0 10px; border-left: 2px solid var(--line-2); padding: 2px 0 2px 12px; }
+
+  .items { display: flex; flex-direction: column; gap: 2px; }
+  .col-head, .item { display: grid; grid-template-columns: 52px 52px 52px 1fr; gap: 10px; }
+  .col-head { align-items: center; padding: 4px 12px; font-size: 10.5px; letter-spacing: 1px; text-transform: uppercase; color: var(--faint); }
+  .col-head .ch { text-align: center; }
+  .col-head .ch.claude { color: var(--claude); }
+  .col-head .ch.desk { color: var(--desk); }
+  .col-head .ch.mob { color: var(--mob); }
+  .item { align-items: start; padding: 10px 12px; border-radius: 10px; border: 1px solid transparent; }
+  .item:nth-child(odd) { background: rgba(255,255,255,0.014); }
+  .item.done { background: rgba(124,246,201,0.05); border-color: rgba(124,246,201,0.18); }
+  .cell { display: flex; justify-content: center; padding-top: 1px; }
+
+  .cb { position: relative; width: 22px; height: 22px; }
+  .cb input { position: absolute; inset: 0; opacity: 0; margin: 0; cursor: pointer; }
+  .cb .box { width: 22px; height: 22px; border-radius: 6px; border: 2px solid var(--line-2); display: grid; place-items: center; transition: .12s; background: #0a1220; }
+  .cb .box svg { width: 13px; height: 13px; opacity: 0; transform: scale(.5); transition: .12s; }
+  .cb input:checked + .box svg { opacity: 1; transform: scale(1); }
+  .cb input:focus-visible + .box { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .cb.claude input:checked + .box { background: rgba(185,139,255,0.18); border-color: var(--claude); }
+  .cb.claude .box svg { color: var(--claude); }
+  .cb.desk input:checked + .box { background: rgba(56,224,255,0.18); border-color: var(--desk); }
+  .cb.desk .box svg { color: var(--desk); }
+  .cb.mob input:checked + .box { background: rgba(255,204,102,0.18); border-color: var(--mob); }
+  .cb.mob .box svg { color: var(--mob); }
+  .cb.desk input:not(:disabled):hover + .box { border-color: var(--desk); }
+  .cb.mob input:not(:disabled):hover + .box { border-color: var(--mob); }
+  .cb input:disabled { cursor: default; }
+  .cb.claude.empty .box { border-style: dashed; opacity: 0.5; }
+
+  .body .t { color: var(--text); }
+  .body .t .k { color: var(--accent-2); font-weight: 600; }
+  .meta { margin-top: 5px; display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .how { color: var(--dim); font-size: 12px; font-style: italic; margin-top: 4px; }
+  .how::before { content: "how: "; font-style: normal; color: var(--claude); opacity: 0.85; font-weight: 650; }
+
+  .findings { background: linear-gradient(180deg, rgba(124,246,201,0.06), transparent); border: 1px solid rgba(124,246,201,0.25); border-radius: 14px; padding: 18px 20px; margin-top: 12px; }
+  .findings h2 { margin: 0 0 6px; font-size: 15px; color: var(--good); letter-spacing: 0.3px; }
+  .findings ol { margin: 8px 0 0; padding-left: 20px; }
+  .findings li { margin-bottom: 10px; color: var(--dim); }
+  .findings li b { color: var(--text); }
+  .foot { margin-top: 26px; color: var(--faint); font-size: 11.5px; text-align: center; }
+
+  @media (max-width: 520px) {
+    .col-head, .item { grid-template-columns: 34px 34px 34px 1fr; gap: 6px; }
+    .item { padding: 10px 8px; }
+    .col-head { padding: 4px 8px; font-size: 9.5px; letter-spacing: 0.5px; }
+    .wrap { padding-left: 14px; padding-right: 14px; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <p class="eyebrow">Hyperion Legacy · QA · 0.14.0 feature pass</p>
+  <h1><span class="v">0.14.0</span> Field Kits</h1>
+  <p class="sub">Curated checklist for Field Kits (plan R5, docs/plans/2026-10-14-field-kits-plan.md): kits, packs, the free set, the Quartermaster top-up, grenade charges, enemy ranks, conditions and their severity, the gambit rules and the Boss reserve. Run each check once at <b>1280 px</b> (desktop) and once at <b>375 px</b> (mobile), and run the pass in both <b>light and dark</b> themes.</p>
+
+  <div class="progress-card">
+    <div class="progress-top">
+      <div class="pct" id="pct">0%<small id="pctlabel">ready</small></div>
+      <div class="rowcount"><b id="doneCount">0</b> / <span id="totalCount">0</span> checks complete</div>
+    </div>
+    <div class="bar"><i id="barFill"></i></div>
+    <div class="substats">
+      <span><span class="dot d-claude"></span>Claude (tests) <b id="claudeCount">0</b></span>
+      <span><span class="dot d-desk"></span>You at 1280 px <b id="deskCount">0</b></span>
+      <span><span class="dot d-mob"></span>You at 375 px <b id="mobCount">0</b></span>
+      <span style="color:var(--faint)">A row is complete when both of your columns are ticked.</span>
+    </div>
+  </div>
+
+  <div class="legend">
+    <p><b>The three columns.</b> <b style="color:var(--claude)">Claude</b> is pre-filled and read-only: a tick means the engine or display test suite proves that rule (the "how" line names the test file). Nothing here was clicked through in a browser for this sheet, so every on-screen check is yours. <b style="color:var(--desk)">1280</b> and <b style="color:var(--mob)">375</b> are your desktop and mobile passes; your ticks are saved in this browser.</p>
+    <p><b>Progress rule.</b> A row counts as complete once BOTH of your columns are ticked (a rule the tests prove still wants your eyes on the screen at both widths).</p>
+    <p>Tags: <span class="chip save">needs real save</span> needs your migrated save or an expedition in flight. <span class="chip device">needs device</span> touch, a real phone, or a visual call. <span class="chip theme">light + dark</span> look at it in both themes. <span class="chip later">not in this build</span> listed in R5 but owned by a slice that has not shipped.</p>
+  </div>
+
+  <div class="toolbar">
+    <button class="btn" type="button" id="resetBtn">Reset my columns</button>
+    <span class="note">Claude's column is read-only (it records what the tests prove).</span>
+  </div>
+
+  <div id="sections"></div>
+
+  <div class="findings">
+    <h2>Close-out notes (FKR-11, 2026-10-27)</h2>
+    <ol>
+      <li><b>Help.</b> Two new topics, <b>Field Kits</b> and <b>Enemy Ranks</b>, every number read from its engine constant and every control name from its screen (helpTopics.test.ts). Four stale lines fixed: the Quartermaster topic no longer says buying is "Coming Soon", Storage no longer calls Consumables (or Modules) "reserved for later", the Return Trip bay table lists every condition with its time, and Fabricating names the Field Kits group.</li>
+      <li><b>Wiring.</b> Inspired (the Combat Stim's buff) is live with a real probe. The status picker row is re-owned to WR-10 (only Corroded can never fire). Every other Field Kits stat is live (no-dead-stats.test.ts, "Field Kits close-out").</li>
+      <li><b>Still open: FKR-8, the field device roll.</b> The plan's per-use 50% to 75% device roll (53% to 79.5% with a Codebreaker aboard) is not built, so its three registry rows stay pending on FKR-8 and the Help does not describe it. Section 12 is marked "not in this build".</li>
+    </ol>
+  </div>
+
+  <p class="foot">0.14.0 Field Kits QA · boxes persist in this browser only.</p>
+</div>
+
+<script>
+const TICK = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>';
+// c: a test proves it (how names the file). tag: "save" | "device" | "theme" | "later" | null.
+const SECTIONS = [
+  { n: "0", title: "Setup and the in-flight run", items: [
+    { t: "Load an existing save. It loads clean and nothing is missing (no save version change for Field Kits).", tag: "save" },
+    { t: "An expedition already underway before this build finishes exactly as it would have: no packs, no ranks chip, no new conditions, grenades still work on hit.", c: true, tag: "save", how: "fieldKitsRunGoldens.test.ts (the switch-on proof) and every earlier golden dispatches through asPreFieldKitsDispatch unchanged." },
+    { t: "No console errors opening Ops, Exploration, the dispatch, the Quartermaster, Logistics and Help." },
+  ]},
+  { n: "1", title: "Research and the Fabricator", items: [
+    { t: 'Research Lab: a trailing <span class="k">Field Kits</span> section holds the six kits. Tier 1: First Aid Kit, Antitoxin, Splint. Tier 2: Combat Stim, Trauma Kit, Injury Kit.', c: true, how: "fieldKitItems.test.ts and awayGearDisplay.test.ts (researchSectionOf)." },
+    { t: "The Impact Grenade blueprint is researchable (tier 1) beside the Stun and Toxin Grenades.", c: true, how: "FIELD_KITS_PLAYER_LIVE merges it into BLUEPRINTS (shortRangeGoldens FKR-9 cause test)." },
+    { t: 'Fabricator: a <span class="k">Field Kits</span> group, last. First Aid Kit, Antitoxin, Splint and Combat Stim make 2 per craft; Trauma Kit and Injury Kit make 1.', c: true, how: "fieldKitItems.test.ts; facility:BLUEPRINTS:<kitBp>:craft wiring probes." },
+    { t: "A new Stun or Toxin Grenade craft can roll the +1 Carry Capacity line; Impact Grenades can too.", c: true, how: "fieldKitsCharges.test.ts; the carry line's wiring entries (runSecGrenadeCharges)." },
+    { t: 'Logistics, Ship Equipment: the <span class="k">Field Kits</span> stock panel (glyph, name, count of cap) sits where the old "Consumables" marker was; the marker is gone.', tag: "theme" },
+  ]},
+  { n: "2", title: "Quartermaster Purchase", items: [
+    { t: 'The Quartermaster rail shows <span class="k">Purchase</span> (no longer a locked "Coming Soon!"). Six kit rows with glyph, stock, unit price and effect line.' },
+    { t: "Prices: First Aid Kit 60, Antitoxin 60, Combat Stim 150, Splint 95, Trauma Kit 660, Injury Kit 420 credits. The total updates with the stepper.", c: true, how: "FIELD_KIT_PRICES (3x material value, N13); fieldKitsDisplay.test.ts shop rows." },
+    { t: 'Buying more than credits allow is refused ("Not enough credits."); more than the Warehouse holds is refused ("Not enough warehouse space.").', c: true, how: "fieldKitsRun.test.ts (the sale) and quartermaster refusals." },
+    { t: "A successful buy lands in the Logistics Field Kits panel and the credits drop by exactly the total." },
+  ]},
+  { n: "3", title: "Dispatch: per-member packs", items: [
+    { t: "Each deploying team shows one card per Security member: role glyph, a Medical Training tag where it applies, the installed tool with its charges, the free set and one stepper per kit they can use, pre-filled.", tag: "theme" },
+    { t: 'Default pack reads "Default: 1 of each kit they can use"; changing a stepper shows "Edited" with a Reset.', c: true, how: "fieldKitsDisplay.test.ts (dispatchPackView); defaultMemberPack (N16)." },
+    { t: 'A member without Medical Training shows ONE dim line: "Splint, Trauma Kit and Injury Kit need Medical Training, so they stay home." Those kits are never packed or bought for them.', c: true, how: "fieldKitsDisplay.test.ts; fieldKitsRun.test.ts (a kit the member cannot use is never packed or bought)." },
+    { t: 'A member wearing a Squad Loadout with a pack reads "Same as loadout: (name)".', c: true, how: "fieldKitsRun.test.ts (the loadout round trip); fieldKitsDisplay.test.ts." },
+    { t: 'Free set line: "Free every objective: N First Aid Kits per Security member." (1 with 0 to 4 Medical and Operations crew, 2 at 5, 3 at 15, 4 at 27).', c: true, how: "fieldKits.test.ts (freeBasicSet curve)." },
+    { t: 'Tool line: "Impact Grenade 4" with a pip per carry line; a Stun or Toxin Grenade says it has a timed fuse; no tool reads "No tool installed".', c: true, how: "fieldKitsDisplay.test.ts (packToolView, fuseText)." },
+    { t: 'Short stock reads a quiet "N short, packs M"; covered reads "From the Warehouse". A Science squad and a Survey team show a ghost line and pack nothing.', c: true, how: "fieldKitsDisplay.test.ts." },
+    { t: "Steppers stop at 0 and 9; every control is reachable by keyboard; no select acts on change.", tag: "device" },
+    { t: "Launch: the packed kits leave the Warehouse (lowest quality first) and the Field Kits panel drops by exactly the packs.", c: true, how: "fieldKitsRun.test.ts (dispatch deducts exactly the packs, lowest quality first)." },
+  ]},
+  { n: "4", title: "Quartermaster top-up at launch", items: [
+    { t: '"Top up from the Quartermaster at launch" is OFF by default for every team and is remembered per team.', c: true, how: "fieldKitsRun.test.ts (top-up off buys nothing); groundTeams setGroundTeamTopUp." },
+    { t: "Off, the preview says what it would buy; on, it names what launch will buy and the cost. Launch is never blocked by it.", c: true, how: "fieldKitsDisplay.test.ts (preview equals topUpAtLaunch); planDispatchPacks never refuses." },
+    { t: "On, launch buys only the shortfall against each member's pack, as far as credits go; the launch log names the purchase and credits drop by the shown cost.", c: true, how: "fieldKitsRun.test.ts (on / credit-limited)." },
+  ]},
+  { n: "5", title: "In the run and at claim", items: [
+    { t: 'The expedition card shows a one-line summary per team ("Alpha kits N left" plus grenade charges) and, on a ranked objective, "Final fight: Elite" (or Boss).', tag: "theme" },
+    { t: "The detail view shows each team's supplies table under its timeline: free set left, packed extras, charges, conditions with severity and bay time.", tag: "theme" },
+    { t: "Every time the crew lands (each objective and each trip) the free set refills and grenade charges reset to full; packed extras carry on until used.", c: true, how: "fieldKitsRun.test.ts (basics and charges reset each objective); parity one call == 997 s == 1 s." },
+    { t: 'Claim: "Kits home: ..." lists unused extras; spent ones never return; the free set never comes home; returning kits may sit above the Warehouse cap.', c: true, how: "fieldKitsRun.test.ts (whole run: spent never return, over cap)." },
+  ]},
+  { n: "6", title: "Enemy ranks", items: [
+    { t: "Challenging and Dangerous objectives end with an Elite; Deadly ends with a Boss; every earlier fight point of a Dangerous objective is led by a Strong enemy; Simple and Standard none.", c: true, how: "enemyRanks.test.ts; groundOpsRanks.test.ts (whole ranked runs placed by the rule)." },
+    { t: "The training run fields no Elite and no Boss (and its enemies inflict no Field Kits conditions).", c: true, how: "groundOpsRanks.test.ts (training runs equal their unranked run); fightLeadRank; helpTopics.test.ts." },
+    { t: 'Once the final fight is met, the card chip and the supplies table name the ranked enemy: "Final fight: Elite Bruiser". (Ground Operations fights have no round-by-round log on screen, so this chip is where the rank shows.)', c: true, how: "fieldKitsDisplay.test.ts (finalFightChip names the lead's role once the pending fight is the final one)." },
+    { t: "Odds chips read lower on a ranked objective than a Simple one, and packing more kits nudges them up.", c: true, how: "groundOpsRanks.test.ts (odds move with ranks); FK12 threat key lists packs." },
+  ]},
+  { n: "7", title: "Gambit editor (Away-Team Gambits)", items: [
+    { t: '<span class="k">Throw Grenade</span> sits after Use Item; a Use Item rule shows a kit picker; "Ally: downed" is in the Ally group.', c: true, how: "gambitEditorFieldKits.test.ts." },
+    { t: 'Foe targets offer "Any rank", "Target is Elite or stronger", "Target is a Boss"; spending rules show a "Keep for a Boss" stepper (0 to 9).', c: true, how: "gambitEditorFieldKits.test.ts (RANK_OPTIONS, RESERVE_MAX)." },
+    { t: 'The status picker lists the seven new conditions, bones with "(severity N of 3)".', c: true, how: "gambitEditorFieldKits.test.ts (statusOptionLabel)." },
+    { t: 'Hints: "Fires only for a member with Medical Training.", "Skips when no kit of that kind is left.", "Skips when no charge is left, or after this battle\'s throw." and the installed grenade\'s fuse.', c: true, how: "gambitEditorFieldKits.test.ts (ruleHints)." },
+    { t: 'A member on the default shows the Field Kits default ("grenades at the largest group (one charge kept for an Elite or a Boss), no automatic kit use"). The Triage preset carries explicit kit rules.', c: true, how: "gambitEditorFieldKits.test.ts; fieldKitsBattle.test.ts (triage)." },
+  ]},
+  { n: "8", title: "Gambits in battle", items: [
+    { t: "A Throw Grenade rule with no charge left, or after this battle's one throw, skips and the next rule acts.", c: true, how: "fieldKitsCharges.test.ts." },
+    { t: "A rule holding a Boss reserve fires on a non-Boss only while the member holds more than the reserve; against a Boss it spends freely.", c: true, how: "fieldKitsBattle.test.ts (breaksReserve)." },
+    { t: 'Timed fuse: a Stun or Toxin Grenade goes off at the start of the thrower\'s next turn; foes of a group may move clear (20%), a lone foe never does, and a grenade still primed when the fight ends gives its charge back (watch the charges in the supplies table). There is no round log for Ground Operations fights on screen, so the fuse\'s log lines cannot be checked there.', c: true, how: "fieldKitsFuse.test.ts (fuse, moved clear, refund)." },
+    { t: "Use Item spends the free set first, then the packed extras; it fires only when the target needs that kit.", c: true, how: "fieldKitsBattle.test.ts (spendKit, kitFires)." },
+  ]},
+  { n: "9", title: "Conditions and severity", items: [
+    { t: "Bruisers' heavy hits (25% of a member's max HP or more) cause a Fracture and a Concussion; a repeat bone hit worsens Fracture to Broken Bone to Shattered Bone.", c: true, how: "fieldKitsConditions.test.ts (heavyHit, applyBoneHit)." },
+    { t: "Strikers: Bleed on a landed hit (15%), Hemorrhage on a finishing blow at a wounded member, one flash grenade each (Blindness 2 or 3 rounds).", c: true, how: "fieldKitsConditions.test.ts." },
+    { t: "Casters inflict Neurotoxin in place of Poison from Challenging up; Swarms and hostile-site enemies cause Fear (20%).", c: true, how: "fieldKitsConditions.test.ts." },
+    { t: "The right kit clears each one (Trauma Kit: Hemorrhage, Neurotoxin, Concussion, Fracture or Broken Bone; Splint: a Fracture heals in 3 rounds, a Broken Bone becomes a Fracture). A Shattered Bone only mends in the bay.", c: true, how: "fieldKits.test.ts (kitTreatment); fieldKitsBattle.test.ts." },
+    { t: "Bay times: Fracture 30 minutes, Broken Bone 1 hour, Shattered Bone 2 hours; a Fracture splinted in the fight costs no Fracture time; an Injury Kit shortens only that member's bay time.", c: true, how: "medicalBay.test.ts; fieldKitsRun.test.ts (bay share for that member only)." },
+  ]},
+  { n: "10", title: "Cure and resists", items: [
+    { t: "Cure (Medical Training) clears basic debuffs only: Bleed, Blindness, Weakened, Suppressed, Corroded, Poison, Stun, Fear. It never touches Hemorrhage, Neurotoxin, Concussion or a bone rank.", c: true, how: "fieldKitsConditions.test.ts (cureBasicDebuffs); away:audit:fieldKitsCure probe." },
+    { t: "Cortex Shield resists Concussion; Iron Will and Morale Anchor resist Fear; physical conditions land on Ossir (Stoneskin) members 25% less often (and last longer when they do).", c: true, how: "Wiring probes secConcussionResist, secFearResist, runSecFearResist, runSecStoneskinResist (no-dead-stats Field Kits close-out)." },
+  ]},
+  { n: "11", title: "Help", items: [
+    { t: 'Help has <span class="k">Field Kits</span> and <span class="k">Enemy Ranks</span> topics. Help bodies are plain text: read that each "see the ... topic" pointer names a topic that exists in the list (Risk Factors, Field Kits, Enemy Ranks, Scan Events).', c: true, how: "helpTopics.test.ts (every 'the X topic' reference names a real topic title)." },
+    { t: "Return Trip and Medical Bay lists all eleven bay rows with times; the Quartermaster topic names the Purchase tab; Storage names the field kits in Ship Equipment.", c: true, how: "helpTopics.test.ts." },
+    { t: 'Text rules on every new line: "objective" (never "task"), "install", US English, no em dashes, no emoji.', c: true, how: "helpTopics.test.ts text rules; secret/textRules.test.ts." },
+    { t: "The topics read well at 375 px (lists wrap, no horizontal scroll).", tag: "device" },
+  ]},
+  { n: "12", title: "Field devices (R5 item)", note: "R5 lists the per-use device roll. It belongs to FKR-8, which is not built: Shroud Emitter and Lure Beacon still work as before, at a fixed strength.", items: [
+    { t: "Ship-event odds vary per boundary between 50% and 75% of the device's effect (53% to 79.5% with a Codebreaker aboard).", tag: "later" },
+  ]},
+  { n: "13", title: "Visual and cross-cutting", items: [
+    { t: "Glyphs at 16, 28 and 56 px read clearly: the six kits, grenade, role marks (offense, defense, debuff), home, the three bone ranks, the five rank chips.", tag: "theme", c: true, how: "fieldKitIcons.test.ts and icons.test.ts (every glyph registered with ICON_SEMANTICS); the visual call is yours." },
+    { t: "No horizontal scroll at 375 px on the dispatch pack cards, the supplies table, the Purchase tab and the stock panel.", tag: "device" },
+    { t: "Dark and light: chips, the top-up switch, the dim Medical Training line and the stepper disabled states are legible in both.", tag: "theme" },
+    { t: "No wear on the training run; a grenade throw never wears the grenade and charges never wear.", c: true, how: "fieldKitsGrenades.ts (no wear source); gearWearEngine.test.ts (no wear on training)." },
+    { t: "Save persists across a reload with packs and the top-up setting kept." , tag: "save" },
+  ]},
+];
+
+const STORE = "hl-qa-0140-field-kits-v1";
+let userState = {};
+try { userState = JSON.parse(localStorage.getItem(STORE) || "{}"); } catch (e) { userState = {}; }
+function save() { try { localStorage.setItem(STORE, JSON.stringify(userState)); } catch (e) {} }
+
+const CHIP = {
+  save: '<span class="chip save">needs real save</span>',
+  device: '<span class="chip device">needs device</span>',
+  theme: '<span class="chip theme">light + dark</span>',
+  later: '<span class="chip later">not in this build</span>',
+};
+
+function cb(kind, id, checked, disabled, label) {
+  const empty = (kind === "claude" && !checked) ? " empty" : "";
+  return '<span class="cb ' + kind + empty + '"><input type="checkbox" id="' + id + '" ' + (checked ? "checked " : "") + (disabled ? "disabled " : "") +
+    'aria-label="' + label + '"><span class="box">' + TICK + "</span></span>";
+}
+
+const secWrap = document.getElementById("sections");
+SECTIONS.forEach((sec, si) => {
+  const el = document.createElement("section");
+  let html = '<div class="sec-head"><span class="sec-num">' + sec.n + '</span><span class="sec-title">' + sec.title +
+    '</span><span class="sec-line"></span><span class="sec-done" id="secdone-' + si + '"></span></div>';
+  if (sec.note) html += '<p class="sec-note">' + sec.note + "</p>";
+  html += '<div class="items"><div class="col-head"><span class="ch claude">Claude</span><span class="ch desk">1280</span><span class="ch mob">375</span><span></span></div>';
+  sec.items.forEach((it, ii) => {
+    const key = si + "-" + ii;
+    const meta = it.tag ? '<div class="meta">' + (CHIP[it.tag] || "") + "</div>" : "";
+    const how = it.how ? '<div class="how">' + it.how + "</div>" : "";
+    html += '<div class="item" data-key="' + key + '">' +
+      '<div class="cell">' + cb("claude", "c-" + key, !!it.c, true, "Claude: covered by tests") + "</div>" +
+      '<div class="cell">' + cb("desk", "d-" + key, !!userState["d-" + key], false, "Checked at 1280 px") + "</div>" +
+      '<div class="cell">' + cb("mob", "m-" + key, !!userState["m-" + key], false, "Checked at 375 px") + "</div>" +
+      '<div class="body"><span class="t">' + it.t + "</span>" + meta + how + "</div></div>";
+  });
+  html += "</div>";
+  el.innerHTML = html;
+  secWrap.appendChild(el);
+});
+
+function isDone(key) { return !!userState["d-" + key] && !!userState["m-" + key]; }
+function recompute() {
+  let total = 0, done = 0, claude = 0, desk = 0, mob = 0;
+  SECTIONS.forEach((sec, si) => {
+    let secTotal = 0, secDone = 0;
+    sec.items.forEach((it, ii) => {
+      const key = si + "-" + ii;
+      total++; secTotal++;
+      if (it.c) claude++;
+      if (userState["d-" + key]) desk++;
+      if (userState["m-" + key]) mob++;
+      if (isDone(key)) { done++; secDone++; }
+      const row = secWrap.querySelector('.item[data-key="' + key + '"]');
+      if (row) row.classList.toggle("done", isDone(key));
+    });
+    const sd = document.getElementById("secdone-" + si);
+    if (sd) sd.textContent = secDone + " / " + secTotal;
+  });
+  const pctVal = total ? Math.round((done / total) * 100) : 0;
+  document.getElementById("pct").firstChild.textContent = pctVal + "%";
+  document.getElementById("barFill").style.width = pctVal + "%";
+  document.getElementById("doneCount").textContent = done;
+  document.getElementById("totalCount").textContent = total;
+  document.getElementById("claudeCount").textContent = claude;
+  document.getElementById("deskCount").textContent = desk;
+  document.getElementById("mobCount").textContent = mob;
+  document.getElementById("pctlabel").textContent = pctVal >= 100 ? "launch-ready" : (pctVal >= 60 ? "closing in" : "in progress");
+}
+
+secWrap.addEventListener("change", (e) => {
+  const inp = e.target;
+  if (!inp.id || (inp.id[0] !== "d" && inp.id[0] !== "m")) return;
+  if (inp.checked) userState[inp.id] = true; else delete userState[inp.id];
+  save(); recompute();
+});
+document.getElementById("resetBtn").addEventListener("click", () => {
+  userState = {}; save();
+  secWrap.querySelectorAll('input[id^="d-"], input[id^="m-"]').forEach((i) => (i.checked = false));
+  recompute();
+});
+recompute();
+</script>
+</body>
+</html>

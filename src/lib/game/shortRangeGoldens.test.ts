@@ -124,6 +124,9 @@
 // MOVED BY ML-3 (material quality on delivery, OC-D2): nothing pinned here. The rig line's entry flips pending -> live;
 //                  ML3_SLICE reads it back as pending in every registryPin call, so the base pin and every cause pin
 //                  are unchanged.
+// MOVED BY Field Kits FKR-11 (the close-out): nothing pinned here. Inspired's status row flips pending -> live (the
+//                  Combat Stim inflicts it); FKR11_SLICE reads it back as pending in every registryPin call, so the base
+//                  pin and every cause pin are unchanged. Its three re-owned audit rows stay pending (same lines).
 // ADDED BY G1-1: `guests:<hull>` (guest quarters bare and with each quarters variety, the Guest Wing last) and
 // `stats:<hull>:guestWing` (every other stat with a Guest Wing installed). The sheets hash through withoutGuests, so
 // the stats pins keep proving no other stat moved (the transport hulls now carry base guest quarters).
@@ -693,8 +696,13 @@ const GG_STUDY_SLICE: RegistrySlice = { added: GG_STUDY_ADDED_ENTRY_IDS, flipped
 // E-MOD EM-7 (the v1 module roster), after every pin here: its added rows (one per module and the Survey Pair tier) and
 // the hulls' moduleSlots rows it FLIPPED pending -> live (emodEm7Registry.fixture.ts), held apart in EVERY pin.
 const EM7_SLICE: RegistrySlice = { added: EM7_ADDED_ENTRY_IDS, flipped: EM7_MODULE_SLOTS_IDS, was: "pending" };
+// Field Kits FKR-11 (the close-out), after every pin here: Inspired's status row flipped pending -> live (the Combat
+// Stim inflicts it). Its three re-owned audit rows stay pending, so their lines hash the same. Read back in EVERY pin
+// (the ML3_SLICE pattern); "FKR-11 is the only cause" below proves the flip is the whole move.
+const FKR11_FLIPPED_LIVE: ReadonlySet<string> = new Set<string>(["away:GAMBIT_STATUSES:inspired"]);
+const FKR11_SLICE: RegistrySlice = { flipped: FKR11_FLIPPED_LIVE, was: "pending" };
 function registryPin(...given: readonly RegistrySlice[]): [number, string] {
-  const slices = [RX_SLICE, RR_SLICE, FUSE_SLICE, ML2_SLICE, OC15_SLICE, R2_2_SLICE, R2_3_SLICE, R2_4_SLICE, R2_10_SLICE, G16_SLICE, ...G2_4_SLICES, ...G2_6_SLICES, ML3_SLICE, GG_STUDY_SLICE, EM7_SLICE, ...given];
+  const slices = [RX_SLICE, RR_SLICE, FUSE_SLICE, ML2_SLICE, OC15_SLICE, R2_2_SLICE, R2_3_SLICE, R2_4_SLICE, R2_10_SLICE, G16_SLICE, ...G2_4_SLICES, ...G2_6_SLICES, ML3_SLICE, GG_STUDY_SLICE, EM7_SLICE, FKR11_SLICE, ...given];
   const rows = siReadBack(em4ReadBack(em3ReadBack(wr8ReadBack(WIRING_REGISTRY))).map((e) => ({ id: e.id, kind: e.status.kind as string })), (r) => r.id, (row) => ({ id: row[0], kind: row[1].kind as string }));
   const lines = rows.filter((e) => !slices.some((sl) => sl.added?.has(e.id))).map((e) => {
     const flip = slices.find((sl) => sl.flipped?.has(e.id));
@@ -874,6 +882,9 @@ const R2_1_SLICE: RegistrySlice = { added: new Set(WIRING_REGISTRY.filter((e) =>
 describe("G1-0 golden 5: the wiring registry's ids and statuses", () => {
   it("the entries outside the G1 additions, hashed in registry order", () => {
     pin("registry", registryPin(GW_SLICE, G1_SLICE, SF3_SLICE, GG1_SLICE, ML1_SLICE, R2_1_SLICE));
+  });
+  it("Field Kits FKR-11 is the only cause of its registry move (Inspired's status row flips live)", () => {
+    expect(WIRING_REGISTRY.filter((e) => FKR11_FLIPPED_LIVE.has(e.id)).map((e) => e.status.kind)).toEqual(["live"]);
   });
   it("ML-3 is the only cause of its registry move (the rig line's entry flips live)", () => {
     expect(WIRING_REGISTRY.filter((e) => ML3_FLIPPED_LIVE.has(e.id)).map((e) => e.status.kind)).toEqual(["live"]);

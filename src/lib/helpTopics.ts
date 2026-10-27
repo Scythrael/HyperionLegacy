@@ -16,7 +16,7 @@
 // topics (crew, operations, homeworld, shipSystems, combat, patrols, combatView,
 // combatGear, queues, craftingLevels, autoSalvage, quartermaster, relics, and the 0.14.0 ground set:
 // groundTeams, groundOperations, returnTrip, objectiveDifficulty, affixes, reinforcing, riskFactors,
-// subspaceTelescope, scanEvents) are welcome and
+// subspaceTelescope, scanEvents, and Field Kits FKR-11's enemyRanks and fieldKits) are welcome and
 // help orient a new player, but the nine above must always be present.
 //
 // ⚠️ THIS MANUAL IS PART OF A RELEASE, NOT A ONE-TIME WRITE-UP. Crafting 0.13.3
@@ -147,6 +147,39 @@ const TOP_Q = `Q${MAX_MATERIAL_QUALITY}`;
 // first Lab tier from the engine (no typed number).
 import { DRIVE_CLASS_POWER_DRAW_MULT, MODULE_BLUEPRINTS } from "./game/model";
 import { POWER_SUPPLY_FLOOR_PERCENT } from "./game/combat/power";
+// Field Kits FKR-11: the Field Kits and Enemy Ranks topics read every number, name and list from the engine (the kit
+// catalog, the grenade varieties, the condition rows, the inflictors, the rank table and its placement) and every
+// control name from the screen's own display module, so a retune or a relabel cannot make the manual lie.
+import { EARLIER_FIGHT_LEAD, ENEMY_RANKS, ENEMY_RANK_IDS, FINAL_FIGHT_LEAD, type EnemyRank } from "./game/enemyRanks";
+import {
+  BASIC_DEBUFFS as KIT_BASIC_DEBUFFS,
+  CONDITION_LINES,
+  FIELD_KITS,
+  FIELD_KIT_IDS,
+  FREE_BASIC_FIRST_AID_PER_MEMBER,
+  KIT_CATEGORY_RULES,
+  SABOTEUR_GRENADE_BONUS,
+  SPLINT_HEAL_ROUNDS,
+} from "./game/fieldKits";
+import { GRENADES, GRENADE_IDS } from "./game/fieldKitsGrenades";
+import { defaultMemberPack } from "./game/fieldKitsRun";
+import {
+  BLEED_ON_HIT_PERMILLE,
+  FEAR_ON_HIT_PERMILLE,
+  FLASH_GRENADES_PER_STRIKER,
+  HEAVY_HIT_FRACTION,
+  NEUROTOXIN_FROM_GRADE,
+} from "./game/fieldKitsConditions";
+import {
+  BLINDNESS_MIN_ROUNDS,
+  BLINDNESS_ROUND_SPAN,
+  GAMBIT_STATUSES,
+  NEUROTOXIN_TURN_LOSS,
+  STONESKIN_BATTLE_RESIST,
+} from "./game/gambit";
+import { EQUIPMENT_SLOTS, GRENADE_CARRY_PER_LINE, GRENADE_FUSE_MOVED_CLEAR_CHANCE, GRENADE_THROWS_PER_BATTLE } from "./game/model";
+import { ACTION_LABEL, RANK_OPTIONS, SELECTOR_LABEL } from "./gambitEditorDisplay";
+import { kitEffectText } from "./fieldKitsDisplay";
 
 // ===== Derived-text helpers (0.14.0 topics; see the header) =====
 
@@ -205,9 +238,10 @@ const THREAT_LIST = THREAT_TIER_ORDER.map((t) => {
   const a = THREAT_BY_TIER.get(t);
   return a ? `- ${a.name}: ${a.fuzzyRange.charAt(0).toLowerCase()}${a.fuzzyRange.slice(1)}.` : "";
 }).join("\n");
-// The bay conditions a member can bring home today (the rest of GROUND_CONDITIONS arrive with Field Kits), under
-// the engine's own labels, as the bay card shows them.
-const CURE_IDS: readonly string[] = ["health", "poison", "bleed", "downed"];
+// The bay conditions a member can bring home, every row of GROUND_CONDITIONS (Field Kits FKR-11 widened it from the
+// four of a run without kits: the seven Field Kits conditions arrive on a Field Kits run), under the engine's own
+// labels, as the bay card shows them.
+const CURE_IDS: readonly string[] = Object.keys(GROUND_CONDITIONS);
 const CURE_LIST = CURE_IDS.map((id) => {
   const c = GROUND_CONDITIONS[id];
   return `- ${c.label}: ${span(c.cureSeconds)}${c.cls === "health" ? " (hit points lost in the fights)" : c.cls === "injury" ? " (an injury)" : ""}`;
@@ -217,6 +251,74 @@ const DEADLY = DIFFICULTY_NAMES.length;
 const FIRST_SKIPPING_TIER = SAFE_NEEDS_MAX_TIER + 1;
 const REINFORCING_REQUIRED = DIFFICULTY_NAMES[(AFFIX_DEFS.reinforcing.requiredFromDifficulty ?? DEADLY) - 1];
 const LIFT_TEXT = TELESCOPE_SHIP_LIFT === 1 ? "one level" : `${TELESCOPE_SHIP_LIFT} levels`;
+
+// ===== Field Kits FKR-11: the Field Kits and Enemy Ranks topics (every number from its owner) =====
+
+// "a, b and c".
+function andList(items: readonly string[]): string {
+  return items.length <= 1 ? items.join("") : `${items.slice(0, -1).join(", ")} and ${items[items.length - 1]}`;
+}
+const statusLabel = (id: string): string => GAMBIT_STATUSES[id as keyof typeof GAMBIT_STATUSES]?.label ?? id;
+const rankLabel = (r: EnemyRank): string => ENEMY_RANKS[r].label;
+const article = (word: string): string => (/^[AEIOU]/i.test(word) ? "an" : "a");
+const countWord = (n: number, one: string, many: string): string => (n === 1 ? `1 ${one}` : `${n} ${many}`);
+
+// The kit list, each line the kit's own effect text (the dispatch pack screen and the Quartermaster rows print the same).
+const KIT_LINES = FIELD_KIT_IDS.map((id) => `- ${FIELD_KITS[id].label}: ${kitEffectText(id)}`).join("\n");
+const ANYONE_KITS = andList(FIELD_KIT_IDS.filter((id) => !KIT_CATEGORY_RULES[FIELD_KITS[id].category].requiresMedicalTraining).map((id) => FIELD_KITS[id].label));
+const MEDIC_KITS = andList(FIELD_KIT_IDS.filter((id) => KIT_CATEGORY_RULES[FIELD_KITS[id].category].requiresMedicalTraining).map((id) => FIELD_KITS[id].label));
+// N16 "1 of each usable kit": the default pack's count (the same for every kit a member can use).
+const DEFAULT_PACK_EACH = Math.max(...Object.values(defaultMemberPack(true)).map((n) => n ?? 0));
+// The bone line, lightest first ("Fracture, Broken Bone and Shattered Bone").
+const BONE = CONDITION_LINES.bone.map((r) => r.label);
+const BONE_CUTS = andList(CONDITION_LINES.bone.map((r) => `${pct(GAMBIT_STATUSES[r.id].magnitude)} at ${r.label}`));
+
+// One grenade variety's line: its charges, its blast, its debuff and its fuse, read off its GrenadeTraits.
+function grenadeLine(key: string): string {
+  const g = GRENADES[key];
+  const label = EQUIPMENT_SLOTS.memberTool.varieties.find((v) => v.key === key)?.label ?? key;
+  const debuff = g.statusChance !== undefined ? `a ${pct(g.statusChance)} chance of ${statusLabel(g.status)}` : `${statusLabel(g.status)} at the thrower's status chance`;
+  const fuse = g.fuse ? "a timed fuse" : "detonates on contact";
+  return `- ${label}: ${countWord(g.charges.perObjective, "charge", "charges")}, ${pct(g.powerMult)} of the thrower's power to each foe of the target's group, ${debuff}, ${fuse}.`;
+}
+const GRENADE_LINES = GRENADE_IDS.map(grenadeLine).join("\n");
+const TIMED_GRENADES = andList(GRENADE_IDS.filter((k) => GRENADES[k].fuse).map((k) => EQUIPMENT_SLOTS.memberTool.varieties.find((v) => v.key === k)?.label ?? k));
+
+// The grades whose final (or earlier) fights a rank leads: "Challenging and Dangerous objectives end with an Elite".
+function gradesLedBy(table: readonly (EnemyRank | null)[], rank: EnemyRank): string[] {
+  return table.flatMap((r, i) => (r === rank ? [DIFFICULTY_NAMES[i]] : []));
+}
+const LEADS_FINAL = ENEMY_RANK_IDS.filter((r) => FINAL_FIGHT_LEAD.includes(r))
+  .map((r) => `${andList(gradesLedBy(FINAL_FIGHT_LEAD, r))} objectives end with ${article(rankLabel(r))} ${rankLabel(r)}`)
+  .join(", and ");
+const LEADS_EARLIER = ENEMY_RANK_IDS.filter((r) => EARLIER_FIGHT_LEAD.includes(r))
+  .map((r) => `every earlier fight point of ${andList(gradesLedBy(EARLIER_FIGHT_LEAD, r))} objectives is led by ${article(rankLabel(r))} ${rankLabel(r)} enemy`)
+  .join("; ");
+const UNLED_GRADES = andList(DIFFICULTY_NAMES.filter((_, i) => FINAL_FIGHT_LEAD[i] === null && EARLIER_FIGHT_LEAD[i] === null));
+const FIRST_LED_GRADE = DIFFICULTY_NAMES[FINAL_FIGHT_LEAD.findIndex((r) => r !== null)];
+const RANK_LIST = ENEMY_RANK_IDS.map((r) => `${rankLabel(r)} x${ENEMY_RANKS[r].mult}`).join(", ");
+const RANK_ELITE_OPTION = RANK_OPTIONS.find((o) => o.value === "elite")?.label ?? "";
+const RANK_BOSS_OPTION = RANK_OPTIONS.find((o) => o.value === "boss")?.label ?? "";
+
+export const ENEMY_RANKS_PARAGRAPHS: readonly string[] = [
+  `Every enemy in an expedition's ground fights has a rank: ${RANK_LIST}. The multiplier scales its HP, its power and its healing.`,
+  `WHERE THEY STAND: ${LEADS_FINAL}; ${LEADS_EARLIER}. The leader is the fight's strongest enemy, and the rest of the fight is ordinary. ${UNLED_GRADES} objectives, ambushes and Reinforcing reinforcements have no leader. The hardest fight is usually the last one, so plan your grenades and kits for it.`,
+  `TRAINING RUNS: a training run fields no ${rankLabel("elite")} and no ${rankLabel("boss")}; every enemy there is ${rankLabel("normal")}. On the runs after it at ${tier(RAMP_MAX_TIER)}, ordinary enemies start out ${rankLabel("weak")} and grow to ${rankLabel("normal")} with the difficulty curve (see the Risk Factors topic).`,
+  `ON SCREEN: on an expedition with field kits, the expedition card and each team's supplies table show the current objective's final fight when ${article(rankLabel("elite"))} ${rankLabel("elite")} or ${article(rankLabel("boss"))} ${rankLabel("boss")} leads it ("Final fight: ${rankLabel("elite")}"), and the enemy too once that fight is met ("Final fight: ${rankLabel("elite")} Bruiser"). Gambit rules can single out ranks: "${RANK_ELITE_OPTION}" and "${RANK_BOSS_OPTION}" (see the Field Kits topic).`,
+];
+
+export const FIELD_KITS_PARAGRAPHS: readonly string[] = [
+  "Field kits are the supplies your Security members carry into an expedition's ground fights. Research the kits at the Research Lab (its Field Kits section), craft them at the Fabricator (its Field Kits group) or buy them on the Quartermaster's Purchase tab; your stock shows in Logistics, under Ship Equipment. Grenades are not kits: they are tools installed in a member's Tool slot, with charges (below). Science squads never fight, so they carry nothing. Every expedition launched now carries field kits; one that was already underway when they arrived finishes under its old rules.",
+  `THE KITS:\n${KIT_LINES}\n${ANYONE_KITS} work for anyone: at ${pct(KIT_CATEGORY_RULES.firstAid.untrained)} strength without Medical Training (they take only part of a condition's rounds off, heal less and inspire for less long) and ${pct(KIT_CATEGORY_RULES.firstAid.trained)} with it. ${statusLabel("inspired")} deals ${pct(GAMBIT_STATUSES.inspired.magnitude)} more damage. ${MEDIC_KITS} need a member with Medical Training. A kit's quality never changes what it does.`,
+  `PACKS: every Security member packs their own kits. The expedition dispatch shows each member's pack, filled by default with ${DEFAULT_PACK_EACH === 1 ? "one" : DEFAULT_PACK_EACH} of each kit they can use; change it with the steppers, or let a member's Squad Loadout carry a pack. A kit a member cannot use is never packed. Packed kits leave the Warehouse at launch, lowest quality first. Unused kits come home when you claim the expedition, even past the Warehouse cap; spent ones do not.`,
+  `THE FREE SET: on top of the pack, each Security member lands on every objective with a free set: ${countWord(FREE_BASIC_FIRST_AID_PER_MEMBER, "First Aid Kit", "First Aid Kits")}, and more the larger the ship's Medical and Operations crew (each extra kit takes more crew than the last, with no cap; set at launch). It refills every time the crew lands, at every objective and on every trip, and it never comes home. A member uses the free set first, then their packed kits.`,
+  'TOP UP: each team has a "Top up from the Quartermaster at launch" switch at dispatch, off by default and remembered for that team. Switched on, the launch buys only what the team\'s packs are still short after the Warehouse, at the Quartermaster\'s prices, as far as your credits go; the dispatch shows what it would buy and the cost. A launch never waits on it.',
+  `GRENADES AND CHARGES: a grenade in a Security member's Tool slot is thrown by a ${ACTION_LABEL.throwGrenade} gambit rule, and each throw spends a charge. A member throws at most ${countWord(GRENADE_THROWS_PER_BATTLE, "grenade", "grenades")} per battle, and the charges reset to full every time the crew lands, at every objective and on every trip. Each Carry Capacity line rolled on a grenade adds ${countWord(GRENADE_CARRY_PER_LINE, "charge", "charges")}.\n${GRENADE_LINES}\nA timed fuse (the ${TIMED_GRENADES}) goes off at the start of the thrower's next turn: each foe of a group may move clear first (${pct(GRENADE_FUSE_MOVED_CLEAR_CHANCE)}), but a foe standing alone never does, and a grenade still waiting when the fight ends gives its charge back. A Saboteur's own throws get +${pct(SABOTEUR_GRENADE_BONUS)} on their blast and their debuff chance. Other tools have no charges: scan events happen less often with a Shroud Emitter and more often with a Lure Beacon while the ship scans (see the Scan Events topic). A member on the default gambits throws at the largest group and keeps one charge for an ${rankLabel("elite")} or a ${rankLabel("boss")}.`,
+  `CONDITIONS: the enemies fight dirty:\n- Bruisers: a heavy hit (${pct(HEAVY_HIT_FRACTION)} or more of a member's max HP) causes a bone hit and ${article(statusLabel("concussion"))} ${statusLabel("concussion")}.\n- Strikers: a landed hit may cause ${statusLabel("bleed")} (${pct(BLEED_ON_HIT_PERMILLE / 1000)}), a finishing blow on a badly wounded member can cause ${statusLabel("hemorrhage")}, and each throws ${countWord(FLASH_GRENADES_PER_STRIKER, "flash grenade", "flash grenades")} a fight (${statusLabel("blindness")}).\n- Casters: ${statusLabel("neurotoxin")} in place of ${statusLabel("poison")} on ${DIFFICULTY_NAMES[NEUROTOXIN_FROM_GRADE - 1]} and harder objectives.\n- Swarms, and every enemy at a hostile site: a landed hit may cause ${statusLabel("fear")} (${pct(FEAR_ON_HIT_PERMILLE / 1000)}).\nA training run's enemies cause none of these.`,
+  `WHAT THEY DO:\n- ${andList(BONE)}: one bone condition in three severity ranks. A bone hit starts at ${BONE[0]}, and each further one worsens it a rank. Power and accuracy drop (${BONE_CUTS}). It lasts until a kit treats it or the medical bay mends it, and only the medical bay mends a ${BONE[BONE.length - 1]}.\n- ${statusLabel("hemorrhage")}: ${GAMBIT_STATUSES.hemorrhage.magnitude} damage a round for ${GAMBIT_STATUSES.hemorrhage.duration} rounds.\n- ${statusLabel("neurotoxin")}: ${GAMBIT_STATUSES.neurotoxin.magnitude} damage a round for ${GAMBIT_STATUSES.neurotoxin.duration} rounds, and a ${pct(NEUROTOXIN_TURN_LOSS)} chance to lose each turn.\n- ${statusLabel("concussion")}: a ${pct(GAMBIT_STATUSES.concussion.magnitude)} chance to lose each turn, for ${GAMBIT_STATUSES.concussion.duration} rounds.\n- ${statusLabel("blindness")}: attacks hit at ${pct(1 - GAMBIT_STATUSES.blindness.magnitude)} of their usual chance, for ${BLINDNESS_MIN_ROUNDS} or ${BLINDNESS_MIN_ROUNDS + BLINDNESS_ROUND_SPAN - 1} rounds.\nThe free Cure of a member with Medical Training clears basic debuffs only (${andList(KIT_BASIC_DEBUFFS.map(statusLabel))}). It never touches ${andList([statusLabel("hemorrhage"), statusLabel("neurotoxin"), statusLabel("concussion"), "the bone ranks"])}: those wait for their kit, run their course, or go to the medical bay. A ${BONE[0]} splinted in the fight heals in ${SPLINT_HEAL_ROUNDS} rounds and costs no ${BONE[0]} time in the bay. Cortex Shield's ${statusLabel("stun")} resist also covers ${statusLabel("concussion")}, and Iron Will and the XO's Morale Anchor resist ${statusLabel("fear")}. Stoneskin members (the Ossir) have physical conditions (${statusLabel("bleed")}, ${statusLabel("hemorrhage")}, ${statusLabel("concussion")} and the bone ranks) land on them ${pct(STONESKIN_BATTLE_RESIST)} less often, but the ones that land last longer.`,
+  `KITS IN GAMBITS: kits are never used on their own. Add a ${ACTION_LABEL.useItem} rule to a member's Away-Team Gambits (the Ops tab, under Exploration) and pick its kit, or start from the Triage preset, which has kit rules ready. A rule fires only when the member carries that kit, can use it, and the target needs it; otherwise the next rule acts. "${SELECTOR_LABEL.allyDowned}" is the ${FIELD_KITS.injuryKit.label}'s target, and a ${ACTION_LABEL.useItem} rule with no kit picked uses a ${FIELD_KITS.firstAidKit.label}. A ${ACTION_LABEL.throwGrenade} rule skips when no charge is left or this battle's throw is spent.`,
+  `SAVING FOR THE BOSS: a rule that targets a foe can ask for "${RANK_ELITE_OPTION}" or "${RANK_BOSS_OPTION}" (see the Enemy Ranks topic). A ${ACTION_LABEL.throwGrenade} or ${ACTION_LABEL.useItem} rule can also "Keep for a Boss" a number: it fires only while the member holds more than that many (charges, or of that kit), except against a ${rankLabel("boss")}, or, for a kit, while a ${rankLabel("boss")} is in the fight. The odds chips count each team's packs and charges, so packing better shows better odds.`,
+];
 
 export interface HelpTopic {
   id: string;
@@ -269,7 +371,7 @@ On the order form, This order uses lists the qualities the order will draw, and 
   {
     id: "fabricating",
     title: "Fabricating",
-    body: "The Fabricator, in Facilities, crafts real components, ship systems, and combat gear (weapons, shield emitters, hull plating, and drone pods) from the refined materials the Refinery produces, using the blueprints you have unlocked at the Research Lab. Combat gear is craftable alongside components and ship systems: research a weapon, shield, plating, or drone-pod blueprint, then fabricate it here just like any other system, and the finished piece lands in your spare pool, ready to install onto a ship from its Ship Systems screen. Like the Refinery it runs as independent per-slot production lines, each with its own recipe, tier, and amount, and starting a craft reserves its materials up front so concurrent lines never fight over the same parts. Your crafting skill levels up as you fabricate, and the Fabricator's own Crafting Level panel shows what that skill is currently worth (see the Crafting Levels topic). Any material's tooltip breaks its count into Allocated (held by running crafts AND by orders waiting in the queue), Free (available to start something new), and Total, which is why Free drops the moment you queue an order rather than when that order starts. Canceling an unstarted line refunds its reserved materials to your Free pool, and removing a waiting order releases everything it had reserved.",
+    body: "The Fabricator, in Facilities, crafts real components, ship systems, and combat gear (weapons, shield emitters, hull plating, and drone pods) from the refined materials the Refinery produces, using the blueprints you have unlocked at the Research Lab. Combat gear is craftable alongside components and ship systems: research a weapon, shield, plating, or drone-pod blueprint, then fabricate it here just like any other system, and the finished piece lands in your spare pool, ready to install onto a ship from its Ship Systems screen. Like the Refinery it runs as independent per-slot production lines, each with its own recipe, tier, and amount, and starting a craft reserves its materials up front so concurrent lines never fight over the same parts. Your crafting skill levels up as you fabricate, and the Fabricator's own Crafting Level panel shows what that skill is currently worth (see the Crafting Levels topic). Any material's tooltip breaks its count into Allocated (held by running crafts AND by orders waiting in the queue), Free (available to start something new), and Total, which is why Free drops the moment you queue an order rather than when that order starts. Canceling an unstarted line refunds its reserved materials to your Free pool, and removing a waiting order releases everything it had reserved. Field kits for your away teams are crafted here too, in their own Field Kits group (see the Field Kits topic).",
   },
   {
     id: "queues",
@@ -328,9 +430,22 @@ On the order form, This order uses lists the qualities the order will draw, and 
     body: [
       `After every trip to an objective, won or lost, a team comes back to the ship before its next one:\n- Shuttle up (${span(RETURN_SECONDS)}), or wait for the ship after a wipe (see the Ground Operations topic).\n- Offload (${span(OFFLOAD_BASE_SECONDS)}): the haul banked on the trip goes into the hold. Skipped when nothing new was banked.\n- Medical bay: everyone heals (below).\n- Reload (${span(RELOAD_BASE_SECONDS)}), then the drop to the next objective (${span(DEPLOY_SECONDS)}).`,
       "WHAT SPEEDS EACH STEP:\n- Offload: the crew's Efficient Unloading and the Veteran Instincts officer bonus.\n- Reload: the crew's Rapid Loadout and the captain's Efficient Stowage talent.\n- Medical bay: the Medical crew's Reduced Crew Losses, the Rapid Recovery officer bonus, and the Medical officer's Constitution and Cunning (plus Integrity, for injuries), with a share of the XO's.\nThese are set when the ship launches. Each bonus divides the time, so every bit helps, each a little less than the last, and a cure never drops to nothing.",
-      `THE MEDICAL BAY: every condition a member picked up on the trip cures on its own clock, and they all tick down at once. A member waits for their longest condition, and the team waits for its longest member. Times before any bonus:\n${CURE_LIST}\nOther battle effects, such as stuns and fear, end with the fight. Each team's bay card shows who is waiting on what.`,
-      `STONESKIN: Ossir crew members have Stoneskin. Their injuries take ${pct(STONESKIN_INJURY_MULT - 1)} longer to mend in the bay.`,
+      `THE MEDICAL BAY: every condition a member picked up on the trip cures on its own clock, and they all tick down at once. A member waits for their longest condition, and the team waits for its longest member. Times before any bonus:\n${CURE_LIST}\nOther battle effects, such as stuns and fear, end with the fight. Each team's bay card shows who is waiting on what. On an expedition with field kits, a ${BONE[0]} splinted in the fight costs no ${BONE[0]} time, and ${article(FIELD_KITS.injuryKit.label)} ${FIELD_KITS.injuryKit.label} used on a downed member shortens that member's bay time (see the Field Kits topic).`,
+      `STONESKIN: Ossir crew members have Stoneskin. Their injuries take ${pct(STONESKIN_INJURY_MULT - 1)} longer to mend in the bay. On an expedition with field kits, physical conditions land on them ${pct(STONESKIN_BATTLE_RESIST)} less often in the fights, and the ones that land last ${pct(STONESKIN_INJURY_MULT - 1)} longer.`,
     ].join("\n\n"),
+  },
+  {
+    // 0.14.0 Field Kits FKR-11: enemy ranks (enemyRanks.ts), every number and grade read from the rank table.
+    id: "enemyRanks",
+    title: "Enemy Ranks",
+    body: ENEMY_RANKS_PARAGRAPHS.join("\n\n"),
+  },
+  {
+    // 0.14.0 Field Kits FKR-11: kits, packs, the free set, the top-up, grenade charges, conditions and their severity,
+    // the gambit rules and the Boss reserve. Every number from its engine constant, every control name from its screen.
+    id: "fieldKits",
+    title: "Field Kits",
+    body: FIELD_KITS_PARAGRAPHS.join("\n\n"),
   },
   {
     // 0.14.0 Squads (SQ-7 section 7.5, "Task difficulty", named for objectives). Weights from riskFactors.ts.
@@ -342,6 +457,7 @@ On the order form, This order uses lists the qualities the order will draw, and 
       `THE GREATER THE RISK, THE GREATER THE REWARD: a harder objective's haul is multiplied up: about +${pct(riskRewardBonus(2))} at ${DIFFICULTY_NAMES[1]}, up to about +${pct(riskRewardBonus(DEADLY))} at ${DIFFICULTY_NAMES[DEADLY - 1]}, on a curve that keeps rising but more slowly. The same amount is added to its relic find bonus.`,
       `NEEDS: the card's requirement chips show the squads an objective needs, marked met or unmet by your deployed teams. Up to ${tier(SAFE_NEEDS_MAX_TIER)}, no objective asks for more than one squad of each type, so your teams can always take it. From ${tier(FIRST_SKIPPING_TIER)} on, an objective can need two, and one your deployed squads cannot cover is left unfinished (the Subspace Telescope can warn you before launch).`,
       `${REINFORCING_REQUIRED} combat objectives always carry the Reinforcing affix. While an objective is on alert its rating rises, and at ${IMPOSSIBLE_DIFFICULTY_NAME} it is held until the alert wears off (see the Reinforcing (affix) topic).`,
+      `ENEMY RANKS: from ${FIRST_LED_GRADE} up, an objective's final fight is led by an ${rankLabel("elite")} or a ${rankLabel("boss")} (see the Enemy Ranks topic).`,
       "TRAINING RUNS: your first explorer expedition is a training run that cannot fail, and the guards on the runs after it start weaker and grow to full strength slowly (see the Risk Factors topic, under Training runs and rising risk).",
     ].join("\n\n"),
   },
@@ -440,12 +556,12 @@ On the order form, This order uses lists the qualities the order will draw, and 
   {
     id: "quartermaster",
     title: "Quartermaster",
-    body: "The Quartermaster, in Facilities, is the fleet's supply counter. Its Requisition tab issues Standard-Issue patterns free, one row per slot that has a baseline: the four economy slots (Cargo Bay, FTL Drive, Reactor Core, Prospecting Rig) and the combat slots (a weapon, a shield emitter, hull plating, and a drone pod). Take one and it lands in your spare systems, ready to install from a ship's Ship Systems board. It costs nothing and takes no time, because the point of the counter is that an empty slot can always be filled: a ship missing a weapon, a shield emitter, or hull plating cannot launch a patrol, so a free replacement turns that from a dead end into an errand. What you get is the FLOOR and never more. An economy baseline is stat-neutral (a ship carrying one performs exactly as a bare hull does), and a combat baseline restores the hull's own starting numbers rather than adding to them, so nobody gains power by visiting: you only get back to where a new ship starts. The weapon issued here is the same workhorse gun every hull is built with, not a pick from the weapon roster. Real gains come from researching and crafting your own systems. The counter issues one spare of each pattern at a time; install it and it will issue another, and a spare already queued for salvage, or sitting in an Armory loadout, does not count against you. The Quartermaster has no level and nothing to upgrade, so there is nothing to found and nothing to buy. Its Sell tab buys stock back for credits (today Deuterium Ice and the gas canisters you hold), and buying is marked Coming Soon.",
+    body: "The Quartermaster, in Facilities, is the fleet's supply counter. Its Requisition tab issues Standard-Issue patterns free, one row per slot that has a baseline: the four economy slots (Cargo Bay, FTL Drive, Reactor Core, Prospecting Rig) and the combat slots (a weapon, a shield emitter, hull plating, and a drone pod). Take one and it lands in your spare systems, ready to install from a ship's Ship Systems board. It costs nothing and takes no time, because the point of the counter is that an empty slot can always be filled: a ship missing a weapon, a shield emitter, or hull plating cannot launch a patrol, so a free replacement turns that from a dead end into an errand. What you get is the FLOOR and never more. An economy baseline is stat-neutral (a ship carrying one performs exactly as a bare hull does), and a combat baseline restores the hull's own starting numbers rather than adding to them, so nobody gains power by visiting: you only get back to where a new ship starts. The weapon issued here is the same workhorse gun every hull is built with, not a pick from the weapon roster. Real gains come from researching and crafting your own systems. The counter issues one spare of each pattern at a time; install it and it will issue another, and a spare already queued for salvage, or sitting in an Armory loadout, does not count against you. The Quartermaster has no level and nothing to upgrade, so there is nothing to found. Its Sell tab buys stock back for credits (today Deuterium Ice and the gas canisters you hold), and its Purchase tab sells field kits for credits (see the Field Kits topic). A purchase never goes over the Warehouse cap.",
   },
   {
     id: "storage",
     title: "Storage",
-    body: "Your stock lives on the Logistics tab. Materials holds your raw ores, refined goods, components, and salvaged materials, grouped into themed sections (Ores and Metals, Volatiles, Organic Compounds, Recovered Tech, Refined, Components, and Salvaged Materials) and split by tier. Ship Equipment holds your spare ship systems, crafted combat gear such as weapons and drone pods included, with Modules and Consumables reserved for later, and Crafted Blanks holds unrolled crafts waiting to be inspected. Each item shows a fill gauge for how full its cap is. Storage has caps, so producers automatically pause when a material is full instead of wasting output, and you can raise a cap with a timed upgrade at the Warehouse, in Facilities. Your spare ship systems have their own cap, shown at the top of Ship Equipment, which you raise with a timed Systems Bay upgrade. Gear in an Armory loadout does not count against it.",
+    body: "Your stock lives on the Logistics tab. Materials holds your raw ores, refined goods, components, and salvaged materials, grouped into themed sections (Ores and Metals, Volatiles, Organic Compounds, Recovered Tech, Refined, Components, and Salvaged Materials) and split by tier. Ship Equipment holds your spare ship systems (crafted combat gear such as weapons and drone pods, and crafted modules, included) and your field kits (see the Field Kits topic), and Crafted Blanks holds unrolled crafts waiting to be inspected. Each item shows a fill gauge for how full its cap is. Storage has caps, so producers automatically pause when a material is full instead of wasting output, and you can raise a cap with a timed upgrade at the Warehouse, in Facilities. Your spare ship systems have their own cap, shown at the top of Ship Equipment, which you raise with a timed Systems Bay upgrade. Gear in an Armory loadout does not count against it.",
   },
   {
     id: "salvage",
