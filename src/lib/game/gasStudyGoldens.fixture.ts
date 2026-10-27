@@ -10,6 +10,8 @@
 
 import { WIRING_REGISTRY } from "./wiring/registry";
 import { GAS_STUDY_USES, gasStudyItemIds, type GasStudyUse } from "./gasGiantContent";
+import { GAS_GIANT_BLUEPRINTS } from "./model";
+import { RAMSCOOP_COLLECTOR_MODULE, RESONANCE_SENSOR_ARRAY } from "./specialBlueprints";
 
 const GG1_CATALOGS: ReadonlySet<string> = new Set(["GAS_STUDY_USES", "GIANT_CLASSES", "NEBULA_KINDS"]);
 const GG1_ITEMS: ReadonlySet<string> = new Set(gasStudyItemIds());
@@ -19,10 +21,27 @@ export const GG1_RECIPE = "refineDeuteriumCanister";
 // live from the start, so it is never a GG-1 row nor a flipped one; it is held apart with the engine slices' additions.
 export const GG6_PICKUP_PAUSE_ENTRY_ID = "expedition:GAS_STUDY_USES:pickupPause";
 
+// Gas Giant Study GG-7 (the canisters' crafting uses and the special blueprints): the entries it ADDS, read off the
+// registry by their sources: each canister's consumer row (GAS_STUDY_USES canisterRecipes:<canister>), the four new
+// blueprints' research rows and the three special blueprints' effect rows, the Ramscoop Collector's module row, the
+// Resonance Sensor Array's rows and every array's new canisterBandLift row. Its flip (canisterRecipes pending ->
+// live) reads back through GG_STUDY_FLIPPED_BEFORE like the engine slices' flips; its DATA_STUDY / DATA_STUDY_SEAM
+// changes (the decode and the gate live, the culture study point seam) sit in GG_STUDY_ADDED_ENTRY_IDS already.
+const GG7_BLUEPRINT_KEYS: ReadonlySet<string> = new Set(Object.keys(GAS_GIANT_BLUEPRINTS));
+function isGg7Row(e: (typeof WIRING_REGISTRY)[number]): boolean {
+  const key = e.source.key;
+  if (e.source.catalog === "GAS_STUDY_USES") return key.startsWith("canisterRecipes:");
+  if (e.source.catalog === "BLUEPRINTS") return GG7_BLUEPRINT_KEYS.has(key.split(":")[0]);
+  if (e.source.catalog === "UNIVERSAL_MODULES") return key === RAMSCOOP_COLLECTOR_MODULE;
+  if (e.source.catalog === "SENSOR_ARRAYS") return key.startsWith(`${RESONANCE_SENSOR_ARRAY}:`) || key.endsWith(":canisterBandLift");
+  return false;
+}
+export const GG7_ADDED_ENTRY_IDS: ReadonlySet<string> = new Set(WIRING_REGISTRY.filter(isGg7Row).map((e) => e.id));
+
 export const GG1_ADDED_ENTRY_IDS: ReadonlySet<string> = new Set(
   WIRING_REGISTRY.filter(
     (e) =>
-      (GG1_CATALOGS.has(e.source.catalog) && e.id !== GG6_PICKUP_PAUSE_ENTRY_ID) ||
+      (GG1_CATALOGS.has(e.source.catalog) && e.id !== GG6_PICKUP_PAUSE_ENTRY_ID && !isGg7Row(e)) ||
       (e.source.catalog === "ITEMS" && GG1_ITEMS.has(e.source.key.split(":")[0])) ||
       // GG-5: the nine research data reserve rows keep their ids (and places) but now name the lane's consumer.
       isGg5ConsumeRow(e) ||
@@ -57,7 +76,7 @@ export const ORBITAL_ONLY_ENTRY_ID = "expedition:PLANET_TYPES:gasGiant:orbitalOn
 const ORBITAL_ONLY_BEFORE = "gas giant study 15b + OC-G2 (teams land and fight there, B21)";
 
 function ggBeforeOwner(e: (typeof WIRING_REGISTRY)[number]): string | null {
-  if (e.id === GG6_PICKUP_PAUSE_ENTRY_ID) return null;
+  if (e.id === GG6_PICKUP_PAUSE_ENTRY_ID || isGg7Row(e)) return null;
   if (e.id === ORBITAL_ONLY_ENTRY_ID) return ORBITAL_ONLY_BEFORE;
   if (e.source.catalog === "GAS_STUDY_USES") return GAS_STUDY_USES[e.source.key as GasStudyUse] ?? null;
   if (isGg5ConsumeRow(e)) return e.source.key === "consume:ancientDataFragment" ? GG5_ANCIENT_STUDY_BEFORE : GG5_DATA_STUDY_BEFORE;
@@ -73,6 +92,7 @@ export const GG_STUDY_ADDED_ENTRY_IDS: ReadonlySet<string> = new Set(
   WIRING_REGISTRY.filter(
     (e) =>
       e.id === GG6_PICKUP_PAUSE_ENTRY_ID ||
+      isGg7Row(e) ||
       e.source.catalog === "GAS_STUDY_SEAM" ||
       e.source.catalog === "DATA_STUDY_SEAM" ||
       (e.source.catalog === "DATA_STUDY" && !isGg5ConsumeRow(e)),

@@ -67,11 +67,11 @@ const ship1 = (s: GameState): ShipInstance => s.ships.find((sh) => sh.id === "sh
 
 // ============================================================================
 describe("SENSOR_ARRAYS catalog", () => {
-  it("has 4 arrays (wide / focused / balanced + the E4d bio-resonance relic hunter), ids unique and == the sensor slot varieties", () => {
-    expect(SENSOR_ARRAYS).toHaveLength(4);
-    expect(SENSOR_ARRAYS.map((a) => a.kind).sort()).toEqual(["balanced", "bioResonance", "focused", "wide"]);
+  it("has 5 arrays (wide / focused / balanced + the E4d bio-resonance relic hunter + GG-7's Resonance Sensor Array), ids unique and == the sensor slot varieties", () => {
+    expect(SENSOR_ARRAYS).toHaveLength(5);
+    expect(SENSOR_ARRAYS.map((a) => a.kind).sort()).toEqual(["balanced", "bioResonance", "focused", "resonance", "wide"]);
     // ids are unique.
-    expect(new Set(SENSOR_ARRAYS.map((a) => a.id)).size).toBe(4);
+    expect(new Set(SENSOR_ARRAYS.map((a) => a.id)).size).toBe(5);
     // ids line up with the slot's variety keys (the generation path relies on this).
     const varietyKeys = EQUIPMENT_SLOTS.sensor.varieties.map((v) => v.key).sort();
     expect(SENSOR_ARRAYS.map((a) => a.id).sort()).toEqual(varietyKeys);

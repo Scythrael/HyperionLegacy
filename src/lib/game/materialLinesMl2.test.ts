@@ -11,6 +11,7 @@
 //     recipe waits for the new input (no throw, no negative bucket) and resumes when stocked
 //   - the text fixes T1 to T8, and no Quartermaster kit price moved.
 
+import { GAS_CANISTER_IDS } from "./gasGiantContent";
 import { describe, expect, it } from "vitest";
 import Decimal from "break_infinity.js";
 import {
@@ -214,6 +215,11 @@ describe("ML-2 standing rules", () => {
       if (m.uncommonChance > 0) drops.add(m.lootTable.uncommon);
       if (m.rareChance > 0) drops.add(m.lootTable.rare);
     }
+    // Gas Giant Study GG-3: every gas giant study (an expedition's ship study, no squad needed) returns canisters of every
+    // gas; GG-7's Elite Quarters (the quarters slot's one blueprint until CP-11) takes Ammonia and Hydrogen, so the walk
+    // proves those inputs gatherable. The Deuterium Canister is left out: its day-one route (the Cometary Ice Harvest's
+    // ice through the Refinery) is the one the Reactor Core anchors must keep proving.
+    for (const id of GAS_CANISTER_IDS) if (id !== "deuteriumCanister") drops.add(id);
     const reachable = (item: string, path: ReadonlySet<string>): boolean => {
       if (drops.has(item)) return true;
       if (path.has(item)) return false;
@@ -224,13 +230,15 @@ describe("ML-2 standing rules", () => {
       ];
       return routes.some((inputs) => inputs.every((i) => reachable(i, next)));
     };
-    // A slot whose only blueprints are discovery payoffs (the sensor array today; CP-11 authors its ordinary ones) has no
-    // ordinary variety to keep open; the Standard-Issue piece covers it.
-    const ordinarySlots = slotsWithBps.filter((slot) => equipmentBps.some((bp) => bp.equipmentOutput!.slotType === slot && bp.requiresRelicDiscovery === undefined));
+    // A slot whose only blueprints are discovery payoffs (the sensor array today: a relic's and, since GG-7, a decoded
+    // ancient entry's; CP-11 authors its ordinary ones) has no ordinary variety to keep open; the Standard-Issue piece
+    // covers it. GG-7's special blueprints are discovery payoffs like a relic's (requiresDecode).
+    const ordinary = (bp: (typeof equipmentBps)[number]) => bp.requiresRelicDiscovery === undefined && bp.requiresDecode === undefined;
+    const ordinarySlots = slotsWithBps.filter((slot) => equipmentBps.some((bp) => bp.equipmentOutput!.slotType === slot && ordinary(bp)));
     expect(ordinarySlots.length).toBeGreaterThan(8);
     for (const slot of ordinarySlots) {
       const open = equipmentBps.filter(
-        (bp) => bp.equipmentOutput!.slotType === slot && bp.requiresRelicDiscovery === undefined && Object.keys(bp.recipe.inputs).every((i) => reachable(i, new Set())),
+        (bp) => bp.equipmentOutput!.slotType === slot && ordinary(bp) && Object.keys(bp.recipe.inputs).every((i) => reachable(i, new Set())),
       );
       expect(open.length, `${slot} has a no-wall variety`).toBeGreaterThan(0);
     }

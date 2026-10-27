@@ -17,6 +17,7 @@
 // EM7_CAPTURE = an output path: record every pin instead of asserting (the RR_CAPTURE / GW_CAPTURE pattern).
 
 import { describe, expect, it } from "vitest";
+import { withoutGg7Content } from "./gasGiantSpecials.fixture";
 import { writeFileSync } from "node:fs";
 import {
   BLUEPRINTS,
@@ -252,18 +253,23 @@ describe("E-MOD EM-7 goldens (captured before the v1 roster)", () => {
     });
     return;
   }
+  // Gas Giant Study GG-7 came after this capture. The module-free readings (sheets, combat, dispatch, sets) are computed
+  // on the REAL catalog, so a GG-7 regression there shows; only the by-design catalog readings (the Armory slot sets,
+  // the Lab tiers, the Archive) hold GG-7's blueprints and varieties apart (gasGiantSpecials.fixture.ts), so EM-7 stays
+  // the only move named there.
   const pins = computePins();
+  const catalogPins = withoutGg7Content(() => computePins());
   it("every module-free reading holds (sheets, the player combatant, expedition dispatch, the set engine)", () => {
     expect(Object.keys(HELD).length).toBeGreaterThan(30);
     for (const [k, v] of Object.entries(HELD)) expect(pins.held[k], k).toBe(v);
   });
   it("the by-design readings: with EM-7's additions held apart, every one is the pre-EM-7 capture", () => {
     expect(Object.keys(MOVED_BEFORE).length).toBeGreaterThan(20);
-    const pre = computePins(true);
+    const pre = withoutGg7Content(() => computePins(true));
     for (const [k, v] of Object.entries(MOVED_BEFORE)) expect(pre.moved[k], k).toBe(v);
   });
   it("the by-design readings: EM-7 moves exactly the named ones (every hull's Armory slot set, Lab tiers 2 to 4, the Archive)", () => {
-    const moved = Object.keys(MOVED_BEFORE).filter((k) => pins.moved[k] !== MOVED_BEFORE[k]).sort();
+    const moved = Object.keys(MOVED_BEFORE).filter((k) => catalogPins.moved[k] !== MOVED_BEFORE[k]).sort();
     expect(moved).toEqual(
       [
         ...HULLS.map((h) => `loadout:${h}`),
@@ -272,6 +278,6 @@ describe("E-MOD EM-7 goldens (captured before the v1 roster)", () => {
       ].sort(),
     );
     expect(Object.keys(MOVED_AFTER).length).toBe(Object.keys(MOVED_BEFORE).length);
-    for (const [k, v] of Object.entries(MOVED_AFTER)) expect(pins.moved[k], k).toBe(v);
+    for (const [k, v] of Object.entries(MOVED_AFTER)) expect(catalogPins.moved[k], k).toBe(v);
   });
 });

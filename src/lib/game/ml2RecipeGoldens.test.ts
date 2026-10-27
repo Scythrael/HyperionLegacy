@@ -14,6 +14,7 @@
 // every stat). Test-only.
 
 import { describe, expect, it } from "vitest";
+import { withoutGg7Content } from "./gasGiantSpecials.fixture";
 import { hash } from "./firstRunsGoldens.fixture";
 import { BLUEPRINTS, isMemberSlotType } from "./model";
 import { withSiMemberGearOff } from "./siMemberGearSwitch.fixture";
@@ -119,7 +120,8 @@ const drawsOf = (rows: unknown): string[] => (rows as [string, string][]).map(([
 
 describe("ML-2 goldens: the capture, read back, and ML-2's moves", () => {
   it("recipes: the untouched table holds (the two new refines held apart)", () => {
-    expect(hash(untouchedRows(ML2_NEW_REFINES))).toBe(ML2_GOLDEN.recipesUntouched);
+    // Gas Giant Study GG-7 (after this capture): its four NEW blueprints held apart (no existing recipe moved).
+    expect(hash(withoutGg7Content(() => untouchedRows(ML2_NEW_REFINES)))).toBe(ML2_GOLDEN.recipesUntouched);
   });
 
   it("recipes: with the old inputs put back, every reworked row reproduces the capture; today each has moved", () => {

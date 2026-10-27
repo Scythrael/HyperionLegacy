@@ -15,6 +15,7 @@
 //                                   reasons return with the tier rows cut off the tracks, so the new rungs are the
 //                                   only cause).
 import { describe, expect, it } from "vitest";
+import { GG7_BLUEPRINT_KEYS } from "./gasGiantSpecials.fixture";
 import Decimal from "break_infinity.js";
 import { BLUEPRINTS, FABRICATOR_FACILITY_KEY, FACILITIES, RESEARCH_FACILITY_KEY, blueprintResearchable, freshState, type GameState } from "./model";
 import { canBuildFacilityUpgrade, canFabricate, economyTick, fabricateSlotCount, researchSlotCount, startProcess } from "./tick";
@@ -65,7 +66,8 @@ describe("OC-15 golden 2: slots, researchable keys and fabricate reasons at toda
     // Merged with G2-4 (0.14.0 integration): its classed drive blueprints (driveClass set, Class II to VII) came after
     // this capture and are held apart, the census precedent; every other key reads as captured. E-MOD EM-7's eight module
     // blueprints (Lab tiers 2 to 4) are held apart the same way.
-    const keys = Object.keys(BLUEPRINTS).filter((k) => BLUEPRINTS[k].driveClass === undefined && !EM7_BLUEPRINT_KEYS.has(k)).sort();
+    // Gas Giant Study GG-7's four blueprints (Lab tiers 3 to 5) likewise.
+    const keys = Object.keys(BLUEPRINTS).filter((k) => BLUEPRINTS[k].driveClass === undefined && !EM7_BLUEPRINT_KEYS.has(k) && !GG7_BLUEPRINT_KEYS.has(k)).sort();
     const rows: string[] = [];
     for (let lab = 0; lab <= 2; lab++) {
       for (let fab = 0; fab <= 3; fab++) {

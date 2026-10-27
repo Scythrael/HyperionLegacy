@@ -37,13 +37,16 @@ import { equippedFor } from "./equipment";
 // pure arithmetic helper, not crew-specific, and crewModules.ts does not import this file (no cycle).
 import { moduleEffectScale } from "./crewModules";
 import { viewPieceEfficiency } from "./gearWear";
+import { GG7_NUMBERS, RESONANCE_SENSOR_ARRAY } from "./specialBlueprints";
 
 // ============================================================================
 // The scanning arrays (3): WIDE-beam / FOCUSED-beam / BALANCED
 // ============================================================================
 
-// E4d added "bioResonance": the relic-hunter array (the only one that raises relic find chance).
-export type SensorArrayKind = "wide" | "focused" | "balanced" | "bioResonance";
+// E4d added "bioResonance": the relic-hunter array (the only one that raises relic find chance). Gas Giant Study GG-7
+// added "resonance": the Resonance Sensor Array, a special blueprint (the only array that lifts the canister bands of a
+// gas giant study).
+export type SensorArrayKind = "wide" | "focused" | "balanced" | "bioResonance" | "resonance";
 
 export interface SensorArrayDef {
   id: string; // == the sensor slot variety key (stamped onto the instance as moduleVariant)
@@ -74,6 +77,10 @@ export interface SensorArrayDef {
   //   sensorArrayRelicFindBonus). Deliberately NOT part of sensorArrayEffect / ExpeditionScanParams, so the
   //   scan-param snapshot shape every existing expedition stores is unchanged.
   relicFindBonus: number;
+  // Gas Giant Study GG-7 (user 2026-10-27, "Better canister odds"): a RELATIVE lift on the Augmented and Stellar band
+  //   odds of every gas giant study of a run (gasGiantStudy.ts liftedBandOdds), frozen at dispatch (Expedition.bandLift).
+  //   0 for every array except the Resonance Sensor Array. SCALES with rarity/quality (sensorArrayCanisterBandLift).
+  canisterBandLift: number;
 }
 
 // FIRST-PASS magnitudes. BALANCED is the 1.0/1.0 baseline with a small even bias to both discovery
@@ -91,6 +98,7 @@ export const SENSOR_ARRAYS: readonly SensorArrayDef[] = [
     landmarkOddsBias: 0.15,
     undergroundPoiOddsBias: 0,
     relicFindBonus: 0,
+    canisterBandLift: 0,
   },
   // FOCUSED-beam: faster per-pass cadence, smaller % per pass, higher odds of UNDERGROUND special PoIs.
   {
@@ -103,6 +111,7 @@ export const SENSOR_ARRAYS: readonly SensorArrayDef[] = [
     landmarkOddsBias: 0,
     undergroundPoiOddsBias: 0.2,
     relicFindBonus: 0,
+    canisterBandLift: 0,
   },
   // BALANCED: the neutral middle option, a mix of both.
   {
@@ -115,6 +124,7 @@ export const SENSOR_ARRAYS: readonly SensorArrayDef[] = [
     landmarkOddsBias: 0.05,
     undergroundPoiOddsBias: 0.05,
     relicFindBonus: 0,
+    canisterBandLift: 0,
   },
   // BIO-RESONANCE (Exploration 0.14.0, E4d): the RELIC HUNTER. The only array that raises relic find chance
   // (relicFindBonus, +25% relative at standard/q0, rarity/quality-scaled), paid for with the SLOWEST scan
@@ -130,6 +140,23 @@ export const SENSOR_ARRAYS: readonly SensorArrayDef[] = [
     landmarkOddsBias: 0,
     undergroundPoiOddsBias: 0,
     relicFindBonus: 0.25,
+    canisterBandLift: 0,
+  },
+  // RESONANCE (Gas Giant Study GG-7, user call 11 "Three now"): the Resonance Sensor Array, a special blueprint opened
+  // by a decoded ancient entry (model.ts resonanceSensorArrayBp, cooled on a Helium-3 Canister). It reads a giant's
+  // depths from orbit, so every gas giant study of its run rolls richer canister bands (user 2026-10-27, "Better canister
+  // odds"; [PROVISIONAL] size in specialBlueprints.ts GG7_NUMBERS). Balanced cadence and coverage, no discovery bias.
+  {
+    id: RESONANCE_SENSOR_ARRAY,
+    label: "Resonance Sensor Array",
+    slot: "sensor",
+    kind: "resonance",
+    scanRateMult: 1.0,
+    coverageWidth: 1.0,
+    landmarkOddsBias: 0,
+    undergroundPoiOddsBias: 0,
+    relicFindBonus: 0,
+    canisterBandLift: GG7_NUMBERS.resonanceSensorArray.canisterBandLift,
   },
 ];
 
@@ -207,6 +234,14 @@ export function sensorArrayEffect(installed: InstalledSensorArray): SensorArrayE
 export function sensorArrayRelicFindBonus(installed: InstalledSensorArray | null): number {
   if (installed === null || !(installed.def.relicFindBonus > 0)) return 0;
   return installed.def.relicFindBonus * moduleEffectScale(installed.instance.rarity, installed.instance.quality, installed.instance.ascension) * viewPieceEfficiency(installed.instance);
+}
+
+// Gas Giant Study GG-7: the installed array's CANISTER BAND lift, rarity/quality-scaled and worn like the relic find
+// bonus, or 0 (no array, or any array but the Resonance Sensor Array). The dispatch freezes it on a study run
+// (Expedition.bandLift, written only when above 0). Pure.
+export function sensorArrayCanisterBandLift(installed: InstalledSensorArray | null): number {
+  if (installed === null || !(installed.def.canisterBandLift > 0)) return 0;
+  return installed.def.canisterBandLift * moduleEffectScale(installed.instance.rarity, installed.instance.quality, installed.instance.ascension) * viewPieceEfficiency(installed.instance);
 }
 
 // A convenience direct scale reader (rarity/quality -> effect scale), so a consumer that only needs the

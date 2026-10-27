@@ -86,6 +86,7 @@ import {
   dispatchCaptainOnMission,
   dispatchCaptainOnPatrol,
   startRelicStudy,
+  canResearch,
   economyTick,
   fabricateSlotCount,
   fleetRareYieldMult,
@@ -126,7 +127,7 @@ import { makeRng } from "../combat/rng";
 // WR-8 (0.14.0): the combat descriptors' probes (a leaf module) and the resist lines' pools.
 import { COMBAT_DESCRIPTOR_PROBES } from "./combatDescriptorProbes";
 import { EMITTER_RESIST_LINES, PLATING_RESIST_LINES } from "../combat/combatRules";
-import { rollDistinctAffixStats } from "../itemgen";
+import { generateEquipment, rollDistinctAffixStats } from "../itemgen";
 import { wearProbeDef, type WearProbeId } from "./wearProbes";
 import {
   advanceExpedition,
@@ -213,7 +214,9 @@ import { getSeniorStaffBonusById } from "../seniorStaffBonuses";
 import { CREW_STAT_KEYS } from "../crewBuffs";
 import { POI_CATALOG, PLANET_TYPES, planetTypeHazard, poisForPlanetType } from "../expeditionContent";
 import { damageControlEffect, pathfinderEffect } from "../utilityGear";
-import { installedSensorArray, sensorArrayEffect, sensorArrayRelicFindBonus } from "../sensorArrays";
+import { installedSensorArray, sensorArrayCanisterBandLift, sensorArrayEffect, sensorArrayRelicFindBonus } from "../sensorArrays";
+// Gas Giant Study GG-7: the special blueprints' table.
+import { PRESSURE_FORGED_PLATING_VARIETY, SPECIAL_BLUEPRINT_KEYS } from "../specialBlueprints";
 import { quartersCapacityBonus } from "../crewModules";
 // WR-5b (0.14.0): the captain Tactician seams.
 import { captainWaveRegenFraction, patrolWaveRewardMult, shipCaptainCombatMods } from "../captainTacticianEffects";
@@ -1815,6 +1818,8 @@ export const PROBES = {
   officerBoard: { label: "seniorStaffCandidates (count)", read: (s) => seniorStaffCandidates(s).length },
   recruitBoard: { label: "awayRecruitCandidates (count)", read: (s) => awayRecruitCandidates(s).length },
   arrayRelicFind: { label: "sensorArrayRelicFindBonus", read: (s) => sensorArrayRelicFindBonus(installedSensorArray(s, shipOf(s))) },
+  // Gas Giant Study GG-7: the Resonance Sensor Array's canister band lift (the reader the dispatch freezes).
+  arrayBandLift: { label: "sensorArrayCanisterBandLift", read: (s) => sensorArrayCanisterBandLift(installedSensorArray(s, shipOf(s))) },
   arrayLandmarkBias: {
     label: "sensorArrayEffect.landmarkOddsBias",
     read: (s) => {
@@ -2353,6 +2358,92 @@ function dataStudyValue(s: GameState, a: string, b: string, on: boolean): number
   }
 }
 
+// One Fabricator craft of blueprint `key` at its tier, researched and holding its recipe's inputs (but `skip`): how much
+// of item `item` the craft spends at start. -1 when the craft is refused. (The reactor fuel ladder's probe, and GG-7's
+// canister uses.)
+function craftSpends(s: GameState, key: string, item: string, skip: ReadonlySet<string> = new Set()): number {
+  const bp = BLUEPRINTS[key];
+  let ready: GameState = { ...withFacilityLevel(s, "fabricator", Math.max(1, bp.tier)), researchedBlueprints: [...s.researchedBlueprints, key] };
+  for (const [id, qty] of Object.entries(bp.recipe.inputs)) if (!skip.has(id)) ready = holding(ready, id, new Decimal(qty));
+  const before = heldOf(ready, item);
+  const r = startLine(ready, "fabricate", key, { kind: "batch", remaining: 1 });
+  if (!r.started) return -1;
+  const after = economyTick(r.next, 1, () => 0.5);
+  return before - heldOf(after, item);
+}
+
+// ===== Gas Giant Study GG-7: the canisters' crafting uses and the special blueprints =====
+//   canisterUses: canisters one craft of every blueprint taking a canister spends (OFF: the canisters not held, so each
+//                 craft refuses);
+//   sweepRate:    a nebula run's sweep canisters per hour of sweep (the Ramscoop Collector raises both its haul and
+//                 its speed);
+//   ramscoopStamp: the sweep boost a nebula run froze at dispatch (Expedition.nebula.ramscoop, as a fraction);
+//   studyBands:   the canisters above the Standard band over a batch of a dispatched study run's giant studies (its
+//                 frozen Resonance band lift included; the batch reseeds the run);
+//   decodeGate:   the special blueprints a Lab VII can research (OFF: no ancient entry decoded; ON: three of one culture).
+//   platingLean:  the kinetic dampening points over a batch of Stellar plates minted through generateEquipment, the
+//                 Pressure-Forged variety (OFF: the Reinforced Plating, the slot's straight tank plate).
+function gg7Value(s: GameState, a: string, on: boolean): number {
+  switch (a) {
+    case "platingLean": {
+      const varietyKey = on ? PRESSURE_FORGED_PLATING_VARIETY : "reinforcedPlating";
+      let n = 0;
+      for (let seed = 1; seed <= 300; seed++) {
+        let x = (seed * 0x9e3779b1) >>> 0;
+        const rng = (): number => {
+          x = (x + 0x6d2b79f5) >>> 0;
+          let t = x;
+          t = Math.imul(t ^ (t >>> 15), t | 1);
+          t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+          return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+        };
+        const p = generateEquipment({ slotType: "hullPlating", varietyKey, blueprintKey: null, iLevel: 20, quality: 0, rarity: "stellar", ascension: "none", rng, allocateId: () => "wiring-plate" });
+        n += (p.implicitStats.kineticDampening ?? 0) + (p.rolledStats.kineticDampening ?? 0);
+      }
+      return n;
+    }
+    case "canisterUses": {
+      let n = 0;
+      const canisters = new Set<string>(GAS_CANISTER_IDS);
+      for (const [key, bp] of Object.entries(BLUEPRINTS)) {
+        const used = Object.keys(bp.recipe.inputs).filter((id) => canisters.has(id));
+        if (used.length === 0) continue;
+        for (const id of used) n += Math.max(0, craftSpends(s, key, id, on ? new Set() : canisters));
+      }
+      return n;
+    }
+    case "sweepRate": {
+      let run = nebulaRun(readyForRun(s));
+      const settled = (r: Expedition): boolean => r.bodies.every((b) => b.scanned) && (r.groundOps?.studyLegs ?? []).every((l) => l.done);
+      for (let t = run.phaseAnchorSeconds + 3600; t < run.phaseAnchorSeconds + 4_000_000 && !settled(run); t += 3600) run = advanceExpedition(run, t);
+      const leg = (run.groundOps?.studyLegs ?? []).find((l) => l.nebula === 1);
+      if (!leg) return 0;
+      let n = 0;
+      for (const f of run.findings) if (f.id === `${run.id}-find-nebula`) for (const id of GAS_CANISTER_IDS) n += f.materials?.[id] ?? 0;
+      const paused = (leg.pauses ?? []).reduce((x, p) => x + (p.to - p.from), 0);
+      return (n * 3600) / Math.max(1, leg.endsAt - leg.startsAt - paused);
+    }
+    case "ramscoopStamp":
+      return (nebulaRun(readyForRun(s)).nebula?.ramscoop ?? 0) / 1000;
+    case "studyBands": {
+      const run = studyRun(readyForRun(s));
+      const i = run.bodies.findIndex((b) => b.giant !== undefined);
+      let n = 0;
+      for (let k = 1; k <= 200; k++) {
+        const mats = rollStudyReward({ ...run, seed: (run.seed ^ Math.imul(k, 0x9e3779b1)) >>> 0 }, i, 0).materials ?? {};
+        for (const [id, q] of Object.entries(mats)) if ((GAS_CANISTER_IDS as readonly string[]).includes(id) && ITEMS[id]?.band !== "standard") n += q;
+      }
+      return n;
+    }
+    case "decodeGate": {
+      const lab: GameState = { ...withFacilityLevel(s, "research", 7), credits: new Decimal(1e15), ...(on ? { ancientDecoded: { "culture-t1-1": 3 } } : {}) };
+      return SPECIAL_BLUEPRINT_KEYS.filter((k) => canResearch(lab, k).ok).length;
+    }
+    default:
+      return 0;
+  }
+}
+
 // GG-4: a run dispatched from `s` to the first candidate system, over a seed batch, that holds a nebula; throws when
 // none does (so a probe never passes on an empty fixture).
 const NEBULA_PROBE_SEEDS = Array.from({ length: 60 }, (_, i) => 0x51f15e + i * 0x10001);
@@ -2746,6 +2837,8 @@ function readContent(id: string, s: GameState): number {
         ...withFacilityLevel(s, "research", 9),
         credits: new Decimal(1e12),
         relicDiscovered: RELICS.map((r) => r.id),
+        // GG-7: and every ancient entry a special blueprint waits on, decoded by one culture.
+        ancientDecoded: { "wiring-culture": 99 },
       };
       const r = startResearch(ready, a);
       return r.started ? r.next.activeProcesses[r.next.activeProcesses.length - 1].remainingTicks : -1;
@@ -2776,19 +2869,16 @@ function readContent(id: string, s: GameState): number {
       for (let i = 0; i < bp.craftDurationTicks + 2; i += 1) after = economyTick(after, 1, () => 0.5);
       return heldOf(after, out) - before;
     }
-    case "reactorFuel": {
+    case "reactorFuel":
       // Reactor fuel ladder (0.14.0): one Fabricator craft of Reactor Core blueprint `a` at its tier, researched and
       // holding its recipe's inputs: how much of fuel item `b` the craft spends at start (reactorTech.ts, the fuel the
       // recipe carries). -1 when the craft is refused.
-      const bp = BLUEPRINTS[a];
-      let ready: GameState = { ...withFacilityLevel(s, "fabricator", Math.max(1, bp.tier)), researchedBlueprints: [...s.researchedBlueprints, a] };
-      for (const [item, qty] of Object.entries(bp.recipe.inputs)) ready = holding(ready, item, new Decimal(qty));
-      const before = heldOf(ready, b);
-      const r = startLine(ready, "fabricate", a, { kind: "batch", remaining: 1 });
-      if (!r.started) return -1;
-      const after = economyTick(r.next, 1, () => 0.5);
-      return before - heldOf(after, b);
-    }
+      return craftSpends(s, a, b);
+    case "craftSpends":
+      // Gas Giant Study GG-7: the same craft, for a canister input of any blueprint.
+      return craftSpends(s, a, b);
+    case "gg7":
+      return gg7Value(s, a, on);
     case "affix": {
       // An objective carrying one instance of affix `a` at rank `b` (alignment `d`), read by the hook `c`'s reader.
       const alignment = (d ?? "negative") as AffixAlignment;

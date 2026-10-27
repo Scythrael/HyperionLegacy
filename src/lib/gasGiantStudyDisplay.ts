@@ -39,7 +39,6 @@ import {
   type NebulaKindId,
 } from "./game/gasGiantContent";
 import {
-  NEBULA_SWEEP_SECONDS,
   STUDY_BASE_SECONDS,
   STUDY_CANISTERS_MAX,
   STUDY_CANISTERS_MIN,
@@ -50,6 +49,8 @@ import {
   giantDepthFactor,
   isStudyBody,
   nebulaCanisterRange,
+  nebulaSweepSeconds,
+  studyBandOdds,
   studyCanisterRange,
   studyProbe,
   studySeconds,
@@ -411,7 +412,8 @@ export function nebulaRowView(exp: Expedition, now: number): NebulaRowView | nul
   const leg = sweepLegOf(exp);
   const earlier = exp.nebula.swept === 1;
   const state: StudyState = earlier ? "studied" : legState(leg, now);
-  const chips: StudyChip[] = [chip(`Nebula sweep ${minText(NEBULA_SWEEP_SECONDS)}`, "acc", "nebula"), chip("No probe used"), chip(bandRangeText(kind.bandOdds))];
+  // GG-7: the run's own sweep length (a Ramscoop Collector the run froze shortens it).
+  const chips: StudyChip[] = [chip(`Nebula sweep ${minText(nebulaSweepSeconds(exp))}`, "acc", "nebula"), chip("No probe used"), chip(bandRangeText(kind.bandOdds))];
   if (earlier) chips.push(chip("Swept on an earlier trip", "ok", "check"));
   else if (state === "paused") chips.push(chip("Paused for a pickup", "warn", "pause"));
   else if (state === "studying") chips.push(chip("Sweeping now", "warn", "clock"), ...[resumedChip(leg, state)].filter((c): c is StudyChip => c !== null));
@@ -695,7 +697,7 @@ export function studyLegsView(exp: Expedition, ship: ShipInstance | null | undef
     rows.push({ key: `study-${i}-ahead`, label: `Study ${bodyDesignation(exp, i)}`, study: true, when: `after its scan, about ${minText(studySeconds(exp, b))}`, then: null, current: false });
   });
   if (sweepsNebula(exp) && !sweepLegOf(exp)) {
-    rows.push({ key: "sweep-ahead", label: "Nebula sweep", study: true, when: `after the last body, ${minText(NEBULA_SWEEP_SECONDS)}`, then: null, current: false });
+    rows.push({ key: "sweep-ahead", label: "Nebula sweep", study: true, when: `after the last body, ${minText(nebulaSweepSeconds(exp))}`, then: null, current: false });
   }
   return { rows, forecast: studyForecastText(exp) };
 }
@@ -784,7 +786,9 @@ export function giantCardView(exp: Expedition, bodyIndex: number): GiantCardView
   const probe = studyProbe(exp);
   const letter = bodyDesignation(exp, bodyIndex);
   const art = GIANT_ART[def.id];
-  const band = bandBarView(def.bandOdds);
+  // GG-7: the run's own band odds (a Resonance Sensor Array the run froze lifts them).
+  const bandOdds = studyBandOdds(exp, def);
+  const band = bandBarView(bandOdds);
   // The column.
   const crushBar = probe ? GALILEO_CRUSH_BAR_PER_RATING * probe.diveRating : null;
   const diveBar = crushBar !== null ? crushBar * depth : null;
@@ -806,7 +810,7 @@ export function giantCardView(exp: Expedition, bodyIndex: number): GiantCardView
   ];
   const [dlo, dhi] = studyCanisterRange(exp, bodyIndex);
   const [olo, ohi] = orbitCanisterRange(exp);
-  const chances = canisterChances(def.bandOdds, def.itemWeights);
+  const chances = canisterChances(bandOdds, def.itemWeights);
   const odds: GiantOddsRow[] = GAS_CANISTER_IDS.map((id) => ({
     id,
     name: CANISTER_SHORT[id],

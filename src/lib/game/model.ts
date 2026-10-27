@@ -27,6 +27,8 @@ import { reactorCoreFuel } from "./reactorTech";
 // E-MOD EM-5 (0.14.0): the universal module catalog leaf (imports only types; no cycle), read by equipmentStatMods for
 // a Passive module's power output.
 import { UNIVERSAL_MODULES, modulePowerOutput, type ModuleScanProc } from "./shipModules";
+// Gas Giant Study GG-7 (0.14.0): the special blueprints' table (a leaf with no imports, so no cycle).
+import { GG7_NUMBERS, PRESSURE_FORGED_PLATING_VARIETY, RAMSCOOP_COLLECTOR_MODULE, RESONANCE_SENSOR_ARRAY, SPECIAL_BLUEPRINT_TIER, type SpecialBlueprintKey } from "./specialBlueprints";
 // RARITY READINESS RR-6: the one set engine (a leaf: model.ts types and shipModules.ts only).
 import { gearSetBonusLines } from "./gearSets";
 // Combat 0.13.0 (Phase 9b.5a): the persisted Patrol mission shape (PatrolMissionState,
@@ -2693,6 +2695,11 @@ export const EQUIPMENT_SLOTS: Record<string, EquipmentSlotDef> = {
       { key: "ablativePlating", label: "Ablative Plating", statRatios: { ablativeArmor: 0.55, hullStrength: 0.3, kineticDampening: 0.15 } },
       // Composite: an even spread across HP + both mitigations.
       { key: "compositePlating", label: "Composite Plating", statRatios: { hullStrength: 0.4, ablativeArmor: 0.3, kineticDampening: 0.3 } },
+      // Gas Giant Study GG-7 (user call 11, "Three now"): PRESSURE-FORGED PLATING, a special blueprint opened by a decoded
+      // ancient entry (pressureForgedPlatingBp). Plating forged the way a giant's depths make diamond from methane:
+      // structure first, then kinetic dampening ([PROVISIONAL] lean, specialBlueprints.ts GG7_NUMBERS). The slot's own
+      // lines, so it folds and fights like every other plate.
+      { key: PRESSURE_FORGED_PLATING_VARIETY, label: "Pressure-Forged Plating", statRatios: { ...GG7_NUMBERS.pressureForgedPlating } },
     ],
   },
   // CREW 0.14.0 (Phase 1b): the two CREW-MODULE slots, activated from the reserved bridge/quarters
@@ -2807,6 +2814,9 @@ export const EQUIPMENT_SLOTS: Record<string, EquipmentSlotDef> = {
       // (at the cost of slower scan cadence). Catalog-driven like its siblings (sensorArrays.ts). The FIRST
       // CRAFTABLE array: its blueprint (bioResonanceArrayBp) is discovery-gated by the Leviathan Scale.
       { key: "sensorBioResonance", label: "Bio-Resonance Array", statRatios: {} },
+      // Gas Giant Study GG-7 (user call 11, "Three now"): the RESONANCE SENSOR ARRAY, a special blueprint opened by a
+      // decoded ancient entry (resonanceSensorArrayBp); catalog-driven like its siblings (sensorArrays.ts).
+      { key: RESONANCE_SENSOR_ARRAY, label: "Resonance Sensor Array", statRatios: {} },
     ],
   },
   // E-MOD EM-5 (0.14.0, plan docs/plans/2026-10-17-material-lines-and-emod-plan.md section 3.3): the UNIVERSAL MODULE
@@ -8403,7 +8413,10 @@ export interface Expedition {
   // the ship sweeps it after the last body (one study leg, GroundStudyLeg.nebula). `swept` marks a RESUMED run whose
   // nebula an earlier trip already swept (HeldSystem.nebulaSwept), so it is not swept again. Absent on every other run
   // and on every run dispatched before GG-4. Optional, no SAVE bump.
-  nebula?: { kindId: NebulaKindId; swept?: 1 };
+  // Gas Giant Study GG-7: `ramscoop` is the Ramscoop Collector's nebula sweep boost the dispatch froze (per mille, a
+  // whole number above 0; shipModules.ts moduleNebulaSweep): the sweep's canisters x (1 + it / 1000) and its length
+  // / (1 + it / 1000) (gasGiantStudy.ts nebulaSweepSeconds, rollNebulaReward). Written only when the ship had one.
+  nebula?: { kindId: NebulaKindId; swept?: 1; ramscoop?: number };
   // The user's PICKUP PAUSE (2026-10-23, verbatim in the gas giant plan: "the ship should be able to stop mid-scan and
   // pick back up where it left off, so going to get the team from where they are is fine. Then go back and continue
   // scanning."): frozen at dispatch on a study run (`study` or `nebula` present). Present: a team ready for pickup while
@@ -8412,6 +8425,12 @@ export interface Expedition {
   // sooner than waiting, pausePaysOff). Absent on every other run and on every run dispatched
   // before the change (its shuttles wait, GG-3 studyPickupAt). Optional, no SAVE bump.
   pickupPause?: 1;
+  // Gas Giant Study GG-7 (user 2026-10-27, "Better canister odds"): the Resonance Sensor Array's canister band lift,
+  // frozen at dispatch (per mille, a whole number above 0; sensorArrays.ts sensorArrayCanisterBandLift): every giant
+  // study's canisters roll their band with the Augmented and Stellar odds x (1 + it / 1000) (gasGiantStudy.ts
+  // studyBandOdds; the same two draws per canister). Written only on a study run whose ship had the array installed.
+  // Absent on every other run. Optional, no SAVE bump.
+  bandLift?: number;
 }
 
 // Expedition Tiers G2-5 (user #7 "Based on distance traveled 1:1"; G13 one confirm with the return time; G14 detour
@@ -10748,8 +10767,8 @@ export interface BlueprintDef {
   // --- DECODE-GATED research (Gas Giant Study GG-5; user call 10 "some entries unlock special blueprints") ----------
   // When PRESENT, the blueprint cannot be researched until some culture has decoded this many ancient entries
   // (model.ts blueprintDecodeLocked: GameState.ancientDecoded, raised by the Research Lab's study of an Ancient Data
-  // Fragment). canResearch refuses it with `undecoded`. ABSENT on every blueprint today (GG-7 authors the special
-  // blueprints with it), so every research gate is byte-identical.
+  // Fragment). canResearch refuses it with `undecoded`. GG-7: the three special blueprints carry it
+  // (GAS_GIANT_BLUEPRINTS); every other blueprint is absent, so its research gate is byte-identical.
   requiresDecode?: number;
   flavor?: string;      // narrative color (optional)
   unlockHint?: string;  // functional "how to unlock" clue for the UI (optional)
@@ -10912,6 +10931,92 @@ export const MODULE_BLUEPRINTS: Readonly<Record<string, BlueprintDef>> = Object.
     // A stored-charge shield boost: couplings, a cobalt coil and a reclaimed circuit, plus (user 2026-10-26, "Add
     // Iridium Catalyst", M7 "Iridium Catalyst for the top tier") an Iridium Catalyst for the top-tier module.
     moduleBlueprint("shieldSurge", "Shield Surge", 4, { powerCoupling: 2, cobaltCoil: 1, reclaimedCircuit: 1, iridiumCatalyst: 1 }, "A stored charge held in reserve and dumped into the shield emitters the moment the hull starts to fail."),
+  ].map((bp) => [bp.key, bp]),
+);
+
+// Gas Giant Study GG-7 (plan section GG-7; user calls 7, 10 and 11; recipe realism audit calls 3, 13 and 14): the
+// canisters' new crafting uses, all NEW blueprints so no existing recipe or crafted golden moves.
+//   The three SPECIAL BLUEPRINTS (user call 11, "Three now"), each on an existing slot and each locked behind a decoded
+//   ancient entry (requiresDecode, user call 10 "some entries unlock special blueprints"), on Lab tiers III, IV and V
+//   (the signed-off v3 mockup). [PROPOSAL] recipes from the recipe realism audit section 9: Pressure-Forged Plating
+//   takes a Methane Canister (diamond is forged from methane under a giant's pressure), the Resonance Sensor Array a
+//   Helium-3 Canister (audit call 3, user: "it takes 1 Helium-3 Canister"; the real neutron detector and coolant gas),
+//   and the Ramscoop Collector field coils on a frame (it gathers gas, it needs none).
+//   ELITE QUARTERS at Lab tier III (complement OC-15: "Flag Command and Elite Quarters, tier 3 now that the rung exists"):
+//   the audit's component mix (call 13, "Component mixes") plus the canisters a Lab tier 3+ quarters module takes (call
+//   14, "Quarters Ammonia and Hydrogen": the station heat loop's coolant and the hydrogen that turns exhaled carbon
+//   dioxide back into water). The Ammonia and Hydrogen Canisters' consumer (call 7: "Hydrogen, Methane, Ammonia in
+//   sensor and quarters modules"). CP-11 builds the other crew module blueprints.
+// [PROVISIONAL] costs, decode entries and canister counts in specialBlueprints.ts GG7_NUMBERS.
+function gasGiantBlueprint(
+  key: string,
+  label: string,
+  tier: 3 | 4 | 5,
+  equipmentOutput: NonNullable<BlueprintDef["equipmentOutput"]>,
+  inputs: Record<string, number>,
+  flavor: string,
+  unlockHint: string,
+  requiresDecode?: number,
+): BlueprintDef {
+  const cost = GG7_NUMBERS.costs[tier];
+  return {
+    key,
+    label,
+    tier,
+    researchDurationTicks: cost.ticks,
+    researchCreditCost: cost.credits,
+    craftDurationTicks: cost.craft,
+    equipmentOutput,
+    recipe: { inputs },
+    ...(requiresDecode !== undefined ? { requiresDecode } : {}),
+    flavor,
+    unlockHint,
+  };
+}
+const SPECIAL_HINT = (slot: string): string =>
+  `Decode ancient entries (study Ancient Data Fragments in the Research Lab's Data study tab) to unlock this research; crafted at the Fabricator; installed in a ship's ${slot} slot.`;
+const special = (key: SpecialBlueprintKey): { tier: 3 | 4 | 5; decode: number } => ({ tier: SPECIAL_BLUEPRINT_TIER[key], decode: GG7_NUMBERS.decodeEntry[key] });
+export const GAS_GIANT_BLUEPRINTS: Readonly<Record<string, BlueprintDef>> = Object.fromEntries(
+  [
+    gasGiantBlueprint(
+      "pressureForgedPlatingBp",
+      "Pressure-Forged Plating Blueprint",
+      special("pressureForgedPlatingBp").tier,
+      { slotType: "hullPlating", varietyKey: PRESSURE_FORGED_PLATING_VARIETY },
+      { osmiumPlate: 2, ferriteIngot: 2, frameSegment: 1, methaneCanister: 1 },
+      "Hull plating forged the way a giant's depths make diamond from methane: under crushing pressure, as the probe dives taught.",
+      SPECIAL_HINT("Hull Plating"),
+      special("pressureForgedPlatingBp").decode,
+    ),
+    gasGiantBlueprint(
+      "ramscoopCollectorBp",
+      "Ramscoop Collector Blueprint",
+      special("ramscoopCollectorBp").tier,
+      { slotType: "module", varietyKey: RAMSCOOP_COLLECTOR_MODULE },
+      { cobaltCoil: 2, powerCoupling: 2, frameSegment: 2 },
+      "A magnetic funnel thousands of kilometers wide, swept through a nebula: bigger hauls, faster sweeps. Nebulae stay gatherable without it.",
+      SPECIAL_HINT("module"),
+      special("ramscoopCollectorBp").decode,
+    ),
+    gasGiantBlueprint(
+      "resonanceSensorArrayBp",
+      "Resonance Sensor Array Blueprint",
+      special("resonanceSensorArrayBp").tier,
+      { slotType: "sensor", varietyKey: RESONANCE_SENSOR_ARRAY },
+      { photonicGel: 2, polysilicateWafer: 2, powerCoupling: 1, helium3Canister: 1 },
+      "A sensor suite cooled on Helium-3 that reads a giant by its resonances from orbit, and hears what lies in its depths.",
+      SPECIAL_HINT("Sensor Array"),
+      special("resonanceSensorArrayBp").decode,
+    ),
+    gasGiantBlueprint(
+      "eliteQuartersBp",
+      "Elite Quarters Blueprint",
+      3,
+      { slotType: "quarters", varietyKey: "quartersElite" },
+      { structuralAssembly: 1, titaniumIngot: 2, powerCoupling: 2, ...GG7_NUMBERS.eliteQuartersCanisters },
+      "Larger cabins on their own life support loop: ammonia carries the heat away, and hydrogen turns the crew's breath back into water.",
+      "Researched at the Research Lab (needs a higher lab tier); crafted at the Fabricator; installed in a ship's Crew Quarters slot.",
+    ),
   ].map((bp) => [bp.key, bp]),
 );
 
@@ -11677,6 +11782,9 @@ export const BLUEPRINTS: Record<string, BlueprintDef> = {
   // E-MOD EM-7: the v1 universal module blueprints (MODULE_BLUEPRINTS above), Lab tiers 2 to 4.
   ...MODULE_BLUEPRINTS,
 
+  // Gas Giant Study GG-7: the special blueprints and the Lab tier III canister quarters (GAS_GIANT_BLUEPRINTS above).
+  ...GAS_GIANT_BLUEPRINTS,
+
   // ══════════════════════════════════════════════════════════════════════════
   // AWAY-TEAM MEMBER GEAR BLUEPRINTS (E-CREW 0.14.0, Task 7) ─────────────────
   // One ordinary equipmentOutput blueprint per member-gear variety (EQUIPMENT_SLOTS memberWeapon /
@@ -12235,8 +12343,8 @@ export function ancientEntriesDecodedMax(state: Pick<GameState, "ancientDecoded"
 }
 
 // GG-5: is this blueprint still LOCKED behind an ancient entry not yet decoded (BlueprintDef.requiresDecode)? FALSE for
-// every blueprint without the field (every blueprint today: GG-7 authors the special blueprints) and for an unknown
-// key. canResearch reads it for the `undecoded` reason. Pure.
+// every blueprint without the field (all but GG-7's special blueprints) and for an unknown key. canResearch reads it for
+// the `undecoded` reason. Pure.
 export function blueprintDecodeLocked(state: Pick<GameState, "ancientDecoded">, key: string): boolean {
   const need = BLUEPRINTS[key]?.requiresDecode;
   if (need === undefined) return false;

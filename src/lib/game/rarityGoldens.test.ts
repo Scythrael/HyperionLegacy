@@ -5,6 +5,7 @@
 // slice, with the move explained in its commit. See rarityGoldens.fixture.ts.
 
 import { describe, expect, it } from "vitest";
+import { withoutGg7Content } from "./gasGiantSpecials.fixture";
 import { writeFileSync } from "node:fs";
 import { BLUEPRINTS, EQUIPMENT_RARITY_LADDER } from "./model";
 import { WEAPON_DEFS } from "./combat/weapons";
@@ -58,14 +59,16 @@ describe("rarity readiness goldens (RR-0, captured before any rarity engine edit
     return;
   }
 
+  // Gas Giant Study GG-7 came after this capture: its blueprints and slot varieties are held apart
+  // (gasGiantSpecials.fixture.ts), so the rarity slices stay the only moves.
   it("LIVE: Standard to Radiant, the inspect mint, the craft preview and the live readers are byte-identical", () => {
-    const pins = computeLivePins();
+    const pins = withoutGg7Content(() => computeLivePins());
     expect(Object.keys(pins).sort()).toEqual(Object.keys(RARITY_GOLDENS_LIVE).sort());
     for (const [k, v] of Object.entries(pins)) expect(v, k).toBe(RARITY_GOLDENS_LIVE[k]);
   });
 
   it("RESERVED: Derelict items, Luminous, Constellar, Nova and Celestial (moved only by the owner slice in the key)", () => {
-    const pins = computeReservedPins();
+    const pins = withoutGg7Content(() => computeReservedPins());
     expect(Object.keys(pins).sort()).toEqual(Object.keys(RARITY_GOLDENS_RESERVED).sort());
     for (const [k, v] of Object.entries(pins)) expect(v, k).toBe(RARITY_GOLDENS_RESERVED[k]);
   });

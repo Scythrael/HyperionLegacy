@@ -1163,7 +1163,7 @@
   import DataStudyPanel from "./lib/DataStudyPanel.svelte";
   import SurveyLogPanel from "./lib/SurveyLogPanel.svelte";
   import GasCanisterShelf from "./lib/GasCanisterShelf.svelte";
-  import { dataStudyView } from "./lib/dataStudyDisplay";
+  import { dataStudyView, decodeLockText } from "./lib/dataStudyDisplay";
   import { SURVEY_LOG_HELP, SURVEY_LOG_LIVE, archiveSubTabs, onWarehouseShelf, studyClaimLine } from "./lib/gasGiantStudyDisplay";
   import { setDataStudyPaused } from "./lib/game/dataStudy";
   // Reactor fuel ladder (0.14.0): a gathering mission's own SVG glyph (the Cometary Ice Harvest's comet).
@@ -10828,8 +10828,8 @@
         // E4d: names the relic's SET only (never the undiscovered relic), the same wording the masked card uses.
         return undiscoveredResearchMask(bp.requiresRelicDiscovery).detail;
       case "undecoded":
-        // Gas Giant Study GG-5: a decode-gated blueprint (GG-7's special blueprints; none yet).
-        return `Decode ${bp.requiresDecode ?? 1} ancient ${(bp.requiresDecode ?? 1) === 1 ? "entry" : "entries"} first`;
+        // Gas Giant Study GG-5 / GG-7: a decode-gated special blueprint (the entries one culture needs).
+        return decodeLockText(bp.requiresDecode ?? 1);
       case "notFound":
         return "Unavailable";
     }

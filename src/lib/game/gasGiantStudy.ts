@@ -301,6 +301,24 @@ export function ancientFragmentPermille(exp: Pick<Expedition, "region">, relicRa
   return Math.max(0, Math.min(1000, Math.round(ANCIENT_FRAGMENT_BASE_PERMILLE * tierHaulMult(exp.region) * lift)));
 }
 
+// Gas Giant Study GG-7 (user 2026-10-27, "Better canister odds"): band odds with the Augmented and Stellar shares x
+// (1 + `lift`) (whole percent weights), the Standard share giving way (never below 0) and Radiant unchanged. Lift 0
+// returns the same odds object. Pure.
+export function liftedBandOdds(odds: BandOdds, lift: number): BandOdds {
+  if (!(lift > 0)) return odds;
+  const augmented = Math.round(odds.augmented * (1 + lift));
+  const stellar = Math.round(odds.stellar * (1 + lift));
+  const total = odds.standard + odds.augmented + odds.stellar + odds.radiant;
+  return { standard: Math.max(0, total - augmented - stellar - odds.radiant), augmented, stellar, radiant: odds.radiant };
+}
+
+// The band odds a giant study of class `def` rolls on run `exp`: the class's own, lifted by a Resonance Sensor Array
+// the run froze (Expedition.bandLift, per mille). A run without the stamp reads the class odds object itself. Pure.
+export function studyBandOdds(exp: { bandLift?: number }, def: Pick<GiantClassDef, "bandOdds">): BandOdds {
+  const lift = exp.bandLift;
+  return lift !== undefined && lift > 0 ? liftedBandOdds(def.bandOdds, lift / 1000) : def.bandOdds;
+}
+
 // The canister count's expected size before its chance rounding: the base draw x (1 + the dive) x the tier haul. Pure.
 export function studyCanisterScale(exp: Pick<Expedition, "region" | "roster" | "seed" | "bodies">, bodyIndex: number, classes: readonly GiantClassDef[] = GIANT_CLASSES): number {
   const probe = studyProbe(exp);
@@ -349,7 +367,7 @@ export function rollCanister(rng: Rng, odds: BandOdds, weights: CanisterWeights)
 // Materials list the canisters in GAS_CANISTER_IDS order, then the data, then the fragment. `classes` defaults to the
 // content table (the wiring probes pass an edited copy). Pure.
 export function rollStudyReward(
-  exp: Pick<Expedition, "id" | "seed" | "bodies" | "region" | "roster" | "systemName">,
+  exp: Pick<Expedition, "id" | "seed" | "bodies" | "region" | "roster" | "systemName" | "bandLift">,
   bodyIndex: number,
   at: number,
   classes: readonly GiantClassDef[] = GIANT_CLASSES,
@@ -367,8 +385,10 @@ export function rollStudyReward(
   const whole = Math.floor(raw);
   const count = whole + (rng.nextInt(1000) < Math.round((raw - whole) * 1000) ? 1 : 0);
   const filled: Partial<Record<GasCanisterId, number>> = {};
+  // GG-7: a Resonance Sensor Array's frozen lift shifts the band odds (the same two draws per canister).
+  const odds = studyBandOdds(exp, def);
   for (let i = 0; i < count; i += 1) {
-    const id = rollCanister(rng, def.bandOdds, def.itemWeights);
+    const id = rollCanister(rng, odds, def.itemWeights);
     filled[id] = (filled[id] ?? 0) + 1;
   }
   const materials: Record<string, number> = {};
@@ -455,6 +475,35 @@ export const NEBULA_SWEEP_BODY_INDEX = -1;
 export const NEBULA_CANISTERS_MIN = 24;
 export const NEBULA_CANISTERS_MAX = 48;
 
+// Gas Giant Study GG-7 (user call 11: the Ramscoop Collector BOOSTS the nebula sweep, never gates it): the boost a run
+// froze on its nebula stamp (Expedition.nebula.ramscoop, per mille), as a fraction; 0 without one. Pure.
+export function nebulaSweepBoost(exp: Pick<Expedition, "nebula">): number {
+  const r = exp.nebula?.ramscoop;
+  return r !== undefined && r > 0 ? r / 1000 : 0;
+}
+
+// The per-mille stamp a dispatch freezes for a GG-7 gear `fraction` (the Ramscoop's sweep boost, shipModules.ts
+// moduleNebulaSweep; the Resonance array's band lift, sensorArrays.ts sensorArrayCanisterBandLift), or undefined
+// when the ship has none (so the record keeps exactly its pre-GG-7 shape). Pure.
+export function gearPermilleStamp(fraction: number): number | undefined {
+  const p = Math.round(Math.max(0, Number.isFinite(fraction) ? fraction : 0) * 1000);
+  return p > 0 ? p : undefined;
+}
+
+// The sweep's length on run `exp`: NEBULA_SWEEP_SECONDS, divided by (1 + the Ramscoop boost) when the run froze one
+// (whole seconds, never under STUDY_MIN_SECONDS). Pure.
+export function nebulaSweepSeconds(exp: Pick<Expedition, "nebula">): number {
+  const boost = nebulaSweepBoost(exp);
+  if (!(boost > 0)) return NEBULA_SWEEP_SECONDS;
+  return Math.max(STUDY_MIN_SECONDS, Math.round(NEBULA_SWEEP_SECONDS / (1 + boost)));
+}
+
+// The sweep's haul scale on run `exp`: the region's tier haul, x (1 + the Ramscoop boost) when the run froze one. Pure.
+export function nebulaHaulScale(exp: Pick<Expedition, "region" | "nebula">): number {
+  const boost = nebulaSweepBoost(exp);
+  return boost > 0 ? tierHaulMult(exp.region) * (1 + boost) : tierHaulMult(exp.region);
+}
+
 // The nebula of the system seeded `seed` at region `tier` (systemId: the system's catalog id): draw 1 the hit at
 // NEBULA_PERMILLE_BY_TIER, draw 2 the kind (uniform over the four [PROPOSAL]). Both draws are always taken, on the
 // system's own keyed stream, so no other draw moves. A famous nebula is always its own kind. null: no nebula. Pure.
@@ -489,8 +538,8 @@ function nebulaDefOf(exp: Pick<Expedition, "nebula">, kinds: readonly NebulaKind
 // The canisters a sweep can return, low to high (the forecast line; mockup v3 drew "31 to 62 from the sweep" as its
 // example, while this returns 30 to 60 at Tier II (x1.25), so GG-6 prints this function, never the mockup's numbers):
 // the base range x the tier haul, the low end down and the high end up (the chance rounding can add one). Pure.
-export function nebulaCanisterRange(exp: Pick<Expedition, "region">): [number, number] {
-  const scale = tierHaulMult(exp.region);
+export function nebulaCanisterRange(exp: Pick<Expedition, "region"> & Partial<Pick<Expedition, "nebula">>): [number, number] {
+  const scale = nebulaHaulScale({ region: exp.region, nebula: exp.nebula });
   return [Math.floor(NEBULA_CANISTERS_MIN * scale), Math.ceil(NEBULA_CANISTERS_MAX * scale)];
 }
 
@@ -513,7 +562,8 @@ export function rollNebulaReward(
   const family = RESEARCH_FAMILIES[rng.nextInt(RESEARCH_FAMILIES.length)];
   const survey = rng.chance(STUDY_SURVEY_READOUT_PERMILLE, 1000);
   const base = rng.nextRange(NEBULA_CANISTERS_MIN, NEBULA_CANISTERS_MAX);
-  const raw = base * tierHaulMult(exp.region);
+  // GG-7: x the Ramscoop boost a run froze (nebulaHaulScale reads exactly the tier haul without one).
+  const raw = base * nebulaHaulScale(exp);
   const whole = Math.floor(raw);
   const count = whole + (rng.nextInt(1000) < Math.round((raw - whole) * 1000) ? 1 : 0);
   const filled: Partial<Record<GasCanisterId, number>> = {};
