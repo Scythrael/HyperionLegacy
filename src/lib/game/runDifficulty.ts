@@ -27,6 +27,7 @@
 // by combat/patrolProfile.ts in the live loop and the forecast alike); G1 the short-range missions (keyed per template).
 
 import {
+  MISSIONS,
   SHIP_TYPES,
   freshRunCounts,
   type Expedition,
@@ -321,6 +322,20 @@ export function isTrainingExpedition(state: GameState, hull: ShipTypeKey): boole
   if (c.trainingDone || c.veteran) return false;
   if (SHIP_TYPES[hull]?.spec !== "explorer") return false;
   return !state.expeditions.some((e) => e.difficulty?.firstRun === true);
+}
+
+// Safe first runs SF-5 (DISPLAY ONLY): whether the save has yet to deliver its first gathering cycle (extraction,
+// survey or transport: any MISSIONS key). Gathering cannot be lost (its only wall-stop is fuel, never a defeat), so the
+// first run changes no rule: it only carries the "First run" line (SF-6). Keyed on lifetimeStats.missionsCompleted over
+// the MISSIONS keys alone (that record also counts patrol routes and "shortRange:" templates, which are their own run
+// types). A save that ever delivered a gathering cycle reads false, so a veteran never sees the line. Pure.
+export function isFirstGatheringRun(state: Pick<GameState, "lifetimeStats">): boolean {
+  const done = state.lifetimeStats?.missionsCompleted;
+  if (!done || typeof done !== "object") return true;
+  return !Object.keys(MISSIONS).some((k) => {
+    const v: unknown = done[k];
+    return v !== undefined && v !== null && Number(String(v)) > 0;
+  });
 }
 
 // Whether the next run of a type is its safe first run. `key`: the dispatching hull for an expedition, the template
