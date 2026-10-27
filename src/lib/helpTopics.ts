@@ -226,9 +226,9 @@ export const HELP_TOPICS: HelpTopic[] = [
   {
     id: "materialQuality",
     title: "Material lines and quality",
-    body: `Every material you hold has a quality, from Q0 to ${TOP_Q}. Most stock is Q0. A mission delivery or a finished craft rolls its quality, and a ship whose Prospecting Rig carries a Material Quality line (the Refinery-Feed Rig is built for it) gives each unit it delivers a chance to arrive one quality higher.
+    body: `Every material you hold has a quality, from Q0 to ${TOP_Q}. Most stock is Q0. A mission delivery or a finished craft rolls its quality, and a ship carrying Material Quality gives each unit it delivers a chance to arrive one quality higher. Material Quality comes from the Prospecting Rig: the Refinery-Feed Rig is built for it, the Yield and Survey Rigs carry a little, and any Prospecting Rig can roll it as an extra line.
 
-The Refinery's Production tab groups its recipes into material lines by where their raws come from: ${LINE_NAMES}. A compound sits with the line of its main raw (Cobalt Coil under Heavy metals, for example). Each recipe shows the stock you hold split by quality, and each raw opens to show its own split. The same split is on every material's tooltip under Logistics, Materials (hover a tile, or tap it on a phone).
+The Refinery's Production tab groups its recipes into material lines by where their raws come from: ${LINE_NAMES}. A compound sits with the line of its main raw (Cobalt Coil under Heavy metals, for example). Each recipe shows how much of its output you hold, split by quality, and each raw opens to show its own split. The same split is on every material's tooltip under Logistics, Materials (hover a tile, or tap it on a phone).
 
 Quality carries into what you refine and into materials you fabricate. Each run of an order works out the average quality of everything it used, weighted by units and rounded down, and its output starts at that quality; the usual quality roll can then lift it further, never above ${TOP_Q}. An order spends your lowest quality stock first, so your good stock is saved. Turn on Use best materials on an order to spend the highest quality first and carry more quality into the output; the switch starts off every time you open the form.
 

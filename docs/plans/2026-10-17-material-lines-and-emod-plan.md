@@ -440,6 +440,17 @@ quality". Verify in preview desktop + 375 px.
 > says equipment does not take on quality yet); the `refining` topic points to it. **For ML-5:** when blanks carry
 > quality, show `CraftQualityPreview` for equipment blueprints too (drop the `bestOffered` guard there) and change
 > the Help topic's last sentence.
+> **Review fixes (2026-10-26, "approve with fixes").** (1) "short" is measured against FREE stock (the REQUIRES
+> figure, via `orderStockContext`), so it agrees with the disabled Start. (2) The last-run bound covers only the runs
+> the stock in hand covers (no negative bucket), and a short order shows no later-runs note. (3) The queue's form,
+> or an input another line or queued order holds, adds "Other orders draw from this stock first, so the carried
+> quality may differ when this order starts." (4) Order moves focus to the form's Item select. (5)
+> `WAREHOUSE_TOOLTIP_H` 190 to 240 for the "By quality" row. (6) `CARRY_AVERAGE_EPSILON` (materialQuality.ts, same
+> 1e-9, behavior unchanged) is shared by `carriedQuality` and `averageText`; Help says each recipe shows its
+> OUTPUT's stock and names the live Material Quality sources (Refinery-Feed, Yield and Survey Rigs, and any Prospecting
+> Rig's rolled line). The Transmuter's Seal also carries the line but is left out: only a Luminous piece rolls a
+> legendary affix and Luminous is not a live band (its names are still [PROPOSAL]); name it when Luminous ships.
+> The mockup's "Quality carries into crafts" panel stays out pending the user's answer.
 
 ### E-MOD (EM)
 

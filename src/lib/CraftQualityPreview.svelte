@@ -11,7 +11,7 @@
   import type Decimal from "break_infinity.js";
   import { ITEMS } from "./game/model";
   import { formatNumber } from "./game/format";
-  import { averageText, laterRunsText, orderQualityPreview } from "./ui/materialLinesDisplay";
+  import { CONTENDED_STOCK_NOTE, averageText, laterRunsText, orderQualityPreview } from "./ui/materialLinesDisplay";
   import QualityChips from "./QualityChips.svelte";
   import Icon from "./ui/Icon.svelte";
 
@@ -21,8 +21,13 @@
   export let runs: number;
   // The "Use best materials" switch.
   export let best: boolean;
+  // Each input's FREE stock (the REQUIRES "Free" figure), so "short" agrees with the disabled Start button.
+  export let free: Readonly<Record<string, Decimal>> | undefined = undefined;
+  // True when other orders draw this stock first: the form is the queue's, or another line or queued order holds some
+  // of an input. The readout is "if started now", so it then says the carried quality may differ.
+  export let contended = false;
 
-  $: preview = orderQualityPreview(inventory, perRun, runs, best);
+  $: preview = orderQualityPreview(inventory, perRun, runs, best, free);
   $: later = laterRunsText(preview);
 </script>
 
@@ -47,6 +52,9 @@
   </div>
   {#if later}
     <p class="cqp-note">{later}</p>
+  {/if}
+  {#if contended}
+    <p class="cqp-note">{CONTENDED_STOCK_NOTE}</p>
   {/if}
 </div>
 

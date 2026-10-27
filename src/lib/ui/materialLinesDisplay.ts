@@ -13,8 +13,8 @@
 
 import Decimal from "break_infinity.js";
 import { ITEMS, MISSIONS, REFINE_RECIPES, refineRecipeOffered } from "../game/model";
-import { QUALITY_TIERS, drawQualityTally, removeItemHighestFirst, removeItemLowestFirst } from "../game/inventory";
-import { carriedQuality } from "../game/materialQuality";
+import { QUALITY_TIERS, drawQualityTally, itemTotal, removeItemHighestFirst, removeItemLowestFirst } from "../game/inventory";
+import { CARRY_AVERAGE_EPSILON, carriedQuality } from "../game/materialQuality";
 import type { IconName } from "./icons";
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -136,7 +136,9 @@ export interface OrderInputUse {
   need: Decimal;
   // The buckets the order draws, in the order it draws them (lowest first, or highest first with the switch).
   used: QualityChip[];
-  // Units the stock cannot cover today (the order would wait for them).
+  // Units the order cannot cover today (it would wait for them): measured against FREE stock when the caller gives
+  // it (the configurator's REQUIRES "Free" figure: stock other lines and queued orders have not reserved), else
+  // against the stock in hand.
   short: Decimal;
 }
 
@@ -145,14 +147,18 @@ export interface OrderQualityPreview {
   // The FIRST run's unit-weighted average quality and its carried quality (what the next job started stamps).
   firstAverage: number;
   firstCarried: number;
-  // The LAST run's carried quality. Lowest-first only climbs and best-first only falls as stock is used, so the
-  // order's runs all carry a quality between the first and the last.
+  // The carried quality of the last run the stock in hand can cover. Lowest-first only climbs and best-first only
+  // falls as stock is used, so those runs all carry a quality between the first and this one.
   lastCarried: number;
   runs: number;
+  // True when any input is short (see OrderInputUse.short).
+  anyShort: boolean;
 }
 
 // The walk of `amount` of `item` from `inv`, bucket by bucket, exactly as removeItemLowestFirst /
-// removeItemHighestFirst take it. Pure.
+// removeItemHighestFirst take it. ⚠️ KEEP IN STEP WITH drawQualityTally and removeItem* (inventory.ts): this is the
+// same loop, kept here only because it reports the buckets rather than their sum; the engine-match tests in
+// materialLinesDisplay.test.ts fail if the two ever walk differently. Pure.
 function walk(inv: Record<string, Decimal[]>, item: string, amount: Decimal, highestFirst: boolean): { used: QualityChip[]; short: Decimal } {
   const buckets = inv[item] ?? [];
   const used: QualityChip[] = [];
@@ -184,39 +190,52 @@ function runTally(inv: Record<string, Decimal[]>, perRun: Record<string, Decimal
 
 // What an order of `runs` runs of `perRun` would draw from `inv` today, and the quality it carries. Each run is its
 // own job (a line starts one job per run), so the carried quality is per run: the first run's is what the next job
-// stamps, the last run's bounds the rest. Assumes nothing else draws the same stock meanwhile (another running line
-// can shift which buckets are left). Pure.
+// stamps, the last coverable run's bounds the rest. Assumes nothing else draws the same stock meanwhile (another
+// running line can shift which buckets are left; the form says so). `free` (optional) is each input's free stock,
+// the configurator's REQUIRES "Free" figure, so "short" agrees with the disabled Start button. Pure.
 export function orderQualityPreview(
   inv: Record<string, Decimal[]>,
   perRun: Record<string, Decimal>,
   runs: number,
-  highestFirst: boolean
+  highestFirst: boolean,
+  free?: Readonly<Record<string, Decimal>>
 ): OrderQualityPreview {
   // The configurator's quantity field can be empty or fractional mid-edit; the buttons read it as at least one run.
   const n = Number.isFinite(runs) ? Math.max(1, Math.floor(runs)) : 1;
-  const inputs: OrderInputUse[] = Object.keys(perRun).map((itemId) => {
+  const ids = Object.keys(perRun);
+  const inputs: OrderInputUse[] = ids.map((itemId) => {
     const need = perRun[itemId].times(n);
     const w = walk(inv, itemId, need, highestFirst);
-    return { itemId, need, used: w.used, short: w.short };
+    const avail = free?.[itemId];
+    const freeShort = avail !== undefined && need.gt(avail) ? need.minus(Decimal.max(avail, 0)) : new Decimal(0);
+    return { itemId, need, used: w.used, short: Decimal.max(w.short, freeShort) };
   });
   const first = runTally(inv, perRun, highestFirst);
   const firstAverage = first.units.gt(0) ? first.qualityUnits.div(first.units).toNumber() : 0;
+  // The last run the stock in hand covers (never past it: removing more than is held would drive bucket 0 negative
+  // and read as a quality drop that lowest-first can never make).
+  let coverable = n;
+  for (const itemId of ids) {
+    if (perRun[itemId].gt(0)) coverable = Math.min(coverable, Math.floor(itemTotal(inv, itemId).div(perRun[itemId]).toNumber()));
+  }
   let lastCarried = carriedQuality(first);
-  if (n > 1) {
+  if (coverable > 1) {
     let before = inv;
-    for (const itemId of Object.keys(perRun)) {
-      const spent = perRun[itemId].times(n - 1);
+    for (const itemId of ids) {
+      const spent = perRun[itemId].times(coverable - 1);
       before = highestFirst ? removeItemHighestFirst(before, itemId, spent) : removeItemLowestFirst(before, itemId, spent);
     }
     lastCarried = carriedQuality(runTally(before, perRun, highestFirst));
   }
-  return { inputs, firstAverage, firstCarried: carriedQuality(first), lastCarried, runs: n };
+  const anyShort = inputs.some((u) => u.short.gt(0));
+  return { inputs, firstAverage, firstCarried: carriedQuality(first), lastCarried, runs: n, anyShort };
 }
 
-// The average as the readout prints it: two decimals, rounded DOWN (with the engine's own epsilon), so the shown
-// figure never rounds up past the rung it floors to ("1.99 = Q1", never "2.00 = Q1"). Pure.
+// The average as the readout prints it: two decimals, rounded DOWN with the engine's own epsilon
+// (CARRY_AVERAGE_EPSILON, the one carriedQuality adds before its floor), so the shown figure never rounds up past the
+// rung it floors to ("1.99 = Q1", never "2.00 = Q1"). Pure.
 export function averageText(avg: number): string {
-  return (Math.floor(avg * 100 + 1e-7) / 100).toFixed(2);
+  return (Math.floor((avg + CARRY_AVERAGE_EPSILON) * 100) / 100).toFixed(2);
 }
 
 // The "Carried quality" readout: "average 1.50 = Q1, then the roll". Pure.
@@ -224,10 +243,33 @@ export function carriedQualityText(p: Pick<OrderQualityPreview, "firstAverage" |
   return `average ${averageText(p.firstAverage)} = Q${p.firstCarried}, then the roll`;
 }
 
+// The note under the readout when other orders draw the same stock first (the queue's form, or an input another line
+// or a queued order holds part of): the readout is worked out as if the order started now.
+export const CONTENDED_STOCK_NOTE = "Other orders draw from this stock first, so the carried quality may differ when this order starts.";
+
+// The order form's stock context, from the SAME allocation reads its REQUIRES box shows (freeItem / allocatedItem,
+// passed in so this stays free of the allocation module): each input's free stock, and whether other orders draw the
+// stock first (the queue's form, or any input partly held by another line or a queued order). Pure.
+export function orderStockContext(
+  perRun: Record<string, Decimal>,
+  freeOf: (itemId: string) => Decimal,
+  allocatedOf: (itemId: string) => Decimal,
+  queueForm: boolean
+): { free: Record<string, Decimal>; contended: boolean } {
+  const free: Record<string, Decimal> = {};
+  let held = false;
+  for (const itemId of Object.keys(perRun)) {
+    free[itemId] = freeOf(itemId);
+    if (allocatedOf(itemId).gt(0)) held = true;
+  }
+  return { free, contended: queueForm || held };
+}
+
 // The note under it when an order's runs carry different qualities (null when every run carries the same): runs are
-// separate jobs, so a long order on mixed stock drifts as it spends. Pure.
-export function laterRunsText(p: Pick<OrderQualityPreview, "firstCarried" | "lastCarried" | "runs">): string | null {
-  if (p.runs <= 1 || p.lastCarried === p.firstCarried) return null;
+// separate jobs, so a long order on mixed stock drifts as it spends. Null too while the order is short: its later
+// runs wait for stock that does not exist yet, so no quality can be promised for them. Pure.
+export function laterRunsText(p: Pick<OrderQualityPreview, "firstCarried" | "lastCarried" | "runs" | "anyShort">): string | null {
+  if (p.anyShort || p.runs <= 1 || p.lastCarried === p.firstCarried) return null;
   return p.lastCarried > p.firstCarried
     ? `Each run carries its own average: later runs climb to Q${p.lastCarried} as the low stock runs out.`
     : `Each run carries its own average: later runs drop to Q${p.lastCarried} as the best stock runs out.`;

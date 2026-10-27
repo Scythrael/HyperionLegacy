@@ -1151,7 +1151,7 @@
   import RefineryLines from "./lib/RefineryLines.svelte";
   import CraftQualityPreview from "./lib/CraftQualityPreview.svelte";
   import QualityChips from "./lib/QualityChips.svelte";
-  import { qualityChips } from "./lib/ui/materialLinesDisplay";
+  import { orderStockContext, qualityChips } from "./lib/ui/materialLinesDisplay";
   import { refineJobDurationTicks } from "./lib/game/tick";
   import { gasStudySourcePending } from "./lib/game/gasGiantContent";
   // Gas Giant Study GG-6: the Research Lab's Data study tab, the Archive's Survey Log, the canister shelf and the claim's
@@ -2417,7 +2417,8 @@
   // (.warehouse-tooltip max-width) here, widened to 92vw on a phone in showWarehouseTooltip so the
   // card is kept on-screen at its actual mobile size rather than the old ~60% one.
   const WAREHOUSE_TOOLTIP_W = 320;
-  const WAREHOUSE_TOOLTIP_H = 190;
+  // ML-7: raised from 190 for the tile card's "By quality" chip row (one row, or two when a split wraps).
+  const WAREHOUSE_TOOLTIP_H = 240;
 
   // Position the tooltip from the hovered tile's on-screen rect: below it by
   // default, flipped above if it would overflow the viewport bottom, and clamped
@@ -8318,14 +8319,17 @@
   // Material Lines ML-7: a recipe row's Order button (the grouped material lines list). Opens the configurator
   // on that recipe in the first idle line, or in the queue opener when every line is busy (both sit at index
   // refineLines.length in the Production markup), with "Use best materials" off as every opened form starts,
-  // then brings the form into view (on a phone it sits below the list).
+  // then brings the form into view (on a phone it sits below the list) and moves keyboard focus to its Item
+  // select, so a keyboard or screen-reader player lands on the form the button opened, not back on the list.
   async function orderRefineRecipe(recipeKey: string) {
     openConfigurator("refine", (state.refineLines ?? []).length);
     cfgRecipeKey = recipeKey;
     await svelteTick();
+    const form = document.getElementById("refine-config");
     // An instant jump (no smooth scroll): a smooth one does not run while the page is in the background, and it
     // needs no reduced-motion exception.
-    document.getElementById("refine-config")?.scrollIntoView({ block: "start" });
+    form?.scrollIntoView({ block: "start" });
+    form?.querySelector<HTMLElement>('select[aria-label="Item"]')?.focus({ preventScroll: true });
   }
 
   // Fabricate tier changed in the dropdown: point the item dropdown at the first blueprint of
@@ -12291,8 +12295,15 @@
                           <Toggle label="Use best materials" checked={cfgBestMaterials} on:change={(e) => (cfgBestMaterials = e.detail)} />
                           <span class="best-switch-text"><b aria-hidden="true">Use best materials</b><br /><span class="research-cost">{bestMaterialsNote(cfgBestMaterials)}</span></span>
                         </div>
-                        <!-- ML-7: what this order draws, quality by quality, and the quality the next run carries. -->
-                        <CraftQualityPreview inventory={state.inventory} perRun={perIteration} runs={cfgQty} best={cfgBestMaterials} />
+                        <!-- ML-7: what this order draws, quality by quality, and the quality the next run carries. `free`
+                             and `contended` come from the same freeItem / allocatedItem reads REQUIRES shows. -->
+                        <CraftQualityPreview
+                          inventory={state.inventory}
+                          perRun={perIteration}
+                          runs={cfgQty}
+                          best={cfgBestMaterials}
+                          {...orderStockContext(perIteration, (id) => freeItem(state.inventory, allLines, queuedOrders, id), (id) => allocatedItem(allLines, queuedOrders, id, state.craftOrders ?? []), isQueueOpener)}
+                        />
 
                         <div class="dev-row" style="margin-top: 8px;">
                           <button
@@ -12963,7 +12974,13 @@
                               <span class="best-switch-text"><b aria-hidden="true">Use best materials</b><br /><span class="research-cost">{bestMaterialsNote(cfgBestMaterials)}</span></span>
                             </div>
                             <!-- ML-7: the same breakdown as the Refinery's form (a stackable output carries quality). -->
-                            <CraftQualityPreview inventory={state.inventory} perRun={perIteration} runs={cfgQty} best={cfgBestMaterials} />
+                            <CraftQualityPreview
+                              inventory={state.inventory}
+                              perRun={perIteration}
+                              runs={cfgQty}
+                              best={cfgBestMaterials}
+                              {...orderStockContext(perIteration, (id) => freeItem(state.inventory, allLines, queuedOrders, id), (id) => allocatedItem(allLines, queuedOrders, id, state.craftOrders ?? []), isQueueOpener)}
+                            />
                           {/if}
 
                           <div class="dev-row" style="margin-top: 8px;">

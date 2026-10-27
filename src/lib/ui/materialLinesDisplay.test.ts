@@ -5,13 +5,18 @@
 
 import { describe, expect, it } from "vitest";
 import Decimal from "break_infinity.js";
-import { MISSIONS, REFINE_RECIPES, refineRecipeOffered, type GameState } from "../game/model";
+import { EQUIPMENT_SLOTS, MISSIONS, REFINE_RECIPES, refineRecipeOffered, type GameState } from "../game/model";
+import { LUMINOUS_AFFIXES } from "../game/legendaryAffixes";
+import { LIVE_BANDS } from "../game/rarityGoldens.fixture";
+import { CARRY_AVERAGE_EPSILON, carriedQuality } from "../game/materialQuality";
 import { economyTick, startLine } from "../game/tick";
 import { lineInputsPerIteration } from "../game/allocation";
 import { QUALITY_TIERS, getBucket } from "../game/inventory";
 import { craftStateQ } from "../game/materialQualityGoldens.fixture";
 import { HELP_TOPICS } from "../helpTopics";
 import {
+  CONTENDED_STOCK_NOTE,
+  orderStockContext,
   OTHER_REFINERY_LINE,
   REFINERY_LINES,
   averageText,
@@ -160,10 +165,53 @@ describe("ML-7 readout words", () => {
   });
 
   it("notes later runs only when they carry a different quality", () => {
-    expect(laterRunsText({ firstCarried: 1, lastCarried: 1, runs: 5 })).toBeNull();
-    expect(laterRunsText({ firstCarried: 0, lastCarried: 2, runs: 1 })).toBeNull();
-    expect(laterRunsText({ firstCarried: 0, lastCarried: 2, runs: 4 })).toBe("Each run carries its own average: later runs climb to Q2 as the low stock runs out.");
-    expect(laterRunsText({ firstCarried: 3, lastCarried: 1, runs: 4 })).toBe("Each run carries its own average: later runs drop to Q1 as the best stock runs out.");
+    expect(laterRunsText({ firstCarried: 1, lastCarried: 1, runs: 5, anyShort: false })).toBeNull();
+    expect(laterRunsText({ firstCarried: 0, lastCarried: 2, runs: 1, anyShort: false })).toBeNull();
+    expect(laterRunsText({ firstCarried: 0, lastCarried: 2, runs: 4, anyShort: false })).toBe("Each run carries its own average: later runs climb to Q2 as the low stock runs out.");
+    expect(laterRunsText({ firstCarried: 3, lastCarried: 1, runs: 4, anyShort: false })).toBe("Each run carries its own average: later runs drop to Q1 as the best stock runs out.");
+    expect(laterRunsText({ firstCarried: 0, lastCarried: 2, runs: 4, anyShort: true })).toBeNull();
+  });
+
+  it("prints the average with the engine's own epsilon, so the figure and its rung agree", () => {
+    const avg = 1.9999999995; // an exact 2 computed with float noise
+    expect(carriedQuality({ units: D(1), qualityUnits: D(avg) })).toBe(2);
+    expect(averageText(avg)).toBe("2.00");
+    expect(averageText(1.99)).toBe("1.99");
+    expect(CARRY_AVERAGE_EPSILON).toBe(1e-9);
+  });
+});
+
+describe("ML-7 review fixes: short stock and contended stock", () => {
+  it("measures short against FREE stock when given (the REQUIRES Free figure), so it agrees with Start", () => {
+    // Another line holds 180 of 200: Free is 20, so 2 runs of 20 are 20 short even though 200 are on the shelf.
+    const inv = { commonOre: [D(200)] };
+    const per = { commonOre: D(20) };
+    const held = orderQualityPreview(inv, per, 2, false, { commonOre: D(20) });
+    expect(held.inputs[0].short.toString()).toBe("20");
+    expect(held.anyShort).toBe(true);
+    expect(orderQualityPreview(inv, per, 2, false).inputs[0].short.toString()).toBe("0");
+    expect(orderQualityPreview(inv, per, 1, false, { commonOre: D(20) }).anyShort).toBe(false);
+  });
+
+  it("a short order makes no later-runs promise, and its last run never reads past the stock (the review repro)", () => {
+    // Q0 1, Q2 10, 4 per run, 5 runs, lowest first: 20 needed, 11 held.
+    const p = orderQualityPreview({ ore: [D(1), D(0), D(10)] }, { ore: D(4) }, 5, false);
+    expect(p.firstCarried).toBe(1); // (1 x 0 + 3 x 2) / 4 = 1.5
+    expect(p.anyShort).toBe(true);
+    expect(p.inputs[0].short.toString()).toBe("9");
+    // The last run the 11 units cover is run 2 (4 x Q2), never a negative-bucket "drop to Q0".
+    expect(p.lastCarried).toBe(2);
+    expect(laterRunsText(p)).toBeNull();
+  });
+
+  it("flags contended stock for the queue's form or any input another order holds", () => {
+    const per = { a: D(2), b: D(1) };
+    const free = (id: string) => (id === "a" ? D(5) : D(7));
+    const none = () => D(0);
+    expect(orderStockContext(per, free, none, false)).toEqual({ free: { a: D(5), b: D(7) }, contended: false });
+    expect(orderStockContext(per, free, none, true).contended).toBe(true);
+    expect(orderStockContext(per, free, (id) => (id === "b" ? D(3) : D(0)), false).contended).toBe(true);
+    expect(CONTENDED_STOCK_NOTE).toBe("Other orders draw from this stock first, so the carried quality may differ when this order starts.");
   });
 });
 
@@ -179,6 +227,19 @@ describe("ML-7 Help topic", () => {
     // The example it gives is the grouping's own answer.
     expect(b).toContain("Cobalt Coil under Heavy metals");
     expect(recipeLine("synthCobaltCoil").label).toBe("Heavy metals");
+    // Every live Material Quality source, by its in-game name (read from the content tables): the Prospecting Rig
+    // slot, its affix pool, and each variety whose budget carries the line. (The Transmuter's Seal legendary affix
+    // also carries it, but only a Luminous piece rolls one and Luminous is not a live band, so the manual omits it.)
+    const slot = EQUIPMENT_SLOTS.specUtility;
+    expect(b).toContain(slot.label);
+    expect(slot.affixPool.some((a) => a.stat === "materialQualityChance")).toBe(true);
+    const carriers = (slot.varieties ?? []).filter((v) => (v.statRatios as Record<string, number> | undefined)?.materialQualityChance);
+    expect(carriers.map((v) => v.label).sort()).toEqual(["Refinery-Feed Rig", "Survey Rig", "Yield Rig"]);
+    expect(b).toContain("Refinery-Feed Rig");
+    expect(b).toContain("Yield and Survey Rigs");
+    expect(LUMINOUS_AFFIXES.some((a) => a.stat === "materialQualityChance")).toBe(true);
+    expect(LIVE_BANDS).not.toContain("luminous");
+    expect(b).toContain("how much of its output you hold");
     // ML-5 is not built: the manual must not promise quality on fabricated equipment.
     expect(b).toContain("Fabricated equipment does not take on the quality of its materials");
     expect(/—|-{2}/.test(b)).toBe(false);
