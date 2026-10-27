@@ -960,3 +960,31 @@ the patrol card and any `brokeOff` wording.
 - **Call 13 heavy cruiser descriptions:** "Approve as drafted (Recommended)": the three SF-6 descriptions verbatim, shown
   on the Shipyard build card AND the ship detail header. (Check the Aurora line against the EM-7 OC-D13 fix, which made
   its description true: keep whichever text is true of the built hull and say so.)
+
+## SF-5 + SF-6 CARRY NOTE (2026-10-27, built on 1567b4d)
+
+**SF-5 (tests + doc, no engine change).** `safeFirstRunsContract.test.ts` (27 default tests, about 3 s): gathering, every
+MISSIONS key x every hull that can fly it x three stop paths (delivered on Repeat, recalled half way, broke at the
+relaunch) never ends in a defeat or hull damage, and the first-run marker `isFirstGatheringRun` (runDifficulty.ts,
+DISPLAY ONLY: no MISSIONS key in `lifetimeStats.missionsCompleted` yet; patrol routes and `shortRange:` keys ignored)
+is true on every tick before the save's first delivered cycle and false from it; the G1 contract against every live
+template at Tier I and II (the stamp equals `runDifficultyAt`, the training run is keyed per template and is the
+smallest roll, later runs read `rampFraction` through `runRamp`, the reach never shrinks as the curve climbs, other
+templates keep their training run) plus the live loop delivering each template's training run with no defeat. Carry
+note added to the E-CREW plan's G1 entry.
+
+**SF-6 (display only).** Text verbatim in one module, `src/lib/trainingRunDisplay.ts` (call 12). The chip and its line:
+the expedition dispatch card (the chip, its title the line; the Tier I training note now leads with the chip and the
+line), the run view header (`isTrainingRun`), the patrol dispatch card and its Dispatch popup (`isFirstRun(state,
+"patrol")`, the same stamp the Threat Assessment reads, so it reads Guaranteed); the gathering line on the Gathering
+list and on the first run's in-progress card. The backstop's log line now shows on the ground timeline (a lost fight
+with `fellBack` reads "fell back" and `TRAINING_FELL_BACK_TEXT`, not a held loss). Hull descriptions (call 13) on the
+Shipyard build card and under the ship detail header, every hull; `trainingRunDisplay.test.ts` pins the approved text
+and checks each explorer claim against the built hull. Help: the Risk Factors topic gains TRAINING RUNS AND RISING RISK
+(every number from runDifficulty.ts; tested in helpTopics.test.ts), the Objective Difficulty topic points to it.
+375 px checked (no sideways scroll; the glyph is the existing `check` SVG).
+
+**For the user.** The Aurora's approved "the fastest cruise" is false fleet-wide (Aurora 1.3, the Runner 1.5): the
+built text keeps OC-D13's true "of the explorer hulls" after it. Eir's "crew" is true of its away teams (8, the most);
+its complement ties the other explorers'. The battleship's existing "The most armor, shields, and guns" now shows and
+its "shields" is false (600; the explorers carry 700 to 800). No golden moved.

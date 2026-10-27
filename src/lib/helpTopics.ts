@@ -94,6 +94,20 @@ import {
   riskRewardBonus,
 } from "./game/riskFactors";
 import { MUSEUM_HAZARD_RESIST_MAX } from "./game/relics";
+// Safe first runs SF-6: the training runs and the curve, every number read from its owner (no typed number).
+import {
+  FIRST_PATROL_WAVES,
+  FIRST_RUN_ENEMY_SCALE,
+  FIRST_RUN_MAX_ENEMIES,
+  N_FULL,
+  PATROL_RULES_RAMP_FLOOR,
+  RAMP_FLOOR,
+  RAMP_MAX_TIER,
+  RAMP_ODDS_LAG,
+  TIER_ENCOUNTER_HAZARD_CEILING,
+} from "./game/runDifficulty";
+import { SHIP_TYPES } from "./game/model";
+import { TRAINING_RUN_CHIP } from "./trainingRunDisplay";
 import {
   REGION_TIER_NAMES,
   TELESCOPE_DETAIL_NAMES,
@@ -166,6 +180,18 @@ function firstRollingGrade(permille: readonly number[]): string {
   const i = permille.findIndex((p) => p > 0);
   return RISK_GRADE_NAMES[i >= 0 ? i : RISK_GRADE_NAMES.length - 1];
 }
+// Safe first runs SF-6: the "Training runs and rising risk" paragraph (the Risk Factors topic; the Objective
+// Difficulty topic points to it). Every number is read from runDifficulty.ts, the hull names from SHIP_TYPES.
+const EXPLORER_NAMES = orList(Object.values(SHIP_TYPES).filter((d) => d.spec === "explorer").map((d) => d.label));
+const runsText = (n: number): string => (n === 1 ? "one run" : `${n} runs`);
+const HAZARD_CEILING_TEXT = (Object.entries(TIER_ENCOUNTER_HAZARD_CEILING) as [string, number][])
+  .map(([t, c]) => `${pct(c)} at ${tier(Number(t))}`)
+  .join(" and ");
+export const TRAINING_RUNS_PARAGRAPH = [
+  `TRAINING RUNS AND RISING RISK: your first expedition from an explorer (${EXPLORER_NAMES}) at ${tier(RAMP_MAX_TIER)} is a training run, marked with the "${TRAINING_RUN_CHIP}" chip. It cannot fail: every objective is finished, its guards fight at ${pct(FIRST_RUN_ENEMY_SCALE)} strength with at most ${FIRST_RUN_MAX_ENEMIES === 1 ? "one enemy" : `${FIRST_RUN_MAX_ENEMIES} enemies`} per fight, no affixes or ambushes roll, every scan event check passes, and a fight the crew loses still clears its point. Your first patrol is a training run too: at most ${FIRST_PATROL_WAVES} waves of one ship each, the route's lightest, and a wave the ship would lose breaks off with no damage. The first job of each short-range mission type is its smallest, and gathering missions can never be lost.`,
+  `After the training run the risk rises slowly with each run you complete (the training run does not count). At ${tier(RAMP_MAX_TIER)}, expedition guards start at ${pct(RAMP_FLOOR)} of full strength (ordinary enemies weaker still) and patrol enemies at ${pct(PATROL_RULES_RAMP_FLOOR)}, climbing gently to full strength after ${N_FULL - 1} completed runs; affixes and ambushes reach full strength ${runsText(RAMP_ODDS_LAG)} later. A fight treats a world's hazard as at most ${HAZARD_CEILING_TEXT}; the scan and the risk grades keep the real hazard. From ${tier(RAMP_MAX_TIER + 1)} on, every run is at full strength from your first one there: the tier is the step. A save that flew expeditions or patrols before training runs existed is already at full strength.`,
+].join("\n");
+
 // The seven threat tiers, read from threatAssessment (the one table that owns their names and phrases).
 const THREAT_BY_TIER = new Map<ThreatTier, ThreatAssessment>();
 for (let wins = 100; wins >= 0; wins -= 1) {
@@ -316,6 +342,7 @@ On the order form, This order uses lists the qualities the order will draw, and 
       `THE GREATER THE RISK, THE GREATER THE REWARD: a harder objective's haul is multiplied up: about +${pct(riskRewardBonus(2))} at ${DIFFICULTY_NAMES[1]}, up to about +${pct(riskRewardBonus(DEADLY))} at ${DIFFICULTY_NAMES[DEADLY - 1]}, on a curve that keeps rising but more slowly. The same amount is added to its relic find bonus.`,
       `NEEDS: the card's requirement chips show the squads an objective needs, marked met or unmet by your deployed teams. Up to ${tier(SAFE_NEEDS_MAX_TIER)}, no objective asks for more than one squad of each type, so your teams can always take it. From ${tier(FIRST_SKIPPING_TIER)} on, an objective can need two, and one your deployed squads cannot cover is left unfinished (the Subspace Telescope can warn you before launch).`,
       `${REINFORCING_REQUIRED} combat objectives always carry the Reinforcing affix. While an objective is on alert its rating rises, and at ${IMPOSSIBLE_DIFFICULTY_NAME} it is held until the alert wears off (see the Reinforcing (affix) topic).`,
+      "TRAINING RUNS: your first explorer expedition is a training run that cannot fail, and the guards on the runs after it start weaker and grow to full strength slowly (see the Risk Factors topic, under Training runs and rising risk).",
     ].join("\n\n"),
   },
   {
@@ -343,6 +370,7 @@ On the order form, This order uses lists the qualities the order will draw, and 
       `AMBUSHES: an objective with no fight points can still be ambushed, more often where ${RISK_FACTOR_NAMES.combat} or ${RISK_FACTOR_NAMES.fauna} runs high (${pct(AMBUSH_CHANCE_BY_GRADE[1])} a trip at ${RISK_GRADE_NAMES[1]}, up to ${pct(AMBUSH_CHANCE_BY_GRADE[AMBUSH_CHANCE_BY_GRADE.length - 1])} at ${RISK_GRADE_NAMES[RISK_GRADE_NAMES.length - 1]}; at most ${SURVEY_AMBUSH_MAX_PER_TASK} times per objective). A crew with a Security member standing fights where it stands: a win and the work goes on, a loss counts like any other. A crew with no Security member retreats with light injuries, keeps its progress and comes back after the medical bay.`,
       `HOSTILE SITES: from ${tier(HOSTILE_SITE_RULES.enemyColony.minTier)}, a body at ${firstRollingGrade(HOSTILE_SITE_RULES.enemyColony.permilleByCombat)} ${RISK_FACTOR_NAMES.combat} or worse can hold an ${site("enemyColony")}, and from ${tier(HOSTILE_SITE_RULES.enemyFortification.minTier)} a body at ${firstRollingGrade(HOSTILE_SITE_RULES.enemyFortification.permilleByCombat)} ${RISK_FACTOR_NAMES.combat} or worse can hold an ${site("enemyFortification")}. A hostile site becomes an objective only when your deployed squads can take it on and still keep a Science squad.`,
       `HAZARD RESIST: it comes from relics in the Museum, installed ship systems, your Science squads' fieldwork, Hazard Resist on Security gear (for objective work only) and, for the scan only, the Science officer's Integrity with a share of the XO's. Every source is added together before the diminishing curve, so several sources come to slightly less than their separate readouts suggest, and a hazardous world always keeps over ${pct(1 - MUSEUM_HAZARD_RESIST_MAX)} of its hazard. Resist makes the work easier; it never makes the haul poorer.`,
+      TRAINING_RUNS_PARAGRAPH,
     ].join("\n\n"),
   },
   {
