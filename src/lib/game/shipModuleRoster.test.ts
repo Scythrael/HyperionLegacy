@@ -226,12 +226,12 @@ describe("the mint, the player path and the item card", () => {
 
   it("the item card says what each module does at the piece's own scale (the mockup's words)", () => {
     const lines = (id: string, rarity: EquipmentRarity = "standard", q = 0) => pieceModuleLines(mint(id, rarity, q))!;
-    expect(lines("auxiliaryCapacitor")).toEqual({ kind: "Passive · Everywhere", effect: "Adds 8 power output.", rule: null });
+    expect(lines("auxiliaryCapacitor")).toEqual({ kind: "Passive · Everywhere", effect: "Adds 8 power output.", rule: null, when: "Always on, everywhere the ship goes.", draw: "Power draw 0, adds 8 power" });
     expect(lines("structuralBracing").effect).toBe("+6% hull integrity in combat.");
     expect(lines("arcDischarger")).toMatchObject({ kind: "Proc · Combat", effect: "When the ship takes a hit: a 15% chance to arc 8 damage back at the attacker." });
     expect(lines("prospectorsEcho")).toMatchObject({ kind: "Proc · Missions", effect: "Each extraction cycle: a 10% chance of a bonus haul, +50% of that cycle's common material." });
     expect(lines("lastStandProtocol").effect).toBe("While hull is below 25%: +12% weapon damage.");
-    expect(lines("shieldSurge")).toEqual({ kind: "Active · Combat", effect: "Restores 30% shields.", rule: "Auto-cast, preset rule: once per battle, when hull falls below 50%." });
+    expect(lines("shieldSurge")).toEqual({ kind: "Active · Combat", effect: "Restores 30% shields.", rule: "Auto-cast, preset rule: once per battle, when hull falls below 50%.", when: "Acts in combat once the ship's hull falls below 50%.", draw: "Power draw 6" });
     expect(lines("longBaselineArray")).toMatchObject({ kind: "Set · Expeditions", effect: "With a Signal Integrator installed: +8% scan speed on expeditions (the pair's bonus averages both pieces)." });
     expect(lines("signalIntegrator").effect).toBe("With a Long-Baseline Array installed: +8% scan speed on expeditions (the pair's bonus averages both pieces).");
     // EM-7 review: installed as a pair (the host passes the ship's pieces), the card shows the REAL pair bonus, the mean
@@ -251,7 +251,7 @@ describe("the mint, the player path and the item card", () => {
     // Every line obeys the text rules (no em dash, no double hyphen).
     for (const d of UNIVERSAL_MODULES) {
       const l = lines(d.id);
-      for (const t of [l.kind, l.effect, l.rule ?? ""]) expect(t, d.id).not.toMatch(/\u2014|\x2d\x2d/);
+      for (const t of [l.kind, l.effect, l.rule ?? "", l.when, l.draw]) expect(t, d.id).not.toMatch(/\u2014|\x2d\x2d/);
     }
   });
 
@@ -449,18 +449,24 @@ describe("EM-7 review: the Freighter's slot, Armory loadouts only, the module se
     expect(moduleSlotsUsed([{ slotType: "specUtility" }, { slotType: "module" }], false)).toBe(1);
   });
 
-  it("Install on... refuses every ship for a module (until EM-10), with the user's reason; other gear is unchanged", () => {
-    expect(MODULE_INSTALL_ARMORY_ONLY).toBe(true);
+  it("EM-10: Install on... lists every ship with the real gate's verdict for a module (the Armory-only switch is off)", () => {
+    expect(MODULE_INSTALL_ARMORY_ONLY).toBe(false);
     const s0 = freshState();
     const echo = { ...mint("prospectorsEcho", "standard", 0, "io-echo"), fittedToShipId: null };
     const s = { ...s0, equipment: [...s0.equipment, echo] };
     const targets = installTargetsFor(s, echo.id);
     expect(targets.length).toBe(s.ships.length);
-    for (const t of targets) expect(t).toMatchObject({ kind: "ship", ok: false, refusal: { ok: false, reason: "moduleArmoryOnly" } });
+    for (const t of targets) {
+      expect(t.kind).toBe("ship");
+      if (t.kind !== "ship") continue;
+      const gate = canFitEquipment(s, t.shipId, echo.id);
+      expect(t).toEqual(gate.ok ? { kind: "ship", shipId: t.shipId, ok: true } : { kind: "ship", shipId: t.shipId, ok: false, refusal: gate });
+    }
+    // The fresh Freighter has a free module slot, so the Echo goes on through the item side now.
+    expect(targets.find((t) => t.kind === "ship" && t.shipId === SHIP)).toMatchObject({ ok: true });
+    // The reason text stays (the switch is a one-line revert), and the full-slots text is the mockup's again.
     expect(moduleArmoryOnlyReasonText()).toBe("install modules through an Armory loadout for now");
-    // The full-slots text names where modules change (no surface but the Armory has a module Remove yet).
-    expect(moduleSlotsFullReasonText()).not.toMatch(/Remove/);
-    expect(moduleSlotsFullReasonText()).toMatch(/Armory loadout/);
+    expect(moduleSlotsFullReasonText()).toBe("no free module slot (modules and the Spec Utility share them). Remove a module first");
   });
 
   it("an Armory loadout installs and removes a module cleanly on a fresh Freighter", () => {

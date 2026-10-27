@@ -754,6 +754,32 @@ own short design first (venue, pity, ceiling interaction). **0.14.x candidate** 
 family replaces the coming-soon chip; module tooltip with its trigger in plain words; refusal reasons; Help topic "Power
 and modules". Verify in preview desktop + 375 px.
 
+*Carry note (EM-10 built 2026-10-26, on feat 7a7511d; mockup section C signed off 2026-10-21, "I approve all 4 mockups
+as is").* UI only: no engine, balance, save or salt change, so no economy, combat or sheet golden moved. Moved by design (display
+only): emodEm7Goldens' three Fabricator dropdown pins for Lab tiers 2 to 4 (the module crafts now file under the new
+"Modules" shelf; the old values are kept in the comment there). Built: `ui/powerBarDisplay.ts` (pure,
+tested) feeds Ship Systems: a POWER bar heading the board ("Power N / M" = net draw / output from `shipPowerBudget`;
+the net draw filled, amber when over; the efficiency cut hatched; the unused Reactor Core power shaded; the output
+marked; legend Hull base / Reactor Core / Modules / Gross draw / Efficiency cut; the chip "N headroom" or "Over budget by
+N, X% strength" with X = `overBudgetNotice().supplyPercent`; the EM-2/EM-3 warning text moved from the top banner into
+the bar; the surplus line reads the sheet's real drive gain, else says the core's weight takes it first; a per-system
+draw strip that sums to the gross draw). The FTL Drive row shows "Class N drive · draw D" (`driveDrawText`, the fold's
+own `driveClassPowerDraw`). The MODULES row: one tile per `moduleSlots`, the Spec Utility first (moved out of Systems;
+Swap / Remove), then modules (category, SVG glyph, name, draw and a capacitor's output, condition bar; tap or hover opens
+the card; per-slot Remove), then empty tiles (Install opens the module picker; how-to text; the first empty tile offers
+"Spec Utility" when that slot is empty), and an active Survey Pair chip. The install picker for modules: SVG glyphs, a
+status line per spare ("+N draw", "Needs N more power", "No free slot", "Already aboard", "Ship is out"), the module card
+lines and only the power rows in the compare, and a refusal box in the mockup's words ("Can't install X: <reason>.") for
+every reason through the exhaustive `reasonText`. The module card (EquipmentTooltip) gains `moduleWhenText` (the trigger
+in plain words), `moduleDrawText` and the one-per-ship note. `MODULE_INSTALL_ARMORY_ONLY = false` (Install on... reads
+the real gate; tests updated), and `moduleSlotsFullReasonText` says "Remove a module first" again. Fabricator: a
+"Modules" shelf (`awayGearDisplay.ts FABRICATOR_GROUP_ORDER`, after Ship Systems). Logistics: BAY_SLOT_ORDER never named
+`module`, so crafted modules were invisible in Ship Equipment (EM-7 had dropped the chip); the "Modules" family now
+shows, and module blank tiles draw their SVG glyph. Icons `module` and `power` (the mockup's paths) in icons.ts +
+ICON_SEMANTICS. Help topic "Power and modules" (numbers read from DRIVE_CLASS_POWER_DRAW_MULT,
+POWER_SUPPLY_FLOOR_PERCENT, the module blueprints' first tier); Ship Systems links to it. Verified in headless Chrome at
+1280 and 375 px (in budget with the Survey Pair, over budget, the power refusal; no horizontal scroll at 375).
+
 ### Order and dependencies
 
 ML-0, ML-1, ML-2, ML-3 can start now (WR-4 is done). ML-4 and ML-5 after ML-3. ML-6 after GG-1 and G2-4. ML-7 after its

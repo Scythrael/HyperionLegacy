@@ -215,9 +215,9 @@ describe("one copy per ship (M8)", () => {
       expect(canFitEquipment(state, SHIP, "test-b", "test-a")).toEqual({ ok: true });
       const swapped = fitEquipment(state, SHIP, "test-b", "test-a");
       expect(equippedFor(swapped, SHIP).filter((e) => e.slotType === "module").map((e) => e.id).sort()).toEqual(["test-b", "test-c"]);
-      // The item-side Install on... list says why on the ship it cannot go to. EM-7 (user 2026-10-26, "Armory loadouts
-      // only"): until EM-10 every ship is refused for a module there, the gate's own reason still duplicateModule.
-      expect(installTargetsFor(state, "test-b").find((t) => t.kind === "ship" && t.shipId === SHIP)).toMatchObject({ ok: false, refusal: { reason: "moduleArmoryOnly" } });
+      // The item-side Install on... list says why on the ship it cannot go to. EM-10 turned the EM-7 "Armory loadouts
+      // only" switch off, so the list carries the gate's own reason again.
+      expect(installTargetsFor(state, "test-b").find((t) => t.kind === "ship" && t.shipId === SHIP)).toMatchObject({ ok: false, refusal: { reason: "duplicateModule" } });
       expect(canFitEquipment(state, SHIP, "test-b")).toEqual({ ok: false, reason: "duplicateModule" });
     }));
 

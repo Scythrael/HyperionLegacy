@@ -453,8 +453,9 @@ export function installTargetsFor(state: GameState, pieceId: string): InstallTar
         : { kind: "member", memberId: m.id, ok: false, reason: gate.reason };
     });
   }
-  // E-MOD EM-7 (user 2026-10-26, "Armory loadouts only"): until EM-10's Ship Systems Modules row, a module goes on and
-  // off a ship through an Armory loadout only, so the item-side picker lists every ship refused, with the reason.
+  // E-MOD EM-7 (user 2026-10-26, "Armory loadouts only"): while MODULE_INSTALL_ARMORY_ONLY holds, a module goes on and
+  // off a ship through an Armory loadout only, so the item-side picker lists every ship refused, with the reason. EM-10
+  // turned the switch off (the Ship Systems Modules row exists), so a module reads the real gate like every piece.
   if (piece.slotType === "module" && MODULE_INSTALL_ARMORY_ONLY) {
     return state.ships.map((s): InstallTarget => ({ kind: "ship", shipId: s.id, ok: false, refusal: { ok: false, reason: "moduleArmoryOnly" } }));
   }

@@ -55,7 +55,7 @@
     EquipmentSlotType,
     ShipDerivedStats,
   } from "./game/model";
-  import { SHIP_TYPES, EQUIPMENT_SLOTS, shipDerivedStats, isSparePiece, pieceVarietyDef, shipDisplayLabel, outboundLegSpeed, returnLegSpeed, guestQuartersShown } from "./game/model";
+  import { BLUEPRINTS, SHIP_TYPES, EQUIPMENT_SLOTS, shipDerivedStats, isSparePiece, pieceVarietyDef, shipDisplayLabel, outboundLegSpeed, returnLegSpeed, guestQuartersShown } from "./game/model";
   import { LY_PER_TICK } from "./game/fuel";
   // WR-4 (OC-C1): the Fuel Depot's fleet reach, so the Range row matches the dispatch gates (tick.ts shipReachDef).
   import { fleetReachBonus } from "./game/tick";
@@ -64,11 +64,26 @@
   // source of truth for the number, no drift between the input's maxlength and the
   // validation the save runs.
   import { MAX_CAPTAIN_NAME } from "./game/captainName";
-  import type { EquipFitRefusal } from "./game/equipment";
+  import type { EquipFitRefusal, EquipFitVerdict } from "./game/equipment";
   // E-MOD EM-2: the power gate's refusal wording and the over-budget warning (P2: never evict, a warning chip).
-  import { overBudgetNotice, overPowerReasonText } from "./game/shipPower";
+  import { overBudgetNotice, overPowerReasonText, shipPowerBudget, type ShipPowerBudget } from "./game/shipPower";
   import { POWER_SUPPLY_FLOOR_PERCENT } from "./game/combat/power";
-  import { duplicateModuleReasonText, hullHasSpecUtilitySlot, moduleArmoryOnlyReasonText, moduleSlotsFullReasonText } from "./game/shipModules";
+  import { duplicateModuleReasonText, hullHasSpecUtilitySlot, moduleArmoryOnlyReasonText, moduleSlotsFullReasonText, pieceModuleDef } from "./game/shipModules";
+  // E-MOD EM-10: the Power bar and the Modules row (the signed-off mockup, section C), as pure view models, and the
+  // module card lines the install compare shows. Icon draws the SVG glyphs (icons.ts), never an emoji.
+  import {
+    activeModuleSetLines,
+    drawReductionTotal,
+    driveDrawText,
+    moduleRowTiles,
+    moduleTileCategory,
+    moduleTileDrawText,
+    pieceConditionPercent,
+    piecePowerDraw,
+    powerBarView,
+  } from "./ui/powerBarDisplay";
+  import { pieceModuleLines } from "./ui/moduleEffectText";
+  import Icon from "./ui/Icon.svelte";
   import { equippedFor, fittedInSlot, canFitEquipment } from "./game/equipment";
   // S2 (user 2026-10-17 "Lock it"): the one crew lock names why a ship's gear is locked (a mission, a patrol, a
   // short-range run, or an expedition until it is claimed), the same lock the engine's install gate reads.
@@ -102,7 +117,7 @@
   // control is injected into the card's footer <slot>. EquipmentTooltip was extended on
   // this branch (commit df53dd5) for weapon/drone blueprint name resolution and is
   // otherwise preserved.
-  import EquipmentTooltip, { equipmentRarityColor, equipmentIcon } from "./EquipmentTooltip.svelte";
+  import EquipmentTooltip, { equipmentRarityColor, equipmentIcon, equipmentSvgIcon } from "./EquipmentTooltip.svelte";
   // Shared PURE viewport-clamp math for the floating tooltip (prefer-above / flip-below
   // / clamp). Extracted so this panel and the Combat View pip tooltips share ONE clamp
   // implementation; the measure + await-tick + reflow flow below stays local.
@@ -173,11 +188,10 @@
   // The installable SINGLETON slots, grouped by function to match the mockup. Each
   // slot holds at most one piece (install replaces, uninstall leaves it bare for a
   // combat slot or auto-restores a Standard-Issue baseline for an economy slot).
-  //   prospectorOnly, specUtility exists only on SPECIALIZED hulls (design: the Freighter
-  //                   has no Spec Utility slot). The flag's name predates E4d, when the slot
-  //                   was Prospector-only; it now also shows on tactician + explorer hulls
-  //                   (see hasSpecUtilitySlot).
-  type SlotMeta = { slotType: EquipmentSlotType; label: string; prospectorOnly?: boolean };
+  //   specUtility exists only on SPECIALIZED hulls (design: the Freighter has no Spec Utility
+  //   slot; see hasSpecUtilitySlot). E-MOD EM-10: it is listed here for the per-slot map and the
+  //   compare, but DRAWN as the first tile of the Modules row (it shares the module slots).
+  type SlotMeta = { slotType: EquipmentSlotType; label: string };
   // DEFENSE singletons (combat): shown for every hull (all hulls are combat-capable).
   const DEFENSE_SLOTS: SlotMeta[] = [
     { slotType: "shieldEmitters", label: "Shield Emitter" },
@@ -188,7 +202,7 @@
     { slotType: "cargoBay", label: "Cargo Bay" },
     { slotType: "ftlDrive", label: "FTL Drive" },
     { slotType: "reactorCore", label: "Reactor Core" },
-    { slotType: "specUtility", label: "Spec Utility", prospectorOnly: true },
+    { slotType: "specUtility", label: "Spec Utility" },
     // The scanning array (0.14.0). The sensor slot has existed on EVERY hull since the sensor
     // foundation (an allow-empty catalog singleton), and the Expedition console tells players to
     // "Install a sensor array (Ships tab)", but this tile was never added, so a crafted array
@@ -438,7 +452,9 @@
   // Damage Control Suite and the explorer Pathfinder Suite) and is dropped only on the
   // general Freighter (design: the Freighter has no Spec Utility slot). The Defense
   // singletons and the weapon strip show on every hull (all hulls are combat-capable now).
-  $: visibleSystemSlots = SYSTEM_SLOTS.filter((s) => !s.prospectorOnly || hasSpecUtilitySlot);
+  // E-MOD EM-10 (the signed-off mockup's pick "spec utility as a tile in the Modules row"): the Spec Utility shares the
+  // hull's module slots (user M1), so it is drawn as the first tile of the Modules row, never in this list.
+  $: visibleSystemSlots = SYSTEM_SLOTS.filter((s) => s.slotType !== "specUtility");
 
   // Reactive per-slot "what is installed here" map, keyed by slotType. CRITICAL for
   // correct redraws: reading fittedInSlot(...) inside a template expression hides the
@@ -675,6 +691,35 @@
   // E-MOD EM-2 (user answer P2, 2026-10-17): the ship draws more power than it supplies (an officer left, a Reactor
   // Core came off). Nothing is evicted; this warning names the shortfall and its cause. null while in budget.
   $: powerNotice = ship !== null ? overBudgetNotice(safeState, shipId) : null;
+  // E-MOD EM-10: the Power bar (the signed-off mockup: one bar, the efficiency cut hatched, the unused reactor power
+  // shaded) and the Modules row. Read through shipPowerBudget, the one reader the gate, the combat penalty and the drive
+  // lift share. Guarded like equipmentPool: a stray piece degrades to no bar rather than a white screen.
+  $: powerBudgetNow = ((): ShipPowerBudget | null => {
+    if (ship === null) return null;
+    try {
+      return shipPowerBudget(safeState, shipId);
+    } catch {
+      return null;
+    }
+  })();
+  $: powerBar = powerBudgetNow !== null ? powerBarView(powerBudgetNow, powerNotice) : null;
+  // Where the draw goes (the mockup's systems strip): every installed powered system but the module-row pieces (those
+  // show their draw on their own tiles), and the rolled draw reductions, so the strip sums to the gross draw.
+  $: drawRows = fittedPieces
+    .filter((p) => p.slotType !== "module" && p.slotType !== "specUtility" && piecePowerDraw(p) > 0)
+    .map((p) => ({ id: p.id, label: drawRowLabel(p), name: pieceName(p), draw: piecePowerDraw(p) }));
+  $: drawReduction = drawReductionTotal(fittedPieces);
+  // The drive's speed gain from the unused reactor power, as the sheet folds it (the readout's "Reactor surplus"
+  // bucket): 0 when the core's weight takes the lift first (the never-slower floor).
+  $: driveLiftPercent =
+    effectiveStats && preLiftStats && preLiftStats.transitSpeedMult > 0
+      ? Math.max(0, (effectiveStats.transitSpeedMult / preLiftStats.transitSpeedMult - 1) * 100)
+      : 0;
+  $: reactorPiece = fittedBySlot["reactorCore"] ?? null;
+  $: moduleRow = shipDef ? moduleRowTiles(fittedPieces, shipDef.moduleSlots, hasSpecUtilitySlot) : null;
+  $: utilityEmpty = hasSpecUtilitySlot && fittedBySlot["specUtility"] == null;
+  $: spareModules = equipmentPool.filter((e) => isSparePiece(e) && e.slotType === "module").length;
+  $: moduleSetLines = activeModuleSetLines(fittedPieces);
   $: noWeaponInstalled = combatReadout ? combatReadout.missingRequired.includes("weapon") : false;
 
   // Drone reads (carrier-only). hasDroneBays gates the whole drone strip + the DRONES
@@ -803,7 +848,9 @@
   // change the economy-derived stats (shipDerivedStats), combat pieces change the combat
   // readout, so the compare rows below branch on this to show the RELEVANT stat set.
   $: candidateIsEconomy =
-    installCandidate !== null && SYSTEM_SLOTS.some((s) => s.slotType === installCandidate.slotType);
+    installCandidate !== null && (SYSTEM_SLOTS.some((s) => s.slotType === installCandidate.slotType) || installCandidate.slotType === "module");
+  // E-MOD EM-10: a module candidate's card lines (what it does, when it acts, its draw) head its compare.
+  $: candidateModuleLines = installCandidate !== null ? pieceModuleLines(installCandidate, fittedPieces) : null;
 
   // The hypothetical gear array with the candidate installed (the SAME shape fitEquipment
   // would produce), and the two readouts (current vs candidate) folded through the pure
@@ -853,7 +900,11 @@
       // E-MOD EM-4 review: both sides through the Reactor Core's drive rule (gear only), so a crafted core never
       // compares as slower than the Standard-Issue one.
       const candStats = gearSheetWithReactorDrive(ship, candidateGear);
-      return buildLiveRows(fitDriveStats ?? fitStats, candStats).map((r) => {
+      // E-MOD EM-10: a module moves only the power rows of the sheet (its effect is in the card lines above them).
+      const rows = buildLiveRows(fitDriveStats ?? fitStats, candStats).filter(
+        (r) => installCandidate?.slotType !== "module" || r.label === "Power Output" || r.label === "Power Draw",
+      );
+      return rows.map((r) => {
         // 0.13.9: a Range row diffs the FLOORED values it displays (floor(fitted) - floor(base)), so the
         // delta always equals the difference of the two numbers shown beside it.
         const delta = r.kind === "ly" ? Math.floor(r.fitted) - Math.floor(r.base) : r.fitted - r.base;
@@ -1355,7 +1406,39 @@
       const v = pieceVarietyDef(piece);
       if (v !== undefined) return v.label;
     }
+    // E-MOD EM-10: a universal module reads as its own catalog name ("Arc Discharger"), never the slot's "Module".
+    if (piece.slotType === "module") return pieceModuleDef(piece)?.label ?? "Module";
     return EQUIPMENT_SLOTS[piece.slotType]?.label ?? piece.slotType;
+  }
+
+  // E-MOD EM-10: a piece's own name for the Power bar's lines (its blueprint's, or "Standard-Issue <slot>").
+  function pieceName(piece: EquipmentInstance): string {
+    if (piece.slotType === "weapon" || piece.slotType === "droneBay" || piece.slotType === "module") return spareLabel(piece);
+    const bp = piece.blueprintKey === null ? undefined : BLUEPRINTS[piece.blueprintKey];
+    return bp?.label ?? `Standard-Issue ${spareLabel(piece)}`;
+  }
+  // The strip label of a powered system: its board slot's name.
+  function drawRowLabel(piece: EquipmentInstance): string {
+    if (piece.slotType === "weapon") return "Weapon";
+    if (piece.slotType === "droneBay") return "Drone pod";
+    return [...DEFENSE_SLOTS, ...SYSTEM_SLOTS].find((m) => m.slotType === piece.slotType)?.label ?? spareLabel(piece);
+  }
+  // E-MOD EM-10: the short status a module spare shows in the install list (the mockup's chips), from the gate's own
+  // refusal: "+8 draw" when it can go on, else the reason in a few words. The full sentence is on the compare.
+  function moduleStatusText(gate: EquipFitVerdict, spare: EquipmentInstance): string {
+    if (gate.ok) return `+${spare.powerDraw} draw`;
+    switch (gate.reason) {
+      case "overPower":
+        return `Needs ${gate.powerShortfall} more power`;
+      case "moduleSlotsFull":
+        return "No free slot";
+      case "duplicateModule":
+        return "Already aboard";
+      case "onMission":
+        return "Ship is out";
+      default:
+        return "Blocked";
+    }
   }
 </script>
 
@@ -1490,15 +1573,8 @@
         <span><strong>No weapon installed:</strong> this ship cannot return fire in combat. You can still dispatch it.</span>
       </div>
     {/if}
-    <!-- E-MOD EM-2 (user answer P2): the over-budget warning, its own line beside the readiness banner above. Never
-         evicts and never blocks dispatch (power gates installs only); names the shortfall and where it comes from.
-         EM-3 (user answer P6): the combat strength line first, bold, then the gentle-cut sentence (the signed-off mockup). -->
-    {#if powerNotice !== null}
-      <div class="ss-advisory" role="status">
-        <span class="ss-advisory-dot" aria-hidden="true"></span>
-        <span><strong>{powerNotice.chip}:</strong> <strong>{powerNotice.strength}</strong> {powerNotice.gentleNote} {powerNotice.cause}</span>
-      </div>
-    {/if}
+    <!-- E-MOD EM-2 / EM-3 (user answers P2, P6): the over-budget warning now lives in the Power bar at the top of the
+         board (EM-10, the signed-off mockup: the chip, then the strength line, the gentle-cut sentence and the cause). -->
 
     <div class="ss-main" class:embedded>
       <!-- LEFT: the loadout board (0.13.2 Unit 4, Layout C). Function-grouped slots, each
@@ -1508,6 +1584,66 @@
            slot's Install / Swap is pressed. Info is a DISPLAY-ONLY floating tooltip on
            hover / tap of a tile (no button lives inside it). -->
       <div class="ss-fit-col">
+        <!-- E-MOD EM-10 POWER (the signed-off mockup, section C: ONE bar, the efficiency cut hatched, the unused Reactor
+             Core power shaded, the output marked). "Power N / M" is the net draw against the output; the chip is the
+             headroom, or the shortfall with the strength the next fight runs at (overBudgetNotice().supplyPercent).
+             Never evicts and never blocks dispatch (P2): power gates installs only. -->
+        {#if powerBar}
+          <div class="ss-group ss-power" class:over={powerBar.over}>
+            <div class="ss-group-head">
+              <span class="ss-head-ic" aria-hidden="true"><Icon name="power" /></span> Power
+              <span class="ss-power-chip" class:warn={powerBar.over}>
+                <Icon name={powerBar.over ? "warning" : "check"} />
+                {powerBar.chip}
+              </span>
+            </div>
+            <div class="ss-power-num">
+              <span class="ss-pnum">{powerBar.headline}</span>
+              <span class="ss-power-unit">net draw / output</span>
+            </div>
+            <div class="ss-pbar" class:over={powerBar.over} role="img" aria-label={powerBar.ariaLabel}>
+              <span class="ss-pbar-used" style="width: {powerBar.usedPct}%"></span>
+              {#if powerBar.cut > 0}
+                <span class="ss-pbar-cut" style="left: {powerBar.cutLeftPct}%; width: {powerBar.cutPct}%"></span>
+              {/if}
+              {#if powerBar.surplus > 0}
+                <span class="ss-pbar-surplus" style="left: {powerBar.surplusLeftPct}%; width: {powerBar.surplusPct}%"></span>
+              {/if}
+              <span class="ss-pbar-mark" style="left: {powerBar.outputMarkPct}%"></span>
+            </div>
+            <div class="ss-legend">
+              {#each powerBar.legend as item (item.label)}
+                <span>{item.label} <b>{item.value}</b></span>
+              {/each}
+            </div>
+            <p class="ss-power-note">{powerBar.efficiencyText}. {reactorPiece ? `Reactor Core: ${pieceName(reactorPiece)}.` : "No Reactor Core installed."}</p>
+            {#if powerNotice !== null}
+              <div class="ss-power-warn" role="status">
+                <strong>{powerNotice.strength}</strong> {powerNotice.gentleNote} {powerNotice.cause}
+              </div>
+            {:else if powerBar.surplus > 0}
+              <p class="ss-power-surplus">
+                {#if driveLiftPercent >= 0.05}
+                  <span class="ss-power-chip ok"><Icon name="drive" /> Drive +{driveLiftPercent.toFixed(1)}%</span>
+                  {powerBar.surplus} unused Reactor Core power speeds the drive.
+                {:else}
+                  {powerBar.surplus} unused Reactor Core power. The core's own weight takes its drive lift first, so the drive is not faster yet (a Reactor Core never makes it slower).
+                {/if}
+              </p>
+            {/if}
+            {#if drawRows.length > 0}
+              <div class="ss-power-systems">
+                {#each drawRows as row (row.id)}
+                  <div><span class="ss-power-sys-k">{row.label}</span><span class="ss-power-sys-v">{row.name} <b>{row.draw}</b></span></div>
+                {/each}
+                {#if drawReduction > 0}
+                  <div><span class="ss-power-sys-k">Draw reduction</span><span class="ss-power-sys-v">Rolled lines <b>&minus;{drawReduction}</b></span></div>
+                {/if}
+              </div>
+            {/if}
+          </div>
+        {/if}
+
         <!-- OFFENSE: an auto-scaling weapon-tile grid. One card per hardpoint, filled or
              empty; the grid template is repeat(auto-fill, minmax(...)) so it reflows from
              1 up to many hardpoints without crowding (4-, 7-, 8+-hardpoint hulls all lay
@@ -1666,6 +1802,9 @@
                     <span class="ss-slot-text">
                       <span class="ss-slot-label">{meta.label}</span>
                       <span class="ss-slot-sub">{fitted.rarity} &middot; iL {fitted.iLevel}</span>
+                      {#if fitted.slotType === "ftlDrive"}
+                        <span class="ss-slot-sub">{driveDrawText(fitted)}</span>
+                      {/if}
                     </span>
                   </button>
                   <div class="ss-slot-actions">
@@ -1693,6 +1832,76 @@
             {/each}
           </div>
         </div>
+
+        <!-- E-MOD EM-10 MODULES (the signed-off mockup, section C): one tile per shared module slot
+             (SHIP_TYPES[hull].moduleSlots, user M1): the Spec Utility first (the mockup's pick), then each installed
+             module, then the empty slots. A filled tile opens its details (the floating card: what it does, when it acts,
+             its draw); Remove takes it off and leaves the slot empty. An empty tile says how to fill it. The bridge,
+             quarters and sensor keep their own slots and are never counted here. -->
+        {#if moduleRow && (moduleRow.slots > 0 || moduleRow.used > 0)}
+          <div class="ss-group">
+            <div class="ss-group-head">
+              <span class="ss-head-ic" aria-hidden="true"><Icon name="module" /></span> Modules
+              <span class="ss-group-cap">{moduleRow.used} / {moduleRow.slots} slots</span>
+            </div>
+            <p class="ss-mod-note">
+              {shipDef.label} hull: {moduleRow.slots} module slot{moduleRow.slots === 1 ? "" : "s"}.{hasSpecUtilitySlot ? " The Spec Utility counts here." : ""} The bridge, quarters and sensor keep their own slots.
+            </p>
+            <div class="ss-mod-grid">
+              {#each moduleRow.tiles as t (t.kind === "empty" ? `empty-${t.index}` : t.piece.id)}
+                {#if t.kind === "empty"}
+                  <div class="ss-mod-tile ss-mod-empty" class:locked={editsBlocked}>
+                    <span class="ss-mod-glyph" aria-hidden="true"><Icon name="module" size={22} /></span>
+                    <span class="ss-mod-name">Empty module slot</span>
+                    <span class="ss-mod-sub">{spareModules > 0 ? "Install one from your spare modules." : "Craft a module at the Fabricator (its Modules group), then install it here."}</span>
+                    <div class="ss-slot-actions">
+                      <button class="ss-act ss-act-install" disabled={editsBlocked} on:click={() => selectSlot("module")}>Install</button>
+                      {#if utilityEmpty && t.index === moduleRow.used}
+                        <button class="ss-act ss-act-install" disabled={editsBlocked} on:click={() => selectSlot("specUtility")}>Spec Utility</button>
+                      {/if}
+                    </div>
+                  </div>
+                {:else}
+                  {@const piece = t.piece}
+                  {@const svg = equipmentSvgIcon(piece)}
+                  {@const cond = pieceConditionPercent(piece)}
+                  <div class="ss-mod-tile" class:sel={selectedSlot === piece.slotType && piece.slotType === "specUtility"} class:locked={editsBlocked} style="--tc: {equipmentRarityColor(piece.rarity)}">
+                    <button
+                      type="button"
+                      class="ss-mod-info"
+                      aria-label={`${spareLabel(piece)}: ${piece.rarity} grade, iL ${piece.iLevel}. Details.`}
+                      on:click={(e) => clickInfo(e, piece)}
+                      on:mouseenter={(e) => hoverTip(piece, e.currentTarget)}
+                      on:mouseleave={hoverOut}
+                      on:focus={(e) => hoverTip(piece, e.currentTarget)}
+                      on:blur={hoverOut}
+                    >
+                      <span class="ss-mod-cat">{moduleTileCategory(piece)}</span>
+                      <span class="ss-mod-glyph" aria-hidden="true">{#if svg !== null}<Icon name={svg} size={22} />{:else}{tileIcon(piece)}{/if}</span>
+                      <span class="ss-mod-name">{spareLabel(piece)}</span>
+                      <span class="ss-mod-sub">{piece.rarity} &middot; iL {piece.iLevel} &middot; {moduleTileDrawText(piece)}</span>
+                      <span class="ss-mod-wear" title={`Condition ${cond}%`}><i style="width: {cond}%"></i></span>
+                    </button>
+                    <div class="ss-slot-actions">
+                      {#if t.kind === "utility"}
+                        <button class="ss-act ss-act-swap" disabled={editsBlocked} on:click={() => selectSlot("specUtility")}>Swap</button>
+                      {/if}
+                      <button
+                        class="ss-act ss-act-uninstall"
+                        disabled={onMission || editsBlocked}
+                        title={gearLockHint}
+                        on:click={() => handleUninstall(piece.id)}
+                      >Remove</button>
+                    </div>
+                  </div>
+                {/if}
+              {/each}
+            </div>
+            {#each moduleSetLines as line (line.chip)}
+              <p class="ss-mod-set"><span class="ss-power-chip ok"><Icon name="check" /> {line.chip}</span> {line.text}</p>
+            {/each}
+          </div>
+        {/if}
 
         <!-- DRONE BAYS: carrier-only (a hangar capacity, not a universal slot). Same
              auto-scaling tile grid as Offense. -->
@@ -1778,15 +1987,20 @@
             {#if shipDamaged}
               <p class="ss-note ss-note-dim">Repair the ship before installing new ship systems.</p>
             {:else if pickerSpares.length === 0}
-              <p class="ss-note ss-note-dim">No spare {pickerLabel} systems in storage. Fabricate one, or uninstall from another ship.</p>
+              {#if selectedSlot === "module"}
+                <p class="ss-note ss-note-dim">No spare modules in storage. Craft one at the Fabricator (its Modules group), or remove one from another ship.</p>
+              {:else}
+                <p class="ss-note ss-note-dim">No spare {pickerLabel} systems in storage. Fabricate one, or uninstall from another ship.</p>
+              {/if}
             {:else}
               <!-- 1. INSTALLED banner: the piece currently in this slot / hardpoint / bay. -->
               <div class="ss-installed">
                 <span class="ss-installed-tag">Installed</span>
                 {#if installedPiece}
+                  {@const installedSvg = equipmentSvgIcon(installedPiece)}
                   <span class="ss-tile" style="--tc: {equipmentRarityColor(installedPiece.rarity)}">
                     <span class="ss-tile-dot"></span>
-                    <span class="ss-tile-ic">{tileIcon(installedPiece)}</span>
+                    <span class="ss-tile-ic">{#if installedSvg !== null}<Icon name={installedSvg} />{:else}{tileIcon(installedPiece)}{/if}</span>
                     <span class="ss-tile-il">iL {installedPiece.iLevel}</span>
                   </span>
                   <span class="ss-slot-text">
@@ -1810,6 +2024,7 @@
                     {#each pickerSpares as spare (spare.id)}
                       {@const gate = canFitEquipment(safeState, shipId, spare.id, replacingId)}
                       {@const net = spareNetRating(spare)}
+                      {@const spareSvg = equipmentSvgIcon(spare)}
                       <button
                         type="button"
                         class="ss-spare-tile"
@@ -1825,15 +2040,21 @@
                       >
                         <span class="ss-tile" style="--tc: {equipmentRarityColor(spare.rarity)}">
                           <span class="ss-tile-dot"></span>
-                          <span class="ss-tile-ic">{tileIcon(spare)}</span>
+                          <span class="ss-tile-ic">{#if spareSvg !== null}<Icon name={spareSvg} />{:else}{tileIcon(spare)}{/if}</span>
                           <span class="ss-tile-il">iL {spare.iLevel}</span>
                         </span>
                         <span class="ss-slot-text">
                           <span class="ss-slot-label">{spareLabel(spare)}</span>
                           <span class="ss-slot-sub">{spare.rarity} &middot; iL {spare.iLevel}</span>
+                          <!-- E-MOD EM-10: a module spare's status in the mockup's words ("+8 draw", "Needs 6 more power"). -->
+                          {#if spare.slotType === "module"}
+                            <span class="ss-mod-status" class:bad={!gate.ok}>{moduleStatusText(gate, spare)}</span>
+                          {/if}
                         </span>
                         <span class="ss-spare-net">
-                          {#if !gate.ok}
+                          {#if spare.slotType === "module"}
+                            {#if !gate.ok}<span class="ss-blocked-tag">Blocked</span>{/if}
+                          {:else if !gate.ok}
                             <span class="ss-blocked-tag">Blocked</span>
                           {:else if net !== null}
                             <span class="ss-br-delta" class:up={net > 0} class:down={net < 0}>{fmtBRDelta(net)}</span>
@@ -1861,6 +2082,16 @@
                           <span class="ss-compare-br-tag">Battle Rating</span>
                         </div>
                       {/if}
+                      <!-- E-MOD EM-10: a module says what it does, when it acts and its draw (the card's lines). -->
+                      {#if candidateModuleLines}
+                        <div class="ss-compare-mod">
+                          <div class="ss-compare-mod-kind">{candidateModuleLines.kind}</div>
+                          <div>{candidateModuleLines.effect}</div>
+                          <div>{candidateModuleLines.when}</div>
+                          {#if candidateModuleLines.rule}<div><b>{candidateModuleLines.rule}</b></div>{/if}
+                          <div>{candidateModuleLines.draw}</div>
+                        </div>
+                      {/if}
                       <!-- Per-stat deltas (combat stats for a combat piece, economy stats for an
                            economy piece). Green when the candidate is better, red when worse. -->
                       <div class="ss-compare-rows">
@@ -1876,6 +2107,14 @@
                           </div>
                         {/each}
                       </div>
+                      <!-- E-MOD EM-10: a refused install says why in the mockup's words ("Can't install Shield Surge:
+                           needs 6 more power. ..."), every reason through the one exhaustive reasonText switch. -->
+                      {#if !gate.ok}
+                        <div class="ss-refuse" role="alert">
+                          <Icon name="warning" />
+                          <span>Can't install {spareLabel(installCandidate)}: {reasonText(gate)}.</span>
+                        </div>
+                      {/if}
                       <!-- Commit: the stable Install button (never in a tooltip). Gated per
                            candidate; on-mission / damaged locks preserved via the gate + shipDamaged. -->
                       <button
@@ -1883,7 +2122,7 @@
                         disabled={!gate.ok || shipDamaged}
                         title={gate.ok ? undefined : reasonText(gate)}
                         on:click={() => handleInstall(installCandidate.id)}
-                      >{gate.ok ? (replacingId !== undefined ? "Swap" : "Install") : "Blocked: " + reasonText(gate)}</button>
+                      >{gate.ok ? (replacingId !== undefined ? "Swap" : "Install") : "Blocked"}</button>
                     </div>
                   {:else}
                     <p class="ss-note ss-note-dim ss-compare-empty">Select a system to compare it with what is installed.</p>
@@ -2652,6 +2891,289 @@
     display: flex;
     gap: 6px;
     flex: 0 0 auto;
+  }
+
+  /* E-MOD EM-10: the POWER bar and the MODULES row (the signed-off mockup, section C), in the board's own tokens. */
+  .ss-head-ic {
+    display: inline-flex;
+    margin-right: 6px;
+    color: var(--color-accent);
+    font-size: calc(13px * var(--ui-scale));
+  }
+  .ss-power-chip {
+    margin-left: auto;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 7px;
+    border: 1px solid rgba(52, 211, 153, 0.45);
+    background: rgba(52, 211, 153, 0.1);
+    color: var(--color-success);
+    font-family: var(--font-mono);
+    font-size: var(--text-3xs);
+    letter-spacing: 0.04em;
+    text-transform: none;
+    white-space: nowrap;
+  }
+  .ss-power-chip.warn {
+    border-color: rgba(var(--color-warning-rgb), 0.5);
+    background: rgba(var(--color-warning-rgb), 0.12);
+    color: var(--color-warning);
+  }
+  .ss-power-chip.ok {
+    margin-left: 0;
+  }
+  .ss-power-num {
+    display: flex;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: 4px 10px;
+    margin-bottom: 6px;
+  }
+  .ss-pnum {
+    font-family: var(--font-mono);
+    font-weight: 700;
+    font-size: calc(20px * var(--ui-scale));
+    color: var(--color-text-primary);
+  }
+  .ss-power-unit {
+    font-size: var(--text-2xs);
+    color: var(--color-text-dim);
+  }
+  .ss-pbar {
+    position: relative;
+    height: 16px;
+    border: 1px solid var(--color-border);
+    background: rgba(var(--color-accent-rgb), 0.08);
+    border-radius: var(--corner);
+    overflow: hidden;
+  }
+  .ss-pbar-used {
+    position: absolute;
+    inset: 0 auto 0 0;
+    background: var(--color-accent);
+    opacity: 0.75;
+  }
+  .ss-pbar.over .ss-pbar-used {
+    background: var(--color-warning);
+  }
+  .ss-pbar-cut {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    background: repeating-linear-gradient(135deg, var(--color-success) 0 3px, transparent 3px 7px);
+    opacity: 0.7;
+  }
+  .ss-pbar-surplus {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    background: rgba(52, 211, 153, 0.18);
+    border-left: 1px dashed var(--color-success);
+  }
+  .ss-pbar-mark {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 2px;
+    margin-left: -1px;
+    background: var(--color-text-primary);
+  }
+  .ss-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 14px;
+    margin-top: 6px;
+    font-size: var(--text-2xs);
+    color: var(--color-text-secondary);
+  }
+  .ss-legend b {
+    font-family: var(--font-mono);
+    font-weight: 600;
+    color: var(--color-text-primary);
+  }
+  .ss-power-note,
+  .ss-power-surplus,
+  .ss-mod-note,
+  .ss-mod-set {
+    margin: 6px 0 0;
+    font-size: var(--text-2xs);
+    color: var(--color-text-secondary);
+    line-height: 1.45;
+  }
+  .ss-power-surplus,
+  .ss-mod-set {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+  }
+  .ss-power-warn {
+    margin-top: 8px;
+    padding: 8px 10px;
+    border: 1px solid rgba(var(--color-warning-rgb), 0.45);
+    background: rgba(var(--color-warning-rgb), 0.1);
+    color: var(--color-text-secondary);
+    font-size: var(--text-2xs);
+    line-height: 1.45;
+  }
+  .ss-power-warn strong {
+    color: var(--color-warning);
+  }
+  .ss-power-systems {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, 140px), 1fr));
+    gap: 6px;
+    margin-top: 8px;
+  }
+  .ss-power-systems > div {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 5px 8px;
+    border: 1px solid var(--color-border);
+    font-size: var(--text-2xs);
+    color: var(--color-text-secondary);
+    min-width: 0;
+  }
+  .ss-power-sys-k {
+    font-size: var(--text-3xs);
+    color: var(--color-text-dim);
+  }
+  .ss-power-sys-v {
+    overflow-wrap: anywhere;
+  }
+  .ss-power-sys-v b {
+    font-family: var(--font-mono);
+    color: var(--color-text-primary);
+  }
+  .ss-mod-note {
+    margin: 0 0 8px;
+  }
+  .ss-mod-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, 150px), 1fr));
+    gap: 8px;
+  }
+  .ss-mod-tile {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 8px;
+    min-height: 112px;
+    border: 1px solid var(--color-border);
+    border-top: 2px solid var(--tc, var(--color-border));
+    background: var(--color-panel-bg-strong);
+    min-width: 0;
+  }
+  .ss-mod-tile.sel {
+    border-color: var(--color-accent);
+  }
+  .ss-mod-tile.locked {
+    opacity: 0.45;
+  }
+  .ss-mod-empty {
+    border-style: dashed;
+    border-top-width: 1px;
+    background: none;
+    color: var(--color-text-dim);
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+  }
+  .ss-mod-info {
+    appearance: none;
+    background: none;
+    border: none;
+    padding: 0;
+    margin: 0;
+    font: inherit;
+    color: inherit;
+    text-align: left;
+    cursor: pointer;
+    display: grid;
+    gap: 4px;
+    width: 100%;
+    min-width: 0;
+  }
+  .ss-mod-cat {
+    font-family: var(--font-mono);
+    font-size: var(--text-3xs);
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--color-accent);
+  }
+  .ss-mod-glyph {
+    display: inline-flex;
+    color: var(--color-accent);
+    font-size: calc(20px * var(--ui-scale));
+    line-height: 1;
+  }
+  .ss-mod-name {
+    font-weight: 650;
+    font-size: var(--text-xs);
+    color: var(--color-text-primary);
+    overflow-wrap: anywhere;
+  }
+  .ss-mod-empty .ss-mod-name {
+    color: var(--color-text-secondary);
+    font-weight: 500;
+  }
+  .ss-mod-sub {
+    font-size: var(--text-3xs);
+    color: var(--color-text-dim);
+    overflow-wrap: anywhere;
+  }
+  .ss-mod-wear {
+    display: block;
+    height: 4px;
+    background: rgba(var(--color-accent-rgb), 0.1);
+    overflow: hidden;
+  }
+  .ss-mod-wear i {
+    display: block;
+    height: 100%;
+    background: var(--color-success);
+  }
+  .ss-mod-tile .ss-slot-actions {
+    margin-top: auto;
+    flex-wrap: wrap;
+  }
+  .ss-mod-status {
+    font-family: var(--font-mono);
+    font-size: var(--text-3xs);
+    color: var(--color-text-secondary);
+  }
+  .ss-mod-status.bad {
+    color: var(--color-danger);
+  }
+  .ss-compare-mod {
+    display: grid;
+    gap: 3px;
+    margin: 6px 0 8px;
+    font-size: var(--text-2xs);
+    color: var(--color-text-secondary);
+    line-height: 1.4;
+  }
+  .ss-compare-mod-kind {
+    font-family: var(--font-mono);
+    font-size: var(--text-3xs);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--color-accent);
+  }
+  .ss-refuse {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    margin: 8px 0;
+    padding: 8px 10px;
+    border: 1px solid var(--color-danger);
+    background: rgba(248, 113, 113, 0.08);
+    color: var(--color-danger);
+    font-size: var(--text-2xs);
+    line-height: 1.4;
   }
   /* Bug fix (0.13.2 QA): a weapon / drone-bay TILE is narrow in the multi-column grid
      (minmax 110px), so a side-by-side Swap + Uninstall overflowed the tile (worst at 2+

@@ -2,7 +2,7 @@
 // categories, the member compare rows).
 
 import { describe, it, expect } from "vitest";
-import { BLUEPRINTS, EQUIPMENT_SLOTS, ITEMS, MEMBER_SLOT_TYPES, freshState, shipDisplayLabel } from "./game/model";
+import { BLUEPRINTS, EQUIPMENT_SLOTS, ITEMS, MEMBER_SLOT_TYPES, MODULE_BLUEPRINTS, freshState, shipDisplayLabel } from "./game/model";
 import { FIELD_KIT_BLUEPRINT } from "./game/fieldKits";
 import type { AwayMember, AwayTeamType, EquipmentInstance, EquipmentSlotType, GameState } from "./game/model";
 import { memberFitBlockText } from "./game/memberEquipment";
@@ -177,8 +177,13 @@ describe("awayGearDisplay: the Fabricator and Research shelves (Field Kits FKR-3
     for (const bp of Object.values(BLUEPRINTS)) {
       const g = fabricatorGroupOf(bp);
       if (kitKeys.includes(bp.key)) expect(g, bp.key).toBe("fieldKit");
+      // E-MOD EM-10: a universal module craft files under its own "Modules" shelf.
+      else if (bp.equipmentOutput?.slotType === "module") expect(g, bp.key).toBe("module");
       else expect(g, bp.key).toBe(blueprintGearCategory(bp) ?? "material");
     }
+    expect(FABRICATOR_GROUP_LABEL.module).toBe("Modules");
+    expect(FABRICATOR_GROUP_ORDER.indexOf("module")).toBe(FABRICATOR_GROUP_ORDER.indexOf("ship") + 1);
+    expect(Object.values(MODULE_BLUEPRINTS).every((bp) => fabricatorGroupOf(bp) === "module")).toBe(true);
     expect(FABRICATOR_GROUP_LABEL.fieldKit).toBe("Field Kits");
     expect(FABRICATOR_GROUP_LABEL.material).toBe("Materials");
     expect(FABRICATOR_GROUP_ORDER[FABRICATOR_GROUP_ORDER.length - 1]).toBe("fieldKit");

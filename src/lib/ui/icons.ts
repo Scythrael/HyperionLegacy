@@ -474,6 +474,11 @@ export const ICON_PATHS = {
   moduleSurge: ["M12 3l8 3v6c0 4.5-3.4 8-8 9-4.6-1-8-4.5-8-9V6z", "M12 16V9", "M9 11.5l3-3 3 3"],
   // Signal Integrator: a waveform through a vertical tick (a signal being read).
   moduleSignal: ["M3 12c1.5-3 3-3 4.5 0s3 3 4.5 0 3-3 4.5 0 3 3 4.5 0", "M12 3v4M12 17v4"],
+  // E-MOD EM-10: the Ship Systems Power bar and Modules row headings (the same mockup, section C, its own paths).
+  // Module: a chip with pins top and bottom and a die in the middle (a slot-in accessory).
+  module: ["M5 6h14v12H5z", "M8 6V3.5M12 6V3.5M16 6V3.5M8 20.5V18M12 20.5V18M16 20.5V18", "M9 10h6v4H9z"],
+  // Power: a lightning bolt (the ship's power budget).
+  power: ["M13 2.5L5 13.5h6l-1 8 8-11h-6z"],
 
   // --- 0.13.11 Codes pad and the secret game ---
 

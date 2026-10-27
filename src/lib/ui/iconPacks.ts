@@ -158,6 +158,9 @@ export const ICON_SEMANTICS: Record<IconName, IconSemantic> = {
   moduleLastStand: "subject",
   moduleSurge: "subject",
   moduleSignal: "subject",
+  // E-MOD EM-10: the module slot and the power budget (each names a thing on the Ship Systems board).
+  module: "subject",
+  power: "subject",
   telescope: "subject",
   riskCombat: "subject",
   riskFauna: "subject",

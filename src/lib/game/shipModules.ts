@@ -39,8 +39,8 @@ import type { Rng } from "./combat/rng";
 // The switch
 // ============================================================================
 
-// UNIVERSAL_MODULES_LIVE: whether the module slot is shown to the player (the Armory's module slots today; the Ship
-// Systems Modules row, the Fabricator group and the Logistics family when EM-10 builds them). It was FALSE until EM-7
+// UNIVERSAL_MODULES_LIVE: whether the module slot is shown to the player (the Armory's module slots, and since EM-10 the
+// Ship Systems Modules row, the Fabricator "Modules" group and the Logistics "Modules" family). It was FALSE until EM-7
 // authored the first craftable module (the user's "nothing player-reachable may be inert": an empty slot no player can
 // fill must not be shown). EM-7 (0.14.0) flipped it with the v1 roster and its blueprints (model.ts MODULE_BLUEPRINTS);
 // shipModules.test.ts holds the switch equal to "a module blueprint exists".
@@ -481,17 +481,17 @@ export function moduleSlotsUsed(pieces: readonly Pick<EquipmentInstance, "slotTy
   return n;
 }
 
-// User 2026-10-26 ("Armory loadouts only (Recommended)"): until EM-10 builds the Ship Systems Modules row, a module
-// piece is installed and removed through an Armory loadout only, so the item-side Install on... refuses every ship for
-// a module (memberEquipment.ts installTargetsFor, the moduleArmoryOnly refusal). EM-10 turns this off.
-export const MODULE_INSTALL_ARMORY_ONLY = true;
+// User 2026-10-26 ("Armory loadouts only (Recommended)"): until EM-10 built the Ship Systems Modules row, a module
+// piece was installed and removed through an Armory loadout only, and the item-side Install on... refused every ship
+// for a module (memberEquipment.ts installTargetsFor, the moduleArmoryOnly refusal). EM-10 (0.14.0) built the row (its
+// per-slot Remove and Install), so this is OFF: Install on... lists each ship with the real gate's verdict.
+export const MODULE_INSTALL_ARMORY_ONLY = false;
 
 // The refusal texts every install surface renders (Ship Systems, Install on..., the dev panel). Lower case first word,
-// no final period, like every other install reason text. EM-7 review: no surface outside the Armory has a module Remove
-// control yet, so the full-slots text says where to change them (the mockup's "Remove a module first" returns with
-// EM-10's Modules row).
+// no final period, like every other install reason text. EM-10: the Ship Systems Modules row has a per-slot Remove, so
+// the full-slots text is the signed-off mockup's again ("Remove a module first").
 export function moduleSlotsFullReasonText(): string {
-  return "no free module slot (modules and the Spec Utility share them). Change modules in an Armory loadout";
+  return "no free module slot (modules and the Spec Utility share them). Remove a module first";
 }
 export function moduleArmoryOnlyReasonText(): string {
   return "install modules through an Armory loadout for now";
