@@ -450,7 +450,14 @@ quality". Verify in preview desktop + 375 px.
 > OUTPUT's stock and names the live Material Quality sources (Refinery-Feed, Yield and Survey Rigs, and any Prospecting
 > Rig's rolled line). The Transmuter's Seal also carries the line but is left out: only a Luminous piece rolls a
 > legendary affix and Luminous is not a live band (its names are still [PROPOSAL]); name it when Luminous ships.
-> The mockup's "Quality carries into crafts" panel stays out pending the user's answer.
+> **USER ANSWER (2026-10-26), the mockup's "Quality carries into crafts" panel:** "Trimmed panel now (Recommended)".
+> Built: the panel sits under the Refinery's production lines (the mockup's order panel), showing only the half true
+> today: raw quality carries into a refined good. The example is real (`carryExample`: Cobalt Coil on Q2 Cobalt Ore
+> + Q2 Titanium Ingot, run through the form's own preview; a test starts that job and checks its stamp), with the
+> rule "a refine order stamps the unit-weighted average quality of what it used, rounded down; the usual quality
+> roll can then lift the result, up to Q5" (`CARRY_RULE_TEXT`). Left out: "equipment blanks keep their quality" and
+> the Sprint Drive Q2+ step. **ML-5 restores that half** (add the blank step and sentence to `QualityCarryPanel`
+> when blanks carry quality).
 
 ### E-MOD (EM)
 

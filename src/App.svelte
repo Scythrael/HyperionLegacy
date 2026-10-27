@@ -1151,6 +1151,7 @@
   import RefineryLines from "./lib/RefineryLines.svelte";
   import CraftQualityPreview from "./lib/CraftQualityPreview.svelte";
   import QualityChips from "./lib/QualityChips.svelte";
+  import QualityCarryPanel from "./lib/QualityCarryPanel.svelte";
   import { orderStockContext, qualityChips } from "./lib/ui/materialLinesDisplay";
   import { refineJobDurationTicks } from "./lib/game/tick";
   import { gasStudySourcePending } from "./lib/game/gasGiantContent";
@@ -12360,6 +12361,14 @@
                     {/if}
                   {/each}
                 {/if}
+              </Panel>
+
+              <!-- ML-7: the mockup's "Quality carries into crafts" explainer under the order form, trimmed to the
+                   half that is true today (user 2026-10-26 "Trimmed panel now (Recommended)"); ML-5 restores the
+                   equipment half. -->
+              <Panel>
+                <div class="panel-title"><Icon name="fabricator" size={12} /> QUALITY CARRIES INTO CRAFTS</div>
+                <QualityCarryPanel />
               </Panel>
 
               <!-- ORDER QUEUE (Crafting 0.13.3, Phase 4 Unit 4.2, design 8.2).

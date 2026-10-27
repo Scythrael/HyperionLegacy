@@ -14,7 +14,7 @@
 import Decimal from "break_infinity.js";
 import { ITEMS, MISSIONS, REFINE_RECIPES, refineRecipeOffered } from "../game/model";
 import { QUALITY_TIERS, drawQualityTally, itemTotal, removeItemHighestFirst, removeItemLowestFirst } from "../game/inventory";
-import { CARRY_AVERAGE_EPSILON, carriedQuality } from "../game/materialQuality";
+import { CARRY_AVERAGE_EPSILON, MAX_MATERIAL_QUALITY, carriedQuality } from "../game/materialQuality";
 import type { IconName } from "./icons";
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -242,6 +242,50 @@ export function averageText(avg: number): string {
 export function carriedQualityText(p: Pick<OrderQualityPreview, "firstAverage" | "firstCarried">): string {
   return `average ${averageText(p.firstAverage)} = Q${p.firstCarried}, then the roll`;
 }
+
+// ---------------------------------------------------------------------------------------------------------------
+// The "Quality carries into crafts" explainer (user 2026-10-26: "Trimmed panel now (Recommended)")
+// ---------------------------------------------------------------------------------------------------------------
+
+// The worked example the Refinery's explainer panel shows: a real recipe (Cobalt Coil) on all-Q2 inputs, run through
+// the same orderQualityPreview the order form uses, so every figure is what the engine would stamp. Only the half
+// that is true today: raw quality carries into a refined good. ML-5 (quality blanks) restores the mockup's other
+// half (equipment blanks keep their quality; the Sprint Drive step). Pure.
+export const CARRY_EXAMPLE_RECIPE = "synthCobaltCoil";
+export const CARRY_EXAMPLE_QUALITY = 2;
+
+export interface CarryExample {
+  // The flow chips: each input at the example quality, then the output at its carried quality and "+" (the roll can
+  // lift it further).
+  inputs: string[];
+  output: string;
+  // "3 Cobalt Ore Q2 · 1 Titanium Ingot Q2"
+  uses: string;
+  // "average 2.00 = Q2, then the roll"
+  carried: string;
+  outputLabel: string;
+}
+
+export function carryExample(): CarryExample {
+  const recipe = REFINE_RECIPES[CARRY_EXAMPLE_RECIPE];
+  const q = CARRY_EXAMPLE_QUALITY;
+  const inv: Record<string, Decimal[]> = {};
+  for (const [id, n] of Object.entries(recipe.input)) {
+    inv[id] = Array.from({ length: q + 1 }, (_, i) => (i === q ? new Decimal(n) : new Decimal(0)));
+  }
+  const p = orderQualityPreview(inv, recipe.input, 1, false);
+  const label = (id: string): string => ITEMS[id]?.label ?? id;
+  return {
+    inputs: Object.keys(recipe.input).map((id) => `${label(id)} Q${q}`),
+    output: `${label(recipe.output.itemId)} Q${p.firstCarried}+`,
+    uses: p.inputs.map((u) => u.used.map((c) => `${c.amount.toString()} ${label(u.itemId)} Q${c.quality}`).join(" · ")).join(" · "),
+    carried: carriedQualityText(p),
+    outputLabel: label(recipe.output.itemId),
+  };
+}
+
+// The explainer's rule sentence (the engine's L6 rule, materialQuality.ts carriedQuality + craftOutputQuality).
+export const CARRY_RULE_TEXT = `A refine order stamps the unit-weighted average quality of what it used, rounded down. The usual quality roll can then lift the result, up to Q${MAX_MATERIAL_QUALITY}.`;
 
 // The note under the readout when other orders draw the same stock first (the queue's form, or an input another line
 // or a queued order holds part of): the readout is worked out as if the order started now.

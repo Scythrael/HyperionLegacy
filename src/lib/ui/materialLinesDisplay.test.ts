@@ -8,13 +8,17 @@ import Decimal from "break_infinity.js";
 import { EQUIPMENT_SLOTS, MISSIONS, REFINE_RECIPES, refineRecipeOffered, type GameState } from "../game/model";
 import { LUMINOUS_AFFIXES } from "../game/legendaryAffixes";
 import { LIVE_BANDS } from "../game/rarityGoldens.fixture";
-import { CARRY_AVERAGE_EPSILON, carriedQuality } from "../game/materialQuality";
+import { CARRY_AVERAGE_EPSILON, carriedQuality, craftOutputQuality } from "../game/materialQuality";
 import { economyTick, startLine } from "../game/tick";
 import { lineInputsPerIteration } from "../game/allocation";
 import { QUALITY_TIERS, getBucket } from "../game/inventory";
 import { craftStateQ } from "../game/materialQualityGoldens.fixture";
 import { HELP_TOPICS } from "../helpTopics";
 import {
+  CARRY_EXAMPLE_QUALITY,
+  CARRY_EXAMPLE_RECIPE,
+  CARRY_RULE_TEXT,
+  carryExample,
   CONTENDED_STOCK_NOTE,
   orderStockContext,
   OTHER_REFINERY_LINE,
@@ -212,6 +216,29 @@ describe("ML-7 review fixes: short stock and contended stock", () => {
     expect(orderStockContext(per, free, none, true).contended).toBe(true);
     expect(orderStockContext(per, free, (id) => (id === "b" ? D(3) : D(0)), false).contended).toBe(true);
     expect(CONTENDED_STOCK_NOTE).toBe("Other orders draw from this stock first, so the carried quality may differ when this order starts.");
+  });
+});
+
+describe("ML-7 the trimmed 'Quality carries into crafts' panel (user 2026-10-26)", () => {
+  it("shows a real recipe's carry, and the job really stamps it", () => {
+    const ex = carryExample();
+    expect(ex.inputs).toEqual(["Cobalt Ore Q2", "Titanium Ingot Q2"]);
+    expect(ex.output).toBe("Cobalt Coil Q2+");
+    expect(ex.uses).toBe("3 Cobalt Ore Q2 · 1 Titanium Ingot Q2");
+    expect(ex.carried).toBe("average 2.00 = Q2, then the roll");
+    // The started job stamps the shown quality.
+    const real = runOrder({ cobaltOre: [0, 0, 3], titaniumIngot: [0, 0, 1] }, CARRY_EXAMPLE_RECIPE, 1, false);
+    expect(real.stamps).toEqual([CARRY_EXAMPLE_QUALITY]);
+  });
+
+  it("states only today's rule: no equipment or blank claim (ML-5 restores that half)", () => {
+    expect(CARRY_RULE_TEXT).toBe("A refine order stamps the unit-weighted average quality of what it used, rounded down. The usual quality roll can then lift the result, up to Q5.");
+    expect(/blank|equipment|Sprint Drive|inspect/i.test(CARRY_RULE_TEXT + JSON.stringify(carryExample()))).toBe(false);
+    // "Can then lift": the roll never lowers a carried quality, and caps at Q5.
+    for (let carried = 1; carried <= 5; carried++) for (let rolled = 0; rolled <= 5; rolled++) {
+      const out = craftOutputQuality(carried, rolled);
+      expect(out >= carried && out <= 5).toBe(true);
+    }
   });
 });
 
