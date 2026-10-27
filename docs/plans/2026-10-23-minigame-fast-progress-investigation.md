@@ -118,3 +118,12 @@ points buy LEVELED stat-boost upgrades that replace today's stat skills (Head St
 level cap (X / Y, the approved minigame exception to D23) and its strength scales off a prestige count, some lifetime
 (e.g. lifetime Prestigeceptions), some current (e.g. Captain Prestiges in the current Fleet).
 Open from playback 1: relics boost the whole climb (as built in R2-10) or only past e10M? (unanswered)
+
+Brainstorm (2026-10-27), on Skill Points after the caps, verbatim: "Yeah, my thought is that after a while, you might end
+up hitting the cap on all skills at that point, and then you may keep accruing skill points from there. We will want to
+balance this around keeping skill points that you earn from each prestige important and once you get to that point
+where you should be able to reliably hit e10,000,000, the points stop and the costs have hit the maximum, so you're left
+with close to 0 skill points, and maxed upgrades."
+Reading: the points economy is tuned so every Fleet's points matter (costs rise with level); the total points a player
+can earn and the total cost of maxing every upgrade meet at about the point where e10,000,000 is reliably reachable;
+there the points stop, every upgrade is maxed, and the player holds close to 0 spare points (no pile of useless points).
