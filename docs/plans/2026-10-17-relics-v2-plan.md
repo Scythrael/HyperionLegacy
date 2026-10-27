@@ -541,3 +541,22 @@ So: past 1000 per tier, relics never help the main game (the freeze stays). The 
 follows diminishing returns (a D23-style concave, uncapped curve), NOT compounding; this supersedes the "compounding is
 allowed inside the minigame" note above for relic boosts (the minigame's own Overclock still compounds as built).
 Future minigame bonuses get balanced around the scaling relics provide (later content).
+
+## USER ANSWERS (2026-10-26): R2-10 relic boosts in the minigame
+
+Asked by multiple choice; all four picks were the Recommended option.
+1. Table: "Approve as drafted (Recommended)". One minigame lever per relic type (17 types):
+   Geode Core = Mining Laser (I) output; Magma Pearl = Refinery (II); Deep-Vein Compass = Fabricator (III);
+   Tectonic Keystone = Synthesizer (IV); Spore Capsule = Fusion Forge (V); Bioluminescent Seed = Graviton Press (VI);
+   Leviathan Scale = Quantum Loom (VII); Living Crystal = Singularity Engine (VIII); Flight Recorder = each Overclock
+   level counts more; Ancient Drive Coil = the whole stack runs faster; Hull Rivet = the ten bonus a little stronger;
+   Captain's Sigil = Captain Points; Glyph Tablet = Augment Points; Resonance Shard = Fleet Points; Star Chart Fragment
+   = Dream Points; Precursor Lens = every generator (small); Heart of the Archive = every generator (bigger, radiant).
+   Skills are on/off unlocks, so relics reach them only through the points that buy them. The minigame shows a
+   "Relic boosts" line listing each active boost.
+2. Strength: "Gentle (Recommended)": about 10 to 20% faster to each goal for a typical 0.14.0 relic collection;
+   relic-free players keep the shipped bands (finale 3 to 5 days, e1,000,000 about a month, e10,000,000 about 4 months
+   average); the pacing sim re-runs with realistic relic counts and pins both.
+3. Past-cap weight: "5x (Recommended)": each copy past a tier's 1,000 soft cap counts 5x a regular copy toward the
+   minigame, still on the D23 diminishing curve (no cap, no compounding).
+4. Two-way stays "Only via milestones" (2026-10-22): the minigame never multiplies the main game.
