@@ -741,7 +741,8 @@
   // the Threat Assessment forecasts the fight the dispatch will actually write.
   import { isFirstGatheringRun, isFirstRun, patrolDifficultyAt } from "./lib/game/runDifficulty";
   // Safe first runs SF-6: the first-run chip and lines, verbatim (user 2026-10-27, call 12).
-  import { FIRST_GATHERING_LINE, TRAINING_PATROL_LINE, TRAINING_RUN_CHIP } from "./lib/trainingRunDisplay";
+  import { FIRST_GATHERING_LINE, TRAINING_PATROL_LINE, firstGatheringCardCaptainId } from "./lib/trainingRunDisplay";
+  import TrainingRunChip from "./lib/TrainingRunChip.svelte";
   // salvageShip(state, shipId) breaks down a whole HULL from the Ships roster for a
   // fraction of its build cost. Its SUCCESS branch carries a { next, recovered,
   // creditsRecovered } shape (SalvageShipResult, credits are unique to the ship path);
@@ -17733,7 +17734,7 @@
                     <div class="mission-card">
                       <div class="research-name">{captain.label}, {missionDef.label}</div>
                       <!-- Safe first runs SF-6: the save's first gathering run (no delivered cycle yet) carries the line. -->
-                      {#if isFirstGatheringRun(state)}<div class="train-line" style="margin-bottom: 6px">{FIRST_GATHERING_LINE}</div>{/if}
+                      {#if firstGatheringCardCaptainId(state) === captain.id}<div class="first-run-line">{FIRST_GATHERING_LINE}</div>{/if}
                       <!-- 0.13.4 Phase 4: through missionPhaseStatus, the SINGLE source this and the
                            Home In Progress row both read, so a TRANSIT BERTH hold is worded
                            identically on both surfaces and neither can be updated without the other.
@@ -18129,7 +18130,7 @@
               </div>
               <!-- Safe first runs SF-6: until the save delivers its first gathering cycle, the list carries the line
                    (gathering cannot be lost, so there is no chip). -->
-              {#if isFirstGatheringRun(state)}<div class="train-line" style="margin-bottom: 8px">{FIRST_GATHERING_LINE}</div>{/if}
+              {#if isFirstGatheringRun(state)}<div class="first-run-line">{FIRST_GATHERING_LINE}</div>{/if}
               <!-- OPERATIONS mission-pane redesign (0.13.5): the AVAILABLE MISSIONS card grid
                    became a vertical stack of full-width ROWS (.mpane), now rendered through the
                    shared availableMissionRow snippet (Exploration 0.14.0 E1b) so Gathering +
@@ -18344,7 +18345,7 @@
                       <!-- Safe first runs SF-6: the save's one safe patrol (SF9) carries the "Training run" chip and its
                            line; the Threat Assessment above reads the same stamp (Guaranteed). -->
                       {#if isFirstRun(state, "patrol")}
-                        <div class="train-line"><span class="train-chip"><Icon name="check" size={11} /> {TRAINING_RUN_CHIP}</span> {TRAINING_PATROL_LINE}</div>
+                        <TrainingRunChip line={TRAINING_PATROL_LINE} />
                       {/if}
                       <!-- Block reason (danger) + no-weapon advisory (warning) STAY on the row: they
                            gate/qualify dispatch. Same canDispatchPatrol reasons as before. -->
@@ -20571,7 +20572,7 @@
     {@const forecast = patrolForecastFor(state, patrolDispatchKey, def, selectedShip, hullType, stance)}
     <ActionModal title={`Dispatch · ${def.label}`} ariaLabel="Dispatch patrol" onClose={closePatrolDispatch}>
         {#if faction}<p class="modal-instruction">{faction.name} &middot; Waves {wavesLabel}</p>{/if}
-        {#if isFirstRun(state, "patrol")}<p class="train-line" style="margin: 0 0 12px"><span class="train-chip"><Icon name="check" size={11} /> {TRAINING_RUN_CHIP}</span> {TRAINING_PATROL_LINE}</p>{/if}
+        {#if isFirstRun(state, "patrol")}<div class="modal-instruction"><TrainingRunChip line={TRAINING_PATROL_LINE} /></div>{/if}
 
         <!-- Captain picker: reuses the existing openPatrolPicker flow (its modal stacks over
              this popup). selectPatrolCaptain records the pick under this patrol's key. The label +
@@ -22345,9 +22346,8 @@
   .mpane-cap { font-size: var(--text-2xs); color: var(--color-text-dim); }
   .threat-chip-placeholder { font-size: var(--text-xs); color: var(--color-text-dim); }
   .mpane-warn { font-size: var(--text-xs); color: var(--color-warning); }
-  /* Safe first runs SF-6: the first-run chip and its line (patrol cards, the gathering list). */
-  .train-line { font-size: var(--text-xs); color: var(--color-text-secondary); overflow-wrap: anywhere; }
-  .train-chip { display: inline-flex; align-items: center; gap: 3px; font-size: var(--text-2xs); padding: 1px 8px; border-radius: 999px; border: 1px solid var(--color-success); color: var(--color-success); white-space: nowrap; margin-right: 4px; }
+  /* Safe first runs SF-6: the gathering "First run" line (the chip is TrainingRunChip.svelte). */
+  .first-run-line { font-size: var(--text-xs); color: var(--color-text-secondary); overflow-wrap: anywhere; margin-bottom: 8px; }
   .mpane-warn.danger { color: var(--color-danger); }
   .mpane-actions { display: flex; flex-direction: column; gap: 6px; align-items: stretch; }
   /* (LONG THREAT LABELS on the ROW: the 190px cap + name ellipsis moved into the shared ThreatChip,

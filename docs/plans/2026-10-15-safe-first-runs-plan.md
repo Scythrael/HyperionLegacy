@@ -960,6 +960,10 @@ the patrol card and any `brokeOff` wording.
 - **Call 13 heavy cruiser descriptions:** "Approve as drafted (Recommended)": the three SF-6 descriptions verbatim, shown
   on the Shipyard build card AND the ship detail header. (Check the Aurora line against the EM-7 OC-D13 fix, which made
   its description true: keep whichever text is true of the built hull and say so.)
+- **SF-6 review, false description clauses (both "Recommended"):** Battleship: "A slow capital hull. The most armor and
+  guns the fleet fields, with heavy shields." Eir: "A medical transport. The largest hold and away teams the fleet
+  fields, for supplies and evacuations." (built behind the call 13 "Heavy cruiser." prefix and colon: "Heavy cruiser. A
+  medical transport: the largest hold and away teams ..."). Aurora keeps its true "of the explorer hulls" wording.
 
 ## SF-5 + SF-6 CARRY NOTE (2026-10-27, built on 1567b4d)
 
@@ -988,3 +992,10 @@ and checks each explorer claim against the built hull. Help: the Risk Factors to
 built text keeps OC-D13's true "of the explorer hulls" after it. Eir's "crew" is true of its away teams (8, the most);
 its complement ties the other explorers'. The battleship's existing "The most armor, shields, and guns" now shows and
 its "shields" is false (600; the explorers carry 700 to 800). No golden moved.
+
+**Review fixes (2026-10-27).** The Battleship and Eir descriptions per the answers above (claims tested against the
+built hulls). Help: "From Tier II on, every expedition" (a short-range template keeps its training run at any tier) and
+veterans "for that run type", asserted against `runDifficultyAt`. The timeline label reads "guards fell back". The
+contract test's never-lost check is an allow-list (stop reasons, no patrol ending, no `damaged`, no `repairDamage`).
+The in-progress "First run" line shows on ONE card: `firstGatheringCardCaptainId` (the run closest to its first
+delivery; a gathering run stores no start time and SF-6 is display only). One shared `TrainingRunChip.svelte`.

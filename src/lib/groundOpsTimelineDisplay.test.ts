@@ -261,7 +261,7 @@ describe("GO-14 hand-written history: a retreat, an ambush, a surprise fight", (
       { step: "return", startedAt: T0 + 120, endedAt: T0 + 180, taskId: "x" },
     ]);
     const lane = timelineView(exp, shipOf(state), now, "whole", scan)!.lanes[0];
-    expect(lane.segments[1]).toMatchObject({ category: "fight", label: "fell back", lost: false });
+    expect(lane.segments[1]).toMatchObject({ category: "fight", label: "guards fell back", lost: false });
     expect(lane.segments[1].detail).toMatch(/: The guards fell back\. Training run: no setback\. \(1m\)$/);
   });
 

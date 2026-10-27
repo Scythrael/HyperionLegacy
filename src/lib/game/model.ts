@@ -1299,7 +1299,8 @@ export const SHIP_TYPES: Record<ShipTypeKey, ShipTypeDef> = {
       { teamType: "science", size: 3 },
       { teamType: "prospecting", size: 3 },
     ],
-    description: "A slow capital hull. The most armor, shields, and guns the fleet fields.",
+    // SF-6 review (user 2026-10-27, Recommended): the explorers out-shield it, so "shields" is no longer "the most".
+    description: "A slow capital hull. The most armor and guns the fleet fields, with heavy shields.",
   },
   carrier: {
     label: "Carrier", spec: "tactician", tier: 3,
@@ -1446,8 +1447,9 @@ export const SHIP_TYPES: Record<ShipTypeKey, ShipTypeDef> = {
       { teamType: "science", size: 4 },
       { teamType: "prospecting", size: 3 },
     ],
-    // Safe first runs SF-6 (user 2026-10-27, call 13 "Approve as drafted").
-    description: "Heavy cruiser. A medical transport: the largest hold and crew the fleet fields, for supplies and evacuations.",
+    // Safe first runs SF-6 (user 2026-10-27, call 13 "Approve as drafted"; the review answer, Recommended: "away teams",
+    // since its complement ties the other explorers').
+    description: "Heavy cruiser. A medical transport: the largest hold and away teams the fleet fields, for supplies and evacuations.",
   },
 };
 

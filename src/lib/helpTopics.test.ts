@@ -10,7 +10,9 @@ import {
   RAMP_MAX_TIER,
   RAMP_ODDS_LAG,
   TIER_ENCOUNTER_HAZARD_CEILING,
+  runDifficultyAt,
 } from "./game/runDifficulty";
+import { freshState } from "./game/model";
 import { TRAINING_RUN_CHIP } from "./trainingRunDisplay";
 import { threatAssessment } from "./game/combat/threatAssessment";
 import { HELPER_MIN_TIER } from "./game/groundThreat";
@@ -173,7 +175,19 @@ describe("HELP_TOPICS", () => {
       expect(p).toContain(`reach full strength ${RAMP_ODDS_LAG === 1 ? "one run" : `${RAMP_ODDS_LAG} runs`} later`);
       for (const [t, c] of Object.entries(TIER_ENCOUNTER_HAZARD_CEILING)) expect(p).toContain(`${pc(c!)} at Tier ${regionTierNumeral(Number(t) as RegionTier)}`);
       expect(p).toContain(`At Tier ${regionTierNumeral(RAMP_MAX_TIER)}, expedition guards`);
-      expect(p).toContain(`From Tier ${regionTierNumeral((RAMP_MAX_TIER + 1) as RegionTier)} on, every run is at full strength`);
+      // Review fix: the Tier II claim matches the engine. An expedition above Tier I is never the training run and reads
+      // full strength from its first run; a short-range template keeps its training run at Tier II (its smallest roll),
+      // so the sentence names expeditions only, and the short-range line says "at any tier".
+      const fresh = freshState();
+      const t2 = (RAMP_MAX_TIER + 1) as RegionTier;
+      expect(runDifficultyAt(fresh, "expedition", t2, "orion")).toMatchObject({ firstRun: false, ramp: 1 });
+      expect(runDifficultyAt(fresh, "shortRange", t2, "telescopeRepair").firstRun).toBe(true);
+      expect(p).toContain(`From Tier ${regionTierNumeral(t2)} on, every expedition is at full strength from your first one there`);
+      expect(p).not.toMatch(/every run is at full strength/);
+      expect(p).toContain("short-range mission type is its smallest, at any tier");
+      expect(TIER_ENCOUNTER_HAZARD_CEILING[t2]).toBeDefined(); // Tier II still caps the hazard: the paragraph prints it
+      // Veteran status is per run type (veteranRunCountsV70).
+      expect(p).toContain("already at full strength for that run type");
       // The Objective Difficulty topic points to it.
       expect(topic("objectiveDifficulty").body).toMatch(/see the Risk Factors topic, under Training runs and rising risk/);
     });

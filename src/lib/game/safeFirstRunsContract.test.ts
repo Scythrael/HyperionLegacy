@@ -75,11 +75,14 @@ function gatherBase(hull: ShipTypeKey): GameState {
 
 const delivered = (s: GameState, key: MissionKey): boolean => s.lifetimeStats.missionsCompleted[key]?.gt(0) ?? false;
 
-// Nothing on the run reads as lost: no defeat stop, no defeat ending in the log, the ship undamaged.
-function expectNeverLost(s: GameState, label: string): void {
-  expect(s.captains[0].lastStopReason, `${label}: stop reason`).not.toBe("defeat");
-  expect(s.completionLog.some((e) => e.patrolEndReason === "defeat"), `${label}: a defeat ending`).toBe(false);
-  expect(s.ships.find((x) => x.id === "ship-1")?.damaged ?? false, `${label}: hull damage`).toBe(false);
+// Nothing on the run reads as lost, by ALLOW-LIST (so any new loss shape fails here): the stop reason is one of
+// `stops`, no log entry carries a patrol ending at all, and the ship is neither damaged nor owes a repair.
+function expectNeverLost(s: GameState, label: string, stops: readonly (string | undefined)[]): void {
+  expect(stops, `${label}: stop reason`).toContain(s.captains[0].lastStopReason);
+  for (const e of s.completionLog) expect([undefined, null], `${label}: a patrol ending`).toContain(e.patrolEndReason);
+  const ship = s.ships.find((x) => x.id === "ship-1");
+  expect(ship?.damaged ?? false, `${label}: hull damage`).toBe(false);
+  expect(ship?.repairDamage ?? 0, `${label}: repair owed`).toBe(0);
 }
 
 describe("SF-5 gathering cannot be lost: every MISSIONS key x every hull x every stop path", () => {
@@ -107,7 +110,7 @@ describe("SF-5 gathering cannot be lost: every MISSIONS key x every hull x every
         }
         expect(isFirstGatheringRun(s), `${label}: after the delivery`).toBe(false);
         expect(s.captains[0].mission, `${label}: still flying on Repeat`).not.toBeNull();
-        expectNeverLost(s, `${label} repeat`);
+        expectNeverLost(s, `${label} repeat`, [undefined]);
         const firstCycleTicks = ticks;
 
         // (b) Recall half way through the first cycle: the ship flies home and the run ends, not lost.
@@ -122,7 +125,7 @@ describe("SF-5 gathering cannot be lost: every MISSIONS key x every hull x every
           rc = economyTick(rc, 1, rng2);
           if (++ticks > TICK_CAP) throw new Error(`${label}: the recall never landed`);
         }
-        expectNeverLost(rc, `${label} recall`);
+        expectNeverLost(rc, `${label} recall`, [undefined]);
 
         // (c) Broke: no credits, flown past the first delivery (a transport idles on its working capital). The only
         // wall-stop gathering has is fuel; it never ends in a defeat.
@@ -133,8 +136,7 @@ describe("SF-5 gathering cannot be lost: every MISSIONS key x every hull x every
           let b = br.next;
           const rng3 = lcg(0x5f5);
           for (let i = 0; i < firstCycleTicks * 2 + 10 && b.captains[0].mission !== null; i++) b = economyTick(b, 1, rng3);
-          expect([undefined, "fuel"], `${label}: broke stop`).toContain(b.captains[0].lastStopReason);
-          expectNeverLost(b, `${label} broke`);
+          expectNeverLost(b, `${label} broke`, [undefined, "fuel"]);
         }
       }
       expect(flown, `${key}: some hull flies it`).toBeGreaterThan(0);

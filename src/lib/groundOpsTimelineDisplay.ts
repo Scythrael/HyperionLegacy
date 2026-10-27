@@ -302,7 +302,7 @@ function stepWords(exp: Expedition, steps: readonly RawStep[], i: number): StepW
       // Safe first runs SF-6: a training run's lost fight cleared its point anyway (the backstop), in the log line's words.
       if (s.fellBack) {
         const wiped = lossWasWipe(steps, i);
-        return { category: wiped ? "wipe" : "fight", label: "fell back", detail: `${kind} at ${task}: ${wiped ? "Security wiped. " : ""}${TRAINING_FELL_BACK_TEXT} (${len})`, lost: false };
+        return { category: wiped ? "wipe" : "fight", label: "guards fell back", detail: `${kind} at ${task}: ${wiped ? "Security wiped. " : ""}${TRAINING_FELL_BACK_TEXT} (${len})`, lost: false };
       }
       if (lossWasWipe(steps, i)) return { category: "wipe", label: s.reinforcement ? "reinforcements, wiped" : "wiped", detail: `${kind} at ${task}: lost, Security wiped (${len})${stopNote}`, lost: false };
       return { category: "fight", label: s.reinforcement ? "reinforcements, lost" : "lost", detail: `${kind} at ${task}: lost, the team fell back (${len})${stopNote}`, lost: true };

@@ -1,8 +1,9 @@
 // Safe first runs SF-6: the approved first-run text (user 2026-10-27, call 12) and the heavy cruiser descriptions
 // (call 13), verbatim, and each description's claims checked against the built hull so a retune cannot turn one false.
 import { describe, expect, it } from "vitest";
-import { SHIP_TYPES } from "./game/model";
-import { FIRST_GATHERING_LINE, TRAINING_EXPEDITION_LINE, TRAINING_PATROL_LINE, TRAINING_RUN_CHIP } from "./trainingRunDisplay";
+import Decimal from "break_infinity.js";
+import { SHIP_TYPES, freshState, type CaptainState, type MissionPhase } from "./game/model";
+import { FIRST_GATHERING_LINE, TRAINING_EXPEDITION_LINE, TRAINING_PATROL_LINE, TRAINING_RUN_CHIP, firstGatheringCardCaptainId } from "./trainingRunDisplay";
 
 const HULLS = Object.values(SHIP_TYPES);
 const EXPLORERS = HULLS.filter((d) => d.spec === "explorer");
@@ -22,7 +23,7 @@ describe("SF-6 heavy cruiser descriptions", () => {
     expect(SHIP_TYPES.orion.description).toBe("Heavy cruiser. A long-range explorer: enormous shields and reach, a frail hull, and almost no guns.");
     // The approved line keeps OC-D13's "of the explorer hulls": "the fastest cruise" alone is false (see below).
     expect(SHIP_TYPES.aurora.description).toBe("Heavy cruiser. A survey scout: the most module slots and the fastest cruise of the explorer hulls, at the cost of frame and hold.");
-    expect(SHIP_TYPES.eir.description).toBe("Heavy cruiser. A medical transport: the largest hold and crew the fleet fields, for supplies and evacuations.");
+    expect(SHIP_TYPES.eir.description).toBe("Heavy cruiser. A medical transport: the largest hold and away teams the fleet fields, for supplies and evacuations.");
     for (const d of EXPLORERS) expect(d.description, d.label).toMatch(/^Heavy cruiser\. /);
   });
 
@@ -41,6 +42,29 @@ describe("SF-6 heavy cruiser descriptions", () => {
     const e = SHIP_TYPES.eir;
     expect(e.cargoCapacity).toBe(maxOf(HULLS, (d) => d.cargoCapacity)); // the largest hold
     const awayCrew = (d: (typeof HULLS)[number]): number => (d.awayTeams ?? []).filter((t) => t.teamType !== "prospecting").reduce((n, t) => n + t.size, 0);
-    expect(awayCrew(e)).toBe(maxOf(HULLS, awayCrew)); // and crew (the largest away teams; the explorer complement ties)
+    expect(awayCrew(e)).toBe(maxOf(HULLS, awayCrew)); // and away teams (8; the explorer complement ties, hence not "crew")
+  });
+
+  it("the battleship's description (review answer, 2026-10-27) is true of the built hull", () => {
+    const b = SHIP_TYPES.battleship;
+    expect(b.description).toBe("A slow capital hull. The most armor and guns the fleet fields, with heavy shields.");
+    expect(b.transitSpeedMult).toBe(Math.min(...HULLS.map((d) => d.transitSpeedMult))); // slow
+    expect(b.hullIntegrity).toBe(maxOf(HULLS, (d) => d.hullIntegrity)); // the most armor
+    expect(b.weaponHardpoints).toBe(maxOf(HULLS, (d) => d.weaponHardpoints)); // and guns
+    expect(b.shieldCapacity).toBe(maxOf(HULLS.filter((d) => d.spec !== "explorer"), (d) => d.shieldCapacity)); // heavy shields
+    expect(b.shieldCapacity).toBeLessThan(maxOf(HULLS, (d) => d.shieldCapacity)); // not the most (why it changed)
+  });
+});
+
+describe("SF-6 the gathering line shows on one in-progress card", () => {
+  const gathering = (id: number, phase: MissionPhase, progress: number): CaptainState =>
+    ({ ...freshState().captains[0], id, mission: { kind: "extraction", missionKey: "shortOreRun", phase, phaseProgressTicks: progress, cargo: {}, recalled: false } }) as CaptainState;
+  const withCaptains = (captains: CaptainState[], done: Record<string, Decimal> = {}) => ({ captains, lifetimeStats: { ...freshState().lifetimeStats, missionsCompleted: done } });
+
+  it("the run closest to its first delivery, ties to the lowest id; none once a cycle is delivered or nobody gathers", () => {
+    expect(firstGatheringCardCaptainId(withCaptains([gathering(1, "transitOut", 5), gathering(2, "extracting", 1), gathering(3, "extracting", 0)]))).toBe(2);
+    expect(firstGatheringCardCaptainId(withCaptains([gathering(4, "unloading", 2), gathering(2, "unloading", 2)]))).toBe(2);
+    expect(firstGatheringCardCaptainId(withCaptains([{ ...freshState().captains[0], mission: null }]))).toBeNull();
+    expect(firstGatheringCardCaptainId(withCaptains([gathering(1, "extracting", 3)], { shortOreRun: new Decimal(1) }))).toBeNull();
   });
 });

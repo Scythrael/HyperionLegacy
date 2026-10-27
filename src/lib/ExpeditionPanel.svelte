@@ -129,7 +129,8 @@
   } from "./expeditionConsoleDisplay";
   import { loadLastExpeditionTier, loadRegionMapOpen, saveLastExpeditionTier, saveRegionMapOpen } from "./expeditionConsolePreference";
   // Safe first runs SF-6: the "Training run" chip and its line, verbatim (user 2026-10-27, call 12), and the run's stamp.
-  import { TRAINING_EXPEDITION_LINE, TRAINING_RUN_CHIP } from "./trainingRunDisplay";
+  import { TRAINING_EXPEDITION_LINE } from "./trainingRunDisplay";
+  import TrainingRunChip from "./TrainingRunChip.svelte";
   import { isTrainingRun } from "./game/enemyRanks";
   import { recallBlockText, recallPreview } from "./game/expedition";
   // Gas Giant Study GG-6 (the signed-off v3 mockup, user 2026-10-21 "approve as is"): each orbital body's study row, the
@@ -705,7 +706,7 @@
             </span>
             {#if runRegionText(exp)}<span class="exp-hdr-sub">{runRegionText(exp)}</span>{/if}
             <!-- Safe first runs SF-6: the run view carries the training run's chip and line (its stamp). -->
-            {#if isTrainingRun(exp)}<span class="exp-train-line"><span class="exp-chip train"><Icon name="check" size={11} /> {TRAINING_RUN_CHIP}</span> {TRAINING_EXPEDITION_LINE}</span>{/if}
+            {#if isTrainingRun(exp)}<TrainingRunChip line={TRAINING_EXPEDITION_LINE} />{/if}
           </div>
           {#if exp.phase === "complete"}
             <button type="button" class="exp-btn primary" on:click={() => onClaim(exp.id)}>Claim findings</button>
@@ -1211,7 +1212,7 @@
                     <span class="exp-target-name">{cand.systemName}</span>
                     {#if card?.realStar}<span class="exp-chip star">Real star</span>{/if}
                     {#if card?.enemyTerritory}<span class="exp-chip enemy" title="Known enemy territory: combat risk one step higher"><Icon name="riskCombat" size={11} /> Enemy territory</span>{/if}
-                    {#if card?.trainingRun}<span class="exp-chip train" title={TRAINING_EXPEDITION_LINE}><Icon name="check" size={11} /> {TRAINING_RUN_CHIP}</span>{/if}
+                    {#if card?.trainingRun}<TrainingRunChip title={TRAINING_EXPEDITION_LINE} />{/if}
                     {#if card && !card.reach.met}<span class="exp-chip warn"><Icon name="reach" size={11} /> Out of reach</span>{/if}
                     {#if tel.blind}
                       <!-- SQ-7 7.2: a blind candidate shows only its name, region, distance and this chip. -->
@@ -1802,14 +1803,6 @@
     font-family: var(--font-display);
     font-size: var(--text-lg);
     color: var(--color-text-primary);
-  }
-  .exp-train-line {
-    font-size: var(--text-xs);
-    color: var(--color-text-secondary);
-    overflow-wrap: anywhere;
-  }
-  .exp-train-line .exp-chip {
-    margin-right: 4px;
   }
   .exp-hdr-sub {
     font-size: var(--text-2xs);
@@ -3649,11 +3642,6 @@
     background: none;
     border: 1px dashed var(--color-danger);
     color: var(--color-danger);
-  }
-  .exp-chip.train {
-    background: none;
-    border: 1px solid var(--color-success);
-    color: var(--color-success);
   }
   .exp-chip.warn {
     background: none;
