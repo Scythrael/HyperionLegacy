@@ -342,7 +342,9 @@ describe("HELP_TOPICS", () => {
       expect(b).toContain(`clears basic debuffs only (${BASIC_DEBUFFS.map((id) => GAMBIT_STATUSES[id].label).slice(0, -1).join(", ")} and ${GAMBIT_STATUSES[BASIC_DEBUFFS[BASIC_DEBUFFS.length - 1]].label})`);
       for (const id of ["hemorrhage", "neurotoxin", "concussion", "fracture", "brokenBone", "shatteredBone"] as const) expect(BASIC_DEBUFFS, id).not.toContain(id);
       expect(b).toContain(`heals in ${SPLINT_HEAL_ROUNDS} rounds and costs no Fracture time in the bay`);
-      expect(b).toContain(`${pc(STONESKIN_BATTLE_RESIST)} more often`);
+      expect(b).toContain(`land on them ${pc(STONESKIN_BATTLE_RESIST)} less often`);
+      expect(b).not.toMatch(/work every battle/);
+      expect(b).toMatch(/scan events happen less often with a Shroud Emitter and more often with a Lure Beacon while the ship scans/);
       expect(b).toContain("A training run's enemies cause none of these.");
     });
 

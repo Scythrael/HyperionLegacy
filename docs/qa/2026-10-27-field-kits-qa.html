@@ -232,7 +232,7 @@ const SECTIONS = [
   { n: "6", title: "Enemy ranks", items: [
     { t: "Challenging and Dangerous objectives end with an Elite; Deadly ends with a Boss; every earlier fight point of a Dangerous objective is led by a Strong enemy; Simple and Standard none.", c: true, how: "enemyRanks.test.ts; groundOpsRanks.test.ts (whole ranked runs placed by the rule)." },
     { t: "The training run fields no Elite and no Boss (and its enemies inflict no Field Kits conditions).", c: true, how: "groundOpsRanks.test.ts (training runs equal their unranked run); fightLeadRank; helpTopics.test.ts." },
-    { t: 'The battle log names ranked enemies ("Elite Bruiser"); once the final fight is met the chip reads "Final fight: Elite Bruiser".', c: true, how: "fieldKitsDisplay.test.ts (finalFightChip)." },
+    { t: 'Once the final fight is met, the card chip and the supplies table name the ranked enemy: "Final fight: Elite Bruiser". (Ground Operations fights have no round-by-round log on screen, so this chip is where the rank shows.)', c: true, how: "fieldKitsDisplay.test.ts (finalFightChip names the lead's role once the pending fight is the final one)." },
     { t: "Odds chips read lower on a ranked objective than a Simple one, and packing more kits nudges them up.", c: true, how: "groundOpsRanks.test.ts (odds move with ranks); FK12 threat key lists packs." },
   ]},
   { n: "7", title: "Gambit editor (Away-Team Gambits)", items: [
@@ -245,7 +245,7 @@ const SECTIONS = [
   { n: "8", title: "Gambits in battle", items: [
     { t: "A Throw Grenade rule with no charge left, or after this battle's one throw, skips and the next rule acts.", c: true, how: "fieldKitsCharges.test.ts." },
     { t: "A rule holding a Boss reserve fires on a non-Boss only while the member holds more than the reserve; against a Boss it spends freely.", c: true, how: "fieldKitsBattle.test.ts (breaksReserve)." },
-    { t: 'Timed fuse log: "primes a grenade ... detonates at the start of (name)\'s next turn", then "\'s grenade detonates on the ... group: N hit, M moved clear". A lone foe never moves clear. A grenade still primed at the fight\'s end logs its charge coming back.', c: true, how: "fieldKitsFuse.test.ts; fieldKitsDisplay.test.ts (fuseLogLine)." },
+    { t: 'Timed fuse: a Stun or Toxin Grenade goes off at the start of the thrower\'s next turn; foes of a group may move clear (20%), a lone foe never does, and a grenade still primed when the fight ends gives its charge back (watch the charges in the supplies table). There is no round log for Ground Operations fights on screen, so the fuse\'s log lines cannot be checked there.', c: true, how: "fieldKitsFuse.test.ts (fuse, moved clear, refund)." },
     { t: "Use Item spends the free set first, then the packed extras; it fires only when the target needs that kit.", c: true, how: "fieldKitsBattle.test.ts (spendKit, kitFires)." },
   ]},
   { n: "9", title: "Conditions and severity", items: [
@@ -257,10 +257,10 @@ const SECTIONS = [
   ]},
   { n: "10", title: "Cure and resists", items: [
     { t: "Cure (Medical Training) clears basic debuffs only: Bleed, Blindness, Weakened, Suppressed, Corroded, Poison, Stun, Fear. It never touches Hemorrhage, Neurotoxin, Concussion or a bone rank.", c: true, how: "fieldKitsConditions.test.ts (cureBasicDebuffs); away:audit:fieldKitsCure probe." },
-    { t: "Cortex Shield resists Concussion; Iron Will and Morale Anchor resist Fear; Ossir Stoneskin shrugs off physical conditions 25% more often (they last longer when they land).", c: true, how: "Wiring probes secConcussionResist, secFearResist, runSecFearResist, runSecStoneskinResist (no-dead-stats Field Kits close-out)." },
+    { t: "Cortex Shield resists Concussion; Iron Will and Morale Anchor resist Fear; physical conditions land on Ossir (Stoneskin) members 25% less often (and last longer when they do).", c: true, how: "Wiring probes secConcussionResist, secFearResist, runSecFearResist, runSecStoneskinResist (no-dead-stats Field Kits close-out)." },
   ]},
   { n: "11", title: "Help", items: [
-    { t: 'Help has <span class="k">Field Kits</span> and <span class="k">Enemy Ranks</span> topics; their cross-links (Risk Factors, each other) open the right topic.', c: true, how: "helpTopics.test.ts (Field Kits and Enemy Ranks, cross-links)." },
+    { t: 'Help has <span class="k">Field Kits</span> and <span class="k">Enemy Ranks</span> topics. Help bodies are plain text: read that each "see the ... topic" pointer names a topic that exists in the list (Risk Factors, Field Kits, Enemy Ranks, Scan Events).', c: true, how: "helpTopics.test.ts (every 'the X topic' reference names a real topic title)." },
     { t: "Return Trip and Medical Bay lists all eleven bay rows with times; the Quartermaster topic names the Purchase tab; Storage names the field kits in Ship Equipment.", c: true, how: "helpTopics.test.ts." },
     { t: 'Text rules on every new line: "objective" (never "task"), "install", US English, no em dashes, no emoji.', c: true, how: "helpTopics.test.ts text rules; secret/textRules.test.ts." },
     { t: "The topics read well at 375 px (lists wrap, no horizontal scroll).", tag: "device" },

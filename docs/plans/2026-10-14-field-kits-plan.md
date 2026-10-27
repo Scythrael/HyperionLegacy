@@ -690,6 +690,15 @@ names a Field Kits slice is one of FKR-8's three. So `releaseBlockers()` holds N
 (`fkr11ReadBack`), both pins unchanged. Docs: the E-CREW plan's Task 16b is marked SUPERSEDED with a carry; the design
 doc records the Field Kits answers under D20. QA sheet R5: `docs/qa/2026-10-27-field-kits-qa.html` (desktop 1280 px and
 mobile 375 px columns, light and dark tags; section 12, the device roll, marked "not in this build").
+**FKR-11 review follow-up (2026-10-27):** Stoneskin reads "land on them 25% less often" (the engine scales the land
+chance by 0.75); "other tools work every battle" became what the Shroud Emitter and Lure Beacon do (scan event odds);
+the QA cross-link item is a text check. FINDING, NOT BUILT (open for the user): a Ground Operations run (every ranked or
+Field Kits run) has NO round-by-round battle log on screen. ExpeditionPanel's battle log (`eventLine`) only renders a
+legacy run's activities and scan encounters, which are never ranked and never carry a fuse, so `enemyRanks.ts
+rankedEnemyName` and `fieldKitsDisplay.ts fuseLogLine` have no player-visible caller (the plan's "Elite Bruiser" log
+line and the timed grenades' log lines). Wiring a rank into `eventLine` alone would be an inert display hook, so it was
+not done; a Ground Operations fight log viewer is new UI (needs a sketch first). Today the rank shows on the
+"Final fight: Elite Bruiser" chip; the QA sheet says so.
 
 **Text rules (every slice):** US English; no em dashes and no double hyphen; "install" only; player text says
 "objective", never "task"; SVG glyphs only; names beyond the user's (Broken Bone and Shattered Bone are the user's;
