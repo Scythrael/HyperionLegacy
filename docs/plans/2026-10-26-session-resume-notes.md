@@ -48,3 +48,10 @@ QUESTION QUEUE (ask when the user is back, most important first):
 6. Fix to schedule (no question): the R2-10 test helper relicCollections.ts bandShares applies the tier band odds twice
    (identification uses the Tier I row only), so the pinned heavy collection holds slightly too many rare copies; fix and
    re-pin with the relic ceiling slice.
+
+2026-10-27 late: queue items 1, 3/5, 4 ANSWERED (gear wear "Pause to repair"; relic knee near full Tier VII + 1.0 ~2
+years; tier stagger "Mix the T7 four" with 0.14.0; Lure keep both). feat @ 8c62a53 (9751 tests). PAUSED for the weekly
+limit (user: pause at 80% until the Thu 10-29 reset). NEXT after the reset, in order: (1) resume the gear wear step 4
+builder (worktree-agent-a7ee00fa33710a9a5) to build "Pause to repair", then review + merge; (2) relic tier stagger
+build (relics v2 plan, 2026-10-27 table) + the bandShares test-helper fix; (3) minigame redesign Slices 1 to 7
+(docs/plans/2026-10-27-minigame-prestige-redesign-plan.md); Slice 5 tunes the ceiling to a full Tier VII collection.
