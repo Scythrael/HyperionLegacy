@@ -23,6 +23,12 @@
 // prices shown, prestige gains, milestones, the goal bar) reads the EFFECTIVE exponent, which is
 // the raw exponent up to e777,777 and a concave curve above it: diminishing returns from the
 // finale on, never a cap (design section 6, user builder check Q1; D23).
+//
+// RELIC BOOSTS (0.14.0, Relics v2 R2-10). The main game's relics reach this file ONLY as the snapshot
+// s.relicBoosts (config.ts RELIC_BOOSTS, read by relicBoosts.ts in the runtime): each tier's rate, the
+// Overclock level count, the ten bonus factor, the game clock (Ancient Drive Coil, in gamePace), the
+// Augment Points' count and the three point gains. Every reader skips its multiplication at exactly 1,
+// so a relic-free game runs the very same arithmetic as before (relicGoldens.test.ts).
 
 import Decimal from "break_infinity.js";
 import {
@@ -64,6 +70,8 @@ import {
   STARFALL_EXPONENT,
   END_SOFT_SCALE,
   END_SOFT_BETA,
+  RELIC_TIER_LEVERS,
+  type RelicLever,
   type SkillId,
   type MilestoneId,
   type UpgradeId,
@@ -159,9 +167,13 @@ export function displayOre(raw: Decimal): Decimal {
   return pow10(softenExponent(x));
 }
 
-// The game clock's speed: 1, then GAME_PACE_AFTER_FIRST_PC once the first Prestigeception is done.
+// The game clock's speed: 1, then GAME_PACE_AFTER_FIRST_PC once the first Prestigeception is done,
+// times the Ancient Drive Coil relic boost. Applied in stepMut, so live and catch-up share it.
 export function gamePace(s: SecretState): number {
-  return s.pcCount > 0 || s.milestones.firstPc !== undefined ? GAME_PACE_AFTER_FIRST_PC : 1;
+  const pace = s.pcCount > 0 || s.milestones.firstPc !== undefined ? GAME_PACE_AFTER_FIRST_PC : 1;
+  // R2-10 Ancient Drive Coil: the whole stack runs faster, the game clock itself (skipped at exactly 1).
+  const coil = relicBoost(s, "stack");
+  return coil === 1 ? pace : pace * coil;
 }
 
 // Ore per real second as the player sees it (the chain rule through the softening curve).
@@ -195,6 +207,21 @@ function upgradeStep(id: UpgradeId): number {
   return UPGRADES.find((u) => u.id === id)!.step;
 }
 
+// 0.14.0 (Relics v2 R2-10): one relic lever's multiplier from the snapshot on the state (config.ts
+// RELIC_BOOSTS), exactly 1 when the player has no relics of that type. Every reader below skips the
+// multiplication at exactly 1, so a relic-free game runs the very same arithmetic as before.
+export function relicBoost(s: SecretState, lever: RelicLever): number {
+  return s.relicBoosts?.[lever] ?? 1;
+}
+
+// A generator's relic factor: its own type's boost times the two every-generator rows.
+export function relicTierFactor(s: SecretState, tier: number): number {
+  if (s.relicBoosts === undefined) return 1;
+  return relicBoost(s, RELIC_TIER_LEVERS[tier]) * relicBoost(s, "allSmall") * relicBoost(s, "allBig");
+}
+
+const timesRelic = (d: Decimal, f: number): Decimal => (f === 1 ? d : d.mul(f));
+
 // Captain Points x Augment Points: multiplies every generator and speeds the Overclock clock.
 // Captain's Compound counts both as if you held (1 + step x level) times as many. Lucid Dreaming
 // lets Dream Points speed the stack too: x (1 + DP)^(step x level).
@@ -212,9 +239,12 @@ export function captainMultiplier(s: SecretState): Decimal {
   const cc = upgradeLevel(s, "captainsCompound");
   return powPositive(cc === 0 ? s.captainPoints.add(1) : s.captainPoints.mul(Math.pow(compoundFactor(s), CAPTAIN_BEND)).add(1), CP_POW);
 }
+// R2-10 Resonance Shard ("Fleet Points"): Augment Points count as relicBoost("fleet") times as many.
 export function augmentMultiplier(s: SecretState): Decimal {
   const cc = upgradeLevel(s, "captainsCompound");
-  return powPositive(cc === 0 ? s.augmentPoints.add(1) : s.augmentPoints.mul(compoundFactor(s)).add(1), AP_POW);
+  const fleet = relicBoost(s, "fleet");
+  const counted = cc === 0 ? s.augmentPoints : s.augmentPoints.mul(compoundFactor(s));
+  return powPositive((fleet === 1 ? counted : counted.mul(fleet)).add(1), AP_POW);
 }
 export function dreamSpeedMultiplier(s: SecretState): Decimal {
   const ld = upgradeLevel(s, "lucidDreaming");
@@ -303,11 +333,13 @@ export function buyUpgrade(s: SecretState, id: UpgradeId, mode: BuyMode): Secret
   return next;
 }
 
-// Tenfold Tuner adds step x level to the ten bonus factor.
+// Tenfold Tuner adds step x level to the ten bonus factor; R2-10 Hull Rivet multiplies the result.
 export function tenBonusFactor(s: SecretState): number {
   const base = hasSkill(s, "tenBonus") ? TEN_BONUS_SKILL : TEN_BONUS;
   const tt = upgradeLevel(s, "tenfoldTuner");
-  return tt === 0 ? base : base + upgradeStep("tenfoldTuner") * tt;
+  const factor = tt === 0 ? base : base + upgradeStep("tenfoldTuner") * tt;
+  const rivet = relicBoost(s, "tenBonus");
+  return rivet === 1 ? factor : factor * rivet;
 }
 
 // The output multiplier one tier gets from its own tens bought.
@@ -315,15 +347,24 @@ export function tenMultiplier(s: SecretState, tier: number): Decimal {
   return powNumber(tenBonusFactor(s), Math.floor(s.bought[tier] / 10));
 }
 
-// Overclock Overclocker makes every Overclock level count as (1 + step x level) levels.
+// Overclock Overclocker makes every Overclock level count as (1 + step x level) levels; R2-10 Flight
+// Recorder multiplies that count again.
 export function overclockMultiplier(s: SecretState): Decimal {
   const oo = upgradeLevel(s, "ocOverclocker");
-  return powNumber(OC_FACTOR, oo === 0 ? s.overclock : s.overclock * (1 + upgradeStep("ocOverclocker") * oo));
+  const levels = oo === 0 ? s.overclock : s.overclock * (1 + upgradeStep("ocOverclocker") * oo);
+  const fr = relicBoost(s, "overclock");
+  return powNumber(OC_FACTOR, fr === 1 ? levels : levels * fr);
+}
+
+// What one Overclock level multiplies production by (the Upgrades tab's "each" line).
+export function overclockLevelFactor(s: SecretState): number {
+  return Math.pow(OC_FACTOR, (1 + upgradeStep("ocOverclocker") * upgradeLevel(s, "ocOverclocker")) * relicBoost(s, "overclock"));
 }
 
 // Everything multiplying one tier's rate, for display.
 export function tierMultiplier(s: SecretState, tier: number): Decimal {
-  return tenMultiplier(s, tier).mul(overclockMultiplier(s)).mul(prestigeMultiplier(s)).mul(encabulatorFactor(s)).mul(sharpenFactor(s, tier));
+  const base = tenMultiplier(s, tier).mul(overclockMultiplier(s)).mul(prestigeMultiplier(s)).mul(encabulatorFactor(s)).mul(sharpenFactor(s, tier));
+  return timesRelic(base, relicTierFactor(s, tier));
 }
 
 // Singularity Sharpener: the top generator makes 1 + step x level times as much (1 at level 0).
@@ -553,9 +594,10 @@ export function buyOverclock(s: SecretState, mode: BuyMode): SecretState {
 export function produceMut(s: SecretState, dt: number): void {
   if (dt <= 0) return;
   const n = s.tiersUnlocked;
+  // R2-10: each tier's own relic factor comes last (skipped at exactly 1).
   const shared = overclockMultiplier(s).mul(prestigeMultiplier(s)).mul(encabulatorFactor(s));
   const rho: Decimal[] = [];
-  for (let k = 0; k < n; k++) rho.push(tenMultiplier(s, k).mul(TIERS[k].baseRate).mul(shared).mul(sharpenFactor(s, k)));
+  for (let k = 0; k < n; k++) rho.push(timesRelic(tenMultiplier(s, k).mul(TIERS[k].baseRate).mul(shared).mul(sharpenFactor(s, k)), relicTierFactor(s, k)));
   // x[0] is Ore, x[m] is owned[m - 1]. The top unlocked tier is only ever bought.
   const x: Decimal[] = [s.ore, ...s.owned.slice(0, n)];
   const gains: Decimal[] = new Array(n).fill(ZERO);
@@ -633,19 +675,23 @@ export function captainGain(s: SecretState): Decimal {
   const e = effectiveExponent(s.runPeak);
   if (e < CAPTAIN_AT) return ZERO;
   const k = effectiveExponent(s.bestOre) >= FINALE_EXPONENT ? CP_K_AFTER_FINALE : CP_K;
-  return powPositive(gainMultiplier(s), CAPTAIN_BEND).mul(CP_SCALE * gainShape(e, CAPTAIN_AT, k)).floor();
+  // R2-10 Captain's Sigil: Captain Points earned x relicBoost("captain"), before the floor.
+  return timesRelic(powPositive(gainMultiplier(s), CAPTAIN_BEND).mul(CP_SCALE * gainShape(e, CAPTAIN_AT, k)), relicBoost(s, "captain")).floor();
 }
 
 export function fleetGain(s: SecretState): Decimal {
   const e = effectiveExponent(s.fleetPeak);
   if (e < FLEET_AT) return ZERO;
-  return gainMultiplier(s).mul(AP_SCALE * gainShape(e, FLEET_AT, gainExponent(s, AP_K))).floor();
+  // R2-10 Glyph Tablet: Augment Points earned x relicBoost("augment"), before the floor.
+  return timesRelic(gainMultiplier(s).mul(AP_SCALE * gainShape(e, FLEET_AT, gainExponent(s, AP_K))), relicBoost(s, "augment")).floor();
 }
 
 export function prestigeceptionGain(s: SecretState): Decimal {
   const e = effectiveExponent(s.pcPeak);
   if (e < PRESTIGECEPTION_AT) return ZERO;
-  return new Decimal(DP_SCALE * gainShape(e, PRESTIGECEPTION_AT, DP_K)).floor();
+  // R2-10 Star Chart Fragment: Dream Points earned x relicBoost("dream"), before the floor.
+  const dream = relicBoost(s, "dream");
+  return new Decimal(DP_SCALE * gainShape(e, PRESTIGECEPTION_AT, DP_K) * dream).floor();
 }
 
 function resetRunMut(s: SecretState): void {

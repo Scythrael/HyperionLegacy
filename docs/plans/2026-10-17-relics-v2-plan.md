@@ -560,3 +560,24 @@ Asked by multiple choice; all four picks were the Recommended option.
 3. Past-cap weight: "5x (Recommended)": each copy past a tier's 1,000 soft cap counts 5x a regular copy toward the
    minigame, still on the D23 diminishing curve (no cap, no compounding).
 4. Two-way stays "Only via milestones" (2026-10-22): the minigame never multiplies the main game.
+
+### R2-10 carry note (built)
+- Reader `src/lib/secret/relicBoosts.ts` (pure, one-way): live Museum v2 counts per type over every tier; a copy past
+  its tier's soft cap (read off the tier's snapshot) counts `RELIC_PAST_CAP_WEIGHT` 5x; boost = 1 + perCopy x
+  diminishing(weighted, knee). The table (user's 17 rows, perCopy and knee per row) is ONE constant,
+  `secret/config.ts RELIC_BOOSTS`, all A and knees [PROVISIONAL]. Engine reads only the snapshot
+  `SecretState.relicBoosts` (never saved; absent without relics); App sets it at load (before the runtime starts),
+  on every main save and when the minigame opens. Ancient Drive Coil is the game clock (`gamePace`), the rest act on
+  tier rates, Overclock level count, ten bonus factor, the three point gains and the Augment Points' count.
+- [PROVISIONAL] "Fleet Points" (Resonance Shard): no such currency in the minigame, read as "your Augment Points count
+  as more" (the Fleet layer's reward on the stack), so it never duplicates Glyph Tablet (Augment Points earned).
+- Pacing (typical = about 208 Tier I relics, 3 weeks: one explorer 16 h/day at 0.5 blanks/h plus two Tier I
+  short-range missions; heavy = Tier I 2,000 with 1,000 past cap, Tier II 1,000, Tier III 300), finale / e1M / e10M:
+  average 4.17 / 27.87 / 101.29 d (14.7 / 13.8 / 15.0% faster); optimal 3.52 / 30.22 / 101.71 (21.0 / 12.3 / 21.8%);
+  casual 6.23 / 27.97 / 117.06 (9.1 / 41.5 / 16.8%; the relic-free casual e1M sits at the slow end of its band);
+  heavy average 2.24 / 8.53 / 34.12 (54 / 74 / 71%). Relic-free unchanged (relicGoldens.test.ts byte-identical).
+  With typical relics the 100% default targets stay best (200%, 500%, 1000%, by hand all later) and the coarse
+  stretch tracks shipping (2.55%). The climb is path-dependent: a Prestigeception landing just before a goal costs
+  about a day, which is why most of the speed is the even game-clock lever.
+- Registry: 17 `relic:audit:minigame:<lever>` rows LIVE with `content:minigame:<lever>` probes (10 Tier I copies move
+  the lever by its boost through the minigame consumer).

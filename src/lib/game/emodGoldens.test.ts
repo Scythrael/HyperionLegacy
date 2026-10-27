@@ -76,6 +76,7 @@ import { em4ReadBack } from "./emodEm4Registry.fixture";
 import { reactorLiftOffForThisFile } from "./emodEm4Switch.fixture";
 reactorLiftOffForThisFile();
 import { R2_2_ADDED_ENTRY_IDS } from "./relicBlanks.fixture";
+import { R2_10_ADDED_ENTRY_IDS } from "./relicMinigame.fixture"; // R2-10: its 17 minigame audit rows, held apart the same way
 import { R2_3_ADDED_ENTRY_IDS } from "./relicIdentify.fixture"; // R2-3: its three audit rows, held apart the same way
 import { R2_4_ADDED_ENTRY_IDS, R2_4_FLIPPED_BEFORE } from "./relicMuseumV2.fixture"; // R2-4: its additions held apart, its flips read back
 import { G2_4_ADDED_ENTRY_IDS, G2_4_FLIPPED_BEFORE } from "./propulsionRecallGoldens.fixture";
@@ -679,7 +680,7 @@ const G16_ROW_BEFORE = { kind: "pending", owner: "G1-6 (flips SHORT_RANGE_BOARD_
 const BEFORE_RX: WiringEntry[] = siReadBack(
   em4ReadBack(em3ReadBack(em5ReadBack(wr8ReadBack(gw3RegistryBack(em7ReadBack(WIRING_REGISTRY)))))).filter(
     (e) =>
-      !RX_ADDED_ENTRY_IDS.has(e.id) && !RR_ADDED_ENTRY_IDS.has(e.id) && !FUSE_ADDED_ENTRY_IDS.has(e.id) && !R2_2_ADDED_ENTRY_IDS.has(e.id) && !R2_3_ADDED_ENTRY_IDS.has(e.id) && !R2_4_ADDED_ENTRY_IDS.has(e.id) && !G16_ADDED_IDS.has(e.id) &&
+      !RX_ADDED_ENTRY_IDS.has(e.id) && !RR_ADDED_ENTRY_IDS.has(e.id) && !FUSE_ADDED_ENTRY_IDS.has(e.id) && !R2_2_ADDED_ENTRY_IDS.has(e.id) && !R2_3_ADDED_ENTRY_IDS.has(e.id) && !R2_10_ADDED_ENTRY_IDS.has(e.id) && !R2_4_ADDED_ENTRY_IDS.has(e.id) && !G16_ADDED_IDS.has(e.id) &&
       !G2_4_ADDED_ENTRY_IDS.has(e.id) && !OC15_ADDED_ENTRY_IDS.has(e.id) && !GG_STUDY_ADDED_ENTRY_IDS.has(e.id) && !G2_6_ADDED_ENTRY_IDS.has(e.id),
   ).map((e) =>
     e.id === G13_ROW
@@ -843,7 +844,7 @@ describe("EM-0 goldens (re-pinned by EM-1 where named)", () => {
     // and G2-4's additions are held apart here the same way, so the comparison sees G1-6's move alone. E-MOD EM-5's move is
     // read back first (em5ReadBack), as BEFORE_RX does; Gas Giant Study GG-3's added seam is held apart too.
     const live = em4ReadBack(em3ReadBack(em5ReadBack(wr8ReadBack(gw3RegistryBack(em7ReadBack(WIRING_REGISTRY)))))).filter(
-      (e) => !RX_ADDED_ENTRY_IDS.has(e.id) && !RR_ADDED_ENTRY_IDS.has(e.id) && !FUSE_ADDED_ENTRY_IDS.has(e.id) && !R2_2_ADDED_ENTRY_IDS.has(e.id) && !R2_3_ADDED_ENTRY_IDS.has(e.id) && !R2_4_ADDED_ENTRY_IDS.has(e.id) && !G2_4_ADDED_ENTRY_IDS.has(e.id) && !OC15_ADDED_ENTRY_IDS.has(e.id) && !GG_STUDY_ADDED_ENTRY_IDS.has(e.id) && !G2_6_ADDED_ENTRY_IDS.has(e.id),
+      (e) => !RX_ADDED_ENTRY_IDS.has(e.id) && !RR_ADDED_ENTRY_IDS.has(e.id) && !FUSE_ADDED_ENTRY_IDS.has(e.id) && !R2_2_ADDED_ENTRY_IDS.has(e.id) && !R2_3_ADDED_ENTRY_IDS.has(e.id) && !R2_10_ADDED_ENTRY_IDS.has(e.id) && !R2_4_ADDED_ENTRY_IDS.has(e.id) && !G2_4_ADDED_ENTRY_IDS.has(e.id) && !OC15_ADDED_ENTRY_IDS.has(e.id) && !GG_STUDY_ADDED_ENTRY_IDS.has(e.id) && !G2_6_ADDED_ENTRY_IDS.has(e.id),
     );
     const rung = live.filter((e) => G16_ADDED_IDS.has(e.id)).map((e) => [e.id, e.status, e.contexts, e.probe ?? null]);
     expect(rung).toEqual([...G16_ADDED_IDS].map((id) => [id, { kind: "live" }, ["mission:shortRange"], "shortRangeSlots"]));

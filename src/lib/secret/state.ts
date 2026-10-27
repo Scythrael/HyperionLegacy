@@ -18,7 +18,8 @@ import {
   UPGRADES,
   type SkillId,
   type UpgradeId,
-  type MilestoneId, CP_POW, CP_POW_BEFORE_CURVE_ROUND } from "./config";
+  type MilestoneId, CP_POW, CP_POW_BEFORE_CURVE_ROUND,
+  type RelicBoosts } from "./config";
 
 const SKILL_IDS: readonly SkillId[] = SKILLS.map((d) => d.id);
 const MILESTONE_IDS: readonly MilestoneId[] = MILESTONES.map((m) => m.id);
@@ -67,6 +68,10 @@ export interface SecretState {
   // 0.13.11.1 curve round: the scale Captain Points are counted in. 2 = the CP_POW 0.4875 scale; a save
   // without it holds 0.195-scale points, converted once on load so the bonus they give is unchanged.
   captainScale: 2;
+  // 0.14.0 (Relics v2 R2-10): the main game's relic boosts, a SNAPSHOT the runtime sets from the main
+  // save (at open and on every main save, never mid-step). NEVER saved (serializeSecret drops it) and
+  // absent for a player with no relics, so a relic-free game is byte-identical to before.
+  relicBoosts?: RelicBoosts;
 }
 
 export function freshUpgrades(): Record<UpgradeId, number> {
@@ -153,7 +158,9 @@ const NUMBER_FIELDS = [
 ] as const;
 
 export function serializeSecret(s: SecretState): string {
-  const out: Record<string, unknown> = { ...s, owned: s.owned.map((d) => d.toString()), peakOwned: s.peakOwned.map((d) => d.toString()) };
+  // The relic boosts are an input from the main save, never part of this save.
+  const { relicBoosts: _relicBoosts, ...saved } = s;
+  const out: Record<string, unknown> = { ...saved, owned: s.owned.map((d) => d.toString()), peakOwned: s.peakOwned.map((d) => d.toString()) };
   for (const k of DECIMAL_FIELDS) out[k] = s[k].toString();
   return JSON.stringify(out);
 }

@@ -33,7 +33,7 @@
 import { freshSecretState, cloneSecret, type SecretState } from "./state";
 import { stepMut, captainMultiplier, buyOverclockMut, buyTierMut, buySkill, canBuySkill, captainGain, fleetGain, prestigeceptionGain, doCaptain, doFleet, doPrestigeception, effectiveExponent, hasSkill, upgradesUnlocked, upgradePriceExponent, canBuyUpgrade, buyUpgrade } from "./engine";
 import { advanceTo, EXACT_BOUND_SECONDS, type CatchUpOptions } from "./catchUp";
-import { SKILLS, UPGRADES, type MilestoneId, type UpgradeId, type SkillId } from "./config";
+import { SKILLS, UPGRADES, type MilestoneId, type UpgradeId, type SkillId, type RelicBoosts } from "./config";
 
 export type SimProfile = "steady" | "light" | "keen" | "optimal" | "average" | "casual";
 
@@ -170,6 +170,8 @@ export interface SimOptions {
   // Overrides of the profile's own habits (curve round comparisons).
   skillOrder?: readonly SkillId[];
   decisionSeconds?: number;
+  // R2-10: the main game's relic boosts the whole run plays with (relic-free when absent).
+  relicBoosts?: RelicBoosts;
 }
 
 export function simulatePlayer(opts: SimOptions): SimResult {
@@ -177,6 +179,7 @@ export function simulatePlayer(opts: SimOptions): SimResult {
   const profile = opts.profile ?? "steady";
   let s = opts.from ? cloneSecret(opts.from) : freshSecretState(START_MS);
   if (opts.targets) s.autoTarget = { ...opts.targets };
+  if (opts.relicBoosts) s.relicBoosts = opts.relicBoosts;
   const events: Record<string, number> = {};
   const samples: [number, number][] = [];
   const captainResets: [number, number, number][] = [];

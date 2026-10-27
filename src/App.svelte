@@ -1290,7 +1290,7 @@
   // and wipes it on Delete Save. It never reads or writes `state` and never runs in the main loop.
   import EnterCodeModal from "./lib/EnterCodeModal.svelte";
   import SecretGameOverlay from "./lib/SecretGameOverlay.svelte";
-  import { startSecretRuntime, wipeSecretGame, devFastForwardSecret, codesTabSeen, markCodesTabSeen, secretGame, markSecretFound, secretAct } from "./lib/secret/runtime";
+  import { startSecretRuntime, wipeSecretGame, devFastForwardSecret, codesTabSeen, markCodesTabSeen, secretGame, markSecretFound, secretAct, setSecretRelicBoosts } from "./lib/secret/runtime";
   import { peekSecretLastTick } from "./lib/secret/state";
   // 0.13.11.1 clock protection: the ONE trusted wall clock every progress system reads (never
   // backward, never far ahead of the server; an honest clock is returned exactly).
@@ -3206,6 +3206,8 @@
     return first ? "found" : "already";
   }
   function openSecretGame(): void {
+    // R2-10: the minigame reads the relic boosts fresh when it opens (and on every save, doSave).
+    setSecretRelicBoosts(state.museumV2);
     secretOpen = true;
   }
   function closeSecretGame(): void {
@@ -3458,6 +3460,8 @@
     // then paid by the next load's offline catch-up instead of being lost. Now while paused.
     const persisted = saveToLocalStorage(state, createdAt, paidThroughMs(loopClock, trustedNow()));
     persistTrustedTime();
+    // R2-10: every main save refreshes the minigame's relic boosts (a one-way read; guarded inside).
+    setSecretRelicBoosts(state.museumV2);
     if (persisted !== lastSavePersisted) {
       lastSavePersisted = persisted;
       savePersistFailed.set(!persisted);
@@ -3886,6 +3890,8 @@
     // Guarded on top of the runtime's own guards: nothing in the secret game may break startup.
     let stopSecret: () => void = () => {};
     try {
+      // R2-10: the relic boosts are read before the runtime starts, so its first catch-up pays with them.
+      setSecretRelicBoosts(state.museumV2);
       stopSecret = startSecretRuntime();
     } catch {
       // The main game runs on; the secret game simply is not running this session.

@@ -64,6 +64,29 @@ export function expectSlowsAfterStarfall(r: SimResult): void {
 // 0.13.11.1 (user: "Retune so default is best"): the steady player at the DEFAULT 100% targets,
 // measured by sim.test.ts (which checks it still lands here). The target sweeps compare against it.
 export const DEFAULT_STEADY = { finale: 422012, long: 2794738, starfall: 119.15 * D }; // 4.88 d, 32.35 d, 119.2 d
+// R2-10 (relic boosts): the relic-free goals the relic pins compare against, measured on the shipped
+// engine (relic-free runs are byte-identical, so these are fixed): the optimal and casual players
+// (simOptimal / simCasual) and the average player (DEFAULT_STEADY). In days.
+export const RELIC_FREE = {
+  optimal: { finale: 4.46, long: 34.47, starfall: 130.06 },
+  average: { finale: DEFAULT_STEADY.finale / D, long: DEFAULT_STEADY.long / D, starfall: DEFAULT_STEADY.starfall / D },
+  casual: { finale: 6.86, long: 47.84, starfall: 140.65 },
+} as const;
+// The average player with the TYPICAL collection (simRelicsAverage.test.ts measures it), in days.
+export const TYPICAL_RELIC_AVERAGE = { finale: 4.17, long: 27.87, starfall: 101.29 };
+export const RELIC_GOALS = ["finale", "long", "starfall"] as const;
+
+// Each goal's time with relics over the time without (0.85 = 15% faster), reported and returned.
+export function relicRatios(label: string, r: SimResult, base: Readonly<Record<(typeof RELIC_GOALS)[number], number>>): Record<(typeof RELIC_GOALS)[number], number> {
+  const out = {} as Record<(typeof RELIC_GOALS)[number], number>;
+  for (const g of RELIC_GOALS) {
+    expect(r.events[g], `${label} ${g}`).toBeDefined();
+    out[g] = r.events[g] / D / base[g];
+  }
+  report(`[relics:${label}] ${RELIC_GOALS.map((g) => `${g} ${(r.events[g] / D).toFixed(2)} d (x${out[g].toFixed(3)}, ${((1 - out[g]) * 100).toFixed(1)}% faster)`).join(" | ")}`);
+  return out;
+}
+
 // How much sooner another target choice may reach a milestone and still count as "no better".
 export const TARGET_MARGIN = 0.03;
 
