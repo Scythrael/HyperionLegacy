@@ -74,3 +74,28 @@ D. Coarse margin: leave.
 - 0.13.11.2 (user, 2026-10-26): "So when you changed up captain prestiges, was the only thing that changed the point number? It's hard to tell if the actual weight of what these prestiges accomplishes changes." Answers: preview line on all three prestige cards ("Yes, all three layers": each card shows "now: xA to xB" for the multiplier that layer affects), shipped as a small display hotfix 0.13.11.2 off prod.
 - 0.13.11.2 answers (2026-10-26): locked lines hidden (as built); Prestigeception line adds that Captain and Augment Points go back to 0; patch note "Small polish and fixes. Your save carries over untouched." approved.
 - User (2026-10-26, screenshot of the Prestige tab): "Looks like the text is clipping a bit. Something we will want to fix up." / "Could just simplify it and add anything that needs explanation to the ? menu." Folded into 0.13.11.2: shorter card labels and values, explanations moved to the Help view, robust label/value rows.
+
+## USER DIRECTION (2026-10-27, verbatim): all three prestige layers must stay meaningful
+
+Context: the user, playing prod, found every Fleet Prestige still needs 1e308 Ore ("I have reset twice already and the
+third time also requires 1e308"). Asked keep / rising / double / discuss, the user wrote:
+
+"I propose a change. A way of keeping those skill points while making fleet prestiging feel useful. Because if it stays
+at 1e308 forever, it doesn't really feel like you're making a ton of progress once you blast past 1e308. So we might
+increase the total skill points we get for the first few fleet prestiges while scaling up the difficulty a bit with each
+to start. But fleet prestige should scale accordingly, because once you max all skills, it'd feel pretty pointless once
+you have a few under your belt for resets. Perhaps an upgrade tree is needed for this. I must have missed the memo
+because I Wouldn't have agreed to make fleet prestige useless aside from skill points. I would have suggested at that
+point to append it to the captain prestige and require prestige minimums for captain. Fleet prestige should get harder
+and harder to push through, as should prestigeception. All 3 prestige systems should feel meaningful, otehrwise there's
+no point for all 3."
+
+Correction owned (2026-10-27): the 2026-10-23 answer said "don't gate the skills, lengthen the curve"; the step to "revert
+the Fleet bar to a fixed 1.8e308" was Claude's reading, not the user's words. Requirements now:
+1. Fleet's bar rises with each Fleet Prestige (harder and harder to push through).
+2. The first few Fleets pay MORE Skill Points (so the skills still arrive at a good pace despite the rising bar).
+3. Fleet stays meaningful after every skill is owned (the user's idea: an upgrade tree).
+4. Prestigeception's bar rises too (harder and harder).
+5. All three layers (Captain, Fleet, Prestigeception) must each feel meaningful.
+(Mentioned as what the user would have suggested on 10-23: put Skill Points on Captain Prestige with prestige minimums.
+Not a pick; an alternative for the design.)
