@@ -8419,11 +8419,12 @@ export interface Expedition {
   // sooner than waiting, pausePaysOff). Absent on every other run and on every run dispatched
   // before the change (its shuttles wait, GG-3 studyPickupAt). Optional, no SAVE bump.
   pickupPause?: 1;
-  // Gas Giant Study GG-7: the Resonance Sensor Array's Ancient Data Fragment lift, frozen at dispatch (per mille, a
-  // whole number above 0; sensorArrays.ts sensorArrayAncientFragmentBonus): every study's fragment odds x (1 + it /
-  // 1000) (gasGiantStudy.ts ancientFragmentPermille). Written only on a study run whose ship had the array installed.
+  // Gas Giant Study GG-7 (user 2026-10-27, "Better canister odds"): the Resonance Sensor Array's canister band lift,
+  // frozen at dispatch (per mille, a whole number above 0; sensorArrays.ts sensorArrayCanisterBandLift): every giant
+  // study's canisters roll their band with the Augmented and Stellar odds x (1 + it / 1000) (gasGiantStudy.ts
+  // studyBandOdds; the same two draws per canister). Written only on a study run whose ship had the array installed.
   // Absent on every other run. Optional, no SAVE bump.
-  ancientFind?: number;
+  bandLift?: number;
 }
 
 // Expedition Tiers G2-5 (user #7 "Based on distance traveled 1:1"; G13 one confirm with the return time; G14 detour

@@ -296,13 +296,27 @@ export const ANCIENT_FRAGMENT_BASE_PERMILLE = 12;
 export const ANCIENT_PROBE_LIFT = 2.5;
 export const ANCIENT_PROBE_KNEE = 2;
 
-// Gas Giant Study GG-7: a run that froze a Resonance Sensor Array's lift (Expedition.ancientFind, per mille) multiplies
-// the odds by (1 + it / 1000); a run without the stamp reads exactly the pre-GG-7 odds (the factor is never applied).
-export function ancientFragmentPermille(exp: Pick<Expedition, "region"> & { ancientFind?: number }, relicRating: number): number {
+export function ancientFragmentPermille(exp: Pick<Expedition, "region">, relicRating: number): number {
   const lift = 1 + diminishing(ANCIENT_PROBE_LIFT * Math.max(0, relicRating), ANCIENT_PROBE_KNEE);
-  const find = exp.ancientFind;
-  const base = ANCIENT_FRAGMENT_BASE_PERMILLE * tierHaulMult(exp.region) * lift;
-  return Math.max(0, Math.min(1000, Math.round(find !== undefined && find > 0 ? base * (1 + find / 1000) : base)));
+  return Math.max(0, Math.min(1000, Math.round(ANCIENT_FRAGMENT_BASE_PERMILLE * tierHaulMult(exp.region) * lift)));
+}
+
+// Gas Giant Study GG-7 (user 2026-10-27, "Better canister odds"): band odds with the Augmented and Stellar shares x
+// (1 + `lift`) (whole percent weights), the Standard share giving way (never below 0) and Radiant unchanged. Lift 0
+// returns the same odds object. Pure.
+export function liftedBandOdds(odds: BandOdds, lift: number): BandOdds {
+  if (!(lift > 0)) return odds;
+  const augmented = Math.round(odds.augmented * (1 + lift));
+  const stellar = Math.round(odds.stellar * (1 + lift));
+  const total = odds.standard + odds.augmented + odds.stellar + odds.radiant;
+  return { standard: Math.max(0, total - augmented - stellar - odds.radiant), augmented, stellar, radiant: odds.radiant };
+}
+
+// The band odds a giant study of class `def` rolls on run `exp`: the class's own, lifted by a Resonance Sensor Array
+// the run froze (Expedition.bandLift, per mille). A run without the stamp reads the class odds object itself. Pure.
+export function studyBandOdds(exp: { bandLift?: number }, def: Pick<GiantClassDef, "bandOdds">): BandOdds {
+  const lift = exp.bandLift;
+  return lift !== undefined && lift > 0 ? liftedBandOdds(def.bandOdds, lift / 1000) : def.bandOdds;
 }
 
 // The canister count's expected size before its chance rounding: the base draw x (1 + the dive) x the tier haul. Pure.
@@ -353,7 +367,7 @@ export function rollCanister(rng: Rng, odds: BandOdds, weights: CanisterWeights)
 // Materials list the canisters in GAS_CANISTER_IDS order, then the data, then the fragment. `classes` defaults to the
 // content table (the wiring probes pass an edited copy). Pure.
 export function rollStudyReward(
-  exp: Pick<Expedition, "id" | "seed" | "bodies" | "region" | "roster" | "systemName" | "ancientFind">,
+  exp: Pick<Expedition, "id" | "seed" | "bodies" | "region" | "roster" | "systemName" | "bandLift">,
   bodyIndex: number,
   at: number,
   classes: readonly GiantClassDef[] = GIANT_CLASSES,
@@ -371,8 +385,10 @@ export function rollStudyReward(
   const whole = Math.floor(raw);
   const count = whole + (rng.nextInt(1000) < Math.round((raw - whole) * 1000) ? 1 : 0);
   const filled: Partial<Record<GasCanisterId, number>> = {};
+  // GG-7: a Resonance Sensor Array's frozen lift shifts the band odds (the same two draws per canister).
+  const odds = studyBandOdds(exp, def);
   for (let i = 0; i < count; i += 1) {
-    const id = rollCanister(rng, def.bandOdds, def.itemWeights);
+    const id = rollCanister(rng, odds, def.itemWeights);
     filled[id] = (filled[id] ?? 0) + 1;
   }
   const materials: Record<string, number> = {};
@@ -467,7 +483,7 @@ export function nebulaSweepBoost(exp: Pick<Expedition, "nebula">): number {
 }
 
 // The per-mille stamp a dispatch freezes for a GG-7 gear `fraction` (the Ramscoop's sweep boost, shipModules.ts
-// moduleNebulaSweep; the Resonance array's fragment lift, sensorArrays.ts sensorArrayAncientFragmentBonus), or undefined
+// moduleNebulaSweep; the Resonance array's band lift, sensorArrays.ts sensorArrayCanisterBandLift), or undefined
 // when the ship has none (so the record keeps exactly its pre-GG-7 shape). Pure.
 export function gearPermilleStamp(fraction: number): number | undefined {
   const p = Math.round(Math.max(0, Number.isFinite(fraction) ? fraction : 0) * 1000);

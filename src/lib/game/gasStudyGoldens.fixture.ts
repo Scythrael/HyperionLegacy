@@ -24,7 +24,7 @@ export const GG6_PICKUP_PAUSE_ENTRY_ID = "expedition:GAS_STUDY_USES:pickupPause"
 // Gas Giant Study GG-7 (the canisters' crafting uses and the special blueprints): the entries it ADDS, read off the
 // registry by their sources: each canister's consumer row (GAS_STUDY_USES canisterRecipes:<canister>), the four new
 // blueprints' research rows and the three special blueprints' effect rows, the Ramscoop Collector's module row, the
-// Resonance Sensor Array's rows and every array's new ancientFragmentBonus row. Its flip (canisterRecipes pending ->
+// Resonance Sensor Array's rows and every array's new canisterBandLift row. Its flip (canisterRecipes pending ->
 // live) reads back through GG_STUDY_FLIPPED_BEFORE like the engine slices' flips; its DATA_STUDY / DATA_STUDY_SEAM
 // changes (the decode and the gate live, the culture study point seam) sit in GG_STUDY_ADDED_ENTRY_IDS already.
 const GG7_BLUEPRINT_KEYS: ReadonlySet<string> = new Set(Object.keys(GAS_GIANT_BLUEPRINTS));
@@ -33,7 +33,7 @@ function isGg7Row(e: (typeof WIRING_REGISTRY)[number]): boolean {
   if (e.source.catalog === "GAS_STUDY_USES") return key.startsWith("canisterRecipes:");
   if (e.source.catalog === "BLUEPRINTS") return GG7_BLUEPRINT_KEYS.has(key.split(":")[0]);
   if (e.source.catalog === "UNIVERSAL_MODULES") return key === RAMSCOOP_COLLECTOR_MODULE;
-  if (e.source.catalog === "SENSOR_ARRAYS") return key.startsWith(`${RESONANCE_SENSOR_ARRAY}:`) || key.endsWith(":ancientFragmentBonus");
+  if (e.source.catalog === "SENSOR_ARRAYS") return key.startsWith(`${RESONANCE_SENSOR_ARRAY}:`) || key.endsWith(":canisterBandLift");
   return false;
 }
 export const GG7_ADDED_ENTRY_IDS: ReadonlySet<string> = new Set(WIRING_REGISTRY.filter(isGg7Row).map((e) => e.id));

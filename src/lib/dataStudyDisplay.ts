@@ -14,6 +14,7 @@
 import type { CompletionLogEntry, GameState } from "./game/model";
 import { BLUEPRINTS, ITEMS, ancientEntriesDecodedMax, blueprintDecodeLocked, labTier } from "./game/model";
 import { SPECIAL_BLUEPRINT_KEYS, SPECIAL_BLUEPRINT_TIER, type SpecialBlueprintKey } from "./game/specialBlueprints";
+import { regionTierNumeral } from "./game/galaxy";
 import {
   DATA_STUDY_ITEM_IDS,
   DATA_STUDY_RECIPE_PERMILLE,
@@ -131,14 +132,13 @@ export interface SpecialBlueprintCardView {
 const SPECIAL_TEXT: Readonly<Record<SpecialBlueprintKey, string>> = {
   pressureForgedPlatingBp: "Hull plating forged under crushing pressure.",
   ramscoopCollectorBp: "Boosts the nebula sweep: bigger, faster hauls. Never a gate.",
-  resonanceSensorArrayBp: "A sensor array tuned by ancient records: more Ancient Data Fragments from gas giant studies.",
+  resonanceSensorArrayBp: "A sensor array tuned by ancient records: richer canisters (more Augmented and Stellar) from gas giant studies.",
 };
 const SPECIAL_GLYPH: Readonly<Record<SpecialBlueprintKey, IconName>> = {
   pressureForgedPlatingBp: "armor",
   ramscoopCollectorBp: "nebula",
   resonanceSensorArrayBp: "telescope",
 };
-const ROMAN = ["", "I", "II", "III", "IV", "V", "VI", "VII"];
 
 // The research refusal for a decode-gated blueprint (the Research list's reason line): the entries ONE culture needs.
 // Pure.
@@ -152,7 +152,7 @@ export function specialBlueprintCards(state: Pick<GameState, "ancientDecoded" | 
   return SPECIAL_BLUEPRINT_KEYS.map((key) => {
     const bp = BLUEPRINTS[key];
     const name = (bp?.label ?? key).replace(/ Blueprint$/, "");
-    const text = `${SPECIAL_TEXT[key]} Lab tier ${ROMAN[SPECIAL_BLUEPRINT_TIER[key]]}.`;
+    const text = `${SPECIAL_TEXT[key]} Lab tier ${regionTierNumeral(SPECIAL_BLUEPRINT_TIER[key])}.`;
     const researched = state.researchedBlueprints.includes(key);
     const researching = state.activeProcesses.some((p) => p.effect.type === "unlockBlueprint" && p.effect.key === key);
     const locked = blueprintDecodeLocked(state, key);
@@ -164,10 +164,17 @@ export function specialBlueprintCards(state: Pick<GameState, "ancientDecoded" | 
   });
 }
 
-// The decode gate in words: the entries of the culture furthest along (the gate's own reading). Pure.
-export function decodeGateText(state: Pick<GameState, "ancientDecoded">): string {
+// The decode gate in words. The count lives in the lane's ancient line (ancientText: the furthest culture's entries,
+// the number each card's "Entry N" is read against). Pure.
+export function decodeGateText(): string {
+  return "Special blueprints open as one culture's entries are decoded: each locked card names the entry it waits on.";
+}
+
+// The entries the gate reads: the culture furthest along (model.ts ancientEntriesDecodedMax), never a sum over cultures,
+// so "Entry 2" on a card opens exactly when this line reads 2. Pure.
+export function ancientEntriesText(state: Pick<GameState, "ancientDecoded">): string {
   const best = ancientEntriesDecodedMax(state);
-  return `Special blueprints open as one culture's entries are decoded. Furthest culture so far: ${best} ${best === 1 ? "entry" : "entries"}.`;
+  return `Entries decoded by the furthest culture so far: ${best}.`;
 }
 
 export const DATA_STUDY_NOTE_ON = "When the lane is idle it starts the next held data on its own. Pause holds the queue; nothing is lost.";
@@ -229,13 +236,6 @@ export function boostRows(state: Pick<GameState, "researchBoosts">): DataStudyBo
   });
 }
 
-// The ancient entries decoded so far, over every culture. Pure.
-export function ancientDecodedTotal(state: Pick<GameState, "ancientDecoded">): number {
-  let n = 0;
-  for (const v of Object.values(state.ancientDecoded ?? {})) if (typeof v === "number" && v > 0) n += Math.floor(v);
-  return n;
-}
-
 // The held research data against its warehouse cap (the user, 2026-10-23: research data keeps the cap for now, and the
 // Data study tab shows it). The cap is PER TYPE (each type's own warehouse shelf), so each queue row shows its type's
 // stock against it ("400 / 500", dataQueueRows), and a type at its cap warns that more of it coming home is not kept
@@ -267,7 +267,6 @@ export function dataStudyView(state: GameState): DataStudyView {
       progressPct: Math.max(0, Math.min(100, ((total - flight.remainingTicks) / total) * 100)),
     };
   }
-  const decoded = ancientDecodedTotal(state);
   const boostPct = Math.round(RESEARCH_BOOST_PER * 100);
   return {
     open: lanes > 0,
@@ -288,10 +287,10 @@ export function dataStudyView(state: GameState): DataStudyView {
     boosts: boostRows(state),
     boostNote: `Each finished study banks one boost for its family. Your next project in that family uses them all: +${boostPct}% speed for one, stacking on the diminishing curve, never capped.`,
     ancientText: ANCIENT_DECODE_TEXT_LIVE
-      ? `An Ancient Data Fragment is studied in this same lane; it decodes the next entry of the culture it came from instead of banking a boost. Entries decoded so far: ${decoded}.`
+      ? `An Ancient Data Fragment is studied in this same lane; it decodes the next entry of the culture it came from instead of banking a boost. ${ancientEntriesText(state)}`
       : null,
     ...heldCap(state),
     specials: specialBlueprintCards(state),
-    decodeGateText: decodeGateText(state),
+    decodeGateText: decodeGateText(),
   };
 }

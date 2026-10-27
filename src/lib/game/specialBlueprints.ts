@@ -37,8 +37,10 @@ export const RESONANCE_SENSOR_ARRAY = "sensorResonance";
 //   ramscoopCollector: the nebula sweep boost at Standard quality 0 (scaled by the piece's rarity and quality,
 //     model.ts moduleEffectScale): the sweep's canisters x (1 + it) and its length / (1 + it) (the v2 mockup's x1.5
 //     "bigger hauls, faster sweeps"), and the module's power draw.
-//   resonanceSensorArray: [PROPOSAL] effect: the Ancient Data Fragment odds of every gas giant study x (1 + it) at
-//     Standard quality 0 (it reads a giant's depths from orbit, the way Juno reads Jupiter's interior).
+//   resonanceSensorArray: the canister band lift at Standard quality 0 (user 2026-10-27, "Better canister odds"): a gas
+//     giant study by a ship carrying it rolls its canisters' bands with the Augmented and Stellar odds x (1 + it), the
+//     Standard odds giving way (gasGiantStudy.ts liftedBandOdds). It reads a giant's depths from orbit, the way Juno
+//     reads Jupiter's interior, so it finds the richer layers.
 //   eliteQuartersCanisters: the canisters the Lab tier III Elite Quarters recipe adds (audit call 14).
 export const GG7_NUMBERS = {
   decodeEntry: { pressureForgedPlatingBp: 1, ramscoopCollectorBp: 2, resonanceSensorArrayBp: 3 } as Readonly<Record<SpecialBlueprintKey, number>>,
@@ -49,7 +51,7 @@ export const GG7_NUMBERS = {
   },
   pressureForgedPlating: { hullStrength: 0.55, kineticDampening: 0.35, ablativeArmor: 0.1 },
   ramscoopCollector: { nebulaSweep: 0.5, powerDraw: 6 },
-  resonanceSensorArray: { ancientFragmentBonus: 0.5 },
+  resonanceSensorArray: { canisterBandLift: 0.5 },
   eliteQuartersCanisters: { ammoniaCanister: 1, hydrogenCanister: 1 },
 } as const;
 

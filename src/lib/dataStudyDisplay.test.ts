@@ -123,8 +123,9 @@ describe("GG-6 the Data study tab", () => {
     expect(dataStudyView(full).queue.find((r) => r.itemId === PROP)!.full).toBe(true);
     // GG-7 authored the decode-gated special blueprints, so the user's "Hide until GG-7" line is back on.
     expect(ANCIENT_DECODE_TEXT_LIVE).toBe(true);
-    expect(v.ancientText).toBe("An Ancient Data Fragment is studied in this same lane; it decodes the next entry of the culture it came from instead of banking a boost. Entries decoded so far: 0.");
-    expect(dataStudyView({ ...s, ancientDecoded: { a: 2, b: 1 } }).ancientText).toMatch(/Entries decoded so far: 3\.$/);
+    expect(v.ancientText).toBe("An Ancient Data Fragment is studied in this same lane; it decodes the next entry of the culture it came from instead of banking a boost. Entries decoded by the furthest culture so far: 0.");
+    // The furthest culture's count (the one the special blueprint gate reads), never a sum over cultures.
+    expect(dataStudyView({ ...s, ancientDecoded: { a: 2, b: 1 } }).ancientText).toMatch(/Entries decoded by the furthest culture so far: 2\.$/);
     expect(v.specials.map((c) => c.state)).toEqual(["locked", "locked", "locked"]);
   });
 

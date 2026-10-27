@@ -24,24 +24,26 @@ import {
   type ShipGroundTeam,
 } from "./model";
 import { canResearch } from "./tick";
-import { advanceExpedition } from "./expedition";
+import { advanceExpedition, flaggedScanTimeline } from "./expedition";
 import { generateEquipment } from "./itemgen";
 import {
   NEBULA_SWEEP_SECONDS,
-  ancientFragmentPermille,
   gearPermilleStamp,
+  liftedBandOdds,
   nebulaCanisterRange,
   nebulaSweepSeconds,
   rollNebulaReward,
-  studyProbe,
+  rollStudyReward,
+  studyBandOdds,
 } from "./gasGiantStudy";
-import { GAS_CANISTER_IDS } from "./gasGiantContent";
+import { GAS_CANISTER_IDS, GIANT_CLASSES } from "./gasGiantContent";
 import { GG7_NUMBERS, PRESSURE_FORGED_PLATING_VARIETY, RAMSCOOP_COLLECTOR_MODULE, RESONANCE_SENSOR_ARRAY, SPECIAL_BLUEPRINT_KEYS, SPECIAL_BLUEPRINT_TIER } from "./specialBlueprints";
 import { UNIVERSAL_MODULES, moduleNebulaSweep, validateUniversalModuleCatalog } from "./shipModules";
-import { SENSOR_ARRAYS, sensorArrayAncientFragmentBonus } from "./sensorArrays";
+import { SENSOR_ARRAYS, sensorArrayCanisterBandLift } from "./sensorArrays";
 import { researchFamilyOf } from "./dataStudy";
 import { dispatchPastPropulsion, plainAwayMember } from "./awayTeamTestFixtures";
-import { decodeGateText, decodeLockText, specialBlueprintCards } from "../dataStudyDisplay";
+import { ancientEntriesText, decodeGateText, decodeLockText, specialBlueprintCards } from "../dataStudyDisplay";
+import { giantCardView, minText, nebulaRowView, studyLegsView } from "../gasGiantStudyDisplay";
 import { moduleEffectSentence } from "../ui/moduleEffectText";
 
 const T0 = 100_000;
@@ -240,28 +242,69 @@ describe("GG-7: the Ramscoop Collector boosts the nebula sweep, never gates it",
   });
 });
 
-describe("GG-7: the Resonance Sensor Array lifts the Ancient Data Fragment odds", () => {
+describe("GG-7: the Resonance Sensor Array lifts the canister bands (user 2026-10-27, \"Better canister odds\")", () => {
   it("is the only array with the lift, scaled by rarity and quality", () => {
-    for (const a of SENSOR_ARRAYS) expect(a.ancientFragmentBonus > 0, a.id).toBe(a.id === RESONANCE_SENSOR_ARRAY);
+    for (const a of SENSOR_ARRAYS) expect(a.canisterBandLift > 0, a.id).toBe(a.id === RESONANCE_SENSOR_ARRAY);
     const def = SENSOR_ARRAYS.find((a) => a.id === RESONANCE_SENSOR_ARRAY)!;
     const piece = (rarity: EquipmentInstance["rarity"], quality: number) => ({ def, instance: { rarity, quality, ascension: "none" } as EquipmentInstance });
-    expect(sensorArrayAncientFragmentBonus(piece("standard", 0))).toBeCloseTo(GG7_NUMBERS.resonanceSensorArray.ancientFragmentBonus, 12);
-    expect(sensorArrayAncientFragmentBonus(piece("radiant", 5))).toBeGreaterThan(sensorArrayAncientFragmentBonus(piece("standard", 0)));
-    expect(sensorArrayAncientFragmentBonus(null)).toBe(0);
+    expect(sensorArrayCanisterBandLift(piece("standard", 0))).toBeCloseTo(GG7_NUMBERS.resonanceSensorArray.canisterBandLift, 12);
+    expect(sensorArrayCanisterBandLift(piece("radiant", 5))).toBeGreaterThan(sensorArrayCanisterBandLift(piece("standard", 0)));
+    expect(sensorArrayCanisterBandLift(null)).toBe(0);
   });
 
-  it("the dispatch freezes it only on a study run whose ship carries the array, and the odds rise by it", () => {
+  it("lifts Augmented and Stellar, Standard gives way, Radiant holds; no lift is the class's own odds object", () => {
+    const sudarskyI = GIANT_CLASSES.find((c) => c.id === "sudarskyI")!;
+    expect(sudarskyI.bandOdds).toEqual({ standard: 66, augmented: 26, stellar: 6, radiant: 2 });
+    expect(liftedBandOdds(sudarskyI.bandOdds, 0.5)).toEqual({ standard: 50, augmented: 39, stellar: 9, radiant: 2 });
+    expect(studyBandOdds({}, sudarskyI)).toBe(sudarskyI.bandOdds);
+    expect(studyBandOdds({ bandLift: 500 }, sudarskyI)).toEqual({ standard: 50, augmented: 39, stellar: 9, radiant: 2 });
+    // Unbounded and never negative: a huge lift empties Standard and keeps growing the richer bands.
+    expect(liftedBandOdds(sudarskyI.bandOdds, 20)).toMatchObject({ standard: 0, radiant: 2 });
+  });
+
+  it("the dispatch freezes it only on a study run whose ship carries the array, and the run's canisters come richer", () => {
     const plain = dispatch(STUDY);
-    expect(plain.ancientFind).toBeUndefined();
+    expect(plain.bandLift).toBeUndefined();
     const tuned = dispatch(STUDY, (s) => withMinted(s, "resonanceSensorArrayBp"));
-    expect(tuned.ancientFind).toBe(gearPermilleStamp(GG7_NUMBERS.resonanceSensorArray.ancientFragmentBonus * moduleEffectScale("standard", 0, "none")));
-    const rating = studyProbe(tuned)?.relicRating ?? 0;
-    expect(ancientFragmentPermille(tuned, rating)).toBeGreaterThan(ancientFragmentPermille(plain, rating));
-    const region = { version: 1 as const, tier: 3 as const, enemyTerritory: false, bearing: 0, distanceLy: 10 };
-    expect(ancientFragmentPermille({ region, ancientFind: 500 }, 0)).toBe(Math.round(ancientFragmentPermille({ region }, 0) * 1.5));
+    expect(tuned.bandLift).toBe(gearPermilleStamp(GG7_NUMBERS.resonanceSensorArray.canisterBandLift * moduleEffectScale("standard", 0, "none")));
+    // The same draws, richer bands: over a reseeded batch of the run's first giant study, more canisters above Standard,
+    // and the same canister count study for study (the lift never moves the count draws).
+    const i = plain.bodies.findIndex((b) => b.giant !== undefined);
+    let above = [0, 0];
+    for (let k = 1; k <= 300; k++) {
+      const seed = (plain.seed ^ Math.imul(k, 0x9e3779b1)) >>> 0;
+      const [a, b] = [plain, tuned].map((e) => rollStudyReward({ ...e, seed }, i, 0).materials ?? {});
+      const count = (m: Record<string, number>) => GAS_CANISTER_IDS.reduce((n, id) => n + (m[id] ?? 0), 0);
+      expect(count(b)).toBe(count(a));
+      const rich = (m: Record<string, number>) => GAS_CANISTER_IDS.reduce((n, id) => n + (ITEMS[id].band !== "standard" ? (m[id] ?? 0) : 0), 0);
+      above = [above[0] + rich(a), above[1] + rich(b)];
+    }
+    expect(above[1]).toBeGreaterThan(above[0] * 1.25);
     // A nebula-only system has no giant to study, so nothing is frozen there.
     const nebulaOnly = firstCandidate((e) => e.nebula !== undefined && e.study === undefined);
-    expect(dispatch(nebulaOnly, (s) => withMinted(s, "resonanceSensorArrayBp")).ancientFind).toBeUndefined();
+    expect(dispatch(nebulaOnly, (s) => withMinted(s, "resonanceSensorArrayBp")).bandLift).toBeUndefined();
+  });
+});
+
+describe("GG-7: the study screens read the run's own sweep length and band odds", () => {
+  it("a Ramscoop run's nebula row and upcoming sweep row print its shorter sweep", () => {
+    const exp = dispatch(NEBULA, (s) => withMinted(s, "ramscoopCollectorBp"));
+    const short = minText(nebulaSweepSeconds(exp));
+    expect(short).not.toBe(minText(NEBULA_SWEEP_SECONDS));
+    expect(nebulaRowView(exp, T0)!.chips[0].text).toBe(`Nebula sweep ${short}`);
+    let run = exp;
+    for (let t = T0; t < FINAL && run.groundOps?.startedAt === undefined; t += 600) run = advanceExpedition(run, t);
+    expect(run.groundOps?.studyLegs?.some((l) => l.nebula === 1) ?? false).toBe(false);
+    const ahead = studyLegsView(run, null, run.groundOps!.startedAt!, flaggedScanTimeline)!.rows.find((r) => r.key === "sweep-ahead")!;
+    expect(ahead.when).toBe(`after the last body, ${short}`);
+    // Without the module the GG-6 text holds.
+    expect(nebulaRowView(dispatch(NEBULA), T0)!.chips[0].text).toBe(`Nebula sweep ${minText(NEBULA_SWEEP_SECONDS)}`);
+  });
+  it("a Resonance run's body card shows its lifted band odds", () => {
+    const plain = dispatch(STUDY);
+    const tuned = dispatch(STUDY, (s) => withMinted(s, "resonanceSensorArrayBp"));
+    const i = plain.bodies.findIndex((b) => b.giant !== undefined);
+    expect(JSON.stringify(giantCardView(tuned, i)!.bands)).not.toBe(JSON.stringify(giantCardView(plain, i)!.bands));
   });
 });
 
@@ -275,7 +318,7 @@ describe("GG-7: the Data study tab's special blueprint cards and decoded count",
     expect(locked.map((c) => c.text)).toEqual([
       "Hull plating forged under crushing pressure. Lab tier III.",
       "Boosts the nebula sweep: bigger, faster hauls. Never a gate. Lab tier IV.",
-      "A sensor array tuned by ancient records: more Ancient Data Fragments from gas giant studies. Lab tier V.",
+      "A sensor array tuned by ancient records: richer canisters (more Augmented and Stellar) from gas giant studies. Lab tier V.",
     ]);
     const one = specialBlueprintCards(view({ "culture-t1-1": GG7_NUMBERS.decodeEntry.pressureForgedPlatingBp }, []));
     expect(one[0]).toMatchObject({ state: "open", chipText: "Unlocked: ready to research", glyph: "discovery" });
@@ -283,9 +326,14 @@ describe("GG-7: the Data study tab's special blueprint cards and decoded count",
     expect(done[1]).toMatchObject({ state: "researched", chipText: "Researched", glyph: "check" });
     expect(done[2].state).toBe("open");
   });
-  it("the gate line reads the culture furthest along; the research refusal names one culture", () => {
-    expect(decodeGateText({ ancientDecoded: { a: 1, b: 2 } })).toBe("Special blueprints open as one culture's entries are decoded. Furthest culture so far: 2 entries.");
-    expect(decodeGateText({ ancientDecoded: undefined })).toBe("Special blueprints open as one culture's entries are decoded. Furthest culture so far: 0 entries.");
+  it("the count is the furthest culture's (the gate's own reading, never a sum); the research refusal names one culture", () => {
+    expect(decodeGateText()).toBe("Special blueprints open as one culture's entries are decoded: each locked card names the entry it waits on.");
+    // One entry in each of three cultures reads 1, and the Ramscoop's "Entry 2" card stays locked to match.
+    const spread = { a: 1, b: 1, c: 1 };
+    expect(ancientEntriesText({ ancientDecoded: spread })).toBe("Entries decoded by the furthest culture so far: 1.");
+    expect(specialBlueprintCards(view(spread))[1]).toMatchObject({ state: "locked", chipText: `Entry ${GG7_NUMBERS.decodeEntry.ramscoopCollectorBp}` });
+    expect(ancientEntriesText({ ancientDecoded: { a: 1, b: 2 } })).toBe("Entries decoded by the furthest culture so far: 2.");
+    expect(ancientEntriesText({ ancientDecoded: undefined })).toBe("Entries decoded by the furthest culture so far: 0.");
     expect(decodeLockText(1)).toBe("Decode 1 ancient entry of one culture first");
     expect(decodeLockText(3)).toBe("Decode 3 ancient entries of one culture first");
   });

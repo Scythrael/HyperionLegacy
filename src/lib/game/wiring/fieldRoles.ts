@@ -91,7 +91,7 @@ export const FIELD_ROLES: Readonly<Record<string, Readonly<Record<string, FieldR
     landmarkOddsBias: "effect",
     undergroundPoiOddsBias: "effect",
     relicFindBonus: "effect",
-    ancientFragmentBonus: "effect", // Gas Giant Study GG-7: the Resonance Sensor Array's Ancient Data Fragment lift
+    canisterBandLift: "effect", // Gas Giant Study GG-7: the Resonance Sensor Array's canister band lift
   },
   ITEMS: {
     label: "display",

@@ -496,17 +496,17 @@ the mockup drew, and GG7_NUMBERS: every [PROVISIONAL] number in one place). mode
 EM-7's modules, all NEW rows (no existing recipe moved): Pressure-Forged Plating (Hull Plating variety
 `pressureForgedPlating`, Osmium Plate 2 + Ferrite Ingot 2 + Frame 1 + Methane Canister 1), Ramscoop Collector (universal
 module `ramscoopCollector`, passive, expeditions only, Cobalt Coil 2 + Coupling 2 + Frame 2), Resonance Sensor Array
-(sensor variety `sensorResonance`, Photonic Gel 2 + Wafer 2 + Coupling 1 + Helium-3 Canister 1), each `requiresDecode`;
+(sensor variety `sensorResonance`, Photonic Gel 2 + Wafer 2 + Coupling 1 + Helium-3 Canister 1, see the review round below
+for its effect), each `requiresDecode`;
 Elite Quarters Blueprint at Lab tier III (the audit's mix + Ammonia 1 + Hydrogen 1, call 14). Every canister now has a
 consumer (Hydrogen and Ammonia: Elite Quarters; Methane: the plating; Deuterium: cores and Class III+ drives; Helium-3:
 the Resonance array, no Reactor Core; the cell: Class VI and VII). ENGINE, stamped on new runs only: the dispatch
 freezes `Expedition.nebula.ramscoop` (per mille, the module's boost x moduleEffectScale x wear) when the ship carries a
 Ramscoop and the system holds a nebula: the sweep lasts 7200 / (1 + it) and fills x (1 + it) (nebulaSweepSeconds,
-nebulaHaulScale; never a gate); `Expedition.ancientFind` (per mille) when a study run's ship carries the Resonance array:
-every study's fragment odds x (1 + it). Without the stamps every record and draw is byte-identical (capture 2). Registry
+nebulaHaulScale; never a gate); the Resonance array's stamp is in the review round below. Without the stamps every record and draw is byte-identical (capture 2). Registry
 live with probes: GAS_STUDY_USES canisterRecipes (+ one equals row per canister, `content:craftSpends`), the three
-`BLUEPRINTS:<key>:effect` rows (plating lean over minted plates, sweep canisters per hour, fragment per-mille), the
-Ramscoop module row (its frozen stamp), SENSOR_ARRAYS ancientFragmentBonus, DATA_STUDY ancientDecode and
+`BLUEPRINTS:<key>:effect` rows (plating lean over minted plates, sweep canisters per hour, study canisters above
+Standard), the Ramscoop module row (its frozen stamp), SENSOR_ARRAYS canisterBandLift, DATA_STUDY ancientDecode and
 DATA_STUDY_SEAM decodeGate (gate); new seam DATA_STUDY_SEAM cultureStudyPoint (owner R2-6). UI: ANCIENT_DECODE_TEXT_LIVE
 true; the Data study tab gains the mockup section 4 "Special blueprints" cards (glyph, name, line, Lab tier, state chip)
 with the decode gate's line (the Cultures tab waits on R2-8, so no culture name is shown); the research refusal reads
@@ -517,10 +517,28 @@ EM-5 and EM-7 pins / the registry pins. Test rules adjusted: the no-wall rule co
 discovery payoff and keeps EARLY (Lab I and II) varieties open (the quarters slot's only blueprint is Lab III until
 CP-11). [PROVISIONAL]: decode entries 1 / 2 / 3 (the mockup sampled 3 and 5 with relic-decoded entries the engine does not
 have), costs = the Class III to V drives', the plating lean, Ramscoop +50% and draw 6, Resonance +50%, Elite Quarters 1 + 1
-canisters. [PROPOSAL]: the Resonance array's effect (fragment odds), the three special recipes (audit section 9), the
-Elite Quarters taking GG-7's place in CP-11. For CP-11: `eliteQuartersBp` exists (tier III, canisters); build the
+canisters. [PROPOSAL]: the three special recipes (audit section 9). For CP-11: `eliteQuartersBp` exists (tier III, canisters); build the
 others around it. Left: sensors taking Hydrogen and Methane (call 14) need a Lab III+ sensor array besides the special
 one (none exists); Help is GG-8's.
+
+**GG-7 review round (2026-10-27).** USER ANSWERS (2026-10-27, both the Recommended option): Resonance Sensor Array:
+"Better canister odds": a gas giant study by a ship carrying it rolls better canister quality bands (more Augmented /
+Stellar), REPLACING the first build's Ancient Data Fragment odds lift (that idea can return with culture names, R2-8).
+Elite Quarters: "Keep it" (ships now at Lab tier III; the basic quarters follow with CP-11). Built: the dispatch freezes
+`Expedition.bandLift` (per mille, the array's lift x moduleEffectScale x wear) on a study run whose ship carries the
+array; each giant study then rolls its canisters' bands with the Augmented and Stellar odds x (1 + it), Standard giving
+way, Radiant unchanged (gasGiantStudy.ts liftedBandOdds / studyBandOdds), the same two draws per canister, so the count
+and every other draw stay put; a run without the stamp reads the class odds object itself (capture 2 holds).
+[PROVISIONAL] GG7_NUMBERS.resonanceSensorArray.canisterBandLift 0.5: canisters above Standard go 34% to 50% on a
+Sudarsky I giant (Sudarsky V 38% to 57%, brown dwarf 45% to 66%, over 2,000 studies each). Registry: SENSOR_ARRAYS
+canisterBandLift (reader probe) and `expedition:BLUEPRINTS:resonanceSensorArrayBp:effect` (`content:gg7:studyBands`, the
+run's canisters above Standard over a reseeded batch, the array vs none). The body card's band bar and odds read the
+run's own lifted odds. Review fixes: the nebula row chip and the upcoming sweep row print the run's sweep length
+(nebulaSweepSeconds); the lane's count is the furthest culture's ("Entries decoded by the furthest culture so far: N",
+the number the gate and each card's "Entry N" read, never a sum); emodEm7Goldens computes its module-free pins on the
+real catalog and holds GG-7 apart only for the moved catalog pins; the no-wall walk counts the gas giant study's
+canisters (all but Deuterium, whose day-one Refinery route the cores keep proving) instead of a Lab-tier filter;
+dataStudyDisplay reuses galaxy.ts regionTierNumeral; expeditionGasGiantGear takes the dispatch's worn gear view.
 
 ### GG-8: Help, registry close-out, QA sheet
 

@@ -63,7 +63,7 @@ import { SHIP_TYPES, commandingCaptain, memberVariety, moduleEffectScale, shipGe
 // E-MOD EM-6: the body-scanned module trigger (its frozen procs and private stream).
 import { moduleNebulaSweep, moduleScanProcs, moduleScanSeed, rollModuleChance } from "./shipModules";
 import { makeRng, type Rng } from "./combat/rng";
-import { installedSensorArray, sensorArrayAncientFragmentBonus, sensorArrayEffect, sensorArrayRelicFindBonus } from "./sensorArrays";
+import { installedSensorArray, sensorArrayCanisterBandLift, sensorArrayEffect, sensorArrayRelicFindBonus } from "./sensorArrays";
 // E4d: the relic-unlocked Pathfinder Suite's expedition effect (a pure leaf over the installed pieces).
 import { pathfinderEffect } from "./utilityGear";
 import { equippedFor } from "./equipment";
@@ -868,18 +868,18 @@ export function expeditionGearBonuses(state: GameState, ship: ShipInstance): Exp
 
 // Gas Giant Study GG-7: the ship's installed special-blueprint gear the dispatch freezes (fractions, 0 without the
 // piece): the Ramscoop Collector's nebula sweep boost (shipModules.ts moduleNebulaSweep, scaled by the module's rarity
-// and quality and worn with it) and the Resonance Sensor Array's Ancient Data Fragment lift. Kept apart from
-// expeditionGearBonuses so its shape (and every pin of it) is unchanged. Pure.
+// and quality and worn with it) and the Resonance Sensor Array's canister band lift. Kept apart from
+// expeditionGearBonuses so its shape (and every pin of it) is unchanged; the dispatch hands in the worn gear view it
+// already built. Pure.
 export interface ExpeditionGasGiantGear {
   nebulaSweep: number;
-  ancientFind: number;
+  bandLift: number;
 }
-export function expeditionGasGiantGear(state: GameState, ship: ShipInstance): ExpeditionGasGiantGear {
-  const gearView = wornGearView(state);
+export function expeditionGasGiantGear(state: GameState, ship: ShipInstance, gearView: GameState = wornGearView(state)): ExpeditionGasGiantGear {
   const installed = equippedFor(gearView, ship.id);
   return {
     nebulaSweep: moduleNebulaSweep(installed, (p) => moduleEffectScale(p.rarity, p.quality, p.ascension) * viewPieceEfficiency(p)),
-    ancientFind: sensorArrayAncientFragmentBonus(installedSensorArray(gearView, ship)),
+    bandLift: sensorArrayCanisterBandLift(installedSensorArray(gearView, ship)),
   };
 }
 
@@ -1608,13 +1608,13 @@ function buildExpedition(
   const bodies = study ? withGiantProfiles(seed, risked) : risked;
   // Gas Giant Study GG-4: the system's nebula (its own keyed draw at the run's region tier, a famous nebula always),
   // written last below, only when there is one.
-  // GG-7: the Ramscoop Collector's sweep boost joins the nebula stamp, and the Resonance Sensor Array's fragment lift is
-  // frozen on a study run (Expedition.ancientFind), each only when the ship carries the piece.
-  const gasGear = expeditionGasGiantGear(state, ship);
+  // GG-7: the Ramscoop Collector's sweep boost joins the nebula stamp, and the Resonance Sensor Array's band lift is
+  // frozen on a study run (Expedition.bandLift), each only when the ship carries the piece.
+  const gasGear = expeditionGasGiantGear(state, ship, gearView);
   const nebulaDrawn = nebulaStampFor(seed, risk.profile.tier, gen.systemId);
   const ramscoop = nebulaDrawn ? gearPermilleStamp(gasGear.nebulaSweep) : undefined;
   const nebula = nebulaDrawn && ramscoop !== undefined ? { ...nebulaDrawn, ramscoop } : nebulaDrawn;
-  const ancientFind = study ? gearPermilleStamp(gasGear.ancientFind) : undefined;
+  const bandLift = study ? gearPermilleStamp(gasGear.bandLift) : undefined;
   // Safe first runs SF-2 / SF-3: the run's difficulty stamp, from stored state only (the counters and the runs out):
   // the training run's, else the curve position and the region tier this run is dispatched at.
   const difficulty = runDifficultyAt(state, "expedition", risk.profile.tier, ship.typeKey);
@@ -1703,8 +1703,8 @@ function buildExpedition(
     // The user's pickup pause (2026-10-23): a study run's pickups pause the study instead of waiting for its end
     // (groundOps.ts). Written last, only on a run with a study or a nebula, so every other record is byte-identical.
     ...(study || nebula ? { pickupPause: 1 as const } : {}),
-    // Gas Giant Study GG-7: the Resonance Sensor Array's fragment lift (see above), only when the ship carries one.
-    ...(ancientFind !== undefined ? { ancientFind } : {}),
+    // Gas Giant Study GG-7: the Resonance Sensor Array's band lift (see above), only when the ship carries one.
+    ...(bandLift !== undefined ? { bandLift } : {}),
   };
   return expedition;
 }

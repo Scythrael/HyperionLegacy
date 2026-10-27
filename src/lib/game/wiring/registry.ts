@@ -2481,8 +2481,8 @@ function sensorArrayEntries(): WiringEntry[] {
     ["landmarkOddsBias", "expLandmarkBias"],
     ["undergroundPoiOddsBias", "expUndergroundBias"],
     ["relicFindBonus", "arrayRelicFind"],
-    // Gas Giant Study GG-7: the Resonance Sensor Array's Ancient Data Fragment lift (the reader the dispatch freezes).
-    ["ancientFragmentBonus", "arrayAncientFind"],
+    // Gas Giant Study GG-7: the Resonance Sensor Array's canister band lift (the reader the dispatch freezes).
+    ["canisterBandLift", "arrayBandLift"],
   ];
   for (const def of SENSOR_ARRAYS) {
     for (const [field, probe] of fields) {
@@ -2496,7 +2496,7 @@ function sensorArrayEntries(): WiringEntry[] {
           contexts: ["expedition:groundOps"],
           direction: "none",
           curve: { kind: "equals" },
-          magnitude: (c) => (c.SENSOR_ARRAYS.find((a) => a.id === def.id)![field] as number) * (field === "landmarkOddsBias" || field === "undergroundPoiOddsBias" || field === "relicFindBonus" || field === "ancientFragmentBonus" ? moduleEffectScale("standard", 0, "none") : 1),
+          magnitude: (c) => (c.SENSOR_ARRAYS.find((a) => a.id === def.id)![field] as number) * (field === "landmarkOddsBias" || field === "undergroundPoiOddsBias" || field === "relicFindBonus" || field === "canisterBandLift" ? moduleEffectScale("standard", 0, "none") : 1),
           base: () => installPiece(wiringBase(), { slotType: "sensor", moduleVariant: def.id }),
           note: field === "scanRateMult" || field === "coverageWidth" ? "the net rate is their product (B12: Focused reads faster but nets 0.78x; WR-7 OC-D11)" : undefined,
         }),
@@ -5486,7 +5486,8 @@ function mintedOn(key: string): Transform {
 //   Pressure-Forged Plating: its lean on the Hull Plating lines, the kinetic dampening a batch of minted plates rolls vs
 //     the Reinforced Plating (the slot's straight tank plate).
 //   Ramscoop Collector: a nebula run's sweep canisters per hour of sweep, the minted module installed vs none.
-//   Resonance Sensor Array: a study run's Ancient Data Fragment per-mille, the minted array installed vs none.
+//   Resonance Sensor Array: a study run's canisters above Standard over a reseeded batch, the minted array installed vs
+//     none (user 2026-10-27, "Better canister odds").
 function specialBlueprintEntry(key: SpecialBlueprintKey): WiringEntry {
   const source = { catalog: "BLUEPRINTS", key: `${key}:effect` };
   const label = BLUEPRINTS[key]?.label.replace(/ Blueprint$/, "") ?? key;
@@ -5522,10 +5523,10 @@ function specialBlueprintEntry(key: SpecialBlueprintKey): WiringEntry {
         id: `expedition:BLUEPRINTS:${key}:effect`,
         system: "expedition",
         source,
-        claim: `${label}: more Ancient Data Fragments from every gas giant study (${RESONANCE_SENSOR_ARRAY})`,
-        probe: "content:gg7:fragmentOdds",
+        claim: `${label}: richer canister bands (more Augmented and Stellar) from every gas giant study (${RESONANCE_SENSOR_ARRAY})`,
+        probe: "content:gg7:studyBands",
         contexts: ["expedition:groundOps"],
-        curve: { kind: "event", metric: "a study run's Ancient Data Fragment per-mille, the array installed vs none" },
+        curve: { kind: "event", metric: "a study run's canisters above Standard over a reseeded batch of its giant studies, the array installed vs none" },
         magnitude: () => 1,
         base: () => withAwayTeam(wiringBase()),
         on: mintedOn(key),

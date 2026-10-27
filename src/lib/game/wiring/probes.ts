@@ -214,7 +214,7 @@ import { getSeniorStaffBonusById } from "../seniorStaffBonuses";
 import { CREW_STAT_KEYS } from "../crewBuffs";
 import { POI_CATALOG, PLANET_TYPES, planetTypeHazard, poisForPlanetType } from "../expeditionContent";
 import { damageControlEffect, pathfinderEffect } from "../utilityGear";
-import { installedSensorArray, sensorArrayAncientFragmentBonus, sensorArrayEffect, sensorArrayRelicFindBonus } from "../sensorArrays";
+import { installedSensorArray, sensorArrayCanisterBandLift, sensorArrayEffect, sensorArrayRelicFindBonus } from "../sensorArrays";
 // Gas Giant Study GG-7: the special blueprints' table.
 import { PRESSURE_FORGED_PLATING_VARIETY, SPECIAL_BLUEPRINT_KEYS } from "../specialBlueprints";
 import { quartersCapacityBonus } from "../crewModules";
@@ -230,7 +230,6 @@ import { gambitProgramEquals } from "../memberGambits";
 import {
   GALILEO_VARIETY,
   GIANT_MASS_STEPS,
-  ancientFragmentPermille,
   giantDepthFactor,
   giantMassAt,
   isOrbitalPlanetType,
@@ -238,7 +237,6 @@ import {
   rollNebulaReward,
   rollStudyReward,
   studyCanisterScale,
-  studyProbe,
 } from "../gasGiantStudy";
 import { ANCIENT_DATA_FRAGMENT_ID, GAS_CANISTER_IDS, GIANT_CLASSES, NEBULA_KINDS, canistersInBand, type GiantClassDef, type GiantClassId, type NebulaKindDef, type NebulaKindId, type ResearchFamily } from "../gasGiantContent";
 // Gas Giant Study GG-5: the Research Lab's data study lane.
@@ -1820,8 +1818,8 @@ export const PROBES = {
   officerBoard: { label: "seniorStaffCandidates (count)", read: (s) => seniorStaffCandidates(s).length },
   recruitBoard: { label: "awayRecruitCandidates (count)", read: (s) => awayRecruitCandidates(s).length },
   arrayRelicFind: { label: "sensorArrayRelicFindBonus", read: (s) => sensorArrayRelicFindBonus(installedSensorArray(s, shipOf(s))) },
-  // Gas Giant Study GG-7: the Resonance Sensor Array's Ancient Data Fragment lift (the reader the dispatch freezes).
-  arrayAncientFind: { label: "sensorArrayAncientFragmentBonus", read: (s) => sensorArrayAncientFragmentBonus(installedSensorArray(s, shipOf(s))) },
+  // Gas Giant Study GG-7: the Resonance Sensor Array's canister band lift (the reader the dispatch freezes).
+  arrayBandLift: { label: "sensorArrayCanisterBandLift", read: (s) => sensorArrayCanisterBandLift(installedSensorArray(s, shipOf(s))) },
   arrayLandmarkBias: {
     label: "sensorArrayEffect.landmarkOddsBias",
     read: (s) => {
@@ -2380,7 +2378,8 @@ function craftSpends(s: GameState, key: string, item: string, skip: ReadonlySet<
 //   sweepRate:    a nebula run's sweep canisters per hour of sweep (the Ramscoop Collector raises both its haul and
 //                 its speed);
 //   ramscoopStamp: the sweep boost a nebula run froze at dispatch (Expedition.nebula.ramscoop, as a fraction);
-//   fragmentOdds: a study run's Ancient Data Fragment per-mille (its frozen Resonance lift included);
+//   studyBands:   the canisters above the Standard band over a batch of a dispatched study run's giant studies (its
+//                 frozen Resonance band lift included; the batch reseeds the run);
 //   decodeGate:   the special blueprints a Lab VII can research (OFF: no ancient entry decoded; ON: three of one culture).
 //   platingLean:  the kinetic dampening points over a batch of Stellar plates minted through generateEquipment, the
 //                 Pressure-Forged variety (OFF: the Reinforced Plating, the slot's straight tank plate).
@@ -2426,9 +2425,15 @@ function gg7Value(s: GameState, a: string, on: boolean): number {
     }
     case "ramscoopStamp":
       return (nebulaRun(readyForRun(s)).nebula?.ramscoop ?? 0) / 1000;
-    case "fragmentOdds": {
+    case "studyBands": {
       const run = studyRun(readyForRun(s));
-      return ancientFragmentPermille(run, studyProbe(run)?.relicRating ?? 0);
+      const i = run.bodies.findIndex((b) => b.giant !== undefined);
+      let n = 0;
+      for (let k = 1; k <= 200; k++) {
+        const mats = rollStudyReward({ ...run, seed: (run.seed ^ Math.imul(k, 0x9e3779b1)) >>> 0 }, i, 0).materials ?? {};
+        for (const [id, q] of Object.entries(mats)) if ((GAS_CANISTER_IDS as readonly string[]).includes(id) && ITEMS[id]?.band !== "standard") n += q;
+      }
+      return n;
     }
     case "decodeGate": {
       const lab: GameState = { ...withFacilityLevel(s, "research", 7), credits: new Decimal(1e15), ...(on ? { ancientDecoded: { "culture-t1-1": 3 } } : {}) };
