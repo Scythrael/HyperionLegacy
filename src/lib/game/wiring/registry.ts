@@ -105,7 +105,7 @@ import { SENIOR_STAFF_BONUSES, type SeniorStaffBonusDef } from "../seniorStaffBo
 import { CREW_PROFESSION_BUFFS, CREW_STAT_KEYS, HELD_CREW_BUFF_IDS, SECOND_LEVEL_EXCLUSIVE, TRANSIT_SPEED_KEY, type CrewBuffDef } from "../crewBuffs";
 import { CREW_RACES } from "../crewRaces";
 import { CREW_RARITY_CAP, CREW_RARITY_MULTIPLIER } from "../crewRarity";
-import { rarityIndex } from "../model";
+import { memberVariety, rarityIndex } from "../model";
 import { CREW_RANKS, CREW_RANK_ORDER, rankMagnitudeFactor } from "../crewRank";
 import { GROUND_CONDITIONS, STONESKIN_INJURY_MULT } from "../medicalBay";
 import { OFFICER_STAT_KEYS } from "../seniorStaff";
@@ -207,11 +207,15 @@ import {
   FREE_BASIC_CURVE_KNEE,
   FREE_BASIC_SET,
   KIT_CATEGORY_RULES,
+  FIELD_DEVICE_MIN_PERCENT,
+  FIELD_DEVICE_SPAN_PERCENT,
+  LURE_SALVAGE_PER_DIAL,
   type FieldKitDef,
   type FieldKitId,
   type KitCategory,
 } from "../fieldKits";
 import { GRENADES, GRENADE_IDS } from "../fieldKitsGrenades";
+import { PROBE_SALVAGE_SCALE } from "../shipScanEvents";
 import {
   WIRING_SCIENCE_ID,
   WIRING_SECURITY_ID,
@@ -242,6 +246,8 @@ import {
   GAMBIT_SELECTORS,
   sourceOn,
   FIELD_KITS_SWITCH_PROBE_STOCK,
+  FIELD_DEVICE_PROBE_BOUNDARIES,
+  FIELD_DEVICE_PROBE_USES,
   SHORT_RANGE_RELIC_PROBE_HOURS,
   relicV2ProbeExpectedExceptional,
   RECALL_PROBE_SHARE,
@@ -2916,10 +2922,31 @@ const RAPID_CHARGE_DEFERRED: WiringStatus = {
 };
 // (combatDescriptorProbes.ts combatEventRapidCharge is the rows' check the day a podded ship can be ambushed.)
 
+// Field Kits FKR-11: Inspired went live with the Combat Stim (fieldKitsBattle.ts applyKit, a Field Kits run's Use Item);
+// its row reads the strike seam like Weakened's, the other way.
 const GROUND_STATUS_PENDING: Readonly<Record<string, string>> = {
   corroded: "WR-10, OC-F9 (only analyze, never run, inflicts it)",
-  inspired: "FK-5 (nothing inflicts it)",
 };
+
+// Field Kits FKR-11 (the close-out): the three audit rows it RE-OWNED. The two field device rows went LIVE at FKR-8 (the
+// plan's field device slice; FKR8_FLIPPED_LIVE); the status picker's Field Kits half is done (every condition and
+// Inspired can fire on a Field Kits run), leaving only Corroded, WR-10's OC-F9. Exported for the registry pins' read-back
+// (shortRangeGoldens, emodGoldens).
+export const FKR11_REOWNED = {
+  shroudLureGroundOps: "FKR-8 + OC-F1 (the field device slice: Shroud and Lure on the ground, the 50 to 75% per-use roll)",
+  fieldDeviceEffectiveness: "FKR-8 (the field device slice: the 50 to 75% per-use roll, Codebreaker +6%)",
+  statusPicker: "WR-10, OC-F9 (Corroded: only Analyze inflicts it)",
+} as const;
+
+// Field Kits FKR-8 (the field devices roll 50 to 75% per use, on the ground: the wiring plan's OC-F1): the entries it
+// FLIPPED pending -> live (each was pending on FKR-8, the owner FKR11_REOWNED and CATEGORY_OWNER named) and the two it
+// ADDED (the reinforcement and salvage halves of OC-F1). Exported for the registry pins' read-back.
+export const FKR8_FLIPPED_LIVE: Readonly<Record<string, string>> = {
+  "away:KIT_CATEGORY_RULES:fieldDevices": "FKR-8 (the 50 to 75% per-use device roll, Codebreaker +6%)",
+  "away:audit:shroudLureGroundOps": FKR11_REOWNED.shroudLureGroundOps,
+  "away:audit:fieldDeviceEffectiveness": FKR11_REOWNED.fieldDeviceEffectiveness,
+};
+export const FKR8_ADDED_IDS: ReadonlySet<string> = new Set(["away:audit:fieldDeviceReinforcements", "away:audit:lureSalvage"]);
 
 const ACTION_PENDING: Readonly<Partial<Record<GambitActionId, string>>> = {
   fallBack: "WR-10, OC-F6 (identical to Hold, gambit.ts:887)",
@@ -3030,6 +3057,8 @@ function contentEntries(): WiringEntry[] {
           ? { direction: "down", curve: { kind: "linearRelative" }, magnitude: (c) => -c.GAMBIT_STATUSES[id].magnitude }
           : def.effect === "damageDown" || def.effect === "damageTakenDown"
             ? { direction: "down", curve: { kind: "linearRelative" }, magnitude: (c) => -c.GAMBIT_STATUSES[id].magnitude, tolerance: 1 }
+            : def.effect === "damageUp"
+              ? { direction: "up", curve: { kind: "linearRelative" }, magnitude: (c) => c.GAMBIT_STATUSES[id].magnitude, tolerance: 1 }
             : def.effect === "skipTurn" || def.effect === "turnLoss" || def.effect === "mayFallBack"
               ? {
                   direction: "down",
@@ -3358,10 +3387,9 @@ function enemyRankEntries(): WiringEntry[] {
 // through a real Use Item rule on a battle carrying the Field Kits kit rules). Field Devices stays pending (FKR-8).
 // ============================================================================
 
-// The categories not live yet, by owner (Explosives went live at FKR-5, First Aid and Advanced Medical at FKR-6).
-const CATEGORY_OWNER: Readonly<Partial<Record<KitCategory, string>>> = {
-  fieldDevices: "FKR-8 (the 50 to 75% per-use device roll, Codebreaker +6%)",
-};
+// The categories not live yet, by owner (Explosives went live at FKR-5, First Aid and Advanced Medical at FKR-6, Field
+// Devices at FKR-8).
+const CATEGORY_OWNER: Readonly<Partial<Record<KitCategory, string>>> = {};
 
 // Field Kits FKR-6: the category rules measured in battle (content:kitCategory): First Aid's trained lift on one First
 // Aid Kit's heal, Advanced Medical's Medical Training gate on a Splint.
@@ -3411,7 +3439,11 @@ function fieldKitEntries(): WiringEntry[] {
           }
         : CATEGORY_BATTLE_PROBE[cat]
           ? { probe: `content:kitCategory:${cat}` as ProbeId, contexts: ["ground"] as ContextId[], on: sourceOn }
-          : {};
+          : cat === "fieldDevices"
+            ? // Field Kits FKR-8 (FK8 "+6% to the roll"): a Codebreaker anywhere on the expedition lifts a worn Lure Beacon's
+              // effect on one use by x1.06 (groundOps.ts groundDeviceChance, the chance an ambush roll compares against).
+              { probe: "content:fieldDevice:codebreaker" as ProbeId, contexts: ["expedition:groundOps"] as ContextId[], on: sourceOn }
+            : {};
     out.push(
       entry({
         id: `away:KIT_CATEGORY_RULES:${cat}`,
@@ -3856,12 +3888,12 @@ const AUDIT_ROWS: readonly { id: string; system: WiringSystem; claim: string; st
   },
   { id: "crew:audit:commandPresenceExpedition", system: "crew", claim: "Command Presence and Operations Integrity do not reach expeditions", status: pending("WR-9, OC-E9") },
   // F. Away team and ground
-  { id: "away:audit:shroudLureGroundOps", system: "away", claim: "Shroud Emitter and Lure Beacon on Ground Ops move the ship event chance; no drop multiplier", status: pending("FK-7 + OC-F1") },
+  { id: "away:audit:shroudLureGroundOps", system: "away", claim: "Shroud Emitter and Lure Beacon work on the ground (OC-F1): they scale a crew's ambush chance on a calm objective, rolled per use", status: LIVE },
   { id: "away:audit:neuralBackupClaim", system: "away", claim: "Neural Backup revives the FIRST downed ally; its flavor says the wearer (B13)", status: pending("WR-10, OC-F2") },
   { id: "away:audit:medKitClaim", system: "away", claim: "Med Kit \"keeps a downed friend in the fight\" (no revive)", status: pending("WR-10, OC-F3") },
   { id: "away:audit:quickDraw", system: "away", claim: "Quick Draw only reorders teammates (the team already acts first)", status: pending("WR-10, OC-F5") },
   { id: "away:audit:scienceRank", system: "away", claim: "Science member rank \"nudges magnitude\" (fieldwork never reads it)", status: pending("WR-10, OC-F7") },
-  { id: "away:audit:fieldDeviceEffectiveness", system: "away", claim: "fieldDevice effectiveness (both values 1; the specialist check is always false)", status: pending("FK-7") },
+  { id: "away:audit:fieldDeviceEffectiveness", system: "away", claim: "Field devices work at a rolled 50 to 75% per use (fieldKits.ts fieldDevicePercent; the old untrained / trained knob retired)", status: LIVE },
   // WR-8 settled mass and power draw (0 by design: member gear never moves ship stats) and gear wear step 3 made the
   // durability live (a member piece's toughness scales its use wear, wired through ship:audit:slotDurability's check).
   { id: "away:audit:memberSlotPhysicals", system: "away", claim: "Member slot physicals: durability is the piece's toughness (a tougher member piece wears slower by use; ship:audit:slotDurability); mass and power draw are 0 by design (member gear never moves ship stats)", status: LIVE },
@@ -3882,7 +3914,7 @@ const AUDIT_ROWS: readonly { id: string; system: WiringSystem; claim: string; st
   // screen"): live in place with their own checks (auditRowWiring below).
   { id: "away:audit:fieldKitsHiddenPieces", system: "away", claim: "Hidden until kits are live (FIELD_KITS_PLAYER_LIVE): the Impact Grenade blueprint (FIELD_KITS_HIDDEN_BLUEPRINTS, out of Research, the Fabricator and the Archive) and the +1 Carry Capacity line on new Stun and Toxin Grenade crafts", status: LIVE },
   { id: "away:audit:fieldKitsRunsSwitch", system: "away", claim: "Field Kits in runs (fieldKits.ts FIELD_KITS_RUNS_LIVE): a new dispatch stamps flag 2, packs each member from stock, buys a top-up team's shortfall, and the unused extras come home at claim", status: LIVE },
-  { id: "away:audit:statusPicker", system: "away", claim: "Status picker entries that never match (only six of nine statuses can fire)", status: pending("FK-9 + WR-10") },
+  { id: "away:audit:statusPicker", system: "away", claim: "Status picker entries that never match (Corroded: only Analyze inflicts it, and no battle runs Analyze)", status: pending(FKR11_REOWNED.statusPicker) },
   { id: "away:audit:fieldRepairOrder", system: "away", claim: "Player-ordered field repair (engine only, no UI)", status: pending("WR-10, OC-F14") },
   { id: "away:audit:legacyOnly", system: "away", claim: "Legacy-only: MAX_BATTLE_ATTEMPTS, EVAC_REWARD_FRACTION, ENCOUNTER_DROP_SCALE, scan ground battles, softenAmbush, the flat 2 h injury", status: pending("OC-G1") },
   // Expedition Tiers G2-6: the region picker offers every tier, so the tier rows read on a player's launch (the run's
@@ -4151,6 +4183,24 @@ function auditRowWiring(): Readonly<Record<string, Partial<EntryInput>>> {
       contexts: ["mission:shortRange"],
       curve: { kind: "gate" },
       magnitude: () => ((shortRangeRelicMicrosPerHour(1) + shortRangeRelicMicrosPerHour(2)) * SHORT_RANGE_RELIC_PROBE_HOURS) / 1_000_000,
+      on: sourceOn,
+    },
+    // Field Kits FKR-8 (OC-F1): a crew's worn Lure Beacon raises its ambush chance on a calm objective at each use's
+    // rolled 50 to 75%: over the probe's uses, more ambushes strike (the draws are the same; only the chance moves).
+    "away:audit:shroudLureGroundOps": {
+      probe: "content:fieldDevice:ambush",
+      contexts: ["expedition:groundOps"],
+      curve: { kind: "event", metric: `ambushes over ${FIELD_DEVICE_PROBE_USES} uses` },
+      magnitude: () => 1,
+      on: sourceOn,
+    },
+    // Field Kits FKR-8: the device works at a rolled 50 to 75% PER USE: a worn Lure's effectiveness takes every whole
+    // percent of the span over the probe's uses (a roll fixed per run, or no roll, would show one value).
+    "away:audit:fieldDeviceEffectiveness": {
+      probe: "content:fieldDevice:roll",
+      contexts: ["expedition:groundOps"],
+      curve: { kind: "event", metric: `distinct rolled percents over ${FIELD_DEVICE_PROBE_USES} uses` },
+      magnitude: () => FIELD_DEVICE_SPAN_PERCENT - 1,
       on: sourceOn,
     },
     // Field Kits FKR-7: one Injury Kit's share on a member's trip treatment divides their Broken Bone bay time.
@@ -4533,6 +4583,35 @@ function fieldKitsAuditEntries(): WiringEntry[] {
       contexts: ["ground"],
       curve: { kind: "gate" },
       magnitude: () => 1,
+      on: sourceOn,
+    }),
+    // Field Kits FKR-8 (OC-F1, user "Move them to the ground"): the reinforcement half. The landing crew's worn Lure Beacon
+    // raises a Reinforcing objective's chance per visit at that visit's rolled 50 to 75%: over the probe's visits, more
+    // bring reinforcements (the roll's draws are the same; only the chance moves).
+    entry({
+      id: "away:audit:fieldDeviceReinforcements",
+      system: "away",
+      source: { catalog: "AUDIT", key: "away:audit:fieldDeviceReinforcements" },
+      claim: "Shroud Emitter and Lure Beacon scale a Reinforcing objective's reinforcement chance per visit (OC-F1), rolled per use",
+      probe: "content:fieldDevice:reinforcement",
+      contexts: ["expedition:groundOps"],
+      curve: { kind: "event", metric: `visits with reinforcements over ${FIELD_DEVICE_PROBE_USES} visits` },
+      magnitude: () => 1,
+      on: sourceOn,
+    }),
+    // Field Kits FKR-8 (OC-F1: "Lure adds a drop scale on probe salvage"): a won ship battle's haul scale grows by the
+    // expedition's Lure dial at each use's rolled effectiveness (LURE_SALVAGE_PER_DIAL per unit of dial). Every use rolls
+    // at least FIELD_DEVICE_MIN_PERCENT, so the probe's boundaries gain at least that much.
+    entry({
+      id: "away:audit:lureSalvage",
+      system: "away",
+      source: { catalog: "AUDIT", key: "away:audit:lureSalvage" },
+      claim: "A Lure Beacon raises a won ship battle's salvage (OC-F1), rolled per use",
+      probe: "content:fieldDevice:salvage",
+      contexts: ["shipEvent"],
+      curve: { kind: "event", metric: `the probe salvage scale summed over ${FIELD_DEVICE_PROBE_BOUNDARIES.length} boundaries` },
+      magnitude: () =>
+        FIELD_DEVICE_PROBE_BOUNDARIES.length * PROBE_SALVAGE_SCALE * (memberVariety("memberTool", "lureBeacon")?.member.encounterBias ?? 0) * (FIELD_DEVICE_MIN_PERCENT / 100) * LURE_SALVAGE_PER_DIAL,
       on: sourceOn,
     }),
   ];

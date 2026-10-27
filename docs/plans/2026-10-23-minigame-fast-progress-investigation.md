@@ -74,3 +74,99 @@ D. Coarse margin: leave.
 - 0.13.11.2 (user, 2026-10-26): "So when you changed up captain prestiges, was the only thing that changed the point number? It's hard to tell if the actual weight of what these prestiges accomplishes changes." Answers: preview line on all three prestige cards ("Yes, all three layers": each card shows "now: xA to xB" for the multiplier that layer affects), shipped as a small display hotfix 0.13.11.2 off prod.
 - 0.13.11.2 answers (2026-10-26): locked lines hidden (as built); Prestigeception line adds that Captain and Augment Points go back to 0; patch note "Small polish and fixes. Your save carries over untouched." approved.
 - User (2026-10-26, screenshot of the Prestige tab): "Looks like the text is clipping a bit. Something we will want to fix up." / "Could just simplify it and add anything that needs explanation to the ? menu." Folded into 0.13.11.2: shorter card labels and values, explanations moved to the Help view, robust label/value rows.
+
+## USER DIRECTION (2026-10-27, verbatim): all three prestige layers must stay meaningful
+
+Context: the user, playing prod, found every Fleet Prestige still needs 1e308 Ore ("I have reset twice already and the
+third time also requires 1e308"). Asked keep / rising / double / discuss, the user wrote:
+
+"I propose a change. A way of keeping those skill points while making fleet prestiging feel useful. Because if it stays
+at 1e308 forever, it doesn't really feel like you're making a ton of progress once you blast past 1e308. So we might
+increase the total skill points we get for the first few fleet prestiges while scaling up the difficulty a bit with each
+to start. But fleet prestige should scale accordingly, because once you max all skills, it'd feel pretty pointless once
+you have a few under your belt for resets. Perhaps an upgrade tree is needed for this. I must have missed the memo
+because I Wouldn't have agreed to make fleet prestige useless aside from skill points. I would have suggested at that
+point to append it to the captain prestige and require prestige minimums for captain. Fleet prestige should get harder
+and harder to push through, as should prestigeception. All 3 prestige systems should feel meaningful, otehrwise there's
+no point for all 3."
+
+Correction owned (2026-10-27): the 2026-10-23 answer said "don't gate the skills, lengthen the curve"; the step to "revert
+the Fleet bar to a fixed 1.8e308" was Claude's reading, not the user's words. Requirements now:
+1. Fleet's bar rises with each Fleet Prestige (harder and harder to push through).
+2. The first few Fleets pay MORE Skill Points (so the skills still arrive at a good pace despite the rising bar).
+3. Fleet stays meaningful after every skill is owned (the user's idea: an upgrade tree).
+4. Prestigeception's bar rises too (harder and harder).
+5. All three layers (Captain, Fleet, Prestigeception) must each feel meaningful.
+(Mentioned as what the user would have suggested on 10-23: put Skill Points on Captain Prestige with prestige minimums.
+Not a pick; an alternative for the design.)
+
+Brainstorm Q1 (2026-10-27): "Three or four Fleets in, every skill owned: what should a Fleet Prestige give you that
+makes the next one worth pushing for?" User, verbatim: "Hmmm. My thought on that one is that fleet admiral prestiges
+would still feel useful. Whether that be an upgrade set or something to that end. But every prestige should have a use
+from start to finish, with things trailing off after e10,000,000 by design before you start seeing the relics start to
+affect the game. Then perhaps we might introduce an e20m or something that could lead to another prize."
+
+Brainstorm playback 1 agreed (2026-10-27, "YEah, this sounds good to me as well"), then the user's idea, verbatim:
+"But here is an idea we can weigh. Move the unlocks to some of the milestones at appropriate points in the game. So you
+unlock those at a particular point. You would still get points from the fleet reset, and the new upgrades could replace
+these. Only have the automations at the milestone levels. The actual stat boosts should be skill level-based. Those
+upgrades can definitely have a cap to them, but they scale off of your prestiges. Potentially lifetime in some cases,
+and within the current prestige at a different level in others. So for example, scales off of your current captain
+prestiges, or lifetime prestigeceptions, etc. Just a few examples."
+Reading (to play back): the automation skills unlock at milestones (no Skill Point cost); Fleet still pays points; those
+points buy LEVELED stat-boost upgrades that replace today's stat skills (Head Start, Ten Bonus, Overdrive); each has a
+level cap (X / Y, the approved minigame exception to D23) and its strength scales off a prestige count, some lifetime
+(e.g. lifetime Prestigeceptions), some current (e.g. Captain Prestiges in the current Fleet).
+Open from playback 1: relics boost the whole climb (as built in R2-10) or only past e10M? (unanswered)
+
+Brainstorm (2026-10-27), on Skill Points after the caps, verbatim: "Yeah, my thought is that after a while, you might end
+up hitting the cap on all skills at that point, and then you may keep accruing skill points from there. We will want to
+balance this around keeping skill points that you earn from each prestige important and once you get to that point
+where you should be able to reliably hit e10,000,000, the points stop and the costs have hit the maximum, so you're left
+with close to 0 skill points, and maxed upgrades."
+Reading: the points economy is tuned so every Fleet's points matter (costs rise with level); the total points a player
+can earn and the total cost of maxing every upgrade meet at about the point where e10,000,000 is reliably reachable;
+there the points stop, every upgrade is maxed, and the player holds close to 0 spare points (no pile of useless points).
+Brainstorm (2026-10-27) picks: relics "Whole climb, as built (Recommended)" (R2-10 stays: a gentle boost throughout; past
+e10M, where the curve trails off, relics are what still moves you); shipping "With 0.14.0 (Recommended)" (built and
+re-simmed on the 0.14.0 branch with a save conversion: spent Skill Points refunded into the new upgrades, automations
+granted by milestones already reached).
+Brainstorm (2026-10-27), asked for upgrade or e20M prize ideas, verbatim: "I don't know what I should have just yet. I
+wonder if we should make that a super secret surprise and then make e20m's prize a visualization to go with the new
+theme style." Reading: Claude drafts the upgrade roster; the e20,000,000 prize stays a secret ("???" until reached)
+and is a visualization that goes with the Starfall wash plus shine theme style (a visual effect, cosmetic only).
+
+Design check answers (2026-10-27, on docs/plans/2026-10-27-minigame-prestige-redesign-design.md): payout "Harder pays
+more (Recommended)"; old saves "Recompute from history (Recommended)"; proposals "Approve as drafted (Recommended)".
+On e20M reachability, verbatim: "Think that set of 3 upgrades is enough for now? Or should we expand it beyond those 3?
+Also, think about it this way. e20m won't be reachable until you get up to the 1k cap of relics and start earning those,
+then get those bonuses up high enough to be able to continue to push through. The maxed out skills, and everything will
+basically largely only result in e10m. But with the relics scaling, it'll likely only get you up to e20m. Unless we want
+to give them e25m and make those 16 relics stretch out to a 2.5x multiplier at the maximum (since they will scale
+logarithmically toward the limit with diminishing returns). Then future options might just bump the increase up
+slightly as we add in new multipliers. The next one might only be 2x at the maximum, and pushes you into range for
+e50m. But that's a future system. Basically, the entirety of the relic system reaching the soft cap beyond what you get
+at 1000x+ relics would equal out to ~2.5x and allow for reaching e25m."
+Reading: without relics, maxed skills and upgrades plateau around e10M (trailing off by design). Relic copies PAST the
+1,000 soft cap are what push beyond: the whole relic system at its limit is worth about 2.5x, approached with
+diminishing returns (never quite reached), which puts e25M in reach; e20M (the secret prize) sits on the way. Future
+systems add their own ceilings (the next maybe about 2x, toward e50M). Open: confirm e25M as the relic ceiling, the
+limit shape (a D23 exception like the minigame upgrade caps), and the user's question about expanding the skill roster.
+
+Relic ceiling answers (2026-10-27), verbatim:
+- Ceiling: "e25m ceiling. The same scaling plan up to e10m without a single relic. You can still progress beyond e10m,
+  and it might even help a little bit overall, but compared to the increases you'll get with the 16 relics, you'll get
+  more out of it with that, and those 16 relics over time will help you push from e10m to e25m for the prize of that
+  visualization."
+- D23: "Yes. Keep it that way. Because while the relic asymptotically caps for this game, it won't for endless mode
+  nearly as quickly. Remember that getting up to 1k total relics is not meant to be quick or easy. You'll need to get
+  into higher tier content to be able to even unlock the last of that 16."
+- Split: "All of the bonuses that the relics provide to the minigame will all combine together to be equivalent to a
+  2.5x increase when reaching the asymptotic limit. So if you have 10k relics of each of the 16, then you're pretty
+  much right on the 2.5x multiplier mark. So if you have e10m, with those 10k in each, you'd have e25m. We should also
+  plan how long it will take to get to that theoretical soft cap"
+Reading: relic-free pacing to e10M unchanged; past e10M a relic-free player still creeps forward a little; ALL relic
+boosts combined approach a 2.5x limit on the reachable exponent (e10M becomes e25M), about there at 10,000 copies of
+each type; asymptotic (a minigame-only D23 exception; Endless Mode will scale further); the visualization prize sits at
+e25M. Plus a study: how long the main game takes to reach 1,000 per tier and 10,000 of each type. Note: the code has 17
+relic types (the user says 16): to confirm.

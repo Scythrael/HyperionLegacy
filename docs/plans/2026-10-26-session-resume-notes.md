@@ -13,3 +13,38 @@ RESUME after 5-hour reset (2026-10-22 17:40 UTC):
   "I approve all 4 mockups as is", mockup https://claude.ai/artifact/6Pat4nwfbWzsUsqKUdMpKo sections B and C). Both are
   building now. R2-10 table, strength (Gentle) and past-cap weight (5x) answered (relics v2 plan, last USER ANSWERS);
   R2-10 builds next.
+
+## 2026-10-27 evening state and the user's question queue
+
+feat/crew-0.14.0 @ bc0473e. Merged today: ML-7, EM-10, Survey Log live, R2-10, SF-5/6, GG-7, FKR-11 (9697 tests).
+Building: FKR-8 (field device roll, worktree-agent-ad9f8f0efc07d898a). Built, NOT merged: gear wear step 4
+(worktree-agent-a7ee00fa33710a9a5, 2f17c7d + 41e0fe8, 10151 tests green) held for the user's balance call below.
+Minigame prestige redesign: design APPROVED (docs/plans/2026-10-27-minigame-prestige-redesign-design.md), plan
+written (docs/plans/2026-10-27-minigame-prestige-redesign-plan.md); Slice 0 (goldens + relic timeline study) next.
+User (2026-10-27, verbatim): "let's keep going with everything that doesn't need questions to be answered (that
+doesn't have a requirement we'd have to skip to do so, of course). I'll let you know when I Get to that point!"
+Usage: 5-hour 83%, weekly 75% with 1d13h left: slow pace, keep the prod-hotfix reserve.
+
+QUESTION QUEUE (ask when the user is back, most important first):
+1. Gear wear step 4: with true-condition combat (W3), Repeat patrols wear down until they LOSE (destroyer Repeat Sweep
+   defeated after 14 cycles, battleship after 30; before step 4 they ran forever). Conflicts with W2 "nothing breaks or
+   blocks a run" and sell peace. Options: (a) underway repair on Repeat keeps pace with average battle wear so a Repeat
+   patrol settles at a steady condition and never loses to wear (Recommended); (b) a Repeat patrol pauses itself to
+   repair at home when gear drops under a set line; (c) keep it (wear is a real cost; repair to keep going).
+2. Gear wear step 4 smaller items: pod wear reduces drone hp and yield [PROVISIONAL]; battle raws first pass; patrols
+   still record no use wear (reactor time, drive distance), logged for step 5; the Survey Pair set tier reads pristine
+   (step 5).
+3. Relic timeline study table (from minigame redesign Slice 0) before Slice 5 tunes the relic ceiling.
+4. FKR-8 (field device roll): LURE_SALVAGE_PER_DIAL [PROVISIONAL] 1 (one Lure adds 20 to 30% salvage); whether the
+   Lure's salvage boost should also cover cloaked-vessel battles (OC-F1 names only probe salvage; built for both). The
+   stacked-device D23 fix was applied under the standing rule (no question needed).
+5. Relic timeline study (docs/plans/2026-10-27-relic-timeline-study.md): 1,000 identified per tier takes a steady
+   player 101 d (Tier I) to 3,761 d (Tier VII), heavy 15 to 848 d; first copy of all 17 types ~51 d steady, ~6 to 8 d
+   heavy; 10,000 copies of EVERY type is ~744 years steady (~149 y counting past-cap 5x), ~88 y heavy (~18 y weighted),
+   because the rarest type (Living Crystal) is 0.40% of drops. Calls: (a) where the relic ceiling's knee sits (the user's
+   "10k of each" vs reachable timelines), or change drop rates; (b) no relic type is gated by tier today (Tier I can reveal
+   every radiant type), which contradicts "you'll need higher tier content to unlock the last of that 16": gate the
+   rarest types by tier?
+6. Fix to schedule (no question): the R2-10 test helper relicCollections.ts bandShares applies the tier band odds twice
+   (identification uses the Tier I row only), so the pinned heavy collection holds slightly too many rare copies; fix and
+   re-pin with the relic ceiling slice.

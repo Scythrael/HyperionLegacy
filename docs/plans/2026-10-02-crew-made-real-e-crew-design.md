@@ -91,6 +91,13 @@ category-efficacy boosts. Exact numbers are first-pass and tunable.
     cleared by anyone's First Aid Kit. **Concussion** (from enemy heavy hits and explosions; first-pass 35% chance to
     lose each action for 3 turns) needs Medical Training + a Trauma Kit to clear early; otherwise it wears off.
   - Still a proposal, not separately answered: Codebreaker as the field-device specialist (+6%).
+- **Field Kits answers (2026-10-15 to 2026-10-21, recorded for D20 at the FKR-11 close-out):** every Field Kits open
+  call is answered in `docs/plans/2026-10-14-field-kits-plan.md` (its USER ANSWERS blocks and R4), and those answers
+  supersede the lines above where they differ: Codebreaker +6% ACCEPTED (53 to 79.5%); Saboteur on the thrower's own
+  grenades only; packs PER MEMBER with a free basic set every objective; grenades are installed tools with charges;
+  the medic's Cure clears basic debuffs only; bone severity ranks (Fracture, Broken Bone, Shattered Bone); enemy ranks
+  Weak to Boss; Blindness lasts 2 or 3 rounds. Built in 0.14.0 (FKR-0 to FKR-10, the timed grenades); the per-use device
+  roll is FKR-8, not built yet.
 
 **D21. SOLO-FIGHT DIFFICULTY IS A GAMBIT CHOICE, NOT A BUG (user, 2026-10-07).** A lone Security member running a
 "finish the weakest" program (Default, Triage, Turtle Club President) loses to two strikers on Crashed Ship, while

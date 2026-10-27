@@ -558,6 +558,43 @@ As FK-7 (section 4) with the Codebreaker answer built (+6% on the roll, anyone o
 charges (open call N4). Flips `FIELD_DEVICE_TRAINED_EFFECTIVENESS` and the device effectiveness knob live (WR row 390,
 434). Commit `feat(0.14.0): field devices roll 50 to 75% per use (FKR-8)`.
 
+**FKR-8 carry (2026-10-27, done; built with the wiring plan's OC-F1, user "Move them to the ground (Recommended)"):**
+goldens first (`test(0.14.0): pre-FKR-8 field device goldens`, on e024edf: `fieldDevicesGoldens.test.ts`, a hand Ground Ops
+run with ambush and Reinforcing III objectives and a real ship event run at two seeds, each with no device, Shrouds,
+Lures, Lures + a Codebreaker, in flight and with the devices stamp, plus parity). Flag: `Expedition.fieldKits.devices`
+(`FIELD_DEVICES_VERSION` 1, `fieldDevicesStamp`, `fieldDevicesLive`), written at dispatch ONLY when a Security member of
+the roster wears a field device (a first try bumped `FIELD_KITS_CATALOG_VERSION` to 3 and moved 130 pins in 9 unrelated
+golden files by the stamp's number alone; a device-less run reads no device anywhere, so it now keeps its exact record).
+A run in flight resolves byte-identically. On a stamped run a device is USED, and rolled (`fieldDeviceUseEffectiveness`: `fieldDevicePercent` on
+FIELD_DEVICE_SALT keyed by `fieldDeviceUseKey(use, a, b)`, x1.06 with a Codebreaker anywhere on the expedition), at three
+moments: each ambush roll on a calm objective (`groundOps.ts ambushStrike`, key objective + ambushes so far) and each
+landing on a Reinforcing objective (`visitReinforcements`, key objective + visit), both through `groundDeviceChance`
+(the crew's STANDING Security members' summed dial, `fieldDeviceChance` = chance x (1 + dial x roll), kept in 0..1),
+and each won ship battle's salvage (`shipScanEvents.ts shipSalvageScale`, key the boundary's scanStepKey: the haul scale
+x (1 + the expedition's Lure dial x roll x `LURE_SALVAGE_PER_DIAL`) [PROVISIONAL 1, OC-F1 named no number]; probe and
+cloaked battles alike; a Shroud never lowers a drop). The ship-event chance reads no device on such a run. No device
+worn, no roll is read; the ambush and reinforcement streams draw exactly as before (only the threshold of draw 1
+moves; `rollReinforcements` gained an optional `scaled`). Retired: expedition.ts `FIELD_DEVICE_UNTRAINED_EFFECTIVENESS`,
+`FIELD_DEVICE_TRAINED_EFFECTIVENESS`, `fieldDeviceSpecialistAboard`, `fieldDeviceEffectiveness` (WR rows 390, 434); old
+runs read `PRE_FKR8_DEVICE_EFFECTIVENESS` 1 (full strength, as dispatched). Wiring: LIVE `away:KIT_CATEGORY_RULES:
+fieldDevices` (linearRelative 0.06, `content:fieldDevice:codebreaker`), `away:audit:shroudLureGroundOps` (ambush,
+`content:fieldDevice:ambush`), `away:audit:fieldDeviceEffectiveness` (`content:fieldDevice:roll`: all 26 percents over
+256 uses), plus NEW `away:audit:fieldDeviceReinforcements` and `away:audit:lureSalvage` (`content:fieldDevice:
+reinforcement` / `salvage`); each probe fails with the flag off (checked). `releaseBlockers()` holds NO Field Kits entry
+(no-dead-stats "Field Kits close-out"). Registry pins held: `FKR8_FLIPPED_LIVE` / `FKR8_ADDED_IDS` read back in
+shortRangeGoldens' `registryPin` (FKR8_SLICE) and emodGoldens' `fkr8ReadBack`. Goldens MOVED, named
+(`FKR8_MOVED_HAND` / `FKR8_MOVED_SHIP`): only stamped runs wearing a device (reinforcement counts, the ship reads now
+equal the no-device run's, the Lure salvage); every catalog 2, no-device and FK-3 pin unchanged. Help: Field Kits topic
+"FIELD DEVICES" paragraph (`FIELD_DEVICES_PARAGRAPH`, numbers from the engine), cross-links in Risk Factors (ambushes)
+and Scan Events (salvage); QA sheet section 12 rewritten. Tests: `fieldDevices.test.ts` (12).
+**FKR-8 review follow-up (2026-10-27):** D23 stacking: `fieldDeviceChance` / `fieldDeviceSalvageMult` pass one device's
+worth (`fieldDeviceSingleDial` 0.4 x roll) whole and the rest through `diminishing()` at `FIELD_DEVICE_STACK_KNEE` 0.4
+[PROVISIONAL]; a Shroud stack past one divides the chance (never zero: five at 50% keep about 49%, was 0), Lure salvage
+tapers uncapped (six at 75% +107%, was +180%). One device is exactly as before (Lure x(1 + 0.4 roll), Shroud x(1 - 0.4
+roll)). The in-flight path is untouched. Moved again, named: the two Lure salvage-seed SHIP rows (the roster's two
+Lures). Help says a downed member stops counting until the team is healed in the bay, and that stacks diminish. Caller
+tests: whole runs through startWork's ambush roll and a won ship battle's salvage (each fails with its reader dropped).
+
 #### FKR-9: Dispatch packing per member and run readouts (UI) **[NEEDS A NEW USER MOCKUP SIGN-OFF]**
 
 FK-M4's per-ship Squad Kit is obsolete (packs are per member, charges per tool, ranks on fights). Sketch FIRST and get
@@ -661,6 +698,45 @@ As FK-10 (section 4), plus Help lines for charges and the carry line, enemy rank
 Elite or Boss), the Boss reserve, severity ranks, per-member packs and the Quartermaster top-up; `releaseBlockers()`
 holds no Field Kits entry; the QA sheet R5 to the user. Commit `docs(0.14.0): Field Kits help and close-out (FKR-11)`.
 
+**FKR-11 carry (2026-10-27, done; no engine behavior change, no golden moved):** Help (`helpTopics.ts`): new topics
+**Enemy Ranks** (`ENEMY_RANKS_PARAGRAPHS`: every rank's multiplier, the final and earlier fight leads by grade, no leader
+on Simple / Standard, ambushes and reinforcements, a training run fields no Elite or Boss, Weak on the Tier I curve, the
+"Final fight" chip, the rank conditions) and **Field Kits** (`FIELD_KITS_PARAGRAPHS`: where kits come from, each kit's
+line from `fieldKitsDisplay.ts kitEffectText`, the First Aid 50% / 125% rule and the Medical Training gate, per-member
+packs and the default, the free set and its refill, the top-up, grenade charges per variety, the throw per battle, the
+carry line, the fuse and its refund, Saboteur, the inflictors and their chances, the severity ranks and the condition
+numbers, Cure's basic list, the splinted Fracture, the resists, Use Item / Ally: downed / Triage, the rank conditions
+and "Keep for a Boss", odds count packs). Every number and name is read from its engine constant or its editor label
+(`helpTopics.test.ts` "Field Kits and Enemy Ranks (0.14.0 FKR-11)", 8 tests, including a check against
+`fightLeadRank` for every grade and the training run). FALSE LINES FIXED: the Quartermaster topic said buying was
+"Coming Soon" (the Purchase tab is real since FKR-10); Storage said Modules and Consumables were "reserved for later"
+(both are real); the Return Trip bay table listed four rows (`CURE_IDS` is every `GROUND_CONDITIONS` row now), plus the
+splinted Fracture, the Injury Kit and Stoneskin's battle half; Fabricating names the Field Kits group; Objective
+Difficulty points to Enemy Ranks. The device roll is NOT described (FKR-8 is not built). Wiring: `away:GAMBIT_STATUSES:
+inspired` LIVE (the Combat Stim inflicts it; a damageUp shape, linearRelative +0.3 on the existing strike probe);
+re-owned, still pending: `away:audit:fieldDeviceEffectiveness` and `away:audit:shroudLureGroundOps` to FKR-8 (they
+named FK-7, the superseded slice), `away:audit:statusPicker` to WR-10 OC-F9 (its Field Kits half is done: 15 of 16
+statuses can fire, only Corroded never does) (`registry.ts FKR11_REOWNED`). `ENEMY_RANK_IDS` and `GRENADE_IDS` left
+UNREAD_CONSTANTS (Help reads them). No-dead-stats: `no-dead-stats.test.ts` "Field Kits close-out (FKR-11)" (4 tests):
+every Field Kits stat (the seven catalogs, the conditions and bay rows, the gambit pieces, the blueprints, the grenade
+gear lines, Iron Will, Morale Anchor, Cortex Shield on Concussion, Stoneskin's battle half, the audit rows) is live with
+a probe and a context, or held back by FKR-8 (`away:KIT_CATEGORY_RULES:fieldDevices`); every pending entry anywhere that
+names a Field Kits slice is one of FKR-8's three. So `releaseBlockers()` holds NO Field Kits entry except FKR-8's own
+(owner named; the plan's FKR-8 slice is not built). Registry pins held: G1-0 golden 5 reads the Inspired flip back
+(`FKR11_SLICE` in every `registryPin`), EM-0's snapshot reads the flip and the three re-owned rows back
+(`fkr11ReadBack`), both pins unchanged. Docs: the E-CREW plan's Task 16b is marked SUPERSEDED with a carry; the design
+doc records the Field Kits answers under D20. QA sheet R5: `docs/qa/2026-10-27-field-kits-qa.html` (desktop 1280 px and
+mobile 375 px columns, light and dark tags; section 12, the device roll, marked "not in this build").
+**FKR-11 review follow-up (2026-10-27):** Stoneskin reads "land on them 25% less often" (the engine scales the land
+chance by 0.75); "other tools work every battle" became what the Shroud Emitter and Lure Beacon do (scan event odds);
+the QA cross-link item is a text check. FINDING, NOT BUILT (open for the user): a Ground Operations run (every ranked or
+Field Kits run) has NO round-by-round battle log on screen. ExpeditionPanel's battle log (`eventLine`) only renders a
+legacy run's activities and scan encounters, which are never ranked and never carry a fuse, so `enemyRanks.ts
+rankedEnemyName` and `fieldKitsDisplay.ts fuseLogLine` have no player-visible caller (the plan's "Elite Bruiser" log
+line and the timed grenades' log lines). Wiring a rank into `eventLine` alone would be an inert display hook, so it was
+not done; a Ground Operations fight log viewer is new UI (needs a sketch first). Today the rank shows on the
+"Final fight: Elite Bruiser" chip; the QA sheet says so.
+
 **Text rules (every slice):** US English; no em dashes and no double hyphen; "install" only; player text says
 "objective", never "task"; SVG glyphs only; names beyond the user's (Broken Bone and Shattered Bone are the user's;
 rank names are the user's) are [PROPOSAL].
@@ -708,7 +784,8 @@ rank names are the user's) are [PROPOSAL].
 - [ ] Gambits: a rule out of charges, past its per-battle throw, or holding a Boss reserve skips to the next rule.
 - [ ] Conditions: each from its enemy, with severity worsening; the right kit clears it; Shattered Bone only in the bay.
 - [ ] Cure clears basic debuffs only; Cortex Shield resists Concussion; Fear resisted by Iron Will and Morale Anchor.
-- [ ] Field devices: the ship-event odds vary per boundary between 50% and 75% (53% to 79.5% with Codebreaker).
+- [ ] Field devices: the ground ambush and reinforcement odds (and a Lure's ship battle salvage) vary per use between 50%
+      and 75% of the device's effect (53% to 79.5% with Codebreaker); FKR-8 built it on the ground per OC-F1.
 - [ ] An in-flight run dispatched before the update finishes unchanged; no wear on the training run.
 - [ ] Help, glyphs at 16 / 28 / 56 px, console clean, no horizontal scroll at 375 px, text rules.
 
@@ -1241,3 +1318,8 @@ Reading (this reshapes FK-1, FK-4, FK-5, FK-6, FK-8, FK-9):
   one dim "needs Medical Training" line under non-medics.
 - The mockup is signed off by these answers; FKR-9/10 build to it. New glyphs it proposes (grenade, offense / defense /
   debuff role glyphs, home mark) need the 16/28/56 px review in icons.ts + ICON_SEMANTICS before shipping.
+
+## USER ANSWERS (2026-10-27): FKR-8 review
+
+- Lure salvage: "Keep both (Recommended)": one Lure adds 20 to 30% ship-battle salvage (stacks diminish), for probe AND
+  cloaked-vessel battles; LURE_SALVAGE_PER_DIAL stays [PROVISIONAL] for the 0.16.0 balancing pass.

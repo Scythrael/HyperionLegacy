@@ -552,12 +552,21 @@ export const REINFORCEMENT_COUNT_WEIGHTS: readonly number[] = [50, 25, 13, 8, 4]
 // (nextInt(AFFIX_DRAW_UNITS) < affixChanceUnits(extraBattleChance)), draw 2 = how many (one weighted pick over
 // REINFORCEMENT_COUNT_WEIGHTS up to maxExtraBattles), then maxExtraBattles draws nextInt(AFFIX_DRAW_UNITS), one
 // strike point each, ALWAYS made (the first `count` are used). No affix with the hook: [], no draw. Pure.
-export function rollReinforcements(seed: number, flatIndex: number, visit: number, list: readonly ObjectiveAffix[] | undefined): number[] {
+// Field Kits FKR-8 (OC-F1): `scaled`, when given, turns the visit's chance into the one draw 1 compares against (the
+// landing crew's Shroud Emitter or Lure Beacon at this visit's rolled effectiveness, groundOps.ts landOnTask). The draws
+// are the same either way; absent = the affixes' chance as is.
+export function rollReinforcements(
+  seed: number,
+  flatIndex: number,
+  visit: number,
+  list: readonly ObjectiveAffix[] | undefined,
+  scaled?: (chance: number) => number,
+): number[] {
   const chance = extraBattleChance(list);
   const max = maxExtraBattles(list);
   if (!(chance > 0) || max < 1) return [];
   const rng = makeRng(reinforcementSeed(seed, flatIndex, visit));
-  const hit = rng.nextInt(AFFIX_DRAW_UNITS) < affixChanceUnits(chance);
+  const hit = rng.nextInt(AFFIX_DRAW_UNITS) < affixChanceUnits(scaled ? scaled(chance) : chance);
   const count = 1 + drawWeighted(rng, REINFORCEMENT_COUNT_WEIGHTS.slice(0, max));
   const points: number[] = [];
   for (let k = 0; k < max; k += 1) points.push((rng.nextInt(AFFIX_DRAW_UNITS) + 0.5) / AFFIX_DRAW_UNITS);

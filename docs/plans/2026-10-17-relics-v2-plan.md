@@ -595,3 +595,31 @@ The 17 perCopy amounts and knees stay [PROVISIONAL] for the 0.16.0 balancing pas
   about a day, which is why most of the speed is the even game-clock lever.
 - Registry: 17 `relic:audit:minigame:<lever>` rows LIVE with `content:minigame:<lever>` probes (10 Tier I copies move
   the lever by its boost through the minigame consumer).
+
+## USER ANSWERS (2026-10-27): relic timeline study and tier staggering
+
+Study: docs/plans/2026-10-27-relic-timeline-study.md (10,000 of every type ~744 years steady; 1,000 per tier ~10 years
+steady to Tier VII, ~2.3 years heavy).
+- Minigame relic ceiling knee, verbatim: "The first option is fine, but we will be able to handle the proper balancing
+  to ensure that the game doesn't take 700 years to complete. I'm thinking ~2 years of content from start to finish for
+  1.0 overall." So: the 2.5x ceiling sits near a full Tier VII collection (1,000 identified in every tier); the 0.16.0
+  balancing pass targets about 2 years of content from start to finish for 1.0 overall (drop rates and pacing).
+- Tier gating, verbatim: "Different relics start dropping from different tiers, staggered from between T1 and T7, where
+  T7 will drop the rarest options. Likely the best of each of the 4 rarities." So: each relic type has a first region
+  tier it can be revealed from, staggered T1 to T7; Tier VII introduces the best type of each of the four bands. The
+  per-type table is a [PROPOSAL] for sign-off.
+- Stagger shape: "Mix the T7 four (Recommended)" (Tier VII's best-of-each-band four come from four different families,
+  so no single Museum family waits until Tier VII). Ship: "With 0.14.0 (Recommended)" (before the minigame relic
+  ceiling is tuned; existing copies are kept; a type, once unlocked, drops at every tier from there up).
+  Table [PROPOSAL, redrawn to match, one family per Tier VII slot]:
+  | First tier | Types (band) |
+  |---|---|
+  | I | Glyph Tablet, Spore Capsule, Geode Core (standard); Resonance Shard (augmented) |
+  | II | Flight Recorder, Bioluminescent Seed (augmented); Precursor Lens (stellar) |
+  | III | Star Chart Fragment (augmented); Ancient Drive Coil (stellar) |
+  | IV | Deep-Vein Compass (stellar); Captain's Sigil (radiant) |
+  | V | Living Crystal (radiant) |
+  | VI | Tectonic Keystone (radiant) |
+  | VII | Hull Rivet (standard, Shipwright), Magma Pearl (augmented, Deep Earth), Leviathan Scale (stellar, Xenobiology), Heart of the Archive (radiant, Precursor) |
+  Museum stats that first arrive at Tier VII under this table: Science Team Power (Leviathan Scale) and Rare Material
+  Chance (Magma Pearl) (every other stat has an earlier type). Mention to the user at the build; swap a pair if they want.
