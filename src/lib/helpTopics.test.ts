@@ -35,6 +35,16 @@ import { CLEARING_SITE_RULES, FLORALESS_PLANET_TYPES, HOSTILE_SITE_RULES, LIFELE
 import { TELESCOPE_SHIP_LIFT } from "./game/telescope";
 import { FIELD_REPAIR_PLANET_TYPES } from "./game/groundOps";
 import { getPlanetTypeById } from "./game/expeditionContent";
+// Field Kits FKR-11.
+import { ENEMY_RANKS, ENEMY_RANK_IDS, fightLeadRank } from "./game/enemyRanks";
+import { CONDITION_LINES, FIELD_KITS, FIELD_KIT_IDS, FREE_BASIC_FIRST_AID_PER_MEMBER, KIT_CATEGORY_RULES, SABOTEUR_GRENADE_BONUS, SPLINT_HEAL_ROUNDS } from "./game/fieldKits";
+import { GRENADES, GRENADE_IDS } from "./game/fieldKitsGrenades";
+import { defaultMemberPack } from "./game/fieldKitsRun";
+import { BLEED_ON_HIT_PERMILLE, FEAR_ON_HIT_PERMILLE, FLASH_GRENADES_PER_STRIKER, HEAVY_HIT_FRACTION, NEUROTOXIN_FROM_GRADE } from "./game/fieldKitsConditions";
+import { BASIC_DEBUFFS, BLINDNESS_MIN_ROUNDS, BLINDNESS_ROUND_SPAN, GAMBIT_STATUSES, NEUROTOXIN_TURN_LOSS, STONESKIN_BATTLE_RESIST } from "./game/gambit";
+import { EQUIPMENT_SLOTS, GRENADE_CARRY_PER_LINE, GRENADE_FUSE_MOVED_CLEAR_CHANCE, GRENADE_THROWS_PER_BATTLE } from "./game/model";
+import { ACTION_LABEL, RANK_OPTIONS, SELECTOR_LABEL } from "./gambitEditorDisplay";
+import { kitEffectText } from "./fieldKitsDisplay";
 
 describe("HELP_TOPICS", () => {
   it("covers the core systems", () => {
@@ -232,6 +242,128 @@ describe("HELP_TOPICS", () => {
           expect(titles.has(m[1]), `"${m[1]}" in ${t.id} is not a topic title`).toBe(true);
         }
       }
+    });
+  });
+
+  // Field Kits FKR-11: the Field Kits and Enemy Ranks topics, and the Field Kits lines in the older topics. Every number
+  // and name is read from the engine constant (or the screen's label) that owns it, so these pin that the right ones
+  // reach the text, and each claim below was checked against the engine that enforces it.
+  describe("Field Kits and Enemy Ranks (0.14.0 FKR-11)", () => {
+    const topic = (id: string) => {
+      const t = HELP_TOPICS.find((x) => x.id === id);
+      expect(t, `missing help topic: ${id}`).toBeDefined();
+      return t!;
+    };
+    const pc = (f: number) => `${Math.round(f * 100)}%`;
+    const span = (s: number) => (s % 60 === 0 ? (s === 60 ? "1 minute" : `${s / 60} minutes`) : `${s} seconds`);
+
+    it("has both topics, cross-linked to each other and from the topics they touch", () => {
+      expect(topic("enemyRanks").title).toBe("Enemy Ranks");
+      expect(topic("fieldKits").title).toBe("Field Kits");
+      expect(topic("enemyRanks").body).toContain("see the Field Kits topic");
+      expect(topic("fieldKits").body).toContain("see the Enemy Ranks topic");
+      expect(topic("objectiveDifficulty").body).toContain("see the Enemy Ranks topic");
+      for (const id of ["returnTrip", "quartermaster", "storage", "fabricating"]) expect(topic(id).body, id).toContain("see the Field Kits topic");
+    });
+
+    it("enemy ranks: every rank's multiplier, the leads by grade, and no Elite or Boss on a training run", () => {
+      const b = topic("enemyRanks").body;
+      for (const r of ENEMY_RANK_IDS) expect(b).toContain(`${ENEMY_RANKS[r].label} x${ENEMY_RANKS[r].mult}`);
+      expect(b).toMatch(/HP, its power and its healing/);
+      // The engine's placement (fightLeadRank) for each grade's final and earlier fight points, as the text states it.
+      const lead = (grade: number, pointIndex: number) => fightLeadRank({ grade, pointIndex, fightPointCount: 3, kind: "point", trainingRun: false });
+      expect([1, 2, 3, 4, 5].map((g) => lead(g, 2))).toEqual(["normal", "normal", "elite", "elite", "boss"]);
+      expect([1, 2, 3, 4, 5].map((g) => lead(g, 0))).toEqual(["normal", "normal", "normal", "strong", "normal"]);
+      expect(b).toContain(`${DIFFICULTY_NAMES[2]} and ${DIFFICULTY_NAMES[3]} objectives end with an Elite, and ${DIFFICULTY_NAMES[4]} objectives end with a Boss`);
+      expect(b).toContain(`every earlier fight point of ${DIFFICULTY_NAMES[3]} objectives is led by a Strong enemy`);
+      expect(b).toContain(`${DIFFICULTY_NAMES[0]} and ${DIFFICULTY_NAMES[1]} objectives, ambushes and Reinforcing reinforcements have no leader`);
+      for (const kind of ["surprise", "reinforcement"] as const) expect(fightLeadRank({ grade: 5, pointIndex: 2, fightPointCount: 3, kind, trainingRun: false })).toBe("normal");
+      // The training run: every fight Normal (the guard's lead), the claim the user asked for.
+      expect(b).toContain("a training run fields no Elite and no Boss");
+      for (let g = 1; g <= 5; g += 1) expect(fightLeadRank({ grade: g, pointIndex: 2, fightPointCount: 3, kind: "point", trainingRun: true })).toBe("normal");
+      expect(b).toContain(`"${RANK_OPTIONS.find((o) => o.value === "elite")!.label}"`);
+      expect(b).toContain(`"${RANK_OPTIONS.find((o) => o.value === "boss")!.label}"`);
+    });
+
+    it("field kits: every kit's effect line, the Medical Training gate and the effectiveness from the catalog", () => {
+      const b = topic("fieldKits").body;
+      for (const id of FIELD_KIT_IDS) expect(b).toContain(`- ${FIELD_KITS[id].label}: ${kitEffectText(id)}`);
+      expect(b).toContain(`${pc(KIT_CATEGORY_RULES.firstAid.untrained)} strength without Medical Training`);
+      expect(b).toContain(`${pc(KIT_CATEGORY_RULES.firstAid.trained)} with it`);
+      expect(b).toContain("Splint, Trauma Kit and Injury Kit need a member with Medical Training");
+      expect(b).toContain(`Inspired deals ${pc(GAMBIT_STATUSES.inspired.magnitude)} more damage`);
+    });
+
+    it("field kits: per-member packs, the free set, the top-up and the claim", () => {
+      const b = topic("fieldKits").body;
+      expect(b).toContain("every Security member packs their own kits");
+      expect(defaultMemberPack(false)).toEqual({ firstAidKit: 1, antitoxin: 1, combatStim: 1 }); // "one of each kit they can use"
+      expect(b).toContain("one of each kit they can use");
+      expect(b).toContain(`${FREE_BASIC_FIRST_AID_PER_MEMBER === 1 ? "1 First Aid Kit" : `${FREE_BASIC_FIRST_AID_PER_MEMBER} First Aid Kits`}, and more the larger the ship's Medical and Operations crew`);
+      expect(b).toMatch(/refills every time the crew lands, at every objective and on every trip/);
+      expect(b).toContain('"Top up from the Quartermaster at launch" switch at dispatch, off by default');
+      expect(b).toMatch(/buys only what the team's packs are still short/);
+      expect(b).toMatch(/even past the Warehouse cap; spent ones do not/);
+      expect(b).toMatch(/Science squads never fight, so they carry nothing/);
+    });
+
+    it("field kits: grenade charges, the throw per battle, the carry line, the fuse and Saboteur from the varieties", () => {
+      const b = topic("fieldKits").body;
+      expect(GRENADE_IDS.length).toBeGreaterThan(0);
+      for (const key of GRENADE_IDS) {
+        const g = GRENADES[key];
+        const label = EQUIPMENT_SLOTS.memberTool.varieties.find((v) => v.key === key)!.label;
+        expect(g.charges.perBattle, key).toBe(GRENADE_THROWS_PER_BATTLE); // the text states one per-battle limit for all
+        expect(b).toContain(`- ${label}: ${g.charges.perObjective} charges, ${pc(g.powerMult)} of the thrower's power`);
+        expect(b).toContain(`${label}: `);
+      }
+      expect(b).toContain(`at most ${GRENADE_THROWS_PER_BATTLE === 1 ? "1 grenade" : `${GRENADE_THROWS_PER_BATTLE} grenades`} per battle`);
+      expect(b).toContain(`Each Carry Capacity line rolled on a grenade adds ${GRENADE_CARRY_PER_LINE === 1 ? "1 charge" : `${GRENADE_CARRY_PER_LINE} charges`}`);
+      expect(b).toContain(`(${pc(GRENADE_FUSE_MOVED_CLEAR_CHANCE)}), but a foe standing alone never does`);
+      expect(b).toContain(`+${pc(SABOTEUR_GRENADE_BONUS)} on their blast and their debuff chance`);
+      expect(b).toContain(`${ACTION_LABEL.throwGrenade} gambit rule`);
+    });
+
+    it("field kits: the conditions, their severity ranks, their numbers and their inflictors", () => {
+      const b = topic("fieldKits").body;
+      expect(b).toContain("Fracture, Broken Bone and Shattered Bone: one bone condition in three severity ranks");
+      for (const r of CONDITION_LINES.bone) expect(b).toContain(`${pc(GAMBIT_STATUSES[r.id].magnitude)} at ${r.label}`);
+      expect(b).toContain("only the medical bay mends a Shattered Bone");
+      expect(b).toContain(`Hemorrhage: ${GAMBIT_STATUSES.hemorrhage.magnitude} damage a round for ${GAMBIT_STATUSES.hemorrhage.duration} rounds`);
+      expect(b).toContain(`${pc(NEUROTOXIN_TURN_LOSS)} chance to lose each turn`);
+      expect(b).toContain(`Concussion: a ${pc(GAMBIT_STATUSES.concussion.magnitude)} chance to lose each turn, for ${GAMBIT_STATUSES.concussion.duration} rounds`);
+      expect(b).toContain(`${pc(1 - GAMBIT_STATUSES.blindness.magnitude)} of their usual chance, for ${BLINDNESS_MIN_ROUNDS} or ${BLINDNESS_MIN_ROUNDS + BLINDNESS_ROUND_SPAN - 1} rounds`);
+      expect(b).toContain(`a heavy hit (${pc(HEAVY_HIT_FRACTION)} or more`);
+      expect(b).toContain(`Bleed (${pc(BLEED_ON_HIT_PERMILLE / 1000)})`);
+      expect(b).toContain(`Fear (${pc(FEAR_ON_HIT_PERMILLE / 1000)})`);
+      expect(b).toContain(`on ${DIFFICULTY_NAMES[NEUROTOXIN_FROM_GRADE - 1]} and harder objectives`);
+      expect(b).toContain(`${FLASH_GRENADES_PER_STRIKER === 1 ? "1 flash grenade" : `${FLASH_GRENADES_PER_STRIKER} flash grenades`} a fight`);
+      // Cure's basic list is the battle's own.
+      expect(b).toContain(`clears basic debuffs only (${BASIC_DEBUFFS.map((id) => GAMBIT_STATUSES[id].label).slice(0, -1).join(", ")} and ${GAMBIT_STATUSES[BASIC_DEBUFFS[BASIC_DEBUFFS.length - 1]].label})`);
+      for (const id of ["hemorrhage", "neurotoxin", "concussion", "fracture", "brokenBone", "shatteredBone"] as const) expect(BASIC_DEBUFFS, id).not.toContain(id);
+      expect(b).toContain(`heals in ${SPLINT_HEAL_ROUNDS} rounds and costs no Fracture time in the bay`);
+      expect(b).toContain(`${pc(STONESKIN_BATTLE_RESIST)} more often`);
+      expect(b).toContain("A training run's enemies cause none of these.");
+    });
+
+    it("field kits: Use Item, Ally downed, the rank conditions and the Boss reserve by their editor names", () => {
+      const b = topic("fieldKits").body;
+      expect(b).toContain(`Add a ${ACTION_LABEL.useItem} rule`);
+      expect(b).toContain(`"${SELECTOR_LABEL.allyDowned}" is the Injury Kit's target`);
+      expect(b).toContain('"Keep for a Boss" a number: it fires only while the member holds more than that many');
+      expect(b).toMatch(/Triage preset, which has kit rules ready/);
+      expect(b).toMatch(/odds chips count each team's packs and charges/);
+    });
+
+    it("the older topics: the full bay table, the Purchase tab and Ship Equipment's field kits", () => {
+      const rt = topic("returnTrip").body;
+      for (const c of Object.values(GROUND_CONDITIONS)) expect(rt).toContain(`- ${c.label}: ${span(c.cureSeconds)}`);
+      expect(rt).toMatch(/splinted in the fight costs no Fracture time/);
+      expect(rt).toContain(`${pc(STONESKIN_BATTLE_RESIST)} less often in the fights`);
+      const qm = topic("quartermaster").body;
+      expect(qm).not.toMatch(/Coming Soon/i);
+      expect(qm).toMatch(/Purchase tab sells field kits for credits/);
+      expect(topic("storage").body).not.toMatch(/reserved for later/);
     });
   });
 

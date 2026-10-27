@@ -340,8 +340,6 @@ export const UNREAD_CONSTANTS: Readonly<Record<string, string>> = {
   ASCENSION_PRODUCIBLE: "switch: false = no player path mints Nova / Celestial; its reader is the producer (crafting-talent proc or drop source) designed when the user ships ascension (owner: that later patch); the Debug minter is the only source until then",
   CUNNING_PENDING_SEATS: "bookkeeping: the seats with no Cunning over-delivery yet (Pilot Cunning, WR-9 OC-E4)",
   ECONOMY_FLOOR_SLOTS: "display: the Quartermaster's economy floor set, named for its readers",
-  ENEMY_RANK_IDS: "bookkeeping: the enemy ranks in order, read by the wiring registry (one entry per rank, Field Kits FKR-1) and FKR-3's rank chips",
-  GRENADE_IDS: "bookkeeping: the grenade family in catalog order, read by the wiring registry (its GRENADES entries, Field Kits FKR-5) and FKR-9's charge readout",
   PROSPECTING_USES: "seam: the prospecting quests patch (the three later Prospecting uses, read by the wiring registry; deferred)",
   PROSPECTING_BLUEPRINTS: "seam: the prospecting quests patch merges these hidden blueprints into BLUEPRINTS (read by the wiring registry; deferred)",
   // Relics v2 R2-1 (dormant catalog; plan 2026-10-17 section 4): each is read by the slice named, tested in relicsV2Catalog.test.ts.

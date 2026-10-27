@@ -555,6 +555,12 @@ Task 17: pips can mark downs from `downedMemberIds`; the log line exists for `"n
 
 ### Task 16b: Field Kits (D20 full; mockup answers 2026-10-09)
 
+**SUPERSEDED by `docs/plans/2026-10-14-field-kits-plan.md`** (its REVISED SLICES FKR-0 to FKR-11). Carry (FKR-11,
+2026-10-27): built in 0.14.0 as kits PER MEMBER (not a squad kit) with a free basic set every objective, grenades as
+installed tools with charges, enemy ranks, bone severity ranks, the Boss reserve and the Quartermaster sale and top-up;
+Help has the Field Kits and Enemy Ranks topics. Not built: step 1's per-use field device roll (FKR-8). The steps below
+are history.
+
 Source of truth: D20 and its two answer blocks in the design doc, plus the Field Kits mockup (artifact
 VFJ3UZGYmzAgF3tLJ1uxoV). Build order (one implementer + review per step):
 1. **Kit categories + skill rules (engine, pure):** First Aid (untrained 50%, Medical Training 125%), Advanced

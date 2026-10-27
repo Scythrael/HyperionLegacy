@@ -661,6 +661,36 @@ As FK-10 (section 4), plus Help lines for charges and the carry line, enemy rank
 Elite or Boss), the Boss reserve, severity ranks, per-member packs and the Quartermaster top-up; `releaseBlockers()`
 holds no Field Kits entry; the QA sheet R5 to the user. Commit `docs(0.14.0): Field Kits help and close-out (FKR-11)`.
 
+**FKR-11 carry (2026-10-27, done; no engine behavior change, no golden moved):** Help (`helpTopics.ts`): new topics
+**Enemy Ranks** (`ENEMY_RANKS_PARAGRAPHS`: every rank's multiplier, the final and earlier fight leads by grade, no leader
+on Simple / Standard, ambushes and reinforcements, a training run fields no Elite or Boss, Weak on the Tier I curve, the
+"Final fight" chip, the rank conditions) and **Field Kits** (`FIELD_KITS_PARAGRAPHS`: where kits come from, each kit's
+line from `fieldKitsDisplay.ts kitEffectText`, the First Aid 50% / 125% rule and the Medical Training gate, per-member
+packs and the default, the free set and its refill, the top-up, grenade charges per variety, the throw per battle, the
+carry line, the fuse and its refund, Saboteur, the inflictors and their chances, the severity ranks and the condition
+numbers, Cure's basic list, the splinted Fracture, the resists, Use Item / Ally: downed / Triage, the rank conditions
+and "Keep for a Boss", odds count packs). Every number and name is read from its engine constant or its editor label
+(`helpTopics.test.ts` "Field Kits and Enemy Ranks (0.14.0 FKR-11)", 8 tests, including a check against
+`fightLeadRank` for every grade and the training run). FALSE LINES FIXED: the Quartermaster topic said buying was
+"Coming Soon" (the Purchase tab is real since FKR-10); Storage said Modules and Consumables were "reserved for later"
+(both are real); the Return Trip bay table listed four rows (`CURE_IDS` is every `GROUND_CONDITIONS` row now), plus the
+splinted Fracture, the Injury Kit and Stoneskin's battle half; Fabricating names the Field Kits group; Objective
+Difficulty points to Enemy Ranks. The device roll is NOT described (FKR-8 is not built). Wiring: `away:GAMBIT_STATUSES:
+inspired` LIVE (the Combat Stim inflicts it; a damageUp shape, linearRelative +0.3 on the existing strike probe);
+re-owned, still pending: `away:audit:fieldDeviceEffectiveness` and `away:audit:shroudLureGroundOps` to FKR-8 (they
+named FK-7, the superseded slice), `away:audit:statusPicker` to WR-10 OC-F9 (its Field Kits half is done: 15 of 16
+statuses can fire, only Corroded never does) (`registry.ts FKR11_REOWNED`). `ENEMY_RANK_IDS` and `GRENADE_IDS` left
+UNREAD_CONSTANTS (Help reads them). No-dead-stats: `no-dead-stats.test.ts` "Field Kits close-out (FKR-11)" (4 tests):
+every Field Kits stat (the seven catalogs, the conditions and bay rows, the gambit pieces, the blueprints, the grenade
+gear lines, Iron Will, Morale Anchor, Cortex Shield on Concussion, Stoneskin's battle half, the audit rows) is live with
+a probe and a context, or held back by FKR-8 (`away:KIT_CATEGORY_RULES:fieldDevices`); every pending entry anywhere that
+names a Field Kits slice is one of FKR-8's three. So `releaseBlockers()` holds NO Field Kits entry except FKR-8's own
+(owner named; the plan's FKR-8 slice is not built). Registry pins held: G1-0 golden 5 reads the Inspired flip back
+(`FKR11_SLICE` in every `registryPin`), EM-0's snapshot reads the flip and the three re-owned rows back
+(`fkr11ReadBack`), both pins unchanged. Docs: the E-CREW plan's Task 16b is marked SUPERSEDED with a carry; the design
+doc records the Field Kits answers under D20. QA sheet R5: `docs/qa/2026-10-27-field-kits-qa.html` (desktop 1280 px and
+mobile 375 px columns, light and dark tags; section 12, the device roll, marked "not in this build").
+
 **Text rules (every slice):** US English; no em dashes and no double hyphen; "install" only; player text says
 "objective", never "task"; SVG glyphs only; names beyond the user's (Broken Bone and Shattered Bone are the user's;
 rank names are the user's) are [PROPOSAL].

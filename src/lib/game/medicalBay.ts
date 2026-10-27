@@ -27,7 +27,8 @@
 // On a legacy run every condition is an injury, so this is the same care divisor injuries.ts
 // injuryRecoverySeconds uses (there the three facets fold into one officerFacetShare); only the base time and
 // the floor differ (2h base and a 15 minute floor there; per-condition times and BAY_MIN_SECONDS here).
-//   treatmentShare     = the per-member Injury Kit HOOK (Task 16b Field Kits, step 5); always 0 until kits exist.
+//   treatmentShare     = the per-member Injury Kit share (Field Kits FKR-6 / FKR-7: the trip's GroundTeamRun.treatment,
+//                        only for the member it was used on); 0 on a run without field kits.
 //
 // PERKS: memberPerksFor(race) is the racial physical perk table (D24); awayTeam.ts snapshotMember freezes
 // it onto SnapshotMember.perks at dispatch. Stoneskin (Ossir) makes injuries last 25% longer in the bay; its
