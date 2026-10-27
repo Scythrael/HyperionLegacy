@@ -35,3 +35,6 @@ QUESTION QUEUE (ask when the user is back, most important first):
    still record no use wear (reactor time, drive distance), logged for step 5; the Survey Pair set tier reads pristine
    (step 5).
 3. Relic timeline study table (from minigame redesign Slice 0) before Slice 5 tunes the relic ceiling.
+4. FKR-8 (field device roll): LURE_SALVAGE_PER_DIAL [PROVISIONAL] 1 (one Lure adds 20 to 30% salvage); whether the
+   Lure's salvage boost should also cover cloaked-vessel battles (OC-F1 names only probe salvage; built for both). The
+   stacked-device D23 fix was applied under the standing rule (no question needed).
