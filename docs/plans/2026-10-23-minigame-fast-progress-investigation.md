@@ -135,3 +135,20 @@ Brainstorm (2026-10-27), asked for upgrade or e20M prize ideas, verbatim: "I don
 wonder if we should make that a super secret surprise and then make e20m's prize a visualization to go with the new
 theme style." Reading: Claude drafts the upgrade roster; the e20,000,000 prize stays a secret ("???" until reached)
 and is a visualization that goes with the Starfall wash plus shine theme style (a visual effect, cosmetic only).
+
+Design check answers (2026-10-27, on docs/plans/2026-10-27-minigame-prestige-redesign-design.md): payout "Harder pays
+more (Recommended)"; old saves "Recompute from history (Recommended)"; proposals "Approve as drafted (Recommended)".
+On e20M reachability, verbatim: "Think that set of 3 upgrades is enough for now? Or should we expand it beyond those 3?
+Also, think about it this way. e20m won't be reachable until you get up to the 1k cap of relics and start earning those,
+then get those bonuses up high enough to be able to continue to push through. The maxed out skills, and everything will
+basically largely only result in e10m. But with the relics scaling, it'll likely only get you up to e20m. Unless we want
+to give them e25m and make those 16 relics stretch out to a 2.5x multiplier at the maximum (since they will scale
+logarithmically toward the limit with diminishing returns). Then future options might just bump the increase up
+slightly as we add in new multipliers. The next one might only be 2x at the maximum, and pushes you into range for
+e50m. But that's a future system. Basically, the entirety of the relic system reaching the soft cap beyond what you get
+at 1000x+ relics would equal out to ~2.5x and allow for reaching e25m."
+Reading: without relics, maxed skills and upgrades plateau around e10M (trailing off by design). Relic copies PAST the
+1,000 soft cap are what push beyond: the whole relic system at its limit is worth about 2.5x, approached with
+diminishing returns (never quite reached), which puts e25M in reach; e20M (the secret prize) sits on the way. Future
+systems add their own ceilings (the next maybe about 2x, toward e50M). Open: confirm e25M as the relic ceiling, the
+limit shape (a D23 exception like the minigame upgrade caps), and the user's question about expanding the skill roster.
