@@ -105,3 +105,16 @@ makes the next one worth pushing for?" User, verbatim: "Hmmm. My thought on that
 would still feel useful. Whether that be an upgrade set or something to that end. But every prestige should have a use
 from start to finish, with things trailing off after e10,000,000 by design before you start seeing the relics start to
 affect the game. Then perhaps we might introduce an e20m or something that could lead to another prize."
+
+Brainstorm playback 1 agreed (2026-10-27, "YEah, this sounds good to me as well"), then the user's idea, verbatim:
+"But here is an idea we can weigh. Move the unlocks to some of the milestones at appropriate points in the game. So you
+unlock those at a particular point. You would still get points from the fleet reset, and the new upgrades could replace
+these. Only have the automations at the milestone levels. The actual stat boosts should be skill level-based. Those
+upgrades can definitely have a cap to them, but they scale off of your prestiges. Potentially lifetime in some cases,
+and within the current prestige at a different level in others. So for example, scales off of your current captain
+prestiges, or lifetime prestigeceptions, etc. Just a few examples."
+Reading (to play back): the automation skills unlock at milestones (no Skill Point cost); Fleet still pays points; those
+points buy LEVELED stat-boost upgrades that replace today's stat skills (Head Start, Ten Bonus, Overdrive); each has a
+level cap (X / Y, the approved minigame exception to D23) and its strength scales off a prestige count, some lifetime
+(e.g. lifetime Prestigeceptions), some current (e.g. Captain Prestiges in the current Fleet).
+Open from playback 1: relics boost the whole climb (as built in R2-10) or only past e10M? (unanswered)
