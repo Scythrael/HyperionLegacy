@@ -54,6 +54,16 @@ export function formatSecret(value: Decimal | number): string {
   return scientific(d);
 }
 
+// 0.13.11.2 prestige previews: a multiplier with three significant figures from 10 to 1,000 too, where
+// formatSecret drops the decimals (12.4 reads "12"), so a small before and after change still shows.
+export function formatMultiplier(value: Decimal | number): string {
+  const d = value instanceof Decimal ? value : new Decimal(value);
+  const n = d.toNumber();
+  if (!Number.isFinite(n) || n < 10 || n >= 1000 || Number.isInteger(n)) return formatSecret(d);
+  const places = Number(n.toFixed(1)) < 100 ? 1 : 0;
+  return n.toFixed(places);
+}
+
 function scientific(d: Decimal): string {
   let mantissa = d.mantissa;
   let exponent = d.exponent;

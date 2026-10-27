@@ -41,6 +41,7 @@ import {
   DP_K,
   MILESTONES,
   COPY,
+  HELP_SECTIONS,
   SKILLS,
   TEN_BONUS_SKILL,
   OVERDRIVE_POWER,
@@ -384,7 +385,9 @@ describe("0.13.11.1: no Skill Points once every skill is learned (user: they sho
   it("the Prestige tab says so on the Fleet card and its payout line", () => {
     const ov = readFileSync("src/lib/SecretGameOverlay.svelte", "utf-8");
     expect(ov).toContain("allSkillsLearned(s) ? COPY.allSkillsLearned");
-    expect(ov).toContain('points{allSkillsLearned(s) ? "" : " and a Skill Point"}');
-    expect(COPY.allSkillsLearned).toBe("All skills learned: no more Skill Points");
+    expect(ov).toContain('points{allSkillsLearned(s) ? "" : " + 1 Skill Point"}');
+    // 0.13.11.2: the card reads short; the Help view explains the cutoff.
+    expect(COPY.allSkillsLearned).toBe("All learned");
+    expect(HELP_SECTIONS.some((h) => /stops paying Skill Points/.test(h.body))).toBe(true);
   });
 });

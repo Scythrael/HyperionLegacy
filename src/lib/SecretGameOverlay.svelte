@@ -52,6 +52,7 @@
     captainMultiplier,
     augmentMultiplier,
     dreamSpeedMultiplier,
+    prestigePreview,
     upgradesUnlocked,
     upgradeLevel,
     upgradePriceExponent,
@@ -76,7 +77,7 @@
     type UpgradeId,
   } from "./secret/config";
   import { cloneSecret, type SecretState, type AutoLayer } from "./secret/state";
-  import { formatSecret, formatExponent } from "./secret/format";
+  import { formatSecret, formatExponent, formatMultiplier } from "./secret/format";
   import { tabKeyTarget, overlayClosesOn } from "./secret/overlayKeys";
 
   export let onClose: () => void;
@@ -173,6 +174,10 @@
   $: cg = captainGain(s);
   $: fg = fleetGain(s);
   $: pg = prestigeceptionGain(s);
+  // 0.13.11.2: what resetting NOW does to each layer's multiplier, read off a real reset run on a
+  // copy (engine prestigePreview). null hides the line while the layer pays nothing yet.
+  $: previews = tab === "prestige" ? { captain: prestigePreview(s, "captain"), fleet: prestigePreview(s, "fleet"), pc: prestigePreview(s, "pc") } : null;
+  const times = (d: Decimal) => `×${formatMultiplier(d)}`;
   $: upOpen = upgradesUnlocked(s);
 
   // The one-time Upgrades joke (user copy): shown on the first visit to the tab after the unlock.
@@ -198,8 +203,9 @@
   // Names no locked generator (they read "???" until unlocked).
   function nextUnlock(x: SecretState): string {
     const locked = TIERS.map((t, i) => ({ t, i })).filter(({ i }) => !isTierUnlocked(x, i));
-    if (locked.length === 0) return "Every generator unlocked";
-    return `A new generator at ${locked[0].t.unlockFleet} Fleet Prestiges`;
+    if (locked.length === 0) return "All unlocked";
+    const n = locked[0].t.unlockFleet;
+    return `Generator ${locked[0].t.numeral} at ${n} Fleet${n === 1 ? "" : "s"}`;
   }
   function skillOwnedLabel(id: SkillId, x: SecretState): string {
     const def = SKILLS.find((d) => d.id === id)!;
@@ -460,25 +466,35 @@
             <div class="layer captain">
               <h3>CAPTAIN PRESTIGE</h3>
               <p class="muted">{COPY.captainBlurb}</p>
-              <div class="kv">
-                <span>Captain Points</span><span class="num">{formatSecret(s.captainPoints)}</span>
-                <span>Multiplier from them</span><span class="num">×{formatSecret(captainMultiplier(s))}</span>
-                <span>Ready at</span><span class="num">1e60 Ore</span>
-                <span>Prestige now for</span><span class="num">+{formatSecret(cg)} points</span>
-              </div>
+              <dl class="kv">
+                <div><dt>Points</dt><dd class="num">{formatSecret(s.captainPoints)}</dd></div>
+                <div><dt>Multiplier</dt><dd class="num">×{formatSecret(captainMultiplier(s))}</dd></div>
+                <div><dt>Needs</dt><dd class="num">1e60 Ore</dd></div>
+                <div><dt>Pays</dt><dd class="num">+{formatSecret(cg)} points</dd></div>
+              </dl>
+              {#if previews?.captain}
+                <p class="preview">Captain Prestige now: <span class="num">{times(previews.captain.before.captain)}</span> to <span class="num">{times(previews.captain.after.captain)}</span> on the whole stack.</p>
+              {/if}
               <button class="sg-btn primary" type="button" disabled={busy || cg.lte(0)} on:click={() => secretAct((x, t) => doCaptain(x, t))}>Captain Prestige</button>
             </div>
             <div class="layer fleet">
               <h3>FLEET PRESTIGE</h3>
               <p class="muted">{allSkillsLearned(s) ? COPY.fleetBlurbAllSkills : COPY.fleetBlurb}</p>
-              <div class="kv">
-                <span>Fleet Prestiges</span><span class="num">{s.fleetCount} (lifetime {s.fleetTotal})</span>
-                <span>Augment Points</span><span class="num">{formatSecret(s.augmentPoints)}</span>
-                <span>Multiplier from them</span><span class="num">×{formatSecret(augmentMultiplier(s))}</span>
-                <span>Skill Points</span><span class="num">{allSkillsLearned(s) ? COPY.allSkillsLearned : `${s.skillPoints} unspent`}</span>
-                <span>Next unlock</span><span class="num">{nextUnlock(s)}</span>
-                <span>Prestige now for</span><span class="num">+{formatSecret(fg)} points{allSkillsLearned(s) ? "" : " and a Skill Point"}</span>
-              </div>
+              <dl class="kv">
+                <div><dt>Fleets</dt><dd class="num">{s.fleetCount} ({s.fleetTotal} lifetime)</dd></div>
+                <div><dt>Points</dt><dd class="num">{formatSecret(s.augmentPoints)}</dd></div>
+                <div><dt>Multiplier</dt><dd class="num">×{formatSecret(augmentMultiplier(s))}</dd></div>
+                <div><dt>Skill Points</dt><dd class="num">{allSkillsLearned(s) ? COPY.allSkillsLearned : `${s.skillPoints} unspent`}</dd></div>
+                <div><dt>Next unlock</dt><dd class="num">{nextUnlock(s)}</dd></div>
+                <div><dt>Needs</dt><dd class="num">1.8e308 Ore</dd></div>
+                <div><dt>Pays</dt><dd class="num">+{formatSecret(fg)} points{allSkillsLearned(s) ? "" : " + 1 Skill Point"}</dd></div>
+              </dl>
+              {#if previews?.fleet}
+                <p class="preview">
+                  Fleet Prestige now: Augment <span class="num">{times(previews.fleet.before.augment)}</span> to <span class="num">{times(previews.fleet.after.augment)}</span>. Captain Points go
+                  back to 0, so the whole stack goes <span class="num">{times(previews.fleet.before.stack)}</span> to <span class="num">{times(previews.fleet.after.stack)}</span>.
+                </p>
+              {/if}
               <button class="sg-btn primary" type="button" disabled={busy || fg.lte(0)} on:click={() => secretAct((x, t) => doFleet(x, t))}>
                 {fg.lte(0) ? "Fleet Prestige (needs 1.8e308 Ore)" : "Fleet Prestige"}
               </button>
@@ -486,13 +502,20 @@
             <div class="layer pc">
               <h3>PRESTIGECEPTION</h3>
               <p class="muted">{COPY.pcBlurb}</p>
-              <div class="kv">
-                <span>Dream Points</span><span class="num">{formatSecret(s.dreamPoints)}</span>
-                <span>Captain and Augment gains</span><span class="num">×{formatSecret(gainMultiplier(s))}</span>
-                {#if upgradeLevel(s, "lucidDreaming") > 0}<span>Dream Points speed the stack</span><span class="num">×{formatSecret(dreamSpeedMultiplier(s))}</span>{/if}
-                <span>Ready at</span><span class="num">{formatExponent(10000)} Ore in one climb (a Fleet Prestige starts it over)</span>
-                <span>Prestige now for</span><span class="num">+{formatSecret(pg)} points</span>
-              </div>
+              <dl class="kv">
+                <div><dt>Points</dt><dd class="num">{formatSecret(s.dreamPoints)}</dd></div>
+                <div><dt>Gain boost</dt><dd class="num">×{formatSecret(gainMultiplier(s))}</dd></div>
+                {#if upgradeLevel(s, "lucidDreaming") > 0}<div><dt>Speed boost</dt><dd class="num">×{formatSecret(dreamSpeedMultiplier(s))}</dd></div>{/if}
+                <div><dt>Needs</dt><dd class="num">{formatExponent(10000)} Ore in one climb</dd></div>
+                <div><dt>Pays</dt><dd class="num">+{formatSecret(pg)} points</dd></div>
+              </dl>
+              {#if previews?.pc}
+                <p class="preview">
+                  Prestigeception now: Captain and Augment gains <span class="num">{times(previews.pc.before.gains)}</span> to <span class="num">{times(previews.pc.after.gains)}</span>. Captain and
+                  Augment Points go back to 0, so the whole stack goes <span class="num">{times(previews.pc.before.stack)}</span> to <span class="num">{times(previews.pc.after.stack)}</span>.{#if upgradeLevel(s, "lucidDreaming") > 0}
+                    Dream Points speed the stack <span class="num">{times(previews.pc.before.dreamSpeed)}</span> to <span class="num">{times(previews.pc.after.dreamSpeed)}</span>.{/if}
+                </p>
+              {/if}
               <button class="sg-btn primary" type="button" disabled={busy || pg.lte(0)} on:click={() => secretAct((x, t) => doPrestigeception(x, t))}>
                 {pg.lte(0) ? `Prestigeception (needs ${formatExponent(10000)} Ore)` : "Prestigeception"}
               </button>
@@ -913,20 +936,58 @@
   .layer.pc {
     border-color: var(--sg-pc-border);
   }
+  /* 0.13.11.2 (user: "Looks like the text is clipping a bit."): each row is a label and a value. The
+     label never breaks; when the value has no room beside it, the value drops onto its own line under
+     the label, right aligned, so the two can never collide. Nothing scrolls sideways. */
   .kv {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
-    gap: 3px 10px;
+    gap: 3px;
+    margin: 0;
     font-size: var(--text-sm);
     color: var(--color-text-secondary);
   }
-  .kv .num {
+  .kv > div {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 0 10px;
+    min-width: 0;
+  }
+  .kv dt {
+    flex: 0 0 auto;
+    white-space: nowrap;
+  }
+  .kv dd {
+    flex: 0 1 auto;
+    min-width: 0;
+    max-width: 100%;
+    margin: 0 0 0 auto;
     color: var(--color-text-primary);
     text-align: right;
     overflow-wrap: anywhere;
   }
   .layer .sg-btn {
     white-space: normal;
+  }
+  /* 0.13.11.2 prestige previews: the weight of resetting now, right above the button. */
+  .layer p.preview {
+    padding: 6px 8px;
+    border-left: 3px solid var(--color-warning);
+    border-radius: 2px;
+    background: rgba(255, 255, 255, 0.04);
+    color: var(--color-text-primary);
+    overflow-wrap: anywhere;
+  }
+  .layer.fleet p.preview {
+    border-left-color: var(--sg-fleet);
+  }
+  .layer.pc p.preview {
+    border-left-color: var(--sg-pc);
+  }
+  .preview .num {
+    font-weight: 700;
+    white-space: nowrap;
   }
   .autos {
     margin-top: var(--space-6);

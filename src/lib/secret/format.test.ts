@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import Decimal from "break_infinity.js";
-import { formatSecret, formatExponent, groupThousands } from "./format";
+import { formatSecret, formatExponent, groupThousands, formatMultiplier } from "./format";
 
 describe("formatSecret", () => {
   it("prints small values literally", () => {
@@ -25,6 +25,19 @@ describe("formatSecret", () => {
   it("never prints NaN", () => {
     expect(formatSecret(new Decimal(NaN))).toBe("0");
     expect(formatSecret(NaN)).toBe("0");
+  });
+});
+
+describe("formatMultiplier", () => {
+  it("keeps three significant figures between 10 and 1,000, and reads like formatSecret elsewhere", () => {
+    expect(formatMultiplier(12.44)).toBe("12.4");
+    expect(formatMultiplier(99.96)).toBe("100");
+    expect(formatMultiplier(645.4)).toBe("645");
+    expect(formatMultiplier(42)).toBe("42");
+    expect(formatMultiplier(1)).toBe("1");
+    expect(formatMultiplier(4.8)).toBe("4.80");
+    expect(formatMultiplier(new Decimal(119000))).toBe("119K");
+    expect(formatMultiplier(new Decimal("1.5e400"))).toBe("1.50e400");
   });
 });
 
