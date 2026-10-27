@@ -86,7 +86,7 @@
   // card, rendered inline below the Ship Systems bay grid when a tile is selected.
   // equipmentRarityColor (its module-context export) is the SINGLE rarity->color
   // source the bay TILES also read, so tile border/dot and the tooltip never drift.
-  import EquipmentTooltip, { equipmentRarityColor, equipmentIcon, equipmentSvgIcon, blueprintIcon, type ItemTooltipSubject } from "./lib/EquipmentTooltip.svelte";
+  import EquipmentTooltip, { equipmentRarityColor, equipmentIcon, equipmentSvgIcon, varietySvgIcon, blueprintIcon, type ItemTooltipSubject } from "./lib/EquipmentTooltip.svelte";
   // Radial Skill Web (Task 11b, minimal buildable integration), the pannable
   // fog-of-war talent web that REPLACES the old depth-row talent panels in
   // BOTH the Captain Talents and Homeworld Talents sub-tabs below. It owns its
@@ -3297,6 +3297,11 @@
     activeTab = "home";
     activeHomeTab = "help";
   }
+  // E-MOD EM-10 review: open the Help center on one topic (the Ship Systems Power bar's "Power and modules" link).
+  function openHelpTopic(topicId: string): void {
+    if (HELP_TOPICS.some((t) => t.id === topicId)) activeHelpTopic = topicId;
+    openHelpCenter();
+  }
 
   // The modal's top-tab list, in display order. Settings is the first view (0.13.6 D7 removed the
   // former "profile" first tab, now at Crew > Admiral); the keys map to the settings content
@@ -6455,12 +6460,18 @@
     // labels; weapon + droneBay live in separate tables (WEAPON_DEFS / drone roles) so they take a
     // display label from BAY_SLOT_LABEL_FALLBACK below.
     "weapon", "shieldEmitters", "hullPlating", "droneBay",
+    // E-MOD EM-10: the Logistics "Modules" family. EM-7 dropped the coming-soon chip, but this list never named the
+    // module slot, so a crafted module sat invisible in the spare pool (the BUG-U1 class again). Only while modules are
+    // shown (UNIVERSAL_MODULES_LIVE).
+    ...(UNIVERSAL_MODULES_LIVE ? (["module"] as EquipmentSlotType[]) : []),
   ];
   // Display-label fallback for the combat slots not present in EQUIPMENT_SLOTS.
   const BAY_SLOT_LABEL_FALLBACK: Partial<Record<EquipmentSlotType, string>> = {
     weapon: "Weapons",
     droneBay: "Drone Bays",
   };
+  // E-MOD EM-10: a family heading names the whole group ("Modules"), where the slot's catalog label names one piece.
+  const BAY_SLOT_GROUP_LABEL: Partial<Record<EquipmentSlotType, string>> = { module: "Modules" };
 
   // The SALVAGE BAY's selected tile -> its EquipmentTooltip + Salvage panel surfaces inline below the
   // grid. null = nothing selected (grid only). It reads null once the piece leaves the pool (salvaged;
@@ -6490,7 +6501,7 @@
   // pieces that share a favorite state keep their original pool order.
   $: baySystemGroups = BAY_SLOT_ORDER.map((slot) => ({
     slot,
-    label: equipmentSlotGroupLabel(slot) ?? BAY_SLOT_LABEL_FALLBACK[slot] ?? slot,
+    label: BAY_SLOT_GROUP_LABEL[slot] ?? equipmentSlotGroupLabel(slot) ?? BAY_SLOT_LABEL_FALLBACK[slot] ?? slot,
     pieces: baySpareSystems
       .filter((p) => p.slotType === slot)
       .sort((a, b) => (b.favorite === true ? 1 : 0) - (a.favorite === true ? 1 : 0)),
@@ -7677,10 +7688,11 @@
       return ((bp && blueprintGearCategory(bp)) ?? "ship") === cat;
     }),
   })).filter((g) => g.rows.length > 0);
-  // A member blueprint's slot glyph (SVG), or null for ship gear (which keeps its blueprintIcon glyph).
+  // A member blueprint's slot glyph (SVG), or null for ship gear (which keeps its blueprintIcon glyph). E-MOD EM-10: a
+  // variety that draws an SVG glyph (a universal module, the Guest Wing) returns it too, so its blank tile is never blank.
   function blueprintMemberIcon(key: string): IconName | null {
     const out = BLUEPRINTS[key]?.equipmentOutput;
-    return out ? memberSlotIcon(out.slotType) : null;
+    return out ? memberSlotIcon(out.slotType) ?? varietySvgIcon(out.varietyKey) : null;
   }
 
   // ── Crafted Blanks 0.13.7: the Product Inspection panel state ──────────────
@@ -15797,7 +15809,7 @@
                               aria-expanded={armoryTip?.itemId === inst.id}
                               on:click={(e) => toggleArmoryTip(e, inst.id)}
                             >
-                              <span style="color:{equipmentRarityColor(inst.rarity)};">{equipmentIcon(inst)} {systemSalvageName(inst)}</span>
+                              <span style="color:{equipmentRarityColor(inst.rarity)};">{#if equipmentSvgIcon(inst) !== null}<Icon name={equipmentSvgIcon(inst) ?? "equipment"} size={12} />{:else}{equipmentIcon(inst)}{/if} {systemSalvageName(inst)}</span>
                               <span class="armory-item-sub">{inst.rarity} · Q{inst.quality}</span>
                               <span class="armory-item-info" aria-hidden="true">ⓘ</span>
                             </button>
@@ -15841,7 +15853,7 @@
                               title={cand.locked === true ? "Locked, so it cannot be committed. Unlock it in Ship Equipment first." : undefined}
                               on:click={() => doArmoryInstall(armoryInstallSlotKey!, cand.id)}
                             >
-                              <span class="ship-pick-name"><span style="color:{equipmentRarityColor(cand.rarity)};">{equipmentIcon(cand)} {systemSalvageName(cand)}</span>{#if cand.locked === true} 🔒{:else if cand.favorite} <span style="color:var(--color-warning);">★</span>{/if}</span>
+                              <span class="ship-pick-name"><span style="color:{equipmentRarityColor(cand.rarity)};">{#if equipmentSvgIcon(cand) !== null}<Icon name={equipmentSvgIcon(cand) ?? "equipment"} size={12} />{:else}{equipmentIcon(cand)}{/if} {systemSalvageName(cand)}</span>{#if cand.locked === true} 🔒{:else if cand.favorite} <span style="color:var(--color-warning);">★</span>{/if}</span>
                               <span class="ship-pick-sub">{cand.rarity} · Q{cand.quality} · iL {cand.iLevel}{#if netBR !== 0} · <span style="color:{netBR > 0 ? 'var(--color-success)' : 'var(--color-danger)'};">{netBR > 0 ? "+" : ""}{formatNumber(netBR)} BR</span>{/if}</span>
                             </button>
                           {/each}
@@ -16851,6 +16863,7 @@
           onRepair={repairShipNow}
           onRename={handleRenameShip}
           onClose={returnFromShipPage}
+          onOpenHelp={openHelpTopic}
         />
         {:else if activeShipDetailTab === "seniorStaff"}
         <!-- SENIOR STAFF (Crew 0.14.0 phase 4a). The named-officer management pane for this

@@ -129,6 +129,10 @@ import { MAX_MATERIAL_QUALITY } from "./game/materialQuality";
 const LINE_LABELS = REFINERY_LINES.map((l) => l.label);
 const LINE_NAMES = LINE_LABELS.length > 1 ? `${LINE_LABELS.slice(0, -1).join(", ")} and ${LINE_LABELS[LINE_LABELS.length - 1]}` : LINE_LABELS.join("");
 const TOP_Q = `Q${MAX_MATERIAL_QUALITY}`;
+// E-MOD EM-10: the Power and modules topic reads the drive class multiplier, the combat floor and the module blueprints'
+// first Lab tier from the engine (no typed number).
+import { DRIVE_CLASS_POWER_DRAW_MULT, MODULE_BLUEPRINTS } from "./game/model";
+import { POWER_SUPPLY_FLOOR_PERCENT } from "./game/combat/power";
 
 // ===== Derived-text helpers (0.14.0 topics; see the header) =====
 
@@ -148,6 +152,8 @@ function orList(items: readonly string[]): string {
 function tier(t: number): string {
   return `Tier ${regionTierNumeral(t as RegionTier)}`;
 }
+// E-MOD EM-10: the lowest Research Lab tier any module blueprint sits on.
+const FIRST_MODULE_TIER = Math.min(...Object.values(MODULE_BLUEPRINTS).map((bp) => bp.tier));
 function site(id: string): string {
   return groundSiteLabel(id) ?? id;
 }
@@ -376,7 +382,27 @@ On the order form, This order uses lists the qualities the order will draw, and 
   {
     id: "shipSystems",
     title: "Ship Systems",
-    body: `Every ship has four equipment slots (Cargo Bay, FTL Drive, Reactor Core, and a Spec Utility slot for the hull's specialization) and comes pre-installed with a Standard-Issue baseline in each, so a bare ship is always ready to fly. Research ship-system blueprints at the Research Lab, craft them at the Fabricator, then open the ship on the Ships tab, where its Ship Systems board lets you install them. Crafted systems are real upgrades over the baseline: each carries a quality grade (0 to 5), a rarity, and an item level that together set how much it boosts the ship. A Reactor Core is crafted with its fuel: every Reactor Core blueprint takes Deuterium Canisters (${BLUEPRINTS.balancedCoreBp.recipe.inputs.deuteriumCanister} for a Balanced Core, ${BLUEPRINTS.efficientCoreBp.recipe.inputs.deuteriumCanister} for an Efficient Core and ${BLUEPRINTS.highOutputCoreBp.recipe.inputs.deuteriumCanister} for a High-Output Core), and a core you already crafted keeps running without them. Install or uninstall in one tap and watch the ship's stats change. Uninstalling leaves that slot EMPTY and returns the piece to your spares, so nothing is ever lost and you can put it back (or install something else) whenever you like. If a baseline ever does leave your hands (you salvage it yourself, or the auto-salvage rules take one), a replacement Standard-Issue is free: the Quartermaster, in Facilities, issues one for any slot at no cost, so an empty slot is an errand rather than a dead end. The same Ship Systems board also holds a combat hull's combat slots (weapon hardpoints, a shield slot, a hull-plating slot, and, on a carrier, drone bays); see the Combat Gear topic for installing those.`,
+    body: `Every ship has four equipment slots (Cargo Bay, FTL Drive, Reactor Core, and a Spec Utility slot for the hull's specialization) and comes pre-installed with a Standard-Issue baseline in each, so a bare ship is always ready to fly. Research ship-system blueprints at the Research Lab, craft them at the Fabricator, then open the ship on the Ships tab, where its Ship Systems board lets you install them. Crafted systems are real upgrades over the baseline: each carries a quality grade (0 to 5), a rarity, and an item level that together set how much it boosts the ship. A Reactor Core is crafted with its fuel: every Reactor Core blueprint takes Deuterium Canisters (${BLUEPRINTS.balancedCoreBp.recipe.inputs.deuteriumCanister} for a Balanced Core, ${BLUEPRINTS.efficientCoreBp.recipe.inputs.deuteriumCanister} for an Efficient Core and ${BLUEPRINTS.highOutputCoreBp.recipe.inputs.deuteriumCanister} for a High-Output Core), and a core you already crafted keeps running without them. Install or uninstall in one tap and watch the ship's stats change. Uninstalling leaves that slot EMPTY and returns the piece to your spares, so nothing is ever lost and you can put it back (or install something else) whenever you like. If a baseline ever does leave your hands (you salvage it yourself, or the auto-salvage rules take one), a replacement Standard-Issue is free: the Quartermaster, in Facilities, issues one for any slot at no cost, so an empty slot is an errand rather than a dead end. The same Ship Systems board also holds a combat hull's combat slots (weapon hardpoints, a shield slot, a hull-plating slot, and, on a carrier, drone bays); see the Combat Gear topic for installing those. Its Power bar and Modules row are covered in the Power and modules topic.`,
+  },
+  {
+    // E-MOD EM-10 (0.14.0): the power budget (EM-1 to EM-4) and the universal modules (EM-5 to EM-7), as the Ship
+    // Systems board shows them (the signed-off mockup's Power bar and Modules row).
+    id: "powerAndModules",
+    title: "Power and modules",
+    body: [
+      "Every ship has a power budget. Its Ship Systems board (open the ship on the Ships tab) shows it as the Power bar: Power N / M is the net draw against the output.",
+      "- Output is the hull's own power, plus a crafted Reactor Core, plus any module that adds power (the Auxiliary Capacitor). The legend under the bar lists each part.",
+      `- Draw is what every installed system uses. An FTL drive draws x${DRIVE_CLASS_POWER_DRAW_MULT} more for each drive class above Class I, and its tile shows that draw.`,
+      "- Power efficiency (a Reactor Overdrive Engineering officer, Power Discipline, Martian crew) cuts the net draw. The cut is the hatched part of the bar.",
+      "- Reactor Core power the systems leave unused is the shaded end of the bar. It speeds the drive, and a Reactor Core never makes a ship slower than the Standard-Issue one.",
+      "An install that would put the ship over its output is refused, and the reason names the power it still needs. If a ship ends up over budget anyway (an Engineering officer left, a Reactor Core came off), nothing is switched off or removed. The bar turns amber, the chip shows how far over it is and the strength it fights at, and in combat its weapons and shield recharge run weaker: gently, growing with the shortfall, never below " +
+        `${POWER_SUPPLY_FLOOR_PERCENT}%. Only installs that would make the shortfall worse are refused, so you can always climb back.`,
+      `Modules are small accessories. Research their blueprints at the Research Lab (from ${tier(FIRST_MODULE_TIER)}), craft them at the Fabricator (its Modules group), and find them in Logistics under Ship Equipment (Modules). A hull's module slots are shared with its Spec Utility, which shows as the first tile in the Modules row; the bridge, quarters and sensor keep their own slots.`,
+      "- Install a module from an empty tile in the Modules row, or with Install on... from the piece itself. Remove takes one off and leaves the slot empty.",
+      "- A ship carries one of each module, and its modules change only while it is home, like all ship gear.",
+      "- Passive modules are always on. A Proc has a chance each time its trigger happens (a hit taken, an extraction cycle). A Conditional acts while its condition holds (the hull running low). An Active casts itself by its one preset rule, with no editor. A Set acts while both pieces of its pair are installed on the same ship.",
+      "- Tap a module tile for what it does, when it acts and its power draw.",
+    ].join("\n"),
   },
   {
     id: "combatGear",

@@ -31,7 +31,7 @@
   // RR-8 (rarity readiness): a Luminous piece's legendary affix and a Constellar piece's set, one line each.
   import { pieceLegendaryAffixText, pieceSetText } from "./ui/rarityPieceText";
   // E-MOD EM-7: what a universal module does (its effect at this piece's scale, an Active's preset rule).
-  import { moduleEffectSentence, moduleKindText, moduleRuleText, pieceModuleLines } from "./ui/moduleEffectText";
+  import { MODULE_CARD_NOTE, moduleEffectSentence, moduleKindText, moduleRuleText, moduleWhenText, pieceModuleLines, type PieceModuleLines } from "./ui/moduleEffectText";
   import { universalModuleDef } from "./game/shipModules";
   import { pieceMaterialQualityText, shipMaterialQualityText } from "./ui/materialQualityText";
   import type { IconName } from "./ui/icons";
@@ -137,14 +137,9 @@
     highOutputCore: "⚛️",
     efficientCore: "🔋",
     balancedCore: "⚖️",
-    // Spec Utility rigs:
-    yieldRig: "💎",
-    surveyRig: "📡",
-    refineryFeedRig: "🧪",
-    // Exploration 0.14.0 (E4d): the relic-unlocked items (same placeholder-emoji surface as above; the
-    // game-wide SVG migration of this map is a separate pass).
-    damageControlSuite: "🧯",
-    pathfinderSuite: "🗺️",
+    // Spec Utility rigs and suites: E-MOD EM-10 review moved all five to SVG (EQUIPMENT_VARIETY_SVG_ICON below).
+    // Exploration 0.14.0 (E4d): the relic-unlocked sensor (same placeholder-emoji surface as above; the game-wide SVG
+    // migration of this map is a separate pass).
     sensorBioResonance: "🧬",
   };
 
@@ -163,6 +158,13 @@
     shieldSurge: "moduleSurge",
     longBaselineArray: "telescope",
     signalIntegrator: "moduleSignal",
+    // E-MOD EM-10 review (SVG only, never emoji): every Spec Utility variety, drawn on the Modules row, its picker, the
+    // card header, the Logistics bay and the Armory.
+    yieldRig: "rigYield",
+    surveyRig: "rigSurvey",
+    refineryFeedRig: "rigRefineryFeed",
+    damageControlSuite: "suiteDamageControl",
+    pathfinderSuite: "suitePathfinder",
   };
 
   // Fallback glyph per SLOT, used if a variety is unmapped OR a slot has no variety
@@ -441,8 +443,9 @@
         // RR-8: "Legendary affix: <name>" on a Luminous piece, "Set: <name> (2 / 3 / 5 pieces)" on a set piece, else null.
         legendaryAffix: string | null;
         setLine: string | null;
-        // E-MOD EM-7: a universal module's kind, effect and (an Active) rule, or null for any other piece.
-        moduleLines: { kind: string; effect: string; rule: string | null } | null;
+        // E-MOD EM-7: a universal module's kind, effect and (an Active) rule, or null for any other piece. EM-10 adds
+        // when it acts (its trigger in plain words) and its power draw.
+        moduleLines: PieceModuleLines | null;
         flavor: string | null;
         piece: EquipmentInstance;
       }
@@ -481,8 +484,8 @@
         // range / base damage), which are known pre-roll. The rolled weaponYield (shown as the
         // signature range) adds to the base damage; base damage is shown so the range reads in context.
         weaponBase: { label: string; value: string }[] | null;
-        // E-MOD EM-7: a module craft's effect at Standard quality 0 (the roll scales it), or null.
-        moduleLines: { kind: string; effect: string; rule: string | null } | null;
+        // E-MOD EM-7: a module craft's effect at Standard quality 0 (the roll scales it), or null. EM-10: when it acts.
+        moduleLines: { kind: string; effect: string; rule: string | null; when: string } | null;
         flavor: string | null;
       }
     | null;
@@ -590,7 +593,7 @@
       slotLabel: preview ? slotLabelFor(preview.slotType, preview.varietyKey) : "",
       preview,
       weaponBase,
-      moduleLines: craftModule ? { kind: moduleKindText(craftModule), effect: `${moduleEffectSentence(craftModule, 1)} (Standard; better rarity and quality do more.)`, rule: moduleRuleText(craftModule) } : null,
+      moduleLines: craftModule ? { kind: moduleKindText(craftModule), effect: `${moduleEffectSentence(craftModule, 1)} (Standard; better rarity and quality do more.)`, rule: moduleRuleText(craftModule), when: moduleWhenText(craftModule) } : null,
       flavor: bp?.flavor ?? null,
     };
   })();
@@ -701,13 +704,20 @@
       {#if view.setLine}
         <div class="et-detail">{view.setLine}</div>
       {/if}
-      <!-- E-MOD EM-7: a module carries no stat lines; these say what it does (the modules mockup's details card). -->
+      <!-- E-MOD EM-7: a module carries no stat lines; these say what it does (the modules mockup's details card). EM-10:
+           when it acts (its trigger in plain words), its power draw and the one-per-ship note, as the mockup draws them. -->
       {#if view.moduleLines}
         <div class="et-detail">{view.moduleLines.kind}</div>
         <div class="et-detail">{view.moduleLines.effect}</div>
+        <div class="et-detail">{view.moduleLines.when}</div>
         {#if view.moduleLines.rule}
           <div class="et-detail"><b>{view.moduleLines.rule}</b></div>
         {/if}
+        <div class="et-detail">{view.moduleLines.draw}</div>
+        {#if view.moduleLines.condition}
+          <div class="et-detail">{view.moduleLines.condition}</div>
+        {/if}
+        <div class="et-detail">{MODULE_CARD_NOTE}</div>
       {/if}
     {:else if view.kind === "ship"}
       <div class="et-stats">
@@ -734,6 +744,7 @@
       {#if view.moduleLines}
         <div class="et-detail">{view.moduleLines.kind}</div>
         <div class="et-detail">{view.moduleLines.effect}</div>
+        <div class="et-detail">{view.moduleLines.when}</div>
         {#if view.moduleLines.rule}
           <div class="et-detail"><b>{view.moduleLines.rule}</b></div>
         {/if}

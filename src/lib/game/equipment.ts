@@ -292,8 +292,8 @@ export type EquipFitBlockReason =
   // included) is already installed on the ship. Checked right before moduleSlotsFull.
   | "duplicateModule"
   // E-MOD EM-7 (user 2026-10-26, "Armory loadouts only"): a module piece offered to a SHIP by the item-side Install
-  // on... (memberEquipment.ts installTargetsFor) while shipModules.ts MODULE_INSTALL_ARMORY_ONLY holds (until EM-10).
-  // Never returned by canFitEquipment itself (the Armory check-out installs modules).
+  // on... (memberEquipment.ts installTargetsFor) while shipModules.ts MODULE_INSTALL_ARMORY_ONLY holds (EM-10 turned it
+  // off; kept so the switch stays a one-line revert). Never returned by canFitEquipment itself.
   | "moduleArmoryOnly";
 
 // A refused install: the reason, and for overPower the power it still needs. Every reason-text switch takes this

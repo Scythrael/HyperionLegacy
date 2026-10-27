@@ -10,7 +10,8 @@
 
 import { moduleEffectScale, shipGearSetBonusLines, type EquipmentInstance } from "../game/model";
 import { activeGearSetTiers, gearSetDef } from "../game/gearSets";
-import { UNIVERSAL_MODULES, pieceModuleDef, type ModuleContext, type UniversalModuleDef } from "../game/shipModules";
+import { UNIVERSAL_MODULES, modulePowerOutput, pieceModuleDef, type ModuleContext, type UniversalModuleDef } from "../game/shipModules";
+import { CONDITION_FULL, pieceCondition } from "../game/gearWear";
 
 // A fraction as a percent with at most one decimal ("12%", "6.7%").
 function pct(f: number): string {
@@ -79,17 +80,79 @@ export function moduleRuleText(def: UniversalModuleDef): string | null {
   return `Auto-cast, preset rule: ${how}, ${when}.`;
 }
 
-// The item card's module lines for a piece: its kind, its effect at this piece's scale, and an Active's rule. Null for
-// any piece that is not a known universal module. `shipPieces` (the pieces installed beside it, when the host knows
-// them): a set piece whose set is complete there shows the set's REAL bonus (model.ts shipGearSetBonusLines, the
-// reader the expedition dispatch uses). Pure.
-export function pieceModuleLines(piece: EquipmentInstance, shipPieces?: readonly EquipmentInstance[]): { kind: string; effect: string; rule: string | null } | null {
+// E-MOD EM-10: WHEN a module acts, its trigger in plain words (the EM-10 "module tooltip with its trigger in plain
+// words"; the user's M4 trigger set). Read from the def's own category, trigger, condition and contexts, so a new
+// module never needs its own sentence here. Pure.
+export function moduleWhenText(def: UniversalModuleDef): string {
+  const where = moduleContextLabel(def);
+  if (def.category === "passive") return where === "Everywhere" ? "Always on, everywhere the ship goes." : `Always on in ${where.toLowerCase()}.`;
+  if (def.category === "conditional" && def.condition !== undefined) {
+    const pool = def.condition.kind === "hullBelow" ? "hull" : "shields";
+    return `Acts in combat while the ship's ${pool} is below ${pct(def.condition.fraction)}.`;
+  }
+  if (def.category === "set") return "Acts on expeditions while both pieces of its pair are installed on the same ship.";
+  if (def.trigger === undefined) return `Acts in ${where.toLowerCase()}.`;
+  switch (def.trigger.kind) {
+    case "battleStart":
+      return "Acts once at the start of each battle.";
+    case "incomingAmbush":
+      return "Acts when the ship is ambushed, before the ambusher's opening salvo lands.";
+    case "afterAmbush":
+      return "Acts when the ship is ambushed, right after the opening salvo lands.";
+    case "onHit":
+      return "Acts each time the ship takes a hit in combat.";
+    case "combatTick":
+      return "Acts every combat round.";
+    case "hullBelow":
+      return `Acts in combat once the ship's hull falls below ${pct(def.trigger.fraction)}.`;
+    case "missionCycle":
+      return "Acts on each delivered extraction cycle of a captain mission.";
+    case "bodyScanned":
+      return "Acts on each body an expedition scans.";
+  }
+}
+
+// The card's draw line: "Power draw 8", and for a module that adds power "Power draw 0, adds 8 power". Reads the piece's
+// own minted draw and the engine's own output fold for it (shipModules.ts modulePowerOutput, the reader the budget
+// uses, so the card and the bar can never round apart). Pure.
+export function moduleDrawText(piece: EquipmentInstance): string {
+  const adds = modulePowerOutput([piece], (p) => moduleEffectScale(p.rarity, p.quality, p.ascension));
+  return adds > 0 ? `Power draw ${piece.powerDraw}, adds ${adds} power` : `Power draw ${piece.powerDraw}`;
+}
+
+// The card's condition line (the mockup's details card), or null for a pristine piece. Wear never moves the power checks
+// (gear wear design 4.3). Pure.
+export function moduleConditionText(piece: Pick<EquipmentInstance, "condition">): string | null {
+  const pct = Math.round((pieceCondition(piece) / CONDITION_FULL) * 100);
+  if (pct >= 100) return null;
+  return `Condition ${pct}%. Wears slowly while the ship is underway; power checks always use the pristine values.`;
+}
+
+// The card's closing note (the mockup's details card): the one-per-ship rule (user M8) and the S2 lock.
+export const MODULE_CARD_NOTE = "One per ship. Changes wait while the ship is out.";
+
+// The item card's module lines for a piece: its kind, its effect at this piece's scale, an Active's rule, when it acts
+// (EM-10) and its power draw. Null for any piece that is not a known universal module. `shipPieces` (the pieces
+// installed beside it, when the host knows them): a set piece whose set is complete there shows the set's REAL bonus
+// (model.ts shipGearSetBonusLines, the reader the expedition dispatch uses). Pure.
+export interface PieceModuleLines {
+  kind: string;
+  effect: string;
+  rule: string | null;
+  when: string;
+  draw: string;
+  condition: string | null;
+}
+export function pieceModuleLines(piece: EquipmentInstance, shipPieces?: readonly EquipmentInstance[]): PieceModuleLines | null {
   const def = pieceModuleDef(piece);
   if (def === undefined) return null;
   return {
     kind: moduleKindText(def),
     effect: activeSetText(def, piece, shipPieces) ?? moduleEffectSentence(def, moduleEffectScale(piece.rarity, piece.quality, piece.ascension)),
     rule: moduleRuleText(def),
+    when: moduleWhenText(def),
+    draw: moduleDrawText(piece),
+    condition: moduleConditionText(piece),
   };
 }
 

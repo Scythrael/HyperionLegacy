@@ -133,7 +133,10 @@ function computePins(pre = false): { held: Record<string, string>; moved: Record
   return { held, moved };
 }
 
-// The by-design readings after EM-7 (pinned so a later slice cannot move one unexplained).
+// The by-design readings after EM-7 (pinned so a later slice cannot move one unexplained). E-MOD EM-10 moved three of
+// them, by design and display only: the Fabricator's Item dropdown gained its own "Modules" shelf (awayGearDisplay.ts
+// fabricatorGroupOf), so the module crafts on Lab tiers 2 to 4 file there instead of under Ship Systems (EM-7's values
+// were fabricator:2 6b69720, fabricator:3 19a6bab3, fabricator:4 ba6192b5). No blueprint, tier or recipe changed.
 const MOVED_AFTER: Record<string, string> = {
   "loadout:generalFreighter": "d29a3c6b",
   "loadout:prospectorHauler": "366ebcc4",
@@ -149,13 +152,13 @@ const MOVED_AFTER: Record<string, string> = {
   "catalog:fabricator:1": "308e5cf2",
   "catalog:research:1": "33c99963",
   "catalog:tier:2": "400c2de",
-  "catalog:fabricator:2": "6b69720",
+  "catalog:fabricator:2": "ee7fbf14",
   "catalog:research:2": "9c25116c",
   "catalog:tier:3": "76c83e13",
-  "catalog:fabricator:3": "19a6bab3",
+  "catalog:fabricator:3": "d2b40e56",
   "catalog:research:3": "a827db6a",
   "catalog:tier:4": "3178fad1",
-  "catalog:fabricator:4": "ba6192b5",
+  "catalog:fabricator:4": "f9ab1f94",
   "catalog:research:4": "d090d7a3",
   "catalog:tier:5": "9d72b6ad",
   "catalog:fabricator:5": "50003ca9",

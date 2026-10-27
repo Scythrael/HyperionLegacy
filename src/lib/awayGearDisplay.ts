@@ -160,19 +160,24 @@ export function isFieldKitBlueprint(bp: Pick<BlueprintDef, "unlockOnly" | "weapo
   return out !== undefined && ITEMS[out]?.category === "fieldKit";
 }
 
-// The Fabricator's Item dropdown shelves (E-CREW Task 10, plus Field Kits FKR-3's own "Field Kits" group): Materials,
-// Ship Systems, Away-Team Gear, Implants, Field Kits.
-export type FabricatorGroup = "material" | GearCategory | "fieldKit";
-export const FABRICATOR_GROUP_ORDER: readonly FabricatorGroup[] = ["material", ...GEAR_CATEGORY_ORDER, "fieldKit"];
+// The Fabricator's Item dropdown shelves (E-CREW Task 10, plus Field Kits FKR-3's own "Field Kits" group and E-MOD
+// EM-10's "Modules" group): Materials, Ship Systems, Modules, Away-Team Gear, Implants, Field Kits. A universal module
+// is ship gear (its blanks and its Research row stay with the ship systems), but it gets its own Fabricator shelf, the
+// EM-10 "Fabricator Modules group", next to the ship systems it is installed beside.
+export type FabricatorGroup = "material" | GearCategory | "module" | "fieldKit";
+export const FABRICATOR_GROUP_ORDER: readonly FabricatorGroup[] = ["material", "ship", "module", "awayTeam", "implant", "fieldKit"];
 export const FABRICATOR_GROUP_LABEL: Readonly<Record<FabricatorGroup, string>> = {
   material: "Materials",
   ...GEAR_CATEGORY_LABEL,
+  module: "Modules",
   fieldKit: "Field Kits",
 };
 
-// The shelf a blueprint's craft files under: its gear category, Field Kits for a kit, else Materials. Pure.
+// The shelf a blueprint's craft files under: Modules for a universal module, its gear category, Field Kits for a kit,
+// else Materials. Pure.
 export function fabricatorGroupOf(bp: Pick<BlueprintDef, "unlockOnly" | "weaponOutput" | "droneOutput" | "equipmentOutput" | "recipe">): FabricatorGroup {
   if (isFieldKitBlueprint(bp)) return "fieldKit";
+  if (!bp.unlockOnly && bp.equipmentOutput?.slotType === "module") return "module";
   return blueprintGearCategory(bp) ?? "material";
 }
 
