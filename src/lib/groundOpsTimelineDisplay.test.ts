@@ -254,6 +254,17 @@ describe("GO-14 hand-written history: a retreat, an ambush, a surprise fight", (
     expect(lane.segments[2]).toMatchObject({ label: "return" });
   });
 
+  it("SF-6: a training run's lost fight whose guards fell back reads the backstop's log line, not a held loss", () => {
+    const { state, exp, now } = withHistory([
+      { step: "deploy", startedAt: T0, endedAt: T0 + 60, taskId: "x" },
+      { step: "fight", startedAt: T0 + 60, endedAt: T0 + 120, taskId: "x", outcome: "loss", fellBack: true },
+      { step: "return", startedAt: T0 + 120, endedAt: T0 + 180, taskId: "x" },
+    ]);
+    const lane = timelineView(exp, shipOf(state), now, "whole", scan)!.lanes[0];
+    expect(lane.segments[1]).toMatchObject({ category: "fight", label: "guards fell back", lost: false });
+    expect(lane.segments[1].detail).toMatch(/: The guards fell back\. Training run: no setback\. \(1m\)$/);
+  });
+
   it("an ambush retreat and a surprise fight become notes on the task card and words on the lane", () => {
     const { state, exp: base } = opsRun({ poiIds: ["mineralOutcrop"] });
     const id = firstTask(base).id;

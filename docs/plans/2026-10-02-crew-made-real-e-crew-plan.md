@@ -25,6 +25,13 @@ against code and plans found these TRUE GAPS, now 0.14.0 scope (each needs a sho
 - **G1 Short-Range Missions:** randomized templates (refugees needing guest quarters / secondary personnel, supply
   pickup and drop-off, phenomenon survey, telescope repair, comm booster), per-run transit and constraints, stat
   requirements per category; activates the reserved `colonistCapacity`.
+  *Safe first runs carry note (SF-5, 2026-10-27; the contract, met by the G1 build):* every template's roll stamps the
+  shared `difficulty` (runDifficulty.ts `runDifficultyAt(state, "shortRange", tier, template)`); its first run per
+  template is the training run (`isFirstRun(state, "shortRange", templateKey)`, counters keyed per template in
+  `runCounts.shortRange`), the template's smallest roll; later runs read the shared curve (`rampFraction` through
+  `runRamp`, Tier I only; completed runs, the training run excluded). Proof test: `safeFirstRunsContract.test.ts` (every
+  live template at both tiers, and the live loop delivering each training run with no defeat). A new template joins it
+  automatically through `SHORT_RANGE_TEMPLATE_KEYS`.
 - **G2 Expedition tiers:** galaxy-region unlocks (proposed real regions, Local Bubble to Galactic Core), distance and
   difficulty, the reach gate, recall (A4 had no task).
 - **G3 Relics v2:** unidentified relics, Research Lab identification into per-tier pools with exceptional per-tier

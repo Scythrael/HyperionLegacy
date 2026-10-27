@@ -36,7 +36,7 @@ import type {
 } from "./game/model";
 import { ITEMS } from "./game/model";
 import { nebulaKindById } from "./game/gasGiantContent";
-import { RETURN_SECONDS, groundLegTeams, groundOpsBayCare, groundShipPosition, groundTaskProgressAt, groundTaskFindingPrefix, groundTaskStuck, groundTeamRemainingTasks } from "./game/groundOps";
+import { RETURN_SECONDS, TRAINING_FELL_BACK_TEXT, groundLegTeams, groundOpsBayCare, groundShipPosition, groundTaskProgressAt, groundTaskFindingPrefix, groundTaskStuck, groundTeamRemainingTasks } from "./game/groundOps";
 import type { FlaggedScanPause, FlaggedScanSpan } from "./game/expedition";
 import { GROUND_CONDITIONS, STONESKIN_INJURY_MULT, conditionCureSeconds, type ConditionClass } from "./game/medicalBay";
 import { segmentCount } from "./game/groundTasks";
@@ -186,6 +186,7 @@ interface RawStep {
   surprise?: boolean;
   reinforcement?: boolean;
   stopped?: boolean;
+  fellBack?: boolean; // Safe first runs SF-6: a training run's lost fight whose guards fell back (the backstop)
   live: boolean;
   awaitingPickup?: boolean; // live return waiting for the ship
   // The user's pickup pause (2026-10-23): a return the ship collects, pausing its study (a record's studyPickup, or a
@@ -232,6 +233,7 @@ function teamSteps(exp: Expedition, team: GroundTeamRun, axisEnd: number): RawSt
       ...(r.surprise ? { surprise: true } : {}),
       ...(r.reinforcement ? { reinforcement: true } : {}),
       ...(r.stopped ? { stopped: true } : {}),
+      ...(r.fellBack ? { fellBack: true } : {}),
       live: false,
     }));
   if (team.stepStartedAt <= axisEnd) {
@@ -297,6 +299,11 @@ function stepWords(exp: Expedition, steps: readonly RawStep[], i: number): StepW
       const tag = s.reinforcement ? "reinforcements" : s.surprise ? "surprise" : null;
       if (s.live) return { category: "fight", label: tag ?? "fight", detail: `${kind} at ${task}, under way`, lost: false };
       if (s.outcome === "win") return { category: "fight", label: tag ? `${tag}, won` : "won", detail: `${kind} at ${task}: won (${len})${stopNote}`, lost: false };
+      // Safe first runs SF-6: a training run's lost fight cleared its point anyway (the backstop), in the log line's words.
+      if (s.fellBack) {
+        const wiped = lossWasWipe(steps, i);
+        return { category: wiped ? "wipe" : "fight", label: "guards fell back", detail: `${kind} at ${task}: ${wiped ? "Security wiped. " : ""}${TRAINING_FELL_BACK_TEXT} (${len})`, lost: false };
+      }
       if (lossWasWipe(steps, i)) return { category: "wipe", label: s.reinforcement ? "reinforcements, wiped" : "wiped", detail: `${kind} at ${task}: lost, Security wiped (${len})${stopNote}`, lost: false };
       return { category: "fight", label: s.reinforcement ? "reinforcements, lost" : "lost", detail: `${kind} at ${task}: lost, the team fell back (${len})${stopNote}`, lost: true };
     }

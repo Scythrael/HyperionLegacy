@@ -1299,7 +1299,8 @@ export const SHIP_TYPES: Record<ShipTypeKey, ShipTypeDef> = {
       { teamType: "science", size: 3 },
       { teamType: "prospecting", size: 3 },
     ],
-    description: "A slow capital hull. The most armor, shields, and guns the fleet fields.",
+    // SF-6 review (user 2026-10-27, Recommended): the explorers out-shield it, so "shields" is no longer "the most".
+    description: "A slow capital hull. The most armor and guns the fleet fields, with heavy shields.",
   },
   carrier: {
     label: "Carrier", spec: "tactician", tier: 3,
@@ -1391,7 +1392,8 @@ export const SHIP_TYPES: Record<ShipTypeKey, ShipTypeDef> = {
       { teamType: "science", size: 4 },
       { teamType: "prospecting", size: 3 },
     ],
-    description: "A long-range explorer. Enormous shields and reach, a frail hull, and almost no guns.",
+    // Safe first runs SF-6 (user 2026-10-27, call 13 "Approve as drafted"; "Explorers are heavy cruisers").
+    description: "Heavy cruiser. A long-range explorer: enormous shields and reach, a frail hull, and almost no guns.",
   },
   aurora: {
     label: "Aurora", spec: "explorer", tier: 2, // FIRST-PASS TUNABLE
@@ -1417,7 +1419,9 @@ export const SHIP_TYPES: Record<ShipTypeKey, ShipTypeDef> = {
     ],
     // OC-D13 ("Make them true as built"): the most module slots is true since EM-7 made modules installable (5, the
     // fleet's most); its cruise is the fastest of the explorer hulls (1.3), not of the fleet (the Runner's 1.5).
-    description: "A survey scout. The most module slots and the fastest cruise of the explorer hulls, at the cost of frame and hold.",
+    // Safe first runs SF-6 (user 2026-10-27, call 13 "Approve as drafted", "keep whichever text is true of the built
+    // hull"): the approved line with OC-D13's "of the explorer hulls" kept, since "the fastest cruise" alone is false.
+    description: "Heavy cruiser. A survey scout: the most module slots and the fastest cruise of the explorer hulls, at the cost of frame and hold.",
   },
   eir: {
     label: "Eir", spec: "explorer", tier: 2, // FIRST-PASS TUNABLE
@@ -1443,7 +1447,9 @@ export const SHIP_TYPES: Record<ShipTypeKey, ShipTypeDef> = {
       { teamType: "science", size: 4 },
       { teamType: "prospecting", size: 3 },
     ],
-    description: "A medical transport. The largest hold and crew the fleet fields, for supplies and evacuations.",
+    // Safe first runs SF-6 (user 2026-10-27, call 13 "Approve as drafted"; the review answer, Recommended: "away teams",
+    // since its complement ties the other explorers').
+    description: "Heavy cruiser. A medical transport: the largest hold and away teams the fleet fields, for supplies and evacuations.",
   },
 };
 

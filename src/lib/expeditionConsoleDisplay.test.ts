@@ -257,7 +257,8 @@ describe("G2-6 the candidate card: transit, reach and gates are the engine's", (
     expect(isTrainingDispatch(fresh, ship1(fresh), 1)).toBe(true);
     expect(isTrainingDispatch(fresh, ship1(fresh), 2)).toBe(false);
     expect(candidateCardView(fresh, ship1(fresh), expeditionCandidates(fresh, "ship-1", 1)[0]).trainingRun).toBe(true);
-    expect(trainingRunNote(fresh, "Aurora")).toMatch(/^This is Aurora's first expedition, so it is a training run: .* Wolf 359 appears in the first Tier I list after this run\.$/);
+    // SF-6: the note leads with the chip's approved line (user 2026-10-27, "This run cannot fail").
+    expect(trainingRunNote(fresh, "Aurora")).toBe("This training run cannot fail. From the next one on, the risk rises slowly. Aurora's training run flies the same trip an ordinary run to that system would. Wolf 359 appears in the first Tier I list after this run.");
     expect(trainingRunNote({ nextExpeditionId: 4 }, "Aurora")).not.toMatch(/Wolf 359/);
   });
 

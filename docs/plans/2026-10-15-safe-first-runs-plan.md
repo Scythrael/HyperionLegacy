@@ -960,3 +960,47 @@ the patrol card and any `brokeOff` wording.
 - **Call 13 heavy cruiser descriptions:** "Approve as drafted (Recommended)": the three SF-6 descriptions verbatim, shown
   on the Shipyard build card AND the ship detail header. (Check the Aurora line against the EM-7 OC-D13 fix, which made
   its description true: keep whichever text is true of the built hull and say so.)
+- **SF-6 review, false description clauses (both "Recommended"):** Battleship: "A slow capital hull. The most armor and
+  guns the fleet fields, with heavy shields." Eir: "A medical transport. The largest hold and away teams the fleet
+  fields, for supplies and evacuations." (built behind the call 13 "Heavy cruiser." prefix and colon: "Heavy cruiser. A
+  medical transport: the largest hold and away teams ..."). Aurora keeps its true "of the explorer hulls" wording.
+- **Chip line wording:** ""This run cannot fail" (Recommended)": the chip's line on BOTH the expedition and the patrol
+  is "This training run cannot fail. From the next one on, the risk rises slowly." (true wherever the chip shows: the
+  guarantee goes to the first EXPLORER expedition, and a General Freighter can fly an expedition first). Supersedes the
+  call 12 "Your first expedition / patrol cannot fail" lines; the gathering line stays as approved. Built: the Tier I
+  training note now leads with this line (no "Training run:" prefix, which would repeat the chip's words).
+
+## SF-5 + SF-6 CARRY NOTE (2026-10-27, built on 1567b4d)
+
+**SF-5 (tests + doc, no engine change).** `safeFirstRunsContract.test.ts` (27 default tests, about 3 s): gathering, every
+MISSIONS key x every hull that can fly it x three stop paths (delivered on Repeat, recalled half way, broke at the
+relaunch) never ends in a defeat or hull damage, and the first-run marker `isFirstGatheringRun` (runDifficulty.ts,
+DISPLAY ONLY: no MISSIONS key in `lifetimeStats.missionsCompleted` yet; patrol routes and `shortRange:` keys ignored)
+is true on every tick before the save's first delivered cycle and false from it; the G1 contract against every live
+template at Tier I and II (the stamp equals `runDifficultyAt`, the training run is keyed per template and is the
+smallest roll, later runs read `rampFraction` through `runRamp`, the reach never shrinks as the curve climbs, other
+templates keep their training run) plus the live loop delivering each template's training run with no defeat. Carry
+note added to the E-CREW plan's G1 entry.
+
+**SF-6 (display only).** Text verbatim in one module, `src/lib/trainingRunDisplay.ts` (call 12). The chip and its line:
+the expedition dispatch card (the chip, its title the line; the Tier I training note now leads with the chip and the
+line), the run view header (`isTrainingRun`), the patrol dispatch card and its Dispatch popup (`isFirstRun(state,
+"patrol")`, the same stamp the Threat Assessment reads, so it reads Guaranteed); the gathering line on the Gathering
+list and on the first run's in-progress card. The backstop's log line now shows on the ground timeline (a lost fight
+with `fellBack` reads "fell back" and `TRAINING_FELL_BACK_TEXT`, not a held loss). Hull descriptions (call 13) on the
+Shipyard build card and under the ship detail header, every hull; `trainingRunDisplay.test.ts` pins the approved text
+and checks each explorer claim against the built hull. Help: the Risk Factors topic gains TRAINING RUNS AND RISING RISK
+(every number from runDifficulty.ts; tested in helpTopics.test.ts), the Objective Difficulty topic points to it.
+375 px checked (no sideways scroll; the glyph is the existing `check` SVG).
+
+**For the user.** The Aurora's approved "the fastest cruise" is false fleet-wide (Aurora 1.3, the Runner 1.5): the
+built text keeps OC-D13's true "of the explorer hulls" after it. Eir's "crew" is true of its away teams (8, the most);
+its complement ties the other explorers'. The battleship's existing "The most armor, shields, and guns" now shows and
+its "shields" is false (600; the explorers carry 700 to 800). No golden moved.
+
+**Review fixes (2026-10-27).** The Battleship and Eir descriptions per the answers above (claims tested against the
+built hulls). Help: "From Tier II on, every expedition" (a short-range template keeps its training run at any tier) and
+veterans "for that run type", asserted against `runDifficultyAt`. The timeline label reads "guards fell back". The
+contract test's never-lost check is an allow-list (stop reasons, no patrol ending, no `damaged`, no `repairDamage`).
+The in-progress "First run" line shows on ONE card: `firstGatheringCardCaptainId` (the run closest to its first
+delivery; a gathering run stores no start time and SF-6 is display only). One shared `TrainingRunChip.svelte`.
