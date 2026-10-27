@@ -608,3 +608,10 @@ Sell-peace sweep timing (both teams' last pickups waited behind the study and th
 USER ANSWER (2026-10-23, verbatim): "I think the ship should be able to stop mid-scan and pick back up where it left off, so going to get the team from where they are is fine. Then go back and continue scanning." Reading: a fourth option. When a team is ready for pickup during a gas giant study or the cloud sweep, the ship pauses the study/sweep, goes and picks the team up, then returns and resumes exactly where it left off (progress kept, nothing lost). Engine change, stamped on new runs only so in-flight runs stay byte-identical; the UI shows the pause and resume.
 USER ANSWERS (2026-10-23, GG-6 review calls): Survey Log: "Mockup first (Recommended)" (mock it up for sign-off before it ships); decoded count: "Hide until GG-7 (Recommended)"; research data cap: "Show cap in Lab tab (Recommended)" (Data study tab shows Held data N / cap with a full warning).
 Build note (2026-10-23, GG-6 pause review): the pause applies only when it brings the team aboard SOONER than waiting (a team ready in the last few minutes of a study just waits); the builder extended the pause to wiped-team recoveries (they board about one study or sweep sooner; the ship is free at the same time). Both to mention to the user.
+
+USER ANSWERS (2026-10-27, Survey Log sign-off, shown as the real built panel with sample entries at 1280 and 375 px):
+Survey Log: "Approve as built (Recommended)" (turn the tab on in 0.14.0, fix the missing space in "Tier III· first of
+its class", the claim line's readout count returns with the live switch); phone layout: "Card on top (Recommended)"
+(under 760 px of panel width the selected entry's card shows first, the list follows, and picking an entry scrolls back
+up to the card). Built directly on feat: `SURVEY_LOG_LIVE` true, `SurveyLogPanel.svelte` card order and `pick()` scroll
+(reduced motion respected).

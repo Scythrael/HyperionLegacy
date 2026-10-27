@@ -912,8 +912,8 @@ export function studyResultsView(exp: Pick<Expedition, "id" | "findings" | "bodi
 
 // The claim's study line for the log, or null when the claim held no study. GG-6 review: the "Findings claimed" line
 // already lists every canister and data item, so this line only says what the studies were and where the data goes:
-// "Ship studies: 2 gas giants and 1 nebula sweep; research data goes to the Research Lab's Data study tab." The
-// readout clause appears only while the Survey Log tab is live (SURVEY_LOG_LIVE). Pure.
+// "Ship studies: 2 gas giants and 1 nebula sweep; research data goes to the Research Lab's Data study tab; 1 Survey Log
+// readout." The readout clause appears only while the Survey Log tab is live (SURVEY_LOG_LIVE). Pure.
 export function studyClaimLine(findings: readonly ExpeditionFinding[]): string | null {
   const studies = findings.filter(isStudyFinding);
   if (studies.length === 0) return null;
@@ -1088,9 +1088,10 @@ export function surveyEntryView(entry: SurveyLogEntry, all: readonly SurveyLogEn
   };
 }
 
-// The user (2026-10-23): the Survey Log needs its own mockup sign-off before it ships. The tab and its code stay built
-// but hidden behind this switch (the Archive tab list leaves it out while false; archiveSubTabs).
-export const SURVEY_LOG_LIVE = false;
+// The user (2026-10-23): the Survey Log needs its own mockup sign-off before it ships. Signed off 2026-10-27 ("Approve
+// as built", with the selected card shown first on a phone), so the tab is live. The switch stays so the Archive tab
+// list and the claim line read one place (archiveSubTabs, studyClaimLine).
+export const SURVEY_LOG_LIVE = true;
 
 // The Archive's sub-tabs in order: the Survey Log only while SURVEY_LOG_LIVE. Pure.
 export type ArchiveSubTabKey = "archive" | "museum" | "surveyLog";

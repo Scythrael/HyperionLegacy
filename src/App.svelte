@@ -11044,7 +11044,7 @@
         ], active: activeShipyardSubTab, onSelect: (key) => (activeShipyardSubTab = key as ShipyardSubTab) };
       // Exploration 0.14.0 (E4c): the Archive gained the Museum beside its enshrine record.
       case "archive":
-        // GG-6: the Survey Log tab waits for its own mockup sign-off (gasGiantStudyDisplay.ts SURVEY_LOG_LIVE).
+        // GG-6: the Survey Log tab, live since its sign-off (gasGiantStudyDisplay.ts SURVEY_LOG_LIVE).
         return { tabs: archiveSubTabs(), active: activeArchiveSubTab, onSelect: (key) => (activeArchiveSubTab = key as ArchiveSubTab) };
       // Ground Ops GO-17 UI: ship loadouts and squad (ground team) loadouts, one shared cap.
       case "armory":

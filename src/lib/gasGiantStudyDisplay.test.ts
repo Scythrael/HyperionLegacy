@@ -377,7 +377,12 @@ describe("GG-6 the study results and the claim line", () => {
     if (done.nebula) expect(line).toContain("1 nebula sweep");
     // The "Findings claimed" line already lists every canister: none named here.
     expect(line).not.toMatch(/Canister|canister/);
-    expect(line).not.toMatch(/Survey Log/);
+    // The Survey Log is live (signed off 2026-10-27): the line counts the readouts, and says nothing when none hit.
+    const readouts = studies.filter((f) => f.survey).length;
+    if (readouts > 0) expect(line).toContain(readouts === 1 ? "1 Survey Log readout" : `${readouts} Survey Log readouts`);
+    else expect(line).not.toMatch(/Survey Log/);
+    const noReadout = studyClaimLine(studies.map((f) => ({ ...f, survey: undefined })))!;
+    expect(noReadout).not.toMatch(/Survey Log/);
     expect(studyClaimLine(done.findings.filter((f) => f.source !== "study"))).toBeNull();
   });
 
@@ -503,10 +508,11 @@ describe("GG-6 the canister shelf", () => {
   });
 });
 
-describe("GG-6 review: the Survey Log waits for its own mockup sign-off", () => {
-  it("the Archive tab list leaves the Survey Log out while it is not live", () => {
-    expect(SURVEY_LOG_LIVE).toBe(false);
-    expect(archiveSubTabs().map((t) => t.key)).toEqual(["archive", "museum"]);
+describe("GG-6 review: the Survey Log ships after its own mockup sign-off (user 2026-10-27)", () => {
+  it("the Archive tab list carries the Survey Log now that it is live, and leaves it out when not", () => {
+    expect(SURVEY_LOG_LIVE).toBe(true);
+    expect(archiveSubTabs().map((t) => t.key)).toEqual(["archive", "museum", "surveyLog"]);
+    expect(archiveSubTabs(false).map((t) => t.key)).toEqual(["archive", "museum"]);
     expect(archiveSubTabs(true).map((t) => t.key)).toEqual(["archive", "museum", "surveyLog"]);
   });
 });

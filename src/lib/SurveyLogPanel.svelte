@@ -8,7 +8,8 @@
   //
   // POSTURE: pure presentation over gasGiantStudyDisplay.ts (surveyLogGroups, surveyEntryView; tested). Every number
   // derives from the entry's stored class and mass. One DOM; a container query puts the list beside the card from
-  // 760 px of panel width.
+  // 760 px of panel width. Narrower (a phone), the selected card comes FIRST and picking an entry scrolls back up to
+  // it (the user's sign-off, 2026-10-27: "Card on top"), so a long log never leaves the card far below.
 
   import type { SurveyLogEntry } from "./game/model";
   import { NEBULA_STAGES, SURVEY_LOG_EMPTY, surveyEntryView, surveyLogGroups } from "./gasGiantStudyDisplay";
@@ -25,9 +26,22 @@
   }
   $: selected = entries.find((e) => e.id === selectedId) ?? null;
   $: card = selected ? surveyEntryView(selected, entries) : null;
+
+  let wrap: HTMLDivElement | null = null;
+  let cardEl: HTMLElement | null = null;
+  // The list sits beside the card from this panel width (the container query below); under it the card is on top.
+  const SIDE_BY_SIDE_PX = 760;
+
+  function pick(id: string): void {
+    selectedId = id;
+    if (!wrap || !cardEl || wrap.clientWidth >= SIDE_BY_SIDE_PX) return;
+    if (cardEl.getBoundingClientRect().top >= 0) return; // already in view
+    const reduce = typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
+    cardEl.scrollIntoView({ block: "start", behavior: reduce ? "auto" : "smooth" });
+  }
 </script>
 
-<div class="sl-wrap">
+<div class="sl-wrap" bind:this={wrap}>
   {#if entries.length === 0}
     <p class="sl-empty">{SURVEY_LOG_EMPTY}</p>
   {:else}
@@ -39,7 +53,7 @@
             <ul>
               {#each g.entries as e (e.id)}
                 <li>
-                  <button type="button" aria-pressed={e.id === selectedId} on:click={() => (selectedId = e.id)}>
+                  <button type="button" aria-pressed={e.id === selectedId} on:click={() => pick(e.id)}>
                     {e.label}{#if e.first}<span class="sl-first">first</span>{/if}
                   </button>
                 </li>
@@ -50,14 +64,14 @@
       </nav>
 
       {#if card}
-        <article class="sl-card" aria-live="polite">
+        <article class="sl-card" aria-live="polite" bind:this={cardEl}>
           <div class="sl-head">
             <div class="sl-art">
               <GiantArt giant={card.art} nebula={card.nebulaArt} label={card.subtitle} idBase="sl-{card.id}" />
             </div>
             <div class="sl-words">
               <h4 class="sl-title">{card.title}</h4>
-              <div class="sl-sub">{card.subtitle}{#if card.first} · <span class="sl-firstword">first of its class</span>{/if}</div>
+              <div class="sl-sub">{card.subtitle}{#if card.first}{" · "}<span class="sl-firstword">first of its class</span>{/if}</div>
               <dl class="sl-kv">
                 {#each card.kv as row (row.label)}
                   <dt>{row.label}</dt>
@@ -98,10 +112,18 @@
     grid-template-columns: minmax(0, 1fr);
     gap: 12px;
   }
+  /* One column (a phone): the selected card first, the list under it. */
+  .sl-card {
+    order: -1;
+    scroll-margin-top: 8px;
+  }
   @container (min-width: 760px) {
     .sl {
       grid-template-columns: 260px minmax(0, 1fr);
       align-items: start;
+    }
+    .sl-card {
+      order: 0;
     }
   }
   .sl-list {
