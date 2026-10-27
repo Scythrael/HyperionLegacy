@@ -119,8 +119,8 @@ describe("the registry move (emodEm5Registry.fixture.ts reads it back for the ea
   it("adds the two module wear rows (pending on gear wear) and re-owns every hull's moduleSlots to EM-7 (live since EM-7)", () => {
     const added = WIRING_REGISTRY.filter((e) => EM5_ADDED_ENTRY_IDS.has(e.id));
     expect(added.map((e) => e.id).sort()).toEqual([...EM5_ADDED_ENTRY_IDS].sort());
-    // Gear wear step 3 wired the use source live (a module wears by time underway); its efficiency (combat) is step 4's.
-    expect(added.map((e) => `${e.id}|${e.status.kind}`).sort()).toEqual(["wear:WEAR_EFFICIENCY:module:effect|pending", "wear:WEAR_SOURCES:module:minutesUnderway|live"]);
+    // Gear wear step 3 wired the use source live (a module wears by time underway); step 4 its efficiency in combat.
+    expect(added.map((e) => `${e.id}|${e.status.kind}`).sort()).toEqual(["wear:WEAR_EFFICIENCY:module:effect|live", "wear:WEAR_SOURCES:module:minutesUnderway|live"]);
     const slots = WIRING_REGISTRY.filter((e) => EM5_MODULE_SLOTS_IDS.has(e.id));
     expect(slots).toHaveLength(HULLS.length);
     // EM-7 took them live (the slot is shown; the install gate's count is measured): emodEm7Registry.fixture.ts reads

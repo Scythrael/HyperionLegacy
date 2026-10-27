@@ -52,6 +52,8 @@ import {
 // the two combatants cannot drift. equipment.ts imports only model, so this is a clean down-import
 // (no cycle: it never reaches back into this combat leaf).
 import { equippedFor } from "../equipment";
+// Gear wear step 4: the cycle's frozen gear (its cycleStartCondition), the SAME view the live loop fights.
+import { patrolCycleGear } from "../gearWear";
 import {
   combatHullTypeOf,
   installedDronesForPatrol,
@@ -475,7 +477,10 @@ export function replayPatrol(state: GameState, captain: CaptainState): PatrolRep
   // this GameState). Resolved ONCE and used for BOTH the player combatant's weapons/shield/hull/defenses
   // (Unit 1.4) AND the initial drone carry-state (Unit 2.3b) below, so the replay's two drone-seeding
   // and combatant-building reads can never drift from each other or from the live fight.
-  const installedGear = equippedFor(state, ship.id);
+  // GEAR WEAR step 4 (user W3 "True condition"): through the cycle's frozen view (its cycleStartCondition), so the
+  // replay opens the same pools and reads the same efficiency the live cycle did; a cycle without the stamp reads the
+  // stored gear exactly as before.
+  const installedGear = patrolCycleGear(equippedFor(state, ship.id), mission);
 
   // The FULL initial carry-state (mirrors freshPatrolMission exactly): full hull, full shield, and the
   // drones the ship's INSTALLED droneBay pods field, keyed to the master seed (Unit 2.3b). Built from

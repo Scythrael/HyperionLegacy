@@ -21,6 +21,10 @@ import { crewRepairSpeedBonus, effectiveShipStats, shipCrewContribution, shipDec
 import { CREW_STAT_KEYS, TRANSIT_SPEED_KEY } from "./crewBuffs";
 import { CREW_RACES } from "./crewRaces";
 import { combatBase, editCaptain, seatOfficer, withAwayTeam, wiringBase } from "./wiring/probes";
+// Gear wear step 4 (0.14.0): these racial checks predate battle wear (a long Repeat patrol now wears its ship down over
+// its cycles), so the file runs with the battle sources off (battleWearSwitch.fixture.ts).
+import { battleWearOffInThisFile } from "./battleWearSwitch.fixture";
+battleWearOffInThisFile();
 
 const bucket = (profession: CrewBucket["profession"], race: CrewBucket["race"], buff1Id: string, count: number): CrewBucket => ({
   profession,

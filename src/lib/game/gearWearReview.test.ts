@@ -16,6 +16,7 @@ import { asPreRanksDispatch, asPreSafeFirstRunsDispatch, dispatchPastPropulsion,
 import { WIRING_SHIP_ID, installPiece, shipOf, wiringBase, withAwayTeam } from "./wiring/probes";
 import { withFixtureCondition } from "./wiring/wearProbes";
 import { withGearWearOff } from "./gearWearSwitch.fixture";
+import { withBattleWearOff } from "./battleWearSwitch.fixture";
 
 const RNG = () => 0.5;
 
@@ -141,11 +142,14 @@ const RUNS: [string, () => GameState][] = [
       ] as [string, () => GameState],
   ),
   [
+    // Gear wear step 4: a patrol's battle wear (its own carried wear changes its later cycles) is proven by
+    // gearWearCombatGoldens.test.ts; here the battle sources stay off so the run shows step 3's use wear fields alone.
     "a patrol",
-    () => {
-      const r = dispatchCaptainOnPatrol(installMissingCombatBaselines(wiringBase("destroyer")), 1, "crimsonReaverSweep", "balanced", true);
-      return stepped(r.next, 900);
-    },
+    () =>
+      withBattleWearOff(() => {
+        const r = dispatchCaptainOnPatrol(installMissingCombatBaselines(wiringBase("destroyer")), 1, "crimsonReaverSweep", "balanced", true);
+        return stepped(r.next, 900);
+      }),
   ],
   [
     "an ordinary expedition with a field repair, home and claimed",

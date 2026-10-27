@@ -67,6 +67,9 @@ import { CREW_STAT_KEYS } from "./crewBuffs";
 import { departmentFacet } from "./officerStats";
 import { diminishing } from "./diminishing";
 import { resistedHazard } from "./relics";
+// GEAR WEAR step 4: a flagged run's ship fights its frozen gear and records the battle wear each event took.
+import { combatGearView, wornConditions } from "./gearWear";
+import { addBattleWear, combatantPools, hullWearOnPlating, poolBattleWear, waveBattleWear, type BattleWearMap } from "./gearWearCombat";
 // Safe first runs SF-2: the training run stamp's one read (pass-only events).
 import { isTrainingRun } from "./enemyRanks";
 // Safe first runs SF-3: an ordinary run on the curve (the check and wear scale, the enemy's strength and hazard ceiling).
@@ -199,15 +202,19 @@ export function snapshotShipEventProfile(state: GameState, ship: ShipInstance): 
 // The ship as a combatant `hoursOut` hours into the run (the officers' Constitution ramp folded at that hour),
 // carrying `hullDamage` (its hull starts that much below its pool, never below 1). A hull the table no longer
 // knows (a removed test hull) fights from its frozen pool, unarmed. Pure: a fresh combatant.
+// GEAR WEAR step 4 (user W3 "True condition"): a flagged run's ship (ShipEventBattle.gearWear) fights its dispatch
+// snapshot's pieces at the conditions they carry (gearWear.ts combatGearView); any other run's stored copies read
+// pristine, exactly as before.
 export function buildShipCombatant(id: string, battle: ShipEventBattle, hoursOut: number, hullDamage: number): Combatant {
   const stats: CombatShipStats = SHIP_TYPES[battle.hullType] ?? { hullIntegrity: Math.max(1, battle.hullMax), shieldCapacity: 0, shieldRecharge: 0 };
   const hullType = combatHullTypeOf(battle.hullType) ?? undefined;
+  const gear = battle.gearWear === 1 && battle.installedGear ? combatGearView(battle.installedGear, wornConditions(battle.installedGear)) : battle.installedGear;
   const c = shipToCombatant({
     id,
     team: "player",
     stats,
     hullType: SHIP_TYPES[battle.hullType] ? hullType : undefined,
-    installedGear: battle.installedGear,
+    installedGear: gear,
     officerCombat: officerCombatModsFromProfile(battle.officerCombat, hoursOut),
     captainCombat: battle.captainCombat,
     moduleContext: "shipEvent", // E-MOD EM-5: only modules listing ship events act here
@@ -307,6 +314,12 @@ export function resolveShipScanEventFromDraws(
     ramp >= 1 ? Math.max(1, Math.round(share * battle.hullMax)) : ramp > 0 ? Math.max(1, Math.round(share * battle.hullMax * ramp)) : 0;
   const ship = buildShipCombatant(exp.shipId || "ship", battle, hoursOut, exp.groundOps?.hullDamage ?? 0);
   let finding: ExpeditionFinding | null = null;
+  // GEAR WEAR step 4: the battle wear this event leaves on a flagged run's pieces (ExpeditionScanEvent.gearWear).
+  const wearing = battle.gearWear === 1;
+  const gearWear: BattleWearMap = {};
+  const plating = (w: number) => {
+    if (wearing) addBattleWear(gearWear, hullWearOnPlating(battle.installedGear ?? [], w, battle.hullMax));
+  };
   switch (kind) {
     case "debris": {
       const passed = draws.check < pass(shipEventCheckChance(DEBRIS_PASS_BASE, (ship.evasion / 100) * DEBRIS_EVASION_SCALE));
@@ -314,7 +327,10 @@ export function resolveShipScanEventFromDraws(
       if (!passed) {
         event.pauseSeconds = DEBRIS_DELAY_SECONDS;
         const w = wear(DEBRIS_HULL_SHARE);
-        if (w > 0) event.hullWear = w;
+        if (w > 0) {
+          event.hullWear = w;
+          plating(w);
+        }
       }
       break;
     }
@@ -336,7 +352,14 @@ export function resolveShipScanEventFromDraws(
       const cloaked = kind === "cloaked";
       // The cloaked vessel: the sensor check decides who strikes first (pass: the ship ambushes it).
       const ambushFirst = cloaked ? (draws.check < pass(ghostCheckChance(profile)) ? "ship" : "enemy") : null;
-      const won = shipEventBattleWon(exp, body, bodyIndex, step, ship, cloaked ? CLOAKED_VESSEL_HULL : HOSTILE_PROBE_HULL, ambushFirst);
+      const fought = shipEventBattle(exp, body, bodyIndex, step, ship, cloaked ? CLOAKED_VESSEL_HULL : HOSTILE_PROBE_HULL, ambushFirst, wearing);
+      const won = fought.won;
+      if (wearing && fought.end) {
+        // The pools the ship opened at minus where they ended (weapons, reactor, drive), its shields and its drones.
+        const gear = battle.installedGear ?? [];
+        addBattleWear(gearWear, poolBattleWear(gear, combatantPools(ship), combatantPools(ship, true), combatantPools(fought.end)));
+        addBattleWear(gearWear, waveBattleWear(gear, ship, fought.end, fought.shieldAbsorbed, false));
+      }
       event.outcome = won ? "win" : "loss";
       if (won) {
         finding = shipEventSalvage(exp, body, bodyIndex, step, cloaked);
@@ -344,7 +367,10 @@ export function resolveShipScanEventFromDraws(
       } else {
         event.pauseSeconds = cloaked ? CLOAKED_REPAIR_SECONDS : PROBE_REPAIR_SECONDS;
         const w = wear(cloaked ? CLOAKED_HULL_SHARE : PROBE_HULL_SHARE);
-        if (w > 0) event.hullWear = w;
+        if (w > 0) {
+          event.hullWear = w;
+          plating(w);
+        }
       }
       // GO-9: the vessel may attempt to board (draws 4 and 5, see BOARDING_ATTEMPT_CHANCE).
       if (draws.boardingAttempt < chanceUnits(BOARDING_ATTEMPT_CHANCE)) {
@@ -360,6 +386,7 @@ export function resolveShipScanEventFromDraws(
       break;
     }
   }
+  if (Object.keys(gearWear).length > 0) event.gearWear = gearWear;
   return { event, finding };
 }
 
@@ -449,9 +476,11 @@ export function shipEventEnemy(exp: Expedition, body: ExpeditionBody, bodyIndex:
   return c;
 }
 
-// Does the ship win the event's battle against `hull`? `ambushFirst` names who strikes first (a cloaked vessel;
-// null = an ordinary open). A draw is a loss. Pure (resolveBattle never mutates its input).
-function shipEventBattleWon(
+// The event's battle against `hull`: does the ship win (a draw is a loss), and (GEAR WEAR step 4, `tally`: a flagged
+// run) the ship as it ended and the shield points it absorbed, for its battle wear. `ambushFirst` names who strikes
+// first (a cloaked vessel; null = an ordinary open). Pure (resolveBattle never mutates its input; the tally is a pure
+// read, no draw).
+function shipEventBattle(
   exp: Expedition,
   body: ExpeditionBody,
   bodyIndex: number,
@@ -459,7 +488,8 @@ function shipEventBattleWon(
   ship: Combatant,
   hull: ShipEventEnemyHull,
   ambushFirst: "ship" | "enemy" | null,
-): boolean {
+  tally: boolean,
+): { won: boolean; end?: Combatant; shieldAbsorbed: number } {
   const enemy = shipEventEnemy(exp, body, bodyIndex, step, hull);
   const ambush = ambushFirst === "ship" ? ship.id : ambushFirst === "enemy" ? enemy.id : undefined;
   // WR-8: the run's combat rules (absent on a run dispatched before WR-8).
@@ -468,8 +498,11 @@ function shipEventBattleWon(
     precharge: true,
     ...(ambush ? { ambush } : {}),
     ...(rules ? { combatRules: rules.rules } : {}),
+    ...(tally ? { shieldTallyFor: ship.id } : {}),
   });
-  return result.outcome.winner === "player";
+  const won = result.outcome.winner === "player";
+  if (!tally) return { won, shieldAbsorbed: 0 };
+  return { won, end: result.finalCombatants.find((c) => c.id === ship.id), shieldAbsorbed: result.shieldAbsorbed ?? 0 };
 }
 
 // The salvage of a won ship battle (source "encounter", never a relic). Pure.

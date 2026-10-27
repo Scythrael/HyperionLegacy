@@ -49,8 +49,10 @@ import { qualityDurabilityMax, type DurableSystem } from "./durability";
 // WR-5b (0.14.0): the commanding captain's Tactician fold (absent mods = a no-op).
 import { applyCaptainCombat, applyCaptainDrones } from "./captainEdge";
 import { REPLENISH_PPM } from "./droneDefense";
-// Gear wear (0.14.0): a weapon opens its pool at the piece's TRUE condition (user W3), read through one pure helper.
-import { pieceStartDurability } from "../gearWear";
+// Gear wear (0.14.0): a battle reads its gear through a frozen combat view (gearWear.ts combatGearView, step 4): a
+// weapon, the reactor and the drive open their pools at their TRUE condition (user W3), the defenses, the pods and the
+// modules read their efficiency. A stored piece (no view) reads pristine, so a battle built from it is the pre-step-4 one.
+import { CONDITION_FULL, combatPieceCondition, combatPieceEfficiency, combatWeaponStartDurability, poolAtCondition } from "../gearWear";
 // WR-8 (0.14.0): the combat descriptors (combatRules.ts): the default combat speed, the weapon rule traits, the resist
 // and pod line curves.
 import {
@@ -219,11 +221,12 @@ export function weaponInstanceFromGear(
 		effectSlots: [...template.effectSlots],
 		cooldownAccumulator: 0,
 		// Durability from the piece (its ceiling was quality-scaled at mint). A fresh combat
-		// weapon opens at the piece's CONDITION (gear wear, user W3 "True condition": durabilityMax
-		// x condition / 1000, exactly durabilityMax while pristine, which is what the retired
-		// `durability` field always held); cross-wave wear is layered on later by the patrol
-		// carry-state (applyCarriedSystemDurability), never here.
-		durability: pieceStartDurability(piece),
+		// weapon opens at the piece's CONDITION as the battle's frozen view holds it (gear wear step 4,
+		// user W3 "True condition": durabilityMax x condition / 1000, exactly durabilityMax while pristine,
+		// which is what the retired `durability` field always held; a stored piece keeps step 2's read of its
+		// own condition, gearWear.ts combatWeaponStartDurability); cross-wave wear is layered on later by the
+		// patrol carry-state (applyCarriedSystemDurability), never here.
+		durability: combatWeaponStartDurability(piece),
 		durabilityMax: piece.durabilityMax,
 		quality: piece.quality,
 	};
@@ -290,6 +293,9 @@ export function squadronFromPod(pod: EquipmentInstance, idPrefix?: string): Dron
 		throw new Error(`squadronFromPod: drone pod "${pod.id}" has no droneRole`);
 	}
 	const squadron = makeSquadron(pod.droneRole, undefined, tierFromPod(pod), idPrefix);
+	// Gear wear step 4 (design 4.2 "drone pods: drone hp and yield"): a worn pod in a battle's frozen view fields its
+	// squadron at its efficiency (exactly 1, nothing touched, for a pristine or stored pod).
+	const efficiency = combatPieceEfficiency(pod);
 	// The pod's rolled POWER lines (implicit signature + any rarity affix). Absent keys read 0, so a
 	// Standard-Issue pod (implicit droneHp 0, rolledStats {}) contributes 0 to both -> the fold is a
 	// no-op and the squadron stays byte-identical to the makeSquadron base.
@@ -310,7 +316,22 @@ export function squadronFromPod(pod: EquipmentInstance, idPrefix?: string): Dron
 	// podLineShare as a whole percent). Absent without the line, so every other pod is unchanged.
 	const smartPoints = statOf(pod, POD_LINE_SMART_REFLECT);
 	if (smartPoints > 0) squadron.smartReflectChance = Math.round(100 * podLineShare(smartPoints));
+	if (efficiency < 1) wearSquadron(squadron, efficiency);
 	return squadron;
+}
+
+// Gear wear step 4: a worn pod's squadron at `efficiency` (the gentle curve, never below 75%), IN PLACE on the fresh
+// squadron: each drone's hp pool (full at spawn, at least 1) and the volley yield, rounded to whole points (the
+// integer-at-the-fold rule), the yield band kept ordered.
+function wearSquadron(squadron: DroneSquadron, efficiency: number): void {
+	squadron.droneHp = Math.max(1, Math.round(squadron.droneHp * efficiency));
+	for (const drone of squadron.drones) {
+		drone.hpMax = Math.max(1, Math.round(drone.hpMax * efficiency));
+		drone.hp = drone.hpMax;
+	}
+	const yieldMin = Math.max(0, Math.round(squadron.yieldMin * efficiency));
+	squadron.yieldMin = yieldMin;
+	squadron.yieldMax = Math.max(yieldMin, Math.round(squadron.yieldMax * efficiency));
 }
 
 // Base durability (design S9) for a bridged ship's REACTOR and FTL/drive, at
@@ -328,10 +349,11 @@ export const BASE_FTL_DURABILITY = 100;
 // WR-8 (0.14.0, "reactor / FTL systems from installed gear"): a run under the combat rules passes the installed Reactor
 // Core's and FTL drive's quality, frozen in its stamp (crewOverlay.ts shipCombatRulesStamp, ShipToCombatantArgs
 // systemQuality), so a crafted piece fields a bigger pool with a lower wear chance; a Standard-Issue piece is quality
-// 0, the same pool as before. The pool opens FULL here: gear wear step 4 opens it at the piece's true condition.
-function freshSystem(baseDurability: number, quality = 0): DurableSystem {
+// 0, the same pool as before. Gear wear step 4 (user W3 "True condition"): the pool opens at the installed piece's
+// condition (`condition`, per-mille, from the battle's frozen view; FULL when pristine or absent).
+function freshSystem(baseDurability: number, quality = 0, condition: number = CONDITION_FULL): DurableSystem {
 	const durabilityMax = qualityDurabilityMax(baseDurability, quality);
-	return { durability: durabilityMax, durabilityMax, quality: Math.max(0, Math.floor(quality)) };
+	return { durability: poolAtCondition(durabilityMax, condition), durabilityMax, quality: Math.max(0, Math.floor(quality)) };
 }
 
 // ---------------------------------------------------------------------------
@@ -648,12 +670,27 @@ export function applyDeckHandling(squadrons: DroneSquadron[], deckHandling: numb
 // the real ceiling.
 // WR-8 (0.14.0): `combatRules` is the cycle's stamp (PatrolMissionState.combatRules), so the reactor and drive ceilings
 // are the ones the wave combatant fights with (its frozen installed-system qualities). Absent: quality 0, as before.
+// Gear wear step 4 (user W3 "True condition"): the seed is each system's STARTING durability, which is its ceiling for a
+// pristine piece and for any stored piece (no combat view), so every such seed is the full one exactly as before; a
+// cycle built from its frozen view (gearWear.ts combatGearView) opens each worn system at its true condition.
 export function defaultSystemDurabilityForHull(
   hullType: CombatHullType,
   stats: CombatShipStats,
   installedGear?: EquipmentInstance[],
   combatRules?: CombatRulesStamp,
 ): PatrolSystemDurability {
+  return systemPoolsForHull(hullType, stats, installedGear, combatRules).start;
+}
+
+// Gear wear step 4: a cycle's system pools, each at its start (the seed above) and its ceiling, from ONE fresh
+// combatant, so the cycle's pool wear (the start minus what the cycle ends at, over the ceiling) reads exactly the
+// pools the cycle fought with. PURE.
+export function systemPoolsForHull(
+  hullType: CombatHullType,
+  stats: CombatShipStats,
+  installedGear?: EquipmentInstance[],
+  combatRules?: CombatRulesStamp,
+): { start: PatrolSystemDurability; max: PatrolSystemDurability } {
   // Build the hull's fresh combatant once and read its full ceilings. id/team are irrelevant here
   // (nothing is fought), so any stable literal is fine.
   // ⚠️ THREAD installedGear (audit fix): the seed's per-weapon durabilityMax (and count/order) MUST
@@ -665,12 +702,21 @@ export function defaultSystemDurabilityForHull(
   // threaded, seed == real ceiling and the wave-1 apply is a no-op (full). undefined gear falls to
   // the hull-default path (byte-identical for a Standard-Issue set), so enemies/tests are unchanged.
   const fresh = shipToCombatant({ id: "durability-seed", team: "player", stats, hullType, installedGear, ...(combatRules ? stampCombatArgs(combatRules) : {}) });
+  // A weapon's start is its frozen view condition (a stored piece, or no gear: its ceiling, the pre-step-4 seed).
+  const weaponPieces = installedGear?.filter((piece) => piece.slotType === "weapon") ?? [];
   return {
-    weapons: fresh.weapons.map((weapon) => weapon.durabilityMax),
-    // A real combat hull always carries both (shipToCombatant builds them); the `?? 0` guards
-    // the impossible-in-practice absent case so the shape is always complete + JSON-safe.
-    reactor: fresh.reactor ? fresh.reactor.durabilityMax : 0,
-    ftl: fresh.ftl ? fresh.ftl.durabilityMax : 0,
+    start: {
+      weapons: fresh.weapons.map((weapon, i) => (weaponPieces[i] ? poolAtCondition(weapon.durabilityMax, combatPieceCondition(weaponPieces[i])) : weapon.durabilityMax)),
+      // A real combat hull always carries both (shipToCombatant builds them); the `?? 0` guards
+      // the impossible-in-practice absent case so the shape is always complete + JSON-safe.
+      reactor: fresh.reactor ? fresh.reactor.durability : 0,
+      ftl: fresh.ftl ? fresh.ftl.durability : 0,
+    },
+    max: {
+      weapons: fresh.weapons.map((weapon) => weapon.durabilityMax),
+      reactor: fresh.reactor ? fresh.reactor.durabilityMax : 0,
+      ftl: fresh.ftl ? fresh.ftl.durabilityMax : 0,
+    },
   };
 }
 
@@ -807,9 +853,15 @@ export function applyOfficerCombat(c: Combatant, mods: OfficerCombatMods | undef
 // enemy, `gear` absent) leaves the combatant byte-identical: nothing is written. EM-6 adds the Procs and Actives
 // (Combatant.moduleProcs, fired by resolveBattle).
 // Only the modules that list `context` act (a patrol-only module never acts in a ship event).
+// Gear wear step 4 (WEAR_EFFICIENCY module:effect, a combat consumer): a worn module in the battle's frozen view acts at
+// its efficiency (its scale x the gentle curve; exactly its scale for a pristine or stored piece).
 export function applyModuleCombat(c: Combatant, gear: readonly EquipmentInstance[] | undefined, context: ModuleCombatContext): void {
 	if (gear === undefined || !gear.some((p) => p.slotType === "module")) return;
-	const scaleOf = (p: EquipmentInstance) => moduleEffectScale(p.rarity, p.quality, p.ascension);
+	const scaleOf = (p: EquipmentInstance) => {
+		const scale = moduleEffectScale(p.rarity, p.quality, p.ascension);
+		const efficiency = combatPieceEfficiency(p);
+		return efficiency < 1 ? scale * efficiency : scale;
+	};
 	const hull = modulePassiveTotal(gear, "hullIntegrity", scaleOf, context);
 	if (hull > 0) {
 		c.hullMax = Math.max(1, Math.round(c.hullMax * (1 + hull)));
@@ -823,6 +875,13 @@ export function applyModuleCombat(c: Combatant, gear: readonly EquipmentInstance
 	// snapshot's pieces (shipScanEvents.ts snapshotShipEventProfile).
 	const procs = moduleCombatProcs(gear, scaleOf, context);
 	if (procs.length > 0) c.moduleProcs = procs;
+}
+
+// Gear wear step 4: the condition of the installed `slotType` piece (the Reactor Core, the FTL drive) as the battle's
+// frozen view holds it; FULL without gear, without the piece, or for a stored piece. Pure.
+function systemPieceCondition(gear: readonly EquipmentInstance[] | undefined, slotType: string): number {
+	const piece = gear?.find((p) => p.slotType === slotType);
+	return piece ? combatPieceCondition(piece) : CONDITION_FULL;
 }
 
 // ---------------------------------------------------------------------------
@@ -937,21 +996,26 @@ export function shipToCombatant(args: ShipToCombatantArgs): Combatant {
 	// (byte-identical, integer-exact). Both terms are integer at mint today (authored integrity minus the
 	// integer SI_PLATING_HP, plus the round()'d plating hullStrength), so Math.round here is a defensive no-op
 	// that keeps the "integer pool" guarantee LOCAL and self-evident instead of relying on a cross-module proof.
+	// Gear wear step 4 (design 4.2 "plating: hull points"): a worn plating's own hull points at its efficiency (the
+	// bare frame is the hull's, never worn); exactly the pristine sum for a pristine or stored piece.
 	const hullMax = gear
-		? Math.round(comp.innateHullArmor + (platingPiece ? statOf(platingPiece, "hullStrength") : 0))
+		? Math.round(comp.innateHullArmor + (platingPiece ? statOf(platingPiece, "hullStrength") * combatPieceEfficiency(platingPiece) : 0))
 		: stats.hullIntegrity;
 	// Shield pool + recharge: the installed emitter's raw cap/recharge * the hull's shield effectiveness, ROUNDED
 	// to an integer (see the INTEGER-AT-THE-FOLD note above). With NO emitter there is nothing to scale ->
 	// shield 0 (an emitter is the shield SOURCE). ABSENT: the hull-class shield stats. An SI set folds
 	// SI_EMITTER_CAP * (shieldCapacity / REF_SHIELD_CAPACITY) == shieldCapacity (byte-identical; recharge likewise).
+	// Gear wear step 4 (design 4.2 "shields: capacity and recharge"): a worn emitter in the battle's frozen view scales
+	// both by its efficiency (exactly 1 for a pristine or stored piece: x 1 is exact, so the pools are unchanged).
+	const shieldEfficiency = shieldPiece ? combatPieceEfficiency(shieldPiece) : 1;
 	const shieldMax = gear
 		? shieldPiece
-			? Math.round(statOf(shieldPiece, "shieldCapacity") * comp.shieldCapEffectiveness)
+			? Math.round(statOf(shieldPiece, "shieldCapacity") * shieldEfficiency * comp.shieldCapEffectiveness)
 			: 0
 		: stats.shieldCapacity;
 	const shieldRecharge = gear
 		? shieldPiece
-			? Math.round(statOf(shieldPiece, "shieldRecharge") * comp.shieldRechargeEffectiveness)
+			? Math.round(statOf(shieldPiece, "shieldRecharge") * shieldEfficiency * comp.shieldRechargeEffectiveness)
 			: 0
 		: stats.shieldRecharge;
 	// Mitigation affixes: gear affixes on the PLAYER path, hardcoded 0 on the ABSENT path
@@ -1028,8 +1092,9 @@ export function shipToCombatant(args: ShipToCombatantArgs): Combatant {
 		// this bridge, so both sides wear symmetrically. The sim reads their condition
 		// for the power-starvation damage multiplier + the drive evasion/speed penalties.
 		// WR-8: a run under the combat rules builds them at its frozen installed-system qualities (systemQuality).
-		reactor: freshSystem(BASE_REACTOR_DURABILITY, args.systemQuality?.reactor ?? 0),
-		ftl: freshSystem(BASE_FTL_DURABILITY, args.systemQuality?.ftl ?? 0),
+		// Gear wear step 4 (user W3): each opens at the installed piece's condition in the battle's frozen view.
+		reactor: freshSystem(BASE_REACTOR_DURABILITY, args.systemQuality?.reactor ?? 0, systemPieceCondition(gear, "reactorCore")),
+		ftl: freshSystem(BASE_FTL_DURABILITY, args.systemQuality?.ftl ?? 0, systemPieceCondition(gear, "ftlDrive")),
 
 		// A fresh combatant is alive; the sim flips this the tick hull hits <= 0.
 		alive: true,

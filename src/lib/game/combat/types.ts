@@ -451,6 +451,10 @@ export interface Combatant {
 	// EM-3: the weapon damage the power supply has banked (ten-thousandths of a point), so the percent is exact over a fight
 	// instead of a floor taking a point off each small hit. Set with `powerSupplyPercent`, absent otherwise.
 	powerSupplyCarry?: number;
+	// Gear wear step 4: the shield points this combatant's pool absorbed in the battle (a pure read of the fight for the
+	// shield emitters' battle wear). Set only on resolveBattle's private clone of the combatant named by
+	// ResolveOptions.shieldTallyFor and removed before the battle returns, so no combatant a caller holds ever carries it.
+	shieldTally?: number;
 }
 
 export interface EvasiveClose {

@@ -102,7 +102,8 @@ describe("gear wear step 3: the use wear sources (each kind its own way, at its 
     expect(train.expedition?.gearWear).toBeUndefined();
     const ordinary = afterExpeditionTraining(ready);
     const res = startExpedition(ordinary, WIRING_SHIP_ID, 1, expeditionCandidates(ordinary, WIRING_SHIP_ID)[0].id, true, undefined, false);
-    expect(res.expedition?.gearWear).toEqual({ version: 1, dispatchedAt: ordinary.gameTimeSeconds });
+    // Gear wear step 4: while battle wear is live the stamp also carries `battle` (its ship battles and armor wear).
+    expect(res.expedition?.gearWear).toEqual({ version: 1, dispatchedAt: ordinary.gameTimeSeconds, battle: 1 });
     const done = advanceExpedition(res.expedition!, res.expedition!.phaseAnchorSeconds + 1e9);
     const home: GameState = { ...res.next, gameTimeSeconds: done.phaseAnchorSeconds, expeditions: [done] };
     const events = emptyWearEvents();

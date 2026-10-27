@@ -1157,6 +1157,8 @@
   import QualityCarryPanel from "./lib/QualityCarryPanel.svelte";
   import { orderStockContext, qualityChips } from "./lib/ui/materialLinesDisplay";
   import { refineJobDurationTicks } from "./lib/game/tick";
+  // GEAR WEAR step 4: the cycle a patrol dispatched now would start (its frozen gear), for the dispatch forecast.
+  import { patrolDispatchCycle } from "./lib/game/tick";
   import { gasStudySourcePending } from "./lib/game/gasGiantContent";
   // Gas Giant Study GG-6: the Research Lab's Data study tab, the Archive's Survey Log, the canister shelf and the claim's
   // study line (display decisions in dataStudyDisplay.ts and gasGiantStudyDisplay.ts, tested).
@@ -4709,6 +4711,9 @@
     // MISS: run the display-only seeded forecast. The ship's static combat stats are shared
     // by both readouts below.
     const shipDef = SHIP_TYPES[ship.typeKey];
+    // GEAR WEAR step 4 (user W3 "True condition"): the gear the cycle a dispatch would start fights with (frozen at the
+    // pieces' conditions now; the stored gear when unstamped), so the forecast and the rating read the real fight.
+    const cycleGear = patrolDispatchCycle(state, installedGear, difficulty).gear;
 
     // BATTLE RATING: the opponent-agnostic "how geared" scalar. Built via shipToCombatant
     // at FULL health (a loadout score, not a live-health score), which is exactly what the
@@ -4724,7 +4729,7 @@
       stats: shipDef,
       hullType,
       stance,
-      installedGear,
+      installedGear: cycleGear,
     });
     const rating = battleRating(player);
 
@@ -4741,18 +4746,18 @@
     // fights, so the enemy id -> turn-order is representative), and the drone prefix is a
     // forecast-scoped constant. Each sample's masterSeed is FORECAST_SEED + i, a deterministic
     // sweep off the fixed forecast seed, so the band is stable and never draws from live state.
-    const startDrones = installedDronesForPatrol(installedGear, `forecast-${patrolKey}-p`);
+    const startDrones = installedDronesForPatrol(cycleGear, `forecast-${patrolKey}-p`);
     // Combat-defense BLOCKER fix (2026-08-27): THREAD installedGear into the durability seed. The live
     // seed (tick.ts freshPatrolMission) and the replay (patrolReplay.ts) both pass gear here; omitting
     // it clamped a crafted quality-4/5 weapon (durabilityMax up to 200) to the hull-default 100 on the
     // forecast's wave 1, opening it Degraded (<=60%) so the forecast fired at reduced damage while the
     // real patrol fired at full, biasing the band pessimistic. For a Standard-Issue set this is byte-
     // identical to the absent path (bridge.ts documents that equality on the live seed).
-    const startSystemDurability = defaultSystemDurabilityForHull(hullType, shipDef, installedGear, combatRules);
+    const startSystemDurability = defaultSystemDurabilityForHull(hullType, shipDef, cycleGear, combatRules);
     // The FOLDED full hull/shield start pools (the SAME installed-gear fold the sim fights with, and the
     // SAME seed freshPatrolMission uses live), NOT the raw authored SHIP_TYPES stats. Byte-identical for
     // a Standard-Issue set; a crafted-plated/emitter ship now forecasts from its real folded pools.
-    const startDefense = foldedPlayerDefense(shipDef, installedGear);
+    const startDefense = foldedPlayerDefense(shipDef, cycleGear);
     let wins = 0;
     for (let i = 0; i < DEFAULT_SAMPLES; i++) {
       const result = resolvePatrolWaves({
@@ -4760,7 +4765,7 @@
         stats: shipDef,
         hullType,
         stance,
-        installedGear,
+        installedGear: cycleGear,
         masterSeed: FORECAST_SEED + i,
         factionId: def.factionId,
         def,

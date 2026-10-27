@@ -88,6 +88,8 @@ import { withFieldKitsGuard, withFieldKitsTeam } from "./fieldKitsConditions";
 import { withThrownGrenades } from "./fieldKitsGrenades";
 // Field Kits FKR-6: kits in battle, the Field Kits default program (a Field Kits run only).
 import { FIELD_KITS_BATTLE, withFieldKitPacks, withFieldKitsDefaultProgram, type MemberKitCounts } from "./fieldKitsBattle";
+// GEAR WEAR step 4: the member armor battle source (a pure leaf over model types).
+import { battleWearRaw } from "./gearWear";
 
 // ===== Constants =====
 
@@ -330,7 +332,9 @@ export function resolveTaskFight(
   cover?: GroundCover,
   kind: RankedFightKind = "point",
 ): GroundFightRecord {
-  return resolveTaskFightOnSeed(exp, teams, body, task, taskFightSeed(exp, flatIndex, task.fightCount ?? 0), carried, logSink, alertLevel, cover, kind);
+  // GEAR WEAR step 4: a battle-stamped run records each member's armor wear on the fight (GroundFightRecord.armorWear).
+  const armorWear = exp.gearWear?.battle === 1;
+  return resolveTaskFightOnSeed(exp, teams, body, task, taskFightSeed(exp, flatIndex, task.fightCount ?? 0), carried, logSink, alertLevel, cover, kind, armorWear);
 }
 
 // The task fields a fight reads: its stream keys and site, plus (Field Kits FKR-1, ranked runs only) its stamped grade
@@ -401,6 +405,8 @@ export function resolveTaskFightOnSeed(
   alertLevel = 0,
   cover?: GroundCover,
   kind: RankedFightKind = "point",
+  // GEAR WEAR step 4: record each member's armor wear (a battle-stamped run's real fight; never a threat sample).
+  armorWear = false,
 ): GroundFightRecord {
   const fightNumber = task.fightCount ?? 0;
   const pointIndex = task.pointsCleared ?? 0;
@@ -410,6 +416,8 @@ export function resolveTaskFightOnSeed(
   }
   const enemies = taskFightGuard(exp, body, task, seed, alertLevel, kind);
   withCover(team, enemies, cover, exp.roster?.security);
+  // GEAR WEAR step 4 (design 3.2 "member armor: hits on the wearer"): each member's hp as the fight opens.
+  const startHp = armorWear ? new Map(team.map((c) => [c.memberId, c.hp] as const)) : null;
   // Field Kits FKR-6: a Field Kits run's battle spends each member's own kits (the team kit is never read there).
   const result = resolveGroundBattle(team, enemies, exp.teamKit, makeRng(seed), logSink, seed, fieldKitsLive(exp) ? FIELD_KITS_BATTLE : undefined);
 
@@ -442,5 +450,17 @@ export function resolveTaskFightOnSeed(
   if (result.treated) record.treated = { ...result.treated };
   const ranks = rankedEnemies(enemies);
   if (ranks) record.ranks = ranks;
+  // GEAR WEAR step 4: the raw armor wear (gearWear.ts battleWearRaw memberArmor:hpLost) of each member who lost hp:
+  // the hp they lost (all of it when downed) over their hp max. Written only when some member lost hp.
+  if (startHp) {
+    const armor: Record<string, number> = {};
+    for (const c of team) {
+      if (c.memberId === undefined) continue;
+      const lost = (startHp.get(c.memberId) ?? c.hpMax) - (c.downed ? 0 : Math.max(0, c.hp));
+      const raw = battleWearRaw("memberArmor:hpLost", lost, c.hpMax);
+      if (raw > 0) armor[c.memberId] = raw;
+    }
+    if (Object.keys(armor).length > 0) record.armorWear = armor;
+  }
   return record;
 }

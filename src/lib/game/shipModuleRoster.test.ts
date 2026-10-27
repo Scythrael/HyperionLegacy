@@ -420,12 +420,13 @@ describe("each module acts in its context, and only there", () => {
     expect(expeditionGearBonuses(radiant, ship(radiant)).scanSpeed).toBeCloseTo(pf + 0.08 * moduleEffectScale("radiant", 5), 12);
     const mixed = [mint("longBaselineArray", "radiant", 5), mint("signalIntegrator")];
     expect(shipGearSetBonusLines(mixed).scanSpeedBonus).toBeCloseTo(0.08 * (moduleEffectScale("radiant", 5) + 1) / 2, 12);
-    // Worn: a module's wear efficiency is gear wear step 4's (registry wear:WEAR_EFFICIENCY:module:effect, pending), so
-    // a run's worn view leaves module pieces as they are and the pair still gives its full tier (the set engine would
-    // wear the tier with its pieces the moment step 4 makes the view wear them, the RR-6 rule).
+    // Worn: gear wear step 4 took a module's wear efficiency live in COMBAT (registry wear:WEAR_EFFICIENCY:module:effect:
+    // a battle's frozen view scales its hull lift, its conditional damage and its procs); a run's worn view still
+    // leaves module pieces as they are, so the pair (an expedition reader, not combat) still gives its full tier. The
+    // set tier wearing with its module pieces (the RR-6 rule) is logged for gear wear step 5.
     const worn = [mint("longBaselineArray"), mint("signalIntegrator")].map((p) => wornPieceView({ ...p, condition: p.durabilityMax / 2 } as EquipmentInstance));
     expect(activeGearSetTiers(worn, "ship", undefined, scaleOf)[0].magnitude).toBe(0.08);
-    expect(WIRING_REGISTRY.find((e) => e.id === "wear:WEAR_EFFICIENCY:module:effect")?.status.kind).toBe("pending");
+    expect(WIRING_REGISTRY.find((e) => e.id === "wear:WEAR_EFFICIENCY:module:effect")?.status.kind).toBe("live");
   });
 });
 

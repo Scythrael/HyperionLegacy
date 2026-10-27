@@ -26,6 +26,7 @@ import { effectiveShipStats, shipCrewContribution } from "./crewOverlay";
 import { CREW_STAT_KEYS } from "./crewBuffs";
 import { startExpedition, expeditionCandidates } from "./expedition";
 import { plainAwayMember, registerSyntheticHull, dispatchPastPropulsion } from "./awayTeamTestFixtures";
+import { withBattleWearOff } from "./battleWearSwitch.fixture";
 
 const NOW = 50_000;
 const NO_FACETS = {};
@@ -347,8 +348,12 @@ describe("GO-7b: startExpedition writes the ground ops record (the flag)", () =>
     const res = dispatchPastPropulsion(s, "ship-1", ship1(s).assignedCaptainId as number, candidate.id);
     expect(res.success).toBe(true);
     const exp = res.expedition!;
-    const snap = snapshotGroundOps(s, ship1(s), exp);
-    expect(exp.groundOps).toEqual({ version: 1, ...snap, editCount: 0, history: [], shipLegs: [] });
+    // Gear wear step 4: a battle-stamped run's ship battle profile is flagged and carries its reactor and drive copies
+    // (expedition.ts battleWearSnapshot); with battle wear off the record is the snapshot exactly.
+    const off = withBattleWearOff(() => dispatchPastPropulsion(s, "ship-1", ship1(s).assignedCaptainId as number, candidate.id)).expedition!;
+    const snap = snapshotGroundOps(s, ship1(s), off);
+    expect(off.groundOps).toEqual({ version: 1, ...snap, editCount: 0, history: [], shipLegs: [] });
+    expect(exp.groundOps?.shipEventProfile?.battle?.gearWear).toBe(exp.gearWear?.battle === 1 ? 1 : undefined);
     expect(exp.roster).toEqual(snapshotAwayRosterForTeams(s, ship1(s), snap.teams));
   });
 });

@@ -14,6 +14,10 @@ import { shipNowText, timelineView } from "../groundOpsTimelineDisplay";
 import { studyBodyView, studyShipCardView } from "../gasGiantStudyDisplay";
 import { dispatchPastPropulsion, plainAwayMember, withoutPickupPause } from "./awayTeamTestFixtures";
 import { fnv, goldenJson } from "./firstRunsGoldens.fixture";
+// Gear wear step 4 (0.14.0): every run here was pinned before step 4 stamped a new run for battle wear (the stamp's
+// `battle`, its ship battle snapshot's frozen reactor and drive), so the file runs with the battle sources off.
+import { battleWearOffInThisFile } from "./battleWearSwitch.fixture";
+battleWearOffInThisFile();
 
 const SEC = ["member-1", "member-2", "member-3", "member-4", "member-5", "member-6"];
 const SCI = ["member-11", "member-12", "member-13", "member-14", "member-15", "member-16"];

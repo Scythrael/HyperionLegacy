@@ -79,6 +79,7 @@ import {
   type CaptainMissionState,
   type PatrolMissionState,
   type PatrolDifficultyStamp,
+  type PatrolSystemDurability,
   type ShortRangeMissionState,
   type RunCounts,
   type RunWearStamp,
@@ -270,7 +271,7 @@ import { fuelNeeded, fuelForRoundTrip, rangeLightYears } from "./fuel";
 import { combatHullTypeOf, COMBAT_DEFAULT_LOADOUT, defaultDronesForHull,
   // 0.13.5 F5: the full padded loadout helpers.
   defaultWeaponsForHull,
-  defaultDroneRolesForHull, installedDronesForPatrol, applyDeckHandling, withReplenishCarry, defaultSystemDurabilityForHull, foldedPlayerDefense, type CombatHullType } from "./combat/bridge";
+  defaultDroneRolesForHull, installedDronesForPatrol, applyDeckHandling, withReplenishCarry, defaultSystemDurabilityForHull, foldedPlayerDefense, systemPoolsForHull, type CombatHullType } from "./combat/bridge";
 // Combat 1.0 (Unit 1.4): WeaponId types the per-hull Standard-Issue weapon loadout the combat
 // baseline seeder + installMissingCombatBaselines build (type-only, no runtime coupling).
 import type { WeaponId } from "./combat/weapons";
@@ -393,7 +394,15 @@ import {
   runShipStats,
   shipCrewAboard,
   shortRangeWear,
+  // GEAR WEAR step 4: the patrol cycle projection, the battle-only events and the live condition a dispatch freezes.
+  battleOnlyWear,
+  livePieceCondition,
+  projectCycleConditions,
+  shipRepairBonuses,
 } from "./gearWearEngine";
+// GEAR WEAR step 4 (0.14.0): the combat view and the battle wear sources (gearWear.ts, gearWearCombat.ts).
+import { battleWearLive, combatGearView, patrolCycleGear, repairRatePerMinute, wornConditions, wornGearView } from "./gearWear";
+import { addBattleWear, poolBattleWear, recordPatrolWear, waveBattleWear, type PatrolWearClock, type PatrolWearEvent } from "./gearWearCombat";
 // E-MOD EM-4: the reactor surplus drive lift's run flag (a leaf).
 import { newReactorLiftFlag, reactorLiftFlagged } from "./reactorSurplus";
 // WR-5b (0.14.0): the commanding captain's Tactician talents (frozen per patrol cycle; the Shipyard repair).
@@ -3218,6 +3227,10 @@ interface PatrolTickResult {
   // 2026-10-21 "One step per patrol run": a run counts once, when it wins its FIRST route (however many routes a Repeat
   // run flies after it); the training run never counts (user SF5 "Completed runs only, minus the tutorial run").
   curveRunsCompleted: number;
+  // GEAR WEAR step 4: the battle wear this call's stamped cycles took (each at its offset into the call), and the offset
+  // a stamped cycle's patrol ended at (null otherwise), for economyTick to hand to the wear engine.
+  gearWear: PatrolWearEvent[];
+  endedAtTicks: number | null;
 }
 
 // tickCaptainPatrol: advance ONE captain's patrol by `ticksElapsed` route ticks. PURE
@@ -3293,6 +3306,9 @@ export function tickCaptainPatrol(
     // WR-8 (0.14.0): the combat rules stamp a relaunch freezes onto its new cycle (crewOverlay.ts shipCombatRulesStamp:
     // the ship's combat speed now). Absent = the new cycle is unstamped (a test call; the app always passes it).
     combatRules?: CombatRulesStamp;
+    // GEAR WEAR step 4: the engine's clock and the ship's underway repair rate, so a relaunch can freeze its gear as it
+    // stands at that instant (relaunchCycleConditions). Absent = the new cycle is unstamped (a test call).
+    gearWear?: PatrolWearClock;
   } = {},
 ): PatrolTickResult {
   const noOp: PatrolTickResult = {
@@ -3315,6 +3331,8 @@ export function tickCaptainPatrol(
     lifetimeStatsDelta: emptyMissionLifetimeStatsDelta(),
     enemiesDestroyed: 0,
     curveRunsCompleted: 0,
+    gearWear: [],
+    endedAtTicks: null,
   };
   // Only the patrol arm advances here; idle / extraction / a sub-tick call is a no-op.
   if (!captain.mission || captain.mission.kind !== "patrol" || ticksElapsed <= 0) return noOp;
@@ -3349,13 +3367,19 @@ export function tickCaptainPatrol(
   // Leader lift these pools), the SAME value every wave combatant below reads; re-folded on a relaunch,
   // whose new cycle freezes its own. `let` for that reason only.
   // WR-5b: and the cycle's frozen captain Tactician talents (Shield Discipline, Reinforced Hull), the same way.
-  let foldedDefense = foldedPlayerDefense(shipDef, installedGear, captain.mission.officerCombat, captain.mission.captainCombat);
+  // GEAR WEAR step 4 (user W3 "True condition"): THIS cycle's frozen gear (gearWear.ts combatGearView over the cycle's
+  // cycleStartCondition), which every wave, the carry pools and the Damage Control Suite read. A cycle without the
+  // stamp (one that started before step 4, or the training cycle) reads the stored gear, which every combat reader takes
+  // as pristine: exactly the cycle it was. `let`: a relaunch freezes its own.
+  let cycleGear = patrolCycleGear(installedGear, captain.mission);
+  let foldedDefense = foldedPlayerDefense(shipDef, cycleGear, captain.mission.officerCombat, captain.mission.captainCombat);
   // Command Presence's per-wave reward share (0 = no multiply, byte-identical rewards).
   const patrolOutputShare = Math.max(0, officerEffects.outputShare ?? 0);
   // Exploration 0.14.0 (E4d): the installed Damage Control Suite's between-wave hull patch-up fraction,
   // computed ONCE (pure, from the same installedGear). EXACTLY 0 without the suite, which makes the
   // per-wave damageControlBeforeWave call below a same-value no-op (byte-identical attrition).
-  const waveHullRegenFraction = damageControlEffect(installedGear).waveHullRegenFraction;
+  // GEAR WEAR step 4: from the cycle's frozen gear (a worn suite patches at its worn line), re-read at a relaunch.
+  let waveHullRegenFraction = damageControlEffect(cycleGear).waveHullRegenFraction;
 
   // WORKING mission copy. Spread makes a fresh object (so wavesWon/phase/etc. mutations
   // never touch the input), and playerDrones is DEEP-cloned so the between-wave
@@ -3423,6 +3447,14 @@ export function tickCaptainPatrol(
   let endReason: PatrolEndReason | null = null;
 
   let remaining = ticksElapsed;
+  // GEAR WEAR step 4 (design 3.2, the BATTLE sources): the wear this call's stamped cycles took, each at its offset into
+  // the call (route ticks since the call began), applied by economyTick at its instant (gearWearEngine.ts); the
+  // stamped cycle's pools (the start it opened at and its ceilings) for the cycle's pool wear (null: an unstamped
+  // cycle, which wears nothing); and the offset a stamped cycle's patrol ended at.
+  const gearWearEvents: PatrolWearEvent[] = [];
+  let cyclePools = patrolCyclePools(hullType, shipDef, cycleGear, captain.mission);
+  let endedAtTicks: number | null = null;
+  const offsetNow = (): number => ticksElapsed - remaining;
   // 0.14.0 SPEED SEAM (processSpeed.ts applyTimeSkip, the tutorial time skip): while the CURRENT route carries
   // speed.instantComplete, every route tick is taken whole and the call's own ticks are not spent, so the route (and
   // a limp home) runs through to its end inside this call with the same waves, loot and damage the time would have
@@ -3466,6 +3498,7 @@ export function tickCaptainPatrol(
         shipFreeRepairTicks = mission.freeRepairTicks ?? 0; // E-CREW (Task 21): Engineering's Cunning
         stopReason = "defeat"; // wall-stop: a defeated patrol limped home and ended damaged
         endReason = "defeat"; // 0.13.4 Phase 2: ending #1 of 4 in this function
+        if (cyclePools !== null) endedAtTicks = offsetNow(); // GEAR WEAR step 4: the stamped run ends here
         mission = null;
         break;
       }
@@ -3486,12 +3519,15 @@ export function tickCaptainPatrol(
       // wave fires exactly once here, however the span is chunked), no rng: offline == live. Without the
       // suite the fraction is 0 and the hull is returned unchanged.
       // WR-5b: the cycle's frozen captain Damage Control lifts the suite's fraction (exactly the suite's without it).
+      const hullBeforePatch = mission.playerHull;
       mission.playerHull = damageControlBeforeWave(
         waveIndex,
         foldedDefense.hullMax,
         mission.playerHull,
         captainWaveRegenFraction(waveHullRegenFraction, mission.captainCombat),
       );
+      // GEAR WEAR step 4: a patch-up is one Damage Control Suite fire (its use wear, a stamped cycle only).
+      const damageControlFired = cyclePools !== null && mission.playerHull > hullBeforePatch;
       // ---- FIGHT the scheduled wave. --------------------------------------------------
       // PLAYER combatant: FRESH from the hull defaults (weapons + cooldowns reset each
       // wave, each wave being a discrete battle, design-correct), then OVERRIDE hull/
@@ -3506,7 +3542,8 @@ export function tickCaptainPatrol(
         // Combat 1.0 (Unit 1.4): the ship's INSTALLED combat gear drives weapons + shield + hull +
         // defenses. The display replay derives this the SAME way (equippedFor off the SAME state), so
         // the two combatants stay byte-identical (the structural-parity contract this helper enforces).
-        installedGear,
+        // GEAR WEAR step 4: through the cycle's frozen view (the replay reads the same cycleStartCondition).
+        installedGear: cycleGear,
         carryHull: mission.playerHull,
         carryShield: mission.playerShield,
         carryDrones: mission.playerDrones,
@@ -3542,10 +3579,11 @@ export function tickCaptainPatrol(
       // watchable log is a 9b.5d concern (it re-resolves / streams for the player). Default
       // objective (lastTeamStanding) = enemies down -> player wins, player down -> loss.
       // WR-8: under the cycle's combat rules the guns pre-charge and the rules' battle paths are on ({} without them).
-      const { outcome, finalCombatants } = resolveBattle(
+      // GEAR WEAR step 4: a stamped cycle's wave also reports the shield points it absorbed (a pure read, no draw).
+      const { outcome, finalCombatants, shieldAbsorbed } = resolveBattle(
         { combatants: [player, ...enemies] },
         deriveWaveSeed(mission.masterSeed, waveIndex, WAVE_BATTLE_SEED_SALT),
-        patrolBattleOptions(mission),
+        cyclePools !== null ? { ...patrolBattleOptions(mission), shieldTallyFor: playerId } : patrolBattleOptions(mission),
       );
 
       // WR-4 (B4): every enemy this wave's battle destroyed counts toward the officers' shipsDestroyed.
@@ -3578,6 +3616,10 @@ export function tickCaptainPatrol(
           else delete mission.playerStatusEffects;
         }
       }
+
+      // GEAR WEAR step 4 (design 3.2): what this wave took off the shields, the plating and the pods (a stamped cycle
+      // only), recorded at the wave's offset below.
+      const waveWear = cyclePools !== null ? waveBattleWear(cycleGear ?? [], player, p, shieldAbsorbed ?? 0, true) : null;
 
       // A win requires BOTH the objective naming "player" AND the player actually alive
       // (defensive: a cap-tiebreak "player" with a dead player, or a missing p, is a loss).
@@ -3650,8 +3692,13 @@ export function tickCaptainPatrol(
         mission.phase = "limpingHome";
         mission.limpTicksRemaining = limpHomeTicks;
         mission.limpDamage = foldedDefense.hullMax - Math.max(0, mission.playerHull);
+        // GEAR WEAR step 4: the defeat ends the cycle's fighting, so its pools' wear lands with this wave's.
+        if (waveWear !== null && cyclePools !== null) addBattleWear(waveWear, poolBattleWear(cycleGear ?? [], cyclePools.start, cyclePools.max, mission.playerSystemDurability));
+        recordPatrolWear(gearWearEvents, offsetNow(), waveWear, damageControlFired);
         continue;
       }
+      // GEAR WEAR step 4: a won (or broken-off) wave's wear, at its offset.
+      recordPatrolWear(gearWearEvents, offsetNow(), waveWear, damageControlFired);
     } else {
       // ---- BETWEEN-WAVE RECOVERY (no battle this route tick, design S14). -------------
       // Shields regen toward the FOLDED shield cap at the FOLDED per-tick recharge (both from
@@ -3684,6 +3731,10 @@ export function tickCaptainPatrol(
     // on routeLength (integer legs), so this fires precisely at route end.
     // E-CREW (Task 21): a Flight Deck Constitution cut ends this cycle's route early (patrolRouteTicks).
     if (progress >= routeLength - (mission.returnCutTicks ?? 0)) {
+      // GEAR WEAR step 4: the cycle is flown, so its pools' wear lands now (a stamped cycle only).
+      if (cyclePools !== null) {
+        recordPatrolWear(gearWearEvents, offsetNow(), poolBattleWear(cycleGear ?? [], cyclePools.start, cyclePools.max, mission.playerSystemDurability), false);
+      }
       // A full route flown + player alive = one patrol COMPLETED (won). Count it (win-only: a
       // defeat broke out above and never reaches here), keyed into missionsCompleted below.
       routesCompleted += 1;
@@ -3731,6 +3782,15 @@ export function tickCaptainPatrol(
           const relaunchCombat = officerEffects.relaunchCombatProfile
             ? officerCombatModsFromProfile(officerEffects.relaunchCombatProfile, hoursOut)
             : officerEffects.relaunchCombat;
+          // Safe first runs SF-4: the new cycle's difficulty, from this cycle's stamp alone (the training cycle hands
+          // over the curve's floor; a ramped cycle keeps its stamp, one step per patrol run; none stays none).
+          const nextDifficulty = nextPatrolCycleDifficulty(mission.difficulty);
+          // GEAR WEAR step 4 (user 2026-10-21 "Re-read each cycle", W3): the new cycle freezes the ship's gear as it
+          // stands at this relaunch: the stored pieces, worn by this call's earlier battles at their instants and
+          // settled underway (gearWearEngine.ts projectCycleConditions, exactly what the tail pass will write), so a
+          // cycle opens at its carried wear. Never on a training cycle (W9), never without the engine's clock.
+          const nextConditions = relaunchCycleConditions(installedGear, gearWearEvents, offsetNow(), nextDifficulty, officerEffects.gearWear);
+          const nextGear = nextConditions !== undefined && installedGear ? combatGearView(installedGear, nextConditions) : installedGear;
           // Mint the next cycle via the shared factory (THE single source of truth for a
           // new patrol, shared with dispatchCaptainOnPatrol so the two can never drift).
           // Relaunch reuses THIS mission's stance + repeatDispatch (they persist across a
@@ -3746,7 +3806,9 @@ export function tickCaptainPatrol(
             hullType,
             // Unit 2.3b: the SAME installed gear this tick already resolved, so a relaunched cycle's
             // drone carry-state seeds from the ship's installed pods identically to a fresh dispatch.
-            installedGear,
+            // GEAR WEAR step 4: through the new cycle's frozen view (stored gear when it is unstamped).
+            installedGear: nextGear,
+            ...(nextConditions !== undefined ? { cycleStartCondition: nextConditions } : {}),
             // E-CREW (Task 20): the NEW cycle freezes the officers seated now (economyTick's live read).
             officerCombat: relaunchCombat,
             // WR-5b: and the commanding captain's Tactician talents now (no buy while out, so the dispatch value).
@@ -3764,16 +3826,19 @@ export function tickCaptainPatrol(
               officerEffects.returnConstitution ?? 0,
               hoursOut + ((def.transitOutTicks + def.rollWindowTicks) * (officerEffects.secondsPerTick ?? 1)) / 3600,
             ),
-            // Safe first runs SF-4: the new cycle's difficulty, from this cycle's stamp alone (the training cycle
-            // hands over the curve's floor; a ramped cycle keeps its stamp, one step per patrol run; none stays none).
-            difficulty: nextPatrolCycleDifficulty(mission.difficulty),
+            // Safe first runs SF-4: the new cycle's difficulty (read above).
+            difficulty: nextDifficulty,
             // WR-8: the new cycle starts under the combat rules, at the ship's combat speed now (economyTick's live
             // read), like every new cycle; a cycle stamped before WR-8 kept its old rules only to its end.
             combatRules: officerEffects.combatRules,
           });
           // The new cycle's frozen bonuses may differ from the old one's: re-fold the carry pools so the
           // between-wave regen and the limp damage read the SAME fold as this cycle's wave combatants.
-          foldedDefense = foldedPlayerDefense(shipDef, installedGear, mission.officerCombat, mission.captainCombat);
+          // GEAR WEAR step 4: and its frozen gear (the view, the suite's patch-up, the pools its wear is read against).
+          cycleGear = nextGear;
+          foldedDefense = foldedPlayerDefense(shipDef, cycleGear, mission.officerCombat, mission.captainCombat);
+          waveHullRegenFraction = damageControlEffect(cycleGear).waveHullRegenFraction;
+          cyclePools = patrolCyclePools(hullType, shipDef, cycleGear, mission);
           // ⚠️ 0.13.4 Phase 2: CARRY THE PER-RUN COUNT ACROSS THE RELAUNCH. freshPatrolMission
           // is the shared factory for a NEW patrol and seeds routesCompletedThisRun to 0, which
           // is right for a dispatch and WRONG here: a relaunch is the middle of a run, not the
@@ -3786,6 +3851,7 @@ export function tickCaptainPatrol(
         } else {
           stopReason = "fuel"; // wall-stop: could not afford a relaunch (anti-infinite-fuel floor)
           endReason = "outOfFuel"; // 0.13.4 Phase 2: ending #2 of 4
+          if (cyclePools !== null) endedAtTicks = offsetNow(); // GEAR WEAR step 4
           mission = null; // truly broke: end (captain idles until refuelled/re-dispatched)
           break;
         }
@@ -3799,6 +3865,7 @@ export function tickCaptainPatrol(
         // `mission.recalled` is the whole distinction. Neither sets `stopReason`, because
         // neither is a wall-stop and the offline recap must not raise a note for them.
         endReason = mission.recalled ? "recalled" : "ordersComplete";
+        if (cyclePools !== null) endedAtTicks = offsetNow(); // GEAR WEAR step 4
         mission = null;
         break;
       }
@@ -3911,7 +3978,51 @@ export function tickCaptainPatrol(
     endRoutesCompleted: endReason === null ? 0 : routesThisRun,
     enemiesDestroyed,
     curveRunsCompleted,
+    gearWear: gearWearEvents,
+    endedAtTicks,
   };
+}
+
+
+// GEAR WEAR step 4: a stamped cycle's system pools (where each opened and its ceiling), or null for an unstamped cycle
+// (which takes no battle wear). Pure.
+function patrolCyclePools(
+  hullType: CombatHullType,
+  shipDef: ShipTypeDef,
+  cycleGear: EquipmentInstance[] | undefined,
+  mission: Pick<PatrolMissionState, "cycleStartCondition" | "combatRules">,
+): { start: PatrolSystemDurability; max: PatrolSystemDurability } | null {
+  if (mission.cycleStartCondition === undefined) return null;
+  return systemPoolsForHull(hullType, shipDef, cycleGear, mission.combatRules);
+}
+
+// GEAR WEAR step 4: the conditions a relaunched cycle freezes (projectCycleConditions over this call's battle wear so
+// far), or undefined when the new cycle is not stamped: no engine clock (a direct test call), no gear, battle wear off,
+// or a training cycle (user W9 "No wear on training"). Pure.
+function relaunchCycleConditions(
+  installedGear: EquipmentInstance[] | undefined,
+  events: readonly PatrolWearEvent[],
+  offsetTicks: number,
+  difficulty: PatrolDifficultyStamp | undefined,
+  clock: PatrolWearClock | undefined,
+): Record<string, number> | undefined {
+  if (!clock || !installedGear || !battleWearLive() || isTrainingPatrol({ difficulty })) return undefined;
+  const at = (ticks: number) => clock.startSeconds + ticks * clock.secondsPerTick;
+  const timed = events.map((ev) => ({ at: at(ev.atTicks), wear: battleOnlyWear(ev.battle, ev.damageControlFires) }));
+  return projectCycleConditions(installedGear, timed, at(offsetTicks), clock.underwayRate);
+}
+
+// GEAR WEAR step 4: the cycle a patrol dispatched now would start (dispatchCaptainOnPatrol, and the dispatch forecast):
+// its gear frozen at the pieces' conditions right now (gearWearEngine.ts livePieceCondition) and the stamp it carries,
+// or the stored gear unstamped while battle wear is off or for the training cycle (user W9). Pure.
+export function patrolDispatchCycle(
+  state: GameState,
+  installedGear: EquipmentInstance[],
+  difficulty: PatrolDifficultyStamp | undefined,
+): { gear: EquipmentInstance[]; cycleStartCondition?: Record<string, number> } {
+  if (!battleWearLive() || isTrainingPatrol({ difficulty })) return { gear: installedGear };
+  const cycleStartCondition = wornConditions(installedGear, (p) => livePieceCondition(state, p));
+  return { gear: combatGearView(installedGear, cycleStartCondition), cycleStartCondition };
 }
 
 // Replaces the old recomputeFleetAdmin (which recomputed fleetAdminXp fresh
@@ -4466,9 +4577,26 @@ export function economyTick(
                 deckHandling: shipDeckHandling(state, patrolShip),
                 // WR-8: the combat rules and combat speed, for the next cycle's frozen record.
                 combatRules: shipCombatRulesStamp(state, patrolShip),
+                // GEAR WEAR step 4: the clock and the underway repair rate a relaunch freezes its gear with.
+                gearWear: {
+                  startSeconds: state.gameTimeSeconds,
+                  secondsPerTick: state.tickDurationSeconds,
+                  underwayRate: repairRatePerMinute("underway", shipRepairBonuses(state, patrolShip)),
+                },
               }
             : {},
         );
+        // GEAR WEAR step 4: the battle wear the patrol's stamped cycles took this call, each at its instant, and the
+        // instant a stamped patrol ended (its pieces settle underway up to it, then at home or in a bay).
+        if (patrolShip) {
+          for (const ev of patrolResult.gearWear) {
+            pushShipWear(wearEvents, patrolShip.id, state.gameTimeSeconds + ev.atTicks * state.tickDurationSeconds, battleOnlyWear(ev.battle, ev.damageControlFires));
+          }
+          if (patrolResult.endedAtTicks !== null) {
+            wearEvents.runEnds.set(patrolShip.id, state.gameTimeSeconds + patrolResult.endedAtTicks * state.tickDurationSeconds);
+            wearEvents.rateCarry.add(patrolShip.id);
+          }
+        }
         // Draw down the shared budgets so a later captain sees the reduced values (no
         // double-spend), and sum for the single Decimal tank/credits deductions below.
         fuelBudgetRemaining -= patrolResult.fuelSpent;
@@ -5208,6 +5336,9 @@ export function economyTick(
   // live (App.svelte per bar) and offline (tick() steps economyTick(_,1) per tick), the
   // one-seam offline==live guarantee, exactly like processFuelPipelines.
   const postRepairStateRaw = processShipRepairs(postFuelState);
+  // GEAR WEAR step 4: each Shipyard repair this call started on a ship whose Damage Control Suite shortens it is one of
+  // the suite's fires (its use wear), at the call's end (when the start is processed).
+  recordDamageControlRepairs(postFuelState, postRepairStateRaw, wearEvents, state.gameTimeSeconds + ticksElapsed * state.tickDurationSeconds);
   // Gas Giant Study GG-5: the Research Lab's data study lane starts held data while a lane is free (call 8, "Auto
   // when idle"), at this same per-tick seam (offline == live by construction). Draws no rng; the SAME state with no
   // held research data, so every save without any is byte-identical.
@@ -5785,6 +5916,9 @@ function freshPatrolMission(args: {
   // WR-8 (0.14.0): the cycle's combat rules stamp (crewOverlay.ts shipCombatRulesStamp). Stored only when present; it
   // also sizes the reactor and drive carry pools to the installed pieces the wave combatant fights with.
   combatRules?: CombatRulesStamp;
+  // GEAR WEAR step 4: the cycle's frozen gear conditions (PatrolMissionState.cycleStartCondition), its step 4 flag.
+  // Stored only when present ({} when every piece is pristine); `installedGear` is then the matching frozen view.
+  cycleStartCondition?: Record<string, number>;
 }): PatrolMissionState {
   const { patrolKey, stance, masterSeed, repeatDispatch, shipDef, hullType, installedGear, officerCombat, captainCombat } = args;
   const deckHandling = args.deckHandling ?? 0;
@@ -5821,6 +5955,7 @@ function freshPatrolMission(args: {
     ...(returnCutTicks > 0 ? { returnCutTicks } : {}),
     ...(args.difficulty ? { difficulty: args.difficulty } : {}),
     ...(args.combatRules ? { combatRules: { ...args.combatRules } } : {}),
+    ...(args.cycleStartCondition ? { cycleStartCondition: { ...args.cycleStartCondition } } : {}),
     kind: "patrol",
     patrolKey,
     factionId: def.factionId, // pin the fought faction (def could be retuned mid-flight)
@@ -5860,6 +5995,8 @@ function freshPatrolMission(args: {
     // Carry-state seeded to FULL system durability (Phase 12b Unit B2): every weapon + the
     // reactor + the ftl at their fresh ceilings (no wear), the same "start clean" a fresh
     // dispatch AND a relaunch both want. Wear accumulates from here across the cycle's waves.
+    // GEAR WEAR step 4 (user W3 "True condition"): a stamped cycle's frozen view opens each worn system at its true
+    // condition instead (the seed is each system's start; the ceiling for every pristine or stored piece).
     playerSystemDurability: defaultSystemDurabilityForHull(hullType, shipDef, installedGear, args.combatRules),
     recalled: false,
     repeatDispatch,
@@ -6236,6 +6373,12 @@ export function dispatchCaptainOnPatrol(
     departmentFacet(state, ship, "flightDeck", "constitution"),
     ((patrolDef.transitOutTicks + patrolDef.rollWindowTicks) * state.tickDurationSeconds) / 3600,
   );
+  // Safe first runs SF-4: the save's one safe patrol, or the curve at the patrol runs counted so far (read BEFORE this
+  // dispatch is counted; absent at full strength).
+  const difficulty = patrolDifficultyAt(state);
+  // GEAR WEAR step 4 (user W3 "True condition"): the first cycle freezes the ship's gear as it stands now (never the
+  // training cycle, user W9).
+  const cycle = patrolDispatchCycle(state, installedGear, difficulty);
   const mission = freshPatrolMission({
     patrolKey,
     stance,
@@ -6243,7 +6386,8 @@ export function dispatchCaptainOnPatrol(
     repeatDispatch,
     shipDef,
     hullType,
-    installedGear,
+    installedGear: cycle.gear,
+    ...(cycle.cycleStartCondition ? { cycleStartCondition: cycle.cycleStartCondition } : {}),
     officerCombat,
     // WR-5b: freeze the commanding captain's Tactician talents onto the first cycle (undefined = none). WR-6: with
     // the fleet's Home Guard shield factor (patrols only).
@@ -6252,9 +6396,8 @@ export function dispatchCaptainOnPatrol(
     returnCutTicks,
     // 0.14.0 (CP-4, OC-1 "Faster drone replenish"): freeze the crew's Deck Handling onto the first cycle (0 = none).
     deckHandling: shipDeckHandling(state, ship),
-    // Safe first runs SF-4: the save's one safe patrol, or the curve at the patrol runs counted so far (read BEFORE this
-    // dispatch is counted; absent at full strength).
-    difficulty: patrolDifficultyAt(state),
+    // Safe first runs SF-4: read above.
+    difficulty,
     // WR-8: the first cycle starts under the combat rules at the ship's combat speed now.
     combatRules: shipCombatRulesStamp(state, ship),
   });
@@ -8134,6 +8277,28 @@ export function shipRepairDurationTicks(
   return free > 0 ? Math.max(1, ticks - free) : ticks;
 }
 
+// GEAR WEAR step 4: the gear a Shipyard repair reads when it starts: the ship's installed pieces through the worn-gear
+// view (gearWear.ts wornGearView), so a worn Damage Control Suite shortens it at its worn line; the stored gear when
+// nothing is worn. Pure.
+export function shipRepairGear(state: GameState, shipId: string): EquipmentInstance[] {
+  return equippedFor(wornGearView(state), shipId);
+}
+
+// GEAR WEAR step 4: the Shipyard repairs processShipRepairs started between `before` and `after` on a ship whose
+// installed Damage Control Suite shortens them: one suite fire each (gearWearEngine.ts utilityFires), at `at`. Writes
+// only into `events`.
+// The fires ride the step 4 flag (battleWearLive), like the patrol waves the suite patches.
+function recordDamageControlRepairs(before: GameState, after: GameState, events: ReturnType<typeof emptyWearEvents>, at: number): void {
+  if (after.activeProcesses === before.activeProcesses || !battleWearLive()) return;
+  const had = new Set(before.activeProcesses.filter((p) => p.kind === "shipRepair").map((p) => p.id));
+  for (const p of after.activeProcesses) {
+    if (p.kind !== "shipRepair" || had.has(p.id) || p.effect.type !== "clearShipDamage") continue;
+    const shipId = p.effect.shipId;
+    if (!(damageControlEffect(equippedFor(after, shipId)).repairTimeReduction > 0)) continue;
+    pushShipWear(events, shipId, at, battleOnlyWear(undefined, 1));
+  }
+}
+
 // The AUTO-START pass. For each DAMAGED hull not already in a repair bay, start a shipRepair
 // TimedProcess while a bay is FREE, in the ships array's STABLE order (monotonic ship-id
 // insertion order) so which damaged hull claims a freeing bay is DETERMINISTIC, the implicit
@@ -8194,7 +8359,9 @@ export function processShipRepairs(state: GameState): GameState {
       {},
       // CP-2: officers + the complement's Damage Control and Mission Turnaround; WR-5b: x the commanding
       // captain's Damage Control, its own factor (shipyardRepairSpeedBonus).
-      shipRepairDurationTicks(ship, equippedFor(state, ship.id), shipyardRepairSpeedBonus(state, ship)),
+      // GEAR WEAR step 4 (design 4.2, utility gear's lines): a worn Damage Control Suite shortens the repair at its
+      // worn repair speed line (shipRepairGear).
+      shipRepairDurationTicks(ship, shipRepairGear(state, ship.id), shipyardRepairSpeedBonus(state, ship)),
       {
         type: "clearShipDamage",
         shipId: ship.id,

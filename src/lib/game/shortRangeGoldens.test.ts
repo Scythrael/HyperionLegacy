@@ -133,6 +133,8 @@ import { describe, expect, it, vi } from "vitest";
 // (gearWearSwitch.fixture.ts), so they keep proving nothing else moved. gearWearGoldens.test.ts pins the wear.
 import { gearWearOffInThisFile } from "./gearWearSwitch.fixture";
 import { GW3_ADDED_IDS, gw3EntryBack } from "./gearWearRegistry.fixture";
+// Gear wear step 4 came after every pin here: its flips are read back (gearWearCombatRegistry.fixture.ts).
+import { gw4EntryBack } from "./gearWearCombatRegistry.fixture";
 import { WEAR_SOURCES } from "./gearWear";
 gearWearOffInThisFile();
 // E-MOD EM-1: sheets pinned before the power budget engine are hashed with it switched off (emodGoldens.test.ts pins
@@ -693,8 +695,11 @@ const GG_STUDY_SLICE: RegistrySlice = { added: GG_STUDY_ADDED_ENTRY_IDS, flipped
 // E-MOD EM-7 (the v1 module roster), after every pin here: its added rows (one per module and the Survey Pair tier) and
 // the hulls' moduleSlots rows it FLIPPED pending -> live (emodEm7Registry.fixture.ts), held apart in EVERY pin.
 const EM7_SLICE: RegistrySlice = { added: EM7_ADDED_ENTRY_IDS, flipped: EM7_MODULE_SLOTS_IDS, was: "pending" };
+// Gear wear step 4: outside the `wear:` entries (GW_SLICE holds them apart) it flipped ship:audit:podDurability live
+// (its defense toughness row is GW3_ADDED_IDS, held apart too). Rides in every pin like EM7_SLICE.
+const GW4_SLICE: RegistrySlice = { flipped: new Set(["ship:audit:podDurability"]), was: "pending" };
 function registryPin(...given: readonly RegistrySlice[]): [number, string] {
-  const slices = [RX_SLICE, RR_SLICE, FUSE_SLICE, ML2_SLICE, OC15_SLICE, R2_2_SLICE, R2_3_SLICE, R2_4_SLICE, R2_10_SLICE, G16_SLICE, ...G2_4_SLICES, ...G2_6_SLICES, ML3_SLICE, GG_STUDY_SLICE, EM7_SLICE, ...given];
+  const slices = [RX_SLICE, RR_SLICE, FUSE_SLICE, ML2_SLICE, OC15_SLICE, R2_2_SLICE, R2_3_SLICE, R2_4_SLICE, R2_10_SLICE, G16_SLICE, ...G2_4_SLICES, ...G2_6_SLICES, ML3_SLICE, GG_STUDY_SLICE, EM7_SLICE, GW4_SLICE, ...given];
   const rows = siReadBack(em4ReadBack(em3ReadBack(wr8ReadBack(WIRING_REGISTRY))).map((e) => ({ id: e.id, kind: e.status.kind as string })), (r) => r.id, (row) => ({ id: row[0], kind: row[1].kind as string }));
   const lines = rows.filter((e) => !slices.some((sl) => sl.added?.has(e.id))).map((e) => {
     const flip = slices.find((sl) => sl.flipped?.has(e.id));
@@ -954,14 +959,15 @@ describe("G1-0 golden 5: the wiring registry's ids and statuses", () => {
     // Step 3's flips read back (gearWearRegistry.fixture.ts), the step 2 pin reproduces: step 3 moved only its own rows.
     // E-MOD EM-5's two module wear rows (emodEm5Registry.fixture.ts) are held apart: they came after this pin.
     const added = WIRING_REGISTRY.filter((e) => e.id.startsWith("wear:") && !EM5_ADDED_ENTRY_IDS.has(e.id))
-      .map((e) => gw3EntryBack(e)!)
+      .map((e) => gw3EntryBack(gw4EntryBack(e))!)
       .map((e) => `${e.id}|${e.status.kind}`);
     expect(added.length).toBeGreaterThan(30);
     expect(added.every((l) => l.endsWith("|pending"))).toBe(true);
     pin("registry:gearWear", [added.length, hash(added)]);
   });
   it("gear wear step 3: the wear entries and its two audit rows, each with its status", () => {
-    const rows = WIRING_REGISTRY.filter((e) => e.id.startsWith("wear:") || e.id === "ship:audit:slotDurability" || GW3_ADDED_IDS.has(e.id)).map(
+    // Gear wear step 4's flips read back (gearWearCombatRegistry.fixture.ts): the step 3 pin reproduces.
+    const rows = WIRING_REGISTRY.filter((e) => e.id.startsWith("wear:") || e.id === "ship:audit:slotDurability" || GW3_ADDED_IDS.has(e.id)).map(gw4EntryBack).map(
       (e) => `${e.id}|${e.status.kind}|${e.contexts.join(",")}`,
     );
     // Every use source, repair context and bonus is live; the battle sources and the combat consumers wait for step 4.

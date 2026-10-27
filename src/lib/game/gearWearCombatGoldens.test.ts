@@ -60,6 +60,8 @@ import { pieceCondition, withPieceCondition } from "./gearWear";
 import { emptyWearEvents, recordExpeditionWear, resolveGearWear } from "./gearWearEngine";
 import { afterExpeditionTraining } from "./wiring/wearProbes";
 import { DAMAGE_CONTROL_SUITE_KEY } from "./utilityGear";
+import { patrolDispatchCycle } from "./tick";
+import { withBattleWearOff } from "./battleWearSwitch.fixture";
 
 const HULLS = Object.keys(SHIP_TYPES) as ShipTypeKey[];
 const ROUTES = Object.keys(PATROLS) as PatrolKey[];
@@ -166,8 +168,10 @@ function patrolBase(hull: ShipTypeKey, variant: Variant): GameState {
 
 // One patrol from `state`, advanced in 1 s ticks until the captain idles (Once) or MAX_CYCLES cycles have started
 // (Repeat: then recalled and flown home). Every cycle's display replay must reach the outcome the live cycle did.
-function patrolRun(state: GameState, key: PatrolKey, repeat: boolean, label: string): string[] {
-  const r = dispatchCaptainOnPatrol(state, 1, key, "balanced", repeat);
+// `inFlight` (step 4): dispatched inside the step 4 switch (a cycle from before step 4), then advanced by the live engine.
+function patrolRun(state: GameState, key: PatrolKey, repeat: boolean, label: string, inFlight = false): string[] {
+  const go = () => dispatchCaptainOnPatrol(state, 1, key, "balanced", repeat);
+  const r = inFlight ? withBattleWearOff(go) : go();
   expect(r.success, `${label}: ${r.reason}`).toBe(true);
   let replay = replayPatrol(r.next, r.next.captains[0]);
   const row = [hash(structuredClone(r.next.captains[0].mission)), hash(replay)];
@@ -203,7 +207,9 @@ function forecast(state: GameState, key: PatrolKey): string {
   if (hullType === null) return "none";
   const def = PATROLS[key];
   const shipDef = SHIP_TYPES[ship.typeKey];
-  const installedGear = equippedFor(state, ship.id);
+  // Step 4: the cycle a dispatch would start fights its frozen gear (App.svelte reads patrolDispatchCycle the same
+  // way); the stored gear while battle wear is off, exactly the pre-step-4 forecast.
+  const installedGear = patrolDispatchCycle(state, equippedFor(state, ship.id), patrolDifficultyAt(state)).gear;
   const startDrones = installedDronesForPatrol(installedGear, `forecast-${key}-p`);
   const combatRules = shipCombatRulesStamp(state, ship);
   const startSystemDurability = defaultSystemDurabilityForHull(hullType, shipDef, installedGear, combatRules);
@@ -235,8 +241,9 @@ function landed(before: GameState, done: Expedition): GameState {
   return resolveGearWear(before, home, events);
 }
 
-function shipEventRow(hull: ShipTypeKey, cand: string, seed: number | undefined, variant: "si" | "worn"): string[] {
-  const res = dispatchPastPropulsion(shipEventBase(hull, seed, variant), "ship-1", 1, cand);
+function shipEventRow(hull: ShipTypeKey, cand: string, seed: number | undefined, variant: "si" | "worn", inFlight = false): string[] {
+  const go = () => dispatchPastPropulsion(shipEventBase(hull, seed, variant), "ship-1", 1, cand);
+  const res = inFlight ? withBattleWearOff(go) : go();
   expect(res.success, `${hull} ${cand}: ${res.reason}`).toBe(true);
   const done: Expedition = advanceExpedition(withoutNebula(res.expedition!), SWEEP_END);
   const events = (done.scanEvents ?? []).filter((e) => e.kind === "shipEvent");
@@ -250,8 +257,9 @@ function kindDraw(want: "probe" | "cloaked"): number {
   throw new Error(`no draw names ${want}`);
 }
 
-function battleRow(hull: ShipTypeKey, cand: string, variant: "si" | "worn"): string[] {
-  const res = dispatchPastPropulsion(shipEventBase(hull, undefined, variant), "ship-1", 1, cand);
+function battleRow(hull: ShipTypeKey, cand: string, variant: "si" | "worn", inFlight = false): string[] {
+  const go = () => dispatchPastPropulsion(shipEventBase(hull, undefined, variant), "ship-1", 1, cand);
+  const res = inFlight ? withBattleWearOff(go) : go();
   expect(res.success, `${hull} ${cand}: ${res.reason}`).toBe(true);
   const exp = res.expedition!;
   const quiet = { boardingAttempt: SHIP_EVENT_DRAW_UNITS - 1, boardingRepel: 0 };
@@ -283,7 +291,7 @@ function memberPiece(slotType: EquipmentSlotType, team: AwayTeamType, memberId: 
 
 const MEMBER_SLOTS = (Object.keys(EQUIPMENT_SLOTS) as EquipmentSlotType[]).filter((k) => isMemberSlotType(k));
 
-function groundRun(variant: "si" | "worn"): string[] {
+function groundRun(variant: "si" | "worn", inFlight = false): string[] {
   const squad: AwayMember[] = [
     { ...plainAwayMember("member-1", "security", "ship-1"), rank: 3 },
     { ...plainAwayMember("member-2", "security", "ship-1"), rank: 2 },
@@ -296,7 +304,8 @@ function groundRun(variant: "si" | "worn"): string[] {
   });
   s0 = afterExpeditionTraining(withSlottedAwayTeams(s0));
   if (variant === "worn") s0 = worn(s0);
-  const res = startExpedition(s0, "ship-1", 1, expeditionCandidates(s0, "ship-1")[0].id);
+  const go = () => startExpedition(s0, "ship-1", 1, expeditionCandidates(s0, "ship-1")[0].id);
+  const res = inFlight ? withBattleWearOff(go) : go();
   if (!res.success || !res.expedition) throw new Error(`dispatch refused: ${res.reason}`);
   let s = res.next;
   for (let i = 0; i < 40; i++) s = economyTick(s, 1, lcg(0x4e));
@@ -497,17 +506,266 @@ const GOLDEN_PRE: Record<string, string[]> = {
   "repair:dc": ["111", "b126e5d5", "c621a214", "cargoBay=1000 ftlDrive=1000 reactorCore=1000 weapon=1000 weapon=1000 weapon=1000 weapon=1000 shieldEmitters=1000 hullPlating=1000 specUtility=1000"],
 };
 
+
+// ===== the rows (one function each, shared by the three proofs below) =====
+
+interface Row {
+  run: (inFlight: boolean) => string[];
+  // Its dispatch can be made before step 4 and flown on by the live engine (a Dispatch Once patrol, an expedition).
+  inFlight: boolean;
+}
+const ROWS: Record<string, Row> = {};
+for (const variant of ["si", "worn"] as const) {
+  for (const hull of HULLS) {
+    for (const key of ROUTES) {
+      for (const repeat of [false, true]) {
+        const id = `patrol:${variant}:${hull}:${key}:${repeat ? "repeat" : "once"}`;
+        ROWS[id] = { run: (f) => patrolRun(patrolBase(hull, variant), key, repeat, id, f), inFlight: !repeat };
+      }
+    }
+  }
+}
+for (const hull of COMBAT_HULLS) {
+  for (const key of ROUTES) {
+    const id = `patrol:crafted:${hull}:${key}:repeat`;
+    ROWS[id] = { run: () => patrolRun(patrolBase(hull, "crafted"), key, true, id), inFlight: false };
+  }
+}
+for (const key of ROUTES) {
+  const dc = `patrol:dc:destroyer:${key}:repeat`;
+  ROWS[dc] = { run: () => patrolRun(patrolBase("destroyer", "dc"), key, true, dc), inFlight: false };
+  const mod = `patrol:modules:battleship:${key}:repeat`;
+  ROWS[mod] = { run: () => patrolRun(patrolBase("battleship", "modules"), key, true, mod), inFlight: false };
+}
+for (const variant of ["si", "worn"] as const) {
+  for (const hull of FORECAST_HULLS) {
+    for (const key of ROUTES) ROWS[`forecast:${variant}:${hull}:${key}`] = { run: () => [forecast(patrolBase(hull, variant), key)], inFlight: false };
+  }
+}
+for (const variant of ["si", "worn"] as const) {
+  for (const hull of EXPLORERS) {
+    for (const cand of CANDS) {
+      for (const seed of EXPEDITION_SEEDS) {
+        ROWS[`shipEvent:${variant}:${hull}:${cand}:${seed ?? "default"}`] = { run: (f) => shipEventRow(hull, cand, seed, variant, f), inFlight: true };
+      }
+      ROWS[`battle:${variant}:${hull}:${cand}`] = { run: (f) => battleRow(hull, cand, variant, f), inFlight: true };
+    }
+  }
+}
+for (const variant of ["si", "worn"] as const) ROWS[`ground:${variant}`] = { run: (f) => groundRun(variant, f), inFlight: true };
+ROWS["repair:dc"] = { run: () => dcRepair(), inFlight: false };
+
+// ===== the live game (step 4 in), captured with GW4_CAPTURE on the step 4 engine =====
+//
+// What moved, and why, against the design's section 10 lists; every row's switch-off value is its GOLDEN_PRE (the
+// first suite), so each move below is step 4 alone:
+//   patrol:si:*        : every new cycle carries the step 4 stamp (PatrolMissionState.cycleStartCondition, {} while
+//                        pristine), so every dispatch record and state hash moves; the FIRST cycle's fight is the
+//                        pristine one (section 10 "every pristine first cycle": all 48 first-cycle replays of the si,
+//                        crafted and dc rows hold); its battles then wear the pieces (the shields and pods each wave,
+//                        the plating where the hull is hit, the weapons, reactor and drive at the cycle's end), so the
+//                        ship and state hashes and the conditions move ("any golden that serializes an
+//                        EquipmentInstance"); a Repeat cycle from 2 opens at that carried wear ("Patrol Repeat from
+//                        cycle 2"): its record and replay move, and the three explorers' Sweep Repeat now lose their
+//                        third cycle (lost:40, was won:42).
+//   patrol:worn:*      : the same pieces preset worn (the carried wear met at once): from cycle 1 the weapons, reactor
+//                        and drive open their pools at their true condition (user W3; the reactor and drive below the
+//                        Degraded line), the shields, plating and pods at their efficiency, so the first cycle's replay
+//                        moves too and nineteen rows end sooner (they lose, or lose earlier: the economy hulls', the
+//                        explorers' and the carrier's).
+//   patrol:crafted:*   : as si, the crafted quality 3 pieces' toughness taking less per battle ("crafted quality-above-0
+//                        reactors and FTL drives in combat").
+//   patrol:dc:*        : as si, plus the Damage Control Suite's patch-ups, each one fire (its use wear).
+//   patrol:modules:*   : the two worn modules act at their efficiency (WEAR_EFFICIENCY module:effect: the Bracing's hull
+//                        lift is smaller, so the cycle's hull pool is), first cycle included.
+//   forecast:worn:*    : six bands drop (the forecast fights the cycle a dispatch would start: its frozen worn gear,
+//                        e.g. carrier Warband 23 to 1 of 64); forecast:si and four worn rows hold.
+//   shipEvent:* / battle:* : a run dispatched now carries the battle stamp, its battle snapshot the reactor and drive
+//                        copies and the flag, so every run and event hash moves; each ship battle records its wear on
+//                        the event (ExpeditionScanEvent.gearWear), a failed check's hull wear wears the plating; the
+//                        worn variant's battles fight the frozen worn gear. No Standard-Issue battle outcome moved;
+//                        the worn ships lose 38 of their 162 stubbed fights (mostly the cloaked vessel).
+//   ground:*           : the battle stamp, each fight's armor wear on the record and the tally, the members' armor worn
+//                        as the run lands (member armor wears by battle, design 3.2).
+//   repair:dc          : HOLDS: the repair it shortens is one suite fire, but its few per-mille recover in the bay
+//                        before the repair ends (gearWearCombat.test.ts proves the fire).
+// Held (section 10 "expected to stay"): every pristine first cycle's fight; the safe first runs (no wear on training,
+// W9: the training cycle and run are never stamped); the Standard-Issue reactor and drive pools (quality 0, 100) while
+// pristine.
+const GOLDEN: Record<string, string[]> = {
+  "patrol:si:generalFreighter:crimsonReaverSweep:once": ["e1c443c2", "597c09a2", "won:14", "b2f38143", "ccde4fa", "cargoBay=1000 ftlDrive=830 reactorCore=892 specUtility=1000 weapon=820 weapon=870 shieldEmitters=817 hullPlating=909"],
+  "patrol:si:generalFreighter:crimsonReaverSweep:repeat": ["3f20dbd7", "597c09a2", "relaunch:14", "277f3b70", "c0f70648", "ea2c4ae9", "relaunch:28", "92768286", "f0f1651f", "e7ef4da8", "won:42", "b2f38143", "2cff7989", "cargoBay=1000 ftlDrive=640 reactorCore=759 specUtility=1000 weapon=630 weapon=750 shieldEmitters=493 hullPlating=904"],
+  "patrol:si:generalFreighter:crimsonReaverWarband:once": ["de9c6e20", "3bc66d4f", "lost:20", "701a58f1", "319720d8", "cargoBay=1000 ftlDrive=870 reactorCore=825 specUtility=1000 weapon=920 weapon=800 shieldEmitters=796 hullPlating=845"],
+  "patrol:si:generalFreighter:crimsonReaverWarband:repeat": ["245e9175", "3bc66d4f", "lost:20", "701a58f1", "319720d8", "cargoBay=1000 ftlDrive=870 reactorCore=825 specUtility=1000 weapon=920 weapon=800 shieldEmitters=796 hullPlating=845"],
+  "patrol:si:prospectorHauler:crimsonReaverSweep:once": ["46a5f0e5", "41ce7378", "won:14", "9d03d00b", "de886ced", "cargoBay=1000 ftlDrive=830 reactorCore=892 specUtility=1000 weapon=820 weapon=870 shieldEmitters=829 hullPlating=943"],
+  "patrol:si:prospectorHauler:crimsonReaverSweep:repeat": ["78df35be", "41ce7378", "relaunch:14", "2e5612a3", "508b12a8", "fd57f191", "relaunch:28", "11e7af4e", "1b89ec64", "5ebba55a", "won:42", "9d03d00b", "c7b6f2bb", "cargoBay=1000 ftlDrive=640 reactorCore=759 specUtility=1000 weapon=630 weapon=750 shieldEmitters=558 hullPlating=944"],
+  "patrol:si:prospectorHauler:crimsonReaverWarband:once": ["a6c00abf", "45b124f1", "lost:23", "8539ed3f", "7ad94873", "cargoBay=1000 ftlDrive=810 reactorCore=784 specUtility=1000 weapon=900 weapon=750 shieldEmitters=793 hullPlating=846"],
+  "patrol:si:prospectorHauler:crimsonReaverWarband:repeat": ["ecd056c8", "45b124f1", "lost:23", "8539ed3f", "7ad94873", "cargoBay=1000 ftlDrive=810 reactorCore=784 specUtility=1000 weapon=900 weapon=750 shieldEmitters=793 hullPlating=846"],
+  "patrol:si:prospectorRunner:crimsonReaverSweep:once": ["f8e496d5", "b0c9ae30", "lost:10", "e1360e3a", "9e48066c", "cargoBay=1000 ftlDrive=870 reactorCore=884 specUtility=1000 weapon=850 shieldEmitters=850 hullPlating=844"],
+  "patrol:si:prospectorRunner:crimsonReaverSweep:repeat": ["82070ace", "b0c9ae30", "lost:10", "e1360e3a", "9e48066c", "cargoBay=1000 ftlDrive=870 reactorCore=884 specUtility=1000 weapon=850 shieldEmitters=850 hullPlating=844"],
+  "patrol:si:prospectorRunner:crimsonReaverWarband:once": ["ac62e5b3", "88141285", "lost:20", "e1360e3a", "1c19b46f", "cargoBay=1000 ftlDrive=780 reactorCore=759 specUtility=1000 weapon=750 shieldEmitters=825 hullPlating=845"],
+  "patrol:si:prospectorRunner:crimsonReaverWarband:repeat": ["86274214", "88141285", "lost:20", "e1360e3a", "1c19b46f", "cargoBay=1000 ftlDrive=780 reactorCore=759 specUtility=1000 weapon=750 shieldEmitters=825 hullPlating=845"],
+  "patrol:si:prospectorMiner:crimsonReaverSweep:once": ["d1819c8", "1b2af2bc", "lost:10", "4a78733f", "83fc843b", "cargoBay=1000 ftlDrive=820 reactorCore=859 specUtility=1000 weapon=820 shieldEmitters=850 hullPlating=844"],
+  "patrol:si:prospectorMiner:crimsonReaverSweep:repeat": ["294b541d", "1b2af2bc", "lost:10", "4a78733f", "83fc843b", "cargoBay=1000 ftlDrive=820 reactorCore=859 specUtility=1000 weapon=820 shieldEmitters=850 hullPlating=844"],
+  "patrol:si:prospectorMiner:crimsonReaverWarband:once": ["71b9d842", "8774e398", "lost:20", "4a78733f", "8bc20fd9", "cargoBay=1000 ftlDrive=780 reactorCore=759 specUtility=1000 weapon=740 shieldEmitters=796 hullPlating=846"],
+  "patrol:si:prospectorMiner:crimsonReaverWarband:repeat": ["a243c557", "8774e398", "lost:20", "4a78733f", "8bc20fd9", "cargoBay=1000 ftlDrive=780 reactorCore=759 specUtility=1000 weapon=740 shieldEmitters=796 hullPlating=846"],
+  "patrol:si:destroyer:crimsonReaverSweep:once": ["c478f282", "ba2ee129", "won:14", "6ad9f46c", "c6c2c36", "cargoBay=1000 ftlDrive=950 reactorCore=967 specUtility=1000 weapon=930 weapon=940 weapon=960 weapon=960 shieldEmitters=857 hullPlating=1000"],
+  "patrol:si:destroyer:crimsonReaverSweep:repeat": ["8f383097", "ba2ee129", "relaunch:14", "51f9a0f0", "37fba881", "7a9c61d0", "relaunch:28", "c41a2975", "31d91016", "836dbd38", "won:42", "6ad9f46c", "11c2f4b5", "cargoBay=1000 ftlDrive=880 reactorCore=893 specUtility=1000 weapon=860 weapon=870 weapon=910 weapon=920 shieldEmitters=766 hullPlating=1000"],
+  "patrol:si:destroyer:crimsonReaverWarband:once": ["73630c4c", "5469ccef", "won:22", "6ad9f46c", "47c7e85b", "cargoBay=1000 ftlDrive=960 reactorCore=917 specUtility=1000 weapon=920 weapon=890 weapon=890 weapon=860 shieldEmitters=788 hullPlating=937"],
+  "patrol:si:destroyer:crimsonReaverWarband:repeat": ["3c5d8399", "5469ccef", "relaunch:22", "b870b074", "8c841105", "d78d229c", "lost:38", "44b4c6b5", "bb8c98ba", "cargoBay=1000 ftlDrive=900 reactorCore=867 specUtility=1000 weapon=860 weapon=800 weapon=800 weapon=790 shieldEmitters=639 hullPlating=781"],
+  "patrol:si:battleship:crimsonReaverSweep:once": ["2dfb18ca", "2436a90a", "won:14", "c6dba9cb", "8a77afc0", "cargoBay=1000 ftlDrive=970 reactorCore=992 specUtility=1000 weapon=980 weapon=990 weapon=990 weapon=970 weapon=980 weapon=1000 shieldEmitters=974 hullPlating=1000"],
+  "patrol:si:battleship:crimsonReaverSweep:repeat": ["fa1c93f", "2436a90a", "relaunch:14", "364687c6", "6ab48506", "b8fbeace", "relaunch:28", "f7d02d86", "7a25963b", "6ab67ead", "won:42", "c6dba9cb", "aed00115", "cargoBay=1000 ftlDrive=920 reactorCore=968 specUtility=1000 weapon=950 weapon=950 weapon=960 weapon=950 weapon=940 weapon=960 shieldEmitters=951 hullPlating=1000"],
+  "patrol:si:battleship:crimsonReaverWarband:once": ["6163082c", "a4925972", "won:22", "c6dba9cb", "b2613955", "cargoBay=1000 ftlDrive=990 reactorCore=975 specUtility=1000 weapon=960 weapon=970 weapon=940 weapon=960 weapon=980 weapon=930 shieldEmitters=969 hullPlating=995"],
+  "patrol:si:battleship:crimsonReaverWarband:repeat": ["15fb65f9", "a4925972", "relaunch:22", "5b8fa9f5", "a96bfdf7", "f91124dd", "lost:40", "afe73d75", "ae2eab03", "cargoBay=1000 ftlDrive=810 reactorCore=884 specUtility=1000 weapon=780 weapon=820 weapon=780 weapon=820 weapon=790 weapon=800 shieldEmitters=805 hullPlating=842"],
+  "patrol:si:carrier:crimsonReaverSweep:once": ["fd75b80b", "8f2f9130", "won:14", "ea909677", "80b45ed5", "cargoBay=1000 ftlDrive=940 reactorCore=942 specUtility=1000 weapon=920 weapon=920 shieldEmitters=967 hullPlating=1000 droneBay=775"],
+  "patrol:si:carrier:crimsonReaverSweep:repeat": ["894546ac", "8f2f9130", "relaunch:14", "8daa9f07", "204dfba0", "888a955b", "relaunch:28", "b9e624af", "e15e6bc4", "9078cba9", "won:42", "ea909677", "e673be5c", "cargoBay=1000 ftlDrive=850 reactorCore=901 specUtility=1000 weapon=820 weapon=850 shieldEmitters=962 hullPlating=1000 droneBay=589"],
+  "patrol:si:carrier:crimsonReaverWarband:once": ["44ef2269", "c28deffe", "won:22", "ea909677", "cb9e5438", "cargoBay=1000 ftlDrive=930 reactorCore=942 specUtility=1000 weapon=900 weapon=880 shieldEmitters=989 hullPlating=979 droneBay=664"],
+  "patrol:si:carrier:crimsonReaverWarband:repeat": ["c38f959a", "c28deffe", "relaunch:22", "e23037a1", "9f897753", "af1c8907", "lost:38", "73109288", "232aaac2", "cargoBay=1000 ftlDrive=840 reactorCore=859 specUtility=1000 weapon=800 weapon=740 shieldEmitters=840 hullPlating=823 droneBay=365"],
+  "patrol:si:orion:crimsonReaverSweep:once": ["96307d3", "f6d6af33", "won:14", "c75858d4", "16bef1a9", "cargoBay=1000 ftlDrive=640 reactorCore=692 specUtility=1000 weapon=600 shieldEmitters=822 hullPlating=931"],
+  "patrol:si:orion:crimsonReaverSweep:repeat": ["49cdfeb4", "f6d6af33", "relaunch:14", "d0d5b464", "2b2046ae", "deed936c", "relaunch:28", "2de022a1", "2d4ee2ea", "acd33d96", "lost:40", "6619cb48", "c6407fce", "cargoBay=1000 ftlDrive=0 reactorCore=43 specUtility=1000 weapon=0 shieldEmitters=445 hullPlating=776"],
+  "patrol:si:orion:crimsonReaverWarband:once": ["44b24d79", "acbf2a27", "lost:20", "6619cb48", "c41d314a", "cargoBay=1000 ftlDrive=720 reactorCore=717 specUtility=1000 weapon=680 shieldEmitters=820 hullPlating=844"],
+  "patrol:si:orion:crimsonReaverWarband:repeat": ["e972f78a", "acbf2a27", "lost:20", "6619cb48", "c41d314a", "cargoBay=1000 ftlDrive=720 reactorCore=717 specUtility=1000 weapon=680 shieldEmitters=820 hullPlating=844"],
+  "patrol:si:aurora:crimsonReaverSweep:once": ["6335977c", "6eeaff13", "won:14", "62b89a6f", "71c6fd52", "cargoBay=1000 ftlDrive=640 reactorCore=692 specUtility=1000 weapon=600 shieldEmitters=814 hullPlating=910"],
+  "patrol:si:aurora:crimsonReaverSweep:repeat": ["1dc15be9", "6eeaff13", "relaunch:14", "211bb688", "9c1bb3c4", "4fa1bf61", "relaunch:28", "c72a5141", "cea6d4c4", "7a0a678e", "lost:40", "def772e7", "f97a9254", "cargoBay=1000 ftlDrive=0 reactorCore=43 specUtility=1000 weapon=0 shieldEmitters=412 hullPlating=755"],
+  "patrol:si:aurora:crimsonReaverWarband:once": ["791cbd5a", "a5c4a4bd", "lost:20", "def772e7", "bd9106a0", "cargoBay=1000 ftlDrive=730 reactorCore=725 specUtility=1000 weapon=690 shieldEmitters=804 hullPlating=844"],
+  "patrol:si:aurora:crimsonReaverWarband:repeat": ["e394c6af", "a5c4a4bd", "lost:20", "def772e7", "bd9106a0", "cargoBay=1000 ftlDrive=730 reactorCore=725 specUtility=1000 weapon=690 shieldEmitters=804 hullPlating=844"],
+  "patrol:si:eir:crimsonReaverSweep:once": ["29832d98", "28bafcf2", "won:14", "ffdca63b", "72e556b7", "cargoBay=1000 ftlDrive=640 reactorCore=692 specUtility=1000 weapon=600 shieldEmitters=823 hullPlating=863"],
+  "patrol:si:eir:crimsonReaverSweep:repeat": ["e5a9dccd", "28bafcf2", "relaunch:14", "877203ad", "131d9393", "a72f715", "relaunch:28", "1f229e62", "12726d5d", "427ab59f", "lost:40", "11555ad9", "50c6ffdd", "cargoBay=1000 ftlDrive=0 reactorCore=43 specUtility=1000 weapon=0 shieldEmitters=425 hullPlating=684"],
+  "patrol:si:eir:crimsonReaverWarband:once": ["e71e100e", "5f90e37a", "lost:20", "7ddb5b8d", "3270e736", "cargoBay=1000 ftlDrive=720 reactorCore=717 specUtility=1000 weapon=680 shieldEmitters=795 hullPlating=844"],
+  "patrol:si:eir:crimsonReaverWarband:repeat": ["a4f9c3cb", "5f90e37a", "lost:20", "7ddb5b8d", "3270e736", "cargoBay=1000 ftlDrive=720 reactorCore=717 specUtility=1000 weapon=680 shieldEmitters=795 hullPlating=844"],
+  "patrol:worn:generalFreighter:crimsonReaverSweep:once": ["bd4bcf18", "88e313b5", "lost:10", "b5fc4bb3", "87c9d13a", "cargoBay=900 ftlDrive=370 reactorCore=377 specUtility=700 weapon=460 weapon=470 shieldEmitters=470 hullPlating=364"],
+  "patrol:worn:generalFreighter:crimsonReaverSweep:repeat": ["9509a54d", "88e313b5", "lost:10", "b5fc4bb3", "87c9d13a", "cargoBay=900 ftlDrive=370 reactorCore=377 specUtility=700 weapon=460 weapon=470 shieldEmitters=470 hullPlating=364"],
+  "patrol:worn:generalFreighter:crimsonReaverWarband:once": ["7b5ddb2", "5450745a", "lost:20", "b5fc4bb3", "18440ca6", "cargoBay=900 ftlDrive=360 reactorCore=385 specUtility=700 weapon=430 weapon=330 shieldEmitters=390 hullPlating=365"],
+  "patrol:worn:generalFreighter:crimsonReaverWarband:repeat": ["ea730127", "5450745a", "lost:20", "b5fc4bb3", "18440ca6", "cargoBay=900 ftlDrive=360 reactorCore=385 specUtility=700 weapon=430 weapon=330 shieldEmitters=390 hullPlating=365"],
+  "patrol:worn:prospectorHauler:crimsonReaverSweep:once": ["4e484730", "2e21339", "lost:14", "d30864e1", "e246e1d1", "cargoBay=900 ftlDrive=280 reactorCore=302 specUtility=700 weapon=360 weapon=380 shieldEmitters=444 hullPlating=365"],
+  "patrol:worn:prospectorHauler:crimsonReaverSweep:repeat": ["17499c25", "2e21339", "lost:14", "d30864e1", "e246e1d1", "cargoBay=900 ftlDrive=280 reactorCore=302 specUtility=700 weapon=360 weapon=380 shieldEmitters=444 hullPlating=365"],
+  "patrol:worn:prospectorHauler:crimsonReaverWarband:once": ["cf12e2c6", "3933588d", "lost:20", "d30864e1", "9561a17f", "cargoBay=900 ftlDrive=310 reactorCore=319 specUtility=700 weapon=400 weapon=270 shieldEmitters=373 hullPlating=365"],
+  "patrol:worn:prospectorHauler:crimsonReaverWarband:repeat": ["9334b683", "3933588d", "lost:20", "d30864e1", "9561a17f", "cargoBay=900 ftlDrive=310 reactorCore=319 specUtility=700 weapon=400 weapon=270 shieldEmitters=373 hullPlating=365"],
+  "patrol:worn:prospectorRunner:crimsonReaverSweep:once": ["18b03ca", "7406c76e", "lost:10", "c4ae7568", "22d26d0f", "cargoBay=900 ftlDrive=460 reactorCore=460 specUtility=700 weapon=540 shieldEmitters=470 hullPlating=364"],
+  "patrol:worn:prospectorRunner:crimsonReaverSweep:repeat": ["9631123f", "7406c76e", "lost:10", "c4ae7568", "22d26d0f", "cargoBay=900 ftlDrive=460 reactorCore=460 specUtility=700 weapon=540 shieldEmitters=470 hullPlating=364"],
+  "patrol:worn:prospectorRunner:crimsonReaverWarband:once": ["6cf94cb4", "55888aa7", "lost:16", "c4ae7568", "af0d2c90", "cargoBay=900 ftlDrive=390 reactorCore=360 specUtility=700 weapon=430 shieldEmitters=470 hullPlating=364"],
+  "patrol:worn:prospectorRunner:crimsonReaverWarband:repeat": ["c0dccc1", "55888aa7", "lost:16", "c4ae7568", "af0d2c90", "cargoBay=900 ftlDrive=390 reactorCore=360 specUtility=700 weapon=430 shieldEmitters=470 hullPlating=364"],
+  "patrol:worn:prospectorMiner:crimsonReaverSweep:once": ["e52443cd", "4a6e56af", "lost:10", "b8577ef0", "4a16fa1c", "cargoBay=900 ftlDrive=430 reactorCore=435 specUtility=700 weapon=490 shieldEmitters=470 hullPlating=364"],
+  "patrol:worn:prospectorMiner:crimsonReaverSweep:repeat": ["7300a666", "4a6e56af", "lost:10", "b8577ef0", "4a16fa1c", "cargoBay=900 ftlDrive=430 reactorCore=435 specUtility=700 weapon=490 shieldEmitters=470 hullPlating=364"],
+  "patrol:worn:prospectorMiner:crimsonReaverWarband:once": ["49e60b7f", "c4b613f9", "lost:16", "b8577ef0", "a9a21e1b", "cargoBay=900 ftlDrive=340 reactorCore=285 specUtility=700 weapon=380 shieldEmitters=470 hullPlating=364"],
+  "patrol:worn:prospectorMiner:crimsonReaverWarband:repeat": ["1b541288", "c4b613f9", "lost:16", "b8577ef0", "a9a21e1b", "cargoBay=900 ftlDrive=340 reactorCore=285 specUtility=700 weapon=380 shieldEmitters=470 hullPlating=364"],
+  "patrol:worn:destroyer:crimsonReaverSweep:once": ["96938419", "d07b0776", "won:14", "6ad9f46c", "f6c882a3", "cargoBay=900 ftlDrive=510 reactorCore=494 specUtility=700 weapon=560 weapon=560 weapon=530 weapon=570 shieldEmitters=459 hullPlating=520"],
+  "patrol:worn:destroyer:crimsonReaverSweep:repeat": ["b8d18aaa", "d07b0776", "relaunch:14", "4dd6babe", "b128e2b0", "efc0a95e", "relaunch:28", "30c5f226", "b48f5b9c", "cd286b09", "won:42", "6ad9f46c", "881a81d0", "cargoBay=901 ftlDrive=381 reactorCore=370 specUtility=701 weapon=421 weapon=391 weapon=381 weapon=411 shieldEmitters=273 hullPlating=521"],
+  "patrol:worn:destroyer:crimsonReaverWarband:once": ["2a9c0c4b", "8ccf75a1", "won:22", "6ad9f46c", "f82c5812", "cargoBay=900 ftlDrive=440 reactorCore=427 specUtility=700 weapon=480 weapon=440 weapon=460 weapon=510 shieldEmitters=408 hullPlating=380"],
+  "patrol:worn:destroyer:crimsonReaverWarband:repeat": ["b554ceec", "8ccf75a1", "relaunch:22", "708a941b", "680f7750", "55a47da5", "lost:38", "21aec759", "3f4e7991", "cargoBay=901 ftlDrive=301 reactorCore=337 specUtility=701 weapon=371 weapon=331 weapon=341 weapon=391 shieldEmitters=319 hullPlating=225"],
+  "patrol:worn:battleship:crimsonReaverSweep:once": ["6222bfe8", "9ac03ce9", "won:14", "c6dba9cb", "45d087c6", "cargoBay=900 ftlDrive=550 reactorCore=519 specUtility=700 weapon=620 weapon=590 weapon=610 weapon=610 weapon=630 weapon=610 shieldEmitters=576 hullPlating=520"],
+  "patrol:worn:battleship:crimsonReaverSweep:repeat": ["722719bd", "9ac03ce9", "relaunch:14", "18573f22", "c6bbcd13", "b6462535", "relaunch:28", "c5091155", "bff301c1", "c8a8e065", "won:42", "c6dba9cb", "9779698e", "cargoBay=901 ftlDrive=501 reactorCore=487 specUtility=701 weapon=551 weapon=561 weapon=521 weapon=581 weapon=581 weapon=561 shieldEmitters=546 hullPlating=521"],
+  "patrol:worn:battleship:crimsonReaverWarband:once": ["e89f9b12", "8789e91", "won:22", "c6dba9cb", "6f1f9458", "cargoBay=900 ftlDrive=440 reactorCore=419 specUtility=700 weapon=460 weapon=510 weapon=470 weapon=550 weapon=510 weapon=570 shieldEmitters=555 hullPlating=421"],
+  "patrol:worn:battleship:crimsonReaverWarband:repeat": ["5b797507", "8789e91", "relaunch:22", "1e68f391", "b7ccf33a", "7dd6cff5", "lost:38", "faec60d3", "a22f46d", "cargoBay=901 ftlDrive=211 reactorCore=245 specUtility=701 weapon=221 weapon=331 weapon=241 weapon=311 weapon=311 weapon=331 shieldEmitters=506 hullPlating=266"],
+  "patrol:worn:carrier:crimsonReaverSweep:once": ["ad5933c9", "c0125de6", "won:14", "ea909677", "acccf58", "cargoBay=900 ftlDrive=510 reactorCore=485 specUtility=700 weapon=570 weapon=530 shieldEmitters=606 hullPlating=520 droneBay=338"],
+  "patrol:worn:carrier:crimsonReaverSweep:repeat": ["a160037a", "c0125de6", "relaunch:14", "a189c10b", "c7b2fe00", "1ee51b87", "relaunch:28", "7619d683", "7ba87d64", "34c6008", "won:42", "ea909677", "df82d62a", "cargoBay=901 ftlDrive=411 reactorCore=411 specUtility=701 weapon=501 weapon=431 shieldEmitters=598 hullPlating=521 droneBay=3"],
+  "patrol:worn:carrier:crimsonReaverWarband:once": ["5449c91b", "9ff387b7", "lost:20", "5fc4a7ce", "6fec292d", "cargoBay=900 ftlDrive=340 reactorCore=402 specUtility=700 weapon=370 weapon=380 shieldEmitters=562 hullPlating=364 droneBay=300"],
+  "patrol:worn:carrier:crimsonReaverWarband:repeat": ["d227b9dc", "9ff387b7", "lost:20", "5fc4a7ce", "6fec292d", "cargoBay=900 ftlDrive=340 reactorCore=402 specUtility=700 weapon=370 weapon=380 shieldEmitters=562 hullPlating=364 droneBay=300"],
+  "patrol:worn:orion:crimsonReaverSweep:once": ["4b330354", "c5e40def", "lost:10", "235be419", "73b198e8", "cargoBay=900 ftlDrive=210 reactorCore=360 specUtility=700 weapon=320 shieldEmitters=470 hullPlating=364"],
+  "patrol:worn:orion:crimsonReaverSweep:repeat": ["72c76ae1", "c5e40def", "lost:10", "235be419", "73b198e8", "cargoBay=900 ftlDrive=210 reactorCore=360 specUtility=700 weapon=320 shieldEmitters=470 hullPlating=364"],
+  "patrol:worn:orion:crimsonReaverWarband:once": ["b7db335a", "85bd0696", "lost:20", "235be419", "584151df", "cargoBay=900 ftlDrive=180 reactorCore=94 specUtility=700 weapon=100 shieldEmitters=439 hullPlating=364"],
+  "patrol:worn:orion:crimsonReaverWarband:repeat": ["603e38af", "85bd0696", "lost:20", "235be419", "584151df", "cargoBay=900 ftlDrive=180 reactorCore=94 specUtility=700 weapon=100 shieldEmitters=439 hullPlating=364"],
+  "patrol:worn:aurora:crimsonReaverSweep:once": ["f0877537", "aa63a6bb", "lost:10", "fa918919", "7ef5e7ef", "cargoBay=900 ftlDrive=240 reactorCore=377 specUtility=700 weapon=360 shieldEmitters=470 hullPlating=364"],
+  "patrol:worn:aurora:crimsonReaverSweep:repeat": ["c67253e0", "aa63a6bb", "lost:10", "fa918919", "7ef5e7ef", "cargoBay=900 ftlDrive=240 reactorCore=377 specUtility=700 weapon=360 shieldEmitters=470 hullPlating=364"],
+  "patrol:worn:aurora:crimsonReaverWarband:once": ["1bd248bd", "85caf75", "lost:20", "fa918919", "4fd6f2eb", "cargoBay=900 ftlDrive=190 reactorCore=94 specUtility=700 weapon=110 shieldEmitters=441 hullPlating=365"],
+  "patrol:worn:aurora:crimsonReaverWarband:repeat": ["bdec0476", "85caf75", "lost:20", "fa918919", "4fd6f2eb", "cargoBay=900 ftlDrive=190 reactorCore=94 specUtility=700 weapon=110 shieldEmitters=441 hullPlating=365"],
+  "patrol:worn:eir:crimsonReaverSweep:once": ["c57d6a0f", "6453c057", "lost:10", "d4d05c8", "be59c0ca", "cargoBay=900 ftlDrive=250 reactorCore=385 specUtility=700 weapon=380 shieldEmitters=470 hullPlating=364"],
+  "patrol:worn:eir:crimsonReaverSweep:repeat": ["e66df1f8", "6453c057", "lost:10", "d4d05c8", "be59c0ca", "cargoBay=900 ftlDrive=250 reactorCore=385 specUtility=700 weapon=380 shieldEmitters=470 hullPlating=364"],
+  "patrol:worn:eir:crimsonReaverWarband:once": ["4dcced81", "6c4011ff", "lost:20", "d4d05c8", "f6918691", "cargoBay=900 ftlDrive=190 reactorCore=94 specUtility=700 weapon=130 shieldEmitters=444 hullPlating=365"],
+  "patrol:worn:eir:crimsonReaverWarband:repeat": ["e5dbc8f2", "6c4011ff", "lost:20", "d4d05c8", "f6918691", "cargoBay=900 ftlDrive=190 reactorCore=94 specUtility=700 weapon=130 shieldEmitters=444 hullPlating=365"],
+  "patrol:crafted:destroyer:crimsonReaverSweep:repeat": ["1c89882a", "9b31d2ea", "relaunch:14", "ff2be6da", "264157f4", "c13bf6", "relaunch:28", "8ce3ede0", "a541edf", "482e0b30", "won:42", "6ad9f46c", "7a12de9c", "cargoBay=1000 ftlDrive=1000 reactorCore=997 specUtility=1000 weapon=997 weapon=1000 weapon=1000 weapon=1000 shieldEmitters=988 hullPlating=1000"],
+  "patrol:crafted:destroyer:crimsonReaverWarband:repeat": ["8c7ffe0c", "64ce01be", "relaunch:22", "45ae5853", "779e66e", "74d6d74a", "relaunch:44", "6372473e", "d20bcae6", "44e1893d", "won:66", "6ad9f46c", "598bc515", "cargoBay=1000 ftlDrive=970 reactorCore=981 specUtility=1000 weapon=976 weapon=952 weapon=957 weapon=961 shieldEmitters=886 hullPlating=940"],
+  "patrol:crafted:battleship:crimsonReaverSweep:repeat": ["93d8084d", "aed8379f", "relaunch:14", "83739766", "99cfb159", "ab7d3c70", "relaunch:28", "76085cf8", "b8bf6198", "8742c874", "won:42", "c6dba9cb", "8eb82adc", "cargoBay=1000 ftlDrive=997 reactorCore=1000 specUtility=1000 weapon=997 weapon=1000 weapon=1000 weapon=1000 weapon=1000 weapon=1000 shieldEmitters=997 hullPlating=1000"],
+  "patrol:crafted:battleship:crimsonReaverWarband:repeat": ["978075bb", "8f582d90", "relaunch:22", "38b2c95c", "9108059e", "c035c859", "relaunch:44", "bf772425", "8e11f2c0", "f32abb8f", "won:66", "c6dba9cb", "4ca3ecde", "cargoBay=1000 ftlDrive=959 reactorCore=962 specUtility=1000 weapon=935 weapon=959 weapon=930 weapon=947 weapon=959 weapon=943 shieldEmitters=953 hullPlating=939"],
+  "patrol:crafted:carrier:crimsonReaverSweep:repeat": ["ec73dcb5", "52094610", "relaunch:14", "ffd65e64", "69fd2b80", "3bc3fa66", "relaunch:28", "22611874", "f8e61afa", "668ffb60", "won:42", "ea909677", "9900317c", "cargoBay=1000 ftlDrive=990 reactorCore=988 specUtility=1000 weapon=994 weapon=986 shieldEmitters=1000 hullPlating=1000 droneBay=1000"],
+  "patrol:crafted:carrier:crimsonReaverWarband:repeat": ["50183947", "52ece1ab", "relaunch:22", "fb99e349", "356182f5", "ce3a3c20", "relaunch:44", "d9da8b51", "5d140cb5", "403df4f3", "won:66", "ea909677", "e91db1c3", "cargoBay=1000 ftlDrive=929 reactorCore=963 specUtility=1000 weapon=936 weapon=937 shieldEmitters=996 hullPlating=979 droneBay=868"],
+  "patrol:dc:destroyer:crimsonReaverSweep:repeat": ["c370e97f", "7a88748f", "relaunch:14", "ac553f92", "2600f819", "f7ebb727", "relaunch:28", "47bd05b", "4ffbff85", "5fb3c4d8", "won:42", "6ad9f46c", "2acf72c7", "cargoBay=1000 ftlDrive=881 reactorCore=919 weapon=851 weapon=871 weapon=881 weapon=931 shieldEmitters=762 hullPlating=1000 specUtility=1000"],
+  "patrol:modules:battleship:crimsonReaverSweep:repeat": ["7e7ded06", "dcbbe45d", "relaunch:14", "449a2907", "12ea7fa2", "f04f61a1", "relaunch:28", "381f2c69", "975bf0fd", "442a6cea", "won:42", "c6dba9cb", "b8064903", "cargoBay=1000 ftlDrive=920 reactorCore=968 specUtility=1000 weapon=950 weapon=950 weapon=960 weapon=950 weapon=940 weapon=960 shieldEmitters=951 hullPlating=1000 module=651 module=651"],
+  "patrol:dc:destroyer:crimsonReaverWarband:repeat": ["b4671", "15ccdf90", "relaunch:22", "8796c2a", "60a8a714", "a9ae8667", "lost:38", "44b4c6b5", "dd726500", "cargoBay=1000 ftlDrive=770 reactorCore=818 weapon=800 weapon=800 weapon=750 weapon=760 shieldEmitters=771 hullPlating=747 specUtility=992"],
+  "patrol:modules:battleship:crimsonReaverWarband:repeat": ["353aa350", "c3504eb9", "relaunch:22", "ba863db2", "7147ded2", "93839fbc", "lost:40", "c901ee50", "a12135ae", "cargoBay=1000 ftlDrive=780 reactorCore=875 specUtility=1000 weapon=770 weapon=820 weapon=790 weapon=810 weapon=760 weapon=790 shieldEmitters=805 hullPlating=842 module=651 module=651"],
+  "forecast:si:generalFreighter:crimsonReaverSweep": ["57:likely"],
+  "forecast:si:generalFreighter:crimsonReaverWarband": ["0:impossible"],
+  "forecast:si:destroyer:crimsonReaverSweep": ["64:guaranteed"],
+  "forecast:si:destroyer:crimsonReaverWarband": ["9:extreme"],
+  "forecast:si:battleship:crimsonReaverSweep": ["64:guaranteed"],
+  "forecast:si:battleship:crimsonReaverWarband": ["52:likely"],
+  "forecast:si:carrier:crimsonReaverSweep": ["64:guaranteed"],
+  "forecast:si:carrier:crimsonReaverWarband": ["23:notAdvised"],
+  "forecast:si:orion:crimsonReaverSweep": ["58:likely"],
+  "forecast:si:orion:crimsonReaverWarband": ["0:impossible"],
+  "forecast:worn:generalFreighter:crimsonReaverSweep": ["37:dice"],
+  "forecast:worn:generalFreighter:crimsonReaverWarband": ["0:impossible"],
+  "forecast:worn:destroyer:crimsonReaverSweep": ["63:likely"],
+  "forecast:worn:destroyer:crimsonReaverWarband": ["2:extreme"],
+  "forecast:worn:battleship:crimsonReaverSweep": ["64:guaranteed"],
+  "forecast:worn:battleship:crimsonReaverWarband": ["32:dice"],
+  "forecast:worn:carrier:crimsonReaverSweep": ["64:guaranteed"],
+  "forecast:worn:carrier:crimsonReaverWarband": ["1:extreme"],
+  "forecast:worn:orion:crimsonReaverSweep": ["37:dice"],
+  "forecast:worn:orion:crimsonReaverWarband": ["0:impossible"],
+  "shipEvent:si:orion:cand-0:default": ["none", "628d0a82", "1/11 hull:0 setbacks:0", "77e8908f"],
+  "shipEvent:si:orion:cand-0:101": ["probe:win", "11dfac17", "7/12 hull:0 setbacks:1", "e3740763"],
+  "battle:si:orion:cand-0": ["probe:0:0:win:0:c73edb09", "probe:0:1:win:0:a54e4964", "probe:0:2:win:0:eafd4a1b", "probe:1:0:win:0:7bcc3a98", "probe:1:1:win:0:66306a1b", "probe:1:2:win:0:e7c57bc", "cloakedPass:0:0:win:0:f3f52e19", "cloakedPass:0:1:win:0:ea0b90c0", "cloakedPass:0:2:win:0:78f25ccc", "cloakedPass:1:0:win:0:23e5c229", "cloakedPass:1:1:win:0:da68cc6b", "cloakedPass:1:2:win:0:97ee3209", "cloakedFail:0:0:win:0:75465c2b", "cloakedFail:0:1:win:0:10151745", "cloakedFail:0:2:win:0:ef1a7693", "cloakedFail:1:0:win:0:def175c1", "cloakedFail:1:1:loss:41:866f0aad", "cloakedFail:1:2:win:0:abad3b24"],
+  "shipEvent:si:orion:cand-1:default": ["probe:win", "2d6212ca", "7/10 hull:0 setbacks:2", "2ac5cc3"],
+  "shipEvent:si:orion:cand-1:101": ["none", "2a9661e9", "4/14 hull:0 setbacks:1", "fd3905ed"],
+  "battle:si:orion:cand-1": ["probe:0:0:win:0:354c73b3", "probe:0:1:win:0:a2802e14", "probe:0:2:win:0:6e603a66", "probe:1:0:win:0:19e42699", "probe:1:1:win:0:6b557200", "probe:1:2:win:0:6aabc6c0", "cloakedPass:0:0:win:0:29c7f75f", "cloakedPass:0:1:win:0:7cb1981a", "cloakedPass:0:2:win:0:bab7d762", "cloakedPass:1:0:win:0:7d3b9788", "cloakedPass:1:1:win:0:cdaf51f3", "cloakedPass:1:2:win:0:57fbcb4f", "cloakedFail:0:0:win:0:5d26ea0a", "cloakedFail:0:1:win:0:487a4ded", "cloakedFail:0:2:loss:41:ca9eb680", "cloakedFail:1:0:win:0:a11e16c5", "cloakedFail:1:1:win:0:2570f592", "cloakedFail:1:2:win:0:25bad8a8"],
+  "shipEvent:si:orion:cand-2:default": ["cloaked:loss", "db62147d", "4/6 hull:55 setbacks:2", "fc93ae8d"],
+  "shipEvent:si:orion:cand-2:101": ["probe:win", "12983d5c", "7/15 hull:0 setbacks:1", "c8a21017"],
+  "battle:si:orion:cand-2": ["probe:0:0:win:0:80da678d", "probe:0:1:win:0:c6671e7", "probe:0:2:win:0:52a4863b", "probe:1:0:win:0:a53c01ec", "probe:1:1:win:0:6be1a795", "probe:1:2:win:0:884a0b7e", "cloakedPass:0:0:win:0:da47f12c", "cloakedPass:0:1:win:0:37a8f66c", "cloakedPass:0:2:loss:41:82500f31", "cloakedPass:1:0:win:0:18015d55", "cloakedPass:1:1:win:0:7b8bed0a", "cloakedPass:1:2:win:0:61a25f08", "cloakedFail:0:0:win:0:ac2b6517", "cloakedFail:0:1:win:0:6f54e640", "cloakedFail:0:2:win:0:3ebf5c5f", "cloakedFail:1:0:win:0:a4adee9", "cloakedFail:1:1:win:0:1ae8546c", "cloakedFail:1:2:win:0:cd8f2ab0"],
+  "shipEvent:si:aurora:cand-0:default": ["none", "628d0a82", "1/11 hull:0 setbacks:0", "5b22665c"],
+  "shipEvent:si:aurora:cand-0:101": ["probe:win", "b67a9aa0", "7/12 hull:0 setbacks:1", "f0a6b980"],
+  "battle:si:aurora:cand-0": ["probe:0:0:win:0:2fc71408", "probe:0:1:win:0:c0a4ce12", "probe:0:2:win:0:16e0bb0e", "probe:1:0:win:0:5ea89b6d", "probe:1:1:win:0:9128ec2d", "probe:1:2:win:0:d02d5d94", "cloakedPass:0:0:win:0:f3f52e19", "cloakedPass:0:1:win:0:ea0b90c0", "cloakedPass:0:2:win:0:e27d4837", "cloakedPass:1:0:win:0:23e5c229", "cloakedPass:1:1:win:0:171a1cc5", "cloakedPass:1:2:win:0:97ee3209", "cloakedFail:0:0:win:0:75465c2b", "cloakedFail:0:1:win:0:10151745", "cloakedFail:0:2:loss:36:58164d0f", "cloakedFail:1:0:win:0:def175c1", "cloakedFail:1:1:loss:36:2a7b01b7", "cloakedFail:1:2:win:0:abad3b24"],
+  "shipEvent:si:aurora:cand-1:default": ["probe:win", "a71dc2bb", "7/10 hull:0 setbacks:2", "fedd765b"],
+  "shipEvent:si:aurora:cand-1:101": ["none", "2a9661e9", "4/14 hull:0 setbacks:1", "bf5a9957"],
+  "battle:si:aurora:cand-1": ["probe:0:0:win:0:7c19d5cd", "probe:0:1:win:0:cd65286e", "probe:0:2:win:0:4b6dc2c2", "probe:1:0:win:0:91f66a6e", "probe:1:1:win:0:8c71b01b", "probe:1:2:win:0:4d869495", "cloakedPass:0:0:win:0:29c7f75f", "cloakedPass:0:1:win:0:4013cf78", "cloakedPass:0:2:win:0:bab7d762", "cloakedPass:1:0:win:0:7d3b9788", "cloakedPass:1:1:win:0:cdaf51f3", "cloakedPass:1:2:win:0:57fbcb4f", "cloakedFail:0:0:win:0:5d26ea0a", "cloakedFail:0:1:win:0:487a4ded", "cloakedFail:0:2:loss:36:43a79848", "cloakedFail:1:0:win:0:a11e16c5", "cloakedFail:1:1:win:0:2570f592", "cloakedFail:1:2:win:0:25bad8a8"],
+  "shipEvent:si:aurora:cand-2:default": ["cloaked:loss", "6d041903", "4/6 hull:48 setbacks:2", "22b30b6"],
+  "shipEvent:si:aurora:cand-2:101": ["probe:win", "54922d11", "7/15 hull:0 setbacks:1", "b9428222"],
+  "battle:si:aurora:cand-2": ["probe:0:0:win:0:c8e49412", "probe:0:1:win:0:848c3d74", "probe:0:2:win:0:7417f67", "probe:1:0:win:0:d026fa1c", "probe:1:1:win:0:1e0437c1", "probe:1:2:win:0:a9783e51", "cloakedPass:0:0:win:0:da47f12c", "cloakedPass:0:1:win:0:37a8f66c", "cloakedPass:0:2:loss:36:308ba79", "cloakedPass:1:0:win:0:18015d55", "cloakedPass:1:1:win:0:a7cbbeae", "cloakedPass:1:2:win:0:61a25f08", "cloakedFail:0:0:win:0:ac2b6517", "cloakedFail:0:1:win:0:6f54e640", "cloakedFail:0:2:win:0:3ebf5c5f", "cloakedFail:1:0:win:0:a4adee9", "cloakedFail:1:1:win:0:53381a35", "cloakedFail:1:2:win:0:82a61460"],
+  "shipEvent:si:eir:cand-0:default": ["none", "628d0a82", "1/11 hull:0 setbacks:0", "a5d26902"],
+  "shipEvent:si:eir:cand-0:101": ["probe:win", "5eca61e1", "7/12 hull:0 setbacks:1", "b7422f88"],
+  "battle:si:eir:cand-0": ["probe:0:0:win:0:3f511ede", "probe:0:1:win:0:23d85a7", "probe:0:2:win:0:8371f4b5", "probe:1:0:win:0:5ea89b6d", "probe:1:1:win:0:221bb686", "probe:1:2:win:0:3caca283", "cloakedPass:0:0:win:0:f3f52e19", "cloakedPass:0:1:win:0:ea0b90c0", "cloakedPass:0:2:win:0:e27d4837", "cloakedPass:1:0:win:0:23e5c229", "cloakedPass:1:1:win:0:171a1cc5", "cloakedPass:1:2:win:0:97ee3209", "cloakedFail:0:0:win:0:75465c2b", "cloakedFail:0:1:win:0:10151745", "cloakedFail:0:2:loss:43:36082bed", "cloakedFail:1:0:loss:43:52840a41", "cloakedFail:1:1:loss:43:a1633160", "cloakedFail:1:2:win:0:abad3b24"],
+  "shipEvent:si:eir:cand-1:default": ["probe:win", "8e05ed5e", "7/10 hull:0 setbacks:2", "c67b674e"],
+  "shipEvent:si:eir:cand-1:101": ["none", "2a9661e9", "4/14 hull:0 setbacks:1", "62556078"],
+  "battle:si:eir:cand-1": ["probe:0:0:win:0:e4a20ecc", "probe:0:1:win:0:39f7f515", "probe:0:2:win:0:b7fefc69", "probe:1:0:win:0:10985f99", "probe:1:1:win:0:1ff26b2c", "probe:1:2:win:0:4d869495", "cloakedPass:0:0:win:0:29c7f75f", "cloakedPass:0:1:win:0:4013cf78", "cloakedPass:0:2:win:0:bab7d762", "cloakedPass:1:0:win:0:7d3b9788", "cloakedPass:1:1:win:0:cdaf51f3", "cloakedPass:1:2:win:0:57fbcb4f", "cloakedFail:0:0:win:0:5d26ea0a", "cloakedFail:0:1:win:0:487a4ded", "cloakedFail:0:2:loss:43:4137e682", "cloakedFail:1:0:win:0:a11e16c5", "cloakedFail:1:1:win:0:2570f592", "cloakedFail:1:2:win:0:25bad8a8"],
+  "shipEvent:si:eir:cand-2:default": ["cloaked:loss", "54aab9e0", "4/6 hull:57 setbacks:2", "987456cc"],
+  "shipEvent:si:eir:cand-2:101": ["probe:win", "d4aa3ba0", "7/15 hull:0 setbacks:1", "569ee786"],
+  "battle:si:eir:cand-2": ["probe:0:0:win:0:c8e49412", "probe:0:1:win:0:f10b8263", "probe:0:2:win:0:c32ccbd2", "probe:1:0:win:0:d026fa1c", "probe:1:1:win:0:3b2969ec", "probe:1:2:win:0:3a6c9baa", "cloakedPass:0:0:win:0:da47f12c", "cloakedPass:0:1:win:0:37a8f66c", "cloakedPass:0:2:loss:43:2ccb95d2", "cloakedPass:1:0:win:0:18015d55", "cloakedPass:1:1:win:0:5c68b7da", "cloakedPass:1:2:win:0:61a25f08", "cloakedFail:0:0:win:0:ac2b6517", "cloakedFail:0:1:loss:43:9d0221dc", "cloakedFail:0:2:win:0:3ebf5c5f", "cloakedFail:1:0:win:0:a4adee9", "cloakedFail:1:1:win:0:53381a35", "cloakedFail:1:2:win:0:6580e235"],
+  "shipEvent:worn:orion:cand-0:default": ["none", "628d0a82", "1/11 hull:0 setbacks:0", "508ddd23"],
+  "shipEvent:worn:orion:cand-0:101": ["probe:win", "c5465d2b", "7/12 hull:0 setbacks:1", "f761dfd"],
+  "battle:worn:orion:cand-0": ["probe:0:0:win:0:29002220", "probe:0:1:win:0:6e75d192", "probe:0:2:win:0:216d0e0e", "probe:1:0:win:0:7a394001", "probe:1:1:win:0:b3493df5", "probe:1:2:win:0:d0b3b1e5", "cloakedPass:0:0:loss:41:6627090d", "cloakedPass:0:1:loss:41:7162729b", "cloakedPass:0:2:loss:41:82ace19b", "cloakedPass:1:0:loss:41:3c794b28", "cloakedPass:1:1:win:0:aa0e3743", "cloakedPass:1:2:loss:41:d031f3dc", "cloakedFail:0:0:loss:41:9f5fe7e4", "cloakedFail:0:1:loss:41:d08e0c77", "cloakedFail:0:2:loss:41:cd1c4502", "cloakedFail:1:0:loss:41:17166d66", "cloakedFail:1:1:loss:41:776ff33b", "cloakedFail:1:2:loss:41:dbca1c30"],
+  "shipEvent:worn:orion:cand-1:default": ["probe:win", "9e650297", "7/10 hull:0 setbacks:2", "276408a8"],
+  "shipEvent:worn:orion:cand-1:101": ["none", "2a9661e9", "4/14 hull:0 setbacks:1", "9837c0b5"],
+  "battle:worn:orion:cand-1": ["probe:0:0:win:0:d6e6e8c0", "probe:0:1:win:0:cff5cfaf", "probe:0:2:win:0:8d734313", "probe:1:0:win:0:c0dc97d2", "probe:1:1:win:0:ed9a0812", "probe:1:2:win:0:eab67e18", "cloakedPass:0:0:loss:41:b5a3aca9", "cloakedPass:0:1:loss:41:68e4ff2c", "cloakedPass:0:2:loss:41:11ca8eae", "cloakedPass:1:0:loss:41:f8d6a3ac", "cloakedPass:1:1:loss:41:87256788", "cloakedPass:1:2:loss:41:83dc59c0", "cloakedFail:0:0:loss:41:96476899", "cloakedFail:0:1:loss:41:b2977f0d", "cloakedFail:0:2:loss:41:a3cf8ba0", "cloakedFail:1:0:loss:41:58ac014b", "cloakedFail:1:1:win:0:84ac92cf", "cloakedFail:1:2:loss:41:ecd3fb33"],
+  "shipEvent:worn:orion:cand-2:default": ["cloaked:loss", "ef264be3", "4/6 hull:55 setbacks:2", "326aa541"],
+  "shipEvent:worn:orion:cand-2:101": ["probe:win", "90138ecc", "7/15 hull:0 setbacks:1", "ea923e3d"],
+  "battle:worn:orion:cand-2": ["probe:0:0:win:0:54027832", "probe:0:1:win:0:a24e02a3", "probe:0:2:win:0:8e2ccd09", "probe:1:0:win:0:bd823d3a", "probe:1:1:win:0:f2331a5", "probe:1:2:win:0:351a1a4b", "cloakedPass:0:0:loss:41:d673c91b", "cloakedPass:0:1:loss:41:ff596fc8", "cloakedPass:0:2:loss:41:fa3bb0b3", "cloakedPass:1:0:loss:41:3be3da07", "cloakedPass:1:1:loss:41:2db0b2fc", "cloakedPass:1:2:loss:41:99d2d206", "cloakedFail:0:0:loss:41:eae7d904", "cloakedFail:0:1:loss:41:e22f10c8", "cloakedFail:0:2:loss:41:7c5c045d", "cloakedFail:1:0:loss:41:baebdd61", "cloakedFail:1:1:loss:41:8d13ebab", "cloakedFail:1:2:loss:41:ed925e55"],
+  "shipEvent:worn:aurora:cand-0:default": ["none", "628d0a82", "1/11 hull:0 setbacks:0", "d644b1ea"],
+  "shipEvent:worn:aurora:cand-0:101": ["probe:win", "d0ad738f", "7/12 hull:0 setbacks:1", "2391a569"],
+  "battle:worn:aurora:cand-0": ["probe:0:0:win:0:dd9b884c", "probe:0:1:win:0:266ba50d", "probe:0:2:win:0:d608743a", "probe:1:0:win:0:f0873f05", "probe:1:1:win:0:ef0eb23b", "probe:1:2:win:0:49ab9358", "cloakedPass:0:0:loss:36:e272efa1", "cloakedPass:0:1:loss:36:7b17dca7", "cloakedPass:0:2:loss:36:e0757821", "cloakedPass:1:0:loss:36:35156a81", "cloakedPass:1:1:win:0:aa0e3743", "cloakedPass:1:2:loss:36:a0c95e8e", "cloakedFail:0:0:loss:36:c25a27fa", "cloakedFail:0:1:loss:36:5b45fe36", "cloakedFail:0:2:loss:36:db05104c", "cloakedFail:1:0:loss:36:70f89ded", "cloakedFail:1:1:loss:36:f700e027", "cloakedFail:1:2:loss:36:202924b2"],
+  "shipEvent:worn:aurora:cand-1:default": ["probe:win", "7ab4a608", "7/10 hull:0 setbacks:2", "53578d88"],
+  "shipEvent:worn:aurora:cand-1:101": ["none", "2a9661e9", "4/14 hull:0 setbacks:1", "bedc9ef7"],
+  "battle:worn:aurora:cand-1": ["probe:0:0:win:0:2f32f667", "probe:0:1:win:0:6ec1e7c5", "probe:0:2:win:0:d5928a50", "probe:1:0:win:0:a7fc114e", "probe:1:1:win:0:3608b562", "probe:1:2:win:0:ac63191a", "cloakedPass:0:0:loss:36:36459262", "cloakedPass:0:1:loss:36:7ed4547d", "cloakedPass:0:2:loss:36:c3c01383", "cloakedPass:1:0:loss:36:461f48e9", "cloakedPass:1:1:loss:36:98917fdd", "cloakedPass:1:2:loss:36:afa101d9", "cloakedFail:0:0:loss:36:768f1819", "cloakedFail:0:1:loss:36:31b9791e", "cloakedFail:0:2:loss:36:85c97575", "cloakedFail:1:0:loss:36:92d0044e", "cloakedFail:1:1:loss:36:ee53ca3f", "cloakedFail:1:2:loss:36:12abc62c"],
+  "shipEvent:worn:aurora:cand-2:default": ["cloaked:loss", "729127ba", "4/6 hull:48 setbacks:2", "527b0839"],
+  "shipEvent:worn:aurora:cand-2:101": ["probe:win", "8fab88d0", "7/15 hull:0 setbacks:1", "73be7d35"],
+  "battle:worn:aurora:cand-2": ["probe:0:0:win:0:82464ab1", "probe:0:1:win:0:56eafbcf", "probe:0:2:win:0:63f10de", "probe:1:0:win:0:2d8d8d92", "probe:1:1:win:0:6a95caf8", "probe:1:2:win:0:f674293a", "cloakedPass:0:0:loss:36:625df2e4", "cloakedPass:0:1:loss:36:2b394f8b", "cloakedPass:0:2:loss:36:f5e866bc", "cloakedPass:1:0:loss:36:ee66bad3", "cloakedPass:1:1:loss:36:8c1273e3", "cloakedPass:1:2:loss:36:ffceb1f0", "cloakedFail:0:0:loss:36:510825ef", "cloakedFail:0:1:loss:36:36f88b86", "cloakedFail:0:2:loss:36:e29bb863", "cloakedFail:1:0:loss:36:f11ca14c", "cloakedFail:1:1:loss:36:7e35a766", "cloakedFail:1:2:loss:36:686abb6c"],
+  "shipEvent:worn:eir:cand-0:default": ["none", "628d0a82", "1/11 hull:0 setbacks:0", "a1623b68"],
+  "shipEvent:worn:eir:cand-0:101": ["probe:win", "8c2c99a1", "7/12 hull:0 setbacks:1", "12bfa1a"],
+  "battle:worn:eir:cand-0": ["probe:0:0:win:0:c0ed5254", "probe:0:1:win:0:495092cf", "probe:0:2:win:0:cc3fb7fb", "probe:1:0:win:0:59110b04", "probe:1:1:win:0:2d1a7558", "probe:1:2:win:0:74908db2", "cloakedPass:0:0:loss:43:d1988885", "cloakedPass:0:1:loss:43:1425ab41", "cloakedPass:0:2:loss:43:7da049a3", "cloakedPass:1:0:loss:43:fd8119ee", "cloakedPass:1:1:win:0:aa0e3743", "cloakedPass:1:2:loss:43:701413c7", "cloakedFail:0:0:loss:43:72eb5017", "cloakedFail:0:1:loss:43:2d2a3cc6", "cloakedFail:0:2:loss:43:f9c535ca", "cloakedFail:1:0:loss:43:b4120a4c", "cloakedFail:1:1:loss:43:41397611", "cloakedFail:1:2:loss:43:11a634da"],
+  "shipEvent:worn:eir:cand-1:default": ["probe:win", "ba7ebdc6", "7/10 hull:0 setbacks:2", "e4d3ba08"],
+  "shipEvent:worn:eir:cand-1:101": ["none", "2a9661e9", "4/14 hull:0 setbacks:1", "cd5cf7e2"],
+  "battle:worn:eir:cand-1": ["probe:0:0:win:0:57b10f79", "probe:0:1:win:0:4643ceb3", "probe:0:2:win:0:1f2b4e7d", "probe:1:0:win:0:148eddf5", "probe:1:1:win:0:7a1bd5f7", "probe:1:2:win:0:23e12cd1", "cloakedPass:0:0:loss:43:8932a77c", "cloakedPass:0:1:loss:43:3e97fa77", "cloakedPass:0:2:loss:43:db74961d", "cloakedPass:1:0:loss:43:ab8237f7", "cloakedPass:1:1:loss:43:34d8c8a7", "cloakedPass:1:2:loss:43:bef802ad", "cloakedFail:0:0:loss:43:8bf6dbc2", "cloakedFail:0:1:loss:43:d5c18b1c", "cloakedFail:0:2:loss:43:f9dd88e5", "cloakedFail:1:0:loss:43:9a057fde", "cloakedFail:1:1:loss:43:18ecbdad", "cloakedFail:1:2:loss:43:8221a2fd"],
+  "shipEvent:worn:eir:cand-2:default": ["cloaked:loss", "a00ac96c", "4/6 hull:57 setbacks:2", "7104cda0"],
+  "shipEvent:worn:eir:cand-2:101": ["probe:win", "28e02f41", "7/15 hull:0 setbacks:1", "5abb9b9"],
+  "battle:worn:eir:cand-2": ["probe:0:0:win:0:a52b3873", "probe:0:1:win:0:1550b13a", "probe:0:2:win:0:84e10609", "probe:1:0:win:0:9a1ec739", "probe:1:1:win:0:d7150fe7", "probe:1:2:win:0:6306f5e1", "cloakedPass:0:0:loss:43:1c90bce3", "cloakedPass:0:1:loss:43:873bee25", "cloakedPass:0:2:loss:43:307f7b16", "cloakedPass:1:0:loss:43:ee589d39", "cloakedPass:1:1:loss:43:5d1cccf9", "cloakedPass:1:2:loss:43:4abd1fde", "cloakedFail:0:0:loss:43:35d0d7bd", "cloakedFail:0:1:loss:43:3c5c8fb2", "cloakedFail:0:2:loss:43:fa503afd", "cloakedFail:1:0:loss:43:2962042e", "cloakedFail:1:1:loss:43:864a794d", "cloakedFail:1:2:loss:43:c4fdca96"],
+  "ground:si": ["ghost:pass:0,storm:pass:0,ghost:pass:0", "ef7fb04b", "9554332b", "a0b4e428", "cargoBay=1000 ftlDrive=970 reactorCore=991 specUtility=1000 weapon=1000 shieldEmitters=1000 hullPlating=1000 memberWeapon=982 memberArmor=986 memberTool=1000 implant=1000 memberWeapon=982 memberArmor=1000 memberTool=1000 implant=1000 memberWeapon=1000 memberArmor=1000 memberTool=940 implant=1000"],
+  "ground:worn": ["ghost:pass:0,storm:pass:0,ghost:pass:0", "172add61", "da70c8cd", "3e74e383", "cargoBay=1000 ftlDrive=970 reactorCore=991 specUtility=1000 weapon=1000 shieldEmitters=1000 hullPlating=1000 memberWeapon=982 memberArmor=986 memberTool=1000 implant=1000 memberWeapon=982 memberArmor=1000 memberTool=1000 implant=1000 memberWeapon=1000 memberArmor=1000 memberTool=940 implant=1000"],
+  "repair:dc": ["111", "b126e5d5", "c621a214", "cargoBay=1000 ftlDrive=1000 reactorCore=1000 weapon=1000 weapon=1000 weapon=1000 weapon=1000 shieldEmitters=1000 hullPlating=1000 specUtility=1000"],
+};
+
 const CAPTURE = Boolean(import.meta.env.GW4_CAPTURE);
 const captured: Record<string, string[]> = {};
-function pin(key: string, value: string[]): void {
-  if (CAPTURE) {
-    captured[key] = value;
-    return;
-  }
-  expect(value, key).toEqual(GOLDEN_PRE[key]);
-}
 
-describe("gear wear step 4 goldens (captured before the step 4 engine)", () => {
+describe("gear wear step 4 goldens: the switch reproduces every GOLDEN_PRE row (step 4 moved nothing else)", () => {
   it("the worn variant really is worn and the crafted one crafted (vacuity guard)", () => {
     const w = equippedFor(patrolBase("carrier", "worn"), "ship-1");
     for (const slot of ["weapon", "reactorCore", "ftlDrive", "shieldEmitters", "hullPlating", "droneBay"]) {
@@ -516,57 +774,31 @@ describe("gear wear step 4 goldens (captured before the step 4 engine)", () => {
     for (const p of equippedFor(patrolBase("destroyer", "crafted"), "ship-1")) expect(p.quality, p.slotType).toBe(CRAFTED_QUALITY);
     expect(equippedFor(patrolBase("destroyer", "dc"), "ship-1").some((p) => p.moduleVariant === DAMAGE_CONTROL_SUITE_KEY)).toBe(true);
     expect(equippedFor(patrolBase("battleship", "modules"), "ship-1").filter((p) => p.slotType === "module").length).toBe(2);
+    expect(Object.keys(ROWS).sort()).toEqual(Object.keys(GOLDEN_PRE).sort());
   });
+  for (const [id, row] of Object.entries(ROWS)) {
+    it.skipIf(CAPTURE)(id, () => expect(withBattleWearOff(() => row.run(false)), id).toEqual(GOLDEN_PRE[id]));
+  }
+});
 
-  for (const variant of ["si", "worn"] as const) {
-    for (const hull of HULLS) {
-      for (const key of ROUTES) {
-        for (const repeat of [false, true]) {
-          const id = `patrol:${variant}:${hull}:${key}:${repeat ? "repeat" : "once"}`;
-          it(id, () => pin(id, patrolRun(patrolBase(hull, variant), key, repeat, id)));
-        }
+describe("gear wear step 4 goldens: IN FLIGHT, a run dispatched before step 4 flies on byte-identical", () => {
+  for (const [id, row] of Object.entries(ROWS)) {
+    if (!row.inFlight) continue;
+    it.skipIf(CAPTURE)(id, () => expect(row.run(true), id).toEqual(GOLDEN_PRE[id]));
+  }
+});
+
+describe("gear wear step 4 goldens: the live game (every move named in GOLDEN's header)", () => {
+  for (const [id, row] of Object.entries(ROWS)) {
+    it(id, () => {
+      const value = row.run(false);
+      if (CAPTURE) {
+        captured[id] = value;
+        return;
       }
-    }
+      expect(value, id).toEqual(GOLDEN[id]);
+    });
   }
-  for (const hull of COMBAT_HULLS) {
-    for (const key of ROUTES) {
-      const id = `patrol:crafted:${hull}:${key}:repeat`;
-      it(id, () => pin(id, patrolRun(patrolBase(hull, "crafted"), key, true, id)));
-    }
-  }
-  for (const key of ROUTES) {
-    const dc = `patrol:dc:destroyer:${key}:repeat`;
-    it(dc, () => pin(dc, patrolRun(patrolBase("destroyer", "dc"), key, true, dc)));
-    const mod = `patrol:modules:battleship:${key}:repeat`;
-    it(mod, () => pin(mod, patrolRun(patrolBase("battleship", "modules"), key, true, mod)));
-  }
-
-  for (const variant of ["si", "worn"] as const) {
-    for (const hull of FORECAST_HULLS) {
-      for (const key of ROUTES) {
-        const id = `forecast:${variant}:${hull}:${key}`;
-        it(id, () => pin(id, [forecast(patrolBase(hull, variant), key)]));
-      }
-    }
-  }
-
-  for (const variant of ["si", "worn"] as const) {
-    for (const hull of EXPLORERS) {
-      for (const cand of CANDS) {
-        for (const seed of EXPEDITION_SEEDS) {
-          const id = `shipEvent:${variant}:${hull}:${cand}:${seed ?? "default"}`;
-          it(id, () => pin(id, shipEventRow(hull, cand, seed, variant)));
-        }
-        const b = `battle:${variant}:${hull}:${cand}`;
-        it(b, () => pin(b, battleRow(hull, cand, variant)));
-      }
-    }
-  }
-
-  for (const variant of ["si", "worn"] as const) {
-    it(`ground:${variant}: a crafted Orion's ordinary Ground Ops run in crafted member gear, home and claimed`, () => pin(`ground:${variant}`, groundRun(variant)));
-  }
-  it("repair:dc: a damaged destroyer with a Damage Control Suite, its Shipyard repair to completion", () => pin("repair:dc", dcRepair()));
 });
 
 describe.runIf(CAPTURE)("gear wear step 4 capture (GW4_CAPTURE = an output path): write the goldens there", () => {

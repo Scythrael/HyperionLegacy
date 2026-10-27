@@ -381,6 +381,31 @@ other in-call context switches (a patrol ending, a bay) settle at the call's sta
 one-tick calls. gearWearReview.test.ts proves each, and that the 31 use-wear-off golden files' kinds of run gain only
 the wear fields with wear on.
 
+**Carry note, step 4 (built 2026-10-27 on feat 09cca5e).** Goldens first (`gearWearCombatGoldens.test.ts`, own commit:
+every hull x both routes x Dispatch Once and Repeat, Standard Issue pristine and preset worn, crafted, a Damage Control
+Suite, worn modules, the forecast, the expedition ship events and battles, a ground run, a suite repair); the battle
+switch (`battleWearSwitch.fixture.ts`) reproduces every pre row, every in-flight row (dispatched inside it, flown live)
+is byte-identical, and the live table's header names each move. Built (user W3 "True condition", no start floor):
+`gearWear.ts combatGearView` freezes a battle's gear (a patrol cycle's `cycleStartCondition`, written at dispatch and at
+each relaunch through `projectCycleConditions`, never on the training cycle; an expedition's battle snapshot, flagged
+`ShipEventBattle.gearWear` with the reactor and drive copies); the bridge reads a view piece's condition (weapons, the
+reactor and the drive open their pools at it; shields, plating, pods and modules at their efficiency) and a stored
+piece as before. Battle wear (`gearWearCombat.ts`, design 3.2 first-pass raws, scaled by toughness as written): each
+wave's shields (resolveBattle's `shieldTallyFor`, a pure read), plating and pods, each cycle's pools at its end, an
+expedition battle's pools, shields and pods and its hull wear on the plating (on the event, landing as the run comes
+home), each ground fight's armor (`GroundFightRecord.armorWear`, the tally). The Damage Control Suite fires per wave it
+patches and per Shipyard repair it shortens, and its lines read worn there. Registry: every battle source, the four
+combat consumers, the suite's Shipyard and patrol contexts and the two toughness rows live with probes
+(`wiring/wearProbes.ts wear:battle:*`); the reactor's power output consumer is re-owned to the EM-4 open call (item 4);
+`gearWearCombatRegistry.fixture.ts` reads the move back for the earlier pins. Module wear: step 4 owns
+`module:effect`'s combat reads (live); the Survey Pair set tier (an expedition reader) still reads pristine, logged
+for step 5. Also fixed for step 4 stamped runs: a run ending into a faster repair context no longer repairs its
+leftover underway time at the faster rate (`rebaseAnchor`; step 3's runs keep the old arithmetic, a user call).
+**For the user (measured):** one hard patrol leaves its worst system near 67 to 80% (back to full in under 10 minutes
+home), but a Repeat patrol never goes home: the 2 a minute upkeep cannot match a cycle's battle wear, so a
+Standard-Issue destroyer's Repeat Sweep is defeated after 14 cycles (a battleship after 30), where it used to fly on.
+The patrol use wear sources (reactor and drive minutes and distance on a patrol) are still unrecorded (logged).
+
 ## 12. OPEN CALLS (multiple-choice ready; recommended first)
 
 - **OC-W1, condition storage.** (a) Per-mille `condition` plus an anchor; retire `durability` (Recommended). (b)

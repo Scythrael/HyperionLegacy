@@ -18,6 +18,12 @@ import { isAwaitingBerth } from "./berths";
 import { buildHomeDashboard } from "./homeDashboard";
 import { deserialize, migrate, serialize } from "./save";
 import { WIRING_CAPTAIN_ID, editShip, heldOf, holding, installPiece, seatOfficer, shipOf, wiringBase } from "./wiring/probes";
+// Gear wear step 4 (0.14.0): the parity fleet's Repeat patrol now wears down over its cycles and ends in a defeat
+// mid-span; the crew auto-fill then reads the freed ship once per call (crewOverlay.ts resolveCrew), so a 997 s chunk
+// and 1 s steps crew it at different instants (production steps one tick). The short-range checks here predate battle
+// wear, so the file runs with the battle sources off; gearWearCombat.test.ts proves the wear itself chunk-free.
+import { battleWearOffInThisFile } from "./battleWearSwitch.fixture";
+battleWearOffInThisFile();
 
 const RNG = (): number => 0.5;
 

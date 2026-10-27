@@ -157,7 +157,7 @@ import { ROLE_TEMPLATE } from "../combat/drones";
 import { PIRATE_HULLS } from "../combat/enemyHulls";
 import { STATUS_EFFECT_DEFS } from "../combat/statusEffects";
 import { DAMAGE_CONTROL_SUITE_KEY, DC_REPAIR_SPEED_B, DC_REPAIR_SPEED_R, DC_WAVE_REGEN_B, DC_WAVE_REGEN_R, PF_HAZARD_RESIST_B, PF_HAZARD_RESIST_R, PF_SCAN_SPEED_B, PF_SCAN_SPEED_R } from "../utilityGear";
-import { DRONE_POD_AFFIX_POOL, DRONE_POD_IMPLICIT_STAT, WEAPON_AFFIX_POOL, WEAPON_IMPLICIT_STAT, budgetAtMult, budgetShares, generateEquipment, legendaryAffixLineValue } from "../itemgen";
+import { DRONE_POD_AFFIX_POOL, DRONE_POD_BASE_DURABILITY, DRONE_POD_IMPLICIT_STAT, QUALITY_DURABILITY_BONUS, WEAPON_AFFIX_POOL, WEAPON_IMPLICIT_STAT, budgetAtMult, budgetShares, generateEquipment, legendaryAffixLineValue } from "../itemgen";
 // RARITY READINESS RR-5: the Luminous legendary affix catalog (each row measured on its fold).
 import { LUMINOUS_AFFIXES, type LegendaryAffixDef } from "../legendaryAffixes";
 import { MODULE_RARITY_FACTOR, type EquipmentInstance as RrEquipmentInstance } from "../model";
@@ -183,6 +183,10 @@ import {
   WEAR_DIVE_PROBE_ID,
   WEAR_FIXTURE_CONDITION,
   WEAR_REPAIR_MINUTES,
+  battleFixture,
+  combatConsumerFixture,
+  withFirstPieceDurability,
+  withoutSlotPieces,
   diveFixture,
   fieldRepairHome,
   inShipyardBay,
@@ -504,9 +508,11 @@ const PILOT_CUNNING = "pending user decision (officerStats.ts CUNNING_PENDING_SE
 // Gear wear (0.14.0, design docs/plans/2026-10-16-gear-wear-design.md section 11) owners: step 3 wires the use wear
 // sources, the repair contexts and the economy / ground efficiency; step 4 the combat half (battle wear, the
 // true-condition pools, shield / plating / pod efficiency); step 5 the UI and the optional paid repair. Each step
-// flips its entries live in the same commit.
+// flips its entries live in the same commit. Step 4 flipped every entry it owned (the battle sources, the combat
+// consumers, the Damage Control Suite's fires and lines, the defense and pod toughness rows); the Reactor Core's power
+// output consumer is re-owned to the user's EM-4 open call (item 4, the drive lift reads it pristine as built).
 const GEAR_WEAR_STEP_3 = "gear wear step 3 (use wear sources, repair contexts and settling at events)";
-const GEAR_WEAR_STEP_4 = "gear wear step 4 (combat: true-condition pools, battle wear, reactor and FTL from the installed piece)";
+const EM4_WORN_OUTPUT_CALL = "the user's EM-4 open call (review item 4, material lines plan): the drive lift reads the Reactor Core's PRISTINE output as built ((a) keep pristine; (b) read the worn output); in combat the core's wear acts through its true-condition pool (wear:WEAR_SOURCES:reactorCore:hitsTaken), never a second penalty (user W3)";
 const GEAR_WEAR_STEP_5 = "gear wear step 5 (UI: condition bars, the care line, Quick gear repair and Overtime for credits)";
 // The user's T3 deferrals (capture 2026-10-15 section 3: "Move all five (Recommended)").
 const T3 = "capture 2026-10-15 section 3 T3 (moved to 0.14.x)";
@@ -3757,7 +3763,8 @@ const AUDIT_ROWS: readonly { id: string; system: WiringSystem; claim: string; st
   // it scales by TOUGHNESS_REFERENCE / durabilityMax, so the slot bases act on every piece that wears by use (economy,
   // crew, sensor and member pieces). The defense pieces wear by battle (step 4): their own row below.
   { id: "ship:audit:slotDurability", system: "ship", claim: "SLOT_BASE_PHYSICALS durability for economy, crew, sensor and member pieces: a tougher piece wears slower by use", status: LIVE },
-  { id: "ship:audit:slotDurabilityDefense", system: "ship", claim: "SLOT_BASE_PHYSICALS durability for defense pieces (shield emitters, hull plating): a tougher piece wears slower in battle", status: pending(GEAR_WEAR_STEP_4) },
+  // Gear wear step 4: the defense pieces' toughness scales their battle wear (gearWear.ts applyBattleWearAt).
+  { id: "ship:audit:slotDurabilityDefense", system: "ship", claim: "SLOT_BASE_PHYSICALS durability for defense pieces (shield emitters, hull plating): a tougher piece wears slower in battle", status: LIVE },
   // E-MOD EM-4 (P3 "Speeds the drive"): B10 fixed. The core's unused power lifts the transit speed (reactorSurplus.ts),
   // and its mass only eats into that lift (never slower than Standard Issue); its mass still costs fuel efficiency.
   { id: "ship:audit:reactorCoreNet", system: "ship", claim: "A crafted Reactor Core's unused power speeds the drive on a diminishing curve (the hull's own power is never surplus); its mass eats into that lift but never makes the ship slower than Standard Issue (B10 fixed)", status: LIVE },
@@ -3830,7 +3837,9 @@ const AUDIT_ROWS: readonly { id: string; system: WiringSystem; claim: string; st
   { id: "ship:audit:partialCombat", system: "ship", claim: "Patrols pre-charge their guns during the close, like the ship events", status: LIVE },
   { id: "ship:wr8:enemyMitigation", system: "ship", claim: "Enemy mitigation and evasion: a pirate hull fights with its armor and evasion", status: LIVE },
   { id: "ship:wr8:ambushInPatrols", system: "ship", claim: "The ambush opener in patrols (only a cloak ambushes; it and Rapid Charge act in the ship events today)", status: { kind: "deferred", owner: "CP-15 (patrol cloak detection)", userRef: `${T3}: patrol cloak detection` } },
-  { id: "ship:audit:podDurability", system: "ship", claim: "DRONE_POD_BASE_DURABILITY (pods never wear) and QUALITY_DURABILITY_BONUS on non-weapons", status: pending(GEAR_WEAR_STEP_4) },
+  // Gear wear step 4: a pod wears by its drones lost, scaled by its toughness (DRONE_POD_BASE_DURABILITY, lifted by
+  // QUALITY_DURABILITY_BONUS like every non-weapon piece).
+  { id: "ship:audit:podDurability", system: "ship", claim: "DRONE_POD_BASE_DURABILITY and QUALITY_DURABILITY_BONUS on non-weapons: a pod (and every piece) is as tough as its durability, so a tougher one wears slower in battle", status: LIVE },
   // E. Crew
   { id: "crew:audit:enlisted", system: "crew", claim: "The crew rank enlisted flag (never read)", status: pending("WR-9, OC-E11") },
   { id: "crew:audit:thirdBuff", system: "crew", claim: "buffCountForRank 3 (only gates the exclusive pick)", status: pending("WR-9, OC-E12") },
@@ -4072,6 +4081,30 @@ function auditRowWiring(): Readonly<Record<string, Partial<EntryInput>>> {
       base: bareHull,
       on: reactorOutput(REACTOR_LIFT_PROBE_OUTPUT),
       off: reactorOutput(0),
+    },
+    // Gear wear step 4: hull plating at its slot base (SLOT_BASE_PHYSICALS.hullPlating.durability) against one at the
+    // TOUGHNESS_REFERENCE: a battle's hull loss takes reference / base as much (a rounding step per unit of tolerance).
+    "ship:audit:slotDurabilityDefense": {
+      probe: "wear:battle:hullPlating:hullLost" as ProbeId,
+      contexts: ["patrol"],
+      direction: "up",
+      curve: { kind: "linearRelative" },
+      magnitude: (c) => TOUGHNESS_REFERENCE / c.SLOT_BASE_PHYSICALS.hullPlating.durability - 1,
+      base: () => battleFixture(),
+      on: (s) => withFirstPieceDurability(s, "hullPlating", SLOT_BASE_PHYSICALS.hullPlating.durability),
+      tolerance: WEAR_BATTLE_TOLERANCE,
+    },
+    // Gear wear step 4: a drone pod at the toughest a quality 5 pod gets (DRONE_POD_BASE_DURABILITY x (1 + 5 x
+    // QUALITY_DURABILITY_BONUS)) against one at the TOUGHNESS_REFERENCE: its drones lost take reference / that as much.
+    "ship:audit:podDurability": {
+      probe: "wear:battle:droneBay:dronesLost" as ProbeId,
+      contexts: ["patrol"],
+      direction: "up",
+      curve: { kind: "linearRelative" },
+      magnitude: () => TOUGHNESS_REFERENCE / Math.round(DRONE_POD_BASE_DURABILITY * (1 + 5 * QUALITY_DURABILITY_BONUS)) - 1,
+      base: () => battleFixture(),
+      on: (s) => withFirstPieceDurability(s, "droneBay", Math.round(DRONE_POD_BASE_DURABILITY * (1 + 5 * QUALITY_DURABILITY_BONUS))),
+      tolerance: WEAR_BATTLE_TOLERANCE,
     },
     // Gear wear step 3: a Reactor Core at its slot base (SLOT_BASE_PHYSICALS.reactorCore.durability) against one at
     // the TOUGHNESS_REFERENCE: a minute underway takes reference / base as much (one rounding step of tolerance).
@@ -5937,19 +5970,32 @@ const WEAR_USE_CONTEXTS: Readonly<Record<string, ContextId[]>> = {
   "module:minutesUnderway": WEAR_RUN_CONTEXTS,
   "sensor:surveyCycle": ["mission:survey", "mission:shortRange"],
   "sensor:bodyScanned": ["expedition:groundOps"],
-  "specUtility:effectFires": ["mission:extraction", "mission:survey", "expedition:groundOps"],
+  // Gear wear step 4: and a Damage Control Suite's fires (a Shipyard repair it shortens, a patrol wave it patches).
+  "specUtility:effectFires": ["mission:extraction", "mission:survey", "expedition:groundOps", "shipyard", "patrol"],
   "memberWeapon:groundFight": ["expedition:groundOps"],
   "memberTool:fieldworkStep": ["expedition:groundOps"],
   "implant:minutesOnGround": ["expedition:groundOps"],
 };
-const WEAR_DC_STEP_4 = "the Damage Control Suite's own fires and lines (a post-loss repair it shortens, a patrol wave it patches): gear wear step 4";
 const WEAR_USE_OUT_OF_SCOPE: Readonly<Record<string, { context: ContextId; reason: string }[]>> = {
   "specUtility:effectFires": [
     { context: "mission:shortRange", reason: "a short-range job draws no prospecting haul (it pays its rolled job), so no rig fires there" },
-    { context: "shipyard", reason: WEAR_DC_STEP_4 },
-    { context: "patrol", reason: WEAR_DC_STEP_4 },
   ],
 };
+// Gear wear step 4: the contexts a BATTLE source's battle happens in (wiring/wearProbes.ts drives each: a stamped patrol
+// cycle through the live engine, an expedition's light hull wear through its homecoming, a ground fight's armor wear).
+// The ship pieces' sources also act in the Ground Ops ship battles (gearWearCombatGoldens.test.ts pins them).
+const WEAR_BATTLE_CONTEXTS: Readonly<Record<string, ContextId[]>> = {
+  "weapon:hitsTaken": ["patrol"],
+  "reactorCore:hitsTaken": ["patrol"],
+  "ftlDrive:hitsTaken": ["patrol"],
+  "shieldEmitters:damageAbsorbed": ["patrol"],
+  "hullPlating:hullLost": ["patrol", "shipEvent"],
+  "droneBay:dronesLost": ["patrol"],
+  "memberArmor:hpLost": ["ground"],
+};
+// A battle source's per-unit read is whole per-mille over the battle's measure (the share of the pool it took), so a
+// floor of one per-mille shows as up to 1 / share: the tolerance (the probes' fixtures take a large share).
+const WEAR_BATTLE_TOLERANCE = 6;
 // The variety each ship slot's use fixture installs (a prospecting rig for the utility slot: it fires on a haul).
 const WEAR_FIXTURE_VARIETY: Readonly<Record<string, string>> = { sensor: "sensorBalanced", specUtility: "yieldRig", bridge: "bridgeBalancedCommand", quarters: "quartersUtilitarian" };
 
@@ -6005,7 +6051,17 @@ function wearEntries(): WiringEntry[] {
               ...(WEAR_USE_OUT_OF_SCOPE[w.id] ? { outOfScope: WEAR_USE_OUT_OF_SCOPE[w.id] } : {}),
               note: "per unit of the event (a haul, 10 ly, a minute, a scan, a fight, a step); a run dispatched before step 3 carries no stamp and wears nothing",
             }
-          : { status: pending(GEAR_WEAR_STEP_4) }),
+          : {
+              // Step 4: LIVE. The probe fights one battle through the live engine on a TOUGHNESS_REFERENCE piece and
+              // reads what it took per unit of the battle's measure (raw per-mille); off = the fixture without the piece.
+              probe: `wear:battle:${w.id}` as ProbeId,
+              contexts: WEAR_BATTLE_CONTEXTS[w.id] ?? [],
+              base: () => (w.slot === "memberArmor" ? wearSlotFixture("memberArmor") : battleFixture()),
+              on: (s: GameState) => s,
+              off: (s: GameState) => (w.slot === "memberArmor" ? { ...s, equipment: s.equipment.filter((e) => e.id !== wearPieceIdFor("memberArmor")) } : withoutSlotPieces(s, w.slot)),
+              tolerance: WEAR_BATTLE_TOLERANCE,
+              note: "per unit of what one battle took (the pool lost over its ceiling, the shields absorbed, the hull or hp lost, the drones lost); a patrol cycle or run dispatched before step 4, or the training run, carries no stamp and wears nothing",
+            }),
       }),
     );
   }
@@ -6101,16 +6157,13 @@ function wearEntries(): WiringEntry[] {
     // The reactor's power output is read by the install gate (pristine), the combat power budget, where combat's own
     // model is the authority (W3), and since E-MOD EM-4 the reactor surplus drive lift, which reads it pristine too
     // ([PROVISIONAL], an open call for the user: reactorSurplus.ts).
-    "reactorCore:powerOutput": pending(`${GEAR_WEAR_STEP_4}: the reactor's power output is read by the install gate (pristine, design 4.3), the combat power budget and the reactor surplus drive lift (pristine for now, an open call)`),
+    "reactorCore:powerOutput": pending(EM4_WORN_OUTPUT_CALL),
     "specUtility:lines": {
-      contexts: ["mission:survey", "mission:shortRange", "expedition:groundOps"],
+      // Gear wear step 4: and a Damage Control Suite's lines (the Shipyard repair speed, the patrol wave patch-up).
+      contexts: ["mission:survey", "mission:shortRange", "expedition:groundOps", "shipyard", "patrol"],
       base: () => wearSlotFixture("specUtility", { sensors: WEAR_LINE }, "pathfinderSuite"),
       magnitude: () => WEAR_LINE * (e() - 1),
-      outOfScope: [
-        { context: "shipyard", reason: WEAR_DC_STEP_4 },
-        { context: "patrol", reason: WEAR_DC_STEP_4 },
-      ],
-      note: "a Pathfinder Suite's sensors line (the survey yield, the short-range scan, the expedition's sensor power); every line scales the same way",
+      note: "a Pathfinder Suite's sensors line (the survey yield, the short-range scan, the expedition's sensor power), and at the Shipyard and on a patrol the same piece as a Damage Control Suite (its repair speed line as the repair reads it, its wave patch-up line as the cycle's frozen gear holds it); every line scales the same way",
     },
     "sensor:lines": { contexts: ["mission:survey", "mission:shortRange", "expedition:groundOps"], base: () => wearSlotFixture("sensor", { sensors: WEAR_LINE }), magnitude: () => WEAR_LINE * (e() - 1) },
     "bridge:crewEfficiency": {
@@ -6131,9 +6184,43 @@ function wearEntries(): WiringEntry[] {
     "memberWeapon:groundLines": memberLine("memberWeapon", "groundPower", "power"),
     "memberTool:fieldworkLines": memberLine("memberTool", "groundFieldwork", "fieldwork"),
     "implant:groundLines": memberLine("implant", "groundHp", "hp"),
+    // Gear wear step 4 (the combat consumers, design 4.2 and 4.4): the piece at the use floor in a dispatched patrol
+    // cycle's frozen gear (gearWear.ts combatGearView): the cycle's shield and hull pools, its squadron's drone hp,
+    // and a Structural Bracing module's hull lift. The same view folds the Ground Ops ship battles.
+    "shieldEmitters:shields": {
+      contexts: ["patrol"],
+      curve: { kind: "linearRelative" },
+      base: () => combatConsumerFixture("shieldEmitters", { implicitStats: { shieldCapacity: SI_EMITTER_CAP, shieldRecharge: SI_EMITTER_RECHARGE } }),
+      magnitude: () => e() - 1,
+      tolerance: 1,
+      note: "a Standard-Issue emitter's capacity on a carrier, the cycle's frozen shield pool (recharge scales the same way)",
+    },
+    "hullPlating:hullPoints": {
+      contexts: ["patrol"],
+      base: () => combatConsumerFixture("hullPlating", { implicitStats: { hullStrength: SI_PLATING_HP } }),
+      magnitude: () => SI_PLATING_HP * (e() - 1),
+      tolerance: 1,
+      note: "a Standard-Issue plating's own hull points (the bare frame is the hull's, never worn), the cycle's frozen hull pool",
+    },
+    "droneBay:drones": {
+      contexts: ["patrol"],
+      curve: { kind: "linearRelative" },
+      base: () => combatConsumerFixture("droneBay", { droneRole: "attack" }),
+      magnitude: () => e() - 1,
+      tolerance: 1,
+      note: "an Attack pod's squadron as the cycle seeds it: each drone's hp (its volley yield scales the same way)",
+    },
+    "module:effect": {
+      contexts: ["patrol"],
+      curve: { kind: "bonusRelative", base: SHIP_TYPES.carrier.hullIntegrity },
+      base: () => combatConsumerFixture("module", { moduleVariant: "structuralBracing" }),
+      magnitude: () => e() - 1,
+      tolerance: 1,
+      note: "a Structural Bracing module's hull lift on a Standard-Issue carrier, the cycle's frozen hull pool (every module effect scales the same way)",
+    },
   };
   for (const c of WEAR_EFFICIENCY) {
-    const spec = c.combat ? pending(GEAR_WEAR_STEP_4) : CONSUMERS[c.id];
+    const spec = CONSUMERS[c.id];
     const isStatus = spec !== undefined && "kind" in spec;
     out.push(
       entry({

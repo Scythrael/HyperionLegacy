@@ -1533,6 +1533,16 @@ function tallyGroundWear(ops: GroundOpsState, memberIds: readonly string[], kind
   }
 }
 
+// GEAR WEAR step 4: add a fight's armor wear (memberId -> raw per-mille) to ops.wearTally. Mutates the ops record.
+function tallyArmorWear(ops: GroundOpsState, armorWear: Readonly<Record<string, number>>): void {
+  const tally = (ops.wearTally ??= {});
+  for (const [id, raw] of Object.entries(armorWear)) {
+    if (!(raw > 0)) continue;
+    const row = (tally[id] ??= {});
+    row.armor = (row.armor ?? 0) + raw;
+  }
+}
+
 // Bank the segment the crew just finished (segment index = the points cleared so far) for the crew's team set. A
 // segment already banked keeps its first bankers (AF-1 re-review: a crew that banked a segment and then lost the
 // reinforcement fight there keeps the credit; the crew that later finishes the zero-length remainder does not take
@@ -1676,6 +1686,8 @@ function finishFight(exp: Expedition, ops: GroundOpsState, team: GroundTeamRun, 
   spendFightSupplies(exp, crew, record, (id) => memberTeam(crew, id));
   // GEAR WEAR step 3: every named member who fought (standing or downed at the end) counts one ground fight.
   if (exp.gearWear) tallyGroundWear(ops, [...Object.keys(record.memberEnd), ...record.downedMemberIds], "fights");
+  // GEAR WEAR step 4: and a battle-stamped run sums each member's armor wear (record.armorWear) for the homecoming.
+  if (exp.gearWear?.battle === 1 && record.armorWear) tallyArmorWear(ops, record.armorWear);
   const task = ref.task;
   const surprise: Partial<GroundStepRecord> = {
     ...(record.surprise ? { surprise: true as const } : {}),

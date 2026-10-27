@@ -16,6 +16,7 @@
 import {
   EQUIPMENT_SLOTS,
   MISSIONS,
+  PATROLS,
   SUBSPACE_TELESCOPE_FACILITY_KEY,
   freshState,
   effectiveMissionDef,
@@ -27,13 +28,21 @@ import {
   type Expedition,
   type GameState,
   type MissionKey,
+  type PatrolMissionState,
   type ShortRangeMissionState,
 } from "../model";
-import { economyTick, processShipRepairs } from "../tick";
+import { dispatchCaptainOnPatrol, economyTick, installMissingCombatBaselines, processShipRepairs, shipRepairGear } from "../tick";
+import { replayPatrol, type PatrolReplay } from "../combat/patrolReplay";
+import { resolveBattle } from "../combat/resolveBattle";
+import { deriveWaveSeed, WAVE_BATTLE_SEED_SALT } from "../combat/waveSeed";
+import { patrolBattleOptions } from "../combat/patrolProfile";
+import { resolveShipScanEventFromDraws, shipEventKindOf, SHIP_EVENT_DRAW_UNITS, SHIP_EVENT_WEIGHT_TOTAL } from "../shipScanEvents";
+import { resolveTaskFight, taskFightTeam } from "../groundFight";
+import { equippedFor } from "../equipment";
 import { advanceExpedition, expeditionCandidates, startExpedition } from "../expedition";
 import { runCountsOf } from "../runDifficulty";
 import { shortRangeCycleWear } from "../shortRangeCycle";
-import { CONDITION_FULL, WEAR_SOURCES, pieceCondition, withPieceCondition } from "../gearWear";
+import { CONDITION_FULL, TOUGHNESS_REFERENCE, WEAR_SOURCES, patrolCycleGear, pieceCondition, withPieceCondition } from "../gearWear";
 import {
   emptyWearEvents,
   expeditionWear,
@@ -46,18 +55,22 @@ import {
   type ShipUseWear,
 } from "../gearWearEngine";
 import type { ShortRangeTemplateKey } from "../shortRange";
-import { PATHFINDER_SUITE_KEY } from "../utilityGear";
+import { DAMAGE_CONTROL_SUITE_KEY, PATHFINDER_SUITE_KEY } from "../utilityGear";
 import { GALILEO_VARIETY, studyDiveEvents } from "../gasGiantStudy";
 import {
+  WIRING_CAPTAIN_ID,
   WIRING_SCIENCE_ID,
   WIRING_SECURITY_ID,
   WIRING_SHIP_ID,
   captainOf,
+  combatBase,
   dispatchRun,
   editCaptain,
+  installPiece,
   onMission,
   onShortRangeJob,
   shipOf,
+  syntheticBody,
   withAwayTeam,
   wiringMember,
   type ContextId,
@@ -184,7 +197,47 @@ function expeditionHomeEvent(s: GameState): UseEvent {
   return { after, ship: wear.ship.map((e) => e.wear), members };
 }
 
+// GEAR WEAR step 4: the fixture's utility piece as a Damage Control Suite whose lines are the piece's sensors line
+// (the fixture's one line), so it shortens a repair and patches a wave. Pure.
+export function asDamageControl(s: GameState): GameState {
+  const id = wearPieceIdFor("specUtility");
+  return {
+    ...s,
+    equipment: s.equipment.map((e) => {
+      if (e.id !== id) return e;
+      const line = Math.max(LINE_FLOOR, e.implicitStats.sensors ?? 0);
+      return { ...e, moduleVariant: DAMAGE_CONTROL_SUITE_KEY, implicitStats: { repairSpeed: line, waveHullRegen: line } };
+    }),
+  };
+}
+// The line a Damage Control Suite fixture carries when the fixture's piece has none (its fires need a line).
+const LINE_FLOOR = 20;
+
+// GEAR WEAR step 4: a Shipyard repair the suite shortens (ship-1 damaged, one economyTick starts it). Pure.
+function shipyardRepairEvent(s: GameState): UseEvent {
+  const damaged: GameState = { ...s, ships: s.ships.map((sh) => (sh.id === WIRING_SHIP_ID ? { ...sh, damaged: true, repairDamage: 400 } : sh)) };
+  const after = economyTick(damaged, 1, () => 0.5);
+  const started = after.activeProcesses.some((p) => p.kind === "shipRepair");
+  return { after, ship: started ? [{ hauls: 0, lightYears: 0, minutesUnderway: 0, surveys: 0, bodiesScanned: 0, prospectingCycles: 0, crewed: false, damageControlFires: 1 }] : [], members: new Map() };
+}
+
+// GEAR WEAR step 4: a stamped patrol wave the suite patches: ship-1 with its Standard Issue combat gear on the battle
+// probes' patrol, stepped to the first later wave fought below full hull (the patch-up fires before it). Pure.
+function patrolPatchEvent(s: GameState): UseEvent {
+  const ready = asPatrolVeteranSave(installMissingCombatBaselines(s));
+  const r = dispatchCaptainOnPatrol(ready, WIRING_CAPTAIN_ID, WEAR_BATTLE_PATROL, "balanced", false);
+  if (!r.success) throw new Error(`wear probe: patrol dispatch refused: ${r.reason}`);
+  const replay = replayPatrol(r.next, captainOf(r.next));
+  const wave = replay.waves.findIndex((w, i) => i > 0 && w.playerStart.hull > (replay.waves[i - 1].playerEnd?.hull ?? Infinity));
+  if (wave < 0) return { after: r.next, ship: [], members: new Map() };
+  let st = r.next;
+  for (let t = 0; t < replay.waves[wave].routeTick; t++) st = economyTick(st, 1, () => 0.5);
+  return { after: st, ship: [{ hauls: 0, lightYears: 0, minutesUnderway: 0, surveys: 0, bodiesScanned: 0, prospectingCycles: 0, crewed: false, damageControlFires: 1 }], members: new Map() };
+}
+
 function useEvent(s: GameState, ctx: ContextId, sourceId: string): UseEvent {
+  if (ctx === "shipyard") return shipyardRepairEvent(s);
+  if (ctx === "patrol") return patrolPatchEvent(s);
   if (ctx === "mission:shortRange") return shortRangeCycleEvent(s, sourceId);
   if (ctx === "expedition:groundOps") return expeditionHomeEvent(s);
   const key = MISSION_OF[ctx];
@@ -210,7 +263,7 @@ function unitsOf(sourceId: string, ship: readonly ShipUseWear[], member: readonl
     case "sensor:bodyScanned":
       return sum(ship, (w) => w.bodiesScanned);
     case "specUtility:effectFires":
-      return sum(ship, (w) => w.prospectingCycles + w.bodiesScanned);
+      return sum(ship, (w) => w.prospectingCycles + w.bodiesScanned + (w.damageControlFires ?? 0));
     case "memberWeapon:groundFight":
       return sum(member, (w) => w.groundFights);
     case "memberTool:fieldworkStep":
@@ -228,8 +281,10 @@ function usePerUnit(s: GameState, ctx: ContextId, sourceId: string): number {
   const source = WEAR_SOURCES.find((w) => w.id === sourceId);
   if (!source) throw new Error(`wear probe: no source ${sourceId}`);
   // A utility piece fires its own way: a prospecting rig on a mission's haul, a Pathfinder Suite on an expedition's
-  // scanned bodies, so at an expedition the fixture's utility piece flies as a Pathfinder Suite.
-  const run = ctx === "expedition:groundOps" && source.slot === "specUtility" ? asPathfinder(s) : s;
+  // scanned bodies, so at an expedition the fixture's utility piece flies as a Pathfinder Suite; at the Shipyard and on
+  // a patrol (step 4) as a Damage Control Suite (a repair it shortens, a wave it patches).
+  const utility = source.slot === "specUtility";
+  const run = utility && ctx === "expedition:groundOps" ? asPathfinder(s) : utility && (ctx === "shipyard" || ctx === "patrol") ? asDamageControl(s) : s;
   const before = pieceOf(run, source.slot);
   if (!before) return 0;
   const ev = useEvent(run, ctx, sourceId);
@@ -245,6 +300,12 @@ function usePerUnit(s: GameState, ctx: ContextId, sourceId: string): number {
 
 const sheetOfRun = (s: GameState) => runShipStats(s, shipOf(s), runWearStamp(s, WIRING_SHIP_ID), true);
 
+// A Damage Control Suite's `line` (implicit and rolled) in `gear` (0 without the suite).
+function dcLine(gear: readonly EquipmentInstance[], line: string): number {
+  const dc = gear.find((p) => p.moduleVariant === DAMAGE_CONTROL_SUITE_KEY);
+  return dc ? (dc.implicitStats[line] ?? 0) + (dc.rolledStats[line] ?? 0) : 0;
+}
+
 function memberStat(s: GameState, memberId: string, stat: string): number {
   const exp = dispatchRun(s);
   const all = [...(exp.roster?.security ?? []), ...(exp.roster?.science ?? [])];
@@ -255,7 +316,19 @@ const EFF_READS: Readonly<Record<string, (s: GameState, ctx: ContextId) => numbe
   "cargoBay:cargoCapacity": (s) => sheetOfRun(s).cargoCapacity,
   "ftlDrive:transitSpeed": (s, ctx) => (ctx === "expedition:groundOps" ? dispatchRun(s).voyage?.outboundSpeed ?? -1 : sheetOfRun(s).transitSpeedMult),
   "ftlDrive:engineEfficiency": (s) => sheetOfRun(s).engineEfficiency,
-  "specUtility:lines": (s, ctx) => (ctx === "expedition:groundOps" ? dispatchRun(s).sensorPower : sheetOfRun(s).sensors),
+  // GEAR WEAR step 4: at the Shipyard and on a patrol the fixture's piece is a Damage Control Suite: its repair speed
+  // line as the repair duration reads it (tick.ts shipRepairGear), its wave patch-up line as the dispatched cycle's
+  // frozen view holds it (the suite's patch reads exactly that).
+  "specUtility:lines": (s, ctx) => {
+    if (ctx === "shipyard") return dcLine(shipRepairGear(asDamageControl(s), WIRING_SHIP_ID), "repairSpeed");
+    if (ctx === "patrol") {
+      const ready = asPatrolVeteranSave(installMissingCombatBaselines(asDamageControl(s)));
+      const r = dispatchCaptainOnPatrol(ready, WIRING_CAPTAIN_ID, WEAR_BATTLE_PATROL, "balanced", false);
+      if (!r.success) throw new Error(`wear probe: patrol dispatch refused: ${r.reason}`);
+      return dcLine(patrolCycleGear(equippedFor(r.next, WIRING_SHIP_ID), captainOf(r.next).mission as PatrolMissionState), "waveHullRegen");
+    }
+    return ctx === "expedition:groundOps" ? dispatchRun(s).sensorPower : sheetOfRun(s).sensors;
+  },
   "sensor:lines": (s, ctx) => (ctx === "expedition:groundOps" ? dispatchRun(s).sensorPower : sheetOfRun(s).sensors),
   "bridge:crewEfficiency": (s) => sheetOfRun(s).cargoCapacity,
   "quarters:crewEfficiency": (s) => sheetOfRun(s).unloadSpeedMult ?? 1,
@@ -265,6 +338,236 @@ const EFF_READS: Readonly<Record<string, (s: GameState, ctx: ContextId) => numbe
   "implant:groundLines": (s) => memberStat(s, WIRING_SECURITY_ID, "hp"),
 };
 export const WEAR_EFF_PROBE_KEYS: readonly string[] = Object.keys(EFF_READS);
+
+// ============================================================================
+// Step 4: the BATTLE sources and the COMBAT consumers (gear wear step 4)
+// ============================================================================
+//
+//   wear:battle:<sourceId>  the condition ONE battle took off the fixture's first piece of the source's slot, PER UNIT
+//                           of what the battle took (the source's measure: the pool lost over its ceiling, the shield
+//                           points absorbed over the pool, the hull lost over the hull pool, the drones lost over the
+//                           squadron, the hp lost over the hp max), on a TOUGHNESS_REFERENCE piece: the raw per-mille
+//                           (negative). Read through the live engine: a stamped patrol dispatched on the fixture and
+//                           stepped 1 s at a time to the tick its wear lands (the condition the tail pass wrote), the
+//                           measure from the cycle's display replay (the parity contract makes it the live fight); an
+//                           expedition's light hull wear on the plating and a ground fight's armor wear through the
+//                           homecoming tail. 0 without the piece.
+//   wear:eff:<consumer>     (the combat consumers) the dispatched cycle's frozen pool the consumer feeds (the record's
+//                           shield and hull pools, its squadron's drone hp).
+
+// The patrol every battle probe flies (several waves, so every source has a wave that takes something).
+export const WEAR_BATTLE_PATROL = "crimsonReaverWarband" as const;
+
+// A save whose next patrol is fought at full strength (no training cycle: user W9 keeps it from wearing anything).
+function asPatrolVeteranSave(s: GameState): GameState {
+  const c = runCountsOf(s);
+  return { ...s, runCounts: { ...c, patrol: { ...c.patrol, veteran: true } } };
+}
+
+// The battle fixture: a carrier with its Standard Issue combat gear (weapons, emitter, plating, a drone pod, the
+// reactor and the drive), every piece at the TOUGHNESS_REFERENCE (so a raw amount is the amount), a patrol veteran.
+// Its emitter is a token one (BATTLE_FIXTURE_SHIELD), so the first hit drains the pool: each battle source then takes
+// a large share of its measure (a whole per-mille is a small part of the per-unit read).
+export const BATTLE_FIXTURE_SHIELD = 1;
+export function battleFixture(): GameState {
+  const s = asPatrolVeteranSave(combatBase("carrier"));
+  return {
+    ...s,
+    equipment: s.equipment.map((e) => {
+      if (e.fittedToShipId !== WIRING_SHIP_ID) return e;
+      const tough = { ...e, durabilityMax: TOUGHNESS_REFERENCE };
+      return e.slotType === "shieldEmitters" ? { ...tough, implicitStats: { ...e.implicitStats, shieldCapacity: BATTLE_FIXTURE_SHIELD, shieldRecharge: BATTLE_FIXTURE_SHIELD } } : tough;
+    }),
+  };
+}
+
+// A save whose next expedition is fought at full strength (its training run behind it, a veteran: no curve, so a
+// failed check takes its whole hull wear).
+function asExpeditionVeteranSave(s: GameState): GameState {
+  const c = runCountsOf(s);
+  return { ...s, runCounts: { ...c, expedition: { ...c.expedition, trainingDone: true, veteran: true } } };
+}
+
+// The fixture with ship-1's first piece of `slotType` at `durabilityMax` (its toughness; the toughness rows).
+export function withFirstPieceDurability(s: GameState, slotType: string, durabilityMax: number): GameState {
+  const first = s.equipment.find((e) => e.fittedToShipId === WIRING_SHIP_ID && e.slotType === slotType);
+  return first ? { ...s, equipment: s.equipment.map((e) => (e === first ? { ...e, durabilityMax } : e)) } : s;
+}
+
+// The fixture without ship-1's pieces of `slotType` (the off side of a battle source: nothing to wear).
+export function withoutSlotPieces(s: GameState, slotType: string): GameState {
+  return { ...s, equipment: s.equipment.filter((e) => !(e.fittedToShipId === WIRING_SHIP_ID && e.slotType === slotType)) };
+}
+
+function firstPieceOf(s: GameState, slotType: string): EquipmentInstance | undefined {
+  return s.equipment.find((e) => e.fittedToShipId === WIRING_SHIP_ID && e.slotType === slotType);
+}
+
+const aliveDrones = (c: { drones: { drones: { alive: boolean }[] }[] } | undefined, i: number): number => c?.drones[i]?.drones.filter((d) => d.alive).length ?? 0;
+
+// The tick (route ticks after dispatch) a source's wear lands on and the battle's measure there, from the dispatched
+// cycle's display replay: a wave source at the first wave that took a whole per-mille of it (so the piece is pristine
+// up to that wave and the read is exact up to the floor), a pool source at the cycle's end (the defeat wave, or the
+// route's end). Null when the cycle took none.
+function battleMeasure(sourceId: string, raw: number, replay: PatrolReplay, mission: PatrolMissionState, shipId: string): { tick: number; f: number } | null {
+  const waves = replay.waves;
+  if (waves.length === 0) return null;
+  const pool = (sys: "weapon" | "reactor" | "ftl"): { tick: number; f: number } | null => {
+    const start = waves[0].playerStart;
+    const end = waves[waves.length - 1].playerEnd;
+    if (!end) return null;
+    const read = (c: typeof start) => (sys === "weapon" ? c.weapons[0] : sys === "reactor" ? c.reactor : c.ftl);
+    const s0 = read(start);
+    const s1 = read(end);
+    if (!s0 || !s1 || !(s0.durabilityMax > 0)) return null;
+    const def = PATROLS[mission.patrolKey];
+    const tick = replay.defeated ? waves[waves.length - 1].routeTick : def.transitOutTicks + def.rollWindowTicks + def.transitBackTicks - (mission.returnCutTicks ?? 0);
+    return { tick, f: (s0.durability - s1.durability) / s0.durabilityMax };
+  };
+  if (sourceId === "weapon:hitsTaken") return pool("weapon");
+  if (sourceId === "reactorCore:hitsTaken") return pool("reactor");
+  if (sourceId === "ftlDrive:hitsTaken") return pool("ftl");
+  for (const [i, w] of waves.entries()) {
+    const start = w.playerStart;
+    const end = w.playerEnd;
+    let f = 0;
+    if (sourceId === "shieldEmitters:damageAbsorbed") {
+      // The battle re-resolved with the shield tally (the same seed and options the live wave used: a pure read).
+      const again = resolveBattle(
+        { combatants: [start, ...w.enemyStart] },
+        deriveWaveSeed(mission.masterSeed, i, WAVE_BATTLE_SEED_SALT),
+        { ...patrolBattleOptions(mission), shieldTallyFor: shipId },
+      );
+      f = start.shieldMax > 0 ? Math.min(again.shieldAbsorbed ?? 0, start.shieldMax) / start.shieldMax : 0;
+    } else if (sourceId === "hullPlating:hullLost") {
+      f = start.hullMax > 0 ? Math.min(start.hull - Math.max(0, end ? end.hull : 0), start.hullMax) / start.hullMax : 0;
+    } else if (sourceId === "droneBay:dronesLost") {
+      const size = start.drones[0]?.drones.length ?? 0;
+      f = size > 0 ? (aliveDrones(start, 0) - aliveDrones(end, 0)) / size : 0;
+    }
+    if (f > 0 && Math.floor(raw * f) >= 1) return { tick: w.routeTick, f };
+    if (!w.playerWon) break;
+  }
+  return null;
+}
+
+// What one patrol battle took off the fixture's first `slot` piece, per unit of the source's measure (negative). 0
+// without the piece, an unstamped cycle, or a battle that took none of it.
+function patrolBattlePerUnit(s: GameState, sourceId: string, slot: string, raw: number): number {
+  const piece = firstPieceOf(s, slot);
+  if (!piece) return 0;
+  const r = dispatchCaptainOnPatrol(s, WIRING_CAPTAIN_ID, WEAR_BATTLE_PATROL, "balanced", false);
+  if (!r.success) throw new Error(`wear probe: patrol dispatch refused: ${r.reason}`);
+  const mission = captainOf(r.next).mission as PatrolMissionState;
+  if (mission.cycleStartCondition === undefined) return 0;
+  const measure = battleMeasure(sourceId, raw, replayPatrol(r.next, captainOf(r.next)), mission, WIRING_SHIP_ID);
+  if (!measure || !(measure.f > 0)) return 0;
+  let st = r.next;
+  for (let t = 0; t < measure.tick; t++) st = economyTick(st, 1, () => 0.5);
+  const after = st.equipment.find((e) => e.id === piece.id);
+  if (!after) return 0;
+  return -(CONDITION_FULL - pieceCondition(after)) / measure.f;
+}
+
+// An expedition's light hull wear on the plating (a failed debris check at the run's first boundary), per unit of the
+// hull wear over the frozen hull pool, through the homecoming tail. 0 without the plating or an unflagged run.
+function shipEventHullPerUnit(s: GameState): number {
+  const piece = firstPieceOf(s, "hullPlating");
+  if (!piece) return 0;
+  const ready = asExpeditionVeteranSave(s.awayMembers.some((m) => m.assignedShipId === WIRING_SHIP_ID) ? s : withAwayTeam(s));
+  const cand = expeditionCandidates(ready, WIRING_SHIP_ID)[0];
+  const res = startExpedition(ready, WIRING_SHIP_ID, WIRING_CAPTAIN_ID, cand.id, true, undefined, false);
+  if (!res.success || !res.expedition) throw new Error(`wear probe: dispatch refused: ${res.reason}`);
+  const exp = res.expedition;
+  const battle = exp.groundOps?.shipEventProfile?.battle;
+  if (!battle || battle.gearWear !== 1 || exp.bodies.length === 0) return 0;
+  let kind = 0;
+  while (kind < SHIP_EVENT_WEIGHT_TOTAL && shipEventKindOf({ kind, cloaked: 0 }) !== "debris") kind += 1;
+  const draws = { kind, check: SHIP_EVENT_DRAW_UNITS - 1, cloaked: 0, boardingAttempt: SHIP_EVENT_DRAW_UNITS - 1, boardingRepel: 0 };
+  const { event } = resolveShipScanEventFromDraws(exp, exp.bodies[0], 0, 0, 1, draws);
+  const w = event.hullWear ?? 0;
+  if (!(w > 0) || !(battle.hullMax > 0)) return 0;
+  // The run comes home now with this one event (the homecoming reads its events, its stamp and its anchor).
+  const home = res.next.gameTimeSeconds + 1;
+  const edited: Expedition = { ...exp, phase: "complete", phaseAnchorSeconds: home, scanEvents: [event], gearWear: { version: 1, dispatchedAt: home, battle: 1 } };
+  const before: GameState = { ...res.next, gameTimeSeconds: home - 1 };
+  const finished: GameState = { ...res.next, gameTimeSeconds: home, expeditions: res.next.expeditions.map((e) => (e.id === exp.id ? edited : e)) };
+  const events = emptyWearEvents();
+  recordExpeditionWear(before, finished, events);
+  const after = resolveGearWear(before, finished, events).equipment.find((e) => e.id === piece.id);
+  if (!after) return 0;
+  return -(CONDITION_FULL - pieceCondition(after)) / Math.min(1, w / battle.hullMax);
+}
+
+// A ground fight's armor wear on the Security member's armor (the fixture's piece), per unit of the hp lost over the
+// hp max: the real fight (groundFight.ts resolveTaskFight on a battle-stamped run), its record's armor wear landed
+// through the homecoming tail. 0 without the armor or a fight in which the member lost no hp.
+function groundArmorPerUnit(s: GameState): number {
+  const armorId = wearPieceIdFor("memberArmor");
+  const piece = s.equipment.find((e) => e.id === armorId);
+  if (!piece) return 0;
+  const ready = afterExpeditionTraining(s);
+  const cand = expeditionCandidates(ready, WIRING_SHIP_ID)[0];
+  const res = startExpedition(ready, WIRING_SHIP_ID, WIRING_CAPTAIN_ID, cand.id, true, undefined, false);
+  if (!res.success || !res.expedition) throw new Error(`wear probe: dispatch refused: ${res.reason}`);
+  const exp = res.expedition;
+  const ops = exp.groundOps;
+  if (!ops || exp.gearWear?.battle !== 1) return 0;
+  const teams = ops.teams.map((team, i) => ({ securityIds: team.securityIds, downedThisTask: [] as string[], securityShare: ops.factors.securityShare[i] ?? 0 }));
+  // The hardest of a few fixed fights, so the member loses a measurable share of their hp.
+  for (const hazard of [0.9, 0.6, 0.3]) {
+    for (const fightCount of [0, 1, 2]) {
+      const task = { id: `wear-armor-${hazard}-${fightCount}`, poiId: "abandonedOutpost", fightCount, pointsCleared: 0 };
+      const record = resolveTaskFight(exp, teams, syntheticBody("terrestrial", hazard), task, 0);
+      const raw = record.armorWear?.[WIRING_SECURITY_ID] ?? 0;
+      if (!(raw > 0)) continue;
+      const downed = record.downedMemberIds.includes(WIRING_SECURITY_ID);
+      const hpMax = taskFightTeam(exp, teams, task).find((c) => c.memberId === WIRING_SECURITY_ID)?.hpMax ?? 0;
+      const end = downed ? 0 : (record.memberEnd[WIRING_SECURITY_ID]?.hp ?? hpMax);
+      if (!(hpMax > 0)) return 0;
+      const f = Math.min(1, (hpMax - end) / hpMax);
+      // The run comes home now with this fight's armor wear on its tally (the homecoming reads the tally).
+      const home = res.next.gameTimeSeconds + 1;
+      const edited: Expedition = { ...exp, phase: "complete", phaseAnchorSeconds: home, gearWear: { version: 1, dispatchedAt: home, battle: 1 }, groundOps: { ...ops, startedAt: home, endedAt: home, wearTally: { [WIRING_SECURITY_ID]: { armor: raw } } } };
+      const before: GameState = { ...res.next, gameTimeSeconds: home - 1 };
+      const finished: GameState = { ...res.next, gameTimeSeconds: home, expeditions: res.next.expeditions.map((e) => (e.id === exp.id ? edited : e)) };
+      const events = emptyWearEvents();
+      recordExpeditionWear(before, finished, events);
+      const after = resolveGearWear(before, finished, events).equipment.find((e) => e.id === armorId);
+      return after ? -(CONDITION_FULL - pieceCondition(after)) / f : 0;
+    }
+  }
+  return 0;
+}
+
+function battlePerUnit(s: GameState, ctx: ContextId, sourceId: string): number {
+  const source = WEAR_SOURCES.find((w) => w.id === sourceId);
+  if (!source || source.mode !== "battle") throw new Error(`wear probe: no battle source ${sourceId}`);
+  if (ctx === "patrol") return patrolBattlePerUnit(s, sourceId, source.slot, source.raw);
+  if (ctx === "shipEvent" && sourceId === "hullPlating:hullLost") return shipEventHullPerUnit(s);
+  if (ctx === "ground" && sourceId === "memberArmor:hpLost") return groundArmorPerUnit(s);
+  throw new Error(`wear probe: ${sourceId} has no battle at ${ctx}`);
+}
+
+// A combat consumer, read off the patrol cycle a dispatch starts (its frozen view folds the worn piece).
+function dispatchedCycle(s: GameState): PatrolMissionState {
+  const r = dispatchCaptainOnPatrol(s, WIRING_CAPTAIN_ID, WEAR_BATTLE_PATROL, "balanced", false);
+  if (!r.success) throw new Error(`wear probe: patrol dispatch refused: ${r.reason}`);
+  return captainOf(r.next).mission as PatrolMissionState;
+}
+
+const COMBAT_EFF_READS: Readonly<Record<string, (s: GameState) => number>> = {
+  "shieldEmitters:shields": (s) => dispatchedCycle(s).playerShield,
+  "hullPlating:hullPoints": (s) => dispatchedCycle(s).playerHull,
+  "droneBay:drones": (s) => dispatchedCycle(s).playerDrones[0]?.droneHp ?? 0,
+  "module:effect": (s) => dispatchedCycle(s).playerHull,
+};
+
+// The step 4 combat consumer fixture: the battle fixture with the consumer's piece installed at the TOUGHNESS_REFERENCE
+// under its fixture id (wearPieceIdFor), so the registry's `on` (withFixtureCondition) wears exactly it.
+export function combatConsumerFixture(slot: string, over: Partial<EquipmentInstance> = {}): GameState {
+  return installPiece(battleFixture(), { slotType: slot, durabilityMax: TOUGHNESS_REFERENCE, ...over });
+}
 
 // ============================================================================
 // The probe table (probes.ts readProbe routes every `wear:` id here)
@@ -286,8 +589,14 @@ export function wearProbeDef(id: WearProbeId): ProbeDef {
     const sourceId = id.slice("wear:use:".length);
     return { label: `the condition one ${sourceId} event takes off a piece, per unit (gearWearEngine.ts)`, read: (s, ctx) => usePerUnit(s, ctx, sourceId) };
   }
+  if (id.startsWith("wear:battle:")) {
+    const sourceId = id.slice("wear:battle:".length);
+    return { label: `the condition one battle's ${sourceId} takes off a piece, per unit of what the battle took (gearWearCombat.ts)`, read: (s, ctx) => battlePerUnit(s, ctx, sourceId) };
+  }
   if (id.startsWith("wear:eff:")) {
     const key = id.slice("wear:eff:".length);
+    const combat = COMBAT_EFF_READS[key];
+    if (combat) return { label: `${key} as a dispatched patrol cycle's frozen gear folds it (gearWear.ts combatGearView)`, read: (s) => combat(s) };
     const read = EFF_READS[key];
     if (!read) throw new Error(`wear probe: no consumer ${key}`);
     return { label: `${key} where a run reads it (the run sheet, or the expedition dispatch snapshot)`, read };

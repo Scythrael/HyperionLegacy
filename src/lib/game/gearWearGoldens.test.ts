@@ -55,6 +55,10 @@ import { pieceCondition } from "./gearWear";
 import { emptyWearEvents, recordExpeditionWear, resolveGearWear, runWearStamp } from "./gearWearEngine";
 import { withGearWearOff } from "./gearWearSwitch.fixture";
 import { afterExpeditionTraining } from "./wiring/wearProbes";
+// Gear wear step 4 (0.14.0): the combat half moves the patrol pins and the ordinary expedition's (its battle stamp, its
+// battles and armor wear); with the battle sources off (battleWearSwitch.fixture.ts) each reproduces its capture, and
+// the step 4 table below pins them with battle wear on.
+import { withBattleWearOff } from "./battleWearSwitch.fixture";
 // WR-8 (0.14.0): every pin in this file was taken before the combat rules (combatRulesSwitch.fixture.ts), so the file
 // runs with them switched off and its pins keep proving WR-8 moved nothing else here (the rules stamp new patrol
 // cycles and runs; combatDescriptorGoldens.test.ts pins the combat rules themselves).
@@ -186,6 +190,27 @@ const PATROL_FIXTURES: readonly [ShipTypeKey, PatrolKey][] = [
   ["carrier", "crimsonReaverWarband"],
 ];
 
+// A crafted `hull` on a Repeat `route` (its first cycle the training cycle, read without its curve stamp), 2,400 s:
+// the dispatch record, the display replay every 300 s, the relaunch count and the final state.
+function patrolRun(hull: ShipTypeKey, route: PatrolKey): { out: string[]; s: GameState } {
+  const r = asPrePatrolCurveDispatch(dispatchCaptainOnPatrol(craftedLoadout(onHull(freshState(), hull)), 1, route, "balanced", true));
+  expect(r.success).toBe(true);
+  let s = r.next;
+  const out = [hash(s.captains[0].mission)];
+  let relaunches = 0;
+  let prev = (s.captains[0].mission as PatrolMissionState).phase;
+  for (let i = 1; i <= 2400; i++) {
+    s = economyTick(s, 1, () => 0.5);
+    const m = s.captains[0].mission as PatrolMissionState | null;
+    if (m === null) break;
+    if (prev === "transitBack" && m.phase === "transitOut") relaunches += 1;
+    prev = m.phase;
+    if (i % 300 === 0) out.push(hash(replayPatrol(s, s.captains[0])));
+  }
+  out.push(`relaunches:${relaunches}`, stateHash(s));
+  return { out, s };
+}
+
 // A crafted freighter dispatched on `key` (Repeat), 3,600 s in 1,200 s marks: the dispatch record and the states.
 function missionRun(key: MissionKey): { out: string[]; s: GameState } {
   const r = dispatchCaptainOnMission(craftedLoadout(levelled(freshState(), 10)), 1, key);
@@ -313,24 +338,11 @@ describe("gear wear step 1 goldens (captured before any wear engine edit)", () =
     pin("shortRange", shortRangeRun(false).out);
   });
 
+  // Step 4 MOVES these (from the first relaunch every cycle is stamped and fights its carried wear): with the battle
+  // sources off each reproduces its capture; the step 4 table pins the wear-on runs.
   for (const [hull, route] of PATROL_FIXTURES) {
-    it(`patrol:${hull}: a crafted ${hull} on a Repeat ${route} over 2,400 s, with the display replay`, () => {
-      const r = asPrePatrolCurveDispatch(dispatchCaptainOnPatrol(craftedLoadout(onHull(freshState(), hull)), 1, route, "balanced", true));
-      expect(r.success).toBe(true);
-      let s = r.next;
-      const out = [hash(s.captains[0].mission)];
-      let relaunches = 0;
-      let prev = (s.captains[0].mission as PatrolMissionState).phase;
-      for (let i = 1; i <= 2400; i++) {
-        s = economyTick(s, 1, () => 0.5);
-        const m = s.captains[0].mission as PatrolMissionState | null;
-        if (m === null) break;
-        if (prev === "transitBack" && m.phase === "transitOut") relaunches += 1;
-        prev = m.phase;
-        if (i % 300 === 0) out.push(hash(replayPatrol(s, s.captains[0])));
-      }
-      out.push(`relaunches:${relaunches}`, stateHash(s));
-      pin(`patrol:${hull}`, out);
+    it(`patrol:${hull}: a crafted ${hull} on a Repeat ${route} over 2,400 s, with the display replay (battle sources off)`, () => {
+      pin(`patrol:${hull}`, withBattleWearOff(() => patrolRun(hull, route).out));
     });
   }
 
@@ -411,11 +423,13 @@ describe("gear wear step 3 goldens (the use wear engine on)", () => {
     pin3("wear:shortRange", [...run.out, conditions(run.s)]);
   });
 
-  it("wear:expedition: the crafted Orion's ordinary run (its training run behind it), through claim", () =>
-    withSiMemberGearOff(() => {
-      const run = expeditionRun(true);
-      pin3("wear:expedition", [...run.out, conditions(run.claimed)]);
-    }));
+  it("wear:expedition: the crafted Orion's ordinary run (its training run behind it), through claim (battle sources off)", () =>
+    withSiMemberGearOff(() =>
+      withBattleWearOff(() => {
+        const run = expeditionRun(true);
+        pin3("wear:expedition", [...run.out, conditions(run.claimed)]);
+      }),
+    ));
 
   it("wear:recovery and wear:redispatch: the worn freighter recalled and home, then dispatched again while still worn", () => {
     let s = missionRun("shortOreRun").s;
@@ -440,6 +454,44 @@ describe("gear wear step 3 goldens (the use wear engine on)", () => {
     expect(s.equipment.filter((e) => e.fittedToShipId === "ship-1").every((e) => e.condition === undefined)).toBe(true);
     pin3("wear:recovery", [landed, afterSixSeconds, stateHash(s)]);
   });
+});
+
+// ===== step 4: the battle sources ON (captured 2026-10-27 on the step 4 engine; each pin names the pieces' conditions) =====
+//
+// What moved, and why (every move is the combat half alone: the pins above reproduce with the battle sources off):
+//   wear4:patrol:<hull> : the first cycle is the training cycle (no wear, user W9); from the first relaunch every cycle
+//                         is stamped (cycleStartCondition), fights its carried wear (its pools at their true condition,
+//                         its shields, plating and pods at their efficiency) and wears its pieces in battle, so the
+//                         replays from 300 s, the relaunch count where the carried wear tips a cycle, and the final state
+//                         move. The crafted quality 3 pieces' toughness takes less per battle than Standard Issue.
+//   wear4:expedition    : the run's battle stamp, its ship battle snapshot (the reactor and drive copies, the flag), each
+//                         ground fight's armor wear on the record and the tally, and the members' armor worn as it lands.
+const STEP4: Record<string, string[]> = {
+  "wear4:patrol:destroyer": ["df281090", "2ad61e28", "67264ecd", "77d4b235", "5e7e8bd2", "f99c2b34", "35f5a476", "4f7f026a", "9901051b", "relaunches:171", "f36e26b", "cargoBay=1000 ftlDrive=1000 reactorCore=1000 specUtility=1000 weapon=1000 weapon=1000 weapon=1000 weapon=1000 shieldEmitters=1000 hullPlating=1000"],
+  "wear4:patrol:carrier": ["f2dbd51e", "af0eb66a", "540a34d9", "31ca3b37", "d6b6265b", "13588699", "c5449924", "4e63a1dc", "2affb5c6", "relaunches:109", "b3db6066", "cargoBay=1000 ftlDrive=5 reactorCore=1 specUtility=1000 weapon=567 weapon=551 shieldEmitters=1 hullPlating=1000 droneBay=966"],
+  "wear4:expedition": ["93068874", "e86474b8", "fd26d23d", "c9e694fe", "cargoBay=1000 ftlDrive=1000 reactorCore=991 specUtility=1000 weapon=1000 shieldEmitters=1000 hullPlating=1000 memberWeapon=963 memberArmor=957 memberTool=1000 implant=1000 memberWeapon=963 memberArmor=995 memberTool=1000 implant=1000 memberWeapon=1000 memberArmor=1000 memberTool=907 implant=1000"],
+};
+
+function pin4(key: string, value: string[]): void {
+  if (CAPTURE) {
+    captured[key] = value;
+    return;
+  }
+  expect(value, key).toEqual(STEP4[key]);
+}
+
+describe("gear wear step 4 goldens (the battle sources on)", () => {
+  for (const [hull, route] of PATROL_FIXTURES) {
+    it(`wear4:patrol:${hull}: the same Repeat ${route} with battle wear on`, () => {
+      const run = patrolRun(hull, route);
+      pin4(`wear4:patrol:${hull}`, [...run.out, conditions(run.s)]);
+    });
+  }
+  it("wear4:expedition: the crafted Orion's ordinary run with battle wear on, through claim", () =>
+    withSiMemberGearOff(() => {
+      const run = expeditionRun(true);
+      pin4("wear4:expedition", [...run.out, conditions(run.claimed)]);
+    }));
 });
 
 describe.runIf(CAPTURE)("gear wear capture (GW_CAPTURE = an output path): write the goldens there", () => {

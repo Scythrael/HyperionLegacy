@@ -1,8 +1,8 @@
 // GEAR WEAR (0.14.0), build order steps 1 and 2 of docs/plans/2026-10-16-gear-wear-design.md section 11: the
-// catalogs and the PURE helpers, plus (step 3) the WORN-GEAR VIEW the run readers fold their gear through. The tick
-// side of step 3 (the use wear sources, the repair contexts and the settling) lives in gearWearEngine.ts; the combat
-// half is step 4, the UI (and the optional paid repair) is step 5. Every catalog row is registered in the wiring
-// registry with its owning step.
+// catalogs and the PURE helpers, plus (step 3) the WORN-GEAR VIEW the run readers fold their gear through and (step 4)
+// the COMBAT VIEW a battle folds its frozen gear through. The tick side of step 3 (the use wear sources, the repair
+// contexts and the settling) lives in gearWearEngine.ts, the battle sources of step 4 in gearWearCombat.ts; the UI (and
+// the optional paid repair) is step 5. Every catalog row is registered in the wiring registry with its owning step.
 //
 // The user (OC-D14, 2026-10-16, verbatim): "Everything wears in different ways. Similar to reality. Use. Battle
 // damage. Etc. But can easily be repaired over time."
@@ -98,7 +98,9 @@ export interface WearSourceDef {
 // starter mission (Short Ore Run) settles near 90% on use alone and an ordinary expedition comes home with its gear 80%
 // or better (the first pass under each never outran the underway upkeep once a short cycle's whole-per-mille rounding
 // is counted, or settled the hold at 77%, Worn). The universal module (EM-5) follows the crew modules' approved rate.
-// [PROVISIONAL] the BATTLE rows: the design's first pass (section 3.2, marked [PROPOSAL] there), step 4's to tune.
+// [PROVISIONAL] the BATTLE rows: the design's first pass (section 3.2, marked [PROPOSAL] there), wired as-is by step 4
+// (a pool source converts the existing combat pool loss, raw 1000 = the whole pool; the rest are the multipliers of
+// what a wave took), the balance pass's to tune.
 export const WEAR_SOURCES: readonly WearSourceDef[] = [
   // Use wear (stops at the use floor).
   { id: "cargoBay:haul", slot: "cargoBay", mode: "use", by: "hauls", event: "per completed haul cycle", raw: 8, per: 1 },
@@ -318,9 +320,106 @@ export function settlePiece<T extends EquipmentInstance>(piece: T, nowSeconds: n
 // round(durabilityMax x condition / 1000). A pristine piece opens at exactly durabilityMax, which is what the retired
 // `durability` field always held, so every pristine fight is byte-identical. Pure.
 export function pieceStartDurability(piece: Pick<EquipmentInstance, "condition" | "durabilityMax">): number {
+  return poolAtCondition(piece.durabilityMax, pieceCondition(piece));
+}
+
+// A combat pool of `max` points opened at `condition` (per-mille): round(max x condition / 1000), exactly `max` when
+// pristine. Pure.
+export function poolAtCondition(max: number, condition: number): number {
+  const c = clampCondition(condition);
+  if (c >= CONDITION_FULL) return max;
+  return Math.round((max * c) / CONDITION_FULL);
+}
+
+// ============================================================================
+// Step 4: the COMBAT VIEW (design 4.4 and 6.1, user W3 "True condition")
+// ============================================================================
+//
+// A battle reads its gear through a FROZEN view: every piece at the condition its run froze when the fight's cycle
+// began (a patrol cycle's cycleStartCondition, an expedition ship battle's dispatch snapshot), never the live piece,
+// so the live loop, the display replay and the dispatch forecast fight exactly one fight. The combat readers
+// (combat/bridge.ts) read a piece's condition through combatPieceCondition, which is the frozen value for a view piece
+// and PRISTINE for any stored piece, so a battle built from the stored gear (an in-flight run dispatched before step 4,
+// a test, the absent path) fights exactly as before step 4. What the view changes (user W3, design 4.4):
+//   - weapons, the Reactor Core and the FTL drive open their combat pools at their true condition (combat's own
+//     four-state model stays the authority there: no second efficiency penalty);
+//   - shield emitters (capacity and recharge), hull plating (hull points), drone pods (drone hp and yield) and the
+//     universal modules (their effect) read their efficiency (wearEfficiency);
+//   - utility gear (the Damage Control Suite's lines) reads its worn lines, exactly like the run view (wornPieceView).
+
+// Is battle wear live: does any BATTLE source wear at all? A new patrol cycle and a new expedition are stamped for step
+// 4 only while it is, so a build with every battle source at 0 dispatches exactly the record it did before step 4.
+// Pure (reads the catalog at call time).
+export function battleWearLive(): boolean {
+  return WEAR_SOURCES.some((s) => s.mode === "battle" && s.raw > 0);
+}
+
+const COMBAT_CONDITION = new WeakMap<object, number>();
+
+// The gear a battle reads: a COPY of each piece at `conditions[piece.id]` (absent = pristine; the stored condition
+// fields are dropped), registered as a combat view piece. A utility piece's lines are scaled like the run view's. The
+// stored pieces are never touched. Pure.
+export function combatGearView(gear: readonly EquipmentInstance[], conditions: Readonly<Record<string, number>>): EquipmentInstance[] {
+  return gear.map((piece) => {
+    const frozen = conditions[piece.id];
+    const c = frozen === undefined ? CONDITION_FULL : clampCondition(frozen);
+    const { condition: _c, conditionAt: _a, ...rest } = piece;
+    const base = (c >= CONDITION_FULL ? rest : { ...rest, condition: c }) as EquipmentInstance;
+    const copy = WEAR_VIEW_SLOTS.has(piece.slotType) && c < CONDITION_FULL ? wornPieceView(base) : base;
+    COMBAT_CONDITION.set(copy, c);
+    return copy;
+  });
+}
+
+// A patrol cycle's frozen gear (its cycleStartCondition, model.ts PatrolMissionState), or the stored gear for a cycle
+// without the stamp (read pristine by every combat reader: the pre-step-4 cycle). The live loop (tick.ts) and the
+// display replay (combat/patrolReplay.ts) both read it, so the two fight the same gear. Pure.
+export function patrolCycleGear<G extends EquipmentInstance[] | undefined>(installedGear: G, mission: { cycleStartCondition?: Record<string, number> }): G {
+  return (installedGear && mission.cycleStartCondition !== undefined ? combatGearView(installedGear, mission.cycleStartCondition) : installedGear) as G;
+}
+
+// A piece's condition as a battle reads it: the frozen value for a combat view piece, PRISTINE for anything else. Pure.
+export function combatPieceCondition(piece: object): number {
+  return COMBAT_CONDITION.get(piece) ?? CONDITION_FULL;
+}
+
+// The durability a WEAPON's pool opens at in a battle: the frozen condition for a combat view piece; a stored piece
+// keeps step 2's rule (its stored condition, pieceStartDurability), which no save from before step 4 could lower (no
+// battle wore a weapon then), so every battle built from stored gear opens its weapons exactly as before. Pure.
+export function combatWeaponStartDurability(piece: EquipmentInstance): number {
+  const frozen = COMBAT_CONDITION.get(piece);
+  return frozen === undefined ? pieceStartDurability(piece) : poolAtCondition(piece.durabilityMax, frozen);
+}
+
+// A piece's efficiency as a battle reads it (exactly 1 for a stored piece). Pure.
+export function combatPieceEfficiency(piece: object): number {
+  const c = combatPieceCondition(piece);
+  return c >= CONDITION_FULL ? 1 : wearEfficiency(c);
+}
+
+// The worn pieces of `gear` (condition below full), as the record a run freezes: piece id -> per-mille. Pure.
+export function wornConditions(gear: readonly EquipmentInstance[], conditionOf: (p: EquipmentInstance) => number = pieceCondition): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const p of gear) {
+    const c = conditionOf(p);
+    if (c < CONDITION_FULL) out[p.id] = c;
+  }
+  return out;
+}
+
+// One battle wear amount on a piece at `at` (game seconds): the raw per-mille scaled by its TOUGHNESS (design 3.2:
+// "all battle amounts are then scaled by toughness"), below the use floor down to 0 and never below, never breaking
+// or uninstalling anything. A worn piece keeps its settle anchor (the banked repair fraction carries on); a pristine
+// one is anchored at `at`. The piece as it is when the amount is 0. Pure.
+export function applyBattleWearAt<T extends EquipmentInstance>(piece: T, raw: number, at: number): T {
+  if (!(raw > 0)) return piece;
+  const amount = toughnessScale(raw, piece.durabilityMax);
+  if (!(amount > 0)) return piece;
   const c = pieceCondition(piece);
-  if (c >= CONDITION_FULL) return piece.durabilityMax;
-  return Math.round((piece.durabilityMax * c) / CONDITION_FULL);
+  const next = applyBattleWear(c, amount);
+  if (next === c) return piece;
+  const anchor = piece.condition !== undefined && piece.conditionAt !== undefined ? piece.conditionAt : at;
+  return withPieceCondition(piece, next, anchor);
 }
 
 // ============================================================================
@@ -334,8 +433,8 @@ export function pieceStartDurability(piece: Pick<EquipmentInstance, "condition" 
 //   - a short-range cycle: the plan frozen at each cycle start and the cycle engine's sheet,
 //   - an expedition dispatch: the sensor snapshot, the gear bonuses, the away team and its roster, the voyage.
 // Never in a gate (reach, the short-range sheet, the power-budget install gate, crew station counts, equip
-// requirements: they read the real state, design 4.3) and never in combat (patrols and every ship battle read the
-// real state: combat's four-state model is the authority, user W3, and the combat half is step 4).
+// requirements: they read the real state, design 4.3) and never in combat (a battle reads its own frozen COMBAT view
+// instead, step 4 below: combat's four-state model is the authority there, user W3).
 //
 // The view is a COPY of the state's equipment list (the stored pieces are never touched): a pristine piece is the
 // same object, a worn piece of a VIEW slot is a fresh object with its lines scaled. A piece whose effect is not a
