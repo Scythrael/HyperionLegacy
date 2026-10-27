@@ -35,7 +35,7 @@ import {
 import { DRIVE_CLASS_MAX, expeditionGateText, expeditionTierGates, shipDriveClass, type ExpeditionGateDetail, type ExpeditionTierGates } from "./game/propulsion";
 import { REGION_TIERS, REGION_TIER_NAMES, regionTierNumeral, stateHomeworld, type HomeworldPlacement } from "./game/galaxy";
 import { TELESCOPE_DETAIL_NAMES, telescopeLevel, telescopeReading } from "./game/telescope";
-import { TRAINING_EXPEDITION_LINE, TRAINING_RUN_CHIP } from "./trainingRunDisplay";
+import { TRAINING_EXPEDITION_LINE } from "./trainingRunDisplay";
 import { VOYAGE_BAND_SCALE_PERMILLE, tierNominalSeconds } from "./game/voyage";
 import { TIER_HAUL_MULT } from "./game/riskFactors";
 import { runDifficultyAt } from "./game/runDifficulty";
@@ -457,7 +457,7 @@ export function launchBarView(selected: { name: string; outboundSeconds: number;
 // chip's approved line (user 2026-10-27, call 12), then what the run flies. Pure.
 export function trainingRunNote(state: Pick<GameState, "nextExpeditionId">, shipName: string): string {
   const first = Math.floor(state.nextExpeditionId ?? 1) <= 1;
-  return `${TRAINING_RUN_CHIP}: ${TRAINING_EXPEDITION_LINE} ${shipName}'s training run flies the same trip an ordinary run to that system would.${first ? " Wolf 359 appears in the first Tier I list after this run." : ""}`;
+  return `${TRAINING_EXPEDITION_LINE} ${shipName}'s training run flies the same trip an ordinary run to that system would.${first ? " Wolf 359 appears in the first Tier I list after this run." : ""}`;
 }
 
 // ============================================================================

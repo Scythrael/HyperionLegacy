@@ -964,6 +964,11 @@ the patrol card and any `brokeOff` wording.
   guns the fleet fields, with heavy shields." Eir: "A medical transport. The largest hold and away teams the fleet
   fields, for supplies and evacuations." (built behind the call 13 "Heavy cruiser." prefix and colon: "Heavy cruiser. A
   medical transport: the largest hold and away teams ..."). Aurora keeps its true "of the explorer hulls" wording.
+- **Chip line wording:** ""This run cannot fail" (Recommended)": the chip's line on BOTH the expedition and the patrol
+  is "This training run cannot fail. From the next one on, the risk rises slowly." (true wherever the chip shows: the
+  guarantee goes to the first EXPLORER expedition, and a General Freighter can fly an expedition first). Supersedes the
+  call 12 "Your first expedition / patrol cannot fail" lines; the gathering line stays as approved. Built: the Tier I
+  training note now leads with this line (no "Training run:" prefix, which would repeat the chip's words).
 
 ## SF-5 + SF-6 CARRY NOTE (2026-10-27, built on 1567b4d)
 

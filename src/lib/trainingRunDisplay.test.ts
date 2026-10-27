@@ -12,8 +12,8 @@ const maxOf = (pool: typeof HULLS, f: (d: (typeof HULLS)[number]) => number): nu
 describe("SF-6 first-run text", () => {
   it("is the approved text, verbatim", () => {
     expect(TRAINING_RUN_CHIP).toBe("Training run");
-    expect(TRAINING_EXPEDITION_LINE).toBe("Your first expedition cannot fail. From the next one on, the risk rises slowly.");
-    expect(TRAINING_PATROL_LINE).toBe("Your first patrol cannot fail. From the next one on, the risk rises slowly.");
+    expect(TRAINING_EXPEDITION_LINE).toBe("This training run cannot fail. From the next one on, the risk rises slowly.");
+    expect(TRAINING_PATROL_LINE).toBe("This training run cannot fail. From the next one on, the risk rises slowly.");
     expect(FIRST_GATHERING_LINE).toBe("First run: see how a mission works.");
   });
 });
