@@ -18,14 +18,15 @@
 //     member starts with a free set; the ship's Medical and Operations crew add First Aid Kits on an unbounded
 //     concave curve, never a cap.
 //   - FIELD DEVICES (D20, transcript 70901 / 70979): a device works at a rolled 50 to 75% PER USE, one integer draw
-//     on its own salt; Codebreaker anyone on the expedition adds 6% to the roll (FK8: 53 to 79.5%).
+//     on its own salt; Codebreaker anyone on the expedition adds 6% to the roll (FK8: 53 to 79.5%). Since FKR-8 they
+//     work on the GROUND (OC-F1): ambush and reinforcement chances, and the Lure's salvage drop scale.
 //   - SABOTEUR (FK10, "Own grenades only"): +6% on the Saboteur's OWN grenade throws, never squad-wide, no stacking.
 //
 // The user confirmed N8, N9, N10, N11, N12, the basic list (Stun and Fear included) and the Injury Kit share on
 // 2026-10-17, and the free basic curve's shape on 2026-10-20. DETERMINISM: pure; the only draw is fieldDevicePercent's, on FIELD_DEVICE_SALT (registered in
 // salts.test.ts). Module graph: model (types), gambit (first aid constants), diminishing, combat/rng.
 
-import { BLUEPRINTS, type AwayRosterSnapshot, type AwayTraitId, type Expedition, type GambitStatusId } from "./model";
+import { BLUEPRINTS, EQUIPMENT_SLOTS, memberVariety, type AwayRosterSnapshot, type AwayTraitId, type Expedition, type GambitStatusId, type SnapshotMember } from "./model";
 import {
   BASIC_DEBUFFS as BATTLE_BASIC_DEBUFFS,
   BONE_LINE,
@@ -318,6 +319,97 @@ export function codebreakerAboard(roster: AwayRosterSnapshot | undefined): boole
   return [...roster.security, ...roster.science].some((m) => m.traits.includes(CODEBREAKER_TRAIT_ID));
 }
 
+// ===== Field devices on the ground (FKR-8; the wiring plan's OC-F1) =====
+//
+// The user moved the Shroud Emitter and the Lure Beacon to the GROUND (OC-F1, "Move them to the ground (Recommended)":
+// they scale the ground ambush and reinforcement chances, and the Lure adds a drop scale on probe salvage), and the
+// 50 to 75% roll is made PER USE there (D20, transcript 70979). On a run carrying the field devices stamp
+// (fieldDevicesLive, FIELD_DEVICES_VERSION) a device is USED, and rolled, at three moments:
+//   - AMBUSH: each ambush roll on a calm objective (groundOps.ts ambushStrike, keyed by the objective and its ambushes
+//     so far): the chance x (1 + the working crew's dial x the roll);
+//   - REINFORCEMENT: each landing on a Reinforcing objective (groundOps.ts landOnTask, keyed by the objective and its
+//     visit): the visit's reinforcement chance, the same way;
+//   - SALVAGE: each won ship battle's salvage (shipScanEvents.ts shipEventSalvage, keyed by the scan boundary): the
+//     haul's scale x (1 + the expedition's Lure dial x the roll x LURE_SALVAGE_PER_DIAL).
+// The ship-event chance no longer reads the devices on such a run (they moved to the ground). The DIAL is each worn
+// piece's variety encounterBias (model.ts: Shroud Emitter -0.4, Lure Beacon +0.4), summed over the members using it.
+// No device worn, no roll is read. A run stamped earlier reads its devices exactly as before (the ship-event chance at
+// full strength, expedition.ts PRE_FKR8_DEVICE_EFFECTIVENESS).
+// DETERMINISM: one integer draw per use on FIELD_DEVICE_SALT, its key fieldDeviceUseKey (the use's kind and its two
+// indices), so no use ever shares a draw with another or with any engine stream; no draw is added to any other stream.
+
+// Each use kind's tag in the key (distinct, nonzero).
+const FIELD_DEVICE_USE_TAG = { ambush: 1, reinforcement: 2, salvage: 3 } as const;
+export type FieldDeviceUse = keyof typeof FIELD_DEVICE_USE_TAG;
+
+// The [PROVISIONAL] salvage scale per unit of Lure dial (OC-F1 names "a drop scale" and no number): 1, so one Lure
+// Beacon (+0.4) at a 50 to 75% roll raises a won ship battle's salvage by 20 to 30%.
+export const LURE_SALVAGE_PER_DIAL = 1;
+
+// The key of one device use: the kind's tag and the use's two indices (an objective's flat index and its ambush or
+// visit count; a scan boundary's scanStepKey and 0), spread by odd multipliers. Pure.
+export function fieldDeviceUseKey(use: FieldDeviceUse, a: number, b: number): number {
+  return (Math.imul(a + 1, 0x85ebca6b) ^ Math.imul(b + 1, 0xc2b2ae35) ^ Math.imul(FIELD_DEVICE_USE_TAG[use], 0x27d4eb2f)) >>> 0;
+}
+
+// The devices' effectiveness for one use on this run: the rolled 50 to 75%, x1.06 with a Codebreaker aboard. Pure.
+export function fieldDeviceUseEffectiveness(exp: Pick<Expedition, "seed" | "roster">, use: FieldDeviceUse, a: number, b: number): number {
+  return fieldDeviceRollEffectiveness(fieldDevicePercent(exp.seed, fieldDeviceUseKey(use, a, b)), codebreakerAboard(exp.roster));
+}
+
+// The summed device dial of these members' worn pieces (Shroud Emitter -0.4, Lure Beacon +0.4, every other piece 0). Pure.
+export function fieldDeviceDial(members: readonly SnapshotMember[]): number {
+  let dial = 0;
+  for (const m of members) for (const g of m.gear) dial += memberVariety(g.slotType, g.varietyKey)?.member.encounterBias ?? 0;
+  return dial;
+}
+
+// The Lure part of the dial: only the pieces that raise it (a Shroud never lowers a drop). Pure.
+export function fieldDeviceLureDial(members: readonly SnapshotMember[]): number {
+  let dial = 0;
+  for (const m of members) for (const g of m.gear) dial += Math.max(0, memberVariety(g.slotType, g.varietyKey)?.member.encounterBias ?? 0);
+  return dial;
+}
+
+// STACKING (D23, user 2026-10-08: diminishing returns, never a cap). A stack of devices does not add linearly: the
+// summed |dial| x roll passes ONE device's worth whole (the largest single dial, FIELD_DEVICE_SINGLE_DIAL, at this
+// roll), and everything beyond it through the shared diminishing() curve at FIELD_DEVICE_STACK_KNEE, so each extra
+// device adds less than the last and the stack never stops growing. One device keeps exactly its effect (a Lure
+// x (1 + 0.4 x roll), a Shroud x (1 - 0.4 x roll)). A Shroud stack past one device DIVIDES the chance (the one-device
+// factor 1 - a, then / (1 + diminishing(beyond) / (1 - a)), the same slope at the join), so it approaches zero and
+// never reaches it; a Lure stack lifts the chance by the curved amount (a probability still tops out at 1) and the
+// salvage scale by the curved amount x LURE_SALVAGE_PER_DIAL, uncapped.
+// The knee [PROVISIONAL]: one device's dial, so a second Lure at a 75% roll adds about 0.23 to the first's 0.3 (0.53
+// in all, not 0.6), six add about 1.07 (not 1.8); five Shrouds at a 50% roll leave about 49% of the chance (not 0).
+export const FIELD_DEVICE_STACK_KNEE = 0.4;
+
+// The largest single device dial (|encounterBias| over the member tools: 0.4). Pure.
+export function fieldDeviceSingleDial(): number {
+  return Math.max(0, ...EQUIPMENT_SLOTS.memberTool.varieties.map((v) => Math.abs(v.member?.encounterBias ?? 0)));
+}
+
+// The stacked worth of `used` (|dial| x roll) when one device at this roll is worth `one`: whole up to it, the rest
+// diminished. Pure.
+function stackedDeviceWorth(used: number, one: number): number {
+  return used <= one ? used : one + diminishing(used - one, FIELD_DEVICE_STACK_KNEE);
+}
+
+// A chance under a device dial at one use's effectiveness (see STACKING above), kept a probability. Pure.
+export function fieldDeviceChance(chance: number, dial: number, effectiveness: number): number {
+  const used = Math.abs(dial) * effectiveness;
+  const one = fieldDeviceSingleDial() * effectiveness;
+  if (dial >= 0) return Math.min(1, chance * (1 + stackedDeviceWorth(used, one)));
+  if (used <= one) return Math.max(0, chance * (1 - used));
+  const keep = 1 - one;
+  return (chance * keep) / (1 + diminishing(used - one, FIELD_DEVICE_STACK_KNEE) / keep);
+}
+
+// The salvage scale multiplier of a Lure dial at one use's effectiveness (see STACKING above). Pure.
+export function fieldDeviceSalvageMult(lureDial: number, effectiveness: number): number {
+  const used = Math.max(0, lureDial) * effectiveness;
+  return 1 + stackedDeviceWorth(used, fieldDeviceSingleDial() * effectiveness) * LURE_SALVAGE_PER_DIAL;
+}
+
 // ===== Saboteur: the thrower's own grenades =====
 
 // SABOTEUR_GRENADE_BONUS (with the category rules above) on the Saboteur's own throws only.
@@ -401,6 +493,13 @@ export const FIELD_KITS_CATALOG_VERSION = 2;
 // The first catalog whose grenades read their fuse (timedFusesLive).
 export const TIMED_FUSES_CATALOG = 2;
 
+// THE FIELD DEVICES STAMP (FKR-8, OC-F1; Expedition.fieldKits.devices, see "Field devices on the ground" above). A new
+// dispatch writes it beside the catalog ONLY when a Security member of the snapshotted roster wears a field device (a
+// piece with a dial): a run without one reads no device anywhere, so its record and its every roll stay exactly as
+// before (no golden of a device-less run moves). A run in flight at the update carries no stamp and keeps its devices on
+// the ship-event chance at full strength.
+export const FIELD_DEVICES_VERSION = 1;
+
 // THE RUNS SWITCH (FKR-7; user 2026-10-20 "Hide until kits are live"). On, a new dispatch stamps flag 2 (with the frozen
 // free basic set), packs each Security member from stock, buys a team's top-up shortfall and brings the unused extras
 // home at claim (expedition.ts startExpedition, fieldKitsRun.ts). FKR-7 kept it OFF until a player could see and change
@@ -423,4 +522,19 @@ export function fieldKitsLive(exp: Pick<Expedition, "fieldKits">): boolean {
 export function timedFusesLive(exp: Pick<Expedition, "fieldKits">): boolean {
   const v = exp.fieldKits?.catalog;
   return typeof v === "number" && v >= TIMED_FUSES_CATALOG;
+}
+
+// Do this run's field devices work on the ground, rolled per use (FKR-8)? Only a run carrying the field devices stamp:
+// an earlier run, in flight at the update, keeps its devices on the ship-event chance at full strength,
+// byte-identically. Pure.
+export function fieldDevicesLive(exp: Pick<Expedition, "fieldKits">): boolean {
+  const v = exp.fieldKits?.devices;
+  return typeof v === "number" && v >= FIELD_DEVICES_VERSION;
+}
+
+// The field devices stamp a new dispatch adds to its Field Kits flag: { devices } when a Security member of `roster`
+// wears a field device, else nothing (see FIELD_DEVICES_VERSION). Pure.
+export function fieldDevicesStamp(roster: Pick<AwayRosterSnapshot, "security"> | undefined): { devices?: number } {
+  const worn = (roster?.security ?? []).some((m) => m.gear.some((g) => (memberVariety(g.slotType, g.varietyKey)?.member.encounterBias ?? 0) !== 0));
+  return worn ? { devices: FIELD_DEVICES_VERSION } : {};
 }

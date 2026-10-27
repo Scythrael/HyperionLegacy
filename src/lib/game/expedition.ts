@@ -55,11 +55,10 @@ import type {
   ExpeditionFinding,
   ExpeditionScanParams,
   ExpeditionScanEvent,
-  AwayRosterSnapshot,
   SnapshotMember,
   PromotionObjectiveKind,
 } from "./model";
-import { SHIP_TYPES, commandingCaptain, memberVariety, moduleEffectScale, shipGearSetBonusLines } from "./model";
+import { SHIP_TYPES, commandingCaptain, moduleEffectScale, shipGearSetBonusLines } from "./model";
 // E-MOD EM-6: the body-scanned module trigger (its frozen procs and private stream).
 import { moduleNebulaSweep, moduleScanProcs, moduleScanSeed, rollModuleChance } from "./shipModules";
 import { makeRng, type Rng } from "./combat/rng";
@@ -133,7 +132,7 @@ import {
 import { ENEMY_RANKS_VERSION, isTrainingRun } from "./enemyRanks";
 import { RELIC_BLANKS_VERSION } from "./relicBlanks";
 // Field Kits FKR-7: the runs switch, the flag, and the dispatch / claim plumbing (fieldKitsRun.ts never imports this).
-import { FIELD_KITS_RUNS_LIVE, fieldKitsLive } from "./fieldKits";
+import { FIELD_KITS_RUNS_LIVE, fieldDeviceDial, fieldDevicesLive, fieldDevicesStamp, fieldKitsLive } from "./fieldKits";
 import { fieldKitsStamp, planDispatchPacks, returnCarriedExtras, settleDispatchPacks, withDispatchPacks } from "./fieldKitsRun";
 // E-CREW (Task 16): the claim turns the run's downed members into injuries (pure; imports model types,
 // crewOverlay and crewBuffs only, never this module, so no cycle). GO-7b: a Ground Ops run brings home the
@@ -306,14 +305,14 @@ export const ENCOUNTER_HAZARD_CHANCE = 0.2; // + this * the body's (resisted) ha
 export const ENCOUNTER_CHANCE_MAX = 0.9; // the chance never exceeds this, whatever the dial
 export const SUPPLY_CACHE_CHANCE = 0.05; // the per-boundary supply-cache event (draw 2)
 
-// D20 FIELD DEVICES (Shroud Emitter / Lure Beacon): anyone can use them, at REDUCED ability unless a
-// category specialist is aboard. AWAITING THE USER: the untrained multiplier is the user's decision (the
-// mockup proposes 0.75). Until they answer it is 1 (no penalty). Flipping it is this ONE number: every
-// device bias is multiplied by fieldDeviceEffectiveness, which reads it (proven by a test).
-export const FIELD_DEVICE_UNTRAINED_EFFECTIVENESS = 1;
-// With a field-device specialist aboard the device works at full strength (the specialist's own 5%/6%
-// category boost, D20, is a later design: see fieldDeviceSpecialistAboard).
-export const FIELD_DEVICE_TRAINED_EFFECTIVENESS = 1;
+// D20 FIELD DEVICES (Shroud Emitter / Lure Beacon). Field Kits FKR-8 built the user's answers: anyone uses them at a
+// rolled 50 to 75% PER USE, x1.06 with a Codebreaker aboard (fieldKits.ts fieldDeviceUseEffectiveness, KIT_CATEGORY_RULES
+// fieldDevices), and they work on the GROUND (OC-F1: groundOps.ts ambush and reinforcement chances, the Lure's salvage
+// scale in shipScanEvents.ts), on a run carrying the field devices stamp (fieldKits.ts fieldDevicesLive). It
+// retired the old knob (an untrained and a trained effectiveness, both 1, and a specialist check that was always
+// false). A run dispatched before it reads its devices as it always did: the scan encounter chance (a legacy run) or
+// the ship-event chance (a Ground Ops run), at full strength.
+export const PRE_FKR8_DEVICE_EFFECTIVENESS = 1;
 
 // ============================================================================
 // E2c: candidate targets + sensor-gated foreknowledge (FIRST-PASS TUNABLE)
@@ -1690,7 +1689,8 @@ function buildExpedition(
     // Field Kits FKR-7: the FIELD KITS flag (flag 2) with the frozen free basic set (fieldKitsRun.ts fieldKitsStamp),
     // only behind fieldKits.ts FIELD_KITS_RUNS_LIVE (off until the pack UI lands), so every dispatch until then stores
     // exactly the FKR-6 record and a run in flight at the update (no flag) keeps fighting as before.
-    ...(fieldKitsRuns ? { fieldKits: fieldKitsStamp(state, ship) } : {}),
+    // Field Kits FKR-8 (OC-F1): the field devices stamp beside it, only when a Security member wears a field device.
+    ...(fieldKitsRuns ? { fieldKits: { ...fieldKitsStamp(state, ship), ...fieldDevicesStamp(roster) } } : {}),
     // WR-5c: the commanding captain's run-frozen explorer nodes (Field Science, Away-Team Doctrine, Preservationist,
     // Relic Hunter, Drillmaster), only when it owns one (captainExplorerEffects.ts explorerCaptainRun).
     ...(explorer ? { explorerCaptain: explorer } : {}),
@@ -2039,26 +2039,11 @@ function hasScanEncounters(exp: Expedition): boolean {
   return (exp.encounterSteps ?? 0) >= 1;
 }
 
-// D20 hook: is a FIELD-DEVICE category specialist aboard (a member whose skills improve the efficacy of
-// field devices)? No such trait or skill exists yet (the category-efficacy specialists come with the D20
-// kit design), so it is false and every device runs at the untrained effectiveness. Pure.
-export function fieldDeviceSpecialistAboard(_roster: AwayRosterSnapshot | undefined): boolean {
-  return false;
-}
-
-// The multiplier on every field device's encounter bias for this roster. Pure.
-export function fieldDeviceEffectiveness(roster: AwayRosterSnapshot | undefined): number {
-  return fieldDeviceSpecialistAboard(roster) ? FIELD_DEVICE_TRAINED_EFFECTIVENESS : FIELD_DEVICE_UNTRAINED_EFFECTIVENESS;
-}
-
 // The Security squad's summed encounter dial: every worn piece's variety encounterBias (Shroud Emitter
-// -0.4, Lure Beacon +0.4; every other piece 0), times the field-device effectiveness. Pure.
+// -0.4, Lure Beacon +0.4; every other piece 0, fieldKits.ts fieldDeviceDial), times the field-device effectiveness.
+// Pure.
 export function squadEncounterBias(security: readonly SnapshotMember[], effectiveness: number): number {
-  let bias = 0;
-  for (const m of security) {
-    for (const g of m.gear) bias += memberVariety(g.slotType, g.varietyKey)?.member.encounterBias ?? 0;
-  }
-  return bias * effectiveness;
+  return fieldDeviceDial(security) * effectiveness;
 }
 
 // The plan's chance formula: (base + hazard * coeff) * (1 + device bias) * (1 - Evasive Command share),
@@ -2085,7 +2070,7 @@ export function scanEncounterChance(exp: Expedition, body: ExpeditionBody, sitti
   if (security.length === 0) return 0;
   return encounterChance(
     resistedHazard(body.hazard, exp.hazardResist ?? 0),
-    squadEncounterBias(security, fieldDeviceEffectiveness(exp.roster)),
+    squadEncounterBias(security, PRE_FKR8_DEVICE_EFFECTIVENESS),
     rampedEncounterEvasion(exp, hoursOut),
   );
 }
@@ -2138,10 +2123,13 @@ export function scanStepRoll(exp: Expedition, bodyIndex: number, step: number, h
 // Lure dial [PROVISIONAL, Q11], Evasive Command ramped by the Flight Deck's Constitution at `hoursOut`, the
 // event's WALL hours since dispatch). Unlike a ground battle nobody sits out (no ground fight while scanning),
 // and the dial reads the whole union roster. Pure.
+// Field Kits FKR-8 (OC-F1, user "Move them to the ground"): a run carrying the field devices stamp (fieldDevicesLive)
+// reads NO device here (the dial is 0): its devices work on the ground, rolled per use (groundOps.ts). An earlier run
+// keeps the dial at full strength (PRE_FKR8_DEVICE_EFFECTIVENESS), exactly as before.
 export function shipScanEventChance(exp: Expedition, body: ExpeditionBody, hoursOut: number = 0): number {
   return encounterChance(
     resistedHazard(body.hazard, exp.hazardResist ?? 0),
-    squadEncounterBias(exp.roster?.security ?? [], fieldDeviceEffectiveness(exp.roster)),
+    fieldDevicesLive(exp) ? 0 : squadEncounterBias(exp.roster?.security ?? [], PRE_FKR8_DEVICE_EFFECTIVENESS),
     rampedEncounterEvasion(exp, hoursOut),
   );
 }

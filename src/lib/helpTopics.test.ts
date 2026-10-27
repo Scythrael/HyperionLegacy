@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { HELP_TOPICS, TRAINING_RUNS_PARAGRAPH } from "./helpTopics";
+import { FIELD_DEVICES_PARAGRAPH, HELP_TOPICS, TRAINING_RUNS_PARAGRAPH } from "./helpTopics";
 import {
   FIRST_PATROL_WAVES,
   FIRST_RUN_ENEMY_SCALE,
@@ -37,7 +37,7 @@ import { FIELD_REPAIR_PLANET_TYPES } from "./game/groundOps";
 import { getPlanetTypeById } from "./game/expeditionContent";
 // Field Kits FKR-11.
 import { ENEMY_RANKS, ENEMY_RANK_IDS, fightLeadRank } from "./game/enemyRanks";
-import { CONDITION_LINES, FIELD_KITS, FIELD_KIT_IDS, FREE_BASIC_FIRST_AID_PER_MEMBER, KIT_CATEGORY_RULES, SABOTEUR_GRENADE_BONUS, SPLINT_HEAL_ROUNDS } from "./game/fieldKits";
+import { CODEBREAKER_DEVICE_BONUS, CONDITION_LINES, FIELD_DEVICE_MIN_PERCENT, FIELD_DEVICE_SPAN_PERCENT, FIELD_KITS, FIELD_KIT_IDS, FREE_BASIC_FIRST_AID_PER_MEMBER, KIT_CATEGORY_RULES, LURE_SALVAGE_PER_DIAL, SABOTEUR_GRENADE_BONUS, SPLINT_HEAL_ROUNDS } from "./game/fieldKits";
 import { GRENADES, GRENADE_IDS } from "./game/fieldKitsGrenades";
 import { defaultMemberPack } from "./game/fieldKitsRun";
 import { BLEED_ON_HIT_PERMILLE, FEAR_ON_HIT_PERMILLE, FLASH_GRENADES_PER_STRIKER, HEAVY_HIT_FRACTION, NEUROTOXIN_FROM_GRADE } from "./game/fieldKitsConditions";
@@ -344,8 +344,25 @@ describe("HELP_TOPICS", () => {
       expect(b).toContain(`heals in ${SPLINT_HEAL_ROUNDS} rounds and costs no Fracture time in the bay`);
       expect(b).toContain(`land on them ${pc(STONESKIN_BATTLE_RESIST)} less often`);
       expect(b).not.toMatch(/work every battle/);
-      expect(b).toMatch(/scan events happen less often with a Shroud Emitter and more often with a Lure Beacon while the ship scans/);
+      expect(b).not.toMatch(/scan events happen less often with a Shroud Emitter and more often with a Lure Beacon while the ship scans/);
       expect(b).toContain("A training run's enemies cause none of these.");
+    });
+
+    it("field devices (FKR-8): the per-use roll, Codebreaker, the ground chances and the Lure's salvage, from the engine", () => {
+      const b = topic("fieldKits").body;
+      const hi = FIELD_DEVICE_MIN_PERCENT + FIELD_DEVICE_SPAN_PERCENT - 1;
+      const n = (x: number) => `${Number(x.toFixed(1))}%`;
+      expect(b).toContain(FIELD_DEVICES_PARAGRAPH);
+      expect(b).toContain(`rolled fresh, from ${FIELD_DEVICE_MIN_PERCENT}% to ${hi}% (${n(FIELD_DEVICE_MIN_PERCENT * (1 + CODEBREAKER_DEVICE_BONUS))} to ${n(hi * (1 + CODEBREAKER_DEVICE_BONUS))} with a Codebreaker anywhere on the expedition)`);
+      expect(FIELD_DEVICES_PARAGRAPH).toContain("from 50% to 75% (53% to 79.5% with a Codebreaker");
+      expect(FIELD_DEVICES_PARAGRAPH).toContain("40% less at full strength, so 20% to 30% less each roll");
+      expect(FIELD_DEVICES_PARAGRAPH).toContain(`pays ${n(40 * LURE_SALVAGE_PER_DIAL * 0.5)} to ${n(40 * LURE_SALVAGE_PER_DIAL * 0.75)} more salvage`);
+      expect(FIELD_DEVICES_PARAGRAPH).toMatch(/ambush on a quiet objective, and reinforcements on a Reinforcing one/);
+      // D23 stacking and the downed rule as the engine does them (fieldKits.ts STACKING; groundOps.ts healTeam).
+      expect(FIELD_DEVICES_PARAGRAPH).toContain("Each extra device adds less than the one before");
+      expect(FIELD_DEVICES_PARAGRAPH).toContain("stops counting until the team is healed in the medical bay");
+      expect(FIELD_DEVICES_PARAGRAPH).not.toMatch(/they add up/);
+      expect(topic("scanEvents").body).toContain("A Lure Beacon on the expedition raises the salvage of a won ship battle");
     });
 
     it("field kits: Use Item, Ally downed, the rank conditions and the Boss reserve by their editor names", () => {

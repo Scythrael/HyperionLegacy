@@ -175,9 +175,9 @@ describe.runIf(Boolean(RELEASE_GATE))("release gate: 0.14.0 ships with no dead s
 // effects"): THE FIELD KITS CLOSE-OUT. Every Field Kits stat (the catalogs: ranks, kits, category rules, the bone line,
 // the free set, the prices, the grenades; the conditions and their bay rows; the gambit pieces; the blueprints; the
 // grenade gear lines; the resists Field Kits made live; its audit rows) is LIVE in the wiring registry with a probe and
-// a context, so wiring.sensitivity.test.ts measures each one move by its configured amount, or is held back by the one
-// Field Kits slice the plan has not built: FKR-8, the field device roll. And no other pending entry anywhere names a
-// Field Kits slice, so releaseBlockers() holds no Field Kits entry beyond FKR-8's.
+// a context, so wiring.sensitivity.test.ts measures each one move by its configured amount. FKR-8 (the field device
+// roll, on the ground) took the last three held-back entries live and added OC-F1's two rows, so no pending entry
+// anywhere names a Field Kits slice and releaseBlockers() holds NO Field Kits entry.
 const FIELD_KITS_CATALOGS = ["ENEMY_RANKS", "FIELD_KITS", "KIT_CATEGORY_RULES", "CONDITION_LINES", "FREE_BASIC_SET", "FIELD_KIT_PRICES", "GRENADES"];
 const FIELD_KITS_NAMED_IDS: readonly string[] = [
   ...[...FIELD_KIT_STATUS_IDS, "bleed", "fear", "inspired"].map((id) => `away:GAMBIT_STATUSES:${id}`),
@@ -201,13 +201,14 @@ const FIELD_KITS_NAMED_IDS: readonly string[] = [
   "away:audit:treatmentShare",
   "away:audit:fieldKitsHiddenPieces",
   "away:audit:fieldKitsRunsSwitch",
+  // FKR-8: the field devices, rolled per use on the ground (OC-F1).
+  "away:audit:fieldDeviceEffectiveness",
+  "away:audit:shroudLureGroundOps",
+  "away:audit:fieldDeviceReinforcements",
+  "away:audit:lureSalvage",
 ];
-// The Field Kits stats the plan still holds back, each with the slice that owns it (FKR-8 is not built).
-const FIELD_KITS_HELD_BACK: Readonly<Record<string, RegExp>> = {
-  "away:KIT_CATEGORY_RULES:fieldDevices": /^FKR-8\b/,
-};
-// The pending entries anywhere that may name a Field Kits slice: FKR-8's own (the device roll, Shroud and Lure on the ground).
-const FKR8_PENDING_IDS: ReadonlySet<string> = new Set(["away:KIT_CATEGORY_RULES:fieldDevices", "away:audit:fieldDeviceEffectiveness", "away:audit:shroudLureGroundOps"]);
+// The Field Kits stats the plan still holds back, each with the slice that owns it: none since FKR-8 (the device roll).
+const FIELD_KITS_HELD_BACK: Readonly<Record<string, RegExp>> = {};
 const FIELD_KITS_OWNER = /\bFKR?-\d+|Field Kits|\b16b\b/;
 
 describe("Field Kits close-out (FKR-11): every Field Kits stat is live", () => {
@@ -251,12 +252,9 @@ describe("Field Kits close-out (FKR-11): every Field Kits stat is live", () => {
     for (const entry of lines) expect(liveVia(entry), entry.id).not.toBeNull();
   });
 
-  it("releaseBlockers() holds no Field Kits entry but the field device slice's (FKR-8, not built)", () => {
+  it("releaseBlockers() holds NO Field Kits entry (FKR-8 took the last three live)", () => {
     const fieldKits = releaseBlockers().filter((e) => e.status.kind === "pending" && FIELD_KITS_OWNER.test(e.status.owner));
-    for (const e of fieldKits) {
-      expect(FKR8_PENDING_IDS.has(e.id), `${e.id} names a Field Kits slice: wire it, or name its real owner`).toBe(true);
-      expect(e.status.kind === "pending" ? e.status.owner : "", e.id).toMatch(/^FKR-8\b/);
-    }
+    expect(fieldKits.map((e) => e.id), "pending entries naming a Field Kits slice: wire them, or name their real owner").toEqual([]);
     // The status picker's Field Kits half is done (every Field Kits condition and Inspired can fire); only Corroded is left.
     const picker = wiringEntry("away:audit:statusPicker")!;
     expect(picker.status.kind === "pending" ? picker.status.owner : picker.status.kind).toMatch(/^WR-10, OC-F9/);

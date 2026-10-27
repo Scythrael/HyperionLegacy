@@ -130,7 +130,7 @@ import {
 import { isTrainingRun } from "./enemyRanks";
 import { rampedChance, runOddsRampOf } from "./runDifficulty";
 // Field Kits FKR-7: the flag (flag 2) and the run plumbing (the per-objective refresh, the fight spends, the bay share).
-import { fieldKitsLive } from "./fieldKits";
+import { fieldDeviceChance, fieldDeviceDial, fieldDeviceUseEffectiveness, fieldDevicesLive, fieldKitsLive } from "./fieldKits";
 import { freshBasicsFor, refreshObjectiveSupplies, spendFightSupplies } from "./fieldKitsRun";
 // Gas Giant Study GG-3: the ship's study of an orbital body (gasGiantStudy.ts never imports this module).
 import { NEBULA_SWEEP_BODY_INDEX, isStudyBody, nebulaSweepSeconds, rollNebulaReward, rollStudyReward, studySeconds, sweepsNebula } from "./gasGiantStudy";
@@ -389,6 +389,12 @@ export function snapshotAwayRosterForTeams(
 //   on the treated member's trip treatment, which shortens that member's bay time only, and clear when the team is
 //   healed. The fight's side carries the supplies (fightTeamOf); an odds read for an objective not yet started reads
 //   what the crew would land with. A run without the flag never reads or writes any of it.
+//
+// FIELD DEVICES (FKR-8; the wiring plan's OC-F1, user "Move them to the ground"; a run carrying the field devices
+//   stamp only, fieldKits.ts fieldDevicesLive): the crew's standing Security members' Shroud Emitters and Lure Beacons
+//   scale each ambush roll on a calm objective and each landing's reinforcement roll on a Reinforcing one, at a 50 to 75%
+//   rolled PER USE (x1.06 with a Codebreaker aboard) on its own keyed stream (groundDeviceChance). The ambush and
+//   reinforcement streams draw exactly as before; only the chance their first draw is compared against moves.
 //
 // DETERMINISM: two salts here, GROUND_AMBUSH_SALT (the ambush roll, keyed by the task and its ambushes) and
 // AUTO_ASSIGN_SALT (GO-7d's Auto-assign randomly, keyed by the run's edit count). A task
@@ -1392,7 +1398,7 @@ function landOnTask(exp: Expedition, ops: GroundOpsState, team: GroundTeamRun, r
   const task = ref.task;
   if (task.affixes && task.affixes.length > 0 && (task.fightPoints?.length ?? 0) > 0) {
     const visit = task.visits ?? 0;
-    const strikes = rollReinforcements(exp.seed, ref.flatIndex, visit, task.affixes);
+    const strikes = visitReinforcements(exp, crewOf(ops, team), ref, visit);
     task.visits = visit + 1;
     const from = task.progress ?? 0;
     if (strikes.length > 0) team.reinforcementsAt = strikes.map((f) => from + (1 - from) * f);
@@ -1401,6 +1407,15 @@ function landOnTask(exp: Expedition, ops: GroundOpsState, team: GroundTeamRun, r
   // N12, group 7 "Free, every objective"): each Security member's free basic set refilled, every grenade charge full.
   refreshObjectiveSupplies(exp, crewOf(ops, team));
   beginOnTask(exp, ops, team, ref, t);
+}
+
+// The strike points visit number `visit` of the objective brings (affixes.ts rollReinforcements, on its keyed stream).
+// Field Kits FKR-8 (OC-F1): the landing crew's Shroud Emitter or Lure Beacon scales the visit's chance, rolled for this
+// use (a run carrying the field devices stamp only; groundDeviceChance). The one reader of the roll (landOnTask), exported
+// for the wiring probe. Pure.
+export function visitReinforcements(exp: Expedition, crew: readonly GroundTeamRun[], ref: GroundTaskRef, visit: number): number[] {
+  const scaled = fieldDevicesLive(exp) ? (c: number) => groundDeviceChance(exp, crew, c, "reinforcement", ref.flatIndex, visit) : undefined;
+  return rollReinforcements(exp.seed, ref.flatIndex, visit, ref.task.affixes, scaled);
 }
 
 // On the task at `t` (after the drop): a fight waits at the held progress
@@ -1442,7 +1457,7 @@ function startWork(exp: Expedition, ops: GroundOpsState, team: GroundTeamRun, re
     team.reinforcing = true;
     return moveTo(ops, team, "work", t, t + at, rec);
   }
-  const strike = ambushStrike(exp, ref, secs);
+  const strike = ambushStrike(exp, ref, secs, crew);
   if (strike !== null) {
     team.workTo = from + (to - from) * (strike / secs);
     team.ambushed = true;
@@ -1463,16 +1478,33 @@ export function groundAmbushSeed(exp: Pick<Expedition, "seed">, flatIndex: numbe
 // stamp one) can be ambushed, at most SURVEY_AMBUSH_MAX_PER_TASK times per task, and only on a step long enough
 // to cut (SQ-3 struck only a crew with no Security squad; SQ-4's surprise fight covers the rest). Two draws on
 // makeRng(groundAmbushSeed): whether it strikes (next() < chance), then the second it strikes at
-// (1 + nextInt(secs - 1)). Pure.
-function ambushStrike(exp: Expedition, ref: GroundTaskRef, secs: number): number | null {
+// (1 + nextInt(secs - 1)). Field Kits FKR-8 (OC-F1): on a run carrying the field devices stamp the working crew's
+// Shroud Emitter or Lure Beacon scales the chance draw 1 compares against, rolled for this use (groundDeviceChance, its
+// own stream); the two draws are the same either way. The one reader of the roll (startWork), exported for the wiring
+// probe. Pure.
+export function ambushStrike(exp: Expedition, ref: GroundTaskRef, secs: number, crew: readonly GroundTeamRun[]): number | null {
   const raw = ref.task.ambushChance;
   const chance = typeof raw === "number" && Number.isFinite(raw) ? Math.min(1, raw) : 0;
   if (!(chance > 0) || secs < 2) return null;
   const ambushes = ref.task.ambushes ?? 0;
   if (ambushes >= SURVEY_AMBUSH_MAX_PER_TASK) return null;
   const rng = makeRng(groundAmbushSeed(exp, ref.flatIndex, ambushes));
-  if (!(rng.next() < chance)) return null;
+  if (!(rng.next() < groundDeviceChance(exp, crew, chance, "ambush", ref.flatIndex, ambushes))) return null;
   return 1 + rng.nextInt(secs - 1);
+}
+
+// Field Kits FKR-8 (the wiring plan's OC-F1, user "Move them to the ground"): a chance the crew's FIELD DEVICES act on,
+// for one use. On a run carrying the field devices stamp (fieldKits.ts fieldDevicesLive) the crew's STANDING Security
+// members' worn Shroud Emitters and Lure Beacons (their summed dial; a member downed in the objective sits out, as on
+// the legacy scan) scale `chance` at this use's rolled 50 to 75% (x1.06 with a Codebreaker aboard), keyed by the use
+// (`use`, `a`, `b`: the objective's flat index and its ambush or visit count). No device worn, or an earlier run: the
+// chance as is, and no roll is read. Pure.
+export function groundDeviceChance(exp: Expedition, crew: readonly GroundTeamRun[], chance: number, use: "ambush" | "reinforcement", a: number, b: number): number {
+  if (!fieldDevicesLive(exp) || !(chance > 0)) return chance;
+  const standing = new Set(crew.flatMap((member) => member.securityIds.filter((id) => !member.downedThisTask.includes(id))));
+  const dial = fieldDeviceDial((exp.roster?.security ?? []).filter((m) => standing.has(m.memberId)));
+  if (dial === 0) return chance;
+  return fieldDeviceChance(chance, dial, fieldDeviceUseEffectiveness(exp, use, a, b));
 }
 
 // Work reached its target: bank the segment just finished (segment index = the points cleared so far) for the

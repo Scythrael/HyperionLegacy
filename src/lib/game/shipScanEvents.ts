@@ -35,7 +35,7 @@
 // the curve's strength with the hazard at most the tier's ceiling; at full strength every number is exactly as before.
 //
 // Module graph: imports model, combat/*, gambit (rollHaul, scanStepKey), crewOverlay, equipment, officerStats,
-// diminishing, relics, enemyRanks, runDifficulty. Never imports expedition.ts or groundOps.ts. PURE throughout.
+// diminishing, relics, enemyRanks, runDifficulty, fieldKits. Never imports expedition.ts or groundOps.ts. PURE throughout.
 //
 // EVERY NUMBER BELOW IS FIRST-PASS TUNABLE; the [PROVISIONAL] ones answer open questions Q12, Q13, Q19.
 
@@ -71,6 +71,8 @@ import { resistedHazard } from "./relics";
 import { isTrainingRun } from "./enemyRanks";
 // Safe first runs SF-3: an ordinary run on the curve (the check and wear scale, the enemy's strength and hazard ceiling).
 import { encounterHazard, rampEnemyScale, rampedPassChance, rampedStampOf, runRampOf } from "./runDifficulty";
+// Field Kits FKR-8 (OC-F1): a Lure Beacon's salvage drop scale, rolled per use.
+import { fieldDeviceLureDial, fieldDeviceSalvageMult, fieldDeviceUseEffectiveness, fieldDevicesLive } from "./fieldKits";
 
 // ===== Salts (odd, distinct from every engine salt: salts.test.ts) =====
 
@@ -476,10 +478,24 @@ function shipEventBattleWon(
 export function shipEventFindingId(exp: Pick<Expedition, "id">, bodyIndex: number, step: number): string {
   return `${exp.id}-find-ship-b${bodyIndex}-s${step}`;
 }
+// Field Kits FKR-8 (the wiring plan's OC-F1: "Lure adds a drop scale on probe salvage"): on a run carrying the field devices
+// stamp the expedition's Lure Beacons (their dial over the whole union roster, as the ship events read it) raise the
+// haul's scale, rolled for this use (fieldKits.ts shipSalvageScale); the haul's draws are the same either way.
 function shipEventSalvage(exp: Expedition, body: ExpeditionBody, bodyIndex: number, step: number, cloaked: boolean): ExpeditionFinding {
   const seed = (exp.seed ^ PROBE_SALVAGE_SALT ^ Math.imul(scanStepKey(bodyIndex, step) + 1, 0x27d4eb2f)) >>> 0;
-  const haul = rollHaul(seed, body.planetType, body.hazard, cloaked ? CLOAKED_SALVAGE_SCALE : PROBE_SALVAGE_SCALE);
+  const haul = rollHaul(seed, body.planetType, body.hazard, shipSalvageScale(exp, bodyIndex, step, cloaked));
   return { id: shipEventFindingId(exp, bodyIndex, step), source: "encounter", materials: haul.materials, credits: haul.credits, relic: null };
+}
+
+// The rollHaul scale of a won ship battle at `body` boundary `step`: the probe's or the cloaked vessel's, x the Lure
+// Beacons' salvage multiplier at this use's rolled effectiveness on a run whose devices work per use (fieldDevicesLive;
+// no Lure worn, no roll is read). Exported for the wiring probe. Pure.
+export function shipSalvageScale(exp: Pick<Expedition, "seed" | "roster" | "fieldKits">, bodyIndex: number, step: number, cloaked: boolean): number {
+  const base = cloaked ? CLOAKED_SALVAGE_SCALE : PROBE_SALVAGE_SCALE;
+  if (!fieldDevicesLive(exp)) return base;
+  const lure = fieldDeviceLureDial(exp.roster?.security ?? []);
+  if (!(lure > 0)) return base;
+  return base * fieldDeviceSalvageMult(lure, fieldDeviceUseEffectiveness(exp, "salvage", scanStepKey(bodyIndex, step), 0));
 }
 
 // The bonus-discovery stream of a ghost read at `body` boundary `step` (expedition.ts draws the PoI). Pure.
