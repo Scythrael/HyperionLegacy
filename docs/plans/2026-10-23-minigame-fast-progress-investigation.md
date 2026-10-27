@@ -131,3 +131,7 @@ Brainstorm (2026-10-27) picks: relics "Whole climb, as built (Recommended)" (R2-
 e10M, where the curve trails off, relics are what still moves you); shipping "With 0.14.0 (Recommended)" (built and
 re-simmed on the 0.14.0 branch with a save conversion: spent Skill Points refunded into the new upgrades, automations
 granted by milestones already reached).
+Brainstorm (2026-10-27), asked for upgrade or e20M prize ideas, verbatim: "I don't know what I should have just yet. I
+wonder if we should make that a super secret surprise and then make e20m's prize a visualization to go with the new
+theme style." Reading: Claude drafts the upgrade roster; the e20,000,000 prize stays a secret ("???" until reached)
+and is a visualization that goes with the Starfall wash plus shine theme style (a visual effect, cosmetic only).
