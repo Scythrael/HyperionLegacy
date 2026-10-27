@@ -152,3 +152,21 @@ Reading: without relics, maxed skills and upgrades plateau around e10M (trailing
 diminishing returns (never quite reached), which puts e25M in reach; e20M (the secret prize) sits on the way. Future
 systems add their own ceilings (the next maybe about 2x, toward e50M). Open: confirm e25M as the relic ceiling, the
 limit shape (a D23 exception like the minigame upgrade caps), and the user's question about expanding the skill roster.
+
+Relic ceiling answers (2026-10-27), verbatim:
+- Ceiling: "e25m ceiling. The same scaling plan up to e10m without a single relic. You can still progress beyond e10m,
+  and it might even help a little bit overall, but compared to the increases you'll get with the 16 relics, you'll get
+  more out of it with that, and those 16 relics over time will help you push from e10m to e25m for the prize of that
+  visualization."
+- D23: "Yes. Keep it that way. Because while the relic asymptotically caps for this game, it won't for endless mode
+  nearly as quickly. Remember that getting up to 1k total relics is not meant to be quick or easy. You'll need to get
+  into higher tier content to be able to even unlock the last of that 16."
+- Split: "All of the bonuses that the relics provide to the minigame will all combine together to be equivalent to a
+  2.5x increase when reaching the asymptotic limit. So if you have 10k relics of each of the 16, then you're pretty
+  much right on the 2.5x multiplier mark. So if you have e10m, with those 10k in each, you'd have e25m. We should also
+  plan how long it will take to get to that theoretical soft cap"
+Reading: relic-free pacing to e10M unchanged; past e10M a relic-free player still creeps forward a little; ALL relic
+boosts combined approach a 2.5x limit on the reachable exponent (e10M becomes e25M), about there at 10,000 copies of
+each type; asymptotic (a minigame-only D23 exception; Endless Mode will scale further); the visualization prize sits at
+e25M. Plus a study: how long the main game takes to reach 1,000 per tier and 10,000 of each type. Note: the code has 17
+relic types (the user says 16): to confirm.
