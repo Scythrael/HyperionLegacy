@@ -461,6 +461,8 @@ const GOLDEN: Record<string, unknown> = {
   // (Biofiber, Resin Distillate) join; read back (ml2RowsBack, inside every rowsBack too) the snapshot is bd1e2f48.
   // Re-pinned by ML-3 (cfe349ea -> c89e7c59): the rig line's entry (ship:gearLine:materialQualityChance) flips
   // pending -> live on mission:extraction; read back (ml3RowsBack, inside every rowsBack too) the snapshot is cfe349ea.
+  // Field Kits FKR-11 (the close-out) does NOT move it: Inspired's flip and the three re-owned audit rows are read back
+  // in the snapshot and every read-back (fkr11ReadBack, the G1-6 pattern).
   registry: [
     "c89e7c59",
     "relic:RELICS:precursorLens",
@@ -677,8 +679,25 @@ const G16_ROW_BEFORE = { kind: "pending", owner: "G1-6 (flips SHORT_RANGE_BOARD_
 // on their owner, no live context, no probe) in every read-back and the snapshot; GG-3's added probe dive seam is left out.
 // Relics v2 R2-4 the same (relicMuseumV2.fixture.ts): its added entries left out, its RELIC_TYPES / EXCEPTIONAL_SETS
 // flips read back as R2-1 registered them.
+// Field Kits FKR-11 (the close-out) came after every pin here too: Inspired's status row flipped pending -> live (the
+// Combat Stim inflicts it) with its probe and the ground context, and three audit rows were re-owned (still pending:
+// the two field device rows to FKR-8, the status picker to WR-10). Every read-back and the snapshot read them as they
+// stood (FKR11_BEFORE); shortRangeGoldens' "FKR-11 is the only cause" proves the flip is the whole move.
+const FKR11_BEFORE: Readonly<Record<string, string>> = {
+  "away:GAMBIT_STATUSES:inspired": "FK-5 (nothing inflicts it)",
+  "away:audit:shroudLureGroundOps": "FK-7 + OC-F1",
+  "away:audit:fieldDeviceEffectiveness": "FK-7",
+  "away:audit:statusPicker": "FK-9 + WR-10",
+};
+function fkr11ReadBack(rows: readonly WiringEntry[]): WiringEntry[] {
+  return rows.map((e) => {
+    if (!(e.id in FKR11_BEFORE)) return e;
+    const status = { kind: "pending", owner: FKR11_BEFORE[e.id] } as WiringEntry["status"];
+    return e.id === "away:GAMBIT_STATUSES:inspired" ? { ...e, status, contexts: [], probe: undefined } : { ...e, status };
+  });
+}
 const BEFORE_RX: WiringEntry[] = siReadBack(
-  em4ReadBack(em3ReadBack(em5ReadBack(wr8ReadBack(gw3RegistryBack(em7ReadBack(WIRING_REGISTRY)))))).filter(
+  em4ReadBack(em3ReadBack(em5ReadBack(wr8ReadBack(gw3RegistryBack(em7ReadBack(fkr11ReadBack(WIRING_REGISTRY))))))).filter(
     (e) =>
       !RX_ADDED_ENTRY_IDS.has(e.id) && !RR_ADDED_ENTRY_IDS.has(e.id) && !FUSE_ADDED_ENTRY_IDS.has(e.id) && !R2_2_ADDED_ENTRY_IDS.has(e.id) && !R2_3_ADDED_ENTRY_IDS.has(e.id) && !R2_10_ADDED_ENTRY_IDS.has(e.id) && !R2_4_ADDED_ENTRY_IDS.has(e.id) && !G16_ADDED_IDS.has(e.id) &&
       !G2_4_ADDED_ENTRY_IDS.has(e.id) && !OC15_ADDED_ENTRY_IDS.has(e.id) && !GG_STUDY_ADDED_ENTRY_IDS.has(e.id) && !G2_6_ADDED_ENTRY_IDS.has(e.id),
