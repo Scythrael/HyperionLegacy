@@ -1146,6 +1146,13 @@
   import { refinedItemIcon } from "./lib/ui/refinedIcons";
   // Material Lines ML-4: the "Use best materials" switch's note.
   import { bestMaterialsNote } from "./lib/ui/materialQualityText";
+  // Material Lines ML-7 (the signed-off Refinery mockup): the Refinery grouped by material line, per-quality stock
+  // chips, and a craft order's "This order uses" breakdown with its carried quality (materialLinesDisplay.ts, tested).
+  import RefineryLines from "./lib/RefineryLines.svelte";
+  import CraftQualityPreview from "./lib/CraftQualityPreview.svelte";
+  import QualityChips from "./lib/QualityChips.svelte";
+  import { qualityChips } from "./lib/ui/materialLinesDisplay";
+  import { refineJobDurationTicks } from "./lib/game/tick";
   import { gasStudySourcePending } from "./lib/game/gasGiantContent";
   // Gas Giant Study GG-6: the Research Lab's Data study tab, the Archive's Survey Log, the canister shelf and the claim's
   // study line (display decisions in dataStudyDisplay.ts and gasGiantStudyDisplay.ts, tested).
@@ -8308,6 +8315,19 @@
     openConfig = null;
   }
 
+  // Material Lines ML-7: a recipe row's Order button (the grouped material lines list). Opens the configurator
+  // on that recipe in the first idle line, or in the queue opener when every line is busy (both sit at index
+  // refineLines.length in the Production markup), with "Use best materials" off as every opened form starts,
+  // then brings the form into view (on a phone it sits below the list).
+  async function orderRefineRecipe(recipeKey: string) {
+    openConfigurator("refine", (state.refineLines ?? []).length);
+    cfgRecipeKey = recipeKey;
+    await svelteTick();
+    // An instant jump (no smooth scroll): a smooth one does not run while the page is in the background, and it
+    // needs no reduced-motion exception.
+    document.getElementById("refine-config")?.scrollIntoView({ block: "start" });
+  }
+
   // Fabricate tier changed in the dropdown: point the item dropdown at the first blueprint of
   // the newly-selected tier so cfgRecipeKey never dangles on a tier that no longer lists it.
   function onFabricateTierChange(tier: number) {
@@ -12096,6 +12116,22 @@
                    canStartLine / maxAffordableIterations; the REQUIRES preview reads the
                    derived allocation helpers (free/allocated/total). Reuses .mission-card /
                    .buy-btn / .dev-btn.danger + the .research-* classes. -->
+              <!-- MATERIAL LINES (0.14.0 ML-7, the signed-off Refinery mockup): every offered recipe grouped by
+                   its material line, each with its per-quality stock and an Order button that opens the
+                   configurator below on that recipe. Lines list on the left, the production lines (the
+                   mockup's order panel) on the right; one column on a phone, the list first as drawn. -->
+              <div class="refinery-split">
+              <Panel>
+                <div class="panel-title">MATERIAL LINES</div>
+                <RefineryLines
+                  {state}
+                  canOrder={refineryBuilt}
+                  orderBlockedText="Build the Refinery first (see Upgrades) to place an order."
+                  onOrder={orderRefineRecipe}
+                  durationOf={(k) => durationReadout(refineJobDurationTicks(state, REFINE_RECIPES[k]?.durationTicks ?? 0), showTickCounts, state.tickDurationSeconds)}
+                />
+              </Panel>
+              <div class="refinery-split-side">
               <Panel>
                 <div class="panel-title">PRODUCTION LINES</div>
                 <div class="research-cost">Refine slots: {(state.refineLines ?? []).length} / {refinerySlots} in use</div>
@@ -12191,7 +12227,7 @@
                            the disabled state, the note below and (queue-full popup, 2026-09-10)
                            what the click actually does can never disagree. -->
                       {@const queueCtl = craftQueueButtonState(state, refineryQueue, "refine", cfgRecipeKey, cfgQty)}
-                      <div class="mission-card" style="margin-top: 10px;">
+                      <div class="mission-card" id="refine-config" style="margin-top: 10px;">
                         <div class="research-name">{#if isQueueOpener}<Icon name="queue" size={12} /> Queue · configure an order{:else}<Icon name="refinery" size={12} /> Line {slotIndex + 1} · configure a craft{/if}</div>
 
                         <!-- Tier dropdown (refine recipes carry no tier -> a single Tier 1). -->
@@ -12253,8 +12289,10 @@
                              switch's own aria-label names it, so the visible title is aria-hidden (read once). -->
                         <div class="dev-row" style="margin-top: 8px; align-items: center; gap: 8px;">
                           <Toggle label="Use best materials" checked={cfgBestMaterials} on:change={(e) => (cfgBestMaterials = e.detail)} />
-                          <span><b aria-hidden="true">Use best materials</b><br /><span class="research-cost">{bestMaterialsNote(cfgBestMaterials)}</span></span>
+                          <span class="best-switch-text"><b aria-hidden="true">Use best materials</b><br /><span class="research-cost">{bestMaterialsNote(cfgBestMaterials)}</span></span>
                         </div>
+                        <!-- ML-7: what this order draws, quality by quality, and the quality the next run carries. -->
+                        <CraftQualityPreview inventory={state.inventory} perRun={perIteration} runs={cfgQty} best={cfgBestMaterials} />
 
                         <div class="dev-row" style="margin-top: 8px;">
                           <button
@@ -12321,6 +12359,8 @@
               {#if refineryBuilt}
                 {@render craftOrderQueuePanel(refineryQueue, refineryContinuous)}
               {/if}
+              </div>
+              </div>
             {/if}
 
             {#if activeRefinerySubTab === "upgrades"}
@@ -12920,8 +12960,10 @@
                           {#if bestOffered}
                             <div class="dev-row" style="margin-top: 8px; align-items: center; gap: 8px;">
                               <Toggle label="Use best materials" checked={cfgBestMaterials} on:change={(e) => (cfgBestMaterials = e.detail)} />
-                              <span><b aria-hidden="true">Use best materials</b><br /><span class="research-cost">{bestMaterialsNote(cfgBestMaterials)}</span></span>
+                              <span class="best-switch-text"><b aria-hidden="true">Use best materials</b><br /><span class="research-cost">{bestMaterialsNote(cfgBestMaterials)}</span></span>
                             </div>
+                            <!-- ML-7: the same breakdown as the Refinery's form (a stackable output carries quality). -->
+                            <CraftQualityPreview inventory={state.inventory} perRun={perIteration} runs={cfgQty} best={cfgBestMaterials} />
                           {/if}
 
                           <div class="dev-row" style="margin-top: 8px;">
@@ -21451,6 +21493,14 @@
               <span>Free</span>
               <span class="warehouse-tt-v" style="color: var(--color-success)">{formatNumber(freeItem(state.inventory, allLines, queuedOrders, tipId))}</span>
             </div>
+            <!-- Material Lines ML-7: the Stored count split by quality (hover a tile, or tap it on a phone). -->
+            {@const tipChips = qualityChips(state.inventory, tipId)}
+            {#if tipChips.length > 0}
+              <div class="warehouse-tt-row warehouse-tt-quality">
+                <span>By quality</span>
+                <QualityChips chips={tipChips} label="{tip.label} by quality" />
+              </div>
+            {/if}
             <div class="warehouse-tt-stat">{tip.flavor}</div>
             {#if tipAtCap}
               <div class="warehouse-tt-warn">⚠ FULL, producers auto-stopped. Expand storage.</div>
@@ -23777,6 +23827,20 @@
   .warehouse-tt-name { font-size: var(--text-md); font-weight: 700; color: var(--color-text-primary); }
   .warehouse-tt-rarity { font-size: var(--text-3xs); letter-spacing: 0.08em; text-transform: uppercase; font-weight: 700; margin-top: 1px; }
   .warehouse-tt-row { display: flex; justify-content: space-between; font-size: var(--text-xs); margin-top: 8px; color: var(--color-text-secondary); }
+  /* ML-7: the per-quality chips wrap under a long split instead of widening the card. */
+  .warehouse-tt-quality { align-items: flex-start; gap: 8px; }
+  .warehouse-tt-quality > :global(.qc) { justify-content: flex-end; }
+  /* ML-7: the Refinery's Production tab, the material lines list beside the production lines (the mockup's
+     split), one column below the width where both fit. */
+  .refinery-split { display: grid; gap: 14px; grid-template-columns: minmax(0, 1fr); align-items: start; }
+  .refinery-split-side { display: grid; gap: 14px; min-width: 0; align-content: start; }
+  /* ML-7 restyle of the ML-4 switch: its title and note stay beside the knob (as the mockup draws it) instead of
+     wrapping under it in a narrow column; the note keeps no bottom margin inside the row. */
+  .best-switch-text { flex: 1 1 0; min-width: 0; font-size: var(--text-sm); }
+  .best-switch-text .research-cost { margin-bottom: 0; }
+  @media (min-width: 1100px) {
+    .refinery-split { grid-template-columns: minmax(0, 1fr) minmax(0, 380px); }
+  }
 
   /* Home > Statistics label/value row (0.11.2 Shell Correction, Task 2). A minimal
      two-column readout: dim label on the left, primary-color value on the right.

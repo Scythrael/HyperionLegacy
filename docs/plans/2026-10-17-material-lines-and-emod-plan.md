@@ -418,6 +418,29 @@ holds for Class I and II; the skim run delivers on Repeat. UI: the Deuterium Ice
 readout in Materials (hover or expand), the "Use best materials" toggle on a craft order, Help topic "Material lines and
 quality". Verify in preview desktop + 375 px.
 
+> **Carry note (ML-7 built 2026-10-26, on feat 7a7511d).** Built to the signed-off Refinery mockup (section B, user
+> 2026-10-21 "I approve all 4 mockups as is"; merge-batch picks: compounds with their main raw's line, no "more
+> recipes" note, per-quality chips visible, "Use best materials" starts lowest-first). Display only: no engine,
+> balance or save change, so no golden moved. `ui/materialLinesDisplay.ts` (pure, tested): `REFINERY_LINES` (Structural,
+> Heavy metals, Recovered tech, Organic, Volatiles; existing glyphs ingot / ore / salvage / riskFlora / gasCanister;
+> sources are MISSIONS keys, so labels never drift), `recipeLine` (a recipe joins its largest raw input's line; an
+> unnamed raw falls into an "Other" group so a future recipe is never hidden; the test holds every offered recipe,
+> 14 today, to a named line), `qualityChips`, and `orderQualityPreview`, which walks the stock with the engine's own
+> `drawQualityTally` / `removeItem*` / `carriedQuality`. Each run of an order is its own job, so "Carried quality:
+> average X = QN, then the roll" is the NEXT job's figure; when later runs differ (best-first falls, lowest-first
+> climbs, both monotone) a line says so. materialLinesDisplay.test.ts starts real lines on mixed stock, both
+> preferences, one and two inputs, and checks the first and last stamped `inputQuality` and the whole order's drawn
+> buckets against the readout. UI: Refinery Production tab = material lines list beside the production lines
+> (`RefineryLines.svelte`; one column below 1,100 px, list first as drawn); Order opens the first idle line's form, or
+> the queue's form when every line is busy, on that recipe with the switch off, and jumps to it.
+> `CraftQualityPreview.svelte` ("This order uses" + Carried quality) under the switch on the Refinery form and on the
+> Fabricator form for stackable outputs only (`bestOffered`; ML-5 not built, equipment carries nothing). The ML-4
+> switch now keeps its title beside the knob. Materials tooltip gains a "By quality" chip row (hover, or tap on a
+> phone). Help: new topic `materialQuality` "Material lines and quality" (line names and Q5 read from their owners;
+> says equipment does not take on quality yet); the `refining` topic points to it. **For ML-5:** when blanks carry
+> quality, show `CraftQualityPreview` for equipment blueprints too (drop the `bestOffered` guard there) and change
+> the Help topic's last sentence.
+
 ### E-MOD (EM)
 
 **EM-0 Goldens.** Ship sheet for every hull with every slot combination the census can build (the CP-0 pattern);
