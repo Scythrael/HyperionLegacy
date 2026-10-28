@@ -190,3 +190,11 @@ hit today's "all learned" cutoff earns again under the deeper caps. One-time, ma
 
 Exact engine structure, the sim harness changes, the save marker name, test layout, and every [PROVISIONAL] number the
 sim sets, within the bands in section 4.
+
+## User addition (2026-10-28, verbatim)
+
+"Oh, and don't forget: The automation unlocks for milestones. Make sure that they cover the new upgrades that are coming
+along in the new update to the minigame coming in 0.14.0! Other than that, so far so good! I'm having a good time with
+the system, even as it is now. It'll feel even better!"
+Reading: the milestone-unlocked automations (3.2) also cover the NEW things to buy in this update: automation for the
+leveled Skill Point skills and/or the e1,000,000 Upgrades tab (details confirmed by multiple choice below).
