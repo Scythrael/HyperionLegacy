@@ -346,6 +346,168 @@ export function milestoneAchievement(id: MilestoneId): Achievement {
 export const TURBO_LEVEL = 10000;
 
 // ---------------------------------------------------------------------------
+// 0.14.0 prestige redesign: DATA ONLY for now. Design docs/plans/2026-10-27-minigame-prestige-
+// redesign-design.md (approved 2026-10-27, answers 2026-10-28), plan docs/plans/2026-10-27-minigame-
+// prestige-redesign-plan.md. Slice 1 adds the data; no engine code reads anything in this section yet,
+// so every golden holds. Later slices wire it: the rising bars (Slice 2), the automations at
+// milestones and the Automation tab (Slice 3), the leveled skills and the Skill Point schedule
+// (Slice 4), the late milestones (Slice 5). Every number here is [PROVISIONAL] (set by the pacing
+// sims in those slices) and every new name or line of copy is [PROPOSAL] unless a comment says the
+// user named it.
+// ---------------------------------------------------------------------------
+
+// 3.1 Rising bars [PROVISIONAL]. The Fleet Prestige bar's exponent is FLEET_AT x FLEET_BAR_RATIO^n,
+// n = Fleet Prestiges since the last Prestigeception (fleetCount, so a Prestigeception resets it). The
+// Prestigeception bar's exponent is PRESTIGECEPTION_AT x PC_BAR_RATIO^m, m = lifetime
+// Prestigeceptions (never reset). Payouts still measure from the base bars (user: "Harder pays more").
+export const FLEET_BAR_RATIO = 1.25;
+export const PC_BAR_RATIO = 1.5;
+
+// 3.2 Automations. Each one unlocks at a milestone (user: "Only have the automations at the milestone
+// levels"), never for Skill Points. The six that are skills today keep their ids; autoSkills
+// (auto-skill allocation, user 2026-10-28) and autoUpgrades (auto-buy for the e1,000,000 Upgrades tab)
+// are new. Both spend cheapest first, round-robin: QoL only, never optimal play (user 2026-10-28).
+export type AutomationId =
+  | "autoOverclock"
+  | "autoBuyLow"
+  | "autoBuyHigh"
+  | "autoCaptain"
+  | "autoFleet"
+  | "autoPc"
+  | "autoSkills"
+  | "autoUpgrades";
+
+export const AUTOMATION_IDS: readonly AutomationId[] = ["autoOverclock", "autoBuyLow", "autoBuyHigh", "autoCaptain", "autoFleet", "autoPc", "autoSkills", "autoUpgrades"];
+
+// The Automation tab's names. The first six are today's skill names; the last two [PROPOSAL].
+export const AUTOMATION_NAMES: Readonly<Record<AutomationId, string>> = {
+  autoOverclock: "Auto Overclock",
+  autoBuyLow: "Auto-buy I to IV",
+  autoBuyHigh: "Auto-buy V to VIII",
+  autoCaptain: "Auto Captain Prestige",
+  autoFleet: "Auto Fleet Prestige",
+  autoPc: "Auto Prestigeception",
+  autoSkills: "Auto Skill Allocation",
+  autoUpgrades: "Auto-buy Upgrades",
+};
+
+// How much an automation buys at a time (user 2026-10-28: "Buy 1 at a time. Buy maximum. Buy 10.").
+export type AutomationBuy = "1" | "10" | "max";
+export const AUTOMATION_BUY_CHOICES: readonly AutomationBuy[] = ["1", "10", "max"];
+// [PROPOSAL] defaults, only for the automations that buy something (the three prestige automations
+// keep their target setting instead and have no entry): "max" for Overclock and the generator
+// auto-buys (today's behavior), "1" for skills and upgrades.
+export const AUTOMATION_BUY_DEFAULT: Readonly<Partial<Record<AutomationId, AutomationBuy>>> = {
+  autoOverclock: "max",
+  autoBuyLow: "max",
+  autoBuyHigh: "max",
+  autoSkills: "1",
+  autoUpgrades: "1",
+};
+
+// The milestones the redesign adds. Kept OUT of MILESTONES (the live list) until their slice wires
+// them, so reached(), milestoneVisible(), checkMilestonesMut and every golden never see them: the
+// automation beats with Slice 3, e20,000,000 and the secret e25,000,000 with Slice 5. Those slices
+// move each def into MILESTONES and its id into MilestoneId.
+export type PendingMilestoneId = "secondFleet" | "e10k" | "pcRegular" | "e20m" | "e25m";
+export type AnyMilestoneId = MilestoneId | PendingMilestoneId;
+
+// Prestigeceptions for the "pcRegular" milestone (Auto Skill Allocation) [PROVISIONAL].
+export const AUTO_SKILLS_PC_COUNT = 4;
+export const E20M_EXPONENT = 20000000;
+// The secret prize (design 3.5): "???" until reached, never hinted in Help.
+export const SECRET_PRIZE_EXPONENT = 25000000;
+
+export interface PendingMilestoneDef extends Omit<MilestoneDef, "id"> {
+  id: PendingMilestoneId;
+  secret?: boolean; // name, detail and reward stay "???" in every view until reached
+}
+
+// Names, flavor and reward lines [PROPOSAL] (design 3.2 and 3.5, approved as proposals 2026-10-27).
+export const PENDING_MILESTONES: readonly PendingMilestoneDef[] = [
+  { id: "secondFleet", name: "Fleet Week, the Sequel", detail: "Your second Fleet Prestige", how: "Do your second Fleet Prestige.", flavor: "Same fleet, new paint. The Captains have learned to promote themselves.", reward: `Reward: ${AUTOMATION_NAMES.autoCaptain} unlocked` },
+  { id: "e10k", name: "Ten Thousand Zeros, Roughly", detail: "e10,000 Ore", how: "Reach e10,000 Ore.", flavor: "The fleet can admiral itself now. Please supervise anyway.", reward: `Reward: ${AUTOMATION_NAMES.autoFleet} unlocked` },
+  { id: "pcRegular", name: "Frequent Dreamer", detail: `${AUTO_SKILLS_PC_COUNT} Prestigeceptions`, how: `Do ${AUTO_SKILLS_PC_COUNT} Prestigeceptions.`, flavor: "You have spent so many Skill Points in your sleep that your sleep now spends them for you.", reward: `Reward: ${AUTOMATION_NAMES.autoSkills} unlocked` },
+  { id: "e20m", name: "The Numbers Got Even Bigger", detail: "e20,000,000 Ore", how: "Reach e20,000,000 Ore.", flavor: "The stars have asked for a bigger sky. We are looking into it." },
+  { id: "e25m", name: "The Sky Is Showing Off", detail: "e25,000,000 Ore", how: "Reach e25,000,000 Ore.", flavor: "You ran out of zeros, then stars, so the sky started putting on a show.", reward: "Reward: a new Starfall visualization, arriving in a future update", achievement: true, secret: true },
+];
+
+// Which milestone unlocks each automation (design 3.2 table, [PROPOSAL] for the beats the user did not
+// name; plan update 2026-10-28 for the last two).
+export const AUTOMATION_UNLOCKS: Readonly<Record<AutomationId, AnyMilestoneId>> = {
+  autoOverclock: "firstFleet", // "Fleet Week"
+  autoBuyLow: "e1000", // "A Thousand Zeros, Give or Take"
+  autoCaptain: "secondFleet", // new: "Fleet Week, the Sequel"
+  autoFleet: "e10k", // new: "Ten Thousand Zeros, Roughly"
+  autoPc: "firstPc", // "Prestiged Your Prestige"
+  autoBuyHigh: "singularity", // "Do Not Look Directly at It"
+  autoUpgrades: "e2m", // "Forever, Twice"
+  autoSkills: "pcRegular", // new: "Frequent Dreamer"
+};
+
+// 3.3 Leveled skills (Skill Points). The six names approved by the user 2026-10-27 ("Approve, six
+// skills"); flavor [PROPOSAL]; caps, costs and steps [PROVISIONAL], set by the Slice 4 sim. Level n
+// (counting from 0) costs costBase + costStep x n Skill Points. The caps and costs add up to 79 points,
+// about what today's average player earns on the schedule below by e10,000,000 (73 lifetime Fleets by
+// day 120, measured on the 0.13.11.2 engine; the rising bars will lower that, so Slice 4 re-tunes). A level's effect is step (see effect)
+// times the skill's scale factor, a concave function of its scalesOff count that is exactly 1 at a
+// count of 0 and only grows (design 3.3).
+export type LeveledSkillId = "headStart" | "tenfoldTraining" | "overdrive" | "captainsAcademy" | "fleetLogistics" | "lucidPlanning";
+
+export type SkillScaleCount =
+  | "lifetimeFleets" // fleetTotal
+  | "captainSinceFleet" // Captain Prestiges in the current Fleet
+  | "lifetimePcs" // pcCount
+  | "fleetCount"; // Fleet Prestiges in the current Prestigeception
+
+// When a skill can be bought (user 2026-10-28): alongside an automation milestone, or at a count of
+// prestiges in a layer ("current" since that layer's last reset, or "lifetime"), so a reset cannot
+// rush back to full power. From SKILL_GATE_LIFT_PC lifetime Prestigeceptions on, every skill opened
+// once is available from the start of each climb.
+export type SkillGate =
+  | { milestone: AnyMilestoneId }
+  | { prestiges: { layer: "captain" | "fleet" | "pc"; count: number; scope: "current" | "lifetime" } };
+
+export const SKILL_GATE_LIFT_PC = 6; // [PROVISIONAL]
+
+export interface LeveledSkillDef {
+  id: LeveledSkillId;
+  name: string;
+  flavor: string;
+  effect: string; // the plain-language line beside the level
+  cap: number;
+  costBase: number; // Skill Points for level 1
+  costStep: number; // each further level costs this many more
+  step: number; // one level's effect, before the scale factor (unit per skill, in effect)
+  scalesOff: SkillScaleCount;
+  availableAt: SkillGate;
+  // The 0.13.11.2 skill this one replaces, and the level that gives exactly its effect (Slice 6
+  // converts an owned one to that level, its cost counted as spent).
+  replaces?: { skill: SkillId; level: number };
+}
+
+export const LEVELED_SKILLS: readonly LeveledSkillDef[] = [
+  // step: log10 of the starting Ore per level (level 1 = 1e10, today's Head Start)
+  { id: "headStart", name: "Head Start", flavor: "Why start from nothing when you can start from slightly less nothing?", effect: "resets begin with more Ore", cap: 3, costBase: 1, costStep: 1, step: HEAD_START_LOG10, scalesOff: "lifetimeFleets", availableAt: { milestone: "firstFleet" }, replaces: { skill: "headStart", level: 1 } },
+  // step: added to the ten bonus factor per level (2 + 2 x 0.1 = 2.2, today's Ten Bonus x2.2)
+  { id: "tenfoldTraining", name: "Tenfold Training", flavor: "Practice makes tens. Tens make more tens.", effect: "each ten bonus a little stronger", cap: 5, costBase: 1, costStep: 1, step: 0.1, scalesOff: "captainSinceFleet", availableAt: { milestone: "e1000" }, replaces: { skill: "tenBonus", level: 2 } },
+  // step: added to the Ore production power per level (1 + 2 x 0.025 = ^1.05, today's Overdrive)
+  { id: "overdrive", name: "Overdrive", flavor: "Past the red line there is another red line. It is also fine.", effect: "Ore production to a higher power", cap: 4, costBase: 2, costStep: 1, step: 0.025, scalesOff: "lifetimePcs", availableAt: { milestone: "firstPc" }, replaces: { skill: "overdrive", level: 2 } },
+  // step: Captain Points earned x (1 + step x level)
+  { id: "captainsAcademy", name: "Captain's Academy", flavor: "Graduates promote faster. Most of them even know which end of the ship is the front.", effect: "more Captain Points per Captain Prestige", cap: 5, costBase: 1, costStep: 1, step: 0.1, scalesOff: "lifetimeFleets", availableAt: { prestiges: { layer: "fleet", count: 2, scope: "current" } } },
+  // step: Augment Points earned x (1 + step x level)
+  { id: "fleetLogistics", name: "Fleet Logistics", flavor: "Spreadsheets, but for warships. The admiral finds them deeply soothing.", effect: "more Augment Points per Fleet Prestige", cap: 5, costBase: 1, costStep: 1, step: 0.1, scalesOff: "fleetCount", availableAt: { prestiges: { layer: "fleet", count: 5, scope: "current" } } },
+  // step: Dream Points earned x (1 + step x level)
+  { id: "lucidPlanning", name: "Lucid Planning", flavor: "You planned this in a dream. The dream had a whiteboard.", effect: "more Dream Points per Prestigeception", cap: 4, costBase: 2, costStep: 1, step: 0.1, scalesOff: "lifetimePcs", availableAt: { prestiges: { layer: "pc", count: 2, scope: "lifetime" } } },
+];
+
+// 3.4 Skill Points per Fleet Prestige by LIFETIME Fleet count, front-loaded (user: "increase the total
+// skill points we get for the first few fleet prestiges"). The first Fleet pays the first entry, and so
+// on; past the end of the list every Fleet pays the last entry. Earning stops once the lifetime total
+// paid reaches the cost of maxing every leveled skill (design 3.4). [PROVISIONAL]
+export const SKILL_POINT_SCHEDULE: readonly number[] = [3, 3, 2, 2, 1];
+
+// ---------------------------------------------------------------------------
 // Copy
 // ---------------------------------------------------------------------------
 
