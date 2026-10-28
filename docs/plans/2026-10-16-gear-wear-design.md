@@ -479,3 +479,6 @@ Reading (to play back):
 Playback confirmed (2026-10-28): "Yes, build that (Recommended)": replace the fixed 700 line with a per-cycle wear
 estimate; a piece projected to reach its floor mid-cycle is repaired first; otherwise go (worn gear is less efficient);
 rare RNG losses accepted; retreat is a future design (logged, not step 4).
+Projection build (912f18a, 2026-10-28): PATROL_BREAK_MARGIN [PROPOSAL] 0; pauses per 100 Sweep cycles: destroyer 28 to
+10, battleship 8 to 3. PATROL_REPAIR_ON_PROJECTED_DEFEAT (repair first when the projection loses the ship with its worn
+gear): user "Keep it (Recommended)", 2026-10-28.
