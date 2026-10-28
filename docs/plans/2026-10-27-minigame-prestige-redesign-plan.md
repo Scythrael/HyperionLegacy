@@ -303,3 +303,11 @@ and 7. These notes supersede the slice text above where they differ.
   CARRY (2026-10-28, done on feat/crew-0.14.0): player text now says "Tactical Protocols" (the Away-Team Tactical
   Protocols heading, Help, log lines, Expedition notes, the editor notice, the 0.14.0 Field Kits QA sheet); code names,
   save fields, registry ids, Debug wiring labels and shipped patch notes keep "gambit".
+
+## Slice 3 status and tuning call (2026-10-28)
+
+Slice 3 engine built as WIP 1aaeb6f on worktree-agent-a067ede01b877445a (NOT merged): the automation logic works, but
+15 pacing tests are red (automation timing shifts when Prestigeceptions land; one landing just short of a goal costs
+17 to 27 days; 19 placements probed, none held). User: "One retune after Slice 4 (Recommended)": keep Slice 3 unmerged,
+build Slice 4 on top of it on the same branch, then ONE combined pacing retune with every new mechanic in place (and
+make the curve less touchy around where Prestigeceptions land); merge Slices 3 + 4 together once green.
