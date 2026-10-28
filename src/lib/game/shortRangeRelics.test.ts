@@ -12,7 +12,7 @@ import { SALVAGE_LOOT_POOLS, type CaptainState, type GameState, type RunCounts, 
 import { dispatchCaptainOnShortRange, isWellFormedShortRangeMission, shortRangeBoardSlots, startShortRangeCycle } from "./shortRangeBoard";
 import { shortRangeCycleRelics, shortRangeVaultDeposit } from "./shortRangeCycle";
 import { SHORT_RANGE_TEMPLATE_KEYS } from "./shortRange";
-import { RELIC_BLANKS_VERSION, RELIC_SHORT_RANGE_SALT, SHORT_RANGE_RELIC_CEILING, rollShortRangeRelicBlanks, shortRangeRelicMicrosPerHour } from "./relicBlanks";
+import { RELIC_SHORT_RANGE_SALT, newRunRelicBlanksFlag, SHORT_RANGE_RELIC_CEILING, rollShortRangeRelicBlanks, shortRangeRelicMicrosPerHour } from "./relicBlanks";
 import { economyTick, recallCaptain, startRelicStudy } from "./tick";
 import { resolveCrew } from "./crewOverlay";
 import { runCountsOf } from "./runDifficulty";
@@ -107,12 +107,13 @@ function same(a: GameState, b: GameState): void {
 describe("G1-5 the relic flag and a delivered cycle's finds", () => {
   it("a new dispatch carries the flag, and every later cycle of the run keeps it", () => {
     let s = dispatchAt(qualified(), 0, 0);
-    expect(missionOf(s).relicBlanks).toEqual({ version: RELIC_BLANKS_VERSION });
+    // MOVED by the relic tier stagger (named): a new run's flag also carries `stagger` (relicStagger.test.ts).
+    expect(missionOf(s).relicBlanks).toEqual(newRunRelicBlanksFlag());
     for (let c = 0; c < 3; c++) {
       const before = missionOf(s);
       s = economyTick(s, before.plan.totalTicks, RNG);
       expect(missionOf(s).roll.cycleIndex).toBe(before.roll.cycleIndex + 1);
-      expect(missionOf(s).relicBlanks).toEqual({ version: RELIC_BLANKS_VERSION });
+      expect(missionOf(s).relicBlanks).toEqual(newRunRelicBlanksFlag());
     }
   });
 
@@ -129,11 +130,12 @@ describe("G1-5 the relic flag and a delivered cycle's finds", () => {
     expect(shortRangeTokens(s)).toEqual(want);
     const lowest = SALVAGE_LOOT_POOLS.intactReactorCore[SHORT_RANGE_RELIC_CEILING];
     want.forEach((t, n) => {
-      expect(t).toEqual({ id: `sr-0-${idx}-relic-${n}`, tier: lowest.tier, quality: lowest.quality, regionTier: 1, cultureId: t.cultureId, source: "shortRange" });
+      // MOVED by the relic tier stagger (named): a new run's blanks carry the stagger stamp, appended last.
+      expect(t).toEqual({ id: `sr-0-${idx}-relic-${n}`, tier: lowest.tier, quality: lowest.quality, regionTier: 1, cultureId: t.cultureId, source: "shortRange", stagger: 1 });
       expect(t.setId).toBeUndefined();
     });
     // The hook, on the cycle's own seed and planned seconds.
-    expect(want).toEqual(rollShortRangeRelicBlanks(m0.roll.seed, m0.roll.tier, m0.plan.totalTicks, `sr-0-${idx}`));
+    expect(want).toEqual(rollShortRangeRelicBlanks(m0.roll.seed, m0.roll.tier, m0.plan.totalTicks, `sr-0-${idx}`, true));
     expect(missionOf(s).relicsThisRun).toBe(want.length);
   });
 

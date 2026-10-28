@@ -140,10 +140,12 @@ describe("R2-2 golden 8: the Tier I claims' vault", () => {
     // R2-2: every deposited blank keeps the stamps its finding carried (Tier I, its body's culture), appended last;
     // without them the vault is the pre-R2-2 one exactly.
     const finds = new Map(done.findings.filter((f) => f.relic).map((f) => [f.relic!.id, f.relic!]));
+    // Relics v2 tier stagger (after this capture, named): a new run's blanks also carry the stagger stamp, appended
+    // after them; without it the vault is the R2-2 one exactly.
     return claim.next.relicVault.map((t) => {
-      const { regionTier, cultureId, ...rest } = t;
-      expect({ regionTier, cultureId }, t.id).toEqual({ regionTier: 1, cultureId: finds.get(t.id)!.cultureId });
-      expect(Object.keys(t).slice(-2)).toEqual(["regionTier", "cultureId"]);
+      const { regionTier, cultureId, stagger, ...rest } = t;
+      expect({ regionTier, cultureId, stagger }, t.id).toEqual({ regionTier: 1, cultureId: finds.get(t.id)!.cultureId, stagger: 1 });
+      expect(Object.keys(t).slice(-3)).toEqual(["regionTier", "cultureId", "stagger"]);
       return rest;
     });
   };

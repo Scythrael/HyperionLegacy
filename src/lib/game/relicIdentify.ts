@@ -16,6 +16,13 @@
 //   - "Only one boost" (2026-10-21): the rarer blank IS the tier boost, so identification reads the band odds of the
 //     blank's OWN rarity (the Tier I row, today's v1 skew) at every tier; the tier's band odds are never applied a second
 //     time. (The blank roll, relicBlanks.ts RELIC_BLANK_WEIGHTS, is where the tier acts.)
+//   - the TIER STAGGER (2026-10-27 "Different relics start dropping from different tiers, staggered from between T1 and
+//     T7"; 2026-10-28 "Starting with standard/augmented is fine for Tier I."): a blank carrying the stagger stamp
+//     (RelicVaultToken.stagger, written on every blank a run dispatched after the stagger mints) reveals only types whose
+//     first tier (relics.ts RELIC_TYPE_FIRST_TIER) is at or below its region tier; a band with none open drops to the
+//     nearest lower band that has one (relics.ts relicStaggerBand). Draw 3 keeps its place: only its pool changes, so
+//     the draw count is unchanged and no salt is added. A blank without the stamp (held at the update, or in a study in
+//     flight) reveals exactly as before.
 //
 // THE ROLL is keyed off (relicSeed, RELIC_IDENTIFY_V2_SALT, studyIndex, tokenId) and draws EXACTLY three integers, in
 // this order: (1) the exceptional check out of 100,000; (2) the band (general) or the piece (exceptional); (3) the type
@@ -44,7 +51,9 @@ import {
   museumDepositGeneral,
   relicBandOf,
   relicSetForPoi,
+  relicStaggerBand,
   relicTypesInBand,
+  relicTypesInBandAt,
   type RelicBand,
 } from "./relics";
 import { generalTypeWeight, vaultTokenRegionTier } from "./relicBlanks";
@@ -127,6 +136,7 @@ export interface RelicIdentificationInput {
   rarity: EquipmentRarity; // the blank's rarity
   siteSet: RelicSetId | null; // the old set its source site sources (call 17), null for no site
   heldExceptional: Readonly<Record<string, number>>; // the Museum's exceptional copies at completion (call 7)
+  staggered?: boolean; // the blank carries the tier stagger stamp (absent = the pre-stagger pick, every type open)
 }
 
 // THE v2 roll on `rng`: exactly three integer draws (see the header). Pure in (rng position, input).
@@ -150,8 +160,10 @@ export function rollRelicIdentification(rng: Rng, input: RelicIdentificationInpu
   const row = identificationBandRow(input.rarity);
   const bands = RELIC_BANDS.map((b) => ({ band: b, weight: row[b] })).filter((b) => b.weight > 0);
   const picked = bands[pickWeighted(rng, bands)].band;
-  // Draw 3: the type inside the band, with the site bias.
-  const types = relicTypesInBand(picked).map((t) => ({ id: t.id, weight: generalTypeWeight(t, input.siteSet) }));
+  // Draw 3: the type inside the band, with the site bias. The tier stagger narrows the pool to the types open at the
+  // blank's tier, dropping to the nearest lower band with one when the picked band has none (never a lost find).
+  const pool = input.staggered ? relicTypesInBandAt(relicStaggerBand(picked, tier), tier) : relicTypesInBand(picked);
+  const types = pool.map((t) => ({ id: t.id, weight: generalTypeWeight(t, input.siteSet) }));
   return { kind: "general", tier, typeId: types[pickWeighted(rng, types)].id };
 }
 
@@ -173,6 +185,7 @@ export function identifyRelicV2(
     rarity: token.tier,
     siteSet: relicTokenSiteSet(token),
     heldExceptional: museum?.exceptional ?? {},
+    staggered: token.stagger !== undefined,
   });
 }
 
