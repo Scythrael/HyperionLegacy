@@ -251,3 +251,12 @@ Slice 2 review calls (2026-10-28): at FLEET_BAR_RATIO 1.18 / PC_BAR_RATIO 1.5 th
 prestige prestige far above them: Fleet bar e982 while the climb reaches e327,961). User: "Make them bite
 (Recommended)": steeper bars that sit near where players actually prestige so they become the real gate after a few
 Fleets, with the rest of the curve retuned so the pacing bands hold. Card label "Next one" is fine.
+
+## Mockup sign-off (2026-10-28, verbatim): "Yes. Perfection. Thank you! I approve of the mockup. Looks fantastic."
+
+Mockup: https://claude.ai/artifact/YRWEnUAnKEGSJok22Faz2h (local copy: session scratchpad automation-skills-mockup.html).
+Signed off AS DRAWN, so every open call resolves to the option shown: tab order Generators, Upgrades, Prestige, Skills,
+Automation, Milestones; locked automations show as ??? rows; a 1 / 10 / Max switch on each buying automation (prestige
+automations keep their target menu); phone tab names Gen, Upg, Prest, Skills, Auto, Miles; the unlock popup says
+"Reward: <automation> unlocked. Find it on the Automation tab."; skill rows show level X / Y, the joke line, now and next
+level, the prestige-count bonus chip, and gated rows say exactly when they open; the gate-lift note under the list.

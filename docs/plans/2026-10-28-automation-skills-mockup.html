@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Automation and Skills Tabs</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700&family=Space+Grotesk:wght@400;500;600&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+  :root {
+    color-scheme: dark;
+    --corner: 2px;
+    --bg-deep: #060a12; --bg-mid: #0a1120; --panel-solid: #0b1622;
+    --border: rgba(103, 232, 249, 0.18); --border-strong: rgba(103, 232, 249, 0.4);
+    --accent: #67e8f9; --accent-bright: #8ff0e0; --accent-rgb: 103, 232, 249;
+    --ink: #e6f4f8; --ink-2: #8fa3ad; --ink-3: #628591; --warn: #fbbf24; --ok: #34d399;
+    --display: "Orbitron", sans-serif; --body: "Space Grotesk", "Inter", sans-serif; --mono: "JetBrains Mono", monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body { background: var(--bg-deep); color: var(--ink); font-family: var(--body); font-size: 13px; line-height: 1.45; padding: 24px 16px 60px; }
+  .wrap { max-width: 1120px; margin: 0 auto; display: grid; gap: 28px; }
+  h1 { font-family: var(--display); font-size: 20px; letter-spacing: .08em; margin: 0 0 6px; }
+  .intro { margin: 0; color: var(--ink-2); max-width: 82ch; }
+  .prop { color: var(--warn); font-family: var(--mono); font-size: 11px; }
+  .label { font-family: var(--display); font-size: 12px; letter-spacing: .18em; color: var(--accent); text-transform: uppercase; margin: 0 0 8px; }
+  .note { color: var(--ink-2); font-size: 12px; margin: 8px 0 0; max-width: 90ch; }
+  .stage { border: 1px solid var(--border); border-radius: var(--corner); background: radial-gradient(800px 400px at 70% -10%, rgba(103,232,249,.07), transparent 60%), var(--bg-mid); padding: 18px 12px; overflow-x: auto; }
+  .frames { display: flex; gap: 18px; flex-wrap: wrap; align-items: flex-start; }
+  .frame-cap { font-family: var(--mono); font-size: 11px; color: var(--ink-3); margin: 0 0 6px; }
+  .panel { background: var(--panel-solid); border: 1px solid var(--border-strong); border-radius: var(--corner); box-shadow: 0 20px 60px rgba(0,0,0,.5); }
+  .desk { width: 680px; max-width: 100%; }
+  .phone { width: 375px; max-width: 100%; }
+  .ph { display: flex; justify-content: space-between; align-items: center; padding: 10px 14px; border-bottom: 1px solid var(--border); font-family: var(--display); letter-spacing: .14em; font-size: 12px; }
+  .tabs { display: flex; gap: 4px; padding: 8px 10px; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+  .tab { font-family: var(--display); font-size: 10.5px; letter-spacing: .1em; padding: 6px 9px; border: 1px solid var(--border); border-radius: var(--corner); color: var(--ink-2); }
+  .tab.on { color: var(--ink); border-color: var(--accent-bright); background: rgba(var(--accent-rgb), .12); }
+  .tab.new::after { content: " NEW"; color: var(--warn); font-size: 9px; }
+  .body { padding: 12px; display: grid; gap: 8px; }
+  .lede { color: var(--ink-2); font-size: 12px; margin: 0 0 2px; }
+  .pts { display: flex; justify-content: space-between; align-items: baseline; padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--corner); background: rgba(0,0,0,.25); }
+  .pts b { font-family: var(--mono); font-size: 15px; color: var(--accent-bright); }
+  .r { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px 12px; align-items: center; padding: 9px 10px; border: 1px solid var(--border); border-radius: var(--corner); background: rgba(0,0,0,.2); }
+  .r .nm { font-weight: 600; }
+  .r .fl { color: var(--ink-3); font-size: 11.5px; font-style: italic; }
+  .r .ln { color: var(--ink-2); font-size: 12px; }
+  .r .ln b { color: var(--ink); font-family: var(--mono); font-weight: 600; }
+  .r .ctl { display: flex; gap: 6px; align-items: center; justify-content: flex-end; flex-wrap: wrap; }
+  .r.locked { opacity: .55; }
+  .r.locked .nm { font-family: var(--mono); letter-spacing: .2em; }
+  .r.gated { border-style: dashed; }
+  .lvl { font-family: var(--mono); font-size: 12px; color: var(--ink); padding: 2px 6px; border: 1px solid var(--border); border-radius: var(--corner); }
+  .lvl.max { color: var(--ok); border-color: rgba(52,211,153,.5); }
+  .chip { font-size: 11px; color: var(--accent-bright); }
+  .chip.warn { color: var(--warn); }
+  button { font: inherit; font-size: 12px; color: var(--accent); background: rgba(var(--accent-rgb), .06); border: 1px solid var(--border-strong); border-radius: var(--corner); padding: 5px 11px; cursor: pointer; min-height: 32px; }
+  button.primary { background: rgba(var(--accent-rgb), .18); color: var(--ink); }
+  button[disabled] { opacity: .45; cursor: default; }
+  .seg { display: inline-flex; border: 1px solid var(--border-strong); border-radius: var(--corner); overflow: hidden; }
+  .seg span { font-family: var(--mono); font-size: 11px; padding: 6px 9px; color: var(--ink-2); border-right: 1px solid var(--border); }
+  .seg span:last-child { border-right: none; }
+  .seg span.on { background: rgba(var(--accent-rgb), .18); color: var(--ink); }
+  .tog { width: 40px; height: 22px; border-radius: 11px; border: 1px solid var(--border-strong); background: rgba(0,0,0,.4); position: relative; }
+  .tog::after { content: ""; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: var(--ink-3); }
+  .tog.on { background: rgba(var(--accent-rgb), .25); }
+  .tog.on::after { left: 20px; background: var(--accent-bright); }
+  .sel { font-family: var(--mono); font-size: 11px; padding: 6px 8px; border: 1px solid var(--border-strong); border-radius: var(--corner); color: var(--ink); }
+  .popup { border: 1px solid rgba(52,211,153,.5); border-radius: var(--corner); background: var(--panel-solid); padding: 10px 12px; max-width: 340px; box-shadow: 0 10px 30px rgba(0,0,0,.5); }
+  .popup .t { font-family: var(--display); font-size: 11px; letter-spacing: .14em; color: var(--accent); }
+  .popup .rw { color: var(--ok); font-size: 12.5px; margin-top: 4px; }
+  ol.calls { margin: 0; padding-left: 20px; display: grid; gap: 6px; color: var(--ink-2); max-width: 92ch; }
+  ol.calls b { color: var(--ink); }
+  @media (max-width: 720px) { .desk { width: 100%; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div>
+    <h1>Automation and Skills tabs</h1>
+    <p class="intro">Minigame prestige redesign, Slices 3, 4 and 7. Automations are earned at milestones and live in their own tab. Skills stay your choice, bought by hand with Skill Points; each one opens at a point in the climb. Sample numbers only (<span class="prop">PROVISIONAL</span>, set by the pacing sim). Same style as the approved minigame panel.</p>
+  </div>
+
+  <section>
+    <p class="label">1. Automation tab</p>
+    <div class="stage"><div class="frames">
+      <div>
+        <p class="frame-cap">Desktop, 680 px panel</p>
+        <div class="panel desk">
+          <div class="ph"><span>HYPERION LEGACY v0.0000001a</span><span class="chip">Stats · ? · ×</span></div>
+          <div class="tabs"><span class="tab">Generators</span><span class="tab">Upgrades</span><span class="tab">Prestige</span><span class="tab">Skills</span><span class="tab on new">Automation</span><span class="tab">Milestones</span></div>
+          <div class="body">
+            <p class="lede">Earned at milestones. They save clicks; they never play for you. Switch any of them off.</p>
+            <div class="r"><div><div class="nm">Auto Overclock</div><div class="ln">Buys Overclock for you. Earned at <b>Fleet Week</b>.</div></div><div class="ctl"><span class="seg"><span>1</span><span>10</span><span class="on">Max</span></span><span class="tog on" role="switch" aria-checked="true" aria-label="Auto Overclock on"></span></div></div>
+            <div class="r"><div><div class="nm">Auto-buy I to IV</div><div class="ln">Buys generators I to IV. Earned at <b>A Thousand Zeros, Give or Take</b>.</div></div><div class="ctl"><span class="seg"><span>1</span><span class="on">10</span><span>Max</span></span><span class="tog on" role="switch" aria-checked="true" aria-label="Auto-buy I to IV on"></span></div></div>
+            <div class="r"><div><div class="nm">Auto Captain Prestige</div><div class="ln">Prestiges when the gain reaches your target. Earned at <b>Fleet Week, the Sequel</b>.</div></div><div class="ctl"><span class="sel">Target 100% ▾</span><span class="tog" role="switch" aria-checked="false" aria-label="Auto Captain Prestige off"></span></div></div>
+            <div class="r"><div><div class="nm">Auto-buy Upgrades</div><div class="ln">Buys the cheapest upgrade level, round and round. Earned at <b>Forever, Twice</b>.</div></div><div class="ctl"><span class="seg"><span class="on">1</span><span>10</span><span>Max</span></span><span class="tog on" role="switch" aria-checked="true" aria-label="Auto-buy Upgrades on"></span></div></div>
+            <div class="r locked"><div><div class="nm">???</div><div class="ln">Earned at a milestone you have not seen yet.</div></div><div class="ctl"></div></div>
+            <div class="r locked"><div><div class="nm">???</div><div class="ln">Earned at a milestone you have not seen yet.</div></div><div class="ctl"></div></div>
+          </div>
+        </div>
+      </div>
+      <div>
+        <p class="frame-cap">Phone, 375 px (controls wrap under the text)</p>
+        <div class="panel phone">
+          <div class="ph"><span>HL v0.0000001a</span><span class="chip">? · ×</span></div>
+          <div class="tabs"><span class="tab">Gen</span><span class="tab">Upg</span><span class="tab">Prest</span><span class="tab">Skills</span><span class="tab on">Auto</span><span class="tab">Miles</span></div>
+          <div class="body">
+            <div class="r" style="grid-template-columns: 1fr;"><div><div class="nm">Auto Overclock</div><div class="ln">Buys Overclock for you. Earned at <b>Fleet Week</b>.</div></div><div class="ctl" style="justify-content: space-between;"><span class="seg"><span>1</span><span>10</span><span class="on">Max</span></span><span class="tog on" role="switch" aria-checked="true" aria-label="Auto Overclock on"></span></div></div>
+            <div class="r" style="grid-template-columns: 1fr;"><div><div class="nm">Auto Captain Prestige</div><div class="ln">At your target. Earned at <b>Fleet Week, the Sequel</b>.</div></div><div class="ctl" style="justify-content: space-between;"><span class="sel">Target 100% ▾</span><span class="tog" role="switch" aria-checked="false" aria-label="Auto Captain Prestige off"></span></div></div>
+            <div class="r locked" style="grid-template-columns: 1fr;"><div><div class="nm">???</div><div class="ln">A milestone you have not seen yet.</div></div></div>
+          </div>
+        </div>
+      </div>
+      <div>
+        <p class="frame-cap">The unlock popup</p>
+        <div class="popup"><div class="t">ACHIEVEMENT OBTAINED: FLEET WEEK, THE SEQUEL</div><div class="ln" style="color: var(--ink-2); font-size: 12px;">Your second Fleet Prestige.</div><div class="rw">Reward: Auto Captain Prestige unlocked. Find it on the Automation tab.</div></div>
+      </div>
+    </div></div>
+    <p class="note">Short tab names on a phone (<span class="prop">PROPOSAL</span>). Locked automations show as ??? rows, the way locked milestones do today. Buy amounts only on automations that buy; prestige automations keep their target menu.</p>
+  </section>
+
+  <section>
+    <p class="label">2. Skills tab (leveled, bought by hand)</p>
+    <div class="stage"><div class="frames">
+      <div>
+        <p class="frame-cap">Desktop, 680 px panel</p>
+        <div class="panel desk">
+          <div class="ph"><span>HYPERION LEGACY v0.0000001a</span><span class="chip">Stats · ? · ×</span></div>
+          <div class="tabs"><span class="tab">Generators</span><span class="tab">Upgrades</span><span class="tab">Prestige</span><span class="tab on">Skills</span><span class="tab">Automation</span><span class="tab">Milestones</span></div>
+          <div class="body">
+            <div class="pts"><span>Skill Points to spend</span><b>3</b></div>
+            <div class="r"><div><div class="nm">Head Start <span class="lvl">2 / 5</span></div><div class="fl">Why start from nothing when you can start from slightly more than nothing?</div><div class="ln">Resets begin with <b>1e20</b> Ore. Next level: <b>1e30</b>. <span class="chip">x1.4 from your 6 lifetime Fleet Prestiges</span></div></div><div class="ctl"><button class="primary">Learn · 2 SP</button></div></div>
+            <div class="r"><div><div class="nm">Tenfold Training <span class="lvl">1 / 8</span></div><div class="fl">The tens have been hitting the gym.</div><div class="ln">Each ten bonus <b>x2.05</b>. Next: <b>x2.10</b>. <span class="chip">x1.2 from 3 Captain Prestiges this Fleet</span></div></div><div class="ctl"><button class="primary">Learn · 1 SP</button></div></div>
+            <div class="r"><div><div class="nm">Captain's Academy <span class="lvl max">5 / 5</span></div><div class="fl">Graduates with honors and a slightly bigger hat.</div><div class="ln">Captain Points earned <b>+40%</b>. Maxed.</div></div><div class="ctl"><button disabled>Maxed</button></div></div>
+            <div class="r gated"><div><div class="nm">Fleet Requisitions</div><div class="fl">Paperwork, but for Augment Points.</div><div class="ln"><span class="chip warn">Opens at your 5th Fleet Prestige this Prestigeception (now 3).</span></div></div><div class="ctl"><button disabled>Locked</button></div></div>
+            <div class="r locked"><div><div class="nm">???</div><div class="ln">Opens later in the climb.</div></div><div class="ctl"></div></div>
+            <p class="note" style="margin: 2px 0 0;">From your 6th Prestigeception on, every skill you have opened before is open from the start of each climb.</p>
+          </div>
+        </div>
+      </div>
+      <div>
+        <p class="frame-cap">Phone, 375 px</p>
+        <div class="panel phone">
+          <div class="ph"><span>HL v0.0000001a</span><span class="chip">? · ×</span></div>
+          <div class="tabs"><span class="tab">Gen</span><span class="tab">Upg</span><span class="tab">Prest</span><span class="tab on">Skills</span><span class="tab">Auto</span><span class="tab">Miles</span></div>
+          <div class="body">
+            <div class="pts"><span>Skill Points</span><b>3</b></div>
+            <div class="r" style="grid-template-columns: 1fr;"><div><div class="nm">Head Start <span class="lvl">2 / 5</span></div><div class="ln">Resets begin with <b>1e20</b> Ore. Next: <b>1e30</b>.</div><div class="ln"><span class="chip">x1.4 from 6 lifetime Fleet Prestiges</span></div></div><div class="ctl"><button class="primary" style="width: 100%;">Learn · 2 SP</button></div></div>
+            <div class="r gated" style="grid-template-columns: 1fr;"><div><div class="nm">Fleet Requisitions</div><div class="ln"><span class="chip warn">Opens at your 5th Fleet Prestige this Prestigeception (now 3).</span></div></div></div>
+          </div>
+        </div>
+      </div>
+    </div></div>
+    <p class="note">Each row: name, level X / Y, a joke line, what it does now and at the next level, and what its prestige count adds. Gated skills say exactly when they open. Flavor lines are <span class="prop">PROPOSAL</span>.</p>
+  </section>
+
+  <section>
+    <p class="label">Open calls</p>
+    <ol class="calls">
+      <li><b>Tab order:</b> Generators, Upgrades, Prestige, Skills, Automation, Milestones (as drawn)?</li>
+      <li><b>Locked automations:</b> show as ??? rows (as drawn), or hide them until earned?</li>
+      <li><b>Buy amount control:</b> a 1 / 10 / Max switch on each buying automation (as drawn)?</li>
+      <li><b>Phone tab names:</b> Gen, Upg, Prest, Skills, Auto, Miles, or full names that wrap to two lines?</li>
+    </ol>
+  </section>
+</div>
+</body>
+</html>
