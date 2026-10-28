@@ -525,3 +525,16 @@ loses 20 of the 160 fights (8 seeds x 10 hulls x 2 routes) its pristine twin win
 still lose a fight a pristine ship would win; strictly "no fight lost to wear" needs a line of 1000 (a repair before
 every cycle).
 
+**Carry note, step 4 repair trigger from realism (built 2026-10-28, the user's "from realism" answer).** The fixed line
+(`PATROL_REPAIR_PAUSE_LINE` 700) is gone. Before each stamped Repeat cycle flies (each relaunch, and a Repeat dispatch,
+still "repair first, then go"), `tick.ts projectedCycleBreak` resolves that cycle through the replay leaves
+(`combat/patrolReplay.ts resolveMissionCycle`: its known fights, the battle raws, no draw on any game stream). When a
+combat piece is worn and the projection takes a weapon, the reactor or the drive down to `PATROL_BREAK_MARGIN`
+[PROPOSAL] 0 at a wave's end, the run repairs first; otherwise it flies worn at its true efficiency. Builder's reading,
+for the user to confirm: `PATROL_REPAIR_ON_PROJECTED_DEFEAT` [PROPOSAL] true also repairs first when the projection
+loses the ship with worn gear (no single system at its floor: with it off, the destroyer's Sweep Repeat lost cycle 27
+that way, its shields at 25%). Shields, plating and pods never break (W7). The log count, recall, Home row, time skip
+and in-flight behavior are unchanged. The 200-cycle "never defeated" test is dropped (losses accepted);
+gearWearCombat.test.ts now proves that no relaunched worn cycle's projection breaks and that every pause's held-back
+cycle would have. **Measured:** Repeat Sweep pauses per 100 cycles: destroyer 28 before, 10 after; battleship 8 before,
+3 after.

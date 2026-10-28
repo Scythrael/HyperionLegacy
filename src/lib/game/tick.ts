@@ -401,6 +401,8 @@ import {
   shipRepairBonuses,
   type RepairWindow,
 } from "./gearWearEngine";
+// GEAR WEAR step 4 (user 2026-10-28): a Repeat cycle's projection (the replay leaves resolve the cycle about to fly).
+import { resolveMissionCycle } from "./combat/patrolReplay";
 // GEAR WEAR step 4 (0.14.0): the combat view and the battle wear sources (gearWear.ts, gearWearCombat.ts).
 import { CONDITION_FULL, battleWearLive, combatGearView, patrolCycleGear, repairRatePerMinute, wornConditions, wornGearView } from "./gearWear";
 import { addBattleWear, poolBattleWear, recordPatrolWear, waveBattleWear, type PatrolWearClock, type PatrolWearEvent } from "./gearWearCombat";
@@ -3494,7 +3496,7 @@ export function tickCaptainPatrol(
     progress = nextBoundary; // exactly on a whole route tick
 
     // ---- GEAR WEAR step 4, PAUSE TO REPAIR (user 2026-10-27 "Pause to repair"). ----------
-    // A stamped Repeat cycle that ended with a combat piece under PATROL_REPAIR_PAUSE_LINE sent the ship home to repair
+    // A stamped Repeat cycle whose next cycle would break a worn system (projectedCycleBreak) sent the ship home to repair
     // instead of relaunching (the completion block below). Each whole route tick of the pause only counts it down (no
     // waves, no recovery, like the limp home); at 0 the pause's home repair window closes (its pieces settle through it at
     // the home rate, an event at its instant) and the run falls through to the completion block, which relaunches it
@@ -3806,14 +3808,83 @@ export function tickCaptainPatrol(
         // many routes and only the last one coincides with an ending.
         routesThisRun += 1;
       }
-      // GEAR WEAR step 4, PAUSE TO REPAIR (user 2026-10-27): a stamped Repeat run whose next cycle would open with a
-      // combat piece under PATROL_REPAIR_PAUSE_LINE goes home to repair first (repairPauseTicks: until every combat
-      // piece is back to full at the home rate), then resumes. Never on a run that is resuming (it just repaired), a
-      // recalled run (it is going home anyway) or an unstamped cycle (in flight from before step 4).
-      // Review 2026-10-27: re-checked after a resume too (a pause that fell short pauses again).
-      const pauseFor = mission.repeatDispatch && !mission.recalled && cyclePools !== null
-        ? repairPauseTicks(installedGear, relaunchCycleConditions(installedGear, gearWearEvents, offsetNow(), nextPatrolCycleDifficulty(mission.difficulty), officerEffects.gearWear, pauseWindows), officerEffects.gearWear)
-        : 0;
+      // GEAR WEAR step 4 (user 2026-10-28, the repair trigger from realism): the NEXT cycle, minted now so its wear can be
+      // projected before it flies (the relaunch below takes this same value). Pure.
+      const cur: PatrolMissionState = mission;
+      const next: { mission: PatrolMissionState; gear: typeof installedGear } | null = cur.repeatDispatch && !cur.recalled
+        ? (() => {
+          // Fresh master seed derived PURELY from this captain's OWN current master seed
+          // (RELAUNCH_SEED_SALT), forming an independent per-captain chain. NOT drawn from
+          // the fleet-wide nextPatrolSeed counter: that would make the seed depend on how
+          // many OTHER patrols relaunched first (map order) + on tick batching, which is
+          // exactly the multi-patrol offline==live parity defect this derivation fixes.
+          // Re-plan the wave schedule for the new seed and reset progress + carry-state to FULL.
+          const newSeed = deriveWaveSeed(cur.masterSeed, 0, RELAUNCH_SEED_SALT);
+          // E-CREW (Task 21): the hours this run has flown before the new cycle (the Constitution ramp's clock)
+          // and the new cycle's frozen combat bonuses: the profile folded at those hours, else Task 20's value.
+          const hoursOut = runHours(routesThisRun);
+          const relaunchCombat = officerEffects.relaunchCombatProfile
+            ? officerCombatModsFromProfile(officerEffects.relaunchCombatProfile, hoursOut)
+            : officerEffects.relaunchCombat;
+          // Safe first runs SF-4: the new cycle's difficulty, from this cycle's stamp alone (the training cycle hands
+          // over the curve's floor; a ramped cycle keeps its stamp, one step per patrol run; none stays none).
+          const nextDifficulty = nextPatrolCycleDifficulty(cur.difficulty);
+          // GEAR WEAR step 4 (user 2026-10-21 "Re-read each cycle", W3): the new cycle freezes the ship's gear as it
+          // stands at this relaunch: the stored pieces, worn by this call's earlier battles at their instants and
+          // settled underway (gearWearEngine.ts projectCycleConditions, exactly what the tail pass will write), so a
+          // cycle opens at its carried wear. Never on a training cycle (W9), never without the engine's clock.
+          const nextConditions = relaunchCycleConditions(installedGear, gearWearEvents, offsetNow(), nextDifficulty, officerEffects.gearWear, pauseWindows);
+          const nextGear = nextConditions !== undefined && installedGear ? combatGearView(installedGear, nextConditions) : installedGear;
+          // Mint the next cycle via the shared factory (THE single source of truth for a
+          // new patrol, shared with dispatchCaptainOnPatrol so the two can never drift).
+          // Relaunch reuses THIS mission's stance + repeatDispatch (they persist across a
+          // relaunch) and the freshly derived per-captain newSeed; the factory re-plans the
+          // wave schedule, resets progress + carry-state to FULL, and re-keys the drone id
+          // prefix to newSeed.
+          const minted = freshPatrolMission({
+            patrolKey: cur.patrolKey,
+            stance: cur.stance,
+            masterSeed: newSeed,
+            repeatDispatch: cur.repeatDispatch,
+            shipDef,
+            hullType,
+            // Unit 2.3b: the SAME installed gear this tick already resolved, so a relaunched cycle's
+            // drone carry-state seeds from the ship's installed pods identically to a fresh dispatch.
+            // GEAR WEAR step 4: through the new cycle's frozen view (stored gear when it is unstamped).
+            installedGear: nextGear,
+            ...(nextConditions !== undefined ? { cycleStartCondition: nextConditions } : {}),
+            // E-CREW (Task 20): the NEW cycle freezes the officers seated now (economyTick's live read).
+            officerCombat: relaunchCombat,
+            // WR-5b: and the commanding captain's Tactician talents now (no buy while out, so the dispatch value).
+            // WR-6: with the fleet's Home Guard shield factor as read when this cycle starts.
+            captainCombat: patrolCaptainCombatMods(captain, officerEffects.homeGuardShield ?? 1),
+            // 0.14.0 (CP-4, OC-1): and the crew's Deck Handling aboard now (economyTick's live read).
+            deckHandling: officerEffects.deckHandling ?? 0,
+            // and the Deck Handling bank its squadrons had not paid out yet, carried into the new cycle.
+            replenishCarry: cur.playerDrones.map((sq) => sq.replenishCarryPpm ?? 0),
+            // E-CREW (Task 21): Engineering's Cunning roll for the new cycle, keyed on its own masterSeed.
+            freeRepairTicks: cunningProc(newSeed, "engineering", officerEffects.freeRepairChance ?? 0) ? CUNNING_FREE_REPAIR_TICKS : 0,
+            // E-CREW (Task 21 review calls): the Flight Deck's Constitution, a faster return the longer the run.
+            returnCutTicks: patrolReturnCutTicks(
+              def,
+              officerEffects.returnConstitution ?? 0,
+              hoursOut + ((def.transitOutTicks + def.rollWindowTicks) * (officerEffects.secondsPerTick ?? 1)) / 3600,
+            ),
+            // Safe first runs SF-4: the new cycle's difficulty (read above).
+            difficulty: nextDifficulty,
+            // WR-8: the new cycle starts under the combat rules, at the ship's combat speed now (economyTick's live
+            // read), like every new cycle; a cycle stamped before WR-8 kept its old rules only to its end.
+            combatRules: officerEffects.combatRules,
+          });
+          return { mission: minted, gear: nextGear };
+        })()
+        : null;
+      // GEAR WEAR step 4, PAUSE TO REPAIR (user 2026-10-27; the trigger, user 2026-10-28 "from realism"): a stamped
+      // Repeat run projects the wear its next cycle will cause (cycleRepairPause: the next cycle resolved by the
+      // replay leaves, its known fights, no draw spent) and goes home to repair first only when a worn combat system
+      // would BREAK mid-cycle (its pool down to PATROL_BREAK_MARGIN); otherwise it flies worn (less efficient). Never
+      // a recalled run (it is going home anyway) or an unstamped cycle (in flight from before step 4).
+      const pauseFor = next !== null && cyclePools !== null ? cycleRepairPause(next.mission, playerId, hullType, installedGear, officerEffects.gearWear) : 0;
       if (pauseFor > 0 && officerEffects.gearWear) {
         mission.repairPause = { from: officerEffects.gearWear.startSeconds + offsetNow() * officerEffects.gearWear.secondsPerTick, ticksRemaining: pauseFor };
         pausesThisRun += 1;
@@ -3849,69 +3920,9 @@ export function tickCaptainPatrol(
           }
         }
         if (canRelaunch) {
-          // Fresh master seed derived PURELY from this captain's OWN current master seed
-          // (RELAUNCH_SEED_SALT), forming an independent per-captain chain. NOT drawn from
-          // the fleet-wide nextPatrolSeed counter: that would make the seed depend on how
-          // many OTHER patrols relaunched first (map order) + on tick batching, which is
-          // exactly the multi-patrol offline==live parity defect this derivation fixes.
-          // Re-plan the wave schedule for the new seed and reset progress + carry-state to FULL.
-          const newSeed = deriveWaveSeed(mission.masterSeed, 0, RELAUNCH_SEED_SALT);
-          // E-CREW (Task 21): the hours this run has flown before the new cycle (the Constitution ramp's clock)
-          // and the new cycle's frozen combat bonuses: the profile folded at those hours, else Task 20's value.
-          const hoursOut = runHours(routesThisRun);
-          const relaunchCombat = officerEffects.relaunchCombatProfile
-            ? officerCombatModsFromProfile(officerEffects.relaunchCombatProfile, hoursOut)
-            : officerEffects.relaunchCombat;
-          // Safe first runs SF-4: the new cycle's difficulty, from this cycle's stamp alone (the training cycle hands
-          // over the curve's floor; a ramped cycle keeps its stamp, one step per patrol run; none stays none).
-          const nextDifficulty = nextPatrolCycleDifficulty(mission.difficulty);
-          // GEAR WEAR step 4 (user 2026-10-21 "Re-read each cycle", W3): the new cycle freezes the ship's gear as it
-          // stands at this relaunch: the stored pieces, worn by this call's earlier battles at their instants and
-          // settled underway (gearWearEngine.ts projectCycleConditions, exactly what the tail pass will write), so a
-          // cycle opens at its carried wear. Never on a training cycle (W9), never without the engine's clock.
-          const nextConditions = relaunchCycleConditions(installedGear, gearWearEvents, offsetNow(), nextDifficulty, officerEffects.gearWear, pauseWindows);
-          const nextGear = nextConditions !== undefined && installedGear ? combatGearView(installedGear, nextConditions) : installedGear;
-          // Mint the next cycle via the shared factory (THE single source of truth for a
-          // new patrol, shared with dispatchCaptainOnPatrol so the two can never drift).
-          // Relaunch reuses THIS mission's stance + repeatDispatch (they persist across a
-          // relaunch) and the freshly derived per-captain newSeed; the factory re-plans the
-          // wave schedule, resets progress + carry-state to FULL, and re-keys the drone id
-          // prefix to newSeed.
-          mission = freshPatrolMission({
-            patrolKey: mission.patrolKey,
-            stance: mission.stance,
-            masterSeed: newSeed,
-            repeatDispatch: mission.repeatDispatch,
-            shipDef,
-            hullType,
-            // Unit 2.3b: the SAME installed gear this tick already resolved, so a relaunched cycle's
-            // drone carry-state seeds from the ship's installed pods identically to a fresh dispatch.
-            // GEAR WEAR step 4: through the new cycle's frozen view (stored gear when it is unstamped).
-            installedGear: nextGear,
-            ...(nextConditions !== undefined ? { cycleStartCondition: nextConditions } : {}),
-            // E-CREW (Task 20): the NEW cycle freezes the officers seated now (economyTick's live read).
-            officerCombat: relaunchCombat,
-            // WR-5b: and the commanding captain's Tactician talents now (no buy while out, so the dispatch value).
-            // WR-6: with the fleet's Home Guard shield factor as read when this cycle starts.
-            captainCombat: patrolCaptainCombatMods(captain, officerEffects.homeGuardShield ?? 1),
-            // 0.14.0 (CP-4, OC-1): and the crew's Deck Handling aboard now (economyTick's live read).
-            deckHandling: officerEffects.deckHandling ?? 0,
-            // and the Deck Handling bank its squadrons had not paid out yet, carried into the new cycle.
-            replenishCarry: mission.playerDrones.map((sq) => sq.replenishCarryPpm ?? 0),
-            // E-CREW (Task 21): Engineering's Cunning roll for the new cycle, keyed on its own masterSeed.
-            freeRepairTicks: cunningProc(newSeed, "engineering", officerEffects.freeRepairChance ?? 0) ? CUNNING_FREE_REPAIR_TICKS : 0,
-            // E-CREW (Task 21 review calls): the Flight Deck's Constitution, a faster return the longer the run.
-            returnCutTicks: patrolReturnCutTicks(
-              def,
-              officerEffects.returnConstitution ?? 0,
-              hoursOut + ((def.transitOutTicks + def.rollWindowTicks) * (officerEffects.secondsPerTick ?? 1)) / 3600,
-            ),
-            // Safe first runs SF-4: the new cycle's difficulty (read above).
-            difficulty: nextDifficulty,
-            // WR-8: the new cycle starts under the combat rules, at the ship's combat speed now (economyTick's live
-            // read), like every new cycle; a cycle stamped before WR-8 kept its old rules only to its end.
-            combatRules: officerEffects.combatRules,
-          });
+          // The next cycle, minted above (nextCycle: its fresh seed, frozen bonuses and frozen gear).
+          mission = next!.mission;
+          const nextGear = next!.gear;
           // The new cycle's frozen bonuses may differ from the old one's: re-fold the carry pools so the
           // between-wave regen and the limp damage read the SAME fold as this cycle's wave combatants.
           // GEAR WEAR step 4: and its frozen gear (the view, the suite's patch-up, the pools its wear is read against).
@@ -4068,22 +4079,55 @@ export function tickCaptainPatrol(
   };
 }
 
-// GEAR WEAR step 4, PAUSE TO REPAIR (user 2026-10-27 "Pause to repair"; the line is [PROPOSAL]): a stamped Repeat
-// patrol whose next cycle would open with any combat piece (a weapon, the reactor, the drive, the emitter, the plating,
-// a drone pod) under this condition (per-mille) goes home to repair instead of relaunching. 700 keeps every pool a
-// cycle opens above combat's Degraded line (60%) with a cycle's worth of wear to spare, so no Repeat patrol is
-// defeated by wear alone (gearWearCombat.test.ts flies 200 cycles).
-export const PATROL_REPAIR_PAUSE_LINE = 700;
+// GEAR WEAR step 4, PAUSE TO REPAIR (user 2026-10-27 "Pause to repair"; the trigger, user 2026-10-28 "from realism":
+// "if they are going to break something mid-mission, we should ensure that the repair process occurs first"). Before a
+// stamped Repeat cycle flies (each relaunch, and a Repeat dispatch: "Repair first, then go"), the cycle is PROJECTED:
+// resolved through the replay leaves (combat/patrolReplay.ts resolveMissionCycle: its known fights, the battle raws,
+// no draw spent on any game stream). When a worn combat system (a weapon, the reactor, the drive) would BREAK in it
+// (its pool down to PATROL_BREAK_MARGIN points at a wave's end: Offline), the run repairs first; otherwise it flies
+// worn, at its true efficiency (the cost of wear; a fight lost to the dice is accepted, user 2026-10-28). The margin
+// is [PROPOSAL]: 0, the pool's own floor (Offline).
+export const PATROL_BREAK_MARGIN = 0;
+// [PROPOSAL] (2026-10-28, the builder's reading of "break something mid-mission"): a projected DEFEAT with worn gear
+// (the ship itself breaks: its hull to 0 while no single system reached its floor) also repairs first. Measured on the
+// destroyer's Repeat Sweep without it: worn shields (25%) and worn weapons lost cycle 27 to a fight the projection saw
+// coming. false restores the systems-only trigger.
+export const PATROL_REPAIR_ON_PROJECTED_DEFEAT = true;
 const REPAIR_PAUSE_SLOTS: ReadonlySet<string> = new Set(["weapon", "reactorCore", "ftlDrive", "shieldEmitters", "hullPlating", "droneBay"]);
 
-// The pause a relaunch at `conditions` (the next cycle's frozen gear) needs, in route ticks: 0 when every combat piece
-// is at or above the line; else long enough for every combat piece to repair back to full at the home rate (one tick
-// of margin for the settle's whole-per-mille floor). 0 without the engine's clock. Pure.
+// Would `mission` (a cycle about to fly, its gear frozen in its cycleStartCondition) break a worn combat system
+// mid-cycle (or, PATROL_REPAIR_ON_PROJECTED_DEFEAT, be destroyed in it)? False when no combat piece is worn (repair could not help) or the cycle is unstamped. Pure.
+export function projectedCycleBreak(mission: PatrolMissionState, playerId: string, hullType: CombatHullType, storedGear: EquipmentInstance[] | undefined): boolean {
+  const frozen = mission.cycleStartCondition;
+  if (!storedGear || frozen === undefined) return false;
+  if (!storedGear.some((p) => REPAIR_PAUSE_SLOTS.has(p.slotType) && (frozen[p.id] ?? CONDITION_FULL) < CONDITION_FULL)) return false;
+  const cycle = resolveMissionCycle(mission, playerId, hullType, storedGear);
+  if (PATROL_REPAIR_ON_PROJECTED_DEFEAT && cycle.defeated) return true;
+  return cycle.waves.some((w) => {
+    const end = w.playerEnd;
+    if (!end) return false;
+    return (
+      end.weapons.some((weapon) => weapon.durability <= PATROL_BREAK_MARGIN) ||
+      (end.reactor !== undefined && end.reactor.durability <= PATROL_BREAK_MARGIN) ||
+      (end.ftl !== undefined && end.ftl.durability <= PATROL_BREAK_MARGIN)
+    );
+  });
+}
+
+// The pause the next cycle needs (route ticks): 0 unless it would break a worn system (projectedCycleBreak); else
+// long enough for every combat piece to repair back to full at the home rate. 0 without the engine's clock. Pure.
+function cycleRepairPause(next: PatrolMissionState, playerId: string, hullType: CombatHullType, storedGear: EquipmentInstance[] | undefined, clock: PatrolWearClock | undefined): number {
+  if (!clock || !projectedCycleBreak(next, playerId, hullType, storedGear)) return 0;
+  return repairPauseTicks(storedGear, next.cycleStartCondition, clock);
+}
+
+// Route ticks for every combat piece to repair back to full at the home rate from `conditions` (one tick of margin for
+// the settle's whole-per-mille floor); 0 when none is worn. Pure.
 function repairPauseTicks(installedGear: EquipmentInstance[] | undefined, conditions: Record<string, number> | undefined, clock: PatrolWearClock | undefined): number {
   if (!installedGear || !conditions || !clock || !(clock.homeRate > 0) || !(clock.secondsPerTick > 0)) return 0;
   const combat = installedGear.filter((p) => REPAIR_PAUSE_SLOTS.has(p.slotType));
-  if (!combat.some((p) => (conditions[p.id] ?? CONDITION_FULL) < PATROL_REPAIR_PAUSE_LINE)) return 0;
-  const missing = Math.max(...combat.map((p) => CONDITION_FULL - (conditions[p.id] ?? CONDITION_FULL)));
+  const missing = Math.max(0, ...combat.map((p) => CONDITION_FULL - (conditions[p.id] ?? CONDITION_FULL)));
+  if (!(missing > 0)) return 0;
   return Math.ceil((missing * 60) / clock.homeRate / clock.secondsPerTick) + 1;
 }
 
@@ -6519,10 +6563,11 @@ export function dispatchCaptainOnPatrol(
   // mirroring dispatchCaptainOnMission, so a captain re-dispatched after a prior fuel/cargo/
   // defeat stop never shows the old reason.
   // GEAR WEAR step 4, "Repair first, then go" (user 2026-10-27): a Repeat dispatch whose frozen gear has a combat piece
-  // under PATROL_REPAIR_PAUSE_LINE is dispatched (never blocked) with its home repair pause already set: it repairs,
+  // that its first cycle would break is dispatched (never blocked) with its home repair pause already set: it repairs,
   // then flies its first cycle (its gear re-frozen as repaired).
+  // (User 2026-10-28: only when the first cycle's projection breaks a worn system.)
   const firstPause = repeatDispatch && cycle.cycleStartCondition
-    ? repairPauseTicks(installedGear, cycle.cycleStartCondition, {
+    ? cycleRepairPause(mission, ship.id, hullType, installedGear, {
         startSeconds: state.gameTimeSeconds,
         secondsPerTick: state.tickDurationSeconds,
         underwayRate: repairRatePerMinute("underway", shipRepairBonuses(state, ship)),

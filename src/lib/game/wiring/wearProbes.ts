@@ -31,7 +31,7 @@ import {
   type PatrolMissionState,
   type ShortRangeMissionState,
 } from "../model";
-import { PATROL_REPAIR_PAUSE_LINE, dispatchCaptainOnPatrol, economyTick, installMissingCombatBaselines, processShipRepairs, shipRepairGear } from "../tick";
+import { dispatchCaptainOnPatrol, economyTick, installMissingCombatBaselines, processShipRepairs, shipRepairGear } from "../tick";
 import { replayPatrol, type PatrolReplay } from "../combat/patrolReplay";
 import { resolveBattle } from "../combat/resolveBattle";
 import { deriveWaveSeed, WAVE_BATTLE_SEED_SALT } from "../combat/waveSeed";
@@ -569,13 +569,14 @@ export function combatConsumerFixture(slot: string, over: Partial<EquipmentInsta
   return installPiece(battleFixture(), { slotType: slot, durabilityMax: TOUGHNESS_REFERENCE, ...over });
 }
 
-// Pause to repair (user 2026-10-27): the fixture (a Standard-Issue destroyer, a patrol veteran) and the `on` that wears
-// its weapons just under PATROL_REPAIR_PAUSE_LINE.
+// Pause to repair (user 2026-10-27; the trigger 2026-10-28): the fixture (a Standard-Issue destroyer, a patrol veteran)
+// and the `on` that wears its weapons so far down (BREAKING_WEAPON_CONDITION) that a cycle's projection breaks them.
+const BREAKING_WEAPON_CONDITION = 20;
 export function repairPauseFixture(): GameState {
   return asPatrolVeteranSave(combatBase("destroyer"));
 }
 export function underRepairPauseLine(s: GameState): GameState {
-  return { ...s, equipment: s.equipment.map((e) => (e.fittedToShipId === WIRING_SHIP_ID && e.slotType === "weapon" ? withPieceCondition(e, PATROL_REPAIR_PAUSE_LINE - 50, s.gameTimeSeconds) : e)) };
+  return { ...s, equipment: s.equipment.map((e) => (e.fittedToShipId === WIRING_SHIP_ID && e.slotType === "weapon" ? withPieceCondition(e, BREAKING_WEAPON_CONDITION, s.gameTimeSeconds) : e)) };
 }
 
 // Whether a stamped Repeat Sweep on the fixture went home to repair at its first route's end (1) or relaunched (0),

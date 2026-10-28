@@ -46,6 +46,7 @@ import {
   type OfficerCombatMods,
   type CaptainCombatMods,
   type PatrolDifficultyStamp,
+  type PatrolMissionState,
 } from "../model";
 // Combat 1.0 (Unit 1.4): the SAME fitted-gear query the live tick loop uses (equippedFor), so the
 // display replay derives the player's installed combat gear byte-identically to the real fight and
@@ -473,6 +474,29 @@ export function replayPatrol(state: GameState, captain: CaptainState): PatrolRep
   const shipDef = SHIP_TYPES[ship.typeKey];
   const def = PATROLS[mission.patrolKey];
 
+  const resolved = resolveMissionCycle(mission, ship.id, hullType, equippedFor(state, ship.id));
+
+  return {
+    available: true,
+    patrolKey: mission.patrolKey,
+    factionId: mission.factionId,
+    masterSeed: mission.masterSeed,
+    stance: mission.stance,
+    ...resolved,
+  };
+}
+
+// ONE patrol cycle resolved from its stored mission and the ship's stored gear (through the cycle's frozen view): the
+// display replay below, and (gear wear step 4, user 2026-10-28) the live loop's projection of the cycle it is about to
+// fly. Pure: every leaf the live loop uses, nothing written.
+export function resolveMissionCycle(
+  mission: PatrolMissionState,
+  playerId: string,
+  hullType: CombatHullType,
+  storedGear: EquipmentInstance[],
+): ResolvePatrolWavesResult {
+  const shipDef = SHIP_TYPES[hullType];
+  const def = PATROLS[mission.patrolKey];
   // The ship's INSTALLED combat gear, read the SAME way the live tick loop reads it (equippedFor off
   // this GameState). Resolved ONCE and used for BOTH the player combatant's weapons/shield/hull/defenses
   // (Unit 1.4) AND the initial drone carry-state (Unit 2.3b) below, so the replay's two drone-seeding
@@ -480,7 +504,7 @@ export function replayPatrol(state: GameState, captain: CaptainState): PatrolRep
   // GEAR WEAR step 4 (user W3 "True condition"): through the cycle's frozen view (its cycleStartCondition), so the
   // replay opens the same pools and reads the same efficiency the live cycle did; a cycle without the stamp reads the
   // stored gear exactly as before.
-  const installedGear = patrolCycleGear(equippedFor(state, ship.id), mission);
+  const installedGear = patrolCycleGear(storedGear, mission);
 
   // The FULL initial carry-state (mirrors freshPatrolMission exactly): full hull, full shield, and the
   // drones the ship's INSTALLED droneBay pods field, keyed to the master seed (Unit 2.3b). Built from
@@ -503,7 +527,7 @@ export function replayPatrol(state: GameState, captain: CaptainState): PatrolRep
   const startDefense = foldedPlayerDefense(shipDef, installedGear, officerCombat, captainCombat);
 
   const resolved = resolvePatrolWaves({
-    playerId: ship.id,
+    playerId,
     stats: shipDef,
     hullType,
     stance: mission.stance,
@@ -527,15 +551,7 @@ export function replayPatrol(state: GameState, captain: CaptainState): PatrolRep
     // WR-8: the cycle's stored combat rules (absent = a cycle from before WR-8).
     combatRules: mission.combatRules,
   });
-
-  return {
-    available: true,
-    patrolKey: mission.patrolKey,
-    factionId: mission.factionId,
-    masterSeed: mission.masterSeed,
-    stance: mission.stance,
-    ...resolved,
-  };
+  return resolved;
 }
 
 // The empty replay for a captain that has no patrol to watch. Its own function so the

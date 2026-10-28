@@ -3996,7 +3996,7 @@ export interface PatrolMissionState {
   // and wear nothing (no SAVE_VERSION bump).
   cycleStartCondition?: Record<string, number>;
   // GEAR WEAR step 4, PAUSE TO REPAIR (user 2026-10-27): a stamped Repeat run that came home to repair its gear (tick.ts
-  // PATROL_REPAIR_PAUSE_LINE) instead of relaunching: the instant the pause began (game seconds) and the whole ticks
+  // projectedCycleBreak: its next cycle would break a worn system) instead of relaunching: the instant the pause began (game seconds) and the whole ticks
   // left before it resumes. Absent on every other run.
   // `first`: set at dispatch (user 2026-10-27 "Repair first, then go": the run repairs, then flies its first cycle).
   repairPause?: { from: number; ticksRemaining: number; first?: true };

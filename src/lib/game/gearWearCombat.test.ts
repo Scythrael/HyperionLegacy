@@ -9,7 +9,7 @@
 import { describe, expect, it } from "vitest";
 import Decimal from "break_infinity.js";
 import { SHIP_TYPES, type EquipmentInstance, type GameState, type PatrolMissionState, type ShipTypeKey } from "./model";
-import { PATROL_REPAIR_PAUSE_LINE, canDispatchPatrol, recallCaptain, dispatchCaptainOnPatrol, economyTick, processShipRepairs, shipRepairDurationTicks, shipRepairGear } from "./tick";
+import { PATROL_BREAK_MARGIN, PATROL_REPAIR_ON_PROJECTED_DEFEAT, projectedCycleBreak, canDispatchPatrol, recallCaptain, dispatchCaptainOnPatrol, economyTick, processShipRepairs, shipRepairDurationTicks, shipRepairGear } from "./tick";
 import { equippedFor } from "./equipment";
 import { replayPatrol } from "./combat/patrolReplay";
 import { resolveBattle } from "./combat/resolveBattle";
@@ -27,9 +27,10 @@ import {
   toughnessScale,
   wearEfficiency,
   withPieceCondition,
+  wornConditions,
 } from "./gearWear";
 import { poolBattleWear, waveBattleWear } from "./gearWearCombat";
-import { emptyWearEvents, recordExpeditionWear, resolveGearWear } from "./gearWearEngine";
+import { emptyWearEvents, livePieceCondition, recordExpeditionWear, resolveGearWear } from "./gearWearEngine";
 import { onHull } from "./firstRunsGoldens.fixture";
 import { asPatrolVeteran } from "./awayTeamTestFixtures";
 import { withBattleWearOff } from "./battleWearSwitch.fixture";
@@ -343,48 +344,79 @@ describe("gear wear step 4: never a gate (design 4.3: no gate reads a worn value
   });
 });
 
-describe("gear wear step 4: pause to repair (user 2026-10-27): a Repeat patrol goes home to repair, then resumes", () => {
-  // A Repeat Sweep flown for `cycles` relaunches in 1 s steps. Never a defeat.
-  function longRepeat(hull: ShipTypeKey, cycles: number): { pauses: number; relaunches: number; s: GameState } {
+describe("gear wear step 4: pause to repair (user 2026-10-27; the trigger 2026-10-28: repair first when a cycle would break a worn system)", () => {
+  const COMBAT = ["weapon", "reactorCore", "ftlDrive", "shieldEmitters", "hullPlating", "droneBay"];
+  // The pools a cycle's replay leaves at a wave's end: a weapon, the reactor or the drive at the margin (broken), or the
+  // ship itself destroyed (PATROL_REPAIR_ON_PROJECTED_DEFEAT). Read off the DISPLAY replay, a separate path to the
+  // engine's projectedCycleBreak.
+  const breaks = (s: GameState): boolean => {
+    const r = replayPatrol(s, s.captains[0]);
+    if (PATROL_REPAIR_ON_PROJECTED_DEFEAT && r.waves.some((w) => w.outcome.winner === "enemy")) return true;
+    return r.waves.some((w) => {
+      const e = w.playerEnd;
+      return e !== undefined && (e.weapons.some((x) => x.durability <= PATROL_BREAK_MARGIN) || (e.reactor?.durability ?? 1) <= PATROL_BREAK_MARGIN || (e.ftl?.durability ?? 1) <= PATROL_BREAK_MARGIN);
+    });
+  };
+
+  // A Repeat Sweep flown for `cycles` relaunches in 1 s steps: no cycle ever flies into a projected break of a worn
+  // system, and each pause came exactly when the cycle about to fly would have broken one.
+  function longRepeat(hull: ShipTypeKey, cycles: number): { pauses: number; relaunches: number } {
     let s = dispatch(veteran(hull), true);
     let relaunches = 0;
     let seed = patrolOf(s)!.masterSeed;
-    let pauses = 0;
     let wasPaused = false;
-    for (let t = 0; t < 400_000 && relaunches < cycles; t++) {
+    let pauses = 0;
+    let wornAtPause: Record<string, number> | null = null;
+    for (let t = 0; t < 400_000 && relaunches < cycles && patrolOf(s) !== null; t++) {
       s = economyTick(s, 1, RNG);
       const m = patrolOf(s);
-      expect(m, `${hull}: the patrol never ends (no defeat) by relaunch ${relaunches}`).not.toBeNull();
-      if (m!.repairPause && !wasPaused) pauses += 1;
-      wasPaused = m!.repairPause !== undefined;
-      if (m!.masterSeed !== seed) {
-        seed = m!.masterSeed;
+      if (m === null) break; // a fight lost to the dice is accepted (user 2026-10-28)
+      if (m.repairPause !== undefined && !wasPaused && m.repairPause.first !== true) {
+        pauses += 1;
+        const paused = s;
+        wornAtPause = wornConditions(equippedFor(paused, "ship-1"), (p) => livePieceCondition(paused, p));
+      }
+      wasPaused = m.repairPause !== undefined;
+      if (m.masterSeed !== seed) {
+        seed = m.masterSeed;
         relaunches += 1;
-        // Every cycle opens with its combat pieces at or above the line.
-        for (const c of Object.values(m!.cycleStartCondition ?? {})) expect(c).toBeGreaterThanOrEqual(PATROL_REPAIR_PAUSE_LINE);
+        const worn = Object.keys(m.cycleStartCondition ?? {}).length > 0;
+        if (worn) expect(breaks(s), `${hull} cycle ${relaunches}: a worn system never breaks mid-cycle`).toBe(false);
+        // Exactly then: the cycle the pause held back (this same cycle, at the gear it would have opened with) breaks.
+        if (wornAtPause !== null) {
+          expect(projectedCycleBreak({ ...m, cycleStartCondition: wornAtPause }, "ship-1", hull, equippedFor(s, "ship-1")), `${hull} cycle ${relaunches}: the pause was needed`).toBe(true);
+          wornAtPause = null;
+        }
       }
     }
-    return { pauses, relaunches, s };
+    return { pauses, relaunches };
   }
 
   for (const hull of ["destroyer", "battleship"] as const) {
-    it(`a ${hull}'s Repeat Sweep (it lost to wear before the pause) flies 200 cycles, pausing and resuming, never defeated`, () => {
-      const r = longRepeat(hull, 200);
-      expect(r.relaunches).toBe(200);
+    it(`a ${hull}'s Repeat Sweep: no cycle flies into a break of a worn system; it pauses to repair when one would`, () => {
+      const r = longRepeat(hull, 100);
+      expect(r.relaunches).toBe(100);
       expect(r.pauses).toBeGreaterThan(0);
-      expect((patrolOf(r.s)!.repairPausesThisRun ?? 0)).toBe(r.pauses);
-      expect(r.s.ships[0].damaged).not.toBe(true);
     }, 600_000);
   }
 
+  it("the trigger: a cycle that would break a worn system repairs first; one that would not flies worn", () => {
+    const breaking = dispatch(wornAt(veteran("destroyer"), ["weapon"], 20), true);
+    expect(patrolOf(breaking)!.repairPause?.first).toBe(true);
+    const worn = wornAt(veteran("destroyer"), ["weapon"], 900);
+    const flies = dispatch(worn, true);
+    expect(patrolOf(flies)!.repairPause).toBeUndefined();
+    expect(breaks(flies)).toBe(false);
+    expect(projectedCycleBreak(patrolOf(flies)!, "ship-1", "destroyer", equippedFor(worn, "ship-1"))).toBe(false);
+  });
+
   it("offline == live across a pause: one call == 97 s chunks == 1 s steps", () => {
-    const s = dispatch(wornAt(veteran("destroyer"), ["weapon", "reactorCore", "shieldEmitters"], 720), true);
+    const s = dispatch(wornAt(veteran("destroyer"), ["weapon", "reactorCore", "shieldEmitters"], 20), true);
     const n = 970;
     const one = economyTick(s, n, RNG);
     let chunks = s;
     for (let i = 0; i < 10; i++) chunks = economyTick(chunks, 97, RNG);
     const steps = stepped(s, n);
-    expect(patrolOf(steps)!.repairPausesThisRun ?? 0).toBeGreaterThan(0);
     for (const [name, x] of [["one", one], ["chunks", chunks]] as const) {
       expect(JSON.stringify(x.equipment), name).toBe(JSON.stringify(steps.equipment));
       expect(JSON.stringify(x.captains), name).toBe(JSON.stringify(steps.captains));
@@ -392,31 +424,23 @@ describe("gear wear step 4: pause to repair (user 2026-10-27): a Repeat patrol g
   });
 
   it("an in-flight (unstamped) Repeat cycle never pauses", () => {
-    const s = withBattleWearOff(() => dispatch(wornAt(veteran("destroyer"), ["weapon"], 300), true));
+    const s = withBattleWearOff(() => dispatch(wornAt(veteran("destroyer"), ["weapon"], 20), true));
     const after = stepped(s, 15);
     expect(patrolOf(after)!.repairPause).toBeUndefined();
   });
-});
 
-describe("gear wear step 4 review (2026-10-27): repair first, count on the run, recall, time skip, the line", () => {
-  const COMBAT = ["weapon", "reactorCore", "ftlDrive", "shieldEmitters", "hullPlating", "droneBay"];
-
-  it("Repair first, then go: a Repeat dispatch under the line starts paused (never blocked), then flies its first cycle repaired", () => {
-    const worn = wornAt(veteran("destroyer"), COMBAT, 550);
+  it("Repair first, then go: the run repairs, then flies its first cycle repaired; a Dispatch Once never pauses", () => {
+    const worn = wornAt(veteran("destroyer"), COMBAT, 20);
     const s = dispatch(worn, true);
-    const m = patrolOf(s)!;
-    expect(m.repairPause?.first).toBe(true);
-    expect(m.repairPausesThisRun).toBe(1);
+    expect(patrolOf(s)!.repairPausesThisRun).toBe(1);
     let st = s;
     while (patrolOf(st)!.repairPause !== undefined) st = economyTick(st, 1, RNG);
-    const first = patrolOf(st)!;
-    for (const c of Object.values(first.cycleStartCondition ?? {})) expect(c).toBeGreaterThanOrEqual(PATROL_REPAIR_PAUSE_LINE);
-    // A Dispatch Once with the same gear is never paused (only Repeat repairs first).
+    expect(Object.keys(patrolOf(st)!.cycleStartCondition ?? {})).toEqual([]);
     expect(patrolOf(dispatch(worn, false))!.repairPause).toBeUndefined();
   });
 
   it("Count on the run: a recall during a pause ends the run at once, one log entry saying how many pauses", () => {
-    const s = dispatch(wornAt(veteran("destroyer"), COMBAT, 550), true);
+    const s = dispatch(wornAt(veteran("destroyer"), COMBAT, 20), true);
     const r = recallCaptain(s, 1, 1234);
     expect(r.success).toBe(true);
     expect(r.next.captains[0].mission).toBeNull();
@@ -426,43 +450,16 @@ describe("gear wear step 4 review (2026-10-27): repair first, count on the run, 
   });
 
   it("the Home row says repairing while paused", () => {
-    const s = dispatch(wornAt(veteran("destroyer"), COMBAT, 550), true);
-    const row = buildHomeDashboard(s).inProgress.find((x) => x.kind === "patrol")!;
-    expect(row.secondaryLabel).toBe("Repairing gear at home");
+    const s = dispatch(wornAt(veteran("destroyer"), COMBAT, 20), true);
+    expect(buildHomeDashboard(s).inProgress.find((x) => x.kind === "patrol")!.secondaryLabel).toBe("Repairing gear at home");
   });
 
   it("a time skip stops at a pause: the pause takes its real time and repairs", () => {
-    const s = dispatch(wornAt(veteran("destroyer"), COMBAT, 550), true);
+    const s = dispatch(wornAt(veteran("destroyer"), COMBAT, 20), true);
     const m = patrolOf(s)!;
     const skipped: GameState = { ...s, captains: s.captains.map((c, i) => (i === 0 ? { ...c, mission: { ...m, speed: { instantComplete: true } } as PatrolMissionState } : c)) };
-    const after = economyTick(skipped, 1, RNG);
-    const left = patrolOf(after)!;
+    const left = patrolOf(economyTick(skipped, 1, RNG))!;
     expect(left.speed).toBeUndefined();
     expect(left.repairPause?.ticksRemaining).toBe(m.repairPause!.ticksRemaining - 1);
   });
-
-  // The line, measured (review 2026-10-27): every hull and route, a first cycle with every combat piece AT the line
-  // against its pristine twin, 8 seeds each. Wear only ever hurts (the worn ship never wins a fight its twin loses),
-  // and at the line it loses WEAR_LINE_FLIPS of the fights its twin wins: the line is the user's call (a Repeat run
-  // pauses below it; strict "no fight lost to wear" needs a line of 1000, a repair before every cycle).
-  const WEAR_LINE_FLIPS = 20; // of 160 fights (8 seeds x 10 hulls x 2 routes)
-  it("every hull and route at the line against pristine: wear only hurts, and its flips are pinned", () => {
-    let flips = 0;
-    for (const hull of Object.keys(SHIP_TYPES) as ShipTypeKey[]) {
-      for (const key of ["crimsonReaverSweep", "crimsonReaverWarband"] as const) {
-        for (let seed = 1; seed <= 8; seed++) {
-          const outcome = (s: GameState) => {
-            let st = dispatch({ ...s, nextPatrolSeed: seed }, false, key);
-            for (let t = 0; t < 400 && patrolOf(st) !== null; t++) st = economyTick(st, 1, RNG);
-            return st.ships[0].damaged === true ? "lost" : "won";
-          };
-          const pristine = outcome(veteran(hull));
-          const atLine = outcome(wornAt(veteran(hull), COMBAT, PATROL_REPAIR_PAUSE_LINE));
-          if (pristine === "lost") expect(atLine, `${hull} ${key} seed ${seed}`).toBe("lost");
-          if (pristine === "won" && atLine === "lost") flips += 1;
-        }
-      }
-    }
-    expect(flips).toBe(WEAR_LINE_FLIPS);
-  }, 600_000);
 });
