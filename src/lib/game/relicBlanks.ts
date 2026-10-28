@@ -25,6 +25,21 @@ import { makeRng, type Rng } from "./combat/rng";
 // The flag a new run carries (Expedition.relicBlanks.version).
 export const RELIC_BLANKS_VERSION = 1;
 
+// Relics v2 tier stagger (plan USER ANSWERS 2026-10-27): the value a new run's relic blanks flag carries as `stagger`
+// (Expedition.relicBlanks.stagger, ShortRangeMissionState.relicBlanks.stagger) and every blank it mints carries as its
+// `stagger` stamp. A blank with it reveals only the types open at its region tier (relicIdentify.ts).
+export const RELIC_STAGGER_VERSION = 1 as const;
+
+// The relic blanks flag a run dispatched today writes (expedition.ts, shortRangeBoard.ts). Pure.
+export function newRunRelicBlanksFlag(): { version: typeof RELIC_BLANKS_VERSION; stagger: typeof RELIC_STAGGER_VERSION } {
+  return { version: RELIC_BLANKS_VERSION, stagger: RELIC_STAGGER_VERSION };
+}
+
+// Whether a run's relic blanks flag carries the stagger (absent flag or no `stagger` = a run from before it). Pure.
+export function relicBlanksStaggered(flag: { stagger?: number } | undefined): boolean {
+  return flag?.stagger === RELIC_STAGGER_VERSION;
+}
+
 // Salts (odd, 32-bit, distinct; registered in salts.test.ts).
 export const RELIC_CULTURE_SALT = 0x2f1b7c35;
 export const RELIC_SHORT_RANGE_SALT = 0x58c3a1e7;
@@ -117,6 +132,7 @@ export function rollBlankRarity(rng: Rng, tier: RegionTier | undefined, ceiling:
 export interface RelicBlankStamp {
   tier: RegionTier;
   cultureId: string;
+  stagger?: 1; // the tier stagger stamp, on a run whose flag carries it (absent before the stagger)
 }
 
 // A run's region tier: its G2-2 region stamp, else its risk profile's tier, else Tier I. Pure.
@@ -138,7 +154,8 @@ export function cultureForBody(expSeed: number, bodyIndex: number, tier: RegionT
 export function relicBlankStamp(exp: Pick<Expedition, "seed" | "region" | "risk" | "relicBlanks">, bodyIndex: number): RelicBlankStamp | undefined {
   if (!exp.relicBlanks) return undefined;
   const tier = expeditionRegionTier(exp);
-  return { tier, cultureId: cultureForBody(exp.seed, Math.max(0, bodyIndex), tier) };
+  const cultureId = cultureForBody(exp.seed, Math.max(0, bodyIndex), tier);
+  return relicBlanksStaggered(exp.relicBlanks) ? { tier, cultureId, stagger: RELIC_STAGGER_VERSION } : { tier, cultureId };
 }
 
 // The culture of a token minted before R2-2 (no stamp), derived from its id (plan 3.4: a pure hash with
@@ -198,8 +215,8 @@ export function shortRangeRelicMicrosPerHour(tier: 1 | 2): number {
 // earns no more per hour than a long one. Draw order, fixed and always taken: the remainder chance, the destination's
 // culture, then one rarity draw per blank. `seed` is the caller's cycle seed (G1 keys it); the hook salts it with
 // RELIC_SHORT_RANGE_SALT. Ids are `<idPrefix>-relic-<n>`. Each blank: Tier I, the lowest rarity, source "shortRange", no
-// site (so no set). Pure.
-export function rollShortRangeRelicBlanks(seed: number, tier: 1 | 2, missionSeconds: number, idPrefix: string): RelicVaultToken[] {
+// site (so no set); `staggered` (a run dispatched from the tier stagger on) appends the stagger stamp, no draw. Pure.
+export function rollShortRangeRelicBlanks(seed: number, tier: 1 | 2, missionSeconds: number, idPrefix: string, staggered = false): RelicVaultToken[] {
   const rng = makeRng((seed ^ RELIC_SHORT_RANGE_SALT) >>> 0);
   const seconds = Number.isFinite(missionSeconds) ? Math.max(0, Math.floor(missionSeconds)) : 0;
   const micros = Math.round((shortRangeRelicMicrosPerHour(tier) * seconds) / 3600);
@@ -209,7 +226,7 @@ export function rollShortRangeRelicBlanks(seed: number, tier: 1 | 2, missionSeco
   const out: RelicVaultToken[] = [];
   for (let n = 0; n < count; n++) {
     const row = rollBlankRarity(rng, 1, SHORT_RANGE_RELIC_CEILING);
-    out.push({ id: `${idPrefix}-relic-${n}`, tier: row.tier, quality: row.quality, regionTier: 1, cultureId, source: "shortRange" });
+    out.push({ id: `${idPrefix}-relic-${n}`, tier: row.tier, quality: row.quality, regionTier: 1, cultureId, source: "shortRange", ...(staggered ? { stagger: RELIC_STAGGER_VERSION } : {}) });
   }
   return out;
 }
@@ -221,23 +238,24 @@ export function rollShortRangeRelicBlanks(seed: number, tier: 1 | 2, missionSeco
 // HOOK (G7; user call 15 "Relics owns the roll": one extra blank, one rarity step up): the bonus blank for finishing a
 // planet. The rarity is the tier's blank roll on the body's hazard ceiling (exactly as a find on that body rolls), then
 // ONE step up the ladder (radiant stays radiant: the top of the ladder relics roll on). ONE draw on a stream keyed by
-// RELIC_COMPLETION_SALT. Source "completion", no site. Pure.
-export function rollCompletionRelicBlank(seed: number, tier: RegionTier, hazard: number, id: string, cultureId: string): RelicVaultToken {
+// RELIC_COMPLETION_SALT. Source "completion", no site; `staggered` appends the stagger stamp (no draw). Pure.
+export function rollCompletionRelicBlank(seed: number, tier: RegionTier, hazard: number, id: string, cultureId: string, staggered = false): RelicVaultToken {
   const rng = makeRng((seed ^ RELIC_COMPLETION_SALT) >>> 0);
   const table = relicBlankTable(tier);
   const rolled = rollBlankRarity(rng, tier, relicBlankCeiling(hazard));
   const row = table[Math.min(table.length - 1, table.indexOf(rolled) + 1)];
-  return { id, tier: row.tier, quality: row.quality, regionTier: tier, cultureId, source: "completion" };
+  return { id, tier: row.tier, quality: row.quality, regionTier: tier, cultureId, source: "completion", ...(staggered ? { stagger: RELIC_STAGGER_VERSION } : {}) };
 }
 
 // The completion blank for body `bodyIndex` of `exp` (the G7 call): seeded by the run and the body, at the run's region
-// tier, on the body's hazard, with the body's culture. Id `<expeditionId>-relic-complete-<bodyId>`. Pure.
-export function planetCompletionRelicBlank(exp: Pick<Expedition, "id" | "seed" | "region" | "risk" | "bodies">, bodyIndex: number): RelicVaultToken | null {
+// tier, on the body's hazard, with the body's culture (and the stagger stamp on a run whose flag carries it). Id
+// `<expeditionId>-relic-complete-<bodyId>`. Pure.
+export function planetCompletionRelicBlank(exp: Pick<Expedition, "id" | "seed" | "region" | "risk" | "bodies" | "relicBlanks">, bodyIndex: number): RelicVaultToken | null {
   const body = exp.bodies[bodyIndex];
   if (!body) return null;
   const tier = expeditionRegionTier(exp);
   const seed = (exp.seed ^ Math.imul(bodyIndex + 1, 0x85ebca6b)) >>> 0;
-  return rollCompletionRelicBlank(seed, tier, body.hazard, `${exp.id}-relic-complete-${body.id}`, cultureForBody(exp.seed, bodyIndex, tier));
+  return rollCompletionRelicBlank(seed, tier, body.hazard, `${exp.id}-relic-complete-${body.id}`, cultureForBody(exp.seed, bodyIndex, tier), relicBlanksStaggered(exp.relicBlanks));
 }
 
 // ============================================================================

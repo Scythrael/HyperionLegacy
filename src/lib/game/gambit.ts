@@ -2401,6 +2401,8 @@ export function rollRelicToken(
     unidentified: true,
     ...(studySpeed !== undefined && studySpeed > 0 && Number.isFinite(studySpeed) ? { studySpeed } : {}),
     ...(blank ? { regionTier: blank.tier, cultureId: blank.cultureId } : {}),
+    // Relics v2 tier stagger: the stamp a run dispatched from the stagger on appends last (absent on an older run).
+    ...(blank?.stagger !== undefined ? { stagger: blank.stagger } : {}),
   };
 }
 

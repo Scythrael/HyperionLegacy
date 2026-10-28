@@ -32,7 +32,7 @@ import { combatHullTypeOf, defaultSystemDurabilityForHull, foldedPlayerDefense, 
 import { DEFAULT_SAMPLES } from "./combat/rating";
 import { threatAssessment } from "./combat/threatAssessment";
 import { hash, onHull, runOutcome, stateHash, SWEEP_END, withCrew } from "./firstRunsGoldens.fixture";
-import { asExpeditionVeteran, asPatrolVeteran, dispatchPastPropulsion, withoutNebula } from "./awayTeamTestFixtures";
+import { asExpeditionVeteran, asPatrolVeteran, dispatchPastPropulsion, withoutNebula, withoutRelicStagger } from "./awayTeamTestFixtures";
 import { patrolDifficultyAt } from "./runDifficulty";
 import { shipCombatRulesStamp } from "./crewOverlay";
 import { withCombatRulesOff } from "./combatRulesSwitch.fixture";
@@ -118,7 +118,9 @@ function shipEventRow(hull: ShipTypeKey, cand: string, seed: number | undefined,
   // were captured before it, so the record is read without the stamp (awayTeamTestFixtures.ts withoutNebula, the
   // strip every pre-GG-4 pin uses). It moved only the four nebula systems' whole-run hashes (default and 101 cand-2,
   // 303 cand-0 / cand-1), never a battle.
-  const done: Expedition = advanceExpedition(withoutNebula(res.expedition!), SWEEP_END);
+  // Relics v2 tier stagger (after these pins): a new run's relic blanks flag carries `stagger` and its relic tokens the
+  // stamp; the rows are read as dispatched before it (withoutRelicStagger), which moves no draw and no battle.
+  const done: Expedition = advanceExpedition(withoutRelicStagger(withoutNebula(res.expedition!)), SWEEP_END);
   const events = (done.scanEvents ?? []).filter((e) => e.kind === "shipEvent");
   const battles = events.filter((e) => e.event === "probe" || e.event === "cloaked").map((e) => `${e.event}:${e.outcome}`);
   const o = runOutcome(done);

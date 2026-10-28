@@ -820,6 +820,32 @@ export const RELIC_TYPE_WEIGHT = 1;
 // Core). R2-3 applies it.
 export const RELIC_SITE_BIAS_MULT = 2;
 
+// User 2026-10-27 (plan "USER ANSWERS (2026-10-27): relic timeline study and tier staggering", verbatim: "Different
+// relics start dropping from different tiers, staggered from between T1 and T7, where T7 will drop the rarest options.
+// Likely the best of each of the 4 rarities."; shape "Mix the T7 four", ship "With 0.14.0"): the FIRST region tier a
+// general type can be revealed from. Once open at a tier, a type is revealed at every tier from there up. Tier VII
+// opens the best of each band, one per old family. The table is the one drawn under that answer; relics a player
+// already holds are kept (only a blank stamped by a run dispatched after the stagger reads it, relicIdentify.ts).
+export const RELIC_TYPE_FIRST_TIER: Readonly<Record<string, RegionTier>> = {
+  glyphTablet: 1,
+  sporeCapsule: 1,
+  geodeCore: 1,
+  resonanceShard: 1,
+  flightRecorder: 2,
+  bioluminescentSeed: 2,
+  precursorLens: 2,
+  starChartFragment: 3,
+  ancientDriveCoil: 3,
+  deepVeinCompass: 4,
+  captainsSigil: 4,
+  livingCrystal: 5,
+  tectonicKeystone: 6,
+  hullRivet: 7,
+  magmaPearl: 7,
+  leviathanScale: 7,
+  heartOfTheArchive: 7,
+};
+
 // One GENERAL relic type (call 2: the same types at every region tier, counted per tier).
 export interface RelicTypeDef {
   id: string; // unchanged from the v1 relic id, so relicDiscovered and every relic-gated blueprint keep working
@@ -829,6 +855,7 @@ export interface RelicTypeDef {
   siteSet: RelicSetId; // the old set, read only by the site bias (call 17)
   stats: readonly RelicTypeStat[];
   weight: number; // in-band weight before the site bias
+  firstTier: RegionTier; // the first region tier a stagger-stamped blank can reveal it at (RELIC_TYPE_FIRST_TIER)
 }
 
 // The general pool, built from the 17 approved relics so the ids, names and flavors cannot drift from them.
@@ -840,6 +867,7 @@ export const RELIC_TYPES: readonly RelicTypeDef[] = RELICS.map((r) => ({
   siteSet: r.setId,
   stats: RELIC_TYPE_STATS[r.id] ?? [],
   weight: RELIC_TYPE_WEIGHT,
+  firstTier: RELIC_TYPE_FIRST_TIER[r.id],
 }));
 
 const RELIC_TYPE_BY_ID: Map<string, RelicTypeDef> = (() => {
@@ -847,9 +875,11 @@ const RELIC_TYPE_BY_ID: Map<string, RelicTypeDef> = (() => {
   for (const def of RELIC_TYPES) {
     if (map.has(def.id)) throw new Error(`Duplicate relic type id: ${def.id}`);
     if (def.stats.length === 0) throw new Error(`Relic type ${def.id} grants no museum stat`);
+    if (!(def.firstTier >= 1 && def.firstTier <= 7)) throw new Error(`Relic type ${def.id} has no first tier`);
     map.set(def.id, def);
   }
   for (const id of Object.keys(RELIC_TYPE_STATS)) if (!map.has(id)) throw new Error(`RELIC_TYPE_STATS names an unknown type: ${id}`);
+  for (const id of Object.keys(RELIC_TYPE_FIRST_TIER)) if (!map.has(id)) throw new Error(`RELIC_TYPE_FIRST_TIER names an unknown type: ${id}`);
   return map;
 })();
 
@@ -860,6 +890,21 @@ export function getRelicTypeById(id: string): RelicTypeDef | undefined {
 // The general types of one band, in catalog order. Pure.
 export function relicTypesInBand(band: RelicBand): RelicTypeDef[] {
   return RELIC_TYPES.filter((t) => t.band === band);
+}
+
+// The tier stagger: the general types of one band a stagger-stamped blank of `tier` can reveal (first tier at or below
+// it), in catalog order. Pure.
+export function relicTypesInBandAt(band: RelicBand, tier: RegionTier): RelicTypeDef[] {
+  return RELIC_TYPES.filter((t) => t.band === band && t.firstTier <= tier);
+}
+
+// The tier stagger's band rule (user 2026-10-28, verbatim: "This is fine. Starting with standard/augmented is fine for
+// Tier I."): a revealed band with no type open at `tier` drops to the nearest LOWER band that has one, so a find is
+// never lost (Tier I reveals only standard and augmented types). The standard band always has a Tier I type, so the
+// walk always lands (a catalog test asserts it). Pure.
+export function relicStaggerBand(band: RelicBand, tier: RegionTier): RelicBand {
+  for (let i = RELIC_BANDS.indexOf(band); i >= 0; i--) if (relicTypesInBandAt(RELIC_BANDS[i], tier).length > 0) return RELIC_BANDS[i];
+  return "standard";
 }
 
 // Band odds per region tier (call 13: better rarity only)

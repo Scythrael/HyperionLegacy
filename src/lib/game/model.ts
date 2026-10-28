@@ -3665,8 +3665,9 @@ export interface ShortRangeMissionState {
   // G1-5 (relic drops, user call 11 "Rare, per hour"): the FLAG a run dispatched from G1-5 on carries (stamped at
   // dispatch, carried to every later cycle of the run), so a run in flight at the update plays byte-identically (the
   // Expedition.relicBlanks precedent). Only a flagged run rolls relic blanks at each delivered cycle
-  // (shortRangeCycle.ts, relicBlanks.ts rollShortRangeRelicBlanks).
-  relicBlanks?: { version: 1 };
+  // (shortRangeCycle.ts, relicBlanks.ts rollShortRangeRelicBlanks). Relics v2 tier stagger: `stagger` (stamped at
+  // dispatch from the stagger on) makes the run's blanks carry the stagger stamp; a run dispatched before has none.
+  relicBlanks?: { version: 1; stagger?: 1 };
   // G1-5: the relic blanks this run has found (the run's completion log entry names them). Absent until the first.
   relicsThisRun?: number;
   // E-MOD EM-4 (reactorSurplus.ts): the reactor surplus drive lift FLAG, stamped at dispatch and carried to every later
@@ -7890,6 +7891,10 @@ export interface ExpeditionRelicToken {
   // token of a run in flight at the update) reads exactly as it did.
   regionTier?: RegionTier;
   cultureId?: string;
+  // Relics v2 tier stagger (plan 2026-10-17, USER ANSWERS 2026-10-27): stamped at the roll on a run whose relic blanks
+  // flag carries `stagger` (relicBlanks.ts RELIC_STAGGER_VERSION), appended last. Absent = revealed with every type open
+  // (relicIdentify.ts), so a token of a run in flight at the update reads exactly as it did.
+  stagger?: 1;
 }
 
 // ============================================================================
@@ -7930,6 +7935,11 @@ export interface RelicVaultToken {
   regionTier?: RegionTier;
   cultureId?: string;
   source?: RelicVaultTokenSource;
+  // Relics v2 tier stagger (plan 2026-10-17, USER ANSWERS 2026-10-27): present = identification reveals only the types
+  // open at the token's region tier (relics.ts RELIC_TYPE_FIRST_TIER). Written on every blank a run dispatched after the
+  // stagger mints (expedition and short-range), carried by the deposit, appended last. Absent = every type open: every
+  // blank held at the update, and every blank in a study in flight, reveals exactly as before.
+  stagger?: 1;
 }
 
 // Relics v2 R2-1: where a vault blank came from (plan 2026-10-17 section 3.2; OC-14 short-range, OC-15 the planet 100%
@@ -8414,8 +8424,9 @@ export interface Expedition {
   // relicBlanks.ts RELIC_BLANKS_VERSION. Its PRESENCE makes the run's relic tokens carry their blank stamps (the run's
   // region tier and the body's culture) and roll their rarity on the tier's blank table (Tier I is today's table
   // exactly; user call 13 "Better rarity only"). A run without it (in flight at the update) rolls and stores its
-  // tokens byte-identically. Optional, no SAVE bump.
-  relicBlanks?: { version: number };
+  // tokens byte-identically. Optional, no SAVE bump. Relics v2 tier stagger: `stagger` (relicBlanks.ts
+  // RELIC_STAGGER_VERSION) makes the run's relic tokens carry the stagger stamp; a run dispatched before it has none.
+  relicBlanks?: { version: number; stagger?: number };
   // Expedition Tiers G2-5: the player's RECALL (expedition.ts recallExpedition), written only by it: the run turned for
   // home at `atSeconds` and flies the frozen `returnSeconds` (any pickup included). Absent = never recalled, and every
   // reader is exactly as before. Optional, no SAVE bump.

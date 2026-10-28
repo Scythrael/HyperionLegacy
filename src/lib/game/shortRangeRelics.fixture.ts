@@ -16,6 +16,19 @@ export function asPreRelicDispatch(s: GameState): GameState {
   };
 }
 
+// Relics v2 tier stagger: a state whose short-range runs were dispatched before the stagger (each mission's relic flag
+// without `stagger`), so every blank they later find is unstamped, exactly as before. Pure; a no-op without the stamp.
+export function asPreStaggerShortRange(s: GameState): GameState {
+  if (!s.captains.some((c) => c.mission !== null && c.mission.kind === "shortRange" && c.mission.relicBlanks !== undefined && "stagger" in c.mission.relicBlanks)) return s;
+  return {
+    ...s,
+    captains: s.captains.map((c) => {
+      if (c.mission === null || c.mission.kind !== "shortRange" || c.mission.relicBlanks === undefined || !("stagger" in c.mission.relicBlanks)) return c;
+      return { ...c, mission: { ...c.mission, relicBlanks: { version: c.mission.relicBlanks.version } } };
+    }),
+  };
+}
+
 // The state with every short-range relic find taken out: the stamp, the run's relic count, the vault tokens it found,
 // the completion entry's relic count and each live run's find line (the G1-5 review follow-up; the later entries'
 // "done-N" ids and the id counter closed back up, as if the lines were never written). Pure; a no-op before G1-5.

@@ -28,7 +28,7 @@ import { freshState, type AwayMember, type BodyRiskGrades, type EquipmentInstanc
 import { advanceExpedition, claimExpedition, expeditionCandidates, scanStepRoll, shipScanEventChance } from "./expedition";
 import { groundOpsAssignIdle, groundOpsBodyScanned, initGroundTasks } from "./groundOps";
 import { shipEventsLive } from "./shipScanEvents";
-import { plainAwayMember, dispatchPastPropulsion } from "./awayTeamTestFixtures";
+import { asPreStaggerDispatch, plainAwayMember, dispatchPastPropulsion } from "./awayTeamTestFixtures";
 import { hash, stateHash } from "./firstRunsGoldens.fixture";
 
 const T0 = 100_000;
@@ -89,7 +89,8 @@ function crewed(expeditionSeed: number, set: DeviceSet): GameState {
 }
 
 function dispatched(state: GameState): { next: GameState; exp: Expedition } {
-  const res = dispatchPastPropulsion(state, "ship-1", 1, expeditionCandidates(state, "ship-1")[0].id);
+  // Relics v2 tier stagger (after these pins): read as a pre-stagger dispatch (asPreStaggerDispatch, no draw moves).
+  const res = asPreStaggerDispatch(dispatchPastPropulsion(state, "ship-1", 1, expeditionCandidates(state, "ship-1")[0].id));
   if (!res.success || !res.expedition) throw new Error(`dispatch refused: ${res.reason}`);
   return { next: res.next, exp: res.expedition };
 }
