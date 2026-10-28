@@ -265,3 +265,6 @@ and 7. These notes supersede the slice text above where they differ.
 - Naming: never abbreviate Fleet Admiral Prestige to an acronym (other acronyms are fine).
 - Separate main-game slice (not part of this plan): rename player-facing "gambit" to "Tactical Protocol(s)" (user
   2026-10-28), code names unchanged.
+  CARRY (2026-10-28, done on feat/crew-0.14.0): player text now says "Tactical Protocols" (the Away-Team Tactical
+  Protocols heading, Help, log lines, Expedition notes, the editor notice, the 0.14.0 Field Kits QA sheet); code names,
+  save fields, registry ids, Debug wiring labels and shipped patch notes keep "gambit".

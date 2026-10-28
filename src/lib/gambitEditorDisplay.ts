@@ -84,7 +84,7 @@ export interface GambitEditorPick {
 
 // The line under the editor about the old account-wide pair (Q21: kept stored and hidden, never read).
 export const ACCOUNT_PAIR_NOTICE =
-  "Your older account-wide gambit rules are still saved, but no battle uses them: each Security member fights with their own program.";
+  "Your older account-wide tactical protocols are still saved, but no battle uses them: each Security member fights with their own.";
 
 // Whether the account-pair notice shows: only when the stored pair differs from the fresh default (the player
 // set it up in the old editor), so a player who never touched it is not told about a page they never saw.

@@ -6317,7 +6317,7 @@
     if (next === state) return; // unknown member or preset, or that preset is already in place
     state = next;
     const title = GAMBIT_PRESETS.find((p) => p.id === presetId)?.title ?? presetId;
-    pushLog(`${groundMemberName(memberId)} now runs the ${title} gambits.`);
+    pushLog(`${groundMemberName(memberId)} now runs the ${title} tactical protocols.`);
     doSave();
   }
   // DEFAULT: clear the member's own program (D19 built-in default).
@@ -6325,7 +6325,7 @@
     const next = resetMemberGambit(state, memberId);
     if (next === state) return; // already on the default
     state = next;
-    pushLog(`${groundMemberName(memberId)} now runs the default gambits.`);
+    pushLog(`${groundMemberName(memberId)} now runs the default tactical protocols.`);
     doSave();
   }
   // COPY TO SQUAD: the member's program to the rest of their own Security squad.
@@ -6334,7 +6334,7 @@
     const next = copyMemberGambitToSquad(state, shipId, memberId);
     if (next === state) return; // nobody else in the squad, or they already run it
     state = next;
-    pushLog(`Copied ${groundMemberName(memberId)}'s gambits to ${nameList(mates.map(groundMemberName))}.`);
+    pushLog(`Copied ${groundMemberName(memberId)}'s tactical protocols to ${nameList(mates.map(groundMemberName))}.`);
     doSave();
   }
 
@@ -18187,7 +18187,7 @@
              GO-16 it edits ONE Security member's own program, picked by ship, ground team and member, via the
              do* handlers (programs are snapshotted at launch). -->
         <div class="home-sec-hd">
-          <span class="home-sec-h">Away-Team Gambits</span>
+          <span class="home-sec-h">Away-Team Tactical Protocols</span>
           <span class="home-sec-rule"></span>
         </div>
         <GambitEditorPanel
