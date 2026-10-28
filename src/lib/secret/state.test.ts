@@ -480,8 +480,9 @@ describe("0.14.0 prestige redesign: config data (Slice 1)", () => {
   });
 
   it("the bars rise, and the gate lift and the Skill Point schedule are sane", () => {
-    expect(FLEET_BAR_RATIO).toBeGreaterThan(1);
-    expect(PC_BAR_RATIO).toBeGreaterThan(1);
+    // Slice 2 review: the bars ask for at least what the layer has already paid (RATIO 1 or more).
+    expect(FLEET_BAR_RATIO).toBeGreaterThanOrEqual(1);
+    expect(PC_BAR_RATIO).toBeGreaterThanOrEqual(1);
     expect(Number.isInteger(SKILL_GATE_LIFT_PC) && SKILL_GATE_LIFT_PC >= 1).toBe(true);
     expect(Number.isInteger(AUTO_SKILLS_PC_COUNT) && AUTO_SKILLS_PC_COUNT >= 1).toBe(true);
     // front-loaded: whole, positive, never rising, and the repeating last entry is 1, so earning can

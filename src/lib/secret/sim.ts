@@ -31,9 +31,9 @@
 //            for 15 minutes; acts every 3 minutes; default targets; skills in the listed order.
 
 import { freshSecretState, cloneSecret, type SecretState } from "./state";
-import { stepMut, captainMultiplier, buyOverclockMut, buyTierMut, buySkill, canBuySkill, captainGain, fleetGain, prestigeceptionGain, doCaptain, doFleet, doPrestigeception, effectiveExponent, hasSkill, upgradesUnlocked, upgradePriceExponent, canBuyUpgrade, buyUpgrade } from "./engine";
+import { stepMut, captainMultiplier, buyOverclockMut, buyTierMut, buySkill, canBuySkill, captainGain, fleetGain, prestigeceptionGain, doCaptain, doFleet, doPrestigeception, effectiveExponent, hasSkill, upgradesUnlocked, upgradePriceExponent, canBuyUpgrade, buyUpgrade, fleetBarExponent, pcBarExponent, gainMultiplier, gainExponent, relicBoost } from "./engine";
 import { advanceTo, EXACT_BOUND_SECONDS, type CatchUpOptions } from "./catchUp";
-import { SKILLS, UPGRADES, type MilestoneId, type UpgradeId, type SkillId, type RelicBoosts } from "./config";
+import { SKILLS, UPGRADES, FLEET_AT, PRESTIGECEPTION_AT, AP_SCALE, AP_K, DP_SCALE, DP_K, type MilestoneId, type UpgradeId, type SkillId, type RelicBoosts } from "./config";
 
 export type SimProfile = "steady" | "light" | "keen" | "optimal" | "average" | "casual";
 
@@ -101,7 +101,7 @@ export interface PlayStyle {
   spam?: boolean;
 }
 
-function decide(s: SecretState, atMs: number, style: PlayStyle = {}, order: readonly SkillId[] = SKILLS.map((d) => d.id)): SecretState {
+export function decide(s: SecretState, atMs: number, style: PlayStyle = {}, order: readonly SkillId[] = SKILLS.map((d) => d.id)): SecretState {
   // 0.13.11.1: the e1,000,000 upgrades, cheapest next level first, as often as affordable.
   if (upgradesUnlocked(s)) {
     for (;;) {
@@ -267,3 +267,92 @@ export function bestExponentAt(r: SimResult, seconds: number): number {
   return best;
 }
 
+// ---------------------------------------------------------------------------
+// 0.14.0 prestige redesign (Slice 2 review, user: "Make them bite"): does the rising BAR decide when a
+// Fleet or a Prestigeception happens, or the automatic target ("a gain at least what you hold")?
+// At the moment a layer fires, the target alone would have allowed it from the exponent where the
+// unbarred gain equals the holdings (targetExponent); the bar decided when the bar sits at or above that
+// (at FLEET_BAR_RATIO 1 the two are the same line: the bar decides, the target adds nothing). Measured from
+// the third Fleet of each Prestigeception and from the second Prestigeception on; "at the bar" counts the
+// ones that fired with the climb within 2% of the bar's exponent (where players actually prestige).
+// ---------------------------------------------------------------------------
+
+// The effective exponent from which the target alone would let this layer fire (0 with nothing held).
+export function targetExponent(s: SecretState, layer: "fleet" | "pc"): number {
+  const pct = (layer === "fleet" ? s.autoTarget.fleet : s.autoTarget.pc) / 100;
+  const held = layer === "fleet" ? s.augmentPoints : s.dreamPoints;
+  if (held.lte(0)) return 0;
+  const need = held.log10() + Math.log10(pct);
+  if (layer === "fleet") {
+    const per = gainMultiplier(s).log10() + Math.log10(AP_SCALE * relicBoost(s, "augment"));
+    return FLEET_AT * Math.pow(10, (need - per) / gainExponent(s, AP_K));
+  }
+  const per = Math.log10(DP_SCALE * relicBoost(s, "dream"));
+  return PRESTIGECEPTION_AT * Math.pow(10, (need - per) / DP_K);
+}
+
+export interface BiteTally {
+  fleets: number; // Fleets from the third of a Prestigeception on
+  fleetsBarDecided: number;
+  pcs: number; // Prestigeceptions from the second on
+  pcsBarDecided: number;
+  fleetsAtBar: number; // ... that fired with the climb within 2% (of the exponent) of the bar
+  pcsAtBar: number;
+  log: string[]; // one line per measured prestige: layer, count before, day, bar, target, peak
+}
+
+// The same player as simulatePlayer (sessions, decide every few minutes), with every offline gap
+// stepped as plain stepMut steps of offlineDt seconds so each prestige can be inspected. Pacing is
+// close to, not equal to, the shipping catch-up; it measures the share, the pacing pins measure time.
+export function simulateBite(opts: { profile: SimProfile; days: number; stopExponent: number; offlineDt?: number; relicBoosts?: RelicBoosts }): { tally: BiteTally; seconds: number; final: SecretState } {
+  let s = freshSecretState(SIM_START_MS);
+  if (opts.relicBoosts) s.relicBoosts = opts.relicBoosts;
+  const tally: BiteTally = { fleets: 0, fleetsBarDecided: 0, pcs: 0, pcsBarDecided: 0, fleetsAtBar: 0, pcsAtBar: 0, log: [] };
+  const sec = () => (s.lastTickAt - SIM_START_MS) / 1000;
+  const watched = (act: () => void) => {
+    const f0 = s.fleetTotal;
+    const p0 = s.pcCount;
+    const fc = s.fleetCount;
+    const fBar = fc >= 2 ? fleetBarExponent(s) : 0;
+    const fTarget = fc >= 2 ? targetExponent(s, "fleet") : 0;
+    const pBar = p0 >= 1 ? pcBarExponent(s) : 0;
+    const pTarget = p0 >= 1 ? targetExponent(s, "pc") : 0;
+    const pPeak = effectiveExponent(s.pcPeak);
+    const fPeak = effectiveExponent(s.fleetPeak);
+    act();
+    if (s.pcCount > p0) {
+      if (p0 >= 1) {
+        tally.pcs++;
+        if (pBar >= pTarget * (1 - 1e-9)) tally.pcsBarDecided++;
+        if (pPeak <= pBar * 1.02) tally.pcsAtBar++;
+        tally.log.push(`pc ${p0} d${(sec() / 86400).toFixed(2)} bar ${pBar.toFixed(0)} target ${pTarget.toFixed(0)} peak ${pPeak.toFixed(0)}`);
+      }
+    } else if (s.fleetTotal > f0 && fc >= 2) {
+      tally.fleets++;
+      if (fBar >= fTarget * (1 - 1e-9)) tally.fleetsBarDecided++;
+      if (fPeak <= fBar * 1.02) tally.fleetsAtBar++;
+      tally.log.push(`fleet ${fc} d${(sec() / 86400).toFixed(2)} bar ${fBar.toFixed(0)} target ${fTarget.toFixed(0)} peak ${fPeak.toFixed(0)}`);
+    }
+  };
+  const step = (dt: number) =>
+    watched(() => {
+      stepMut(s, dt, s.lastTickAt + dt * 1000);
+      s.lastTickAt += dt * 1000;
+    });
+  const offlineDt = opts.offlineDt ?? 10;
+  for (const [start, length] of sessions(opts.profile, opts.days)) {
+    while (sec() + offlineDt <= start) step(offlineDt);
+    while (sec() < start) step(1);
+    let next = sec();
+    while (sec() < start + length) {
+      if (sec() >= next) {
+        watched(() => (s = decide(s, s.lastTickAt)));
+        next += 180;
+      }
+      step(1);
+    }
+    watched(() => (s = decide(s, s.lastTickAt)));
+    if (effectiveExponent(s.bestOre) >= opts.stopExponent) break;
+  }
+  return { tally, seconds: sec(), final: s };
+}

@@ -356,19 +356,21 @@ export const TURBO_LEVEL = 10000;
 // user named it.
 // ---------------------------------------------------------------------------
 
-// 3.1 Rising bars [PROVISIONAL], live since Slice 2 (engine fleetBarExponent / pcBarExponent). The
-// Fleet Prestige bar's exponent is FLEET_AT x FLEET_BAR_RATIO^n, n = Fleet Prestiges since the last
-// Prestigeception (fleetCount, so a Prestigeception resets it). The Prestigeception bar's exponent is
-// PRESTIGECEPTION_AT x PC_BAR_RATIO^m, m = lifetime Prestigeceptions (never reset). Payouts still
-// measure from the base bars (user: "Harder pays more").
-// Slice 2 sims: the user's starting 1.25 put the average player's finale at 5.01 days (5.05 with
-// check-ins an hour later), past the 3 to 5 day band; 1.2 still failed the later check-ins (5.004 d).
-// 1.18 holds every band for the average, later check-in, optimal and casual players. PC_BAR_RATIO
-// 1.5 is kept: at the 100% default targets the "gain at least what you hold" rule fires later than
-// the bar for the simulated players, so the ratio moved no average-player number (1 and 1.5 measured the
-// same to e10,000,000); 2 pushed the finale to 5.15 days.
-export const FLEET_BAR_RATIO = 1.18;
-export const PC_BAR_RATIO = 1.5;
+// 3.1 Rising bars [PROVISIONAL], live since Slice 2 (engine fleetBarExponent / pcBarExponent). Each bar
+// sits where the climb pays RATIO times the points that layer has already paid and you still hold (the
+// Augment Points since the last Prestigeception for a Fleet, every Dream Point for a Prestigeception), so
+// it rises with every prestige of its layer and sits exactly where players prestige (Slice 2 review, user
+// "Make them bite"). At RATIO 1 the bar is the line the default 100% automatic target already follows:
+// relic-free pacing is unchanged to the second, the bar decides every Fleet and Prestigeception for the
+// 100% target, for lower targets and by hand, and only targets above 100% ask for more.
+// Measured and rejected (average player, finale / e1M / e10M in days, against 4.88 / 32.35 / 119.15): a
+// RATIO above 1 moves the whole curve chaotically (1.001: 4.87 / 32.41 / 127.63; 1.05: 4.89 / 33.38 /
+// 106.23, optimal e1M 63.66; 1.25: finale 6.18), because the Prestigeception that lands near e1,000,000
+// resets a long climb; a bar that tracks the last prestige's peak (x2.1 per payout) bit every time but
+// took e10M to 146 days; Fleet-count ladders (Slice 2's x1.18 per Fleet, or x2.2 per payout) stop biting
+// after the finale, where one big payout puts the holdings far above the ladder.
+export const FLEET_BAR_RATIO = 1;
+export const PC_BAR_RATIO = 1;
 
 // 3.2 Automations. Each one unlocks at a milestone (user: "Only have the automations at the milestone
 // levels"), never for Skill Points. The six that are skills today keep their ids; autoSkills

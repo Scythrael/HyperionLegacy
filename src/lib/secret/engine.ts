@@ -682,42 +682,73 @@ export function captainGain(s: SecretState): Decimal {
 }
 
 // 0.14.0 prestige redesign, rising bars (design 3.1; user: "Fleet prestige should get harder and harder
-// to push through, as should prestigeception"). The Fleet bar rises by FLEET_BAR_RATIO per Fleet since
-// the last Prestigeception (fleetCount; a Prestigeception makes the layer below easy again); the
-// Prestigeception bar rises by PC_BAR_RATIO per lifetime Prestigeception and never resets. Both are
-// effective exponents. With no Fleet (or no Prestigeception) done yet the factor is exactly 1, so the
-// first bar is the base bar to the last bit. Payouts still measure from the BASE bars (user, 2026-10-27:
-// "Harder pays more"), so clearing a risen bar pays more than the last one.
+// to push through, as should prestigeception", then on review "Make them bite": steeper bars that sit
+// near where players actually prestige, so they become the real gate). Each bar sits where the climb
+// pays RATIO times the points that layer has already paid and you still hold: the Augment Points since
+// the last Prestigeception for a Fleet, every Dream Point for a Prestigeception. So each Fleet must pay
+// more than all the Fleets before it in this Prestigeception put together, and each Prestigeception more
+// than all before it. The first Fleet after a Prestigeception (nothing held) needs 1.8e308 and the first
+// Prestigeception e10,000; a Prestigeception empties the Augment Points, so it makes the layer below easy
+// again. The bar reads the same gain curve and boosts the payout does (gainMultiplier, relics), so at
+// RATIO 1 (config.ts says why) it is the very line the default 100% automatic target follows: the bar is
+// what every Fleet and Prestigeception waits for, by hand, at 100% and below (sim.ts simulateBite
+// measures it). Payouts still measure from the BASE bars (user, 2026-10-27: "Harder pays more"), so
+// clearing a risen bar pays more than the last one.
+function fleetBarFor(s: SecretState, held: Decimal): number {
+  if (held.lte(0)) return FLEET_AT;
+  const per = gainMultiplier(s).log10() + Math.log10(AP_SCALE * relicBoost(s, "augment"));
+  const bar = FLEET_AT * Math.pow(10, (held.log10() + Math.log10(FLEET_BAR_RATIO) - per) / gainExponent(s, AP_K));
+  return Math.max(FLEET_AT, bar);
+}
+
+function pcBarFor(s: SecretState, held: Decimal): number {
+  if (held.lte(0)) return PRESTIGECEPTION_AT;
+  const per = Math.log10(DP_SCALE * relicBoost(s, "dream"));
+  const bar = PRESTIGECEPTION_AT * Math.pow(10, (held.log10() + Math.log10(PC_BAR_RATIO) - per) / DP_K);
+  return Math.max(PRESTIGECEPTION_AT, bar);
+}
+
 export function fleetBarExponent(s: SecretState): number {
-  return s.fleetCount === 0 ? FLEET_AT : FLEET_AT * Math.pow(FLEET_BAR_RATIO, s.fleetCount);
+  return fleetBarFor(s, s.augmentPoints);
 }
 
 export function pcBarExponent(s: SecretState): number {
-  return s.pcCount === 0 ? PRESTIGECEPTION_AT : PRESTIGECEPTION_AT * Math.pow(PC_BAR_RATIO, s.pcCount);
+  return pcBarFor(s, s.dreamPoints);
 }
 
-// The bar after one more of that layer (the Prestige cards' "Next one needs").
+// The bar after one more of that layer (the Prestige cards' "Next one"): what it would be after a Fleet
+// (or Prestigeception) taken now, or, while the climb is still short of the bar, taken right at the bar.
 export function nextFleetBarExponent(s: SecretState): number {
-  return FLEET_AT * Math.pow(FLEET_BAR_RATIO, s.fleetCount + 1);
+  const at = Math.max(fleetBarExponent(s), effectiveExponent(s.fleetPeak));
+  return fleetBarFor(s, s.augmentPoints.add(fleetGainAt(s, at)));
 }
 
 export function nextPcBarExponent(s: SecretState): number {
-  return PRESTIGECEPTION_AT * Math.pow(PC_BAR_RATIO, s.pcCount + 1);
+  const at = Math.max(pcBarExponent(s), effectiveExponent(s.pcPeak));
+  return pcBarFor(s, s.dreamPoints.add(pcGainAt(s, at)));
+}
+
+// The payout of a climb to effective exponent e, before the bar check.
+function fleetGainAt(s: SecretState, e: number): Decimal {
+  // R2-10 Glyph Tablet: Augment Points earned x relicBoost("augment"), before the floor.
+  return timesRelic(gainMultiplier(s).mul(AP_SCALE * gainShape(e, FLEET_AT, gainExponent(s, AP_K))), relicBoost(s, "augment")).floor();
+}
+
+function pcGainAt(s: SecretState, e: number): Decimal {
+  // R2-10 Star Chart Fragment: Dream Points earned x relicBoost("dream"), before the floor.
+  return new Decimal(DP_SCALE * gainShape(e, PRESTIGECEPTION_AT, DP_K) * relicBoost(s, "dream")).floor();
 }
 
 export function fleetGain(s: SecretState): Decimal {
   const e = effectiveExponent(s.fleetPeak);
   if (e < fleetBarExponent(s)) return ZERO;
-  // R2-10 Glyph Tablet: Augment Points earned x relicBoost("augment"), before the floor.
-  return timesRelic(gainMultiplier(s).mul(AP_SCALE * gainShape(e, FLEET_AT, gainExponent(s, AP_K))), relicBoost(s, "augment")).floor();
+  return fleetGainAt(s, e);
 }
 
 export function prestigeceptionGain(s: SecretState): Decimal {
   const e = effectiveExponent(s.pcPeak);
   if (e < pcBarExponent(s)) return ZERO;
-  // R2-10 Star Chart Fragment: Dream Points earned x relicBoost("dream"), before the floor.
-  const dream = relicBoost(s, "dream");
-  return new Decimal(DP_SCALE * gainShape(e, PRESTIGECEPTION_AT, DP_K) * dream).floor();
+  return pcGainAt(s, e);
 }
 
 function resetRunMut(s: SecretState): void {

@@ -1218,6 +1218,9 @@ function minigameContentProbe(lever: string, s: GameState): number {
     case "augment":
       return secretFleetGain(x).toNumber();
     case "dream":
+      // 0.14.0 rising bars: a Prestigeception pays only once the climb pays what the Dream Points held
+      // already paid, so this one is read with none held (the Dream Points above only lift the other gains).
+      x.dreamPoints = new Decimal(0);
       return secretPrestigeceptionGain(x).toNumber();
     case "fleet":
       return Math.pow(10, secretAugmentMultiplier(x).log10() / SECRET_AP_POW) - 1;

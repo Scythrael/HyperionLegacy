@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import Decimal from "break_infinity.js";
 import { freshSecretState, type SecretState } from "./state";
 import {
+  fleetBarExponent,
   captainGain,
   fleetGain,
   gainExponent,
@@ -98,13 +99,14 @@ describe("Fleet Prestige", () => {
   });
 
   it("unlocks V at 1, VI at 2, VII at 3 and VIII at 6 lifetime Fleets", () => {
-    // e1,000 clears every Fleet bar up to the sixth (0.14.0 rising bars: the sixth needs about e940).
-    let s = withRun(1000);
+    // 0.14.0 rising bars: each Fleet must pay what the Fleets before it paid, so each climb goes past
+    // the next bar.
+    let s = withRun(400);
     const seen: number[] = [];
     for (let i = 0; i < 6; i++) {
       s = doFleet(s, i);
       seen.push(s.tiersUnlocked);
-      s.fleetPeak = pow10(1000);
+      s.fleetPeak = pow10(fleetBarExponent(s) + 1);
     }
     expect(seen).toEqual([5, 6, 7, 7, 7, 8]);
   });
