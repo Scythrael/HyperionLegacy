@@ -16,12 +16,21 @@ import {
   SKILLS,
   MILESTONES,
   UPGRADES,
+  LEVELED_SKILLS,
+  AUTOMATION_IDS,
+  AUTOMATION_BUY_CHOICES,
+  AUTOMATION_BUY_DEFAULT,
   type SkillId,
   type UpgradeId,
+  type AutomationId,
+  type AutomationBuy,
+  type LeveledSkillId,
   type MilestoneId, CP_POW, CP_POW_BEFORE_CURVE_ROUND,
   type RelicBoosts } from "./config";
 
 const SKILL_IDS: readonly SkillId[] = SKILLS.map((d) => d.id);
+// The two 0.14.0 automations that were never skills (their on/off switches share autoOn).
+const NEW_SWITCH_IDS: readonly AutomationId[] = AUTOMATION_IDS.filter((id) => !(SKILL_IDS as readonly string[]).includes(id));
 const MILESTONE_IDS: readonly MilestoneId[] = MILESTONES.map((m) => m.id);
 
 export const SECRET_SAVE_KEY = "hl_secret_v0";
@@ -51,7 +60,7 @@ export interface SecretState {
   tiersUnlocked: number; // 4 to 8, permanent
   skillPoints: number; // unspent
   skills: Partial<Record<SkillId, true>>;
-  autoOn: Partial<Record<SkillId, boolean>>; // switch per auto skill; missing means on
+  autoOn: Partial<Record<SkillId | AutomationId, boolean>>; // switch per auto skill or automation; missing means on
   autoTarget: Record<AutoLayer, number>; // percent of current points a gain must reach
   milestones: Partial<Record<MilestoneId, number>>; // reached at (ms since epoch)
   finaleSeen: boolean;
@@ -72,6 +81,17 @@ export interface SecretState {
   // save (at open and on every main save, never mid-step). NEVER saved (serializeSecret drops it) and
   // absent for a player with no relics, so a relic-free game is byte-identical to before.
   relicBoosts?: RelicBoosts;
+  // --- 0.14.0 prestige redesign (docs/plans/2026-10-27-minigame-prestige-redesign-plan.md, Slice 1:
+  // data only, no engine code reads these yet). Absent from every 0.13.11.2 save: deserializeSecret
+  // fills the defaults (0 / {} / {} / {}) and never rejects a save over them, and serializeSecret
+  // leaves each one out while it holds its default, so a 0.13.11.2 save round-trips byte-identically.
+  captainSinceFleet: number; // Captain Prestiges since the last Fleet Prestige or Prestigeception
+  skillPointsEarned: number; // lifetime Skill Points the schedule has paid (SKILL_POINT_SCHEDULE)
+  skillLevels: Partial<Record<LeveledSkillId, number>>; // level per leveled skill; missing means 0
+  automations: Partial<Record<AutomationId, true>>; // unlocked automations; missing means locked
+  automationBuy: Partial<Record<AutomationId, AutomationBuy>>; // buy amount; missing means AUTOMATION_BUY_DEFAULT
+  // The one-time prestige redesign conversion has run (Slice 6, like captainScale). Absent until then.
+  prestigeV?: 1;
 }
 
 export function freshUpgrades(): Record<UpgradeId, number> {
@@ -115,6 +135,11 @@ export function freshSecretState(nowMs: number): SecretState {
     peakOverclock: 0,
     upgradesNoteSeen: false,
     captainScale: 2,
+    captainSinceFleet: 0,
+    skillPointsEarned: 0,
+    skillLevels: {},
+    automations: {},
+    automationBuy: {},
   };
 }
 
@@ -130,6 +155,9 @@ export function cloneSecret(s: SecretState): SecretState {
     milestones: { ...s.milestones },
     upgrades: { ...s.upgrades },
     peakOwned: s.peakOwned.slice(),
+    skillLevels: { ...s.skillLevels },
+    automations: { ...s.automations },
+    automationBuy: { ...s.automationBuy },
   };
 }
 
@@ -159,9 +187,17 @@ const NUMBER_FIELDS = [
 
 export function serializeSecret(s: SecretState): string {
   // The relic boosts are an input from the main save, never part of this save.
-  const { relicBoosts: _relicBoosts, ...saved } = s;
+  const { relicBoosts: _relicBoosts, captainSinceFleet, skillPointsEarned, skillLevels, automations, automationBuy, prestigeV, ...saved } = s;
   const out: Record<string, unknown> = { ...saved, owned: s.owned.map((d) => d.toString()), peakOwned: s.peakOwned.map((d) => d.toString()) };
   for (const k of DECIMAL_FIELDS) out[k] = s[k].toString();
+  // 0.14.0 redesign fields: written only once they hold something, always last and in this order, so
+  // a save that never used them is byte-identical to 0.13.11.2's.
+  if (captainSinceFleet !== 0) out.captainSinceFleet = captainSinceFleet;
+  if (skillPointsEarned !== 0) out.skillPointsEarned = skillPointsEarned;
+  if (Object.keys(skillLevels).length > 0) out.skillLevels = skillLevels;
+  if (Object.keys(automations).length > 0) out.automations = automations;
+  if (Object.keys(automationBuy).length > 0) out.automationBuy = automationBuy;
+  if (prestigeV !== undefined) out.prestigeV = prestigeV;
   return JSON.stringify(out);
 }
 
@@ -231,6 +267,9 @@ export function deserializeSecret(raw: string | null, nowMs: number, opts: { cpC
     if (skills[id] === true) s.skills[id] = true;
     if (typeof autoOn[id] === "boolean") s.autoOn[id] = autoOn[id] as boolean;
   }
+  for (const id of NEW_SWITCH_IDS) {
+    if (typeof autoOn[id] === "boolean") s.autoOn[id] = autoOn[id] as boolean;
+  }
   for (const id of MILESTONE_IDS) {
     const at = milestones[id];
     if (isFiniteNumber(at)) s.milestones[id] = at;
@@ -244,7 +283,31 @@ export function deserializeSecret(raw: string | null, nowMs: number, opts: { cpC
   s.finaleSeen = parsed.finaleSeen === true;
   s.longSeen = parsed.longSeen === true;
   readNewFields(s, parsed, opts.cpConverted === true);
+  readRedesignFields(s, parsed);
   return s;
+}
+
+// 0.14.0 prestige redesign fields. Every 0.13.11.2 save lacks them: a missing or bad value keeps its
+// default and never rejects the save. Unknown ids are dropped, levels are whole and at most the cap.
+function readRedesignFields(s: SecretState, parsed: Record<string, unknown>): void {
+  const csf = parsed.captainSinceFleet;
+  if (isFiniteNumber(csf) && csf > 0) s.captainSinceFleet = Math.floor(csf);
+  const earned = parsed.skillPointsEarned;
+  if (isFiniteNumber(earned) && earned > 0) s.skillPointsEarned = Math.floor(earned);
+  const levels = isPlainObject(parsed.skillLevels) ? parsed.skillLevels : {};
+  for (const def of LEVELED_SKILLS) {
+    const n = levels[def.id];
+    if (isFiniteNumber(n) && n >= 1) s.skillLevels[def.id] = Math.min(def.cap, Math.floor(n));
+  }
+  const autos = isPlainObject(parsed.automations) ? parsed.automations : {};
+  const buys = isPlainObject(parsed.automationBuy) ? parsed.automationBuy : {};
+  for (const id of AUTOMATION_IDS) {
+    if (autos[id] === true) s.automations[id] = true;
+    const buy = buys[id];
+    // Only automations that buy things have the setting (AUTOMATION_BUY_DEFAULT names them).
+    if (AUTOMATION_BUY_DEFAULT[id] !== undefined && AUTOMATION_BUY_CHOICES.includes(buy as AutomationBuy)) s.automationBuy[id] = buy as AutomationBuy;
+  }
+  if (parsed.prestigeV === 1) s.prestigeV = 1;
 }
 
 // 0.13.11.1 fields. Every 0.13.11 save lacks them, so a missing or bad value takes its default

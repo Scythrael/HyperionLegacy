@@ -13,6 +13,27 @@ import {
   inspectSecretSave,
   SECRET_CP_SCALE_KEY,
 } from "./state";
+import {
+  MILESTONES,
+  LEVELED_SKILLS,
+  AUTOMATION_IDS,
+  AUTOMATION_NAMES,
+  AUTOMATION_UNLOCKS,
+  AUTOMATION_BUY_CHOICES,
+  AUTOMATION_BUY_DEFAULT,
+  PENDING_MILESTONES,
+  FLEET_BAR_RATIO,
+  PC_BAR_RATIO,
+  SKILL_POINT_SCHEDULE,
+  SKILL_GATE_LIFT_PC,
+  AUTO_SKILLS_PC_COUNT,
+  E20M_EXPONENT,
+  SECRET_PRIZE_EXPONENT,
+  HEAD_START_LOG10,
+  TEN_BONUS,
+  TEN_BONUS_SKILL,
+  OVERDRIVE_POWER,
+} from "./config";
 import { SAVE_KEY } from "../game/save";
 import { installMemoryStorage, installBlockedStorage, restoreStorage } from "./testStorage";
 
@@ -274,5 +295,202 @@ describe("final re-check: the Captain conversion happens once, also across a rol
     data.set(SECRET_SAVE_KEY, JSON.stringify(rolledBack));
     const again = inspectSecretSave(0).state;
     expect(again.captainPoints.eq(first.captainPoints)).toBe(true);
+  });
+});
+
+describe("0.14.0 prestige redesign: state fields (Slice 1)", () => {
+  // A mid-game save exactly as 0.13.11.2 writes it: its keys in its order, nothing from 0.14.0.
+  const V0_13_11_2_SAVE = JSON.stringify({
+    v: 0,
+    ore: "4.2e+5123",
+    bought: [412, 380, 351, 330, 290, 251, 200, 41],
+    owned: ["3e+5100", "2e+5050", "1e+4990", "7e+4900", "5e+4800", "2e+4700", "9e+4500", "41"],
+    overclock: 23456,
+    lastIncome: "1.5e+5121",
+    runPeak: "4.2e+5123",
+    fleetPeak: "4.2e+5123",
+    pcPeak: "4.2e+5123",
+    bestOre: "1e+801234",
+    runSeconds: 5400.5,
+    captainPoints: "3.3e+44",
+    augmentPoints: "81000000000000000000",
+    dreamPoints: "120345",
+    captainCount: 191,
+    fleetCount: 13,
+    fleetTotal: 47,
+    pcCount: 6,
+    tiersUnlocked: 8,
+    skillPoints: 2,
+    skills: { autoOverclock: true, autoBuyLow: true, autoCaptain: true, autoFleet: true, autoPc: true, headStart: true, tenBonus: true, autoBuyHigh: true, overdrive: true },
+    autoOn: { autoCaptain: false, autoPc: true },
+    autoTarget: { captain: 100, fleet: 200, pc: 100 },
+    milestones: { firstCaptain: 1761156000000, googol: 1761167700000, firstFleet: 1761168240000, e1000: 1761175386000, firstPc: 1761242400000, finale: 1761578000000 },
+    finaleSeen: true,
+    longSeen: false,
+    lastTickAt: 1761800000000,
+    upgrades: { ocOverclocker: 0, tenfoldTuner: 0, captainsCompound: 0, lucidDreaming: 0, turboEncabulator: 0, overdriveOverdrive: 0, singularitySharpener: 0 },
+    found: true,
+    foundAt: 1761155000000,
+    peakOwned: ["3e+5100", "2e+5050", "1e+4990", "7e+4900", "5e+4800", "2e+4700", "9e+4500", "41"],
+    peakOverclock: 23456,
+    upgradesNoteSeen: false,
+    captainScale: 2,
+  });
+
+  it("a 0.13.11.2 save loads with the new fields defaulted and round-trips byte-identical", () => {
+    const s = deserializeSecret(V0_13_11_2_SAVE, 0)!;
+    expect(s).not.toBeNull();
+    expect(s.captainSinceFleet).toBe(0);
+    expect(s.skillPointsEarned).toBe(0);
+    expect(s.skillLevels).toEqual({});
+    expect(s.automations).toEqual({});
+    expect(s.automationBuy).toEqual({});
+    expect(s.prestigeV).toBeUndefined();
+    // nothing of the old save moved
+    expect(s.skillPoints).toBe(2);
+    expect(s.skills.overdrive).toBe(true);
+    expect(s.autoOn).toEqual({ autoCaptain: false, autoPc: true });
+    expect(serializeSecret(s)).toBe(V0_13_11_2_SAVE);
+    // and again through a clone (what every engine action does)
+    expect(serializeSecret(cloneSecret(s))).toBe(V0_13_11_2_SAVE);
+  });
+
+  it("a fresh game's save has no 0.14.0 keys (fresh saves are byte-identical to 0.13.11.2's)", () => {
+    const raw = JSON.parse(serializeSecret(freshSecretState(0)));
+    for (const k of ["captainSinceFleet", "skillPointsEarned", "skillLevels", "automations", "automationBuy", "prestigeV"]) expect(k in raw, k).toBe(false);
+    expect(Object.keys(raw).at(-1)).toBe("captainScale");
+  });
+
+  it("round-trips every new field, written last in one fixed order whatever order they were set in", () => {
+    const s = freshSecretState(0);
+    s.prestigeV = 1;
+    s.automationBuy = { autoBuyLow: "10", autoSkills: "max" };
+    s.automations = { autoOverclock: true, autoSkills: true };
+    s.skillLevels = { lucidPlanning: 2, headStart: 1 };
+    s.skillPointsEarned = 31;
+    s.captainSinceFleet = 4;
+    s.autoOn.autoUpgrades = false;
+    const raw = serializeSecret(s);
+    expect(Object.keys(JSON.parse(raw)).slice(-6)).toEqual(["captainSinceFleet", "skillPointsEarned", "skillLevels", "automations", "automationBuy", "prestigeV"]);
+    const back = deserializeSecret(raw, 0)!;
+    expect(back.captainSinceFleet).toBe(4);
+    expect(back.skillPointsEarned).toBe(31);
+    expect(back.skillLevels).toEqual({ lucidPlanning: 2, headStart: 1 });
+    expect(back.automations).toEqual({ autoOverclock: true, autoSkills: true });
+    expect(back.automationBuy).toEqual({ autoBuyLow: "10", autoSkills: "max" });
+    expect(back.prestigeV).toBe(1);
+    expect(back.autoOn.autoUpgrades).toBe(false);
+    const again = serializeSecret(back);
+    expect(serializeSecret(deserializeSecret(again, 0)!)).toBe(again);
+  });
+
+  it("bad values in the new fields fall back to defaults instead of rejecting the save", () => {
+    const raw = JSON.parse(V0_13_11_2_SAVE);
+    raw.captainSinceFleet = -3;
+    raw.skillPointsEarned = "lots";
+    raw.skillLevels = { headStart: 99, overdrive: 0, tenfoldTraining: 2.7, bogus: 3, lucidPlanning: "1" };
+    raw.automations = { autoCaptain: true, autoFleet: "yes", wings: true };
+    raw.automationBuy = { autoBuyLow: "10", autoCaptain: "max", autoSkills: "all", autoUpgrades: 10 };
+    raw.prestigeV = 2;
+    const s = deserializeSecret(JSON.stringify(raw), 0)!;
+    expect(s).not.toBeNull();
+    expect(s.captainSinceFleet).toBe(0);
+    expect(s.skillPointsEarned).toBe(0);
+    expect(s.skillLevels).toEqual({ headStart: LEVELED_SKILLS.find((d) => d.id === "headStart")!.cap, tenfoldTraining: 2 });
+    expect(s.automations).toEqual({ autoCaptain: true });
+    // the prestige automations have no buy setting (they keep their target), so theirs is dropped
+    expect(s.automationBuy).toEqual({ autoBuyLow: "10" });
+    expect(s.prestigeV).toBeUndefined();
+  });
+
+  it("clones the new containers deeply", () => {
+    const a = freshSecretState(0);
+    const b = cloneSecret(a);
+    b.skillLevels.headStart = 1;
+    b.automations.autoFleet = true;
+    b.automationBuy.autoBuyLow = "1";
+    expect(a.skillLevels).toEqual({});
+    expect(a.automations).toEqual({});
+    expect(a.automationBuy).toEqual({});
+  });
+});
+
+describe("0.14.0 prestige redesign: config data (Slice 1)", () => {
+  const LIVE = new Set<string>(MILESTONES.map((m) => m.id));
+  const known = (id: string) => LIVE.has(id) || PENDING_MILESTONES.some((m) => m.id === id);
+
+  it("has the six leveled skills of the design's table, each with a scale count and a gate", () => {
+    expect(LEVELED_SKILLS.map((d) => d.id)).toEqual(["headStart", "tenfoldTraining", "overdrive", "captainsAcademy", "fleetLogistics", "lucidPlanning"]);
+    expect(LEVELED_SKILLS.map((d) => d.name)).toEqual(["Head Start", "Tenfold Training", "Overdrive", "Captain's Academy", "Fleet Logistics", "Lucid Planning"]);
+    const scales = Object.fromEntries(LEVELED_SKILLS.map((d) => [d.id, d.scalesOff]));
+    expect(scales).toEqual({ headStart: "lifetimeFleets", tenfoldTraining: "captainSinceFleet", overdrive: "lifetimePcs", captainsAcademy: "lifetimeFleets", fleetLogistics: "fleetCount", lucidPlanning: "lifetimePcs" });
+    for (const d of LEVELED_SKILLS) {
+      expect(Number.isInteger(d.cap) && d.cap >= 1, d.id).toBe(true);
+      expect(Number.isInteger(d.costBase) && d.costBase >= 1 && Number.isInteger(d.costStep) && d.costStep >= 0, d.id).toBe(true);
+      expect(d.step, d.id).toBeGreaterThan(0);
+      expect(d.flavor.length, d.id).toBeGreaterThan(10);
+      const gate = d.availableAt;
+      if ("milestone" in gate) expect(known(gate.milestone), d.id).toBe(true);
+      else expect(Number.isInteger(gate.prestiges.count) && gate.prestiges.count >= 1, d.id).toBe(true);
+    }
+  });
+
+  it("the three reworked skills reach today's effect at their named level", () => {
+    const def = (id: string) => LEVELED_SKILLS.find((d) => d.id === id)!;
+    expect(def("headStart").replaces).toEqual({ skill: "headStart", level: 1 });
+    expect(def("headStart").step * def("headStart").replaces!.level).toBe(HEAD_START_LOG10);
+    expect(def("tenfoldTraining").replaces!.skill).toBe("tenBonus");
+    expect(TEN_BONUS + def("tenfoldTraining").step * def("tenfoldTraining").replaces!.level).toBeCloseTo(TEN_BONUS_SKILL, 12);
+    expect(def("overdrive").replaces!.skill).toBe("overdrive");
+    expect(1 + def("overdrive").step * def("overdrive").replaces!.level).toBeCloseTo(OVERDRIVE_POWER, 12);
+    for (const d of LEVELED_SKILLS) if (d.replaces) expect(d.replaces.level, d.id).toBeLessThanOrEqual(d.cap);
+  });
+
+  it("every automation, the two new ones included, unlocks at a milestone", () => {
+    expect([...AUTOMATION_IDS].sort()).toEqual(["autoBuyHigh", "autoBuyLow", "autoCaptain", "autoFleet", "autoOverclock", "autoPc", "autoSkills", "autoUpgrades"]);
+    expect(Object.keys(AUTOMATION_UNLOCKS).sort()).toEqual([...AUTOMATION_IDS].sort());
+    for (const id of AUTOMATION_IDS) {
+      expect(known(AUTOMATION_UNLOCKS[id]), id).toBe(true);
+      expect(AUTOMATION_NAMES[id].length, id).toBeGreaterThan(0);
+    }
+    // the design's mapping for the beats it names
+    expect(AUTOMATION_UNLOCKS).toMatchObject({ autoOverclock: "firstFleet", autoBuyLow: "e1000", autoPc: "firstPc", autoBuyHigh: "singularity", autoUpgrades: "e2m" });
+    // one automation per milestone, so each popup names exactly one unlock
+    expect(new Set(Object.values(AUTOMATION_UNLOCKS)).size).toBe(AUTOMATION_IDS.length);
+  });
+
+  it("buy amounts exist only for the automations that buy something", () => {
+    expect(AUTOMATION_BUY_CHOICES).toEqual(["1", "10", "max"]);
+    expect(AUTOMATION_BUY_DEFAULT).toEqual({ autoOverclock: "max", autoBuyLow: "max", autoBuyHigh: "max", autoSkills: "1", autoUpgrades: "1" });
+  });
+
+  it("the new milestones are defined but kept out of the live list (nothing can reach them yet)", () => {
+    expect(PENDING_MILESTONES.map((m) => m.id)).toEqual(["secondFleet", "e10k", "pcRegular", "e20m", "e25m"]);
+    for (const m of PENDING_MILESTONES) expect(LIVE.has(m.id), m.id).toBe(false);
+    expect(MILESTONES.length).toBe(16);
+    const secret = PENDING_MILESTONES.find((m) => m.id === "e25m")!;
+    expect(secret.secret).toBe(true);
+    expect(secret.detail).toContain("e25,000,000");
+    expect(SECRET_PRIZE_EXPONENT).toBe(25000000);
+    expect(E20M_EXPONENT).toBe(20000000);
+    for (const id of ["autoCaptain", "autoFleet", "autoSkills"] as const) {
+      const m = PENDING_MILESTONES.find((p) => p.id === AUTOMATION_UNLOCKS[id])!;
+      expect(m.reward).toBe(`Reward: ${AUTOMATION_NAMES[id]} unlocked`);
+    }
+  });
+
+  it("the bars rise, and the gate lift and the Skill Point schedule are sane", () => {
+    expect(FLEET_BAR_RATIO).toBeGreaterThan(1);
+    expect(PC_BAR_RATIO).toBeGreaterThan(1);
+    expect(Number.isInteger(SKILL_GATE_LIFT_PC) && SKILL_GATE_LIFT_PC >= 1).toBe(true);
+    expect(Number.isInteger(AUTO_SKILLS_PC_COUNT) && AUTO_SKILLS_PC_COUNT >= 1).toBe(true);
+    // front-loaded: whole, positive, never rising, and the repeating last entry is 1, so earning can
+    // stop exactly on the total cost of maxing every skill
+    expect(SKILL_POINT_SCHEDULE.every((n) => Number.isInteger(n) && n >= 1)).toBe(true);
+    for (let i = 1; i < SKILL_POINT_SCHEDULE.length; i++) expect(SKILL_POINT_SCHEDULE[i]).toBeLessThanOrEqual(SKILL_POINT_SCHEDULE[i - 1]);
+    expect(SKILL_POINT_SCHEDULE[0]).toBeGreaterThan(1);
+    expect(SKILL_POINT_SCHEDULE.at(-1)).toBe(1);
+    const total = LEVELED_SKILLS.reduce((sum, d) => sum + d.cap * d.costBase + (d.costStep * d.cap * (d.cap - 1)) / 2, 0);
+    expect(total).toBeGreaterThanOrEqual(SKILL_POINT_SCHEDULE.reduce((a, b) => a + b, 0));
   });
 });

@@ -103,6 +103,28 @@ both before each slice.
 - [ ] Step 2: Add the fields and data; the test passes; no engine reads them yet; all existing tests pass.
 - [ ] Step 3: Commit `feat(minigame): redesign state and config data`.
 
+**Slice 1 carry note (built, with the 2026-10-28 plan update):**
+- State (`state.ts`): `captainSinceFleet`, `skillPointsEarned`, `skillLevels`, `automations`, `automationBuy` are
+  plain fields with defaults 0 / 0 / {} / {} / {} in `freshSecretState` and deep copies in `cloneSecret`, so later
+  slices read them without `??`. `serializeSecret` writes each one only once it holds something, always last and in
+  that fixed order; `prestigeV?: 1` is optional (Slice 6 stamps it). A 0.13.11.2 save and every fresh save serialize
+  byte-identically (test with a hand-written 0.13.11.2 fixture). Bad values fall back to defaults, never reject;
+  levels are whole and at most the cap; a buy amount is kept only for automations in `AUTOMATION_BUY_DEFAULT`.
+  `autoOn` is widened to `SkillId | AutomationId` (switches for the two new automations load too).
+- Config (`config.ts`, section "0.14.0 prestige redesign"): `AutomationId` (eight), `AUTOMATION_IDS`,
+  `AUTOMATION_NAMES`, `AutomationBuy`, `AUTOMATION_BUY_CHOICES`, `AUTOMATION_BUY_DEFAULT`, `AUTOMATION_UNLOCKS`,
+  `LeveledSkillId`, `SkillScaleCount`, `SkillGate`, `LeveledSkillDef` (plus `replaces: { skill, level }`, the level
+  that equals today's Head Start / Ten Bonus x2.2 / Overdrive ^1.05: levels 1 / 2 / 2), `LEVELED_SKILLS`,
+  `SKILL_GATE_LIFT_PC`, `FLEET_BAR_RATIO`, `PC_BAR_RATIO`, `SKILL_POINT_SCHEDULE` ([3, 3, 2, 2, 1], the last entry
+  repeats), `AUTO_SKILLS_PC_COUNT`, `E20M_EXPONENT`, `SECRET_PRIZE_EXPONENT`.
+- New milestones live in `PENDING_MILESTONES` with their own `PendingMilestoneId` type, OUT of `MILESTONES` and
+  `MilestoneId`, so `reached`, `milestoneVisible`, `checkMilestonesMut`, the runtime and every golden never see them.
+  Slice 3 (secondFleet, e10k, pcRegular) and Slice 5 (e20m, e25m) move each def into `MILESTONES` and its id into
+  `MilestoneId` (then `AnyMilestoneId` collapses to `MilestoneId`).
+- Measured for the skill totals (0.13.11.2 engine, average player): lifetime Fleets 4 / 18 / 47 / 73 and
+  Prestigeceptions 1 / 3 / 6 / 8 at days 1 / 2 / 7 / 120. The six skills' caps and costs total 79 points, what the
+  schedule pays over 73 Fleets; the rising bars will lower the Fleet count, so Slice 4 re-tunes.
+
 ### Slice 2: Rising bars, payouts from the base bar
 
 **Files:**
