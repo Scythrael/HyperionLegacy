@@ -61,3 +61,8 @@ list at the end of the gear wear design doc's 2026-10-27 block, then merge.
 2026-10-28: user pacing "not beyond 95%" weekly until the Thu reset, then normal pace all week. Relic stagger empty-band
 rule, user verbatim: "This is fine. Starting with standard/augmented is fine for Tier I." (sent to the stagger builder,
 who records it in the relics v2 plan).
+QUEUE (2026-10-28): minigame Slice 1 [PROPOSAL] picks for the user: Auto Captain at a second Fleet Prestige ("Fleet
+Week, the Sequel"), Auto Fleet at e10,000 Ore, Auto Skill Allocation at 4 Prestigeceptions, names "Auto-buy Upgrades"
+and the e20M / e25M milestone names and all flavor; skill caps/costs [PROVISIONAL] total 79 points (about 73 lifetime
+Fleets, today's day-120 count). NAME CLASH: the minigame skill "Fleet Logistics" vs the main game's Homeworld talent
+branch "Fleet Logistics": rename one.
