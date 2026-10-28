@@ -55,3 +55,6 @@ limit (user: pause at 80% until the Thu 10-29 reset). NEXT after the reset, in o
 builder (worktree-agent-a7ee00fa33710a9a5) to build "Pause to repair", then review + merge; (2) relic tier stagger
 build (relics v2 plan, 2026-10-27 table) + the bandShares test-helper fix; (3) minigame redesign Slices 1 to 7
 (docs/plans/2026-10-27-minigame-prestige-redesign-plan.md); Slice 5 tunes the ceiling to a full Tier VII collection.
+Gear wear step 4: pause to repair BUILT (c4785c2, 10224 green), reviewed "approve with fixes"; user calls answered
+(repair first then go; count on the run). NEXT after the reset: resume worktree-agent-a7ee00fa33710a9a5 with the fix
+list at the end of the gear wear design doc's 2026-10-27 block, then merge.
