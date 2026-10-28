@@ -346,21 +346,28 @@ export function milestoneAchievement(id: MilestoneId): Achievement {
 export const TURBO_LEVEL = 10000;
 
 // ---------------------------------------------------------------------------
-// 0.14.0 prestige redesign: DATA ONLY for now. Design docs/plans/2026-10-27-minigame-prestige-
+// 0.14.0 prestige redesign. Design docs/plans/2026-10-27-minigame-prestige-
 // redesign-design.md (approved 2026-10-27, answers 2026-10-28), plan docs/plans/2026-10-27-minigame-
-// prestige-redesign-plan.md. Slice 1 adds the data; no engine code reads anything in this section yet,
-// so every golden holds. Later slices wire it: the rising bars (Slice 2), the automations at
+// prestige-redesign-plan.md. Slice 1 added the data; Slice 2 made the two bar ratios live (the rest is
+// not read by the engine yet). Later slices wire it: the rising bars (Slice 2), the automations at
 // milestones and the Automation tab (Slice 3), the leveled skills and the Skill Point schedule
 // (Slice 4), the late milestones (Slice 5). Every number here is [PROVISIONAL] (set by the pacing
 // sims in those slices) and every new name or line of copy is [PROPOSAL] unless a comment says the
 // user named it.
 // ---------------------------------------------------------------------------
 
-// 3.1 Rising bars [PROVISIONAL]. The Fleet Prestige bar's exponent is FLEET_AT x FLEET_BAR_RATIO^n,
-// n = Fleet Prestiges since the last Prestigeception (fleetCount, so a Prestigeception resets it). The
-// Prestigeception bar's exponent is PRESTIGECEPTION_AT x PC_BAR_RATIO^m, m = lifetime
-// Prestigeceptions (never reset). Payouts still measure from the base bars (user: "Harder pays more").
-export const FLEET_BAR_RATIO = 1.25;
+// 3.1 Rising bars [PROVISIONAL], live since Slice 2 (engine fleetBarExponent / pcBarExponent). The
+// Fleet Prestige bar's exponent is FLEET_AT x FLEET_BAR_RATIO^n, n = Fleet Prestiges since the last
+// Prestigeception (fleetCount, so a Prestigeception resets it). The Prestigeception bar's exponent is
+// PRESTIGECEPTION_AT x PC_BAR_RATIO^m, m = lifetime Prestigeceptions (never reset). Payouts still
+// measure from the base bars (user: "Harder pays more").
+// Slice 2 sims: the user's starting 1.25 put the average player's finale at 5.01 days (5.05 with
+// check-ins an hour later), past the 3 to 5 day band; 1.2 still failed the later check-ins (5.004 d).
+// 1.18 holds every band for the average, later check-in, optimal and casual players. PC_BAR_RATIO
+// 1.5 is kept: at the 100% default targets the "gain at least what you hold" rule fires later than
+// the bar for the simulated players, so the ratio moved no average-player number (1 and 1.5 measured the
+// same to e10,000,000); 2 pushed the finale to 5.15 days.
+export const FLEET_BAR_RATIO = 1.18;
 export const PC_BAR_RATIO = 1.5;
 
 // 3.2 Automations. Each one unlocks at a milestone (user: "Only have the automations at the milestone
@@ -495,8 +502,9 @@ export const LEVELED_SKILLS: readonly LeveledSkillDef[] = [
   { id: "overdrive", name: "Overdrive", flavor: "Past the red line there is another red line. It is also fine.", effect: "Ore production to a higher power", cap: 4, costBase: 2, costStep: 1, step: 0.025, scalesOff: "lifetimePcs", availableAt: { milestone: "firstPc" }, replaces: { skill: "overdrive", level: 2 } },
   // step: Captain Points earned x (1 + step x level)
   { id: "captainsAcademy", name: "Captain's Academy", flavor: "Graduates promote faster. Most of them even know which end of the ship is the front.", effect: "more Captain Points per Captain Prestige", cap: 5, costBase: 1, costStep: 1, step: 0.1, scalesOff: "lifetimeFleets", availableAt: { prestiges: { layer: "fleet", count: 2, scope: "current" } } },
-  // step: Augment Points earned x (1 + step x level)
-  { id: "fleetLogistics", name: "Fleet Logistics", flavor: "Spreadsheets, but for warships. The admiral finds them deeply soothing.", effect: "more Augment Points per Fleet Prestige", cap: 5, costBase: 1, costStep: 1, step: 0.1, scalesOff: "fleetCount", availableAt: { prestiges: { layer: "fleet", count: 5, scope: "current" } } },
+  // step: Augment Points earned x (1 + step x level). Player name "Fleet Requisitions" (user pick
+  // 2026-10-28: the main game's Homeworld talent branch keeps "Fleet Logistics"); the code id stays.
+  { id: "fleetLogistics", name: "Fleet Requisitions", flavor: "Spreadsheets, but for warships. The admiral finds them deeply soothing.", effect: "more Augment Points per Fleet Prestige", cap: 5, costBase: 1, costStep: 1, step: 0.1, scalesOff: "fleetCount", availableAt: { prestiges: { layer: "fleet", count: 5, scope: "current" } } },
   // step: Dream Points earned x (1 + step x level)
   { id: "lucidPlanning", name: "Lucid Planning", flavor: "You planned this in a dream. The dream had a whiteboard.", effect: "more Dream Points per Prestigeception", cap: 4, costBase: 2, costStep: 1, step: 0.1, scalesOff: "lifetimePcs", availableAt: { prestiges: { layer: "pc", count: 2, scope: "lifetime" } } },
 ];
@@ -538,6 +546,9 @@ export const COPY = {
   maxed: "Maxed",
   starfallRewardLater: "Reward: the Starfall theme",
   starfallRewardDone: "Starfall theme unlocked",
+  // 0.14.0 rising bars (design 3.1, [PROPOSAL] wording approved 2026-10-27): the Fleet card once the
+  // Fleet bar is above the Prestigeception bar (by design the signal to Prestigeception).
+  pcFirst: "Prestigeception first",
 } as const;
 
 // The [?] Help view (0.13.11.1, design section 4): the rules in plain language, same voice as the

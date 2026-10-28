@@ -146,6 +146,33 @@ both before each slice.
 - [ ] Step 2: Implement; tests pass; `redesignGoldens` moves only `fleetBarLadder` / `pcBarLadder` (explained).
 - [ ] Step 3: Commit `feat(minigame): rising Fleet and Prestigeception bars`.
 
+**Slice 2 carry note (built):**
+- Engine: `fleetBarExponent` / `pcBarExponent` / `nextFleetBarExponent` / `nextPcBarExponent` (exactly the base
+  bar at a count of 0); `fleetGain` / `prestigeceptionGain` pay only at the risen bar and still measure from the base
+  bars, so the button, `prestigePreview`, auto prestige and catch-up all read one bar. `captainSinceFleet` counts in
+  `doCaptainMut`, resets in `doFleetMut` and `doPrestigeceptionMut`.
+- Cards: `prestigeCards.ts` (`prestigeCardBars`, `formatBar`) feeds the Needs row, a new "Next one" row (the card
+  rule keeps labels at two words / 12 characters, so "Next one needs" reads as "Next one" under "Needs") and the
+  disabled button text; "Prestigeception first" (`COPY.pcFirst`) once the Fleet bar passes the Prestigeception bar.
+  Help still says "a fresh climb to e10,000 Ore" (true for the first one): Slice 7 rewrites it.
+- Tuning (relic-free, days, before / after): average 4.88 / 32.35 / 119.15 to 4.95 / 32.12 / 117.58, optimal
+  4.46 / 34.47 / 130.06 to 4.49 / 34.16 / 120.39, casual 6.86 / 47.84 / 140.65 to 6.95 / 47.79 / 129.72 (finale /
+  e1M / e10M). FLEET_BAR_RATIO 1.25 failed the finale band (average 5.01 d, an hour-later check-in 5.05); 1.2 failed
+  the later check-in (5.004 d); 1.18 holds all. e10M is chaotic in the ratio (1.15 to 1.17 measured 109.1 d, out of
+  band). PC_BAR_RATIO 1.5 kept: it never binds at the 100% targets (1 and 1.5 identical to e10M); 2 pushed the
+  finale to 5.15 d. The rising bars barely gate the sim players at these ratios (the target rule fires later).
+- Relics: the typical average collection now reaches e10M 21.5% sooner (92.3 d), past the Gentle 20%; no holding
+  ratio fixes it (91.3 to 92.3 d for 1.16 to 1.19). The test floor is 0.78 for e10M only until Slice 5 re-pins it.
+- Goldens moved: redesignGoldens (ladders rise; gains above a bar unchanged; pacing rows per the table; casual
+  Skill Points at the stop 6 to 5), goldens.json and relicGoldens.json mid and past-finale cases (their fixtures
+  play with Auto Fleet, so they meet risen bars). catchUp: a catch-up strictly ahead on Dream and Augment Points
+  may trail live's record by 1e-3 (postPc 48 h: 2e-4, one Captain Prestige a few hours apart).
+  simRelicsStretch: the moved pastLongState fixture now crosses Overdrive Overdrive's wake with relics; the sim's
+  coarse shortcut runs one upgrade level ahead and compounds to 9.1% (no prestige in the window; relic-free stays
+  1.35%), bound 0.1 until Slice 5 re-measures the relic pins against the shipping catch-up.
+- Slice 1 review: the leveled skill "Fleet Logistics" now shows as "Fleet Requisitions" (user pick 2026-10-28; id
+  `fleetLogistics` unchanged); the rest of the Slice 1 data matched the design.
+
 ### Slice 3: Automations at milestones
 
 **Files:**

@@ -247,3 +247,7 @@ Prestige, new milestone "Fleet Week, the Sequel"; Auto Fleet at e10,000 Ore; Aut
 Prestigeceptions; Auto-buy Upgrades at e2,000,000; the sim may nudge one and reports it); start the sims from the
 [PROVISIONAL] numbers (Fleet bar x1.25 per Fleet, Prestigeception x1.5, gate lift at 6 lifetime Prestigeceptions, 79
 Skill Points to max everything at about day 120); the final table goes to the user before it ships.
+Slice 2 review calls (2026-10-28): at FLEET_BAR_RATIO 1.18 / PC_BAR_RATIO 1.5 the bars rarely bite (players and auto
+prestige prestige far above them: Fleet bar e982 while the climb reaches e327,961). User: "Make them bite
+(Recommended)": steeper bars that sit near where players actually prestige so they become the real gate after a few
+Fleets, with the rest of the curve retuned so the pacing bands hold. Card label "Next one" is fine.

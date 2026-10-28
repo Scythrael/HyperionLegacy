@@ -421,7 +421,7 @@ describe("0.14.0 prestige redesign: config data (Slice 1)", () => {
 
   it("has the six leveled skills of the design's table, each with a scale count and a gate", () => {
     expect(LEVELED_SKILLS.map((d) => d.id)).toEqual(["headStart", "tenfoldTraining", "overdrive", "captainsAcademy", "fleetLogistics", "lucidPlanning"]);
-    expect(LEVELED_SKILLS.map((d) => d.name)).toEqual(["Head Start", "Tenfold Training", "Overdrive", "Captain's Academy", "Fleet Logistics", "Lucid Planning"]);
+    expect(LEVELED_SKILLS.map((d) => d.name)).toEqual(["Head Start", "Tenfold Training", "Overdrive", "Captain's Academy", "Fleet Requisitions", "Lucid Planning"]);
     const scales = Object.fromEntries(LEVELED_SKILLS.map((d) => [d.id, d.scalesOff]));
     expect(scales).toEqual({ headStart: "lifetimeFleets", tenfoldTraining: "captainSinceFleet", overdrive: "lifetimePcs", captainsAcademy: "lifetimeFleets", fleetLogistics: "fleetCount", lucidPlanning: "lifetimePcs" });
     for (const d of LEVELED_SKILLS) {

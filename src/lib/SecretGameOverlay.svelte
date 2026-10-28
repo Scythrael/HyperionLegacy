@@ -82,6 +82,7 @@
   } from "./secret/config";
   import { getRelicTypeById } from "./game/relics";
   import { cloneSecret, type SecretState, type AutoLayer } from "./secret/state";
+  import { prestigeCardBars } from "./secret/prestigeCards";
   import { formatSecret, formatExponent, formatMultiplier } from "./secret/format";
   import { tabKeyTarget, overlayClosesOn } from "./secret/overlayKeys";
 
@@ -179,6 +180,8 @@
   $: cg = captainGain(s);
   $: fg = fleetGain(s);
   $: pg = prestigeceptionGain(s);
+  // 0.14.0 rising bars: each card's Needs and Next one (the bar after one more), read off the engine's bars.
+  $: bars = prestigeCardBars(s);
   // 0.13.11.2: what resetting NOW does to each layer's multiplier, read off a real reset run on a
   // copy (engine prestigePreview). null hides the line while the layer pays nothing yet.
   $: previews = tab === "prestige" ? { captain: prestigePreview(s, "captain"), fleet: prestigePreview(s, "fleet"), pc: prestigePreview(s, "pc") } : null;
@@ -513,7 +516,8 @@
                 <div><dt>Multiplier</dt><dd class="num">×{formatSecret(augmentMultiplier(s))}</dd></div>
                 <div><dt>Skill Points</dt><dd class="num">{allSkillsLearned(s) ? COPY.allSkillsLearned : `${s.skillPoints} unspent`}</dd></div>
                 <div><dt>Next unlock</dt><dd class="num">{nextUnlock(s)}</dd></div>
-                <div><dt>Needs</dt><dd class="num">1.8e308 Ore</dd></div>
+                <div><dt>Needs</dt><dd class="num">{bars.fleetNeeds}</dd></div>
+                <div><dt>Next one</dt><dd class="num">{bars.fleetNext}</dd></div>
                 <div><dt>Pays</dt><dd class="num">+{formatSecret(fg)} points{allSkillsLearned(s) ? "" : " + 1 Skill Point"}</dd></div>
               </dl>
               {#if previews?.fleet}
@@ -523,7 +527,7 @@
                 </p>
               {/if}
               <button class="sg-btn primary" type="button" disabled={busy || fg.lte(0)} on:click={() => secretAct((x, t) => doFleet(x, t))}>
-                {fg.lte(0) ? "Fleet Prestige (needs 1.8e308 Ore)" : "Fleet Prestige"}
+                {fg.lte(0) ? bars.fleetButton : "Fleet Prestige"}
               </button>
             </div>
             <div class="layer pc">
@@ -533,7 +537,8 @@
                 <div><dt>Points</dt><dd class="num">{formatSecret(s.dreamPoints)}</dd></div>
                 <div><dt>Gain boost</dt><dd class="num">×{formatSecret(gainMultiplier(s))}</dd></div>
                 {#if upgradeLevel(s, "lucidDreaming") > 0}<div><dt>Speed boost</dt><dd class="num">×{formatSecret(dreamSpeedMultiplier(s))}</dd></div>{/if}
-                <div><dt>Needs</dt><dd class="num">{formatExponent(10000)} Ore in one climb</dd></div>
+                <div><dt>Needs</dt><dd class="num">{bars.pcNeeds}</dd></div>
+                <div><dt>Next one</dt><dd class="num">{bars.pcNext}</dd></div>
                 <div><dt>Pays</dt><dd class="num">+{formatSecret(pg)} points</dd></div>
               </dl>
               {#if previews?.pc}
@@ -544,7 +549,7 @@
                 </p>
               {/if}
               <button class="sg-btn primary" type="button" disabled={busy || pg.lte(0)} on:click={() => secretAct((x, t) => doPrestigeception(x, t))}>
-                {pg.lte(0) ? `Prestigeception (needs ${formatExponent(10000)} Ore)` : "Prestigeception"}
+                {pg.lte(0) ? bars.pcButton : "Prestigeception"}
               </button>
             </div>
           </div>
