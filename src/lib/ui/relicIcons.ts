@@ -20,9 +20,20 @@ import {
   RELIC_SETS,
   getRelicById,
   getRelicSetById,
+  getRelicTypeById,
   type MuseumStat,
   type RelicRarity,
 } from "../game/relics";
+
+const TIER_NUMERAL: readonly string[] = ["", "I", "II", "III", "IV", "V", "VI", "VII"];
+
+// The tier stagger (user 2026-10-27): where a relic type starts turning up, for the Museum's undiscovered tile beside
+// its set's "From:" sites ("Tier IV+"). Empty for a type that turns up at every tier (Tier I) or an unknown id. Pure.
+export function relicFirstTierLabel(relicId: string): string {
+  const tier = getRelicTypeById(relicId)?.firstTier;
+  if (tier === undefined || tier <= 1) return "";
+  return tier >= 7 ? `Tier ${TIER_NUMERAL[7]}` : `Tier ${TIER_NUMERAL[tier]}+`;
+}
 
 // relic id -> its glyph. Exhaustive over the 17 locked relics (relicIcons.test.ts asserts every RELICS id
 // is present and every value is a real registry key).

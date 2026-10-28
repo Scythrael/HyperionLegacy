@@ -19,7 +19,7 @@ import { canFitEquipment, fitEquipment, unfitEquipmentInstance } from "./equipme
 import { checkInLoadout, checkOutLoadout } from "./armory";
 import { assignShipToCaptain, dispatchCaptainOnMission, economyTick } from "./tick";
 import { expeditionCandidates } from "./expedition";
-import { dispatchPastPropulsion, withMinimumAwayTeam } from "./awayTeamTestFixtures";
+import { asPreStaggerDispatch, dispatchPastPropulsion, withMinimumAwayTeam } from "./awayTeamTestFixtures";
 import { stateHash } from "./firstRunsGoldens.fixture";
 import { GEAR_LOCK_KINDS, GL_LOADOUT, GL_SPARE, gearLockFleet, lockShip, withLoadoutWorn, type GearLockKind } from "./shipGearLock.fixture";
 // WR-8 (0.14.0): every pin in this file was taken before the combat rules (combatRulesSwitch.fixture.ts), so the file
@@ -78,7 +78,8 @@ function pathReadings(kind: GearLockKind | "home"): Record<string, string> {
 
 function inFlightExpedition(): string {
   const s = withMinimumAwayTeam(gearLockFleet());
-  const res = dispatchPastPropulsion(s, "ship-1", 1, expeditionCandidates(s, "ship-1")[0].id);
+  // Relics v2 tier stagger (after this pin): a pre-stagger dispatch (asPreStaggerDispatch, no draw moves).
+  const res = asPreStaggerDispatch(dispatchPastPropulsion(s, "ship-1", 1, expeditionCandidates(s, "ship-1")[0].id));
   if (!res.success) throw new Error(`dispatch refused: ${res.reason}`);
   let st = res.next;
   const rng = lcg(0x51a7);

@@ -476,3 +476,6 @@ Reading (to play back):
 5. Long-term idea: Tier 10 across the board (expeditions included); Tier VIII and beyond reached through a wormhole to
    a nearby galaxy instead of crossing the intergalactic void; ships must be hardened for wormhole travel or be torn
    apart.
+Playback confirmed (2026-10-28): "Yes, build that (Recommended)": replace the fixed 700 line with a per-cycle wear
+estimate; a piece projected to reach its floor mid-cycle is repaired first; otherwise go (worn gear is less efficient);
+rare RNG losses accepted; retreat is a future design (logged, not step 4).

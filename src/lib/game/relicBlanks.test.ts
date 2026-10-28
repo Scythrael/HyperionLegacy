@@ -190,7 +190,8 @@ describe("R2-2: the blank stamp and cultures", () => {
     const s = asExpeditionVeteran(withCrew(onHull("eir", makeExpeditionSeed(0x2468ace, 11)), "rank6"));
     const res = startExpedition(s, "ship-1", 1, "cand-1-0");
     expect(res.success).toBe(true);
-    expect(res.expedition!.relicBlanks).toEqual({ version: RELIC_BLANKS_VERSION });
+    // MOVED by the relic tier stagger (named): the flag also carries `stagger` (relicStagger.test.ts).
+    expect(res.expedition!.relicBlanks).toEqual({ version: RELIC_BLANKS_VERSION, stagger: 1 });
   });
 
   it("an old vault token reads Tier I, an expedition source and a culture derived from its id; a stamped one reads its stamps", () => {

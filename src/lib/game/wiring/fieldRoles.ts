@@ -278,6 +278,9 @@ export const FIELD_ROLES: Readonly<Record<string, Readonly<Record<string, FieldR
     siteSet: "effect",
     stats: "effect",
     weight: "effect",
+    // The tier stagger (user 2026-10-27): the first region tier a stagger-stamped blank reveals the type at
+    // (relicIdentify.ts rollRelicIdentification's in-band pool).
+    firstTier: "gate",
   },
   EXCEPTIONAL_SETS: {
     id: "identity",

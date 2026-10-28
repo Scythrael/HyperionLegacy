@@ -163,6 +163,36 @@ export function withoutRelicBlanks(exp: Expedition): Expedition {
   return rest;
 }
 
+// Relics v2 tier stagger (plan USER ANSWERS 2026-10-27): the run as dispatched BEFORE the stagger: its relic blanks flag
+// without `stagger` (and any relic token without its `stagger` stamp, appended last), i.e. a run in flight at the update.
+// The stagger takes no draw and changes nothing a run does, only which type a stamped blank later reveals, so a run read
+// back this way (before or after it flies) is the pre-stagger run exactly. A record without the stamp is returned as it
+// is. Pure.
+export function withoutRelicStagger(exp: Expedition): Expedition {
+  const flagged = exp.relicBlanks !== undefined && "stagger" in exp.relicBlanks;
+  const stamped = exp.findings.some((f) => f.relic !== undefined && f.relic !== null && "stagger" in f.relic);
+  if (!flagged && !stamped) return exp;
+  return {
+    ...exp,
+    ...(flagged ? { relicBlanks: { version: exp.relicBlanks!.version } } : {}),
+    findings: stamped
+      ? exp.findings.map((f) => {
+          if (!f.relic || !("stagger" in f.relic)) return f;
+          const relic = { ...f.relic } as Record<string, unknown>;
+          delete relic.stagger;
+          return { ...f, relic: relic as unknown as ExpeditionFinding["relic"] };
+        })
+      : exp.findings,
+  };
+}
+
+// The tier stagger: a dispatch result turned into the one a pre-stagger build returned (withoutRelicStagger on the
+// returned expedition and every expedition in `next`). A refusal is returned unchanged. Pure.
+export function asPreStaggerDispatch<R extends { next: GameState; expedition?: Expedition }>(res: R): R {
+  if (!res.expedition) return res;
+  return { ...res, expedition: withoutRelicStagger(res.expedition), next: { ...res.next, expeditions: res.next.expeditions.map(withoutRelicStagger) } };
+}
+
 // R2-2: a finished run as the pre-R2-2 engine stored it (relicsV2BlanksGoldens.test.ts, siMemberGearGoldens.test.ts):
 // no relic blanks flag, and every relic token without the blank stamps R2-2 appends (regionTier, cultureId; appended
 // last, so dropping them restores the key order). Pure.
@@ -175,6 +205,8 @@ export function asPreRelicBlanksRun(done: Expedition): Expedition {
       const relic = { ...f.relic } as Record<string, unknown>;
       delete relic.regionTier;
       delete relic.cultureId;
+      // The tier stagger's stamp, appended after them (a run before R2-2 was a run before the stagger too).
+      delete relic.stagger;
       return { ...f, relic: relic as unknown as ExpeditionFinding["relic"] };
     }),
   };

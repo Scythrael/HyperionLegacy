@@ -50,7 +50,7 @@ import { projectRunStamp, runShipStats, shipCrewAboard, shortRangeWear, type Shi
 import { captainMotherlodeChance, captainTransportTerms, motherlodeSeed } from "./captainSecondaryEffects";
 import { countShortRangeCycleComplete } from "./runDifficulty";
 import { makeRng } from "./combat/rng";
-import { rollShortRangeRelicBlanks } from "./relicBlanks";
+import { relicBlanksStaggered, rollShortRangeRelicBlanks } from "./relicBlanks";
 import { reactorLiftFlagged } from "./reactorSurplus";
 import { formatNumber } from "./format";
 
@@ -199,7 +199,7 @@ export function shortRangeCycleRelics(
   if (mission.relicBlanks === undefined) return [];
   const roll = mission.roll;
   const seconds = mission.plan.totalTicks * (Number.isFinite(secondsPerTick) && secondsPerTick > 0 ? secondsPerTick : 1);
-  return rollShortRangeRelicBlanks(roll.seed, roll.tier, seconds, `sr-${mission.slotId}-${roll.cycleIndex}`);
+  return rollShortRangeRelicBlanks(roll.seed, roll.tier, seconds, `sr-${mission.slotId}-${roll.cycleIndex}`, relicBlanksStaggered(mission.relicBlanks));
 }
 
 // One relic blank a run found this call, with the whole tick of the call it was delivered on (1 = the call's first

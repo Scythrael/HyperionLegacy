@@ -12,7 +12,7 @@ import { IN_SYSTEM_LEG_SECONDS, RETURN_SECONDS, groundLegTeams, pausePaysOff, pi
 import { NEBULA_SWEEP_SECONDS, isStudyBody, studySeconds } from "./gasGiantStudy";
 import { shipNowText, timelineView } from "../groundOpsTimelineDisplay";
 import { studyBodyView, studyShipCardView } from "../gasGiantStudyDisplay";
-import { dispatchPastPropulsion, plainAwayMember, withoutPickupPause } from "./awayTeamTestFixtures";
+import { asPreStaggerDispatch, dispatchPastPropulsion, plainAwayMember, withoutPickupPause } from "./awayTeamTestFixtures";
 import { fnv, goldenJson } from "./firstRunsGoldens.fixture";
 
 const SEC = ["member-1", "member-2", "member-3", "member-4", "member-5", "member-6"];
@@ -47,7 +47,8 @@ function crewed(seed?: number, rank = 10, teamsN: 2 | 3 = 2): GameState {
 // The GG-0 gas giant system (a fresh save's candidate 2: one giant, the last body, and a nebula); both teams' last
 // pickups waited behind the study and the sweep on the build before the change.
 function pickupFixture(): Expedition {
-  const res = dispatchPastPropulsion(crewed(), "ship-1", 1, "cand-1-2");
+  // Relics v2 tier stagger (after these pins): a pre-stagger dispatch (asPreStaggerDispatch, no draw moves).
+  const res = asPreStaggerDispatch(dispatchPastPropulsion(crewed(), "ship-1", 1, "cand-1-2"));
   if (!res.success || !res.expedition) throw new Error(`dispatch refused: ${res.reason}`);
   return res.expedition;
 }

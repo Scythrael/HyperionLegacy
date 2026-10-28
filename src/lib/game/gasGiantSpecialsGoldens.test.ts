@@ -24,7 +24,7 @@ import { BLUEPRINTS, RESEARCH_FACILITY_KEY, SUBSPACE_TELESCOPE_FACILITY_KEY, fre
 import { canResearch } from "./tick";
 import { advanceExpedition, claimExpedition } from "./expedition";
 import { ancientFragmentPermille } from "./gasGiantStudy";
-import { dispatchPastPropulsion, plainAwayMember } from "./awayTeamTestFixtures";
+import { asPreStaggerDispatch, dispatchPastPropulsion, plainAwayMember } from "./awayTeamTestFixtures";
 import { goldenJson } from "./firstRunsGoldens.fixture";
 
 function fnv(s: string): string {
@@ -146,7 +146,8 @@ describe("GG-7 capture 2: the grid's study and nebula runs, as dispatched today"
         for (let slot = 0; slot < 3; slot++) {
           const id = `cand-${tier}-${slot}`;
           const state = crewed(saveSeed);
-          const res = dispatchPastPropulsion(state, "ship-1", 1, id);
+          // Relics v2 tier stagger (after this capture): a pre-stagger dispatch (asPreStaggerDispatch, no draw moves).
+          const res = asPreStaggerDispatch(dispatchPastPropulsion(state, "ship-1", 1, id));
           if (!res.success || !res.expedition) throw new Error(`dispatch refused: ${res.reason}`);
           const exp = res.expedition;
           if (exp.study === undefined && exp.nebula === undefined) continue;

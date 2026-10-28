@@ -28,7 +28,8 @@ import { threatAssessment } from "./combat/threatAssessment";
 import { patrolDifficultyAt } from "./runDifficulty";
 import { dispatchCaptainOnShortRange } from "./shortRangeBoard";
 import { hash, onHull, stateHash, withCrew } from "./firstRunsGoldens.fixture";
-import { asExpeditionVeteran, asPatrolVeteran, dispatchPastPropulsion } from "./awayTeamTestFixtures";
+import { asExpeditionVeteran, asPatrolVeteran, dispatchPastPropulsion, withoutRelicStagger } from "./awayTeamTestFixtures";
+import { asPreStaggerShortRange } from "./shortRangeRelics.fixture";
 import { editShip, installPiece, seatOfficer, wiringBase } from "./wiring/probes";
 import { EM4_CORES, EM4_SHIP, em4Core, withCore, withDraw, type Em4CoreName } from "./emodEm4.fixture";
 import { gearWearOffInThisFile } from "./gearWearSwitch.fixture";
@@ -78,8 +79,11 @@ export function shortRangeBase(f: Em4Loadout): GameState {
 export function shortRangeRow(f: Em4Loadout, dispatchWith: DispatchWith = asIs): string[] {
   const r = dispatchWith(() => dispatchCaptainOnShortRange(shortRangeBase(f), 1, 0));
   expect(r.success, String(r.reason)).toBe(true);
-  const m = r.next.captains[0].mission;
-  let s = r.next;
+  // Relics v2 tier stagger (after these pins): the run is read as dispatched before it (its relic flag without
+  // `stagger`, asPreStaggerShortRange), which moves no draw; relicStagger.test.ts pins the stamp.
+  const pre = asPreStaggerShortRange(r.next);
+  const m = pre.captains[0].mission;
+  let s = pre;
   for (let i = 0; i < 900; i++) s = economyTick(s, 1, RNG);
   return [hash(m), stateHash(s)];
 }
@@ -88,7 +92,8 @@ export function shortRangeRow(f: Em4Loadout, dispatchWith: DispatchWith = asIs):
 export function voyageRow(f: Em4Loadout): string[] {
   const res = dispatchPastPropulsion(equip(asExpeditionVeteran(withCrew(onHull("orion"), "d18")), f), EM4_SHIP, 1, "cand-0");
   expect(res.success, `orion: ${res.reason}`).toBe(true);
-  const exp = res.expedition!;
+  // Relics v2 tier stagger: read as dispatched before it (withoutRelicStagger).
+  const exp = withoutRelicStagger(res.expedition!);
   return [hash(exp.voyage), hash(exp)];
 }
 

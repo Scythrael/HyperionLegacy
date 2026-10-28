@@ -130,7 +130,7 @@ import {
 } from "./groundOps";
 // Field Kits FKR-1: the enemy ranks catalog version a new run is stamped with (enemyRanks.ts is pure, no cycle).
 import { ENEMY_RANKS_VERSION, isTrainingRun } from "./enemyRanks";
-import { RELIC_BLANKS_VERSION } from "./relicBlanks";
+import { newRunRelicBlanksFlag } from "./relicBlanks";
 // Field Kits FKR-7: the runs switch, the flag, and the dispatch / claim plumbing (fieldKitsRun.ts never imports this).
 import { FIELD_KITS_RUNS_LIVE, fieldDeviceDial, fieldDevicesLive, fieldDevicesStamp, fieldKitsLive } from "./fieldKits";
 import { fieldKitsStamp, planDispatchPacks, returnCarriedExtras, settleDispatchPacks, withDispatchPacks } from "./fieldKitsRun";
@@ -1473,7 +1473,8 @@ export function startExpedition(
     ...built,
     region: regionStampOf(cand),
     voyage: candidateVoyage(state, ship, cand, isTrainingRun(built), homeworld),
-    relicBlanks: { version: RELIC_BLANKS_VERSION },
+    // Relics v2 tier stagger: the flag also carries `stagger`, so the run's blanks reveal only the types open at its tier.
+    relicBlanks: newRunRelicBlanksFlag(),
     ...wear,
   };
   // G2-5: a resumed run met its route's anomaly on the first trip (resolved, never charted twice), and records how
@@ -2729,7 +2730,7 @@ export function depositExpeditionFindings(state: GameState, findings: readonly E
       if (setId !== null && f.poiId !== undefined) {
         // WR-5c: a Preservationist token keeps its study speed in the vault (absent otherwise, the pre-WR-5c token).
         // Relics v2 R2-2: a stamped blank keeps its region tier and culture (absent on a token from before R2-2).
-        const { studySpeed, regionTier, cultureId } = f.relic;
+        const { studySpeed, regionTier, cultureId, stagger } = f.relic;
         vaultAdds.push({
           id: f.relic.id,
           tier: f.relic.tier,
@@ -2739,6 +2740,8 @@ export function depositExpeditionFindings(state: GameState, findings: readonly E
           ...(studySpeed !== undefined && studySpeed > 0 ? { studySpeed } : {}),
           ...(regionTier !== undefined ? { regionTier } : {}),
           ...(cultureId !== undefined ? { cultureId } : {}),
+          // Relics v2 tier stagger: the blank keeps its stagger stamp (absent on a token of a run from before it).
+          ...(stagger !== undefined ? { stagger } : {}),
         });
         touched = true;
       }

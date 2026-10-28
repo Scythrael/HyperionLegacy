@@ -35,7 +35,7 @@ import {
 import { runShipStats, runWearStamp } from "./gearWearEngine";
 import { countShortRangeCycleStart, runCountsOf } from "./runDifficulty";
 import { crewLockReasonText, shipCrewLocked } from "./crewLock";
-import { RELIC_BLANKS_VERSION } from "./relicBlanks";
+import { RELIC_BLANKS_VERSION, RELIC_STAGGER_VERSION, newRunRelicBlanksFlag } from "./relicBlanks";
 import { newReactorLiftFlag, reactorLiftFlagged } from "./reactorSurplus";
 import { equippedFor } from "./equipmentQueries";
 
@@ -244,7 +244,8 @@ export function dispatchCaptainOnShortRange(state: GameState, captainId: number,
     ...(wear !== undefined ? { gearWear: wear } : {}),
     // G1-5: a new run rolls relic blanks at each delivered cycle (the flag rides every later cycle of the run); a run
     // dispatched before G1-5 carries none and plays exactly as it did.
-    relicBlanks: { version: RELIC_BLANKS_VERSION },
+    // Relics v2 tier stagger: the flag also carries `stagger` (the run's blanks carry the stagger stamp).
+    relicBlanks: newRunRelicBlanksFlag(),
     ...(reactorLift !== undefined ? { reactorLift } : {}),
   };
   const captains = [...state.captains];
@@ -307,6 +308,8 @@ export function isWellFormedShortRangeMission(m: unknown): m is ShortRangeMissio
   if (s.cyclesThisRun !== undefined && !isWholeCount(s.cyclesThisRun)) return false;
   // G1-5: the relic flag and the run's relic count.
   if (s.relicBlanks !== undefined && (!s.relicBlanks || typeof s.relicBlanks !== "object" || (s.relicBlanks as { version?: unknown }).version !== RELIC_BLANKS_VERSION)) return false;
+  // Relics v2 tier stagger: the flag's optional stagger stamp.
+  if (s.relicBlanks !== undefined && "stagger" in (s.relicBlanks as object) && (s.relicBlanks as { stagger?: unknown }).stagger !== RELIC_STAGGER_VERSION) return false;
   if (s.relicsThisRun !== undefined && !isWholeCount(s.relicsThisRun)) return false;
   // E-MOD EM-4: the reactor surplus drive lift flag.
   if (s.reactorLift !== undefined && !reactorLiftFlagged(s.reactorLift)) return false;
