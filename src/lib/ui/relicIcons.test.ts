@@ -14,7 +14,19 @@ import {
   formatMuseumStatBonus,
   museumPerCopyText,
   RELIC_SET_IDS,
+  relicFirstTierLabel,
 } from "./relicIcons";
+
+describe("the tier stagger's Museum label", () => {
+  it("names the first tier a type turns up at, nothing for a Tier I type", () => {
+    expect(relicFirstTierLabel("geodeCore")).toBe("");
+    expect(relicFirstTierLabel("precursorLens")).toBe("Tier II+");
+    expect(relicFirstTierLabel("captainsSigil")).toBe("Tier IV+");
+    expect(relicFirstTierLabel("heartOfTheArchive")).toBe("Tier VII");
+    expect(relicFirstTierLabel("nope")).toBe("");
+    for (const r of RELICS) expect(relicFirstTierLabel(r.id)).toMatch(/^(|Tier (II|III|IV|V|VI)\+|Tier VII)$/);
+  });
+});
 
 // Exploration 0.14.0 (E4c): the ONE UI-side relic display vocabulary. The user's hard requirement is that
 // every relic graphic is SVG through <Icon>, so the mapping is gated here: every relic has a REAL registry

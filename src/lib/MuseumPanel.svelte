@@ -56,6 +56,7 @@
     formatMuseumPct,
     formatMuseumStatBonus,
     museumPerCopyText,
+    relicFirstTierLabel,
   } from "./ui/relicIcons";
 
   // --- Props ------------------------------------------------------------------
@@ -203,7 +204,7 @@
               <span class="mu-ic"><Icon name="relic" size={20} /></span>
               <span class="mu-rt">
                 <span class="mu-nm">{r.index} · undiscovered</span>
-                <span class="mu-ct">{RELIC_RARITY_LABEL[r.rarity].toLowerCase()}</span>
+                <span class="mu-ct">{RELIC_RARITY_LABEL[r.rarity].toLowerCase()}{#if relicFirstTierLabel(r.id) !== ""} · found in {relicFirstTierLabel(r.id)} regions{/if}</span>
               </span>
             </div>
           {/if}
