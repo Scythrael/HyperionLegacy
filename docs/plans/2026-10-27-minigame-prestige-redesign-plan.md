@@ -218,3 +218,28 @@ both before each slice.
 - [ ] Step 4: Commit `feat(minigame): prestige redesign UI and Help`.
 
 The e25M visualization itself is NOT in this plan: it needs its own mockup sign-off (spec 3.5).
+
+## Plan update (2026-10-28): the Automation tab and gated skills
+
+The user's 2026-10-28 answers (design doc, "Automation and skills answers", playback confirmed) change Slices 1, 3, 4
+and 7. These notes supersede the slice text above where they differ.
+
+- Slice 1 (data): `AutomationId` gains `autoSkills` (auto-skill allocation: spends Skill Points cheapest available level
+  first, round-robin; QoL only, never optimal) and `autoUpgrades` (auto-buy for the e1,000,000 Upgrades tab, cheapest
+  first, round-robin). Every automation gets a per-automation buy amount setting `automationBuy: Partial<Record<
+  AutomationId, "1" | "10" | "max">>` [PROPOSAL default "max" for the generator auto-buys, "1" for skills and upgrades]
+  where buying applies. `AUTOMATION_UNLOCKS` covers all eight; the two new ones unlock at later milestones [PROPOSAL:
+  autoUpgrades at "Forever, Twice" (e2,000,000), autoSkills at a new Prestigeception-count milestone]. `LeveledSkillDef`
+  gains `availableAt: { milestone: MilestoneId } | { prestiges: { layer: "captain" | "fleet" | "pc"; count: number;
+  scope: "current" | "lifetime" } }` (each skill, and optionally later level bands, opens alongside an automation
+  milestone or at a prestige count) and the constant `SKILL_GATE_LIFT_PC` [PROVISIONAL]: from that many lifetime
+  Prestigeceptions on, every skill already unlocked once is available from the start of each climb.
+- Slice 3 (automations): build the Automation tab (all automations, each with on/off and its buy amount; locked ones
+  read "???" until their milestone is visible); the milestone popup names what unlocked; automations are QoL only (no
+  efficiency logic anywhere).
+- Slice 4 (skills): skills are bought by hand as today; `skillAvailable(s, id): boolean` reads `availableAt` and
+  `SKILL_GATE_LIFT_PC`; a gated skill shows when and how it opens; the sim buys skills in the order they open.
+- Slice 7 (UI and Help): the [?] Help explains automations, the Automation tab, the skill gates and the gate lift.
+- Naming: never abbreviate Fleet Admiral Prestige to an acronym (other acronyms are fine).
+- Separate main-game slice (not part of this plan): rename player-facing "gambit" to "Tactical Protocol(s)" (user
+  2026-10-28), code names unchanged.
