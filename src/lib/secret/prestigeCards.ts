@@ -16,6 +16,7 @@ import type { SecretState } from "./state";
 // An effective exponent as a bar: "1.8e308", "2.08e385", "e15,000" (a whole power of ten reads like
 // the Ore goals do). Two decimals at most, trailing zeros dropped.
 export function formatBar(e: number): string {
+  if (!Number.isFinite(e)) return "e∞"; // a bar past every double (only a far-fetched converted save)
   let whole = Math.floor(e);
   let mantissa = Number(Math.pow(10, e - whole).toFixed(2));
   if (mantissa >= 10) {

@@ -4,10 +4,8 @@
 // (every field, not only the 0.13.11 ones goldens.test.ts pins) of fixed states stepped live and caught
 // up, plus the engine's multiplier and gain readouts. A minigame with no relics must stay byte-identical,
 // so these never move. Regenerate ONLY on purpose: GOLDEN_WRITE=1 npx vitest run src/lib/secret/relicGoldens.test.ts
-// Regenerated on purpose by the 0.14.0 prestige redesign, Slice 2 (rising bars): the mid and past-finale
-// states (and every reading of them) are built by playing the engine with Auto Fleet on, so their Fleets
-// now meet the risen Fleet bars, and a Captain Prestige saves captainSinceFleet. The early and
-// post-Prestigeception states did not move.
+// Regenerated on purpose by the 0.14.0 prestige redesign, Slice 2 (rising bars): the saves now carry
+// captainSinceFleet, and the fleetGain / pcGain readouts read 0 below the risen bar (the play is unchanged).
 import { describe, it, expect } from "vitest";
 import { readFileSync, writeFileSync } from "node:fs";
 import { serializeSecret, type SecretState } from "./state";

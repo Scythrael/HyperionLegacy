@@ -5,9 +5,6 @@
 // 0.13.11.1 adds fields and the e1,000,000 upgrades, all of which are exactly 1 at level 0, so
 // nothing before e1,000,000 may move. A failure here means players part way through moved.
 // Regenerate ONLY on purpose: GOLDEN_WRITE=1 npx vitest run src/lib/secret/goldens.test.ts
-// Regenerated on purpose by the 0.14.0 prestige redesign, Slice 2 (rising bars, design 3.1: players part
-// way through DO meet the risen Fleet bar): the mid and past-finale states are built by playing the
-// engine with Auto Fleet on, so their Fleets now meet risen bars. The early state did not move.
 import { describe, it, expect } from "vitest";
 import { readFileSync, writeFileSync } from "node:fs";
 import { serializeSecret, type SecretState } from "./state";

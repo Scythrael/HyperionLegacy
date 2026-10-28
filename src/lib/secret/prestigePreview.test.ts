@@ -190,7 +190,10 @@ describe("prestige previews", () => {
           shown += 1;
         }
       }
-      expect(shown, `layers ready at ${target}`).toBe(3);
+      // 0.14.0 rising bars: a layer is ready only once its climb pays what that layer has already paid
+      // (the jump's Fleet and Prestigeception holdings are past these climbs); Captain always is.
+      expect(shown, `layers ready at ${target}`).toBeGreaterThanOrEqual(1);
+      expect(prestigePreview(s, "captain"), `captain at ${target}`).not.toBeNull();
     }
   });
 });

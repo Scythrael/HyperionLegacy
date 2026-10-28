@@ -98,14 +98,7 @@ describe("long gaps never pay less than live, and never more than live in a long
           const eL = effectiveExponent(l.bestOre);
           const eC = effectiveExponent(c.bestOre);
           const e0 = effectiveExponent(s.bestOre);
-          // 0.14.0 rising bars: a catch-up that is strictly AHEAD on the top currencies (more Dream and
-          // Augment Points) can have its record climb trail live for a moment, when one Captain Prestige
-          // lands a few hours apart: the catch-up resets earlier, at a slightly lower peak. Measured at
-          // postPc 48 h: coarse e327,894 vs live e327,961 (2e-4 of the record) with more Dream and Augment
-          // Points, and two hours later coarse e374,144 vs live e327,961. Then the record may trail by 1e-3
-          // of itself; otherwise the old 1e-9 bound holds.
-          const ahead = c.dreamPoints.gt(l.dreamPoints) && c.augmentPoints.gte(l.augmentPoints);
-          expect(eC).toBeGreaterThanOrEqual(eL - (ahead ? 1e-3 : 1e-9) * Math.max(1, eL));
+          expect(eC).toBeGreaterThanOrEqual(eL - 1e-9 * Math.max(1, eL));
           const generous = effectiveExponent(checkpoints.get(generousGap(gap))!.bestOre);
           // 0.13.11.1 retune: on a plateau (no new best for days, as the mid state has around e592,000
           // once the gains bend) the coarse margin can sit a hair above live. The bound allows 25 in the

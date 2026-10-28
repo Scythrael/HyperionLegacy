@@ -15,15 +15,18 @@
 //                    e10,000,000.
 // The redesign is EXPECTED to move these; a slice that moves one says which and why in its carry
 // note, then regenerates ON PURPOSE: GOLDEN_WRITE=1 npx vitest run src/lib/secret/redesignGoldens.test.ts
-// Slice 2 (rising bars) moved fleetBarLadder and pcBarLadder (each rung's bar now rises; the gains at a
-// peak above the bar are unchanged, as payouts still measure from the base bars) and the pacing rows
-// (every sim player now meets the risen Fleet bars; see the plan's Slice 2 carry note).
+// Slice 2 (rising bars, with the review's "Make them bite") moved fleetBarLadder and pcBarLadder: each
+// rung now holds the points the rungs before it paid when each was taken right at its bar, and its bar
+// sits where the climb pays FLEET_BAR_RATIO (PC_BAR_RATIO) times those; the gains at a peak above the
+// bar are unchanged, as payouts still measure from the base bars. It also moved the pacing rows (see
+// the plan's Slice 2 carry note).
 import { describe, it, expect } from "vitest";
 import { readFileSync, writeFileSync } from "node:fs";
+import Decimal from "break_infinity.js";
 import { freshSecretState, type SecretState } from "./state";
-import { fleetGain, prestigeceptionGain, pow10, unsoftenExponent } from "./engine";
+import { fleetGain, prestigeceptionGain, pow10, unsoftenExponent, fleetBarExponent, pcBarExponent } from "./engine";
 import { simulatePlayer, LONG_STRETCH_DT, SIM_START_MS, type SimProfile } from "./sim";
-import { SKILLS, FLEET_AT, PRESTIGECEPTION_AT, FLEET_BAR_RATIO, PC_BAR_RATIO } from "./config";
+import { SKILLS, FLEET_AT, PRESTIGECEPTION_AT } from "./config";
 
 const PATH = "src/lib/secret/redesignGoldens.json";
 const PEAKS = [308, 400, 1000, 10000] as const;
@@ -31,7 +34,7 @@ const PEAKS = [308, 400, 1000, 10000] as const;
 type Gain = (s: SecretState) => { gt(n: number): boolean; toString(): string };
 
 // A fresh state whose every peak (run, Fleet, Prestigeception, best) sits at effective exponent e.
-function atPeak(e: number, fleets: number, pcs: number): SecretState {
+function atPeak(e: number, fleets: number, pcs: number, ap = new Decimal(0), dp = new Decimal(0)): SecretState {
   const s = freshSecretState(SIM_START_MS);
   const ore = pow10(unsoftenExponent(e));
   s.ore = ore;
@@ -42,30 +45,39 @@ function atPeak(e: number, fleets: number, pcs: number): SecretState {
   s.fleetCount = fleets;
   s.fleetTotal = fleets + 3 * pcs;
   s.pcCount = pcs;
+  s.augmentPoints = ap;
+  s.dreamPoints = dp;
   return s;
 }
 
+type Rung = [number, number, Decimal, Decimal]; // Fleets, Prestigeceptions, Augment and Dream Points held
+
 // The lowest effective peak exponent at which the gain pays anything (bisection, to 1e-7), searched
 // up to e1,000,000 (Infinity, stored as null, when even that pays nothing).
-function barOf(gain: Gain, fleets: number, pcs: number): number {
+function barOf(gain: Gain, [fleets, pcs, ap, dp]: Rung): number {
   let lo = 1;
   let hi = 1e6;
-  if (!gain(atPeak(hi, fleets, pcs)).gt(0)) return Infinity;
+  if (!gain(atPeak(hi, fleets, pcs, ap, dp)).gt(0)) return Infinity;
   while (hi - lo > 1e-7) {
     const mid = (lo + hi) / 2;
-    if (gain(atPeak(mid, fleets, pcs)).gt(0)) hi = mid;
+    if (gain(atPeak(mid, fleets, pcs, ap, dp)).gt(0)) hi = mid;
     else lo = mid;
   }
   return Number(hi.toFixed(6));
 }
 
-function ladder(gain: Gain, rungs: number, rung: (i: number) => [number, number]) {
+function ladder(gain: Gain, layer: "fleet" | "pc", rungs: number) {
   const out: { fleetCount: number; pcCount: number; bar: number; gains: Record<string, string> }[] = [];
+  let r: Rung = [0, 0, new Decimal(0), new Decimal(0)];
   for (let i = 0; i < rungs; i++) {
-    const [fleets, pcs] = rung(i);
     const gains: Record<string, string> = {};
-    for (const e of PEAKS) gains[`e${e}`] = gain(atPeak(e, fleets, pcs)).toString();
-    out.push({ fleetCount: fleets, pcCount: pcs, bar: barOf(gain, fleets, pcs), gains });
+    for (const e of PEAKS) gains[`e${e}`] = gain(atPeak(e, ...r)).toString();
+    out.push({ fleetCount: r[0], pcCount: r[1], bar: barOf(gain, r), gains });
+    // The next rung: this one taken right at its bar.
+    const probe = atPeak(1, ...r);
+    const bar = (layer === "fleet" ? fleetBarExponent(probe) : pcBarExponent(probe)) + 1e-6;
+    const paid = new Decimal(gain(atPeak(bar, ...r)).toString());
+    r = layer === "fleet" ? [r[0] + 1, r[1], r[2].add(paid), r[3]] : [r[0], r[1] + 1, r[2], r[3].add(paid)];
   }
   return out;
 }
@@ -73,9 +85,9 @@ function ladder(gain: Gain, rungs: number, rung: (i: number) => [number, number]
 function bars() {
   return {
     // n Fleets already done since the last Prestigeception (none done yet)
-    fleetBarLadder: ladder(fleetGain, 6, (n) => [n, 0]),
+    fleetBarLadder: ladder(fleetGain, "fleet", 6),
     // m lifetime Prestigeceptions already done
-    pcBarLadder: ladder(prestigeceptionGain, 4, (m) => [0, m]),
+    pcBarLadder: ladder(prestigeceptionGain, "pc", 4),
   };
 }
 
@@ -132,9 +144,16 @@ describe("redesignGoldens", () => {
     const now = bars();
     if (writing) writeFileSync(PATH, JSON.stringify({ ...prior(), ...now }, null, 1) + "\n");
     const g = golden();
-    // Slice 2: each rung's bar rises (it was flat at 1.8e308 and e10,000 before).
-    for (const r of now.fleetBarLadder) expect(r.bar).toBeCloseTo(FLEET_AT * Math.pow(FLEET_BAR_RATIO, r.fleetCount), 5);
-    for (const r of now.pcBarLadder) expect(r.bar).toBeCloseTo(PRESTIGECEPTION_AT * Math.pow(PC_BAR_RATIO, r.pcCount), 5);
+    // Slice 2: the first rung is the base bar and the bars never fall; from the third rung on each is
+    // higher than the last (at RATIO 1 the second, taken right at the base bar, only matches the first).
+    // Both were flat at 1.8e308 and e10,000 before.
+    for (const [list, base] of [[now.fleetBarLadder, FLEET_AT], [now.pcBarLadder, PRESTIGECEPTION_AT]] as const) {
+      expect(list[0].bar).toBeCloseTo(base, 5);
+      for (let i = 1; i < list.length; i++) {
+        if (i >= 2) expect(list[i].bar).toBeGreaterThan(list[i - 1].bar);
+        else expect(list[i].bar).toBeGreaterThanOrEqual(list[i - 1].bar);
+      }
+    }
     expect(now.fleetBarLadder).toEqual(g.fleetBarLadder);
     expect(now.pcBarLadder).toEqual(g.pcBarLadder);
   });

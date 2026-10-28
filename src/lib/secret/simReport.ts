@@ -63,20 +63,17 @@ export function expectSlowsAfterStarfall(r: SimResult): void {
 
 // 0.13.11.1 (user: "Retune so default is best"): the steady player at the DEFAULT 100% targets,
 // measured by sim.test.ts (which checks it still lands here). The target sweeps compare against it.
-// 0.14.0 prestige redesign Slice 2 (rising bars, FLEET_BAR_RATIO 1.18) re-measured every pin below; before
-// it: average 4.88 / 32.35 / 119.15 d, optimal 4.46 / 34.47 / 130.06, casual 6.86 / 47.84 / 140.65, typical
-// relics 4.17 / 27.87 / 101.29.
-export const DEFAULT_STEADY = { finale: 427343, long: 2774946, starfall: 10158720 }; // 4.95 d, 32.12 d, 117.58 d
+export const DEFAULT_STEADY = { finale: 422012, long: 2794738, starfall: 119.15 * D }; // 4.88 d, 32.35 d, 119.2 d
 // R2-10 (relic boosts): the relic-free goals the relic pins compare against, measured on the shipped
 // engine (relic-free runs are byte-identical, so these are fixed): the optimal and casual players
 // (simOptimal / simCasual) and the average player (DEFAULT_STEADY). In days.
 export const RELIC_FREE = {
-  optimal: { finale: 4.493, long: 34.163, starfall: 120.385 },
+  optimal: { finale: 4.46, long: 34.47, starfall: 130.06 },
   average: { finale: DEFAULT_STEADY.finale / D, long: DEFAULT_STEADY.long / D, starfall: DEFAULT_STEADY.starfall / D },
-  casual: { finale: 6.946, long: 47.794, starfall: 129.72 },
+  casual: { finale: 6.86, long: 47.84, starfall: 140.65 },
 } as const;
 // The average player with the TYPICAL collection (simRelicsAverage.test.ts measures it), in days.
-export const TYPICAL_RELIC_AVERAGE = { finale: 4.21, long: 27.7, starfall: 92.3 };
+export const TYPICAL_RELIC_AVERAGE = { finale: 4.17, long: 27.87, starfall: 101.29 };
 export const RELIC_GOALS = ["finale", "long", "starfall"] as const;
 
 // Each goal's time with relics over the time without (0.85 = 15% faster), reported and returned.

@@ -1,6 +1,6 @@
 // simCasual.test.ts: the casual player's timeline, pinned (0.13.11.1 curve round). Two 15-minute
 // check-ins a day after a 90-minute first session (sim.ts). Bands leave room for a milestone moving
-// by a check-in or two. (Content pacing, "About 4 months": the casual e10,000,000 measured 140.6 days, 129.7 since the 0.14.0 rising bars.)
+// by a check-in or two. (Content pacing, "About 4 months": the casual e10,000,000 measured 140.6 days.)
 import { describe, it, expect } from "vitest";
 import { simulatePlayer, LONG_STRETCH_DT } from "./sim";
 import { timeline, expectSlowsAfterStarfall, D, H, RELIC_FREE, RELIC_GOALS } from "./simReport";
