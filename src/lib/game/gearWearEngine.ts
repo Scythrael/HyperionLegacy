@@ -241,10 +241,13 @@ export interface GearWearEvents {
   // battle-stamped expedition): their pieces carry the underway fraction into the new context at its rate
   // (rebaseAnchor). A run from before step 4 settles exactly as it always did.
   rateCarry: Set<string>;
+  // GEAR WEAR step 4 (pause to repair, user 2026-10-27): shipId -> the home repair windows of a Repeat patrol's pauses
+  // that closed within the call (its pieces settle at the HOME rate inside them, in order with its battle wear).
+  pauseWindows: Map<string, RepairWindow[]>;
 }
 
 export function emptyWearEvents(): GearWearEvents {
-  return { ships: new Map(), members: new Map(), runEnds: new Map(), fieldWindows: new Map(), rateCarry: new Set() };
+  return { ships: new Map(), members: new Map(), runEnds: new Map(), fieldWindows: new Map(), rateCarry: new Set(), pauseWindows: new Map() };
 }
 
 // An expedition's field repair windows (each GO-8b leg the ship set down on, clipped to `upTo`), in time order. Pure.
@@ -522,12 +525,20 @@ export function applyMemberWear(piece: EquipmentInstance, w: MemberUseWear, at: 
 // as they stand at `at` (a relaunch instant inside the call): each stored piece settled at the underway `rate` and worn
 // by `events` up to `at` in order (exactly what the tail pass writes for the same events), then settled to `at` without
 // writing. The worn ones, piece id -> per-mille. Pure.
-export function projectCycleConditions(pieces: readonly EquipmentInstance[], events: readonly TimedWear<ShipUseWear>[], at: number, rate: number): Record<string, number> {
+// Pause to repair: `windows` (a paused patrol's home repair windows) settle at `windowRate`, as the tail pass does.
+export function projectCycleConditions(
+  pieces: readonly EquipmentInstance[],
+  events: readonly TimedWear<ShipUseWear>[],
+  at: number,
+  rate: number,
+  windows: readonly RepairWindow[] = [],
+  windowRate: number = rate,
+): Record<string, number> {
   const out: Record<string, number> = {};
   for (const piece of pieces) {
     let p = piece;
-    for (const ev of events) if (ev.at <= at) p = applyShipWear(settlePiece(p, ev.at, rate), ev.wear, ev.at);
-    const c = pieceCondition(settlePiece(p, at, rate));
+    for (const ev of events) if (ev.at <= at) p = applyShipWear(settleScheduled(p, ev.at, rate, windows, windowRate), ev.wear, ev.at);
+    const c = pieceCondition(settleScheduled(p, at, rate, windows, windowRate));
     if (c < CONDITION_FULL) out[piece.id] = c;
   }
   return out;
@@ -677,8 +688,11 @@ export function resolveGearWear(before: GameState, after: GameState, events: Gea
     const rate = pieceRepairRate(before, index, piece, context, bonuses);
     // An expedition that came home: its field repair legs, at the field rate, in order with its wear.
     const shipId = pieceShipId(index, piece);
-    const windows = shipId !== null ? events?.fieldWindows.get(shipId) : undefined;
-    const fieldRate = windows ? pieceRepairRate(before, index, piece, "fieldRepair", bonuses) : rate;
+    const field = shipId !== null ? events?.fieldWindows.get(shipId) : undefined;
+    // Pause to repair: a paused patrol's home windows settle at the home rate (same split as a field repair leg).
+    const pause = shipId !== null && !field ? events?.pauseWindows.get(shipId) : undefined;
+    const windows = field ?? pause;
+    const fieldRate = field ? pieceRepairRate(before, index, piece, "fieldRepair", bonuses) : pause ? pieceRepairRate(before, index, piece, "home", bonuses) : rate;
     let p = piece;
     // Ship and member events in one time order (a member's dive lands mid-run, between its ship's slices).
     const timed: { at: number; apply: (x: EquipmentInstance) => EquipmentInstance }[] = [

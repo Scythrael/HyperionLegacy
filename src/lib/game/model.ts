@@ -3995,6 +3995,10 @@ export interface PatrolMissionState {
   // that started before step 4 and on the training cycle (user W9 "No wear on training"), which fight exactly as before
   // and wear nothing (no SAVE_VERSION bump).
   cycleStartCondition?: Record<string, number>;
+  // GEAR WEAR step 4, PAUSE TO REPAIR (user 2026-10-27): a stamped Repeat run that came home to repair its gear (tick.ts
+  // PATROL_REPAIR_PAUSE_LINE) instead of relaunching: the instant the pause began (game seconds) and the whole ticks
+  // left before it resumes. Absent on every other run.
+  repairPause?: { from: number; ticksRemaining: number };
 }
 
 // Safe first runs SF-4: a patrol cycle's difficulty stamp: the run stamp (RunDifficultyStamp, tier I: patrols are
@@ -6704,7 +6708,9 @@ export type CompletionSalvageSubject =
 // `iterations` the cycles delivered), never one per cycle, so a board on Repeat cannot evict the rest of the log.
 // G1-5 review follow-up: "shortRangeRelicFind", one entry per delivered cycle that found relics while its run goes on
 // (rare, a per-hour chance), so a live Repeat run's finds show before it is recalled.
-export type CompletionLogKind = TimedProcessKind | "patrolRun" | "shortRangeRun" | "shortRangeRelicFind";
+// GEAR WEAR step 4 (pause to repair): "patrolRepairPause" / "patrolRepairResume", a Repeat patrol going home to repair
+// its gear and going back out.
+export type CompletionLogKind = TimedProcessKind | "patrolRun" | "shortRangeRun" | "shortRangeRelicFind" | "patrolRepairPause" | "patrolRepairResume";
 
 export interface CompletionLogEntry {
   id: string;               // "done-N", minted from state.nextCompletionLogId (mirrors "proc-N" / "q-N")

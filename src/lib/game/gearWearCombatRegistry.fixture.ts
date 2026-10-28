@@ -31,6 +31,9 @@ export const GW4_FLIPPED_LIVE: ReadonlySet<string> = new Set([
   "ship:audit:podDurability",
 ]);
 
+// The row step 4 ADDED (pause to repair, user 2026-10-27): left out of every read-back.
+export const GW4_ADDED_IDS: ReadonlySet<string> = new Set(["ship:audit:patrolRepairPause"]);
+
 // The rows step 4 changed without a status flip (contexts, out-of-scope rows, owner text, note).
 export const GW4_CHANGED: ReadonlySet<string> = new Set([
   "wear:WEAR_SOURCES:specUtility:effectFires",
@@ -68,5 +71,5 @@ export function gw4EntryBack(e: WiringEntry): WiringEntry {
 
 // The whole registry list read back to step 3.
 export function gw4ReadBack<T extends Pick<WiringEntry, "id">>(entries: readonly T[]): T[] {
-  return entries.map((e) => gw4EntryBack(e as unknown as WiringEntry) as unknown as T);
+  return entries.filter((e) => !GW4_ADDED_IDS.has(e.id)).map((e) => gw4EntryBack(e as unknown as WiringEntry) as unknown as T);
 }

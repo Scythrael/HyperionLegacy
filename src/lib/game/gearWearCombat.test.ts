@@ -9,7 +9,7 @@
 import { describe, expect, it } from "vitest";
 import Decimal from "break_infinity.js";
 import { SHIP_TYPES, type EquipmentInstance, type GameState, type PatrolMissionState, type ShipTypeKey } from "./model";
-import { canDispatchPatrol, dispatchCaptainOnPatrol, economyTick, processShipRepairs, shipRepairDurationTicks, shipRepairGear } from "./tick";
+import { PATROL_REPAIR_PAUSE_LINE, canDispatchPatrol, dispatchCaptainOnPatrol, economyTick, processShipRepairs, shipRepairDurationTicks, shipRepairGear } from "./tick";
 import { equippedFor } from "./equipment";
 import { replayPatrol } from "./combat/patrolReplay";
 import { resolveBattle } from "./combat/resolveBattle";
@@ -339,5 +339,62 @@ describe("gear wear step 4: never a gate (design 4.3: no gate reads a worn value
     for (const key of ["crimsonReaverSweep", "crimsonReaverWarband"] as const) {
       expect(canDispatchPatrol(worn, 1, key)).toEqual(canDispatchPatrol(base, 1, key));
     }
+  });
+});
+
+describe("gear wear step 4: pause to repair (user 2026-10-27): a Repeat patrol goes home to repair, then resumes", () => {
+  // A Repeat Sweep flown for `cycles` relaunches in 1 s steps. Never a defeat.
+  function longRepeat(hull: ShipTypeKey, cycles: number): { pauses: number; relaunches: number; s: GameState } {
+    let s = dispatch(veteran(hull), true);
+    let relaunches = 0;
+    let seed = patrolOf(s)!.masterSeed;
+    let pauses = 0;
+    let wasPaused = false;
+    for (let t = 0; t < 400_000 && relaunches < cycles; t++) {
+      s = economyTick(s, 1, RNG);
+      const m = patrolOf(s);
+      expect(m, `${hull}: the patrol never ends (no defeat) by relaunch ${relaunches}`).not.toBeNull();
+      if (m!.repairPause && !wasPaused) pauses += 1;
+      wasPaused = m!.repairPause !== undefined;
+      if (m!.masterSeed !== seed) {
+        seed = m!.masterSeed;
+        relaunches += 1;
+        // Every cycle opens with its combat pieces at or above the line.
+        for (const c of Object.values(m!.cycleStartCondition ?? {})) expect(c).toBeGreaterThanOrEqual(PATROL_REPAIR_PAUSE_LINE);
+      }
+    }
+    return { pauses, relaunches, s };
+  }
+
+  for (const hull of ["destroyer", "battleship"] as const) {
+    it(`a ${hull}'s Repeat Sweep (it lost to wear before the pause) flies 200 cycles, pausing and resuming, never defeated`, () => {
+      const r = longRepeat(hull, 200);
+      expect(r.relaunches).toBe(200);
+      expect(r.pauses).toBeGreaterThan(0);
+      const log = r.s.completionLog ?? [];
+      expect(log.some((e) => e.kind === "patrolRepairPause")).toBe(true);
+      expect(log.some((e) => e.kind === "patrolRepairResume")).toBe(true);
+      expect(r.s.ships[0].damaged).not.toBe(true);
+    }, 600_000);
+  }
+
+  it("offline == live across a pause: one call == 97 s chunks == 1 s steps", () => {
+    const s = dispatch(wornAt(veteran("destroyer"), ["weapon", "reactorCore", "shieldEmitters"], 720), true);
+    const n = 970;
+    const one = economyTick(s, n, RNG);
+    let chunks = s;
+    for (let i = 0; i < 10; i++) chunks = economyTick(chunks, 97, RNG);
+    const steps = stepped(s, n);
+    expect((steps.completionLog ?? []).some((e) => e.kind === "patrolRepairResume")).toBe(true);
+    for (const [name, x] of [["one", one], ["chunks", chunks]] as const) {
+      expect(JSON.stringify(x.equipment), name).toBe(JSON.stringify(steps.equipment));
+      expect(JSON.stringify(x.captains), name).toBe(JSON.stringify(steps.captains));
+    }
+  });
+
+  it("an in-flight (unstamped) Repeat cycle never pauses", () => {
+    const s = withBattleWearOff(() => dispatch(wornAt(veteran("destroyer"), ["weapon"], 300), true));
+    const after = stepped(s, 15);
+    expect(patrolOf(after)!.repairPause).toBeUndefined();
   });
 });

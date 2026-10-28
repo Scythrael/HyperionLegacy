@@ -184,6 +184,8 @@ import {
   WEAR_FIXTURE_CONDITION,
   WEAR_REPAIR_MINUTES,
   battleFixture,
+  repairPauseFixture,
+  underRepairPauseLine,
   combatConsumerFixture,
   withFirstPieceDurability,
   withoutSlotPieces,
@@ -3871,6 +3873,9 @@ const AUDIT_ROWS: readonly { id: string; system: WiringSystem; claim: string; st
   { id: "ship:wr8:ambushInPatrols", system: "ship", claim: "The ambush opener in patrols (only a cloak ambushes; it and Rapid Charge act in the ship events today)", status: { kind: "deferred", owner: "CP-15 (patrol cloak detection)", userRef: `${T3}: patrol cloak detection` } },
   // Gear wear step 4: a pod wears by its drones lost, scaled by its toughness (DRONE_POD_BASE_DURABILITY, lifted by
   // QUALITY_DURABILITY_BONUS like every non-weapon piece).
+  // Gear wear step 4, pause to repair (user 2026-10-27 "Pause to repair"): a stamped Repeat patrol whose next cycle would
+  // open with a combat piece under PATROL_REPAIR_PAUSE_LINE goes home to repair, then resumes.
+  { id: "ship:audit:patrolRepairPause", system: "ship", claim: "A Repeat patrol whose gear drops under the repair line goes home to repair, then resumes (never a defeat from wear alone)", status: LIVE },
   { id: "ship:audit:podDurability", system: "ship", claim: "DRONE_POD_BASE_DURABILITY and QUALITY_DURABILITY_BONUS on non-weapons: a pod (and every piece) is as tough as its durability, so a tougher one wears slower in battle", status: LIVE },
   // E. Crew
   { id: "crew:audit:enlisted", system: "crew", claim: "The crew rank enlisted flag (never read)", status: pending("WR-9, OC-E11") },
@@ -4113,6 +4118,16 @@ function auditRowWiring(): Readonly<Record<string, Partial<EntryInput>>> {
       base: bareHull,
       on: reactorOutput(REACTOR_LIFT_PROBE_OUTPUT),
       off: reactorOutput(0),
+    },
+    // Pause to repair: weapons worn just under the line make the first route end in a pause; pristine gear relaunches.
+    "ship:audit:patrolRepairPause": {
+      probe: "wear:repairPause" as ProbeId,
+      contexts: ["patrol"],
+      direction: "up",
+      curve: { kind: "gate" },
+      magnitude: () => 1,
+      base: () => repairPauseFixture(),
+      on: underRepairPauseLine,
     },
     // Gear wear step 4: hull plating at its slot base (SLOT_BASE_PHYSICALS.hullPlating.durability) against one at the
     // TOUGHNESS_REFERENCE: a battle's hull loss takes reference / base as much (a rounding step per unit of tolerance).

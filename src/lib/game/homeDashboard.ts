@@ -1237,6 +1237,9 @@ const COMPLETION_KIND_VIEW: Record<
   shortRangeRun:           { verb: "Completed",   icon: "shortRange", source: "Short-Range Missions", jumpTarget: "shortRange" },
   // G1-5 review follow-up: relics a live run's cycle found (they went to the vault), so the row opens the Relics tab.
   shortRangeRelicFind:     { verb: "Found",       icon: "relic",      source: "Short-Range Missions", jumpTarget: "relics" },
+  // Gear wear step 4 (pause to repair): a Repeat patrol came home to repair its gear, and went back out.
+  patrolRepairPause:       { verb: "Paused to repair gear", icon: "patrol", source: "Battlespace", jumpTarget: "combat" },
+  patrolRepairResume:      { verb: "Resumed patrol",        icon: "patrol", source: "Battlespace", jumpTarget: "combat" },
 };
 
 // 0.13.4 Phase 2 Unit 2.2 (design §6.2): the EXHAUSTIVE wording table for patrol endings.
@@ -1283,7 +1286,7 @@ function completionSubjectLabel(entry: CompletionLogEntry, state: GameState): st
   // as a bare "Patrolled" with no indication of WHICH patrol. Falls back to the raw key if the
   // patrol has since been retired from the registry, which is the same degradation every other
   // lookup here uses and is exactly the state a missionKeyRetired entry is reporting.
-  if (entry.kind === "patrolRun") return PATROLS[key]?.label ?? key;
+  if (entry.kind === "patrolRun" || entry.kind === "patrolRepairPause" || entry.kind === "patrolRepairResume") return PATROLS[key]?.label ?? key;
   // G1-4: a short-range run is named by its kind (its subject key is the board slot, not a catalog key).
   if (entry.kind === "shortRangeRun") return "Short-Range Missions";
   // G1-5 review follow-up: a find line is named by what it found (the expedition claim line's words).

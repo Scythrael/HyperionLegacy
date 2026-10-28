@@ -464,11 +464,13 @@ describe("gear wear step 3 goldens (the use wear engine on)", () => {
 //                         its shields, plating and pods at their efficiency) and wears its pieces in battle, so the
 //                         replays from 300 s, the relaunch count where the carried wear tips a cycle, and the final state
 //                         move. The crafted quality 3 pieces' toughness takes less per battle than Standard Issue.
+//                         Pause to repair (user 2026-10-27): the carrier's Repeat pauses at home to repair its worn
+//                         gear, so it relaunches fewer times in the span and ends with sound gear.
 //   wear4:expedition    : the run's battle stamp, its ship battle snapshot (the reactor and drive copies, the flag), each
 //                         ground fight's armor wear on the record and the tally, and the members' armor worn as it lands.
 const STEP4: Record<string, string[]> = {
   "wear4:patrol:destroyer": ["df281090", "2ad61e28", "67264ecd", "77d4b235", "5e7e8bd2", "f99c2b34", "35f5a476", "4f7f026a", "9901051b", "relaunches:171", "f36e26b", "cargoBay=1000 ftlDrive=1000 reactorCore=1000 specUtility=1000 weapon=1000 weapon=1000 weapon=1000 weapon=1000 shieldEmitters=1000 hullPlating=1000"],
-  "wear4:patrol:carrier": ["f2dbd51e", "af0eb66a", "540a34d9", "31ca3b37", "d6b6265b", "13588699", "c5449924", "4e63a1dc", "2affb5c6", "relaunches:109", "b3db6066", "cargoBay=1000 ftlDrive=5 reactorCore=1 specUtility=1000 weapon=567 weapon=551 shieldEmitters=1 hullPlating=1000 droneBay=966"],
+  "wear4:patrol:carrier": ["f2dbd51e", "af0eb66a", "540a34d9", "3af70352", "91b2b78b", "804b6f1c", "e1bfc20c", "e1bfc20c", "1b6d010a", "relaunches:66", "f87cf7eb", "cargoBay=1000 ftlDrive=923 reactorCore=927 specUtility=1000 weapon=963 weapon=956 shieldEmitters=876 hullPlating=1000 droneBay=1000"],
   "wear4:expedition": ["93068874", "e86474b8", "fd26d23d", "c9e694fe", "cargoBay=1000 ftlDrive=1000 reactorCore=991 specUtility=1000 weapon=1000 shieldEmitters=1000 hullPlating=1000 memberWeapon=963 memberArmor=957 memberTool=1000 implant=1000 memberWeapon=963 memberArmor=995 memberTool=1000 implant=1000 memberWeapon=1000 memberArmor=1000 memberTool=907 implant=1000"],
 };
 

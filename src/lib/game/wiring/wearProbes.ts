@@ -31,7 +31,7 @@ import {
   type PatrolMissionState,
   type ShortRangeMissionState,
 } from "../model";
-import { dispatchCaptainOnPatrol, economyTick, installMissingCombatBaselines, processShipRepairs, shipRepairGear } from "../tick";
+import { PATROL_REPAIR_PAUSE_LINE, dispatchCaptainOnPatrol, economyTick, installMissingCombatBaselines, processShipRepairs, shipRepairGear } from "../tick";
 import { replayPatrol, type PatrolReplay } from "../combat/patrolReplay";
 import { resolveBattle } from "../combat/resolveBattle";
 import { deriveWaveSeed, WAVE_BATTLE_SEED_SALT } from "../combat/waveSeed";
@@ -569,6 +569,27 @@ export function combatConsumerFixture(slot: string, over: Partial<EquipmentInsta
   return installPiece(battleFixture(), { slotType: slot, durabilityMax: TOUGHNESS_REFERENCE, ...over });
 }
 
+// Pause to repair (user 2026-10-27): the fixture (a Standard-Issue destroyer, a patrol veteran) and the `on` that wears
+// its weapons just under PATROL_REPAIR_PAUSE_LINE.
+export function repairPauseFixture(): GameState {
+  return asPatrolVeteranSave(combatBase("destroyer"));
+}
+export function underRepairPauseLine(s: GameState): GameState {
+  return { ...s, equipment: s.equipment.map((e) => (e.fittedToShipId === WIRING_SHIP_ID && e.slotType === "weapon" ? withPieceCondition(e, PATROL_REPAIR_PAUSE_LINE - 50, s.gameTimeSeconds) : e)) };
+}
+
+// Whether a stamped Repeat Sweep on the fixture went home to repair at its first route's end (1) or relaunched (0),
+// through the live engine.
+function repairPausedAfterFirstRoute(s: GameState): number {
+  const r = dispatchCaptainOnPatrol(s, WIRING_CAPTAIN_ID, "crimsonReaverSweep", "balanced", true);
+  if (!r.success) throw new Error(`wear probe: patrol dispatch refused: ${r.reason}`);
+  const def = PATROLS.crimsonReaverSweep;
+  let st = r.next;
+  for (let t = 0; t < def.transitOutTicks + def.rollWindowTicks + def.transitBackTicks; t++) st = economyTick(st, 1, () => 0.5);
+  const m = captainOf(st).mission as PatrolMissionState | null;
+  return m?.repairPause !== undefined ? 1 : 0;
+}
+
 // ============================================================================
 // The probe table (probes.ts readProbe routes every `wear:` id here)
 // ============================================================================
@@ -588,6 +609,9 @@ export function wearProbeDef(id: WearProbeId): ProbeDef {
   if (id.startsWith("wear:use:")) {
     const sourceId = id.slice("wear:use:".length);
     return { label: `the condition one ${sourceId} event takes off a piece, per unit (gearWearEngine.ts)`, read: (s, ctx) => usePerUnit(s, ctx, sourceId) };
+  }
+  if (id === "wear:repairPause") {
+    return { label: "a stamped Repeat Sweep went home to repair at its first route's end (1) or relaunched (0)", read: (s) => repairPausedAfterFirstRoute(s) };
   }
   if (id.startsWith("wear:battle:")) {
     const sourceId = id.slice("wear:battle:".length);

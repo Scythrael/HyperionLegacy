@@ -137,7 +137,7 @@ import { describe, expect, it, vi } from "vitest";
 import { gearWearOffInThisFile } from "./gearWearSwitch.fixture";
 import { GW3_ADDED_IDS, gw3EntryBack } from "./gearWearRegistry.fixture";
 // Gear wear step 4 came after every pin here: its flips are read back (gearWearCombatRegistry.fixture.ts).
-import { gw4EntryBack } from "./gearWearCombatRegistry.fixture";
+import { GW4_ADDED_IDS, gw4EntryBack } from "./gearWearCombatRegistry.fixture";
 import { WEAR_SOURCES } from "./gearWear";
 gearWearOffInThisFile();
 // E-MOD EM-1: sheets pinned before the power budget engine are hashed with it switched off (emodGoldens.test.ts pins
@@ -700,7 +700,7 @@ const GG_STUDY_SLICE: RegistrySlice = { added: GG_STUDY_ADDED_ENTRY_IDS, flipped
 const EM7_SLICE: RegistrySlice = { added: EM7_ADDED_ENTRY_IDS, flipped: EM7_MODULE_SLOTS_IDS, was: "pending" };
 // Gear wear step 4: outside the `wear:` entries (GW_SLICE holds them apart) it flipped ship:audit:podDurability live
 // (its defense toughness row is GW3_ADDED_IDS, held apart too). Rides in every pin like EM7_SLICE.
-const GW4_SLICE: RegistrySlice = { flipped: new Set(["ship:audit:podDurability"]), was: "pending" };
+const GW4_SLICE: RegistrySlice = { added: GW4_ADDED_IDS, flipped: new Set(["ship:audit:podDurability"]), was: "pending" };
 // Field Kits FKR-11 (the close-out), after every pin here: Inspired's status row flipped pending -> live (the Combat
 // Stim inflicts it). Its three re-owned audit rows stay pending, so their lines hash the same. Read back in EVERY pin
 // (the ML3_SLICE pattern); "FKR-11 is the only cause" below proves the flip is the whole move.

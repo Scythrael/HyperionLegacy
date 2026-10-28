@@ -461,3 +461,15 @@ The patrol use wear sources (reactor and drive minutes and distance on a patrol)
   battleship after 30). User pick: "Pause to repair": a Repeat patrol sends itself home to repair when its gear drops
   under a set line, then resumes (the line [PROPOSAL], one named constant; the pause and resume shown to the player and
   in the log; never a defeat from wear alone on Repeat).
+
+**Carry note, step 4 pause to repair (built 2026-10-27 on feat 8c62a53, the answer above).** A stamped Repeat patrol
+whose next cycle would open with a combat piece (weapon, reactor, drive, emitter, plating, pod) under
+`tick.ts PATROL_REPAIR_PAUSE_LINE` [PROPOSAL] 700 goes home at its route's end instead of relaunching
+(`PatrolMissionState.repairPause`, counted down per whole tick like the limp home: until every combat piece is back to
+full at the home rate), then resumes. Its pieces repair through the pause's home window (the field repair leg's split,
+`GearWearEvents.pauseWindows`), so one call == chunks == 1 s steps; an in-flight (unstamped) cycle never pauses. The
+completion log reads "Paused to repair gear" / "Resumed patrol"; the patrol card's phase line says it is home repairing
+and when it goes back out. Registry `ship:audit:patrolRepairPause` live (`wear:repairPause`: weapons just under the line
+pause the first route's end, pristine gear relaunches). Proved: the destroyer and battleship Repeat Sweeps that lost
+to wear after 14 and 30 cycles fly 200 cycles, pausing and resuming, never defeated (gearWearCombat.test.ts).
+
