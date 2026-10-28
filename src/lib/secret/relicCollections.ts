@@ -1,8 +1,12 @@
 // relicCollections.ts: realistic 0.14.0 relic collections for the R2-10 pacing pins and goldens. Test-only.
 //
 // Copies per type come from the real drop tables: a blank's rarity from RELIC_BLANK_WEIGHTS[tier], the
-// revealed band from RELIC_BAND_ODDS[tier][blank band], then an even split over the band's types (the
-// site bias favors each site's own types, so over many sites it averages out). Deposits go through the
+// revealed band from the blank's own rarity row identification reads at every tier (relicIdentify.ts
+// identificationBandRow, "Only one boost": the Tier I row), then an even split over the band's types (the
+// site bias favors each site's own types, so over many sites it averages out). Fixed 2026-10-28 (relic
+// timeline study side finding): this read RELIC_BAND_ODDS[tier], applying the tier boost a second time
+// above Tier I. The collections do not model the 2026-10-27 tier stagger (relics.ts RELIC_TYPE_FIRST_TIER):
+// they stand for collections with every type open, and the minigame ceiling slice re-bases them. Deposits go through the
 // real museumDepositGeneral, interleaved, so a tier that crosses its 1,000 soft cap snapshots a fair mix.
 //
 // TYPICAL (the first few weeks of 0.14.0): three weeks with one explorer out about 16 hours a day at
@@ -11,7 +15,8 @@
 // HEAVY (a dedicated player months in): Tier I 2,000 identified (1,000 past its cap, each counting 5x),
 // Tier II 1,000 (just at its cap) and Tier III 300.
 import { emptyMuseumV2, type MuseumV2, type RegionTier } from "../game/model";
-import { RELIC_BANDS, RELIC_BAND_ODDS, RELIC_TYPES, relicBandOf, museumDepositGeneral, type RelicBand } from "../game/relics";
+import { RELIC_BANDS, RELIC_TYPES, relicBandOf, museumDepositGeneral, type RelicBand } from "../game/relics";
+import { identificationBandRow } from "../game/relicIdentify";
 import { RELIC_BLANK_WEIGHTS, EXPEDITION_RELIC_BLANKS_PER_HOUR, SHORT_RANGE_RELIC_RATE_MULT } from "../game/relicBlanks";
 import { relicBoostsFromMuseum } from "./relicBoosts";
 import type { RelicBoosts } from "./config";
@@ -34,7 +39,7 @@ function bandShares(tier: RegionTier, standardOnly: boolean): Record<RelicBand, 
   const rows = RELIC_BLANK_WEIGHTS[tier].filter((r) => !standardOnly || relicBandOf(r.tier) === "standard");
   const total = rows.reduce((a, r) => a + r.weight, 0);
   for (const r of rows) {
-    const odds = RELIC_BAND_ODDS[tier][relicBandOf(r.tier)];
+    const odds = identificationBandRow(r.tier);
     const sum = RELIC_BANDS.reduce((a, b) => a + odds[b], 0);
     for (const b of RELIC_BANDS) out[b] += (r.weight / total) * (odds[b] / sum);
   }
