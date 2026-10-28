@@ -17804,7 +17804,7 @@
                       <div class="research-cost" style={defeated ? "color: var(--color-danger)" : undefined}>
                         Phase: {PATROL_PHASE_LABEL[patrol.phase]}
                         {#if defeated} (defeated, returning to repair){/if}
-                        {#if patrol.repairPause} (paused: home repairing its gear, back on patrol in about {Math.max(1, Math.ceil((patrol.repairPause.ticksRemaining * state.tickDurationSeconds) / 60))} min){/if}
+                        {#if patrol.repairPause} ({patrol.repairPause.first ? "repairing its gear at home first, heads out" : "paused: home repairing its gear, back on patrol"} in about {Math.max(1, Math.ceil((patrol.repairPause.ticksRemaining * state.tickDurationSeconds) / 60))} min){/if}
                       </div>
                       <div class="research-cost">
                         Waves: {wavesResolved} / {totalWaves} resolved

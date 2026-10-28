@@ -298,7 +298,8 @@ band, the GO ship battles), the `patrolReplay` parity proof, the mission Repeat 
 `expeditionTiersGoldens`, `fieldKitsGoldens`, `complementGoldens` and the ship sheet goldens.
 
 Expected to stay byte-identical: every pristine first cycle (efficiency 1, start pool = full, repair a no-op), every
-safe first run (no wear, OC-W9), and the Standard-Issue reactor and FTL in combat (quality 0 pools are 100, as today).
+safe first run (no wear, OC-W9), and the Standard-Issue reactor and FTL in combat while pristine (quality 0 pools are
+100, as today; step 4 opens a worn piece's pool at its true condition, user W3).
 
 Expected to move, each moved hash explained in its commit:
 - Patrol Repeat from cycle 2 (weapons open at carried condition, plating and shields at their efficiency).
@@ -479,4 +480,16 @@ completion log reads "Paused to repair gear" / "Resumed patrol"; the patrol card
 and when it goes back out. Registry `ship:audit:patrolRepairPause` live (`wear:repairPause`: weapons just under the line
 pause the first route's end, pristine gear relaunches). Proved: the destroyer and battleship Repeat Sweeps that lost
 to wear after 14 and 30 cycles fly 200 cycles, pausing and resuming, never defeated (gearWearCombat.test.ts).
+
+**Carry note, step 4 review fixes (2026-10-28, the two answers above).** Repair first, then go: a Repeat dispatch whose
+frozen gear has a combat piece under the line is dispatched with `repairPause.first` set (its first cycle's fuel already
+paid) and re-freezes its gear as repaired when it heads out; every preset-worn Sweep Repeat golden row now wins.
+Count on the run: the per-pause log entries are gone; the run's one `patrolRun` entry carries `repairPauses` ("paused
+to repair N times"), counted on the mission (`repairPausesThisRun`). A recall during a pause ends the run at once (its
+entry written then); the Home row reads "Repairing gear at home"; the line is re-checked after every resume; a time
+skip stops at a pause (it takes its real time). **Measured for the user:** a first cycle with every combat piece AT 700
+loses 20 of the 160 fights (8 seeds x 10 hulls x 2 routes) its pristine twin wins, and never wins one it loses; even at
+980 two still flip. So a Repeat run never collapses from carried wear, but a cycle that opens worn above the line can
+still lose a fight a pristine ship would win; strictly "no fight lost to wear" needs a line of 1000 (a repair before
+every cycle).
 

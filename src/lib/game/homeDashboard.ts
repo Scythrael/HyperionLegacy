@@ -796,7 +796,8 @@ function rowForPatrol(captain: CaptainState, patrol: PatrolMissionState, state: 
     id: `patrol-${captain.id}`,
     icon: "patrol",
     primaryLabel: `${captain.label}${versus}`,
-    secondaryLabel: PATROL_PHASE_LABEL[patrol.phase],
+    // Gear wear step 4: a run paused to repair says so (it is at home, not returning).
+    secondaryLabel: patrol.repairPause !== undefined ? "Repairing gear at home" : PATROL_PHASE_LABEL[patrol.phase],
     kind: "patrol",
     progress: totalWaves > 0 ? wavesResolved / totalWaves : 0,
     remainingTicks: null,
@@ -1237,9 +1238,6 @@ const COMPLETION_KIND_VIEW: Record<
   shortRangeRun:           { verb: "Completed",   icon: "shortRange", source: "Short-Range Missions", jumpTarget: "shortRange" },
   // G1-5 review follow-up: relics a live run's cycle found (they went to the vault), so the row opens the Relics tab.
   shortRangeRelicFind:     { verb: "Found",       icon: "relic",      source: "Short-Range Missions", jumpTarget: "relics" },
-  // Gear wear step 4 (pause to repair): a Repeat patrol came home to repair its gear, and went back out.
-  patrolRepairPause:       { verb: "Paused to repair gear", icon: "patrol", source: "Battlespace", jumpTarget: "combat" },
-  patrolRepairResume:      { verb: "Resumed patrol",        icon: "patrol", source: "Battlespace", jumpTarget: "combat" },
 };
 
 // 0.13.4 Phase 2 Unit 2.2 (design §6.2): the EXHAUSTIVE wording table for patrol endings.
@@ -1286,7 +1284,7 @@ function completionSubjectLabel(entry: CompletionLogEntry, state: GameState): st
   // as a bare "Patrolled" with no indication of WHICH patrol. Falls back to the raw key if the
   // patrol has since been retired from the registry, which is the same degradation every other
   // lookup here uses and is exactly the state a missionKeyRetired entry is reporting.
-  if (entry.kind === "patrolRun" || entry.kind === "patrolRepairPause" || entry.kind === "patrolRepairResume") return PATROLS[key]?.label ?? key;
+  if (entry.kind === "patrolRun") return PATROLS[key]?.label ?? key;
   // G1-4: a short-range run is named by its kind (its subject key is the board slot, not a catalog key).
   if (entry.kind === "shortRangeRun") return "Short-Range Missions";
   // G1-5 review follow-up: a find line is named by what it found (the expedition claim line's words).
@@ -1411,7 +1409,10 @@ function completionDetail(entry: CompletionLogEntry): string | null {
     // this release had to fix three times elsewhere.
     const routes = entry.iterations === 1 ? "1 route" : `${entry.iterations} routes`;
     const flown = entry.iterations === 0 ? "no routes completed" : routes;
-    return reason !== null ? `${flown}, ${reason}` : flown;
+    // Gear wear step 4 (user "Count on the run"): the times the run paused to repair its gear.
+    const pauses = entry.repairPauses ?? 0;
+    const paused = pauses > 0 ? `, paused to repair ${pauses === 1 ? "once" : `${pauses} times`}` : "";
+    return reason !== null ? `${flown}, ${reason}${paused}` : `${flown}${paused}`;
   }
   // G1-4: a short-range run's detail is how many missions it delivered (zero is real: recalled before the first).
   // G1-5: and the unidentified relics its cycles found, in the expedition claim line's words.

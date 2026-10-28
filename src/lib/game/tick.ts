@@ -1350,7 +1350,7 @@ function pushCompletionEntry(log: CompletionLogEntry[], entry: CompletionLogEntr
 // PURE: builds a new state when there is something to add, returns the input otherwise.
 function appendPatrolCompletions(
   state: GameState,
-  endings: { captainId: number; patrolKey: string; reason: PatrolEndReason; routes: number }[],
+  endings: { captainId: number; patrolKey: string; reason: PatrolEndReason; routes: number; repairPauses?: number }[],
   nowMs: number
 ): GameState {
   if (endings.length === 0) return state;
@@ -1379,37 +1379,11 @@ function appendPatrolCompletions(
       fuelAmount: null,
       creditsAmount: null,
       patrolEndReason: ending.reason,
+      // GEAR WEAR step 4 (user "Count on the run"): the times the run paused to repair (written only when it did).
+      ...((ending.repairPauses ?? 0) > 0 ? { repairPauses: ending.repairPauses } : {}),
       // A patrol ending is never the salvage fail-safe no-op this flag exists to record, so it
       // is always false here. Set explicitly rather than left to a default: the field is
       // required precisely so no writer can forget to make that claim.
-      stale: false,
-    });
-    nextId += 1;
-  }
-  return { ...state, completionLog: log, nextCompletionLogId: nextId };
-}
-
-// GEAR WEAR step 4 (pause to repair, user 2026-10-27): one completion log entry per pause (the ship went home to repair
-// its gear) and per resume (it is back on patrol), in the order the patrols made them, the patrol endings' allocator.
-function appendPatrolRepairs(state: GameState, repairs: { captainId: number; patrolKey: string; kind: "pause" | "resume" }[], nowMs: number): GameState {
-  if (repairs.length === 0) return state;
-  let log = state.completionLog ?? [];
-  let nextId = state.nextCompletionLogId ?? 1;
-  for (const r of repairs) {
-    log = pushCompletionEntry(log, {
-      id: `done-${nextId}`,
-      kind: r.kind === "pause" ? "patrolRepairPause" : "patrolRepairResume",
-      reward: "nothing",
-      atMs: nowMs,
-      startedAtMs: nowMs,
-      iterations: 1,
-      items: [],
-      pieces: 0,
-      subjectKey: r.patrolKey,
-      level: null,
-      fuelAmount: null,
-      creditsAmount: null,
-      patrolEndReason: null,
       stale: false,
     });
     nextId += 1;
@@ -3260,10 +3234,10 @@ interface PatrolTickResult {
   // a stamped cycle's patrol ended at (null otherwise), for economyTick to hand to the wear engine.
   gearWear: PatrolWearEvent[];
   endedAtTicks: number | null;
-  // GEAR WEAR step 4 (pause to repair): the home repair windows that closed this call (absolute game seconds) and the
-  // pauses and resumes it made, in order, for economyTick (the wear engine, the patrol log).
+  // GEAR WEAR step 4 (pause to repair): the home repair windows that closed this call (absolute game seconds), for the
+  // wear engine, and (user "Count on the run") the pauses of the run that ended this call, for its one log entry.
   repairWindows: RepairWindow[];
-  repairLog: ("pause" | "resume")[];
+  endRepairPauses: number;
 }
 
 // tickCaptainPatrol: advance ONE captain's patrol by `ticksElapsed` route ticks. PURE
@@ -3367,7 +3341,7 @@ export function tickCaptainPatrol(
     gearWear: [],
     endedAtTicks: null,
     repairWindows: [],
-    repairLog: [],
+    endRepairPauses: 0,
   };
   // Only the patrol arm advances here; idle / extraction / a sub-tick call is a no-op.
   if (!captain.mission || captain.mission.kind !== "patrol" || ticksElapsed <= 0) return noOp;
@@ -3490,9 +3464,11 @@ export function tickCaptainPatrol(
   let cyclePools = patrolCyclePools(hullType, shipDef, cycleGear, captain.mission);
   let endedAtTicks: number | null = null;
   // GEAR WEAR step 4 (pause to repair): the home repair windows of the pauses that closed this call (absolute game
-  // seconds) and the pauses and resumes this call made, in order (the patrol log).
+  // seconds); the run's pauses so far (user "Count on the run": its one log entry says how many); whether the next
+  // relaunch's fuel was already paid (a pause set at dispatch resumes into the first cycle).
   const pauseWindows: RepairWindow[] = [];
-  const repairLog: ("pause" | "resume")[] = [];
+  let pausesThisRun = captain.mission.repairPausesThisRun ?? 0;
+  let relaunchFuelPaid = false;
   const offsetNow = (): number => ticksElapsed - remaining;
   // 0.14.0 SPEED SEAM (processSpeed.ts applyTimeSkip, the tutorial time skip): while the CURRENT route carries
   // speed.instantComplete, every route tick is taken whole and the call's own ticks are not spent, so the route (and
@@ -3524,18 +3500,34 @@ export function tickCaptainPatrol(
     // the home rate, an event at its instant) and the run falls through to the completion block, which relaunches it
     // (or ends it, recalled). One whole tick, one decrement: offline == live, however the span is cut.
     let resuming = false;
-    if (mission.repairPause !== undefined) {
-      const left = mission.repairPause.ticksRemaining - 1;
-      if (left > 0) {
-        mission.repairPause = { ...mission.repairPause, ticksRemaining: left };
+    const pause = mission.repairPause;
+    if (pause !== undefined) {
+      // A pause always takes its real time (its repair is the time): a time skip ends at it, and its instant step is
+      // undone (review 2026-10-27).
+      if (skipping) {
+        const { speed: _skip, ...unskipped } = mission;
+        mission = unskipped;
+        progress -= step;
         continue;
+      }
+      const left = pause.ticksRemaining - 1;
+      if (left > 0) {
+        // The pause holds the route where it stopped: this tick is the pause's, not the route's.
+        progress -= step;
+        mission.repairPause = { ...pause, ticksRemaining: left };
+        continue;
+      }
+      // "Repair first, then go" (user 2026-10-27): a pause set at dispatch resumes into a fresh first cycle, its fuel
+      // already paid by the dispatch.
+      if (pause.first === true) {
+        progress = routeLength - (mission.returnCutTicks ?? 0);
+        relaunchFuelPaid = true;
       }
       const clock = officerEffects.gearWear;
       if (clock) {
-        pauseWindows.push({ from: mission.repairPause.from, to: clock.startSeconds + offsetNow() * clock.secondsPerTick });
+        pauseWindows.push({ from: pause.from, to: clock.startSeconds + offsetNow() * clock.secondsPerTick });
         gearWearEvents.push({ atTicks: offsetNow(), battle: {}, damageControlFires: 0 });
       }
-      repairLog.push("resume");
       const { repairPause: _pause, ...rest } = mission;
       mission = rest;
       resuming = true;
@@ -3572,8 +3564,9 @@ export function tickCaptainPatrol(
     const waveIndex = mission.nextWaveIndex;
     // A wave fires this route tick iff the schedule places one exactly here. waveTicks is
     // ascending + distinct (one wave per tick, waveSchedule.ts), so at most one per tick.
+    // GEAR WEAR step 4: the tick a pause ends fights nothing (the run relaunches, or ends, below).
     const waveThisTick =
-      waveIndex < mission.waveTicks.length && mission.waveTicks[waveIndex] === routeTick;
+      !resuming && waveIndex < mission.waveTicks.length && mission.waveTicks[waveIndex] === routeTick;
 
     if (waveThisTick) {
       // ---- E4d: DAMAGE CONTROL between waves. A Damage Control Suite patches a light fraction of the
@@ -3817,12 +3810,18 @@ export function tickCaptainPatrol(
       // combat piece under PATROL_REPAIR_PAUSE_LINE goes home to repair first (repairPauseTicks: until every combat
       // piece is back to full at the home rate), then resumes. Never on a run that is resuming (it just repaired), a
       // recalled run (it is going home anyway) or an unstamped cycle (in flight from before step 4).
-      const pauseFor = !resuming && mission.repeatDispatch && !mission.recalled && cyclePools !== null
+      // Review 2026-10-27: re-checked after a resume too (a pause that fell short pauses again).
+      const pauseFor = mission.repeatDispatch && !mission.recalled && cyclePools !== null
         ? repairPauseTicks(installedGear, relaunchCycleConditions(installedGear, gearWearEvents, offsetNow(), nextPatrolCycleDifficulty(mission.difficulty), officerEffects.gearWear, pauseWindows), officerEffects.gearWear)
         : 0;
       if (pauseFor > 0 && officerEffects.gearWear) {
         mission.repairPause = { from: officerEffects.gearWear.startSeconds + offsetNow() * officerEffects.gearWear.secondsPerTick, ticksRemaining: pauseFor };
-        repairLog.push("pause");
+        pausesThisRun += 1;
+        // A time skip never runs a pause in zero time: it stops at the pause, which then takes its real time.
+        if (mission.speed !== undefined) {
+          const { speed: _skip, ...unskipped } = mission;
+          mission = unskipped;
+        }
         continue;
       }
       if (mission.repeatDispatch && !mission.recalled) {
@@ -3830,7 +3829,9 @@ export function tickCaptainPatrol(
         // the shared budget mirroring extraction's auto-repeat rule: tank covers -> spend;
         // short but affordable -> auto-buy the shortfall; truly broke -> do NOT relaunch
         // (end + idle, the anti-infinite-fuel floor). Patrols have no refuel-penalty phase.
-        const need = fuelPerCycle;
+        // Repair first, then go: the first cycle's fuel was the dispatch's (a pause set at dispatch pays nothing more).
+        const need = relaunchFuelPaid ? 0 : fuelPerCycle;
+        relaunchFuelPaid = false;
         let canRelaunch = true;
         if (fuelRemaining >= need) {
           fuelRemaining -= need;
@@ -3925,6 +3926,7 @@ export function tickCaptainPatrol(
           // ending no matter how many it actually flew, which is the exact failure the per-run
           // counter exists to prevent. Phase 0's comment on the factory predicted this line.
           mission.routesCompletedThisRun = routesThisRun;
+          if (pausesThisRun > 0) mission.repairPausesThisRun = pausesThisRun;
           progress = 0;
           // Loop continues: any remaining ticks advance the FRESH patrol.
         } else {
@@ -3971,6 +3973,7 @@ export function tickCaptainPatrol(
     // assignment inside the loop above. Covers the ordinary case where a run spans many ticks
     // without relaunching at all (a single long Dispatch Once).
     mission.routesCompletedThisRun = routesThisRun;
+    if (pausesThisRun > 0) mission.repairPausesThisRun = pausesThisRun;
   }
 
   // ---- CAPTAIN XP + level-ups (Combat 0.13.0, Phase 10, design S12). --------------------
@@ -4061,7 +4064,7 @@ export function tickCaptainPatrol(
     gearWear: gearWearEvents,
     endedAtTicks,
     repairWindows: pauseWindows,
-    repairLog,
+    endRepairPauses: endReason === null ? 0 : pausesThisRun,
   };
 }
 
@@ -4508,9 +4511,8 @@ export function economyTick(
   // ENDINGS IS NOT IN THAT FUNCTION. The unknown-key inert guard below drops a captain to idle
   // without ever calling it, so a patrol can end without a PatrolTickResult existing. Collecting
   // at this level is the only place that sees all four.
-  const patrolEndings: { captainId: number; patrolKey: string; reason: PatrolEndReason; routes: number }[] = [];
-  // GEAR WEAR step 4 (pause to repair): the pauses and resumes this call's patrols made, for the completion log.
-  const patrolRepairs: { captainId: number; patrolKey: string; kind: "pause" | "resume" }[] = [];
+  const patrolEndings: { captainId: number; patrolKey: string; reason: PatrolEndReason; routes: number; repairPauses?: number }[] = [];
+
   // Crew 0.14.0 ("CREW GOES LIVE"): per-SHIP mission-cycle completions this call, the side-channel that
   // feeds officer promotion gates. Same idiom as damagedShips/patrolEndings ("the captain map noticed
   // something the caller folds in once"): each arm records how many cycles/routes THIS captain's ship
@@ -4700,7 +4702,7 @@ export function economyTick(
           }
           // Pause to repair: its home windows settle at the home rate, and each pause and resume reads in the log.
           if (patrolResult.repairWindows.length > 0) wearEvents.pauseWindows.set(patrolShip.id, patrolResult.repairWindows);
-          for (const kind of patrolResult.repairLog) patrolRepairs.push({ captainId: captain.id, patrolKey: captain.mission.patrolKey, kind });
+
           if (patrolResult.endedAtTicks !== null) {
             wearEvents.runEnds.set(patrolShip.id, state.gameTimeSeconds + patrolResult.endedAtTicks * state.tickDurationSeconds);
             wearEvents.rateCarry.add(patrolShip.id);
@@ -4729,6 +4731,7 @@ export function economyTick(
             patrolKey: captain.mission.patrolKey,
             reason: patrolResult.endReason,
             routes: patrolResult.endRoutesCompleted,
+            repairPauses: patrolResult.endRepairPauses,
           });
         }
         // Combat 0.13.0 (Phase 10, design S12): fold this patrol's REWARDS into the SAME
@@ -5380,7 +5383,7 @@ export function economyTick(
   // log is chronological by append order.
   // G1-4: and the short-range runs that ended, after the patrol endings (the same single allocator, in turn).
   const postProcessState = appendShortRangeLog(
-    appendPatrolRepairs(appendPatrolCompletions(postProcessStateRaw, patrolEndings, nowMs), patrolRepairs, nowMs),
+    appendPatrolCompletions(postProcessStateRaw, patrolEndings, nowMs),
     shortRangeRelicCycles,
     shortRangeEndings.map((e, i) => ({ ...e, atTick: shortRangeEndTicks[i] })),
     nowMs
@@ -6515,6 +6518,21 @@ export function dispatchCaptainOnPatrol(
   // Combat 0.13.0 (offline recap): CLEAR any stale wall-stop reason on a fresh patrol dispatch,
   // mirroring dispatchCaptainOnMission, so a captain re-dispatched after a prior fuel/cargo/
   // defeat stop never shows the old reason.
+  // GEAR WEAR step 4, "Repair first, then go" (user 2026-10-27): a Repeat dispatch whose frozen gear has a combat piece
+  // under PATROL_REPAIR_PAUSE_LINE is dispatched (never blocked) with its home repair pause already set: it repairs,
+  // then flies its first cycle (its gear re-frozen as repaired).
+  const firstPause = repeatDispatch && cycle.cycleStartCondition
+    ? repairPauseTicks(installedGear, cycle.cycleStartCondition, {
+        startSeconds: state.gameTimeSeconds,
+        secondsPerTick: state.tickDurationSeconds,
+        underwayRate: repairRatePerMinute("underway", shipRepairBonuses(state, ship)),
+        homeRate: repairRatePerMinute("home", shipRepairBonuses(state, ship)),
+      })
+    : 0;
+  if (firstPause > 0) {
+    mission.repairPause = { from: state.gameTimeSeconds, ticksRemaining: firstPause, first: true };
+    mission.repairPausesThisRun = 1;
+  }
   captains[idx] = { ...captains[idx], mission, lastStopReason: undefined };
   // nextPatrolSeed increments so this master seed is never reused. No fuel/credits spend
   // (0.13.6 fuel-to-reach: instant free refuel).
@@ -6583,6 +6601,17 @@ export function recallCaptain(state: GameState, captainId: number, nowMs: number
     recalledMission = outbound
       ? { ...mission, recalled: true, phase: "transitBack", phaseProgressTicks: 0 }
       : { ...mission, recalled: true };
+  } else if (mission.repairPause !== undefined) {
+    // GEAR WEAR step 4 (review 2026-10-27): a run paused to repair is already home, so a recall ends it AT ONCE (the
+    // card's "home repairing" stays true); its pieces settle on at the home rate. Its one run entry says so.
+    const captains = [...state.captains];
+    captains[idx] = { ...captains[idx], mission: null };
+    const ended = appendPatrolCompletions(
+      { ...state, captains },
+      [{ captainId, patrolKey: mission.patrolKey, reason: "recalled", routes: mission.routesCompletedThisRun ?? 0, repairPauses: mission.repairPausesThisRun ?? 0 }],
+      nowMs,
+    );
+    return { next: ended, success: true };
   } else {
     // A patrol's transit-back begins transitOutTicks + rollWindowTicks into the route.
     const def = PATROLS[mission.patrolKey];

@@ -3998,7 +3998,11 @@ export interface PatrolMissionState {
   // GEAR WEAR step 4, PAUSE TO REPAIR (user 2026-10-27): a stamped Repeat run that came home to repair its gear (tick.ts
   // PATROL_REPAIR_PAUSE_LINE) instead of relaunching: the instant the pause began (game seconds) and the whole ticks
   // left before it resumes. Absent on every other run.
-  repairPause?: { from: number; ticksRemaining: number };
+  // `first`: set at dispatch (user 2026-10-27 "Repair first, then go": the run repairs, then flies its first cycle).
+  repairPause?: { from: number; ticksRemaining: number; first?: true };
+  // The times this run has paused to repair (user "Count on the run": its one completion log entry says so), carried
+  // across relaunches like routesCompletedThisRun. Absent until the first pause.
+  repairPausesThisRun?: number;
 }
 
 // Safe first runs SF-4: a patrol cycle's difficulty stamp: the run stamp (RunDifficultyStamp, tier I: patrols are
@@ -6708,9 +6712,7 @@ export type CompletionSalvageSubject =
 // `iterations` the cycles delivered), never one per cycle, so a board on Repeat cannot evict the rest of the log.
 // G1-5 review follow-up: "shortRangeRelicFind", one entry per delivered cycle that found relics while its run goes on
 // (rare, a per-hour chance), so a live Repeat run's finds show before it is recalled.
-// GEAR WEAR step 4 (pause to repair): "patrolRepairPause" / "patrolRepairResume", a Repeat patrol going home to repair
-// its gear and going back out.
-export type CompletionLogKind = TimedProcessKind | "patrolRun" | "shortRangeRun" | "shortRangeRelicFind" | "patrolRepairPause" | "patrolRepairResume";
+export type CompletionLogKind = TimedProcessKind | "patrolRun" | "shortRangeRun" | "shortRangeRelicFind";
 
 export interface CompletionLogEntry {
   id: string;               // "done-N", minted from state.nextCompletionLogId (mirrors "proc-N" / "q-N")
@@ -6723,6 +6725,9 @@ export interface CompletionLogEntry {
   // into this entry", and routes-flown-in-a-run is the same fact. Inventing a parallel
   // `routes` field would give the log two counters meaning one thing.
   patrolEndReason?: PatrolEndReason | null;
+  // GEAR WEAR step 4 (user 2026-10-27 "Count on the run"): on a patrolRun entry, the times the run paused to repair its
+  // gear. Absent when it never did.
+  repairPauses?: number;
   reward: CompletionRewardKind; // the honest summary shape (see above)
   // ⚠️ INJECTED WALL CLOCK, NEVER READ INSIDE THE TICK (design catch 2). resolveProcesses
   // is handed this value as an ARGUMENT exactly as the seeded rng is threaded, because a
