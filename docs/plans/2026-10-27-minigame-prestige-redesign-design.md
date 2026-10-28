@@ -241,3 +241,9 @@ Playback confirmed (2026-10-28): "Yep! That is indeed it. I am okay with acronym
 into FAP is asking for the wrong kind of hahafunnygiggle." (So: acronyms are fine in general; never abbreviate Fleet
 Admiral Prestige to an acronym.) Main game: gambits rename to "Tactical Protocols (Recommended)" (player text only;
 code names stay), a small 0.14.0 slice.
+Slice 1 picks (2026-10-28, all Recommended): the skill "Fleet Logistics" renames to "Fleet Requisitions" (the main game's
+Homeworld talent branch keeps "Fleet Logistics"); automation milestones approved (Auto Captain at a second Fleet
+Prestige, new milestone "Fleet Week, the Sequel"; Auto Fleet at e10,000 Ore; Auto Skill Allocation at 4
+Prestigeceptions; Auto-buy Upgrades at e2,000,000; the sim may nudge one and reports it); start the sims from the
+[PROVISIONAL] numbers (Fleet bar x1.25 per Fleet, Prestigeception x1.5, gate lift at 6 lifetime Prestigeceptions, 79
+Skill Points to max everything at about day 120); the final table goes to the user before it ships.
