@@ -321,7 +321,7 @@ describe("HELP_TOPICS", () => {
       expect(b).toContain(`Each Carry Capacity line rolled on a grenade adds ${GRENADE_CARRY_PER_LINE === 1 ? "1 charge" : `${GRENADE_CARRY_PER_LINE} charges`}`);
       expect(b).toContain(`(${pc(GRENADE_FUSE_MOVED_CLEAR_CHANCE)}), but a foe standing alone never does`);
       expect(b).toContain(`+${pc(SABOTEUR_GRENADE_BONUS)} on their blast and their debuff chance`);
-      expect(b).toContain(`${ACTION_LABEL.throwGrenade} gambit rule`);
+      expect(b).toContain(`${ACTION_LABEL.throwGrenade} tactical protocol rule`);
     });
 
     it("field kits: the conditions, their severity ranks, their numbers and their inflictors", () => {

@@ -905,7 +905,7 @@
                 {#each taskCards.cards as card (card.id)}<GroundTaskCard {card} />{/each}
               </div>
             {/if}
-            <div class="exp-note">Battles auto-resolve: each Security member runs their own gambit program, or the built-in default. After every objective the team returns to the ship to offload, recover in the medical bay and reload; a lost objective keeps its progress and is retried after the bay.</div>
+            <div class="exp-note">Battles auto-resolve: each Security member runs their own tactical protocols, or the built-in default. After every objective the team returns to the ship to offload, recover in the medical bay and reload; a lost objective keeps its progress and is retried after the bay.</div>
           {/if}
         {:else if activitiesTotal > 0}
           <!-- ACTIVITY BATTLE READOUT (a legacy run): each resolved away-team task shows its OUTCOME (secured vs
@@ -974,7 +974,7 @@
               {/each}
             {/each}
           </div>
-          <div class="exp-note">Battles auto-resolve: each Security member runs their own gambit program, or the built-in default. Lost objectives evacuate with a reduced haul.</div>
+          <div class="exp-note">Battles auto-resolve: each Security member runs their own tactical protocols, or the built-in default. Lost objectives evacuate with a reduced haul.</div>
         {/if}
 
         <!-- FINDINGS TALLY -->
@@ -1482,7 +1482,7 @@
             <div class="exp-teams">
               <div class="exp-team">
                 <span class="exp-team-name">Security<span class="exp-team-str">{chosenAwayTeam ? strengthBand(chosenAwayTeam.securityStrength) : "-"}</span></span>
-                <span class="exp-team-role">Fights during objectives. Each member runs their own gambit program, or the built-in default (no automatic kit use).</span>
+                <span class="exp-team-role">Fights during objectives. Each member runs their own tactical protocols, or the built-in default (no automatic kit use).</span>
               </div>
               <div class="exp-team">
                 <span class="exp-team-name">Science<span class="exp-team-str">{chosenAwayTeam ? strengthBand(chosenAwayTeam.scienceStrength) : "-"}</span></span>
