@@ -443,3 +443,36 @@ the wear fields with wear on.
   Fix round still to do (with these): recall during a pause ends it at once (card line true); Home row says repairing,
   not Returning; re-check the line after a resume; time-skip pause must repair; a sweep test of every hull and route
   opening at 700 vs pristine; a Repeat in-flight golden row; section 10's stale Standard Issue line.
+
+## USER ANSWER (2026-10-28, verbatim): the repair line, from realism
+
+Context: at the 700 line, a ship opening a cycle at 700 still loses 20 of 160 test fights its pristine twin wins (2 flip
+even at 980). Asked keep 70% / repair every cycle / 90%, the user wrote:
+
+"Hmmm. Well, let's approach this from a realism point. Firstly, we can try to calculate how much wear a ship would
+receive from a mission. If they are going to break something mid-mission, we should ensure that the repair process
+occurs first. Repair durability becomes important as you're less efficient if your ship doesn't have solid durability
+and so forth. But if the math doesn't math out and you break something due to the RNG of battle, you try to make due
+with what you have, and if you find that you're going to be in trouble in battle if you run out of durability, So we
+should probably consider an option for retreat. Something we should tweak carefully as to ensure that durability
+doesn't drop too heavily. Not to mention a weapon type could also contribute to additional durability drops. Not sure
+which one would do that though. Or how that would be handled, but perhaps a safety interlock might increase the amount
+of durability loss received through various tasks by 100% or something. Anyway, that one is an idea for later (since I
+don't think I'll be shipping interlocks in 0.16.0. It wouldn't make much sense to do that since 0.16.0 likely won't go
+beyond 50% of planned content for 1.0. Or, we plan for Tier 10 across the board for everything, including expeditions.
+How that would work is difficult to consider. Perhaps T8 and beyond involves having found a wormhole that leads to a new
+nearby galaxy rather than having to travel through the void between galaxies and the ship would have to be hardened for
+wormhole travel, otherwise traversing a wormhole is a surefire way to get your ship torn to pieces. Etc. Yeah. A bit of
+a tangent from me."
+
+Reading (to play back):
+1. Projection, not a fixed line: before a Repeat cycle, estimate the wear that cycle will cause; if a piece would BREAK
+   (reach its floor) mid-cycle, repair first. Otherwise go: worn gear is simply less efficient (the cost of wear).
+2. If battle RNG wears it further than projected, the ship makes do with what it has.
+3. NEW mechanic idea: a RETREAT option when a fight goes badly as durability runs out (tune carefully so durability
+   never drops too hard). Needs its own design; not in step 4.
+4. Later ideas (not 0.16.0): a weapon type that causes extra durability loss; a "safety interlock" that doubles
+   durability loss from various tasks (not shipping in 0.16.0; 0.16.0 is about 50% of 1.0's planned content).
+5. Long-term idea: Tier 10 across the board (expeditions included); Tier VIII and beyond reached through a wormhole to
+   a nearby galaxy instead of crossing the intergalactic void; ships must be hardened for wormhole travel or be torn
+   apart.

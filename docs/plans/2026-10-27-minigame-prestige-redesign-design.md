@@ -237,3 +237,7 @@ Reading (to play back before building):
    never plays optimally (no efficiency logic).
 6. Naming: never abbreviate "Fleet Admiral Prestige" (or any prestige) to an acronym anywhere.
 7. Main-game idea, separate from this design: rename "gambits" (suggestion: "Tactical Protocols"); to confirm.
+Playback confirmed (2026-10-28): "Yep! That is indeed it. I am okay with acronyms, but turning fleet admiral prestige
+into FAP is asking for the wrong kind of hahafunnygiggle." (So: acronyms are fine in general; never abbreviate Fleet
+Admiral Prestige to an acronym.) Main game: gambits rename to "Tactical Protocols (Recommended)" (player text only;
+code names stay), a small 0.14.0 slice.
