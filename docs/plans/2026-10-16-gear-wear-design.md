@@ -461,6 +461,13 @@ The patrol use wear sources (reactor and drive minutes and distance on a patrol)
   battleship after 30). User pick: "Pause to repair": a Repeat patrol sends itself home to repair when its gear drops
   under a set line, then resumes (the line [PROPOSAL], one named constant; the pause and resume shown to the player and
   in the log; never a defeat from wear alone on Repeat).
+- Step 4 review calls (2026-10-27, both Recommended): first cycle: "Repair first, then go": a Repeat dispatch whose
+  frozen gear has a combat piece under the line starts with a home repair pause and heads out when repaired (dispatched,
+  never blocked; the card says it is repairing first). Log: "Count on the run": one completion-log entry per run (the
+  LOCKED rule), showing "Paused to repair N times"; the patrol card shows the live pause.
+  Fix round still to do (with these): recall during a pause ends it at once (card line true); Home row says repairing,
+  not Returning; re-check the line after a resume; time-skip pause must repair; a sweep test of every hull and route
+  opening at 700 vs pristine; a Repeat in-flight golden row; section 10's stale Standard Issue line.
 
 **Carry note, step 4 pause to repair (built 2026-10-27 on feat 8c62a53, the answer above).** A stamped Repeat patrol
 whose next cycle would open with a combat piece (weapon, reactor, drive, emitter, plating, pod) under
