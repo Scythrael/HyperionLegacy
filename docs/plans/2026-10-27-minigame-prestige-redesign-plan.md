@@ -200,6 +200,27 @@ both before each slice.
 - [ ] Step 2: Implement; tests pass.
 - [ ] Step 3: Commit `feat(minigame): automations unlock at milestones`.
 
+**Slice 3 carry note (engine and data built; PACING OPEN, gates red on the sim pins):**
+- Built: the three automation beats are live milestones; `checkMilestonesMut` grants the automation of every
+  recorded milestone (switch, target and buy amount stay at their missing defaults), so live, catch-up and a
+  prestige grant at the same step, and a save that recorded the milestone earlier gets it at its next step;
+  `automationUnlocked`; `hasSkill` / `autoActive` read `automations` (or a 0.13.11.2 skill the save owns, kept
+  as it was); `canBuySkill` / `buySkill` never sell automations; "every skill maxed" counts only Skill Point
+  skills. Auto-buy Upgrades and Auto Skill Allocation buy the cheapest level first, ties to fewer levels then
+  list order. Auto Skill Allocation runs on the `skillOffers` seam (Slice 4 lists its leveled skills there).
+  Buy amounts are a RATE: "1" / "10" per second booked, so a coarse catch-up step buys at the live rate.
+  Popup: "Reward: <automation> unlocked. Find it on the Automation tab." (the signed-off mockup). The Skills
+  tab keeps working (automation rows read "Unlocks at <milestone>" or "???"); no Automation tab yet.
+- Goldens: goldens.json and relicGoldens.json move only by the new milestone records and the `automations`
+  field (no Ore, point or count moves).
+- OPEN for the user: automations now arrive with progress instead of Skill Points (and the stat skills come
+  days sooner), so the relic-free pins move and no single mapping nudge holds them on both the pinned and the
+  hour-later run (table at config `AUTO_BUY_HIGH_MILESTONE`). The pacing is chaotic around a Prestigeception
+  landing just short of a goal (e1,000,000 at 31.6 or 48.7 days). Also open: Auto-buy Upgrades widens the
+  sim's coarse-stretch gap with relics to 9.1% (2.6% without it); and the day2 catch-up parity fixture lands
+  on a Prestigeception plateau (17 over its bound). Red: sim, simRobust, simOptimal, simCasual, the relic and
+  target sweeps, simRelicsStretch, catchUp day2, redesignGoldens pacing rows.
+
 ### Slice 4: Leveled skills and the Skill Point schedule
 
 **Files:**

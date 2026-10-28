@@ -183,15 +183,15 @@ describe("Prestigeception", () => {
 });
 
 describe("skills", () => {
-  it("cost Skill Points, cannot be bought twice, and Auto-buy V to VIII needs Auto-buy I to IV", () => {
+  it("cost Skill Points and cannot be bought twice; automations are never sold (0.14.0: milestones unlock them)", () => {
     let s = freshSecretState(0);
     s.skillPoints = 3;
-    expect(canBuySkill(s, "autoBuyHigh")).toBe(false);
-    s = buySkill(s, "autoBuyLow", 1);
-    expect(s.skillPoints).toBe(2);
     expect(canBuySkill(s, "autoBuyLow")).toBe(false);
-    expect(canBuySkill(s, "autoBuyHigh")).toBe(true);
-    s = buySkill(s, "autoBuyHigh", 1);
+    expect(buySkill(s, "autoBuyLow", 1)).toBe(s);
+    s = buySkill(s, "headStart", 1);
+    expect(s.skillPoints).toBe(2);
+    expect(canBuySkill(s, "headStart")).toBe(false);
+    s = buySkill(s, "tenBonus", 1);
     expect(s.skillPoints).toBe(0);
     expect(buySkill(s, "overdrive", 1)).toBe(s);
   });
@@ -283,7 +283,8 @@ describe("milestones", () => {
     const ids = MILESTONES.map((m) => m.id);
     for (const id of ["firstCaptain", "googol", "firstFleet", "firstPc", "singularity", "finale", "long", "starfall"]) expect(ids).toContain(id);
     expect(MILESTONES.length).toBeGreaterThanOrEqual(10);
-    expect(MILESTONES.length).toBeLessThanOrEqual(16); // 0.13.11.1 content pacing adds four
+    // 0.13.11.1 content pacing adds four; 0.14.0 Slice 3 adds three automation beats
+    expect(MILESTONES.length).toBeLessThanOrEqual(19);
     expect(MILESTONES.filter((m) => m.achievement).map((m) => m.id).sort()).toEqual(["finale", "long", "starfall"]);
   });
 
@@ -380,9 +381,16 @@ describe("0.13.11.1: no Skill Points once every skill is learned (user: they sho
 
   it("with any skill still to learn, a Fleet still pays one", () => {
     const s = withRun(FLEET_AT * 2);
-    for (const d of SKILLS.slice(1)) s.skills[d.id] = true;
+    for (const d of SKILLS) if (d.id !== "headStart") s.skills[d.id] = true;
     expect(allSkillsLearned(s)).toBe(false);
     expect(doFleet(s, 1).skillPoints).toBe(s.skillPoints + 1);
+  });
+
+  it("0.14.0 Slice 3: the automations no longer count, so the three Skill Point skills alone are 'every skill'", () => {
+    const s = withRun(FLEET_AT * 2);
+    for (const id of ["headStart", "tenBonus", "overdrive"] as const) s.skills[id] = true;
+    expect(allSkillsLearned(s)).toBe(true);
+    expect(doFleet(s, 1).skillPoints).toBe(s.skillPoints);
   });
 
   it("the Prestige tab says so on the Fleet card and its payout line", () => {

@@ -340,7 +340,8 @@ describe("0.13.11.1 content pacing: staggered and new upgrades, new milestones",
       const pop = milestoneAchievement(id);
       expect(pop.title.length).toBeGreaterThan(3);
       expect(pop.flavor).toBeTruthy();
-      expect(pop.reward).toBe("Reward: recorded for a future update");
+      // 0.14.0 Slice 3: "Forever, Twice" unlocks Auto-buy Upgrades and its popup says so
+      expect(pop.reward).toBe(id === "e2m" ? "Reward: Auto-buy Upgrades unlocked. Find it on the Automation tab." : "Reward: recorded for a future update");
     }
   });
 });

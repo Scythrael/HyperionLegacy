@@ -206,6 +206,9 @@ function automated(s: SecretState): SecretState {
 function topAutos(s: SecretState): SecretState {
   s.skills.autoFleet = true;
   s.skills.autoPc = true;
+  // 0.14.0 Slice 3: the milestones these peaks record grant the other automations; a switch that is
+  // already off stays off through the grant, so they stay out of the way.
+  for (const id of ["autoOverclock", "autoBuyLow", "autoBuyHigh", "autoCaptain", "autoSkills", "autoUpgrades"] as const) s.autoOn[id] = false;
   s.autoTarget = { captain: 10, fleet: 10, pc: 10 };
   return s;
 }

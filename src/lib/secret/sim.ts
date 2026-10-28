@@ -16,6 +16,9 @@
 // Ore and Max on every tier, highest first. Auto targets stay at their 100% default.
 // 0.13.11.1: from e1,000,000 on, the player also buys the four upgrades at every look, cheapest next
 // level first, as long as one is affordable.
+// 0.14.0 Slice 3: the automations unlock at milestones (the engine grants them, switched on at their
+// defaults), so the listed order buys only the skills Skill Points still buy (Head Start, Ten Bonus,
+// Overdrive); "until Auto Captain is owned" and "until auto-buyers cover it" read the milestone unlocks.
 //
 // 0.13.11.1 curve round (user: "run a few sims as an optimal player, an average player, and a casual
 // player"). The three named players:
@@ -33,7 +36,7 @@
 import { freshSecretState, cloneSecret, type SecretState } from "./state";
 import { stepMut, captainMultiplier, buyOverclockMut, buyTierMut, buySkill, canBuySkill, captainGain, fleetGain, prestigeceptionGain, doCaptain, doFleet, doPrestigeception, effectiveExponent, hasSkill, upgradesUnlocked, upgradePriceExponent, canBuyUpgrade, buyUpgrade, fleetBarExponent, pcBarExponent, gainMultiplier, gainExponent, relicBoost } from "./engine";
 import { advanceTo, EXACT_BOUND_SECONDS, type CatchUpOptions } from "./catchUp";
-import { SKILLS, UPGRADES, FLEET_AT, PRESTIGECEPTION_AT, AP_SCALE, AP_K, DP_SCALE, DP_K, type MilestoneId, type UpgradeId, type SkillId, type RelicBoosts } from "./config";
+import { SKILLS, UPGRADES, isAutomationId, FLEET_AT, PRESTIGECEPTION_AT, AP_SCALE, AP_K, DP_SCALE, DP_K, type MilestoneId, type UpgradeId, type SkillId, type RelicBoosts } from "./config";
 
 export type SimProfile = "steady" | "light" | "keen" | "optimal" | "average" | "casual";
 
@@ -119,6 +122,8 @@ export function decide(s: SecretState, atMs: number, style: PlayStyle = {}, orde
     }
   }
   for (const id of order) {
+    // 0.14.0 Slice 3: automations unlock at milestones, never for Skill Points.
+    if (isAutomationId(id)) continue;
     const def = SKILLS.find((d) => d.id === id)!;
     if (hasSkill(s, def.id)) continue;
     if (!canBuySkill(s, def.id)) {
@@ -142,9 +147,18 @@ export function decide(s: SecretState, atMs: number, style: PlayStyle = {}, orde
   else if ((style.manual || !hasSkill(s, "autoCaptain")) && pays(cg, s.captainPoints, t.captain) && !(s.fleetTotal === 0 && effectiveExponent(s.fleetPeak) >= 250)) {
     s = doCaptain(s, atMs);
   }
-  if (!(hasSkill(s, "autoBuyLow") && hasSkill(s, "autoOverclock"))) {
+  // By hand, whatever the automations do not cover yet. 0.14.0 Slice 3: Auto-buy V to VIII now unlocks
+  // at "Do Not Look Directly at It" (own a Singularity Engine), so the player buys Generators V to VIII
+  // by hand until then, as a real player sees their Buy buttons (before, the hand stopped at Auto-buy I
+  // to IV plus Auto Overclock and waited for Auto-buy V to VIII bought with Skill Points; now that would
+  // never own a Singularity Engine at all).
+  const low = hasSkill(s, "autoBuyLow");
+  const high = hasSkill(s, "autoBuyHigh");
+  if (!(low && hasSkill(s, "autoOverclock"))) {
     buyOverclockMut(s, s.ore.mul(0.5));
     for (let k = s.tiersUnlocked - 1; k >= 0; k--) buyTierMut(s, k, s.ore);
+  } else if (!high) {
+    for (let k = s.tiersUnlocked - 1; k >= 4; k--) buyTierMut(s, k, s.ore);
   }
   return s;
 }

@@ -59,6 +59,7 @@
     canBuyUpgrade,
     buyUpgrade,
     milestoneVisible,
+    automationUnlocked,
     overclockLevelFactor,
     relicBoost,
     type BuyMode,
@@ -77,6 +78,13 @@
     RELIC_BOOSTS,
     RELIC_TIER_LEVERS,
     RELIC_LOCKED_TIER_TEXT,
+    AUTOMATION_NAMES,
+    AUTOMATION_UNLOCKS,
+    NEW_AUTOMATION_BLURBS,
+    automationUnlockedBy,
+    automationListLine,
+    isAutomationId,
+    type AutomationId,
     type SkillId,
     type UpgradeId,
   } from "./secret/config";
@@ -215,6 +223,13 @@
     const n = locked[0].t.unlockFleet;
     return `Generator ${locked[0].t.numeral} at ${n} Fleet${n === 1 ? "" : "s"}`;
   }
+  // 0.14.0 Slice 3: an automation's row before its milestone names that milestone once it is visible
+  // ("???" before, like the Milestones list). The Automation tab (Slice 7) replaces these rows.
+  function automationLockedLabel(id: AutomationId, x: SecretState): string {
+    const m = MILESTONES.find((d) => d.id === AUTOMATION_UNLOCKS[id])!;
+    return `${COPY.automationLockedPrefix} ${milestoneVisible(x, m.id) ? m.name : "???"}`;
+  }
+  const NEW_AUTOMATIONS = (Object.keys(NEW_AUTOMATION_BLURBS) as AutomationId[]);
   function skillOwnedLabel(id: SkillId, x: SecretState): string {
     const def = SKILLS.find((d) => d.id === id)!;
     if (!hasSkill(x, id)) return `${def.cost} Skill Point${def.cost === 1 ? "" : "s"}`;
@@ -278,8 +293,10 @@
   $: runPct = bestE <= 0 ? 0 : pct((runE / bestE) * 100);
   $: visibleMilestones = MILESTONES.filter((m) => milestoneVisible(s, m.id));
   $: reachedCount = MILESTONES.filter((m) => s.milestones[m.id] !== undefined).length;
-  function milestoneReward(id: string, reached: boolean): string {
+  function milestoneReward(id: (typeof MILESTONES)[number]["id"], reached: boolean): string {
     if (id === "starfall") return reached ? COPY.starfallRewardDone : COPY.starfallRewardLater;
+    const auto = automationUnlockedBy(id);
+    if (auto !== undefined) return automationListLine(auto, reached);
     return reached ? COPY.rewardRecorded : COPY.rewardLater;
   }
 
@@ -576,7 +593,9 @@
                 <div class="node" class:own={hasSkill(s, d.id)}>
                   <b>{d.name}</b>
                   <span class="muted">{d.blurb}</span>
-                  {#if !hasSkill(s, d.id)}
+                  {#if isAutomationId(d.id) && !hasSkill(s, d.id)}
+                    <span class="muted">{automationLockedLabel(d.id, s)}</span>
+                  {:else if !hasSkill(s, d.id)}
                     <button class="sg-btn" type="button" disabled={busy || !canBuySkill(s, d.id)} on:click={() => secretAct((x, t) => buySkill(x, d.id, t))}>Learn · {skillOwnedLabel(d.id, s)}</button>
                   {:else if d.auto}
                     <button
@@ -588,6 +607,17 @@
                     >{skillOwnedLabel(d.id, s)}</button>
                   {:else}
                     <span class="owned">{skillOwnedLabel(d.id, s)}</span>
+                  {/if}
+                </div>
+              {/each}
+              {#each NEW_AUTOMATIONS as id}
+                <div class="node" class:own={automationUnlocked(s, id)}>
+                  <b>{AUTOMATION_NAMES[id]}</b>
+                  <span class="muted">{NEW_AUTOMATION_BLURBS[id]}</span>
+                  {#if automationUnlocked(s, id)}
+                    <button class="sg-btn" type="button" aria-pressed={autoActive(s, id)} disabled={busy} on:click={() => secretAct((x) => setAuto(x, id, !autoActive(x, id)))}>{autoActive(s, id) ? "On" : "Off"}</button>
+                  {:else}
+                    <span class="muted">{automationLockedLabel(id, s)}</span>
                   {/if}
                 </div>
               {/each}

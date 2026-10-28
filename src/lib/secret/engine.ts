@@ -73,6 +73,14 @@ import {
   RELIC_TIER_LEVERS,
   FLEET_BAR_RATIO,
   PC_BAR_RATIO,
+  AUTOMATION_IDS,
+  AUTOMATION_UNLOCKS,
+  AUTOMATION_BUY_DEFAULT,
+  AUTO_SKILLS_PC_COUNT,
+  SKILL_POINT_SKILLS,
+  isAutomationId,
+  type AutomationId,
+  type AutomationBuy,
   type RelicLever,
   type SkillId,
   type MilestoneId,
@@ -191,13 +199,49 @@ export function displayIncome(s: SecretState): Decimal {
 // Multipliers
 // ---------------------------------------------------------------------------
 
-export function hasSkill(s: SecretState, id: SkillId): boolean {
-  return s.skills[id] === true;
+// 0.14.0 prestige redesign Slice 3: automations unlock at milestones (config AUTOMATION_UNLOCKS), never
+// for Skill Points. An automation is unlocked once its milestone granted it (s.automations), or when the
+// save already owns it as a 0.13.11.2 skill (s.skills: kept owned and switched exactly as it was; Slice 6
+// converts those saves for good).
+export function automationUnlocked(s: SecretState, id: AutomationId): boolean {
+  return s.automations[id] === true || (s.skills as Partial<Record<string, true>>)[id] === true;
 }
 
-// An auto skill acts only when owned and switched on (missing switch means on).
-export function autoActive(s: SecretState, id: SkillId): boolean {
-  return hasSkill(s, id) && s.autoOn[id] !== false;
+// For the six automations that are still listed as skills, "owned" means unlocked.
+export function hasSkill(s: SecretState, id: SkillId): boolean {
+  return isAutomationId(id) ? automationUnlocked(s, id) : s.skills[id] === true;
+}
+
+// An automation acts only when unlocked and switched on (missing switch means on).
+export function autoActive(s: SecretState, id: SkillId | AutomationId): boolean {
+  const unlocked = isAutomationId(id) ? automationUnlocked(s, id) : s.skills[id] === true;
+  return unlocked && s.autoOn[id] !== false;
+}
+
+// How much an automation buys at a time (user 2026-10-28: "Buy 1 at a time. Buy maximum. Buy 10."):
+// the player's setting, else AUTOMATION_BUY_DEFAULT ("max" for automations without a setting).
+export function automationBuyAmount(s: SecretState, id: AutomationId): AutomationBuy {
+  return s.automationBuy[id] ?? AUTOMATION_BUY_DEFAULT[id] ?? "max";
+}
+
+export function setAutomationBuy(s: SecretState, id: AutomationId, amount: AutomationBuy): SecretState {
+  if (AUTOMATION_BUY_DEFAULT[id] === undefined || !["1", "10", "max"].includes(amount)) return s;
+  const next = cloneSecret(s);
+  next.automationBuy[id] = amount;
+  return next;
+}
+
+// The buy amount as a count of purchases (levels or units) per second of game time: a live step (one
+// second) buys exactly one purchase of that size, and a catch-up step of n seconds buys n of them, so
+// offline buys at the live rate (offline == live). "10" for a generator buys to the next ten, exactly
+// as the Buy 10 button does, then ten more per further second.
+function buyCount(amount: AutomationBuy, seconds: number): number {
+  return amount === "1" ? seconds : amount === "10" ? 10 * seconds : Infinity;
+}
+
+// Whole seconds a step stands for when it counts purchases (a live step is 1; never 0).
+function purchaseSeconds(dt: number): number {
+  return Math.max(1, Math.round(dt));
 }
 
 // The level of one e1,000,000 upgrade (0 when not bought).
@@ -624,7 +668,76 @@ export function produceMut(s: SecretState, dt: number): void {
 // Auto-buyers
 // ---------------------------------------------------------------------------
 
-function autoBuyMut(s: SecretState): void {
+// 0.14.0 Slice 3, Auto-buy Upgrades (unlocks at e2,000,000): buys e1,000,000 upgrade levels with Ore,
+// the cheapest next level first (user 2026-10-28: QoL only, never optimal play; "1 feels like the best
+// approach for cheapest available/round-robin"). A tie in price goes to the upgrade with fewer levels,
+// then list order, so equal prices take turns. Up to its buy amount of levels per step.
+function autoUpgradesMut(s: SecretState, seconds: number): void {
+  if (!autoActive(s, "autoUpgrades") || !upgradesUnlocked(s)) return;
+  const max = buyCount(automationBuyAmount(s, "autoUpgrades"), seconds);
+  for (let n = 0; n < max; n++) {
+    let pick: UpgradeId | null = null;
+    let pickE = Infinity;
+    let pickLevel = Infinity;
+    for (const u of UPGRADES) {
+      if (!canBuyUpgrade(s, u.id)) continue;
+      const e = upgradePriceExponent(s, u.id)!;
+      const level = upgradeLevel(s, u.id);
+      if (e < pickE || (e === pickE && level < pickLevel)) {
+        pick = u.id;
+        pickE = e;
+        pickLevel = level;
+      }
+    }
+    if (pick === null) return;
+    buyUpgradeMut(s, pick, 1);
+  }
+}
+
+// 0.14.0 Slice 3, Auto Skill Allocation (unlocks at AUTO_SKILLS_PC_COUNT Prestigeceptions): spends Skill
+// Points on the cheapest skill level on offer (user 2026-10-28: "This would just unlock cheapest first.
+// We don't want to build logic to efficiently play the game on auto."). A tie in cost goes to the skill
+// with the fewest levels, then list order (round-robin). Up to its buy amount of levels per step.
+// SKILL OFFERS are the seam Slice 4 fills: until the leveled skills land, each Skill Point skill is a
+// one-level skill (level 0, its cost); Slice 4 lists each leveled skill's next level here (its level and
+// skillLevelCost) and buys it with buySkillLevel. The choice rule (pickSkillOffer) stays as it is.
+export interface SkillOffer {
+  id: SkillId;
+  level: number; // levels already owned
+  cost: number; // Skill Points for the next level
+}
+
+export function skillOffers(s: SecretState): SkillOffer[] {
+  return SKILL_POINT_SKILLS.filter((d) => canBuySkill(s, d.id)).map((d) => ({ id: d.id, level: 0, cost: d.cost }));
+}
+
+export function pickSkillOffer(offers: readonly SkillOffer[]): SkillOffer | null {
+  let pick: SkillOffer | null = null;
+  for (const o of offers) if (pick === null || o.cost < pick.cost || (o.cost === pick.cost && o.level < pick.level)) pick = o;
+  return pick;
+}
+
+function takeSkillOfferMut(s: SecretState, offer: SkillOffer): void {
+  s.skillPoints -= offer.cost;
+  s.skills = { ...s.skills, [offer.id]: true };
+}
+
+function autoSkillsMut(s: SecretState, seconds: number): void {
+  if (!autoActive(s, "autoSkills")) return;
+  const max = buyCount(automationBuyAmount(s, "autoSkills"), seconds);
+  for (let n = 0; n < max; n++) {
+    const offer = pickSkillOffer(skillOffers(s));
+    if (offer === null) return;
+    takeSkillOfferMut(s, offer);
+  }
+}
+
+// dt: the seconds this step books (1 live; more in a coarse catch-up step), which sets how
+// many purchases an automation with a "1" or "10" buy amount makes in it.
+function autoBuyMut(s: SecretState, dt: number): void {
+  const seconds = purchaseSeconds(dt);
+  autoUpgradesMut(s, seconds);
+  autoSkillsMut(s, seconds);
   let overclockBought = false;
   const autoOc = autoActive(s, "autoOverclock");
   // "Income priced": the stack is producing and the next level costs seconds of income rather
@@ -637,18 +750,21 @@ function autoBuyMut(s: SecretState): void {
     const price = overclockPrice(s);
     let budget = s.ore.mul(OC_AUTO_SHARE);
     if (incomePriced && budget.lt(price) && s.ore.gte(price)) budget = price;
-    overclockBought = buyOverclockMut(s, budget) > 0;
+    overclockBought = buyOverclockMut(s, budget, buyCount(automationBuyAmount(s, "autoOverclock"), seconds)) > 0;
   }
   const low = autoActive(s, "autoBuyLow");
   const high = autoActive(s, "autoBuyHigh");
   if (!low && !high) return;
+  const lowAmount = automationBuyAmount(s, "autoBuyLow");
+  const highAmount = automationBuyAmount(s, "autoBuyHigh");
   // While Auto Overclock is saving up for a level, the generators leave that much Ore alone.
   const reserve = autoOc && incomePriced && !overclockBought ? Decimal.min(s.ore, overclockPrice(s)) : ZERO;
   for (let k = s.tiersUnlocked - 1; k >= 0; k--) {
     if (!(k < 4 ? low : high)) continue;
     const budget = s.ore.sub(reserve);
     if (budget.lte(0)) break;
-    buyTierMut(s, k, budget);
+    const amount = k < 4 ? lowAmount : highAmount;
+    buyTierMut(s, k, budget, amount === "10" ? buyCount(amount, seconds) - (s.bought[k] % 10) : buyCount(amount, seconds));
   }
 }
 
@@ -887,12 +1003,15 @@ export function prestigePreview(s: SecretState, layer: AutoLayer): { before: Pre
 // Skills and settings
 // ---------------------------------------------------------------------------
 
-// Every skill owned: Fleet Prestige stops paying Skill Points.
+// Every skill Skill Points buy is owned: Fleet Prestige stops paying Skill Points. (Slice 3: the
+// automations unlock at milestones and no longer count.)
 export function allSkillsLearned(s: SecretState): boolean {
-  return SKILLS.every((d) => s.skills[d.id] === true);
+  return SKILL_POINT_SKILLS.every((d) => s.skills[d.id] === true);
 }
 
+// Automations are never sold for Skill Points (Slice 3; they unlock at milestones).
 export function canBuySkill(s: SecretState, id: SkillId): boolean {
+  if (isAutomationId(id)) return false;
   const def = SKILLS.find((d) => d.id === id);
   if (!def || hasSkill(s, id)) return false;
   if (def.requires && !hasSkill(s, def.requires)) return false;
@@ -909,7 +1028,7 @@ export function buySkill(s: SecretState, id: SkillId, atMs: number): SecretState
   return next;
 }
 
-export function setAuto(s: SecretState, id: SkillId, on: boolean): SecretState {
+export function setAuto(s: SecretState, id: SkillId | AutomationId, on: boolean): SecretState {
   const next = cloneSecret(s);
   next.autoOn[id] = on;
   return next;
@@ -935,18 +1054,25 @@ function reached(s: SecretState, id: MilestoneId): boolean {
       return e() >= 100;
     case "firstFleet":
       return s.fleetTotal > 0;
+    case "secondFleet":
+      return s.fleetTotal >= 2;
     case "e1000":
       return e() >= 1000;
+    case "e10k":
+      return e() >= PRESTIGECEPTION_AT;
     case "singularity":
       return s.tiersUnlocked >= TIER_COUNT && s.owned[TIER_COUNT - 1].gt(0);
     case "firstPc":
       return s.pcCount > 0;
+    case "pcRegular":
+      return s.pcCount >= AUTO_SKILLS_PC_COUNT;
     case "turbo":
       return s.overclock >= TURBO_LEVEL;
     case "e100k":
       return e() >= 100000;
     case "allSkills":
-      return SKILLS.every((d) => hasSkill(s, d.id));
+      // Slice 3: "every skill maxed" (design 3.2 [PROPOSAL], approved); the automations no longer count.
+      return allSkillsLearned(s);
     case "finale":
       return e() >= FINALE_EXPONENT;
     case "long":
@@ -965,11 +1091,11 @@ function reached(s: SecretState, id: MilestoneId): boolean {
 }
 
 const MILESTONE_IDS: readonly MilestoneId[] = [
-  "firstCaptain", "googol", "firstFleet", "e1000", "singularity", "firstPc", "turbo", "e100k", "allSkills", "finale", "long", "e2m", "e3m", "e5m", "e7m", "starfall",
+  "firstCaptain", "googol", "firstFleet", "secondFleet", "e1000", "e10k", "singularity", "firstPc", "pcRegular", "turbo", "e100k", "allSkills", "finale", "long", "e2m", "e3m", "e5m", "e7m", "starfall",
 ];
 
 // The Ore goals, in order: each appears only once the one before it is reached (0.13.11.1).
-const ORE_CHAIN: readonly MilestoneId[] = ["googol", "e1000", "e100k", "finale", "long", "e2m", "e3m", "e5m", "e7m", "starfall"];
+const ORE_CHAIN: readonly MilestoneId[] = ["googol", "e1000", "e10k", "e100k", "finale", "long", "e2m", "e3m", "e5m", "e7m", "starfall"];
 
 // Is a milestone shown, or still "???"? Reached ones always show. Ore goals appear one step at a
 // time; the rest appear once their system is in view (design 0.13.11.1 section 5).
@@ -985,7 +1111,10 @@ export function milestoneVisible(s: SecretState, id: MilestoneId): boolean {
       return s.captainCount > 0 || s.fleetTotal > 0;
     case "firstPc":
     case "allSkills":
+    case "secondFleet":
       return s.fleetTotal > 0;
+    case "pcRegular":
+      return s.pcCount > 0;
     case "singularity":
       return isTierUnlocked(s, TIER_COUNT - 1);
     default:
@@ -1005,9 +1134,18 @@ function trackPeaksMut(s: SecretState): void {
   if (s.overclock > s.peakOverclock) s.peakOverclock = s.overclock;
 }
 
+// Records every milestone reached, then grants the automation of every recorded milestone (Slice 3).
+// Granting reads the RECORD, so a save that recorded the milestone before 0.14.0 gets its automation at
+// its next step too (design section 6: "automations are granted by milestones already reached"), and
+// the live step, a catch-up step and a prestige all grant at the very step the milestone is recorded.
+// A grant only sets s.automations: the switch (autoOn, missing means on), the target (autoTarget, 100%
+// unless the player set one) and the buy amount (missing means AUTOMATION_BUY_DEFAULT) keep their state.
 export function checkMilestonesMut(s: SecretState, atMs: number): void {
   for (const id of MILESTONE_IDS) {
     if (s.milestones[id] === undefined && reached(s, id)) s.milestones[id] = atMs;
+  }
+  for (const id of AUTOMATION_IDS) {
+    if (s.automations[id] !== true && s.milestones[AUTOMATION_UNLOCKS[id]] !== undefined) s.automations = { ...s.automations, [id]: true };
   }
 }
 
@@ -1030,11 +1168,13 @@ export function stepMut(s: SecretState, dt: number, atMs: number, productionDt: 
   // 0.13.11.1 curve round: after the first Prestigeception the game runs at GAME_PACE_AFTER_FIRST_PC.
   // Applied here, the one step live play and every catch-up share, so offline == live stays exact.
   const pace = gamePace(s);
+  // Automations count purchases per second this step books (1 per live step), before the pace.
+  const bookedDt = dt;
   dt *= pace;
   productionDt *= pace;
   ensureRecoverableMut(s);
   const due = dueAutoPrestige(s);
-  autoBuyMut(s);
+  autoBuyMut(s, bookedDt);
   produceMut(s, productionDt);
   s.runSeconds += dt;
   if (s.ore.gt(s.runPeak)) s.runPeak = s.ore;

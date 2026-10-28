@@ -282,9 +282,12 @@ export type MilestoneId =
   | "firstCaptain"
   | "googol"
   | "firstFleet"
+  | "secondFleet"
   | "e1000"
+  | "e10k"
   | "singularity"
   | "firstPc"
+  | "pcRegular"
   | "turbo"
   | "e100k"
   | "allSkills"
@@ -314,16 +317,28 @@ export const STARFALL_EXPONENT = 10000000;
 export const END_SOFT_SCALE = 20000;
 export const END_SOFT_BETA = 0.5;
 
+// Prestigeceptions for the "pcRegular" milestone (Auto Skill Allocation, user pick 2026-10-28: "at 4
+// Prestigeceptions") [PROVISIONAL].
+export const AUTO_SKILLS_PC_COUNT = 4;
+
+// 0.14.0 prestige redesign Slice 3: the three automation beats (secondFleet, e10k, pcRegular; names and
+// flavor [PROPOSAL], approved 2026-10-27; Auto Captain at "Fleet Week, the Sequel" picked by the user
+// 2026-10-28) joined the live list, and "Fully Automated Luxury Mining" moved to "every skill maxed"
+// (design 3.2 [PROPOSAL], approved). A milestone that unlocks an automation needs no reward field: its
+// popup and list line name the automation (milestoneRewardLine reads AUTOMATION_UNLOCKS).
 export const MILESTONES: readonly MilestoneDef[] = [
   { id: "firstCaptain", name: "Number Go Up", detail: "Your first Captain Prestige", how: "Do your first Captain Prestige.", flavor: "Promoted. Your old stack has been demolished with honors." },
   { id: "googol", name: "A Respectable Googol", detail: "1e100 Ore", how: "Reach 1e100 Ore.", flavor: "One googol. Somewhere, a mathematician is very proud of you." },
   { id: "firstFleet", name: "Fleet Week", detail: "Your first Fleet Prestige", how: "Do your first Fleet Prestige." },
+  { id: "secondFleet", name: "Fleet Week, the Sequel", detail: "Your second Fleet Prestige", how: "Do your second Fleet Prestige.", flavor: "Same fleet, new paint. The Captains have learned to promote themselves." },
   { id: "e1000", name: "A Thousand Zeros, Give or Take", detail: "e1,000 Ore", how: "Reach e1,000 Ore." },
+  { id: "e10k", name: "Ten Thousand Zeros, Roughly", detail: "e10,000 Ore", how: "Reach e10,000 Ore.", flavor: "The fleet can admiral itself now. Please supervise anyway." },
   { id: "singularity", name: "Do Not Look Directly at It", detail: "Build a Singularity Engine", how: "Own a Singularity Engine.", flavor: "We said not to look. You looked." },
   { id: "firstPc", name: "Prestiged Your Prestige", detail: "Your first Prestigeception", how: "Do your first Prestigeception." },
+  { id: "pcRegular", name: "Frequent Dreamer", detail: `${AUTO_SKILLS_PC_COUNT} Prestigeceptions`, how: `Do ${AUTO_SKILLS_PC_COUNT} Prestigeceptions.`, flavor: "You have spent so many Skill Points in your sleep that your sleep now spends them for you." },
   { id: "turbo", name: "Turbo Button Enjoyer", detail: "Overclock level 10,000", how: "Reach Overclock level 10,000." },
   { id: "e100k", name: "Running Low on Zeros", detail: "e100,000 Ore", how: "Reach e100,000 Ore." },
-  { id: "allSkills", name: "Fully Automated Luxury Mining", detail: "Own every skill", how: "Learn every skill." },
+  { id: "allSkills", name: "Fully Automated Luxury Mining", detail: "Every skill maxed", how: "Max out every skill." },
   { id: "finale", name: "Seven Sevens Short of Seven", detail: "e777,777 Ore, the special unlock", how: "Reach e777,777 Ore.", achievement: true },
   { id: "long", name: "Forever Is a Long Time", detail: "e1,000,000 Ore", how: "Reach e1,000,000 Ore.", flavor: "A new upgrade just woke up. More are stirring.", achievement: true },
   // 0.13.11.1 content pacing (user: "More milestones"): a beat every few weeks on the way to
@@ -337,10 +352,31 @@ export const MILESTONES: readonly MilestoneDef[] = [
 
 export const REWARD_RECORDED_LINE = "Reward: recorded for a future update";
 
+// The automation a milestone unlocks, if any (AUTOMATION_UNLOCKS read backward).
+export function automationUnlockedBy(id: MilestoneId): AutomationId | undefined {
+  return AUTOMATION_IDS.find((a) => AUTOMATION_UNLOCKS[a] === id);
+}
+
+// The popup's green line for an automation unlock (the signed-off mockup,
+// docs/plans/2026-10-28-automation-skills-mockup.html: "Reward: Auto Captain Prestige unlocked. Find it on
+// the Automation tab."). The Automation tab itself lands with the redesign's UI slice, in the same release.
+export const AUTOMATION_TAB_POINTER = "Find it on the Automation tab.";
+export function automationRewardLine(id: AutomationId): string {
+  return `Reward: ${AUTOMATION_NAMES[id]} unlocked. ${AUTOMATION_TAB_POINTER}`;
+}
+
+// The reward line a milestone shows: its own, else the automation it unlocks, else recorded for later.
+export function milestoneRewardLine(id: MilestoneId): string {
+  const m = MILESTONES.find((d) => d.id === id)!;
+  if (m.reward !== undefined) return m.reward;
+  const auto = automationUnlockedBy(id);
+  return auto === undefined ? REWARD_RECORDED_LINE : automationRewardLine(auto);
+}
+
 // The achievement popup for a milestone (design section 5).
 export function milestoneAchievement(id: MilestoneId): Achievement {
   const m = MILESTONES.find((d) => d.id === id)!;
-  return { id: `secret:${id}`, title: m.name, requirement: m.how, flavor: m.flavor, reward: m.reward ?? REWARD_RECORDED_LINE };
+  return { id: `secret:${id}`, title: m.name, requirement: m.how, flavor: m.flavor, reward: milestoneRewardLine(id) };
 }
 
 export const TURBO_LEVEL = 10000;
@@ -414,15 +450,13 @@ export const AUTOMATION_BUY_DEFAULT: Readonly<Partial<Record<AutomationId, Autom
   autoUpgrades: "1",
 };
 
-// The milestones the redesign adds. Kept OUT of MILESTONES (the live list) until their slice wires
-// them, so reached(), milestoneVisible(), checkMilestonesMut and every golden never see them: the
-// automation beats with Slice 3, e20,000,000 and the secret e25,000,000 with Slice 5. Those slices
-// move each def into MILESTONES and its id into MilestoneId.
-export type PendingMilestoneId = "secondFleet" | "e10k" | "pcRegular" | "e20m" | "e25m";
+// The milestones the redesign adds that are not live yet. Kept OUT of MILESTONES (the live list) until
+// their slice wires them, so reached(), milestoneVisible(), checkMilestonesMut and every golden never see
+// them: e20,000,000 and the secret e25,000,000 with Slice 5, which moves each def into MILESTONES and its
+// id into MilestoneId. (Slice 3 moved the three automation beats into MILESTONES.)
+export type PendingMilestoneId = "e20m" | "e25m";
 export type AnyMilestoneId = MilestoneId | PendingMilestoneId;
 
-// Prestigeceptions for the "pcRegular" milestone (Auto Skill Allocation) [PROVISIONAL].
-export const AUTO_SKILLS_PC_COUNT = 4;
 export const E20M_EXPONENT = 20000000;
 // The secret prize (design 3.5): "???" until reached, never hinted in Help.
 export const SECRET_PRIZE_EXPONENT = 25000000;
@@ -432,27 +466,53 @@ export interface PendingMilestoneDef extends Omit<MilestoneDef, "id"> {
   secret?: boolean; // name, detail and reward stay "???" in every view until reached
 }
 
-// Names, flavor and reward lines [PROPOSAL] (design 3.2 and 3.5, approved as proposals 2026-10-27).
+// Names, flavor and reward lines [PROPOSAL] (design 3.5, approved as proposals 2026-10-27).
 export const PENDING_MILESTONES: readonly PendingMilestoneDef[] = [
-  { id: "secondFleet", name: "Fleet Week, the Sequel", detail: "Your second Fleet Prestige", how: "Do your second Fleet Prestige.", flavor: "Same fleet, new paint. The Captains have learned to promote themselves.", reward: `Reward: ${AUTOMATION_NAMES.autoCaptain} unlocked` },
-  { id: "e10k", name: "Ten Thousand Zeros, Roughly", detail: "e10,000 Ore", how: "Reach e10,000 Ore.", flavor: "The fleet can admiral itself now. Please supervise anyway.", reward: `Reward: ${AUTOMATION_NAMES.autoFleet} unlocked` },
-  { id: "pcRegular", name: "Frequent Dreamer", detail: `${AUTO_SKILLS_PC_COUNT} Prestigeceptions`, how: `Do ${AUTO_SKILLS_PC_COUNT} Prestigeceptions.`, flavor: "You have spent so many Skill Points in your sleep that your sleep now spends them for you.", reward: `Reward: ${AUTOMATION_NAMES.autoSkills} unlocked` },
   { id: "e20m", name: "The Numbers Got Even Bigger", detail: "e20,000,000 Ore", how: "Reach e20,000,000 Ore.", flavor: "The stars have asked for a bigger sky. We are looking into it." },
   { id: "e25m", name: "The Sky Is Showing Off", detail: "e25,000,000 Ore", how: "Reach e25,000,000 Ore.", flavor: "You ran out of zeros, then stars, so the sky started putting on a show.", reward: "Reward: a new Starfall visualization, arriving in a future update", achievement: true, secret: true },
 ];
 
+// [PROVISIONAL] Auto-buy V to VIII's milestone, the design table's "Do Not Look Directly at It" (own a
+// Singularity Engine), kept in one constant as the mapping the Slice 3 sim nudges first (user 2026-10-28:
+// "the sim may nudge one and reports it"; the choice goes to the user). OPEN: no single nudge holds the
+// relic-free bands on both the pinned run and the hour-later run (average player, finale / e1,000,000 /
+// e10,000,000 in days; bands 3 to 5 / 28 to 37 / 110 to 130). Here 4.31 / 48.67 / 137.20 (a
+// Prestigeception at e949,000 on day 21 restarts the climb just short of e1,000,000) and 5.37 / 32.23 /
+// 110.53 an hour later. At "A Respectable Googol" 4.52 / 31.59 / 108.92 and 4.28 / 31.62 / 135.73; at
+// "Turbo Button Enjoyer" 4.52 / 31.59 / 104.94 and 4.29 / 31.63 / 123.88; Auto Prestigeception before the
+// first Prestigeception (any early milestone) 4.47 / 31.54 / 105.13 and 4.50 / 31.57 / 105.17.
+export const AUTO_BUY_HIGH_MILESTONE: MilestoneId = "singularity";
+
 // Which milestone unlocks each automation (design 3.2 table, [PROPOSAL] for the beats the user did not
-// name; plan update 2026-10-28 for the last two).
-export const AUTOMATION_UNLOCKS: Readonly<Record<AutomationId, AnyMilestoneId>> = {
+// name; plan update 2026-10-28 for the last two; user picks 2026-10-28: Auto Captain at a second Fleet
+// Prestige, Auto Fleet at e10,000 Ore, Auto Skill Allocation at 4 Prestigeceptions, Auto-buy Upgrades at
+// e2,000,000). Live since Slice 3: engine checkMilestonesMut grants each one once its milestone is
+// recorded (switch on, target 100%, buy amount AUTOMATION_BUY_DEFAULT, all by their missing defaults).
+export const AUTOMATION_UNLOCKS: Readonly<Record<AutomationId, MilestoneId>> = {
   autoOverclock: "firstFleet", // "Fleet Week"
   autoBuyLow: "e1000", // "A Thousand Zeros, Give or Take"
-  autoCaptain: "secondFleet", // new: "Fleet Week, the Sequel"
-  autoFleet: "e10k", // new: "Ten Thousand Zeros, Roughly"
+  autoCaptain: "secondFleet", // "Fleet Week, the Sequel"
+  autoFleet: "e10k", // "Ten Thousand Zeros, Roughly"
   autoPc: "firstPc", // "Prestiged Your Prestige"
-  autoBuyHigh: "singularity", // "Do Not Look Directly at It"
+  autoBuyHigh: AUTO_BUY_HIGH_MILESTONE, // [PROVISIONAL] sim nudge, see AUTO_BUY_HIGH_MILESTONE
   autoUpgrades: "e2m", // "Forever, Twice"
-  autoSkills: "pcRegular", // new: "Frequent Dreamer"
+  autoSkills: "pcRegular", // "Frequent Dreamer"
 };
+
+// The Skills tab's one-line blurb for the two automations that were never skills [PROPOSAL] (the
+// Automation tab, Slice 7 after the user's mockup sign-off, replaces these rows).
+export const NEW_AUTOMATION_BLURBS: Readonly<Partial<Record<AutomationId, string>>> = {
+  autoSkills: "Spends Skill Points, cheapest first",
+  autoUpgrades: "Buys upgrade levels, cheapest first",
+};
+
+export function isAutomationId(id: string): id is AutomationId {
+  return (AUTOMATION_IDS as readonly string[]).includes(id);
+}
+
+// The skills Skill Points still buy (Slice 3: the automations left the Skills shop for milestones; the
+// leveled skills replace these in Slice 4). Fleet Prestige stops paying Skill Points once all are owned.
+export const SKILL_POINT_SKILLS: readonly SkillDef[] = SKILLS.filter((d) => !isAutomationId(d.id));
 
 // 3.3 Leveled skills (Skill Points). The six names approved by the user 2026-10-27 ("Approve, six
 // skills"); flavor [PROPOSAL]; caps, costs and steps [PROVISIONAL], set by the Slice 4 sim. Level n
@@ -551,7 +611,15 @@ export const COPY = {
   // 0.14.0 rising bars (design 3.1, [PROPOSAL] wording approved 2026-10-27): the Fleet card once the
   // Fleet bar is above the Prestigeception bar (by design the signal to Prestigeception).
   pcFirst: "Prestigeception first",
+  // 0.14.0 Slice 3 [PROPOSAL]: an automation's Skills row before its milestone, followed by the
+  // milestone's name once that milestone is visible ("???" before).
+  automationLockedPrefix: "Unlocks at",
 } as const;
+
+// The Milestones list's reward column for a milestone that unlocks an automation [PROPOSAL].
+export function automationListLine(id: AutomationId, reached: boolean): string {
+  return reached ? `${AUTOMATION_NAMES[id]} unlocked` : `Unlocks ${AUTOMATION_NAMES[id]}`;
+}
 
 // The [?] Help view (0.13.11.1, design section 4): the rules in plain language, same voice as the
 // rest of the game. It names no locked content (that stays "???" until reachable).
@@ -561,7 +629,9 @@ export const HELP_SECTIONS: readonly { title: string; body: string }[] = [
   { title: "OVERCLOCK AND UPGRADES", body: "Overclock lives in the Upgrades tab. It speeds up the whole stack by ×1.125 per level, and the levels multiply. Its price follows your income, so waiting never makes it cheaper. Much later, a few more upgrades wake up there. Each one has a level cap, shown as X / Y." },
   { title: "THREE KINDS OF PRESTIGE", body: "Captain Prestige resets your stack for Captain Points, and every point makes the stack faster. Fleet Prestige resets that too, for Augment Points, a Skill Point and new generators. Prestigeception resets everything below it for Dream Points, which make every Captain and Augment Point you earn count for more. Yes, it is prestige all the way down as well." },
   { title: "THE FINE PRINT", body: "Augment Points speed up the whole stack the way Captain Points do, and only a Prestigeception takes them away. Dream Points are never taken away: they make every Captain and Augment Point you earn count for more. A Fleet Prestige uses up the climb that paid for it, so a Prestigeception needs a fresh climb to e10,000 Ore after one. New generators unlock at 1, 2, 3 and 6 lifetime Fleet Prestiges. Legal read this paragraph twice and then asked to be reset too." },
-  { title: "SKILLS", body: "Skill Points come from Fleet Prestige. Skills do the clicking for you: auto-buyers, automatic prestiges at a target you set, a head start and more. Once every skill is learned, Fleet Prestige stops paying Skill Points; any you saved stay yours. The late game is mostly watching numbers go up, which is the point." },
+  // 0.14.0 Slice 3: automations moved from Skill Points to milestones (a short factual fix; Slice 7
+  // rewrites this section and THE FINE PRINT for the whole redesign).
+  { title: "SKILLS", body: "Skill Points come from Fleet Prestige and buy skills: a head start, a stronger ten bonus and more. The automations that do the clicking for you (auto-buyers, automatic prestiges at a target you set) unlock at milestones instead, and each milestone says which one it unlocks. Once every skill is learned, Fleet Prestige stops paying Skill Points; any you saved stay yours. The late game is mostly watching numbers go up, which is the point." },
   { title: "MILESTONES", body: "Milestones appear as you get close to them, and each one is recorded with the date you reached it. Most rewards arrive in a future update; the last one pays out right away. You will know it when you see it." },
   { title: "RELIC BOOSTS", body: "The relics in your Museum, out in the real game, hum at this old build. Each kind boosts one thing in here (Stats lists them), and every copy helps a little less than the one before. Copies past a tier's 1,000 count five times over. Nothing in here ever flows back out, apart from a certain smugness." },
   { title: "TIME AWAY", body: "The stack keeps running while this window is closed and while the game is closed. Come back whenever you like. It does the work; you take the credit. Not those credits." },

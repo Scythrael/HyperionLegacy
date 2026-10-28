@@ -12,7 +12,7 @@
 import Decimal from "break_infinity.js";
 import { cloneSecret, type SecretState } from "./state";
 import { markFound, pow10, unsoftenExponent, checkMilestonesMut, stepMut, effectiveExponent } from "./engine";
-import { SKILLS, TIERS, TIER_COUNT, UPGRADES, STARFALL_EXPONENT, CAPTAIN_BEND } from "./config";
+import { SKILLS, AUTOMATION_IDS, TIERS, TIER_COUNT, UPGRADES, STARFALL_EXPONENT, CAPTAIN_BEND } from "./config";
 
 export function devMarkFound(s: SecretState, atMs: number): SecretState {
   return markFound(s, atMs);
@@ -23,6 +23,11 @@ export function devMaxSkills(s: SecretState, atMs: number): SecretState {
   for (const d of SKILLS) {
     next.skills[d.id] = true;
     if (d.auto) next.autoOn[d.id] = true;
+  }
+  // 0.14.0 Slice 3: every automation too (they unlock at milestones; this skips the wait).
+  for (const id of AUTOMATION_IDS) {
+    next.automations[id] = true;
+    next.autoOn[id] = true;
   }
   checkMilestonesMut(next, atMs);
   return next;
