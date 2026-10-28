@@ -190,3 +190,54 @@ hit today's "all learned" cutoff earns again under the deeper caps. One-time, ma
 
 Exact engine structure, the sim harness changes, the save marker name, test layout, and every [PROVISIONAL] number the
 sim sets, within the bands in section 4.
+
+## User addition (2026-10-28, verbatim)
+
+"Oh, and don't forget: The automation unlocks for milestones. Make sure that they cover the new upgrades that are coming
+along in the new update to the minigame coming in 0.14.0! Other than that, so far so good! I'm having a good time with
+the system, even as it is now. It'll feel even better!"
+Reading: the milestone-unlocked automations (3.2) also cover the NEW things to buy in this update: automation for the
+leveled Skill Point skills and/or the e1,000,000 Upgrades tab (details confirmed by multiple choice below).
+
+### Automation and skills answers (2026-10-28, verbatim)
+
+Q "Which new purchases should get milestone-unlocked automation?": "Okay, so I would like to give the player the choice.
+While automation unlocks are based on milestones that make sense. Just ensure that hte popups indicate that this was
+unlocked. While adding in updates to that ? help menu to ensure that the updated process is shown there. Automation
+should then likely have it's own tab, and we can adjust it accordingly. Buy 1 at a time. Buy maximum. Buy 10. ETc. As
+for skills, that's the player choice I was referring to. The same process should exist as it does now. However, the way
+we prevent someone from becoming too overpowered too quickly is to unlock upgrades alongside automation, or by number of
+current prestiges in a given tier (that way, it doesn't just create some overpowered way to get back up to where you
+were. Plus, once you reach a certain prestigeception level, we can remove the restriction and just unlock all currently
+unlocked upgrades at the start, so as you get your first skill point, if you drop it in a skill that you normally can't
+until you're somewhere around fleet admiral prestige 5, (please don't turn that into an acronym lol....) it leads to what
+feels like a power boost, but it's just the player having some choice on the curve that is already hard-set by us."
+
+Q "How should auto-learn / auto-buy choose what to buy?": "With the last question's answer, the context changes but the
+answer remains the same. Unless you're specifically talking about a "auto-buy" automation that unlocks later for skills.
+In that case, then what I said in the previous question only affects how the game would work until you unlock the
+auto-skill allocation automation. This would just unlock cheapest first. We don't want to build logic to efficiently
+play the game on auto. Automation in cases like this should provide QoL but should never optimally play the game. That's
+why I set defaults in a very particular way, while players hav to have at least some involvement (from manual control to
+building gambits (gambits being something we should rename. Tactical protocols?)). 1 feels like the best approach for
+cheapest available/round-robin."
+
+Reading (to play back before building):
+1. Automations unlock at milestones that make sense; the achievement popup says what unlocked; the [?] Help explains the
+   new process.
+2. A new Automation tab holds every automation, each with its settings (on/off and how much it buys at a time: Buy 1,
+   Buy 10, Buy max, etc.).
+3. Skills stay a player choice, bought by hand with Skill Points as today. Pacing guard: each leveled skill (and its
+   levels) becomes AVAILABLE either alongside an automation milestone or at a count of current prestiges in a layer
+   (e.g. a skill normally available around the 5th Fleet Prestige), so a reset cannot rush back to full power.
+4. Past a certain Prestigeception count the gate lifts: every skill already unlocked is available from the start of
+   each climb, so the first Skill Point can go into a normally-later skill (it feels like a power boost; it is the
+   player choosing along the curve we set).
+5. A later automation, auto-skill allocation, spends Skill Points cheapest first, round-robin. Automation is QoL and
+   never plays optimally (no efficiency logic).
+6. Naming: never abbreviate "Fleet Admiral Prestige" (or any prestige) to an acronym anywhere.
+7. Main-game idea, separate from this design: rename "gambits" (suggestion: "Tactical Protocols"); to confirm.
+Playback confirmed (2026-10-28): "Yep! That is indeed it. I am okay with acronyms, but turning fleet admiral prestige
+into FAP is asking for the wrong kind of hahafunnygiggle." (So: acronyms are fine in general; never abbreviate Fleet
+Admiral Prestige to an acronym.) Main game: gambits rename to "Tactical Protocols (Recommended)" (player text only;
+code names stay), a small 0.14.0 slice.
