@@ -15,12 +15,15 @@
 //                    e10,000,000.
 // The redesign is EXPECTED to move these; a slice that moves one says which and why in its carry
 // note, then regenerates ON PURPOSE: GOLDEN_WRITE=1 npx vitest run src/lib/secret/redesignGoldens.test.ts
+// Slice 2 (rising bars) moved fleetBarLadder and pcBarLadder (each rung's bar now rises; the gains at a
+// peak above the bar are unchanged, as payouts still measure from the base bars) and the pacing rows
+// (every sim player now meets the risen Fleet bars; see the plan's Slice 2 carry note).
 import { describe, it, expect } from "vitest";
 import { readFileSync, writeFileSync } from "node:fs";
 import { freshSecretState, type SecretState } from "./state";
 import { fleetGain, prestigeceptionGain, pow10, unsoftenExponent } from "./engine";
 import { simulatePlayer, LONG_STRETCH_DT, SIM_START_MS, type SimProfile } from "./sim";
-import { SKILLS } from "./config";
+import { SKILLS, FLEET_AT, PRESTIGECEPTION_AT, FLEET_BAR_RATIO, PC_BAR_RATIO } from "./config";
 
 const PATH = "src/lib/secret/redesignGoldens.json";
 const PEAKS = [308, 400, 1000, 10000] as const;
@@ -129,9 +132,9 @@ describe("redesignGoldens", () => {
     const now = bars();
     if (writing) writeFileSync(PATH, JSON.stringify({ ...prior(), ...now }, null, 1) + "\n");
     const g = golden();
-    // Today: a flat bar on every rung (the redesign raises them).
-    for (const r of now.fleetBarLadder) expect(r.bar).toBeCloseTo(Math.log10(1.8) + 308, 5);
-    for (const r of now.pcBarLadder) expect(r.bar).toBeCloseTo(10000, 5);
+    // Slice 2: each rung's bar rises (it was flat at 1.8e308 and e10,000 before).
+    for (const r of now.fleetBarLadder) expect(r.bar).toBeCloseTo(FLEET_AT * Math.pow(FLEET_BAR_RATIO, r.fleetCount), 5);
+    for (const r of now.pcBarLadder) expect(r.bar).toBeCloseTo(PRESTIGECEPTION_AT * Math.pow(PC_BAR_RATIO, r.pcCount), 5);
     expect(now.fleetBarLadder).toEqual(g.fleetBarLadder);
     expect(now.pcBarLadder).toEqual(g.pcBarLadder);
   });

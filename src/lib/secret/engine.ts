@@ -71,6 +71,8 @@ import {
   END_SOFT_SCALE,
   END_SOFT_BETA,
   RELIC_TIER_LEVERS,
+  FLEET_BAR_RATIO,
+  PC_BAR_RATIO,
   type RelicLever,
   type SkillId,
   type MilestoneId,
@@ -679,16 +681,40 @@ export function captainGain(s: SecretState): Decimal {
   return timesRelic(powPositive(gainMultiplier(s), CAPTAIN_BEND).mul(CP_SCALE * gainShape(e, CAPTAIN_AT, k)), relicBoost(s, "captain")).floor();
 }
 
+// 0.14.0 prestige redesign, rising bars (design 3.1; user: "Fleet prestige should get harder and harder
+// to push through, as should prestigeception"). The Fleet bar rises by FLEET_BAR_RATIO per Fleet since
+// the last Prestigeception (fleetCount; a Prestigeception makes the layer below easy again); the
+// Prestigeception bar rises by PC_BAR_RATIO per lifetime Prestigeception and never resets. Both are
+// effective exponents. With no Fleet (or no Prestigeception) done yet the factor is exactly 1, so the
+// first bar is the base bar to the last bit. Payouts still measure from the BASE bars (user, 2026-10-27:
+// "Harder pays more"), so clearing a risen bar pays more than the last one.
+export function fleetBarExponent(s: SecretState): number {
+  return s.fleetCount === 0 ? FLEET_AT : FLEET_AT * Math.pow(FLEET_BAR_RATIO, s.fleetCount);
+}
+
+export function pcBarExponent(s: SecretState): number {
+  return s.pcCount === 0 ? PRESTIGECEPTION_AT : PRESTIGECEPTION_AT * Math.pow(PC_BAR_RATIO, s.pcCount);
+}
+
+// The bar after one more of that layer (the Prestige cards' "Next one needs").
+export function nextFleetBarExponent(s: SecretState): number {
+  return FLEET_AT * Math.pow(FLEET_BAR_RATIO, s.fleetCount + 1);
+}
+
+export function nextPcBarExponent(s: SecretState): number {
+  return PRESTIGECEPTION_AT * Math.pow(PC_BAR_RATIO, s.pcCount + 1);
+}
+
 export function fleetGain(s: SecretState): Decimal {
   const e = effectiveExponent(s.fleetPeak);
-  if (e < FLEET_AT) return ZERO;
+  if (e < fleetBarExponent(s)) return ZERO;
   // R2-10 Glyph Tablet: Augment Points earned x relicBoost("augment"), before the floor.
   return timesRelic(gainMultiplier(s).mul(AP_SCALE * gainShape(e, FLEET_AT, gainExponent(s, AP_K))), relicBoost(s, "augment")).floor();
 }
 
 export function prestigeceptionGain(s: SecretState): Decimal {
   const e = effectiveExponent(s.pcPeak);
-  if (e < PRESTIGECEPTION_AT) return ZERO;
+  if (e < pcBarExponent(s)) return ZERO;
   // R2-10 Star Chart Fragment: Dream Points earned x relicBoost("dream"), before the floor.
   const dream = relicBoost(s, "dream");
   return new Decimal(DP_SCALE * gainShape(e, PRESTIGECEPTION_AT, DP_K) * dream).floor();
@@ -716,6 +742,7 @@ function doCaptainMut(s: SecretState, atMs: number): boolean {
   if (gain.lte(0)) return false;
   s.captainPoints = s.captainPoints.add(gain);
   s.captainCount += 1;
+  s.captainSinceFleet += 1;
   resetRunMut(s);
   checkMilestonesMut(s, atMs);
   return true;
@@ -727,6 +754,7 @@ function doFleetMut(s: SecretState, atMs: number): boolean {
   s.augmentPoints = s.augmentPoints.add(gain);
   s.fleetCount += 1;
   s.fleetTotal += 1;
+  s.captainSinceFleet = 0;
   // User, 2026-10-23: once every skill is learned, no more Skill Points (spare ones are kept). New
   // content is expected to come as a new prestige layer that starts scaling things again.
   if (!allSkillsLearned(s)) s.skillPoints += 1;
@@ -750,6 +778,7 @@ function doPrestigeceptionMut(s: SecretState, atMs: number): boolean {
   s.captainPoints = ZERO;
   s.augmentPoints = ZERO;
   s.fleetCount = 0;
+  s.captainSinceFleet = 0;
   resetRunMut(s);
   s.fleetPeak = s.ore;
   s.pcPeak = s.ore;

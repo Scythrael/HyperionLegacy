@@ -98,12 +98,13 @@ describe("Fleet Prestige", () => {
   });
 
   it("unlocks V at 1, VI at 2, VII at 3 and VIII at 6 lifetime Fleets", () => {
-    let s = withRun(400);
+    // e1,000 clears every Fleet bar up to the sixth (0.14.0 rising bars: the sixth needs about e940).
+    let s = withRun(1000);
     const seen: number[] = [];
     for (let i = 0; i < 6; i++) {
       s = doFleet(s, i);
       seen.push(s.tiersUnlocked);
-      s.fleetPeak = pow10(400);
+      s.fleetPeak = pow10(1000);
     }
     expect(seen).toEqual([5, 6, 7, 7, 7, 8]);
   });

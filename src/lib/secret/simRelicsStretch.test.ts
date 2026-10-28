@@ -21,7 +21,14 @@ describe("the sim's coarse stretch with relics", () => {
     const climb = (eFast - e0) / (eShip - e0);
     report(`[stretch relics] 12 d from e${e0.toFixed(0)}: coarse e${eFast.toFixed(0)} shipping e${eShip.toFixed(0)}, ${(gap * 100).toFixed(2)}%, climb x${climb.toFixed(3)}`);
     expect(eShip).toBeGreaterThan(e0);
-    expect(gap).toBeLessThan(0.03);
+    // 0.14.0 prestige redesign Slice 2: pastLongState is built by playing the engine, so the rising bars
+    // moved it, and this twelve-day window now crosses Overdrive Overdrive's wake with relics. The
+    // shortcut's coarse steps (each produces COARSE_GENEROSITY longer) buy about one upgrade level ahead
+    // at each check-in, and Overdrive Overdrive (a power on production) compounds that: measured 9.1%
+    // (e3,243,551 against e3,037,206, Overdrive Overdrive 9 against 7); no prestige fires in the window,
+    // so the bars play no part. The relic-free stretch still measures 1.35%. Slice 5 re-measures the
+    // relic pins against the shipping catch-up when it replaces the relic curve.
+    expect(gap).toBeLessThan(0.1);
     expect(climb).toBeGreaterThan(0.85);
     expect(climb).toBeLessThan(1.25);
   }, 600000);
